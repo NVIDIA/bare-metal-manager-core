@@ -20,7 +20,7 @@ use std::sync::Arc;
 use std::time::Duration;
 use std::{fmt, io};
 
-use carbide_instrument::{DynamicLog, Event, LogAt};
+use carbide_instrument::Event;
 use carbide_utils::metrics::SharedMetricsHolder;
 use carbide_utils::periodic_timer::PeriodicTimer;
 use carbide_uuid::rack::RackId;
@@ -166,37 +166,31 @@ impl fmt::Display for SwitchCertMonitorMetrics {
     }
 }
 
-/// `SwitchCertificateMonitorIterationFinished` closes one certificate
-/// reconciliation pass. Every emission records the existing label-free
-/// latency histogram; a returned error also writes the monitor's `WARN`
-/// record.
+/// One switch-certificate monitor pass. Both cases sample the duration; only a
+/// failure logs.
 #[derive(Event)]
 #[event(
     event_name = "nvlink_switch_certificate_monitor_iteration_finished",
     metric_name = "carbide_nvlink_switch_cert_monitor_iteration_latency_milliseconds",
     component = "nvlink-manager",
-    log = dynamic,
     metric = histogram,
-    message = "Switch certificate monitor error",
     describe = "Time consumed for one NMX-C switch certificate monitor iteration"
 )]
-struct SwitchCertificateMonitorIterationFinished {
-    /// Numeric milliseconds preserve the manual histogram's whole-millisecond truncation.
-    #[observation]
-    latency_ms: f64,
-    /// Empty on success, which keeps the completion event metric-only.
-    #[context]
-    error: String,
-}
+enum SwitchCertificateMonitorIterationFinished {
+    /// A clean pass: sampled, never logged.
+    #[event(log = off)]
+    Succeeded {
+        #[observation]
+        latency_ms: f64,
+    },
 
-impl DynamicLog for SwitchCertificateMonitorIterationFinished {
-    fn log_at(&self) -> LogAt {
-        if self.error.is_empty() {
-            LogAt::Off
-        } else {
-            LogAt::Level(tracing::Level::WARN)
-        }
-    }
+    #[event(log = warn, message = "Switch certificate monitor error")]
+    Failed {
+        #[observation]
+        latency_ms: f64,
+        #[context]
+        error: String,
+    },
 }
 
 struct SwitchCertMonitorInstruments;
@@ -501,13 +495,14 @@ impl SwitchCertificateMonitor {
         switch_cert_monitor_span.record("metrics", metrics.to_string());
         let iteration_result = SwitchCertificateMonitorIterationResult::from_metrics(&metrics);
         switch_cert_monitor_span.in_scope(|| {
-            carbide_instrument::emit(SwitchCertificateMonitorIterationFinished {
-                latency_ms: metrics.recording_started_at.elapsed().as_millis() as f64,
-                error: result
-                    .as_ref()
-                    .err()
-                    .map(ToString::to_string)
-                    .unwrap_or_default(),
+            carbide_instrument::emit(match result.as_ref().err() {
+                None => SwitchCertificateMonitorIterationFinished::Succeeded {
+                    latency_ms: metrics.recording_started_at.elapsed().as_millis() as f64,
+                },
+                Some(error) => SwitchCertificateMonitorIterationFinished::Failed {
+                    latency_ms: metrics.recording_started_at.elapsed().as_millis() as f64,
+                    error: error.to_string(),
+                },
             });
         });
         self.metric_holder.update_metrics(metrics);
@@ -1145,9 +1140,13 @@ mod tests {
             |IterationCase { latency_ms, error }| {
                 let metrics = MetricsCapture::start();
                 let logs = capture_logs(|| {
-                    emit(SwitchCertificateMonitorIterationFinished {
-                        latency_ms,
-                        error: error.to_string(),
+                    emit(if error.is_empty() {
+                        SwitchCertificateMonitorIterationFinished::Succeeded { latency_ms }
+                    } else {
+                        SwitchCertificateMonitorIterationFinished::Failed {
+                            latency_ms,
+                            error: error.to_string(),
+                        }
                     });
                 });
                 let log = logs.first().map(|log| LogObservation {
@@ -1175,10 +1174,7 @@ mod tests {
             "carbide_nvlink_switch_cert_monitor_iteration_latency_milliseconds";
 
         let metrics = MetricsCapture::start();
-        emit(SwitchCertificateMonitorIterationFinished {
-            latency_ms: 225.0,
-            error: String::new(),
-        });
+        emit(SwitchCertificateMonitorIterationFinished::Succeeded { latency_ms: 225.0 });
 
         let encoded = metrics.render();
         assert!(

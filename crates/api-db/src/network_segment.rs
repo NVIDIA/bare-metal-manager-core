@@ -256,34 +256,52 @@ pub async fn for_prefix_containing_address(
     }
 }
 
-/// Resolve the segment that owns a configured static address.
+/// Resolve the managed segment whose configured prefix contains a static
+/// address.
 ///
-/// A segment type is a guard: the address must already fall within a managed
-/// prefix of that type. Without a guard, addresses outside managed prefixes
-/// continue to use `static-assignments`.
-pub async fn for_static_address(
+/// Unlike [`for_static_address`], this never falls back to
+/// `static-assignments`. ExpectedInterface declarations using an explicit
+/// allocation policy or a DPU role use this stricter lookup.
+pub async fn for_managed_static_address(
     txn: &mut PgConnection,
     address: IpAddr,
     expected_segment_type: Option<NetworkSegmentType>,
 ) -> DatabaseResult<NetworkSegment> {
+    let segment = for_prefix_containing_address(&mut *txn, address)
+        .await?
+        .ok_or_else(|| {
+            DatabaseError::InvalidArgument(match expected_segment_type {
+                Some(expected_segment_type) => format!(
+                    "fixed IP {address} is not within a configured {expected_segment_type} network segment",
+                ),
+                None => {
+                    format!("fixed IP {address} is not within a configured network segment")
+                }
+            })
+        })?;
+
+    if let Some(expected_segment_type) = expected_segment_type
+        && segment.config.segment_type != expected_segment_type
+    {
+        return Err(DatabaseError::InvalidArgument(format!(
+            "fixed IP {address} belongs to {} network segment {}, not the expected {expected_segment_type} segment type",
+            segment.config.segment_type, segment.config.name,
+        )));
+    }
+
+    Ok(segment)
+}
+
+/// Resolve the segment that owns a configured static address.
+///
+/// Addresses outside managed prefixes use `static-assignments`.
+pub async fn for_static_address(
+    txn: &mut PgConnection,
+    address: IpAddr,
+) -> DatabaseResult<NetworkSegment> {
     match for_prefix_containing_address(&mut *txn, address).await? {
-        Some(segment) => {
-            if let Some(expected_segment_type) = expected_segment_type
-                && segment.config.segment_type != expected_segment_type
-            {
-                return Err(DatabaseError::InvalidArgument(format!(
-                    "fixed IP {address} belongs to {} network segment {}, not the expected {expected_segment_type} segment type",
-                    segment.config.segment_type, segment.config.name,
-                )));
-            }
-            Ok(segment)
-        }
-        None => match expected_segment_type {
-            Some(expected_segment_type) => Err(DatabaseError::InvalidArgument(format!(
-                "fixed IP {address} is not within a configured {expected_segment_type} network segment",
-            ))),
-            None => static_assignments(&mut *txn).await,
-        },
+        Some(segment) => Ok(segment),
+        None => static_assignments(&mut *txn).await,
     }
 }
 
@@ -478,9 +496,9 @@ pub async fn segment_exists(txn: &mut PgConnection, name: &str) -> Result<bool, 
 
 /// Reconcile declared network definitions against what was previously seeded.
 ///
-///   1. **New** (no snapshot, no segment): no-op. The caller's
-///      segment-creation path is responsible for both creating the segment
-///      and writing the snapshot.
+///   1. **New** (no snapshot, no segment): returned to the caller for creation.
+///      The caller is responsible for creating the segment and writing the
+///      snapshot in the same transaction.
 ///   2. **Backfill** (no snapshot, segment present): record the snapshot,
 ///      linking it to the existing segment's id.
 ///   3. **In sync** (snapshot matches declaration): no-op.
@@ -490,18 +508,25 @@ pub async fn segment_exists(txn: &mut PgConnection, name: &str) -> Result<bool, 
 /// Networks that appear in the snapshot table but are no longer declared
 /// ("dropped" from `InitialObjectsConfig.networks`) are warned about, but
 /// not removed.
+///
+/// # Returns
+///
+/// Config-declared networks that have neither a segment row nor a snapshot,
+/// in unspecified order. The caller must create the segment and write the
+/// snapshot in the same transaction.
 pub async fn reconcile_network_defs(
     txn: &mut PgConnection,
     declared: &HashMap<String, NetworkDefinition>,
-) -> Result<(), DatabaseError> {
+) -> Result<Vec<(String, NetworkDefinition)>, DatabaseError> {
     let stored = all_stored_defs(&mut *txn).await?;
+    let mut to_create: Vec<(String, NetworkDefinition)> = Vec::new();
 
     for (name, def) in declared {
         let exists = segment_exists(&mut *txn, name).await?;
         match (stored.get(name), exists) {
-            // Already seeded with the current declaration
+            // Already seeded with the current declaration — nothing to do.
             (Some(stored_def), true) if stored_def == def => {}
-            // Declaration has drifted since seed. Warn don't reapply
+            // Declaration has drifted since seed; warn and leave both in place.
             (Some(stored_def), true) => {
                 tracing::warn!(
                     network_name = name,
@@ -543,10 +568,10 @@ pub async fn reconcile_network_defs(
                     );
                 }
             }
-            // New networks are seeded by the caller (`create_initial_networks`),
-            // which both expands the definition into a `NewNetworkSegment` and
-            // writes the snapshot in the same transaction.
-            (None, false) => {}
+            // No segment and no snapshot: return to the caller for creation.
+            (None, false) => {
+                to_create.push((name.clone(), def.clone()));
+            }
             (Some(_), false) => {
                 unreachable!("network_def.segment_id is FK; snapshot cannot outlive its segment")
             }
@@ -562,7 +587,7 @@ pub async fn reconcile_network_defs(
         }
     }
 
-    Ok(())
+    Ok(to_create)
 }
 pub async fn find_ids(
     txn: impl DbReader<'_>,
@@ -1235,11 +1260,10 @@ mod tests {
     }
 
     // A brand-new network is declared but no segment exists yet and no
-    // snapshot has been recorded.
-    // (`create_initial_networks`) is responsible for inserting both the
-    // segment and the snapshot in the same transaction.
+    // snapshot has been recorded. reconcile_network_defs must return it in
+    // the to-create list and leave all writes to the caller.
     #[crate::sqlx_test]
-    async fn test_reconcile_network_defs_brand_new_is_noop(
+    async fn test_reconcile_network_defs_brand_new_is_returned(
         pool: sqlx::PgPool,
     ) -> Result<(), Box<dyn std::error::Error>> {
         let def = NetworkDefinition {
@@ -1259,20 +1283,27 @@ mod tests {
             .into_iter()
             .collect();
 
-        reconcile_network_defs(&mut txn, &declared).await?;
+        let to_create = reconcile_network_defs(&mut txn, &declared).await?;
 
-        // Reconcile must not have written a snapshot for the brand-new entry.
+        // reconcile must not have written a snapshot for a brand-new network.
         let stored = stored_def(txn.as_mut(), "brand-new").await?;
         assert!(
             stored.is_none(),
-            "reconcile must leave brand-new networks alone; \
-             snapshot insertion is the caller's responsibility"
+            "reconcile must not write a snapshot for a brand-new network; \
+             that is the caller's responsibility"
         );
 
-        // And must not have created a network_segments row either.
+        // reconcile must not have created a network_segments row.
         assert!(
             !segment_exists(&mut txn, "brand-new").await?,
             "reconcile must not create a network_segments row for a brand-new network"
+        );
+
+        // reconcile must return the brand-new network so the caller can create it.
+        assert_eq!(
+            to_create,
+            vec![("brand-new".to_string(), def)],
+            "brand-new network must appear in the returned to-create list"
         );
 
         txn.rollback().await?;
@@ -1310,7 +1341,12 @@ mod tests {
         let mut txn = pool.begin().await?;
         let def = def("192.168.1.0/24", "192.168.1.1");
 
-        reconcile_network_defs(&mut txn, &declared_one("pre-existing", def.clone())).await?;
+        let to_create =
+            reconcile_network_defs(&mut txn, &declared_one("pre-existing", def.clone())).await?;
+        assert!(
+            to_create.is_empty(),
+            "this arm must not add networks to the to-create list"
+        );
 
         let stored = stored_def(txn.as_mut(), "pre-existing").await?;
         assert_eq!(stored.as_ref(), Some(&def), "snapshot must be backfilled");
@@ -1329,7 +1365,12 @@ mod tests {
         let def = def("192.168.1.0/24", "192.168.1.1");
         insert_network_def(&mut txn, "stable", segment_id, &def).await?;
 
-        reconcile_network_defs(&mut txn, &declared_one("stable", def.clone())).await?;
+        let to_create =
+            reconcile_network_defs(&mut txn, &declared_one("stable", def.clone())).await?;
+        assert!(
+            to_create.is_empty(),
+            "this arm must not add networks to the to-create list"
+        );
 
         let stored = stored_def(txn.as_mut(), "stable").await?;
         assert_eq!(
@@ -1355,7 +1396,12 @@ mod tests {
         let drifted = def("10.0.0.0/24", "10.0.0.1");
         insert_network_def(&mut txn, "drifty", segment_id, &original).await?;
 
-        reconcile_network_defs(&mut txn, &declared_one("drifty", drifted.clone())).await?;
+        let to_create =
+            reconcile_network_defs(&mut txn, &declared_one("drifty", drifted.clone())).await?;
+        assert!(
+            to_create.is_empty(),
+            "this arm must not add networks to the to-create list"
+        );
 
         let stored = stored_def(txn.as_mut(), "drifty").await?;
         assert_eq!(
@@ -1381,7 +1427,11 @@ mod tests {
         insert_network_def(&mut txn, "abandoned", segment_id, &def).await?;
 
         let empty: HashMap<String, NetworkDefinition> = HashMap::new();
-        reconcile_network_defs(&mut txn, &empty).await?;
+        let to_create = reconcile_network_defs(&mut txn, &empty).await?;
+        assert!(
+            to_create.is_empty(),
+            "this arm must not add networks to the to-create list"
+        );
 
         let stored = stored_def(txn.as_mut(), "abandoned").await?;
         assert_eq!(
@@ -1443,7 +1493,12 @@ mod tests {
         let mut txn = pool.begin().await?;
         let def = def("192.168.1.0/24", "192.168.1.1");
 
-        reconcile_network_defs(&mut txn, &declared_one("ambiguous", def.clone())).await?;
+        let to_create =
+            reconcile_network_defs(&mut txn, &declared_one("ambiguous", def.clone())).await?;
+        assert!(
+            to_create.is_empty(),
+            "this arm must not add networks to the to-create list"
+        );
 
         assert!(
             stored_def(txn.as_mut(), "ambiguous").await?.is_none(),

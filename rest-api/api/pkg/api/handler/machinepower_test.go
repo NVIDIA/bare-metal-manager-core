@@ -158,6 +158,18 @@ func TestMachinePowerControlHandlerRequiresProviderAdmin(t *testing.T) {
 	assert.Empty(t, fixture.proxiedReq.FullMethod)
 }
 
+func TestMachinePowerControlHandlerRejectsProviderViewer(t *testing.T) {
+	fixture := newMachinePowerHandlerFixture(t, nil)
+	fixture.user = &cdbm.User{OrgData: cdbm.OrgData{fixture.org: cdbm.Org{
+		Name:  fixture.org,
+		Roles: []string{authz.ProviderViewerRole},
+	}}}
+
+	rec := fixture.request(t, http.MethodPatch, "/", model.APIMachinePowerControlRequest{Action: model.MachinePowerActionOn})
+	assert.Equal(t, http.StatusForbidden, rec.Code)
+	assert.Empty(t, fixture.proxiedReq.FullMethod)
+}
+
 func TestMachinePowerControlHandlerRejectsUnknownMachine(t *testing.T) {
 	fixture := newMachinePowerHandlerFixture(t, nil)
 	fixture.machineID = "missing-machine"

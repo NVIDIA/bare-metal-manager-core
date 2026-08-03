@@ -1353,6 +1353,13 @@ impl Forge for Api {
         crate::handlers::rack::get_rack_profile(self, request).await
     }
 
+    async fn list_rack_profiles(
+        &self,
+        request: Request<()>,
+    ) -> Result<Response<rpc::ListRackProfilesResponse>, Status> {
+        crate::handlers::rack::list_rack_profiles(self, request)
+    }
+
     /// Trigger DPU reprovisioning
     async fn trigger_dpu_reprovisioning(
         &self,
@@ -1373,6 +1380,22 @@ impl Forge for Api {
         request: Request<rpc::HostReprovisioningRequest>,
     ) -> Result<Response<()>, Status> {
         crate::handlers::host_reprovisioning::trigger_host_reprovisioning(self, request).await
+    }
+
+    async fn trigger_bmc_credential_rotation(
+        &self,
+        request: Request<rpc::BmcCredentialRotationRequest>,
+    ) -> Result<Response<()>, Status> {
+        crate::handlers::bmc_credential_rotation::trigger_bmc_credential_rotation(self, request)
+            .await
+    }
+
+    async fn trigger_uefi_credential_rotation(
+        &self,
+        request: Request<rpc::UefiCredentialRotationRequest>,
+    ) -> Result<Response<()>, Status> {
+        crate::handlers::uefi_credential_rotation::trigger_uefi_credential_rotation(self, request)
+            .await
     }
 
     async fn mark_manual_firmware_upgrade_complete(
@@ -1612,6 +1635,13 @@ impl Forge for Api {
         request: Request<rpc::SetHostUefiPasswordRequest>,
     ) -> Result<Response<rpc::SetHostUefiPasswordResponse>, Status> {
         crate::handlers::uefi::set_host_uefi_password(self, request).await
+    }
+
+    async fn set_dpu_uefi_password(
+        &self,
+        request: Request<rpc::SetDpuUefiPasswordRequest>,
+    ) -> Result<Response<rpc::SetDpuUefiPasswordResponse>, Status> {
+        crate::handlers::uefi::set_dpu_uefi_password(self, request).await
     }
 
     async fn get_expected_machine(

@@ -14,12 +14,13 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+use std::sync::Arc;
 use std::time::Duration;
 
 use carbide_instrument::{Event, LabelValue, emit};
 use sqlx::pool::PoolConnection;
-use sqlx::{PgConnection, PgPool, Postgres};
-use tokio::sync::{mpsc, oneshot};
+use sqlx::{PgConnection, PgPool, PgTransaction, Postgres};
+use tokio::sync::{OwnedSemaphorePermit, Semaphore, mpsc, oneshot};
 use tokio::task::JoinSet;
 use tokio::time::MissedTickBehavior;
 use tracing::Instrument;
@@ -43,156 +44,98 @@ enum WorkLockFailure {
     LockLost,
 }
 
-// These Events share one counter. Keep its kind, description, and label keys
-// identical while each boundary retains its existing diagnostic message and
-// context.
+/// A work lock could not be kept or given back. Each variant is one boundary
+/// where that happens, and pins the `(operation, failure)` pair that names it.
+///
+/// One pairing is worth remembering: `(KeepAlive, LockLost)` belongs to the
+/// keepalive loop's `Err(KeepAliveError::LockLost)` arm, which returns before
+/// the general `Err(e)` arm can see it. That arm ordering is what keeps
+/// `Keepalive` from ever carrying `LockLost` -- reorder it and two boundaries
+/// would land on one label pair with different wording.
 #[derive(Event)]
 #[event(
-    event_name = "work_lock_release_failed",
+    event_name = "work_lock_failed",
     metric_name = "carbide_work_lock_failures_total",
     component = "nico-api",
-    log = error,
     metric = counter,
-    message = "Could not release work lock",
-    describe = "Number of work-lock lifecycle failures, by operation and failure kind."
-)]
-struct WorkLockReleaseFailed {
-    #[label]
-    operation: WorkLockOperation,
-    #[label]
-    failure: WorkLockFailure,
-    #[context]
-    work_key: WorkKey,
-    #[context]
-    error: String,
-}
-
-impl WorkLockReleaseFailed {
-    fn new(work_key: WorkKey, error: &DatabaseError) -> Self {
-        Self {
-            operation: WorkLockOperation::Release,
-            failure: match error {
-                DatabaseError::FailedPrecondition(_) => WorkLockFailure::LockLost,
-                _ => WorkLockFailure::Database,
-            },
-            work_key,
-            error: error.to_string(),
-        }
-    }
-}
-
-#[derive(Event)]
-#[event(
-    event_name = "work_lock_release_dispatch_failed",
-    metric_name = "carbide_work_lock_failures_total",
-    component = "nico-api",
     log = error,
-    metric = counter,
-    message = "Could not release work lock: WorkLockManager queue is full; database is likely overloaded",
-    describe = "Number of work-lock lifecycle failures, by operation and failure kind."
+    describe = "Number of work-lock lifecycle failures, by operation and failure kind.",
+    labels(operation: WorkLockOperation, failure: WorkLockFailure),
 )]
-struct WorkLockReleaseDispatchFailed {
-    #[label]
-    operation: WorkLockOperation,
-    #[label]
-    failure: WorkLockFailure,
-    #[context]
-    work_key: WorkKey,
-    #[context]
-    worker_id: WorkerId,
-    #[context]
-    error: String,
-}
-
-impl WorkLockReleaseDispatchFailed {
-    fn new(work_key: WorkKey, worker_id: WorkerId, error: String) -> Self {
-        Self {
-            operation: WorkLockOperation::Release,
-            failure: WorkLockFailure::CommandDispatch,
-            work_key,
-            worker_id,
-            error,
-        }
-    }
-}
-
-#[derive(Event)]
-#[event(
-    event_name = "work_lock_lost",
-    metric_name = "carbide_work_lock_failures_total",
-    component = "nico-api",
-    log = error,
-    metric = counter,
-    message = "worker lost lock",
-    describe = "Number of work-lock lifecycle failures, by operation and failure kind."
-)]
-struct WorkLockLost {
-    #[label]
-    operation: WorkLockOperation,
-    #[label]
-    failure: WorkLockFailure,
-    #[context]
-    work_key: WorkKey,
-    #[context]
-    worker_id: WorkerId,
-    #[context]
-    error: String,
-}
-
-impl WorkLockLost {
-    fn new(work_key: WorkKey, worker_id: WorkerId, error: String) -> Self {
-        Self {
-            operation: WorkLockOperation::KeepAlive,
-            failure: WorkLockFailure::LockLost,
-            work_key,
-            worker_id,
-            error,
-        }
-    }
-}
-
-#[derive(Event)]
-#[event(
-    event_name = "work_lock_keepalive_failed",
-    metric_name = "carbide_work_lock_failures_total",
-    component = "nico-api",
-    log = error,
-    metric = counter,
-    message = "Failed to send work-lock keepalive; retrying",
-    describe = "Number of work-lock lifecycle failures, by operation and failure kind."
-)]
-struct WorkLockKeepaliveFailed {
-    #[label]
-    operation: WorkLockOperation,
-    #[label]
-    failure: WorkLockFailure,
-    #[context]
-    work_key: WorkKey,
-    #[context]
-    worker_id: WorkerId,
-    #[context]
-    error: String,
-}
-
-impl WorkLockKeepaliveFailed {
-    fn new(
+enum WorkLockFailed {
+    /// The release write itself failed. `failure` is data here: a
+    /// `FailedPrecondition` means the lock had already expired, anything else
+    /// is a database problem.
+    #[event(labels(operation = Release), message = "Could not release work lock")]
+    Release {
+        #[label]
         failure: WorkLockFailure,
+        #[context]
         work_key: WorkKey,
+        #[context]
         worker_id: WorkerId,
+        #[context]
         error: String,
-    ) -> Self {
-        Self {
-            operation: WorkLockOperation::KeepAlive,
-            failure,
-            work_key,
-            worker_id,
-            error,
+    },
+
+    /// The release command could not be queued because the manager is gone.
+    #[event(
+        labels(operation = Release, failure = CommandDispatch),
+        message = "Could not release work lock: the WorkLockManager has shut down"
+    )]
+    ReleaseDispatch {
+        #[context]
+        work_key: WorkKey,
+        #[context]
+        worker_id: WorkerId,
+        #[context]
+        error: String,
+    },
+
+    /// The keepalive loop learned the lock is no longer ours.
+    #[event(
+        labels(operation = KeepAlive, failure = LockLost),
+        message = "worker lost lock"
+    )]
+    LockLost {
+        #[context]
+        work_key: WorkKey,
+        #[context]
+        worker_id: WorkerId,
+        #[context]
+        error: String,
+    },
+
+    /// A keepalive attempt failed for a reason that leaves the lock held, so
+    /// the loop retries.
+    #[event(
+        labels(operation = KeepAlive),
+        message = "Failed to send work-lock keepalive; retrying"
+    )]
+    Keepalive {
+        #[label]
+        failure: WorkLockFailure,
+        #[context]
+        work_key: WorkKey,
+        #[context]
+        worker_id: WorkerId,
+        #[context]
+        error: String,
+    },
+}
+
+impl WorkLockFailure {
+    /// How a release write failed, as the metric label.
+    fn from_release_error(error: &DatabaseError) -> Self {
+        match error {
+            DatabaseError::FailedPrecondition(_) => Self::LockLost,
+            _ => Self::Database,
         }
     }
 }
 
-/// A WorkLockManager buffers this many messages sent to it: This would only be exceeded if something
-/// goes very wrong with the database.
+/// A WorkLockManager buffers this many acquisition and keepalive commands: This would only be
+/// exceeded if something goes very wrong with the database.
 static COMMAND_BUFFER_SIZE: usize = 100;
 
 /// A clone-able handle to a (singleton, global) [`crate::work_lock_manager`] work loop.
@@ -206,11 +149,18 @@ static COMMAND_BUFFER_SIZE: usize = 100;
 /// `work_locks` table, vending [`WorkLock`] objects back, which release the lock on Drop. In case
 /// of a crash where drop is not called, each work lock expires after a time interval.
 ///
+/// This is a lease, not a fencing token. Exclusivity lasts while keepalives
+/// retain the lease; after expiry, another worker can acquire the key while old
+/// code is still running. PostgreSQL mutations can use
+/// [`WorkLock::fence_transaction`]; external side effects need their own
+/// fencing or idempotency mechanism.
+///
 /// This is returned by [`start`], and can be used to communicate to acquire [`WorkLock`] items for doing
 #[derive(Clone)]
 pub struct WorkLockManagerHandle {
     keepalive_interval: Duration,
-    cmd_tx: mpsc::Sender<WorkLockManagerCommand>,
+    cmd_tx: mpsc::UnboundedSender<QueuedWorkLockManagerCommand>,
+    command_slots: Arc<Semaphore>,
 }
 
 #[derive(Clone, Copy)]
@@ -240,9 +190,10 @@ impl Default for KeepaliveConfig {
 ///
 /// 1) So that we can eagerly acquire a database connection at process startup, and not contend with
 ///    the connection pool being exhausted and being unable to keep locks up to date
-/// 2) To avoid race conditions, so that locks can be released effecvely "immediately" in
-///    [`WorkLock`]'s Drop impl (by placing the release command on the queue), such that the next
-///    call to [`WorkLockManagerHandle::try_acquire_lock`] is guaranteed to be processed after the lock is
+/// 2) To avoid race conditions, so that locks can be released effectively "immediately" in
+///    [`WorkLock`]'s Drop impl (by placing the release command on the shared FIFO without consuming
+///    a bounded command slot), such that the next call to
+///    [`WorkLockManagerHandle::try_acquire_lock`] is guaranteed to be processed after the lock is
 ///    released.
 pub async fn start(
     join_set: &mut JoinSet<()>,
@@ -259,7 +210,11 @@ pub async fn start(
         timeout: keepalive_timeout,
     } = keepalive_config;
 
-    let (cmd_tx, cmd_rx) = mpsc::channel(COMMAND_BUFFER_SIZE);
+    // All operations share one FIFO so a release stays ordered before the caller's next acquire.
+    // The channel is unbounded because `WorkLock::drop` cannot wait for capacity. A semaphore
+    // retains bounded backpressure for acquisition and keepalive commands.
+    let (cmd_tx, cmd_rx) = mpsc::unbounded_channel();
+    let command_slots = Arc::new(Semaphore::new(COMMAND_BUFFER_SIZE));
     join_set
         .build_task()
         .name("WorkLockManager")
@@ -273,6 +228,7 @@ pub async fn start(
 
     Ok(WorkLockManagerHandle {
         cmd_tx,
+        command_slots,
         keepalive_interval,
     })
 }
@@ -284,12 +240,18 @@ pub async fn start(
 async fn run_loop(
     pool: PgPool,
     db: PoolConnection<Postgres>,
-    mut cmd_rx: mpsc::Receiver<WorkLockManagerCommand>,
+    mut cmd_rx: mpsc::UnboundedReceiver<QueuedWorkLockManagerCommand>,
     keepalive_timeout: Duration,
 ) {
     let mut reserved_connection = ReservedConnection(Some(db));
 
-    while let Some(command) = cmd_rx.recv().await {
+    while let Some(QueuedWorkLockManagerCommand {
+        command,
+        command_slot,
+    }) = cmd_rx.recv().await
+    {
+        // Match bounded-channel behavior by returning capacity as soon as a command is dequeued.
+        drop(command_slot);
         let db = match reserved_connection.get_if_healthy().await {
             Some(db) => db,
             None => {
@@ -330,17 +292,27 @@ async fn run_loop(
                 }
             }
 
-            WorkLockManagerCommand::ReleaseLock {
+            WorkLockManagerCommand::ReleaseLock(WorkLockReleaseCommand {
                 work_key,
                 worker_id,
-            } => {
-                release_lock(db, &work_key, worker_id)
+                reply_tx,
+            }) => {
+                let result = release_lock(db, &work_key, worker_id)
                     .await
                     .inspect_err(|e| {
-                        emit(WorkLockReleaseFailed::new(work_key.clone(), e));
-                    })
-                    .ok();
-                tracing::debug!(%work_key, "Released work lock");
+                        emit(WorkLockFailed::Release {
+                            work_key: work_key.clone(),
+                            worker_id,
+                            failure: WorkLockFailure::from_release_error(e),
+                            error: e.to_string(),
+                        });
+                    });
+                if result.is_ok() {
+                    tracing::debug!(%work_key, "Released work lock");
+                }
+                if let Some(reply_tx) = reply_tx {
+                    reply_tx.send(result).ok();
+                }
             }
 
             WorkLockManagerCommand::KeepLockAlive {
@@ -427,9 +399,7 @@ impl ReservedConnection {
 }
 
 /// A lock representing exclusive ownership of a logical, named unit of work. Upon drop, the lock
-/// will be released (assuming the global [`crate::work_lock_manager`] is healthy.) If the work manager's
-/// buffer is full, the lock will fail to release, and work cannot be locked again until the lock
-/// duration has expired.
+/// will be released (assuming the global [`crate::work_lock_manager`] is healthy.)
 pub struct WorkLock {
     // When this is dropped, the keepalive loop will exit.
     keepalive_stop_tx: Option<oneshot::Sender<()>>,
@@ -438,32 +408,37 @@ pub struct WorkLock {
     manager: WorkLockManagerHandle,
     work_key: WorkKey,
     worker_id: WorkerId,
+    release_on_drop: bool,
 }
 
 impl Drop for WorkLock {
     fn drop(&mut self) {
+        // Let the keepalive loop stop.
+        self.keepalive_stop_tx.take();
+        if !self.release_on_drop {
+            return;
+        }
+
         tracing::debug!(
             work_key = %self.work_key,
             worker_id = %self.worker_id,
             "Releasing work lock",
         );
 
-        // Let the keepalive loop stop
-        self.keepalive_stop_tx.take();
-
-        // Release the lock now
+        // Queue the release. Callers that will immediately shut down the
+        // manager can use `release` to wait for the database acknowledgment.
         self.manager
-            .cmd_tx
-            .try_send(WorkLockManagerCommand::ReleaseLock {
+            .send_release_command(WorkLockReleaseCommand {
                 work_key: self.work_key.clone(),
                 worker_id: self.worker_id,
+                reply_tx: None,
             })
             .inspect_err(|e| {
-                emit(WorkLockReleaseDispatchFailed::new(
-                    self.work_key.clone(),
-                    self.worker_id,
-                    e.to_string(),
-                ));
+                emit(WorkLockFailed::ReleaseDispatch {
+                    work_key: self.work_key.clone(),
+                    worker_id: self.worker_id,
+                    error: e.to_string(),
+                });
             })
             .ok();
     }
@@ -487,29 +462,28 @@ impl WorkLock {
                 let fut = async move {
                     loop {
                         tokio::select! {
+                            biased;
+                            _ = &mut keepalive_stop_rx => {
+                                break;
+                            }
                             _ = keepalive_timer.tick() => {
                                 match manager.keep_lock_alive(work_key.clone(), worker_id).await {
                                     Ok(_) => {}
                                     Err(KeepAliveError::LockLost(msg)) => {
-                                        emit(WorkLockLost::new(
-                                            work_key,
-                                            worker_id,
-                                            msg,
-                                        ));
+                                        // A late lock-loss response is no longer actionable once
+                                        // the owning `WorkLock` is being dropped.
+                                        if matches!(
+                                            keepalive_stop_rx.try_recv(),
+                                            Err(oneshot::error::TryRecvError::Empty)
+                                        ) {
+                                            emit(WorkLockFailed::LockLost { work_key, worker_id, error: msg });
+                                        }
                                         return;
                                     }
                                     Err(e) => {
-                                        emit(WorkLockKeepaliveFailed::new(
-                                            e.failure(),
-                                            work_key.clone(),
-                                            worker_id,
-                                            e.to_string(),
-                                        ));
+                                        emit(WorkLockFailed::Keepalive { failure: e.failure(), work_key: work_key.clone(), worker_id, error: e.to_string() });
                                     }
                                 }
-                            }
-                            _ = &mut keepalive_stop_rx => {
-                                break;
                             }
                         }
                     }
@@ -529,9 +503,81 @@ impl WorkLock {
             manager,
             work_key,
             worker_id,
+            release_on_drop: true,
             #[cfg(test)]
             join_handle,
         }
+    }
+
+    /// Release this lock and wait until the manager processes the database
+    /// deletion.
+    ///
+    /// Dropping a lock normally queues the same deletion. Use this method when
+    /// the caller may shut down the manager immediately afterward.
+    pub async fn release(mut self) -> Result<(), ReleaseLockError> {
+        self.keepalive_stop_tx.take();
+
+        let (reply_tx, reply_rx) = oneshot::channel();
+        // Explicit release owns the attempt from here. A dispatch failure means
+        // the receiver is gone, so Drop cannot recover by sending it again.
+        self.release_on_drop = false;
+        self.manager
+            .send_release_command(WorkLockReleaseCommand {
+                work_key: self.work_key.clone(),
+                worker_id: self.worker_id,
+                reply_tx: Some(reply_tx),
+            })
+            .inspect_err(|error| {
+                emit(WorkLockFailed::ReleaseDispatch {
+                    work_key: self.work_key.clone(),
+                    worker_id: self.worker_id,
+                    error: error.to_string(),
+                });
+            })
+            .map_err(|error| ReleaseLockError::WorkLockManagerSend(error.to_string()))?;
+
+        reply_rx.await??;
+        Ok(())
+    }
+
+    /// Fence database writes performed under this lock.
+    ///
+    /// This takes a key-share lock on the `work_locks` row until `txn` ends and
+    /// verifies that it still names this worker. A replacement acquisition
+    /// changes `worker_id`, which is part of
+    /// `idx_work_locks_on_worker_id_and_key`, so PostgreSQL must wait for the
+    /// fence before it can update that key. Deletion waits too, while the
+    /// manager's non-key `last_keepalive` updates can continue normally.
+    ///
+    /// Nominal lease expiry without takeover is allowed: locking this row
+    /// serializes any later takeover behind the transaction, and callers must
+    /// finish all protected writes before committing it.
+    ///
+    /// Keep the transaction short and free of external I/O. A replica that
+    /// tries to acquire this key waits for the fence in its single manager
+    /// loop, which also delays that replica's unrelated lock commands.
+    pub async fn fence_transaction(&self, txn: &mut PgTransaction<'_>) -> DatabaseResult<()> {
+        let query = r#"
+SELECT true
+FROM work_locks
+WHERE work_key = $1 AND worker_id = $2
+FOR KEY SHARE
+        "#;
+        let still_held: Option<bool> = sqlx::query_scalar(query)
+            .bind(&self.work_key)
+            .bind(self.worker_id)
+            .fetch_optional(&mut **txn)
+            .await
+            .map_err(|e| DatabaseError::query(query, e))?;
+
+        if still_held.is_none() {
+            return Err(DatabaseError::FailedPrecondition(format!(
+                "work lock is no longer held for work_key={}, worker_id={}",
+                self.work_key, self.worker_id,
+            )));
+        }
+
+        Ok(())
     }
 
     #[cfg(test)]
@@ -629,14 +675,42 @@ UPDATE work_locks SET last_keepalive = now() WHERE work_key = $1 AND worker_id =
 }
 
 impl WorkLockManagerHandle {
+    fn try_send_bounded_command(
+        &self,
+        command: WorkLockManagerCommand,
+    ) -> Result<(), CommandDispatchError> {
+        let command_slot = self
+            .command_slots
+            .clone()
+            .try_acquire_owned()
+            .map_err(|_| CommandDispatchError::NoCapacity)?;
+        self.cmd_tx
+            .send(QueuedWorkLockManagerCommand {
+                command,
+                command_slot: Some(command_slot),
+            })
+            .map_err(|_| CommandDispatchError::ManagerShutdown)
+    }
+
+    fn send_release_command(
+        &self,
+        command: WorkLockReleaseCommand,
+    ) -> Result<(), CommandDispatchError> {
+        self.cmd_tx
+            .send(QueuedWorkLockManagerCommand {
+                command: WorkLockManagerCommand::ReleaseLock(command),
+                command_slot: None,
+            })
+            .map_err(|_| CommandDispatchError::ManagerShutdown)
+    }
+
     pub async fn try_acquire_lock(&self, work_key: WorkKey) -> Result<WorkLock, AcquireLockError> {
         let (reply_tx, reply_rx) = oneshot::channel();
-        self.cmd_tx
-            .try_send(WorkLockManagerCommand::AcquireLock {
-                work_key: work_key.clone(),
-                reply_tx,
-            })
-            .map_err(|e| AcquireLockError::WorkLockManagerSend(e.to_string()))?;
+        self.try_send_bounded_command(WorkLockManagerCommand::AcquireLock {
+            work_key: work_key.clone(),
+            reply_tx,
+        })
+        .map_err(|e| AcquireLockError::WorkLockManagerSend(e.to_string()))?;
 
         let worker_id = reply_rx.await??;
 
@@ -654,13 +728,12 @@ impl WorkLockManagerHandle {
         worker_id: WorkerId,
     ) -> Result<(), KeepAliveError> {
         let (reply_tx, reply_rx) = oneshot::channel();
-        self.cmd_tx
-            .try_send(WorkLockManagerCommand::KeepLockAlive {
-                work_key,
-                worker_id,
-                reply_tx,
-            })
-            .map_err(|e| KeepAliveError::WorkLockManagerSend(e.to_string()))?;
+        self.try_send_bounded_command(WorkLockManagerCommand::KeepLockAlive {
+            work_key,
+            worker_id,
+            reply_tx,
+        })
+        .map_err(|e| KeepAliveError::WorkLockManagerSend(e.to_string()))?;
 
         reply_rx.await??;
 
@@ -678,10 +751,27 @@ enum WorkLockManagerCommand {
         worker_id: WorkerId,
         reply_tx: oneshot::Sender<Result<(), KeepAliveError>>,
     },
-    ReleaseLock {
-        work_key: WorkKey,
-        worker_id: WorkerId,
-    },
+    ReleaseLock(WorkLockReleaseCommand),
+}
+
+struct QueuedWorkLockManagerCommand {
+    command: WorkLockManagerCommand,
+    command_slot: Option<OwnedSemaphorePermit>,
+}
+
+/// A command sent without a capacity slot so dropping a `WorkLock` cannot fail under load.
+struct WorkLockReleaseCommand {
+    work_key: WorkKey,
+    worker_id: WorkerId,
+    reply_tx: Option<oneshot::Sender<DatabaseResult<()>>>,
+}
+
+#[derive(Debug, thiserror::Error)]
+enum CommandDispatchError {
+    #[error("no available capacity; database is likely overloaded")]
+    NoCapacity,
+    #[error("the WorkLockManager has shut down")]
+    ManagerShutdown,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -690,14 +780,12 @@ pub enum AcquireLockError {
     WorkAlreadyLocked(WorkKey),
     #[error(transparent)]
     Database(#[from] DatabaseError),
-    /// This happens when the channel buffer is full, meaning more than COMMAND_BUFFER_SIZE commands
-    /// are queued up waiting for the WorkLockManager to process them. Since a WorkLockManager owns
-    /// a long-running connection to the database (and doesn't have to contend with the pool having
-    /// no connections available), this should only  happen if the database is completely down, or
-    /// is going so slow that simple updates to the table are blocked.
-    #[error(
-        "error sending AcquireLock command to WorkLockManager, database is likely overloaded: {0}"
-    )]
+    /// This happens when the bounded command capacity is exhausted or the WorkLockManager has shut
+    /// down before the command can be delivered. Exhausting capacity means COMMAND_BUFFER_SIZE
+    /// acquisition and keepalive commands are waiting for the WorkLockManager to process them.
+    /// Since the manager owns a long-running database connection, that generally means the database
+    /// is unavailable or simple updates to the table are blocked.
+    #[error("error sending AcquireLock command to WorkLockManager: {0}")]
     WorkLockManagerSend(String),
     #[error(
         "BUG: error receiving AcquireLock reply from WorkLockManager, database connections are likely failing: {0}"
@@ -708,15 +796,25 @@ pub enum AcquireLockError {
 }
 
 #[derive(Debug, thiserror::Error)]
+pub enum ReleaseLockError {
+    #[error(transparent)]
+    Database(#[from] DatabaseError),
+    #[error("error sending ReleaseLock command to WorkLockManager: {0}")]
+    WorkLockManagerSend(String),
+    #[error(
+        "error receiving ReleaseLock reply from WorkLockManager, database connections are likely failing; the lease will expire instead: {0}"
+    )]
+    WorkLockManagerReply(#[from] tokio::sync::oneshot::error::RecvError),
+}
+
+#[derive(Debug, thiserror::Error)]
 pub enum KeepAliveError {
     #[error("{0}")]
     LockLost(String),
     #[error(transparent)]
     Database(#[from] DatabaseError),
     /// See notes in AcquireLockError::WorkLockManagerSend
-    #[error(
-        "error sending KeepAlive command to WorkLockManager, database is likely overloaded: {0}"
-    )]
+    #[error("error sending KeepAlive command to WorkLockManager: {0}")]
     WorkLockManagerSend(String),
     #[error(
         "BUG: error receiving KeepAlive reply from WorkLockManager, database connections are likely failing: {0}"
@@ -783,15 +881,15 @@ mod tests {
                     scenario: "release database failure",
                     input: FailureEvent::ReleaseDatabase,
                     expect: FailureRecord {
-                        metadata_name: "work_lock_release_failed".to_string(),
+                        metadata_name: "work_lock_failed".to_string(),
                         level: tracing::Level::ERROR,
                         message: "Could not release work lock".to_string(),
-                        event_name: Some("work_lock_release_failed".to_string()),
+                        event_name: Some("work_lock_failed".to_string()),
                         metric_name: Some(WORK_LOCK_FAILURES_METRIC.to_string()),
                         operation: Some("release".to_string()),
                         failure: Some("database".to_string()),
                         work_key: Some("work-key".to_string()),
-                        worker_id: None,
+                        worker_id: Some(worker_id.to_string()),
                         error: Some("internal error: database unavailable".to_string()),
                         counter_delta: 1.0,
                     },
@@ -800,15 +898,15 @@ mod tests {
                     scenario: "release after lock loss",
                     input: FailureEvent::ReleaseLockLost,
                     expect: FailureRecord {
-                        metadata_name: "work_lock_release_failed".to_string(),
+                        metadata_name: "work_lock_failed".to_string(),
                         level: tracing::Level::ERROR,
                         message: "Could not release work lock".to_string(),
-                        event_name: Some("work_lock_release_failed".to_string()),
+                        event_name: Some("work_lock_failed".to_string()),
                         metric_name: Some(WORK_LOCK_FAILURES_METRIC.to_string()),
                         operation: Some("release".to_string()),
                         failure: Some("lock_lost".to_string()),
                         work_key: Some("work-key".to_string()),
-                        worker_id: None,
+                        worker_id: Some(worker_id.to_string()),
                         error: Some("lock expired".to_string()),
                         counter_delta: 1.0,
                     },
@@ -817,16 +915,17 @@ mod tests {
                     scenario: "release command dispatch failure",
                     input: FailureEvent::ReleaseDispatch,
                     expect: FailureRecord {
-                        metadata_name: "work_lock_release_dispatch_failed".to_string(),
+                        metadata_name: "work_lock_failed".to_string(),
                         level: tracing::Level::ERROR,
-                        message: "Could not release work lock: WorkLockManager queue is full; database is likely overloaded".to_string(),
-                        event_name: Some("work_lock_release_dispatch_failed".to_string()),
+                        message: "Could not release work lock: the WorkLockManager has shut down"
+                            .to_string(),
+                        event_name: Some("work_lock_failed".to_string()),
                         metric_name: Some(WORK_LOCK_FAILURES_METRIC.to_string()),
                         operation: Some("release".to_string()),
                         failure: Some("command_dispatch".to_string()),
                         work_key: Some("work-key".to_string()),
                         worker_id: Some(worker_id.to_string()),
-                        error: Some("no available capacity".to_string()),
+                        error: Some("the WorkLockManager has shut down".to_string()),
                         counter_delta: 1.0,
                     },
                 },
@@ -834,10 +933,10 @@ mod tests {
                     scenario: "keepalive lock lost",
                     input: FailureEvent::KeepaliveLockLost,
                     expect: FailureRecord {
-                        metadata_name: "work_lock_lost".to_string(),
+                        metadata_name: "work_lock_failed".to_string(),
                         level: tracing::Level::ERROR,
                         message: "worker lost lock".to_string(),
-                        event_name: Some("work_lock_lost".to_string()),
+                        event_name: Some("work_lock_failed".to_string()),
                         metric_name: Some(WORK_LOCK_FAILURES_METRIC.to_string()),
                         operation: Some("keep_alive".to_string()),
                         failure: Some("lock_lost".to_string()),
@@ -851,10 +950,10 @@ mod tests {
                     scenario: "keepalive database failure",
                     input: FailureEvent::KeepaliveDatabase,
                     expect: FailureRecord {
-                        metadata_name: "work_lock_keepalive_failed".to_string(),
+                        metadata_name: "work_lock_failed".to_string(),
                         level: tracing::Level::ERROR,
                         message: "Failed to send work-lock keepalive; retrying".to_string(),
-                        event_name: Some("work_lock_keepalive_failed".to_string()),
+                        event_name: Some("work_lock_failed".to_string()),
                         metric_name: Some(WORK_LOCK_FAILURES_METRIC.to_string()),
                         operation: Some("keep_alive".to_string()),
                         failure: Some("database".to_string()),
@@ -868,10 +967,10 @@ mod tests {
                     scenario: "keepalive command dispatch failure",
                     input: FailureEvent::KeepaliveDispatch,
                     expect: FailureRecord {
-                        metadata_name: "work_lock_keepalive_failed".to_string(),
+                        metadata_name: "work_lock_failed".to_string(),
                         level: tracing::Level::ERROR,
                         message: "Failed to send work-lock keepalive; retrying".to_string(),
-                        event_name: Some("work_lock_keepalive_failed".to_string()),
+                        event_name: Some("work_lock_failed".to_string()),
                         metric_name: Some(WORK_LOCK_FAILURES_METRIC.to_string()),
                         operation: Some("keep_alive".to_string()),
                         failure: Some("command_dispatch".to_string()),
@@ -885,10 +984,10 @@ mod tests {
                     scenario: "keepalive command reply failure",
                     input: FailureEvent::KeepaliveReply,
                     expect: FailureRecord {
-                        metadata_name: "work_lock_keepalive_failed".to_string(),
+                        metadata_name: "work_lock_failed".to_string(),
                         level: tracing::Level::ERROR,
                         message: "Failed to send work-lock keepalive; retrying".to_string(),
-                        event_name: Some("work_lock_keepalive_failed".to_string()),
+                        event_name: Some("work_lock_failed".to_string()),
                         metric_name: Some(WORK_LOCK_FAILURES_METRIC.to_string()),
                         operation: Some("keep_alive".to_string()),
                         failure: Some("command_reply".to_string()),
@@ -909,10 +1008,12 @@ mod tests {
                             message: "database unavailable".to_string(),
                         };
                         let logs = capture_logs(|| {
-                            emit(WorkLockReleaseFailed::new(
-                                "work-key".to_string(),
-                                &error,
-                            ));
+                            emit(WorkLockFailed::Release {
+                                work_key: "work-key".to_string(),
+                                worker_id,
+                                failure: WorkLockFailure::from_release_error(&error),
+                                error: error.to_string(),
+                            });
                         });
                         (operation, failure, logs)
                     }
@@ -921,7 +1022,12 @@ mod tests {
                         let failure = WorkLockFailure::LockLost;
                         let error = DatabaseError::FailedPrecondition("lock expired".to_string());
                         let logs = capture_logs(|| {
-                            emit(WorkLockReleaseFailed::new("work-key".to_string(), &error));
+                            emit(WorkLockFailed::Release {
+                                work_key: "work-key".to_string(),
+                                worker_id,
+                                failure: WorkLockFailure::from_release_error(&error),
+                                error: error.to_string(),
+                            });
                         });
                         (operation, failure, logs)
                     }
@@ -929,11 +1035,11 @@ mod tests {
                         let operation = WorkLockOperation::Release;
                         let failure = WorkLockFailure::CommandDispatch;
                         let logs = capture_logs(|| {
-                            emit(WorkLockReleaseDispatchFailed::new(
-                                "work-key".to_string(),
+                            emit(WorkLockFailed::ReleaseDispatch {
+                                work_key: "work-key".to_string(),
                                 worker_id,
-                                "no available capacity".to_string(),
-                            ));
+                                error: "the WorkLockManager has shut down".to_string(),
+                            });
                         });
                         (operation, failure, logs)
                     }
@@ -941,11 +1047,11 @@ mod tests {
                         let operation = WorkLockOperation::KeepAlive;
                         let failure = WorkLockFailure::LockLost;
                         let logs = capture_logs(|| {
-                            emit(WorkLockLost::new(
-                                "work-key".to_string(),
+                            emit(WorkLockFailed::LockLost {
+                                work_key: "work-key".to_string(),
                                 worker_id,
-                                "lock expired".to_string(),
-                            ));
+                                error: "lock expired".to_string(),
+                            });
                         });
                         (operation, failure, logs)
                     }
@@ -953,12 +1059,12 @@ mod tests {
                         let operation = WorkLockOperation::KeepAlive;
                         let failure = WorkLockFailure::Database;
                         let logs = capture_logs(|| {
-                            emit(WorkLockKeepaliveFailed::new(
+                            emit(WorkLockFailed::Keepalive {
                                 failure,
-                                "work-key".to_string(),
+                                work_key: "work-key".to_string(),
                                 worker_id,
-                                "database unavailable".to_string(),
-                            ));
+                                error: "database unavailable".to_string(),
+                            });
                         });
                         (operation, failure, logs)
                     }
@@ -966,12 +1072,12 @@ mod tests {
                         let operation = WorkLockOperation::KeepAlive;
                         let failure = WorkLockFailure::CommandDispatch;
                         let logs = capture_logs(|| {
-                            emit(WorkLockKeepaliveFailed::new(
+                            emit(WorkLockFailed::Keepalive {
                                 failure,
-                                "work-key".to_string(),
+                                work_key: "work-key".to_string(),
                                 worker_id,
-                                "no available capacity".to_string(),
-                            ));
+                                error: "no available capacity".to_string(),
+                            });
                         });
                         (operation, failure, logs)
                     }
@@ -979,12 +1085,12 @@ mod tests {
                         let operation = WorkLockOperation::KeepAlive;
                         let failure = WorkLockFailure::CommandReply;
                         let logs = capture_logs(|| {
-                            emit(WorkLockKeepaliveFailed::new(
+                            emit(WorkLockFailed::Keepalive {
                                 failure,
-                                "work-key".to_string(),
+                                work_key: "work-key".to_string(),
                                 worker_id,
-                                "reply channel closed".to_string(),
-                            ));
+                                error: "reply channel closed".to_string(),
+                            });
                         });
                         (operation, failure, logs)
                     }
@@ -1055,6 +1161,104 @@ mod tests {
         );
     }
 
+    #[tokio::test]
+    async fn command_dispatch_errors_distinguish_capacity_and_shutdown() {
+        let (cmd_tx, cmd_rx) = mpsc::unbounded_channel();
+        let manager = WorkLockManagerHandle {
+            keepalive_interval: Duration::from_secs(60),
+            cmd_tx,
+            command_slots: Arc::new(Semaphore::new(COMMAND_BUFFER_SIZE)),
+        };
+        let command = || {
+            let (reply_tx, _reply_rx) = oneshot::channel();
+            WorkLockManagerCommand::AcquireLock {
+                work_key: "dispatch".to_string(),
+                reply_tx,
+            }
+        };
+
+        let command_slots = manager
+            .command_slots
+            .clone()
+            .acquire_many_owned(COMMAND_BUFFER_SIZE as u32)
+            .await
+            .unwrap();
+        assert_eq!(
+            manager
+                .try_send_bounded_command(command())
+                .unwrap_err()
+                .to_string(),
+            "no available capacity; database is likely overloaded"
+        );
+
+        drop(command_slots);
+        drop(cmd_rx);
+        assert_eq!(
+            manager
+                .try_send_bounded_command(command())
+                .unwrap_err()
+                .to_string(),
+            "the WorkLockManager has shut down"
+        );
+    }
+
+    #[tokio::test]
+    async fn dropping_work_lock_suppresses_in_flight_lock_lost() {
+        let metrics = MetricsCapture::start();
+        let (cmd_tx, mut cmd_rx) = mpsc::unbounded_channel();
+        let manager = WorkLockManagerHandle {
+            keepalive_interval: Duration::from_secs(60),
+            cmd_tx,
+            command_slots: Arc::new(Semaphore::new(COMMAND_BUFFER_SIZE)),
+        };
+        let worker_id = WorkerId::nil();
+        let lock = WorkLock::new(
+            manager,
+            "teardown".to_string(),
+            worker_id,
+            Duration::from_secs(60),
+        );
+
+        let QueuedWorkLockManagerCommand {
+            command,
+            command_slot,
+        } = tokio::time::timeout(Duration::from_secs(3), cmd_rx.recv())
+            .await
+            .expect("keepalive command was not sent")
+            .expect("keepalive command channel closed");
+        drop(command_slot);
+        let WorkLockManagerCommand::KeepLockAlive { reply_tx, .. } = command else {
+            panic!("first command was not a keepalive");
+        };
+
+        drop(lock);
+        let release = tokio::time::timeout(Duration::from_secs(3), cmd_rx.recv())
+            .await
+            .expect("release command was not sent")
+            .expect("release command channel closed");
+        assert!(matches!(
+            release.command,
+            WorkLockManagerCommand::ReleaseLock(_)
+        ));
+
+        reply_tx
+            .send(Err(KeepAliveError::LockLost("lock expired".to_string())))
+            .expect("keepalive task stopped before receiving its reply");
+        assert!(
+            tokio::time::timeout(Duration::from_secs(3), cmd_rx.recv())
+                .await
+                .expect("keepalive task did not stop")
+                .is_none()
+        );
+        assert_eq!(
+            metrics.counter_delta(
+                WORK_LOCK_FAILURES_METRIC,
+                &[("operation", "keep_alive"), ("failure", "lock_lost")],
+            ),
+            0.0
+        );
+    }
+
     #[crate::sqlx_test]
     async fn test_exclusivity(pool: PgPool) {
         let mut join_set = JoinSet::new();
@@ -1097,6 +1301,258 @@ mod tests {
                 panic!("WorkLockManager did not shut down in a timely manner")
             }
         }
+    }
+
+    #[crate::sqlx_test]
+    async fn explicit_release_waits_for_database_deletion(pool: PgPool) {
+        let mut join_set = JoinSet::new();
+        let manager = start(&mut join_set, pool.clone(), Default::default())
+            .await
+            .expect("start work lock manager");
+        let work_key = "acknowledged-release".to_string();
+        let work_lock = manager
+            .try_acquire_lock(work_key.clone())
+            .await
+            .expect("acquire work lock");
+
+        work_lock
+            .release()
+            .await
+            .expect("release work lock with acknowledgment");
+        join_set.abort_all();
+        drop(join_set);
+
+        let query = "SELECT count(*) FROM work_locks WHERE work_key = $1";
+        let row_count: i64 = sqlx::query_scalar(query)
+            .bind(work_key)
+            .fetch_one(&pool)
+            .await
+            .expect("check released work lock");
+        assert_eq!(
+            row_count, 0,
+            "release acknowledgment returned before the work_locks row was deleted"
+        );
+    }
+
+    #[crate::sqlx_test]
+    async fn fenced_transaction_allows_keepalive_and_rejects_stale_owner(pool: PgPool) {
+        // Isolate the deliberate stale-release metric from neighboring tests.
+        let _metrics_guard = MetricsCapture::start();
+        let mut join_set = JoinSet::new();
+        let owner_manager = start(
+            &mut join_set,
+            pool.clone(),
+            KeepaliveConfig {
+                interval: Duration::from_secs(60),
+                timeout: Duration::from_millis(500),
+            },
+        )
+        .await
+        .expect("start work lock manager");
+        let replacement_manager = start(
+            &mut join_set,
+            pool.clone(),
+            KeepaliveConfig {
+                interval: Duration::from_secs(60),
+                timeout: Duration::from_millis(500),
+            },
+        )
+        .await
+        .expect("start replacement work lock manager");
+        let work_key = "fenced-transaction".to_string();
+        let old_lock = owner_manager
+            .try_acquire_lock(work_key.clone())
+            .await
+            .expect("acquire original work lock");
+
+        let mut fence_txn = pool.begin().await.expect("begin fenced transaction");
+        old_lock
+            .fence_transaction(&mut fence_txn)
+            .await
+            .expect("fence original owner");
+        let fence_task = tokio::spawn(async move {
+            sqlx::query("SELECT pg_sleep(1)")
+                .execute(&mut *fence_txn)
+                .await
+                .expect("hold fenced transaction");
+            fence_txn.commit().await.expect("commit fenced transaction");
+        });
+
+        // `FOR KEY SHARE` must leave the manager's non-key keepalive update
+        // unblocked while the fence keeps ownership changes out.
+        tokio::time::timeout(
+            Duration::from_millis(250),
+            owner_manager.keep_lock_alive(work_key.clone(), old_lock.worker_id),
+        )
+        .await
+        .expect("keepalive blocked behind fenced transaction")
+        .expect("keep fenced owner alive");
+
+        tokio::time::timeout(
+            Duration::from_millis(250),
+            sqlx::query(
+                "UPDATE work_locks SET last_keepalive = now() - interval '1 second' \
+             WHERE work_key = $1",
+            )
+            .bind(&work_key)
+            .execute(&pool),
+        )
+        .await
+        .expect("lease expiry update blocked behind fenced transaction")
+        .expect("expire original lease");
+
+        let replacement_manager_for_acquire = replacement_manager.clone();
+        let replacement_work_key = work_key.clone();
+        let replacement_task = tokio::spawn(async move {
+            replacement_manager_for_acquire
+                .try_acquire_lock(replacement_work_key)
+                .await
+        });
+        tokio::time::sleep(Duration::from_millis(50)).await;
+        assert!(
+            !replacement_task.is_finished(),
+            "lease takeover passed the fenced transaction"
+        );
+
+        fence_task.await.expect("fence task panicked");
+        let new_lock = replacement_task
+            .await
+            .expect("replacement task panicked")
+            .expect("acquire replacement work lock");
+
+        let mut stale_txn = pool.begin().await.expect("begin stale transaction");
+        let stale_error = old_lock
+            .fence_transaction(&mut stale_txn)
+            .await
+            .expect_err("superseded owner must not fence writes");
+        assert!(
+            matches!(&stale_error, DatabaseError::FailedPrecondition(_)),
+            "unexpected stale-owner error: {stale_error}"
+        );
+        stale_txn
+            .rollback()
+            .await
+            .expect("roll back stale transaction");
+
+        let mut current_txn = pool.begin().await.expect("begin current transaction");
+        new_lock
+            .fence_transaction(&mut current_txn)
+            .await
+            .expect("replacement owner must fence writes");
+        current_txn
+            .rollback()
+            .await
+            .expect("roll back current transaction");
+
+        old_lock
+            .release()
+            .await
+            .expect_err("superseded owner must not release replacement lock");
+        new_lock
+            .release()
+            .await
+            .expect("release replacement work lock");
+        drop(owner_manager);
+        drop(replacement_manager);
+        tokio::time::timeout(Duration::from_secs(3), join_set.join_all())
+            .await
+            .expect("WorkLockManager did not shut down in a timely manner");
+    }
+
+    #[crate::sqlx_test]
+    async fn commands_and_releases_keep_fifo_order(pool: PgPool) {
+        let keepalive_config = KeepaliveConfig::default();
+        let mut db = pool.acquire().await.unwrap();
+        let work_key = "ordered".to_string();
+        let worker_id = try_acquire_lock(&mut db, &work_key, keepalive_config.timeout)
+            .await
+            .unwrap()
+            .unwrap();
+
+        let (cmd_tx, cmd_rx) = mpsc::unbounded_channel();
+        let manager = WorkLockManagerHandle {
+            keepalive_interval: keepalive_config.interval,
+            cmd_tx,
+            command_slots: Arc::new(Semaphore::new(COMMAND_BUFFER_SIZE)),
+        };
+
+        let (keepalive_reply_tx, keepalive_reply_rx) = oneshot::channel();
+        manager
+            .try_send_bounded_command(WorkLockManagerCommand::KeepLockAlive {
+                work_key: work_key.clone(),
+                worker_id,
+                reply_tx: keepalive_reply_tx,
+            })
+            .unwrap();
+        manager
+            .send_release_command(WorkLockReleaseCommand {
+                work_key: work_key.clone(),
+                worker_id,
+                reply_tx: None,
+            })
+            .unwrap();
+        let (acquire_reply_tx, acquire_reply_rx) = oneshot::channel();
+        manager
+            .try_send_bounded_command(WorkLockManagerCommand::AcquireLock {
+                work_key: work_key.clone(),
+                reply_tx: acquire_reply_tx,
+            })
+            .unwrap();
+
+        let mut join_set = JoinSet::new();
+        join_set.spawn(run_loop(pool, db, cmd_rx, keepalive_config.timeout));
+
+        keepalive_reply_rx
+            .await
+            .unwrap()
+            .expect("a keepalive queued before a release must run first");
+        let replacement_worker_id = acquire_reply_rx
+            .await
+            .unwrap()
+            .expect("a release queued before an acquire must run first");
+
+        manager
+            .send_release_command(WorkLockReleaseCommand {
+                work_key,
+                worker_id: replacement_worker_id,
+                reply_tx: None,
+            })
+            .unwrap();
+        drop(manager);
+        tokio::time::timeout(Duration::from_secs(3), join_set.join_all())
+            .await
+            .expect("WorkLockManager did not shut down in a timely manner");
+    }
+
+    #[crate::sqlx_test]
+    async fn release_is_not_dropped_when_command_queue_is_full(pool: PgPool) {
+        // Dropping the lock with every command slot reserved can race a keepalive dispatch
+        // failure, so isolate process-global metric deltas through teardown.
+        let _metrics_guard = MetricsCapture::start();
+        let mut join_set = JoinSet::new();
+        let manager = start(&mut join_set, pool, Default::default())
+            .await
+            .unwrap();
+        let lock = manager
+            .try_acquire_lock("contended".to_string())
+            .await
+            .unwrap();
+
+        // Reserve every bounded-command slot without sending a command.
+        let command_slots = manager
+            .command_slots
+            .clone()
+            .acquire_many_owned(COMMAND_BUFFER_SIZE as u32)
+            .await
+            .unwrap();
+
+        drop(lock);
+        drop(command_slots);
+
+        let _lock = manager
+            .try_acquire_lock("contended".to_string())
+            .await
+            .expect("work key stayed locked: the release was dropped by a full command queue");
     }
 
     #[crate::sqlx_test]

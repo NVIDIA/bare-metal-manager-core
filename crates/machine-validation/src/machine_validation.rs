@@ -19,7 +19,7 @@ use std::fs::File;
 use std::io::{BufReader, Write};
 use std::path::Path;
 
-use carbide_instrument::{DynamicLog, DynamicMessage, Event, LabelValue, LogAt, Outcome, emit};
+use carbide_instrument::{Event, LabelValue, Outcome, emit};
 use carbide_utils::cmd::TokioCmd;
 use carbide_uuid::machine::MachineId;
 use carbide_uuid::machine_validation::MachineValidationId;
@@ -57,114 +57,170 @@ enum MachineValidationHeartbeatFailureReason {
     Rpc,
 }
 
+/// A machine-validation heartbeat did not land. Each variant is one
+/// (stage, reason) pair; only the RPC cases have an error to report.
 #[derive(Event)]
 #[event(
     event_name = "machine_validation_heartbeat_failed",
     metric_name = "carbide_machine_validation_heartbeat_failures_total",
     component = "nico-scout",
-    log = error,
     metric = counter,
-    message = dynamic,
-    describe = "Number of machine validation heartbeat failures, by stage and reason."
+    log = error,
+    describe = "Number of machine validation heartbeat failures, by stage and reason.",
+    labels(
+        stage: MachineValidationHeartbeatStage,
+        reason: MachineValidationHeartbeatFailureReason,
+    ),
 )]
-struct MachineValidationHeartbeatFailed {
-    #[label]
-    stage: MachineValidationHeartbeatStage,
-    #[label]
-    reason: MachineValidationHeartbeatFailureReason,
-    #[context]
-    machine_validation_id: MachineValidationId,
-    #[context]
-    test_id: String,
-    /// Failure detail. A rejected heartbeat uses `""` because an Event keeps
-    /// one stable set of context fields.
-    #[context]
-    error: String,
+enum MachineValidationHeartbeatFailed {
+    #[event(
+        labels(
+            stage = MachineValidationHeartbeatStage::Initial,
+            reason = MachineValidationHeartbeatFailureReason::Rejected
+        ),
+        message = "initial machine validation heartbeat was rejected"
+    )]
+    InitialRejected {
+        #[context]
+        machine_validation_id: MachineValidationId,
+        #[context]
+        test_id: String,
+    },
+
+    #[event(
+        labels(
+            stage = MachineValidationHeartbeatStage::Periodic,
+            reason = MachineValidationHeartbeatFailureReason::Rejected
+        ),
+        message = "machine validation heartbeat was rejected because run or attempt is no longer active"
+    )]
+    PeriodicRejected {
+        #[context]
+        machine_validation_id: MachineValidationId,
+        #[context]
+        test_id: String,
+    },
+
+    #[event(
+        labels(
+            stage = MachineValidationHeartbeatStage::Initial,
+            reason = MachineValidationHeartbeatFailureReason::Rpc
+        ),
+        message = "failed to send initial machine validation heartbeat"
+    )]
+    InitialRpc {
+        #[context]
+        machine_validation_id: MachineValidationId,
+        #[context]
+        test_id: String,
+        #[context]
+        error: String,
+    },
+
+    #[event(
+        labels(
+            stage = MachineValidationHeartbeatStage::Periodic,
+            reason = MachineValidationHeartbeatFailureReason::Rpc
+        ),
+        message = "failed to send machine validation heartbeat"
+    )]
+    PeriodicRpc {
+        #[context]
+        machine_validation_id: MachineValidationId,
+        #[context]
+        test_id: String,
+        #[context]
+        error: String,
+    },
 }
 
 impl MachineValidationHeartbeatFailed {
+    /// A heartbeat the server declined; there is no transport error.
     fn rejected(
         stage: MachineValidationHeartbeatStage,
         machine_validation_id: MachineValidationId,
         test_id: String,
     ) -> Self {
-        Self {
-            stage,
-            reason: MachineValidationHeartbeatFailureReason::Rejected,
-            machine_validation_id,
-            test_id,
-            error: String::new(),
+        match stage {
+            MachineValidationHeartbeatStage::Initial => Self::InitialRejected {
+                machine_validation_id,
+                test_id,
+            },
+            MachineValidationHeartbeatStage::Periodic => Self::PeriodicRejected {
+                machine_validation_id,
+                test_id,
+            },
         }
     }
 
+    /// A heartbeat that never reached the server.
     fn rpc(
         stage: MachineValidationHeartbeatStage,
         machine_validation_id: MachineValidationId,
         test_id: String,
         error: impl std::fmt::Display,
     ) -> Self {
-        Self {
-            stage,
-            reason: MachineValidationHeartbeatFailureReason::Rpc,
-            machine_validation_id,
-            test_id,
-            error: error.to_string(),
+        let error = error.to_string();
+        match stage {
+            MachineValidationHeartbeatStage::Initial => Self::InitialRpc {
+                machine_validation_id,
+                test_id,
+                error,
+            },
+            MachineValidationHeartbeatStage::Periodic => Self::PeriodicRpc {
+                machine_validation_id,
+                test_id,
+                error,
+            },
         }
     }
 }
-
-impl DynamicMessage for MachineValidationHeartbeatFailed {
-    fn message(&self) -> &'static str {
-        match (self.stage, self.reason) {
-            (
-                MachineValidationHeartbeatStage::Initial,
-                MachineValidationHeartbeatFailureReason::Rejected,
-            ) => "initial machine validation heartbeat was rejected",
-            (
-                MachineValidationHeartbeatStage::Periodic,
-                MachineValidationHeartbeatFailureReason::Rejected,
-            ) => {
-                "machine validation heartbeat was rejected because run or attempt is no longer active"
-            }
-            (
-                MachineValidationHeartbeatStage::Initial,
-                MachineValidationHeartbeatFailureReason::Rpc,
-            ) => "failed to send initial machine validation heartbeat",
-            (
-                MachineValidationHeartbeatStage::Periodic,
-                MachineValidationHeartbeatFailureReason::Rpc,
-            ) => "failed to send machine validation heartbeat",
-        }
-    }
-}
-
+/// One machine-validation result write. Each variant is the result.
 #[derive(Event)]
 #[event(
     event_name = "machine_validation_result_persistence_finished",
     metric_name = "carbide_machine_validation_result_persistence_attempts_total",
     component = "nico-scout",
-    log = dynamic,
     metric = counter,
-    message = dynamic,
-    describe = "Number of machine validation result persistence attempts, by outcome."
+    describe = "Number of machine validation result persistence attempts, by outcome.",
+    labels(outcome: Outcome),
 )]
-struct MachineValidationResultPersistenceFinished {
-    #[label]
-    outcome: Outcome,
-    #[context]
-    machine_validation_id: MachineValidationId,
-    #[context]
-    test_id: String,
-    #[context]
-    test_name: String,
-    /// Failure detail. A successful persistence attempt uses `""` because an
-    /// Event keeps one stable set of context fields.
-    #[context]
-    error: String,
+enum MachineValidationResultPersistenceFinished {
+    #[event(
+        labels(outcome = Outcome::Ok),
+        log = info,
+        message = "Sent machine validation result to API server"
+    )]
+    Ok {
+        #[context]
+        machine_validation_id: MachineValidationId,
+        #[context]
+        test_id: String,
+        #[context]
+        test_name: String,
+    },
+
+    #[event(
+        labels(outcome = Outcome::Error),
+        log = error,
+        message = "Failed to send machine validation result to API server"
+    )]
+    Error {
+        #[context]
+        machine_validation_id: MachineValidationId,
+        #[context]
+        test_id: String,
+        #[context]
+        test_name: String,
+        #[context]
+        error: String,
+    },
 }
 
 impl MachineValidationResultPersistenceFinished {
-    fn new<E>(
+    /// Which case a persist attempt landed in. `Ok` has no error to report, so
+    /// the failure text exists only on `Error`.
+    fn from_result<E>(
         machine_validation_id: MachineValidationId,
         test_id: String,
         test_name: String,
@@ -173,38 +229,21 @@ impl MachineValidationResultPersistenceFinished {
     where
         E: std::fmt::Display,
     {
-        Self {
-            outcome: Outcome::from(result),
-            machine_validation_id,
-            test_id,
-            test_name,
-            error: result
-                .as_ref()
-                .err()
-                .map(ToString::to_string)
-                .unwrap_or_default(),
+        match result {
+            Result::Ok(()) => Self::Ok {
+                machine_validation_id,
+                test_id,
+                test_name,
+            },
+            Result::Err(error) => Self::Error {
+                machine_validation_id,
+                test_id,
+                test_name,
+                error: error.to_string(),
+            },
         }
     }
 }
-
-impl DynamicLog for MachineValidationResultPersistenceFinished {
-    fn log_at(&self) -> LogAt {
-        match self.outcome {
-            Outcome::Ok => LogAt::Level(tracing::Level::INFO),
-            Outcome::Error => LogAt::Level(tracing::Level::ERROR),
-        }
-    }
-}
-
-impl DynamicMessage for MachineValidationResultPersistenceFinished {
-    fn message(&self) -> &'static str {
-        match self.outcome {
-            Outcome::Ok => "Sent machine validation result to API server",
-            Outcome::Error => "Failed to send machine validation result to API server",
-        }
-    }
-}
-
 struct MachineValidationExecution {
     result: rpc::forge::MachineValidationResult,
     heartbeat: Option<MachineValidationHeartbeatGuard>,
@@ -955,7 +994,7 @@ impl MachineValidation {
                 if let Some(heartbeat) = heartbeat {
                     heartbeat.stop().await;
                 }
-                emit(MachineValidationResultPersistenceFinished::new(
+                emit(MachineValidationResultPersistenceFinished::from_result(
                     validation_id,
                     test.test_id.clone(),
                     test.name.clone(),
@@ -1024,7 +1063,7 @@ mod tests {
                 ));
             }
             InstrumentationCase::Persistence(Outcome::Ok) => {
-                emit(MachineValidationResultPersistenceFinished::new(
+                emit(MachineValidationResultPersistenceFinished::from_result(
                     machine_validation_id,
                     TEST_ID.to_string(),
                     TEST_NAME.to_string(),
@@ -1032,7 +1071,7 @@ mod tests {
                 ));
             }
             InstrumentationCase::Persistence(Outcome::Error) => {
-                emit(MachineValidationResultPersistenceFinished::new(
+                emit(MachineValidationResultPersistenceFinished::from_result(
                     machine_validation_id,
                     TEST_ID.to_string(),
                     TEST_NAME.to_string(),
@@ -1117,7 +1156,9 @@ mod tests {
                     machine_validation_id: machine_validation_id.clone(),
                     test_id: Some("validation-test".to_string()),
                     test_name: None,
-                    error: Some(String::new()),
+                    // A rejected heartbeat has no transport error, so the key
+                    // is absent from the line rather than blank.
+                    error: None,
                     counter_delta: 1.0,
                 },
                 InstrumentationCase::HeartbeatRejected(MachineValidationHeartbeatStage::Periodic) => InstrumentationObservation {
@@ -1132,7 +1173,9 @@ mod tests {
                     machine_validation_id: machine_validation_id.clone(),
                     test_id: Some("validation-test".to_string()),
                     test_name: None,
-                    error: Some(String::new()),
+                    // A rejected heartbeat has no transport error, so the key
+                    // is absent from the line rather than blank.
+                    error: None,
                     counter_delta: 1.0,
                 },
             }
@@ -1181,7 +1224,9 @@ mod tests {
                     machine_validation_id: machine_validation_id.clone(),
                     test_id: Some("validation-test".to_string()),
                     test_name: Some("Validation test".to_string()),
-                    error: Some(String::new()),
+                    // A successful persist has no error, so the key is absent
+                    // from the line rather than blank.
+                    error: None,
                     counter_delta: 1.0,
                 },
                 InstrumentationCase::Persistence(Outcome::Error) => InstrumentationObservation {

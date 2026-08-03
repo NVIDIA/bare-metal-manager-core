@@ -48,10 +48,10 @@ use model::machine::nvlink::MachineNvLinkStatusObservation;
 use model::machine::spx::MachineSpxStatusObservation;
 use model::machine::upgrade_policy::AgentUpgradePolicy;
 use model::machine::{
-    Dpf, DpuInfo, DpuInfoStatusObservation, DpuOsOperationalState, DpuRepresentorStatus,
-    FailureDetails, HostProfile, Machine, MachineInterfaceSnapshot, MachineLastRebootRequested,
-    MachineLastRebootRequestedMode, MachineMaintenanceOperation, MachineValidationContext,
-    ManagedHostState, ReprovisionRequest, UpgradeDecision,
+    CURRENT_STATE_MODEL_VERSION, Dpf, DpuInfo, DpuInfoStatusObservation, DpuOsOperationalState,
+    DpuRepresentorStatus, FailureDetails, HostProfile, Machine, MachineInterfaceSnapshot,
+    MachineLastRebootRequested, MachineLastRebootRequestedMode, MachineMaintenanceOperation,
+    MachineValidationContext, ManagedHostState, ReprovisionRequest, UpgradeDecision,
 };
 use model::machine_interface_address::MachineInterfaceAssociation;
 use model::metadata::Metadata;
@@ -134,7 +134,15 @@ pub async fn get_or_create(
         // Host and DPU machines are created in same `discover_machine` call. Update same
         // state in both machines.
         let state = ManagedHostState::Created;
-        let machine = create(txn, common_pools, stable_machine_id, state, None, 2).await?;
+        let machine = create(
+            txn,
+            common_pools,
+            stable_machine_id,
+            state,
+            None,
+            CURRENT_STATE_MODEL_VERSION,
+        )
+        .await?;
         crate::machine_interface::associate_interface_with_machine(
             &interface.id,
             MachineInterfaceAssociation::Machine(machine.id),
@@ -2629,6 +2637,101 @@ pub async fn clear_machine_maintenance_requested(
         .fetch_one(txn)
         .await
         .map_err(|e| DatabaseError::new("clear_machine_maintenance_requested", e))?;
+    Ok(())
+}
+
+/// Record an operator "force-converge this BMC now" request on the machine that
+/// owns the BMC (a host machine for its host BMC, a DPU machine for its DPU BMC).
+/// The machine state controller consumes it on its next sweep.
+pub async fn set_bmc_credential_rotation_requested(
+    txn: &mut PgConnection,
+    machine_id: MachineId,
+) -> DatabaseResult<()> {
+    let query =
+        "UPDATE machines SET bmc_credential_rotation_requested = true WHERE id = $1 RETURNING id";
+    sqlx::query_as::<_, MachineId>(query)
+        .bind(machine_id)
+        .fetch_one(txn)
+        .await
+        .map_err(|e| match e {
+            // `RETURNING id` yields no row for an unknown machine; surface a
+            // clean not-found rather than a generic wrapped error.
+            sqlx::Error::RowNotFound => DatabaseError::NotFoundError {
+                kind: "machine",
+                id: machine_id.to_string(),
+            },
+            e => DatabaseError::new("set_bmc_credential_rotation_requested", e),
+        })?;
+    Ok(())
+}
+
+pub async fn clear_bmc_credential_rotation_requested(
+    txn: &mut PgConnection,
+    machine_id: MachineId,
+) -> DatabaseResult<()> {
+    let query =
+        "UPDATE machines SET bmc_credential_rotation_requested = false WHERE id = $1 RETURNING id";
+    sqlx::query_as::<_, MachineId>(query)
+        .bind(machine_id)
+        .fetch_one(txn)
+        .await
+        .map_err(|e| match e {
+            // `RETURNING id` yields no row for an unknown machine; surface a
+            // clean not-found rather than a generic wrapped error.
+            sqlx::Error::RowNotFound => DatabaseError::NotFoundError {
+                kind: "machine",
+                id: machine_id.to_string(),
+            },
+            e => DatabaseError::new("clear_bmc_credential_rotation_requested", e),
+        })?;
+    Ok(())
+}
+
+/// Record an operator "force-converge this UEFI credential now" request on the
+/// machine that owns the UEFI credential (a host machine for its host UEFI; a
+/// DPU machine for its DPU UEFI). The machine state controller consumes it on
+/// its next sweep. Mirrors [`set_bmc_credential_rotation_requested`].
+pub async fn set_uefi_credential_rotation_requested(
+    txn: &mut PgConnection,
+    machine_id: MachineId,
+) -> DatabaseResult<()> {
+    let query =
+        "UPDATE machines SET uefi_credential_rotation_requested = true WHERE id = $1 RETURNING id";
+    sqlx::query_as::<_, MachineId>(query)
+        .bind(machine_id)
+        .fetch_one(txn)
+        .await
+        .map_err(|e| match e {
+            // `RETURNING id` yields no row for an unknown machine; surface a
+            // clean not-found rather than a generic wrapped error.
+            sqlx::Error::RowNotFound => DatabaseError::NotFoundError {
+                kind: "machine",
+                id: machine_id.to_string(),
+            },
+            e => DatabaseError::new("set_uefi_credential_rotation_requested", e),
+        })?;
+    Ok(())
+}
+
+pub async fn clear_uefi_credential_rotation_requested(
+    txn: &mut PgConnection,
+    machine_id: MachineId,
+) -> DatabaseResult<()> {
+    let query =
+        "UPDATE machines SET uefi_credential_rotation_requested = false WHERE id = $1 RETURNING id";
+    sqlx::query_as::<_, MachineId>(query)
+        .bind(machine_id)
+        .fetch_one(txn)
+        .await
+        .map_err(|e| match e {
+            // `RETURNING id` yields no row for an unknown machine; surface a
+            // clean not-found rather than a generic wrapped error.
+            sqlx::Error::RowNotFound => DatabaseError::NotFoundError {
+                kind: "machine",
+                id: machine_id.to_string(),
+            },
+            e => DatabaseError::new("clear_uefi_credential_rotation_requested", e),
+        })?;
     Ok(())
 }
 

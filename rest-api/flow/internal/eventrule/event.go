@@ -48,6 +48,16 @@ const (
 	SeverityCritical    Severity = "critical"
 )
 
+// ParseSeverity converts a string into a validated Severity.
+func ParseSeverity(value string) (Severity, error) {
+	severity := Severity(value)
+	if err := severity.Validate(); err != nil {
+		return SeverityUnspecified, err
+	}
+
+	return severity, nil
+}
+
 // IsUnspecified reports whether no severity was supplied for the event.
 func (s Severity) IsUnspecified() bool {
 	return s == SeverityUnspecified

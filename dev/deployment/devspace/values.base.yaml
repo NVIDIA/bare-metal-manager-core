@@ -101,7 +101,7 @@ nico-api:
       enabled = true
       create_machines = true
       allow_changing_bmc_proxy = true
-      bmc_proxy = "nico-machine-a-tron-bmc-mock.nico-system.svc.cluster.local:1266"
+      bmc_proxy = "nico-machine-a-tron-mat-0-bmc-mock.nico-system.svc.cluster.local:1266"
       run_interval = "10s"
       machines_created_per_run = 1000
       explorations_per_run = 1000
@@ -123,7 +123,7 @@ nico-bmc-proxy:
       metrics_endpoint = "[::]:1080"
       database_url = "postgres://replaced-by-env-var"
       allowed_principals = ["trusted-certificate"]
-      bmc_proxy = "nico-machine-a-tron-bmc-mock.nico-system.svc.cluster.local:1266"
+      bmc_proxy = "nico-machine-a-tron-mat-0-bmc-mock.nico-system.svc.cluster.local:1266"
 
       [tls]
       identity_pemfile_path = "/var/run/secrets/spiffe.io/tls.crt"
@@ -160,7 +160,7 @@ nico-machine-a-tron:
     uris:
       - "spiffe://nico.local/nico-system/sa/machine-a-tron"
   pods:
-    default:
+    mat-0:
       machines:
         rack-machines:
           hwType: wiwynn_gb200_nvl

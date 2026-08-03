@@ -842,7 +842,7 @@ fn convert_ports_to_nice_table(
                         .as_ref()
                         .and_then(|ethernet| ethernet.mtu_size)
                         .unwrap_or(0),
-                    port.current_speed_gbps.unwrap_or(0),
+                    port.current_speed_gbps.unwrap_or(0.0),
                 ]);
             }
         }

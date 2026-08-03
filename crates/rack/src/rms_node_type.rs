@@ -21,11 +21,17 @@
 //! product family. RMS remains responsible for deciding whether a descriptor is
 //! supported. A legacy [`rms::NodeType`] is included only for combinations known
 //! to this NICo version and never limits descriptor construction.
+//!
+//! Custom attribute keys and values are copied without normalization, and key
+//! matching is case-sensitive. Rack attributes are inherited by every role,
+//! role attributes override identical rack keys, and generated `role`, `vendor`,
+//! and `product_family` attributes have highest priority. Custom attributes
+//! cannot supply missing required named fields.
 
 use std::collections::HashMap;
 
 use librms::protos::rack_manager as rms;
-use model::rack_type::RackProfile;
+use model::rack_type::{RackProfile, RackProfileConfig};
 
 const KEY_ROLE: &str = "role";
 const KEY_VENDOR: &str = "vendor";
@@ -33,6 +39,11 @@ const KEY_PRODUCT_FAMILY: &str = "product_family";
 const ROLE_COMPUTE: &str = "compute";
 const ROLE_SWITCH: &str = "switch";
 const ROLE_POWER_SHELF: &str = "power_shelf";
+const RMS_NODE_ROLES: [RmsNodeRole; 3] = [
+    RmsNodeRole::Compute,
+    RmsNodeRole::Switch,
+    RmsNodeRole::PowerShelf,
+];
 
 /// Error returned when a rack profile lacks data required for an RMS descriptor.
 ///
@@ -76,9 +87,11 @@ impl RmsNodeRole {
 
 /// RMS node identity derived from a rack profile and component role.
 ///
-/// Every identity contains a descriptor with `role`, `vendor`, and
-/// `product_family`. Known hardware may also carry a legacy enum override for
-/// compatibility with RMS versions that predate descriptor dispatch.
+/// Every identity contains rack-level custom attributes, role-level custom
+/// attributes, and the generated `role`, `vendor`, and `product_family`
+/// attributes, in increasing precedence order. Known hardware may also carry a
+/// legacy enum override for compatibility with RMS versions that predate
+/// descriptor dispatch.
 #[derive(Clone, Debug, PartialEq)]
 pub struct RmsNodeIdentity {
     role: RmsNodeRole,
@@ -139,6 +152,80 @@ pub fn power_shelf_node_identity_for_profile(
     node_identity_for_profile(profile, RmsNodeRole::PowerShelf)
 }
 
+/// Warns about custom RMS descriptor attributes overridden during inheritance.
+///
+/// Callers should invoke this once after configuration-provider merging so the
+/// warnings describe the effective profiles. Role attributes override rack
+/// attributes, then the generated `role` and present, non-blank `vendor` and
+/// `product_family` fields override custom attributes. Each call emits all
+/// collisions without deduplication, and collisions are intentionally non-fatal.
+pub fn warn_rms_node_descriptor_attribute_overrides(config: &RackProfileConfig) {
+    for (rack_profile_id, profile) in &config.rack_profiles {
+        for role in RMS_NODE_ROLES {
+            let (vendor, role_attributes) = vendor_and_attributes_for_role(profile, role);
+
+            // Role-level values replace rack-level values with the same exact key.
+            for key in role_attributes
+                .keys()
+                .filter(|key| profile.attributes.contains_key(*key))
+            {
+                tracing::warn!(
+                    rack_profile_id,
+                    role = role.descriptor_value(),
+                    attribute_key = key,
+                    overridden_source = "rack",
+                    winning_source = "role",
+                    "RMS node descriptor attribute is overridden"
+                );
+            }
+
+            // Only present named fields override custom values. Custom
+            // attributes cannot satisfy missing required named fields.
+            let named_attribute_keys = [
+                (KEY_ROLE, true),
+                (
+                    KEY_VENDOR,
+                    vendor
+                        .map(str::trim)
+                        .is_some_and(|vendor| !vendor.is_empty()),
+                ),
+                (
+                    KEY_PRODUCT_FAMILY,
+                    profile
+                        .product_family
+                        .as_ref()
+                        .is_some_and(|family| !family.as_str().is_empty()),
+                ),
+            ];
+
+            for (key, is_present) in named_attribute_keys {
+                if !is_present {
+                    continue;
+                }
+
+                let winning_custom_source = if role_attributes.contains_key(key) {
+                    Some("role")
+                } else if profile.attributes.contains_key(key) {
+                    Some("rack")
+                } else {
+                    None
+                };
+
+                if let Some(winning_custom_source) = winning_custom_source {
+                    tracing::warn!(
+                        rack_profile_id,
+                        role = role.descriptor_value(),
+                        attribute_key = key,
+                        overridden_source = winning_custom_source,
+                        winning_source = "named_field",
+                        "RMS node descriptor attribute is overridden"
+                    );
+                }
+            }
+        }
+    }
+}
+
 /// Builds firmware-object component filters for RMS node identities.
 ///
 /// The first tuple element contains compatibility filters keyed by legacy
@@ -191,16 +278,27 @@ fn node_identity_for_profile(
         return Err(NodeDescriptorError::MissingProductFamily);
     };
 
-    let Some(vendor) = vendor_for_role(profile, role) else {
+    let (vendor, role_attributes) = vendor_and_attributes_for_role(profile, role);
+
+    let Some(vendor) = vendor.map(str::trim).filter(|vendor| !vendor.is_empty()) else {
         return Err(NodeDescriptorError::VendorMissing { role: role.label() });
     };
 
+    // HashMap collection keeps the last value for duplicate keys. Iterator
+    // order therefore implements rack, role, then generated-field precedence
+    // while leaving custom keys and values unchanged.
     let node_descriptor = rms::NodeDescriptor {
-        attributes: HashMap::from([
-            (KEY_ROLE.to_string(), role.descriptor_value().to_string()),
-            (KEY_VENDOR.to_string(), vendor.to_string()),
-            (KEY_PRODUCT_FAMILY.to_string(), product_family.to_string()),
-        ]),
+        attributes: profile
+            .attributes
+            .iter()
+            .chain(role_attributes)
+            .map(|(key, value)| (key.to_owned(), value.to_owned()))
+            .chain([
+                (KEY_ROLE.to_string(), role.descriptor_value().to_string()),
+                (KEY_VENDOR.to_string(), vendor.to_string()),
+                (KEY_PRODUCT_FAMILY.to_string(), product_family.to_string()),
+            ])
+            .collect(),
     };
 
     let legacy_node_type = legacy_node_type(role, product_family, vendor);
@@ -248,14 +346,26 @@ fn legacy_node_type(
     }
 }
 
-fn vendor_for_role(profile: &RackProfile, role: RmsNodeRole) -> Option<&str> {
+// Keep the named vendor and custom attributes paired so validation, warning,
+// and descriptor construction all resolve the same capability block.
+fn vendor_and_attributes_for_role(
+    profile: &RackProfile,
+    role: RmsNodeRole,
+) -> (Option<&str>, &HashMap<String, String>) {
     match role {
-        RmsNodeRole::Compute => profile.rack_capabilities.compute.vendor.as_deref(),
-        RmsNodeRole::Switch => profile.rack_capabilities.switch.vendor.as_deref(),
-        RmsNodeRole::PowerShelf => profile.rack_capabilities.power_shelf.vendor.as_deref(),
+        RmsNodeRole::Compute => (
+            profile.rack_capabilities.compute.vendor.as_deref(),
+            &profile.rack_capabilities.compute.attributes,
+        ),
+        RmsNodeRole::Switch => (
+            profile.rack_capabilities.switch.vendor.as_deref(),
+            &profile.rack_capabilities.switch.attributes,
+        ),
+        RmsNodeRole::PowerShelf => (
+            profile.rack_capabilities.power_shelf.vendor.as_deref(),
+            &profile.rack_capabilities.power_shelf.attributes,
+        ),
     }
-    .map(str::trim)
-    .filter(|vendor| !vendor.is_empty())
 }
 
 fn normalize_descriptor_value(value: &str) -> String {
@@ -267,6 +377,7 @@ fn normalize_descriptor_value(value: &str) -> String {
 
 #[cfg(test)]
 mod tests {
+    use carbide_instrument::testing::capture_logs;
     use model::rack_type::{RackHardwareType, RackProductFamily};
 
     use super::*;
@@ -374,6 +485,186 @@ mod tests {
             identity.node_descriptor.attributes.get(KEY_PRODUCT_FAMILY),
             Some(&"gb300".to_string())
         );
+    }
+
+    #[test]
+    fn descriptor_attributes_follow_inheritance_precedence() {
+        type IdentityBuilder = fn(&RackProfile) -> Result<RmsNodeIdentity, NodeDescriptorError>;
+
+        let mut profile = profile_with_product_family(RackProductFamily::Gb300);
+
+        profile.attributes = HashMap::from([
+            (
+                "additional_attribute2".to_string(),
+                "  MiXeD-Value  ".to_string(),
+            ),
+            ("attribute1".to_string(), "rack-value".to_string()),
+            ("role".to_string(), "custom-role".to_string()),
+            ("vendor".to_string(), "custom-vendor".to_string()),
+            (
+                "product_family".to_string(),
+                "custom-product-family".to_string(),
+            ),
+        ]);
+
+        profile.rack_capabilities.compute.vendor = Some("NVIDIA".to_string());
+
+        profile.rack_capabilities.compute.attributes = HashMap::from([
+            ("attribute1".to_string(), "compute-value".to_string()),
+            ("role".to_string(), "custom-compute-role".to_string()),
+            ("vendor".to_string(), "custom-compute-vendor".to_string()),
+            (
+                "product_family".to_string(),
+                "custom-compute-family".to_string(),
+            ),
+        ]);
+
+        profile.rack_capabilities.switch.vendor = Some("NVIDIA".to_string());
+
+        profile.rack_capabilities.switch.attributes = HashMap::from([
+            ("attribute1".to_string(), "switch-value".to_string()),
+            ("role".to_string(), "custom-switch-role".to_string()),
+            ("vendor".to_string(), "custom-switch-vendor".to_string()),
+            (
+                "product_family".to_string(),
+                "custom-switch-family".to_string(),
+            ),
+        ]);
+
+        profile.rack_capabilities.power_shelf.vendor = Some("Delta".to_string());
+
+        profile.rack_capabilities.power_shelf.attributes = HashMap::from([
+            ("attribute1".to_string(), "power-shelf-value".to_string()),
+            ("role".to_string(), "custom-power-shelf-role".to_string()),
+            (
+                "vendor".to_string(),
+                "custom-power-shelf-vendor".to_string(),
+            ),
+            (
+                "product_family".to_string(),
+                "custom-power-shelf-family".to_string(),
+            ),
+        ]);
+
+        let cases: [(&str, &str, &str, IdentityBuilder); 3] = [
+            (
+                ROLE_COMPUTE,
+                "NVIDIA",
+                "compute-value",
+                compute_node_identity_for_profile,
+            ),
+            (
+                ROLE_SWITCH,
+                "NVIDIA",
+                "switch-value",
+                switch_node_identity_for_profile,
+            ),
+            (
+                ROLE_POWER_SHELF,
+                "Delta",
+                "power-shelf-value",
+                power_shelf_node_identity_for_profile,
+            ),
+        ];
+
+        for (expected_role, expected_vendor, expected_attribute1, build_identity) in cases {
+            let attributes = build_identity(&profile).unwrap().node_descriptor.attributes;
+
+            assert_eq!(
+                attributes.get("additional_attribute2").map(String::as_str),
+                Some("  MiXeD-Value  ")
+            );
+
+            assert_eq!(
+                attributes.get("attribute1").map(String::as_str),
+                Some(expected_attribute1)
+            );
+
+            assert_eq!(
+                attributes.get(KEY_ROLE).map(String::as_str),
+                Some(expected_role)
+            );
+
+            assert_eq!(
+                attributes.get(KEY_VENDOR).map(String::as_str),
+                Some(expected_vendor)
+            );
+
+            assert_eq!(
+                attributes.get(KEY_PRODUCT_FAMILY).map(String::as_str),
+                Some("gb300")
+            );
+        }
+    }
+
+    #[test]
+    fn attribute_collisions_emit_non_fatal_structured_warnings() {
+        let mut profile = RackProfile::default();
+        profile
+            .attributes
+            .insert("attribute1".to_string(), "rack-value".to_string());
+
+        profile
+            .rack_capabilities
+            .compute
+            .attributes
+            .extend(HashMap::from([
+                ("attribute1".to_string(), "compute-value".to_string()),
+                ("vendor".to_string(), "custom-vendor".to_string()),
+            ]));
+
+        profile.rack_capabilities.compute.vendor = Some("NVIDIA".to_string());
+
+        let config = RackProfileConfig {
+            rack_profiles: HashMap::from([("NVL72".to_string(), profile)]),
+        };
+
+        let logs = capture_logs(|| warn_rms_node_descriptor_attribute_overrides(&config));
+
+        assert_eq!(logs.len(), 2);
+
+        assert!(logs.iter().all(|log| {
+            log.level == tracing::Level::WARN
+                && log.message == "RMS node descriptor attribute is overridden"
+                && log.field("rack_profile_id") == Some("NVL72")
+                && log.field("role") == Some(ROLE_COMPUTE)
+        }));
+
+        assert!(logs.iter().any(|log| {
+            log.field("attribute_key") == Some("attribute1")
+                && log.field("overridden_source") == Some("rack")
+                && log.field("winning_source") == Some("role")
+        }));
+
+        assert!(logs.iter().any(|log| {
+            log.field("attribute_key") == Some(KEY_VENDOR)
+                && log.field("overridden_source") == Some("role")
+                && log.field("winning_source") == Some("named_field")
+        }));
+    }
+
+    #[test]
+    fn missing_named_fields_do_not_emit_override_warnings() {
+        let mut profile = RackProfile::default();
+
+        profile.attributes.insert(
+            KEY_PRODUCT_FAMILY.to_string(),
+            "custom-product-family".to_string(),
+        );
+
+        profile
+            .rack_capabilities
+            .compute
+            .attributes
+            .insert(KEY_VENDOR.to_string(), "custom-vendor".to_string());
+
+        let config = RackProfileConfig {
+            rack_profiles: HashMap::from([("NVL72".to_string(), profile)]),
+        };
+
+        let logs = capture_logs(|| warn_rms_node_descriptor_attribute_overrides(&config));
+
+        assert!(logs.is_empty(), "{logs:?}");
     }
 
     #[test]
@@ -551,6 +842,11 @@ mod tests {
 
         profile.rack_capabilities.compute.vendor = Some("test-compute-vendor".to_string());
 
+        profile.attributes.insert(
+            KEY_PRODUCT_FAMILY.to_string(),
+            "custom-product-family".to_string(),
+        );
+
         let err = compute_node_identity_for_profile(&profile);
 
         assert_eq!(err, Err(NodeDescriptorError::MissingProductFamily));
@@ -568,7 +864,12 @@ mod tests {
 
     #[test]
     fn identity_requires_role_vendor() {
-        let profile = profile_with_product_family(RackProductFamily::Gb200);
+        let mut profile = profile_with_product_family(RackProductFamily::Gb200);
+        profile
+            .rack_capabilities
+            .power_shelf
+            .attributes
+            .insert(KEY_VENDOR.to_string(), "custom-vendor".to_string());
 
         let err = power_shelf_node_identity_for_profile(&profile);
 

@@ -86,6 +86,104 @@ fn cap_chunk_size(page_size: usize, cap: usize) -> usize {
     }
 }
 
+/// Legacy BMC fields sent with a full `ExpectedMachine` update.
+///
+/// `patch_expected_machine` still fetches the current record so it can merge
+/// ordinary patch fields. These two fields need their own rules because the API
+/// uses their presence to distinguish a legacy `--bmc-*` override from the
+/// canonical `HostBmc` entry in `interfaces`.
+#[derive(Clone, Debug, PartialEq)]
+struct LegacyBmcPatchFields {
+    bmc_ip_address: Option<String>,
+    bmc_ip_allocation: Option<i32>,
+}
+
+/// `replacement_has_effective_host_bmc` resolves an omitted role the same way
+/// the update API does before deciding whether top-level BMC fields are legacy
+/// overrides. Otherwise a matching stored `HostBmc` is hidden at this point,
+/// and replaying the compatibility fields would overwrite its nested changes.
+fn replacement_has_effective_host_bmc(
+    existing: &rpc::ExpectedMachine,
+    replacement_interfaces: &[rpc::ExpectedInterface],
+) -> bool {
+    let existing_bmc_mac = existing.bmc_mac_address.parse::<MacAddress>().ok();
+
+    replacement_interfaces
+        .iter()
+        .enumerate()
+        .any(|(index, replacement)| {
+            if let Some(role) = replacement.role {
+                return rpc::ExpectedInterfaceRole::try_from(role).ok()
+                    == Some(rpc::ExpectedInterfaceRole::HostBmc);
+            }
+
+            let Ok(mac_address) = replacement.mac_address.parse::<MacAddress>() else {
+                return false;
+            };
+            let existing_interface = existing
+                .interfaces()
+                .get(index)
+                .filter(|candidate| {
+                    candidate.mac_address.parse::<MacAddress>().ok() == Some(mac_address)
+                })
+                .or_else(|| {
+                    existing.interfaces().iter().find(|candidate| {
+                        candidate.mac_address.parse::<MacAddress>().ok() == Some(mac_address)
+                    })
+                });
+
+            match existing_interface {
+                Some(existing_interface) => {
+                    existing_interface
+                        .role
+                        .and_then(|role| rpc::ExpectedInterfaceRole::try_from(role).ok())
+                        == Some(rpc::ExpectedInterfaceRole::HostBmc)
+                }
+                None => existing_bmc_mac == Some(mac_address),
+            }
+        })
+}
+
+/// `legacy_bmc_patch_fields` keeps old patch behavior unless the caller
+/// supplies a `HostBmc` replacement or an explicit legacy override.
+///
+/// `Dynamic` and `Retained` use an empty address as an explicit clear. A
+/// missing protobuf string cannot express that on a full update because it also
+/// means the legacy flag was omitted.
+fn legacy_bmc_patch_fields(
+    existing: &rpc::ExpectedMachine,
+    bmc_ip_address_override: Option<String>,
+    bmc_ip_allocation_override: Option<rpc::BmcIpAllocationType>,
+    replacement_interfaces: Option<&[rpc::ExpectedInterface]>,
+) -> LegacyBmcPatchFields {
+    let replaces_host_bmc = replacement_interfaces
+        .is_some_and(|interfaces| replacement_has_effective_host_bmc(existing, interfaces));
+
+    let clears_fixed_ip = bmc_ip_allocation_override.is_some_and(|allocation| {
+        matches!(
+            allocation,
+            rpc::BmcIpAllocationType::Dynamic | rpc::BmcIpAllocationType::Retained
+        )
+    });
+
+    let bmc_ip_address = match bmc_ip_address_override {
+        Some(bmc_ip_address) => Some(bmc_ip_address),
+        None if clears_fixed_ip => Some(String::new()),
+        None if replaces_host_bmc => None,
+        None => existing.bmc_ip_address.clone(),
+    };
+    let bmc_ip_allocation = match bmc_ip_allocation_override {
+        Some(allocation) => Some(allocation as i32),
+        None if replaces_host_bmc => None,
+        None => existing.bmc_ip_allocation,
+    };
+
+    LegacyBmcPatchFields {
+        bmc_ip_address,
+        bmc_ip_allocation,
+    }
+}
+
 // Benchmarks showed 4 had better overall performance while still overlapping page fetch latency.
 const PAGED_LIST_FETCH_CONCURRENCY: usize = 4;
 
@@ -372,6 +470,10 @@ impl ApiClient {
                 rack_id: Some(rack_id),
             })
             .await?)
+    }
+
+    pub async fn list_rack_profiles(&self) -> CarbideCliResult<rpc::ListRackProfilesResponse> {
+        Ok(self.0.list_rack_profiles().await?)
     }
 
     async fn get_rack_ids(&self) -> CarbideCliResult<rpc::RackIdList> {
@@ -833,7 +935,7 @@ impl ApiClient {
         dpu_policy: Option<HostDpuPolicy>,
         bmc_ip_allocation: Option<::rpc::forge::BmcIpAllocationType>,
         host_lifecycle_profile: Option<::rpc::forge::HostLifecycleProfile>,
-        host_nics: Option<String>,
+        interfaces: Option<String>,
     ) -> Result<(), CarbideCliError> {
         let get_req = match (bmc_mac_address, id) {
             (Some(_), Some(_)) => {
@@ -858,6 +960,16 @@ impl ApiClient {
         let mac_str = bmc_mac_address
             .map(|m| m.to_string())
             .unwrap_or(expected_machine.bmc_mac_address.clone());
+        let parsed_interfaces = interfaces
+            .map(|s| serde_json::from_str::<Vec<rpc::ExpectedInterface>>(&s))
+            .transpose()?;
+        let replace_interfaces = parsed_interfaces.is_some();
+        let legacy_bmc_fields = legacy_bmc_patch_fields(
+            &expected_machine,
+            bmc_ip_address,
+            bmc_ip_allocation,
+            parsed_interfaces.as_deref(),
+        );
 
         // Merge metadata fields individually
         let merged_metadata =
@@ -905,26 +1017,21 @@ impl ApiClient {
             metadata: merged_metadata,
             sku_id: sku_id.or(expected_machine.sku_id),
             id: expected_machine.id,
-            host_nics: host_nics
-                .map(|s| serde_json::from_str::<Vec<rpc::ExpectedHostNic>>(&s))
-                .transpose()?
-                .unwrap_or(expected_machine.host_nics),
+            host_nics: parsed_interfaces.unwrap_or(expected_machine.host_nics),
             rack_id: rack_id.or(expected_machine.rack_id),
-            default_pause_ingestion_and_poweron,
+            default_pause_ingestion_and_poweron: default_pause_ingestion_and_poweron
+                .or(expected_machine.default_pause_ingestion_and_poweron),
             #[allow(deprecated)]
             dpf_enabled: dpf_enabled.unwrap_or(true),
             is_dpf_enabled: dpf_enabled,
-            bmc_ip_address: bmc_ip_address.or(expected_machine.bmc_ip_address),
+            bmc_ip_address: legacy_bmc_fields.bmc_ip_address,
             bmc_retain_credentials: bmc_retain_credentials
                 .or(expected_machine.bmc_retain_credentials),
             dpu_mode: dpu_policy
                 .map(|policy| ::rpc::forge::DpuMode::from(policy) as i32)
                 .or(expected_machine.dpu_mode),
-            // Use the flag value if given, else preserve the stored per-host
-            // value (patch semantics).
-            bmc_ip_allocation: bmc_ip_allocation
-                .map(|m| m as i32)
-                .or(expected_machine.bmc_ip_allocation),
+            bmc_ip_allocation: legacy_bmc_fields.bmc_ip_allocation,
+            replace_host_nics: replace_interfaces,
             host_lifecycle_profile: host_lifecycle_profile
                 .or(expected_machine.host_lifecycle_profile),
         };
@@ -954,7 +1061,7 @@ impl ApiClient {
                         .unwrap_or_default(),
                     metadata: machine.metadata,
                     sku_id: machine.sku_id,
-                    host_nics: machine.host_nics,
+                    host_nics: machine.interfaces.unwrap_or_default(),
                     rack_id: machine.rack_id,
                     default_pause_ingestion_and_poweron: machine
                         .default_pause_ingestion_and_poweron,
@@ -964,6 +1071,9 @@ impl ApiClient {
                     bmc_ip_address: machine.bmc_ip_address,
                     bmc_retain_credentials: machine.bmc_retain_credentials,
                     bmc_ip_allocation: machine.bmc_ip_allocation.map(|m| m as i32),
+                    // replace-all is authoritative even when the JSON field is
+                    // omitted and therefore resolves to an empty list.
+                    replace_host_nics: true,
                     host_lifecycle_profile: machine.host_lifecycle_profile.map(|hlp| {
                         ::rpc::forge::HostLifecycleProfile {
                             disable_lockdown: hlp.disable_lockdown,
@@ -1132,6 +1242,7 @@ impl ApiClient {
             .create_vpc(VpcCreationRequest {
                 vni: None,
                 routing_profile_type: None,
+                routing_profile_overrides: None,
                 tenant_organization_id: "devenv_test_org".to_string(),
                 tenant_keyset_id: None,
                 network_virtualization_type: Some(
@@ -1190,6 +1301,7 @@ impl ApiClient {
             .create_vpc(VpcCreationRequest {
                 vni: None,
                 routing_profile_type: None,
+                routing_profile_overrides: None,
                 tenant_organization_id: "devenv_test_org".to_string(),
                 tenant_keyset_id: None,
                 network_virtualization_type: Some(VpcVirtualizationType::Flat.into()),
@@ -2137,6 +2249,7 @@ impl ApiClient {
             metadata,
             network_security_group_id,
             default_nvlink_logical_partition_id: None,
+            routing_profile_overrides: None,
         };
         self.0
             .update_vpc(request)
@@ -2695,7 +2808,29 @@ impl ApiClient {
 
 #[cfg(test)]
 mod tests {
-    use super::{cap_chunk_size, maybe_unimplemented};
+    use carbide_test_support::{Check, check_values};
+
+    use super::{
+        LegacyBmcPatchFields, cap_chunk_size, legacy_bmc_patch_fields, maybe_unimplemented, rpc,
+    };
+
+    /// Inputs that differ across the `legacy_bmc_patch_fields` table.
+    #[derive(Debug)]
+    struct LegacyBmcPatchCase {
+        bmc_ip_address_override: Option<String>,
+        bmc_ip_allocation_override: Option<rpc::BmcIpAllocationType>,
+        replacement_interfaces: Option<Vec<rpc::ExpectedInterface>>,
+    }
+
+    /// Builds the smallest protobuf interface needed by the patch-field table.
+    fn expected_interface(role: rpc::ExpectedInterfaceRole) -> rpc::ExpectedInterface {
+        rpc::ExpectedInterface {
+            mac_address: "00:11:22:33:44:55".to_string(),
+            role: Some(role as i32),
+            ip_allocation: Some(rpc::ExpectedInterfaceIpAllocation::Dynamic as i32),
+            ..Default::default()
+        }
+    }
 
     /// `PermissionDenied` must trigger the deprecated-alias fallback: servers
     /// that predate a renamed RPC reject its unknown method name with a bare
@@ -2735,5 +2870,138 @@ mod tests {
         assert_eq!(cap_chunk_size(100, 500), 100);
         // Equal is a no-op.
         assert_eq!(cap_chunk_size(100, 100), 100);
+    }
+
+    /// Patch inputs retain omission, override, and explicit-clear semantics
+    /// before the CLI sends its full-update request.
+    #[test]
+    fn legacy_bmc_patch_fields_preserve_presence_and_clear_semantics() {
+        use rpc::{BmcIpAllocationType as LegacyAllocation, ExpectedInterfaceRole as Role};
+
+        let existing = rpc::ExpectedMachine {
+            bmc_mac_address: "00:11:22:33:44:55".to_string(),
+            bmc_ip_address: Some("192.0.2.20".to_string()),
+            bmc_ip_allocation: Some(LegacyAllocation::Fixed as i32),
+            host_nics: vec![rpc::ExpectedInterface {
+                fixed_ip: Some("192.0.2.20".to_string()),
+                ip_allocation: None,
+                ..expected_interface(Role::HostBmc)
+            }],
+            ..Default::default()
+        };
+        let expected_existing = LegacyBmcPatchFields {
+            bmc_ip_address: existing.bmc_ip_address.clone(),
+            bmc_ip_allocation: existing.bmc_ip_allocation,
+        };
+
+        check_values(
+            [
+                Check {
+                    scenario: "an unrelated patch preserves both compatibility fields",
+                    input: LegacyBmcPatchCase {
+                        bmc_ip_address_override: None,
+                        bmc_ip_allocation_override: None,
+                        replacement_interfaces: None,
+                    },
+                    expect: expected_existing.clone(),
+                },
+                Check {
+                    scenario: "a replacement without HostBmc preserves both compatibility fields",
+                    input: LegacyBmcPatchCase {
+                        bmc_ip_address_override: None,
+                        bmc_ip_allocation_override: None,
+                        replacement_interfaces: Some(vec![expected_interface(Role::Host)]),
+                    },
+                    expect: expected_existing,
+                },
+                Check {
+                    scenario: "a HostBmc replacement omits both compatibility fields",
+                    input: LegacyBmcPatchCase {
+                        bmc_ip_address_override: None,
+                        bmc_ip_allocation_override: None,
+                        replacement_interfaces: Some(vec![expected_interface(Role::HostBmc)]),
+                    },
+                    expect: LegacyBmcPatchFields {
+                        bmc_ip_address: None,
+                        bmc_ip_allocation: None,
+                    },
+                },
+                Check {
+                    scenario: "an omitted HostBmc role can reset to inferred allocation",
+                    input: LegacyBmcPatchCase {
+                        bmc_ip_address_override: None,
+                        bmc_ip_allocation_override: None,
+                        replacement_interfaces: Some(vec![rpc::ExpectedInterface {
+                            role: None,
+                            fixed_ip: None,
+                            ip_allocation: Some(
+                                rpc::ExpectedInterfaceIpAllocation::Unspecified as i32,
+                            ),
+                            ..expected_interface(Role::HostBmc)
+                        }]),
+                    },
+                    expect: LegacyBmcPatchFields {
+                        bmc_ip_address: None,
+                        bmc_ip_allocation: None,
+                    },
+                },
+                Check {
+                    scenario: "explicit compatibility fields override HostBmc",
+                    input: LegacyBmcPatchCase {
+                        bmc_ip_address_override: Some("192.0.2.40".to_string()),
+                        bmc_ip_allocation_override: Some(LegacyAllocation::Fixed),
+                        replacement_interfaces: Some(vec![expected_interface(Role::HostBmc)]),
+                    },
+                    expect: LegacyBmcPatchFields {
+                        bmc_ip_address: Some("192.0.2.40".to_string()),
+                        bmc_ip_allocation: Some(LegacyAllocation::Fixed as i32),
+                    },
+                },
+                Check {
+                    scenario: "an explicit dynamic policy clears the compatibility address",
+                    input: LegacyBmcPatchCase {
+                        bmc_ip_address_override: None,
+                        bmc_ip_allocation_override: Some(LegacyAllocation::Dynamic),
+                        replacement_interfaces: None,
+                    },
+                    expect: LegacyBmcPatchFields {
+                        bmc_ip_address: Some(String::new()),
+                        bmc_ip_allocation: Some(LegacyAllocation::Dynamic as i32),
+                    },
+                },
+                Check {
+                    scenario: "an explicit retained policy clears the compatibility address",
+                    input: LegacyBmcPatchCase {
+                        bmc_ip_address_override: None,
+                        bmc_ip_allocation_override: Some(LegacyAllocation::Retained),
+                        replacement_interfaces: None,
+                    },
+                    expect: LegacyBmcPatchFields {
+                        bmc_ip_address: Some(String::new()),
+                        bmc_ip_allocation: Some(LegacyAllocation::Retained as i32),
+                    },
+                },
+                Check {
+                    scenario: "an explicit address keeps the stored compatibility policy",
+                    input: LegacyBmcPatchCase {
+                        bmc_ip_address_override: Some("192.0.2.40".to_string()),
+                        bmc_ip_allocation_override: None,
+                        replacement_interfaces: None,
+                    },
+                    expect: LegacyBmcPatchFields {
+                        bmc_ip_address: Some("192.0.2.40".to_string()),
+                        bmc_ip_allocation: Some(LegacyAllocation::Fixed as i32),
+                    },
+                },
+            ],
+            |case| {
+                legacy_bmc_patch_fields(
+                    &existing,
+                    case.bmc_ip_address_override,
+                    case.bmc_ip_allocation_override,
+                    case.replacement_interfaces.as_deref(),
+                )
+            },
+        );
     }
 }

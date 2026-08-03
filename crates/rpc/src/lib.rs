@@ -28,6 +28,8 @@ use std::pin::Pin;
 use std::str::FromStr;
 
 use chrono::{DateTime, Utc};
+#[doc(hidden)]
+pub use const_format;
 use dns_record::DnsResourceRecordReply;
 use errors::RpcDataConversionError;
 use mac_address::{MacAddress, MacParseError};
@@ -37,6 +39,20 @@ use serde_json::{Value, json};
 use tokio_stream::Stream;
 
 use crate::forge_agent_control_response::LegacyAction;
+
+/// Returns the compile-time gRPC path for a Forge service method.
+#[macro_export]
+macro_rules! service_path {
+    ($method:literal) => {
+        $crate::const_format::concatcp!(
+            "/",
+            $crate::forge::forge_server::SERVICE_NAME,
+            "/",
+            $method
+        )
+    };
+}
+
 pub use crate::protos::common::{self, Uuid};
 pub use crate::protos::dns::{self};
 pub use crate::protos::forge::machine_credentials_update_request::CredentialPurpose;
@@ -613,6 +629,7 @@ impl forge::ExpectedInterfaceRole {
                     "host" | "expected_interface_role_host" => Self::Host,
                     "dpu_os" | "dpuos" | "expected_interface_role_dpu_os" => Self::DpuOs,
                     "dpu_bmc" | "dpubmc" | "expected_interface_role_dpu_bmc" => Self::DpuBmc,
+                    "host_bmc" | "hostbmc" | "expected_interface_role_host_bmc" => Self::HostBmc,
                     _ => {
                         return Err(serde::de::Error::custom(format!(
                             "unknown expected interface role {name:?}"
@@ -641,6 +658,7 @@ impl forge::ExpectedInterfaceRole {
             Self::Host => "host",
             Self::DpuOs => "dpu_os",
             Self::DpuBmc => "dpu_bmc",
+            Self::HostBmc => "host_bmc",
         })
     }
 }
@@ -1062,7 +1080,9 @@ impl clap::ValueEnum for forge::RouteServerSourceType {
 mod tests {
     use std::time::Duration;
 
+    use carbide_uuid::device::DeviceId;
     use carbide_uuid::machine::MachineId;
+    use carbide_uuid::switch::SwitchId;
 
     use self::forge::instance_operating_system_config::Variant;
     use self::forge::{InlineIpxe, InstanceOperatingSystemConfig};
@@ -1177,5 +1197,22 @@ mod tests {
         assert_eq!(decoded.address_family, Some(2));
         assert_eq!(decoded.message_kind, Some(2));
         assert_eq!(decoded.duid, Some(vec![0, 1, 0, 1, 0xaa, 0xbb]));
+    }
+
+    #[test]
+    fn bmc_rotation_request_round_trips_the_shared_device_id() {
+        let switch_id =
+            SwitchId::from_str("sw100nt038bg3qsho433vkg684heguv282qaggmrsh2ugn1qk096n2c6hcg")
+                .unwrap();
+        let request = forge::BmcCredentialRotationRequest {
+            mode: forge::bmc_credential_rotation_request::Mode::Clear as i32,
+            bmc_mac: None,
+            device_id: Some(DeviceId::Switch(switch_id)),
+        };
+
+        let decoded =
+            forge::BmcCredentialRotationRequest::decode(request.encode_to_vec().as_slice())
+                .unwrap();
+        assert_eq!(decoded.device_id, Some(DeviceId::Switch(switch_id)));
     }
 }

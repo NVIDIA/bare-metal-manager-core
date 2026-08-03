@@ -28,7 +28,6 @@ async fn test_machine_metadata(pool: sqlx::PgPool) -> Result<(), Box<dyn std::er
 
     let host_machine = mh.host().rpc_machine().await;
     let version1: config_version::ConfigVersion = host_machine.version.parse().unwrap();
-    assert_eq!(version1.version_nr(), 1);
 
     let expected_metadata = rpc::forge::Metadata {
         name: host_machine.id.as_ref().unwrap().to_string(),
@@ -80,7 +79,7 @@ async fn test_machine_metadata(pool: sqlx::PgPool) -> Result<(), Box<dyn std::er
 
     let mut host_machine = mh.host().rpc_machine().await;
     let version2: config_version::ConfigVersion = host_machine.version.parse().unwrap();
-    assert_eq!(version2.version_nr(), 2);
+    assert_eq!(version2.version_nr(), version1.version_nr() + 1);
     host_machine
         .metadata
         .as_mut()
@@ -130,7 +129,7 @@ async fn test_machine_metadata(pool: sqlx::PgPool) -> Result<(), Box<dyn std::er
 
     let mut host_machine = mh.host().rpc_machine().await;
     let version3: config_version::ConfigVersion = host_machine.version.parse().unwrap();
-    assert_eq!(version3.version_nr(), 3);
+    assert_eq!(version3.version_nr(), version2.version_nr() + 1);
     host_machine
         .metadata
         .as_mut()

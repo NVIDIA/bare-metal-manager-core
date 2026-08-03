@@ -1685,6 +1685,18 @@ async fn update_instance_extension_services_config(
         return Err(ConfigValidationError::InstanceDeletionIsRequested.into());
     }
 
+    if mh_snapshot.host_snapshot.config.dpf.used_for_ingestion
+        && instance
+            .config
+            .extension_services
+            .has_new_active_services(extension_services)
+    {
+        return Err(CarbideError::FailedPrecondition(format!(
+            "DPU extension services are not supported on DPF-managed host {}",
+            mh_snapshot.host_snapshot.id
+        )));
+    }
+
     // Calculate the new extension services config.
     let new_extension_services_config = instance
         .config

@@ -556,6 +556,7 @@ pub async fn start(cmdline: command_line::Options) -> eyre::Result<()> {
                     use_admin_network: true,
                     tenancy_enabled: true,
                     loopback_ip: opts.loopback_ip,
+                    loopback_ip_v6: opts.loopback_ip_v6,
                     secondary_overlay_vtep_ip: opts.secondary_overlay_vtep_ip,
                     internal_bridge_routing_prefix: opts.internal_bridge_routing_prefix,
                     vf_intercept_bridge_port_name: opts.vf_intercept_bridge_port_name,

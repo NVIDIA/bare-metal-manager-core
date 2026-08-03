@@ -21,7 +21,8 @@ use carbide_uuid::network_security_group::NetworkSecurityGroupIdParseError;
 use config_version::ConfigVersion;
 use model::metadata::{LabelFilter, Metadata};
 use model::vpc::{
-    NewVpc, UpdateVpc, UpdateVpcVirtualization, Vpc, VpcPeering, VpcSearchFilter, VpcStatus,
+    NewVpc, PrefixFilterPolicyEntry, RouteTargetConfig, UpdateVpc, UpdateVpcVirtualization, Vpc,
+    VpcPeering, VpcRoutingProfileOverrides, VpcSearchFilter, VpcStatus,
 };
 
 use crate as rpc;
@@ -48,6 +49,7 @@ impl From<Vpc> for rpc::forge::Vpc {
             .config
             .network_security_group_id
             .map(|nsg_id| nsg_id.to_string());
+        let routing_profile_overrides = src.config.routing_profile_overrides.map(Into::into);
         let metadata = Some(rpc::Metadata {
             name: src.metadata.name,
             description: src.metadata.description,
@@ -78,6 +80,7 @@ impl From<Vpc> for rpc::forge::Vpc {
                 default_nvlink_logical_partition_id: src.config.default_nvlink_logical_partition_id,
                 vni: desired_vni,
                 routing_profile_type: src.config.routing_profile_type.clone(),
+                routing_profile_overrides,
             }),
             status: Some(rpc::forge::VpcStatus::from(src.status)),
 
@@ -100,6 +103,120 @@ impl From<VpcStatus> for rpc::forge::VpcStatus {
         rpc::forge::VpcStatus {
             // This is the pattern we have elsewhere because a VNI should never be negative.
             vni: src.vni.map(|x| x as u32),
+            // The API handler resolves this from the current runtime config.
+            effective_routing_profile: None,
+        }
+    }
+}
+
+impl TryFrom<rpc::forge::VpcRoutingProfileOverrides> for VpcRoutingProfileOverrides {
+    type Error = RpcDataConversionError;
+
+    fn try_from(profile: rpc::forge::VpcRoutingProfileOverrides) -> Result<Self, Self::Error> {
+        Ok(Self {
+            route_target_imports: profile.route_target_imports.map(|targets| {
+                targets
+                    .values
+                    .into_iter()
+                    .map(|target| RouteTargetConfig {
+                        asn: target.asn,
+                        vni: target.vni,
+                    })
+                    .collect()
+            }),
+            route_targets_on_exports: profile.route_targets_on_exports.map(|targets| {
+                targets
+                    .values
+                    .into_iter()
+                    .map(|target| RouteTargetConfig {
+                        asn: target.asn,
+                        vni: target.vni,
+                    })
+                    .collect()
+            }),
+            leak_default_route_from_underlay: profile.leak_default_route_from_underlay,
+            leak_tenant_host_routes_to_underlay: profile.leak_tenant_host_routes_to_underlay,
+            tenant_leak_communities_accepted: profile.tenant_leak_communities_accepted,
+            accepted_leaks_from_underlay: profile
+                .accepted_leaks_from_underlay
+                .map(|entries| {
+                    entries
+                        .values
+                        .into_iter()
+                        .map(|entry| {
+                            Ok(PrefixFilterPolicyEntry {
+                                prefix: entry.prefix.parse()?,
+                            })
+                        })
+                        .collect::<Result<Vec<_>, RpcDataConversionError>>()
+                })
+                .transpose()?,
+            allowed_anycast_prefixes: profile
+                .allowed_anycast_prefixes
+                .map(|entries| {
+                    entries
+                        .values
+                        .into_iter()
+                        .map(|entry| {
+                            Ok(PrefixFilterPolicyEntry {
+                                prefix: entry.prefix.parse()?,
+                            })
+                        })
+                        .collect::<Result<Vec<_>, RpcDataConversionError>>()
+                })
+                .transpose()?,
+        })
+    }
+}
+
+impl From<VpcRoutingProfileOverrides> for rpc::forge::VpcRoutingProfileOverrides {
+    fn from(profile: VpcRoutingProfileOverrides) -> Self {
+        Self {
+            route_target_imports: profile.route_target_imports.map(|targets| {
+                rpc::common::RouteTargets {
+                    values: targets
+                        .into_iter()
+                        .map(|target| rpc::common::RouteTarget {
+                            asn: target.asn,
+                            vni: target.vni,
+                        })
+                        .collect(),
+                }
+            }),
+            route_targets_on_exports: profile.route_targets_on_exports.map(|targets| {
+                rpc::common::RouteTargets {
+                    values: targets
+                        .into_iter()
+                        .map(|target| rpc::common::RouteTarget {
+                            asn: target.asn,
+                            vni: target.vni,
+                        })
+                        .collect(),
+                }
+            }),
+            leak_default_route_from_underlay: profile.leak_default_route_from_underlay,
+            leak_tenant_host_routes_to_underlay: profile.leak_tenant_host_routes_to_underlay,
+            tenant_leak_communities_accepted: profile.tenant_leak_communities_accepted,
+            accepted_leaks_from_underlay: profile.accepted_leaks_from_underlay.map(|entries| {
+                rpc::forge::PrefixFilterPolicyEntries {
+                    values: entries
+                        .into_iter()
+                        .map(|entry| rpc::forge::PrefixFilterPolicyEntry {
+                            prefix: entry.prefix.to_string(),
+                        })
+                        .collect(),
+                }
+            }),
+            allowed_anycast_prefixes: profile.allowed_anycast_prefixes.map(|entries| {
+                rpc::forge::PrefixFilterPolicyEntries {
+                    values: entries
+                        .into_iter()
+                        .map(|entry| rpc::forge::PrefixFilterPolicyEntry {
+                            prefix: entry.prefix.to_string(),
+                        })
+                        .collect(),
+                }
+            }),
         }
     }
 }
@@ -145,6 +262,10 @@ impl TryFrom<rpc::forge::VpcCreationRequest> for NewVpc {
                     RpcDataConversionError::InvalidNetworkSecurityGroupId(e.value())
                 })?,
             routing_profile_type: None,
+            routing_profile_overrides: value
+                .routing_profile_overrides
+                .map(TryInto::try_into)
+                .transpose()?,
             network_virtualization_type: virt_type,
             metadata,
         })
@@ -183,6 +304,10 @@ impl TryFrom<rpc::forge::VpcUpdateRequest> for UpdateVpc {
                 .map_err(|e: NetworkSecurityGroupIdParseError| {
                     RpcDataConversionError::InvalidNetworkSecurityGroupId(e.value())
                 })?,
+            routing_profile_overrides: value
+                .routing_profile_overrides
+                .map(TryInto::try_into)
+                .transpose()?,
             if_version_match,
             metadata,
         })
@@ -267,6 +392,7 @@ mod tests {
                 default_nvlink_logical_partition_id: None,
                 vni: Some(42),
                 routing_profile_type: Some("EXTERNAL".to_string()),
+                routing_profile_overrides: None,
             },
             status: VpcStatus { vni: Some(100) },
             metadata: Metadata::new_with_default_name(),

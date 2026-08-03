@@ -308,6 +308,31 @@ impl From<&rpc::FlatInterfaceRoutingProfile> for nvue::InterfaceRoutingProfile {
     }
 }
 
+/// `parse_managed_host_loopback_ips` types the string-valued RPC fields before
+/// NVUE rendering. In particular, parsing `loopback_ip_v6` as `Ipv6Addr` keeps
+/// an IPv4 value from slipping through just because protobuf stores it as a
+/// string.
+fn parse_managed_host_loopback_ips(
+    config: &rpc::ManagedHostNetworkConfig,
+) -> eyre::Result<(IpAddr, Option<Ipv6Addr>)> {
+    if config.loopback_ip.is_empty() {
+        return Err(eyre::eyre!("missing loopback IP"));
+    }
+
+    let loopback_ip = config
+        .loopback_ip
+        .parse()
+        .wrap_err_with(|| format!("invalid primary loopback IP: {}", config.loopback_ip))?;
+    let loopback_ip_v6 = config
+        .loopback_ip_v6
+        .as_deref()
+        .map(str::parse)
+        .transpose()
+        .wrap_err("invalid IPv6 loopback IP")?;
+
+    Ok((loopback_ip, loopback_ip_v6))
+}
+
 /// Update the NVUE network config. Returns Ok(true) if the configuration changed, and
 /// Ok(false) if not.
 pub async fn update_nvue(
@@ -326,18 +351,11 @@ pub async fn update_nvue(
             .and_then(|build_value| hbn::parse_nvue_build_as_hbn_version(&build_value))?,
     };
 
-    let l_ip_str = match &nc.managed_host_config {
-        None => {
-            return Err(eyre::eyre!("missing managed_host_config in response"));
-        }
-        Some(cfg) => {
-            if cfg.loopback_ip.is_empty() {
-                return Err(eyre::eyre!("missing loopback IP"));
-            }
-            &cfg.loopback_ip
-        }
-    };
-    let loopback_ip = l_ip_str.parse().wrap_err_with(|| l_ip_str.clone())?;
+    let managed_host_config = nc
+        .managed_host_config
+        .as_ref()
+        .ok_or_else(|| eyre::eyre!("missing managed_host_config in response"))?;
+    let (loopback_ip, loopback_ip_v6) = parse_managed_host_loopback_ips(managed_host_config)?;
 
     let access_vlans = if nc.use_admin_network {
         let admin_interface = nc
@@ -588,6 +606,7 @@ pub async fn update_nvue(
         use_admin_network: nc.use_admin_network,
         tenancy_enabled,
         loopback_ip,
+        loopback_ip_v6,
         vf_intercept_bridge_port_name: nc.traffic_intercept_config.as_ref().and_then(|vc| {
             vc.bridging
                 .as_ref()
@@ -1985,6 +2004,58 @@ mod tests {
     }
 
     #[test]
+    fn test_parse_managed_host_loopback_ips() {
+        use carbide_test_support::Outcome::*;
+        use carbide_test_support::scenarios;
+
+        scenarios!(run = |config: rpc::ManagedHostNetworkConfig| {
+            parse_managed_host_loopback_ips(&config).map_err(drop)
+        };
+            "valid wire values" {
+                rpc::ManagedHostNetworkConfig {
+                    loopback_ip: "10.0.0.1".to_string(),
+                    loopback_ip_v6: None,
+                    quarantine_state: None,
+                } => Yields(("10.0.0.1".parse().unwrap(), None)),
+                rpc::ManagedHostNetworkConfig {
+                    loopback_ip: "10.0.0.1".to_string(),
+                    loopback_ip_v6: Some("2001:db8::1".to_string()),
+                    quarantine_state: None,
+                } => Yields((
+                    "10.0.0.1".parse().unwrap(),
+                    Some("2001:db8::1".parse().unwrap()),
+                )),
+            }
+
+            "invalid IPv6 wire value" {
+                rpc::ManagedHostNetworkConfig {
+                    loopback_ip: "10.0.0.1".to_string(),
+                    loopback_ip_v6: Some("not-an-ipv6-address".to_string()),
+                    quarantine_state: None,
+                } => Fails,
+                rpc::ManagedHostNetworkConfig {
+                    loopback_ip: "10.0.0.1".to_string(),
+                    loopback_ip_v6: Some("192.0.2.1".to_string()),
+                    quarantine_state: None,
+                } => Fails,
+            }
+
+            "invalid primary loopback" {
+                rpc::ManagedHostNetworkConfig {
+                    loopback_ip: String::new(),
+                    loopback_ip_v6: None,
+                    quarantine_state: None,
+                } => Fails,
+                rpc::ManagedHostNetworkConfig {
+                    loopback_ip: "not-an-ip-address".to_string(),
+                    loopback_ip_v6: None,
+                    quarantine_state: None,
+                } => Fails,
+            }
+        );
+    }
+
+    #[test]
     fn test_build_dhcp_ntp_servers() {
         let service_addrs = ServiceAddresses {
             pxe_ips: vec![],
@@ -2950,6 +3021,7 @@ mod tests {
 
         let netconf = rpc::ManagedHostNetworkConfig {
             loopback_ip: "10.217.5.39".to_string(),
+            loopback_ip_v6: None,
             quarantine_state: None,
         };
         rpc::ManagedHostNetworkConfigResponse {
@@ -3209,6 +3281,7 @@ mod tests {
             tenancy_enabled: true,
             site_global_vpc_vni: None,
             loopback_ip: "10.217.5.39".parse().unwrap(),
+            loopback_ip_v6: None,
             secondary_overlay_vtep_ip: Some("10.255.254.253".parse().unwrap()),
             internal_bridge_routing_prefix: Some("10.255.255.0/29".parse().unwrap()),
             vf_intercept_bridge_port_name: Some("pfdpu0".to_string()),
@@ -3482,6 +3555,7 @@ mod tests {
 
         let netconf = rpc::ManagedHostNetworkConfig {
             loopback_ip: "10.217.5.39".to_string(),
+            loopback_ip_v6: None,
             quarantine_state: None,
         };
 
@@ -3723,6 +3797,7 @@ mod tests {
     fn test_dhcp_server_config_errors_without_ipv4_pxe() -> Result<(), Box<dyn std::error::Error>> {
         let netconf = rpc::ManagedHostNetworkConfig {
             loopback_ip: "10.217.5.39".to_string(),
+            loopback_ip_v6: None,
             quarantine_state: None,
         };
         let network_config = rpc::ManagedHostNetworkConfigResponse {

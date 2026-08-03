@@ -22,6 +22,7 @@
 pub mod attestation;
 pub mod bmc_metadata;
 pub mod bmc_redfish_session;
+pub mod bmc_suppression;
 pub mod carbide_version;
 pub mod compute_allocation;
 pub mod credential_rotation;
@@ -54,6 +55,7 @@ pub mod instance_type;
 pub mod ip_allocator;
 pub mod machine;
 pub mod machine_boot_override;
+pub mod machine_desired_boot_interface;
 pub mod machine_interface;
 pub mod machine_interface_address;
 pub mod machine_topology;

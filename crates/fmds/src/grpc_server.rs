@@ -34,44 +34,32 @@ impl FmdsGrpcServer {
     }
 }
 
-/// `ConfigUpdateIngestSucceeded` keeps the agent address on accepted updates.
-/// Rejections use `ConfigUpdateIngested` below, which retains the existing
-/// Event identity and error-only log fields.
-#[derive(Event)]
-#[event(
-    event_name = "fmds_config_update_ingest_succeeded",
-    metric_name = "carbide_fmds_config_updates_total",
-    component = "fmds",
-    log = info,
-    metric = counter,
-    message = "Received config update from agent",
-    describe = "Number of FMDS gRPC config-update ingests, by outcome"
-)]
-struct ConfigUpdateIngestSucceeded {
-    #[label]
-    outcome: Outcome,
-    #[context(value)]
-    agent_address: String,
-}
-
-/// `ConfigUpdateIngested` retains the existing failure Event identity. Both
-/// Events feed the same `outcome` series, while each log keeps only the fields
-/// operators already receive for that result.
+/// An agent's config update was accepted or rejected. Both cases move the same
+/// counter; each variant keeps the level and wording that result already had,
+/// and holds only the field that result has.
 #[derive(Event)]
 #[event(
     event_name = "fmds_config_update_ingested",
     metric_name = "carbide_fmds_config_updates_total",
     component = "fmds",
-    log = warn,
     metric = counter,
-    message = "Failed to ingest config update",
-    describe = "Number of FMDS gRPC config-update ingests, by outcome"
+    describe = "Number of FMDS gRPC config-update ingests, by outcome",
+    labels(outcome: Outcome),
 )]
-struct ConfigUpdateIngested {
-    #[label]
-    outcome: Outcome,
-    #[context]
-    error: String,
+enum ConfigUpdateIngested {
+    /// Applied; the agent address is how operators find who sent it.
+    #[event(labels(outcome = Ok), log = info, message = "Received config update from agent")]
+    Accepted {
+        #[context]
+        agent_address: String,
+    },
+
+    /// Rejected, and the caller receives the same `Status`.
+    #[event(labels(outcome = Error), log = warn, message = "Failed to ingest config update")]
+    Rejected {
+        #[context]
+        error: String,
+    },
 }
 
 #[derive(Debug)]
@@ -88,15 +76,13 @@ impl FmdsConfigService for FmdsGrpcServer {
     ) -> Result<Response<UpdateConfigResponse>, Status> {
         match self.apply_config_update(request) {
             Ok(applied) => {
-                emit(ConfigUpdateIngestSucceeded {
-                    outcome: Outcome::Ok,
+                emit(ConfigUpdateIngested::Accepted {
                     agent_address: applied.agent_address,
                 });
                 Ok(applied.response)
             }
             Err(status) => {
-                emit(ConfigUpdateIngested {
-                    outcome: Outcome::Error,
+                emit(ConfigUpdateIngested::Rejected {
                     error: status.to_string(),
                 });
                 Err(status)
@@ -382,7 +368,7 @@ mod tests {
             metric_name: Some("carbide_fmds_config_updates_total".to_string()),
             outcome: Some(outcome.to_string()),
             agent_address: agent_address.map(str::to_string),
-            agent_address_kind: agent_address.map(|_| CapturedFieldKind::String),
+            agent_address_kind: agent_address.map(|_| CapturedFieldKind::Debug),
             error: error.map(str::to_string),
             error_kind: error.map(|_| CapturedFieldKind::Debug),
         }]
@@ -450,7 +436,7 @@ mod tests {
                         status: None,
                         metric_delta: 1.0,
                         logs: expected_log(
-                            "fmds_config_update_ingest_succeeded",
+                            "fmds_config_update_ingested",
                             tracing::Level::INFO,
                             "Received config update from agent",
                             "ok",

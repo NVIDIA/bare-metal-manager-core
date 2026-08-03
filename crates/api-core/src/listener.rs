@@ -222,18 +222,27 @@ enum ConnectionFailReason {
     TlsConnectionFailure,
 }
 
+/// The one metric the Events below record.
+#[derive(carbide_instrument::MetricFamily)]
+#[metric(
+    name = "carbide_api_tls_connection_fail_total",
+    kind = counter,
+    component = "nico-api",
+    describe = "Number of failed inbound TLS connection attempts"
+)]
+struct ApiTlsConnectionFail {
+    reason: ConnectionFailReason,
+}
+
 /// `TcpAcceptFailed` records a listener error before a peer connection exists.
 /// It increments the existing `tcp_connection_failure` series while keeping
 /// the per-attempt error in log-only context.
 #[derive(carbide_instrument::Event)]
 #[event(
     event_name = "api_tcp_accept_failed",
-    metric_name = "carbide_api_tls_connection_fail_total",
-    component = "nico-api",
+    metric_family = ApiTlsConnectionFail,
     log = error,
-    metric = counter,
-    message = "Error accepting connection",
-    describe = "Number of failed inbound TLS connection attempts"
+    message = "Error accepting connection"
 )]
 struct TcpAcceptFailed {
     #[label]
@@ -248,12 +257,9 @@ struct TcpAcceptFailed {
 #[derive(carbide_instrument::Event)]
 #[event(
     event_name = "api_tls_connection_failed",
-    metric_name = "carbide_api_tls_connection_fail_total",
-    component = "nico-api",
+    metric_family = ApiTlsConnectionFail,
     log = error,
-    metric = counter,
-    message = "error accepting tls connection",
-    describe = "Number of failed inbound TLS connection attempts"
+    message = "error accepting tls connection"
 )]
 struct TlsConnectionFailed {
     #[label]
@@ -352,7 +358,7 @@ pub async fn start(
     let router = axum::Router::new()
         .route("/", axum::routing::get(root_url))
         .route_service(
-            "/forge.Forge/{*rpc}",
+            ::rpc::service_path!("{*rpc}"),
             rpc::forge_server::ForgeServer::from_arc(api_service.clone()),
         )
         .route_service(

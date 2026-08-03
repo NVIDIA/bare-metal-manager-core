@@ -19,6 +19,8 @@ use std::collections::HashMap;
 use std::fmt;
 use std::str::FromStr;
 
+use carbide_utils::config::as_std_duration;
+use duration_str::deserialize_duration;
 use serde::de::Error as _;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
@@ -279,6 +281,14 @@ pub struct RackCapabilityCompute {
     /// Slot IDs that compute trays are expected to occupy.
     #[serde(default)]
     pub slot_ids: Option<Vec<u32>>,
+
+    /// Optional custom attributes for compute trays.
+    ///
+    /// Missing maps default to empty. Keys and values are preserved exactly,
+    /// with case-sensitive key matching. These attributes override rack-level
+    /// attributes with identical keys when a consumer combines both maps.
+    #[serde(default)]
+    pub attributes: HashMap<String, String>,
 }
 
 /* ********************************** */
@@ -303,6 +313,14 @@ pub struct RackCapabilitySwitch {
     /// Slot IDs that switches are expected to occupy.
     #[serde(default)]
     pub slot_ids: Option<Vec<u32>>,
+
+    /// Optional custom attributes for switches.
+    ///
+    /// Missing maps default to empty. Keys and values are preserved exactly,
+    /// with case-sensitive key matching. These attributes override rack-level
+    /// attributes with identical keys when a consumer combines both maps.
+    #[serde(default)]
+    pub attributes: HashMap<String, String>,
 }
 
 /* ********************************** */
@@ -327,6 +345,14 @@ pub struct RackCapabilityPowerShelf {
     /// Slot IDs that power shelves are expected to occupy.
     #[serde(default)]
     pub slot_ids: Option<Vec<u32>>,
+
+    /// Optional custom attributes for power shelves.
+    ///
+    /// Missing maps default to empty. Keys and values are preserved exactly,
+    /// with case-sensitive key matching. These attributes override rack-level
+    /// attributes with identical keys when a consumer combines both maps.
+    #[serde(default)]
+    pub attributes: HashMap<String, String>,
 }
 
 /* ********************************** */
@@ -347,6 +373,33 @@ pub struct RackCapabilitiesSet {
 /*           RackProfile              */
 /* ********************************** */
 
+/// Optional source for a rack-wide SOT firmware-object document.
+///
+/// When present on a [`RackProfile`], rack ingestion fetches this document and
+/// uses it as the default firmware request for the profile's compute and switch
+/// inventory.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RackFirmwareObjectConfig {
+    /// URL from which rack ingestion fetches the SOT JSON document.
+    pub url: url::Url,
+
+    /// Maximum duration for the complete HTTP request.
+    ///
+    /// Configuration that omits this field uses 30 seconds.
+    #[serde(
+        default = "RackFirmwareObjectConfig::default_fetch_timeout",
+        deserialize_with = "deserialize_duration",
+        serialize_with = "as_std_duration"
+    )]
+    pub fetch_timeout: std::time::Duration,
+}
+
+impl RackFirmwareObjectConfig {
+    const fn default_fetch_timeout() -> std::time::Duration {
+        std::time::Duration::from_secs(30)
+    }
+}
+
 /// RackProfile describes the hardware identity and expected device
 /// capabilities for a class of rack. The profile is referenced by name
 /// (the map key in the config file) from expected racks and rack configs.
@@ -356,6 +409,13 @@ pub struct RackProfile {
     #[serde(default)]
     pub product_family: Option<RackProductFamily>,
 
+    /// Default firmware-object source for ingestion.
+    ///
+    /// When absent, ingestion skips the automatic firmware update unless an
+    /// explicit maintenance request supplies a firmware object.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub firmware_object: Option<RackFirmwareObjectConfig>,
+
     #[serde(default)]
     pub rack_hardware_type: Option<RackHardwareType>,
 
@@ -364,6 +424,14 @@ pub struct RackProfile {
 
     #[serde(default)]
     pub rack_hardware_class: Option<RackHardwareClass>,
+
+    /// Optional custom attributes inherited by each component role.
+    ///
+    /// Missing maps default to empty. Keys and values are preserved exactly,
+    /// with case-sensitive key matching. Role-level attributes override
+    /// rack-level attributes with identical keys.
+    #[serde(default)]
+    pub attributes: HashMap<String, String>,
 
     pub rack_capabilities: RackCapabilitiesSet,
 }
@@ -414,18 +482,21 @@ mod tests {
                         count: 18,
                         vendor: Some("NVIDIA".to_string()),
                         slot_ids: None,
+                        attributes: HashMap::new(),
                     },
                     switch: RackCapabilitySwitch {
                         name: None,
                         count: 9,
                         vendor: None,
                         slot_ids: None,
+                        attributes: HashMap::new(),
                     },
                     power_shelf: RackCapabilityPowerShelf {
                         name: None,
                         count: 8,
                         vendor: None,
                         slot_ids: None,
+                        attributes: HashMap::new(),
                     },
                 },
                 ..Default::default()
@@ -442,26 +513,38 @@ mod tests {
 
     #[test]
     fn test_rack_profile_config_toml_deserialization() {
+        // Inline and expanded TOML tables produce the same attribute maps, and
+        // deserialization does not normalize custom keys or values.
         let toml_str = r#"
 [NVL72]
 product_family = "gb200"
+attributes = { attribute1 = "value1", additional_attribute2 = "value2" }
 
 [NVL72.rack_capabilities.compute]
 name = "GB200"
 count = 18
 vendor = "NVIDIA"
+attributes = { attribute1 = "compute-value", additional_attribute2 = "  MiXeD-Value  " }
 
 [NVL72.rack_capabilities.switch]
 count = 9
+attributes = { attribute1 = "switch-value" }
 
 [NVL72.rack_capabilities.power_shelf]
 count = 8
+attributes = { additional_attribute2 = "power-shelf-value" }
 
 [NVL36]
 product_family = "test-product-family"
 
+[NVL36.attributes]
+attribute1 = "value1"
+
 [NVL36.rack_capabilities.compute]
 count = 9
+
+[NVL36.rack_capabilities.compute.attributes]
+additional_attribute2 = "compute-value"
 
 [NVL36.rack_capabilities.switch]
 count = 9
@@ -480,6 +563,38 @@ count = 2
             Some("GB200")
         );
 
+        assert_eq!(
+            nvl72.attributes,
+            HashMap::from([
+                ("attribute1".to_string(), "value1".to_string()),
+                ("additional_attribute2".to_string(), "value2".to_string()),
+            ])
+        );
+
+        assert_eq!(
+            nvl72.rack_capabilities.compute.attributes,
+            HashMap::from([
+                ("attribute1".to_string(), "compute-value".to_string()),
+                (
+                    "additional_attribute2".to_string(),
+                    "  MiXeD-Value  ".to_string(),
+                ),
+            ])
+        );
+
+        assert_eq!(
+            nvl72.rack_capabilities.switch.attributes,
+            HashMap::from([("attribute1".to_string(), "switch-value".to_string())])
+        );
+
+        assert_eq!(
+            nvl72.rack_capabilities.power_shelf.attributes,
+            HashMap::from([(
+                "additional_attribute2".to_string(),
+                "power-shelf-value".to_string(),
+            )])
+        );
+
         let nvl36 = config.get("NVL36").unwrap();
 
         assert_eq!(
@@ -487,9 +602,78 @@ count = 2
             Some(RackProductFamily::Other("test-product-family".to_string()))
         );
 
+        assert_eq!(
+            nvl36.attributes,
+            HashMap::from([("attribute1".to_string(), "value1".to_string())])
+        );
+
+        assert_eq!(
+            nvl36.rack_capabilities.compute.attributes,
+            HashMap::from([(
+                "additional_attribute2".to_string(),
+                "compute-value".to_string(),
+            )])
+        );
+
         assert_eq!(nvl36.rack_capabilities.compute.count, 9);
         assert_eq!(nvl36.rack_capabilities.switch.count, 9);
         assert_eq!(nvl36.rack_capabilities.power_shelf.count, 2);
+    }
+
+    #[test]
+    fn test_rack_profile_firmware_object_toml_deserialization() {
+        const CAPABILITIES: &str = r#"
+[Rack.rack_capabilities.compute]
+count = 0
+[Rack.rack_capabilities.switch]
+count = 0
+[Rack.rack_capabilities.power_shelf]
+count = 0
+"#;
+
+        let cases = [
+            (
+                "configured timeout",
+                r#"
+[Rack.firmware_object]
+url = "https://firmware.example.invalid/sot/rack.json"
+fetch_timeout = "45s"
+"#,
+                Some((
+                    "https://firmware.example.invalid/sot/rack.json",
+                    std::time::Duration::from_secs(45),
+                )),
+            ),
+            (
+                "default timeout",
+                r#"
+[Rack.firmware_object]
+url = "https://firmware.example.invalid/sot/rack.json"
+"#,
+                Some((
+                    "https://firmware.example.invalid/sot/rack.json",
+                    std::time::Duration::from_secs(30),
+                )),
+            ),
+            ("not configured", "[Rack]\n", None),
+        ];
+
+        for (name, input, expected) in cases {
+            let input = format!("{input}{CAPABILITIES}");
+            let config: RackProfileConfig =
+                toml::from_str(&input).unwrap_or_else(|error| panic!("{name}: {error}"));
+            let actual =
+                config
+                    .get("Rack")
+                    .unwrap()
+                    .firmware_object
+                    .as_ref()
+                    .map(|firmware_object| {
+                        (firmware_object.url.as_str(), firmware_object.fetch_timeout)
+                    });
+
+            assert_eq!(actual, expected, "{name}");
+        }
     }
 
     #[test]
@@ -548,6 +732,28 @@ count = 2
         assert_eq!(nvl36.rack_hardware_type, None);
         assert_eq!(nvl36.rack_hardware_topology, None);
         assert_eq!(nvl36.rack_hardware_class, None);
+        assert!(nvl36.attributes.is_empty());
+        assert!(nvl36.rack_capabilities.compute.attributes.is_empty());
+        assert!(nvl36.rack_capabilities.switch.attributes.is_empty());
+        assert!(nvl36.rack_capabilities.power_shelf.attributes.is_empty());
+    }
+
+    #[test]
+    fn test_rack_profile_config_rejects_duplicate_attribute_keys() {
+        // TOML rejects repeated literal keys before Serde constructs the map.
+        let toml_str = r#"
+[NVL36]
+attributes = { attribute1 = "value1", attribute1 = "value2" }
+
+[NVL36.rack_capabilities.compute]
+count = 9
+[NVL36.rack_capabilities.switch]
+count = 9
+[NVL36.rack_capabilities.power_shelf]
+count = 2
+"#;
+
+        assert!(toml::from_str::<RackProfileConfig>(toml_str).is_err());
     }
 
     #[test]

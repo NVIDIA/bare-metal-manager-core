@@ -394,6 +394,50 @@ func TestBuiltinRule(t *testing.T) {
 			expected: true,
 		},
 		{
+			name: "decommission blocks power",
+			incoming: makeTask(
+				rackID, taskcommon.TaskTypeDecommission, "decommission",
+			),
+			activeTasks: []*taskdef.Task{
+				makeTask(rackID,
+					taskcommon.TaskTypePowerControl, "power_on"),
+			},
+			expected: true,
+		},
+		{
+			name: "power blocks decommission (symmetric)",
+			incoming: makeTask(
+				rackID, taskcommon.TaskTypePowerControl, "power_on",
+			),
+			activeTasks: []*taskdef.Task{
+				makeTask(rackID,
+					taskcommon.TaskTypeDecommission, "decommission"),
+			},
+			expected: true,
+		},
+		{
+			name: "decommission blocks decommission",
+			incoming: makeTask(
+				rackID, taskcommon.TaskTypeDecommission, "decommission",
+			),
+			activeTasks: []*taskdef.Task{
+				makeTask(rackID,
+					taskcommon.TaskTypeDecommission, "decommission"),
+			},
+			expected: true,
+		},
+		{
+			name: "decommission blocks bring_up",
+			incoming: makeTask(
+				rackID, taskcommon.TaskTypeDecommission, "decommission",
+			),
+			activeTasks: []*taskdef.Task{
+				makeTask(rackID,
+					taskcommon.TaskTypeBringUp, "full"),
+			},
+			expected: true,
+		},
+		{
 			name: "inject_expectation does not conflict with power",
 			incoming: makeTask(
 				rackID, taskcommon.TaskTypeInjectExpectation, "inject",

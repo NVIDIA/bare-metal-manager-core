@@ -23,7 +23,7 @@ use db::{self, expected_machine, machine_interface};
 use mac_address::MacAddress;
 use model::allocation_type::AllocationType;
 use model::dpa_interface::DpaInterface;
-use model::expected_machine::ExpectedHostNic;
+use model::expected_machine::ExpectedInterface;
 use model::machine::MachineInterfaceSnapshot;
 use model::machine_interface::InterfaceType;
 use model::network_segment::{
@@ -480,13 +480,30 @@ pub async fn discover_dhcp(
     )?;
     let is_v6_observation = address_family == IpAddressFamily::Ipv6
         && message_kind == Some(DhcpMessageKind::V6InfoRequest);
-    let mut expected_interface: Option<ExpectedHostNic> = None;
+    let mut expected_interface: Option<ExpectedInterface> = None;
     // `host_primary_declaration` is intentionally Host-only. A DPU OS
-    // interface is always primary and a DPU BMC interface is never primary;
-    // api-db derives those values from the matched interface role.
+    // interface is always primary, while DPU and Host BMC interfaces are never
+    // primary; api-db derives those values from the matched interface role.
     let mut host_primary_declaration: Option<bool> = None;
 
     let parsed_mac: MacAddress = mac_address.parse()?;
+
+    // If DHCP is suppressed for this BMC MAC, acknowledge and refuse.
+    // The decommission workflow polls acknowledged_at to confirm the BMC
+    // DHCP client has returned to the INIT state.
+    if db::bmc_suppression::acknowledge(
+        &mut txn,
+        parsed_mac,
+        model::bmc_suppression::BmcSuppressionSubsystem::Dhcp,
+    )
+    .await?
+    {
+        txn.commit().await?;
+        return Err(CarbideError::FailedPrecondition(format!(
+            "dhcp suppressed for bmc mac {parsed_mac}"
+        )));
+    }
+
     let mut predicted_interface_for_observation = None;
 
     let desired_address_ip: Option<IpAddr> = if is_v6_observation {
@@ -546,14 +563,35 @@ pub async fn discover_dhcp(
                     // next DHCP request is then the first point where we see that
                     // MAC again, so the idempotent preallocation rebuilds the
                     // reservation before the common find-or-create path runs.
-                    if let Some(m) =
-                        expected_machine::find_by_host_mac_address(&mut txn, parsed_mac)
+                    // The top-level BMC MAC is the ExpectedMachine alternate
+                    // key, so resolve it before searching the nested JSON
+                    // list. Otherwise another declaration using the same MAC
+                    // could make DHCP treat a host BMC as a data interface.
+                    if let Some(m) = expected_machine::find_by_bmc_mac_address(&mut txn, parsed_mac)
+                        .await
+                        .map_err(CarbideError::from)?
+                    {
+                        let interface = m.effective_host_bmc();
+                        if interface
+                            .fixed_ip
+                            .is_some_and(|fixed_ip| fixed_ip.is_address_family(address_family))
+                        {
+                            db::machine_interface::preallocate_expected_machine_interface(
+                                &mut txn,
+                                &interface,
+                                api.runtime_config.retained_boot_interface_window,
+                            )
+                            .await?;
+                        }
+                        expected_interface = Some(interface);
+                    } else if let Some(m) =
+                        expected_machine::find_by_interface_mac_address(&mut txn, parsed_mac)
                             .await
                             .map_err(CarbideError::from)?
                     {
                         expected_interface = m
                             .data
-                            .host_nics
+                            .interfaces
                             .iter()
                             .find(|interface| interface.mac_address == parsed_mac)
                             .cloned();
@@ -579,26 +617,6 @@ pub async fn discover_dhcp(
                                 .await?;
                             }
                         }
-                    } else if let Some(m) =
-                        expected_machine::find_by_bmc_mac_address(&mut txn, parsed_mac)
-                            .await
-                            .map_err(CarbideError::from)?
-                        && let Some(bmc_ip) = m.data.bmc_ip_address
-                        && bmc_ip.is_address_family(address_family)
-                    {
-                        // In this case it looks like our parsed MAC address is for the BMC
-                        // of an expected machine, and it has a static DHCP reservation per
-                        // its bmc_ip_address, so again, ensure the machine interface is
-                        // allocated before continuing. BMC variant so the row carries
-                        // InterfaceType::Bmc (and primary=false). Races against
-                        // site-explorer's reconciliation pass are handled inside preallocate.
-                        db::machine_interface::preallocate_bmc_machine_interface(
-                            &mut txn,
-                            parsed_mac,
-                            bmc_ip,
-                            api.runtime_config.retained_boot_interface_window,
-                        )
-                        .await?;
                     } else if let Some(s) =
                         db::expected_switch::find_by_nvos_mac_address(&mut txn, parsed_mac)
                             .await
@@ -607,7 +625,7 @@ pub async fn discover_dhcp(
                         && nvos_ip.is_address_family(address_family)
                     {
                         // The parsed MAC matches the single wired NVOS port of an expected
-                        // switch with a configured static IP. Mirrors the ExpectedHostNic
+                        // switch with a configured static IP. Mirrors the ExpectedInterface
                         // fixed_ip path: ensure the (mac, nvos_ip) row exists so the static
                         // reservation gets served by the find_or_create_machine_interface
                         // step below. Data variant (NVOS is a data interface, not a BMC).
@@ -745,7 +763,7 @@ pub async fn discover_dhcp(
             parsed_mac,
             std::slice::from_ref(&parsed_relay),
             machine_interface::FindOrCreateMachineInterfaceOptions {
-                host_nic: expected_interface,
+                expected_interface,
                 is_primary: host_primary_declaration,
                 retained_window: api.runtime_config.retained_boot_interface_window,
             },

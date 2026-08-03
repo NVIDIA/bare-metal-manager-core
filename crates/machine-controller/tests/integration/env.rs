@@ -163,6 +163,23 @@ impl EnvBuilder {
             component_manager,
             credential_manager: credential_manager
                 .unwrap_or_else(|| api.credential_manager().clone()),
+            // Zero TTL: every guard re-queries the aggregate so tests observe a
+            // freshly staged rotation on the next iteration without waiting out
+            // the cache window.
+            bmc_rotation_gate: carbide_credential_rotation::RotationGate::with_ttl_and_family(
+                std::time::Duration::ZERO,
+                db::credential_rotation::CredentialRotationType::Bmc,
+            ),
+            // Zero TTL for the same reason as the BMC gate above.
+            host_uefi_rotation_gate: carbide_credential_rotation::RotationGate::with_ttl_and_family(
+                std::time::Duration::ZERO,
+                db::credential_rotation::CredentialRotationType::HostUefi,
+            ),
+            // Zero TTL for the same reason as the BMC gate above.
+            dpu_uefi_rotation_gate: carbide_credential_rotation::RotationGate::with_ttl_and_family(
+                std::time::Duration::ZERO,
+                db::credential_rotation::CredentialRotationType::DpuUefi,
+            ),
             per_object_metrics_registry,
             per_object_info: None,
         };

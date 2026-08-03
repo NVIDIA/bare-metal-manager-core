@@ -218,7 +218,7 @@ pub async fn start_api_server(
         db_url,
         root_dir,
         carbide_metrics_addrs,
-        metrics,
+        metrics: _,
         credential_config,
         _vault_handle,
     } = test_env;
@@ -255,7 +255,7 @@ pub async fn start_api_server(
     // Dependencies: Postgres, Vault and a Redfish BMC
     db::migrations::migrate(&db_pool).await?;
 
-    populate_initial_vault_secrets(&credential_config, &metrics).await?;
+    populate_initial_vault_secrets(&credential_config).await?;
 
     let (ready_tx, ready_rx) = tokio::sync::oneshot::channel();
     let join_handle = tokio::spawn({
@@ -299,10 +299,8 @@ impl ApiServerHandle {
 
 pub async fn populate_initial_vault_secrets(
     credential_config: &CredentialConfig,
-    metrics: &MetricsSetup,
 ) -> Result<(), Report> {
-    let credential_manager =
-        create_credential_manager(credential_config, metrics.meter.clone()).await?;
+    let credential_manager = create_credential_manager(credential_config).await?;
     credential_manager
         .set_credentials(
             &CredentialKey::BmcCredentials {

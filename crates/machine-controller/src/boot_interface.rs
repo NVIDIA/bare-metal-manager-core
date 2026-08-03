@@ -95,6 +95,21 @@ pub enum BootInterfaceResolution {
     Missing,
 }
 
+impl BootInterfaceResolution {
+    /// Convert this resolution for BIOS paths that preserve an untargeted
+    /// Redfish fallback when no interface is usable.
+    ///
+    /// This intentionally erases the distinction between `AwaitingNic` and
+    /// `Missing`. Callers that must wait or fault retain and match the full
+    /// resolution instead.
+    pub(crate) fn into_target(self) -> Option<BootInterfaceTarget> {
+        match self {
+            Self::Ready(target) => Some(target),
+            Self::AwaitingNic | Self::Missing => None,
+        }
+    }
+}
+
 /// Resolve this host's boot interface for a Redfish boot step, classifying a
 /// missing one as either "wait for the NIC" (zero-DPU) or "fault".
 pub fn resolve_boot_interface(
@@ -218,5 +233,17 @@ mod tests {
             classify_boot_interface(Some(target), false),
             BootInterfaceResolution::Ready(_)
         ));
+    }
+
+    #[test]
+    fn only_ready_resolution_exposes_a_target() {
+        let target = BootInterfaceTarget::MacOnly(MacAddress::new([0, 0, 0, 0, 0, 1]));
+        for (resolution, expected) in [
+            (BootInterfaceResolution::Ready(target.clone()), Some(target)),
+            (BootInterfaceResolution::AwaitingNic, None),
+            (BootInterfaceResolution::Missing, None),
+        ] {
+            assert_eq!(resolution.into_target(), expected);
+        }
     }
 }

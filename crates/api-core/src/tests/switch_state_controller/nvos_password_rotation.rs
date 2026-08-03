@@ -234,6 +234,11 @@ fn switch_services(
         credential_manager: env.test_credential_manager.clone(),
         switch_mtls_services: default_switch_mtls_services(),
         per_object_metrics_registry: env.per_object_metrics_registry(),
+        redfish_client_pool: env.redfish_sim.clone(),
+        bmc_rotation_gate: carbide_credential_rotation::RotationGate::new_for_family(
+            db::credential_rotation::CredentialRotationType::Bmc,
+        ),
+        bmc_rotation_enabled: false,
     }
 }
 

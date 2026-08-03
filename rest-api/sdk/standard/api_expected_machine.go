@@ -196,7 +196,7 @@ BatchUpdateExpectedMachines Batch Update Expected Machines
 
 Update multiple Expected Machines in a single request. All machines must belong to the same site.
 
-All items in a batch update must provide the same set of fields.
+All items in a batch update must provide the same set of fields, except that `bmcIpAddress` may be omitted or set to `null` to preserve that machine's current BMC IP address.
 
 Org must have an Infrastructure Provider entity. User must have authorization role with `PROVIDER_ADMIN` suffix.
 
@@ -665,7 +665,7 @@ Retrieve all Expected Machines.
 
 Org must have an Infrastructure Provider entity. User must have authorization role with `PROVIDER_ADMIN` or `PROVIDER_VIEWER` suffix.
 
-Alternatively, Tenant Admins with `TargetedInstanceCreation` capability can also retrieve Expected Machines if they have an account with the Site's Infrastructure Provider (siteId query parameter is required for Tenants).
+Alternatively, Tenant Admins may retrieve Expected Machines across Sites where `TargetedInstanceCreation` is effective. The siteId query parameter is optional and, when provided, further restricts results to that Site.
 
 	@param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
 	@param org Name of the Org

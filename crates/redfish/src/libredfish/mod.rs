@@ -31,7 +31,7 @@ use std::sync::Arc;
 use arc_swap::ArcSwap;
 use async_trait::async_trait;
 pub use auth::RedfishAuth;
-use carbide_instrument::{DynamicMessage, Event, LabelValue, emit};
+use carbide_instrument::{Event, LabelValue, emit};
 use carbide_secrets::credentials::{CredentialKey, CredentialReader, CredentialType, Credentials};
 use carbide_utils::HostPortPair;
 use carbide_utils::redfish::BmcAccessInfo;
@@ -46,56 +46,54 @@ enum DpuUefiPasswordSetupSkipReason {
     CurrentUefiPasswordMissing,
 }
 
-/// The DPU BIOS response cannot support replacing its factory UEFI password.
-///
-/// The response and all credentials stay out of both telemetry surfaces; the
-/// bounded reason is enough to identify the incompatible response form.
+/// UEFI password setup was skipped. Each variant is one reason, and picks the
+/// diagnostic that reason already logged.
 #[derive(Event)]
 #[event(
     event_name = "dpu_uefi_password_setup_skipped",
     metric_name = "carbide_dpu_uefi_password_setup_skips_total",
     component = "carbide-redfish",
-    log = warn,
     metric = counter,
-    message = dynamic,
-    describe = "Number of DPU UEFI password setup operations skipped, by reason."
+    describe = "Number of DPU UEFI password setup operations skipped, by reason.",
+    labels(reason: DpuUefiPasswordSetupSkipReason),
 )]
-struct DpuUefiPasswordSetupSkipped {
-    #[label]
-    reason: DpuUefiPasswordSetupSkipReason,
-}
+enum DpuUefiPasswordSetupSkipped {
+    #[event(
+        labels(reason = DpuUefiPasswordSetupSkipReason::BiosAttributesMissing),
+        log = warn,
+        message = "BIOS Attributes are missing in the Redfish System BIOS endpoint, skipping UEFI password setting"
+    )]
+    BiosAttributesMissing {},
 
-impl DynamicMessage for DpuUefiPasswordSetupSkipped {
-    fn message(&self) -> &'static str {
-        match self.reason {
-            DpuUefiPasswordSetupSkipReason::BiosAttributesMissing => {
-                "BIOS Attributes are missing in the Redfish System BIOS endpoint, skipping UEFI password setting"
-            }
-            DpuUefiPasswordSetupSkipReason::BiosAttributesNotObject => {
-                "BIOS attributes are not an object in the Redfish System BIOS endpoint, skipping UEFI password setting"
-            }
-            DpuUefiPasswordSetupSkipReason::CurrentUefiPasswordMissing => {
-                "BIOS Attributes exist, but is missing CurrentUefiPassword key, skipping UEFI password setting"
-            }
-        }
-    }
-}
+    #[event(
+        labels(reason = DpuUefiPasswordSetupSkipReason::BiosAttributesNotObject),
+        log = warn,
+        message = "BIOS attributes are not an object in the Redfish System BIOS endpoint, skipping UEFI password setting"
+    )]
+    BiosAttributesNotObject {},
 
+    #[event(
+        labels(reason = DpuUefiPasswordSetupSkipReason::CurrentUefiPasswordMissing),
+        log = warn,
+        message = "BIOS Attributes exist, but is missing CurrentUefiPassword key, skipping UEFI password setting"
+    )]
+    CurrentUefiPasswordMissing {},
+}
 fn emit_dpu_uefi_password_setup_skipped_if_needed(
     bios_attrs: &std::collections::HashMap<String, serde_json::Value>,
 ) -> bool {
-    let reason = match bios_attrs.get("Attributes") {
-        None => DpuUefiPasswordSetupSkipReason::BiosAttributesMissing,
+    let skipped = match bios_attrs.get("Attributes") {
+        None => DpuUefiPasswordSetupSkipped::BiosAttributesMissing {},
         Some(attrs) => match attrs.as_object() {
-            None => DpuUefiPasswordSetupSkipReason::BiosAttributesNotObject,
+            None => DpuUefiPasswordSetupSkipped::BiosAttributesNotObject {},
             Some(attrs) if !attrs.contains_key("CurrentUefiPassword") => {
-                DpuUefiPasswordSetupSkipReason::CurrentUefiPasswordMissing
+                DpuUefiPasswordSetupSkipped::CurrentUefiPasswordMissing {}
             }
             Some(_) => return false,
         },
     };
 
-    emit(DpuUefiPasswordSetupSkipped { reason });
+    emit(skipped);
     true
 }
 
@@ -287,6 +285,56 @@ pub trait RedfishClientPool: Send + Sync + 'static {
             .map_err(|err| redact_password(err, new_password.as_str()))
             .map_err(|err| redact_password(err, current_password.as_str()))
             .map_err(RedfishClientCreationError::RedfishError)
+    }
+
+    /// Rotate a UEFI (BIOS setup) password to the site-wide target,
+    /// authenticating with the current-version credential. Family-agnostic: the
+    /// same candidate walk serves a host (via a host power-cycle) and a DPU (via
+    /// a DPU restart) -- the caller owns the reboot and the bookkeeping.
+    ///
+    /// `current_password_candidates` is an ordered, bounded, non-empty list of
+    /// plausible current passwords (the caller resolves them: the device's
+    /// tracked current site version, then the rotating-to version, then the
+    /// terminal fallback -- empty for a never-set host, the factory default for
+    /// a never-set DPU). The first candidate that authenticates the change wins;
+    /// the returned `Option<String>` is the vendor BIOS job id to poll (when the
+    /// vendor schedules one) or `None` (DPUs never schedule one).
+    ///
+    /// Unlike [`Self::uefi_setup`], this never assumes the empty/factory case
+    /// first, so a mid-rotation device at v1 rotating to v2 authenticates with
+    /// the v1 secret rather than failing. This crate still knows nothing about
+    /// credential versions -- it just applies the ordered candidates it is
+    /// handed. All errors are password-redacted before they leave this method.
+    async fn rotate_uefi_password(
+        &self,
+        client: &dyn Redfish,
+        current_password_candidates: &[String],
+        new_password: String,
+    ) -> Result<Option<String>, RedfishClientCreationError> {
+        let mut last_err = None;
+        for candidate in current_password_candidates {
+            match client
+                .change_uefi_password(candidate.as_str(), new_password.as_str())
+                .await
+            {
+                Ok(job_id) => return Ok(job_id),
+                Err(e) => {
+                    let redacted =
+                        redact_passwords(e, &[new_password.as_str(), candidate.as_str()]);
+                    tracing::warn!(
+                        error = %redacted,
+                        "UEFI password change failed for a current-password candidate; trying the next"
+                    );
+                    last_err = Some(redacted);
+                }
+            }
+        }
+        // The caller contract guarantees at least one candidate (empty for a
+        // never-set host, the factory default for a never-set DPU), so `last_err`
+        // is populated whenever the loop fell through without an Ok.
+        Err(RedfishClientCreationError::RedfishError(last_err.expect(
+            "rotate_uefi_password requires at least one current-password candidate",
+        )))
     }
 
     /// Rotate a BMC's root password in place, then apply the vendor-specific

@@ -53,6 +53,7 @@ pub mod test_support {
     use std::sync::Arc;
     use std::sync::atomic::{AtomicBool, Ordering};
 
+    use librms::protos::rack_manager_v2 as rms_v2;
     use librms::{RackManagerError, RmsApi};
     use tokio::sync::Mutex;
 
@@ -92,6 +93,20 @@ pub mod test_support {
         queued_configure_scale_up_fabric_manager_responses: Arc<
             Mutex<VecDeque<Result<rms::ConfigureScaleUpFabricManagerResponse, RackManagerError>>>,
         >,
+        submitted_configure_scale_up_fabric_manager_v2_requests:
+            Arc<Mutex<Vec<rms_v2::ConfigureScaleUpFabricManagerRequest>>>,
+        queued_configure_scale_up_fabric_manager_v2_responses: Arc<
+            Mutex<
+                VecDeque<Result<rms_v2::ConfigureScaleUpFabricManagerResponse, RackManagerError>>,
+            >,
+        >,
+        submitted_get_job_status_requests: Arc<Mutex<Vec<rms::GetJobStatusRequest>>>,
+        queued_get_job_status_responses:
+            Arc<Mutex<VecDeque<Result<rms::GetJobStatusResponse, RackManagerError>>>>,
+        submitted_get_scale_up_fabric_status_requests:
+            Arc<Mutex<Vec<rms::GetScaleUpFabricStatusRequest>>>,
+        queued_get_scale_up_fabric_status_responses:
+            Arc<Mutex<VecDeque<Result<rms::GetScaleUpFabricStatusResponse, RackManagerError>>>>,
         submitted_configure_switch_certificate_requests:
             Arc<Mutex<Vec<rms::ConfigureSwitchCertificateRequest>>>,
         queued_configure_switch_certificate_responses:
@@ -149,6 +164,16 @@ pub mod test_support {
                 queued_configure_scale_up_fabric_manager_responses: Arc::new(Mutex::new(
                     VecDeque::new(),
                 )),
+                submitted_configure_scale_up_fabric_manager_v2_requests: Arc::new(Mutex::new(
+                    Vec::new(),
+                )),
+                queued_configure_scale_up_fabric_manager_v2_responses: Arc::new(Mutex::new(
+                    VecDeque::new(),
+                )),
+                submitted_get_job_status_requests: Arc::new(Mutex::new(Vec::new())),
+                queued_get_job_status_responses: Arc::new(Mutex::new(VecDeque::new())),
+                submitted_get_scale_up_fabric_status_requests: Arc::new(Mutex::new(Vec::new())),
+                queued_get_scale_up_fabric_status_responses: Arc::new(Mutex::new(VecDeque::new())),
                 submitted_configure_switch_certificate_requests: Arc::new(Mutex::new(Vec::new())),
                 queued_configure_switch_certificate_responses: Arc::new(
                     Mutex::new(VecDeque::new()),
@@ -233,6 +258,20 @@ pub mod test_support {
                     .clone(),
                 queued_configure_scale_up_fabric_manager_responses: self
                     .queued_configure_scale_up_fabric_manager_responses
+                    .clone(),
+                submitted_configure_scale_up_fabric_manager_v2_requests: self
+                    .submitted_configure_scale_up_fabric_manager_v2_requests
+                    .clone(),
+                queued_configure_scale_up_fabric_manager_v2_responses: self
+                    .queued_configure_scale_up_fabric_manager_v2_responses
+                    .clone(),
+                submitted_get_job_status_requests: self.submitted_get_job_status_requests.clone(),
+                queued_get_job_status_responses: self.queued_get_job_status_responses.clone(),
+                submitted_get_scale_up_fabric_status_requests: self
+                    .submitted_get_scale_up_fabric_status_requests
+                    .clone(),
+                queued_get_scale_up_fabric_status_responses: self
+                    .queued_get_scale_up_fabric_status_responses
                     .clone(),
                 submitted_configure_switch_certificate_requests: self
                     .submitted_configure_switch_certificate_requests
@@ -448,6 +487,73 @@ pub mod test_support {
                 .clone()
         }
 
+        /// Queues one V2 scale-up fabric response for FIFO consumption.
+        ///
+        /// The fake returns `Ok(Default::default())` after the queue is
+        /// exhausted.
+        pub async fn queue_configure_scale_up_fabric_manager_v2_response(
+            &self,
+            response: Result<rms_v2::ConfigureScaleUpFabricManagerResponse, RackManagerError>,
+        ) {
+            self.queued_configure_scale_up_fabric_manager_v2_responses
+                .lock()
+                .await
+                .push_back(response);
+        }
+
+        /// Returns recorded V2 scale-up fabric requests in submission order.
+        pub async fn submitted_configure_scale_up_fabric_manager_v2_requests(
+            &self,
+        ) -> Vec<rms_v2::ConfigureScaleUpFabricManagerRequest> {
+            self.submitted_configure_scale_up_fabric_manager_v2_requests
+                .lock()
+                .await
+                .clone()
+        }
+
+        /// Queues one generic RMS job-status response for FIFO consumption.
+        ///
+        /// The fake returns `Ok(Default::default())` after the queue is
+        /// exhausted.
+        pub async fn queue_get_job_status_response(
+            &self,
+            response: Result<rms::GetJobStatusResponse, RackManagerError>,
+        ) {
+            self.queued_get_job_status_responses
+                .lock()
+                .await
+                .push_back(response);
+        }
+
+        /// Returns recorded generic RMS job-status requests in submission order.
+        pub async fn submitted_get_job_status_requests(&self) -> Vec<rms::GetJobStatusRequest> {
+            self.submitted_get_job_status_requests.lock().await.clone()
+        }
+
+        /// Queues one scale-up fabric status response for FIFO consumption.
+        ///
+        /// The fake returns `Ok(Default::default())` after the queue is
+        /// exhausted.
+        pub async fn queue_get_scale_up_fabric_status_response(
+            &self,
+            response: Result<rms::GetScaleUpFabricStatusResponse, RackManagerError>,
+        ) {
+            self.queued_get_scale_up_fabric_status_responses
+                .lock()
+                .await
+                .push_back(response);
+        }
+
+        /// Returns recorded scale-up fabric status requests in submission order.
+        pub async fn submitted_get_scale_up_fabric_status_requests(
+            &self,
+        ) -> Vec<rms::GetScaleUpFabricStatusRequest> {
+            self.submitted_get_scale_up_fabric_status_requests
+                .lock()
+                .await
+                .clone()
+        }
+
         pub async fn queue_configure_switch_certificate_response(
             &self,
             response: Result<rms::ConfigureSwitchCertificateResponse, RackManagerError>,
@@ -586,6 +692,20 @@ pub mod test_support {
         queued_configure_scale_up_fabric_manager_responses: Arc<
             Mutex<VecDeque<Result<rms::ConfigureScaleUpFabricManagerResponse, RackManagerError>>>,
         >,
+        submitted_configure_scale_up_fabric_manager_v2_requests:
+            Arc<Mutex<Vec<rms_v2::ConfigureScaleUpFabricManagerRequest>>>,
+        queued_configure_scale_up_fabric_manager_v2_responses: Arc<
+            Mutex<
+                VecDeque<Result<rms_v2::ConfigureScaleUpFabricManagerResponse, RackManagerError>>,
+            >,
+        >,
+        submitted_get_job_status_requests: Arc<Mutex<Vec<rms::GetJobStatusRequest>>>,
+        queued_get_job_status_responses:
+            Arc<Mutex<VecDeque<Result<rms::GetJobStatusResponse, RackManagerError>>>>,
+        submitted_get_scale_up_fabric_status_requests:
+            Arc<Mutex<Vec<rms::GetScaleUpFabricStatusRequest>>>,
+        queued_get_scale_up_fabric_status_responses:
+            Arc<Mutex<VecDeque<Result<rms::GetScaleUpFabricStatusResponse, RackManagerError>>>>,
         submitted_configure_switch_certificate_requests:
             Arc<Mutex<Vec<rms::ConfigureSwitchCertificateRequest>>>,
         queued_configure_switch_certificate_responses:
@@ -671,9 +791,34 @@ pub mod test_support {
 
         async fn get_job_status(
             &self,
-            _cmd: rms::GetJobStatusRequest,
+            cmd: rms::GetJobStatusRequest,
         ) -> Result<rms::GetJobStatusResponse, RackManagerError> {
-            Ok(rms::GetJobStatusResponse::default())
+            self.submitted_get_job_status_requests
+                .lock()
+                .await
+                .push(cmd);
+
+            self.queued_get_job_status_responses
+                .lock()
+                .await
+                .pop_front()
+                .unwrap_or(Ok(rms::GetJobStatusResponse::default()))
+        }
+
+        async fn get_scale_up_fabric_status(
+            &self,
+            cmd: rms::GetScaleUpFabricStatusRequest,
+        ) -> Result<rms::GetScaleUpFabricStatusResponse, RackManagerError> {
+            self.submitted_get_scale_up_fabric_status_requests
+                .lock()
+                .await
+                .push(cmd);
+
+            self.queued_get_scale_up_fabric_status_responses
+                .lock()
+                .await
+                .pop_front()
+                .unwrap_or(Ok(rms::GetScaleUpFabricStatusResponse::default()))
         }
 
         async fn set_power_state(
@@ -1019,6 +1164,23 @@ pub mod test_support {
                 .pop_front()
                 .unwrap_or(Ok(rms::ConfigureScaleUpFabricManagerResponse::default()))
         }
+
+        async fn configure_scale_up_fabric_manager_v2(
+            &self,
+            cmd: rms_v2::ConfigureScaleUpFabricManagerRequest,
+        ) -> Result<rms_v2::ConfigureScaleUpFabricManagerResponse, RackManagerError> {
+            self.submitted_configure_scale_up_fabric_manager_v2_requests
+                .lock()
+                .await
+                .push(cmd);
+
+            self.queued_configure_scale_up_fabric_manager_v2_responses
+                .lock()
+                .await
+                .pop_front()
+                .unwrap_or(Ok(rms_v2::ConfigureScaleUpFabricManagerResponse::default()))
+        }
+
         async fn configure_switch_certificate(
             &self,
             cmd: rms::ConfigureSwitchCertificateRequest,

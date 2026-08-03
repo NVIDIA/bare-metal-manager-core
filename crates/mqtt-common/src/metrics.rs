@@ -17,7 +17,7 @@
 
 //! Metrics for the DSX Exchange Event Bus MQTT hook.
 
-use carbide_instrument::{Event, LabelValue};
+use carbide_instrument::{Event, LabelValue, MetricFamily};
 use opentelemetry::KeyValue;
 use opentelemetry::metrics::Meter;
 use tokio::sync::mpsc::WeakSender;
@@ -54,26 +54,41 @@ enum PublishStatus {
     SerializationError,
 }
 
-// Every `DsxEventBus*` Event below writes the frozen
-// `carbide_dsx_event_bus_publish_count_total` metric. Keep their kind and
-// description identical so the named OpenTelemetry instruments do not
-// conflict, and keep their label keys aligned so the exported series retain
-// one shape. Separate types preserve each path's log level, message, and
-// context. The Event-level `component` identifies this crate; `publisher`
-// aliases the metric's separate, frozen `component` label.
+/// The one metric every `DsxEventBus*` Event below records. The family owns
+/// the name, kind, description, and label keys, so the eleven Events can no
+/// longer drift apart -- an Event that restates any of them is a compile
+/// error. `publisher` aliases the metric's frozen `component` label, while the
+/// Event-level `component` identifies this crate.
+#[derive(MetricFamily)]
+#[metric(
+    name = "carbide_dsx_event_bus_publish_count_total",
+    kind = counter,
+    component = "nico-mqtt-common",
+    describe = "Number of MQTT publish attempts"
+)]
+struct DsxEventBusPublishCount {
+    #[label(name = "component")]
+    publisher: PublishComponent,
+    status: PublishStatus,
+}
+
+// The Events stay separate rather than merging into one that matches on
+// `status`. `publisher` is caller-supplied and `status` is fixed per Event, so
+// `(publisher, status)` is all a merged struct could match on -- and
+// `DsxEventBusBmsMetadataParseFailed` and
+// `DsxEventBusBmsPublicationSerializationFailed` both land on
+// `(Bms, SerializationError)` with opposite meanings. Separate types keep each
+// path's log level, message, and context.
 
 #[derive(Event)]
 #[event(
     event_name = "dsx_event_bus_publish_succeeded",
-    metric_name = "carbide_dsx_event_bus_publish_count_total",
-    component = "nico-mqtt-common",
+    metric_family = DsxEventBusPublishCount,
     log = debug,
-    metric = counter,
-    message = "Published to MQTT",
-    describe = "Number of MQTT publish attempts"
+    message = "Published to MQTT"
 )]
 struct DsxEventBusPublishSucceeded {
-    #[label(name = "component")]
+    #[label]
     publisher: PublishComponent,
     #[label]
     status: PublishStatus,
@@ -86,14 +101,11 @@ struct DsxEventBusPublishSucceeded {
 #[derive(Event)]
 #[event(
     event_name = "dsx_event_bus_bms_publish_succeeded",
-    metric_name = "carbide_dsx_event_bus_publish_count_total",
-    component = "nico-mqtt-common",
-    log = off,
-    metric = counter,
-    describe = "Number of MQTT publish attempts"
+    metric_family = DsxEventBusPublishCount,
+    log = off
 )]
 struct DsxEventBusBmsPublishSucceeded {
-    #[label(name = "component")]
+    #[label]
     publisher: PublishComponent,
     #[label]
     status: PublishStatus,
@@ -102,15 +114,12 @@ struct DsxEventBusBmsPublishSucceeded {
 #[derive(Event)]
 #[event(
     event_name = "dsx_event_bus_publish_failed",
-    metric_name = "carbide_dsx_event_bus_publish_count_total",
-    component = "nico-mqtt-common",
+    metric_family = DsxEventBusPublishCount,
     log = warn,
-    metric = counter,
-    message = "Failed to publish to MQTT",
-    describe = "Number of MQTT publish attempts"
+    message = "Failed to publish to MQTT"
 )]
 struct DsxEventBusPublishFailed {
-    #[label(name = "component")]
+    #[label]
     publisher: PublishComponent,
     #[label]
     status: PublishStatus,
@@ -125,15 +134,12 @@ struct DsxEventBusPublishFailed {
 #[derive(Event)]
 #[event(
     event_name = "dsx_event_bus_bms_publish_failed",
-    metric_name = "carbide_dsx_event_bus_publish_count_total",
-    component = "nico-mqtt-common",
+    metric_family = DsxEventBusPublishCount,
     log = warn,
-    metric = counter,
-    message = "Failed to publish BMS DSX message",
-    describe = "Number of MQTT publish attempts"
+    message = "Failed to publish BMS DSX message"
 )]
 struct DsxEventBusBmsPublishFailed {
-    #[label(name = "component")]
+    #[label]
     publisher: PublishComponent,
     #[label]
     status: PublishStatus,
@@ -146,15 +152,12 @@ struct DsxEventBusBmsPublishFailed {
 #[derive(Event)]
 #[event(
     event_name = "dsx_event_bus_publish_timed_out",
-    metric_name = "carbide_dsx_event_bus_publish_count_total",
-    component = "nico-mqtt-common",
+    metric_family = DsxEventBusPublishCount,
     log = warn,
-    metric = counter,
-    message = "MQTT publish timed out",
-    describe = "Number of MQTT publish attempts"
+    message = "MQTT publish timed out"
 )]
 struct DsxEventBusPublishTimedOut {
-    #[label(name = "component")]
+    #[label]
     publisher: PublishComponent,
     #[label]
     status: PublishStatus,
@@ -167,15 +170,12 @@ struct DsxEventBusPublishTimedOut {
 #[derive(Event)]
 #[event(
     event_name = "dsx_event_bus_bms_publish_timed_out",
-    metric_name = "carbide_dsx_event_bus_publish_count_total",
-    component = "nico-mqtt-common",
+    metric_family = DsxEventBusPublishCount,
     log = warn,
-    metric = counter,
-    message = "BMS DSX publish timed out",
-    describe = "Number of MQTT publish attempts"
+    message = "BMS DSX publish timed out"
 )]
 struct DsxEventBusBmsPublishTimedOut {
-    #[label(name = "component")]
+    #[label]
     publisher: PublishComponent,
     #[label]
     status: PublishStatus,
@@ -186,15 +186,12 @@ struct DsxEventBusBmsPublishTimedOut {
 #[derive(Event)]
 #[event(
     event_name = "dsx_event_bus_publish_queue_overflowed",
-    metric_name = "carbide_dsx_event_bus_publish_count_total",
-    component = "nico-mqtt-common",
+    metric_family = DsxEventBusPublishCount,
     log = warn,
-    metric = counter,
-    message = "MQTT state change event dropped (queue full)",
-    describe = "Number of MQTT publish attempts"
+    message = "MQTT state change event dropped (queue full)"
 )]
 struct DsxEventBusPublishQueueOverflowed {
-    #[label(name = "component")]
+    #[label]
     publisher: PublishComponent,
     #[label]
     status: PublishStatus,
@@ -209,15 +206,12 @@ struct DsxEventBusPublishQueueOverflowed {
 #[derive(Event)]
 #[event(
     event_name = "dsx_event_bus_state_change_serialization_failed",
-    metric_name = "carbide_dsx_event_bus_publish_count_total",
-    component = "nico-mqtt-common",
+    metric_family = DsxEventBusPublishCount,
     log = error,
-    metric = counter,
-    message = "Failed to serialize state change message",
-    describe = "Number of MQTT publish attempts"
+    message = "Failed to serialize state change message"
 )]
 struct DsxEventBusStateChangeSerializationFailed {
-    #[label(name = "component")]
+    #[label]
     publisher: PublishComponent,
     #[label]
     status: PublishStatus,
@@ -232,15 +226,12 @@ struct DsxEventBusStateChangeSerializationFailed {
 #[derive(Event)]
 #[event(
     event_name = "dsx_event_bus_republish_serialization_failed",
-    metric_name = "carbide_dsx_event_bus_publish_count_total",
-    component = "nico-mqtt-common",
+    metric_family = DsxEventBusPublishCount,
     log = error,
-    metric = counter,
-    message = "Failed to serialize managed host state for republish",
-    describe = "Number of MQTT publish attempts"
+    message = "Failed to serialize managed host state for republish"
 )]
 struct DsxEventBusRepublishSerializationFailed {
-    #[label(name = "component")]
+    #[label]
     publisher: PublishComponent,
     #[label]
     status: PublishStatus,
@@ -255,15 +246,12 @@ struct DsxEventBusRepublishSerializationFailed {
 #[derive(Event)]
 #[event(
     event_name = "dsx_event_bus_bms_metadata_parse_failed",
-    metric_name = "carbide_dsx_event_bus_publish_count_total",
-    component = "nico-mqtt-common",
+    metric_family = DsxEventBusPublishCount,
     log = warn,
-    metric = counter,
-    message = "Failed to parse BMS metadata",
-    describe = "Number of MQTT publish attempts"
+    message = "Failed to parse BMS metadata"
 )]
 struct DsxEventBusBmsMetadataParseFailed {
-    #[label(name = "component")]
+    #[label]
     publisher: PublishComponent,
     #[label]
     status: PublishStatus,
@@ -276,15 +264,12 @@ struct DsxEventBusBmsMetadataParseFailed {
 #[derive(Event)]
 #[event(
     event_name = "dsx_event_bus_bms_publication_serialization_failed",
-    metric_name = "carbide_dsx_event_bus_publish_count_total",
-    component = "nico-mqtt-common",
+    metric_family = DsxEventBusPublishCount,
     log = warn,
-    metric = counter,
-    message = "Failed to serialize BMS DSX publication",
-    describe = "Number of MQTT publish attempts"
+    message = "Failed to serialize BMS DSX publication"
 )]
 struct DsxEventBusBmsPublicationSerializationFailed {
-    #[label(name = "component")]
+    #[label]
     publisher: PublishComponent,
     #[label]
     status: PublishStatus,

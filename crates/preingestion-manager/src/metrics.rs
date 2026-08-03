@@ -20,7 +20,9 @@ use std::net::IpAddr;
 use std::time::Duration;
 
 use ::carbide_utils::metrics::SharedMetricsHolder;
-use carbide_instrument::{DynamicLog, DynamicMessage, Event, LabelValue, LogAt, Outcome, emit};
+use carbide_instrument::{
+    DynamicLog, DynamicMessage, Event, LabelValue, LogAt, MetricFamily, Outcome, emit,
+};
 use libredfish::model::task::TaskState;
 use libredfish::{RedfishError, SystemPowerControl};
 use model::firmware::FirmwareComponentType;
@@ -125,42 +127,58 @@ pub(crate) enum BfbCopyOutcome {
     Timeout,
 }
 
-/// A BFB copy to a DPU rshim ran to completion, or timed out. The event owns
-/// the completion log line (INFO on success, ERROR otherwise) and records the
-/// copy's duration -- a roughly 30-minute operation whose duration previously
-/// existed only as log timestamps.
+/// One BFB copy to a DPU. Every attempt records its duration.
 #[derive(Event)]
 #[event(
     event_name = "bfb_copy_finished",
     metric_name = "carbide_preingestion_bfb_copy_duration_seconds",
     component = "preingestion-manager",
-    log = dynamic,
     metric = histogram,
-    message = "BFB copy finished",
     describe = "Duration of preingestion BFB copies to a DPU rshim, by outcome; the _count \
-                series, split by outcome, is the copy and failure rate."
+                series, split by outcome, is the copy and failure rate.",
+    labels(outcome: BfbCopyOutcome),
 )]
-pub(crate) struct BfbCopyFinished {
-    #[label]
-    pub outcome: BfbCopyOutcome,
-    #[observation]
-    pub took: Duration,
-    #[context]
-    pub address: IpAddr,
-    /// The copy failure, when there was one; empty on success.
-    #[context]
-    pub error: String,
-}
+pub(crate) enum BfbCopyFinished {
+    #[event(
+        labels(outcome = BfbCopyOutcome::Ok),
+        log = info,
+        message = "BFB copy finished"
+    )]
+    Ok {
+        #[observation]
+        took: Duration,
+        #[context]
+        address: IpAddr,
+    },
 
-impl DynamicLog for BfbCopyFinished {
-    fn log_at(&self) -> LogAt {
-        match self.outcome {
-            BfbCopyOutcome::Ok => LogAt::Level(tracing::Level::INFO),
-            BfbCopyOutcome::Error | BfbCopyOutcome::Timeout => LogAt::Level(tracing::Level::ERROR),
-        }
-    }
-}
+    #[event(
+        labels(outcome = BfbCopyOutcome::Error),
+        log = error,
+        message = "BFB copy finished"
+    )]
+    Error {
+        #[observation]
+        took: Duration,
+        #[context]
+        address: IpAddr,
+        #[context]
+        error: String,
+    },
 
+    #[event(
+        labels(outcome = BfbCopyOutcome::Timeout),
+        log = error,
+        message = "BFB copy finished"
+    )]
+    Timeout {
+        #[observation]
+        took: Duration,
+        #[context]
+        address: IpAddr,
+        #[context]
+        error: String,
+    },
+}
 /// The Redfish route a preingestion firmware upload went through, as a
 /// bounded metric label: `SimpleUpdate` is the BFB image-URI path,
 /// `Multipart` the standard file push, and `HttpPush` the fallback when a
@@ -172,81 +190,75 @@ pub(crate) enum FirmwareUploadMethod {
     HttpPush,
 }
 
-/// A preingestion firmware upload to a BMC finished. Every outcome updates the
-/// counter; failures also own the route-specific log line.
-/// A multipart attempt a BMC rejects as unsupported uses the sibling
-/// [`MultipartFirmwareUploadUnsupported`] Event so that its distinct fallback
-/// message retains the same `multipart,error` metric labels.
+/// One firmware upload attempt. A success is counted and stays quiet for
+/// every method; each failure keeps the level and wording its method had.
 #[derive(Event)]
 #[event(
     event_name = "preingestion_firmware_upload_finished",
     metric_name = "carbide_preingestion_firmware_upload_total",
     component = "preingestion-manager",
-    log = dynamic,
     metric = counter,
-    message = dynamic,
-    describe = "Number of preingestion firmware uploads to a BMC, by upload method and outcome."
+    describe = "Number of preingestion firmware uploads to a BMC, by upload method and outcome.",
+    labels(outcome: Outcome, method: FirmwareUploadMethod),
 )]
-pub(crate) struct FirmwareUploadFinished {
-    #[label]
-    pub method: FirmwareUploadMethod,
-    #[label]
-    pub outcome: Outcome,
-    #[context]
-    pub bmc_ip_address: IpAddr,
-    /// The Redfish upload failure; empty on success.
-    #[context]
-    pub error: String,
-}
+pub(crate) enum FirmwareUploadFinished {
+    /// Counted, never logged, so it holds only what the metric needs.
+    #[event(labels(outcome = Outcome::Ok), log = off)]
+    Succeeded {
+        #[label]
+        method: FirmwareUploadMethod,
+    },
 
-impl DynamicLog for FirmwareUploadFinished {
-    fn log_at(&self) -> LogAt {
-        match (self.method, self.outcome) {
-            (_, Outcome::Ok) => LogAt::Off,
-            (FirmwareUploadMethod::Multipart, Outcome::Error) => LogAt::Level(tracing::Level::WARN),
-            (
-                FirmwareUploadMethod::SimpleUpdate | FirmwareUploadMethod::HttpPush,
-                Outcome::Error,
-            ) => LogAt::Level(tracing::Level::ERROR),
-        }
-    }
-}
+    #[event(
+        labels(outcome = Outcome::Error, method = FirmwareUploadMethod::SimpleUpdate),
+        log = error,
+        message = "Simple firmware update failed"
+    )]
+    SimpleUpdateFailed {
+        #[context]
+        bmc_ip_address: IpAddr,
+        #[context]
+        error: String,
+    },
 
-impl DynamicMessage for FirmwareUploadFinished {
-    fn message(&self) -> &'static str {
-        match (self.method, self.outcome) {
-            (FirmwareUploadMethod::SimpleUpdate, Outcome::Error) => "Simple firmware update failed",
-            (FirmwareUploadMethod::Multipart, Outcome::Error) => {
-                "Failed to upload firmware via multipart update"
-            }
-            (FirmwareUploadMethod::HttpPush, Outcome::Error) => {
-                "Failed to upload firmware via HttpPushUri"
-            }
-            (_, Outcome::Ok) => "Firmware upload finished",
-        }
-    }
-}
+    #[event(
+        labels(outcome = Outcome::Error, method = FirmwareUploadMethod::Multipart),
+        log = warn,
+        message = "Failed to upload firmware via multipart update"
+    )]
+    MultipartFailed {
+        #[context]
+        bmc_ip_address: IpAddr,
+        #[context]
+        error: String,
+    },
 
-/// A multipart upload was rejected as unsupported and will fall back to
-/// HttpPushUri. It shares the existing upload counter with
-/// [`FirmwareUploadFinished`] while retaining the fallback-specific WARN
-/// message. Its metric description must remain identical to the sibling
-/// Event's because both register the same counter.
+    #[event(
+        labels(outcome = Outcome::Error, method = FirmwareUploadMethod::HttpPush),
+        log = error,
+        message = "Failed to upload firmware via HttpPushUri"
+    )]
+    HttpPushFailed {
+        #[context]
+        bmc_ip_address: IpAddr,
+        #[context]
+        error: String,
+    },
+}
+/// A BMC declined the multipart route, so the upload falls back to
+/// `HttpPushUri`. Declining a route is not an upload result: the upload has not
+/// failed and its real result arrives on the following `http_push`
+/// [`FirmwareUploadFinished`]. This Event is therefore the WARN alone, so a
+/// fallback never counts against the multipart failure series.
 #[derive(Event)]
 #[event(
     event_name = "preingestion_firmware_upload_multipart_unsupported",
-    metric_name = "carbide_preingestion_firmware_upload_total",
     component = "preingestion-manager",
     log = warn,
-    metric = counter,
-    message = "Multipart firmware update is not supported; trying HttpPushUri",
-    describe = "Number of preingestion firmware uploads to a BMC, by upload method and outcome."
+    metric = none,
+    message = "Multipart firmware update is not supported; trying HttpPushUri"
 )]
 pub(crate) struct MultipartFirmwareUploadUnsupported {
-    #[label]
-    pub method: FirmwareUploadMethod,
-    #[label]
-    pub outcome: Outcome,
     /// The BMC whose multipart route rejected the upload.
     #[context]
     pub bmc_ip_address: IpAddr,
@@ -307,44 +319,43 @@ impl UpgradeTaskFinalState {
     }
 }
 
-/// A preingestion firmware upgrade's Redfish task reached a terminal state.
-/// Successes are counted silently (the surrounding INFO lines already narrate
-/// them); a failure owns the WARN line, so an endpoint failing over and over
-/// shows up as a moving error series.
+/// One firmware upgrade task reaching a final state.
 #[derive(Event)]
 #[event(
     event_name = "preingestion_firmware_upgrade_task_finished",
     metric_name = "carbide_preingestion_firmware_upgrade_tasks_total",
     component = "preingestion-manager",
-    log = dynamic,
     metric = counter,
-    message = "Firmware upgrade task finished",
     describe = "Number of preingestion firmware upgrade Redfish tasks reaching a terminal \
-                state, by firmware component, final task state, and outcome."
+                state, by firmware component, final task state, and outcome.",
+    labels(outcome: Outcome, firmware: FirmwareComponentLabel, final_state: UpgradeTaskFinalState),
 )]
-pub(crate) struct FirmwareUpgradeTaskFinished {
-    #[label]
-    pub firmware: FirmwareComponentLabel,
-    #[label]
-    pub final_state: UpgradeTaskFinalState,
-    #[label]
-    pub outcome: Outcome,
-    #[context]
-    pub address: IpAddr,
-    /// The task's last reported message, when it failed; empty on success.
-    #[context]
-    pub error: String,
-}
+pub(crate) enum FirmwareUpgradeTaskFinished {
+    /// Counted, never logged, so it holds only what the metric needs.
+    #[event(labels(outcome = Outcome::Ok), log = off)]
+    Ok {
+        #[label]
+        firmware: FirmwareComponentLabel,
+        #[label]
+        final_state: UpgradeTaskFinalState,
+    },
 
-impl DynamicLog for FirmwareUpgradeTaskFinished {
-    fn log_at(&self) -> LogAt {
-        match self.outcome {
-            Outcome::Ok => LogAt::Off,
-            Outcome::Error => LogAt::Level(tracing::Level::WARN),
-        }
-    }
+    #[event(
+        labels(outcome = Outcome::Error),
+        log = warn,
+        message = "Firmware upgrade task finished"
+    )]
+    Error {
+        #[label]
+        firmware: FirmwareComponentLabel,
+        #[label]
+        final_state: UpgradeTaskFinalState,
+        #[context]
+        address: IpAddr,
+        #[context]
+        error: String,
+    },
 }
-
 /// The Redfish power operation performed, as a bounded metric label. Host
 /// power controls mirror `SystemPowerControl` variant for variant; the BMC
 /// and chassis resets are the two reset calls preingestion also issues.
@@ -458,6 +469,20 @@ pub(crate) enum PowerControlLog {
     },
 }
 
+/// The one metric the Events below record.
+#[derive(MetricFamily)]
+#[metric(
+    name = "carbide_preingestion_power_control_total",
+    kind = counter,
+    component = "preingestion-manager",
+    describe = "Number of preingestion Redfish power operations (host power control, BMC and \
+    chassis resets), by operation and outcome."
+)]
+pub(crate) struct PreingestionPowerControl {
+    operation: PowerOperation,
+    outcome: Outcome,
+}
+
 /// A preingestion Redfish power operation completed. Every call updates the
 /// existing counter; failures also retain the caller's terminal record. A
 /// successful operation stays silent, while an already-satisfied recovery
@@ -465,13 +490,9 @@ pub(crate) enum PowerControlLog {
 #[derive(Event)]
 #[event(
     event_name = "preingestion_power_control_finished",
-    metric_name = "carbide_preingestion_power_control_total",
-    component = "preingestion-manager",
+    metric_family = PreingestionPowerControl,
     log = dynamic,
-    metric = counter,
-    message = dynamic,
-    describe = "Number of preingestion Redfish power operations (host power control, BMC and \
-                chassis resets), by operation and outcome."
+    message = dynamic
 )]
 pub(crate) struct PowerControlFinished {
     #[label]
@@ -534,13 +555,9 @@ impl DynamicMessage for PowerControlFinished {
 #[derive(Event)]
 #[event(
     event_name = "preingestion_initial_bmc_reset_finished",
-    metric_name = "carbide_preingestion_power_control_total",
-    component = "preingestion-manager",
+    metric_family = PreingestionPowerControl,
     log = dynamic,
-    metric = counter,
-    message = dynamic,
-    describe = "Number of preingestion Redfish power operations (host power control, BMC and \
-                chassis resets), by operation and outcome."
+    message = dynamic
 )]
 struct InitialBmcResetFinished {
     #[label]
@@ -577,55 +594,54 @@ impl DynamicMessage for InitialBmcResetFinished {
     }
 }
 
-/// A host power operation for a DPU's BFB platform powercycle completed. The
-/// separate Event keeps both endpoints and `post_install` on the diagnostic
-/// record while sharing the existing operation/result counter.
+/// One host power step of a DPU's BFB platform powercycle. Only `ForceOff` and
+/// `On` reach this path. A success is counted and stays quiet; each failure
+/// keeps the wording for the step that failed, and both endpoints plus
+/// `post_install` ride the record.
 #[derive(Event)]
 #[event(
     event_name = "preingestion_bfb_platform_power_control_finished",
-    metric_name = "carbide_preingestion_power_control_total",
-    component = "preingestion-manager",
-    log = dynamic,
-    metric = counter,
-    message = dynamic,
-    describe = "Number of preingestion Redfish power operations (host power control, BMC and \
-                chassis resets), by operation and outcome."
+    metric_family = PreingestionPowerControl
 )]
-struct BfbPlatformPowerControlFinished {
-    #[label]
-    operation: PowerOperation,
-    #[label]
-    outcome: Outcome,
-    #[context]
-    dpu_bmc_ip_address: IpAddr,
-    #[context]
-    host_bmc_ip_address: IpAddr,
-    #[context(value)]
-    post_install: bool,
-    #[context]
-    error: String,
-}
+enum BfbPlatformPowerControlFinished {
+    /// Counted, never logged, so it holds only what the metric needs.
+    #[event(labels(outcome = Outcome::Ok), log = off)]
+    Succeeded {
+        #[label]
+        operation: PowerOperation,
+    },
 
-impl DynamicLog for BfbPlatformPowerControlFinished {
-    fn log_at(&self) -> LogAt {
-        if self.error.is_empty() {
-            LogAt::Off
-        } else {
-            LogAt::Level(tracing::Level::ERROR)
-        }
-    }
-}
+    #[event(
+        labels(outcome = Outcome::Error, operation = PowerOperation::ForceOff),
+        log = error,
+        message = "Failed to power off host during BFB power cycle; will retry"
+    )]
+    ForceOffFailed {
+        #[context]
+        dpu_bmc_ip_address: IpAddr,
+        #[context]
+        host_bmc_ip_address: IpAddr,
+        #[context(value)]
+        post_install: bool,
+        #[context]
+        error: String,
+    },
 
-impl DynamicMessage for BfbPlatformPowerControlFinished {
-    fn message(&self) -> &'static str {
-        match self.operation {
-            PowerOperation::ForceOff => {
-                "Failed to power off host during BFB power cycle; will retry"
-            }
-            PowerOperation::On => "Failed to power on host during BFB power cycle; will retry",
-            _ => "Host power control failed during BFB power cycle; will retry",
-        }
-    }
+    #[event(
+        labels(outcome = Outcome::Error, operation = PowerOperation::On),
+        log = error,
+        message = "Failed to power on host during BFB power cycle; will retry"
+    )]
+    OnFailed {
+        #[context]
+        dpu_bmc_ip_address: IpAddr,
+        #[context]
+        host_bmc_ip_address: IpAddr,
+        #[context(value)]
+        post_install: bool,
+        #[context]
+        error: String,
+    },
 }
 
 /// Wraps one preingestion Redfish power operation: the result is returned
@@ -707,13 +723,21 @@ pub(crate) async fn instrument_power_op<T>(
             dpu_bmc_ip_address,
             host_bmc_ip_address,
             post_install,
-        } => emit(BfbPlatformPowerControlFinished {
-            operation,
-            outcome,
-            dpu_bmc_ip_address,
-            host_bmc_ip_address,
-            post_install,
-            error,
+        } => emit(match (outcome, operation) {
+            (Outcome::Ok, _) => BfbPlatformPowerControlFinished::Succeeded { operation },
+            (Outcome::Error, PowerOperation::On) => BfbPlatformPowerControlFinished::OnFailed {
+                dpu_bmc_ip_address,
+                host_bmc_ip_address,
+                post_install,
+                error,
+            },
+            // Only `ForceOff` and `On` reach this path.
+            (Outcome::Error, _) => BfbPlatformPowerControlFinished::ForceOffFailed {
+                dpu_bmc_ip_address,
+                host_bmc_ip_address,
+                post_install,
+                error,
+            },
         }),
     }
     result
@@ -848,20 +872,16 @@ mod tests {
     fn bfb_copy_finished_records_duration_and_owns_the_completion_line() {
         let metrics = MetricsCapture::start();
         let logs = capture_logs(|| {
-            emit(BfbCopyFinished {
-                outcome: BfbCopyOutcome::Ok,
+            emit(BfbCopyFinished::Ok {
                 took: Duration::from_secs(90),
                 address: IpAddr::from([10, 0, 0, 5]),
-                error: String::new(),
             });
-            emit(BfbCopyFinished {
-                outcome: BfbCopyOutcome::Error,
+            emit(BfbCopyFinished::Error {
                 took: Duration::from_secs(30),
                 address: IpAddr::from([10, 0, 0, 6]),
                 error: "ssh connection reset".to_string(),
             });
-            emit(BfbCopyFinished {
-                outcome: BfbCopyOutcome::Timeout,
+            emit(BfbCopyFinished::Timeout {
                 took: Duration::from_secs(2100),
                 address: IpAddr::from([10, 0, 0, 7]),
                 error: "BFB copy timed out after 35 minutes".to_string(),
@@ -894,13 +914,7 @@ mod tests {
     }
 
     #[derive(Clone, Copy)]
-    enum FirmwareUploadEventKind {
-        Finished,
-        MultipartUnsupported,
-    }
-
     struct FirmwareUploadInput {
-        kind: FirmwareUploadEventKind,
         method: FirmwareUploadMethod,
         outcome: Outcome,
         error: &'static str,
@@ -930,21 +944,29 @@ mod tests {
         let bmc_ip_address = IpAddr::from([10, 0, 0, 5]);
         let method_label = input.method.label_value();
         let outcome_label = input.outcome.label_value();
-        let logs = capture_logs(|| match input.kind {
-            FirmwareUploadEventKind::Finished => emit(FirmwareUploadFinished {
-                method: input.method,
-                outcome: input.outcome,
-                bmc_ip_address,
-                error: input.error.to_string(),
-            }),
-            FirmwareUploadEventKind::MultipartUnsupported => {
-                emit(MultipartFirmwareUploadUnsupported {
-                    method: input.method,
-                    outcome: input.outcome,
-                    bmc_ip_address,
-                    error: input.error.to_string(),
-                });
-            }
+        let logs = capture_logs(|| {
+            let error = input.error.to_string();
+            emit(match (input.outcome, input.method) {
+                (Outcome::Ok, method) => FirmwareUploadFinished::Succeeded { method },
+                (Outcome::Error, FirmwareUploadMethod::SimpleUpdate) => {
+                    FirmwareUploadFinished::SimpleUpdateFailed {
+                        bmc_ip_address,
+                        error,
+                    }
+                }
+                (Outcome::Error, FirmwareUploadMethod::Multipart) => {
+                    FirmwareUploadFinished::MultipartFailed {
+                        bmc_ip_address,
+                        error,
+                    }
+                }
+                (Outcome::Error, FirmwareUploadMethod::HttpPush) => {
+                    FirmwareUploadFinished::HttpPushFailed {
+                        bmc_ip_address,
+                        error,
+                    }
+                }
+            });
         })
         .into_iter()
         .map(|log| {
@@ -1019,7 +1041,6 @@ mod tests {
                 Check {
                     scenario: "SimpleUpdate success",
                     input: FirmwareUploadInput {
-                        kind: FirmwareUploadEventKind::Finished,
                         method: FirmwareUploadMethod::SimpleUpdate,
                         outcome: Outcome::Ok,
                         error: "",
@@ -1034,7 +1055,6 @@ mod tests {
                 Check {
                     scenario: "SimpleUpdate failure",
                     input: FirmwareUploadInput {
-                        kind: FirmwareUploadEventKind::Finished,
                         method: FirmwareUploadMethod::SimpleUpdate,
                         outcome: Outcome::Error,
                         error: "simple update failed",
@@ -1051,62 +1071,8 @@ mod tests {
                     ),
                 },
                 Check {
-                    scenario: "multipart success",
-                    input: FirmwareUploadInput {
-                        kind: FirmwareUploadEventKind::Finished,
-                        method: FirmwareUploadMethod::Multipart,
-                        outcome: Outcome::Ok,
-                        error: "",
-                    },
-                    expect: expected_firmware_upload(
-                        FirmwareUploadMethod::Multipart,
-                        Outcome::Ok,
-                        "",
-                        None,
-                    ),
-                },
-                Check {
-                    scenario: "multipart failure",
-                    input: FirmwareUploadInput {
-                        kind: FirmwareUploadEventKind::Finished,
-                        method: FirmwareUploadMethod::Multipart,
-                        outcome: Outcome::Error,
-                        error: "multipart upload failed",
-                    },
-                    expect: expected_firmware_upload(
-                        FirmwareUploadMethod::Multipart,
-                        Outcome::Error,
-                        "multipart upload failed",
-                        Some((
-                            tracing::Level::WARN,
-                            "preingestion_firmware_upload_finished",
-                            "Failed to upload firmware via multipart update",
-                        )),
-                    ),
-                },
-                Check {
-                    scenario: "multipart unsupported",
-                    input: FirmwareUploadInput {
-                        kind: FirmwareUploadEventKind::MultipartUnsupported,
-                        method: FirmwareUploadMethod::Multipart,
-                        outcome: Outcome::Error,
-                        error: "multipart is unsupported",
-                    },
-                    expect: expected_firmware_upload(
-                        FirmwareUploadMethod::Multipart,
-                        Outcome::Error,
-                        "multipart is unsupported",
-                        Some((
-                            tracing::Level::WARN,
-                            "preingestion_firmware_upload_multipart_unsupported",
-                            "Multipart firmware update is not supported; trying HttpPushUri",
-                        )),
-                    ),
-                },
-                Check {
                     scenario: "HttpPush success",
                     input: FirmwareUploadInput {
-                        kind: FirmwareUploadEventKind::Finished,
                         method: FirmwareUploadMethod::HttpPush,
                         outcome: Outcome::Ok,
                         error: "",
@@ -1121,7 +1087,6 @@ mod tests {
                 Check {
                     scenario: "HttpPush failure",
                     input: FirmwareUploadInput {
-                        kind: FirmwareUploadEventKind::Finished,
                         method: FirmwareUploadMethod::HttpPush,
                         outcome: Outcome::Error,
                         error: "HTTP push failed",
@@ -1142,33 +1107,40 @@ mod tests {
         );
     }
 
-    /// An unsupported multipart attempt counts as its own error before the
-    /// `HttpPush` fallback records a second, independent attempt.
+    /// A declined multipart route writes its WARN and leaves the upload counter
+    /// alone: the fallback that follows records the upload's only result, so the
+    /// multipart failure series stays a count of real multipart failures.
     #[test]
-    fn unsupported_multipart_preserves_the_http_push_fallback_sequence() {
+    fn a_declined_multipart_route_does_not_count_as_an_upload_failure() {
         let metrics = MetricsCapture::start();
         let logs = capture_logs(|| {
             emit(MultipartFirmwareUploadUnsupported {
-                method: FirmwareUploadMethod::Multipart,
-                outcome: Outcome::Error,
                 bmc_ip_address: IpAddr::from([10, 0, 0, 6]),
                 error: "multipart is unsupported".to_string(),
             });
-            emit(FirmwareUploadFinished {
+            emit(FirmwareUploadFinished::Succeeded {
                 method: FirmwareUploadMethod::HttpPush,
-                outcome: Outcome::Ok,
-                bmc_ip_address: IpAddr::from([10, 0, 0, 6]),
-                error: String::new(),
             });
         });
 
-        assert_eq!(logs.len(), 1, "only unsupported multipart logs: {logs:?}");
+        assert_eq!(logs.len(), 1, "only the declined route logs: {logs:?}");
+        assert_eq!(logs[0].level, tracing::Level::WARN);
+        assert_eq!(
+            logs[0].field("event_name"),
+            Some("preingestion_firmware_upload_multipart_unsupported"),
+        );
+        assert_eq!(
+            logs[0].field("metric_name"),
+            None,
+            "a declined route records no metric",
+        );
         assert_eq!(
             metrics.counter_delta(
                 "carbide_preingestion_firmware_upload_total",
                 &[("method", "multipart"), ("outcome", "error")],
             ),
-            1.0,
+            0.0,
+            "the fallback must not count against multipart failures",
         );
         assert_eq!(
             metrics.counter_delta(
@@ -1176,6 +1148,7 @@ mod tests {
                 &[("method", "http_push"), ("outcome", "ok")],
             ),
             1.0,
+            "the upload's real result is the one the counter records",
         );
     }
 
@@ -1186,17 +1159,14 @@ mod tests {
     fn firmware_upgrade_task_failures_own_the_warn_line() {
         let metrics = MetricsCapture::start();
         let logs = capture_logs(|| {
-            emit(FirmwareUpgradeTaskFinished {
+            emit(FirmwareUpgradeTaskFinished::Ok {
                 firmware: FirmwareComponentLabel(FirmwareComponentType::Bmc),
                 final_state: UpgradeTaskFinalState::Completed,
-                outcome: Outcome::Ok,
-                address: IpAddr::from([10, 0, 0, 5]),
-                error: String::new(),
             });
-            emit(FirmwareUpgradeTaskFinished {
+            emit(FirmwareUpgradeTaskFinished::Error {
                 firmware: FirmwareComponentLabel(FirmwareComponentType::Uefi),
                 final_state: UpgradeTaskFinalState::Exception,
-                outcome: Outcome::Error,
+
                 address: IpAddr::from([10, 0, 0, 6]),
                 error: "flash verification failed".to_string(),
             });
@@ -1400,21 +1370,27 @@ mod tests {
     #[test]
     fn bfb_platform_power_operations_retain_their_messages() {
         let message = |operation| {
-            DynamicMessage::message(&BfbPlatformPowerControlFinished {
-                operation,
-                outcome: Outcome::Error,
-                dpu_bmc_ip_address: IpAddr::from([10, 0, 0, 6]),
-                host_bmc_ip_address: IpAddr::from([10, 0, 0, 5]),
-                post_install: false,
-                error: "power control failed".to_string(),
-            })
+            let event = match operation {
+                PowerOperation::On => BfbPlatformPowerControlFinished::OnFailed {
+                    dpu_bmc_ip_address: IpAddr::from([10, 0, 0, 6]),
+                    host_bmc_ip_address: IpAddr::from([10, 0, 0, 5]),
+                    post_install: false,
+                    error: "power control failed".to_string(),
+                },
+                _ => BfbPlatformPowerControlFinished::ForceOffFailed {
+                    dpu_bmc_ip_address: IpAddr::from([10, 0, 0, 6]),
+                    host_bmc_ip_address: IpAddr::from([10, 0, 0, 5]),
+                    post_install: false,
+                    error: "power control failed".to_string(),
+                },
+            };
+            carbide_instrument::Event::message(&event)
         };
 
         value_scenarios!(run = message;
             "operation" {
                 PowerOperation::ForceOff => "Failed to power off host during BFB power cycle; will retry",
                 PowerOperation::On => "Failed to power on host during BFB power cycle; will retry",
-                PowerOperation::BmcReset => "Host power control failed during BFB power cycle; will retry",
             }
         );
     }

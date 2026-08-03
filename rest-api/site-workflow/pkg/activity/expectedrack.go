@@ -11,15 +11,12 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/rs/zerolog/log"
-	"go.temporal.io/sdk/client"
 	tClient "go.temporal.io/sdk/client"
 	"go.temporal.io/sdk/temporal"
 	"google.golang.org/protobuf/types/known/emptypb"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
-	"github.com/NVIDIA/infra-controller/rest-api/common/pkg/util/labels"
 	corev1 "github.com/NVIDIA/infra-controller/rest-api/proto/core/gen/v1"
-	flowv1 "github.com/NVIDIA/infra-controller/rest-api/proto/flow/gen/v1"
 	swe "github.com/NVIDIA/infra-controller/rest-api/site-workflow/pkg/error"
 	cclient "github.com/NVIDIA/infra-controller/rest-api/site-workflow/pkg/grpc/client"
 )
@@ -114,7 +111,7 @@ func (meri *ManageExpectedRackInventory) DiscoverExpectedRackInventory(ctx conte
 			endIndex = totalCount
 		}
 
-		pagedWorkflowOptions := client.StartWorkflowOptions{
+		pagedWorkflowOptions := tClient.StartWorkflowOptions{
 			ID:        fmt.Sprintf("%v-%v", workflowOptions.ID, cloudPage),
 			TaskQueue: workflowOptions.TaskQueue,
 		}
@@ -192,14 +189,12 @@ func NewManageExpectedRackInventory(siteID uuid.UUID, coreGrpcAtomicClient *ccli
 // ManageExpectedRack is an activity wrapper for Expected Rack management
 type ManageExpectedRack struct {
 	coreGrpcAtomicClient *cclient.CoreGrpcAtomicClient
-	flowGrpcAtomicClient *cclient.FlowGrpcAtomicClient
 }
 
 // NewManageExpectedRack returns a new ManageExpectedRack client
-func NewManageExpectedRack(coreGrpcAtomicClient *cclient.CoreGrpcAtomicClient, flowGrpcAtomicClient *cclient.FlowGrpcAtomicClient) ManageExpectedRack {
+func NewManageExpectedRack(coreGrpcAtomicClient *cclient.CoreGrpcAtomicClient) ManageExpectedRack {
 	return ManageExpectedRack{
 		coreGrpcAtomicClient: coreGrpcAtomicClient,
-		flowGrpcAtomicClient: flowGrpcAtomicClient,
 	}
 }
 
@@ -391,100 +386,10 @@ func (mer *ManageExpectedRack) DeleteAllExpectedRacksOnSite(ctx context.Context)
 	return nil
 }
 
-// CreateExpectedRackOnFlow creates an Expected Rack in Flow via CreateExpectedRack.
-// Best-effort: if the Flow client is not configured, the activity logs and returns nil
-// so the workflow can continue. RPC failures are surfaced as errors so the workflow
-// can decide how to handle them (typically log and ignore).
-func (mer *ManageExpectedRack) CreateExpectedRackOnFlow(ctx context.Context, request *corev1.ExpectedRack) error {
-	logger := log.With().Str("Activity", "CreateExpectedRackOnFlow").Logger()
-
-	logger.Info().Msg("Starting activity")
-
-	// Validate request
-	if request == nil {
-		return temporal.NewNonRetryableApplicationError("received empty create Expected Rack request for Flow", swe.ErrTypeInvalidRequest, errors.New("nil request"))
-	}
-
-	// If Flow client is not configured, skip gracefully
-	if mer.flowGrpcAtomicClient == nil {
-		logger.Warn().Msg("Flow client not configured, skipping Flow expected rack creation")
-		return nil
-	}
-
-	grpcClient := mer.flowGrpcAtomicClient.GetClient()
-	if grpcClient == nil {
-		logger.Warn().Msg("Flow client not connected, skipping Flow expected rack creation")
-		return nil
-	}
-	grpcServiceClient := grpcClient.GrpcServiceClient()
-
-	rack := expectedRackToFlowRack(request)
-	_, err := grpcServiceClient.CreateExpectedRack(ctx, &flowv1.CreateExpectedRackRequest{Rack: rack})
-	if err != nil {
-		logger.Warn().Err(err).Msg("Failed to create Expected Rack on Flow")
-		return swe.WrapErr(err)
-	}
-
-	logger.Info().Msg("Completed activity")
+// CreateExpectedRackOnFlow is retained as a no-op for compatibility with
+// workflow histories recorded before direct Flow writes were removed.
+// Remove it after the matching `GetVersion` branch is retired and those
+// histories can no longer be replayed.
+func (*ManageExpectedRack) CreateExpectedRackOnFlow(context.Context, *corev1.ExpectedRack) error {
 	return nil
-}
-
-// labelValue extracts the value for a label key from a metadata label slice. Returns
-// empty string if the key is not present or the value is nil.
-func labelValue(labels []*corev1.Label, key string) string {
-	for _, l := range labels {
-		if l == nil {
-			continue
-		}
-		if l.GetKey() == key {
-			// Label.Value is *string; GetValue() handles nil safely.
-			return l.GetValue()
-		}
-	}
-	return ""
-}
-
-// expectedRackToFlowRack converts a NICo ExpectedRack proto to an Flow Rack proto.
-// Chassis identity (manufacturer/serial/model) and physical location (region/datacenter/
-// room/position) are read from well-known label keys defined in
-// common/pkg/util/labels. Missing labels are tolerated and rendered as empty
-// strings on the Flow side.
-func expectedRackToFlowRack(rack *corev1.ExpectedRack) *flowv1.Rack {
-	rackLabels := rack.GetMetadata().GetLabels()
-
-	manufacturer := labelValue(rackLabels, labels.RackLabelChassisManufacturer)
-	serialNumber := labelValue(rackLabels, labels.RackLabelChassisSerialNumber)
-	model := labelValue(rackLabels, labels.RackLabelChassisModel)
-
-	region := labelValue(rackLabels, labels.RackLabelLocationRegion)
-	datacenter := labelValue(rackLabels, labels.RackLabelLocationDatacenter)
-	room := labelValue(rackLabels, labels.RackLabelLocationRoom)
-	position := labelValue(rackLabels, labels.RackLabelLocationPosition)
-
-	deviceInfo := &flowv1.DeviceInfo{
-		Id:           &flowv1.UUID{Id: rack.GetRackId().GetId()},
-		Name:         rack.GetMetadata().GetName(),
-		Manufacturer: manufacturer,
-		SerialNumber: serialNumber,
-	}
-
-	if model != "" {
-		deviceInfo.Model = &model
-	}
-
-	if description := rack.GetMetadata().GetDescription(); description != "" {
-		deviceInfo.Description = &description
-	}
-
-	location := &flowv1.Location{
-		Region:     region,
-		Datacenter: datacenter,
-		Room:       room,
-		Position:   position,
-	}
-
-	return &flowv1.Rack{
-		Info:     deviceInfo,
-		Location: location,
-	}
 }

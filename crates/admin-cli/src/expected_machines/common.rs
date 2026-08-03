@@ -136,8 +136,12 @@ pub struct ExpectedMachineJson {
     #[serde(default)]
     pub metadata: Option<rpc::forge::Metadata>,
     pub sku_id: Option<String>,
-    #[serde(default)]
-    pub host_nics: Vec<rpc::forge::ExpectedHostNic>,
+    /// An omitted field or explicit `null` preserves the stored list for
+    /// file-based updates, while an empty array clears it. `replace-all` has no
+    /// stored row to preserve, so it resolves either form of `None` to an empty
+    /// list.
+    #[serde(default, alias = "host_nics")]
+    pub interfaces: Option<Vec<rpc::forge::ExpectedInterface>>,
     pub rack_id: Option<RackId>,
     pub default_pause_ingestion_and_poweron: Option<bool>,
     pub dpf_enabled: Option<bool>,
@@ -270,6 +274,104 @@ mod tests {
             "unknown numeric value" {
                 r#", "dpu_mode": 99"# => Fails,
             }
+        );
+    }
+
+    /// File updates distinguish an omitted interface list from an explicit
+    /// replacement, including an empty replacement.
+    #[test]
+    fn expected_machine_json_preserves_interface_presence() {
+        scenarios!(
+            run = |interfaces_json| {
+                let json = format!(
+                    r#"{{
+                        "bmc_mac_address": "AA:BB:CC:DD:EE:FF",
+                        "bmc_username": "root",
+                        "bmc_password": "pass",
+                        "chassis_serial_number": "SN-1"
+                        {interfaces_json}
+                    }}"#,
+                );
+                serde_json::from_str::<ExpectedMachineJson>(&json)
+                    .map(|machine| machine.interfaces.map(|interfaces| interfaces.len()))
+                    .map_err(drop)
+            };
+            "interfaces omitted" {
+                "" => Yields(None),
+            }
+
+            "interfaces explicitly null" {
+                r#", "interfaces": null"# => Yields(None),
+            }
+
+            "interfaces explicitly empty" {
+                r#", "interfaces": []"# => Yields(Some(0)),
+            }
+
+            "interfaces explicitly populated" {
+                r#", "interfaces": [{"mac_address": "00:11:22:33:44:55"}]"# =>
+                    Yields(Some(1)),
+            }
+
+            "legacy host_nics explicitly null" {
+                r#", "host_nics": null"# => Yields(None),
+            }
+
+            "legacy host_nics explicitly empty" {
+                r#", "host_nics": []"# => Yields(Some(0)),
+            }
+
+            "legacy host_nics explicitly populated" {
+                r#", "host_nics": [{"mac_address": "00:11:22:33:44:55"}]"# =>
+                    Yields(Some(1)),
+            }
+
+            "both spellings in one machine are ambiguous" {
+                r#", "interfaces": [], "host_nics": []"# => Fails,
+            }
+        );
+    }
+
+    /// One replace-all file may migrate expected-machine entries independently.
+    #[test]
+    fn expected_machine_list_accepts_mixed_interface_field_names() {
+        #[derive(Deserialize)]
+        struct ExpectedMachineList {
+            expected_machines: Vec<ExpectedMachineJson>,
+        }
+
+        let list = serde_json::from_str::<ExpectedMachineList>(
+            r#"{
+                "expected_machines": [
+                    {
+                        "bmc_mac_address": "AA:BB:CC:DD:EE:01",
+                        "bmc_username": "root",
+                        "bmc_password": "pass",
+                        "chassis_serial_number": "SN-1",
+                        "interfaces": [{
+                            "mac_address": "02:00:00:00:20:01"
+                        }]
+                    },
+                    {
+                        "bmc_mac_address": "AA:BB:CC:DD:EE:02",
+                        "bmc_username": "root",
+                        "bmc_password": "pass",
+                        "chassis_serial_number": "SN-2",
+                        "host_nics": [{
+                            "mac_address": "02:00:00:00:20:02"
+                        }]
+                    }
+                ]
+            }"#,
+        )
+        .unwrap();
+
+        assert_eq!(
+            list.expected_machines
+                .iter()
+                .map(|machine| { machine.interfaces.as_ref().unwrap()[0].mac_address.as_str() })
+                .collect::<Vec<_>>(),
+            ["02:00:00:00:20:01", "02:00:00:00:20:02"],
         );
     }
 

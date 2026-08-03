@@ -23,17 +23,19 @@ use axum::response::{Html, IntoResponse, Response};
 use axum::routing::{any, get};
 use axum::{Json, Router};
 use bmc_mock::injection::{InjectionStore, Rule, RuleId};
-use carbide_uuid::machine::MachineId;
+use carbide_uuid::rack::RackId;
 use tower::Service;
-use uuid::Uuid;
 
-use crate::host_machine::HostMachineHandle;
-use crate::status::{MachineStatusConfig, MachinesStatusResponse};
+use crate::device_simulator::SimulatorLifecycle;
+use crate::simulator_registry::SimulatorRegistry;
+use crate::status::{DeviceStatusConfig, DevicesStatusResponse};
 
 pub fn append(router: Router, control_state: ControlState) -> Router {
     Router::new()
         .route("/", get(get_machines_ui))
         .route("/machines/status", get(get_machines_status))
+        .route("/racks/status", get(get_racks_status))
+        .route("/racks/{rack_id}/status", get(get_rack_status))
         .route(
             "/machines/{id}/bmc/injection/rules",
             get(list_bmc_injection_rules).post(upsert_bmc_injection_rule),
@@ -51,54 +53,31 @@ pub fn append(router: Router, control_state: ControlState) -> Router {
 
 #[derive(Clone)]
 pub struct ControlState {
-    machine_handles: Arc<Vec<HostMachineHandle>>,
-    status_config: MachineStatusConfig,
+    simulators: SimulatorRegistry,
+    status_config: DeviceStatusConfig,
 }
 
 impl ControlState {
-    pub fn new(
-        machine_handles: Vec<HostMachineHandle>,
-        status_config: MachineStatusConfig,
-    ) -> Self {
+    pub fn new(simulators: SimulatorRegistry, status_config: DeviceStatusConfig) -> Self {
         Self {
-            machine_handles: Arc::new(machine_handles),
+            simulators,
             status_config,
         }
     }
 
-    fn machines_status(&self) -> MachinesStatusResponse {
-        MachinesStatusResponse {
-            machines: self
-                .machine_handles
+    fn devices_status(&self) -> DevicesStatusResponse {
+        DevicesStatusResponse {
+            devices: self
+                .simulators
+                .devices()
                 .iter()
-                .map(|machine| machine.status(&self.status_config))
+                .map(|simulator| simulator.status(&self.status_config))
                 .collect(),
         }
     }
 
-    fn machine(&self, id: &str) -> Option<Arc<InjectionStore>> {
-        let mat_id = Uuid::parse_str(id).ok();
-        let machine_id = id.parse::<MachineId>().ok();
-        let matches = |candidate_mat_id, candidate_machine_id: Option<MachineId>| {
-            mat_id.is_some_and(|id| candidate_mat_id == id)
-                || machine_id
-                    .as_ref()
-                    .is_some_and(|id| candidate_machine_id.as_ref() == Some(id))
-        };
-
-        for machine in self.machine_handles.iter() {
-            if matches(machine.mat_id(), machine.observed_machine_id()) {
-                return Some(machine.bmc_injection_store());
-            }
-            if let Some(dpu) = machine
-                .dpus()
-                .iter()
-                .find(|dpu| matches(dpu.mat_id(), dpu.observed_machine_id()))
-            {
-                return Some(dpu.bmc_injection_store());
-            }
-        }
-        None
+    fn device(&self, id: &str) -> Option<Arc<InjectionStore>> {
+        self.simulators.find_injection_store(id)
     }
 }
 
@@ -108,8 +87,30 @@ struct ControlRouter {
     control_state: ControlState,
 }
 
-async fn get_machines_status(State(state): State<ControlRouter>) -> Json<MachinesStatusResponse> {
-    Json(state.control_state.machines_status())
+async fn get_machines_status(State(state): State<ControlRouter>) -> Json<DevicesStatusResponse> {
+    Json(state.control_state.devices_status())
+}
+
+async fn get_racks_status(State(state): State<ControlRouter>) -> Json<crate::RacksStatusResponse> {
+    Json(
+        state
+            .control_state
+            .simulators
+            .racks_status(&state.control_state.status_config),
+    )
+}
+
+async fn get_rack_status(
+    State(state): State<ControlRouter>,
+    Path(rack_id): Path<String>,
+) -> Response {
+    state
+        .control_state
+        .simulators
+        .rack_status(&RackId::new(rack_id), &state.control_state.status_config)
+        .map(Json)
+        .map(IntoResponse::into_response)
+        .unwrap_or_else(|| (StatusCode::NOT_FOUND, "rack not found").into_response())
 }
 
 async fn get_machines_ui() -> Html<&'static str> {
@@ -120,10 +121,10 @@ async fn list_bmc_injection_rules(
     State(state): State<ControlRouter>,
     Path(id): Path<String>,
 ) -> Response {
-    let Some(machine) = state.control_state.machine(&id) else {
-        return machine_not_found();
+    let Some(device) = state.control_state.device(&id) else {
+        return device_not_found();
     };
-    Json(list_rules(&machine)).into_response()
+    Json(list_rules(&device)).into_response()
 }
 
 async fn upsert_bmc_injection_rule(
@@ -131,23 +132,23 @@ async fn upsert_bmc_injection_rule(
     Path(id): Path<String>,
     Json(rule): Json<Rule>,
 ) -> Response {
-    let Some(machine) = state.control_state.machine(&id) else {
-        return machine_not_found();
+    let Some(device) = state.control_state.device(&id) else {
+        return device_not_found();
     };
-    machine.upsert(rule);
-    Json(list_rules(&machine)).into_response()
+    device.upsert(rule);
+    Json(list_rules(&device)).into_response()
 }
 
 async fn delete_bmc_injection_rule(
     State(state): State<ControlRouter>,
     Path((id, rule_id)): Path<(String, String)>,
 ) -> Response {
-    let Some(machine) = state.control_state.machine(&id) else {
-        return machine_not_found();
+    let Some(device) = state.control_state.device(&id) else {
+        return device_not_found();
     };
     let rule_id = RuleId::from(rule_id);
-    if machine.delete(&rule_id) {
-        Json(list_rules(&machine)).into_response()
+    if device.delete(&rule_id) {
+        Json(list_rules(&device)).into_response()
     } else {
         (
             StatusCode::NOT_FOUND,
@@ -157,16 +158,16 @@ async fn delete_bmc_injection_rule(
     }
 }
 
-fn list_rules(machine: &InjectionStore) -> Vec<Rule> {
-    machine
+fn list_rules(device: &InjectionStore) -> Vec<Rule> {
+    device
         .list()
         .into_iter()
         .map(|rule| (*rule).clone())
         .collect()
 }
 
-fn machine_not_found() -> Response {
-    (StatusCode::NOT_FOUND, "machine not found").into_response()
+fn device_not_found() -> Response {
+    (StatusCode::NOT_FOUND, "device not found").into_response()
 }
 
 async fn process(State(mut state): State<ControlRouter>, request: Request<Body>) -> Response {
@@ -192,20 +193,66 @@ mod tests {
     use axum::http::{Method, Request, StatusCode};
     use axum::routing::get;
     use bmc_mock::ipmi_sim::IpmiEndpoint;
+    use bmc_mock::{HardwareType, RackType};
+    use carbide_uuid::rack::{RackId, RackProfileId};
     use tower::ServiceExt;
     use uuid::Uuid;
 
     use super::{ControlState, append};
+    use crate::DeviceHandle;
+    use crate::device_simulator::DeviceSimulator;
     use crate::dpu_machine::DpuMachineHandle;
-    use crate::host_machine::HostMachineHandle;
-    use crate::status::MachineStatusConfig;
+    use crate::rack::{RackMemberRegistration, RackRegistration};
+    use crate::simulator_registry::SimulatorRegistry;
+    use crate::status::DeviceStatusConfig;
+
+    fn control_state(handles: Vec<DeviceHandle>) -> ControlState {
+        ControlState::new(
+            SimulatorRegistry::try_from_handles(handles).unwrap(),
+            DeviceStatusConfig::new(1266),
+        )
+    }
+
+    fn rack_control_state(handle: DeviceHandle) -> ControlState {
+        rack_control_state_for(vec![handle], vec![rack_registration("rack-001", "test")])
+    }
+
+    fn rack_registration(rack_id: &str, machine_config_section: &str) -> RackRegistration {
+        RackRegistration {
+            rack_id: RackId::new(rack_id),
+            rack_profile_id: RackProfileId::new("test-profile"),
+            rack_type: RackType::WiwynnGb200Nvl72,
+            version: 1,
+            members: vec![RackMemberRegistration {
+                position: 11,
+                hardware_type: HardwareType::WiwynnGB200Nvl,
+                machine_config_section: machine_config_section.to_string(),
+            }],
+        }
+    }
+
+    fn rack_control_state_for(
+        handles: Vec<DeviceHandle>,
+        registrations: Vec<RackRegistration>,
+    ) -> ControlState {
+        ControlState::new(
+            SimulatorRegistry::builder()
+                .devices(
+                    handles
+                        .into_iter()
+                        .map(DeviceSimulator::from_handle)
+                        .collect(),
+                )
+                .racks(registrations)
+                .build()
+                .unwrap(),
+            DeviceStatusConfig::new(1266),
+        )
+    }
 
     #[tokio::test]
     async fn machines_status_does_not_require_bmc_routes() {
-        let router = append(
-            Router::new(),
-            ControlState::new(Vec::new(), MachineStatusConfig::new(1266)),
-        );
+        let router = append(Router::new(), control_state(Vec::new()));
 
         let response = router
             .oneshot(
@@ -226,7 +273,7 @@ mod tests {
     async fn machines_ui_returns_html() {
         let router = append(
             Router::new().route("/redfish/v1", get(|| async { "bmc" })),
-            ControlState::new(Vec::new(), MachineStatusConfig::new(1266)),
+            control_state(Vec::new()),
         );
 
         let response = router
@@ -241,27 +288,24 @@ mod tests {
 
     #[tokio::test]
     async fn machines_status_reports_each_bmc_ipmi_endpoint() {
-        let first = HostMachineHandle::for_control_test(
+        let first = DeviceHandle::for_control_test(
             Vec::new(),
             Some(IpmiEndpoint {
                 reachable_port: 623,
                 listen_port: 16_020,
             }),
         );
-        let second = HostMachineHandle::for_control_test(
+        let second = DeviceHandle::for_control_test(
             Vec::new(),
             Some(IpmiEndpoint {
                 reachable_port: 623,
                 listen_port: 16_021,
             }),
         );
-        let without_ipmi = HostMachineHandle::for_control_test(Vec::new(), None);
+        let without_ipmi = DeviceHandle::for_control_test(Vec::new(), None);
         let router = append(
             Router::new(),
-            ControlState::new(
-                vec![first, second, without_ipmi],
-                MachineStatusConfig::new(1266),
-            ),
+            control_state(vec![first, second, without_ipmi]),
         );
 
         let response = router
@@ -285,11 +329,122 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn bmc_injection_rules_require_known_machine() {
+    async fn rack_status_projects_devices_from_machines_status() {
+        let handle = DeviceHandle::for_control_test(Vec::new(), None);
+        let mat_id = handle.mat_id().to_string();
+        let router = append(Router::new(), rack_control_state(handle));
+
+        let machines_response = router
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri("/machines/status")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        let machines_body = to_bytes(machines_response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let machines: serde_json::Value = serde_json::from_slice(&machines_body).unwrap();
+
+        let rack_response = router
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri("/racks/rack-001/status")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(rack_response.status(), StatusCode::OK);
+        let rack_body = to_bytes(rack_response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let rack: serde_json::Value = serde_json::from_slice(&rack_body).unwrap();
+
+        assert_eq!(machines["machines"].as_array().unwrap().len(), 1);
+        assert_eq!(machines["machines"][0]["mat_id"], mat_id);
+        assert_eq!(rack["rack_id"], "rack-001");
+        assert_eq!(rack["rack_type"], "wiwynn_gb200_nvl72");
+        assert_eq!(rack["members"].as_array().unwrap().len(), 1);
+        assert_eq!(rack["members"][0]["mat_id"], mat_id);
+        assert_eq!(rack["members"][0]["position"], 11);
+
+        let racks_response = router
+            .oneshot(
+                Request::builder()
+                    .uri("/racks/status")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        let racks_body = to_bytes(racks_response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let racks: serde_json::Value = serde_json::from_slice(&racks_body).unwrap();
+        assert_eq!(racks["racks"][0], rack);
+    }
+
+    #[tokio::test]
+    async fn rack_status_requires_known_rack() {
+        let router = append(Router::new(), control_state(Vec::new()));
+
+        let response = router
+            .oneshot(
+                Request::builder()
+                    .uri("/racks/unknown/status")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::NOT_FOUND);
+        let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        assert_eq!(&body[..], b"rack not found");
+    }
+
+    #[tokio::test]
+    async fn rack_status_is_isolated_by_rack_id() {
+        let first = DeviceHandle::for_control_test_in_section("rack-one");
+        let second = DeviceHandle::for_control_test_in_section("rack-two");
+        let first_id = first.mat_id().to_string();
+        let second_id = second.mat_id().to_string();
         let router = append(
             Router::new(),
-            ControlState::new(Vec::new(), MachineStatusConfig::new(1266)),
+            rack_control_state_for(
+                vec![first, second],
+                vec![
+                    rack_registration("rack-001", "rack-one"),
+                    rack_registration("rack-002", "rack-two"),
+                ],
+            ),
         );
+
+        let response = router
+            .oneshot(
+                Request::builder()
+                    .uri("/racks/rack-001/status")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        let rack: serde_json::Value = serde_json::from_slice(&body).unwrap();
+
+        assert_eq!(rack["members"].as_array().unwrap().len(), 1);
+        assert_eq!(rack["members"][0]["mat_id"], first_id);
+        assert_ne!(rack["members"][0]["mat_id"], second_id);
+    }
+
+    #[tokio::test]
+    async fn bmc_injection_rules_require_known_device() {
+        let router = append(Router::new(), control_state(Vec::new()));
 
         let get_response = router
             .clone()
@@ -306,7 +461,7 @@ mod tests {
         let body = to_bytes(get_response.into_body(), usize::MAX)
             .await
             .unwrap();
-        assert_eq!(&body[..], b"machine not found");
+        assert_eq!(&body[..], b"device not found");
 
         let post_response = router
             .clone()
@@ -344,11 +499,8 @@ mod tests {
             .parse()
             .unwrap();
         let dpu = DpuMachineHandle::for_control_test(dpu_id, Some(observed_dpu_id));
-        let host = HostMachineHandle::for_control_test(vec![dpu], None);
-        let router = append(
-            Router::new(),
-            ControlState::new(vec![host.clone()], MachineStatusConfig::new(1266)),
-        );
+        let host = DeviceHandle::for_control_test(vec![dpu], None);
+        let router = append(Router::new(), control_state(vec![host.clone()]));
 
         let response = router
             .clone()
@@ -389,7 +541,7 @@ mod tests {
     async fn unmatched_paths_forward_to_inner_router() {
         let router = append(
             Router::new().route("/redfish/v1", get(|| async { "bmc" })),
-            ControlState::new(Vec::new(), MachineStatusConfig::new(1266)),
+            control_state(Vec::new()),
         );
 
         let response = router

@@ -1,18 +1,32 @@
 {{- if .Values.persistence.enabled }}
+{{- $root := . }}
+{{- $namespace := include "nico-machine-a-tron.namespace" . }}
+{{- $baseName := include "nico-machine-a-tron.name" . }}
+
+{{- range $podName, $podConfig := .Values.pods }}
+{{/* Skip pods without machines */}}
+{{- if not (and $podConfig.machines (gt (len $podConfig.machines) 0)) }}
+{{- continue }}
+{{- end }}
+
+{{- $name := printf "%s-%s" $baseName $podName }}
+---
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
-  name: {{ include "nico-machine-a-tron.name" . }}-data
-  namespace: {{ include "nico-machine-a-tron.namespace" . }}
+  name: {{ $name }}-data
+  namespace: {{ $namespace }}
   labels:
-    {{- include "nico-machine-a-tron.labels" . | nindent 4 }}
+    {{- include "nico-machine-a-tron.labels" $root | nindent 4 }}
+    nvidia-infra-controller/pod-name: {{ $podName | quote }}
 spec:
   accessModes:
-    {{- toYaml .Values.persistence.accessModes | nindent 4 }}
-  {{- if .Values.persistence.storageClass }}
-  storageClassName: {{ .Values.persistence.storageClass | quote }}
+    {{- toYaml $root.Values.persistence.accessModes | nindent 4 }}
+  {{- if $root.Values.persistence.storageClass }}
+  storageClassName: {{ $root.Values.persistence.storageClass | quote }}
   {{- end }}
   resources:
     requests:
-      storage: {{ .Values.persistence.size }}
+      storage: {{ $root.Values.persistence.size }}
+{{- end }}
 {{- end }}

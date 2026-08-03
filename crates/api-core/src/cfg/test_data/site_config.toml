@@ -41,6 +41,7 @@ dpu_wait_time = "7m"
 power_down_wait = "17s"
 failure_retry_time = "70m"
 dpu_up_threshold = "77m"
+boot_interface_observation_interval = "2h"
 [machine_state_controller.controller]
 iteration_time = "3m"
 max_object_handling_time = "11s"

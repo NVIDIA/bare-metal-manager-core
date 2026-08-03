@@ -16,7 +16,7 @@
  */
 use std::time::Duration;
 
-use carbide_instrument::{Event, LabelValue};
+use carbide_instrument::{Event, LabelValue, MetricFamily};
 use metrics_exporter_prometheus::{Matcher, PrometheusBuilder, PrometheusHandle};
 use tokio::time::sleep;
 
@@ -97,6 +97,19 @@ pub(crate) enum OutcomeReason {
     UpstreamApiError,
 }
 
+/// The one metric the Events below record.
+#[derive(MetricFamily)]
+#[metric(
+    name = "carbide_pxe_boot_outcomes_total",
+    kind = counter,
+    component = "carbide-pxe",
+    describe = "Number of PXE boot-path outcomes served, by endpoint and reason."
+)]
+pub(crate) struct PxeBootOutcomes {
+    endpoint: BootEndpoint,
+    reason: OutcomeReason,
+}
+
 /// `PxeBootOutcome` records a boot-path result without writing a log. The
 /// quiet success and extractor paths use this type; failures that already
 /// have an `ERROR` record use the sibling Events below so one `emit()` writes
@@ -104,11 +117,8 @@ pub(crate) enum OutcomeReason {
 #[derive(Event)]
 #[event(
     event_name = "pxe_boot_outcome",
-    metric_name = "carbide_pxe_boot_outcomes_total",
-    component = "carbide-pxe",
-    log = off,
-    metric = counter,
-    describe = "Number of PXE boot-path outcomes served, by endpoint and reason."
+    metric_family = PxeBootOutcomes,
+    log = off
 )]
 pub(crate) struct PxeBootOutcome {
     #[label]
@@ -126,12 +136,9 @@ pub(crate) struct PxeBootOutcome {
 #[derive(Event)]
 #[event(
     event_name = "pxe_cloud_init_request_failed",
-    metric_name = "carbide_pxe_boot_outcomes_total",
-    component = "carbide-pxe",
+    metric_family = PxeBootOutcomes,
     log = error,
-    metric = counter,
-    message = "cloud-init request could not be served",
-    describe = "Number of PXE boot-path outcomes served, by endpoint and reason."
+    message = "cloud-init request could not be served"
 )]
 pub(crate) struct PxeCloudInitRequestFailed {
     #[label]
@@ -147,12 +154,9 @@ pub(crate) struct PxeCloudInitRequestFailed {
 #[derive(Event)]
 #[event(
     event_name = "pxe_custom_ipxe_fetch_failed",
-    metric_name = "carbide_pxe_boot_outcomes_total",
-    component = "carbide-pxe",
+    metric_family = PxeBootOutcomes,
     log = error,
-    metric = counter,
-    message = "failed to fetch custom ipxe script",
-    describe = "Number of PXE boot-path outcomes served, by endpoint and reason."
+    message = "failed to fetch custom ipxe script"
 )]
 pub(crate) struct PxeCustomIpxeFetchFailed {
     #[label]

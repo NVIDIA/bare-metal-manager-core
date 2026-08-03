@@ -38,7 +38,7 @@ use proto::{
 };
 
 use crate::errors::DhcpError;
-use crate::metrics::DhcpTimestampFileReadFailed;
+use crate::metrics::DhcpTimestampFileFailed;
 
 // ── Public control channel types ─────────────────────────────────────────────
 
@@ -217,10 +217,10 @@ impl DhcpServerControl for DhcpServerControlService {
     ) -> Result<Response<GetDhcpTimestampsResponse>, Status> {
         let mut ts = DhcpTimestamps::new(DhcpTimestampsFilePath::Hbn);
         if let Err(e) = ts.read() {
-            emit(DhcpTimestampFileReadFailed::new(
-                DhcpTimestampsFilePath::Hbn.path_str().to_string(),
-                e.to_string(),
-            ));
+            emit(DhcpTimestampFileFailed::Read {
+                dhcp_timestamps_path: DhcpTimestampsFilePath::Hbn.path_str().to_string(),
+                error: e.to_string(),
+            });
         }
         let entries = ts
             .into_iter()

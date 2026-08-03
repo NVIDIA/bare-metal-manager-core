@@ -17,6 +17,7 @@
 
 //! BIOS configuration: machine_setup, Dell job wait/recovery, and PollingBiosSetup escalation.
 
+use carbide_redfish::boot_interface::BootInterfaceTarget;
 use carbide_redfish::libredfish::error::state_handler_redfish_error as redfish_error;
 use chrono::Utc;
 use eyre::eyre;
@@ -24,7 +25,6 @@ use libredfish::{Redfish, SystemPowerControl};
 use model::machine::{
     BiosConfigInfo, BiosConfigState, ManagedHostState, ManagedHostStateSnapshot, PowerState,
 };
-use model::predicted_machine_interface::PredictedMachineInterface;
 use state_controller::state_handler::{
     StateHandlerContext, StateHandlerError, StateHandlerOutcome,
 };
@@ -33,7 +33,6 @@ use super::{
     ReachabilityParams, RebootStatus, call_machine_setup_and_handle_no_dpu_error,
     handler_host_power_control, trigger_reboot_if_needed,
 };
-use crate::boot_interface::boot_interface_target;
 use crate::config::MachineStateControllerConfig;
 use crate::context::MachineStateHandlerContextObjects;
 
@@ -89,14 +88,12 @@ pub(super) async fn configure_host_bios(
     reachability_params: &ReachabilityParams,
     redfish_client: &dyn Redfish,
     mh_snapshot: &ManagedHostStateSnapshot,
+    boot_interface: Option<&BootInterfaceTarget>,
     retry_count: u32,
 ) -> Result<BiosConfigOutcome, StateHandlerError> {
-    let predictions = super::load_boot_predictions(ctx, &mh_snapshot.host_snapshot.id).await?;
-    let boot_interface = boot_interface_target(mh_snapshot, &predictions);
-
     let bios_job_id = match call_machine_setup_and_handle_no_dpu_error(
         redfish_client,
-        boot_interface.as_ref(),
+        boot_interface,
         mh_snapshot.host_snapshot.associated_dpu_machine_ids().len(),
         &ctx.services.site_config,
     )
@@ -397,12 +394,11 @@ pub(super) async fn advance_polling_bios_setup(
     mh_snapshot: &ManagedHostStateSnapshot,
     retry_count: u32,
     machine_controller_config: &MachineStateControllerConfig,
-    predictions: &[PredictedMachineInterface],
+    boot_interface: Option<&BootInterfaceTarget>,
 ) -> Result<PollingBiosSetupOutcome, StateHandlerError> {
-    let boot_interface = boot_interface_target(mh_snapshot, predictions);
     let stuck_for = mh_snapshot.host_snapshot.state.version.since_state_change();
 
-    let is_bios_setup_result = match &boot_interface {
+    let is_bios_setup_result = match boot_interface {
         Some(target) => {
             target
                 .run(|bi| redfish_client.is_bios_setup(Some(bi)))
@@ -474,10 +470,12 @@ fn escalate_stuck_polling_bios_setup(
 pub(super) async fn handle_bios_setup_failed_recovery(
     ctx: &mut StateHandlerContext<'_, MachineStateHandlerContextObjects>,
     mh_snapshot: &ManagedHostStateSnapshot,
+    explicit_target: Option<&BootInterfaceTarget>,
     recovered_state: ManagedHostState,
 ) -> Result<StateHandlerOutcome<ManagedHostState>, StateHandlerError> {
-    let predictions = super::load_boot_predictions(ctx, &mh_snapshot.host_snapshot.id).await?;
-    let boot_interface = boot_interface_target(mh_snapshot, &predictions);
+    let boot_interface =
+        super::resolve_boot_interface_for_step(ctx, mh_snapshot, explicit_target).await?;
+    let boot_interface = boot_interface.into_target();
     let redfish_client = ctx
         .services
         .create_redfish_client_from_machine(&mh_snapshot.host_snapshot)

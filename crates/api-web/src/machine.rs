@@ -33,6 +33,8 @@ use hyper::http::StatusCode;
 use itertools::Itertools;
 use model::machine::network::ManagedHostQuarantineState;
 use rpc::forge::forge_server::Forge;
+use rpc::forge::get_machine_boot_interfaces_response::Reconciliation as BootInterfaceReconciliation;
+use rpc::forge::get_machine_boot_interfaces_response::reconciliation::State as BootInterfaceReconciliationState;
 use rpc::forge::{self as forgerpc, HealthReportApplyMode, MachineInventorySoftwareComponent};
 use serde::Deserialize;
 
@@ -470,7 +472,65 @@ struct MachineDetail<'a> {
     instance_type: String,
     has_instance_type: bool,
     nvlink_gpus: Vec<MachineNvLinkGpuDisplay>,
+    boot_interface_reconciliation: Option<BootInterfaceReconciliationDisplay>,
     action_status: Option<ActionStatus<'a>>,
+}
+
+/// Template projection of the targeted boot-interface reconciliation status.
+struct BootInterfaceReconciliationDisplay {
+    reconciliation_state: &'static str,
+    desired_mac_address: String,
+    desired_interface_id: String,
+    desired_version: String,
+    verified_version: String,
+    observed_at: String,
+    observation_type: &'static str,
+    machine_state: String,
+    reconciling_version: String,
+    failure: Option<String>,
+}
+
+impl From<BootInterfaceReconciliation> for BootInterfaceReconciliationDisplay {
+    fn from(status: BootInterfaceReconciliation) -> Self {
+        let desired_boot_interface = status.desired_boot_interface.unwrap_or_default();
+        let reconciliation_state =
+            match BootInterfaceReconciliationState::try_from(status.reconciliation_state)
+                .unwrap_or_default()
+            {
+                BootInterfaceReconciliationState::Unspecified => "Unspecified",
+                BootInterfaceReconciliationState::Pending => "Pending",
+                BootInterfaceReconciliationState::Converging => "Converging",
+                BootInterfaceReconciliationState::Converged => "Converged",
+                BootInterfaceReconciliationState::Failed => "Failed",
+            };
+        let observation_type = match (&status.verified_version, status.is_compatibility_baseline) {
+            (None, _) => "None",
+            (Some(_), true) => "Compatibility baseline",
+            (Some(_), false) => "Redfish verified",
+        };
+
+        Self {
+            reconciliation_state,
+            desired_mac_address: if desired_boot_interface.mac_address.is_empty() {
+                "-".to_string()
+            } else {
+                desired_boot_interface.mac_address
+            },
+            desired_interface_id: desired_boot_interface
+                .interface_id
+                .unwrap_or_else(|| "-".to_string()),
+            desired_version: status.desired_version,
+            verified_version: status.verified_version.unwrap_or_else(|| "-".to_string()),
+            observed_at: to_time(status.observed_at, None::<&str>)
+                .unwrap_or_else(|| "-".to_string()),
+            observation_type,
+            machine_state: status.machine_state,
+            reconciling_version: status
+                .reconciling_version
+                .unwrap_or_else(|| "-".to_string()),
+            failure: status.failure,
+        }
+    }
 }
 
 struct MachineCapability {
@@ -775,6 +835,7 @@ impl From<forgerpc::Machine> for MachineDetail<'_> {
             instance_type_id: m.instance_type_id.unwrap_or_default(),
             instance_type: "".to_string(),
             nvlink_gpus,
+            boot_interface_reconciliation: None,
             action_status: None,
         }
     }
@@ -824,6 +885,28 @@ pub async fn detail(
             }
             Err(err) => {
                 tracing::warn!(error = %err, %machine_id, "find_instance_by_machine_id failed");
+            }
+        }
+
+        match state
+            .get_machine_boot_interfaces(tonic::Request::new(
+                forgerpc::GetMachineBootInterfacesRequest {
+                    machine_id: Some(machine_id),
+                },
+            ))
+            .await
+            .map(|response| response.into_inner())
+        {
+            Ok(boot_interfaces) => {
+                display.boot_interface_reconciliation =
+                    boot_interfaces.reconciliation.map(Into::into);
+            }
+            Err(err) => {
+                tracing::warn!(
+                    error = %err,
+                    %machine_id,
+                    "get_machine_boot_interfaces failed",
+                );
             }
         }
     }
@@ -1131,7 +1214,7 @@ pub async fn set_dpu_first_boot_order(
         Ok(_) => ActionStatus {
             action: action_status::Type::SetDpuFirstBootOrder,
             class: action_status::Class::Success,
-            message: "Boot order set successfully".into(),
+            message: "Boot-interface reconciliation request accepted".into(),
         }
         .update_redirect_url(&view_url),
         Err(err) => {

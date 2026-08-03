@@ -18,9 +18,9 @@ use std::net::IpAddr;
 
 use mac_address::MacAddress;
 use model::expected_machine::{
-    BmcIpAllocationType, ExpectedHostNic, ExpectedInterfaceIpAllocation, ExpectedInterfaceRole,
+    BmcIpAllocationType, ExpectedInterface, ExpectedInterfaceIpAllocation, ExpectedInterfaceRole,
     ExpectedMachine, ExpectedMachineData, ExpectedMachineRequest, HostDpuPolicy,
-    HostLifecycleProfile, LinkedExpectedMachine, UnexpectedMachine,
+    HostLifecycleProfile, LegacyHostBmcOverrides, LinkedExpectedMachine, UnexpectedMachine,
 };
 use model::metadata::Metadata;
 use model::network_segment::NetworkSegmentType;
@@ -77,6 +77,7 @@ impl From<ExpectedInterfaceRole> for rpc::forge::ExpectedInterfaceRole {
             ExpectedInterfaceRole::Host => Self::Host,
             ExpectedInterfaceRole::DpuOs => Self::DpuOs,
             ExpectedInterfaceRole::DpuBmc => Self::DpuBmc,
+            ExpectedInterfaceRole::HostBmc => Self::HostBmc,
         }
     }
 }
@@ -91,6 +92,7 @@ impl From<rpc::forge::ExpectedInterfaceRole> for ExpectedInterfaceRole {
             | rpc::forge::ExpectedInterfaceRole::Host => Self::Host,
             rpc::forge::ExpectedInterfaceRole::DpuOs => Self::DpuOs,
             rpc::forge::ExpectedInterfaceRole::DpuBmc => Self::DpuBmc,
+            rpc::forge::ExpectedInterfaceRole::HostBmc => Self::HostBmc,
         }
     }
 }
@@ -116,7 +118,7 @@ fn expected_interface_role_from_rpc(
 
 /// Encode a role without adding the default Host field to legacy responses.
 ///
-/// DPU roles must remain explicit because they select different endpoint
+/// Non-Host roles must remain explicit because they select different endpoint
 /// behavior.
 fn expected_interface_role_to_rpc(role: ExpectedInterfaceRole) -> Option<i32> {
     match role {
@@ -138,8 +140,8 @@ impl From<ExpectedInterfaceIpAllocation> for rpc::forge::ExpectedInterfaceIpAllo
 
 /// Convert a concrete protobuf allocation policy to its resolved model value.
 ///
-/// `Unspecified` has no resolved value on its own: the containing interface
-/// needs `fixed_ip` to infer whether the legacy policy is Fixed or Dynamic.
+/// `Unspecified` has no resolved value on its own. The containing interface
+/// uses its role and `fixed_ip` to infer the compatibility policy.
 impl TryFrom<rpc::forge::ExpectedInterfaceIpAllocation> for ExpectedInterfaceIpAllocation {
     type Error = RpcDataConversionError;
 
@@ -159,9 +161,9 @@ impl TryFrom<rpc::forge::ExpectedInterfaceIpAllocation> for ExpectedInterfaceIpA
 
 /// Decode the optional allocation field without resolving an omitted policy.
 ///
-/// Missing and `Unspecified` both remain `None`. That distinction matters
-/// because omission plus `fixed_ip` means Fixed, while explicit Dynamic rejects
-/// `fixed_ip`.
+/// Missing and `Unspecified` both remain `None`. Resolution then uses the
+/// interface role and `fixed_ip`; an explicit Dynamic policy still rejects a
+/// configured address.
 fn expected_interface_ip_allocation_from_rpc(
     policy: Option<i32>,
 ) -> Result<Option<ExpectedInterfaceIpAllocation>, RpcDataConversionError> {
@@ -242,56 +244,58 @@ impl TryFrom<rpc::forge::ExpectedMachineRequest> for ExpectedMachineRequest {
     }
 }
 
-impl From<ExpectedHostNic> for rpc::forge::ExpectedHostNic {
-    fn from(expected_host_nic: ExpectedHostNic) -> Self {
-        rpc::forge::ExpectedHostNic {
-            mac_address: expected_host_nic.mac_address.to_string(),
-            nic_type: expected_host_nic.nic_type,
-            fixed_ip: expected_host_nic.fixed_ip.map(|ip| ip.to_string()),
-            fixed_mask: expected_host_nic.fixed_mask,
-            fixed_gateway: expected_host_nic.fixed_gateway.map(|ip| ip.to_string()),
-            primary: expected_host_nic.primary,
-            network_segment_type: expected_host_nic
+impl From<ExpectedInterface> for rpc::forge::ExpectedInterface {
+    fn from(expected_interface: ExpectedInterface) -> Self {
+        rpc::forge::ExpectedInterface {
+            mac_address: expected_interface.mac_address.to_string(),
+            nic_type: expected_interface.nic_type,
+            fixed_ip: expected_interface.fixed_ip.map(|ip| ip.to_string()),
+            fixed_mask: expected_interface.fixed_mask,
+            fixed_gateway: expected_interface.fixed_gateway.map(|ip| ip.to_string()),
+            primary: expected_interface.primary,
+            network_segment_type: expected_interface
                 .network_segment_type
                 .map(|segment_type| segment_type as i32),
-            role: expected_interface_role_to_rpc(expected_host_nic.role),
-            ip_allocation: expected_interface_ip_allocation_to_rpc(expected_host_nic.ip_allocation),
+            role: expected_interface_role_to_rpc(expected_interface.role),
+            ip_allocation: expected_interface_ip_allocation_to_rpc(
+                expected_interface.ip_allocation,
+            ),
         }
     }
 }
 
-impl TryFrom<rpc::forge::ExpectedHostNic> for ExpectedHostNic {
+impl TryFrom<rpc::forge::ExpectedInterface> for ExpectedInterface {
     type Error = RpcDataConversionError;
 
-    fn try_from(expected_host_nic: rpc::forge::ExpectedHostNic) -> Result<Self, Self::Error> {
-        let mac_address = expected_host_nic.mac_address.parse().map_err(|_| {
-            RpcDataConversionError::InvalidMacAddress(expected_host_nic.mac_address.clone())
+    fn try_from(expected_interface: rpc::forge::ExpectedInterface) -> Result<Self, Self::Error> {
+        let mac_address = expected_interface.mac_address.parse().map_err(|_| {
+            RpcDataConversionError::InvalidMacAddress(expected_interface.mac_address.clone())
         })?;
 
-        Ok(ExpectedHostNic {
+        Ok(ExpectedInterface {
             mac_address,
-            nic_type: expected_host_nic.nic_type,
-            fixed_ip: match expected_host_nic.fixed_ip.as_deref() {
+            nic_type: expected_interface.nic_type,
+            fixed_ip: match expected_interface.fixed_ip.as_deref() {
                 None | Some("") => None,
                 Some(ip) => Some(ip.parse::<IpAddr>().map_err(|_| {
                     RpcDataConversionError::InvalidArgument(format!("Invalid fixed IP: {ip}"))
                 })?),
             },
-            fixed_mask: expected_host_nic.fixed_mask,
-            fixed_gateway: match expected_host_nic.fixed_gateway.as_deref() {
+            fixed_mask: expected_interface.fixed_mask,
+            fixed_gateway: match expected_interface.fixed_gateway.as_deref() {
                 None | Some("") => None,
                 Some(ip) => Some(ip.parse::<IpAddr>().map_err(|_| {
                     RpcDataConversionError::InvalidArgument(format!("Invalid fixed gateway: {ip}"))
                 })?),
             },
-            primary: expected_host_nic.primary,
-            network_segment_type: expected_host_nic
+            primary: expected_interface.primary,
+            network_segment_type: expected_interface
                 .network_segment_type
                 .map(NetworkSegmentType::rpc_try_from)
                 .transpose()?,
-            role: expected_interface_role_from_rpc(expected_host_nic.role)?,
+            role: expected_interface_role_from_rpc(expected_interface.role)?,
             ip_allocation: expected_interface_ip_allocation_from_rpc(
-                expected_host_nic.ip_allocation,
+                expected_interface.ip_allocation,
             )?,
         })
     }
@@ -299,12 +303,25 @@ impl TryFrom<rpc::forge::ExpectedHostNic> for ExpectedHostNic {
 
 impl From<ExpectedMachine> for rpc::forge::ExpectedMachine {
     fn from(expected_machine: ExpectedMachine) -> Self {
-        let host_nics = expected_machine
+        let has_stored_host_bmc = expected_machine
             .data
-            .host_nics
+            .interfaces
             .iter()
-            .map(|x| x.clone().into())
-            .collect();
+            .any(|interface| interface.role.is_host_bmc());
+        let bmc_ip_allocation = expected_machine
+            .compatibility_bmc_ip_allocation()
+            .map(rpc::forge::BmcIpAllocationType::from)
+            .map(|allocation| allocation as i32);
+        let effective_host_bmc = has_stored_host_bmc
+            .then(|| rpc::forge::ExpectedInterface::from(expected_machine.effective_host_bmc()));
+        let interfaces = expected_machine
+            .data
+            .interfaces
+            .into_iter()
+            .filter(|interface| !interface.role.is_host_bmc())
+            .map(rpc::forge::ExpectedInterface::from)
+            .chain(effective_host_bmc)
+            .collect::<Vec<_>>();
         rpc::forge::ExpectedMachine {
             id: expected_machine.id.map(|u| crate::common::Uuid {
                 value: u.to_string(),
@@ -317,7 +334,7 @@ impl From<ExpectedMachine> for rpc::forge::ExpectedMachine {
             metadata: Some(expected_machine.data.metadata.into()),
             sku_id: expected_machine.data.sku_id,
             rack_id: expected_machine.data.rack_id,
-            host_nics,
+            host_nics: interfaces,
             default_pause_ingestion_and_poweron: expected_machine
                 .data
                 .default_pause_ingestion_and_poweron,
@@ -334,12 +351,12 @@ impl From<ExpectedMachine> for rpc::forge::ExpectedMachine {
             // Forge retains `dpu_mode` as its stable compatibility field. The
             // default policy remains represented by absence on the wire.
             dpu_mode: host_dpu_policy_to_rpc(expected_machine.data.dpu_policy),
-            // Only emit `bmc_ip_allocation` when it's non-default (Auto), so an
-            // unset field round-trips and older clients keep falling back to Auto.
-            bmc_ip_allocation: match expected_machine.data.bmc_ip_allocation {
-                BmcIpAllocationType::Auto => None,
-                other => Some(rpc::forge::BmcIpAllocationType::from(other) as i32),
-            },
+            // An inferred Host BMC policy remains Auto on the compatibility
+            // wire field, while an explicitly supplied legacy policy retains
+            // its presence. This keeps both older read-modify-write clients
+            // and explicit legacy inputs stable.
+            bmc_ip_allocation,
+            replace_host_nics: false,
             host_lifecycle_profile: (!expected_machine.data.host_lifecycle_profile.is_empty())
                 .then_some(rpc::forge::HostLifecycleProfile {
                     disable_lockdown: expected_machine
@@ -376,6 +393,59 @@ impl From<UnexpectedMachine> for rpc::forge::UnexpectedMachine {
     }
 }
 
+/// Capture which top-level BMC compatibility fields were present on an RPC
+/// request before model conversion applies their defaults.
+///
+/// A present empty address is an explicit clear. Missing fields remain absent
+/// so a nested Host BMC or the previous stored configuration can supply the
+/// baseline. An explicit Unspecified nested policy becomes an Auto override so
+/// it remains distinguishable from a policy omitted by an older client.
+impl TryFrom<&rpc::forge::ExpectedMachine> for LegacyHostBmcOverrides {
+    type Error = RpcDataConversionError;
+
+    fn try_from(machine: &rpc::forge::ExpectedMachine) -> Result<Self, Self::Error> {
+        let ip_address = machine
+            .bmc_ip_address
+            .as_deref()
+            .map(|address| {
+                if address.is_empty() {
+                    Ok(None)
+                } else {
+                    address.parse::<IpAddr>().map(Some).map_err(|_| {
+                        RpcDataConversionError::InvalidArgument(format!(
+                            "Invalid BMC IP address: {address}"
+                        ))
+                    })
+                }
+            })
+            .transpose()?;
+        let nested_allocation_reset = machine.interfaces().iter().any(|interface| {
+            interface.role == Some(rpc::forge::ExpectedInterfaceRole::HostBmc as i32)
+                && interface.ip_allocation
+                    == Some(rpc::forge::ExpectedInterfaceIpAllocation::Unspecified as i32)
+        });
+        let ip_allocation = machine
+            .bmc_ip_allocation
+            .map(|value| {
+                rpc::forge::BmcIpAllocationType::try_from(value)
+                    .map(BmcIpAllocationType::from)
+                    .map_err(|_| {
+                        RpcDataConversionError::InvalidArgument(format!(
+                            "Invalid bmc_ip_allocation: {value}"
+                        ))
+                    })
+            })
+            .transpose()?
+            .or_else(|| nested_allocation_reset.then_some(BmcIpAllocationType::Auto));
+
+        Ok(Self {
+            ip_address,
+            ip_allocation,
+            replace_interfaces: machine.replace_host_nics,
+        })
+    }
+}
+
 /// Parses gRPC `ExpectedMachine` into persisted model data, including optional `bmc_ip_address`
 /// (empty or unset proto field becomes `None`; invalid strings fail conversion).
 impl TryFrom<rpc::forge::ExpectedMachine> for ExpectedMachineData {
@@ -389,10 +459,10 @@ impl TryFrom<rpc::forge::ExpectedMachine> for ExpectedMachineData {
             fallback_dpu_serial_numbers: em.fallback_dpu_serial_numbers,
             sku_id: em.sku_id,
             metadata: metadata_from_request(em.metadata)?,
-            host_nics: em
+            interfaces: em
                 .host_nics
                 .into_iter()
-                .map(ExpectedHostNic::try_from)
+                .map(ExpectedInterface::try_from)
                 .collect::<Result<Vec<_>, _>>()?,
             rack_id: em.rack_id,
             default_pause_ingestion_and_poweron: em.default_pause_ingestion_and_poweron,
@@ -565,9 +635,10 @@ mod tests {
             None
         );
         assert!(
-            expected_machine.field.iter().all(
-                |field| field.name.as_deref() != Some("dpu_policy") && field.number != Some(19)
-            )
+            expected_machine
+                .field
+                .iter()
+                .all(|field| field.name.as_deref() != Some("dpu_policy"))
         );
 
         let policy_enum = forge
@@ -722,14 +793,14 @@ mod tests {
         );
     }
 
-    struct ExpectedHostNicInput {
+    struct ExpectedInterfaceInput {
         mac_address: &'static str,
         fixed_ip: Option<&'static str>,
         fixed_gateway: Option<&'static str>,
     }
 
     #[derive(Debug, PartialEq)]
-    enum ExpectedHostNicConversion {
+    enum ExpectedInterfaceConversion {
         Converted {
             fixed_ip: Option<IpAddr>,
             fixed_gateway: Option<IpAddr>,
@@ -739,92 +810,92 @@ mod tests {
     }
 
     #[test]
-    fn expected_host_nic_converts_wire_addresses() {
+    fn expected_interface_converts_wire_addresses() {
         check_values(
             [
                 Check {
                     scenario: "invalid MAC address is rejected",
-                    input: ExpectedHostNicInput {
+                    input: ExpectedInterfaceInput {
                         mac_address: "not-a-mac",
                         fixed_ip: None,
                         fixed_gateway: None,
                     },
-                    expect: ExpectedHostNicConversion::InvalidMac("not-a-mac".to_string()),
+                    expect: ExpectedInterfaceConversion::InvalidMac("not-a-mac".to_string()),
                 },
                 Check {
                     scenario: "IPv6 fixed IP is parsed",
-                    input: ExpectedHostNicInput {
+                    input: ExpectedInterfaceInput {
                         mac_address: "5A:5B:5C:5D:5E:66",
                         fixed_ip: Some("2001:db8::66"),
                         fixed_gateway: None,
                     },
-                    expect: ExpectedHostNicConversion::Converted {
+                    expect: ExpectedInterfaceConversion::Converted {
                         fixed_ip: Some("2001:db8::66".parse().unwrap()),
                         fixed_gateway: None,
                     },
                 },
                 Check {
                     scenario: "invalid fixed IP is rejected",
-                    input: ExpectedHostNicInput {
+                    input: ExpectedInterfaceInput {
                         mac_address: "5A:5B:5C:5D:5E:66",
                         fixed_ip: Some("not-a-valid-ip"),
                         fixed_gateway: None,
                     },
-                    expect: ExpectedHostNicConversion::InvalidArgument(
+                    expect: ExpectedInterfaceConversion::InvalidArgument(
                         "Invalid fixed IP: not-a-valid-ip".to_string(),
                     ),
                 },
                 Check {
                     scenario: "IPv6 fixed gateway is parsed",
-                    input: ExpectedHostNicInput {
+                    input: ExpectedInterfaceInput {
                         mac_address: "5A:5B:5C:5D:5E:66",
                         fixed_ip: None,
                         fixed_gateway: Some("2001:db8::1"),
                     },
-                    expect: ExpectedHostNicConversion::Converted {
+                    expect: ExpectedInterfaceConversion::Converted {
                         fixed_ip: None,
                         fixed_gateway: Some("2001:db8::1".parse().unwrap()),
                     },
                 },
                 Check {
                     scenario: "invalid fixed gateway is rejected",
-                    input: ExpectedHostNicInput {
+                    input: ExpectedInterfaceInput {
                         mac_address: "5A:5B:5C:5D:5E:66",
                         fixed_ip: None,
                         fixed_gateway: Some("not-a-valid-ip"),
                     },
-                    expect: ExpectedHostNicConversion::InvalidArgument(
+                    expect: ExpectedInterfaceConversion::InvalidArgument(
                         "Invalid fixed gateway: not-a-valid-ip".to_string(),
                     ),
                 },
                 Check {
                     scenario: "empty fixed addresses are treated as absent",
-                    input: ExpectedHostNicInput {
+                    input: ExpectedInterfaceInput {
                         mac_address: "5A:5B:5C:5D:5E:66",
                         fixed_ip: Some(""),
                         fixed_gateway: Some(""),
                     },
-                    expect: ExpectedHostNicConversion::Converted {
+                    expect: ExpectedInterfaceConversion::Converted {
                         fixed_ip: None,
                         fixed_gateway: None,
                     },
                 },
             ],
-            |input| match ExpectedHostNic::try_from(rpc::forge::ExpectedHostNic {
+            |input| match ExpectedInterface::try_from(rpc::forge::ExpectedInterface {
                 mac_address: input.mac_address.to_string(),
                 fixed_ip: input.fixed_ip.map(str::to_string),
                 fixed_gateway: input.fixed_gateway.map(str::to_string),
                 ..Default::default()
             }) {
-                Ok(nic) => ExpectedHostNicConversion::Converted {
+                Ok(nic) => ExpectedInterfaceConversion::Converted {
                     fixed_ip: nic.fixed_ip,
                     fixed_gateway: nic.fixed_gateway,
                 },
                 Err(RpcDataConversionError::InvalidMacAddress(mac)) => {
-                    ExpectedHostNicConversion::InvalidMac(mac)
+                    ExpectedInterfaceConversion::InvalidMac(mac)
                 }
                 Err(RpcDataConversionError::InvalidArgument(argument)) => {
-                    ExpectedHostNicConversion::InvalidArgument(argument)
+                    ExpectedInterfaceConversion::InvalidArgument(argument)
                 }
                 Err(error) => panic!("unexpected conversion error: {error}"),
             },
@@ -902,7 +973,7 @@ mod tests {
                 },
             ],
             |declaration| {
-                let model = ExpectedHostNic::try_from(rpc::forge::ExpectedHostNic {
+                let model = ExpectedInterface::try_from(rpc::forge::ExpectedInterface {
                     mac_address: "AA:BB:CC:DD:EE:FF".into(),
                     fixed_ip: declaration.fixed_ip,
                     ip_allocation: declaration.policy,
@@ -910,7 +981,7 @@ mod tests {
                 })
                 .unwrap();
                 let resolved = model.resolved_ip_allocation();
-                let emitted = rpc::forge::ExpectedHostNic::from(model.clone());
+                let emitted = rpc::forge::ExpectedInterface::from(model.clone());
                 (model.ip_allocation, resolved, emitted.ip_allocation)
             },
         );
@@ -920,7 +991,7 @@ mod tests {
     fn expected_interface_ip_allocation_json_accepts_names_and_numbers() {
         scenarios!(
             run = |value: serde_json::Value| {
-                serde_json::from_value::<rpc::forge::ExpectedHostNic>(serde_json::json!({
+                serde_json::from_value::<rpc::forge::ExpectedInterface>(serde_json::json!({
                     "mac_address": "AA:BB:CC:DD:EE:FF",
                     "ip_allocation": value,
                 }))
@@ -965,7 +1036,7 @@ mod tests {
             }
         );
 
-        let interface = rpc::forge::ExpectedHostNic {
+        let interface = rpc::forge::ExpectedInterface {
             mac_address: "AA:BB:CC:DD:EE:FF".into(),
             ip_allocation: Some(rpc::forge::ExpectedInterfaceIpAllocation::Retained as i32),
             ..Default::default()
@@ -976,7 +1047,7 @@ mod tests {
 
     #[test]
     fn expected_interface_ip_allocation_rejects_unknown_rpc_value() {
-        let err = ExpectedHostNic::try_from(rpc::forge::ExpectedHostNic {
+        let err = ExpectedInterface::try_from(rpc::forge::ExpectedInterface {
             mac_address: "AA:BB:CC:DD:EE:FF".into(),
             ip_allocation: Some(i32::MAX),
             ..Default::default()
@@ -990,13 +1061,13 @@ mod tests {
     fn expected_interface_role_uses_optional_wire_field() {
         scenarios!(
             run = |role| {
-                let model = ExpectedHostNic::try_from(rpc::forge::ExpectedHostNic {
+                let model = ExpectedInterface::try_from(rpc::forge::ExpectedInterface {
                     mac_address: "AA:BB:CC:DD:EE:FF".into(),
                     role,
                     ..Default::default()
                 })
                 .map_err(drop)?;
-                let emitted = rpc::forge::ExpectedHostNic::from(model.clone());
+                let emitted = rpc::forge::ExpectedInterface::from(model.clone());
                 Ok::<_, ()>((model.role, emitted.role))
             };
             "missing field is legacy Host and remains omitted" {
@@ -1022,6 +1093,12 @@ mod tests {
                     Some(rpc::forge::ExpectedInterfaceRole::DpuBmc as i32),
                 )),
             }
+            "host BMC round trips" {
+                Some(rpc::forge::ExpectedInterfaceRole::HostBmc as i32) => Yields((
+                    ExpectedInterfaceRole::HostBmc,
+                    Some(rpc::forge::ExpectedInterfaceRole::HostBmc as i32),
+                )),
+            }
         );
     }
 
@@ -1029,7 +1106,7 @@ mod tests {
     fn expected_interface_role_json_accepts_names_and_numbers() {
         scenarios!(
             run = |value: serde_json::Value| {
-                serde_json::from_value::<rpc::forge::ExpectedHostNic>(serde_json::json!({
+                serde_json::from_value::<rpc::forge::ExpectedInterface>(serde_json::json!({
                     "mac_address": "AA:BB:CC:DD:EE:FF",
                     "role": value,
                 }))
@@ -1049,6 +1126,8 @@ mod tests {
                     Yields(Some(rpc::forge::ExpectedInterfaceRole::DpuOs)),
                 serde_json::json!("dpu_bmc") =>
                     Yields(Some(rpc::forge::ExpectedInterfaceRole::DpuBmc)),
+                serde_json::json!("host_bmc") =>
+                    Yields(Some(rpc::forge::ExpectedInterfaceRole::HostBmc)),
             }
             "fully-qualified aliases" {
                 serde_json::json!("expected_interface_role_unspecified") =>
@@ -1059,14 +1138,22 @@ mod tests {
                     Yields(Some(rpc::forge::ExpectedInterfaceRole::DpuOs)),
                 serde_json::json!("expected_interface_role_dpu_bmc") =>
                     Yields(Some(rpc::forge::ExpectedInterfaceRole::DpuBmc)),
+                serde_json::json!("expected_interface_role_host_bmc") =>
+                    Yields(Some(rpc::forge::ExpectedInterfaceRole::HostBmc)),
             }
             "normalized and numeric values" {
                 serde_json::json!(" DPU-OS ") =>
                     Yields(Some(rpc::forge::ExpectedInterfaceRole::DpuOs)),
                 serde_json::json!("dpubmc") =>
                     Yields(Some(rpc::forge::ExpectedInterfaceRole::DpuBmc)),
+                serde_json::json!("hostbmc") =>
+                    Yields(Some(rpc::forge::ExpectedInterfaceRole::HostBmc)),
+                serde_json::json!(" EXPECTED-INTERFACE-ROLE-HOST-BMC ") =>
+                    Yields(Some(rpc::forge::ExpectedInterfaceRole::HostBmc)),
                 serde_json::json!(1) =>
                     Yields(Some(rpc::forge::ExpectedInterfaceRole::Host)),
+                serde_json::json!(4) =>
+                    Yields(Some(rpc::forge::ExpectedInterfaceRole::HostBmc)),
             }
             "optional and invalid values" {
                 serde_json::Value::Null => Yields(None),
@@ -1075,7 +1162,7 @@ mod tests {
             }
         );
 
-        let interface = rpc::forge::ExpectedHostNic {
+        let interface = rpc::forge::ExpectedInterface {
             mac_address: "AA:BB:CC:DD:EE:FF".into(),
             role: Some(rpc::forge::ExpectedInterfaceRole::DpuBmc as i32),
             ..Default::default()
@@ -1083,7 +1170,18 @@ mod tests {
         let json = serde_json::to_string(&interface).unwrap();
         assert!(json.contains(r#""role":"dpu_bmc""#), "{json}");
 
-        let legacy_interface = rpc::forge::ExpectedHostNic {
+        let host_bmc_interface = rpc::forge::ExpectedInterface {
+            mac_address: "AA:BB:CC:DD:EE:FF".into(),
+            role: Some(rpc::forge::ExpectedInterfaceRole::HostBmc as i32),
+            ..Default::default()
+        };
+        let host_bmc_json = serde_json::to_string(&host_bmc_interface).unwrap();
+        assert!(
+            host_bmc_json.contains(r#""role":"host_bmc""#),
+            "{host_bmc_json}"
+        );
+
+        let legacy_interface = rpc::forge::ExpectedInterface {
             mac_address: "AA:BB:CC:DD:EE:FF".into(),
             role: None,
             ..Default::default()
@@ -1095,7 +1193,7 @@ mod tests {
 
     #[test]
     fn expected_interface_role_rejects_unknown_rpc_value() {
-        let err = ExpectedHostNic::try_from(rpc::forge::ExpectedHostNic {
+        let err = ExpectedInterface::try_from(rpc::forge::ExpectedInterface {
             mac_address: "AA:BB:CC:DD:EE:FF".into(),
             role: Some(i32::MAX),
             ..Default::default()
@@ -1106,7 +1204,7 @@ mod tests {
     }
 
     #[test]
-    fn expected_interface_fields_are_additive() {
+    fn expected_interface_keeps_legacy_protobuf_descriptor_names() {
         let descriptor_set =
             prost_types::FileDescriptorSet::decode(rpc::REFLECTION_API_SERVICE_DESCRIPTOR).unwrap();
         let forge = descriptor_set
@@ -1114,12 +1212,12 @@ mod tests {
             .iter()
             .find(|file| file.package.as_deref() == Some("forge"))
             .unwrap();
-        let expected_host_nic = forge
+        let expected_interface_message = forge
             .message_type
             .iter()
             .find(|message| message.name.as_deref() == Some("ExpectedHostNic"))
             .unwrap();
-        let field_numbers = expected_host_nic
+        let field_numbers = expected_interface_message
             .field
             .iter()
             .map(|field| (field.name.as_deref().unwrap(), field.number.unwrap()))
@@ -1139,7 +1237,7 @@ mod tests {
             assert!(field_numbers.contains(&expected));
         }
 
-        let role_field = expected_host_nic
+        let role_field = expected_interface_message
             .field
             .iter()
             .find(|field| field.name.as_deref() == Some("role"))
@@ -1149,7 +1247,7 @@ mod tests {
             Some(".forge.ExpectedInterfaceRole")
         );
 
-        let allocation_field = expected_host_nic
+        let allocation_field = expected_interface_message
             .field
             .iter()
             .find(|field| field.name.as_deref() == Some("ip_allocation"))
@@ -1158,6 +1256,18 @@ mod tests {
             allocation_field.type_name.as_deref(),
             Some(".forge.ExpectedInterfaceIpAllocation")
         );
+
+        let role_enum = forge
+            .enum_type
+            .iter()
+            .find(|enumeration| enumeration.name.as_deref() == Some("ExpectedInterfaceRole"))
+            .unwrap();
+        let host_bmc = role_enum
+            .value
+            .iter()
+            .find(|value| value.name.as_deref() == Some("EXPECTED_INTERFACE_ROLE_HOST_BMC"))
+            .unwrap();
+        assert_eq!(host_bmc.number, Some(4));
 
         let expected_machine = forge
             .message_type
@@ -1170,23 +1280,257 @@ mod tests {
             .find(|field| field.name.as_deref() == Some("host_nics"))
             .unwrap();
         assert_eq!(host_nics.number, Some(9));
+        assert_eq!(
+            host_nics.type_name.as_deref(),
+            Some(".forge.ExpectedHostNic"),
+        );
+        assert_eq!(host_nics.json_name.as_deref(), Some("hostNics"));
+        let replace_host_nics = expected_machine
+            .field
+            .iter()
+            .find(|field| field.name.as_deref() == Some("replace_host_nics"))
+            .unwrap();
+        assert_eq!(replace_host_nics.number, Some(19));
+        assert_eq!(
+            replace_host_nics.json_name.as_deref(),
+            Some("replaceHostNics"),
+        );
     }
 
     #[test]
-    fn expected_machine_data_rejects_invalid_host_nic_mac_address() {
+    fn expected_machine_data_rejects_invalid_interface_mac_address() {
         let mut rpc_machine = make_rpc_expected_machine(None);
-        rpc_machine.host_nics.push(rpc::forge::ExpectedHostNic {
+        rpc_machine.host_nics.push(rpc::forge::ExpectedInterface {
             mac_address: "not-a-mac".into(),
             ..Default::default()
         });
 
         let Err(err) = ExpectedMachineData::try_from(rpc_machine) else {
-            panic!("expected invalid host NIC MAC address");
+            panic!("expected invalid interface MAC address");
         };
 
         assert!(
             matches!(err, RpcDataConversionError::InvalidMacAddress(mac) if mac == "not-a-mac")
         );
+    }
+
+    #[test]
+    fn expected_machine_serde_uses_canonical_interface_name() {
+        let machine = rpc::forge::ExpectedMachine {
+            host_nics: vec![rpc::forge::ExpectedInterface {
+                mac_address: "AA:BB:CC:DD:EE:FF".into(),
+                ..Default::default()
+            }],
+            replace_host_nics: true,
+            ..Default::default()
+        };
+
+        let json = serde_json::to_value(machine).unwrap();
+        assert_eq!(json["interfaces"][0]["mac_address"], "AA:BB:CC:DD:EE:FF");
+        assert_eq!(json.get("host_nics"), None);
+        assert_eq!(json.get("replace_host_nics"), None);
+    }
+
+    #[test]
+    fn expected_interface_alias_keeps_protobuf_bytes() {
+        let machine = rpc::forge::ExpectedMachine {
+            host_nics: vec![rpc::forge::ExpectedInterface {
+                mac_address: "a".into(),
+                ..Default::default()
+            }],
+            replace_host_nics: true,
+            ..Default::default()
+        };
+
+        let bytes = machine.encode_to_vec();
+        assert_eq!(bytes, [0x4a, 0x03, 0x0a, 0x01, b'a', 0x98, 0x01, 0x01],);
+
+        let decoded = rpc::forge::ExpectedMachine::decode(bytes.as_slice()).unwrap();
+        assert_eq!(decoded.interfaces()[0].mac_address, "a");
+        assert!(decoded.replace_host_nics);
+    }
+
+    /// RPC conversion retains presence for both legacy compatibility fields.
+    #[test]
+    fn legacy_host_bmc_overrides_preserve_rpc_field_presence() {
+        let fixed_address: IpAddr = "192.0.2.44".parse().unwrap();
+        scenarios!(
+            run = |machine: rpc::forge::ExpectedMachine| {
+                LegacyHostBmcOverrides::try_from(&machine).map_err(|error| error.to_string())
+            };
+            "omitted compatibility fields remain absent" {
+                rpc::forge::ExpectedMachine::default() =>
+                    Yields(LegacyHostBmcOverrides::default()),
+            }
+            "an empty address is an explicit clear" {
+                rpc::forge::ExpectedMachine {
+                    bmc_ip_address: Some(String::new()),
+                    ..Default::default()
+                } => Yields(LegacyHostBmcOverrides {
+                    ip_address: Some(None),
+                    ip_allocation: None,
+                    ..Default::default()
+                }),
+            }
+            "a configured address retains its value" {
+                rpc::forge::ExpectedMachine {
+                    bmc_ip_address: Some(fixed_address.to_string()),
+                    ..Default::default()
+                } => Yields(LegacyHostBmcOverrides {
+                    ip_address: Some(Some(fixed_address)),
+                    ip_allocation: None,
+                    ..Default::default()
+                }),
+            }
+            "a configured policy retains its presence" {
+                rpc::forge::ExpectedMachine {
+                    bmc_ip_allocation: Some(
+                        rpc::forge::BmcIpAllocationType::Retained as i32
+                    ),
+                    ..Default::default()
+                } => Yields(LegacyHostBmcOverrides {
+                    ip_address: None,
+                    ip_allocation: Some(BmcIpAllocationType::Retained),
+                    ..Default::default()
+                }),
+            }
+            "explicit unspecified retains the compatibility default" {
+                rpc::forge::ExpectedMachine {
+                    bmc_ip_allocation: Some(
+                        rpc::forge::BmcIpAllocationType::Unspecified as i32
+                    ),
+                    ..Default::default()
+                } => Yields(LegacyHostBmcOverrides {
+                    ip_address: None,
+                    ip_allocation: Some(BmcIpAllocationType::Auto),
+                    ..Default::default()
+                }),
+            }
+            "nested unspecified resets compatibility allocation" {
+                rpc::forge::ExpectedMachine {
+                    host_nics: vec![rpc::forge::ExpectedInterface {
+                        role: Some(rpc::forge::ExpectedInterfaceRole::HostBmc as i32),
+                        ip_allocation: Some(
+                            rpc::forge::ExpectedInterfaceIpAllocation::Unspecified as i32
+                        ),
+                        ..Default::default()
+                    }],
+                    ..Default::default()
+                } => Yields(LegacyHostBmcOverrides {
+                    ip_address: None,
+                    ip_allocation: Some(BmcIpAllocationType::Auto),
+                    ..Default::default()
+                }),
+            }
+            "an authoritative interface replacement retains its signal" {
+                rpc::forge::ExpectedMachine {
+                    replace_host_nics: true,
+                    ..Default::default()
+                } => Yields(LegacyHostBmcOverrides {
+                    replace_interfaces: true,
+                    ..Default::default()
+                }),
+            }
+        );
+    }
+
+    /// Legacy rows keep their earlier wire shape so clients whose role enum
+    /// predates HostBmc can still serialize the response.
+    #[test]
+    fn expected_machine_output_keeps_legacy_host_bmc_fields_top_level() {
+        let bmc_mac_address = "AA:BB:CC:DD:EE:FF".parse().unwrap();
+        let fixed_ip = "192.0.2.44".parse().unwrap();
+        let rpc_machine = rpc::forge::ExpectedMachine::from(ExpectedMachine {
+            id: None,
+            bmc_mac_address,
+            data: ExpectedMachineData {
+                bmc_ip_address: Some(fixed_ip),
+                bmc_ip_allocation: BmcIpAllocationType::Auto,
+                ..Default::default()
+            },
+        });
+
+        assert!(rpc_machine.host_nics.is_empty());
+        assert_eq!(rpc_machine.bmc_mac_address, bmc_mac_address.to_string());
+        assert_eq!(rpc_machine.bmc_ip_address.as_deref(), Some("192.0.2.44"));
+        assert_eq!(rpc_machine.bmc_ip_allocation, None);
+    }
+
+    /// An explicit nested policy is mirrored on the compatibility wire field.
+    #[test]
+    fn expected_machine_output_projects_explicit_host_bmc_policy() {
+        let bmc_mac_address = "AA:BB:CC:DD:EE:FE".parse().unwrap();
+        let fixed_ip = "192.0.2.45".parse().unwrap();
+        let rpc_machine = rpc::forge::ExpectedMachine::from(ExpectedMachine {
+            id: None,
+            bmc_mac_address,
+            data: ExpectedMachineData {
+                interfaces: vec![ExpectedInterface {
+                    mac_address: bmc_mac_address,
+                    role: ExpectedInterfaceRole::HostBmc,
+                    ip_allocation: Some(ExpectedInterfaceIpAllocation::Fixed),
+                    fixed_ip: Some(fixed_ip),
+                    ..Default::default()
+                }],
+                bmc_ip_address: Some(fixed_ip),
+                bmc_ip_allocation: BmcIpAllocationType::Fixed,
+                ..Default::default()
+            },
+        });
+
+        let host_bmc = rpc_machine
+            .host_nics
+            .iter()
+            .find(|interface| {
+                interface.role == Some(rpc::forge::ExpectedInterfaceRole::HostBmc as i32)
+            })
+            .expect("output should contain one HostBmc");
+        assert_eq!(
+            host_bmc.ip_allocation,
+            Some(rpc::forge::ExpectedInterfaceIpAllocation::Fixed as i32),
+        );
+        assert_eq!(
+            rpc_machine.bmc_ip_allocation,
+            Some(rpc::forge::BmcIpAllocationType::Fixed as i32),
+        );
+        assert_eq!(rpc_machine.bmc_ip_address.as_deref(), Some("192.0.2.45"));
+    }
+
+    /// An explicit legacy Fixed policy remains present even though its nested
+    /// representation omits the policy to retain external-address fallback.
+    #[test]
+    fn expected_machine_output_preserves_explicit_legacy_fixed_policy() {
+        let bmc_mac_address = "AA:BB:CC:DD:EE:FD".parse().unwrap();
+        let fixed_ip = "192.0.2.46".parse().unwrap();
+        let rpc_machine = rpc::forge::ExpectedMachine::from(ExpectedMachine {
+            id: None,
+            bmc_mac_address,
+            data: ExpectedMachineData {
+                interfaces: vec![ExpectedInterface {
+                    mac_address: bmc_mac_address,
+                    role: ExpectedInterfaceRole::HostBmc,
+                    fixed_ip: Some(fixed_ip),
+                    ..Default::default()
+                }],
+                bmc_ip_address: Some(fixed_ip),
+                bmc_ip_allocation: BmcIpAllocationType::Fixed,
+                ..Default::default()
+            },
+        });
+
+        let host_bmc = rpc_machine
+            .host_nics
+            .iter()
+            .find(|interface| {
+                interface.role == Some(rpc::forge::ExpectedInterfaceRole::HostBmc as i32)
+            })
+            .expect("output should contain one HostBmc");
+        assert_eq!(host_bmc.ip_allocation, None);
+        assert_eq!(
+            rpc_machine.bmc_ip_allocation,
+            Some(rpc::forge::BmcIpAllocationType::Fixed as i32),
+        );
+        assert_eq!(rpc_machine.bmc_ip_address.as_deref(), Some("192.0.2.46"));
     }
 
     fn make_rpc_expected_machine(disable_lockdown: Option<bool>) -> rpc::forge::ExpectedMachine {

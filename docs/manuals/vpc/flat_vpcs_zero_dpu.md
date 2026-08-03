@@ -1,4 +1,4 @@
-# Flat VPCs and Zero-DPU Hosts
+# Flat VPCs and Zero-DPU Hosts <Badge intent="info">v2.0</Badge> <Badge intent="launch" minimal>New</Badge>
 
 `Flat` is a VPC virtualization type for tenant instances that run on hosts
 **without a NICo-managed DPU** — either hosts with no DPU hardware at all, or
@@ -371,7 +371,7 @@ Rules enforced at allocation:
 
 Read instance status through the REST API or `nicocli`:
 
-```
+```text
 GET /v2/org/{org}/nico/instance/{id}
 nicocli instance get <instance-id>
 ```

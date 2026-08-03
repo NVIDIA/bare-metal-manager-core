@@ -78,7 +78,7 @@ func (cvph CreateVpcPeeringHandler) Handle(c echo.Context) error {
 	}
 
 	// Ensure our user is a provider or tenant for the org
-	infrastructureProvider, tenant, apiError := common.IsProviderOrTenant(ctx, logger, cvph.dbSession, org, dbUser, false, false)
+	infrastructureProvider, tenant, apiError := common.IsProviderOrTenant(ctx, logger, cvph.dbSession, org, dbUser, false, nil)
 	if apiError != nil {
 		return cutil.NewAPIErrorResponse(c, apiError.Code, apiError.Message, apiError.Data)
 	}
@@ -454,7 +454,7 @@ func (gavph GetAllVpcPeeringHandler) Handle(c echo.Context) error {
 	}
 
 	// Ensure our user is a provider or tenant for the org
-	infrastructureProvider, tenant, apiError := common.IsProviderOrTenant(ctx, logger, gavph.dbSession, org, dbUser, false, false)
+	infrastructureProvider, tenant, apiError := common.IsProviderOrTenant(ctx, logger, gavph.dbSession, org, dbUser, false, nil)
 	if apiError != nil {
 		return cutil.NewAPIErrorResponse(c, apiError.Code, apiError.Message, apiError.Data)
 	}
@@ -757,7 +757,7 @@ func (gvph GetVpcPeeringHandler) Handle(c echo.Context) error {
 	}
 
 	// Ensure our user is a provider or tenant for the org
-	infrastructureProvider, tenant, apiError := common.IsProviderOrTenant(ctx, logger, gvph.dbSession, org, dbUser, false, false)
+	infrastructureProvider, tenant, apiError := common.IsProviderOrTenant(ctx, logger, gvph.dbSession, org, dbUser, false, nil)
 	if apiError != nil {
 		return cutil.NewAPIErrorResponse(c, apiError.Code, apiError.Message, apiError.Data)
 	}
@@ -912,7 +912,7 @@ func (dvph DeleteVpcPeeringHandler) Handle(c echo.Context) error {
 	}
 
 	// Ensure our user is a provider or tenant for the org
-	infrastructureProvider, tenant, apiError := common.IsProviderOrTenant(ctx, logger, dvph.dbSession, org, dbUser, false, false)
+	infrastructureProvider, tenant, apiError := common.IsProviderOrTenant(ctx, logger, dvph.dbSession, org, dbUser, false, nil)
 	if apiError != nil {
 		return cutil.NewAPIErrorResponse(c, apiError.Code, apiError.Message, apiError.Data)
 	}

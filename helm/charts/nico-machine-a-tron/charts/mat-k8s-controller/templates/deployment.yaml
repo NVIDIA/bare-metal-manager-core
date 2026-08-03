@@ -1,0 +1,44 @@
+{{- if .Values.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "mat-k8s-controller.fullname" . }}
+  namespace: {{ include "mat-k8s-controller.namespace" . }}
+  labels:
+    {{- include "mat-k8s-controller.labels" . | nindent 4 }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "mat-k8s-controller.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "mat-k8s-controller.selectorLabels" . | nindent 8 }}
+    spec:
+      serviceAccountName: {{ include "mat-k8s-controller.serviceAccountName" . }}
+      containers:
+        - name: controller
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          args:
+            - --namespace={{ include "mat-k8s-controller.namespace" . }}
+            - --discovery-selector={{ include "mat-k8s-controller.discoverySelector" . }}
+            - --sync-interval={{ .Values.config.syncInterval }}
+            - --insecure-skip-verify={{ .Values.config.insecureSkipVerify }}
+            - --log-level={{ .Values.config.logLevel }}
+            - --target-selector={{ include "mat-k8s-controller.targetSelector" . }}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            runAsUser: 65534
+      securityContext:
+        fsGroup: 65534
+        runAsNonRoot: true
+{{- end }}

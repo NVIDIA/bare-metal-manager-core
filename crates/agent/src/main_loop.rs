@@ -556,6 +556,10 @@ impl CurrentNetworkVersion {
         conf.deprecated_deny_prefixes.hash(h);
         conf.dhcp_servers.hash(h);
         conf.internet_l3_vni.hash(h);
+        // `managed_host_config_version` normally follows machine-group updates,
+        // but that relies on the DPU already being attached to its host. Hash
+        // the nested config so a missed fan-out cannot hide a DPU-specific change.
+        conf.managed_host_config.hash(h);
         conf.network_security_policy_overrides.hash(h);
         conf.ntp_servers.hash(h);
         conf.remote_id.hash(h);
@@ -575,7 +579,8 @@ impl CurrentNetworkVersion {
                 // behavior from the versioning.
             });
 
-        if let Some(routing_profile) = &conf.routing_profile {
+        let hash_routing_profile = |routing_profile: &rpc::RoutingProfile,
+                                    h: &mut DefaultHasher| {
             routing_profile.accepted_leaks_from_underlay.hash(h);
             routing_profile.allowed_anycast_prefixes.hash(h);
             routing_profile.leak_default_route_from_underlay.hash(h);
@@ -583,6 +588,26 @@ impl CurrentNetworkVersion {
             routing_profile.route_target_imports.hash(h);
             routing_profile.route_targets_on_exports.hash(h);
             routing_profile.tenant_leak_communities_accepted.hash(h);
+        };
+
+        if let Some(routing_profile) = &conf.routing_profile {
+            hash_routing_profile(routing_profile, h);
+        }
+
+        // Parent VPC profile changes do not increment either version supplied
+        // to the agent, so hash every interface's resolved profile explicitly.
+        // TODO: Consider replacing this fallback hash with explicit invalidation
+        // by incrementing every affected instance's network-config or config
+        // version, or by introducing a dedicated dependency version. Fan-out
+        // updates could contend at scale, and changing an instance version is
+        // misleading when only its parent VPC policy changed.
+        conf.tenant_interfaces.len().hash(h);
+        for interface in &conf.tenant_interfaces {
+            interface.internal_uuid.hash(h);
+            interface.vpc_routing_profile.is_some().hash(h);
+            if let Some(routing_profile) = &interface.vpc_routing_profile {
+                hash_routing_profile(routing_profile, h);
+            }
         }
 
         if let Some(traffic_intercept_config) = &conf.traffic_intercept_config {
@@ -733,11 +758,10 @@ impl MainLoop {
                 .await
                 .wrap_err("restarting OVS after admin network change")
             {
-                OvsRestart::Retrying {
+                carbide_instrument::emit(OvsRestart::Retrying {
                     error: format!("{err:#}"),
                     managed_host_config_version: conf.managed_host_config_version.clone(),
-                }
-                .emit();
+                });
                 status_out.network_config_error = Some(err.to_string());
                 self.ovs_restart_retry_backoff = Some(OvsRestartRetryBackoff {
                     managed_host_config_version: conf.managed_host_config_version.clone(),
@@ -1637,6 +1661,133 @@ ATF: v2.2(release):4.9.3-")
 #[cfg(test)]
 mod test {
     use super::*;
+
+    /// Verifies the supplemental cache hash tracks every interface's parent
+    /// VPC profile and stable identity so non-first changes trigger rendering.
+    #[test]
+    fn test_current_network_version_hashes_all_vpc_routing_profiles() {
+        use carbide_test_support::value_scenarios;
+
+        /// Selects the non-first interface mutation applied after caching.
+        #[derive(Clone, Copy, Debug)]
+        enum InterfaceChange {
+            Unchanged,
+            Profile,
+            ProfilePresence,
+            Identity,
+        }
+
+        value_scenarios!(run = |change| {
+            let first_profile = rpc::RoutingProfile {
+                leak_default_route_from_underlay: true,
+                ..Default::default()
+            };
+            let second_profile = rpc::RoutingProfile::default();
+            let mut conf = Arc::new(ManagedHostNetworkConfigResponse {
+                managed_host_config_version: "managed-v1".to_string(),
+                instance_network_config_version: "instance-v1".to_string(),
+                // Preserve the compatibility field derived from the first
+                // interface so only per-interface hashing can catch changes.
+                routing_profile: Some(first_profile.clone()),
+                tenant_interfaces: vec![
+                    rpc::FlatInterfaceConfig {
+                        internal_uuid: Some(::rpc::common::Uuid {
+                            value: "first-interface".to_string(),
+                        }),
+                        vpc_routing_profile: Some(first_profile),
+                        ..Default::default()
+                    },
+                    rpc::FlatInterfaceConfig {
+                        internal_uuid: Some(::rpc::common::Uuid {
+                            value: "second-interface".to_string(),
+                        }),
+                        vpc_routing_profile: Some(second_profile),
+                        ..Default::default()
+                    },
+                ],
+                ..Default::default()
+            });
+            let mut current = CurrentNetworkVersion::default();
+            current.update_from(&conf);
+
+            // Change only the second interface while leaving both compared
+            // configuration versions and the compatibility profile untouched.
+            let second_interface = &mut Arc::get_mut(&mut conf)
+                .expect("network configuration must not be shared")
+                .tenant_interfaces[1];
+            match change {
+                InterfaceChange::Unchanged => {}
+                InterfaceChange::Profile => {
+                    second_interface
+                        .vpc_routing_profile
+                        .as_mut()
+                        .expect("second interface profile")
+                        .leak_default_route_from_underlay = true;
+                }
+                InterfaceChange::ProfilePresence => {
+                    second_interface.vpc_routing_profile = None;
+                }
+                InterfaceChange::Identity => {
+                    second_interface.internal_uuid = Some(::rpc::common::Uuid {
+                        value: "replacement-interface".to_string(),
+                    });
+                }
+            }
+
+            current.matches_versions_from(&conf)
+        };
+            "unchanged interface state" {
+                // Identical interface profiles and identities remain cached.
+                InterfaceChange::Unchanged => true,
+            }
+            "non-first interface changes" {
+                // A changed parent VPC profile must invalidate the cached render.
+                InterfaceChange::Profile => false,
+                // Profile presence is meaningful even when all present fields
+                // would otherwise have default values.
+                InterfaceChange::ProfilePresence => false,
+                // Interface identity prevents profiles from being silently
+                // reassociated with a different port.
+                InterfaceChange::Identity => false,
+            }
+        );
+    }
+
+    #[test]
+    fn test_current_network_version_hashes_nested_managed_host_config() {
+        use carbide_test_support::value_scenarios;
+
+        value_scenarios!(run = |managed_host_config| {
+            let mut conf = Arc::new(ManagedHostNetworkConfigResponse {
+                managed_host_config: Some(rpc::ManagedHostNetworkConfig {
+                    loopback_ip: "10.0.0.1".to_string(),
+                    loopback_ip_v6: None,
+                    quarantine_state: None,
+                }),
+                managed_host_config_version: "managed-v1".to_string(),
+                instance_network_config_version: "instance-v1".to_string(),
+                ..Default::default()
+            });
+            let mut current = CurrentNetworkVersion::default();
+            current.update_from(&conf);
+            Arc::get_mut(&mut conf).unwrap().managed_host_config = managed_host_config;
+            current.matches_versions_from(&conf)
+        };
+            "nested config changes invalidate the cache" {
+                Some(rpc::ManagedHostNetworkConfig {
+                    loopback_ip: "10.0.0.2".to_string(),
+                    loopback_ip_v6: None,
+                    quarantine_state: None,
+                }) => false,
+                Some(rpc::ManagedHostNetworkConfig {
+                    loopback_ip: "10.0.0.1".to_string(),
+                    loopback_ip_v6: Some("2001:db8::1".to_string()),
+                    quarantine_state: None,
+                }) => false,
+                None => false,
+            }
+        );
+    }
 
     #[cfg(target_os = "linux")]
     #[tokio::test]

@@ -37,6 +37,69 @@ The guide is organized into the following sections:
 </Note>
 ---
 
+## Automated install (default) with setup.sh
+
+For clusters bootstrapped with `helm-prereqs/setup.sh`, DPF installs **by
+default** — the entire DPF installation **and** carbide-api enablement below is
+automated end-to-end. The DPF operator stack installs as **phase 5b** (before
+NICo Core); carbide-api DPF enablement happens as **phase 6b** (after Core).
+Pass `--skip-dpf` (or `NICO_SKIP_DPF=true`) to opt out — e.g. sites with no
+DPUs, or that still use the deprecated iPXE DPU path.
+
+```bash
+export NICO_DPF_DPU_INTERFACE=<controller-interface>   # keepalived interface for the DPU cluster VIP
+export NICO_DPF_DPU_CLUSTER_VIP=<vip>                  # VIP the DPUs use to reach their control plane
+export NICO_DPF_BMC_ROOT_PASSWORD=<bmc-password>       # site-wide BMC root (see "BMC root precondition")
+export NICO_DPF_METALLB_POOL=<pool>                    # optional: MetalLB pool advertising the VIP
+# Optional: pin NICo-owned DPF service chart versions when testing a dev/PR
+# image whose baked-in version was never published to the chart registry.
+# Point at the latest published version (e.g. most recent main build tag).
+# export NICO_DPF_DPU_AGENT_CHART_VERSION=<published-version>
+# export NICO_DPF_FMDS_CHART_VERSION=<published-version>
+# export NICO_DPF_DHCP_SERVER_CHART_VERSION=<published-version>
+# export NICO_DPF_OTEL_CHART_VERSION=<published-version>
+./setup.sh                                             # DPF installs by default; add --skip-dpf to opt out
+```
+
+The following table maps the sections on this page to what the run does:
+
+| Manual section | Automated by setup.sh |
+| -------------- | --------------------- |
+| §1.1 [Namespace](#11-create-the-dpf-operator-namespace) | Creates `dpf-operator-system`. |
+| §1.2 [Secrets](#12-image-pull-and-helm-repository-credentials) | Creates `hbn-user-password` (generated once), `dpf-pull-secret` / `nico-pull-secret` (from `NICO_DPF_NGC_API_KEY` / `NICO_DPF_NICO_NGC_API_KEY`, defaulting to `REGISTRY_PULL_SECRET`), and the three Argo CD repository Secrets (GA repo URLs; override with `NICO_DPF_HELM_REPO_OCI/HTTPS/CARBIDE`). |
+| §1.4 [Cert-manager policy](#14-cert-manager-policy-and-rbac-for-dpf) | Applied only when the approver-policy CRD exists. The stock helm-prereqs cert-manager does **not** run approver-policy, so this is normally skipped. |
+| [Prerequisites](#1-prerequisites) (Argo CD, Kamaji, NFD, maintenance-operator) | Installed from `helm-prereqs/helmfile.yaml` with versions/values pinned from `doca-platform deploy/helmfiles/prereqs.yaml`; cert-manager and local-path-provisioner are reused from the base install.<br/><br/>Kamaji has a cold-start deadlock (its controller needs the `default` DataStore, whose admission webhook the controller itself serves) — setup.sh breaks it automatically. Note: upstream pins cert-manager v1.19.3 while helm-prereqs ships v1.17.1 — a known, compatible skew. |
+| §2 [Operator install](#2-dpf-installation) | Clones `NVIDIA/doca-platform` at `NICO_DPF_VERSION` (default `v26.4.0`, cached under `helm-prereqs/.dpf-src/`) and installs `deploy/charts/dpf-operator`.<br/><br/>The in-repo source chart ships an empty `controllerManager.image`, so setup.sh sets it to `nvcr.io/nvidia/doca/dpf-system:$NICO_DPF_VERSION` (override with `NICO_DPF_IMAGE_REPO`).<br/><br/>The GA `nvidia/doca` images are **public**, so they pull anonymously by default — a registry-scoped pull secret without `nvidia/doca` entitlement makes nvcr.io 403 the pull. Set `NICO_DPF_IMAGE_PULL_SECRET` only for private DPF/DOCA registries. |
+| §3.1 [RBAC](#31-rbac-for-the-nico-orchestrator) | Created by the NICo Core chart (`nico-api.dpf.rbacCreate=true`, set automatically) — the Role/RoleBinding subject is the chart's actual ServiceAccount. |
+| §3.2–3.4 CRs  | [DPFOperatorConfig](#32-dpfoperatorconfig) (API VIP/port derived from the `kubernetes` Endpoints unless `NICO_DPF_K8S_API_VIP/PORT` are set), [DPUCluster](#33-dpucluster), and the optional [VIP LoadBalancer Service](#34-vip-loadbalancer-service-and-endpoints) are applied from `helm-prereqs/operators/dpf/`. |
+| §3.5 [Site config](#35-enable-dpf-in-the-nico-site-config) + §4 [Enablement](#4-restart-carbide-api-to-create-the-dpf-initialization-objects) | **Two-phase (phase 6b).** Carbide-api's DPF SDK requires the site-wide BMC root password at startup, which can only be set through a running carbide-api.<br/><br/>`setup.sh` deploys Core with `[dpf]` **off**, sets the BMC root password via `nico-admin-cli` (see below), upgrades Core to `[dpf]` **on**, then **restarts carbide-api**.<br/><br/>The upgrade only rewrites the ConfigMap; `[dpf]` is read at startup only. The restart ensures that the DPF SDK initializes and creates the BFB, DPUFlavor, and DPUDeployment. |
+
+[Per-host enablement](#36-mark-hosts-as-dpf-managed-in-expected-machines) (§3.6) and the [CLI appendix](#appendix-nico-admin-cli-dpf-command-reference) still apply unchanged. The sections below remain the reference for what is being installed, for manual installs, and for environments not using `setup.sh`.
+
+### BMC root precondition (why the enablement is two-phase)
+
+carbide-api's DPF SDK init **hard-requires** the site-wide BMC root credential
+(the shared BMC password DPF uses to reach the DPUs' host BMCs over Redfish). If
+it is not set, carbide-api fails to start with
+`Failed to initialize DPF SDK: ... Site wide BMC root credentials not set`.
+That credential can only be set through a **running** carbide-api (the
+`SetBmcRootPassword` RPC / `nico-admin-cli credential add-bmc`), so DPF cannot be
+enabled on the very first Core deploy — hence the two-phase flow.
+
+setup.sh handles this automatically (DPF is the default): it issues a short-lived
+admin client cert from the `nicoca` PKI (see
+[ingesting-hosts.md](../provisioning/ingesting-hosts.md)) and runs
+`nico-admin-cli credential add-bmc --kind=site-wide-root` from an in-cluster Job
+(the CLI ships in the NICo image at `/opt/carbide/nico-admin-cli`), reaching
+carbide-api through its external LoadBalancer. `NICO_DPF_BMC_ROOT_PASSWORD` is
+therefore **required** unless `--skip-dpf`.
+
+<Info title="Clusters without DPUs">
+The DPF operator, Kamaji `DPUCluster`, and carbide-api all come up, but `DPFOperatorConfig` stays `Ready=False` until its DPU-side services (multus, flannel, sriov-device-plugin, ovs-cni, sfc-controller, and so on) schedule — which needs actual DPU nodes. On a cluster with no BlueField hardware this is expected, not an error.
+</Info>
+
+---
+
 ## 1. Prerequisites
 
 The official DPF guide lists a set of [cluster-level prerequisites](https://docs.nvidia.com/networking/display/dpf25101/helm-prerequisites) (Argo CD, cert-manager, Kamaji etc.). Follow that guide for those components.
@@ -114,6 +177,10 @@ kubectl -n dpf-operator-system label secret nico-pull-secret \
 DPF pulls several Helm charts via Argo CD. Apply the following Secrets so that
 Argo CD can authenticate to the NGC Helm repositories:
 
+<Note>
+Secrets must live in the namespace where Argo CD is installed, and `overrides.argoCDNamespace` in the [DPFOperatorConfig](#32-dpfoperatorconfig) must match. The examples below use `argocd`; `setup.sh` (DPF default) installs Argo CD into `dpf-operator-system` (same as upstream's prereqs helmfile) and creates these Secrets there.
+</Note>
+
 ```yaml
 ---
 apiVersion: v1
@@ -170,11 +237,19 @@ how Argo CD discovers Helm repositories.
 
 Important: the `url` field must not end with a `/`, as any difference in the `url` (including an extra slash) will prevent Argo CD from matching the repository to the correct Secret.
 
-| Secret name | Repo URL | Type | Used by |
+The URLs below show the **staging** repos. `setup.sh` instead defaults to the
+**GA public** DOCA repos (`nvcr.io/nvidia/doca`,
+`https://helm.ngc.nvidia.com/nvidia/doca`) and the private carbide-dev repo, and
+lets you override them with `NICO_DPF_HELM_REPO_OCI` / `_HTTPS` / `_CARBIDE`.
+Whichever you use, each Secret's `url` must **exactly** match the `helm_repo_url`
+that carbide-api requests for that service (its `[dpf.services.*]` config, §3.5),
+or Argo CD cannot match the repository and the pull fails.
+
+| Secret name | Repo URL (staging example) | Type | Used by |
 | --- | --- | --- | --- |
 | `ngc-doca-oci-helm` | `nvcr.io/nvstaging/doca` | OCI helm | DPF operator chart pulls |
-| `ngc-doca-https-helm` | `https://helm.ngc.nvidia.com/nvstaging/doca` | HTTPS helm | Some DPUService charts |
-| `ngc-carbide-https-helm` | `https://helm.ngc.nvidia.com/0837451325059433/carbide-dev` | HTTPS helm | Carbide-private DPUService charts |
+| `ngc-doca-https-helm` | `https://helm.ngc.nvidia.com/nvstaging/doca` | HTTPS helm | DTS / DOCA-HBN DPUService charts |
+| `ngc-carbide-https-helm` | `https://helm.ngc.nvidia.com/0837451325059433/carbide-dev` | HTTPS helm | Carbide-private NICo DPUService charts |
 
 ### 1.3. Internet access for DPUs
 
@@ -292,21 +367,33 @@ for a NICo-integrated deployment. The example command below illustrates how to
 set them:
 
 ```bash
-REGISTRY="oci://path/to/doca"
-TAG="v26.4.0-rc.3"
+# From the NGC helm repository:
+REGISTRY="https://helm.ngc.nvidia.com/nvidia/doca"
+TAG="v26.4.0"
+helm repo add --force-update dpf-repository $REGISTRY
+helm repo update
 helm upgrade --install -n dpf-operator-system \
   --set "enableNodeFeatureRules=false" \
-  --set "imagePullSecrets[0].name=dpf-pull-secret" \
-  dpf-operator $REGISTRY/dpf-operator --version=$TAG
+  dpf-operator dpf-repository/dpf-operator --version=$TAG
+
+# Or from a clone of NVIDIA/doca-platform at the same tag (what
+# setup.sh does by default):
+helm upgrade --install -n dpf-operator-system \
+  --set "enableNodeFeatureRules=false" \
+  dpf-operator ./doca-platform/deploy/charts/dpf-operator
 ```
+
+The public `nvcr.io/nvidia/doca` operator image pulls anonymously, so no pull
+secret is set by default (matching `setup.sh`). Add
+`--set "imagePullSecrets[0].name=dpf-pull-secret"` **only** when pulling the
+operator image from a private registry or mirror — a registry-scoped secret
+without `nvidia/doca` entitlement turns a working public pull into a 403.
 
 NICo-specific notes on the parameters:
 
 - `enableNodeFeatureRules=false` — the chart's bundled `NodeFeatureRule`
   resources are disabled because nodes are labeled via NFD's own configuration
   (relying on PCI class `0200`).
-- `imagePullSecrets[0].name=dpf-pull-secret` — ties the operator's pods to the
-  pull Secret created in step 1.2.b so that staging images can be pulled.
 
 Adjust `REGISTRY` and `TAG` to the version of DPF you are deploying.
 
@@ -318,12 +405,19 @@ Once the DPF operator is running, the following objects must be applied
 **before NICo is started**. They configure the DPF operator for NICo's
 provisioning model and grant the orchestrator the access it needs.
 
-### 3.1. Cluster-wide RBAC for the NICo orchestrator
+### 3.1. RBAC for the NICo orchestrator
 
-The NICo orchestrator (the `carbide-api` ServiceAccount in NICo's default
-deployment) needs to read and write across namespaces, including
-`dpf-operator-system` and the per-DPU namespaces. Grant it `cluster-admin` via
-a `ClusterRoleBinding`:
+The NICo orchestrator's ServiceAccount needs access to the DPF custom
+resources in `dpf-operator-system`. This is a **namespaced Role +
+RoleBinding** scoped to `dpf-operator-system` — cluster-admin is *not*
+required.
+
+<Note>
+On chart-based deployments, this Role/RoleBinding is created by the
+NICo Core chart itself (`nico-api.dpf.rbacCreate=true`, set automatically by `setup.sh`, and the DPF default), with the subject bound to the chart's actual ServiceAccount (`nico-api` in `nico-system` by default).
+
+Apply the manifest below only on deployments that do not use the chart, and adjust the RoleBinding subject to your deployment's ServiceAccount name and namespace (for example, `carbide-api` / `forge-system` on legacy carbide-named deployments).
+</Note>
 
 ```yaml
 ---
@@ -335,6 +429,9 @@ metadata:
 rules:
   - apiGroups: ["provisioning.dpu.nvidia.com"]
     resources: ["bfbs"]
+    verbs: ["get", "list", "create", "patch", "delete"]
+  - apiGroups: ["provisioning.dpu.nvidia.com"]
+    resources: ["bluefieldsoftwares"]
     verbs: ["get", "list", "create", "patch", "delete"]
   - apiGroups: ["provisioning.dpu.nvidia.com"]
     resources: ["dpus"]
@@ -384,8 +481,11 @@ roleRef:
   name: nico-api-dpf
 subjects:
   - kind: ServiceAccount
-    name: carbide-api
-    namespace: forge-system
+    # Adjust to your deployment's API ServiceAccount. Chart-based deployments
+    # use nico-api/nico-system (and the chart creates this binding itself);
+    # legacy carbide-named deployments use carbide-api/forge-system.
+    name: nico-api
+    namespace: nico-system
 ```
 
 ### 3.2. `DPFOperatorConfig`
@@ -871,11 +971,13 @@ for the backup and recovery requirements.
 
 Whether a given host is provisioned via DPF or via iPXE is decided per host,
 in the *expected machines* list that NICo loads on startup. The relevant
-field is **`is_dpf_enabled`** on each expected-machine entry. A host is
+field is **`dpf_enabled`** on each expected-machine entry. A host is
 provisioned via DPF only when **both** of the following are true:
 
 1. `[dpf].enabled = true` in the site config (section 3.5), and
-2. `is_dpf_enabled = true` on that host's expected-machine entry.
+2. `dpf_enabled = true` on that host's expected-machine entry.
+
+**The per-host default is `true`.** When `dpf_enabled` is omitted, it is stored as `true` — DPF is the default provisioning path (iPXE is deprecated). To keep a host on iPXE, set `dpf_enabled = false`.
 
 There are several operator paths that can set this field. They are described
 below in the order an operator typically uses them.
@@ -883,7 +985,7 @@ below in the order an operator typically uses them.
 #### 3.7.a. `nico-admin-cli expected-machine add` — create a new entry
 
 Adds a new expected-machine row. `--dpf-enabled` is optional; **omitting it
-stores `true`**.
+stores `true`** (DPF is the default).
 
 ```bash
 nico-admin-cli expected-machine add \
@@ -959,7 +1061,7 @@ nico-admin-cli expected-machine replace-all --filename em-all.json
 ```
 
 <Warning>
-This is not a merge. Any expected-machine row that is not present in the file is **deleted**. Each entry is then re-created using the same path as `add`, so any entry whose `dpf_enabled` is omitted is re-inserted with `dpf_enabled = true`.
+This is **not a merge**. Any expected-machine row that is not present in the file is **deleted**. Each entry is then re-created via the same path as `add`, so any entry whose `dpf_enabled` is omitted is re-inserted with `dpf_enabled = true` (the default). Set `dpf_enabled = false` explicitly to keep a host on iPXE.
 </Warning>
 
 #### 3.7.e. Quick reference
@@ -1048,11 +1150,29 @@ nico-admin-cli dpf enable <host-machine-id>
 ```
 
 | Argument | Required | Notes |
-|---|:---:|---|
-| `<host-machine-id>` | yes | Must be a **host** machine id; DPU ids are rejected. |
+| -------- | :------: | ----- |
+| `<host-machine-id>` | yes | Must be a **host** machine id; DPU IDs are rejected. |
 
 Sets `machines.dpf.enabled = true` on the given host's runtime row by calling
 the `ModifyDPFState` RPC.
+
+### `dpf disable` — turn DPF off for a host
+
+```bash
+nico-admin-cli dpf disable <host-machine-id>
+```
+
+| Argument | Required | Notes |
+| -------- | :------: | ----- |
+| `<host-machine-id>` | yes | Must be a **host** machine id; DPU IDs are rejected. |
+
+Sets `machines.dpf.enabled = false` on the host's runtime row. **Refused when
+the host was ingested via DPF** (`Used For Ingestion` is true, both
+client-side and server-side): disabling DPF on a DPF-ingested host would
+leave its DPF CRs (`DPUNode`, `DPUDevice`, `DPU`) orphaned and inconsistent.
+Force-delete the host first if you really need to move it off DPF (see
+`machine force-delete --allow-delete-with-orphaned-dpf-crds` for the
+site-disabled case).
 
 ### `dpf show` — inspect DPF state for one or all hosts
 
@@ -1116,7 +1236,51 @@ configured versions onto the cluster.
 | Goal | Command |
 | --- | --- |
 | Turn DPF on for an already-discovered host (transient) | `nico-admin-cli dpf enable <host-id>` |
+| Turn DPF off for a host (refused after DPF ingestion) | `nico-admin-cli dpf disable <host-id>` |
 | Show DPF state for one host | `nico-admin-cli dpf show <host-id>` |
 | List DPF state for all hosts | `nico-admin-cli dpf show` |
 | Snapshot DPF CRs for a host | `nico-admin-cli dpf snapshot <host-id>` |
 | Diff configured vs. deployed DPF service versions | `nico-admin-cli dpf service-version` |
+
+---
+
+## Appendix: Building the NICo DPUService images and charts
+
+The mandatory DPUServices that carbide-api deploys through DPF
+(`carbide-dpu-agent`, `carbide-dhcp-server`, `carbide-fmds`, and
+`carbide-otelcol`) are built from this repository under `bluefield/`. These are
+NICo's own images and belong in the **same registry you push Core/REST to** —
+build and push them there, then point `[dpf.services.*]` at them.
+
+```bash
+cd bluefield
+export CARBIDE_IMAGE_REGISTRY=<your-registry>   # default nvcr.io/nvidia/carbide
+export DPU_AGENT_PKG_VERSION=<tag>              # the image/chart version
+
+# arm64 container images (forge-dpu-agent, forge-dhcp-server, carbide-fmds,
+# forge-dpu-otel-agent, otelcol-contrib)
+cargo make docker-build-all
+
+# Helm chart packages for the matching DPUService charts
+cargo make helm-package-all
+
+# then docker push / helm push each to <your-registry>
+```
+
+The chart sources are in `bluefield/charts/` (`nico-dpu-agent`,
+`nico-dhcp-server`, `nico-fmds`, `nico-otelcol`); each values file starts
+with the `### DPF contract ###` block that DPF/carbide-api populates at
+deploy time. Point carbide-api at your pushed images/charts via the
+`[dpf.services.<svc>]` blocks ([refer to section 3.5](#35-enable-dpf-in-the-nico-site-config)): `helm_repo_url`, `helm_chart`,
+`helm_version`, `docker_repo_url`, `docker_image_tag`, and
+`docker_image_pull_secret = "nico-pull-secret"`. Unset services fall back to
+the built-in defaults (public NGC for `dts`/`doca_hbn`; private `carbide-dev`,
+needs `nico-pull-secret`, for the NICo DPUService images).
+
+The DTS (`doca-telemetry`) and `doca-hbn` services, and the DPF operator and
+operand images, are NVIDIA-published on NGC and **pull anonymously by default**
+— no build or registry needed. To mirror them into your own registry (air-gapped
+or one-registry setups), refer to
+[helm-prereqs → DPF images and registries](https://github.com/NVIDIA/infra-controller/blob/main/helm-prereqs/README.md#dpf-images-and-registries)
+(`NICO_DPF_IMAGE_REPO`/`_TAG`/`_PULL_SECRET` for the operator image;
+`NICO_DPF_HELM_REPO_*` for the operand/service charts).

@@ -22,7 +22,7 @@ use carbide_secrets::credentials::{
     BmcCredentialType, CredentialKey, CredentialManager, Credentials,
 };
 use carbide_utils::none_if_empty::NoneIfEmpty;
-use carbide_uuid::machine::MachineId;
+use carbide_uuid::machine::{MachineId, MachineType};
 use db::{ObjectColumnFilter, Transaction};
 use itertools::Itertools;
 use librms::RmsApi;
@@ -35,12 +35,15 @@ use model::machine::machine_id::host_id_from_dpu_hardware_info;
 use model::machine::machine_search_config::MachineSearchConfig;
 use model::machine::{
     CURRENT_STATE_MODEL_VERSION, DpuDiscoveringState, DpuDiscoveringStates, Machine,
-    MachineInterfaceSnapshot, ManagedHostState,
+    MachineInterfaceSnapshot, ManagedHostState, pick_boot_interface, pick_boot_prediction,
+};
+use model::machine_boot_interface::{
+    MachineBootInterface, MachineBootInterfaceTarget, canonical_redfish_boot_interface_id,
 };
 use model::machine_interface::InterfaceType;
 use model::machine_interface_address::MachineInterfaceAssociation;
 use model::network_segment::NetworkSegmentType;
-use model::predicted_machine_interface::NewPredictedMachineInterface;
+use model::predicted_machine_interface::{NewPredictedMachineInterface, PredictedMachineInterface};
 use model::rack_type::RackProfileConfig;
 use model::resource_pool::common::CommonPools;
 use model::site_explorer::{EndpointExplorationReport, ExploredDpu, ExploredManagedHost};
@@ -51,6 +54,8 @@ use crate::errors::{SiteExplorerError, SiteExplorerResult};
 use crate::explored_endpoint_index::ExploredEndpointIndex;
 use crate::managed_host::ManagedHost;
 use crate::metrics::{SiteExplorationMetrics, SiteExplorerMachineSlotTrayPersistenceFailed};
+
+const DESIRED_BOOT_INTERFACE_RECONCILE_PAGE_SIZE: i64 = 100;
 
 /// Creates machines from site-explorer managed-host reports.
 pub struct MachineCreator {
@@ -119,6 +124,59 @@ impl MachineCreator {
         Ok(())
     }
 
+    /// Best-effort reconciles every host whose desired boot interface is still
+    /// incomplete.
+    ///
+    /// This runs independently of `create_machines`: operators may disable
+    /// creation, and a host may no longer have an `ExpectedMachine` or a fresh
+    /// observation. Creation-time calls remain in place so a new machine and
+    /// its initial desired target still commit atomically. Keyset pages prevent
+    /// permanently MAC-only hosts from starving later IDs, while one
+    /// transaction per machine bounds locks and preserves completed progress.
+    pub(crate) async fn reconcile_desired_boot_interfaces(&self) -> SiteExplorerResult<()> {
+        let mut after_id = None;
+        loop {
+            let machine_ids = db::machine_desired_boot_interface::find_incomplete_machine_ids(
+                &self.database_connection,
+                after_id.as_ref(),
+                DESIRED_BOOT_INTERFACE_RECONCILE_PAGE_SIZE,
+            )
+            .await?;
+            let Some(last_id) = machine_ids.last() else {
+                break;
+            };
+            after_id = Some(*last_id);
+
+            for machine_id in machine_ids {
+                let mut txn = Transaction::begin(&self.database_connection).await?;
+                match reconcile_desired_boot_interface(txn.as_pgconn(), &machine_id).await {
+                    Ok(()) => {
+                        if let Err(error) = txn.commit().await {
+                            tracing::warn!(
+                                %error,
+                                %machine_id,
+                                "Desired boot-interface reconciliation commit failed; a later Site Explorer run will retry"
+                            );
+                        }
+                    }
+                    Err(error) => {
+                        txn.rollback_or_log(
+                            "site-explorer desired boot-interface reconciliation failure",
+                        )
+                        .await;
+                        tracing::warn!(
+                            %error,
+                            %machine_id,
+                            "Desired boot-interface reconciliation failed; a later Site Explorer run will retry"
+                        );
+                    }
+                }
+            }
+        }
+
+        Ok(())
+    }
+
     /// Creates a `Machine` objects for an identified `ManagedHost` with initial states
     ///
     /// Returns `true` if new `Machine` objects have been created or `false` otherwise.
@@ -177,7 +235,10 @@ impl MachineCreator {
             {
                 managed_host.machine_id = Some(machine_id);
             } else {
-                // Site explorer has already created a machine for this endpoint previously, skip.
+                // An existing-object path may have initialized or enriched the
+                // desired boot target. Keep that restart-safe write even though
+                // there is no new machine to count this iteration.
+                txn.commit().await?;
                 return Ok(false);
             }
             tracing::info!("Created managed_host with zero DPUs");
@@ -247,6 +308,7 @@ impl MachineCreator {
 
             self.reconcile_host_admin_addresses(&mut txn, &host_machine_id)
                 .await?;
+            reconcile_desired_boot_interface(&mut txn, &host_machine_id).await?;
 
             txn.commit().await?;
             return Ok(false);
@@ -329,6 +391,7 @@ impl MachineCreator {
         // interfaces have been attached and primary flags are final.
         self.reconcile_host_admin_addresses(&mut txn, &host_machine_id)
             .await?;
+        reconcile_desired_boot_interface(&mut txn, &host_machine_id).await?;
 
         let rms_node_identity = if let (Some(rack_id), Some(_)) =
             (&expected_machine.data.rack_id, &self.rms_client)
@@ -438,25 +501,28 @@ impl MachineCreator {
             })
             .collect();
         for mac_address in &mac_addresses {
-            if db::machine::find_by_mac_address(txn, mac_address)
-                .await?
-                .is_some()
-            {
+            if let Some(machine) = db::machine::find_by_mac_address(txn, mac_address).await? {
+                if matches!(
+                    machine.id.machine_type(),
+                    MachineType::Host | MachineType::PredictedHost
+                ) {
+                    reconcile_desired_boot_interface(txn, &machine.id).await?;
+                }
                 return Ok(None);
             }
 
             // If we already minted this machine and it hasn't DHCP'd yet, there will be an
             // predicted_machine_interface with this MAC address. If so, also skip.
-            if !db::predicted_machine_interface::find_by(
+            let predictions = db::predicted_machine_interface::find_by(
                 txn,
                 ObjectColumnFilter::One(
                     db::predicted_machine_interface::MacAddressColumn,
                     mac_address,
                 ),
             )
-            .await?
-            .is_empty()
-            {
+            .await?;
+            if let Some(prediction) = predictions.first() {
+                reconcile_desired_boot_interface(txn, &prediction.machine_id).await?;
                 return Ok(None);
             }
         }
@@ -497,6 +563,7 @@ impl MachineCreator {
                 predicted_host_mac_addresses = ?mac_addresses,
                 "Predicted host already exists, with different mac addresses from this one. Potentially multiple machines with same serial number?"
             );
+            reconcile_desired_boot_interface(txn, &existing_machine.id).await?;
             return Ok(None);
         }
 
@@ -504,13 +571,13 @@ impl MachineCreator {
             .await?;
 
         // Settle this host's single boot interface as we take ownership: the
-        // declared `ExpectedHostNic.primary` (if any) is the host's primary, and
+        // declared `ExpectedInterface.primary` (if any) is the host's primary, and
         // every other NIC is non-primary. Routing both the already-leased rows and
         // the freshly-minted predictions through the same declaration makes the
         // choice authoritative regardless of DHCP arrival order, and keeps exactly
         // one primary per machine -- so adopting several NICs that leased before
         // ingestion never trips the `one_primary_interface_per_machine` index.
-        // The host's primary (boot) interface is a declared `ExpectedHostNic.primary`
+        // The host's primary (boot) interface is a declared `ExpectedInterface.primary`
         // when set, otherwise the boot interface preserved across `--delete-interfaces`
         // in `retained_boot_interfaces`. The retained fallback lets a host with no
         // declared primary -- a DPU flipped to NIC mode is the common case -- re-ingest
@@ -1135,6 +1202,167 @@ impl MachineCreator {
     }
 }
 
+/// Initializes the durable desired boot interface from Site Explorer's settled
+/// interface ownership, or enriches a persisted MAC-only target with a newly
+/// observed Redfish interface id.
+///
+/// The initial read stays lock-free so a completed pair does not serialize
+/// unrelated machine updates on every exploration. The mutation helpers lock
+/// and recheck the two allowed transitions: unset to initialized, and same-MAC
+/// `MacOnly` to `Pair`.
+async fn reconcile_desired_boot_interface(
+    txn: &mut PgConnection,
+    machine_id: &MachineId,
+) -> SiteExplorerResult<()> {
+    let machine_type = machine_id.machine_type();
+    if !machine_type.is_host() && !machine_type.is_predicted_host() {
+        return Ok(());
+    }
+
+    let desired = db::machine_desired_boot_interface::get(&mut *txn, machine_id).await?;
+
+    if matches!(
+        desired.as_ref().map(|desired| &desired.value),
+        Some(MachineBootInterfaceTarget::Pair(_))
+    ) {
+        return Ok(());
+    }
+
+    // `find_by_machine_ids` removes BMC rows. Keeping that boundary in the
+    // database query also lets `pick_boot_interface` borrow this list directly.
+    let mut interfaces_by_machine =
+        db::machine_interface::find_by_machine_ids(txn, &[*machine_id]).await?;
+    let interfaces = interfaces_by_machine.remove(machine_id).unwrap_or_default();
+    let predictions = db::predicted_machine_interface::find_by_machine_id(txn, machine_id).await?;
+    let update = desired_boot_interface_update(
+        desired.as_ref().map(|desired| &desired.value),
+        &interfaces,
+        &predictions,
+    );
+
+    match (desired.as_ref().map(|desired| &desired.value), update) {
+        (None, Some(target)) => {
+            db::machine_desired_boot_interface::initialize_if_unset(txn, machine_id, &target)
+                .await?;
+        }
+        (
+            Some(MachineBootInterfaceTarget::MacOnly(mac_address)),
+            Some(MachineBootInterfaceTarget::Pair(target)),
+        ) => {
+            debug_assert_eq!(*mac_address, target.mac_address);
+            db::machine_desired_boot_interface::enrich_interface_id(
+                txn,
+                machine_id,
+                *mac_address,
+                &target.interface_id,
+            )
+            .await?;
+        }
+        _ => {}
+    }
+
+    Ok(())
+}
+
+/// Returns the only desired-target transition Site Explorer should attempt.
+///
+/// An existing pair is already complete. An existing MAC-only value is
+/// already designated, so only a unique id for that same MAC may enrich it.
+/// With no value, an explicitly primary prediction outranks the interim owned
+/// interface (the integrated-NIC-before-first-DHCP case); otherwise owned
+/// interfaces win, with an unambiguous prediction as the final fallback.
+/// Once the MAC is selected, all same-MAC records resolve its id so a current
+/// owned id can complete an id-less prediction.
+fn desired_boot_interface_update(
+    desired: Option<&MachineBootInterfaceTarget>,
+    interfaces: &[MachineInterfaceSnapshot],
+    predictions: &[PredictedMachineInterface],
+) -> Option<MachineBootInterfaceTarget> {
+    match desired {
+        Some(MachineBootInterfaceTarget::Pair(_)) => None,
+        Some(MachineBootInterfaceTarget::MacOnly(mac_address)) => {
+            resolve_interface_id(*mac_address, interfaces, predictions).map(|interface_id| {
+                MachineBootInterfaceTarget::Pair(MachineBootInterface {
+                    mac_address: *mac_address,
+                    interface_id,
+                })
+            })
+        }
+        None => {
+            let prediction = pick_boot_prediction(predictions);
+            let selected_mac = prediction
+                .filter(|prediction| prediction.primary_interface)
+                .map(|prediction| prediction.mac_address)
+                .or_else(|| pick_boot_interface(interfaces).map(|interface| interface.mac_address))
+                .or_else(|| prediction.map(|prediction| prediction.mac_address));
+            selected_mac.map(|mac_address| {
+                target_with_resolved_interface_id(mac_address, interfaces, predictions)
+            })
+        }
+    }
+}
+
+fn target_with_resolved_interface_id(
+    mac_address: MacAddress,
+    interfaces: &[MachineInterfaceSnapshot],
+    predictions: &[PredictedMachineInterface],
+) -> MachineBootInterfaceTarget {
+    match resolve_interface_id(mac_address, interfaces, predictions) {
+        Some(interface_id) => MachineBootInterfaceTarget::Pair(MachineBootInterface {
+            mac_address,
+            interface_id,
+        }),
+        None => MachineBootInterfaceTarget::MacOnly(mac_address),
+    }
+}
+
+enum InterfaceIdResolution<'a> {
+    Missing,
+    Unique(&'a str),
+    Ambiguous,
+}
+
+fn unique_interface_id<'a>(
+    interface_ids: impl Iterator<Item = &'a str>,
+) -> InterfaceIdResolution<'a> {
+    let mut interface_ids = interface_ids
+        .filter_map(canonical_redfish_boot_interface_id)
+        .unique();
+    match (interface_ids.next(), interface_ids.next()) {
+        (None, _) => InterfaceIdResolution::Missing,
+        (Some(interface_id), None) => InterfaceIdResolution::Unique(interface_id),
+        (Some(_), Some(_)) => InterfaceIdResolution::Ambiguous,
+    }
+}
+
+fn resolve_interface_id(
+    mac_address: MacAddress,
+    interfaces: &[MachineInterfaceSnapshot],
+    predictions: &[PredictedMachineInterface],
+) -> Option<String> {
+    let owned = unique_interface_id(
+        interfaces
+            .iter()
+            .filter(|interface| interface.mac_address == mac_address)
+            .filter_map(|interface| interface.boot_interface_id.as_deref()),
+    );
+    match owned {
+        InterfaceIdResolution::Unique(interface_id) => return Some(interface_id.to_string()),
+        InterfaceIdResolution::Ambiguous => return None,
+        InterfaceIdResolution::Missing => {}
+    }
+
+    match unique_interface_id(
+        predictions
+            .iter()
+            .filter(|prediction| prediction.mac_address == mac_address)
+            .filter_map(|prediction| prediction.boot_interface_id.as_deref()),
+    ) {
+        InterfaceIdResolution::Unique(interface_id) => Some(interface_id.to_string()),
+        InterfaceIdResolution::Missing | InterfaceIdResolution::Ambiguous => None,
+    }
+}
+
 /// `host_mac_addresses_for_predicted_machine` finds the Host interfaces used to
 /// mint `predicted_machine_interface` rows for a zero-DPU host.
 ///
@@ -1152,7 +1380,7 @@ fn host_mac_addresses_for_predicted_machine(
         [] => machine_data
             .filter(|_| !(report.is_dpu() || report.is_switch() || report.is_power_shelf()))
             .map(|data| {
-                data.host_nics
+                data.interfaces
                     .iter()
                     .filter(|interface| interface.role.is_host())
                     .map(|interface| interface.mac_address)
@@ -1163,7 +1391,7 @@ fn host_mac_addresses_for_predicted_machine(
             .inspect(|host_mac_addresses| {
                 tracing::info!(
                     host_nic_count = host_mac_addresses.len(),
-                    "System EthernetInterfaces missing from Redfish; using ExpectedMachine.host_nics for predicted machine interfaces"
+                    "System EthernetInterfaces missing from Redfish; using ExpectedMachine.interfaces for predicted machine interfaces"
                 );
             })
             .unwrap_or_default(),
@@ -1172,8 +1400,10 @@ fn host_mac_addresses_for_predicted_machine(
 
 #[cfg(test)]
 mod tests {
+    use std::str::FromStr;
+
     use carbide_test_support::{Check, check_values};
-    use model::expected_machine::{ExpectedHostNic, ExpectedInterfaceRole};
+    use model::expected_machine::{ExpectedInterface, ExpectedInterfaceRole};
     use model::site_explorer::{Chassis, ComputerSystem, EthernetInterface};
 
     use super::*;
@@ -1185,14 +1415,15 @@ mod tests {
         let host_mac = MacAddress::new([0x02, 0x00, 0x00, 0x00, 0x00, 0x01]);
         let dpu_os_mac = MacAddress::new([0x02, 0x00, 0x00, 0x00, 0x00, 0x02]);
         let dpu_bmc_mac = MacAddress::new([0x02, 0x00, 0x00, 0x00, 0x00, 0x03]);
-        let redfish_mac = MacAddress::new([0x02, 0x00, 0x00, 0x00, 0x00, 0x04]);
-        let interface = |mac_address, role| ExpectedHostNic {
+        let host_bmc_mac = MacAddress::new([0x02, 0x00, 0x00, 0x00, 0x00, 0x04]);
+        let redfish_mac = MacAddress::new([0x02, 0x00, 0x00, 0x00, 0x00, 0x05]);
+        let interface = |mac_address, role| ExpectedInterface {
             mac_address,
             role,
             ..Default::default()
         };
-        let machine_data = |host_nics| ExpectedMachineData {
-            host_nics,
+        let machine_data = |interfaces| ExpectedMachineData {
+            interfaces,
             ..Default::default()
         };
         let all_roles = || {
@@ -1200,6 +1431,7 @@ mod tests {
                 interface(host_mac, ExpectedInterfaceRole::Host),
                 interface(dpu_os_mac, ExpectedInterfaceRole::DpuOs),
                 interface(dpu_bmc_mac, ExpectedInterfaceRole::DpuBmc),
+                interface(host_bmc_mac, ExpectedInterfaceRole::HostBmc),
             ])
         };
         let excluded_report = |chassis_id: &str| EndpointExplorationReport {
@@ -1241,6 +1473,7 @@ mod tests {
                         Some(machine_data(vec![
                             interface(dpu_os_mac, ExpectedInterfaceRole::DpuOs),
                             interface(dpu_bmc_mac, ExpectedInterfaceRole::DpuBmc),
+                            interface(host_bmc_mac, ExpectedInterfaceRole::HostBmc),
                         ])),
                     ),
                     expect: vec![],
@@ -1282,6 +1515,229 @@ mod tests {
             ],
             |(report, machine_data)| {
                 host_mac_addresses_for_predicted_machine(&report, machine_data.as_ref())
+            },
+        );
+    }
+
+    /// `desired_boot_interface_update` only initializes a missing target or
+    /// completes the same designated MAC. These cases keep the
+    /// prediction/owned precedence and the ambiguity rules together.
+    #[test]
+    fn desired_boot_interface_update_cases() {
+        let mac = |last| MacAddress::new([0x02, 0, 0, 0, 0, last]);
+        let interface =
+            |mac_address, interface_type, primary_interface, interface_id: Option<&str>| {
+                MachineInterfaceSnapshot {
+                    interface_type,
+                    primary_interface,
+                    boot_interface_id: interface_id.map(str::to_string),
+                    network_segment_type: Some(NetworkSegmentType::HostInband),
+                    ..MachineInterfaceSnapshot::mock_with_mac(mac_address)
+                }
+            };
+        let prediction = |mac_address, primary_interface, interface_id: Option<&str>| {
+            PredictedMachineInterface {
+                id: uuid::Uuid::nil(),
+                machine_id: MachineId::from_str(
+                    "fm100ds7blqjsadm2uuh3qqbf1h7k8pmf47um6v9uckrg7l03po8mhqgvng",
+                )
+                .unwrap(),
+                mac_address,
+                expected_network_segment_type: NetworkSegmentType::HostInband,
+                boot_interface_id: interface_id.map(str::to_string),
+                primary_interface,
+            }
+        };
+        let pair = |mac_address, interface_id: &str| {
+            MachineBootInterfaceTarget::Pair(MachineBootInterface {
+                mac_address,
+                interface_id: interface_id.to_string(),
+            })
+        };
+
+        let owned_mac = mac(1);
+        let predicted_mac = mac(2);
+        let desired_mac = mac(3);
+
+        check_values(
+            [
+                Check {
+                    scenario: "explicit primary prediction outranks an owned primary",
+                    input: (
+                        None,
+                        vec![interface(
+                            owned_mac,
+                            InterfaceType::Data,
+                            true,
+                            Some("NIC.Owned"),
+                        )],
+                        vec![prediction(predicted_mac, true, Some("NIC.Predicted"))],
+                    ),
+                    expect: Some(pair(predicted_mac, "NIC.Predicted")),
+                },
+                Check {
+                    scenario: "selected prediction uses a same-MAC owned id",
+                    input: (
+                        None,
+                        vec![interface(
+                            predicted_mac,
+                            InterfaceType::Data,
+                            true,
+                            Some("NIC.Owned"),
+                        )],
+                        vec![prediction(predicted_mac, true, None)],
+                    ),
+                    expect: Some(pair(predicted_mac, "NIC.Owned")),
+                },
+                Check {
+                    scenario: "owned candidate outranks a non-primary prediction",
+                    input: (
+                        None,
+                        vec![interface(
+                            owned_mac,
+                            InterfaceType::Data,
+                            true,
+                            Some("NIC.Owned"),
+                        )],
+                        vec![prediction(predicted_mac, false, Some("NIC.Predicted"))],
+                    ),
+                    expect: Some(pair(owned_mac, "NIC.Owned")),
+                },
+                Check {
+                    scenario: "a sole prediction initializes a MAC-only target",
+                    input: (None, vec![], vec![prediction(predicted_mac, false, None)]),
+                    expect: Some(MachineBootInterfaceTarget::MacOnly(predicted_mac)),
+                },
+                Check {
+                    scenario: "a whitespace-only id initializes a MAC-only target",
+                    input: (
+                        None,
+                        vec![],
+                        vec![prediction(predicted_mac, false, Some("\t\n"))],
+                    ),
+                    expect: Some(MachineBootInterfaceTarget::MacOnly(predicted_mac)),
+                },
+                Check {
+                    scenario: "several non-primary predictions do not initialize a target",
+                    input: (
+                        None,
+                        vec![],
+                        vec![
+                            prediction(predicted_mac, false, Some("NIC.Predicted")),
+                            prediction(desired_mac, false, Some("NIC.Other")),
+                        ],
+                    ),
+                    expect: None,
+                },
+                Check {
+                    scenario: "an existing pair is never rewritten",
+                    input: (
+                        Some(pair(desired_mac, "NIC.Remembered")),
+                        vec![interface(
+                            owned_mac,
+                            InterfaceType::Data,
+                            true,
+                            Some("NIC.Owned"),
+                        )],
+                        vec![prediction(predicted_mac, true, Some("NIC.Predicted"))],
+                    ),
+                    expect: None,
+                },
+                Check {
+                    scenario: "a MAC-only target uses a unique owned id",
+                    input: (
+                        Some(MachineBootInterfaceTarget::MacOnly(desired_mac)),
+                        vec![interface(
+                            desired_mac,
+                            InterfaceType::Data,
+                            false,
+                            Some("NIC.Remembered"),
+                        )],
+                        vec![prediction(desired_mac, false, Some("NIC.Predicted"))],
+                    ),
+                    expect: Some(pair(desired_mac, "NIC.Remembered")),
+                },
+                Check {
+                    scenario: "a MAC-only target falls back to a predicted id",
+                    input: (
+                        Some(MachineBootInterfaceTarget::MacOnly(desired_mac)),
+                        vec![interface(desired_mac, InterfaceType::Data, false, None)],
+                        vec![prediction(desired_mac, false, Some("NIC.Predicted"))],
+                    ),
+                    expect: Some(pair(desired_mac, "NIC.Predicted")),
+                },
+                Check {
+                    scenario: "a whitespace-only owned id falls back to a predicted id",
+                    input: (
+                        Some(MachineBootInterfaceTarget::MacOnly(desired_mac)),
+                        vec![interface(
+                            desired_mac,
+                            InterfaceType::Data,
+                            false,
+                            Some("\t\n"),
+                        )],
+                        vec![prediction(desired_mac, false, Some("NIC.Predicted"))],
+                    ),
+                    expect: Some(pair(desired_mac, "NIC.Predicted")),
+                },
+                Check {
+                    scenario: "ambiguous owned ids stop enrichment",
+                    input: (
+                        Some(MachineBootInterfaceTarget::MacOnly(desired_mac)),
+                        vec![
+                            interface(desired_mac, InterfaceType::Data, false, Some("NIC.Owned.1")),
+                            interface(desired_mac, InterfaceType::Data, false, Some("NIC.Owned.2")),
+                        ],
+                        vec![prediction(desired_mac, false, Some("NIC.Predicted"))],
+                    ),
+                    expect: None,
+                },
+                Check {
+                    scenario: "duplicate owned ids are still one unique id",
+                    input: (
+                        Some(MachineBootInterfaceTarget::MacOnly(desired_mac)),
+                        vec![
+                            interface(
+                                desired_mac,
+                                InterfaceType::Data,
+                                false,
+                                Some(" \tNIC.Owned\n "),
+                            ),
+                            interface(desired_mac, InterfaceType::Data, false, Some("NIC.Owned")),
+                        ],
+                        vec![],
+                    ),
+                    expect: Some(pair(desired_mac, "NIC.Owned")),
+                },
+                Check {
+                    scenario: "ambiguous predicted ids stop enrichment",
+                    input: (
+                        Some(MachineBootInterfaceTarget::MacOnly(desired_mac)),
+                        vec![],
+                        vec![
+                            prediction(desired_mac, false, Some("NIC.Predicted.1")),
+                            prediction(desired_mac, false, Some("NIC.Predicted.2")),
+                        ],
+                    ),
+                    expect: None,
+                },
+                Check {
+                    scenario: "a different designated MAC is preserved",
+                    input: (
+                        Some(MachineBootInterfaceTarget::MacOnly(desired_mac)),
+                        vec![interface(
+                            owned_mac,
+                            InterfaceType::Data,
+                            true,
+                            Some("NIC.Owned"),
+                        )],
+                        vec![prediction(predicted_mac, true, Some("NIC.Predicted"))],
+                    ),
+                    expect: None,
+                },
+            ],
+            |(desired, interfaces, predictions)| {
+                desired_boot_interface_update(desired.as_ref(), &interfaces, &predictions)
             },
         );
     }

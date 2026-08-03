@@ -23,7 +23,7 @@
 //! Timestamp-file failures share a counter by operation while their paths,
 //! host interface, and errors remain log-only diagnostics.
 
-use carbide_instrument::{DynamicMessage, Event, LabelValue};
+use carbide_instrument::{Event, LabelValue, MetricFamily};
 use dhcproto::v4::MessageType;
 
 use crate::errors::DhcpError;
@@ -145,65 +145,161 @@ pub(crate) enum SocketSetupNextAction {
     Panic,
 }
 
+/// The one metric the Events below record.
+#[derive(MetricFamily)]
+#[metric(
+    name = "carbide_dhcp_socket_setup_failures_total",
+    kind = counter,
+    component = "nico-dhcp",
+    describe = "Number of DHCP socket setup failures, by operation and next action."
+)]
+pub(crate) struct DhcpSocketSetupFailures {
+    operation: SocketSetupOperation,
+    next_action: SocketSetupNextAction,
+}
+
+/// One socket-setup syscall failed. Each variant is the call that failed, and
+/// keeps the diagnostic that call already logged.
 #[derive(Event)]
 #[event(
     event_name = "dhcp_server_socket_setup_failed",
-    metric_name = "carbide_dhcp_socket_setup_failures_total",
-    component = "nico-dhcp",
-    log = info,
-    metric = counter,
-    message = dynamic,
-    describe = "Number of DHCP socket setup failures, by operation and next action."
+    metric_family = DhcpSocketSetupFailures
 )]
-pub(crate) struct DhcpSocketSetupFailed {
-    #[label]
-    operation: SocketSetupOperation,
-    #[label]
-    next_action: SocketSetupNextAction,
-    #[context(value)]
-    retry: i64,
-    #[context]
-    error: String,
+pub(crate) enum DhcpSocketSetupFailed {
+    #[event(
+        labels(operation = SocketSetupOperation::Create),
+        log = info,
+        message = "Socket creation failed"
+    )]
+    Create {
+        #[label]
+        next_action: SocketSetupNextAction,
+        #[context(value)]
+        retry: i64,
+        #[context]
+        error: String,
+    },
+
+    #[event(
+        labels(operation = SocketSetupOperation::ReuseAddress),
+        log = info,
+        message = "Socket set option failed"
+    )]
+    ReuseAddress {
+        #[label]
+        next_action: SocketSetupNextAction,
+        #[context(value)]
+        retry: i64,
+        #[context]
+        error: String,
+    },
+
+    #[event(
+        labels(operation = SocketSetupOperation::SetNonblocking),
+        log = info,
+        message = "Socket set option failed"
+    )]
+    SetNonblocking {
+        #[label]
+        next_action: SocketSetupNextAction,
+        #[context(value)]
+        retry: i64,
+        #[context]
+        error: String,
+    },
+
+    #[event(
+        labels(operation = SocketSetupOperation::BindAddress),
+        log = info,
+        message = "Socket set option failed"
+    )]
+    BindAddress {
+        #[label]
+        next_action: SocketSetupNextAction,
+        #[context(value)]
+        retry: i64,
+        #[context]
+        error: String,
+    },
+
+    #[event(
+        labels(operation = SocketSetupOperation::SetBroadcast),
+        log = info,
+        message = "Socket set option failed"
+    )]
+    SetBroadcast {
+        #[label]
+        next_action: SocketSetupNextAction,
+        #[context(value)]
+        retry: i64,
+        #[context]
+        error: String,
+    },
+
+    #[event(
+        labels(operation = SocketSetupOperation::BindDevice),
+        log = info,
+        message = "Socket set option failed"
+    )]
+    BindDevice {
+        #[label]
+        next_action: SocketSetupNextAction,
+        #[context(value)]
+        retry: i64,
+        #[context]
+        error: String,
+    },
 }
 
 impl DhcpSocketSetupFailed {
+    /// Which call failed, with its retry count widened for the log field.
     pub(crate) fn new(
         operation: SocketSetupOperation,
         next_action: SocketSetupNextAction,
         retry: i32,
         error: String,
     ) -> Self {
-        Self {
-            operation,
-            next_action,
-            retry: i64::from(retry),
-            error,
+        let retry = i64::from(retry);
+        match operation {
+            SocketSetupOperation::Create => Self::Create {
+                next_action,
+                retry,
+                error,
+            },
+            SocketSetupOperation::ReuseAddress => Self::ReuseAddress {
+                next_action,
+                retry,
+                error,
+            },
+            SocketSetupOperation::SetNonblocking => Self::SetNonblocking {
+                next_action,
+                retry,
+                error,
+            },
+            SocketSetupOperation::BindAddress => Self::BindAddress {
+                next_action,
+                retry,
+                error,
+            },
+            SocketSetupOperation::SetBroadcast => Self::SetBroadcast {
+                next_action,
+                retry,
+                error,
+            },
+            SocketSetupOperation::BindDevice => Self::BindDevice {
+                next_action,
+                retry,
+                error,
+            },
         }
     }
 }
-
-impl DynamicMessage for DhcpSocketSetupFailed {
-    fn message(&self) -> &'static str {
-        match self.operation {
-            SocketSetupOperation::Create => "Socket creation failed",
-            SocketSetupOperation::ReuseAddress
-            | SocketSetupOperation::SetNonblocking
-            | SocketSetupOperation::BindAddress
-            | SocketSetupOperation::SetBroadcast
-            | SocketSetupOperation::BindDevice => "Socket set option failed",
-        }
-    }
-}
-
 #[derive(Event)]
 #[event(
     event_name = "dhcp_server_interface_bind_failed",
-    metric_name = "carbide_dhcp_socket_setup_failures_total",
-    component = "nico-dhcp",
+    metric_family = DhcpSocketSetupFailures,
     log = info,
-    metric = counter,
-    message = "Interface not ready, retrying",
-    describe = "Number of DHCP socket setup failures, by operation and next action."
+    message = "Interface not ready, retrying"
 )]
 pub(crate) struct DhcpInterfaceBindFailed {
     #[label]
@@ -288,104 +384,62 @@ pub struct DhcpReplySent {
     pub message_type: MessageTypeLabel,
 }
 
-/// The startup write could not initialize the timestamp file. This server
-/// generation does not start after the failure.
+/// A DHCP timestamp-file operation failed. Each variant is one operation, and
+/// holds only what that path has -- only a write is per-interface, so only it
+/// has a `host_interface_id`.
 #[derive(Event)]
 #[event(
-    event_name = "dhcp_timestamp_file_initialization_failed",
+    event_name = "dhcp_timestamp_file_failed",
     metric_name = "carbide_dhcp_timestamp_file_failures_total",
     component = "nico-dhcp",
-    log = error,
     metric = counter,
-    message = "Failed to init DHCP timestamps file",
-    describe = "Number of DHCP timestamp file failures, by operation"
+    describe = "Number of DHCP timestamp file failures, by operation",
+    labels(operation: TimestampFileOperation),
 )]
-pub(crate) struct DhcpTimestampFileInitializationFailed {
-    #[label]
-    operation: TimestampFileOperation,
-    #[context]
-    dhcp_timestamps_path: String,
-    #[context]
-    error: String,
-}
-
-impl DhcpTimestampFileInitializationFailed {
-    pub(crate) fn new(dhcp_timestamps_path: String, error: String) -> Self {
-        Self {
-            operation: TimestampFileOperation::Initialize,
-            dhcp_timestamps_path,
-            error,
-        }
-    }
-}
-
-/// Updating the in-memory timestamp succeeded, but persisting the file failed.
-/// Packet processing continues because the timestamp write is best effort.
-#[derive(Event)]
-#[event(
-    event_name = "dhcp_timestamp_file_write_failed",
-    metric_name = "carbide_dhcp_timestamp_file_failures_total",
-    component = "nico-dhcp",
-    log = error,
-    metric = counter,
-    message = "Failed to write DHCP timestamps file",
-    describe = "Number of DHCP timestamp file failures, by operation"
-)]
-pub(crate) struct DhcpTimestampFileWriteFailed {
-    #[label]
-    operation: TimestampFileOperation,
-    #[context]
-    dhcp_timestamps_path: String,
-    #[context]
-    host_interface_id: String,
-    #[context]
-    error: String,
-}
-
-impl DhcpTimestampFileWriteFailed {
-    pub(crate) fn new(
+pub(crate) enum DhcpTimestampFileFailed {
+    /// The startup write could not initialize the file, so this server
+    /// generation does not start.
+    #[event(
+        labels(operation = Initialize),
+        log = error,
+        message = "Failed to init DHCP timestamps file"
+    )]
+    Initialization {
+        #[context]
         dhcp_timestamps_path: String,
-        host_interface_id: String,
+        #[context]
         error: String,
-    ) -> Self {
-        Self {
-            operation: TimestampFileOperation::Write,
-            dhcp_timestamps_path,
-            host_interface_id,
-            error,
-        }
-    }
-}
+    },
 
-/// The control RPC could not read the timestamp file. It still returns an
-/// empty list so callers keep treating an unreadable file as no requests yet.
-#[derive(Event)]
-#[event(
-    event_name = "dhcp_timestamp_file_read_failed",
-    metric_name = "carbide_dhcp_timestamp_file_failures_total",
-    component = "nico-dhcp",
-    log = warn,
-    metric = counter,
-    message = "Failed to read DHCP timestamps file",
-    describe = "Number of DHCP timestamp file failures, by operation"
-)]
-pub(crate) struct DhcpTimestampFileReadFailed {
-    #[label]
-    operation: TimestampFileOperation,
-    #[context]
-    dhcp_timestamps_path: String,
-    #[context]
-    error: String,
-}
+    /// The in-memory timestamp advanced but the file did not. Packet
+    /// processing continues because the write is best effort.
+    #[event(
+        labels(operation = Write),
+        log = error,
+        message = "Failed to write DHCP timestamps file"
+    )]
+    Write {
+        #[context]
+        dhcp_timestamps_path: String,
+        #[context]
+        host_interface_id: String,
+        #[context]
+        error: String,
+    },
 
-impl DhcpTimestampFileReadFailed {
-    pub(crate) fn new(dhcp_timestamps_path: String, error: String) -> Self {
-        Self {
-            operation: TimestampFileOperation::Read,
-            dhcp_timestamps_path,
-            error,
-        }
-    }
+    /// The control RPC could not read the file. It still returns an empty list
+    /// so callers keep treating an unreadable file as no requests yet.
+    #[event(
+        labels(operation = Read),
+        log = warn,
+        message = "Failed to read DHCP timestamps file"
+    )]
+    Read {
+        #[context]
+        dhcp_timestamps_path: String,
+        #[context]
+        error: String,
+    },
 }
 
 #[cfg(test)]
@@ -455,25 +509,27 @@ mod tests {
     }
 
     fn emit_timestamp_initialization_failure() {
-        emit(DhcpTimestampFileInitializationFailed::new(
-            "/var/support/forge-dhcp/logs/dhcp_timestamps.json.tmp".to_string(),
-            "permission denied".to_string(),
-        ));
+        emit(DhcpTimestampFileFailed::Initialization {
+            dhcp_timestamps_path: "/var/support/forge-dhcp/logs/dhcp_timestamps.json.tmp"
+                .to_string(),
+            error: "permission denied".to_string(),
+        });
     }
 
     fn emit_timestamp_write_failure() {
-        emit(DhcpTimestampFileWriteFailed::new(
-            "/var/support/forge-dhcp/logs/dhcp_timestamps.json.tmp".to_string(),
-            "60cef902-9779-4666-8362-c9bb4b37185f".to_string(),
-            "read-only file system".to_string(),
-        ));
+        emit(DhcpTimestampFileFailed::Write {
+            dhcp_timestamps_path: "/var/support/forge-dhcp/logs/dhcp_timestamps.json.tmp"
+                .to_string(),
+            host_interface_id: "60cef902-9779-4666-8362-c9bb4b37185f".to_string(),
+            error: "read-only file system".to_string(),
+        });
     }
 
     fn emit_timestamp_read_failure() {
-        emit(DhcpTimestampFileReadFailed::new(
-            "/var/support/forge-dhcp/logs/dhcp_timestamps.json".to_string(),
-            "file not found".to_string(),
-        ));
+        emit(DhcpTimestampFileFailed::Read {
+            dhcp_timestamps_path: "/var/support/forge-dhcp/logs/dhcp_timestamps.json".to_string(),
+            error: "file not found".to_string(),
+        });
     }
 
     fn observe_timestamp_file_failure(
@@ -814,7 +870,7 @@ mod tests {
                     expect: expected_timestamp_file_failure(
                         "initialize",
                         tracing::Level::ERROR,
-                        "dhcp_timestamp_file_initialization_failed",
+                        "dhcp_timestamp_file_failed",
                         "Failed to init DHCP timestamps file",
                         "/var/support/forge-dhcp/logs/dhcp_timestamps.json.tmp",
                         None,
@@ -829,7 +885,7 @@ mod tests {
                     expect: expected_timestamp_file_failure(
                         "write",
                         tracing::Level::ERROR,
-                        "dhcp_timestamp_file_write_failed",
+                        "dhcp_timestamp_file_failed",
                         "Failed to write DHCP timestamps file",
                         "/var/support/forge-dhcp/logs/dhcp_timestamps.json.tmp",
                         Some("60cef902-9779-4666-8362-c9bb4b37185f"),
@@ -844,7 +900,7 @@ mod tests {
                     expect: expected_timestamp_file_failure(
                         "read",
                         tracing::Level::WARN,
-                        "dhcp_timestamp_file_read_failed",
+                        "dhcp_timestamp_file_failed",
                         "Failed to read DHCP timestamps file",
                         "/var/support/forge-dhcp/logs/dhcp_timestamps.json",
                         None,

@@ -31,7 +31,7 @@ tags:
       ### Service Account Mode
       Depending on the auth configuration used, the NICo REST API may be configured in Service Account mode. In this mode, API users can act as both Provider and Tenant as part of the same organization.
       If this is the case, the user must first retrieve the Service Account by making a call to the [Retrieve Service Account endpoint](#tag/Service-Account/operation/get-current-service-account).
-      For service accounts, the Tenant entity is initialized as a privileged Tenant with `targetedInstanceCreation` capability enabled.
+      For service accounts, the Tenant entity is initialized as a privileged Tenant when a Ready Tenant Account has `siteCapabilities` with `targetedInstanceCreation` enabled.
 
       ### Provider or Tenant Mode
       If NICo REST API is not configured in Service Account mode, the user should retrieve the Infrastructure Provider by making a call to the [Retrieve Infrastructure Provider endpoint](#tag/Infrastructure-Provider/operation/get-current-infrastructure-provider)
@@ -95,21 +95,26 @@ tags:
 
   - name: Service Account
     description: |-
-      When the API service is configured in Service Account mode, API users can act as both Provider and Tenant. For service accounts, the Tenant entity is initialized as a
-      privileged Tenant with `targetedInstanceCreation` capability enabled.
+      When the API service is configured in Service Account mode, API users can act as both Provider and Tenant. Privileged Tenant behavior (for example, creating Instances by Machine ID) is determined by `siteCapabilities` on a Ready Tenant Account, not by tenant-level configuration.
   - name: Infrastructure Provider
     description: |-
       Infrastructure Provider is the anchor entity for an organization that owns and manages Site resources.
   - name: Tenant
     description: |-
       Tenant is the anchor entity for an organization that consumes Network and Compute resources on a Site.
+
+      Deprecation history:
+
+      - `capabilities.targetedInstanceCreation` was deprecated in favor of `tenantAccount.siteCapabilities` and will be removed on October 1st, 2026 0:00 UTC. The value returned on GET `/tenant/current` is computed from Ready Tenant Account configuration; embedded `TenantSummary.capabilities` in nested resources always reports `false`.
   - name: Tenant Account
     description: |-
       Tenant Account connects a Tenant with an Infrastructure Provider. It represents/contains any information pertaining to their relationship.
 
+      Provider Admins configure TargetedInstanceCreation for a Tenant using the `siteCapabilities` attribute. An entry with empty or omitted `siteIds` configures the Tenant Account default; entries with `siteIds` configure Tenant Site overrides.
+
       Deprecation history:
 
-      - `accountNumber`, `subscriptionId`, and `subscriptionTier` attributes were deprecated and will be removed on July 9th, 2026 0:00 UTC. Please update your usage accordingly.
+      - `accountNumber`, `subscriptionId`, and `subscriptionTier` attributes were deprecated and will be removed on September 10th, 2026 0:00 UTC. Please update your usage accordingly.
   - name: Site
     description: |-
       Site is a datacenter that contains physical hardware and networking resources. All resources created by Provider or Tenant are directly or indirectly anchored to the Site object.
@@ -124,6 +129,15 @@ tags:
   - name: UEFI Credential
     description: |-
       UEFI Credential endpoints allow creating site-default host and DPU UEFI credentials for a Site
+  - name: Measured Boot Trusted Machine
+    description: |-
+      Measured Boot Trusted Machine endpoints manage automatic measurement promotion approvals for Machines at a Site
+  - name: Measured Boot Trusted Profile
+    description: |-
+      Measured Boot Trusted Profile endpoints manage automatic measurement promotion approvals for system profiles at a Site
+  - name: Credential Rotation
+    description: |-
+      Credential Rotation endpoints stage a site-wide credential rotation and report per-Site or per-device convergence
   - name: Site Explorer
     description: |-
       Site Explorer discovers BMC endpoints on a Site and tracks their exploration state.
@@ -171,7 +185,7 @@ tags:
     description: |-
       SKU (Stock Keeping Unit) defines one or more hardware configurations or Machine Bill of Materials (BOM).
 
-      SKUs are automatically derived from machine hardware characteristics and used to group similar machines. SKUs are read-only and managed by the system.
+      SKUs group similar machines by their hardware characteristics. Most SKUs are managed by the system, but Provider Admins can create, update, and delete SKUs for a Site.
   - name: InfiniBand Partition
     x-displayName: InfiniBand Partition
     description: |-
@@ -230,6 +244,9 @@ tags:
   - name: Rule
     description: |-
       Operation Rule defines, per Site, how a particular operation (for example `PowerControl` / `power_on` or `FirmwareControl` / `upgrade`) should be executed against a set of components: ordered execution stages, per-component-type concurrency, pre / main / post actions, timeouts, and retry policy. Rules are reusable templates owned by Flow; this tag exposes CRUD (`POST`, `GET`, `PATCH`, `DELETE`) over them.
+  - name: Task Run
+    description: |-
+      A Task Run is a phased, policy-gated execution of one operation (currently firmware) across many Racks. A Task Run narrows a candidate set of Racks with an optional selector, divides the selected Racks into phases, and drives one execution target per Rack; each target in turn drives at most one Task. Safety gates pause the Task Run when failures exceed a threshold, and phase gates hold each phase until an operator advances it. This tag exposes creation, retrieval, target listing, and the pause / resume / advance / cancel lifecycle actions; drill into per-Rack execution detail via the Task tag using each target's `taskId`.
   - name: Network Security Group
     description: |-
       Network Security Group is a security policy that controls the traffic flowing between Instances.
@@ -323,6 +340,9 @@ tags:
 
       Instance:
       - `infrastructureProviderId` query parameter on the list Instances endpoint was deprecated and will be removed on October 10th, 2026 0:00 UTC. Instances will no longer be filtered by Infrastructure Provider; results are scoped to the org's Tenant. Use the `siteId` parameter to scope results to a specific Infrastructure Provider's Sites.
+
+      Tenant:
+      - `capabilities.targetedInstanceCreation` attribute was deprecated in favor of `tenantAccount.siteCapabilities` and will be removed on October 1st, 2026 0:00 UTC. Please use `tenantAccount.siteCapabilities` instead.
 
       Recent Deprecations:
 
@@ -447,12 +467,19 @@ paths:
                     created: '2019-08-24T14:15:22Z'
                     updated: '2019-08-24T14:15:22Z'
                     capabilities:
-                      targetedInstanceCreation: false
+                      targetedInstanceCreation: true
+                    deprecations:
+                      - attribute: capabilities.targetedInstanceCreation
+                        replacedBy: tenantAccount.siteCapabilities
+                        takeActionBy: '2026-10-01T00:00:00Z'
+                        notice: '''capabilities.targetedInstanceCreation'' is being deprecated in favor of ''tenantAccount.siteCapabilities''. Please take action prior to the specified date'
         '403':
           $ref: '#/components/responses/ForbiddenError'
       operationId: get-current-tenant
       description: |-
         Retrieve Tenant entity for current Org.
+
+        `capabilities.targetedInstanceCreation` is a deprecated read-only aggregate: it is `true` when all Ready Tenant Account for this Tenant has TargetedInstanceCreation enabled in its configuration to preserve backwards compatibility. Configure the capability per Provider/per Site via PATCH `/tenant/account/{accountId}` using `siteCapabilities`. Disallowing at Provider or Site level would result in no value returned here.
 
         User must have authorization role with `TENANT_ADMIN` suffix.
       parameters: []
@@ -714,6 +741,8 @@ paths:
                         message: 'Request received, pending Tenant acceptance'
                         created: '2019-08-24T14:15:22Z'
                         updated: '2019-08-24T14:15:22Z'
+                    siteCapabilities:
+                      - targetedInstanceCreation: true
                     created: '2019-08-24T14:15:22Z'
                     updated: '2019-08-24T14:15:22Z'
         '403':
@@ -782,6 +811,8 @@ paths:
                         message: 'Request received, pending Tenant acceptance'
                         created: '2019-08-24T14:15:22Z'
                         updated: '2019-08-24T14:15:22Z'
+                    siteCapabilities:
+                      - targetedInstanceCreation: true
                     created: '2019-08-24T14:15:22Z'
                     updated: '2019-08-24T14:15:22Z'
         '400':
@@ -793,18 +824,25 @@ paths:
       description: |-
         Update a Tenant Account.
 
-        Can be used to accept an invitation sent by an Infrastructure Provider.
+        Tenant Admins may accept an invitation sent by an Infrastructure Provider by supplying `tenantContactId`.
 
-        Org must have a Tenant entity whose ID matches the `tenantId` of the Tenant Account object. User must have authorization role with `TENANT_ADMIN` suffix. Can only update a Tenant Account that has `Invited` status.
+        Provider Admins may replace `siteCapabilities` to configure the Tenant Account default and overrides for specific Sites. When `siteCapabilities` is sent, it must be non-empty, include exactly one entry with empty or omitted `siteIds`, and must not repeat any `siteId` across entries. Requests containing both `tenantContactId` and `siteCapabilities` are rejected with 400.
+
+        Org must have a Tenant entity whose ID matches the `tenantId` of the Tenant Account object when accepting an invite. User must have authorization role with `TENANT_ADMIN` suffix to accept; `PROVIDER_ADMIN` suffix to update `siteCapabilities`. Tenant Admins can only update a Tenant Account that has `Invited` status.
       requestBody:
         content:
           application/json:
             schema:
               $ref: '#/components/schemas/TenantAccountUpdateRequest'
             examples:
-              example-1:
+              accept-invite:
                 value: {}
-        description: 'No parameters are required; an empty request body is sufficient.'
+              update-site-capabilities:
+                value:
+                  siteCapabilities:
+                    - siteIds: []
+                      targetedInstanceCreation: true
+        description: Tenant invite acceptance or Provider Admin site capability update.
     delete:
       summary: Delete Tenant Account
       operationId: delete-tenant-account
@@ -1200,18 +1238,20 @@ paths:
             schema:
               $ref: '#/components/schemas/BMCCredentialRequest'
       responses:
-        '202':
-          description: Machine power control request was accepted
+        '200':
+          description: BMC credential was created or updated
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/BMCCredential'
+        '400':
+          $ref: '#/components/responses/ValidationError'
         '403':
           $ref: '#/components/responses/ForbiddenError'
       operationId: create-or-update-bmc-credential
       description: |-
         Create or update a site-wide or per-BMC root credential. Equivalent
-        to `carbide-admin-cli credential add-bmc`.
+        to `nico-admin-cli credential add-bmc`.
 
         User must have authorization role with `PROVIDER_ADMIN` suffix.
   '/v2/org/{org}/nico/credential/uefi':
@@ -1253,6 +1293,353 @@ paths:
       description: |-
         Create a site-default host or DPU UEFI credential. The request fails
         if the selected site-default credential already exists.
+
+        User must have authorization role with `PROVIDER_ADMIN` suffix.
+  '/v2/org/{org}/nico/measured-boot/trusted-machine':
+    parameters:
+      - schema:
+          type: string
+        name: org
+        in: path
+        required: true
+        description: Name of the Org
+    post:
+      summary: Create Measured Boot Trusted Machine Approval
+      tags:
+        - Measured Boot Trusted Machine
+      operationId: create-measured-boot-trusted-machine
+      description: |-
+        Approve a Machine, or all Machines using `*`, for automatic promotion of its next measured-boot report.
+
+        Org must have an Infrastructure Provider entity that owns the Site. User must have authorization role with `PROVIDER_ADMIN` suffix.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MeasuredBootTrustedMachineCreateRequest'
+      responses:
+        '201':
+          description: Measured Boot trusted Machine approval was created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MeasuredBootTrustedMachine'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '403':
+          $ref: '#/components/responses/ForbiddenError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+        '500':
+          $ref: '#/components/responses/GenericHttpError'
+    get:
+      summary: Retrieve All Measured Boot Trusted Machine Approvals
+      tags:
+        - Measured Boot Trusted Machine
+      operationId: get-all-measured-boot-trusted-machine
+      description: |-
+        Retrieve all measured-boot trusted Machine approvals for a Site.
+
+        Org must have an Infrastructure Provider entity that owns the Site. User must have authorization role with `PROVIDER_ADMIN` suffix.
+      parameters:
+        - schema:
+            type: string
+            format: uuid
+          name: siteId
+          in: query
+          required: true
+          description: ID of the Site
+      responses:
+        '200':
+          description: Measured Boot trusted Machine approvals
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/MeasuredBootTrustedMachine'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '403':
+          $ref: '#/components/responses/ForbiddenError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+        '500':
+          $ref: '#/components/responses/GenericHttpError'
+  '/v2/org/{org}/nico/measured-boot/trusted-machine/{id}':
+    parameters:
+      - schema:
+          type: string
+        name: org
+        in: path
+        required: true
+        description: Name of the Org
+      - schema:
+          type: string
+        name: id
+        in: path
+        required: true
+        description: Approval ID or Machine ID, as selected by the selector query parameter
+    delete:
+      summary: Delete Measured Boot Trusted Machine Approval
+      tags:
+        - Measured Boot Trusted Machine
+      operationId: delete-measured-boot-trusted-machine
+      description: |-
+        Delete a measured-boot trusted Machine approval by approval ID or Machine ID.
+
+        Org must have an Infrastructure Provider entity that owns the Site. User must have authorization role with `PROVIDER_ADMIN` suffix.
+      parameters:
+        - schema:
+            type: string
+            format: uuid
+          name: siteId
+          in: query
+          required: true
+          description: ID of the Site
+        - schema:
+            type: string
+            enum:
+              - ApprovalId
+              - MachineId
+          name: selector
+          in: query
+          required: true
+          description: Whether id identifies the approval or the Machine
+      responses:
+        '200':
+          description: Deleted measured-boot trusted Machine approval
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MeasuredBootTrustedMachine'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '403':
+          $ref: '#/components/responses/ForbiddenError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+        '500':
+          $ref: '#/components/responses/GenericHttpError'
+  '/v2/org/{org}/nico/measured-boot/trusted-profile':
+    parameters:
+      - schema:
+          type: string
+        name: org
+        in: path
+        required: true
+        description: Name of the Org
+    post:
+      summary: Create Measured Boot Trusted Profile Approval
+      tags:
+        - Measured Boot Trusted Profile
+      operationId: create-measured-boot-trusted-profile
+      description: |-
+        Approve a measured-boot system profile for automatic promotion of reports from matching Machines.
+
+        Org must have an Infrastructure Provider entity that owns the Site. User must have authorization role with `PROVIDER_ADMIN` suffix.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MeasuredBootTrustedProfileCreateRequest'
+      responses:
+        '201':
+          description: Measured Boot trusted Profile approval was created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MeasuredBootTrustedProfile'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '403':
+          $ref: '#/components/responses/ForbiddenError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+        '500':
+          $ref: '#/components/responses/GenericHttpError'
+    get:
+      summary: Retrieve All Measured Boot Trusted Profile Approvals
+      tags:
+        - Measured Boot Trusted Profile
+      operationId: get-all-measured-boot-trusted-profile
+      description: |-
+        Retrieve all measured-boot trusted Profile approvals for a Site.
+
+        Org must have an Infrastructure Provider entity that owns the Site. User must have authorization role with `PROVIDER_ADMIN` suffix.
+      parameters:
+        - schema:
+            type: string
+            format: uuid
+          name: siteId
+          in: query
+          required: true
+          description: ID of the Site
+      responses:
+        '200':
+          description: Measured Boot trusted Profile approvals
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/MeasuredBootTrustedProfile'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '403':
+          $ref: '#/components/responses/ForbiddenError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+        '500':
+          $ref: '#/components/responses/GenericHttpError'
+  '/v2/org/{org}/nico/measured-boot/trusted-profile/{id}':
+    parameters:
+      - schema:
+          type: string
+        name: org
+        in: path
+        required: true
+        description: Name of the Org
+      - schema:
+          type: string
+          format: uuid
+        name: id
+        in: path
+        required: true
+        description: Approval ID or Profile ID, as selected by the selector query parameter
+    delete:
+      summary: Delete Measured Boot Trusted Profile Approval
+      tags:
+        - Measured Boot Trusted Profile
+      operationId: delete-measured-boot-trusted-profile
+      description: |-
+        Delete a measured-boot trusted Profile approval by approval ID or Profile ID.
+
+        Org must have an Infrastructure Provider entity that owns the Site. User must have authorization role with `PROVIDER_ADMIN` suffix.
+      parameters:
+        - schema:
+            type: string
+            format: uuid
+          name: siteId
+          in: query
+          required: true
+          description: ID of the Site
+        - schema:
+            type: string
+            enum:
+              - ApprovalId
+              - ProfileId
+          name: selector
+          in: query
+          required: true
+          description: Whether id identifies the approval or the system profile
+      responses:
+        '200':
+          description: Deleted measured-boot trusted Profile approval
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MeasuredBootTrustedProfile'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '403':
+          $ref: '#/components/responses/ForbiddenError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+        '500':
+          $ref: '#/components/responses/GenericHttpError'
+  '/v2/org/{org}/nico/credential/rotation':
+    parameters:
+      - schema:
+          type: string
+        name: org
+        in: path
+        required: true
+        description: Name of the Org
+    post:
+      summary: Rotate Credential
+      tags:
+        - Credential Rotation
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CredentialRotationRequest'
+      responses:
+        '200':
+          description: Credential rotation was staged
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CredentialRotationResult'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '403':
+          $ref: '#/components/responses/ForbiddenError'
+      operationId: rotate-credential
+      description: |-
+        Stage a site-wide credential rotation: publish a new rotate-to secret
+        and bump the site-wide target version. Devices converge to the new
+        version asynchronously; poll the status endpoint to observe
+        convergence. Equivalent to `nico-admin-cli credential rotate`.
+
+        User must have authorization role with `PROVIDER_ADMIN` suffix.
+    get:
+      summary: Get Credential Rotation Status
+      tags:
+        - Credential Rotation
+      parameters:
+        - schema:
+            type: string
+            format: uuid
+          name: siteId
+          in: query
+          required: true
+          description: ID of the Site to query.
+        - schema:
+            type: string
+            enum:
+              - BMC
+              - HostUEFI
+              - DPUUEFI
+              - NVOS
+              - LockdownIKM
+          name: credentialType
+          in: query
+          required: true
+          description: Credential family to report.
+        - schema:
+            type: string
+          name: deviceMac
+          in: query
+          required: false
+          description: Report only this device's convergence, matched by MAC.
+      responses:
+        '200':
+          description: Credential rotation status
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CredentialRotationStatus'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '403':
+          $ref: '#/components/responses/ForbiddenError'
+        '404':
+          description: No rotation record exists for the requested device
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NICoAPIError'
+      operationId: get-credential-rotation-status
+      description: |-
+        Report convergence of an in-flight or completed site-wide credential
+        rotation. When `deviceMac` is set, the counts describe just that device
+        and a per-device detail block is returned. Equivalent to
+        `nico-admin-cli credential rotation-status`.
 
         User must have authorization role with `PROVIDER_ADMIN` suffix.
   '/v2/org/{org}/nico/site-explorer/endpoint/action':
@@ -3543,7 +3930,7 @@ paths:
 
         Org must have an Infrastructure Provider entity. User must have authorization role with `PROVIDER_ADMIN` or `PROVIDER_VIEWER` suffix.
 
-        Alternatively, Tenant Admins with `TargetedInstanceCreation` capability can also retrieve Expected Machines if they have an account with the Site's Infrastructure Provider (siteId query parameter is required for Tenants).
+        Alternatively, Tenant Admins may retrieve Expected Machines across Sites where `TargetedInstanceCreation` is effective. The siteId query parameter is optional and, when provided, further restricts results to that Site.
       parameters:
         - schema:
             type: string
@@ -3799,7 +4186,7 @@ paths:
       description: |-
         Update multiple Expected Machines in a single request. All machines must belong to the same site.
 
-        All items in a batch update must provide the same set of fields.
+        All items in a batch update must provide the same set of fields, except that `bmcIpAddress` may be omitted or set to `null` to preserve that machine's current BMC IP address.
 
         Org must have an Infrastructure Provider entity. User must have authorization role with `PROVIDER_ADMIN` suffix.
 
@@ -4768,9 +5155,13 @@ paths:
                             memoryType: DDR5
                             count: 16
                         storage:
-                          - vendor: Samsung
-                            model: PM9A3
-                            capacityMb: 7680000
+                          - vendor: ''
+                            model: SAMSUNG MZ1L21T9HCLS-00A07
+                            capacityMb: 0
+                            minSizeMiB: 7680000
+                            maxSizeMiB: 7680000
+                            pciPatterns:
+                               - ^/devices/pci.*nvme0$
                             count: 4
                         chassis:
                           vendor: Supermicro
@@ -4783,6 +5174,32 @@ paths:
                 type: string
                 example: '{"pageNumber":1,"pageSize":20,"total":30,"orderBy": "CREATED_DESC"}'
               description: Pagination result in JSON format
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '403':
+          $ref: '#/components/responses/ForbiddenError'
+      tags:
+        - SKU
+    post:
+      summary: Create SKU
+      operationId: create-sku
+      description: |-
+        Create a SKU.
+
+        The Org must have an Infrastructure Provider that owns the Site. The user must have an authorization role with the `PROVIDER_ADMIN` suffix.
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SkuCreateRequest'
+        required: true
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Sku'
         '400':
           $ref: '#/components/responses/ValidationError'
         '403':
@@ -4845,15 +5262,68 @@ paths:
                           memoryType: DDR5
                           count: 16
                       storage:
-                        - vendor: Samsung
-                          model: PM9A3
-                          capacityMb: 7680000
-                          count: 4
+                          - vendor: ''
+                            model: SAMSUNG MZ1L21T9HCLS-00A07
+                            capacityMb: 0
+                            minSizeMiB: 7680000
+                            maxSizeMiB: 7680000
+                            pciPatterns:
+                               - ^/devices/pci.*nvme0$
+                            count: 4
                       chassis:
                         vendor: Supermicro
                         model: SYS-420GP-TNR
                     created: '2019-08-24T14:15:22Z'
                     updated: '2019-08-24T14:15:22Z'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '403':
+          $ref: '#/components/responses/ForbiddenError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+      tags:
+        - SKU
+    delete:
+      summary: Delete SKU
+      operationId: delete-sku
+      description: |-
+        Delete an unused SKU. The Site is determined from the saved SKU record.
+
+        The Org must have an Infrastructure Provider that owns the SKU's Site. The user must have an authorization role with the `PROVIDER_ADMIN` suffix.
+      responses:
+        '204':
+          description: No Content
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '403':
+          $ref: '#/components/responses/ForbiddenError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+      tags:
+        - SKU
+    patch:
+      summary: Update SKU
+      operationId: update-sku
+      description: |-
+        Update selected mutable fields on a SKU. The Site is determined from the saved SKU record.
+
+        Fields omitted from the request retain their current values. If a user updates the components field,
+        the schema version will be updated to the current version (5).
+
+        The Org must have an Infrastructure Provider that owns the SKU's Site. The user must have an authorization role with the `PROVIDER_ADMIN` suffix.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SkuUpdateRequest'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Sku'
         '400':
           $ref: '#/components/responses/ValidationError'
         '403':
@@ -6686,6 +7156,8 @@ paths:
           $ref: '#/components/responses/ValidationError'
         '403':
           $ref: '#/components/responses/ForbiddenError'
+        '429':
+          $ref: '#/components/responses/ResourceExhaustedError'
       description: |
         Create an Instance for Tenant.
 
@@ -6867,6 +7339,8 @@ paths:
           $ref: '#/components/responses/ValidationError'
         '403':
           $ref: '#/components/responses/ForbiddenError'
+        '429':
+          $ref: '#/components/responses/ResourceExhaustedError'
       description: |
         Batch create multiple Instances for Tenant with NVLink domain-aware machine allocation.
 
@@ -7267,6 +7741,8 @@ paths:
           $ref: '#/components/responses/ValidationError'
         '403':
           $ref: '#/components/responses/ForbiddenError'
+        '429':
+          $ref: '#/components/responses/ResourceExhaustedError'
       description: |-
         Update an Instance by ID
 
@@ -8070,9 +8546,13 @@ paths:
           $ref: '#/components/responses/ForbiddenError'
       operationId: get-all-operating-system
       description: |-
-        List Operating Systems visible to the caller's Tenant.
+        List Operating Systems visible to the caller.
 
-        Org must have a Tenant entity. User must have authorization role with `TENANT_ADMIN` suffix. Only Operating Systems whose `tenantId` matches the caller's Tenant are returned.
+        User must have an authorization role with either the `PROVIDER_ADMIN` or `TENANT_ADMIN` suffix for the org.
+
+        - Provider admin: returns only Operating Systems owned by the org's Infrastructure Provider.
+        - Tenant admin: returns Operating Systems owned by the caller's Tenant, plus Provider-owned Operating Systems that are associated with at least one Site the Tenant can access.
+        - Dual-role (both Provider and Tenant): returns the union of the Tenant's and the Provider's Operating Systems.
       parameters:
         - schema:
             type: string
@@ -8084,7 +8564,7 @@ paths:
             enum:
               - Image
               - iPXE
-              - Templated iPXE
+              - TemplatedIpxe
           in: query
           name: type
           description: Filter Operating Systems by Type
@@ -8200,13 +8680,12 @@ paths:
       description: |-
         Create an Operating System for the org.
 
-        Either `infrastructureProviderId` or `tenantId` must be provided in request data. Both cannot be provided at the same time.
+        Ownership is derived from the caller's role:
 
-        If `infrastructureProviderId` is provided in request data, then org must have an Infrastructure Provider entity and its ID should match the query parameter value. User must have authorization role with `PROVIDER_ADMIN` suffix.
+        - Tenant admin (`TENANT_ADMIN`): creates a Tenant-owned Operating System of any type (Image, iPXE, or Templated iPXE).
+        - Provider admin (`PROVIDER_ADMIN`): may only create Provider-owned Operating Systems of type `Templated iPXE`.
 
-        If `tenantId` is provided in request data, then org must have a Tenant entity and its ID should match the query parameter value. User must have authorization role with `TENANT_ADMIN` suffix.
-
-        Only Tenants are allowed to create Operating System for MVP.
+        The `tenantId` field in the request body is deprecated; if provided, it must match the org's Tenant.
       requestBody:
         content:
           application/json:
@@ -8404,6 +8883,8 @@ paths:
         If the Operating System has `infrastructureProviderId` set, then org must have an Infrastructure Provider entity and its ID should match the Operating System Infrastructure Provider ID. User must have authorization role with `PROVIDER_ADMIN` suffix.
 
         If the Operating System has `tenantId` set, then org must have a Tenant entity and its ID should match the Operating System Tenant ID. User must have authorization role with `TENANT_ADMIN` suffix.
+
+        A Tenant admin may also read a Provider-owned Operating System when it is associated with at least one Site the Tenant can access.
       parameters:
         - schema:
             type: string
@@ -8624,9 +9105,9 @@ paths:
           $ref: '#/components/responses/ForbiddenError'
       operationId: get-all-machine
       description: |
-        Get all Machines for Infrastructure Provider.
+        Get all Machines visible to the caller.
 
-        Org must have an Infrastructure Provider entity. User must have authorization role with `PROVIDER_ADMIN` suffix.
+        Infrastructure Provider callers receive Machines owned by their Provider. Tenant Admin callers receive Machines only from Sites where `TargetedInstanceCreation` is effective. The siteId query parameter is optional and further restricts either result set.
       parameters:
         - schema:
             type: string
@@ -9326,7 +9807,11 @@ paths:
           $ref: '#/components/responses/GenericHttpError'
       operationId: reset-machine-bmc
       description: |-
-        Reset BMC of a specific Machine.
+        Reset the BMC of a specific Machine. When an Instance is attached to the
+        Machine, `acknowledgeAttachedInstance` must be `true`.
+
+        If `useIpmiTool` is `true`, the BMC reset request may be silently
+        ignored while the BMC is in lockdown mode.
         
         For Infrastructure Providers: Org must have an Infrastructure Provider entity and own the Site that the Machine belongs to. User must have authorization role with `PROVIDER_ADMIN` suffix.
 
@@ -9376,7 +9861,11 @@ paths:
           $ref: '#/components/responses/GenericHttpError'
       operationId: reprovision-machine-dpu
       description: |-
-        Trigger DPU reprovisioning for a Machine. It may be necessary to create a `HostUpdateInProgress` health report for the Machine before DPU reprovisioning can be triggered.
+        Trigger DPU reprovisioning for a Machine. Before calling this operation,
+        create a Machine health report containing an alert whose ID is
+        `HostUpdateInProgress` and whose classifications include
+        `PreventAllocations`. When an Instance is attached to the Machine,
+        `acknowledgeAttachedInstance` must be `true`.
 
         For Infrastructure Providers: Org must have an Infrastructure Provider entity and own the Site that the Machine belongs to. User must have authorization role with `PROVIDER_ADMIN` suffix.
 
@@ -9528,7 +10017,7 @@ paths:
                   action: ForceRestart
       responses:
         '202':
-          description: Machine power control request was accepted
+          description: Machine power control request was accepted. The message is empty unless Core returns a power-manager warning.
           content:
             application/json:
               schema:
@@ -9536,7 +10025,7 @@ paths:
               examples:
                 example-1:
                   value:
-                    message: Power control accepted
+                    message: ''
         '400':
           $ref: '#/components/responses/ValidationError'
         '403':
@@ -9547,7 +10036,8 @@ paths:
           $ref: '#/components/responses/GenericHttpError'
       operationId: machine-power-control-machine
       description: |-
-        Execute power control actions for a specific Machine.
+        Execute power control actions for a specific Machine. When an Instance is
+        attached to the Machine, `acknowledgeAttachedInstance` must be `true`.
         
         Org must have an Infrastructure Provider entity and own the Site that the Machine belongs to. User must have authorization role with `PROVIDER_ADMIN` suffix.
   '/v2/org/{org}/nico/machine/{machineId}/status-history':
@@ -11017,6 +11507,478 @@ paths:
           $ref: '#/components/responses/NotFoundError'
       tags:
         - Rule
+  '/v2/org/{org}/nico/task/run':
+    parameters:
+      - schema:
+          type: string
+        name: org
+        in: path
+        required: true
+        description: Name of the Org
+    post:
+      summary: Create a Task Run
+      operationId: create-task-run
+      description: |-
+        Create a Task Run: a phased, policy-gated execution of one operation across
+        many Racks. The configuration is validated server-side by Flow; on
+        validation failure no state changes.
+
+        A Task Run executes exactly one operation (currently firmware) over a
+        candidate set of Racks, narrowed by an optional `selector` and divided
+        into phases by an optional `options.phasePolicy`. The response echoes the
+        assigned `id`; the Task Run always starts in the `Pending` state. Poll
+        `GET /task/run/{id}` for progress.
+
+        Org must have an Infrastructure Provider entity. User must have
+        authorization role with `PROVIDER_ADMIN` suffix.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateTaskRunRequest'
+      responses:
+        '201':
+          description: Task Run was created.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TaskRun'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '403':
+          $ref: '#/components/responses/ForbiddenError'
+      tags:
+        - Task Run
+    get:
+      summary: Retrieve all Task Runs
+      operationId: get-all-task-run
+      description: |-
+        List Task Runs on a Site. Filters compose with AND; results are paginated
+        and the `X-Pagination` response header reports the total count over the
+        post-filter set.
+
+        Org must have an Infrastructure Provider entity. User must have
+        authorization role with `PROVIDER_ADMIN` suffix.
+      parameters:
+        - schema:
+            type: string
+            format: uuid
+          name: siteId
+          in: query
+          required: true
+          description: ID of the Site that owns the Task Runs (Task Runs are site-scoped).
+        - schema:
+            type: string
+            enum:
+              - Pending
+              - Running
+              - Paused
+              - Completed
+              - Cancelled
+              - Failed
+              - CompletedWithFailures
+          name: status
+          in: query
+          required: false
+          description: Filter by Task Run status.
+        - schema:
+            type: string
+            enum:
+              - PowerControl
+              - FirmwareControl
+          name: operationType
+          in: query
+          required: false
+          description: Filter by operation type.
+        - schema:
+            type: integer
+            minimum: 1
+          name: pageNumber
+          in: query
+          required: false
+          description: Page number of results returned (1-indexed).
+        - schema:
+            type: integer
+            minimum: 1
+          name: pageSize
+          in: query
+          required: false
+          description: Number of results per page.
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/TaskRun'
+          headers:
+            X-Pagination:
+              schema:
+                type: string
+                example: '{"pageNumber":1,"pageSize":20,"total":2}'
+              description: Pagination result in JSON format
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '403':
+          $ref: '#/components/responses/ForbiddenError'
+      tags:
+        - Task Run
+  '/v2/org/{org}/nico/task/run/{id}':
+    parameters:
+      - schema:
+          type: string
+        name: org
+        in: path
+        required: true
+        description: Name of the Org
+      - schema:
+          type: string
+          format: uuid
+        name: id
+        in: path
+        required: true
+        description: UUID of the Task Run
+    get:
+      summary: Retrieve a Task Run
+      operationId: get-task-run
+      description: |-
+        Get a Task Run by UUID. Set `includeStats=true` for derived per-phase
+        outcome counts (current phase and cumulative run).
+
+        Task Runs are site-scoped; `siteId` must be the Site that owns the
+        Task Run. Org must have an Infrastructure Provider entity. User must have
+        authorization role with `PROVIDER_ADMIN` suffix.
+      parameters:
+        - schema:
+            type: string
+            format: uuid
+          name: siteId
+          in: query
+          required: true
+          description: ID of the Site that owns the Task Run (Task Runs are site-scoped).
+        - schema:
+            type: boolean
+            default: false
+          name: includeStats
+          in: query
+          required: false
+          description: Include derived per-phase outcome stats on the response.
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TaskRun'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '403':
+          $ref: '#/components/responses/ForbiddenError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+      tags:
+        - Task Run
+  '/v2/org/{org}/nico/task/run/{id}/target':
+    parameters:
+      - schema:
+          type: string
+        name: org
+        in: path
+        required: true
+        description: Name of the Org
+      - schema:
+          type: string
+          format: uuid
+        name: id
+        in: path
+        required: true
+        description: UUID of the Task Run
+    get:
+      summary: Retrieve all Task Run Targets
+      operationId: get-all-task-run-target
+      description: |-
+        List a Task Run's materialized per-Rack execution targets. Each target
+        references the Task the Task Run submitted for that Rack via `taskId`
+        (null until the target is submitted); drill into execution detail via
+        `GET /task/{taskId}`.
+
+        Filters compose with AND. Results are paginated; the `X-Pagination`
+        response header reports the total count over the post-filter set.
+
+        Task Runs are site-scoped; `siteId` must be the Site that owns the
+        Task Run. Org must have an Infrastructure Provider entity. User must have
+        authorization role with `PROVIDER_ADMIN` suffix.
+      parameters:
+        - schema:
+            type: string
+            format: uuid
+          name: siteId
+          in: query
+          required: true
+          description: ID of the Site that owns the Task Run.
+        - schema:
+            type: string
+            enum:
+              - Pending
+              - Blocked
+              - Submitted
+              - Completed
+              - Failed
+              - Terminated
+              - Skipped
+              - Claimed
+          name: status
+          in: query
+          required: false
+          description: Filter by target status.
+        - schema:
+            type: string
+            enum:
+              - currentPhase
+              - completedPhases
+              - currentAndCompletedPhases
+            default: currentPhase
+          name: phaseScope
+          in: query
+          required: false
+          description: Restrict targets to the current phase, completed phases, or both.
+        - schema:
+            type: integer
+            minimum: 1
+          name: pageNumber
+          in: query
+          required: false
+          description: Page number of results returned (1-indexed).
+        - schema:
+            type: integer
+            minimum: 1
+          name: pageSize
+          in: query
+          required: false
+          description: Number of results per page.
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/TaskRunTarget'
+          headers:
+            X-Pagination:
+              schema:
+                type: string
+                example: '{"pageNumber":1,"pageSize":20,"total":6}'
+              description: Pagination result in JSON format
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '403':
+          $ref: '#/components/responses/ForbiddenError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+      tags:
+        - Task Run
+  '/v2/org/{org}/nico/task/run/{id}/pause':
+    parameters:
+      - schema:
+          type: string
+        name: org
+        in: path
+        required: true
+        description: Name of the Org
+      - schema:
+          type: string
+          format: uuid
+        name: id
+        in: path
+        required: true
+        description: UUID of the Task Run
+    post:
+      summary: Pause a Task Run
+      operationId: pause-task-run
+      description: |-
+        Pause a running Task Run. In-flight target Tasks continue to completion;
+        no new targets are claimed until the Task Run is resumed. Pausing an
+        already-paused Task Run is idempotent.
+
+        Task Runs are site-scoped; `siteId` must be the Site that owns the
+        Task Run. Org must have an Infrastructure Provider entity. User must have
+        authorization role with `PROVIDER_ADMIN` suffix.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TaskRunSiteRequest'
+      responses:
+        '202':
+          description: |-
+            Accepted. The pause request was accepted and the Task Run's last
+            known state is returned.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TaskRun'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '403':
+          $ref: '#/components/responses/ForbiddenError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+      tags:
+        - Task Run
+  '/v2/org/{org}/nico/task/run/{id}/resume':
+    parameters:
+      - schema:
+          type: string
+        name: org
+        in: path
+        required: true
+        description: Name of the Org
+      - schema:
+          type: string
+          format: uuid
+        name: id
+        in: path
+        required: true
+        description: UUID of the Task Run
+    post:
+      summary: Resume a Task Run
+      operationId: resume-task-run
+      description: |-
+        Resume an operator-paused Task Run. A Task Run paused at a phase gate
+        (rather than by an operator) must be advanced with the advance endpoint
+        instead; resume applies only to operator pauses.
+
+        Task Runs are site-scoped; `siteId` must be the Site that owns the
+        Task Run. Org must have an Infrastructure Provider entity. User must have
+        authorization role with `PROVIDER_ADMIN` suffix.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TaskRunSiteRequest'
+      responses:
+        '202':
+          description: |-
+            Accepted. The resume request was accepted and the Task Run's last
+            known state is returned.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TaskRun'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '403':
+          $ref: '#/components/responses/ForbiddenError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+      tags:
+        - Task Run
+  '/v2/org/{org}/nico/task/run/{id}/advance':
+    parameters:
+      - schema:
+          type: string
+        name: org
+        in: path
+        required: true
+        description: Name of the Org
+      - schema:
+          type: string
+          format: uuid
+        name: id
+        in: path
+        required: true
+        description: UUID of the Task Run
+    post:
+      summary: Advance a Task Run to its next phase
+      operationId: advance-task-run
+      description: |-
+        Open the next phase of a Task Run that is paused at a phase gate.
+        Optionally guard the transition with `expectedPhaseIndex`: when set, the
+        phase that would be opened must match, otherwise Flow rejects the advance
+        so a stale client cannot open the wrong phase.
+
+        Task Runs are site-scoped; `siteId` must be the Site that owns the
+        Task Run. Org must have an Infrastructure Provider entity. User must have
+        authorization role with `PROVIDER_ADMIN` suffix.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AdvanceTaskRunRequest'
+      responses:
+        '202':
+          description: |-
+            Accepted. The advance request was accepted and the Task Run's last
+            known state is returned.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TaskRun'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '403':
+          $ref: '#/components/responses/ForbiddenError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+      tags:
+        - Task Run
+  '/v2/org/{org}/nico/task/run/{id}/cancel':
+    parameters:
+      - schema:
+          type: string
+        name: org
+        in: path
+        required: true
+        description: Name of the Org
+      - schema:
+          type: string
+          format: uuid
+        name: id
+        in: path
+        required: true
+        description: UUID of the Task Run
+    post:
+      summary: Cancel a Task Run
+      operationId: cancel-task-run
+      description: |-
+        Cancel a Task Run. Best-effort cancellation cascades to the current
+        phase's in-flight target Tasks; targets not yet claimed are not started.
+        Cancelling an already-terminal Task Run returns its last known state.
+
+        Task Runs are site-scoped; `siteId` must be the Site that owns the
+        Task Run. Org must have an Infrastructure Provider entity. User must have
+        authorization role with `PROVIDER_ADMIN` suffix.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CancelTaskRunRequest'
+      responses:
+        '202':
+          description: |-
+            Accepted. The cancellation request was accepted and the Task Run's
+            last known state is returned.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TaskRun'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '403':
+          $ref: '#/components/responses/ForbiddenError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+      tags:
+        - Task Run
   '/v2/org/{org}/nico/rack/{id}/task':
     parameters:
       - schema:
@@ -13710,6 +14672,138 @@ paths:
           $ref: '#/components/responses/GenericHttpError'
 components:
   schemas:
+    MeasuredBootTrustedMachineCreateRequest:
+      type: object
+      title: MeasuredBootTrustedMachineCreateRequest
+      description: Request to approve a Machine for automatic promotion of measured-boot reports.
+      required:
+        - siteId
+        - machineId
+        - approvalType
+      properties:
+        siteId:
+          type: string
+          format: uuid
+          description: ID of the Site where the approval applies.
+        machineId:
+          type: string
+          description: Machine UUID, or `*` to approve all Machines at the Site.
+        approvalType:
+          type: string
+          enum:
+            - Oneshot
+            - Persist
+          description: Whether the approval is consumed once or persists for future reports.
+        pcrRegisters:
+          type: string
+          description: Optional comma-separated PCR register selector. All registers are used when omitted.
+        comments:
+          type: string
+          description: Optional operator comments about the approval.
+    MeasuredBootTrustedMachine:
+      type: object
+      title: MeasuredBootTrustedMachine
+      description: A measured-boot trusted Machine approval.
+      required:
+        - approvalId
+        - machineId
+        - approvalType
+        - pcrRegisters
+        - comments
+        - created
+      properties:
+        approvalId:
+          type: string
+          format: uuid
+          description: Unique approval ID.
+        machineId:
+          type: string
+          description: Machine UUID, or `*` when the approval applies to all Machines.
+        approvalType:
+          type: string
+          enum:
+            - Oneshot
+            - Persist
+          description: Whether the approval is consumed once or persists for future reports.
+        pcrRegisters:
+          type: string
+          description: Optional comma-separated PCR register selector.
+        comments:
+          type: string
+          description: Optional operator comments about the approval.
+        created:
+          type:
+            - string
+            - 'null'
+          format: date-time
+          description: Time when the approval was created, or null when Core did not return a timestamp.
+    MeasuredBootTrustedProfileCreateRequest:
+      type: object
+      title: MeasuredBootTrustedProfileCreateRequest
+      description: Request to approve a system profile for automatic promotion of measured-boot reports.
+      required:
+        - siteId
+        - profileId
+        - approvalType
+      properties:
+        siteId:
+          type: string
+          format: uuid
+          description: ID of the Site where the approval applies.
+        profileId:
+          type: string
+          format: uuid
+          description: ID of the measured-boot system profile.
+        approvalType:
+          type: string
+          enum:
+            - Oneshot
+            - Persist
+          description: Whether the approval is consumed once or persists for future reports.
+        pcrRegisters:
+          type: string
+          description: Optional comma-separated PCR register selector. All registers are used when omitted.
+        comments:
+          type: string
+          description: Optional operator comments about the approval.
+    MeasuredBootTrustedProfile:
+      type: object
+      title: MeasuredBootTrustedProfile
+      description: A measured-boot trusted system profile approval.
+      required:
+        - approvalId
+        - profileId
+        - approvalType
+        - pcrRegisters
+        - comments
+        - created
+      properties:
+        approvalId:
+          type: string
+          format: uuid
+          description: Unique approval ID.
+        profileId:
+          type: string
+          format: uuid
+          description: ID of the measured-boot system profile.
+        approvalType:
+          type: string
+          enum:
+            - Oneshot
+            - Persist
+          description: Whether the approval is consumed once or persists for future reports.
+        pcrRegisters:
+          type: string
+          description: Optional comma-separated PCR register selector.
+        comments:
+          type: string
+          description: Optional operator comments about the approval.
+        created:
+          type:
+            - string
+            - 'null'
+          format: date-time
+          description: Time when the approval was created, or null when Core did not return a timestamp.
     BMCCredentialRequest:
       type: object
       title: BMCCredentialRequest
@@ -13804,6 +14898,158 @@ components:
           enum:
             - Host
             - DPU
+    CredentialRotationRequest:
+      type: object
+      title: CredentialRotationRequest
+      description: Request to stage a site-wide credential rotation.
+      required:
+        - siteId
+        - credentialType
+      properties:
+        siteId:
+          type: string
+          format: uuid
+          description: ID of the Site whose credential family is rotated.
+        credentialType:
+          type: string
+          description: Credential family to rotate.
+          enum:
+            - BMC
+            - HostUEFI
+            - DPUUEFI
+            - NVOS
+            - LockdownIKM
+        password:
+          type: string
+          minLength: 1
+          description: Explicit rotate-to password. When omitted, a strong password is auto-generated. Never returned.
+        reason:
+          type: string
+          description: Free-form operator note recorded with the rotation. Must not contain secrets.
+    CredentialRotationResult:
+      type: object
+      title: CredentialRotationResult
+      description: Result returned when a credential rotation is staged. The password is never returned.
+      required:
+        - credentialType
+        - targetVersion
+      properties:
+        credentialType:
+          type: string
+          description: Credential family that was rotated.
+          enum:
+            - BMC
+            - HostUEFI
+            - DPUUEFI
+            - NVOS
+            - LockdownIKM
+        targetVersion:
+          type: integer
+          format: int64
+          description: Newly published site-wide target version that devices converge to.
+        started:
+          type:
+            - string
+            - 'null'
+          format: date-time
+          description: When the rotation was staged.
+    CredentialRotationStatus:
+      type: object
+      title: CredentialRotationStatus
+      description: Convergence status of an in-flight or completed site-wide credential rotation.
+      required:
+        - targetVersion
+        - converged
+        - pending
+        - quarantined
+        - complete
+      properties:
+        targetVersion:
+          type: integer
+          format: int64
+          description: Current site-wide target version for this family.
+        converged:
+          type: integer
+          format: int64
+          description: Number of devices at or beyond the target version.
+        pending:
+          type: integer
+          format: int64
+          description: Number of devices not yet converged and eligible to rotate.
+        quarantined:
+          type: integer
+          format: int64
+          description: Number of devices currently in a rotation backoff window.
+        quarantinedDeviceMacs:
+          type:
+            - array
+            - 'null'
+          items:
+            type: string
+          description: MAC addresses of the quarantined devices.
+        started:
+          type:
+            - string
+            - 'null'
+          format: date-time
+          description: When the current target version was staged.
+        complete:
+          type: boolean
+          description: True only when every device in the queried set has reached the target with none pending and none quarantined.
+        device:
+          $ref: '#/components/schemas/DeviceCredentialRotationStatus'
+    DeviceCredentialRotationStatus:
+      type: object
+      title: DeviceCredentialRotationStatus
+      description: Per-device convergence detail, returned only for a MAC-targeted status query.
+      required:
+        - deviceMac
+        - converged
+        - quarantined
+        - rotateAttempts
+      properties:
+        deviceMac:
+          type: string
+          description: The device this status describes.
+        currentVersion:
+          type:
+            - integer
+            - 'null'
+          format: int64
+          description: Credential version live on the hardware. Null when not yet established.
+        rotatingToVersion:
+          type:
+            - integer
+            - 'null'
+          format: int64
+          description: Set while a rotation is mid-flight on this device.
+        converged:
+          type: boolean
+          description: True once the current version reaches the site-wide target.
+        quarantined:
+          type: boolean
+          description: True while the device is in a rotation backoff window.
+        quarantinedUntil:
+          type:
+            - string
+            - 'null'
+          format: date-time
+          description: When the current backoff window expires; set only while quarantined.
+        rotateAttempts:
+          type: integer
+          format: int64
+          description: Number of rotation attempts recorded for this device.
+        lastAttempted:
+          type:
+            - string
+            - 'null'
+          format: date-time
+          description: When the last rotation attempt ran; null if none.
+        lastError:
+          type:
+            - string
+            - 'null'
+          description: Redacted last-error string for observability; never a secret.
     SiteExplorerEndpointActionRequest:
       type: object
       title: SiteExplorerEndpointActionRequest
@@ -13873,7 +15119,7 @@ components:
         useIpmiTool:
           type: boolean
           default: false
-          description: Reset the BMC via ipmitool instead of Redfish.
+          description: Reset the BMC via ipmitool instead of Redfish. The request may be silently ignored while the BMC is in lockdown mode.
         acknowledgeAttachedInstance:
           type: boolean
           description: Acknowledges that an Instance is currently attached to the Machine and this action may disrupt Tenant workload on the Instance.
@@ -13888,7 +15134,7 @@ components:
       properties:
         mode:
           type: string
-          description: DPU reprovisioning mode.
+          description: Use `Set` to start reprovisioning, `Clear` to remove a pending request, or `Restart` to restart DPUs that already have a request. Restart accepts a host Machine ID only.
           enum:
             - Set
             - Clear
@@ -13896,13 +15142,14 @@ components:
         updateFirmware:
           type: boolean
           default: false
-          description: Whether to update firmware during reprovisioning.
+          deprecated: true
+          description: Deprecated compatibility field. Firmware is always verified and updated during reprovisioning.
         acknowledgeAttachedInstance:
           type: boolean
           description: Acknowledges that an Instance is currently attached to the Machine and this action may disrupt Tenant workload on the Instance.
       examples:
-        - mode: Restart
-          updateFirmware: true
+        - mode: Set
+          updateFirmware: false
     MachineHealthReportEntry:
       type: object
       title: MachineHealthReportEntry
@@ -13938,15 +15185,15 @@ components:
             - Merge
             - Replace
       examples:
-        - source: overrides.sre
+        - source: maintenance.dpu-reprovision
           triggeredBy: operator
           observedAt: '2026-06-24T12:00:00Z'
           mode: Merge
           alerts:
-            - id: dpu.reprovision.in.progress
+            - id: HostUpdateInProgress
               message: DPU reprovisioning in progress
               classifications:
-                - maintenance
+                - PreventAllocations
     MachineHealthReportEntryRequest:
       type: object
       title: MachineHealthReportEntryRequest
@@ -13975,13 +15222,13 @@ components:
             - Merge
             - Replace
       examples:
-        - source: overrides.sre
+        - source: maintenance.dpu-reprovision
           mode: Merge
           alerts:
-            - id: dpu.reprovision.in.progress
+            - id: HostUpdateInProgress
               message: DPU reprovisioning in progress
               classifications:
-                - maintenance
+                - PreventAllocations
     HostFirmwareArtifact:
       type: object
       title: HostFirmwareArtifact
@@ -14283,7 +15530,7 @@ components:
       properties:
         action:
           type: string
-          description: Power control action to apply.
+          description: Redfish power control action to apply to the Machine. ACPowercycle is not supported on Viking systems.
           enum:
             - On
             - GracefulShutdown
@@ -14471,7 +15718,12 @@ components:
           created: '2019-08-24T14:15:22Z'
           updated: '2019-08-24T14:15:22Z'
           capabilities:
-            targetedInstanceCreation: false
+            targetedInstanceCreation: true
+          deprecations:
+            - attribute: capabilities.targetedInstanceCreation
+              replacedBy: tenantAccount.siteCapabilities
+              takeActionBy: '2026-10-01T00:00:00Z'
+              notice: '''capabilities.targetedInstanceCreation'' is being deprecated in favor of ''tenantAccount.siteCapabilities''. Please take action prior to the specified date'
       properties:
         id:
           type: string
@@ -14497,19 +15749,27 @@ components:
           description: Date/time when Tenant was last updated
         capabilities:
           $ref: '#/components/schemas/TenantCapabilities'
-          description: Features that are enabled/disabled for Tenant
+          description: Deprecated read-only aggregate of tenant-wide feature flags. Source of truth is Tenant Account `siteCapabilities`.
+        deprecations:
+          type: array
+          items:
+            $ref: '#/components/schemas/Deprecation'
+          description: Deprecation notices for Tenant fields
     TenantCapabilities:
       title: TenantCapabilities
       type: object
-      description: TenantCapabilities defines the set of features enabled for Tenant
+      description: |-
+        Deprecated tenant-wide capability summary. TargetedInstanceCreation is no longer stored on the Tenant entity; it is configured on Tenant Account `siteCapabilities` (and may be overridden per Site via Tenant Site configuration).
+
+        On GET `/tenant/current`, `targetedInstanceCreation` is present and `true` only when the Tenant has at least one Ready Tenant Account, every Ready Tenant Account has the capability enabled by default, and no Tenant Site explicitly disables it. Otherwise the property is omitted. Embedded `TenantSummary.capabilities` objects in nested resources also omit the property.
       examples:
-        - targetedInstanceCreation: false
+        - targetedInstanceCreation: true
       properties:
         targetedInstanceCreation:
           type: boolean
-          format: uuid
-          description: Indicates whether Tenant can create Instances by specifying Machine ID
+          deprecated: true
           readOnly: true
+          description: Deprecated in favor of TenantAccount.siteCapabilities. On GET `/tenant/current`, the property is present and true only when every Ready Tenant Account enables TargetedInstanceCreation and no Tenant Site explicitly disables it; otherwise it is omitted. It is also omitted from embedded TenantSummary objects.
     TenantStats:
       title: TenantStats
       type: object
@@ -14688,12 +15948,14 @@ components:
             created: '2019-08-24T14:15:22Z'
             updated: '2019-08-24T14:15:22Z'
           allocationCount: 0
-          status: Pending
+          status: Ready
           statusHistory:
-            - status: Pending
-              message: 'Request received, pending processing'
+            - status: Ready
+              message: 'Account ready, Tenant accepted invite'
               created: '2019-08-24T14:15:22Z'
               updated: '2019-08-24T14:15:22Z'
+          siteCapabilities:
+            - targetedInstanceCreation: true
           created: '2019-08-24T14:15:22Z'
           updated: '2019-08-24T14:15:22Z'
       properties:
@@ -14749,6 +16011,41 @@ components:
           description: 'Date/time when the Tenant Account was last updated'
           format: date-time
           readOnly: true
+        siteCapabilities:
+          type: array
+          description: |-
+            Provider-scoped TargetedInstanceCreation settings for this Tenant Account. Replaces the deprecated tenant-level capabilities.targetedInstanceCreation attribute.
+
+            When present on a Tenant Account response, the array always includes one entry with omitted `siteIds` derived from TenantAccount.config, followed by zero or more entries with `siteIds` for per-site overrides that differ from the account default.
+          minItems: 1
+          items:
+            $ref: '#/components/schemas/TenantAccountSiteCapability'
+    TenantAccountSiteCapability:
+      title: TenantAccountSiteCapability
+      type: object
+      description: |-
+        TargetedInstanceCreation capability for the Tenant Account default or an explicit Site list.
+
+        Update payloads must satisfy all of the following when siteCapabilities is sent on PATCH:
+        - the siteCapabilities array must contain at least one entry
+        - exactly one entry must omit siteIds or provide an empty siteIds array
+        - each siteId may appear at most once across all entries
+        - every provided siteId must be a valid Site UUID
+        - every provided siteId must identify a Site associated with the Tenant and owned by the Tenant Account's Infrastructure Provider; otherwise the server rejects the request with 400
+
+        PATCH uses replace semantics: previously configured per-site overrides whose siteId is omitted from the new payload are cleared.
+      required:
+        - targetedInstanceCreation
+      properties:
+        siteIds:
+          type: array
+          description: Sites to configure. An omitted or empty array identifies the Tenant Account default entry. Each value must be a valid Site UUID, may appear only once across all siteCapabilities entries in the same request, must be associated with the Tenant, and must be owned by the Tenant Account's Infrastructure Provider; otherwise the server rejects the request with 400.
+          items:
+            type: string
+            format: uuid
+        targetedInstanceCreation:
+          type: boolean
+          description: Whether TargetedInstanceCreation is enabled for the Tenant Account default or listed Sites. When true, Tenant Admins with a Ready Tenant Account on the Site's Infrastructure Provider may create Instances by Machine ID and perform related privileged actions on that Site.
     TenantAccountStatus:
       title: TenantAccountStatus
       type: string
@@ -14787,9 +16084,40 @@ components:
       description: |-
         Request data to update a TenantAccount.
 
-        No params needed, an empty request will suffice.
+        Provider Admins may replace `siteCapabilities` only.
+        Tenant Admins may accept an invite via `tenantContactId` only.
+        Requests containing both fields are rejected with 400.
+
+        When `siteCapabilities` is included, the replace payload must contain at least one entry, include exactly one entry with empty or omitted `siteIds`, and must not repeat any `siteId` across entries. Every provided `siteId` must be a valid UUID for a Site associated with the Tenant and owned by the Tenant Account's Infrastructure Provider; otherwise the server rejects the request with 400. Previously configured per-site overrides whose `siteId` is omitted from the replacement payload are cleared.
       examples:
-        - {}
+        - tenantContactId: 497f6eca-6276-4993-bfeb-53cbbbba6f08
+        - siteCapabilities:
+            - siteIds: []
+              targetedInstanceCreation: true
+            - siteIds:
+                - 3fa85f64-5717-4562-b3fc-2c963f66afa6
+              targetedInstanceCreation: false
+      properties:
+        tenantContactId:
+          type: string
+          format: uuid
+          description: Tenant Admin invite acceptance; must match the requesting user
+        siteCapabilities:
+          type: array
+          minItems: 1
+          description: |-
+            Provider Admin replace payload for TargetedInstanceCreation configuration. Required to be non-empty when sent.
+
+            PATCH uses replace semantics: previously configured per-site overrides whose siteId is omitted from the new payload are cleared.
+
+            Server validation rules:
+            - must contain at least one entry
+            - must contain exactly one entry with omitted or empty siteIds
+            - must not repeat any siteId across entries
+            - every provided siteId must be a valid Site UUID
+            - every provided siteId must identify a Site associated with the Tenant and owned by the Tenant Account's Infrastructure Provider; otherwise the server rejects the request with 400
+          items:
+            $ref: '#/components/schemas/TenantAccountSiteCapability'
     Site:
       title: Site
       type: object
@@ -15989,7 +17317,13 @@ components:
         capabilities:
           $ref: '#/components/schemas/TenantCapabilities'
           readOnly: true
-          description: Features that are enabled/disabled for Tenant
+          description: 'Deprecated compatibility object. The targetedInstanceCreation property is omitted; use Tenant Account siteCapabilities for the authoritative configuration.'
+        deprecations:
+          type: array
+          items:
+            $ref: '#/components/schemas/Deprecation'
+          readOnly: true
+          description: Deprecation notices for Tenant fields
     VpcPeering:
       title: VpcPeering
       type: object
@@ -16992,7 +18326,7 @@ components:
           enum:
             - iPXE
             - Image
-            - Templated iPXE
+            - TemplatedIpxe
         imageUrl:
           type:
             - string
@@ -17338,13 +18672,15 @@ components:
           deprecated: true
         siteIds:
           type: array
+          minItems: 1
+          maxItems: 1
           items:
             type: string
             format: uuid
           description: >-
-            Target Sites for the Operating System. For image-based OS specify exactly one
-            Site (more than one is not supported). For Templated iPXE OS at least one Site
-            is required and the list is fixed at creation: it cannot be changed on update.
+            Target Site for the Operating System. For image-based and Templated iPXE
+            Operating Systems exactly one Site is required, even though this field is an
+            array. The list is fixed at creation and cannot be changed on update.
             Not applicable to raw iPXE OS.
         ipxeScript:
           type:
@@ -17443,7 +18779,7 @@ components:
           allowOverride: false
         - isActive: false
           deactivationNote: 'iPXE script is referencing a URL that is unreachable, needs to be researched'
-      description: 'Request data to update an Operating System. For image-based OS, mutable image attributes (image authentication, root filesystem, image disk) can be updated; imageUrl and imageSha identify the underlying image and are immutable after creation. Only iPXE attributes can be updated for iPXE-based OS'
+      description: 'Request data to update an Operating System. For image-based OS, mutable image attributes (image authentication, root filesystem, image disk) can be updated; imageUrl and imageSha identify the underlying image and are immutable after creation. Only iPXE attributes can be updated for iPXE-based OS. A Templated iPXE Operating System can only be updated when it is associated with exactly one Site.'
       properties:
         name:
           type:
@@ -18401,7 +19737,7 @@ components:
         secondaryVpcIds:
           type: array
           uniqueItems: true
-          description: IDs of additional VPCs the Instance should attach to through non-primary interfaces. This field may only be specified when every entry in `interfaces` uses `vpcPrefixId`. IDs must be unique, must be valid UUIDs, and must not include the primary `vpcId`.
+          description: IDs of additional VPCs the Instance should attach to through non-primary interfaces. This field may only be specified when every entry in `interfaces` uses `vpcPrefixId` or `vpcId`. IDs must be unique, must be valid UUIDs, and must not include the primary `vpcId`.
           items:
             type: string
             format: uuid
@@ -18437,7 +19773,7 @@ components:
           description: 'User-defined key-value labels'
         interfaces:
           type: array
-          description: 'At least one interface must be specified unless `autoNetwork` is true. Either Subnet or VPC Prefix interfaces allowed. Only one of the Subnets or VPC Prefixes can be attached over Physical interface. If only one Subnet is specified, then it will be attached over physical interface regardless of the value of isPhysical. In case of VPC Prefix, isPhysical will always be true. Mutually exclusive with `autoNetwork`: when `autoNetwork` is true this list MUST be empty.'
+          description: 'At least one interface must be specified unless `autoNetwork` is true. Interfaces must all be Subnet-backed or all be VPC-backed; VPC-backed interfaces may use an explicit `vpcPrefixId` or ask the Controller to select a prefix using `vpcId` and `ipFamilies`. Only one network can be attached over a physical interface. If only one Subnet is specified, it will be attached over a physical interface regardless of `isPhysical`. Mutually exclusive with `autoNetwork`: when `autoNetwork` is true this list MUST be empty.'
           items:
             $ref: '#/components/schemas/InterfaceCreateRequest'
         autoNetwork:
@@ -18550,7 +19886,7 @@ components:
         secondaryVpcIds:
           type: array
           uniqueItems: true
-          description: IDs of additional VPCs the Instances should attach to through non-primary interfaces. This field may only be specified when every entry in `interfaces` uses `vpcPrefixId`. IDs must be unique, must be valid UUIDs, and must not include the primary `vpcId`.
+          description: IDs of additional VPCs the Instances should attach to through non-primary interfaces. This field may only be specified when every entry in `interfaces` uses `vpcPrefixId` or `vpcId`. IDs must be unique, must be valid UUIDs, and must not include the primary `vpcId`.
           items:
             type: string
             format: uuid
@@ -18587,7 +19923,7 @@ components:
           description: 'Key-value objects to be applied to all instances (shared across all instances)'
         interfaces:
           type: array
-          description: 'Interface configuration shared across all instances. At least one interface must be specified unless `autoNetwork` is true. Either Subnet or VPC Prefix interfaces allowed, only one of the Subnets or VPC Prefixes can be attached over Physical interface. Interface `ipAddress` is not supported for batch instance creation requests. Mutually exclusive with `autoNetwork`: when `autoNetwork` is true this list MUST be empty.'
+          description: 'Interface configuration shared across all instances. At least one interface must be specified unless `autoNetwork` is true. Interfaces must all be Subnet-backed or all be VPC-backed; VPC-backed interfaces may use an explicit `vpcPrefixId` or ask the Controller to select a prefix using `vpcId` and `ipFamilies`. Each batch member is resolved independently and may use a different prefix. Only one network can be attached over a physical interface. Interface `ipAddress` is not supported for batch instance creation requests. Mutually exclusive with `autoNetwork`: when `autoNetwork` is true this list MUST be empty.'
           items:
             $ref: '#/components/schemas/InterfaceCreateRequest'
         autoNetwork:
@@ -18763,13 +20099,13 @@ components:
         secondaryVpcIds:
           type: array
           uniqueItems: true
-          description: IDs of additional VPCs the Instance should attach to through non-primary interfaces. This field may only be specified when every entry in `interfaces` uses `vpcPrefixId`. IDs must be unique, must be valid UUIDs, and must not include the primary `vpcId`.
+          description: IDs of additional VPCs the Instance should attach to through non-primary interfaces. This field may only be specified when every entry in `interfaces` uses `vpcPrefixId` or `vpcId`. IDs must be unique, must be valid UUIDs, and must not include the primary `vpcId`.
           items:
             type: string
             format: uuid
         interfaces:
           type: array
-          description: 'Update Interfaces of the Instance. Mutually exclusive with `autoNetwork`: when `autoNetwork` is true this list MUST be empty.'
+          description: 'Complete updated Interface configuration for the Instance. Interfaces must all be Subnet-backed or all be VPC-backed; VPC-backed interfaces may use an explicit `vpcPrefixId` or ask the Controller to select a prefix using `vpcId` and `ipFamilies`. Mutually exclusive with `autoNetwork`: when `autoNetwork` is true this list MUST be empty.'
           items:
             $ref: '#/components/schemas/InterfaceCreateRequest'
         autoNetwork:
@@ -18840,6 +20176,18 @@ components:
           status: Pending
           created: '2019-08-24T14:15:22Z'
           updated: '2019-08-24T14:15:22Z'
+        - id: 4c53d2f4-2a51-4ac5-90c9-87ad215c5091
+          instanceId: 371ddf80-a7ff-4ff6-9a37-0557cec8b9be
+          vpcId: bdd3d1af-b4a8-4675-a59c-56548716ef45
+          ipFamilies:
+            - IPv4
+          isPhysical: true
+          macAddress: 2F-FC-34-AE-9C-2D
+          ipAddresses:
+            - 200.32.11.196
+          status: Ready
+          created: '2019-08-24T14:15:22Z'
+          updated: '2019-08-24T14:15:22Z'
         - id: 45d89d4f-2dde-4fc5-a20d-9f96faa4e9fa
           instanceId: 371ddf80-a7ff-4ff6-9a37-0557cec8b9be
           vpcPrefixId: d89d8cc6-d66e-4bf2-bf62-40238837cc90
@@ -18868,7 +20216,7 @@ components:
           status: Pending
           created: '2019-08-24T14:15:22Z'
           updated: '2019-08-24T14:15:22Z'
-      description: Associates an Instance with a Subnet
+      description: Associates an Instance with a Subnet or VPC-backed network
       properties:
         id:
           type: string
@@ -18889,11 +20237,20 @@ components:
           type:
             - string
             - 'null'
-          description: 'ID of the associated VPCPrefix'
+          description: ID of the VPC Prefix explicitly selected by the caller
           format: uuid
+        vpcId:
+          type: string
+          description: ID of the VPC from which the Controller selects a prefix
+          format: uuid
+        ipFamilies:
+          type: array
+          description: Address families requested for Controller prefix selection
+          items:
+            $ref: '#/components/schemas/IPFamily'
         isPhysical:
           type: boolean
-          description: 'IsPhysical indicates whether the Subnet is bound on a physical Interface'
+          description: Indicates whether the network is bound on a physical Interface
         device:
           type:
             - string
@@ -18923,12 +20280,12 @@ components:
           type:
             - string
             - 'null'
-          description: Explicitly requested IP address for the interface. This is only used for VPC Prefix-based interfaces and is not valid for Subnet-based interfaces. The least-significant host bit must be 1.
+          description: Explicitly requested IP address for the interface. This is only used with an explicit `vpcPrefixId` and is not valid with `subnetId` or VPC-selected interfaces. The least-significant host bit must be 1.
         inlineRoutingProfile:
           oneOf:
             - $ref: '#/components/schemas/InterfaceInlineRoutingProfile'
             - type: 'null'
-          description: Inline interface-local routing profile options. Only valid for VPC Prefix-based interfaces.
+          description: Inline interface-local routing profile options. Only valid for VPC-backed interfaces.
         status:
           $ref: '#/components/schemas/InterfaceStatus'
           description: 'Status of the Interface'
@@ -18952,6 +20309,13 @@ components:
         - Ready
         - Deleting
         - Error
+    IPFamily:
+      title: IPFamily
+      type: string
+      description: Address family requested for a VPC-selected Interface
+      enum:
+        - IPv4
+        - IPv6
     InterfaceInlineRoutingProfile:
       title: InterfaceInlineRoutingProfile
       type: object
@@ -18973,10 +20337,14 @@ components:
         - vpcPrefixId: 000bc42b-f946-472e-83d4-ddf7e365e148
           ipAddress: 10.0.0.11
           isPhysical: true
+        - vpcId: bdd3d1af-b4a8-4675-a59c-56548716ef45
+          ipFamilies:
+            - IPv4
+          isPhysical: true
       description: |-
-        Request data to create an Interface for an Instance by associating it with a Subnet or VPC Prefix.
+        Request data to create an Interface for an Instance by associating it with a Subnet, an explicit VPC Prefix, or a VPC from which the Controller selects a prefix. Exactly one of `subnetId`, `vpcPrefixId`, or `vpcId` must be specified.
 
-        If VPC specified in request has FNN virtualization type, then all interfaces must specify VPC Prefix.
+        If the VPC specified in the request has FNN virtualization type, all interfaces must specify either `vpcPrefixId` or `vpcId`.
 
         If the VPC has Ethernet network virtualization type then all interfaces must specify Subnet.
       properties:
@@ -18988,11 +20356,23 @@ components:
           type: string
           description: 'ID of the VPC Prefix to attach to the Interface'
           format: uuid
+        vpcId:
+          type: string
+          description: ID of the VPC from which the Controller should select a prefix. `ipFamilies` must also be specified, and `ipAddress` cannot be specified.
+          format: uuid
+        ipFamilies:
+          type: array
+          minItems: 1
+          description: Address families requested for Controller prefix selection. Required with `vpcId` and prohibited otherwise. Only `IPv4` is currently accepted.
+          items:
+            type: string
+            enum:
+              - IPv4
         ipAddress:
           type:
             - string
             - 'null'
-          description: Explicitly requested IP address for the interface. It cannot be specified for Subnet-based interfaces. The least-significant host bit must be 1.
+          description: Explicitly requested IP address for the interface. It can only be specified with an explicit `vpcPrefixId`. The least-significant host bit must be 1.
         inlineRoutingProfile:
           oneOf:
             - $ref: '#/components/schemas/InterfaceInlineRoutingProfile'
@@ -19000,7 +20380,7 @@ components:
           description: Inline interface-local routing profile options. It cannot be specified for Subnet-based interfaces.
         isPhysical:
           type: boolean
-          description: Specifies whether this Subnet or VPC Prefix should be attached to the Instance over physical interface.
+          description: Specifies whether this network should be attached to the Instance over a physical interface.
         device:
           type: string
           description: Name of the device to use
@@ -19014,6 +20394,29 @@ components:
           description: 'Index of the virtual function to use, must be specified if isPhysical is false'
           minimum: 0
           maximum: 15
+      oneOf:
+        - required:
+            - subnetId
+        - required:
+            - vpcPrefixId
+        - required:
+            - vpcId
+      dependentRequired:
+        vpcId:
+          - ipFamilies
+        ipFamilies:
+          - vpcId
+      dependentSchemas:
+        subnetId:
+          properties:
+            ipAddress:
+              type: 'null'
+            inlineRoutingProfile:
+              type: 'null'
+        vpcId:
+          properties:
+            ipAddress:
+              type: 'null'
     InfiniBandInterface:
       title: InfiniBandInterface
       type: object
@@ -20227,6 +21630,534 @@ components:
           description: New free-form description.
         ruleDefinition:
           $ref: '#/components/schemas/RuleDefinition'
+    TaskRun:
+      title: TaskRun
+      type: object
+      description: |-
+        A Task Run is a phased, policy-gated execution of one operation across
+        many Racks. List responses populate the summary fields; the
+        single-Task-Run `GET` additionally populates `stats` when
+        `includeStats=true`.
+      required:
+        - id
+        - name
+        - operationType
+        - status
+        - statusReason
+        - totalPhases
+        - created
+        - updated
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: Unique identifier of the Task Run.
+        name:
+          type: string
+          description: Human-readable name of the Task Run.
+        description:
+          type: string
+          description: Optional free-form description.
+        operationType:
+          type: string
+          enum:
+            - PowerControl
+            - FirmwareControl
+          description: Type of operation this Task Run executes. Currently always `FirmwareControl`.
+        operationCode:
+          type: string
+          description: Operation code within the operation type (e.g. `upgrade`).
+        status:
+          type: string
+          enum:
+            - Unknown
+            - Pending
+            - Running
+            - Paused
+            - Completed
+            - Cancelled
+            - Failed
+            - CompletedWithFailures
+          description: Current lifecycle state of the Task Run.
+        statusReason:
+          type: string
+          enum:
+            - Unknown
+            - None
+            - OperatorPaused
+            - PhaseGate
+            - SafetyGate
+            - ConflictRetryTimeout
+          description: |-
+            Why the Task Run is paused or terminal (e.g. `PhaseGate`, `SafetyGate`).
+            `None` when there is no qualifying reason.
+        statusMessage:
+          type: string
+          description: Optional human-readable detail for the current status.
+        totalPhases:
+          type: integer
+          description: Total number of phases the selected targets were divided into.
+        created:
+          type: string
+          format: date-time
+          description: Timestamp when the Task Run was created.
+        updated:
+          type: string
+          format: date-time
+          description: Timestamp when the Task Run was last updated.
+        started:
+          type:
+            - string
+            - 'null'
+          format: date-time
+          description: Timestamp when the Task Run started execution. Null before it starts.
+        finished:
+          type:
+            - string
+            - 'null'
+          format: date-time
+          description: Timestamp when the Task Run reached a terminal state. Null while active.
+        stats:
+          allOf:
+            - $ref: '#/components/schemas/TaskRunStats'
+          description: |-
+            Derived per-phase outcome stats. Present only on the single-Task-Run
+            `GET` when `includeStats=true`; omitted otherwise.
+    TaskRunStats:
+      title: TaskRunStats
+      type: object
+      description: Summarizes target outcomes for the active phase and cumulatively across all phases processed so far.
+      required:
+        - currentPhase
+        - cumulativePhase
+      properties:
+        currentPhase:
+          $ref: '#/components/schemas/TaskRunPhaseStats'
+        cumulativePhase:
+          $ref: '#/components/schemas/TaskRunPhaseStats'
+    TaskRunPhaseStats:
+      title: TaskRunPhaseStats
+      type: object
+      description: Summarizes target outcomes for one phase scope.
+      required:
+        - phaseIndex
+        - selectedTargets
+        - outcomeCounts
+      properties:
+        phaseIndex:
+          type: integer
+          description: Zero-based index of the phase this scope refers to.
+        selectedTargets:
+          type: integer
+          description: Number of targets selected within the scope.
+        outcomeCounts:
+          $ref: '#/components/schemas/TaskRunOutcomeCounts'
+    TaskRunOutcomeCounts:
+      title: TaskRunOutcomeCounts
+      type: object
+      description: Counts terminal target outcomes within a phase scope.
+      required:
+        - completed
+        - failed
+        - terminated
+        - skipped
+      properties:
+        completed:
+          type: integer
+          description: Targets that completed successfully.
+        failed:
+          type: integer
+          description: Targets that failed.
+        terminated:
+          type: integer
+          description: Targets that were terminated (e.g. by cancellation).
+        skipped:
+          type: integer
+          description: Targets that were skipped.
+    TaskRunTarget:
+      title: TaskRunTarget
+      type: object
+      description: |-
+        One materialized per-Rack execution target of a Task Run. Each target
+        drives at most one Task; `taskId` references it (null until the target is
+        submitted).
+      required:
+        - id
+        - runId
+        - rackId
+        - sequenceIndex
+        - phaseIndex
+        - status
+        - created
+        - updated
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: Unique identifier of the target.
+        runId:
+          type: string
+          format: uuid
+          description: ID of the Task Run that owns this target.
+        rackId:
+          type: string
+          format: uuid
+          description: ID of the Rack this target operates on.
+        sequenceIndex:
+          type: integer
+          description: Position of this target in the Task Run's overall processing order.
+        phaseIndex:
+          type: integer
+          description: Zero-based index of the phase this target belongs to.
+        taskId:
+          type:
+            - string
+            - 'null'
+          format: uuid
+          description: |-
+            ID of the Task this target submitted. Null until the target is
+            submitted; drill into execution detail via `GET /task/{taskId}`.
+        status:
+          type: string
+          enum:
+            - Unknown
+            - Pending
+            - Blocked
+            - Submitted
+            - Completed
+            - Failed
+            - Terminated
+            - Skipped
+            - Claimed
+          description: Current execution state of the target.
+        message:
+          type: string
+          description: Optional human-readable detail for the current target status.
+        created:
+          type: string
+          format: date-time
+          description: Timestamp when the target was created.
+        updated:
+          type: string
+          format: date-time
+          description: Timestamp when the target was last updated.
+    TaskRunSiteRequest:
+      title: TaskRunSiteRequest
+      type: object
+      description: Shared request body for the pause and resume lifecycle actions.
+      required:
+        - siteId
+      properties:
+        siteId:
+          type: string
+          format: uuid
+          description: ID of the Site that owns the Task Run (Task Runs are site-scoped).
+    AdvanceTaskRunRequest:
+      title: AdvanceTaskRunRequest
+      type: object
+      description: Request body for advancing a Task Run to its next phase.
+      required:
+        - siteId
+      properties:
+        siteId:
+          type: string
+          format: uuid
+          description: ID of the Site that owns the Task Run.
+        expectedPhaseIndex:
+          type: integer
+          description: |-
+            Optional guard: when set, the phase that would be opened must match
+            this zero-based index, otherwise the advance is rejected.
+    CancelTaskRunRequest:
+      title: CancelTaskRunRequest
+      type: object
+      description: Request body for cancelling a Task Run.
+      required:
+        - siteId
+      properties:
+        siteId:
+          type: string
+          format: uuid
+          description: ID of the Site that owns the Task Run.
+        reason:
+          type: string
+          description: Optional free-form reason recorded with the cancellation.
+    CreateTaskRunRequest:
+      title: CreateTaskRunRequest
+      type: object
+      description: |-
+        Request body for creating a Task Run. `operationType` is inferred from the
+        operation and is not accepted here. Flow performs semantic validation
+        (selector ranges, phase math, operation code membership) server-side.
+      required:
+        - siteId
+        - name
+        - options
+        - operation
+      properties:
+        siteId:
+          type: string
+          format: uuid
+          description: ID of the Site to create the Task Run on.
+        name:
+          type: string
+          description: Human-readable name of the Task Run.
+        description:
+          type: string
+          description: Optional free-form description.
+        selector:
+          allOf:
+            - $ref: '#/components/schemas/TaskRunSelector'
+          description: |-
+            Narrows the candidate Racks. Omit to target the full candidate scope
+            (100%).
+        options:
+          $ref: '#/components/schemas/TaskRunOptions'
+        operation:
+          $ref: '#/components/schemas/TaskRunOperation'
+    TaskRunSelector:
+      title: TaskRunSelector
+      type: object
+      description: Selects a subset of candidate Racks. Percentage is the only supported selector today.
+      properties:
+        percentage:
+          $ref: '#/components/schemas/TaskRunPercentageSelector'
+    TaskRunPercentageSelector:
+      title: TaskRunPercentageSelector
+      type: object
+      description: |-
+        Selects a percentage of the candidate Racks. `seed` is optional; when
+        omitted Flow generates and stores one so the cohort is deterministic and
+        auditable.
+      required:
+        - percent
+      properties:
+        percent:
+          type: integer
+          minimum: 0
+          maximum: 100
+          description: Percentage of candidate Racks to select.
+        seed:
+          type: string
+          description: Optional seed for the deterministic selection.
+    TaskRunOptions:
+      title: TaskRunOptions
+      type: object
+      description: Execution policy for the Task Run.
+      required:
+        - maxConcurrentTargets
+      properties:
+        maxConcurrentTargets:
+          type: integer
+          minimum: 1
+          description: |-
+            Caps how many targets may have active child Tasks at once. Must be
+            greater than zero.
+        safetyPolicy:
+          $ref: '#/components/schemas/TaskRunSafetyPolicy'
+        conflictPolicy:
+          $ref: '#/components/schemas/TaskRunConflictPolicy'
+        orderingPolicy:
+          $ref: '#/components/schemas/TaskRunOrderingPolicy'
+        phasePolicy:
+          $ref: '#/components/schemas/TaskRunPhasePolicy'
+    TaskRunSafetyPolicy:
+      title: TaskRunSafetyPolicy
+      type: object
+      description: A set of gates that pause the Task Run when any one of them trips (OR composition).
+      properties:
+        gates:
+          type: array
+          description: Safety gates evaluated after each target outcome.
+          items:
+            $ref: '#/components/schemas/TaskRunSafetyGate'
+    TaskRunSafetyGate:
+      title: TaskRunSafetyGate
+      type: object
+      description: Exactly one of `failureRate` or `failureCount` must be set.
+      properties:
+        failureRate:
+          $ref: '#/components/schemas/TaskRunFailureRateGate'
+        failureCount:
+          $ref: '#/components/schemas/TaskRunFailureCountGate'
+    TaskRunFailureRateGate:
+      title: TaskRunFailureRateGate
+      type: object
+      description: Pauses when the failed/planned ratio reaches `thresholdPercent` for the scope.
+      required:
+        - thresholdPercent
+      properties:
+        scope:
+          type: string
+          enum:
+            - currentPhase
+            - cumulativeRun
+          default: currentPhase
+          description: Whether the ratio is evaluated over the current phase or the cumulative run.
+        thresholdPercent:
+          type: integer
+          minimum: 0
+          maximum: 100
+          description: Failure-rate percentage at which the gate trips.
+    TaskRunFailureCountGate:
+      title: TaskRunFailureCountGate
+      type: object
+      description: Pauses when the number of failed targets reaches `thresholdCount` for the scope.
+      required:
+        - thresholdCount
+      properties:
+        scope:
+          type: string
+          enum:
+            - currentPhase
+            - cumulativeRun
+          default: currentPhase
+          description: Whether the count is evaluated over the current phase or the cumulative run.
+        thresholdCount:
+          type: integer
+          minimum: 0
+          description: Number of failed targets at which the gate trips.
+    TaskRunConflictPolicy:
+      title: TaskRunConflictPolicy
+      type: object
+      description: Configures how blocked targets are retried. Retry is the only supported strategy today.
+      properties:
+        retry:
+          $ref: '#/components/schemas/TaskRunConflictRetry'
+    TaskRunConflictRetry:
+      title: TaskRunConflictRetry
+      type: object
+      description: |-
+        Retry backoff for blocked targets. Durations are Go duration strings
+        (e.g. `30m`, `10s`); an empty value means "use the operation default".
+      properties:
+        retryTimeout:
+          type: string
+          description: Total time to keep retrying a blocked target before giving up.
+        initialRetryDelay:
+          type: string
+          description: Delay before the first retry.
+        maxRetryDelay:
+          type: string
+          description: Cap on the exponentially growing retry delay.
+    TaskRunOrderingPolicy:
+      title: TaskRunOrderingPolicy
+      type: object
+      description: Controls the order in which targets are processed. Random is the only supported ordering today.
+      properties:
+        random:
+          $ref: '#/components/schemas/TaskRunRandomOrdering'
+    TaskRunRandomOrdering:
+      title: TaskRunRandomOrdering
+      type: object
+      description: Orders targets randomly. `seed` is optional; Flow generates and stores one when omitted.
+      properties:
+        seed:
+          type: string
+          description: Optional seed for the deterministic random ordering.
+    TaskRunPhasePolicy:
+      title: TaskRunPhasePolicy
+      type: object
+      description: |-
+        Divides the selected targets into phases. Set at most one of `equal`,
+        `percentage`, or `count`; omit the whole policy for a single phase
+        covering all targets.
+      properties:
+        equal:
+          $ref: '#/components/schemas/TaskRunEqualPhases'
+        percentage:
+          $ref: '#/components/schemas/TaskRunPercentagePhases'
+        count:
+          $ref: '#/components/schemas/TaskRunCountPhases'
+        autoAdvance:
+          type: boolean
+          default: false
+          description: |-
+            When true, phases advance automatically as long as safety gates are
+            not tripped. When false (default) each completed phase pauses at a
+            phase gate until advanced explicitly.
+    TaskRunEqualPhases:
+      title: TaskRunEqualPhases
+      type: object
+      description: Splits targets into `phaseCount` roughly equal phases.
+      required:
+        - phaseCount
+      properties:
+        phaseCount:
+          type: integer
+          minimum: 1
+          description: Number of equally sized phases.
+    TaskRunPercentagePhases:
+      title: TaskRunPercentagePhases
+      type: object
+      description: Splits targets by percentage. Values must sum to 100.
+      required:
+        - phases
+      properties:
+        phases:
+          type: array
+          description: Per-phase percentages, in phase order; must sum to 100.
+          items:
+            type: integer
+            minimum: 0
+            maximum: 100
+    TaskRunCountPhases:
+      title: TaskRunCountPhases
+      type: object
+      description: Splits targets by explicit counts. A generated final phase covers any remaining targets.
+      required:
+        - phases
+      properties:
+        phases:
+          type: array
+          description: Per-phase target counts, in phase order.
+          items:
+            type: integer
+            minimum: 0
+    TaskRunOperation:
+      title: TaskRunOperation
+      type: object
+      description: The operation the Task Run executes. Firmware is the only supported operation today.
+      required:
+        - firmware
+      properties:
+        firmware:
+          $ref: '#/components/schemas/TaskRunFirmwareOperation'
+        excludeRunIds:
+          type: array
+          description: |-
+            Excludes Racks materialized by prior Task Runs from this Task Run's
+            candidate scope.
+          items:
+            type: string
+            format: uuid
+    TaskRunFirmwareOperation:
+      title: TaskRunFirmwareOperation
+      type: object
+      description: Configures a firmware rollout.
+      required:
+        - version
+      properties:
+        version:
+          type: string
+          description: Target firmware version to roll out.
+        ruleId:
+          type:
+            - string
+            - 'null'
+          format: uuid
+          description: |-
+            Operation Rule to pin for each target's firmware Task. Null to let
+            Flow's default rule resolution pick one.
+        overrideReadinessCheck:
+          type: boolean
+          default: false
+          description: Skip the pre-flight readiness check when true.
+        subTargets:
+          type: array
+          description: Optional subset of firmware sub-targets to update.
+          items:
+            type: string
     TaskReportV1:
       title: TaskReportV1
       type: object
@@ -21867,7 +23798,9 @@ components:
             - string
             - 'null'
           pattern: '^([0-9A-Fa-f]{2}[:-]){5}([0-9A-Fa-f]{2})$'
-          description: MAC address of the Expected Machine's BMC (Baseboard Management Controller)
+          deprecated: true
+          description: |-
+            The Expected Machine's BMC MAC address is immutable after creation. Omit this field, or provide another case/separator spelling of the current MAC as a compatibility no-op.
         defaultBmcUsername:
           type:
             - string
@@ -21909,7 +23842,7 @@ components:
             - string
             - 'null'
           description: |-
-            Optional BMC IP address (IPv4 or IPv6). A non-null address sets the value and pre-allocates a reserved IP for the BMC. An explicit null clears the value. In an individual update, omission preserves the current value. Empty strings are invalid.
+            Optional BMC IP address (IPv4 or IPv6). A non-empty address sets the value and pre-allocates a reserved IP for the BMC. An empty string clears the value. Omission or null preserves the current value.
         name:
           type:
             - string
@@ -22841,6 +24774,8 @@ components:
       examples:
         - id: lenovo.sr650v2.cpu.1
           siteId: 60189e9c-7d12-438c-b9ca-6998d9c364b1
+          description: Lenovo SR650 V2 compute node
+          schemaVersion: 5
           deviceType: gpu
           associatedMachineIds:
             - fm100ht4v4mce2qstjnl8970nnj3ie6ecek4mtjn27pea4kre5gsa49jg0g
@@ -22879,6 +24814,15 @@ components:
           format: uuid
           description: ID of the Site this SKU belongs to
           readOnly: true
+        description:
+          type: string
+          description: Human-readable SKU description
+          readOnly: true
+        schemaVersion:
+          type: integer
+          format: uint32
+          description: Core SKU schema version when available
+          readOnly: true
         deviceType:
           type:
             - string
@@ -22904,6 +24848,69 @@ components:
           format: date-time
           description: ISO 8601 datetime when the SKU was last updated
           readOnly: true
+    SkuCreateRequest:
+      title: SkuCreateRequest
+      type: object
+      description: Request data to create a SKU on a Site's NICo Core service.
+      examples:
+        - siteId: 60189e9c-7d12-438c-b9ca-6998d9c364b1
+          id: dgx-h100
+          description: DGX H100 compute node
+          deviceType: gpu-server
+          components:
+            chassis:
+              vendor: NVIDIA
+              model: DGX H100
+              architecture: x86_64
+      properties:
+        siteId:
+          type: string
+          format: uuid
+          description: ID of the Site where the SKU will be created
+        id:
+          type: string
+          minLength: 1
+          description: Unique SKU identifier
+        description:
+          type: string
+          description: Human-readable SKU description
+        deviceType:
+          type:
+            - string
+            - 'null'
+          description: Optional device type identifier
+        components:
+          $ref: '#/components/schemas/SkuComponents'
+      required:
+        - siteId
+        - id
+        - components
+    SkuUpdateRequest:
+      title: SkuUpdateRequest
+      type: object
+      description: |-
+        Request data to update a SKU.
+        At least one of description, deviceType, or components must be provided.
+        The service preserves the schema version for metadata-only updates.
+        Component updates replace the SKU using the current schema version,
+        migrating legacy SKU schemas to the current format.
+      examples:
+        - description: DGX H100 compute node with InfiniBand
+          components:
+            infinibandDevices:
+              - vendor: Mellanox Technologies
+                model: MT2910 Family [ConnectX-7]
+                count: 4
+                inactiveDevices: []
+      properties:
+        description:
+          type: string
+          description: Replacement SKU description
+        deviceType:
+          type: string
+          description: Replacement device type identifier
+        components:
+          $ref: '#/components/schemas/SkuComponents'
     SkuComponents:
       title: SkuComponents
       type: object
@@ -22951,6 +24958,11 @@ components:
       title: SkuCpu
       type: object
       description: CPU component in a SKU
+      examples:
+        - vendor: ARM
+          model: Neoverse-V2
+          threadCount: 72
+          count: 2
       properties:
         vendor:
           type: string
@@ -22970,6 +24982,11 @@ components:
       title: SkuGpu
       type: object
       description: GPU component in a SKU
+      examples:
+        - vendor: NVIDIA
+          model: NVIDIA GB200
+          totalMemory: 189471 MiB
+          count: 4
       properties:
         vendor:
           type: string
@@ -22988,6 +25005,10 @@ components:
       title: SkuMemory
       type: object
       description: Memory component in a SKU
+      examples:
+        - capacityMb: 491520
+          memoryType: LPDDR5
+          count: 2
       properties:
         capacityMb:
           type: integer
@@ -23004,25 +25025,65 @@ components:
       title: SkuStorage
       type: object
       description: Storage component in a SKU
+      examples:
+        - vendor: ''
+          model: SAMSUNG MZ1L21T9HCLS-00A07
+          capacityMb: 0
+          count: 1
+          minSizeMiB: 1831420
+          maxSizeMiB: 1831420
+          pciPatterns:
+            - ^/devices/pci.*nvme0$
+        - vendor: ''
+          model: SAMSUNG MZTL63T8HFLT-00AW7
+          capacityMb: 0
+          count: 8
+          minSizeMiB: 3662840
+          maxSizeMiB: 3662840
+          pciPatterns:
+            - ^/devices/pci.*nvme[1-8]$
       properties:
         vendor:
           type: string
-          description: Vendor of the storage device
+          readOnly: true
+          description: Storage vendor used for schema version 4 matching. Read-only in REST mutation requests and preserved in responses for legacy SKUs. Schema version 5 does not use this field.
         model:
           type: string
-          description: Model of the storage device
+          description: Informational storage model. Starting with the 2.1 release, NICo does not use this field for storage matching or validation.
         capacityMb:
           type: integer
           format: uint32
-          description: Capacity in megabytes
+          readOnly: true
+          description: Storage capacity in megabytes used for schema version 4 matching. Read-only in REST mutation requests and preserved in responses for legacy SKUs. Schema version 5 uses minSizeMiB and maxSizeMiB instead.
         count:
           type: integer
           format: uint32
           description: Number of storage devices present
+        minSizeMiB:
+          type:
+            - integer
+            - 'null'
+          format: uint32
+          description: Inclusive minimum size in MiB for each storage device. Null or omission means no lower bound. Used for SKU schema version 5 and later.
+        maxSizeMiB:
+          type:
+            - integer
+            - 'null'
+          format: uint32
+          description: Inclusive maximum size in MiB for each storage device. Null or omission means no upper bound. Used for SKU schema version 5 and later.
+        pciPatterns:
+          type: array
+          description: Regular expressions matched against storage sysfs PCI paths. An empty or omitted list disables PCI location matching. Used for SKU schema version 5 and later.
+          items:
+            type: string
     SkuChassis:
       title: SkuChassis
       type: object
       description: Chassis component in a SKU
+      examples:
+        - vendor: NVIDIA
+          model: GB200 NVL
+          architecture: aarch64
       properties:
         vendor:
           type: string
@@ -23030,6 +25091,9 @@ components:
         model:
           type: string
           description: Model of the chassis
+        architecture:
+          type: string
+          description: Architecture of the chassis
     SkuEthernetDevice:
       title: SkuEthernetDevice
       type: object
@@ -23045,10 +25109,18 @@ components:
           type: integer
           format: uint32
           description: Number of ethernet devices present
+        isConnected:
+          type: boolean
+          description: Whether the ethernet device is connected
     SkuInfinibandDevice:
       title: SkuInfinibandDevice
       type: object
       description: Infiniband device component in a SKU
+      examples:
+        - vendor: Mellanox Technologies
+          model: MT2910 Family [ConnectX-7]
+          count: 4
+          inactiveDevices: []
       properties:
         vendor:
           type: string
@@ -23060,6 +25132,12 @@ components:
           type: integer
           format: uint32
           description: Number of infiniband devices present
+        inactiveDevices:
+          type: array
+          description: Zero-based indexes of inactive devices
+          items:
+            type: integer
+            format: uint32
     SkuTpm:
       title: SkuTpm
       type: object
@@ -25760,6 +27838,18 @@ components:
                 message: Error validating request data
                 data:
                   name: A value is required
+    ResourceExhaustedError:
+      description: Error response when the Controller cannot allocate a requested resource because capacity is exhausted
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/NICoAPIError'
+          examples:
+            example-1:
+              value:
+                source: nico
+                message: VPC prefix capacity exhausted
+                data: null
     HostFirmwareConfigCoreUnavailable:
       description: Core gRPC API is unavailable, so the host firmware config request cannot be served.
       content:

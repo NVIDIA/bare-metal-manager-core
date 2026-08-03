@@ -293,7 +293,7 @@ pub fn handle_profile_sync(
     );
 
     let Some(serializable_profile_pb) = request.serializable_profile else {
-        emit(ScoutMlxRequestRejected::profile_sync());
+        emit(ScoutMlxRequestRejected::ProfileSync {});
         return mlx_device_pb::MlxDeviceProfileSyncResponse {
             reply: Some(
                 mlx_device_pb::mlx_device_profile_sync_response::Reply::Error(
@@ -309,7 +309,9 @@ pub fn handle_profile_sync(
     let serializable_profile: SerializableProfile = match serializable_profile_pb.try_into() {
         Ok(profile) => profile,
         Err(e) => {
-            emit(ScoutMlxOperationFailed::profile_sync_decode(e.to_string()));
+            emit(ScoutMlxOperationFailed::ProfileSyncDecode {
+                error: e.to_string(),
+            });
             return mlx_device_pb::MlxDeviceProfileSyncResponse {
                 reply: Some(
                     mlx_device_pb::mlx_device_profile_sync_response::Reply::Error(
@@ -340,9 +342,9 @@ pub fn handle_profile_sync(
                     ),
                 },
                 Err(e) => {
-                    emit(ScoutMlxOperationFailed::profile_sync_serialize(
-                        e.to_string(),
-                    ));
+                    emit(ScoutMlxOperationFailed::ProfileSyncSerialize {
+                        error: e.to_string(),
+                    });
                     mlx_device_pb::MlxDeviceProfileSyncResponse {
                         reply: Some(
                             mlx_device_pb::mlx_device_profile_sync_response::Reply::Error(
@@ -358,11 +360,11 @@ pub fn handle_profile_sync(
             }
         }
         Err(e) => {
-            emit(ScoutMlxProfileOperationFailed::profile_sync_execute(
-                request.device_id.clone(),
-                request.profile_name.clone(),
-                e.to_string(),
-            ));
+            emit(ScoutMlxProfileOperationFailed::Sync {
+                device_id: request.device_id.clone(),
+                profile_name: request.profile_name.clone(),
+                error: e.to_string(),
+            });
             mlx_device_pb::MlxDeviceProfileSyncResponse {
                 reply: Some(
                     mlx_device_pb::mlx_device_profile_sync_response::Reply::Error(
@@ -387,7 +389,7 @@ pub fn handle_profile_compare(
     );
 
     let Some(serializable_profile_pb) = request.serializable_profile else {
-        emit(ScoutMlxRequestRejected::profile_compare());
+        emit(ScoutMlxRequestRejected::ProfileCompare {});
         return mlx_device_pb::MlxDeviceProfileCompareResponse {
             reply: Some(
                 mlx_device_pb::mlx_device_profile_compare_response::Reply::Error(
@@ -403,9 +405,9 @@ pub fn handle_profile_compare(
     let serializable_profile: SerializableProfile = match serializable_profile_pb.try_into() {
         Ok(profile) => profile,
         Err(e) => {
-            emit(ScoutMlxOperationFailed::profile_compare_decode(
-                e.to_string(),
-            ));
+            emit(ScoutMlxOperationFailed::ProfileCompareDecode {
+                error: e.to_string(),
+            });
             return mlx_device_pb::MlxDeviceProfileCompareResponse {
                 reply: Some(
                     mlx_device_pb::mlx_device_profile_compare_response::Reply::Error(
@@ -436,9 +438,9 @@ pub fn handle_profile_compare(
                     ),
                 },
                 Err(e) => {
-                    emit(ScoutMlxOperationFailed::profile_compare_serialize(
-                        e.to_string(),
-                    ));
+                    emit(ScoutMlxOperationFailed::ProfileCompareSerialize {
+                        error: e.to_string(),
+                    });
                     mlx_device_pb::MlxDeviceProfileCompareResponse {
                         reply: Some(
                             mlx_device_pb::mlx_device_profile_compare_response::Reply::Error(
@@ -454,11 +456,11 @@ pub fn handle_profile_compare(
             }
         }
         Err(e) => {
-            emit(ScoutMlxProfileOperationFailed::profile_compare_execute(
-                request.device_id.clone(),
-                request.profile_name.clone(),
-                e.to_string(),
-            ));
+            emit(ScoutMlxProfileOperationFailed::Compare {
+                device_id: request.device_id.clone(),
+                profile_name: request.profile_name.clone(),
+                error: e.to_string(),
+            });
             mlx_device_pb::MlxDeviceProfileCompareResponse {
                 reply: Some(
                     mlx_device_pb::mlx_device_profile_compare_response::Reply::Error(
@@ -485,9 +487,9 @@ pub fn handle_lockdown_lock(
     let manager = match LockdownManager::new() {
         Ok(m) => m,
         Err(e) => {
-            emit(ScoutMlxOperationFailed::lockdown_lock_initialize(
-                e.to_string(),
-            ));
+            emit(ScoutMlxOperationFailed::LockdownLockInitialize {
+                error: e.to_string(),
+            });
             return mlx_device_pb::MlxDeviceLockdownResponse {
                 reply: Some(mlx_device_pb::mlx_device_lockdown_response::Reply::Error(
                     mlx_device_pb::MlxDeviceStreamError {
@@ -514,10 +516,10 @@ pub fn handle_lockdown_lock(
             }
         }
         Err(e) => {
-            emit(ScoutMlxDeviceOperationFailed::lockdown_lock_execute(
-                request.device_id.clone(),
-                lockdown_error_context(&e, &request.key),
-            ));
+            emit(ScoutMlxDeviceOperationFailed::LockdownLockExecute {
+                device_id: request.device_id.clone(),
+                error: lockdown_error_context(&e, &request.key),
+            });
             mlx_device_pb::MlxDeviceLockdownResponse {
                 reply: Some(mlx_device_pb::mlx_device_lockdown_response::Reply::Error(
                     mlx_device_pb::MlxDeviceStreamError {
@@ -542,9 +544,9 @@ pub fn handle_lockdown_unlock(
     let manager = match LockdownManager::new() {
         Ok(m) => m,
         Err(e) => {
-            emit(ScoutMlxOperationFailed::lockdown_unlock_initialize(
-                e.to_string(),
-            ));
+            emit(ScoutMlxOperationFailed::LockdownUnlockInitialize {
+                error: e.to_string(),
+            });
             return mlx_device_pb::MlxDeviceLockdownResponse {
                 reply: Some(mlx_device_pb::mlx_device_lockdown_response::Reply::Error(
                     mlx_device_pb::MlxDeviceStreamError {
@@ -571,10 +573,10 @@ pub fn handle_lockdown_unlock(
             }
         }
         Err(e) => {
-            emit(ScoutMlxDeviceOperationFailed::lockdown_unlock_execute(
-                request.device_id.clone(),
-                lockdown_error_context(&e, &request.key),
-            ));
+            emit(ScoutMlxDeviceOperationFailed::LockdownUnlockExecute {
+                device_id: request.device_id.clone(),
+                error: lockdown_error_context(&e, &request.key),
+            });
             mlx_device_pb::MlxDeviceLockdownResponse {
                 reply: Some(mlx_device_pb::mlx_device_lockdown_response::Reply::Error(
                     mlx_device_pb::MlxDeviceStreamError {
@@ -599,9 +601,9 @@ pub fn handle_lockdown_status(
     let manager = match LockdownManager::new() {
         Ok(m) => m,
         Err(e) => {
-            emit(ScoutMlxOperationFailed::lockdown_status_initialize(
-                e.to_string(),
-            ));
+            emit(ScoutMlxOperationFailed::LockdownStatusInitialize {
+                error: e.to_string(),
+            });
             return mlx_device_pb::MlxDeviceLockdownResponse {
                 reply: Some(mlx_device_pb::mlx_device_lockdown_response::Reply::Error(
                     mlx_device_pb::MlxDeviceStreamError {
@@ -628,10 +630,10 @@ pub fn handle_lockdown_status(
             }
         }
         Err(e) => {
-            emit(ScoutMlxDeviceOperationFailed::lockdown_status_execute(
-                request.device_id.clone(),
-                e.to_string(),
-            ));
+            emit(ScoutMlxDeviceOperationFailed::LockdownStatusExecute {
+                device_id: request.device_id.clone(),
+                error: e.to_string(),
+            });
             mlx_device_pb::MlxDeviceLockdownResponse {
                 reply: Some(mlx_device_pb::mlx_device_lockdown_response::Reply::Error(
                     mlx_device_pb::MlxDeviceStreamError {
@@ -667,10 +669,10 @@ pub fn handle_info_device(
             }
         }
         Err(e) => {
-            emit(ScoutMlxDeviceOperationFailed::device_info_discover(
-                request.device_id.clone(),
-                e.clone(),
-            ));
+            emit(ScoutMlxDeviceOperationFailed::DeviceInfoDiscover {
+                device_id: request.device_id.clone(),
+                error: e.clone(),
+            });
             mlx_device_pb::MlxDeviceInfoDeviceResponse {
                 reply: Some(
                     mlx_device_pb::mlx_device_info_device_response::Reply::Error(
@@ -694,7 +696,9 @@ pub fn handle_info_report(
         match libmlx::device::filters::DeviceFilterSet::try_from(filter_set_pb) {
             Ok(filters) => MlxDeviceReport::new().with_filter_set(filters),
             Err(e) => {
-                emit(ScoutMlxOperationFailed::info_report_decode(e.to_string()));
+                emit(ScoutMlxOperationFailed::InfoReportDecode {
+                    error: e.to_string(),
+                });
                 return mlx_device_pb::MlxDeviceInfoReportResponse {
                     reply: Some(
                         mlx_device_pb::mlx_device_info_report_response::Reply::Error(
@@ -726,7 +730,7 @@ pub fn handle_info_report(
             }
         }
         Err(e) => {
-            emit(ScoutMlxOperationFailed::info_report_execute(e.clone()));
+            emit(ScoutMlxOperationFailed::InfoReportExecute { error: e.clone() });
             mlx_device_pb::MlxDeviceInfoReportResponse {
                 reply: Some(
                     mlx_device_pb::mlx_device_info_report_response::Reply::Error(
@@ -814,10 +818,10 @@ pub fn handle_config_query(
     let registry = match registries::get(&request.registry_name) {
         Some(r) => r.clone(),
         None => {
-            emit(ScoutMlxConfigRegistryLookupFailed::config_query_lookup(
-                request.device_id.clone(),
-                request.registry_name.clone(),
-            ));
+            emit(ScoutMlxConfigRegistryLookupFailed::Query {
+                device_id: request.device_id.clone(),
+                registry_name: request.registry_name.clone(),
+            });
             return mlx_device_pb::MlxDeviceConfigQueryResponse {
                 reply: Some(
                     mlx_device_pb::mlx_device_config_query_response::Reply::Error(
@@ -861,11 +865,11 @@ pub fn handle_config_query(
                     ),
                 },
                 Err(e) => {
-                    emit(ScoutMlxConfigOperationFailed::config_query_serialize(
-                        request.device_id.clone(),
-                        request.registry_name.clone(),
-                        e.to_string(),
-                    ));
+                    emit(ScoutMlxConfigOperationFailed::QuerySerialize {
+                        device_id: request.device_id.clone(),
+                        registry_name: request.registry_name.clone(),
+                        error: e.to_string(),
+                    });
                     mlx_device_pb::MlxDeviceConfigQueryResponse {
                         reply: Some(
                             mlx_device_pb::mlx_device_config_query_response::Reply::Error(
@@ -884,11 +888,11 @@ pub fn handle_config_query(
             }
         }
         Err(e) => {
-            emit(ScoutMlxConfigOperationFailed::config_query_execute(
-                request.device_id.clone(),
-                request.registry_name.clone(),
-                e.to_string(),
-            ));
+            emit(ScoutMlxConfigOperationFailed::QueryExecute {
+                device_id: request.device_id.clone(),
+                registry_name: request.registry_name.clone(),
+                error: e.to_string(),
+            });
             mlx_device_pb::MlxDeviceConfigQueryResponse {
                 reply: Some(
                     mlx_device_pb::mlx_device_config_query_response::Reply::Error(
@@ -920,10 +924,10 @@ pub fn handle_config_set(
     let registry = match registries::get(&request.registry_name) {
         Some(r) => r.clone(),
         None => {
-            emit(ScoutMlxConfigRegistryLookupFailed::config_set_lookup(
-                request.device_id.clone(),
-                request.registry_name.clone(),
-            ));
+            emit(ScoutMlxConfigRegistryLookupFailed::Set {
+                device_id: request.device_id.clone(),
+                registry_name: request.registry_name.clone(),
+            });
             return mlx_device_pb::MlxDeviceConfigSetResponse {
                 reply: Some(mlx_device_pb::mlx_device_config_set_response::Reply::Error(
                     mlx_device_pb::MlxDeviceStreamError {
@@ -967,11 +971,11 @@ pub fn handle_config_set(
             }
         }
         Err(e) => {
-            emit(ScoutMlxConfigOperationFailed::config_set_execute(
-                request.device_id.clone(),
-                request.registry_name.clone(),
-                e.to_string(),
-            ));
+            emit(ScoutMlxConfigOperationFailed::SetExecute {
+                device_id: request.device_id.clone(),
+                registry_name: request.registry_name.clone(),
+                error: e.to_string(),
+            });
             mlx_device_pb::MlxDeviceConfigSetResponse {
                 reply: Some(mlx_device_pb::mlx_device_config_set_response::Reply::Error(
                     mlx_device_pb::MlxDeviceStreamError {
@@ -1002,10 +1006,10 @@ pub fn handle_config_sync(
     let registry = match registries::get(&request.registry_name) {
         Some(r) => r.clone(),
         None => {
-            emit(ScoutMlxConfigRegistryLookupFailed::config_sync_lookup(
-                request.device_id.clone(),
-                request.registry_name.clone(),
-            ));
+            emit(ScoutMlxConfigRegistryLookupFailed::Sync {
+                device_id: request.device_id.clone(),
+                registry_name: request.registry_name.clone(),
+            });
             return mlx_device_pb::MlxDeviceConfigSyncResponse {
                 reply: Some(
                     mlx_device_pb::mlx_device_config_sync_response::Reply::Error(
@@ -1050,11 +1054,11 @@ pub fn handle_config_sync(
                     ),
                 },
                 Err(e) => {
-                    emit(ScoutMlxConfigOperationFailed::config_sync_serialize(
-                        request.device_id.clone(),
-                        request.registry_name.clone(),
-                        e.to_string(),
-                    ));
+                    emit(ScoutMlxConfigOperationFailed::SyncSerialize {
+                        device_id: request.device_id.clone(),
+                        registry_name: request.registry_name.clone(),
+                        error: e.to_string(),
+                    });
                     mlx_device_pb::MlxDeviceConfigSyncResponse {
                         reply: Some(
                             mlx_device_pb::mlx_device_config_sync_response::Reply::Error(
@@ -1073,11 +1077,11 @@ pub fn handle_config_sync(
             }
         }
         Err(e) => {
-            emit(ScoutMlxConfigOperationFailed::config_sync_execute(
-                request.device_id.clone(),
-                request.registry_name.clone(),
-                e.to_string(),
-            ));
+            emit(ScoutMlxConfigOperationFailed::SyncExecute {
+                device_id: request.device_id.clone(),
+                registry_name: request.registry_name.clone(),
+                error: e.to_string(),
+            });
             mlx_device_pb::MlxDeviceConfigSyncResponse {
                 reply: Some(
                     mlx_device_pb::mlx_device_config_sync_response::Reply::Error(
@@ -1110,10 +1114,10 @@ pub fn handle_config_compare(
     let registry = match registries::get(&request.registry_name) {
         Some(r) => r.clone(),
         None => {
-            emit(ScoutMlxConfigRegistryLookupFailed::config_compare_lookup(
-                request.device_id.clone(),
-                request.registry_name.clone(),
-            ));
+            emit(ScoutMlxConfigRegistryLookupFailed::Compare {
+                device_id: request.device_id.clone(),
+                registry_name: request.registry_name.clone(),
+            });
             return mlx_device_pb::MlxDeviceConfigCompareResponse {
                 reply: Some(
                     mlx_device_pb::mlx_device_config_compare_response::Reply::Error(
@@ -1158,11 +1162,11 @@ pub fn handle_config_compare(
                     ),
                 },
                 Err(e) => {
-                    emit(ScoutMlxConfigOperationFailed::config_compare_serialize(
-                        request.device_id.clone(),
-                        request.registry_name.clone(),
-                        e.to_string(),
-                    ));
+                    emit(ScoutMlxConfigOperationFailed::CompareSerialize {
+                        device_id: request.device_id.clone(),
+                        registry_name: request.registry_name.clone(),
+                        error: e.to_string(),
+                    });
                     mlx_device_pb::MlxDeviceConfigCompareResponse {
                         reply: Some(
                             mlx_device_pb::mlx_device_config_compare_response::Reply::Error(
@@ -1181,11 +1185,11 @@ pub fn handle_config_compare(
             }
         }
         Err(e) => {
-            emit(ScoutMlxConfigOperationFailed::config_compare_execute(
-                request.device_id.clone(),
-                request.registry_name.clone(),
-                e.to_string(),
-            ));
+            emit(ScoutMlxConfigOperationFailed::CompareExecute {
+                device_id: request.device_id.clone(),
+                registry_name: request.registry_name.clone(),
+                error: e.to_string(),
+            });
             mlx_device_pb::MlxDeviceConfigCompareResponse {
                 reply: Some(
                     mlx_device_pb::mlx_device_config_compare_response::Reply::Error(
@@ -1391,7 +1395,6 @@ mod tests {
         event_name: String,
         operation: Option<String>,
         failure_stage: Option<String>,
-        failure_kind: Option<String>,
         device_id: Option<String>,
         registry_name: Option<String>,
     }
@@ -1405,7 +1408,7 @@ mod tests {
     }
 
     impl HandlerFailure {
-        fn metric_labels(self) -> [(&'static str, &'static str); 3] {
+        fn metric_labels(self) -> [(&'static str, &'static str); 2] {
             let operation = match self {
                 Self::MissingProfileCompare => "profile_compare",
                 Self::MissingProfileSync => "profile_sync",
@@ -1419,15 +1422,7 @@ mod tests {
                 Self::MissingProfileCompare | Self::MissingProfileSync => "validate",
                 _ => "lookup",
             };
-            let failure_kind = match self {
-                Self::MissingProfileCompare | Self::MissingProfileSync => "invalid_request",
-                _ => "not_found",
-            };
-            [
-                ("operation", operation),
-                ("failure_stage", failure_stage),
-                ("failure_kind", failure_kind),
-            ]
+            [("operation", operation), ("failure_stage", failure_stage)]
         }
 
         fn invoke(self) -> mlx_device_pb::MlxDeviceStreamError {
@@ -1572,7 +1567,6 @@ mod tests {
                             event_name: "scout_mlx_registry_lookup_failed".to_string(),
                             operation: Some("registry_show".to_string()),
                             failure_stage: Some("lookup".to_string()),
-                            failure_kind: Some("not_found".to_string()),
                             device_id: None,
                             registry_name: Some(REGISTRY.to_string()),
                         }],
@@ -1592,7 +1586,6 @@ mod tests {
                             event_name: "scout_mlx_config_registry_lookup_failed".to_string(),
                             operation: Some("config_query".to_string()),
                             failure_stage: Some("lookup".to_string()),
-                            failure_kind: Some("not_found".to_string()),
                             device_id: Some(DEVICE_ID.to_string()),
                             registry_name: Some(REGISTRY.to_string()),
                         }],
@@ -1612,7 +1605,6 @@ mod tests {
                             event_name: "scout_mlx_config_registry_lookup_failed".to_string(),
                             operation: Some("config_compare".to_string()),
                             failure_stage: Some("lookup".to_string()),
-                            failure_kind: Some("not_found".to_string()),
                             device_id: Some(DEVICE_ID.to_string()),
                             registry_name: Some(REGISTRY.to_string()),
                         }],
@@ -1632,7 +1624,6 @@ mod tests {
                             event_name: "scout_mlx_config_registry_lookup_failed".to_string(),
                             operation: Some("config_set".to_string()),
                             failure_stage: Some("lookup".to_string()),
-                            failure_kind: Some("not_found".to_string()),
                             device_id: Some(DEVICE_ID.to_string()),
                             registry_name: Some(REGISTRY.to_string()),
                         }],
@@ -1652,7 +1643,6 @@ mod tests {
                             event_name: "scout_mlx_config_registry_lookup_failed".to_string(),
                             operation: Some("config_sync".to_string()),
                             failure_stage: Some("lookup".to_string()),
-                            failure_kind: Some("not_found".to_string()),
                             device_id: Some(DEVICE_ID.to_string()),
                             registry_name: Some(REGISTRY.to_string()),
                         }],
@@ -1677,7 +1667,6 @@ mod tests {
                             event_name: event_name.to_string(),
                             operation: log.field("operation").map(str::to_string),
                             failure_stage: log.field("failure_stage").map(str::to_string),
-                            failure_kind: log.field("failure_kind").map(str::to_string),
                             device_id: log.field("device_id").map(str::to_string),
                             registry_name: log.field("registry_name").map(str::to_string),
                         })

@@ -287,6 +287,10 @@ impl MachineId {
             MachineType::Host,
         )
     }
+
+    pub(crate) fn is_matching_prefix(s: &str) -> bool {
+        s.starts_with(MACHINE_ID_PREFIX)
+    }
 }
 
 impl DbPrimaryUuid for MachineId {

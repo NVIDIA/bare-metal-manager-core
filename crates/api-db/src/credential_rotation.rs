@@ -73,8 +73,11 @@ use crate::DatabaseError;
 use crate::db_read::DbReader;
 
 /// Backoff floor: the first failed rotation attempt quarantines the device for
-/// this long before the engine will retry it.
-const BACKOFF_BASE_SECS: i64 = 60;
+/// this long before the engine will retry it. Set to 15 minutes so retries are
+/// spaced far enough apart -- from the very first failure -- that repeated failed
+/// BMC logins cannot cluster tightly enough to trip a device's account-lockout
+/// policy (whose failure counters reset on the order of minutes).
+const BACKOFF_BASE_SECS: i64 = 900;
 /// Backoff ceiling: the quarantine window never grows past this (~1 hour), so a
 /// permanently failing device is still retried periodically.
 const BACKOFF_CAP_SECS: i64 = 3600;
@@ -1297,11 +1300,11 @@ mod tests {
     fn backoff_is_exponential_and_capped() {
         let now = Utc::now();
 
-        // prior_attempts = 0 is the first failure: the base floor (1 minute).
-        assert_eq!(backoff_until(0, now), now + Duration::seconds(60));
-        // Each subsequent failure doubles the window.
-        assert_eq!(backoff_until(1, now), now + Duration::seconds(120));
-        assert_eq!(backoff_until(2, now), now + Duration::seconds(240));
+        // prior_attempts = 0 is the first failure: the base floor (15 minutes).
+        assert_eq!(backoff_until(0, now), now + Duration::minutes(15));
+        // Each subsequent failure doubles the window until it reaches the cap.
+        assert_eq!(backoff_until(1, now), now + Duration::minutes(30));
+        assert_eq!(backoff_until(2, now), now + Duration::minutes(60));
         // A large attempt count saturates at the cap rather than overflowing.
         assert_eq!(
             backoff_until(1_000, now),
@@ -1313,7 +1316,7 @@ mod tests {
             now + Duration::seconds(BACKOFF_CAP_SECS)
         );
         // A negative count (never produced in practice) floors at the base.
-        assert_eq!(backoff_until(-5, now), now + Duration::seconds(60));
+        assert_eq!(backoff_until(-5, now), now + Duration::minutes(15));
     }
 
     #[crate::sqlx_test]

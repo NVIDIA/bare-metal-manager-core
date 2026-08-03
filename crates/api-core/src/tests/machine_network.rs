@@ -157,6 +157,7 @@ async fn test_clear_use_admin_network_changed_keeps_newer_version_flag(pool: sql
 
 #[crate::sqlx_test]
 async fn test_managed_host_network_config(pool: sqlx::PgPool) {
+    // The default fixture omits `lo-ip-v6`, which must preserve the existing IPv4-only response.
     let env = api_fixtures::create_test_env(pool).await;
     let host_config = env.managed_host_config();
     let mh = dpu::create_dpu_machine_in_waiting_for_network_install(&env, &host_config).await;
@@ -168,9 +169,18 @@ async fn test_managed_host_network_config(pool: sqlx::PgPool) {
         .get_managed_host_network_config(tonic::Request::new(ManagedHostNetworkConfigRequest {
             dpu_machine_id: Some(dpu_machine_id),
         }))
-        .await;
+        .await
+        .unwrap()
+        .into_inner();
 
-    assert!(response.is_ok());
+    assert!(
+        response
+            .managed_host_config
+            .expect("managed host config")
+            .loopback_ip_v6
+            .is_none(),
+        "sites without lo-ip-v6 must remain IPv4-only"
+    );
 }
 
 #[crate::sqlx_test]
@@ -343,20 +353,24 @@ async fn test_managed_host_network_config_includes_routing_profile_prefix_lists(
             routing_profiles: HashMap::from([(
                 profile_type.to_string(),
                 FnnRoutingProfileConfig {
-                    internal: true,
-                    access_tier: 0,
-                    accepted_leaks_from_underlay: expected_leaks
-                        .iter()
-                        .map(|prefix| PrefixFilterPolicyEntry {
-                            prefix: prefix.parse().unwrap(),
-                        })
-                        .collect(),
-                    allowed_anycast_prefixes: expected_allowed_anycast_prefixes
-                        .iter()
-                        .map(|prefix| PrefixFilterPolicyEntry {
-                            prefix: prefix.parse().unwrap(),
-                        })
-                        .collect(),
+                    internal: Some(true),
+                    access_tier: Some(0),
+                    accepted_leaks_from_underlay: Some(
+                        expected_leaks
+                            .iter()
+                            .map(|prefix| PrefixFilterPolicyEntry {
+                                prefix: prefix.parse().unwrap(),
+                            })
+                            .collect(),
+                    ),
+                    allowed_anycast_prefixes: Some(
+                        expected_allowed_anycast_prefixes
+                            .iter()
+                            .map(|prefix| PrefixFilterPolicyEntry {
+                                prefix: prefix.parse().unwrap(),
+                            })
+                            .collect(),
+                    ),
                     ..Default::default()
                 },
             )]),
@@ -459,7 +473,7 @@ async fn test_managed_host_network_config_narrows_interface_anycast_prefixes(poo
         vni: 123,
     };
 
-    // Configure an FNN routing profile with anycast prefixes broad enough for the interface.
+    // Configure inherited properties and a base prefix that the VPC will replace.
     let env = api_fixtures::create_test_env_with_overrides(
         pool,
         TestEnvOverrides::default().with_fnn_config(Some(FnnConfig {
@@ -469,16 +483,13 @@ async fn test_managed_host_network_config_narrows_interface_anycast_prefixes(poo
             routing_profiles: HashMap::from([(
                 profile_type.to_string(),
                 FnnRoutingProfileConfig {
-                    internal: true,
-                    access_tier: 0,
-                    leak_default_route_from_underlay: true,
-                    route_target_imports: vec![inherited_import.clone()],
-                    allowed_anycast_prefixes: vpc_allowed_anycast_prefixes
-                        .iter()
-                        .map(|prefix| PrefixFilterPolicyEntry {
-                            prefix: prefix.parse().unwrap(),
-                        })
-                        .collect(),
+                    internal: Some(true),
+                    access_tier: Some(0),
+                    leak_default_route_from_underlay: Some(true),
+                    route_target_imports: Some(vec![inherited_import.clone()]),
+                    allowed_anycast_prefixes: Some(vec![PrefixFilterPolicyEntry {
+                        prefix: "203.0.113.0/24".parse().unwrap(),
+                    }]),
                     ..Default::default()
                 },
             )]),
@@ -487,7 +498,7 @@ async fn test_managed_host_network_config_narrows_interface_anycast_prefixes(poo
     )
     .await;
 
-    // Create a tenant and FNN VPC using that VPC-level routing profile.
+    // Override the VPC anycast list while inheriting the other base properties.
     let tenant = env
         .api
         .create_tenant(tonic::Request::new(rpc::forge::CreateTenantRequest {
@@ -514,11 +525,22 @@ async fn test_managed_host_network_config_narrows_interface_anycast_prefixes(poo
                 })
                 .network_virtualization_type(rpc::forge::VpcVirtualizationType::Fnn as i32)
                 .routing_profile_type(profile_type.to_string())
+                .routing_profile_overrides(rpc::forge::VpcRoutingProfileOverrides {
+                    allowed_anycast_prefixes: Some(rpc::forge::PrefixFilterPolicyEntries {
+                        values: vpc_allowed_anycast_prefixes
+                            .iter()
+                            .map(|prefix| rpc::forge::PrefixFilterPolicyEntry {
+                                prefix: prefix.to_string(),
+                            })
+                            .collect(),
+                    }),
+                    ..Default::default()
+                })
                 .rpc(),
         )
         .await;
 
-    // Allocate an instance with a per-interface anycast prefix subset.
+    // Allocate an instance with a subset of the effective VPC override.
     let mut network_config =
         common::api_fixtures::instance::single_interface_network_config(segment_id);
     network_config.interfaces[0].routing_profile =
@@ -607,20 +629,20 @@ async fn test_managed_host_network_config_includes_per_vpc_routing_profiles(pool
                 (
                     "INTERNAL".to_string(),
                     FnnRoutingProfileConfig {
-                        internal: true,
-                        access_tier: 1,
-                        leak_default_route_from_underlay: true,
-                        route_target_imports: vec![internal_import.clone()],
+                        internal: Some(true),
+                        access_tier: Some(1),
+                        leak_default_route_from_underlay: Some(true),
+                        route_target_imports: Some(vec![internal_import.clone()]),
                         ..Default::default()
                     },
                 ),
                 (
                     "EXTERNAL".to_string(),
                     FnnRoutingProfileConfig {
-                        internal: false,
-                        access_tier: 2,
-                        leak_tenant_host_routes_to_underlay: true,
-                        route_targets_on_exports: vec![external_export.clone()],
+                        internal: Some(false),
+                        access_tier: Some(2),
+                        leak_tenant_host_routes_to_underlay: Some(true),
+                        route_targets_on_exports: Some(vec![external_export.clone()]),
                         ..Default::default()
                     },
                 ),
@@ -931,11 +953,11 @@ async fn test_managed_host_network_config_omits_admin_fnn_vrf_loopback_by_defaul
         enabled: true,
         vpc_vni: Some(10000),
         routing_profile: FnnRoutingProfileConfig {
-            leak_default_route_from_underlay: true,
-            route_target_imports: vec![RouteTargetConfig {
+            leak_default_route_from_underlay: Some(true),
+            route_target_imports: Some(vec![RouteTargetConfig {
                 asn: 64512,
                 vni: 10000,
-            }],
+            }]),
             ..Default::default()
         },
     });
@@ -1178,6 +1200,81 @@ async fn test_managed_host_network_config_multi_dpu(pool: sqlx::PgPool) {
     assert_ne!(
         dpu_1_network_config.host_interface_id,
         dpu_2_network_config.host_interface_id,
+    );
+}
+
+#[crate::sqlx_test]
+async fn test_managed_host_network_config_multi_dpu_fnn_ipv6_loopbacks(pool: sqlx::PgPool) {
+    let mut overrides = TestEnvOverrides::default().with_fnn_config(None);
+    overrides.fnn_config.as_mut().unwrap().admin_vpc = Some(AdminFnnConfig {
+        enabled: true,
+        vpc_vni: Some(10000),
+        routing_profile: FnnRoutingProfileConfig::default(),
+    });
+    let env = api_fixtures::create_test_env_with_overrides(pool, overrides).await;
+    crate::db_init::create_admin_vpc(&env.pool, Some(10000))
+        .await
+        .unwrap();
+    crate::db_init::update_network_segments_svi_ip(&env.pool)
+        .await
+        .unwrap();
+    env.api
+        .admin_grow_resource_pool(tonic::Request::new(rpc::forge::GrowResourcePoolRequest {
+            text: r#"
+[lo-ip-v6]
+type = "ipv6"
+prefix = "2001:db8:2390::/126"
+"#
+            .to_string(),
+        }))
+        .await
+        .unwrap();
+
+    let mh = api_fixtures::create_managed_host_multi_dpu(&env, 2).await;
+    let host_machine = mh.host().rpc_machine().await;
+    let dpu_ids = &host_machine
+        .status
+        .as_ref()
+        .expect("host status")
+        .associated_dpu_machine_ids;
+
+    let dpu_1_network_config = env
+        .api
+        .get_managed_host_network_config(tonic::Request::new(ManagedHostNetworkConfigRequest {
+            dpu_machine_id: Some(dpu_ids[0]),
+        }))
+        .await
+        .expect("DPU 1 network config")
+        .into_inner();
+    let dpu_2_network_config = env
+        .api
+        .get_managed_host_network_config(tonic::Request::new(ManagedHostNetworkConfigRequest {
+            dpu_machine_id: Some(dpu_ids[1]),
+        }))
+        .await
+        .expect("DPU 2 network config")
+        .into_inner();
+
+    // Each response must use the requesting DPU's allocation even though both
+    // responses share the host-level managed config version.
+    let dpu_1_loopback_ip_v6 = dpu_1_network_config
+        .managed_host_config
+        .as_ref()
+        .expect("DPU 1 managed host config")
+        .loopback_ip_v6
+        .as_deref()
+        .expect("DPU 1 IPv6 loopback");
+    let dpu_2_loopback_ip_v6 = dpu_2_network_config
+        .managed_host_config
+        .as_ref()
+        .expect("DPU 2 managed host config")
+        .loopback_ip_v6
+        .as_deref()
+        .expect("DPU 2 IPv6 loopback");
+    assert_ne!(dpu_1_loopback_ip_v6, dpu_2_loopback_ip_v6);
+    assert_eq!(
+        dpu_1_network_config.managed_host_config_version,
+        dpu_2_network_config.managed_host_config_version,
     );
 }
 

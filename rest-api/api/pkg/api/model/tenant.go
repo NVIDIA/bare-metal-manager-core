@@ -6,6 +6,7 @@ package model
 import (
 	"time"
 
+	cutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
 	cdbm "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/model"
 )
 
@@ -15,6 +16,20 @@ var (
 
 	// errMsgTenantUpdateEndpointDeprecated is the error message to indicate that update endpoint is deprecated
 	ErrMsgTenantUpdateEndpointDeprecated = "PATCH '/org/:orgName/nico/tenant/current' endpoint has been deprecated"
+
+	// Time when Tenant.capabilities.targetedInstanceCreation will be removed. The
+	// capabilities object remains in responses for compatibility, so the
+	// deprecation notice retains a future TakeActionBy deadline.
+	tenantTargetedInstanceCreationDeprecationTime = time.Date(2026, time.October, 1, 0, 0, 0, 0, time.UTC)
+
+	tenantCapabilityDeprecations = []DeprecatedEntity{
+		{
+			OldValue:     "capabilities.targetedInstanceCreation",
+			NewValue:     cutil.GetPtr("tenantAccount.siteCapabilities"),
+			Type:         DeprecationTypeAttribute,
+			TakeActionBy: tenantTargetedInstanceCreationDeprecationTime,
+		},
+	}
 )
 
 // APITenant is the data structure to capture API representation of a Tenant
@@ -29,36 +44,43 @@ type APITenant struct {
 	Created time.Time `json:"created"`
 	// UpdatedAt indicates the ISO datetime string for when the entity was last updated
 	Updated time.Time `json:"updated"`
-	// Capabilities describes tenant-level feature flags
+	// Capabilities is the deprecated tenant-wide compatibility object
 	Capabilities *APITenantCapabilities `json:"capabilities"`
+	// Deprecations is the list of deprecations for the Tenant
+	Deprecations []APIDeprecation `json:"deprecations"`
 }
 
-// NewAPITenant accepts a DB layer Tenant object returns an API layer object
-func NewAPITenant(dbtn *cdbm.Tenant) *APITenant {
+// NewAPITenant accepts a DB layer Tenant object and the deprecated tenant-wide
+// TargetedInstanceCreation compatibility value, then returns an API layer object.
+func NewAPITenant(dbtn *cdbm.Tenant, targetedInstanceCreation bool) *APITenant {
 	atn := APITenant{
 		ID:             dbtn.ID.String(),
 		Org:            dbtn.Org,
 		OrgDisplayName: dbtn.OrgDisplayName,
-		Capabilities:   tenantToAPITenantCapabilities(dbtn),
+		Capabilities:   tenantToAPITenantCapabilities(targetedInstanceCreation),
 		Created:        dbtn.Created,
 		Updated:        dbtn.Updated,
+	}
+
+	for _, deprecation := range tenantCapabilityDeprecations {
+		atn.Deprecations = append(atn.Deprecations, NewAPIDeprecation(deprecation))
 	}
 
 	return &atn
 }
 
-// APITenantCapabilities holds the model of tenant capabilities
+// APITenantCapabilities holds the model of tenant capabilities.
 type APITenantCapabilities struct {
-	TargetedInstanceCreation bool `json:"targetedInstanceCreation"`
+	// TargetedInstanceCreation is present only when the compatibility aggregate is enabled
+	TargetedInstanceCreation *bool `json:"targetedInstanceCreation,omitempty"`
 }
 
-func tenantToAPITenantCapabilities(tenant *cdbm.Tenant) *APITenantCapabilities {
-	apiCaps := &APITenantCapabilities{}
-
-	if tenant.Config != nil {
-		apiCaps.TargetedInstanceCreation = tenant.Config.TargetedInstanceCreation
+func tenantToAPITenantCapabilities(targetedInstanceCreation bool) *APITenantCapabilities {
+	capabilities := &APITenantCapabilities{}
+	if targetedInstanceCreation {
+		capabilities.TargetedInstanceCreation = cutil.GetPtr(true)
 	}
-	return apiCaps
+	return capabilities
 }
 
 // APITenantSummary is the data structure to capture API representation of a Tenant Summary
@@ -67,19 +89,25 @@ type APITenantSummary struct {
 	Org string `json:"org"`
 	// OrgDisplayName contains the display name of the org the Tenant belongs to
 	OrgDisplayName *string `json:"orgDisplayName"`
-	// Capabilities hold the capabilities, currently for use as tenant-level feature flagging
+	// Capabilities is retained as an empty compatibility object in summaries
 	Capabilities *APITenantCapabilities `json:"capabilities"`
+	// Deprecations is the list of deprecations for the Tenant
+	Deprecations []APIDeprecation `json:"deprecations"`
 }
 
 // NewAPITenantSummary accepts a DB layer APITenantSummary object returns an API layer object
 func NewAPITenantSummary(dbtn *cdbm.Tenant) *APITenantSummary {
-	atn := APITenantSummary{
+	atns := APITenantSummary{
 		Org:            dbtn.Org,
 		OrgDisplayName: dbtn.OrgDisplayName,
-		Capabilities:   tenantToAPITenantCapabilities(dbtn),
+		Capabilities:   tenantToAPITenantCapabilities(false),
 	}
 
-	return &atn
+	for _, deprecation := range tenantCapabilityDeprecations {
+		atns.Deprecations = append(atns.Deprecations, NewAPIDeprecation(deprecation))
+	}
+
+	return &atns
 }
 
 // APITenantStats is the data structure to capture API representation of a Tenant Stats

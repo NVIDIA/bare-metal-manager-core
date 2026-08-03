@@ -27,7 +27,7 @@ use tower::ServiceBuilder;
 use tracing::Span;
 
 pub mod config;
-use carbide_instrument::Outcome;
+use carbide_instrument::{MetricFamily, Outcome};
 use carbide_uuid::machine::MachineId;
 pub use config::{get_dpu_agent_meter, get_prometheus_registry};
 
@@ -47,174 +47,103 @@ enum ServiceRestartResult {
     Failed,
 }
 
-pub(crate) enum LldpdRestart {
-    Succeeded { attempt: u8 },
-    Retrying { error: String, attempt: u8 },
-    Failed { error: String, attempt_count: u8 },
+/// The one metric the Events below record.
+#[derive(MetricFamily)]
+#[metric(
+    name = "carbide_dpu_agent_service_restart_attempts_total",
+    kind = counter,
+    component = "forge-dpu-agent",
+    describe = "Number of DPU-agent service restart attempts, by service and result."
+)]
+pub(crate) struct DpuAgentServiceRestartAttempts {
+    service: RestartedService,
+    result: ServiceRestartResult,
 }
 
-pub(crate) enum OvsRestart {
-    Succeeded,
+/// One lldpd restart attempt. Each variant is an attempt's result, and holds
+/// what that result has to say -- a success has no error, and only the final
+/// failure counts attempts rather than numbering one.
+#[derive(carbide_instrument::Event)]
+#[event(
+    event_name = "dpu_agent_lldpd_restart",
+    metric_family = DpuAgentServiceRestartAttempts
+)]
+pub(crate) enum LldpdRestart {
+    #[event(
+        labels(
+            service = RestartedService::Lldpd,
+            result = ServiceRestartResult::Succeeded
+        ),
+        log = info,
+        message = "Restarted lldpd service"
+    )]
+    Succeeded {
+        #[context(value)]
+        attempt: i64,
+    },
+
+    #[event(
+        labels(
+            service = RestartedService::Lldpd,
+            result = ServiceRestartResult::Retrying
+        ),
+        log = warn,
+        message = "Couldn't restart lldpd service, retrying"
+    )]
     Retrying {
+        #[context]
         error: String,
-        managed_host_config_version: String,
+        #[context(value)]
+        attempt: i64,
+    },
+
+    #[event(
+        labels(
+            service = RestartedService::Lldpd,
+            result = ServiceRestartResult::Failed
+        ),
+        log = error,
+        message = "Couldn't restart lldpd service"
+    )]
+    Failed {
+        #[context]
+        error: String,
+        #[context(value)]
+        attempt_count: i64,
     },
 }
 
+/// One ovs-vswitchd restart attempt, recorded on the same counter.
 #[derive(carbide_instrument::Event)]
 #[event(
-    event_name = "dpu_agent_lldpd_restart_succeeded",
-    metric_name = "carbide_dpu_agent_service_restart_attempts_total",
-    component = "forge-dpu-agent",
-    log = info,
-    metric = counter,
-    message = "Restarted lldpd service",
-    describe = "Number of DPU-agent service restart attempts, by service and result."
+    event_name = "dpu_agent_ovs_restart",
+    metric_family = DpuAgentServiceRestartAttempts
 )]
-struct LldpdRestartSucceeded {
-    #[label]
-    service: RestartedService,
-    #[label]
-    result: ServiceRestartResult,
-    #[context(value)]
-    attempt: i64,
-}
+pub(crate) enum OvsRestart {
+    #[event(
+        labels(
+            service = RestartedService::OvsVswitchd,
+            result = ServiceRestartResult::Succeeded
+        ),
+        log = info,
+        message = "Successfully restarted ovs-vswitchd.service"
+    )]
+    Succeeded {},
 
-#[derive(carbide_instrument::Event)]
-#[event(
-    event_name = "dpu_agent_lldpd_restart_retrying",
-    metric_name = "carbide_dpu_agent_service_restart_attempts_total",
-    component = "forge-dpu-agent",
-    log = warn,
-    metric = counter,
-    message = "Couldn't restart lldpd service, retrying",
-    describe = "Number of DPU-agent service restart attempts, by service and result."
-)]
-struct LldpdRestartRetrying {
-    #[label]
-    service: RestartedService,
-    #[label]
-    result: ServiceRestartResult,
-    #[context]
-    error: String,
-    #[context(value)]
-    attempt: i64,
-}
-
-#[derive(carbide_instrument::Event)]
-#[event(
-    event_name = "dpu_agent_lldpd_restart_failed",
-    metric_name = "carbide_dpu_agent_service_restart_attempts_total",
-    component = "forge-dpu-agent",
-    log = error,
-    metric = counter,
-    message = "Couldn't restart lldpd service",
-    describe = "Number of DPU-agent service restart attempts, by service and result."
-)]
-struct LldpdRestartFailed {
-    #[label]
-    service: RestartedService,
-    #[label]
-    result: ServiceRestartResult,
-    #[context]
-    error: String,
-    #[context(value)]
-    attempt_count: i64,
-}
-
-#[derive(carbide_instrument::Event)]
-#[event(
-    event_name = "dpu_agent_ovs_restart_succeeded",
-    metric_name = "carbide_dpu_agent_service_restart_attempts_total",
-    component = "forge-dpu-agent",
-    log = info,
-    metric = counter,
-    message = "Successfully restarted ovs-vswitchd.service",
-    describe = "Number of DPU-agent service restart attempts, by service and result."
-)]
-struct OvsRestartSucceeded {
-    #[label]
-    service: RestartedService,
-    #[label]
-    result: ServiceRestartResult,
-}
-
-#[derive(carbide_instrument::Event)]
-#[event(
-    event_name = "dpu_agent_ovs_restart_retrying",
-    metric_name = "carbide_dpu_agent_service_restart_attempts_total",
-    component = "forge-dpu-agent",
-    log = error,
-    metric = counter,
-    message = "Restarting OVS after admin network change",
-    describe = "Number of DPU-agent service restart attempts, by service and result."
-)]
-struct OvsRestartRetrying {
-    #[label]
-    service: RestartedService,
-    #[label]
-    result: ServiceRestartResult,
-    #[context(value)]
-    error: String,
-    #[context(value)]
-    managed_host_config_version: String,
-}
-
-impl LldpdRestart {
-    pub(crate) fn emit(self) {
-        match self {
-            Self::Succeeded { attempt } => {
-                carbide_instrument::emit(LldpdRestartSucceeded {
-                    service: RestartedService::Lldpd,
-                    result: ServiceRestartResult::Succeeded,
-                    attempt: i64::from(attempt),
-                });
-            }
-            Self::Retrying { error, attempt } => {
-                carbide_instrument::emit(LldpdRestartRetrying {
-                    service: RestartedService::Lldpd,
-                    result: ServiceRestartResult::Retrying,
-                    error,
-                    attempt: i64::from(attempt),
-                });
-            }
-            Self::Failed {
-                error,
-                attempt_count,
-            } => {
-                carbide_instrument::emit(LldpdRestartFailed {
-                    service: RestartedService::Lldpd,
-                    result: ServiceRestartResult::Failed,
-                    error,
-                    attempt_count: i64::from(attempt_count),
-                });
-            }
-        }
-    }
-}
-
-impl OvsRestart {
-    pub(crate) fn emit(self) {
-        match self {
-            Self::Succeeded => {
-                carbide_instrument::emit(OvsRestartSucceeded {
-                    service: RestartedService::OvsVswitchd,
-                    result: ServiceRestartResult::Succeeded,
-                });
-            }
-            Self::Retrying {
-                error,
-                managed_host_config_version,
-            } => {
-                carbide_instrument::emit(OvsRestartRetrying {
-                    service: RestartedService::OvsVswitchd,
-                    result: ServiceRestartResult::Retrying,
-                    error,
-                    managed_host_config_version,
-                });
-            }
-        }
-    }
+    #[event(
+        labels(
+            service = RestartedService::OvsVswitchd,
+            result = ServiceRestartResult::Retrying
+        ),
+        log = error,
+        message = "Restarting OVS after admin network change"
+    )]
+    Retrying {
+        #[context(value)]
+        error: String,
+        #[context(value)]
+        managed_host_config_version: String,
+    },
 }
 
 /// `ReportLoop` labels one full agent reporting iteration rather than one
@@ -259,18 +188,28 @@ pub(crate) enum NetworkStatus {
     RpcFailed { error: String },
 }
 
+/// The one metric the Events below record.
+#[derive(MetricFamily)]
+#[metric(
+    name = "carbide_dpu_agent_report_total",
+    kind = counter,
+    component = "forge-dpu-agent",
+    describe = "Number of DPU-agent report-loop iterations, by loop and outcome"
+)]
+struct DpuAgentReport {
+    report_loop: ReportLoop,
+    outcome: Outcome,
+}
+
 /// `InventoryReportSucceeded` records the inventory loop's successful
 /// completion and owns its DEBUG diagnostic. The other successful loops are
 /// metric-only.
 #[derive(carbide_instrument::Event)]
 #[event(
     event_name = "dpu_agent_inventory_report_succeeded",
-    metric_name = "carbide_dpu_agent_report_total",
-    component = "forge-dpu-agent",
+    metric_family = DpuAgentReport,
     log = debug,
-    metric = counter,
-    message = "Successfully updated machine inventory",
-    describe = "Number of DPU-agent report-loop iterations, by loop and outcome"
+    message = "Successfully updated machine inventory"
 )]
 struct InventoryReportSucceeded {
     #[label]
@@ -285,11 +224,8 @@ struct InventoryReportSucceeded {
 #[derive(carbide_instrument::Event)]
 #[event(
     event_name = "dpu_agent_inventory_report_failed",
-    metric_name = "carbide_dpu_agent_report_total",
-    component = "forge-dpu-agent",
-    log = off,
-    metric = counter,
-    describe = "Number of DPU-agent report-loop iterations, by loop and outcome"
+    metric_family = DpuAgentReport,
+    log = off
 )]
 struct InventoryReportFailed {
     #[label]
@@ -301,11 +237,8 @@ struct InventoryReportFailed {
 #[derive(carbide_instrument::Event)]
 #[event(
     event_name = "dpu_agent_config_fetch_succeeded",
-    metric_name = "carbide_dpu_agent_report_total",
-    component = "forge-dpu-agent",
-    log = off,
-    metric = counter,
-    describe = "Number of DPU-agent report-loop iterations, by loop and outcome"
+    metric_family = DpuAgentReport,
+    log = off
 )]
 struct ConfigFetchSucceeded {
     #[label]
@@ -317,12 +250,9 @@ struct ConfigFetchSucceeded {
 #[derive(carbide_instrument::Event)]
 #[event(
     event_name = "dpu_agent_config_fetch_failed",
-    metric_name = "carbide_dpu_agent_report_total",
-    component = "forge-dpu-agent",
+    metric_family = DpuAgentReport,
     log = error,
-    metric = counter,
-    message = "Failed to fetch the latest configuration. Will retry",
-    describe = "Number of DPU-agent report-loop iterations, by loop and outcome"
+    message = "Failed to fetch the latest configuration. Will retry"
 )]
 struct ConfigFetchFailed {
     #[label]
@@ -338,12 +268,9 @@ struct ConfigFetchFailed {
 #[derive(carbide_instrument::Event)]
 #[event(
     event_name = "dpu_agent_config_not_found",
-    metric_name = "carbide_dpu_agent_report_total",
-    component = "forge-dpu-agent",
+    metric_family = DpuAgentReport,
     log = warn,
-    metric = counter,
-    message = "DPU not found",
-    describe = "Number of DPU-agent report-loop iterations, by loop and outcome"
+    message = "DPU not found"
 )]
 struct ConfigNotFound {
     #[label]
@@ -357,11 +284,8 @@ struct ConfigNotFound {
 #[derive(carbide_instrument::Event)]
 #[event(
     event_name = "dpu_agent_fmds_push_succeeded",
-    metric_name = "carbide_dpu_agent_report_total",
-    component = "forge-dpu-agent",
-    log = off,
-    metric = counter,
-    describe = "Number of DPU-agent report-loop iterations, by loop and outcome"
+    metric_family = DpuAgentReport,
+    log = off
 )]
 struct FmdsPushSucceeded {
     #[label]
@@ -373,12 +297,9 @@ struct FmdsPushSucceeded {
 #[derive(carbide_instrument::Event)]
 #[event(
     event_name = "dpu_agent_fmds_push_failed",
-    metric_name = "carbide_dpu_agent_report_total",
-    component = "forge-dpu-agent",
+    metric_family = DpuAgentReport,
     log = error,
-    metric = counter,
-    message = "Failed to send config update to external FMDS",
-    describe = "Number of DPU-agent report-loop iterations, by loop and outcome"
+    message = "Failed to send config update to external FMDS"
 )]
 struct FmdsPushFailed {
     #[label]
@@ -394,11 +315,8 @@ struct FmdsPushFailed {
 #[derive(carbide_instrument::Event)]
 #[event(
     event_name = "dpu_agent_network_status_succeeded",
-    metric_name = "carbide_dpu_agent_report_total",
-    component = "forge-dpu-agent",
-    log = off,
-    metric = counter,
-    describe = "Number of DPU-agent report-loop iterations, by loop and outcome"
+    metric_family = DpuAgentReport,
+    log = off
 )]
 struct NetworkStatusSucceeded {
     #[label]
@@ -410,12 +328,9 @@ struct NetworkStatusSucceeded {
 #[derive(carbide_instrument::Event)]
 #[event(
     event_name = "dpu_agent_network_status_connection_failed",
-    metric_name = "carbide_dpu_agent_report_total",
-    component = "forge-dpu-agent",
+    metric_family = DpuAgentReport,
     log = error,
-    metric = counter,
-    message = "record_network_status: Could not connect to Forge API server. Will retry.",
-    describe = "Number of DPU-agent report-loop iterations, by loop and outcome"
+    message = "record_network_status: Could not connect to Forge API server. Will retry."
 )]
 struct NetworkStatusConnectionFailed {
     #[label]
@@ -431,12 +346,9 @@ struct NetworkStatusConnectionFailed {
 #[derive(carbide_instrument::Event)]
 #[event(
     event_name = "dpu_agent_network_status_rpc_failed",
-    metric_name = "carbide_dpu_agent_report_total",
-    component = "forge-dpu-agent",
+    metric_family = DpuAgentReport,
     log = error,
-    metric = counter,
-    message = "Error while executing the record_network_status gRPC call",
-    describe = "Number of DPU-agent report-loop iterations, by loop and outcome"
+    message = "Error while executing the record_network_status gRPC call"
 )]
 struct NetworkStatusRpcFailed {
     #[label]
@@ -1223,14 +1135,14 @@ mod service_restart_tests {
                 Check {
                     scenario: "lldpd restart succeeds",
                     input: RestartCase {
-                        emit: || LldpdRestart::Succeeded { attempt: 2 }.emit(),
+                        emit: || carbide_instrument::emit(LldpdRestart::Succeeded { attempt: 2 }),
                         service: "lldpd",
                         result: "succeeded",
                     },
                     expect: expected_restart(
                         (
                             tracing::Level::INFO,
-                            "dpu_agent_lldpd_restart_succeeded",
+                            "dpu_agent_lldpd_restart",
                             "Restarted lldpd service",
                         ),
                         "lldpd",
@@ -1245,11 +1157,10 @@ mod service_restart_tests {
                     scenario: "lldpd restart will retry",
                     input: RestartCase {
                         emit: || {
-                            LldpdRestart::Retrying {
+                            carbide_instrument::emit(LldpdRestart::Retrying {
                                 error: "service busy".to_string(),
                                 attempt: 1,
-                            }
-                            .emit()
+                            })
                         },
                         service: "lldpd",
                         result: "retrying",
@@ -1257,7 +1168,7 @@ mod service_restart_tests {
                     expect: expected_restart(
                         (
                             tracing::Level::WARN,
-                            "dpu_agent_lldpd_restart_retrying",
+                            "dpu_agent_lldpd_restart",
                             "Couldn't restart lldpd service, retrying",
                         ),
                         "lldpd",
@@ -1272,11 +1183,10 @@ mod service_restart_tests {
                     scenario: "lldpd restart exhausts its retries",
                     input: RestartCase {
                         emit: || {
-                            LldpdRestart::Failed {
+                            carbide_instrument::emit(LldpdRestart::Failed {
                                 error: "service busy".to_string(),
                                 attempt_count: 3,
-                            }
-                            .emit()
+                            })
                         },
                         service: "lldpd",
                         result: "failed",
@@ -1284,7 +1194,7 @@ mod service_restart_tests {
                     expect: expected_restart(
                         (
                             tracing::Level::ERROR,
-                            "dpu_agent_lldpd_restart_failed",
+                            "dpu_agent_lldpd_restart",
                             "Couldn't restart lldpd service",
                         ),
                         "lldpd",
@@ -1298,14 +1208,14 @@ mod service_restart_tests {
                 Check {
                     scenario: "OVS restart succeeds",
                     input: RestartCase {
-                        emit: || OvsRestart::Succeeded.emit(),
+                        emit: || carbide_instrument::emit(OvsRestart::Succeeded {}),
                         service: "ovs_vswitchd",
                         result: "succeeded",
                     },
                     expect: expected_restart(
                         (
                             tracing::Level::INFO,
-                            "dpu_agent_ovs_restart_succeeded",
+                            "dpu_agent_ovs_restart",
                             "Successfully restarted ovs-vswitchd.service",
                         ),
                         "ovs_vswitchd",
@@ -1320,11 +1230,10 @@ mod service_restart_tests {
                     scenario: "OVS restart enters backoff",
                     input: RestartCase {
                         emit: || {
-                            OvsRestart::Retrying {
+                            carbide_instrument::emit(OvsRestart::Retrying {
                                 error: "restarting OVS: timed out".to_string(),
                                 managed_host_config_version: "version-42".to_string(),
-                            }
-                            .emit()
+                            })
                         },
                         service: "ovs_vswitchd",
                         result: "retrying",
@@ -1332,7 +1241,7 @@ mod service_restart_tests {
                     expect: expected_restart(
                         (
                             tracing::Level::ERROR,
-                            "dpu_agent_ovs_restart_retrying",
+                            "dpu_agent_ovs_restart",
                             "Restarting OVS after admin network change",
                         ),
                         "ovs_vswitchd",

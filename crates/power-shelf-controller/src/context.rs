@@ -17,7 +17,9 @@
 
 use std::sync::Arc;
 
+use carbide_credential_rotation::RotationGate;
 use carbide_health_metrics::PerObjectMetricsRegistry;
+use carbide_redfish::libredfish::RedfishClientPool;
 use carbide_secrets::credentials::CredentialManager;
 use component_manager::component_manager::ComponentManager;
 use sqlx::PgPool;
@@ -39,6 +41,17 @@ pub struct PowerShelfStateHandlerServices {
     /// `false` so power shelves stay out of rack firmware wait unless explicitly
     /// enabled.
     pub rack_firmware_reprovisioning_enabled: bool,
+    /// Libredfish pool used to converge the power shelf BMC (PMC) credential
+    /// The same shared instance the machine- and switch-controllers use.
+    pub redfish_client_pool: Arc<dyn RedfishClientPool>,
+    /// Short-TTL cache of the site-wide BMC rotation aggregate, shared across
+    /// this replica's per-object ticks so the steady state costs one aggregate
+    /// query per TTL window rather than a per-device query every sweep.
+    pub bmc_rotation_gate: RotationGate,
+    /// Site-wide kill-switch for passive BMC credential rotation. When `false`,
+    /// a Ready power shelf never enters `RotatingBmc` on its own; the operator
+    /// force-converge escape hatch still works regardless.
+    pub bmc_rotation_enabled: bool,
 }
 
 impl StateHandlerContextObjects for PowerShelfStateHandlerContextObjects {

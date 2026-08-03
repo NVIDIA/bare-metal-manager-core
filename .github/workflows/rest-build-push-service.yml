@@ -56,6 +56,10 @@ on:
         required: false
         default: ""
         type: string
+      helm_version:
+        description: 'Helm chart version pre-computed by the prepare step (e.g. 2.0.0-rc.14)'
+        required: true
+        type: string
       ngc_path:
         description: 'NGC org/team for resource uploads (empty = skip)'
         required: false
@@ -167,6 +171,7 @@ jobs:
             TARGETOS=linux
             TARGETARCH=${{ matrix.arch }}
             VERSION=${{ steps.docker-tags.outputs.primary_tag }}
+            CARBIDE_BUILD_HELM_VERSION=${{ inputs.helm_version }}
           tags: ${{ steps.docker-tags.outputs.arch_tag }}
           cache-from: type=gha,scope=${{ inputs.service_name }}-${{ matrix.arch }}
           cache-to: type=gha,mode=max,scope=${{ inputs.service_name }}-${{ matrix.arch }}

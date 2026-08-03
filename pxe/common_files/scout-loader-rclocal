@@ -204,9 +204,21 @@ then
     detect_pcr_hash
 
     DONE=0
+    NIC_FILTERED=0
     send_msg "LOADER: Downloading ${newrootfsurl}"
     while (( ${DONE} != 1 ))
     do
+      if (( ${NIC_FILTERED} != 1 )) && [ -x /opt/forge/forge-scout-network.sh ]
+      then
+        send_msg "LOADER: Selecting boot NIC from kernel mac= parameter"
+        if /opt/forge/forge-scout-network.sh
+        then
+          NIC_FILTERED=1
+        else
+          send_msg "LOADER: Scout NIC filtering incomplete; retrying"
+        fi
+      fi
+
       # We store the HTTP HEAD info for the script which will check for updates later.
       curl -sSf --head "${newrootfsurl}" 2> "${CURL_ERR}" | sed 's/\r//g' > "${ROOTFS_INFO_TMP}"
       if (( $? == 0 ))

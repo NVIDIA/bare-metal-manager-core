@@ -20,6 +20,7 @@ mod io_util;
 mod metrics;
 mod ssh_cert_parsing;
 mod ssh_server;
+mod tcp_listener;
 
 mod console_logger;
 mod frontend;

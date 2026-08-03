@@ -66,9 +66,10 @@ use carbide_utils::none_if_empty::NoneIfEmpty;
 use carbide_vpc_prefix_controller::context::VpcPrefixStateHandlerServices;
 use carbide_vpc_prefix_controller::handler::VpcPrefixStateHandler;
 use carbide_vpc_prefix_controller::io::VpcPrefixStateControllerIO;
+use db::Transaction;
 use db::machine::{update_dpu_asns, update_dpu_loopback_ips_v6};
 use db::resource_pool::DefineResourcePoolError;
-use db::{Transaction, work_lock_manager};
+use db::work_lock_manager::WorkLockManagerHandle;
 use eyre::WrapErr;
 use futures_util::TryFutureExt;
 use librms::RackManagerClientPool;
@@ -198,6 +199,7 @@ pub(crate) async fn start_runtime(
     credential_manager: Arc<dyn CredentialManager>,
     certificate_provider: Arc<dyn CertificateProvider>,
     db_pool: PgPool,
+    work_lock_manager_handle: WorkLockManagerHandle,
     secrets_context: Option<crate::secrets::SecretsContext>,
     admin_ui_routes_builder: Option<AdminUiRoutesBuilder>,
     cancel_token: CancellationToken,
@@ -212,13 +214,6 @@ pub(crate) async fn start_runtime(
         &carbide_config,
         dynamic_settings.bmc_proxy.clone(),
     );
-
-    let work_lock_manager_handle = work_lock_manager::start(
-        join_set,
-        db_pool.clone(),
-        work_lock_manager::KeepaliveConfig::default(),
-    )
-    .await?;
 
     let (rms_client, switch_system_image_rms_api) = match carbide_config.rms.api_url.clone() {
         Some(url) if !url.is_empty() => {
@@ -804,6 +799,8 @@ impl<'a> SeedData<'a> {
             carbide_config,
             false,
         )?;
+        db_init::validate_initial_vpcs(&initial_vpcs)?;
+
         let initial_pools = Self::merge_objects(
             initial_objects.and_then(|io| io.pools.as_ref()),
             carbide_config.pools.as_ref(),
@@ -1320,6 +1317,15 @@ async fn initialize_and_start_controllers<'a>(
                 site_config: carbide_config.machine_state_handler_site_config().into(),
                 component_manager: component_manager.clone().map(Arc::new),
                 credential_manager: credential_manager.clone(),
+                bmc_rotation_gate: carbide_credential_rotation::RotationGate::new_for_family(
+                    db::credential_rotation::CredentialRotationType::Bmc,
+                ),
+                host_uefi_rotation_gate: carbide_credential_rotation::RotationGate::new_for_family(
+                    db::credential_rotation::CredentialRotationType::HostUefi,
+                ),
+                dpu_uefi_rotation_gate: carbide_credential_rotation::RotationGate::new_for_family(
+                    db::credential_rotation::CredentialRotationType::DpuUefi,
+                ),
                 per_object_metrics_registry: per_object_metrics_registry.clone(),
                 per_object_info: machine_per_object_info,
             }
@@ -1500,6 +1506,11 @@ async fn initialize_and_start_controllers<'a>(
                 rack_firmware_reprovisioning_enabled: carbide_config
                     .power_shelf_state_controller
                     .rack_firmware_reprovisioning_enabled,
+                redfish_client_pool: shared_redfish_pool.clone(),
+                bmc_rotation_gate: carbide_credential_rotation::RotationGate::new_for_family(
+                    db::credential_rotation::CredentialRotationType::Bmc,
+                ),
+                bmc_rotation_enabled: carbide_config.bmc_rotation_enabled,
             }
             .into(),
         )
@@ -1508,6 +1519,21 @@ async fn initialize_and_start_controllers<'a>(
         .state_handler(Arc::new(PowerShelfStateHandler::default()))
         .build_and_spawn(join_set, cancel_token.clone())
         .expect("Unable to build PowerShelfStateController");
+
+    let default_redirect_policy = reqwest::redirect::Policy::default();
+
+    let firmware_object_fetcher = reqwest::Client::builder()
+        .redirect(reqwest::redirect::Policy::custom(move |attempt| {
+            let initial_origin = attempt.previous().first().map(reqwest::Url::origin);
+
+            if initial_origin == Some(attempt.url().origin()) {
+                default_redirect_policy.redirect(attempt)
+            } else {
+                attempt.error("firmware-object redirect changed the configured origin")
+            }
+        }))
+        .build()
+        .wrap_err("failed to build the firmware-object HTTP client")?;
 
     StateController::<RackStateControllerIO>::builder()
         .database(db_pool.clone(), work_lock_manager_handle.clone())
@@ -1529,6 +1555,7 @@ async fn initialize_and_start_controllers<'a>(
                 nmx_cluster_switch_mtls_services: carbide_config
                     .rack_state_controller
                     .effective_nmx_cluster_switch_mtls_services_as_i32(),
+                firmware_object_fetcher: Arc::new(firmware_object_fetcher),
                 per_object_metrics_registry: per_object_metrics_registry.clone(),
             }
             .into(),
@@ -1552,6 +1579,11 @@ async fn initialize_and_start_controllers<'a>(
                     .switch_state_controller
                     .effective_switch_mtls_services_as_i32(),
                 per_object_metrics_registry: per_object_metrics_registry.clone(),
+                redfish_client_pool: shared_redfish_pool.clone(),
+                bmc_rotation_gate: carbide_credential_rotation::RotationGate::new_for_family(
+                    db::credential_rotation::CredentialRotationType::Bmc,
+                ),
+                bmc_rotation_enabled: carbide_config.bmc_rotation_enabled,
             }
             .into(),
         )
@@ -1725,7 +1757,7 @@ mod tests {
 
     use carbide_network::virtualization::VpcVirtualizationType;
     use carbide_test_support::Outcome::{FailsWith, Yields};
-    use carbide_test_support::{Case, check_cases, scenarios};
+    use carbide_test_support::{Case, check_cases, scenarios, value_scenarios};
     use figment::Figment;
     use figment::providers::{Format, Toml};
     use model::expected_machine::HostDpuPolicy;
@@ -1736,6 +1768,42 @@ mod tests {
     use super::*;
     use crate::cfg::file::{CarbideConfig, InitialObjectsConfig};
     use crate::cfg::load::{merged_carbide_config_figment, parse_carbide_config};
+
+    #[test]
+    fn firmware_object_redirects_require_same_origin() {
+        value_scenarios!(run = |(initial, redirect)| {
+            let initial = reqwest::Url::parse(initial).expect("initial test URL must parse");
+            let redirect = reqwest::Url::parse(redirect).expect("redirect test URL must parse");
+
+            initial.origin() == redirect.origin()
+        };
+            "same-origin redirects are allowed" {
+                (
+                    "https://firmware.example.test/object.json",
+                    "https://firmware.example.test/releases/object.json",
+                ) => true,
+                (
+                    "https://firmware.example.test/object.json",
+                    "https://firmware.example.test:443/object.json",
+                ) => true,
+            }
+
+            "origin changes are rejected" {
+                (
+                    "https://firmware.example.test/object.json",
+                    "http://firmware.example.test/object.json",
+                ) => false,
+                (
+                    "https://firmware.example.test/object.json",
+                    "https://mirror.example.test/object.json",
+                ) => false,
+                (
+                    "https://firmware.example.test/object.json",
+                    "https://firmware.example.test:8443/object.json",
+                ) => false,
+            }
+        );
+    }
 
     #[derive(Clone, Copy)]
     struct PolicyLayers {
@@ -1866,6 +1934,7 @@ mod tests {
             organization_id: None,
             network_virtualization_type,
             routing_profile_type: None,
+            routing_profile_overrides: None,
             vni: None,
         }
     }
@@ -1977,6 +2046,9 @@ mod tests {
         ConflictingNetwork,
         ConflictingVpc,
         InvalidNetwork,
+        InvalidVpcOverrides {
+            source: SeedSource,
+        },
         NoOptionalObjects,
         MissingPools,
     }
@@ -1992,8 +2064,21 @@ mod tests {
     enum ResolveFailure {
         Conflict(String),
         InvalidNetwork,
+        InvalidVpcOverrides,
         MissingPools,
         Unexpected(String),
+    }
+
+    fn classify_config_validation_error(error: &model::ConfigValidationError) -> ResolveFailure {
+        match error {
+            model::ConfigValidationError::InitialVpcRoutingProfileOverridesUnsupported {
+                ..
+            } => ResolveFailure::InvalidVpcOverrides,
+            // The only other configuration validation performed by
+            // `SeedData::resolve` is `NetworkDefinition::validate`.
+            model::ConfigValidationError::InvalidValue(_) => ResolveFailure::InvalidNetwork,
+            _ => ResolveFailure::Unexpected(error.to_string()),
+        }
     }
 
     fn names(entries: &[&str]) -> BTreeSet<String> {
@@ -2089,6 +2174,29 @@ mod tests {
             ResolveInput::InvalidNetwork => {
                 config.networks = Some(seed_map(&[("test-network", network_definition(9214))]));
             }
+            ResolveInput::InvalidVpcOverrides {
+                source: SeedSource::InitialObjects,
+            } => {
+                initial_objects.vpcs = Some(seed_map(&[(
+                    "test-vpc",
+                    VpcDefinition {
+                        routing_profile_overrides: Some(Default::default()),
+                        ..vpc_definition(VpcVirtualizationType::Fnn)
+                    },
+                )]));
+                use_initial_objects = true;
+            }
+            ResolveInput::InvalidVpcOverrides {
+                source: SeedSource::LegacyConfig,
+            } => {
+                config.vpcs = Some(seed_map(&[(
+                    "test-vpc",
+                    VpcDefinition {
+                        routing_profile_overrides: Some(Default::default()),
+                        ..vpc_definition(VpcVirtualizationType::Fnn)
+                    },
+                )]));
+            }
             ResolveInput::NoOptionalObjects => {}
             ResolveInput::MissingPools => {
                 config.pools = None;
@@ -2108,11 +2216,8 @@ mod tests {
                 {
                     return Err(ResolveFailure::MissingPools);
                 }
-                if error
-                    .downcast_ref::<model::ConfigValidationError>()
-                    .is_some()
-                {
-                    return Err(ResolveFailure::InvalidNetwork);
+                if let Some(error) = error.downcast_ref::<model::ConfigValidationError>() {
+                    return Err(classify_config_validation_error(error));
                 }
 
                 let message = error.to_string();
@@ -2126,6 +2231,70 @@ mod tests {
                 }
             }
         }
+    }
+
+    #[test]
+    #[allow(clippy::result_large_err)] // Figment controls the error representation.
+    fn rack_profile_attributes_merge_per_key_with_provider_precedence() {
+        figment::Jail::expect_with(|jail| {
+            jail.clear_env();
+
+            // Environment input replaces only its duplicate key; unrelated
+            // keys from lower-priority providers remain in the effective map.
+            jail.set_env(
+                "CARBIDE_API_RACK_PROFILES",
+                "{NVL72={attributes={attribute1=environment,additional_attribute4=environment}}}",
+            );
+
+            let global_config = format!(
+                r#"{}
+
+[rack_profiles.NVL72]
+product_family = "gb200"
+attributes = {{ attribute1 = "global", additional_attribute2 = "global" }}
+
+[rack_profiles.NVL72.rack_capabilities.compute]
+count = 18
+
+[rack_profiles.NVL72.rack_capabilities.switch]
+count = 9
+
+[rack_profiles.NVL72.rack_capabilities.power_shelf]
+count = 8
+"#,
+                include_str!("cfg/test_data/min_config.toml"),
+            );
+
+            let site_config = r#"
+[rack_profiles.NVL72]
+attributes = { attribute1 = "site", additional_attribute3 = "site" }
+"#;
+            jail.create_file("global.toml", &global_config)?;
+            jail.create_file("site.toml", site_config)?;
+
+            let config = merged_carbide_config_figment(
+                Path::new("global.toml"),
+                Some(Path::new("site.toml")),
+            )
+            .extract::<CarbideConfig>()?;
+
+            let attributes = &config.rack_profiles.get("NVL72").unwrap().attributes;
+
+            assert_eq!(
+                attributes,
+                &HashMap::from([
+                    ("attribute1".to_string(), "environment".to_string()),
+                    ("additional_attribute2".to_string(), "global".to_string()),
+                    ("additional_attribute3".to_string(), "site".to_string()),
+                    (
+                        "additional_attribute4".to_string(),
+                        "environment".to_string(),
+                    ),
+                ])
+            );
+
+            Ok(())
+        });
     }
 
     #[test]
@@ -2329,12 +2498,36 @@ mod tests {
                     expect: FailsWith(ResolveFailure::InvalidNetwork),
                 },
                 Case {
+                    scenario: "initial-objects VPC overrides fail during resolution",
+                    input: ResolveInput::InvalidVpcOverrides {
+                        source: SeedSource::InitialObjects,
+                    },
+                    expect: FailsWith(ResolveFailure::InvalidVpcOverrides),
+                },
+                Case {
+                    scenario: "legacy VPC overrides fail during resolution",
+                    input: ResolveInput::InvalidVpcOverrides {
+                        source: SeedSource::LegacyConfig,
+                    },
+                    expect: FailsWith(ResolveFailure::InvalidVpcOverrides),
+                },
+                Case {
                     scenario: "resource pool definitions remain required",
                     input: ResolveInput::MissingPools,
                     expect: FailsWith(ResolveFailure::MissingPools),
                 },
             ],
             resolve_seed_data,
+        );
+    }
+
+    #[test]
+    fn seed_resolution_preserves_unexpected_config_validation_errors() {
+        let error =
+            model::ConfigValidationError::DuplicateTenantKeysetId("duplicate-keyset".to_string());
+        assert_eq!(
+            classify_config_validation_error(&error),
+            ResolveFailure::Unexpected(error.to_string())
         );
     }
 }
