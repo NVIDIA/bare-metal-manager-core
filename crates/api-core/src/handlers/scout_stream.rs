@@ -260,14 +260,14 @@ mod tests {
     use tower::ServiceExt;
 
     use super::*;
-    use crate::admission::{AdmissionController, enforce as enforce_admission};
+    use crate::admission::{ApiAdmissionControl, enforce as enforce_admission};
     use crate::cfg::file::ApiAdmissionControlConfig;
     use crate::tests::common::api_fixtures::create_test_env;
 
     #[crate::sqlx_test]
     async fn stalled_initial_message_times_out_and_releases_admission_capacity(pool: sqlx::PgPool) {
         let env = create_test_env(pool).await;
-        let controller = AdmissionController::new(
+        let controller = ApiAdmissionControl::from_config(
             &ApiAdmissionControlConfig {
                 enabled: true,
                 max_work_in_flight: 1,
@@ -277,7 +277,8 @@ mod tests {
             &opentelemetry::global::meter("scout-stream-init-timeout-test"),
             CancellationToken::new(),
         )
-        .expect("test admission config is valid");
+        .expect("test admission config is valid")
+        .expect("test admission is enabled");
         let probe_calls = Arc::new(AtomicUsize::new(0));
         let probe_handler = {
             let probe_calls = Arc::clone(&probe_calls);

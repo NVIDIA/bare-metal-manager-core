@@ -843,30 +843,25 @@ impl Default for ApiAdmissionControlConfig {
 }
 
 impl ApiAdmissionControlConfig {
-    /// Reject invalid bounds before the API listener starts.
-    pub fn validate(&self) -> eyre::Result<()> {
+    pub(crate) fn admission_limits(
+        &self,
+    ) -> eyre::Result<Option<crate::admission::AdmissionLimits>> {
         if !self.enabled {
-            return Ok(());
+            return Ok(None);
         }
 
-        for (field, value) in [
-            ("max_work_in_flight", self.max_work_in_flight),
-            ("max_pending", self.max_pending),
-        ] {
-            if value == 0 {
-                eyre::bail!("api_admission_control.{field} must be greater than zero");
-            }
-            if value > tokio::sync::Semaphore::MAX_PERMITS {
-                eyre::bail!(
-                    "api_admission_control.{field} must not exceed {}",
-                    tokio::sync::Semaphore::MAX_PERMITS
-                );
-            }
-        }
-        if self.pending_timeout.is_zero() {
-            eyre::bail!("api_admission_control.pending_timeout must be greater than zero");
-        }
-        Ok(())
+        crate::admission::AdmissionLimits::new(
+            self.max_work_in_flight,
+            self.max_pending,
+            self.pending_timeout,
+        )
+        .map(Some)
+        .map_err(|error| eyre::eyre!("api_admission_control.{error}"))
+    }
+
+    /// Reject invalid bounds before the API listener starts.
+    pub fn validate(&self) -> eyre::Result<()> {
+        self.admission_limits().map(drop)
     }
 }
 

@@ -15,29 +15,33 @@
  * limitations under the License.
  */
 
-//! Shared admission control for gRPC and admin HTTP business requests.
+//! Carbide API admission policy and middleware integration.
 //!
-//! The middleware owns transport classification and response mapping. The
-//! controller owns admission policy and returns an RAII work permit. Keeping
-//! that boundary explicit lets fair scheduling replace the global semaphore
-//! policy without moving handler futures out of their requesting tasks.
+//! The nested engine module owns application-independent admission. This
+//! module supplies Carbide configuration, route classification, transport
+//! responses, metrics, and rate-limited diagnostics.
+
+mod engine;
 
 use std::sync::Arc;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use axum::body::Body;
 use axum::extract::{Request, State};
 use axum::http::{Response, StatusCode, header};
 use axum::middleware::Next;
 use axum::response::IntoResponse;
+pub(crate) use engine::AdmissionLimits;
+use engine::{AdmissionObserver, RejectionReason, SemaphoreAdmission};
 use opentelemetry::metrics::{Meter, ObservableGauge};
-use tokio::sync::{OwnedSemaphorePermit, Semaphore, TryAcquireError};
 use tokio_util::sync::CancellationToken;
 
 use crate::cfg::file::ApiAdmissionControlConfig;
 use crate::logging::log_limiter::LogLimiter;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+const EXCLUDED_ADMIN_PATHS: &[&str] = &["/admin/static", "/admin/auth-callback", "/admin/logs"];
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 enum RequestTransport {
     Grpc,
     Http,
@@ -54,9 +58,9 @@ impl RequestTransport {
         }
 
         if !is_path_or_child(path, "/admin")
-            || is_path_or_child(path, "/admin/static")
-            || is_path_or_child(path, "/admin/auth-callback")
-            || is_path_or_child(path, "/admin/logs")
+            || EXCLUDED_ADMIN_PATHS
+                .iter()
+                .any(|excluded_path| is_path_or_child(path, excluded_path))
         {
             return None;
         }
@@ -85,12 +89,23 @@ fn is_path_or_child(path: &str, root: &str) -> bool {
             .is_some_and(|suffix| suffix.starts_with('/'))
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, carbide_instrument::LabelValue)]
-enum RejectionReason {
+#[derive(Debug, Clone, Copy, PartialEq, Eq, carbide_instrument::LabelValue)]
+enum RejectionReasonLabel {
     QueueFull,
     QueueTimeout,
     ControllerUnavailable,
     ShuttingDown,
+}
+
+impl From<RejectionReason> for RejectionReasonLabel {
+    fn from(reason: RejectionReason) -> Self {
+        match reason {
+            RejectionReason::QueueFull => Self::QueueFull,
+            RejectionReason::QueueTimeout => Self::QueueTimeout,
+            RejectionReason::ControllerUnavailable => Self::ControllerUnavailable,
+            RejectionReason::ShuttingDown => Self::ShuttingDown,
+        }
+    }
 }
 
 #[derive(carbide_instrument::Event)]
@@ -115,7 +130,7 @@ struct RequestAdmitted;
 )]
 struct RequestRejected {
     #[label]
-    reason: RejectionReason,
+    reason: RejectionReasonLabel,
 }
 
 #[derive(carbide_instrument::Event)]
@@ -146,125 +161,88 @@ struct HandlerExecutionFinished {
     duration: Duration,
 }
 
-pub(crate) struct AdmissionController {
-    work_slots: Arc<Semaphore>,
-    pending_slots: Arc<Semaphore>,
-    pending_timeout: Duration,
-    shutdown: CancellationToken,
-    rejection_log_limiter: LogLimiter<RejectionReason>,
+struct CarbideAdmissionObserver;
+
+impl AdmissionObserver for CarbideAdmissionObserver {
+    fn admitted(&self) {
+        carbide_instrument::emit(RequestAdmitted);
+    }
+
+    fn pending_finished(&self, duration: Duration) {
+        carbide_instrument::emit(PendingWaitFinished { duration });
+    }
+
+    fn execution_finished(&self, duration: Duration) {
+        carbide_instrument::emit(HandlerExecutionFinished { duration });
+    }
+}
+
+pub(crate) struct ApiAdmissionControl {
+    engine: Arc<SemaphoreAdmission>,
+    rejection_log_limiter: LogLimiter<(RejectionReason, RequestTransport)>,
     _work_in_flight_gauge: ObservableGauge<u64>,
     _pending_requests_gauge: ObservableGauge<u64>,
 }
 
-impl AdmissionController {
-    pub(crate) fn new(
+impl ApiAdmissionControl {
+    pub(crate) fn from_config(
         config: &ApiAdmissionControlConfig,
         meter: &Meter,
         shutdown: CancellationToken,
-    ) -> eyre::Result<Arc<Self>> {
-        config.validate()?;
+    ) -> eyre::Result<Option<Arc<Self>>> {
+        let Some(limits) = config.admission_limits()? else {
+            return Ok(None);
+        };
 
-        let work_slots = Arc::new(Semaphore::new(config.max_work_in_flight));
-        let pending_slots = Arc::new(Semaphore::new(config.max_pending));
+        let observer: Arc<dyn AdmissionObserver> = Arc::new(CarbideAdmissionObserver);
+        let engine = SemaphoreAdmission::new(limits, shutdown, observer);
         let work_in_flight_gauge = register_occupancy_gauge(
             meter,
             "carbide_api_admission_work_in_flight",
             "Number of API requests currently holding an execution slot",
-            config.max_work_in_flight,
-            Arc::clone(&work_slots),
+            Arc::clone(&engine),
+            |snapshot| snapshot.work_in_flight,
         );
         let pending_requests_gauge = register_occupancy_gauge(
             meter,
             "carbide_api_admission_pending_requests",
             "Number of API requests currently waiting for an execution slot",
-            config.max_pending,
-            Arc::clone(&pending_slots),
+            Arc::clone(&engine),
+            |snapshot| snapshot.pending,
         );
 
-        Ok(Arc::new(Self {
-            work_slots,
-            pending_slots,
-            pending_timeout: config.pending_timeout,
-            shutdown,
+        Ok(Some(Arc::new(Self {
+            engine,
             rejection_log_limiter: LogLimiter::default(),
             _work_in_flight_gauge: work_in_flight_gauge,
             _pending_requests_gauge: pending_requests_gauge,
-        }))
+        })))
     }
 
-    async fn acquire(&self) -> Result<WorkPermit, RejectionReason> {
-        if self.shutdown.is_cancelled() {
-            return self.reject(RejectionReason::ShuttingDown);
+    fn rejection_response(
+        &self,
+        transport: RequestTransport,
+        reason: RejectionReason,
+    ) -> Response<Body> {
+        carbide_instrument::emit(RequestRejected {
+            reason: reason.into(),
+        });
+        if self.rejection_log_limiter.should_log(
+            &(reason, transport),
+            "API request rejected by admission control",
+        ) {
+            tracing::warn!(
+                rejection_reason = ?reason,
+                request_transport = ?transport,
+                "API request rejected by admission control"
+            );
         }
-
-        match Arc::clone(&self.work_slots).try_acquire_owned() {
-            Ok(permit) => return Ok(self.admit(permit)),
-            Err(TryAcquireError::Closed) => {
-                return self.reject(RejectionReason::ControllerUnavailable);
-            }
-            Err(TryAcquireError::NoPermits) => {}
-        }
-
-        let pending_permit = match Arc::clone(&self.pending_slots).try_acquire_owned() {
-            Ok(permit) => permit,
-            Err(TryAcquireError::NoPermits) => {
-                return self.reject(RejectionReason::QueueFull);
-            }
-            Err(TryAcquireError::Closed) => {
-                return self.reject(RejectionReason::ControllerUnavailable);
-            }
-        };
-
-        let pending_wait = PendingWait {
-            _permit: pending_permit,
-            started: Instant::now(),
-        };
-        let acquisition = tokio::time::timeout(
-            self.pending_timeout,
-            Arc::clone(&self.work_slots).acquire_owned(),
-        );
-        let result = tokio::select! {
-            biased;
-            () = self.shutdown.cancelled() => Err(RejectionReason::ShuttingDown),
-            result = acquisition => match result {
-                Ok(Ok(permit)) => Ok(permit),
-                Ok(Err(_)) => Err(RejectionReason::ControllerUnavailable),
-                Err(_) => Err(RejectionReason::QueueTimeout),
-            },
-        };
-        drop(pending_wait);
-
-        match result {
-            Ok(permit) => Ok(self.admit(permit)),
-            Err(reason) => self.reject(reason),
-        }
-    }
-
-    fn admit(&self, permit: OwnedSemaphorePermit) -> WorkPermit {
-        carbide_instrument::emit(RequestAdmitted);
-        WorkPermit {
-            _permit: permit,
-            started: Instant::now(),
-        }
-    }
-
-    fn reject<T>(&self, reason: RejectionReason) -> Result<T, RejectionReason> {
-        carbide_instrument::emit(RequestRejected { reason });
-        if self
-            .rejection_log_limiter
-            .should_log(&reason, "API request rejected by admission control")
-        {
-            tracing::warn!(?reason, "API request rejected by admission control");
-        }
-        Err(reason)
+        transport.overloaded_response()
     }
 
     #[cfg(test)]
-    fn occupancy(&self) -> (usize, usize) {
-        (
-            self.work_slots.available_permits(),
-            self.pending_slots.available_permits(),
-        )
+    fn snapshot(&self) -> engine::AdmissionSnapshot {
+        self.engine.snapshot()
     }
 }
 
@@ -272,48 +250,20 @@ fn register_occupancy_gauge(
     meter: &Meter,
     name: &'static str,
     description: &'static str,
-    capacity: usize,
-    semaphore: Arc<Semaphore>,
+    engine: Arc<SemaphoreAdmission>,
+    value: fn(engine::AdmissionSnapshot) -> usize,
 ) -> ObservableGauge<u64> {
     meter
         .u64_observable_gauge(name)
         .with_description(description)
         .with_callback(move |observer| {
-            let occupied = capacity.saturating_sub(semaphore.available_permits());
-            observer.observe(occupied as u64, &[]);
+            observer.observe(value(engine.snapshot()) as u64, &[]);
         })
         .build()
 }
 
-#[derive(Debug)]
-struct WorkPermit {
-    _permit: OwnedSemaphorePermit,
-    started: Instant,
-}
-
-struct PendingWait {
-    _permit: OwnedSemaphorePermit,
-    started: Instant,
-}
-
-impl Drop for PendingWait {
-    fn drop(&mut self) {
-        carbide_instrument::emit(PendingWaitFinished {
-            duration: self.started.elapsed(),
-        });
-    }
-}
-
-impl Drop for WorkPermit {
-    fn drop(&mut self) {
-        carbide_instrument::emit(HandlerExecutionFinished {
-            duration: self.started.elapsed(),
-        });
-    }
-}
-
 pub(crate) async fn enforce(
-    State(controller): State<Arc<AdmissionController>>,
+    State(control): State<Arc<ApiAdmissionControl>>,
     request: Request,
     next: Next,
 ) -> Response<Body> {
@@ -321,9 +271,9 @@ pub(crate) async fn enforce(
         return next.run(request).await;
     };
 
-    let permit = match controller.acquire().await {
+    let permit = match control.engine.acquire(()).await {
         Ok(permit) => permit,
-        Err(_) => return transport.overloaded_response(),
+        Err(reason) => return control.rejection_response(transport, reason),
     };
     let response = next.run(request).await;
     drop(permit);
@@ -338,6 +288,7 @@ mod tests {
     use axum::http::Request;
     use axum::routing::get;
     use carbide_instrument::testing::MetricsCapture;
+    use futures::poll;
     use prost::Message;
     use prost_types::FileDescriptorSet;
     use tokio::sync::Notify;
@@ -352,8 +303,8 @@ mod tests {
         max_pending: usize,
         pending_timeout: Duration,
         shutdown: CancellationToken,
-    ) -> Arc<AdmissionController> {
-        AdmissionController::new(
+    ) -> Arc<ApiAdmissionControl> {
+        ApiAdmissionControl::from_config(
             &ApiAdmissionControlConfig {
                 enabled: true,
                 max_work_in_flight,
@@ -364,6 +315,7 @@ mod tests {
             shutdown,
         )
         .expect("test admission config is valid")
+        .expect("test admission is enabled")
     }
 
     #[test]
@@ -380,9 +332,6 @@ mod tests {
                 "/grpc.reflection.v1alpha.ServerReflection/ServerReflectionInfo",
                 None,
             ),
-            ("/admin/static/carbide.css", None),
-            ("/admin/auth-callback", None),
-            ("/admin/logs/api/stream", None),
             ("/administrator", None),
             ("/admin/staticity", Some(RequestTransport::Http)),
             ("/unrecognized", None),
@@ -390,6 +339,16 @@ mod tests {
 
         for (path, expected) in cases {
             assert_eq!(RequestTransport::classify(path), expected, "path: {path}");
+        }
+
+        for excluded_path in EXCLUDED_ADMIN_PATHS {
+            assert!(
+                is_path_or_child(excluded_path, "/admin"),
+                "excluded path must be an admin path: {excluded_path}"
+            );
+            assert_eq!(RequestTransport::classify(excluded_path), None);
+            let child_path = format!("{excluded_path}/child");
+            assert_eq!(RequestTransport::classify(&child_path), None);
         }
     }
 
@@ -442,55 +401,26 @@ mod tests {
         assert_eq!(http.headers().get(header::RETRY_AFTER).unwrap(), "1");
     }
 
-    #[tokio::test]
-    async fn pending_capacity_is_bounded_and_cancellation_releases_it() {
-        let _serial = ADMISSION_TEST_SERIAL.lock().await;
-        let controller = controller(1, 1, Duration::from_secs(1), CancellationToken::new());
-        let executing = controller.acquire().await.expect("first work is admitted");
-        assert_eq!(controller.occupancy(), (0, 1));
-
-        {
-            let pending = controller.acquire();
-            tokio::pin!(pending);
-            assert!(
-                tokio::time::timeout(Duration::from_millis(10), &mut pending)
-                    .await
-                    .is_err(),
-                "request should remain pending"
-            );
-            assert_eq!(controller.occupancy(), (0, 0));
-            assert_eq!(
-                controller
-                    .acquire()
-                    .await
-                    .expect_err("pending queue is full"),
-                RejectionReason::QueueFull
-            );
-        }
-
-        assert_eq!(controller.occupancy(), (0, 1));
-        drop(executing);
-        assert_eq!(controller.occupancy(), (1, 1));
-    }
-
-    #[tokio::test]
-    async fn timed_out_request_is_removed_and_metrics_record_the_outcomes() {
+    #[tokio::test(start_paused = true)]
+    async fn rejection_reason_is_preserved_in_metrics() {
         let _serial = ADMISSION_TEST_SERIAL.lock().await;
         let metrics = MetricsCapture::start();
-        let controller = controller(1, 1, Duration::from_millis(10), CancellationToken::new());
-        let executing = controller.acquire().await.expect("first work is admitted");
-        let rejection = controller
-            .acquire()
+        let control = controller(1, 1, Duration::from_secs(5), CancellationToken::new());
+        let executing = control
+            .engine
+            .acquire(())
             .await
-            .expect_err("second request should time out");
-        assert_eq!(rejection, RejectionReason::QueueTimeout);
-        assert_eq!(controller.occupancy(), (0, 1));
+            .expect("first work is admitted");
+        let pending = control.engine.acquire(());
+        tokio::pin!(pending);
+        assert!(poll!(&mut pending).is_pending());
+
+        tokio::time::advance(Duration::from_secs(5)).await;
+        let reason = pending.await.expect_err("pending work must time out");
+        let response = control.rejection_response(RequestTransport::Grpc, reason);
+        assert_eq!(response.headers().get("grpc-status").unwrap(), "8");
         drop(executing);
 
-        assert_eq!(
-            metrics.counter_delta("carbide_api_admission_admitted_total", &[]),
-            1.0
-        );
         assert_eq!(
             metrics.counter_delta(
                 "carbide_api_admission_rejected_total",
@@ -500,41 +430,51 @@ mod tests {
         );
         assert_eq!(
             metrics
-                .histogram_count_delta("carbide_api_admission_pending_wait_duration_seconds", &[],),
+                .histogram_count_delta("carbide_api_admission_pending_wait_duration_seconds", &[]),
             1
         );
-        assert_eq!(
-            metrics.histogram_count_delta(
-                "carbide_api_admission_handler_execution_duration_seconds",
-                &[],
+
+        let cases = [
+            (RejectionReason::QueueFull, "queue_full"),
+            (
+                RejectionReason::ControllerUnavailable,
+                "controller_unavailable",
             ),
-            1
-        );
+            (RejectionReason::ShuttingDown, "shutting_down"),
+        ];
+        for (reason, label) in cases {
+            let response = control.rejection_response(RequestTransport::Http, reason);
+            assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
+            assert_eq!(
+                metrics
+                    .counter_delta("carbide_api_admission_rejected_total", &[("reason", label)],),
+                1.0,
+                "rejection reason {reason:?} must be preserved"
+            );
+        }
     }
 
-    #[tokio::test]
-    async fn shutdown_and_closed_controller_are_rejected() {
-        let _serial = ADMISSION_TEST_SERIAL.lock().await;
-        let shutdown = CancellationToken::new();
-        let shutting_down_controller = controller(1, 1, Duration::from_secs(1), shutdown.clone());
-        shutdown.cancel();
-        assert_eq!(
-            shutting_down_controller
-                .acquire()
-                .await
-                .expect_err("shutdown rejects work"),
-            RejectionReason::ShuttingDown
-        );
+    #[test]
+    fn rejection_log_limiter_distinguishes_reason_and_transport() {
+        let control = controller(1, 1, Duration::from_secs(1), CancellationToken::new());
+        let summary = "API request rejected by admission control";
 
-        let controller = controller(1, 1, Duration::from_secs(1), CancellationToken::new());
-        controller.work_slots.close();
-        assert_eq!(
-            controller
-                .acquire()
-                .await
-                .expect_err("closed controller rejects work"),
-            RejectionReason::ControllerUnavailable
-        );
+        assert!(control.rejection_log_limiter.should_log(
+            &(RejectionReason::QueueFull, RequestTransport::Grpc),
+            summary
+        ));
+        assert!(!control.rejection_log_limiter.should_log(
+            &(RejectionReason::QueueFull, RequestTransport::Grpc),
+            summary
+        ));
+        assert!(control.rejection_log_limiter.should_log(
+            &(RejectionReason::QueueFull, RequestTransport::Http),
+            summary
+        ));
+        assert!(control.rejection_log_limiter.should_log(
+            &(RejectionReason::QueueTimeout, RequestTransport::Grpc),
+            summary
+        ));
     }
 
     #[tokio::test]
@@ -607,12 +547,12 @@ mod tests {
                 .unwrap()
         });
         for _ in 0..100 {
-            if controller.occupancy() == (0, 0) {
+            if controller.snapshot().pending == 1 {
                 break;
             }
             tokio::task::yield_now().await;
         }
-        assert_eq!(controller.occupancy(), (0, 0));
+        assert_eq!(controller.snapshot().pending, 1);
 
         let bypass = router
             .clone()
@@ -648,6 +588,6 @@ mod tests {
         assert_eq!(handler_calls.load(Ordering::SeqCst), 2);
         // Capacity is released when handlers return, even while their response
         // bodies remain alive and unconsumed.
-        assert_eq!(controller.occupancy(), (1, 1));
+        assert_eq!(controller.snapshot().work_in_flight, 0);
     }
 }
