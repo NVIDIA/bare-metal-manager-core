@@ -63,11 +63,17 @@ async fn explore_supermicro_gb300() {
         setup
             .diffs
             .iter()
-            .map(|diff| diff.key.as_str())
+            .map(|diff| {
+                (
+                    diff.key.as_str(),
+                    diff.expected.as_str(),
+                    diff.actual.as_str(),
+                )
+            })
             .collect::<Vec<_>>(),
         [
-            "Socket0Pcie6DisableOptionROM",
-            "Socket1Pcie6DisableOptionROM",
+            ("Socket0Pcie6DisableOptionROM", "false", "true"),
+            ("Socket1Pcie6DisableOptionROM", "false", "true"),
         ]
     );
 }
