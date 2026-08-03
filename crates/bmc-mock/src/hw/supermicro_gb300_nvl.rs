@@ -182,7 +182,7 @@ impl SupermicroGB300Nvl<'_> {
                     base_bios: Some(base_bios(system_id)),
                     bios_mode: redfish::computer_system::BiosMode::Generic,
                     boot_options: Some(boot_options),
-                    boot_order_mode: redfish::computer_system::BootOrderMode::OrderedCollection,
+                    boot_order_mode: redfish::computer_system::BootOrderMode::ViaSettings,
                     chassis: vec!["Chassis_0".into()],
                     eth_interfaces: None,
                     id: system_id.into(),
