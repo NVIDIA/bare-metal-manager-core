@@ -238,6 +238,17 @@ pub async fn nvidia_switch_nd5200_ld_bmc() -> TestBmcHandle {
     .await
 }
 
+pub async fn nvidia_switch_n5700_ld_bmc() -> TestBmcHandle {
+    test_bmc(machine_router(
+        &host_info(HardwareType::NvidiaSwitchN5700Ld),
+        Arc::new(NoopCallbacks),
+        "test-host-id".to_string(),
+        false,
+        MachineRouterOptions::default(),
+    ))
+    .await
+}
+
 pub async fn dell_poweredge_r750_bmc() -> TestBmcHandle {
     test_bmc(machine_router(
         &host_info(HardwareType::DellPowerEdgeR750),

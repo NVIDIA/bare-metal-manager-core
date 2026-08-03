@@ -17,6 +17,8 @@
 
 use std::borrow::Cow;
 
+use serde_json::json;
+
 use crate::json::{JsonExt, JsonPatch};
 use crate::redfish;
 use crate::redfish::Builder;
@@ -77,8 +79,39 @@ impl Builder for SoftwareInventoryBuilder {
 }
 
 impl SoftwareInventoryBuilder {
+    pub fn name(self, value: &str) -> Self {
+        self.add_str_field("Name", value)
+    }
+
+    pub fn manufacturer(self, value: &str) -> Self {
+        self.add_str_field("Manufacturer", value)
+    }
+
+    pub fn software_id(self, value: &str) -> Self {
+        self.add_str_field("SoftwareId", value)
+    }
+
     pub fn version(self, value: &str) -> Self {
         self.add_str_field("Version", value)
+    }
+
+    pub fn status(self, value: redfish::resource::Status) -> Self {
+        self.apply_patch(json!({ "Status": value.into_json() }))
+    }
+
+    pub fn updateable(self, value: bool) -> Self {
+        self.apply_patch(json!({ "Updateable": value }))
+    }
+
+    pub fn related_items(self, odata_ids: &[&str]) -> Self {
+        let items = odata_ids
+            .iter()
+            .map(|odata_id| json!({ "@odata.id": odata_id }))
+            .collect::<Vec<_>>();
+        self.apply_patch(json!({
+            "RelatedItem": items,
+            "RelatedItem@odata.count": odata_ids.len(),
+        }))
     }
 
     pub fn build(self) -> SoftwareInventory {

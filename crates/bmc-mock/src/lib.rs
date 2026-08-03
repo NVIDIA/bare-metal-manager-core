@@ -80,6 +80,8 @@ pub enum HardwareType {
     DeltaPowerShelf,
     #[serde(rename = "nvidia_switch_nd5200_ld")]
     NvidiaSwitchNd5200Ld,
+    #[serde(rename = "nvidia_switch_n5700_ld")]
+    NvidiaSwitchN5700Ld,
     #[serde(rename = "nvidia_dgx_h100")]
     NvidiaDgxH100,
     #[serde(rename = "generic_ami")]
@@ -106,6 +108,7 @@ impl fmt::Display for HardwareType {
             Self::LiteOnPowerShelf => "Lite-On Power Shelf".fmt(f),
             Self::DeltaPowerShelf => "Delta Power Shelf".fmt(f),
             Self::NvidiaSwitchNd5200Ld => "NVIDIA Switch ND5200_LD".fmt(f),
+            Self::NvidiaSwitchN5700Ld => "NVIDIA Switch N5700_LD".fmt(f),
             Self::NvidiaDgxH100 => "NVIDIA DGX H100".fmt(f),
             Self::GenericAmi => "Generic AMI Server".fmt(f),
             Self::HpeProliantDl380aGen11 => "HPE ProLiant DL380a Gen11".fmt(f),
@@ -130,6 +133,7 @@ impl HardwareType {
             Self::LiteOnPowerShelf => Some(0),
             Self::DeltaPowerShelf => Some(0),
             Self::NvidiaSwitchNd5200Ld => Some(0),
+            Self::NvidiaSwitchN5700Ld => Some(0),
             Self::NvidiaDgxH100 => Some(1),
             Self::GenericAmi => None,
             Self::HpeProliantDl380aGen11 => None,
@@ -259,4 +263,22 @@ pub trait LogService: Send + Sync {
 pub enum BootOptionKind {
     Disk,
     Network,
+}
+
+#[cfg(test)]
+mod hardware_type_tests {
+    use super::HardwareType;
+
+    #[test]
+    fn nvidia_switch_n5700_ld_serde_and_dpu_count() {
+        let hardware_type = HardwareType::NvidiaSwitchN5700Ld;
+        let serialized = serde_json::to_string(&hardware_type).expect("hardware type serializes");
+
+        assert_eq!(serialized, r#""nvidia_switch_n5700_ld""#);
+        assert_eq!(
+            serde_json::from_str::<HardwareType>(&serialized).expect("hardware type deserializes"),
+            hardware_type
+        );
+        assert_eq!(hardware_type.fixed_number_of_dpu(), Some(0));
+    }
 }
