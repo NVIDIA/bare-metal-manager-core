@@ -41,7 +41,7 @@ This software operates at the **Service** level — a distributed control plane 
 Its primary security responsibility is to **protect privileged infrastructure credentials and enforce isolation between tenants sharing physical infrastructure.** Specifically: BMC, UEFI, and switch management credentials; the integrity of the machine provisioning and boot path; and the correctness of network, InfiniBand, and NVLink partitioning that separates one tenant's compute from another's.
 
 **Repository Exposure Classification:** Public.
-Basis: origin remote is github.com and the repository is publicly readable under Apache-2.0; this document is written to public-safe detail.
+Basis: origin remote is GitHub and the repository is publicly readable under Apache-2.0; this document is written to public-safe detail.
 
 **Service Exposure Classification:** External / Regulated (high confidence).
 Basis: externally distributed as container images and Helm charts with public product documentation; operates as a customer-facing bare-metal control plane; handles infrastructure credentials, secrets, and multi-tenant isolation boundaries.
@@ -66,7 +66,9 @@ The following scenarios represent the primary security concerns for this project
 
 3. **Interception on the hardware-management path:** The Redfish client pool is constructed with certificate validation disabled (`crates/api-core/src/setup.rs`), and a permissive TLS verifier exists for optional-validation cases (`crates/tls/src/dummy_tls_verifier.rs`), used by fabric and telemetry clients including `crates/ib-fabric/`, `crates/nvlink-manager/`, and `crates/health/`. This is a deliberate accommodation for the self-signed certificates that BMCs and fabric appliances ship with, but it means an attacker positioned on the management network can intercept or modify those sessions, including credential material presented to devices.
 
-4. **Authorization gaps in the control-plane RPC surface:** The control plane exposes a large gRPC surface (`crates/rpc/proto/forge.proto`), with every method gated by an entry in the internal rule table. A small number of methods are intentionally reachable without a service certificate — including version reporting, machine discovery, attestation quote submission, and JWKS retrieval — because they sit on the onboarding path before a machine has an identity. A missing or overly broad rule for a newly added method, or a defect in the anonymous-path matching logic, would expose privileged operations to unauthenticated callers.
+4. **Authorization gaps in the control-plane RPC surface:** The control plane exposes a large gRPC surface (`crates/rpc/proto/forge.proto`). Authorization is layered: TLS client certificates establish a SPIFFE service or machine principal (`crates/authn/`), a static rule table maps each method to the principals allowed to call it (`crates/api-core/src/auth/internal_rbac_rules.rs`), and a Casbin policy engine evaluates external user identity separately (`crates/api-core/src/auth/casbin_engine.rs`). Methods absent from the rule table are denied, so the failure mode is closed rather than open. Three methods are deliberately reachable without a client certificate — version reporting, machine discovery, and attestation quote submission — because they sit on the onboarding path before a machine has an identity; a defect in that matching logic, or an overly broad rule on a newly added method, would widen unauthenticated access.
+
+   Note that the internal rule layer is **disabled entirely** when `bypass_rbac` is set (`crates/api-core/src/listener.rs`), and several shipped configuration files under `deploy/` and `dev/` enable it. Deployments that inherit those defaults without overriding them rely solely on transport authentication and Casbin, not on the per-method rule table.
 
 5. **Tenant isolation failure in network virtualization:** Tenant separation is enforced through VPC and network segment management (`crates/api-core/src/handlers/vpc.rs`, `crates/vpc-prefix-controller/`), InfiniBand partitioning (`crates/ib-partition-controller/`), NVLink domain assignment (`crates/nvlink-manager/`), and DPU-side flow programming (`crates/agent/src/ovs.rs`). An error in segment, partition, or domain assignment — particularly during reprovisioning or decommissioning, when a machine transitions between tenants — could leave one tenant reachable from another's network or fabric.
 
@@ -91,7 +93,7 @@ The following are conditions this software assumes are already satisfied by anot
 ## Deployment Assumptions
 
 - NICo is deployed into a Kubernetes cluster the operator controls, with the Helm values under `helm-prereqs/values/` adapted to site-specific network pools, VLAN ranges, and VIP assignments.
-- Service-to-service mTLS requires a functioning certificate authority and rotation path (`crates/certs/src/cert_renewal.rs`); expired or unrotated certificates fail closed.
+- Service-to-service mTLS requires a functioning certificate authority and rotation path (`crates/certs/src/cert_renewal.rs`). Enforcement is not unconditional: certificate validation can be relaxed by environment (`DISABLE_TLS_ENFORCEMENT`, honored in `crates/rpc/src/forge_tls_client.rs`), clients fall back to connecting without client authentication when no usable client material is present, and the internal authorization layer can be switched off by configuration. Operators should confirm these are set for enforcement in production rather than assuming the defaults are safe.
 - PostgreSQL, the secret manager, and the identity provider are operated as trusted site services with their own access controls and backup policy.
 
 ## Scope and Out of Scope
@@ -102,7 +104,7 @@ The following are conditions this software assumes are already satisfied by anot
 
 ## Dependency Security
 
-Dependencies are pinned through `Cargo.lock` and Go module files, with license and advisory policy enforced by `deny.toml` in CI. The cryptographic stack is `rustls` with `aws-lc-rs`, plus `aes-gcm`, `sha2`, `jsonwebtoken`, `x509-parser`, and `rcgen`; the project does not implement its own primitives.
+Dependencies are pinned through `Cargo.lock` for the Rust workspace and Go module files for the REST and DPU components. License and advisory policy is enforced by `cargo-deny` via `deny.toml` in CI, which covers the Rust dependency graph only; the Go modules are not currently covered by an equivalent advisory scan. The cryptographic stack is `rustls` with `aws-lc-rs`, plus `aes-gcm`, `sha2`, `jsonwebtoken`, `x509-parser`, and `rcgen`; the project does not implement its own primitives.
 
 ## Common False-Positive Patterns
 
