@@ -209,6 +209,14 @@ pub(crate) async fn start_runtime(
     let shared_nv_redfish_pool =
         carbide_redfish::nv_redfish::new_pool(carbide_config.site_explorer.bmc_proxy.clone());
 
+    eyre::ensure!(
+        !matches!(
+            (carbide_config.dpf.enabled, &carbide_config.vmaas_config),
+            (true, Some(_))
+        ),
+        "VMaaS and DPF cannot both be enabled. Disable one in the configuration."
+    );
+
     let ipmi_tool = create_ipmi_tool(
         credential_manager.clone(),
         &carbide_config,
