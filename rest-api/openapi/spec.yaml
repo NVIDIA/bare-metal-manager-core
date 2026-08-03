@@ -24498,7 +24498,7 @@ components:
 
         For single updates (PATCH /expected-rack/{id}), the `id` field is optional in the body and will be ignored if provided (the `id` from the URL path is used).
 
-        The `rackId` field is immutable on update — omit it or provide the existing value. Renaming an Expected Rack is not supported.
+        The `rackId` field is immutable on update — omit it or provide the existing value.
 
         Chassis identity and physical location information are conveyed via well-known label keys in `labels`:
         - `chassis.manufacturer`, `chassis.serial-number`, `chassis.model`

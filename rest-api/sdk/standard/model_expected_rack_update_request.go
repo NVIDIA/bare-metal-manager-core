@@ -20,7 +20,7 @@ import (
 // checks if the ExpectedRackUpdateRequest type satisfies the MappedNullable interface at compile time
 var _ MappedNullable = &ExpectedRackUpdateRequest{}
 
-// ExpectedRackUpdateRequest Request data to update an existing Expected Rack.  For single updates (PATCH /expected-rack/{id}), the `id` field is optional in the body and will be ignored if provided (the `id` from the URL path is used).  The `rackId` field is immutable on update — omit it or provide the existing value. Renaming an Expected Rack is not supported.  Chassis identity and physical location information are conveyed via well-known label keys in `labels`: - `chassis.manufacturer`, `chassis.serial-number`, `chassis.model` - `location.region`, `location.datacenter`, `location.room`, `location.position`
+// ExpectedRackUpdateRequest Request data to update an existing Expected Rack.  For single updates (PATCH /expected-rack/{id}), the `id` field is optional in the body and will be ignored if provided (the `id` from the URL path is used).  The `rackId` field is immutable on update — omit it or provide the existing value.  Chassis identity and physical location information are conveyed via well-known label keys in `labels`: - `chassis.manufacturer`, `chassis.serial-number`, `chassis.model` - `location.region`, `location.datacenter`, `location.room`, `location.position`
 type ExpectedRackUpdateRequest struct {
 	// Unique identifier (UUID) of the Expected Rack to update. Optional for single Expected Rack update (must be empty or match the id from the URL path).
 	Id NullableString `json:"id,omitempty"`
