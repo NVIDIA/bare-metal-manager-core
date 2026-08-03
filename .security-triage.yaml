@@ -1,0 +1,27 @@
+# Security triage decisions for NVIDIA Infra Controller (NICo).
+# Read by NVIDIA security tooling on each scan to suppress known false
+# positives and previously accepted risks. Committed alongside SECURITY.md so
+# the whole team inherits the triage. Hand-editable: delete an entry to
+# un-suppress it, and keep last_updated current.
+version: "1.0"
+project: "infra-controller"
+last_updated: "2026-08-03T16:19:24Z"
+
+repository_exposure_classification:
+  visibility: "Public"
+  basis: "origin remote is github.com and the repository is publicly readable under Apache-2.0"
+  confirmed_by: "Amir Hatamzad <ahatamzad@nvidia.com>"
+  date: "2026-08-03"
+
+service_exposure_classification:
+  tier: "External / Regulated"
+  confidence: "high"
+  basis: "externally distributed container images and Helm charts with public product documentation; customer-facing bare-metal control plane; handles infrastructure credentials, secrets, and multi-tenant isolation boundaries"
+  confirmed_by: "Amir Hatamzad <ahatamzad@nvidia.com>"
+  date: "2026-08-03"
+
+false_positives: []
+
+accepted_risks: []
+
+suppressed_cves: []
