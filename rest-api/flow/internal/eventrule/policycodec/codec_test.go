@@ -107,6 +107,18 @@ func TestPolicyRejectsUnknownVersionsAndFields(t *testing.T) {
 				}
 			]
 		}`,
+		"unspecified send alert severity": `{
+			"version":1,
+			"actions":[
+				{
+					"version":1,
+					"id":"alert",
+					"type":"send_alert",
+					"condition":{},
+					"spec":{"severity":""}
+				}
+			]
+		}`,
 	}
 
 	for name, data := range tests {

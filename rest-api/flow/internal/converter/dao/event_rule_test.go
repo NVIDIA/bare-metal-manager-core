@@ -36,6 +36,46 @@ func TestEventRuleRoundTrip(t *testing.T) {
 	require.Equal(t, rule, roundTripped)
 }
 
+func TestEventRuleFromRejectsInvalidModel(t *testing.T) {
+	tests := map[string]struct {
+		mutate      func(*dbmodel.EventRule)
+		wantMessage string
+	}{
+		"invalid aggregate": {
+			mutate: func(rule *dbmodel.EventRule) {
+				rule.Name = ""
+			},
+			wantMessage: "event rule name is empty",
+		},
+		"invalid policy": {
+			mutate: func(rule *dbmodel.EventRule) {
+				rule.Policy = []byte(`{"version": 999}`)
+			},
+			wantMessage: "decode policy",
+		},
+	}
+
+	for name, test := range tests {
+		t.Run(name, func(t *testing.T) {
+			dbRule, err := EventRuleTo(&eventrule.Rule{
+				ID:        uuid.New(),
+				Origin:    eventrule.RuleOriginPersisted,
+				Name:      "test",
+				EventType: "test.event",
+				Policy: eventrule.Policy{Actions: []eventrule.Action{
+					eventrule.NewAction("noop", eventrule.ActionCondition{}, eventrule.Noop{}),
+				}},
+			})
+			require.NoError(t, err)
+			test.mutate(dbRule)
+
+			_, err = EventRuleFrom(dbRule)
+			require.ErrorIs(t, err, eventrule.ErrInvalidPersistedRule)
+			require.ErrorContains(t, err, test.wantMessage)
+		})
+	}
+}
+
 func TestEventRuleBindingRoundTrip(t *testing.T) {
 	scopes := map[string]eventrule.Scope{
 		"site": {Type: eventrule.ScopeTypeSite},

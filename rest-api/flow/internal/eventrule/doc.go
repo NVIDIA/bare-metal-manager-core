@@ -12,9 +12,10 @@
 // Envelope is the normalized event accepted by processing. Its ID identifies
 // one event across delivery retries, while CorrelationKey groups distinct
 // observations of the same logical incident for optional semantic
-// deduplication. Resource identifies the Flow rack or component concerned by
-// the event. A resource may initially have only an ExternalID; enrichment can
-// later populate its Flow ID and canonical component type.
+// deduplication. Resource is the caller-supplied reference to the Flow rack or
+// component concerned by the event and may contain only an ExternalID.
+// ResolvedResource separately contains the canonical ID, rack ID, and component
+// type established by processing so enrichment never mutates the envelope.
 //
 // Envelope.Payload is opaque JSON whose schema is selected by Envelope.Type.
 // The generic domain validates only that the payload is valid JSON. The child
