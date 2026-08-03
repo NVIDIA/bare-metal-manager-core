@@ -202,8 +202,8 @@ struct DpuAgentReport {
 }
 
 /// `InventoryReportSucceeded` records the inventory loop's successful
-/// completion and owns its DEBUG diagnostic. The other successful loops are
-/// metric-only.
+/// completion and owns its DEBUG diagnostic. The other successful report
+/// loops below write concise INFO records for operators.
 #[derive(carbide_instrument::Event)]
 #[event(
     event_name = "dpu_agent_inventory_report_succeeded",
@@ -238,7 +238,8 @@ struct InventoryReportFailed {
 #[event(
     event_name = "dpu_agent_config_fetch_succeeded",
     metric_family = DpuAgentReport,
-    log = off
+    log = info,
+    message = "Successfully fetched the latest configuration"
 )]
 struct ConfigFetchSucceeded {
     #[label]
@@ -285,7 +286,8 @@ struct ConfigNotFound {
 #[event(
     event_name = "dpu_agent_fmds_push_succeeded",
     metric_family = DpuAgentReport,
-    log = off
+    log = info,
+    message = "Successfully completed external FMDS update"
 )]
 struct FmdsPushSucceeded {
     #[label]
@@ -316,7 +318,8 @@ struct FmdsPushFailed {
 #[event(
     event_name = "dpu_agent_network_status_succeeded",
     metric_family = DpuAgentReport,
-    log = off
+    log = info,
+    message = "Successfully recorded DPU network status"
 )]
 struct NetworkStatusSucceeded {
     #[label]
@@ -857,7 +860,7 @@ mod report_loop_tests {
                     },
                 },
                 Check {
-                    scenario: "config fetch success remains metric-only",
+                    scenario: "config fetch success logs at info",
                     input: EventCase {
                         emit: || ConfigFetch::Succeeded.emit(),
                         report_loop: "config_fetch",
@@ -865,7 +868,15 @@ mod report_loop_tests {
                     },
                     expect: EventObservation {
                         metric_delta: 1.0,
-                        logs: Vec::new(),
+                        logs: expected_log(
+                            "dpu_agent_config_fetch_succeeded",
+                            tracing::Level::INFO,
+                            "Successfully fetched the latest configuration",
+                            "config_fetch",
+                            "ok",
+                            &[],
+                            None,
+                        ),
                     },
                 },
                 Check {
@@ -898,7 +909,7 @@ mod report_loop_tests {
                     },
                 },
                 Check {
-                    scenario: "FMDS success remains metric-only",
+                    scenario: "FMDS success logs at info",
                     input: EventCase {
                         emit: || FmdsPush::Succeeded.emit(),
                         report_loop: "fmds_push",
@@ -906,7 +917,15 @@ mod report_loop_tests {
                     },
                     expect: EventObservation {
                         metric_delta: 1.0,
-                        logs: Vec::new(),
+                        logs: expected_log(
+                            "dpu_agent_fmds_push_succeeded",
+                            tracing::Level::INFO,
+                            "Successfully completed external FMDS update",
+                            "fmds_push",
+                            "ok",
+                            &[],
+                            None,
+                        ),
                     },
                 },
                 Check {
@@ -939,7 +958,7 @@ mod report_loop_tests {
                     },
                 },
                 Check {
-                    scenario: "network status success remains metric-only",
+                    scenario: "network status success logs at info",
                     input: EventCase {
                         emit: || NetworkStatus::Succeeded.emit(),
                         report_loop: "network_status",
@@ -947,7 +966,15 @@ mod report_loop_tests {
                     },
                     expect: EventObservation {
                         metric_delta: 1.0,
-                        logs: Vec::new(),
+                        logs: expected_log(
+                            "dpu_agent_network_status_succeeded",
+                            tracing::Level::INFO,
+                            "Successfully recorded DPU network status",
+                            "network_status",
+                            "ok",
+                            &[],
+                            None,
+                        ),
                     },
                 },
                 Check {
