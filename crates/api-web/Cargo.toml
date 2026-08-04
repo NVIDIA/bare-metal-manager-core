@@ -109,6 +109,7 @@ workspace = true
 # helpers). `db`/`model` resolve via carbide-api-db/carbide-api-model's lib names, already normal
 # deps.
 carbide-macros = { path = "../macros" }
+carbide-redfish = { path = "../redfish", features = ["test-support"] }
 carbide-sqlx-testing = { path = "../sqlx-testing", default-features = false }
 carbide-test-harness = { path = "../test-harness" }
 carbide-test-support = { path = "../test-support" }
