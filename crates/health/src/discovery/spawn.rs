@@ -139,11 +139,26 @@ fn spawn_generic_redfish_collectors(
             ctx.metrics_manager
                 .create_collector_registry(format!("sensor_collector_{key}"), metrics_prefix)?,
         );
-        let threshold_metrics = Arc::new(SensorThresholdMetrics::new(
+        // Best-effort: the metrics, logs and firmware collectors are started
+        // further down this function, and every start here logs and continues
+        // rather than aborting the sweep. Propagating a registration failure
+        // would take those down too. Threshold parsing is unaffected when the
+        // counters are absent -- only the visibility into it is lost.
+        let threshold_metrics = match SensorThresholdMetrics::new(
             collector_registry.registry(),
             metrics_prefix,
             key.to_string(),
-        )?);
+        ) {
+            Ok(metrics) => Some(Arc::new(metrics)),
+            Err(error) => {
+                tracing::error!(
+                    ?error,
+                    endpoint_key = %key,
+                    "Could not register sensor threshold metrics; starting sensor collection without them"
+                );
+                None
+            }
+        };
         match Collector::start::<SensorCollector<BmcClient>>(
             endpoint_arc.clone(),
             bmc.clone(),
@@ -152,7 +167,7 @@ fn spawn_generic_redfish_collectors(
                 shared,
                 sensor_fetch_concurrency: sensor_cfg.sensor_fetch_concurrency,
                 include_sensor_thresholds: sensor_cfg.include_sensor_thresholds,
-                threshold_metrics: Some(threshold_metrics),
+                threshold_metrics,
             },
             CollectorStartContext {
                 limiter: ctx.limiter.clone(),

@@ -65,6 +65,11 @@ so a BMC that reports itself healthy cannot silence independent threshold alerti
 
 Thresholds and reading ranges are sanitized where they are collected, not where they are
 evaluated: a BMC that signals "this bound is not implemented" with an in-band value
-(iDRAC 7.20.x reports `-1`) has that bound treated as unset, so it neither classifies nor
-is exported as a threshold. A sensor with no `upper_fatal` therefore tops out at
-`SensorCritical`.
+(iDRAC 7.20.x reports `-1`) has that bound treated as unset for classification and for the
+alert message. The metrics label path is not covered by that guarantee — it renders an
+unset `upper_critical`/`lower_critical` as `0`, which is tracked separately.
+
+A sensor with no fatal bounds at all cannot produce `SensorFatal` and tops out at
+`SensorCritical`. An unset `upper_fatal` alone does not cap it: `lower_fatal` can still
+fire on a low reading, and `SensorFailure` still applies whenever the reading falls outside
+a well-formed `range_min`/`range_max`.

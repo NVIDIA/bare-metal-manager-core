@@ -473,8 +473,15 @@ mod tests {
             // Latent before the fix: the three lower bounds were all -1, so any
             // sub-zero reading would have returned Fatal. That rung only became
             // reachable at all when #3401 bound lower_fatal correctly.
+            //
+            // Both rows are needed. Under BmcHealth::Ok a surviving lower_caution
+            // would classify Warning and then be suppressed back to success, so
+            // that row alone cannot tell "classified Ok" from "classified Warning
+            // and silenced". The BmcHealth::Warning row removes the ambiguity:
+            // there Warning is not suppressed, so None means genuinely Ok.
             "a sub-zero reading no longer trips the parsed-away lower rungs" {
                 Row { value: -40.0, bmc_health: BmcHealth::Ok } => None,
+                Row { value: -40.0, bmc_health: BmcHealth::Warning } => None,
             }
 
             // The bounds iDRAC does implement are untouched -- classification
