@@ -215,6 +215,8 @@ jobs:
     name: Check Protobuf Generated Code
     runs-on: linux-amd64-cpu4
     continue-on-error: false
+    permissions:
+      contents: read
     steps:
       - name: Checkout code
         uses: actions/checkout@v4

@@ -147,8 +147,8 @@ jobs:
           merge-multiple: true
 
       # Must run unconditionally, not just when pushing. The default docker
-      # driver cannot export a build cache at all, so gating this on `push` is
-      # what silently disabled layer caching on every PR build.
+      # driver can neither import nor export a build cache, so gating this on
+      # `push` is what silently disabled layer caching on every PR build.
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
         with:
@@ -281,11 +281,14 @@ jobs:
           provenance: ${{ github.repository == 'NVIDIA/infra-controller' && 'mode=min' || 'false' }}
           tags: ${{ steps.tag_list.outputs.tags }}
           build-args: ${{ steps.parse-args.outputs.build_args }}
-          # cache-to is deliberately not gated on `push`. Only pushing refs used
-          # to write the cache, so a developer iterating on a PR recompiled
-          # everything from scratch on every single push.
+          # Every ref reads the cache; only main writes it. The Rust images
+          # `COPY . ./` before the compile, so any new commit invalidates the
+          # builder layer and a PR can never hit its own exported cache -- a
+          # measured 18-21 min per job spent exporting layers that only a
+          # byte-identical tree could ever reuse. sccache, not the layer cache,
+          # is what carries reuse across commits.
           cache-from: ${{ inputs.cache && format('type=gha,scope={0}', steps.cache.outputs.scope) || '' }}
-          cache-to: ${{ inputs.cache && format('type=gha,mode=max,scope={0}', steps.cache.outputs.scope) || '' }}
+          cache-to: ${{ inputs.cache && github.ref == 'refs/heads/main' && format('type=gha,mode=max,scope={0}', steps.cache.outputs.scope) || '' }}
           # Lets sccache in the builder stage use the Actions cache as a shared
           # backend. Always passed and never empty -- buildx rejects a secret
           # with an empty value outright. The Dockerfiles check the URL for a
