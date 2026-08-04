@@ -1,0 +1,46 @@
+# `nico-admin-cli rack profile list`
+
+_[Hardware commands](../../hardware.md) › [rack](./rack.md) › [profile](./rack-profile.md) › **list**_
+
+## NAME
+
+nico-admin-cli-rack-profile-list - List configured rack profiles
+
+## SYNOPSIS
+
+**nico-admin-cli rack profile list** \[**--extended**\]
+\[**--sort-by**\] \[**-h**\|**--help**\]
+
+## DESCRIPTION
+
+List rack profiles from the effective runtime configuration. Rack profiles are not persisted rack resources. To add or change a profile, update the runtime configuration.
+
+## OPTIONS
+
+**--extended**  
+Extended result output.
+
+Used by measured boot. Basic output contains the details typically of interest, and "extended" output also dumps out all the internal UUIDs that are used to associate instances.
+
+**--sort-by** *\<SORT_BY\>* \[default: primary-id\]  
+Sort output by specified field\
+
+\
+*Possible values:*
+
+- primary-id: Sort by the primary id
+
+- state: Sort by state
+
+**-h**, **--help**  
+Print help (see a summary with -h)
+
+## Examples
+
+```sh
+nico-admin-cli rack profile list
+```
+
+---
+
+**See also:** [Hardware commands](../../hardware.md) · [CLI reference index](../../README.md)

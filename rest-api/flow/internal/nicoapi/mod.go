@@ -225,6 +225,22 @@ type Client interface {
 	// SetMachineAutoUpdate enables or disables firmware auto-update for a machine.
 	SetMachineAutoUpdate(ctx context.Context, machineID string, enable bool) error
 
+	// FindMachineControllerStates returns the raw state string Core reports for
+	// each machine. Machines for which Core returns no state are omitted.
+	FindMachineControllerStates(ctx context.Context, machineIDs []string) (map[string]string, error)
+
+	// DecommissionMachine initiates decommissioning of the given machine via Core.
+	// TODO: Core Decommission Machine RPC pending.
+	DecommissionMachine(ctx context.Context, machineID string) error
+
+	// DecommissionSwitch initiates decommissioning of the given switch via Core.
+	// TODO: Core Decommission Switch RPC pending.
+	DecommissionSwitch(ctx context.Context, switchID string) error
+
+	// DecommissionPowerShelf initiates decommissioning of the given power shelf via Core.
+	// TODO: Core Decommission PowerShelf RPC pending.
+	DecommissionPowerShelf(ctx context.Context, shelfID string) error
+
 	// The following are only valid in the mock environment and should only be called by unit tests
 	AddMachine(MachineDetail)
 	AddPowerState(machineID string, state PowerState)
@@ -244,6 +260,12 @@ type Client interface {
 	AddExpectedMachineDetail(detail ExpectedMachineDetail)
 	AddExpectedSwitchDetail(detail ExpectedSwitchDetail)
 	AddExpectedPowerShelfDetail(detail ExpectedPowerShelfDetail)
+
+	// Decommission mock fixtures.
+	SetMachineControllerState(machineID, state string)
+	SetDecommissionMachineError(err error)
+	SetDecommissionSwitchError(err error)
+	SetDecommissionPowerShelfError(err error)
 
 	// DPU reprovisioning mock fixtures + recorders.
 	SetHostDpuMachineIds(hostMachineID string, dpuIDs []string)

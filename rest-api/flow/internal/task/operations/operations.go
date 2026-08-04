@@ -64,6 +64,12 @@ func New(typ taskcommon.TaskType, info json.RawMessage) (Operation, error) {
 			return nil, fmt.Errorf("failed to unmarshal bring-up task info: %w", err) //nolint
 		}
 		return &taskInfo, nil
+	case taskcommon.TaskTypeDecommission:
+		var taskInfo DecommissionTaskInfo
+		if err := json.Unmarshal(info, &taskInfo); err != nil {
+			return nil, fmt.Errorf("failed to unmarshal decommission task info: %w", err) //nolint
+		}
+		return &taskInfo, nil
 	default:
 		return nil, fmt.Errorf("unsupported task type: %s", typ)
 	}
@@ -269,6 +275,42 @@ func (t *FirmwareControlTaskInfo) Description() string {
 
 func (t *FirmwareControlTaskInfo) CodeString() string {
 	return t.Operation.CodeString()
+}
+
+// DecommissionTaskInfo carries parameters for a rack decommission operation.
+type DecommissionTaskInfo struct {
+	RuleID string `json:"rule_id,omitempty"`
+}
+
+func (t *DecommissionTaskInfo) Validate() error {
+	return nil
+}
+
+func (t *DecommissionTaskInfo) Marshal() (json.RawMessage, error) {
+	raw, err := json.Marshal(t)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal decommission task info: %w", err)
+	}
+	return raw, nil
+}
+
+func (t *DecommissionTaskInfo) Unmarshal(data json.RawMessage) error {
+	if err := json.Unmarshal(data, t); err != nil {
+		return fmt.Errorf("failed to unmarshal decommission task info: %w", err)
+	}
+	return nil
+}
+
+func (t *DecommissionTaskInfo) Type() taskcommon.TaskType {
+	return taskcommon.TaskTypeDecommission
+}
+
+func (t *DecommissionTaskInfo) Description() string {
+	return "rack decommission"
+}
+
+func (t *DecommissionTaskInfo) CodeString() string {
+	return taskcommon.OpCodeDecommission
 }
 
 // SetFirmwareUpdateTimeWindowRequest is the request for setting firmware update time window.

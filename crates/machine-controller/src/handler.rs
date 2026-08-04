@@ -119,8 +119,10 @@ use crate::{MeasuringOutcome, get_measuring_prerequisites, handle_measuring_stat
 
 pub mod attestation;
 mod bios_config;
+mod boot_interface_observation;
 mod decommissioning;
 mod dpf;
+mod dpu_uefi_rotation;
 mod firmware_artifact;
 mod helpers;
 mod host_boot_config;
@@ -1119,7 +1121,23 @@ impl MachineStateHandler {
                     ));
                 }
 
-                Ok(StateHandlerOutcome::do_nothing())
+                // Same lowest-precedence idle-only rule again, for each DPU's
+                // UEFI password. A DPU change stages a Bios/Settings write and
+                // commits it with a DPU restart, so it gets its own state keyed
+                // to one DPU; the guard selects the next lagging or
+                // force-requested DPU and the next sweep re-selects any others.
+                if let Some(dpu_machine_id) =
+                    dpu_uefi_rotation::select_dpu_for_uefi_rotation(ctx.services, mh_snapshot)
+                        .await?
+                {
+                    return Ok(StateHandlerOutcome::transition(
+                        ManagedHostState::RotatingDpuUefi { dpu_machine_id },
+                    ));
+                }
+
+                // Periodic BMC observation is deliberately Ready's final work,
+                // so it cannot preempt lifecycle or operator-requested actions.
+                boot_interface_observation::observe_verified_boot_interface(ctx, mh_snapshot).await
             }
 
             ManagedHostState::Decommissioning {
@@ -1214,6 +1232,10 @@ impl MachineStateHandler {
             ManagedHostState::RotatingHostUefi { uefi_setup_info } => {
                 host_uefi_rotation::handle_rotating_host_uefi(ctx, mh_snapshot, uefi_setup_info)
                     .await
+            }
+
+            ManagedHostState::RotatingDpuUefi { dpu_machine_id } => {
+                dpu_uefi_rotation::handle_rotating_dpu_uefi(ctx, mh_snapshot, *dpu_machine_id).await
             }
 
             ManagedHostState::Assigned { instance_state: _ } => {
@@ -8034,9 +8056,15 @@ impl StateHandler for InstanceStateHandler {
 
                         Ok(StateHandlerOutcome::transition(next_state).with_txn(txn))
                     } else if let Some(txn) = txn_opt {
+                        // Commit extension cleanup before the observer performs
+                        // Redfish I/O in a separate attempt.
                         Ok(StateHandlerOutcome::do_nothing().with_txn(txn))
                     } else {
-                        Ok(StateHandlerOutcome::do_nothing())
+                        boot_interface_observation::observe_verified_boot_interface(
+                            ctx,
+                            mh_snapshot,
+                        )
+                        .await
                     }
                 }
                 InstanceState::HostPlatformConfiguration {
@@ -11941,12 +11969,38 @@ async fn restart_dpu(
             });
     }
 
+    let power_state = host_power_state(dpu_redfish_client.as_ref()).await?;
+    let power_action = dpu_restart_power_action(power_state)?;
+    if power_action == SystemPowerControl::On {
+        tracing::warn!(
+            machine_id = %machine.id,
+            %power_state,
+            "DPU is powered off; powering it on instead of restarting it"
+        );
+    }
+
     dpu_redfish_client
-        .power(SystemPowerControl::ForceRestart)
+        .power(power_action)
         .await
         .map_err(|error| redfish_error("reboot dpu", error))?;
 
     Ok(())
+}
+
+fn dpu_restart_power_action(
+    power_state: libredfish::PowerState,
+) -> Result<SystemPowerControl, StateHandlerError> {
+    match power_state {
+        libredfish::PowerState::Off => Ok(SystemPowerControl::On),
+        libredfish::PowerState::On => Ok(SystemPowerControl::ForceRestart),
+        libredfish::PowerState::PoweringOff
+        | libredfish::PowerState::PoweringOn
+        | libredfish::PowerState::Paused
+        | libredfish::PowerState::Reset
+        | libredfish::PowerState::Unknown => Err(StateHandlerError::GenericError(eyre!(
+            "cannot restart DPU while its power state is {power_state}; retrying"
+        ))),
+    }
 }
 
 /// Returns true if this machine needs IPMI restart to avoid killing its DPUs.
@@ -13291,6 +13345,7 @@ mod tests {
     use std::str::FromStr;
 
     use carbide_instrument::testing::{MetricsCapture, capture_logs};
+    use carbide_test_support::{Check, check_values};
     use model::firmware::FirmwareComponent;
     use model::site_explorer::{
         EndpointExplorationReport, EndpointType, Inventory, PreingestionState, Service,
@@ -13298,6 +13353,50 @@ mod tests {
     use regex::Regex;
 
     use super::*;
+
+    #[test]
+    fn dpu_restart_requires_a_stable_power_state() {
+        check_values(
+            [
+                Check {
+                    scenario: "powered-off DPU is powered on",
+                    input: libredfish::PowerState::Off,
+                    expect: Ok(SystemPowerControl::On),
+                },
+                Check {
+                    scenario: "powered-on DPU is restarted",
+                    input: libredfish::PowerState::On,
+                    expect: Ok(SystemPowerControl::ForceRestart),
+                },
+                Check {
+                    scenario: "DPU that is powering off is retried",
+                    input: libredfish::PowerState::PoweringOff,
+                    expect: Err(()),
+                },
+                Check {
+                    scenario: "DPU that is powering on is retried",
+                    input: libredfish::PowerState::PoweringOn,
+                    expect: Err(()),
+                },
+                Check {
+                    scenario: "paused DPU is retried",
+                    input: libredfish::PowerState::Paused,
+                    expect: Err(()),
+                },
+                Check {
+                    scenario: "resetting DPU is retried",
+                    input: libredfish::PowerState::Reset,
+                    expect: Err(()),
+                },
+                Check {
+                    scenario: "DPU with unknown power state is retried",
+                    input: libredfish::PowerState::Unknown,
+                    expect: Err(()),
+                },
+            ],
+            |power_state| dpu_restart_power_action(power_state).map_err(|_| ()),
+        );
+    }
 
     #[test]
     fn terminal_ready_boot_config_failure_is_deferred_until_lockdown_restoration() {

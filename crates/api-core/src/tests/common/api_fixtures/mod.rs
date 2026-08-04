@@ -338,8 +338,11 @@ impl TestEnv {
             bmc_rotation_gate: carbide_credential_rotation::RotationGate::new_for_family(
                 db::credential_rotation::CredentialRotationType::Bmc,
             ),
-            uefi_rotation_gate: carbide_credential_rotation::RotationGate::new_for_family(
+            host_uefi_rotation_gate: carbide_credential_rotation::RotationGate::new_for_family(
                 db::credential_rotation::CredentialRotationType::HostUefi,
+            ),
+            dpu_uefi_rotation_gate: carbide_credential_rotation::RotationGate::new_for_family(
+                db::credential_rotation::CredentialRotationType::DpuUefi,
             ),
             per_object_metrics_registry: self.per_object_metrics_registry(),
             per_object_info: None,
@@ -455,6 +458,7 @@ impl TestEnv {
             ManagedHostState::RotatingBmc { .. } => state.clone(),
             ManagedHostState::RotatingHostUefi { .. } => state.clone(),
             ManagedHostState::Decommissioning { .. } => state.clone(),
+            ManagedHostState::RotatingDpuUefi { .. } => state.clone(),
             ManagedHostState::BomValidating { .. } => state.clone(),
             ManagedHostState::Validation { validation_state } => match validation_state {
                 ValidationState::MachineValidation { machine_validation } => {
@@ -1567,8 +1571,11 @@ pub async fn create_test_env_with_overrides(
                 bmc_rotation_gate: carbide_credential_rotation::RotationGate::new_for_family(
                     db::credential_rotation::CredentialRotationType::Bmc,
                 ),
-                uefi_rotation_gate: carbide_credential_rotation::RotationGate::new_for_family(
+                host_uefi_rotation_gate: carbide_credential_rotation::RotationGate::new_for_family(
                     db::credential_rotation::CredentialRotationType::HostUefi,
+                ),
+                dpu_uefi_rotation_gate: carbide_credential_rotation::RotationGate::new_for_family(
+                    db::credential_rotation::CredentialRotationType::DpuUefi,
                 ),
                 per_object_metrics_registry: per_object_metrics_registry.clone(),
                 per_object_info: None,

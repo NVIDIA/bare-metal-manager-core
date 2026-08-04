@@ -344,6 +344,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             "#[derive(serde::Serialize)]",
         )
         .type_attribute(
+            "forge.GetMachineBootInterfacesResponse.Reconciliation",
+            "#[derive(serde::Serialize)]",
+        )
+        .type_attribute(
             "forge.MachineInterfaceBootInterface",
             "#[derive(serde::Serialize)]",
         )
@@ -864,6 +868,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .type_attribute("forge.RackCapabilityPowerShelf", "#[derive(serde::Serialize)]")
         .type_attribute("forge.RackProfile", "#[derive(serde::Serialize)]")
         .type_attribute("forge.GetRackProfileResponse", "#[derive(serde::Serialize)]")
+        .type_attribute("forge.ConfiguredRackProfile", "#[derive(serde::Serialize)]")
+        .type_attribute("forge.ListRackProfilesResponse", "#[derive(serde::Serialize)]")
         .type_attribute(
             "forge.MachineHardwareInfoGpu",
             "#[derive(serde::Deserialize, serde::Serialize)]",

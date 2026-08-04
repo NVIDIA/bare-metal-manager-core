@@ -33,9 +33,10 @@ use crate::api::{Api, log_machine_id, log_request_data};
 /// its next sweep; this handler only writes the flag (it performs no Redfish
 /// work itself).
 ///
-/// Unlike a BMC, a UEFI credential only ever belongs to a machine (a host, or a
-/// DPU once DPU UEFI rotation ships), never a switch or power shelf, so the
-/// target is always a single machine id.
+/// Unlike a BMC, a UEFI credential only ever belongs to a machine (a host or a
+/// DPU -- both are machine rows), never a switch or power shelf, so the target
+/// is always a single machine id. A DPU is addressed by its own `machine_id` or
+/// its DPU BMC MAC, driving `RotatingDpuUefi`; a host drives `RotatingHostUefi`.
 pub(crate) async fn trigger_uefi_credential_rotation(
     api: &Api,
     request: Request<rpc::UefiCredentialRotationRequest>,
@@ -89,10 +90,12 @@ async fn resolve_target(
         .transpose()?;
 
     // A MAC uniquely names the BMC of one machine; resolve which machine owns
-    // it. UEFI rotation is keyed by the BMC MAC (host UEFI by the host BMC MAC;
+    // it. UEFI rotation is keyed by the BMC MAC (host UEFI by the host BMC MAC,
     // DPU UEFI by the DPU BMC MAC), so the machine resolver's BMC-MAC lookup is
-    // the right one -- and unlike a bare BMC credential, a UEFI credential only
-    // ever belongs to a machine, never a switch or power shelf.
+    // the right one for either -- `find_machine_id_by_bmc_mac` matches any
+    // machine's BMC interface, DPU rows included -- and unlike a bare BMC
+    // credential, a UEFI credential only ever belongs to a machine, never a
+    // switch or power shelf.
     let mac_machine_id = match bmc_mac {
         Some(mac) => Some(
             db::machine_topology::find_machine_id_by_bmc_mac(txn, mac)

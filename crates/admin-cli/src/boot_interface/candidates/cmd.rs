@@ -450,6 +450,7 @@ mod tests {
                 mac_address: "aa:bb:cc:00:00:09".to_string(),
                 interface_id: None,
             }),
+            reconciliation: None,
         }
     }
 

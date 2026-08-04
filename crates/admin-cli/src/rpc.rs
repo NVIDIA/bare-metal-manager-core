@@ -472,6 +472,10 @@ impl ApiClient {
             .await?)
     }
 
+    pub async fn list_rack_profiles(&self) -> CarbideCliResult<rpc::ListRackProfilesResponse> {
+        Ok(self.0.list_rack_profiles().await?)
+    }
+
     async fn get_rack_ids(&self) -> CarbideCliResult<rpc::RackIdList> {
         Ok(self
             .0
@@ -2245,6 +2249,7 @@ impl ApiClient {
             metadata,
             network_security_group_id,
             default_nvlink_logical_partition_id: None,
+            routing_profile_overrides: None,
         };
         self.0
             .update_vpc(request)

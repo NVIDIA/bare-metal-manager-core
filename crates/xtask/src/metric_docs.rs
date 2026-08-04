@@ -80,7 +80,7 @@ pub fn check(fix: bool) -> eyre::Result<()> {
 
     if missing.is_empty() {
         println!(
-            "OK: all {} framework counters/histograms are documented in {CATALOGUE}.",
+            "OK: all {} framework metrics are documented in {CATALOGUE}.",
             declared.len(),
         );
         return Ok(());
@@ -107,7 +107,7 @@ pub fn check(fix: bool) -> eyre::Result<()> {
         eprintln!("      {}", suggested_row(m));
     }
     eprintln!(
-        "\nEvery counter/histogram declared through the instrumentation framework needs a row \
+        "\nEvery metric declared through the instrumentation framework needs a row \
          in {CATALOGUE}, so the metric is documented even when no test scrapes it. Run \
          `cargo xtask check-metric-docs --fix` to add the row(s) above automatically, name-sorted and \
          with the Description column taken from the declaration's `describe`, then commit \
@@ -314,6 +314,7 @@ fn event_metric(attrs: &[Attribute], source: &Path) -> eyre::Result<Option<Decla
     let kind = match metric.as_deref() {
         Some("counter") => "counter",
         Some("histogram") => "histogram",
+        Some("gauge") => "gauge",
         // metric = none, or no metric side: nothing to catalogue.
         _ => return Ok(None),
     };
@@ -416,6 +417,7 @@ fn family_metric(item: &ItemStruct, source: &Path) -> eyre::Result<Option<Declar
     let kind = match kind.as_deref() {
         Some("counter") => "counter",
         Some("histogram") => "histogram",
+        Some("gauge") => "gauge",
         // The derive requires a kind; a family without one does not compile.
         _ => return Ok(None),
     };

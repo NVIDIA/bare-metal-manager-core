@@ -86,6 +86,28 @@ type BringUpStatusReader interface {
 	GetBringUpStatus(ctx context.Context, target common.Target) (map[string]operations.MachineBringUpState, error)
 }
 
+// Decommissioner is implemented by component managers that support
+// decommissioning their components.
+//
+// Required descriptor capability: capability.CapabilityDecommissionControl.
+type Decommissioner interface {
+	// Decommission initiates the decommission of the target components. It
+	// returns immediately after the request is accepted; callers should poll
+	// GetDecommissionStatus for completion.
+	Decommission(ctx context.Context, target common.Target, info operations.DecommissionTaskInfo) error //nolint
+}
+
+// DecommissionStatusReader is implemented by component managers that can
+// report decommission progress.
+//
+// Required descriptor capability: capability.CapabilityDecommissionStatus.
+type DecommissionStatusReader interface {
+	// GetDecommissionStatus returns the current decommission state for each
+	// component in the target. Returns a map of component ID to raw state
+	// string (e.g. "Decommissioning/...", "Decommissioned", "Failed/...").
+	GetDecommissionStatus(ctx context.Context, target common.Target) (map[string]string, error) //nolint
+}
+
 // FirmwareConsistencyChecker is an optional interface for component managers
 // that can verify firmware version consistency across a set of components.
 //

@@ -158,60 +158,84 @@ pub(crate) async fn update(
     request: Request<rpc::VpcUpdateRequest>,
 ) -> Result<Response<rpc::VpcUpdateResult>, Status> {
     log_request_data(&request);
-
-    let vpc_update_request = request.get_ref();
+    // Preserve operator errors previously returned by handler-level validation
+    // without changing how unrelated request-conversion errors are represented.
+    let vpc_update = UpdateVpc::try_from(request.into_inner()).map_err(|error| match error {
+        RpcDataConversionError::MissingArgument("id") => {
+            CarbideError::InvalidArgument("VPC ID is required".to_string()).into()
+        }
+        error @ RpcDataConversionError::InvalidNetworkSecurityGroupId(_) => {
+            CarbideError::from(error).into()
+        }
+        error => Status::from(error),
+    })?;
 
     let mut txn = api.txn_begin().await?;
 
-    // If a security group is applied to the VPC, we need to do some validation.
-    if let Some(ref nsg_id) = vpc_update_request.network_security_group_id {
-        let id = nsg_id.parse::<NetworkSecurityGroupId>().map_err(|e| {
-            CarbideError::from(RpcDataConversionError::InvalidNetworkSecurityGroupId(
-                e.value(),
-            ))
-        })?;
-
-        let vpc_id = vpc_update_request
-            .id
-            .ok_or_else(|| CarbideError::InvalidArgument("VPC ID is required".to_string()))?;
-
-        // Query for the VPC because we need to do
-        // some validation against the request.
-        let Some(vpc) = db::vpc::find_by(&mut txn, ObjectColumnFilter::One(vpc::IdColumn, &vpc_id))
-            .await?
-            .pop()
-        else {
+    // Security-group and routing-profile changes both require validation
+    // against the VPC's persisted tenant and virtualization type.
+    if vpc_update.network_security_group_id.is_some()
+        || vpc_update.routing_profile_overrides.is_some()
+    {
+        let Some(vpc) = db::vpc::find_by(
+            &mut txn,
+            ObjectColumnFilter::One(vpc::IdColumn, &vpc_update.id),
+        )
+        .await?
+        .pop() else {
             return Err(CarbideError::NotFoundError {
                 kind: "Vpc",
-                id: vpc_id.to_string(),
+                id: vpc_update.id.to_string(),
             }
             .into());
         };
 
-        // Query to check the validity of the NSG ID but to also grab
-        // a row-level lock on it if it exists.
-        if network_security_group::find_by_ids(
-            &mut txn,
-            std::slice::from_ref(&id),
-            Some(
-                &vpc.config
-                    .tenant_organization_id
-                    .parse()
-                    .map_err(|e: InvalidTenantOrg| {
+        // Validate ownership while taking a row lock on the security group.
+        if let Some(ref network_security_group_id) = vpc_update.network_security_group_id
+            && network_security_group::find_by_ids(
+                &mut txn,
+                std::slice::from_ref(network_security_group_id),
+                Some(&vpc.config.tenant_organization_id.parse().map_err(
+                    |e: InvalidTenantOrg| {
                         CarbideError::from(RpcDataConversionError::InvalidTenantOrg(e.to_string()))
-                    })?,
-            ),
-            true,
-        )
-        .await?
-        .pop()
-        .is_none()
+                    },
+                )?),
+                true,
+            )
+            .await?
+            .pop()
+            .is_none()
         {
             return Err(CarbideError::FailedPrecondition(format!(
-                "NetworkSecurityGroup `{}` does not exist or is not owned by tenant `{}`",
-                id, vpc.config.tenant_organization_id
+                "NetworkSecurityGroup `{network_security_group_id}` does not exist or is not owned by tenant `{}`",
+                vpc.config.tenant_organization_id
             ))
             .into());
+        }
+
+        // Only FNN data planes can consume the persisted routing policy.
+        if let Some(routing_profile_overrides) = vpc_update.routing_profile_overrides.as_ref() {
+            vpc.config
+                .network_virtualization_type
+                .ensure_supports_routing_profiles()
+                .map_err(CarbideError::from)?;
+
+            // Inline policy is meaningful only when the current runtime
+            // configuration can supply the VPC's named base profile.
+            let (Some(fnn), Some(_)) = (
+                api.runtime_config.fnn.as_ref(),
+                vpc.config.routing_profile_type.as_ref(),
+            ) else {
+                return Err(CarbideError::FailedPrecondition(
+                    "FNN configuration and a named VPC routing profile are required to update routing-profile overrides"
+                        .to_string(),
+                )
+                .into());
+            };
+
+            let mut candidate_config = vpc.config.clone();
+            candidate_config.routing_profile_overrides = Some(routing_profile_overrides.clone());
+            fnn.resolve_vpc_routing_profile(&candidate_config)?;
         }
     }
 
@@ -219,7 +243,7 @@ pub(crate) async fn update(
     // we can't allow VPCs to change routing profiles unless we also release and re-allocate their VNIs.
     // It's better to keep the property immutable.
 
-    let vpc = db::vpc::update(&UpdateVpc::try_from(request.into_inner())?, &mut txn).await?;
+    let vpc = db::vpc::update(&vpc_update, &mut txn).await?;
 
     txn.commit().await?;
 

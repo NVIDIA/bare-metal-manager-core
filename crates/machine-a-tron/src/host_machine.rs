@@ -552,6 +552,15 @@ impl MachineHandle {
         dpus: Vec<DpuMachineHandle>,
         ipmi_endpoint: Option<bmc_mock::ipmi_sim::IpmiEndpoint>,
     ) -> Self {
+        Self::for_control_test_in_section(dpus, ipmi_endpoint, "test")
+    }
+
+    #[cfg(test)]
+    pub(crate) fn for_control_test_in_section(
+        dpus: Vec<DpuMachineHandle>,
+        ipmi_endpoint: Option<bmc_mock::ipmi_sim::IpmiEndpoint>,
+        machine_config_section: &str,
+    ) -> Self {
         let (message_tx, _message_rx) = mpsc::unbounded_channel();
         let mac = mac_address::MacAddress::new([2, 0, 0, 0, 0, 2]);
         let live_state = LiveState {
@@ -575,7 +584,7 @@ impl MachineHandle {
                 delta_psu_power: None,
             },
             dpus,
-            machine_config_section: "test".to_string(),
+            machine_config_section: machine_config_section.to_string(),
             bmc_injection: Arc::new(InjectionStore::new()),
         }))
     }

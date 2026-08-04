@@ -837,7 +837,7 @@ pub struct Machine {
     /// decommissioning workflow and clears the marker in the same transaction.
     pub decommission_requested: bool,
 
-    /// Operator "force-converge this BMC now" request (REQ-2). Set on the machine
+    /// Operator "force-converge this BMC now" request. Set on the machine
     /// that owns the BMC (a host machine for its host BMC, a DPU machine for its
     /// DPU BMC). When `true`, the machine state controller enters `RotatingBmc`
     /// and force-converges this machine's single BMC on its next sweep,
@@ -1297,7 +1297,7 @@ pub enum ManagedHostState {
     },
 
     /// The host and/or its DPUs are converging their BMC root credential to the
-    /// staged site-wide rotation target (REQ-2). A pool-only, top-level state:
+    /// staged site-wide rotation target. A pool-only, top-level state:
     /// it blocks instance creation (which requires exact `Ready`) for the bounded
     /// duration of the rotation. Per-device backoff/quarantine is owned by the
     /// rotation engine's `device_credential_rotation` bookkeeping, so this state
@@ -1325,6 +1325,28 @@ pub enum ManagedHostState {
     /// discriminator here.
     RotatingHostUefi {
         uefi_setup_info: UefiSetupInfo,
+    },
+
+    /// One of the host's DPUs is converging its own UEFI (BIOS setup) password
+    /// to the staged site-wide `dpu_uefi` rotation target. A
+    /// pool-only, top-level state (same instance-creation block as
+    /// `RotatingHostUefi`), but keyed to a single DPU: applying a DPU UEFI
+    /// password stages a `Bios/Settings` change and commits it with a DPU
+    /// restart (distinct from a host power-cycle), so the reboot is scoped to
+    /// that DPU. Because a host can carry several DPUs, this state names the
+    /// `dpu_machine_id` it is converging and processes one DPU per
+    /// `Ready -> RotatingDpuUefi -> Ready` cycle; the Ready entry guard
+    /// re-selects the next lagging or force-requested DPU on a later sweep.
+    ///
+    /// Unlike the host's multi-tick `RotatingHostUefi`, a DPU UEFI change is
+    /// applied in a single tick -- stage the `Bios/Settings` change, issue the
+    /// DPU restart that commits it, then record convergence -- so this state
+    /// carries no [`UefiSetupInfo`] sub-state: it names only the DPU it targets
+    /// and re-runs idempotently if the controller restarts mid-tick. Per-device
+    /// backoff/quarantine is the rotation engine's `device_credential_rotation`
+    /// bookkeeping keyed by that DPU's BMC MAC.
+    RotatingDpuUefi {
+        dpu_machine_id: MachineId,
     },
 
     /// State used to indicate the API is currently waiting on the
@@ -2699,6 +2721,9 @@ impl Display for ManagedHostState {
             ManagedHostState::RotatingHostUefi { uefi_setup_info } => {
                 write!(f, "RotatingHostUefi/{:?}", uefi_setup_info.uefi_setup_state)
             }
+            ManagedHostState::RotatingDpuUefi { dpu_machine_id } => {
+                write!(f, "RotatingDpuUefi/{dpu_machine_id}")
+            }
             ManagedHostState::Measuring { measuring_state } => {
                 write!(f, "Measuring/{measuring_state}")
             }
@@ -2804,6 +2829,7 @@ impl ManagedHostState {
             }
             ManagedHostState::RotatingBmc { .. } => "RotatingBmc".to_string(),
             ManagedHostState::RotatingHostUefi { .. } => "RotatingHostUefi".to_string(),
+            ManagedHostState::RotatingDpuUefi { .. } => "RotatingDpuUefi".to_string(),
             ManagedHostState::Measuring { measuring_state } => {
                 format!("Measuring/{measuring_state}")
             }
@@ -3017,6 +3043,9 @@ pub fn state_sla(
         }
         ManagedHostState::RotatingHostUefi { .. } => {
             StateSla::with_sla(slas::ROTATING_HOST_UEFI, time_in_state)
+        }
+        ManagedHostState::RotatingDpuUefi { .. } => {
+            StateSla::with_sla(slas::ROTATING_DPU_UEFI, time_in_state)
         }
         ManagedHostState::Measuring { measuring_state } => match measuring_state {
             // The API shouldn't be waiting for measurements for long. As soon

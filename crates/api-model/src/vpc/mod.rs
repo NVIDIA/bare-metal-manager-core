@@ -101,6 +101,7 @@ pub struct NewVpc {
 pub struct UpdateVpc {
     pub id: VpcId,
     pub network_security_group_id: Option<NetworkSecurityGroupId>,
+    pub routing_profile_overrides: Option<VpcRoutingProfileOverrides>,
     pub if_version_match: Option<ConfigVersion>,
     pub metadata: Metadata,
 }

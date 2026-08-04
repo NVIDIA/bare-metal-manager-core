@@ -28,6 +28,8 @@ use std::pin::Pin;
 use std::str::FromStr;
 
 use chrono::{DateTime, Utc};
+#[doc(hidden)]
+pub use const_format;
 use dns_record::DnsResourceRecordReply;
 use errors::RpcDataConversionError;
 use mac_address::{MacAddress, MacParseError};
@@ -37,6 +39,20 @@ use serde_json::{Value, json};
 use tokio_stream::Stream;
 
 use crate::forge_agent_control_response::LegacyAction;
+
+/// Returns the compile-time gRPC path for a Forge service method.
+#[macro_export]
+macro_rules! service_path {
+    ($method:literal) => {
+        $crate::const_format::concatcp!(
+            "/",
+            $crate::forge::forge_server::SERVICE_NAME,
+            "/",
+            $method
+        )
+    };
+}
+
 pub use crate::protos::common::{self, Uuid};
 pub use crate::protos::dns::{self};
 pub use crate::protos::forge::machine_credentials_update_request::CredentialPurpose;

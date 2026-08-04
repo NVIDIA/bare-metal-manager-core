@@ -118,6 +118,13 @@ fn parse_profile_show() {
     }
 }
 
+#[test]
+fn parse_profile_list() {
+    let cmd = Cmd::try_parse_from(["rack", "profile", "list"]).expect("should parse profile list");
+
+    assert!(matches!(cmd, Cmd::Profile(profile::Args::List(_))));
+}
+
 // Every malformed invocation is rejected at parse time -- a delete or a
 // profile-show left without its required rack identifier.
 #[test]

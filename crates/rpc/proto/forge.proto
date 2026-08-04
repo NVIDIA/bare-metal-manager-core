@@ -455,6 +455,11 @@ service Forge {
   rpc SetHostUefiPassword(SetHostUefiPasswordRequest) returns (SetHostUefiPasswordResponse);
   rpc ClearHostUefiPassword(ClearHostUefiPasswordRequest) returns (ClearHostUefiPasswordResponse);
 
+  // Set a DPU's UEFI password directly on the device (the DPU equivalent of
+  // SetHostUefiPassword): stage the site-wide DPU UEFI credential through the
+  // DPU's Redfish BIOS settings and restart the DPU to commit it.
+  rpc SetDpuUefiPassword(SetDpuUefiPasswordRequest) returns (SetDpuUefiPasswordResponse);
+
   // Expected Machine Management
   // Add expected machine
   rpc AddExpectedMachine(ExpectedMachine) returns (google.protobuf.Empty);
@@ -796,6 +801,9 @@ service Forge {
   // Force deletes a Rack from the database.
   rpc AdminForceDeleteRack(AdminForceDeleteRackRequest) returns (AdminForceDeleteRackResponse);
   rpc GetRackProfile(GetRackProfileRequest) returns (GetRackProfileResponse);
+  // Lists the rack profiles from the effective runtime configuration.
+  // Rack profiles are configuration, not persisted rack resources.
+  rpc ListRackProfiles(google.protobuf.Empty) returns (ListRackProfilesResponse);
 
   //
   // Compute Allocations
@@ -1856,6 +1864,12 @@ message VpcUpdateRequest {
   // The ID of the default NVLink Logical Partition for a VPC. This is the
   // NVLink Logical Partition that will be used by default for all instances in the VPC.
   optional common.NVLinkLogicalPartitionId default_nvlink_logical_partition_id = 18;
+
+  // Replaces the current inline routing-profile definition when present.
+  // Properties left unset inherit from the named base profile rather than the
+  // previous inline definition. Omit this field to preserve the current
+  // definition; send an empty message to restore inheritance for every property.
+  optional VpcRoutingProfileOverrides routing_profile_overrides = 19;
 }
 
 message VpcUpdateResult {
@@ -2430,6 +2444,9 @@ message Switch {
 
   // NVOS host endpoint
   SwitchNvosInfo nvos_info = 15;
+
+  // NVLink domain UUID
+  common.NVLinkDomainId nvlink_domain_uuid = 16;
 }
 
 message SwitchList {
@@ -3674,8 +3691,19 @@ message MachineList {
   repeated Machine machines = 1;
 }
 
+// Selects the interface(s) to delete. Exactly one of `id` or `mac_address` must be set.
+// Deleting by MAC exists for cleaning up a leftover interface when the operator has the
+// MAC but not the interface id -- e.g. a replacement host whose ingestion is blocked by
+// a stale interface record, where the MAC is read off the chassis or expected machines.
 message InterfaceDeleteQuery {
   common.MachineInterfaceId id = 1;
+
+  // Delete every interface whose own MAC address matches this value; it is not filtered
+  // by interface type (for a BMC interface this is the BMC MAC). A MAC is unique only
+  // per network segment, so this may match more than one interface -- they are all
+  // validated before any is deleted, so a match that still belongs to a live machine,
+  // DPU, switch or power shelf refuses the whole request.
+  optional string mac_address = 2;
 }
 
 message InterfaceSearchQuery {
@@ -6210,6 +6238,19 @@ message ClearHostUefiPasswordResponse {
   optional string job_id = 1;
 }
 
+message SetDpuUefiPasswordRequest {
+  // The DPU machine to set the UEFI password on.
+  common.MachineId dpu_id = 1;
+  // UUID, IP address, hostname or MAC address resolving to the DPU machine
+  // (preferred over dpu_id).
+  optional string machine_query = 2;
+}
+
+message SetDpuUefiPasswordResponse {
+  // A DPU stages the change through Redfish BIOS settings and schedules no job,
+  // so there is nothing to poll and no job id is returned.
+}
+
 enum OsImageStatus {
   // default status when entry created
   ImageUninitialized = 0;
@@ -7992,6 +8033,15 @@ message GetRackProfileResponse {
   RackProfile profile = 3;
 }
 
+message ConfiguredRackProfile {
+  common.RackProfileId rack_profile_id = 1;
+  RackProfile profile = 2;
+}
+
+message ListRackProfilesResponse {
+  repeated ConfiguredRackProfile rack_profiles = 1;
+}
+
 // put some sample rack manager commands in for now
 enum RackManagerForgeCmd {
   InventoryGet = 0;
@@ -8497,13 +8547,21 @@ message RemediationApplicationStatus {
 message SetPrimaryDpuRequest {
   common.MachineId host_machine_id = 1;
   common.MachineId dpu_machine_id = 2;
-  bool reboot=3;
+  // Deprecated compatibility alias for `force_reconcile`.
+  bool reboot = 3 [deprecated = true];
+  // Request another controller reconciliation even when the selected DPU is
+  // already the desired boot interface.
+  bool force_reconcile = 4;
 }
 
 message SetPrimaryInterfaceRequest {
   common.MachineId host_machine_id = 1;
   common.MachineInterfaceId interface_id = 2;
-  bool reboot = 3;
+  // Deprecated compatibility alias for `force_reconcile`.
+  bool reboot = 3 [deprecated = true];
+  // Request another controller reconciliation even when the selected
+  // interface is already the desired boot interface.
+  bool force_reconcile = 4;
 }
 
 // DPU Extension Service Types and Messages
@@ -9542,6 +9600,51 @@ message RetainedBootInterface {
 }
 
 message GetMachineBootInterfacesResponse {
+  // The desired boot-interface generation, its latest persisted observation,
+  // and any machine-controller work currently reconciling it.
+  message Reconciliation {
+    // Whether the desired generation is waiting for, undergoing, or has
+    // completed machine-controller reconciliation.
+    enum State {
+      // The server did not provide a usable reconciliation state.
+      Unspecified = 0;
+      // The desired generation has no matching observation and is not currently
+      // being reconciled. This includes work deferred while a host is assigned.
+      Pending = 1;
+      // Machine-controller is actively reconciling the desired generation.
+      Converging = 2;
+      // The desired generation has a matching verification or compatibility
+      // baseline.
+      Converged = 3;
+      // Reconciliation of the desired generation reached a terminal failure.
+      Failed = 4;
+    }
+
+    // Boot-interface target for the current desired generation.
+    MachineBootInterface desired_boot_interface = 1;
+    // Opaque configuration version of the current desired generation.
+    string desired_version = 2;
+    // Desired generation covered by the latest persisted observation. It may
+    // differ from `desired_version` after a new operator request.
+    optional string verified_version = 3;
+    // Time the latest persisted observation or compatibility baseline was
+    // recorded. Absent when no generation has been observed.
+    google.protobuf.Timestamp observed_at = 4;
+    // True when the latest observation is a rollout compatibility baseline
+    // rather than a Redfish verification.
+    bool is_compatibility_baseline = 5;
+    // Reconciliation state derived for the current desired generation.
+    State reconciliation_state = 6;
+    // Current managed-host state, including the BootConfiguring phase when
+    // reconciliation is active.
+    string machine_state = 7;
+    // Desired generation captured by an active BootConfiguring pass. This can
+    // differ from `desired_version` while older in-flight work finishes safely.
+    optional string reconciling_version = 8;
+    // Persisted terminal boot-reconciliation failure, when one exists.
+    optional string failure = 9;
+  }
+
   common.MachineId machine_id = 1;
 
   // Boot interfaces from the four stores.
@@ -9576,6 +9679,10 @@ message GetMachineBootInterfacesResponse {
   // non-underlay prediction. Absent when there are no predictions or when the
   // pick refuses to guess among several undeclared NICs.
   MachineBootInterface predicted_boot_interface = 10;
+
+  // Desired-state reconciliation details. Absent before a machine has a
+  // persisted desired boot interface.
+  Reconciliation reconciliation = 11;
 }
 
 message GetContainerRegistryCredentialRequest {

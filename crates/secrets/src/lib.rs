@@ -17,8 +17,6 @@
 use std::fmt::Display;
 use std::sync::Arc;
 
-use opentelemetry::metrics::Meter;
-
 pub use crate::chained_reader::ChainedCredentialReader;
 /// Direct vault access for the narrow cases that need it: `CertificateProvider`
 /// (PKI), and the Transit KMS provider, which builds its own raw vault client
@@ -104,7 +102,6 @@ pub fn create_certificate_provider(
     config: &CertificateConfig,
     shared_vault: &Arc<ForgeVaultClient>,
     spiffe: SpiffeIdentity,
-    meter: Meter,
 ) -> eyre::Result<Arc<dyn CertificateProvider>> {
     match &config.backend {
         CertBackend::SharedVault => {
@@ -113,7 +110,7 @@ pub fn create_certificate_provider(
         }
         CertBackend::DedicatedVault(dedicated) => {
             let provider: Arc<dyn CertificateProvider> =
-                create_dedicated_vault_client(dedicated, spiffe, meter)?;
+                create_dedicated_vault_client(dedicated, spiffe)?;
             Ok(provider)
         }
     }
@@ -122,7 +119,6 @@ pub fn create_certificate_provider(
 /// create_credential_manager builds the default credential chain: env -> file -> vault.
 pub async fn create_credential_manager(
     config: &CredentialConfig,
-    meter: Meter,
 ) -> eyre::Result<Arc<dyn CredentialManager>> {
     let mut readers: Vec<Box<dyn CredentialReader>> = Vec::new();
 
@@ -136,7 +132,7 @@ pub async fn create_credential_manager(
         ));
     }
 
-    let vault_client = create_vault_client(&config.vault, meter)?;
+    let vault_client = create_vault_client(&config.vault)?;
     readers.push(Box::new(vault_client.clone()));
 
     let chained = ChainedCredentialReader::from(readers);

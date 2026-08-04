@@ -66,9 +66,10 @@ use carbide_utils::none_if_empty::NoneIfEmpty;
 use carbide_vpc_prefix_controller::context::VpcPrefixStateHandlerServices;
 use carbide_vpc_prefix_controller::handler::VpcPrefixStateHandler;
 use carbide_vpc_prefix_controller::io::VpcPrefixStateControllerIO;
+use db::Transaction;
 use db::machine::{update_dpu_asns, update_dpu_loopback_ips_v6};
 use db::resource_pool::DefineResourcePoolError;
-use db::{Transaction, work_lock_manager};
+use db::work_lock_manager::WorkLockManagerHandle;
 use eyre::WrapErr;
 use futures_util::TryFutureExt;
 use librms::RackManagerClientPool;
@@ -198,6 +199,7 @@ pub(crate) async fn start_runtime(
     credential_manager: Arc<dyn CredentialManager>,
     certificate_provider: Arc<dyn CertificateProvider>,
     db_pool: PgPool,
+    work_lock_manager_handle: WorkLockManagerHandle,
     secrets_context: Option<crate::secrets::SecretsContext>,
     admin_ui_routes_builder: Option<AdminUiRoutesBuilder>,
     cancel_token: CancellationToken,
@@ -212,13 +214,6 @@ pub(crate) async fn start_runtime(
         &carbide_config,
         dynamic_settings.bmc_proxy.clone(),
     );
-
-    let work_lock_manager_handle = work_lock_manager::start(
-        join_set,
-        db_pool.clone(),
-        work_lock_manager::KeepaliveConfig::default(),
-    )
-    .await?;
 
     let (rms_client, switch_system_image_rms_api) = match carbide_config.rms.api_url.clone() {
         Some(url) if !url.is_empty() => {
@@ -1325,8 +1320,11 @@ async fn initialize_and_start_controllers<'a>(
                 bmc_rotation_gate: carbide_credential_rotation::RotationGate::new_for_family(
                     db::credential_rotation::CredentialRotationType::Bmc,
                 ),
-                uefi_rotation_gate: carbide_credential_rotation::RotationGate::new_for_family(
+                host_uefi_rotation_gate: carbide_credential_rotation::RotationGate::new_for_family(
                     db::credential_rotation::CredentialRotationType::HostUefi,
+                ),
+                dpu_uefi_rotation_gate: carbide_credential_rotation::RotationGate::new_for_family(
+                    db::credential_rotation::CredentialRotationType::DpuUefi,
                 ),
                 per_object_metrics_registry: per_object_metrics_registry.clone(),
                 per_object_info: machine_per_object_info,

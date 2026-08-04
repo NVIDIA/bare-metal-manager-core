@@ -109,6 +109,7 @@ pub fn get() -> CarbideConfig {
         database_pool_acquire_timeout: default_database_pool_acquire_timeout(),
         database_pool_idle_timeout: default_database_pool_idle_timeout(),
         database_pool_max_lifetime: default_database_pool_max_lifetime(),
+        api_admission_control: Default::default(),
         compute_allocation_enforcement: Default::default(),
         asn: 0,
         datacenter_asn: 0,

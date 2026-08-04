@@ -15,13 +15,13 @@
  * limitations under the License.
  */
 
-use carbide_uuid::machine::{MachineId, MachineIdSource, MachineType};
+use carbide_uuid::machine::{MachineId, MachineIdSource, MachineInterfaceId, MachineType};
 use ipnetwork::IpNetwork;
 use model::test_support::ManagedHostConfig;
 use rpc::forge;
 use rpc::forge::forge_server::Forge;
 
-use crate::test_support::fixture_config::ManagedHostConfigExt as _;
+use crate::test_support::fixture_config::{FixtureDefault as _, ManagedHostConfigExt as _};
 use crate::tests::common::api_fixtures;
 use crate::tests::common::api_fixtures::network_segment::{
     FIXTURE_ADMIN_NETWORK_SEGMENT_GATEWAY, FIXTURE_HOST_INBAND_NETWORK_SEGMENT_GATEWAY,
@@ -90,7 +90,8 @@ async fn test_set_primary_dpu_rejects_zero_dpu_host(
                 [0u8; 32],
                 MachineType::Dpu,
             )),
-            reboot: false,
+            force_reconcile: false,
+            ..Default::default()
         }))
         .await;
 
@@ -106,6 +107,127 @@ async fn test_set_primary_dpu_rejects_zero_dpu_host(
             "Expected zero-DPU host to reject set_primary_dpu with FailedPrecondition, got: {result:?}"
         ),
     };
+
+    Ok(())
+}
+
+// `set_primary_dpu` resolves the requested DPU from the host's locked
+// interface rows. A stale DPU id must fail before either the primary flag or
+// desired target changes.
+#[crate::sqlx_test]
+async fn test_set_primary_dpu_rejects_a_stale_host_relationship_without_writes(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = api_fixtures::create_test_env(pool).await;
+    let host =
+        api_fixtures::site_explorer::new_host(&env, ManagedHostConfig::default().with_dpu_count(2))
+            .await?;
+    let host_id = host.host_snapshot.id;
+
+    let (original_primary_id, stale_interface_id, stale_dpu_id, surviving_dpu_id): (
+        MachineInterfaceId,
+        MachineInterfaceId,
+        MachineId,
+        MachineId,
+    ) = {
+        let mut txn = env.pool.begin().await?;
+        let interfaces = db::machine_interface::find_by_machine_ids(txn.as_mut(), &[host_id])
+            .await?
+            .remove(&host_id)
+            .expect("host should have interface rows");
+        let original_primary = interfaces
+            .iter()
+            .find(|interface| interface.primary_interface)
+            .expect("host should start with a primary interface");
+        let stale_interface = interfaces
+            .iter()
+            .find(|interface| {
+                !interface.primary_interface && interface.attached_dpu_machine_id.is_some()
+            })
+            .expect("host should have a non-primary DPU-backed interface");
+        let surviving_dpu_id = original_primary
+            .attached_dpu_machine_id
+            .expect("the primary interface should be DPU-backed");
+        let stale_dpu_id = stale_interface
+            .attached_dpu_machine_id
+            .expect("the non-primary interface should be DPU-backed");
+        txn.commit().await?;
+        (
+            original_primary.id,
+            stale_interface.id,
+            stale_dpu_id,
+            surviving_dpu_id,
+        )
+    };
+
+    // Leave the stale DPU machine in place, but reassign its host interface to
+    // the surviving DPU as a stale discovery/update could. This preserves the
+    // host's DPU-backed Admin shape while ensuring the request is rejected
+    // because no current interface names the stale DPU.
+    sqlx::query("UPDATE machine_interfaces SET attached_dpu_machine_id = $1 WHERE id = $2")
+        .bind(surviving_dpu_id)
+        .bind(stale_interface_id)
+        .execute(&env.pool)
+        .await?;
+    let desired_before = db::machine_desired_boot_interface::get(&env.pool, &host_id)
+        .await?
+        .expect("ingestion should initialize the desired target");
+    sqlx::query("DELETE FROM machine_state_controller_queued_objects WHERE object_id = $1")
+        .bind(host_id.to_string())
+        .execute(&env.pool)
+        .await?;
+
+    let error = env
+        .api
+        .set_primary_dpu(tonic::Request::new(forge::SetPrimaryDpuRequest {
+            host_machine_id: Some(host_id),
+            dpu_machine_id: Some(stale_dpu_id),
+            force_reconcile: false,
+            ..Default::default()
+        }))
+        .await
+        .expect_err("a DPU without a current host interface must be rejected");
+    assert_eq!(error.code(), tonic::Code::InvalidArgument);
+    assert!(
+        error.message().contains("has no interface on host"),
+        "expected the stale-DPU lookup error, got: {}",
+        error.message(),
+    );
+
+    let primary_ids = {
+        let mut txn = env.pool.begin().await?;
+        let primary_ids = db::machine_interface::find_by_machine_ids(txn.as_mut(), &[host_id])
+            .await?
+            .remove(&host_id)
+            .expect("host should still have interface rows")
+            .into_iter()
+            .filter(|interface| interface.primary_interface)
+            .map(|interface| interface.id)
+            .collect::<Vec<_>>();
+        txn.commit().await?;
+        primary_ids
+    };
+    assert_eq!(primary_ids, vec![original_primary_id]);
+    let desired_after = db::machine_desired_boot_interface::get(&env.pool, &host_id)
+        .await?
+        .expect("the original desired target should remain");
+    assert_eq!(desired_after.value, desired_before.value);
+    assert_eq!(desired_after.version, desired_before.version);
+
+    let is_queued: bool = sqlx::query_scalar(
+        "SELECT EXISTS (
+            SELECT 1
+            FROM machine_state_controller_queued_objects
+            WHERE object_id = $1
+        )",
+    )
+    .bind(host_id.to_string())
+    .fetch_one(&env.pool)
+    .await?;
+    assert!(
+        !is_queued,
+        "the rejected request must not queue controller work"
+    );
 
     Ok(())
 }

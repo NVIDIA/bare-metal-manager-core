@@ -14,15 +14,21 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::sync::Arc;
 
 use bmc_mock::injection::InjectionStore;
 use carbide_uuid::machine::MachineId;
+use carbide_uuid::rack::RackId;
 use uuid::Uuid;
 
 use crate::DeviceHandle;
 use crate::device_simulator::{DeviceSimulator, SimulatorLifecycle};
+use crate::rack::{
+    RackInstance, RackMemberRef, RackMemberStatus, RackRegistration, RackStatus,
+    RacksStatusResponse,
+};
+use crate::status::DeviceStatusConfig;
 
 #[derive(Debug, Clone)]
 pub struct SimulatorRegistry {
@@ -33,9 +39,22 @@ pub struct SimulatorRegistry {
 struct SimulatorRegistryInner {
     devices: Vec<DeviceSimulator>,
     by_mat_id: HashMap<Uuid, usize>,
+    racks: BTreeMap<RackId, RackInstance>,
+}
+
+pub(crate) struct SimulatorRegistryBuilder {
+    devices: Option<Vec<DeviceSimulator>>,
+    rack_registrations: Vec<RackRegistration>,
 }
 
 impl SimulatorRegistry {
+    pub(crate) fn builder() -> SimulatorRegistryBuilder {
+        SimulatorRegistryBuilder {
+            devices: None,
+            rack_registrations: Vec::new(),
+        }
+    }
+
     pub fn try_from_handles(handles: Vec<DeviceHandle>) -> eyre::Result<Self> {
         Self::try_from_simulators(
             handles
@@ -46,6 +65,16 @@ impl SimulatorRegistry {
     }
 
     pub fn try_from_simulators(devices: Vec<DeviceSimulator>) -> eyre::Result<Self> {
+        Self::builder().devices(devices).build()
+    }
+
+    fn try_from_builder(builder: SimulatorRegistryBuilder) -> eyre::Result<Self> {
+        let SimulatorRegistryBuilder {
+            devices,
+            rack_registrations,
+        } = builder;
+        let devices =
+            devices.ok_or_else(|| eyre::eyre!("simulator registry devices were not configured"))?;
         let mut by_mat_id = HashMap::with_capacity(devices.len());
 
         for (index, device) in devices.iter().enumerate() {
@@ -57,8 +86,53 @@ impl SimulatorRegistry {
             }
         }
 
+        let by_config_section = devices
+            .iter()
+            .enumerate()
+            .map(|(index, device)| (device.handle().machine_config_section(), index))
+            .collect::<HashMap<_, _>>();
+        let mut racks = BTreeMap::new();
+        for registration in rack_registrations {
+            let members = registration
+                .members
+                .into_iter()
+                .map(|member| {
+                    let device_index = by_config_section
+                        .get(member.machine_config_section.as_str())
+                        .copied()
+                        .ok_or_else(|| {
+                            eyre::eyre!(
+                                "rack {} unit {} ({}) has no simulator",
+                                registration.rack_id,
+                                member.position,
+                                member.hardware_type
+                            )
+                        })?;
+                    Ok(RackMemberRef {
+                        position: member.position,
+                        device_index,
+                    })
+                })
+                .collect::<eyre::Result<Vec<_>>>()?;
+            let rack_id = registration.rack_id.clone();
+            let instance = RackInstance {
+                rack_id: registration.rack_id,
+                rack_type: registration.rack_type,
+                version: registration.version,
+                members,
+            };
+            eyre::ensure!(
+                racks.insert(rack_id.clone(), instance).is_none(),
+                "duplicate rack instance {rack_id}"
+            );
+        }
+
         Ok(Self {
-            inner: Arc::new(SimulatorRegistryInner { devices, by_mat_id }),
+            inner: Arc::new(SimulatorRegistryInner {
+                devices,
+                by_mat_id,
+                racks,
+            }),
         })
     }
 
@@ -80,6 +154,48 @@ impl SimulatorRegistry {
             .filter_map(DeviceSimulator::machine)
             .map(|simulator| simulator.handle().clone())
             .collect()
+    }
+
+    pub fn racks_status(&self, status_config: &DeviceStatusConfig) -> RacksStatusResponse {
+        RacksStatusResponse {
+            racks: self
+                .inner
+                .racks
+                .values()
+                .map(|rack| self.status_for_rack(rack, status_config))
+                .collect(),
+        }
+    }
+
+    pub fn rack_status(
+        &self,
+        rack_id: &RackId,
+        status_config: &DeviceStatusConfig,
+    ) -> Option<RackStatus> {
+        self.inner
+            .racks
+            .get(rack_id)
+            .map(|rack| self.status_for_rack(rack, status_config))
+    }
+
+    fn status_for_rack(
+        &self,
+        rack: &RackInstance,
+        status_config: &DeviceStatusConfig,
+    ) -> RackStatus {
+        RackStatus {
+            rack_id: rack.rack_id.to_string(),
+            rack_type: rack.rack_type,
+            version: rack.version,
+            members: rack
+                .members
+                .iter()
+                .map(|member| RackMemberStatus {
+                    position: member.position,
+                    device: self.inner.devices[member.device_index].status(status_config),
+                })
+                .collect(),
+        }
     }
 
     pub fn find_injection_store(&self, id: &str) -> Option<Arc<InjectionStore>> {
@@ -120,5 +236,36 @@ impl SimulatorRegistry {
             }
         }
         None
+    }
+}
+
+impl SimulatorRegistryBuilder {
+    pub(crate) fn devices(mut self, devices: Vec<DeviceSimulator>) -> Self {
+        self.devices = Some(devices);
+        self
+    }
+
+    pub(crate) fn racks(mut self, rack_registrations: Vec<RackRegistration>) -> Self {
+        self.rack_registrations = rack_registrations;
+        self
+    }
+
+    pub(crate) fn build(self) -> eyre::Result<SimulatorRegistry> {
+        SimulatorRegistry::try_from_builder(self)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::SimulatorRegistry;
+
+    #[test]
+    fn builder_requires_devices() {
+        let error = SimulatorRegistry::builder().build().unwrap_err();
+
+        assert_eq!(
+            error.to_string(),
+            "simulator registry devices were not configured"
+        );
     }
 }

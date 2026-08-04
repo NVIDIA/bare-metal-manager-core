@@ -1339,6 +1339,13 @@ impl Forge for Api {
         crate::handlers::rack::get_rack_profile(self, request).await
     }
 
+    async fn list_rack_profiles(
+        &self,
+        request: Request<()>,
+    ) -> Result<Response<rpc::ListRackProfilesResponse>, Status> {
+        crate::handlers::rack::list_rack_profiles(self, request)
+    }
+
     /// Trigger DPU reprovisioning
     async fn trigger_dpu_reprovisioning(
         &self,
@@ -1614,6 +1621,13 @@ impl Forge for Api {
         request: Request<rpc::SetHostUefiPasswordRequest>,
     ) -> Result<Response<rpc::SetHostUefiPasswordResponse>, Status> {
         crate::handlers::uefi::set_host_uefi_password(self, request).await
+    }
+
+    async fn set_dpu_uefi_password(
+        &self,
+        request: Request<rpc::SetDpuUefiPasswordRequest>,
+    ) -> Result<Response<rpc::SetDpuUefiPasswordResponse>, Status> {
+        crate::handlers::uefi::set_dpu_uefi_password(self, request).await
     }
 
     async fn get_expected_machine(

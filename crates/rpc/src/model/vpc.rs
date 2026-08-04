@@ -304,6 +304,10 @@ impl TryFrom<rpc::forge::VpcUpdateRequest> for UpdateVpc {
                 .map_err(|e: NetworkSecurityGroupIdParseError| {
                     RpcDataConversionError::InvalidNetworkSecurityGroupId(e.value())
                 })?,
+            routing_profile_overrides: value
+                .routing_profile_overrides
+                .map(TryInto::try_into)
+                .transpose()?,
             if_version_match,
             metadata,
         })

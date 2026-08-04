@@ -696,7 +696,7 @@ mod tests {
 
         let logs = capture_logs(|| {
             let request = Request::builder()
-                .uri("/forge.Forge/Anything")
+                .uri(rpc::service_path!("Anything"))
                 .body(String::new())
                 .expect("request");
             let _response_future = service.call(request);
@@ -743,7 +743,7 @@ mod tests {
 
         capture_logs(|| {
             let mut request = Request::builder()
-                .uri("/forge.Forge/Anything")
+                .uri(rpc::service_path!("Anything"))
                 .body(String::new())
                 .expect("request");
             request
@@ -779,7 +779,7 @@ mod tests {
 
         let logs = capture_logs(|| {
             let mut request = Request::builder()
-                .uri("/forge.Forge/Anything")
+                .uri(rpc::service_path!("Anything"))
                 .body(String::new())
                 .expect("request");
             request

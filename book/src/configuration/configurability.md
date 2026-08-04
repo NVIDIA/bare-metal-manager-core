@@ -685,6 +685,7 @@ These don't fit any sub-section but show up in production tuning:
 | Field | Default | When to touch |
 |-------|---------|---------------|
 | `max_database_connections` | `1000` | Drop when running multiple `nico-api` replicas to avoid saturating Postgres `max_connections`. |
+| `api_admission_control` | enabled, `64` executing, `1024` pending, `5s` timeout | Tune the bounded shared budget for gRPC and admin business requests after scale testing; disable only as a rollback escape hatch. |
 | `max_find_by_ids` | `100` | Increase if scripts paginate batch lookups; raise the API-side limit to match the client. |
 | `compute_allocation_enforcement` | `WarnOnly` | Switch to `Enforce` once tenant compute pools are sized correctly — flips over-allocation from a warning to a refusal. |
 | `bmc_session_lockout_threshold` | `3` | Number of consecutive 401/403s from a BMC before NICo stops session-token logins for that BMC. Raise on environments with flaky BMC firmware. |

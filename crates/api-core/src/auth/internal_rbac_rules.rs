@@ -331,6 +331,7 @@ impl InternalRBACRules {
         x.perm("UpdateInstancePhoneHomeLastContact", vec![Agent]);
         x.perm("SetHostUefiPassword", vec![ForgeAdminCLI]);
         x.perm("ClearHostUefiPassword", vec![ForgeAdminCLI]);
+        x.perm("SetDpuUefiPassword", vec![ForgeAdminCLI]);
         x.perm(
             "AddExpectedMachine",
             vec![ForgeAdminCLI, SiteAgent, Flow, Machineatron],
@@ -836,6 +837,7 @@ impl InternalRBACRules {
         x.perm("GetRack", vec![ForgeAdminCLI, Flow]);
         x.perm("DeleteRack", vec![ForgeAdminCLI, Flow]);
         x.perm("GetRackProfile", vec![ForgeAdminCLI]);
+        x.perm("ListRackProfiles", vec![ForgeAdminCLI]);
         x.perm("RackManagerCall", vec![ForgeAdminCLI]);
         x.perm("ScoutStream", vec![Scout]);
         x.perm("ScoutStreamShowConnections", vec![ForgeAdminCLI]);

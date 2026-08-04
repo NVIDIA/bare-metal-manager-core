@@ -99,7 +99,7 @@ pub(crate) async fn should_enter_host_uefi_rotation(
     // The gate reports `true` when the host UEFI credential lags the staged
     // site-wide target and is not quarantined.
     services
-        .uefi_rotation_gate
+        .host_uefi_rotation_gate
         .rotation_needed(&services.db_pool, mac)
         .await
         .map_err(|e| StateHandlerError::GenericError(eyre::eyre!("uefi rotation gate query: {e}")))
@@ -331,7 +331,7 @@ async fn set_rotating_host_uefi_password(
     match ctx
         .services
         .redfish_client_pool
-        .rotate_host_uefi_password(redfish_client, &candidates, new_password)
+        .rotate_uefi_password(redfish_client, &candidates, new_password)
         .await
     {
         Ok(job_id) => Ok(rotating_host_uefi_step(

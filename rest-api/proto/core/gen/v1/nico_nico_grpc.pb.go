@@ -218,6 +218,7 @@ const (
 	Forge_UpdateInstancePhoneHomeLastContact_FullMethodName                 = "/forge.Forge/UpdateInstancePhoneHomeLastContact"
 	Forge_SetHostUefiPassword_FullMethodName                                = "/forge.Forge/SetHostUefiPassword"
 	Forge_ClearHostUefiPassword_FullMethodName                              = "/forge.Forge/ClearHostUefiPassword"
+	Forge_SetDpuUefiPassword_FullMethodName                                 = "/forge.Forge/SetDpuUefiPassword"
 	Forge_AddExpectedMachine_FullMethodName                                 = "/forge.Forge/AddExpectedMachine"
 	Forge_DeleteExpectedMachine_FullMethodName                              = "/forge.Forge/DeleteExpectedMachine"
 	Forge_UpdateExpectedMachine_FullMethodName                              = "/forge.Forge/UpdateExpectedMachine"
@@ -397,6 +398,7 @@ const (
 	Forge_DeleteRack_FullMethodName                                         = "/forge.Forge/DeleteRack"
 	Forge_AdminForceDeleteRack_FullMethodName                               = "/forge.Forge/AdminForceDeleteRack"
 	Forge_GetRackProfile_FullMethodName                                     = "/forge.Forge/GetRackProfile"
+	Forge_ListRackProfiles_FullMethodName                                   = "/forge.Forge/ListRackProfiles"
 	Forge_CreateComputeAllocation_FullMethodName                            = "/forge.Forge/CreateComputeAllocation"
 	Forge_FindComputeAllocationIds_FullMethodName                           = "/forge.Forge/FindComputeAllocationIds"
 	Forge_FindComputeAllocationsByIds_FullMethodName                        = "/forge.Forge/FindComputeAllocationsByIds"
@@ -860,6 +862,10 @@ type ForgeClient interface {
 	// Set Host UEFI password
 	SetHostUefiPassword(ctx context.Context, in *SetHostUefiPasswordRequest, opts ...grpc.CallOption) (*SetHostUefiPasswordResponse, error)
 	ClearHostUefiPassword(ctx context.Context, in *ClearHostUefiPasswordRequest, opts ...grpc.CallOption) (*ClearHostUefiPasswordResponse, error)
+	// Set a DPU's UEFI password directly on the device (the DPU equivalent of
+	// SetHostUefiPassword): stage the site-wide DPU UEFI credential through the
+	// DPU's Redfish BIOS settings and restart the DPU to commit it.
+	SetDpuUefiPassword(ctx context.Context, in *SetDpuUefiPasswordRequest, opts ...grpc.CallOption) (*SetDpuUefiPasswordResponse, error)
 	// Expected Machine Management
 	// Add expected machine
 	AddExpectedMachine(ctx context.Context, in *ExpectedMachine, opts ...grpc.CallOption) (*emptypb.Empty, error)
@@ -1140,6 +1146,9 @@ type ForgeClient interface {
 	// Force deletes a Rack from the database.
 	AdminForceDeleteRack(ctx context.Context, in *AdminForceDeleteRackRequest, opts ...grpc.CallOption) (*AdminForceDeleteRackResponse, error)
 	GetRackProfile(ctx context.Context, in *GetRackProfileRequest, opts ...grpc.CallOption) (*GetRackProfileResponse, error)
+	// Lists the rack profiles from the effective runtime configuration.
+	// Rack profiles are configuration, not persisted rack resources.
+	ListRackProfiles(ctx context.Context, in *emptypb.Empty, opts ...grpc.CallOption) (*ListRackProfilesResponse, error)
 	// Compute Allocations
 	CreateComputeAllocation(ctx context.Context, in *CreateComputeAllocationRequest, opts ...grpc.CallOption) (*CreateComputeAllocationResponse, error)
 	FindComputeAllocationIds(ctx context.Context, in *FindComputeAllocationIdsRequest, opts ...grpc.CallOption) (*FindComputeAllocationIdsResponse, error)
@@ -3296,6 +3305,16 @@ func (c *forgeClient) ClearHostUefiPassword(ctx context.Context, in *ClearHostUe
 	return out, nil
 }
 
+func (c *forgeClient) SetDpuUefiPassword(ctx context.Context, in *SetDpuUefiPasswordRequest, opts ...grpc.CallOption) (*SetDpuUefiPasswordResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(SetDpuUefiPasswordResponse)
+	err := c.cc.Invoke(ctx, Forge_SetDpuUefiPassword_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *forgeClient) AddExpectedMachine(ctx context.Context, in *ExpectedMachine, opts ...grpc.CallOption) (*emptypb.Empty, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(emptypb.Empty)
@@ -5086,6 +5105,16 @@ func (c *forgeClient) GetRackProfile(ctx context.Context, in *GetRackProfileRequ
 	return out, nil
 }
 
+func (c *forgeClient) ListRackProfiles(ctx context.Context, in *emptypb.Empty, opts ...grpc.CallOption) (*ListRackProfilesResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ListRackProfilesResponse)
+	err := c.cc.Invoke(ctx, Forge_ListRackProfiles_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *forgeClient) CreateComputeAllocation(ctx context.Context, in *CreateComputeAllocationRequest, opts ...grpc.CallOption) (*CreateComputeAllocationResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(CreateComputeAllocationResponse)
@@ -6423,6 +6452,10 @@ type ForgeServer interface {
 	// Set Host UEFI password
 	SetHostUefiPassword(context.Context, *SetHostUefiPasswordRequest) (*SetHostUefiPasswordResponse, error)
 	ClearHostUefiPassword(context.Context, *ClearHostUefiPasswordRequest) (*ClearHostUefiPasswordResponse, error)
+	// Set a DPU's UEFI password directly on the device (the DPU equivalent of
+	// SetHostUefiPassword): stage the site-wide DPU UEFI credential through the
+	// DPU's Redfish BIOS settings and restart the DPU to commit it.
+	SetDpuUefiPassword(context.Context, *SetDpuUefiPasswordRequest) (*SetDpuUefiPasswordResponse, error)
 	// Expected Machine Management
 	// Add expected machine
 	AddExpectedMachine(context.Context, *ExpectedMachine) (*emptypb.Empty, error)
@@ -6703,6 +6736,9 @@ type ForgeServer interface {
 	// Force deletes a Rack from the database.
 	AdminForceDeleteRack(context.Context, *AdminForceDeleteRackRequest) (*AdminForceDeleteRackResponse, error)
 	GetRackProfile(context.Context, *GetRackProfileRequest) (*GetRackProfileResponse, error)
+	// Lists the rack profiles from the effective runtime configuration.
+	// Rack profiles are configuration, not persisted rack resources.
+	ListRackProfiles(context.Context, *emptypb.Empty) (*ListRackProfilesResponse, error)
 	// Compute Allocations
 	CreateComputeAllocation(context.Context, *CreateComputeAllocationRequest) (*CreateComputeAllocationResponse, error)
 	FindComputeAllocationIds(context.Context, *FindComputeAllocationIdsRequest) (*FindComputeAllocationIdsResponse, error)
@@ -7486,6 +7522,9 @@ func (UnimplementedForgeServer) SetHostUefiPassword(context.Context, *SetHostUef
 func (UnimplementedForgeServer) ClearHostUefiPassword(context.Context, *ClearHostUefiPasswordRequest) (*ClearHostUefiPasswordResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method ClearHostUefiPassword not implemented")
 }
+func (UnimplementedForgeServer) SetDpuUefiPassword(context.Context, *SetDpuUefiPasswordRequest) (*SetDpuUefiPasswordResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method SetDpuUefiPassword not implemented")
+}
 func (UnimplementedForgeServer) AddExpectedMachine(context.Context, *ExpectedMachine) (*emptypb.Empty, error) {
 	return nil, status.Error(codes.Unimplemented, "method AddExpectedMachine not implemented")
 }
@@ -8022,6 +8061,9 @@ func (UnimplementedForgeServer) AdminForceDeleteRack(context.Context, *AdminForc
 }
 func (UnimplementedForgeServer) GetRackProfile(context.Context, *GetRackProfileRequest) (*GetRackProfileResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method GetRackProfile not implemented")
+}
+func (UnimplementedForgeServer) ListRackProfiles(context.Context, *emptypb.Empty) (*ListRackProfilesResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method ListRackProfiles not implemented")
 }
 func (UnimplementedForgeServer) CreateComputeAllocation(context.Context, *CreateComputeAllocationRequest) (*CreateComputeAllocationResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method CreateComputeAllocation not implemented")
@@ -11844,6 +11886,24 @@ func _Forge_ClearHostUefiPassword_Handler(srv interface{}, ctx context.Context, 
 	return interceptor(ctx, in, info, handler)
 }
 
+func _Forge_SetDpuUefiPassword_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(SetDpuUefiPasswordRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ForgeServer).SetDpuUefiPassword(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Forge_SetDpuUefiPassword_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ForgeServer).SetDpuUefiPassword(ctx, req.(*SetDpuUefiPasswordRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _Forge_AddExpectedMachine_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(ExpectedMachine)
 	if err := dec(in); err != nil {
@@ -15066,6 +15126,24 @@ func _Forge_GetRackProfile_Handler(srv interface{}, ctx context.Context, dec fun
 	return interceptor(ctx, in, info, handler)
 }
 
+func _Forge_ListRackProfiles_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(emptypb.Empty)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ForgeServer).ListRackProfiles(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Forge_ListRackProfiles_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ForgeServer).ListRackProfiles(ctx, req.(*emptypb.Empty))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _Forge_CreateComputeAllocation_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(CreateComputeAllocationRequest)
 	if err := dec(in); err != nil {
@@ -17589,6 +17667,10 @@ var Forge_ServiceDesc = grpc.ServiceDesc{
 			Handler:    _Forge_ClearHostUefiPassword_Handler,
 		},
 		{
+			MethodName: "SetDpuUefiPassword",
+			Handler:    _Forge_SetDpuUefiPassword_Handler,
+		},
+		{
 			MethodName: "AddExpectedMachine",
 			Handler:    _Forge_AddExpectedMachine_Handler,
 		},
@@ -18303,6 +18385,10 @@ var Forge_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "GetRackProfile",
 			Handler:    _Forge_GetRackProfile_Handler,
+		},
+		{
+			MethodName: "ListRackProfiles",
+			Handler:    _Forge_ListRackProfiles_Handler,
 		},
 		{
 			MethodName: "CreateComputeAllocation",
