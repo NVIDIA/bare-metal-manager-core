@@ -5,6 +5,10 @@ inputs:
     description: 'Rust toolchain version to install'
     required: false
     default: '1.96.0'
+  cargo-make-version:
+    description: 'cargo-make version to install (keep in sync with Makefile.toml config.min_version)'
+    required: false
+    default: '0.37.24'
   arch:
     description: 'Target architecture (x86_64 or aarch64)'
     required: false
@@ -111,24 +115,26 @@ runs:
     # once -- caching the resulting binary is what keeps that off the critical
     # path on subsequent runs.
     - name: Restore cargo-make
-      id: cargo-make-cache
       uses: actions/cache@v4
       with:
         path: ~/.cargo/bin/cargo-make
-        key: cargo-make-0.37.24-${{ runner.os }}-${{ runner.arch }}
+        key: cargo-make-${{ inputs.cargo-make-version }}-${{ runner.os }}-${{ runner.arch }}
 
     - name: Install cargo-make
-      if: steps.cargo-make-cache.outputs.cache-hit != 'true'
       shell: bash
       env:
-        CARGO_MAKE_VERSION: '0.37.24'
+        CARGO_MAKE_VERSION: ${{ inputs.cargo-make-version }}
       run: |
         set -euo pipefail
         source $HOME/.cargo/env || true
 
         if command -v cargo-make &> /dev/null; then
-          echo "cargo-make is already installed: $(cargo-make --version)"
-          exit 0
+          installed_version="$(cargo-make --version | awk '{print $2}')"
+          if [[ "${installed_version}" == "${CARGO_MAKE_VERSION}" ]]; then
+            echo "cargo-make ${installed_version} is already installed"
+            exit 0
+          fi
+          echo "Replacing cargo-make ${installed_version} with ${CARGO_MAKE_VERSION}"
         fi
 
         mkdir -p "$HOME/.cargo/bin"
@@ -153,6 +159,12 @@ runs:
         else
           echo "No prebuilt cargo-make for $(uname -m); building from source (cached for later runs)"
           cargo install cargo-make --locked --version "${CARGO_MAKE_VERSION}"
+        fi
+
+        installed_version="$("$HOME/.cargo/bin/cargo-make" --version | awk '{print $2}')"
+        if [[ "${installed_version}" != "${CARGO_MAKE_VERSION}" ]]; then
+          echo "::error::Expected cargo-make ${CARGO_MAKE_VERSION}, installed ${installed_version}"
+          exit 1
         fi
 
     - name: Verify mkosi installation
