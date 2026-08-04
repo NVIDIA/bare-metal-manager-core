@@ -682,7 +682,7 @@ pub(super) async fn handle_installing_vanilla_bfb(
                 InstallDpuOsState::InstallingBFB => {
                     let task = redfish_client
                         .update_firmware_simple_update(
-                            "carbide-pxe.forge//public/blobs/internal/aarch64/forge.bfb",
+                            "carbide-pxe.forge//public/blobs/internal/aarch64/preingestion.bfb",
                             vec!["redfish/v1/UpdateService/FirmwareInventory/DPU_OS".to_string()],
                             TransferProtocolType::HTTP,
                         )
