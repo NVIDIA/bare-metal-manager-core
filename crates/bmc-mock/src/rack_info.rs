@@ -16,6 +16,7 @@
  */
 
 use crate::RackType;
+use crate::hw::lenovo_gb300_nvl72_rack::LenovoGB300Nvl72Rack;
 use crate::hw::rack::RackElevation;
 use crate::hw::wiwynn_gb200_nvl72_rack::WiwynnGB200Nvl72Rack;
 
@@ -28,10 +29,15 @@ impl RackInfo {
     pub fn rack_elevation(&self) -> RackElevation {
         match self.rack_type {
             RackType::WiwynnGb200Nvl72 => self.wiwynn_gb200_nvl72_rack().rack_elevation(),
+            RackType::LenovoGb300Nvl72 => self.lenovo_gb300_nvl72_rack().rack_elevation(),
         }
     }
 
     fn wiwynn_gb200_nvl72_rack(&self) -> WiwynnGB200Nvl72Rack {
         WiwynnGB200Nvl72Rack
+    }
+
+    fn lenovo_gb300_nvl72_rack(&self) -> LenovoGB300Nvl72Rack {
+        LenovoGB300Nvl72Rack
     }
 }
