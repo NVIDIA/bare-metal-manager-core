@@ -32,6 +32,7 @@ COPY . ./
 RUN --mount=type=cache,id=sccache-x86_64,target=/sccache \
     --mount=type=secret,id=actions_results_url \
     --mount=type=secret,id=actions_runtime_token \
+    --mount=type=secret,id=sccache_gha_rw_mode \
   cd /carbide && \
   export SCCACHE_DIR=/sccache && \
   export RUSTC_WRAPPER=sccache && \

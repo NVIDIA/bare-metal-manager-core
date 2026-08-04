@@ -45,6 +45,7 @@ COPY . ./
 RUN --mount=type=cache,id=sccache-aarch64,target=/sccache \
     --mount=type=secret,id=actions_results_url \
     --mount=type=secret,id=actions_runtime_token \
+    --mount=type=secret,id=sccache_gha_rw_mode \
   export CARGO_MAKE_SKIP_CODECOV="true" && \
   export DATABASE_URL="postgresql://root@%2Fvar%2Frun%2Fpostgresql/root" && \
   export SCCACHE_DIR=/sccache && \

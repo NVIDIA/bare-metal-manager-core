@@ -293,10 +293,12 @@ jobs:
           # backend. Always passed and never empty -- buildx rejects a secret
           # with an empty value outright. The Dockerfiles check the URL for a
           # real endpoint and fall back to the local BuildKit cache mount when
-          # it is absent, so a plain local `docker build` still works.
+          # it is absent, so a plain local `docker build` still works. PRs can
+          # read compiler entries populated by main but never upload their own.
           secrets: |
             actions_results_url=${{ env.BUILD_ACTIONS_RESULTS_URL }}
             actions_runtime_token=${{ env.BUILD_ACTIONS_RUNTIME_TOKEN }}
+            sccache_gha_rw_mode=${{ github.ref == 'refs/heads/main' && 'READ_WRITE' || 'READ_ONLY' }}
 
       - name: Login to target registry
         if: ${{ inputs.push && !contains(inputs.platforms, ',') && github.repository != 'NVIDIA/infra-controller' }}

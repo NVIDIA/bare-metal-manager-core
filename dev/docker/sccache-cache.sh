@@ -96,10 +96,28 @@ sccache_setup() {
 	SCCACHE_GHA_ENABLED=true
 	ACTIONS_RESULTS_URL="$(cat /run/secrets/actions_results_url)"
 	ACTIONS_RUNTIME_TOKEN="$(cat /run/secrets/actions_runtime_token)"
+	SCCACHE_GHA_RW_MODE="$(cat /run/secrets/sccache_gha_rw_mode 2>/dev/null || true)"
+	case "${SCCACHE_GHA_RW_MODE}" in
+	READ_ONLY | READ_WRITE) ;;
+	*)
+		echo "sccache: missing or invalid GHA access mode; defaulting to READ_ONLY"
+		SCCACHE_GHA_RW_MODE=READ_ONLY
+		;;
+	esac
+
+	# sccache 0.17 uses OpenDAL 0.55, which defaults to the retired v1
+	# artifact-cache API unless this flag is present. ACTIONS_RESULTS_URL is
+	# the v2 endpoint; combining it with v1 paths makes every lookup and write
+	# fail with 404.
+	ACTIONS_CACHE_SERVICE_V2=true
 	export SCCACHE_GHA_ENABLED ACTIONS_RESULTS_URL ACTIONS_RUNTIME_TOKEN
+	export SCCACHE_GHA_RW_MODE ACTIONS_CACHE_SERVICE_V2
 
 	if ! sccache --start-server >/dev/null 2>&1; then
 		_reason="the sccache server would not start"
+	elif [ "${SCCACHE_GHA_RW_MODE}" = READ_ONLY ]; then
+		echo "sccache: using GitHub Actions cache backend (read-only)"
+		return 0
 	elif ! sccache_backend_writable; then
 		if [ "${SCCACHE_PROBE_WRITE_ERRORS}" = unknown ]; then
 			_reason="the Actions cache write probe statistics were unavailable"
@@ -117,6 +135,7 @@ sccache_setup() {
 	# by the running server and survives any change to the environment.
 	sccache --stop-server >/dev/null 2>&1 || true
 	unset SCCACHE_GHA_ENABLED ACTIONS_RESULTS_URL ACTIONS_RUNTIME_TOKEN
+	unset SCCACHE_GHA_RW_MODE ACTIONS_CACHE_SERVICE_V2
 	sccache --start-server >/dev/null 2>&1 || true
 	return 0
 }
