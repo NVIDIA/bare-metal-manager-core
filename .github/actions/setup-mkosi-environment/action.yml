@@ -129,7 +129,7 @@ runs:
         source $HOME/.cargo/env || true
 
         if command -v cargo-make &> /dev/null; then
-          installed_version="$(cargo-make --version | awk '{print $2}')"
+          installed_version="$(cargo make --version | awk '{print $NF}')"
           if [[ "${installed_version}" == "${CARGO_MAKE_VERSION}" ]]; then
             echo "cargo-make ${installed_version} is already installed"
             exit 0
@@ -155,13 +155,13 @@ runs:
         if [ -n "${asset_arch}" ] && curl -fsSL "${url}" -o "${tmp}/cargo-make.zip"; then
           unzip -q -o "${tmp}/cargo-make.zip" -d "${tmp}"
           install -m 0755 "$(find "${tmp}" -name cargo-make -type f | head -1)" "$HOME/.cargo/bin/cargo-make"
-          echo "Installed prebuilt cargo-make: $(cargo-make --version)"
+          echo "Installed prebuilt cargo-make: $("$HOME/.cargo/bin/cargo-make" make --version)"
         else
           echo "No prebuilt cargo-make for $(uname -m); building from source (cached for later runs)"
           cargo install cargo-make --locked --version "${CARGO_MAKE_VERSION}"
         fi
 
-        installed_version="$("$HOME/.cargo/bin/cargo-make" --version | awk '{print $2}')"
+        installed_version="$("$HOME/.cargo/bin/cargo-make" make --version | awk '{print $NF}')"
         if [[ "${installed_version}" != "${CARGO_MAKE_VERSION}" ]]; then
           echo "::error::Expected cargo-make ${CARGO_MAKE_VERSION}, installed ${installed_version}"
           exit 1
@@ -203,7 +203,7 @@ runs:
         source $HOME/.cargo/env || true
         echo "Rust: $(rustc --version 2>/dev/null || echo 'not installed')"
         echo "Cargo: $(cargo --version 2>/dev/null || echo 'not installed')"
-        echo "cargo-make: $(cargo-make --version 2>/dev/null || echo 'not installed')"
+        echo "cargo-make: $(cargo make --version 2>/dev/null || echo 'not installed')"
         echo ""
         echo "=== mkosi Ecosystem ==="
         echo "mkosi: $(mkosi --version 2>&1 | head -1 || echo 'not installed')"
