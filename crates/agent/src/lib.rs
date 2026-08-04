@@ -391,6 +391,9 @@ pub async fn start(cmdline: command_line::Options) -> eyre::Result<()> {
                 has_changed_configs: false,
                 min_healthy_links: 2,
                 route_servers: &[],
+                // Standalone checks lack managed-host config to establish that
+                // the FNN IPv6 underlay is active.
+                should_check_ipv6_unicast: false,
                 hbn_device_names: HBNDeviceNames::hbn_23(),
                 include_dhcp_server: false,
                 run_restricted_mode_check: true,

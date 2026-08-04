@@ -121,6 +121,8 @@ pub struct HealthCheckParams<'a> {
     pub has_changed_configs: bool,
     pub min_healthy_links: u32,
     pub route_servers: &'a [String],
+    /// Whether this check should require the FNN IPv6-unicast underlay.
+    pub should_check_ipv6_unicast: bool,
     pub hbn_device_names: HBNDeviceNames,
     pub include_dhcp_server: bool,
     pub run_restricted_mode_check: bool,
@@ -167,10 +169,13 @@ pub async fn health_check(params: HealthCheckParams<'_>) -> health_report::Healt
     bgp::check_bgp_stats(
         &mut hr,
         &container_id,
-        params.host_routes,
-        params.min_healthy_links,
-        params.route_servers,
-        params.hbn_device_names,
+        bgp::BgpHealthCheckParams {
+            host_routes: params.host_routes,
+            min_healthy_links: params.min_healthy_links,
+            route_servers: params.route_servers,
+            should_check_ipv6_unicast: params.should_check_ipv6_unicast,
+            hbn_device_names: &params.hbn_device_names,
+        },
     )
     .await;
     check_files(&mut hr, params.hbn_root, &EXPECTED_FILES);
