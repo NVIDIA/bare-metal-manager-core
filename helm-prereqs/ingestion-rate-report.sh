@@ -62,7 +62,7 @@ report_curve() {   # $1 = table  $2 = label
     [[ -n "$stats" ]] || { echo "${label}: no rows"; return; }
     IFS='|' read -r n first last span p50 p90 <<< "$stats"
     echo "${label}: ${n} rows over ${span}s (first ${first}, last ${last})"
-    echo "  p50 at +${p50}s, p90 at +${p90}s, avg $(awk -v n="$n" -v s="$span" 'BEGIN{printf (s>0)?"%.1f":"n/a", n*60/s}')/min"
+    echo "  p50 at +${p50}s, p90 at +${p90}s, avg $(awk -v n="$n" -v s="$span" 'BEGIN{ if (s>0) printf "%.1f", n*60/s; else printf "n/a" }')/min"
     if $CSV; then
         echo "  per-minute buckets (${label}):"
         q "SELECT date_trunc('minute', created) || ',' || count(*)
