@@ -149,8 +149,21 @@ mod tests {
                 },
                 Case {
                     // Mirrors the removal path, which resolves replace before merges.
+                    // The lookup keys on the `merges` map key, so the entry's own
+                    // `source` field is free to carry a marker that reveals which
+                    // branch answered; a merges-first regression yields the marker.
                     scenario: "replace wins when both hold the same source",
-                    input: (sources(Some("dup"), &["dup"]), "dup"),
+                    input: (
+                        HealthReportSources {
+                            replace: Some(HealthReport::empty("dup".to_string())),
+                            merges: [(
+                                "dup".to_string(),
+                                HealthReport::empty("dup-from-merges".to_string()),
+                            )]
+                            .into(),
+                        },
+                        "dup",
+                    ),
                     expect: Yields(Some("dup".to_string())),
                 },
                 Case {
