@@ -240,6 +240,44 @@ fn firmware_job_state(job: &FirmwareUpgradeJob) -> i32 {
     }
 }
 
+/// Summarizes a failed rack firmware upgrade into a single operator-facing message.
+///
+/// A rack upgrade fans out to every device in the rack, so the one rack-level
+/// `ComponentResult` can only carry a summary of the per-device outcomes the rack
+/// controller recorded. A rejected firmware bundle fails every device with an
+/// identical reason, which is worth reporting verbatim; divergent reasons collapse to
+/// a count so a large rack cannot produce an unbounded message.
+fn rack_firmware_failure_summary(job: &FirmwareUpgradeJob) -> String {
+    let total = job.all_devices().count();
+    if total == 0 {
+        return "firmware upgrade failed before any device update was submitted".to_owned();
+    }
+
+    let failed: Vec<_> = job
+        .all_devices()
+        .filter(|device| device.status == "failed")
+        .collect();
+    let summary = format!(
+        "firmware upgrade failed: {}/{total} devices failed",
+        failed.len()
+    );
+
+    let mut reasons: Vec<&str> = failed
+        .iter()
+        .filter_map(|device| device.error_message.as_deref())
+        .map(str::trim)
+        .filter(|reason| !reason.is_empty())
+        .collect();
+    reasons.sort_unstable();
+    reasons.dedup();
+
+    match reasons.as_slice() {
+        [] => summary,
+        [reason] => format!("{summary}: {reason}"),
+        reasons => format!("{summary}: {} distinct errors", reasons.len()),
+    }
+}
+
 fn rack_firmware_status(rack: &model::rack::Rack) -> rpc::FirmwareUpdateStatus {
     let requested_version = rack_requested_firmware_version(rack);
     let firmware_upgrade_requested = rack_firmware_upgrade_requested(rack);
@@ -259,8 +297,21 @@ fn rack_firmware_status(rack: &model::rack::Rack) -> rpc::FirmwareUpdateStatus {
         .or_else(|| firmware_upgrade_requested.then_some(rack.updated))
         .map(Into::into);
 
+    // A failed upgrade must carry why it failed: the rack controller already
+    // persisted each device's reason from RMS, and this is the only place an
+    // operator can see it.
+    let result = if state == rpc::FirmwareUpdateState::FwStateFailed as i32 {
+        let summary = job.map_or_else(
+            || "firmware upgrade failed".to_owned(),
+            rack_firmware_failure_summary,
+        );
+        error_result(rack.id.as_ref(), summary)
+    } else {
+        success_result(rack.id.as_ref())
+    };
+
     rpc::FirmwareUpdateStatus {
-        result: Some(success_result(rack.id.as_ref())),
+        result: Some(result),
         state,
         target_version,
         updated_at,
@@ -4400,6 +4451,128 @@ mod tests {
         assert_eq!(status.state, rpc::FirmwareUpdateState::FwStateQueued as i32);
         assert!(status.target_version.is_empty());
         assert!(status.updated_at.is_some());
+    }
+
+    /// Builds a failed device carrying the reason RMS reported for it.
+    fn failed_firmware_device(error_message: &str) -> model::rack::FirmwareUpgradeDeviceStatus {
+        model::rack::FirmwareUpgradeDeviceStatus {
+            error_message: Some(error_message.to_string()),
+            ..firmware_device("failed")
+        }
+    }
+
+    #[test]
+    fn rack_firmware_failure_summary_reports_counts_and_reasons() {
+        use carbide_test_support::value_scenarios;
+
+        value_scenarios!(
+            run = |job| rack_firmware_failure_summary(&job);
+            "a shared reason is reported verbatim so the SOT rejection is visible" {
+                FirmwareUpgradeJob {
+                    machines: vec![
+                        failed_firmware_device("config_json.ProductName is required"),
+                        failed_firmware_device("config_json.ProductName is required"),
+                    ],
+                    ..Default::default()
+                } => "firmware upgrade failed: 2/2 devices failed: \
+                      config_json.ProductName is required".to_string(),
+            }
+
+            "divergent reasons collapse to a count" {
+                FirmwareUpgradeJob {
+                    machines: vec![failed_firmware_device("download failed")],
+                    switches: vec![failed_firmware_device("target not found")],
+                    ..Default::default()
+                } => "firmware upgrade failed: 2/2 devices failed: 2 distinct errors".to_string(),
+            }
+
+            "a partial failure reports the failed subset" {
+                FirmwareUpgradeJob {
+                    machines: vec![
+                        failed_firmware_device("task failed"),
+                        firmware_device("completed"),
+                    ],
+                    ..Default::default()
+                } => "firmware upgrade failed: 1/2 devices failed: task failed".to_string(),
+            }
+
+            "devices without a recorded reason still report the count" {
+                FirmwareUpgradeJob {
+                    machines: vec![firmware_device("failed")],
+                    ..Default::default()
+                } => "firmware upgrade failed: 1/1 devices failed".to_string(),
+            }
+
+            "blank reasons are treated as absent" {
+                FirmwareUpgradeJob {
+                    machines: vec![failed_firmware_device("   ")],
+                    ..Default::default()
+                } => "firmware upgrade failed: 1/1 devices failed".to_string(),
+            }
+
+            "a job that never reached its devices says so" {
+                FirmwareUpgradeJob::default() =>
+                    "firmware upgrade failed before any device update was submitted".to_string(),
+            }
+        );
+    }
+
+    /// The reported regression: every device failed with the RMS SOT parse error, but
+    /// the rack-level result claimed success and carried no error at all.
+    #[test]
+    fn rack_firmware_status_failed_job_reports_the_device_error() {
+        let job = FirmwareUpgradeJob {
+            firmware_id: Some(String::new()),
+            status: Some("failed".to_string()),
+            started_at: Some(chrono::Utc::now()),
+            completed_at: Some(chrono::Utc::now()),
+            machines: vec![failed_firmware_device(
+                "config_json.ProductName is required",
+            )],
+            ..Default::default()
+        };
+        let rack = test_rack_with_job(Some(job));
+
+        let status = rack_firmware_status(&rack);
+        let result = status
+            .result
+            .expect("a rack status always carries a result");
+
+        assert_eq!(status.state, rpc::FirmwareUpdateState::FwStateFailed as i32);
+        assert_eq!(
+            result.status,
+            rpc::ComponentManagerStatusCode::InternalError as i32
+        );
+        assert_eq!(
+            result.error,
+            "firmware upgrade failed: 1/1 devices failed: config_json.ProductName is required"
+        );
+    }
+
+    #[test]
+    fn rack_firmware_status_unfinished_job_stays_successful() {
+        let job = FirmwareUpgradeJob {
+            status: Some("in_progress".to_string()),
+            started_at: Some(chrono::Utc::now()),
+            machines: vec![firmware_device("in_progress")],
+            ..Default::default()
+        };
+        let rack = test_rack_with_job(Some(job));
+
+        let status = rack_firmware_status(&rack);
+        let result = status
+            .result
+            .expect("a rack status always carries a result");
+
+        assert_eq!(
+            status.state,
+            rpc::FirmwareUpdateState::FwStateInProgress as i32
+        );
+        assert_eq!(
+            result.status,
+            rpc::ComponentManagerStatusCode::Success as i32
+        );
+        assert!(result.error.is_empty());
     }
 
     #[test]
