@@ -11,8 +11,8 @@ import (
 	corev1 "github.com/NVIDIA/infra-controller/rest-api/proto/core/gen/v1"
 )
 
-func TestAPIMachineValidationOnDemandRequestToProto(t *testing.T) {
-	request := APIMachineValidationOnDemandRequest{
+func TestAPIMachineValidationRunCreateRequestToProto(t *testing.T) {
+	request := APIMachineValidationRunCreateRequest{
 		Tags:               []string{"history"},
 		AllowedTests:       []string{"gpu_bandwidth"},
 		RunUnverifiedTests: true,
@@ -29,24 +29,24 @@ func TestAPIMachineValidationOnDemandRequestToProto(t *testing.T) {
 	assert.Equal(t, request.Contexts, protoRequest.GetContexts())
 }
 
-func TestAPIMachineValidationOnDemandRequestValidate(t *testing.T) {
+func TestAPIMachineValidationRunCreateRequestValidate(t *testing.T) {
 	tests := []struct {
 		name    string
-		request APIMachineValidationOnDemandRequest
+		request APIMachineValidationRunCreateRequest
 		wantErr bool
 	}{
 		{name: "empty options accepted"},
 		{
 			name: "filters accepted",
-			request: APIMachineValidationOnDemandRequest{
+			request: APIMachineValidationRunCreateRequest{
 				Tags:         []string{"history"},
 				AllowedTests: []string{"gpu_bandwidth"},
 				Contexts:     []string{"OnDemand"},
 			},
 		},
-		{name: "empty tag rejected", request: APIMachineValidationOnDemandRequest{Tags: []string{""}}, wantErr: true},
-		{name: "empty allowed test rejected", request: APIMachineValidationOnDemandRequest{AllowedTests: []string{""}}, wantErr: true},
-		{name: "empty context rejected", request: APIMachineValidationOnDemandRequest{Contexts: []string{""}}, wantErr: true},
+		{name: "empty tag rejected", request: APIMachineValidationRunCreateRequest{Tags: []string{""}}, wantErr: true},
+		{name: "empty allowed test rejected", request: APIMachineValidationRunCreateRequest{AllowedTests: []string{""}}, wantErr: true},
+		{name: "empty context rejected", request: APIMachineValidationRunCreateRequest{Contexts: []string{""}}, wantErr: true},
 	}
 
 	for _, tt := range tests {

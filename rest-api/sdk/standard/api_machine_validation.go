@@ -332,15 +332,15 @@ func (a *MachineValidationAPIService) GetAllMachineValidationRunsExecute(r ApiGe
 }
 
 type ApiStartMachineValidationRequest struct {
-	ctx                              context.Context
-	ApiService                       *MachineValidationAPIService
-	org                              string
-	machineId                        string
-	machineValidationOnDemandRequest *MachineValidationOnDemandRequest
+	ctx                               context.Context
+	ApiService                        *MachineValidationAPIService
+	org                               string
+	machineId                         string
+	machineValidationRunCreateRequest *MachineValidationRunCreateRequest
 }
 
-func (r ApiStartMachineValidationRequest) MachineValidationOnDemandRequest(machineValidationOnDemandRequest MachineValidationOnDemandRequest) ApiStartMachineValidationRequest {
-	r.machineValidationOnDemandRequest = &machineValidationOnDemandRequest
+func (r ApiStartMachineValidationRequest) MachineValidationRunCreateRequest(machineValidationRunCreateRequest MachineValidationRunCreateRequest) ApiStartMachineValidationRequest {
+	r.machineValidationRunCreateRequest = &machineValidationRunCreateRequest
 	return r
 }
 
@@ -411,7 +411,7 @@ func (a *MachineValidationAPIService) StartMachineValidationExecute(r ApiStartMa
 		localVarHeaderParams["Accept"] = localVarHTTPHeaderAccept
 	}
 	// body params
-	localVarPostBody = r.machineValidationOnDemandRequest
+	localVarPostBody = r.machineValidationRunCreateRequest
 	req, err := a.client.prepareRequest(r.ctx, localVarPath, localVarHTTPMethod, localVarPostBody, localVarHeaderParams, localVarQueryParams, localVarFormParams, formFiles)
 	if err != nil {
 		return localVarReturnValue, nil, err

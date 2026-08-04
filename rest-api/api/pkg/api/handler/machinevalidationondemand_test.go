@@ -128,7 +128,7 @@ func TestCreateMachineValidationRunHandlerProxiesRequest(t *testing.T) {
 	fixture := newMachineValidationOnDemandHandlerFixture(t, &corev1.MachineValidationOnDemandResponse{
 		ValidationId: &corev1.MachineValidationId{Value: "validation-1"},
 	})
-	request := model.APIMachineValidationOnDemandRequest{
+	request := model.APIMachineValidationRunCreateRequest{
 		Tags:               []string{"history"},
 		AllowedTests:       []string{"GPU_BANDWIDTH"},
 		RunUnverifiedTests: true,
@@ -179,7 +179,7 @@ func TestCreateMachineValidationRunHandlerRequiresProviderAdmin(t *testing.T) {
 func TestCreateMachineValidationRunHandlerRejectsInvalidOptions(t *testing.T) {
 	fixture := newMachineValidationOnDemandHandlerFixture(t, nil)
 
-	recorder := fixture.request(t, model.APIMachineValidationOnDemandRequest{Tags: []string{""}})
+	recorder := fixture.request(t, model.APIMachineValidationRunCreateRequest{Tags: []string{""}})
 
 	assert.Equal(t, http.StatusBadRequest, recorder.Code)
 	assert.Contains(t, recorder.Body.String(), "Error validating Machine Validation Run creation request data")

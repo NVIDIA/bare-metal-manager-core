@@ -9,9 +9,9 @@ import (
 	corev1 "github.com/NVIDIA/infra-controller/rest-api/proto/core/gen/v1"
 )
 
-// APIMachineValidationOnDemandRequest contains optional filters for an
+// APIMachineValidationRunCreateRequest contains optional filters for an
 // on-demand Machine validation run.
-type APIMachineValidationOnDemandRequest struct {
+type APIMachineValidationRunCreateRequest struct {
 	Tags               []string `json:"tags,omitempty"`
 	AllowedTests       []string `json:"allowedTests,omitempty"`
 	RunUnverifiedTests bool     `json:"runUnverifiedTests,omitempty"`
@@ -19,7 +19,7 @@ type APIMachineValidationOnDemandRequest struct {
 }
 
 // Validate ensures the on-demand Machine validation filters are well-formed.
-func (r APIMachineValidationOnDemandRequest) Validate() error {
+func (r APIMachineValidationRunCreateRequest) Validate() error {
 	return validation.ValidateStruct(&r,
 		validation.Field(&r.Tags, validation.Each(validation.Required)),
 		validation.Field(&r.AllowedTests, validation.Each(validation.Required)),
@@ -28,7 +28,7 @@ func (r APIMachineValidationOnDemandRequest) Validate() error {
 }
 
 // ToProto converts an on-demand Machine validation request to the Core API model.
-func (r APIMachineValidationOnDemandRequest) ToProto(machineID string) *corev1.MachineValidationOnDemandRequest {
+func (r APIMachineValidationRunCreateRequest) ToProto(machineID string) *corev1.MachineValidationOnDemandRequest {
 	return &corev1.MachineValidationOnDemandRequest{
 		MachineId:         &corev1.MachineId{Id: machineID},
 		Tags:              r.Tags,

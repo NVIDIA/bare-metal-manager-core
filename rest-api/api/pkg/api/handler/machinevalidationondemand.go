@@ -45,7 +45,7 @@ func NewCreateMachineValidationRunHandler(dbSession *cdb.Session, scp *sc.Client
 // @Security ApiKeyAuth
 // @Param org path string true "Name of NGC organization"
 // @Param machineId path string true "ID of Machine"
-// @Param request body model.APIMachineValidationOnDemandRequest false "On-demand Machine validation options"
+// @Param request body model.APIMachineValidationRunCreateRequest false "On-demand Machine validation options"
 // @Success 202 {object} model.APIMachineValidationOnDemandResponse
 // @Router /v2/org/{org}/nico/machine/{machineId}/validation/run [post]
 func (h CreateMachineValidationRunHandler) Handle(c echo.Context) error {
@@ -79,7 +79,7 @@ func (h CreateMachineValidationRunHandler) Handle(c echo.Context) error {
 		return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, "Machine ID was not specified in URL", nil)
 	}
 
-	apiRequest := model.APIMachineValidationOnDemandRequest{}
+	apiRequest := model.APIMachineValidationRunCreateRequest{}
 	if err := c.Bind(&apiRequest); err != nil {
 		return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, "Failed to parse request data, potentially invalid structure", nil)
 	}

@@ -1,6 +1,3 @@
-// SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
-// SPDX-License-Identifier: Apache-2.0
-
 /*
 NVIDIA Infra Controller REST API
 
@@ -17,11 +14,11 @@ import (
 	"encoding/json"
 )
 
-// checks if the MachineValidationOnDemandRequest type satisfies the MappedNullable interface at compile time
-var _ MappedNullable = &MachineValidationOnDemandRequest{}
+// checks if the MachineValidationRunCreateRequest type satisfies the MappedNullable interface at compile time
+var _ MappedNullable = &MachineValidationRunCreateRequest{}
 
-// MachineValidationOnDemandRequest Optional filters for an on-demand Machine validation run
-type MachineValidationOnDemandRequest struct {
+// MachineValidationRunCreateRequest Optional filters for an on-demand Machine validation run
+type MachineValidationRunCreateRequest struct {
 	// Tags used to select validation tests.
 	Tags []string `json:"tags,omitempty"`
 	// Validation test names allowed for this run.
@@ -32,29 +29,29 @@ type MachineValidationOnDemandRequest struct {
 	Contexts []string `json:"contexts,omitempty"`
 }
 
-// NewMachineValidationOnDemandRequest instantiates a new MachineValidationOnDemandRequest object
+// NewMachineValidationRunCreateRequest instantiates a new MachineValidationRunCreateRequest object
 // This constructor will assign default values to properties that have it defined,
 // and makes sure properties required by API are set, but the set of arguments
 // will change when the set of required properties is changed
-func NewMachineValidationOnDemandRequest() *MachineValidationOnDemandRequest {
-	this := MachineValidationOnDemandRequest{}
+func NewMachineValidationRunCreateRequest() *MachineValidationRunCreateRequest {
+	this := MachineValidationRunCreateRequest{}
 	var runUnverifiedTests bool = false
 	this.RunUnverifiedTests = &runUnverifiedTests
 	return &this
 }
 
-// NewMachineValidationOnDemandRequestWithDefaults instantiates a new MachineValidationOnDemandRequest object
+// NewMachineValidationRunCreateRequestWithDefaults instantiates a new MachineValidationRunCreateRequest object
 // This constructor will only assign default values to properties that have it defined,
 // but it doesn't guarantee that properties required by API are set
-func NewMachineValidationOnDemandRequestWithDefaults() *MachineValidationOnDemandRequest {
-	this := MachineValidationOnDemandRequest{}
+func NewMachineValidationRunCreateRequestWithDefaults() *MachineValidationRunCreateRequest {
+	this := MachineValidationRunCreateRequest{}
 	var runUnverifiedTests bool = false
 	this.RunUnverifiedTests = &runUnverifiedTests
 	return &this
 }
 
 // GetTags returns the Tags field value if set, zero value otherwise.
-func (o *MachineValidationOnDemandRequest) GetTags() []string {
+func (o *MachineValidationRunCreateRequest) GetTags() []string {
 	if o == nil || IsNil(o.Tags) {
 		var ret []string
 		return ret
@@ -64,7 +61,7 @@ func (o *MachineValidationOnDemandRequest) GetTags() []string {
 
 // GetTagsOk returns a tuple with the Tags field value if set, nil otherwise
 // and a boolean to check if the value has been set.
-func (o *MachineValidationOnDemandRequest) GetTagsOk() ([]string, bool) {
+func (o *MachineValidationRunCreateRequest) GetTagsOk() ([]string, bool) {
 	if o == nil || IsNil(o.Tags) {
 		return nil, false
 	}
@@ -72,7 +69,7 @@ func (o *MachineValidationOnDemandRequest) GetTagsOk() ([]string, bool) {
 }
 
 // HasTags returns a boolean if a field has been set.
-func (o *MachineValidationOnDemandRequest) HasTags() bool {
+func (o *MachineValidationRunCreateRequest) HasTags() bool {
 	if o != nil && !IsNil(o.Tags) {
 		return true
 	}
@@ -81,12 +78,12 @@ func (o *MachineValidationOnDemandRequest) HasTags() bool {
 }
 
 // SetTags gets a reference to the given []string and assigns it to the Tags field.
-func (o *MachineValidationOnDemandRequest) SetTags(v []string) {
+func (o *MachineValidationRunCreateRequest) SetTags(v []string) {
 	o.Tags = v
 }
 
 // GetAllowedTests returns the AllowedTests field value if set, zero value otherwise.
-func (o *MachineValidationOnDemandRequest) GetAllowedTests() []string {
+func (o *MachineValidationRunCreateRequest) GetAllowedTests() []string {
 	if o == nil || IsNil(o.AllowedTests) {
 		var ret []string
 		return ret
@@ -96,7 +93,7 @@ func (o *MachineValidationOnDemandRequest) GetAllowedTests() []string {
 
 // GetAllowedTestsOk returns a tuple with the AllowedTests field value if set, nil otherwise
 // and a boolean to check if the value has been set.
-func (o *MachineValidationOnDemandRequest) GetAllowedTestsOk() ([]string, bool) {
+func (o *MachineValidationRunCreateRequest) GetAllowedTestsOk() ([]string, bool) {
 	if o == nil || IsNil(o.AllowedTests) {
 		return nil, false
 	}
@@ -104,7 +101,7 @@ func (o *MachineValidationOnDemandRequest) GetAllowedTestsOk() ([]string, bool) 
 }
 
 // HasAllowedTests returns a boolean if a field has been set.
-func (o *MachineValidationOnDemandRequest) HasAllowedTests() bool {
+func (o *MachineValidationRunCreateRequest) HasAllowedTests() bool {
 	if o != nil && !IsNil(o.AllowedTests) {
 		return true
 	}
@@ -113,12 +110,12 @@ func (o *MachineValidationOnDemandRequest) HasAllowedTests() bool {
 }
 
 // SetAllowedTests gets a reference to the given []string and assigns it to the AllowedTests field.
-func (o *MachineValidationOnDemandRequest) SetAllowedTests(v []string) {
+func (o *MachineValidationRunCreateRequest) SetAllowedTests(v []string) {
 	o.AllowedTests = v
 }
 
 // GetRunUnverifiedTests returns the RunUnverifiedTests field value if set, zero value otherwise.
-func (o *MachineValidationOnDemandRequest) GetRunUnverifiedTests() bool {
+func (o *MachineValidationRunCreateRequest) GetRunUnverifiedTests() bool {
 	if o == nil || IsNil(o.RunUnverifiedTests) {
 		var ret bool
 		return ret
@@ -128,7 +125,7 @@ func (o *MachineValidationOnDemandRequest) GetRunUnverifiedTests() bool {
 
 // GetRunUnverifiedTestsOk returns a tuple with the RunUnverifiedTests field value if set, nil otherwise
 // and a boolean to check if the value has been set.
-func (o *MachineValidationOnDemandRequest) GetRunUnverifiedTestsOk() (*bool, bool) {
+func (o *MachineValidationRunCreateRequest) GetRunUnverifiedTestsOk() (*bool, bool) {
 	if o == nil || IsNil(o.RunUnverifiedTests) {
 		return nil, false
 	}
@@ -136,7 +133,7 @@ func (o *MachineValidationOnDemandRequest) GetRunUnverifiedTestsOk() (*bool, boo
 }
 
 // HasRunUnverifiedTests returns a boolean if a field has been set.
-func (o *MachineValidationOnDemandRequest) HasRunUnverifiedTests() bool {
+func (o *MachineValidationRunCreateRequest) HasRunUnverifiedTests() bool {
 	if o != nil && !IsNil(o.RunUnverifiedTests) {
 		return true
 	}
@@ -145,12 +142,12 @@ func (o *MachineValidationOnDemandRequest) HasRunUnverifiedTests() bool {
 }
 
 // SetRunUnverifiedTests gets a reference to the given bool and assigns it to the RunUnverifiedTests field.
-func (o *MachineValidationOnDemandRequest) SetRunUnverifiedTests(v bool) {
+func (o *MachineValidationRunCreateRequest) SetRunUnverifiedTests(v bool) {
 	o.RunUnverifiedTests = &v
 }
 
 // GetContexts returns the Contexts field value if set, zero value otherwise.
-func (o *MachineValidationOnDemandRequest) GetContexts() []string {
+func (o *MachineValidationRunCreateRequest) GetContexts() []string {
 	if o == nil || IsNil(o.Contexts) {
 		var ret []string
 		return ret
@@ -160,7 +157,7 @@ func (o *MachineValidationOnDemandRequest) GetContexts() []string {
 
 // GetContextsOk returns a tuple with the Contexts field value if set, nil otherwise
 // and a boolean to check if the value has been set.
-func (o *MachineValidationOnDemandRequest) GetContextsOk() ([]string, bool) {
+func (o *MachineValidationRunCreateRequest) GetContextsOk() ([]string, bool) {
 	if o == nil || IsNil(o.Contexts) {
 		return nil, false
 	}
@@ -168,7 +165,7 @@ func (o *MachineValidationOnDemandRequest) GetContextsOk() ([]string, bool) {
 }
 
 // HasContexts returns a boolean if a field has been set.
-func (o *MachineValidationOnDemandRequest) HasContexts() bool {
+func (o *MachineValidationRunCreateRequest) HasContexts() bool {
 	if o != nil && !IsNil(o.Contexts) {
 		return true
 	}
@@ -177,11 +174,11 @@ func (o *MachineValidationOnDemandRequest) HasContexts() bool {
 }
 
 // SetContexts gets a reference to the given []string and assigns it to the Contexts field.
-func (o *MachineValidationOnDemandRequest) SetContexts(v []string) {
+func (o *MachineValidationRunCreateRequest) SetContexts(v []string) {
 	o.Contexts = v
 }
 
-func (o MachineValidationOnDemandRequest) MarshalJSON() ([]byte, error) {
+func (o MachineValidationRunCreateRequest) MarshalJSON() ([]byte, error) {
 	toSerialize, err := o.ToMap()
 	if err != nil {
 		return []byte{}, err
@@ -189,7 +186,7 @@ func (o MachineValidationOnDemandRequest) MarshalJSON() ([]byte, error) {
 	return json.Marshal(toSerialize)
 }
 
-func (o MachineValidationOnDemandRequest) ToMap() (map[string]interface{}, error) {
+func (o MachineValidationRunCreateRequest) ToMap() (map[string]interface{}, error) {
 	toSerialize := map[string]interface{}{}
 	if !IsNil(o.Tags) {
 		toSerialize["tags"] = o.Tags
@@ -206,38 +203,38 @@ func (o MachineValidationOnDemandRequest) ToMap() (map[string]interface{}, error
 	return toSerialize, nil
 }
 
-type NullableMachineValidationOnDemandRequest struct {
-	value *MachineValidationOnDemandRequest
+type NullableMachineValidationRunCreateRequest struct {
+	value *MachineValidationRunCreateRequest
 	isSet bool
 }
 
-func (v NullableMachineValidationOnDemandRequest) Get() *MachineValidationOnDemandRequest {
+func (v NullableMachineValidationRunCreateRequest) Get() *MachineValidationRunCreateRequest {
 	return v.value
 }
 
-func (v *NullableMachineValidationOnDemandRequest) Set(val *MachineValidationOnDemandRequest) {
+func (v *NullableMachineValidationRunCreateRequest) Set(val *MachineValidationRunCreateRequest) {
 	v.value = val
 	v.isSet = true
 }
 
-func (v NullableMachineValidationOnDemandRequest) IsSet() bool {
+func (v NullableMachineValidationRunCreateRequest) IsSet() bool {
 	return v.isSet
 }
 
-func (v *NullableMachineValidationOnDemandRequest) Unset() {
+func (v *NullableMachineValidationRunCreateRequest) Unset() {
 	v.value = nil
 	v.isSet = false
 }
 
-func NewNullableMachineValidationOnDemandRequest(val *MachineValidationOnDemandRequest) *NullableMachineValidationOnDemandRequest {
-	return &NullableMachineValidationOnDemandRequest{value: val, isSet: true}
+func NewNullableMachineValidationRunCreateRequest(val *MachineValidationRunCreateRequest) *NullableMachineValidationRunCreateRequest {
+	return &NullableMachineValidationRunCreateRequest{value: val, isSet: true}
 }
 
-func (v NullableMachineValidationOnDemandRequest) MarshalJSON() ([]byte, error) {
+func (v NullableMachineValidationRunCreateRequest) MarshalJSON() ([]byte, error) {
 	return json.Marshal(v.value)
 }
 
-func (v *NullableMachineValidationOnDemandRequest) UnmarshalJSON(src []byte) error {
+func (v *NullableMachineValidationRunCreateRequest) UnmarshalJSON(src []byte) error {
 	v.isSet = true
 	return json.Unmarshal(src, &v.value)
 }

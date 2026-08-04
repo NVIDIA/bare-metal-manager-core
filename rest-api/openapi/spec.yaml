@@ -10091,7 +10091,7 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/MachineValidationOnDemandRequest'
+              $ref: '#/components/schemas/MachineValidationRunCreateRequest'
       responses:
         '202':
           description: On-demand Machine validation request was accepted
@@ -15656,9 +15656,9 @@ components:
       examples:
         - action: ForceRestart
           acknowledgeAttachedInstance: true
-    MachineValidationOnDemandRequest:
+    MachineValidationRunCreateRequest:
       type: object
-      title: MachineValidationOnDemandRequest
+      title: MachineValidationRunCreateRequest
       description: Optional filters for an on-demand Machine validation run
       examples:
         - tags:
