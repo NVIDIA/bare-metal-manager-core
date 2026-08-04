@@ -253,7 +253,8 @@ func (m *Manager) Unbind(ctx context.Context, bindingID uuid.UUID) error {
 	return m.bindings.Unbind(ctx, bindingID)
 }
 
-// GetEffective resolves rack, site, then built-in precedence.
+// GetEffective resolves rack, site, then built-in precedence. It returns
+// (nil, nil) when no effective rule exists.
 func (m *Manager) GetEffective(
 	ctx context.Context,
 	eventType eventrule.Type,
@@ -292,7 +293,12 @@ func (m *Manager) GetEffective(
 	}
 
 	// Use the immutable built-in when no persisted scope supplies a rule.
-	return m.builtIns.GetByEventType(ctx, eventType)
+	rule, err = m.builtIns.GetByEventType(ctx, eventType)
+	if errors.Is(err, eventrule.ErrRuleNotFound) {
+		return nil, nil
+	}
+
+	return rule, err
 }
 
 func (m *Manager) getForScope(

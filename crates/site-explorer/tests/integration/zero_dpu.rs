@@ -28,7 +28,7 @@ use carbide_test_harness::prelude::*;
 use carbide_test_harness::test_support::fixture_config::FixtureDefault as _;
 use mac_address::MacAddress;
 use model::expected_machine::{
-    ExpectedHostNic, ExpectedMachine, ExpectedMachineData, HostDpuPolicy,
+    ExpectedInterface, ExpectedMachine, ExpectedMachineData, HostDpuPolicy,
 };
 use model::machine_boot_interface::{MachineBootInterface, MachineBootInterfaceTarget};
 use model::test_support::ManagedHostConfig;
@@ -725,7 +725,7 @@ async fn test_zero_dpu_multi_nic_no_declaration_adopts_without_primary_collision
         non_dpu_macs: vec![nic_a, nic_b],
         ..ManagedHostConfig::default()
     };
-    // No declared primary: `Ignore` with empty host_nics.
+    // No declared primary: `Ignore` with an empty interface list.
     register_zero_dpu_expected_machine(&env, &mock_host).await?;
 
     // Both NICs lease before site-explorer runs -> two anonymous primary rows.
@@ -844,13 +844,13 @@ async fn test_zero_dpu_declared_primary_promotes_as_primary(
             data: ExpectedMachineData {
                 serial_number: mock_host.serial.clone(),
                 dpu_policy: HostDpuPolicy::Ignore,
-                host_nics: vec![
-                    ExpectedHostNic {
+                interfaces: vec![
+                    ExpectedInterface {
                         mac_address: primary_nic,
                         primary: Some(true),
                         ..Default::default()
                     },
-                    ExpectedHostNic {
+                    ExpectedInterface {
                         mac_address: other_nic,
                         primary: None,
                         ..Default::default()

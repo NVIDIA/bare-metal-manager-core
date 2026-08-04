@@ -50,10 +50,11 @@ use crate::tests::common::api_fixtures::{
 
 #[crate::sqlx_test]
 async fn test_postingestion_bmc_upgrade(pool: sqlx::PgPool) -> CarbideResult<()> {
+    // Keep the large nested futures on the heap so the test stays within libtest's thread stack.
     // Create an environment with one managed host in the ready state.
-    let env = create_test_env(pool.clone()).await;
+    let env = Box::pin(create_test_env(pool.clone())).await;
 
-    let mh = common::api_fixtures::create_managed_host(&env).await;
+    let mh = Box::pin(common::api_fixtures::create_managed_host(&env)).await;
 
     // Create and start an update manager
     let update_manager = MachineUpdateManager::new(
@@ -63,6 +64,27 @@ async fn test_postingestion_bmc_upgrade(pool: sqlx::PgPool) -> CarbideResult<()>
         env.api.work_lock_manager_handle.clone(),
         None,
     );
+
+    Box::pin(test_postingestion_bmc_upgrade_uefi(
+        &env,
+        &mh,
+        &update_manager,
+    ))
+    .await?;
+    Box::pin(test_postingestion_bmc_upgrade_bmc(&env, &mh)).await?;
+    Box::pin(test_postingestion_bmc_upgrade_complete(
+        &env,
+        &mh,
+        &update_manager,
+    ))
+    .await
+}
+
+async fn test_postingestion_bmc_upgrade_uefi(
+    env: &TestEnv,
+    mh: &TestManagedHost,
+    update_manager: &MachineUpdateManager,
+) -> CarbideResult<()> {
     // Update manager should notice that the host is underversioned, setting the request to update it
     update_manager.run_single_iteration().await.unwrap();
 
@@ -170,6 +192,13 @@ async fn test_postingestion_bmc_upgrade(pool: sqlx::PgPool) -> CarbideResult<()>
     };
     txn.commit().await.unwrap();
 
+    Ok(())
+}
+
+async fn test_postingestion_bmc_upgrade_bmc(
+    env: &TestEnv,
+    mh: &TestManagedHost,
+) -> CarbideResult<()> {
     // Now we want a tick of the state machine, going to upload
     env.run_machine_state_controller_iteration().await;
 
@@ -295,10 +324,19 @@ async fn test_postingestion_bmc_upgrade(pool: sqlx::PgPool) -> CarbideResult<()>
     let HostReprovisionState::NewFirmwareReportedWait { .. } = reprovision_state else {
         panic!("Not in waiting {reprovision_state:?}");
     };
+    txn.commit().await.unwrap();
 
     // Another state machine pass
     env.run_machine_state_controller_iteration().await;
 
+    Ok(())
+}
+
+async fn test_postingestion_bmc_upgrade_complete(
+    env: &TestEnv,
+    mh: &TestManagedHost,
+    update_manager: &MachineUpdateManager,
+) -> CarbideResult<()> {
     // It should be checking
     let mut txn = env.pool.begin().await.unwrap();
     let host = mh.host().db_machine(&mut txn).await;

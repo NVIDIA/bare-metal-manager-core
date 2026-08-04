@@ -47,20 +47,6 @@ enum ServiceRestartResult {
     Failed,
 }
 
-pub(crate) enum LldpdRestart {
-    Succeeded { attempt: u8 },
-    Retrying { error: String, attempt: u8 },
-    Failed { error: String, attempt_count: u8 },
-}
-
-pub(crate) enum OvsRestart {
-    Succeeded,
-    Retrying {
-        error: String,
-        managed_host_config_version: String,
-    },
-}
-
 /// The one metric the Events below record.
 #[derive(MetricFamily)]
 #[metric(
@@ -69,150 +55,95 @@ pub(crate) enum OvsRestart {
     component = "forge-dpu-agent",
     describe = "Number of DPU-agent service restart attempts, by service and result."
 )]
-struct DpuAgentServiceRestartAttempts {
+pub(crate) struct DpuAgentServiceRestartAttempts {
     service: RestartedService,
     result: ServiceRestartResult,
 }
 
+/// One lldpd restart attempt. Each variant is an attempt's result, and holds
+/// what that result has to say -- a success has no error, and only the final
+/// failure counts attempts rather than numbering one.
 #[derive(carbide_instrument::Event)]
 #[event(
-    event_name = "dpu_agent_lldpd_restart_succeeded",
-    metric_family = DpuAgentServiceRestartAttempts,
-    log = info,
-    message = "Restarted lldpd service"
+    event_name = "dpu_agent_lldpd_restart",
+    metric_family = DpuAgentServiceRestartAttempts
 )]
-struct LldpdRestartSucceeded {
-    #[label]
-    service: RestartedService,
-    #[label]
-    result: ServiceRestartResult,
-    #[context(value)]
-    attempt: i64,
+pub(crate) enum LldpdRestart {
+    #[event(
+        labels(
+            service = RestartedService::Lldpd,
+            result = ServiceRestartResult::Succeeded
+        ),
+        log = info,
+        message = "Restarted lldpd service"
+    )]
+    Succeeded {
+        #[context(value)]
+        attempt: i64,
+    },
+
+    #[event(
+        labels(
+            service = RestartedService::Lldpd,
+            result = ServiceRestartResult::Retrying
+        ),
+        log = warn,
+        message = "Couldn't restart lldpd service, retrying"
+    )]
+    Retrying {
+        #[context]
+        error: String,
+        #[context(value)]
+        attempt: i64,
+    },
+
+    #[event(
+        labels(
+            service = RestartedService::Lldpd,
+            result = ServiceRestartResult::Failed
+        ),
+        log = error,
+        message = "Couldn't restart lldpd service"
+    )]
+    Failed {
+        #[context]
+        error: String,
+        #[context(value)]
+        attempt_count: i64,
+    },
 }
 
+/// One ovs-vswitchd restart attempt, recorded on the same counter.
 #[derive(carbide_instrument::Event)]
 #[event(
-    event_name = "dpu_agent_lldpd_restart_retrying",
-    metric_family = DpuAgentServiceRestartAttempts,
-    log = warn,
-    message = "Couldn't restart lldpd service, retrying"
+    event_name = "dpu_agent_ovs_restart",
+    metric_family = DpuAgentServiceRestartAttempts
 )]
-struct LldpdRestartRetrying {
-    #[label]
-    service: RestartedService,
-    #[label]
-    result: ServiceRestartResult,
-    #[context]
-    error: String,
-    #[context(value)]
-    attempt: i64,
-}
+pub(crate) enum OvsRestart {
+    #[event(
+        labels(
+            service = RestartedService::OvsVswitchd,
+            result = ServiceRestartResult::Succeeded
+        ),
+        log = info,
+        message = "Successfully restarted ovs-vswitchd.service"
+    )]
+    Succeeded {},
 
-#[derive(carbide_instrument::Event)]
-#[event(
-    event_name = "dpu_agent_lldpd_restart_failed",
-    metric_family = DpuAgentServiceRestartAttempts,
-    log = error,
-    message = "Couldn't restart lldpd service"
-)]
-struct LldpdRestartFailed {
-    #[label]
-    service: RestartedService,
-    #[label]
-    result: ServiceRestartResult,
-    #[context]
-    error: String,
-    #[context(value)]
-    attempt_count: i64,
-}
-
-#[derive(carbide_instrument::Event)]
-#[event(
-    event_name = "dpu_agent_ovs_restart_succeeded",
-    metric_family = DpuAgentServiceRestartAttempts,
-    log = info,
-    message = "Successfully restarted ovs-vswitchd.service"
-)]
-struct OvsRestartSucceeded {
-    #[label]
-    service: RestartedService,
-    #[label]
-    result: ServiceRestartResult,
-}
-
-#[derive(carbide_instrument::Event)]
-#[event(
-    event_name = "dpu_agent_ovs_restart_retrying",
-    metric_family = DpuAgentServiceRestartAttempts,
-    log = error,
-    message = "Restarting OVS after admin network change"
-)]
-struct OvsRestartRetrying {
-    #[label]
-    service: RestartedService,
-    #[label]
-    result: ServiceRestartResult,
-    #[context(value)]
-    error: String,
-    #[context(value)]
-    managed_host_config_version: String,
-}
-
-impl LldpdRestart {
-    pub(crate) fn emit(self) {
-        match self {
-            Self::Succeeded { attempt } => {
-                carbide_instrument::emit(LldpdRestartSucceeded {
-                    service: RestartedService::Lldpd,
-                    result: ServiceRestartResult::Succeeded,
-                    attempt: i64::from(attempt),
-                });
-            }
-            Self::Retrying { error, attempt } => {
-                carbide_instrument::emit(LldpdRestartRetrying {
-                    service: RestartedService::Lldpd,
-                    result: ServiceRestartResult::Retrying,
-                    error,
-                    attempt: i64::from(attempt),
-                });
-            }
-            Self::Failed {
-                error,
-                attempt_count,
-            } => {
-                carbide_instrument::emit(LldpdRestartFailed {
-                    service: RestartedService::Lldpd,
-                    result: ServiceRestartResult::Failed,
-                    error,
-                    attempt_count: i64::from(attempt_count),
-                });
-            }
-        }
-    }
-}
-
-impl OvsRestart {
-    pub(crate) fn emit(self) {
-        match self {
-            Self::Succeeded => {
-                carbide_instrument::emit(OvsRestartSucceeded {
-                    service: RestartedService::OvsVswitchd,
-                    result: ServiceRestartResult::Succeeded,
-                });
-            }
-            Self::Retrying {
-                error,
-                managed_host_config_version,
-            } => {
-                carbide_instrument::emit(OvsRestartRetrying {
-                    service: RestartedService::OvsVswitchd,
-                    result: ServiceRestartResult::Retrying,
-                    error,
-                    managed_host_config_version,
-                });
-            }
-        }
-    }
+    #[event(
+        labels(
+            service = RestartedService::OvsVswitchd,
+            result = ServiceRestartResult::Retrying
+        ),
+        log = error,
+        message = "Restarting OVS after admin network change"
+    )]
+    Retrying {
+        #[context(value)]
+        error: String,
+        #[context(value)]
+        managed_host_config_version: String,
+    },
 }
 
 /// `ReportLoop` labels one full agent reporting iteration rather than one
@@ -1204,14 +1135,14 @@ mod service_restart_tests {
                 Check {
                     scenario: "lldpd restart succeeds",
                     input: RestartCase {
-                        emit: || LldpdRestart::Succeeded { attempt: 2 }.emit(),
+                        emit: || carbide_instrument::emit(LldpdRestart::Succeeded { attempt: 2 }),
                         service: "lldpd",
                         result: "succeeded",
                     },
                     expect: expected_restart(
                         (
                             tracing::Level::INFO,
-                            "dpu_agent_lldpd_restart_succeeded",
+                            "dpu_agent_lldpd_restart",
                             "Restarted lldpd service",
                         ),
                         "lldpd",
@@ -1226,11 +1157,10 @@ mod service_restart_tests {
                     scenario: "lldpd restart will retry",
                     input: RestartCase {
                         emit: || {
-                            LldpdRestart::Retrying {
+                            carbide_instrument::emit(LldpdRestart::Retrying {
                                 error: "service busy".to_string(),
                                 attempt: 1,
-                            }
-                            .emit()
+                            })
                         },
                         service: "lldpd",
                         result: "retrying",
@@ -1238,7 +1168,7 @@ mod service_restart_tests {
                     expect: expected_restart(
                         (
                             tracing::Level::WARN,
-                            "dpu_agent_lldpd_restart_retrying",
+                            "dpu_agent_lldpd_restart",
                             "Couldn't restart lldpd service, retrying",
                         ),
                         "lldpd",
@@ -1253,11 +1183,10 @@ mod service_restart_tests {
                     scenario: "lldpd restart exhausts its retries",
                     input: RestartCase {
                         emit: || {
-                            LldpdRestart::Failed {
+                            carbide_instrument::emit(LldpdRestart::Failed {
                                 error: "service busy".to_string(),
                                 attempt_count: 3,
-                            }
-                            .emit()
+                            })
                         },
                         service: "lldpd",
                         result: "failed",
@@ -1265,7 +1194,7 @@ mod service_restart_tests {
                     expect: expected_restart(
                         (
                             tracing::Level::ERROR,
-                            "dpu_agent_lldpd_restart_failed",
+                            "dpu_agent_lldpd_restart",
                             "Couldn't restart lldpd service",
                         ),
                         "lldpd",
@@ -1279,14 +1208,14 @@ mod service_restart_tests {
                 Check {
                     scenario: "OVS restart succeeds",
                     input: RestartCase {
-                        emit: || OvsRestart::Succeeded.emit(),
+                        emit: || carbide_instrument::emit(OvsRestart::Succeeded {}),
                         service: "ovs_vswitchd",
                         result: "succeeded",
                     },
                     expect: expected_restart(
                         (
                             tracing::Level::INFO,
-                            "dpu_agent_ovs_restart_succeeded",
+                            "dpu_agent_ovs_restart",
                             "Successfully restarted ovs-vswitchd.service",
                         ),
                         "ovs_vswitchd",
@@ -1301,11 +1230,10 @@ mod service_restart_tests {
                     scenario: "OVS restart enters backoff",
                     input: RestartCase {
                         emit: || {
-                            OvsRestart::Retrying {
+                            carbide_instrument::emit(OvsRestart::Retrying {
                                 error: "restarting OVS: timed out".to_string(),
                                 managed_host_config_version: "version-42".to_string(),
-                            }
-                            .emit()
+                            })
                         },
                         service: "ovs_vswitchd",
                         result: "retrying",
@@ -1313,7 +1241,7 @@ mod service_restart_tests {
                     expect: expected_restart(
                         (
                             tracing::Level::ERROR,
-                            "dpu_agent_ovs_restart_retrying",
+                            "dpu_agent_ovs_restart",
                             "Restarting OVS after admin network change",
                         ),
                         "ovs_vswitchd",

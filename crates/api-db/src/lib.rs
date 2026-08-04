@@ -22,6 +22,7 @@
 pub mod attestation;
 pub mod bmc_metadata;
 pub mod bmc_redfish_session;
+pub mod bmc_suppression;
 pub mod carbide_version;
 pub mod compute_allocation;
 pub mod credential_rotation;

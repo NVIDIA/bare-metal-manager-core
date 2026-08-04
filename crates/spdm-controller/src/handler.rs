@@ -17,7 +17,7 @@
 
 use std::sync::Arc;
 
-use carbide_instrument::{DynamicLog, Event, LabelValue, LogAt, Outcome, emit};
+use carbide_instrument::{Event, LabelValue, Outcome, emit};
 use carbide_redfish::libredfish::conv::IntoModel;
 use carbide_redfish::libredfish::error::state_handler_redfish_error as redfish_error;
 use itertools::Itertools;
@@ -438,47 +438,46 @@ enum AttestedDeviceType {
     Cx7,
 }
 
-/// A device attestation ran to completion -- the security audit record.
-///
-/// `nras`'s RED wrapper (`carbide_external_call_duration_milliseconds`) times
-/// the verifier call and logs only its transport failures, counting successes
-/// silently. Attestation needs a real audit trail, so this event logs every
-/// attestation -- INFO on success, WARN on a failed call -- and counts it by
-/// `device_type` and `outcome`. Those two bounded enums are the only labels; the
-/// machine and device ids are log-only context. Attestation evidence, JWTs,
-/// certificates, and the nonce are never put on a label or in the log line.
+/// One device attestation. Every attempt is audited; each variant keeps the
+/// level that result already had.
 #[derive(Event)]
 #[event(
     event_name = "attestation_performed",
     metric_name = "carbide_attestation_total",
     component = "carbide-spdm-controller",
-    log = dynamic,
     metric = counter,
-    message = "Device attestation performed",
-    describe = "Number of device attestations performed, by device type and outcome."
+    describe = "Number of device attestations performed, by device type and outcome.",
+    labels(outcome: Outcome, device_type: AttestedDeviceType),
 )]
-struct AttestationPerformed {
-    #[label]
-    device_type: AttestedDeviceType,
-    #[label]
-    outcome: Outcome,
-    #[context]
-    machine_id: String,
-    #[context]
-    device_id: String,
-}
+enum AttestationPerformed {
+    #[event(
+        labels(outcome = Outcome::Ok),
+        log = info,
+        message = "Device attestation performed"
+    )]
+    Ok {
+        #[label]
+        device_type: AttestedDeviceType,
+        #[context]
+        machine_id: String,
+        #[context]
+        device_id: String,
+    },
 
-impl DynamicLog for AttestationPerformed {
-    fn log_at(&self) -> LogAt {
-        match self.outcome {
-            // Every attestation is audited: a successful call at INFO, a failed
-            // call elevated to WARN (RED already logged the transport cause).
-            Outcome::Ok => LogAt::Level(tracing::Level::INFO),
-            Outcome::Error => LogAt::Level(tracing::Level::WARN),
-        }
-    }
+    #[event(
+        labels(outcome = Outcome::Error),
+        log = warn,
+        message = "Device attestation performed"
+    )]
+    Error {
+        #[label]
+        device_type: AttestedDeviceType,
+        #[context]
+        machine_id: String,
+        #[context]
+        device_id: String,
+    },
 }
-
 async fn perform_attestation(
     client: &dyn VerifierClient,
     device: &SpdmDeviceAttestation,
@@ -551,11 +550,18 @@ async fn perform_attestation(
     // its device type and outcome. device_type and outcome are the only labels;
     // the machine and device ids are log-only context. Attestation evidence, JWTs,
     // certificates, and the nonce never reach a label or the log line.
-    emit(AttestationPerformed {
-        device_type: attested_device_type,
-        outcome: Outcome::from(&response),
-        machine_id: device.machine_id.to_string(),
-        device_id: device.device_id.clone(),
+    let (machine_id, device_id) = (device.machine_id.to_string(), device.device_id.clone());
+    emit(match Outcome::from(&response) {
+        Outcome::Ok => AttestationPerformed::Ok {
+            device_type: attested_device_type,
+            machine_id,
+            device_id,
+        },
+        Outcome::Error => AttestationPerformed::Error {
+            device_type: attested_device_type,
+            machine_id,
+            device_id,
+        },
     });
 
     match response {

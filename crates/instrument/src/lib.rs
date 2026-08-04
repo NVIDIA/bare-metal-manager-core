@@ -205,71 +205,6 @@
 //! }
 //! ```
 //!
-//! ## A label the family computes
-//!
-//! Sometimes one label is a function of another -- a failure *kind* that
-//! follows from the *stage* it failed at. Declaring both invites a call site to
-//! pair them wrongly, so the family can compute one instead:
-//!
-//! ```
-//! use carbide_instrument::{Event, LabelValue, MetricFamily, emit};
-//!
-//! #[derive(Debug, Clone, Copy, PartialEq, Eq, LabelValue)]
-//! enum Stage {
-//!     Decode,
-//!     Publish,
-//! }
-//!
-//! #[derive(Debug, Clone, Copy, PartialEq, Eq, LabelValue)]
-//! enum Kind {
-//!     InvalidRequest,
-//!     Rpc,
-//! }
-//!
-//! impl From<Stage> for Kind {
-//!     fn from(stage: Stage) -> Self {
-//!         match stage {
-//!             Stage::Decode => Kind::InvalidRequest,
-//!             Stage::Publish => Kind::Rpc,
-//!         }
-//!     }
-//! }
-//!
-//! #[derive(MetricFamily)]
-//! #[metric(
-//!     name = "carbide_ingest_failures_total",
-//!     kind = counter,
-//!     component = "ingest",
-//!     describe = "Number of ingest failures, by stage and kind",
-//! )]
-//! #[derived(kind: Kind, from = stage)] // computed, never supplied
-//! struct IngestFailures {
-//!     stage: Stage,
-//! }
-//!
-//! #[derive(Event)]
-//! #[event(
-//!     event_name = "ingest_failed",
-//!     metric_family = IngestFailures,
-//!     log = warn,
-//!     message = "ingest failed",
-//! )]
-//! struct IngestFailed {
-//!     #[label]
-//!     stage: Stage, // `kind` is the family's to compute; declaring it here is a compile error
-//! }
-//!
-//! emit(IngestFailed {
-//!     stage: Stage::Publish,
-//! }); // records kind="rpc"
-//! ```
-//!
-//! `kind` stays a metric label with the same values; what changes is that the
-//! family computes it through `From`, so a contradictory pair has no series to
-//! land in. A derived label is not a field of any event, so it does not appear
-//! as a log field either -- the label it reads does, and the `From` impl is the
-//! one place the mapping lives.
-//!
 //! Reach for a family only when two or more events move the same metric. A
 //! metric one event owns stays declared inline on that event -- and because
 //! the family owns the metric side, an event that names one must not restate
@@ -403,6 +338,18 @@ pub enum MetricKind {
     /// A histogram of [`Event::observation`] values; the metric name must end
     /// in its unit (`_seconds`, `_milliseconds`, `_microseconds`, `_bytes`).
     Histogram {
+        /// The OpenTelemetry unit string, derived from the name suffix.
+        unit: &'static str,
+    },
+    /// A gauge set to the latest [`Event::observation`]: a value that rises and
+    /// falls, sampled at the moment the event happens. A gauge takes a unit
+    /// suffix when it measures one, and never ends in `_total`.
+    ///
+    /// This is the *synchronous* form, for a value something observes as it
+    /// works. A value that only answers "what is it now?" at scrape time is an
+    /// observable gauge, which has no occurrence to log and stays a hand-rolled
+    /// callback instrument.
+    Gauge {
         /// The OpenTelemetry unit string, derived from the name suffix.
         unit: &'static str,
     },
@@ -592,6 +539,9 @@ pub fn emit<E: Event>(event: E) {
         __private::CachedInstrument::Histogram(histogram) => {
             histogram.record(event.observation(), event.labels().as_ref());
         }
+        __private::CachedInstrument::Gauge(gauge) => {
+            gauge.record(event.observation(), event.labels().as_ref());
+        }
         __private::CachedInstrument::None => {}
     }
 }
@@ -615,7 +565,9 @@ pub fn initialize_counter_series<E: Event>(event: &E) -> bool {
             counter.add(0, event.labels().as_ref());
             true
         }
-        __private::CachedInstrument::Histogram(_) | __private::CachedInstrument::None => false,
+        __private::CachedInstrument::Histogram(_)
+        | __private::CachedInstrument::Gauge(_)
+        | __private::CachedInstrument::None => false,
     }
 }
 
@@ -665,6 +617,7 @@ pub mod __private {
     pub enum CachedInstrument {
         Counter(opentelemetry::metrics::Counter<u64>),
         Histogram(opentelemetry::metrics::Histogram<f64>),
+        Gauge(opentelemetry::metrics::Gauge<f64>),
         None,
     }
 
@@ -696,18 +649,7 @@ pub mod __private {
                 CachedInstrument::Counter(builder.build())
             }
             crate::MetricKind::Histogram { unit } => {
-                let suffix = match unit {
-                    "s" => "_seconds",
-                    "ms" => "_milliseconds",
-                    "us" => "_microseconds",
-                    "By" => "_bytes",
-                    _ => "",
-                };
-                let name = if suffix.is_empty() {
-                    metric_name
-                } else {
-                    metric_name.strip_suffix(suffix).unwrap_or(metric_name)
-                };
+                let name = strip_unit_suffix(metric_name, unit);
                 let mut builder = meter.f64_histogram(name);
                 if !unit.is_empty() {
                     builder = builder.with_unit(unit);
@@ -717,23 +659,55 @@ pub mod __private {
                 }
                 CachedInstrument::Histogram(builder.build())
             }
+            crate::MetricKind::Gauge { unit } => {
+                let name = strip_unit_suffix(metric_name, unit);
+                let mut builder = meter.f64_gauge(name);
+                if !unit.is_empty() {
+                    builder = builder.with_unit(unit);
+                }
+                if !describe.is_empty() {
+                    builder = builder.with_description(describe);
+                }
+                CachedInstrument::Gauge(builder.build())
+            }
             crate::MetricKind::None => CachedInstrument::None,
         }
     }
 
-    /// Whether a declared metric records a histogram. The `Event` derive uses
-    /// this in a `const` assertion: an Event that names a histogram family
-    /// needs an `#[observation]` field, and the family's kind is only known at
-    /// the type level from the Event's declaration site.
-    pub const fn is_histogram(metric: crate::MetricKind) -> bool {
-        matches!(metric, crate::MetricKind::Histogram { .. })
+    /// The exporter appends a unit's conventional suffix itself, so the
+    /// instrument registers without it and `/metrics` shows `metric_name`.
+    fn strip_unit_suffix(metric_name: &'static str, unit: &'static str) -> &'static str {
+        let suffix = match unit {
+            "s" => "_seconds",
+            "ms" => "_milliseconds",
+            "us" => "_microseconds",
+            "By" => "_bytes",
+            _ => "",
+        };
+        if suffix.is_empty() {
+            metric_name
+        } else {
+            metric_name.strip_suffix(suffix).unwrap_or(metric_name)
+        }
+    }
+
+    /// Whether a declared metric takes its value from [`Event::observation`]
+    /// rather than counting the emit. The `Event` derive uses this in a `const`
+    /// assertion: an Event that names a histogram or gauge family needs an
+    /// `#[observation]` field, and the family's kind is only known at the type
+    /// level from the Event's declaration site.
+    pub const fn records_observation(metric: crate::MetricKind) -> bool {
+        matches!(
+            metric,
+            crate::MetricKind::Histogram { .. } | crate::MetricKind::Gauge { .. }
+        )
     }
 
     /// The unit a declared metric records in, for converting an
     /// `#[observation]` when the kind lives on a `MetricFamily`.
     pub const fn metric_unit(metric: crate::MetricKind) -> &'static str {
         match metric {
-            crate::MetricKind::Histogram { unit } => unit,
+            crate::MetricKind::Histogram { unit } | crate::MetricKind::Gauge { unit } => unit,
             crate::MetricKind::Counter | crate::MetricKind::None => "",
         }
     }

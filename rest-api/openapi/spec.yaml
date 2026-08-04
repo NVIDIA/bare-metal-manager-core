@@ -185,7 +185,7 @@ tags:
     description: |-
       SKU (Stock Keeping Unit) defines one or more hardware configurations or Machine Bill of Materials (BOM).
 
-      SKUs are automatically derived from machine hardware characteristics and used to group similar machines. SKUs are read-only and managed by the system.
+      SKUs group similar machines by their hardware characteristics. Most SKUs are managed by the system, but Provider Admins can create, update, and delete SKUs for a Site.
   - name: InfiniBand Partition
     x-displayName: InfiniBand Partition
     description: |-
@@ -1241,18 +1241,20 @@ paths:
             schema:
               $ref: '#/components/schemas/BMCCredentialRequest'
       responses:
-        '202':
-          description: Machine power control request was accepted
+        '200':
+          description: BMC credential was created or updated
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/BMCCredential'
+        '400':
+          $ref: '#/components/responses/ValidationError'
         '403':
           $ref: '#/components/responses/ForbiddenError'
       operationId: create-or-update-bmc-credential
       description: |-
         Create or update a site-wide or per-BMC root credential. Equivalent
-        to `carbide-admin-cli credential add-bmc`.
+        to `nico-admin-cli credential add-bmc`.
 
         User must have authorization role with `PROVIDER_ADMIN` suffix.
   '/v2/org/{org}/nico/credential/uefi':
@@ -5156,9 +5158,13 @@ paths:
                             memoryType: DDR5
                             count: 16
                         storage:
-                          - vendor: Samsung
-                            model: PM9A3
-                            capacityMb: 7680000
+                          - vendor: ''
+                            model: SAMSUNG MZ1L21T9HCLS-00A07
+                            capacityMb: 0
+                            minSizeMiB: 7680000
+                            maxSizeMiB: 7680000
+                            pciPatterns:
+                               - ^/devices/pci.*nvme0$
                             count: 4
                         chassis:
                           vendor: Supermicro
@@ -5171,6 +5177,32 @@ paths:
                 type: string
                 example: '{"pageNumber":1,"pageSize":20,"total":30,"orderBy": "CREATED_DESC"}'
               description: Pagination result in JSON format
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '403':
+          $ref: '#/components/responses/ForbiddenError'
+      tags:
+        - SKU
+    post:
+      summary: Create SKU
+      operationId: create-sku
+      description: |-
+        Create a SKU.
+
+        The Org must have an Infrastructure Provider that owns the Site. The user must have an authorization role with the `PROVIDER_ADMIN` suffix.
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SkuCreateRequest'
+        required: true
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Sku'
         '400':
           $ref: '#/components/responses/ValidationError'
         '403':
@@ -5233,15 +5265,68 @@ paths:
                           memoryType: DDR5
                           count: 16
                       storage:
-                        - vendor: Samsung
-                          model: PM9A3
-                          capacityMb: 7680000
-                          count: 4
+                          - vendor: ''
+                            model: SAMSUNG MZ1L21T9HCLS-00A07
+                            capacityMb: 0
+                            minSizeMiB: 7680000
+                            maxSizeMiB: 7680000
+                            pciPatterns:
+                               - ^/devices/pci.*nvme0$
+                            count: 4
                       chassis:
                         vendor: Supermicro
                         model: SYS-420GP-TNR
                     created: '2019-08-24T14:15:22Z'
                     updated: '2019-08-24T14:15:22Z'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '403':
+          $ref: '#/components/responses/ForbiddenError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+      tags:
+        - SKU
+    delete:
+      summary: Delete SKU
+      operationId: delete-sku
+      description: |-
+        Delete an unused SKU. The Site is determined from the saved SKU record.
+
+        The Org must have an Infrastructure Provider that owns the SKU's Site. The user must have an authorization role with the `PROVIDER_ADMIN` suffix.
+      responses:
+        '204':
+          description: No Content
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '403':
+          $ref: '#/components/responses/ForbiddenError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+      tags:
+        - SKU
+    patch:
+      summary: Update SKU
+      operationId: update-sku
+      description: |-
+        Update selected mutable fields on a SKU. The Site is determined from the saved SKU record.
+
+        Fields omitted from the request retain their current values. If a user updates the components field,
+        the schema version will be updated to the current version (5).
+
+        The Org must have an Infrastructure Provider that owns the SKU's Site. The user must have an authorization role with the `PROVIDER_ADMIN` suffix.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SkuUpdateRequest'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Sku'
         '400':
           $ref: '#/components/responses/ValidationError'
         '403':
@@ -8464,9 +8549,13 @@ paths:
           $ref: '#/components/responses/ForbiddenError'
       operationId: get-all-operating-system
       description: |-
-        List Operating Systems visible to the caller's Tenant.
+        List Operating Systems visible to the caller.
 
-        Org must have a Tenant entity. User must have authorization role with `TENANT_ADMIN` suffix. Only Operating Systems whose `tenantId` matches the caller's Tenant are returned.
+        User must have an authorization role with either the `PROVIDER_ADMIN` or `TENANT_ADMIN` suffix for the org.
+
+        - Provider admin: returns only Operating Systems owned by the org's Infrastructure Provider.
+        - Tenant admin: returns Operating Systems owned by the caller's Tenant, plus Provider-owned Operating Systems that are associated with at least one Site the Tenant can access.
+        - Dual-role (both Provider and Tenant): returns the union of the Tenant's and the Provider's Operating Systems.
       parameters:
         - schema:
             type: string
@@ -8594,13 +8683,12 @@ paths:
       description: |-
         Create an Operating System for the org.
 
-        Either `infrastructureProviderId` or `tenantId` must be provided in request data. Both cannot be provided at the same time.
+        Ownership is derived from the caller's role:
 
-        If `infrastructureProviderId` is provided in request data, then org must have an Infrastructure Provider entity and its ID should match the query parameter value. User must have authorization role with `PROVIDER_ADMIN` suffix.
+        - Tenant admin (`TENANT_ADMIN`): creates a Tenant-owned Operating System of any type (Image, iPXE, or Templated iPXE).
+        - Provider admin (`PROVIDER_ADMIN`): may only create Provider-owned Operating Systems of type `Templated iPXE`.
 
-        If `tenantId` is provided in request data, then org must have a Tenant entity and its ID should match the query parameter value. User must have authorization role with `TENANT_ADMIN` suffix.
-
-        Only Tenants are allowed to create Operating System for MVP.
+        The `tenantId` field in the request body is deprecated; if provided, it must match the org's Tenant.
       requestBody:
         content:
           application/json:
@@ -8798,6 +8886,8 @@ paths:
         If the Operating System has `infrastructureProviderId` set, then org must have an Infrastructure Provider entity and its ID should match the Operating System Infrastructure Provider ID. User must have authorization role with `PROVIDER_ADMIN` suffix.
 
         If the Operating System has `tenantId` set, then org must have a Tenant entity and its ID should match the Operating System Tenant ID. User must have authorization role with `TENANT_ADMIN` suffix.
+
+        A Tenant admin may also read a Provider-owned Operating System when it is associated with at least one Site the Tenant can access.
       parameters:
         - schema:
             type: string
@@ -9720,7 +9810,11 @@ paths:
           $ref: '#/components/responses/GenericHttpError'
       operationId: reset-machine-bmc
       description: |-
-        Reset BMC of a specific Machine.
+        Reset the BMC of a specific Machine. When an Instance is attached to the
+        Machine, `acknowledgeAttachedInstance` must be `true`.
+
+        If `useIpmiTool` is `true`, the BMC reset request may be silently
+        ignored while the BMC is in lockdown mode.
         
         For Infrastructure Providers: Org must have an Infrastructure Provider entity and own the Site that the Machine belongs to. User must have authorization role with `PROVIDER_ADMIN` suffix.
 
@@ -9770,7 +9864,11 @@ paths:
           $ref: '#/components/responses/GenericHttpError'
       operationId: reprovision-machine-dpu
       description: |-
-        Trigger DPU reprovisioning for a Machine. It may be necessary to create a `HostUpdateInProgress` health report for the Machine before DPU reprovisioning can be triggered.
+        Trigger DPU reprovisioning for a Machine. Before calling this operation,
+        create a Machine health report containing an alert whose ID is
+        `HostUpdateInProgress` and whose classifications include
+        `PreventAllocations`. When an Instance is attached to the Machine,
+        `acknowledgeAttachedInstance` must be `true`.
 
         For Infrastructure Providers: Org must have an Infrastructure Provider entity and own the Site that the Machine belongs to. User must have authorization role with `PROVIDER_ADMIN` suffix.
 
@@ -9922,7 +10020,7 @@ paths:
                   action: ForceRestart
       responses:
         '202':
-          description: Machine power control request was accepted
+          description: Machine power control request was accepted. The message is empty unless Core returns a power-manager warning.
           content:
             application/json:
               schema:
@@ -9930,7 +10028,7 @@ paths:
               examples:
                 example-1:
                   value:
-                    message: Power control accepted
+                    message: ''
         '400':
           $ref: '#/components/responses/ValidationError'
         '403':
@@ -9941,7 +10039,8 @@ paths:
           $ref: '#/components/responses/GenericHttpError'
       operationId: machine-power-control-machine
       description: |-
-        Execute power control actions for a specific Machine.
+        Execute power control actions for a specific Machine. When an Instance is
+        attached to the Machine, `acknowledgeAttachedInstance` must be `true`.
         
         Org must have an Infrastructure Provider entity and own the Site that the Machine belongs to. User must have authorization role with `PROVIDER_ADMIN` suffix.
   '/v2/org/{org}/nico/machine/{machineId}/validation/run':
@@ -15132,7 +15231,7 @@ components:
         useIpmiTool:
           type: boolean
           default: false
-          description: Reset the BMC via ipmitool instead of Redfish.
+          description: Reset the BMC via ipmitool instead of Redfish. The request may be silently ignored while the BMC is in lockdown mode.
         acknowledgeAttachedInstance:
           type: boolean
           description: Acknowledges that an Instance is currently attached to the Machine and this action may disrupt Tenant workload on the Instance.
@@ -15147,7 +15246,7 @@ components:
       properties:
         mode:
           type: string
-          description: DPU reprovisioning mode.
+          description: Use `Set` to start reprovisioning, `Clear` to remove a pending request, or `Restart` to restart DPUs that already have a request. Restart accepts a host Machine ID only.
           enum:
             - Set
             - Clear
@@ -15155,13 +15254,14 @@ components:
         updateFirmware:
           type: boolean
           default: false
-          description: Whether to update firmware during reprovisioning.
+          deprecated: true
+          description: Deprecated compatibility field. Firmware is always verified and updated during reprovisioning.
         acknowledgeAttachedInstance:
           type: boolean
           description: Acknowledges that an Instance is currently attached to the Machine and this action may disrupt Tenant workload on the Instance.
       examples:
-        - mode: Restart
-          updateFirmware: true
+        - mode: Set
+          updateFirmware: false
     MachineHealthReportEntry:
       type: object
       title: MachineHealthReportEntry
@@ -15197,15 +15297,15 @@ components:
             - Merge
             - Replace
       examples:
-        - source: overrides.sre
+        - source: maintenance.dpu-reprovision
           triggeredBy: operator
           observedAt: '2026-06-24T12:00:00Z'
           mode: Merge
           alerts:
-            - id: dpu.reprovision.in.progress
+            - id: HostUpdateInProgress
               message: DPU reprovisioning in progress
               classifications:
-                - maintenance
+                - PreventAllocations
     MachineHealthReportEntryRequest:
       type: object
       title: MachineHealthReportEntryRequest
@@ -15234,13 +15334,13 @@ components:
             - Merge
             - Replace
       examples:
-        - source: overrides.sre
+        - source: maintenance.dpu-reprovision
           mode: Merge
           alerts:
-            - id: dpu.reprovision.in.progress
+            - id: HostUpdateInProgress
               message: DPU reprovisioning in progress
               classifications:
-                - maintenance
+                - PreventAllocations
     HostFirmwareArtifact:
       type: object
       title: HostFirmwareArtifact
@@ -15542,7 +15642,7 @@ components:
       properties:
         action:
           type: string
-          description: Power control action to apply.
+          description: Redfish power control action to apply to the Machine. ACPowercycle is not supported on Viking systems.
           enum:
             - On
             - GracefulShutdown
@@ -18881,13 +18981,15 @@ components:
           deprecated: true
         siteIds:
           type: array
+          minItems: 1
+          maxItems: 1
           items:
             type: string
             format: uuid
           description: >-
-            Target Sites for the Operating System. For image-based OS specify exactly one
-            Site (more than one is not supported). For Templated iPXE OS at least one Site
-            is required and the list is fixed at creation: it cannot be changed on update.
+            Target Site for the Operating System. For image-based and Templated iPXE
+            Operating Systems exactly one Site is required, even though this field is an
+            array. The list is fixed at creation and cannot be changed on update.
             Not applicable to raw iPXE OS.
         ipxeScript:
           type:
@@ -18986,7 +19088,7 @@ components:
           allowOverride: false
         - isActive: false
           deactivationNote: 'iPXE script is referencing a URL that is unreachable, needs to be researched'
-      description: 'Request data to update an Operating System. For image-based OS, mutable image attributes (image authentication, root filesystem, image disk) can be updated; imageUrl and imageSha identify the underlying image and are immutable after creation. Only iPXE attributes can be updated for iPXE-based OS'
+      description: 'Request data to update an Operating System. For image-based OS, mutable image attributes (image authentication, root filesystem, image disk) can be updated; imageUrl and imageSha identify the underlying image and are immutable after creation. Only iPXE attributes can be updated for iPXE-based OS. A Templated iPXE Operating System can only be updated when it is associated with exactly one Site.'
       properties:
         name:
           type:
@@ -24981,6 +25083,8 @@ components:
       examples:
         - id: lenovo.sr650v2.cpu.1
           siteId: 60189e9c-7d12-438c-b9ca-6998d9c364b1
+          description: Lenovo SR650 V2 compute node
+          schemaVersion: 5
           deviceType: gpu
           associatedMachineIds:
             - fm100ht4v4mce2qstjnl8970nnj3ie6ecek4mtjn27pea4kre5gsa49jg0g
@@ -25019,6 +25123,15 @@ components:
           format: uuid
           description: ID of the Site this SKU belongs to
           readOnly: true
+        description:
+          type: string
+          description: Human-readable SKU description
+          readOnly: true
+        schemaVersion:
+          type: integer
+          format: uint32
+          description: Core SKU schema version when available
+          readOnly: true
         deviceType:
           type:
             - string
@@ -25044,6 +25157,69 @@ components:
           format: date-time
           description: ISO 8601 datetime when the SKU was last updated
           readOnly: true
+    SkuCreateRequest:
+      title: SkuCreateRequest
+      type: object
+      description: Request data to create a SKU on a Site's NICo Core service.
+      examples:
+        - siteId: 60189e9c-7d12-438c-b9ca-6998d9c364b1
+          id: dgx-h100
+          description: DGX H100 compute node
+          deviceType: gpu-server
+          components:
+            chassis:
+              vendor: NVIDIA
+              model: DGX H100
+              architecture: x86_64
+      properties:
+        siteId:
+          type: string
+          format: uuid
+          description: ID of the Site where the SKU will be created
+        id:
+          type: string
+          minLength: 1
+          description: Unique SKU identifier
+        description:
+          type: string
+          description: Human-readable SKU description
+        deviceType:
+          type:
+            - string
+            - 'null'
+          description: Optional device type identifier
+        components:
+          $ref: '#/components/schemas/SkuComponents'
+      required:
+        - siteId
+        - id
+        - components
+    SkuUpdateRequest:
+      title: SkuUpdateRequest
+      type: object
+      description: |-
+        Request data to update a SKU.
+        At least one of description, deviceType, or components must be provided.
+        The service preserves the schema version for metadata-only updates.
+        Component updates replace the SKU using the current schema version,
+        migrating legacy SKU schemas to the current format.
+      examples:
+        - description: DGX H100 compute node with InfiniBand
+          components:
+            infinibandDevices:
+              - vendor: Mellanox Technologies
+                model: MT2910 Family [ConnectX-7]
+                count: 4
+                inactiveDevices: []
+      properties:
+        description:
+          type: string
+          description: Replacement SKU description
+        deviceType:
+          type: string
+          description: Replacement device type identifier
+        components:
+          $ref: '#/components/schemas/SkuComponents'
     SkuComponents:
       title: SkuComponents
       type: object
@@ -25091,6 +25267,11 @@ components:
       title: SkuCpu
       type: object
       description: CPU component in a SKU
+      examples:
+        - vendor: ARM
+          model: Neoverse-V2
+          threadCount: 72
+          count: 2
       properties:
         vendor:
           type: string
@@ -25110,6 +25291,11 @@ components:
       title: SkuGpu
       type: object
       description: GPU component in a SKU
+      examples:
+        - vendor: NVIDIA
+          model: NVIDIA GB200
+          totalMemory: 189471 MiB
+          count: 4
       properties:
         vendor:
           type: string
@@ -25128,6 +25314,10 @@ components:
       title: SkuMemory
       type: object
       description: Memory component in a SKU
+      examples:
+        - capacityMb: 491520
+          memoryType: LPDDR5
+          count: 2
       properties:
         capacityMb:
           type: integer
@@ -25144,25 +25334,65 @@ components:
       title: SkuStorage
       type: object
       description: Storage component in a SKU
+      examples:
+        - vendor: ''
+          model: SAMSUNG MZ1L21T9HCLS-00A07
+          capacityMb: 0
+          count: 1
+          minSizeMiB: 1831420
+          maxSizeMiB: 1831420
+          pciPatterns:
+            - ^/devices/pci.*nvme0$
+        - vendor: ''
+          model: SAMSUNG MZTL63T8HFLT-00AW7
+          capacityMb: 0
+          count: 8
+          minSizeMiB: 3662840
+          maxSizeMiB: 3662840
+          pciPatterns:
+            - ^/devices/pci.*nvme[1-8]$
       properties:
         vendor:
           type: string
-          description: Vendor of the storage device
+          readOnly: true
+          description: Storage vendor used for schema version 4 matching. Read-only in REST mutation requests and preserved in responses for legacy SKUs. Schema version 5 does not use this field.
         model:
           type: string
-          description: Model of the storage device
+          description: Informational storage model. Starting with the 2.1 release, NICo does not use this field for storage matching or validation.
         capacityMb:
           type: integer
           format: uint32
-          description: Capacity in megabytes
+          readOnly: true
+          description: Storage capacity in megabytes used for schema version 4 matching. Read-only in REST mutation requests and preserved in responses for legacy SKUs. Schema version 5 uses minSizeMiB and maxSizeMiB instead.
         count:
           type: integer
           format: uint32
           description: Number of storage devices present
+        minSizeMiB:
+          type:
+            - integer
+            - 'null'
+          format: uint32
+          description: Inclusive minimum size in MiB for each storage device. Null or omission means no lower bound. Used for SKU schema version 5 and later.
+        maxSizeMiB:
+          type:
+            - integer
+            - 'null'
+          format: uint32
+          description: Inclusive maximum size in MiB for each storage device. Null or omission means no upper bound. Used for SKU schema version 5 and later.
+        pciPatterns:
+          type: array
+          description: Regular expressions matched against storage sysfs PCI paths. An empty or omitted list disables PCI location matching. Used for SKU schema version 5 and later.
+          items:
+            type: string
     SkuChassis:
       title: SkuChassis
       type: object
       description: Chassis component in a SKU
+      examples:
+        - vendor: NVIDIA
+          model: GB200 NVL
+          architecture: aarch64
       properties:
         vendor:
           type: string
@@ -25170,6 +25400,9 @@ components:
         model:
           type: string
           description: Model of the chassis
+        architecture:
+          type: string
+          description: Architecture of the chassis
     SkuEthernetDevice:
       title: SkuEthernetDevice
       type: object
@@ -25185,10 +25418,18 @@ components:
           type: integer
           format: uint32
           description: Number of ethernet devices present
+        isConnected:
+          type: boolean
+          description: Whether the ethernet device is connected
     SkuInfinibandDevice:
       title: SkuInfinibandDevice
       type: object
       description: Infiniband device component in a SKU
+      examples:
+        - vendor: Mellanox Technologies
+          model: MT2910 Family [ConnectX-7]
+          count: 4
+          inactiveDevices: []
       properties:
         vendor:
           type: string
@@ -25200,6 +25441,12 @@ components:
           type: integer
           format: uint32
           description: Number of infiniband devices present
+        inactiveDevices:
+          type: array
+          description: Zero-based indexes of inactive devices
+          items:
+            type: integer
+            format: uint32
     SkuTpm:
       title: SkuTpm
       type: object

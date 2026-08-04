@@ -16,6 +16,7 @@
  */
 
 use std::borrow::Cow;
+use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
@@ -59,6 +60,25 @@ pub fn reset_target(system_id: &str) -> String {
     )
 }
 
+/// Return the HPE iLO boot settings resource used for persistent boot ordering.
+fn hpe_boot_resource(system_id: &str) -> redfish::Resource<'static> {
+    redfish::Resource {
+        odata_id: Cow::Owned(format!(
+            "/redfish/v1/Systems/{system_id}/Bios/oem/hpe/boot/"
+        )),
+        odata_type: Cow::Borrowed("#HpeServerBootSettings.v2_0_0.HpeServerBootSettings"),
+        id: Cow::Borrowed("boot"),
+        name: Cow::Borrowed("Boot Settings"),
+    }
+}
+
+/// HPE iLO settings payload for its persistent boot order.
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "PascalCase")]
+struct HpeBootSettingsPatch {
+    persistent_boot_config_order: Vec<String>,
+}
+
 pub fn add_routes(r: Router<BmcState>, bmc_vendor: redfish::oem::BmcVendor) -> Router<BmcState> {
     const SYSTEM_ID: &str = "{system_id}";
     const ETH_ID: &str = "{eth_id}";
@@ -67,7 +87,8 @@ pub fn add_routes(r: Router<BmcState>, bmc_vendor: redfish::oem::BmcVendor) -> R
     const LOG_ENTRY_ID: &str = "{log_entry_id}";
     const PROCESSOR_ID: &str = "{processor_id}";
     let bios = redfish::bios::resource(SYSTEM_ID);
-    r.route(&collection().odata_id, get(get_system_collection))
+    let routes = r
+        .route(&collection().odata_id, get(get_system_collection))
         .route(
             &resource(SYSTEM_ID).odata_id,
             get(get_system).patch(patch_system),
@@ -96,6 +117,11 @@ pub fn add_routes(r: Router<BmcState>, bmc_vendor: redfish::oem::BmcVendor) -> R
         .route(
             &redfish::boot_option::resource(SYSTEM_ID, BOOT_OPTION_ID).odata_id,
             get(get_boot_option),
+        )
+        .route(
+            &bmc_vendor
+                .make_settings_odata_id(&redfish::boot_option::resource(SYSTEM_ID, BOOT_OPTION_ID)),
+            patch(patch_boot_option_settings),
         )
         .route(&bios.odata_id, get(get_bios).patch(patch_bios_settings))
         .route(
@@ -141,7 +167,20 @@ pub fn add_routes(r: Router<BmcState>, bmc_vendor: redfish::oem::BmcVendor) -> R
         .route(
             &redfish::bios::change_password_target(&bios),
             post(change_bios_password_action),
+        );
+    if matches!(bmc_vendor, redfish::oem::BmcVendor::Hpe) {
+        let hpe_boot = hpe_boot_resource(SYSTEM_ID);
+        // CombinedServer normalizes requests by removing trailing slashes before
+        // routing them, while the Redfish resource still advertises canonical
+        // trailing-slash OData identifiers.
+        let hpe_boot_path = hpe_boot.odata_id.trim_end_matches('/');
+        routes.route(hpe_boot_path, get(get_hpe_boot)).route(
+            &format!("{hpe_boot_path}/settings"),
+            patch(patch_hpe_boot_settings),
         )
+    } else {
+        routes
+    }
 }
 
 pub struct SingleSystemConfig {
@@ -183,6 +222,10 @@ pub struct SingleSystemState {
     config: SingleSystemConfig,
     virtual_media: Option<redfish::virtual_media::VirtualMediaState>,
     boot_order_override: Mutex<Option<Vec<String>>>,
+    // HPE iLO uses OEM structured boot strings here, not the BootOption IDs
+    // exposed by the standard ComputerSystem BootOrder property.
+    hpe_boot_order_override: Mutex<Option<Vec<String>>>,
+    boot_option_overrides: Mutex<HashMap<String, serde_json::Value>>,
     boot_source_override: Mutex<BootSourceOverride>,
     secure_boot_enabled: Arc<AtomicBool>,
     bios_overrides: Arc<Mutex<serde_json::Value>>,
@@ -268,6 +311,8 @@ impl SingleSystemState {
             config,
             virtual_media,
             boot_order_override: Mutex::new(None),
+            hpe_boot_order_override: Mutex::new(None),
+            boot_option_overrides: Mutex::new(HashMap::new()),
             boot_source_override: Mutex::new(BootSourceOverride::default()),
             secure_boot_enabled: Arc::new(AtomicBool::new(false)),
             bios_overrides: Arc::new(Mutex::new(serde_json::json!({}))),
@@ -297,12 +342,65 @@ impl SingleSystemState {
             .find(|v| v.id == option_id)
     }
 
+    fn boot_option(&self, option_id: &str) -> Option<serde_json::Value> {
+        let option = self.find_boot_option(option_id)?;
+        let overrides = self.boot_option_overrides.lock().expect("mutex poisoned");
+        Some(
+            option.to_json().patch(
+                overrides
+                    .get(option_id)
+                    .cloned()
+                    .unwrap_or_else(|| json!({})),
+            ),
+        )
+    }
+
+    fn patch_boot_option(&self, option_id: &str, patch_request: serde_json::Value) -> bool {
+        if self.find_boot_option(option_id).is_none() {
+            return false;
+        }
+
+        let mut overrides = self.boot_option_overrides.lock().expect("mutex poisoned");
+        let current = overrides
+            .entry(option_id.to_string())
+            .or_insert_with(|| json!({}));
+        *current = current.clone().patch(patch_request);
+        true
+    }
+
     fn set_boot_order_override(&self, boot_order: Vec<String>) {
         *self.boot_order_override.lock().unwrap() = Some(boot_order);
     }
 
     fn boot_order_override(&self) -> Option<Vec<String>> {
         self.boot_order_override.lock().unwrap().clone()
+    }
+
+    /// Return the HPE OEM persistent order without changing standard BootOrder state.
+    fn hpe_boot_order(&self) -> Vec<String> {
+        self.hpe_boot_order_override
+            .lock()
+            .unwrap()
+            .clone()
+            .unwrap_or_else(|| {
+                self.config
+                    .boot_options
+                    .iter()
+                    .flatten()
+                    .map(|option| {
+                        let prefix = match option.kind {
+                            BootOptionKind::Disk => "HD",
+                            BootOptionKind::Network => "NIC",
+                        };
+                        format!("{prefix}.BootOption.{}", option.boot_reference())
+                    })
+                    .collect()
+            })
+    }
+
+    /// Persist an HPE OEM boot order independently from standard BootOrder state.
+    fn set_hpe_boot_order(&self, boot_order: Vec<String>) {
+        *self.hpe_boot_order_override.lock().unwrap() = Some(boot_order);
     }
 
     pub(crate) fn virtual_media(&self) -> Option<&redfish::virtual_media::VirtualMediaState> {
@@ -750,9 +848,52 @@ async fn get_boot_option(
     state
         .system_state
         .find(&system_id)
-        .and_then(|system_state| system_state.find_boot_option(&boot_option_id))
-        .map(|boot_option| boot_option.to_json().into_ok_response())
+        .and_then(|system_state| system_state.boot_option(&boot_option_id))
+        .map(JsonExt::into_ok_response)
         .unwrap_or_else(http::not_found)
+}
+
+async fn patch_boot_option_settings(
+    State(state): State<BmcState>,
+    Path((system_id, boot_option_id)): Path<(String, String)>,
+    Json(patch_request): Json<serde_json::Value>,
+) -> Response {
+    let Some(system_state) = state.system_state.find(&system_id) else {
+        return http::not_found();
+    };
+    if !system_state.patch_boot_option(&boot_option_id, patch_request) {
+        return http::not_found();
+    }
+    json!({}).into_ok_response()
+}
+
+/// Return the HPE iLO persistent boot-order resource.
+async fn get_hpe_boot(State(state): State<BmcState>, Path(system_id): Path<String>) -> Response {
+    let Some(system_state) = state.system_state.find(&system_id) else {
+        return http::not_found();
+    };
+    let boot_order = system_state.hpe_boot_order();
+    hpe_boot_resource(&system_id)
+        .json_patch()
+        .patch(json!({
+            "BootSources": [],
+            "DefaultBootOrder": ["PcieSlotNic", "PcieSlotStorage"],
+            "PersistentBootConfigOrder": boot_order,
+        }))
+        .into_ok_response()
+}
+
+/// Apply the HPE iLO persistent boot order staged through its settings resource.
+async fn patch_hpe_boot_settings(
+    State(state): State<BmcState>,
+    Path(system_id): Path<String>,
+    Json(request): Json<HpeBootSettingsPatch>,
+) -> Response {
+    let Some(system_state) = state.system_state.find(&system_id) else {
+        return http::not_found();
+    };
+    system_state.set_hpe_boot_order(request.persistent_boot_config_order);
+    json!({}).into_ok_response()
 }
 
 async fn get_log_services_collection(
@@ -1090,5 +1231,73 @@ impl SystemBuilder {
 
     pub fn build(self) -> serde_json::Value {
         self.value
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use axum::Router;
+    use axum::body::{Body, to_bytes};
+    use axum::http::header::CONTENT_TYPE;
+    use axum::http::{Method, Request, StatusCode};
+    use tower::ServiceExt;
+    use tower_http::normalize_path::NormalizePathLayer;
+
+    use super::*;
+    use crate::test_support::{NoopCallbacks, host_info};
+    use crate::{HardwareType, MachineRouterOptions, machine_router};
+
+    /// Reads one successful JSON response from the in-process mock router.
+    async fn get_json(router: &Router, path: &str) -> serde_json::Value {
+        let response = router
+            .clone()
+            .oneshot(Request::builder().uri(path).body(Body::empty()).unwrap())
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        serde_json::from_slice(&body).unwrap()
+    }
+
+    /// HPE OEM ordering round-trips without corrupting standard BootOption IDs.
+    #[tokio::test]
+    async fn hpe_boot_order_is_persisted_separately_from_standard_boot_order() {
+        let router = machine_router(
+            &host_info(HardwareType::HpeProliantDl380aGen11),
+            Arc::new(NoopCallbacks),
+            "test-host-id".to_string(),
+            false,
+            MachineRouterOptions::default(),
+        )
+        .0
+        .layer(NormalizePathLayer::trim_trailing_slash());
+        let boot_path = hpe_boot_resource("1").odata_id;
+        let initial = get_json(&router, &boot_path).await;
+        assert_eq!(
+            initial["PersistentBootConfigOrder"],
+            json!(["NIC.BootOption.Boot0000", "HD.BootOption.Boot0001",])
+        );
+
+        let updated_order = json!(["HD.BootOption.Boot0001", "NIC.BootOption.Boot0000",]);
+        let response = router
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method(Method::PATCH)
+                    .uri(format!("{boot_path}settings/"))
+                    .header(CONTENT_TYPE, "application/json")
+                    .body(Body::from(
+                        json!({"PersistentBootConfigOrder": updated_order}).to_string(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+
+        let updated = get_json(&router, &boot_path).await;
+        assert_eq!(updated["PersistentBootConfigOrder"], updated_order);
+        let system = get_json(&router, &resource("1").odata_id).await;
+        assert_eq!(system["Boot"]["BootOrder"], json!(["Boot0000", "Boot0001"]));
     }
 }

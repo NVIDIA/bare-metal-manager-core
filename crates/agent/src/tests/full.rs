@@ -289,30 +289,36 @@ async fn run_common_parts(
     // additional bits of context (just like carbide-api would).
     let app = Router::new()
         .route("/up", get(handle_up))
-        .route("/forge.Forge/DiscoverMachine", post(handle_discover))
         .route(
-            "/forge.Forge/GetManagedHostNetworkConfig",
+            ::rpc::service_path!("DiscoverMachine"),
+            post(handle_discover),
+        )
+        .route(
+            ::rpc::service_path!("GetManagedHostNetworkConfig"),
             post(handle_netconf),
         )
         .route(
-            "/forge.Forge/RecordDpuNetworkStatus",
+            ::rpc::service_path!("RecordDpuNetworkStatus"),
             post(handle_record_netstat),
         )
         .route(
-            "/forge.Forge/DpuAgentUpgradeCheck",
+            ::rpc::service_path!("DpuAgentUpgradeCheck"),
             post(handle_dpu_agent_upgrade_check),
         )
         .route(
-            "/forge.Forge/UpdateAgentReportedInventory",
+            ::rpc::service_path!("UpdateAgentReportedInventory"),
             post(handle_update_agent_reported_inventory),
         )
         .route(
-            "/forge.Forge/GetDpuInfoList",
+            ::rpc::service_path!("GetDpuInfoList"),
             post(handle_get_dpu_info_list),
         )
-        .route("/forge.Forge/FindInterfaces", post(handle_find_interfaces))
+        .route(
+            ::rpc::service_path!("FindInterfaces"),
+            post(handle_find_interfaces),
+        )
         // ForgeApiClient needs a working Version route for connection retrying
-        .route("/forge.Forge/Version", post(handle_version))
+        .route(::rpc::service_path!("Version"), post(handle_version))
         .fallback(handler)
         .with_state(state.clone());
     let (addr, join_handle) = common::run_grpc_server(app).await?;

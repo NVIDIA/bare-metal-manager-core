@@ -29,6 +29,7 @@ use carbide_uuid::network::NetworkSegmentId;
 use carbide_uuid::vpc::VpcId;
 use db::{DatabaseError, ObjectColumnFilter, instance, network_segment, vpc};
 use model::allocation_type::AllocationType;
+use model::machine_interface::InterfaceType;
 use model::network_segment::NetworkSegmentSearchConfig;
 use model::resource_pool::ResourcePoolEntryState;
 use model::route_server::RouteServerSourceType;
@@ -36,19 +37,24 @@ use model::route_server::RouteServerSourceType;
 use crate::CarbideError;
 use crate::api::Api;
 
-/// Returns true when this machine-interface address should be labeled as operator/static BMC
-/// (`IpTypeStaticBmcIp`): either explicitly static allocation, or an address on the synthetic
-/// `static-assignments` segment used for external IPs outside Carbide-managed prefixes.
-fn machine_interface_address_is_operator_static(
+/// Returns true when this machine-interface address should be labeled as an operator/static BMC
+/// (`IpTypeStaticBmcIp`).
+///
+/// Static allocation metadata and the synthetic `static-assignments` segment do not identify the
+/// endpoint role, so either condition must be paired with `InterfaceType::Bmc`.
+fn machine_interface_address_is_static_bmc(
     segment_name: &str,
     allocation_type: AllocationType,
+    interface_type: InterfaceType,
 ) -> bool {
-    allocation_type == AllocationType::Static
-        || segment_name == network_segment::STATIC_ASSIGNMENTS_SEGMENT_NAME
+    interface_type == InterfaceType::Bmc
+        && (allocation_type == AllocationType::Static
+            || segment_name == network_segment::STATIC_ASSIGNMENTS_SEGMENT_NAME)
 }
 
 /// Resolves an IP to zero or more typed matches (BMC, instance, static BMC, etc.). Static BMC
-/// classification for `machine_interface_addresses` uses [`machine_interface_address_is_operator_static`].
+/// classification for `machine_interface_addresses` uses
+/// [`machine_interface_address_is_static_bmc`].
 pub(crate) async fn find_ip_address(
     api: &Api,
     request: tonic::Request<rpc::FindIpAddressRequest>,
@@ -288,14 +294,17 @@ async fn search(
             })
         }
 
-        // machine_interface_addresses: classify operator/static BMC as StaticBmcIp (see
-        // machine_interface_address_is_operator_static).
+        // machine_interface_addresses: classify operator/static BMC as StaticBmcIp while
+        // retaining static Data addresses as MachineAddress.
         MachineAddresses => {
             let out = db::machine_interface_address::find_by_address(db, addr).await?;
             match out {
                 Some(e) => {
-                    let is_static_bmc =
-                        machine_interface_address_is_operator_static(&e.name, e.allocation_type);
+                    let is_static_bmc = machine_interface_address_is_static_bmc(
+                        &e.name,
+                        e.allocation_type,
+                        e.interface_type,
+                    );
 
                     let (ip_type, type_label) = if is_static_bmc {
                         (rpc::IpType::StaticBmcIp, "static BMC IP")
@@ -303,12 +312,16 @@ async fn search(
                         (rpc::IpType::MachineAddress, "machine address")
                     };
 
-                    let message = match e.machine_id.as_ref() {
-                        Some(machine_id) => format!(
+                    let message = match (e.machine_id.as_ref(), e.switch_id.as_ref()) {
+                        (Some(machine_id), _) => format!(
                             "{ip} is a {type_label} on machine {} (interface {}) on network segment {} of type {}",
                             machine_id, e.id, e.name, e.network_segment_type,
                         ),
-                        None => format!(
+                        (None, Some(switch_id)) => format!(
+                            "{ip} is a {type_label} on switch {} (interface {}) on network segment {} of type {}",
+                            switch_id, e.id, e.name, e.network_segment_type,
+                        ),
+                        (None, None) => format!(
                             "{ip} is a {type_label} on interface {} on network segment {} of type {}. It is not attached to a machine.",
                             e.id, e.name, e.network_segment_type,
                         ),
@@ -333,9 +346,10 @@ async fn search(
                     let is_static = db::machine_interface_address::find_by_address(db, addr)
                         .await?
                         .is_some_and(|row| {
-                            machine_interface_address_is_operator_static(
+                            machine_interface_address_is_static_bmc(
                                 &row.name,
                                 row.allocation_type,
+                                row.interface_type,
                             )
                         });
 
@@ -359,6 +373,7 @@ async fn search(
                 None => None,
             }
         }
+
         ExploredEndpoint => {
             let out = db::explored_endpoints::find_by_ips(db, vec![addr]).await?;
             out.first().map(|ee| rpc::IpAddressMatch {
@@ -565,4 +580,70 @@ async fn by_mac(
     // Any other MAC addresses to search?
 
     Ok(None)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn static_bmc_classification_requires_bmc_interface_type() {
+        let static_assignments = network_segment::STATIC_ASSIGNMENTS_SEGMENT_NAME;
+        let cases = [
+            (
+                "static BMC allocation",
+                "underlay",
+                AllocationType::Static,
+                InterfaceType::Bmc,
+                true,
+            ),
+            (
+                "BMC on static assignments",
+                static_assignments,
+                AllocationType::Dhcp,
+                InterfaceType::Bmc,
+                true,
+            ),
+            (
+                "dynamic BMC",
+                "underlay",
+                AllocationType::Dhcp,
+                InterfaceType::Bmc,
+                false,
+            ),
+            (
+                "static Data allocation",
+                "underlay",
+                AllocationType::Static,
+                InterfaceType::Data,
+                false,
+            ),
+            (
+                "Data on static assignments",
+                static_assignments,
+                AllocationType::Dhcp,
+                InterfaceType::Data,
+                false,
+            ),
+            (
+                "dynamic Data",
+                "underlay",
+                AllocationType::Dhcp,
+                InterfaceType::Data,
+                false,
+            ),
+        ];
+
+        for (name, segment_name, allocation_type, interface_type, expected) in cases {
+            assert_eq!(
+                machine_interface_address_is_static_bmc(
+                    segment_name,
+                    allocation_type,
+                    interface_type,
+                ),
+                expected,
+                "{name}",
+            );
+        }
+    }
 }

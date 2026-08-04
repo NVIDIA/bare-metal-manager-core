@@ -35,6 +35,8 @@ use super::*;
 
 // Define a basic/working MachineId for testing.
 const TEST_MACHINE_ID: &str = "fm100ht038bg3qsho433vkg684heguv282qaggmrsh2ugn1qk096n2c6hcg";
+const TEST_DPU_ID: &str = "fm100ds3gfip02lfgleidqoitqgh8d8mdc4a3j2tdncbjrfjtvrrhn2kleg";
+const TEST_INTERFACE_ID: &str = "00000000-0000-0000-0000-000000000001";
 
 // verify_cmd_structure runs a baseline clap debug_assert()
 // to do basic command configuration checking and validation,
@@ -234,44 +236,69 @@ fn parse_power_options_routes_to_power_options() {
     );
 }
 
-// parse_set_primary_dpu ensures set-primary-dpu parses
-// with required args.
 #[test]
-fn parse_set_primary_dpu() {
-    let cmd = Cmd::try_parse_from([
-        "managed-host",
-        "set-primary-dpu",
-        TEST_MACHINE_ID,
-        TEST_MACHINE_ID,
-    ])
-    .expect("should parse set-primary-dpu");
-
-    match cmd {
-        Cmd::SetPrimaryDpu(args) => {
-            assert!(!args.reboot);
+#[allow(deprecated)]
+fn parse_primary_interface_reconciliation_controls() {
+    scenarios!(
+        run = |(subcommand, target, flag): (&str, &str, Option<&str>)| {
+            let mut argv = vec!["managed-host", subcommand, TEST_MACHINE_ID, target];
+            argv.extend(flag);
+            Cmd::try_parse_from(argv)
+                .map(|cmd| match cmd {
+                    Cmd::SetPrimaryDpu(args) => {
+                        let parsed = (args.force_reconcile, args.reboot);
+                        let request: rpc::forge::SetPrimaryDpuRequest = args.into();
+                        (
+                            parsed.0,
+                            parsed.1,
+                            request.force_reconcile,
+                            request.reboot,
+                        )
+                    }
+                    Cmd::SetPrimaryInterface(args) => {
+                        let parsed = (args.force_reconcile, args.reboot);
+                        let request: rpc::forge::SetPrimaryInterfaceRequest = args.into();
+                        (
+                            parsed.0,
+                            parsed.1,
+                            request.force_reconcile,
+                            request.reboot,
+                        )
+                    }
+                    _ => panic!("expected a primary-interface command"),
+                })
+                .map_err(|error| error.to_string())
+        };
+        "DPU default" {
+            ("set-primary-dpu", TEST_DPU_ID, None) => Yields((false, false, false, false)),
         }
-        _ => panic!("expected SetPrimaryDpu variant"),
-    }
-}
-
-// parse_set_primary_interface ensures set-primary-interface parses
-// with required args (a host machine id and a machine interface id).
-#[test]
-fn parse_set_primary_interface() {
-    let cmd = Cmd::try_parse_from([
-        "managed-host",
-        "set-primary-interface",
-        TEST_MACHINE_ID,
-        "00000000-0000-0000-0000-000000000001",
-    ])
-    .expect("should parse set-primary-interface");
-
-    match cmd {
-        Cmd::SetPrimaryInterface(args) => {
-            assert!(!args.reboot);
+        "DPU force reconcile" {
+            ("set-primary-dpu", TEST_DPU_ID, Some("--force-reconcile"))
+                => Yields((true, false, true, false)),
         }
-        _ => panic!("expected SetPrimaryInterface variant"),
-    }
+        "DPU legacy reboot" {
+            ("set-primary-dpu", TEST_DPU_ID, Some("--reboot"))
+                => Yields((false, true, true, true)),
+        }
+        "interface default" {
+            ("set-primary-interface", TEST_INTERFACE_ID, None)
+                => Yields((false, false, false, false)),
+        }
+        "interface force reconcile" {
+            (
+                "set-primary-interface",
+                TEST_INTERFACE_ID,
+                Some("--force-reconcile"),
+            ) => Yields((true, false, true, false)),
+        }
+        "interface legacy reboot" {
+            (
+                "set-primary-interface",
+                TEST_INTERFACE_ID,
+                Some("--reboot"),
+            ) => Yields((false, true, true, true)),
+        }
+    );
 }
 
 // parse_debug_bundle ensures debug-bundle parses with

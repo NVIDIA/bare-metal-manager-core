@@ -41,7 +41,7 @@ use crate::machine::{
     ManagedHostState, ReprovisionRequest, UpgradeDecision,
 };
 use crate::machine_boot_interface::{
-    MachineBootInterfaceTarget, canonical_redfish_boot_interface_id,
+    BootInterfaceStatusObservation, MachineBootInterfaceTarget, canonical_redfish_boot_interface_id,
 };
 use crate::metadata::Metadata;
 use crate::power_manager::PowerOptions;
@@ -81,6 +81,8 @@ pub struct MachineSnapshotPgJson {
     pub machine_maintenance_requested: Option<MachineMaintenanceRequest>,
     #[serde(default)]
     pub bmc_credential_rotation_requested: bool,
+    #[serde(default)]
+    pub uefi_credential_rotation_requested: bool,
     pub manual_firmware_upgrade_completed: Option<DateTime<Utc>>,
     pub bios_password_set_time: Option<DateTime<Utc>>,
     pub last_machine_validation_time: Option<DateTime<Utc>>,
@@ -109,6 +111,10 @@ pub struct MachineSnapshotPgJson {
     pub desired_boot_interface_mac: Option<MacAddress>,
     pub desired_boot_interface_id: Option<String>,
     pub desired_boot_interface_version: Option<String>,
+    pub boot_interface_verified_version: Option<String>,
+    pub boot_interface_observed_at: Option<DateTime<Utc>>,
+    #[serde(default)]
+    pub boot_interface_observation_assumed: bool,
     pub hw_sku_status: Option<SkuStatus>,
     #[serde(default)] // Power options are valid only for host, not for DPUs.
     pub power_options: Option<PowerOptions>,
@@ -171,6 +177,37 @@ fn decode_desired_boot_interface(
     }
 }
 
+fn decode_boot_interface_status_observation(
+    config_version: Option<String>,
+    observed_at: Option<DateTime<Utc>>,
+    assumed: bool,
+) -> sqlx::Result<Option<BootInterfaceStatusObservation>> {
+    match (config_version, observed_at, assumed) {
+        (None, None, false) => Ok(None),
+        (Some(config_version), Some(observed_at), assumed) => {
+            let config_version =
+                config_version
+                    .parse()
+                    .map_err(|error| sqlx::Error::ColumnDecode {
+                        index: "boot_interface_verified_version".to_string(),
+                        source: Box::new(error),
+                    })?;
+            Ok(Some(BootInterfaceStatusObservation {
+                config_version,
+                observed_at,
+                assumed,
+            }))
+        }
+        _ => Err(sqlx::Error::ColumnDecode {
+            index: "boot_interface_(verified_version,observed_at,assumed)".to_string(),
+            source: Box::new(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                "boot interface verified version and observation time must both be set or both be null, and assumed requires an observation",
+            )),
+        }),
+    }
+}
+
 impl TryFrom<MachineSnapshotPgJson> for Machine {
     type Error = sqlx::Error;
 
@@ -195,6 +232,11 @@ impl TryFrom<MachineSnapshotPgJson> for Machine {
             value.desired_boot_interface_mac,
             value.desired_boot_interface_id,
             value.desired_boot_interface_version,
+        )?;
+        let boot_interface_status_observation = decode_boot_interface_status_observation(
+            value.boot_interface_verified_version,
+            value.boot_interface_observed_at,
+            value.boot_interface_observation_assumed,
         )?;
 
         let version: ConfigVersion =
@@ -261,6 +303,7 @@ impl TryFrom<MachineSnapshotPgJson> for Machine {
             },
             status: MachineStatus {
                 interfaces: value.interfaces,
+                boot_interface_status_observation,
                 hardware_info,
                 bmc_info: value.bmc_info,
                 last_reboot_time: value.last_reboot_time,
@@ -298,6 +341,7 @@ impl TryFrom<MachineSnapshotPgJson> for Machine {
             rack_fw_details: value.rack_fw_details,
             machine_maintenance_requested: value.machine_maintenance_requested,
             bmc_credential_rotation_requested: value.bmc_credential_rotation_requested,
+            uefi_credential_rotation_requested: value.uefi_credential_rotation_requested,
             manual_firmware_upgrade_completed: value.manual_firmware_upgrade_completed,
         })
     }
@@ -330,6 +374,13 @@ mod tests {
             interface_id: String,
             version_nr: u64,
         },
+    }
+
+    #[derive(Debug)]
+    struct ObservationInput {
+        config_version: Option<String>,
+        observed_at: Option<DateTime<Utc>>,
+        assumed: bool,
     }
 
     fn summarize(value: Option<Versioned<MachineBootInterfaceTarget>>) -> Decoded {
@@ -460,6 +511,98 @@ mod tests {
              }| {
                 decode_desired_boot_interface(mac_address, interface_id, version)
                     .map(summarize)
+                    .map_err(drop)
+            },
+        );
+    }
+
+    #[test]
+    fn boot_interface_status_columns_decode_atomically() {
+        let observed_at = DateTime::from_timestamp(1_722_000_000, 123_000_000)
+            .expect("fixture timestamp is valid");
+        let version = ConfigVersion::new(7);
+        let config_version = version.version_string();
+
+        check_cases(
+            [
+                Case {
+                    scenario: "no observation",
+                    input: ObservationInput {
+                        config_version: None,
+                        observed_at: None,
+                        assumed: false,
+                    },
+                    expect: Yields(None),
+                },
+                Case {
+                    scenario: "Redfish observation",
+                    input: ObservationInput {
+                        config_version: Some(config_version.clone()),
+                        observed_at: Some(observed_at),
+                        assumed: false,
+                    },
+                    expect: Yields(Some(BootInterfaceStatusObservation {
+                        config_version: version,
+                        observed_at,
+                        assumed: false,
+                    })),
+                },
+                Case {
+                    scenario: "rollout baseline",
+                    input: ObservationInput {
+                        config_version: Some(config_version.clone()),
+                        observed_at: Some(observed_at),
+                        assumed: true,
+                    },
+                    expect: Yields(Some(BootInterfaceStatusObservation {
+                        config_version: version,
+                        observed_at,
+                        assumed: true,
+                    })),
+                },
+                Case {
+                    scenario: "version without time",
+                    input: ObservationInput {
+                        config_version: Some(config_version),
+                        observed_at: None,
+                        assumed: false,
+                    },
+                    expect: Fails,
+                },
+                Case {
+                    scenario: "time without version",
+                    input: ObservationInput {
+                        config_version: None,
+                        observed_at: Some(observed_at),
+                        assumed: false,
+                    },
+                    expect: Fails,
+                },
+                Case {
+                    scenario: "assumed without observation",
+                    input: ObservationInput {
+                        config_version: None,
+                        observed_at: None,
+                        assumed: true,
+                    },
+                    expect: Fails,
+                },
+                Case {
+                    scenario: "malformed version",
+                    input: ObservationInput {
+                        config_version: Some("not-a-version".to_string()),
+                        observed_at: Some(observed_at),
+                        assumed: false,
+                    },
+                    expect: Fails,
+                },
+            ],
+            |ObservationInput {
+                 config_version,
+                 observed_at,
+                 assumed,
+             }| {
+                decode_boot_interface_status_observation(config_version, observed_at, assumed)
                     .map_err(drop)
             },
         );

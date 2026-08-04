@@ -21,7 +21,7 @@ use bmc_mock::HostMachineInfo;
 use bmc_mock::mac_address_pool::PoolConfig as MacAddressPoolConfig;
 use futures::future::try_join_all;
 use model::expected_machine::HostDpuPolicy;
-use rpc::forge::{ExpectedHostNic, NetworkSegmentType, VpcVirtualizationType};
+use rpc::forge::{ExpectedInterface, NetworkSegmentType, VpcVirtualizationType};
 use tokio::sync::mpsc;
 use uuid::Uuid;
 
@@ -50,10 +50,10 @@ pub struct MachineATron {
     app_context: Arc<MachineATronContext>,
 }
 
-fn expected_host_nics(
+fn expected_interfaces(
     host_info: &HostMachineInfo,
     dpu_policy: Option<HostDpuPolicy>,
-) -> Vec<ExpectedHostNic> {
+) -> Vec<ExpectedInterface> {
     let mac_addresses = match dpu_policy {
         Some(HostDpuPolicy::Nic) => host_info
             .dpus
@@ -67,7 +67,7 @@ fn expected_host_nics(
     mac_addresses
         .into_iter()
         .enumerate()
-        .map(|(index, mac_address)| ExpectedHostNic {
+        .map(|(index, mac_address)| ExpectedInterface {
             mac_address: mac_address.to_string(),
             nic_type: None,
             fixed_ip: None,
@@ -86,9 +86,9 @@ impl MachineATron {
     }
 
     pub async fn make_devices(&self, paused: bool) -> eyre::Result<SimulatorRegistry> {
-        self.app_context.app_config.validate()?;
+        let resolved_configs = self.app_context.app_config.resolved_device_configs()?;
 
-        for (machine_group, machine) in &self.app_context.app_config.machines {
+        for (machine_group, machine) in &resolved_configs.machines {
             if machine.missing_host_inband_relay_for_direct_host_dhcp() {
                 tracing::warn!(
                     machine_group,
@@ -135,8 +135,7 @@ impl MachineATron {
                 }
             }
 
-            self.app_context
-                .app_config
+            resolved_configs
                 .machines
                 .iter()
                 .flat_map(|(config_name, config)| {
@@ -262,22 +261,25 @@ impl MachineATron {
                 .collect::<Result<Vec<_>, _>>()?
         };
 
-        let simulators = SimulatorRegistry::try_from_simulators(devices)?;
-
         if self.app_context.app_config.register_expected_machines {
-            for (rack_id, rack) in &self.app_context.app_config.racks {
+            for rack in &resolved_configs.racks {
                 self.app_context
                     .api_client()
-                    .ensure_expected_rack(rack_id.clone(), rack.rack_profile_id.clone())
+                    .ensure_expected_rack(rack.rack_id.clone(), rack.rack_profile_id.clone())
                     .await?;
             }
+        }
 
+        let simulators = SimulatorRegistry::builder()
+            .devices(devices)
+            .racks(resolved_configs.racks)
+            .build()?;
+
+        if self.app_context.app_config.register_expected_machines {
             for device in simulators.devices() {
                 let machine = device.handle();
                 let host_info = machine.host_info();
-                let machine_config = self
-                    .app_context
-                    .app_config
+                let machine_config = resolved_configs
                     .machines
                     .get(machine.machine_config_section())
                     .expect("machine was constructed from a configured machine group");
@@ -325,7 +327,7 @@ impl MachineATron {
                         } else {
                             None
                         };
-                        let host_nics = expected_host_nics(host_info, dpu_policy);
+                        let interfaces = expected_interfaces(host_info, dpu_policy);
                         self.app_context
                             .api_client()
                             .add_expected_machine(
@@ -333,7 +335,7 @@ impl MachineATron {
                                 host_info.serial.clone(),
                                 rack_id,
                                 dpu_policy,
-                                host_nics,
+                                interfaces,
                             )
                             .await
                     }
@@ -613,8 +615,8 @@ mod tests {
         }
     }
 
-    fn expected_nic(mac_address: MacAddress, primary: bool) -> ExpectedHostNic {
-        ExpectedHostNic {
+    fn expected_nic(mac_address: MacAddress, primary: bool) -> ExpectedInterface {
+        ExpectedInterface {
             mac_address: mac_address.to_string(),
             nic_type: None,
             fixed_ip: None,
@@ -627,7 +629,7 @@ mod tests {
     }
 
     #[test]
-    fn expected_host_nic_derivation() {
+    fn expected_interface_derivation() {
         let first_dpu_mac = mac("02:00:00:00:00:01");
         let second_dpu_mac = mac("02:00:00:00:00:02");
         let integrated_mac = mac("02:00:00:00:00:03");
@@ -659,7 +661,7 @@ mod tests {
                     expect: Vec::new(),
                 },
             ],
-            |(host_info, dpu_policy)| expected_host_nics(&host_info, dpu_policy),
+            |(host_info, dpu_policy)| expected_interfaces(&host_info, dpu_policy),
         );
     }
 }

@@ -123,6 +123,38 @@ false
 {{- if .Values.webAuth.basic.existingSecret.name -}}true{{- else -}}false{{- end -}}
 {{- end -}}
 
+{{/* Validate the optional public admin-client CA bundle. Emits no content. */}}
+{{- define "nico-api.validateAdminRootCertPem" -}}
+{{- $raw := .Values.siteConfig.adminRootCertPem -}}
+{{- if and (not (kindIs "string" $raw)) (ne (kindOf $raw) "invalid") -}}
+{{- fail "nico-api: siteConfig.adminRootCertPem must be a string containing public CA certificates" -}}
+{{- end -}}
+{{- $pem := $raw | default "" -}}
+{{- if and $pem (not .Values.siteConfig.enabled) -}}
+{{- fail "nico-api: siteConfig.adminRootCertPem requires siteConfig.enabled=true" -}}
+{{- end -}}
+{{- if $pem -}}
+{{/* Keep these paths in sync with the site-config-files mounts in deployment.yaml. */}}
+{{- $mountedPaths := list "/etc/forge/carbide-api/site/admin_root_cert_pem" "/etc/nico/nico-api/site/admin_root_cert_pem" -}}
+{{- if not (has .Values.auth.adminRootCafilePath $mountedPaths) -}}
+{{- fail "nico-api: siteConfig.adminRootCertPem requires auth.adminRootCafilePath to reference admin_root_cert_pem in a mounted site config directory" -}}
+{{- end -}}
+{{/* The remainder check also rejects keys; detect them first to return an actionable error. */}}
+{{- if regexMatch `(?i)-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----` $pem -}}
+{{- fail "nico-api: siteConfig.adminRootCertPem must contain public CA certificates only; private keys are not allowed" -}}
+{{- end -}}
+{{- $certificatePattern := `(?m)^-----BEGIN CERTIFICATE-----\r?\n([A-Za-z0-9+/=]+\r?\n)+-----END CERTIFICATE-----\r?$` -}}
+{{- $certificates := regexFindAll $certificatePattern $pem -1 -}}
+{{- if eq (len $certificates) 0 -}}
+{{- fail "nico-api: siteConfig.adminRootCertPem must contain at least one canonical PEM CERTIFICATE block" -}}
+{{- end -}}
+{{- $remainder := regexReplaceAll $certificatePattern $pem "" | trim -}}
+{{- if ne $remainder "" -}}
+{{- fail "nico-api: siteConfig.adminRootCertPem must contain only bare PEM CERTIFICATE blocks and whitespace; remove metadata/comments and fix malformed blocks" -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
+
 {{/*
 Certificate spec
 Usage: {{ include "nico-api.certificateSpec" (dict "name" "{{ include "nico-api.name" . }}-certificate" "cert" .Values.certificate "global" .Values.global "namespace" (include "nico-api.namespace" .)) }}

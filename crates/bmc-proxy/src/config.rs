@@ -55,6 +55,21 @@ pub struct Config {
     #[serde(default)]
     pub carbide_api: CarbideApiConfig,
     pub bmc_proxy: Option<HostPortPair>,
+    #[serde(default)]
+    pub tracing: TracingConfig,
+}
+
+/// OpenTelemetry trace export settings for proxied BMC requests.
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+pub struct TracingConfig {
+    /// Whether to record and export OTLP spans. Default: false.
+    #[serde(default)]
+    pub enabled: bool,
+    /// Collector endpoint for OTLP/gRPC traces. Overridden by the standard
+    /// `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` and `OTEL_EXPORTER_OTLP_ENDPOINT`
+    /// variables when either is set.
+    #[serde(default)]
+    pub otlp_endpoint: Option<String>,
 }
 
 struct Defaults;
@@ -170,6 +185,7 @@ mod tests {
         ProxyPortOnly,
         ProxyHostAndPort,
         ExplicitCarbideApi,
+        TracingSection,
     }
 
     #[derive(Debug, PartialEq)]
@@ -183,6 +199,8 @@ mod tests {
         service_base_paths: Vec<String>,
         carbide_api_url: String,
         bmc_proxy: Option<String>,
+        tracing_enabled: bool,
+        tracing_otlp_endpoint: Option<String>,
     }
 
     fn config_source(case: ConfigCase) -> String {
@@ -223,6 +241,13 @@ mod tests {
                 api_url = "https://api.example.com:1079"
             "#
             }
+            ConfigCase::TracingSection => {
+                r#"
+                [tracing]
+                enabled = true
+                otlp_endpoint = "http://collector.example.com:4317"
+            "#
+            }
         };
 
         format!("{extra}\n{MINIMAL_TLS}")
@@ -245,6 +270,8 @@ mod tests {
             service_base_paths: config.auth.trust.spiffe_service_base_paths,
             carbide_api_url: config.carbide_api.api_url.to_string(),
             bmc_proxy: config.bmc_proxy.map(|pair| pair.to_string()),
+            tracing_enabled: config.tracing.enabled,
+            tracing_otlp_endpoint: config.tracing.otlp_endpoint,
         }
     }
 
@@ -267,6 +294,8 @@ mod tests {
                     carbide_api_url: "https://carbide-api.forge-system.svc.cluster.local:1079/"
                         .to_string(),
                     bmc_proxy: None,
+                    tracing_enabled: false,
+                    tracing_otlp_endpoint: None,
                 },
             }
 
@@ -285,6 +314,8 @@ mod tests {
                     carbide_api_url: "https://carbide-api.forge-system.svc.cluster.local:1079/"
                         .to_string(),
                     bmc_proxy: None,
+                    tracing_enabled: false,
+                    tracing_otlp_endpoint: None,
                 },
             }
 
@@ -306,6 +337,8 @@ mod tests {
                     carbide_api_url: "https://carbide-api.forge-system.svc.cluster.local:1079/"
                         .to_string(),
                     bmc_proxy: None,
+                    tracing_enabled: false,
+                    tracing_otlp_endpoint: None,
                 },
             }
 
@@ -324,6 +357,8 @@ mod tests {
                     carbide_api_url: "https://carbide-api.forge-system.svc.cluster.local:1079/"
                         .to_string(),
                     bmc_proxy: Some("proxy.local".to_string()),
+                    tracing_enabled: false,
+                    tracing_otlp_endpoint: None,
                 },
             }
 
@@ -342,6 +377,8 @@ mod tests {
                     carbide_api_url: "https://carbide-api.forge-system.svc.cluster.local:1079/"
                         .to_string(),
                     bmc_proxy: Some("8443".to_string()),
+                    tracing_enabled: false,
+                    tracing_otlp_endpoint: None,
                 },
             }
 
@@ -360,6 +397,8 @@ mod tests {
                     carbide_api_url: "https://carbide-api.forge-system.svc.cluster.local:1079/"
                         .to_string(),
                     bmc_proxy: Some("proxy.local:8443".to_string()),
+                    tracing_enabled: false,
+                    tracing_otlp_endpoint: None,
                 },
             }
 
@@ -377,6 +416,28 @@ mod tests {
                     ],
                     carbide_api_url: "https://api.example.com:1079/".to_string(),
                     bmc_proxy: None,
+                    tracing_enabled: false,
+                    tracing_otlp_endpoint: None,
+                },
+            }
+
+            "tracing section" {
+                ConfigCase::TracingSection => ConfigSummary {
+                    listen: "[::]:1079".to_string(),
+                    metrics_endpoint: "[::]:1080".to_string(),
+                    allowed_principals: vec![],
+                    identity_pemfile_path: "/tls/cert.pem".to_string(),
+                    root_cafile_path: "/tls/ca.pem".to_string(),
+                    trust_domain: "nico.local".to_string(),
+                    service_base_paths: vec![
+                        "/forge-system/sa/".to_string(),
+                        "/default/sa/".to_string(),
+                    ],
+                    carbide_api_url: "https://carbide-api.forge-system.svc.cluster.local:1079/"
+                        .to_string(),
+                    bmc_proxy: None,
+                    tracing_enabled: true,
+                    tracing_otlp_endpoint: Some("http://collector.example.com:4317".to_string()),
                 },
             }
         );

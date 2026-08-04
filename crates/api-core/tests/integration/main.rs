@@ -40,6 +40,7 @@ mod power_shelf_delete;
 mod power_shelf_find;
 mod power_shelf_maintenance;
 mod rack_find;
+mod rack_profile;
 mod route_servers;
 mod scout_firmware_upgrade_status;
 mod static_address_management;

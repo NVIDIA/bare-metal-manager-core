@@ -20,7 +20,7 @@ import (
 // checks if the OperatingSystemUpdateRequest type satisfies the MappedNullable interface at compile time
 var _ MappedNullable = &OperatingSystemUpdateRequest{}
 
-// OperatingSystemUpdateRequest Request data to update an Operating System. For image-based OS, mutable image attributes (image authentication, root filesystem, image disk) can be updated; imageUrl and imageSha identify the underlying image and are immutable after creation. Only iPXE attributes can be updated for iPXE-based OS
+// OperatingSystemUpdateRequest Request data to update an Operating System. For image-based OS, mutable image attributes (image authentication, root filesystem, image disk) can be updated; imageUrl and imageSha identify the underlying image and are immutable after creation. Only iPXE attributes can be updated for iPXE-based OS. A Templated iPXE Operating System can only be updated when it is associated with exactly one Site.
 type OperatingSystemUpdateRequest struct {
 	// Name of the Operating System
 	Name NullableString `json:"name,omitempty"`

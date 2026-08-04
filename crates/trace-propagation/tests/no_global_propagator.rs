@@ -20,7 +20,7 @@ use opentelemetry::global;
 use tower::{Service, ServiceExt};
 use trace_propagation::{
     TraceInjectService, extract_context, inject_context, inject_current_context,
-    set_span_parent_from_headers,
+    is_propagated_header, set_span_parent_from_headers,
 };
 
 const SAMPLE_TRACEPARENT: &str = "00-1111111111111111aaaaaaaaaaaaaaaa-2222222222222222-01";
@@ -60,6 +60,18 @@ fn ingress_and_egress_are_noops_without_a_global_propagator() {
     );
 
     // ...and still no propagator, so the no-ops above genuinely ran under that condition throughout.
+    assert_no_global_propagator();
+}
+
+#[test]
+fn no_header_is_propagator_owned_without_a_global_propagator() {
+    assert_no_global_propagator();
+
+    // A process that propagates nothing owns no hop, so a proxy built on this has nothing to strip
+    // and forwards trace headers as the opaque payload they are to it.
+    assert!(!is_propagated_header("traceparent"));
+    assert!(!is_propagated_header("tracestate"));
+
     assert_no_global_propagator();
 }
 

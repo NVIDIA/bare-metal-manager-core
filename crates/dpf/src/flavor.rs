@@ -1213,7 +1213,7 @@ fn get_bf4_astra_nvconfig() -> DpuFlavorNvconfig {
     let parameters = vec![
         "PF_BAR2_ENABLE=0".to_string(),
         "PER_PF_NUM_SF=1".to_string(),
-        "PF_TOTAL_SF=20".to_string(),
+        "PF_TOTAL_SF=30".to_string(),
         "PF_SF_BAR_SIZE=14".to_string(),
         "NUM_PF_MSIX_VALID=0".to_string(),
         "PF_NUM_PF_MSIX_VALID=1".to_string(),
@@ -1578,11 +1578,11 @@ mod tests {
                 ) => true,
             }
 
-            "Astra nvconfig requests 20 total SFs and 46 VFs" {
+            "Astra nvconfig requests 30 total SFs and 46 VFs" {
                 (
                     nvconfig_parameters
                         .iter()
-                        .any(|parameter| parameter == "PF_TOTAL_SF=20")
+                        .any(|parameter| parameter == "PF_TOTAL_SF=30")
                         && nvconfig_parameters
                             .iter()
                             .any(|parameter| parameter == "NUM_OF_VFS=46")

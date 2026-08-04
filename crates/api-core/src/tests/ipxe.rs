@@ -22,12 +22,15 @@ use chrono::Utc;
 use common::api_fixtures::{
     TestEnv, TestEnvOverrides, create_test_env, create_test_env_with_overrides, get_config,
 };
+use config_version::ConfigVersion;
 use db::{self};
 use futures_util::FutureExt;
 use mac_address::MacAddress;
 use model::machine::{
     CleanupContext, DpuInitState, HostReprovisionState, MachineState, ManagedHostState,
+    ReadyBootConfigState, SetBootOrderInfo, SetBootOrderState,
 };
+use model::machine_boot_interface::MachineBootInterfaceTarget;
 use model::test_support::ManagedHostConfig;
 use rpc::forge::CloudInitInstructionsRequest;
 use rpc::forge::forge_server::Forge;
@@ -326,6 +329,35 @@ async fn test_pxe_host(pool: sqlx::PgPool) {
         &ManagedHostState::HostInit {
             machine_state: MachineState::Discovered {
                 skip_reboot_wait: false,
+            },
+        },
+        &env.pool,
+    )
+    .await;
+
+    let instructions = get_pxe_instructions(
+        &env,
+        host_interface_id,
+        rpc::forge::MachineArchitecture::X86,
+        None,
+    )
+    .await;
+    assert!(instructions.pxe_script.contains("x86_64/scout.efi"));
+
+    move_machine_to_needed_state(
+        host_id,
+        &ManagedHostState::BootConfiguring {
+            desired_version: ConfigVersion::new(7),
+            desired_boot_interface: MachineBootInterfaceTarget::MacOnly(
+                "02:00:00:00:00:01".parse().unwrap(),
+            ),
+            post_lock_verification_retry_count: 0,
+            boot_config_state: ReadyBootConfigState::SetBootOrder {
+                set_boot_order_info: SetBootOrderInfo {
+                    set_boot_order_jid: None,
+                    set_boot_order_state: SetBootOrderState::SetBootOrder,
+                    retry_count: 0,
+                },
             },
         },
         &env.pool,

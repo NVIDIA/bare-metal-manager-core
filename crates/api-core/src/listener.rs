@@ -38,6 +38,7 @@ use tower_http::add_extension::AddExtensionLayer;
 use tower_http::auth::AsyncRequireAuthorizationLayer;
 use tower_http::normalize_path::NormalizePath;
 
+use crate::admission::{ApiAdmissionControl, enforce as enforce_admission};
 use crate::api::Api;
 use crate::auth;
 use crate::auth::Authorization;
@@ -358,7 +359,7 @@ pub async fn start(
     let router = axum::Router::new()
         .route("/", axum::routing::get(root_url))
         .route_service(
-            "/forge.Forge/{*rpc}",
+            ::rpc::service_path!("{*rpc}"),
             rpc::forge_server::ForgeServer::from_arc(api_service.clone()),
         )
         .route_service(
@@ -376,6 +377,19 @@ pub async fn start(
         }
         None => router,
     };
+
+    let admission_config = &api_service.runtime_config.api_admission_control;
+    let router =
+        match ApiAdmissionControl::from_config(admission_config, &meter, cancel_token.clone())? {
+            Some(control) => router.layer(axum::middleware::from_fn_with_state(
+                control,
+                enforce_admission,
+            )),
+            None => {
+                tracing::info!("API admission control disabled");
+                router
+            }
+        };
 
     let app = tower::ServiceBuilder::new()
         .layer(LogLayer::new(meter.clone()))

@@ -35,6 +35,8 @@ use sqlx::{
 
 use crate::DbPrimaryUuid;
 
+static SWITCH_ID_PREFIX: &str = "sw100";
+
 /// This is a fixed-size hash of the switch hardware.
 pub type HardwareHash = [u8; 32];
 /// This is the base32-encoded representation of the hardware hash. It is a fixed size instead of a
@@ -202,6 +204,10 @@ impl SwitchId {
             SwitchType::NvLink,
         )
     }
+
+    pub(crate) fn is_matching_prefix(s: &str) -> bool {
+        s.starts_with(SWITCH_ID_PREFIX)
+    }
 }
 
 impl DbPrimaryUuid for SwitchId {
@@ -286,7 +292,7 @@ impl std::fmt::Display for SwitchId {
         // `sw` is for switch
         // `1` is a version identifier
         // The next 2 bytes `00` are reserved
-        f.write_str("sw100")?;
+        f.write_str(SWITCH_ID_PREFIX)?;
         // Write the switch type
         f.write_char(self.ty.id_char())?;
         // The next character determines how the SwitchId is derived (`SwitchIdSource`)
@@ -344,7 +350,7 @@ impl FromStr for SwitchId {
             return Err(SwitchIdParseError::Length(s.len()));
         }
         // Check for version 1 and 2 reserved bytes
-        if !s.starts_with("sw100") {
+        if !s.starts_with(SWITCH_ID_PREFIX) {
             return Err(SwitchIdParseError::Prefix(s.to_string()));
         }
 

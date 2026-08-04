@@ -267,6 +267,59 @@ nico-api:
 
 Adjust pool ranges to match your site's address plan. A fully annotated example with all available options is at [`deploy/files/nico-api/nico-api-site-config.toml`](../deploy/files/nico-api/nico-api-site-config.toml).
 
+### Admin client certificates
+
+To authenticate admin clients whose certificates are issued by an external PKI,
+provide the public CA certificate (or rotation bundle) and configure the client
+leaf certificate's Issuer DN CN as an external user issuer:
+
+```yaml
+nico-api:
+  auth:
+    additionalIssuerCns:
+      - "admin-user-intermediate"
+  siteConfig:
+    enabled: true
+    adminRootCertPem: |
+      -----BEGIN CERTIFICATE-----
+      <PEM-encoded public CA certificate>
+      -----END CERTIFICATE-----
+```
+
+`adminRootCertPem` is materialized as `admin_root_cert_pem` in the site
+ConfigMap, which is mounted at
+`/etc/forge/carbide-api/site/admin_root_cert_pem` and
+`/etc/nico/nico-api/site/admin_root_cert_pem`. The default
+`nico-api.auth.adminRootCafilePath` already selects the first path. If you
+override it, select one of these two mounted paths.
+
+The value may contain root or intermediate CA certificates, but never private
+keys. Helm performs an envelope-only check: the value must consist solely of
+bare `BEGIN/END CERTIFICATE` blocks separated by whitespace. Strip OpenSSL
+`subject=`/`issuer=` lines, comments, and other PEM object types before setting
+the value. Helm cannot validate X.509 DER, CA constraints, validity, or chain
+placement; verify those properties with X.509 tooling before deployment.
+
+Adding a CA to this bundle expands the TLS client trust store. Every presented
+client certificate successfully validated against it is also recorded as a
+`TrustedCertificate` and therefore passes the chart's default Casbin `forge/*`
+rule. With internal RBAC enabled (the default), that Casbin decision alone does
+not grant admin CLI access: the internal `ForgeAdminCLI` principal is
+represented as an `ExternalUser`, and methods granting that principal access
+require this mapping.
+
+`additionalIssuerCns` is a CN-only classifier applied to presented peer
+certificates across the combined TLS trust store; it is not cryptographically
+bound to a particular certificate in `adminRootCertPem`. Configure only the
+globally unique Subject CN of the dedicated intermediate that issues the client
+leaf certificates, never a shared or root CA CN. The current classifier expects
+the issuer CN to be encoded as an ASN.1 `PrintableString`.
+
+Do not set `bypass_rbac = true` in production: it removes the internal RBAC
+gate, leaving the Casbin decision as the effective authorization result. Trust
+only a dedicated admin-client intermediate and issuance profile whose entire
+issuance population is intended to cross this admin trust boundary.
+
 ---
 
 ## 7. Network Requirements

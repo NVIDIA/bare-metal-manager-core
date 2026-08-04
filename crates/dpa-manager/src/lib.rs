@@ -147,13 +147,14 @@ impl DpaMonitor {
             .await;
         check_dpa_span.record("metrics", metrics.to_string());
         check_dpa_span.in_scope(|| {
-            carbide_instrument::emit(DpaMonitorIterationFinished {
-                latency: metrics.recording_started_at.elapsed(),
-                error: result
-                    .as_ref()
-                    .err()
-                    .map(ToString::to_string)
-                    .unwrap_or_default(),
+            carbide_instrument::emit(match result.as_ref().err() {
+                None => DpaMonitorIterationFinished::Succeeded {
+                    latency: metrics.recording_started_at.elapsed(),
+                },
+                Some(error) => DpaMonitorIterationFinished::Failed {
+                    latency: metrics.recording_started_at.elapsed(),
+                    error: error.to_string(),
+                },
             });
         });
         self.metric_holder.update_metrics(metrics);

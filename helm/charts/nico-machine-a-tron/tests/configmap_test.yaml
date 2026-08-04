@@ -8,7 +8,7 @@ tests:
           of: ConfigMap
       - equal:
           path: metadata.name
-          value: nico-machine-a-tron-config-files
+          value: nico-machine-a-tron-mat-0-config-files
       - matchRegex:
           path: data["mat.toml"]
           pattern: "host_count = 10"
@@ -19,7 +19,7 @@ tests:
   - it: should configure custom host count via pods structure
     set:
       pods:
-        default:
+        mat-0:
           machines:
             dell-hosts:
               hwType: dell_poweredge_r750
@@ -40,7 +40,7 @@ tests:
     set:
       configFiles:
         matConfigs:
-          default: |
+          mat-0: |
             carbide_api_url = "https://custom-api:443"
             [machines.custom]
             host_count = 5
@@ -51,17 +51,13 @@ tests:
 
   - it: should create per-pod configmaps in multi-pod mode
     set:
-      bmcServices:
-        enabled: true
       pods:
         mat-0:
-          cidr: "10.100.0.0/22"
           machines:
             compute:
               hwType: supermicro_gb300_nvl
               hostCount: 10
         mat-1:
-          cidr: "10.100.4.0/22"
           machines:
             compute:
               hwType: supermicro_gb300_nvl
@@ -76,7 +72,7 @@ tests:
         runIntervalIdle: "30s"
         scoutRunInterval: "120s"
       pods:
-        default:
+        mat-0:
           machines:
             compute:
               hwType: supermicro_gb300_nvl

@@ -42,7 +42,7 @@ use super::StateSla;
 use super::instance::snapshot::InstanceSnapshot;
 use super::instance::status::extension_service::InstanceExtensionServiceStatusObservation;
 use super::instance::status::network::InstanceNetworkStatusObservation;
-use super::machine_boot_interface::MachineBootInterface;
+use super::machine_boot_interface::{MachineBootInterface, MachineBootInterfaceTarget};
 use super::metadata::Metadata;
 use crate::controller_outcome::PersistentStateHandlerOutcome;
 use crate::dpa_interface::DpaInterface;
@@ -120,7 +120,14 @@ fn default_true() -> bool {
 }
 
 // This should be updated on each new model introduction
-pub const CURRENT_STATE_MODEL_VERSION: i16 = 2;
+pub const CURRENT_STATE_MODEL_VERSION: i16 = 3;
+
+fn pending_boot_interface_config_version(
+    desired_version: Option<ConfigVersion>,
+    verified_version: Option<ConfigVersion>,
+) -> Option<ConfigVersion> {
+    desired_version.filter(|desired_version| Some(*desired_version) != verified_version)
+}
 
 /// Represents the current state of `Machine`
 #[derive(Debug, Clone)]
@@ -228,6 +235,8 @@ pub enum NotAllocatableReason {
         "the machine has a pending instance creation request, that has not yet been processed by the state handler"
     )]
     PendingInstanceCreation,
+    #[error("the machine has a pending boot configuration")]
+    PendingBootConfiguration,
     #[error("there are no dpu_snapshots, but associated_dpu_machine_ids is non-empty")]
     NoDpuSnapshots,
     #[error("the machine is in maintenance mode")]
@@ -259,7 +268,7 @@ impl From<ManagedHostStateSnapshotError> for sqlx::Error {
 ///
 /// Ordering:
 /// 1. Any interface with `primary_interface == true` wins. This is the
-///    path operators can drive explicitly via `ExpectedHostNic.primary`,
+///    path operators can drive explicitly via `ExpectedInterface.primary`,
 ///    in the case of zero DPU hosts, and is also how hosts with DPU(s)
 ///    end up with a boot MAC automatically during site-explorer ingestion.
 /// 2. If there's no primary interface, the interface outside the management
@@ -320,7 +329,7 @@ fn pick_boot_interface_pair(
 /// `pick_boot_interface`'s precedence, one step down -- predictions, not rows:
 ///
 /// 1. A prediction flagged `primary_interface` wins -- the declared
-///    `ExpectedHostNic.primary`, recorded onto the prediction at minting.
+///    `ExpectedInterface.primary`, recorded onto the prediction at minting.
 /// 2. Otherwise the sole non-underlay prediction. With several and none
 ///    declared primary the boot NIC is unknowable (e.g. a host whose report
 ///    lists SuperNICs alongside the boot NIC), so this returns `None` rather
@@ -462,6 +471,7 @@ impl ManagedHostStateSnapshot {
     /// - the Machine has not yet been target of an instance creation request
     /// - no health alerts which classification `PreventAllocations` to be set
     /// - the machine not to be in Maintenance Mode
+    /// - the desired boot-interface generation to have a matching observation
     pub fn is_usable_as_instance(&self, allow_unhealthy: bool) -> Result<(), NotAllocatableReason> {
         // TODO: allow other states than Ready when allow_unhealthy=true. Will require changes to state machine (see Matthias).
         if !matches!(self.managed_state, ManagedHostState::Ready) {
@@ -475,6 +485,18 @@ impl ManagedHostStateSnapshot {
         // To avoid that race condition, need to check if db has any entry with given machine id.
         if self.instance.is_some() {
             return Err(NotAllocatableReason::PendingInstanceCreation);
+        }
+
+        // A desired boot-interface update and instance allocation can race
+        // before machine-controller has persisted BootConfiguring. Keep the
+        // host unavailable as soon as the desired version lacks a matching
+        // convergence status.
+        if self
+            .host_snapshot
+            .pending_boot_interface_config_version()
+            .is_some()
+        {
+            return Err(NotAllocatableReason::PendingBootConfiguration);
         }
 
         if self.dpu_snapshots.is_empty()
@@ -811,12 +833,21 @@ pub struct Machine {
     /// [`ManagedHostState::Maintenance`] to execute the requested operation.
     pub machine_maintenance_requested: Option<MachineMaintenanceRequest>,
 
-    /// Operator "force-converge this BMC now" request (REQ-2). Set on the machine
+    /// Operator "force-converge this BMC now" request. Set on the machine
     /// that owns the BMC (a host machine for its host BMC, a DPU machine for its
     /// DPU BMC). When `true`, the machine state controller enters `RotatingBmc`
     /// and force-converges this machine's single BMC on its next sweep,
     /// bypassing the passive site-wide gate and the device's backoff quarantine.
     pub bmc_credential_rotation_requested: bool,
+
+    /// Operator "force-converge this UEFI credential now" request.
+    /// Set on the machine that owns the UEFI credential (a host machine for its
+    /// host UEFI; a DPU machine for its DPU UEFI). When
+    /// `true`, the machine state controller enters `RotatingHostUefi` (or
+    /// `RotatingDpuUefi` for a DPU) and force-converges this machine's UEFI
+    /// credential on its next sweep,
+    /// bypassing the passive site-wide gate and the device's backoff quarantine.
+    pub uefi_credential_rotation_requested: bool,
 
     /// Does the forge-dpu-agent on this DPU need upgrading?
     pub dpu_agent_upgrade_requested: Option<UpgradeDecision>,
@@ -921,6 +952,15 @@ impl Machine {
         }
     }
 
+    /// Whether this machine's BMC must have its lockdown disabled before its
+    /// UEFI (BIOS setup) password can be changed, and re-enabled afterward.
+    /// Only Dell BMCs enforce a lockdown that blocks the BIOS password change;
+    /// other vendors accept it without unlocking. Centralizes the vendor check
+    /// so the UEFI setup and rotation flows don't special-case Dell inline.
+    pub fn needs_bmc_unlock_for_uefi_setup(&self) -> bool {
+        self.bmc_vendor().is_dell()
+    }
+
     /// Does the forge-dpu-agent on this DPU need upgrading?
     pub fn needs_agent_upgrade(&self) -> bool {
         self.dpu_agent_upgrade_requested
@@ -937,6 +977,25 @@ impl Machine {
     /// Return the current version of state of the machine.
     pub fn current_version(&self) -> ConfigVersion {
         self.state.version
+    }
+
+    /// Returns the desired boot-interface version whose persisted convergence
+    /// status is not current, if any.
+    ///
+    /// Comparing versions keeps the Ready-state decision DB-only. Redfish is
+    /// queried only after the controller has persisted
+    /// [`ManagedHostState::BootConfiguring`].
+    pub fn pending_boot_interface_config_version(&self) -> Option<ConfigVersion> {
+        pending_boot_interface_config_version(
+            self.config
+                .desired_boot_interface
+                .as_ref()
+                .map(|desired| desired.version),
+            self.status
+                .boot_interface_status_observation
+                .as_ref()
+                .map(|observation| observation.config_version),
+        )
     }
 
     /// Latest health report received from forge-dpu-agent.
@@ -1166,6 +1225,23 @@ pub enum ManagedHostState {
     /// Host is Ready for instance creation.
     Ready,
 
+    /// An unassigned Ready host is converging its Redfish boot configuration
+    /// to the desired boot interface persisted on the machine.
+    ///
+    /// The desired target and version are captured when the repair starts.
+    /// The controller checks that version before issuing new Redfish writes,
+    /// uses the captured target while work is in flight, and records it
+    /// verified only when the version is still current after final observation.
+    BootConfiguring {
+        desired_version: ConfigVersion,
+        desired_boot_interface: MachineBootInterfaceTarget,
+        /// Number of complete reconciliation passes retried because the final
+        /// Redfish observation drifted after lockdown was restored.
+        #[serde(default)]
+        post_lock_verification_retry_count: u32,
+        boot_config_state: ReadyBootConfigState,
+    },
+
     /// Host is executing an operator-requested maintenance operation.
     Maintenance {
         operation: MachineMaintenanceOperation,
@@ -1212,7 +1288,7 @@ pub enum ManagedHostState {
     },
 
     /// The host and/or its DPUs are converging their BMC root credential to the
-    /// staged site-wide rotation target (REQ-2). A pool-only, top-level state:
+    /// staged site-wide rotation target. A pool-only, top-level state:
     /// it blocks instance creation (which requires exact `Ready`) for the bounded
     /// duration of the rotation. Per-device backoff/quarantine is owned by the
     /// rotation engine's `device_credential_rotation` bookkeeping, so this state
@@ -1220,6 +1296,48 @@ pub enum ManagedHostState {
     RotatingBmc {
         #[serde(default)]
         retry_count: u32,
+    },
+
+    /// The host is converging its own UEFI (BIOS setup) password to the staged
+    /// site-wide rotation target. A pool-only, top-level state: it
+    /// blocks instance creation (which requires exact `Ready`) for the bounded
+    /// duration of the rotation. Unlike `RotatingBmc`, applying a new UEFI
+    /// password requires a BIOS config job plus a full host power-cycle, so this
+    /// state carries the multi-tick [`UefiSetupInfo`] sub-state (job id + step).
+    /// Unlike the single-tick `RotatingBmc`, there is no separate handler retry
+    /// budget: transient failures use the state framework's built-in retry (as
+    /// the ingestion UEFI-setup FSM does) and device-level faults are backed off
+    /// by the rotation engine's `device_credential_rotation` bookkeeping.
+    ///
+    /// This state is host-specific on purpose: a DPU's UEFI password is a
+    /// distinct device (keyed by the DPU BMC MAC), applied through a DPU restart
+    /// rather than a host power-cycle, and a host can carry several DPUs. That
+    /// gets its own sibling `RotatingDpuUefi` state rather than an overloaded
+    /// discriminator here.
+    RotatingHostUefi {
+        uefi_setup_info: UefiSetupInfo,
+    },
+
+    /// One of the host's DPUs is converging its own UEFI (BIOS setup) password
+    /// to the staged site-wide `dpu_uefi` rotation target. A
+    /// pool-only, top-level state (same instance-creation block as
+    /// `RotatingHostUefi`), but keyed to a single DPU: applying a DPU UEFI
+    /// password stages a `Bios/Settings` change and commits it with a DPU
+    /// restart (distinct from a host power-cycle), so the reboot is scoped to
+    /// that DPU. Because a host can carry several DPUs, this state names the
+    /// `dpu_machine_id` it is converging and processes one DPU per
+    /// `Ready -> RotatingDpuUefi -> Ready` cycle; the Ready entry guard
+    /// re-selects the next lagging or force-requested DPU on a later sweep.
+    ///
+    /// Unlike the host's multi-tick `RotatingHostUefi`, a DPU UEFI change is
+    /// applied in a single tick -- stage the `Bios/Settings` change, issue the
+    /// DPU restart that commits it, then record convergence -- so this state
+    /// carries no [`UefiSetupInfo`] sub-state: it names only the DPU it targets
+    /// and re-runs idempotently if the controller restarts mid-tick. Per-device
+    /// backoff/quarantine is the rotation engine's `device_credential_rotation`
+    /// bookkeeping keyed by that DPU's BMC MAC.
+    RotatingDpuUefi {
+        dpu_machine_id: MachineId,
     },
 
     /// State used to indicate the API is currently waiting on the
@@ -1309,6 +1427,74 @@ pub enum MachineValidatingState {
         validation_id: MachineValidationId,
     },
 }
+
+/// `ReadyBootConfigTerminalFailure` defers a terminal condition until Ready
+/// boot convergence restores lockdown.
+#[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq)]
+#[serde(tag = "kind", rename_all = "lowercase")]
+pub enum ReadyBootConfigTerminalFailure {
+    /// The boot-config convergence flow could not complete automatically.
+    Convergence { failure: String },
+    /// An independent host or DPU failure appeared while lockdown was open.
+    /// Preserve its original attribution while routing through LockHost.
+    Machine {
+        machine_id: MachineId,
+        details: FailureDetails,
+    },
+}
+
+/// `ReadyBootConfigState` persists progress while an unassigned Ready host
+/// converges its desired Redfish boot configuration.
+///
+/// BIOS and boot-order job details reuse the same model types as HostInit,
+/// assigned platform configuration, and validation so controller restarts
+/// retain vendor job IDs, recovery substates, and retry budgets.
+#[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq)]
+#[serde(tag = "state", rename_all = "lowercase")]
+pub enum ReadyBootConfigState {
+    /// Observe the target, then inspect lockdown only when a repair may write.
+    Prepare,
+    /// Disable lockdown, including any vendor-specific reboot and wait.
+    UnlockHost {
+        #[serde(default)]
+        unlock_host_state: UnlockHostState,
+    },
+    /// Observe BIOS and boot order and select the smallest required repair.
+    CheckHostConfig,
+    /// Run `machine_setup` for the desired boot interface.
+    ConfigureBios {
+        #[serde(default)]
+        retry_count: u32,
+    },
+    /// Wait for the vendor BIOS configuration job returned by `machine_setup`.
+    WaitingForBiosJob { bios_config_info: BiosConfigInfo },
+    /// Verify that the BIOS configuration has been applied.
+    PollingBiosSetup {
+        #[serde(default)]
+        retry_count: u32,
+    },
+    /// Set, apply, and verify boot order.
+    SetBootOrder {
+        set_boot_order_info: SetBootOrderInfo,
+    },
+    /// Restore the configured lockdown policy before either conditionally
+    /// marking the desired boot-interface version verified or surfacing a
+    /// terminal convergence failure.
+    LockHost {
+        /// Failure deferred until lockdown has been restored. Absent on the
+        /// successful convergence path.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        terminal_failure: Option<ReadyBootConfigTerminalFailure>,
+    },
+    /// Automated convergence could not complete safely after lockdown was
+    /// restored. The host remains unavailable until an operator changes its
+    /// desired boot interface, starting a fresh pass from
+    /// [`ReadyBootConfigState::Prepare`], or successfully completes a
+    /// maintenance operation, which returns the host to
+    /// [`ManagedHostState::Ready`].
+    Failed { failure: String },
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq)]
 #[serde(tag = "validation_type", rename_all = "lowercase")]
 pub enum ValidationState {
@@ -1774,14 +1960,25 @@ pub enum SetSecureBootState {
     WaitCertificateUpload { task_id: String },
 }
 
-// Since order is derived, Enum members must be in initial to last state sequence.
+// Derived ordering gates states through `Init` and selects the least-advanced
+// DPU for SLA and status reporting. Host-wide power-cycle phases transition
+// every DPU together, so their relative ordering is not observed.
 #[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq, PartialOrd, Ord)]
 #[serde(tag = "dpustate", rename_all = "lowercase")]
 pub enum DpuInitState {
-    InstallDpuOs { substate: InstallDpuOsState },
-    DpfStates { state: DpfState },
+    InstallDpuOs {
+        substate: InstallDpuOsState,
+    },
+    DpfStates {
+        state: DpfState,
+    },
     Init,
-    WaitingForPlatformPowercycle { substate: PerformPowerOperation },
+    WaitingForPlatformPowercycle {
+        substate: PerformPowerOperation,
+    },
+    /// Waits for Redfish to confirm the platform is `Off` before the
+    /// idempotent power-on phase begins.
+    WaitingForPlatformPowerOff,
     WaitingForPlatformConfiguration,
     PollingBiosSetup,
     WaitingForNetworkConfig,
@@ -2335,6 +2532,23 @@ impl Display for SpdmMeasuringState {
     }
 }
 
+impl Display for ReadyBootConfigState {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let name = match self {
+            Self::Prepare => "Prepare",
+            Self::UnlockHost { .. } => "UnlockHost",
+            Self::CheckHostConfig => "CheckHostConfig",
+            Self::ConfigureBios { .. } => "ConfigureBios",
+            Self::WaitingForBiosJob { .. } => "WaitingForBiosJob",
+            Self::PollingBiosSetup { .. } => "PollingBiosSetup",
+            Self::SetBootOrder { .. } => "SetBootOrder",
+            Self::LockHost { .. } => "LockHost",
+            Self::Failed { .. } => "Failed",
+        };
+        f.write_str(name)
+    }
+}
+
 impl Display for ManagedHostState {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
@@ -2363,6 +2577,11 @@ impl Display for ManagedHostState {
                 write!(f, "HostInitializing/{machine_state}")
             }
             ManagedHostState::Ready => write!(f, "Ready"),
+            ManagedHostState::BootConfiguring {
+                boot_config_state, ..
+            } => {
+                write!(f, "BootConfiguring/{boot_config_state}")
+            }
             ManagedHostState::Maintenance { operation } => {
                 write!(f, "Maintenance({operation:?})")
             }
@@ -2402,6 +2621,12 @@ impl Display for ManagedHostState {
                 write!(f, "HostReprovisioning/{reprovision_state}")
             }
             ManagedHostState::RotatingBmc { .. } => write!(f, "RotatingBmc"),
+            ManagedHostState::RotatingHostUefi { uefi_setup_info } => {
+                write!(f, "RotatingHostUefi/{:?}", uefi_setup_info.uefi_setup_state)
+            }
+            ManagedHostState::RotatingDpuUefi { dpu_machine_id } => {
+                write!(f, "RotatingDpuUefi/{dpu_machine_id}")
+            }
             ManagedHostState::Measuring { measuring_state } => {
                 write!(f, "Measuring/{measuring_state}")
             }
@@ -2459,6 +2684,11 @@ impl ManagedHostState {
                 format!("HostInitializing/{machine_state}")
             }
             ManagedHostState::Ready => "Ready".to_string(),
+            ManagedHostState::BootConfiguring {
+                boot_config_state, ..
+            } => {
+                format!("BootConfiguring/{boot_config_state}")
+            }
             ManagedHostState::Maintenance { operation } => {
                 format!("Maintenance({operation:?})")
             }
@@ -2498,6 +2728,8 @@ impl ManagedHostState {
                 format!("HostReprovisioning/{reprovision_state}")
             }
             ManagedHostState::RotatingBmc { .. } => "RotatingBmc".to_string(),
+            ManagedHostState::RotatingHostUefi { .. } => "RotatingHostUefi".to_string(),
+            ManagedHostState::RotatingDpuUefi { .. } => "RotatingDpuUefi".to_string(),
             ManagedHostState::Measuring { measuring_state } => {
                 format!("Measuring/{measuring_state}")
             }
@@ -2662,6 +2894,13 @@ pub fn state_sla(
             _ => StateSla::with_sla(slas::HOST_INIT, time_in_state),
         },
         ManagedHostState::Ready => StateSla::no_sla(),
+        ManagedHostState::BootConfiguring {
+            boot_config_state: ReadyBootConfigState::Failed { .. },
+            ..
+        } => StateSla::with_sla(std::time::Duration::ZERO, time_in_state),
+        ManagedHostState::BootConfiguring { .. } => {
+            StateSla::with_sla(slas::BOOT_CONFIGURING, time_in_state)
+        }
         ManagedHostState::Maintenance { .. } => {
             StateSla::with_sla(slas::MAINTENANCE, time_in_state)
         }
@@ -2700,6 +2939,12 @@ pub fn state_sla(
         }
         ManagedHostState::RotatingBmc { .. } => {
             StateSla::with_sla(slas::ROTATING_BMC, time_in_state)
+        }
+        ManagedHostState::RotatingHostUefi { .. } => {
+            StateSla::with_sla(slas::ROTATING_HOST_UEFI, time_in_state)
+        }
+        ManagedHostState::RotatingDpuUefi { .. } => {
+            StateSla::with_sla(slas::ROTATING_DPU_UEFI, time_in_state)
         }
         ManagedHostState::Measuring { measuring_state } => match measuring_state {
             // The API shouldn't be waiting for measurements for long. As soon
@@ -3095,7 +3340,7 @@ mod tests {
     use std::str::FromStr;
 
     use carbide_test_support::Outcome::*;
-    use carbide_test_support::{Check, check_values, scenarios};
+    use carbide_test_support::{Check, check_values, scenarios, value_scenarios};
 
     use super::*;
     use crate::test_support::machine_snapshot::{
@@ -3132,6 +3377,151 @@ mod tests {
         firmware_version: Some("BF4-26.04"),
         reprovision_requested: false,
     };
+
+    #[test]
+    fn pending_boot_interface_version_requires_matching_verification() {
+        let desired = ConfigVersion::new(7);
+        let stale = ConfigVersion::new(6);
+
+        value_scenarios!(
+            run = |(desired_version, verified_version)| {
+                pending_boot_interface_config_version(desired_version, verified_version)
+            };
+            "no desired target needs no verification" {
+                (None, None) => None,
+            }
+            "an unobserved desired target needs verification" {
+                (Some(desired), None) => Some(desired),
+            }
+            "a stale observation needs verification" {
+                (Some(desired), Some(stale)) => Some(desired),
+            }
+            "a matching observation is converged" {
+                (Some(desired), Some(desired)) => None,
+            }
+        );
+    }
+
+    #[test]
+    fn ready_boot_config_defaults_survive_persisted_state_loading() {
+        scenarios!(
+            run = |json| serde_json::from_str::<ReadyBootConfigState>(json).map_err(drop);
+            "unlock starts by disabling lockdown" {
+                r#"{"state":"unlockhost"}"# => Yields(ReadyBootConfigState::UnlockHost {
+                    unlock_host_state: UnlockHostState::DisableLockdown,
+                }),
+            }
+
+            "BIOS setup starts with no retries" {
+                r#"{"state":"configurebios"}"# => Yields(ReadyBootConfigState::ConfigureBios {
+                    retry_count: 0,
+                }),
+            }
+
+            "BIOS verification starts with no retries" {
+                r#"{"state":"pollingbiossetup"}"# => Yields(
+                    ReadyBootConfigState::PollingBiosSetup { retry_count: 0 },
+                ),
+            }
+
+            "lockdown restoration defaults to the success path" {
+                r#"{"state":"lockhost"}"# => Yields(ReadyBootConfigState::LockHost {
+                    terminal_failure: None,
+                }),
+            }
+        );
+    }
+
+    #[test]
+    fn ready_boot_config_terminal_outcomes_round_trip() {
+        let machine_id =
+            MachineId::from_str("fm100ds7blqjsadm2uuh3qqbf1h7k8pmf47um6v9uckrg7l03po8mhqgvng")
+                .unwrap();
+        let failure_details = FailureDetails {
+            cause: FailureCause::BiosSetupFailed {
+                err: "BIOS job retries exhausted".to_string(),
+            },
+            failed_at: DateTime::<Utc>::UNIX_EPOCH,
+            source: FailureSource::StateMachine,
+        };
+
+        check_values(
+            [
+                Check {
+                    scenario: "convergence failure waits for lockdown",
+                    input: ReadyBootConfigState::LockHost {
+                        terminal_failure: Some(ReadyBootConfigTerminalFailure::Convergence {
+                            failure: "BIOS job retries exhausted".to_string(),
+                        }),
+                    },
+                    expect: true,
+                },
+                Check {
+                    scenario: "independent machine failure keeps its attribution",
+                    input: ReadyBootConfigState::LockHost {
+                        terminal_failure: Some(ReadyBootConfigTerminalFailure::Machine {
+                            machine_id,
+                            details: failure_details,
+                        }),
+                    },
+                    expect: true,
+                },
+                Check {
+                    scenario: "terminal convergence failure persists",
+                    input: ReadyBootConfigState::Failed {
+                        failure: "BIOS job retries exhausted".to_string(),
+                    },
+                    expect: true,
+                },
+            ],
+            |state| {
+                serde_json::from_str::<ReadyBootConfigState>(
+                    &serde_json::to_string(&state).unwrap(),
+                )
+                .unwrap()
+                    == state
+            },
+        );
+    }
+
+    #[test]
+    fn ready_host_with_unverified_boot_interface_is_not_allocatable() {
+        let mut snapshot = managed_host_state_snapshot();
+        let desired_version = ConfigVersion::new(7);
+        let desired_boot_interface =
+            MachineBootInterfaceTarget::MacOnly(MacAddress::new([1, 2, 3, 4, 5, 6]));
+        snapshot.host_snapshot.config.desired_boot_interface =
+            Some(Versioned::new(desired_boot_interface, desired_version));
+        snapshot
+            .host_snapshot
+            .status
+            .boot_interface_status_observation = None;
+
+        assert_eq!(
+            snapshot.is_usable_as_instance(false),
+            Err(NotAllocatableReason::PendingBootConfiguration)
+        );
+    }
+
+    #[test]
+    fn boot_configuring_state_has_stable_state_strings() {
+        let state = ManagedHostState::BootConfiguring {
+            desired_version: ConfigVersion::new(7),
+            desired_boot_interface: MachineBootInterfaceTarget::MacOnly(MacAddress::new([
+                1, 2, 3, 4, 5, 6,
+            ])),
+            post_lock_verification_retry_count: 0,
+            boot_config_state: ReadyBootConfigState::Failed {
+                failure: "payload must not enter state labels".to_string(),
+            },
+        };
+        let dpu_id =
+            MachineId::from_str("fm100ds7blqjsadm2uuh3qqbf1h7k8pmf47um6v9uckrg7l03po8mhqgvng")
+                .unwrap();
+
+        assert_eq!(state.to_string(), "BootConfiguring/Failed");
+        assert_eq!(state.dpu_state_string(&dpu_id), "BootConfiguring/Failed");
+    }
 
     #[test]
     fn machine_bmc_vendor_delegates_to_hardware_info() {
@@ -3875,6 +4265,32 @@ mod tests {
                     expect: (None, false),
                 },
                 Check {
+                    scenario: "active boot configuration uses the convergence SLA",
+                    input: stale(ManagedHostState::BootConfiguring {
+                        desired_version: ConfigVersion::initial(),
+                        desired_boot_interface: MachineBootInterfaceTarget::MacOnly(
+                            MacAddress::new([1, 2, 3, 4, 5, 6]),
+                        ),
+                        post_lock_verification_retry_count: 0,
+                        boot_config_state: ReadyBootConfigState::Prepare,
+                    }),
+                    expect: (seconds(5_400), true),
+                },
+                Check {
+                    scenario: "terminal boot configuration immediately breaches its SLA",
+                    input: stale(ManagedHostState::BootConfiguring {
+                        desired_version: ConfigVersion::initial(),
+                        desired_boot_interface: MachineBootInterfaceTarget::MacOnly(
+                            MacAddress::new([1, 2, 3, 4, 5, 6]),
+                        ),
+                        post_lock_verification_retry_count: 0,
+                        boot_config_state: ReadyBootConfigState::Failed {
+                            failure: "BIOS job retries exhausted".to_string(),
+                        },
+                    }),
+                    expect: (seconds(0), true),
+                },
+                Check {
                     scenario: "maintenance uses the maintenance SLA",
                     input: stale(ManagedHostState::Maintenance {
                         operation: MachineMaintenanceOperation::PowerOn,
@@ -4186,7 +4602,7 @@ mod tests {
     // Whichever interface is flagged `primary_interface` wins, regardless
     // of MAC ordering or segment type of the other interfaces. This covers
     // both paths that can set the flag, whether it be site-explorer w/ DPU
-    // ingestion, or operator-driven `ExpectedHostNic.primary` for zero-DPU
+    // ingestion, or operator-driven `ExpectedInterface.primary` for zero-DPU
     // hosts.
     #[test]
     fn pick_boot_interface_mac_returns_primary_interface_when_set() {

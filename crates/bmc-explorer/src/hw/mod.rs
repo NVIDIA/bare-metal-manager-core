@@ -27,6 +27,7 @@ pub mod lenovo;
 pub mod lenovo_ami;
 pub mod lenovo_gb300;
 pub mod supermicro;
+pub mod supermicro_gb300;
 pub mod vera_rubin;
 pub mod viking;
 

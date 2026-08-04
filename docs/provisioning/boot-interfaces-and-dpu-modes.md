@@ -1,4 +1,4 @@
-# Boot Interfaces and DPU Policies
+# Boot Interfaces and DPU Policies <Badge intent="info">v2.0</Badge> <Badge intent="launch" minimal>New</Badge>
 
 This guide explains how NICo decides **which interface a host boots from**, how a host's **DPUs are managed**, and how operators configure both through the Expected Machines table. It is the deep companion to [Ingesting Hosts](ingesting-hosts.md): that page covers the end-to-end ingest flow and the basic `expected_machines.json`; this page covers the per-host and per-NIC knobs (`dpu_policy`, `host_nics`), **what the defaults do when you set nothing**, and how a boot device is chosen and applied behind the scenes.
 

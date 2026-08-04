@@ -57,6 +57,7 @@ fn vpc_config(vpc: &forgerpc::Vpc) -> forgerpc::VpcConfig {
             default_nvlink_logical_partition_id: vpc.default_nvlink_logical_partition_id,
             vni: vpc.vni,
             routing_profile_type: vpc.routing_profile_type.clone(),
+            routing_profile_overrides: None,
         }
     }
 }
@@ -187,6 +188,10 @@ struct VpcDetail {
     tenant_keyset_id: String,
     network_virtualization_type: String,
     routing_profile_type: String,
+    has_routing_profile_overrides: bool,
+    routing_profile_overrides: String,
+    has_effective_routing_profile: bool,
+    effective_routing_profile: String,
     vni: String,
     metadata_detail: super::MetadataDetail,
     peerings: Vec<VpcPeeringRow>,
@@ -195,6 +200,15 @@ struct VpcDetail {
 impl From<forgerpc::Vpc> for VpcDetail {
     fn from(vpc: forgerpc::Vpc) -> Self {
         let config = vpc_config(&vpc);
+        let routing_profile_overrides = config
+            .routing_profile_overrides
+            .as_ref()
+            .and_then(|overrides| serde_json::to_string_pretty(overrides).ok());
+        let effective_routing_profile = vpc
+            .status
+            .as_ref()
+            .and_then(|status| status.effective_routing_profile.as_ref())
+            .and_then(|profile| serde_json::to_string_pretty(profile).ok());
         Self {
             network_virtualization_type: format!(
                 "{:?}",
@@ -204,6 +218,10 @@ impl From<forgerpc::Vpc> for VpcDetail {
             tenant_organization_id: config.tenant_organization_id,
             tenant_keyset_id: config.tenant_keyset_id.unwrap_or_default(),
             routing_profile_type: config.routing_profile_type.unwrap_or("None".to_string()),
+            has_routing_profile_overrides: routing_profile_overrides.is_some(),
+            routing_profile_overrides: routing_profile_overrides.unwrap_or_default(),
+            has_effective_routing_profile: effective_routing_profile.is_some(),
+            effective_routing_profile: effective_routing_profile.unwrap_or_default(),
             vni: vpc_allocated_vni(&vpc)
                 .map(|vni| vni.to_string())
                 .unwrap_or_default(),
@@ -344,3 +362,60 @@ async fn fetch_vpc_peerings(state: Arc<Api>, vpc_id_string: String) -> Vec<VpcPe
 
 impl super::Base for VpcShow {}
 impl super::Base for VpcDetail {}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn routing_profile_display_shows_raw_and_effective_values() {
+        let vpc = forgerpc::Vpc {
+            config: Some(forgerpc::VpcConfig {
+                routing_profile_overrides: Some(forgerpc::VpcRoutingProfileOverrides {
+                    leak_default_route_from_underlay: Some(false),
+                    ..Default::default()
+                }),
+                ..Default::default()
+            }),
+            status: Some(forgerpc::VpcStatus {
+                effective_routing_profile: Some(forgerpc::VpcEffectiveRoutingProfile {
+                    allowed_anycast_prefixes: vec![forgerpc::PrefixFilterPolicyEntry {
+                        prefix: "198.51.100.0/24".to_string(),
+                    }],
+                    internal: true,
+                    access_tier: 2,
+                    ..Default::default()
+                }),
+                ..Default::default()
+            }),
+            ..Default::default()
+        };
+        let detail = VpcDetail::from(vpc);
+        assert!(detail.has_routing_profile_overrides);
+        let overrides: serde_json::Value =
+            serde_json::from_str(&detail.routing_profile_overrides).unwrap();
+        assert_eq!(overrides["leak_default_route_from_underlay"], false);
+        assert!(overrides.get("internal").is_none());
+        assert!(overrides.get("access_tier").is_none());
+
+        assert!(detail.has_effective_routing_profile);
+        let effective: serde_json::Value =
+            serde_json::from_str(&detail.effective_routing_profile).unwrap();
+        assert_eq!(
+            effective["allowed_anycast_prefixes"][0]["prefix"],
+            "198.51.100.0/24"
+        );
+        assert_eq!(effective["internal"], true);
+        assert_eq!(effective["access_tier"], 2);
+    }
+
+    #[test]
+    fn routing_profile_display_tracks_absent_values() {
+        let detail = VpcDetail::from(forgerpc::Vpc::default());
+
+        assert!(!detail.has_routing_profile_overrides);
+        assert!(detail.routing_profile_overrides.is_empty());
+        assert!(!detail.has_effective_routing_profile);
+        assert!(detail.effective_routing_profile.is_empty());
+    }
+}

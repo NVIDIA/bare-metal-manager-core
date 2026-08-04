@@ -77,10 +77,10 @@ func TestOperatingSystem_ToImageAttributesProto(t *testing.T) {
 	assert.Equal(t, &rootFsLabel, got.RootfsLabel)
 }
 
-func TestOperatingSystem_ToDeletionRequestProto(t *testing.T) {
+func TestOperatingSystem_ToImageDeletionRequestProto(t *testing.T) {
 	id := uuid.New()
 	os := &OperatingSystem{ID: id}
-	got := os.ToDeletionRequestProto("org-1")
+	got := os.ToImageDeletionRequestProto("org-1")
 	require.NotNil(t, got)
 	require.NotNil(t, got.Id)
 	assert.Equal(t, id.String(), got.Id.Value)
@@ -2131,4 +2131,116 @@ func TestOperatingSystemSQLDAO_Delete(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestOperatingSystemSQLDAO_GetAll_OwnershipFilters exercises the provider-only,
+// tenant-only, and dual-role ownership filters. Cross-ownership visibility is
+// composed by API handlers rather than by the DAO.
+func TestOperatingSystemSQLDAO_GetAll_OwnershipFilters(t *testing.T) {
+	ctx := context.Background()
+	dbSession := testOperatingSystemInitDB(t)
+	defer dbSession.Close()
+	testOperatingSystemSetupSchema(t, dbSession)
+
+	ip := testOperatingSystemBuildInfrastructureProvider(t, dbSession, "testIP")
+	tenant := testOperatingSystemBuildTenant(t, dbSession, "testTenant")
+	user := testOperatingSystemBuildUser(t, dbSession, "testUser")
+	siteX := TestBuildSite(t, dbSession, ip, "siteX", user)
+	siteY := TestBuildSite(t, dbSession, ip, "siteY", user)
+	otherIP := testOperatingSystemBuildInfrastructureProvider(t, dbSession, "otherIP")
+	siteZ := TestBuildSite(t, dbSession, otherIP, "siteZ", user)
+
+	ossd := NewOperatingSystemDAO(dbSession)
+	ossaDAO := NewOperatingSystemSiteAssociationDAO(dbSession)
+	dummyUUID := uuid.New()
+
+	buildOS := func(name string, providerID, tenantID *uuid.UUID) *OperatingSystem {
+		os, err := ossd.Create(ctx, nil, OperatingSystemCreateInput{
+			Name:                        name,
+			Description:                 cutil.GetPtr("description"),
+			Org:                         "testOrg",
+			InfrastructureProviderID:    providerID,
+			TenantID:                    tenantID,
+			ControllerOperatingSystemID: &dummyUUID,
+			Version:                     cutil.GetPtr("version"),
+			OsType:                      OperatingSystemTypeIPXE,
+			ImageURL:                    cutil.GetPtr("iPXE"),
+			IpxeScript:                  cutil.GetPtr("ipxeScript"),
+			UserData:                    cutil.GetPtr("userData"),
+			AllowOverride:               true,
+			EnableBlockStorage:          true,
+			PhoneHomeEnabled:            false,
+			Status:                      OperatingSystemStatusPending,
+			CreatedBy:                   user.ID,
+		})
+		require.NoError(t, err)
+		require.NotNil(t, os)
+		return os
+	}
+
+	associate := func(osID, siteID uuid.UUID) {
+		ossa, err := ossaDAO.Create(ctx, nil, OperatingSystemSiteAssociationCreateInput{
+			OperatingSystemID: osID,
+			SiteID:            siteID,
+			Status:            OperatingSystemSiteAssociationStatusSyncing,
+			CreatedBy:         user.ID,
+		})
+		require.NoError(t, err)
+		require.NotNil(t, ossa)
+	}
+
+	// Provider-owned OSes.
+	provAtX := buildOS("prov-at-x", &ip.ID, nil)
+	associate(provAtX.ID, siteX.ID)
+	provAtY := buildOS("prov-at-y", &ip.ID, nil)
+	associate(provAtY.ID, siteY.ID)
+	buildOS("prov-no-site", &ip.ID, nil)
+	provAtZ := buildOS("other-prov-at-z", &otherIP.ID, nil)
+	associate(provAtZ.ID, siteZ.ID)
+
+	// Tenant-owned OSes.
+	buildOS("tenant-1", nil, &tenant.ID)
+	buildOS("tenant-2", nil, &tenant.ID)
+
+	tests := []struct {
+		desc          string
+		providerID    *uuid.UUID
+		tenantIDs     []uuid.UUID
+		expectedNames []string
+	}{
+		{
+			desc:          "provider-only view returns all provider OSes",
+			providerID:    &ip.ID,
+			expectedNames: []string{"prov-at-x", "prov-at-y", "prov-no-site"},
+		},
+		{
+			desc:          "tenant-only view returns only tenant OSes",
+			tenantIDs:     []uuid.UUID{tenant.ID},
+			expectedNames: []string{"tenant-1", "tenant-2"},
+		},
+		{
+			desc:          "dual-role view returns tenant and provider OSes",
+			providerID:    &ip.ID,
+			tenantIDs:     []uuid.UUID{tenant.ID},
+			expectedNames: []string{"prov-at-x", "prov-at-y", "prov-no-site", "tenant-1", "tenant-2"},
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.desc, func(t *testing.T) {
+			filter := OperatingSystemFilterInput{
+				InfrastructureProviderID: tc.providerID,
+				TenantIDs:                tc.tenantIDs,
+			}
+			page := paginator.PageInput{Limit: cutil.GetPtr(paginator.TotalLimit)}
+			got, total, err := ossd.GetAll(ctx, nil, filter, page, nil)
+			require.NoError(t, err)
+			gotNames := make([]string, len(got))
+			for i, os := range got {
+				gotNames[i] = os.Name
+			}
+			assert.ElementsMatch(t, tc.expectedNames, gotNames)
+			assert.Equal(t, len(tc.expectedNames), total)
+		})
+	}
+
 }

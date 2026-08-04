@@ -29,6 +29,7 @@ use state_controller::state_handler::{
 use crate::context::PowerShelfStateHandlerContextObjects;
 use crate::maintenance::build_power_shelf_endpoint;
 use crate::reprovisioning::first_reprovisioning_state;
+use crate::rotating_bmc::should_enter_bmc_rotation;
 
 /// Handles the Ready state for a power shelf.
 ///
@@ -126,6 +127,16 @@ pub async fn handle_ready(
             PowerShelfControllerState::ReProvisioning {
                 reprovisioning_state,
             },
+        ));
+    }
+
+    // Lowest precedence: only converge the PMC credential once the power shelf is
+    // otherwise idle in Ready, so rotation never contends with maintenance or
+    // reprovisioning. The site-flag gate and the operator force-converge override
+    // live in `should_enter_bmc_rotation`.
+    if should_enter_bmc_rotation(ctx.services, state).await? {
+        return Ok(StateHandlerOutcome::transition(
+            PowerShelfControllerState::RotatingBmc { retry_count: 0 },
         ));
     }
 

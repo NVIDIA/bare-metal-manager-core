@@ -45,7 +45,11 @@ func (r ApiReprovisionMachineDpuRequest) Execute() (*MessageResponse, *http.Resp
 /*
 ReprovisionMachineDpu Reprovision Machine DPUs
 
-Trigger DPU reprovisioning for a Machine. It may be necessary to create a `HostUpdateInProgress` health report for the Machine before DPU reprovisioning can be triggered.
+Trigger DPU reprovisioning for a Machine. Before calling this operation,
+create a Machine health report containing an alert whose ID is
+`HostUpdateInProgress` and whose classifications include
+`PreventAllocations`. When an Instance is attached to the Machine,
+`acknowledgeAttachedInstance` must be `true`.
 
 For Infrastructure Providers: Org must have an Infrastructure Provider entity and own the Site that the Machine belongs to. User must have authorization role with `PROVIDER_ADMIN` suffix.
 

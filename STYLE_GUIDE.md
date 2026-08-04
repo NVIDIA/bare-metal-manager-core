@@ -342,6 +342,14 @@ your interface `async` just so you can use the tokio Mutex. That way callers can
 async themselves. Async work should generally be traceable to some I/O or timer that needs to be used, otherwise
 code should typically be synchronous.
 
+## Database migrations
+
+Name new Core database migration files with a fully populated 14-digit timestamp:
+`YYYYMMDDhhmmss_description.sql`. Use the actual hour, minute, and second values instead of a
+trailing `0000` minute-and-second placeholder so independently authored migrations are less likely
+to collide. Existing migration filenames remain unchanged, and migrations already on `main` are
+immutable.
+
 ## Database transactions
 
 Transactions should be used to group write operations together such that they can be rolled back on failure. But do

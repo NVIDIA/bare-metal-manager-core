@@ -142,23 +142,9 @@ pub async fn create_initial_networks(
             return Ok(());
         }
     };
-    reconcile_network_defs(&mut txn, networks).await?;
+    let to_create = reconcile_network_defs(&mut txn, networks).await?;
 
-    for (name, def) in networks {
-        if db::network_segment::find_by_name(&mut txn, name)
-            .await
-            .is_ok()
-        {
-            // Network segments are only created the first time we start carbide-api;
-            // `reconcile_network_defs` above has already recorded the snapshot if
-            // it was missing (the backfill path).
-            tracing::debug!(
-                network_segment_name = %name,
-                "Network segment exists",
-            );
-            continue;
-        }
-
+    for (name, def) in &to_create {
         let mut ns = NewNetworkSegment::build_from(name, domain_id, def)?;
         ns.can_stretch = Some(true);
         ns.vpc_id = if let Some(vpc_name) = &def.vpc_name {
@@ -209,11 +195,31 @@ pub async fn create_initial_networks(
     Ok(())
 }
 
+pub(crate) fn validate_initial_vpcs(
+    vpcs: &HashMap<String, VpcDefinition>,
+) -> Result<(), model::ConfigValidationError> {
+    for (name, definition) in vpcs {
+        // Inline overrides are supported only by runtime VPC creation requests.
+        if definition.routing_profile_overrides.is_some() {
+            return Err(
+                model::ConfigValidationError::InitialVpcRoutingProfileOverridesUnsupported {
+                    name: name.clone(),
+                },
+            );
+        }
+    }
+    Ok(())
+}
+
 pub async fn create_initial_vpcs(
     db_pool: &Pool<Postgres>,
     vpcs: &HashMap<String, VpcDefinition>,
     vni_pool: &ResourcePool<i32>,
 ) -> Result<(), CarbideError> {
+    // Retain validation at the mutation boundary as defense in depth. Startup
+    // also validates during SeedData resolution, before any reconciliation.
+    validate_initial_vpcs(vpcs).map_err(CarbideError::InvalidConfiguration)?;
+
     let mut txn = Transaction::begin(db_pool).await?;
     for (name, def) in vpcs {
         if db::vpc::find_by_name(&mut txn, name)
@@ -262,11 +268,12 @@ pub async fn create_initial_vpcs(
             },
             network_security_group_id: None,
             routing_profile_type: def.routing_profile_type.clone(),
+            routing_profile_overrides: def.routing_profile_overrides.clone(),
             vni: Some(vni),
         };
 
         // Validation
-        if def.routing_profile_type.is_some() {
+        if def.routing_profile_type.is_some() || def.routing_profile_overrides.is_some() {
             def.network_virtualization_type
                 .ensure_supports_routing_profiles()
                 .map_err(CarbideError::from)?;
@@ -553,6 +560,7 @@ pub(crate) async fn create_admin_vpc(
         // For consistency, but admin routing profile is defined in-line in the
         // FNN config.
         routing_profile_type: None, // It's purely informational.  Admin profile is pulled from an inline-config and not tied to a name or ID.
+        routing_profile_overrides: None,
         network_security_group_id: None,
         network_virtualization_type: carbide_network::virtualization::VpcVirtualizationType::Fnn,
         metadata: Metadata {

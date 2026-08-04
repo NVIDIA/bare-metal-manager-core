@@ -212,7 +212,7 @@ async fn test_site_explorer_reconcile_is_idempotent(
     Ok(())
 }
 
-/// Site-explorer's reconciliation pass must materialize `ExpectedHostNic.fixed_ip`
+/// Site-explorer's reconciliation pass must materialize `ExpectedInterface.fixed_ip`
 /// reservations too, not just BMC IPs.
 #[sqlx_test]
 async fn test_site_explorer_reconcile_preallocates_host_nic_fixed_ip(
@@ -224,7 +224,7 @@ async fn test_site_explorer_reconcile_preallocates_host_nic_fixed_ip(
     let nic_mac: MacAddress = "AA:BB:CC:DD:E1:02".parse().unwrap();
     let fixed_ip = "10.99.0.20";
     let parsed_fixed_ip: IpAddr = fixed_ip.parse().unwrap();
-    let expected_interface = model::expected_machine::ExpectedHostNic {
+    let expected_interface = model::expected_machine::ExpectedInterface {
         mac_address: nic_mac,
         nic_type: Some("onboard".into()),
         fixed_ip: Some(parsed_fixed_ip),
@@ -239,7 +239,7 @@ async fn test_site_explorer_reconcile_preallocates_host_nic_fixed_ip(
             bmc_mac_address: bmc_mac,
             data: ExpectedMachineData {
                 serial_number: "reconcile-hostnic-001".to_string(),
-                host_nics: vec![expected_interface],
+                interfaces: vec![expected_interface],
                 ..Default::default()
             },
         },
@@ -248,7 +248,7 @@ async fn test_site_explorer_reconcile_preallocates_host_nic_fixed_ip(
     txn.commit().await?;
 
     // Drive the production reconciliation entry point so this covers loading
-    // `ExpectedMachineData.host_nics` as well as applying its policy.
+    // `ExpectedMachineData.interfaces` as well as applying its policy.
     let explorer = super::env::test_site_explorer(
         &test_harness,
         SiteExplorerConfig {

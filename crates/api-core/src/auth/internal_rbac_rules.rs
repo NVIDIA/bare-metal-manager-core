@@ -320,6 +320,7 @@ impl InternalRBACRules {
         x.perm("RotateCredential", vec![ForgeAdminCLI]);
         x.perm("GetCredentialRotationStatus", vec![ForgeAdminCLI]);
         x.perm("TriggerBmcCredentialRotation", vec![ForgeAdminCLI]);
+        x.perm("TriggerUefiCredentialRotation", vec![ForgeAdminCLI]);
         x.perm("GetRouteServers", vec![ForgeAdminCLI]);
         x.perm("AddRouteServers", vec![ForgeAdminCLI]);
         x.perm("RemoveRouteServers", vec![ForgeAdminCLI]);
@@ -328,6 +329,7 @@ impl InternalRBACRules {
         x.perm("UpdateInstancePhoneHomeLastContact", vec![Agent]);
         x.perm("SetHostUefiPassword", vec![ForgeAdminCLI]);
         x.perm("ClearHostUefiPassword", vec![ForgeAdminCLI]);
+        x.perm("SetDpuUefiPassword", vec![ForgeAdminCLI]);
         x.perm(
             "AddExpectedMachine",
             vec![ForgeAdminCLI, SiteAgent, Flow, Machineatron],
@@ -833,6 +835,7 @@ impl InternalRBACRules {
         x.perm("GetRack", vec![ForgeAdminCLI, Flow]);
         x.perm("DeleteRack", vec![ForgeAdminCLI, Flow]);
         x.perm("GetRackProfile", vec![ForgeAdminCLI]);
+        x.perm("ListRackProfiles", vec![ForgeAdminCLI]);
         x.perm("RackManagerCall", vec![ForgeAdminCLI]);
         x.perm("ScoutStream", vec![Scout]);
         x.perm("ScoutStreamShowConnections", vec![ForgeAdminCLI]);
@@ -968,9 +971,19 @@ impl RuleInfo {
                 .iter()
                 .flat_map(|x| match *x {
                     RulePrincipal::ForgeAdminCLI => {
+                        // The group is NOT compared: `is_proper_subset_of`
+                        // matches any ExternalUser against any ExternalUser,
+                        // so this value is documentation-only. What actually
+                        // gates admin-CLI access is the client cert mapping to
+                        // an ExternalUser at all (issuer CN listed in
+                        // `auth.additional_issuer_cns`). Keep the value in
+                        // sync with the helm-prereqs `nicoCliClientRole` OU so
+                        // audit logs read sensibly; its previous placeholder
+                        // ("Invalid") leaked into chart defaults as if it were
+                        // load-bearing (issue #3662).
                         vec![Principal::ExternalUser(ExternalUserInfo::new(
                             None,
-                            "Invalid".to_string(),
+                            "nico-cli-client".to_string(),
                             None,
                         ))]
                     }

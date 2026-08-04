@@ -70,9 +70,6 @@ async fn main() -> Result<(), Error> {
         return Ok(());
     }
 
-    let debug = args.debug;
-    setup_logging(debug)?;
-
     let config = tokio::fs::read_to_string(&args.config_path)
         .await
         .map_err(|e| {
@@ -82,6 +79,8 @@ async fn main() -> Result<(), Error> {
             ))
         })
         .and_then(|s| Config::parse(&s))?;
+
+    let tracing_guard = setup_logging(args.debug, &config.tracing)?;
 
     let mut join_set = JoinSet::new();
     let cancel_token = CancellationToken::new();
@@ -117,6 +116,8 @@ async fn main() -> Result<(), Error> {
 
     // Wait until tasks are complete, propagating any panics
     join_set.join_all().await;
+
+    tracing_guard.shutdown().await;
 
     Ok(())
 }

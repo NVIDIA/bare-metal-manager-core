@@ -74,12 +74,10 @@ pub async fn run_service(config: Config) -> Result<(), DsxConsumerError> {
     let join_listener =
         tokio::spawn(async move { metrics_endpoint::run_metrics_endpoint(&metrics_config).await });
 
-    let credential_manager = carbide_secrets::create_credential_manager(
-        &carbide_secrets::CredentialConfig::default(),
-        meter.clone(),
-    )
-    .await
-    .map_err(|e| DsxConsumerError::Secrets(e.to_string()))?;
+    let credential_manager =
+        carbide_secrets::create_credential_manager(&carbide_secrets::CredentialConfig::default())
+            .await
+            .map_err(|e| DsxConsumerError::Secrets(e.to_string()))?;
 
     // Connect to MQTT and get the processing channel. mqttea tracks
     // subscriptions and replays them after reconnect when the broker reports

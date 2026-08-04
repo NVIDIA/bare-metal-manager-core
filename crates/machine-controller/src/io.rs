@@ -28,7 +28,8 @@ use model::machine::slas::MachineSlaConfig;
 use model::machine::{
     self, AttestationMode, DpuDiscoveringState, DpuInitState, HostHealthConfig,
     MachineMaintenanceOperation, MachineValidatingState, ManagedHostState,
-    ManagedHostStateSnapshot, MeasuringState, SpdmMeasuringState, ValidationState,
+    ManagedHostStateSnapshot, MeasuringState, ReadyBootConfigState, SpdmMeasuringState,
+    ValidationState,
 };
 use sqlx::PgConnection;
 use state_controller::io::StateControllerIO;
@@ -171,7 +172,10 @@ impl StateControllerIO for MachineStateControllerIO {
                 DpuInitState::WaitingForNetworkConfig => "waitingfornetworkconfig",
                 DpuInitState::WaitingForPlatformConfiguration => "waitingforplatformconfiguration",
                 DpuInitState::PollingBiosSetup => "pollingbiossetup",
-                DpuInitState::WaitingForPlatformPowercycle { .. } => "waitingforplatformpowercycle",
+                // The observed-Off wait remains part of the existing
+                // operator-facing power-cycle metric.
+                DpuInitState::WaitingForPlatformPowercycle { .. }
+                | DpuInitState::WaitingForPlatformPowerOff => "waitingforplatformpowercycle",
                 DpuInitState::DpfStates { .. } => "dpfstates",
             }
         }
@@ -276,6 +280,21 @@ impl StateControllerIO for MachineStateControllerIO {
                 MachineValidatingState::LockAfterBootRepair { .. } => "lockafterbootrepair",
             }
         }
+
+        fn ready_boot_config_state_name(state: &ReadyBootConfigState) -> &'static str {
+            match state {
+                ReadyBootConfigState::Prepare => "prepare",
+                ReadyBootConfigState::UnlockHost { .. } => "unlockhost",
+                ReadyBootConfigState::CheckHostConfig => "checkhostconfig",
+                ReadyBootConfigState::ConfigureBios { .. } => "configurebios",
+                ReadyBootConfigState::WaitingForBiosJob { .. } => "waitingforbiosjob",
+                ReadyBootConfigState::PollingBiosSetup { .. } => "pollingbiossetup",
+                ReadyBootConfigState::SetBootOrder { .. } => "setbootorder",
+                ReadyBootConfigState::LockHost { .. } => "lockhost",
+                ReadyBootConfigState::Failed { .. } => "failed",
+            }
+        }
+
         match state {
             ManagedHostState::DpuDiscoveringState { dpu_states } => {
                 // Min state indicates the least processed DPU. The state machine is blocked
@@ -299,6 +318,12 @@ impl StateControllerIO for MachineStateControllerIO {
                 ("hostnotready", machine_state_name(machine_state))
             }
             ManagedHostState::Ready => ("ready", ""),
+            ManagedHostState::BootConfiguring {
+                boot_config_state, ..
+            } => (
+                "bootconfiguring",
+                ready_boot_config_state_name(boot_config_state),
+            ),
             ManagedHostState::Maintenance { operation } => {
                 let op = match operation {
                     MachineMaintenanceOperation::PowerOn => "power_on",
@@ -319,6 +344,8 @@ impl StateControllerIO for MachineStateControllerIO {
             ManagedHostState::DPUReprovision { .. } => ("reprovisioning", ""),
             ManagedHostState::HostReprovision { .. } => ("hostreprovisioning", ""),
             ManagedHostState::RotatingBmc { .. } => ("rotatingbmc", ""),
+            ManagedHostState::RotatingHostUefi { .. } => ("rotatinghostuefi", ""),
+            ManagedHostState::RotatingDpuUefi { .. } => ("rotatingdpuuefi", ""),
             ManagedHostState::Measuring { measuring_state } => {
                 ("measuring", measuring_state_name(measuring_state))
             }
@@ -376,6 +403,10 @@ impl StateControllerIO for MachineStateControllerIO {
             {
                 Some(details.cause.metric_label())
             }
+            ManagedHostState::BootConfiguring {
+                boot_config_state: ReadyBootConfigState::Failed { .. },
+                ..
+            } => Some("boot_config_convergence_failed"),
             _ => None,
         }
     }
@@ -392,5 +423,31 @@ impl StateControllerIO for MachineStateControllerIO {
             &object_state.aggregate_health,
             &self.sla_config,
         )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use model::machine_boot_interface::MachineBootInterfaceTarget;
+
+    use super::*;
+
+    #[test]
+    fn terminal_ready_boot_config_requires_manual_intervention() {
+        let state = ManagedHostState::BootConfiguring {
+            desired_version: ConfigVersion::initial(),
+            desired_boot_interface: MachineBootInterfaceTarget::MacOnly(
+                "02:00:00:00:00:01".parse().unwrap(),
+            ),
+            post_lock_verification_retry_count: 0,
+            boot_config_state: ReadyBootConfigState::Failed {
+                failure: "exhausted".to_string(),
+            },
+        };
+
+        assert_eq!(
+            <MachineStateControllerIO as StateControllerIO>::manual_intervention_reason(&state),
+            Some("boot_config_convergence_failed"),
+        );
     }
 }

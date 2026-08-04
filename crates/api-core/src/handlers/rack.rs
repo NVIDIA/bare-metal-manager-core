@@ -498,6 +498,29 @@ pub async fn get_rack_profile(
     }))
 }
 
+pub fn list_rack_profiles(
+    api: &Api,
+    request: Request<()>,
+) -> Result<Response<rpc::ListRackProfilesResponse>, Status> {
+    log_request_data(&request);
+
+    Ok(Response::new(rpc::ListRackProfilesResponse {
+        rack_profiles: configured_rack_profiles(&api.runtime_config.rack_profiles),
+    }))
+}
+
+fn configured_rack_profiles(
+    config: &model::rack_type::RackProfileConfig,
+) -> Vec<rpc::ConfiguredRackProfile> {
+    let mut rack_profiles = config.rack_profiles.iter().collect::<Vec<_>>();
+    rack_profiles.sort_unstable_by_key(|(rack_profile_id, _)| *rack_profile_id);
+
+    rack_profiles
+        .into_iter()
+        .map(|(rack_profile_id, profile)| (rack_profile_id.as_str(), profile).into())
+        .collect()
+}
+
 pub(crate) async fn update_rack_metadata(
     api: &Api,
     request: Request<rpc::RackMetadataUpdateRequest>,
@@ -851,11 +874,42 @@ pub(crate) async fn on_demand_rack_maintenance(
 mod tests {
     use carbide_instrument::testing::{MetricsCapture, capture_logs};
     use carbide_secrets::test_support::credentials::TestCredentialManager;
+    use model::rack_type::{RackProfile, RackProfileConfig};
 
     use super::*;
 
     const ACCESS_TOKEN_CLEANUP_FAILURE_METRIC: &str =
         "carbide_rack_maintenance_access_token_cleanup_failures_total";
+
+    #[test]
+    fn configured_rack_profiles_are_sorted_and_support_empty_config() {
+        carbide_test_support::value_scenarios!(
+            run = |rack_profile_ids: &[&str]| {
+                let config = RackProfileConfig {
+                    rack_profiles: rack_profile_ids
+                        .iter()
+                        .map(|rack_profile_id| {
+                            ((*rack_profile_id).to_string(), RackProfile::default())
+                        })
+                        .collect(),
+                };
+
+                configured_rack_profiles(&config)
+                    .into_iter()
+                    .map(|configured| {
+                        configured
+                            .rack_profile_id
+                            .expect("configured profile must have an ID")
+                            .to_string()
+                    })
+                    .collect::<Vec<_>>()
+            };
+            "runtime rack profile configuration" {
+                &[][..] => Vec::<String>::new(),
+                &["zulu", "alpha"][..] => vec!["alpha".to_string(), "zulu".to_string()],
+            }
+        );
+    }
 
     #[derive(Debug, PartialEq)]
     struct AccessTokenCleanupObservation {
