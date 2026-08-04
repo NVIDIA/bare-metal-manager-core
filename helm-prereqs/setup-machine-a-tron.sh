@@ -1032,6 +1032,37 @@ import ipaddress, re, sys
 values_file, default_prefix, default_reserve = sys.argv[1], sys.argv[2], sys.argv[3]
 text = open(values_file).read()
 
+def groups_from_yaml(doc):
+    """Structural walk of a parsed values doc -> [{hosts,dpus,relay}]."""
+    out = []
+    for pod in (doc.get("pods") or {}).values():
+        if not isinstance(pod, dict):
+            continue
+        for grp in (pod.get("machines") or {}).values():
+            if not isinstance(grp, dict):
+                continue
+            hosts = int(grp.get("hostCount") or 0)
+            if hosts <= 0:
+                continue
+            out.append({
+                "hosts": hosts,
+                "dpus": int(grp.get("dpuPerHostCount") or 0),
+                "relay": str(grp.get("oobDhcpRelayAddress") or "").strip(),
+            })
+    return out
+
+yaml_groups = None
+try:
+    import yaml  # structural parse is authoritative when available
+    doc = yaml.safe_load(text)
+    if isinstance(doc, dict):
+        yaml_groups = groups_from_yaml(doc)
+except ImportError:
+    yaml_groups = None
+except Exception as e:                      # malformed values file
+    print(f"SKIP values file is not valid YAML: {e}")
+    sys.exit(0)
+
 # Dependency-free scan: walk the values file line by line and close off a
 # machine group whenever a line appears at or above the group's indentation.
 # Each group contributes hostCount*(1+dpuPerHostCount) BMC IPs to its relay.
@@ -1059,6 +1090,8 @@ for raw in text.splitlines():
 if cur is not None:
     groups.append(cur)
 
+if yaml_groups is not None:
+    groups = yaml_groups            # structural parse wins
 groups = [g for g in groups if g["hosts"] > 0]
 if not groups:
     print("SKIP values file defines no pod groups with hostCount")
@@ -1103,12 +1136,18 @@ print("\n".join(lines))
 if problems:
     print("FAIL " + "; ".join(problems))
 MPCHK
-)" || true
+)"; _MP_RC=$?
         printf '%s\n' "$_MP_REPORT" | while IFS= read -r _l; do [[ -n "$_l" ]] && info "$_l"; done
+        # Fail closed: a validator that cannot run must not look like a pass.
+        if (( _MP_RC != 0 )); then
+            die "multipod sizing check failed to run (rc=${_MP_RC}); refusing to deploy unvalidated. Output: ${_MP_REPORT:-<none>}"
+        fi
         if [[ "$_MP_REPORT" == *FAIL* ]]; then
             die "multipod sizing: $(printf '%s' "$_MP_REPORT" | sed -n 's/^FAIL //p') — widen that segment's prefix, lower its hostCount, or give the pod its own relay"
         fi
-        [[ "$_MP_REPORT" == SKIP* ]] && warn "multipod: ${_MP_REPORT#SKIP }"
+        if [[ "$_MP_REPORT" == SKIP* ]]; then
+            die "multipod sizing could not be validated: ${_MP_REPORT#SKIP } — set HOST_COUNT/DPU_PER_HOST explicitly or fix the values file so demand can be computed"
+        fi
         ok "multipod sizing validated across all pod groups"
     elif (( HOST_COUNT > FIT )); then
         (( FIT < 1 )) && die "pools too small for even 1 host × ${DPU_PER_HOST} DPUs — widen the admin/OOB prefixes or lower DPU_PER_HOST"
