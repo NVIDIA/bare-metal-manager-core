@@ -29,8 +29,8 @@ use crate::collectors::{
     LeakDetectorCollector, LeakDetectorCollectorConfig, LogsCollector, LogsCollectorConfig,
     MetricsCollector, MetricsCollectorConfig, NmxcCollector, NmxcCollectorConfig, NmxtCollector,
     NmxtCollectorConfig, NvueRestCollector, NvueRestCollectorConfig, SensorCollector,
-    SensorCollectorConfig, SseLogCollector, SseLogCollectorConfig, StreamingCollectorStartContext,
-    spawn_gnmi_collector,
+    SensorCollectorConfig, SensorThresholdMetrics, SseLogCollector, SseLogCollectorConfig,
+    StreamingCollectorStartContext, spawn_gnmi_collector,
 };
 use crate::config::{Configurable, LogCollectionMode, PeriodicLogConfig};
 use crate::endpoint::{BmcEndpoint, EndpointMetadata, SwitchEndpointRole};
@@ -139,6 +139,11 @@ fn spawn_generic_redfish_collectors(
             ctx.metrics_manager
                 .create_collector_registry(format!("sensor_collector_{key}"), metrics_prefix)?,
         );
+        let threshold_metrics = Arc::new(SensorThresholdMetrics::new(
+            collector_registry.registry(),
+            metrics_prefix,
+            key.to_string(),
+        )?);
         match Collector::start::<SensorCollector<BmcClient>>(
             endpoint_arc.clone(),
             bmc.clone(),
@@ -147,6 +152,7 @@ fn spawn_generic_redfish_collectors(
                 shared,
                 sensor_fetch_concurrency: sensor_cfg.sensor_fetch_concurrency,
                 include_sensor_thresholds: sensor_cfg.include_sensor_thresholds,
+                threshold_metrics: Some(threshold_metrics),
             },
             CollectorStartContext {
                 limiter: ctx.limiter.clone(),

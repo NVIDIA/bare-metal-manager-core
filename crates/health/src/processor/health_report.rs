@@ -264,6 +264,7 @@ mod tests {
     use std::net::{IpAddr, Ipv4Addr};
     use std::str::FromStr;
 
+    use carbide_test_support::value_scenarios;
     use mac_address::MacAddress;
     use nv_redfish::resource::Health as BmcHealth;
 
@@ -424,6 +425,66 @@ mod tests {
         assert_eq!(
             classify_result(value, BmcHealth::Warning),
             Some(vec![Classification::SensorWarning])
+        );
+    }
+
+    /// The #4528 sensor as the collector now hands it over: the bounds iDRAC
+    /// 7.20.10.50 does not implement arrive as `None` rather than as `-1`.
+    fn sanitized_context(bmc_health: BmcHealth) -> SensorThresholdContext {
+        SensorThresholdContext {
+            entity_type: "chassis".to_string(),
+            sensor_id: "NIC.Slot.7-1-1-Sensor_8".to_string(),
+            upper_fatal: None,
+            lower_fatal: None,
+            upper_critical: Some(80.0),
+            lower_critical: None,
+            upper_caution: Some(70.0),
+            lower_caution: None,
+            range_max: None,
+            range_min: None,
+            bmc_health,
+        }
+    }
+
+    fn classify_sanitized(value: f64, bmc_health: BmcHealth) -> Option<Vec<Classification>> {
+        let metric = metric_with_value(value);
+        match HealthReportProcessor::to_health_result(&metric, &sanitized_context(bmc_health)) {
+            SensorHealthResult::Alert(alert) => Some(alert.classifications),
+            SensorHealthResult::Success(_) => None,
+        }
+    }
+
+    #[test]
+    fn sanitized_thresholds_do_not_fabricate_alerts_issue_4528() {
+        struct Row {
+            value: f64,
+            bmc_health: BmcHealth,
+        }
+
+        value_scenarios!(
+            run = |Row { value, bmc_health }| classify_sanitized(value, bmc_health);
+            // The reported alert. With upper_fatal parsed away, 47 C is simply
+            // in spec; before the fix it matched `reading >= -1.0` and returned
+            // Fatal, short-circuiting the 70/80 rungs below.
+            "47 C on a sensor whose upper_fatal was a sentinel (#4528)" {
+                Row { value: 47.0, bmc_health: BmcHealth::Ok } => None,
+            }
+
+            // Latent before the fix: the three lower bounds were all -1, so any
+            // sub-zero reading would have returned Fatal. That rung only became
+            // reachable at all when #3401 bound lower_fatal correctly.
+            "a sub-zero reading no longer trips the parsed-away lower rungs" {
+                Row { value: -40.0, bmc_health: BmcHealth::Ok } => None,
+            }
+
+            // The bounds iDRAC does implement are untouched -- classification
+            // behaviour for well-formed input is unchanged.
+            "the real ladder still alerts" {
+                Row { value: 72.0, bmc_health: BmcHealth::Warning }
+                    => Some(vec![Classification::SensorWarning]),
+                Row { value: 85.0, bmc_health: BmcHealth::Ok }
+                    => Some(vec![Classification::SensorCritical]),
+            }
         );
     }
 

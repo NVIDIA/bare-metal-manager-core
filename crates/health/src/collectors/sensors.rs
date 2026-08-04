@@ -16,6 +16,7 @@
  */
 
 use std::borrow::Cow;
+use std::collections::HashMap;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
@@ -23,6 +24,7 @@ use futures::{StreamExt, stream};
 use nv_redfish::core::{Bmc, EntityTypeRef, ToSnakeCase};
 use nv_redfish::schema::sensor::Sensor;
 use nv_redfish::sensor::SensorLink;
+use prometheus::{IntCounter, IntCounterVec, Opts, Registry};
 
 use crate::HealthError;
 use crate::bmc::CollectorSweep;
@@ -52,6 +54,199 @@ impl SensorRangeKind {
             Self::Min => "reading_range_min",
         }
     }
+}
+
+/// The wire fields that bound a sensor reading, named so a parsing decision can
+/// be attributed to one of them in logs and metrics.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum SensorThresholdField {
+    UpperFatal,
+    LowerFatal,
+    UpperCritical,
+    LowerCritical,
+    UpperCaution,
+    LowerCaution,
+    RangeMax,
+    RangeMin,
+}
+
+impl SensorThresholdField {
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::UpperFatal => "upper_fatal",
+            Self::LowerFatal => "lower_fatal",
+            Self::UpperCritical => "upper_critical",
+            Self::LowerCritical => "lower_critical",
+            Self::UpperCaution => "upper_caution",
+            Self::LowerCaution => "lower_caution",
+            Self::RangeMax => "range_max",
+            Self::RangeMin => "range_min",
+        }
+    }
+}
+
+/// Values a BMC emits in-band to mean "this bound is not implemented".
+///
+/// Redfish gives `Thresholds` and the reading ranges no encoding for an absent
+/// value, so vendors signal absence with a number drawn from the same domain as
+/// real readings. Every entry below is a claim about one firmware's observed
+/// behaviour, not a universal truth, and each needs its own evidence:
+///
+/// - `-1.0`: Dell iDRAC 7.20.10.50 (PowerEdge R760) reports `-1` for every
+///   threshold it does not define, while reporting the sensor itself healthy.
+///   Confirmed on 6 of 9 hosts at pdx-qa2; iDRAC 7.10.30.00 (R750) is clean.
+///
+/// Accepted tradeoff: a sensor whose genuine bound is exactly `-1.0` has that
+/// rung dropped and will never alert on it. Weighed against 18 confirmed false
+/// `SensorFatal` alerts, where a fabricated `upper_fatal` of `-1` made every
+/// reading fatal and preempted the real 70/80 °C ladder below it. Adding an
+/// entry here silences a rung fleet-wide, so it needs the same evidence.
+const THRESHOLD_SENTINELS: [f64; 1] = [-1.0];
+
+/// An adjacent pair of present thresholds that is out of order.
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct ThresholdOrderingViolation {
+    /// The rung that should not exceed `above`.
+    below: (SensorThresholdField, f64),
+    /// The next present rung up the ladder.
+    above: (SensorThresholdField, f64),
+}
+
+/// The eight bounds that drive sensor classification, after sentinel parsing.
+///
+/// Private, and [`parse_thresholds`] is its only constructor, so a value
+/// carrying an unparsed sentinel cannot reach a consumer from this module.
+struct SensorThresholds {
+    upper_fatal: Option<f64>,
+    lower_fatal: Option<f64>,
+    upper_critical: Option<f64>,
+    lower_critical: Option<f64>,
+    upper_caution: Option<f64>,
+    lower_caution: Option<f64>,
+    range_max: Option<f64>,
+    range_min: Option<f64>,
+}
+
+/// Counters for threshold parsing decisions on one BMC endpoint.
+///
+/// Dropping a bound is a decision not to alert, and non-alerts are silent by
+/// construction. These counters are how an incomplete sentinel table becomes
+/// visible during a firmware rollout instead of after an incident.
+pub struct SensorThresholdMetrics {
+    sanitized_total: IntCounterVec,
+    incoherent_total: IntCounter,
+}
+
+impl SensorThresholdMetrics {
+    pub fn new(
+        registry: &Registry,
+        prefix: &str,
+        endpoint_key: String,
+    ) -> Result<Self, prometheus::Error> {
+        let const_labels = HashMap::from([("endpoint_key".to_string(), endpoint_key)]);
+
+        let sanitized_total = IntCounterVec::new(
+            Opts::new(
+                format!("{prefix}_sensor_threshold_sanitized_total"),
+                "Number of sensor thresholds dropped as in-band unset sentinels",
+            )
+            .const_labels(const_labels.clone()),
+            &["field"],
+        )?;
+        registry.register(Box::new(sanitized_total.clone()))?;
+
+        let incoherent_total = IntCounter::with_opts(
+            Opts::new(
+                format!("{prefix}_sensor_threshold_incoherent_total"),
+                "Number of out-of-order sensor threshold pairs seen after sentinel parsing",
+            )
+            .const_labels(const_labels),
+        )?;
+        registry.register(Box::new(incoherent_total.clone()))?;
+
+        Ok(Self {
+            sanitized_total,
+            incoherent_total,
+        })
+    }
+
+    fn record_sanitized(&self, field: SensorThresholdField) {
+        self.sanitized_total
+            .with_label_values(&[field.as_str()])
+            .inc();
+    }
+
+    fn record_incoherent(&self) {
+        self.incoherent_total.inc();
+    }
+}
+
+/// Parses one bound from the wire, mapping an in-band "unset" sentinel to
+/// `None`.
+///
+/// This runs at the collector boundary rather than inside any one consumer.
+/// Classification reads these values, the metrics exporter publishes them as
+/// labels, and the alert message renders them; sanitizing per consumer means
+/// being correct once per consumer and staying correct as consumers are added,
+/// while sanitizing here means no consumer can forget.
+fn parse_threshold(
+    value: Option<f64>,
+    field: SensorThresholdField,
+    sensor_id: &str,
+    metrics: Option<&SensorThresholdMetrics>,
+) -> Option<f64> {
+    let value = value?;
+
+    // Exact equality is deliberate. The value is a wire literal echoed verbatim
+    // out of the BMC's JSON rather than the result of a computation, and -1.0
+    // is exactly representable in f64, so it round-trips unchanged. An epsilon
+    // comparison would widen the drop to genuine bounds that merely sit near a
+    // sentinel, silencing rungs this table never claimed.
+    if !THRESHOLD_SENTINELS.contains(&value) {
+        return Some(value);
+    }
+
+    tracing::debug!(
+        sensor_id = %sensor_id,
+        field = field.as_str(),
+        dropped_value = value,
+        "Sensor bound reported as an in-band unset sentinel, treating as not set"
+    );
+    if let Some(metrics) = metrics {
+        metrics.record_sanitized(field);
+    }
+
+    None
+}
+
+/// Reports adjacent present rungs that are out of order.
+///
+/// Detection only: it cannot attribute which side of a pair is wrong, so it
+/// never repairs and never changes classification. Its purpose is to say that
+/// [`THRESHOLD_SENTINELS`] is incomplete for some firmware we have not met yet.
+///
+/// Must run after sentinel parsing. Run before, and every unstripped sentinel
+/// reports as a violation and the signal is worthless.
+fn threshold_ordering_violations(
+    ladder: [(SensorThresholdField, Option<f64>); 6],
+) -> Vec<ThresholdOrderingViolation> {
+    let mut violations = Vec::new();
+    let mut previous: Option<(SensorThresholdField, f64)> = None;
+
+    for (field, value) in ladder {
+        let Some(value) = value else { continue };
+        if let Some(below) = previous
+            && below.1 > value
+        {
+            violations.push(ThresholdOrderingViolation {
+                below,
+                above: (field, value),
+            });
+        }
+        previous = Some((field, value));
+    }
+
+    violations
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -96,6 +291,9 @@ pub struct SensorCollectorConfig<B: Bmc> {
     pub(crate) shared: SharedInventory<B>,
     pub sensor_fetch_concurrency: usize,
     pub include_sensor_thresholds: bool,
+    /// Counters for threshold parsing decisions. `None` leaves the parse
+    /// unmetered, which is what tests and benches want.
+    pub threshold_metrics: Option<Arc<SensorThresholdMetrics>>,
 }
 
 /// Sensor collector for a single BMC endpoint
@@ -106,6 +304,7 @@ pub struct SensorCollector<B: Bmc> {
     data_sink: Option<Arc<dyn DataSink>>,
     sensor_fetch_concurrency: usize,
     include_sensor_thresholds: bool,
+    threshold_metrics: Option<Arc<SensorThresholdMetrics>>,
 }
 
 impl<B: Bmc + 'static> PeriodicCollector<B> for SensorCollector<B> {
@@ -124,6 +323,7 @@ impl<B: Bmc + 'static> PeriodicCollector<B> for SensorCollector<B> {
             data_sink: config.data_sink,
             sensor_fetch_concurrency: config.sensor_fetch_concurrency.max(1),
             include_sensor_thresholds: config.include_sensor_thresholds,
+            threshold_metrics: config.threshold_metrics,
         })
     }
 
@@ -283,6 +483,7 @@ impl<B: Bmc + 'static> SensorCollector<B> {
             entity.base_attributes(),
             entity.entity_specific_attributes(),
             self.include_sensor_thresholds,
+            self.threshold_metrics.as_deref(),
         ) {
             Ok(projection) => projection,
             Err(SensorProjectionError::NoHealth) => {
@@ -312,6 +513,116 @@ impl<B: Bmc + 'static> SensorCollector<B> {
     }
 }
 
+/// Builds the sanitized bounds for one sensor.
+///
+/// The only constructor of [`SensorThresholds`]: every wire value reaches a
+/// consumer through [`parse_threshold`], and the coherence check runs on what
+/// survives.
+fn parse_thresholds(sensor: &Sensor, metrics: Option<&SensorThresholdMetrics>) -> SensorThresholds {
+    let sensor_id = &sensor.base.id;
+
+    let (
+        raw_upper_fatal,
+        raw_lower_fatal,
+        raw_upper_critical,
+        raw_lower_critical,
+        raw_upper_caution,
+        raw_lower_caution,
+    ) = if let Some(thresholds) = &sensor.thresholds {
+        (
+            thresholds
+                .upper_fatal
+                .as_ref()
+                .and_then(|t| t.reading.flatten()),
+            thresholds
+                .lower_fatal
+                .as_ref()
+                .and_then(|t| t.reading.flatten()),
+            thresholds
+                .upper_critical
+                .as_ref()
+                .and_then(|t| t.reading.flatten()),
+            thresholds
+                .lower_critical
+                .as_ref()
+                .and_then(|t| t.reading.flatten()),
+            thresholds
+                .upper_caution
+                .as_ref()
+                .and_then(|t| t.reading.flatten()),
+            thresholds
+                .lower_caution
+                .as_ref()
+                .and_then(|t| t.reading.flatten()),
+        )
+    } else {
+        (None, None, None, None, None, None)
+    };
+
+    // All eight route through one parse. Scattering the check is how a field
+    // gets missed: the reported bug was a fabricated `upper_fatal`, but the
+    // reading ranges sit above it in the ladder and fail harder, preempting
+    // every rung below with `SensorFailure`.
+    let [
+        upper_fatal,
+        lower_fatal,
+        upper_critical,
+        lower_critical,
+        upper_caution,
+        lower_caution,
+        range_max,
+        range_min,
+    ] = [
+        (SensorThresholdField::UpperFatal, raw_upper_fatal),
+        (SensorThresholdField::LowerFatal, raw_lower_fatal),
+        (SensorThresholdField::UpperCritical, raw_upper_critical),
+        (SensorThresholdField::LowerCritical, raw_lower_critical),
+        (SensorThresholdField::UpperCaution, raw_upper_caution),
+        (SensorThresholdField::LowerCaution, raw_lower_caution),
+        (
+            SensorThresholdField::RangeMax,
+            sensor.reading_range_max.flatten(),
+        ),
+        (
+            SensorThresholdField::RangeMin,
+            sensor.reading_range_min.flatten(),
+        ),
+    ]
+    .map(|(field, value)| parse_threshold(value, field, sensor_id, metrics));
+
+    for violation in threshold_ordering_violations([
+        (SensorThresholdField::LowerFatal, lower_fatal),
+        (SensorThresholdField::LowerCritical, lower_critical),
+        (SensorThresholdField::LowerCaution, lower_caution),
+        (SensorThresholdField::UpperCaution, upper_caution),
+        (SensorThresholdField::UpperCritical, upper_critical),
+        (SensorThresholdField::UpperFatal, upper_fatal),
+    ]) {
+        tracing::warn!(
+            sensor_id = %sensor_id,
+            below_field = violation.below.0.as_str(),
+            below_value = violation.below.1,
+            above_field = violation.above.0.as_str(),
+            above_value = violation.above.1,
+            "Sensor thresholds are out of order after sentinel parsing - the sentinel table may be incomplete for this firmware"
+        );
+        if let Some(metrics) = metrics {
+            metrics.record_incoherent();
+        }
+    }
+
+    SensorThresholds {
+        upper_fatal,
+        lower_fatal,
+        upper_critical,
+        lower_critical,
+        upper_caution,
+        lower_caution,
+        range_max,
+        range_min,
+    }
+}
+
 fn project_sensor(
     sensor: &Sensor,
     entity_type: &str,
@@ -319,6 +630,7 @@ fn project_sensor(
     base_attributes: Vec<MetricLabel>,
     entity_attributes: Vec<MetricLabel>,
     include_sensor_thresholds: bool,
+    threshold_metrics: Option<&SensorThresholdMetrics>,
 ) -> Result<SensorProjection, SensorProjectionError> {
     let Some(bmc_health) = sensor.status.as_ref().and_then(|s| s.health.flatten()) else {
         return Err(SensorProjectionError::NoHealth);
@@ -335,32 +647,22 @@ fn project_sensor(
         return Err(SensorProjectionError::IncompleteReading);
     };
 
+    let thresholds = parse_thresholds(sensor, threshold_metrics);
+
     let mut attributes = base_attributes;
     attributes.reserve(6);
     attributes.push((Cow::Borrowed("sensor_name"), sensor.base.id.clone()));
 
-    if let Some(thresholds) = sensor
-        .thresholds
-        .as_ref()
-        .filter(|_| include_sensor_thresholds)
-    {
+    // Read from the sanitized bounds, so the metrics path cannot publish a
+    // sentinel as a threshold label either.
+    if include_sensor_thresholds && sensor.thresholds.is_some() {
         attributes.push((
             Cow::Borrowed("upper_critical_threshold"),
-            thresholds
-                .upper_critical
-                .as_ref()
-                .and_then(|th| th.reading.flatten())
-                .unwrap_or_default()
-                .to_string(),
+            thresholds.upper_critical.unwrap_or_default().to_string(),
         ));
         attributes.push((
             Cow::Borrowed("lower_critical_threshold"),
-            thresholds
-                .lower_critical
-                .as_ref()
-                .and_then(|th| th.reading.flatten())
-                .unwrap_or_default()
-                .to_string(),
+            thresholds.lower_critical.unwrap_or_default().to_string(),
         ));
     }
 
@@ -374,40 +676,6 @@ fn project_sensor(
 
     let metric_type = reading_type.to_snake_case().to_string();
     let unit = sanitize_unit(&unit);
-    let range_max = sensor.reading_range_max.flatten();
-    let range_min = sensor.reading_range_min.flatten();
-
-    let (upper_fatal, lower_fatal, upper_critical, lower_critical, upper_caution, lower_caution) =
-        if let Some(thresholds) = &sensor.thresholds {
-            (
-                thresholds
-                    .upper_fatal
-                    .as_ref()
-                    .and_then(|t| t.reading.flatten()),
-                thresholds
-                    .lower_fatal
-                    .as_ref()
-                    .and_then(|t| t.reading.flatten()),
-                thresholds
-                    .upper_critical
-                    .as_ref()
-                    .and_then(|t| t.reading.flatten()),
-                thresholds
-                    .lower_critical
-                    .as_ref()
-                    .and_then(|t| t.reading.flatten()),
-                thresholds
-                    .upper_caution
-                    .as_ref()
-                    .and_then(|t| t.reading.flatten()),
-                thresholds
-                    .lower_caution
-                    .as_ref()
-                    .and_then(|t| t.reading.flatten()),
-            )
-        } else {
-            (None, None, None, None, None, None)
-        };
 
     let primary = MetricSample {
         key: sensor.odata_id().to_string(),
@@ -419,22 +687,22 @@ fn project_sensor(
         context: Some(SensorThresholdContext {
             entity_type: entity_type.to_string(),
             sensor_id: sensor.base.id.clone(),
-            upper_fatal,
-            lower_fatal,
-            upper_critical,
-            lower_critical,
-            upper_caution,
-            lower_caution,
-            range_max,
-            range_min,
+            upper_fatal: thresholds.upper_fatal,
+            lower_fatal: thresholds.lower_fatal,
+            upper_critical: thresholds.upper_critical,
+            lower_critical: thresholds.lower_critical,
+            upper_caution: thresholds.upper_caution,
+            lower_caution: thresholds.lower_caution,
+            range_max: thresholds.range_max,
+            range_min: thresholds.range_min,
             bmc_health,
         }),
     };
 
     let ranges = if include_sensor_thresholds {
         [
-            (SensorRangeKind::Max, range_max),
-            (SensorRangeKind::Min, range_min),
+            (SensorRangeKind::Max, thresholds.range_max),
+            (SensorRangeKind::Min, thresholds.range_min),
         ]
         .into_iter()
         .filter_map(|(range_kind, value)| {
@@ -491,7 +759,9 @@ mod tests {
     use bmc_mock::injection::{Action, Rule, RuleId, Selector};
     use bmc_mock::test_support::{TestBmc, TestBmcHandle, liteon_powershelf_bmc};
     use carbide_test_support::Outcome::Yields;
-    use carbide_test_support::{Case, Check, check_cases, check_cases_async, check_values};
+    use carbide_test_support::{
+        Case, Check, check_cases, check_cases_async, check_values, value_scenarios,
+    };
     use serde_json::{Value, json};
 
     use super::*;
@@ -759,6 +1029,61 @@ mod tests {
         }
     }
 
+    /// A Dell R760 NIC temperature sensor as iDRAC 7.20.10.50 reports it: the
+    /// two bounds it implements carry real values, every bound it does not
+    /// implement is `-1`, and the sensor itself is healthy. The reading is the
+    /// 47 °C that alerted as Fatal in #4528.
+    fn idrac_sentinel_sensor_json() -> Value {
+        sensor_json_with([
+            ("Id", json!("NIC.Slot.7-1-1-Sensor_8")),
+            ("Reading", json!(47.0)),
+            (
+                "Thresholds",
+                json!({
+                    "UpperFatal": { "Reading": -1 },
+                    "LowerFatal": { "Reading": -1 },
+                    "UpperCritical": { "Reading": 80 },
+                    "LowerCritical": { "Reading": -1 },
+                    "UpperCaution": { "Reading": 70 },
+                    "LowerCaution": { "Reading": -1 }
+                }),
+            ),
+        ])
+    }
+
+    fn sentinel_context(overrides: impl FnOnce(&mut ObservedContext)) -> ObservedContext {
+        let mut context = ObservedContext {
+            entity_type: "chassis".to_string(),
+            sensor_id: "NIC.Slot.7-1-1-Sensor_8".to_string(),
+            upper_fatal: None,
+            lower_fatal: None,
+            upper_critical: Some(80.0),
+            lower_critical: None,
+            upper_caution: Some(70.0),
+            lower_caution: None,
+            range_max: None,
+            range_min: None,
+            bmc_health: "ok".to_string(),
+        };
+        overrides(&mut context);
+        context
+    }
+
+    fn project_context(sensor: Value) -> ObservedContext {
+        project(ProjectionInput {
+            sensor,
+            entity_type: "chassis",
+            physical_context_fallback: "chassis",
+            base_attributes: Vec::new(),
+            entity_attributes: Vec::new(),
+            include_sensor_thresholds: true,
+        })
+        .expect("sensor projects")
+        .primary
+        .context
+        .expect("threshold context")
+    }
+
     fn project(input: ProjectionInput) -> Result<ObservedProjection, SensorProjectionError> {
         let sensor = serde_json::from_value(input.sensor).expect("valid sensor fixture");
         project_sensor(
@@ -768,8 +1093,200 @@ mod tests {
             metric_labels(input.base_attributes),
             metric_labels(input.entity_attributes),
             input.include_sensor_thresholds,
+            None,
         )
         .map(observe_projection)
+    }
+
+    #[test]
+    fn sentinel_bounds_are_parsed_as_unset() {
+        value_scenarios!(
+            run = project_context;
+            "iDRAC 7.20.x reports -1 for every bound it does not define (#4528)" {
+                idrac_sentinel_sensor_json() => sentinel_context(|_| {}),
+            }
+
+            // Latent on the reported sensor, whose ranges arrived genuinely
+            // unset. The range check sits at the top of the ladder, so a
+            // sentinel here preempts every threshold below it.
+            "reading ranges carry the sentinel too" {
+                sensor_json_with([
+                    ("Id", json!("NIC.Slot.7-1-1-Sensor_8")),
+                    ("Reading", json!(47.0)),
+                    ("ReadingRangeMax", json!(-1)),
+                    ("ReadingRangeMin", json!(-1)),
+                    ("Thresholds", json!({
+                        "UpperCritical": { "Reading": 80 },
+                        "UpperCaution": { "Reading": 70 }
+                    })),
+                ]) => sentinel_context(|_| {}),
+            }
+
+            // Guards against over-sanitization: only the exact sentinel is
+            // dropped, so a genuine sub-zero bound still alerts.
+            "bounds near the sentinel are kept" {
+                sensor_json_with([
+                    ("Id", json!("NIC.Slot.7-1-1-Sensor_8")),
+                    ("Reading", json!(47.0)),
+                    ("Thresholds", json!({
+                        "UpperCritical": { "Reading": 80 },
+                        "UpperCaution": { "Reading": 70 },
+                        "LowerCaution": { "Reading": -0.9 },
+                        "LowerCritical": { "Reading": -1.5 },
+                        "LowerFatal": { "Reading": -2.0 }
+                    })),
+                ]) => sentinel_context(|context| {
+                    context.lower_caution = Some(-0.9);
+                    context.lower_critical = Some(-1.5);
+                    context.lower_fatal = Some(-2.0);
+                }),
+            }
+        );
+    }
+
+    #[test]
+    fn every_bound_lands_in_its_own_field() {
+        // `parse_thresholds` destructures eight `Option<f64>` positionally out
+        // of an array literal. Both sides are the same type, so reordering
+        // either one compiles and silently binds a value to the wrong field --
+        // and the `field` label would still log correctly while the value went
+        // somewhere else. Distinct values per bound pin the mapping.
+        let context = project_context(sensor_json_with([
+            ("ReadingRangeMin", json!(7.0)),
+            ("ReadingRangeMax", json!(88.0)),
+            (
+                "Thresholds",
+                json!({
+                    "LowerFatal": { "Reading": 11.0 },
+                    "LowerCritical": { "Reading": 22.0 },
+                    "LowerCaution": { "Reading": 33.0 },
+                    "UpperCaution": { "Reading": 44.0 },
+                    "UpperCritical": { "Reading": 55.0 },
+                    "UpperFatal": { "Reading": 66.0 }
+                }),
+            ),
+        ]));
+
+        assert_eq!(context.lower_fatal, Some(11.0), "lower_fatal");
+        assert_eq!(context.lower_critical, Some(22.0), "lower_critical");
+        assert_eq!(context.lower_caution, Some(33.0), "lower_caution");
+        assert_eq!(context.upper_caution, Some(44.0), "upper_caution");
+        assert_eq!(context.upper_critical, Some(55.0), "upper_critical");
+        assert_eq!(context.upper_fatal, Some(66.0), "upper_fatal");
+        assert_eq!(context.range_min, Some(7.0), "range_min");
+        assert_eq!(context.range_max, Some(88.0), "range_max");
+    }
+
+    #[test]
+    fn sentinel_reading_ranges_emit_no_range_metrics() {
+        let projection = project(ProjectionInput {
+            sensor: sensor_json_with([
+                ("ReadingRangeMax", json!(-1)),
+                ("ReadingRangeMin", json!(-1)),
+            ]),
+            entity_type: "chassis",
+            physical_context_fallback: "chassis",
+            base_attributes: Vec::new(),
+            entity_attributes: Vec::new(),
+            include_sensor_thresholds: true,
+        })
+        .expect("sensor projects");
+
+        assert!(
+            projection.ranges.is_empty(),
+            "a sentinel range must not be exported as a range metric, got {:?}",
+            projection.ranges
+        );
+    }
+
+    #[test]
+    fn threshold_labels_expose_exactly_the_parsed_bounds() {
+        let projection = project(ProjectionInput {
+            sensor: idrac_sentinel_sensor_json(),
+            entity_type: "chassis",
+            physical_context_fallback: "chassis",
+            base_attributes: Vec::new(),
+            entity_attributes: Vec::new(),
+            include_sensor_thresholds: true,
+        })
+        .expect("sensor projects");
+
+        // Asserted as the whole label set rather than as the absence of `-1`:
+        // an absence assertion keeps passing through the next wrong value.
+        //
+        // `lower_critical_threshold` is `"0"` because `unwrap_or_default`
+        // renders every absent bound that way, which is its own in-band
+        // sentinel and its own bug. This test pins the current behaviour so a
+        // change to it is deliberate, not so it is correct.
+        assert_eq!(
+            projection.primary.labels,
+            observed_labels(&[
+                ("sensor_name", "NIC.Slot.7-1-1-Sensor_8"),
+                ("upper_critical_threshold", "80"),
+                ("lower_critical_threshold", "0"),
+                ("physical_context", "chassis"),
+            ])
+        );
+    }
+
+    #[test]
+    fn threshold_ordering_violation_cases() {
+        value_scenarios!(
+            run = threshold_ordering_violations;
+            "a coherent ladder reports nothing" {
+                [
+                    (SensorThresholdField::LowerFatal, Some(5.0)),
+                    (SensorThresholdField::LowerCritical, Some(10.0)),
+                    (SensorThresholdField::LowerCaution, Some(20.0)),
+                    (SensorThresholdField::UpperCaution, Some(70.0)),
+                    (SensorThresholdField::UpperCritical, Some(80.0)),
+                    (SensorThresholdField::UpperFatal, Some(90.0)),
+                ] => Vec::new(),
+            }
+
+            // The #4528 sensor as it looks after parsing: absent rungs are
+            // skipped rather than compared, so a sanitized sensor is quiet.
+            "only present rungs are compared" {
+                [
+                    (SensorThresholdField::LowerFatal, None),
+                    (SensorThresholdField::LowerCritical, None),
+                    (SensorThresholdField::LowerCaution, None),
+                    (SensorThresholdField::UpperCaution, Some(70.0)),
+                    (SensorThresholdField::UpperCritical, Some(80.0)),
+                    (SensorThresholdField::UpperFatal, None),
+                ] => Vec::new(),
+            }
+
+            "an inverted pair is reported, naming both sides" {
+                [
+                    (SensorThresholdField::LowerFatal, None),
+                    (SensorThresholdField::LowerCritical, None),
+                    (SensorThresholdField::LowerCaution, None),
+                    (SensorThresholdField::UpperCaution, Some(70.0)),
+                    (SensorThresholdField::UpperCritical, Some(80.0)),
+                    (SensorThresholdField::UpperFatal, Some(60.0)),
+                ] => vec![ThresholdOrderingViolation {
+                    below: (SensorThresholdField::UpperCritical, 80.0),
+                    above: (SensorThresholdField::UpperFatal, 60.0),
+                }],
+            }
+
+            // Why the check must run after parsing, never before: unstripped,
+            // the reported sensor looks incoherent and the signal is noise.
+            "an unstripped sentinel would report as a violation" {
+                [
+                    (SensorThresholdField::LowerFatal, Some(-1.0)),
+                    (SensorThresholdField::LowerCritical, Some(-1.0)),
+                    (SensorThresholdField::LowerCaution, Some(-1.0)),
+                    (SensorThresholdField::UpperCaution, Some(70.0)),
+                    (SensorThresholdField::UpperCritical, Some(80.0)),
+                    (SensorThresholdField::UpperFatal, Some(-1.0)),
+                ] => vec![ThresholdOrderingViolation {
+                    below: (SensorThresholdField::UpperCritical, 80.0),
+                    above: (SensorThresholdField::UpperFatal, -1.0),
+                }],
+            }
+        );
     }
 
     #[test]
@@ -829,6 +1346,7 @@ mod tests {
                     Vec::new(),
                     Vec::new(),
                     false,
+                    None,
                 ) {
                     Ok(_) => panic!("incomplete sensor must be rejected"),
                     Err(error) => error,
@@ -1095,6 +1613,7 @@ mod tests {
                         shared: Arc::new(ArcSwapOption::empty()),
                         sensor_fetch_concurrency,
                         include_sensor_thresholds: false,
+                        threshold_metrics: None,
                     },
                 )
                 .expect("sensor collector");
@@ -1177,6 +1696,7 @@ mod tests {
             data_sink: Some(sink.clone()),
             sensor_fetch_concurrency: 2,
             include_sensor_thresholds: true,
+            threshold_metrics: None,
         };
 
         match case {

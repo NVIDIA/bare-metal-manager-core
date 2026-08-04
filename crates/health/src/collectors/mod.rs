@@ -50,4 +50,4 @@ pub use runtime::{
     IterationResult, PeriodicCollector, StreamMetrics, StreamingCollector,
     StreamingCollectorStartContext, StreamingConnectResult, open_sse_stream,
 };
-pub use sensors::{SensorCollector, SensorCollectorConfig};
+pub use sensors::{SensorCollector, SensorCollectorConfig, SensorThresholdMetrics};

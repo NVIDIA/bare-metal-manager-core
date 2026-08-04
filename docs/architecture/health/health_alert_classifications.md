@@ -43,14 +43,28 @@ In `nico-hardware-health`, this corresponds to crossing `lower_caution`/`upper_c
 Indicates that a sensor reading violated a critical threshold.
 In `nico-hardware-health`, this corresponds to crossing `lower_critical`/`upper_critical` thresholds.
 
+### `SensorFatal`
+
+Indicates that a sensor reading violated a fatal threshold.
+In `nico-hardware-health`, this corresponds to crossing `lower_fatal`/`upper_fatal` thresholds.
+
 ### `SensorFailure`
 
 Indicates that a sensor reading is outside the advertised valid range.
 In `nico-hardware-health`, this corresponds to values outside `range_min`/`range_max` when that range is well-formed.
 
 For `BmcSensor` alerts, severity is evaluated in this order:
-`SensorFailure` -> `SensorCritical` -> `SensorWarning`.
+`SensorFailure` -> `SensorFatal` -> `SensorCritical` -> `SensorWarning`.
+The first rung that matches wins, so a breach never falls through to a lower severity.
 
 Special case for sensor classifications:
-if thresholds indicate warning/critical/failure but the BMC explicitly reports sensor health as `Ok`,
-the probe is treated as success and no alert classification is emitted.
+if thresholds indicate warning but the BMC explicitly reports sensor health as `Ok`,
+the probe is treated as success and no alert classification is emitted. Only `SensorWarning`
+is suppressed this way — `SensorCritical`, `SensorFatal` and `SensorFailure` always alert,
+so a BMC that reports itself healthy cannot silence independent threshold alerting.
+
+Thresholds and reading ranges are sanitized where they are collected, not where they are
+evaluated: a BMC that signals "this bound is not implemented" with an in-band value
+(iDRAC 7.20.x reports `-1`) has that bound treated as unset, so it neither classifies nor
+is exported as a threshold. A sensor with no `upper_fatal` therefore tops out at
+`SensorCritical`.
