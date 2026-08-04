@@ -180,19 +180,6 @@ func NewCreateInstanceHandler(dbSession *cdb.Session, tc temporalClient.Client, 
 	}
 }
 
-// canTenantUseOperatingSystem reports whether an Operating System can be used
-// by a Tenant. Tenant-owned definitions are private to their owner. Provider-
-// owned Templated iPXE definitions are shared with Tenants through their
-// synchronized Site associations, which are validated separately before the
-// definition is sent to Core.
-func canTenantUseOperatingSystem(os *cdbm.OperatingSystem, tenantID string) bool {
-	if os.TenantID != nil {
-		return os.TenantID.String() == tenantID
-	}
-
-	return os.InfrastructureProviderID != nil && os.Type == cdbm.OperatingSystemTypeTemplatedIPXE
-}
-
 // validateTemplatedIpxeOsForSite guards the Templated iPXE Operating System
 // selection paths (Instance create / update / batch-create) before the OS ID is
 // sent to Core. Caller authorization and tenant/OS access are already enforced
@@ -296,7 +283,7 @@ func (cih CreateInstanceHandler) buildInstanceCreateRequestOsConfig(c echo.Conte
 
 	// Confirm the Tenant can use the OS. Provider-owned Templated iPXE OSes are
 	// shared through synchronized Site associations validated below.
-	if !canTenantUseOperatingSystem(os, apiRequest.TenantID) {
+	if !os.IsTenantUsable(apiRequest.TenantID) {
 		logger.Error().Msg("OperatingSystem in request is not usable by tenant")
 		return nil, nil, cutil.NewAPIError(http.StatusBadRequest, "OperatingSystem specified in request is not owned by Tenant", nil)
 	}
@@ -2248,7 +2235,7 @@ func (uih UpdateInstanceHandler) buildInstanceUpdateRequestOsConfig(c echo.Conte
 
 		// Confirm the Tenant can use the OS. Provider-owned Templated iPXE OSes
 		// are shared through synchronized Site associations validated below.
-		if !canTenantUseOperatingSystem(os, instance.Tenant.ID.String()) {
+		if !os.IsTenantUsable(instance.Tenant.ID.String()) {
 			logger.Error().Msg("OperatingSystem in request is not usable by tenant")
 			return nil, nil, cutil.NewAPIError(http.StatusBadRequest, "Operating system specified in request is not owned by Tenant", nil)
 		}
