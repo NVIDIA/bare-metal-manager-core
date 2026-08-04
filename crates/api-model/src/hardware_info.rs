@@ -51,8 +51,8 @@ pub struct HardwareInfo {
     pub dpu_info: Option<DpuData>,
     #[serde(default)]
     pub gpus: Vec<Gpu>,
-    #[serde(default)]
-    pub memory_devices: Vec<MemoryDevice>,
+    #[serde(default, deserialize_with = "deserialize_and_condense_memory_devices")]
+    pub memory_devices: Vec<MemoryDeviceGroup>,
     #[serde(default)]
     pub tpm_description: Option<TpmDescription>,
 }
@@ -226,10 +226,92 @@ pub struct GpuPlatformInfo {
     pub fabric_guid: String,
 }
 
+/// An individual memory device (DIMM slot). Used in the "expanded" view for
+/// callers that expect a flat list; obtain by calling
+/// [`MemoryDeviceGroup::rehydrate`].
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct MemoryDevice {
     pub size_mb: Option<u32>,
     pub mem_type: Option<String>,
+}
+
+fn default_count_one() -> u32 {
+    1
+}
+
+/// Condensed representation of one or more identical memory devices. This is the internal and
+/// storage form stored in [`HardwareInfo`]. Use [`condense_memory_devices`] to build from a flat
+/// list and [`MemoryDeviceGroup::rehydrate`] to expand back.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct MemoryDeviceGroup {
+    pub size_mb: Option<u32>,
+    pub mem_type: Option<String>,
+    /// Number of identical DIMMs. Defaults to 1 when deserializing pre-condensed data.
+    #[serde(default = "default_count_one")]
+    pub count: u32,
+}
+
+impl MemoryDeviceGroup {
+    /// Expands this group back into a flat iterator of individual [`MemoryDevice`]s.
+    pub fn rehydrate(&self) -> impl Iterator<Item = MemoryDevice> + '_ {
+        std::iter::repeat_n(
+            MemoryDevice {
+                size_mb: self.size_mb,
+                mem_type: self.mem_type.clone(),
+            },
+            self.count as usize,
+        )
+    }
+}
+
+/// Rolls up a flat sequence of [`MemoryDevice`]s into condensed [`MemoryDeviceGroup`]s.
+/// Devices with the same `(size_mb, mem_type)` are combined into a single group.
+pub fn condense_memory_devices(
+    devices: impl IntoIterator<Item = MemoryDevice>,
+) -> Vec<MemoryDeviceGroup> {
+    let mut groups: Vec<MemoryDeviceGroup> = Vec::new();
+    for device in devices {
+        if let Some(group) = groups
+            .iter_mut()
+            .find(|g| g.size_mb == device.size_mb && g.mem_type == device.mem_type)
+        {
+            group.count += 1;
+        } else {
+            groups.push(MemoryDeviceGroup {
+                size_mb: device.size_mb,
+                mem_type: device.mem_type,
+                count: 1,
+            });
+        }
+    }
+    groups
+}
+
+/// Serde deserializer for `HardwareInfo.memory_devices` that handles both the condensed
+/// (`{size_mb, mem_type, count}`) format and the legacy flat format (`{size_mb, mem_type}` with
+/// no `count`, stored as multiple identical objects). Old rows without a `count` field
+/// deserialize each element with `count = 1` via the struct-level default, then identical groups
+/// are merged here.
+fn deserialize_and_condense_memory_devices<'de, D>(
+    deserializer: D,
+) -> Result<Vec<MemoryDeviceGroup>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    use serde::Deserialize as _;
+    let raw = Vec::<MemoryDeviceGroup>::deserialize(deserializer)?;
+    let mut merged: Vec<MemoryDeviceGroup> = Vec::new();
+    for group in raw {
+        if let Some(existing) = merged
+            .iter_mut()
+            .find(|g| g.size_mb == group.size_mb && g.mem_type == group.mem_type)
+        {
+            existing.count += group.count;
+        } else {
+            merged.push(group);
+        }
+    }
+    Ok(merged)
 }
 
 /// TPM endorsement key certificate

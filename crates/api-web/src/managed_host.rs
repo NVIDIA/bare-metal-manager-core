@@ -145,9 +145,13 @@ impl ManagedHostRowDisplay {
                     get_memory_details(
                         &hardware_info
                             .memory_devices
-                            .into_iter()
-                            .map_into()
-                            .collect(),
+                            .iter()
+                            .map(|g| rpc::machine_discovery::MemoryDeviceGroup {
+                                size_mb: g.size_mb,
+                                mem_type: g.mem_type.clone(),
+                                count: g.count,
+                            })
+                            .collect::<Vec<_>>(),
                     )
                     .unwrap_or_default(),
                 )

@@ -31,7 +31,7 @@ use base64::prelude::*;
 use carbide_utils::{BF2_PRODUCT_NAME, BF3_PRODUCT_NAME};
 use libudev::Device;
 use procfs::{CpuInfo, FromRead};
-use rpc::machine_discovery::MemoryDevice;
+use rpc::machine_discovery::{MemoryDevice, MemoryDeviceGroup};
 use tracing::warn;
 use uname::uname;
 
@@ -913,10 +913,31 @@ fn enumerate_hardware_inner(
         tpm_ek_certificate,
         dpu_info: dpu_vpd,
         gpus,
-        memory_devices,
+        #[allow(deprecated)]
+        memory_devices: vec![],
+        memory_device_groups: condense_rpc_memory_devices(memory_devices),
         tpm_description: None,
         attest_key_info: None,
     })
+}
+
+fn condense_rpc_memory_devices(devices: Vec<MemoryDevice>) -> Vec<MemoryDeviceGroup> {
+    let mut groups: Vec<MemoryDeviceGroup> = Vec::new();
+    for device in devices {
+        if let Some(group) = groups
+            .iter_mut()
+            .find(|g| g.size_mb == device.size_mb && g.mem_type == device.mem_type)
+        {
+            group.count += 1;
+        } else {
+            groups.push(MemoryDeviceGroup {
+                size_mb: device.size_mb,
+                mem_type: device.mem_type,
+                count: 1,
+            });
+        }
+    }
+    groups
 }
 
 /// Path where the host's `/proc/cpuinfo` is bind-mounted inside the init container.

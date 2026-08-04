@@ -35,7 +35,7 @@ use rpc::forge::{
     BmcInfo, ConnectedDevice, GetSiteExplorationRequest, MachineType, ManagedHostQuarantineState,
     NetworkDevice, NetworkDeviceIdList,
 };
-use rpc::machine_discovery::MemoryDevice;
+use rpc::machine_discovery::MemoryDeviceGroup;
 use rpc::site_explorer::{EndpointExplorationReport, ExploredEndpoint};
 use rpc::{DiscoveryInfo, DmiData, DynForge, Machine, Timestamp};
 use serde::{Deserialize, Serialize};
@@ -184,9 +184,23 @@ impl From<Machine> for ManagedHostOutput {
             .as_ref()
             .map(|di| di.infiniband_interfaces.len())
             .unwrap_or_default();
-        let host_memory = discovery_info
-            .as_ref()
-            .and_then(|di| get_memory_details(&di.memory_devices));
+        let host_memory = discovery_info.as_ref().and_then(|di| {
+            if !di.memory_device_groups.is_empty() {
+                get_memory_details(&di.memory_device_groups)
+            } else {
+                #[allow(deprecated)]
+                let groups: Vec<MemoryDeviceGroup> = di
+                    .memory_devices
+                    .iter()
+                    .map(|md| MemoryDeviceGroup {
+                        size_mb: md.size_mb,
+                        mem_type: md.mem_type.clone(),
+                        count: 1,
+                    })
+                    .collect();
+                get_memory_details(&groups)
+            }
+        });
 
         let DmiDataDisplay {
             product_serial: _,
@@ -532,22 +546,24 @@ impl From<ManagedHostMetadata> for IndexedManagedHostMetadata {
     }
 }
 
-pub fn get_memory_details(memory_devices: &Vec<MemoryDevice>) -> Option<String> {
+pub fn get_memory_details(memory_device_groups: &[MemoryDeviceGroup]) -> Option<String> {
     let mut breakdown = BTreeMap::default();
-    let mut total_size = 0;
-    for md in memory_devices {
+    let mut total_size = 0u64;
+    let mut total_count = 0u32;
+    for group in memory_device_groups {
         let size = byte_unit::Byte::from_f64_with_unit(
-            md.size_mb.unwrap_or(0) as f64,
+            group.size_mb.unwrap_or(0) as f64,
             byte_unit::Unit::MiB,
         )
         .unwrap_or_default();
-        total_size += size.as_u64();
-        *breakdown.entry(size).or_insert(0u32) += 1;
+        total_size += size.as_u64() * group.count as u64;
+        total_count += group.count;
+        *breakdown.entry(size).or_insert(0u32) += group.count;
     }
 
     let total_size = byte_unit::Byte::from(total_size);
 
-    if memory_devices.len() == 1 {
+    if total_count == 1 {
         Some(
             total_size
                 .get_appropriate_unit(UnitType::Binary)
@@ -657,19 +673,20 @@ mod tests {
 
     use super::*;
 
-    fn memory(size_mb: Option<u32>) -> MemoryDevice {
-        MemoryDevice {
+    fn memory(size_mb: Option<u32>) -> MemoryDeviceGroup {
+        MemoryDeviceGroup {
             size_mb,
             mem_type: None,
+            count: 1,
         }
     }
 
     #[test]
     fn formats_memory_details() {
         value_scenarios!(
-            run = |devices| get_memory_details(&devices);
+            run = |devices: Vec<MemoryDeviceGroup>| get_memory_details(&devices);
             "missing memory" {
-                Vec::<MemoryDevice>::new() => None,
+                vec![] => None,
                 vec![memory(Some(0)), memory(None)] => None,
             }
 
@@ -679,8 +696,7 @@ mod tests {
 
             "device breakdown" {
                 vec![
-                    memory(Some(32768)),
-                    memory(Some(32768)),
+                    MemoryDeviceGroup { size_mb: Some(32768), mem_type: None, count: 2 },
                     memory(Some(65536)),
                 ] => Some("128 GiB (32 GiBx2, 64 GiBx1)".to_string()),
             }

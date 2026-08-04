@@ -26,7 +26,7 @@ use model::hardware_info::{
     BlockDevice, CpuInfo, DmiData, DpuData, Gpu, GpuPlatformInfo, HardwareInfo,
     InfinibandInterface, LldpSwitchData, MachineInventory, MachineInventorySoftwareComponent,
     MachineNvLinkInfo, MemoryDevice, NetworkInterface, NvLinkGpu, NvmeDevice, PciDeviceProperties,
-    TpmDescription, TpmEkCertificate,
+    TpmDescription, TpmEkCertificate, condense_memory_devices,
 };
 
 use crate as rpc;
@@ -462,11 +462,22 @@ impl From<rpc::machine_discovery::MemoryDevice> for MemoryDevice {
     }
 }
 
-impl From<MemoryDevice> for rpc::machine_discovery::MemoryDevice {
-    fn from(value: MemoryDevice) -> Self {
-        rpc::machine_discovery::MemoryDevice {
+impl From<rpc::machine_discovery::MemoryDeviceGroup> for model::hardware_info::MemoryDeviceGroup {
+    fn from(value: rpc::machine_discovery::MemoryDeviceGroup) -> Self {
+        Self {
             size_mb: value.size_mb,
             mem_type: value.mem_type,
+            count: value.count.max(1),
+        }
+    }
+}
+
+impl From<model::hardware_info::MemoryDeviceGroup> for rpc::machine_discovery::MemoryDeviceGroup {
+    fn from(value: model::hardware_info::MemoryDeviceGroup) -> Self {
+        Self {
+            size_mb: value.size_mb,
+            mem_type: value.mem_type,
+            count: value.count,
         }
     }
 }
@@ -511,11 +522,15 @@ impl TryFrom<rpc::machine_discovery::DiscoveryInfo> for HardwareInfo {
             tpm_ek_certificate: tpm_ek_certificate.map(TpmEkCertificate::from),
             dpu_info: info.dpu_info.map(DpuData::try_from).transpose()?,
             gpus: try_convert_vec(info.gpus)?,
-            memory_devices: info
-                .memory_devices
-                .into_iter()
-                .map(MemoryDevice::from)
-                .collect(),
+            memory_devices: if !info.memory_device_groups.is_empty() {
+                info.memory_device_groups
+                    .into_iter()
+                    .map(model::hardware_info::MemoryDeviceGroup::from)
+                    .collect()
+            } else {
+                #[allow(deprecated)]
+                condense_memory_devices(info.memory_devices.into_iter().map(MemoryDevice::from))
+            },
             tpm_description: info.tpm_description.map(std::convert::Into::into),
         })
     }
@@ -545,10 +560,12 @@ impl TryFrom<HardwareInfo> for rpc::machine_discovery::DiscoveryInfo {
                 .map(rpc::machine_discovery::DpuData::try_from)
                 .transpose()?,
             gpus: try_convert_vec(info.gpus)?,
-            memory_devices: info
+            #[allow(deprecated)]
+            memory_devices: vec![],
+            memory_device_groups: info
                 .memory_devices
                 .into_iter()
-                .map(rpc::machine_discovery::MemoryDevice::from)
+                .map(rpc::machine_discovery::MemoryDeviceGroup::from)
                 .collect(),
             tpm_description: info.tpm_description.map(std::convert::Into::into),
             attest_key_info: None,
@@ -657,6 +674,7 @@ mod tests {
     use carbide_test_support::Outcome::{Fails, Yields};
     use carbide_test_support::{Case, Check, check_cases, check_values};
     use carbide_uuid::nvlink::NvLinkDomainId;
+    use model::hardware_info::MemoryDeviceGroup;
 
     use super::*;
 
@@ -1196,12 +1214,14 @@ mod tests {
             memory_sizes: info
                 .memory_devices
                 .iter()
+                .flat_map(|g| g.rehydrate())
                 .map(|memory| memory.size_mb)
                 .collect(),
             memory_types: info
                 .memory_devices
                 .iter()
-                .map(|memory| memory.mem_type.clone())
+                .flat_map(|g| g.rehydrate())
+                .map(|memory| memory.mem_type)
                 .collect(),
             tpm_description: info.tpm_description,
         }
@@ -1274,14 +1294,14 @@ mod tests {
                 .unwrap_or_default(),
             gpus: info.gpus.into_iter().map(GpuProjection::from).collect(),
             memory_sizes: info
-                .memory_devices
+                .memory_device_groups
                 .iter()
-                .map(|memory| memory.size_mb)
+                .flat_map(|g| std::iter::repeat_n(g.size_mb, g.count as usize))
                 .collect(),
             memory_types: info
-                .memory_devices
+                .memory_device_groups
                 .iter()
-                .map(|memory| memory.mem_type.clone())
+                .flat_map(|g| std::iter::repeat_n(g.mem_type.clone(), g.count as usize))
                 .collect(),
             tpm_description: info.tpm_description,
         }
@@ -1377,14 +1397,18 @@ mod tests {
                     }),
                 },
             ],
-            memory_devices: vec![
-                rpc::machine_discovery::MemoryDevice {
+            #[allow(deprecated)]
+            memory_devices: vec![],
+            memory_device_groups: vec![
+                rpc::machine_discovery::MemoryDeviceGroup {
                     size_mb: Some(131_072),
                     mem_type: Some("DDR5".to_string()),
+                    count: 1,
                 },
-                rpc::machine_discovery::MemoryDevice {
+                rpc::machine_discovery::MemoryDeviceGroup {
                     size_mb: None,
                     mem_type: None,
+                    count: 1,
                 },
             ],
             tpm_description: Some(rpc::machine_discovery::TpmDescription {
@@ -1492,13 +1516,15 @@ mod tests {
                 },
             ],
             memory_devices: vec![
-                MemoryDevice {
+                MemoryDeviceGroup {
                     size_mb: Some(131_072),
                     mem_type: Some("DDR5".to_string()),
+                    count: 1,
                 },
-                MemoryDevice {
+                MemoryDeviceGroup {
                     size_mb: None,
                     mem_type: None,
+                    count: 1,
                 },
             ],
             tpm_description: Some(TpmDescription {
@@ -2018,6 +2044,29 @@ mod tests {
                     expect: Yields(populated_hardware_projection()),
                 },
                 Case {
+                    scenario: "old flat memory_devices are condensed on read",
+                    input: rpc::machine_discovery::DiscoveryInfo {
+                        #[allow(deprecated)]
+                        memory_devices: vec![
+                            rpc::machine_discovery::MemoryDevice {
+                                size_mb: Some(65_536),
+                                mem_type: Some("DDR4".to_string()),
+                            },
+                            rpc::machine_discovery::MemoryDevice {
+                                size_mb: Some(65_536),
+                                mem_type: Some("DDR4".to_string()),
+                            },
+                        ],
+                        machine_arch: Some(rpc::machine_discovery::CpuArchitecture::Unknown as i32),
+                        ..Default::default()
+                    },
+                    expect: Yields(HardwareProjection {
+                        memory_sizes: vec![Some(65_536), Some(65_536)],
+                        memory_types: vec![Some("DDR4".to_string()), Some("DDR4".to_string())],
+                        ..empty_hardware_projection()
+                    }),
+                },
+                Case {
                     scenario: "invalid TPM certificate base64 is rejected",
                     input: rpc::machine_discovery::DiscoveryInfo {
                         tpm_ek_certificate: Some("not-base64".to_string()),
@@ -2041,6 +2090,95 @@ mod tests {
                 HardwareInfo::try_from(info)
                     .map(project_hardware)
                     .map_err(drop)
+            },
+        );
+    }
+
+    #[test]
+    fn memory_device_groups_round_trip() {
+        let original = vec![
+            MemoryDeviceGroup {
+                size_mb: Some(65_536),
+                mem_type: Some("DDR5".to_string()),
+                count: 8,
+            },
+            MemoryDeviceGroup {
+                size_mb: Some(32_768),
+                mem_type: Some("DDR4".to_string()),
+                count: 4,
+            },
+            MemoryDeviceGroup {
+                size_mb: None,
+                mem_type: None,
+                count: 2,
+            },
+        ];
+
+        let hardware_info = HardwareInfo {
+            memory_devices: original.clone(),
+            ..Default::default()
+        };
+
+        let discovery_info = rpc::machine_discovery::DiscoveryInfo::try_from(hardware_info)
+            .expect("serialization succeeds");
+        let recovered = HardwareInfo::try_from(discovery_info)
+            .expect("deserialization succeeds")
+            .memory_devices;
+
+        assert_eq!(recovered, original);
+    }
+
+    // Verifies that the internal `count` field is set correctly when reading both
+    // old and new proto formats — not just that rehydration produces the right flat list.
+    #[test]
+    fn memory_device_group_count_after_conversion() {
+        check_values(
+            [
+                Check {
+                    scenario: "new format: count is preserved from memory_device_groups",
+                    input: rpc::machine_discovery::DiscoveryInfo {
+                        memory_device_groups: vec![rpc::machine_discovery::MemoryDeviceGroup {
+                            size_mb: Some(65_536),
+                            mem_type: Some("DDR4".to_string()),
+                            count: 8,
+                        }],
+                        machine_arch: Some(rpc::machine_discovery::CpuArchitecture::Unknown as i32),
+                        ..Default::default()
+                    },
+                    expect: vec![MemoryDeviceGroup {
+                        size_mb: Some(65_536),
+                        mem_type: Some("DDR4".to_string()),
+                        count: 8,
+                    }],
+                },
+                Check {
+                    scenario: "old format: identical flat entries are condensed into count > 1",
+                    input: rpc::machine_discovery::DiscoveryInfo {
+                        #[allow(deprecated)]
+                        memory_devices: vec![
+                            rpc::machine_discovery::MemoryDevice {
+                                size_mb: Some(65_536),
+                                mem_type: Some("DDR4".to_string()),
+                            },
+                            rpc::machine_discovery::MemoryDevice {
+                                size_mb: Some(65_536),
+                                mem_type: Some("DDR4".to_string()),
+                            },
+                        ],
+                        machine_arch: Some(rpc::machine_discovery::CpuArchitecture::Unknown as i32),
+                        ..Default::default()
+                    },
+                    expect: vec![MemoryDeviceGroup {
+                        size_mb: Some(65_536),
+                        mem_type: Some("DDR4".to_string()),
+                        count: 2,
+                    }],
+                },
+            ],
+            |info| {
+                HardwareInfo::try_from(info)
+                    .expect("conversion succeeds")
+                    .memory_devices
             },
         );
     }

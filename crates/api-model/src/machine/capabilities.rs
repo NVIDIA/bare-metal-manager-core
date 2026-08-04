@@ -349,13 +349,15 @@ impl MachineCapabilitiesSet {
                 .mem_type
                 .clone()
                 .unwrap_or_else(|| "unknown".to_string());
+            let total = mem_info
+                .size_mb
+                .unwrap_or_default()
+                .saturating_mul(mem_info.count) as usize;
 
             mem_map
                 .entry(name)
-                .and_modify(|e| {
-                    *e = e.saturating_add(mem_info.size_mb.unwrap_or_default() as usize)
-                })
-                .or_insert_with(|| mem_info.size_mb.unwrap_or_default() as usize);
+                .and_modify(|e| *e = e.saturating_add(total))
+                .or_insert(total);
         }
 
         //

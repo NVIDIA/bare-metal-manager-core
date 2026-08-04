@@ -410,15 +410,15 @@ pub async fn generate_sku_from_machine_at_version_0_or_1(
     let mut total_mem = 0u64;
     for mem in &hardware_info.memory_devices {
         if let Some(cap) = mem.size_mb {
-            total_mem += cap as u64;
+            total_mem += cap as u64 * mem.count as u64;
             let key = (mem.mem_type.clone().unwrap_or_default(), cap);
             mem_components
                 .entry(key.clone())
-                .and_modify(|entry| entry.count += 1)
+                .and_modify(|entry| entry.count += mem.count)
                 .or_insert(SkuComponentMemory {
                     capacity_mb: key.1,
                     memory_type: key.0,
-                    count: 1,
+                    count: mem.count,
                 });
         }
     }
@@ -550,15 +550,15 @@ pub fn generate_base_sku_from_hardware(
     let mut total_mem = 0u64;
     for mem in &hardware_info.memory_devices {
         if let Some(cap) = mem.size_mb {
-            total_mem += cap as u64;
+            total_mem += cap as u64 * mem.count as u64;
             let key = (mem.mem_type.clone().unwrap_or_default(), cap);
             mem_components
                 .entry(key.clone())
-                .and_modify(|entry| entry.count += 1)
+                .and_modify(|entry| entry.count += mem.count)
                 .or_insert(SkuComponentMemory {
                     capacity_mb: key.1,
                     memory_type: key.0,
-                    count: 1,
+                    count: mem.count,
                 });
         }
     }

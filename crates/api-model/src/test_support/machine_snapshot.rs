@@ -34,7 +34,7 @@ use health_report::HealthReport;
 use crate::bmc_info::BmcInfo;
 use crate::hardware_info::{
     BlockDevice, CpuInfo, DmiData, Gpu, HardwareInfo, InfinibandInterface, MachineInventory,
-    MachineInventorySoftwareComponent, MemoryDevice, NetworkInterface, NvmeDevice,
+    MachineInventorySoftwareComponent, MemoryDeviceGroup, NetworkInterface, NvmeDevice,
     PciDeviceProperties, TpmEkCertificate,
 };
 use crate::health::HealthReportSources;
@@ -202,12 +202,11 @@ pub fn host_hardware_info() -> HardwareInfo {
                 platform_info: None,
             })
             .collect(),
-        memory_devices: (0..8)
-            .map(|_| MemoryDevice {
-                size_mb: Some(65536),
-                mem_type: Some("DDR5".to_string()),
-            })
-            .collect(),
+        memory_devices: vec![MemoryDeviceGroup {
+            size_mb: Some(65536),
+            mem_type: Some("DDR5".to_string()),
+            count: 8,
+        }],
         tpm_description: None,
     }
 }
