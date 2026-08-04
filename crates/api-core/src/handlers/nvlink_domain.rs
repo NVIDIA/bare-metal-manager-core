@@ -88,7 +88,7 @@ pub async fn insert_nv_link_domain_health_report(
         report.observed_at = Some(chrono::Utc::now());
     }
     report.triggered_by = triggered_by;
-    report.update_in_alert_since(None);
+    report.update_in_alert_since(health_reports.by_source(&report.source));
 
     match remove_by_source(&mut txn, &domain_id, &health_reports, report.source.clone()).await {
         Ok(_) | Err(CarbideError::NotFoundError { .. }) => {}
