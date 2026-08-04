@@ -220,7 +220,7 @@ tags:
       Machine is a physical server that contains CPUs, GPUs, memory, storage, and networking hardware. Machines are the physical building blocks of a Site.
   - name: Machine Validation
     description: |-
-      Machine Validation runs hardware validation tests on demand for a Machine.
+      Machine Validation executes a series of validation tests against a Machine to verify its integrity. The tests run for each Machine during ingestion and can also be run on demand.
   - name: BMC Reset
     x-displayName: BMC Reset
     description: |-
