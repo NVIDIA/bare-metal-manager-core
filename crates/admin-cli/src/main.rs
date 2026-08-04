@@ -121,12 +121,6 @@ mod vpc;
 mod vpc_peering;
 mod vpc_prefix;
 
-pub fn default_uuid() -> ::rpc::common::Uuid {
-    ::rpc::common::Uuid {
-        value: "00000000-0000-0000-0000-000000000000".to_string(),
-    }
-}
-
 pub fn invalid_machine_id() -> String {
     "INVALID_MACHINE".to_string()
 }
