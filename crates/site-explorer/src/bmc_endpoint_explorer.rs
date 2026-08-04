@@ -1765,6 +1765,9 @@ mod tests {
     use carbide_instrument::testing::{CapturedLog, MetricsCapture, capture_logs};
     use carbide_redfish::libredfish::test_support::{RedfishSim, RedfishSimBootInterfaceRef};
     use carbide_redfish::nv_redfish::NvRedfishClientPool;
+    use carbide_secrets::credentials::{
+        BmcCredentialType, CredentialKey, CredentialReader, CredentialWriter,
+    };
     use carbide_secrets::test_support::credentials::TestCredentialManager;
     use carbide_test_support::Outcome::*;
     use carbide_test_support::{Case, check_cases_async, value_scenarios};
@@ -1901,6 +1904,86 @@ mod tests {
                 },
             ],
             explore_after_credential_bootstrap,
+        )
+        .await;
+    }
+
+    async fn reingest_dpu_with_sitewide_password(
+        (product, username): (&'static str, &'static str),
+    ) -> Result<Credentials, String> {
+        let sim = Arc::new(RedfishSim::default());
+        sim.set_service_root_product(Some(product.to_string()));
+        sim.set_enforce_auth(true);
+        sim.seed_user(username, "sitewide-password");
+        sim.seed_user("service", "factory-service-password");
+
+        let credential_manager = Arc::new(TestCredentialManager::default());
+        credential_manager
+            .set_credentials(
+                &CredentialKey::BmcCredentials {
+                    credential_type: BmcCredentialType::SiteWideRoot,
+                },
+                &Credentials::UsernamePassword {
+                    username: String::new(),
+                    password: "sitewide-password".to_string(),
+                },
+            )
+            .await
+            .expect("seed site-wide BMC credentials");
+
+        let proxy_address = Arc::new(ArcSwap::new(Arc::new(None)));
+        let explorer = BmcEndpointExplorer::new(
+            sim,
+            Arc::new(NvRedfishClientPool::new(proxy_address)),
+            carbide_ipmi::test_support(),
+            credential_manager.clone(),
+            Arc::new(AtomicBool::new(false)),
+            SiteExplorerExploreMode::LibRedfish,
+            None,
+        );
+        let bmc_ip_address: SocketAddr = "127.0.0.1:443".parse().expect("valid test BMC address");
+        let bmc_mac_address: MacAddress = "02:00:00:00:00:01".parse().expect("valid test BMC MAC");
+        let interface = MachineInterfaceSnapshot::mock_with_mac(bmc_mac_address);
+
+        explorer
+            .explore_endpoint(bmc_ip_address, &interface, None, None, None)
+            .await
+            .map_err(|error| error.to_string())?;
+
+        credential_manager
+            .get_credentials(&get_bmc_root_credential_key(bmc_mac_address))
+            .await
+            .map_err(|error| error.to_string())?
+            .ok_or_else(|| "per-BMC credentials were not restored".to_string())
+    }
+
+    /// Reingestion has no per-BMC Vault secret even though the hardware still
+    /// carries the site-wide password from its prior ingestion. For every DPU
+    /// generation, the factory attempt must fail authentication, after which
+    /// site-explorer validates the site-wide password and restores the
+    /// per-BMC secret with that generation's administrative username.
+    #[tokio::test(start_paused = true)]
+    async fn reingested_dpus_restore_missing_bmc_credentials_from_sitewide_password() {
+        check_cases_async(
+            [
+                Case {
+                    scenario: "BlueField-3 restores the root credential",
+                    input: ("BlueField-3 DPU", "root"),
+                    expect: Yields(Credentials::UsernamePassword {
+                        username: "root".to_string(),
+                        password: "sitewide-password".to_string(),
+                    }),
+                },
+                Case {
+                    scenario: "BlueField-4 restores the admin credential",
+                    input: ("BlueField-4 DPU", "admin"),
+                    expect: Yields(Credentials::UsernamePassword {
+                        username: "admin".to_string(),
+                        password: "sitewide-password".to_string(),
+                    }),
+                },
+            ],
+            reingest_dpu_with_sitewide_password,
         )
         .await;
     }

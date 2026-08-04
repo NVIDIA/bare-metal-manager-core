@@ -81,6 +81,9 @@ struct RedfishSimState {
     /// Tests set it to an unrecognized value to force `probe_bmc_vendor` down
     /// the Chassis `Manufacturer` fallback path.
     service_root_vendor: Option<String>,
+    /// When set, overrides the `Product` field returned by `get_service_root`.
+    /// Tests use this to model a specific DPU generation.
+    service_root_product: Option<String>,
     /// When set, overrides the `Manufacturer` returned by `get_chassis`, so
     /// tests can drive `probe_bmc_vendor`'s Lite-On/Delta chassis fallback.
     chassis_manufacturer: Option<String>,
@@ -405,6 +408,12 @@ impl RedfishSim {
     /// service-root probe and into the Chassis `Manufacturer` fallback.
     pub fn set_service_root_vendor(&self, vendor: Option<String>) {
         self.state.lock().unwrap().service_root_vendor = vendor;
+    }
+
+    /// Override the `Product` reported by `get_service_root`, allowing tests to
+    /// drive model-specific behavior such as DPU factory credential selection.
+    pub fn set_service_root_product(&self, product: Option<String>) {
+        self.state.lock().unwrap().service_root_product = product;
     }
 
     /// Override the `Manufacturer` reported by `get_chassis`, so tests can
@@ -1389,16 +1398,18 @@ impl Redfish for RedfishSimClient {
         Result<libredfish::model::service_root::ServiceRoot, RedfishError>,
     > {
         Box::pin(async move {
-            let vendor = self
-                .state
-                .lock()
-                .unwrap()
+            let state = self.state.lock().unwrap();
+            let vendor = state
                 .service_root_vendor
                 .clone()
                 .unwrap_or_else(|| "Nvidia".to_string());
+            let product = state
+                .service_root_product
+                .clone()
+                .unwrap_or_else(|| "GB200 NVL".to_string());
             Ok(ServiceRoot {
                 vendor: Some(vendor),
-                product: Some("GB200 NVL".to_string()),
+                product: Some(product),
                 component_integrity: Some(ODataId {
                     odata_id: "Valid Data".to_string(),
                 }),
@@ -1410,7 +1421,11 @@ impl Redfish for RedfishSimClient {
     fn get_systems<'a>(
         &'a self,
     ) -> libredfish::RedfishFuture<'a, Result<Vec<String>, RedfishError>> {
-        Box::pin(async move { Ok(Vec::new()) })
+        Box::pin(async move {
+            let state = self.state.lock().unwrap();
+            self.authorize(&state, "Systems")?;
+            Ok(Vec::new())
+        })
     }
 
     fn get_managers<'a>(
