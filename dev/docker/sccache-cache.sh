@@ -14,9 +14,9 @@
 #
 # POSIX sh only -- a Dockerfile RUN is interpreted by /bin/sh.
 
-# Number of backend writes sccache has failed so far, or 0 when it cannot be
-# determined. The text output is parsed as a fallback because --stats-format is
-# the newer of the two interfaces.
+# Number of backend writes sccache has failed so far, or "unknown" when it
+# cannot be determined. The text output is parsed as a fallback because
+# --stats-format is the newer of the two interfaces.
 sccache_write_errors() {
 	_errors="$(sccache --show-stats --stats-format=json 2>/dev/null |
 		grep -oE '"cache_write_errors" *: *[0-9]+' |
@@ -27,7 +27,7 @@ sccache_write_errors() {
 			awk '/^Cache write errors/ { print $NF; exit }')"
 	fi
 	case "${_errors}" in
-	'' | *[!0-9]*) echo 0 ;;
+	'' | *[!0-9]*) echo unknown ;;
 	*) echo "${_errors}" ;;
 	esac
 }
@@ -76,7 +76,7 @@ sccache_backend_writable() {
 	# counter is not necessarily up to date the instant the compile returns.
 	sleep 3
 	SCCACHE_PROBE_WRITE_ERRORS="$(sccache_write_errors)"
-	[ "${SCCACHE_PROBE_WRITE_ERRORS}" -eq 0 ]
+	[ "${SCCACHE_PROBE_WRITE_ERRORS}" = 0 ]
 }
 
 sccache_setup() {
@@ -87,7 +87,7 @@ sccache_setup() {
 
 	# No credentials: a plain local `docker build`, where the BuildKit cache
 	# mount is the only backend available.
-	if ! grep -qE "^https?://" /run/secrets/actions_results_url 2>/dev/null; then
+	if ! grep -qE "^https://" /run/secrets/actions_results_url 2>/dev/null; then
 		echo "sccache: using local cache mount at ${SCCACHE_DIR}"
 		sccache --start-server >/dev/null 2>&1 || true
 		return 0
@@ -101,7 +101,11 @@ sccache_setup() {
 	if ! sccache --start-server >/dev/null 2>&1; then
 		_reason="the sccache server would not start"
 	elif ! sccache_backend_writable; then
-		_reason="the Actions cache rejected the write probe (${SCCACHE_PROBE_WRITE_ERRORS} write errors)"
+		if [ "${SCCACHE_PROBE_WRITE_ERRORS}" = unknown ]; then
+			_reason="the Actions cache write probe statistics were unavailable"
+		else
+			_reason="the Actions cache rejected the write probe (${SCCACHE_PROBE_WRITE_ERRORS} write errors)"
+		fi
 	else
 		echo "sccache: using GitHub Actions cache backend"
 		return 0
@@ -121,7 +125,9 @@ sccache_report() {
 	sccache --show-stats || true
 	sccache_dump_log
 	_errors="$(sccache_write_errors)"
-	if [ "${_errors}" -gt 0 ]; then
+	if [ "${_errors}" = unknown ]; then
+		sccache_degraded_banner "cache write statistics unavailable after the build"
+	elif [ "${_errors}" -gt 0 ]; then
 		sccache_degraded_banner "${_errors} cache write errors during the build"
 	fi
 	return 0
