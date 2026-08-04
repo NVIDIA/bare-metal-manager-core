@@ -9,14 +9,14 @@
 #
 #   mat-0: 10.233.16.0/20 (4,094 IPs) → 1,350 hosts (4,050 BMCs)
 #   mat-1: 10.233.32.0/19 (8,190 IPs) → 2,700 hosts (8,100 BMCs)
-#   mat-2: 10.233.48.0/20 (4,094 IPs) →   450 hosts (1,350 BMCs)
+#   mat-2: 10.233.8.0/21  (2,046 IPs) →   450 hosts (1,350 BMCs)
 #                                        4,500 hosts / 13,500 BMCs total
 #
 # NICo siteConfig needs (added for the E7-v6 run):
 #   allow_insecure_discovery = true
 #   [networks.mat-bmc-0] type=underlay prefix=10.233.16.0/20 gateway=10.233.16.1
 #   [networks.mat-bmc-1] type=underlay prefix=10.233.32.0/19 gateway=10.233.32.1
-#   [networks.mat-bmc-2] type=underlay prefix=10.233.48.0/20 gateway=10.233.48.1
+#   [networks.mat-bmc-2] type=underlay prefix=10.233.8.0/21 gateway=10.233.8.1
 # =============================================================================
 
 image:
@@ -133,7 +133,7 @@ pods:
         runIntervalWorking: "5s"
         runIntervalIdle: "60s"
         networkStatusRunInterval: "120s"
-        oobDhcpRelayAddress: "10.233.48.1"
+        oobDhcpRelayAddress: "10.233.8.1"
         adminDhcpRelayAddress: "10.102.0.1"
         networkVirtualizationType: ""
         dpusInNicMode: false
