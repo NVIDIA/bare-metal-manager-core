@@ -17,6 +17,7 @@ import (
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/cache"
+	"sigs.k8s.io/controller-runtime/pkg/config"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
@@ -44,6 +45,10 @@ func main() {
 	flag.StringVar(&probeAddr, "health-probe-bind-address", ":8081", "health probe endpoint")
 	flag.StringVar(&dpfNamespace, "dpf-namespace", "dpf-operator-system",
 		"namespace where NICo creates DPF CRs (must match site config)")
+	var cacheSyncTimeout time.Duration
+	flag.DurationVar(&cacheSyncTimeout, "cache-sync-timeout", 15*time.Minute,
+		"how long to wait for the initial informer cache sync; the 2m default is\n"+
+			"too short once the namespace holds thousands of DPU/DPUDevice CRs")
 	flag.DurationVar(&phaseDwell, "phase-dwell", 3*time.Second,
 		"time each dwell-gated DPU phase lingers before advancing")
 	var reconcileConcurrency int
@@ -61,6 +66,7 @@ func main() {
 		os.Exit(2)
 	}
 
+	// Raise with --cache-sync-timeout when simulating very large fleets.
 	ctrl.SetLogger(zap.New(zap.UseFlagOptions(&opts)))
 	setupLog := ctrl.Log.WithName("setup")
 
@@ -76,6 +82,16 @@ func main() {
 			DefaultNamespaces: map[string]cache.Config{dpfNamespace: {}},
 		},
 		// Simulator is single-instance dev tooling; no leader election.
+		//
+		// Fleet-scale caches need far longer than the 2-minute default to do
+		// their initial LIST: at 4,500 hosts the DPF namespace holds ~9,000
+		// DPUs and ~9,000 DPUDevices, the sync times out, and the manager
+		// exits before reconciling anything ("failed to wait for dpudevice
+		// caches to sync"). The pod then crash-loops and every machine sits
+		// at dpfstate=waitingforready forever.
+		Controller: config.Controller{
+			CacheSyncTimeout: cacheSyncTimeout,
+		},
 	})
 	if err != nil {
 		setupLog.Error(err, "unable to start manager")
