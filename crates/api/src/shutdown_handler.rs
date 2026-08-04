@@ -57,35 +57,18 @@ impl Display for ShutdownCause {
     }
 }
 
-#[cfg(unix)]
 fn shutdown_signal() -> impl Future<Output = ShutdownCause> {
     use tokio::signal::unix::{SignalKind, signal};
 
     // Register the signals before returning
     let mut terminate =
         signal(SignalKind::terminate()).expect("Failed to register SIGTERM handler");
-    let interrupt = tokio::signal::ctrl_c();
+    let mut interrupt = signal(SignalKind::interrupt()).expect("Failed to register SIGINT handler");
 
     async move {
         tokio::select! {
-            result = interrupt => {
-                result.expect("Failed to listen for SIGINT");
-                ShutdownCause::Int
-            }
+            _ = interrupt.recv() => ShutdownCause::Int,
             _ = terminate.recv() => ShutdownCause::Term,
         }
-    }
-}
-
-#[cfg(not(unix))]
-fn shutdown_signal() -> impl Future<Output = ShutdownCause> {
-    // Register the signal before returning
-    let interrupt = tokio::signal::ctrl_c();
-
-    async move {
-        interrupt
-            .await
-            .expect("Failed to listen for shutdown signal");
-        ShutdownCause::Int
     }
 }
