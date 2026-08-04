@@ -1335,7 +1335,14 @@ while (( SECONDS < _end )); do
         (SELECT count(*) FROM machines WHERE controller_state->>'state' = 'ready');" || echo '?/?/?/?/?')"
     IFS=/ read -r _dhcp _eok _mh MACHINES _rdy <<< "$_prog"
     MACHINES="${MACHINES:-0}"; [[ "$MACHINES" == "?" ]] && MACHINES=0
-    echo "$(date +%s),${_dhcp},${_eok},${_mh},${MACHINES},${_rdy}" >> "$INGEST_RATE_CSV"
+    # Only record real samples: a failed query yields '?' placeholders, and
+    # writing those as rows corrupts the rate maths downstream (they parse as
+    # 0 and look like the fleet went backwards).
+    if [[ "$_prog" != *'?'* ]]; then
+        echo "$(date +%s),${_dhcp},${_eok},${_mh},${MACHINES},${_rdy}" >> "$INGEST_RATE_CSV"
+    else
+        warn "  progress query failed; sample skipped (not written to CSV)"
+    fi
     (( MACHINES >= MACHINE_TARGET )) && break
     info "  endpoints_ok=${_eok}/${IFACES}  managed_hosts=${_mh}  machines=${MACHINES} ..."
     # Re-clear any AvoidLockout that latched during the wait (e.g. an

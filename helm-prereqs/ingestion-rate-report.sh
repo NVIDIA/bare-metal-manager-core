@@ -39,7 +39,17 @@ PG="$(kubectl get pods -n "$POSTGRES_NS" -l application=spilo \
     -o jsonpath='{range .items[*]}{.metadata.name} {.metadata.labels.spilo-role}{"\n"}{end}' 2>/dev/null \
     | awk '$2=="master"{print $1}' | head -1)"
 [[ -n "$PG" ]] || { echo "ERROR: no Patroni primary in $POSTGRES_NS" >&2; exit 1; }
-q() { kubectl exec -n "$POSTGRES_NS" "$PG" -- su postgres -c "psql -d $NICO_DB -v ON_ERROR_STOP=1 -tAc \"$1\"" 2>/dev/null; }
+# Surface query failures rather than returning an empty string that later
+# parses as a zero row.
+q() {
+    local out rc
+    out="$(kubectl exec -n "$POSTGRES_NS" "$PG" -- su postgres -c "psql -d $NICO_DB -v ON_ERROR_STOP=1 -tAc \"$1\"" 2>&1)"; rc=$?
+    if (( rc != 0 )); then
+        echo "ERROR: query failed (rc=$rc): ${out}" >&2
+        return "$rc"
+    fi
+    printf '%s' "$out"
+}
 
 report_curve() {   # $1 = table  $2 = label
     local tbl="$1" label="$2"
