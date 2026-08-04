@@ -22,7 +22,6 @@ use std::time::{Duration, Instant};
 use ::db::work_lock_manager::WorkLockManagerHandle;
 use carbide_utils::periodic_timer::PeriodicTimer;
 use opentelemetry::metrics::{Counter, Histogram, Meter};
-use tokio::sync::oneshot;
 use tokio_util::sync::CancellationToken;
 use tracing::Instrument;
 
@@ -52,7 +51,6 @@ pub(super) struct PeriodicEnqueuer<IO: StateControllerIO> {
     /// task that was already running when its object was deleted cannot
     /// resurrect the series after the first clear.
     pub(super) pending_clears: HashMap<String, Instant>,
-    pub(super) complete_tx: oneshot::Sender<()>,
 }
 
 pub(super) struct SingleIterationResult {
@@ -108,8 +106,6 @@ impl<IO: StateControllerIO> PeriodicEnqueuer<IO> {
                 _ = tokio::time::sleep(sleep_time) => {}
             }
         }
-
-        self.complete_tx.send(()).ok();
     }
 
     /// Performs a single enqueuer iteration

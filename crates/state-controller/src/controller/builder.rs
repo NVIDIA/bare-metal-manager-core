@@ -20,7 +20,6 @@ use std::sync::Arc;
 
 use db::work_lock_manager::WorkLockManagerHandle;
 use opentelemetry::metrics::Meter;
-use tokio::sync::oneshot;
 use tokio::task::JoinSet;
 use tokio_util::sync::CancellationToken;
 
@@ -185,8 +184,6 @@ impl<IO: StateControllerIO> Builder<IO> {
 
         let per_object_state_metrics = self.per_object_state_metrics.take();
 
-        let (enqueuer_complete_tx, enqueuer_complete_rx) = oneshot::channel::<()>();
-
         let enqueuer = PeriodicEnqueuer::<IO> {
             pool: database.clone(),
             work_lock_manager_handle,
@@ -197,7 +194,6 @@ impl<IO: StateControllerIO> Builder<IO> {
             per_object_state: per_object_state_metrics.clone(),
             known_object_ids: Default::default(),
             pending_clears: Default::default(),
-            complete_tx: enqueuer_complete_tx,
         };
 
         let processor_metric_emitter =
@@ -222,7 +218,6 @@ impl<IO: StateControllerIO> Builder<IO> {
             stats_since_last_log: Default::default(),
             last_metric_emission_time: std::time::Instant::now(),
             processor_id,
-            enqueuer_complete_rx: Some(enqueuer_complete_rx),
         };
 
         let controller = StateController::<IO> {

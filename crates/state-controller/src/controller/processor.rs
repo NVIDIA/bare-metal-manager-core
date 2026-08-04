@@ -25,7 +25,6 @@ use model::controller_outcome::PersistentStateHandlerOutcome;
 use opentelemetry::KeyValue;
 use opentelemetry::metrics::{Counter, Histogram, Meter};
 use sqlx_query_tracing::SqlxQueryDataAggregation;
-use tokio::sync::oneshot;
 use tokio::task::{JoinError, JoinSet};
 use tokio_util::sync::CancellationToken;
 use tracing::Instrument;
@@ -90,7 +89,6 @@ pub(super) struct StateProcessor<IO: StateControllerIO> {
     pub(super) processor_id: String,
     /// Emitter for broadcasting state change events to registered hooks.
     pub(super) state_change_emitter: Arc<StateChangeEmitter<IO::ObjectId, IO::ControllerState>>,
-    pub(super) enqueuer_complete_rx: Option<oneshot::Receiver<()>>,
 }
 pub(super) struct ObjectHandlingTaskResult<IO: StateControllerIO> {
     object_id: IO::ObjectId,
@@ -198,12 +196,6 @@ impl<IO: StateControllerIO> StateProcessor<IO> {
                 );
                 break;
             }
-        }
-
-        // Ensure the enqueuer is done before we drain, we don't want to miss any events it
-        // enqueued.
-        if let Some(enqueuer_complete_rx) = self.enqueuer_complete_rx.take() {
-            enqueuer_complete_rx.await.ok();
         }
 
         self.drain().await;
