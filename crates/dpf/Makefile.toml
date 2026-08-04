@@ -19,27 +19,23 @@ CRD_DEST_PATH = "${CARGO_MAKE_WORKING_DIRECTORY}/crds"
 description = "Clone NVIDIA doca-platform repository"
 script = '''
 set -eu
-if [ -d "${DOCA_CLONE_DIR}" ]; then
-    echo "doca-platform already exists, skipping clone"
+rm -rf "${DOCA_CLONE_DIR}"
+echo "Cloning NVIDIA doca-platform repository..."
+if [ -z "${DOCA_COMMIT}" ]; then
+    git clone --depth 1 --branch ${DOCA_BRANCH} ${DOCA_REPO_URL} "${DOCA_CLONE_DIR}"
 else
-    echo "Cloning NVIDIA doca-platform repository..."
-    if [ -z "$DOCA_COMMIT" ]; then
-      git clone --depth 1 --branch ${DOCA_BRANCH} ${DOCA_REPO_URL} "${DOCA_CLONE_DIR}"
-    else 
-      git clone --depth 1 ${DOCA_REPO_URL} "${DOCA_CLONE_DIR}"
-      cd "${DOCA_CLONE_DIR}"
-      git fetch --unshallow --all
-      git checkout "${DOCA_COMMIT}"
-      cd -
-    fi
-    echo "Repository cloned"
+    git clone --depth 1 ${DOCA_REPO_URL} "${DOCA_CLONE_DIR}"
+    git -C "${DOCA_CLONE_DIR}" fetch --unshallow --all
+    git -C "${DOCA_CLONE_DIR}" checkout "${DOCA_COMMIT}"
 fi
+echo "Repository cloned"
 '''
 
 [tasks.refresh-crds]
 description = "Refresh committed CRD YAML files from NVIDIA DOCA Platform"
 dependencies = ["clone-doca"]
 script = '''
+set -eu
 mkdir -p "${CRD_DEST_PATH}"
 rm -f "${CRD_DEST_PATH}"/*.yaml
 cp "${CRD_SOURCE_PATH}"/*.yaml "${CRD_DEST_PATH}/"
