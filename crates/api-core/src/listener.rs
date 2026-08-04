@@ -168,15 +168,17 @@ fn get_tls_acceptor(tls_config: &ApiTlsConfig) -> Option<TlsAcceptor> {
     }
 }
 
-/// The five-minute TLS acceptor refresh, counted instead of logged: the
-/// steady tick is a rate, not news, so the per-refresh log line retires.
+/// `TlsCertsRefreshed` records TLS acceptor reload attempts. The first reload
+/// starts on the first accepted connection; later reloads start on the next
+/// accepted connection once the five-minute interval has elapsed.
 #[derive(carbide_instrument::Event)]
 #[event(
     event_name = "api_tls_certs_refreshed",
     metric_name = "carbide_api_tls_cert_refreshes_total",
     component = "nico-api",
-    log = off,
+    log = info,
     metric = counter,
+    message = "Refreshing certs",
     describe = "Number of TLS acceptor refreshes performed by the API listener"
 )]
 struct TlsCertsRefreshed;
@@ -570,9 +572,10 @@ mod tests {
     use carbide_instrument::testing::{MetricsCapture, capture_logs};
     use carbide_test_support::{Check, check_values};
 
-    use super::{ConnectionFailReason, TcpAcceptFailed, TlsConnectionFailed};
+    use super::{ConnectionFailReason, TcpAcceptFailed, TlsCertsRefreshed, TlsConnectionFailed};
 
     const FAILURE_METRIC: &str = "carbide_api_tls_connection_fail_total";
+    const TLS_CERT_REFRESH_METRIC: &str = "carbide_api_tls_cert_refreshes_total";
 
     struct FailureInput {
         reason: &'static str,
@@ -702,5 +705,23 @@ mod tests {
             ],
             observe_failure,
         );
+    }
+
+    /// A certificate refresh keeps the existing counter and restores the INFO
+    /// record operators use to see when the listener triggers a reload.
+    #[test]
+    fn tls_cert_refresh_emits_its_metric_and_info_log() {
+        let metrics = MetricsCapture::start();
+        let logs = capture_logs(|| carbide_instrument::emit(TlsCertsRefreshed));
+
+        assert_eq!(metrics.counter_delta(TLS_CERT_REFRESH_METRIC, &[]), 1.0);
+        let [log] = logs.as_slice() else {
+            panic!("a TLS certificate refresh should write one log, got {logs:?}");
+        };
+        assert_eq!(log.level, tracing::Level::INFO);
+        assert_eq!(log.metadata_name, "api_tls_certs_refreshed");
+        assert_eq!(log.message, "Refreshing certs");
+        assert_eq!(log.field("event_name"), Some("api_tls_certs_refreshed"));
+        assert_eq!(log.field("metric_name"), Some(TLS_CERT_REFRESH_METRIC));
     }
 }

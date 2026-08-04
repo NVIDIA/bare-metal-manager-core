@@ -844,6 +844,7 @@ impl MainLoop {
                     .collect();
 
                 let tenant_peers = ethernet_virtualization::tenant_peers(&conf);
+                let mut should_check_ipv6_unicast = false;
                 if self.is_hbn_up {
                     // First thing is to read the existing HBN version and properly set the hbn device names
                     // associated with that version.
@@ -896,10 +897,12 @@ impl MainLoop {
                     }
 
                     tracing::trace!(network_config = ?conf, "Desired network config");
-                    // Get the actual virtualization type to use for configuring
-                    // an interface, where we'll default to reading the one provided
-                    // by the Carbide API, with the ability to override via RunOptions.
+                    // Resolve the virtualization type used to generate HBN
+                    // configuration, including any RunOptions override. The IPv6
+                    // health gate follows that same effective value.
                     let virtualization_type = effective_virtualization_type(&conf, &self.options)?;
+                    should_check_ipv6_unicast =
+                        ipv6_unicast_health_enabled(&conf, virtualization_type);
 
                     let dhcp_result = ethernet_virtualization::update_dhcp(
                         &self.agent_config.hbn.root_dir,
@@ -1095,6 +1098,7 @@ impl MainLoop {
                             has_changed_configs,
                             min_healthy_links: conf.min_dpu_functioning_links.unwrap_or(2),
                             route_servers: &conf.route_servers,
+                            should_check_ipv6_unicast,
                             hbn_device_names: self.hbn_device_names.clone(),
                             include_dhcp_server: !conf.use_admin_network || conf.is_primary_dpu,
                             run_restricted_mode_check: false,
@@ -1300,6 +1304,23 @@ impl MainLoop {
             loop_period: Default::default(),
         }
     }
+}
+
+/// Enables IPv6-unicast health only after the effective FNN configuration has
+/// the dedicated IPv6 loopback used by that underlay.
+///
+/// FNN templates activate the address family before the loopback pool is
+/// available, so FRR summary-key presence cannot serve as the activation
+/// signal.
+fn ipv6_unicast_health_enabled(
+    conf: &ManagedHostNetworkConfigResponse,
+    virtualization_type: VpcVirtualizationType,
+) -> bool {
+    virtualization_type == VpcVirtualizationType::Fnn
+        && conf
+            .managed_host_config
+            .as_ref()
+            .is_some_and(|config| config.loopback_ip_v6.is_some())
 }
 
 /// effective_virtualization_type returns the virtualization type
@@ -1738,6 +1759,77 @@ mod test {
                 // Interface identity prevents profiles from being silently
                 // reassociated with a different port.
                 InterfaceChange::Identity => false,
+            }
+        );
+    }
+
+    enum ManagedHostConfigInput {
+        Missing,
+        WithoutIpv6Loopback,
+        WithIpv6Loopback(&'static str),
+    }
+
+    struct Ipv6UnicastHealthRow {
+        virtualization_type: VpcVirtualizationType,
+        managed_host_config: ManagedHostConfigInput,
+    }
+
+    #[test]
+    fn ipv6_unicast_health_requires_fnn_with_an_ipv6_loopback() {
+        use carbide_test_support::value_scenarios;
+
+        value_scenarios!(run = |row: Ipv6UnicastHealthRow| {
+            let managed_host_config = match row.managed_host_config {
+                ManagedHostConfigInput::Missing => None,
+                ManagedHostConfigInput::WithoutIpv6Loopback => {
+                    Some(rpc::ManagedHostNetworkConfig {
+                        loopback_ip: "10.0.0.1".to_string(),
+                        loopback_ip_v6: None,
+                        quarantine_state: None,
+                    })
+                }
+                ManagedHostConfigInput::WithIpv6Loopback(loopback_ip_v6) => {
+                    Some(rpc::ManagedHostNetworkConfig {
+                        loopback_ip: "10.0.0.1".to_string(),
+                        loopback_ip_v6: Some(loopback_ip_v6.to_string()),
+                        quarantine_state: None,
+                    })
+                }
+            };
+            let conf = ManagedHostNetworkConfigResponse {
+                managed_host_config,
+                ..Default::default()
+            };
+            ipv6_unicast_health_enabled(&conf, row.virtualization_type)
+        };
+            "FNN with a reserved IPv6 loopback" {
+                Ipv6UnicastHealthRow {
+                    virtualization_type: VpcVirtualizationType::Fnn,
+                    managed_host_config: ManagedHostConfigInput::WithIpv6Loopback("2001:db8::1"),
+                } => true,
+            }
+
+            "inactive IPv6 underlay" {
+                Ipv6UnicastHealthRow {
+                    virtualization_type: VpcVirtualizationType::Fnn,
+                    managed_host_config: ManagedHostConfigInput::Missing,
+                } => false,
+                Ipv6UnicastHealthRow {
+                    virtualization_type: VpcVirtualizationType::Fnn,
+                    managed_host_config: ManagedHostConfigInput::WithoutIpv6Loopback,
+                } => false,
+                Ipv6UnicastHealthRow {
+                    virtualization_type: VpcVirtualizationType::EthernetVirtualizer,
+                    managed_host_config: ManagedHostConfigInput::WithIpv6Loopback("2001:db8::1"),
+                } => false,
+                Ipv6UnicastHealthRow {
+                    virtualization_type: VpcVirtualizationType::EthernetVirtualizerWithNvue,
+                    managed_host_config: ManagedHostConfigInput::WithIpv6Loopback("2001:db8::1"),
+                } => false,
+                Ipv6UnicastHealthRow {
+                    virtualization_type: VpcVirtualizationType::Flat,
+                    managed_host_config: ManagedHostConfigInput::WithIpv6Loopback("2001:db8::1"),
+                } => false,
             }
         );
     }

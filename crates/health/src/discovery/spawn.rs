@@ -770,6 +770,7 @@ mod tests {
             serial: serial.to_string(),
             slot_number: None,
             tray_index: None,
+            nvlink_domain_uuid: None,
             endpoint_role,
             is_primary,
             nmxc_enabled,

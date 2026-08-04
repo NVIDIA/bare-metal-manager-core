@@ -20,11 +20,12 @@ import (
 // checks if the ExpectedRackUpdateRequest type satisfies the MappedNullable interface at compile time
 var _ MappedNullable = &ExpectedRackUpdateRequest{}
 
-// ExpectedRackUpdateRequest Request data to update an existing Expected Rack.  For single updates (PATCH /expected-rack/{id}), the `id` field is optional in the body and will be ignored if provided (the `id` from the URL path is used).  Chassis identity and physical location information are conveyed via well-known label keys in `labels`: - `chassis.manufacturer`, `chassis.serial-number`, `chassis.model` - `location.region`, `location.datacenter`, `location.room`, `location.position`
+// ExpectedRackUpdateRequest Request data to update an existing Expected Rack.  For single updates (PATCH /expected-rack/{id}), the `id` field is optional in the body and will be ignored if provided (the `id` from the URL path is used).  The `rackId` field is immutable on update — omit it or provide the existing value.  Chassis identity and physical location information are conveyed via well-known label keys in `labels`: - `chassis.manufacturer`, `chassis.serial-number`, `chassis.model` - `location.region`, `location.datacenter`, `location.room`, `location.position`
 type ExpectedRackUpdateRequest struct {
 	// Unique identifier (UUID) of the Expected Rack to update. Optional for single Expected Rack update (must be empty or match the id from the URL path).
 	Id NullableString `json:"id,omitempty"`
-	// Optional new operator-supplied rack identifier. If provided, must be non-empty and unique within the Site.
+	// Operator-supplied rack identifier. Immutable on update: omit this field, send `null`, or provide the existing value as a compatibility no-op. A changed value is rejected because Core and Flow use rackId as the identity key for expected racks.
+	// Deprecated
 	RackId NullableString `json:"rackId,omitempty"`
 	// Optional new Rack Profile identifier. If provided, must be non-empty.
 	RackProfileId NullableString `json:"rackProfileId,omitempty"`
@@ -97,6 +98,7 @@ func (o *ExpectedRackUpdateRequest) UnsetId() {
 }
 
 // GetRackId returns the RackId field value if set, zero value otherwise (both if not set or set to explicit null).
+// Deprecated
 func (o *ExpectedRackUpdateRequest) GetRackId() string {
 	if o == nil || IsNil(o.RackId.Get()) {
 		var ret string
@@ -108,6 +110,7 @@ func (o *ExpectedRackUpdateRequest) GetRackId() string {
 // GetRackIdOk returns a tuple with the RackId field value if set, nil otherwise
 // and a boolean to check if the value has been set.
 // NOTE: If the value is an explicit nil, `nil, true` will be returned
+// Deprecated
 func (o *ExpectedRackUpdateRequest) GetRackIdOk() (*string, bool) {
 	if o == nil {
 		return nil, false
@@ -125,6 +128,7 @@ func (o *ExpectedRackUpdateRequest) HasRackId() bool {
 }
 
 // SetRackId gets a reference to the given NullableString and assigns it to the RackId field.
+// Deprecated
 func (o *ExpectedRackUpdateRequest) SetRackId(v string) {
 	o.RackId.Set(&v)
 }

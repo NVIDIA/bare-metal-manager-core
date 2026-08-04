@@ -21,6 +21,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use arc_swap::ArcSwapOption;
+use carbide_uuid::nvlink::NvLinkDomainId;
 use prometheus::{Histogram, HistogramOpts};
 
 use crate::HealthError;
@@ -83,6 +84,7 @@ pub(super) struct CollectorState {
     nvue_gnmi: HashMap<Cow<'static, str>, Collector>,
     gpu_inventory: HashMap<Cow<'static, str>, Collector>,
     inventories: HashMap<Cow<'static, str>, SharedInventory<BmcClient>>,
+    switch_domain_uuids: HashMap<Cow<'static, str>, Option<NvLinkDomainId>>,
 }
 
 impl CollectorState {
@@ -100,6 +102,7 @@ impl CollectorState {
             nvue_gnmi: HashMap::new(),
             gpu_inventory: HashMap::new(),
             inventories: HashMap::new(),
+            switch_domain_uuids: HashMap::new(),
         }
     }
 
@@ -151,6 +154,38 @@ impl CollectorState {
     /// Drop the shared inventory handle for a removed endpoint.
     pub(super) fn remove_inventory(&mut self, key: &str) {
         self.inventories.remove(key);
+    }
+
+    /// Records the latest switch domain and reports whether it changed.
+    ///
+    /// The first observation establishes a baseline without forcing a restart.
+    /// Later transitions between absent and present values, or between two UUIDs,
+    /// require a restart because running collectors retain their startup metadata.
+    pub(super) fn observe_switch_domain(
+        &mut self,
+        key: &str,
+        domain_uuid: Option<NvLinkDomainId>,
+    ) -> bool {
+        match self.switch_domain_uuids.get_mut(key) {
+            Some(previous) if *previous != domain_uuid => {
+                *previous = domain_uuid;
+                true
+            }
+            Some(_) => false,
+            None => {
+                self.switch_domain_uuids
+                    .insert(Cow::Owned(key.to_string()), domain_uuid);
+                false
+            }
+        }
+    }
+
+    pub(super) fn retain_switch_domains(
+        &mut self,
+        active_switch_endpoints: &HashSet<Cow<'static, str>>,
+    ) {
+        self.switch_domain_uuids
+            .retain(|key, _| active_switch_endpoints.contains(key));
     }
 
     pub(super) fn contains(&self, kind: CollectorKind, key: &str) -> bool {

@@ -264,6 +264,7 @@ mod tests {
             batch_size: 1,
             flush_interval: Duration::from_secs(1),
             include_diagnostics: false,
+            include_alert_details: false,
         };
 
         let endpoint = target_endpoint(&target).await?;
@@ -303,6 +304,7 @@ mod tests {
             batch_size: 1,
             flush_interval: Duration::from_secs(1),
             include_diagnostics: false,
+            include_alert_details: false,
         };
 
         let peer = tokio::spawn(async move {

@@ -329,6 +329,9 @@ mod tests {
     fn test_stream_static_labels_includes_switch_placement_metadata() {
         let switch_id = test_switch_id("switch-a");
         let switch_id_label = switch_id.to_string();
+        let nvlink_domain_uuid = NvLinkDomainId::new();
+        let nvlink_domain_uuid_label = nvlink_domain_uuid.to_string();
+
         let context = EventContext {
             endpoint_key: "11:22:33:44:55:66".to_string(),
             addr: BmcAddr {
@@ -343,6 +346,7 @@ mod tests {
                 serial: "SN-SWITCH-001".to_string(),
                 slot_number: Some(7),
                 tray_index: Some(3),
+                nvlink_domain_uuid: Some(nvlink_domain_uuid),
                 endpoint_role: SwitchEndpointRole::Host,
                 is_primary: false,
                 nmxc_enabled: false,
@@ -363,5 +367,10 @@ mod tests {
         assert_eq!(label_value("rack_id"), Some("RACK_2"));
         assert_eq!(label_value("switch_slot_number"), Some("7"));
         assert_eq!(label_value("switch_tray_index"), Some("3"));
+
+        assert_eq!(
+            label_value("nvlink_domain_uuid"),
+            Some(nvlink_domain_uuid_label.as_str())
+        );
     }
 }
