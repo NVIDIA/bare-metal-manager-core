@@ -24,6 +24,7 @@ use config_version::Versioned;
 use model::controller_outcome::PersistentStateHandlerOutcome;
 use opentelemetry::KeyValue;
 use opentelemetry::metrics::{Counter, Histogram, Meter};
+use rand::RngExt;
 use sqlx_query_tracing::SqlxQueryDataAggregation;
 use tokio::task::{JoinError, JoinSet};
 use tokio_util::sync::CancellationToken;
@@ -145,7 +146,7 @@ impl<IO: StateControllerIO> StateProcessor<IO> {
     /// Runs the state handler task repeatedly, while waiting for the configured
     /// amount of time between runs.
     ///
-    /// The controller task will continue to run until `stop_receiver` was signaled
+    /// The controller task will continue to run until `self.cancel_token` is cancelled.
     pub async fn run(mut self) {
         let dispatch_interval = self.iteration_config.processor_dispatch_interval;
         let max_jitter = (dispatch_interval.as_millis() / 3) as u64;
@@ -176,27 +177,15 @@ impl<IO: StateControllerIO> StateProcessor<IO> {
             // The iteration might not have used up all of dispatch_interval in case
             // all dispatched tasks finished earlier. In this case we wait the configured
             // time before the next dispatch.
-            use rand::RngExt;
-            let sleep_time = next_dispatch_at.saturating_duration_since(std::time::Instant::now());
-            if !sleep_time.is_zero() {
-                let cancelled_future = self.cancel_token.cancelled();
-                tokio::pin!(cancelled_future);
-                tokio::select! {
-                        biased;
-                    _ = &mut cancelled_future => {
-                        tracing::info!(controller=IO::LOG_SPAN_CONTROLLER_NAME, "State processor stop was requested");
-                        break;
-                    }
-                    _ = tokio::time::sleep(sleep_time) => {},
-                }
-            } else if self.cancel_token.is_cancelled() {
-                tracing::info!(
-                    controller = IO::LOG_SPAN_CONTROLLER_NAME,
-                    "State processor stop was requested"
-                );
-                break;
-            }
+            self.cancel_token
+                .run_until_cancelled(tokio::time::sleep_until(next_dispatch_at.into()))
+                .await;
         }
+
+        tracing::info!(
+            controller = IO::LOG_SPAN_CONTROLLER_NAME,
+            "State processor stop was requested"
+        );
 
         self.drain().await;
     }
