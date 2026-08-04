@@ -1462,7 +1462,9 @@ jobs:
         run: make -C rest-api core-proto
 
       - name: Check repository is clean
-        run: bash scripts/check-repo-clean.sh "REST Core protobuf sync"
+        run: >-
+          bash scripts/check-repo-clean.sh "REST Core protobuf sync"
+          "make sync-protobuf (from the repository root)"
 
   lint-police:
     needs:
