@@ -1760,7 +1760,10 @@ fn warn_report_diff(report1: &EndpointExplorationReport, report2: &EndpointExplo
 
 #[cfg(test)]
 mod tests {
+    use std::net::TcpListener;
+
     use arc_swap::ArcSwap;
+    use bmc_mock::{CombinedServer, ListenerOrAddress};
     use carbide_instrument::Outcome;
     use carbide_instrument::testing::{CapturedLog, MetricsCapture, capture_logs};
     use carbide_redfish::libredfish::test_support::{
@@ -1790,6 +1793,68 @@ mod tests {
             }),
             ..Default::default()
         }
+    }
+
+    #[tokio::test]
+    async fn default_nvredfish_mode_does_not_apply_lenovo_fallback_to_generic_ami() {
+        let (router, _state) = bmc_mock::test_support::
+            generic_ami_router_with_network_adapter_port_and_disabled_system_mac(
+                serde_json::json!({
+                "@odata.id": "/redfish/v1/Chassis/Self/NetworkAdapters/1/Ports/1",
+                "@odata.type": "#Port.v1_6_0.Port",
+                "Id": "1",
+                "Name": "Port 1",
+                "Oem": {
+                    "Lenovo": { "PhysicalPortMacAddress": "946DAE53CB9B" }
+                }
+                }),
+            );
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let bmc_ip_address = listener.local_addr().unwrap();
+        let _server = CombinedServer::run_router(
+            "nv-redfish-port-test",
+            router,
+            Some(ListenerOrAddress::Listener(listener)),
+            bmc_mock::tls::server_config(None::<&str>).unwrap(),
+        );
+
+        let mode = crate::config::SiteExplorerConfig::default_explore_mode();
+        assert_eq!(mode, SiteExplorerExploreMode::NvRedfish);
+        let proxy_address = Arc::new(ArcSwap::new(Arc::new(None)));
+        let explorer = BmcEndpointExplorer::new(
+            Arc::new(RedfishSim::default()),
+            Arc::new(NvRedfishClientPool::new(proxy_address)),
+            carbide_ipmi::test_support(),
+            Arc::new(TestCredentialManager::default()),
+            Arc::new(AtomicBool::new(false)),
+            mode,
+            None,
+        );
+
+        let report = explorer
+            .generate_exploration_report(
+                bmc_ip_address,
+                Credentials::new("root", "password"),
+                None,
+                None,
+            )
+            .await
+            .unwrap();
+
+        assert!(report.all_mac_addresses().is_empty());
+        assert!(
+            report.chassis[0].network_adapters[0]
+                .port_mac_addresses
+                .is_empty()
+        );
+        assert!(
+            report.systems[0]
+                .ethernet_interfaces
+                .iter()
+                .any(|interface| {
+                    interface.id.as_deref() == Some("disabled") && interface.mac_address.is_none()
+                })
+        );
     }
 
     #[test]

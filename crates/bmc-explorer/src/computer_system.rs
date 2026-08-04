@@ -116,6 +116,30 @@ impl<B: Bmc> ExploredComputerSystem<B> {
         })
     }
 
+    /// Chassis explicitly associated with this ComputerSystem by Redfish.
+    pub(crate) fn linked_chassis_ids(&self) -> Vec<nv_redfish::core::ODataId> {
+        self.system
+            .raw()
+            .links
+            .as_ref()
+            .and_then(|links| links.chassis.as_ref())
+            .into_iter()
+            .flatten()
+            .map(|chassis| chassis.id().clone())
+            .collect()
+    }
+
+    /// Whether the System EthernetInterfaces collection contains a usable MAC.
+    pub(crate) fn has_usable_ethernet_mac_address(&self) -> bool {
+        self.ethernet_interfaces.iter().any(|interface| {
+            let mac_address = interface.mac_address();
+            is_usable_ethernet_mac_address(
+                interface.interface_enabled(),
+                mac_address.as_ref().map(|mac_address| mac_address.as_str()),
+            )
+        })
+    }
+
     async fn fetch_bios(
         system: &ComputerSystem<B>,
         config: &Config<'_, B>,
@@ -567,6 +591,15 @@ impl<B: Bmc> ExploredComputerSystem<B> {
     }
 }
 
+fn is_usable_ethernet_mac_address(
+    interface_enabled: Option<bool>,
+    mac_address: Option<&str>,
+) -> bool {
+    interface_enabled.is_none_or(identity)
+        && mac_address
+            .is_some_and(|mac_address| deserialize_input_mac_to_address(mac_address).is_ok())
+}
+
 fn is_uefi_tree_child(
     parent: EthUefiDevicePath<&str>,
     child: BootOptionUefiDevicePath<&str>,
@@ -657,4 +690,34 @@ fn pcie_device_to_model<B: Bmc>(
                 .unwrap_or("".into()),
         }),
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use carbide_test_support::value_scenarios;
+
+    use super::is_usable_ethernet_mac_address;
+
+    #[test]
+    fn usable_ethernet_mac_address_cases() {
+        value_scenarios!(run = |(interface_enabled, mac_address)| {
+            is_usable_ethernet_mac_address(interface_enabled, mac_address)
+        };
+            "enabled interface with a valid MAC" {
+                (Some(true), Some("94:6d:ae:53:cb:9b")) => true,
+            }
+            "interface without an enabled state and with a valid MAC" {
+                (None, Some("94:6d:ae:53:cb:9b")) => true,
+            }
+            "disabled interface with a placeholder MAC" {
+                (Some(false), Some("00:00:00:00:00:00")) => false,
+            }
+            "enabled interface with an invalid MAC" {
+                (Some(true), Some("not-a-mac")) => false,
+            }
+            "enabled interface without a MAC" {
+                (Some(true), None) => false,
+            }
+        );
+    }
 }
