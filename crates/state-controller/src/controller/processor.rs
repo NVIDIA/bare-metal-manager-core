@@ -26,7 +26,7 @@ use opentelemetry::KeyValue;
 use opentelemetry::metrics::{Counter, Histogram, Meter};
 use sqlx_query_tracing::SqlxQueryDataAggregation;
 use tokio::sync::oneshot;
-use tokio::task::JoinSet;
+use tokio::task::{JoinError, JoinSet};
 use tokio_util::sync::CancellationToken;
 use tracing::Instrument;
 
@@ -239,8 +239,14 @@ impl<IO: StateControllerIO> StateProcessor<IO> {
             let run_metrics = ProcessorIterationMetrics::default();
 
             let num_dispatched_tasks = self.dequeue_and_dispatch_object_handling_tasks().await?;
+            // We are assuming that we dispatch as many tasks that are available and fit into
+            // the queue. Therefore its ok to wait until at least one task has been dequeued
+            // before evaluating any next steps.
             let num_completed_tasks = self
-                .wait_and_process_all_object_tasks(max_completion_wait_time, allow_requeue)
+                .wait_and_process_object_handling_task_completions(
+                    max_completion_wait_time,
+                    allow_requeue,
+                )
                 .await;
 
             // Delete the DB entries for tasks which finished in `wait_and_process_all_object_tasks`.
@@ -346,31 +352,52 @@ impl<IO: StateControllerIO> StateProcessor<IO> {
         );
     }
 
-    /// Waits for all object handling tasks to finish, returning the number of tasks seen.
-    async fn wait_and_process_all_object_tasks(
+    /// Processes and returns all finished object handling tasks. Will wait until at least one
+    /// task is completed, if all of them are still running.
+    ///
+    /// This function waits on a *single* task, rather than every task, so that in the common case,
+    /// it does not need to block at all, but simply reports on what tasks have completed since the
+    /// last iteration. For example:
+    ///
+    /// - Iteration 1: 100 tasks are running, wait for the first one to finish, return only that one
+    /// - Iteration 2: 1 new task is dequeued (bringing the total to 100 again), 50 of the tasks are
+    //    now complete from the last iteration. Return 50 completed tasks, not blocking.
+    /// - Iteration 3: 50 new tasks are dequeued, another 25 tasks are now completed from iteration
+    ///   2. Return 25 completed tasks, not blocking.
+    /// - Iteration 4: 25 tasks are enqueued, another 25 tasks are completed from iteration 3.
+    ///   Return 25 completed tasks, not blocking, etc.
+    ///
+    /// If we waited for every task in iteration 2, it would take longer for iteration 3 to begin,
+    /// and tasks would have to wait longer to be dequeued.
+    ///
+    /// The function will return if all in-flight tasks have been completed and additional waiting
+    /// is unnecessary. In addition, `max_duration` can be used to specify how long to wait for
+    /// the first completion.
+    ///
+    /// Returns the amount of tasks completed.
+    async fn wait_and_process_object_handling_task_completions(
         &mut self,
-        timeout: std::time::Duration,
+        max_duration: std::time::Duration,
         allow_requeue: bool,
     ) -> usize {
-        let mut total_completions = 0;
-        let wait_start = Instant::now();
-
-        while let Ok(Some(result)) = tokio::time::timeout(
-            timeout.saturating_sub(wait_start.elapsed()),
-            self.object_tasks.join_next(),
-        )
-        .await
-        .inspect_err(|_timeout| {
-            tracing::error!(
-                in_flight_task_count = self.object_tasks.len(),
-                finished_task_count = total_completions,
-                "Timed out waiting for state controller object handling tasks to complete"
-            );
-        }) {
-            let finished_task = object_task_result(result);
-            self.process_object_handling_task_result(finished_task, allow_requeue, wait_start);
-            total_completions += 1;
-        }
+        let total_completions =
+            match tokio::time::timeout(max_duration, self.object_tasks.join_many()).await {
+                Ok(results) => {
+                    let now = Instant::now();
+                    let count = results.len();
+                    for result in results {
+                        self.process_object_handling_task_result(result, allow_requeue, now);
+                    }
+                    count
+                }
+                Err(_) => {
+                    tracing::error!(
+                        in_flight_task_count = self.object_tasks.len(),
+                        "Timed out waiting for state controller object handling tasks to complete"
+                    );
+                    0
+                }
+            };
 
         if total_completions > 0
             && let Some(emitter) = &self.metric_emitter
@@ -575,8 +602,14 @@ impl<IO: StateControllerIO> StateProcessor<IO> {
             "State processor draining"
         );
 
-        self.wait_and_process_all_object_tasks(Duration::MAX, true)
-            .await;
+        // wait_and_process_object_handling_task_completions returns all completed tasks, returns
+        // once a single task is complete. Run it until all tasks are done. Nothing can enqueue
+        // items to self.object_tasks while this is happening (we're borrowing &mut self), so this
+        // is guaranteed to terminate eventually.
+        while !self.object_tasks.is_empty() {
+            self.wait_and_process_object_handling_task_completions(Duration::MAX, true)
+                .await;
+        }
 
         if let Err(error) = self.finalize_completed_objects().await {
             // This only happens if there's a database error, nothing we can really do here.
@@ -593,14 +626,6 @@ impl<IO: StateControllerIO> StateProcessor<IO> {
             controller = IO::LOG_SPAN_CONTROLLER_NAME,
             "State processor drained"
         );
-    }
-}
-
-fn object_task_result<T>(result: Result<T, tokio::task::JoinError>) -> T {
-    match result {
-        Ok(result) => result,
-        Err(error) if error.is_panic() => std::panic::resume_unwind(error.into_panic()),
-        Err(error) => panic!("State controller object handling task was cancelled: {error}"),
     }
 }
 
@@ -708,8 +733,8 @@ async fn process_object<IO: StateControllerIO>(
         let mut next_state_entered_at = None;
         let mut next_state_sla = None;
         if let Ok(StateHandlerOutcome::Transition {
-            next_state: next, ..
-        }) = &handler_outcome
+                      next_state: next, ..
+                  }) = &handler_outcome
         {
             next_state = Some(next.clone());
 
@@ -796,7 +821,7 @@ async fn process_object<IO: StateControllerIO>(
 
         handler_outcome
     })
-    .await;
+        .await;
     metrics.common.handler_latency = start.elapsed();
 
     // Emit the state changed event to registered hooks
@@ -1024,4 +1049,37 @@ fn emit_object_metrics_as_log<IO: StateControllerIO>(iteration_metrics: &Iterati
         %error_types,
         "State controller object metrics"
     );
+}
+
+trait JoinMany<T> {
+    /// Get all completed futures in this [`JoinSet`], blocking until at least one future completes.
+    /// Differs from [`JoinSet::join_next`] in that it will return all completed futures, not just
+    /// one. Differs from [`JoinSet::join_all`] in that it will wait for a maximum of one future to
+    /// complete, returning even if other futures in the set are still running.
+    ///
+    /// It will also panic on any [`JoinError`], identically to how [`JoinSet::join_all`] behaves.
+    fn join_many(&mut self) -> impl Future<Output = Vec<T>>;
+}
+
+impl<T: 'static> JoinMany<T> for JoinSet<T> {
+    async fn join_many(&mut self) -> Vec<T> {
+        let unwrap_join_error = |result: Option<Result<T, JoinError>>| match result {
+            Some(Ok(result)) => Some(result),
+            Some(Err(error)) if error.is_panic() => std::panic::resume_unwind(error.into_panic()),
+            // Safety: this only happens if the task was aborted with [`JoinHandle::abort`] or
+            // [`JoinSet::abort_all`], in which case we should panic.
+            Some(Err(error)) => panic!("{error}"),
+            None => None,
+        };
+
+        if let Some(result) = unwrap_join_error(self.join_next().await) {
+            let mut results = vec![result];
+            while let Some(result) = unwrap_join_error(self.try_join_next()) {
+                results.push(result);
+            }
+            results
+        } else {
+            vec![]
+        }
+    }
 }
