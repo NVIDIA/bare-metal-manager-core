@@ -191,6 +191,29 @@ MAT_MODE="${MAT_MODE:-override}"
 SCALE_OOB_PREFIX="${SCALE_OOB_PREFIX:-10.96.64.0/18}";  SCALE_OOB_GW="${SCALE_OOB_GW:-10.96.64.1}"
 SCALE_ADMIN_PREFIX="${SCALE_ADMIN_PREFIX:-192.168.176.0/20}"; SCALE_ADMIN_GW="${SCALE_ADMIN_GW:-192.168.176.1}"
 SCALE_RESERVE=1
+# These four are operator-overridable and are written straight into the site
+# config and the DB, so validate them before anything consumes them: an
+# invalid prefix would insert a network segment and only fail on the separate
+# prefix insert, leaving a half-built segment that later runs skip as
+# "already present".
+_valid_cidr_gw() {   # $1=cidr $2=gateway $3=label
+    python3 - "$1" "$2" "$3" <<'PYCHK'
+import ipaddress, sys
+cidr, gw, label = sys.argv[1], sys.argv[2], sys.argv[3]
+try:
+    net = ipaddress.ip_network(cidr, strict=True)
+except ValueError as e:
+    sys.exit(f"{label}: invalid prefix {cidr!r}: {e}")
+try:
+    addr = ipaddress.ip_address(gw)
+except ValueError as e:
+    sys.exit(f"{label}: invalid gateway {gw!r}: {e}")
+if addr not in net:
+    sys.exit(f"{label}: gateway {gw} is outside prefix {cidr}")
+PYCHK
+}
+_valid_cidr_gw "$SCALE_OOB_PREFIX"   "$SCALE_OOB_GW"   "SCALE_OOB"   || die "$(_valid_cidr_gw "$SCALE_OOB_PREFIX" "$SCALE_OOB_GW" "SCALE_OOB" 2>&1)"
+_valid_cidr_gw "$SCALE_ADMIN_PREFIX" "$SCALE_ADMIN_GW" "SCALE_ADMIN" || die "$(_valid_cidr_gw "$SCALE_ADMIN_PREFIX" "$SCALE_ADMIN_GW" "SCALE_ADMIN" 2>&1)"
 # site_explorer throughput knobs applied in scale mode (defaults 30/90/4 make
 # 4500-host ingestion take ~9h; these bring it to ~1-2h).
 SCALE_CONCURRENT_EXPLORATIONS="${SCALE_CONCURRENT_EXPLORATIONS:-100}"
