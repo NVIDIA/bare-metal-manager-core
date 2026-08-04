@@ -454,6 +454,10 @@ pub async fn discover_dhcp(
     api: &Api,
     request: Request<rpc::DhcpDiscovery>,
 ) -> Result<Response<rpc::DhcpRecord>, CarbideError> {
+    // Admission permit BEFORE the first transaction: the interface/address
+    // lookups below can wait on segment advisory locks, so a waiter here
+    // pins a pool connection exactly like the allocation path does.
+    let _admin_admission = db::machine_interface::admin_lock_admission().await;
     let mut txn = api.txn_begin().await?;
 
     let rpc::DhcpDiscovery {
@@ -887,10 +891,9 @@ pub async fn discover_dhcp(
         return Ok(Response::new(record));
     }
 
-    // Admission permit BEFORE the transaction: the allocation path below
-    // serializes on exclusive segment advisory locks, and at fleet-DHCP scale
-    // unbounded waiters pin every pool connection (see #4297's wedge).
-    let _admin_admission = db::machine_interface::admin_lock_admission().await;
+    // Permit from the top of discover_dhcp is still held here; the earlier
+    // transaction committed, but the allocation path below takes the same
+    // segment locks, so one permit covers the whole request.
     let mut txn = api.txn_begin().await?;
 
     let record = db::dhcp_record::find_by_mac_address(

@@ -2338,11 +2338,16 @@ static ADMIN_LOCK_ADMISSION: std::sync::OnceLock<std::sync::Arc<tokio::sync::Sem
 /// of on connections. Permits: `ADMIN_LOCK_ADMISSION` env var, default 16.
 pub async fn admin_lock_admission() -> tokio::sync::OwnedSemaphorePermit {
     let sem = ADMIN_LOCK_ADMISSION.get_or_init(|| {
+        // Clamp to a sane range: 0 would deadlock every gated flow, and a
+        // value at or above the pool size defeats the gate's purpose (the
+        // waiters it is meant to keep off connections would all be admitted).
+        const DEFAULT_PERMITS: usize = 16;
+        const MAX_PERMITS: usize = 256;
         let permits = std::env::var("ADMIN_LOCK_ADMISSION")
             .ok()
             .and_then(|v| v.parse::<usize>().ok())
-            .filter(|n| *n > 0)
-            .unwrap_or(16);
+            .map(|n| n.clamp(1, MAX_PERMITS))
+            .unwrap_or(DEFAULT_PERMITS);
         std::sync::Arc::new(tokio::sync::Semaphore::new(permits))
     });
     sem.clone()
