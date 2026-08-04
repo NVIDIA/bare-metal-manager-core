@@ -23,6 +23,9 @@ vars:
   LOCAL_DEV_REST_POSTGRES_PASSWORD:
     source: env
     default: nico_rest
+  LOCAL_DEV_REST_POSTGRES_HOST:
+    source: command
+    command: kubectl -n postgres get service postgres -o jsonpath='{.spec.clusterIP}'
   LOCAL_DEV_REST_API_FORWARD_PORT:
     source: env
     default: "18388"
@@ -96,6 +99,7 @@ images:
         - crates
         - include
         - dev/docker/Dockerfile.build-container-x86_64
+        - dev/docker/Dockerfile.build-container-aarch64
         - dev/deployment/devspace/Dockerfile.core-artifacts
         - dev/deployment/devspace/Dockerfile.core-artifacts.dockerignore
         - dev/deployment/devspace/Dockerfile.api
@@ -115,6 +119,7 @@ images:
         - .cargo
         - crates
         - dev/docker/Dockerfile.build-container-x86_64
+        - dev/docker/Dockerfile.build-container-aarch64
         - dev/deployment/devspace/Dockerfile.core-artifacts
         - dev/deployment/devspace/Dockerfile.core-artifacts.dockerignore
         - dev/deployment/devspace/Dockerfile.bmc-proxy
@@ -133,6 +138,7 @@ images:
         - crates
         - include
         - dev/docker/Dockerfile.build-container-x86_64
+        - dev/docker/Dockerfile.build-container-aarch64
         - dev/deployment/devspace/Dockerfile.core-artifacts
         - dev/deployment/devspace/Dockerfile.core-artifacts.dockerignore
         - dev/deployment/devspace/Dockerfile.machine-a-tron
@@ -143,7 +149,9 @@ images:
       - ${DEVSPACE_GIT_COMMIT}-${DEVSPACE_TIMESTAMP}
     dockerfile: rest-api/docker/local/Dockerfile.nico-rest-api
     context: rest-api
-    buildKit: {}
+    buildKit:
+      args:
+        - --network=host
     skipPush: true
   nico-rest-workflow:
     image: localhost:5000/nico-rest-workflow
@@ -151,7 +159,9 @@ images:
       - ${DEVSPACE_GIT_COMMIT}-${DEVSPACE_TIMESTAMP}
     dockerfile: rest-api/docker/local/Dockerfile.nico-rest-workflow
     context: rest-api
-    buildKit: {}
+    buildKit:
+      args:
+        - --network=host
     skipPush: true
   nico-rest-site-manager:
     image: localhost:5000/nico-rest-site-manager
@@ -159,7 +169,9 @@ images:
       - ${DEVSPACE_GIT_COMMIT}-${DEVSPACE_TIMESTAMP}
     dockerfile: rest-api/docker/local/Dockerfile.nico-rest-site-manager
     context: rest-api
-    buildKit: {}
+    buildKit:
+      args:
+        - --network=host
     skipPush: true
   nico-rest-site-agent:
     image: localhost:5000/nico-rest-site-agent
@@ -167,7 +179,9 @@ images:
       - ${DEVSPACE_GIT_COMMIT}-${DEVSPACE_TIMESTAMP}
     dockerfile: rest-api/docker/local/Dockerfile.nico-rest-site-agent
     context: rest-api
-    buildKit: {}
+    buildKit:
+      args:
+        - --network=host
     skipPush: true
   nico-rest-db:
     image: localhost:5000/nico-rest-db
@@ -175,7 +189,9 @@ images:
       - ${DEVSPACE_GIT_COMMIT}-${DEVSPACE_TIMESTAMP}
     dockerfile: rest-api/docker/local/Dockerfile.nico-rest-db
     context: rest-api
-    buildKit: {}
+    buildKit:
+      args:
+        - --network=host
     skipPush: true
   nico-rest-cert-manager:
     image: localhost:5000/nico-rest-cert-manager
@@ -183,8 +199,21 @@ images:
       - ${DEVSPACE_GIT_COMMIT}-${DEVSPACE_TIMESTAMP}
     dockerfile: rest-api/docker/local/Dockerfile.nico-rest-cert-manager
     context: rest-api
-    buildKit: {}
+    buildKit:
+      args:
+        - --network=host
     skipPush: true
+  nico-mcp:
+    image: localhost:5000/nico-mcp
+    tags:
+      - ${DEVSPACE_GIT_COMMIT}-${DEVSPACE_TIMESTAMP}
+    dockerfile: rest-api/docker/local/Dockerfile.nico-mcp
+    context: rest-api
+    buildKit:
+      args:
+        - --network=host
+    skipPush: true
+
 deployments:
   carbide-local:
     namespace: ${LOCAL_DEV_NAMESPACE}
@@ -245,7 +274,7 @@ deployments:
             port: 30388
           config:
             db:
-              host: postgres.postgres.svc.cluster.local
+              host: ${LOCAL_DEV_REST_POSTGRES_HOST}
               name: ${LOCAL_DEV_REST_POSTGRES_DB}
               user: ${LOCAL_DEV_REST_POSTGRES_USER}
             keycloak:
@@ -260,12 +289,15 @@ deployments:
             dbCreds: db-creds
           config:
             db:
-              host: postgres.postgres.svc.cluster.local
+              host: ${LOCAL_DEV_REST_POSTGRES_HOST}
               name: ${LOCAL_DEV_REST_POSTGRES_DB}
               user: ${LOCAL_DEV_REST_POSTGRES_USER}
         nico-rest-db:
+          waitForPostgres:
+            repository: postgres
+            tag: 14.5-alpine
           db:
-            host: postgres.postgres.svc.cluster.local
+            host: ${LOCAL_DEV_REST_POSTGRES_HOST}
             name: ${LOCAL_DEV_REST_POSTGRES_DB}
             user: ${LOCAL_DEV_REST_POSTGRES_USER}
   nico-rest-site-agent:
@@ -306,8 +338,14 @@ hooks:
   - name: build-base-image
     events: ["before:build"]
     command: |-
-      docker image inspect build-container-localdev >/dev/null 2>&1 || \
-        docker build --pull=false -t build-container-localdev -f dev/docker/Dockerfile.build-container-x86_64 .
+      case "$(uname -m)" in
+        x86_64) BUILD_ARCH=x86_64 ;;
+        aarch64|arm64) BUILD_ARCH=aarch64 ;;
+        *) echo "Unsupported CPU architecture: $(uname -m)" >&2; exit 1 ;;
+      esac
+      docker build --pull=false \
+        -t build-container-localdev \
+        -f "dev/docker/Dockerfile.build-container-$BUILD_ARCH" .
   - name: load-images-into-local-cluster
     events: ["before:deploy"]
     command: |-

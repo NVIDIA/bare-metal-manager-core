@@ -227,6 +227,19 @@ create_site() {
 
 ensure_temporal_namespace() {
     local temporal_namespace=$1
+    local temporal_frontend_ip
+    local temporal_address
+    local describe_error=""
+    local create_error=""
+
+    temporal_frontend_ip=$(kubectl -n temporal get service temporal-frontend \
+        -o jsonpath='{.spec.clusterIP}')
+    if [ -z "$temporal_frontend_ip" ] || [ "$temporal_frontend_ip" = "None" ]; then
+        echo "ERROR: Temporal frontend Service has no ClusterIP" >&2
+        return 1
+    fi
+    temporal_address="${temporal_frontend_ip}:7233"
+
     local temporal_command=(
         kubectl -n temporal exec deployment/temporal-admintools --
         temporal operator namespace
@@ -234,27 +247,39 @@ ensure_temporal_namespace() {
 
     echo "Registering Temporal namespace: $temporal_namespace"
     for attempt in {1..30}; do
-        if "${temporal_command[@]}" describe --namespace "$temporal_namespace" \
-            --address temporal-frontend.temporal:7233 \
+        if describe_error=$("${temporal_command[@]}" describe --namespace "$temporal_namespace" \
+            --address "$temporal_address" \
             --tls-cert-path /var/secrets/temporal/certs/server-interservice/tls.crt \
             --tls-key-path /var/secrets/temporal/certs/server-interservice/tls.key \
             --tls-ca-path /var/secrets/temporal/certs/server-interservice/ca.crt \
-            --tls-server-name interservice.server.temporal.local >/dev/null 2>&1; then
+            --tls-server-name interservice.server.temporal.local 2>&1); then
             echo "Temporal namespace confirmed: $temporal_namespace"
             return
         fi
 
-        "${temporal_command[@]}" create --namespace "$temporal_namespace" \
-            --address temporal-frontend.temporal:7233 \
+        create_error=$("${temporal_command[@]}" create --namespace "$temporal_namespace" \
+            --address "$temporal_address" \
             --tls-cert-path /var/secrets/temporal/certs/server-interservice/tls.crt \
             --tls-key-path /var/secrets/temporal/certs/server-interservice/tls.key \
             --tls-ca-path /var/secrets/temporal/certs/server-interservice/ca.crt \
-            --tls-server-name interservice.server.temporal.local >/dev/null 2>&1 || true
+            --tls-server-name interservice.server.temporal.local 2>&1) || true
         echo "Attempt $attempt: Temporal namespace not confirmed yet"
         sleep 5
     done
 
+    if describe_error=$("${temporal_command[@]}" describe --namespace "$temporal_namespace" \
+        --address "$temporal_address" \
+        --tls-cert-path /var/secrets/temporal/certs/server-interservice/tls.crt \
+        --tls-key-path /var/secrets/temporal/certs/server-interservice/tls.key \
+        --tls-ca-path /var/secrets/temporal/certs/server-interservice/ca.crt \
+        --tls-server-name interservice.server.temporal.local 2>&1); then
+        echo "Temporal namespace confirmed: $temporal_namespace"
+        return
+    fi
+
     echo "ERROR: Temporal namespace $temporal_namespace was not created" >&2
+    echo "Last describe error: $describe_error" >&2
+    echo "Last create error: $create_error" >&2
     return 1
 }
 

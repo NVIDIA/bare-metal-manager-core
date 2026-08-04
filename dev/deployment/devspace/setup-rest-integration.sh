@@ -102,10 +102,10 @@ for ((attempt = 1; attempt <= verify_attempts; attempt++)); do
   machine_status="$(kubectl exec deployment/nico-api -n "${CORE_NAMESPACE}" -- \
     curl --fail --insecure --silent --max-time 5 \
     "https://${machine_a_tron_bmc_ip}:1266/machines/status" 2>/dev/null || true)"
-  expected_host_count="$(jq -r \
+  expected_host_count="$(jq -er \
     'if (.machines | type) == "array" then .machines | length else 0 end' \
     <<<"${machine_status}" 2>/dev/null || printf '0')"
-  if [[ "${expected_host_count}" != "0" ]]; then
+  if [[ "${expected_host_count}" =~ ^[1-9][0-9]*$ ]]; then
     break
   fi
   if [[ "${attempt}" == "${verify_attempts}" ]]; then
@@ -251,17 +251,6 @@ if [[ -z "${site_id}" || "${site_id}" == "00000000-0000-4000-8000-000000000001" 
 fi
 
 inventory_started_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-
-machine_status="$(kubectl exec deployment/nico-api -n "${CORE_NAMESPACE}" -- \
-  curl --fail --insecure --silent --max-time 5 \
-  "https://${machine_a_tron_bmc_ip}:1266/machines/status" 2>/dev/null || true)"
-expected_host_count="$(jq -r \
-  'if (.machines | type) == "array" then .machines | length else 0 end' \
-  <<<"${machine_status}" 2>/dev/null || printf '0')"
-if [[ "${expected_host_count}" == "0" ]]; then
-  printf 'machine-a-tron did not report any expected hosts\n' >&2
-  exit 1
-fi
 
 site_ready=false
 machines_ready=false
