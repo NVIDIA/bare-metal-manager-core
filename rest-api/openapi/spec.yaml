@@ -15560,6 +15560,14 @@ components:
       type: object
       title: MachineValidationOnDemandRequest
       description: Optional filters for an on-demand Machine validation run
+      examples:
+        - tags:
+            - dgxcloud
+          allowedTests:
+            - forge_DcgmFullLong
+          runUnverifiedTests: false
+          contexts:
+            - OnDemand
       properties:
         tags:
           type: array
@@ -15587,6 +15595,8 @@ components:
       type: object
       title: MachineValidationOnDemandResponse
       description: Accepted on-demand Machine validation run
+      examples:
+        - validationId: 20000000-0000-0000-0000-000000000001
       required:
         - validationId
       properties:
@@ -15597,6 +15607,18 @@ components:
       type: object
       title: MachineValidationRun
       description: Machine validation run
+      examples:
+        - validationID: 20000000-0000-0000-0000-000000000001
+          machineID: fm100htes3rn1npvbtm5qd57dkilaag7ljugl1llmm7rfuq1ov50i0rpl30
+          startTime: '2026-08-03T20:00:00Z'
+          endTime: null
+          name: Test_20000000-0000-0000-0000-000000000001
+          context: OnDemand
+          status:
+            state: InProgress
+            total: 1
+            completed: 0
+          durationToCompleteSecs: 7200
       required:
         - validationID
         - machineID
@@ -15633,11 +15655,15 @@ components:
           $ref: '#/components/schemas/MachineValidationStatus'
         durationToCompleteSecs:
           type: integer
-          description: Duration of the validation run in seconds.
+          description: Estimated maximum duration of the validation run in seconds. A value of zero can mean the estimate has not yet been calculated.
     MachineValidationStatus:
       type: object
       title: MachineValidationStatus
       description: Progress and outcome of a Machine validation run
+      examples:
+        - state: InProgress
+          total: 1
+          completed: 0
       required:
         - state
         - total
@@ -15662,6 +15688,19 @@ components:
       type: object
       title: MachineValidationResult
       description: Result of one test in a Machine validation run
+      examples:
+        - name: DcgmFullLong
+          description: Full DCGM diag test for 5 min
+          command: 'dcgmi '
+          args: ' diag -r 3'
+          stdOut: Diagnostic completed successfully
+          stdErr: ''
+          context: OnDemand
+          exitCode: 0
+          startTime: '2026-08-03T20:00:05Z'
+          endTime: '2026-08-03T20:05:05Z'
+          validationID: 20000000-0000-0000-0000-000000000001
+          testID: forge_DcgmFullLong
       required:
         - name
         - description

@@ -38,7 +38,7 @@ type MachineValidationRun struct {
 	// Context in which the validation run was created.
 	Context string                  `json:"context"`
 	Status  MachineValidationStatus `json:"status"`
-	// Duration of the validation run in seconds.
+	// Estimated maximum duration of the validation run in seconds. A value of zero can mean the estimate has not yet been calculated.
 	DurationToCompleteSecs int32 `json:"durationToCompleteSecs"`
 }
 
