@@ -917,11 +917,97 @@ if [[ "${OOB_PREFIX:-}" == */* && "${ADMIN_PREFIX:-}" == */* ]]; then
     FIT_ADMIN=$(( ADMIN_USABLE / (DPU_PER_HOST + 1) ))
     FIT=$(( FIT_OOB < FIT_ADMIN ? FIT_OOB : FIT_ADMIN ))
     info "pool fit: OOB ${OOB_PREFIX} ≈${OOB_USABLE} usable → ≤${FIT_OOB} hosts; admin ${ADMIN_PREFIX} ≈${ADMIN_USABLE} usable → ≤${FIT_ADMIN} hosts"
-    if (( HOST_COUNT > FIT )) && [[ "${MAT_MULTIPOD:-0}" == "1" ]]; then
-        # multipod: FIT is computed from ONE pool, but the fleet spans one
-        # BMC segment per pod — per-pod capacity is validated by the values
-        # file layout, so the single-pool clamp would false-positive here.
-        warn "multipod: skipping single-pool clamp (FIT=${FIT} < ${HOST_COUNT} is expected)"
+    if [[ "${MAT_MULTIPOD:-0}" == "1" ]]; then
+        # Multipod: HOST_COUNT/DPU_PER_HOST are only the FIRST pod group, so
+        # the single-pool clamp above is meaningless here. Two cases matter:
+        #   * pods with their own OOB relay -> capacity is that pod's segment
+        #   * pods SHARING a relay          -> their demand is additive on one
+        #                                      pool, and must be checked
+        # Parse every pod group out of the values file and validate per relay.
+        _MP_REPORT="$(python3 - "$VALUES_FILE" "$OOB_PREFIX" "$OOB_RESERVE" <<'MPCHK'
+import ipaddress, re, sys
+
+values_file, default_prefix, default_reserve = sys.argv[1], sys.argv[2], sys.argv[3]
+text = open(values_file).read()
+
+# Dependency-free scan: walk the values file line by line and close off a
+# machine group whenever a line appears at or above the group's indentation.
+# Each group contributes hostCount*(1+dpuPerHostCount) BMC IPs to its relay.
+groups, cur, cur_indent = [], None, None
+for raw in text.splitlines():
+    if not raw.strip() or raw.lstrip().startswith("#"):
+        continue
+    indent = len(raw) - len(raw.lstrip())
+    m = re.match(r'\s*([A-Za-z0-9_.-]+)\s*:\s*(\S.*)?$', raw)
+    if not m:
+        continue
+    key, val = m.group(1), (m.group(2) or "").strip()
+    # Close the group only on a real dedent: sibling keys (vpcCount, etc.)
+    # sit at the same indent as hostCount and must not end the group.
+    if cur is not None and cur_indent is not None and indent < cur_indent:
+        groups.append(cur); cur, cur_indent = None, None
+    if key == "hostCount":
+        if cur is None:
+            cur, cur_indent = {"hosts": 0, "dpus": 0, "relay": ""}, indent
+        cur["hosts"] = int(re.sub(r"\D", "", val) or 0)
+    elif key == "dpuPerHostCount" and cur is not None:
+        cur["dpus"] = int(re.sub(r"\D", "", val) or 0)
+    elif key == "oobDhcpRelayAddress" and cur is not None:
+        cur["relay"] = val.strip('"\'')
+if cur is not None:
+    groups.append(cur)
+
+groups = [g for g in groups if g["hosts"] > 0]
+if not groups:
+    print("SKIP values file defines no pod groups with hostCount")
+    sys.exit(0)
+
+demand = {}
+for g in groups:
+    relay = g["relay"] or "<default>"
+    demand[relay] = demand.get(relay, 0) + g["hosts"] * (1 + g["dpus"])
+
+def usable(cidr, reserve):
+    net = ipaddress.ip_network(cidr, strict=False)
+    return max(net.num_addresses - int(reserve) - 1, 0)
+
+# A relay documented in this file gets its own segment; find the prefix whose
+# comment/segment block names it, else fall back to the site's OOB prefix.
+def prefix_for(relay):
+    if relay == "<default>":
+        return default_prefix
+    # Most specific containing prefix wins: a relay sits inside both its own
+    # segment and the wide ServiceCIDR, and only the narrow one is its pool.
+    best = None
+    for cand in re.findall(r'([0-9]+(?:\.[0-9]+){3}/[0-9]+)', text):
+        try:
+            net = ipaddress.ip_network(cand, strict=False)
+            if ipaddress.ip_address(relay) in net and (best is None or net.prefixlen > best.prefixlen):
+                best = net
+        except ValueError:
+            pass
+    return str(best) if best else default_prefix
+
+problems, lines = [], []
+for relay, need in sorted(demand.items()):
+    cidr = prefix_for(relay)
+    cap = usable(cidr, default_reserve)
+    ok = need <= cap
+    lines.append(f"  relay {relay}: needs {need} IPs, {cidr} provides ~{cap} -> {'OK' if ok else 'TOO SMALL'}")
+    if not ok:
+        problems.append(f"relay {relay} needs {need} IPs but {cidr} only provides ~{cap}")
+
+print("\n".join(lines))
+if problems:
+    print("FAIL " + "; ".join(problems))
+MPCHK
+)" || true
+        printf '%s\n' "$_MP_REPORT" | while IFS= read -r _l; do [[ -n "$_l" ]] && info "$_l"; done
+        if [[ "$_MP_REPORT" == *FAIL* ]]; then
+            die "multipod sizing: $(printf '%s' "$_MP_REPORT" | sed -n 's/^FAIL //p') — widen that segment's prefix, lower its hostCount, or give the pod its own relay"
+        fi
+        [[ "$_MP_REPORT" == SKIP* ]] && warn "multipod: ${_MP_REPORT#SKIP }"
+        ok "multipod sizing validated across all pod groups"
     elif (( HOST_COUNT > FIT )); then
         (( FIT < 1 )) && die "pools too small for even 1 host × ${DPU_PER_HOST} DPUs — widen the admin/OOB prefixes or lower DPU_PER_HOST"
         warn "requested ${HOST_COUNT} hosts exceeds pool capacity (${FIT}) — auto-fitting hostCount=${FIT}"
