@@ -411,6 +411,26 @@ pub async fn create_resource(
 }
 ```
 
+## Configuration ownership and precedence
+
+Before adding a configuration option, ask whether the behavior can be safe and predictable without a knob. Keep true
+protocol invariants non-configurable and hard safety caps as named constants. When operators need to tune an operational
+limit, bound it with a non-configurable hard maximum and reject out-of-range values before activation. Do not bake
+values tied to one site or environment, such as cluster names, namespaces, and addresses, into behavior; expose them
+through configuration instead.
+
+When behavior must vary, give each setting one canonical owner and resolution path. Define what omission means: use a
+safe default when omission has a safe and predictable meaning; otherwise require the setting and fail validation.
+Validate values before they become active. State whether changes require a restart or take effect dynamically, and
+define precedence, fallback, and conflict behavior across every supported source.
+
+This does not require one storage location. Files, environment variables, command-line flags, Helm values, database
+values, and APIs can all be valid sources, but overlapping sources must resolve through one declared contract.
+
+Do not copy a configuration schema into another interface just to expose it. Reference the canonical contract or
+generate the interface from it when practical, and keep interface-specific adapters limited to translation and
+precedence.
+
 ## Crate Features
 
 Avoid using crate features unless there is a good reason. Our CI runners only build with the default features you get
