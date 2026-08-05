@@ -42,15 +42,6 @@ WORK_DIR="/var/lib/dpu-install/${VERSION_TAG}"
 _work_dir_existed=false
 [[ -d "$WORK_DIR" ]] && _work_dir_existed=true
 
-# Redirect trace output (set -x) to log file; terminal stays on fd 3
-mkdir -p "$WORK_DIR"
-LOG_FILE="$WORK_DIR/install.log"
-exec 2>>"$LOG_FILE"
-exec 3> >(tee -a "$LOG_FILE" >/dev/tty)
-echo "============================================================" >&3
-echo "  Logging to: $LOG_FILE" >&3
-echo "============================================================" >&3
-
 # ── Argument parsing ───────────────────────────────────────────────────────────
 
 SKIP_OS_CHECK=false
@@ -64,6 +55,15 @@ while [[ $# -gt 0 ]]; do
 done
 
 [[ "$(id -u)" -ne 0 ]] && die "must be run as root"
+
+# Redirect trace output (set -x) to log file; terminal stays on fd 3
+mkdir -p "$WORK_DIR"
+LOG_FILE="$WORK_DIR/install.log"
+exec 2>>"$LOG_FILE"
+exec 3> >(tee -a "$LOG_FILE" >/dev/tty)
+echo "============================================================" >&3
+echo "  Logging to: $LOG_FILE" >&3
+echo "============================================================" >&3
 
 # ── OS version check ──────────────────────────────────────────────────────────
 
@@ -192,6 +192,10 @@ fi
 # ── Copy artifacts ─────────────────────────────────────────────────────────────
 
 log "Copying artifacts..."
+_needed_kb=$(du -sk "$SCRIPT_DIR" | cut -f1)
+_avail_kb=$(df -Pk "$WORK_DIR" | awk 'NR==2{print $4}')
+(( _avail_kb > _needed_kb )) \
+    || die "Insufficient space in $WORK_DIR: need ~$(( _needed_kb / 1024 ))MiB, have $(( _avail_kb / 1024 ))MiB"
 _copied=0
 for pattern in "*.bfb" "*.bfb.gz" "*.deb" "*.deb.gz" "*.tar.gz" "*.zip.gz"; do
     for f in "$SCRIPT_DIR"/$pattern; do

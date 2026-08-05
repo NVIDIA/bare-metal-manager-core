@@ -19,14 +19,14 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # fd 3 initially = terminal (for early die() before log ready);
 # reassigned below to tee so it writes to both log and terminal.
 exec 3>&2
+die() { echo "ERROR: $*" >&3; exit 1; }
+[[ "$(id -u)" -ne 0 ]] && die "must be run as root"
 LOG_FILE="$SCRIPT_DIR/post-power-cycle.log"
 exec 2>>"$LOG_FILE"
 exec 3> >(tee -a "$LOG_FILE" >/dev/tty)
 echo "============================================================" >&3
 echo "  Logging to: $LOG_FILE" >&3
 echo "============================================================" >&3
-
-die() { echo "ERROR: $*" >&3; exit 1; }
 
 usage() {
     grep '^#' "$0" | grep -v '#!/' | sed 's/^# \{0,1\}//'
@@ -44,7 +44,6 @@ while [[ $# -gt 0 ]]; do
 done
 
 [[ -z "$SERVER_NAME" ]] && die "--server-name is required"
-[[ "$(id -u)" -ne 0 ]] && die "must be run as root"
 
 # ── Locate the working directory from the version config ──────────────────────
 
@@ -72,7 +71,8 @@ set -eux
 
 update_progress 11
 check_hbn_container
-CUR_STEP=$FINAL_STEP
+# check_hbn_container re-runs start_rshim/setup_tmfifo, which rewind CUR_STEP.
+update_progress 11
 
 if [ -f "$TOUCHFILE_NETPLAN_CONFIGURED" ]; then
     echo "Netplan was configured before power cycle — skipping."
@@ -80,4 +80,5 @@ else
     bash "$SCRIPT_DIR/setup_netplan.sh" --server-name "$SERVER_NAME"
 fi
 
+CUR_STEP=$FINAL_STEP
 echo "DPU provisioning complete"

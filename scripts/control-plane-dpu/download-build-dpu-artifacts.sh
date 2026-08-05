@@ -39,7 +39,7 @@
 #                               (default: https://api.ngc.nvidia.com/v2/resources/org/nvidia/team/doca/doca_hbn/<doca-hbn-version>/files)
 #   -h, --help                  Show this help
 #
-# Dependencies: wget, docker, curl, jq, base64, sha256sum, zip, gzip
+# Dependencies: wget, docker, curl, jq, base64, xxd, sha256sum, zip, gzip
 
 
 set -euo pipefail
@@ -177,11 +177,11 @@ EOF
 # ===========================================================================
 step "1/4 Downloading BFB"
 log "URL: ${BFB_BASE_URL}/${BFB_NAME}"
-wget "${BFB_BASE_URL}/${BFB_NAME}" || die "BFB download failed — verify --bfb-build and --bfb-release are correct"
+wget -O "${BFB_NAME}" "${BFB_BASE_URL}/${BFB_NAME}" || die "BFB download failed — verify --bfb-build and --bfb-release are correct"
 ok "Downloaded: ${BFB_NAME} ($(du -h "${BFB_NAME}" | cut -f1))"
 
 log "Compressing ${BFB_NAME}..."
-gzip "${BFB_NAME}"
+gzip -f "${BFB_NAME}"
 ok "Compressed: ${BFB_NAME}.gz ($(du -h "${BFB_NAME}.gz" | cut -f1))"
 
 # ===========================================================================
@@ -198,7 +198,7 @@ docker save --output="doca_hbn.tar" "${DOCA_HBN_IMAGE}"
 ok "Saved: doca_hbn.tar ($(du -h doca_hbn.tar | cut -f1))"
 
 log "Compressing doca_hbn.tar..."
-gzip "doca_hbn.tar"
+gzip -f "doca_hbn.tar"
 ok "Compressed: doca_hbn.tar.gz ($(du -h doca_hbn.tar.gz | cut -f1))"
 
 # ===========================================================================
@@ -273,7 +273,7 @@ step "3/4 Building HBN configs bundle"
   ok "Packaged: ${ZIP_OUTPUT} ($(du -h "${ZIP_OUTPUT}" | cut -f1))"
 
   log "Compressing ${ZIP_OUTPUT}..."
-  gzip "${ZIP_OUTPUT}"
+  gzip -f "${ZIP_OUTPUT}"
   ok "Compressed: ${ZIP_OUTPUT}.gz ($(du -h "${ZIP_OUTPUT}.gz" | cut -f1))"
 
   log "Writing doca_hbn_versions.cfg..."

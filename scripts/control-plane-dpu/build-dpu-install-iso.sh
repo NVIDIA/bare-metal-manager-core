@@ -174,6 +174,8 @@ log "Script and template files: OK"
 command -v yq       &>/dev/null || die "yq (mikefarah/yq v4) is required"
 command -v gomplate &>/dev/null || die "gomplate is required — https://docs.gomplate.ca/installing/"
 command -v zip      &>/dev/null || die "zip is required"
+command -v unzip    &>/dev/null || die "unzip is required"
+command -v gunzip   &>/dev/null || die "gunzip is required"
 
 if [[ "$(uname)" == "Darwin" ]]; then
     ISO_TOOL="xorrisofs"
@@ -324,6 +326,16 @@ expected_ids=$(seq 1 "$NODE_COUNT" | tr '\n' ' ')
 [[ "$actual_ids" == "$expected_ids" ]] || \
     die "siteControllerNodes: nodeId values must be unique integers from 1 to $NODE_COUNT, got: ${actual_ids% }"
 
+loopback_prefix="${DPU_LOOPBACK_PREFIX#*/}"
+loopback_capacity=$(( 1 << (32 - loopback_prefix) ))
+[ "$loopback_capacity" -gt "$NODE_COUNT" ] || \
+    die "forgeDpuLoopbackPrefix $DPU_LOOPBACK_PREFIX is too small for $NODE_COUNT node(s) (capacity $loopback_capacity addresses, need > $NODE_COUNT)"
+
+cp_prefix="${CONTROL_PLANE_PREFIX#*/}"
+cp_capacity=$(( 1 << (32 - cp_prefix) ))
+[ "$cp_capacity" -ge $(( NODE_COUNT * 2 )) ] || \
+    die "forgeControlPlanePrefix $CONTROL_PLANE_PREFIX is too small for $NODE_COUNT node(s) (capacity $cp_capacity addresses, need >= $((NODE_COUNT * 2)))"
+
 NAMESERVER=$(require_field nameServer)
 UBUNTU_PASSWORD_HASH=$(require_field ubuntuPasswordHash)
 
@@ -372,10 +384,15 @@ done < <(
     done | sort -n | awk '{print $2}'
 )
 
+declare -A _SEEN_HOSTNAMES=()
+
 for pos in "${!SORTED_INDICES[@]}"; do
     idx="${SORTED_INDICES[$pos]}"
 
-    HOSTNAME=$(yq ".siteControllerNodes[$idx].hostName" "$CONTROL_PLANE_CONFIG")
+    HOSTNAME=$(yq ".siteControllerNodes[$idx].hostName // \"\"" "$CONTROL_PLANE_CONFIG")
+    [ -z "$HOSTNAME" ] && die "siteControllerNodes[$idx]: hostName is required"
+    [ "${_SEEN_HOSTNAMES["$HOSTNAME"]+set}" ] && die "siteControllerNodes[$idx]: hostName '$HOSTNAME' is not unique"
+    _SEEN_HOSTNAMES["$HOSTNAME"]=1
     DPU_MAC=$(yq ".siteControllerNodes[$idx].mac // \"\"" "$CONTROL_PLANE_CONFIG")
     [ -z "$DPU_MAC" ] && die "$HOSTNAME: mac is required"
     [[ "$DPU_MAC" =~ ^([0-9a-fA-F]{2}:){5}[0-9a-fA-F]{2}$ ]] || die "$HOSTNAME: mac '$DPU_MAC' is not a valid MAC address"
@@ -447,6 +464,7 @@ else
     step "Downloading artifacts"
     ARTIFACTS_DIR="$(mktemp -d)"
     CLEANUP_ARTIFACTS_DIR="$ARTIFACTS_DIR"
+    trap 'rm -rf ${STAGE_DIR:-} ${CLEANUP_ARTIFACTS_DIR:-}' EXIT
 
     BUILD_ARGS=(
         --doca-version "$DOCA_VERSION"
@@ -552,8 +570,8 @@ HBN_VERSION="${HBN_VERSION}"
 EOF
 
 cat > "$STAGE_DIR/doca_hbn_versions.cfg" <<EOF
-HBN_SCRIPT_DIR="./doca_container_configs/scripts"
-HBN_CONFIG_SRC_DIR="./doca_container_configs/configs"
+HBN_SCRIPT_DIR="${HBN_SCRIPT_DIR}"
+HBN_CONFIG_SRC_DIR="${HBN_CONFIG_SRC_DIR}"
 EOF
 
 # Per-node DPU servers generated in step 1
@@ -598,8 +616,8 @@ log "Created: $ZIP_OUT  ($(du -h "$ZIP_OUT" | cut -f1))"
 
 for i in "${!SORTED_INDICES[@]}"; do
     idx="${SORTED_INDICES[$i]}"
-    hn=$(yq ".siteControllerNodes[$idx].hostName" "$CONTROL_PLANE_CONFIG")
-    rm -rf "$OUTPUT_DIR/$hn"
+    hn=$(yq ".siteControllerNodes[$idx].hostName // \"\"" "$CONTROL_PLANE_CONFIG")
+    [ -n "$hn" ] && rm -rf "${OUTPUT_DIR:?}/$hn"
 done
 
 # ── Summary ───────────────────────────────────────────────────────────────────

@@ -51,6 +51,8 @@ fi
 
 # ── Detect the BlueField p0 MAC address ───────────────────────────────────────
 
+command -v lshw >/dev/null 2>&1 || die "lshw not found — required to detect the BlueField p0 MAC address"
+
 mac=""
 for _attempt in 1 2 3; do
     log "Detecting BlueField p0 MAC address (attempt ${_attempt}/3)..."
@@ -73,15 +75,26 @@ if [[ -z "$mac" ]]; then
     die "BlueField p0 network interface not found after 3 attempts. Cannot determine MAC address."
 fi
 
+[[ "$mac" =~ ^([0-9a-fA-F]{2}:){5}[0-9a-fA-F]{2}$ ]] \
+    || die "Detected value is not a MAC address: '$mac' — lshw output format may have changed"
+
 log "Detected MAC: $mac"
 
 # ── Install netplan with real MAC substituted ──────────────────────────────────
 
 log "Installing netplan to $NETPLAN_DEST..."
-sed "s/$PLACEHOLDER_MAC/$mac/" "$NETPLAN_SRC" > "$NETPLAN_DEST"
-chmod 600 "$NETPLAN_DEST"
+grep -qF "$PLACEHOLDER_MAC" "$NETPLAN_SRC" \
+    || die "Placeholder MAC $PLACEHOLDER_MAC not found in $NETPLAN_SRC — refusing to apply"
+
+_tmp="$(mktemp)"
+chmod 600 "$_tmp"
+sed "s/$PLACEHOLDER_MAC/$mac/g" "$NETPLAN_SRC" > "$_tmp"
+grep -qF "$PLACEHOLDER_MAC" "$_tmp" && { rm -f "$_tmp"; die "MAC substitution incomplete"; }
+[[ -f "$NETPLAN_DEST" ]] && cp -a "$NETPLAN_DEST" "${NETPLAN_DEST}.bak"
+mv "$_tmp" "$NETPLAN_DEST"
 
 log "Applying netplan..."
+netplan generate || die "netplan generate rejected $NETPLAN_DEST"
 netplan apply
 
 log "Netplan configured and applied for $SERVER_NAME (MAC: $mac)"

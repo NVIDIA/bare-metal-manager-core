@@ -6,7 +6,7 @@ siteControllerMtuSize: 1500
 nameServer: 8.8.8.8
 
 # Generate with: openssl passwd -6 'yourpassword'
-ubuntuPasswordHash: "$1$ePpcmmou$NnjDn0dUOry6FeaVKf.mG1"
+ubuntuPasswordHash: "$6$rounds=4096$examplesalt$hashedvalue"
 
 
 forgeDpuLoopbackPrefix: 10.180.63.128/28
@@ -33,8 +33,8 @@ fnn:
 #   datacenterAsn:xxx: {}   # Jumphosts
 #   datacenterAsn:xxx: {}   # BMCs for site controllers
 
-# If you donot know the mac address of the site controller nodes, use aa:aa:aa:aa:aa:aa. 
-# post-power-cycle.sh will detect the acutal value and use it in netplan. 
+# If you do not know the mac address of the site controller nodes, use aa:aa:aa:aa:aa:aa.
+# post-power-cycle.sh will detect the actual value and use it in netplan.
 siteControllerNodes:
   - hostName: rno1-m04-d04-cpu-4
     mac: aa:aa:aa:aa:aa:aa

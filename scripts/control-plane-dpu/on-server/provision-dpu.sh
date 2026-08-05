@@ -19,6 +19,8 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # fd 3 initially = terminal (for early die() before log ready);
 # reassigned below to tee so it writes to both log and terminal.
 exec 3>&2
+die() { echo "ERROR: $*" >&3; exit 1; }
+[[ "$(id -u)" -ne 0 ]] && die "must be run as root"
 LOG_FILE="$SCRIPT_DIR/provision.log"
 exec 2>>"$LOG_FILE"
 exec 3> >(tee -a "$LOG_FILE" >/dev/tty)
@@ -26,7 +28,6 @@ echo "============================================================" >&3
 echo "  Logging to: $LOG_FILE" >&3
 echo "============================================================" >&3
 
-die() { echo "ERROR: $*" >&3; exit 1; }
 log() { echo "[$(date '+%H:%M:%S')] $*"; }
 
 usage() {
@@ -81,8 +82,6 @@ fi
     || die "startup.yaml not found for $SERVER_NAME — ISO may be incomplete"
 [[ -f "$NETPLAN_YAML" ]] \
     || die "99_config.yaml not found for $SERVER_NAME — ISO may be incomplete"
-
-[[ "$(id -u)" -ne 0 ]] && die "must be run as root"
 
 # ── Run provisioning ───────────────────────────────────────────────────────────
 

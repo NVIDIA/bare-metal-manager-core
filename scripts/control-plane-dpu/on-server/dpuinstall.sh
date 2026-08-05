@@ -28,6 +28,15 @@ STEPS=(
     "Verify HBN container"
 )
 
+# ── HBN version config ────────────────────────────────────────────────────────
+
+_hbn_versions_cfg="$SCRIPTS_DIR/doca_hbn_versions.cfg"
+[[ -f "$_hbn_versions_cfg" ]] || { echo "ERROR: doca_hbn_versions.cfg not found at $_hbn_versions_cfg" >&2; exit 1; }
+# shellcheck source=/dev/null
+source "$_hbn_versions_cfg"
+[[ -z "${HBN_CONFIG_SRC_DIR:-}" ]] && { echo "ERROR: HBN_CONFIG_SRC_DIR not set in $_hbn_versions_cfg" >&2; exit 1; }
+[[ -z "${HBN_SCRIPT_DIR:-}" ]]     && { echo "ERROR: HBN_SCRIPT_DIR not set in $_hbn_versions_cfg" >&2; exit 1; }
+
 # ── DPU SSH provisioning ───────────────────────────────────────────────────────
 
 DPU_SSH_USER="${DPU_SSH_USER:-root}"
@@ -97,7 +106,7 @@ dpu_ssh_prepare() {
 		return 1
 	fi
 
-	mkdir -p /root/.dpu_provision
+	install -d -m 700 /root/.dpu_provision
 	[ "$verbose" = true ] && echo "DPU SSH: generating ed25519 key at $key"
 	ssh-keygen -t ed25519 -N "" -C "dpu-provision@forge" -f "$key" >/dev/null
 	chmod 600 "$key"
@@ -105,6 +114,7 @@ dpu_ssh_prepare() {
 	[ "$verbose" = true ] && echo "DPU SSH: injecting public key into bf.cfg template"
 	local pub_line
 	pub_line="$(ssh-keygen -y -f "$key")"
+	install -m 600 /dev/null "$_dpu_ssh_bf_prepared"
 	sed "s|${_dpu_ssh_pubkey_placeholder}|${pub_line}|g" "$_dpu_ssh_bf_src" > "$_dpu_ssh_bf_prepared"
 	if ! grep -qF "$pub_line" "$_dpu_ssh_bf_prepared"; then
 		rm -f "$_dpu_ssh_bf_prepared" "$key" "${key}.pub"
@@ -140,12 +150,11 @@ _dpu_ssh_require_key() {
 _dpu_ssh_run() {
 	local host_spec="$1"
 	shift
-	local status
+	local status=0
 
 	echo "DPU SSH: running on ${host_spec}: $*" >&2
 	_dpu_ssh_require_key
-	ssh "${DPU_SSH_OPTS[@]}" "${host_spec}" "$@"
-	status=$?
+	ssh "${DPU_SSH_OPTS[@]}" "${host_spec}" "$@" || status=$?
 	if [ "$status" -ne 0 ]; then
 		echo "ERROR: DPU SSH command failed (exit ${status}) on ${host_spec}: $*" >&3
 		return "$status"
@@ -220,8 +229,8 @@ dpu_ssh_check() {
 # ──────────────────────────────────────────────────────────────────────────────
 
 cleanup() {
-	systemctl stop rshim
-	systemctl disable rshim
+	systemctl stop rshim || true
+	systemctl disable rshim || true
 
 	if [ "$CUR_STEP" -eq "$FINAL_STEP" ]; then
 		echo "DPU install steps completed successfully"
@@ -251,17 +260,26 @@ copy_files() {
 		[ -f "$f" ] && gunzip -f "$f"
 	done
 
-	bfb=$(ls bf-bundle*.bfb 2>/dev/null || true)
-	if [ -z "$bfb" ]; then
-		echo "BFB file not found."
+	local -a _bfbs=(bf-bundle*.bfb)
+	if [ ! -f "${_bfbs[0]}" ]; then
+		echo "BFB file not found." >&3
 		return 1
 	fi
+	if [ "${#_bfbs[@]}" -gt 1 ]; then
+		echo "ERROR: multiple BFB files staged: ${_bfbs[*]}" >&3
+		return 1
+	fi
+	bfb="${_bfbs[0]}"
 
 	if [ ! -f "doca_hbn.tar.gz" ]; then
 		echo "doca_hbn.tar.gz not found."
 		return 1
 	fi
 
+	if [ ! -f "doca_container_configs.zip" ]; then
+		echo "doca_container_configs.zip not found." >&3
+		return 1
+	fi
 	cp doca_container_configs.zip ./dpucfg
 	if [ ! -f "doca_hbn_versions.cfg" ]; then
 		echo "doca_hbn_versions.cfg not found"
@@ -443,8 +461,6 @@ setup_hbn() {
 
 		echo "Checking if hbn-dpu-setup has already run (/var/lib/hbn)..."
 		if ! dpu_ssh "test -d /var/lib/hbn"; then
-			source "$SCRIPTS_DIR/doca_hbn_versions.cfg"
-
 			echo "Step 8.1: Extracting doca_container_configs.zip on DPU..."
 			dpu_ssh "cd '$DPU_REMOTE_DIR' && unzip -o doca_container_configs.zip"
 			echo "Extraction complete."
@@ -639,10 +655,16 @@ check_hbn_container() {
 	done
 
 	echo "Step 10.2: Waiting for doca-hbn container $container_id to reach running state..."
+	local _has_jq
+	_has_jq=$(dpu_ssh "command -v jq >/dev/null 2>&1 && echo 1 || echo 0" 2>/dev/null || echo 0)
 	attempt=1
 	local state=""
 	while [ "$attempt" -le "$max_attempts" ]; do
-		state=$(dpu_ssh "sudo crictl inspect -o json '${container_id}' | jq -r '.status.state'" || true)
+		if [ "$_has_jq" = "1" ]; then
+			state=$(dpu_ssh "sudo crictl inspect -o json '${container_id}' | jq -r '.status.state'" || true)
+		else
+			state=$(dpu_ssh "sudo crictl ps --name doca-hbn --state Running -q | grep -q . && echo CONTAINER_RUNNING || true" || true)
+		fi
 		if [ "$state" = "CONTAINER_RUNNING" ]; then
 			echo "Container $container_id is running."
 			break

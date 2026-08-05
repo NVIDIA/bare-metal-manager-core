@@ -36,6 +36,7 @@ The following tools must be installed on the build machine:
 | `wget` | Download BFB and DOCA host package |
 | `docker` | Pull and save HBN container image |
 | `curl`, `jq` | Download HBN config bundle from NGC |
+| `xxd` | Decode NGC's base64 SHA256 hashes for verification |
 | `zip`, `gzip` | Package artifacts |
 | `sha256sum` / `shasum` | Verify downloaded files |
 | `mkisofs` (Linux) or `xorrisofs` (macOS) | Build ISO |
@@ -74,18 +75,14 @@ siteControllerMtuSize: 1500
 
 fnn:
   controlPlaneVni: 60020
-  vpcVrfLoopbackPrefix: 10.255.248.0/21
-  commonInfraEgressVrfRouteTarget: 10
+  # vpcVrfLoopbackPrefix: 10.255.248.0/21   # optional
   commonManagedNodeBmcRouteTarget: 900
-  commonSiteControllerBmcRouteTarget: 901
-  commonJumphostRouteTarget: 101
-  commonUfmRouteTarget: 1002
-  commonPowershelfRouteTarget: 1003
   commonSiteControllerRouteTarget: 50100
-  commonInternalTenantRouteTarget: 50200
-  commonBreakfixRouteTarget: 50300
   commonAdminNetworkTarget: 50400
-  commonExternalTenantRouteTarget: 50500
+  # Optional: additional EVPN route-targets to import (e.g. jumphosts, UFM, tenants).
+  # routeTargetsToImport:
+  #   datacenterAsn:101: {}   # Jumphosts
+  #   datacenterAsn:1002: {}  # UFM
 
 forgeDpuLoopbackPrefix: 7.243.97.64/26
 forgeServiceVipPrefix: 7.243.86.224/27
@@ -122,6 +119,7 @@ detect and apply the real MAC automatically at the end of provisioning.
 ```bash
 ./build-dpu-install-iso.sh \
   --control-plane-config site-sample.yaml \
+  --download-artifacts \
   --doca-version      3.2.2 \
   --bfb-build         125 \
   --bfb-release       26.02 \
@@ -321,14 +319,14 @@ via the BMC UI if you prefer manual control.
 
 ---
 
-### Step 4 — Wait for the host to come back up
+### Step 5 — Wait for the host to come back up
 
 After the power cycle the host will reboot. Reconnect via the BMC remote console and
 wait for the OS to fully boot before proceeding.
 
 ---
 
-### Step 5 — Run post-power-cycle.sh
+### Step 6 — Run post-power-cycle.sh
 
 Run directly from the working directory:
 
@@ -354,7 +352,7 @@ The host now has network connectivity through the DPU.
 
 ## Repeating for each node
 
-Repeat **Part 2** (Steps 1–5) for each site controller host, substituting its hostname:
+Repeat **Part 2** (Steps 1–6) for each site controller host, substituting its hostname:
 
 ```bash
 # install.sh only needs to run once — skip if already done on this host
@@ -432,11 +430,11 @@ image over it is slow, and if the DPU is still busy with post-boot initialisatio
 the transfer starts, its receive buffers fill up and the transfer stalls indefinitely.
 
 The scripts mitigate this automatically:
-- A **20 second delay** is inserted after the DPU comes online before any file transfer
+- A **20-second delay** is inserted after the DPU comes online before any file transfer
   begins, giving the DPU time to finish its boot activity
 - SSH keepalives (`ServerAliveInterval=30`, `ServerAliveCountMax=3`) detect a stalled
   connection and fail it within 90 seconds instead of hanging forever
-- `dpu_scp` **retries up to 3 times** with a 60 second gap between attempts — by the
+- `dpu_scp` **retries up to 3 times** with a 60-second gap between attempts — by the
   second attempt the DPU has settled and the transfer typically succeeds quickly
 
 If the transfer still stalls and exhausts all retries:
