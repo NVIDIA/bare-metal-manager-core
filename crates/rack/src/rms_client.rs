@@ -1201,6 +1201,14 @@ pub mod test_support {
                     ..Default::default()
                 }))
         }
+
+        async fn batch_disable_switch_mtls(
+            &self,
+            _cmd: rms::BatchDisableSwitchMtlsRequest,
+        ) -> Result<rms::BatchDisableSwitchMtlsResponse, RackManagerError> {
+            Ok(rms::BatchDisableSwitchMtlsResponse::default())
+        }
+
         async fn get_configure_switch_certificate_job_status(
             &self,
             cmd: rms::GetConfigureSwitchCertificateJobStatusRequest,

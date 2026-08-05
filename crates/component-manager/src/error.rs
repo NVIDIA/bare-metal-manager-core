@@ -20,9 +20,13 @@ pub enum ComponentManagerError {
     #[error("operation rejected before dispatch: {0}")]
     RejectedBeforeDispatch(String),
 
-    /// A mutating request may have reached the backend, but no job handle is
-    /// available. Callers must preserve the staged target until their
-    /// reconciliation policy decides whether it is safe to retry.
+    /// A mutating operation may still be running when local observation ends,
+    /// so its outcome cannot be determined yet.
+    ///
+    /// When a job handle is available, callers must retain it and continue
+    /// status observation rather than resubmitting the mutation. Without a job
+    /// handle, callers must preserve the staged target until their reconciliation
+    /// policy decides whether it is safe to retry.
     ///
     /// For [`crate::nv_switch_manager::NvSwitchManager::ensure_password_rotation`],
     /// callers retain the exact current-to-target request and retry it later.

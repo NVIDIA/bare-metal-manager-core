@@ -47,8 +47,9 @@ use crate::config::ComponentManagerConfig;
 use crate::error::ComponentManagerError;
 use crate::nv_switch_manager::{
     Backend as NvSwitchBackend, ConfigureSwitchCertificateJobStatus, NvSwitchManager,
-    SwitchComponentResult, SwitchEndpoint, SwitchFirmwareUpdateStatus, SwitchPasswordRotationState,
-    SwitchPowerStateResult, SwitchSlotAndTrayResult,
+    SwitchComponentResult, SwitchEndpoint, SwitchFactoryResetJobStatus, SwitchFactoryResetState,
+    SwitchFirmwareUpdateStatus, SwitchPasswordRotationState, SwitchPowerStateResult,
+    SwitchSlotAndTrayResult,
 };
 use crate::power_shelf_manager::{
     Backend as PowerShelfBackend, PowerShelfComponentResult, PowerShelfEndpoint,
@@ -1943,6 +1944,50 @@ impl NvSwitchManager for RmsBackend {
         rms_get_configure_switch_certificate_job_status(self.client.as_ref(), job_id).await
     }
 
+    #[instrument(skip(self, endpoints, tls_server_domain), fields(backend = "rms"))]
+    async fn batch_reset_switch_factory_default(
+        &self,
+        endpoints: &[SwitchEndpoint],
+        tls_server_domain: Option<&str>,
+    ) -> Result<String, ComponentManagerError> {
+        if endpoints.is_empty() {
+            return Err(ComponentManagerError::InvalidArgument(
+                "switch factory reset requires at least one endpoint".to_string(),
+            ));
+        }
+
+        let macs: Vec<MacAddress> = endpoints.iter().map(|endpoint| endpoint.bmc_mac).collect();
+        let identities = resolve_switch_identities(&self.db, &macs).await?;
+        let hostnames = resolve_switch_machine_interface_hostnames(&self.db, endpoints).await?;
+        let mut nodes = Vec::with_capacity(endpoints.len());
+
+        for endpoint in endpoints {
+            let resolved = self
+                .resolve_switch_or_power_shelf_node(
+                    &identities,
+                    endpoint.bmc_mac,
+                    SwitchOrPowerShelfRole::Switch,
+                )
+                .map_err(ComponentManagerError::Internal)?;
+
+            nodes.push(build_switch_node_info(
+                endpoint,
+                &resolved,
+                hostnames.get(&endpoint.nvos_mac).cloned(),
+            ));
+        }
+
+        rms_batch_reset_switch_factory_default(self.client.as_ref(), nodes, tls_server_domain).await
+    }
+
+    #[instrument(skip(self), fields(backend = "rms", job_id))]
+    async fn get_switch_factory_reset_job_status(
+        &self,
+        job_id: &str,
+    ) -> Result<SwitchFactoryResetJobStatus, ComponentManagerError> {
+        rms_get_switch_factory_reset_job_status(self.client.as_ref(), job_id).await
+    }
+
     #[instrument(skip(self, request), fields(backend = "rms"))]
     async fn configure_scale_up_fabric_manager_v2(
         &self,
@@ -2141,6 +2186,226 @@ fn map_rms_password_rotation_state(job: &rms::JobStatus) -> SwitchPasswordRotati
         Ok(rms::JobExecutionState::Completed) => SwitchPasswordRotationState::Completed,
         Ok(rms::JobExecutionState::Failed) => SwitchPasswordRotationState::Failed,
         Ok(rms::JobExecutionState::Unspecified) | Err(_) => SwitchPasswordRotationState::Unknown,
+    }
+}
+
+/// Submits one destructive factory-reset batch and requires a durable job handle.
+///
+/// The backend-neutral TLS server domain maps to the RMS `domain` field. RMS uses its
+/// configured switch domain when this value is absent.
+async fn rms_batch_reset_switch_factory_default(
+    client: &dyn RmsApi,
+    nodes: Vec<rms::NodeInfo>,
+    tls_server_domain: Option<&str>,
+) -> Result<String, ComponentManagerError> {
+    let request = rms::BatchResetSwitchFactoryDefaultRequest {
+        nodes: Some(rms::NodeSet { nodes }),
+        domain: tls_server_domain.map(str::to_owned),
+    };
+
+    let response = red::instrumented(
+        "rms",
+        "batch_reset_switch_factory_default",
+        client.batch_reset_switch_factory_default(request),
+    )
+    .await
+    .map_err(|error| match error {
+        // The contract guarantees that an unimplemented RPC accepted no reset work.
+        // Other status or transport failures can arrive after dispatch, so they must
+        // not invite an automatic retry of this destructive operation.
+        RackManagerError::ApiInvocationError(status)
+            if status.code() == tonic::Code::Unimplemented =>
+        {
+            ComponentManagerError::Unsupported(
+                "RMS does not support switch factory reset".to_string(),
+            )
+        }
+        _ => ComponentManagerError::OperationOutcomeUnknown(
+            "RMS switch factory-reset submission returned no durable job ID".to_string(),
+        ),
+    })?;
+
+    let batch = response.response.ok_or_else(|| {
+        ComponentManagerError::OperationOutcomeUnknown(
+            "RMS switch factory-reset submission returned no operation response or job ID"
+                .to_string(),
+        )
+    })?;
+
+    if !batch.job_id.trim().is_empty() {
+        return Ok(batch.job_id);
+    }
+
+    Err(ComponentManagerError::OperationOutcomeUnknown(format!(
+        "RMS switch factory-reset submission returned no job ID (status {}); the operation outcome is unknown",
+        batch.status
+    )))
+}
+
+fn rms_switch_factory_reset_job_failure(job: &rms::JobStatus) -> String {
+    let error_code = rms::JobError::try_from(job.error_code).map_or_else(
+        |_| format!("unknown({})", job.error_code),
+        |error| error.as_str_name().to_string(),
+    );
+
+    let node = job
+        .node_id
+        .as_deref()
+        .map(|node_id| format!(" for node {node_id}"))
+        .unwrap_or_default();
+
+    let message = if job.error_message.trim().is_empty() {
+        "no error message".to_string()
+    } else {
+        job.error_message.clone()
+    };
+
+    format!(
+        "switch factory-reset job {}{node} failed with {error_code}: {message}",
+        job.job_id
+    )
+}
+
+/// Aggregates the parent and per-switch RMS jobs into one backend-neutral state.
+///
+/// A completed parent is not sufficient evidence of success. RMS creates one child
+/// job per target switch, so completion requires every child declared by the parent to
+/// be present and completed. A missing child remains pending because RMS may expose it
+/// on a later poll. A missing parent or unknown execution state cannot establish the
+/// outcome and is reported as [`ComponentManagerError::OperationOutcomeUnknown`].
+fn summarize_rms_switch_factory_reset_jobs(
+    job_id: &str,
+    jobs: &[rms::JobStatus],
+) -> Result<SwitchFactoryResetJobStatus, ComponentManagerError> {
+    let parent = jobs
+        .iter()
+        .find(|job| job.job_id == job_id)
+        .ok_or_else(|| {
+            ComponentManagerError::OperationOutcomeUnknown(format!(
+                "RMS returned no state for switch factory-reset job {job_id}; the reset outcome is unknown"
+            ))
+        })?;
+
+    let children: Vec<&rms::JobStatus> = jobs
+        .iter()
+        .filter(|job| {
+            job.job_id != job_id
+                && (job.parent_job_id.as_deref() == Some(job_id)
+                    || parent
+                        .child_job_ids
+                        .iter()
+                        .any(|child_job_id| child_job_id == &job.job_id))
+        })
+        .collect();
+
+    // Child failures identify the affected switch and therefore provide more useful
+    // diagnostics than the aggregate parent failure.
+    if let Some(failed) = children.iter().find(|job| {
+        matches!(
+            rms::JobExecutionState::try_from(job.execution_state),
+            Ok(rms::JobExecutionState::Failed)
+        )
+    }) {
+        return Ok(SwitchFactoryResetJobStatus {
+            state: SwitchFactoryResetState::Failed,
+            error: Some(rms_switch_factory_reset_job_failure(failed)),
+        });
+    }
+
+    if matches!(
+        rms::JobExecutionState::try_from(parent.execution_state),
+        Ok(rms::JobExecutionState::Failed)
+    ) {
+        return Ok(SwitchFactoryResetJobStatus {
+            state: SwitchFactoryResetState::Failed,
+            error: Some(rms_switch_factory_reset_job_failure(parent)),
+        });
+    }
+
+    // A successful reset must include per-switch evidence. Keep polling when RMS has
+    // not exposed any children yet or omits a child declared by the parent.
+    let mut pending = children.is_empty()
+        || parent.child_job_ids.iter().any(|child_job_id| {
+            !children
+                .iter()
+                .any(|job| job.job_id.as_str() == child_job_id)
+        });
+
+    for job in std::iter::once(parent).chain(children) {
+        match rms::JobExecutionState::try_from(job.execution_state) {
+            Ok(rms::JobExecutionState::Queued | rms::JobExecutionState::Running) => {
+                pending = true;
+            }
+            Ok(rms::JobExecutionState::Completed) => {}
+            Ok(rms::JobExecutionState::Failed) => {
+                return Ok(SwitchFactoryResetJobStatus {
+                    state: SwitchFactoryResetState::Failed,
+                    error: Some(rms_switch_factory_reset_job_failure(job)),
+                });
+            }
+            Ok(rms::JobExecutionState::Unspecified) | Err(_) => {
+                return Err(ComponentManagerError::OperationOutcomeUnknown(format!(
+                    "RMS switch factory-reset job {} returned unknown execution state {}; the reset outcome is unknown",
+                    job.job_id, job.execution_state
+                )));
+            }
+        }
+    }
+
+    let state = if pending {
+        SwitchFactoryResetState::Pending
+    } else {
+        SwitchFactoryResetState::Completed
+    };
+
+    Ok(SwitchFactoryResetJobStatus { state, error: None })
+}
+
+/// Reads and aggregates the RMS parent and child states for a factory reset.
+async fn rms_get_switch_factory_reset_job_status(
+    client: &dyn RmsApi,
+    job_id: &str,
+) -> Result<SwitchFactoryResetJobStatus, ComponentManagerError> {
+    if job_id.trim().is_empty() {
+        return Err(ComponentManagerError::InvalidArgument(
+            "switch factory-reset job ID must be non-empty".to_string(),
+        ));
+    }
+
+    let request = rms::GetJobStatusRequest {
+        job_id: job_id.to_string(),
+        include_child_job_states: true,
+    };
+
+    match red::instrumented("rms", "get_job_status", client.get_job_status(request)).await {
+        Ok(response) => summarize_rms_switch_factory_reset_jobs(job_id, &response.job_states),
+        Err(RackManagerError::ApiInvocationError(status)) => match status.code() {
+            // Once submission returned a durable handle, a rejected or missing
+            // observation does not prove that the destructive job never started.
+            tonic::Code::NotFound => Err(ComponentManagerError::OperationOutcomeUnknown(format!(
+                "RMS has no state for switch factory-reset job {job_id}; the reset outcome is unknown"
+            ))),
+            tonic::Code::InvalidArgument => {
+                Err(ComponentManagerError::OperationOutcomeUnknown(format!(
+                    "RMS rejected observation of switch factory-reset job {job_id}; the reset outcome is unknown"
+                )))
+            }
+            tonic::Code::Unimplemented => Err(ComponentManagerError::Unsupported(
+                "RMS does not support switch factory-reset job status".to_string(),
+            )),
+            tonic::Code::Unavailable
+            | tonic::Code::DeadlineExceeded
+            | tonic::Code::Cancelled
+            | tonic::Code::ResourceExhausted => Err(ComponentManagerError::Unavailable(
+                "RMS switch factory-reset job status is temporarily unavailable".to_string(),
+            )),
+            _ => Err(ComponentManagerError::Rms(format!(
+                "RMS could not read switch factory-reset job {job_id}: {status}"
+            ))),
+        },
+        Err(RackManagerError::TlsError(_)) => Err(ComponentManagerError::Unavailable(
+            "RMS switch factory-reset job status is temporarily unavailable".to_string(),
+        )),
     }
 }
 
@@ -3039,6 +3304,124 @@ mod tests {
                 "{scenario}"
             );
         }
+    }
+
+    #[test]
+    fn factory_reset_job_summary_requires_parent_and_all_declared_children() {
+        let job = |job_id: &str,
+                   parent_job_id: Option<&str>,
+                   child_job_ids: &[&str],
+                   execution_state: rms::JobExecutionState| rms::JobStatus {
+            job_id: job_id.to_string(),
+            parent_job_id: parent_job_id.map(str::to_string),
+            child_job_ids: child_job_ids.iter().map(|id| (*id).to_string()).collect(),
+            execution_state: execution_state as i32,
+            ..Default::default()
+        };
+
+        let missing_child = vec![job(
+            "factory-reset-job",
+            None,
+            &["child-1"],
+            rms::JobExecutionState::Completed,
+        )];
+
+        assert_eq!(
+            summarize_rms_switch_factory_reset_jobs("factory-reset-job", &missing_child)
+                .expect("a missing declared child remains pending")
+                .state,
+            SwitchFactoryResetState::Pending
+        );
+
+        let no_children = vec![job(
+            "factory-reset-job",
+            None,
+            &[],
+            rms::JobExecutionState::Completed,
+        )];
+
+        assert_eq!(
+            summarize_rms_switch_factory_reset_jobs("factory-reset-job", &no_children)
+                .expect("a completed parent without per-switch state remains pending")
+                .state,
+            SwitchFactoryResetState::Pending
+        );
+
+        let completed = vec![
+            job(
+                "factory-reset-job",
+                None,
+                &["child-1"],
+                rms::JobExecutionState::Completed,
+            ),
+            job(
+                "child-1",
+                Some("factory-reset-job"),
+                &[],
+                rms::JobExecutionState::Completed,
+            ),
+        ];
+
+        assert_eq!(
+            summarize_rms_switch_factory_reset_jobs("factory-reset-job", &completed)
+                .expect("the complete job graph should succeed")
+                .state,
+            SwitchFactoryResetState::Completed
+        );
+    }
+
+    #[test]
+    fn factory_reset_job_summary_preserves_child_failure_details() {
+        let failed_child = rms::JobStatus {
+            job_id: "child-1".to_string(),
+            parent_job_id: Some("factory-reset-job".to_string()),
+            execution_state: rms::JobExecutionState::Failed as i32,
+            error_code: rms::JobError::Unauthenticated as i32,
+            error_message: "default login failed".to_string(),
+            node_id: Some("switch-1".to_string()),
+            ..Default::default()
+        };
+
+        let jobs = vec![
+            rms::JobStatus {
+                job_id: "factory-reset-job".to_string(),
+                child_job_ids: vec!["child-1".to_string()],
+                execution_state: rms::JobExecutionState::Failed as i32,
+                ..Default::default()
+            },
+            failed_child,
+        ];
+
+        let status = summarize_rms_switch_factory_reset_jobs("factory-reset-job", &jobs)
+            .expect("a failed job should remain an observed terminal status");
+
+        assert_eq!(status.state, SwitchFactoryResetState::Failed);
+
+        assert!(status.error.as_deref().is_some_and(|error| {
+            error.contains("child-1")
+                && error.contains("switch-1")
+                && error.contains("JOB_ERROR_UNAUTHENTICATED")
+                && error.contains("default login failed")
+        }));
+    }
+
+    #[test]
+    fn factory_reset_job_summary_preserves_unknown_outcomes() {
+        assert!(matches!(
+            summarize_rms_switch_factory_reset_jobs("factory-reset-job", &[]),
+            Err(ComponentManagerError::OperationOutcomeUnknown(_))
+        ));
+
+        let jobs = vec![rms::JobStatus {
+            job_id: "factory-reset-job".to_string(),
+            execution_state: i32::MAX,
+            ..Default::default()
+        }];
+
+        assert!(matches!(
+            summarize_rms_switch_factory_reset_jobs("factory-reset-job", &jobs),
+            Err(ComponentManagerError::OperationOutcomeUnknown(_))
+        ));
     }
 
     #[test]
@@ -4090,6 +4473,221 @@ mod tests {
     }
 
     // ---- NvSwitchManager tests ----
+
+    #[tokio::test]
+    async fn sw_factory_reset_job_status_includes_children_and_returns_domain_status() {
+        let mock = MockRmsApi::new();
+
+        let response = rms::GetJobStatusResponse {
+            job_states: vec![rms::JobStatus {
+                job_id: "factory-reset-job-1".to_string(),
+                child_job_ids: vec!["factory-reset-child-1".to_string()],
+                execution_state: rms::JobExecutionState::Running as i32,
+                ..Default::default()
+            }],
+        };
+
+        mock.enqueue_get_job_status(Ok(response)).await;
+
+        let status = rms_get_switch_factory_reset_job_status(&mock, "factory-reset-job-1")
+            .await
+            .expect("factory-reset job status should be readable");
+
+        assert_eq!(status.state, SwitchFactoryResetState::Pending);
+        assert!(status.error.is_none());
+
+        let calls = mock.get_job_status_calls().await;
+
+        assert_eq!(calls.len(), 1);
+        assert_eq!(calls[0].job_id, "factory-reset-job-1");
+        assert!(calls[0].include_child_job_states);
+    }
+
+    #[tokio::test]
+    async fn sw_factory_reset_job_status_unobservable_states_preserve_unknown_outcome() {
+        let cases = [
+            tonic::Status::not_found("expired factory-reset-job-1"),
+            tonic::Status::invalid_argument("factory-reset-job-1 is not observable"),
+        ];
+
+        for status in cases {
+            let mock = MockRmsApi::new();
+
+            mock.enqueue_get_job_status(Err(RackManagerError::ApiInvocationError(status)))
+                .await;
+
+            let error = rms_get_switch_factory_reset_job_status(&mock, "factory-reset-job-1")
+                .await
+                .unwrap_err();
+
+            assert!(matches!(
+                error,
+                ComponentManagerError::OperationOutcomeUnknown(_)
+            ));
+
+            assert!(
+                mock.batch_reset_switch_factory_default_calls()
+                    .await
+                    .is_empty()
+            );
+        }
+    }
+
+    #[carbide_macros::sqlx_test]
+    async fn sw_batch_reset_switch_factory_default_maps_endpoints_and_returns_job_id(
+        pool: sqlx::PgPool,
+    ) {
+        let (mock, backend, _, _, _, sw1, _) = make_backend(&pool).await;
+
+        let expected_response = rms::BatchResetSwitchFactoryDefaultResponse {
+            response: Some(rms::NodeBatchResponse {
+                status: rms::ReturnCode::Success as i32,
+                job_id: "factory-reset-job-1".to_string(),
+                ..Default::default()
+            }),
+        };
+
+        mock.enqueue_batch_reset_switch_factory_default(Ok(expected_response))
+            .await;
+
+        let endpoint = make_sw_endpoint(SW_MAC_1);
+
+        let tls_server_domain = "switches.example.test";
+
+        let job_id = NvSwitchManager::batch_reset_switch_factory_default(
+            &backend,
+            std::slice::from_ref(&endpoint),
+            Some(tls_server_domain),
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(job_id, "factory-reset-job-1");
+
+        let calls = mock.batch_reset_switch_factory_default_calls().await;
+
+        assert_eq!(calls.len(), 1);
+        assert_eq!(calls[0].domain.as_deref(), Some(tls_server_domain));
+
+        let nodes = calls[0]
+            .nodes
+            .as_ref()
+            .expect("the RMS request should include target nodes");
+
+        assert_eq!(nodes.nodes.len(), 1);
+        assert_eq!(nodes.nodes[0].node_id, sw1.to_string());
+    }
+
+    #[tokio::test]
+    async fn sw_batch_reset_switch_factory_default_requires_durable_job_id() {
+        let cases = [
+            (
+                "missing response",
+                rms::BatchResetSwitchFactoryDefaultResponse::default(),
+            ),
+            (
+                "empty job ID",
+                rms::BatchResetSwitchFactoryDefaultResponse {
+                    response: Some(rms::NodeBatchResponse::default()),
+                },
+            ),
+        ];
+
+        for (scenario, response) in cases {
+            let mock = MockRmsApi::new();
+            mock.enqueue_batch_reset_switch_factory_default(Ok(response))
+                .await;
+
+            let error =
+                rms_batch_reset_switch_factory_default(&mock, vec![rms::NodeInfo::default()], None)
+                    .await
+                    .expect_err(scenario);
+
+            assert!(matches!(
+                error,
+                ComponentManagerError::OperationOutcomeUnknown(_)
+            ));
+        }
+    }
+
+    #[tokio::test]
+    async fn sw_batch_reset_switch_factory_default_preserves_ambiguous_transport_failure() {
+        let mock = MockRmsApi::new();
+
+        mock.enqueue_batch_reset_switch_factory_default(Err(RackManagerError::ApiInvocationError(
+            tonic::Status::unavailable("connection lost"),
+        )))
+        .await;
+
+        let error =
+            rms_batch_reset_switch_factory_default(&mock, vec![rms::NodeInfo::default()], None)
+                .await
+                .unwrap_err();
+
+        assert!(matches!(
+            error,
+            ComponentManagerError::OperationOutcomeUnknown(_)
+        ));
+    }
+
+    #[tokio::test]
+    async fn sw_batch_reset_switch_factory_default_preserves_unproven_rejections() {
+        let invalid_argument = MockRmsApi::new();
+        invalid_argument
+            .enqueue_batch_reset_switch_factory_default(Err(RackManagerError::ApiInvocationError(
+                tonic::Status::invalid_argument("invalid target"),
+            )))
+            .await;
+
+        let error = rms_batch_reset_switch_factory_default(
+            &invalid_argument,
+            vec![rms::NodeInfo::default()],
+            None,
+        )
+        .await
+        .unwrap_err();
+
+        assert!(matches!(
+            error,
+            ComponentManagerError::OperationOutcomeUnknown(_)
+        ));
+
+        let unimplemented = MockRmsApi::new();
+        unimplemented
+            .enqueue_batch_reset_switch_factory_default(Err(RackManagerError::ApiInvocationError(
+                tonic::Status::unimplemented("unsupported"),
+            )))
+            .await;
+
+        let error = rms_batch_reset_switch_factory_default(
+            &unimplemented,
+            vec![rms::NodeInfo::default()],
+            None,
+        )
+        .await
+        .unwrap_err();
+
+        assert!(matches!(error, ComponentManagerError::Unsupported(_)));
+    }
+
+    #[carbide_macros::sqlx_test]
+    async fn sw_batch_reset_switch_factory_default_rejects_empty_targets_before_dispatch(
+        pool: sqlx::PgPool,
+    ) {
+        let (mock, backend, _, _, _, _, _) = make_backend(&pool).await;
+
+        let error = NvSwitchManager::batch_reset_switch_factory_default(&backend, &[], None)
+            .await
+            .unwrap_err();
+
+        assert!(matches!(error, ComponentManagerError::InvalidArgument(_)));
+
+        assert!(
+            mock.batch_reset_switch_factory_default_calls()
+                .await
+                .is_empty()
+        );
+    }
 
     #[carbide_macros::sqlx_test]
     async fn sw_configure_switch_certificate_success(pool: sqlx::PgPool) {
