@@ -81,18 +81,26 @@ jobs:
     if: ${{ needs.changes.outputs.run_rest_ci == 'true' }}
     uses: ./.github/workflows/rest-prepare-build-info.yml
     with:
-      runner: linux-amd64-cpu4
+      # GitHub-hosted: the job is a checkout and a `git describe`, but on the
+      # self-hosted pool it waited 91 seconds for a runner to do 24 seconds of
+      # work — and everything downstream waits on it. `changes` above already
+      # does a full-depth checkout of this repo on a hosted runner in ten
+      # seconds.
+      runner: ubuntu-latest
 
   lint-and-test:
     name: Lint and Test
     needs: prepare
     uses: ./.github/workflows/rest-lint-and-test.yml
 
+  # Not gated on lint-and-test: this job publishes nothing, it only uploads
+  # GitHub artifacts with a 7-day retention, so a test gate protects nothing.
+  # Gating it also made it the tail of the run — it started only once the
+  # slowest test finished and then ran for another four minutes.
   build-binaries:
     name: Build Go Binaries
     needs:
       - prepare
-      - lint-and-test
     with:
       upload_artifact: true
     uses: ./.github/workflows/rest-build-binaries.yml
@@ -119,8 +127,16 @@ jobs:
           post-pr-comment: 'true'
           fail-on-findings: 'true'
 
+  # Push refs (main, tags, dispatch). Stays behind lint-and-test so a red test
+  # run cannot publish an image or move `latest`.
+  #
+  # Keep in sync with `build-and-push-pr` below, which is the same call for
+  # pull requests. The two exist because `needs` is unconditional — a job waits
+  # for every entry regardless of `if` — so a dependency that applies only to
+  # push refs has to be expressed as two mutually exclusive jobs.
   build-and-push:
     name: Build and Push Docker Images
+    if: ${{ !startsWith(github.ref, 'refs/heads/pull-request/') }}
     needs:
       - prepare
       - lint-and-test
@@ -149,6 +165,39 @@ jobs:
       NICO_TARGET_REGISTRY_TOKEN: ${{ secrets.NICO_TARGET_REGISTRY_TOKEN }}
       NICO_NGC_TOKEN: ${{ secrets.NICO_NGC_TOKEN }}
 
+  # Pull requests. Same build as `build-and-push` above — keep the two in sync —
+  # but it starts as soon as `prepare` is done instead of waiting for the tests.
+  # The images take about as long to build as the slowest test takes to run, so
+  # gating them was costing roughly six minutes of wall clock for a build whose
+  # result is discarded either way: a pull request never pushes.
+  #
+  # No secrets are passed. Every step that consumes them (registry login, the
+  # image push, the NGC resource uploads, and the whole `merge` job) is already
+  # gated on `push_enabled`, which is hard-coded false here.
+  build-and-push-pr:
+    name: Build Docker Images
+    if: ${{ startsWith(github.ref, 'refs/heads/pull-request/') }}
+    needs:
+      - prepare
+    permissions:
+      contents: read
+      packages: write
+      pull-requests: write
+      security-events: write
+    uses: ./.github/workflows/rest-build-push-docker.yml
+    with:
+      runner: linux-amd64-cpu4
+      semantic_version: ${{ needs.prepare.outputs.semantic_version }}
+      short_sha: ${{ needs.prepare.outputs.short_sha }}
+      branch_sha_tag: ${{ needs.prepare.outputs.branch_sha_tag }}
+      target_registry: ${{ needs.prepare.outputs.target_registry }}
+      ngc_path: ${{ needs.prepare.outputs.target_ngc_path }}
+      branch_name: ${{ needs.prepare.outputs.branch_name }}
+      is_main_branch: ${{ needs.prepare.outputs.is_main_branch }}
+      push_enabled: false
+      release_tag: ${{ needs.prepare.outputs.release_tag }}
+      helm_version: ${{ needs.prepare.outputs.helm_version }}
+
   helm:
     name: Helm Charts
     needs:
@@ -168,7 +217,9 @@ jobs:
   # ============================================================================
   # Fails iff any leaf job's result is `failure` or `cancelled`.
   # `skipped` counts as pass — that's how core-only PRs unblock when the
-  # `changes` gate intentionally skips the REST pipeline.
+  # `changes` gate intentionally skips the REST pipeline, and it is also what
+  # lets `build-and-push` and `build-and-push-pr` both sit in needs when
+  # exactly one of the two ever runs.
   # `changes` + `prepare` are in needs so a gate or prepare failure doesn't
   # silently pass (downstream leaves become SKIPPED in those cases).
   rest-ci-pass:
@@ -182,6 +233,7 @@ jobs:
       - build-binaries
       - security-secret-scan
       - build-and-push
+      - build-and-push-pr
       - helm
     steps:
       - name: Decide pass/fail
