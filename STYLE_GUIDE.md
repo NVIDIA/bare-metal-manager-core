@@ -401,9 +401,70 @@ immutable.
 
 Transactions should be used to group write operations together such that they can be rolled back on failure. But do
 not hold a transaction open while doing long-running work. Doing so can exhaust the connection pool if the thing
-you're awaiting is blocked or slow. We have a custom lint, `txn_held_across_await` which will catch cases where you're
-`await`ing a future while holding a transaction, which mitigates this. If it happens, your
-code needs to be fixed, do not `#[allow(txn_held_across_await)]`.
+you're awaiting is blocked or slow. We have a custom lint, `txn_held_across_await`, which catches an `.await` while a
+transaction or tracked database connection remains live unless the awaited call receives that transaction or
+connection, or a nested transaction derived from that transaction. Passing it onward gives the callee the same
+responsibility; it does not make unrelated work safe.
+
+Treat a production lint finding as a design problem: finish the transaction before awaiting unrelated work, or move
+that work outside the transaction. Do not add `#[allow(txn_held_across_await)]` merely to silence the lint. A narrowly
+reviewed infrastructure boundary may deliberately reserve a dedicated connection when that is the mechanism's purpose
+and its pool-capacity cost is fixed and documented; keep that proof next to the allowance. Tests may allow the lint
+when holding a transaction or row lock across an await is the behavior under test.
+
+### Concurrent updates
+
+Assume database updates can run concurrently. A transaction alone does not make a stale read-modify-write safe: do not
+read a row, modify an in-memory snapshot, and write the whole row back unless the operation prevents a concurrent
+change from being silently overwritten.
+
+Use the narrowest mechanism that proves the update is safe. Depending on the invariant, this may be an atomic SQL
+expression, an update of only the requested columns, a uniqueness or foreign-key constraint, `SELECT ... FOR UPDATE`,
+or optimistic concurrency with `UPDATE ... WHERE version = ...`. When the version is the entity's
+optimistic-concurrency token, the same statement must write the requested values and advance or replace that token;
+checking a token without changing it allows later writers to reuse the same snapshot.
+When using `SELECT ... FOR UPDATE`, acquire the lock and perform the dependent writes in the same transaction before
+committing it.
+
+Define the no-match contract explicitly. A version-checked predicate can match zero rows because the target is missing,
+is no longer eligible, including when it is soft-deleted, or has a stale version. For each outcome the operation can
+distinguish, define its exact error or not-applied result. Return `ConcurrentModificationError` only when the statement
+or transaction distinguishes a stale token from the missing or ineligible outcome, and return `NotFoundError` only for
+proven absence. If the API intentionally makes two or more outcomes indistinguishable, document which outcomes share
+the combined policy. A deliberately conditional API, such as a `try_*` helper, may return an explicit not-applied result
+instead; it must not report that the mutation succeeded.
+
+Add a concurrent-update test when the contract promises protection from lost updates. Do not add row locks by default
+when an atomic operation, constraint, or version predicate already excludes the invalid interleaving.
+
+### Long-running work locks
+
+Do not hold a database transaction or pooled connection open solely to keep slow or external work mutually exclusive.
+When long-running work needs database-coordinated admission across NICo process instances and cannot fit inside a short
+transaction, use [`WorkLockManager`](crates/api-db/src/work_lock_manager.rs) with a work key that names the protected
+resource or operation. Do not use it for task-local exclusion, where an in-process owner or mutex is enough. Before
+choosing a work lock, ensure that a prior worker continuing after lease expiry cannot make the operation unsafe. Keep
+database updates performed under the work lock in short transactions. In each transaction, call
+`WorkLock::fence_transaction` before any protected write and keep all writes guarded by that fence in the same
+transaction.
+
+If `fence_transaction` reports ownership loss, do not perform the guarded writes. Reconcile any earlier external work,
+then acquire a new `WorkLock` before retrying.
+
+The keepalive loop continues attempting renewal after database or manager communication failures, but stops once the
+database proves ownership was lost. It does not notify or cancel the task holding the `WorkLock`.
+
+Keep the guard until protected work stops. `Drop` stops renewal and queues a best-effort release without waiting, while
+`release()` consumes the guard and waits for the manager to acknowledge the database deletion. A cleanup error may
+leave the work key unavailable until the lease expires; it does not preserve ownership or permit the caller to continue
+protected work.
+
+A `WorkLock` is an expiring lease, not a fencing token. If its keepalives stop, another worker can acquire the same key
+while the previous worker is still running. The lease alone cannot protect an external side effect or prove that a
+later database mutation still belongs to the current owner. Fence the database transaction, and give external work
+its own fencing, idempotency, or a reconciliation protocol proven safe when execution repeats or overlaps. A work lock
+also does not replace atomic SQL, version predicates, or constraints for writers that do not participate in the same
+work key.
 
 ## Database wrappers
 
