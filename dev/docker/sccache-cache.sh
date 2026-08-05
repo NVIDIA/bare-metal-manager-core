@@ -14,22 +14,30 @@
 #
 # POSIX sh only -- a Dockerfile RUN is interpreted by /bin/sh.
 
-# Number of backend writes sccache has failed so far, or "unknown" when it
-# cannot be determined. The text output is parsed as a fallback because
-# --stats-format is the newer of the two interfaces.
-sccache_write_errors() {
-	_errors="$(sccache --show-stats --stats-format=json 2>/dev/null |
-		grep -oE '"cache_write_errors" *: *[0-9]+' |
+# One counter from `sccache --show-stats`, or "unknown" when it cannot be read.
+# $1 is the JSON field, $2 the label in the human-readable output. The text
+# output is parsed as a fallback because --stats-format is the newer of the two
+# interfaces, and it is the only source for counters that JSON reports as a
+# per-language object rather than a number.
+sccache_stat() {
+	_stat="$(sccache --show-stats --stats-format=json 2>/dev/null |
+		grep -oE "\"$1\" *: *[0-9]+" |
 		head -n 1 |
 		grep -oE '[0-9]+$')"
-	if [ -z "${_errors}" ]; then
-		_errors="$(sccache --show-stats 2>/dev/null |
-			awk '/^Cache write errors/ { print $NF; exit }')"
+	if [ -z "${_stat}" ]; then
+		_stat="$(sccache --show-stats 2>/dev/null |
+			awk -v label="$2" 'index($0, label) == 1 { print $NF; exit }')"
 	fi
-	case "${_errors}" in
+	case "${_stat}" in
 	'' | *[!0-9]*) echo unknown ;;
-	*) echo "${_errors}" ;;
+	*) echo "${_stat}" ;;
 	esac
+}
+
+# Number of backend writes sccache has failed so far, or "unknown" when it
+# cannot be determined.
+sccache_write_errors() {
+	sccache_stat cache_write_errors 'Cache write errors'
 }
 
 sccache_dump_log() {
@@ -83,6 +91,7 @@ sccache_setup() {
 	SCCACHE_ERROR_LOG=/tmp/sccache-server.log
 	SCCACHE_LOG=warn
 	SCCACHE_PROBE_WRITE_ERRORS=unknown
+	SCCACHE_BACKEND_READ_ONLY=0
 	export SCCACHE_ERROR_LOG SCCACHE_LOG
 
 	# No credentials: a plain local `docker build`, where the BuildKit cache
@@ -117,6 +126,7 @@ sccache_setup() {
 		_reason="the sccache server would not start"
 	elif [ "${SCCACHE_GHA_RW_MODE}" = READ_ONLY ]; then
 		echo "sccache: using GitHub Actions cache backend (read-only)"
+		SCCACHE_BACKEND_READ_ONLY=1
 		return 0
 	elif ! sccache_backend_writable; then
 		if [ "${SCCACHE_PROBE_WRITE_ERRORS}" = unknown ]; then
@@ -140,8 +150,40 @@ sccache_setup() {
 	return 0
 }
 
+# Health of a deliberately read-only backend. sccache has no "do not attempt
+# the write" mode: READ_ONLY is implemented by failing every put, and each
+# rejection lands in the write-error counter, so that counter is guaranteed to
+# equal the number of cacheable compilations and says nothing about the
+# backend. Reads are the only signal. Misses are logged as NotFound warnings,
+# which makes the server log pure noise unless a read actually errored.
+sccache_report_read_only() {
+	_read_errors="$(sccache_stat cache_read_errors 'Cache read errors')"
+	case "${_read_errors}" in
+	0) ;;
+	unknown)
+		sccache_dump_log
+		sccache_degraded_banner "cache statistics unavailable after the build"
+		return 0
+		;;
+	*)
+		sccache_dump_log
+		sccache_degraded_banner "${_read_errors} cache read errors during the build"
+		return 0
+		;;
+	esac
+	if [ "$(sccache_stat cache_hits 'Cache hits')" = 0 ]; then
+		echo "sccache: read-only backend reachable but empty for this build."
+		echo "sccache: it is populated by main, so a branch that compiles code main has not seen yet gets no hits."
+	fi
+	return 0
+}
+
 sccache_report() {
 	sccache --show-stats || true
+	if [ "${SCCACHE_BACKEND_READ_ONLY}" = 1 ]; then
+		sccache_report_read_only
+		return 0
+	fi
 	sccache_dump_log
 	_errors="$(sccache_write_errors)"
 	if [ "${_errors}" = unknown ]; then
