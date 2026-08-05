@@ -188,9 +188,32 @@ NICO_DB="nico_system_nico"
 MAT_MODE="${MAT_MODE:-override}"
 # Network for scale mode — must be within Kubernetes ServiceCIDR and match the
 # scale values file (oobDhcpRelayAddress).
-SCALE_OOB_PREFIX="10.96.64.0/18";  SCALE_OOB_GW="10.96.64.1"
-SCALE_ADMIN_PREFIX="192.168.176.0/20"; SCALE_ADMIN_GW="192.168.176.1"
+SCALE_OOB_PREFIX="${SCALE_OOB_PREFIX:-10.96.64.0/18}";  SCALE_OOB_GW="${SCALE_OOB_GW:-10.96.64.1}"
+SCALE_ADMIN_PREFIX="${SCALE_ADMIN_PREFIX:-192.168.176.0/20}"; SCALE_ADMIN_GW="${SCALE_ADMIN_GW:-192.168.176.1}"
 SCALE_RESERVE=1
+# These four are operator-overridable and are written straight into the site
+# config and the DB, so validate them before anything consumes them: an
+# invalid prefix would insert a network segment and only fail on the separate
+# prefix insert, leaving a half-built segment that later runs skip as
+# "already present".
+_valid_cidr_gw() {   # $1=cidr $2=gateway $3=label
+    python3 - "$1" "$2" "$3" <<'PYCHK'
+import ipaddress, sys
+cidr, gw, label = sys.argv[1], sys.argv[2], sys.argv[3]
+try:
+    net = ipaddress.ip_network(cidr, strict=True)
+except ValueError as e:
+    sys.exit(f"{label}: invalid prefix {cidr!r}: {e}")
+try:
+    addr = ipaddress.ip_address(gw)
+except ValueError as e:
+    sys.exit(f"{label}: invalid gateway {gw!r}: {e}")
+if addr not in net:
+    sys.exit(f"{label}: gateway {gw} is outside prefix {cidr}")
+PYCHK
+}
+_valid_cidr_gw "$SCALE_OOB_PREFIX"   "$SCALE_OOB_GW"   "SCALE_OOB"   || die "$(_valid_cidr_gw "$SCALE_OOB_PREFIX" "$SCALE_OOB_GW" "SCALE_OOB" 2>&1)"
+_valid_cidr_gw "$SCALE_ADMIN_PREFIX" "$SCALE_ADMIN_GW" "SCALE_ADMIN" || die "$(_valid_cidr_gw "$SCALE_ADMIN_PREFIX" "$SCALE_ADMIN_GW" "SCALE_ADMIN" 2>&1)"
 # site_explorer throughput knobs applied in scale mode (defaults 30/90/4 make
 # 4500-host ingestion take ~9h; these bring it to ~1-2h).
 SCALE_CONCURRENT_EXPLORATIONS="${SCALE_CONCURRENT_EXPLORATIONS:-100}"
@@ -546,7 +569,13 @@ rules:
     verbs: ["get", "patch"]
   - apiGroups: [""]
     resources: ["secrets"]
-    verbs: ["get", "create", "patch"]
+    verbs: ["get", "create"]
+  # DPF SDK init PATCHes this one Secret on startup; scope the grant to it
+  # rather than every Secret in the namespace.
+  - apiGroups: [""]
+    resources: ["secrets"]
+    resourceNames: ["bmc-shared-password"]
+    verbs: ["patch"]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
@@ -609,6 +638,11 @@ knobs = [
     # PROXY-DIRECT: the Redfish client injects "Forwarded: host=<BMC IP>"
     # whenever bmc_proxy is set; the mock's registry routes on it. One
     # ClusterIP service serves the whole simulated fleet.
+    # CONTROLLER MODE (MAT_MULTIPOD=1) is the exception: mat-k8s-controller
+    # gives every BMC its own ClusterIP and site-explorer must dial those
+    # directly, so bmc_proxy stays dropped (values/machine-a-tron-scale*.yaml
+    # documents this requirement).
+] if os.environ.get("MAT_MULTIPOD") == "1" else [
     f'      bmc_proxy = "{env["BMC_PROXY"]}"',
     f'      concurrent_explorations = {env["KNOB_CONC"]}',
     f'      explorations_per_run = {env["KNOB_EPR"]}',
@@ -883,7 +917,98 @@ if [[ "${OOB_PREFIX:-}" == */* && "${ADMIN_PREFIX:-}" == */* ]]; then
     FIT_ADMIN=$(( ADMIN_USABLE / (DPU_PER_HOST + 1) ))
     FIT=$(( FIT_OOB < FIT_ADMIN ? FIT_OOB : FIT_ADMIN ))
     info "pool fit: OOB ${OOB_PREFIX} ≈${OOB_USABLE} usable → ≤${FIT_OOB} hosts; admin ${ADMIN_PREFIX} ≈${ADMIN_USABLE} usable → ≤${FIT_ADMIN} hosts"
-    if (( HOST_COUNT > FIT )); then
+    if [[ "${MAT_MULTIPOD:-0}" == "1" ]]; then
+        # Multipod: HOST_COUNT/DPU_PER_HOST are only the FIRST pod group, so
+        # the single-pool clamp above is meaningless here. Two cases matter:
+        #   * pods with their own OOB relay -> capacity is that pod's segment
+        #   * pods SHARING a relay          -> their demand is additive on one
+        #                                      pool, and must be checked
+        # Parse every pod group out of the values file and validate per relay.
+        _MP_REPORT="$(python3 - "$VALUES_FILE" "$OOB_PREFIX" "$OOB_RESERVE" <<'MPCHK'
+import ipaddress, re, sys
+
+values_file, default_prefix, default_reserve = sys.argv[1], sys.argv[2], sys.argv[3]
+text = open(values_file).read()
+
+# Dependency-free scan: walk the values file line by line and close off a
+# machine group whenever a line appears at or above the group's indentation.
+# Each group contributes hostCount*(1+dpuPerHostCount) BMC IPs to its relay.
+groups, cur, cur_indent = [], None, None
+for raw in text.splitlines():
+    if not raw.strip() or raw.lstrip().startswith("#"):
+        continue
+    indent = len(raw) - len(raw.lstrip())
+    m = re.match(r'\s*([A-Za-z0-9_.-]+)\s*:\s*(\S.*)?$', raw)
+    if not m:
+        continue
+    key, val = m.group(1), (m.group(2) or "").strip()
+    # Close the group only on a real dedent: sibling keys (vpcCount, etc.)
+    # sit at the same indent as hostCount and must not end the group.
+    if cur is not None and cur_indent is not None and indent < cur_indent:
+        groups.append(cur); cur, cur_indent = None, None
+    if key == "hostCount":
+        if cur is None:
+            cur, cur_indent = {"hosts": 0, "dpus": 0, "relay": ""}, indent
+        cur["hosts"] = int(re.sub(r"\D", "", val) or 0)
+    elif key == "dpuPerHostCount" and cur is not None:
+        cur["dpus"] = int(re.sub(r"\D", "", val) or 0)
+    elif key == "oobDhcpRelayAddress" and cur is not None:
+        cur["relay"] = val.strip('"\'')
+if cur is not None:
+    groups.append(cur)
+
+groups = [g for g in groups if g["hosts"] > 0]
+if not groups:
+    print("SKIP values file defines no pod groups with hostCount")
+    sys.exit(0)
+
+demand = {}
+for g in groups:
+    relay = g["relay"] or "<default>"
+    demand[relay] = demand.get(relay, 0) + g["hosts"] * (1 + g["dpus"])
+
+def usable(cidr, reserve):
+    net = ipaddress.ip_network(cidr, strict=False)
+    return max(net.num_addresses - int(reserve) - 1, 0)
+
+# A relay documented in this file gets its own segment; find the prefix whose
+# comment/segment block names it, else fall back to the site's OOB prefix.
+def prefix_for(relay):
+    if relay == "<default>":
+        return default_prefix
+    # Most specific containing prefix wins: a relay sits inside both its own
+    # segment and the wide ServiceCIDR, and only the narrow one is its pool.
+    best = None
+    for cand in re.findall(r'([0-9]+(?:\.[0-9]+){3}/[0-9]+)', text):
+        try:
+            net = ipaddress.ip_network(cand, strict=False)
+            if ipaddress.ip_address(relay) in net and (best is None or net.prefixlen > best.prefixlen):
+                best = net
+        except ValueError:
+            pass
+    return str(best) if best else default_prefix
+
+problems, lines = [], []
+for relay, need in sorted(demand.items()):
+    cidr = prefix_for(relay)
+    cap = usable(cidr, default_reserve)
+    ok = need <= cap
+    lines.append(f"  relay {relay}: needs {need} IPs, {cidr} provides ~{cap} -> {'OK' if ok else 'TOO SMALL'}")
+    if not ok:
+        problems.append(f"relay {relay} needs {need} IPs but {cidr} only provides ~{cap}")
+
+print("\n".join(lines))
+if problems:
+    print("FAIL " + "; ".join(problems))
+MPCHK
+)" || true
+        printf '%s\n' "$_MP_REPORT" | while IFS= read -r _l; do [[ -n "$_l" ]] && info "$_l"; done
+        if [[ "$_MP_REPORT" == *FAIL* ]]; then
+            die "multipod sizing: $(printf '%s' "$_MP_REPORT" | sed -n 's/^FAIL //p') — widen that segment's prefix, lower its hostCount, or give the pod its own relay"
+        fi
+        [[ "$_MP_REPORT" == SKIP* ]] && warn "multipod: ${_MP_REPORT#SKIP }"
+        ok "multipod sizing validated across all pod groups"
+    elif (( HOST_COUNT > FIT )); then
         (( FIT < 1 )) && die "pools too small for even 1 host × ${DPU_PER_HOST} DPUs — widen the admin/OOB prefixes or lower DPU_PER_HOST"
         warn "requested ${HOST_COUNT} hosts exceeds pool capacity (${FIT}) — auto-fitting hostCount=${FIT}"
         warn "  (override with HOST_COUNT/DPU_PER_HOST env vars, or widen the site's DHCP prefixes)"

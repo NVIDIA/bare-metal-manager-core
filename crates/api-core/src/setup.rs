@@ -16,6 +16,7 @@
  */
 use std::borrow::Cow;
 use std::collections::{HashMap, HashSet};
+use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -87,7 +88,6 @@ use state_controller::controller::{Enqueuer, StateController};
 use state_controller::per_object::{PerObjectStateMetrics, PerObjectStateRecorder};
 use state_controller::state_change_emitter::StateChangeEmitterBuilder;
 use tokio::sync::Semaphore;
-use tokio::sync::oneshot::Sender;
 use tokio::task::JoinSet;
 use tokio_util::sync::CancellationToken;
 
@@ -203,8 +203,7 @@ pub(crate) async fn start_runtime(
     secrets_context: Option<crate::secrets::SecretsContext>,
     admin_ui_routes_builder: Option<AdminUiRoutesBuilder>,
     cancel_token: CancellationToken,
-    ready_channel: Sender<()>,
-) -> eyre::Result<()> {
+) -> eyre::Result<SocketAddr> {
     eyre::ensure!(
         !matches!(
             (carbide_config.dpf.enabled, &carbide_config.vmaas_config),
@@ -514,7 +513,7 @@ pub(crate) async fn start_runtime(
         None
     };
 
-    listener::start(
+    let listen_address = listener::start(
         join_set,
         api_service,
         listen_mode,
@@ -526,18 +525,7 @@ pub(crate) async fn start_runtime(
     )
     .await?;
 
-    ready_channel
-        .send(())
-        .inspect_err(|_e| {
-            // Note: the `_e` here is just sending us back (rejecting) the () that we sent to the ready
-            // channel. This will only happen if the other end is closed.
-            tracing::warn!(
-                "Bug: api server ready_channel is closed, could not notify readiness status"
-            )
-        })
-        .ok();
-
-    Ok(())
+    Ok(listen_address)
 }
 
 /// Initialize the DPF SDK and create all required Kubernetes CRs.

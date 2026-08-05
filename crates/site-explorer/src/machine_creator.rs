@@ -1050,18 +1050,6 @@ impl MachineCreator {
             .await?;
         }
 
-        if self.config.allocate_secondary_vtep_ip
-            && network_config.secondary_overlay_vtep_ip.is_none()
-        {
-            let secondary_vtep_ip = db::machine::allocate_secondary_vtep_ip(
-                &self.common_pools,
-                txn,
-                &dpu_machine.id.to_string(),
-            )
-            .await?;
-            network_config.secondary_overlay_vtep_ip = Some(secondary_vtep_ip);
-        }
-
         // A stale version must fail the whole transaction so any addresses
         // allocated above return to their pools.
         if !db::machine::try_update_network_config(txn, &dpu_machine.id, version, &network_config)

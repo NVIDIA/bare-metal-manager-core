@@ -203,6 +203,9 @@ pub enum CarbideError {
     #[error("resource {0} is empty")]
     ResourceExhausted(String),
 
+    #[error("tenant SitePrefix quota reached: {used} of {limit} retained SitePrefixes are in use")]
+    TenantSitePrefixQuotaExceeded { used: u32, limit: u32 },
+
     #[error("host is not available for allocation due to health probe alert")]
     UnhealthyHost,
 
@@ -330,6 +333,9 @@ impl From<DatabaseError> for CarbideError {
             DatabaseError::NotImplemented => NotImplemented,
             DatabaseError::OnePrimaryInterface => OnePrimaryInterface,
             DatabaseError::ResourceExhausted(e) => ResourceExhausted(e),
+            DatabaseError::TenantSitePrefixQuotaExceeded { used, limit } => {
+                TenantSitePrefixQuotaExceeded { used, limit }
+            }
             DatabaseError::ResourcePoolError(e) => ResourcePoolError(e),
             DatabaseError::RpcUuidConversionError(e) => RpcUuidConversionError(e),
             DatabaseError::Sqlx(e) => DBError(e),
@@ -412,9 +418,9 @@ impl OperatorError for CarbideError {
             | CarbideError::FailedPrecondition(_)
             | CarbideError::ExpectedSwitchDuplicateNvosMacAddress(_)
             | CarbideError::AddressAlreadyInUse(_) => ErrorCode::nico(Api, 412),
-            CarbideError::ResourceExhausted(_) | CarbideError::DhcpError(_) => {
-                ErrorCode::nico(Api, 429)
-            }
+            CarbideError::ResourceExhausted(_)
+            | CarbideError::TenantSitePrefixQuotaExceeded { .. }
+            | CarbideError::DhcpError(_) => ErrorCode::nico(Api, 429),
             CarbideError::UnavailableError(_) => ErrorCode::nico(Api, 503),
             CarbideError::RedfishError(error) if is_dpu_bios_attributes_not_ready(error) => {
                 EndpointExplorationError::INVALID_DPU_REDFISH_BIOS_RESPONSE_CODE
@@ -442,6 +448,10 @@ impl OperatorError for CarbideError {
             CarbideError::ResourceExhausted(_) | CarbideError::DhcpError(_) => {
                 Some("Check configured resource pools and available capacity.")
             }
+            CarbideError::TenantSitePrefixQuotaExceeded { .. } => Some(
+                "Review the tenant's retained SitePrefixes; complete removal of an unneeded prefix \
+                 or increase max_site_prefixes_per_tenant if additional roots are intended.",
+            ),
             _ => None,
         }
     }
@@ -490,6 +500,9 @@ impl From<CarbideError> for tonic::Status {
             e @ CarbideError::BmcMacIpMismatch { .. } => Status::invalid_argument(e.to_string()),
             CarbideError::UnhealthyHost => Status::failed_precondition(error.to_string()),
             CarbideError::ResourceExhausted(kind) => Status::resource_exhausted(kind),
+            error @ CarbideError::TenantSitePrefixQuotaExceeded { .. } => {
+                Status::resource_exhausted(error.to_string())
+            }
             error @ CarbideError::ConcurrentModificationError(_, _) => {
                 Status::failed_precondition(error.to_string())
             }
@@ -584,6 +597,46 @@ fn test_dhcp_error_maps_to_resource_exhausted_status() {
     ));
     let status: tonic::Status = err.into();
     assert_eq!(status.code(), tonic::Code::ResourceExhausted);
+}
+
+#[test]
+fn tenant_site_prefix_quota_error_is_actionable() {
+    let err = CarbideError::TenantSitePrefixQuotaExceeded { used: 8, limit: 8 };
+    let status: tonic::Status = err.into();
+
+    assert_eq!(status.code(), tonic::Code::ResourceExhausted);
+    assert_eq!(
+        status.message(),
+        "tenant SitePrefix quota reached: 8 of 8 retained SitePrefixes are in use"
+    );
+    assert_eq!(
+        status
+            .metadata()
+            .get("nico-error-code")
+            .expect("metadata should include operator error code")
+            .to_str()
+            .expect("operator error code should be ASCII"),
+        "NICO-API-429"
+    );
+    assert_eq!(
+        status
+            .metadata()
+            .get("nico-error-text")
+            .expect("metadata should include operator error text")
+            .to_str()
+            .expect("operator error text should be ASCII"),
+        "tenant SitePrefix quota reached: 8 of 8 retained SitePrefixes are in use"
+    );
+    assert_eq!(
+        status
+            .metadata()
+            .get("nico-error-mitigation")
+            .expect("metadata should include operator mitigation")
+            .to_str()
+            .expect("operator mitigation should be ASCII"),
+        "Review the tenant's retained SitePrefixes; complete removal of an unneeded prefix or \
+         increase max_site_prefixes_per_tenant if additional roots are intended."
+    );
 }
 
 #[test]

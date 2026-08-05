@@ -1772,7 +1772,6 @@ pub async fn create_test_env_with_overrides(
             allow_changing_bmc_proxy: None,
             reset_rate_limit: Duration::hours(1),
             admin_segment_type_non_dpu: Arc::new(false.into()),
-            allocate_secondary_vtep_ip: true,
             create_power_shelves: Arc::new(true.into()),
             power_shelves_created_per_run: 1,
             create_switches: Arc::new(true.into()),
@@ -2187,15 +2186,6 @@ fn pool_defs(fabric_len: u8) -> HashMap<String, resource_pool::ResourcePoolDef> 
                 auto_assign: true,
             }],
             prefix: None,
-            delegate_prefix_len: None,
-        },
-    );
-    defs.insert(
-        resource_pool::common::SECONDARY_VTEP_IP.to_string(),
-        resource_pool::ResourcePoolDef {
-            pool_type: resource_pool::ResourcePoolType::Ipv4,
-            prefix: Some("172.30.0.0/24".to_string()),
-            ranges: vec![],
             delegate_prefix_len: None,
         },
     );

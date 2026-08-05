@@ -289,6 +289,8 @@ navigation:
               contents:
                 - page: Collecting Debug Bundles
                   path: playbooks/debugging_machine/debug_bundle.md
+        - page: NVLink Domain Health Reports
+          path: operations/nvlink-domain-health-reports.md
 
     - section: Reference
       contents:

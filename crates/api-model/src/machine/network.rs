@@ -149,7 +149,6 @@ pub struct ManagedHostNetworkConfig {
     /// IPv6 loopback reserved for the FNN underlay. `None` keeps the existing
     /// IPv4-only behavior for sites without `lo-ip-v6`.
     pub loopback_ip_v6: Option<Ipv6Addr>,
-    pub secondary_overlay_vtep_ip: Option<IpAddr>,
     /// This is a host-level field of the "consolidated" network
     /// config served to all [DPU] agents within host machine group.
     /// This is set in the config for the host-specific row in the
@@ -194,7 +193,6 @@ impl Default for ManagedHostNetworkConfig {
         ManagedHostNetworkConfig {
             loopback_ip: None,
             loopback_ip_v6: None,
-            secondary_overlay_vtep_ip: None,
             use_admin_network: Some(true),
             quarantine_state: None,
             use_admin_network_changed: None,
@@ -286,10 +284,9 @@ mod tests {
     }
 
     // JSON round-trips: serialize a config to JSON and deserialize it back; the
-    // config must survive intact. Covers the IPv4 case (existing Postgres JSON
-    // still deserializes after Ipv4Addr -> IpAddr) and the IPv6 case (new v6
-    // pools). The error type (serde_json::Error) is not PartialEq, so failing
-    // rows would use `Fails`; all rows here round-trip cleanly.
+    // config must survive intact. The error type (serde_json::Error) is not
+    // PartialEq, so failing rows would use `Fails`; all rows here round-trip
+    // cleanly.
     #[test]
     fn test_managed_host_network_config_json_roundtrip() {
         scenarios!(
@@ -301,14 +298,12 @@ mod tests {
                 ManagedHostNetworkConfig {
                     loopback_ip: Some(IpAddr::V4(Ipv4Addr::new(10, 0, 0, 1))),
                     loopback_ip_v6: None,
-                    secondary_overlay_vtep_ip: Some(IpAddr::V4(Ipv4Addr::new(172, 16, 0, 5))),
                     use_admin_network: Some(true),
                     quarantine_state: None,
                     use_admin_network_changed: None,
                 } => Yields(ManagedHostNetworkConfig {
                     loopback_ip: Some(IpAddr::V4(Ipv4Addr::new(10, 0, 0, 1))),
                     loopback_ip_v6: None,
-                    secondary_overlay_vtep_ip: Some(IpAddr::V4(Ipv4Addr::new(172, 16, 0, 5))),
                     use_admin_network: Some(true),
                     quarantine_state: None,
                     use_admin_network_changed: None,
@@ -321,9 +316,6 @@ mod tests {
                         0x2001, 0xdb8, 0, 0, 0, 0, 0, 1,
                     ))),
                     loopback_ip_v6: None,
-                    secondary_overlay_vtep_ip: Some(IpAddr::V6(Ipv6Addr::new(
-                        0xfd00, 0, 0, 0, 0, 0, 0, 0x42,
-                    ))),
                     use_admin_network: Some(false),
                     quarantine_state: None,
                     use_admin_network_changed: None,
@@ -332,9 +324,6 @@ mod tests {
                         0x2001, 0xdb8, 0, 0, 0, 0, 0, 1,
                     ))),
                     loopback_ip_v6: None,
-                    secondary_overlay_vtep_ip: Some(IpAddr::V6(Ipv6Addr::new(
-                        0xfd00, 0, 0, 0, 0, 0, 0, 0x42,
-                    ))),
                     use_admin_network: Some(false),
                     quarantine_state: None,
                     use_admin_network_changed: None,
@@ -347,7 +336,6 @@ mod tests {
                     loopback_ip_v6: Some(Ipv6Addr::new(
                         0x2001, 0xdb8, 0, 0, 0, 0, 0, 1,
                     )),
-                    secondary_overlay_vtep_ip: None,
                     use_admin_network: Some(false),
                     quarantine_state: None,
                     use_admin_network_changed: None,
@@ -356,7 +344,6 @@ mod tests {
                     loopback_ip_v6: Some(Ipv6Addr::new(
                         0x2001, 0xdb8, 0, 0, 0, 0, 0, 1,
                     )),
-                    secondary_overlay_vtep_ip: None,
                     use_admin_network: Some(false),
                     quarantine_state: None,
                     use_admin_network_changed: None,
@@ -373,7 +360,7 @@ mod tests {
         scenarios!(
             run = |json| {
                 serde_json::from_str::<ManagedHostNetworkConfig>(json)
-                    .map(|c| (c.loopback_ip, c.secondary_overlay_vtep_ip, c.loopback_ip_v6))
+                    .map(|c| (c.loopback_ip, c.loopback_ip_v6))
                     .map_err(drop)
             };
             "legacy ipv4 json" {
@@ -384,7 +371,6 @@ mod tests {
                             "quarantine_state": null
                 }"# => Yields((
                     Some(IpAddr::V4(Ipv4Addr::new(10, 0, 0, 1))),
-                    Some(IpAddr::V4(Ipv4Addr::new(172, 16, 0, 5))),
                     None,
                 )),
             }
@@ -392,12 +378,10 @@ mod tests {
             "generic IPv6 address json" {
                 r#"{
                             "loopback_ip": "2001:db8::1",
-                            "secondary_overlay_vtep_ip": null,
                             "use_admin_network": true,
                             "quarantine_state": null
                 }"# => Yields((
                     Some(IpAddr::V6(Ipv6Addr::new(0x2001, 0xdb8, 0, 0, 0, 0, 0, 1))),
-                    None,
                     None,
                 )),
             }
@@ -406,12 +390,10 @@ mod tests {
                 r#"{
                             "loopback_ip": "10.0.0.1",
                             "loopback_ip_v6": "2001:db8::1",
-                            "secondary_overlay_vtep_ip": null,
                             "use_admin_network": true,
                             "quarantine_state": null
-                        }"# => Yields((
+                }"# => Yields((
                     Some(IpAddr::V4(Ipv4Addr::new(10, 0, 0, 1))),
-                    None,
                     Some(Ipv6Addr::new(0x2001, 0xdb8, 0, 0, 0, 0, 0, 1)),
                 )),
             }
@@ -431,7 +413,6 @@ mod tests {
         let config = ManagedHostNetworkConfig {
             loopback_ip: Some(IpAddr::V4(Ipv4Addr::new(10, 0, 0, 1))),
             loopback_ip_v6: None,
-            secondary_overlay_vtep_ip: None,
             use_admin_network: Some(true),
             quarantine_state: None,
             use_admin_network_changed: None,
@@ -439,6 +420,7 @@ mod tests {
         let json = serde_json::to_string(&config).unwrap();
         // Ensure IpAddr serializes IPv4 same as Ipv4Addr.
         assert!(json.contains(r#""loopback_ip":"10.0.0.1""#), "json: {json}");
+        assert!(!json.contains("secondary_overlay_vtep_ip"), "json: {json}");
     }
 
     // Ensure default ManagedHostNetworkConfig is still all-None/Some(true),
@@ -455,10 +437,6 @@ mod tests {
             run = |ip| ip;
             "loopback_ip defaults to None" {
                 default.loopback_ip => None,
-            }
-
-            "secondary_overlay_vtep_ip defaults to None" {
-                default.secondary_overlay_vtep_ip => None,
             }
         );
         value_scenarios!(
@@ -669,7 +647,6 @@ mod tests {
             "well-formed with quarantine state" {
                 r#"{
                             "loopback_ip": "10.0.0.1",
-                            "secondary_overlay_vtep_ip": null,
                             "use_admin_network": false,
                             "quarantine_state": {
                                 "reason": "noisy",
@@ -678,7 +655,6 @@ mod tests {
                         }"# => Yields(ManagedHostNetworkConfig {
                     loopback_ip: Some(IpAddr::V4(Ipv4Addr::new(10, 0, 0, 1))),
                     loopback_ip_v6: None,
-                    secondary_overlay_vtep_ip: None,
                     use_admin_network: Some(false),
                     quarantine_state: Some(ManagedHostQuarantineState {
                         reason: Some("noisy".to_string()),
@@ -692,7 +668,6 @@ mod tests {
                 "{}" => Yields(ManagedHostNetworkConfig {
                     loopback_ip: None,
                     loopback_ip_v6: None,
-                    secondary_overlay_vtep_ip: None,
                     use_admin_network: None,
                     quarantine_state: None,
                     use_admin_network_changed: None,
@@ -741,7 +716,6 @@ mod tests {
                 ManagedHostNetworkConfig {
                     loopback_ip: Some(IpAddr::V4(Ipv4Addr::new(10, 0, 0, 1))),
                     loopback_ip_v6: None,
-                    secondary_overlay_vtep_ip: None,
                     use_admin_network: Some(true),
                     quarantine_state: Some(ManagedHostQuarantineState {
                         reason: Some("flooded".to_string()),
@@ -751,7 +725,6 @@ mod tests {
                 } => Yields(ManagedHostNetworkConfig {
                     loopback_ip: Some(IpAddr::V4(Ipv4Addr::new(10, 0, 0, 1))),
                     loopback_ip_v6: None,
-                    secondary_overlay_vtep_ip: None,
                     use_admin_network: Some(true),
                     quarantine_state: Some(ManagedHostQuarantineState {
                         reason: Some("flooded".to_string()),

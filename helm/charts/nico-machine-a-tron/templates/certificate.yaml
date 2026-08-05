@@ -6,7 +6,7 @@
 {{/*
 Skip pods without machines
 */}}
-{{- if not (and $podConfig.machines (gt (len $podConfig.machines) 0)) }}
+{{- if not (and $podConfig $podConfig.machines (gt (len $podConfig.machines) 0)) }}
 {{- continue }}
 {{- end }}
 

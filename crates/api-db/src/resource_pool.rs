@@ -25,7 +25,7 @@ use ipnetwork::Ipv6Network;
 use model::resource_pool;
 use model::resource_pool::common::{
     CommonPools, DPA_VNI, EXTERNAL_VPC_VNI, EthernetPools, FNN_ASN, IbPools, LOOPBACK_IP,
-    LOOPBACK_IP_V6, SECONDARY_VTEP_IP, VLANID, VNI, VPC_DPU_LOOPBACK, VPC_VNI,
+    LOOPBACK_IP_V6, VLANID, VNI, VPC_DPU_LOOPBACK, VPC_VNI,
 };
 use model::resource_pool::define::{ResourcePoolDef, ResourcePoolType};
 use model::resource_pool::{
@@ -1403,12 +1403,6 @@ pub async fn create_common_pools(
     //  TODO: This should be removed from optional once FNN become mandatory.
     optional_pool_names.push(pool_vpc_dpu_loopback_ip.name().to_string());
 
-    let pool_secondary_vtep_ip: Arc<ResourcePool<IpAddr>> = Arc::new(ResourcePool::new(
-        SECONDARY_VTEP_IP.to_string(),
-        ValueType::Ipv4,
-    ));
-    optional_pool_names.push(pool_secondary_vtep_ip.name().to_string());
-
     let pool_external_vpc_vni: Arc<ResourcePool<i32>> = Arc::new(ResourcePool::new(
         EXTERNAL_VPC_VNI.to_string(),
         ValueType::Integer,
@@ -1479,7 +1473,6 @@ pub async fn create_common_pools(
             pool_dpa_vni,
             pool_fnn_asn,
             pool_vpc_dpu_loopback_ip,
-            pool_secondary_vtep_ip,
         },
         infiniband: IbPools { pkey_pools },
         pool_stats,

@@ -491,7 +491,7 @@ pub async fn insert_switch_health_report(
         report.observed_at = Some(chrono::Utc::now());
     }
     report.triggered_by = triggered_by;
-    report.update_in_alert_since(None);
+    report.update_in_alert_since(switch.health_reports.by_source(&report.source));
 
     match remove_switch_health_report_by_source(&switch, &mut txn, report.source.clone()).await {
         Ok(_) | Err(CarbideError::NotFoundError { .. }) => {}

@@ -678,6 +678,10 @@ jobs:
   # ============================================================================
   # BUILD STAGE - Release Container
   # ============================================================================
+  # Deliberately does NOT depend on lint-police. The container build consumes
+  # nothing lint-police produces, and gating on it serialized ~11m of linting in
+  # front of a ~29m build. Lint failures still block the merge independently via
+  # core-ci-pass, so the gate is preserved while the two now run in parallel.
   build-release-container-x86_64:
     if: >-
       ${{
@@ -687,14 +691,12 @@ jobs:
         && contains('success,skipped', needs.build-container-x86_64.result)
         && contains('success,skipped', needs.build-runtime-container-x86_64.result)
         && contains('success,skipped', needs.check-rest-core-proto-sync.result)
-        && contains('success,skipped', needs.lint-police.result)
       }}
     needs:
       - prepare
       - build-container-x86_64
       - build-runtime-container-x86_64
       - check-rest-core-proto-sync
-      - lint-police
     uses: ./.github/workflows/docker-build.yml
     with:
       source_registry_host: ${{ needs.prepare.outputs.source_registry_host }}
@@ -886,6 +888,19 @@ jobs:
           username: ${{ secrets.NICO_TARGET_REGISTRY_USERNAME || secrets.NVCR_USERNAME }}
           token: ${{ secrets.NICO_TARGET_REGISTRY_TOKEN || secrets.NVCR_TOKEN }}
 
+      # This job already mounts a host sccache directory into the build
+      # container, but nothing ever persisted it, so every run started from an
+      # empty cache and recompiled the whole workspace. Cargo.lock keys the
+      # entry; restore-keys let a lockfile bump start from the previous cache
+      # instead of from nothing.
+      - name: Restore sccache
+        uses: actions/cache@v4
+        with:
+          path: .sccache
+          key: sccache-test-release-x86_64-${{ hashFiles('Cargo.lock') }}
+          restore-keys: |
+            sccache-test-release-x86_64-
+
       - name: Run release-container service tests
         env:
           BUILD_CONTAINER: ${{ needs.prepare.outputs.build_container_x86_64_ref }}
@@ -904,6 +919,7 @@ jobs:
             -e CARGO_MAKE_SKIP_CODECOV=true \
             -e DATABASE_URL='postgresql://root@%2Fvar%2Frun%2Fpostgresql/root' \
             -e SCCACHE_DIR=/sccache \
+            -e SCCACHE_CACHE_SIZE=5G \
             -e RUSTC_WRAPPER=sccache \
             -e CI_COMMIT_SHORT_SHA="${CI_COMMIT_SHORT_SHA}" \
             -e VERSION="${VERSION}" \
@@ -916,6 +932,7 @@ jobs:
               sudo -u postgres psql -c "ALTER USER root WITH SUPERUSER;"
               createdb root
               cargo make test-release-container-services
+              sccache --show-stats || true
             '
 
       - name: Final repository clean check
@@ -1113,7 +1130,10 @@ jobs:
       source_registry_host: ${{ needs.prepare.outputs.source_registry_host }}
       target_prebuild_login: ${{ needs.prepare.outputs.bases_rebuilt == 'true' && needs.prepare.outputs.publish_images == 'true' }}
       dockerfile_path: dev/docker/Dockerfile.release-artifacts-x86_64
-      # No RUN steps to cache, and the multi-GB blob COPY layer alone can exhaust the 10 GB per-repo Actions cache quota.
+      # No RUN steps, so there are no expensive layers worth reusing. The
+      # multi-GB blob COPY layer would also take a large bite out of the 50 GB
+      # per-repo Actions cache quota now shared with the layer and sccache
+      # caches the rest of the pipeline depends on.
       cache: false
       image_name: ${{ needs.prepare.outputs.image_registry }}/boot-artifacts-x86_64
       image_tag: ${{ needs.prepare.outputs.version }}
@@ -1129,6 +1149,7 @@ jobs:
       load: true
       scan: true
       download_artifacts: true  # Download boot and ephemeral artifacts for packaging
+      artifact_pattern: '*-x86_64-${{ github.run_id }}'
       build_args: |
         {
           "VERSION": "${{ needs.prepare.outputs.version }}",
@@ -1149,7 +1170,10 @@ jobs:
       source_registry_host: ${{ needs.prepare.outputs.source_registry_host }}
       target_prebuild_login: ${{ needs.prepare.outputs.bases_rebuilt == 'true' && needs.prepare.outputs.publish_images == 'true' }}
       dockerfile_path: dev/docker/Dockerfile.release-artifacts-aarch64
-      # No RUN steps to cache, and the multi-GB blob COPY layer alone can exhaust the 10 GB per-repo Actions cache quota.
+      # No RUN steps, so there are no expensive layers worth reusing. The
+      # multi-GB blob COPY layer would also take a large bite out of the 50 GB
+      # per-repo Actions cache quota now shared with the layer and sccache
+      # caches the rest of the pipeline depends on.
       cache: false
       image_name: ${{ needs.prepare.outputs.image_registry }}/boot-artifacts-aarch64
       image_tag: ${{ needs.prepare.outputs.version }}
@@ -1165,6 +1189,7 @@ jobs:
       load: true
       scan: true
       download_artifacts: true  # Download boot and ephemeral artifacts for packaging
+      artifact_pattern: '*-aarch64-${{ github.run_id }}'
       build_args: |
         {
           "VERSION": "${{ needs.prepare.outputs.version }}",
@@ -1437,7 +1462,9 @@ jobs:
         run: make -C rest-api core-proto
 
       - name: Check repository is clean
-        run: bash scripts/check-repo-clean.sh "REST Core protobuf sync"
+        run: >-
+          bash scripts/check-repo-clean.sh "REST Core protobuf sync"
+          "make sync-protobuf (from the repository root)"
 
   lint-police:
     needs:
@@ -1734,6 +1761,7 @@ jobs:
       push: ${{ needs.prepare.outputs.publish_images == 'true' }}
       load: false
       download_artifacts: true
+      artifact_pattern: '{bluefield-binaries,mft-aarch64-deb}-${{ github.run_id }}'
     secrets: inherit
 
   build-bluefield-forge-dhcp-server:
@@ -1754,6 +1782,7 @@ jobs:
       push: ${{ needs.prepare.outputs.publish_images == 'true' }}
       load: false
       download_artifacts: true
+      artifact_pattern: 'bluefield-binaries-${{ github.run_id }}'
     secrets: inherit
 
   build-bluefield-carbide-fmds:
@@ -1774,6 +1803,7 @@ jobs:
       push: ${{ needs.prepare.outputs.publish_images == 'true' }}
       load: false
       download_artifacts: true
+      artifact_pattern: 'bluefield-binaries-${{ github.run_id }}'
     secrets: inherit
 
   # ============================================================================

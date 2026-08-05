@@ -47,11 +47,6 @@ pub const VPC_DPU_LOOPBACK: &str = "vpc-dpu-lo";
 // DPA VNI pool: VNI for the DPA
 pub const DPA_VNI: &str = "dpa-vni";
 
-/// IPs used for creating a secondary overlay on
-/// a separate set of VTEPs.  The initial use-case is
-/// VMAAS GENEVE VTEPs.
-pub const SECONDARY_VTEP_IP: &str = "secondary-vtep-ip";
-
 /// Returns the name of the resource pool used for a certain IB fabric
 pub fn ib_pkey_pool_name(fabric: &str) -> String {
     format!("ib_fabrics.{fabric}.pkey")
@@ -80,7 +75,6 @@ pub struct EthernetPools {
     pub pool_dpa_vni: Arc<ResourcePool<i32>>,
     pub pool_fnn_asn: Arc<ResourcePool<u32>>,
     pub pool_vpc_dpu_loopback_ip: Arc<ResourcePool<IpAddr>>,
-    pub pool_secondary_vtep_ip: Arc<ResourcePool<IpAddr>>,
 }
 
 /// ResourcePools that are used for infiniband
