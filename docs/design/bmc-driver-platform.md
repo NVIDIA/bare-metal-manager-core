@@ -172,12 +172,7 @@ The map contains every capability. Each value is `standard`, `unsupported`, or t
 
 ## Identity and driver selection
 
-Exploration projects its report into a stable `PlatformIdentity`, including vendor fingerprints, manager and system models, part numbers, and normalized firmware versions.
-
-Credential bootstrap happens in two stages:
-
-1. Use service-root evidence to select an `Accounts` driver and establish usable credentials.
-2. Read the full identity and resolve every capability.
+Exploration converts its report into `PlatformIdentity`. Credential bootstrap first uses service-root data to select an `Accounts` driver, then reads the full identity and builds the driver map.
 
 ```mermaid
 sequenceDiagram
@@ -192,40 +187,34 @@ sequenceDiagram
     R-->>E: complete driver map
 ```
 
-
-
 If service-root evidence is missing or ambiguous, NICo does not guess. The endpoint remains in a typed bootstrap-identification state and reports the available evidence. An authorized deployment override may select a compiled-in `Accounts` driver for recovery.
 
-Selection rules are declarative data. Each rule names:
+Each rule maps hardware fields and an optional firmware range to `standard`, `unsupported`, or a driver id. Every field in a rule must match.
 
-- a capability
-- identity and optional firmware predicates
-- a priority or specificity
-- a standard, specialized-driver, or unsupported selection
+Rules are checked in this order:
+
+1. Deployment overrides
+2. Exact system model, SKU, or part number
+3. BMC product or manager model
+4. Vendor, OEM key, system manufacturer, or chassis manufacturer
+5. `standard` when no rule matches
+
+A field can match an exact value, one of several values, a prefix, or a substring. Firmware can match a version range but does not change rule order. If two rules at the same level match one capability, NICo rejects the configuration.
 
 ```rust
 Rule {
     capability: Capability::HostPower,
-    matches: match_system_model("ThinkSystem SR650 V4"),
-    priority: Priority::Model,
+    matches: Match {
+        system_model: exact("ThinkSystem SR650 V4"),
+        ..Match::NONE
+    },
     selection: CapabilitySelection::Driver("sr650v4-power"),
-}
-
-Rule {
-    capability: Capability::Storage,
-    matches: match_system_model("ThinkSystem SR650 V4"),
-    priority: Priority::Model,
-    selection: CapabilitySelection::Unsupported,
 }
 ```
 
-A model rule may declare a capability unsupported when that limitation applies to every machine of the model. If support depends on optional installed hardware, exploration must expose that inventory fact as a selection predicate rather than inferring absence from the model name.
+A rule may use `Unsupported` when all matching machines lack a capability. Optional hardware must be recorded by exploration and matched directly.
 
-The complete driver map is persisted on the explored BMC endpoint with its identity and `driver_rule_hash`. This hash is a deterministic fingerprint of the default rules and deployment overrides used to compute the map. It is not a security check or a hash of driver code.
-
-When the current rules produce a different `driver_rule_hash`, NICo recomputes the map from the stored identity and saves the new map and hash. A changed hardware identity requires re-exploration.
-
-When a service looks up the endpoint, it builds a `BmcRef` containing the BMC address, credential key, and persisted driver map. `BmcRef` carries no secrets. The runtime uses its map to dispatch each operation without identifying the hardware again.
+The endpoint stores its identity, complete driver map, and `driver_rule_hash`, which identifies the rules used to build the map. If the running rules have a different hash, NICo rebuilds the map from the stored identity. Hardware identity changes require re-exploration. Services copy the address, credential key, and driver map into `BmcRef`; it contains no secrets.
 
 Deployment overrides may select among compiled-in drivers, but invalid, ambiguous, or incompatible rules must fail configuration loading.
 
