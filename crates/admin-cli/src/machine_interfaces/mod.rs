@@ -22,8 +22,8 @@ mod show;
 mod show_addresses;
 
 // Cross-module re-exports for jump module
-pub use show::args::Args as ShowMachineInterfaces;
-pub use show::cmd::handle_show;
+pub(crate) use show::args::Args as ShowMachineInterfaces;
+pub(crate) use show::cmd::handle_show;
 
 #[cfg(test)]
 mod tests;
@@ -33,7 +33,7 @@ use clap::Parser;
 use crate::cfg::dispatch::Dispatch;
 
 #[derive(Parser, Debug, Dispatch)]
-pub enum Cmd {
+pub(crate) enum Cmd {
     #[clap(about = "List of all Machine interfaces")]
     Show(show::Args),
     #[clap(about = "Delete Machine interface.")]

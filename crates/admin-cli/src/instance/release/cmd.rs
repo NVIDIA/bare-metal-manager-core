@@ -23,7 +23,7 @@ use crate::cfg::runtime::RuntimeContext;
 use crate::errors::{CarbideCliError, CarbideCliResult};
 use crate::rpc::ApiClient;
 
-pub async fn release(
+pub(super) async fn release(
     api_client: &ApiClient,
     release_request: Args,
     ctx: &RuntimeContext,

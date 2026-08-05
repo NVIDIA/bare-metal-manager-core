@@ -31,17 +31,17 @@ Find devices operating as NICs whose firmware is below the desired version:
     $ nico-admin-cli site-explorer mlx-devices --nic-mode-only --expected-version 32.42.1000
 
 ")]
-pub struct Args {
+pub(crate) struct Args {
     #[clap(long, help = "Restrict to devices found under this host BMC IP")]
-    pub host: Option<String>,
+    pub(super) host: Option<String>,
     #[clap(
         long,
         help = "Only devices operating as NICs: their DPU BMC reports NIC mode, or they have a SuperNIC SKU and the mode is unknown"
     )]
-    pub nic_mode_only: bool,
+    pub(super) nic_mode_only: bool,
     #[clap(
         long,
         help = "Only devices whose NIC firmware is below this version (e.g. 32.42.1000)"
     )]
-    pub expected_version: Option<String>,
+    pub(super) expected_version: Option<String>,
 }

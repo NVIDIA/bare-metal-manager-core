@@ -22,11 +22,14 @@
 // Command Structure - Baseline debug_assert() of the entire command.
 // Argument Parsing  - Ensure required/optional arg combinations parse correctly.
 
+use std::net::IpAddr;
+
 use carbide_test_support::Outcome::*;
 use carbide_test_support::scenarios;
 use clap::{CommandFactory, Parser};
 
 use super::*;
+use crate::test_support::parse_leaf;
 
 // verify_cmd_structure runs a baseline clap debug_assert()
 // to do basic command configuration checking and validation,
@@ -46,37 +49,37 @@ fn verify_cmd_structure() {
 // flag-specific checking.
 
 // find parses a valid IP and routes to the Find variant: IPv4 in its various
-// ranges (including 0.0.0.0) and IPv6 all parse, and the parsed address
-// round-trips to the canonical string the original argv supplied.
+// ranges (including 0.0.0.0) and IPv6 all parse to the expected typed address.
 #[test]
 fn parse_find_accepts_valid_ips() {
     scenarios!(
         run = |argv| {
-            Cmd::try_parse_from(argv.iter().copied())
-                .map(|cmd| {
-                    let Cmd::Find(args) = cmd;
-                    args.ip.to_string()
+            parse_leaf::<Cmd>(argv, &["find"])
+                .map(|matches| {
+                    *matches
+                        .get_one::<IpAddr>("ip")
+                        .expect("IP address is required")
                 })
                 .map_err(drop)
         };
         "standard IPv4 address" {
-            &["ip", "find", "192.168.1.100"][..] => Yields("192.168.1.100".to_string()),
+            &["ip", "find", "192.168.1.100"][..] => Yields("192.168.1.100".parse::<IpAddr>().unwrap()),
         }
 
         "10.x IPv4 address" {
-            &["ip", "find", "10.0.0.1"][..] => Yields("10.0.0.1".to_string()),
+            &["ip", "find", "10.0.0.1"][..] => Yields("10.0.0.1".parse::<IpAddr>().unwrap()),
         }
 
         "172.x IPv4 address" {
-            &["ip", "find", "172.16.0.1"][..] => Yields("172.16.0.1".to_string()),
+            &["ip", "find", "172.16.0.1"][..] => Yields("172.16.0.1".parse::<IpAddr>().unwrap()),
         }
 
         "0.0.0.0 IPv4 address" {
-            &["ip", "find", "0.0.0.0"][..] => Yields("0.0.0.0".to_string()),
+            &["ip", "find", "0.0.0.0"][..] => Yields("0.0.0.0".parse::<IpAddr>().unwrap()),
         }
 
         "IPv6 loopback address" {
-            &["ip", "find", "::1"][..] => Yields("::1".to_string()),
+            &["ip", "find", "::1"][..] => Yields("::1".parse::<IpAddr>().unwrap()),
         }
     );
 }

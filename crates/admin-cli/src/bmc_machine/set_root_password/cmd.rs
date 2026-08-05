@@ -19,7 +19,7 @@ use super::args::Args;
 use crate::errors::CarbideCliResult;
 use crate::rpc::ApiClient;
 
-pub async fn set_root_password(args: Args, api_client: &ApiClient) -> CarbideCliResult<()> {
+pub(super) async fn set_root_password(args: Args, api_client: &ApiClient) -> CarbideCliResult<()> {
     api_client.0.set_bmc_root_password(args).await?;
     println!("BMC root password updated");
     Ok(())

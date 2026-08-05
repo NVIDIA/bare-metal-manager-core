@@ -36,22 +36,22 @@ AC power-cycle a power shelf:
     --power-shelf-id 12345678-1234-5678-90ab-cdef01234567 --action ac-powercycle
 
 ")]
-pub struct Args {
+pub(crate) struct Args {
     #[clap(subcommand)]
-    pub target: PowerControlTargetArgs,
+    target: PowerControlTargetArgs,
 
     #[clap(
         long = "action",
         value_enum,
         help = "Power control action to apply to the targeted components"
     )]
-    pub action: PowerActionArg,
+    action: PowerActionArg,
 
     #[clap(
         long = "bypass-state-controller",
         help = "Bypass the state controller and dispatch directly to the component backend"
     )]
-    pub bypass_state_controller: bool,
+    bypass_state_controller: bool,
 }
 
 impl From<Args> for rpc::forge::ComponentPowerControlRequest {

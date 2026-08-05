@@ -30,7 +30,7 @@ fn describe_target(machine_id: Option<String>, bmc_mac: Option<String>) -> Strin
     }
 }
 
-pub async fn set(data: ForceSet, api_client: &ApiClient) -> CarbideCliResult<()> {
+pub(super) async fn set(data: ForceSet, api_client: &ApiClient) -> CarbideCliResult<()> {
     let target = describe_target(
         data.id.map(|id| id.to_string()),
         data.bmc_mac.map(|mac| mac.to_string()),
@@ -45,7 +45,7 @@ pub async fn set(data: ForceSet, api_client: &ApiClient) -> CarbideCliResult<()>
     Ok(())
 }
 
-pub async fn clear(data: ForceClear, api_client: &ApiClient) -> CarbideCliResult<()> {
+pub(super) async fn clear(data: ForceClear, api_client: &ApiClient) -> CarbideCliResult<()> {
     let target = describe_target(
         data.id.map(|id| id.to_string()),
         data.bmc_mac.map(|mac| mac.to_string()),

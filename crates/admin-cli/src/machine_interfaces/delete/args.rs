@@ -36,13 +36,13 @@ whose ingestion is blocked by a stale interface record):
         .required(true)
         .args(["interface_id", "mac_address"]),
 ))]
-pub struct Args {
+pub(crate) struct Args {
     #[clap(help = "The interface ID to delete.")]
-    pub interface_id: Option<MachineInterfaceId>,
+    pub(super) interface_id: Option<MachineInterfaceId>,
 
     #[clap(
         long,
         help = "Delete every interface carrying this MAC address instead of selecting by ID."
     )]
-    pub mac_address: Option<MacAddress>,
+    pub(super) mac_address: Option<MacAddress>,
 }

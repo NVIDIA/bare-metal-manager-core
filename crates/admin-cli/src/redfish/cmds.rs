@@ -36,7 +36,7 @@ use tracing::warn;
 
 use super::args::{Cmd, DpuOperations, FwCommand, RedfishAction, ShowFw, ShowPort};
 
-pub async fn action(action: RedfishAction) -> color_eyre::Result<()> {
+pub(crate) async fn action(action: RedfishAction) -> color_eyre::Result<()> {
     let endpoint = libredfish::Endpoint {
         host: action.address,
         user: action.username,
@@ -582,7 +582,7 @@ pub async fn action(action: RedfishAction) -> color_eyre::Result<()> {
     Ok(())
 }
 
-pub async fn handle_fw_status(redfish: Box<dyn Redfish>) -> Result<(), RedfishError> {
+async fn handle_fw_status(redfish: Box<dyn Redfish>) -> Result<(), RedfishError> {
     let tasks: Vec<String> = redfish.get_tasks().await?;
     let mut tasks_info: Vec<Task> = Vec::new();
     for task in tasks.iter() {
@@ -596,7 +596,7 @@ pub async fn handle_fw_status(redfish: Box<dyn Redfish>) -> Result<(), RedfishEr
     Ok(())
 }
 
-pub async fn handle_fw_show(redfish: Box<dyn Redfish>, args: ShowFw) -> Result<(), RedfishError> {
+async fn handle_fw_show(redfish: Box<dyn Redfish>, args: ShowFw) -> Result<(), RedfishError> {
     if args.all || args.bmc || args.dpu_os || args.uefi || args.fw.is_empty() {
         let f = FwFilter {
             only_bmc: args.bmc,
@@ -634,7 +634,7 @@ pub async fn handle_fw_show(redfish: Box<dyn Redfish>, args: ShowFw) -> Result<(
 }
 
 #[derive(Debug, Default, Copy, Clone)]
-pub struct FwFilter {
+struct FwFilter {
     only_bmc: bool,
     only_dpu_os: bool,
     only_uefi: bool,
@@ -724,10 +724,7 @@ fn convert_tasks_to_nice_table(tasks: Vec<Task>) -> Box<Table> {
     table.into()
 }
 
-pub async fn handle_port_show(
-    redfish: Box<dyn Redfish>,
-    args: ShowPort,
-) -> Result<(), RedfishError> {
+async fn handle_port_show(redfish: Box<dyn Redfish>, args: ShowPort) -> Result<(), RedfishError> {
     match show_all_ports(redfish).await {
         Ok((mut ports_info, netdev_funcs_info)) => {
             if !args.port.is_empty() {
@@ -851,7 +848,7 @@ fn convert_ports_to_nice_table(
     table.into()
 }
 
-pub async fn handle_ethernet_interface_show(
+async fn handle_ethernet_interface_show(
     redfish: Box<dyn Redfish>,
     fetch_system_interfaces: bool,
 ) -> Result<(), RedfishError> {
@@ -940,7 +937,7 @@ fn convert_ethernet_interfaces_to_nice_table(eth_ifs: Vec<EthernetInterface>) ->
     table.into()
 }
 
-pub async fn handle_get_chassis_all(redfish: Box<dyn Redfish>) -> Result<(), RedfishError> {
+async fn handle_get_chassis_all(redfish: Box<dyn Redfish>) -> Result<(), RedfishError> {
     let chassis_vec: Vec<String> = redfish.get_chassis_all().await?;
     let mut chassis_info: Vec<Chassis> = Vec::new();
 
@@ -958,7 +955,7 @@ pub async fn handle_get_chassis_all(redfish: Box<dyn Redfish>) -> Result<(), Red
     Ok(())
 }
 
-pub async fn handle_get_chassis(
+async fn handle_get_chassis(
     redfish: Box<dyn Redfish>,
     chassis_id: String,
 ) -> Result<(), RedfishError> {

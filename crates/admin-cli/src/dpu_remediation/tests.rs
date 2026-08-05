@@ -25,9 +25,12 @@
 
 use carbide_test_support::Outcome::*;
 use carbide_test_support::scenarios;
+use carbide_uuid::dpu_remediations::RemediationId;
+use carbide_uuid::machine::MachineId;
 use clap::{CommandFactory, Parser};
 
 use super::*;
+use crate::test_support::{parse_leaf, raw_value, raw_values};
 
 // verify_cmd_structure runs a baseline clap debug_assert()
 // to do basic command configuration checking and validation,
@@ -53,16 +56,16 @@ fn verify_cmd_structure() {
 fn parse_create_routes_and_fills_fields() {
     scenarios!(
         run = |argv| {
-            Cmd::try_parse_from(argv.iter().copied())
-                .map(|cmd| match cmd {
-                    Cmd::Create(args) => (
-                        args.script_filename,
-                        args.retries,
-                        args.meta_name,
-                        args.meta_description,
-                        args.labels.is_some(),
-                    ),
-                    _ => panic!("expected Create variant"),
+            parse_leaf::<Cmd>(argv, &["create"])
+                .map(|matches| {
+                    (
+                        raw_value(&matches, "script_filename")
+                            .expect("script filename is required"),
+                        matches.get_one::<u32>("retries").copied(),
+                        raw_value(&matches, "meta_name"),
+                        raw_value(&matches, "meta_description"),
+                        !raw_values(&matches, "labels").is_empty(),
+                    )
                 })
                 .map_err(drop)
         };
@@ -107,10 +110,12 @@ fn parse_create_routes_and_fills_fields() {
 fn parse_show_routes_and_fills_fields() {
     scenarios!(
         run = |argv| {
-            Cmd::try_parse_from(argv.iter().copied())
-                .map(|cmd| match cmd {
-                    Cmd::Show(args) => (args.id.is_some(), args.display_script),
-                    _ => panic!("expected Show variant"),
+            parse_leaf::<Cmd>(argv, &["show"])
+                .map(|matches| {
+                    (
+                        matches.get_one::<RemediationId>("id").is_some(),
+                        matches.get_flag("display_script"),
+                    )
                 })
                 .map_err(drop)
         };
@@ -130,12 +135,14 @@ fn parse_show_routes_and_fills_fields() {
 fn parse_list_applied_routes_and_fills_fields() {
     scenarios!(
         run = |argv| {
-            Cmd::try_parse_from(argv.iter().copied())
-                .map(|cmd| match cmd {
-                    Cmd::ListApplied(args) => {
-                        (args.remediation_id.is_some(), args.machine_id.is_some())
-                    }
-                    _ => panic!("expected ListApplied variant"),
+            parse_leaf::<Cmd>(argv, &["list-applied"])
+                .map(|matches| {
+                    (
+                        matches
+                            .get_one::<RemediationId>("remediation_id")
+                            .is_some(),
+                        matches.get_one::<MachineId>("machine_id").is_some(),
+                    )
                 })
                 .map_err(drop)
         };

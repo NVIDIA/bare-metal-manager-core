@@ -28,6 +28,7 @@ use carbide_test_support::scenarios;
 use clap::{CommandFactory, Parser};
 
 use super::*;
+use crate::test_support::{parse_leaf, raw_value};
 
 // verify_cmd_structure runs a baseline clap debug_assert()
 // to do basic command configuration checking and validation,
@@ -79,10 +80,11 @@ fn parse_routes_argument_free_subcommands() {
 fn parse_delete() {
     scenarios!(
         run = |argv| {
-            Cmd::try_parse_from(argv.iter().copied())
-                .map(|cmd| match cmd {
-                    Cmd::Delete(args) => args.ca_id,
-                    _ => panic!("expected Delete variant"),
+            parse_leaf::<Cmd>(argv, &["delete"])
+                .map(|matches| {
+                    *matches
+                        .get_one::<i32>("ca_id")
+                        .expect("CA ID is required")
                 })
                 .map_err(drop)
         };
@@ -97,10 +99,9 @@ fn parse_delete() {
 fn parse_add() {
     scenarios!(
         run = |argv| {
-            Cmd::try_parse_from(argv.iter().copied())
-                .map(|cmd| match cmd {
-                    Cmd::Add(args) => args.filename,
-                    _ => panic!("expected Add variant"),
+            parse_leaf::<Cmd>(argv, &["add"])
+                .map(|matches| {
+                    raw_value(&matches, "filename").expect("filename is required")
                 })
                 .map_err(drop)
         };
@@ -115,10 +116,9 @@ fn parse_add() {
 fn parse_add_bulk() {
     scenarios!(
         run = |argv| {
-            Cmd::try_parse_from(argv.iter().copied())
-                .map(|cmd| match cmd {
-                    Cmd::AddBulk(args) => args.dirname,
-                    _ => panic!("expected AddBulk variant"),
+            parse_leaf::<Cmd>(argv, &["add-bulk"])
+                .map(|matches| {
+                    raw_value(&matches, "dirname").expect("directory is required")
                 })
                 .map_err(drop)
         };

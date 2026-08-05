@@ -28,9 +28,9 @@ Disable the BMC proxy:
     $ nico-admin-cli set bmc-proxy --enabled false
 
 ")]
-pub struct Args {
+pub(crate) struct Args {
     #[clap(long, action = clap::ArgAction::Set, help = "Enable site-explorer bmc_proxy")]
-    pub enabled: bool,
+    pub(super) enabled: bool,
     #[clap(long, action = clap::ArgAction::Set, help = "host:port string use as a proxy for talking to BMC's")]
-    pub proxy: Option<String>,
+    pub(super) proxy: Option<String>,
 }

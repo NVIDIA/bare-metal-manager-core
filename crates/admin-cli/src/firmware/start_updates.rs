@@ -22,7 +22,7 @@ use crate::errors::CarbideCliError;
 use crate::managed_host::StartUpdates;
 use crate::rpc::ApiClient;
 
-pub async fn start_updates(
+pub(crate) async fn start_updates(
     api_client: &ApiClient,
     options: StartUpdates,
 ) -> color_eyre::Result<()> {

@@ -25,9 +25,11 @@
 
 use carbide_test_support::Outcome::*;
 use carbide_test_support::scenarios;
+use carbide_uuid::machine::MachineId;
 use clap::{CommandFactory, Parser};
 
 use super::*;
+use crate::test_support::{parse_leaf, raw_value, raw_values};
 
 // Define a basic/working MachineId for testing.
 const TEST_MACHINE_ID: &str = "fm100ht038bg3qsho433vkg684heguv282qaggmrsh2ugn1qk096n2c6hcg";
@@ -55,10 +57,13 @@ fn verify_cmd_structure() {
 fn parse_create_routes_and_binds_fields() {
     scenarios!(
         run = |argv| {
-            Cmd::try_parse_from(argv.iter().copied())
-                .map(|cmd| match cmd {
-                    Cmd::Create(args) => (args.id, args.name, args.description),
-                    _ => panic!("expected Create variant"),
+            parse_leaf::<Cmd>(argv, &["create"])
+                .map(|matches| {
+                    (
+                        raw_value(&matches, "id"),
+                        raw_value(&matches, "name"),
+                        raw_value(&matches, "description"),
+                    )
                 })
                 .map_err(drop)
         };
@@ -92,14 +97,9 @@ fn parse_create_routes_and_binds_fields() {
 #[test]
 fn parse_show_routes_and_binds_id() {
     scenarios!(
-        run = |argv| {
-            Cmd::try_parse_from(argv.iter().copied())
-                .map(|cmd| match cmd {
-                    Cmd::Show(args) => args.id,
-                    _ => panic!("expected Show variant"),
-                })
-                .map_err(drop)
-        };
+        run = |argv| parse_leaf::<Cmd>(argv, &["show"])
+            .map(|matches| raw_value(&matches, "id"))
+            .map_err(drop);
         "show with no arguments leaves id unset" {
             &["instance-type", "show"][..] => Yields(None),
         }
@@ -114,14 +114,11 @@ fn parse_show_routes_and_binds_id() {
 #[test]
 fn parse_delete_binds_id() {
     scenarios!(
-        run = |argv| {
-            Cmd::try_parse_from(argv.iter().copied())
-                .map(|cmd| match cmd {
-                    Cmd::Delete(args) => args.id,
-                    _ => panic!("expected Delete variant"),
-                })
-                .map_err(drop)
-        };
+        run = |argv| parse_leaf::<Cmd>(argv, &["delete"])
+            .map(|matches| {
+                raw_value(&matches, "id").expect("ID is required")
+            })
+            .map_err(drop);
         "delete with required --id" {
             &["instance-type", "delete", "--id", "type-123"][..] => Yields("type-123".to_string()),
         }
@@ -133,10 +130,12 @@ fn parse_delete_binds_id() {
 fn parse_update_binds_fields() {
     scenarios!(
         run = |argv| {
-            Cmd::try_parse_from(argv.iter().copied())
-                .map(|cmd| match cmd {
-                    Cmd::Update(args) => (args.id, args.name),
-                    _ => panic!("expected Update variant"),
+            parse_leaf::<Cmd>(argv, &["update"])
+                .map(|matches| {
+                    (
+                        raw_value(&matches, "id").expect("ID is required"),
+                        raw_value(&matches, "name"),
+                    )
                 })
                 .map_err(drop)
         };
@@ -160,10 +159,13 @@ fn parse_associate_binds_type_and_machines() {
     let two_machines = format!("{TEST_MACHINE_ID},{TEST_MACHINE_ID}");
     scenarios!(
         run = |argv| {
-            Cmd::try_parse_from(argv.iter().copied())
-                .map(|cmd| match cmd {
-                    Cmd::Associate(args) => (args.instance_type_id, args.machine_ids.len()),
-                    _ => panic!("expected Associate variant"),
+            parse_leaf::<Cmd>(argv, &["associate"])
+                .map(|matches| {
+                    (
+                        raw_value(&matches, "instance_type_id")
+                            .expect("instance type ID is required"),
+                        raw_values(&matches, "machine_ids").len(),
+                    )
                 })
                 .map_err(drop)
         };
@@ -181,14 +183,14 @@ fn parse_associate_binds_type_and_machines() {
 #[test]
 fn parse_disassociate_binds_machine_id() {
     scenarios!(
-        run = |argv| {
-            Cmd::try_parse_from(argv.iter().copied())
-                .map(|cmd| match cmd {
-                    Cmd::Disassociate(args) => args.machine_id.to_string(),
-                    _ => panic!("expected Disassociate variant"),
-                })
-                .map_err(drop)
-        };
+        run = |argv| parse_leaf::<Cmd>(argv, &["disassociate"])
+            .map(|matches| {
+                matches
+                    .get_one::<MachineId>("machine_id")
+                    .expect("machine ID is required")
+                    .to_string()
+            })
+            .map_err(drop);
         "disassociate with a machine id" {
             &["instance-type", "disassociate", TEST_MACHINE_ID][..] => Yields(TEST_MACHINE_ID.to_string()),
         }

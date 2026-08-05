@@ -43,17 +43,17 @@ Update an expected power shelf's serial number, selecting it by ID:
 "bmc_password",
 "shelf_serial_number",
 ])))]
-pub struct Args {
+pub(crate) struct Args {
     #[clap(
         short = 'a',
         long,
         help = "BMC MAC Address of the expected power shelf"
     )]
-    pub bmc_mac_address: Option<MacAddress>,
+    bmc_mac_address: Option<MacAddress>,
 
     #[clap(long = "id", help = "ID (UUID) of the expected power shelf to update.")]
     #[serde(skip)]
-    pub id: Option<Uuid>,
+    id: Option<Uuid>,
     #[clap(
         short = 'u',
         long,
@@ -61,7 +61,7 @@ pub struct Args {
         requires("bmc_password"),
         help = "BMC username of the expected power shelf"
     )]
-    pub bmc_username: Option<String>,
+    bmc_username: Option<String>,
     #[clap(
         short = 'p',
         long,
@@ -69,28 +69,28 @@ pub struct Args {
         requires("bmc_username"),
         help = "BMC password of the expected power shelf"
     )]
-    pub bmc_password: Option<String>,
+    bmc_password: Option<String>,
     #[clap(
         short = 's',
         long,
         group = "group",
         help = "Chassis serial number of the expected power shelf"
     )]
-    pub shelf_serial_number: Option<String>,
+    shelf_serial_number: Option<String>,
 
     #[clap(
         long = "meta-name",
         value_name = "META_NAME",
         help = "The name that should be used as part of the Metadata for newly created Power Shelves. If empty, the Power Shelf Id will be used"
     )]
-    pub meta_name: Option<String>,
+    meta_name: Option<String>,
 
     #[clap(
         long = "meta-description",
         value_name = "META_DESCRIPTION",
         help = "The description that should be used as part of the Metadata for newly created Power Shelves"
     )]
-    pub meta_description: Option<String>,
+    meta_description: Option<String>,
 
     #[clap(
         long = "label",
@@ -98,7 +98,7 @@ pub struct Args {
         help = "A label that will be added as metadata for the newly created Machine. The labels key and value must be separated by a : character",
         action = clap::ArgAction::Append
     )]
-    pub labels: Option<Vec<String>>,
+    labels: Option<Vec<String>>,
 
     #[clap(
         long = "host_name",
@@ -106,7 +106,7 @@ pub struct Args {
         help = "Host name of the power shelf",
         action = clap::ArgAction::Append
     )]
-    pub host_name: Option<String>,
+    host_name: Option<String>,
 
     #[clap(
         long = "rack_id",
@@ -114,7 +114,7 @@ pub struct Args {
         help = "Rack ID for this power shelf",
         action = clap::ArgAction::Append
     )]
-    pub rack_id: Option<RackId>,
+    rack_id: Option<RackId>,
 
     #[clap(
         long = "bmc-ip-address",
@@ -122,14 +122,14 @@ pub struct Args {
         help = "BMC IP address of the power shelf",
         action = clap::ArgAction::Append
     )]
-    pub bmc_ip_address: Option<IpAddr>,
+    bmc_ip_address: Option<IpAddr>,
 
     #[clap(
         long = "bmc-retain-credentials",
         value_name = "BMC_RETAIN_CREDENTIALS",
         help = "When true, site-explorer skips BMC password rotation and stores factory-default credentials in Vault as-is"
     )]
-    pub bmc_retain_credentials: Option<bool>,
+    bmc_retain_credentials: Option<bool>,
 }
 
 impl TryFrom<Args> for rpc::forge::ExpectedPowerShelf {

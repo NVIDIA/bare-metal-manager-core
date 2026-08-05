@@ -29,9 +29,9 @@ Force delete a switch and its machine interfaces:
     $ nico-admin-cli switch force-delete 12345678-1234-5678-90ab-cdef01234567 --delete-interfaces
 
 ")]
-pub struct Args {
+pub(crate) struct Args {
     #[clap(help = "Switch ID to force delete.")]
-    pub switch_id: SwitchId,
+    pub(super) switch_id: SwitchId,
 
     #[clap(
         short = 'd',
@@ -39,5 +39,5 @@ pub struct Args {
         action,
         help = "Delete machine interfaces associated with this switch."
     )]
-    pub delete_interfaces: bool,
+    pub(super) delete_interfaces: bool,
 }

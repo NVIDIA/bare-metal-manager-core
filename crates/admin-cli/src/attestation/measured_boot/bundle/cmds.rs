@@ -136,7 +136,7 @@ impl Run for ListMachines {
 
 /// create_for_id creates a new measurement bundle associated with the
 /// profile w/ the provided profile ID.
-pub async fn create_for_id(
+async fn create_for_id(
     grpc_conn: &ApiClient,
     create: Create,
 ) -> CarbideCliResult<MeasurementBundle> {
@@ -147,7 +147,7 @@ pub async fn create_for_id(
 }
 
 /// delete deletes a measurement bundle with the provided ID.
-pub async fn delete(grpc_conn: &ApiClient, delete: Delete) -> CarbideCliResult<MeasurementBundle> {
+async fn delete(grpc_conn: &ApiClient, delete: Delete) -> CarbideCliResult<MeasurementBundle> {
     let response = grpc_conn.0.delete_measurement_bundle(delete).await?;
 
     MeasurementBundle::from_grpc_opt(response.bundle)
@@ -155,7 +155,7 @@ pub async fn delete(grpc_conn: &ApiClient, delete: Delete) -> CarbideCliResult<M
 }
 
 /// rename renames a measurement bundle with the provided name or ID.
-pub async fn rename(grpc_conn: &ApiClient, rename: Rename) -> CarbideCliResult<MeasurementBundle> {
+async fn rename(grpc_conn: &ApiClient, rename: Rename) -> CarbideCliResult<MeasurementBundle> {
     let response = grpc_conn
         .0
         .rename_measurement_bundle(RenameMeasurementBundleRequest::try_from(rename)?)
@@ -166,7 +166,7 @@ pub async fn rename(grpc_conn: &ApiClient, rename: Rename) -> CarbideCliResult<M
 }
 
 /// set_state updates the state of the bundle (e.g. active, obsolete, retired).
-pub async fn set_state(
+async fn set_state(
     grpc_conn: &ApiClient,
     set_state: SetState,
 ) -> CarbideCliResult<MeasurementBundle> {
@@ -180,7 +180,7 @@ pub async fn set_state(
 }
 
 /// show_by_id dumps all info about a bundle for the given ID or name.
-pub async fn show_by_id_or_name(
+async fn show_by_id_or_name(
     grpc_conn: &ApiClient,
     show: Show,
 ) -> CarbideCliResult<MeasurementBundle> {
@@ -194,7 +194,7 @@ pub async fn show_by_id_or_name(
 }
 
 /// show_all dumps all info about all bundles.
-pub async fn show_all(
+async fn show_all(
     grpc_conn: &ApiClient,
     _get_by_id: Show,
 ) -> CarbideCliResult<MeasurementBundleList> {
@@ -214,7 +214,7 @@ pub async fn show_all(
 }
 
 /// list lists all bundle ids.
-pub async fn list(grpc_conn: &ApiClient) -> CarbideCliResult<MeasurementBundleRecordList> {
+async fn list(grpc_conn: &ApiClient) -> CarbideCliResult<MeasurementBundleRecordList> {
     Ok(MeasurementBundleRecordList(
         grpc_conn
             .0
@@ -232,7 +232,7 @@ pub async fn list(grpc_conn: &ApiClient) -> CarbideCliResult<MeasurementBundleRe
 
 /// list_machines lists all machines associated with the provided
 /// bundle ID or bundle name.
-pub async fn list_machines(
+async fn list_machines(
     grpc_conn: &ApiClient,
     list_machines: ListMachines,
 ) -> CarbideCliResult<MachineIdList> {
@@ -253,7 +253,7 @@ pub async fn list_machines(
     ))
 }
 
-pub async fn find_closest_match(
+async fn find_closest_match(
     grpc_conn: &ApiClient,
     args: FindClosestMatch,
 ) -> CarbideCliResult<Option<MeasurementBundle>> {
@@ -273,7 +273,7 @@ pub async fn find_closest_match(
 /// for a Vec<MeasurementBundleRecord> so the ToTable trait can
 /// be leveraged (since we don't define Vec).
 #[derive(Serialize)]
-pub struct MeasurementBundleRecordList(Vec<MeasurementBundleRecord>);
+struct MeasurementBundleRecordList(Vec<MeasurementBundleRecord>);
 
 impl ToTable for MeasurementBundleRecordList {
     fn into_table(self) -> eyre::Result<String> {
@@ -302,7 +302,7 @@ impl ToTable for MeasurementBundleRecordList {
 /// pattern for a Vec<MeasurementBundle> so the ToTable
 /// trait can be leveraged (since we don't define Vec).
 #[derive(Serialize)]
-pub struct MeasurementBundleList(Vec<MeasurementBundle>);
+struct MeasurementBundleList(Vec<MeasurementBundle>);
 
 // When `bundle show` gets called (for all entries), and the output format
 // is the default table view, this gets used to print a pretty table.

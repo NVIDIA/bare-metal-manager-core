@@ -217,7 +217,7 @@ fn get_bmc_info<'a>(
 }
 
 /// Main entry function which print inventory.
-pub async fn print_inventory(
+pub(super) async fn print_inventory(
     api_client: &ApiClient,
     action: Cmd,
     page_size: usize,

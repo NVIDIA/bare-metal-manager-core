@@ -31,9 +31,9 @@ Generate a UFM cert for a named fabric:
     $ nico-admin-cli credential generate-ufm-cert --fabric default
 
 ")]
-pub struct Args {
+pub(crate) struct Args {
     #[clap(long, default_value_t = DEFAULT_IB_FABRIC_NAME.to_string(), help = "Infiniband fabric.")]
-    pub fabric: String,
+    fabric: String,
 }
 
 impl From<Args> for forgerpc::CredentialCreationRequest {

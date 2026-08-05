@@ -33,21 +33,21 @@ Request another reconciliation for the selected interface:
 
 Tip: list a host's interface ids with 'managed-host show <HOST_MACHINE_ID>'.
 ")]
-pub struct Args {
+pub(crate) struct Args {
     #[clap(help = "ID of the host machine")]
-    pub host_machine_id: MachineId,
+    host_machine_id: MachineId,
     #[clap(help = "ID of the machine interface to make primary (the boot device)")]
-    pub interface_id: MachineInterfaceId,
+    interface_id: MachineInterfaceId,
     #[clap(
         long,
         help = "Request a fresh machine-controller reconciliation even when this interface is already selected"
     )]
-    pub force_reconcile: bool,
+    force_reconcile: bool,
     #[clap(
         long,
         help = "Deprecated compatibility alias; use --force-reconcile with current servers"
     )]
-    pub reboot: bool,
+    reboot: bool,
 }
 
 #[allow(deprecated)] // Keep `--reboot` functional when this CLI calls an older server.

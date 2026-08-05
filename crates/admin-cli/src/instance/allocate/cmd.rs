@@ -23,7 +23,7 @@ use crate::errors::{CarbideCliError, CarbideCliResult};
 use crate::machine;
 use crate::rpc::ApiClient;
 
-pub async fn allocate(
+pub(super) async fn allocate(
     api_client: &ApiClient,
     allocate_request: Args,
     ctx: &RuntimeContext,

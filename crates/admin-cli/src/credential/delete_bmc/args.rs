@@ -32,16 +32,16 @@ Delete a per-BMC root credential for a specific MAC address:
     $ nico-admin-cli credential delete-bmc --kind=bmc-root --mac-address 00:11:22:33:44:55
 
 ")]
-pub struct Args {
+pub(crate) struct Args {
     #[clap(
         long,
         require_equals(true),
         required(true),
         help = "The BMC Credential kind"
     )]
-    pub kind: BmcCredentialType,
+    kind: BmcCredentialType,
     #[clap(long, help = "The MAC address of the BMC")]
-    pub mac_address: Option<MacAddress>,
+    mac_address: Option<MacAddress>,
 }
 
 impl From<Args> for forgerpc::CredentialDeletionRequest {

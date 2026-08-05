@@ -29,7 +29,7 @@ mod profile;
 mod registry;
 
 #[derive(Parser, Debug, Dispatch)]
-pub enum MlxAction {
+pub(crate) enum MlxAction {
     #[dispatch]
     #[clap(subcommand, about = "Configuration profile management")]
     Profile(profile::args::ProfileCommand),

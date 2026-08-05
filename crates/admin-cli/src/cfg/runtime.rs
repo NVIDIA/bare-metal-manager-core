@@ -24,25 +24,25 @@ use crate::rpc::ApiClient;
 // RuntimeContext is context passed to all subcommand
 // dispatch handlers. This is built at the beginning of
 // runtime and then passed to the appropriate dispatcher.
-pub struct RuntimeContext {
-    pub api_client: ApiClient,
-    pub config: RuntimeConfig,
-    pub output_file: Box<dyn tokio::io::AsyncWrite + Unpin>,
+pub(crate) struct RuntimeContext {
+    pub(crate) api_client: ApiClient,
+    pub(crate) config: RuntimeConfig,
+    pub(crate) output_file: Box<dyn tokio::io::AsyncWrite + Unpin>,
 }
 
 // RuntimeConfig contains runtime configuration parameters extracted
 // from CLI options. This should contain the entirety of any options
 // that need to be leveraged by any downstream command handler.
-pub struct RuntimeConfig {
-    pub format: OutputFormat,
-    pub page_size: usize,
-    pub extended: bool,
-    pub cloud_unsafe_op: Option<String>,
-    pub sort_by: SortField,
+pub(crate) struct RuntimeConfig {
+    pub(crate) format: OutputFormat,
+    pub(crate) page_size: usize,
+    pub(crate) extended: bool,
+    pub(crate) cloud_unsafe_op: Option<String>,
+    pub(crate) sort_by: SortField,
 }
 
 impl RuntimeContext {
-    pub fn assert_cloud_unsafe_op_message(&self) -> Result<&str, CarbideCliError> {
+    pub(crate) fn assert_cloud_unsafe_op_message(&self) -> Result<&str, CarbideCliError> {
         self.config
             .cloud_unsafe_op
             .as_deref()

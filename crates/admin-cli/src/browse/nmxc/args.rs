@@ -24,7 +24,7 @@ use rpc::forge as forgerpc;
 // render and validate the choices.
 #[derive(ValueEnum, Debug, Clone)]
 #[clap(rename_all = "kebab-case")]
-pub enum NmxcOperationArg {
+pub(super) enum NmxcOperationArg {
     ComputeNodeInfoList,
     SwitchNodeInfoList,
     GpuInfo,
@@ -75,17 +75,17 @@ Get NMX-C domain properties:
     $ nico-admin-cli browse nmxc --chassis-serial 1234567890 --operation get-domain-properties
 
 ")]
-pub struct Args {
+pub(crate) struct Args {
     #[clap(long, help = "Chassis serial number")]
-    pub chassis_serial: String,
+    pub(super) chassis_serial: String,
 
     #[clap(long, value_enum, help = "NMX-C browse operation to run")]
-    pub operation: NmxcOperationArg,
+    pub(super) operation: NmxcOperationArg,
 
     #[clap(
         long,
         default_value = "0",
         help = "GPU UID (used by the gpu-info operation)"
     )]
-    pub gpu_uid: u64,
+    pub(super) gpu_uid: u64,
 }

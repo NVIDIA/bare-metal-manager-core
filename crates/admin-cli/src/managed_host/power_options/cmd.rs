@@ -26,7 +26,7 @@ use super::args::{ShowPowerOptions, UpdatePowerOptions};
 use crate::errors::{CarbideCliError, CarbideCliResult};
 use crate::rpc::ApiClient;
 
-pub async fn power_options_show(
+pub(super) async fn power_options_show(
     args: ShowPowerOptions,
     output_format: OutputFormat,
     api_client: &ApiClient,
@@ -48,7 +48,7 @@ pub async fn power_options_show(
     power_options_show_all(output_format, api_client).await
 }
 
-pub fn power_options_show_one(
+fn power_options_show_one(
     power_option: &PowerOptions,
     output_format: OutputFormat,
 ) -> CarbideCliResult<()> {
@@ -149,7 +149,7 @@ pub fn power_options_show_one(
     Ok(())
 }
 
-pub async fn power_options_show_all(
+async fn power_options_show_all(
     output_format: OutputFormat,
     api_client: &ApiClient,
 ) -> CarbideCliResult<()> {
@@ -209,7 +209,7 @@ pub async fn power_options_show_all(
     Ok(())
 }
 
-pub async fn update_power_option(
+pub(super) async fn update_power_option(
     args: UpdatePowerOptions,
     api_client: &ApiClient,
 ) -> CarbideCliResult<()> {

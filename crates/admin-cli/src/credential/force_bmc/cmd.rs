@@ -36,7 +36,7 @@ fn describe_target(device_id: Option<DeviceId>, bmc_mac: Option<MacAddress>) -> 
     }
 }
 
-pub async fn set(data: ForceSet, api_client: &ApiClient) -> CarbideCliResult<()> {
+pub(super) async fn set(data: ForceSet, api_client: &ApiClient) -> CarbideCliResult<()> {
     let target = describe_target(data.id, data.bmc_mac);
     api_client.0.trigger_bmc_credential_rotation(data).await?;
     println!(
@@ -48,7 +48,7 @@ pub async fn set(data: ForceSet, api_client: &ApiClient) -> CarbideCliResult<()>
     Ok(())
 }
 
-pub async fn clear(data: ForceClear, api_client: &ApiClient) -> CarbideCliResult<()> {
+pub(super) async fn clear(data: ForceClear, api_client: &ApiClient) -> CarbideCliResult<()> {
     let target = describe_target(data.id, data.bmc_mac);
     api_client.0.trigger_bmc_credential_rotation(data).await?;
     println!("Cleared any pending BMC force-converge request for {target}.");

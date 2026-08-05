@@ -47,7 +47,7 @@ macro_rules! rv {
     };
 }
 
-pub async fn handle_show_version(
+pub(super) async fn handle_show_version(
     opts: &Opts,
     api_client: &ApiClient,
     format: OutputFormat,

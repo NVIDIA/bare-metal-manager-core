@@ -19,7 +19,7 @@ use clap::Parser;
 use rpc::{CredentialType, forge as forgerpc};
 
 #[derive(Parser, Debug, Clone)]
-pub struct Args {}
+pub(crate) struct Args {}
 
 impl From<Args> for forgerpc::CredentialDeletionRequest {
     fn from(_: Args) -> Self {

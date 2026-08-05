@@ -52,13 +52,13 @@ Queue firmware on all eligible devices in a rack:
     --rack-id 12345678-1234-5678-90ab-cdef01234567 --target-version fw-1.2.3
 
 ")]
-pub struct Args {
+pub(crate) struct Args {
     #[clap(subcommand)]
-    pub target: Target,
+    target: Target,
 }
 
 #[derive(Subcommand, Debug)]
-pub enum Target {
+enum Target {
     #[clap(about = "Queue firmware on NVLink switches")]
     Switch(SwitchArgs),
 
@@ -73,15 +73,15 @@ pub enum Target {
 }
 
 #[derive(ClapArgs, Debug)]
-pub struct SwitchArgs {
+struct SwitchArgs {
     #[clap(flatten)]
-    pub ids: SwitchTargetArgs,
+    ids: SwitchTargetArgs,
 
     #[clap(flatten)]
-    pub firmware_source: FirmwareSourceArgs,
+    firmware_source: FirmwareSourceArgs,
 
     #[clap(long = "force-update", help = "Force firmware update when supported")]
-    pub force_update: bool,
+    force_update: bool,
 
     #[clap(
         long = "component",
@@ -89,25 +89,25 @@ pub struct SwitchArgs {
         value_delimiter = ',',
         help = "NVLink switch components to update; omit to update all supported components"
     )]
-    pub components: Vec<NvSwitchComponentArg>,
+    components: Vec<NvSwitchComponentArg>,
 
     #[clap(
         long = "bypass-state-controller",
         help = "Bypass the state controller and dispatch directly to the component backend"
     )]
-    pub bypass_state_controller: bool,
+    bypass_state_controller: bool,
 }
 
 #[derive(ClapArgs, Debug)]
-pub struct PowerShelfArgs {
+struct PowerShelfArgs {
     #[clap(flatten)]
-    pub ids: PowerShelfTargetArgs,
+    ids: PowerShelfTargetArgs,
 
     #[clap(long = "target-version", help = "Firmware target version")]
-    pub target_version: String,
+    target_version: String,
 
     #[clap(long = "force-update", help = "Force firmware update when supported")]
-    pub force_update: bool,
+    force_update: bool,
 
     #[clap(
         long = "component",
@@ -115,25 +115,25 @@ pub struct PowerShelfArgs {
         value_delimiter = ',',
         help = "Power shelf components to update; omit to update all supported components"
     )]
-    pub components: Vec<PowerShelfComponentArg>,
+    components: Vec<PowerShelfComponentArg>,
 
     #[clap(
         long = "bypass-state-controller",
         help = "Bypass the state controller and dispatch directly to the component backend"
     )]
-    pub bypass_state_controller: bool,
+    bypass_state_controller: bool,
 }
 
 #[derive(ClapArgs, Debug)]
-pub struct ComputeTrayArgs {
+struct ComputeTrayArgs {
     #[clap(flatten)]
-    pub ids: MachineTargetArgs,
+    ids: MachineTargetArgs,
 
     #[clap(flatten)]
-    pub firmware_source: FirmwareSourceArgs,
+    firmware_source: FirmwareSourceArgs,
 
     #[clap(long = "force-update", help = "Force firmware update when supported")]
-    pub force_update: bool,
+    force_update: bool,
 
     #[clap(
         long = "component",
@@ -141,47 +141,47 @@ pub struct ComputeTrayArgs {
         value_delimiter = ',',
         help = "Compute tray components to update; omit to update all supported components"
     )]
-    pub components: Vec<ComputeTrayComponentArg>,
+    components: Vec<ComputeTrayComponentArg>,
 
     #[clap(
         long = "bypass-state-controller",
         help = "Bypass the state controller and dispatch directly to the component backend"
     )]
-    pub bypass_state_controller: bool,
+    bypass_state_controller: bool,
 }
 
 #[derive(ClapArgs, Debug)]
-pub struct RackArgs {
+struct RackArgs {
     #[clap(flatten)]
-    pub ids: RackTargetArgs,
+    ids: RackTargetArgs,
 
     #[clap(flatten)]
-    pub firmware_source: FirmwareSourceArgs,
+    firmware_source: FirmwareSourceArgs,
 
     #[clap(long = "force-update", help = "Force firmware update when supported")]
-    pub force_update: bool,
+    force_update: bool,
 }
 
 #[derive(ClapArgs, Debug)]
-pub struct FirmwareSourceArgs {
+struct FirmwareSourceArgs {
     #[clap(
         long = "target-version",
         help = "Firmware target version for legacy direct-update paths"
     )]
-    pub target_version: Option<String>,
+    target_version: Option<String>,
 
     #[clap(
         long = "sot-json-file",
         value_name = "PATH",
         help = "SOT JSON file for RMS ApplyFirmwareObject"
     )]
-    pub sot_json_file: Option<PathBuf>,
+    sot_json_file: Option<PathBuf>,
 
     #[clap(
         long = "access-token",
         help = "Artifact access token for RMS SOT JSON downloads; omit or pass empty for NOAUTH"
     )]
-    pub access_token: Option<String>,
+    access_token: Option<String>,
 }
 
 fn resolve_firmware_source(

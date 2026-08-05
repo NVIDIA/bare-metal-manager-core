@@ -26,12 +26,12 @@
 
 use carbide_test_support::Outcome::*;
 use carbide_test_support::scenarios;
+use carbide_uuid::machine::MachineId;
 use clap::{CommandFactory, Parser};
-use metadata::args::Args as MachineMetadataCommand;
-use network::args::Args as NetworkCommand;
 
 use self::health_report::args::{Args as HealthReportCommand, HealthReportTemplates};
 use super::*;
+use crate::test_support::{parse_leaf, raw_value};
 
 // Define a basic/working MachineId for testing.
 const TEST_MACHINE_ID: &str = "fm100ht038bg3qsho433vkg684heguv282qaggmrsh2ugn1qk096n2c6hcg";
@@ -84,31 +84,30 @@ fn parse_show_variants() {
 // machine ID and exposes it.
 #[test]
 fn parse_network_status() {
-    let cmd =
-        Cmd::try_parse_from(["machine", "network", "status"]).expect("should parse network status");
-
-    assert!(matches!(cmd, Cmd::Network(NetworkCommand::Status)));
+    parse_leaf::<Cmd>(&["machine", "network", "status"], &["network", "status"])
+        .expect("should parse network status");
 }
 
 // parse_network_config ensures network config parses
 // with machine ID.
 #[test]
 fn parse_network_config() {
-    let cmd = Cmd::try_parse_from([
-        "machine",
-        "network",
-        "config",
-        "--machine-id",
-        TEST_MACHINE_ID,
-    ])
+    let matches = parse_leaf::<Cmd>(
+        &[
+            "machine",
+            "network",
+            "config",
+            "--machine-id",
+            TEST_MACHINE_ID,
+        ],
+        &["network", "config"],
+    )
     .expect("should parse network config");
 
-    match cmd {
-        Cmd::Network(NetworkCommand::Config(args)) => {
-            assert_eq!(args.machine_id.to_string(), TEST_MACHINE_ID);
-        }
-        _ => panic!("expected Network Config variant"),
-    }
+    assert_eq!(
+        matches.get_one::<MachineId>("machine_id"),
+        Some(&TEST_MACHINE_ID.parse::<MachineId>().unwrap())
+    );
 }
 
 // health-report show parses, and the legacy health-override alias routes to the
@@ -140,130 +139,126 @@ fn parse_health_report_show_variants() {
 // legacy health-override alias still parses with template.
 #[test]
 fn parse_health_override_add_with_template() {
-    let cmd = Cmd::try_parse_from([
-        "machine",
-        "health-override",
-        "add",
-        TEST_MACHINE_ID,
-        "--template",
-        "host-update",
-    ])
+    let matches = parse_leaf::<Cmd>(
+        &[
+            "machine",
+            "health-override",
+            "add",
+            TEST_MACHINE_ID,
+            "--template",
+            "host-update",
+        ],
+        &["health-report", "add"],
+    )
     .expect("should parse health-override add with template");
 
-    match cmd {
-        Cmd::HealthReport(HealthReportCommand::Add(args)) => {
-            assert!(args.template.is_some());
-            assert!(args.health_report.is_none());
-        }
-        _ => panic!("expected HealthReport Add variant"),
-    }
+    assert!(matches!(
+        matches.get_one::<HealthReportTemplates>("template"),
+        Some(HealthReportTemplates::HostUpdate)
+    ));
+    assert!(raw_value(&matches, "health_report").is_none());
 }
 
 // parse_reboot ensures reboot parses with
 // machine.
 #[test]
 fn parse_reboot() {
-    let cmd = Cmd::try_parse_from(["machine", "reboot", "--machine", TEST_MACHINE_ID])
-        .expect("should parse reboot");
+    let matches = parse_leaf::<Cmd>(
+        &["machine", "reboot", "--machine", TEST_MACHINE_ID],
+        &["reboot"],
+    )
+    .expect("should parse reboot");
 
-    match cmd {
-        Cmd::Reboot(args) => {
-            assert_eq!(args.machine, TEST_MACHINE_ID);
-        }
-        _ => panic!("expected Reboot variant"),
-    }
+    assert_eq!(
+        raw_value(&matches, "machine").as_deref(),
+        Some(TEST_MACHINE_ID)
+    );
 }
 
 // parse_force_delete ensures force-delete parses with
 // machine.
 #[test]
 fn parse_force_delete() {
-    let cmd = Cmd::try_parse_from(["machine", "force-delete", "--machine", TEST_MACHINE_ID])
-        .expect("should parse force-delete");
+    let matches = parse_leaf::<Cmd>(
+        &["machine", "force-delete", "--machine", TEST_MACHINE_ID],
+        &["force-delete"],
+    )
+    .expect("should parse force-delete");
 
-    match cmd {
-        Cmd::ForceDelete(args) => {
-            assert_eq!(args.machine, TEST_MACHINE_ID);
-            assert!(!args.delete_interfaces);
-            assert!(!args.allow_delete_with_instance);
-            assert!(!args.allow_delete_with_orphaned_dpf_crds);
-        }
-        _ => panic!("expected ForceDelete variant"),
-    }
+    assert_eq!(
+        raw_value(&matches, "machine").as_deref(),
+        Some(TEST_MACHINE_ID)
+    );
+    assert!(!matches.get_flag("delete_interfaces"));
+    assert!(!matches.get_flag("allow_delete_with_instance"));
+    assert!(!matches.get_flag("allow_delete_with_orphaned_dpf_crds"));
 }
 
 // parse_auto_update_enable ensures auto-update parses
 // with enable flag.
 #[test]
 fn parse_auto_update_enable() {
-    let cmd = Cmd::try_parse_from([
-        "machine",
-        "auto-update",
-        "--machine",
-        TEST_MACHINE_ID,
-        "--enable",
-    ])
+    let matches = parse_leaf::<Cmd>(
+        &[
+            "machine",
+            "auto-update",
+            "--machine",
+            TEST_MACHINE_ID,
+            "--enable",
+        ],
+        &["auto-update"],
+    )
     .expect("should parse auto-update --enable");
 
-    match cmd {
-        Cmd::AutoUpdate(args) => {
-            assert!(args.enable);
-            assert!(!args.disable);
-            assert!(!args.clear);
-        }
-        _ => panic!("expected AutoUpdate variant"),
-    }
+    assert!(matches.get_flag("enable"));
+    assert!(!matches.get_flag("disable"));
+    assert!(!matches.get_flag("clear"));
 }
 
 // metadata show exposes the machine ID; metadata set exposes the parsed
 // --name option.
 #[test]
 fn parse_metadata_show() {
-    let cmd = Cmd::try_parse_from(["machine", "metadata", "show", TEST_MACHINE_ID])
-        .expect("should parse metadata show");
+    let matches = parse_leaf::<Cmd>(
+        &["machine", "metadata", "show", TEST_MACHINE_ID],
+        &["metadata", "show"],
+    )
+    .expect("should parse metadata show");
 
-    match cmd {
-        Cmd::Metadata(MachineMetadataCommand::Show(args)) => {
-            assert_eq!(args.machine.to_string(), TEST_MACHINE_ID);
-        }
-        _ => panic!("expected Metadata Show variant"),
-    }
+    assert_eq!(
+        matches.get_one::<MachineId>("machine"),
+        Some(&TEST_MACHINE_ID.parse::<MachineId>().unwrap())
+    );
 }
 
 // parse_metadata_set ensures metadata set parses with
 // machine ID and options.
 #[test]
 fn parse_metadata_set() {
-    let cmd = Cmd::try_parse_from([
-        "machine",
-        "metadata",
-        "set",
-        TEST_MACHINE_ID,
-        "--name",
-        "MyMachine",
-    ])
+    let matches = parse_leaf::<Cmd>(
+        &[
+            "machine",
+            "metadata",
+            "set",
+            TEST_MACHINE_ID,
+            "--name",
+            "MyMachine",
+        ],
+        &["metadata", "set"],
+    )
     .expect("should parse metadata set");
 
-    match cmd {
-        Cmd::Metadata(MachineMetadataCommand::Set(args)) => {
-            assert_eq!(args.name, Some("MyMachine".to_string()));
-        }
-        _ => panic!("expected Metadata Set variant"),
-    }
+    assert_eq!(raw_value(&matches, "name").as_deref(), Some("MyMachine"));
 }
 
 // parse_positions ensures positions parses with no
 // arguments.
 #[test]
 fn parse_positions() {
-    let cmd = Cmd::try_parse_from(["machine", "positions"]).expect("should parse positions");
+    let matches = parse_leaf::<Cmd>(&["machine", "positions"], &["positions"])
+        .expect("should parse positions");
 
-    match cmd {
-        Cmd::Positions(args) => {
-            assert!(args.machine.is_empty());
-        }
-        _ => panic!("expected Positions variant"),
-    }
+    assert!(matches.get_many::<MachineId>("machine").is_none());
 }
 
 /////////////////////////////////////////////////////////////////////////////

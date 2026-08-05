@@ -30,7 +30,7 @@ use crate::cfg::dispatch::Dispatch;
 use crate::errors::CarbideCliResult;
 
 #[derive(Parser, Debug, Dispatch)]
-pub enum Cmd {
+pub(crate) enum Cmd {
     #[clap(about = "Create VPC peering.")]
     Create(create::Args),
     #[clap(about = "Show list of VPC peerings.")]

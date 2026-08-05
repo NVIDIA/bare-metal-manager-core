@@ -27,8 +27,10 @@ use carbide_test_support::Outcome::*;
 use carbide_test_support::scenarios;
 use carbide_uuid::switch::SwitchId;
 use clap::{CommandFactory, Parser};
+use mac_address::MacAddress;
 
 use super::*;
+use crate::test_support::{parse_leaf, raw_value};
 
 // verify_cmd_structure runs a baseline clap debug_assert()
 // to do basic command configuration checking and validation,
@@ -57,11 +59,8 @@ fn parse_show_routes_to_show() {
 
     scenarios!(
         run = |argv| {
-            Cmd::try_parse_from(argv.iter().copied())
-                .map(|cmd| match cmd {
-                    Cmd::Show(args) => args.switch_id,
-                    _ => panic!("expected Show variant"),
-                })
+            parse_leaf::<Cmd>(argv, &["show"])
+                .map(|matches| matches.get_one::<SwitchId>("switch_id").copied())
                 .map_err(drop)
         };
         "no args parses with no switch id" {
@@ -82,14 +81,16 @@ fn parse_show_routes_to_show() {
 fn parse_list_routes_to_list() {
     scenarios!(
         run = |argv| {
-            Cmd::try_parse_from(argv.iter().copied())
-                .map(|cmd| match cmd {
-                    Cmd::List(args) => (
-                        matches!(args.deleted, rpc::forge::DeletedFilter::Only),
-                        args.controller_state,
-                        args.bmc_mac.is_some(),
-                    ),
-                    _ => panic!("expected List variant"),
+            parse_leaf::<Cmd>(argv, &["list"])
+                .map(|matches| {
+                    (
+                        matches!(
+                            matches.get_one::<rpc::forge::DeletedFilter>("deleted"),
+                            Some(rpc::forge::DeletedFilter::Only)
+                        ),
+                        raw_value(&matches, "controller_state"),
+                        matches.get_one::<MacAddress>("bmc_mac").is_some(),
+                    )
                 })
                 .map_err(drop)
         };

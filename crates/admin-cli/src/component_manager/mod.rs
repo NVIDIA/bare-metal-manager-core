@@ -27,7 +27,7 @@ use clap::Parser;
 use crate::cfg::dispatch::Dispatch;
 
 #[derive(Parser, Debug, Dispatch)]
-pub enum Cmd {
+pub(crate) enum Cmd {
     #[clap(about = "Queue component firmware updates")]
     UpdateFirmware(update_firmware::Args),
 

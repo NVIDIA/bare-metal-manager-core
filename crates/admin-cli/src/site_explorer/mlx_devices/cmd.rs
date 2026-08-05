@@ -25,7 +25,7 @@ use crate::errors::CarbideCliResult;
 use crate::rpc::ApiClient;
 use crate::{async_write, async_write_table_as_csv};
 
-pub async fn mlx_devices(
+pub(super) async fn mlx_devices(
     output_file: &mut Box<dyn tokio::io::AsyncWrite + Unpin>,
     output_format: OutputFormat,
     api_client: &ApiClient,

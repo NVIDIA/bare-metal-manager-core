@@ -15,11 +15,11 @@
  * limitations under the License.
  */
 
-pub mod args;
+mod args;
 mod list;
 mod show;
 
-pub use args::Args;
+pub(super) use args::Args;
 
 use crate::cfg::run::Run;
 use crate::cfg::runtime::RuntimeContext;

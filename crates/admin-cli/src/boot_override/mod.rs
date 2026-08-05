@@ -16,7 +16,7 @@
  */
 
 mod clear;
-pub mod common;
+mod common;
 mod get;
 mod set;
 
@@ -29,7 +29,7 @@ use crate::cfg::dispatch::Dispatch;
 
 #[derive(Parser, Debug, Clone, Dispatch)]
 #[clap(rename_all = "kebab_case")]
-pub enum Cmd {
+pub(crate) enum Cmd {
     Get(get::Args),
     Set(set::Args),
     Clear(clear::Args),

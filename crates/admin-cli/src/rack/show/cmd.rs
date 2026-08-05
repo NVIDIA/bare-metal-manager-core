@@ -116,7 +116,11 @@ async fn get_rack_outputs(api_client: &ApiClient, racks: &Vec<Rack>) -> Result<V
     Ok(outputs)
 }
 
-pub async fn show_rack(api_client: &ApiClient, args: Args, config: &RuntimeConfig) -> Result<()> {
+pub(super) async fn show_rack(
+    api_client: &ApiClient,
+    args: Args,
+    config: &RuntimeConfig,
+) -> Result<()> {
     let format = config.format;
     match args.rack {
         Some(rack_id) => {

@@ -23,7 +23,7 @@ use crate::cfg::dispatch::Dispatch;
 
 #[derive(Parser, Debug, Clone, Dispatch)]
 #[clap(rename_all = "kebab_case")]
-pub enum Cmd {
+pub(crate) enum Cmd {
     #[clap(about = "Re-wrap secret DEKs to use the \
                  currently active KEK per routing \
                  config")]

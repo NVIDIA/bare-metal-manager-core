@@ -36,9 +36,9 @@ List versions for an entire rack:
     --rack-id 12345678-1234-5678-90ab-cdef01234567
 
 ")]
-pub struct Args {
+pub(crate) struct Args {
     #[clap(subcommand)]
-    pub target: DeviceTargetArgs,
+    target: DeviceTargetArgs,
 }
 
 impl From<Args> for rpc::forge::ListComponentFirmwareVersionsRequest {

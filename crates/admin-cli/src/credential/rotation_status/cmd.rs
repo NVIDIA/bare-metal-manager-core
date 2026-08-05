@@ -146,7 +146,7 @@ fn build_device_table(
     table
 }
 
-pub async fn rotation_status(
+pub(super) async fn rotation_status(
     api_client: &ApiClient,
     args: Args,
     config: &RuntimeConfig,

@@ -30,7 +30,7 @@ As JSON (the global --format flag):
 
 Tip: hand a candidate to 'boot-interface set' by its MAC or Interface UUID column.
 ")]
-pub struct Args {
+pub(crate) struct Args {
     #[clap(help = "The machine ID whose boot-interface candidates to list")]
-    pub machine: MachineId,
+    pub(super) machine: MachineId,
 }

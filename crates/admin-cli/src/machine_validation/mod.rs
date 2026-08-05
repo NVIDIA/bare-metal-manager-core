@@ -29,7 +29,7 @@ use clap::Parser;
 use crate::cfg::dispatch::Dispatch;
 
 #[derive(Parser, Debug, Dispatch)]
-pub enum Cmd {
+pub(crate) enum Cmd {
     #[clap(about = "External config", subcommand, visible_alias = "mve")]
     ExternalConfig(external_config::Args),
     #[clap(about = "Ondemand Validation", subcommand, visible_alias = "mvo")]

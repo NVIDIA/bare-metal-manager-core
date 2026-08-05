@@ -28,9 +28,9 @@ Invoke the retained compatibility command (returns an unsupported error):
 
 "
 )]
-pub struct Args {
+pub(crate) struct Args {
     #[clap(long, help = "Username")]
-    pub username: Option<String>,
+    username: Option<String>,
     #[clap(long, help = "password")]
-    pub password: Option<String>,
+    password: Option<String>,
 }

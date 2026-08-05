@@ -24,7 +24,7 @@ use super::args::Shell;
 use crate::cfg::cli_options::CliOptions;
 use crate::errors::CarbideCliResult;
 
-pub fn generate(shell: Shell) -> CarbideCliResult<()> {
+pub(super) fn generate(shell: Shell) -> CarbideCliResult<()> {
     let mut cmd = CliOptions::command();
     match shell {
         Shell::Bash => {

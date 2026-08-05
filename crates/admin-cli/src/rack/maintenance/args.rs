@@ -21,7 +21,7 @@ use carbide_uuid::rack::RackId;
 use clap::Parser;
 
 #[derive(Parser, Debug)]
-pub enum Args {
+pub(crate) enum Args {
     #[clap(about = "Start on-demand rack maintenance (full rack or partial)")]
     Start(MaintenanceOptions),
 }
@@ -42,9 +42,9 @@ Firmware upgrade from a SOT JSON file, forcing the update:
     --activities firmware-upgrade --sot-json-file ./sot.json --access-token \"$TOKEN\" --force-update
 
 ")]
-pub struct MaintenanceOptions {
+pub(crate) struct MaintenanceOptions {
     #[clap(short, long, help = "Rack ID to start maintenance on")]
-    pub rack: RackId,
+    pub(super) rack: RackId,
 
     #[clap(
         long,
@@ -52,7 +52,7 @@ pub struct MaintenanceOptions {
         num_args = 1..,
         value_delimiter = ','
     )]
-    pub machine_ids: Option<Vec<String>>,
+    pub(super) machine_ids: Option<Vec<String>>,
 
     #[clap(
         long,
@@ -60,7 +60,7 @@ pub struct MaintenanceOptions {
         num_args = 1..,
         value_delimiter = ','
     )]
-    pub switch_ids: Option<Vec<String>>,
+    pub(super) switch_ids: Option<Vec<String>>,
 
     #[clap(
         long,
@@ -68,7 +68,7 @@ pub struct MaintenanceOptions {
         num_args = 1..,
         value_delimiter = ','
     )]
-    pub power_shelf_ids: Option<Vec<String>>,
+    pub(super) power_shelf_ids: Option<Vec<String>>,
 
     #[clap(
         long,
@@ -76,29 +76,29 @@ pub struct MaintenanceOptions {
         num_args = 1..,
         value_delimiter = ','
     )]
-    pub activities: Option<Vec<String>>,
+    pub(super) activities: Option<Vec<String>>,
 
     #[clap(
         long,
         help = "Raw SOT JSON for firmware-upgrade activity (prefer --sot-json-file)"
     )]
-    pub firmware_version: Option<String>,
+    pub(super) firmware_version: Option<String>,
 
     #[clap(
         long = "sot-json-file",
         value_name = "PATH",
         help = "SOT JSON file for RMS ApplyFirmwareObject"
     )]
-    pub sot_json_file: Option<PathBuf>,
+    pub(super) sot_json_file: Option<PathBuf>,
 
     #[clap(
         long = "access-token",
         help = "Artifact access token for RMS SOT JSON downloads; omit or pass empty for NOAUTH"
     )]
-    pub access_token: Option<String>,
+    pub(super) access_token: Option<String>,
 
     #[clap(long = "force-update", help = "Force firmware update when supported")]
-    pub force_update: bool,
+    pub(super) force_update: bool,
 
     #[clap(
         long,
@@ -106,5 +106,5 @@ pub struct MaintenanceOptions {
         num_args = 1..,
         value_delimiter = ','
     )]
-    pub components: Option<Vec<String>>,
+    pub(super) components: Option<Vec<String>>,
 }

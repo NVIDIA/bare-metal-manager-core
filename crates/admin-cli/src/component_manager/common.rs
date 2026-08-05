@@ -25,7 +25,7 @@ const MAX_FAILURE_DETAILS: usize = 10;
 
 #[derive(Copy, Clone, Debug, ValueEnum)]
 #[clap(rename_all = "kebab_case")]
-pub enum NvSwitchComponentArg {
+pub(super) enum NvSwitchComponentArg {
     Bmc,
     Cpld,
     Bios,
@@ -45,7 +45,7 @@ impl From<NvSwitchComponentArg> for rpc::forge::NvSwitchComponent {
 
 #[derive(Copy, Clone, Debug, ValueEnum)]
 #[clap(rename_all = "kebab_case")]
-pub enum PowerShelfComponentArg {
+pub(super) enum PowerShelfComponentArg {
     Pmc,
     Psu,
 }
@@ -61,7 +61,7 @@ impl From<PowerShelfComponentArg> for rpc::forge::PowerShelfComponent {
 
 #[derive(Copy, Clone, Debug, ValueEnum)]
 #[clap(rename_all = "kebab_case")]
-pub enum ComputeTrayComponentArg {
+pub(super) enum ComputeTrayComponentArg {
     Bmc,
     Bios,
 }
@@ -76,7 +76,7 @@ impl From<ComputeTrayComponentArg> for rpc::forge::ComputeTrayComponent {
 }
 
 #[derive(ClapArgs, Debug)]
-pub struct SwitchTargetArgs {
+pub(super) struct SwitchTargetArgs {
     #[clap(
         long = "switch-id",
         required = true,
@@ -84,7 +84,7 @@ pub struct SwitchTargetArgs {
         value_delimiter = ',',
         help = "Switch IDs to target"
     )]
-    pub switch_ids: Vec<SwitchId>,
+    switch_ids: Vec<SwitchId>,
 }
 
 impl From<SwitchTargetArgs> for rpc::forge::SwitchIdList {
@@ -96,7 +96,7 @@ impl From<SwitchTargetArgs> for rpc::forge::SwitchIdList {
 }
 
 #[derive(ClapArgs, Debug)]
-pub struct PowerShelfTargetArgs {
+pub(super) struct PowerShelfTargetArgs {
     #[clap(
         long = "power-shelf-id",
         required = true,
@@ -104,7 +104,7 @@ pub struct PowerShelfTargetArgs {
         value_delimiter = ',',
         help = "Power shelf IDs to target"
     )]
-    pub power_shelf_ids: Vec<PowerShelfId>,
+    power_shelf_ids: Vec<PowerShelfId>,
 }
 
 impl From<PowerShelfTargetArgs> for rpc::forge::PowerShelfIdList {
@@ -116,7 +116,7 @@ impl From<PowerShelfTargetArgs> for rpc::forge::PowerShelfIdList {
 }
 
 #[derive(ClapArgs, Debug)]
-pub struct MachineTargetArgs {
+pub(super) struct MachineTargetArgs {
     #[clap(
         long = "machine-id",
         required = true,
@@ -124,7 +124,7 @@ pub struct MachineTargetArgs {
         value_delimiter = ',',
         help = "Machine IDs to target"
     )]
-    pub machine_ids: Vec<MachineId>,
+    machine_ids: Vec<MachineId>,
 }
 
 impl From<MachineTargetArgs> for rpc::common::MachineIdList {
@@ -136,7 +136,7 @@ impl From<MachineTargetArgs> for rpc::common::MachineIdList {
 }
 
 #[derive(ClapArgs, Debug)]
-pub struct RackTargetArgs {
+pub(super) struct RackTargetArgs {
     #[clap(
         long = "rack-id",
         required = true,
@@ -144,7 +144,7 @@ pub struct RackTargetArgs {
         value_delimiter = ',',
         help = "Rack IDs to target"
     )]
-    pub rack_ids: Vec<RackId>,
+    rack_ids: Vec<RackId>,
 }
 
 impl From<RackTargetArgs> for rpc::forge::RackIdList {
@@ -156,7 +156,7 @@ impl From<RackTargetArgs> for rpc::forge::RackIdList {
 }
 
 #[derive(Subcommand, Debug)]
-pub enum DeviceTargetArgs {
+pub(super) enum DeviceTargetArgs {
     #[clap(about = "Target NVLink switches")]
     Switch(SwitchTargetArgs),
 
@@ -174,7 +174,7 @@ pub enum DeviceTargetArgs {
 /// `ComponentPowerControlRequest` only supports machines, switches and
 /// power shelves.
 #[derive(Subcommand, Debug)]
-pub enum PowerControlTargetArgs {
+pub(super) enum PowerControlTargetArgs {
     #[clap(about = "Target NVLink switches")]
     Switch(SwitchTargetArgs),
 
@@ -187,7 +187,7 @@ pub enum PowerControlTargetArgs {
 
 #[derive(Copy, Clone, Debug, ValueEnum)]
 #[clap(rename_all = "kebab_case")]
-pub enum PowerActionArg {
+pub(super) enum PowerActionArg {
     On,
     GracefulShutdown,
     ForceOff,
@@ -209,7 +209,7 @@ impl From<PowerActionArg> for ::rpc::common::SystemPowerControl {
     }
 }
 
-pub fn component_result_status_name(status: i32) -> &'static str {
+fn component_result_status_name(status: i32) -> &'static str {
     match rpc::forge::ComponentManagerStatusCode::try_from(status) {
         Ok(rpc::forge::ComponentManagerStatusCode::Success) => "success",
         Ok(rpc::forge::ComponentManagerStatusCode::InvalidArgument) => "invalid-argument",
@@ -221,7 +221,7 @@ pub fn component_result_status_name(status: i32) -> &'static str {
     }
 }
 
-pub fn firmware_state_name(state: i32) -> &'static str {
+pub(super) fn firmware_state_name(state: i32) -> &'static str {
     match rpc::forge::FirmwareUpdateState::try_from(state) {
         Ok(rpc::forge::FirmwareUpdateState::FwStateUnknown) => "unknown",
         Ok(rpc::forge::FirmwareUpdateState::FwStateQueued) => "queued",
@@ -234,13 +234,13 @@ pub fn firmware_state_name(state: i32) -> &'static str {
     }
 }
 
-pub fn component_result_failed(result: Option<&rpc::forge::ComponentResult>) -> bool {
+fn component_result_failed(result: Option<&rpc::forge::ComponentResult>) -> bool {
     result
         .map(|r| r.status != rpc::forge::ComponentManagerStatusCode::Success as i32)
         .unwrap_or(true)
 }
 
-pub fn component_failure_count_and_summary<'a>(
+pub(super) fn component_failure_count_and_summary<'a>(
     results: impl IntoIterator<Item = Option<&'a rpc::forge::ComponentResult>>,
 ) -> (usize, String) {
     let mut failures = 0;
@@ -287,7 +287,7 @@ fn component_failure_detail(result: Option<&rpc::forge::ComponentResult>) -> Str
     }
 }
 
-pub fn component_result_fields(
+pub(super) fn component_result_fields(
     result: Option<&rpc::forge::ComponentResult>,
 ) -> (String, String, String) {
     match result {
@@ -304,7 +304,9 @@ pub fn component_result_fields(
     }
 }
 
-pub fn component_result_json(result: Option<&rpc::forge::ComponentResult>) -> serde_json::Value {
+pub(super) fn component_result_json(
+    result: Option<&rpc::forge::ComponentResult>,
+) -> serde_json::Value {
     match result {
         Some(result) => serde_json::json!({
             "component_id": result.component_id,
@@ -316,7 +318,7 @@ pub fn component_result_json(result: Option<&rpc::forge::ComponentResult>) -> se
     }
 }
 
-pub fn timestamp_string(timestamp: Option<&rpc::Timestamp>) -> String {
+pub(super) fn timestamp_string(timestamp: Option<&rpc::Timestamp>) -> String {
     let Some(timestamp) = timestamp else {
         return "-".to_string();
     };
@@ -329,7 +331,7 @@ pub fn timestamp_string(timestamp: Option<&rpc::Timestamp>) -> String {
         .unwrap_or_else(|| timestamp.seconds.to_string())
 }
 
-pub fn timestamp_json(timestamp: Option<&rpc::Timestamp>) -> serde_json::Value {
+pub(super) fn timestamp_json(timestamp: Option<&rpc::Timestamp>) -> serde_json::Value {
     match timestamp {
         Some(timestamp) => serde_json::json!({
             "seconds": timestamp.seconds,
@@ -340,7 +342,7 @@ pub fn timestamp_json(timestamp: Option<&rpc::Timestamp>) -> serde_json::Value {
     }
 }
 
-pub fn display_or_dash(value: &str) -> String {
+pub(super) fn display_or_dash(value: &str) -> String {
     if value.is_empty() {
         "-".to_string()
     } else {
@@ -348,7 +350,7 @@ pub fn display_or_dash(value: &str) -> String {
     }
 }
 
-pub fn join_or_dash(values: &[String]) -> String {
+pub(super) fn join_or_dash(values: &[String]) -> String {
     if values.is_empty() {
         "-".to_string()
     } else {

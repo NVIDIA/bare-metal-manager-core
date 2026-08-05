@@ -20,7 +20,7 @@ use clap::Parser;
 use super::show;
 
 #[derive(Parser, Debug, Clone)]
-pub enum Args {
+pub(crate) enum Args {
     #[clap(
         about = "List configured rack profiles",
         long_about = "List rack profiles from the effective runtime configuration. Rack profiles are not persisted rack resources. To add or change a profile, update the runtime configuration."

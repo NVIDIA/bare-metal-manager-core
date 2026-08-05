@@ -25,9 +25,11 @@
 
 use carbide_test_support::Outcome::*;
 use carbide_test_support::{Case, check_cases, scenarios};
+use carbide_uuid::vpc::VpcId;
 use clap::{CommandFactory, Parser};
 
 use super::*;
+use crate::test_support::{parse_leaf, raw_value};
 
 const TEST_VPC_ID: &str = "00000000-0000-0000-0000-000000000001";
 
@@ -54,7 +56,7 @@ fn verify_cmd_structure() {
 #[test]
 fn parse_show_routes_and_captures_filters() {
     fn show_fields(
-        argv: &[&str],
+        matches: &clap::ArgMatches,
     ) -> (
         bool,
         Option<String>,
@@ -62,16 +64,13 @@ fn parse_show_routes_and_captures_filters() {
         Option<String>,
         Option<String>,
     ) {
-        match Cmd::try_parse_from(argv.iter().copied()).expect("should parse show") {
-            Cmd::Show(args) => (
-                args.id.is_some(),
-                args.tenant_org_id,
-                args.name,
-                args.label_key,
-                args.label_value,
-            ),
-            _ => panic!("expected Show variant"),
-        }
+        (
+            matches.get_one::<VpcId>("id").is_some(),
+            raw_value(matches, "tenant_org_id"),
+            raw_value(matches, "name"),
+            raw_value(matches, "label_key"),
+            raw_value(matches, "label_value"),
+        )
     }
 
     check_cases(
@@ -108,7 +107,11 @@ fn parse_show_routes_and_captures_filters() {
                 )),
             },
         ],
-        |argv| Ok::<_, ()>(show_fields(argv)),
+        |argv| {
+            parse_leaf::<Cmd>(argv, &["show"])
+                .map(|matches| show_fields(&matches))
+                .map_err(drop)
+        },
     );
 }
 
@@ -117,12 +120,14 @@ fn parse_show_routes_and_captures_filters() {
 #[test]
 fn parse_set_virtualizer_routes_with_id() {
     scenarios!(
-        run = |argv| match Cmd::try_parse_from(argv.iter().copied())
-            .expect("should parse set-virtualizer")
-        {
-            Cmd::SetVirtualizer(args) => Ok::<_, ()>(args.id.to_string()),
-            _ => panic!("expected SetVirtualizer variant"),
-        };
+        run = |argv| parse_leaf::<Cmd>(argv, &["set-virtualizer"])
+            .map(|matches| {
+                matches
+                    .get_one::<VpcId>("id")
+                    .expect("VPC ID is required")
+                    .to_string()
+            })
+            .map_err(drop);
         "fnn virtualizer" {
             &["vpc", "set-virtualizer", TEST_VPC_ID, "fnn"][..] => Yields(TEST_VPC_ID.to_string()),
         }

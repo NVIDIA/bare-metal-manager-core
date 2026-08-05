@@ -31,7 +31,7 @@ use super::args::{Args, InterfaceSelector};
 use crate::errors::{CarbideCliError, CarbideCliResult};
 use crate::rpc::ApiClient;
 
-pub async fn handle_set(args: Args, api_client: &ApiClient) -> CarbideCliResult<()> {
+pub(super) async fn handle_set(args: Args, api_client: &ApiClient) -> CarbideCliResult<()> {
     let interface_id = match args.interface {
         InterfaceSelector::Id(id) => id,
         InterfaceSelector::Mac(mac) => {

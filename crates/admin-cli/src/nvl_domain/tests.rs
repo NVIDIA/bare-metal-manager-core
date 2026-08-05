@@ -19,7 +19,7 @@ use carbide_test_support::Outcome::*;
 use carbide_test_support::scenarios;
 use clap::{CommandFactory, Parser};
 
-use super::health_report::args::Args as HealthReportCommand;
+use super::health_report::Args as HealthReportCommand;
 use super::*;
 
 const TEST_DOMAIN_ID: &str = "00000000-0000-0000-0000-000000000001";

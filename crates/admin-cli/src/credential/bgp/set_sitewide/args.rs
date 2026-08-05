@@ -29,9 +29,9 @@ Set the site-wide leaf BGP session password:
     $ nico-admin-cli credential bgp set-sitewide --password mynewpassword
 
 ")]
-pub struct Args {
+pub(crate) struct Args {
     #[clap(long, required(true), help = "Leaf BGP session password")]
-    pub password: String,
+    password: String,
 }
 
 impl TryFrom<Args> for forgerpc::CredentialCreationRequest {

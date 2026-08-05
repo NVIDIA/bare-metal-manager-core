@@ -56,7 +56,7 @@ fn convert_old_history(
 }
 
 #[allow(deprecated)]
-pub async fn convert_network_to_nice_format(
+pub(in crate::network_segment) async fn convert_network_to_nice_format(
     segment: forgerpc::NetworkSegment,
     history: Option<Vec<forgerpc::StateHistoryRecord>>,
     api_client: &ApiClient,
@@ -354,7 +354,7 @@ async fn show_network_information(
     Ok(())
 }
 
-pub async fn handle_show(
+pub(crate) async fn handle_show(
     args: Args,
     output_format: OutputFormat,
     api_client: &ApiClient,

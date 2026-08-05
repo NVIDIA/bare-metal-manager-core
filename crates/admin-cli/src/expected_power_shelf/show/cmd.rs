@@ -69,7 +69,7 @@ async fn render_show_result(
     }
 }
 
-pub async fn show(
+pub(super) async fn show(
     query: Args,
     api_client: &ApiClient,
     output_format: OutputFormat,

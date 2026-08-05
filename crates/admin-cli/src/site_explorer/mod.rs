@@ -20,7 +20,7 @@ mod common;
 mod copy_bfb_to_dpu_rshim;
 mod delete;
 mod explore;
-pub mod get_report;
+mod get_report;
 mod have_credentials;
 mod is_bmc_in_managed_host;
 mod mlx_devices;
@@ -33,13 +33,13 @@ mod tests;
 
 use clap::Parser;
 // Re-export for cross-module use by jump/cmds.rs
-pub use get_report::args::{Args as GetReportMode, EndpointInfo};
-pub use get_report::cmd::show_discovered_managed_host as show_site_explorer_discovered_managed_host;
+pub(crate) use get_report::args::{Args as GetReportMode, EndpointInfo};
+pub(crate) use get_report::cmd::show_discovered_managed_host as show_site_explorer_discovered_managed_host;
 
 use crate::cfg::dispatch::Dispatch;
 
 #[derive(Parser, Debug, Dispatch)]
-pub enum Cmd {
+pub(crate) enum Cmd {
     #[clap(about = "Retrieves the latest site exploration report", subcommand)]
     GetReport(get_report::Args),
     #[clap(about = "Report Mellanox/BlueField device NIC firmware from explored Redfish data.")]

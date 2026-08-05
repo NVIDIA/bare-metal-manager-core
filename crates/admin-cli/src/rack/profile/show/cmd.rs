@@ -117,7 +117,7 @@ impl From<&GetRackProfileResponse> for ProfileOutput {
     }
 }
 
-pub async fn show_profile(
+pub(in crate::rack::profile) async fn show_profile(
     api_client: &ApiClient,
     args: Args,
     config: &RuntimeConfig,

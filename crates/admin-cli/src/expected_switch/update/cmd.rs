@@ -21,7 +21,7 @@ use rpc::forge_api_client::expected_switch_update_mask;
 use super::args::Args;
 use crate::rpc::ApiClient;
 
-pub async fn update(data: Args, api_client: &ApiClient) -> color_eyre::Result<()> {
+pub(super) async fn update(data: Args, api_client: &ApiClient) -> color_eyre::Result<()> {
     let patch: ExpectedSwitch = data.try_into()?;
     let update_mask = expected_switch_update_mask(&patch);
 

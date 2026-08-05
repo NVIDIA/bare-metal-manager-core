@@ -32,18 +32,18 @@ Reassign a network segment from its current VPC:
     --vpc-id abcdef01-2345-6789-abcd-ef0123456789 --force
 
 ")]
-pub struct Args {
+pub(crate) struct Args {
     #[clap(long, help = "Id of the network segment")]
-    pub id: NetworkSegmentId,
+    id: NetworkSegmentId,
 
     #[clap(long, help = "Id of the VPC")]
-    pub vpc_id: VpcId,
+    vpc_id: VpcId,
 
     #[clap(
         long,
         help = "Allow reassigning a segment that is attached to another VPC"
     )]
-    pub force: bool,
+    force: bool,
 }
 
 impl From<Args> for ::rpc::forge::AttachNetworkSegmentToVpcRequest {

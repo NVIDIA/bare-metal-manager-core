@@ -30,7 +30,7 @@ As JSON or YAML (the global --format flag):
     $ nico-admin-cli --format yaml boot-interface show 12345678-1234-5678-90ab-cdef01234567
 
 ")]
-pub struct Args {
+pub(crate) struct Args {
     #[clap(help = "The machine ID whose boot interfaces to gather")]
-    pub machine: MachineId,
+    pub(super) machine: MachineId,
 }

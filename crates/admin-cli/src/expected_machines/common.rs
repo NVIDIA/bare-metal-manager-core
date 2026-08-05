@@ -15,8 +15,6 @@
  * limitations under the License.
  */
 
-use std::collections::HashMap;
-
 use carbide_uuid::rack::RackId;
 use clap::ValueEnum;
 use mac_address::MacAddress;
@@ -46,7 +44,7 @@ where
 /// Admin-CLI policy vocabulary translated to the stable Forge `DpuMode`
 /// compatibility surface when a request is built.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum, Serialize, Deserialize)]
-pub enum HostDpuPolicy {
+pub(crate) enum HostDpuPolicy {
     #[value(name = "unspecified", hide = true)]
     #[serde(
         rename = "unspecified",
@@ -125,32 +123,32 @@ where
 
 /// Admin-CLI JSON shape for `replace-all` and file-based `update`.
 #[derive(Debug, Deserialize)]
-pub struct ExpectedMachineJson {
+pub(crate) struct ExpectedMachineJson {
     #[serde(default, deserialize_with = "deserialize_optional_expected_machine_id")]
-    pub id: Option<String>,
-    pub bmc_mac_address: MacAddress,
-    pub bmc_username: String,
-    pub bmc_password: String,
-    pub chassis_serial_number: String,
-    pub fallback_dpu_serial_numbers: Option<Vec<String>>,
+    pub(crate) id: Option<String>,
+    pub(crate) bmc_mac_address: MacAddress,
+    pub(crate) bmc_username: String,
+    pub(crate) bmc_password: String,
+    pub(crate) chassis_serial_number: String,
+    pub(crate) fallback_dpu_serial_numbers: Option<Vec<String>>,
     #[serde(default)]
-    pub metadata: Option<rpc::forge::Metadata>,
-    pub sku_id: Option<String>,
+    pub(crate) metadata: Option<rpc::forge::Metadata>,
+    pub(crate) sku_id: Option<String>,
     /// An omitted field or explicit `null` preserves the stored list for
     /// file-based updates, while an empty array clears it. `replace-all` has no
     /// stored row to preserve, so it resolves either form of `None` to an empty
     /// list.
     #[serde(default, alias = "host_nics")]
-    pub interfaces: Option<Vec<rpc::forge::ExpectedInterface>>,
-    pub rack_id: Option<RackId>,
-    pub default_pause_ingestion_and_poweron: Option<bool>,
-    pub dpf_enabled: Option<bool>,
+    pub(crate) interfaces: Option<Vec<rpc::forge::ExpectedInterface>>,
+    pub(crate) rack_id: Option<RackId>,
+    pub(crate) default_pause_ingestion_and_poweron: Option<bool>,
+    pub(crate) dpf_enabled: Option<bool>,
     /// Optional static BMC IP. When set, the API pre-allocates a `machine_interface` for
     /// [`bmc_mac_address`](Self::bmc_mac_address) (same as `--bmc-ip-address` on add/patch).
     #[serde(default)]
-    pub bmc_ip_address: Option<String>,
+    pub(crate) bmc_ip_address: Option<String>,
     #[serde(default)]
-    pub bmc_retain_credentials: Option<bool>,
+    pub(crate) bmc_retain_credentials: Option<bool>,
     /// Per-host DPU policy. None == defer to the site-wide
     /// `[site_explorer] dpu_policy` setting (falls back to `Manage` if that's
     /// also unset). The legacy `dpu_mode` field and values remain accepted.
@@ -166,14 +164,14 @@ pub struct ExpectedMachineJson {
     /// the server default (`Auto`), which resolves to `fixed` when a
     /// `bmc_ip_address` is set and `retained` when it isn't.
     #[serde(default)]
-    pub bmc_ip_allocation: Option<rpc::forge::BmcIpAllocationType>,
+    pub(crate) bmc_ip_allocation: Option<rpc::forge::BmcIpAllocationType>,
     /// Per-host lifecycle profile for settings that affect state-machine progression.
     #[serde(default)]
-    pub host_lifecycle_profile: Option<HostLifecycleProfile>,
+    pub(crate) host_lifecycle_profile: Option<HostLifecycleProfile>,
 }
 
 impl ExpectedMachineJson {
-    pub fn dpu_policy(&self) -> Option<HostDpuPolicy> {
+    pub(crate) fn dpu_policy(&self) -> Option<HostDpuPolicy> {
         match (self.dpu_policy, self.legacy_dpu_policy) {
             (Some(HostDpuPolicy::Unspecified), Some(legacy)) => Some(legacy),
             (canonical @ Some(_), _) => canonical,
@@ -184,18 +182,11 @@ impl ExpectedMachineJson {
 
 /// JSON shape for `host_lifecycle_profile` nested object.
 #[derive(Debug, Default, Serialize, Deserialize)]
-pub struct HostLifecycleProfile {
+pub(crate) struct HostLifecycleProfile {
     /// If true, do not lock down the server as part of lifecycle management within the state machine.
     /// If unset or false, preserve the default behavior of locking down the server after configuring the BIOS.
     #[serde(default)]
-    pub disable_lockdown: Option<bool>,
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-pub struct _ExpectedMachineMetadata {
-    pub name: Option<String>,
-    pub description: Option<String>,
-    pub labels: HashMap<String, Option<String>>,
+    pub(crate) disable_lockdown: Option<bool>,
 }
 
 #[cfg(test)]

@@ -17,7 +17,7 @@
 
 mod admin_power_control;
 mod bmc_reset;
-pub(crate) mod common;
+mod common;
 mod create_bmc_user;
 mod delete_bmc_user;
 mod enable_infinite_boot;
@@ -36,7 +36,7 @@ use crate::cfg::dispatch::Dispatch;
 
 #[derive(Parser, Debug, Clone, Dispatch)]
 #[clap(rename_all = "kebab_case")]
-pub enum Cmd {
+pub(crate) enum Cmd {
     #[clap(about = "Reset BMC")]
     BmcReset(bmc_reset::Args),
     #[clap(about = "Redfish Power Control")]
