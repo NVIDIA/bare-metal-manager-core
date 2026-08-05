@@ -18,6 +18,7 @@ import (
 	"google.golang.org/protobuf/proto"
 
 	"github.com/NVIDIA/infra-controller/rest-api/common/pkg/coreproxy"
+	"github.com/NVIDIA/infra-controller/rest-api/common/pkg/secretjson"
 	cutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
 	"github.com/NVIDIA/infra-controller/rest-api/workflow/pkg/queue"
 )
@@ -44,7 +45,7 @@ func ExecuteCoreGRPC(ctx context.Context, stc tclient.Client, fullMethod string,
 	// site decrypts with the same key (the site ID) and merges them back.
 	var encryptedSecrets []byte
 	if secretKey != "" && len(secretFields) > 0 {
-		redacted, secretsJSON, rerr := coreproxy.RedactSecrets(reqJSON, secretFields)
+		redacted, secretsJSON, rerr := secretjson.Redact(reqJSON, secretFields)
 		if rerr != nil {
 			return cutil.NewAPIError(http.StatusInternalServerError, "Failed to redact Core proxy request", rerr)
 		}

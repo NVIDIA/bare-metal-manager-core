@@ -15,16 +15,14 @@
 //
 // The request/response payloads are carried as protojson (json.RawMessage) so
 // they render as readable JSON in the Temporal UI. Secret fields (e.g. a BMC
-// credential password) are redacted from that readable JSON and carried
-// separately as an AES-GCM ciphertext (EncryptedSecrets) so they never appear
-// in Temporal history in cleartext; the site decrypts and merges them back
-// before the Core call.
+// credential password) are redacted from that readable JSON with the secretjson
+// package and carried separately as an AES-GCM ciphertext (EncryptedSecrets) so
+// they never appear in Temporal history in cleartext; the site decrypts and
+// merges them back before the Core call.
 package coreproxy
 
 import (
 	"encoding/json"
-	"fmt"
-	"maps"
 	"time"
 )
 
@@ -42,10 +40,6 @@ const (
 	// translate a terminal workflow result.
 	WorkflowExecutionTimeout = 45 * time.Second
 )
-
-// RedactedPlaceholder is the value substituted for a redacted secret field in
-// the Temporal-visible request JSON.
-const RedactedPlaceholder = "[REDACTED]"
 
 // Request is the generic proxy workflow/activity input.
 type Request struct {
@@ -69,71 +63,4 @@ type Request struct {
 type Response struct {
 	// ResponseJSON is the protojson-encoded forge.Forge response message.
 	ResponseJSON json.RawMessage `json:"responseJson,omitempty"`
-}
-
-// RedactSecrets removes the named top-level fields from reqJSON, replacing each
-// present field with RedactedPlaceholder, and returns the redacted request plus
-// a JSON object of the extracted secret fields. secretFields are protojson
-// field names. When no named field is present, secretsJSON is nil and redacted
-// equals the input.
-func RedactSecrets(reqJSON []byte, secretFields []string) (redacted []byte, secretsJSON []byte, err error) {
-	if len(secretFields) == 0 {
-		return reqJSON, nil, nil
-	}
-
-	var m map[string]json.RawMessage
-	if err := json.Unmarshal(reqJSON, &m); err != nil {
-		return nil, nil, fmt.Errorf("redact secrets: %w", err)
-	}
-
-	placeholder, err := json.Marshal(RedactedPlaceholder)
-	if err != nil {
-		return nil, nil, fmt.Errorf("redact secrets: %w", err)
-	}
-
-	secrets := make(map[string]json.RawMessage)
-	for _, f := range secretFields {
-		if v, ok := m[f]; ok {
-			secrets[f] = v
-			m[f] = placeholder
-		}
-	}
-	if len(secrets) == 0 {
-		return reqJSON, nil, nil
-	}
-
-	redacted, err = json.Marshal(m)
-	if err != nil {
-		return nil, nil, fmt.Errorf("redact secrets: %w", err)
-	}
-	secretsJSON, err = json.Marshal(secrets)
-	if err != nil {
-		return nil, nil, fmt.Errorf("redact secrets: %w", err)
-	}
-	return redacted, secretsJSON, nil
-}
-
-// MergeSecrets overlays the secret fields back into a redacted request, undoing
-// RedactSecrets on the site side after decryption. An empty secretsJSON returns
-// redacted unchanged.
-func MergeSecrets(redacted []byte, secretsJSON []byte) ([]byte, error) {
-	if len(secretsJSON) == 0 {
-		return redacted, nil
-	}
-
-	var m map[string]json.RawMessage
-	if err := json.Unmarshal(redacted, &m); err != nil {
-		return nil, fmt.Errorf("merge secrets: %w", err)
-	}
-	var secrets map[string]json.RawMessage
-	if err := json.Unmarshal(secretsJSON, &secrets); err != nil {
-		return nil, fmt.Errorf("merge secrets: %w", err)
-	}
-
-	maps.Copy(m, secrets)
-	out, err := json.Marshal(m)
-	if err != nil {
-		return nil, fmt.Errorf("merge secrets: %w", err)
-	}
-	return out, nil
 }

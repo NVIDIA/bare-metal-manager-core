@@ -14,7 +14,7 @@ Use this guidance when building or converting `infra-controller` REST API endpoi
 - Site workflow/activity: `InvokeCoreGRPC` and `InvokeCoreGRPCOnSite`.
 - Site Core invocation: `CoreGrpcClient.InvokeJSON`.
 - Temporal transport payload: protojson, so non-secret request fields and responses remain readable in Temporal UI.
-- Secret transport payload: selected top-level protojson fields are redacted from `RequestJSON` and carried separately in `EncryptedSecrets`.
+- Secret transport payload: selected top-level protojson fields are redacted from `RequestJSON` and carried separately in `EncryptedSecrets`. `rest-api/common/pkg/secretjson` (`Redact` / `Merge`) does the splitting and is shared with the Flow proxy.
 - Final site-to-Core call: normal binary gRPC. The JSON step is only the generic Temporal payload representation.
 
 ## Before Coding
