@@ -4,9 +4,9 @@ Author: Krish Dandiwala
 
 ## Summary
 
-NICo's hardware-specific behavior is spread across external libraries, several identity enums, controller branches, BIOS tables, and console code. This makes new hardware expensive to support and makes changes risky.
+NICo's hardware-specific behavior is spread across external libraries (libredfish, nv-redfish), several identity enums, controller branches, BIOS tables, and console code. This makes new hardware expensive to support and makes changes risky.
 
-This design moves that behavior into operation-specific drivers:
+This design moves that behavior into operation-specific drivers and deprecates libredfish:
 
 - NICo defines small capabilities such as `HostPower`, `Bios`, `BootOrder`, and `Accounts`.
 - Each capability has a standard Redfish implementation plus narrowly scoped vendor or model implementations for known deviations.
@@ -185,6 +185,8 @@ sequenceDiagram
     R->>B: read full identity
     R-->>E: complete driver map
 ```
+
+
 
 If service-root evidence is missing or ambiguous, NICo does not guess. The endpoint remains in a typed bootstrap-identification state and reports the available evidence. An authorized deployment override may select a compiled-in `Accounts` driver for recovery.
 
