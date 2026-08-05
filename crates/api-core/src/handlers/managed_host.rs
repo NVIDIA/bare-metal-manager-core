@@ -151,6 +151,9 @@ async fn set_primary_interface_core(
         .into());
     }
 
+    // Admission permit BEFORE the transaction: waiters on the admin-segment
+    // advisory lock must queue in memory, not on open pool connections.
+    let _admin_admission = db::machine_interface::admin_lock_admission().await;
     let mut txn = api.txn_begin().await?;
 
     let interface_map =
