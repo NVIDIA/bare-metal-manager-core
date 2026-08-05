@@ -669,11 +669,13 @@ Use `extra_helm_values` for other chart settings.
 them over its generated template values. Deployment-specific
 `DPUServiceConfiguration` values take precedence.
 
+Notes:
+
 - Tables merge recursively.
 - Nested scalars and arrays replace generated values.
 - Omitted keys keep their generated values.
 
-Set the DPU agent machine identity proxy:
+Set the DPU agent machine identity proxy with a key similar to the following:
 
 ```toml
 [dpf.services.dpu_agent.extra_helm_values.fmds]
