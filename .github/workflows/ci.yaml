@@ -895,13 +895,13 @@ jobs:
           username: ${{ secrets.NICO_TARGET_REGISTRY_USERNAME || secrets.NVCR_USERNAME }}
           token: ${{ secrets.NICO_TARGET_REGISTRY_TOKEN || secrets.NVCR_TOKEN }}
 
-      # This job already mounts a host sccache directory into the build
-      # container, but nothing ever persisted it, so every run started from an
-      # empty cache and recompiled the whole workspace. Cargo.lock keys the
-      # entry; restore-keys let a lockfile bump start from the previous cache
-      # instead of from nothing.
+      # The build container mounts this directory as its sccache store, so a
+      # miss here means recompiling the whole workspace before the first test
+      # runs. restore-keys let a lockfile bump start from the previous entry
+      # rather than from an empty cache.
       - name: Restore sccache
-        uses: actions/cache@v4
+        id: sccache
+        uses: actions/cache/restore@v4
         with:
           path: .sccache
           key: sccache-test-release-x86_64-${{ hashFiles('Cargo.lock') }}
@@ -931,16 +931,35 @@ jobs:
             -e CI_COMMIT_SHORT_SHA="${CI_COMMIT_SHORT_SHA}" \
             -e VERSION="${VERSION}" \
             -e CONTAINER_REPO_ROOT=/carbide \
+            -e HOST_OWNER="$(id -u):$(id -g)" \
             "${BUILD_CONTAINER}" \
             bash -c '
               set -euo pipefail
+              # Everything in here runs as root, so sccache leaves /sccache
+              # owned by root and the post-job archive step cannot read it back.
+              # Hand the directory to the runner user on the way out, including
+              # when the tests fail.
+              trap "chown -R ${HOST_OWNER} /sccache 2>/dev/null || true" EXIT
               git config --global --add safe.directory /carbide
               /etc/init.d/postgresql start
               sudo -u postgres psql -c "ALTER USER root WITH SUPERUSER;"
               createdb root
               cargo make test-release-container-services
               sccache --show-stats || true
+              echo "sccache directory holds $(du -sh /sccache | cut -f1)"
             '
+
+      # Worth saving even when the tests failed: the entry holds the dependency
+      # compilation, which is no less valid after a red run and is most of the
+      # eight minutes spent before the first test starts. Cargo.lock keys it, so
+      # a run that changes no dependencies hits the primary key and skips the
+      # upload rather than rewriting an equivalent entry.
+      - name: Save sccache
+        if: ${{ !cancelled() && steps.sccache.outputs.cache-hit != 'true' }}
+        uses: actions/cache/save@v4
+        with:
+          path: .sccache
+          key: ${{ steps.sccache.outputs.cache-primary-key }}
 
       - name: Final repository clean check
         run: bash scripts/check-repo-clean.sh "release-container service tests"
@@ -1236,7 +1255,10 @@ jobs:
     name: CodeQL Security Analysis
     needs: prepare
     runs-on: linux-amd64-cpu4
-    timeout-minutes: 360
+    # The scan runs in about two minutes. It was inheriting the 360-minute
+    # default, so the one run in twenty that wedges holds a runner for six hours
+    # and leaves the workflow open long after every other job has finished.
+    timeout-minutes: 20
     permissions:
       actions: read
       contents: read
@@ -1250,6 +1272,10 @@ jobs:
           persist-credentials: false
 
       - name: Run CodeQL Scan
+        # Bounded separately from the job so a hang fails this step by name and
+        # still lets the post steps run, rather than the runner being killed
+        # mid-flight with no attribution.
+        timeout-minutes: 15
         uses: NVIDIA/dsx-github-actions/.github/actions/codeql-scan@20dc10dda4fa9f8f0380a47cd9a7800d3da3dcf3
         with:
           languages: 'rust'
