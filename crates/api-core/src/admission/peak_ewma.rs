@@ -15,6 +15,24 @@
  * limitations under the License.
  */
 
+//! Conservative execution-duration estimator for admission backpressure.
+//!
+//! An exponentially weighted moving average (EWMA) is a rolling average that
+//! favors recent observations without retaining every historical sample. This
+//! peak-biased variant incorporates a slow sample immediately and lets the
+//! estimate decay as the service demonstrates faster execution.
+//!
+//! Queue pressure is measured in concurrency batches, so admission needs an
+//! estimate of how long an admitted batch will take. A simple average can turn
+//! optimistic immediately after a slow handler and admit work that is unlikely
+//! to begin before its pending deadline. This deliberately favors protecting
+//! the queue from overload over admitting work based on a stale, low-latency
+//! estimate.
+//!
+//! Each client and the global scheduler maintain an independent estimator. The
+//! estimates drive predictive queue-delay rejection and bounded, jittered retry
+//! advice; they do not impose execution limits themselves.
+
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 
