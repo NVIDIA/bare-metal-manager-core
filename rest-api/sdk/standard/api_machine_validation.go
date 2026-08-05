@@ -344,7 +344,7 @@ func (r ApiStartMachineValidationRequest) MachineValidationRunCreateRequest(mach
 	return r
 }
 
-func (r ApiStartMachineValidationRequest) Execute() (*MachineValidationOnDemandResponse, *http.Response, error) {
+func (r ApiStartMachineValidationRequest) Execute() (*MachineValidationRun, *http.Response, error) {
 	return r.ApiService.StartMachineValidationExecute(r)
 }
 
@@ -371,13 +371,13 @@ func (a *MachineValidationAPIService) StartMachineValidation(ctx context.Context
 
 // Execute executes the request
 //
-//	@return MachineValidationOnDemandResponse
-func (a *MachineValidationAPIService) StartMachineValidationExecute(r ApiStartMachineValidationRequest) (*MachineValidationOnDemandResponse, *http.Response, error) {
+//	@return MachineValidationRun
+func (a *MachineValidationAPIService) StartMachineValidationExecute(r ApiStartMachineValidationRequest) (*MachineValidationRun, *http.Response, error) {
 	var (
 		localVarHTTPMethod  = http.MethodPost
 		localVarPostBody    interface{}
 		formFiles           []formFile
-		localVarReturnValue *MachineValidationOnDemandResponse
+		localVarReturnValue *MachineValidationRun
 	)
 
 	localBasePath, err := a.client.cfg.ServerURLWithContext(r.ctx, "MachineValidationAPIService.StartMachineValidation")

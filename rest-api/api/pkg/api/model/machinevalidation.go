@@ -401,17 +401,15 @@ func (r APIMachineValidationRunCreateRequest) ToProto(machineID string) *corev1.
 	}
 }
 
-// APIMachineValidationOnDemandResponse identifies an accepted on-demand
-// Machine validation run.
-type APIMachineValidationOnDemandResponse struct {
-	ValidationID string `json:"validationId"`
-}
-
-// NewAPIMachineValidationOnDemandResponse converts the Core response to the REST API model.
-func NewAPIMachineValidationOnDemandResponse(response *corev1.MachineValidationOnDemandResponse) APIMachineValidationOnDemandResponse {
-	return APIMachineValidationOnDemandResponse{
-		ValidationID: response.GetValidationId().GetValue(),
+// NewAPIMachineValidationRunFromOnDemandResponse converts the Core response to
+// the REST API model. The validation ID fallback supports older Core versions
+// that do not populate the run field.
+func NewAPIMachineValidationRunFromOnDemandResponse(response *corev1.MachineValidationOnDemandResponse) *APIMachineValidationRun {
+	run := response.GetRun()
+	if run == nil {
+		run = &corev1.MachineValidationRun{ValidationId: response.GetValidationId()}
 	}
+	return NewAPIMachineValidationRun(run)
 }
 
 type APIMachineValidationExternalConfig struct {

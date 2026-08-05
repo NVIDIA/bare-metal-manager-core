@@ -61,10 +61,43 @@ func TestAPIMachineValidationRunCreateRequestValidate(t *testing.T) {
 	}
 }
 
-func TestNewAPIMachineValidationOnDemandResponse(t *testing.T) {
-	response := NewAPIMachineValidationOnDemandResponse(&corev1.MachineValidationOnDemandResponse{
-		ValidationId: &corev1.MachineValidationId{Value: "validation-1"},
-	})
+func TestNewAPIMachineValidationRunFromOnDemandResponse(t *testing.T) {
+	context := "OnDemand"
+	tests := []struct {
+		name     string
+		response *corev1.MachineValidationOnDemandResponse
+		want     *APIMachineValidationRun
+	}{
+		{
+			name: "run populated",
+			response: &corev1.MachineValidationOnDemandResponse{
+				ValidationId: &corev1.MachineValidationId{Value: "validation-1"},
+				Run: &corev1.MachineValidationRun{
+					ValidationId: &corev1.MachineValidationId{Value: "validation-1"},
+					MachineId:    &corev1.MachineId{Id: "machine-1"},
+					Name:         "Test_machine-1",
+					Context:      &context,
+				},
+			},
+			want: &APIMachineValidationRun{
+				ValidationID: "validation-1",
+				MachineID:    "machine-1",
+				Name:         "Test_machine-1",
+				Context:      "OnDemand",
+			},
+		},
+		{
+			name: "run unset falls back to validation ID",
+			response: &corev1.MachineValidationOnDemandResponse{
+				ValidationId: &corev1.MachineValidationId{Value: "validation-1"},
+			},
+			want: &APIMachineValidationRun{ValidationID: "validation-1"},
+		},
+	}
 
-	assert.Equal(t, "validation-1", response.ValidationID)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, NewAPIMachineValidationRunFromOnDemandResponse(tt.response))
+		})
+	}
 }

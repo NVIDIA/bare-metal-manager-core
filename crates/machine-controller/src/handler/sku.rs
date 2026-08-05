@@ -395,13 +395,14 @@ async fn advance_to_machine_validating(
         })
         .with_txn(txn));
     };
-    let validation_id = db::machine_validation::create_new_run(
+    let validation = db::machine_validation::create_new_run(
         &mut txn,
         &mh_snapshot.host_snapshot.id,
         context,
         model::machine::MachineValidationFilter::default(),
     )
     .await?;
+    let validation_id = validation.id;
     Ok(
         StateHandlerOutcome::transition(ManagedHostState::Validation {
             validation_state: ValidationState::MachineValidation {

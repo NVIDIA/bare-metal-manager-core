@@ -701,7 +701,7 @@ func NewCreateMachineValidationRunHandler(dbSession *cdb.Session, scp *sc.Client
 // @Param org path string true "Name of NGC organization"
 // @Param machineId path string true "ID of Machine"
 // @Param request body model.APIMachineValidationRunCreateRequest false "On-demand Machine validation options"
-// @Success 202 {object} model.APIMachineValidationOnDemandResponse
+// @Success 202 {object} model.APIMachineValidationRun
 // @Router /v2/org/{org}/nico/machine/{machineId}/validation/run [post]
 func (h CreateMachineValidationRunHandler) Handle(c echo.Context) error {
 	org, dbUser, ctx, logger, handlerSpan := common.SetupHandler("MachineValidationRun", "Create", c, h.tracerSpan)
@@ -788,7 +788,7 @@ func (h CreateMachineValidationRunHandler) Handle(c echo.Context) error {
 		return cutil.NewAPIErrorResponse(c, apiError.Code, apiError.Message, nil)
 	}
 
-	return c.JSON(http.StatusAccepted, model.NewAPIMachineValidationOnDemandResponse(coreResponse))
+	return c.JSON(http.StatusAccepted, model.NewAPIMachineValidationRunFromOnDemandResponse(coreResponse))
 }
 
 func resolveMachineValidationTarget(ctx context.Context, c echo.Context, logger zerolog.Logger, dbSession *cdb.Session, provider *cdbm.InfrastructureProvider) (string, *cdbm.Site, *cutil.APIError) {

@@ -1051,7 +1051,7 @@ func TestNewApp_MachineValidationStartExecutesRESTRequest(t *testing.T) {
 		body = string(requestBody)
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusAccepted)
-		_, err = w.Write([]byte(`{"validationId":"validation-1"}`))
+		_, err = w.Write([]byte(`{"validationID":"validation-1","machineID":"machine-1","startTime":"2026-08-05T16:00:00Z","endTime":null,"name":"Test_machine-1","context":"OnDemand","status":{"state":"Started","total":0,"completed":0},"durationToCompleteSecs":0}`))
 		require.NoError(t, err)
 	}))
 	t.Cleanup(server.Close)

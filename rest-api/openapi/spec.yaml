@@ -220,7 +220,7 @@ tags:
       Machine is a physical server that contains CPUs, GPUs, memory, storage, and networking hardware. Machines are the physical building blocks of a Site.
   - name: Machine Validation
     description: |-
-      Machine Validation executes a series of validation tests against a Machine to verify its integrity. The tests run for each Machine during ingestion and can also be run on demand.
+      Machine Validation is the mechanism through which a series of validation tests are executed against a Machine verify its integrity. The tests are run for each Machine on ingestion, they can also be run on-demand.
   - name: BMC Reset
     x-displayName: BMC Reset
     description: |-
@@ -10100,7 +10100,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/MachineValidationOnDemandResponse'
+                $ref: '#/components/schemas/MachineValidationRun'
         '400':
           $ref: '#/components/responses/ValidationError'
         '403':
@@ -15693,18 +15693,6 @@ components:
           items:
             type: string
             minLength: 1
-    MachineValidationOnDemandResponse:
-      type: object
-      title: MachineValidationOnDemandResponse
-      description: Accepted on-demand Machine validation run
-      examples:
-        - validationId: 20000000-0000-0000-0000-000000000001
-      required:
-        - validationId
-      properties:
-        validationId:
-          type: string
-          description: ID of the accepted Machine validation run.
     MachineValidationRun:
       type: object
       title: MachineValidationRun

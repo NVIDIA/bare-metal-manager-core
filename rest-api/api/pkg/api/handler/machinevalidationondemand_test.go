@@ -125,8 +125,15 @@ func (f machineValidationOnDemandHandlerFixture) request(t *testing.T, body any)
 }
 
 func TestCreateMachineValidationRunHandlerProxiesRequest(t *testing.T) {
+	context := "OnDemand"
 	fixture := newMachineValidationOnDemandHandlerFixture(t, &corev1.MachineValidationOnDemandResponse{
 		ValidationId: &corev1.MachineValidationId{Value: "validation-1"},
+		Run: &corev1.MachineValidationRun{
+			ValidationId: &corev1.MachineValidationId{Value: "validation-1"},
+			MachineId:    &corev1.MachineId{Id: "machine-1"},
+			Name:         "Test_machine-1",
+			Context:      &context,
+		},
 	})
 	request := model.APIMachineValidationRunCreateRequest{
 		Tags:               []string{"history"},
@@ -150,9 +157,12 @@ func TestCreateMachineValidationRunHandlerProxiesRequest(t *testing.T) {
 	assert.True(t, coreRequest.GetRunUnverfiedTests())
 	assert.Equal(t, request.Contexts, coreRequest.GetContexts())
 
-	var apiResponse model.APIMachineValidationOnDemandResponse
+	var apiResponse model.APIMachineValidationRun
 	require.NoError(t, json.Unmarshal(recorder.Body.Bytes(), &apiResponse))
 	assert.Equal(t, "validation-1", apiResponse.ValidationID)
+	assert.Equal(t, "machine-1", apiResponse.MachineID)
+	assert.Equal(t, "Test_machine-1", apiResponse.Name)
+	assert.Equal(t, "OnDemand", apiResponse.Context)
 }
 
 func TestCreateMachineValidationRunHandlerAcceptsEmptyOptions(t *testing.T) {
@@ -164,6 +174,10 @@ func TestCreateMachineValidationRunHandlerAcceptsEmptyOptions(t *testing.T) {
 
 	assert.Equal(t, http.StatusAccepted, recorder.Code)
 	assert.Equal(t, corev1.Forge_OnDemandMachineValidation_FullMethodName, fixture.proxiedReq.FullMethod)
+
+	var apiResponse model.APIMachineValidationRun
+	require.NoError(t, json.Unmarshal(recorder.Body.Bytes(), &apiResponse))
+	assert.Equal(t, "validation-1", apiResponse.ValidationID)
 }
 
 func TestCreateMachineValidationRunHandlerRequiresProviderAdmin(t *testing.T) {
