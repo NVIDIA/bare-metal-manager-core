@@ -861,7 +861,9 @@ in one place. Reserve raw strings for genuinely open-ended values.
 
 ### Prefer methods over free functions
 
-When a function operates primarily on a specific type, define it as a method on that type rather than a free-standing function. This keeps related behavior co-located with the type, makes it easier to discover via autocomplete, and reads more naturally at the call site.
+When a function operates primarily on a specific type, define it as a method on that type rather than a free-standing
+function. This keeps related behavior co-located with the type, makes it easier to discover via autocomplete, and reads
+more naturally at the call site.
 
 ```rust
 // Avoid — free function that operates on a specific type
@@ -917,7 +919,8 @@ impl MachineState {
 }
 ```
 
-Free functions are still appropriate when the logic genuinely spans multiple unrelated types, belongs in a module rather than a single type, or is a utility with no natural owner.
+Free functions are still appropriate when the logic genuinely spans multiple unrelated types, belongs in a module rather
+than a single type, or is a utility with no natural owner.
 
 ### Error message style
 
