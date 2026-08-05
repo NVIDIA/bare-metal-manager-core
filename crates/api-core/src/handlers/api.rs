@@ -179,7 +179,7 @@ pub(crate) fn set_dynamic_config(
             let enable = req.value.parse().map_err(|_| {
                 CarbideError::InvalidArgument(format!(
                     "expected bool for TracingEnabled, got {}",
-                    &req.value
+                    req.value
                 ))
             })?;
             api.dynamic_settings

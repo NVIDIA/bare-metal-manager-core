@@ -883,7 +883,7 @@ impl PreingestionManagerStatic {
                             .map_or(String::new(), |m| m.message.clone());
                         let msg = format!(
                             "Failure in firmware upgrade for {}: {} {:?}",
-                            &endpoint.address, state, task_message,
+                            endpoint.address, state, task_message,
                         );
 
                         db.with_txn(|txn| {

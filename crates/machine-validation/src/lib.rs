@@ -83,13 +83,13 @@ impl MachineValidationManager {
             .await
             .or(Err(MachineValidationError::Generic(format!(
                 "Failed to GET from '{}'",
-                &url
+                url
             ))))?;
         let total_size = res
             .content_length()
             .ok_or(MachineValidationError::Generic(format!(
                 "Failed to get content length from '{}'",
-                &url
+                url
             )))?;
         let _ = std::fs::remove_file(output_file).or(Err(MachineValidationError::Generic(
             format!("Failed to delete file '{output_file}'"),

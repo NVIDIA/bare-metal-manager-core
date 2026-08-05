@@ -325,7 +325,7 @@ pub(crate) async fn attest_quote(
         .map_err(|e| CarbideError::Internal {
             message: format!(
                 "Failed storing measurement report: (machine_id: {}, err: {})",
-                &machine_id, e
+                machine_id, e
             ),
         })?;
 

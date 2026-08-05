@@ -592,7 +592,7 @@ pub async fn show_html(
         .sorted_unstable()
         .collect();
 
-    for (_, models) in models_per_vendor.iter_mut() {
+    for models in models_per_vendor.values_mut() {
         models.sort_unstable();
     }
 

@@ -311,7 +311,7 @@ async fn test_allocate_and_release_instance_impl(
     );
 
     assert_eq!(
-        format!("{}/32", &record.address),
+        format!("{}/32", record.address),
         network_config.interfaces[0]
             .interface_prefixes
             .iter()
@@ -549,7 +549,7 @@ async fn test_measurement_assigned_ready_to_waiting_for_measurements_to_ca_faile
     );
 
     assert_eq!(
-        format!("{}/32", &record.address),
+        format!("{}/32", record.address),
         network_config.interfaces[0]
             .interface_prefixes
             .iter()
@@ -2725,7 +2725,7 @@ async fn test_allocate_and_release_instance_vpc_prefix_id(
     );
 
     assert_eq!(
-        format!("{}/32", &record.address),
+        format!("{}/32", record.address),
         network_config.interfaces[0]
             .interface_prefixes
             .iter()

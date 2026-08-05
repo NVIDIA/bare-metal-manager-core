@@ -213,13 +213,7 @@ fn resolve_firmware_source(
             }
         }
         (None, Some(sot_json_file), access_token) => {
-            let token = access_token.and_then(|token| {
-                if token.trim().is_empty() {
-                    None
-                } else {
-                    Some(token)
-                }
-            });
+            let token = access_token.filter(|token| !token.trim().is_empty());
 
             let config_json = std::fs::read_to_string(sot_json_file)?;
             serde_json::from_str::<serde_json::Value>(&config_json)?;

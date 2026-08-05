@@ -8248,8 +8248,8 @@ impl StateHandler for InstanceStateHandler {
                             .service_configs
                             .is_empty()
                     {
-                        for (_dpu_id, extension_service_statuses) in
-                            instance.observations.extension_services.iter()
+                        for extension_service_statuses in
+                            instance.observations.extension_services.values()
                         {
                             for status in
                                 extension_service_statuses.extension_service_statuses.iter()

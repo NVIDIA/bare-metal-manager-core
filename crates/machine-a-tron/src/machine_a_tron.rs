@@ -395,7 +395,7 @@ impl MachineATron {
                 )
         }
 
-        for (_config_name, config) in self.app_context.app_config.machines.iter() {
+        for config in self.app_context.app_config.machines.values() {
             let network_virtualization_type =
                 parse_network_virtualization_type(config.network_virtualization_type.as_deref());
             for _ in 0..config.vpc_count {

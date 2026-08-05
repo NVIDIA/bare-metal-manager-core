@@ -389,7 +389,7 @@ async fn search(
             out.map(|machine| rpc::IpAddressMatch {
                 ip_type: rpc::IpType::LoopbackIp as i32,
                 owner_id: Some(machine.id.to_string()),
-                message: format!("{ip} is the loopback for {}", &machine.id),
+                message: format!("{ip} is the loopback for {}", machine.id),
             })
         }
 

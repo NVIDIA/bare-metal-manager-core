@@ -656,7 +656,7 @@ pub(crate) async fn remove_machine_association(
     {
         return Err(CarbideError::FailedPrecondition(format!(
             "machine {} has instance assigned. this operation is allowed only in terminating state",
-            &machine.id
+            machine.id
         ))
         .into());
     }
@@ -665,25 +665,27 @@ pub(crate) async fn remove_machine_association(
         // Query the DB for the instance type so that we can use a row-level lock for coordination.
         // We need this so that ComputeAllocation additions and updates that increase allocations can't exceed the number
         // of machines associated with a type.
-        instance_type::find_by_ids(&mut txn, &[instance_type_id.to_owned()], true).await?;
+        instance_type::find_by_ids(&mut txn, std::slice::from_ref(instance_type_id), true).await?;
 
         // Check that removing the machine from the instance-type won't cause the number of machines associated with the instance-type
         // to drop below the total number of allocations for the instance-type.
 
         // Start by getting the number of existing machines for the instance type
         // and subtract 1.
-        let new_total_machine_count =
-            instance_type::get_association_details(&mut txn, &[instance_type_id.to_owned()])
-                .await?
-                .get(instance_type_id)
-                .ok_or_else(|| CarbideError::Internal {
-                    message: format!(
-                        "expected InstanceType for InstanceTypeID of machine {} but found none",
-                        machine.id
-                    ),
-                })?
-                .total_machines
-                .saturating_sub(1);
+        let new_total_machine_count = instance_type::get_association_details(
+            &mut txn,
+            std::slice::from_ref(instance_type_id),
+        )
+        .await?
+        .get(instance_type_id)
+        .ok_or_else(|| CarbideError::Internal {
+            message: format!(
+                "expected InstanceType for InstanceTypeID of machine {} but found none",
+                machine.id
+            ),
+        })?
+        .total_machines
+        .saturating_sub(1);
 
         // Next, get the sum of the active allocations for the instance type.
         let allocation_total = compute_allocation::sum_allocations(
