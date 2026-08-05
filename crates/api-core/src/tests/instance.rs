@@ -113,7 +113,7 @@ fn fixture_tenant_config() -> rpc::TenantConfig {
     }
 }
 
-pub async fn find_instances_by_label(
+pub(in crate::tests) async fn find_instances_by_label(
     env: &TestEnv,
     label: rpc::forge::Label,
 ) -> rpc::forge::InstanceList {
@@ -4640,7 +4640,7 @@ async fn test_network_details_migration(
     Ok(())
 }
 
-pub async fn validate_post_migration_instance_network_config(
+pub(in crate::tests) async fn validate_post_migration_instance_network_config(
     env: &TestEnv,
     instance_id: InstanceId,
     segment_id: Option<NetworkSegmentId>,

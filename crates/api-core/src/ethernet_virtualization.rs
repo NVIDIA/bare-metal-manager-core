@@ -52,12 +52,12 @@ pub struct EthVirtData {
     pub site_fabric_prefixes: Option<SiteFabricPrefixList>,
 }
 
-pub struct AdminNetworkOptions<'a> {
-    pub fnn_enabled: bool,
-    pub common_pools: &'a CommonPools,
-    pub booturl: &'a Option<String>,
-    pub use_vpc_vrf_loopback: bool,
-    pub routing_profile: Option<&'a FnnRoutingProfileConfig>,
+pub(crate) struct AdminNetworkOptions<'a> {
+    pub(crate) fnn_enabled: bool,
+    pub(crate) common_pools: &'a CommonPools,
+    pub(crate) booturl: &'a Option<String>,
+    pub(crate) use_vpc_vrf_loopback: bool,
+    pub(crate) routing_profile: Option<&'a FnnRoutingProfileConfig>,
 }
 
 #[derive(Clone)]
@@ -292,7 +292,7 @@ impl<'a> PrefixPair<'a> {
     }
 }
 
-pub async fn admin_network(
+pub(crate) async fn admin_network(
     txn: &mut PgConnection,
     snapshot: &ManagedHostStateSnapshot,
     dpu_machine_id: &MachineId,
@@ -513,7 +513,7 @@ pub async fn admin_network(
 }
 
 #[allow(clippy::too_many_arguments)]
-pub async fn tenant_network(
+pub(crate) async fn tenant_network(
     txn: &mut PgConnection,
     instance_id: InstanceId,
     iface: &InstanceInterfaceConfig,
@@ -791,7 +791,7 @@ pub async fn tenant_network(
     })
 }
 
-pub fn resolve_security_group_rule(
+pub(crate) fn resolve_security_group_rule(
     rule: NetworkSecurityGroupRule,
 ) -> Result<rpc::ResolvedNetworkSecurityGroupRule, CarbideError> {
     Ok(rpc::ResolvedNetworkSecurityGroupRule {

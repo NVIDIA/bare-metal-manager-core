@@ -21,22 +21,22 @@ use carbide_secrets::credentials::{BmcCredentialType, CredentialKey, CredentialW
 use carbide_uuid::machine::MachineId;
 use mac_address::MacAddress;
 
-pub mod bmc_session_manager;
+mod bmc_session_manager;
 
-pub use bmc_session_manager::{
+pub(crate) use bmc_session_manager::{
     BmcAuthMaterial, BmcSessionError, BmcSessionManager, BmcSessionStore, PgBmcSessionStore,
 };
 
 use crate::{CarbideError, CarbideResult};
 
-pub struct UpdateCredentials {
-    pub machine_id: MachineId,
-    pub mac_address: Option<MacAddress>,
-    pub credentials: Vec<Credentials>,
+pub(crate) struct UpdateCredentials {
+    pub(crate) machine_id: MachineId,
+    pub(crate) mac_address: Option<MacAddress>,
+    pub(crate) credentials: Vec<Credentials>,
 }
 
 impl UpdateCredentials {
-    pub async fn execute(
+    pub(crate) async fn execute(
         &self,
         credential_writer: &dyn CredentialWriter,
     ) -> CarbideResult<MachineCredentialsUpdateResponse> {

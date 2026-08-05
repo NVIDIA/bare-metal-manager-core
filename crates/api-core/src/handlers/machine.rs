@@ -890,7 +890,7 @@ async fn forget_host_uefi_convergence(
     Ok(())
 }
 
-pub async fn get_machine_position_info(
+pub(crate) async fn get_machine_position_info(
     api: &Api,
     request: Request<rpc::MachinePositionQuery>,
 ) -> Result<Response<rpc::MachinePositionInfoList>, Status> {

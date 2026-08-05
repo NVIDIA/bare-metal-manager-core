@@ -157,7 +157,7 @@ fn validate_expected_switch(switch: &ExpectedSwitch) -> Result<(), CarbideError>
     Ok(())
 }
 
-pub async fn add_expected_switch(
+pub(crate) async fn add_expected_switch(
     api: &Api,
     request: Request<rpc::ExpectedSwitch>,
 ) -> Result<Response<()>, Status> {
@@ -190,7 +190,7 @@ pub async fn add_expected_switch(
     Ok(Response::new(()))
 }
 
-pub async fn delete_expected_switch(
+pub(crate) async fn delete_expected_switch(
     api: &Api,
     request: Request<rpc::ExpectedSwitchRequest>,
 ) -> Result<Response<()>, Status> {
@@ -221,7 +221,7 @@ pub async fn delete_expected_switch(
     Ok(Response::new(()))
 }
 
-pub async fn update_expected_switch(
+pub(crate) async fn update_expected_switch(
     api: &Api,
     request: Request<rpc::ExpectedSwitch>,
 ) -> Result<Response<()>, Status> {
@@ -314,7 +314,7 @@ pub async fn update_expected_switch(
     Ok(Response::new(()))
 }
 
-pub async fn get_expected_switch(
+pub(crate) async fn get_expected_switch(
     api: &Api,
     request: Request<rpc::ExpectedSwitchRequest>,
 ) -> Result<Response<rpc::ExpectedSwitch>, Status> {
@@ -354,7 +354,7 @@ pub async fn get_expected_switch(
     Ok(Response::new(response))
 }
 
-pub async fn get_all_expected_switches(
+pub(crate) async fn get_all_expected_switches(
     api: &Api,
     _request: Request<()>,
 ) -> Result<Response<rpc::ExpectedSwitchList>, Status> {
@@ -382,7 +382,7 @@ pub async fn get_all_expected_switches(
     Ok(Response::new(rpc::ExpectedSwitchList { expected_switches }))
 }
 
-pub async fn replace_all_expected_switches(
+pub(crate) async fn replace_all_expected_switches(
     api: &Api,
     request: Request<rpc::ExpectedSwitchList>,
 ) -> Result<Response<()>, Status> {
@@ -430,7 +430,7 @@ pub async fn replace_all_expected_switches(
     Ok(Response::new(()))
 }
 
-pub async fn delete_all_expected_switches(
+pub(crate) async fn delete_all_expected_switches(
     api: &Api,
     _request: Request<()>,
 ) -> Result<Response<()>, Status> {
@@ -453,7 +453,7 @@ pub async fn delete_all_expected_switches(
     Ok(Response::new(()))
 }
 
-pub async fn get_all_expected_switches_linked(
+pub(crate) async fn get_all_expected_switches_linked(
     api: &Api,
     _request: Request<()>,
 ) -> Result<Response<rpc::LinkedExpectedSwitchList>, Status> {
@@ -485,7 +485,7 @@ pub async fn get_all_expected_switches_linked(
 
 // Utility method called by `explore`. Not a grpc handler.
 // TODO(chet): Remove dead_code once wired up with the explorer.
-pub(crate) async fn query(
+pub(super) async fn query(
     api: &Api,
     mac: MacAddress,
 ) -> Result<Option<model::expected_switch::ExpectedSwitch>, CarbideError> {

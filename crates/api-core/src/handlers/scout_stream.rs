@@ -122,7 +122,7 @@ where
     }
 }
 
-pub async fn show_connections(
+pub(crate) async fn show_connections(
     api: &Api,
     request: Request<rpc::ScoutStreamShowConnectionsRequest>,
 ) -> Result<Response<rpc::ScoutStreamShowConnectionsResponse>, Status> {
@@ -149,7 +149,7 @@ pub async fn show_connections(
         scout_stream_connections: connection_list,
     }))
 }
-pub async fn disconnect(
+pub(crate) async fn disconnect(
     api: &Api,
     request: Request<rpc::ScoutStreamDisconnectRequest>,
 ) -> Result<Response<rpc::ScoutStreamDisconnectResponse>, Status> {
@@ -163,7 +163,7 @@ pub async fn disconnect(
     }))
 }
 
-pub async fn ping(
+pub(crate) async fn ping(
     api: &Api,
     request: Request<rpc::ScoutStreamAdminPingRequest>,
 ) -> Result<Response<rpc::ScoutStreamAdminPingResponse>, Status> {
@@ -262,7 +262,7 @@ mod tests {
     use super::*;
     use crate::admission::{ApiAdmissionControl, enforce as enforce_admission};
     use crate::cfg::file::ApiAdmissionControlConfig;
-    use crate::tests::common::api_fixtures::create_test_env;
+    use crate::tests::create_test_env;
 
     #[crate::sqlx_test]
     async fn stalled_initial_message_times_out_and_releases_admission_capacity(pool: sqlx::PgPool) {

@@ -36,70 +36,71 @@ use crate::cfg::file::{
 };
 
 /// Default DOCA helm registry (DPUServiceTemplate source.repoURL).
-pub const DEFAULT_DOCA_HELM_REGISTRY: &str = "https://helm.ngc.nvidia.com/nvidia/doca";
+pub(crate) const DEFAULT_DOCA_HELM_REGISTRY: &str = "https://helm.ngc.nvidia.com/nvidia/doca";
 
-pub const DEFAULT_CARBIDE_HELM_REGISTRY: &str =
+pub(crate) const DEFAULT_CARBIDE_HELM_REGISTRY: &str =
     "https://helm.ngc.nvidia.com/0837451325059433/carbide-dev";
 
 /// Default DOCA container image registry prefix.
-pub const DEFAULT_DOCA_IMAGE_REGISTRY: &str = "nvcr.io/nvidia/doca";
+pub(crate) const DEFAULT_DOCA_IMAGE_REGISTRY: &str = "nvcr.io/nvidia/doca";
 
 /// Default Carbide container image registry prefix.
-pub const DEFAULT_CARBIDE_IMAGE_REGISTRY: &str = "nvcr.io/0837451325059433/carbide-dev";
+pub(crate) const DEFAULT_CARBIDE_IMAGE_REGISTRY: &str = "nvcr.io/0837451325059433/carbide-dev";
 
 /// Astra Service Helm and Image Registries
-pub const DOCA_WEAVE_CHART_REPO_URL: &str = "oci://harbor.mellanox.com/cloud-orchestration-dev/dpf";
-pub const DOCA_WEAVE_IMAGE_REGISTRY: &str = "nvcr.io/nvstaging/doca";
+pub(crate) const DOCA_WEAVE_CHART_REPO_URL: &str =
+    "oci://harbor.mellanox.com/cloud-orchestration-dev/dpf";
+pub(crate) const DOCA_WEAVE_IMAGE_REGISTRY: &str = "nvcr.io/nvstaging/doca";
 
 /// HBN service Definitions
-pub const DOCA_HBN_SERVICE_HELM_NAME: &str = "doca-hbn";
-pub const DOCA_HBN_SERVICE_HELM_VERSION: &str = "3.4.0";
-pub const DOCA_HBN_SERVICE_IMAGE_NAME: &str = "doca_hbn";
-pub const DOCA_HBN_SERVICE_IMAGE_TAG: &str = "3.4.0-doca3.4.0";
-pub const DOCA_HBN_SERVICE_NETWORK: &str = "mybrhbn";
+pub(crate) const DOCA_HBN_SERVICE_HELM_NAME: &str = "doca-hbn";
+pub(crate) const DOCA_HBN_SERVICE_HELM_VERSION: &str = "3.4.0";
+pub(crate) const DOCA_HBN_SERVICE_IMAGE_NAME: &str = "doca_hbn";
+pub(crate) const DOCA_HBN_SERVICE_IMAGE_TAG: &str = "3.4.0-doca3.4.0";
+pub(crate) const DOCA_HBN_SERVICE_NETWORK: &str = "mybrhbn";
 
 /// DHCP Service Definitions
-pub const DHCP_SERVER_SERVICE_HELM_NAME: &str = "nico-dhcp-server";
-pub const DHCP_SERVER_SERVICE_NAD_NAME: &str = "mybrsfc-dhcp";
-pub const DHCP_SERVER_SERVICE_MTU: i64 = 1500;
-pub const DHCP_SERVER_SERVICE_IMAGE_NAME: &str = "forge-dhcp-server";
+pub(crate) const DHCP_SERVER_SERVICE_HELM_NAME: &str = "nico-dhcp-server";
+pub(crate) const DHCP_SERVER_SERVICE_NAD_NAME: &str = "mybrsfc-dhcp";
+pub(crate) const DHCP_SERVER_SERVICE_MTU: i64 = 1500;
+pub(crate) const DHCP_SERVER_SERVICE_IMAGE_NAME: &str = "forge-dhcp-server";
 
 /// DTS service definitions
 /// (DTS_SERVICE_NAME lives in carbide_dpf::types so the DPF SDK can wire its dependencies.)
-pub const DTS_SERVICE_HELM_NAME: &str = "doca-telemetry";
-pub const DTS_SERVICE_HELM_VERSION: &str = "1.25.5";
+pub(crate) const DTS_SERVICE_HELM_NAME: &str = "doca-telemetry";
+pub(crate) const DTS_SERVICE_HELM_VERSION: &str = "1.25.5";
 
 // DPU Agent Service Definitions
-pub const DPU_AGENT_SERVICE_HELM_NAME: &str = "nico-dpu-agent";
-pub const DPU_AGENT_SERVICE_IMAGE_NAME: &str = "forge-dpu-agent";
+pub(crate) const DPU_AGENT_SERVICE_HELM_NAME: &str = "nico-dpu-agent";
+pub(crate) const DPU_AGENT_SERVICE_IMAGE_NAME: &str = "forge-dpu-agent";
 
 /// FMDS Agent Service Definitions
-pub const FMDS_SERVICE_HELM_NAME: &str = "nico-fmds";
-pub const FMDS_SERVICE_IMAGE_NAME: &str = "carbide-fmds";
-pub const FMDS_SERVICE_NAD_NAME: &str = "mybrsfc-fmds";
-pub const FMDS_SERVICE_MTU: i64 = 1500;
+pub(crate) const FMDS_SERVICE_HELM_NAME: &str = "nico-fmds";
+pub(crate) const FMDS_SERVICE_IMAGE_NAME: &str = "carbide-fmds";
+pub(crate) const FMDS_SERVICE_NAD_NAME: &str = "mybrsfc-fmds";
+pub(crate) const FMDS_SERVICE_MTU: i64 = 1500;
 
 /// OTel Collector Service Definitions
-pub const OTEL_COLLECTOR_SERVICE_HELM_NAME: &str = "nico-otelcol";
-pub const OTEL_COLLECTOR_SERVICE_IMAGE_NAME: &str = "otelcol-contrib";
+pub(crate) const OTEL_COLLECTOR_SERVICE_HELM_NAME: &str = "nico-otelcol";
+pub(crate) const OTEL_COLLECTOR_SERVICE_IMAGE_NAME: &str = "otelcol-contrib";
 
 /// Weave DHCP agent service definitions.
-pub const DOCA_WEAVE_DHCP_AGENT_SERVICE_HELM_NAME: &str = "dpf-weave";
-pub const DOCA_WEAVE_DHCP_AGENT_SERVICE_HELM_VERSION: &str = "v26.5.0-1f8f4e1e";
-pub const DOCA_WEAVE_DHCP_AGENT_SERVICE_IMAGE_NAME: &str = "weave-system";
-pub const DOCA_WEAVE_DHCP_AGENT_SERVICE_IMAGE_TAG: &str = "v26.5.0-f2c9f7c4-nightly";
+pub(crate) const DOCA_WEAVE_DHCP_AGENT_SERVICE_HELM_NAME: &str = "dpf-weave";
+pub(crate) const DOCA_WEAVE_DHCP_AGENT_SERVICE_HELM_VERSION: &str = "v26.5.0-1f8f4e1e";
+pub(crate) const DOCA_WEAVE_DHCP_AGENT_SERVICE_IMAGE_NAME: &str = "weave-system";
+pub(crate) const DOCA_WEAVE_DHCP_AGENT_SERVICE_IMAGE_TAG: &str = "v26.5.0-f2c9f7c4-nightly";
 
 /// Weave flow (ovs) controller service definitions.
-pub const DOCA_WEAVE_FLOW_CONTROLLER_SERVICE_HELM_NAME: &str = "dpf-weave";
-pub const DOCA_WEAVE_FLOW_CONTROLLER_SERVICE_HELM_VERSION: &str = "v26.5.0-1f8f4e1e";
-pub const DOCA_WEAVE_FLOW_CONTROLLER_SERVICE_IMAGE_NAME: &str = "weave-system";
-pub const DOCA_WEAVE_FLOW_CONTROLLER_SERVICE_IMAGE_TAG: &str = "v26.5.0-f2c9f7c4-nightly";
+pub(crate) const DOCA_WEAVE_FLOW_CONTROLLER_SERVICE_HELM_NAME: &str = "dpf-weave";
+pub(crate) const DOCA_WEAVE_FLOW_CONTROLLER_SERVICE_HELM_VERSION: &str = "v26.5.0-1f8f4e1e";
+pub(crate) const DOCA_WEAVE_FLOW_CONTROLLER_SERVICE_IMAGE_NAME: &str = "weave-system";
+pub(crate) const DOCA_WEAVE_FLOW_CONTROLLER_SERVICE_IMAGE_TAG: &str = "v26.5.0-f2c9f7c4-nightly";
 
 /// Xplane service definitions.
-pub const DOCA_XPLANE_SERVICE_HELM_NAME: &str = "doca-xplane";
-pub const DOCA_XPLANE_SERVICE_HELM_VERSION: &str = "1.0";
-pub const DOCA_XPLANE_SERVICE_IMAGE_NAME: &str = "doca_xplane";
-pub const DOCA_XPLANE_SERVICE_IMAGE_TAG: &str = "3.2.1-doca3.2.1";
+pub(crate) const DOCA_XPLANE_SERVICE_HELM_NAME: &str = "doca-xplane";
+pub(crate) const DOCA_XPLANE_SERVICE_HELM_VERSION: &str = "1.0";
+pub(crate) const DOCA_XPLANE_SERVICE_IMAGE_NAME: &str = "doca_xplane";
+pub(crate) const DOCA_XPLANE_SERVICE_IMAGE_TAG: &str = "3.2.1-doca3.2.1";
 
 /// Compile-time helm version (set by CI via VERSION env var). Empty on PR/fork builds.
 pub(crate) const COMPILE_TIME_HELM_VERSION: &str = match option_env!("CARBIDE_BUILD_HELM_VERSION") {
@@ -299,7 +300,7 @@ fn apply_image_pull_secrets(helm_values: &mut serde_json::Value, cfg: &DpfServic
 }
 
 /// DOCA HBN service definition.
-pub fn doca_hbn_service(cfg: &DpfServiceConfig) -> ServiceDefinition {
+pub(crate) fn doca_hbn_service(cfg: &DpfServiceConfig) -> ServiceDefinition {
     let interfaces = doca_hbn_service_interfaces();
     let mut helm_values = serde_json::json!({
         "image": {
@@ -345,7 +346,7 @@ pub fn doca_hbn_service(cfg: &DpfServiceConfig) -> ServiceDefinition {
 }
 
 /// DTS (DOCA Telemetry Service) service definition.
-pub fn dts_service(cfg: &DpfServiceConfig) -> ServiceDefinition {
+pub(crate) fn dts_service(cfg: &DpfServiceConfig) -> ServiceDefinition {
     let mut helm_values = serde_json::json!({
         "exposedPorts": { "ports": { "httpserverport": true } }
     });
@@ -414,7 +415,7 @@ fn dpu_agent_helm_values(
 }
 
 /// Forge DPU Agent service definition.
-pub fn dpu_agent_service(
+pub(crate) fn dpu_agent_service(
     cfg: &DpfServiceConfig,
     bootstrap_ca: &DpfDpuAgentBootstrapCa,
 ) -> ServiceDefinition {
@@ -446,7 +447,7 @@ pub fn dpu_agent_service(
 }
 
 /// Forge DHCP Server service definition.
-pub fn dhcp_server_service(cfg: &DpfServiceConfig) -> ServiceDefinition {
+pub(crate) fn dhcp_server_service(cfg: &DpfServiceConfig) -> ServiceDefinition {
     let mut helm_values = serde_json::json!({
         "image": {
             "repository": cfg.docker_repo_url,
@@ -479,7 +480,7 @@ pub fn dhcp_server_service(cfg: &DpfServiceConfig) -> ServiceDefinition {
 }
 
 /// Forge FMDS service definition.
-pub fn fmds_service(cfg: &DpfServiceConfig) -> ServiceDefinition {
+pub(crate) fn fmds_service(cfg: &DpfServiceConfig) -> ServiceDefinition {
     let mut helm_values = serde_json::json!({
         "image": {
             "repository": cfg.docker_repo_url,
@@ -512,7 +513,7 @@ pub fn fmds_service(cfg: &DpfServiceConfig) -> ServiceDefinition {
 }
 
 /// OTel service definition.
-pub fn otelcol_service(cfg: &DpfServiceConfig) -> ServiceDefinition {
+pub(crate) fn otelcol_service(cfg: &DpfServiceConfig) -> ServiceDefinition {
     let mut helm_values = serde_json::json!({
         "image": {
             "repository": cfg.docker_repo_url,
@@ -538,7 +539,7 @@ pub fn otelcol_service(cfg: &DpfServiceConfig) -> ServiceDefinition {
     }
 }
 
-pub fn doca_weave_dhcp_agent_service(cfg: &DpfServiceConfig) -> ServiceDefinition {
+pub(crate) fn doca_weave_dhcp_agent_service(cfg: &DpfServiceConfig) -> ServiceDefinition {
     let mut helm_values = serde_json::json!({
         "weaveDHCPAgent": {
             "containers": {
@@ -622,7 +623,7 @@ fn weave_flow_controller_underlay_interfaces() -> Vec<serde_json::Value> {
         .collect()
 }
 
-pub fn doca_weave_flow_controller_service(cfg: &DpfServiceConfig) -> ServiceDefinition {
+pub(crate) fn doca_weave_flow_controller_service(cfg: &DpfServiceConfig) -> ServiceDefinition {
     let mut helm_values = serde_json::json!({
         "weaveFlowController": {
             "containers": {
@@ -656,7 +657,7 @@ pub fn doca_weave_flow_controller_service(cfg: &DpfServiceConfig) -> ServiceDefi
     }
 }
 
-pub fn doca_xplane_service(cfg: &DpfServiceConfig) -> ServiceDefinition {
+pub(crate) fn doca_xplane_service(cfg: &DpfServiceConfig) -> ServiceDefinition {
     let mut helm_values = serde_json::json!({
         "image": {
             "repository": cfg.docker_repo_url,
@@ -676,7 +677,7 @@ pub fn doca_xplane_service(cfg: &DpfServiceConfig) -> ServiceDefinition {
 }
 
 /// Build the full list of resolved mandatory DPU services.
-pub fn mandatory_services(
+pub(crate) fn mandatory_services(
     resolved: &DpfResolvedMandatoryServicesConfig,
     bootstrap_ca: &DpfDpuAgentBootstrapCa,
 ) -> Vec<ServiceDefinition> {

@@ -450,7 +450,7 @@ async fn handle_dhcp_from_dpa(
     .await
 }
 
-pub async fn discover_dhcp(
+pub(crate) async fn discover_dhcp(
     api: &Api,
     request: Request<rpc::DhcpDiscovery>,
 ) -> Result<Response<rpc::DhcpRecord>, CarbideError> {

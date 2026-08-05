@@ -19,7 +19,7 @@ use rpc::forge::forge_server::Forge;
 use rpc::forge::{DpaInterfaceCreationRequest, DpaInterfaceType, DpaInterfacesByIdsRequest};
 use rpc::forge_agent_control_response::{self as fac, Action};
 
-use crate::handlers::svpc::process_scout_req;
+use crate::handlers::process_scout_req_for_test;
 use crate::tests::common::api_fixtures::{create_managed_host, create_test_env};
 
 #[crate::sqlx_test]
@@ -123,7 +123,7 @@ async fn dpa_scout_request_returns_typed_mlx_action(
     .await?;
     txn.commit().await.unwrap();
 
-    let action = process_scout_req(&env.api, mh.id).await?;
+    let action = process_scout_req_for_test(&env.api, mh.id).await?;
     let Action::MlxAction(mlx_action) = action else {
         panic!("expected typed mlx action");
     };

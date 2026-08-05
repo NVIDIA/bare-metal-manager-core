@@ -32,7 +32,7 @@ use crate::CarbideResult;
 /// NOTE: Updating machines are treated as managed hosts and identified by the host machine id.  DPU
 /// updates are identified by using the host machine id, and the host/DPU pair should be treated as one.
 #[async_trait]
-pub trait MachineUpdateModule: Send + Sync + fmt::Display {
+pub(crate) trait MachineUpdateModule: Send + Sync + fmt::Display {
     async fn get_updates_in_progress(
         &self,
         txn: &mut PgConnection,

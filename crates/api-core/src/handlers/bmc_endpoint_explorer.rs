@@ -282,16 +282,16 @@ fn managed_boot_interface_target(
 /// What a host machine offers boot-interface resolution to select from: its
 /// real `machine_interfaces` rows, and -- for the window before a NIC's first
 /// DHCP lease creates a real row -- its `predicted_machine_interfaces`.
-pub(crate) struct BootInterfaceCandidates {
+struct BootInterfaceCandidates {
     /// The machine's non-BMC `machine_interfaces` rows. When they offer a
     /// boot candidate (the machine-controller's own `pick_boot_interface`
     /// selection), it is the first fallback when no desired target is stored.
-    pub interfaces: Vec<MachineInterfaceSnapshot>,
+    interfaces: Vec<MachineInterfaceSnapshot>,
     /// The machine's predicted interfaces, consulted only when the rows
     /// offer no fallback candidate -- none exist yet (zero-DPU/NIC-mode
     /// machines awaiting their first lease), or none are selectable (e.g.
     /// only underlay-typed declared NICs).
-    pub predicted: Vec<PredictedMachineInterface>,
+    predicted: Vec<PredictedMachineInterface>,
 }
 
 /// Load what boot-interface resolution selects from, when the BMC endpoint
@@ -303,7 +303,7 @@ pub(crate) struct BootInterfaceCandidates {
 /// machine-controller path. A host machine always gets `Some`, though both
 /// lists can be empty (`find_by_machine_ids` filters BMC rows, so a host
 /// whose only discovered interface is its BMC offers no real candidates).
-pub(crate) async fn boot_interface_candidates(
+async fn boot_interface_candidates(
     txn: &mut PgConnection,
     machine_id: Option<MachineId>,
 ) -> Result<Option<BootInterfaceCandidates>, CarbideError> {
@@ -319,6 +319,26 @@ pub(crate) async fn boot_interface_candidates(
         interfaces,
         predicted,
     }))
+}
+
+/// Summarize boot-interface candidates for crate-local integration-style unit tests without
+/// exposing the production candidate type or its fields.
+#[cfg(test)]
+pub(crate) async fn summarize_boot_interface_candidates_for_test(
+    txn: &mut PgConnection,
+    machine_id: Option<MachineId>,
+) -> Result<Option<(bool, bool)>, CarbideError> {
+    Ok(boot_interface_candidates(txn, machine_id)
+        .await?
+        .map(|candidates| {
+            (
+                candidates
+                    .interfaces
+                    .iter()
+                    .any(|interface| interface.primary_interface),
+                candidates.predicted.is_empty(),
+            )
+        }))
 }
 
 pub(crate) async fn admin_bmc_reset(
@@ -1289,7 +1309,7 @@ async fn do_delete_bmc_user(
 /// * `txn`                  - Active database transaction
 /// * `bmc_endpoint_request` - Optional BmcEndpointRequest.  Can supply _only_ ip_address or all fields.
 /// * `machine_id`           - Optional machine ID that can be used to build a new BmcEndpointRequest.
-pub(crate) async fn validate_and_complete_bmc_endpoint_request(
+pub(super) async fn validate_and_complete_bmc_endpoint_request(
     txn: &mut PgConnection,
     bmc_endpoint_request: Option<rpc::BmcEndpointRequest>,
     machine_id: Option<MachineId>,

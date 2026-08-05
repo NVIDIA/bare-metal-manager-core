@@ -261,7 +261,7 @@ fn emit_preallocation_error(
     result
 }
 
-pub async fn assign_static_address(
+pub(crate) async fn assign_static_address(
     api: &Api,
     request: Request<rpc::AssignStaticAddressRequest>,
 ) -> Result<Response<rpc::AssignStaticAddressResponse>, CarbideError> {
@@ -352,7 +352,7 @@ async fn assign_static_address_inner(
     }))
 }
 
-pub async fn remove_static_address(
+pub(crate) async fn remove_static_address(
     api: &Api,
     request: Request<rpc::RemoveStaticAddressRequest>,
 ) -> Result<Response<rpc::RemoveStaticAddressResponse>, CarbideError> {
@@ -427,7 +427,7 @@ async fn remove_static_address_inner(
     }))
 }
 
-pub async fn find_interface_addresses(
+pub(crate) async fn find_interface_addresses(
     api: &Api,
     request: Request<rpc::FindInterfaceAddressesRequest>,
 ) -> Result<Response<rpc::FindInterfaceAddressesResponse>, Status> {

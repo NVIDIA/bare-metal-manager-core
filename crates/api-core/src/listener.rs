@@ -55,17 +55,17 @@ use crate::logging::api_logs::LogLayer;
 pub type AdminUiRoutesBuilder =
     Box<dyn FnOnce(Arc<Api>) -> eyre::Result<NormalizePath<axum::Router>> + Send>;
 
-pub enum ApiListenMode {
+pub(crate) enum ApiListenMode {
     Tls(Arc<ApiTlsConfig>),
     PlaintextHttp1,
     PlaintextHttp2,
 }
 
-pub struct ApiTlsConfig {
-    pub identity_pemfile_path: String,
-    pub identity_keyfile_path: String,
-    pub root_cafile_path: String,
-    pub admin_root_cafile_path: String,
+pub(crate) struct ApiTlsConfig {
+    pub(crate) identity_pemfile_path: String,
+    pub(crate) identity_keyfile_path: String,
+    pub(crate) root_cafile_path: String,
+    pub(crate) admin_root_cafile_path: String,
 }
 
 /// this function blocks, don't use it in a raw async context
@@ -282,7 +282,7 @@ struct TlsConnectionFailed {
 /// `listen_port` uses port zero.
 #[allow(clippy::too_many_arguments)]
 #[tracing::instrument(skip_all)]
-pub async fn start(
+pub(crate) async fn start(
     join_set: &mut JoinSet<()>,
     api_service: Arc<Api>,
     listen_mode: ApiListenMode,

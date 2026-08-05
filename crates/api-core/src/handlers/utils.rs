@@ -32,7 +32,7 @@ const DEFAULT_BMC_HTTPS_PORT: u16 = 443;
 /// Bare IP literals are handled before hostname resolution so an IPv6 address's
 /// colons are never mistaken for a host/port separator. An explicit port on an
 /// IPv6 literal must use the standard `[address]:port` socket syntax.
-pub(crate) async fn resolve_bmc_address(address: &str) -> Result<SocketAddr, tonic::Status> {
+pub(super) async fn resolve_bmc_address(address: &str) -> Result<SocketAddr, tonic::Status> {
     if let Some(address) = parse_numeric_bmc_address(address) {
         return Ok(address);
     }
@@ -86,7 +86,9 @@ fn invalid_bmc_address(address: &str, reason: impl std::fmt::Display) -> Carbide
 
 /// Converts a MachineID from RPC format to Model format
 /// and logs the MachineID as MachineID for the current request.
-pub fn convert_and_log_machine_id(id: Option<&MachineId>) -> Result<MachineId, CarbideError> {
+pub(super) fn convert_and_log_machine_id(
+    id: Option<&MachineId>,
+) -> Result<MachineId, CarbideError> {
     let machine_id = match id {
         Some(id) => *id,
         None => {
@@ -101,7 +103,7 @@ pub fn convert_and_log_machine_id(id: Option<&MachineId>) -> Result<MachineId, C
 /// The recorded change whose processing tried to wake the machine's state
 /// handler.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, carbide_instrument::LabelValue)]
-pub(crate) enum WakeupTrigger {
+pub(super) enum WakeupTrigger {
     RebootCompleted,
     CleanupCompleted,
     ScoutFirmwareUpgradeStatus,
@@ -123,13 +125,13 @@ pub(crate) enum WakeupTrigger {
     describe = "Number of times a machine's state handler could not be woken after an \
                 observed or desired state change"
 )]
-pub(crate) struct StateHandlerWakeupFailed {
+pub(super) struct StateHandlerWakeupFailed {
     #[label]
-    pub(crate) trigger: WakeupTrigger,
+    pub(super) trigger: WakeupTrigger,
     #[context]
-    pub(crate) machine_id: MachineId,
+    pub(super) machine_id: MachineId,
     #[context]
-    pub(crate) err: String,
+    pub(super) err: String,
 }
 
 /// Enqueues a machine after its desired boot interface changes.
@@ -137,7 +139,7 @@ pub(crate) struct StateHandlerWakeupFailed {
 /// The database remains the durable source if the enqueue fails: the periodic
 /// state-controller scan will try again, while this helper records the delay
 /// without failing an otherwise successful API request.
-pub(crate) async fn enqueue_boot_interface_reconciliation(
+pub(super) async fn enqueue_boot_interface_reconciliation(
     api: &Api,
     machine_id: MachineId,
     eligible: bool,

@@ -22,14 +22,14 @@ use model::resource_pool::ResourcePoolStats;
 use opentelemetry::KeyValue;
 use opentelemetry::metrics::Meter;
 
-pub struct ServiceHealthContext {
-    pub meter: Meter,
-    pub database_pool: sqlx::PgPool,
-    pub resource_pool_stats: Arc<Mutex<HashMap<String, ResourcePoolStats>>>,
+pub(crate) struct ServiceHealthContext {
+    pub(crate) meter: Meter,
+    pub(crate) database_pool: sqlx::PgPool,
+    pub(crate) resource_pool_stats: Arc<Mutex<HashMap<String, ResourcePoolStats>>>,
 }
 
 /// Starts to export server health metrics
-pub fn start_export_service_health_metrics(health_context: ServiceHealthContext) {
+pub(crate) fn start_export_service_health_metrics(health_context: ServiceHealthContext) {
     health_context
         .meter
         .u64_observable_gauge("carbide_api_ready")

@@ -163,9 +163,7 @@ fn parse_expected_machine_for_insert(
 
 /// `validate_expected_machine_for_insert` applies the validation shared by the
 /// `add` handler and the `expected_machines.json` import flow.
-pub(crate) fn validate_expected_machine_for_insert(
-    machine: &ExpectedMachine,
-) -> Result<(), CarbideError> {
+fn validate_expected_machine_for_insert(machine: &ExpectedMachine) -> Result<(), CarbideError> {
     validate_expected_interfaces(&machine.data.interfaces)?;
     validate_host_bmc_declaration(machine)?;
     machine
@@ -1119,7 +1117,7 @@ pub(crate) async fn update_expected_machines(
 }
 
 // Utility method called by `explore`. Not a grpc handler.
-pub(crate) async fn query(
+pub(super) async fn query(
     api: &Api,
     mac: MacAddress,
 ) -> Result<Option<ExpectedMachine>, CarbideError> {
