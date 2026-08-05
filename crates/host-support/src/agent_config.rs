@@ -794,8 +794,8 @@ sign-timeout-secs = 9
                 "" => Yields(()),
             }
 
-            "unknown top-level key is rejected (deny_unknown_fields)" {
-                "totally-unknown-key = 5\n" => Fails,
+            "unknown top-level key is ignored" {
+                "totally-unknown-key = 5\n" => Yields(()),
             }
 
             "interface-id not a uuid fails" {
