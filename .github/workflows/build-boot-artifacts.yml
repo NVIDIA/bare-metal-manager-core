@@ -375,6 +375,9 @@ jobs:
           # files here lets the container reuse that script rather than carry a
           # second copy of the backend-selection logic.
           SCCACHE_SECRETS="$(mktemp -d)"
+          # These runners are not guaranteed to be ephemeral, so the token must
+          # not outlive the step that needs it.
+          trap 'rm -rf "${SCCACHE_SECRETS}"' EXIT
           printf '%s' "${BUILD_ACTIONS_RESULTS_URL}" > "${SCCACHE_SECRETS}/actions_results_url"
           printf '%s' "${BUILD_ACTIONS_RUNTIME_TOKEN}" > "${SCCACHE_SECRETS}/actions_runtime_token"
           printf '%s' "${SCCACHE_GHA_RW_MODE}" > "${SCCACHE_SECRETS}/sccache_gha_rw_mode"
