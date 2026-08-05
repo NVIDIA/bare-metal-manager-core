@@ -22,19 +22,19 @@
 
 listen = "[::]:1079"
 metrics_endpoint = "[::]:1080"
-profiler_endpoint = "[::]:1081"
 database_url = "postgres://replaced-by-env-var"
 asn = 4294967000
 initial_dpu_agent_upgrade_policy = "up_only"
-dpu_nic_firmware_intial_update_enabled = false
-dpu_nic_firmware_reprovision_update_enabled = true
-dpu_nic_firmware_update_version = { "BlueField SoC" = "24.42.1000", "BlueField-3 SmartNIC Main Card" = "32.42.1000" }
 max_concurrent_machine_updates = 10
-nvue_enabled = true
 dhcp_servers = []                                                                                                     # Added in per-site-configuration
 route_servers = []                                                                                                    # Required for FNN. Not yet used
 attestation_enabled = true
 bypass_rbac = true
+
+[dpu_config]
+dpu_nic_firmware_initial_update_enabled = false
+dpu_nic_firmware_reprovision_update_enabled = true
+dpu_nic_firmware_update_versions = ["24.42.1000", "32.42.1000"]
 
 [host_health]
 hardware_health_reports = "MonitorOnly"

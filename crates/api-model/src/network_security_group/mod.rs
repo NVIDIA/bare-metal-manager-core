@@ -194,6 +194,7 @@ pub enum NetworkSecurityGroupRuleNet {
 /// single rule that will be applied on a DPU to restrict
 /// traffic.
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq)]
+#[serde(deny_unknown_fields)]
 pub struct NetworkSecurityGroupRule {
     pub id: Option<String>,
     pub src_net: NetworkSecurityGroupRuleNet,

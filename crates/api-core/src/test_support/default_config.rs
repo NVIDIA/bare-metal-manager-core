@@ -202,6 +202,7 @@ pub fn get() -> CarbideConfig {
             create_machines: Arc::new(false.into()),
             ..Default::default()
         },
+        deprecated_force_dpu_nic_mode: None,
         vpc_peering_policy: Some(VpcPeeringPolicy::Exclusive),
         vpc_peering_policy_on_existing: None,
         attestation_enabled: false,

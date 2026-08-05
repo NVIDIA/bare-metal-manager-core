@@ -92,6 +92,7 @@ impl MachineStateHandlerSiteConfig {
 
 /// A UTC time window defined by a start and end timestamp.
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
+#[serde(deny_unknown_fields)]
 pub struct TimePeriod {
     /// Start of the time window (UTC).
     pub start: chrono::DateTime<chrono::Utc>,

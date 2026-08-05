@@ -30,7 +30,7 @@ use rpc::protos::mlx_device::{
     FirmwareFlasherProfile as FirmwareFlasherProfilePb, FirmwareSpec as FirmwareSpecPb,
     FlashOptions as FlashOptionsPb, FlashSpec as FlashSpecPb,
 };
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
 
 use crate::firmware::credentials::Credentials;
 use crate::firmware::error::{FirmwareError, FirmwareResult};
@@ -177,7 +177,7 @@ impl Default for FlashOptions {
 //   version = "32.43.1014"
 //   firmware_url = "https://..."
 //   reset = true
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize)]
 pub struct FirmwareFlasherProfile {
     #[serde(flatten)]
     pub firmware_spec: FirmwareSpec,
@@ -185,6 +185,61 @@ pub struct FirmwareFlasherProfile {
     pub flash_spec: FlashSpec,
     #[serde(flatten, default)]
     pub flash_options: FlashOptions,
+}
+
+impl<'de> Deserialize<'de> for FirmwareFlasherProfile {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        // `deny_unknown_fields` cannot be combined with `flatten`, so use one
+        // strict flat representation and rebuild the three public sections.
+        #[derive(Deserialize)]
+        #[serde(deny_unknown_fields)]
+        struct FlatFirmwareFlasherProfile {
+            part_number: String,
+            psid: String,
+            version: String,
+            firmware_url: String,
+            firmware_credentials: Option<Credentials>,
+            device_conf_url: Option<String>,
+            device_conf_credentials: Option<Credentials>,
+            #[serde(default)]
+            verify_from_cache: bool,
+            cache_dir: Option<PathBuf>,
+            #[serde(default)]
+            verify_image: bool,
+            #[serde(default)]
+            verify_version: bool,
+            #[serde(default)]
+            reset: bool,
+            #[serde(default = "default_reset_level")]
+            reset_level: u8,
+        }
+
+        let profile = FlatFirmwareFlasherProfile::deserialize(deserializer)?;
+        Ok(Self {
+            firmware_spec: FirmwareSpec {
+                part_number: profile.part_number,
+                psid: profile.psid,
+                version: profile.version,
+            },
+            flash_spec: FlashSpec {
+                firmware_url: profile.firmware_url,
+                firmware_credentials: profile.firmware_credentials,
+                device_conf_url: profile.device_conf_url,
+                device_conf_credentials: profile.device_conf_credentials,
+                verify_from_cache: profile.verify_from_cache,
+                cache_dir: profile.cache_dir,
+            },
+            flash_options: FlashOptions {
+                verify_image: profile.verify_image,
+                verify_version: profile.verify_version,
+                reset: profile.reset,
+                reset_level: profile.reset_level,
+            },
+        })
+    }
 }
 
 impl FirmwareFlasherProfile {
@@ -479,5 +534,19 @@ verify_version = true
         assert!(profile.flash_options.verify_image);
         assert!(profile.flash_options.verify_version);
         assert_eq!(profile.flash_options.reset_level, 3); // default
+    }
+
+    #[test]
+    fn profile_toml_rejects_unknown_fields() {
+        let toml_str = r#"
+part_number = "900-9D3B4-00CV-TA0"
+psid = "MT_0000000884"
+version = "32.43.1014"
+firmware_url = "https://artifacts.nvidia.com/fw.bin"
+firmware_urll = "https://typo.example.com/fw.bin"
+"#;
+
+        let error = FirmwareFlasherProfile::from_toml(toml_str).unwrap_err();
+        assert!(error.to_string().contains("firmware_urll"));
     }
 }

@@ -3173,6 +3173,7 @@ impl Display for PowerState {
 }
 
 #[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
 pub struct HostHealthConfig {
     /// Whether or not to use hardware health reports in aggregate health reports
     /// and for restricting state transitions.

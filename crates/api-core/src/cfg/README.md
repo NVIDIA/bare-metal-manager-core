@@ -5,6 +5,16 @@ configuration file, which is deserialized into `NicoConfig` (defined in
 `file.rs`). Fields are listed in declaration order. Defaults are noted where
 applicable.
 
+Unknown fields are rejected after the base file, optional site override, and
+`CARBIDE_API_` environment values are merged. The startup error reports the
+invalid key's full section path. Names inside intentionally dynamic maps, such
+as pool names and rack-profile IDs, remain user-defined; fields within each map
+value must still match the documented schema.
+
+The removed `force_dpu_nic_mode` key is the sole compatibility exception: it
+is temporarily accepted at the top level and under `[site_explorer]`, ignored,
+and reported as a deprecation warning. Use `site_explorer.dpu_policy` instead.
+
 ---
 
 ## `NicoConfig` (top-level)

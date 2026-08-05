@@ -104,6 +104,7 @@ where
 
 /// nico-api configuration file content
 #[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
 pub struct CarbideConfig {
     /// Socket address for the gRPC API server, used by
     /// clients and nico-admin-cli to connect.
@@ -350,6 +351,13 @@ pub struct CarbideConfig {
     /// SiteExplorer related configuration
     #[serde(default)]
     pub site_explorer: SiteExplorerConfig,
+
+    /// Deprecated compatibility key. This setting no longer affects runtime
+    /// behavior; keep accepting it temporarily so existing site files can be
+    /// migrated without weakening unknown-field validation.
+    #[doc(hidden)]
+    #[serde(default, rename = "force_dpu_nic_mode", skip_serializing)]
+    pub deprecated_force_dpu_nic_mode: Option<bool>,
 
     /// The policy to decide whether two VPCs are allowed to peer with each other based on their
     /// network virtualization type during creation
@@ -830,6 +838,7 @@ pub struct CarbideConfig {
 
 /// Global admission limits for business requests handled by nico-api.
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
 pub struct ApiAdmissionControlConfig {
     /// Whether admission control is active.
     #[serde(default = "default_to_true")]
@@ -1045,6 +1054,7 @@ impl CertificatesConfig {
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
 pub struct TracingConfig {
     /// Whether to enable OTLP tracing. Default: false
     #[serde(default)]
@@ -1096,6 +1106,7 @@ impl CarbideConfig {
 
 /// Observability settings shared across all state controllers.
 #[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
 pub struct ObservabilityConfig {
     /// Health alert classifications for which an additional per-object metric
     /// (`carbide_object_unhealthy_by_classification_count`) is emitted,
@@ -1114,6 +1125,7 @@ pub struct ObservabilityConfig {
 /// the series cost O(fleet) cardinality, so operators opt in and scrape the
 /// dedicated endpoint at their own cadence.
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
 pub struct PerObjectStateMetricsConfig {
     /// Whether the per-object state metrics endpoint is enabled.
     #[serde(default)]
@@ -1191,6 +1203,7 @@ impl PerObjectStateMetricObjectType {
 /// One external tool link rendered in the admin web UI's "Tools"
 /// sidebar.
 #[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
 pub struct ToolLink {
     /// Stable identifier, must be unique within `tools`. Used
     /// to look up well-known integrations.
@@ -1205,6 +1218,7 @@ pub struct ToolLink {
 /// (`crate::web::logs`). Bounds memory use and the page size served
 /// to the browser.
 #[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct LogHistoryConfig {
     /// Maximum amount of recent log history to retain in memory, in
     /// MiB. Oldest lines are evicted once the budget is exceeded.
@@ -1515,6 +1529,7 @@ fn default_dpf_pf_total_sf_reserved() -> u32 {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct DpfConfig {
     /// Enables DPF deployment.
     #[serde(default)]
@@ -1685,6 +1700,14 @@ impl<'de> Deserialize<'de> for DpfMandatoryServicesConfig {
         let configured = BTreeMap::<String, serde_json::Value>::deserialize(deserializer)?;
         let mut services = Self::default();
         for (name, configured) in configured {
+            const SERVICE_FIELDS: &[&str] = &[
+                "dts",
+                "doca_hbn",
+                "dpu_agent",
+                "dhcp_server",
+                "fmds",
+                "otel",
+            ];
             let service = match name.as_str() {
                 "dts" => &mut services.dts,
                 "doca_hbn" => &mut services.doca_hbn,
@@ -1692,12 +1715,20 @@ impl<'de> Deserialize<'de> for DpfMandatoryServicesConfig {
                 "dhcp_server" => &mut services.dhcp_server,
                 "fmds" => &mut services.fmds,
                 "otel" => &mut services.otel,
-                _ => continue,
+                _ => return Err(serde::de::Error::unknown_field(&name, SERVICE_FIELDS)),
             };
-            *service = Figment::from(Serialized::defaults(std::mem::take(service)))
+            let merged = Figment::from(Serialized::defaults(std::mem::take(service)))
                 .merge(Serialized::defaults(configured))
-                .extract()
-                .map_err(serde::de::Error::custom)?;
+                .extract();
+            *service = match merged {
+                Ok(service) => service,
+                Err(error) => match error.kind {
+                    figment::error::Kind::UnknownField(field, expected) => {
+                        return Err(serde::de::Error::unknown_field(&field, expected));
+                    }
+                    _ => return Err(serde::de::Error::custom(error)),
+                },
+            };
         }
         Ok(services)
     }
@@ -1772,6 +1803,7 @@ pub struct DpfResolvedMandatoryServicesConfig {
 
 /// Configuration for a single Helm-based DPF service.
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct DpfServiceConfig {
     /// Name of the Helm service.
     pub name: String,
@@ -1808,6 +1840,7 @@ pub struct DpfServiceConfig {
 /// `[dpf.deployments.bf3]` block is absent, via `#[serde(default)]` on the
 /// `bf3` field of [`DpfDeploymentsConfig`].
 #[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct DpfDeploymentConfig {
     /// URL to the BlueField firmware bundle (BFB) for DPU provisioning
     /// (BF3-class DPUs). Exactly one of `bfb_url` or `bluefield_software`
@@ -1862,6 +1895,7 @@ impl Default for DpfDeploymentConfig {
 /// [`DpfDeploymentConfig::per_psid_deployment_name`] and
 /// [`DpfDeploymentConfig::per_psid_node_label_key`]).
 #[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct DpfBlueFieldSoftwareConfig {
     /// OS ISO URL used by the DPU OS installation flow (`spec.osIso`). Shared
     /// across all PSIDs.
@@ -1890,6 +1924,7 @@ pub struct DpfDeploymentsConfig {
 }
 
 #[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 struct DpfDeploymentsConfigDef {
     #[serde(default)]
     bf3: DpfDeploymentConfig,
@@ -2079,6 +2114,7 @@ impl DpfDeploymentsConfig {
 /// Machine identity (SPIFFE JWT-SVID) configuration.
 /// Loaded from `[machine_identity]` section in config.
 #[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct MachineIdentityConfig {
     /// Master switch. If false, SetTenantIdentityConfiguration and SignMachineIdentity return 503.
     #[serde(default = "machine_identity_default_enabled")]
@@ -2176,6 +2212,7 @@ impl From<MachineIdentityConfig> for model::tenant::TokenDelegationValidationBou
 /// SPDM (Security Protocol and Data Model) configuration
 /// for hardware attestation of DPU components.
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct SpdmConfig {
     /// Enables SPDM-based hardware attestation.
     #[serde(default)]
@@ -2189,6 +2226,7 @@ pub struct SpdmConfig {
 
 /// Fabric Nearest Neighbor (FNN) configuration for L3 VNI-based overlay networking.
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
+#[serde(deny_unknown_fields)]
 pub struct FnnConfig {
     /// Optional FNN configuration for the admin network VPC.
     #[serde(default)]
@@ -2219,6 +2257,7 @@ pub struct FnnConfig {
 /// A named routing-profile definition whose unset properties use effective
 /// defaults unless a VPC supplies an inline override.
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Default)]
+#[serde(deny_unknown_fields)]
 pub struct FnnRoutingProfileConfig {
     /// These are used for import policies to import routes
     /// that match these targets.
@@ -2407,6 +2446,7 @@ impl From<&FnnRoutingProfileConfig> for rpc::forge::VpcEffectiveRoutingProfile {
 
 /// FNN configuration specific to the admin network.
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
+#[serde(deny_unknown_fields)]
 pub struct AdminFnnConfig {
     /// Whether FNN should be applied to the admin network as well.
     pub enabled: bool,
@@ -2666,6 +2706,7 @@ impl MaxConcurrentUpdates {
 
 /// NetworkSegmentStateController related config.
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
 pub struct NetworkSegmentStateControllerConfig {
     /// Common state controller configs
     #[serde(default = "StateControllerConfig::default")]
@@ -2699,6 +2740,7 @@ impl Default for NetworkSegmentStateControllerConfig {
 
 /// VpcPrefixStateController related config.
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
 pub struct VpcPrefixStateControllerConfig {
     /// Common state controller configs
     #[serde(default = "StateControllerConfig::default")]
@@ -2736,6 +2778,7 @@ impl Default for VpcPrefixStateControllerConfig {
 
 /// IbPartitionStateController related config
 #[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
 pub struct IbPartitionStateControllerConfig {
     /// Common state controller configs
     #[serde(default = "StateControllerConfig::default")]
@@ -2744,6 +2787,7 @@ pub struct IbPartitionStateControllerConfig {
 
 /// DpaInterfaceStateController related config
 #[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
 pub struct DpaInterfaceStateControllerConfig {
     /// Common state controller configs
     #[serde(default = "StateControllerConfig::default")]
@@ -2752,6 +2796,7 @@ pub struct DpaInterfaceStateControllerConfig {
 
 /// PowerShelfStateController related config
 #[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
 pub struct PowerShelfStateControllerConfig {
     /// Common state controller configs
     #[serde(default = "StateControllerConfig::default")]
@@ -2776,6 +2821,7 @@ pub struct PowerShelfStateControllerConfig {
 
 /// RackStateController related config
 #[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
 pub struct RackStateControllerConfig {
     /// Common state controller configs
     #[serde(default = "StateControllerConfig::default")]
@@ -2812,6 +2858,7 @@ impl RackStateControllerConfig {
 
 /// SwitchStateController related config
 #[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
 pub struct SwitchStateControllerConfig {
     /// Common state controller configs
     #[serde(default = "StateControllerConfig::default")]
@@ -2848,6 +2895,7 @@ impl SwitchStateControllerConfig {
 
 /// SpdmStateController related config
 #[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
 pub struct SpdmStateControllerConfig {
     /// Common state controller configs
     #[serde(default = "StateControllerConfig::default")]
@@ -2855,6 +2903,7 @@ pub struct SpdmStateControllerConfig {
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
 pub struct InitialObjectsConfig {
     /// Resource pools that allocate IPs, VNIs, etc.
     /// Required, but wrapped in `Option` so partial configs
@@ -2869,6 +2918,7 @@ pub struct InitialObjectsConfig {
 /// TLS certificate and key configuration for securing
 /// gRPC and HTTP connections.
 #[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
 pub struct TlsConfig {
     /// Path to the root CA certificate file for
     /// validating client certificates.
@@ -2906,6 +2956,7 @@ pub enum ListenMode {
 
 /// Authentication related configuration
 #[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
 pub struct AuthConfig {
     /// Enable permissive mode in the authorization enforcer (for development).
     pub permissive_mode: bool,
@@ -3035,6 +3086,7 @@ impl<'de> Deserialize<'de> for DpuConfig {
     {
         // Create a temporary struct for partial deserialization
         #[derive(Deserialize)]
+        #[serde(deny_unknown_fields)]
         struct PartialDpuConfig {
             #[serde(default)]
             bootstrap_ca_source: Option<BootstrapCaSource>,
@@ -3217,6 +3269,7 @@ impl Default for DpuConfig {
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
 pub struct NetworkSecurityGroupConfig {
     /// The maximum number of unique rules allowed for
     /// a network security group after rules are expanded.
@@ -3248,6 +3301,7 @@ impl Default for NetworkSecurityGroupConfig {
 /// Configuration for rolling machine updates and
 /// maintenance windows.
 #[derive(Clone, Debug, Default, Deserialize, Serialize, PartialEq)]
+#[serde(deny_unknown_fields)]
 pub struct MachineUpdater {
     /// Time window during which machines may automatically
     /// reboot for updates.
@@ -3309,6 +3363,7 @@ fn default_tenant_routing_profile() -> String {
 /// which exports TPM-based boot measurement data as
 /// Prometheus metrics.
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
+#[serde(deny_unknown_fields)]
 pub struct MeasuredBootMetricsCollectorConfig {
     /// Enables the measured boot metrics monitor. When
     /// disabled, measured boot metrics are not exported.
@@ -3515,6 +3570,7 @@ use model::vpc::VpcDefinition;
 /// topics, and subscribe to `BMS/v1/PUB/Metadata/#` to learn those routing
 /// targets.
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
 pub struct DsxExchangeEventBusConfig {
     /// Enable/disable the DSX Exchange Event Bus.
     #[serde(default)]
@@ -3615,6 +3671,7 @@ const PUBLISH_INTERVAL_MAX: std::time::Duration = std::time::Duration::from_secs
 /// self-heal. Republished messages reuse the same topic and JSON payload as
 /// change-driven events, so consumers handle them identically.
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
+#[serde(deny_unknown_fields)]
 pub struct PeriodicStateRepublishConfig {
     /// Enable periodic republishing. Enabled by default whenever the DSX
     /// Exchange Event Bus itself is enabled. Change-driven publishing is
@@ -3691,6 +3748,7 @@ impl PeriodicStateRepublishConfig {
 
 /// Auto machine repair plugin related configuration
 #[derive(Default, Clone, Copy, Debug, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
 pub struct AutoMachineRepairPluginConfig {
     /// Whether automatic machine repair mode is enabled
     #[serde(default)]
@@ -3712,6 +3770,7 @@ pub enum VpcPeeringPolicy {
 }
 
 #[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
 pub struct VmaasConfig {
     /// Allow VFs on instance creation.  defaults to true, but will be disabled when
     /// using SDN to manage the instance network configuration for VMs
@@ -3726,6 +3785,7 @@ pub struct VmaasConfig {
 }
 
 #[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
 pub struct HostRepresentorBridgingConfig {
     /// The HBN/SFC bridge that host-representor patch ports attach to during provisioning.
     #[serde(default = "default_hbn_bridge")]
@@ -3738,6 +3798,7 @@ pub struct HostRepresentorBridgingConfig {
 }
 
 #[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
 pub struct HostInterceptBridging {
     /// The name of the bridge (e.g., br-host) that will sit between host PF/VF and br-hbn.
     /// It will be connected to br-hbn or br-sfc.
@@ -3799,10 +3860,11 @@ mod tests {
     use carbide_authn::config::CertComponent;
     use carbide_network::virtualization::VpcVirtualizationType;
     use carbide_site_explorer::config::SiteExplorerExploreMode;
-    use carbide_test_support::Outcome::{Fails, Yields};
+    use carbide_test_support::Outcome::*;
     use carbide_test_support::{Check, check_values, scenarios, value_scenarios};
     use chrono::Datelike;
     use figment::Figment;
+    use figment::error::Kind;
     use figment::providers::{Env, Format, Toml};
     use health_report::HealthAlertClassification;
     use libmlx::variables::value::MlxValueType;
@@ -4898,6 +4960,7 @@ mod tests {
                 switches_created_per_run: 9,
                 rotate_switch_nvos_credentials: Arc::new(false.into()),
                 dpu_policy: None,
+                deprecated_force_dpu_nic_mode: None,
                 explore_mode: SiteExplorerExploreMode::NvRedfish,
             }
         );
@@ -4978,6 +5041,18 @@ mod tests {
             config.dpu_network_monitor_pinger_type,
             Some("OobNetBind".to_string())
         );
+    }
+
+    #[test]
+    fn deserialize_shipped_deployment_config() {
+        let path = concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../deploy/nico-base/api/config-files/nico-api-config.toml"
+        );
+        Figment::new()
+            .merge(Toml::file(path))
+            .extract::<CarbideConfig>()
+            .expect("the shipped deployment config must match the strict schema");
     }
 
     #[test]
@@ -5115,6 +5190,7 @@ mod tests {
                 switches_created_per_run: 9,
                 rotate_switch_nvos_credentials: Arc::new(false.into()),
                 dpu_policy: None,
+                deprecated_force_dpu_nic_mode: None,
                 explore_mode: SiteExplorerExploreMode::NvRedfish,
             }
         );
@@ -5503,6 +5579,7 @@ mod tests {
                 switches_created_per_run: 9,
                 rotate_switch_nvos_credentials: Arc::new(false.into()),
                 dpu_policy: None,
+                deprecated_force_dpu_nic_mode: None,
                 explore_mode: SiteExplorerExploreMode::NvRedfish,
             }
         );
@@ -5694,6 +5771,54 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::result_large_err)]
+    fn deserialize_unknown_environment_field_is_rejected() {
+        figment::Jail::expect_with(|jail| {
+            jail.set_env("CARBIDE_API_UNKNOWN_FIELD", true);
+
+            let error = Figment::new()
+                .merge(Toml::file(format!("{TEST_DATA_DIR}/min_config.toml")))
+                .merge(Env::prefixed("CARBIDE_API_"))
+                .extract::<CarbideConfig>()
+                .unwrap_err();
+
+            assert!(matches!(
+                &error.kind,
+                Kind::UnknownField(field, _) if field == "unknown_field"
+            ));
+            assert_eq!(error.path, vec!["unknown_field".to_string()]);
+            Ok(())
+        })
+    }
+
+    #[test]
+    #[allow(clippy::result_large_err)]
+    fn deserialize_unknown_nested_environment_field_is_rejected() {
+        figment::Jail::expect_with(|jail| {
+            jail.set_env("CARBIDE_API_SITE_EXPLORER", "{unknown_nested_field=true}");
+
+            let error = Figment::new()
+                .merge(Toml::file(format!("{TEST_DATA_DIR}/min_config.toml")))
+                .merge(Env::prefixed("CARBIDE_API_"))
+                .extract::<CarbideConfig>()
+                .unwrap_err();
+
+            assert!(matches!(
+                &error.kind,
+                Kind::UnknownField(field, _) if field == "unknown_nested_field"
+            ));
+            assert_eq!(
+                error.path,
+                vec![
+                    "site_explorer".to_string(),
+                    "unknown_nested_field".to_string()
+                ]
+            );
+            Ok(())
+        })
+    }
+
+    #[test]
     fn site_explorer_serde_defaults_match_core_defaults() -> eyre::Result<()> {
         // Make sure that if we let serde pick the defaults, it matches Default::default().
         let deserialized = serde_json::from_str::<SiteExplorerConfig>("{}")?;
@@ -5806,12 +5931,10 @@ mod tests {
 
     /// Real-world site TOMLs may still carry the now-removed
     /// `force_dpu_nic_mode` setting (top-level and/or under
-    /// `[site_explorer]`). serde silently ignores unknown keys, so
-    /// those files should keep parsing cleanly after the rip-out --
-    /// this is the regression guard for that.
+    /// `[site_explorer]`). Keep that one compatibility exception explicit.
     #[test]
     fn legacy_force_dpu_nic_mode_in_toml_still_parses() {
-        let _config: CarbideConfig = Figment::new()
+        let config: CarbideConfig = Figment::new()
             .merge(Toml::file(format!("{TEST_DATA_DIR}/min_config.toml")))
             .merge(Toml::string(
                 "force_dpu_nic_mode = false\n\
@@ -5820,6 +5943,147 @@ mod tests {
             ))
             .extract()
             .expect("legacy force_dpu_nic_mode in TOML must still parse");
+
+        assert_eq!(config.deprecated_force_dpu_nic_mode, Some(false));
+        assert_eq!(
+            config.site_explorer.deprecated_force_dpu_nic_mode,
+            Some(true)
+        );
+    }
+
+    #[test]
+    fn carbide_config_rejects_unknown_fields_across_fixed_schema_levels() {
+        scenarios!(
+            run = |patch| Figment::new()
+                .merge(Toml::file(format!("{TEST_DATA_DIR}/min_config.toml")))
+                .merge(Toml::string(patch))
+                .extract::<CarbideConfig>()
+                .map(drop)
+                .map_err(drop);
+
+            "unknown fields are rejected" {
+                "unknown_top_level = true" => Fails,
+                "rapid_iterations = true" => Fails,
+                "nvue_enabled = false" => Fails,
+                "[site_explorer]\nunknown_site_explorer_field = true" => Fails,
+                "[tracing]\nunknown_tracing_field = true" => Fails,
+                "[machine_state_controller]\nunknown_machine_controller_field = true" => Fails,
+                "[machine_state_controller.controller]\nunknown_controller_field = true" => Fails,
+                "[auth]\npermissive_mode = true\nunknown_auth_field = true" => Fails,
+                "[pools.test-pool]\ntype = \"integer\"\nunknown_pool_field = true" => Fails,
+                "[dpu_config]\nunknown_dpu_field = true" => Fails,
+                "[fnn]\nunknown_fnn_field = true" => Fails,
+                "[fnn.routing_profiles.test]\nunknown_routing_profile_field = true" => Fails,
+                "[host_health]\nunknown_host_health_field = true" => Fails,
+                "[firmware_global]\nunknown_firmware_field = true" => Fails,
+                "[machine_validation_config]\nunknown_validation_field = true" => Fails,
+                "[network_security_group]\nunknown_nsg_field = true" => Fails,
+                "[machine_identity]\nunknown_identity_field = true" => Fails,
+                "[spdm]\nunknown_spdm_field = true" => Fails,
+                "[component_manager]\nunknown_component_manager_field = true" => Fails,
+                "[dpa_config]\nunknown_dpa_field = true" => Fails,
+                "[dsx_exchange_event_bus]\nunknown_event_bus_field = true" => Fails,
+                "[host_models.test-model]\nvendor = \"Dell\"\nmodel = \"test\"\ncomponents = {}\nunknown_host_model_field = true" => Fails,
+                "[supernic_firmware_profiles.part-number.psid]\npart_number = \"part-number\"\npsid = \"psid\"\nversion = \"1.0\"\nfirmware_url = \"https://example.com/fw.bin\"\nunknown_supernic_field = true" => Fails,
+                "[mlx-config-profiles.test]\nname = \"test\"\nregistry_name = \"mlx_generic\"\nconfig = {}\nunknown_mlx_profile_field = true" => Fails,
+            }
+
+            "dynamic map keys and valid partial sections remain accepted" {
+                "[pools.an-arbitrary-pool-name]\ntype = \"integer\"" => Yields(()),
+                "[tracing]\nenabled = true" => Yields(()),
+            }
+        );
+    }
+
+    #[test]
+    fn network_security_policy_override_rejects_unknown_rule_fields() {
+        const VALID_POLICY: &str = r#"
+[[network_security_group.policy_overrides]]
+src_net = { Prefix = "0.0.0.0/0" }
+dst_net = { Prefix = "0.0.0.0/0" }
+direction = "Ingress"
+ipv6 = false
+protocol = "Any"
+action = "Deny"
+priority = 1
+"#;
+
+        let config = Figment::new()
+            .merge(Toml::file(format!("{TEST_DATA_DIR}/min_config.toml")))
+            .merge(Toml::string(VALID_POLICY))
+            .extract::<CarbideConfig>()
+            .expect("valid policy override parses");
+        assert_eq!(config.network_security_group.policy_overrides.len(), 1);
+
+        let invalid_policy =
+            VALID_POLICY.replace("priority = 1", "priority = 1\nmisspelled_priority = 2");
+        let error = Figment::new()
+            .merge(Toml::file(format!("{TEST_DATA_DIR}/min_config.toml")))
+            .merge(Toml::string(&invalid_policy))
+            .extract::<CarbideConfig>()
+            .unwrap_err();
+        assert!(matches!(
+            &error.kind,
+            Kind::UnknownField(field, _) if field == "misspelled_priority"
+        ));
+        assert_eq!(
+            error.path,
+            vec![
+                "network_security_group".to_string(),
+                "policy_overrides".to_string(),
+                "0".to_string(),
+                "misspelled_priority".to_string()
+            ]
+        );
+    }
+
+    #[test]
+    fn unknown_field_error_identifies_key_and_section() {
+        let error = Figment::new()
+            .merge(Toml::file(format!("{TEST_DATA_DIR}/min_config.toml")))
+            .merge(Toml::string(
+                "[site_explorer]\nunknown_site_explorer_field = true",
+            ))
+            .extract::<CarbideConfig>()
+            .unwrap_err();
+
+        assert!(matches!(
+            &error.kind,
+            Kind::UnknownField(field, _) if field == "unknown_site_explorer_field"
+        ));
+        assert_eq!(
+            error.path,
+            vec![
+                "site_explorer".to_string(),
+                "unknown_site_explorer_field".to_string()
+            ]
+        );
+        assert!(
+            error
+                .to_string()
+                .contains("site_explorer.unknown_site_explorer_field")
+        );
+    }
+
+    #[test]
+    fn initial_objects_config_rejects_unknown_fields() {
+        scenarios!(
+            run = |input| Figment::new()
+                .merge(Toml::string(input))
+                .extract::<InitialObjectsConfig>()
+                .map(drop)
+                .map_err(drop);
+
+            "unknown fields are rejected" {
+                "unknown_top_level = true" => Fails,
+                "[pools.test-pool]\ntype = \"integer\"\nunknown_pool_field = true" => Fails,
+                "[networks.admin]\ntype = \"admin\"\nprefix = \"172.20.0.0/24\"\ngateway = \"172.20.0.1\"\nmtu = 9000\nreserve_first = 5\nunknown_network_field = true" => Fails,
+            }
+
+            "dynamic object names remain accepted" {
+                "[pools.an-arbitrary-pool-name]\ntype = \"integer\"" => Yields(()),
+            }
+        );
     }
 
     #[test]

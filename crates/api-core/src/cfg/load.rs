@@ -109,6 +109,16 @@ pub fn parse_carbide_config(
 
     config.config_ctx = Some(merged_config);
 
+    if config.deprecated_force_dpu_nic_mode.is_some()
+        || config.site_explorer.deprecated_force_dpu_nic_mode.is_some()
+    {
+        tracing::warn!(
+            config_key = "force_dpu_nic_mode",
+            replacement = "site_explorer.dpu_policy",
+            "Ignoring deprecated configuration key"
+        );
+    }
+
     for (label, _) in config
         .host_models
         .iter()
@@ -204,4 +214,55 @@ pub fn parse_carbide_config(
 
     tracing::trace!(config = ?config.redacted(), "Carbide config");
     Ok(Arc::new(config))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    #[allow(clippy::result_large_err)]
+    fn unknown_site_override_field_reports_key_and_source_file() {
+        figment::Jail::expect_with(|jail| {
+            jail.create_file(
+                "base.toml",
+                r#"
+                database_url = "postgres://test"
+                listen = "[::]:1081"
+                asn = 1
+                "#,
+            )?;
+            jail.create_file(
+                "site.toml",
+                "[site_explorer]\nunknown_site_override_field = true",
+            )?;
+
+            let report = parse_carbide_config(Path::new("base.toml"), Some(Path::new("site.toml")))
+                .unwrap_err();
+            let error = report
+                .downcast_ref::<figment::Error>()
+                .expect("configuration error retains the Figment source");
+
+            assert!(matches!(
+                &error.kind,
+                figment::error::Kind::UnknownField(field, _)
+                    if field == "unknown_site_override_field"
+            ));
+            assert_eq!(
+                error.path,
+                vec![
+                    "site_explorer".to_string(),
+                    "unknown_site_override_field".to_string()
+                ]
+            );
+            let source_path = error
+                .metadata
+                .as_ref()
+                .and_then(|metadata| metadata.source.as_ref())
+                .and_then(|source| source.file_path())
+                .expect("unknown site key is attributed to its source file");
+            assert!(source_path.ends_with("site.toml"));
+            Ok(())
+        })
+    }
 }

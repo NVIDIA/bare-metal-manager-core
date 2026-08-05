@@ -46,7 +46,7 @@ use crate::firmware::error::{FirmwareError, FirmwareResult};
 //   [firmware_credentials]
 //   type = "ssh_agent"
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(tag = "type", rename_all = "snake_case")]
+#[serde(deny_unknown_fields, tag = "type", rename_all = "snake_case")]
 pub enum Credentials {
     // BearerToken uses an Authorization: Bearer <token> header.
     BearerToken {
