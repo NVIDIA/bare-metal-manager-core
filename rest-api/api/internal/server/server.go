@@ -48,6 +48,19 @@ import (
 	_ "github.com/NVIDIA/infra-controller/rest-api/api/pkg/api/model"
 )
 
+const (
+	// ReadTimeout bounds how long the server spends reading a request.
+	ReadTimeout = 60 * time.Second
+
+	// WriteTimeout is the deadline for writing a response, applied to the
+	// connection when the request arrives. It is the hard ceiling on total
+	// handler latency: a handler that produces its response after this elapses
+	// cannot deliver it, so the client sees a dropped connection instead of the
+	// status the handler chose. Any handler-side wait, including the Temporal
+	// proxy timeout ladders, must complete well inside it.
+	WriteTimeout = 60 * time.Second
+)
+
 func InitTemporalClients(tcfg *cconfig.TemporalConfig, tracingEnabled bool) (tsdkClient.Client, tsdkClient.NamespaceClient, error) {
 	var tc tsdkClient.Client
 	var tnc tsdkClient.NamespaceClient
@@ -111,8 +124,8 @@ func InitAPIServer(cfg *config.Config, dbSession *cdb.Session, tc tsdkClient.Cli
 
 	// Add timeouts to prevent SLOWLORIS attacks
 	e.Server.ReadHeaderTimeout = 3 * time.Second
-	e.Server.ReadTimeout = 60 * time.Second
-	e.Server.WriteTimeout = 60 * time.Second
+	e.Server.ReadTimeout = ReadTimeout
+	e.Server.WriteTimeout = WriteTimeout
 	e.Server.IdleTimeout = 120 * time.Second
 
 	// Add middleware to set the API name

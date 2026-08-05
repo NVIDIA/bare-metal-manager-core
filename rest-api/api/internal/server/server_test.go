@@ -19,6 +19,8 @@ import (
 	_ "github.com/NVIDIA/infra-controller/rest-api/api/pkg/api/model"
 	sc "github.com/NVIDIA/infra-controller/rest-api/api/pkg/client/site"
 	cconfig "github.com/NVIDIA/infra-controller/rest-api/common/pkg/config"
+	"github.com/NVIDIA/infra-controller/rest-api/common/pkg/coreproxy"
+	"github.com/NVIDIA/infra-controller/rest-api/common/pkg/flowproxy"
 	cutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
 	cdb "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db"
 	cdbm "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/model"
@@ -28,6 +30,16 @@ import (
 	temporalClient "go.temporal.io/sdk/client"
 	tmocks "go.temporal.io/sdk/mocks"
 )
+
+// Test_ProxyTimeoutsFitWriteTimeout guards the ceiling that the gRPC proxy
+// timeout ladders live under. A ladder raised past WriteTimeout still looks
+// self-consistent, but its timeout response is written after the connection's
+// deadline and never reaches the client.
+func Test_ProxyTimeoutsFitWriteTimeout(t *testing.T) {
+	assert.Less(t, cutil.WorkflowContextTimeout, WriteTimeout)
+	assert.Less(t, coreproxy.WorkflowExecutionTimeout, cutil.WorkflowContextTimeout)
+	assert.Less(t, flowproxy.WorkflowExecutionTimeout, cutil.WorkflowContextTimeout)
+}
 
 func Test_InitAPIServer(t *testing.T) {
 	type args struct {
