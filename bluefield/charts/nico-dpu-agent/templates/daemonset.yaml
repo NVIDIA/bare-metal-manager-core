@@ -60,6 +60,9 @@ spec:
   template:
     metadata:
       annotations:
+        {{- with .Values.fmds.sign_proxy_url }}
+        checksum/machine-identity-config: {{ include (print $.Template.BasePath "/configmap.yaml") $ | sha256sum }}
+        {{- end }}
         {{- with .Values.serviceDaemonSet.annotations }}
           {{- toYaml . | nindent 8 }}
         {{- end }}
@@ -131,6 +134,9 @@ spec:
             {{- toYaml .Values.securityContext | nindent 12 }}
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
           args:
+            {{- with .Values.fmds.sign_proxy_url }}
+            - "--config-path=/etc/forge/config.toml"
+            {{- end }}
             - run
             - "--hbn-config-mode=nvue-rest"
             - "--agent-platform-type=containerized"
@@ -182,12 +188,23 @@ spec:
                   name: {{ .Values.hbn.nvue_credentials_secret_name }}
                   key: {{ .Values.hbn.nvue_password_key }}
           volumeMounts:
+            {{- with .Values.fmds.sign_proxy_url }}
+            - name: agent-config
+              mountPath: /etc/forge/config.toml
+              subPath: config.toml
+              readOnly: true
+            {{- end }}
             - name: nico-certs
               mountPath: {{ .Values.certsDir | default "/opt/nico" }}
             - name: hw-cache
               mountPath: /data
               readOnly: true
       volumes:
+        {{- with .Values.fmds.sign_proxy_url }}
+        - name: agent-config
+          configMap:
+            name: {{ include "nico-dpu-agent.fullname" $ }}-config
+        {{- end }}
         - name: nico-certs
           hostPath:
             path: {{ .Values.certsDir | default "/opt/nico" }}

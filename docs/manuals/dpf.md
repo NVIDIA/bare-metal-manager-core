@@ -631,6 +631,9 @@ DPF integration is gated on a site-level switch in the carbide-api TOML config
 [dpf]
 enabled = true
 docker_image_pull_secret = "nico-pull-secret"
+# Optional. FMDS forwards machine identity requests to this base URL.
+[dpf.services.dpu_agent.extra_helm_values.fmds]
+sign_proxy_url = "http://identity-proxy.dpf-operator-system.svc.cluster.local:8080"
 ```
 
 `docker_image_pull_secret` is an optional top-level override for the Kubernetes Secret used to pull the NICo (carbide-owned) service images: `dpu_agent`, `dhcp_server`, `fmds`, and `otel`. The `dts` and `doca_hbn` images are never affected by it; they take a pull secret only from their own per-service config — either `[dpf.services.*]` or a deployment's `[dpf.deployments.<name>.services.*]` override.
@@ -656,11 +659,64 @@ helm_version            = "<helm chart version>"   # empty → CI default
 docker_repo_url         = "<image registry+repo>"
 docker_image_tag        = "<image tag>"            # empty → CI default
 docker_image_pull_secret = "dpf-pull-secret"       # optional; omit for a public registry
+
+[dpf.services.<service>.extra_helm_values]
+# Optional chart values merged over NICo's generated values.
 ```
 
 `docker_image_pull_secret` is optional per service and defaults to none: omitting
 it renders no `imagePullSecrets` for that service (public-registry pulls). Set it to
 a Kubernetes image-pull Secret name when the service is served from a private registry.
+Use `extra_helm_values` for other chart settings.
+
+#### Helm value overlays
+
+`extra_helm_values` uses keys from the selected chart's `values.yaml`. NICo applies
+values in this order: generated template values, `extra_helm_values`, then deployment-specific
+`DPUServiceConfiguration` values.
+
+- Tables merge recursively.
+- Scalars and arrays replace generated values.
+- Omitted keys keep their generated values.
+
+Set the DPU agent machine identity proxy:
+
+```toml
+[dpf.services.dpu_agent.extra_helm_values.fmds]
+sign_proxy_url = "http://dsx-imds.dpf-operator-system.svc.cluster.local:8080"
+```
+
+Set resources and replace the tolerations list:
+
+```toml
+[dpf.services.dpu_agent.extra_helm_values.serviceDaemonSet.resources.requests]
+cpu = "250m"
+memory = "256Mi"
+
+[[dpf.services.dpu_agent.extra_helm_values.tolerations]]
+key = "node.kubernetes.io/not-ready"
+operator = "Exists"
+effect = "NoExecute"
+```
+
+Configure another service independently:
+
+```toml
+[dpf.services.otel.extra_helm_values.nodeExporter.resources.requests]
+cpu = "50m"
+memory = "64Mi"
+```
+
+Per-deployment definitions use the same overlay syntax:
+
+```toml
+[dpf.deployments.bf4_generic.services.dpu_agent.extra_helm_values.fmds]
+sign_proxy_url = "http://bf4-dsx-imds.dpf-operator-system.svc.cluster.local:8080"
+```
+
+The DPU agent's generated `dhcp_server.service_name`, `fmds.service_name`, and
+`hbn.nvue_https_address` are deployment-specific and take precedence over these
+template overlays.
 
 #### Per-deployment configuration (`[dpf.deployments.*]`)
 
@@ -721,9 +777,10 @@ versions by adding a `[dpf.deployments.<name>.services]` block with the same six
 sub-tables as `[dpf.services]` (`dts`, `doca_hbn`, `dpu_agent`, `dhcp_server`,
 `fmds`, `otel`). This override **replaces** the inherited set for that
 deployment; any service sub-table you omit falls back to its **built-in
-default**, *not* to the top-level `[dpf.services]` value, so specify all six
-when using it. The top-level `docker_image_pull_secret` still applies on top of
-the resolved set (every service except `dts` and `doca_hbn`).
+default**, *not* to the top-level `[dpf.services]` value. Fields omitted from a
+configured service also use that service's built-in defaults. The top-level
+`docker_image_pull_secret` still applies on top of the resolved set (every
+service except `dts` and `doca_hbn`).
 
 ```toml
 # Pin a BF4-specific HBN chart/image while keeping the other services on defaults.
@@ -734,7 +791,6 @@ helm_chart               = "doca-hbn"
 helm_version             = "3.4.0"
 docker_repo_url          = "nvcr.io/nvidia/doca/doca_hbn"
 docker_image_tag         = "3.4.0-doca3.4.0"
-# ...plus dts, dpu_agent, dhcp_server, fmds, and otel sub-tables.
 ```
 
 BF4 Astra includes three built-in deployment-specific services with no

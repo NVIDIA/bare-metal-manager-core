@@ -1,0 +1,38 @@
+suite: machine identity configuration
+templates:
+  - daemonset.yaml
+tests:
+  - it: uses the Forge signer by default
+    set:
+      image:
+        repository: test
+        tag: test
+    asserts:
+      - notContains:
+          path: spec.template.spec.containers[0].args
+          content: --config-path=/etc/forge/config.toml
+
+  - it: mounts the configured agent file
+    set:
+      image:
+        repository: test
+        tag: test
+      fmds:
+        sign_proxy_url: http://dsx-imds.dpf-operator-system.svc.cluster.local:8080
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --config-path=/etc/forge/config.toml
+      - contains:
+          path: spec.template.spec.containers[0].volumeMounts
+          content:
+            name: agent-config
+            mountPath: /etc/forge/config.toml
+            subPath: config.toml
+            readOnly: true
+      - contains:
+          path: spec.template.spec.volumes
+          content:
+            name: agent-config
+            configMap:
+              name: RELEASE-NAME-config
