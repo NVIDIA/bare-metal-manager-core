@@ -52,7 +52,7 @@ pub const DOCA_WEAVE_CHART_REPO_URL: &str = "oci://harbor.mellanox.com/cloud-orc
 pub const DOCA_WEAVE_IMAGE_REGISTRY: &str = "nvcr.io/nvstaging/doca";
 
 pub const DOCA_XPLANE_CHART_REPO_URL: &str = "https://helm.ngc.nvidia.com/nvstaging/doca";
-pub const DOCA_XPLANE_IMAGE_REGISTRY: &str = "nvcr.io/nvstaging/doca";
+pub const DOCA_XPLANE_IMAGE_REGISTRY: &str = "nvcr.io/nvstaging/doca"; // XXX Needs to be verified XXX
 
 /// HBN service Definitions
 pub const DOCA_HBN_SERVICE_HELM_NAME: &str = "doca-hbn";
@@ -99,10 +99,10 @@ pub const DOCA_WEAVE_FLOW_CONTROLLER_SERVICE_IMAGE_NAME: &str = "weave-system";
 pub const DOCA_WEAVE_FLOW_CONTROLLER_SERVICE_IMAGE_TAG: &str = "v26.5.0-f2c9f7c4-nightly";
 
 /// Xplane service definitions.
-pub const DOCA_XPLANE_SERVICE_HELM_NAME: &str = "doca-xplane";
-pub const DOCA_XPLANE_SERVICE_HELM_VERSION: &str = "1.0";
-pub const DOCA_XPLANE_SERVICE_IMAGE_NAME: &str = "doca_xplane";
-pub const DOCA_XPLANE_SERVICE_IMAGE_TAG: &str = "3.2.1-doca3.2.1";
+pub const DOCA_XPLANE_SERVICE_HELM_NAME: &str = "xplane";
+pub const DOCA_XPLANE_SERVICE_HELM_VERSION: &str = "3.5.0020";
+pub const DOCA_XPLANE_SERVICE_IMAGE_NAME: &str = "xplane";
+pub const DOCA_XPLANE_SERVICE_IMAGE_TAG: &str = "3.5.0020";
 
 /// Compile-time helm version (set by CI via VERSION env var). Empty on PR/fork builds.
 pub(crate) const COMPILE_TIME_HELM_VERSION: &str = match option_env!("CARBIDE_BUILD_HELM_VERSION") {
