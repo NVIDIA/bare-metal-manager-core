@@ -15,6 +15,7 @@
  * limitations under the License.
  */
 
+use carbide_instrument::emit;
 use mac_address::MacAddress;
 use model::address_selection_strategy::AddressSelectionStrategy;
 use model::allocation_type::AllocationType;
@@ -26,6 +27,10 @@ use tonic::{Request, Response, Status};
 
 use crate::api::Api;
 use crate::errors::CarbideError;
+use crate::handlers::static_address_metrics::{
+    PreallocationSuccess, StaticAddressAssignmentCompleted, StaticAddressPreallocationCompleted,
+    StaticAddressRemovalCompleted,
+};
 
 /// Update or create a machine_interface with a static address.
 ///
@@ -38,20 +43,22 @@ use crate::errors::CarbideError;
 /// machine_interface if it's safe to do so (no existing addresses).
 /// To change the IP on a live interface, operators should use
 /// 'machine-interfaces assign-address' or 'remove-address'.
-pub async fn update_preallocated_machine_interface(
+pub(super) async fn update_preallocated_machine_interface(
     txn: &mut sqlx::PgConnection,
     bmc_mac_address: MacAddress,
     bmc_ip: std::net::IpAddr,
     retained_window: Option<chrono::Duration>,
-) -> Result<(), CarbideError> {
-    update_preallocated_machine_interface_with_settings(
-        txn,
-        bmc_mac_address,
-        bmc_ip,
-        None,
-        retained_window,
+) -> Result<PreallocationSuccess, CarbideError> {
+    emit_preallocation_error(
+        update_preallocated_machine_interface_with_settings(
+            txn,
+            bmc_mac_address,
+            bmc_ip,
+            None,
+            retained_window,
+        )
+        .await,
     )
-    .await
 }
 
 /// Apply the existing safe update behavior to a fixed expected interface.
@@ -59,11 +66,26 @@ pub async fn update_preallocated_machine_interface(
 /// An addressed interface remains unchanged. A missing row is created with
 /// the declared interface settings. Any addressless row receives the fixed IP,
 /// but only an unassociated row also receives the role-derived settings.
-pub async fn update_preallocated_expected_machine_interface(
+pub(super) async fn update_preallocated_expected_machine_interface(
     txn: &mut sqlx::PgConnection,
     expected_interface: &ExpectedInterface,
     retained_window: Option<chrono::Duration>,
-) -> Result<(), CarbideError> {
+) -> Result<PreallocationSuccess, CarbideError> {
+    emit_preallocation_error(
+        update_preallocated_expected_machine_interface_inner(
+            txn,
+            expected_interface,
+            retained_window,
+        )
+        .await,
+    )
+}
+
+async fn update_preallocated_expected_machine_interface_inner(
+    txn: &mut sqlx::PgConnection,
+    expected_interface: &ExpectedInterface,
+    retained_window: Option<chrono::Duration>,
+) -> Result<PreallocationSuccess, CarbideError> {
     let fixed_ip = expected_interface
         .fixed_reservation_ip()
         .map_err(|message| {
@@ -119,7 +141,7 @@ async fn update_preallocated_machine_interface_with_settings(
     ip_address: std::net::IpAddr,
     settings: Option<ExpectedInterfaceSettings>,
     retained_window: Option<chrono::Duration>,
-) -> Result<(), CarbideError> {
+) -> Result<PreallocationSuccess, CarbideError> {
     let segment_type_guard = settings.and_then(|settings| settings.segment_type_guard);
     // Generalized ExpectedInterface declarations require a managed prefix
     // even when an addressed interface will otherwise remain unchanged.
@@ -178,6 +200,8 @@ async fn update_preallocated_machine_interface_with_settings(
                 machine_interface_id = %iface.id,
                 "Assigned static address to existing interface without addresses"
             );
+
+            Ok(PreallocationSuccess::Assigned)
         } else {
             // Interface already has address(es). We don't touch it --
             // expected data updates are decoupled from managed state.
@@ -188,6 +212,8 @@ async fn update_preallocated_machine_interface_with_settings(
                 existing_addresses = ?iface.addresses,
                 "Interface already has addresses, updated expected data only"
             );
+
+            Ok(PreallocationSuccess::Skipped)
         }
     } else {
         // No interface yet -- create a new one.
@@ -218,12 +244,54 @@ async fn update_preallocated_machine_interface_with_settings(
             network_segment_id = %segment.id,
             "Pre-allocated static machine interface"
         );
+
+        Ok(PreallocationSuccess::Created)
+    }
+}
+
+fn emit_preallocation_error(
+    result: Result<PreallocationSuccess, CarbideError>,
+) -> Result<PreallocationSuccess, CarbideError> {
+    if let Err(error) = &result {
+        emit(StaticAddressPreallocationCompleted::Error {
+            error: error.to_string(),
+        });
     }
 
-    Ok(())
+    result
 }
 
 pub async fn assign_static_address(
+    api: &Api,
+    request: Request<rpc::AssignStaticAddressRequest>,
+) -> Result<Response<rpc::AssignStaticAddressResponse>, CarbideError> {
+    let result = assign_static_address_inner(api, request).await;
+
+    let event = match &result {
+        Ok(response) => match rpc::AssignStaticAddressStatus::try_from(response.get_ref().status) {
+            Ok(rpc::AssignStaticAddressStatus::Assigned) => {
+                StaticAddressAssignmentCompleted::Assigned {}
+            }
+            Ok(rpc::AssignStaticAddressStatus::ReplacedStatic) => {
+                StaticAddressAssignmentCompleted::ReplacedStatic {}
+            }
+            Ok(rpc::AssignStaticAddressStatus::ReplacedDhcp) => {
+                StaticAddressAssignmentCompleted::ReplacedDhcp {}
+            }
+            Err(error) => StaticAddressAssignmentCompleted::Error {
+                error: error.to_string(),
+            },
+        },
+        Err(error) => StaticAddressAssignmentCompleted::Error {
+            error: error.to_string(),
+        },
+    };
+    emit(event);
+
+    result
+}
+
+async fn assign_static_address_inner(
     api: &Api,
     request: Request<rpc::AssignStaticAddressRequest>,
 ) -> Result<Response<rpc::AssignStaticAddressResponse>, CarbideError> {
@@ -285,6 +353,33 @@ pub async fn assign_static_address(
 }
 
 pub async fn remove_static_address(
+    api: &Api,
+    request: Request<rpc::RemoveStaticAddressRequest>,
+) -> Result<Response<rpc::RemoveStaticAddressResponse>, CarbideError> {
+    let result = remove_static_address_inner(api, request).await;
+
+    let event = match &result {
+        Ok(response) => match rpc::RemoveStaticAddressStatus::try_from(response.get_ref().status) {
+            Ok(rpc::RemoveStaticAddressStatus::Removed) => {
+                StaticAddressRemovalCompleted::Removed {}
+            }
+            Ok(rpc::RemoveStaticAddressStatus::NotFound) => {
+                StaticAddressRemovalCompleted::NotFound {}
+            }
+            Err(error) => StaticAddressRemovalCompleted::Error {
+                error: error.to_string(),
+            },
+        },
+        Err(error) => StaticAddressRemovalCompleted::Error {
+            error: error.to_string(),
+        },
+    };
+    emit(event);
+
+    result
+}
+
+async fn remove_static_address_inner(
     api: &Api,
     request: Request<rpc::RemoveStaticAddressRequest>,
 ) -> Result<Response<rpc::RemoveStaticAddressResponse>, CarbideError> {
@@ -362,4 +457,24 @@ pub async fn find_interface_addresses(
         interface_id: Some(interface_id),
         addresses: proto_addresses,
     }))
+}
+
+#[cfg(test)]
+mod tests {
+    use carbide_instrument::testing::capture_logs;
+
+    use super::*;
+
+    #[test]
+    fn preallocation_error_is_emitted_once() {
+        let logs = capture_logs(|| {
+            let result = emit_preallocation_error(Err(CarbideError::InvalidArgument(
+                "operation failed".to_string(),
+            )));
+            assert!(matches!(result, Err(CarbideError::InvalidArgument(_))));
+        });
+
+        assert_eq!(logs.len(), 1);
+        assert_eq!(logs[0].level, tracing::Level::WARN);
+    }
 }

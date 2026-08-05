@@ -24,6 +24,7 @@ mod expected_power_shelf;
 mod expected_power_shelf_crud;
 mod expected_power_shelf_static_address;
 mod expected_rack;
+mod expected_switch_static_address;
 mod explored_managed_host_find;
 mod explored_mlx_devices;
 mod find_by_ids_guards;

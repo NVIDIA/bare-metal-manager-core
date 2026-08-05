@@ -82,6 +82,7 @@ pub mod site_explorer;
 pub mod site_prefix;
 pub mod sku;
 pub mod spx_partition;
+pub mod static_address_metrics;
 pub mod svpc;
 pub mod switch;
 pub mod tenant;

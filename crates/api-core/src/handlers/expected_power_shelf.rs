@@ -16,6 +16,7 @@
  */
 
 use ::rpc::forge as rpc;
+use carbide_instrument::emit;
 use db::{DatabaseError, expected_power_shelf as db_expected_power_shelf};
 use mac_address::MacAddress;
 use model::expected_power_shelf::{ExpectedPowerShelf, ExpectedPowerShelfRequest};
@@ -24,6 +25,7 @@ use tonic::{Request, Response, Status};
 use crate::CarbideError;
 use crate::api::Api;
 use crate::handlers::machine_interface_address::update_preallocated_machine_interface;
+use crate::handlers::static_address_metrics::StaticAddressPreallocationCompleted;
 
 pub async fn add_expected_power_shelf(
     api: &Api,
@@ -107,15 +109,19 @@ pub async fn update_expected_power_shelf(
             message: format!("Database error: {}", e),
         })?;
 
-    if let Some(bmc_ip) = power_shelf.bmc_ip_address {
-        update_preallocated_machine_interface(
-            &mut txn,
-            power_shelf.bmc_mac_address,
-            bmc_ip,
-            api.runtime_config.retained_boot_interface_window,
+    let preallocation = if let Some(bmc_ip) = power_shelf.bmc_ip_address {
+        Some(
+            update_preallocated_machine_interface(
+                &mut txn,
+                power_shelf.bmc_mac_address,
+                bmc_ip,
+                api.runtime_config.retained_boot_interface_window,
+            )
+            .await?,
         )
-        .await?;
-    }
+    } else {
+        None
+    };
 
     db_expected_power_shelf::update(&mut txn, &power_shelf)
         .await
@@ -124,6 +130,10 @@ pub async fn update_expected_power_shelf(
     txn.commit().await.map_err(|e| CarbideError::Internal {
         message: format!("Failed to commit transaction: {}", e),
     })?;
+
+    if let Some(outcome) = preallocation {
+        emit(StaticAddressPreallocationCompleted::from(outcome));
+    }
 
     Ok(Response::new(()))
 }
