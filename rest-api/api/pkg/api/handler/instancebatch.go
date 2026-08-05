@@ -123,9 +123,10 @@ func (bcih BatchCreateInstanceHandler) buildBatchInstanceCreateRequestOsConfig(c
 		return c.Str("OperatingSystem ID", os.ID.String())
 	})
 
-	// Confirm ownership between tenant and OS.
-	if os.TenantID.String() != apiRequest.TenantID {
-		logger.Error().Msg("OperatingSystem in request is not owned by tenant")
+	// Confirm the Tenant can use the OS. Provider-owned Templated iPXE OSes are
+	// shared through synchronized Site associations validated below.
+	if !os.IsTenantUsable(apiRequest.TenantID) {
+		logger.Error().Msg("OperatingSystem in request is not usable by tenant")
 		return nil, nil, cutil.NewAPIError(http.StatusBadRequest, "OperatingSystem specified in request is not owned by Tenant", nil)
 	}
 
