@@ -15,40 +15,23 @@
 # limitations under the License.
 #
 [package]
-name = "tonic-client-wrapper"
-version = "0.1.0"
+name = "carbide-proto-compiler"
+version = "0.0.0"
+description = "Shared protobuf frontend for Carbide build-time code generation"
 edition.workspace = true
 license.workspace = true
 authors.workspace = true
 repository.workspace = true
 
-[features]
-default = ["codegen"]
-codegen = [
-  "dep:proc-macro2",
-  "dep:quote",
-  "dep:syn",
-  "dep:prettyplease",
-  "dep:heck",
-  "dep:prost-types",
-  "dep:lazy_static",
-]
-
 [dependencies]
+prost-build = { workspace = true }
+prost-reflect = { workspace = true }
+prost-types = { workspace = true }
+tempfile = { workspace = true }
 thiserror = { workspace = true }
-tonic = { workspace = true }
-async-trait = { workspace = true }
-proc-macro2 = { optional = true, workspace = true }
-quote = { optional = true, workspace = true }
-syn = { optional = true, workspace = true }
-prettyplease = { optional = true, workspace = true }
-heck = { optional = true, workspace = true }
-prost-types = { optional = true, workspace = true }
-lazy_static = { optional = true, workspace = true }
 
 [dev-dependencies]
-temp-dir = { workspace = true }
-tonic-prost-build = { workspace = true }
+prost = { workspace = true }
 
 [lints]
 workspace = true

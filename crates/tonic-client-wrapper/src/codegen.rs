@@ -14,6 +14,15 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
+//! Descriptor-driven code generation for tonic client wrappers.
+//!
+//! This module is a downstream code-generation backend: it does not parse
+//! `.proto` files or invoke `protoc`. [`CodeGenerator`] borrows a complete
+//! [`FileDescriptorSet`] so it can resolve request and response types across
+//! imports. [`Config::root_files`] independently selects the protobuf files
+//! whose services receive wrapper methods and convenience converters.
+
 use std::cmp::Ordering;
 use std::collections::{HashMap, HashSet};
 use std::fs;
@@ -22,7 +31,7 @@ use std::path::Path;
 use heck::{ToSnakeCase, ToUpperCamelCase};
 use proc_macro2::{LexError, TokenStream};
 use prost_types::field_descriptor_proto::Label;
-use prost_types::{FileDescriptorProto, MethodDescriptorProto};
+use prost_types::{FileDescriptorProto, FileDescriptorSet, MethodDescriptorProto};
 use quote::{TokenStreamExt, quote};
 
 use crate::utils::{base_types, field_is_optional, resolve_field_primitive_type};
@@ -38,6 +47,10 @@ pub enum Error {
     Lex(#[from] LexError),
     #[error("invalid protobuf type: {0}")]
     InvalidProtobufType(String),
+    #[error("root protobuf file not found in descriptor set: {0}")]
+    MissingRootFile(String),
+    #[error("duplicate root protobuf file: {0}")]
+    DuplicateRootFile(String),
     #[error(transparent)]
     Io(#[from] std::io::Error),
     #[error("syntax error in generated code: {0}")]
@@ -46,11 +59,11 @@ pub enum Error {
 
 pub type Result<T> = std::result::Result<T, Error>;
 
-/// Configures code generation of the tonic client wrapper
+/// Configures code generation of a tonic client wrapper.
 pub struct Config {
-    /// The name of the generated tonic client wrapper
+    /// The name of the generated tonic client wrapper.
     pub wrapper_name: String,
-    /// The fully qualified type of the tonic client this wrapper will be calling
+    /// The fully qualified type of the tonic client this wrapper will call.
     pub inner_rpc_client_type: String,
 
     /// The module path of the generated types within your crate, not including the service name,
@@ -61,30 +74,42 @@ pub struct Config {
     /// use `"rpc::protos"` here.
     pub generated_types_path_within_crate: String,
 
-    /// The input protobuf files to generate wrappers from
-    pub proto_files: Vec<String>,
+    /// Service-selection roots, not protobuf compilation inputs.
+    ///
+    /// Each value must exactly match a [`FileDescriptorProto::name`] in the
+    /// shared descriptor set, such as `forge.proto`. The generator uses the
+    /// complete descriptor set for cross-file type lookup, but emits services
+    /// and converters only for these files.
+    pub root_files: Vec<String>,
 
-    /// Include paths for types referenced by `proto_files`:w
-    pub include_paths: Vec<String>,
-
-    /// List of protobuf types to override with specific rust types. This should mirror any types you are customizing via [`tonic_prost_build::Builder::extern_path`] to make the generated code match.
+    /// List of protobuf types to override with specific Rust types. This should mirror any types
+    /// customized through `tonic_prost_build::Builder::extern_path` so the generated code matches.
     pub extern_paths: Vec<(ProtobufType, RustType)>,
 }
 
 pub type ProtobufType = &'static str;
 pub type RustType = &'static str;
 
-pub struct CodeGenerator {
+/// A wrapper backend borrowing a complete protobuf schema.
+///
+/// The borrow keeps selected files and the cross-file message index tied to the
+/// source [`FileDescriptorSet`] for the generator's lifetime.
+pub struct CodeGenerator<'a> {
     inner_rpc_client_type: TokenStream,
     wrapper_name: TokenStream,
-    proto_fds: Vec<FileDescriptorProto>,
+    root_files: Vec<&'a FileDescriptorProto>,
     generated_types_path_within_crate: TokenStream,
-    message_types: HashMap<String, MessageWithPackage>,
+    message_types: HashMap<String, MessageWithPackage<'a>>,
     extern_paths: HashMap<ProtobufType, RustType>,
 }
 
-impl CodeGenerator {
-    pub fn new(config: Config) -> Result<Self> {
+impl<'a> CodeGenerator<'a> {
+    /// Creates a backend from wrapper settings and a complete descriptor set.
+    ///
+    /// [`Config::root_files`] chooses service roots within `descriptor_set`;
+    /// imported and otherwise unselected files remain available for resolving
+    /// method types.
+    pub fn new(config: Config, descriptor_set: &'a FileDescriptorSet) -> Result<Self> {
         let inner_rpc_client_type =
             config
                 .inner_rpc_client_type
@@ -108,22 +133,40 @@ impl CodeGenerator {
                 error,
             })?;
 
-        let proto_fds = tonic_prost_build::Config::new()
-            .protoc_arg("--experimental_allow_proto3_optional")
-            .load_fds(
-                config.proto_files.as_slice(),
-                config.include_paths.as_slice(),
-            )?
-            .file;
+        // Resolve service-selection roots by their logical descriptor names.
+        let mut selected_root_names = HashSet::new();
+        let root_files = config
+            .root_files
+            .iter()
+            .map(|root_file| {
+                if !selected_root_names.insert(root_file.as_str()) {
+                    return Err(Error::DuplicateRootFile(root_file.clone()));
+                }
 
-        // Make an index of the messages by fully-qualified name, so we can refer to them later
-        let message_types: HashMap<String, MessageWithPackage> = proto_fds
+                let mut matches = descriptor_set
+                    .file
+                    .iter()
+                    .filter(|file| file.name() == root_file.as_str());
+                let root = matches
+                    .next()
+                    .ok_or_else(|| Error::MissingRootFile(root_file.clone()))?;
+                if matches.next().is_some() {
+                    return Err(Error::DuplicateRootFile(root_file.clone()));
+                }
+                Ok(root)
+            })
+            .collect::<Result<Vec<_>>>()?;
+
+        // Index messages from the complete descriptor set, not only the service
+        // roots, so methods may use types declared in imported files.
+        let message_types: HashMap<String, MessageWithPackage<'_>> = descriptor_set
+            .file
             .iter()
             .flat_map(|fd| {
                 fd.message_type.iter().map(|message| {
                     let message_with_package = MessageWithPackage {
-                        message: message.clone(),
-                        package: fd.package.clone(),
+                        message,
+                        package: fd.package.as_deref(),
                     };
                     (message_with_package.qualified_name(), message_with_package)
                 })
@@ -135,19 +178,19 @@ impl CodeGenerator {
         Ok(Self {
             inner_rpc_client_type,
             wrapper_name,
-            proto_fds,
+            root_files,
             generated_types_path_within_crate,
             message_types,
             extern_paths,
         })
     }
 
-    /// Write the tonic client wrapper out to a file.
+    /// Writes wrapper methods for services in the selected root files.
     pub fn write_rpc_client_wrapper<P: AsRef<Path>>(&self, out: P) -> Result<()> {
         let mut wrapper_methods = TokenStream::new();
 
         let mut labeled_methods = Vec::new();
-        for fd in &self.proto_fds {
+        for fd in &self.root_files {
             for svc in &fd.service {
                 let service_label = svc.name().to_snake_case();
                 for method in &svc.method {
@@ -230,8 +273,8 @@ impl CodeGenerator {
         Ok(())
     }
 
-    /// Write convience `From<...>` implementations for each type referenced by a gRPC method in the
-    /// proto files.
+    /// Writes convenience `From<...>` implementations for request types used by
+    /// gRPC methods in the selected root files.
     ///
     /// A converter will be written for a type if:
     ///
@@ -241,12 +284,13 @@ impl CodeGenerator {
     /// If the type has zero fields, a converter will be generated from the empty tuple (`()`).
     ///
     /// If the type has one field, a converter will be generated from any type which is convertible
-    /// to that single field (ie. `From<T: Into<SomeField>>`)
+    /// to that single field (i.e., `From<T: Into<SomeField>>`).
     pub fn write_rpc_convenience_converters<P: AsRef<Path>>(&self, out: P) -> Result<()> {
-        // Grab the input type of every method from every service in every file. Use a HashSet so we
-        // don't create the same converter twice
+        // Collect inputs only from selected services, then resolve them through
+        // the complete message index. Deduplication avoids duplicate impls when
+        // several methods use the same request type.
         let method_inputs_type_strings: HashSet<&String> = self
-            .proto_fds
+            .root_files
             .iter()
             .flat_map(|fd| &fd.service)
             .flat_map(|service| &service.method)
@@ -275,7 +319,7 @@ impl CodeGenerator {
 
     fn make_convenience_converter(
         &self,
-        message_with_package: &MessageWithPackage,
+        message_with_package: &MessageWithPackage<'_>,
     ) -> Result<Option<TokenStream>> {
         let message = &message_with_package.message;
         let qualified_name = message_with_package.qualified_name();
@@ -383,7 +427,7 @@ impl CodeGenerator {
 
     fn make_convenience_converter_from_void(
         &self,
-        message_with_package: &MessageWithPackage,
+        message_with_package: &MessageWithPackage<'_>,
     ) -> Result<TokenStream> {
         let message_type: TokenStream = self
             .convert_protobuf_type_to_rust_type(&message_with_package.qualified_name())?
@@ -604,12 +648,12 @@ impl CodeGenerator {
 }
 
 #[derive(Debug)]
-struct MessageWithPackage {
-    package: Option<String>,
-    message: prost_types::DescriptorProto,
+struct MessageWithPackage<'a> {
+    package: Option<&'a str>,
+    message: &'a prost_types::DescriptorProto,
 }
 
-impl MessageWithPackage {
+impl MessageWithPackage<'_> {
     fn qualified_name(&self) -> String {
         if let Some(package) = &self.package {
             format!(".{}.{}", package, self.message.name())
@@ -641,34 +685,182 @@ fn write_token_stream_if_not_up_to_date<T: AsRef<Path>>(
 mod tests {
     use super::*;
 
-    fn test_generator(proto_file: &str) -> CodeGenerator {
+    fn descriptor_set(proto_files: &[(&str, &str)]) -> FileDescriptorSet {
         let proto_dir = temp_dir::TempDir::new().expect("Could not create temporary directory");
-        fs::write(proto_dir.path().join("test.proto"), proto_file)
-            .expect("Could not write test proto file");
-        let cfg = Config {
+        let proto_paths = proto_files
+            .iter()
+            .map(|(name, contents)| {
+                let path = proto_dir.path().join(name);
+                fs::write(&path, contents).expect("Could not write test proto file");
+                path
+            })
+            .collect::<Vec<_>>();
+
+        tonic_prost_build::Config::new()
+            .protoc_arg("--experimental_allow_proto3_optional")
+            .load_fds(proto_paths.as_slice(), &[proto_dir.path()])
+            .expect("Could not compile test descriptors")
+    }
+
+    fn test_config(root_files: Vec<String>) -> Config {
+        Config {
             wrapper_name: "TestWrapper".to_string(),
             inner_rpc_client_type: "TestInnerClient".to_string(),
             generated_types_path_within_crate: "test".to_string(),
-            proto_files: vec![
-                proto_dir
-                    .path()
-                    .join("test.proto")
-                    .to_string_lossy()
-                    .to_string(),
-            ],
-            include_paths: vec![proto_dir.path().to_string_lossy().to_string()],
+            root_files,
             extern_paths: vec![(".ExternType", "crate::CustomExternType")],
-        };
+        }
+    }
 
-        CodeGenerator::new(cfg).expect("Could not build CodeGenerator")
+    fn test_generator(descriptor_set: &FileDescriptorSet) -> CodeGenerator<'_> {
+        CodeGenerator::new(test_config(vec!["test.proto".to_string()]), descriptor_set)
+            .expect("Could not build CodeGenerator")
+    }
+
+    #[test]
+    fn validates_root_files() {
+        let descriptor_set =
+            descriptor_set(&[("test.proto", include_str!("test_fixtures/test.proto"))]);
+
+        match CodeGenerator::new(
+            test_config(vec!["missing.proto".to_string()]),
+            &descriptor_set,
+        ) {
+            Err(Error::MissingRootFile(root_file)) => assert_eq!(root_file, "missing.proto"),
+            Err(error) => panic!("unexpected error: {error}"),
+            Ok(_) => panic!("missing root file was accepted"),
+        }
+
+        match CodeGenerator::new(
+            test_config(vec!["test.proto".to_string(), "test.proto".to_string()]),
+            &descriptor_set,
+        ) {
+            Err(Error::DuplicateRootFile(root_file)) => assert_eq!(root_file, "test.proto"),
+            Err(error) => panic!("unexpected error: {error}"),
+            Ok(_) => panic!("duplicate configured root file was accepted"),
+        }
+
+        let mut duplicate_descriptor_set = descriptor_set.clone();
+        duplicate_descriptor_set
+            .file
+            .push(descriptor_set.file[0].clone());
+        match CodeGenerator::new(
+            test_config(vec!["test.proto".to_string()]),
+            &duplicate_descriptor_set,
+        ) {
+            Err(Error::DuplicateRootFile(root_file)) => assert_eq!(root_file, "test.proto"),
+            Err(error) => panic!("unexpected error: {error}"),
+            Ok(_) => panic!("duplicate descriptor root file was accepted"),
+        }
+    }
+
+    #[test]
+    fn selected_roots_isolate_services_but_share_message_types() {
+        let descriptor_set = descriptor_set(&[
+            (
+                "selected.proto",
+                r#"
+                    syntax = "proto3";
+                    package selected;
+                    import "shared.proto";
+
+                    service SelectedService {
+                      rpc SelectedRpc(shared.SharedRequest) returns (SelectedResponse);
+                    }
+
+                    message SelectedResponse {}
+                "#,
+            ),
+            (
+                "shared.proto",
+                r#"
+                    syntax = "proto3";
+                    package shared;
+
+                    service ImportedService {
+                      rpc ImportedRpc(SharedRequest) returns (SharedResponse);
+                    }
+
+                    message SharedRequest { string value = 1; }
+                    message SharedResponse {}
+                "#,
+            ),
+            (
+                "unrelated.proto",
+                r#"
+                    syntax = "proto3";
+                    package unrelated;
+
+                    service UnrelatedService {
+                      rpc UnrelatedRpc(UnrelatedRequest) returns (UnrelatedResponse);
+                    }
+
+                    message UnrelatedRequest {}
+                    message UnrelatedResponse {}
+                "#,
+            ),
+        ]);
+        let generator = CodeGenerator::new(
+            test_config(vec!["selected.proto".to_string()]),
+            &descriptor_set,
+        )
+        .expect("Could not build CodeGenerator");
+        let output_dir = temp_dir::TempDir::new().expect("Could not create temporary directory");
+        let wrapper_path = output_dir.path().join("wrapper.rs");
+        let converters_path = output_dir.path().join("converters.rs");
+
+        generator
+            .write_rpc_client_wrapper(&wrapper_path)
+            .expect("Could not generate wrapper");
+        generator
+            .write_rpc_convenience_converters(&converters_path)
+            .expect("Could not generate converters");
+
+        let wrapper = fs::read_to_string(wrapper_path).expect("Could not read generated wrapper");
+        assert!(wrapper.contains("pub async fn selected_rpc"));
+        assert!(!wrapper.contains("pub async fn imported_rpc"));
+        assert!(!wrapper.contains("pub async fn unrelated_rpc"));
+
+        let converters =
+            fs::read_to_string(converters_path).expect("Could not read generated converters");
+        assert!(converters.contains("crate::test::shared::SharedRequest"));
+        assert!(!converters.contains("crate::test::unrelated::UnrelatedRequest"));
+    }
+
+    #[test]
+    fn generated_files_match_golden() {
+        let descriptor_set =
+            descriptor_set(&[("test.proto", include_str!("test_fixtures/golden.proto"))]);
+        let generator = test_generator(&descriptor_set);
+        let output_dir = temp_dir::TempDir::new().expect("Could not create temporary directory");
+        let wrapper_path = output_dir.path().join("wrapper.rs");
+        let converters_path = output_dir.path().join("converters.rs");
+
+        generator
+            .write_rpc_client_wrapper(&wrapper_path)
+            .expect("Could not generate wrapper");
+        generator
+            .write_rpc_convenience_converters(&converters_path)
+            .expect("Could not generate converters");
+
+        assert_eq!(
+            fs::read_to_string(wrapper_path).expect("Could not read generated wrapper"),
+            include_str!("test_fixtures/golden_wrapper.rs")
+        );
+        assert_eq!(
+            fs::read_to_string(converters_path).expect("Could not read generated converters"),
+            include_str!("test_fixtures/golden_converters.rs")
+        );
     }
 
     #[test]
     fn test_rpc_wrapper_method() {
-        let generator = test_generator(include_str!("test_fixtures/test.proto"));
+        let descriptor_set =
+            descriptor_set(&[("test.proto", include_str!("test_fixtures/test.proto"))]);
+        let generator = test_generator(&descriptor_set);
 
         let methods = generator
-            .proto_fds
+            .root_files
             .iter()
             .flat_map(|f| &f.service)
             .flat_map(|f| &f.method)
@@ -822,7 +1014,9 @@ mod tests {
 
     #[test]
     fn test_convenience_wrapper_method() {
-        let generator = test_generator(include_str!("test_fixtures/test.proto"));
+        let descriptor_set =
+            descriptor_set(&[("test.proto", include_str!("test_fixtures/test.proto"))]);
+        let generator = test_generator(&descriptor_set);
 
         {
             let message_with_package = generator.message_types.get(".VoidRequest").unwrap();
