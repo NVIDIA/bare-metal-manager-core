@@ -23,14 +23,15 @@
 //! queue entry remains until normal dequeue, where its first operation observes
 //! the closed receiver and completes without invoking business logic.
 
-use std::collections::HashMap;
-use std::collections::hash_map::Entry;
 use std::convert::Infallible;
+use std::hash::{Hash, Hasher};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::{Duration, Instant};
 
 use carbide_authn::middleware::ExternalUserInfo;
+use hashbrown::Equivalent;
+use hashbrown::hash_map::EntryRef;
 use nv_redfish_dispatcher::schedulers::{
     BoundedConcurrency, BoundedQueue, BoundedQueueProducer, Fifo, RoundRobin, TailDrop,
 };
@@ -85,16 +86,59 @@ pub(super) struct AdmissionRejection {
     pub(super) retry: RetryAdvice,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) enum ClientKey {
     /// An authenticated user, grouped by its complete certificate identity.
-    ExternalUser(Arc<ExternalUserInfo>),
+    ExternalUser(ExternalUserInfo),
     /// A SPIFFE service identifier.
-    ServiceId(Arc<str>),
+    ServiceId(String),
     /// A SPIFFE machine identifier.
-    MachineId(Arc<str>),
+    MachineId(String),
     /// A request that has no recognized client identity.
     Default,
+}
+
+impl Hash for ClientKey {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        // ClientKeyRef and ClientKey must hash the same: Construct a ref first and then hash it.
+        self.as_ref().hash(state);
+    }
+}
+
+impl ClientKey {
+    fn as_ref(&self) -> ClientKeyRef<'_> {
+        match self {
+            ClientKey::Default => ClientKeyRef::Default,
+            ClientKey::ExternalUser(u) => ClientKeyRef::ExternalUser(u),
+            ClientKey::ServiceId(id) => ClientKeyRef::ServiceId(id),
+            ClientKey::MachineId(id) => ClientKeyRef::MachineId(id),
+        }
+    }
+}
+
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
+pub(super) enum ClientKeyRef<'a> {
+    ExternalUser(&'a ExternalUserInfo),
+    ServiceId(&'a str),
+    MachineId(&'a str),
+    Default,
+}
+
+impl ClientKeyRef<'_> {
+    pub fn to_client_key(self) -> ClientKey {
+        match self {
+            ClientKeyRef::Default => ClientKey::Default,
+            ClientKeyRef::ExternalUser(u) => ClientKey::ExternalUser(u.to_owned()),
+            ClientKeyRef::ServiceId(id) => ClientKey::ServiceId(id.to_owned()),
+            ClientKeyRef::MachineId(id) => ClientKey::MachineId(id.to_owned()),
+        }
+    }
+}
+
+impl Equivalent<ClientKey> for ClientKeyRef<'_> {
+    fn equivalent(&self, key: &ClientKey) -> bool {
+        self == &key.as_ref()
+    }
 }
 
 pub(super) trait AdmissionObserver: Send + Sync + 'static {
@@ -120,7 +164,7 @@ struct ClientState {
 }
 
 struct EngineState {
-    clients: HashMap<ClientKey, ClientState>,
+    clients: hashbrown::HashMap<ClientKey, ClientState>,
 }
 
 pub(super) struct FairAdmission {
@@ -157,7 +201,7 @@ impl FairAdmission {
         let engine = Arc::new(Self {
             limits,
             state: Mutex::new(EngineState {
-                clients: HashMap::new(),
+                clients: hashbrown::HashMap::new(),
             }),
             runtime_handle: runtime_handle.clone(),
             pending: Arc::new(AtomicUsize::new(0)),
@@ -229,7 +273,7 @@ impl FairAdmission {
     /// It is released before this method waits for a grant.
     pub(super) async fn acquire(
         &self,
-        client_key: ClientKey,
+        client_key: ClientKeyRef<'_>,
         client_limits: ClientLimits,
     ) -> Result<ExecutionPermit, AdmissionRejection> {
         // Phase 1: Fast preflight and grant-channel setup.
@@ -272,7 +316,7 @@ impl FairAdmission {
             // Resolve (or lazily create) the client's bounded scheduler, then
             // capture client and global pressure from the same admission turn.
             // These snapshots are reused for all rejection advice below.
-            let client = match self.client(&mut state, client_key.clone(), client_limits) {
+            let client = match self.client(&mut state, &client_key, client_limits) {
                 Ok(client) => client,
                 Err(reason) => {
                     let retry = self.retry_advice(&state, &client_key, client_limits);
@@ -423,7 +467,7 @@ impl FairAdmission {
     fn rejection(
         &self,
         reason: RejectionReason,
-        client_key: &ClientKey,
+        client_key: &ClientKeyRef,
         client_limits: ClientLimits,
     ) -> AdmissionRejection {
         let state = lock(&self.state);
@@ -436,7 +480,7 @@ impl FairAdmission {
     fn retry_advice(
         &self,
         state: &EngineState,
-        client_key: &ClientKey,
+        client_key: &ClientKeyRef,
         client_limits: ClientLimits,
     ) -> RetryAdvice {
         let client_pressure = state.clients.get(client_key).map_or_else(
@@ -473,12 +517,12 @@ impl FairAdmission {
     fn client<'a>(
         &self,
         state: &'a mut EngineState,
-        client_key: ClientKey,
+        client_key: &ClientKeyRef,
         limits: ClientLimits,
     ) -> Result<&'a mut ClientState, RejectionReason> {
-        let client = match state.clients.entry(client_key) {
-            Entry::Occupied(entry) => entry.into_mut(),
-            Entry::Vacant(entry) => {
+        let client = match state.clients.entry_ref(client_key) {
+            EntryRef::Occupied(entry) => entry.into_mut(),
+            EntryRef::Vacant(entry) => {
                 let (queue, producer): (ClientQueue, ClientProducer) =
                     BoundedQueueBuilder::new(limits.max_pending).fifo().build();
                 let child = BoundedConcurrency::new(limits.max_work_in_flight, queue);
@@ -491,19 +535,22 @@ impl FairAdmission {
                     limits.max_work_in_flight(),
                     limits.max_pending(),
                 )));
-                entry.insert(ClientState {
-                    child_id,
-                    producer,
-                    limits,
-                    execution_ewma,
-                    last_activity: Instant::now(),
-                })
+                entry.insert_with_key(
+                    client_key.to_client_key(),
+                    ClientState {
+                        child_id,
+                        producer,
+                        limits,
+                        execution_ewma,
+                        last_activity: Instant::now(),
+                    },
+                )
             }
         };
         Ok(client)
     }
 
-    fn client_ewma(&self, client_key: &ClientKey) -> Result<Arc<PeakEwma>, RejectionReason> {
+    fn client_ewma(&self, client_key: &ClientKeyRef) -> Result<Arc<PeakEwma>, RejectionReason> {
         lock(&self.state)
             .clients
             .get(client_key)

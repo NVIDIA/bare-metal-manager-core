@@ -1237,6 +1237,7 @@ dependencies = [
  "figment",
  "futures",
  "futures-util",
+ "hashbrown 0.17.1",
  "hex",
  "hkdf 0.13.0",
  "hostname",

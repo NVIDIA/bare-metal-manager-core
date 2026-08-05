@@ -35,7 +35,7 @@ use axum::extract::{OriginalUri, Request, State};
 use axum::http::{HeaderValue, Response, StatusCode, header};
 use axum::middleware::Next;
 use axum::response::IntoResponse;
-use engine::{AdmissionObserver, AdmissionRejection, ClientKey, FairAdmission, RejectionReason};
+use engine::{AdmissionObserver, AdmissionRejection, ClientKeyRef, FairAdmission, RejectionReason};
 pub(crate) use limits::{AdmissionLimits, ClientLimits};
 use opentelemetry::metrics::{Meter, ObservableGauge};
 use retry::{RejectionScope, RetryAdvice};
@@ -346,10 +346,10 @@ impl ApiAdmissionControl {
         self.engine.snapshot()
     }
 
-    fn client(&self, request: &Request) -> (ClientKey, ClientLimits) {
+    fn client<'a>(&self, request: &'a Request) -> (ClientKeyRef<'a>, ClientLimits) {
         let auth_context = request.extensions().get::<AuthContext>();
         if let Some(external_user) = auth_context.and_then(AuthContext::get_external_user_info) {
-            let key = ClientKey::ExternalUser(Arc::new(external_user.clone()));
+            let key = ClientKeyRef::ExternalUser(external_user);
             return (key, self.default_client_limits);
         }
         if let Some(service_id) = auth_context.and_then(AuthContext::get_spiffe_service_id) {
@@ -358,15 +358,15 @@ impl ApiAdmissionControl {
                 .get(service_id)
                 .copied()
                 .unwrap_or(self.default_client_limits);
-            return (ClientKey::ServiceId(Arc::from(service_id)), limits);
+            return (ClientKeyRef::ServiceId(service_id), limits);
         }
         if let Some(machine_id) = auth_context.and_then(AuthContext::get_spiffe_machine_id) {
             return (
-                ClientKey::MachineId(Arc::from(machine_id)),
+                ClientKeyRef::MachineId(machine_id),
                 self.default_client_limits,
             );
         }
-        (ClientKey::Default, self.default_client_limits)
+        (ClientKeyRef::Default, self.default_client_limits)
     }
 }
 
@@ -479,9 +479,9 @@ mod tests {
         (control, join_set)
     }
 
-    fn test_client(control: &ApiAdmissionControl) -> (ClientKey, ClientLimits) {
+    fn test_client(control: &ApiAdmissionControl) -> (ClientKeyRef<'_>, ClientLimits) {
         (
-            ClientKey::ServiceId(Arc::from("test-client")),
+            ClientKeyRef::ServiceId("test-client"),
             control.default_client_limits,
         )
     }
@@ -489,13 +489,10 @@ mod tests {
     #[test]
     fn client_keys_distinguish_identity_kinds() {
         assert_ne!(
-            ClientKey::ServiceId(Arc::from("same-identifier")),
-            ClientKey::MachineId(Arc::from("same-identifier"))
+            ClientKeyRef::ServiceId("same-identifier"),
+            ClientKeyRef::MachineId("same-identifier"),
         );
-        assert_ne!(
-            ClientKey::ServiceId(Arc::from("default")),
-            ClientKey::Default
-        );
+        assert_ne!(ClientKeyRef::ServiceId("default"), ClientKeyRef::Default,);
     }
 
     fn rejection(reason: RejectionReason, seconds: u64) -> AdmissionRejection {
@@ -625,7 +622,7 @@ mod tests {
         let (client_key, client_limits) = test_client(&control);
         let executing = control
             .engine
-            .acquire(client_key.clone(), client_limits)
+            .acquire(client_key, client_limits)
             .await
             .expect("first work is admitted");
         let pending = control.engine.acquire(client_key, client_limits);
