@@ -275,7 +275,12 @@ jobs:
           # images cannot be loaded into the classic store, so they always push
           # directly.
           push: ${{ inputs.push && (contains(inputs.platforms, ',') || github.repository == 'NVIDIA/infra-controller') }}
-          load: ${{ (inputs.load && !inputs.push) || (inputs.push && !contains(inputs.platforms, ',') && github.repository != 'NVIDIA/infra-controller') }}
+          # Loading means exporting the whole image to the daemon, so it is only
+          # worth doing when a later step reads it back: the deferred push on
+          # mirrors, or the main-branch Grype scan. A pull request runs neither,
+          # yet the 8 GB boot-artifacts carrier still spent a measured 5m20s on
+          # the export before every step that could have used it was skipped.
+          load: ${{ (inputs.load && !inputs.push && inputs.scan && github.ref == 'refs/heads/main') || (inputs.push && !contains(inputs.platforms, ',') && github.repository != 'NVIDIA/infra-controller') }}
           # mirrors: the docker exporter cannot attach attestations, and
           # provenance would embed private downstream repo refs into artifacts
           provenance: ${{ github.repository == 'NVIDIA/infra-controller' && 'mode=min' || 'false' }}
