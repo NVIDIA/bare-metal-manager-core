@@ -277,7 +277,9 @@ struct TlsConnectionFailed {
 ///
 /// This method will return an error if any preconditions fail (could not bind to the port, issues
 /// with tls configuration), then moves processing to a background task spawned into `join_set`. The
-/// background task does not return unless `cancel_token` is canceled, or if something panics.
+/// background task does not return unless `cancel_token` is canceled, or if something panics. On
+/// success, this returns the effective listener address, including an OS-selected port when
+/// `listen_port` uses port zero.
 #[allow(clippy::too_many_arguments)]
 #[tracing::instrument(skip_all)]
 pub async fn start(
@@ -289,7 +291,7 @@ pub async fn start(
     meter: Meter,
     admin_ui_routes_builder: Option<AdminUiRoutesBuilder>,
     cancel_token: CancellationToken,
-) -> eyre::Result<()> {
+) -> eyre::Result<SocketAddr> {
     let api_reflection_service = Builder::configure()
         .register_encoded_file_descriptor_set(::rpc::REFLECTION_API_SERVICE_DESCRIPTOR)
         .build_v1alpha()?;
@@ -308,6 +310,8 @@ pub async fn start(
     };
 
     let listener = TcpListener::bind(listen_port).await?;
+    let listen_address = listener.local_addr()?;
+    tracing::info!(effective_listen_address = %listen_address, "API listener started");
     let http = http2::Builder::new(TokioExecutor::new());
 
     let extra_cli_certs = if let Some(auth_config) = auth_config {
@@ -552,7 +556,7 @@ pub async fn start(
             tracing::info!("carbide-api shutting down");
         })?;
 
-    Ok(())
+    Ok(listen_address)
 }
 
 /// Handle the root URL. Health check services often expect a 200 here.
