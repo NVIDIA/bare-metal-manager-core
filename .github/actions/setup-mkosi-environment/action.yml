@@ -136,8 +136,12 @@ runs:
     # Runs after a failed install too: apt keeps every .deb it did fetch before
     # giving up, so banking them shrinks what the retry has to ask the mirror
     # for. Owned by the runner user so the save step can read them back.
+    #
+    # !cancelled() rather than always(), so a superseded run that CI just
+    # cancelled stops promptly instead of lingering to bank a cache nobody
+    # asked for. An ordinary failure still saves.
     - name: Collect apt archives
-      if: always()
+      if: ${{ !cancelled() }}
       shell: bash
       run: |
         mkdir -p ~/.cache/nico-apt-archives
@@ -146,7 +150,7 @@ runs:
         echo "apt archives held: $(find ~/.cache/nico-apt-archives -name '*.deb' | wc -l) packages ($(du -sh ~/.cache/nico-apt-archives | cut -f1))"
 
     - name: Save apt archives
-      if: always() && steps.apt-cache.outputs.cache-hit != 'true'
+      if: ${{ !cancelled() && steps.apt-cache.outputs.cache-hit != 'true' }}
       uses: actions/cache/save@v4
       with:
         path: ~/.cache/nico-apt-archives
