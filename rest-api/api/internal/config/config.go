@@ -148,7 +148,6 @@ type IssuerConfig struct {
 	Scopes                       []string             `mapstructure:"scopes"`
 	JWKSTimeout                  string               `mapstructure:"jwksTimeout"` // e.g. "5s", "1m"
 	ClaimMappings                []cauth.ClaimMapping `mapstructure:"claimMappings"`
-	AllowDuplicateStaticOrgNames bool                 `mapstructure:"allowDuplicateStaticOrgNames"` // When true, allows duplicate static org names across issuers
 }
 
 // GetOrigin parses the origin and returns it as a string constant
@@ -162,12 +161,6 @@ func (ic *IssuerConfig) GetJWKSTimeout() (time.Duration, error) {
 		return 0, nil // Use default
 	}
 	return time.ParseDuration(ic.JWKSTimeout)
-}
-
-// GetAllowDuplicateStaticOrgNames returns whether duplicate static org names are allowed
-// Defaults to false (duplicates not allowed) if not specified
-func (ic *IssuerConfig) GetAllowDuplicateStaticOrgNames() bool {
-	return ic.AllowDuplicateStaticOrgNames
 }
 
 // ParseOriginString converts a string origin to its string constant
@@ -202,6 +195,13 @@ type Config struct {
 	JwtOriginConfig *cauth.JWTOriginConfig
 	SiteConfig      *SiteConfig
 	KeycloakConfig  *cauth.KeycloakConfig
+
+	// dbMu serializes concurrent ReloadDBIssuers calls (ticker, LISTEN/NOTIFY handler,
+	// and write-handler read-your-write paths). dbURLs and dbSigs track which issuer
+	// URLs are DB-managed and their last-seen content fingerprint for change detection.
+	dbMu  sync.Mutex
+	dbURLs map[string]bool
+	dbSigs map[string]string
 }
 
 // NewConfig creates a new config object
@@ -211,7 +211,9 @@ func NewConfig() *Config {
 	}
 
 	c := Config{
-		v: newViper(),
+		v:      newViper(),
+		dbURLs: map[string]bool{},
+		dbSigs: map[string]string{},
 	}
 
 	// Set defaults
@@ -549,6 +551,7 @@ func (c *Config) ValidateIssuersConfig(issuers []IssuerConfig) error {
 	seenNames := make(map[string]bool)
 	seenURLs := make(map[string]bool)
 	seenStaticOrgs := make(map[string]bool)
+	seenSAOrgs := make(map[string]bool)
 	seenDynamicOrg := false
 
 	for i, issuer := range issuers {
@@ -639,13 +642,20 @@ func (c *Config) ValidateIssuersConfig(issuers []IssuerConfig) error {
 				seenDynamicOrg = true
 			}
 
-			// Static org mapping - check for duplicates unless allowDuplicateStaticOrgNames is true
+			// Static org mapping - globally unique across all issuers; no escape hatch.
 			if mapping.OrgName != "" {
 				normalizedOrg := strings.ToLower(mapping.OrgName)
-				if seenStaticOrgs[normalizedOrg] && !issuer.GetAllowDuplicateStaticOrgNames() {
-					return fmt.Errorf("issuer %s: duplicate static org: %s", issuer.Name, mapping.OrgName)
+				if seenStaticOrgs[normalizedOrg] {
+					return fmt.Errorf("issuer %s: duplicate org name: %s (org names must be unique across all issuers)", issuer.Name, mapping.OrgName)
 				}
 				seenStaticOrgs[normalizedOrg] = true
+				// At most one service-account mapping per org globally.
+				if mapping.IsServiceAccount {
+					if seenSAOrgs[normalizedOrg] {
+						return fmt.Errorf("issuer %s: org %s already has a service account mapping", issuer.Name, mapping.OrgName)
+					}
+					seenSAOrgs[normalizedOrg] = true
+				}
 			}
 
 			// Validate roles - skip if service account (uses predefined roles)
