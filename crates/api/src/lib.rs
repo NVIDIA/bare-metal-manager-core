@@ -39,4 +39,4 @@ mod run;
 
 pub use carbide_api_core::AdminUiRoutesBuilder;
 pub use command_line::{Command, Options};
-pub use run::run;
+pub use run::{ApiServerAddresses, run};

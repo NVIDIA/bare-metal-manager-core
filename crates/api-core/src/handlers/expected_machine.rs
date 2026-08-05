@@ -17,6 +17,7 @@
 use std::collections::{HashMap, HashSet};
 
 use ::rpc::forge as rpc;
+use carbide_instrument::emit;
 use lazy_static::lazy_static;
 use mac_address::MacAddress;
 use model::expected_machine::{
@@ -29,6 +30,9 @@ use uuid::Uuid;
 use crate::CarbideError;
 use crate::api::{Api, log_request_data};
 use crate::handlers::machine_interface_address::update_preallocated_expected_machine_interface;
+use crate::handlers::static_address_metrics::{
+    PreallocationSuccess, StaticAddressPreallocationCompleted,
+};
 
 lazy_static! {
     // Verify what serial is alphanumeric string with, allows dashes '-' and underscores '_'
@@ -159,9 +163,7 @@ fn parse_expected_machine_for_insert(
 
 /// `validate_expected_machine_for_insert` applies the validation shared by the
 /// `add` handler and the `expected_machines.json` import flow.
-pub(crate) fn validate_expected_machine_for_insert(
-    machine: &ExpectedMachine,
-) -> Result<(), CarbideError> {
+fn validate_expected_machine_for_insert(machine: &ExpectedMachine) -> Result<(), CarbideError> {
     validate_expected_interfaces(&machine.data.interfaces)?;
     validate_host_bmc_declaration(machine)?;
     machine
@@ -295,7 +297,7 @@ pub(crate) async fn update(
     normalize_host_bmc_configuration(&mut machine, existing.as_ref(), overrides)?;
     validate_expected_machine_for_insert(&machine)?;
 
-    update_preallocated_interfaces(
+    let preallocations = update_preallocated_interfaces(
         &mut txn,
         &machine,
         api.runtime_config.retained_boot_interface_window,
@@ -307,6 +309,10 @@ pub(crate) async fn update(
         .map_err(CarbideError::from)?;
 
     txn.commit().await?;
+
+    for outcome in preallocations {
+        emit(StaticAddressPreallocationCompleted::from(outcome));
+    }
 
     Ok(tonic::Response::new(()))
 }
@@ -734,11 +740,14 @@ async fn update_preallocated_interfaces(
     txn: &mut sqlx::PgConnection,
     machine: &ExpectedMachine,
     retained_window: Option<chrono::Duration>,
-) -> Result<(), CarbideError> {
+) -> Result<Vec<PreallocationSuccess>, CarbideError> {
+    let mut preallocations = Vec::new();
     let host_bmc = machine.effective_host_bmc();
     if host_bmc.fixed_ip.is_some() {
-        update_preallocated_expected_machine_interface(&mut *txn, &host_bmc, retained_window)
-            .await?;
+        preallocations.push(
+            update_preallocated_expected_machine_interface(&mut *txn, &host_bmc, retained_window)
+                .await?,
+        );
     }
 
     for interface in machine
@@ -748,12 +757,18 @@ async fn update_preallocated_interfaces(
         .filter(|interface| interface.mac_address != machine.bmc_mac_address)
     {
         if interface.fixed_ip.is_some() {
-            update_preallocated_expected_machine_interface(&mut *txn, interface, retained_window)
-                .await?;
+            preallocations.push(
+                update_preallocated_expected_machine_interface(
+                    &mut *txn,
+                    interface,
+                    retained_window,
+                )
+                .await?,
+            );
         }
     }
 
-    Ok(())
+    Ok(preallocations)
 }
 
 /// Preserve the request representation used by batch results and replace only
@@ -820,7 +835,7 @@ async fn create_expected_machine(
     machine: rpc::ExpectedMachine,
     id: Uuid,
     parsed_mac: MacAddress,
-) -> Result<rpc::ExpectedMachine, CarbideError> {
+) -> Result<(rpc::ExpectedMachine, Vec<PreallocationSuccess>), CarbideError> {
     let result_machine = batch_result_with_id(machine.clone(), id);
     let overrides = LegacyHostBmcOverrides::try_from(&machine)?;
     let db_data: ExpectedMachineData = machine.try_into()?;
@@ -835,7 +850,7 @@ async fn create_expected_machine(
     validate_expected_machine_for_insert(&expected_machine)?;
     db::expected_machine::create(txn, expected_machine).await?;
 
-    Ok(result_machine)
+    Ok((result_machine, Vec::new()))
 }
 
 /// Updates one expected machine inside an existing transaction (batch API).
@@ -848,7 +863,7 @@ async fn update_expected_machine(
     id: Uuid,
     parsed_mac: MacAddress,
     retained_window: Option<chrono::Duration>,
-) -> Result<rpc::ExpectedMachine, CarbideError> {
+) -> Result<(rpc::ExpectedMachine, Vec<PreallocationSuccess>), CarbideError> {
     let result_machine = batch_result_with_id(machine.clone(), id);
     let existing = db::expected_machine::find_for_update(
         &mut *txn,
@@ -870,11 +885,12 @@ async fn update_expected_machine(
     };
     normalize_host_bmc_configuration(&mut expected_machine, existing.as_ref(), overrides)?;
     validate_expected_machine_for_insert(&expected_machine)?;
-    update_preallocated_interfaces(txn, &expected_machine, retained_window).await?;
+    let preallocations =
+        update_preallocated_interfaces(txn, &expected_machine, retained_window).await?;
 
     db::expected_machine::update(txn, &expected_machine).await?;
 
-    Ok(result_machine)
+    Ok((result_machine, preallocations))
 }
 
 #[derive(Copy, Clone)]
@@ -924,7 +940,7 @@ async fn apply_operation(
     id: Uuid,
     parsed_mac: MacAddress,
     retained_window: Option<chrono::Duration>,
-) -> Result<rpc::ExpectedMachine, CarbideError> {
+) -> Result<(rpc::ExpectedMachine, Vec<PreallocationSuccess>), CarbideError> {
     match op {
         BatchOperation::Create => create_expected_machine(txn, machine, id, parsed_mac).await,
         BatchOperation::Update => {
@@ -982,8 +998,13 @@ async fn process_batch_operations(
             )
             .await
             {
-                Ok(result_machine) => match txn.commit().await {
-                    Ok(_) => results.push(build_success_result(result_machine)),
+                Ok((result_machine, preallocations)) => match txn.commit().await {
+                    Ok(_) => {
+                        for outcome in preallocations {
+                            emit(StaticAddressPreallocationCompleted::from(outcome));
+                        }
+                        results.push(build_success_result(result_machine));
+                    }
                     Err(e) => {
                         results.push(build_failure_result(id, format!("Failed to commit: {}", e)))
                     }
@@ -1014,9 +1035,10 @@ async fn process_batch_operations(
 
     let mut txn = api.txn_begin().await?;
     let mut ordered_results = Vec::with_capacity(prepared.len());
+    let mut preallocations = Vec::new();
 
     for (request_index, machine, id, parsed_mac) in prepared {
-        let result_machine = match apply_operation(
+        let (result_machine, operation_preallocations) = match apply_operation(
             op,
             txn.as_pgconn(),
             machine,
@@ -1033,10 +1055,15 @@ async fn process_batch_operations(
                 return Err(error);
             }
         };
+        preallocations.extend(operation_preallocations);
         ordered_results.push((request_index, build_success_result(result_machine)));
     }
 
     txn.commit().await?;
+
+    for outcome in preallocations {
+        emit(StaticAddressPreallocationCompleted::from(outcome));
+    }
 
     ordered_results.sort_by_key(|(request_index, _)| *request_index);
     Ok(ordered_results
@@ -1090,7 +1117,7 @@ pub(crate) async fn update_expected_machines(
 }
 
 // Utility method called by `explore`. Not a grpc handler.
-pub(crate) async fn query(
+pub(super) async fn query(
     api: &Api,
     mac: MacAddress,
 ) -> Result<Option<ExpectedMachine>, CarbideError> {

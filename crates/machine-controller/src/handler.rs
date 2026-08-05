@@ -7627,8 +7627,17 @@ impl StateHandler for InstanceStateHandler {
                     // Wait for instance network config to be applied
                     // Reboot host and moved to Ready.
 
-                    // TODO GK if delete_requested skip this whole step,
-                    // reboot and jump to BootingWithDiscoveryImage
+                    // A released instance no longer needs its tenant network config to converge.
+                    // Waiting here can deadlock deletion when the DPU agents are unavailable (or
+                    // when a simulator restarts) because the observations we are waiting for will
+                    // never arrive. Continue through the normal deletion reboot path instead.
+                    if instance.deleted.is_some() {
+                        return Ok(StateHandlerOutcome::transition(
+                            ManagedHostState::Assigned {
+                                instance_state: InstanceState::WaitingForRebootToReady,
+                            },
+                        ));
+                    }
 
                     // Check DPU network config has been applied
                     if !mh_snapshot.managed_host_network_config_version_synced() {

@@ -29,10 +29,10 @@ Use a smaller batch size to lighten load on an external KMS:
     $ nico-admin-cli secrets re-wrap --batch-size 25
 
 ")]
-pub struct Args {
+pub(crate) struct Args {
     #[clap(
         long,
         help = "Rows scanned per batch during the walk. The server applies its own default and limits."
     )]
-    pub batch_size: Option<u32>,
+    pub(super) batch_size: Option<u32>,
 }

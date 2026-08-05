@@ -173,7 +173,7 @@ impl From<RpcReconciliation> for ReconciliationReport {
     }
 }
 
-pub async fn handle_boot_interfaces(
+pub(super) async fn handle_boot_interfaces(
     args: Args,
     output_format: OutputFormat,
     api_client: &ApiClient,

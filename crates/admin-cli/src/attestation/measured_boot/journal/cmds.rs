@@ -84,7 +84,7 @@ impl Run for Promote {
 /// delete deletes an existing journal entry.
 ///
 /// `journal delete <journal-id>`
-pub async fn delete(grpc_conn: &ApiClient, delete: Delete) -> CarbideCliResult<MeasurementJournal> {
+async fn delete(grpc_conn: &ApiClient, delete: Delete) -> CarbideCliResult<MeasurementJournal> {
     let response = grpc_conn.0.delete_measurement_journal(delete).await?;
 
     MeasurementJournal::from_grpc_opt(response.journal)
@@ -94,7 +94,7 @@ pub async fn delete(grpc_conn: &ApiClient, delete: Delete) -> CarbideCliResult<M
 /// show_by_id shows all info about a journal entry for the provided ID.
 ///
 /// `journal show <journal-id>`
-pub async fn show_by_id(grpc_conn: &ApiClient, show: Show) -> CarbideCliResult<MeasurementJournal> {
+async fn show_by_id(grpc_conn: &ApiClient, show: Show) -> CarbideCliResult<MeasurementJournal> {
     let response = grpc_conn
         .0
         .show_measurement_journal(ShowMeasurementJournalRequest::try_from(show)?)
@@ -107,10 +107,7 @@ pub async fn show_by_id(grpc_conn: &ApiClient, show: Show) -> CarbideCliResult<M
 /// show_all shows all info about all journal entries.
 ///
 /// `journal show`
-pub async fn show_all(
-    grpc_conn: &ApiClient,
-    _show: Show,
-) -> CarbideCliResult<MeasurementJournalList> {
+async fn show_all(grpc_conn: &ApiClient, _show: Show) -> CarbideCliResult<MeasurementJournalList> {
     Ok(MeasurementJournalList(
         grpc_conn
             .0
@@ -129,10 +126,7 @@ pub async fn show_all(
 /// list just lists all journal IDs.
 ///
 /// `journal list`
-pub async fn list(
-    grpc_conn: &ApiClient,
-    list: List,
-) -> CarbideCliResult<MeasurementJournalRecordList> {
+async fn list(grpc_conn: &ApiClient, list: List) -> CarbideCliResult<MeasurementJournalRecordList> {
     Ok(MeasurementJournalRecordList(
         grpc_conn
             .0
@@ -156,10 +150,7 @@ pub async fn list(
 /// the report associated with the journal.
 ///
 /// `journal promote <journal-id> [--pcr-registers <range0>,...]`
-pub async fn promote(
-    grpc_conn: &ApiClient,
-    promote: Promote,
-) -> CarbideCliResult<MeasurementBundle> {
+async fn promote(grpc_conn: &ApiClient, promote: Promote) -> CarbideCliResult<MeasurementBundle> {
     let journal = show_by_id(
         grpc_conn,
         Show {
@@ -182,7 +173,7 @@ pub async fn promote(
 /// for a Vec<MeasurementJournalRecord> so the ToTable trait can
 /// be leveraged (since we don't define Vec).
 #[derive(Serialize)]
-pub struct MeasurementJournalRecordList(Vec<MeasurementJournalRecord>);
+struct MeasurementJournalRecordList(Vec<MeasurementJournalRecord>);
 
 impl ToTable for MeasurementJournalRecordList {
     fn into_table(self) -> eyre::Result<String> {
@@ -243,7 +234,7 @@ impl ToTable for MeasurementJournalRecordList {
 /// pattern for a Vec<MeasurementJournal> so the ToTable
 /// trait can be leveraged (since we don't define Vec).
 #[derive(Serialize)]
-pub struct MeasurementJournalList(Vec<MeasurementJournal>);
+struct MeasurementJournalList(Vec<MeasurementJournal>);
 
 // When `journal show` gets called (for all entries), and the output format
 // is the default table view, this gets used to print a pretty table.

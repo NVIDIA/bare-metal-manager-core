@@ -25,4 +25,4 @@ List the rack profiles available for expected racks:
     $ nico-admin-cli rack profile list
 
 ")]
-pub struct Args;
+pub(crate) struct Args;

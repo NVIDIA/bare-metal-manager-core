@@ -15,34 +15,34 @@
  * limitations under the License.
  */
 
-pub mod auto_update;
-pub mod common;
-pub mod force_delete;
-pub mod hardware_info;
-pub mod health_report;
-pub mod metadata;
-pub mod network;
-pub mod nvlink_info;
-pub mod positions;
-pub mod reboot;
-pub mod show;
+mod auto_update;
+mod common;
+mod force_delete;
+mod hardware_info;
+mod health_report;
+mod metadata;
+pub(crate) mod network;
+mod nvlink_info;
+mod positions;
+mod reboot;
+mod show;
 
 #[cfg(test)]
 mod tests;
 
 // Cross-module re-exports.
-pub use auto_update::args::Args as MachineAutoupdate;
+pub(crate) use auto_update::args::Args as MachineAutoupdate;
 use clap::Parser;
-pub use common::{MachineQuery, NetworkConfigQuery};
-pub use health_report::args::HealthReportTemplates;
-pub use health_report::cmd::get_health_report;
-pub use show::args::Args as ShowMachine;
-pub use show::cmd::{get_next_free_machine, handle_show};
+pub(crate) use common::{MachineQuery, NetworkConfigQuery};
+pub(crate) use health_report::args::HealthReportTemplates;
+pub(crate) use health_report::cmd::{get_empty_template, get_health_report};
+pub(crate) use show::args::Args as ShowMachine;
+pub(crate) use show::cmd::{get_next_free_machine, handle_show};
 
 use crate::cfg::dispatch::Dispatch;
 
 #[derive(Parser, Debug, Dispatch)]
-pub enum Cmd {
+pub(crate) enum Cmd {
     #[clap(about = "Display Machine information")]
     Show(show::Args),
     // Hidden: the view moved to the top-level `boot-interface show`. This

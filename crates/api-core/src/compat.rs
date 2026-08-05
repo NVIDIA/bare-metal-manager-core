@@ -25,7 +25,7 @@ use crate::CarbideError;
 use crate::errors::CarbideResult;
 
 /// Supports building a type from a source value while also filling in all legacy fields.
-pub trait BuildAndFillLegacyFields {
+pub(crate) trait BuildAndFillLegacyFields {
     type Source;
 
     fn build_and_fill_legacy_fields(source: Self::Source) -> CarbideResult<Self>

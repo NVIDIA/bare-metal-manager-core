@@ -18,7 +18,7 @@
 use super::args::Args;
 use crate::rpc::ApiClient;
 
-pub async fn erase(data: Args, api_client: &ApiClient) -> color_eyre::Result<()> {
+pub(super) async fn erase(data: Args, api_client: &ApiClient) -> color_eyre::Result<()> {
     if !data.confirm {
         eprintln!("Please set --confirm to confirm you want to erase all expected machines.");
         return Ok(());

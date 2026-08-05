@@ -56,7 +56,7 @@ use crate::machine::MachineAutoupdate;
 /// [`ApiClient`] is a thin wrapper around [`ForgeApiClient`], which mainly adds some convenience
 /// methods.
 #[derive(Clone)]
-pub struct ApiClient(pub ForgeApiClient);
+pub(crate) struct ApiClient(pub(crate) ForgeApiClient);
 
 /// Returns `True` when `status` *can* mean the server does not implement
 /// the requested RPC, telling the caller to retry through the deprecated alias.
@@ -213,7 +213,7 @@ impl ApiClient {
         Ok(cap_chunk_size(page_size, cap))
     }
 
-    pub async fn get_machine(&self, id: MachineId) -> CarbideCliResult<rpc::Machine> {
+    pub(crate) async fn get_machine(&self, id: MachineId) -> CarbideCliResult<rpc::Machine> {
         let mut machines = self
             .0
             .find_machines_by_ids(::rpc::forge::MachinesByIdsRequest {
@@ -235,7 +235,7 @@ impl ApiClient {
     /// owned interface rows, predictions, the explored endpoint default, and
     /// the retained post-deletion pairs -- plus the effective boot interface
     /// and a divergence flag. Read-only.
-    pub async fn get_machine_boot_interfaces(
+    pub(crate) async fn get_machine_boot_interfaces(
         &self,
         id: MachineId,
     ) -> CarbideCliResult<rpc::GetMachineBootInterfacesResponse> {
@@ -247,7 +247,7 @@ impl ApiClient {
             .await?)
     }
 
-    pub async fn get_all_machines(
+    pub(crate) async fn get_all_machines(
         &self,
         request: rpc::MachineSearchConfig,
         page_size: usize,
@@ -273,7 +273,7 @@ impl ApiClient {
         Ok(all_machines)
     }
 
-    pub async fn identify_uuid(&self, u: uuid::Uuid) -> CarbideCliResult<rpc::UuidType> {
+    pub(crate) async fn identify_uuid(&self, u: uuid::Uuid) -> CarbideCliResult<rpc::UuidType> {
         let request = rpc::IdentifyUuidRequest {
             uuid: Some(u.into()),
         };
@@ -303,7 +303,7 @@ impl ApiClient {
         Ok(object_type)
     }
 
-    pub async fn identify_mac(
+    pub(crate) async fn identify_mac(
         &self,
         mac_address: MacAddress,
     ) -> CarbideCliResult<(rpc::MacOwner, String)> {
@@ -336,7 +336,7 @@ impl ApiClient {
         Ok((object_type, mac_details.primary_key))
     }
 
-    pub async fn identify_serial(
+    pub(crate) async fn identify_serial(
         &self,
         serial_number: String,
         exact: bool,
@@ -366,7 +366,7 @@ impl ApiClient {
             ))
     }
 
-    pub async fn get_all_instances(
+    pub(crate) async fn get_all_instances(
         &self,
         tenant_org_id: Option<String>,
         vpc_id: Option<String>,
@@ -404,7 +404,7 @@ impl ApiClient {
         Ok(all_list)
     }
 
-    pub async fn get_one_instance(
+    pub(crate) async fn get_one_instance(
         &self,
         instance_id: InstanceId,
     ) -> CarbideCliResult<rpc::InstanceList> {
@@ -437,7 +437,7 @@ impl ApiClient {
         Ok(self.0.find_instance_ids(request).await?)
     }
 
-    pub async fn get_all_racks(&self, page_size: usize) -> CarbideCliResult<rpc::RackList> {
+    pub(crate) async fn get_all_racks(&self, page_size: usize) -> CarbideCliResult<rpc::RackList> {
         let all_ids = self.get_rack_ids().await?;
         let mut all_list = rpc::RackList {
             racks: Vec::with_capacity(all_ids.rack_ids.len()),
@@ -454,13 +454,13 @@ impl ApiClient {
         Ok(all_list)
     }
 
-    pub async fn get_one_rack(&self, rack_id: RackId) -> CarbideCliResult<rpc::RackList> {
+    pub(crate) async fn get_one_rack(&self, rack_id: RackId) -> CarbideCliResult<rpc::RackList> {
         let racks = self.0.find_racks_by_ids(vec![rack_id]).await?;
 
         Ok(racks)
     }
 
-    pub async fn get_rack_profile(
+    pub(crate) async fn get_rack_profile(
         &self,
         rack_id: RackId,
     ) -> CarbideCliResult<rpc::GetRackProfileResponse> {
@@ -472,7 +472,9 @@ impl ApiClient {
             .await?)
     }
 
-    pub async fn list_rack_profiles(&self) -> CarbideCliResult<rpc::ListRackProfilesResponse> {
+    pub(crate) async fn list_rack_profiles(
+        &self,
+    ) -> CarbideCliResult<rpc::ListRackProfilesResponse> {
         Ok(self.0.list_rack_profiles().await?)
     }
 
@@ -483,7 +485,7 @@ impl ApiClient {
             .await?)
     }
 
-    pub async fn get_all_switches(
+    pub(crate) async fn get_all_switches(
         &self,
         filter: rpc::SwitchSearchFilter,
         page_size: usize,
@@ -509,7 +511,10 @@ impl ApiClient {
         Ok(all_list)
     }
 
-    pub async fn get_one_switch(&self, switch_id: SwitchId) -> CarbideCliResult<rpc::SwitchList> {
+    pub(crate) async fn get_one_switch(
+        &self,
+        switch_id: SwitchId,
+    ) -> CarbideCliResult<rpc::SwitchList> {
         Ok(self
             .0
             .find_switches_by_ids(rpc::SwitchesByIdsRequest {
@@ -518,7 +523,7 @@ impl ApiClient {
             .await?)
     }
 
-    pub async fn get_all_power_shelves(
+    pub(crate) async fn get_all_power_shelves(
         &self,
         filter: rpc::PowerShelfSearchFilter,
         page_size: usize,
@@ -544,7 +549,7 @@ impl ApiClient {
         Ok(all_list)
     }
 
-    pub async fn get_one_power_shelf(
+    pub(crate) async fn get_one_power_shelf(
         &self,
         power_shelf_id: PowerShelfId,
     ) -> CarbideCliResult<rpc::PowerShelfList> {
@@ -556,7 +561,7 @@ impl ApiClient {
             .await?)
     }
 
-    pub async fn get_all_segments(
+    pub(crate) async fn get_all_segments(
         &self,
         tenant_org_id: Option<String>,
         name: Option<String>,
@@ -578,7 +583,7 @@ impl ApiClient {
         Ok(all_list)
     }
 
-    pub async fn get_one_segment(
+    pub(crate) async fn get_one_segment(
         &self,
         segment_id: NetworkSegmentId,
     ) -> CarbideCliResult<rpc::NetworkSegmentList> {
@@ -599,7 +604,7 @@ impl ApiClient {
         Ok(self.0.find_network_segment_ids(request).await?)
     }
 
-    pub async fn get_segments_by_ids(
+    pub(crate) async fn get_segments_by_ids(
         &self,
         network_segments_ids: &[NetworkSegmentId],
     ) -> CarbideCliResult<rpc::NetworkSegmentList> {
@@ -613,7 +618,7 @@ impl ApiClient {
         Ok(self.0.find_network_segments_by_ids(request).await?)
     }
 
-    pub async fn get_rack_state_history(
+    pub(crate) async fn get_rack_state_history(
         &self,
         rack_id: RackId,
     ) -> CarbideCliResult<Vec<rpc::StateHistoryRecord>> {
@@ -631,7 +636,7 @@ impl ApiClient {
             .unwrap_or_default())
     }
 
-    pub async fn get_segment_state_history(
+    pub(crate) async fn get_segment_state_history(
         &self,
         segment_id: NetworkSegmentId,
     ) -> CarbideCliResult<Vec<rpc::StateHistoryRecord>> {
@@ -650,7 +655,7 @@ impl ApiClient {
     }
 
     /// Fetches controller state history for a single VPC prefix.
-    pub async fn get_vpc_prefix_state_history(
+    pub(crate) async fn get_vpc_prefix_state_history(
         &self,
         vpc_prefix_id: VpcPrefixId,
     ) -> CarbideCliResult<Vec<rpc::StateHistoryRecord>> {
@@ -670,7 +675,7 @@ impl ApiClient {
             .unwrap_or_default())
     }
 
-    pub async fn get_domains(
+    pub(crate) async fn get_domains(
         &self,
         id: Option<::carbide_uuid::domain::DomainId>,
     ) -> CarbideCliResult<::rpc::protos::dns::DomainList> {
@@ -678,7 +683,7 @@ impl ApiClient {
         Ok(self.0.find_domain(request).await?)
     }
 
-    pub async fn machine_insert_health_report_override(
+    pub(crate) async fn machine_insert_health_report_override(
         &self,
         id: MachineId,
         report: ::rpc::health::HealthReport,
@@ -707,7 +712,7 @@ impl ApiClient {
         }
     }
 
-    pub async fn machine_list_health_reports(
+    pub(crate) async fn machine_list_health_reports(
         &self,
         machine_id: MachineId,
     ) -> CarbideCliResult<rpc::ListHealthReportResponse> {
@@ -722,7 +727,7 @@ impl ApiClient {
         }
     }
 
-    pub async fn machine_remove_health_report(
+    pub(crate) async fn machine_remove_health_report(
         &self,
         machine_id: MachineId,
         source: String,
@@ -742,7 +747,7 @@ impl ApiClient {
         }
     }
 
-    pub async fn admin_power_control(
+    pub(crate) async fn admin_power_control(
         &self,
         bmc_endpoint_request: Option<BmcEndpointRequest>,
         machine_id: Option<String>,
@@ -756,7 +761,7 @@ impl ApiClient {
         Ok(self.0.admin_power_control(request).await?)
     }
 
-    pub async fn get_all_machines_interfaces(
+    pub(crate) async fn get_all_machines_interfaces(
         &self,
         id: Option<MachineInterfaceId>,
     ) -> CarbideCliResult<rpc::InterfaceList> {
@@ -764,7 +769,7 @@ impl ApiClient {
         Ok(self.0.find_interfaces(request).await?)
     }
 
-    pub async fn get_site_exploration_report(
+    pub(crate) async fn get_site_exploration_report(
         &self,
         page_size: usize,
     ) -> CarbideCliResult<::rpc::site_explorer::SiteExplorationReport> {
@@ -807,7 +812,7 @@ impl ApiClient {
         })
     }
 
-    pub async fn get_site_explorer_last_run(
+    async fn get_site_explorer_last_run(
         &self,
     ) -> CarbideCliResult<Option<::rpc::site_explorer::SiteExplorerLastRun>> {
         match self.0.get_site_explorer_last_run().await {
@@ -817,7 +822,7 @@ impl ApiClient {
         }
     }
 
-    pub async fn get_explored_endpoints_by_ids(
+    pub(crate) async fn get_explored_endpoints_by_ids(
         &self,
         endpoint_ids: &[String],
     ) -> CarbideCliResult<::rpc::site_explorer::ExploredEndpointList> {
@@ -827,7 +832,7 @@ impl ApiClient {
         Ok(self.0.find_explored_endpoints_by_ids(request).await?)
     }
 
-    pub async fn get_all_explored_managed_hosts(
+    pub(crate) async fn get_all_explored_managed_hosts(
         &self,
         page_size: usize,
     ) -> CarbideCliResult<Vec<::rpc::site_explorer::ExploredManagedHost>> {
@@ -859,7 +864,7 @@ impl ApiClient {
         Ok(all_hosts.managed_hosts)
     }
 
-    pub async fn get_all_explored_mlx_devices(
+    pub(crate) async fn get_all_explored_mlx_devices(
         &self,
         page_size: usize,
         host: Option<String>,
@@ -886,7 +891,7 @@ impl ApiClient {
         Ok(all.devices)
     }
 
-    pub async fn get_machines_by_ids(
+    pub(crate) async fn get_machines_by_ids(
         &self,
         machine_ids: &[MachineId],
     ) -> CarbideCliResult<rpc::MachineList> {
@@ -897,7 +902,7 @@ impl ApiClient {
         Ok(self.0.find_machines_by_ids(request).await?)
     }
 
-    pub async fn set_dynamic_config(
+    pub(crate) async fn set_dynamic_config(
         &self,
         feature: rpc::ConfigSetting,
         value: String,
@@ -915,7 +920,7 @@ impl ApiClient {
     /// record, then calls `update_expected_machine`. When `bmc_ip_address` is supplied, the server
     /// runs the same static-interface reconciliation as a full RPC update.
     #[allow(clippy::too_many_arguments)]
-    pub async fn patch_expected_machine(
+    pub(crate) async fn patch_expected_machine(
         &self,
         bmc_mac_address: Option<MacAddress>,
         id: Option<String>,
@@ -1040,7 +1045,7 @@ impl ApiClient {
     }
 
     /// Replaces the entire expected-machine table from JSON.
-    pub async fn replace_all_expected_machines(
+    pub(crate) async fn replace_all_expected_machines(
         &self,
         expected_machine_list: Vec<ExpectedMachineJson>,
     ) -> Result<(), CarbideCliError> {
@@ -1086,7 +1091,7 @@ impl ApiClient {
         Ok(self.0.replace_all_expected_machines(request).await?)
     }
 
-    pub async fn replace_all_expected_power_shelves(
+    pub(crate) async fn replace_all_expected_power_shelves(
         &self,
         expected_power_shelf_list: Vec<crate::expected_power_shelf::common::ExpectedPowerShelfJson>,
     ) -> Result<(), CarbideCliError> {
@@ -1115,7 +1120,7 @@ impl ApiClient {
             .map_err(CarbideCliError::ApiInvocationError)
     }
 
-    pub async fn replace_all_expected_switches(
+    pub(crate) async fn replace_all_expected_switches(
         &self,
         expected_switch_list: Vec<crate::expected_switch::common::ExpectedSwitchJson>,
     ) -> Result<(), CarbideCliError> {
@@ -1152,7 +1157,7 @@ impl ApiClient {
             .map_err(CarbideCliError::ApiInvocationError)
     }
 
-    pub async fn get_all_vpcs(
+    pub(crate) async fn get_all_vpcs(
         &self,
         tenant_org_id: Option<String>,
         name: Option<String>,
@@ -1179,7 +1184,10 @@ impl ApiClient {
     }
 
     // Get all the DPA interfaces and return the vector of DPA interfaces
-    pub async fn get_all_dpas(&self, page_size: usize) -> CarbideCliResult<rpc::DpaInterfaceList> {
+    pub(crate) async fn get_all_dpas(
+        &self,
+        page_size: usize,
+    ) -> CarbideCliResult<rpc::DpaInterfaceList> {
         let all_ids = self.get_dpa_ids().await?;
         let mut all_list = rpc::DpaInterfaceList {
             interfaces: Vec::with_capacity(all_ids.ids.len()),
@@ -1204,7 +1212,7 @@ impl ApiClient {
     }
 
     // Given an DPA interface ID, fetch it from Carbide and return it
-    pub async fn get_one_dpa(
+    pub(crate) async fn get_one_dpa(
         &self,
         dpa_id: DpaInterfaceId,
     ) -> CarbideCliResult<rpc::DpaInterfaceList> {
@@ -1216,7 +1224,7 @@ impl ApiClient {
         Ok(self.0.find_dpa_interfaces_by_ids(request).await?)
     }
 
-    pub async fn get_vpc_by_name(&self, name: &str) -> CarbideCliResult<rpc::VpcList> {
+    pub(crate) async fn get_vpc_by_name(&self, name: &str) -> CarbideCliResult<rpc::VpcList> {
         let vpc_ids = self
             .0
             .find_vpc_ids(VpcSearchFilter {
@@ -1236,7 +1244,7 @@ impl ApiClient {
         })
     }
 
-    pub async fn create_vpc(&self, name: &str, vpc_id: VpcId) -> CarbideCliResult<rpc::Vpc> {
+    pub(crate) async fn create_vpc(&self, name: &str, vpc_id: VpcId) -> CarbideCliResult<rpc::Vpc> {
         let vpc = match self
             .0
             .create_vpc(VpcCreationRequest {
@@ -1266,7 +1274,7 @@ impl ApiClient {
         Ok(vpc)
     }
 
-    pub async fn create_network_segment(
+    pub(crate) async fn create_network_segment(
         &self,
         id: NetworkSegmentId,
         vpc_id: Option<VpcId>,
@@ -1295,7 +1303,11 @@ impl ApiClient {
         Ok(self.0.create_network_segment(request).await?)
     }
 
-    pub async fn create_flat_vpc(&self, name: &str, vpc_id: VpcId) -> CarbideCliResult<rpc::Vpc> {
+    pub(crate) async fn create_flat_vpc(
+        &self,
+        name: &str,
+        vpc_id: VpcId,
+    ) -> CarbideCliResult<rpc::Vpc> {
         Ok(self
             .0
             .create_vpc(VpcCreationRequest {
@@ -1317,7 +1329,7 @@ impl ApiClient {
             .await?)
     }
 
-    pub async fn create_host_inband_segment(
+    pub(crate) async fn create_host_inband_segment(
         &self,
         id: NetworkSegmentId,
         vpc_id: VpcId,
@@ -1405,7 +1417,7 @@ impl ApiClient {
     /// VpcVirtualizationType (or NetworkVirtualizationType) of the VPC. This will
     /// return an error if there are configured instances in the VPC (you can only
     /// do this with an empty VPC).
-    pub async fn set_vpc_network_virtualization_type(
+    pub(crate) async fn set_vpc_network_virtualization_type(
         &self,
         vpc: rpc::Vpc,
         virtualizer: VpcVirtualizationType,
@@ -1420,7 +1432,7 @@ impl ApiClient {
         Ok(())
     }
 
-    pub async fn get_all_ib_partitions(
+    pub(crate) async fn get_all_ib_partitions(
         &self,
         tenant_org_id: Option<String>,
         name: Option<String>,
@@ -1442,7 +1454,7 @@ impl ApiClient {
         Ok(all_list)
     }
 
-    pub async fn get_all_spx_partitions(
+    pub(crate) async fn get_all_spx_partitions(
         &self,
         tenant_org_id: Option<String>,
         name: Option<String>,
@@ -1464,7 +1476,7 @@ impl ApiClient {
         Ok(all_list)
     }
 
-    pub async fn get_one_spx_partition(
+    pub(crate) async fn get_one_spx_partition(
         &self,
         spx_partition_id: SpxPartitionId,
     ) -> CarbideCliResult<rpc::SpxPartitionList> {
@@ -1472,7 +1484,7 @@ impl ApiClient {
         Ok(partitions)
     }
 
-    pub async fn get_one_ib_partition(
+    pub(crate) async fn get_one_ib_partition(
         &self,
         ib_partition_id: IBPartitionId,
     ) -> CarbideCliResult<rpc::IbPartitionList> {
@@ -1527,7 +1539,7 @@ impl ApiClient {
         Ok(self.0.find_spx_partitions_by_ids(request).await?)
     }
 
-    pub async fn get_all_keysets(
+    pub(crate) async fn get_all_keysets(
         &self,
         tenant_org_id: Option<String>,
         page_size: usize,
@@ -1548,7 +1560,7 @@ impl ApiClient {
         Ok(all_list)
     }
 
-    pub async fn get_one_keyset(
+    pub(crate) async fn get_one_keyset(
         &self,
         keyset_id: rpc::TenantKeysetIdentifier,
     ) -> CarbideCliResult<rpc::TenantKeySetList> {
@@ -1578,7 +1590,7 @@ impl ApiClient {
         Ok(self.0.find_tenant_keysets_by_ids(request).await?)
     }
 
-    pub async fn machine_set_auto_update(
+    pub(crate) async fn machine_set_auto_update(
         &self,
         req: MachineAutoupdate,
     ) -> CarbideCliResult<::rpc::forge::MachineSetAutoUpdateResponse> {
@@ -1626,7 +1638,7 @@ impl ApiClient {
 
     /// Build an InstanceAllocationRequest from CLI args and machine info.
     #[allow(deprecated)]
-    pub async fn build_instance_request(
+    pub(crate) async fn build_instance_request(
         &self,
         machine: Machine,
         allocate_instance: &AllocateInstance,
@@ -1992,7 +2004,7 @@ impl ApiClient {
         Ok(instance_request)
     }
 
-    pub async fn allocate_instance(
+    pub(crate) async fn allocate_instance(
         &self,
         machine: Machine,
         allocate_instance: &AllocateInstance,
@@ -2006,7 +2018,7 @@ impl ApiClient {
     }
 
     /// Batch allocate instances (all-or-nothing).
-    pub async fn allocate_instances(
+    pub(crate) async fn allocate_instances(
         &self,
         requests: Vec<rpc::InstanceAllocationRequest>,
     ) -> CarbideCliResult<Vec<rpc::Instance>> {
@@ -2024,7 +2036,7 @@ impl ApiClient {
     /// `modify` closures to apply updates to the configuration.
     /// It then calls the `UpdateInstanceConfig` API to submit the updates
     /// to carbide.
-    pub async fn update_instance_config_with(
+    pub(crate) async fn update_instance_config_with(
         &self,
         instance_id: InstanceId,
         modify_config: impl FnOnce(&mut rpc::InstanceConfig),
@@ -2079,7 +2091,7 @@ impl ApiClient {
             .await?)
     }
 
-    pub async fn set_container_registry_credential(
+    pub(crate) async fn set_container_registry_credential(
         &self,
         registry: String,
         username: String,
@@ -2095,7 +2107,7 @@ impl ApiClient {
             .await?)
     }
 
-    pub async fn add_update_machine_validation_external_config(
+    pub(crate) async fn add_update_machine_validation_external_config(
         &self,
         name: String,
         description: String,
@@ -2112,7 +2124,7 @@ impl ApiClient {
             .await?)
     }
 
-    pub async fn get_machine_validation_results(
+    pub(crate) async fn get_machine_validation_results(
         &self,
         machine_id: Option<MachineId>,
         history: bool,
@@ -2126,7 +2138,7 @@ impl ApiClient {
         Ok(self.0.get_machine_validation_results(request).await?)
     }
 
-    pub async fn get_machine_validation_runs(
+    pub(crate) async fn get_machine_validation_runs(
         &self,
         machine_id: Option<MachineId>,
         include_history: bool,
@@ -2138,7 +2150,7 @@ impl ApiClient {
         Ok(self.0.get_machine_validation_runs(request).await?)
     }
 
-    pub async fn on_demand_machine_validation(
+    pub(crate) async fn on_demand_machine_validation(
         &self,
         machine_id: MachineId,
         tags: Option<Vec<String>>,
@@ -2162,7 +2174,7 @@ impl ApiClient {
         Ok(self.0.on_demand_machine_validation(request).await?)
     }
 
-    pub async fn on_demand_rack_maintenance(
+    pub(crate) async fn on_demand_rack_maintenance(
         &self,
         rack_id: RackId,
         machine_ids: Vec<String>,
@@ -2182,7 +2194,7 @@ impl ApiClient {
         Ok(self.0.on_demand_rack_maintenance(request).await?)
     }
 
-    pub async fn list_os_image(
+    pub(crate) async fn list_os_image(
         &self,
         tenant_organization_id: Option<String>,
     ) -> CarbideCliResult<Vec<rpc::OsImage>> {
@@ -2193,7 +2205,7 @@ impl ApiClient {
         Ok(response.images)
     }
 
-    pub async fn update_os_image(
+    pub(crate) async fn update_os_image(
         &self,
         id: ::rpc::common::Uuid,
         auth_type: Option<String>,
@@ -2220,7 +2232,7 @@ impl ApiClient {
         Ok(self.0.update_os_image(new_attrs).await?)
     }
 
-    pub async fn update_instance_config(
+    pub(crate) async fn update_instance_config(
         &self,
         instance_id: InstanceId,
         version: String,
@@ -2236,7 +2248,7 @@ impl ApiClient {
         Ok(self.0.update_instance_config(request).await?)
     }
 
-    pub async fn update_vpc_config(
+    pub(crate) async fn update_vpc_config(
         &self,
         vpc_id: VpcId,
         version: String,
@@ -2258,7 +2270,7 @@ impl ApiClient {
             .ok_or(CarbideCliError::Empty)
     }
 
-    pub async fn get_machine_validation_tests(
+    pub(crate) async fn get_machine_validation_tests(
         &self,
         test_id: Option<String>,
         platforms: Vec<String>,
@@ -2276,7 +2288,7 @@ impl ApiClient {
         Ok(self.0.get_machine_validation_tests(request).await?)
     }
 
-    pub async fn update_machine_metadata(
+    pub(crate) async fn update_machine_metadata(
         &self,
         machine_id: MachineId,
         metadata: ::rpc::forge::Metadata,
@@ -2290,7 +2302,7 @@ impl ApiClient {
         Ok(self.0.update_machine_metadata(request).await?)
     }
 
-    pub async fn update_rack_metadata(
+    pub(crate) async fn update_rack_metadata(
         &self,
         rack_id: RackId,
         metadata: ::rpc::forge::Metadata,
@@ -2304,7 +2316,7 @@ impl ApiClient {
         Ok(self.0.update_rack_metadata(request).await?)
     }
 
-    pub async fn update_switch_metadata(
+    pub(crate) async fn update_switch_metadata(
         &self,
         switch_id: SwitchId,
         metadata: ::rpc::forge::Metadata,
@@ -2318,7 +2330,7 @@ impl ApiClient {
         Ok(self.0.update_switch_metadata(request).await?)
     }
 
-    pub async fn update_power_shelf_metadata(
+    pub(crate) async fn update_power_shelf_metadata(
         &self,
         power_shelf_id: PowerShelfId,
         metadata: ::rpc::forge::Metadata,
@@ -2332,7 +2344,7 @@ impl ApiClient {
         Ok(self.0.update_power_shelf_metadata(request).await?)
     }
 
-    pub async fn get_single_network_security_group(
+    pub(crate) async fn get_single_network_security_group(
         &self,
         id: String,
     ) -> CarbideCliResult<rpc::NetworkSecurityGroup> {
@@ -2347,7 +2359,7 @@ impl ApiClient {
             .ok_or(CarbideCliError::Empty)
     }
 
-    pub async fn get_network_security_group_attachments(
+    pub(crate) async fn get_network_security_group_attachments(
         &self,
         id: String,
     ) -> CarbideCliResult<rpc::NetworkSecurityGroupAttachments> {
@@ -2361,7 +2373,7 @@ impl ApiClient {
             .ok_or(CarbideCliError::Empty)
     }
 
-    pub async fn get_network_security_group_propagation_status(
+    pub(crate) async fn get_network_security_group_propagation_status(
         &self,
         id: String,
         vpc_ids: Option<Vec<String>>,
@@ -2386,7 +2398,7 @@ impl ApiClient {
         Ok((nsg.vpcs, nsg.instances))
     }
 
-    pub async fn get_all_network_security_groups(
+    pub(crate) async fn get_all_network_security_groups(
         &self,
         page_size: usize,
     ) -> CarbideCliResult<Vec<rpc::NetworkSecurityGroup>> {
@@ -2416,7 +2428,7 @@ impl ApiClient {
         Ok(all_nsgs)
     }
 
-    pub async fn update_network_security_group(
+    pub(crate) async fn update_network_security_group(
         &self,
         id: String,
         tenant_organization_id: String,
@@ -2444,7 +2456,7 @@ impl ApiClient {
     }
 
     // TODO: add other hardware info
-    pub async fn update_machine_hardware_info(
+    pub(crate) async fn update_machine_hardware_info(
         &self,
         id: MachineId,
         hardware_info_update_type: MachineHardwareInfoUpdateType,
@@ -2461,7 +2473,7 @@ impl ApiClient {
             .await?)
     }
 
-    pub async fn update_machine_nvlink_info(
+    pub(crate) async fn update_machine_nvlink_info(
         &self,
         machine_id: MachineId,
         nvlink_info: rpc::MachineNvLinkInfo,
@@ -2475,7 +2487,7 @@ impl ApiClient {
             .await?)
     }
 
-    pub async fn get_all_instance_types(
+    pub(crate) async fn get_all_instance_types(
         &self,
         page_size: usize,
     ) -> CarbideCliResult<Vec<rpc::InstanceType>> {
@@ -2499,7 +2511,7 @@ impl ApiClient {
         Ok(all_itypes)
     }
 
-    pub async fn get_power_options(
+    pub(crate) async fn get_power_options(
         &self,
         machine_id: Vec<MachineId>,
     ) -> CarbideCliResult<Vec<rpc::PowerOptions>> {
@@ -2512,7 +2524,7 @@ impl ApiClient {
         Ok(all_options)
     }
 
-    pub async fn get_all_nv_link_partitions(
+    pub(crate) async fn get_all_nv_link_partitions(
         &self,
         tenant_org_id: Option<String>,
         name: Option<String>,
@@ -2534,7 +2546,7 @@ impl ApiClient {
         Ok(all_list)
     }
 
-    pub async fn get_one_nv_link_partition(
+    pub(crate) async fn get_one_nv_link_partition(
         &self,
         nvl_partition_id: NvLinkPartitionId,
     ) -> CarbideCliResult<rpc::NvLinkPartition> {
@@ -2576,7 +2588,7 @@ impl ApiClient {
             .map_err(CarbideCliError::ApiInvocationError)
     }
 
-    pub async fn get_all_logical_partitions(
+    pub(crate) async fn get_all_logical_partitions(
         &self,
         name: Option<String>,
         page_size: usize,
@@ -2597,7 +2609,7 @@ impl ApiClient {
         Ok(all_list)
     }
 
-    pub async fn get_one_logical_partition(
+    pub(crate) async fn get_one_logical_partition(
         &self,
         partition_id: NvLinkLogicalPartitionId,
     ) -> CarbideCliResult<rpc::NvLinkLogicalPartition> {
@@ -2637,7 +2649,7 @@ impl ApiClient {
             .map_err(CarbideCliError::ApiInvocationError)
     }
 
-    pub async fn enable_infinite_boot(
+    pub(crate) async fn enable_infinite_boot(
         &self,
         bmc_endpoint_request: Option<BmcEndpointRequest>,
         machine_id: Option<String>,
@@ -2649,7 +2661,7 @@ impl ApiClient {
         Ok(self.0.enable_infinite_boot(request).await?)
     }
 
-    pub async fn lockdown(
+    pub(crate) async fn lockdown(
         &self,
         bmc_endpoint_request: Option<BmcEndpointRequest>,
         machine_id: MachineId,
@@ -2663,7 +2675,7 @@ impl ApiClient {
         Ok(self.0.lockdown(request).await?)
     }
 
-    pub async fn get_remediation(
+    pub(crate) async fn get_remediation(
         &self,
         remediation_id: RemediationId,
     ) -> CarbideCliResult<Remediation> {
@@ -2680,7 +2692,7 @@ impl ApiClient {
             .ok_or(CarbideCliError::RemediationNotFound(remediation_id))
     }
 
-    pub async fn get_all_remediations(
+    pub(crate) async fn get_all_remediations(
         &self,
         page_size: usize,
     ) -> CarbideCliResult<RemediationList> {
@@ -2705,7 +2717,7 @@ impl ApiClient {
         Ok(RemediationList { remediations })
     }
 
-    pub async fn find_extension_services(
+    pub(crate) async fn find_extension_services(
         &self,
         service_type: Option<i32>,
         name: Option<String>,
@@ -2737,7 +2749,7 @@ impl ApiClient {
         Ok(all_list)
     }
 
-    pub async fn get_extension_service_by_id(
+    pub(crate) async fn get_extension_service_by_id(
         &self,
         service_id: String,
     ) -> CarbideCliResult<rpc::DpuExtensionService> {
@@ -2758,7 +2770,7 @@ impl ApiClient {
         })
     }
 
-    pub async fn modify_dpf_state(
+    pub(crate) async fn modify_dpf_state(
         &self,
         machine_id: MachineId,
         state: bool,
@@ -2771,7 +2783,7 @@ impl ApiClient {
         Ok(self.0.modify_dpf_state(request).await?)
     }
 
-    pub async fn get_dpf_state(
+    pub(crate) async fn get_dpf_state(
         &self,
         machine_ids: Vec<MachineId>,
         page_size: usize,
@@ -2789,7 +2801,7 @@ impl ApiClient {
         Ok(all_dpf_states)
     }
 
-    pub async fn get_dpf_host_snapshot(
+    pub(crate) async fn get_dpf_host_snapshot(
         &self,
         host_machine_id: MachineId,
     ) -> CarbideCliResult<String> {
@@ -2800,7 +2812,9 @@ impl ApiClient {
         Ok(response.json_payload)
     }
 
-    pub async fn get_dpf_service_versions(&self) -> CarbideCliResult<Vec<rpc::DpfServiceVersion>> {
+    pub(crate) async fn get_dpf_service_versions(
+        &self,
+    ) -> CarbideCliResult<Vec<rpc::DpfServiceVersion>> {
         let response = self.0.get_dpf_service_versions().await?;
         Ok(response.services)
     }

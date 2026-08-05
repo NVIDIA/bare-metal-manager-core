@@ -33,17 +33,17 @@ use crate::tests::common::api_fixtures::{FIXTURE_DHCP_RELAY_ADDRESS, TestEnv, Te
 use crate::tests::common::rpc_builder::DhcpDiscovery;
 
 /// The version identifier that is used by dpu-agent in unit-tests
-pub const TEST_DPU_AGENT_VERSION: &str = "test";
+pub(in crate::tests) const TEST_DPU_AGENT_VERSION: &str = "test";
 
 /// The version of HBN reported in unit-tests
-pub const TEST_DOCA_HBN_VERSION: &str = "1.5.0-doca2.2.0";
+pub(in crate::tests) const TEST_DOCA_HBN_VERSION: &str = "1.5.0-doca2.2.0";
 /// The version of doca-telemetry reported in unit-tests
-pub const TEST_DOCA_TELEMETRY_VERSION: &str = "1.14.2-doca2.2.0";
+pub(in crate::tests) const TEST_DOCA_TELEMETRY_VERSION: &str = "1.14.2-doca2.2.0";
 
 /// Creates a Machine Interface and Machine for a DPU
 ///
 /// Returns the ID of the created machine
-pub async fn create_dpu_machine(
+pub(in crate::tests) async fn create_dpu_machine(
     env: &TestEnv,
     host_config: &ManagedHostConfig,
 ) -> carbide_uuid::machine::MachineId {
@@ -52,7 +52,7 @@ pub async fn create_dpu_machine(
         .unwrap()
 }
 
-pub async fn create_dpu_machine_in_waiting_for_network_install(
+pub(in crate::tests) async fn create_dpu_machine_in_waiting_for_network_install(
     env: &TestEnv,
     host_config: &ManagedHostConfig,
 ) -> TestManagedHost {
@@ -61,7 +61,7 @@ pub async fn create_dpu_machine_in_waiting_for_network_install(
         .unwrap()
 }
 
-pub async fn create_machine_inventory(env: &TestEnv, machine_id: MachineId) {
+pub(in crate::tests) async fn create_machine_inventory(env: &TestEnv, machine_id: MachineId) {
     tracing::debug!(
         machine_id = %machine_id,
         "Creating machine inventory",
@@ -92,7 +92,10 @@ pub async fn create_machine_inventory(env: &TestEnv, machine_id: MachineId) {
 /// Uses the `discover_dhcp` API to discover a DPU with a certain MAC address
 ///
 /// Returns the created `machine_interface_id`
-pub async fn dpu_discover_dhcp(env: &TestEnv, mac_address: &str) -> MachineInterfaceId {
+pub(in crate::tests) async fn dpu_discover_dhcp(
+    env: &TestEnv,
+    mac_address: &str,
+) -> MachineInterfaceId {
     let response = env
         .api
         .discover_dhcp(
@@ -108,7 +111,7 @@ pub async fn dpu_discover_dhcp(env: &TestEnv, mac_address: &str) -> MachineInter
 
 /// Emulates DPU Machine Discovery (submitting hardware information) for the
 /// DPU that uses a certain `machine_interface_id`
-pub async fn dpu_discover_machine(
+pub(in crate::tests) async fn dpu_discover_machine(
     env: &TestEnv,
     dpu_config: &DpuConfig,
     machine_interface_id: MachineInterfaceId,
@@ -131,7 +134,10 @@ pub async fn dpu_discover_machine(
 }
 
 // Convenience method for the tests to get a machine's loopback IP
-pub async fn loopback_ip(txn: &mut PgConnection, dpu_machine_id: &MachineId) -> IpAddr {
+pub(in crate::tests) async fn loopback_ip(
+    txn: &mut PgConnection,
+    dpu_machine_id: &MachineId,
+) -> IpAddr {
     let dpu = db::machine::find_one(txn, dpu_machine_id, MachineSearchConfig::default())
         .await
         .unwrap()

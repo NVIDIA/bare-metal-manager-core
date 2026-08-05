@@ -26,8 +26,10 @@
 use carbide_test_support::Outcome::*;
 use carbide_test_support::scenarios;
 use clap::{CommandFactory, Parser};
+use mac_address::MacAddress;
 
 use super::*;
+use crate::test_support::{parse_with_leaf_matches, raw_value};
 
 // verify_cmd_structure runs a baseline clap debug_assert()
 // to do basic command configuration checking and validation,
@@ -46,29 +48,17 @@ fn verify_cmd_structure() {
 // including testing required arguments, as well as optional
 // flag-specific checking.
 
-// variant names the subcommand a parsed `Cmd` routed to, so cases that only
-// assert routing (delete, erase) can compare a stable string.
-fn variant(cmd: &Cmd) -> &'static str {
-    match cmd {
-        Cmd::Show(_) => "show",
-        Cmd::Add(_) => "add",
-        Cmd::Delete(_) => "delete",
-        Cmd::Update(_) => "update",
-        Cmd::ReplaceAll(_) => "replace-all",
-        Cmd::Erase(_) => "erase",
-    }
-}
-
 // show parses both with no MAC argument (all power shelves) and with one; the
 // yielded bool is whether `bmc_mac_address` was supplied.
 #[test]
 fn parse_show() {
     scenarios!(
-        run = |argv| match Cmd::try_parse_from(argv.iter().copied()) {
-            Ok(Cmd::Show(args)) => Ok(args.bmc_mac_address.is_some()),
-            Ok(other) => panic!("expected Show variant, got {}", variant(&other)),
-            Err(_) => Err(()),
-        };
+        run = |argv| parse_with_leaf_matches::<Cmd>(argv, &["show"])
+            .map(|(cmd, matches)| {
+                assert!(matches!(cmd, Cmd::Show(_)));
+                matches.get_one::<MacAddress>("bmc_mac_address").is_some()
+            })
+            .map_err(drop);
         "show with no arguments (all power shelves)" {
             &["expected-power-shelf", "show"][..] => Yields(false),
         }
@@ -85,11 +75,17 @@ fn parse_show() {
 #[test]
 fn parse_add() {
     scenarios!(
-        run = |argv| match Cmd::try_parse_from(argv.iter().copied()) {
-            Ok(Cmd::Add(args)) => Ok((args.bmc_username, args.shelf_serial_number, args.meta_name)),
-            Ok(other) => panic!("expected Add variant, got {}", variant(&other)),
-            Err(_) => Err(()),
-        };
+        run = |argv| parse_with_leaf_matches::<Cmd>(argv, &["add"])
+            .map(|(cmd, matches)| {
+                assert!(matches!(cmd, Cmd::Add(_)));
+                (
+                    raw_value(&matches, "bmc_username").expect("BMC username is required"),
+                    raw_value(&matches, "shelf_serial_number")
+                        .expect("shelf serial number is required"),
+                    raw_value(&matches, "meta_name"),
+                )
+            })
+            .map_err(drop);
         "add with required arguments" {
             &[
                 "expected-power-shelf",
@@ -135,11 +131,12 @@ fn parse_add() {
 #[test]
 fn parse_update() {
     scenarios!(
-        run = |argv| match Cmd::try_parse_from(argv.iter().copied()) {
-            Ok(Cmd::Update(args)) => Ok(args.shelf_serial_number),
-            Ok(other) => panic!("expected Update variant, got {}", variant(&other)),
-            Err(_) => Err(()),
-        };
+        run = |argv| parse_with_leaf_matches::<Cmd>(argv, &["update"])
+            .map(|(cmd, matches)| {
+                assert!(matches!(cmd, Cmd::Update(_)));
+                raw_value(&matches, "shelf_serial_number")
+            })
+            .map_err(drop);
         "update with required arguments" {
             &[
                 "expected-power-shelf",
@@ -157,11 +154,12 @@ fn parse_update() {
 #[test]
 fn parse_replace_all() {
     scenarios!(
-        run = |argv| match Cmd::try_parse_from(argv.iter().copied()) {
-            Ok(Cmd::ReplaceAll(args)) => Ok(args.filename),
-            Ok(other) => panic!("expected ReplaceAll variant, got {}", variant(&other)),
-            Err(_) => Err(()),
-        };
+        run = |argv| parse_with_leaf_matches::<Cmd>(argv, &["replace-all"])
+            .map(|(cmd, matches)| {
+                assert!(matches!(cmd, Cmd::ReplaceAll(_)));
+                raw_value(&matches, "filename").expect("filename is required")
+            })
+            .map_err(drop);
         "replace-all with a filename" {
             &[
                 "expected-power-shelf",
@@ -179,8 +177,13 @@ fn parse_replace_all() {
 fn parse_routes_to_variant() {
     scenarios!(
         run = |argv| {
-            Cmd::try_parse_from(argv.iter().copied())
-                .map(|cmd| variant(&cmd))
+            let subcommand = argv[1];
+            parse_with_leaf_matches::<Cmd>(argv, &[subcommand])
+                .map(|(cmd, _)| match cmd {
+                    Cmd::Delete(_) => "delete",
+                    Cmd::Erase(_) => "erase",
+                    _ => panic!("expected Delete or Erase variant"),
+                })
                 .map_err(drop)
         };
         "delete with a MAC address" {

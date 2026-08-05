@@ -27,10 +27,12 @@
 use carbide_test_support::Outcome::*;
 use carbide_test_support::scenarios;
 use clap::{CommandFactory, Parser};
+use mac_address::MacAddress;
 
 use super::common::ExpectedMachineJson;
 use super::*;
 use crate::expected_machines::common::HostDpuPolicy;
+use crate::test_support::{parse_leaf, raw_value};
 
 // verify_cmd_structure runs a baseline clap debug_assert()
 // to do basic command configuration checking and validation,
@@ -53,54 +55,55 @@ fn verify_cmd_structure() {
 // arguments (all machines).
 #[test]
 fn parse_show_no_args() {
-    let cmd = Cmd::try_parse_from(["expected-machine", "show"]).expect("should parse show");
+    let matches =
+        parse_leaf::<Cmd>(&["expected-machine", "show"], &["show"]).expect("should parse show");
 
-    match cmd {
-        Cmd::Show(args) => {
-            assert!(args.bmc_mac_address.is_none());
-        }
-        _ => panic!("expected Show variant"),
-    }
+    assert!(matches.get_one::<MacAddress>("bmc_mac_address").is_none());
 }
 
 // parse_show_with_mac ensures show parses with MAC address.
 #[test]
 fn parse_show_with_mac() {
-    let cmd = Cmd::try_parse_from(["expected-machine", "show", "1a:2b:3c:4d:5e:6f"])
-        .expect("should parse show with MAC");
+    let matches = parse_leaf::<Cmd>(
+        &["expected-machine", "show", "1a:2b:3c:4d:5e:6f"],
+        &["show"],
+    )
+    .expect("should parse show with MAC");
 
-    match cmd {
-        Cmd::Show(args) => {
-            assert!(args.bmc_mac_address.is_some());
-        }
-        _ => panic!("expected Show variant"),
-    }
+    assert_eq!(
+        matches.get_one::<MacAddress>("bmc_mac_address").copied(),
+        Some("1a:2b:3c:4d:5e:6f".parse::<MacAddress>().unwrap())
+    );
 }
 
 // parse_add ensures add parses with required arguments.
 #[test]
 fn parse_add() {
-    let cmd = Cmd::try_parse_from([
-        "expected-machine",
-        "add",
-        "--bmc-mac-address",
-        "1a:2b:3c:4d:5e:6f",
-        "--bmc-username",
-        "admin",
-        "--bmc-password",
-        "secret",
-        "--chassis-serial-number",
-        "SN12345",
-    ])
+    let matches = parse_leaf::<Cmd>(
+        &[
+            "expected-machine",
+            "add",
+            "--bmc-mac-address",
+            "1a:2b:3c:4d:5e:6f",
+            "--bmc-username",
+            "admin",
+            "--bmc-password",
+            "secret",
+            "--chassis-serial-number",
+            "SN12345",
+        ],
+        &["add"],
+    )
     .expect("should parse add");
 
-    match cmd {
-        Cmd::Add(args) => {
-            assert_eq!(args.bmc_username, "admin");
-            assert_eq!(args.chassis_serial_number, "SN12345");
-        }
-        _ => panic!("expected Add variant"),
-    }
+    assert_eq!(
+        raw_value(&matches, "bmc_username").as_deref(),
+        Some("admin")
+    );
+    assert_eq!(
+        raw_value(&matches, "chassis_serial_number").as_deref(),
+        Some("SN12345")
+    );
 }
 
 /// Canonical and legacy interface flags build the same protobuf request.
@@ -141,58 +144,60 @@ fn parse_add_with_new_and_legacy_interface_flags() {
 // parse_add_without_password ensures add parses when --bmc-password is omitted.
 #[test]
 fn parse_add_without_password() {
-    let cmd = Cmd::try_parse_from([
-        "expected-machine",
-        "add",
-        "--bmc-mac-address",
-        "1a:2b:3c:4d:5e:6f",
-        "--bmc-username",
-        "admin",
-        "--chassis-serial-number",
-        "SN12345",
-    ])
+    let matches = parse_leaf::<Cmd>(
+        &[
+            "expected-machine",
+            "add",
+            "--bmc-mac-address",
+            "1a:2b:3c:4d:5e:6f",
+            "--bmc-username",
+            "admin",
+            "--chassis-serial-number",
+            "SN12345",
+        ],
+        &["add"],
+    )
     .expect("should parse add without password");
 
-    match cmd {
-        Cmd::Add(args) => {
-            assert_eq!(args.bmc_password, None);
-            assert_eq!(args.bmc_username, "admin");
-        }
-        _ => panic!("expected Add variant"),
-    }
+    assert!(raw_value(&matches, "bmc_password").is_none());
+    assert_eq!(
+        raw_value(&matches, "bmc_username").as_deref(),
+        Some("admin")
+    );
 }
 
 // parse_add_with_options ensures add parses with
 // all options.
 #[test]
 fn parse_add_with_options() {
-    let cmd = Cmd::try_parse_from([
-        "expected-machine",
-        "add",
-        "--bmc-mac-address",
-        "1a:2b:3c:4d:5e:6f",
-        "--bmc-username",
-        "admin",
-        "--bmc-password",
-        "secret",
-        "--chassis-serial-number",
-        "SN12345",
-        "--meta-name",
-        "MyMachine",
-        "--label",
-        "env:prod",
-        "--sku-id",
-        "sku123",
-    ])
+    let matches = parse_leaf::<Cmd>(
+        &[
+            "expected-machine",
+            "add",
+            "--bmc-mac-address",
+            "1a:2b:3c:4d:5e:6f",
+            "--bmc-username",
+            "admin",
+            "--bmc-password",
+            "secret",
+            "--chassis-serial-number",
+            "SN12345",
+            "--meta-name",
+            "MyMachine",
+            "--label",
+            "env:prod",
+            "--sku-id",
+            "sku123",
+        ],
+        &["add"],
+    )
     .expect("should parse add with options");
 
-    match cmd {
-        Cmd::Add(args) => {
-            assert_eq!(args.meta_name, Some("MyMachine".to_string()));
-            assert_eq!(args.sku_id, Some("sku123".to_string()));
-        }
-        _ => panic!("expected Add variant"),
-    }
+    assert_eq!(
+        raw_value(&matches, "meta_name").as_deref(),
+        Some("MyMachine")
+    );
+    assert_eq!(raw_value(&matches, "sku_id").as_deref(), Some("sku123"));
 }
 
 // parse_delete ensures delete parses with MAC address.
@@ -207,56 +212,56 @@ fn parse_delete() {
 // parse_patch ensures patch parses with required arguments.
 #[test]
 fn parse_patch() {
-    let cmd = Cmd::try_parse_from([
-        "expected-machine",
-        "patch",
-        "--bmc-mac-address",
-        "1a:2b:3c:4d:5e:6f",
-        "--sku-id",
-        "new_sku",
-    ])
+    let matches = parse_leaf::<Cmd>(
+        &[
+            "expected-machine",
+            "patch",
+            "--bmc-mac-address",
+            "1a:2b:3c:4d:5e:6f",
+            "--sku-id",
+            "new_sku",
+        ],
+        &["patch"],
+    )
     .expect("should parse patch");
 
-    match cmd {
-        Cmd::Patch(args) => {
-            assert_eq!(args.sku_id, Some("new_sku".to_string()));
-        }
-        _ => panic!("expected Patch variant"),
-    }
+    assert_eq!(raw_value(&matches, "sku_id").as_deref(), Some("new_sku"));
 }
 
 // parse_update ensures update parses with filename.
 #[test]
 fn parse_update() {
-    let cmd = Cmd::try_parse_from(["expected-machine", "update", "--filename", "machine.json"])
-        .expect("should parse update");
+    let matches = parse_leaf::<Cmd>(
+        &["expected-machine", "update", "--filename", "machine.json"],
+        &["update"],
+    )
+    .expect("should parse update");
 
-    match cmd {
-        Cmd::Update(args) => {
-            assert_eq!(args.filename, "machine.json");
-        }
-        _ => panic!("expected Update variant"),
-    }
+    assert_eq!(
+        raw_value(&matches, "filename").as_deref(),
+        Some("machine.json")
+    );
 }
 
 // parse_replace_all ensures replace-all parses with
 // filename.
 #[test]
 fn parse_replace_all() {
-    let cmd = Cmd::try_parse_from([
-        "expected-machine",
-        "replace-all",
-        "--filename",
-        "machines.json",
-    ])
+    let matches = parse_leaf::<Cmd>(
+        &[
+            "expected-machine",
+            "replace-all",
+            "--filename",
+            "machines.json",
+        ],
+        &["replace-all"],
+    )
     .expect("should parse replace-all");
 
-    match cmd {
-        Cmd::ReplaceAll(args) => {
-            assert_eq!(args.filename, "machines.json");
-        }
-        _ => panic!("expected ReplaceAll variant"),
-    }
+    assert_eq!(
+        raw_value(&matches, "filename").as_deref(),
+        Some("machines.json")
+    );
 }
 
 #[test]
@@ -393,7 +398,7 @@ fn has_duplicate_dpu_serials_flags_repeats() {
     scenarios!(
         run = |argv| {
             add::Args::try_parse_from(argv.iter().copied())
-                .map(|m| m.has_duplicate_dpu_serials())
+                .map(|m| m.has_duplicate_dpu_serials_for_test())
                 .map_err(drop)
         };
         "three unique serials" {
@@ -472,7 +477,10 @@ fn validate_patch_with_dpu_serials() {
 
     match cmd {
         Cmd::Patch(args) => {
-            assert!(args.validate().is_ok(), "unique serials should validate");
+            assert!(
+                args.validate_for_test().is_ok(),
+                "unique serials should validate"
+            );
         }
         _ => panic!("expected Patch variant"),
     }
@@ -503,7 +511,7 @@ fn validate_patch_duplicate_dpu_serials_fails() {
     match cmd {
         Cmd::Patch(args) => {
             assert!(
-                args.validate().is_err(),
+                args.validate_for_test().is_err(),
                 "duplicate serials should fail validation"
             );
         }
@@ -529,7 +537,10 @@ fn validate_patch_with_credentials() {
 
     match cmd {
         Cmd::Patch(args) => {
-            assert!(args.validate().is_ok(), "credentials should validate");
+            assert!(
+                args.validate_for_test().is_ok(),
+                "credentials should validate"
+            );
         }
         _ => panic!("expected Patch variant"),
     }
@@ -557,7 +568,10 @@ fn validate_patch_all_fields() {
 
     match cmd {
         Cmd::Patch(args) => {
-            assert!(args.validate().is_ok(), "all fields should validate");
+            assert!(
+                args.validate_for_test().is_ok(),
+                "all fields should validate"
+            );
         }
         _ => panic!("expected Patch variant"),
     }
@@ -567,26 +581,27 @@ fn validate_patch_all_fields() {
 // `[site_explorer] dpu_policy` setting and ultimately defaults to `Manage`.
 #[test]
 fn parse_add_without_dpu_policy() {
-    let cmd = Cmd::try_parse_from([
-        "expected-machine",
-        "add",
-        "--bmc-mac-address",
-        "1a:2b:3c:4d:5e:6f",
-        "--bmc-username",
-        "admin",
-        "--bmc-password",
-        "secret",
-        "--chassis-serial-number",
-        "SN12345",
-    ])
+    let matches = parse_leaf::<Cmd>(
+        &[
+            "expected-machine",
+            "add",
+            "--bmc-mac-address",
+            "1a:2b:3c:4d:5e:6f",
+            "--bmc-username",
+            "admin",
+            "--bmc-password",
+            "secret",
+            "--chassis-serial-number",
+            "SN12345",
+        ],
+        &["add"],
+    )
     .expect("should parse without --dpu-policy");
 
-    match cmd {
-        Cmd::Add(args) => {
-            assert!(args.dpu_policy.is_none(), "--dpu-policy should be optional");
-        }
-        _ => panic!("expected Add variant"),
-    }
+    assert!(
+        matches.get_one::<HostDpuPolicy>("dpu_policy").is_none(),
+        "--dpu-policy should be optional"
+    );
 }
 
 // Both the canonical `--dpu-policy` vocabulary and the legacy `--dpu-mode`
@@ -595,12 +610,9 @@ fn parse_add_without_dpu_policy() {
 fn parse_dpu_policy_to_its_variant() {
     scenarios!(
         run = |argv| {
-            Cmd::try_parse_from(argv.iter().copied())
-                .map(|cmd| match cmd {
-                    Cmd::Add(args) => args.dpu_policy,
-                    Cmd::Patch(args) => args.dpu_policy,
-                    _ => panic!("expected Add or Patch variant"),
-                })
+            let subcommand = argv[1];
+            parse_leaf::<Cmd>(argv, &[subcommand])
+                .map(|matches| matches.get_one::<HostDpuPolicy>("dpu_policy").copied())
                 .map_err(drop)
         };
         "add --dpu-policy nic" {
@@ -795,7 +807,7 @@ fn validate_patch_with_dpu_policy_only() {
     match cmd {
         Cmd::Patch(args) => {
             assert!(
-                args.validate().is_ok(),
+                args.validate_for_test().is_ok(),
                 "patch --dpu-policy alone should validate"
             );
         }
@@ -807,29 +819,29 @@ fn validate_patch_with_dpu_policy_only() {
 // server default (`auto`), which retains an auto-allocated BMC address.
 #[test]
 fn parse_add_without_bmc_ip_allocation() {
-    let cmd = Cmd::try_parse_from([
-        "expected-machine",
-        "add",
-        "--bmc-mac-address",
-        "1a:2b:3c:4d:5e:6f",
-        "--bmc-username",
-        "admin",
-        "--bmc-password",
-        "secret",
-        "--chassis-serial-number",
-        "SN12345",
-    ])
+    let matches = parse_leaf::<Cmd>(
+        &[
+            "expected-machine",
+            "add",
+            "--bmc-mac-address",
+            "1a:2b:3c:4d:5e:6f",
+            "--bmc-username",
+            "admin",
+            "--bmc-password",
+            "secret",
+            "--chassis-serial-number",
+            "SN12345",
+        ],
+        &["add"],
+    )
     .expect("should parse without --bmc-ip-allocation");
 
-    match cmd {
-        Cmd::Add(args) => {
-            assert!(
-                args.bmc_ip_allocation.is_none(),
-                "--bmc-ip-allocation should be optional"
-            );
-        }
-        _ => panic!("expected Add variant"),
-    }
+    assert!(
+        matches
+            .get_one::<rpc::forge::BmcIpAllocationType>("bmc_ip_allocation")
+            .is_none(),
+        "--bmc-ip-allocation should be optional"
+    );
 }
 
 // `--bmc-ip-allocation <value>` parses to the matching BmcIpAllocationType variant
@@ -839,11 +851,12 @@ fn parse_add_without_bmc_ip_allocation() {
 fn parse_bmc_ip_allocation_to_its_variant() {
     scenarios!(
         run = |argv| {
-            Cmd::try_parse_from(argv.iter().copied())
-                .map(|cmd| match cmd {
-                    Cmd::Add(args) => args.bmc_ip_allocation,
-                    Cmd::Patch(args) => args.bmc_ip_allocation,
-                    _ => panic!("expected Add or Patch variant"),
+            let subcommand = argv[1];
+            parse_leaf::<Cmd>(argv, &[subcommand])
+                .map(|matches| {
+                    matches
+                        .get_one::<rpc::forge::BmcIpAllocationType>("bmc_ip_allocation")
+                        .copied()
                 })
                 .map_err(drop)
         };
@@ -963,7 +976,7 @@ fn validate_patch_with_bmc_ip_allocation_only() {
     match cmd {
         Cmd::Patch(args) => {
             assert!(
-                args.validate().is_ok(),
+                args.validate_for_test().is_ok(),
                 "patch --bmc-ip-allocation alone should validate"
             );
         }
@@ -979,21 +992,24 @@ fn validate_patch_with_new_and_legacy_interface_flags() {
     let mut parsed_values = Vec::new();
 
     for flag in ["--interfaces", "--host_nics"] {
-        let cmd = Cmd::try_parse_from([
+        let argv = [
             "expected-machine",
             "patch",
             "--bmc-mac-address",
             "00:00:00:00:00:00",
             flag,
             value,
-        ])
-        .unwrap_or_else(|error| panic!("{flag} should parse: {error}"));
+        ];
+        let matches = parse_leaf::<Cmd>(&argv, &["patch"])
+            .unwrap_or_else(|error| panic!("{flag} should parse: {error}"));
+        let cmd = Cmd::try_parse_from(argv)
+            .unwrap_or_else(|error| panic!("{flag} should parse into Cmd: {error}"));
 
         let Cmd::Patch(args) = cmd else {
             panic!("expected Patch variant");
         };
-        assert!(args.validate().is_ok(), "{flag} should validate");
-        parsed_values.push(args.interfaces);
+        assert!(args.validate_for_test().is_ok(), "{flag} should validate");
+        parsed_values.push(raw_value(&matches, "interfaces"));
     }
 
     assert_eq!(

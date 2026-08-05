@@ -550,16 +550,16 @@ async fn allocate_vpc_vni(
 /// (request + tenant + site FNN config), so we return both as one
 /// value.
 #[derive(Debug)]
-pub(crate) struct ResolvedVpcRouting {
+struct ResolvedVpcRouting {
     /// The routing-profile-type name to persist on the VPC. `None`
     /// for VPC types without a NICo-managed data plane, or when
     /// neither the request nor the tenant supplies one.
-    pub profile_type: Option<String>,
+    profile_type: Option<String>,
 
     /// Whether the VPC is "internal" -- drives VNI pool selection
     /// (`vpc-vni` internal pool vs `external-vpc-vni` external pool)
     /// and a couple of downstream behaviors.
-    pub internal: bool,
+    internal: bool,
 }
 
 impl Default for ResolvedVpcRouting {
@@ -592,7 +592,7 @@ impl Default for ResolvedVpcRouting {
 /// This exists as a function so that resolution rules can be
 /// more easily unit-tested directly, vs. as part of a wider
 /// flow.
-pub(crate) fn resolve_vpc_routing(
+fn resolve_vpc_routing(
     virt_type: VpcVirtualizationType,
     requested_profile_type: Option<&str>,
     vpc_profile_overrides: Option<&VpcRoutingProfileOverrides>,

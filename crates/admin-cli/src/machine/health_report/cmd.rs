@@ -28,7 +28,7 @@ use crate::errors::CarbideCliResult;
 use crate::health_utils;
 use crate::rpc::ApiClient;
 
-pub fn get_empty_template() -> HealthReport {
+pub(crate) fn get_empty_template() -> HealthReport {
     HealthReport {
         source: "".to_string(),
         triggered_by: None,
@@ -52,7 +52,10 @@ pub fn get_empty_template() -> HealthReport {
     }
 }
 
-pub fn get_health_report(template: HealthReportTemplates, message: Option<String>) -> HealthReport {
+pub(crate) fn get_health_report(
+    template: HealthReportTemplates,
+    message: Option<String>,
+) -> HealthReport {
     let mut report = HealthReport {
         source: "admin-cli".to_string(),
         triggered_by: None,
@@ -165,7 +168,7 @@ pub fn get_health_report(template: HealthReportTemplates, message: Option<String
     report
 }
 
-pub async fn handle_health_report(
+pub(super) async fn handle_health_report(
     command: Args,
     output_format: OutputFormat,
     api_client: &ApiClient,

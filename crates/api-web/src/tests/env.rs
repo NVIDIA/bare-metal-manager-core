@@ -15,9 +15,12 @@
  * limitations under the License.
  */
 
+use std::sync::Arc;
+
 use carbide_api_core::test_support::fixture_config::{
     FixtureDefault as _, ManagedHostConfigExt as _,
 };
+use carbide_redfish::libredfish::test_support::RedfishSim;
 use carbide_test_harness::dns::TestDomain;
 use carbide_test_harness::network::segment::TestNetworkSegment;
 use carbide_test_harness::prelude::*;
@@ -25,6 +28,7 @@ use model::test_support::ManagedHostConfig;
 
 pub struct TestEnv {
     pub test_harness: TestHarness,
+    pub redfish_sim: Arc<RedfishSim>,
     site_explorer: TestSiteExplorer,
     domain: TestDomain,
     underlay_segment: TestNetworkSegment,
@@ -33,7 +37,10 @@ pub struct TestEnv {
 
 impl TestEnv {
     pub async fn new(pool: PgPool) -> Self {
+        let redfish_sim = Arc::new(RedfishSim::default());
+        let redfish_pool = Arc::clone(&redfish_sim);
         let test_harness = TestHarness::builder(pool)
+            .with_api_builder_fn(move |builder| builder.with_redfish_pool(redfish_pool))
             .with_resource_pools(
                 ResourcePoolBuilder::default()
                     .with_vlan_ids(1, 64)
@@ -49,6 +56,7 @@ impl TestEnv {
         let site_explorer = test_harness.default_test_site_explorer();
         Self {
             test_harness,
+            redfish_sim,
             site_explorer,
             domain,
             underlay_segment,

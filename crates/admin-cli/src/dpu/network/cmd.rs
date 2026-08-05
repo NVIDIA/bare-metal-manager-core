@@ -27,7 +27,7 @@ use crate::errors::{CarbideCliError, CarbideCliResult};
 use crate::machine::network::Args as NetworkCommand;
 use crate::rpc::ApiClient;
 
-pub async fn network(
+pub(super) async fn network(
     api_client: &ApiClient,
     output_file: &mut Box<dyn tokio::io::AsyncWrite + Unpin>,
     cmd: NetworkCommand,
@@ -51,7 +51,7 @@ fn deny_prefix(config: &ManagedHostNetworkConfigResponse) -> String {
     deny_prefixes.join("\n")
 }
 
-pub async fn show_dpu_network_config(
+async fn show_dpu_network_config(
     api_client: &ApiClient,
     output_file: &mut Box<dyn tokio::io::AsyncWrite + Unpin>,
     dpu_id: MachineId,
@@ -197,7 +197,7 @@ pub async fn show_dpu_network_config(
 }
 
 #[allow(deprecated)]
-pub async fn show_dpu_status(
+pub(crate) async fn show_dpu_status(
     api_client: &ApiClient,
     output_file: &mut Box<dyn tokio::io::AsyncWrite + Unpin>,
     page_size: usize,

@@ -214,7 +214,7 @@ impl From<forgerpc::GetMachineBootInterfacesResponse> for CandidatesReport {
     }
 }
 
-pub async fn handle_candidates(
+pub(super) async fn handle_candidates(
     args: Args,
     output_format: OutputFormat,
     api_client: &ApiClient,

@@ -51,14 +51,12 @@ async fn test_integration() -> eyre::Result<()> {
     // NOTE: These tests run two carbide-api servers, and the clients are configured to randomly
     // switch between them on every API call. This helps prevent issues that arise when multiple API
     // severs may be running in production.
-    let Some(test_env) =
+    let Some(mut test_env) =
         IntegrationTestEnvironment::try_from_environment(2, "api_server_test_integration").await?
     else {
         println!("test_integration: SKIPPED (set REPO_ROOT and DATABASE_URL to run)");
         return Ok(());
     };
-
-    let carbide_api_addrs = &test_env.carbide_api_addrs;
 
     let bmc_address_registry = BmcMockRegistry::default();
     let certs_dir = PathBuf::from(format!("{}/crates/bmc-mock", test_env.root_dir.display()));
@@ -82,38 +80,43 @@ async fn test_integration() -> eyre::Result<()> {
     // Begin the integration test by starting an API server. This will be shared between multiple
     // individual machine-a-tron-based tests, which can run in parallel against the same instance.
     let cancel_token = CancellationToken::new();
-    let (server_handle_1, server_handle_2) = (
-        utils::start_api_server(
-            test_env.clone(),
-            TestApiServerArgs {
-                bmc_proxy: Some(HostPortPair::HostAndPort(
-                    "127.0.0.1".to_string(),
-                    bmc_mock_handle.address.port(),
-                )),
-                firmware_directory: empty_firmware_dir.path().to_owned(),
-                addr_index: 0,
-                put_dev_bin_in_path: true,
-                insecure_discovery: true,
-            },
-            cancel_token.clone(),
-        )
-        .await?,
-        utils::start_api_server(
-            test_env.clone(),
-            TestApiServerArgs {
-                bmc_proxy: Some(HostPortPair::HostAndPort(
-                    "127.0.0.1".to_string(),
-                    bmc_mock_handle.address.port(),
-                )),
-                firmware_directory: empty_firmware_dir.path().to_owned(),
-                addr_index: 1,
-                put_dev_bin_in_path: true,
-                insecure_discovery: true,
-            },
-            cancel_token.clone(),
-        )
-        .await?,
+    let server_handle_1 = utils::start_api_server(
+        &mut test_env,
+        TestApiServerArgs {
+            bmc_proxy: Some(HostPortPair::HostAndPort(
+                "127.0.0.1".to_string(),
+                bmc_mock_handle.address.port(),
+            )),
+            firmware_directory: empty_firmware_dir.path().to_owned(),
+            addr_index: 0,
+            put_dev_bin_in_path: true,
+            insecure_discovery: true,
+        },
+        cancel_token.clone(),
+    )
+    .await?;
+    let server_handle_2 = utils::start_api_server(
+        &mut test_env,
+        TestApiServerArgs {
+            bmc_proxy: Some(HostPortPair::HostAndPort(
+                "127.0.0.1".to_string(),
+                bmc_mock_handle.address.port(),
+            )),
+            firmware_directory: empty_firmware_dir.path().to_owned(),
+            addr_index: 1,
+            put_dev_bin_in_path: true,
+            insecure_discovery: true,
+        },
+        cancel_token.clone(),
+    )
+    .await?;
+
+    assert_ne!(test_env.carbide_api_addrs[0], test_env.carbide_api_addrs[1]);
+    assert_ne!(
+        test_env.carbide_metrics_addrs[0],
+        test_env.carbide_metrics_addrs[1]
     );
+    let carbide_api_addrs = &test_env.carbide_api_addrs;
 
     let tenant_org_id = "tenant_organization";
     tenant::create(carbide_api_addrs, tenant_org_id, "Tenant Organization").await?;
@@ -402,24 +405,12 @@ pub(crate) const METRIC_DOC_PATH: &str = concat!(
 /// test, to make the values in the metrics buckets predictable.
 #[tokio::test(flavor = "multi_thread", worker_threads = 10)]
 async fn test_metrics_integration() -> eyre::Result<()> {
-    let Some(test_env) =
+    let Some(mut test_env) =
         IntegrationTestEnvironment::try_from_environment(1, "api_server_test_metrics_integration")
             .await?
     else {
         return Ok(());
     };
-
-    // Save typing...
-    let IntegrationTestEnvironment {
-        carbide_api_addrs,
-        root_dir: _,
-        carbide_metrics_addrs,
-        db_pool,
-        metrics: _,
-        db_url: _,
-        credential_config: _,
-        _vault_handle,
-    } = test_env.clone();
 
     let bmc_address_registry = BmcMockRegistry::default();
     let certs_dir = PathBuf::from(format!("{}/crates/bmc-mock", test_env.root_dir.display()));
@@ -444,7 +435,7 @@ async fn test_metrics_integration() -> eyre::Result<()> {
     // individual machine-a-tron-based tests, which can run in parallel against the same instance.
     let cancel_token = CancellationToken::new();
     let server_handle = utils::start_api_server(
-        test_env.clone(),
+        &mut test_env,
         TestApiServerArgs {
             bmc_proxy: Some(HostPortPair::HostAndPort(
                 "127.0.0.1".to_string(),
@@ -458,6 +449,18 @@ async fn test_metrics_integration() -> eyre::Result<()> {
         cancel_token.clone(),
     )
     .await?;
+
+    // Save typing after the server has replaced the port-zero placeholders.
+    let IntegrationTestEnvironment {
+        carbide_api_addrs,
+        root_dir: _,
+        carbide_metrics_addrs,
+        db_pool,
+        metrics: _,
+        db_url: _,
+        credential_config: _,
+        _vault_handle,
+    } = test_env.clone();
 
     // Before the initial host bootstrap, the dns_records view
     // should contain 0 entries.

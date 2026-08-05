@@ -188,6 +188,11 @@ pub struct MockRmsApi {
     batch_reset_switch_sdn_factory_default_calls:
         Mutex<Vec<rms::BatchResetSwitchSdnFactoryDefaultRequest>>,
 
+    batch_reset_switch_factory_default_responses:
+        Mutex<VecDeque<Result<rms::BatchResetSwitchFactoryDefaultResponse, RackManagerError>>>,
+    batch_reset_switch_factory_default_calls:
+        Mutex<Vec<rms::BatchResetSwitchFactoryDefaultRequest>>,
+
     get_job_status_responses: Mutex<VecDeque<Result<rms::GetJobStatusResponse, RackManagerError>>>,
     get_job_status_calls: Mutex<Vec<rms::GetJobStatusRequest>>,
 
@@ -335,6 +340,8 @@ impl MockRmsApi {
             update_switch_system_password_calls: Default::default(),
             batch_reset_switch_sdn_factory_default_responses: Default::default(),
             batch_reset_switch_sdn_factory_default_calls: Default::default(),
+            batch_reset_switch_factory_default_responses: Default::default(),
+            batch_reset_switch_factory_default_calls: Default::default(),
             get_job_status_responses: Default::default(),
             get_job_status_calls: Default::default(),
             get_firmware_job_status_responses: Default::default(),
@@ -644,6 +651,15 @@ impl MockRmsApi {
         batch_reset_switch_sdn_factory_default_calls,
         rms::BatchResetSwitchSdnFactoryDefaultRequest,
         rms::BatchResetSwitchSdnFactoryDefaultResponse
+    );
+
+    impl_enqueue_inspect!(
+        enqueue_batch_reset_switch_factory_default,
+        batch_reset_switch_factory_default_calls,
+        batch_reset_switch_factory_default_responses,
+        batch_reset_switch_factory_default_calls,
+        rms::BatchResetSwitchFactoryDefaultRequest,
+        rms::BatchResetSwitchFactoryDefaultResponse
     );
 
     impl_enqueue_inspect!(
@@ -1120,6 +1136,23 @@ impl RmsApi for MockRmsApi {
         )
     }
 
+    async fn batch_reset_switch_factory_default(
+        &self,
+        cmd: rms::BatchResetSwitchFactoryDefaultRequest,
+    ) -> Result<rms::BatchResetSwitchFactoryDefaultResponse, RackManagerError> {
+        self.batch_reset_switch_factory_default_calls
+            .lock()
+            .await
+            .push(cmd);
+
+        pop_or_err(
+            &mut self
+                .batch_reset_switch_factory_default_responses
+                .lock()
+                .await,
+        )
+    }
+
     async fn get_job_status(
         &self,
         cmd: rms::GetJobStatusRequest,
@@ -1410,6 +1443,17 @@ impl RmsApi for MockRmsApi {
             .push(cmd);
         pop_or_err(&mut self.configure_switch_certificate_responses.lock().await)
     }
+
+    async fn batch_disable_switch_mtls(
+        &self,
+        _cmd: rms::BatchDisableSwitchMtlsRequest,
+    ) -> Result<rms::BatchDisableSwitchMtlsResponse, RackManagerError> {
+        Err(
+            tonic::Status::unimplemented("BatchDisableSwitchMtls is not implemented by MockRmsApi")
+                .into(),
+        )
+    }
+
     async fn get_configure_switch_certificate_job_status(
         &self,
         cmd: rms::GetConfigureSwitchCertificateJobStatusRequest,

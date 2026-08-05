@@ -18,7 +18,6 @@
 use std::net::IpAddr;
 
 use ::rpc::forge as rpc;
-use db;
 use tonic::{Request, Response, Status};
 
 use crate::CarbideError;

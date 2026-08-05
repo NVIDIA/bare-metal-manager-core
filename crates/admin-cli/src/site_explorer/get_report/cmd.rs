@@ -189,7 +189,7 @@ async fn get_exploration_report_for_bmc_address(
     })
 }
 
-pub async fn show_discovered_managed_host(
+pub(crate) async fn show_discovered_managed_host(
     api_client: &ApiClient,
     output_file: &mut Box<dyn tokio::io::AsyncWrite + Unpin>,
     output_format: OutputFormat,

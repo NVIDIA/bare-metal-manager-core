@@ -25,9 +25,11 @@
 
 use carbide_test_support::Outcome::*;
 use carbide_test_support::scenarios;
+use carbide_uuid::rack::RackId;
 use clap::{CommandFactory, Parser};
 
 use super::*;
+use crate::test_support::{parse_leaf, raw_value};
 
 // verify_cmd_structure runs a baseline clap debug_assert()
 // to do basic command configuration checking and validation,
@@ -52,10 +54,11 @@ fn verify_cmd_structure() {
 fn parse_show_routes_to_show_variant() {
     scenarios!(
         run = |argv| {
-            Cmd::try_parse_from(argv.iter().copied())
-                .map(|cmd| match cmd {
-                    Cmd::Show(args) => args.rack.map(|r| r.to_string()),
-                    _ => panic!("expected Show variant"),
+            parse_leaf::<Cmd>(argv, &["show"])
+                .map(|matches| {
+                    matches
+                        .get_one::<RackId>("rack")
+                        .map(ToString::to_string)
                 })
                 .map_err(drop)
         };
@@ -80,42 +83,49 @@ fn parse_list() {
 // parse_delete ensures delete parses with identifier.
 #[test]
 fn parse_delete() {
-    let cmd = Cmd::try_parse_from(["rack", "delete", "rack-123"]).expect("should parse delete");
+    let matches = parse_leaf::<Cmd>(&["rack", "delete", "rack-123"], &["delete"])
+        .expect("should parse delete");
 
-    match cmd {
-        Cmd::Delete(args) => {
-            assert_eq!(args.identifier, "rack-123");
-        }
-        _ => panic!("expected Delete variant"),
-    }
+    assert_eq!(
+        raw_value(&matches, "identifier").as_deref(),
+        Some("rack-123")
+    );
 }
 
 // parse_state_history ensures state-history parses with rack ID.
 #[test]
 fn parse_state_history() {
-    let cmd = Cmd::try_parse_from(["rack", "state-history", "ipp6-b03-gb-nvl-124-mini2"])
-        .expect("should parse state-history");
+    let matches = parse_leaf::<Cmd>(
+        &["rack", "state-history", "ipp6-b03-gb-nvl-124-mini2"],
+        &["state-history"],
+    )
+    .expect("should parse state-history");
 
-    match cmd {
-        Cmd::StateHistory(args) => {
-            assert_eq!(args.rack_id, "ipp6-b03-gb-nvl-124-mini2".parse().unwrap());
-        }
-        _ => panic!("expected StateHistory variant"),
-    }
+    assert_eq!(
+        matches
+            .get_one::<RackId>("rack_id")
+            .map(ToString::to_string)
+            .as_deref(),
+        Some("ipp6-b03-gb-nvl-124-mini2")
+    );
 }
 
 // parse_profile_show ensures profile show parses with rack ID.
 #[test]
 fn parse_profile_show() {
-    let cmd = Cmd::try_parse_from(["rack", "profile", "show", "rack-123"])
-        .expect("should parse profile show");
+    let matches = parse_leaf::<Cmd>(
+        &["rack", "profile", "show", "rack-123"],
+        &["profile", "show"],
+    )
+    .expect("should parse profile show");
 
-    match cmd {
-        Cmd::Profile(profile::Args::Show(args)) => {
-            assert_eq!(args.rack_id, "rack-123".parse().unwrap());
-        }
-        _ => panic!("expected Profile(Show) variant"),
-    }
+    assert_eq!(
+        matches
+            .get_one::<RackId>("rack_id")
+            .map(ToString::to_string)
+            .as_deref(),
+        Some("rack-123")
+    );
 }
 
 #[test]

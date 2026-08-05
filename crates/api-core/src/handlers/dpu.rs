@@ -113,7 +113,7 @@ fn deprecated_deny_prefixes_for_agent(
     }
 }
 
-pub(crate) async fn get_managed_host_network_config_inner(
+async fn get_managed_host_network_config_inner(
     api: &Api,
     dpu_machine_id: MachineId,
 ) -> Result<rpc::ManagedHostNetworkConfigResponse, tonic::Status> {
@@ -1434,7 +1434,7 @@ pub(crate) async fn list_dpu_waiting_for_reprovisioning(
 }
 
 /// Get the configured BGP password.
-pub(crate) async fn get_bgp_password(
+async fn get_bgp_password(
     credential_reader: &dyn carbide_secrets::credentials::CredentialReader,
     credential_key: carbide_secrets::credentials::CredentialKey,
 ) -> Result<String, CarbideError> {

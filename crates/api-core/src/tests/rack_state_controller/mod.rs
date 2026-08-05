@@ -53,11 +53,11 @@ mod handler;
 use fixtures::rack::set_rack_controller_state;
 
 #[derive(Debug, Default, Clone)]
-pub struct TestRackStateHandler {
+pub(in crate::tests) struct TestRackStateHandler {
     /// The total count for the handler
-    pub count: Arc<AtomicUsize>,
+    pub(in crate::tests) count: Arc<AtomicUsize>,
     /// We count for every rack ID how often the handler was called
-    pub counts_per_id: Arc<Mutex<HashMap<String, usize>>>,
+    pub(in crate::tests) counts_per_id: Arc<Mutex<HashMap<String, usize>>>,
 }
 
 #[async_trait::async_trait]

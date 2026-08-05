@@ -26,7 +26,7 @@ use crate::tenant::show::cmd::convert_tenants_to_table;
 /// Update a tenant.
 /// On successful update, the details of the
 /// tenant will be displayed.
-pub async fn update(
+pub(super) async fn update(
     args: Args,
     output_format: OutputFormat,
     api_client: &ApiClient,

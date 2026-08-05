@@ -29,24 +29,27 @@ use opentelemetry::metrics::Meter;
 /// one a single `MeasuredBootMetricsCollector` run. These metrics are then
 /// emitted into opentelemetry.
 #[derive(Clone, Debug)]
-pub struct MeasuredBootMetricsCollectorMetrics {
+pub(in crate::measured_boot) struct MeasuredBootMetricsCollectorMetrics {
     // When we finished recording the metrics.
-    pub recording_finished_at: std::time::Instant,
+    pub(in crate::measured_boot) recording_finished_at: std::time::Instant,
     // The number of measured boot profiles.
-    pub num_profiles: usize,
+    pub(in crate::measured_boot) num_profiles: usize,
     // The number of measured boot bundles.
-    pub num_bundles: usize,
+    pub(in crate::measured_boot) num_bundles: usize,
     // The number of machines which have reported measurements,
     // which should be <= the number of machines in the site.
-    pub num_machines: usize,
+    pub(in crate::measured_boot) num_machines: usize,
     // The number of machines per profile.
-    pub num_machines_per_profile: HashMap<MeasurementSystemProfileId, usize>,
+    pub(in crate::measured_boot) num_machines_per_profile:
+        HashMap<MeasurementSystemProfileId, usize>,
     // The number of machines per bundle.
-    pub num_machines_per_bundle: HashMap<MeasurementBundleId, usize>,
+    pub(in crate::measured_boot) num_machines_per_bundle: HashMap<MeasurementBundleId, usize>,
     // The number of machines per bundle state.
-    pub num_machines_per_bundle_state: HashMap<MeasurementBundleState, usize>,
+    pub(in crate::measured_boot) num_machines_per_bundle_state:
+        HashMap<MeasurementBundleState, usize>,
     // The number of machines per machine state.
-    pub num_machines_per_machine_state: HashMap<MeasurementMachineState, usize>,
+    pub(in crate::measured_boot) num_machines_per_machine_state:
+        HashMap<MeasurementMachineState, usize>,
     // The number of machines per a given PCR index value (e.g. the
     // number of machines whose pcr_index=1 is pcr_value=xxx).
     //
@@ -55,11 +58,11 @@ pub struct MeasuredBootMetricsCollectorMetrics {
     // in a report -- we'd have really high cardinality in that case. This
     // is intended to focus on PCR indexes we have identified as [should be]
     // stable/low cardinality for a given hardware profile.
-    pub num_machines_per_pcr_value: HashMap<PcrRegisterValue, usize>,
+    pub(in crate::measured_boot) num_machines_per_pcr_value: HashMap<PcrRegisterValue, usize>,
 }
 
 impl MeasuredBootMetricsCollectorMetrics {
-    pub fn new() -> Self {
+    pub(in crate::measured_boot) fn new() -> Self {
         Self {
             recording_finished_at: Instant::now(),
             num_profiles: 0,
@@ -231,12 +234,12 @@ fn hydrate_meter(
 }
 
 /// Stores Metric data shared between the Fabric Monitor and the OpenTelemetry background task
-pub struct MetricHolder {
+pub(in crate::measured_boot) struct MetricHolder {
     last_iteration_metrics: SharedMetricsHolder<MeasuredBootMetricsCollectorMetrics>,
 }
 
 impl MetricHolder {
-    pub fn new(meter: Meter, hold_period: std::time::Duration) -> Self {
+    pub(in crate::measured_boot) fn new(meter: Meter, hold_period: std::time::Duration) -> Self {
         let last_iteration_metrics = SharedMetricsHolder::with_hold_period(hold_period);
         hydrate_meter(meter, last_iteration_metrics.clone());
         Self {
@@ -245,7 +248,10 @@ impl MetricHolder {
     }
 
     /// Updates the most recent metrics
-    pub fn update_metrics(&self, mut metrics: MeasuredBootMetricsCollectorMetrics) {
+    pub(in crate::measured_boot) fn update_metrics(
+        &self,
+        mut metrics: MeasuredBootMetricsCollectorMetrics,
+    ) {
         metrics.recording_finished_at = Instant::now();
         self.last_iteration_metrics.update(metrics)
     }

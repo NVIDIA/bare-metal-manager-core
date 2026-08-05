@@ -35,7 +35,7 @@
 // If modules here are public, rust will not find dead code for anything marked `pub` within the
 // module. We make public only the minimum surface needed by our two dependents:
 //   - the `carbide-api` composition crate, which needs the hidden bootstrap interface,
-//     `init_tools`, and the listener wiring; and
+//     configuration loading, and the admin UI route builder; and
 //   - the `carbide-api-web` crate, which needs the `Api` service type and a few shared types
 //     (`AuthContext`, `CarbideError`, `LogStream`/`LogLine`, `NUM_REQUIRED_APPROVALS`, and the
 //     `cfg::file` config types).
@@ -60,7 +60,7 @@ mod ethernet_virtualization;
 mod handlers;
 mod instance;
 mod ipxe;
-pub mod listener;
+mod listener;
 mod logging;
 mod machine_identity;
 mod machine_update_manager;
@@ -80,7 +80,7 @@ mod storage;
 pub mod test_support;
 
 #[cfg(test)]
-pub mod tests;
+mod tests;
 
 use std::sync::OnceLock;
 
@@ -88,16 +88,17 @@ use std::sync::OnceLock;
 #[cfg(test)]
 pub(crate) use carbide_macros::sqlx_test;
 // TODO: temporary while migrating db to its own crate
-pub use db::{DatabaseError, DatabaseResult};
+pub(crate) use db::DatabaseError;
 // Save typing
 pub(crate) use errors::CarbideResult;
 
 pub use crate::api::{Api, DefaultCredential};
 pub use crate::auth::AuthContext;
 use crate::cfg::file::ToolLink;
+pub use crate::dynamic_settings::DynamicSettings;
 pub use crate::errors::CarbideError;
 pub use crate::handlers::redfish::NUM_REQUIRED_APPROVALS;
-pub use crate::listener::{AdminUiRoutesBuilder, ApiListenMode, ApiTlsConfig};
+pub use crate::listener::AdminUiRoutesBuilder;
 pub use crate::logging::stream::{LogLine, LogStream};
 
 /// Process-global tool list rendered in the admin web UI's "Tools" sidebar.
@@ -112,7 +113,7 @@ static TOOLS: OnceLock<Vec<ToolLink>> = OnceLock::new();
 
 /// Initialize the global tool list. Call once during startup before serving any
 /// web requests. Subsequent calls are ignored.
-pub fn init_tools(tools: Vec<ToolLink>) {
+pub(crate) fn init_tools(tools: Vec<ToolLink>) {
     let _ = TOOLS.set(tools);
 }
 
@@ -131,7 +132,7 @@ static SITE_NAME: OnceLock<Option<String>> = OnceLock::new();
 /// Initialize the global site name from the config's `sitename` field. Call
 /// once during startup before serving any web requests. Subsequent calls are
 /// ignored.
-pub fn init_site_name(site_name: Option<String>) {
+pub(crate) fn init_site_name(site_name: Option<String>) {
     let _ = SITE_NAME.set(site_name);
 }
 

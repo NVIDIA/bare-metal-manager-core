@@ -44,12 +44,12 @@ use crate::{CarbideResult, DatabaseError};
 /// * `dpu_nic_firmware_update_version` the version of the DPU NIC firmware that is expected to be running on the DPU.
 ///
 /// Note that if the version does not match in either direction, the DPU will be updated.
-pub struct DpuNicFirmwareUpdate {
-    pub metrics: Option<DpuNicFirmwareUpdateMetrics>,
-    pub config: Arc<CarbideConfig>,
+pub(crate) struct DpuNicFirmwareUpdate {
+    pub(crate) metrics: Option<DpuNicFirmwareUpdateMetrics>,
+    pub(crate) config: Arc<CarbideConfig>,
     /// DPF handle for discovering outdated DPF-managed DPUs. `None` when DPF
     /// is disabled in config; in that case `find_outdated_dpus_dpf` is not called.
-    pub dpf: Option<Arc<dyn DpfOperations>>,
+    pub(crate) dpf: Option<Arc<dyn DpfOperations>>,
     /// Wrong-version outcomes already counted, keyed by DPU and the version it
     /// landed on: the condition persists across manager passes (the update
     /// marker stays until an operator intervenes or a new update runs), and a
@@ -57,7 +57,7 @@ pub struct DpuNicFirmwareUpdate {
     /// clears when the DPU's markers clear, so a later attempt that lands
     /// wrong again is a new outcome. In-memory: a restart re-reports at most
     /// once per stuck DPU.
-    pub reported_wrong_versions: std::sync::Mutex<HashSet<(MachineId, String)>>,
+    pub(crate) reported_wrong_versions: std::sync::Mutex<HashSet<(MachineId, String)>>,
 }
 
 #[async_trait]
@@ -274,7 +274,7 @@ impl MachineUpdateModule for DpuNicFirmwareUpdate {
 }
 
 impl DpuNicFirmwareUpdate {
-    pub fn new(
+    pub(crate) fn new(
         config: Arc<CarbideConfig>,
         meter: opentelemetry::metrics::Meter,
         dpf: Option<Arc<dyn DpfOperations>>,
@@ -296,7 +296,7 @@ impl DpuNicFirmwareUpdate {
         })
     }
 
-    pub async fn check_for_updates(
+    pub(crate) async fn check_for_updates(
         &self,
         snapshots: &HashMap<MachineId, ManagedHostStateSnapshot>,
         available_updates: i32,

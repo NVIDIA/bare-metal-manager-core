@@ -120,6 +120,30 @@ pub struct ConfigureSwitchCertificateJobStatus {
     pub error: Option<String>,
 }
 
+/// Aggregate lifecycle state for a switch factory-reset job.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SwitchFactoryResetState {
+    /// The parent job or at least one target switch has not completed.
+    Pending,
+
+    /// The parent job and every target switch completed successfully.
+    Completed,
+
+    /// The parent job or at least one target switch failed.
+    Failed,
+}
+
+/// Backend observation of a switch factory-reset job and its target switches.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SwitchFactoryResetJobStatus {
+    /// Aggregate state across the parent operation and every target switch.
+    pub state: SwitchFactoryResetState,
+
+    /// Backend-supplied failure details when [`SwitchFactoryResetState::Failed`] is returned.
+    /// This is `None` for pending and successful jobs.
+    pub error: Option<String>,
+}
+
 /// Backend trait for NV-Switch management operations.
 ///
 /// Implementations receive physical endpoint information (BMC + NVOS IPs/MACs)
@@ -190,6 +214,54 @@ pub trait NvSwitchManager: Send + Sync + Debug + 'static {
         &self,
         job_id: &str,
     ) -> Result<ConfigureSwitchCertificateJobStatus, ComponentManagerError>;
+
+    /// Submits asynchronous switch factory-default resets for `endpoints`.
+    ///
+    /// This destructive operation wipes switch operating-system configuration, reboots
+    /// each switch, and completes after the default login is reachable again. It
+    /// preserves the factory default password. `tls_server_domain` is the TLS server
+    /// domain shared by all targets. When it is absent, the selected backend uses its
+    /// configured default. A successful submission returns a non-empty, opaque job ID
+    /// that can be passed to [`Self::get_switch_factory_reset_job_status`]. Submission
+    /// does not wait for the switches to reboot or become reachable.
+    ///
+    /// `endpoints` must contain at least one switch. Backends that support this
+    /// operation return [`ComponentManagerError::InvalidArgument`] for an empty slice
+    /// without dispatching work.
+    ///
+    /// If dispatch may have reached the backend but no job ID is available, the
+    /// implementation returns [`ComponentManagerError::OperationOutcomeUnknown`].
+    /// Callers must not automatically resubmit this destructive operation. The default
+    /// implementation returns [`ComponentManagerError::Unsupported`].
+    async fn batch_reset_switch_factory_default(
+        &self,
+        _endpoints: &[SwitchEndpoint],
+        _tls_server_domain: Option<&str>,
+    ) -> Result<String, ComponentManagerError> {
+        Err(ComponentManagerError::Unsupported(format!(
+            "switch factory reset is not supported by the {} backend",
+            self.name()
+        )))
+    }
+
+    /// Returns the aggregate state for a submitted switch factory-reset job.
+    ///
+    /// [`SwitchFactoryResetState::Completed`] requires the parent operation and every
+    /// target switch to complete. [`SwitchFactoryResetState::Failed`] is also terminal
+    /// and carries backend failure details in [`SwitchFactoryResetJobStatus::error`].
+    /// A missing or unrecognized job observation cannot establish whether the reset
+    /// ran and returns [`ComponentManagerError::OperationOutcomeUnknown`]. Other
+    /// observation errors also do not establish that resubmission is safe. The default
+    /// implementation returns [`ComponentManagerError::Unsupported`].
+    async fn get_switch_factory_reset_job_status(
+        &self,
+        _job_id: &str,
+    ) -> Result<SwitchFactoryResetJobStatus, ComponentManagerError> {
+        Err(ComponentManagerError::Unsupported(format!(
+            "switch factory-reset job status is not supported by the {} backend",
+            self.name()
+        )))
+    }
 
     /// Submits rack-level ScaleUp Fabric Manager configuration.
     ///

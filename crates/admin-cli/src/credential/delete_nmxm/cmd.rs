@@ -19,7 +19,7 @@ use super::args::Args;
 use crate::credential::NMX_M_UNSUPPORTED_MESSAGE;
 use crate::errors::{CarbideCliError, CarbideCliResult};
 
-pub fn delete_nmxm(_data: Args) -> CarbideCliResult<()> {
+pub(super) fn delete_nmxm(_data: Args) -> CarbideCliResult<()> {
     Err(CarbideCliError::UnsupportedOperation(
         NMX_M_UNSUPPORTED_MESSAGE,
     ))
@@ -27,12 +27,15 @@ pub fn delete_nmxm(_data: Args) -> CarbideCliResult<()> {
 
 #[cfg(test)]
 mod tests {
+    use clap::Parser;
+
     use super::*;
 
     #[test]
     fn returns_unsupported_without_deleting_a_credential() {
-        let error = delete_nmxm(Args { username: None })
-            .expect_err("the compatibility command must not delete a credential");
+        let args = Args::try_parse_from(["delete-nmx-m"]).expect("arguments should parse");
+        let error =
+            delete_nmxm(args).expect_err("the compatibility command must not delete a credential");
 
         assert_eq!(
             error.to_string(),

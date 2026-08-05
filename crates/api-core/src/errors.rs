@@ -547,9 +547,9 @@ impl From<CarbideError> for tonic::Status {
 
 /// A CarbideError with the corresponding source location where it was converted to a tonic::Status
 #[derive(Debug)]
-pub struct CarbideErrorWithLocation {
-    pub error: CarbideError,
-    pub location: String,
+pub(crate) struct CarbideErrorWithLocation {
+    pub(crate) error: CarbideError,
+    pub(crate) location: String,
 }
 
 impl Display for CarbideErrorWithLocation {
@@ -578,13 +578,13 @@ fn insert_ascii_metadata(status: &mut Status, key: &'static str, value: &str) {
 /// Result type for the return type of Carbide functions
 ///
 /// Wraps `CarbideError` into `CarbideResult<T>`
-pub type CarbideResult<T> = Result<T, CarbideError>;
+pub(crate) type CarbideResult<T> = Result<T, CarbideError>;
 
 #[test]
 fn test_carbide_result() {
     use crate::{CarbideError, CarbideResult};
 
-    pub fn do_something() -> CarbideResult<u8> {
+    fn do_something() -> CarbideResult<u8> {
         Err(CarbideError::internal(String::from("can't make u8")))
     }
     assert!(matches!(do_something(), Err(CarbideError::Internal { .. })));
