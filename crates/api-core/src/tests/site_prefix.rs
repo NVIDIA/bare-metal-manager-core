@@ -95,7 +95,7 @@ async fn persist_configured_site_prefix(env: &TestEnv, prefix: &str) -> SitePref
     let id = db::site_prefix::find_ids(
         &env.pool,
         model::site_prefix::SitePrefixSearchFilter {
-            authority: Some(SitePrefixAuthority::Configured),
+            authority: Some(SitePrefixAuthority::OperatorManaged),
             prefix_match: Some(model::site_prefix::PrefixMatch::Exact(prefix)),
             ..Default::default()
         },
@@ -204,9 +204,9 @@ async fn site_prefix_filters_and_readback_return_complete_inventory(pool: sqlx::
             filter_ids(&[tenant_a.id]),
         ),
         (
-            "configured authority",
+            "operator-managed authority",
             SitePrefixSearchFilter {
-                authority: Some(RpcSitePrefixAuthority::Configured as i32),
+                authority: Some(RpcSitePrefixAuthority::OperatorManaged as i32),
                 ..Default::default()
             },
             filter_ids(&[configured.id]),
@@ -288,7 +288,7 @@ async fn site_prefix_filters_and_readback_return_complete_inventory(pool: sqlx::
     );
     assert_eq!(
         configured_rpc.status.as_ref().unwrap().authority,
-        RpcSitePrefixAuthority::Configured as i32
+        RpcSitePrefixAuthority::OperatorManaged as i32
     );
     assert_eq!(
         configured_rpc.status.as_ref().unwrap().lifecycle_state,
@@ -652,6 +652,10 @@ async fn site_prefix_update_retirement_and_history_enforce_ownership(pool: sqlx:
         .await
         .unwrap_err();
     assert_eq!(error.code(), Code::FailedPrecondition);
+    assert_eq!(
+        error.message(),
+        "operator-managed SitePrefixes cannot be changed through the tenant API"
+    );
 
     let error = env
         .api
@@ -672,6 +676,10 @@ async fn site_prefix_update_retirement_and_history_enforce_ownership(pool: sqlx:
         .await
         .unwrap_err();
     assert_eq!(error.code(), Code::FailedPrecondition);
+    assert_eq!(
+        error.message(),
+        "operator-managed SitePrefixes cannot be changed through the tenant API"
+    );
 
     let retire_request = SitePrefixDeletionRequest {
         id: Some(site_prefix_id),

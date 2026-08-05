@@ -30,7 +30,7 @@ use crate::forge as rpc;
 impl From<SitePrefixAuthority> for rpc::SitePrefixAuthority {
     fn from(value: SitePrefixAuthority) -> Self {
         match value {
-            SitePrefixAuthority::Configured => Self::Configured,
+            SitePrefixAuthority::OperatorManaged => Self::OperatorManaged,
             SitePrefixAuthority::TenantManaged => Self::TenantManaged,
         }
     }
@@ -41,7 +41,7 @@ impl TryFrom<rpc::SitePrefixAuthority> for SitePrefixAuthority {
 
     fn try_from(value: rpc::SitePrefixAuthority) -> Result<Self, Self::Error> {
         match value {
-            rpc::SitePrefixAuthority::Configured => Ok(Self::Configured),
+            rpc::SitePrefixAuthority::OperatorManaged => Ok(Self::OperatorManaged),
             rpc::SitePrefixAuthority::TenantManaged => Ok(Self::TenantManaged),
             rpc::SitePrefixAuthority::Unspecified => Err(RpcDataConversionError::InvalidValue(
                 "SitePrefixAuthority".to_string(),
@@ -335,12 +335,13 @@ mod tests {
     use std::collections::HashMap;
 
     use carbide_test_support::Outcome::{Fails, Yields};
-    use carbide_test_support::{Case, check_cases};
+    use carbide_test_support::{Case, Check, check_cases, check_values};
     use carbide_uuid::site_prefix::SitePrefixId;
     use chrono::{DateTime, Utc};
     use config_version::ConfigVersion;
     use model::metadata::Metadata;
     use model::site_prefix::{SitePrefixConfig, SitePrefixStatus};
+    use prost::Message;
 
     use super::*;
 
@@ -382,6 +383,119 @@ mod tests {
                 value: Some("test".to_string()),
             }],
         }
+    }
+
+    #[test]
+    fn site_prefix_authority_uses_stable_numbers_and_canonical_names() {
+        check_values(
+            [
+                Check {
+                    scenario: "unspecified remains value 0",
+                    input: rpc::SitePrefixAuthority::Unspecified,
+                    expect: (
+                        0,
+                        "SITE_PREFIX_AUTHORITY_UNSPECIFIED",
+                        Some(rpc::SitePrefixAuthority::Unspecified),
+                    ),
+                },
+                Check {
+                    scenario: "operator-managed remains value 1",
+                    input: rpc::SitePrefixAuthority::OperatorManaged,
+                    expect: (
+                        1,
+                        "SITE_PREFIX_AUTHORITY_OPERATOR_MANAGED",
+                        Some(rpc::SitePrefixAuthority::OperatorManaged),
+                    ),
+                },
+                Check {
+                    scenario: "tenant-managed remains value 2",
+                    input: rpc::SitePrefixAuthority::TenantManaged,
+                    expect: (
+                        2,
+                        "SITE_PREFIX_AUTHORITY_TENANT_MANAGED",
+                        Some(rpc::SitePrefixAuthority::TenantManaged),
+                    ),
+                },
+            ],
+            |authority| {
+                let name = authority.as_str_name();
+                (
+                    authority as i32,
+                    name,
+                    rpc::SitePrefixAuthority::from_str_name(name),
+                )
+            },
+        );
+    }
+
+    #[test]
+    fn site_prefix_authority_descriptor_preserves_configured_alias() {
+        let descriptor_set =
+            prost_types::FileDescriptorSet::decode(crate::REFLECTION_API_SERVICE_DESCRIPTOR)
+                .unwrap();
+        let forge = descriptor_set
+            .file
+            .iter()
+            .find(|file| file.package.as_deref() == Some("forge"))
+            .unwrap();
+        let authority = forge
+            .enum_type
+            .iter()
+            .find(|enumeration| enumeration.name.as_deref() == Some("SitePrefixAuthority"))
+            .unwrap();
+
+        assert_eq!(
+            authority
+                .options
+                .as_ref()
+                .and_then(|options| options.allow_alias),
+            Some(true)
+        );
+
+        let values = authority
+            .value
+            .iter()
+            .map(|value| {
+                (
+                    value.name.as_deref().unwrap(),
+                    value.number.unwrap(),
+                    value
+                        .options
+                        .as_ref()
+                        .and_then(|options| options.deprecated)
+                        .unwrap_or(false),
+                )
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(
+            values,
+            [
+                ("SITE_PREFIX_AUTHORITY_UNSPECIFIED", 0, false),
+                ("SITE_PREFIX_AUTHORITY_OPERATOR_MANAGED", 1, false),
+                ("SITE_PREFIX_AUTHORITY_CONFIGURED", 1, true),
+                ("SITE_PREFIX_AUTHORITY_TENANT_MANAGED", 2, false),
+            ]
+        );
+    }
+
+    // The deprecated `Configured` spelling and canonical `OperatorManaged`
+    // spelling both use value 1, so existing protobuf bytes retain their
+    // meaning after the rename.
+    #[test]
+    fn operator_managed_authority_preserves_configured_wire_value() {
+        let status = rpc::SitePrefixStatus {
+            authority: rpc::SitePrefixAuthority::OperatorManaged as i32,
+            ..Default::default()
+        };
+
+        let bytes = status.encode_to_vec();
+        assert_eq!(bytes, [0x08, 0x01]);
+
+        let decoded = rpc::SitePrefixStatus::decode(bytes.as_slice()).unwrap();
+        assert_eq!(
+            rpc::SitePrefixAuthority::try_from(decoded.authority).unwrap(),
+            rpc::SitePrefixAuthority::OperatorManaged
+        );
     }
 
     #[derive(Debug, Eq, PartialEq)]
@@ -824,14 +938,14 @@ mod tests {
 
         let cases = [
             ConversionCase {
-                scenario: "configured ready",
-                authority: SitePrefixAuthority::Configured,
+                scenario: "operator-managed ready",
+                authority: SitePrefixAuthority::OperatorManaged,
                 tenant_organization_id: None,
                 lifecycle_state: SitePrefixLifecycleState::Ready,
             },
             ConversionCase {
-                scenario: "configured deleting",
-                authority: SitePrefixAuthority::Configured,
+                scenario: "operator-managed deleting",
+                authority: SitePrefixAuthority::OperatorManaged,
                 tenant_organization_id: None,
                 lifecycle_state: SitePrefixLifecycleState::Deleting,
             },

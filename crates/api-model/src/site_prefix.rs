@@ -34,8 +34,10 @@ use crate::tenant::TenantOrganizationId;
 #[sqlx(type_name = "site_prefix_authority")]
 #[sqlx(rename_all = "snake_case")]
 #[serde(rename_all = "snake_case")]
+#[allow(clippy::enum_variant_names)] // `Managed` is part of both canonical authority names.
 pub enum SitePrefixAuthority {
-    Configured,
+    #[serde(alias = "configured")]
+    OperatorManaged,
     TenantManaged,
 }
 
@@ -94,7 +96,7 @@ pub struct NewSitePrefix {
 }
 
 impl NewSitePrefix {
-    /// Builds the database representation of a configured site fabric prefix.
+    /// Builds an operator-managed row from a configured site fabric prefix.
     pub fn configured(prefix: IpNetwork) -> Self {
         let prefix = IpNetwork::new(prefix.network(), prefix.prefix())
             .expect("an existing IP network has a valid prefix length");
@@ -110,7 +112,7 @@ impl NewSitePrefix {
                 ..Metadata::default()
             },
             status: SitePrefixStatus {
-                authority: SitePrefixAuthority::Configured,
+                authority: SitePrefixAuthority::OperatorManaged,
                 lifecycle_state: SitePrefixLifecycleState::Ready,
             },
         }
@@ -128,11 +130,11 @@ impl NewSitePrefix {
             self.status.authority,
             self.config.tenant_organization_id.is_some(),
         ) {
-            (SitePrefixAuthority::Configured, false)
+            (SitePrefixAuthority::OperatorManaged, false)
             | (SitePrefixAuthority::TenantManaged, true) => {}
-            (SitePrefixAuthority::Configured, true) => {
+            (SitePrefixAuthority::OperatorManaged, true) => {
                 return Err(ConfigValidationError::invalid_value(
-                    "a configured site prefix cannot have a tenant owner",
+                    "an operator-managed site prefix cannot have a tenant owner",
                 ));
             }
             (SitePrefixAuthority::TenantManaged, false) => {
@@ -142,14 +144,14 @@ impl NewSitePrefix {
             }
         }
 
-        if self.status.authority == SitePrefixAuthority::Configured
+        if self.status.authority == SitePrefixAuthority::OperatorManaged
             && !matches!(
                 self.status.lifecycle_state,
                 SitePrefixLifecycleState::Ready | SitePrefixLifecycleState::Deleting
             )
         {
             return Err(ConfigValidationError::invalid_value(
-                "a configured site prefix must be ready or deleting",
+                "an operator-managed site prefix must be ready or deleting",
             ));
         }
 
@@ -289,7 +291,7 @@ impl<'r> FromRow<'r, PgRow> for SitePrefix {
 #[cfg(test)]
 mod tests {
     use carbide_test_support::Outcome::{Fails, Yields};
-    use carbide_test_support::{Case, check_cases};
+    use carbide_test_support::{Case, Check, check_cases, check_values};
 
     use super::*;
 
@@ -331,20 +333,20 @@ mod tests {
         check_cases(
             [
                 Case {
-                    scenario: "configured prefix",
+                    scenario: "operator-managed prefix",
                     input: site_prefix(
                         "10.0.0.0/8",
-                        SitePrefixAuthority::Configured,
+                        SitePrefixAuthority::OperatorManaged,
                         None,
                         SitePrefixLifecycleState::Ready,
                     ),
                     expect: Yields(()),
                 },
                 Case {
-                    scenario: "configured prefix being deleted",
+                    scenario: "operator-managed prefix being deleted",
                     input: site_prefix(
                         "10.0.0.0/8",
-                        SitePrefixAuthority::Configured,
+                        SitePrefixAuthority::OperatorManaged,
                         None,
                         SitePrefixLifecycleState::Deleting,
                     ),
@@ -364,17 +366,17 @@ mod tests {
                     scenario: "noncanonical prefix",
                     input: site_prefix(
                         "10.0.0.1/24",
-                        SitePrefixAuthority::Configured,
+                        SitePrefixAuthority::OperatorManaged,
                         None,
                         SitePrefixLifecycleState::Ready,
                     ),
                     expect: Fails,
                 },
                 Case {
-                    scenario: "configured prefix with tenant owner",
+                    scenario: "operator-managed prefix with tenant owner",
                     input: site_prefix(
                         "10.0.0.0/8",
-                        SitePrefixAuthority::Configured,
+                        SitePrefixAuthority::OperatorManaged,
                         Some("tenant-a"),
                         SitePrefixLifecycleState::Ready,
                     ),
@@ -391,10 +393,10 @@ mod tests {
                     expect: Fails,
                 },
                 Case {
-                    scenario: "configured prefix in provisioning",
+                    scenario: "operator-managed prefix in provisioning",
                     input: site_prefix(
                         "10.0.0.0/8",
-                        SitePrefixAuthority::Configured,
+                        SitePrefixAuthority::OperatorManaged,
                         None,
                         SitePrefixLifecycleState::Provisioning,
                     ),
@@ -402,6 +404,46 @@ mod tests {
                 },
             ],
             |site_prefix| site_prefix.validate().map_err(drop),
+        );
+    }
+
+    #[test]
+    fn site_prefix_authority_serde_accepts_legacy_input_and_emits_current_names() {
+        check_cases(
+            [
+                Case {
+                    scenario: "operator-managed name",
+                    input: "operator_managed",
+                    expect: Yields(SitePrefixAuthority::OperatorManaged),
+                },
+                Case {
+                    scenario: "legacy configured name",
+                    input: "configured",
+                    expect: Yields(SitePrefixAuthority::OperatorManaged),
+                },
+                Case {
+                    scenario: "tenant-managed name",
+                    input: "tenant_managed",
+                    expect: Yields(SitePrefixAuthority::TenantManaged),
+                },
+            ],
+            |input| serde_json::from_value(serde_json::json!(input)).map_err(drop),
+        );
+
+        check_values(
+            [
+                Check {
+                    scenario: "operator-managed authority",
+                    input: SitePrefixAuthority::OperatorManaged,
+                    expect: serde_json::json!("operator_managed"),
+                },
+                Check {
+                    scenario: "tenant-managed authority",
+                    input: SitePrefixAuthority::TenantManaged,
+                    expect: serde_json::json!("tenant_managed"),
+                },
+            ],
+            |authority| serde_json::to_value(authority).expect("authority should serialize"),
         );
     }
 

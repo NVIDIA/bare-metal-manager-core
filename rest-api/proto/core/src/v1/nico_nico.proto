@@ -9647,8 +9647,11 @@ message SetContainerRegistryCredentialRequest {
 
 // Identifies the lifecycle authority responsible for a site prefix.
 enum SitePrefixAuthority {
+  option allow_alias = true;
+
   SITE_PREFIX_AUTHORITY_UNSPECIFIED = 0;
-  SITE_PREFIX_AUTHORITY_CONFIGURED = 1;
+  SITE_PREFIX_AUTHORITY_OPERATOR_MANAGED = 1;
+  SITE_PREFIX_AUTHORITY_CONFIGURED = 1 [deprecated = true];
   SITE_PREFIX_AUTHORITY_TENANT_MANAGED = 2;
 }
 
