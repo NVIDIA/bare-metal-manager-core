@@ -48,6 +48,9 @@ jobs:
           filters: |
             rest_api:
               - 'rest-api/**'
+              - '.github/ci/rest-command-*'
+              - '.github/ci/rest_command_bundle.py'
+              - '.github/ci/test_rest_command_bundle.py'
               - '.github/workflows/rest-*.yml'
               - 'helm/rest/**'
             core_proto:
@@ -106,6 +109,10 @@ jobs:
       - prepare
     with:
       upload_artifact: true
+      binary_version: ${{ needs.prepare.outputs.binary_version }}
+      build_timestamp: ${{ needs.prepare.outputs.build_timestamp }}
+      short_sha: ${{ needs.prepare.outputs.short_sha }}
+      full_sha: ${{ needs.prepare.outputs.full_sha }}
     uses: ./.github/workflows/rest-build-binaries.yml
 
   security-secret-scan:
