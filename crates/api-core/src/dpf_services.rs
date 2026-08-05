@@ -32,7 +32,7 @@ use carbide_dpf::{
 
 use crate::cfg::file::{
     DpfBootstrapCaObjectKind, DpfDpuAgentBootstrapCa, DpfExtraService,
-    DpfResolvedMandatoryServicesConfig, DpfServiceConfig,
+    DpfResolvedMandatoryServicesConfig, DpfServiceConfig, NodeAuthConfig,
 };
 
 /// Default DOCA helm registry (DPUServiceTemplate source.repoURL).
@@ -366,6 +366,7 @@ pub fn dts_service(cfg: &DpfServiceConfig) -> ServiceDefinition {
 fn dpu_agent_helm_values(
     cfg: &DpfServiceConfig,
     bootstrap_ca: &DpfDpuAgentBootstrapCa,
+    node_auth_audience: &str,
 ) -> serde_json::Value {
     let mut values = serde_json::json!({
         "image": {
@@ -376,6 +377,11 @@ fn dpu_agent_helm_values(
             "nvue_https_address": "nvue",
             "nvue_credentials_secret_name": "hbn-user-password",
             "nvue_password_key": "password",
+        },
+        // DPF agents get no config file, so [node_auth] audience has to ride
+        // in as a flag or they mint tokens the API will reject.
+        "nodeAuth": {
+            "audience": node_auth_audience,
         }
     });
     apply_image_pull_secrets(&mut values, cfg);
@@ -417,9 +423,10 @@ fn dpu_agent_helm_values(
 pub fn dpu_agent_service(
     cfg: &DpfServiceConfig,
     bootstrap_ca: &DpfDpuAgentBootstrapCa,
+    node_auth_audience: &str,
 ) -> ServiceDefinition {
     ServiceDefinition {
-        helm_values: Some(dpu_agent_helm_values(cfg, bootstrap_ca)),
+        helm_values: Some(dpu_agent_helm_values(cfg, bootstrap_ca, node_auth_audience)),
 
         service_daemon_set_annotations: Some(BTreeMap::new()),
 
@@ -479,12 +486,18 @@ pub fn dhcp_server_service(cfg: &DpfServiceConfig) -> ServiceDefinition {
 }
 
 /// Forge FMDS service definition.
-pub fn fmds_service(cfg: &DpfServiceConfig) -> ServiceDefinition {
+///
+/// `use_node_tokens` follows the API's `[node_auth] enabled` switch: when the
+/// API accepts bearer JWTs, fmds is deployed fetching them from the
+/// dpu-agent's local API socket instead of mounting the machine cert/key
+/// (issue #355). Requires a dpu-agent image that serves the local API.
+pub fn fmds_service(cfg: &DpfServiceConfig, use_node_tokens: bool) -> ServiceDefinition {
     let mut helm_values = serde_json::json!({
         "image": {
             "repository": cfg.docker_repo_url,
             "tag": cfg.docker_image_tag,
-        }
+        },
+        "useNodeTokens": use_node_tokens,
     });
     apply_image_pull_secrets(&mut helm_values, cfg);
     ServiceDefinition {
@@ -676,16 +689,22 @@ pub fn doca_xplane_service(cfg: &DpfServiceConfig) -> ServiceDefinition {
 }
 
 /// Build the full list of resolved mandatory DPU services.
+///
+/// `node_auth` mirrors the API's `[node_auth]` section: `enabled` switches
+/// fmds to bearer tokens from the dpu-agent's local API, and `audience` is
+/// templated onto the agent so both ends stamp/expect the same `aud`
+/// (issue #355).
 pub fn mandatory_services(
     resolved: &DpfResolvedMandatoryServicesConfig,
     bootstrap_ca: &DpfDpuAgentBootstrapCa,
+    node_auth: &NodeAuthConfig,
 ) -> Vec<ServiceDefinition> {
     let mut service_vec = vec![
         dts_service(&resolved.base.dts),
         doca_hbn_service(&resolved.base.doca_hbn),
         dhcp_server_service(&resolved.base.dhcp_server),
-        dpu_agent_service(&resolved.base.dpu_agent, bootstrap_ca),
-        fmds_service(&resolved.base.fmds),
+        dpu_agent_service(&resolved.base.dpu_agent, bootstrap_ca, &node_auth.audience),
+        fmds_service(&resolved.base.fmds, node_auth.enabled),
         otelcol_service(&resolved.base.otel),
     ];
 
@@ -720,7 +739,11 @@ mod tests {
     fn dpu_agent_bootstrap_ca_helm_values_follow_site_policy() {
         value_scenarios!(
             run = |policy| {
-                dpu_agent_helm_values(&default_dpu_agent_service(), &policy)
+                dpu_agent_helm_values(
+                    &default_dpu_agent_service(),
+                    &policy,
+                    ::rpc::node_jwt::NODE_JWT_AUDIENCE,
+                )
                     .get("bootstrapCa")
                     .cloned()
             };
@@ -859,6 +882,7 @@ mod tests {
         let dpu_agent = dpu_agent_service(
             &default_dpu_agent_service(),
             &DpfDpuAgentBootstrapCa::default(),
+            ::rpc::node_jwt::NODE_JWT_AUDIENCE,
         );
         assert!(
             dpu_agent
@@ -872,7 +896,11 @@ mod tests {
         // When a pull secret is configured, the block is emitted with its name.
         let mut cfg = default_dpu_agent_service();
         cfg.docker_image_pull_secret = Some("nico-pull-secret".to_string());
-        let agent = dpu_agent_service(&cfg, &DpfDpuAgentBootstrapCa::default());
+        let agent = dpu_agent_service(
+            &cfg,
+            &DpfDpuAgentBootstrapCa::default(),
+            ::rpc::node_jwt::NODE_JWT_AUDIENCE,
+        );
         assert_eq!(
             agent.helm_values.unwrap()["imagePullSecrets"],
             serde_json::json!([{ "name": "nico-pull-secret" }])

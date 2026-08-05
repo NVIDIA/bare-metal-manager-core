@@ -13,6 +13,18 @@ exposedPorts:
 certsDir: /opt/forge
 rootCaFile: forge_root.pem
 
+### Node-auth (issue #355).
+# When true, fmds authenticates to nico-api with short-lived bearer JWTs
+# fetched from the dpu-agent's local API socket (<certsDir>/run/agent.sock)
+# instead of the machine mTLS cert/key. The pod then mounts only
+# <certsDir>/pub — where the agent publishes the trust anchor and nothing
+# else — plus that socket, so the machine private key is absent from it
+# rather than merely read-only (the container runs as UID 0). Mounting pub/
+# as a directory also means the agent's atomic republish of a rotated CA
+# reaches a running pod. Requires a dpu-agent that serves the local API and
+# publishes the CA, and [node_auth] enabled on the API.
+useNodeTokens: false
+
 ### Service specific values ###
 # Prometheus /metrics listen port (must match nico-otelcol scrape target).
 metricsPort: 8888

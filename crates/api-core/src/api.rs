@@ -90,6 +90,10 @@ pub struct Api {
     pub(crate) component_manager: Option<component_manager::component_manager::ComponentManager>,
     pub(crate) bms_client: OnceLock<Arc<BmsDsxExchangeHandle>>,
     pub(crate) secrets_context: Option<crate::secrets::SecretsContext>,
+    /// Validator for node-auth bearer JWTs (issue #355). `Some` only when
+    /// `[node_auth] enabled`; installed into the authn middleware by the
+    /// listener.
+    pub(crate) node_jwt_validator: Option<Arc<crate::node_auth::NodeJwtValidator>>,
 }
 
 pub(crate) type ScoutStreamType =

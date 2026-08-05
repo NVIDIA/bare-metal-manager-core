@@ -106,6 +106,12 @@ pub mod fmds {
     include!(concat!(env!("OUT_DIR"), "/fmds.rs"));
 }
 
+#[allow(non_snake_case, unknown_lints, clippy::all)]
+#[rustfmt::skip]
+pub mod agent_local {
+    include!(concat!(env!("OUT_DIR"), "/agent_local.rs"));
+}
+
 #[allow(clippy::all, deprecated)]
 #[rustfmt::skip]
 pub mod forge_api_client {

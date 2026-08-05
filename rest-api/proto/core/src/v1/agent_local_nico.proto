@@ -1,0 +1,38 @@
+// SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
+
+syntax = "proto3";
+
+package agent_local;
+
+option go_package = "github.com/NVIDIA/infra-controller/rest-api/proto/core";
+
+// Local (on-DPU) API served by nico-dpu-agent over a unix domain socket
+// (the agent's `local-api-socket` setting, which defaults to a dedicated run/
+// subdirectory of the shared credentials directory, so consumers can mount the
+// socket read-write while the credentials stay read-only). The literal default
+// lives in DEFAULT_AGENT_LOCAL_SOCKET and is deliberately not repeated here:
+// REST proto normalization rewrites vendor names inside comments, which would
+// silently corrupt an inlined filesystem path into one that does not exist.
+// This is the consolidation point for
+// agent <-> co-located-service communication: services that today mount the
+// machine cert/key (or synced files) to talk to nico-api can instead ask the
+// agent, and future local needs should add RPCs here rather than new
+// sockets, ports, or file drops.
+service AgentLocal {
+  // Returns the current node-auth bearer JWT, minted by the agent from the
+  // machine's client-certificate key (issue #355). Callers present it as
+  // `Authorization: Bearer <token>` to nico-api and must fetch a fresh one
+  // before `expires_at`. Only the agent ever touches the private key.
+  rpc GetNodeToken(GetNodeTokenRequest) returns (GetNodeTokenResponse);
+}
+
+message GetNodeTokenRequest {
+}
+
+message GetNodeTokenResponse {
+  // The signed ES256 JWT.
+  string token = 1;
+  // Unix seconds when the token expires.
+  uint64 expires_at = 2;
+}

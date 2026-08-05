@@ -131,6 +131,12 @@ spec:
             {{- toYaml .Values.securityContext | nindent 12 }}
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
           args:
+            {{- with .Values.nodeAuth.audience }}
+            # DPF agents run with no config file, so the API's [node_auth]
+            # audience can only reach them as a flag. Both ends must agree or
+            # every token this agent mints is rejected.
+            - {{ printf "--node-auth-audience=%s" . | quote }}
+            {{- end }}
             - run
             - "--hbn-config-mode=nvue-rest"
             - "--agent-platform-type=containerized"

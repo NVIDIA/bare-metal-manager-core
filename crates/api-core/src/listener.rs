@@ -335,8 +335,36 @@ pub async fn start(
             ),
         ))?;
 
-    let cert_description_layer: CertDescriptionMiddleware<Authorization> =
-        CertDescriptionMiddleware::new(extra_cli_certs, spiffe_context);
+    let cert_description_layer: CertDescriptionMiddleware<Authorization> = {
+        let machine_certs_enabled = api_service.runtime_config.node_auth.mtls_enabled;
+        if !machine_certs_enabled {
+            tracing::warn!(
+                target: "node_auth",
+                "node-auth: mtls_enabled = false: machine client certificates will NOT be \
+                 accepted as node identity; nodes must present bearer tokens"
+            );
+        }
+        let layer = CertDescriptionMiddleware::new(extra_cli_certs, spiffe_context)
+            .with_machine_certs_enabled(machine_certs_enabled);
+        // When node-auth is enabled, accept bearer JWTs in addition to mTLS
+        // client certs (dual-support during the mTLS→JWT migration). Bearer
+        // tokens must only be accepted over TLS — never plaintext — so guard the
+        // authenticator on the listener actually being TLS-terminated.
+        match (&api_service.node_jwt_validator, tls_config.is_some()) {
+            (Some(node_jwt_validator), true) => {
+                tracing::info!(target: "node_auth", "node-auth: bearer token authentication enabled");
+                layer.with_bearer_authenticator(node_jwt_validator.clone())
+            }
+            (Some(_), false) => {
+                tracing::warn!(
+                    target: "node_auth",
+                    "node-auth: enabled but listener is not TLS; refusing to accept bearer tokens over plaintext"
+                );
+                layer
+            }
+            (None, _) => layer,
+        }
+    };
     let casbin_layer = if let Some(auth_config) = auth_config {
         if let Some(casbin_policy_file) = &auth_config.casbin_policy_file {
             let casbin_authorizer = Arc::new(
@@ -406,6 +434,9 @@ pub async fn start(
 
     let mut tls_acceptor_created = Instant::now();
     let mut initialize_tls_acceptor = true;
+    // Refreshed alongside the TLS acceptor below; both read the same client-CA
+    // bundle, so they must not drift apart.
+    let node_jwt_validator = api_service.node_jwt_validator.clone();
 
     join_set
         .build_task()
@@ -442,18 +473,79 @@ pub async fn start(
                     initialize_tls_acceptor = false;
                     tls_acceptor_created = Instant::now();
 
-                    tls_acceptor = tokio::task::Builder::new()
-                        .name("get_tls_acceptor refresh")
-                        .spawn_blocking({
-                            let tls_config = tls_config.clone();
-                            move || get_tls_acceptor(&tls_config)
-                        })
-                        // Safety: spawn_blocking only returns Error if run outside the tokio runtime
-                        .expect("Failed to spawn blocking task")
-                        .await
-                        // Safety: Awaiting a JoinHandle only fails if the task panicked, and we want to
-                        // propagate panics
-                        .expect("task panicked");
+                    // Node-auth JWTs chain to the same client-CA bundle, so the
+                    // validator's trust anchors have to rotate on the same tick.
+                    // Left stale it would reject tokens issued under the new CA,
+                    // which locks nodes out entirely once mtls_enabled = false.
+                    //
+                    // Reload it BEFORE swapping the acceptor so the two move
+                    // together: if the bundle is caught mid-write, neither is
+                    // replaced and the whole pair stays on the previous anchors
+                    // until the next tick. Swapping the acceptor first would
+                    // leave the listener trusting a CA the token path does not.
+                    let jwt_roots_reloaded = match node_jwt_validator.as_ref() {
+                        None => true,
+                        Some(node_jwt_validator) => {
+                            let validator = node_jwt_validator.clone();
+                            let refreshed = tokio::task::Builder::new()
+                                .name("node_jwt_validator refresh")
+                                .spawn_blocking(move || validator.refresh_roots())
+                                .expect("Failed to spawn blocking task")
+                                .await
+                                .expect("task panicked");
+                            match refreshed {
+                                Ok(()) => true,
+                                Err(error) => {
+                                    tracing::warn!(
+                                        target: "node_auth",
+                                        %error,
+                                        "node-auth: could not reload JWT trust anchors; \
+                                         keeping the previous TLS and token trust anchors"
+                                    );
+                                    false
+                                }
+                            }
+                        }
+                    };
+
+                    if jwt_roots_reloaded {
+                        let refreshed_acceptor = tokio::task::Builder::new()
+                            .name("get_tls_acceptor refresh")
+                            .spawn_blocking({
+                                let tls_config = tls_config.clone();
+                                move || get_tls_acceptor(&tls_config)
+                            })
+                            // Safety: spawn_blocking only returns Error if run outside the tokio runtime
+                            .expect("Failed to spawn blocking task")
+                            .await
+                            // Safety: Awaiting a JoinHandle only fails if the task panicked, and we want to
+                            // propagate panics
+                            .expect("task panicked");
+
+                        // `get_tls_acceptor` yields `None` for any failure —
+                        // an identity PEM caught mid-write by cert-manager, an
+                        // unreadable key, a CA bundle with nothing parsable in
+                        // it. Assigning that straight through would drop the
+                        // listener onto the plaintext branch below while the
+                        // bearer authenticator, installed once at startup on
+                        // the premise that this listener terminates TLS, keeps
+                        // accepting node JWTs — putting them on the wire in the
+                        // clear. Keep the working acceptor and retry instead: a
+                        // stale-but-valid one beats no TLS, and rotation leaves
+                        // ample overlap to pick the new material up.
+                        match refreshed_acceptor {
+                            Some(acceptor) => tls_acceptor = Some(acceptor),
+                            None => {
+                                // Retry on the next connection rather than
+                                // waiting out another five-minute window.
+                                initialize_tls_acceptor = true;
+                                tracing::error!(
+                                    "could not rebuild the TLS acceptor; \
+                                     keeping the previous one and retrying"
+                                );
+                            }
+                        }
+                    }
                 }
 
                 let tls_acceptor = tls_acceptor.clone();

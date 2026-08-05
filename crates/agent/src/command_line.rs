@@ -25,6 +25,16 @@ use url::Url;
 
 use crate::network_monitor::NetworkPingerType;
 
+/// Rejects an empty or whitespace-only audience at parse time. A blank value
+/// would otherwise reach the minter and produce tokens the API cannot match,
+/// with nothing in the logs pointing at the flag.
+fn non_blank_audience(value: &str) -> Result<String, String> {
+    if value.trim().is_empty() {
+        return Err("node-auth audience must not be empty".to_string());
+    }
+    Ok(value.to_string())
+}
+
 #[derive(Parser)]
 #[clap(name = "forge-dpu-agent")]
 pub struct Options {
@@ -35,6 +45,17 @@ pub struct Options {
     /// This file will hold data in the `AgentConfig` format.
     #[clap(long)]
     pub config_path: Option<PathBuf>,
+
+    /// Overrides `[forge-system] node-auth-audience`. DPF deploys the agent
+    /// with no config file at all, so the audience can only reach it as a
+    /// flag; the API templates this from its own `[node_auth] audience` so
+    /// the two ends cannot drift.
+    #[clap(
+        long,
+        value_parser = non_blank_audience,
+        help = "Audience claim stamped on node-auth bearer JWTs; must match the API's [node_auth] audience"
+    )]
+    pub node_auth_audience: Option<String>,
 
     #[clap(subcommand)]
     pub cmd: Option<AgentCommand>,

@@ -41,6 +41,24 @@ hardware_health_reports = "MonitorOnly"
 enabled = true
 create_machines = true
 
+[node_auth]
+# Node (Scout / DPU-agent) authentication to the API.
+# See docs/design/machine-identity/node-auth-jwt.md.
+# Bearer JWTs: off by default. When enabled, the API accepts short-lived
+# `Authorization: Bearer` tokens that nodes self-sign with their existing
+# mTLS client-certificate key (the cert rides in the token's x5c header and
+# is verified against the same root CA as the TLS listener).
+enabled = false
+# Machine mTLS client-certificate authentication: on by default. Disable only
+# after the fleet presents bearer tokens (requires enabled = true; the API
+# refuses to start with both mechanisms off). Service/admin-CLI certs are
+# unaffected.
+mtls_enabled = true
+# `aud` claim required on presented tokens.
+#audience = "nico-api"
+# Maximum accepted token lifetime in seconds (nodes mint 300 s tokens).
+#max_token_ttl_sec = 900
+
 [firmware_global]
 autoupdate = true
 

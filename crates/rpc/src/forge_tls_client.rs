@@ -41,6 +41,7 @@ use x509_parser::prelude::{FromDer, X509Certificate};
 use crate::forge::VersionRequest;
 use crate::forge_resolver::resolver::ResolverError;
 use crate::forge_tls_client::ConfigurationError::CouldNotReadRootCa;
+use crate::node_jwt::{BearerAuthService, NodeJwtMinter, NodeTokenProvider};
 use crate::protos::forge::forge_client::ForgeClient;
 use crate::protos::nmx_c::nmx_controller_client::NmxControllerClient;
 use crate::{forge_resolver, protos};
@@ -96,6 +97,12 @@ pub struct ForgeClientConfig {
     pub socks_proxy: Option<String>,
     pub connect_retries_max: Option<u32>,
     pub connect_retries_interval: Option<Duration>,
+    /// Optional node-auth token provider (issue #355). When set, each request
+    /// carries an `Authorization: Bearer <jwt>` — either self-signed with the
+    /// client certificate's own private key ([`NodeJwtMinter`]) or fetched
+    /// from the dpu-agent's local API (`SocketTokenSource`). Independent of
+    /// mTLS: the channel may present a client cert, a token, or both.
+    pub node_token_provider: Option<Arc<dyn NodeTokenProvider>>,
 }
 
 impl ForgeClientConfig {
@@ -134,7 +141,64 @@ impl ForgeClientConfig {
             // MR though, I think.
             connect_retries_max: Some(3),
             connect_retries_interval: Some(Duration::from_secs(20)),
+            node_token_provider: None,
         }
+    }
+
+    /// Restores server-certificate validation on a config built without a
+    /// client certificate.
+    ///
+    /// [`ForgeClientConfig::new`] disables TLS enforcement whenever
+    /// `client_cert` is `None`, which predates node-auth: back then "no client
+    /// cert" meant "no credentials at all", and such callers were not expected
+    /// to reach the API over verified TLS. A node-token client does hold
+    /// credentials — a bearer JWT brokered by the dpu-agent (issue #355) — and
+    /// must still authenticate the server against `root_ca_path` rather than
+    /// fall back to [`DummyTlsVerifier`]. Callers that never opt in keep the
+    /// previous behavior.
+    ///
+    /// `DISABLE_TLS_ENFORCEMENT` continues to win, so local-development
+    /// overrides work the same as they do for mTLS clients.
+    #[must_use]
+    pub fn require_tls_enforcement(mut self) -> Self {
+        self.enforce_tls = std::env::var("DISABLE_TLS_ENFORCEMENT").is_err();
+        self
+    }
+
+    /// Enables node-auth JWTs: requests built from this config mint and carry
+    /// short-lived bearer tokens signed with the configured client cert's key.
+    /// A no-op when no client cert is configured.
+    ///
+    /// `audience` must match the API's `[node_auth] audience` — the server
+    /// rejects any other value outright, so a client pinned to the default
+    /// would fail every request at a site that changed it.
+    #[must_use]
+    pub fn with_node_jwt(mut self, audience: String) -> Self {
+        self.node_token_provider = self.client_cert.as_ref().map(|client_cert| {
+            NodeJwtMinter::with_audience(
+                client_cert.cert_path.clone(),
+                client_cert.key_path.clone(),
+                audience,
+            ) as Arc<dyn NodeTokenProvider>
+        });
+        self
+    }
+
+    /// Attaches an explicit node-auth token provider — e.g. a pre-built
+    /// [`NodeJwtMinter`] the caller also serves through the agent's local
+    /// API, or a `SocketTokenSource` in a process that holds no key at all.
+    ///
+    /// Implies [`require_tls_enforcement`](Self::require_tls_enforcement).
+    /// A bearer token IS the client's credential, so the server must always
+    /// be authenticated before one is handed over — a token-only config
+    /// (no client cert) would otherwise sit on [`DummyTlsVerifier`] and
+    /// present its token to whatever answered. Enforcing it here rather than
+    /// asking every caller to remember the pairing keeps the type hard to
+    /// misuse; `DISABLE_TLS_ENFORCEMENT` still wins for local development.
+    #[must_use]
+    pub fn with_token_provider(mut self, provider: Arc<dyn NodeTokenProvider>) -> Self {
+        self.node_token_provider = Some(provider);
+        self.require_tls_enforcement()
     }
 
     /// This is required when using `ForgeTlsConfig` on a DPU to communicate with site-controller.
@@ -431,6 +495,22 @@ impl<'a> ForgeTlsClient<'a> {
             error: e,
         })?;
 
+        // `enforce_tls` governs how a TLS handshake is verified, but the
+        // handshake only happens for an https:// URL — a plaintext one skips
+        // TLS setup entirely while `BearerAuthService` below still stamps the
+        // token, putting a live credential on the wire in the clear. Refuse
+        // that combination outright. `DISABLE_TLS_ENFORCEMENT` is honored for
+        // parity with the rest of this config so local development still works.
+        if self.forge_client_config.node_token_provider.is_some()
+            && uri.scheme() != Some(&tonic::codegen::http::uri::Scheme::HTTPS)
+            && std::env::var("DISABLE_TLS_ENFORCEMENT").is_err()
+        {
+            return Err(ConfigurationError::BearerTokenOverPlaintext {
+                uri_string: url.as_ref().to_string(),
+            }
+            .into());
+        }
+
         let connector = self.build_https_client(url.as_ref()).await?;
 
         // ping interval + ping timeout should add up to less than tcp_user_timeout,
@@ -448,6 +528,13 @@ impl<'a> ForgeTlsClient<'a> {
             .pool_max_idle_per_host(2)
             .timer(TokioTimer::new())
             .build(connector);
+        // Stamp a freshly-minted node-auth bearer token onto each request when
+        // configured (issue #355). A `None` minter is a transparent pass-through,
+        // so the boxed service type is identical in both modes.
+        let hyper_client = BearerAuthService::new(
+            hyper_client,
+            self.forge_client_config.node_token_provider.clone(),
+        );
         // Inject the issuing span's W3C trace context into every request this client sends
         // (issue #2438). Wrapping before `boxed_clone` keeps the erased `BoxCloneService` type.
         let hyper_client = trace_propagation::TraceInjectService::new(hyper_client).boxed_clone();
@@ -744,6 +831,11 @@ pub enum ConfigurationError {
     },
     #[error("could not read root CA cert at {path}: {error}")]
     CouldNotReadRootCa { path: String, error: io::Error },
+    #[error(
+        "refusing to send node-auth bearer tokens to non-HTTPS URL {uri_string}: \
+         the token would travel in cleartext"
+    )]
+    BearerTokenOverPlaintext { uri_string: String },
     #[error("invalid client cert: {0}")]
     InvalidClientCert(rustls::Error),
     #[error("error configuring resolver: {0}")]
@@ -768,6 +860,103 @@ mod tests {
     use hyper_rustls::HttpsConnector;
 
     use super::*;
+
+    /// A node-token client presents no client certificate, which by itself
+    /// drops the channel onto `DummyTlsVerifier`. `require_tls_enforcement`
+    /// puts it back on root-CA validation.
+    #[test]
+    fn require_tls_enforcement_restores_validation_without_a_client_cert() {
+        if std::env::var("DISABLE_TLS_ENFORCEMENT").is_ok() {
+            // The override wins by design; the assertions below would not hold.
+            return;
+        }
+
+        let config = ForgeClientConfig::new("/etc/carbide/root-ca.pem".to_string(), None);
+        assert!(
+            !config.enforce_tls,
+            "a config without a client cert starts out unenforced"
+        );
+
+        let config = config.require_tls_enforcement();
+        assert!(
+            config.enforce_tls,
+            "opting in must restore server certificate validation"
+        );
+    }
+
+    #[derive(Debug)]
+    struct FixedToken;
+
+    impl NodeTokenProvider for FixedToken {
+        fn current(&self) -> Option<String> {
+            Some("a.b.c".to_string())
+        }
+    }
+
+    /// The bearer token IS the credential, so the server must be authenticated
+    /// before one is sent. Callers must not have to remember to pair
+    /// `with_token_provider` with `require_tls_enforcement` — forgetting it
+    /// would hand tokens to whatever answered the connection.
+    #[test]
+    fn with_token_provider_enforces_tls_without_being_asked() {
+        if std::env::var("DISABLE_TLS_ENFORCEMENT").is_ok() {
+            // The override wins by design; the assertion below would not hold.
+            return;
+        }
+
+        let config = ForgeClientConfig::new("/etc/carbide/root-ca.pem".to_string(), None)
+            .with_token_provider(Arc::new(FixedToken));
+
+        assert!(
+            config.enforce_tls,
+            "attaching a token provider must restore server validation by itself"
+        );
+    }
+
+    /// TLS setup only runs for an https:// URL, so `enforce_tls` alone does not
+    /// cover a plaintext one — the token would still be stamped and travel in
+    /// the clear. Building such a client has to fail.
+    #[tokio::test]
+    async fn bearer_tokens_are_refused_over_plaintext() {
+        if std::env::var("DISABLE_TLS_ENFORCEMENT").is_ok() {
+            // The override deliberately permits plaintext development.
+            return;
+        }
+
+        let config = ForgeClientConfig::new("/etc/carbide/root-ca.pem".to_string(), None)
+            .with_token_provider(Arc::new(FixedToken));
+
+        let error = ForgeTlsClient::new(&config)
+            .build("http://carbide-api.local:8080")
+            .await
+            .expect_err("a token client must refuse a plaintext endpoint");
+
+        assert!(
+            error.to_string().contains("cleartext"),
+            "the error should explain the refusal, got: {error}"
+        );
+    }
+
+    /// The same client over https:// must still build — the guard above is
+    /// scoped to the scheme, not to token clients in general.
+    #[tokio::test]
+    async fn bearer_tokens_are_allowed_over_https() {
+        let config = ForgeClientConfig::new("/etc/carbide/root-ca.pem".to_string(), None)
+            .with_token_provider(Arc::new(FixedToken));
+
+        // Reaching a root-CA read means the plaintext guard let it through;
+        // the file itself need not exist in a unit test.
+        let result = ForgeTlsClient::new(&config)
+            .build("https://carbide-api.local:8080")
+            .await;
+
+        if let Err(error) = result {
+            assert!(
+                !error.to_string().contains("cleartext"),
+                "https must not trip the plaintext guard, got: {error}"
+            );
+        }
+    }
 
     #[tokio::test]
     // test_max_retries builds up an instance of hyper client using

@@ -53,15 +53,32 @@ spec:
             - |
               {{- $dir := .Values.certsDir | default "/opt/nico" }}
               {{- $rootCa := .Values.rootCaFile | default "nico_root.pem" }}
+              {{- if .Values.useNodeTokens }}
+              echo "Waiting for root CA in {{ $dir }}/pub ..."
+              while [ ! -f {{ $dir }}/pub/{{ $rootCa }} ]; do
+                sleep 5
+              done
+              echo "Root CA found, starting nico-fmds (node tokens from the dpu-agent)."
+              {{- else }}
               echo "Waiting for certificates in {{ $dir }} ..."
               while [ ! -f {{ $dir }}/{{ $rootCa }} ] || [ ! -f {{ $dir }}/machine_cert.pem ] || [ ! -f {{ $dir }}/machine_cert.key ]; do
                 sleep 5
               done
               echo "Certificates found, starting nico-fmds."
+              {{- end }}
           volumeMounts:
+            {{- if .Values.useNodeTokens }}
+            # Token mode never needs the credentials directory, not even to
+            # wait: the agent publishes the trust anchor to pub/, which holds
+            # nothing else.
+            - name: nico-certs-pub
+              mountPath: {{ .Values.certsDir | default "/opt/nico" }}/pub
+              readOnly: true
+            {{- else }}
             - name: nico-certs
               mountPath: {{ .Values.certsDir | default "/opt/nico" }}
               readOnly: true
+            {{- end }}
       containers:
         - name: nico-fmds
           securityContext:
@@ -71,9 +88,14 @@ spec:
             {{- $dir := .Values.certsDir | default "/opt/nico" }}
             {{- $rootCa := .Values.rootCaFile | default "nico_root.pem" }}
             - "--grpc-address=$(POD_IP):50052"
+            {{- if .Values.useNodeTokens }}
+            - "--root-ca={{ $dir }}/pub/{{ $rootCa }}"
+            - "--node-token-socket={{ $dir }}/run/agent.sock"
+            {{- else }}
             - "--root-ca={{ $dir }}/{{ $rootCa }}"
             - "--client-cert={{ $dir }}/machine_cert.pem"
             - "--client-key={{ $dir }}/machine_cert.key"
+            {{- end }}
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           {{- with toYaml .Values.serviceDaemonSet.resources }}
           resources:
@@ -106,14 +128,45 @@ spec:
                 fieldRef:
                   fieldPath: metadata.namespace
           volumeMounts:
-            - name: nico-certs
-              mountPath: {{ .Values.certsDir | default "/opt/nico" }}
+            {{- $dir := .Values.certsDir | default "/opt/nico" }}
+            {{- $rootCa := .Values.rootCaFile | default "nico_root.pem" }}
+            {{- if .Values.useNodeTokens }}
+            # Token mode: the bearer JWT is the credential, so this container
+            # gets the trust anchor and nothing else. pub/ holds only the CA,
+            # so the machine key is absent from the pod — and because this is a
+            # directory mount rather than a subPath, the agent's atomic
+            # republish of the CA reaches a running pod.
+            - name: nico-certs-pub
+              mountPath: {{ $dir }}/pub
               readOnly: true
+            # The agent's token socket gets its own writable mount — connect(2)
+            # needs write access to the socket inode, which a read-only mount
+            # (correctly) denies.
+            - name: nico-agent-run
+              mountPath: {{ $dir }}/run
+            {{- else }}
+            - name: nico-certs
+              mountPath: {{ $dir }}
+              readOnly: true
+            {{- end }}
       volumes:
+        {{- if .Values.useNodeTokens }}
+        # No credentials-directory volume at all in token mode: nothing in this
+        # pod is entitled to the machine key.
+        - name: nico-certs-pub
+          hostPath:
+            path: {{ .Values.certsDir | default "/opt/nico" }}/pub
+            type: DirectoryOrCreate
+        - name: nico-agent-run
+          hostPath:
+            path: {{ .Values.certsDir | default "/opt/nico" }}/run
+            type: DirectoryOrCreate
+        {{- else }}
         - name: nico-certs
           hostPath:
             path: {{ .Values.certsDir | default "/opt/nico" }}
             type: DirectoryOrCreate
+        {{- end }}
       {{- with .Values.tolerations }}
       tolerations:
         {{- toYaml . | nindent 8 }}

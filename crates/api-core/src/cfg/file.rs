@@ -496,6 +496,12 @@ pub struct CarbideConfig {
     #[serde(default)]
     pub machine_identity: MachineIdentityConfig,
 
+    /// Node-auth: bearer JWTs that Scout / DPU-agent self-sign with their
+    /// existing mTLS client-certificate key, accepted alongside (or instead
+    /// of) mTLS. Section `[node_auth]`.
+    #[serde(default)]
+    pub node_auth: NodeAuthConfig,
+
     /// Disables role-based access control enforcement.
     /// Intended for testing and development only.
     #[serde(default)]
@@ -1965,6 +1971,95 @@ impl Default for MachineIdentityConfig {
             trust_domain_allowlist: Vec::new(),
             token_endpoint_domain_allowlist: Vec::new(),
             signing_key_overlap_max_sec: machine_identity_default_signing_key_overlap_max_sec(),
+        }
+    }
+}
+
+/// Node-auth (Scout / DPU-agent bearer JWT) configuration.
+/// Loaded from `[node_auth]` section in config.
+///
+/// There is no server-side signing key: nodes self-sign tokens with their
+/// existing mTLS client-certificate key and the API validates the embedded
+/// `x5c` chain against the client-cert root CA (see
+/// `docs/design/machine-identity/node-auth-jwt.md`).
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct NodeAuthConfig {
+    /// Master switch. When false, no bearer authenticator is installed and
+    /// nodes keep authenticating via mTLS client certs only.
+    #[serde(default = "node_auth_default_enabled")]
+    pub enabled: bool,
+    /// `aud` claim required on presented tokens. Must match what nodes mint
+    /// (`rpc::node_jwt::NODE_JWT_AUDIENCE`).
+    #[serde(default = "node_auth_default_audience")]
+    pub audience: String,
+    /// Maximum accepted token lifetime, in seconds. Nodes mint 5-minute
+    /// tokens; this bounds how far a (compromised) client can stretch `exp`.
+    #[serde(default = "node_auth_default_max_token_ttl_sec")]
+    pub max_token_ttl_sec: u32,
+    /// Whether machine mTLS client certificates are accepted as node identity.
+    /// On by default. Scoped to MACHINE certs only — service and admin-CLI
+    /// client certs on the same listener are unaffected. Disable only once the
+    /// fleet presents bearer tokens.
+    #[serde(default = "node_auth_default_mtls_enabled")]
+    pub mtls_enabled: bool,
+}
+
+/// Upper bound on accepted token lifetime. Node tokens are minted locally on
+/// demand, so anything beyond a day is almost certainly a misconfiguration.
+pub const NODE_AUTH_MAX_TOKEN_TTL_SEC: u32 = 86_400;
+
+impl NodeAuthConfig {
+    /// Validates node-auth settings. Call unconditionally at startup: the
+    /// lockout check applies even when [`enabled`](Self::enabled) is false.
+    pub fn validate(&self) -> eyre::Result<()> {
+        if !self.enabled && !self.mtls_enabled {
+            return Err(eyre::eyre!(
+                "[node_auth] enabled = false and mtls_enabled = false would leave nodes with no \
+                 way to authenticate; enable at least one of bearer tokens or machine mTLS"
+            ));
+        }
+        if !self.enabled {
+            // Remaining checks only constrain token validation.
+            return Ok(());
+        }
+        if self.audience.trim().is_empty() {
+            return Err(eyre::eyre!("[node_auth] audience must not be empty"));
+        }
+        if self.max_token_ttl_sec == 0 {
+            return Err(eyre::eyre!(
+                "[node_auth] max_token_ttl_sec must be greater than zero"
+            ));
+        }
+        if self.max_token_ttl_sec > NODE_AUTH_MAX_TOKEN_TTL_SEC {
+            return Err(eyre::eyre!(
+                "[node_auth] max_token_ttl_sec {} exceeds maximum {NODE_AUTH_MAX_TOKEN_TTL_SEC}",
+                self.max_token_ttl_sec
+            ));
+        }
+        Ok(())
+    }
+}
+
+fn node_auth_default_enabled() -> bool {
+    false
+}
+fn node_auth_default_audience() -> String {
+    "nico-api".to_string()
+}
+fn node_auth_default_max_token_ttl_sec() -> u32 {
+    900
+}
+fn node_auth_default_mtls_enabled() -> bool {
+    true
+}
+
+impl Default for NodeAuthConfig {
+    fn default() -> Self {
+        Self {
+            enabled: node_auth_default_enabled(),
+            audience: node_auth_default_audience(),
+            max_token_ttl_sec: node_auth_default_max_token_ttl_sec(),
+            mtls_enabled: node_auth_default_mtls_enabled(),
         }
     }
 }
@@ -3609,6 +3704,27 @@ mod tests {
 
     use super::*;
     use crate::test_support::network_segment::FIXTURE_TENANT_ORG_ID;
+
+    /// Disabling both bearer tokens and machine mTLS would lock every node out
+    /// of the API; validation must refuse the combination, and each mechanism
+    /// alone must pass.
+    #[test]
+    fn node_auth_rejects_all_methods_disabled() {
+        let both_off = NodeAuthConfig {
+            enabled: false,
+            mtls_enabled: false,
+            ..NodeAuthConfig::default()
+        };
+        assert!(both_off.validate().is_err());
+
+        assert!(NodeAuthConfig::default().validate().is_ok());
+        let jwt_only = NodeAuthConfig {
+            enabled: true,
+            mtls_enabled: false,
+            ..NodeAuthConfig::default()
+        };
+        assert!(jwt_only.validate().is_ok());
+    }
 
     const TEST_DATA_DIR: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/src/cfg/test_data");
 
