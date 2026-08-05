@@ -150,6 +150,27 @@ sccache_setup() {
 	return 0
 }
 
+# `sccache --show-stats` with the write-error row relabelled. sccache reports
+# every declined write as an error, which reads as a broken backend to anyone
+# scanning the log, so the row is renamed to what it actually counts here. The
+# figure itself is left alone, and the row keeps its width so the table stays
+# aligned.
+sccache_show_stats_read_only() {
+	sccache --show-stats 2>&1 | awk '
+		index($0, "Cache write errors") == 1 {
+			label = "Cache writes skipped (read-only)"
+			pad = length($0) - length(label) - length($NF)
+			if (pad < 1) {
+				pad = 1
+			}
+			printf "%s%*s\n", label, pad + length($NF), $NF
+			next
+		}
+		{ print }
+	'
+	return 0
+}
+
 # Health of a deliberately read-only backend. sccache has no "do not attempt
 # the write" mode: READ_ONLY is implemented by failing every put, and each
 # rejection lands in the write-error counter, so that counter is guaranteed to
@@ -157,6 +178,8 @@ sccache_setup() {
 # backend. Reads are the only signal. Misses are logged as NotFound warnings,
 # which makes the server log pure noise unless a read actually errored.
 sccache_report_read_only() {
+	sccache_show_stats_read_only
+	echo "sccache: writes are declined on this ref by design -- only main publishes to the shared cache."
 	_read_errors="$(sccache_stat cache_read_errors 'Cache read errors')"
 	case "${_read_errors}" in
 	0) ;;
@@ -172,18 +195,17 @@ sccache_report_read_only() {
 		;;
 	esac
 	if [ "$(sccache_stat cache_hits 'Cache hits')" = 0 ]; then
-		echo "sccache: read-only backend reachable but empty for this build."
-		echo "sccache: it is populated by main, so a branch that compiles code main has not seen yet gets no hits."
+		echo "sccache: the backend was reachable but held nothing matching this build, so every crate was compiled from scratch."
 	fi
 	return 0
 }
 
 sccache_report() {
-	sccache --show-stats || true
 	if [ "${SCCACHE_BACKEND_READ_ONLY}" = 1 ]; then
 		sccache_report_read_only
 		return 0
 	fi
+	sccache --show-stats || true
 	sccache_dump_log
 	_errors="$(sccache_write_errors)"
 	if [ "${_errors}" = unknown ]; then
