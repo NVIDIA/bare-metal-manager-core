@@ -46,7 +46,7 @@ pub(crate) fn nvl72_rack_elevation(
 }
 
 #[derive(Clone, Copy)]
-pub enum BoardIndex {
+pub(crate) enum BoardIndex {
     Board0,
     Board1,
 }
@@ -61,19 +61,22 @@ impl fmt::Display for BoardIndex {
     }
 }
 
-pub struct BiancaBoard<'a> {
-    pub index: BoardIndex,
-    pub cpu_serial_number: Cow<'a, str>,
-    pub gpu_serial_number: Cow<'a, str>,
+pub(crate) struct BiancaBoard<'a> {
+    pub(crate) index: BoardIndex,
+    pub(crate) cpu_serial_number: Cow<'a, str>,
+    pub(crate) gpu_serial_number: Cow<'a, str>,
 }
 
-pub struct GpuChassisIds {
-    pub chassis_id: Cow<'static, str>,
-    pub pcie_device_id: Cow<'static, str>,
+struct GpuChassisIds {
+    chassis_id: Cow<'static, str>,
+    pcie_device_id: Cow<'static, str>,
 }
 
 impl BiancaBoard<'_> {
-    pub fn hgx_cpu_chassis(&self, id: Cow<'static, str>) -> redfish::chassis::SingleChassisConfig {
+    pub(super) fn hgx_cpu_chassis(
+        &self,
+        id: Cow<'static, str>,
+    ) -> redfish::chassis::SingleChassisConfig {
         let sensors = redfish::sensor::generate_chassis_sensors(
             &id,
             redfish::sensor::Layout {
@@ -106,7 +109,7 @@ impl BiancaBoard<'_> {
         }
     }
 
-    pub fn gpu_chassis_ids(&self) -> [GpuChassisIds; 2] {
+    fn gpu_chassis_ids(&self) -> [GpuChassisIds; 2] {
         let base = self.gpu_base_index();
         [0, 1].map(|local| {
             let n = base + local;
@@ -117,7 +120,7 @@ impl BiancaBoard<'_> {
         })
     }
 
-    pub fn hgx_gpu_processors(&self, system_id: &str) -> [redfish::processor::Processor; 2] {
+    pub(super) fn hgx_gpu_processors(&self, system_id: &str) -> [redfish::processor::Processor; 2] {
         self.gpu_chassis_ids().map(|ids| {
             let voltage_sensor_id =
                 redfish::sensor::sensor_id(redfish::sensor::SensorKind::Voltage, 1);
@@ -131,7 +134,7 @@ impl BiancaBoard<'_> {
         })
     }
 
-    pub fn hgx_gpu_chassis(&self) -> [redfish::chassis::SingleChassisConfig; 2] {
+    pub(super) fn hgx_gpu_chassis(&self) -> [redfish::chassis::SingleChassisConfig; 2] {
         self.gpu_chassis_ids().map(|ids| {
             let sensors = redfish::sensor::generate_chassis_sensors(
                 &ids.chassis_id,
@@ -169,12 +172,15 @@ impl BiancaBoard<'_> {
     }
 }
 
-pub struct IoBoard<'a> {
-    pub serial_number: Cow<'a, str>,
+pub(crate) struct IoBoard<'a> {
+    pub(crate) serial_number: Cow<'a, str>,
 }
 
 impl IoBoard<'_> {
-    pub fn as_chassis(&self, id: Cow<'static, str>) -> redfish::chassis::SingleChassisConfig {
+    pub(super) fn as_chassis(
+        &self,
+        id: Cow<'static, str>,
+    ) -> redfish::chassis::SingleChassisConfig {
         let sensors = redfish::sensor::generate_chassis_sensors(
             &id,
             redfish::sensor::Layout {

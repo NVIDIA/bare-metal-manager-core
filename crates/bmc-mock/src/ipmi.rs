@@ -29,13 +29,13 @@ use crate::bmc_state::BmcState;
 
 /// Request body for IPMI mock endpoint.
 #[derive(Debug, Deserialize)]
-pub struct IpmiRequest {
+struct IpmiRequest {
     action: String,
 }
 
 /// Response body for IPMI mock endpoint.
 #[derive(Debug, Serialize)]
-pub struct IpmiResponse {
+struct IpmiResponse {
     success: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     error: Option<String>,
@@ -58,7 +58,7 @@ impl IpmiResponse {
 }
 
 /// Add IPMI routes to the router.
-pub fn add_routes(router: Router<BmcState>) -> Router<BmcState> {
+pub(super) fn add_routes(router: Router<BmcState>) -> Router<BmcState> {
     router.route("/ipmi", post(handle_ipmi))
 }
 

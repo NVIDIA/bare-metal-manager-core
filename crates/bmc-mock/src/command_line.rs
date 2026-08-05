@@ -21,13 +21,13 @@ use bmc_mock::HardwareType;
 use clap::{Parser, ValueEnum};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, ValueEnum)]
-pub enum MachineRole {
+pub(super) enum MachineRole {
     Host,
     Dpu,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, ValueEnum)]
-pub enum StateBackend {
+pub(super) enum StateBackend {
     Internal,
     Libvirt,
 }
@@ -47,9 +47,9 @@ fn parse_hardware_profile(value: &str) -> Result<HardwareType, String> {
 }
 
 #[derive(Clone, Parser, Debug)]
-pub struct IpRouterPair {
-    pub ip_address: String,
-    pub targz: std::path::PathBuf,
+pub(super) struct IpRouterPair {
+    pub(super) ip_address: String,
+    pub(super) targz: std::path::PathBuf,
 }
 
 impl From<String> for IpRouterPair {
@@ -67,77 +67,77 @@ impl From<String> for IpRouterPair {
 }
 
 #[derive(Clone, Parser, Debug)]
-pub struct Args {
+pub(super) struct Args {
     #[clap(short, long)]
-    pub cert_path: Option<String>,
+    pub(super) cert_path: Option<String>,
 
     #[clap(short, long)]
-    pub port: Option<u16>,
+    pub(super) port: Option<u16>,
 
     #[clap(
         long,
         help = "Path to .tar.gz file of redfish data to output. Create it from libredfish tests/mockups/<vendor>"
     )]
-    pub targz: Option<std::path::PathBuf>,
+    pub(super) targz: Option<std::path::PathBuf>,
 
     #[clap(
         long,
         help = "An ip_address and .tar.gz file pair (comma separated).\nThe file is an archive of redfish data when the request is forwarded to a specific IP address.\nRepeat for different machines"
     )]
-    pub ip_router: Option<Vec<IpRouterPair>>,
+    pub(super) ip_router: Option<Vec<IpRouterPair>>,
 
     #[clap(long, help = "Start an IPMI/SOL simulator for the generated BMC mock")]
-    pub enable_ipmi_simulation: bool,
+    pub(super) enable_ipmi_simulation: bool,
 
     #[clap(long, help = "Back the generated BMC with the named libvirt domain")]
-    pub libvirt_domain: Option<String>,
+    pub(super) libvirt_domain: Option<String>,
 
     #[clap(
         long,
         value_parser = parse_hardware_profile,
         help = "Redfish hardware profile for an explicitly configured host or DPU, using its existing snake_case name"
     )]
-    pub hardware_profile: Option<HardwareType>,
+    pub(super) hardware_profile: Option<HardwareType>,
 
     #[clap(long, value_enum, help = "Expose a host BMC or one DPU BMC")]
-    pub machine_role: Option<MachineRole>,
+    pub(super) machine_role: Option<MachineRole>,
 
     #[clap(
         long,
         value_enum,
         help = "Use an in-process power-state simulator or a libvirt domain"
     )]
-    pub state_backend: Option<StateBackend>,
+    pub(super) state_backend: Option<StateBackend>,
 
     #[clap(
         long,
         requires = "hardware_profile",
         help = "DPU count for a variable-count profile, or an assertion for a fixed-count profile"
     )]
-    pub dpu_count: Option<u8>,
+    pub(super) dpu_count: Option<u8>,
 
     #[clap(
         long,
         requires = "hardware_profile",
         help = "Zero-based DPU index when --machine-role=dpu"
     )]
-    pub dpu_index: Option<usize>,
+    pub(super) dpu_index: Option<usize>,
 
     #[clap(
         long,
         default_value_t = 0,
         help = "Stable instance number used to make generated identities unique"
     )]
-    pub instance_index: u8,
+    pub(super) instance_index: u8,
 
     #[clap(long, default_value = "qemu:///system", requires = "libvirt_domain")]
-    pub libvirt_uri: String,
+    pub(super) libvirt_uri: String,
 
     #[clap(long, default_value = "virsh", requires = "libvirt_domain")]
-    pub virsh_path: PathBuf,
+    pub(super) virsh_path: PathBuf,
 }
 
-pub fn parse_args() -> Args {
+pub(super) fn parse_args() -> Args {
     Args::parse()
 }
 

@@ -877,6 +877,7 @@ dependencies = [
  "axum-server",
  "bmc-vendor",
  "bytes",
+ "carbide-test-support",
  "chrono",
  "clap",
  "duration-str",
