@@ -1487,10 +1487,10 @@ jobs:
       - name: Build pull request merge result
         run: |
           git config --global --add safe.directory "$GITHUB_WORKSPACE"
-          git fetch --no-tags origin main:refs/remotes/origin/main
+          git fetch --no-tags origin "$GITHUB_BASE_REF:refs/remotes/origin/$GITHUB_BASE_REF"
           git -c user.name="CI merge validation" \
             -c user.email=ci@example.invalid \
-            merge --no-commit --no-ff origin/main
+            merge --no-commit --no-ff "origin/$GITHUB_BASE_REF"
 
       - name: Validate Cargo metadata
         run: cargo metadata --locked --no-deps --format-version 1 >/dev/null
