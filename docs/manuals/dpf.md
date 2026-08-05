@@ -631,9 +631,6 @@ DPF integration is gated on a site-level switch in the carbide-api TOML config
 [dpf]
 enabled = true
 docker_image_pull_secret = "nico-pull-secret"
-# Optional. FMDS forwards machine identity requests to this base URL.
-[dpf.services.dpu_agent.extra_helm_values.fmds]
-sign_proxy_url = "http://identity-proxy.dpf-operator-system.svc.cluster.local:8080"
 ```
 
 `docker_image_pull_secret` is an optional top-level override for the Kubernetes Secret used to pull the NICo (carbide-owned) service images: `dpu_agent`, `dhcp_server`, `fmds`, and `otel`. The `dts` and `doca_hbn` images are never affected by it; they take a pull secret only from their own per-service config — either `[dpf.services.*]` or a deployment's `[dpf.deployments.<name>.services.*]` override.
@@ -659,9 +656,6 @@ helm_version            = "<helm chart version>"   # empty → CI default
 docker_repo_url         = "<image registry+repo>"
 docker_image_tag        = "<image tag>"            # empty → CI default
 docker_image_pull_secret = "dpf-pull-secret"       # optional; omit for a public registry
-
-[dpf.services.<service>.extra_helm_values]
-# Optional chart values merged over NICo's generated values.
 ```
 
 `docker_image_pull_secret` is optional per service and defaults to none: omitting
@@ -671,12 +665,12 @@ Use `extra_helm_values` for other chart settings.
 
 #### Helm value overlays
 
-`extra_helm_values` uses keys from the selected chart's `values.yaml`. NICo applies
-values in this order: generated template values, `extra_helm_values`, then deployment-specific
-`DPUServiceConfiguration` values.
+`extra_helm_values` uses keys from the selected chart's `values.yaml`. NICo merges
+them over its generated template values. Deployment-specific
+`DPUServiceConfiguration` values take precedence.
 
 - Tables merge recursively.
-- Scalars and arrays replace generated values.
+- Nested scalars and arrays replace generated values.
 - Omitted keys keep their generated values.
 
 Set the DPU agent machine identity proxy:
@@ -684,34 +678,6 @@ Set the DPU agent machine identity proxy:
 ```toml
 [dpf.services.dpu_agent.extra_helm_values.fmds]
 sign_proxy_url = "http://dsx-imds.dpf-operator-system.svc.cluster.local:8080"
-```
-
-Set resources and replace the tolerations list:
-
-```toml
-[dpf.services.dpu_agent.extra_helm_values.serviceDaemonSet.resources.requests]
-cpu = "250m"
-memory = "256Mi"
-
-[[dpf.services.dpu_agent.extra_helm_values.tolerations]]
-key = "node.kubernetes.io/not-ready"
-operator = "Exists"
-effect = "NoExecute"
-```
-
-Configure another service independently:
-
-```toml
-[dpf.services.otel.extra_helm_values.nodeExporter.resources.requests]
-cpu = "50m"
-memory = "64Mi"
-```
-
-Per-deployment definitions use the same overlay syntax:
-
-```toml
-[dpf.deployments.bf4_generic.services.dpu_agent.extra_helm_values.fmds]
-sign_proxy_url = "http://bf4-dsx-imds.dpf-operator-system.svc.cluster.local:8080"
 ```
 
 The DPU agent's generated `dhcp_server.service_name`, `fmds.service_name`, and

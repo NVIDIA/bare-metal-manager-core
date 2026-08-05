@@ -1541,24 +1541,13 @@ pub struct DpfMandatoryServicesConfig {
     pub otel: DpfServiceConfig,
 }
 
-fn resolve_dpf_service<E>(
-    default: DpfServiceConfig,
-    configured: serde_json::Value,
-) -> Result<DpfServiceConfig, E>
-where
-    E: serde::de::Error,
-{
-    Figment::from(Serialized::defaults(default))
-        .merge(Serialized::defaults(configured))
-        .extract()
-        .map_err(E::custom)
-}
-
 impl<'de> Deserialize<'de> for DpfMandatoryServicesConfig {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where
         D: Deserializer<'de>,
     {
+        // `#[serde(default)]` only handles an absent `services` field. For a present,
+        // partial table, start with every service default and overlay the supplied fields.
         let configured = BTreeMap::<String, serde_json::Value>::deserialize(deserializer)?;
         let mut services = Self::default();
         for (name, configured) in configured {
@@ -1571,7 +1560,10 @@ impl<'de> Deserialize<'de> for DpfMandatoryServicesConfig {
                 "otel" => &mut services.otel,
                 _ => continue,
             };
-            *service = resolve_dpf_service::<D::Error>(std::mem::take(service), configured)?;
+            *service = Figment::from(Serialized::defaults(std::mem::take(service)))
+                .merge(Serialized::defaults(configured))
+                .extract()
+                .map_err(serde::de::Error::custom)?;
         }
         Ok(services)
     }
@@ -1667,7 +1659,7 @@ pub struct DpfServiceConfig {
     /// Chart-native values deep-merged over NICo's generated template values.
     /// Tables merge recursively. Scalars and arrays replace generated values.
     #[serde(default)]
-    pub extra_helm_values: Option<serde_json::Value>,
+    pub extra_helm_values: Option<serde_json::Map<String, serde_json::Value>>,
 }
 
 /// Per-deployment DPF configuration for named entries under `[dpf.deployments]`.
@@ -6126,6 +6118,15 @@ sign_proxy_url = "http://dsx-imds.dpf-operator-system.svc.cluster.local:8080"
             config.services.dpu_agent.extra_helm_values.unwrap()["fmds"]["sign_proxy_url"],
             "http://dsx-imds.dpf-operator-system.svc.cluster.local:8080"
         );
+    }
+
+    #[test]
+    fn dpf_service_helm_values_require_a_table() {
+        for value in ["true", "[\"value\"]"] {
+            let config = format!("[services.dpu_agent]\nextra_helm_values = {value}\n");
+
+            assert!(toml::from_str::<DpfConfig>(&config).is_err(), "{value}");
+        }
     }
 
     #[test]

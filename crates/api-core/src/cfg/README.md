@@ -635,7 +635,7 @@ events, so consumers handle them identically.
 | `deployments` | `DpfDeploymentsConfig` | *(default)* | Per-generation DPUDeployment configurations. BF3 is always present with defaults; BF4 variants are opt-in. BF4 Astra gets default Weave DHCP agent, Weave flow controller, and Xplane services; `extra_services` can replace any of those definitions. |
 
 Each entry under `[dpf.services]` accepts a chart-native `extra_helm_values` table. NICo
-deep-merges tables over its generated `DPUServiceTemplate` values. Scalars and arrays
+deep-merges it over generated `DPUServiceTemplate` values. Nested scalars and arrays
 replace generated values. DPF applies NICo's deployment-specific
 `DPUServiceConfiguration` values after the template values.
 Top-level and per-deployment service fields both overlay the service's built-in defaults.

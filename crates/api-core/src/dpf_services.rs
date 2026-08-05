@@ -307,21 +307,31 @@ fn apply_image_pull_secrets(helm_values: &mut serde_json::Value, cfg: &DpfServic
         );
 }
 
-fn merge_helm_values(base: &mut serde_json::Value, overlay: &serde_json::Value) {
-    match (base, overlay) {
-        (serde_json::Value::Object(base), serde_json::Value::Object(overlay)) => {
-            for (key, value) in overlay {
-                merge_helm_values(base.entry(key).or_insert(serde_json::Value::Null), value);
+fn merge_helm_values(
+    base: &mut serde_json::Map<String, serde_json::Value>,
+    overlay: &serde_json::Map<String, serde_json::Value>,
+) {
+    for (key, value) in overlay {
+        match (base.get_mut(key), value) {
+            (Some(serde_json::Value::Object(base)), serde_json::Value::Object(overlay)) => {
+                merge_helm_values(base, overlay);
+            }
+            _ => {
+                base.insert(key.clone(), value.clone());
             }
         }
-        (base, overlay) => *base = overlay.clone(),
     }
 }
 
 fn apply_helm_values(helm_values: &mut serde_json::Value, cfg: &DpfServiceConfig) {
     apply_image_pull_secrets(helm_values, cfg);
     if let Some(overlay) = &cfg.extra_helm_values {
-        merge_helm_values(helm_values, overlay);
+        merge_helm_values(
+            helm_values
+                .as_object_mut()
+                .expect("generated Helm values must be an object"),
+            overlay,
+        );
     }
 }
 
@@ -753,12 +763,13 @@ mod tests {
             }
         });
 
+        let overlay = serde_json::json!({
+            "image": { "tag": "configured" },
+            "fmds": { "sign_proxy_url": "http://dsx-imds" },
+        });
         merge_helm_values(
-            &mut values,
-            &serde_json::json!({
-                "image": { "tag": "configured" },
-                "fmds": { "sign_proxy_url": "http://dsx-imds" },
-            }),
+            values.as_object_mut().unwrap(),
+            overlay.as_object().unwrap(),
         );
 
         assert_eq!(
@@ -780,12 +791,13 @@ mod tests {
             "tolerations": [{ "key": "generated" }],
         });
 
+        let overlay = serde_json::json!({
+            "enabled": true,
+            "tolerations": [{ "key": "configured" }],
+        });
         merge_helm_values(
-            &mut values,
-            &serde_json::json!({
-                "enabled": true,
-                "tolerations": [{ "key": "configured" }],
-            }),
+            values.as_object_mut().unwrap(),
+            overlay.as_object().unwrap(),
         );
 
         assert_eq!(
@@ -963,14 +975,16 @@ mod tests {
     #[test]
     fn dpu_agent_template_merges_extra_helm_values() {
         let mut config = default_dpu_agent_service();
-        config.extra_helm_values = Some(serde_json::json!({
+        config.extra_helm_values = serde_json::json!({
             "fmds": {
                 "sign_proxy_url": "http://dsx-imds.dpf-operator-system.svc.cluster.local:8080"
             },
             "image": {
                 "tag": "configured-tag"
             }
-        }));
+        })
+        .as_object()
+        .cloned();
         let service = dpu_agent_service(&config, &DpfDpuAgentBootstrapCa::default());
         let template = build_service_template(&service, TEST_NS, "");
         let values = template.spec.helm_chart.values.unwrap();
