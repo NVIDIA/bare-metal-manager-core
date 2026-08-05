@@ -19,12 +19,14 @@
 //! RPC) as an ASCII table, JSON, or YAML. The view gathers the four stores a
 //! host's boot interface can live in -- managed interface rows, predictions, the
 //! explored endpoint default, and the retained post-deletion pairs -- plus the
-//! effective boot interface the system would select and a divergence flag.
+//! effective boot interface, store divergence, and desired-state reconciliation.
 
 use std::fmt::Write as _;
 
 use ::rpc::admin_cli::OutputFormat;
 use ::rpc::forge as forgerpc;
+use ::rpc::forge::get_machine_boot_interfaces_response::Reconciliation as RpcReconciliation;
+use ::rpc::forge::get_machine_boot_interfaces_response::reconciliation::State as RpcReconciliationState;
 use carbide_uuid::machine::MachineId;
 use prettytable::{Cell, Row, Table};
 use serde::Serialize;
@@ -51,6 +53,22 @@ struct BootInterfacesReport {
     effective_boot_interface_id: Option<String>,
     /// True when the stores disagree about which MAC boots this machine.
     divergent: bool,
+    /// Desired generation and the machine controller's progress toward it.
+    reconciliation: Option<ReconciliationReport>,
+}
+
+/// Machine-readable and ASCII-ready view of desired boot reconciliation.
+#[derive(Debug, Serialize)]
+struct ReconciliationReport {
+    desired_boot_interface: Option<forgerpc::MachineBootInterface>,
+    desired_version: String,
+    verified_version: Option<String>,
+    observed_at: Option<String>,
+    is_compatibility_baseline: bool,
+    reconciliation_state: String,
+    machine_state: String,
+    reconciling_version: Option<String>,
+    failure: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -128,11 +146,34 @@ impl From<forgerpc::GetMachineBootInterfacesResponse> for BootInterfacesReport {
             effective_boot_interface_mac: r.effective_boot_interface_mac,
             effective_boot_interface_id: r.effective_boot_interface_id,
             divergent: r.divergent,
+            reconciliation: r.reconciliation.map(Into::into),
         }
     }
 }
 
-pub async fn handle_boot_interfaces(
+impl From<RpcReconciliation> for ReconciliationReport {
+    fn from(status: RpcReconciliation) -> Self {
+        let reconciliation_state = RpcReconciliationState::try_from(status.reconciliation_state)
+            .map_or_else(
+                |_| format!("Unknown({})", status.reconciliation_state),
+                |state| state.as_str_name().to_string(),
+            );
+
+        Self {
+            desired_boot_interface: status.desired_boot_interface,
+            desired_version: status.desired_version,
+            verified_version: status.verified_version,
+            observed_at: status.observed_at.map(|timestamp| timestamp.to_string()),
+            is_compatibility_baseline: status.is_compatibility_baseline,
+            reconciliation_state,
+            machine_state: status.machine_state,
+            reconciling_version: status.reconciling_version,
+            failure: status.failure,
+        }
+    }
+}
+
+pub(super) async fn handle_boot_interfaces(
     args: Args,
     output_format: OutputFormat,
     api_client: &ApiClient,
@@ -279,7 +320,8 @@ fn render_tables(report: &BootInterfacesReport) -> String {
     }
     let _ = write!(out, "{retained}");
 
-    // Summary: the effective pick and the divergence flag.
+    // Summary: the effective pick, store agreement, and controller progress
+    // toward the persisted desired target.
     let _ = writeln!(
         out,
         "\nEffective boot interface MAC: {}",
@@ -291,12 +333,60 @@ fn render_tables(report: &BootInterfacesReport) -> String {
         dash(&report.effective_boot_interface_id)
     );
     let _ = writeln!(out, "Stores diverge on boot MAC:   {}", report.divergent);
+    if let Some(reconciliation) = &report.reconciliation {
+        let desired_boot_interface = reconciliation
+            .desired_boot_interface
+            .as_ref()
+            .map(|target| match &target.interface_id {
+                Some(interface_id) => format!("{} ({interface_id})", target.mac_address),
+                None => target.mac_address.clone(),
+            })
+            .unwrap_or_else(|| "-".to_string());
+        let observation = reconciliation.observed_at.as_ref().map_or_else(
+            || "-".to_string(),
+            |observed_at| {
+                let kind = if reconciliation.is_compatibility_baseline {
+                    "compatibility baseline"
+                } else {
+                    "Redfish verified"
+                };
+                format!("{observed_at} ({kind})")
+            },
+        );
+        writeln!(out, "Desired boot interface:      {desired_boot_interface}").ok();
+        writeln!(
+            out,
+            "Reconciliation:              {} (desired {}, verified {})",
+            reconciliation.reconciliation_state,
+            reconciliation.desired_version,
+            dash(&reconciliation.verified_version),
+        )
+        .ok();
+        writeln!(
+            out,
+            "Machine controller:          {} (active {})",
+            reconciliation.machine_state,
+            dash(&reconciliation.reconciling_version),
+        )
+        .ok();
+        writeln!(out, "Last observation:            {observation}").ok();
+        writeln!(
+            out,
+            "Reconciliation failure:      {}",
+            dash(&reconciliation.failure),
+        )
+        .ok();
+    } else {
+        writeln!(out, "Reconciliation:              -").ok();
+    }
 
     out
 }
 
 #[cfg(test)]
 mod tests {
+    use carbide_test_support::value_scenarios;
+
     use super::*;
 
     /// A fixed report exercising every store, a captured pair, a stale retained
@@ -330,7 +420,41 @@ mod tests {
             effective_boot_interface_mac: Some("aa:bb:cc:00:00:01".to_string()),
             effective_boot_interface_id: Some("NIC.Slot.1-1-1".to_string()),
             divergent: true,
+            reconciliation: Some(ReconciliationReport {
+                desired_boot_interface: Some(forgerpc::MachineBootInterface {
+                    mac_address: "aa:bb:cc:00:00:01".to_string(),
+                    interface_id: Some("NIC.Slot.1-1-1".to_string()),
+                }),
+                desired_version: "V7-T700".to_string(),
+                verified_version: Some("V6-T600".to_string()),
+                observed_at: Some("2026-06-02T00:00:00Z".to_string()),
+                is_compatibility_baseline: false,
+                reconciliation_state: "Failed".to_string(),
+                machine_state: "BootConfiguring/Failed".to_string(),
+                reconciling_version: Some("V7-T700".to_string()),
+                failure: Some("BIOS job retries exhausted".to_string()),
+            }),
         }
+    }
+
+    #[test]
+    fn reconciliation_report_names_known_and_unknown_states() {
+        value_scenarios!(
+            run = |reconciliation_state| {
+                ReconciliationReport::from(RpcReconciliation {
+                    reconciliation_state,
+                    ..Default::default()
+                })
+                .reconciliation_state
+            };
+            "known state uses its protobuf name" {
+                RpcReconciliationState::Pending as i32 => "Pending".to_string(),
+            }
+
+            "unknown state preserves its numeric value" {
+                i32::MAX => format!("Unknown({})", i32::MAX),
+            }
+        );
     }
 
     #[test]
@@ -352,6 +476,14 @@ mod tests {
         // The effective pick and divergence flag.
         assert!(table.contains("Effective boot interface MAC: aa:bb:cc:00:00:01"));
         assert!(table.contains("Stores diverge on boot MAC:   true"));
+        assert!(table.contains("Desired boot interface:      aa:bb:cc:00:00:01 (NIC.Slot.1-1-1)"));
+        assert!(
+            table.contains(
+                "Reconciliation:              Failed (desired V7-T700, verified V6-T600)"
+            )
+        );
+        assert!(table.contains("Machine controller:          BootConfiguring/Failed"));
+        assert!(table.contains("Reconciliation failure:      BIOS job retries exhausted"));
     }
 
     #[test]
@@ -365,6 +497,8 @@ mod tests {
         assert!(json.contains("2026-06-01T00:00:00Z"));
         assert!(json.contains("\"primary_interface\": true"));
         assert!(json.contains("\"divergent\": true"));
+        assert!(json.contains("\"reconciliation\""));
+        assert!(json.contains("\"reconciliation_state\": \"Failed\""));
 
         // Round-trips into a generic JSON value with the expected structure.
         let value: serde_json::Value = serde_json::from_str(&json).expect("parse json");
@@ -379,6 +513,11 @@ mod tests {
             "2026-06-01T00:00:00Z"
         );
         assert_eq!(value["effective_boot_interface_mac"], "aa:bb:cc:00:00:01");
+        assert_eq!(value["reconciliation"]["desired_version"], "V7-T700");
+        assert_eq!(
+            value["reconciliation"]["failure"],
+            "BIOS job retries exhausted"
+        );
     }
 
     #[test]
@@ -390,6 +529,8 @@ mod tests {
         assert!(yaml.contains("recorded_at:"));
         assert!(yaml.contains("divergent: true"));
         assert!(yaml.contains("primary_interface: true"));
+        assert!(yaml.contains("reconciliation:"));
+        assert!(yaml.contains("reconciliation_state: Failed"));
 
         // Round-trips back into a generic YAML value.
         let value: serde_yaml::Value = serde_yaml::from_str(&yaml).expect("parse yaml");
@@ -433,6 +574,20 @@ mod tests {
             divergent: false,
             default_boot_interface: None,
             predicted_boot_interface: None,
+            reconciliation: Some(RpcReconciliation {
+                desired_boot_interface: Some(forgerpc::MachineBootInterface {
+                    mac_address: "aa:bb:cc:00:00:01".to_string(),
+                    interface_id: Some("NIC.Slot.1-1-1".to_string()),
+                }),
+                desired_version: "V7-T700".to_string(),
+                verified_version: Some("V6-T600".to_string()),
+                observed_at: Some(Default::default()),
+                is_compatibility_baseline: true,
+                reconciliation_state: RpcReconciliationState::Pending as i32,
+                machine_state: "Assigned/Ready".to_string(),
+                reconciling_version: None,
+                failure: None,
+            }),
         };
 
         let report = BootInterfacesReport::from(response);
@@ -454,5 +609,17 @@ mod tests {
             report.retained_interfaces[0].recorded_at.as_deref(),
             Some("1970-01-01T00:00:00Z")
         );
+        let reconciliation = report
+            .reconciliation
+            .expect("desired reconciliation should be mapped");
+        assert_eq!(reconciliation.reconciliation_state, "Pending");
+        assert_eq!(reconciliation.desired_version, "V7-T700");
+        assert_eq!(reconciliation.verified_version.as_deref(), Some("V6-T600"));
+        assert_eq!(
+            reconciliation.observed_at.as_deref(),
+            Some("1970-01-01T00:00:00Z")
+        );
+        assert!(reconciliation.is_compatibility_baseline);
+        assert_eq!(reconciliation.machine_state, "Assigned/Ready");
     }
 }

@@ -35,7 +35,7 @@ pub struct StartArgs {
     pub bmc_proxy: Option<HostPortPair>,
     pub firmware_directory: PathBuf,
     pub cancel_token: CancellationToken,
-    pub ready_channel: Sender<()>,
+    pub ready_channel: Sender<carbide::ApiServerAddresses>,
     pub credential_config: CredentialConfig,
     pub insecure_discovery: bool,
 }
@@ -135,11 +135,6 @@ pub async fn start(
         [pools.lo-ip]
         ranges = []
         prefix = "10.180.62.1/26"
-        type = "ipv4"
-
-        [pools.secondary-vtep-ip]
-        ranges = []
-        prefix = "10.181.62.1/26"
         type = "ipv4"
 
         [pools.vni]

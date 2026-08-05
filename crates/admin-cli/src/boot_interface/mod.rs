@@ -22,16 +22,16 @@
 //! `set` fronts the same `SetPrimaryInterface` RPC as
 //! `managed-host set-primary-interface`.
 
-pub mod candidates;
-pub mod set;
-pub mod show;
+mod candidates;
+mod set;
+pub(crate) mod show;
 
 use clap::Parser;
 
 use crate::cfg::dispatch::Dispatch;
 
 #[derive(Parser, Debug, Dispatch)]
-pub enum Cmd {
+pub(crate) enum Cmd {
     // Note for the abouts below: possessives are deliberately avoided -- the
     // man-page path (clap_mangen -> pandoc) drops apostrophes, so "a machine's
     // boot interface" renders as "a machines boot interface" in the generated
@@ -44,8 +44,8 @@ pub enum Cmd {
             managed machine), `predicted_machine_interfaces` (pre-first-lease candidates), \
             the `explored_endpoints` default (for endpoints without a machine), and the \
             retained post-deletion pairs (including stale records). Also reports the \
-            effective boot interface the system would select and flags when the stores \
-            disagree. Read-only."
+            effective boot interface, flags when the stores disagree, and shows desired-state \
+            reconciliation progress when one exists. Read-only."
     )]
     Show(show::Args),
     #[clap(
@@ -64,10 +64,10 @@ pub enum Cmd {
         about = "Set the boot interface for a machine (promotes it to the primary interface)",
         long_about = "Make an interface the boot interface for a machine by promoting it to \
             the primary interface -- the designation every boot flow keys on. This is the \
-            same operation as `managed-host set-primary-interface`: the BMC boot order is \
-            updated first, then the primary flag moves in the database. The interface can be \
-            named by machine-interface UUID or by MAC address; a MAC must match exactly one \
-            managed interface row on the machine."
+            same operation as `managed-host set-primary-interface`: the primary row and desired \
+            target commit together, then machine-controller reconciles the BMC when the host is \
+            eligible. The interface can be named by machine-interface UUID or by MAC address; a \
+            MAC must match exactly one managed interface row on the machine."
     )]
     Set(set::Args),
 }

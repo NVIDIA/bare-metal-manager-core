@@ -14,14 +14,14 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::net::{Ipv4Addr, SocketAddrV4};
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use bmc_mock::mac_address_pool::MacAddressPool;
-use bmc_mock::{DpuMachineInfo, DpuSettings, HostHardwareType};
+use bmc_mock::{DpuMachineInfo, DpuSettings, HardwareType, RackInfo, RackType};
 use carbide_uuid::machine::MachineId;
 use carbide_uuid::rack::{RackId, RackProfileId};
 use clap::Parser;
@@ -38,6 +38,7 @@ use crate::BmcRegistrationMode;
 use crate::api_client::ApiClient;
 use crate::api_throttler::ApiThrottler;
 use crate::machine_state_machine::OsImage;
+use crate::rack::{RackMemberRegistration, RackRegistration};
 
 #[derive(Parser, Debug, Serialize, Deserialize)]
 #[clap(name = "machine-sim")]
@@ -71,8 +72,8 @@ pub struct MachineATronArgs {
 pub struct MachineConfig {
     #[serde(default)]
     pub rack_id: Option<RackId>,
-    #[serde(default = "default_host_hardware_type")]
-    pub hw_type: HostHardwareType,
+    #[serde(default = "default_hardware_type")]
+    pub hw_type: HardwareType,
     pub host_count: u32,
     pub vpc_count: u32,
     pub subnets_per_vpc: u32,
@@ -138,8 +139,114 @@ impl MachineConfig {
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize, Eq, PartialEq)]
+pub struct WiwynnGb200RackConfig {
+    pub dpu_reboot_delay: u64,
+    pub host_reboot_delay: u64,
+    #[serde(
+        default = "default_scout_run_interval",
+        deserialize_with = "deserialize_duration",
+        serialize_with = "as_std_duration"
+    )]
+    pub scout_run_interval: Duration,
+    pub oob_dhcp_relay_address: Ipv4Addr,
+    pub admin_dhcp_relay_address: Ipv4Addr,
+    #[serde(default)]
+    pub host_inband_dhcp_relay_address: Option<Ipv4Addr>,
+    #[serde(
+        default = "default_run_interval_working",
+        deserialize_with = "deserialize_duration",
+        serialize_with = "as_std_duration"
+    )]
+    pub run_interval_working: Duration,
+    #[serde(
+        default = "default_run_interval_idle",
+        deserialize_with = "deserialize_duration",
+        serialize_with = "as_std_duration"
+    )]
+    pub run_interval_idle: Duration,
+    #[serde(
+        default = "default_network_status_run_interval",
+        deserialize_with = "deserialize_duration",
+        serialize_with = "as_std_duration"
+    )]
+    pub network_status_run_interval: Duration,
+    #[serde(default)]
+    pub network_virtualization_type: Option<String>,
+    #[serde(default)]
+    pub dpus_in_nic_mode: bool,
+    #[serde(default)]
+    pub dpu_firmware_versions: Option<DpuFirmwareVersions>,
+    #[serde(default)]
+    pub dpu_agent_version: Option<String>,
+}
+
+impl WiwynnGb200RackConfig {
+    fn component_machine_config(
+        &self,
+        rack_id: RackId,
+        hw_type: HardwareType,
+        dpu_per_host_count: u32,
+    ) -> MachineConfig {
+        MachineConfig {
+            rack_id: Some(rack_id),
+            hw_type,
+            host_count: 1,
+            vpc_count: 0,
+            subnets_per_vpc: 0,
+            dpu_per_host_count,
+            dpu_reboot_delay: self.dpu_reboot_delay,
+            host_reboot_delay: self.host_reboot_delay,
+            scout_run_interval: self.scout_run_interval,
+            oob_dhcp_relay_address: self.oob_dhcp_relay_address,
+            admin_dhcp_relay_address: self.admin_dhcp_relay_address,
+            host_inband_dhcp_relay_address: self.host_inband_dhcp_relay_address,
+            run_interval_working: self.run_interval_working,
+            run_interval_idle: self.run_interval_idle,
+            network_status_run_interval: self.network_status_run_interval,
+            network_virtualization_type: self.network_virtualization_type.clone(),
+            dpus_in_nic_mode: self.dpus_in_nic_mode,
+            dpu_firmware_versions: self.dpu_firmware_versions.clone(),
+            dpu_agent_version: self.dpu_agent_version.clone(),
+        }
+    }
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, Eq, PartialEq)]
 pub struct RackConfig {
     pub rack_profile_id: RackProfileId,
+    pub ids: Vec<RackId>,
+    #[serde(flatten)]
+    pub model: RackModelConfig,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, Eq, PartialEq)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum RackModelConfig {
+    WiwynnGb200Nvl72 {
+        #[serde(flatten)]
+        simulation: WiwynnGb200RackConfig,
+    },
+}
+
+impl RackModelConfig {
+    fn rack_type(&self) -> RackType {
+        match self {
+            Self::WiwynnGb200Nvl72 { .. } => RackType::WiwynnGb200Nvl72,
+        }
+    }
+
+    fn component_machine_config(
+        &self,
+        rack_id: RackId,
+        hardware_type: HardwareType,
+        dpu_per_host_count: u32,
+    ) -> MachineConfig {
+        match self {
+            Self::WiwynnGb200Nvl72 { simulation } => {
+                simulation.component_machine_config(rack_id, hardware_type, dpu_per_host_count)
+            }
+        }
+    }
 }
 
 #[derive(Debug, Default, Serialize, Deserialize, Clone, Eq, PartialEq)]
@@ -195,7 +302,7 @@ impl DpuFirmwareVersions {
 #[derive(Clone, Debug, Deserialize, Serialize, Eq, PartialEq)]
 pub struct MachineATronConfig {
     #[serde(default)]
-    pub racks: BTreeMap<RackId, RackConfig>,
+    pub racks: BTreeMap<String, RackConfig>,
     // note that order is important in machines so that mac addresses are assigned the same way between runs
     #[serde(
         deserialize_with = "deserialize_machine_config",
@@ -328,19 +435,34 @@ impl MachineATronConfig {
             bmc_mock::ipmi_sim::validate_executable()?;
         }
 
-        for (rack_id, rack) in &self.racks {
-            eyre::ensure!(!rack_id.as_str().is_empty(), "rack ID cannot be empty");
+        let mut simulated_rack_ids = BTreeSet::new();
+        for (rack_group, rack) in &self.racks {
+            eyre::ensure!(!rack_group.is_empty(), "rack group name cannot be empty");
             eyre::ensure!(
                 !rack.rack_profile_id.as_str().is_empty(),
-                "rack {rack_id} has an empty rack_profile_id"
+                "racks.{rack_group}.rack_profile_id cannot be empty"
             );
+            eyre::ensure!(
+                !rack.ids.is_empty(),
+                "racks.{rack_group}.ids must contain at least one rack ID"
+            );
+            for rack_id in &rack.ids {
+                eyre::ensure!(
+                    !rack_id.as_str().is_empty(),
+                    "racks.{rack_group}.ids cannot contain an empty rack ID"
+                );
+                eyre::ensure!(
+                    simulated_rack_ids.insert(rack_id.clone()),
+                    "rack ID {rack_id} is configured more than once"
+                );
+            }
         }
 
         for (machine_group, machine) in &self.machines {
             if let Some(rack_id) = machine.rack_id.as_ref() {
                 eyre::ensure!(
-                    self.racks.contains_key(rack_id),
-                    "machines.{machine_group}.rack_id references undeclared rack {rack_id}"
+                    !simulated_rack_ids.contains(rack_id),
+                    "machines.{machine_group} cannot add a standalone device to atomic rack {rack_id}"
                 );
             }
         }
@@ -348,15 +470,72 @@ impl MachineATronConfig {
         Ok(())
     }
 
-    pub fn read_persisted_machines(
+    pub(crate) fn resolved_device_configs(&self) -> eyre::Result<ResolvedDeviceConfigs> {
+        self.validate()?;
+
+        let mut machines = self.machines.clone();
+        let mut racks = Vec::new();
+        let mut configured_racks = self
+            .racks
+            .values()
+            .flat_map(|rack| rack.ids.iter().cloned().map(move |rack_id| (rack_id, rack)))
+            .collect::<Vec<_>>();
+        configured_racks.sort_unstable_by(|(left, _), (right, _)| left.cmp(right));
+
+        for (rack_id, rack) in configured_racks {
+            let rack_type = rack.model.rack_type();
+            let elevation = RackInfo { rack_type }.rack_elevation();
+            let rack_key = encoded_rack_key(&rack_id);
+            let mut members = Vec::with_capacity(elevation.units.len());
+
+            for unit in elevation.units {
+                let machine_config_section = format!("rack-{rack_key}--unit-{:02}", unit.position);
+                let dpu_per_host_count = unit
+                    .hardware_type
+                    .fixed_number_of_dpu()
+                    .expect("rack hardware must have a fixed number of DPUs")
+                    .into();
+                eyre::ensure!(
+                    machines
+                        .insert(
+                            machine_config_section.clone(),
+                            Arc::new(rack.model.component_machine_config(
+                                rack_id.clone(),
+                                unit.hardware_type,
+                                dpu_per_host_count,
+                            )),
+                        )
+                        .is_none(),
+                    "rack {rack_id} generated duplicate device identity {machine_config_section}"
+                );
+                members.push(RackMemberRegistration {
+                    position: unit.position,
+                    hardware_type: unit.hardware_type,
+                    machine_config_section,
+                });
+            }
+
+            racks.push(RackRegistration {
+                rack_id,
+                rack_profile_id: rack.rack_profile_id.clone(),
+                rack_type,
+                version: elevation.version,
+                members,
+            });
+        }
+
+        Ok(ResolvedDeviceConfigs { machines, racks })
+    }
+
+    pub fn read_persisted_devices(
         &self,
-    ) -> eyre::Result<Option<HashMap<String, Vec<PersistedHostMachine>>>> {
-        let Some(machines_persist_dir) = &self.machines_persist_dir() else {
+    ) -> eyre::Result<Option<HashMap<String, Vec<PersistedDevice>>>> {
+        let Some(devices_persist_dir) = &self.devices_persist_dir() else {
             return Ok(None);
         };
 
-        let machines_by_config_section: HashMap<String, Vec<PersistedHostMachine>> =
-            std::fs::read_dir(machines_persist_dir)?
+        let devices_by_config_section: HashMap<String, Vec<PersistedDevice>> =
+            std::fs::read_dir(devices_persist_dir)?
                 .map(|f| {
                     let f = f?;
                     let filename = f.file_name().to_string_lossy().into_owned();
@@ -375,42 +554,57 @@ impl MachineATronConfig {
                 .flatten()
                 // Build the HashMap
                 .collect();
-        Ok(Some(machines_by_config_section))
+        Ok(Some(devices_by_config_section))
     }
 
-    pub fn write_persisted_machines(&self, machines: &[PersistedHostMachine]) -> eyre::Result<()> {
-        let Some(machines_persist_dir) = &self.machines_persist_dir() else {
+    pub fn write_persisted_devices(&self, devices: &[PersistedDevice]) -> eyre::Result<()> {
+        let Some(devices_persist_dir) = &self.devices_persist_dir() else {
             return Ok(());
         };
 
-        std::fs::create_dir_all(machines_persist_dir)?;
+        std::fs::create_dir_all(devices_persist_dir)?;
 
-        let mut persisted_machines_by_section: HashMap<String, Vec<&PersistedHostMachine>> =
+        let mut persisted_devices_by_section: HashMap<String, Vec<&PersistedDevice>> =
             HashMap::new();
-        for machine in machines {
-            if let Some(machines) =
-                persisted_machines_by_section.get_mut(&machine.machine_config_section)
+        for device in devices {
+            if let Some(devices) =
+                persisted_devices_by_section.get_mut(&device.machine_config_section)
             {
-                machines.push(machine);
+                devices.push(device);
             } else {
-                persisted_machines_by_section
-                    .insert(machine.machine_config_section.clone(), vec![machine]);
+                persisted_devices_by_section
+                    .insert(device.machine_config_section.clone(), vec![device]);
             }
         }
 
-        for (config_section, persisted_machines) in persisted_machines_by_section {
+        for (config_section, persisted_devices) in persisted_devices_by_section {
             std::fs::write(
-                machines_persist_dir.join(format!("{config_section}.json")),
-                serde_json::to_vec(&persisted_machines)?,
+                devices_persist_dir.join(format!("{config_section}.json")),
+                serde_json::to_vec(&persisted_devices)?,
             )?;
         }
 
         Ok(())
     }
 
-    fn machines_persist_dir(&self) -> Option<PathBuf> {
+    fn devices_persist_dir(&self) -> Option<PathBuf> {
         self.persist_dir.as_ref().map(|d| d.join("machines"))
     }
+}
+
+#[derive(Debug)]
+pub(crate) struct ResolvedDeviceConfigs {
+    pub machines: BTreeMap<String, Arc<MachineConfig>>,
+    pub racks: Vec<RackRegistration>,
+}
+
+fn encoded_rack_key(rack_id: &RackId) -> String {
+    rack_id
+        .as_str()
+        .as_bytes()
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect()
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Serialize, Eq, PartialEq)]
@@ -433,13 +627,14 @@ impl Default for DhcpType {
     }
 }
 
-/// A subset of the information about a HostMachine which is persisted to JSON to be recovered in
-/// subsequent runs of machine-a-tron.
+/// Device information persisted to JSON for recovery by subsequent machine-a-tron runs.
 #[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct PersistedHostMachine {
+pub struct PersistedDevice {
     pub mat_id: Uuid,
     pub machine_config_section: String,
-    pub hw_type: Option<HostHardwareType>,
+    /// Modern machine-a-tron versions always persist this field. Keeping it mandatory prevents
+    /// an incomplete snapshot from silently restoring a device as the default hardware type.
+    pub hw_type: HardwareType,
     pub bmc_mac_address: MacAddress,
     pub serial: String,
     pub dpus: Vec<PersistedDpuMachine>,
@@ -455,7 +650,7 @@ pub struct PersistedHostMachine {
     pub hw_mac_addr_pool: Option<MacAddressPoolConfig>,
 }
 
-impl PersistedHostMachine {
+impl PersistedDevice {
     pub fn mac_addresses(&self) -> impl Iterator<Item = MacAddress> {
         std::iter::once(self.bmc_mac_address)
             .chain(self.dpus.iter().flat_map(|d| d.mac_addresses()))
@@ -467,7 +662,9 @@ impl PersistedHostMachine {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PersistedDpuMachine {
     pub mat_id: Uuid,
-    pub hw_type: Option<HostHardwareType>,
+    /// Modern machine-a-tron versions always persist this field. Keeping it mandatory prevents
+    /// an incomplete snapshot from silently restoring a DPU as the default hardware type.
+    pub hw_type: HardwareType,
     pub bmc_mac_address: MacAddress,
     pub host_mac_address: MacAddress,
     pub oob_mac_address: MacAddress,
@@ -492,7 +689,7 @@ impl PersistedDpuMachine {
 impl From<PersistedDpuMachine> for DpuMachineInfo {
     fn from(value: PersistedDpuMachine) -> Self {
         Self {
-            hw_type: value.hw_type.unwrap_or_default(),
+            hw_type: value.hw_type,
             bmc_mac_address: value.bmc_mac_address,
             host_mac_address: value.host_mac_address,
             oob_mac_address: value.oob_mac_address,
@@ -522,8 +719,8 @@ fn default_network_status_run_interval() -> Duration {
     Duration::from_secs(20)
 }
 
-fn default_host_hardware_type() -> HostHardwareType {
-    HostHardwareType::default()
+fn default_hardware_type() -> HardwareType {
+    HardwareType::default()
 }
 
 fn default_scout_run_interval() -> Duration {
@@ -610,6 +807,8 @@ where
 
 #[cfg(test)]
 mod tests {
+    use std::collections::BTreeSet;
+
     use carbide_test_support::Outcome::*;
     use carbide_test_support::{Case, Check, check_cases, check_values};
 
@@ -629,9 +828,6 @@ mat_api_server_enabled = true
 mat_api_server_listen_port = 2112
 use_single_bmc_mock = true
 configure_carbide_bmc_proxy_host = "192.168.1.20"
-
-[racks.rack-001]
-rack_profile_id = "NVL72"
 
 [machines.config]
 rack_id = "rack-001"
@@ -653,6 +849,41 @@ scout_run_interval = "5s"
         .expect("Could not parse config")
     }
 
+    fn wiwynn_gb200_rack_from_machine(machine: &MachineConfig) -> WiwynnGb200RackConfig {
+        WiwynnGb200RackConfig {
+            dpu_reboot_delay: machine.dpu_reboot_delay,
+            host_reboot_delay: machine.host_reboot_delay,
+            scout_run_interval: machine.scout_run_interval,
+            oob_dhcp_relay_address: machine.oob_dhcp_relay_address,
+            admin_dhcp_relay_address: machine.admin_dhcp_relay_address,
+            host_inband_dhcp_relay_address: machine.host_inband_dhcp_relay_address,
+            run_interval_working: machine.run_interval_working,
+            run_interval_idle: machine.run_interval_idle,
+            network_status_run_interval: machine.network_status_run_interval,
+            network_virtualization_type: machine.network_virtualization_type.clone(),
+            dpus_in_nic_mode: machine.dpus_in_nic_mode,
+            dpu_firmware_versions: machine.dpu_firmware_versions.clone(),
+            dpu_agent_version: machine.dpu_agent_version.clone(),
+        }
+    }
+
+    fn gb200_rack_config() -> MachineATronConfig {
+        let mut config = rack_config();
+        let template = config.machines["config"].clone();
+        config.machines.clear();
+        config.racks.insert(
+            "default".to_string(),
+            RackConfig {
+                ids: vec![RackId::new("rack-002"), RackId::new("rack-001")],
+                rack_profile_id: RackProfileId::new("NVL72"),
+                model: RackModelConfig::WiwynnGb200Nvl72 {
+                    simulation: wiwynn_gb200_rack_from_machine(&template),
+                },
+            },
+        );
+        config
+    }
+
     #[test]
     fn test_serialize_config() {
         let cfg = rack_config();
@@ -661,6 +892,114 @@ scout_run_interval = "5s"
         let round_tripped = toml::from_str::<MachineATronConfig>(&serialized)
             .expect("Could not deserialize serialized config");
         assert_eq!(round_tripped, cfg);
+    }
+
+    #[test]
+    fn gb200_rack_config_round_trips() {
+        let config = gb200_rack_config();
+        config.validate().unwrap();
+
+        let serialized = toml::to_string(&config).unwrap();
+        assert!(serialized.contains("[racks.default]"));
+        assert!(serialized.contains("type = \"wiwynn_gb200_nvl72\""));
+        assert!(serialized.contains("rack_profile_id = \"NVL72\""));
+        assert!(serialized.contains("ids = [\"rack-002\", \"rack-001\"]"));
+        let round_tripped = toml::from_str::<MachineATronConfig>(&serialized).unwrap();
+
+        assert_eq!(round_tripped, config);
+    }
+
+    #[test]
+    fn wiwynn_gb200_rack_expands_its_managed_hardware() {
+        let config = gb200_rack_config();
+
+        let first = config.resolved_device_configs().unwrap();
+        let second = config.resolved_device_configs().unwrap();
+
+        assert_eq!(first.machines.len(), 70);
+        assert_eq!(
+            first.machines.keys().collect::<Vec<_>>(),
+            second.machines.keys().collect::<Vec<_>>()
+        );
+        assert_eq!(first.racks.len(), 2);
+        assert_eq!(first.racks[0].rack_id, RackId::new("rack-001"));
+        assert_eq!(first.racks[1].rack_id, RackId::new("rack-002"));
+        for rack in &first.racks {
+            assert_eq!(rack.rack_profile_id, RackProfileId::new("NVL72"));
+            assert_eq!(rack.members.len(), 35);
+            assert_eq!(
+                rack.members
+                    .iter()
+                    .map(|member| member.position)
+                    .collect::<BTreeSet<_>>()
+                    .len(),
+                35
+            );
+        }
+
+        for machine in first.machines.values() {
+            assert_eq!(machine.host_count, 1);
+            assert!(
+                machine.rack_id == Some(RackId::new("rack-001"))
+                    || machine.rack_id == Some(RackId::new("rack-002"))
+            );
+        }
+        assert_eq!(
+            first
+                .machines
+                .values()
+                .filter(|machine| machine.hw_type == HardwareType::WiwynnGB200Nvl)
+                .count(),
+            36
+        );
+        assert_eq!(
+            first
+                .machines
+                .values()
+                .filter(|machine| machine.hw_type == HardwareType::NvidiaSwitchNd5200Ld)
+                .count(),
+            18
+        );
+        assert_eq!(
+            first
+                .machines
+                .values()
+                .filter(|machine| machine.hw_type == HardwareType::LiteOnPowerShelf)
+                .count(),
+            16
+        );
+    }
+
+    #[test]
+    fn simulated_rack_rejects_manual_members() {
+        let valid = gb200_rack_config();
+
+        let mut manual_member = valid.clone();
+        let machine = valid
+            .resolved_device_configs()
+            .unwrap()
+            .machines
+            .values()
+            .next()
+            .unwrap()
+            .clone();
+        manual_member.machines.insert("manual".to_string(), machine);
+
+        check_cases(
+            [
+                Case {
+                    scenario: "valid concrete WIWYNN GB200 rack",
+                    input: valid,
+                    expect: Yields(()),
+                },
+                Case {
+                    scenario: "manual machine in simulated rack",
+                    input: manual_member,
+                    expect: Fails,
+                },
+            ],
+            |config| config.validate().map_err(drop),
+        );
     }
 
     #[test]
@@ -857,46 +1196,59 @@ server_address = "127.0.0.1:6767""#,
 
     #[test]
     fn rack_references_are_validated() {
-        let valid = rack_config();
+        let standalone = rack_config();
+        let valid = gb200_rack_config();
 
-        let mut rackless = valid.clone();
-        rackless.racks.clear();
-        Arc::make_mut(rackless.machines.get_mut("config").unwrap()).rack_id = None;
+        let mut empty_group_name = valid.clone();
+        let rack = empty_group_name.racks.remove("default").unwrap();
+        empty_group_name.racks.insert(String::new(), rack);
 
-        let mut undeclared = valid.clone();
-        undeclared.racks.clear();
-
-        let mut empty_rack_id = valid.clone();
-        let rack = empty_rack_id
-            .racks
-            .remove(&RackId::new("rack-001"))
-            .unwrap();
-        empty_rack_id.racks.insert(RackId::new(""), rack);
-        Arc::make_mut(empty_rack_id.machines.get_mut("config").unwrap()).rack_id =
-            Some(RackId::new(""));
+        let mut no_ids = valid.clone();
+        no_ids.racks.get_mut("default").unwrap().ids.clear();
 
         let mut empty_profile_id = valid.clone();
         empty_profile_id
             .racks
-            .get_mut(&RackId::new("rack-001"))
+            .get_mut("default")
             .unwrap()
             .rack_profile_id = RackProfileId::new("");
+
+        let mut empty_rack_id = valid.clone();
+        empty_rack_id.racks.get_mut("default").unwrap().ids[0] = RackId::new("");
+
+        let mut duplicate_rack_id = valid.clone();
+        duplicate_rack_id
+            .racks
+            .get_mut("default")
+            .unwrap()
+            .ids
+            .push(RackId::new("rack-001"));
 
         check_cases(
             [
                 Case {
-                    scenario: "declared rack",
+                    scenario: "atomic rack group",
                     input: valid,
                     expect: Yields(()),
                 },
                 Case {
-                    scenario: "legacy rackless config",
-                    input: rackless,
+                    scenario: "standalone machine with arbitrary rack ID",
+                    input: standalone,
                     expect: Yields(()),
                 },
                 Case {
-                    scenario: "undeclared rack reference",
-                    input: undeclared,
+                    scenario: "empty rack group name",
+                    input: empty_group_name,
+                    expect: Fails,
+                },
+                Case {
+                    scenario: "rack group without IDs",
+                    input: no_ids,
+                    expect: Fails,
+                },
+                Case {
+                    scenario: "rack group without profile ID",
+                    input: empty_profile_id,
                     expect: Fails,
                 },
                 Case {
@@ -905,8 +1257,8 @@ server_address = "127.0.0.1:6767""#,
                     expect: Fails,
                 },
                 Case {
-                    scenario: "empty rack profile ID",
-                    input: empty_profile_id,
+                    scenario: "duplicate rack ID",
+                    input: duplicate_rack_id,
                     expect: Fails,
                 },
             ],

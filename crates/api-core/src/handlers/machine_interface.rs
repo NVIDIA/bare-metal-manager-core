@@ -22,6 +22,7 @@ use ::rpc::forge as rpc;
 use db::WithTransaction;
 use futures_util::FutureExt;
 use itertools::Itertools;
+use mac_address::MacAddress;
 use model::machine_interface::InterfaceType;
 use tonic::{Request, Response, Status};
 
@@ -79,42 +80,118 @@ pub(crate) async fn delete_interface(
 
     let mut txn = api.txn_begin().await?;
 
-    let rpc::InterfaceDeleteQuery { id } = request.into_inner();
-    let Some(id) = id else {
-        return Err(CarbideError::MissingArgument("delete interface.interface_id").into());
+    let rpc::InterfaceDeleteQuery { id, mac_address } = request.into_inner();
+
+    // Resolve the interfaces to delete. Deleting by MAC exists for the case where the
+    // operator only has the BMC MAC and not the interface id; a MAC is unique per
+    // network segment, so it can match more than one interface.
+    let interfaces = match (id, mac_address) {
+        (Some(id), None) => match db::machine_interface::find_one(&mut txn, id).await {
+            Ok(interface) => vec![interface],
+            // Report an unknown id as not-found rather than letting it fall through as an
+            // internal error, matching the unknown-MAC arm below.
+            Err(db::DatabaseError::FindOneReturnedNoResultsError(_)) => {
+                return Err(CarbideError::NotFoundError {
+                    kind: "Machine Interface",
+                    id: id.to_string(),
+                }
+                .into());
+            }
+            Err(e) => return Err(e.into()),
+        },
+        (None, Some(mac_address)) => {
+            let mac = MacAddress::from_str(&mac_address).map_err(|e| {
+                CarbideError::InvalidArgument(format!("invalid MAC address {mac_address:?}: {e}"))
+            })?;
+            let mut interfaces =
+                db::machine_interface::find_by_mac_address(txn.as_pgconn(), mac).await?;
+            if interfaces.is_empty() {
+                return Err(CarbideError::NotFoundError {
+                    kind: "Machine Interface",
+                    id: mac.to_string(),
+                }
+                .into());
+            }
+            // `machine_interface::delete` retains each row's boot pair keyed by MAC, so
+            // when several rows share this MAC the last one deleted decides the retained
+            // `boot_interface_id`. The lookup has no inherent order, so sort to make that
+            // outcome deterministic rather than dependent on the query plan.
+            interfaces.sort_by_key(|interface| interface.id);
+            interfaces
+        }
+        (Some(_), Some(_)) => {
+            return Err(CarbideError::InvalidArgument(
+                "specify either id or mac_address, not both".to_string(),
+            )
+            .into());
+        }
+        (None, None) => {
+            return Err(
+                CarbideError::MissingArgument("delete interface.id or .mac_address").into(),
+            );
+        }
     };
 
-    let interface = db::machine_interface::find_one(&mut txn, id).await?;
-
-    // There should not be any machine associated with this interface.
-    if let Some(machine_id) = interface.machine_id {
-        if interface.interface_type == InterfaceType::Bmc {
+    // Check every interface before deleting any of them, so a MAC that matches one
+    // deletable and one attached interface refuses as a whole instead of half-deleting.
+    for interface in &interfaces {
+        // There should not be any machine associated with this interface.
+        if let Some(machine_id) = interface.machine_id {
+            if interface.interface_type == InterfaceType::Bmc {
+                return Err(CarbideError::InvalidArgument(format!(
+                    "this looks like a BMC interface and attached with machine: {machine_id}. delete that first"
+                ))
+                .into());
+            }
             return Err(CarbideError::InvalidArgument(format!(
-                "this looks like a BMC interface and attached with machine: {machine_id}. delete that first"
+                "already a machine {machine_id} is attached to this interface. delete that first"
             ))
             .into());
         }
-        return Err(CarbideError::InvalidArgument(format!(
-            "already a machine {machine_id} is attached to this interface. delete that first"
-        ))
-        .into());
-    }
 
-    // There should not be any BMC information associated with any machine.
-    for address in interface.addresses.iter() {
-        let machine_id =
-            db::machine_topology::find_machine_id_by_bmc_ip(txn.as_pgconn(), &address.to_string())
-                .await?;
-
-        if let Some(machine_id) = machine_id {
+        // Nor any other live owner. Unlike `machine_id`, these associations do not stop
+        // the row being deleted at the database level, so they have to be refused here --
+        // selecting by MAC can match rows the caller never saw, so a switch or power
+        // shelf must not be taken out as collateral.
+        if let Some(dpu_machine_id) = interface.attached_dpu_machine_id {
             return Err(CarbideError::InvalidArgument(format!(
-                "this looks like a BMC interface and attached with machine: {machine_id}. delete that first"
+                "this interface is attached to DPU machine {dpu_machine_id}. delete that first"
             ))
             .into());
         }
+        if let Some(switch_id) = interface.switch_id {
+            return Err(CarbideError::InvalidArgument(format!(
+                "this interface belongs to switch {switch_id}. delete that first"
+            ))
+            .into());
+        }
+        if let Some(power_shelf_id) = interface.power_shelf_id {
+            return Err(CarbideError::InvalidArgument(format!(
+                "this interface belongs to power shelf {power_shelf_id}. delete that first"
+            ))
+            .into());
+        }
+
+        // There should not be any BMC information associated with any machine.
+        for address in interface.addresses.iter() {
+            let machine_id = db::machine_topology::find_machine_id_by_bmc_ip(
+                txn.as_pgconn(),
+                &address.to_string(),
+            )
+            .await?;
+
+            if let Some(machine_id) = machine_id {
+                return Err(CarbideError::InvalidArgument(format!(
+                    "this looks like a BMC interface and attached with machine: {machine_id}. delete that first"
+                ))
+                .into());
+            }
+        }
     }
 
-    db::machine_interface::delete(&interface.id, &mut txn).await?;
+    for interface in &interfaces {
+        db::machine_interface::delete(&interface.id, &mut txn).await?;
+    }
 
     txn.commit().await?;
 

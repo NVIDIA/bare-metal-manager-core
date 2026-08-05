@@ -22,7 +22,7 @@ use std::time::Duration;
 
 use carbide_instrument::testing::{CapturedFieldKind, MetricsCapture, capture_logs};
 use carbide_instrument::{
-    Event, LabelValue, LogAt, MetricKind, Outcome, emit, initialize_counter_series,
+    Event, LabelValue, LogAt, MetricFamily, MetricKind, Outcome, emit, initialize_counter_series,
 };
 use carbide_test_support::value_scenarios;
 
@@ -684,4 +684,667 @@ fn event_identity_renders_through_logfmt() {
     );
     assert_eq!(rendered.matches("event_name=").count(), 1, "{rendered}");
     assert_eq!(rendered.matches("metric_name=").count(), 1, "{rendered}");
+}
+
+/// Two Events sharing one `MetricFamily` move a single instrument with a
+/// single label set, and each keeps its own level, message, and context.
+#[test]
+fn one_family_backs_two_events() {
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, LabelValue)]
+    enum FamilyStage {
+        Fetch,
+        Persist,
+    }
+
+    #[derive(MetricFamily)]
+    #[metric(
+        name = "carbide_test_matrix_family_total",
+        kind = counter,
+        component = "matrix-test",
+        describe = "Number of matrix family test failures, by stage and outcome."
+    )]
+    struct MatrixFamily {
+        stage: FamilyStage,
+        outcome: Outcome,
+    }
+
+    #[derive(Event)]
+    #[event(
+        event_name = "test_matrix_family_fetch_failed",
+        metric_family = MatrixFamily,
+        log = warn,
+        message = "matrix family fetch failed"
+    )]
+    struct FetchFailed {
+        #[label]
+        stage: FamilyStage,
+        #[label]
+        outcome: Outcome,
+        #[context]
+        url: String,
+    }
+
+    #[derive(Event)]
+    #[event(
+        event_name = "test_matrix_family_persist_failed",
+        metric_family = MatrixFamily,
+        log = error,
+        message = "matrix family persist failed"
+    )]
+    struct PersistFailed {
+        #[label]
+        stage: FamilyStage,
+        #[label]
+        outcome: Outcome,
+        #[context]
+        machine: String,
+    }
+
+    let metrics = MetricsCapture::start();
+    let logs = capture_logs(|| {
+        emit(FetchFailed {
+            stage: FamilyStage::Fetch,
+            outcome: Outcome::Error,
+            url: "https://example.invalid".to_string(),
+        });
+        emit(PersistFailed {
+            stage: FamilyStage::Persist,
+            outcome: Outcome::Error,
+            machine: "machine-7".to_string(),
+        });
+    });
+
+    // The family supplies the metric identity to both Events.
+    assert_eq!(
+        <FetchFailed as Event>::METRIC_NAME,
+        Some("carbide_test_matrix_family_total")
+    );
+    assert_eq!(
+        <PersistFailed as Event>::METRIC_NAME,
+        <FetchFailed as Event>::METRIC_NAME
+    );
+    assert_eq!(<PersistFailed as Event>::COMPONENT, "matrix-test");
+    assert_eq!(
+        <PersistFailed as Event>::DESCRIBE,
+        <FetchFailed as Event>::DESCRIBE
+    );
+
+    // Each Event keeps its own log surface.
+    assert_eq!(logs.len(), 2);
+    assert_eq!(logs[0].level, tracing::Level::WARN);
+    assert_eq!(logs[0].message, "matrix family fetch failed");
+    assert_eq!(logs[0].field("stage"), Some("fetch"));
+    assert_eq!(logs[0].field("url"), Some("https://example.invalid"));
+    assert_eq!(
+        logs[0].field("metric_name"),
+        Some("carbide_test_matrix_family_total")
+    );
+    assert_eq!(logs[1].level, tracing::Level::ERROR);
+    assert_eq!(logs[1].field("machine"), Some("machine-7"));
+
+    // One instrument, two label sets on the same family.
+    assert_eq!(
+        metrics.counter_delta(
+            "carbide_test_matrix_family_total",
+            &[("stage", "fetch"), ("outcome", "error")],
+        ),
+        1.0
+    );
+    assert_eq!(
+        metrics.counter_delta(
+            "carbide_test_matrix_family_total",
+            &[("stage", "persist"), ("outcome", "error")],
+        ),
+        1.0
+    );
+}
+
+/// A histogram family converts its `#[observation]` through the unit the
+/// family's name declares, not one restated on the Event.
+#[test]
+fn a_histogram_family_converts_the_observation() {
+    #[derive(MetricFamily)]
+    #[metric(
+        name = "carbide_test_matrix_family_duration_milliseconds",
+        kind = histogram,
+        component = "matrix-test",
+        describe = "Duration of matrix family test work, by stage."
+    )]
+    struct WorkDuration {
+        stage: Stage,
+    }
+
+    #[derive(Event)]
+    #[event(
+        event_name = "test_matrix_family_work_finished",
+        metric_family = WorkDuration,
+        log = off
+    )]
+    struct WorkFinished {
+        #[label]
+        stage: Stage,
+        #[observation]
+        took: Duration,
+    }
+
+    assert_eq!(
+        <WorkFinished as Event>::METRIC,
+        MetricKind::Histogram { unit: "ms" }
+    );
+
+    let event = WorkFinished {
+        stage: Stage::Apply,
+        took: Duration::from_millis(250),
+    };
+    // 250ms recorded in the family's declared milliseconds, not seconds.
+    assert!((Event::observation(&event) - 250.0).abs() < f64::EPSILON);
+
+    let metrics = MetricsCapture::start();
+    emit(event);
+    assert!(
+        metrics
+            .render()
+            .contains("carbide_test_matrix_family_duration_milliseconds"),
+        "the family's histogram is exported under its declared name"
+    );
+}
+
+/// A context field written as `Option<...>` says it does not apply to every
+/// case: `None` leaves the key off the log line entirely rather than writing a
+/// blank or a sentinel, and `Event::context` agrees with the line.
+#[test]
+fn an_absent_optional_context_field_leaves_no_key() {
+    use std::net::IpAddr;
+
+    #[derive(Event)]
+    #[event(
+        event_name = "test_matrix_optional_context",
+        component = "matrix-test",
+        log = warn,
+        message = "optional context"
+    )]
+    struct OptionalContext {
+        #[label]
+        outcome: Outcome,
+        /// A typed field with no blank value: absent is the only honest form.
+        #[context]
+        peer: Option<IpAddr>,
+        #[context]
+        error: Option<String>,
+        #[context]
+        always: String,
+    }
+
+    let logs = capture_logs(|| {
+        emit(OptionalContext {
+            outcome: Outcome::Error,
+            peer: Some(IpAddr::from([10, 0, 0, 5])),
+            error: Some("boom".to_string()),
+            always: "here".to_string(),
+        });
+        emit(OptionalContext {
+            outcome: Outcome::Ok,
+            peer: None,
+            error: None,
+            always: "here".to_string(),
+        });
+    });
+
+    // Present: rendered through Display exactly as a non-optional field is.
+    assert_eq!(logs[0].field("peer"), Some("10.0.0.5"));
+    assert_eq!(logs[0].field("error"), Some("boom"));
+    assert_eq!(logs[0].field("always"), Some("here"));
+
+    // Absent: the key is not on the line at all -- not blank, not a sentinel.
+    assert_eq!(logs[1].field("peer"), None);
+    assert_eq!(logs[1].field("error"), None);
+    assert_eq!(logs[1].field("always"), Some("here"));
+    let keys: Vec<&str> = logs[1].fields.iter().map(|(k, _)| k.as_str()).collect();
+    assert!(
+        !keys.contains(&"peer"),
+        "absent field must not appear: {keys:?}"
+    );
+    assert!(
+        !keys.contains(&"error"),
+        "absent field must not appear: {keys:?}"
+    );
+
+    // Each optional field stands on its own: one being absent says nothing
+    // about the other.
+    let mixed = capture_logs(|| {
+        emit(OptionalContext {
+            outcome: Outcome::Error,
+            peer: Some(IpAddr::from([10, 0, 0, 9])),
+            error: None,
+            always: "here".to_string(),
+        });
+        emit(OptionalContext {
+            outcome: Outcome::Error,
+            peer: None,
+            error: Some("only the error".to_string()),
+            always: "here".to_string(),
+        });
+    });
+    assert_eq!(mixed[0].field("peer"), Some("10.0.0.9"));
+    assert_eq!(mixed[0].field("error"), None);
+    assert_eq!(mixed[1].field("peer"), None);
+    assert_eq!(mixed[1].field("error"), Some("only the error"));
+
+    let peer_only = OptionalContext {
+        outcome: Outcome::Error,
+        peer: Some(IpAddr::from([10, 0, 0, 9])),
+        error: None,
+        always: "here".to_string(),
+    };
+    let peer_only_context = Event::context(&peer_only);
+    let peer_only_keys: Vec<&str> = peer_only_context.iter().map(|kv| kv.key.as_str()).collect();
+    assert_eq!(peer_only_keys, vec!["peer", "always"]);
+
+    // `Event::context` is introspection for tooling, so it agrees with the line.
+    let absent = OptionalContext {
+        outcome: Outcome::Ok,
+        peer: None,
+        error: None,
+        always: "here".to_string(),
+    };
+    let context = Event::context(&absent);
+    let context_keys: Vec<&str> = context.iter().map(|kv| kv.key.as_str()).collect();
+    assert_eq!(context_keys, vec!["always"]);
+}
+
+/// An enum Event: one metric, one `event_name`, a case per variant. Each
+/// variant renders exactly its own fields, so a field that does not apply to
+/// every case is simply absent from the variants that lack it -- no `Option`
+/// stands in for it.
+#[test]
+fn enum_event_renders_each_variant_with_its_own_fields() {
+    #[derive(Event)]
+    #[event(
+        event_name = "test_matrix_enum_fired",
+        metric_name = "carbide_test_matrix_enum_total",
+        component = "matrix-test",
+        metric = counter,
+        log = warn,
+        describe = "Number of enum-Event test cases",
+        labels(stage: Stage, outcome: Outcome),
+    )]
+    enum EnumEvent {
+        #[event(labels(stage = Apply, outcome = Ok), message = "applied")]
+        Applied {
+            #[context]
+            host: String,
+        },
+
+        #[event(labels(stage = Apply), message = "apply failed")]
+        ApplyFailed {
+            #[label]
+            outcome: Outcome,
+            #[context]
+            host: String,
+            #[context]
+            error: String,
+        },
+
+        /// Counted, never logged.
+        #[event(labels(stage = PreFlight, outcome = Ok), log = off)]
+        Verified {},
+    }
+
+    let metrics = MetricsCapture::start();
+    let logs = capture_logs(|| {
+        emit(EnumEvent::Applied {
+            host: "host-1".to_string(),
+        });
+        emit(EnumEvent::ApplyFailed {
+            outcome: Outcome::Error,
+            host: "host-2".to_string(),
+            error: "boom".to_string(),
+        });
+        emit(EnumEvent::Verified {});
+    });
+
+    // `Verified` is metric-only, so only two records.
+    assert_eq!(logs.len(), 2);
+    assert_eq!(logs[0].metadata_name, "test_matrix_enum_fired");
+    assert_eq!(logs[0].message, "applied");
+    assert_eq!(logs[0].field("stage"), Some("apply"));
+    assert_eq!(logs[0].field("outcome"), Some("ok"));
+    assert_eq!(logs[0].field("host"), Some("host-1"));
+    // The variant has no `error` field at all, so the key is absent.
+    assert_eq!(logs[0].field("error"), None);
+
+    assert_eq!(logs[1].message, "apply failed");
+    assert_eq!(logs[1].field("outcome"), Some("error"));
+    assert_eq!(logs[1].field("error"), Some("boom"));
+
+    for (stage, outcome) in [("apply", "ok"), ("apply", "error"), ("pre_flight", "ok")] {
+        assert_eq!(
+            metrics.counter_delta(
+                "carbide_test_matrix_enum_total",
+                &[("stage", stage), ("outcome", outcome)],
+            ),
+            1.0,
+            "{stage}/{outcome}",
+        );
+    }
+
+    // Zero-series initialization takes any Event, including one variant of an enum.
+    assert!(initialize_counter_series(&EnumEvent::Verified {}));
+}
+
+/// A family-backed enum Event: the family owns the metric and its label
+/// schema, and each variant names its label values in full. Several such enums
+/// can share one family, which is how a metric with many cases stays split into
+/// readable types instead of one enormous enum.
+#[test]
+fn family_backed_enum_event_shares_one_metric() {
+    #[derive(MetricFamily)]
+    #[metric(
+        name = "carbide_test_matrix_family_enum_total",
+        kind = counter,
+        component = "matrix-test",
+        describe = "Number of family-backed enum test cases"
+    )]
+    struct SharedFailures {
+        stage: Stage,
+        outcome: Outcome,
+    }
+
+    #[derive(Event)]
+    #[event(event_name = "test_matrix_family_enum_a", metric_family = SharedFailures, log = warn)]
+    enum GroupA {
+        #[event(labels(stage = Stage::Apply, outcome = Outcome::Ok), message = "a ok")]
+        Ok {
+            #[context]
+            host: String,
+        },
+
+        #[event(labels(stage = Stage::Apply, outcome = Outcome::Error), message = "a failed")]
+        Failed {
+            #[context]
+            host: String,
+            #[context]
+            error: String,
+        },
+    }
+
+    #[derive(Event)]
+    #[event(event_name = "test_matrix_family_enum_b", metric_family = SharedFailures, log = error)]
+    enum GroupB {
+        #[event(labels(stage = Stage::PreFlight), message = "b failed")]
+        Failed {
+            #[label]
+            outcome: Outcome,
+            #[context]
+            detail: String,
+        },
+    }
+
+    let metrics = MetricsCapture::start();
+    let logs = capture_logs(|| {
+        emit(GroupA::Ok {
+            host: "h1".to_string(),
+        });
+        emit(GroupA::Failed {
+            host: "h2".to_string(),
+            error: "boom".to_string(),
+        });
+        emit(GroupB::Failed {
+            outcome: Outcome::Error,
+            detail: "d".to_string(),
+        });
+    });
+
+    assert_eq!(logs.len(), 3);
+    // Two enums, two event_names, one metric.
+    assert_eq!(
+        logs[0].field("event_name"),
+        Some("test_matrix_family_enum_a")
+    );
+    assert_eq!(
+        logs[2].field("event_name"),
+        Some("test_matrix_family_enum_b")
+    );
+    for log in &logs {
+        assert_eq!(
+            log.field("metric_name"),
+            Some("carbide_test_matrix_family_enum_total")
+        );
+    }
+    // Labels fixed by the variant still render on the log line.
+    assert_eq!(logs[0].field("stage"), Some("apply"));
+    assert_eq!(logs[0].field("outcome"), Some("ok"));
+    assert_eq!(logs[2].field("stage"), Some("pre_flight"));
+    assert_eq!(logs[2].field("outcome"), Some("error"));
+    // Only the failing variant has an error field at all.
+    assert_eq!(logs[0].field("error"), None);
+    assert_eq!(logs[1].field("error"), Some("boom"));
+
+    for (stage, outcome) in [("apply", "ok"), ("apply", "error"), ("pre_flight", "error")] {
+        assert_eq!(
+            metrics.counter_delta(
+                "carbide_test_matrix_family_enum_total",
+                &[("stage", stage), ("outcome", outcome)],
+            ),
+            1.0,
+            "{stage}/{outcome}",
+        );
+    }
+}
+
+/// An enum Event on a histogram family records each variant's `#[observation]`
+/// through the unit the family declares. The family owns the kind, so a variant
+/// records the value it was given rather than counting the emit.
+#[test]
+fn histogram_family_enum_records_each_variants_observation() {
+    #[derive(MetricFamily)]
+    #[metric(
+        name = "carbide_test_matrix_family_enum_duration_milliseconds",
+        kind = histogram,
+        component = "matrix-test",
+        describe = "Duration of family-backed enum test work, by outcome."
+    )]
+    struct EnumWorkDuration {
+        outcome: Outcome,
+    }
+
+    #[derive(Event)]
+    #[event(
+        event_name = "test_matrix_family_enum_work_finished",
+        metric_family = EnumWorkDuration
+    )]
+    enum EnumWorkFinished {
+        #[event(labels(outcome = Outcome::Ok), log = off)]
+        Succeeded {
+            #[observation]
+            took: Duration,
+        },
+
+        #[event(labels(outcome = Outcome::Error), log = warn, message = "work failed")]
+        Failed {
+            #[observation]
+            took: Duration,
+            #[context]
+            error: String,
+        },
+    }
+
+    assert_eq!(
+        <EnumWorkFinished as Event>::METRIC,
+        MetricKind::Histogram { unit: "ms" }
+    );
+
+    // The value recorded is the duration, converted through the family's unit --
+    // not the 1.0 a counter would add.
+    let failed = EnumWorkFinished::Failed {
+        took: Duration::from_millis(250),
+        error: "boom".to_string(),
+    };
+    assert!((Event::observation(&failed) - 250.0).abs() < f64::EPSILON);
+    assert!(
+        (Event::observation(&EnumWorkFinished::Succeeded {
+            took: Duration::from_millis(40),
+        }) - 40.0)
+            .abs()
+            < f64::EPSILON
+    );
+
+    let metrics = MetricsCapture::start();
+    emit(failed);
+    assert!(
+        metrics
+            .render()
+            .contains("carbide_test_matrix_family_enum_duration_milliseconds"),
+        "the family's histogram is exported under its declared name"
+    );
+}
+
+/// `Event::context` on an enum answers for the variant in hand: the same fields
+/// its log line renders, and nothing belonging to a sibling case.
+#[test]
+fn enum_event_context_answers_for_the_variant() {
+    #[derive(Event)]
+    #[event(
+        event_name = "test_matrix_enum_context",
+        metric_name = "carbide_test_matrix_enum_context_total",
+        component = "matrix-test",
+        metric = counter,
+        describe = "Number of enum context test cases.",
+        labels(outcome: Outcome)
+    )]
+    enum ContextCase {
+        #[event(labels(outcome = Outcome::Ok), log = off)]
+        Ok {
+            #[context]
+            host: String,
+        },
+
+        #[event(labels(outcome = Outcome::Error), log = warn, message = "context failed")]
+        Failed {
+            #[context]
+            host: String,
+            #[context]
+            error: String,
+            /// Absent on the cases it does not apply to.
+            #[context]
+            detail: Option<String>,
+        },
+    }
+
+    let pairs = |event: &ContextCase| -> Vec<(String, String)> {
+        Event::context(event)
+            .into_iter()
+            .map(|kv| (kv.key.to_string(), kv.value.to_string()))
+            .collect()
+    };
+
+    // The success case carries only its own field, not the failure's.
+    assert_eq!(
+        pairs(&ContextCase::Ok {
+            host: "h1".to_string(),
+        }),
+        vec![("host".to_string(), "h1".to_string())]
+    );
+
+    assert_eq!(
+        pairs(&ContextCase::Failed {
+            host: "h2".to_string(),
+            error: "boom".to_string(),
+            detail: Some("stage 2".to_string()),
+        }),
+        vec![
+            ("host".to_string(), "h2".to_string()),
+            ("error".to_string(), "boom".to_string()),
+            ("detail".to_string(), "stage 2".to_string()),
+        ]
+    );
+
+    // An absent optional context field leaves no key, exactly as on the log line.
+    assert_eq!(
+        pairs(&ContextCase::Failed {
+            host: "h3".to_string(),
+            error: "boom".to_string(),
+            detail: None,
+        }),
+        vec![
+            ("host".to_string(), "h3".to_string()),
+            ("error".to_string(), "boom".to_string()),
+        ]
+    );
+}
+
+/// A gauge Event sets its metric to the latest `#[observation]`: it holds a
+/// level rather than accumulating, so a second emit replaces the first rather
+/// than adding to it.
+#[test]
+fn a_gauge_event_holds_the_latest_observation() {
+    #[derive(Event)]
+    #[event(
+        event_name = "test_matrix_pool_size_observed",
+        metric_name = "carbide_test_matrix_pool_members",
+        component = "matrix-test",
+        log = off,
+        metric = gauge,
+        describe = "Number of members in the matrix test pool"
+    )]
+    struct PoolSizeObserved {
+        #[observation]
+        members: u64,
+    }
+
+    assert_eq!(
+        <PoolSizeObserved as Event>::METRIC,
+        MetricKind::Gauge { unit: "" }
+    );
+
+    let metrics = MetricsCapture::start();
+    emit(PoolSizeObserved { members: 7 });
+    assert_eq!(
+        metrics.gauge_value("carbide_test_matrix_pool_members", &[]),
+        7.0
+    );
+
+    // A level, not a total: the second emit replaces the first.
+    emit(PoolSizeObserved { members: 3 });
+    assert_eq!(
+        metrics.gauge_value("carbide_test_matrix_pool_members", &[]),
+        3.0
+    );
+}
+
+/// A gauge whose name ends in a unit suffix records through that unit, the same
+/// conversion a histogram gets.
+#[test]
+fn a_gauge_converts_through_its_unit_suffix() {
+    #[derive(Event)]
+    #[event(
+        event_name = "test_matrix_refresh_window_observed",
+        metric_name = "carbide_test_matrix_refresh_window_seconds",
+        component = "matrix-test",
+        log = off,
+        metric = gauge,
+        describe = "Time remaining in the matrix test refresh window"
+    )]
+    struct RefreshWindowObserved {
+        #[observation]
+        remaining: Duration,
+    }
+
+    assert_eq!(
+        <RefreshWindowObserved as Event>::METRIC,
+        MetricKind::Gauge { unit: "s" }
+    );
+
+    let event = RefreshWindowObserved {
+        remaining: Duration::from_millis(2500),
+    };
+    // 2500ms observed as 2.5 seconds, per the name's suffix.
+    assert!((Event::observation(&event) - 2.5).abs() < f64::EPSILON);
+
+    let metrics = MetricsCapture::start();
+    emit(event);
+    assert_eq!(
+        metrics.gauge_value("carbide_test_matrix_refresh_window_seconds", &[]),
+        2.5
+    );
 }

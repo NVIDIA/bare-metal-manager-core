@@ -29,9 +29,9 @@ Force delete a power shelf and its machine interfaces:
     $ nico-admin-cli power-shelf force-delete 12345678-1234-5678-90ab-cdef01234567 --delete-interfaces
 
 ")]
-pub struct Args {
+pub(crate) struct Args {
     #[clap(help = "Power Shelf ID to force delete.")]
-    pub power_shelf_id: PowerShelfId,
+    pub(super) power_shelf_id: PowerShelfId,
 
     #[clap(
         short = 'd',
@@ -39,5 +39,5 @@ pub struct Args {
         action,
         help = "Delete machine interfaces associated with this power shelf."
     )]
-    pub delete_interfaces: bool,
+    pub(super) delete_interfaces: bool,
 }

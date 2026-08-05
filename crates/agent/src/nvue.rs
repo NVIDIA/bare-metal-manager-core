@@ -17,11 +17,11 @@
 
 use std::collections::HashMap;
 use std::fs;
-use std::net::IpAddr;
+use std::net::{IpAddr, Ipv6Addr};
 use std::path::Path;
 
 use ::rpc::forge as rpc;
-use carbide_network::ip::prefix::{IpNet, Ipv4Net};
+use carbide_network::ip::prefix::IpNet;
 use carbide_network::sanitized_mac;
 use carbide_network::virtualization::VpcVirtualizationType;
 use eyre::WrapErr;
@@ -514,64 +514,6 @@ pub fn build(conf: NvueConfig) -> eyre::Result<String> {
     // This is just an easy way to maintain the ordering of the original behavior.
     let deny_prefix_index_offset = conf.site_fabric_prefixes.len();
 
-    let has_static_advertisements = conf.secondary_overlay_vtep_ip.is_some();
-
-    let (
-        has_internal_bridging,
-        vf_intercept_bridge_ip,
-        vf_intercept_hbn_representor_ip,
-        public_prefix_internal_next_hop,
-        intercept_bridge_prefix_len,
-        // IPv4 only for now. Internal HBN bridge plumbing uses 169.254.x.x
-        // link-local addressing for DPU to HBN communication. An IPv6 equivalent
-        // (fe80:: or similar) may be needed in the future for dual-stack bridging.
-    ) = if let Some(bridge_prefix) = conf.internal_bridge_routing_prefix {
-        let prefix_len = bridge_prefix.prefix_len();
-        let mut hosts = bridge_prefix.hosts();
-
-        // 1st host is for the VF intercept bridge.
-        let Some(vf_intercept_bridge_ip) = hosts.next() else {
-            return Err(eyre::eyre!(
-                "expected VF intercept bridge IP not found in bridge routing prefix supplied by internal_bridge_routing_prefix",
-            ));
-        };
-
-        // 2nd host address is used within the HBN container on the SF being used for
-        // intercepted VF traffic.
-        let Some(vf_intercept_hbn_representor_ip) = hosts.next() else {
-            return Err(eyre::eyre!(
-                "expected VF intercept HBN representor IP not found in bridge routing prefix supplied by internal_bridge_routing_prefix",
-            ));
-        };
-
-        // 3rd host is for use by a traffic intercept user.  This lets the user know, a priori, of an IP
-        // within the stretched L2 domain of the combined br-hbn and custom bridges.
-        // This allows them to route traffic directly to and out of the HBN pod.
-        let Some(public_prefix_internal_next_hop) = hosts.next() else {
-            return Err(eyre::eyre!(
-                "expected public_prefix_internal_next_hop bridge IP not found in bridge routing prefix supplied by internal_bridge_routing_prefix",
-            ));
-        };
-
-        // >= 4th host is currently unused.
-
-        (
-            true,
-            format!("{vf_intercept_bridge_ip}"),
-            format!("{vf_intercept_hbn_representor_ip}"),
-            format!("{public_prefix_internal_next_hop}"),
-            prefix_len,
-        )
-    } else {
-        (
-            false,
-            String::default(),
-            String::default(),
-            String::default(),
-            0,
-        )
-    };
-
     let mut vpcs = vpc_configs.into_values().collect::<Vec<TmplVpc>>();
     vpcs.sort_by_key(|a| a.L3VNI);
     let has_any_vpc_tenant_host_leak_to_underlay = vpcs.iter().any(|vpc| {
@@ -580,8 +522,6 @@ pub fn build(conf: NvueConfig) -> eyre::Result<String> {
             .is_some_and(|profile| profile.LeakTenantHostRoutesToUnderlay)
     });
 
-    let (traffic_intercept_ipv4, traffic_intercept_ipv6) =
-        split_prefixes_by_family(&conf.traffic_intercept_public_prefixes, None, 1);
     let (anycast_ipv4, anycast_ipv6) =
         split_prefixes_by_family(&conf.anycast_site_prefixes, None, 1000);
     let (site_fabric_ipv4, site_fabric_ipv6) =
@@ -594,24 +534,15 @@ pub fn build(conf: NvueConfig) -> eyre::Result<String> {
         BgpLeafSessionPassword: conf.bgp_leaf_session_password.unwrap_or_default(),
         UseAdminNetwork: conf.use_admin_network,
         LoopbackIP: conf.loopback_ip.to_string(),
-        HasSiteGlobalVpcVni: conf.site_global_vpc_vni.is_some(),
-        SiteGlobalVpcVni: conf.site_global_vpc_vni.unwrap_or_default(),
-        HasStaticAdvertisements: has_static_advertisements,
-        HasSecondaryOverlayVTEP: conf.secondary_overlay_vtep_ip.is_some(),
-        SecondaryOverlayVtepIP: conf
-            .secondary_overlay_vtep_ip
+        HasLoopbackIpv6: conf.loopback_ip_v6.is_some(),
+        LoopbackIpv6: conf
+            .loopback_ip_v6
             .map(|ip| ip.to_string())
             .unwrap_or_default(),
-        HasInternalBridgeRouting: has_internal_bridging,
-        VfInterceptBridgeIP: vf_intercept_bridge_ip,
-        InterceptBridgePrefixLen: intercept_bridge_prefix_len,
-        PublicPrefixInternalNextHop: public_prefix_internal_next_hop,
-        VfInterceptHbnRepresentorIp: vf_intercept_hbn_representor_ip,
-        VfInterceptBridgeSf: conf.vf_intercept_bridge_sf.unwrap_or_default(),
+        HasSiteGlobalVpcVni: conf.site_global_vpc_vni.is_some(),
+        SiteGlobalVpcVni: conf.site_global_vpc_vni.unwrap_or_default(),
         HasAnyVpcTenantHostLeakToUnderlay: has_any_vpc_tenant_host_leak_to_underlay,
         HasAnyVpcVrfLoopback: has_any_vpc_vrf_loopback,
-        TrafficInterceptPublicPrefixes: traffic_intercept_ipv4,
-        TrafficInterceptPublicPrefixesIpv6: traffic_intercept_ipv6,
         ASN: conf.asn,
         DatacenterASN: conf.datacenter_asn,
         UseCommonInternalTenantRouteTarget: conf.common_internal_route_target.is_some(),
@@ -1141,19 +1072,13 @@ pub struct NvueConfig {
     pub use_admin_network: bool,
     pub tenancy_enabled: bool,
     pub loopback_ip: IpAddr,
+    pub loopback_ip_v6: Option<Ipv6Addr>,
     pub asn: u32,
     pub datacenter_asn: u32,
     pub site_global_vpc_vni: Option<u32>,
     pub common_internal_route_target: Option<RouteTargetConfig>,
     pub additional_route_target_imports: Vec<RouteTargetConfig>,
     pub bgp_leaf_session_password: Option<String>,
-
-    pub secondary_overlay_vtep_ip: Option<IpAddr>,
-    pub vf_intercept_bridge_port_name: Option<String>,
-    pub vf_intercept_bridge_sf: Option<String>,
-    pub host_intercept_bridge_port_name: Option<String>,
-    pub internal_bridge_routing_prefix: Option<Ipv4Net>,
-    pub traffic_intercept_public_prefixes: Vec<String>,
 
     pub dpu_hostname: String,
     pub dpu_search_domain: String,
@@ -1350,35 +1275,14 @@ struct TmplNvue {
     HasSiteGlobalVpcVni: bool,
     SiteGlobalVpcVni: u32,
     LoopbackIP: String,
-    HasSecondaryOverlayVTEP: bool,
-    HasStaticAdvertisements: bool,
-    SecondaryOverlayVtepIP: String,
-    HasInternalBridgeRouting: bool,
-    /// This IP is used in a static route in NVUE
-    /// to send traffic over to a bridge used by a traffic
-    /// intercept user for further processing.
-    VfInterceptBridgeIP: String,
-    /// This _might_ be the same IP as VfInterceptBridgeIP,
-    /// or it might not.  See the details of VfInterceptBridgeIP.
-    PublicPrefixInternalNextHop: String,
-    /// An IP from the same subnet as VfInterceptBridgeIP
-    VfInterceptHbnRepresentorIp: String,
-    /// The SF used to route traffic VF traffic to the HBN pod.
-    VfInterceptBridgeSf: String,
-
+    HasLoopbackIpv6: bool,
+    LoopbackIpv6: String,
     /// Does any VPC at all have a routing profile that says
     /// tenant routes should leak to the underlay?
     HasAnyVpcTenantHostLeakToUnderlay: bool,
 
     /// Does any VPC have a VRF loopback?
     HasAnyVpcVrfLoopback: bool,
-
-    /// The size of the of the prefix used for the internal
-    /// bridge routing.
-    InterceptBridgePrefixLen: u8,
-
-    TrafficInterceptPublicPrefixes: Vec<Prefix>,
-    TrafficInterceptPublicPrefixesIpv6: Vec<Prefix>,
 
     ASN: u32,
     DatacenterASN: u32,
@@ -1721,6 +1625,8 @@ struct TmplVni {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::BTreeSet;
+
     use carbide_test_support::value_scenarios;
 
     use super::*;
@@ -1847,17 +1753,12 @@ mod tests {
             use_admin_network: false,
             tenancy_enabled: true,
             loopback_ip: "10.0.0.1".parse().unwrap(),
+            loopback_ip_v6: None,
             asn: 65000,
             datacenter_asn: 11414,
             site_global_vpc_vni: None,
             common_internal_route_target: None,
             additional_route_target_imports: vec![],
-            secondary_overlay_vtep_ip: None,
-            vf_intercept_bridge_port_name: None,
-            vf_intercept_bridge_sf: None,
-            host_intercept_bridge_port_name: None,
-            internal_bridge_routing_prefix: None,
-            traffic_intercept_public_prefixes: vec![],
             dpu_hostname: "test-dpu".to_string(),
             dpu_search_domain: "test.local".to_string(),
             hbn_version: None,
@@ -1880,6 +1781,82 @@ mod tests {
             ct_access_vlans: vec![],
             ct_routing_profile: None,
         }
+    }
+
+    struct LoopbackRenderRow {
+        virtualization_type: VpcVirtualizationType,
+        loopback_ip_v6: Option<Ipv6Addr>,
+    }
+
+    fn address_set(addresses: &[&str]) -> BTreeSet<String> {
+        addresses
+            .iter()
+            .map(|address| (*address).to_string())
+            .collect()
+    }
+
+    #[test]
+    fn test_build_renders_ipv6_loopback_only_for_fnn() {
+        value_scenarios!(run = |row: LoopbackRenderRow| {
+            let mut conf = minimal_nvue_config();
+            conf.is_fnn = row.virtualization_type == VpcVirtualizationType::Fnn;
+            conf.vpc_virtualization_type = row.virtualization_type;
+            conf.loopback_ip_v6 = row.loopback_ip_v6;
+
+            let rendered = build(conf).unwrap();
+            let rendered_yaml: serde_yaml::Value = serde_yaml::from_str(&rendered).unwrap();
+            let loopback_addresses = rendered_yaml.as_sequence().unwrap()[1]["set"]["interface"]
+                ["lo"]["ip"]["address"]
+                .as_mapping()
+                .unwrap()
+                .keys()
+                .map(|address| address.as_str().unwrap().to_string())
+                .collect();
+            let ipv6_underlay_prefixes = rendered_yaml.as_sequence().unwrap()[1]["set"]["router"]
+                ["policy"]["prefix-list"]["ALLOW_TO_UNDERLAY_PREFIX_LIST_IPV6"]["rule"]["65000"]
+                ["match"]
+                .as_mapping()
+                .into_iter()
+                .flat_map(|mapping| mapping.keys())
+                .map(|address| address.as_str().unwrap().to_string())
+                .collect();
+
+            assert!(
+                rendered.contains("address: 10.0.0.1"),
+                "the IPv4 loopback must remain the VXLAN VTEP"
+            );
+            assert!(
+                rendered.contains("router-id: 10.0.0.1"),
+                "the IPv4 loopback must remain the BGP router ID"
+            );
+
+            (loopback_addresses, ipv6_underlay_prefixes)
+        };
+            "FNN loopback rendering" {
+                LoopbackRenderRow {
+                    virtualization_type: VpcVirtualizationType::Fnn,
+                    loopback_ip_v6: Some("2001:db8::1".parse().unwrap()),
+                } => (
+                    address_set(&["10.0.0.1/32", "2001:db8::1/128"]),
+                    address_set(&["2001:db8::1/128"]),
+                ),
+                LoopbackRenderRow {
+                    virtualization_type: VpcVirtualizationType::Fnn,
+                    loopback_ip_v6: None,
+                } => (address_set(&["10.0.0.1/32"]), address_set(&[])),
+            }
+
+            "ETV ignores the IPv6 loopback" {
+                LoopbackRenderRow {
+                    virtualization_type: VpcVirtualizationType::EthernetVirtualizer,
+                    loopback_ip_v6: Some("2001:db8::1".parse().unwrap()),
+                } => (address_set(&["10.0.0.1/32"]), address_set(&[])),
+                LoopbackRenderRow {
+                    virtualization_type: VpcVirtualizationType::EthernetVirtualizerWithNvue,
+                    loopback_ip_v6: Some("2001:db8::1".parse().unwrap()),
+                } => (address_set(&["10.0.0.1/32"]), address_set(&[])),
+            }
+        );
     }
 
     #[test]
@@ -2460,6 +2437,80 @@ mod tests {
         assert!(
             !output.contains("169.254.169.253/30") || output.contains("pf0dpu1_if"),
             "DPU-OS mode should not put 169.254.169.253/30 on the vlan SVI in FNN"
+        );
+    }
+
+    fn l3_phy_port_config(vlan: u16) -> PortConfig {
+        PortConfig {
+            is_l2_segment: false,
+            svi_ip: None,
+            ..phy_port_config(vlan)
+        }
+    }
+
+    // FNN L3 (is_l2_segment=false): in container mode the FMDS gateway address
+    // must appear on the L3 interface's ip block, not an SVI.
+    #[test]
+    fn test_fmds_gateway_fnn_l3_container_mode_emits_address() {
+        let mut conf = minimal_nvue_config();
+        conf.is_fnn = true;
+        conf.vpc_virtualization_type = VpcVirtualizationType::Fnn;
+        conf.is_dpu_os = false;
+        conf.fmds_gateway_vlan = Some(274);
+        conf.ct_routing_profile = Some(minimal_fnn_routing_profile());
+        conf.ct_port_configs = vec![l3_phy_port_config(274)];
+        let output = build(conf).expect("build should succeed");
+        assert!(
+            output.contains("169.254.169.253/30"),
+            "expected FMDS gateway address on FNN L3 interface:\n{output}"
+        );
+    }
+
+    // FNN L3 in DPU-OS mode: 169.254.169.253/30 must NOT appear on pf0hpf_if
+    // (the startup template puts it on pf0dpu1_if instead). The naive
+    // `!contains(addr) || contains(pf0dpu1_if)` check is vacuously true because
+    // the FNN template always renders pf0dpu1_if in DPU-OS mode, so we parse the
+    // YAML and assert at the per-interface level.
+    #[test]
+    fn test_fmds_gateway_fnn_l3_dpu_os_mode_suppressed() {
+        let mut conf = minimal_nvue_config();
+        conf.is_fnn = true;
+        conf.vpc_virtualization_type = VpcVirtualizationType::Fnn;
+        conf.is_dpu_os = true;
+        conf.fmds_gateway_vlan = Some(274);
+        conf.ct_routing_profile = Some(minimal_fnn_routing_profile());
+        conf.ct_port_configs = vec![l3_phy_port_config(274)];
+        let output = build(conf).expect("build should succeed");
+        let docs: serde_yaml::Value =
+            serde_yaml::from_str(&output).expect("output should be valid YAML");
+        let interfaces = &docs.as_sequence().unwrap()[1]["set"]["interface"];
+        // The L3 interface must not carry the FMDS address.
+        assert!(
+            interfaces["pf0hpf_if"]["ip"]["address"]["169.254.169.253/30"].is_null(),
+            "DPU-OS mode must not put 169.254.169.253/30 on pf0hpf_if:\n{output}"
+        );
+        // The startup-template interface (pf0dpu1_if) must carry it instead.
+        assert!(
+            !interfaces["pf0dpu1_if"]["ip"]["address"]["169.254.169.253/30"].is_null(),
+            "DPU-OS mode must put 169.254.169.253/30 on pf0dpu1_if:\n{output}"
+        );
+    }
+
+    // FNN with an L3 Physical port and a mismatched fmds_gateway_vlan should not
+    // emit the FMDS address (and should not panic).
+    #[test]
+    fn test_fmds_gateway_fnn_l3_vlan_mismatch_emits_nothing() {
+        let mut conf = minimal_nvue_config();
+        conf.is_fnn = true;
+        conf.vpc_virtualization_type = VpcVirtualizationType::Fnn;
+        conf.is_dpu_os = false;
+        conf.fmds_gateway_vlan = Some(999); // no port has vlan 999
+        conf.ct_routing_profile = Some(minimal_fnn_routing_profile());
+        conf.ct_port_configs = vec![l3_phy_port_config(274)];
+        let output = build(conf).expect("build should succeed even with mismatched vlan");
+        assert!(
+            !output.contains("169.254.169.253/30"),
+            "mismatched vlan should not produce FMDS address on FNN L3 interface:\n{output}"
         );
     }
 

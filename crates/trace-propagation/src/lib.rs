@@ -33,6 +33,9 @@
 //!     - normally, use the off-the-shelf `reqwest-tracing` middleware (a separate crate).
 //!     - if you only hold the already-built request (so it can't go through a middleware client),
 //!       call [`inject_current_context`] on its header map.
+//! - **Proxying** — a service that copies inbound headers onto an outbound request has to drop the
+//!   propagator's own headers first, or the upstream parents under the caller instead of the proxy;
+//!   [`is_propagated_header`] identifies them without assuming which propagator is installed.
 //!
 //! [`extract_context`] (read) and [`inject_context`] (write) are the underlying primitives,
 //! exposed for direct use when the helpers above don't fit.
@@ -70,6 +73,26 @@ pub fn set_span_parent_from_headers(span: &tracing::Span, headers: &http::Header
         // so the error is intentionally ignored.
         let _ = span.set_parent(parent_cx);
     }
+}
+
+// --- Proxying ---
+
+/// Whether `name` is a header owned by the globally configured text-map propagator.
+///
+/// A proxy that copies inbound headers onto its upstream request has to skip these: egress injects
+/// the local hop's context, and a copied-through header would either be overwritten or survive and
+/// parent the upstream under the original caller instead of the proxy. Asking the propagator for its
+/// own field set keeps that filter correct for whichever propagator is installed, rather than
+/// assuming W3C's `traceparent`/`tracestate`.
+///
+/// Always false when no propagator is installed, since the default no-op propagator claims no
+/// headers.
+pub fn is_propagated_header(name: &str) -> bool {
+    global::get_text_map_propagator(|propagator| {
+        propagator
+            .fields()
+            .any(|field| field.eq_ignore_ascii_case(name))
+    })
 }
 
 // --- Egress ---
@@ -214,6 +237,25 @@ mod tests {
                 TraceId::from(inbound)
             );
         });
+    }
+
+    // --- Proxying ---
+
+    #[test]
+    fn propagated_headers_are_the_installed_propagator_fields() {
+        install_w3c_propagator();
+
+        // The W3C propagator's own two headers. Header names arrive in whatever case the caller
+        // sent, while the propagator advertises them lowercase, so matching ignores case.
+        assert!(is_propagated_header("traceparent"));
+        assert!(is_propagated_header("tracestate"));
+        assert!(is_propagated_header("TraceParent"));
+
+        // Everything else is the proxied request's own payload and has to keep flowing.
+        assert!(!is_propagated_header("content-type"));
+        assert!(!is_propagated_header("x-request-id"));
+        // A near-miss, to pin that this is an exact field match and not a prefix test.
+        assert!(!is_propagated_header("trace"));
     }
 
     // --- Egress ---

@@ -48,7 +48,7 @@ const DOMAINS: [CliDomain; 4] = [
     CliDomain::Admin,
 ];
 
-pub fn generate(out_dir: &Path) -> CarbideCliResult<()> {
+pub(super) fn generate(out_dir: &Path) -> CarbideCliResult<()> {
     let root = CliOptions::command().name(BIN);
 
     // Render every command's roff man page into a scratch directory. clap_mangen

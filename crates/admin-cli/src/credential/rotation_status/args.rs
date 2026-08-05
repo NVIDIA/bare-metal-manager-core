@@ -34,17 +34,17 @@ Show convergence for a single device by MAC:
     $ nico-admin-cli credential rotation-status --type=bmc --mac-address 00:11:22:33:44:55
 
 ")]
-pub struct Args {
+pub(crate) struct Args {
     #[clap(
         long = "type",
         require_equals(true),
         required(true),
         help = "Credential family to report on"
     )]
-    pub credential_type: RotationCredentialKind,
+    pub(super) credential_type: RotationCredentialKind,
     #[clap(
         long,
         help = "Report on a single device by MAC instead of the whole site"
     )]
-    pub mac_address: Option<MacAddress>,
+    pub(super) mac_address: Option<MacAddress>,
 }

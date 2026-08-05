@@ -18,9 +18,10 @@
 //! Set a machine's boot interface by promoting the chosen interface to the
 //! machine's primary -- the designation `pick_boot_interface` keys on. A thin
 //! front for the same `SetPrimaryInterface` RPC behind
-//! `managed-host set-primary-interface`: the server updates the BMC boot
-//! order first, then moves the primary flag. The only client-side work is
-//! resolving an operator-entered MAC to its managed interface row.
+//! `managed-host set-primary-interface`: the server commits the selected row
+//! and desired target together, then machine-controller converges Redfish.
+//! The only client-side work is resolving an operator-entered MAC to its
+//! managed interface row.
 
 use ::rpc::forge as forgerpc;
 use carbide_uuid::machine::MachineInterfaceId;
@@ -30,7 +31,7 @@ use super::args::{Args, InterfaceSelector};
 use crate::errors::{CarbideCliError, CarbideCliResult};
 use crate::rpc::ApiClient;
 
-pub async fn handle_set(args: Args, api_client: &ApiClient) -> CarbideCliResult<()> {
+pub(super) async fn handle_set(args: Args, api_client: &ApiClient) -> CarbideCliResult<()> {
     let interface_id = match args.interface {
         InterfaceSelector::Id(id) => id,
         InterfaceSelector::Mac(mac) => {
@@ -39,14 +40,14 @@ pub async fn handle_set(args: Args, api_client: &ApiClient) -> CarbideCliResult<
         }
     };
 
-    api_client
-        .0
-        .set_primary_interface(forgerpc::SetPrimaryInterfaceRequest {
-            host_machine_id: Some(args.machine),
-            interface_id: Some(interface_id),
-            reboot: args.reboot,
-        })
-        .await?;
+    #[allow(deprecated)] // Keep `--reboot` functional when this CLI calls an older server.
+    let request = forgerpc::SetPrimaryInterfaceRequest {
+        host_machine_id: Some(args.machine),
+        interface_id: Some(interface_id),
+        reboot: args.reboot,
+        force_reconcile: args.force_reconcile || args.reboot,
+    };
+    api_client.0.set_primary_interface(request).await?;
     Ok(())
 }
 
@@ -69,7 +70,7 @@ fn resolve_mac_to_interface_id(
             "no managed interface with MAC {mac} on this machine -- \
              `boot-interface candidates` lists its interfaces. A machine still \
              waiting on its first DHCP lease has predictions only; declare its \
-             boot NIC via the expected machine's host_nics `primary` instead"
+             boot NIC via the expected machine's `interfaces[].primary` instead"
         ))),
         [only] => only.interface_id.ok_or_else(|| {
             CarbideCliError::GenericError(
@@ -126,6 +127,7 @@ mod tests {
             divergent: false,
             default_boot_interface: None,
             predicted_boot_interface: None,
+            reconciliation: None,
         }
     }
 

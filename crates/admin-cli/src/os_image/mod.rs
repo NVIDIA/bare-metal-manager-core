@@ -30,7 +30,7 @@ use crate::cfg::dispatch::Dispatch;
 
 #[derive(Parser, Debug, Clone, Dispatch)]
 #[clap(rename_all = "kebab_case")]
-pub enum Cmd {
+pub(crate) enum Cmd {
     #[clap(
         about = "Create an OS image entry in the OS catalog for a tenant.",
         visible_alias = "c"

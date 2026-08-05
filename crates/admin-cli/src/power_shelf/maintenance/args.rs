@@ -24,7 +24,7 @@ use rpc::forge as forgerpc;
 /// operation in a single atomic request.
 #[derive(Parser, Debug)]
 #[allow(clippy::enum_variant_names)]
-pub enum Args {
+pub(crate) enum Args {
     /// Request the listed power shelves to power on.
     #[command(after_long_help = "\
 EXAMPLES:
@@ -56,7 +56,7 @@ Power off several at once, citing a reference ticket:
 }
 
 #[derive(Parser, Debug)]
-pub struct MaintenancePowerArgs {
+pub(crate) struct MaintenancePowerArgs {
     /// One or more Power Shelf IDs. Repeat the flag or pass multiple values:
     ///   --power-shelf-id <id1> --power-shelf-id <id2>
     ///   --power-shelf-id <id1> <id2>
@@ -68,18 +68,18 @@ pub struct MaintenancePowerArgs {
         value_name = "POWER_SHELF_ID",
         help = "One or more Power Shelf IDs to drive into maintenance"
     )]
-    pub power_shelf_ids: Vec<PowerShelfId>,
+    power_shelf_ids: Vec<PowerShelfId>,
 
     #[clap(
         long,
         visible_alias = "ref",
         help = "URL of reference (ticket, issue, etc) for this maintenance request"
     )]
-    pub reference: Option<String>,
+    reference: Option<String>,
 }
 
 impl Args {
-    pub fn into_request(self) -> forgerpc::PowerShelfMaintenanceRequest {
+    pub(super) fn into_request(self) -> forgerpc::PowerShelfMaintenanceRequest {
         let (operation, args) = match self {
             Args::PowerOn(args) => (forgerpc::PowerShelfMaintenanceOperation::PowerOn, args),
             Args::PowerOff(args) => (forgerpc::PowerShelfMaintenanceOperation::PowerOff, args),
@@ -89,5 +89,57 @@ impl Args {
             operation: operation.into(),
             reference: args.reference,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::str::FromStr;
+
+    use carbide_uuid::power_shelf::PowerShelfId;
+
+    use super::{Args, MaintenancePowerArgs};
+
+    const SAMPLE_PS_ID_1: &str = "ps100htjtiaehv1n5vh67tbmqq4eabcjdng40f7jupsadbedhruh6rag1l0";
+    const SAMPLE_PS_ID_2: &str = "ps100hsasb5dsh6e6ogogslpovne4rj82rp9jlf00qd7mcvmaadv85phk3g";
+
+    fn parse_ps_id(id: &str) -> PowerShelfId {
+        PowerShelfId::from_str(id)
+            .unwrap_or_else(|error| panic!("invalid sample power-shelf id {id}: {error}"))
+    }
+
+    #[test]
+    fn power_on_into_request_uses_power_on_operation() {
+        let args = Args::PowerOn(MaintenancePowerArgs {
+            power_shelf_ids: vec![parse_ps_id(SAMPLE_PS_ID_1)],
+            reference: Some("ref-1".to_string()),
+        });
+        let request = args.into_request();
+
+        assert_eq!(
+            request.operation,
+            rpc::forge::PowerShelfMaintenanceOperation::PowerOn as i32,
+        );
+        assert_eq!(request.power_shelf_ids, vec![parse_ps_id(SAMPLE_PS_ID_1)]);
+        assert_eq!(request.reference.as_deref(), Some("ref-1"));
+    }
+
+    #[test]
+    fn power_off_into_request_uses_power_off_operation() {
+        let args = Args::PowerOff(MaintenancePowerArgs {
+            power_shelf_ids: vec![parse_ps_id(SAMPLE_PS_ID_1), parse_ps_id(SAMPLE_PS_ID_2)],
+            reference: None,
+        });
+        let request = args.into_request();
+
+        assert_eq!(
+            request.operation,
+            rpc::forge::PowerShelfMaintenanceOperation::PowerOff as i32,
+        );
+        assert_eq!(
+            request.power_shelf_ids,
+            vec![parse_ps_id(SAMPLE_PS_ID_1), parse_ps_id(SAMPLE_PS_ID_2)],
+        );
+        assert!(request.reference.is_none());
     }
 }

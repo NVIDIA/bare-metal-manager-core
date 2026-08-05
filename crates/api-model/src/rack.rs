@@ -457,9 +457,10 @@ impl Display for RackMaintenanceState {
 
 /// Sub-states of `RackMaintenanceState::ConfigureNmxCluster`.
 ///
-/// `Start` advances into certificate configuration for ScaleUpFabric services.
-/// `ConfigureCertificates` installs mTLS certificates on the primary switch via
-/// Component Manager before fabric operations begin.
+/// `Start` selects the configured RMS API. V1 advances into certificate
+/// configuration; V2 submits the asynchronous RMS workflow directly.
+/// `ConfigureCertificates` installs mTLS certificates on the V1 primary switch
+/// via Component Manager before fabric operations begin.
 /// `DisableScaleUpFabricState` disables ScaleUpFabric state on all scoped
 /// switches before `ConfigureScaleUpFabricManager` selects, persists, and
 /// configures only the primary switch. `WaitForFabricStatus` polls
@@ -473,6 +474,18 @@ pub enum ConfigureNmxClusterState {
     },
     DisableScaleUpFabricState,
     ConfigureScaleUpFabricManager,
+
+    /// Polls the asynchronous V2 configuration job.
+    ///
+    /// After the job completes, NICo reads the observed fabric status,
+    /// validates the RMS-selected primary, persists it with the per-switch
+    /// Fabric Manager status, and advances to the next requested maintenance
+    /// activity.
+    WaitForScaleUpFabricManagerJob {
+        /// RMS job identifier returned by V2 submission.
+        job_id: String,
+    },
+
     WaitForFabricStatus,
 }
 
@@ -508,6 +521,9 @@ impl Display for ConfigureNmxClusterState {
             }
             ConfigureNmxClusterState::ConfigureScaleUpFabricManager => {
                 write!(f, "ConfigureScaleUpFabricManager")
+            }
+            ConfigureNmxClusterState::WaitForScaleUpFabricManagerJob { job_id } => {
+                write!(f, "WaitForScaleUpFabricManagerJob({job_id})")
             }
             ConfigureNmxClusterState::WaitForFabricStatus => write!(f, "WaitForFabricStatus"),
         }

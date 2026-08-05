@@ -26,7 +26,7 @@ use crate::errors::{CarbideCliError, CarbideCliResult};
 use crate::operating_system::common::{SerializableOs, str_to_os_id};
 use crate::rpc::ApiClient;
 
-pub async fn handle_show(
+pub(super) async fn handle_show(
     opts: Args,
     format: OutputFormat,
     api_client: &ApiClient,

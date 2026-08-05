@@ -193,7 +193,7 @@ explicitly enabled in the TOML.
 | `[component_manager]` | Compute tray, NvLink switch, and power shelf management | RMS backends require rack profile data for node descriptors. |
 | `[vmaas_config]` | VM system integration / VM-aware traffic intercept | Requires `public_prefixes`. |
 | `[rms]` | Rack Manager Service (mTLS connectivity to external RMS) | |
-| `[dpf]` | DPU Platform Framework — Kubernetes DPU workload deployment | Requires the DPF operator deployed in-cluster. |
+| `[dpf]` | DPU Platform Framework — Kubernetes DPU workload deployment | Requires the DPF operator deployed in-cluster (`helm-prereqs/setup.sh` installs it by default; `--skip-dpf` to opt out). |
 | `rack_management_enabled` | Standalone infrastructure manager mode (GB200/GB300/VR144) | Top-level boolean, not a sub-section. |
 
 For RMS component-manager backends, NICo builds RMS node descriptors from rack
@@ -685,6 +685,7 @@ These don't fit any sub-section but show up in production tuning:
 | Field | Default | When to touch |
 |-------|---------|---------------|
 | `max_database_connections` | `1000` | Drop when running multiple `nico-api` replicas to avoid saturating Postgres `max_connections`. |
+| `api_admission_control` | enabled, `64` executing, `1024` pending, `5s` timeout | Tune the bounded shared budget for gRPC and admin business requests after scale testing; disable only as a rollback escape hatch. |
 | `max_find_by_ids` | `100` | Increase if scripts paginate batch lookups; raise the API-side limit to match the client. |
 | `compute_allocation_enforcement` | `WarnOnly` | Switch to `Enforce` once tenant compute pools are sized correctly — flips over-allocation from a warning to a refusal. |
 | `bmc_session_lockout_threshold` | `3` | Number of consecutive 401/403s from a BMC before NICo stops session-token logins for that BMC. Raise on environments with flaky BMC firmware. |
@@ -986,6 +987,15 @@ Maps a host model identifier to a Firmware definition (BMC, UEFI, NIC
 images plus version constraints). The state controller picks the right
 images when a machine in the model joins. See
 [`crates/api-core/src/cfg/README.md` → host_models](../../../crates/api-core/src/cfg/README.md#hostmodelsfirmware).
+
+### Rack profile firmware object: `[rack_profiles.<name>]`
+
+A rack profile can define a `firmware_object` block for one firmware-object JSON
+document. NICo uses the document as the default firmware input during rack
+ingestion. The block contains a `url` and an optional `fetch_timeout`, which
+accepts duration strings such as `30s` and `60s` and defaults to `30s`. Use
+seconds for this request timeout, although the parser accepts other duration
+units such as milliseconds (`ms`), minutes (`m`), and hours (`h`).
 
 ---
 
@@ -1415,7 +1425,7 @@ on or off.
 | RBAC bypass (dev only) | siteConfig | `bypass_rbac = true` | off | Disables RBAC; never set in production. |
 | Passive mode (debug only) | siteConfig | `listen_only = true` | off | RPC/web only, no background controllers. CI/dev shells only. |
 | TPM bypass (testing only) | siteConfig | `tpm_required = false` | required | Allows machine registration without TPM. Testing only. |
-| DPF (Kubernetes DPU workloads) | siteConfig | `[dpf].enabled` | off | Requires the DPF operator. |
+| DPF (Kubernetes DPU workloads) | siteConfig | `[dpf].enabled` | off | Requires the DPF operator (`setup.sh` installs and enables it by default; `--skip-dpf` to opt out). |
 | Loki sidecar (REST stack) | Helm (REST) | `nico-rest-*` log shipping | off | Optional; pairs with the same OTel collector pattern used by Core. |
 | Bundled dev Keycloak | Helm (REST) | `nico-rest-api.config.keycloak.enabled` | on | Disable for production — use external IdP. |
 

@@ -46,7 +46,7 @@ Available implementations:
 
 | Component Type | Available Implementations | Description |
 |----------------|---------------------------|-------------|
-| `compute` | `nicolegacy`, `nico`, `mock` | Manages compute nodes. `nicolegacy` (current default) calls NICo Core's machine-centric RPCs (`AdminPowerControl`, `SetFirmwareUpdateTimeWindow`, ...). `nico` routes through Core's Component Manager dispatch (`ComponentPowerControl`, `UpdateComponentFirmware`, ...) like nvswitch and powershelf already do. See [Selecting the compute implementation](#selecting-the-compute-implementation) for the migration knob. |
+| `compute` | `nicolegacy`, `nico`, `mock` | Manages compute nodes. `nico` (current default) routes through Core's Component Manager dispatch (`ComponentPowerControl`, `UpdateComponentFirmware`, ...) like nvswitch and powershelf already do. `nicolegacy` calls NICo Core's machine-centric RPCs (`AdminPowerControl`, `SetFirmwareUpdateTimeWindow`, ...). See [Selecting the compute implementation](#selecting-the-compute-implementation) for the override knob. |
 | `nvswitch` | `nico`, `mock` | Manages NVLink switches |
 | `powershelf` | `nico`, `mock` | Manages power shelves |
 
@@ -100,14 +100,9 @@ Duration strings use Go format: `30s`, `1m`, `2m30s`, etc.
 ```yaml
 # Equivalent to builtin.LoadConfig("")
 component_managers:
-  compute: nicolegacy
+  compute: nico
   nvswitch: nico
   powershelf: nico
-
-manager_configs:
-  compute:
-    nicolegacy:
-      compute_power_delay: "2s"
 
 providers:
   nico:
@@ -183,25 +178,25 @@ Compute currently has two NICo-backed implementations:
 
 | Implementation | RPC path | Notes |
 |----------------|----------|-------|
-| `nicolegacy` (default) | `AdminPowerControl`, `UpdatePowerOption`, `SetMachineAutoUpdate`, `SetFirmwareUpdateTimeWindow` | Existing machine-centric path. Honours `manager_configs.compute.nicolegacy.compute_power_delay` and the legacy `start_time` / `end_time` firmware window. |
-| `nico` | `ComponentPowerControl`, `GetComponentInventory`, `UpdateComponentFirmware`, `GetComponentFirmwareStatus` | New Component Manager dispatch path, identical to `nvswitch/nico` and `powershelf/nico`. Honours `info.SubTargets` (BMC, BIOS, ...) and forwards `target_version` verbatim to Core (the SoT firmware-object identifier). Does **not** consume the firmware time window — Core dispatches immediately. Requires Core to be configured with `compute_tray_use_state_controller=true` (see `crates/component-manager/src/config.rs`). |
+| `nico` (default) | `ComponentPowerControl`, `GetComponentInventory`, `UpdateComponentFirmware`, `GetComponentFirmwareStatus` | Component Manager dispatch path, identical to `nvswitch/nico` and `powershelf/nico`. Honours `info.SubTargets` (BMC, BIOS, ...) and forwards `target_version` verbatim to Core (the SoT firmware-object identifier). Does **not** consume the firmware time window — Core dispatches immediately. Requires Core to be configured with `compute_tray_use_state_controller=true` (see `crates/component-manager/src/config.rs`). |
+| `nicolegacy` | `AdminPowerControl`, `UpdatePowerOption`, `SetMachineAutoUpdate`, `SetFirmwareUpdateTimeWindow` | Legacy machine-centric path. Honours `manager_configs.compute.nicolegacy.compute_power_delay` and the legacy `start_time` / `end_time` firmware window. Opt-in via `COMPONENT_MANAGER_COMPUTE=nicolegacy`. |
 
-To flip a deployment from the legacy path to the Component Manager path
-without shipping a separate component manager YAML, set the
-`COMPONENT_MANAGER_COMPUTE` environment variable on the Flow service:
+To flip a deployment back to the legacy machine-centric path without shipping
+a separate component manager YAML, set the `COMPONENT_MANAGER_COMPUTE`
+environment variable on the Flow service:
 
 ```bash
-# Use the new Component Manager-based path
+# Use the Component Manager-based path (same as the embedded default)
 COMPONENT_MANAGER_COMPUTE=nico
 
-# Use the legacy machine-centric path (same as the embedded default)
+# Use the legacy machine-centric path
 COMPONENT_MANAGER_COMPUTE=nicolegacy
 ```
 
 The override is consumed by `flow serve` after the base config is
 loaded and replaces only the `compute` entry in `component_managers`.
 An invalid value surfaces as a normal startup failure during catalog
-validation. Once every Flow deployment has been flipped to `nico` the
+validation. Once every Flow deployment no longer needs `nicolegacy` the
 override and the `compute/nicolegacy` package will be removed.
 
 ## Timing Parameters

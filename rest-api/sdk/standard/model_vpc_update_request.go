@@ -30,6 +30,8 @@ type VpcUpdateRequest struct {
 	NetworkSecurityGroupId NullableString `json:"networkSecurityGroupId,omitempty"`
 	// ID of the default NVLink Logical Partition that GPUs for all Instances in the VPC will attach to. Can only be updated if VPC currently has no active Instances
 	NvLinkLogicalPartitionId NullableString `json:"nvLinkLogicalPartitionId,omitempty"`
+	// Replaces the current inline routing-profile definition when present. Requires `TargetedInstanceCreation` to be effective for the Tenant at the VPC's Site. Omission or `null` preserves the current definition. An empty object restores inheritance for every property; a partial object replaces the previous definition and inherits its omitted properties from the named profile.
+	RoutingProfileOverrides NullableVpcRoutingProfileOverrides `json:"routingProfileOverrides,omitempty"`
 	// Update labels of the VPC. Up to 10 key-value pairs can be specified. The labels will be replaced with the labels sent in the request. Any labels not included in the request will be removed. To retain existing labels, fetch them first and include them in this request.
 	Labels map[string]string `json:"labels,omitempty"`
 }
@@ -223,6 +225,49 @@ func (o *VpcUpdateRequest) UnsetNvLinkLogicalPartitionId() {
 	o.NvLinkLogicalPartitionId.Unset()
 }
 
+// GetRoutingProfileOverrides returns the RoutingProfileOverrides field value if set, zero value otherwise (both if not set or set to explicit null).
+func (o *VpcUpdateRequest) GetRoutingProfileOverrides() VpcRoutingProfileOverrides {
+	if o == nil || IsNil(o.RoutingProfileOverrides.Get()) {
+		var ret VpcRoutingProfileOverrides
+		return ret
+	}
+	return *o.RoutingProfileOverrides.Get()
+}
+
+// GetRoutingProfileOverridesOk returns a tuple with the RoutingProfileOverrides field value if set, nil otherwise
+// and a boolean to check if the value has been set.
+// NOTE: If the value is an explicit nil, `nil, true` will be returned
+func (o *VpcUpdateRequest) GetRoutingProfileOverridesOk() (*VpcRoutingProfileOverrides, bool) {
+	if o == nil {
+		return nil, false
+	}
+	return o.RoutingProfileOverrides.Get(), o.RoutingProfileOverrides.IsSet()
+}
+
+// HasRoutingProfileOverrides returns a boolean if a field has been set.
+func (o *VpcUpdateRequest) HasRoutingProfileOverrides() bool {
+	if o != nil && o.RoutingProfileOverrides.IsSet() {
+		return true
+	}
+
+	return false
+}
+
+// SetRoutingProfileOverrides gets a reference to the given NullableVpcRoutingProfileOverrides and assigns it to the RoutingProfileOverrides field.
+func (o *VpcUpdateRequest) SetRoutingProfileOverrides(v VpcRoutingProfileOverrides) {
+	o.RoutingProfileOverrides.Set(&v)
+}
+
+// SetRoutingProfileOverridesNil sets the value for RoutingProfileOverrides to be an explicit nil
+func (o *VpcUpdateRequest) SetRoutingProfileOverridesNil() {
+	o.RoutingProfileOverrides.Set(nil)
+}
+
+// UnsetRoutingProfileOverrides ensures that no value is present for RoutingProfileOverrides, not even an explicit nil
+func (o *VpcUpdateRequest) UnsetRoutingProfileOverrides() {
+	o.RoutingProfileOverrides.Unset()
+}
+
 // GetLabels returns the Labels field value if set, zero value otherwise.
 func (o *VpcUpdateRequest) GetLabels() map[string]string {
 	if o == nil || IsNil(o.Labels) {
@@ -276,6 +321,9 @@ func (o VpcUpdateRequest) ToMap() (map[string]interface{}, error) {
 	}
 	if o.NvLinkLogicalPartitionId.IsSet() {
 		toSerialize["nvLinkLogicalPartitionId"] = o.NvLinkLogicalPartitionId.Get()
+	}
+	if o.RoutingProfileOverrides.IsSet() {
+		toSerialize["routingProfileOverrides"] = o.RoutingProfileOverrides.Get()
 	}
 	if !IsNil(o.Labels) {
 		toSerialize["labels"] = o.Labels

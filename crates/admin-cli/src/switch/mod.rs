@@ -16,9 +16,9 @@
  */
 
 mod force_delete;
-pub mod health_report;
+mod health_report;
 mod list;
-pub mod metadata;
+mod metadata;
 mod show;
 
 #[cfg(test)]
@@ -29,7 +29,7 @@ use clap::Parser;
 use crate::cfg::dispatch::Dispatch;
 
 #[derive(Parser, Debug, Dispatch)]
-pub enum Cmd {
+pub(crate) enum Cmd {
     #[clap(about = "Show switch information")]
     Show(show::Args),
     #[clap(about = "List all switches")]

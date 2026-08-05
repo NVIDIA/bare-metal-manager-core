@@ -30,9 +30,9 @@ use bmc_mock::mac_address_pool::{
     RangesConfig as MacAddressRangesConfig,
 };
 use bmc_mock::{
-    BmcCommand, BmcState, Callbacks, DpuMachineInfo, DpuSettings, HostHardwareType,
-    HostMachineInfo, ListenerOrAddress, MachineInfo, MachineRouterOptions, MockPowerState,
-    SetSystemPowerError, SystemPowerControl, VirtualMediaDeviceConfig,
+    BmcCommand, BmcState, Callbacks, DpuMachineInfo, DpuSettings, HardwareType, HostMachineInfo,
+    ListenerOrAddress, MachineInfo, MachineRouterOptions, MockPowerState, SetSystemPowerError,
+    SystemPowerControl, VirtualMediaDeviceConfig,
 };
 use command_line::{MachineRole, StateBackend};
 use mac_address::MacAddress;
@@ -219,7 +219,7 @@ fn spawn_qemu_reboot_handler() -> mpsc::UnboundedSender<BmcCommand> {
 struct GeneratedMockConfig {
     machine_role: MachineRole,
     state_backend: StateBackend,
-    hardware_type: HostHardwareType,
+    hardware_type: HardwareType,
     dpu_count: u8,
     dpu_index: usize,
     instance_index: u8,
@@ -242,7 +242,7 @@ fn generated_mock_config(args: &command_line::Args) -> Result<GeneratedMockConfi
         return Ok(GeneratedMockConfig {
             machine_role: MachineRole::Host,
             state_backend: StateBackend::Internal,
-            hardware_type: HostHardwareType::WiwynnGB200Nvl,
+            hardware_type: HardwareType::WiwynnGB200Nvl,
             dpu_count: 2,
             dpu_index: 0,
             instance_index: 0,
@@ -392,7 +392,7 @@ fn generated_mock(config: GeneratedMockConfig) -> (Router, BmcState) {
 
 fn generated_machine_info(
     machine_role: MachineRole,
-    hardware_type: HostHardwareType,
+    hardware_type: HardwareType,
     dpu_count: u8,
     dpu_index: usize,
     instance_index: u8,
@@ -476,10 +476,7 @@ mod tests {
         let config = config(&["bmc-mock"]).unwrap();
         assert_eq!(config.machine_role, MachineRole::Host);
         assert_eq!(config.state_backend, StateBackend::Internal);
-        assert!(matches!(
-            config.hardware_type,
-            HostHardwareType::WiwynnGB200Nvl
-        ));
+        assert!(matches!(config.hardware_type, HardwareType::WiwynnGB200Nvl));
         assert!(config.use_channel_callbacks);
     }
 
@@ -536,10 +533,8 @@ mod tests {
 
     #[test]
     fn host_and_dpu_endpoints_share_deterministic_dpu_identity() {
-        let host =
-            generated_machine_info(MachineRole::Host, HostHardwareType::WiwynnGB200Nvl, 2, 0, 3);
-        let dpu =
-            generated_machine_info(MachineRole::Dpu, HostHardwareType::WiwynnGB200Nvl, 2, 1, 3);
+        let host = generated_machine_info(MachineRole::Host, HardwareType::WiwynnGB200Nvl, 2, 0, 3);
+        let dpu = generated_machine_info(MachineRole::Dpu, HardwareType::WiwynnGB200Nvl, 2, 1, 3);
         let MachineInfo::Host(host) = host else {
             panic!("expected host machine info");
         };

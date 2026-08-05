@@ -38,6 +38,12 @@ type mockClient struct {
 	expectedSwitchDetails     map[string]ExpectedSwitchDetail     // by ExpectedSwitchID (UUID)
 	expectedPowerShelfDetails map[string]ExpectedPowerShelfDetail // by ExpectedPowerShelfID (UUID)
 
+	// Decommission mock state.
+	machineControllerStates   map[string]string // machine ID → raw state string
+	decommissionMachineErr    error             // returned by DecommissionMachine if set
+	decommissionSwitchErr     error             // returned by DecommissionSwitch if set
+	decommissionPowerShelfErr error             // returned by DecommissionPowerShelf if set
+
 	// DPU reprovisioning mock state. Populated by tests via the
 	// SetDpu... helpers. The mock keeps the list of pending DPUs by host
 	// id and the configured (host -> instance) and (host -> dpu ids)
@@ -85,6 +91,7 @@ func NewMockClient() Client {
 		expectedMachineDetails:        map[string]ExpectedMachineDetail{},
 		expectedSwitchDetails:         map[string]ExpectedSwitchDetail{},
 		expectedPowerShelfDetails:     map[string]ExpectedPowerShelfDetail{},
+		machineControllerStates:       map[string]string{},
 		pendingDpuReprovHosts:         map[string]bool{},
 		hostToDpuMachineIds:           map[string][]string{},
 		hostToInstanceID:              map[string]string{},
@@ -599,4 +606,53 @@ func (c *mockClient) HostUpdateOverridesActive() map[string]string {
 		out[k] = v
 	}
 	return out
+}
+
+func (c *mockClient) FindMachineControllerStates(_ context.Context, machineIDs []string) (map[string]string, error) {
+	if len(machineIDs) == 0 {
+		return nil, nil
+	}
+	out := make(map[string]string, len(machineIDs))
+	for _, id := range machineIDs {
+		if s, ok := c.machineControllerStates[id]; ok && s != "" {
+			out[id] = s
+		}
+	}
+	return out, nil
+}
+
+func (c *mockClient) DecommissionMachine(_ context.Context, _ string) error {
+	return c.decommissionMachineErr
+}
+
+func (c *mockClient) DecommissionSwitch(_ context.Context, _ string) error {
+	return c.decommissionSwitchErr
+}
+
+func (c *mockClient) DecommissionPowerShelf(_ context.Context, _ string) error {
+	return c.decommissionPowerShelfErr
+}
+
+// SetMachineControllerState records the raw state Core reports for a machine
+// (mock only).
+func (c *mockClient) SetMachineControllerState(machineID, state string) {
+	c.machineControllerStates[machineID] = state
+}
+
+// SetDecommissionMachineError configures the error returned by DecommissionMachine
+// (mock only).
+func (c *mockClient) SetDecommissionMachineError(err error) {
+	c.decommissionMachineErr = err
+}
+
+// SetDecommissionSwitchError configures the error returned by DecommissionSwitch
+// (mock only).
+func (c *mockClient) SetDecommissionSwitchError(err error) {
+	c.decommissionSwitchErr = err
+}
+
+// SetDecommissionPowerShelfError configures the error returned by DecommissionPowerShelf
+// (mock only).
+func (c *mockClient) SetDecommissionPowerShelfError(err error) {
+	c.decommissionPowerShelfErr = err
 }

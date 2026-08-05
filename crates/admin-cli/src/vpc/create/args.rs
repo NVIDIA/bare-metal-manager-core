@@ -30,25 +30,25 @@ Create a tenant VPC with flat virtualization and a chosen ID:
     $ nico-admin-cli --cloud-unsafe-op=my_username vpc create --name tenant-vpc-1 --org-id tenant-org-1 --id ad1f9fd5-8438-4407-b259-72fdb7896d42 --virtualization-type flat
 
 ")]
-pub struct Args {
+pub(crate) struct Args {
     #[clap(long, help = "Name to give the new VPC")]
-    pub name: String,
+    name: String,
 
     #[clap(long, help = "Discription for the new VPC")]
-    pub description: Option<String>,
+    description: Option<String>,
 
     #[clap(
         long,
         value_name = "VpcId",
         help = "Optional VPC ID to use instead of allowing the API server to generate one"
     )]
-    pub id: Option<VpcId>,
+    id: Option<VpcId>,
 
     #[clap(
         long,
         help = "Tenant organization ID (Plain text string, used by cloud API)"
     )]
-    pub org_id: String,
+    org_id: String,
 
     #[clap(
         long,
@@ -56,7 +56,7 @@ pub struct Args {
         default_value = "ethernet-virtualizer",
         help = "Network virtualization type"
     )]
-    pub virtualization_type: forge::VpcVirtualizationType,
+    virtualization_type: forge::VpcVirtualizationType,
 }
 
 impl From<Args> for forge::VpcCreationRequest {
@@ -75,6 +75,7 @@ impl From<Args> for forge::VpcCreationRequest {
             default_nvlink_logical_partition_id: None,
             vni: None,
             routing_profile_type: None,
+            routing_profile_overrides: None,
         }
     }
 }

@@ -12,12 +12,27 @@ allowing you to:
 - Perform load testing at scale (multiple pods, thousands of BMCs)
 - Run simulations alongside real hardware
 
+## Namespace Configuration
+
+Use `global.namespaceOverride` to deploy into a specific namespace:
+
+```bash
+helm upgrade --install mat ./helm/charts/nico-machine-a-tron \
+  --set global.namespaceOverride=nico-system \
+  --set createNamespace=true
+```
+
+When `mat-k8s-controller` is enabled, it always deploys into the same namespace
+as nico-machine-a-tron. The controller does not support a separate namespace.
+
 ## Deployment Modes
 
 | Mode | Use Case | Real HW Compatible | Network Setup |
 |------|----------|--------------------|---------------|
 | **Override Mode** | Development | No | Simple - single endpoint |
-| **ClusterIP Mode** | Scale testing | Yes | Per-BMC ClusterIP services |
+| **Controller Mode** | Scale testing | Yes | Per-BMC ClusterIP (controller-managed) |
+
+**Default:** Override Mode (controller disabled, single pod).
 
 ---
 
@@ -32,7 +47,7 @@ Simple but **incompatible with real hardware**.
 
 ```bash
 helm upgrade --install nico ./helm \
-  --namespace nico-mat \
+  --set global.namespaceOverride=nico-system \
   --set nico-machine-a-tron.enabled=true \
   --set nico-machine-a-tron.pods.default.machines.rack-machines.hostCount=10 \
   --set nico-machine-a-tron.pods.default.machines.rack-machines.dpuPerHostCount=2
@@ -42,197 +57,155 @@ helm upgrade --install nico ./helm \
 
 ```toml
 [site_explorer]
-override_target_host = "nico-machine-a-tron-bmc-mock"
-override_target_port = 1266
+bmc_proxy = "nico-machine-a-tron-bmc-mock.nico-system.svc.cluster.local:1266"
 ```
+
+The port defaults to 1266 and must match the `service.bmcMock.port` value if
+you customize it. Use the cross-namespace FQDN when machine-a-tron runs outside
+the nico-api namespace.
 
 ---
 
-## Mode 2: ClusterIP Mode (Scale Testing)
+## Mode 2: Controller Mode (Scale Testing)
 
-**Use for load testing environments where simulated machines run alongside real
-hardware.**
+**Use for dynamic service management in multi-pod deployments.**
 
-Each simulated BMC gets a dedicated ClusterIP service. Supports multi-pod deployments.
+The `mat-k8s-controller` watches machine-a-tron's `/machines/status` API and
+dynamically creates/updates/deletes Kubernetes Services as machines come online.
 
-### Architecture
+### Features
 
-```mermaid
-flowchart TB
-    subgraph CIDR["ServiceCIDR: 10.100.0.0/20 (reserved)"]
-        direction TB
-        subgraph pod0["pod-0 (~14 racks)"]
-            cidr0["10.100.0.0/22<br/>1021 IPs"]
-        end
-        subgraph pod1["pod-1 (~14 racks)"]
-            cidr1["10.100.4.0/22<br/>1021 IPs"]
-        end
-        subgraph pod2["pod-2 (~14 racks)"]
-            cidr2["10.100.8.0/22<br/>1021 IPs"]
-        end
-    end
+- Dynamic service creation/deletion
+- No CIDR planning required per pod
+- Auto-reconciles on machine changes
+- Automatic stale service cleanup
+- OwnerReference garbage collection on Helm uninstall
 
-    SE[Site-Explorer] --> cidr0
-    SE --> cidr1
-    SE --> cidr2
-```
+### Setup
 
-### Prerequisites
-
-- **Kubernetes 1.29+** (ServiceCIDR API support)
-- IP range within cluster's default service CIDR (e.g., `10.96.0.0/12`)
-
-### Single Pod Setup
+All pods can share the same `oobDhcpRelayAddress` - NICo assigns unique IPs
+from the subnet.
 
 ```yaml
 # values.yaml
-bmcServices:
-  enabled: true
-  serviceCIDR:
-    create: true
+global:
+  namespaceOverride: nico-system  # Deploy to nico-system namespace
 
 pods:
-  default:
-    cidr: "10.100.0.0/22"  # 1021 IPs for ~14 racks
+  default: null  # Disable default pod
+  mat-0:
     machines:
-      compute:
+      rack-machines:
         hwType: wiwynn_gb200_nvl
-        hostCount: 252      # 18 trays × 14 racks
-        dpuPerHostCount: 2  # 2 BF3 per tray → 504 DPU BMCs
-        oobDhcpRelayAddress: "10.100.0.1"
-      switches:
-        hwType: nvidia_switch_nd5200_ld
-        hostCount: 126      # 9 switches × 14 racks
-        dpuPerHostCount: 0
-        oobDhcpRelayAddress: "10.100.0.1"
-      power:
-        hwType: liteon_power_shelf
-        hostCount: 112      # 8 shelves × 14 racks
-        dpuPerHostCount: 0
-        oobDhcpRelayAddress: "10.100.0.1"
+        hostCount: 5
+        dpuPerHostCount: 2
+        oobDhcpRelayAddress: "10.96.64.1"  # All pods share same relay
+        adminDhcpRelayAddress: "192.168.176.1"
+  mat-1:
+    machines:
+      rack-machines:
+        hwType: wiwynn_gb200_nvl
+        hostCount: 5
+        dpuPerHostCount: 2
+        oobDhcpRelayAddress: "10.96.64.1"
+        adminDhcpRelayAddress: "192.168.176.1"
+
+macAddressPool:
+  enabled: true
+
+mat-k8s-controller:
+  enabled: true
+  config:
+    insecureSkipVerify: true  # For self-signed certs in dev
 ```
 
-**Total BMCs:** 252 + 504 + 126 + 112 = **994 BMCs** (fits in /22)
+### How It Works
 
-### Multi-Pod Setup (Large Scale)
+1. Controller discovers machine-a-tron pods via
+   `nvidia-infra-controller/mat-service=true` label
+2. Polls `/machines/status` from each discovered machine-a-tron instance
+3. Creates Services with BMC IP as ClusterIP
+4. Services route traffic to correct pod via `nvidia-infra-controller/pod-name`
+   selector
+5. Deletes stale Services when machines disappear
 
-For deployments exceeding 1021 BMCs, use multiple pods with separate CIDRs:
+### Service Structure
+
+Each created Service has an ownerReference to the machine-a-tron Deployment it
+routes traffic to, enabling automatic garbage collection when that Deployment
+is deleted (e.g., when a pod is removed from Helm values or the release is uninstalled):
 
 ```yaml
-# values.yaml
-bmcServices:
-  enabled: true
-  serviceCIDR:
-    create: true
-    cidr: "10.100.0.0/20"  # Covers all pods
-
-pods:
-  pod-0:
-    cidr: "10.100.0.0/22"
-    machines:
-      compute:
-        hwType: wiwynn_gb200_nvl
-        hostCount: 252
-        dpuPerHostCount: 2
-        oobDhcpRelayAddress: "10.100.0.1"
-      switches:
-        hwType: nvidia_switch_nd5200_ld
-        hostCount: 126
-        oobDhcpRelayAddress: "10.100.0.1"
-      power:
-        hwType: liteon_power_shelf
-        hostCount: 112
-        oobDhcpRelayAddress: "10.100.0.1"
-
-  pod-1:
-    cidr: "10.100.4.0/22"
-    machines:
-      compute:
-        hwType: wiwynn_gb200_nvl
-        hostCount: 252
-        dpuPerHostCount: 2
-        oobDhcpRelayAddress: "10.100.4.1"
-      switches:
-        hwType: nvidia_switch_nd5200_ld
-        hostCount: 126
-        oobDhcpRelayAddress: "10.100.4.1"
-      power:
-        hwType: liteon_power_shelf
-        hostCount: 112
-        oobDhcpRelayAddress: "10.100.4.1"
-
-  pod-2:
-    cidr: "10.100.8.0/22"
-    machines:
-      # ... same pattern
+apiVersion: v1
+kind: Service
+metadata:
+  name: mat-bmc-host-abc123def456
+  labels:
+    app.kubernetes.io/managed-by: mat-k8s-controller
+    nvidia-infra-controller/mat-machine-type: host
+  annotations:
+    nvidia-infra-controller/mat-id: "uuid-..."
+    nvidia-infra-controller/mat-bmc-ip: "10.96.64.5"
+    nvidia-infra-controller/mat-hardware-type: wiwynn_gb200_nvl
+  ownerReferences:
+  - apiVersion: apps/v1
+    kind: Deployment
+    name: nico-machine-a-tron-mat-0  # The mat pod this Service routes to
+    uid: <deployment-uid>
+spec:
+  type: ClusterIP
+  clusterIP: 10.96.64.5  # BMC IP assigned by NICo
+  ports:
+  - name: redfish
+    port: 443
+    targetPort: 1266  # Redfish listen port from machine-a-tron (default: service.bmcMock.port)
+    protocol: TCP
+  selector:
+    app.kubernetes.io/name: nico-machine-a-tron
+    nvidia-infra-controller/pod-name: mat-0
 ```
 
-### What Gets Created
+The `targetPort` is the Redfish listen port reported by machine-a-tron, which
+defaults to the configured `service.bmcMock.port` (1266).
 
-**Per pod:**
+### Requirements
 
-| Resource | Name Pattern |
-|----------|--------------|
-| Deployment | `nico-machine-a-tron-pod-0` |
-| ConfigMap | `nico-machine-a-tron-pod-0-config-files` |
-| Certificate | `nico-machine-a-tron-pod-0-certificate` |
-| Service | `nico-machine-a-tron-pod-0-bmc-mock` |
-
-**Per BMC:**
-
-| Resource | Name Pattern |
-|----------|--------------|
-| ClusterIP Service | `nico-machine-a-tron-bmc-10-100-0-2` |
-
-**Cluster-scoped:**
-
-| Resource | Name |
-|----------|------|
-| ServiceCIDR | `nico-machine-a-tron-bmc-cidr` |
-
-### Scale Guidelines
-
-**BMC count per GB200 NVL72 rack:**
-
-| Component | Count | BMCs per Unit | Total |
-|-----------|-------|---------------|-------|
-| Compute trays | 18 | 3 (1 tray + 2 BF3) | 54 |
-| NVLink switches | 9 | 1 | 9 |
-| Power shelves | 8 | 1 | 8 |
-| **Total per rack** | | | **71** |
-
-**CIDR sizing:**
-
-| CIDR | Usable IPs | Racks per Pod |
-|------|------------|---------------|
-| /24 | 253 | ~3 |
-| /23 | 509 | ~7 |
-| /22 | 1021 | ~14 |
-| /21 | 2045 | ~28 |
+- `oobDhcpRelayAddress` must be within Kubernetes ServiceCIDR
+- NICo assigns unique BMC IPs from the configured network
+- Default ServiceCIDR ranges:
+  - `10.96.0.0/12` - vanilla Kubernetes (kubeadm)
+  - `10.96.0.0/16` - KinD
+  - `10.43.0.0/16` - K3s
+- Check with: `kubectl cluster-info dump | grep service-cluster-ip-range`
 
 ### NICo Configuration
 
-**DO NOT set `override_target_host`** - let NICo connect to actual BMC IPs:
+Add the BMC network and enable insecure discovery in NICo siteConfig:
 
 ```toml
-[site_explorer]
-enabled = true
-create_machines = true
-# override_target_host = ...  # DO NOT SET
+# Required: machine-a-tron submits discovery for many IPs from a single pod
+allow_insecure_discovery = true
+
+# Network for all machine-a-tron BMCs
+[networks.MAT-BMC-SERVICES]
+type = "underlay"
+prefix = "10.96.64.0/18"
+gateway = "10.96.64.1"
+mtu = 1500
 ```
 
-**Network config per pod:**
+### Monitoring
 
-```toml
-[networks.pod-0-oob]
-type = "underlay"
-prefix = "10.100.0.0/22"
-gateway = "10.100.0.1"
+```bash
+# Check controller logs
+kubectl -n nico-system logs -l app.kubernetes.io/name=mat-k8s-controller -f
 
-[networks.pod-1-oob]
-type = "underlay"
-prefix = "10.100.4.0/22"
-gateway = "10.100.4.1"
+# List controller-created services
+kubectl -n nico-system get svc -l app.kubernetes.io/managed-by=mat-k8s-controller
+
+# Check reconciliation stats
+kubectl -n nico-system logs -l app.kubernetes.io/name=mat-k8s-controller | \
+grep "reconciliation complete"
 ```
 
 ---
@@ -244,18 +217,13 @@ gateway = "10.100.4.1"
 ```yaml
 pods:
   <pod-name>:
-    cidr: ""  # Required for bmcServices mode
-    macAddressPool:  # Optional: override auto-generated MAC pool
-      base: "02:00:00:00:00:00"
-      hostBits: 16
     machines:
       <group-name>:
         hwType: wiwynn_gb200_nvl
         hostCount: 10
         dpuPerHostCount: 2
-        oobDhcpRelayAddress: "10.100.0.1"
+        oobDhcpRelayAddress: "10.96.64.1"
         adminDhcpRelayAddress: "192.168.176.1"
-        # ... other machine settings
 ```
 
 ### MAC Address Pool Configuration
@@ -263,61 +231,55 @@ pods:
 Each pod needs unique MAC addresses to avoid collisions in multi-pod deployments.
 By default, the chart auto-generates unique MAC pools per pod based on pod index.
 
-**Two pools are configured:**
-
-1. **`mac_address_pool`** - Standalone MACs for BMC and management interfaces:
-   - Host BMC MAC
-   - DPU BMC MAC (per DPU)
-   - DPU Host MAC (representor interface, per DPU)
-   - DPU OOB MAC (out-of-band management, per DPU)
-   - NVOS MACs (for switches)
-
-   *Example: GB200 host with 2 DPUs needs ~7 MACs from this pool.*
-
-2. **`hw_mac_address_ranges`** - Contiguous MAC blocks for NICs:
-   - ConnectX NICs (e.g., CX-8 needs 10 consecutive MACs)
-   - Storage NICs
-   - Management NICs
-
-   *Real hardware has contiguous MAC blocks assigned at manufacturing.*
-
 ```yaml
 macAddressPool:
-  enabled: true       # Enable auto-generation
-  basePrefix: "02:00" # First 2 bytes (locally administered)
-  hostBits: 16        # ~65K MACs per pod
+  enabled: true
+  basePrefix: "02:00"
+  hostBits: 16
 
 hwMacAddressRanges:
-  enabled: true       # Enable auto-generation
-  basePrefix: "02:01" # First 2 bytes
-  hostBits: 24        # Total range size
-  rangeHostBits: 8    # 256 MACs per allocation
+  enabled: true
+  basePrefix: "02:01"
+  hostBits: 24
+  rangeHostBits: 8
 ```
 
-**Auto-generated formats:**
+### Persistence
 
-- `mac_address_pool`: `02:00:PP:XX:XX:XX` (PP = pod index)
-- `hw_mac_address_ranges`: `02:01:PP:XX:XX:XX` (PP = pod index)
-
-**Example with 3 pods:**
-
-| Pod | mac_address_pool | hw_mac_address_ranges |
-|-----|------------------|----------------------|
-| mat-0 | `02:00:00:00:00:00` | `02:01:00:00:00:00` |
-| mat-1 | `02:00:01:00:00:00` | `02:01:01:00:00:00` |
-| mat-2 | `02:00:02:00:00:00` | `02:01:02:00:00:00` |
-
-### BMC Services Configuration
+Persistence is disabled by default. Enable it when machine-a-tron runs alongside
+a long-lived NICo database:
 
 ```yaml
-bmcServices:
-  enabled: false
-  servicePort: 443  # External HTTPS port
-  serviceCIDR:
-    create: true
-    name: ""        # Defaults to <release>-bmc-cidr
-    cidr: ""        # Auto-detected for single pod, required for multi-pod
+persistence:
+  enabled: true
+  size: 1Gi
+  accessModes:
+    - ReadWriteOnce
+  storageClass: ""
 ```
+
+The shown `size`, `accessModes`, and `storageClass` values are the chart
+defaults. `size` accepts a Kubernetes storage quantity, and `accessModes`
+accepts Kubernetes PersistentVolumeClaim access modes supported by the selected
+storage. Set `storageClass` to a StorageClass name to request that class. When
+it is empty, the chart omits `storageClassName`; the cluster then uses its
+default StorageClass. The cluster must provide a default or explicitly selected
+StorageClass capable of satisfying the request, or an eligible pre-provisioned
+PersistentVolume.
+
+The chart creates one PersistentVolumeClaim for each configured `pods` entry
+that contains at least one machine group. It mounts the claim at
+`machineATron.persistDir`, which defaults to `/tmp/machine-a-tron-data`.
+Machine-a-tron stores simulated machine identity and installed operating-system
+state there. On a graceful pod restart it restores the devices and resumes them
+powered on. Without persistence, a restart creates new powered-off simulator
+state while Core may still consider the old machines assigned, preventing the
+simulated DPU agents from resuming their reports.
+
+The PVC does not use Helm's `keep` resource policy. Uninstalling the release or
+deleting the PVC deletes the claim and makes its simulator state unavailable.
+Whether Kubernetes also deletes the bound PersistentVolume and underlying data
+depends on that volume's reclaim policy.
 
 ### Supported Hardware Types
 
@@ -338,46 +300,37 @@ bmcServices:
 
 ## Troubleshooting
 
-### ServiceCIDR Not Ready
+### ClusterIP already allocated
 
-```bash
-kubectl get servicecidr -o wide
+```text
+creating service mat-bmc-host-xxx: Service is invalid: spec.clusterIP:
+provided IP is already allocated
 ```
 
-Causes:
+The BMC IP conflicts with an existing Service. Either:
 
-- CIDR outside cluster's default service CIDR
-- Kubernetes version < 1.29
+- Use a different `oobDhcpRelayAddress` range
+- Reserve a ServiceCIDR for machine-a-tron (K8s 1.29+)
 
-### Service IP Allocation Failed
+### ClusterIP outside ServiceCIDR
 
-```bash
-kubectl -n nico-mat describe svc nico-machine-a-tron-bmc-10-100-0-2
+```text
+failed to allocate IP: the provided network does not match the current range
 ```
 
-Causes:
+The BMC IP range is outside Kubernetes ServiceCIDR
 
-- IP already in use
-- ServiceCIDR not ready
+### No instances discovered
 
-### Pod Not Receiving Traffic
-
-Verify selector labels match:
-
-**Check service selector:**
-
-```bash
-kubectl -n nico-mat get svc nico-machine-a-tron-bmc-10-100-0-2 -o jsonpath='{.spec.selector}'
+```text
+WRN no machine-a-tron instances discovered
 ```
 
-**Check pod labels:**
-
-```bash
-kubectl -n nico-mat get pods -l nvidia-infra-controller/pod-name=pod-0 --show-labels
-```
+Check that bmc-mock Services have the `nvidia-infra-controller/mat-service=true`
+label.
 
 ### View Generated Config
 
 ```bash
-kubectl -n nico-mat get cm nico-machine-a-tron-pod-0-config-files -o yaml
+kubectl -n nico-system get cm nico-machine-a-tron-mat-0-config-files -o yaml
 ```

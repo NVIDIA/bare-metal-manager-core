@@ -23,11 +23,14 @@
 // Command Structure - Baseline debug_assert() of the entire command.
 // Argument Parsing  - Ensure required/optional arg combinations parse correctly.
 
+use std::net::SocketAddr;
+
 use carbide_test_support::Outcome::*;
 use carbide_test_support::scenarios;
 use clap::{CommandFactory, Parser};
 
 use super::*;
+use crate::test_support::{parse_leaf, raw_value};
 
 // verify_cmd_structure runs a baseline clap debug_assert()
 // to do basic command configuration checking and validation,
@@ -52,14 +55,15 @@ fn verify_cmd_structure() {
 fn parse_get_rshim_status() {
     scenarios!(
         run = |argv| {
-            Cmd::try_parse_from(argv.iter().copied())
-                .map(|cmd| match cmd {
-                    Cmd::GetRshimStatus(args) => (
-                        args.inner.credentials.bmc_ip_address.to_string(),
-                        args.inner.credentials.bmc_username,
-                        args.inner.credentials.bmc_password,
-                    ),
-                    _ => panic!("expected GetRshimStatus variant"),
+            parse_leaf::<Cmd>(argv, &["get-rshim-status"])
+                .map(|matches| {
+                    (
+                        *matches
+                            .get_one::<SocketAddr>("bmc_ip_address")
+                            .expect("BMC IP address is required"),
+                        raw_value(&matches, "bmc_username").expect("BMC username is required"),
+                        raw_value(&matches, "bmc_password").expect("BMC password is required"),
+                    )
                 })
                 .map_err(drop)
         };
@@ -71,7 +75,7 @@ fn parse_get_rshim_status() {
                 "admin",
                 "password123",
             ][..] => Yields((
-                "192.168.1.100:443".to_string(),
+                "192.168.1.100:443".parse::<SocketAddr>().unwrap(),
                 "admin".to_string(),
                 "password123".to_string(),
             )),
@@ -84,11 +88,8 @@ fn parse_get_rshim_status() {
 fn parse_copy_bfb() {
     scenarios!(
         run = |argv| {
-            Cmd::try_parse_from(argv.iter().copied())
-                .map(|cmd| match cmd {
-                    Cmd::CopyBfb(args) => args.bfb_path,
-                    _ => panic!("expected CopyBfb variant"),
-                })
+            parse_leaf::<Cmd>(argv, &["copy-bfb"])
+                .map(|matches| raw_value(&matches, "bfb_path").expect("BFB path is required"))
                 .map_err(drop)
         };
         "copy-bfb with bfb path" {

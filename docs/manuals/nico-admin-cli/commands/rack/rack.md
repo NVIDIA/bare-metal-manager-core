@@ -48,6 +48,7 @@ Print help (see a summary with -h)
 | [`metadata`](./rack-metadata.md) | Edit Metadata associated with a Rack |
 | [`profile`](./rack-profile.md) | Rack profile |
 | [`maintenance`](./rack-maintenance.md) | On-demand rack maintenance |
+| [`state-history`](./rack-state-history.md) | Show rack state history |
 
 ---
 

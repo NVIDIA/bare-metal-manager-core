@@ -26,7 +26,7 @@ use std::time::Duration;
 use async_trait::async_trait;
 use base64::Engine;
 use base64::engine::general_purpose::STANDARD as BASE64;
-use carbide_instrument::{DynamicMessage, Event, LabelValue, emit, red};
+use carbide_instrument::{Event, LabelValue, emit, red};
 use vaultrs::api::transit::requests::DataKeyType;
 use vaultrs::client::VaultClient;
 use vaultrs::transit;
@@ -40,32 +40,37 @@ enum TokenMaintenanceStage {
     Renew,
 }
 
+/// Transit KMS token maintenance failed. Each variant is the stage that broke.
 #[derive(Event)]
 #[event(
     event_name = "kms_token_maintenance_failed",
     metric_name = "carbide_kms_token_maintenance_failures_total",
     component = "carbide-kms-provider",
-    log = warn,
     metric = counter,
-    message = dynamic,
-    describe = "Number of Transit KMS token maintenance failures, by maintenance stage"
+    describe = "Number of Transit KMS token maintenance failures, by maintenance stage",
+    labels(stage: TokenMaintenanceStage),
 )]
-struct TokenMaintenanceFailed {
-    #[label]
-    stage: TokenMaintenanceStage,
-    #[context]
-    error: String,
-}
+enum TokenMaintenanceFailed {
+    #[event(
+        labels(stage = TokenMaintenanceStage::Lookup),
+        log = warn,
+        message = "failed to look up Transit KMS token; retrying"
+    )]
+    Lookup {
+        #[context]
+        error: String,
+    },
 
-impl DynamicMessage for TokenMaintenanceFailed {
-    fn message(&self) -> &'static str {
-        match self.stage {
-            TokenMaintenanceStage::Lookup => "failed to look up Transit KMS token; retrying",
-            TokenMaintenanceStage::Renew => "failed to renew Transit KMS vault token",
-        }
-    }
+    #[event(
+        labels(stage = TokenMaintenanceStage::Renew),
+        log = warn,
+        message = "failed to renew Transit KMS vault token"
+    )]
+    Renew {
+        #[context]
+        error: String,
+    },
 }
-
 /// DEFAULT_TRANSIT_MOUNT is the default Transit
 /// secrets engine mount path.
 pub const DEFAULT_TRANSIT_MOUNT: &str = "transit";
@@ -118,8 +123,7 @@ impl TransitKmsProvider {
                 match vaultrs::token::lookup_self(client.as_ref()).await {
                     Ok(info) => break info,
                     Err(e) => {
-                        emit(TokenMaintenanceFailed {
-                            stage: TokenMaintenanceStage::Lookup,
+                        emit(TokenMaintenanceFailed::Lookup {
                             error: e.to_string(),
                         });
                         tokio::select! {
@@ -157,8 +161,7 @@ impl TransitKmsProvider {
                         );
                     }
                     Err(e) => {
-                        emit(TokenMaintenanceFailed {
-                            stage: TokenMaintenanceStage::Renew,
+                        emit(TokenMaintenanceFailed::Renew {
                             error: e.to_string(),
                         });
                         next_renewal = Duration::from_secs(30);
@@ -353,9 +356,10 @@ mod tests {
             |stage| {
                 let metrics = MetricsCapture::start();
                 let logs = capture_logs(|| {
-                    emit(TokenMaintenanceFailed {
-                        stage,
-                        error: "vault unavailable".to_string(),
+                    let error = "vault unavailable".to_string();
+                    emit(match stage {
+                        TokenMaintenanceStage::Lookup => TokenMaintenanceFailed::Lookup { error },
+                        TokenMaintenanceStage::Renew => TokenMaintenanceFailed::Renew { error },
                     });
                 });
                 let log = logs.first().expect("failure Event should log once");

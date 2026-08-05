@@ -27,7 +27,7 @@ use clap::Parser;
 use crate::cfg::dispatch::Dispatch;
 
 #[derive(Parser, Debug, Dispatch)]
-pub enum Cmd {
+pub(crate) enum Cmd {
     #[clap(about = "Display managed switch information")]
     Show(show::Args),
     #[clap(about = "List all managed switches")]

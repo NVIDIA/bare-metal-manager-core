@@ -15,21 +15,21 @@
  * limitations under the License.
  */
 
-pub mod args;
-pub mod cmd;
+mod args;
+mod cmd;
 
 use std::path::Path;
 
-pub use args::Args;
+pub(super) use args::Args;
 
 use crate::cfg::run::Run;
 use crate::cfg::runtime::RuntimeContext;
 use crate::errors::CarbideCliResult;
 use crate::expected_machines::common::ExpectedMachineJson;
 
-/// `expected-machine update <file>`: deserializes `ExpectedMachineJson` and calls
-/// `patch_expected_machine` with every field from the file (full replacement style), including
-/// optional `bmc_ip_address` when present in JSON.
+/// `expected-machine update <file>` deserializes `ExpectedMachineJson` and
+/// calls `patch_expected_machine`. An omitted or `null` `interfaces` field
+/// preserves the stored list, while a non-null array replaces it.
 impl Run for Args {
     async fn run(self, ctx: &mut RuntimeContext) -> CarbideCliResult<()> {
         let json_file_path = Path::new(&self.filename);
@@ -38,8 +38,13 @@ impl Run for Args {
 
         let dpu_policy = expected_machine.dpu_policy();
         let metadata = expected_machine.metadata.unwrap_or_default();
+        let interfaces = expected_machine
+            .interfaces
+            .map(|interfaces| serde_json::to_string(&interfaces))
+            .transpose()?;
 
-        // Patch merges with the server record; we pass all fields from JSON so the result matches the file.
+        // Values present in the file replace the stored values. The patch
+        // helper preserves optional fields that the file omitted.
         ctx.api_client
             .patch_expected_machine(
                 Some(expected_machine.bmc_mac_address),
@@ -76,9 +81,7 @@ impl Run for Args {
                         disable_lockdown: hlp.disable_lockdown,
                     }
                 }),
-                // TODO: file-based update preserves existing host_nics; wire in
-                // expected_machine.host_nics to honor the file's list
-                None,
+                interfaces,
             )
             .await?;
         Ok(())

@@ -124,7 +124,7 @@ impl SupermicroGB300Nvl<'_> {
         let system_id = "System_0";
         let boot_options = std::iter::once(
             redfish::boot_option::builder(
-                &redfish::boot_option::resource(system_id, "0002"),
+                &redfish::boot_option::resource(system_id, "Boot0002"),
                 BootOptionKind::Disk,
             )
             .boot_option_reference("Boot0002")
@@ -136,21 +136,20 @@ impl SupermicroGB300Nvl<'_> {
                 .into_iter()
                 .enumerate()
                 .map(|(n, nic)| {
-                    let id = format!("{:04X}", n + 3); // Starting with 0003
+                    let id = format!("Boot{:04X}", n + 3); // Starting with Boot0003
                     let pci_path = "PciRoot(0x0)/Pci(0x10,0x0)/Pci(0x0,0x0)";
                     redfish::boot_option::builder(
                         &redfish::boot_option::resource(system_id, &id),
                         BootOptionKind::Network,
                     )
-                    .boot_option_reference(&format!("Boot{id}"))
+                    .boot_option_reference(&id)
                     .display_name(&format!(
-                        "UEFI HTTP IPv4 Nvidia Network Adapter - {} - {}",
-                        nic.mac_address,
+                        "UEFI HTTPv4 (MAC:{})",
                         nic.mac_address.to_string().replace(":", "")
                     ))
                     .uefi_device_path(&format!(
                         "{pci_path}/MAC({},0x1)\
-                             /IPv4(0.0.0.0,0x0,DHCP,0.0.0.0,0.0.0.0,0.0.0.0)/Uri()",
+                         /IPv4(0.0.0.0,0x0,DHCP,0.0.0.0,0.0.0.0,0.0.0.0)/Uri()",
                         nic.mac_address.to_string().replace(":", "")
                     ))
                     .build()
@@ -183,7 +182,7 @@ impl SupermicroGB300Nvl<'_> {
                     base_bios: Some(base_bios(system_id)),
                     bios_mode: redfish::computer_system::BiosMode::Generic,
                     boot_options: Some(boot_options),
-                    boot_order_mode: redfish::computer_system::BootOrderMode::OrderedCollection,
+                    boot_order_mode: redfish::computer_system::BootOrderMode::ViaSettings,
                     chassis: vec!["Chassis_0".into()],
                     eth_interfaces: None,
                     id: system_id.into(),
@@ -193,7 +192,9 @@ impl SupermicroGB300Nvl<'_> {
                     model: Some("GB NVL".into()),
                     oem: redfish::computer_system::Oem::Generic,
                     callbacks: Some(callbacks),
-                    secure_boot_available: true,
+                    // This firmware exposes the SecureBoot resource but omits
+                    // SecureBootEnable, so there is no usable status to report.
+                    secure_boot_available: false,
                     serial_console: Some(
                         redfish::serial_console::builder()
                             .max_concurrent_sessions(1)
@@ -299,12 +300,13 @@ impl SupermicroGB300Nvl<'_> {
 }
 
 fn base_bios(system_id: &str) -> serde_json::Value {
-    // libredfish uses this attribute to detect whether this BMC spells the
-    // enabled TPM state as "Enable" or "Enabled" before building its setup
-    // request. The suffixed key and value mirror a real Supermicro fixture.
+    // Security device support is already enabled; the DPU-facing option ROMs
+    // still need to be enabled by clearing their DisableOptionROM controls.
     redfish::bios::builder(&redfish::bios::resource(system_id))
         .attributes(json!({
-            "SecurityDeviceSupport_005A": "Enable",
+            "SecurityDeviceSupport": "Enabled",
+            "Socket0Pcie6DisableOptionROM": true,
+            "Socket1Pcie6DisableOptionROM": true,
         }))
         .build()
 }

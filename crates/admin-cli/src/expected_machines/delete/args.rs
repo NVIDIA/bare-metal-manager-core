@@ -32,12 +32,12 @@ Delete an expected machine by id:
     $ nico-admin-cli expected-machine delete --id 12345678-1234-5678-90ab-cdef01234567
 
 ")]
-pub struct Args {
+pub(crate) struct Args {
     #[clap(help = "BMC MAC address of the expected machine to delete.")]
-    pub bmc_mac_address: Option<MacAddress>,
+    bmc_mac_address: Option<MacAddress>,
 
     #[clap(long, help = "ID (UUID) of the expected machine to delete.")]
-    pub id: Option<Uuid>,
+    id: Option<Uuid>,
 }
 
 impl TryFrom<Args> for ::rpc::forge::ExpectedMachineRequest {

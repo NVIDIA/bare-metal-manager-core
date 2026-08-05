@@ -16,15 +16,18 @@
  */
 use carbide_uuid::instance_type::InstanceTypeId;
 use chrono::{DateTime, Utc};
+use config_version::Versioned;
 
 use crate::machine::Dpf;
+use crate::machine_boot_interface::MachineBootInterfaceTarget;
 
-/// Operator-set desired state for a machine, mutable via API calls that increment the
+/// Desired state for a machine, mutable through API calls that increment the
 /// machine version.
 ///
-/// Corresponds to `MachineConfig` in the forge proto. Fields here are changed via
-/// explicit operator API calls (maintenance, instance-type assignment, firmware policy,
-/// DPF toggle, SKU assignment).
+/// Corresponds to `MachineConfig` in the forge proto, except for the internal
+/// boot-interface target. Site Explorer initializes that target from discovery
+/// and may add its Redfish id later when the MAC still matches. Operator API
+/// calls may replace it.
 #[derive(Debug, Clone, Default)]
 pub struct MachineConfig {
     /// Override to enable or disable firmware auto-update.
@@ -39,6 +42,10 @@ pub struct MachineConfig {
     /// The declared desired hardware SKU (set via the AssignSku API).
     /// Distinct from `MachineStatus::hw_sku`, which reflects the observed match.
     pub hw_sku: Option<String>,
+
+    /// The host boot interface reserved for machine-controller convergence
+    /// through Redfish.
+    pub desired_boot_interface: Option<Versioned<MachineBootInterfaceTarget>>,
 
     /// Maintenance reference token set when this machine is placed into maintenance mode.
     pub maintenance_reference: Option<String>,

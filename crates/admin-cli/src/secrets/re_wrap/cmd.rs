@@ -18,7 +18,10 @@
 use crate::errors::CarbideCliResult;
 use crate::rpc::ApiClient;
 
-pub async fn re_wrap(api_client: &ApiClient, batch_size: Option<u32>) -> CarbideCliResult<()> {
+pub(super) async fn re_wrap(
+    api_client: &ApiClient,
+    batch_size: Option<u32>,
+) -> CarbideCliResult<()> {
     let request = ::rpc::forge::ReWrapSecretsRequest { batch_size };
 
     let resp = api_client.0.re_wrap_secrets(request).await?;

@@ -35,61 +35,61 @@ Create one with a name/description and a Bearer auth token for the image URL:
     --name ubuntu-22.04 --description \"Ubuntu 22.04 base\" --auth-type Bearer --auth-token <token>
 
 ")]
-pub struct Args {
+pub(crate) struct Args {
     #[clap(short = 'i', long, help = "uuid of the OS image to create.")]
-    pub id: String,
+    id: String,
     #[clap(short = 'u', long, help = "url of the OS image qcow file.")]
-    pub url: String,
+    url: String,
     #[clap(
         short = 'm',
         long,
         help = "Digest of the OS image file, typically a SHA-256."
     )]
-    pub digest: String,
+    digest: String,
     #[clap(
         short = 't',
         long,
         help = "Tenant organization identifier for the OS catalog to create this in."
     )]
-    pub tenant_org_id: String,
+    tenant_org_id: String,
     #[clap(
         short = 'v',
         long,
         help = "Create a source volume for block storage use."
     )]
-    pub create_volume: Option<bool>,
+    create_volume: Option<bool>,
     #[clap(
         short = 's',
         long,
         help = "Size of the OS image source volume to create."
     )]
-    pub capacity: Option<u64>,
+    capacity: Option<u64>,
     #[clap(short = 'n', long, help = "Name of the OS image entry.")]
-    pub name: Option<String>,
+    name: Option<String>,
     #[clap(short = 'd', long, help = "Description of the OS image entry.")]
-    pub description: Option<String>,
+    description: Option<String>,
     #[clap(short = 'y', long, help = "Authentication type, usually Bearer.")]
-    pub auth_type: Option<String>,
+    auth_type: Option<String>,
     #[clap(short = 'p', long, help = "Authentication token, usually in base64.")]
-    pub auth_token: Option<String>,
+    auth_token: Option<String>,
     #[clap(
         short = 'f',
         long,
         help = "uuid of the root filesystem of the OS image."
     )]
-    pub rootfs_id: Option<String>,
+    rootfs_id: Option<String>,
     #[clap(
         short = 'l',
         long,
         help = "Label of the root filesystem of the OS image."
     )]
-    pub rootfs_label: Option<String>,
+    rootfs_label: Option<String>,
     #[clap(short = 'b', long, help = "Boot device path if using local disk.")]
-    pub boot_disk: Option<String>,
+    boot_disk: Option<String>,
     #[clap(long, help = "UUID of the image boot filesystem (/boot)")]
-    pub bootfs_id: Option<String>,
+    bootfs_id: Option<String>,
     #[clap(long, help = "UUID of the image EFI filesystem (/boot/efi)")]
-    pub efifs_id: Option<String>,
+    efifs_id: Option<String>,
 }
 
 impl TryFrom<Args> for forgerpc::OsImageAttributes {

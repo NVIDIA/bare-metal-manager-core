@@ -26,7 +26,7 @@ use crate::async_write;
 use crate::errors::{CarbideCliError, CarbideCliResult};
 use crate::rpc::ApiClient;
 
-pub async fn handle_update_machine_hardware_info_gpus(
+pub(super) async fn handle_update_machine_hardware_info_gpus(
     api_client: &ApiClient,
     gpus: MachineHardwareInfoGpus,
 ) -> CarbideCliResult<()> {
@@ -43,7 +43,7 @@ pub async fn handle_update_machine_hardware_info_gpus(
 }
 
 #[allow(deprecated)]
-pub async fn handle_show_machine_hardware_info(
+pub(super) async fn handle_show_machine_hardware_info(
     api_client: &ApiClient,
     output_file: &mut Box<dyn tokio::io::AsyncWrite + Unpin>,
     output_format: &OutputFormat,

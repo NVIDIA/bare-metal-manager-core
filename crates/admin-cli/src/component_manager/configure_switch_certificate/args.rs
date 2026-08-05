@@ -36,21 +36,21 @@ Dispatch directly to the component backend, bypassing the switch state controlle
     --switch-id 12345678-1234-5678-90ab-cdef01234567 --bypass-state-controller
 
 ")]
-pub struct Args {
+pub(crate) struct Args {
     #[clap(flatten)]
-    pub ids: SwitchTargetArgs,
+    ids: SwitchTargetArgs,
 
     #[clap(
         long = "domain-name",
         help = "Optional certificate domain passed through to RMS; omit to use the RMS default"
     )]
-    pub domain_name: Option<String>,
+    domain_name: Option<String>,
 
     #[clap(
         long = "bypass-state-controller",
         help = "Bypass the switch state controller and dispatch directly to the component backend"
     )]
-    pub bypass_state_controller: bool,
+    bypass_state_controller: bool,
 }
 
 impl From<Args> for rpc::forge::ComponentConfigureSwitchCertificateRequest {

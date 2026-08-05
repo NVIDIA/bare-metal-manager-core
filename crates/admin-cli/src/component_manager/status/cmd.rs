@@ -23,7 +23,7 @@ use crate::component_manager::common;
 use crate::errors::CarbideCliError;
 use crate::rpc::ApiClient;
 
-pub async fn get_status(
+pub(super) async fn get_status(
     opts: Args,
     format: OutputFormat,
     api_client: &ApiClient,

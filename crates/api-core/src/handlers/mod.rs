@@ -18,6 +18,7 @@
 pub mod api;
 pub mod astra;
 pub mod attestation;
+pub mod bmc_credential_rotation;
 pub mod bmc_endpoint_explorer;
 pub mod bmc_metadata;
 pub mod boot_override;
@@ -88,6 +89,7 @@ pub mod tenant_identity_config;
 pub mod tenant_keyset;
 pub mod tpm_ca;
 pub mod uefi;
+pub mod uefi_credential_rotation;
 pub mod utils;
 pub mod vpc;
 pub mod vpc_peering;

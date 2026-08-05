@@ -24,10 +24,9 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use async_trait::async_trait;
 use base64::Engine;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
-use carbide_instrument::{Event, LabelValue, emit};
+use carbide_instrument::{Event, LabelValue, MetricFamily, emit};
 use eyre::{ContextCompat, WrapErr, eyre};
 use opentelemetry::StringValue;
-use opentelemetry::metrics::{Gauge, Meter};
 use rand::RngExt;
 use tokio::sync::mpsc::{Receiver, Sender};
 use tokio::time::sleep;
@@ -174,12 +173,32 @@ enum VaultRequestType {
 /// label value; the hand-written `LabelValue` impl is the reviewed escape hatch
 /// for a bounded-but-not-enum value, and reproduces the previous
 /// `code.to_string()`-or-empty rendering byte for byte.
+#[derive(Clone, Copy)]
 struct VaultFailureStatusCode(Option<u16>);
 
 impl LabelValue for VaultFailureStatusCode {
     fn label_value(&self) -> StringValue {
         StringValue::from(self.0.map(|code| code.to_string()).unwrap_or_default())
     }
+}
+
+/// How long the current Vault token has before it must be refreshed, sampled
+/// each time the refresher loop checks. Metric-only (`log = off`): the value
+/// matters as a series, not as a line per check.
+#[derive(Event)]
+#[event(
+    event_name = "vault_token_refresh_window_observed",
+    metric_name = "carbide_api_vault_token_time_until_refresh_seconds",
+    metric_name_unchecked,
+    component = "nico-api",
+    log = off,
+    metric = gauge,
+    unit = "s",
+    describe = "The amount of time, in seconds, until the Vault token is required to be refreshed"
+)]
+struct VaultTokenRefreshWindowObserved {
+    #[observation]
+    time_until_refresh: Duration,
 }
 
 /// A Vault request was attempted. Metric-only (`log = off`): counted, never
@@ -213,17 +232,27 @@ struct VaultRequestSucceeded {
     request_type: VaultRequestType,
 }
 
+/// The one metric the Events below record.
+#[derive(MetricFamily)]
+#[metric(
+    name = "carbide_api_vault_requests_failed_total",
+    kind = counter,
+    component = "nico-api",
+    describe = "Number of failed Vault requests"
+)]
+struct ApiVaultRequestsFailed {
+    request_type: VaultRequestType,
+    http_response_status_code: VaultFailureStatusCode,
+}
+
 /// Counts a failed request when this layer does not own a diagnostic record.
 /// Callers either handle the response as an expected absence or propagate the
 /// error to the layer that owns its log.
 #[derive(Event)]
 #[event(
     event_name = "vault_request_failed",
-    metric_name = "carbide_api_vault_requests_failed_total",
-    component = "nico-api",
-    log = off,
-    metric = counter,
-    describe = "Number of failed Vault requests"
+    metric_family = ApiVaultRequestsFailed,
+    log = off
 )]
 struct VaultRequestFailed {
     #[label]
@@ -243,12 +272,9 @@ struct VaultRequestFailed {
 #[derive(Event)]
 #[event(
     event_name = "vault_credentials_not_found",
-    metric_name = "carbide_api_vault_requests_failed_total",
-    component = "nico-api",
+    metric_family = ApiVaultRequestsFailed,
     log = debug,
-    metric = counter,
-    message = "Credentials not found",
-    describe = "Number of failed Vault requests"
+    message = "Credentials not found"
 )]
 struct VaultCredentialsNotFound {
     #[label]
@@ -264,12 +290,9 @@ struct VaultCredentialsNotFound {
 #[derive(Event)]
 #[event(
     event_name = "vault_credentials_get_failed",
-    metric_name = "carbide_api_vault_requests_failed_total",
-    component = "nico-api",
+    metric_family = ApiVaultRequestsFailed,
     log = error,
-    metric = counter,
-    message = "Error getting credentials",
-    describe = "Number of failed Vault requests"
+    message = "Error getting credentials"
 )]
 struct VaultCredentialsGetFailed {
     #[label]
@@ -285,12 +308,9 @@ struct VaultCredentialsGetFailed {
 #[derive(Event)]
 #[event(
     event_name = "vault_credentials_set_failed",
-    metric_name = "carbide_api_vault_requests_failed_total",
-    component = "nico-api",
+    metric_family = ApiVaultRequestsFailed,
     log = error,
-    metric = counter,
-    message = "Error setting credentials",
-    describe = "Number of failed Vault requests"
+    message = "Error setting credentials"
 )]
 struct VaultCredentialsSetFailed {
     #[label]
@@ -304,12 +324,9 @@ struct VaultCredentialsSetFailed {
 #[derive(Event)]
 #[event(
     event_name = "vault_credentials_delete_failed",
-    metric_name = "carbide_api_vault_requests_failed_total",
-    component = "nico-api",
+    metric_family = ApiVaultRequestsFailed,
     log = error,
-    metric = counter,
-    message = "Error deleting credentials",
-    describe = "Number of failed Vault requests"
+    message = "Error deleting credentials"
 )]
 struct VaultCredentialsDeleteFailed {
     #[label]
@@ -324,12 +341,9 @@ struct VaultCredentialsDeleteFailed {
 #[derive(Event)]
 #[event(
     event_name = "vault_token_validation_retrying",
-    metric_name = "carbide_api_vault_requests_failed_total",
-    component = "nico-api",
+    metric_family = ApiVaultRequestsFailed,
     log = error,
-    metric = counter,
-    message = "Vault token renewal check: error reading kv mount location config, waiting for token to be good",
-    describe = "Number of failed Vault requests"
+    message = "Vault token renewal check: error reading kv mount location config, waiting for token to be good"
 )]
 struct VaultTokenValidationRetrying {
     #[label]
@@ -342,12 +356,9 @@ struct VaultTokenValidationRetrying {
 #[derive(Event)]
 #[event(
     event_name = "vault_token_validation_failed",
-    metric_name = "carbide_api_vault_requests_failed_total",
-    component = "nico-api",
+    metric_family = ApiVaultRequestsFailed,
     log = error,
-    metric = counter,
-    message = "Vault token renewal check: error reading kv mount location config, giving up after max attempts",
-    describe = "Number of failed Vault requests"
+    message = "Vault token renewal check: error reading kv mount location config, giving up after max attempts"
 )]
 struct VaultTokenValidationFailed {
     #[label]
@@ -360,12 +371,9 @@ struct VaultTokenValidationFailed {
 #[derive(Event)]
 #[event(
     event_name = "vault_secret_path_list_failed",
-    metric_name = "carbide_api_vault_requests_failed_total",
-    component = "nico-api",
+    metric_family = ApiVaultRequestsFailed,
     log = warn,
-    metric = counter,
-    message = "failed to list vault path",
-    describe = "Number of failed Vault requests"
+    message = "failed to list vault path"
 )]
 struct VaultSecretPathListFailed {
     #[label]
@@ -382,12 +390,9 @@ struct VaultSecretPathListFailed {
 #[derive(Event)]
 #[event(
     event_name = "vault_secret_not_found",
-    metric_name = "carbide_api_vault_requests_failed_total",
-    component = "nico-api",
+    metric_family = ApiVaultRequestsFailed,
     log = debug,
-    metric = counter,
-    message = "vault secret not found",
-    describe = "Number of failed Vault requests"
+    message = "vault secret not found"
 )]
 struct VaultSecretNotFound {
     #[label]
@@ -402,12 +407,9 @@ struct VaultSecretNotFound {
 #[derive(Event)]
 #[event(
     event_name = "vault_secret_read_failed",
-    metric_name = "carbide_api_vault_requests_failed_total",
-    component = "nico-api",
+    metric_family = ApiVaultRequestsFailed,
     log = warn,
-    metric = counter,
-    message = "failed to read vault secret",
-    describe = "Number of failed Vault requests"
+    message = "failed to read vault secret"
 )]
 struct VaultSecretReadFailed {
     #[label]
@@ -439,13 +441,6 @@ struct VaultRequestDuration {
 }
 
 /// The one Vault metric that stays a hand-rolled OpenTelemetry instrument: a
-/// periodic state gauge for the time remaining on the current token, recorded
-/// from the refresher loop rather than emitted per request.
-#[derive(Debug, Clone)]
-pub struct ForgeVaultMetrics {
-    pub vault_token_gauge: Gauge<f64>,
-}
-
 struct RefresherMessage {
     response_tx: tokio::sync::oneshot::Sender<Result<Arc<VaultClient>, eyre::Report>>,
 }
@@ -604,7 +599,6 @@ async fn vault_token_refresh(
 
 async fn maybe_refresh_vault_client(
     vault_client_config: &ForgeVaultClientConfig,
-    vault_metrics: &ForgeVaultMetrics,
     vault_auth_status: ForgeVaultAuthenticationStatus,
 ) -> Result<(ForgeVaultAuthentication, Arc<VaultClient>), eyre::ErrReport> {
     let refresh_fut = vault_token_refresh(vault_client_config);
@@ -615,9 +609,9 @@ async fn maybe_refresh_vault_client(
                 .expiry
                 .saturating_duration_since(Instant::now());
 
-            vault_metrics
-                .vault_token_gauge
-                .record(time_remaining_until_refresh.as_secs_f64(), &[]);
+            emit(VaultTokenRefreshWindowObserved {
+                time_until_refresh: time_remaining_until_refresh,
+            });
 
             if Instant::now() >= authentication.expiry {
                 refresh_fut.await
@@ -631,11 +625,10 @@ async fn maybe_refresh_vault_client(
 async fn vault_refresher_loop(
     mut vault_refresher_rx: Receiver<RefresherMessage>,
     vault_client_config: ForgeVaultClientConfig,
-    vault_metrics: ForgeVaultMetrics,
 ) {
     let mut auth_status = ForgeVaultAuthenticationStatus::Initialized;
     while let Some(message) = vault_refresher_rx.recv().await {
-        match maybe_refresh_vault_client(&vault_client_config, &vault_metrics, auth_status).await {
+        match maybe_refresh_vault_client(&vault_client_config, auth_status).await {
             Ok((auth, client)) => {
                 message.response_tx.send(Ok(client.clone())).ok();
                 auth_status = ForgeVaultAuthenticationStatus::Authenticated(auth, client);
@@ -661,12 +654,11 @@ impl From<VaultClientSettingsBuilderError> for SecretsError {
 }
 
 impl ForgeVaultClient {
-    fn new(vault_client_config: ForgeVaultClientConfig, vault_metrics: ForgeVaultMetrics) -> Self {
+    fn new(vault_client_config: ForgeVaultClientConfig) -> Self {
         let (vault_refresher_tx, vault_refresher_rx) = tokio::sync::mpsc::channel(1);
         let vault_client_config_clone = vault_client_config.clone();
         tokio::spawn(async move {
-            vault_refresher_loop(vault_refresher_rx, vault_client_config_clone, vault_metrics)
-                .await;
+            vault_refresher_loop(vault_refresher_rx, vault_client_config_clone).await;
         });
         Self {
             vault_client_config,
@@ -1433,10 +1425,7 @@ impl VaultConfig {
     }
 }
 
-pub fn create_vault_client(
-    vault_config: &VaultConfig,
-    meter: Meter,
-) -> eyre::Result<Arc<ForgeVaultClient>> {
+pub fn create_vault_client(vault_config: &VaultConfig) -> eyre::Result<Arc<ForgeVaultClient>> {
     let configured_ca_path = vault_config
         .vault_cacert()
         .unwrap_or_else(|_| DEFAULT_VAULT_CA_PATH.to_string());
@@ -1451,8 +1440,6 @@ pub fn create_vault_client(
         ForgeVaultAuthenticationType::Root(vault_config.token()?)
     };
 
-    let forge_vault_metrics = build_vault_metrics(&meter);
-
     let vault_client_config = ForgeVaultClientConfig {
         auth_type,
         vault_address: vault_config.address()?,
@@ -1464,26 +1451,8 @@ pub fn create_vault_client(
         vault_root_ca_path,
     };
 
-    let forge_vault_client = ForgeVaultClient::new(vault_client_config, forge_vault_metrics);
+    let forge_vault_client = ForgeVaultClient::new(vault_client_config);
     Ok(Arc::new(forge_vault_client))
-}
-
-/// Build the hand-rolled Vault instruments shared by every Vault client. The
-/// attempted / succeeded / failed counters and the request-duration histogram
-/// are now `carbide-instrument` events (the `VaultRequest*` types); only the
-/// token-refresh state gauge stays a hand-rolled instrument.
-fn build_vault_metrics(meter: &Meter) -> ForgeVaultMetrics {
-    let vault_token_time_remaining_until_refresh_gauge = meter
-        .f64_gauge("carbide-api.vault.token_time_until_refresh")
-        .with_description(
-            "The amount of time, in seconds, until the Vault token is required to be refreshed",
-        )
-        .with_unit("s")
-        .build();
-
-    ForgeVaultMetrics {
-        vault_token_gauge: vault_token_time_remaining_until_refresh_gauge,
-    }
 }
 
 /// Site-wide SPIFFE identity namespace used when minting machine certificates.
@@ -1544,7 +1513,6 @@ impl std::fmt::Debug for DedicatedVaultConfig {
 pub fn create_dedicated_vault_client(
     config: &DedicatedVaultConfig,
     spiffe: SpiffeIdentity,
-    meter: Meter,
 ) -> eyre::Result<Arc<ForgeVaultClient>> {
     // Required fields are non-`Option`, but an empty string would still slip
     // through serde and build a client that fails confusingly on first use.
@@ -1596,10 +1564,7 @@ pub fn create_dedicated_vault_client(
         vault_root_ca_path,
     };
 
-    Ok(Arc::new(ForgeVaultClient::new(
-        vault_client_config,
-        build_vault_metrics(&meter),
-    )))
+    Ok(Arc::new(ForgeVaultClient::new(vault_client_config)))
 }
 
 /// Build raw vaultrs client settings for a separate vault consumer (the
@@ -1634,12 +1599,14 @@ pub fn create_raw_vault_client_settings(
 
 #[cfg(test)]
 mod tests {
+    use std::time::Duration;
+
     use base64::Engine;
     use serde_json::json;
 
     use super::{
-        DedicatedVaultConfig, SpiffeIdentity, create_dedicated_vault_client, machine_spiffe_uri,
-        service_account_role_name_from_jwt,
+        DedicatedVaultConfig, SpiffeIdentity, VaultTokenRefreshWindowObserved,
+        create_dedicated_vault_client, machine_spiffe_uri, service_account_role_name_from_jwt,
     };
 
     fn dedicated_config() -> DedicatedVaultConfig {
@@ -1659,9 +1626,32 @@ mod tests {
         }
     }
 
+    /// The token-refresh gauge is queried by the API performance dashboards by
+    /// its exported name, which the exporter derives from the instrument name
+    /// and unit. Moving it onto the framework must not move that name.
+    #[test]
+    fn token_refresh_gauge_keeps_its_exported_name() {
+        use carbide_instrument::testing::MetricsCapture;
+
+        assert_eq!(
+            <VaultTokenRefreshWindowObserved as carbide_instrument::Event>::METRIC,
+            carbide_instrument::MetricKind::Gauge { unit: "s" }
+        );
+
+        let metrics = MetricsCapture::start();
+        carbide_instrument::emit(VaultTokenRefreshWindowObserved {
+            time_until_refresh: Duration::from_secs(42),
+        });
+        assert_eq!(
+            metrics.gauge_value("carbide_api_vault_token_time_until_refresh_seconds", &[]),
+            42.0,
+            "the dashboards query this exact name:\n{}",
+            metrics.render()
+        );
+    }
+
     #[test]
     fn dedicated_vault_rejects_empty_required_fields() {
-        let meter = opentelemetry::global::meter("test");
         for mutate in [
             |c: &mut DedicatedVaultConfig| c.address = "  ".to_string(),
             |c: &mut DedicatedVaultConfig| c.pki_mount_location = String::new(),
@@ -1669,7 +1659,7 @@ mod tests {
         ] {
             let mut config = dedicated_config();
             mutate(&mut config);
-            let err = match create_dedicated_vault_client(&config, test_spiffe(), meter.clone()) {
+            let err = match create_dedicated_vault_client(&config, test_spiffe()) {
                 Ok(_) => panic!("empty required field must be rejected"),
                 Err(err) => err,
             };

@@ -319,9 +319,9 @@ func (r ApiGetAllMachineRequest) Execute() ([]Machine, *http.Response, error) {
 /*
 GetAllMachine Retrieve all Machines
 
-Get all Machines for Infrastructure Provider.
+Get all Machines visible to the caller.
 
-Org must have an Infrastructure Provider entity. User must have authorization role with `PROVIDER_ADMIN` suffix.
+Infrastructure Provider callers receive Machines owned by their Provider. Tenant Admin callers receive Machines only from Sites where `TargetedInstanceCreation` is effective. The siteId query parameter is optional and further restricts either result set.
 
 	@param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
 	@param org Name of the Org
@@ -1573,7 +1573,8 @@ func (r ApiMachinePowerControlMachineRequest) Execute() (*MessageResponse, *http
 /*
 MachinePowerControlMachine Machine power control
 
-Execute power control actions for a specific Machine.
+Execute power control actions for a specific Machine. When an Instance is
+attached to the Machine, `acknowledgeAttachedInstance` must be `true`.
 
 Org must have an Infrastructure Provider entity and own the Site that the Machine belongs to. User must have authorization role with `PROVIDER_ADMIN` suffix.
 

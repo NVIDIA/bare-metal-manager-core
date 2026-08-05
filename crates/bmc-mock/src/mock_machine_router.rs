@@ -24,7 +24,7 @@ use crate::bmc_state::BmcState;
 use crate::injection::InjectionStore;
 use crate::redfish::manager::ManagerState;
 use crate::{
-    Callbacks, HostHardwareType, MachineInfo, SystemPowerControl, VirtualMediaDeviceConfig,
+    Callbacks, HardwareType, MachineInfo, SystemPowerControl, VirtualMediaDeviceConfig,
     auth_router, middleware_router, redfish,
 };
 
@@ -175,7 +175,7 @@ fn machine_router_inner(
         &machine_info,
         MachineInfo::Host(h) if matches!(
             h.hw_type,
-            HostHardwareType::LiteOnPowerShelf | HostHardwareType::DeltaPowerShelf
+            HardwareType::LiteOnPowerShelf | HardwareType::DeltaPowerShelf
         )
     );
     let router = ([

@@ -25,9 +25,11 @@
 
 use carbide_test_support::Outcome::*;
 use carbide_test_support::scenarios;
+use carbide_uuid::machine::MachineId;
 use clap::{CommandFactory, Parser};
 
 use super::*;
+use crate::test_support::{parse_leaf, raw_value};
 
 const TEST_MACHINE_ID: &str = "fm100ht038bg3qsho433vkg684heguv282qaggmrsh2ugn1qk096n2c6hcg";
 
@@ -53,11 +55,9 @@ fn verify_cmd_structure() {
 #[test]
 fn parse_show() {
     scenarios!(
-        run = |argv| match Cmd::try_parse_from(argv.iter().copied()) {
-            Ok(Cmd::Show(args)) => Ok(args.sku_id),
-            Ok(_) => panic!("expected Show variant"),
-            Err(_) => Err(()),
-        };
+        run = |argv| parse_leaf::<Cmd>(argv, &["show"])
+            .map(|matches| raw_value(&matches, "sku_id"))
+            .map_err(drop);
         "no args leaves sku_id unset" {
             &["sku", "show"][..] => Yields(None),
         }
@@ -73,11 +73,9 @@ fn parse_show() {
 #[test]
 fn parse_show_machines() {
     scenarios!(
-        run = |argv| match Cmd::try_parse_from(argv.iter().copied()) {
-            Ok(Cmd::ShowMachines(args)) => Ok(args.inner.sku_id),
-            Ok(_) => panic!("expected ShowMachines variant"),
-            Err(_) => Err(()),
-        };
+        run = |argv| parse_leaf::<Cmd>(argv, &["show-machines"])
+            .map(|matches| raw_value(&matches, "sku_id"))
+            .map_err(drop);
         "positional sku_id is captured on inner" {
             &["sku", "show-machines", "sku-123"][..] => Yields(Some("sku-123".to_string())),
         }
@@ -89,11 +87,17 @@ fn parse_show_machines() {
 #[test]
 fn parse_generate() {
     scenarios!(
-        run = |argv| match Cmd::try_parse_from(argv.iter().copied()) {
-            Ok(Cmd::Generate(args)) => Ok((args.machine_id.to_string(), args.id)),
-            Ok(_) => panic!("expected Generate variant"),
-            Err(_) => Err(()),
-        };
+        run = |argv| parse_leaf::<Cmd>(argv, &["generate"])
+            .map(|matches| {
+                (
+                    matches
+                        .get_one::<MachineId>("machine_id")
+                        .expect("machine ID is required")
+                        .to_string(),
+                    raw_value(&matches, "id"),
+                )
+            })
+            .map_err(drop);
         "machine_id only leaves id unset" {
             &["sku", "generate", TEST_MACHINE_ID][..] => Yields((TEST_MACHINE_ID.to_string(), None)),
         }
@@ -109,11 +113,14 @@ fn parse_generate() {
 #[test]
 fn parse_create() {
     scenarios!(
-        run = |argv| match Cmd::try_parse_from(argv.iter().copied()) {
-            Ok(Cmd::Create(args)) => Ok((args.filename, args.id)),
-            Ok(_) => panic!("expected Create variant"),
-            Err(_) => Err(()),
-        };
+        run = |argv| parse_leaf::<Cmd>(argv, &["create"])
+            .map(|matches| {
+                (
+                    raw_value(&matches, "filename").expect("filename is required"),
+                    raw_value(&matches, "id"),
+                )
+            })
+            .map_err(drop);
         "filename captured, id unset" {
             &["sku", "create", "sku.json"][..] => Yields(("sku.json".to_string(), None)),
         }
@@ -124,11 +131,12 @@ fn parse_create() {
 #[test]
 fn parse_delete() {
     scenarios!(
-        run = |argv| match Cmd::try_parse_from(argv.iter().copied()) {
-            Ok(Cmd::Delete(args)) => Ok(args.sku_id),
-            Ok(_) => panic!("expected Delete variant"),
-            Err(_) => Err(()),
-        };
+        run = |argv| parse_leaf::<Cmd>(argv, &["delete"])
+            .map(|matches| {
+                raw_value(&matches, "sku_id")
+                    .expect("SKU ID is required")
+            })
+            .map_err(drop);
         "positional sku_id is captured" {
             &["sku", "delete", "sku-123"][..] => Yields("sku-123".to_string()),
         }
@@ -140,11 +148,18 @@ fn parse_delete() {
 #[test]
 fn parse_assign() {
     scenarios!(
-        run = |argv| match Cmd::try_parse_from(argv.iter().copied()) {
-            Ok(Cmd::Assign(args)) => Ok((args.sku_id, args.machine_id.to_string(), args.force)),
-            Ok(_) => panic!("expected Assign variant"),
-            Err(_) => Err(()),
-        };
+        run = |argv| parse_leaf::<Cmd>(argv, &["assign"])
+            .map(|matches| {
+                (
+                    raw_value(&matches, "sku_id").expect("SKU ID is required"),
+                    matches
+                        .get_one::<MachineId>("machine_id")
+                        .expect("machine ID is required")
+                        .to_string(),
+                    matches.get_flag("force"),
+                )
+            })
+            .map_err(drop);
         "force defaults off" {
             &["sku", "assign", "sku-123", TEST_MACHINE_ID][..] => Yields(("sku-123".to_string(), TEST_MACHINE_ID.to_string(), false)),
         }
@@ -160,11 +175,17 @@ fn parse_assign() {
 #[test]
 fn parse_unassign() {
     scenarios!(
-        run = |argv| match Cmd::try_parse_from(argv.iter().copied()) {
-            Ok(Cmd::Unassign(args)) => Ok((args.machine_id.to_string(), args.force)),
-            Ok(_) => panic!("expected Unassign variant"),
-            Err(_) => Err(()),
-        };
+        run = |argv| parse_leaf::<Cmd>(argv, &["unassign"])
+            .map(|matches| {
+                (
+                    matches
+                        .get_one::<MachineId>("machine_id")
+                        .expect("machine ID is required")
+                        .to_string(),
+                    matches.get_flag("force"),
+                )
+            })
+            .map_err(drop);
         "machine_id captured, force defaults off" {
             &["sku", "unassign", TEST_MACHINE_ID][..] => Yields((TEST_MACHINE_ID.to_string(), false)),
         }
@@ -175,11 +196,14 @@ fn parse_unassign() {
 #[test]
 fn parse_verify() {
     scenarios!(
-        run = |argv| match Cmd::try_parse_from(argv.iter().copied()) {
-            Ok(Cmd::Verify(args)) => Ok(args.machine_id.to_string()),
-            Ok(_) => panic!("expected Verify variant"),
-            Err(_) => Err(()),
-        };
+        run = |argv| parse_leaf::<Cmd>(argv, &["verify"])
+            .map(|matches| {
+                matches
+                    .get_one::<MachineId>("machine_id")
+                    .expect("machine ID is required")
+                    .to_string()
+            })
+            .map_err(drop);
         "machine_id is captured" {
             &["sku", "verify", TEST_MACHINE_ID][..] => Yields(TEST_MACHINE_ID.to_string()),
         }
@@ -191,13 +215,15 @@ fn parse_verify() {
 #[test]
 fn parse_update_metadata() {
     scenarios!(
-        run = |argv| match Cmd::try_parse_from(argv.iter().copied()) {
-            Ok(Cmd::UpdateMetadata(args)) => {
-                Ok((args.sku_id, args.description, args.device_type.is_none()))
-            }
-            Ok(_) => panic!("expected UpdateMetadata variant"),
-            Err(_) => Err(()),
-        };
+        run = |argv| parse_leaf::<Cmd>(argv, &["update-metadata"])
+            .map(|matches| {
+                (
+                    raw_value(&matches, "sku_id").expect("SKU ID is required"),
+                    raw_value(&matches, "description"),
+                    raw_value(&matches, "device_type").is_none(),
+                )
+            })
+            .map_err(drop);
         "sku_id and description captured, device_type unset" {
             &[
                 "sku",
@@ -214,11 +240,11 @@ fn parse_update_metadata() {
 #[test]
 fn parse_bulk_update_metadata() {
     scenarios!(
-        run = |argv| match Cmd::try_parse_from(argv.iter().copied()) {
-            Ok(Cmd::BulkUpdateMetadata(args)) => Ok(args.filename),
-            Ok(_) => panic!("expected BulkUpdateMetadata variant"),
-            Err(_) => Err(()),
-        };
+        run = |argv| parse_leaf::<Cmd>(argv, &["bulk-update-metadata"])
+            .map(|matches| {
+                raw_value(&matches, "filename").expect("filename is required")
+            })
+            .map_err(drop);
         "filename is captured" {
             &["sku", "bulk-update-metadata", "updates.csv"][..] => Yields("updates.csv".to_string()),
         }
@@ -229,11 +255,11 @@ fn parse_bulk_update_metadata() {
 #[test]
 fn parse_replace() {
     scenarios!(
-        run = |argv| match Cmd::try_parse_from(argv.iter().copied()) {
-            Ok(Cmd::Replace(args)) => Ok(args.inner.filename),
-            Ok(_) => panic!("expected Replace variant"),
-            Err(_) => Err(()),
-        };
+        run = |argv| parse_leaf::<Cmd>(argv, &["replace"])
+            .map(|matches| {
+                raw_value(&matches, "filename").expect("filename is required")
+            })
+            .map_err(drop);
         "filename is captured on inner" {
             &["sku", "replace", "sku.json"][..] => Yields("sku.json".to_string()),
         }

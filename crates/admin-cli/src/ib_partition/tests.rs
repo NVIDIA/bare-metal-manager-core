@@ -25,9 +25,11 @@
 
 use carbide_test_support::Outcome::*;
 use carbide_test_support::scenarios;
-use clap::{CommandFactory, Parser};
+use carbide_uuid::infiniband::IBPartitionId;
+use clap::CommandFactory;
 
 use super::*;
+use crate::test_support::{parse_leaf, raw_value};
 
 // verify_cmd_structure runs a baseline clap debug_assert()
 // to do basic command configuration checking and validation,
@@ -54,9 +56,13 @@ fn verify_cmd_structure() {
 fn parse_show_routes_to_show_variant() {
     scenarios!(
         run = |argv| {
-            Cmd::try_parse_from(argv.iter().copied())
-                .map(|cmd| match cmd {
-                    Cmd::Show(args) => (args.id.is_none(), args.tenant_org_id, args.name),
+            parse_leaf::<Cmd>(argv, &["show"])
+                .map(|matches| {
+                    (
+                        matches.get_one::<IBPartitionId>("id").is_none(),
+                        raw_value(&matches, "tenant_org_id"),
+                        raw_value(&matches, "name"),
+                    )
                 })
                 .map_err(drop)
         };

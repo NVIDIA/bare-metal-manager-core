@@ -214,7 +214,7 @@ impl From<forgerpc::GetMachineBootInterfacesResponse> for CandidatesReport {
     }
 }
 
-pub async fn handle_candidates(
+pub(super) async fn handle_candidates(
     args: Args,
     output_format: OutputFormat,
     api_client: &ApiClient,
@@ -370,7 +370,7 @@ fn render_candidates(report: &CandidatesReport) -> String {
                     out,
                     "Predicted pick:          none -- multiple predictions and none declared \
                      primary, so the system refuses to guess (declare one via the expected \
-                     machine's host_nics `primary`)"
+                     machine's `interfaces[].primary`)"
                 );
             }
         }
@@ -450,6 +450,7 @@ mod tests {
                 mac_address: "aa:bb:cc:00:00:09".to_string(),
                 interface_id: None,
             }),
+            reconciliation: None,
         }
     }
 

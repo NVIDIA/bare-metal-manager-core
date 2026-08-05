@@ -22,12 +22,15 @@ use chrono::Utc;
 use common::api_fixtures::{
     TestEnv, TestEnvOverrides, create_test_env, create_test_env_with_overrides, get_config,
 };
+use config_version::ConfigVersion;
 use db::{self};
 use futures_util::FutureExt;
 use mac_address::MacAddress;
 use model::machine::{
     CleanupContext, DpuInitState, HostReprovisionState, MachineState, ManagedHostState,
+    ReadyBootConfigState, SetBootOrderInfo, SetBootOrderState,
 };
+use model::machine_boot_interface::MachineBootInterfaceTarget;
 use model::test_support::ManagedHostConfig;
 use rpc::forge::CloudInitInstructionsRequest;
 use rpc::forge::forge_server::Forge;
@@ -343,6 +346,35 @@ async fn test_pxe_host(pool: sqlx::PgPool) {
 
     move_machine_to_needed_state(
         host_id,
+        &ManagedHostState::BootConfiguring {
+            desired_version: ConfigVersion::new(7),
+            desired_boot_interface: MachineBootInterfaceTarget::MacOnly(
+                "02:00:00:00:00:01".parse().unwrap(),
+            ),
+            post_lock_verification_retry_count: 0,
+            boot_config_state: ReadyBootConfigState::SetBootOrder {
+                set_boot_order_info: SetBootOrderInfo {
+                    set_boot_order_jid: None,
+                    set_boot_order_state: SetBootOrderState::SetBootOrder,
+                    retry_count: 0,
+                },
+            },
+        },
+        &env.pool,
+    )
+    .await;
+
+    let instructions = get_pxe_instructions(
+        &env,
+        host_interface_id,
+        rpc::forge::MachineArchitecture::X86,
+        None,
+    )
+    .await;
+    assert!(instructions.pxe_script.contains("x86_64/scout.efi"));
+
+    move_machine_to_needed_state(
+        host_id,
         &ManagedHostState::HostReprovision {
             reprovision_state: HostReprovisionState::WaitingForManualUpgrade {
                 manual_upgrade_started: Utc::now(),
@@ -449,6 +481,11 @@ async fn test_cloud_init_uses_configured_dpu_provisioning_values(pool: sqlx::PgP
     let mut config = get_config();
     config.dpu_config.num_of_vfs = 64;
     config.dpu_config.bootstrap_ca_source = BootstrapCaSource::Embedded;
+    config
+        .vmaas_config
+        .as_mut()
+        .expect("test config should include VMaaS settings")
+        .hbn_reps = Some("pf0hpf,pf0vf0,pf0vf2".to_string());
     let env = create_test_env_with_overrides(pool, TestEnvOverrides::with_config(config)).await;
 
     // Discover an unassigned interface so the API returns discovery instructions.
@@ -481,6 +518,10 @@ async fn test_cloud_init_uses_configured_dpu_provisioning_values(pool: sqlx::PgP
     let discovery_instructions = cloud_init_cfg
         .discovery_instructions
         .expect("expected discovery instructions");
+    assert_eq!(
+        discovery_instructions.hbn_reps.as_deref(),
+        Some("pf0hpf,pf0vf0,pf0vf2")
+    );
     assert_eq!(discovery_instructions.num_of_vfs, Some(64));
     assert_eq!(
         discovery_instructions.bootstrap_ca_source,

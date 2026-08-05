@@ -188,6 +188,41 @@ spec:
                 format: int32
                 minimum: 1
                 type: integer
+              bmcServerCertificate:
+                description: BMCServerCertificate reports the BMC mTLS server certificate
+                  rotation state.
+                properties:
+                  lastRotationTime:
+                    description: LastRotationTime is the time DPF last successfully
+                      rotated the certificate.
+                    format: date-time
+                    type: string
+                  notAfter:
+                    description: |-
+                      NotAfter is the expiry time of the certificate currently installed. It is taken
+                      from the issued certificate at rotation time.
+                    format: date-time
+                    type: string
+                  observedManualTrigger:
+                    description: |-
+                      ObservedManualTrigger records the value of the manual rotation annotation that
+                      was last honored, so the same trigger is not processed twice.
+                    type: string
+                type: object
+              caTrustBundle:
+                description: CATrustBundle stores trust bundle reconciliation progress
+                  for the DPUDevice.
+                properties:
+                  lastUpdateTime:
+                    description: LastUpdateTime is when the last successful reconciliation
+                      completed.
+                    format: date-time
+                    type: string
+                  observedBundleHash:
+                    description: ObservedBundleHash records the last successfully
+                      applied bundle hash.
+                    type: string
+                type: object
               conditions:
                 items:
                   description: Condition contains details for one aspect of the current

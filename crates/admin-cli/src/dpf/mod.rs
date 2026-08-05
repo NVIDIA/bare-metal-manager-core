@@ -15,7 +15,7 @@
  * limitations under the License.
  */
 
-pub mod common;
+mod common;
 mod disable;
 mod enable;
 mod service_version;
@@ -27,7 +27,7 @@ use clap::Parser;
 use crate::cfg::dispatch::Dispatch;
 
 #[derive(Parser, Debug, Dispatch)]
-pub enum Cmd {
+pub(crate) enum Cmd {
     #[clap(about = "Enable DPF")]
     Enable(enable::Args),
     #[clap(about = "Disable DPF")]

@@ -306,7 +306,7 @@ async fn handle_overlay_vpc_prefix_creation(
     Ok(())
 }
 
-pub async fn apply_devenv_config(
+pub(super) async fn apply_devenv_config(
     config: Args,
     api_client: &ApiClient,
 ) -> Result<(), CarbideCliError> {

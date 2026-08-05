@@ -50,6 +50,7 @@ use carbide_power_shelf_controller::io::PowerShelfStateControllerIO;
 use carbide_rack::rms_client::test_support::RmsSim;
 use carbide_rack_controller::config::RackConfig;
 use carbide_rack_controller::context::RackStateHandlerServices;
+use carbide_rack_controller::firmware_object::FirmwareObjectFetcher;
 use carbide_rack_controller::handler::RackStateHandler;
 use carbide_rack_controller::io::RackStateControllerIO;
 use carbide_redfish::libredfish::test_support::{RedfishSim, RedfishSimTestOverrides};
@@ -183,6 +184,10 @@ pub struct TestEnvOverrides {
     pub compute_allocation_enforcement: Option<ComputeAllocationEnforcement>,
     pub nmxc_simulator: Option<bool>,
     pub redfish_overrides: Option<RedfishOverrides>,
+
+    /// Optional firmware-object fetcher injected into the rack state handler.
+    pub firmware_object_fetcher: Option<Arc<dyn FirmwareObjectFetcher>>,
+
     pub nras_should_fail_parsing: Option<Arc<AtomicBool>>,
     pub vpc_prefixes_drain_period: Option<chrono::Duration>,
     pub dhcp_lease_expiry_handling: Option<bool>,
@@ -218,29 +223,17 @@ impl TestEnvOverrides {
                     (
                         "EXTERNAL".to_string(),
                         crate::cfg::file::FnnRoutingProfileConfig {
-                            access_tier: 2,
-                            internal: false,
-                            route_target_imports: vec![],
-                            route_targets_on_exports: vec![],
-                            leak_default_route_from_underlay: false,
-                            leak_tenant_host_routes_to_underlay: false,
-                            tenant_leak_communities_accepted: false,
-                            accepted_leaks_from_underlay: vec![],
-                            allowed_anycast_prefixes: vec![],
+                            access_tier: Some(2),
+                            internal: Some(false),
+                            ..Default::default()
                         },
                     ),
                     (
                         "INTERNAL".to_string(),
                         crate::cfg::file::FnnRoutingProfileConfig {
-                            access_tier: 1,
-                            internal: true,
-                            route_target_imports: vec![],
-                            route_targets_on_exports: vec![],
-                            leak_default_route_from_underlay: false,
-                            leak_tenant_host_routes_to_underlay: false,
-                            tenant_leak_communities_accepted: false,
-                            accepted_leaks_from_underlay: vec![],
-                            allowed_anycast_prefixes: vec![],
+                            access_tier: Some(1),
+                            internal: Some(true),
+                            ..Default::default()
                         },
                     ),
                 ]),
@@ -306,6 +299,10 @@ pub struct TestEnv {
     pub test_credential_manager: Arc<TestCredentialManager>,
     pub rms_sim: Arc<RmsSim>,
     pub test_component_manager: Option<Arc<component_manager::component_manager::ComponentManager>>,
+
+    /// Firmware-object fetcher used by this environment's rack state handler.
+    pub firmware_object_fetcher: Arc<dyn FirmwareObjectFetcher>,
+
     pub drop_guard: DropGuard,
     // Background tasks are spawned here, hold it so they don't get dropped.
     pub join_set: JoinSet<()>,
@@ -338,6 +335,15 @@ impl TestEnv {
             site_config: self.config.machine_state_handler_site_config().into(),
             component_manager: self.test_component_manager.clone(),
             credential_manager: self.test_credential_manager.clone(),
+            bmc_rotation_gate: carbide_credential_rotation::RotationGate::new_for_family(
+                db::credential_rotation::CredentialRotationType::Bmc,
+            ),
+            host_uefi_rotation_gate: carbide_credential_rotation::RotationGate::new_for_family(
+                db::credential_rotation::CredentialRotationType::HostUefi,
+            ),
+            dpu_uefi_rotation_gate: carbide_credential_rotation::RotationGate::new_for_family(
+                db::credential_rotation::CredentialRotationType::DpuUefi,
+            ),
             per_object_metrics_registry: self.per_object_metrics_registry(),
             per_object_info: None,
         }
@@ -376,6 +382,7 @@ impl TestEnv {
                 component_manager::config::switch_mtls_services_as_i32(
                     &component_manager::config::effective_nmx_cluster_switch_mtls_services(&[]),
                 ),
+            firmware_object_fetcher: self.firmware_object_fetcher.clone(),
             per_object_metrics_registry: self.per_object_metrics_registry(),
         }
     }
@@ -423,6 +430,7 @@ impl TestEnv {
                 ManagedHostState::HostInit { machine_state: mc }
             }
             ManagedHostState::Ready => state.clone(),
+            ManagedHostState::BootConfiguring { .. } => state.clone(),
             ManagedHostState::Maintenance { .. } => state.clone(),
             ManagedHostState::Assigned { .. } => state.clone(),
             ManagedHostState::WaitingForCleanup { .. } => state.clone(),
@@ -447,6 +455,9 @@ impl TestEnv {
             ManagedHostState::PreAssignedMeasuring { .. } => state.clone(),
             ManagedHostState::StartAssignmentCycle => state.clone(),
             ManagedHostState::HostReprovision { .. } => state.clone(),
+            ManagedHostState::RotatingBmc { .. } => state.clone(),
+            ManagedHostState::RotatingHostUefi { .. } => state.clone(),
+            ManagedHostState::RotatingDpuUefi { .. } => state.clone(),
             ManagedHostState::BomValidating { .. } => state.clone(),
             ManagedHostState::Validation { validation_state } => match validation_state {
                 ValidationState::MachineValidation { machine_validation } => {
@@ -1262,6 +1273,11 @@ pub async fn create_test_env_with_overrides(
     let test_meter = TestMeter::default();
     let credential_manager = Arc::new(TestCredentialManager::default());
 
+    let firmware_object_fetcher = overrides
+        .firmware_object_fetcher
+        .clone()
+        .unwrap_or_else(|| Arc::new(reqwest::Client::new()));
+
     let chained_reader = ChainedCredentialReader::from(vec![
         Box::new(test_static_credential_snapshot()) as Box<dyn CredentialReader>,
         Box::new(credential_manager.clone()),
@@ -1551,6 +1567,15 @@ pub async fn create_test_env_with_overrides(
                 site_config: config.machine_state_handler_site_config().into(),
                 component_manager: test_component_manager.clone(),
                 credential_manager: credential_manager.clone(),
+                bmc_rotation_gate: carbide_credential_rotation::RotationGate::new_for_family(
+                    db::credential_rotation::CredentialRotationType::Bmc,
+                ),
+                host_uefi_rotation_gate: carbide_credential_rotation::RotationGate::new_for_family(
+                    db::credential_rotation::CredentialRotationType::HostUefi,
+                ),
+                dpu_uefi_rotation_gate: carbide_credential_rotation::RotationGate::new_for_family(
+                    db::credential_rotation::CredentialRotationType::DpuUefi,
+                ),
                 per_object_metrics_registry: per_object_metrics_registry.clone(),
                 per_object_info: None,
             }
@@ -1659,6 +1684,11 @@ pub async fn create_test_env_with_overrides(
                 credential_manager: credential_manager.clone(),
                 per_object_metrics_registry: per_object_metrics_registry.clone(),
                 rack_firmware_reprovisioning_enabled: false,
+                redfish_client_pool: redfish_sim.clone(),
+                bmc_rotation_gate: carbide_credential_rotation::RotationGate::new_for_family(
+                    db::credential_rotation::CredentialRotationType::Bmc,
+                ),
+                bmc_rotation_enabled: false,
             }
             .into(),
         )
@@ -1679,6 +1709,11 @@ pub async fn create_test_env_with_overrides(
                     &component_manager::config::effective_switch_mtls_services(&[]),
                 ),
                 per_object_metrics_registry: per_object_metrics_registry.clone(),
+                redfish_client_pool: redfish_sim.clone(),
+                bmc_rotation_gate: carbide_credential_rotation::RotationGate::new_for_family(
+                    db::credential_rotation::CredentialRotationType::Bmc,
+                ),
+                bmc_rotation_enabled: false,
             }
             .into(),
         )
@@ -1707,6 +1742,7 @@ pub async fn create_test_env_with_overrides(
                     component_manager::config::switch_mtls_services_as_i32(
                         &component_manager::config::effective_nmx_cluster_switch_mtls_services(&[]),
                     ),
+                firmware_object_fetcher: firmware_object_fetcher.clone(),
                 per_object_metrics_registry: per_object_metrics_registry.clone(),
             }
             .into(),
@@ -1736,7 +1772,6 @@ pub async fn create_test_env_with_overrides(
             allow_changing_bmc_proxy: None,
             reset_rate_limit: Duration::hours(1),
             admin_segment_type_non_dpu: Arc::new(false.into()),
-            allocate_secondary_vtep_ip: true,
             create_power_shelves: Arc::new(true.into()),
             power_shelves_created_per_run: 1,
             create_switches: Arc::new(true.into()),
@@ -1851,6 +1886,7 @@ pub async fn create_test_env_with_overrides(
         test_credential_manager: credential_manager.clone(),
         rms_sim,
         test_component_manager,
+        firmware_object_fetcher,
         drop_guard: cancel_token.drop_guard(),
         join_set,
     }
@@ -2150,15 +2186,6 @@ fn pool_defs(fabric_len: u8) -> HashMap<String, resource_pool::ResourcePoolDef> 
                 auto_assign: true,
             }],
             prefix: None,
-            delegate_prefix_len: None,
-        },
-    );
-    defs.insert(
-        resource_pool::common::SECONDARY_VTEP_IP.to_string(),
-        resource_pool::ResourcePoolDef {
-            pool_type: resource_pool::ResourcePoolType::Ipv4,
-            prefix: Some("172.30.0.0/24".to_string()),
-            ranges: vec![],
             delegate_prefix_len: None,
         },
     );

@@ -327,7 +327,7 @@ impl EndpointExplorationReport {
     /// The boot interface MAC for this endpoint's explored default -- the boot
     /// interface site-explorer records before any machine owns the endpoint.
     ///
-    /// A declared `ExpectedHostNic.primary` wins when this report has that NIC
+    /// A declared `ExpectedInterface.primary` wins when this report has that NIC
     /// as a full pair -- its MAC present on a system ethernet interface with a
     /// non-empty Redfish interface id -- whatever its type (an integrated NIC as
     /// readily as a DPU host-PF), so the explored default agrees with the managed

@@ -21,11 +21,11 @@
 // in `main.rs`, which calls `redfish::action` directly. Those traits carry a
 // `RuntimeContext` redfish never has, so it stays a plain `action` fn rather
 // than implementing them. Please don't "realign" it onto the traits.
-pub mod args;
-pub mod cmds;
+mod args;
+mod cmds;
 
 #[cfg(test)]
 mod tests;
 
-pub use args::RedfishAction;
-pub use cmds::action;
+pub(crate) use args::RedfishAction;
+pub(crate) use cmds::action;

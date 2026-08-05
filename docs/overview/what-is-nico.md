@@ -84,7 +84,7 @@ For a deeper look at each component and the state machine design, see [Architect
 
 NICo sits below Kubernetes and platform layers. It exposes REST and gRPC APIs that higher-level systems — BMaaS, VMaaS, orchestration engines, ISV control planes — can consume directly. It does not dictate how scheduling, tenancy policy, or workloads are managed above it.
 
-```
+```text
 ┌─────────────────────────────────────┐
 │   ISV / NCP Control Plane           │
 ├─────────────────────────────────────┤

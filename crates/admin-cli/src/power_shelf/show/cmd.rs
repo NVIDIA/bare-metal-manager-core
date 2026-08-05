@@ -28,10 +28,7 @@ use crate::cfg::runtime::RuntimeConfig;
 use crate::errors::CarbideCliResult;
 use crate::rpc::ApiClient;
 
-pub fn show_power_shelves(
-    power_shelves: Vec<PowerShelf>,
-    output_format: OutputFormat,
-) -> Result<()> {
+fn show_power_shelves(power_shelves: Vec<PowerShelf>, output_format: OutputFormat) -> Result<()> {
     let build_table = |shelves: &[PowerShelf]| -> Table {
         let mut table = Table::new();
         table.set_titles(row![
@@ -135,7 +132,7 @@ pub fn show_power_shelves(
     Ok(())
 }
 
-pub async fn handle_show(
+pub(super) async fn handle_show(
     args: Args,
     api_client: &ApiClient,
     config: &RuntimeConfig,

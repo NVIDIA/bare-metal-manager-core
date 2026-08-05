@@ -38,7 +38,8 @@ use itertools::Itertools;
 use mac_address::MacAddress;
 use model::allocation_type::AllocationType;
 use model::expected_machine::{
-    ExpectedHostNic, ExpectedInterfaceIpAllocation, ExpectedInterfaceRole,
+    BmcIpAllocationType, ExpectedInterface, ExpectedInterfaceIpAllocation, ExpectedInterfaceRole,
+    ExpectedMachine, ExpectedMachineData,
 };
 use model::machine_interface::InterfaceType;
 use model::network_segment::NetworkSegmentType;
@@ -519,7 +520,7 @@ async fn test_machine_dhcp_declared_admin_nic_allocates_from_relay_admin_segment
             bmc_username: "ADMIN".into(),
             bmc_password: "PASS".into(),
             chassis_serial_number: "EM-ADMIN-RELAY-001".into(),
-            host_nics: vec![rpc::forge::ExpectedHostNic {
+            host_nics: vec![rpc::forge::ExpectedInterface {
                 network_segment_type: None,
                 mac_address: admin_nic_mac.to_string(),
                 nic_type: Some("onboard".into()),
@@ -595,7 +596,7 @@ async fn test_machine_dhcp_declared_segment_type_allocates_from_relay_admin_segm
             bmc_username: "ADMIN".into(),
             bmc_password: "PASS".into(),
             chassis_serial_number: "EM-ADMIN-TYPED-001".into(),
-            host_nics: vec![rpc::forge::ExpectedHostNic {
+            host_nics: vec![rpc::forge::ExpectedInterface {
                 mac_address: admin_nic_mac.to_string(),
                 network_segment_type: Some(rpc::forge::NetworkSegmentType::Admin as i32),
                 primary: Some(true),
@@ -650,7 +651,7 @@ async fn test_expected_interface_roles_and_policies_flow_through_dhcp_and_site_e
             bmc_password: "PASS".into(),
             chassis_serial_number: "EM-DPU-EXPECTED-INTERFACES-001".into(),
             host_nics: vec![
-                rpc::forge::ExpectedHostNic {
+                rpc::forge::ExpectedInterface {
                     mac_address: host_mac.to_string(),
                     network_segment_type: Some(rpc::forge::NetworkSegmentType::Underlay as i32),
                     role: Some(rpc::forge::ExpectedInterfaceRole::Host as i32),
@@ -658,17 +659,24 @@ async fn test_expected_interface_roles_and_policies_flow_through_dhcp_and_site_e
                     primary: Some(true),
                     ..Default::default()
                 },
-                rpc::forge::ExpectedHostNic {
+                rpc::forge::ExpectedInterface {
                     mac_address: dpu_os_mac.to_string(),
                     network_segment_type: Some(rpc::forge::NetworkSegmentType::Underlay as i32),
                     role: Some(rpc::forge::ExpectedInterfaceRole::DpuOs as i32),
                     ip_allocation: Some(rpc::forge::ExpectedInterfaceIpAllocation::Dynamic as i32),
                     ..Default::default()
                 },
-                rpc::forge::ExpectedHostNic {
+                rpc::forge::ExpectedInterface {
                     mac_address: dpu_bmc_mac.to_string(),
                     network_segment_type: Some(rpc::forge::NetworkSegmentType::Underlay as i32),
                     role: Some(rpc::forge::ExpectedInterfaceRole::DpuBmc as i32),
+                    ip_allocation: Some(rpc::forge::ExpectedInterfaceIpAllocation::Retained as i32),
+                    ..Default::default()
+                },
+                rpc::forge::ExpectedInterface {
+                    mac_address: expected_bmc_mac.to_string(),
+                    network_segment_type: Some(rpc::forge::NetworkSegmentType::Underlay as i32),
+                    role: Some(rpc::forge::ExpectedInterfaceRole::HostBmc as i32),
                     ip_allocation: Some(rpc::forge::ExpectedInterfaceIpAllocation::Retained as i32),
                     ..Default::default()
                 },
@@ -677,9 +685,9 @@ async fn test_expected_interface_roles_and_policies_flow_through_dhcp_and_site_e
         }))
         .await?;
 
-    // The machine-wide primary declaration belongs only to the Host role. DPU
-    // OS and DPU BMC still derive their primary settings from their roles even
-    // when the same ExpectedMachine also declares a primary Host interface.
+    // The machine-wide primary declaration belongs only to the Host role.
+    // DPU OS and BMC interfaces still derive their primary settings from their
+    // roles when the same ExpectedMachine declares a primary Host interface.
     struct Case {
         name: &'static str,
         mac_address: MacAddress,
@@ -721,6 +729,14 @@ async fn test_expected_interface_roles_and_policies_flow_through_dhcp_and_site_e
             interface_type: InterfaceType::Bmc,
             primary: false,
         },
+        Case {
+            name: "Host BMC retained",
+            mac_address: expected_bmc_mac,
+            role: ExpectedInterfaceRole::HostBmc,
+            policy: ExpectedInterfaceIpAllocation::Retained,
+            interface_type: InterfaceType::Bmc,
+            primary: false,
+        },
     ] {
         let response = env
             .api
@@ -751,7 +767,7 @@ async fn test_expected_interface_roles_and_policies_flow_through_dhcp_and_site_e
 
         carbide_site_explorer::try_apply_expected_interface(
             &pool,
-            &ExpectedHostNic {
+            &ExpectedInterface {
                 mac_address,
                 role,
                 ip_allocation: Some(policy),
@@ -777,6 +793,94 @@ async fn test_expected_interface_roles_and_policies_flow_through_dhcp_and_site_e
             "case: {name}",
         );
     }
+
+    Ok(())
+}
+
+/// The top-level BMC alternate key wins over a stale nested declaration that
+/// happens to reuse the same MAC.
+#[crate::sqlx_test]
+async fn test_host_bmc_identity_wins_expected_interface_mac_lookup(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = create_test_env(pool.clone()).await;
+    let bmc_mac: MacAddress = "7A:7B:7C:7D:7E:35".parse()?;
+
+    // Write the conflicting legacy shape directly. Current API validation
+    // rejects this input, but an existing row may predate the HostBmc role.
+    let mut txn = pool.begin().await?;
+    db::expected_machine::create(
+        &mut txn,
+        ExpectedMachine {
+            id: None,
+            bmc_mac_address: bmc_mac,
+            data: ExpectedMachineData {
+                bmc_username: "ADMIN".into(),
+                bmc_password: "PASS".into(),
+                serial_number: "EM-HOST-BMC-LOOKUP-001".into(),
+                bmc_ip_allocation: BmcIpAllocationType::Dynamic,
+                interfaces: vec![ExpectedInterface {
+                    mac_address: bmc_mac,
+                    role: ExpectedInterfaceRole::Host,
+                    ip_allocation: Some(ExpectedInterfaceIpAllocation::Dynamic),
+                    network_segment_type: Some(NetworkSegmentType::Underlay),
+                    ..Default::default()
+                }],
+                ..Default::default()
+            },
+        },
+    )
+    .await?;
+    txn.commit().await?;
+
+    // Existing conflicting rows remain updatable so introducing HostBmc does
+    // not turn an unrelated read-modify-write into a breaking change.
+    env.api
+        .update_expected_machine(tonic::Request::new(rpc::forge::ExpectedMachine {
+            bmc_mac_address: bmc_mac.to_string(),
+            bmc_username: "UPDATED_ADMIN".into(),
+            bmc_password: "PASS".into(),
+            chassis_serial_number: "EM-HOST-BMC-LOOKUP-001".into(),
+            bmc_ip_allocation: Some(rpc::forge::BmcIpAllocationType::Dynamic as i32),
+            host_nics: vec![rpc::forge::ExpectedInterface {
+                mac_address: bmc_mac.to_string(),
+                role: Some(rpc::forge::ExpectedInterfaceRole::Host as i32),
+                ip_allocation: Some(rpc::forge::ExpectedInterfaceIpAllocation::Dynamic as i32),
+                network_segment_type: Some(rpc::forge::NetworkSegmentType::Underlay as i32),
+                ..Default::default()
+            }],
+            ..Default::default()
+        }))
+        .await?;
+
+    let mut txn = pool.begin().await?;
+    let stored = db::expected_machine::find_by_bmc_mac_address(&mut *txn, bmc_mac)
+        .await?
+        .expect("expected machine should exist");
+    txn.rollback().await?;
+    assert!(
+        stored.data.interfaces.iter().any(|interface| {
+            interface.mac_address == bmc_mac && interface.role == ExpectedInterfaceRole::Host
+        }),
+        "the legacy conflicting Host declaration should survive the update",
+    );
+
+    let response = env
+        .api
+        .discover_dhcp(
+            DhcpDiscovery::builder(bmc_mac, FIXTURE_UNDERLAY_NETWORK_SEGMENT_GATEWAY.ip())
+                .tonic_request(),
+        )
+        .await?
+        .into_inner();
+    let interface_id = response
+        .machine_interface_id
+        .expect("DHCP response should identify the Host BMC interface");
+
+    let mut txn = pool.begin().await?;
+    let interface = db::machine_interface::find_one(&mut *txn, interface_id).await?;
+    assert_eq!(interface.interface_type, InterfaceType::Bmc);
+    assert!(!interface.primary_interface);
 
     Ok(())
 }
@@ -1594,7 +1698,7 @@ async fn test_dhcp_v6_solicit_exact_link_preserves_legacy_typed_segment_behavior
             bmc_username: "ADMIN".into(),
             bmc_password: "PASS".into(),
             chassis_serial_number: "EM-DHCPV6-EXACT-TYPE-001".into(),
-            host_nics: vec![rpc::forge::ExpectedHostNic {
+            host_nics: vec![rpc::forge::ExpectedInterface {
                 mac_address: host_mac.to_string(),
                 network_segment_type: Some(rpc::forge::NetworkSegmentType::Admin as i32),
                 primary: Some(true),
@@ -1664,7 +1768,7 @@ async fn test_dhcp_v6_info_request_exact_link_preserves_legacy_typed_segment_beh
             bmc_username: "ADMIN".into(),
             bmc_password: "PASS".into(),
             chassis_serial_number: "EM-DHCPV6-INFO-EXACT-TYPE-001".into(),
-            host_nics: vec![rpc::forge::ExpectedHostNic {
+            host_nics: vec![rpc::forge::ExpectedInterface {
                 mac_address: host_mac.to_string(),
                 network_segment_type: Some(rpc::forge::NetworkSegmentType::Admin as i32),
                 primary: Some(true),
@@ -1791,7 +1895,7 @@ async fn test_dhcp_v6_exact_link_honors_expected_segment_type_guard(
                 bmc_username: "ADMIN".into(),
                 bmc_password: "PASS".into(),
                 chassis_serial_number: format!("DHCP6-{}-GUARD", case.name),
-                host_nics: vec![rpc::forge::ExpectedHostNic {
+                host_nics: vec![rpc::forge::ExpectedInterface {
                     mac_address: host_mac.to_string(),
                     network_segment_type: Some(rpc::forge::NetworkSegmentType::Admin as i32),
                     ip_allocation: Some(rpc::forge::ExpectedInterfaceIpAllocation::Dynamic as i32),
@@ -2046,7 +2150,7 @@ async fn test_dhcp_v6_info_request_materializes_fixed_reservation(
             bmc_username: "ADMIN".into(),
             bmc_password: "PASS".into(),
             chassis_serial_number: "EM-DHCPV6-FIXED-001".into(),
-            host_nics: vec![rpc::forge::ExpectedHostNic {
+            host_nics: vec![rpc::forge::ExpectedInterface {
                 network_segment_type: None,
                 mac_address: mac.to_string(),
                 nic_type: Some("onboard".into()),
@@ -2130,7 +2234,7 @@ async fn test_dhcp_v6_fixed_reservation_restores_domain_after_v4_expiration(
             bmc_username: "ADMIN".into(),
             bmc_password: "PASS".into(),
             chassis_serial_number: "EM-DHCPV6-FIXED-EXPIRED-001".into(),
-            host_nics: vec![rpc::forge::ExpectedHostNic {
+            host_nics: vec![rpc::forge::ExpectedInterface {
                 network_segment_type: None,
                 mac_address: mac.to_string(),
                 nic_type: Some("onboard".into()),
@@ -2194,7 +2298,7 @@ async fn test_dhcp_v6_info_request_materializes_fixed_reservation_on_reserved_no
             bmc_username: "ADMIN".into(),
             bmc_password: "PASS".into(),
             chassis_serial_number: "EM-DHCPV6-FIXED-RESERVED-001".into(),
-            host_nics: vec![rpc::forge::ExpectedHostNic {
+            host_nics: vec![rpc::forge::ExpectedInterface {
                 network_segment_type: None,
                 mac_address: mac.to_string(),
                 nic_type: Some("onboard".into()),
@@ -2262,7 +2366,7 @@ async fn test_dhcp_v6_info_request_on_reserved_segment_returns_options_only_with
             bmc_username: "ADMIN".into(),
             bmc_password: "PASS".into(),
             chassis_serial_number: "EM-DHCPV6-RESERVED-OPTIONS-001".into(),
-            host_nics: vec![rpc::forge::ExpectedHostNic {
+            host_nics: vec![rpc::forge::ExpectedInterface {
                 mac_address: expected_mac.to_string(),
                 ..Default::default()
             }],

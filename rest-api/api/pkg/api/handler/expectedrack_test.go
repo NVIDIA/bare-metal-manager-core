@@ -844,7 +844,7 @@ func TestUpdateExpectedRackHandler_Handle(t *testing.T) {
 	assert.Nil(t, err)
 	assert.NotNil(t, testER2)
 
-	// A third ExpectedRack to anchor the duplicate-rack-id update test
+	// A third ExpectedRack to anchor the rack_id rename-rejection test
 	testER3, err := erDAO.Create(ctx, nil, cdbm.ExpectedRackCreateInput{
 		ExpectedRackID: uuid.New(),
 		RackID:         "update-rack-003",
@@ -894,11 +894,12 @@ func TestUpdateExpectedRackHandler_Handle(t *testing.T) {
 	}
 
 	tests := []struct {
-		name           string
-		id             string
-		requestBody    model.APIExpectedRackUpdateRequest
-		setupContext   func(c echo.Context)
-		expectedStatus int
+		name                 string
+		id                   string
+		requestBody          model.APIExpectedRackUpdateRequest
+		setupContext         func(c echo.Context)
+		expectedStatus       int
+		checkResponseContent func(t *testing.T, body []byte)
 	}{
 		{
 			name: "successful update of rack_profile_id",
@@ -932,7 +933,7 @@ func TestUpdateExpectedRackHandler_Handle(t *testing.T) {
 			expectedStatus: http.StatusOK,
 		},
 		{
-			name: "successful update of rack_id (operator-supplied identifier)",
+			name: "rack_id cannot be changed (immutable)",
 			id:   testER3.ID.String(),
 			requestBody: model.APIExpectedRackUpdateRequest{
 				RackID: cutil.GetPtr("update-rack-003-renamed"),
@@ -942,13 +943,17 @@ func TestUpdateExpectedRackHandler_Handle(t *testing.T) {
 				c.SetParamNames("orgName", "id")
 				c.SetParamValues(org, testER3.ID.String())
 			},
-			expectedStatus: http.StatusOK,
+			expectedStatus: http.StatusBadRequest,
+			checkResponseContent: func(t *testing.T, body []byte) {
+				assert.Contains(t, string(body), "RackID cannot be changed after creation")
+			},
 		},
 		{
-			name: "duplicate (siteId, rackId) on update should return 409",
+			name: "rack_id cannot be changed even to an existing value",
 			id:   testER3.ID.String(),
 			requestBody: model.APIExpectedRackUpdateRequest{
-				// testER's RackID is already taken in this site
+				// testER's RackID is already taken in this site, but the rename
+				// is rejected as immutable before any duplicate check.
 				RackID: cutil.GetPtr("update-rack-001"),
 			},
 			setupContext: func(c echo.Context) {
@@ -956,7 +961,31 @@ func TestUpdateExpectedRackHandler_Handle(t *testing.T) {
 				c.SetParamNames("orgName", "id")
 				c.SetParamValues(org, testER3.ID.String())
 			},
-			expectedStatus: http.StatusConflict,
+			expectedStatus: http.StatusBadRequest,
+			checkResponseContent: func(t *testing.T, body []byte) {
+				assert.Contains(t, string(body), "RackID cannot be changed after creation")
+			},
+		},
+		{
+			name: "identical rack_id remains compatible",
+			id:   testER2.ID.String(),
+			requestBody: model.APIExpectedRackUpdateRequest{
+				RackID:        cutil.GetPtr("update-rack-002"),
+				RackProfileID: cutil.GetPtr("profile-update-identical-rack-id"),
+			},
+			setupContext: func(c echo.Context) {
+				c.Set("user", createMockUser(org))
+				c.SetParamNames("orgName", "id")
+				c.SetParamValues(org, testER2.ID.String())
+			},
+			expectedStatus: http.StatusOK,
+			checkResponseContent: func(t *testing.T, body []byte) {
+				var response model.APIExpectedRack
+				err := json.Unmarshal(body, &response)
+				assert.Nil(t, err)
+				assert.Equal(t, "update-rack-002", response.RackID,
+					"reasserting the identity must preserve the stored rackId")
+			},
 		},
 		{
 			name: "body ID mismatch with URL should return 400",
@@ -1013,6 +1042,22 @@ func TestUpdateExpectedRackHandler_Handle(t *testing.T) {
 			expectedStatus: http.StatusForbidden,
 		},
 		{
+			name: "site access is checked before rack_id identity",
+			id:   unmanagedER.ID.String(),
+			requestBody: model.APIExpectedRackUpdateRequest{
+				RackID: cutil.GetPtr("update-rack-unmanaged-renamed"),
+			},
+			setupContext: func(c echo.Context) {
+				c.Set("user", createMockUser(org))
+				c.SetParamNames("orgName", "id")
+				c.SetParamValues(org, unmanagedER.ID.String())
+			},
+			expectedStatus: http.StatusForbidden,
+			checkResponseContent: func(t *testing.T, body []byte) {
+				assert.NotContains(t, string(body), "RackID cannot be changed after creation")
+			},
+		},
+		{
 			name: "rack not found",
 			id:   "12345678-1234-1234-1234-123456789099",
 			requestBody: model.APIExpectedRackUpdateRequest{
@@ -1050,8 +1095,127 @@ func TestUpdateExpectedRackHandler_Handle(t *testing.T) {
 			if tt.expectedStatus != rec.Code {
 				t.Errorf("Response: %v", rec.Body.String())
 			}
+			if tt.checkResponseContent != nil {
+				tt.checkResponseContent(t, rec.Body.Bytes())
+			}
 		})
 	}
+}
+
+// TestUpdateExpectedRackHandler_RackIDImmutable verifies that changing an
+// ExpectedRack's rackId is rejected before any database mutation or workflow
+// trigger, so Cloud, Core, and Flow can never hold different rack IDs for the
+// same ExpectedRack. Omitted or identical rackId values remain compatible.
+func TestUpdateExpectedRackHandler_RackIDImmutable(t *testing.T) {
+	e := echo.New()
+	dbSession := testExpectedRackInitDB(t)
+	defer dbSession.Close()
+
+	ctx := context.Background()
+	cfg := common.GetTestConfig()
+
+	tcfg, _ := cfg.GetTemporalConfig()
+	scp := sc.NewClientPool(tcfg)
+
+	org := "test-org"
+	_, site, _ := testExpectedRackSetupTestData(t, dbSession, org)
+
+	dbUser := &cdbm.User{
+		ID:          uuid.New(),
+		StarfleetID: cutil.GetPtr("test-user"),
+	}
+	_, err := dbSession.DB.NewInsert().Model(dbUser).Exec(ctx)
+	assert.Nil(t, err)
+
+	erDAO := cdbm.NewExpectedRackDAO(dbSession)
+	rack, err := erDAO.Create(ctx, nil, cdbm.ExpectedRackCreateInput{
+		ExpectedRackID: uuid.New(),
+		RackID:         "immutable-rack-001",
+		SiteID:         site.ID,
+		RackProfileID:  "profile-original",
+		CreatedBy:      dbUser.ID,
+	})
+	assert.Nil(t, err)
+	assert.NotNil(t, rack)
+
+	mockTemporalClient := &tmocks.Client{}
+	mockWorkflowRun := &tmocks.WorkflowRun{}
+	mockWorkflowRun.On("GetID").Return("test-workflow-id")
+	mockWorkflowRun.Mock.On("Get", mock.Anything, mock.Anything).Return(nil)
+	mockTemporalClient.Mock.On("ExecuteWorkflow", mock.Anything, mock.Anything, "UpdateExpectedRack", mock.Anything).Return(mockWorkflowRun, nil)
+	scp.IDClientMap[site.ID.String()] = mockTemporalClient
+
+	handler := NewUpdateExpectedRackHandler(dbSession, scp, cfg)
+
+	createMockUser := func() *cdbm.User {
+		return &cdbm.User{
+			ID:          dbUser.ID,
+			StarfleetID: cutil.GetPtr("test-user"),
+			OrgData: cdbm.OrgData{
+				org: cdbm.Org{
+					ID:          123,
+					Name:        org,
+					DisplayName: org,
+					OrgType:     "ENTERPRISE",
+					Roles:       []string{"FORGE_PROVIDER_ADMIN"},
+				},
+			},
+		}
+	}
+
+	patch := func(body model.APIExpectedRackUpdateRequest) *httptest.ResponseRecorder {
+		reqBody, _ := json.Marshal(body)
+		req := httptest.NewRequest(http.MethodPatch, "/v2/org/"+org+"/expected-rack/"+rack.ID.String(), bytes.NewReader(reqBody))
+		req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+		req = req.WithContext(context.Background())
+
+		rec := httptest.NewRecorder()
+		c := e.NewContext(req, rec)
+		c.Set("user", createMockUser())
+		c.SetParamNames("orgName", "id")
+		c.SetParamValues(org, rack.ID.String())
+
+		err := handler.Handle(c)
+		assert.Nil(t, err)
+		return rec
+	}
+
+	getRackID := func() string {
+		current, err := erDAO.Get(ctx, nil, rack.ID, nil, false)
+		assert.Nil(t, err)
+		return current.RackID
+	}
+
+	t.Run("changing rack_id is rejected without mutation or workflow", func(t *testing.T) {
+		rec := patch(model.APIExpectedRackUpdateRequest{
+			RackID:        cutil.GetPtr("immutable-rack-renamed"),
+			RackProfileID: cutil.GetPtr("profile-renamed"),
+		})
+
+		assert.Equal(t, http.StatusBadRequest, rec.Code)
+		assert.Contains(t, rec.Body.String(), "RackID cannot be changed after creation")
+		assert.Equal(t, "immutable-rack-001", getRackID())
+		mockTemporalClient.AssertNotCalled(t, "ExecuteWorkflow", mock.Anything, mock.Anything, "UpdateExpectedRack", mock.Anything)
+	})
+
+	t.Run("identical rack_id remains compatible", func(t *testing.T) {
+		rec := patch(model.APIExpectedRackUpdateRequest{
+			RackID:        cutil.GetPtr("immutable-rack-001"),
+			RackProfileID: cutil.GetPtr("profile-identical"),
+		})
+
+		assert.Equal(t, http.StatusOK, rec.Code)
+		assert.Equal(t, "immutable-rack-001", getRackID())
+	})
+
+	t.Run("omitted rack_id remains compatible", func(t *testing.T) {
+		rec := patch(model.APIExpectedRackUpdateRequest{
+			RackProfileID: cutil.GetPtr("profile-omitted"),
+		})
+
+		assert.Equal(t, http.StatusOK, rec.Code)
+		assert.Equal(t, "immutable-rack-001", getRackID())
+	})
 }
 
 func TestDeleteExpectedRackHandler_Handle(t *testing.T) {

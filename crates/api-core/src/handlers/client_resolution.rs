@@ -249,9 +249,9 @@ pub(crate) async fn resolve_cloud_init_instructions(
                 (None, None)
             };
 
-            // Resolve VMaaS config once so the cloud-init fields are derived consistently.
             let vmaas_config = api.runtime_config.vmaas_config.as_ref();
-            let traffic_intercept_bridging = vmaas_config.and_then(|vc| vc.bridging.as_ref());
+            let host_representor_bridging =
+                vmaas_config.and_then(|config| config.bridging.as_ref());
 
             Ok(rpc::CloudInitInstructions {
                 custom_cloud_init,
@@ -260,17 +260,10 @@ pub(crate) async fn resolve_cloud_init_instructions(
                     domain: Some(rpc::PxeDomain {
                         domain: Some(rpc::pxe_domain::Domain::NewDomain(domain.into())),
                     }),
-                    hbn_reps: vmaas_config.and_then(|vc| vc.hbn_reps.clone()),
-                    hbn_sfs: vmaas_config.and_then(|vc| vc.hbn_sfs.clone()),
-                    vf_intercept_bridge_name: traffic_intercept_bridging
-                        .map(|b| b.vf_intercept_bridge_name.clone()),
-                    vf_intercept_bridge_port: traffic_intercept_bridging
-                        .map(|b| b.vf_intercept_bridge_port.clone()),
-                    vf_intercept_bridge_sf: traffic_intercept_bridging
-                        .map(|b| b.vf_intercept_bridge_sf.clone()),
+                    hbn_reps: vmaas_config.and_then(|config| config.hbn_reps.clone()),
                     num_of_vfs: Some(api.runtime_config.dpu_config.num_of_vfs),
-                    hbn_bridge: traffic_intercept_bridging.map(|b| b.hbn_bridge.clone()),
-                    host_representor_intercept_bridging: traffic_intercept_bridging
+                    hbn_bridge: host_representor_bridging.map(|config| config.hbn_bridge.clone()),
+                    host_representor_intercept_bridging: host_representor_bridging
                         .and_then(|b| b.host_representor_intercept_bridging_provisioning_config()),
                     bootstrap_ca_source: rpc::BootstrapCaSource::from(
                         api.runtime_config.dpu_config.bootstrap_ca_source,

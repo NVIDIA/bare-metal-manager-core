@@ -28,8 +28,11 @@ use sqlx::PgPool;
 use state_controller::state_handler::StateHandlerContextObjects;
 
 use crate as carbide_rack_controller;
+use crate::firmware_object::FirmwareObjectFetcher;
 
 pub struct RackStateHandlerContextObjects {}
+
+/// Dependencies shared by rack state-handler operations.
 #[derive(Clone)]
 pub struct RackStateHandlerServices {
     pub db_pool: PgPool,
@@ -43,12 +46,15 @@ pub struct RackStateHandlerServices {
     /// librms::RmsApi.
     pub switch_system_image_rms_client: Option<Arc<dyn SwitchSystemImageRmsClient>>,
     pub credential_manager: Arc<dyn CredentialManager>,
-    /// Component manager used for switch certificate configuration during NMX
-    /// cluster maintenance.
+    /// Component manager used for switch operations during rack maintenance.
     pub component_manager: Option<Arc<ComponentManager>>,
     /// Switch mTLS services passed to RMS during NMX cluster certificate
     /// configuration. Sourced from `[rack_state_controller].nmx_cluster_switch_mtls_services`.
     pub nmx_cluster_switch_mtls_services: Vec<i32>,
+
+    /// Fetches SOT firmware-object documents selected by rack profiles.
+    pub firmware_object_fetcher: Arc<dyn FirmwareObjectFetcher>,
+
     /// Shared registry backing the generic per-object health metrics.
     pub per_object_metrics_registry: Arc<PerObjectMetricsRegistry>,
 }

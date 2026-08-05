@@ -20,8 +20,8 @@ mod set_virtualizer;
 mod show;
 
 // Cross-module re-exports for jump module
-pub use show::args::Args as ShowVpc;
-pub use show::cmd::show;
+pub(crate) use show::args::Args as ShowVpc;
+pub(crate) use show::cmd::show;
 
 #[cfg(test)]
 mod tests;
@@ -31,7 +31,7 @@ use clap::Parser;
 use crate::cfg::dispatch::Dispatch;
 
 #[derive(Parser, Debug, Dispatch)]
-pub enum Cmd {
+pub(crate) enum Cmd {
     #[clap(about = "Create VPC")]
     Create(create::Args),
     #[clap(about = "Display VPC information")]

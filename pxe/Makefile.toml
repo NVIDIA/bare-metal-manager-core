@@ -23,6 +23,13 @@ PKG_VERSION = { script = [
 ], condition = { env_not_set = ["PKG_VERSION"] } }
 FORGE_CA_PATH = { value = "${REPO_ROOT}/dev/forge_prodroot.pem" }
 
+# Where mkosi keeps downloaded distro packages. Without this mkosi re-downloads
+# the full package set on every build, which dominated the ephemeral image jobs
+# in CI. Purely a download cache -- mkosi still revalidates package metadata, so
+# a stale entry cannot silently change what lands in the image. CI persists this
+# across runs with actions/cache; locally it just makes rebuilds faster.
+MKOSI_PACKAGE_CACHE_DIR = { value = "${REPO_ROOT}/pxe/.mkosi-package-cache", condition = { env_not_set = ["MKOSI_PACKAGE_CACHE_DIR"] } }
+
 # BlueField Bundle (BFB) Version
 # NOTE: Update `crates/api/src/cfg/file.rs` to set the DOCA BFB component versions (BMC, NIC, CEC fw)
 # so that Carbide treats them as the expected DPU fw versions.
@@ -108,10 +115,18 @@ dependencies = [
 ]
 
 [tasks.stage-scout-loader-rclocal]
-description = "Copies the rc.local script to the scout loader profile directories"
+description = "Copies the Scout loader helpers to the scout loader profile directories"
 script = '''
+  set -e
+
   cp ${REPO_ROOT}/pxe/common_files/scout-loader-rclocal ${REPO_ROOT}/pxe/mkosi.profiles/scout-loader-aarch64/mkosi.extra/etc/rc.local
   cp ${REPO_ROOT}/pxe/common_files/scout-loader-rclocal ${REPO_ROOT}/pxe/mkosi.profiles/scout-loader-x86_64/mkosi.extra/etc/rc.local
+
+  mkdir -p ${REPO_ROOT}/pxe/mkosi.profiles/scout-loader-aarch64/mkosi.extra/opt/forge/
+  cp ${REPO_ROOT}/pxe/common_files/forge-scout-network.sh ${REPO_ROOT}/pxe/mkosi.profiles/scout-loader-aarch64/mkosi.extra/opt/forge/
+
+  mkdir -p ${REPO_ROOT}/pxe/mkosi.profiles/scout-loader-x86_64/mkosi.extra/opt/forge/
+  cp ${REPO_ROOT}/pxe/common_files/forge-scout-network.sh ${REPO_ROOT}/pxe/mkosi.profiles/scout-loader-x86_64/mkosi.extra/opt/forge/
 '''
 
 [tasks.stage-scout-update-check]
@@ -130,13 +145,15 @@ script = '''
 '''
 
 [tasks.stage-scout-module-loader]
-description = "Copies the scout module loader to build-output"
+description = "Copies the Scout helper scripts to build-output"
 script = '''
   mkdir -p ${REPO_ROOT}/pxe/mkosi.profiles/scout-oss-aarch64/mkosi.extra/build-output/
   cp ${REPO_ROOT}/pxe/common_files/load_modules.sh ${REPO_ROOT}/pxe/mkosi.profiles/scout-oss-aarch64/mkosi.extra/build-output/
+  cp ${REPO_ROOT}/pxe/common_files/forge-scout-network.sh ${REPO_ROOT}/pxe/mkosi.profiles/scout-oss-aarch64/mkosi.extra/build-output/
 
   mkdir -p ${REPO_ROOT}/pxe/mkosi.profiles/scout-oss-x86_64/mkosi.extra/build-output/
   cp ${REPO_ROOT}/pxe/common_files/load_modules.sh ${REPO_ROOT}/pxe/mkosi.profiles/scout-oss-x86_64/mkosi.extra/build-output/
+  cp ${REPO_ROOT}/pxe/common_files/forge-scout-network.sh ${REPO_ROOT}/pxe/mkosi.profiles/scout-oss-x86_64/mkosi.extra/build-output/
 '''
 
 [tasks.build-boot-artifacts-x86-host]
@@ -194,6 +211,7 @@ dependencies = [
 dependencies = [
   "mkdir-static",
   { name = "package-scout-aarch64-release-cross", path = "${REPO_ROOT}" },
+  "create-ephemeral-image-arm-host",
   "bfb-aarch64-sa",
   "ipxe-aarch64-sa",
   "setup-apt-repo-arm64",
@@ -500,7 +518,8 @@ category = "Ephemeral Image"
 script = '''
   PROFILE="scout-oss-x86_64"
   export PATH=${PATH}:/sbin
-  ${REPO_ROOT}/pxe/mkosi/bin/mkosi -E PKG_VERSION="${PKG_VERSION}" --profile ${PROFILE} --output-dir=${MKOSI_BUILD_TMP} --with-network build
+  mkdir -p "${MKOSI_PACKAGE_CACHE_DIR}"
+  ${REPO_ROOT}/pxe/mkosi/bin/mkosi -E PKG_VERSION="${PKG_VERSION}" --profile ${PROFILE} --output-dir=${MKOSI_BUILD_TMP} --package-cache-directory=${MKOSI_PACKAGE_CACHE_DIR} --with-network build
 '''
 
 [tasks.mkosi-build-scout-loader-x86_64]
@@ -508,7 +527,7 @@ category = "Ephemeral Image"
 command = "/bin/bash"
 args = [
   "-c",
-  "export PATH=${PATH}:/sbin && ${REPO_ROOT}/pxe/mkosi/bin/mkosi --profile scout-loader-x86_64 --output-dir=${MKOSI_BUILD_TMP} build",
+  "export PATH=${PATH}:/sbin && mkdir -p ${MKOSI_PACKAGE_CACHE_DIR} && ${REPO_ROOT}/pxe/mkosi/bin/mkosi --profile scout-loader-x86_64 --output-dir=${MKOSI_BUILD_TMP} --package-cache-directory=${MKOSI_PACKAGE_CACHE_DIR} build",
 ]
 
 [tasks.mkosi-build-scout-aarch64]
@@ -516,7 +535,8 @@ category = "Ephemeral Image"
 script = '''
   PROFILE="scout-oss-aarch64"
   export PATH=${PATH}:/sbin
-  ${REPO_ROOT}/pxe/mkosi/bin/mkosi -E PKG_VERSION="${PKG_VERSION}" --profile ${PROFILE} --output-dir=${MKOSI_BUILD_TMP} build
+  mkdir -p "${MKOSI_PACKAGE_CACHE_DIR}"
+  ${REPO_ROOT}/pxe/mkosi/bin/mkosi -E PKG_VERSION="${PKG_VERSION}" --profile ${PROFILE} --output-dir=${MKOSI_BUILD_TMP} --package-cache-directory=${MKOSI_PACKAGE_CACHE_DIR} build
 '''
 
 [tasks.mkosi-build-scout-loader-aarch64]
@@ -524,7 +544,7 @@ category = "Ephemeral Image"
 command = "/bin/bash"
 args = [
   "-c",
-  "export PATH=${PATH}:/sbin && ${REPO_ROOT}/pxe/mkosi/bin/mkosi --profile scout-loader-aarch64 --output-dir=${MKOSI_BUILD_TMP} build",
+  "export PATH=${PATH}:/sbin && mkdir -p ${MKOSI_PACKAGE_CACHE_DIR} && ${REPO_ROOT}/pxe/mkosi/bin/mkosi --profile scout-loader-aarch64 --output-dir=${MKOSI_BUILD_TMP} --package-cache-directory=${MKOSI_PACKAGE_CACHE_DIR} build",
 ]
 
 [tasks.mkosi-build-qcow-imager]
@@ -532,7 +552,7 @@ category = "Ephemeral Image"
 command = "/bin/bash"
 args = [
   "-c",
-  "export PATH=${PATH}:/sbin && ${REPO_ROOT}/pxe/mkosi/bin/mkosi --profile qcow-imager --output-dir=${MKOSI_BUILD_TMP} build",
+  "export PATH=${PATH}:/sbin && mkdir -p ${MKOSI_PACKAGE_CACHE_DIR} && ${REPO_ROOT}/pxe/mkosi/bin/mkosi --profile qcow-imager --output-dir=${MKOSI_BUILD_TMP} --package-cache-directory=${MKOSI_PACKAGE_CACHE_DIR} build",
 ]
 
 [tasks.mkosi-build-qcow-imager-aarch64]
@@ -540,7 +560,7 @@ category = "Ephemeral Image"
 command = "/bin/bash"
 args = [
   "-c",
-  "export PATH=${PATH}:/sbin && ${REPO_ROOT}/pxe/mkosi/bin/mkosi --profile qcow-imager-aarch64 --output-dir=${MKOSI_BUILD_TMP} build",
+  "export PATH=${PATH}:/sbin && mkdir -p ${MKOSI_PACKAGE_CACHE_DIR} && ${REPO_ROOT}/pxe/mkosi/bin/mkosi --profile qcow-imager-aarch64 --output-dir=${MKOSI_BUILD_TMP} --package-cache-directory=${MKOSI_PACKAGE_CACHE_DIR} build",
 ]
 
 [tasks.mkosi-copy-qcow-imager-to-webroot-x86_64]

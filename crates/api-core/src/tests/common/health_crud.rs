@@ -126,6 +126,53 @@ where
         assert_eq!(entries.len(), 1, "repeated inserts should collapse to one");
     }
 
+    /// A continuously-firing alert keeps the `in_alert_since` of its first
+    /// report, so operators can tell how long the condition has lasted. Without
+    /// this, every re-report restamps the alert and it always looks brand new.
+    pub async fn check_retains_in_alert_since(&self) {
+        let in_alert_since = async || {
+            let entries = (self.list)(self.real_id.clone())
+                .await
+                .expect("list overrides");
+            assert_eq!(entries.len(), 1, "exactly one override should be listed");
+            let listed: HealthReport = entries[0]
+                .report
+                .clone()
+                .unwrap()
+                .try_into()
+                .expect("listed report converts back");
+            assert_eq!(listed.alerts.len(), 1);
+            listed.alerts[0]
+                .in_alert_since
+                .expect("in_alert_since is stamped on insert")
+        };
+
+        (self.insert)(
+            self.real_id.clone(),
+            self.alert.clone(),
+            HealthReportApplyMode::Merge,
+        )
+        .await
+        .expect("insert override");
+        let first_seen = in_alert_since().await;
+
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+
+        // The same alert reported again must not be restamped.
+        (self.insert)(
+            self.real_id.clone(),
+            self.alert.clone(),
+            HealthReportApplyMode::Merge,
+        )
+        .await
+        .expect("re-insert override");
+        assert_eq!(
+            in_alert_since().await,
+            first_seen,
+            "re-reported alert must retain its original in_alert_since"
+        );
+    }
+
     /// Removing a source that was never filed is a `NotFound`.
     pub async fn check_remove_nonexistent_source(&self) {
         let status = (self.remove)(self.real_id.clone(), "nonexistent-source".to_string())

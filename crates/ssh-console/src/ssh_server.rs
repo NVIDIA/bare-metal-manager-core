@@ -33,6 +33,7 @@ use crate::bmc::client_pool::BmcConnectionStore;
 use crate::config::Config;
 use crate::frontend::{Handler, HandlerError};
 use crate::shutdown_handle::ShutdownHandle;
+use crate::tcp_listener;
 
 pub async fn spawn(
     config: Arc<Config>,
@@ -69,16 +70,13 @@ pub async fn spawn(
         metrics,
     };
 
-    let listener = TcpListener::bind(listen_address)
-        .await
-        .map_err(|error| Listening {
-            addr: listen_address,
-            error,
-        })?;
-    let listen_address = listener.local_addr().map_err(|error| Listening {
-        addr: listen_address,
-        error,
-    })?;
+    let (listener, listen_address) =
+        tcp_listener::bind(listen_address)
+            .await
+            .map_err(|error| Listening {
+                addr: listen_address,
+                error,
+            })?;
     tracing::info!(%listen_address, "SSH server listening");
 
     let (shutdown_tx, shutdown_rx) = oneshot::channel();

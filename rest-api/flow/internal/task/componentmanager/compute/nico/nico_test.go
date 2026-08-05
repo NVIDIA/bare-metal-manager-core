@@ -34,6 +34,8 @@ func TestDescriptor(t *testing.T) {
 		capability.CapabilitySet{
 			capability.CapabilityBringUpControl,
 			capability.CapabilityBringUpStatus,
+			capability.CapabilityDecommissionControl,
+			capability.CapabilityDecommissionStatus,
 			capability.CapabilityFirmwareControl,
 			capability.CapabilityFirmwareStatus,
 			capability.CapabilityInjectExpectation,

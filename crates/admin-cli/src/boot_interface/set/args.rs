@@ -32,26 +32,34 @@ Set it by machine-interface UUID (exact, works even with duplicate MACs):
     $ nico-admin-cli boot-interface set 12345678-1234-5678-90ab-cdef01234567 \
     abcdef01-2345-6789-abcd-ef0123456789
 
-Set and reboot the host so the new boot order takes effect immediately:
+Request another reconciliation for the selected interface:
     $ nico-admin-cli boot-interface set 12345678-1234-5678-90ab-cdef01234567 \
-    00:11:22:33:44:55 --reboot
+    00:11:22:33:44:55 --force-reconcile
 
 Tip: 'boot-interface candidates <MACHINE_ID>' lists the candidate NICs with their MACs and UUIDs.
 ")]
-pub struct Args {
+pub(crate) struct Args {
     #[clap(help = "The machine whose boot interface to set")]
-    pub machine: MachineId,
+    pub(super) machine: MachineId,
     #[clap(help = "The interface to boot from -- a machine-interface UUID or a MAC address")]
-    pub interface: InterfaceSelector,
-    #[clap(long, help = "Reboot the host after the update")]
-    pub reboot: bool,
+    pub(super) interface: InterfaceSelector,
+    #[clap(
+        long,
+        help = "Request a fresh machine-controller reconciliation even when this interface is already selected"
+    )]
+    pub(super) force_reconcile: bool,
+    #[clap(
+        long,
+        help = "Deprecated compatibility alias; use --force-reconcile with current servers"
+    )]
+    pub(super) reboot: bool,
 }
 
 /// How the operator names the target interface: the `machine_interfaces` row
 /// UUID (exact), or the NIC's MAC address (resolved against the machine's
 /// managed rows, refused when ambiguous).
 #[derive(Clone, Debug, PartialEq)]
-pub enum InterfaceSelector {
+pub(super) enum InterfaceSelector {
     Id(MachineInterfaceId),
     Mac(MacAddress),
 }

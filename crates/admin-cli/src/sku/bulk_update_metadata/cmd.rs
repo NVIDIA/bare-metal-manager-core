@@ -22,7 +22,10 @@ use super::args::Args;
 use crate::errors::{CarbideCliError, CarbideCliResult};
 use crate::rpc::ApiClient;
 
-pub async fn bulk_update_metadata(args: Args, api_client: &ApiClient) -> CarbideCliResult<()> {
+pub(super) async fn bulk_update_metadata(
+    args: Args,
+    api_client: &ApiClient,
+) -> CarbideCliResult<()> {
     let mut rdr =
         csv::Reader::from_path(&args.filename).map_err(|e| CarbideCliError::IOError(e.into()))?;
 

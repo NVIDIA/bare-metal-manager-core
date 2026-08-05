@@ -18,7 +18,7 @@
 use mac_address::MacAddress;
 use model::address_selection_strategy::AddressSelectionStrategy;
 use model::allocation_type::AllocationType;
-use model::expected_machine::ExpectedHostNic;
+use model::expected_machine::ExpectedInterface;
 use model::machine_interface::InterfaceType;
 use model::network_segment::NetworkSegmentType;
 use rpc::forge as rpc;
@@ -61,7 +61,7 @@ pub async fn update_preallocated_machine_interface(
 /// but only an unassociated row also receives the role-derived settings.
 pub async fn update_preallocated_expected_machine_interface(
     txn: &mut sqlx::PgConnection,
-    expected_interface: &ExpectedHostNic,
+    expected_interface: &ExpectedInterface,
     retained_window: Option<chrono::Duration>,
 ) -> Result<(), CarbideError> {
     let fixed_ip = expected_interface
@@ -81,7 +81,7 @@ pub async fn update_preallocated_expected_machine_interface(
             interface_type: expected_interface.role.interface_type(),
             primary_interface: expected_interface.role.primary_interface_override(),
             segment_type_guard: expected_interface.segment_type_guard(),
-            require_managed_prefix: !expected_interface.uses_legacy_host_allocation(),
+            require_managed_prefix: !expected_interface.allows_static_assignments_fallback(),
         }),
         retained_window,
     )
@@ -111,8 +111,8 @@ struct ExpectedInterfaceSettings {
 ///
 /// Existing addressed rows remain unchanged. Addressless rows receive the
 /// fixed address, but ExpectedInterface settings are applied only while the row
-/// is unassociated. Passing no settings preserves the existing Host BMC update
-/// behavior.
+/// is unassociated. Passing no settings preserves the existing generic
+/// reservation update behavior.
 async fn update_preallocated_machine_interface_with_settings(
     txn: &mut sqlx::PgConnection,
     mac_address: MacAddress,

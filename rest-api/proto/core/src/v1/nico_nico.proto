@@ -71,6 +71,9 @@ service Forge {
   rpc DeleteVpcPrefix(VpcPrefixDeletionRequest) returns (VpcPrefixDeletionResult);
 
   // Site prefixes
+  rpc CreateSitePrefix(SitePrefixCreationRequest) returns (SitePrefix);
+  rpc UpdateSitePrefix(SitePrefixUpdateRequest) returns (SitePrefix);
+  rpc DeleteSitePrefix(SitePrefixDeletionRequest) returns (SitePrefixDeletionResult);
   rpc FindSitePrefixIds(SitePrefixSearchFilter) returns (SitePrefixIdList);
   rpc FindSitePrefixesByIds(SitePrefixesByIdsRequest) returns (SitePrefixList);
 
@@ -243,6 +246,7 @@ service Forge {
   rpc FindSwitchStateHistories(SwitchStateHistoriesRequest) returns (StateHistories);
   rpc FindNetworkSegmentStateHistories(NetworkSegmentStateHistoriesRequest) returns (StateHistories);
   rpc FindVpcPrefixStateHistories(VpcPrefixStateHistoriesRequest) returns (StateHistories);
+  rpc FindSitePrefixStateHistories(SitePrefixStateHistoriesRequest) returns (StateHistories);
   rpc FindTenantOrganizationIds(TenantSearchFilter) returns (TenantOrganizationIdList);
   rpc FindTenantsByOrganizationIds(TenantByOrganizationIdsRequest) returns (TenantList);
   rpc FindConnectedDevicesByDpuMachineIds(common.MachineIdList) returns (ConnectedDeviceList);
@@ -376,6 +380,25 @@ service Forge {
   rpc TriggerHostReprovisioning(HostReprovisioningRequest) returns (google.protobuf.Empty);
   // List hosts waiting for reprovisioning
   rpc ListHostsWaitingForReprovisioning(HostReprovisioningListRequest) returns (HostReprovisioningListResponse);
+  // Operator "force-converge this BMC now" escape hatch for a single host/DPU
+  // BMC. This is asynchronous: the handler only persists (Set) or removes
+  // (Clear) the machine's `bmc_credential_rotation_requested` flag and returns;
+  // it performs no rotation itself. A later machine-controller sweep observes a
+  // set flag and rotates the BMC, bypassing the passive site-wide gate and the
+  // device's backoff quarantine, then clears the flag once it converges. Clear
+  // only withdraws a not-yet-consumed request -- it does not undo or reset any
+  // BMC credentials that a prior sweep already rotated.
+  rpc TriggerBmcCredentialRotation(BmcCredentialRotationRequest) returns (google.protobuf.Empty);
+  // Operator "force-converge this UEFI credential now" escape hatch for a single
+  // host (DPU support follows). This is asynchronous: the handler only persists
+  // (Set) or removes (Clear) the machine's `uefi_credential_rotation_requested`
+  // flag and returns; it performs no rotation itself. A later machine-controller
+  // sweep observes a set flag and rotates the UEFI password (a BIOS job plus a
+  // host power-cycle), bypassing the passive site-wide gate and the device's
+  // backoff quarantine, then clears the flag once it converges. Clear only
+  // withdraws a not-yet-consumed request -- it does not undo or reset any UEFI
+  // credential that a prior sweep already rotated.
+  rpc TriggerUefiCredentialRotation(UefiCredentialRotationRequest) returns (google.protobuf.Empty);
   // TODO: Remove when manual upgrade feature is removed
   // Mark host as having completed manual firmware upgrade
   rpc MarkManualFirmwareUpgradeComplete(common.MachineId) returns (google.protobuf.Empty);
@@ -434,6 +457,11 @@ service Forge {
   // Set Host UEFI password
   rpc SetHostUefiPassword(SetHostUefiPasswordRequest) returns (SetHostUefiPasswordResponse);
   rpc ClearHostUefiPassword(ClearHostUefiPasswordRequest) returns (ClearHostUefiPasswordResponse);
+
+  // Set a DPU's UEFI password directly on the device (the DPU equivalent of
+  // SetHostUefiPassword): stage the site-wide DPU UEFI credential through the
+  // DPU's Redfish BIOS settings and restart the DPU to commit it.
+  rpc SetDpuUefiPassword(SetDpuUefiPasswordRequest) returns (SetDpuUefiPasswordResponse);
 
   // Expected Machine Management
   // Add expected machine
@@ -776,6 +804,9 @@ service Forge {
   // Force deletes a Rack from the database.
   rpc AdminForceDeleteRack(AdminForceDeleteRackRequest) returns (AdminForceDeleteRackResponse);
   rpc GetRackProfile(GetRackProfileRequest) returns (GetRackProfileResponse);
+  // Lists the rack profiles from the effective runtime configuration.
+  // Rack profiles are configuration, not persisted rack resources.
+  rpc ListRackProfiles(google.protobuf.Empty) returns (ListRackProfilesResponse);
 
   //
   // Compute Allocations
@@ -1544,6 +1575,7 @@ message RuntimeConfig {
   string compile_time_helm_version = 51;
   string compile_time_docker_version = 52;
   bool restart_ovs_on_use_admin_network_change = 53;
+  uint32 max_site_prefixes_per_tenant = 54;
 }
 
 message EchoRequest {
@@ -1615,6 +1647,40 @@ message TenantSearchQuery {
   optional string tenantOrganizationId = 1; // protolint:disable:this FIELD_NAMES_LOWER_SNAKE_CASE
 }
 
+// A presence-aware list of prefix-filter entries.
+message PrefixFilterPolicyEntries {
+  repeated PrefixFilterPolicyEntry values = 1;
+}
+
+// Routing-profile properties set directly on a VPC. Present properties
+// override its named routing profile; omitted properties inherit from it.
+// `internal` and `access_tier` are intentionally not exposed because allocation
+// and access controls must always come from the named base profile.
+message VpcRoutingProfileOverrides {
+  optional common.RouteTargets route_target_imports = 1;
+  optional common.RouteTargets route_targets_on_exports = 2;
+  optional bool leak_default_route_from_underlay = 3;
+  optional bool leak_tenant_host_routes_to_underlay = 4;
+  optional bool tenant_leak_communities_accepted = 5;
+  optional PrefixFilterPolicyEntries accepted_leaks_from_underlay = 6;
+  optional PrefixFilterPolicyEntries allowed_anycast_prefixes = 7;
+}
+
+// The fully resolved routing profile currently applied to an FNN VPC.
+// Unlike VpcRoutingProfileOverrides, this includes the protected properties
+// inherited from the named base profile and has no presence-aware fields.
+message VpcEffectiveRoutingProfile {
+  repeated common.RouteTarget route_target_imports = 1;
+  repeated common.RouteTarget route_targets_on_exports = 2;
+  bool leak_default_route_from_underlay = 3;
+  bool leak_tenant_host_routes_to_underlay = 4;
+  bool tenant_leak_communities_accepted = 5;
+  repeated PrefixFilterPolicyEntry accepted_leaks_from_underlay = 6;
+  repeated PrefixFilterPolicyEntry allowed_anycast_prefixes = 7;
+  bool internal = 8;
+  uint32 access_tier = 9;
+}
+
 message VpcConfig {
   string tenant_organization_id = 1;
   optional string tenant_keyset_id = 2;
@@ -1624,6 +1690,7 @@ message VpcConfig {
   // Desired VNI for this VPC. Only populated when explicitly requested during creation.
   optional uint32 vni = 6;
   optional string routing_profile_type = 7;
+  optional VpcRoutingProfileOverrides routing_profile_overrides = 8;
 }
 
 message VpcStatus {
@@ -1631,6 +1698,10 @@ message VpcStatus {
   // explicitly requested, we'd expect this to match config.vni.
   // If not explicitly requested, we'd expect config.vni to be unset.
   optional uint32 vni = 1;
+  // Computed from the API server's current named profile and the persisted
+  // VPC overrides. This value is not persisted and may change when the API
+  // server configuration changes.
+  optional VpcEffectiveRoutingProfile effective_routing_profile = 2;
 }
 
 message Vpc {
@@ -1719,6 +1790,10 @@ message VpcCreationRequest {
   // For example, an internal tenant can request internal or external VPCs,
   // but an external tenant can only request external VPCs.
   optional string routing_profile_type = 17;
+
+  // Properties to overlay on the selected named routing profile. Properties
+  // left unset inherit from the base profile.
+  optional VpcRoutingProfileOverrides routing_profile_overrides = 18;
 }
 
 enum VpcVirtualizationType {
@@ -1767,6 +1842,12 @@ message VpcUpdateRequest {
   // The ID of the default NVLink Logical Partition for a VPC. This is the
   // NVLink Logical Partition that will be used by default for all instances in the VPC.
   optional common.NVLinkLogicalPartitionId default_nvlink_logical_partition_id = 18;
+
+  // Replaces the current inline routing-profile definition when present.
+  // Properties left unset inherit from the named base profile rather than the
+  // previous inline definition. Omit this field to preserve the current
+  // definition; send an empty message to restore inheritance for every property.
+  optional VpcRoutingProfileOverrides routing_profile_overrides = 19;
 }
 
 message VpcUpdateResult {
@@ -2351,6 +2432,9 @@ message Switch {
 
   // NVOS host endpoint
   SwitchNvosInfo nvos_info = 15;
+
+  // NVLink domain UUID
+  common.NVLinkDomainId nvlink_domain_uuid = 16;
 }
 
 message SwitchList {
@@ -3605,8 +3689,19 @@ message MachineList {
   repeated Machine machines = 1;
 }
 
+// Selects the interface(s) to delete. Exactly one of `id` or `mac_address` must be set.
+// Deleting by MAC exists for cleaning up a leftover interface when the operator has the
+// MAC but not the interface id -- e.g. a replacement host whose ingestion is blocked by
+// a stale interface record, where the MAC is read off the chassis or expected machines.
 message InterfaceDeleteQuery {
   common.MachineInterfaceId id = 1;
+
+  // Delete every interface whose own MAC address matches this value; it is not filtered
+  // by interface type (for a BMC interface this is the BMC MAC). A MAC is unique only
+  // per network segment, so this may match more than one interface -- they are all
+  // validated before any is deleted, so a match that still belongs to a live machine,
+  // DPU, switch or power shelf refuses the whole request.
+  optional string mac_address = 2;
 }
 
 message InterfaceSearchQuery {
@@ -4522,9 +4617,8 @@ message ManagedHostNetworkConfigResponse {
   // Extension services that should be deployed on this DPU
   repeated ManagedHostDpuExtensionServiceConfig dpu_extension_services = 112;
 
-  // All config related to traffic interception on
-  // the DPU: intermediate bridging, additional VTEPs, etc.
-  optional TrafficInterceptConfig traffic_intercept_config = 113;
+  reserved 113;
+  reserved "traffic_intercept_config";
 
   // Route imports and tagging details for exports
   // used by FNN configs.
@@ -4565,55 +4659,6 @@ message ManagedHostNetworkConfigResponse {
   // restart openvswitch-switch if this is set. Other actions could also
   // be added based on this tracking variable.
   optional bool use_admin_network_changed = 120;
-}
-
-message TrafficInterceptConfig {
-  // Optional IP to be used for a VTEP for an additional
-  // overlay network.  Initial use-case is catalyst VMaaS's
-  // GENEVE overlay.
-  optional string additional_overlay_vtep_ip = 1;
-
-  // Internal DPU bridging config VMaaS support
-  optional TrafficInterceptBridging bridging = 2;
-
-  // Prefixes expected to be publicly routable and used
-  // by VMaaS for internet gateways.
-  repeated string public_prefixes            = 3;
-
-  // IPv4 or IPv6 aggregate prefixes associated with secondary
-  // VTEPs. These are used only for routing and filtering, not for
-  // allocating IPs. IP allocation is provided by the secondary VTEP
-  // resource pool.
-  repeated string secondary_vtep_aggregate_prefixes = 4;
-}
-
-message TrafficInterceptBridging {
-  reserved 2, 4;
-  reserved "host_intercept_bridge_name", "host_intercept_bridge_port";
-
-  // Prefix to be used for assigning gateway IPs
-  // to bridges used for VMaaS routing within the DPU.
-  string internal_bridge_routing_prefix  = 1;
-
-  // Name of the bridge acting as the gateway for packets
-  // leaving VMaaS pods and destined for the outside.
-  // (E.g., internet or pods on other hosts)
-  string vf_intercept_bridge_name        = 3;
-
-  // Name of the patch-port on the intercept bridge side
-  // of the vf_intercept_bridge that connects to the HBN pod
-  // via br-hbn.
-  string vf_intercept_bridge_port        = 5;
-
-  // Name of SF used for routing VMaaS VF traffic into
-  // the HBN pod.
-  string vf_intercept_bridge_sf          = 6;
-
-  // Host-owned PF/VF representor bridging layout keyed by representor name.
-  map<string, HostRepresentorInterceptBridging> host_representor_intercept_bridging = 7;
-
-  // Bridge that intercept patch ports attach to during provisioning.
-  string hbn_bridge = 8;
 }
 
 message ManagedHostDpuExtensionServiceConfig {
@@ -4673,6 +4718,8 @@ message ManagedHostNetworkConfig {
   // DPU loopback IP
   string loopback_ip = 1;
   optional ManagedHostQuarantineState quarantine_state = 2;
+  // DPU IPv6 loopback IP; unset for non-FNN agents or when the `lo-ip-v6` pool is not configured.
+  optional string loopback_ip_v6 = 3;
 }
 
 message FlatInterfaceConfig {
@@ -5283,23 +5330,12 @@ enum BootstrapCaSource {
 message CloudInitDiscoveryInstructions {
   MachineInterface machine_interface = 1;
   PxeDomain domain = 2;
+  // Selects which representors from the configured VF population HBN is expected to use.
   optional string hbn_reps = 3;
-  optional string hbn_sfs = 4;
-  optional string vf_intercept_bridge_name = 5;
 
-  reserved 6;
-  reserved "host_intercept_bridge_name";
-
-  // The <vf_intercept_bridge_name> side of the SF representor that connects the HBN pod to br-hbn.
-  // This will be the side owned by the <vf_intercept_bridge_name> bridge
-  optional string vf_intercept_bridge_port   = 7;
-
-  reserved 8;
-  reserved "host_intercept_bridge_port";
-
-  // The representor that will plug into the HBN container to connect it to br-hbn
-  // to open connectivity between all the VFs.
-  optional string vf_intercept_bridge_sf = 9;
+  reserved 4, 5, 6, 7, 8, 9;
+  reserved "hbn_sfs", "vf_intercept_bridge_name", "host_intercept_bridge_name",
+           "vf_intercept_bridge_port", "host_intercept_bridge_port", "vf_intercept_bridge_sf";
 
   // Number of VFs to configure per DPU PF during BlueField provisioning.
   // If absent, nico-pxe uses the legacy default of 16 for rolling upgrades.
@@ -5878,6 +5914,50 @@ message HostReprovisioningRequest {
   UpdateInitiator initiator = 3;
 }
 
+message BmcCredentialRotationRequest {
+  enum Mode {
+    // Explicit zero value so an omitted `mode` decodes here and is rejected,
+    // rather than silently defaulting to a real action (see the handler).
+    Unspecified = 0;
+    Set = 1;
+    Clear = 2;
+  }
+  Mode mode = 1;
+
+  // ID of the device that owns the target BMC: a machine (host or DPU BMC), a
+  // switch (switch BMC), or a power shelf (its PMC). Each such device has
+  // exactly one BMC, so any one id uniquely names the device.
+  common.DeviceId device_id = 3;
+
+  // MAC of the BMC to target, resolved server-side to its owning machine,
+  // switch, or power shelf. May be given alone, or alongside a `device_id` as a
+  // cross-check (they must identify the same device). At least one of
+  // `device_id` / `bmc_mac` must be set (enforced server-side).
+  optional string bmc_mac = 4;
+}
+
+message UefiCredentialRotationRequest {
+  enum Mode {
+    // Explicit zero value so an omitted `mode` decodes here and is rejected,
+    // rather than silently defaulting to a real action (see the handler).
+    Unspecified = 0;
+    Set = 1;
+    Clear = 2;
+  }
+  Mode mode = 1;
+  // The machine (a host; a DPU once DPU UEFI rotation ships) that owns the
+  // target UEFI credential. A machine has exactly one UEFI credential, so its id
+  // uniquely names the target. Unlike a BMC, a UEFI credential only ever belongs
+  // to a machine (never a switch or power shelf), so this is a plain optional
+  // field rather than a device-kind oneof.
+  optional common.MachineId machine_id = 2;
+  // MAC of the machine's BMC (which keys the UEFI rotation bookkeeping),
+  // resolved server-side to its owning machine. May be given alone, or alongside
+  // `machine_id` as a cross-check (they must identify the same machine). At
+  // least one of `machine_id` / `bmc_mac` must be set (enforced server-side).
+  optional string bmc_mac = 3;
+}
+
 message HostReprovisioningListRequest {
 }
 
@@ -6091,6 +6171,19 @@ message ClearHostUefiPasswordResponse {
   optional string job_id = 1;
 }
 
+message SetDpuUefiPasswordRequest {
+  // The DPU machine to set the UEFI password on.
+  common.MachineId dpu_id = 1;
+  // UUID, IP address, hostname or MAC address resolving to the DPU machine
+  // (preferred over dpu_id).
+  optional string machine_query = 2;
+}
+
+message SetDpuUefiPasswordResponse {
+  // A DPU stages the change through Redfish BIOS settings and schedules no job,
+  // so there is nothing to poll and no job id is returned.
+}
+
 enum OsImageStatus {
   // default status when entry created
   ImageUninitialized = 0;
@@ -6178,8 +6271,8 @@ message ExpectedHostNic {
   // At most one Host interface per `ExpectedMachine` may set it to true; the
   // other Host interfaces then become non-primary. False remains accepted for
   // compatibility but does not replace that machine-wide selection. DPU OS
-  // interfaces are primary data interfaces and DPU BMC interfaces are
-  // non-primary; those roles must omit this field.
+  // interfaces are primary data interfaces, while DPU BMC and Host BMC
+  // interfaces are non-primary.
   optional bool primary = 6;
   // Optional guard for this interface's network segment type. An explicit
   // allocation policy or DPU role applies the guard to DHCP-selected segments
@@ -6189,19 +6282,22 @@ message ExpectedHostNic {
   // On update, omission clears this guard.
   optional NetworkSegmentType network_segment_type = 7;
   // Machine endpoint that owns this interface. The role selects interface type
-  // and primary behavior only; Host, DPU OS, and DPU BMC all accept the same
-  // allocation policies and optional segment guard. On create, missing and
-  // Unspecified mean Host. On update, omission preserves the stored role while
-  // explicit Unspecified resets it to Host.
+  // and primary behavior only; every role accepts the same allocation policies
+  // and optional segment guard. On create, missing and Unspecified mean Host.
+  // On update, omission preserves the stored role while explicit Unspecified
+  // resets it to Host.
   optional ExpectedInterfaceRole role = 8;
-  // Optional allocation policy. On create, missing and Unspecified infer Fixed
-  // from `fixed_ip` and Dynamic otherwise. On update, omission preserves the
-  // stored policy while explicit Unspecified resets to that inference.
+  // Optional allocation policy. On create, omission and explicit Unspecified
+  // infer Fixed from `fixed_ip`. Without one, Host BMC infers Retained and every
+  // other role infers Dynamic. On single and batch update, omission preserves a
+  // matching stored policy while `fixed_ip` presence is unchanged; explicit
+  // Unspecified resets to inference. New interfaces use create behavior.
   // Explicit Dynamic rejects `fixed_ip`. Explicit Fixed, or a DPU role that
   // infers Fixed, requires `fixed_ip` inside a configured managed prefix. A
-  // legacy Host declaration with an omitted policy may instead fall back to
-  // `static-assignments` and does not turn `network_segment_type` into a
-  // fixed-address guard.
+  // legacy Host declaration, or an inferred Host BMC Fixed policy that omits
+  // `network_segment_type`, may instead fall back to `static-assignments`; only
+  // the legacy Host case leaves `network_segment_type` as a first-DHCP
+  // selection hint.
   optional ExpectedInterfaceIpAllocation ip_allocation = 9;
 }
 
@@ -6237,8 +6333,11 @@ enum DpuMode {
 // - BMC_IP_ALLOCATION_TYPE_RETAINED: an auto-allocated address pinned as Static
 //   (never expires).
 //
-// Unset and `BMC_IP_ALLOCATION_TYPE_UNSPECIFIED` both mean "use the default"
-// (AUTO), which preserves behavior for old clients that don't send the field.
+// On create, omission and `BMC_IP_ALLOCATION_TYPE_UNSPECIFIED` mean AUTO. On
+// single and batch update, omission preserves the effective Host BMC policy,
+// while explicit `BMC_IP_ALLOCATION_TYPE_UNSPECIFIED` resets it to AUTO. On
+// replace-all, omission resets a legacy-only row to AUTO but preserves an
+// existing nested HostBmc policy that an older client cannot send.
 enum BmcIpAllocationType {
   BMC_IP_ALLOCATION_TYPE_UNSPECIFIED = 0;
   BMC_IP_ALLOCATION_TYPE_AUTO = 1;
@@ -6267,6 +6366,9 @@ message ExpectedMachine {
   optional string sku_id =  7;
   // Unique identifier for the expected machine. When omitted, server generates one.
   optional common.UUID id = 8;
+  // Expected interfaces. Top-level BMC fields preserve legacy-only storage
+  // and remain overrides for the effective Host BMC; a Host BMC entry appears
+  // here once it is configured through the nested interface model.
   repeated ExpectedHostNic host_nics = 9;
   optional common.RackId rack_id = 10;
   optional bool default_pause_ingestion_and_poweron = 11;
@@ -6274,7 +6376,10 @@ message ExpectedMachine {
   bool dpf_enabled = 12 [deprecated = true];
   optional bool is_dpf_enabled = 13;
   // Static BMC IP (optional). Pre-allocates a machine_interface like expected
-  // switches and power shelves; external IPs use the static-assignments segment.
+  // switches and power shelves; external IPs use the static-assignments
+  // segment. Single and batch update omission preserves the effective Host BMC
+  // setting; an explicit empty string clears it. Replace-all keeps its earlier
+  // replacement semantics for legacy-only rows.
   optional string bmc_ip_address = 14;
   // When true, site-explorer skips BMC password rotation and stores the
   // factory-default credentials in Vault as-is.
@@ -6287,8 +6392,18 @@ message ExpectedMachine {
   // existing DB value is preserved via COALESCE.
   optional HostLifecycleProfile host_lifecycle_profile = 17;
   // Per-host control over how this BMC's IP is assigned and retained. See
-  // `BmcIpAllocationType` above. Unset means "use the default" (AUTO).
+  // `BmcIpAllocationType` above. On create, omission and explicit
+  // `BMC_IP_ALLOCATION_TYPE_UNSPECIFIED` mean AUTO. On single and batch update,
+  // omission preserves the effective Host BMC policy, while explicit
+  // Unspecified resets it to AUTO. On replace-all, omission resets a
+  // legacy-only row to AUTO but preserves an existing nested HostBmc policy.
   optional BmcIpAllocationType bmc_ip_allocation = 18;
+  // Marks host_nics as a complete replacement. This is needed because a
+  // repeated protobuf field cannot distinguish an omitted list from an empty
+  // list. New update clients set this when they intentionally supply
+  // host_nics, including `[]`; older clients leave it false so an unknown
+  // nested HostBmc is not removed by a read-modify-write.
+  bool replace_host_nics = 19;
 
   // WARNING: Following fields are not present in Core, but added directly in REST snapshot
   optional string name = 21;
@@ -7867,6 +7982,15 @@ message GetRackProfileResponse {
   RackProfile profile = 3;
 }
 
+message ConfiguredRackProfile {
+  common.RackProfileId rack_profile_id = 1;
+  RackProfile profile = 2;
+}
+
+message ListRackProfilesResponse {
+  repeated ConfiguredRackProfile rack_profiles = 1;
+}
+
 // put some sample rack manager commands in for now
 enum RackManagerForgeCmd {
   InventoryGet = 0;
@@ -8372,13 +8496,21 @@ message RemediationApplicationStatus {
 message SetPrimaryDpuRequest {
   common.MachineId host_machine_id = 1;
   common.MachineId dpu_machine_id = 2;
-  bool reboot=3;
+  // Deprecated compatibility alias for `force_reconcile`.
+  bool reboot = 3 [deprecated = true];
+  // Request another controller reconciliation even when the selected DPU is
+  // already the desired boot interface.
+  bool force_reconcile = 4;
 }
 
 message SetPrimaryInterfaceRequest {
   common.MachineId host_machine_id = 1;
   common.MachineInterfaceId interface_id = 2;
-  bool reboot = 3;
+  // Deprecated compatibility alias for `force_reconcile`.
+  bool reboot = 3 [deprecated = true];
+  // Request another controller reconciliation even when the selected
+  // interface is already the desired boot interface.
+  bool force_reconcile = 4;
 }
 
 // DPU Extension Service Types and Messages
@@ -9171,9 +9303,9 @@ enum OperatingSystemType {
 //
 // On create, missing and `EXPECTED_INTERFACE_ROLE_UNSPECIFIED` mean Host. On
 // update, omission preserves the stored role, while explicit
-// `EXPECTED_INTERFACE_ROLE_UNSPECIFIED` resets it to Host. Host BMC identity
-// remains on `ExpectedMachine.bmc_mac_address`. NVIDIA/infra-controller#4103
-// tracks adding its network settings to this same interface model.
+// `EXPECTED_INTERFACE_ROLE_UNSPECIFIED` resets it to Host. A Host BMC entry
+// configures network allocation, while its identity remains on
+// `ExpectedMachine.bmc_mac_address`.
 enum ExpectedInterfaceRole {
   // Preserve the legacy Host role when the optional field is absent.
   EXPECTED_INTERFACE_ROLE_UNSPECIFIED = 0;
@@ -9183,21 +9315,29 @@ enum ExpectedInterfaceRole {
   EXPECTED_INTERFACE_ROLE_DPU_OS = 2;
   // DPU Redfish/BMC interface. Never primary.
   EXPECTED_INTERFACE_ROLE_DPU_BMC = 3;
+  // Host Redfish/BMC interface. Never primary.
+  EXPECTED_INTERFACE_ROLE_HOST_BMC = 4;
 }
 
 // Controls how an expected interface receives and retains its IP address.
-// Missing and `EXPECTED_INTERFACE_IP_ALLOCATION_UNSPECIFIED` preserve legacy
-// behavior: `fixed_ip` implies `FIXED`, while its absence implies `DYNAMIC`.
+// On create, omission and `EXPECTED_INTERFACE_IP_ALLOCATION_UNSPECIFIED` use
+// legacy inference: `fixed_ip` implies `FIXED`; without one, Host BMC implies
+// `RETAINED` and every other role implies `DYNAMIC`. On single and batch update,
+// omission preserves a matching stored policy while `fixed_ip` presence is
+// unchanged; explicit `EXPECTED_INTERFACE_IP_ALLOCATION_UNSPECIFIED` resets to
+// inference. New interfaces use create behavior.
 enum ExpectedInterfaceIpAllocation {
-  // Infer Fixed or Dynamic from whether `fixed_ip` is configured. For a legacy
-  // Host declaration, this does not opt into the fixed-address segment guard.
+  // Infer Fixed from `fixed_ip`. Without one, infer Retained for Host BMC and
+  // Dynamic for every other role. For a legacy Host declaration, this does not
+  // opt into the fixed-address segment guard.
   EXPECTED_INTERFACE_IP_ALLOCATION_UNSPECIFIED = 0;
   // Use an expiring DHCP lease. The segment guard must match the relay's
   // selected segment when configured.
   EXPECTED_INTERFACE_IP_ALLOCATION_DYNAMIC = 1;
-  // Reserve `fixed_ip`. Explicit Fixed, or a DPU role that infers Fixed,
-  // requires a configured managed prefix to contain the address. That prefix
-  // selects the segment, and the segment guard must match when configured.
+  // Reserve `fixed_ip`. Explicit Fixed, a DPU role that infers Fixed, or an
+  // inferred Host BMC policy with a segment guard requires a configured
+  // managed prefix to contain the address. That prefix selects the segment,
+  // and the segment guard must match when configured.
   EXPECTED_INTERFACE_IP_ALLOCATION_FIXED = 2;
   // Allocate through DHCP, then make the address Static for this interface
   // row's lifetime. It is not saved in ExpectedMachine for re-ingestion. The
@@ -9318,11 +9458,6 @@ message UpdateOperatingSystemIpxeTemplateArtifactRequest {
   repeated IpxeTemplateArtifactUpdateRequest updates = 2;
 }
 
-message HostRepresentorInterceptBridging {
-  string bridge     = 1;
-  string patch_port = 2;
-}
-
 message ReWrapSecretsRequest {
   // Rows scanned per batch during the re-wrap walk.
   // Unset: the server picks a sensible default (100).
@@ -9410,6 +9545,51 @@ message RetainedBootInterface {
 }
 
 message GetMachineBootInterfacesResponse {
+  // The desired boot-interface generation, its latest persisted observation,
+  // and any machine-controller work currently reconciling it.
+  message Reconciliation {
+    // Whether the desired generation is waiting for, undergoing, or has
+    // completed machine-controller reconciliation.
+    enum State {
+      // The server did not provide a usable reconciliation state.
+      Unspecified = 0;
+      // The desired generation has no matching observation and is not currently
+      // being reconciled. This includes work deferred while a host is assigned.
+      Pending = 1;
+      // Machine-controller is actively reconciling the desired generation.
+      Converging = 2;
+      // The desired generation has a matching verification or compatibility
+      // baseline.
+      Converged = 3;
+      // Reconciliation of the desired generation reached a terminal failure.
+      Failed = 4;
+    }
+
+    // Boot-interface target for the current desired generation.
+    MachineBootInterface desired_boot_interface = 1;
+    // Opaque configuration version of the current desired generation.
+    string desired_version = 2;
+    // Desired generation covered by the latest persisted observation. It may
+    // differ from `desired_version` after a new operator request.
+    optional string verified_version = 3;
+    // Time the latest persisted observation or compatibility baseline was
+    // recorded. Absent when no generation has been observed.
+    google.protobuf.Timestamp observed_at = 4;
+    // True when the latest observation is a rollout compatibility baseline
+    // rather than a Redfish verification.
+    bool is_compatibility_baseline = 5;
+    // Reconciliation state derived for the current desired generation.
+    State reconciliation_state = 6;
+    // Current managed-host state, including the BootConfiguring phase when
+    // reconciliation is active.
+    string machine_state = 7;
+    // Desired generation captured by an active BootConfiguring pass. This can
+    // differ from `desired_version` while older in-flight work finishes safely.
+    optional string reconciling_version = 8;
+    // Persisted terminal boot-reconciliation failure, when one exists.
+    optional string failure = 9;
+  }
+
   common.MachineId machine_id = 1;
 
   // Boot interfaces from the four stores.
@@ -9444,6 +9624,10 @@ message GetMachineBootInterfacesResponse {
   // non-underlay prediction. Absent when there are no predictions or when the
   // pick refuses to guess among several undeclared NICs.
   MachineBootInterface predicted_boot_interface = 10;
+
+  // Desired-state reconciliation details. Absent before a machine has a
+  // persisted desired boot interface.
+  Reconciliation reconciliation = 11;
 }
 
 message GetContainerRegistryCredentialRequest {
@@ -9505,6 +9689,52 @@ message SitePrefixConfig {
 message SitePrefixStatus {
   SitePrefixAuthority authority = 1;
   SitePrefixLifecycleState lifecycle_state = 2;
+  // Tenant-wide point-in-time use for the owning tenant. Present only for
+  // tenant-managed SitePrefixes and repeated on each returned resource;
+  // mutation admission remains authoritative.
+  optional SitePrefixQuotaUsage quota = 3;
+}
+
+message SitePrefixQuotaUsage {
+  uint32 used = 1;
+  uint32 limit = 2;
+}
+
+// Core derives TenantManaged, DatacenterOnly, and Provisioning. They are
+// intentionally absent from this request. The caller ID, tenant, prefix, and
+// derived routing scope define an idempotent create. A matching retry returns
+// the current stored resource without reapplying metadata; use UpdateSitePrefix
+// to change metadata.
+message SitePrefixCreationRequest {
+  common.SitePrefixId id = 1;
+  string tenant_organization_id = 2;
+  string prefix = 3;
+  Metadata metadata = 4;
+}
+
+message SitePrefixUpdateRequest {
+  common.SitePrefixId id = 1;
+  string tenant_organization_id = 2;
+  // Required. This replaces metadata only; immutable prefix configuration is
+  // intentionally absent from the update request.
+  Metadata metadata = 3;
+  optional string if_version_match = 4;
+}
+
+// Records retirement intent. DeleteSitePrefix moves the retained row to
+// Deleting; it does not release the CIDR or tenant quota slot. Final removal
+// occurs only after child and dataplane drain.
+message SitePrefixDeletionRequest {
+  common.SitePrefixId id = 1;
+  string tenant_organization_id = 2;
+}
+
+message SitePrefixDeletionResult {
+  SitePrefix site_prefix = 1;
+}
+
+message SitePrefixStateHistoriesRequest {
+  repeated common.SitePrefixId site_prefix_ids = 1;
 }
 
 // All fields are optional. An empty filter returns the complete inventory.

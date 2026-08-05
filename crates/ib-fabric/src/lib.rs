@@ -203,13 +203,14 @@ impl IbFabricMonitor {
             };
 
             check_ib_fabrics_span.in_scope(|| {
-                carbide_instrument::emit(IbMonitorIterationFinished {
-                    latency: metrics.recording_started_at.elapsed(),
-                    error: res
-                        .as_ref()
-                        .err()
-                        .map(|error| format!("{error:?}"))
-                        .unwrap_or_default(),
+                carbide_instrument::emit(match res.as_ref().err() {
+                    None => IbMonitorIterationFinished::Succeeded {
+                        latency: metrics.recording_started_at.elapsed(),
+                    },
+                    Some(error) => IbMonitorIterationFinished::Failed {
+                        latency: metrics.recording_started_at.elapsed(),
+                        error: error.to_string(),
+                    },
                 });
             });
 
@@ -635,15 +636,15 @@ async fn apply_guid_pkey_changes(
     for report in reports {
         for (fabric, guid, pkey) in report.missing_guid_pkeys {
             let Some(partition_id) = partition_ids_by_pkey.get(&pkey) else {
-                emit(IbMonitorPkeyReconciliationSkipped::missing_partition_id(
-                    pkey.to_string(),
-                ));
+                emit(IbMonitorPkeyReconciliationSkipped::NoPartitionIdForPkey {
+                    pkey: pkey.to_string(),
+                });
                 continue;
             };
             let Some(partition) = tenant_partitions.get(partition_id) else {
-                emit(IbMonitorPkeyReconciliationSkipped::missing_partition(
-                    pkey.to_string(),
-                ));
+                emit(IbMonitorPkeyReconciliationSkipped::PartitionMissing {
+                    pkey: pkey.to_string(),
+                });
                 continue;
             };
 

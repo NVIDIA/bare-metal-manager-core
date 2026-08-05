@@ -29,6 +29,7 @@ use carbide_test_support::scenarios;
 use clap::{CommandFactory, Parser};
 
 use super::*;
+use crate::test_support::{parse_leaf, raw_value};
 
 // verify_cmd_structure runs a baseline clap debug_assert()
 // to do basic command configuration checking and validation,
@@ -52,11 +53,9 @@ fn verify_cmd_structure() {
 #[test]
 fn parse_show_tenant_org() {
     scenarios!(
-        run = |argv| match Cmd::try_parse_from(argv.iter().copied()) {
-            Ok(Cmd::Show(args)) => Ok(args.tenant_org),
-            Ok(_) => panic!("expected Show variant"),
-            Err(_) => Err(()),
-        };
+        run = |argv| parse_leaf::<Cmd>(argv, &["show"])
+            .map(|matches| raw_value(&matches, "tenant_org"))
+            .map_err(drop);
         "no arguments" {
             &["tenant", "show"][..] => Yields(None),
         }
@@ -72,16 +71,16 @@ fn parse_show_tenant_org() {
 #[test]
 fn parse_update_fields() {
     scenarios!(
-        run = |argv| match Cmd::try_parse_from(argv.iter().copied()) {
-            Ok(Cmd::Update(args)) => Ok((
-                args.tenant_org,
-                args.routing_profile_type,
-                args.version,
-                args.name,
-            )),
-            Ok(_) => panic!("expected Update variant"),
-            Err(_) => Err(()),
-        };
+        run = |argv| parse_leaf::<Cmd>(argv, &["update"])
+            .map(|matches| {
+                (
+                    raw_value(&matches, "tenant_org").expect("tenant organization is required"),
+                    raw_value(&matches, "routing_profile_type"),
+                    raw_value(&matches, "version"),
+                    raw_value(&matches, "name"),
+                )
+            })
+            .map_err(drop);
         "tenant_org only" {
             &["tenant", "update", "org-123"][..] => Yields(("org-123".to_string(), None, None, None)),
         }

@@ -18,6 +18,14 @@ type ActionCondition struct {
 	ComponentTypes []flowtypes.ComponentType
 }
 
+// Clone returns an independent copy of the condition.
+func (c ActionCondition) Clone() ActionCondition {
+	cloned := c
+	cloned.Severities = slices.Clone(c.Severities)
+	cloned.ComponentTypes = slices.Clone(c.ComponentTypes)
+	return cloned
+}
+
 func (c ActionCondition) validate() error {
 	if err := validateOptionalSlice("severities", c.Severities); err != nil {
 		return err
@@ -46,15 +54,16 @@ func (c ActionCondition) validate() error {
 	return nil
 }
 
-// AppliesTo reports whether the condition accepts the envelope.
-func (c ActionCondition) AppliesTo(envelope Envelope) bool {
+// AppliesTo reports whether the condition accepts the envelope and its
+// canonically resolved resource.
+func (c ActionCondition) AppliesTo(envelope Envelope, resource ResolvedResource) bool {
 	if c.Severities != nil &&
 		!slices.Contains(c.Severities, envelope.Severity) {
 		return false
 	}
 
 	if c.ComponentTypes != nil &&
-		!slices.Contains(c.ComponentTypes, envelope.Resource.ComponentType) {
+		!slices.Contains(c.ComponentTypes, resource.ComponentType) {
 		return false
 	}
 
@@ -102,6 +111,13 @@ type Action struct {
 	Spec      ActionSpec
 }
 
+// Clone returns an independent copy of the action's mutable data.
+func (a Action) Clone() Action {
+	cloned := a
+	cloned.Condition = a.Condition.Clone()
+	return cloned
+}
+
 // NewAction returns an action containing the supplied typed specification.
 func NewAction(id string, condition ActionCondition, spec ActionSpec) Action {
 	return Action{ID: id, Condition: condition, Spec: spec}
@@ -122,6 +138,41 @@ func (a Action) Validate() error {
 	}
 
 	return a.Spec.validate()
+}
+
+// ValidateActions checks an action collection and its identity constraints.
+func ValidateActions(actions []Action) error {
+	if len(actions) == 0 {
+		return fmt.Errorf("actions are required")
+	}
+
+	actionIDs := make(map[string]struct{}, len(actions))
+	for i, action := range actions {
+		if err := action.Validate(); err != nil {
+			return fmt.Errorf("actions[%d]: %w", i, err)
+		}
+
+		if _, ok := actionIDs[action.ID]; ok {
+			return fmt.Errorf("actions[%d]: duplicate action id %q", i, action.ID)
+		}
+
+		actionIDs[action.ID] = struct{}{}
+	}
+
+	return nil
+}
+
+// CloneActions returns an independent copy of an action collection.
+func CloneActions(actions []Action) []Action {
+	if actions == nil {
+		return nil
+	}
+
+	cloned := make([]Action, len(actions))
+	for i := range actions {
+		cloned[i] = actions[i].Clone()
+	}
+	return cloned
 }
 
 // TargetStrategy identifies how a target-bearing action resolves concrete
@@ -192,6 +243,9 @@ func (s SendAlert) Type() ActionType {
 func (s SendAlert) validate() error {
 	if err := s.Severity.Validate(); err != nil {
 		return err
+	}
+	if s.Severity.IsUnspecified() {
+		return fmt.Errorf("alert severity cannot be unspecified")
 	}
 
 	return validateOptionalString("alert message", s.Message)

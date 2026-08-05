@@ -6,11 +6,6 @@ ENABLE_BR_SFC=yes
 {% if forge_hbn_reps %}
 BR_HBN_REPS={{ forge_hbn_reps }}
 {% endif %}
-
-{% if forge_hbn_sfs %}
-BR_HBN_SFS={{ forge_hbn_sfs }}
-{% endif %}
-
 # Include `bmc_fw_update` file content
 {{ forge_bmc_fw_update }}
 
@@ -554,45 +549,6 @@ write_files:
       ctr -n=k8s.io image import /opt/forge/doca_hbn.tar
       /opt/mellanox/doca/services/telemetry/import_doca_telemetry.sh
 
-      {% if forge_vf_intercept_bridge_name %}
-
-        # Create our new bridge
-        ovs-vsctl --may-exist add-br {{ forge_vf_intercept_bridge_name }} -- set bridge {{ forge_vf_intercept_bridge_name }} datapath_type=netdev -- set interface {{ forge_vf_intercept_bridge_name }} mtu_request=9216
-
-        {% if forge_vf_intercept_bridge_port %}
-
-          # Grab the current port index of the hbn bridge and increment it
-          next_br_hbn_ofport_index=$(($(ovs-vsctl get bridge {{ forge_hbn_bridge }} external_ids | grep -o '[0-9]*')+1))
-
-          # Set the port index of the hbn bridge to the new index
-          ovs-vsctl set bridge {{ forge_hbn_bridge }} external_ids:ofport_index=${next_br_hbn_ofport_index}
-
-          # Add the hbn side of our patch port and set its ofport index to match what we set on the hbn bridge
-          ovs-vsctl --may-exist add-port {{ forge_hbn_bridge }} {{ forge_vf_intercept_hbn_port }} -- set interface {{ forge_vf_intercept_hbn_port }} type=patch options:peer={{ forge_vf_intercept_bridge_port }} ofport_request="${next_br_hbn_ofport_index}"
-
-          # Add our side of the patch to our new bridge
-          ovs-vsctl --may-exist add-port {{ forge_vf_intercept_bridge_name }} {{ forge_vf_intercept_bridge_port }} -- set interface {{ forge_vf_intercept_bridge_port }} type=patch options:peer={{ forge_vf_intercept_hbn_port }}
-
-          # Adjust the sfc.conf to insert our patch port where {{ forge_vf_intercept_bridge_sf }} used to be
-          sed -i 's#{{ forge_hbn_bridge }}~{{ forge_vf_intercept_bridge_sf_representor }}~{{ forge_vf_intercept_bridge_sf_hbn_bridge_representor }}#{{ forge_hbn_bridge }}~{{ forge_vf_intercept_hbn_port }}~{{ forge_vf_intercept_bridge_sf_hbn_bridge_representor }}#' /etc/mellanox/sfc.conf
-
-          # Match ofport and ofport_request match so that sfc.sh doesn't error out.
-          ovs-vsctl set interface {{ forge_vf_intercept_bridge_port }} ofport_request=$(ovs-vsctl get interface {{ forge_vf_intercept_bridge_port }} ofport)
-
-          # Clear the related link-propagation line.
-          # We're going to delete the {{ forge_vf_intercept_bridge_sf_representor }}
-          # so we don't need/want its link state to be propagated to {{ forge_vf_intercept_bridge_sf_hbn_bridge_representor }}
-          sed -i ':a;N;$!ba;s/{{ forge_vf_intercept_bridge_sf_representor }}:{{ forge_vf_intercept_bridge_sf_hbn_bridge_representor }}\n*//' /etc/mellanox/sfc.conf
-
-          # Now delete {{ forge_vf_intercept_bridge_sf_representor }} from br-hbn
-          # OVS will get breaking flows if we leave it dangling. We either need to
-          # move it to br-dpu or delete it, and we can delete it because we don't
-          # need it.
-          ovs-vsctl --if-exists del-port {{ forge_vf_intercept_bridge_sf_representor }}
-
-        {% endif %}
-      {% endif %}
-
       {% if forge_host_representor_intercept_bridging %}
         add_host_representor_intercept_bridge() {
           local host_representor="$1"
@@ -651,6 +607,30 @@ write_files:
 
       # And restart ovs
       /usr/sbin/service openvswitch-switch restart
+
+      configure_ovn_encap_ip()
+      {
+        local -a oob_ipv4_addresses
+        local oob_ipv4_address_count
+        mapfile -t oob_ipv4_addresses < <(
+          ip -4 -o address show dev oob_net0 scope global |
+            awk '{sub(/\/.*/, "", $4); print $4}'
+        )
+        oob_ipv4_address_count="$(
+          printf '%s\n' "${oob_ipv4_addresses[@]}" |
+            awk 'NF { count++ } END { print count + 0 }'
+        )"
+
+        if (( oob_ipv4_address_count != 1 )); then
+          echo "expected exactly one global IPv4 address on oob_net0; found ${oob_ipv4_address_count}" >&2
+          return 1
+        fi
+
+        ovs-vsctl set Open_vSwitch . \
+          "external_ids:ovn-encap-ip=${oob_ipv4_addresses[0]}"
+      }
+
+      configure_ovn_encap_ip
 
       /opt/forge/run-scout.sh
       touch /run/cloud-init.done

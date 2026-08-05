@@ -20,7 +20,7 @@ use std::fmt::Display;
 use std::time::Duration;
 
 use ::carbide_utils::metrics::SharedMetricsHolder;
-use carbide_instrument::{DynamicLog, Event, LogAt};
+use carbide_instrument::Event;
 use opentelemetry::metrics::{Counter, Histogram, Meter};
 
 /// Metrics that are gathered in a single dpa monitor run
@@ -86,35 +86,31 @@ impl MetricHolder {
     }
 }
 
-/// `DpaMonitorIterationFinished` closes one DPA monitor pass. Every emission
-/// records its duration in the existing label-free histogram; a non-empty
-/// `error` also retains the historical warning.
+/// One DPA monitor pass. Both cases sample the pass duration; only a failure
+/// logs, so a clean pass is measured without writing a line.
 #[derive(Event)]
 #[event(
     event_name = "dpa_monitor_iteration_finished",
     metric_name = "carbide_dpa_monitor_iteration_latency_milliseconds",
     component = "dpa-monitor",
-    log = dynamic,
     metric = histogram,
-    message = "DPA monitor error",
     describe = "Time consumed for one monitor iteration"
 )]
-pub(crate) struct DpaMonitorIterationFinished {
-    #[observation]
-    pub latency: Duration,
-    /// An empty value turns off logging without skipping the latency sample.
-    #[context]
-    pub error: String,
-}
+pub(crate) enum DpaMonitorIterationFinished {
+    /// A clean pass: sampled, never logged.
+    #[event(log = off)]
+    Succeeded {
+        #[observation]
+        latency: Duration,
+    },
 
-impl DynamicLog for DpaMonitorIterationFinished {
-    fn log_at(&self) -> LogAt {
-        if self.error.is_empty() {
-            LogAt::Off
-        } else {
-            LogAt::Level(tracing::Level::WARN)
-        }
-    }
+    #[event(log = warn, message = "DPA monitor error")]
+    Failed {
+        #[observation]
+        latency: Duration,
+        #[context]
+        error: String,
+    },
 }
 
 /// Instruments that are used by pub struct DpaMonitor
@@ -217,9 +213,13 @@ mod tests {
             run = |IterationCase { latency, error }| {
                 let metrics = MetricsCapture::start();
                 let logs = capture_logs(|| {
-                    emit(DpaMonitorIterationFinished {
-                        latency,
-                        error: error.to_string(),
+                    emit(if error.is_empty() {
+                        DpaMonitorIterationFinished::Succeeded { latency }
+                    } else {
+                        DpaMonitorIterationFinished::Failed {
+                            latency,
+                            error: error.to_string(),
+                        }
                     });
                 });
                 let log = logs.first().map(|log| LogObservation {
@@ -286,9 +286,8 @@ mod tests {
     #[test]
     fn dpa_monitor_iteration_histogram_exposition_stays_stable() {
         let metrics = MetricsCapture::start();
-        emit(DpaMonitorIterationFinished {
+        emit(DpaMonitorIterationFinished::Succeeded {
             latency: Duration::from_millis(125),
-            error: String::new(),
         });
 
         let encoded = metrics.render();

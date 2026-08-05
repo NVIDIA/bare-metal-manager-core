@@ -192,19 +192,23 @@ func testMachineBuildTenant(t *testing.T, dbSession *cdb.Session, org, name stri
 	return tenant
 }
 
-func testMachineUpdateTenantCapability(t *testing.T, dbSession *cdb.Session, tn *cdbm.Tenant) *cdbm.Tenant {
-	tncfg := cdbm.TenantConfig{
-		TargetedInstanceCreation: true,
-	}
+func testMachineEnableTenantAccountTargetedInstanceCreation(t *testing.T, dbSession *cdb.Session, ip *cdbm.InfrastructureProvider, tenantID uuid.UUID) {
+	taDAO := cdbm.NewTenantAccountDAO(dbSession)
+	tas, _, err := taDAO.GetAll(context.Background(), nil, cdbm.TenantAccountFilterInput{
+		InfrastructureProviderID: &ip.ID,
+		TenantIDs:                []uuid.UUID{tenantID},
+		Statuses:                 []string{cdbm.TenantAccountStatusReady},
+	}, cdbp.PageInput{Limit: cutil.GetPtr(1)}, nil)
+	require.NoError(t, err)
+	require.NotEmpty(t, tas)
 
-	tnDAO := cdbm.NewTenantDAO(dbSession)
-	tn, err := tnDAO.Update(context.Background(), nil, cdbm.TenantUpdateInput{
-		TenantID: tn.ID,
-		Config:   &tncfg,
+	_, err = taDAO.Update(context.Background(), nil, cdbm.TenantAccountUpdateInput{
+		TenantAccountID: tas[0].ID,
+		Config: &cdbm.TenantAccountConfig{
+			TargetedInstanceCreation: true,
+		},
 	})
 	assert.Nil(t, err)
-
-	return tn
 }
 
 func testMachineBuildVpc(t *testing.T, dbSession *cdb.Session, ip *cdbm.InfrastructureProvider, site *cdbm.Site, tenant *cdbm.Tenant, org, name string) *cdbm.Vpc {
@@ -314,8 +318,8 @@ func TestMachineHandler_Get(t *testing.T) {
 	tenant := testMachineBuildTenant(t, dbSession, tnOrg1, "test-tenant-1")
 	tenant2 := testMachineBuildTenant(t, dbSession, tnOrg2, "test-tenant-2")
 	tenant3 := testMachineBuildTenant(t, dbSession, tnOrg3, "test-tenant-o3")
-	_ = testMachineUpdateTenantCapability(t, dbSession, tenant3)
 	_ = common.TestBuildTenantAccount(t, dbSession, ip3, &tenant3.ID, tnOrg3, cdbm.TenantAccountStatusReady, tnuo3)
+	testMachineEnableTenantAccountTargetedInstanceCreation(t, dbSession, ip3, tenant3.ID)
 
 	common.TestBuildTenantSite(t, dbSession, tenant, site, ipu)
 	common.TestBuildTenantSite(t, dbSession, tenant2, site2, ipu)
@@ -711,7 +715,6 @@ func TestMachineHandler_GetAll(t *testing.T) {
 	siteT2 := testMachineBuildSite(t, dbSession, ipt2, "testSiteT2", cdbm.SiteStatusRegistered)
 	tnu2 := testMachineBuildUser(t, dbSession, uuid.NewString(), []string{tnOrg2}, tnRoles)
 	tenant2 := testMachineBuildTenant(t, dbSession, tnOrg2, "test-tenant2")
-	_ = testMachineUpdateTenantCapability(t, dbSession, tenant2)
 	_ = common.TestBuildTenantAccount(t, dbSession, ipt2, &tenant2.ID, tnOrg2, cdbm.TenantAccountStatusReady, tnu2)
 
 	it1 := common.TestBuildInstanceType(t, dbSession, "test-instance-1", cutil.GetPtr(uuid.New()), site, map[string]string{
@@ -818,6 +821,13 @@ func TestMachineHandler_GetAll(t *testing.T) {
 	_ = common.TestBuildTenantAccount(t, dbSession, ip4, &tenant4.ID, tnOrg4, cdbm.TenantAccountStatusReady, tnu4)
 	_ = common.TestBuildTenantAccount(t, dbSession, ip4, &tenant5.ID, tnOrg5, cdbm.TenantAccountStatusReady, tnu5)
 	_ = common.TestBuildTenantAccount(t, dbSession, ip4, &tenant6.ID, tnOrg6, cdbm.TenantAccountStatusReady, tnu6)
+	tenantIDsBeyondDefaultPage := make([]string, 0, cdbp.DefaultLimit+1)
+	for i := range cdbp.DefaultLimit + 1 {
+		tenantOrg := fmt.Sprintf("test-pagination-tenant-org-%d", i)
+		paginationTenant := testMachineBuildTenant(t, dbSession, tenantOrg, fmt.Sprintf("test-pagination-tenant-%d", i))
+		_ = common.TestBuildTenantAccount(t, dbSession, ip4, &paginationTenant.ID, tenantOrg, cdbm.TenantAccountStatusReady, ipu)
+		tenantIDsBeyondDefaultPage = append(tenantIDsBeyondDefaultPage, paginationTenant.ID.String())
+	}
 	vpc4 := testMachineBuildVpc(t, dbSession, ip, site, tenant4, tnOrg4, "test-vpc-4")
 
 	os4 := testMachineBuildOperatingSystem(t, dbSession, "test-os-4", tenant4.ID, tnu4)
@@ -915,14 +925,12 @@ func TestMachineHandler_GetAll(t *testing.T) {
 	tnOrg7 := "test-tn-org-7"
 	tnu7 := testMachineBuildUser(t, dbSession, uuid.NewString(), []string{tnOrg7}, tnRoles)
 	tenant7 := testMachineBuildTenant(t, dbSession, tnOrg7, "test-tenant7")
-	_ = testMachineUpdateTenantCapability(t, dbSession, tenant7)
 	_ = common.TestBuildTenantAccount(t, dbSession, ip, &tenant7.ID, tnOrg7, cdbm.TenantAccountStatusReady, tnu7)
+	testMachineEnableTenantAccountTargetedInstanceCreation(t, dbSession, ip, tenant7.ID)
 
 	tnOrg8 := "test-tn-org-8"
 	tnu8 := testMachineBuildUser(t, dbSession, uuid.NewString(), []string{tnOrg8}, tnRoles)
-	tenant8 := testMachineBuildTenant(t, dbSession, tnOrg8, "test-tenant8")
-	_ = testMachineUpdateTenantCapability(t, dbSession, tenant8)
-
+	_ = testMachineBuildTenant(t, dbSession, tnOrg8, "test-tenant8")
 	cfg := common.GetTestConfig()
 	tempClient := &tmocks.Client{}
 
@@ -983,7 +991,7 @@ func TestMachineHandler_GetAll(t *testing.T) {
 			reqOrgName:     ipOrg3,
 			user:           ipu,
 			expectedErr:    true,
-			expectedStatus: http.StatusNotFound,
+			expectedStatus: http.StatusBadRequest,
 		},
 		{
 			name:           "error when Site ID specified in query is an invalid UUID",
@@ -1057,15 +1065,12 @@ func TestMachineHandler_GetAll(t *testing.T) {
 			verifyChildSpanner: true,
 		},
 		{
-			name:               "success case when Tenant has TargetedInstanceCreation capability and filters by Site ID",
+			name:               "failure case when Tenant has no effective TargetedInstanceCreation for Site",
 			reqOrgName:         tnOrg2,
 			user:               tnu2,
 			querySiteID:        cutil.GetPtr(siteT2.ID.String()),
-			expectedErr:        false,
-			expectedStatus:     http.StatusOK,
-			expectedCnt:        0,
-			expectedTotal:      cutil.GetPtr(0),
-			expectInstance:     false,
+			expectedErr:        true,
+			expectedStatus:     http.StatusForbidden,
 			verifyChildSpanner: true,
 		},
 		{
@@ -1078,13 +1083,11 @@ func TestMachineHandler_GetAll(t *testing.T) {
 			expectedTotal:  cutil.GetPtr(totalCount / 2),
 		},
 		{
-			name:           "empty result when Tenant has TargetedInstanceCreation capability but no Tenant Account",
+			name:           "failure case when Tenant has no effective TargetedInstanceCreation on any Site",
 			reqOrgName:     tnOrg8,
 			user:           tnu8,
-			expectedErr:    false,
-			expectedStatus: http.StatusOK,
-			expectedCnt:    0,
-			expectedTotal:  cutil.GetPtr(0),
+			expectedErr:    true,
+			expectedStatus: http.StatusForbidden,
 		},
 		{
 			name:                "success case when Instance Type ID specified in query",
@@ -1342,6 +1345,15 @@ func TestMachineHandler_GetAll(t *testing.T) {
 			expectedTenant:           cutil.GetPtr(tenant4.ID.String()),
 		},
 		{
+			name:           "success case when Tenant IDs exceed the default TenantAccount page size",
+			reqOrgName:     ipOrg4,
+			user:           ipu,
+			queryTenantID:  tenantIDsBeyondDefaultPage,
+			expectedStatus: http.StatusOK,
+			expectedCnt:    0,
+			expectedTotal:  cutil.GetPtr(0),
+		},
+		{
 			name:           "returns nothing when tenant has no associated instance",
 			reqOrgName:     ipOrg4,
 			user:           ipu,
@@ -1409,12 +1421,20 @@ func TestMachineHandler_GetAll(t *testing.T) {
 			expectedStatus:   http.StatusBadRequest,
 		},
 		{
+			name:             "failure case when privileged Tenant specifies hasInstance without siteId",
+			reqOrgName:       tnOrg7,
+			user:             tnu7,
+			queryHasInstance: cutil.GetPtr(true),
+			expectedErr:      true,
+			expectedStatus:   http.StatusBadRequest,
+		},
+		{
 			name:             "failure case when hasInstance is false but tenantId is specified",
 			reqOrgName:       ipOrg1,
 			user:             ipu,
 			querySiteID:      cutil.GetPtr(site.ID.String()),
 			queryHasInstance: cutil.GetPtr(false),
-			queryTenantID:    []string{tenant.ID.String()},
+			queryTenantID:    []string{tenant7.ID.String()},
 			expectedErr:      true,
 			expectedStatus:   http.StatusBadRequest,
 		},
@@ -1529,15 +1549,19 @@ func TestMachineHandler_GetAll(t *testing.T) {
 			}
 			err := gamh.Handle(ec)
 			assert.Nil(t, err)
-			assert.Equal(t, tc.expectedErr, rec.Code != http.StatusOK)
-			if tc.expectedErr {
-				return
-			}
-
 			if rec.Code != tc.expectedStatus {
 				t.Errorf("response %v", rec.Body.String())
 			}
 			require.Equal(t, tc.expectedStatus, rec.Code)
+
+			if tc.verifyChildSpanner {
+				span := oteltrace.SpanFromContext(ec.Request().Context())
+				assert.True(t, span.SpanContext().IsValid())
+			}
+
+			if tc.expectedErr {
+				return
+			}
 
 			resp := []model.APIMachine{}
 			err = json.Unmarshal(rec.Body.Bytes(), &resp)
@@ -1599,11 +1623,6 @@ func TestMachineHandler_GetAll(t *testing.T) {
 					assert.Equal(t, "", resp[0].Instance.InstanceTypeID)
 				}
 			}
-
-			if tc.verifyChildSpanner {
-				span := oteltrace.SpanFromContext(ec.Request().Context())
-				assert.True(t, span.SpanContext().IsValid())
-			}
 		})
 	}
 }
@@ -1639,8 +1658,8 @@ func TestMachineHandler_Update(t *testing.T) {
 
 	tenant := testMachineBuildTenant(t, dbSession, ipOrg1, "testTenant1")
 	tenant2 := testMachineBuildTenant(t, dbSession, tnOrg2, "testTenant2")
-	_ = testMachineUpdateTenantCapability(t, dbSession, tenant2)
 	_ = common.TestBuildTenantAccount(t, dbSession, ip, &tenant2.ID, tnOrg2, cdbm.TenantAccountStatusReady, tnu2)
+	testMachineEnableTenantAccountTargetedInstanceCreation(t, dbSession, ip, tenant2.ID)
 
 	instanceType1 := testMachineBuildInstanceType(t, dbSession, ip, site, "testInstanceType1")
 	instanceType2 := testMachineBuildInstanceType(t, dbSession, ip, site, "testInstanceType2")
@@ -3276,8 +3295,8 @@ func TestMachineHandler_GetDpuMachines(t *testing.T) {
 	// `ip`; regular tenant has neither, so it must hit a 403 even though it
 	// has TENANT_ADMIN.
 	tenantPriv := testMachineBuildTenant(t, dbSession, tnOrgPriv, "test-tenant-priv")
-	_ = testMachineUpdateTenantCapability(t, dbSession, tenantPriv)
 	_ = common.TestBuildTenantAccount(t, dbSession, ip, &tenantPriv.ID, tnOrgPriv, cdbm.TenantAccountStatusReady, tnuPriv)
+	testMachineEnableTenantAccountTargetedInstanceCreation(t, dbSession, ip, tenantPriv.ID)
 	_ = testMachineBuildTenant(t, dbSession, tnOrgRegular, "test-tenant-regular")
 
 	ist := testMachineBuildInstanceType(t, dbSession, ip, site, "instance-type-1")
@@ -3482,7 +3501,7 @@ func TestMachineHandler_GetDpuMachines(t *testing.T) {
 			expectedStatus: http.StatusForbidden,
 		},
 		{
-			name:           "non-privileged tenant is rejected (requirePrivilegedTenant=true)",
+			name:           "non-privileged tenant is rejected (requirePrivilegedScope set)",
 			reqOrgName:     tnOrgRegular,
 			user:           tnuRegular,
 			mID:            mWithDpu.ID,

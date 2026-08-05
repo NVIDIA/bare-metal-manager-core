@@ -21,7 +21,7 @@ use super::args::Args;
 use crate::errors::CarbideCliResult;
 use crate::rpc::ApiClient;
 
-pub async fn rotate(data: Args, api_client: &ApiClient) -> CarbideCliResult<()> {
+pub(super) async fn rotate(data: Args, api_client: &ApiClient) -> CarbideCliResult<()> {
     let response = api_client
         .0
         .rotate_credential(forgerpc::RotateCredentialRequest::try_from(data)?)

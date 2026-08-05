@@ -19,13 +19,13 @@ use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 use std::str::FromStr;
 use std::sync::{Arc, Mutex};
 
-use carbide_instrument::{Event, LabelValue, emit};
+use carbide_instrument::{Event, LabelValue, MetricFamily, emit};
 use config_version::ConfigVersion;
 use ipnetwork::Ipv6Network;
 use model::resource_pool;
 use model::resource_pool::common::{
     CommonPools, DPA_VNI, EXTERNAL_VPC_VNI, EthernetPools, FNN_ASN, IbPools, LOOPBACK_IP,
-    LOOPBACK_IP_V6, SECONDARY_VTEP_IP, VLANID, VNI, VPC_DPU_LOOPBACK, VPC_VNI,
+    LOOPBACK_IP_V6, VLANID, VNI, VPC_DPU_LOOPBACK, VPC_VNI,
 };
 use model::resource_pool::define::{ResourcePoolDef, ResourcePoolType};
 use model::resource_pool::{
@@ -85,18 +85,31 @@ impl From<ValueType> for ResourcePoolValueType {
     }
 }
 
-// These Events share one counter. Keep its kind, description, and label keys
-// identical. Existing allocation diagnostics retain their messages and
-// context; `release` gains its first diagnostic at this database boundary.
+/// The one metric the Events below record.
+#[derive(MetricFamily)]
+#[metric(
+    name = "carbide_resource_pool_lifecycle_failures_total",
+    kind = counter,
+    component = "nico-api",
+    describe = "Number of resource pool lifecycle failures, by operation, failure, failure policy, allocation mode, and value type."
+)]
+struct ResourcePoolLifecycleFailures {
+    operation: ResourcePoolOperation,
+    failure: ResourcePoolFailure,
+    failure_policy: ResourcePoolFailurePolicy,
+    allocation_mode: ResourcePoolAllocationMode,
+    value_type: ResourcePoolValueType,
+}
+
+// These Events record the counter the family above declares. Existing
+// allocation diagnostics retain their messages and context; `release` gains
+// its first diagnostic at this database boundary.
 #[derive(Event)]
 #[event(
     event_name = "resource_pool_exhausted",
-    metric_name = "carbide_resource_pool_lifecycle_failures_total",
-    component = "nico-api",
+    metric_family = ResourcePoolLifecycleFailures,
     log = error,
-    metric = counter,
-    message = "Pool exhausted, cannot allocate",
-    describe = "Number of resource pool lifecycle failures, by operation, failure, failure policy, allocation mode, and value type."
+    message = "Pool exhausted, cannot allocate"
 )]
 struct ResourcePoolExhausted {
     #[label]
@@ -118,12 +131,9 @@ struct ResourcePoolExhausted {
 #[derive(Event)]
 #[event(
     event_name = "resource_pool_requested_vni_unavailable",
-    metric_name = "carbide_resource_pool_lifecycle_failures_total",
-    component = "nico-api",
+    metric_family = ResourcePoolLifecycleFailures,
     log = error,
-    metric = counter,
-    message = "invalid pool value requested, cannot allocate",
-    describe = "Number of resource pool lifecycle failures, by operation, failure, failure policy, allocation mode, and value type."
+    message = "invalid pool value requested, cannot allocate"
 )]
 struct ResourcePoolRequestedVniUnavailable {
     #[label]
@@ -147,12 +157,9 @@ struct ResourcePoolRequestedVniUnavailable {
 #[derive(Event)]
 #[event(
     event_name = "resource_pool_allocation_failed",
-    metric_name = "carbide_resource_pool_lifecycle_failures_total",
-    component = "nico-api",
+    metric_family = ResourcePoolLifecycleFailures,
     log = error,
-    metric = counter,
-    message = "Error allocating from resource pool",
-    describe = "Number of resource pool lifecycle failures, by operation, failure, failure policy, allocation mode, and value type."
+    message = "Error allocating from resource pool"
 )]
 struct ResourcePoolAllocationFailed {
     #[label]
@@ -176,12 +183,9 @@ struct ResourcePoolAllocationFailed {
 #[derive(Event)]
 #[event(
     event_name = "resource_pool_release_failed",
-    metric_name = "carbide_resource_pool_lifecycle_failures_total",
-    component = "nico-api",
+    metric_family = ResourcePoolLifecycleFailures,
     log = error,
-    metric = counter,
-    message = "Error releasing value to resource pool",
-    describe = "Number of resource pool lifecycle failures, by operation, failure, failure policy, allocation mode, and value type."
+    message = "Error releasing value to resource pool"
 )]
 struct ResourcePoolReleaseFailed {
     #[label]
@@ -205,12 +209,9 @@ struct ResourcePoolReleaseFailed {
 #[derive(Event)]
 #[event(
     event_name = "dpu_asn_allocation_failed",
-    metric_name = "carbide_resource_pool_lifecycle_failures_total",
-    component = "nico-api",
+    metric_family = ResourcePoolLifecycleFailures,
     log = info,
-    metric = counter,
-    message = "Failed to allocate asn for dpu",
-    describe = "Number of resource pool lifecycle failures, by operation, failure, failure policy, allocation mode, and value type."
+    message = "Failed to allocate asn for dpu"
 )]
 struct DpuAsnAllocationFailed {
     #[label]
@@ -1402,12 +1403,6 @@ pub async fn create_common_pools(
     //  TODO: This should be removed from optional once FNN become mandatory.
     optional_pool_names.push(pool_vpc_dpu_loopback_ip.name().to_string());
 
-    let pool_secondary_vtep_ip: Arc<ResourcePool<IpAddr>> = Arc::new(ResourcePool::new(
-        SECONDARY_VTEP_IP.to_string(),
-        ValueType::Ipv4,
-    ));
-    optional_pool_names.push(pool_secondary_vtep_ip.name().to_string());
-
     let pool_external_vpc_vni: Arc<ResourcePool<i32>> = Arc::new(ResourcePool::new(
         EXTERNAL_VPC_VNI.to_string(),
         ValueType::Integer,
@@ -1478,7 +1473,6 @@ pub async fn create_common_pools(
             pool_dpa_vni,
             pool_fnn_asn,
             pool_vpc_dpu_loopback_ip,
-            pool_secondary_vtep_ip,
         },
         infiniband: IbPools { pkey_pools },
         pool_stats,

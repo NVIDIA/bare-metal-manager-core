@@ -553,7 +553,7 @@ mod tests {
 
     use super::*;
     use crate::test_support::host_info;
-    use crate::{HostHardwareType, MachineRouterOptions, VirtualMediaDeviceConfig, machine_router};
+    use crate::{HardwareType, MachineRouterOptions, VirtualMediaDeviceConfig, machine_router};
 
     async fn request(
         router: &Router,
@@ -645,7 +645,7 @@ esac
             virtual_media_targets: BTreeMap::from([("Cd".to_string(), "sdb".to_string())]),
         }));
         let (router, state) = machine_router(
-            &host_info(HostHardwareType::DellPowerEdgeR750),
+            &host_info(HardwareType::DellPowerEdgeR750),
             callbacks.clone(),
             "test-host-id".to_string(),
             false,

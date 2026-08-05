@@ -32,12 +32,12 @@ Delete an expected power shelf by ID:
     $ nico-admin-cli expected-power-shelf delete --id 12345678-1234-5678-90ab-cdef01234567
 
 ")]
-pub struct Args {
+pub(crate) struct Args {
     #[clap(help = "BMC MAC address of expected power shelf to delete.")]
-    pub bmc_mac_address: Option<MacAddress>,
+    bmc_mac_address: Option<MacAddress>,
 
     #[clap(long, help = "ID (UUID) of the expected power shelf to delete.")]
-    pub id: Option<Uuid>,
+    id: Option<Uuid>,
 }
 
 impl TryFrom<Args> for ::rpc::forge::ExpectedPowerShelfRequest {

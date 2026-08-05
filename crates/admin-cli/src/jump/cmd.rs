@@ -31,7 +31,7 @@ use crate::{
     resource_pool, site_explorer, vpc,
 };
 
-pub async fn jump(args: Cmd, ctx: &mut RuntimeContext) -> color_eyre::Result<()> {
+pub(super) async fn jump(args: Cmd, ctx: &mut RuntimeContext) -> color_eyre::Result<()> {
     // Is it a machine ID?
     // Grab the machine details.
     if let Ok(machine_id) = args.id.parse::<MachineId>() {

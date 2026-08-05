@@ -1,9 +1,9 @@
 {{/*
 External LoadBalancer service for Override Mode (development).
-Only used when bmcServices is disabled - provides a single external endpoint.
-When bmcServices.enabled, use ClusterIP services instead for per-BMC routing.
+Only used when mat-k8s-controller is disabled - provides a single external endpoint.
+When mat-k8s-controller is enabled, it creates ClusterIP services per BMC.
 */}}
-{{- if and .Values.externalService.enabled (not .Values.bmcServices.enabled) }}
+{{- if and .Values.externalService.enabled (not (index .Values "mat-k8s-controller" "enabled")) }}
 apiVersion: v1
 kind: Service
 metadata:

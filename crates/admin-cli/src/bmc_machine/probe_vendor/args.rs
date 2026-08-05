@@ -33,13 +33,13 @@ Target the BMC by MAC address:
     $ nico-admin-cli bmc-machine probe-vendor --mac-address 00:11:22:33:44:55
 
 ")]
-pub struct Args {
+pub(crate) struct Args {
     #[clap(long, short, help = "IP of the BMC whose vendor to probe")]
-    pub ip_address: Option<String>,
+    ip_address: Option<String>,
     #[clap(long, help = "MAC of the BMC whose vendor to probe")]
-    pub mac_address: Option<MacAddress>,
+    mac_address: Option<MacAddress>,
     #[clap(long, short, help = "ID of the machine whose BMC vendor to probe")]
-    pub machine: Option<String>,
+    machine: Option<String>,
 }
 
 impl From<Args> for forgerpc::ProbeBmcVendorRequest {

@@ -52,7 +52,7 @@ pub enum SitePrefixRoutingScope {
 #[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, PartialEq, Serialize, sqlx::Type)]
 #[sqlx(type_name = "site_prefix_lifecycle_state")]
 #[sqlx(rename_all = "snake_case")]
-#[serde(rename_all = "snake_case")]
+#[serde(rename_all = "snake_case", tag = "state")]
 pub enum SitePrefixLifecycleState {
     Provisioning,
     Ready,
@@ -157,6 +157,92 @@ impl NewSitePrefix {
     }
 }
 
+/// `NewTenantManagedSitePrefix` is the caller-controlled part of a tenant
+/// SitePrefix create. Core derives the authority, routing scope, and initial
+/// lifecycle state when the row is persisted.
+#[derive(Clone, Debug)]
+pub struct NewTenantManagedSitePrefix {
+    pub id: SitePrefixId,
+    pub tenant_organization_id: TenantOrganizationId,
+    pub prefix: IpNetwork,
+    pub metadata: Metadata,
+}
+
+impl NewTenantManagedSitePrefix {
+    pub fn validate(&self) -> Result<(), ConfigValidationError> {
+        // Keep the persisted subset of this policy in sync with the
+        // `site_prefixes_tenant_admission_check` database constraint.
+        let prefix = self.prefix;
+        if prefix.ip() != prefix.network() {
+            return Err(ConfigValidationError::invalid_value(format!(
+                "site prefix {prefix} is not in canonical CIDR form"
+            )));
+        }
+
+        let IpNetwork::V4(prefix) = prefix else {
+            return Err(ConfigValidationError::invalid_value(
+                "tenant-managed site prefixes must use IPv4",
+            ));
+        };
+
+        if !(8..=31).contains(&prefix.prefix()) {
+            return Err(ConfigValidationError::invalid_value(
+                "tenant-managed site prefix lengths must be between /8 and /31",
+            ));
+        }
+
+        let private_roots = [
+            "10.0.0.0/8".parse::<IpNetwork>().unwrap(),
+            "172.16.0.0/12".parse::<IpNetwork>().unwrap(),
+            "192.168.0.0/16".parse::<IpNetwork>().unwrap(),
+        ];
+        if !private_roots.iter().any(|private_root| {
+            private_root.prefix() <= prefix.prefix() && private_root.contains(prefix.ip().into())
+        }) {
+            return Err(ConfigValidationError::invalid_value(format!(
+                "tenant-managed site prefix {} must be contained in RFC1918 address space",
+                self.prefix
+            )));
+        }
+
+        self.metadata.validate(true)
+    }
+
+    /// Builds the complete row while keeping server-owned fields out of the
+    /// mutation request.
+    pub fn into_new_site_prefix(self) -> NewSitePrefix {
+        NewSitePrefix {
+            id: self.id,
+            config: SitePrefixConfig {
+                prefix: self.prefix,
+                tenant_organization_id: Some(self.tenant_organization_id),
+                routing_scope: SitePrefixRoutingScope::DatacenterOnly,
+            },
+            metadata: self.metadata,
+            status: SitePrefixStatus {
+                authority: SitePrefixAuthority::TenantManaged,
+                lifecycle_state: SitePrefixLifecycleState::Provisioning,
+            },
+        }
+    }
+}
+
+/// Metadata-only mutation for a tenant-managed SitePrefix.
+#[derive(Clone, Debug)]
+pub struct UpdateSitePrefixMetadata {
+    pub id: SitePrefixId,
+    pub tenant_organization_id: TenantOrganizationId,
+    pub metadata: Metadata,
+    pub if_version_match: Option<ConfigVersion>,
+}
+
+/// Retirement intent for a tenant-managed SitePrefix.
+#[derive(Clone, Debug)]
+pub struct RetireTenantManagedSitePrefix {
+    pub id: SitePrefixId,
+    pub tenant_organization_id: TenantOrganizationId,
+}
+
 #[derive(Clone, Debug)]
 pub enum PrefixMatch {
     Exact(IpNetwork),
@@ -224,6 +310,18 @@ mod tests {
             status: SitePrefixStatus {
                 authority,
                 lifecycle_state,
+            },
+        }
+    }
+
+    fn tenant_managed_input(prefix: &str) -> NewTenantManagedSitePrefix {
+        NewTenantManagedSitePrefix {
+            id: SitePrefixId::new(),
+            tenant_organization_id: "tenant-a".parse().unwrap(),
+            prefix: prefix.parse().unwrap(),
+            metadata: Metadata {
+                name: "tenant prefix".to_string(),
+                ..Metadata::default()
             },
         }
     }
@@ -304,6 +402,103 @@ mod tests {
                 },
             ],
             |site_prefix| site_prefix.validate().map_err(drop),
+        );
+    }
+
+    #[test]
+    fn validate_tenant_managed_prefix_policy() {
+        check_cases(
+            [
+                Case {
+                    scenario: "RFC1918 /8 boundary",
+                    input: tenant_managed_input("10.0.0.0/8"),
+                    expect: Yields(()),
+                },
+                Case {
+                    scenario: "RFC1918 /31 boundary",
+                    input: tenant_managed_input("10.0.0.0/31"),
+                    expect: Yields(()),
+                },
+                Case {
+                    scenario: "172.16 private root",
+                    input: tenant_managed_input("172.16.0.0/12"),
+                    expect: Yields(()),
+                },
+                Case {
+                    scenario: "192.168 private subnet",
+                    input: tenant_managed_input("192.168.10.0/24"),
+                    expect: Yields(()),
+                },
+                Case {
+                    scenario: "prefix wider than /8",
+                    input: tenant_managed_input("10.0.0.0/7"),
+                    expect: Fails,
+                },
+                Case {
+                    scenario: "single address",
+                    input: tenant_managed_input("10.0.0.1/32"),
+                    expect: Fails,
+                },
+                Case {
+                    scenario: "IPv6",
+                    input: tenant_managed_input("fd00::/8"),
+                    expect: Fails,
+                },
+                Case {
+                    scenario: "shared address space",
+                    input: tenant_managed_input("100.64.0.0/10"),
+                    expect: Fails,
+                },
+                Case {
+                    scenario: "outside the private part of 172/8",
+                    input: tenant_managed_input("172.0.0.0/12"),
+                    expect: Fails,
+                },
+                Case {
+                    scenario: "outside 192.168/16",
+                    input: tenant_managed_input("192.169.0.0/16"),
+                    expect: Fails,
+                },
+                Case {
+                    scenario: "noncanonical prefix",
+                    input: tenant_managed_input("10.0.0.1/24"),
+                    expect: Fails,
+                },
+            ],
+            |site_prefix| site_prefix.validate().map_err(drop),
+        );
+    }
+
+    #[test]
+    fn tenant_managed_create_derives_server_owned_fields() {
+        let request = tenant_managed_input("10.0.0.0/24");
+        let id = request.id;
+        let tenant_organization_id = request.tenant_organization_id.clone();
+        let site_prefix = request.into_new_site_prefix();
+
+        assert_eq!(site_prefix.id, id);
+        assert_eq!(
+            site_prefix.config.tenant_organization_id,
+            Some(tenant_organization_id)
+        );
+        assert_eq!(
+            site_prefix.config.routing_scope,
+            SitePrefixRoutingScope::DatacenterOnly
+        );
+        assert_eq!(
+            site_prefix.status,
+            SitePrefixStatus {
+                authority: SitePrefixAuthority::TenantManaged,
+                lifecycle_state: SitePrefixLifecycleState::Provisioning,
+            }
+        );
+    }
+
+    #[test]
+    fn lifecycle_state_serializes_for_state_history() {
+        assert_eq!(
+            serde_json::to_value(SitePrefixLifecycleState::Provisioning).unwrap(),
+            serde_json::json!({"state": "provisioning"})
         );
     }
 }

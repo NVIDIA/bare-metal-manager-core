@@ -27,8 +27,8 @@ mod start_updates;
 
 // Cross-module re-exports for firmware/start_updates.rs
 // Cross-module re-exports for debug_bundle/cmds.rs
-pub use debug_bundle::args::Args as DebugBundle;
-pub use start_updates::args::Args as StartUpdates;
+pub(crate) use debug_bundle::args::Args as DebugBundle;
+pub(crate) use start_updates::args::Args as StartUpdates;
 
 #[cfg(test)]
 mod tests;
@@ -38,7 +38,7 @@ use clap::Parser;
 use crate::cfg::dispatch::Dispatch;
 
 #[derive(Parser, Debug, Dispatch)]
-pub enum Cmd {
+pub(crate) enum Cmd {
     #[clap(about = "Display managed host information")]
     Show(show::Args),
     #[clap(

@@ -483,6 +483,64 @@ spec:
                     description: Disable ensures the component is not deployed when
                       set to true.
                     type: boolean
+                  etcdEncryptionAtRest:
+                    description: |-
+                      EtcdEncryptionAtRest configures encryption at rest for the etcd datastore of
+                      Kamaji-managed DPU clusters. The provider selection is applied only when a
+                      Kamaji cluster is first created and is not changed for existing clusters.
+                    properties:
+                      provider:
+                        description: Provider selects the encryption-at-rest provider.
+                        enum:
+                        - staticKey
+                        - vaultKMS
+                        type: string
+                      staticKey:
+                        description: |-
+                          StaticKey configures the staticKey provider. It is required when provider is staticKey and
+                          must not be set otherwise.
+                        properties:
+                          automaticRotationDisabled:
+                            description: |-
+                              AutomaticRotationDisabled disables automatic staticKey rotation for existing Kamaji clusters.
+                              In-flight rotations stop at the next stable checkpoint; encryption at rest remains enabled.
+                            type: boolean
+                          keySecretRef:
+                            description: |-
+                              KeySecretRef selects the AES-GCM key from a Secret in the DPFOperatorConfig namespace.
+                              The referenced Secret value must be base64-encoded AES key text whose decoded length is 16,
+                              24, or 32 bytes. For Kubernetes manifests, use stringData.key with the output of
+                              `openssl rand -base64 32`. For External Secrets, configure the external value or template so
+                              the resulting Kubernetes Secret data decodes to that base64 text, not to raw key bytes.
+                              The referenced key is used as the desired static key source. Changing the referenced
+                              Secret value triggers automatic rotation for existing staticKey-encrypted Kamaji clusters.
+                              The per-cluster rendered encryption configuration must be backed up together with the
+                              cluster etcd backup because Kubernetes encrypted data references encryption config key names.
+                            properties:
+                              key:
+                                description: Key is the key within the Secret data
+                                  to select.
+                                minLength: 1
+                                type: string
+                              name:
+                                description: Name is the name of the Secret.
+                                minLength: 1
+                                type: string
+                            required:
+                            - key
+                            - name
+                            type: object
+                        required:
+                        - keySecretRef
+                        type: object
+                    required:
+                    - provider
+                    type: object
+                    x-kubernetes-validations:
+                    - message: staticKey is required when provider is staticKey
+                      rule: self.provider != 'staticKey' || has(self.staticKey)
+                    - message: staticKey must not be set when provider is vaultKMS
+                      rule: self.provider != 'vaultKMS' || !has(self.staticKey)
                   image:
                     description: |-
                       Image overrides the container image used by the Kamaji Cluster Manager.
@@ -745,6 +803,20 @@ spec:
                               Endpoint is the OTLP endpoint where the DPU cluster opentelemetry-collector sends data to.
                               This could be the management cluster's opentelemetry-collector endpoint.
                               If not specified, nothing will be forwarded from DPU clusters.
+                            type: string
+                        required:
+                        - endpoint
+                        type: object
+                      metrics:
+                        description: |-
+                          Metrics contains the configuration for the opentelemetry-collector metrics component.
+                          If not specified, metrics will not be streamed from DPU clusters.
+                        properties:
+                          endpoint:
+                            description: |-
+                              Endpoint is the OTLP endpoint where the DPU cluster opentelemetry-collector sends metrics to.
+                              This could be the management cluster's opentelemetry-collector endpoint.
+                              If not specified, metrics will not be forwarded from DPU clusters.
                             type: string
                         required:
                         - endpoint
@@ -1216,6 +1288,12 @@ spec:
                     description: Paused disables all reconciliation of the DPFOperatorConfig
                       when set to true.
                     type: boolean
+                  provisioningIssuerCASecretName:
+                    description: |-
+                      ProvisioningIssuerCASecretName overrides the CA secret used by the provisioning Issuer during
+                      controlled CA rotation workflows. When unset, the default issuer secret is used.
+                    minLength: 1
+                    type: string
                 type: object
               ovsCNI:
                 description: |-
@@ -1321,6 +1399,14 @@ spec:
                     description: |-
                       BFBPersistentVolumeClaimName is the name of the PersistentVolumeClaim used by dpf-provisioning-controller
                       If not provided, the controller will use local host storage (hostPath)
+                    type: string
+                  bmcServerCertRenewBefore:
+                    description: |-
+                      BMCServerCertRenewBefore is how long before expiry DPF rotates the DPU BMC mTLS
+                      server certificate.
+                      When unset, the provisioning controller defaults to 720h (30 days).
+                    format: duration
+                    pattern: ^([0-9]+(h|m|s|ms|us|µs|ns))+$
                     type: string
                   controller:
                     description: |-
@@ -1520,6 +1606,15 @@ spec:
                     format: duration
                     pattern: ^([0-9]+(h|m|s|ms|us|µs|ns))+$
                     type: string
+                  preInstallAgentRegistrationTimeout:
+                    default: 30s
+                    description: |-
+                      PreInstallAgentRegistrationTimeout is how long Initializing waits for the in-band dpu-agent
+                      to set preInstall.agentReported on a recreated DPU CR (reprovision). When the timeout elapses,
+                      provisioning continues without agent-assisted pre-install for this cycle.
+                    format: duration
+                    pattern: ^([0-9]+(h|m|s|ms|us|µs|ns))+$
+                    type: string
                   registry:
                     description: Registry is the configuration for the BFB Registry
                     properties:
@@ -1657,6 +1752,13 @@ spec:
                         maxLength: 512
                         minLength: 1
                         type: string
+                      spireControllerManagerClassName:
+                        description: |-
+                          spireControllerManagerClassName selects the SPIRE controller-manager instance that renders
+                          DPF ClusterStaticEntries.
+                        maxLength: 253
+                        minLength: 1
+                        type: string
                       spireOIDCURL:
                         description: |-
                           SPIREOIDCURL is the OIDC discovery (issuer) URL of the pre-installed SPIRE Server.
@@ -1702,6 +1804,7 @@ spec:
                         type: object
                     required:
                     - kubeAPIAudience
+                    - spireControllerManagerClassName
                     - spireOIDCURL
                     - spireServerAddress
                     - spireTrustDomain
@@ -1714,6 +1817,348 @@ spec:
                     - message: spireServerAddress port must be in 1-65535
                       rule: '!self.spireServerAddress.contains('':'') || (int(self.spireServerAddress.split('':'')[1])
                         >= 1 && int(self.spireServerAddress.split('':'')[1]) <= 65535)'
+                  vaultKMS:
+                    description: |-
+                      VaultKMS is the configuration for the standalone Vault/OpenBao KMS plugin component.
+                      It is deployed as a DaemonSet on control-plane nodes and is disabled by default.
+                      The plugin is used for encryption at rest for DPUClusters.
+                    properties:
+                      address:
+                        description: |-
+                          Address is the Vault/OpenBao server address.
+                          WARNING: Changing this field does not automatically rotate the encryption key or
+                          re-encrypt existing DPU cluster secrets. Do not change it while active DPU clusters
+                          depend on this KMS plugin unless the new endpoint provides access to the key material
+                          used by the previous endpoint. Otherwise, those clusters will be unable to decrypt
+                          their existing secrets, causing an outage.
+                        maxLength: 2048
+                        minLength: 1
+                        pattern: ^https://.+$
+                        type: string
+                      auth:
+                        description: Auth configures how the plugin authenticates
+                          to Vault/OpenBao.
+                        properties:
+                          appRole:
+                            description: AppRole configures AppRole auth.
+                            properties:
+                              authEngineMountPath:
+                                description: AuthEngineMountPath optionally overrides
+                                  the Vault auth engine mount path. It is not the
+                                  transit mount.
+                                maxLength: 512
+                                minLength: 1
+                                type: string
+                              roleIDKey:
+                                description: RoleIDKey is the Secret data key holding
+                                  the AppRole role ID.
+                                minLength: 1
+                                type: string
+                              secretIDKey:
+                                description: SecretIDKey is the Secret data key holding
+                                  the AppRole secret ID.
+                                minLength: 1
+                                type: string
+                              secretName:
+                                description: SecretName is the name of the Secret
+                                  holding the AppRole role ID and secret ID.
+                                minLength: 1
+                                type: string
+                            required:
+                            - roleIDKey
+                            - secretIDKey
+                            - secretName
+                            type: object
+                          jwt:
+                            description: JWT configures JWT auth.
+                            properties:
+                              authEngineMountPath:
+                                description: AuthEngineMountPath optionally overrides
+                                  the Vault auth engine mount path. It is not the
+                                  transit mount.
+                                maxLength: 512
+                                minLength: 1
+                                type: string
+                              jwtSecretRef:
+                                description: JWTSecretRef selects the JWT presented
+                                  to Vault from a Secret in the DPFOperatorConfig
+                                  namespace.
+                                properties:
+                                  key:
+                                    description: Key is the key within the Secret
+                                      data to select.
+                                    minLength: 1
+                                    type: string
+                                  name:
+                                    description: Name is the name of the Secret.
+                                    minLength: 1
+                                    type: string
+                                required:
+                                - key
+                                - name
+                                type: object
+                              role:
+                                description: Role is the Vault JWT auth role name.
+                                minLength: 1
+                                type: string
+                            required:
+                            - jwtSecretRef
+                            - role
+                            type: object
+                          kubernetes:
+                            description: Kubernetes configures Kubernetes auth.
+                            properties:
+                              audience:
+                                description: |-
+                                  Audience optionally sets the audience for the projected Kubernetes service account token.
+                                  Use this when the Vault Kubernetes auth role is configured with bound audiences.
+                                maxLength: 512
+                                minLength: 1
+                                type: string
+                              authEngineMountPath:
+                                description: AuthEngineMountPath optionally overrides
+                                  the Vault auth engine mount path. It is not the
+                                  transit mount.
+                                maxLength: 512
+                                minLength: 1
+                                type: string
+                              role:
+                                description: Role is the Vault Kubernetes auth role
+                                  name (not a Kubernetes RBAC role).
+                                minLength: 1
+                                type: string
+                            required:
+                            - role
+                            type: object
+                          method:
+                            description: Method selects the Vault auth method.
+                            enum:
+                            - token
+                            - approle
+                            - userpass
+                            - kubernetes
+                            - jwt
+                            type: string
+                          token:
+                            description: Token configures token auth.
+                            properties:
+                              tokenSecretRef:
+                                description: TokenSecretRef selects the Vault token
+                                  from a Secret in the DPFOperatorConfig namespace.
+                                properties:
+                                  key:
+                                    description: Key is the key within the Secret
+                                      data to select.
+                                    minLength: 1
+                                    type: string
+                                  name:
+                                    description: Name is the name of the Secret.
+                                    minLength: 1
+                                    type: string
+                                required:
+                                - key
+                                - name
+                                type: object
+                            required:
+                            - tokenSecretRef
+                            type: object
+                          userpass:
+                            description: Userpass configures userpass auth.
+                            properties:
+                              authEngineMountPath:
+                                description: AuthEngineMountPath optionally overrides
+                                  the Vault auth engine mount path. It is not the
+                                  transit mount.
+                                maxLength: 512
+                                minLength: 1
+                                type: string
+                              passwordKey:
+                                description: PasswordKey is the Secret data key holding
+                                  the password.
+                                minLength: 1
+                                type: string
+                              secretName:
+                                description: SecretName is the name of the Secret
+                                  holding the username and password.
+                                minLength: 1
+                                type: string
+                              usernameKey:
+                                description: UsernameKey is the Secret data key holding
+                                  the username.
+                                minLength: 1
+                                type: string
+                            required:
+                            - passwordKey
+                            - secretName
+                            - usernameKey
+                            type: object
+                        required:
+                        - method
+                        type: object
+                        x-kubernetes-validations:
+                        - message: token is required when method is token
+                          rule: self.method != 'token' || has(self.token)
+                        - message: token must only be set when method is token
+                          rule: self.method == 'token' || !has(self.token)
+                        - message: appRole is required when method is approle
+                          rule: self.method != 'approle' || has(self.appRole)
+                        - message: appRole must only be set when method is approle
+                          rule: self.method == 'approle' || !has(self.appRole)
+                        - message: userpass is required when method is userpass
+                          rule: self.method != 'userpass' || has(self.userpass)
+                        - message: userpass must only be set when method is userpass
+                          rule: self.method == 'userpass' || !has(self.userpass)
+                        - message: kubernetes is required when method is kubernetes
+                          rule: self.method != 'kubernetes' || has(self.kubernetes)
+                        - message: kubernetes must only be set when method is kubernetes
+                          rule: self.method == 'kubernetes' || !has(self.kubernetes)
+                        - message: jwt is required when method is jwt
+                          rule: self.method != 'jwt' || has(self.jwt)
+                        - message: jwt must only be set when method is jwt
+                          rule: self.method == 'jwt' || !has(self.jwt)
+                      daemon:
+                        description: Daemon contains the image and resource overrides
+                          for the KMS plugin DaemonSet.
+                        properties:
+                          image:
+                            description: Image is a reference to a container image.
+                            pattern: ^((?:(?:(?:[a-zA-Z0-9]|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9])(?:\.(?:[a-zA-Z0-9]|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9]))*|\[(?:[a-fA-F0-9:]+)\])(?::[0-9]+)?/)?[a-z0-9]+(?:(?:[._]|__|[-]+)[a-z0-9]+)*(?:/[a-z0-9]+(?:(?:[._]|__|[-]+)[a-z0-9]+)*)*)(?::([\w][\w.-]{0,127}))?(?:@([A-Za-z][A-Za-z0-9]*(?:[-_+.][A-Za-z][A-Za-z0-9]*)*[:][[:xdigit:]]{32,}))?$
+                            type: string
+                          resources:
+                            description: |-
+                              Resources defines the memory and CPU resource requests and limits for the component.
+                              This field is optional, and if not set, the component will use the default resource.
+                            properties:
+                              limits:
+                                description: Limits defines the resource limits for
+                                  the component.
+                                properties:
+                                  cpu:
+                                    anyOf:
+                                    - type: integer
+                                    - type: string
+                                    description: CPU is the amount of CPU requested
+                                      by the component.
+                                    pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                                    x-kubernetes-int-or-string: true
+                                  memory:
+                                    anyOf:
+                                    - type: integer
+                                    - type: string
+                                    description: Memory is the amount of Memory requested
+                                      by the component.
+                                    pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                                    x-kubernetes-int-or-string: true
+                                type: object
+                              requests:
+                                description: Requests defines the resource requests
+                                  for the component.
+                                properties:
+                                  cpu:
+                                    anyOf:
+                                    - type: integer
+                                    - type: string
+                                    description: CPU is the amount of CPU requested
+                                      by the component.
+                                    pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                                    x-kubernetes-int-or-string: true
+                                  memory:
+                                    anyOf:
+                                    - type: integer
+                                    - type: string
+                                    description: Memory is the amount of Memory requested
+                                      by the component.
+                                    pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                                    x-kubernetes-int-or-string: true
+                                type: object
+                            type: object
+                        type: object
+                      disable:
+                        description: Disable ensures the component is not deployed
+                          when set to true.
+                        type: boolean
+                      loginTimeoutSeconds:
+                        description: |-
+                          LoginTimeoutSeconds optionally overrides the maximum time for one Vault token check cycle, including authentication, in seconds.
+                          This is an advanced setting. The plugin default should work for most environments.
+                          Must be at least 1 second.
+                        format: int32
+                        minimum: 1
+                        type: integer
+                      namespace:
+                        description: |-
+                          Namespace optionally configures the Vault/OpenBao namespace used for requests.
+                          This is a Vault/OpenBao namespace, not a Kubernetes namespace.
+                          WARNING: Changing this field does not automatically rotate the encryption key or
+                          re-encrypt existing DPU cluster secrets. Do not change it while active DPU clusters
+                          depend on this KMS plugin unless the new namespace provides access to the key material
+                          used by the previous namespace. Otherwise, those clusters will be unable to decrypt
+                          their existing secrets, causing an outage.
+                        maxLength: 512
+                        minLength: 1
+                        type: string
+                      tls:
+                        description: TLS configures TLS settings used to connect to
+                          Vault/OpenBao.
+                        properties:
+                          caConfigMapRef:
+                            description: |-
+                              CACertConfigMapRef selects a CA bundle key from a ConfigMap used to verify the
+                              Vault/OpenBao server certificate. It is mounted as a file.
+                            properties:
+                              key:
+                                description: Key is the key within the ConfigMap data
+                                  to select.
+                                minLength: 1
+                                type: string
+                              name:
+                                description: Name is the name of the ConfigMap.
+                                minLength: 1
+                                type: string
+                            required:
+                            - key
+                            - name
+                            type: object
+                        type: object
+                      tokenCheckIntervalSeconds:
+                        description: |-
+                          TokenCheckIntervalSeconds optionally overrides how often the plugin checks and renews the current Vault token, in seconds.
+                          This is an advanced setting. The plugin default should work for most environments.
+                          Must be at least 5 seconds.
+                        format: int32
+                        minimum: 5
+                        type: integer
+                      transit:
+                        description: |-
+                          Transit configures the Vault Transit secrets engine used for encrypt/decrypt.
+                          WARNING: Changing this field does not automatically rotate the encryption key or
+                          re-encrypt existing DPU cluster secrets. Do not change it while active DPU clusters
+                          depend on this KMS plugin unless the new Transit configuration provides access to all
+                          key material used by the previous configuration. Otherwise, those clusters will be
+                          unable to decrypt their existing secrets, causing an outage.
+                        properties:
+                          keyName:
+                            description: KeyName is the Transit key used for encrypt
+                              and decrypt operations.
+                            minLength: 1
+                            pattern: ^\w(([\w-.]+)?\w)?$
+                            type: string
+                          mount:
+                            default: transit
+                            description: Mount is the Transit secrets engine mount
+                              path. Defaults to "transit".
+                            maxLength: 512
+                            minLength: 1
+                            pattern: ^/?[^/\s][^\s]*$
+                            type: string
+                        required:
+                        - keyName
+                        type: object
+                    required:
+                    - address
+                    - auth
+                    - transit
+                    type: object
                 type: object
               serviceSetController:
                 description: ServiceSetController is the configuration for the ServiceSetController
@@ -2078,19 +2523,20 @@ spec:
             type: object
             x-kubernetes-validations:
             - message: deploymentMode zero-trust requires provisioningController.installInterface.installViaRedfish
-              rule: self.deploymentMode != 'zero-trust' || (has(self.provisioningController.installInterface)
-                && has(self.provisioningController.installInterface.installViaRedfish))
+              rule: '!has(self.deploymentMode) || self.deploymentMode != ''zero-trust''
+                || (has(self.provisioningController.installInterface) && has(self.provisioningController.installInterface.installViaRedfish))'
             - message: deploymentMode host-trusted does not support provisioningController.installInterface.installViaRedfish
-              rule: self.deploymentMode != 'host-trusted' || !has(self.provisioningController.installInterface)
-                || !has(self.provisioningController.installInterface.installViaRedfish)
+              rule: '!has(self.deploymentMode) || self.deploymentMode != ''host-trusted''
+                || !has(self.provisioningController.installInterface) || !has(self.provisioningController.installInterface.installViaRedfish)'
             - message: dpuNodeOOBBridgeName is only configurable in host-trusted mode
-              rule: self.deploymentMode == 'host-trusted' || !has(self.networking.dpuNodeOOBBridgeName)
-                || self.networking.dpuNodeOOBBridgeName == 'br-dpu'
+              rule: '!has(self.deploymentMode) || self.deploymentMode == ''host-trusted''
+                || !has(self.networking.dpuNodeOOBBridgeName) || self.networking.dpuNodeOOBBridgeName
+                == ''br-dpu'''
             - message: controlPlaneMTU must not exceed 1500 in zero-trust mode because
                 DPU OOB interfaces do not support jumbo frames
-              rule: self.deploymentMode != 'zero-trust' || !has(self.networking) ||
-                !has(self.networking.controlPlaneMTU) || self.networking.controlPlaneMTU
-                <= 1500
+              rule: '!has(self.deploymentMode) || self.deploymentMode != ''zero-trust''
+                || !has(self.networking) || !has(self.networking.controlPlaneMTU)
+                || self.networking.controlPlaneMTU <= 1500'
             - message: spiffe configuration requires deploymentMode=zero-trust
               rule: '!has(self.security) || !has(self.security.spiffe) || self.deploymentMode
                 == ''zero-trust'''
@@ -2100,6 +2546,12 @@ spec:
                 SPIFFE-mode DPUs require re-provisioning.
               rule: '!has(oldSelf.security) || !has(oldSelf.security.spiffe) || (has(self.security)
                 && has(self.security.spiffe))'
+            - message: kamajiClusterManager.etcdEncryptionAtRest.provider vaultKMS
+                requires spec.security.vaultKMS to be enabled
+              rule: '!has(self.kamajiClusterManager) || !has(self.kamajiClusterManager.etcdEncryptionAtRest)
+                || self.kamajiClusterManager.etcdEncryptionAtRest.provider != ''vaultKMS''
+                || (has(self.security) && has(self.security.vaultKMS) && (!has(self.security.vaultKMS.disable)
+                || self.security.vaultKMS.disable == false))'
           status:
             description: DPFOperatorConfigStatus defines the observed state of DPFOperatorConfig
             properties:

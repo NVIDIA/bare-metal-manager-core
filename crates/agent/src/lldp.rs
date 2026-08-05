@@ -21,6 +21,7 @@ use std::path::{Path, PathBuf};
 use std::process::Output;
 use std::time::Duration;
 
+use carbide_instrument::emit;
 use carbide_uuid::machine::MachineId;
 use eyre::WrapErr;
 use tokio::process::Command;
@@ -265,25 +266,25 @@ async fn restart_lldpd() -> eyre::Result<()> {
 
         match restart_result {
             Ok(()) => {
-                LldpdRestart::Succeeded { attempt }.emit();
+                emit(LldpdRestart::Succeeded {
+                    attempt: i64::from(attempt),
+                });
                 return Ok(());
             }
             Err(error) => match lldpd_restart_failure_action(attempt) {
                 LldpdRestartFailureAction::Retry => {
-                    LldpdRestart::Retrying {
+                    emit(LldpdRestart::Retrying {
                         error: error.to_string(),
-                        attempt,
-                    }
-                    .emit();
+                        attempt: i64::from(attempt),
+                    });
                     tokio::time::sleep(Duration::from_secs(u64::from(attempt))).await;
                     attempt += 1;
                 }
                 LldpdRestartFailureAction::ReturnError => {
-                    LldpdRestart::Failed {
+                    emit(LldpdRestart::Failed {
                         error: error.to_string(),
-                        attempt_count: attempt,
-                    }
-                    .emit();
+                        attempt_count: i64::from(attempt),
+                    });
                     return Err(error);
                 }
             },

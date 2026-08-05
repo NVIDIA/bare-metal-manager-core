@@ -5,6 +5,10 @@ inputs:
     description: 'Rust toolchain version to install'
     required: false
     default: '1.96.0'
+  cargo-make-version:
+    description: 'cargo-make version to install (keep in sync with Makefile.toml config.min_version)'
+    required: false
+    default: '0.37.24'
   arch:
     description: 'Target architecture (x86_64 or aarch64)'
     required: false
@@ -105,28 +109,62 @@ runs:
         # Ensure cargo is in PATH
         echo "$HOME/.cargo/bin" >> $GITHUB_PATH
 
+    # `cargo install cargo-make` compiled the tool from source on every run,
+    # which cost several minutes and hurt most on arm64. Upstream publishes
+    # prebuilt binaries for x86_64 Linux only, so arm64 still has to build it
+    # once -- caching the resulting binary is what keeps that off the critical
+    # path on subsequent runs.
+    - name: Restore cargo-make
+      uses: actions/cache@v4
+      with:
+        path: ~/.cargo/bin/cargo-make
+        key: cargo-make-${{ inputs.cargo-make-version }}-${{ runner.os }}-${{ runner.arch }}
+
     - name: Install cargo-make
       shell: bash
+      env:
+        CARGO_MAKE_VERSION: ${{ inputs.cargo-make-version }}
       run: |
+        set -euo pipefail
         source $HOME/.cargo/env || true
-        if ! command -v cargo-make &> /dev/null; then
-          echo "Installing cargo-make..."
-          cargo install cargo-make --locked
-        else
-          echo "cargo-make is already installed"
-          cargo-make --version
+
+        if command -v cargo-make &> /dev/null; then
+          installed_version="$(cargo make --version | awk '{print $NF}')"
+          if [[ "${installed_version}" == "${CARGO_MAKE_VERSION}" ]]; then
+            echo "cargo-make ${installed_version} is already installed"
+            exit 0
+          fi
+          echo "Replacing cargo-make ${installed_version} with ${CARGO_MAKE_VERSION}"
         fi
 
-    - name: Install sccache (optional build cache)
-      shell: bash
-      run: |
-        source $HOME/.cargo/env || true
-        if ! command -v sccache &> /dev/null; then
-          echo "Installing sccache..."
-          cargo install sccache --locked
+        mkdir -p "$HOME/.cargo/bin"
+
+        # Upstream publishes x86_64-unknown-linux-{gnu,musl} only; there is no
+        # aarch64 asset, so that arch intentionally falls through to a source
+        # build and is served by the cache above from then on.
+        asset_arch=""
+        if [ "$(uname -m)" = "x86_64" ]; then
+          asset_arch="x86_64-unknown-linux-musl"
+        fi
+
+        tmp="$(mktemp -d)"
+        trap 'rm -rf "${tmp}"' EXIT
+
+        url="https://github.com/sagiegurari/cargo-make/releases/download/${CARGO_MAKE_VERSION}/cargo-make-v${CARGO_MAKE_VERSION}-${asset_arch}.zip"
+
+        if [ -n "${asset_arch}" ] && curl -fsSL "${url}" -o "${tmp}/cargo-make.zip"; then
+          unzip -q -o "${tmp}/cargo-make.zip" -d "${tmp}"
+          install -m 0755 "$(find "${tmp}" -name cargo-make -type f | head -1)" "$HOME/.cargo/bin/cargo-make"
+          echo "Installed prebuilt cargo-make: $("$HOME/.cargo/bin/cargo-make" make --version)"
         else
-          echo "sccache is already installed"
-          sccache --version
+          echo "No prebuilt cargo-make for $(uname -m); building from source (cached for later runs)"
+          cargo install cargo-make --locked --version "${CARGO_MAKE_VERSION}"
+        fi
+
+        installed_version="$("$HOME/.cargo/bin/cargo-make" make --version | awk '{print $NF}')"
+        if [[ "${installed_version}" != "${CARGO_MAKE_VERSION}" ]]; then
+          echo "::error::Expected cargo-make ${CARGO_MAKE_VERSION}, installed ${installed_version}"
+          exit 1
         fi
 
     - name: Verify mkosi installation
@@ -165,8 +203,7 @@ runs:
         source $HOME/.cargo/env || true
         echo "Rust: $(rustc --version 2>/dev/null || echo 'not installed')"
         echo "Cargo: $(cargo --version 2>/dev/null || echo 'not installed')"
-        echo "cargo-make: $(cargo-make --version 2>/dev/null || echo 'not installed')"
-        echo "sccache: $(sccache --version 2>/dev/null || echo 'not installed')"
+        echo "cargo-make: $(cargo make --version 2>/dev/null || echo 'not installed')"
         echo ""
         echo "=== mkosi Ecosystem ==="
         echo "mkosi: $(mkosi --version 2>&1 | head -1 || echo 'not installed')"

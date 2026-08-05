@@ -26,7 +26,7 @@ use crate::errors::CarbideCliResult;
 use crate::rpc::ApiClient;
 use crate::{async_write, async_write_table_as_csv};
 
-pub async fn status(
+pub(super) async fn status(
     output_file: &mut Box<dyn tokio::io::AsyncWrite + Unpin>,
     output_format: OutputFormat,
     api_client: &ApiClient,
@@ -107,7 +107,7 @@ impl From<DpuStatus> for Row {
 }
 
 #[allow(deprecated)]
-pub fn get_dpu_version_status(build_info: &BuildInfo, machine: &Machine) -> String {
+fn get_dpu_version_status(build_info: &BuildInfo, machine: &Machine) -> String {
     let mut version_statuses = Vec::default();
 
     let Some(runtime_config) = build_info.runtime_config.as_ref() else {
@@ -164,7 +164,7 @@ pub fn get_dpu_version_status(build_info: &BuildInfo, machine: &Machine) -> Stri
     }
 }
 
-pub async fn handle_dpu_status(
+async fn handle_dpu_status(
     output_file: &mut Box<dyn tokio::io::AsyncWrite + Unpin>,
     output_format: OutputFormat,
     api_client: &ApiClient,
@@ -215,7 +215,7 @@ async fn generate_dpu_status_data(
     Ok(dpu_status)
 }
 
-pub async fn generate_dpu_status_table(
+async fn generate_dpu_status_table(
     api_client: &ApiClient,
     machines: Vec<Machine>,
 ) -> CarbideCliResult<Box<Table>> {

@@ -38,6 +38,7 @@ use tower_http::add_extension::AddExtensionLayer;
 use tower_http::auth::AsyncRequireAuthorizationLayer;
 use tower_http::normalize_path::NormalizePath;
 
+use crate::admission::{ApiAdmissionControl, enforce as enforce_admission};
 use crate::api::Api;
 use crate::auth;
 use crate::auth::Authorization;
@@ -167,15 +168,17 @@ fn get_tls_acceptor(tls_config: &ApiTlsConfig) -> Option<TlsAcceptor> {
     }
 }
 
-/// The five-minute TLS acceptor refresh, counted instead of logged: the
-/// steady tick is a rate, not news, so the per-refresh log line retires.
+/// `TlsCertsRefreshed` records TLS acceptor reload attempts. The first reload
+/// starts on the first accepted connection; later reloads start on the next
+/// accepted connection once the five-minute interval has elapsed.
 #[derive(carbide_instrument::Event)]
 #[event(
     event_name = "api_tls_certs_refreshed",
     metric_name = "carbide_api_tls_cert_refreshes_total",
     component = "nico-api",
-    log = off,
+    log = info,
     metric = counter,
+    message = "Refreshing certs",
     describe = "Number of TLS acceptor refreshes performed by the API listener"
 )]
 struct TlsCertsRefreshed;
@@ -222,18 +225,27 @@ enum ConnectionFailReason {
     TlsConnectionFailure,
 }
 
+/// The one metric the Events below record.
+#[derive(carbide_instrument::MetricFamily)]
+#[metric(
+    name = "carbide_api_tls_connection_fail_total",
+    kind = counter,
+    component = "nico-api",
+    describe = "Number of failed inbound TLS connection attempts"
+)]
+struct ApiTlsConnectionFail {
+    reason: ConnectionFailReason,
+}
+
 /// `TcpAcceptFailed` records a listener error before a peer connection exists.
 /// It increments the existing `tcp_connection_failure` series while keeping
 /// the per-attempt error in log-only context.
 #[derive(carbide_instrument::Event)]
 #[event(
     event_name = "api_tcp_accept_failed",
-    metric_name = "carbide_api_tls_connection_fail_total",
-    component = "nico-api",
+    metric_family = ApiTlsConnectionFail,
     log = error,
-    metric = counter,
-    message = "Error accepting connection",
-    describe = "Number of failed inbound TLS connection attempts"
+    message = "Error accepting connection"
 )]
 struct TcpAcceptFailed {
     #[label]
@@ -248,12 +260,9 @@ struct TcpAcceptFailed {
 #[derive(carbide_instrument::Event)]
 #[event(
     event_name = "api_tls_connection_failed",
-    metric_name = "carbide_api_tls_connection_fail_total",
-    component = "nico-api",
+    metric_family = ApiTlsConnectionFail,
     log = error,
-    metric = counter,
-    message = "error accepting tls connection",
-    describe = "Number of failed inbound TLS connection attempts"
+    message = "error accepting tls connection"
 )]
 struct TlsConnectionFailed {
     #[label]
@@ -268,7 +277,9 @@ struct TlsConnectionFailed {
 ///
 /// This method will return an error if any preconditions fail (could not bind to the port, issues
 /// with tls configuration), then moves processing to a background task spawned into `join_set`. The
-/// background task does not return unless `cancel_token` is canceled, or if something panics.
+/// background task does not return unless `cancel_token` is canceled, or if something panics. On
+/// success, this returns the effective listener address, including an OS-selected port when
+/// `listen_port` uses port zero.
 #[allow(clippy::too_many_arguments)]
 #[tracing::instrument(skip_all)]
 pub async fn start(
@@ -280,7 +291,7 @@ pub async fn start(
     meter: Meter,
     admin_ui_routes_builder: Option<AdminUiRoutesBuilder>,
     cancel_token: CancellationToken,
-) -> eyre::Result<()> {
+) -> eyre::Result<SocketAddr> {
     let api_reflection_service = Builder::configure()
         .register_encoded_file_descriptor_set(::rpc::REFLECTION_API_SERVICE_DESCRIPTOR)
         .build_v1alpha()?;
@@ -299,6 +310,8 @@ pub async fn start(
     };
 
     let listener = TcpListener::bind(listen_port).await?;
+    let listen_address = listener.local_addr()?;
+    tracing::info!(effective_listen_address = %listen_address, "API listener started");
     let http = http2::Builder::new(TokioExecutor::new());
 
     let extra_cli_certs = if let Some(auth_config) = auth_config {
@@ -352,7 +365,7 @@ pub async fn start(
     let router = axum::Router::new()
         .route("/", axum::routing::get(root_url))
         .route_service(
-            "/forge.Forge/{*rpc}",
+            ::rpc::service_path!("{*rpc}"),
             rpc::forge_server::ForgeServer::from_arc(api_service.clone()),
         )
         .route_service(
@@ -370,6 +383,19 @@ pub async fn start(
         }
         None => router,
     };
+
+    let admission_config = &api_service.runtime_config.api_admission_control;
+    let router =
+        match ApiAdmissionControl::from_config(admission_config, &meter, cancel_token.clone())? {
+            Some(control) => router.layer(axum::middleware::from_fn_with_state(
+                control,
+                enforce_admission,
+            )),
+            None => {
+                tracing::info!("API admission control disabled");
+                router
+            }
+        };
 
     let app = tower::ServiceBuilder::new()
         .layer(LogLayer::new(meter.clone()))
@@ -530,7 +556,7 @@ pub async fn start(
             tracing::info!("carbide-api shutting down");
         })?;
 
-    Ok(())
+    Ok(listen_address)
 }
 
 /// Handle the root URL. Health check services often expect a 200 here.
@@ -550,9 +576,10 @@ mod tests {
     use carbide_instrument::testing::{MetricsCapture, capture_logs};
     use carbide_test_support::{Check, check_values};
 
-    use super::{ConnectionFailReason, TcpAcceptFailed, TlsConnectionFailed};
+    use super::{ConnectionFailReason, TcpAcceptFailed, TlsCertsRefreshed, TlsConnectionFailed};
 
     const FAILURE_METRIC: &str = "carbide_api_tls_connection_fail_total";
+    const TLS_CERT_REFRESH_METRIC: &str = "carbide_api_tls_cert_refreshes_total";
 
     struct FailureInput {
         reason: &'static str,
@@ -682,5 +709,23 @@ mod tests {
             ],
             observe_failure,
         );
+    }
+
+    /// A certificate refresh keeps the existing counter and restores the INFO
+    /// record operators use to see when the listener triggers a reload.
+    #[test]
+    fn tls_cert_refresh_emits_its_metric_and_info_log() {
+        let metrics = MetricsCapture::start();
+        let logs = capture_logs(|| carbide_instrument::emit(TlsCertsRefreshed));
+
+        assert_eq!(metrics.counter_delta(TLS_CERT_REFRESH_METRIC, &[]), 1.0);
+        let [log] = logs.as_slice() else {
+            panic!("a TLS certificate refresh should write one log, got {logs:?}");
+        };
+        assert_eq!(log.level, tracing::Level::INFO);
+        assert_eq!(log.metadata_name, "api_tls_certs_refreshed");
+        assert_eq!(log.message, "Refreshing certs");
+        assert_eq!(log.field("event_name"), Some("api_tls_certs_refreshed"));
+        assert_eq!(log.field("metric_name"), Some(TLS_CERT_REFRESH_METRIC));
     }
 }

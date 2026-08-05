@@ -23,7 +23,7 @@
 //!
 //! * There is **no `/redfish/v1/Systems` collection** — the service root does
 //!   not advertise `Systems` and the collection endpoint 404s (see
-//!   [`crate::HostHardwareType::DeltaPowerShelf`] wiring in
+//!   [`crate::HardwareType::DeltaPowerShelf`] wiring in
 //!   `machine_info`/`mock_machine_router`). This reproduces the original
 //!   ingestion failure that Delta support fixes.
 //! * Per-PSU power state is carried under `Oem.deltaenergysystems.Power`

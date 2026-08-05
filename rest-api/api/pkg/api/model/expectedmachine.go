@@ -151,7 +151,8 @@ func (emcr *APIExpectedMachineCreateRequest) Validate() error {
 type APIExpectedMachineUpdateRequest struct {
 	// ID is required for batch updates (must be empty or match path value for single update)
 	ID *string `json:"id"`
-	// BmcMacAddress is the MAC address of the expected machine's BMC
+	// BmcMacAddress may reassert the ExpectedMachine's current BMC MAC, but
+	// cannot change it after creation.
 	BmcMacAddress *string `json:"bmcMacAddress"`
 	// BmcUsername is the username of the expected machine's BMC
 	DefaultBmcUsername *string `json:"defaultBmcUsername"`

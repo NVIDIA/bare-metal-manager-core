@@ -78,7 +78,6 @@ mod periodic_config_fetcher;
 mod sysfs;
 #[cfg(test)]
 mod tests;
-pub mod traffic_intercept_bridging;
 pub mod upgrade;
 pub mod util;
 pub mod weave_ew_vpc_client;
@@ -391,6 +390,9 @@ pub async fn start(cmdline: command_line::Options) -> eyre::Result<()> {
                 has_changed_configs: false,
                 min_healthy_links: 2,
                 route_servers: &[],
+                // Standalone checks lack managed-host config to establish that
+                // the FNN IPv6 underlay is active.
+                should_check_ipv6_unicast: false,
                 hbn_device_names: HBNDeviceNames::hbn_23(),
                 include_dhcp_server: false,
                 run_restricted_mode_check: true,
@@ -556,10 +558,7 @@ pub async fn start(cmdline: command_line::Options) -> eyre::Result<()> {
                     use_admin_network: true,
                     tenancy_enabled: true,
                     loopback_ip: opts.loopback_ip,
-                    secondary_overlay_vtep_ip: opts.secondary_overlay_vtep_ip,
-                    internal_bridge_routing_prefix: opts.internal_bridge_routing_prefix,
-                    vf_intercept_bridge_port_name: opts.vf_intercept_bridge_port_name,
-                    host_intercept_bridge_port_name: opts.host_intercept_bridge_port_name,
+                    loopback_ip_v6: opts.loopback_ip_v6,
                     asn: opts.asn,
                     datacenter_asn: opts.datacenter_asn,
                     anycast_site_prefixes: vec!["5.255.255.0/24".to_string()],
@@ -575,8 +574,6 @@ pub async fn start(cmdline: command_line::Options) -> eyre::Result<()> {
                     dhcp_servers: opts.dhcp_servers,
                     deny_prefixes: vec![],
                     site_fabric_prefixes: vec![],
-                    traffic_intercept_public_prefixes: vec![],
-                    vf_intercept_bridge_sf: opts.vf_intercept_bridge_sf,
                     use_vpc_isolation: true,
                     network_security_policy_override_rules,
                     stateful_acls_enabled: opts.stateful_acls_enabled,

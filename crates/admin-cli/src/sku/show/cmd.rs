@@ -185,7 +185,7 @@ fn format_size_range(min_size_mb: Option<u32>, max_size_mb: Option<u32>) -> Stri
     }
 }
 
-pub async fn show_skus_table(
+pub(in crate::sku) async fn show_skus_table(
     output_file: &mut Box<dyn tokio::io::AsyncWrite + Unpin>,
     output_format: &OutputFormat,
     skus: Vec<::rpc::forge::Sku>,
@@ -219,7 +219,7 @@ pub async fn show_skus_table(
     Ok(())
 }
 
-pub async fn show_sku_details(
+pub(in crate::sku) async fn show_sku_details(
     output_file: &mut Box<dyn tokio::io::AsyncWrite + Unpin>,
     output_format: &OutputFormat,
     extended: bool,
@@ -343,7 +343,7 @@ pub async fn show_sku_details(
     Ok(())
 }
 
-pub async fn show(
+pub(super) async fn show(
     args: Args,
     api_client: &ApiClient,
     output: &mut Box<dyn tokio::io::AsyncWrite + Unpin>,

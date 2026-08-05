@@ -25,9 +25,12 @@
 
 use carbide_test_support::Outcome::*;
 use carbide_test_support::scenarios;
+use carbide_uuid::machine::MachineInterfaceId;
 use clap::{CommandFactory, Parser};
+use mac_address::MacAddress;
 
 use super::*;
+use crate::test_support::parse_leaf;
 
 // Valid MachineInterfaceId format for tests (standard UUID format)
 const TEST_INTERFACE_ID: &str = "00000000-0000-0000-0000-000000000001";
@@ -56,10 +59,15 @@ fn verify_cmd_structure() {
 fn parse_show_variants() {
     scenarios!(
         run = |argv| {
-            Cmd::try_parse_from(argv.iter().copied())
-                .map(|cmd| match cmd {
-                    Cmd::Show(args) => (args.interface_id.is_some(), args.all, args.more),
-                    _ => panic!("expected Show variant"),
+            parse_leaf::<Cmd>(argv, &["show"])
+                .map(|matches| {
+                    (
+                        matches
+                            .get_one::<MachineInterfaceId>("interface_id")
+                            .is_some(),
+                        matches.get_flag("all"),
+                        matches.get_flag("more"),
+                    )
                 })
                 .map_err(drop)
         };
@@ -77,21 +85,40 @@ fn parse_show_variants() {
     );
 }
 
-// delete parses with an interface ID and routes to the Delete variant,
-// round-tripping the ID through its string form.
+// delete parses either selector into its concrete ID or MAC address type and
+// routes to the Delete variant.
 #[test]
 fn parse_delete_variants() {
     scenarios!(
         run = |argv| {
-            Cmd::try_parse_from(argv.iter().copied())
-                .map(|cmd| match cmd {
-                    Cmd::Delete(args) => args.interface_id.to_string(),
-                    _ => panic!("expected Delete variant"),
+            parse_leaf::<Cmd>(argv, &["delete"])
+                .map(|matches| {
+                    (
+                        matches
+                            .get_one::<MachineInterfaceId>("interface_id")
+                            .copied(),
+                        matches.get_one::<MacAddress>("mac_address").copied(),
+                    )
                 })
                 .map_err(drop)
         };
         "with an interface ID" {
-            &["machine-interface", "delete", TEST_INTERFACE_ID][..] => Yields(TEST_INTERFACE_ID.to_string()),
+            &["machine-interface", "delete", TEST_INTERFACE_ID][..]
+                => Yields((Some(TEST_INTERFACE_ID.parse::<MachineInterfaceId>().unwrap()), None)),
+        }
+
+        "with a MAC address" {
+            &["machine-interface", "delete", "--mac-address", "00:11:22:33:44:55"][..]
+                => Yields((None, Some("00:11:22:33:44:55".parse::<MacAddress>().unwrap()))),
+        }
+
+        "ID and MAC together are rejected" {
+            &["machine-interface", "delete", TEST_INTERFACE_ID, "--mac-address", "00:11:22:33:44:55"][..]
+                => Fails,
+        }
+
+        "a malformed MAC is rejected at parse time" {
+            &["machine-interface", "delete", "--mac-address", "not-a-mac"][..] => Fails,
         }
     );
 }

@@ -28,6 +28,7 @@ use carbide_test_support::scenarios;
 use clap::{CommandFactory, Parser};
 
 use super::*;
+use crate::test_support::parse_leaf;
 
 // verify_cmd_structure runs a baseline clap debug_assert()
 // to do basic command configuration checking and validation,
@@ -52,9 +53,11 @@ fn verify_cmd_structure() {
 fn parse_measured_boot_keep_entries() {
     scenarios!(
         run = |argv| {
-            Cmd::try_parse_from(argv.iter().copied())
-                .map(|cmd| match cmd {
-                    Cmd::MeasuredBoot(args) => args.keep_entries,
+            parse_leaf::<Cmd>(argv, &["measured-boot"])
+                .map(|matches| {
+                    *matches
+                        .get_one::<u32>("keep_entries")
+                        .expect("keep entries is required")
                 })
                 .map_err(drop)
         };

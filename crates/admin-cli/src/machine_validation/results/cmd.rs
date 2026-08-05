@@ -26,7 +26,7 @@ use super::args::ShowResultsOptions;
 use crate::errors::CarbideCliResult;
 use crate::rpc::ApiClient;
 
-pub async fn handle_results_show(
+pub(super) async fn handle_results_show(
     args: ShowResultsOptions,
     output_format: OutputFormat,
     api_client: &ApiClient,

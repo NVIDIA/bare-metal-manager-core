@@ -24,7 +24,7 @@ use crate::errors::{CarbideCliError, CarbideCliResult};
 use crate::machine::{HealthReportTemplates, get_health_report};
 use crate::rpc::ApiClient;
 
-pub async fn reprovision(api_client: &ApiClient, reprov: Args) -> CarbideCliResult<()> {
+pub(super) async fn reprovision(api_client: &ApiClient, reprov: Args) -> CarbideCliResult<()> {
     match reprov {
         Args::Set(data) => {
             if let Some(update_message) = &data.update_message {
@@ -111,7 +111,7 @@ async fn apply_health_report(
     Ok(())
 }
 
-pub async fn list_dpus_pending(api_client: &ApiClient) -> CarbideCliResult<()> {
+async fn list_dpus_pending(api_client: &ApiClient) -> CarbideCliResult<()> {
     let response = api_client.0.list_dpu_waiting_for_reprovisioning().await?;
     print_pending_dpus(response);
     Ok(())

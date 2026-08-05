@@ -43,6 +43,7 @@ service Flow {
     rpc UpgradeFirmware(UpgradeFirmwareRequest) returns (SubmitTaskResponse);
     rpc BringUpRack(BringUpRackRequest) returns (SubmitTaskResponse);
     rpc IngestRack(IngestRackRequest) returns (SubmitTaskResponse);
+    rpc DecommissionRack(DecommissionRackRequest) returns (SubmitTaskResponse);
     rpc PowerOnRack(PowerOnRackRequest) returns (SubmitTaskResponse);
     rpc PowerOffRack(PowerOffRackRequest) returns (SubmitTaskResponse);
     rpc PowerResetRack(PowerResetRackRequest) returns (SubmitTaskResponse);
@@ -716,6 +717,13 @@ message IngestRackRequest {
     OperationTargetSpec target_spec = 1;  // Target racks for ingestion
     repeated Filter filters = 2;          // Filter conditions for component queries (e.g. by type, name)
     string description = 3;               // optional task description
+    optional UUID rule_id = 4;            // optional: override rule resolution with a specific rule
+}
+
+message DecommissionRackRequest {
+    OperationTargetSpec target_spec = 1;  // Target racks for decommissioning
+    string description = 2;               // optional task description
+    optional QueueOptions queue_options = 3; // optional queue policy overrides
     optional UUID rule_id = 4;            // optional: override rule resolution with a specific rule
 }
 

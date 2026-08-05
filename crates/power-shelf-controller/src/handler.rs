@@ -35,6 +35,7 @@ use crate::initializing::handle_initializing;
 use crate::maintenance::handle_maintenance;
 use crate::ready::handle_ready;
 use crate::reprovisioning::handle_reprovisioning;
+use crate::rotating_bmc::handle_rotating_bmc;
 
 /// The actual PowerShelf State handler (structure mirrors SwitchStateHandler).
 #[derive(Debug, Default, Clone)]
@@ -80,6 +81,9 @@ impl PowerShelfStateHandler {
                 handle_configuring(power_shelf_id, state, ctx).await
             }
             PowerShelfControllerState::Ready => handle_ready(power_shelf_id, state, ctx).await,
+            PowerShelfControllerState::RotatingBmc { retry_count } => {
+                handle_rotating_bmc(power_shelf_id, state, *retry_count, ctx).await
+            }
             PowerShelfControllerState::Maintenance { .. } => {
                 handle_maintenance(power_shelf_id, state, ctx).await
             }

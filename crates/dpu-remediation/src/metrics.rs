@@ -21,7 +21,7 @@
 //! pass. Machine and remediation identifiers remain log context so they do not
 //! create unbounded metric series.
 
-use carbide_instrument::{Event, LabelValue};
+use carbide_instrument::{Event, LabelValue, MetricFamily};
 use carbide_uuid::dpu_remediations::RemediationId;
 use carbide_uuid::machine::MachineId;
 
@@ -36,15 +36,24 @@ enum RemediationExecutorFailureStage {
     ClientCreation,
 }
 
+/// The one metric the Events below record.
+#[derive(MetricFamily)]
+#[metric(
+    name = "carbide_dpu_remediation_executor_failures_total",
+    kind = counter,
+    component = "forge-dpu-agent",
+    describe = "Number of DPU remediation executor failures, by failure stage."
+)]
+pub(crate) struct DpuRemediationExecutorFailures {
+    failure_stage: RemediationExecutorFailureStage,
+}
+
 #[derive(Event)]
 #[event(
     event_name = "dpu_remediation_status_output_decode_failed",
-    metric_name = "carbide_dpu_remediation_executor_failures_total",
-    component = "forge-dpu-agent",
+    metric_family = DpuRemediationExecutorFailures,
     log = error,
-    metric = counter,
-    message = "Unable to deserialize json into hashmap from status output file",
-    describe = "Number of DPU remediation executor failures, by failure stage."
+    message = "Unable to deserialize json into hashmap from status output file"
 )]
 pub(crate) struct RemediationStatusOutputDecodeFailed {
     #[label]
@@ -75,12 +84,9 @@ impl RemediationStatusOutputDecodeFailed {
 #[derive(Event)]
 #[event(
     event_name = "dpu_remediation_apply_failed",
-    metric_name = "carbide_dpu_remediation_executor_failures_total",
-    component = "forge-dpu-agent",
+    metric_family = DpuRemediationExecutorFailures,
     log = error,
-    metric = counter,
-    message = "Remediation failed",
-    describe = "Number of DPU remediation executor failures, by failure stage."
+    message = "Remediation failed"
 )]
 pub(crate) struct RemediationApplyFailed {
     #[label]
@@ -111,12 +117,9 @@ impl RemediationApplyFailed {
 #[derive(Event)]
 #[event(
     event_name = "dpu_remediation_response_invalid",
-    metric_name = "carbide_dpu_remediation_executor_failures_total",
-    component = "forge-dpu-agent",
+    metric_family = DpuRemediationExecutorFailures,
     log = error,
-    metric = counter,
-    message = "received a response with one of id or script but not both, skipping, will retry next loop",
-    describe = "Number of DPU remediation executor failures, by failure stage."
+    message = "received a response with one of id or script but not both, skipping, will retry next loop"
 )]
 pub(crate) struct RemediationResponseInvalid {
     #[label]
@@ -147,12 +150,9 @@ impl RemediationResponseInvalid {
 #[derive(Event)]
 #[event(
     event_name = "dpu_remediation_fetch_failed",
-    metric_name = "carbide_dpu_remediation_executor_failures_total",
-    component = "forge-dpu-agent",
+    metric_family = DpuRemediationExecutorFailures,
     log = error,
-    metric = counter,
-    message = "Remediation executor unable to fetch next remediation this loop, will retry next loop",
-    describe = "Number of DPU remediation executor failures, by failure stage."
+    message = "Remediation executor unable to fetch next remediation this loop, will retry next loop"
 )]
 pub(crate) struct RemediationFetchFailed {
     #[label]
@@ -176,12 +176,9 @@ impl RemediationFetchFailed {
 #[derive(Event)]
 #[event(
     event_name = "dpu_remediation_client_creation_failed",
-    metric_name = "carbide_dpu_remediation_executor_failures_total",
-    component = "forge-dpu-agent",
+    metric_family = DpuRemediationExecutorFailures,
     log = error,
-    metric = counter,
-    message = "Remediation executor unable to create forge client this loop, will retry next loop",
-    describe = "Number of DPU remediation executor failures, by failure stage."
+    message = "Remediation executor unable to create forge client this loop, will retry next loop"
 )]
 pub(crate) struct RemediationClientCreationFailed {
     #[label]

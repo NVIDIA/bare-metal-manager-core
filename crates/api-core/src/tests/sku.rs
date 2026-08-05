@@ -437,6 +437,37 @@ pub mod tests {
     }
 
     #[crate::sqlx_test]
+    pub async fn test_sku_create_duplicate_id_returns_already_exists(
+        pool: sqlx::PgPool,
+    ) -> Result<(), eyre::Error> {
+        use rpc::forge::SkuList;
+        use rpc::forge::forge_server::Forge;
+
+        let env = create_test_env(pool).await;
+        let sku: rpc::forge::Sku = serde_json::de::from_str(FULL_SKU_DATA)?;
+        let sku_id = sku.id.clone();
+        let mut conflicting_sku = sku.clone();
+        conflicting_sku.components.as_mut().unwrap().cpus[0].thread_count *= 2;
+
+        env.api
+            .create_sku(tonic::Request::new(SkuList { skus: vec![sku] }))
+            .await?;
+
+        let error = env
+            .api
+            .create_sku(tonic::Request::new(SkuList {
+                skus: vec![conflicting_sku],
+            }))
+            .await
+            .expect_err("Creating a SKU with a duplicate ID should fail");
+
+        assert_eq!(error.code(), tonic::Code::AlreadyExists);
+        assert_eq!(error.message(), format!("SKU already exists: {sku_id}"));
+
+        Ok(())
+    }
+
+    #[crate::sqlx_test]
     pub async fn test_sku_create_rejects_empty_id(pool: sqlx::PgPool) -> Result<(), eyre::Error> {
         let mut txn = pool.begin().await?;
         let rpc_sku: rpc::forge::Sku = serde_json::de::from_str(FULL_SKU_DATA)?;
@@ -832,7 +863,7 @@ pub mod tests {
                     metadata: Metadata::new_with_default_name(),
                     sku_id: Some("no-sku".to_string()),
                     default_pause_ingestion_and_poweron: None,
-                    host_nics: vec![],
+                    interfaces: vec![],
                     rack_id: None,
                     dpf_enabled: Some(true),
                     bmc_ip_address: None,
@@ -928,7 +959,7 @@ pub mod tests {
                     metadata: Metadata::new_with_default_name(),
                     sku_id: Some("no-sku-missing".to_string()),
                     default_pause_ingestion_and_poweron: None,
-                    host_nics: vec![],
+                    interfaces: vec![],
                     rack_id: None,
                     dpf_enabled: Some(true),
                     bmc_ip_address: None,
@@ -999,7 +1030,7 @@ pub mod tests {
                     metadata: Metadata::new_with_default_name(),
                     sku_id: Some("no-sku".to_string()),
                     default_pause_ingestion_and_poweron: None,
-                    host_nics: vec![],
+                    interfaces: vec![],
                     rack_id: None,
                     dpf_enabled: Some(true),
                     bmc_ip_address: None,
@@ -1087,7 +1118,7 @@ pub mod tests {
                     metadata: Metadata::new_with_default_name(),
                     sku_id: Some("non-existent-sku".to_string()),
                     default_pause_ingestion_and_poweron: None,
-                    host_nics: vec![],
+                    interfaces: vec![],
                     rack_id: None,
                     dpf_enabled: Some(true),
                     bmc_ip_address: None,
@@ -1532,7 +1563,7 @@ pub mod tests {
                     metadata: Metadata::new_with_default_name(),
                     sku_id: Some(mismatched_sku.id.clone()),
                     default_pause_ingestion_and_poweron: None,
-                    host_nics: vec![],
+                    interfaces: vec![],
                     rack_id: None,
                     dpf_enabled: Some(true),
                     bmc_ip_address: None,

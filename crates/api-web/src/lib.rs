@@ -648,8 +648,12 @@ fn routes_with_auth_mode(
             )
             .route("/machine/{machine_id}/sku", post(machine::sku))
             .route(
-                "/machine/{machine_id}/set-dpu-first-boot-order",
-                post(machine::set_dpu_first_boot_order),
+                "/machine/{machine_id}/boot-interface",
+                post(machine::set_desired_boot_interface),
+            )
+            .route(
+                "/machine/{machine_id}/boot-interface/reconcile",
+                post(machine::reconcile_boot_interface),
             )
             .route("/machine/{machine_id}/health", get(health::machine_health))
             .route(

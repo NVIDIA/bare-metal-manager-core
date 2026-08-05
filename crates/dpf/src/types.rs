@@ -20,6 +20,7 @@
 use std::collections::BTreeMap;
 use std::net::IpAddr;
 
+use k8s_openapi::apimachinery::pkg::util::intstr::IntOrString;
 use serde::{Deserialize, Serialize};
 
 use crate::crds::dpus_generated::DpuStatusPhase;
@@ -186,6 +187,8 @@ pub struct ServiceDefinition {
     pub service_chain_switches: Vec<ServiceChainSwitch>,
     /// Optional annotations for the service DaemonSet (e.g. Multus CNI networks).
     pub service_daemon_set_annotations: Option<std::collections::BTreeMap<String, String>>,
+    /// Optional extended resources requested by the service DaemonSet.
+    pub service_daemon_set_resources: Option<BTreeMap<String, IntOrString>>,
     /// Optional service Network Attachment Definition specification
     pub service_nad: Option<ServiceNAD>,
 }
@@ -252,15 +255,6 @@ impl ServiceDefinition {
             ..Default::default()
         }
     }
-}
-
-#[derive(Debug, Clone, Default)]
-pub struct DpuFlavorBridgeDefinition {
-    pub vf_intercept_bridge_name: String,
-    pub vf_intercept_bridge_port: String,
-    pub host_intercept_bridge_name: String,
-    pub host_intercept_bridge_port: String,
-    pub vf_intercept_bridge_sf: String,
 }
 
 /// Deployment type of a DPU — used to route devices to the correct
@@ -374,6 +368,7 @@ impl From<DpuStatusPhase> for DpuPhase {
                 Self::Provisioning("PerformArmForceRestart".into())
             }
             DpuStatusPhase::UpdateFirmware => Self::Provisioning("UpdateFirmware".into()),
+            DpuStatusPhase::HostOsInitRelease => Self::Provisioning("HostOsInitRelease".into()),
         }
     }
 }

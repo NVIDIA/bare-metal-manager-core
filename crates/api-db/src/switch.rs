@@ -17,6 +17,7 @@
 
 use std::net::IpAddr;
 
+use carbide_uuid::nvlink::NvLinkDomainId;
 use carbide_uuid::rack::{RackId, RackProfileId};
 use carbide_uuid::switch::SwitchId;
 use chrono::prelude::*;
@@ -125,6 +126,7 @@ pub async fn create(txn: &mut PgConnection, new_switch: &NewSwitch) -> DatabaseR
         deleted: None,
         bmc_mac_address: new_switch.bmc_mac_address,
         bmc_info: None,
+        bmc_credential_rotation_requested: false,
         controller_state: Versioned {
             value: state,
             version: controller_state_version,
@@ -135,6 +137,7 @@ pub async fn create(txn: &mut PgConnection, new_switch: &NewSwitch) -> DatabaseR
         firmware_upgrade_status: None,
         nvos_update_status: None,
         fabric_manager_status: None,
+        nvlink_domain_uuid: None,
         metadata,
         version,
         is_primary: false,
@@ -491,6 +494,32 @@ pub async fn update_fabric_manager_status(
     Ok(())
 }
 
+/// Records one rack-scoped NVLink domain observation on every active switch.
+///
+/// Repeated observations are idempotent. Soft-deleted switches retain their
+/// previous value. Returns the active switches whose stored value changed.
+pub async fn update_nvlink_domain_uuid_for_rack(
+    txn: &mut PgConnection,
+    rack_id: &RackId,
+    nvlink_domain_uuid: NvLinkDomainId,
+) -> DatabaseResult<Vec<SwitchId>> {
+    sqlx::query_scalar(
+        r#"
+        UPDATE switches
+        SET nvlink_domain_uuid = $1
+        WHERE rack_id = $2
+          AND deleted IS NULL
+          AND nvlink_domain_uuid IS DISTINCT FROM $1
+        RETURNING id
+        "#,
+    )
+    .bind(nvlink_domain_uuid)
+    .bind(rack_id)
+    .fetch_all(txn)
+    .await
+    .map_err(|error| DatabaseError::new("update_nvlink_domain_uuid_for_rack", error))
+}
+
 pub async fn update_slot_and_tray(
     txn: &mut PgConnection,
     switch_id: &SwitchId,
@@ -586,6 +615,77 @@ pub async fn find_bmc_ips_by_switch_ids(
         .fetch_all(db)
         .await
         .map_err(|err| DatabaseError::new("switch::find_bmc_ips_by_switch_ids", err))
+}
+
+/// Resolve the switch that owns a BMC MAC, for the operator force-converge
+/// escape hatch (the switch analogue of
+/// [`crate::machine_topology::find_machine_id_by_bmc_mac`]). A switch records
+/// its BMC MAC directly on its row and a MAC uniquely names one BMC device, so
+/// this is an exact lookup. Returns `None` when no live switch carries that MAC
+/// (e.g. it belongs to a machine or power-shelf BMC, or to no known device).
+pub async fn find_switch_id_by_bmc_mac(
+    txn: &mut PgConnection,
+    mac_address: MacAddress,
+) -> DatabaseResult<Option<SwitchId>> {
+    let query = r#"
+        SELECT id
+        FROM switches
+        WHERE bmc_mac_address = $1::macaddr
+            AND deleted IS NULL
+    "#;
+    sqlx::query_scalar(query)
+        .bind(mac_address)
+        .fetch_optional(txn)
+        .await
+        .map_err(|e| DatabaseError::new("switch::find_switch_id_by_bmc_mac", e))
+}
+
+/// Record an operator force-converge request against a switch's BMC. The
+/// switch state controller consumes it on its next sweep. Mirrors
+/// [`crate::machine::set_bmc_credential_rotation_requested`].
+pub async fn set_bmc_credential_rotation_requested(
+    txn: &mut PgConnection,
+    switch_id: SwitchId,
+) -> DatabaseResult<()> {
+    let query =
+        "UPDATE switches SET bmc_credential_rotation_requested = true WHERE id = $1 RETURNING id";
+    sqlx::query_scalar::<_, SwitchId>(query)
+        .bind(switch_id)
+        .fetch_one(txn)
+        .await
+        .map_err(|e| match e {
+            // `RETURNING id` yields no row for an unknown switch; surface a clean
+            // not-found rather than a generic wrapped error.
+            sqlx::Error::RowNotFound => DatabaseError::NotFoundError {
+                kind: "switch",
+                id: switch_id.to_string(),
+            },
+            e => DatabaseError::new("switch::set_bmc_credential_rotation_requested", e),
+        })?;
+    Ok(())
+}
+
+/// Clear a switch's force-converge request, committed with the return to
+/// `Ready` once a forced tick settles. Mirrors
+/// [`crate::machine::clear_bmc_credential_rotation_requested`].
+pub async fn clear_bmc_credential_rotation_requested(
+    txn: &mut PgConnection,
+    switch_id: SwitchId,
+) -> DatabaseResult<()> {
+    let query =
+        "UPDATE switches SET bmc_credential_rotation_requested = false WHERE id = $1 RETURNING id";
+    sqlx::query_scalar::<_, SwitchId>(query)
+        .bind(switch_id)
+        .fetch_one(txn)
+        .await
+        .map_err(|e| match e {
+            sqlx::Error::RowNotFound => DatabaseError::NotFoundError {
+                kind: "switch",
+                id: switch_id.to_string(),
+            },
+            e => DatabaseError::new("switch::clear_bmc_credential_rotation_requested", e),
+        })?;
+    Ok(())
 }
 
 /// Full endpoint info for a switch: BMC MAC/IP and optionally NVOS MAC/IP.
@@ -954,6 +1054,89 @@ mod tests {
     }
 
     #[crate::sqlx_test]
+    async fn rack_domain_update_is_idempotent_and_excludes_deleted_switches(
+        pool: sqlx::PgPool,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let rack_id = RackId::new("rack-nvlink-domain");
+        let rack_profile_id = RackProfileId::new("NVL72");
+        let mut txn = pool.begin().await?;
+
+        crate::rack::create(
+            txn.as_mut(),
+            &rack_id,
+            Some(&rack_profile_id),
+            &RackConfig::default(),
+            None,
+        )
+        .await?;
+
+        txn.commit().await?;
+
+        for (seed, name) in [
+            (21, "rack switch 1"),
+            (22, "rack switch 2"),
+            (23, "deleted rack switch"),
+        ] {
+            let mut txn = pool.begin().await?;
+            let mut switch = create_seeded_discovered(txn.as_mut(), seed, name).await?;
+            sqlx::query("UPDATE switches SET rack_id = $1 WHERE id = $2")
+                .bind(&rack_id)
+                .bind(switch.id)
+                .execute(txn.as_mut())
+                .await?;
+
+            if seed == 23 {
+                mark_as_deleted(&mut switch, txn.as_mut()).await?;
+            }
+
+            txn.commit().await?;
+        }
+
+        let first_domain: NvLinkDomainId = "11111111-1111-1111-1111-111111111111".parse()?;
+        let replacement_domain: NvLinkDomainId = "33333333-3333-3333-3333-333333333333".parse()?;
+        let mut txn = pool.begin().await?;
+
+        for (scenario, domain_uuid, expected_changes) in [
+            ("initial observation", first_domain, 2),
+            ("repeated observation", first_domain, 0),
+            ("replacement observation", replacement_domain, 2),
+        ] {
+            let changed =
+                update_nvlink_domain_uuid_for_rack(txn.as_mut(), &rack_id, domain_uuid).await?;
+
+            assert_eq!(changed.len(), expected_changes, "{scenario}");
+        }
+
+        txn.commit().await?;
+
+        let mut txn = pool.begin().await?;
+
+        let counts: (i64, i64) = sqlx::query_as(
+            r#"
+            SELECT
+                COUNT(*) FILTER (
+                    WHERE deleted IS NULL AND nvlink_domain_uuid = $1
+                ),
+                COUNT(*) FILTER (
+                    WHERE deleted IS NOT NULL AND nvlink_domain_uuid IS NULL
+                )
+            FROM switches
+            WHERE rack_id = $2
+            "#,
+        )
+        .bind(replacement_domain)
+        .bind(&rack_id)
+        .fetch_one(txn.as_mut())
+        .await?;
+
+        assert_eq!(counts, (2, 1));
+
+        txn.rollback().await?;
+
+        Ok(())
+    }
+
+    #[crate::sqlx_test]
     async fn test_find_ready_control_plane_configured_switch_ids_in_rack(
         pool: sqlx::PgPool,
     ) -> Result<(), Box<dyn std::error::Error>> {
@@ -1126,6 +1309,70 @@ mod tests {
         assert_eq!(rack_endpoints[0].nvos_ip, expected_nvos_ip);
         txn.rollback().await?;
 
+        Ok(())
+    }
+
+    /// The force-converge escape hatch: a switch's BMC MAC resolves back
+    /// to its id, the boolean flag round-trips through the load path, and both
+    /// mutating DAOs surface a clean not-found for an unknown switch.
+    #[crate::sqlx_test]
+    async fn test_force_bmc_rotation_flag_and_mac_resolution(
+        pool: sqlx::PgPool,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let mut txn = pool.begin().await?;
+        let switch = create_seeded_discovered(txn.as_mut(), 7, "Switch7").await?;
+        txn.commit().await?;
+        let bmc_mac = switch.bmc_mac_address.expect("seeded switch has a BMC MAC");
+
+        let mut txn = pool.begin().await?;
+
+        // The switch's own BMC MAC resolves to its id; an unrelated MAC does not.
+        assert_eq!(
+            find_switch_id_by_bmc_mac(txn.as_mut(), bmc_mac).await?,
+            Some(switch.id)
+        );
+        let unrelated_mac: MacAddress = "02:00:00:00:ff:ff".parse()?;
+        assert_eq!(
+            find_switch_id_by_bmc_mac(txn.as_mut(), unrelated_mac).await?,
+            None
+        );
+
+        // The flag defaults false, set flips it, and clear resets it -- observed
+        // through the standard load path (`s.*` surfaces the column).
+        let is_requested = |switch: Option<Switch>| {
+            switch
+                .expect("switch exists")
+                .bmc_credential_rotation_requested
+        };
+        assert!(
+            !is_requested(find_by_id(txn.as_mut(), &switch.id).await?),
+            "flag defaults to false"
+        );
+        set_bmc_credential_rotation_requested(txn.as_mut(), switch.id).await?;
+        assert!(
+            is_requested(find_by_id(txn.as_mut(), &switch.id).await?),
+            "set records the request"
+        );
+        clear_bmc_credential_rotation_requested(txn.as_mut(), switch.id).await?;
+        assert!(
+            !is_requested(find_by_id(txn.as_mut(), &switch.id).await?),
+            "clear resets the request"
+        );
+
+        // An unknown switch id yields NotFound (via `RETURNING id`), not a
+        // generic wrapped error.
+        let ghost =
+            SwitchId::from_str("sw100nsner0op5osl6n85t7772j010jmhafm934n7oej4mlome3okrn9b60")?;
+        assert!(matches!(
+            set_bmc_credential_rotation_requested(txn.as_mut(), ghost).await,
+            Err(DatabaseError::NotFoundError { kind: "switch", .. })
+        ));
+        assert!(matches!(
+            clear_bmc_credential_rotation_requested(txn.as_mut(), ghost).await,
+            Err(DatabaseError::NotFoundError { kind: "switch", .. })
+        ));
+
+        txn.rollback().await?;
         Ok(())
     }
 }

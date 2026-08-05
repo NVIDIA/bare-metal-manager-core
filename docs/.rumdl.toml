@@ -12,9 +12,8 @@
 
 [global]
 # List of rules to disable
-# disable = ["MD013", "MD014", "MD033", "MD036"]
+# disable = ["MD014", "MD033", "MD036"]
 disable = [
-  "line-length",
   "commands-show-output",
   "no-inline-html",
   "no-emphasis-as-heading",
@@ -61,11 +60,13 @@ respect-gitignore = true
 flavor = "mdx"
 
 [per-file-flavor]
-"**/*.md" = "standard"
+# Fern treats all files as MDX, so best to lint accordingly
+# "**/*.md" = "standard"
 
 # Disable specific rules for specific files
 [per-file-ignores]
 "**/snippets/**/*.mdx" = ["MD041"]  # Snippets don't need to start with an H1
+"fern/changelog/*.mdx" = ["MD041"]  # Changelog entries don't need to start with an H1
 
 # Rule-specific configurations
 
@@ -89,11 +90,12 @@ strict = false
 # no-hard-tabs
 spaces-per-tab = 4  # Number of spaces to replace each tab with (default: 4)
 
-# [MD013]
-# line-length = 100  # Line length
-# code-blocks = false  # Exclude code blocks from line length check
-# tables = false  # Exclude tables from line length check
-# headings = true  # Include headings in line length check
+[MD013]
+# line-length
+line-length = 100000      # make sure paragraph-length lines are allowed
+# line-length = 100
+# reflow = true
+# reflow-mode = "normalize"
 
 [MD024]
 # no-duplicate-heading
@@ -113,14 +115,16 @@ allow-with-separators = true    # Allow multiple H1s as document section titles 
 # - "ordered0": Zero-based sequential (0, 1, 2...)
 # - "one-or-ordered": Auto-detect per list (either all-ones OR sequential)
 # - "consistent": Document-wide consistency - uses most common style across all lists
-style = "one-one"
+# TODO: move to "one-one" style when we can (except for files that are
+# going to be viewed in GitHub a lot)
+style = "consistent"
 
 [MD041]
 # first-line-heading
 level = 1
 
 [MD044]
-# names = ["NVIDIA Config Manager", "NVIDIA"]
+# names = ["NVIDIA Infra Controller", "NVIDIA"]
 # code-blocks = false
 
 [MD046]

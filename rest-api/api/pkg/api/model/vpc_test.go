@@ -5,6 +5,7 @@ package model
 
 import (
 	"encoding/json"
+	"math"
 	"testing"
 	"time"
 
@@ -27,11 +28,13 @@ func TestAPIVpcCreateRequest_Validate(t *testing.T) {
 		Labels                    map[string]string
 		Vni                       *int
 		RoutingProfile            *string
+		RoutingProfileOverrides   *APIVpcRoutingProfileOverrides
 	}
 	tests := []struct {
-		name    string
-		fields  fields
-		wantErr bool
+		name            string
+		fields          fields
+		wantErr         bool
+		wantErrContains string
 	}{
 		{
 			name: "test valid VPC create request",
@@ -90,6 +93,29 @@ func TestAPIVpcCreateRequest_Validate(t *testing.T) {
 				RoutingProfile:            cutil.GetPtr(APIVpcRoutingProfileInternal),
 			},
 			wantErr: false,
+		},
+		// Inline overrides are accepted when the request explicitly selects FNN.
+		{
+			name: "test valid VPC create request - routing profile overrides for FNN",
+			fields: fields{
+				Name:                      "test-name",
+				SiteID:                    uuid.NewString(),
+				NetworkVirtualizationType: cutil.GetPtr(cdbm.VpcFNN),
+				RoutingProfileOverrides:   &APIVpcRoutingProfileOverrides{LeakDefaultRouteFromUnderlay: cutil.GetPtr(true)},
+			},
+			wantErr: false,
+		},
+		// Explicit non-FNN requests identify the rejected virtualization type.
+		{
+			name: "test invalid VPC create request - routing profile overrides on non-FNN VPC",
+			fields: fields{
+				Name:                      "test-name",
+				SiteID:                    uuid.NewString(),
+				NetworkVirtualizationType: cutil.GetPtr(cdbm.VpcEthernetVirtualizer),
+				RoutingProfileOverrides:   &APIVpcRoutingProfileOverrides{LeakDefaultRouteFromUnderlay: cutil.GetPtr(true)},
+			},
+			wantErr:         true,
+			wantErrContains: "`networkVirtualizationType` is `ETHERNET_VIRTUALIZER`",
 		},
 		{
 			name: "test invalid VPC create request - routing profile on non-FNN VPC",
@@ -224,11 +250,17 @@ func TestAPIVpcCreateRequest_Validate(t *testing.T) {
 				Labels:                    tt.fields.Labels,
 				Vni:                       tt.fields.Vni,
 				RoutingProfile:            tt.fields.RoutingProfile,
+				RoutingProfileOverrides:   tt.fields.RoutingProfileOverrides,
 			}
 
-			if err := vcr.Validate(); (err != nil) != tt.wantErr {
+			err := vcr.Validate()
+			if (err != nil) != tt.wantErr {
 				marshalledErr, _ := json.Marshal(err)
 				t.Errorf("APIVpcCreateRequest.Validate() error = %v, wantErr %v", string(marshalledErr), tt.wantErr)
+			}
+			if tt.wantErrContains != "" {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), tt.wantErrContains)
 			}
 		})
 	}
@@ -236,9 +268,10 @@ func TestAPIVpcCreateRequest_Validate(t *testing.T) {
 
 func TestAPIVpcUpdateRequest_Validate(t *testing.T) {
 	type fields struct {
-		Name        string
-		Description *string
-		Labels      map[string]string
+		Name                    string
+		Description             *string
+		Labels                  map[string]string
+		RoutingProfileOverrides *APIVpcRoutingProfileOverrides
 	}
 	tests := []struct {
 		name    string
@@ -250,6 +283,15 @@ func TestAPIVpcUpdateRequest_Validate(t *testing.T) {
 			fields: fields{
 				Name:        "test-name",
 				Description: cutil.GetPtr("Test description"),
+			},
+			wantErr: false,
+		},
+		// Update validates the inline definition while the handler checks the persisted VPC type.
+		{
+			name: "test valid VPC update request - routing profile overrides",
+			fields: fields{
+				Name:                    "test-name",
+				RoutingProfileOverrides: &APIVpcRoutingProfileOverrides{LeakDefaultRouteFromUnderlay: cutil.GetPtr(true)},
 			},
 			wantErr: false,
 		},
@@ -309,9 +351,10 @@ func TestAPIVpcUpdateRequest_Validate(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			vur := APIVpcUpdateRequest{
-				Name:        &tt.fields.Name,
-				Description: tt.fields.Description,
-				Labels:      tt.fields.Labels,
+				Name:                    &tt.fields.Name,
+				Description:             tt.fields.Description,
+				Labels:                  tt.fields.Labels,
+				RoutingProfileOverrides: tt.fields.RoutingProfileOverrides,
 			}
 
 			if err := vur.Validate(); (err != nil) != tt.wantErr {
@@ -320,6 +363,119 @@ func TestAPIVpcUpdateRequest_Validate(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestAPIVpcRoutingProfileOverrides_Validate verifies the API rejects values
+// that cannot be represented by Core while preserving valid presence semantics.
+func TestAPIVpcRoutingProfileOverrides_Validate(t *testing.T) {
+	tests := []struct {
+		name    string
+		profile *APIVpcRoutingProfileOverrides
+		wantErr bool
+	}{
+		// Empty lists, duplicate prefixes, host bits, and both IP families are valid Core inputs.
+		{
+			name: "accepts Core-compatible values",
+			profile: &APIVpcRoutingProfileOverrides{
+				RouteTargetImports: &APIVpcRouteTargets{
+					{ASN: 0, VNI: 0},
+					{ASN: int(math.MaxUint32), VNI: int(math.MaxUint32)},
+				},
+				RouteTargetsOnExports:        &APIVpcRouteTargets{},
+				AcceptedLeaksFromUnderlay:    &[]string{"10.0.0.1/24", "10.0.0.1/24", "2001:db8::1/64"},
+				AllowedAnycastPrefixes:       &[]string{},
+				LeakDefaultRouteFromUnderlay: cutil.GetPtr(false),
+			},
+		},
+		// Negative values cannot be represented by the unsigned protobuf fields.
+		{
+			name: "rejects negative route targets",
+			profile: &APIVpcRoutingProfileOverrides{
+				RouteTargetImports: &APIVpcRouteTargets{{ASN: -1, VNI: 1}},
+			},
+			wantErr: true,
+		},
+		// Values above uint32 would otherwise be truncated during conversion.
+		{
+			name: "rejects overflowing route targets",
+			profile: &APIVpcRoutingProfileOverrides{
+				RouteTargetsOnExports: &APIVpcRouteTargets{{ASN: 1, VNI: int(math.MaxUint32) + 1}},
+			},
+			wantErr: true,
+		},
+		// Malformed prefixes must not reach Core's IpNetwork parser.
+		{
+			name: "rejects malformed prefixes",
+			profile: &APIVpcRoutingProfileOverrides{
+				AllowedAnycastPrefixes: &[]string{"not-a-prefix"},
+			},
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := tt.profile.Validate()
+			if tt.wantErr {
+				require.Error(t, err)
+				return
+			}
+			require.NoError(t, err)
+		})
+	}
+}
+
+// TestAPIVpcRoutingProfileOverrides_ToDB verifies optional values retain their
+// presence and explicit-empty semantics in the persisted representation.
+func TestAPIVpcRoutingProfileOverrides_ToDB(t *testing.T) {
+	imports := APIVpcRouteTargets{{ASN: 64512, VNI: 17}}
+	emptyTargets := APIVpcRouteTargets{}
+	emptyPrefixes := []string{}
+	profile := &APIVpcRoutingProfileOverrides{
+		RouteTargetImports:            &imports,
+		RouteTargetsOnExports:         &emptyTargets,
+		LeakDefaultRouteFromUnderlay:  cutil.GetPtr(false),
+		TenantLeakCommunitiesAccepted: cutil.GetPtr(true),
+		AcceptedLeaksFromUnderlay:     &emptyPrefixes,
+		AllowedAnycastPrefixes:        &[]string{"192.0.2.1/24"},
+	}
+
+	dbProfile := profile.ToDB()
+	require.NotNil(t, dbProfile)
+	require.NotNil(t, dbProfile.RouteTargetImports)
+	assert.Equal(t, []cdbm.VpcRouteTarget{{ASN: 64512, VNI: 17}}, *dbProfile.RouteTargetImports)
+	require.NotNil(t, dbProfile.RouteTargetsOnExports)
+	assert.Empty(t, *dbProfile.RouteTargetsOnExports)
+	require.NotNil(t, dbProfile.LeakDefaultRouteFromUnderlay)
+	assert.False(t, *dbProfile.LeakDefaultRouteFromUnderlay)
+	require.NotNil(t, dbProfile.AcceptedLeaksFromUnderlay)
+	assert.Empty(t, *dbProfile.AcceptedLeaksFromUnderlay)
+}
+
+// TestAPIVpcRoutingProfileOverrides_FromDB verifies persisted optional values
+// retain their presence and explicit-empty semantics in the API representation.
+func TestAPIVpcRoutingProfileOverrides_FromDB(t *testing.T) {
+	emptyTargets := []cdbm.VpcRouteTarget{}
+	emptyPrefixes := []string{}
+	dbProfile := &cdbm.VpcRoutingProfileOverrides{
+		RouteTargetImports:            &[]cdbm.VpcRouteTarget{{ASN: 64512, VNI: 17}},
+		RouteTargetsOnExports:         &emptyTargets,
+		LeakDefaultRouteFromUnderlay:  cutil.GetPtr(false),
+		TenantLeakCommunitiesAccepted: cutil.GetPtr(true),
+		AcceptedLeaksFromUnderlay:     &emptyPrefixes,
+		AllowedAnycastPrefixes:        &[]string{"192.0.2.1/24"},
+	}
+
+	profile := &APIVpcRoutingProfileOverrides{}
+	profile.FromDB(dbProfile)
+	require.NotNil(t, profile.RouteTargetImports)
+	assert.Equal(t, APIVpcRouteTargets{{ASN: 64512, VNI: 17}}, *profile.RouteTargetImports)
+	require.NotNil(t, profile.RouteTargetsOnExports)
+	assert.Empty(t, *profile.RouteTargetsOnExports)
+	require.NotNil(t, profile.LeakDefaultRouteFromUnderlay)
+	assert.False(t, *profile.LeakDefaultRouteFromUnderlay)
+	require.NotNil(t, profile.AcceptedLeaksFromUnderlay)
+	assert.Empty(t, *profile.AcceptedLeaksFromUnderlay)
 }
 
 func TestAPIVpcVirtualizationUpdateRequest_Validate(t *testing.T) {
@@ -509,7 +665,7 @@ func TestNewAPIVpc(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := NewAPIVpc(tt.args.dbVpc, tt.args.dbsds)
+			got := NewAPIVpc(tt.args.dbVpc, tt.args.dbsds, false)
 
 			assert.Equal(t, tt.want.ID, got.ID)
 			assert.Equal(t, tt.want.Name, got.Name)
@@ -536,6 +692,40 @@ func TestNewAPIVpc(t *testing.T) {
 			assert.Equal(t, tt.want.Updated, got.Updated)
 		})
 	}
+
+	profileVpc := cdbm.Vpc{
+		ID: uuid.New(),
+		RoutingProfileOverrides: &cdbm.VpcRoutingProfileOverrides{
+			LeakDefaultRouteFromUnderlay: cutil.GetPtr(false),
+		},
+		EffectiveRoutingProfile: &cdbm.VpcEffectiveRoutingProfile{
+			LeakDefaultRouteFromUnderlay: true,
+			Internal:                     true,
+			AccessTier:                   7,
+		},
+	}
+
+	t.Run("omits effective profile without targeted instance creation permission", func(t *testing.T) {
+		// Desired configuration remains visible even when the resolved state is gated.
+		unprivileged := NewAPIVpc(profileVpc, nil, false)
+		require.NotNil(t, unprivileged.RoutingProfileOverrides)
+		assert.Nil(t, unprivileged.EffectiveRoutingProfile)
+		unprivilegedJSON, err := json.Marshal(unprivileged)
+		require.NoError(t, err)
+		assert.NotContains(t, string(unprivilegedJSON), "effectiveRoutingProfile")
+	})
+
+	t.Run("includes effective profile with targeted instance creation permission", func(t *testing.T) {
+		// Authorized responses expose resolved values and canonical empty lists.
+		privileged := NewAPIVpc(profileVpc, nil, true)
+		require.NotNil(t, privileged.EffectiveRoutingProfile)
+		assert.True(t, privileged.EffectiveRoutingProfile.Internal)
+		assert.Equal(t, 7, privileged.EffectiveRoutingProfile.AccessTier)
+		assert.NotNil(t, privileged.EffectiveRoutingProfile.AcceptedLeaksFromUnderlay)
+		assert.Empty(t, privileged.EffectiveRoutingProfile.AcceptedLeaksFromUnderlay)
+		assert.NotNil(t, privileged.EffectiveRoutingProfile.AllowedAnycastPrefixes)
+		assert.Empty(t, privileged.EffectiveRoutingProfile.AllowedAnycastPrefixes)
+	})
 }
 
 func TestAPIVpcCreateRequest_ToProto(t *testing.T) {
@@ -610,6 +800,20 @@ func TestAPIVpcCreateRequest_ToProto(t *testing.T) {
 		vpc := &cdbm.Vpc{ID: id, Org: "org-1", Name: "vpc-a", NetworkVirtualizationType: &fnn, RoutingProfile: &profile}
 		got := APIVpcCreateRequest{}.ToProto(vpc)
 		assert.Nil(t, got.RoutingProfileType)
+	})
+
+	t.Run("forwards supplied routing profile overrides", func(t *testing.T) {
+		// Create forwards the complete inline definition supplied by the caller.
+		vpc := &cdbm.Vpc{ID: id, Org: "org-1", Name: "vpc-a", NetworkVirtualizationType: &fnn}
+		profile := &APIVpcRoutingProfileOverrides{
+			LeakTenantHostRoutesToUnderlay: cutil.GetPtr(false),
+			AllowedAnycastPrefixes:         &[]string{},
+		}
+		got := (APIVpcCreateRequest{RoutingProfileOverrides: profile}).ToProto(vpc)
+		require.NotNil(t, got.RoutingProfileOverrides)
+		require.NotNil(t, got.RoutingProfileOverrides.LeakTenantHostRoutesToUnderlay)
+		assert.False(t, *got.RoutingProfileOverrides.LeakTenantHostRoutesToUnderlay)
+		require.NotNil(t, got.RoutingProfileOverrides.AllowedAnycastPrefixes)
 	})
 }
 
@@ -691,5 +895,19 @@ func TestAPIVpcUpdateRequest_ToProto(t *testing.T) {
 		got := APIVpcUpdateRequest{}.ToProto(vpc)
 		require.NotNil(t, got.Id)
 		assert.Equal(t, ctrlID.String(), got.Id.Value)
+	})
+
+	t.Run("preserves omitted routing profile overrides", func(t *testing.T) {
+		// Omitted input must not replace the current Core definition.
+		vpc := &cdbm.Vpc{ID: id, Name: "vpc-a"}
+		got := (APIVpcUpdateRequest{}).ToProto(vpc)
+		assert.Nil(t, got.RoutingProfileOverrides)
+	})
+
+	t.Run("forwards explicit empty routing profile overrides", func(t *testing.T) {
+		// An empty object restores inheritance for every property.
+		vpc := &cdbm.Vpc{ID: id, Name: "vpc-a"}
+		got := (APIVpcUpdateRequest{RoutingProfileOverrides: &APIVpcRoutingProfileOverrides{}}).ToProto(vpc)
+		require.NotNil(t, got.RoutingProfileOverrides)
 	})
 }

@@ -18,8 +18,8 @@
 //! `GetMachineBootInterfaces` gathers one machine's boot-interface view from
 //! all four stores -- owned interface rows, predictions, the explored endpoint
 //! default, and the retained post-deletion pairs -- and reports the effective
-//! boot interface plus a divergence flag. These tests seed the stores for one
-//! host and assert the gathered view.
+//! boot interface, divergence, and desired-state reconciliation. These tests
+//! seed the stores for one host and assert the gathered view.
 
 use carbide_test_harness::prelude::*;
 use carbide_test_harness::test_support::fixture_config::{
@@ -31,6 +31,7 @@ use model::predicted_machine_interface::NewPredictedMachineInterface;
 use model::test_support::ManagedHostConfig;
 use rpc::forge;
 use rpc::forge::forge_server::Forge;
+use rpc::forge::get_machine_boot_interfaces_response::reconciliation::State as ReconciliationState;
 
 async fn init(pool: PgPool) -> (TestHarness, TestManagedHost) {
     let env = TestHarness::builder(pool).build().await;
@@ -151,6 +152,35 @@ async fn test_get_machine_boot_interfaces_gathers_all_four_stores(
         .into_inner();
 
     assert_eq!(report.machine_id, Some(host_id));
+
+    // The desired-state view names the boot target Site Explorer persisted for
+    // this host. The fixture runs Site Explorer but no machine-controller
+    // iteration, so the generation is still pending in DPU discovery.
+    let reconciliation = report
+        .reconciliation
+        .as_ref()
+        .expect("an ingested host should have a desired boot interface");
+    assert_eq!(
+        reconciliation
+            .desired_boot_interface
+            .as_ref()
+            .map(|target| target.mac_address.as_str()),
+        Some(primary_mac.to_string().as_str()),
+        "reconciliation should report the persisted primary target"
+    );
+    assert!(
+        !reconciliation.desired_version.is_empty(),
+        "the desired generation should be reported"
+    );
+    assert_eq!(
+        reconciliation.reconciliation_state(),
+        ReconciliationState::Pending,
+        "the unverified desired generation should still be pending"
+    );
+    assert_eq!(
+        reconciliation.machine_state, "DPUDiscovering/Initializing",
+        "the managed-host state should explain where reconciliation is waiting"
+    );
 
     // Store 1: the owned rows include the primary, and the primary is flagged.
     assert!(

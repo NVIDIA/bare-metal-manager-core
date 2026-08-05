@@ -30,7 +30,6 @@ use ::rpc::forge::{
     self as rpc, FlatInterfaceConfig, ManagedHostNetworkConfigResponse,
     NetworkSecurityGroupRuleAction, NetworkSecurityGroupRuleProtocol,
 };
-use carbide_network::ip::prefix::Ipv4Net;
 use carbide_network::virtualization::{VpcVirtualizationType, build_dual_stack_list};
 use eyre::WrapErr;
 use mac_address::MacAddress;
@@ -41,7 +40,7 @@ use tokio::process::Command as TokioCommand;
 use tokio::time::timeout;
 
 use crate::nvue::NetworkSecurityGroupRule;
-use crate::{HBNDeviceNames, acl_rules, dhcp, hbn, nvue, traffic_intercept_bridging};
+use crate::{HBNDeviceNames, acl_rules, dhcp, hbn, nvue};
 
 /// None of the files we deal with should be bigger than this
 const MAX_EXPECTED_SIZE: u64 = 1048576; // 1 MiB
@@ -308,6 +307,31 @@ impl From<&rpc::FlatInterfaceRoutingProfile> for nvue::InterfaceRoutingProfile {
     }
 }
 
+/// `parse_managed_host_loopback_ips` types the string-valued RPC fields before
+/// NVUE rendering. In particular, parsing `loopback_ip_v6` as `Ipv6Addr` keeps
+/// an IPv4 value from slipping through just because protobuf stores it as a
+/// string.
+fn parse_managed_host_loopback_ips(
+    config: &rpc::ManagedHostNetworkConfig,
+) -> eyre::Result<(IpAddr, Option<Ipv6Addr>)> {
+    if config.loopback_ip.is_empty() {
+        return Err(eyre::eyre!("missing loopback IP"));
+    }
+
+    let loopback_ip = config
+        .loopback_ip
+        .parse()
+        .wrap_err_with(|| format!("invalid primary loopback IP: {}", config.loopback_ip))?;
+    let loopback_ip_v6 = config
+        .loopback_ip_v6
+        .as_deref()
+        .map(str::parse)
+        .transpose()
+        .wrap_err("invalid IPv6 loopback IP")?;
+
+    Ok((loopback_ip, loopback_ip_v6))
+}
+
 /// Update the NVUE network config. Returns Ok(true) if the configuration changed, and
 /// Ok(false) if not.
 pub async fn update_nvue(
@@ -326,18 +350,11 @@ pub async fn update_nvue(
             .and_then(|build_value| hbn::parse_nvue_build_as_hbn_version(&build_value))?,
     };
 
-    let l_ip_str = match &nc.managed_host_config {
-        None => {
-            return Err(eyre::eyre!("missing managed_host_config in response"));
-        }
-        Some(cfg) => {
-            if cfg.loopback_ip.is_empty() {
-                return Err(eyre::eyre!("missing loopback IP"));
-            }
-            &cfg.loopback_ip
-        }
-    };
-    let loopback_ip = l_ip_str.parse().wrap_err_with(|| l_ip_str.clone())?;
+    let managed_host_config = nc
+        .managed_host_config
+        .as_ref()
+        .ok_or_else(|| eyre::eyre!("missing managed_host_config in response"))?;
+    let (loopback_ip, loopback_ip_v6) = parse_managed_host_loopback_ips(managed_host_config)?;
 
     let access_vlans = if nc.use_admin_network {
         let admin_interface = nc
@@ -546,20 +563,6 @@ pub async fn update_nvue(
 
     let hostname = hostname().wrap_err("gethostname error")?;
     let is_dpu_os = matches!(update_flavor, NvueUpdateFlavor::StartupFile { .. });
-    let secondary_overlay_vtep_ip = nc
-        .traffic_intercept_config
-        .as_ref()
-        .and_then(|vc| vc.additional_overlay_vtep_ip.as_deref())
-        .map(str::parse)
-        .transpose()
-        .wrap_err("invalid secondary overlay VTEP IP")?;
-    let internal_bridge_routing_prefix = nc
-        .traffic_intercept_config
-        .as_ref()
-        .and_then(|vc| vc.bridging.as_ref())
-        .map(|b| b.internal_bridge_routing_prefix.parse::<Ipv4Net>())
-        .transpose()
-        .wrap_err("invalid internal bridge routing prefix")?;
     let dhcp_servers = nc
         .dhcp_servers
         .iter()
@@ -588,24 +591,7 @@ pub async fn update_nvue(
         use_admin_network: nc.use_admin_network,
         tenancy_enabled,
         loopback_ip,
-        vf_intercept_bridge_port_name: nc.traffic_intercept_config.as_ref().and_then(|vc| {
-            vc.bridging
-                .as_ref()
-                .map(|b| b.vf_intercept_bridge_port.clone())
-        }),
-        vf_intercept_bridge_sf: nc.traffic_intercept_config.as_ref().and_then(|vc| {
-            vc.bridging
-                .as_ref()
-                .map(|b| b.vf_intercept_bridge_sf.clone())
-        }),
-        host_intercept_bridge_port_name: None,
-        secondary_overlay_vtep_ip,
-        internal_bridge_routing_prefix,
-        traffic_intercept_public_prefixes: nc
-            .traffic_intercept_config
-            .as_ref()
-            .map(|vc| vc.public_prefixes.clone())
-            .unwrap_or_default(),
+        loopback_ip_v6,
         asn: nc.asn,
         datacenter_asn: nc.datacenter_asn,
         common_internal_route_target: nc.common_internal_route_target.map(|rt| {
@@ -756,131 +742,6 @@ pub async fn update_nvue(
             }
         }
     }
-}
-
-// Update internal bridge configuration for traffic-intercept routing and bridging.
-pub async fn update_traffic_intercept_bridging(
-    nc: &rpc::ManagedHostNetworkConfigResponse,
-    hbn_device_names: HBNDeviceNames,
-    skip_post: bool,
-) -> eyre::Result<bool> {
-    // Read the traffic-intercept inputs supplied by the controller.
-    let Some(traffic_intercept_config) = nc.traffic_intercept_config.as_ref() else {
-        eyre::bail!("traffic_intercept config not provided");
-    };
-    let Some(bridge_config) = traffic_intercept_config.bridging.as_ref() else {
-        eyre::bail!("traffic_intercept bridging config not provided");
-    };
-    let Some(secondary_overlay_vtep_ip) = traffic_intercept_config
-        .additional_overlay_vtep_ip
-        .as_deref()
-        .map(str::parse)
-        .transpose()?
-    else {
-        eyre::bail!("secondary_overlay_vtep_ip required by traffic_intercept bridging not found");
-    };
-
-    // IPv4 only for now. Internal HBN bridge plumbing uses 169.254.x.x
-    // link-local addressing for DPU to HBN communication. An IPv6 equivalent
-    // (fe80:: or similar) may be needed in the future for dual-stack bridging.
-    let bridge_prefix = bridge_config
-        .internal_bridge_routing_prefix
-        .parse::<Ipv4Net>()?;
-
-    let mut bridge_prefix_hosts = bridge_prefix.hosts();
-
-    // First host address in bridge_prefix_hosts is for VF-intercept bridge, often called 'br-dpu' in various diagrams.
-    let Some(vf_intercept_bridge_ip) = bridge_prefix_hosts.next() else {
-        eyre::bail!(
-            "too few hosts in internal bridge routing prefix config to support VF intercept bridge"
-        )
-    };
-
-    // Get the map of interface to bridge.
-    let interface_to_bridge: HashMap<String, &rpc::HostRepresentorInterceptBridging> =
-        bridge_config
-            .host_representor_intercept_bridging
-            .iter()
-            .map(|(rep, c)| (rep.clone(), c))
-            .collect();
-
-    // Now get the list of VNI to Bridge maps.
-    let physical_name = hbn_device_names.reps[0].to_string();
-    let host_representor_bridge_vni_mappings = nc
-        .tenant_interfaces
-        .iter()
-        .filter_map(|i| {
-            let name = if i.function_type == rpc::InterfaceFunctionType::Physical as i32 {
-                physical_name.replace(hbn_device_names.sf_id, "")
-            } else {
-                match i.virtual_function_id {
-                    Some(id) => hbn_device_names
-                        .build_virt(id)
-                        .replace(hbn_device_names.sf_id, ""),
-                    None => {
-                        return {
-                            // This is an error at the point of rebuilding NVUE config,
-                            // but this is us used only for signaling with OVN here.
-                            // The values only change as interfaces come and go.
-                            // If it's a new interface, it would go un-configured, and the signaling
-                            // here won't matter anyway.
-                            tracing::warn!("function ID not found for non-physical interface");
-                            None
-                        };
-                    }
-                }
-            };
-
-            interface_to_bridge.get(&name).map(|bridging| {
-                tracing::debug!(
-                    representor = %name,
-                    bridge = %bridging.bridge,
-                    vni = i.vni,
-                    gateway = %i.gateway,
-                    "Created traffic-intercept bridge mapping"
-                );
-                traffic_intercept_bridging::TrafficInterceptBridgeMapping {
-                    bridge: bridging.bridge.clone(),
-                    patch_port: bridging.patch_port.clone(),
-                    vni: i.vni,
-                    gateway: i.gateway.clone(),
-                }
-            })
-        })
-        .collect();
-
-    let conf = traffic_intercept_bridging::TrafficInterceptBridgingConfig {
-        secondary_overlay_vtep_ip,
-        secondary_vtep_aggregate_prefixes: traffic_intercept_config
-            .secondary_vtep_aggregate_prefixes
-            .clone(),
-        vf_intercept_bridge_ip: vf_intercept_bridge_ip.to_string(),
-        intercept_bridge_prefix_len: bridge_prefix.prefix_len(),
-        // We use the bridge name here because the OVS will create a link/dev on the
-        // DPU OS side of that name.
-        vf_intercept_bridge_name: bridge_config.vf_intercept_bridge_name.clone(),
-        host_representor_bridge_vni_mappings,
-    };
-
-    // Write the config we're going to apply
-    let next_contents = traffic_intercept_bridging::build(conf)?;
-    let path = FPath(PathBuf::from(traffic_intercept_bridging::SAVE_PATH));
-    path.cleanup();
-
-    if nc.use_admin_network
-        || !write(next_contents, &path, "TRAFFIC_INTERCEPT_BRIDGING", false)
-            .wrap_err(format!("NVUE config at {path}"))?
-    {
-        // config didn't change OR we are switching to the admin network.
-        return Ok(false);
-    };
-
-    if !skip_post {
-        // Make it so
-        traffic_intercept_bridging::apply(&path).await?;
-    }
-
-    Ok(true)
 }
 
 fn build_network_security_group_rules(
@@ -1960,7 +1821,6 @@ impl InterfaceTranslationMode {
 
 #[cfg(test)]
 mod tests {
-    use std::collections::BTreeMap;
     use std::fs;
     use std::io::Write;
     use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
@@ -1982,6 +1842,58 @@ mod tests {
     #[ctor::ctor(unsafe)]
     fn setup() {
         carbide_host_support::init_logging("nico-dpu-agent").unwrap();
+    }
+
+    #[test]
+    fn test_parse_managed_host_loopback_ips() {
+        use carbide_test_support::Outcome::*;
+        use carbide_test_support::scenarios;
+
+        scenarios!(run = |config: rpc::ManagedHostNetworkConfig| {
+            parse_managed_host_loopback_ips(&config).map_err(drop)
+        };
+            "valid wire values" {
+                rpc::ManagedHostNetworkConfig {
+                    loopback_ip: "10.0.0.1".to_string(),
+                    loopback_ip_v6: None,
+                    quarantine_state: None,
+                } => Yields(("10.0.0.1".parse().unwrap(), None)),
+                rpc::ManagedHostNetworkConfig {
+                    loopback_ip: "10.0.0.1".to_string(),
+                    loopback_ip_v6: Some("2001:db8::1".to_string()),
+                    quarantine_state: None,
+                } => Yields((
+                    "10.0.0.1".parse().unwrap(),
+                    Some("2001:db8::1".parse().unwrap()),
+                )),
+            }
+
+            "invalid IPv6 wire value" {
+                rpc::ManagedHostNetworkConfig {
+                    loopback_ip: "10.0.0.1".to_string(),
+                    loopback_ip_v6: Some("not-an-ipv6-address".to_string()),
+                    quarantine_state: None,
+                } => Fails,
+                rpc::ManagedHostNetworkConfig {
+                    loopback_ip: "10.0.0.1".to_string(),
+                    loopback_ip_v6: Some("192.0.2.1".to_string()),
+                    quarantine_state: None,
+                } => Fails,
+            }
+
+            "invalid primary loopback" {
+                rpc::ManagedHostNetworkConfig {
+                    loopback_ip: String::new(),
+                    loopback_ip_v6: None,
+                    quarantine_state: None,
+                } => Fails,
+                rpc::ManagedHostNetworkConfig {
+                    loopback_ip: "not-an-ip-address".to_string(),
+                    loopback_ip_v6: None,
+                    quarantine_state: None,
+                } => Fails,
+            }
+        );
     }
 
     #[test]
@@ -2246,51 +2158,6 @@ mod tests {
         Ok(())
     }
 
-    #[tokio::test]
-    async fn test_with_tenant_with_bridging() -> Result<(), Box<dyn std::error::Error>> {
-        let virtualization_type = VpcVirtualizationType::Fnn;
-
-        let mut network_config = netconf(virtualization_type, 32, 24, false, None, false, true);
-
-        network_config.traffic_intercept_config = Some(rpc::TrafficInterceptConfig {
-            additional_overlay_vtep_ip: Some("1.2.2.2".to_string()),
-            public_prefixes: vec![],
-            secondary_vtep_aggregate_prefixes: vec![],
-
-            bridging: Some(rpc::TrafficInterceptBridging {
-                internal_bridge_routing_prefix: "2.2.2.0/24".to_string(),
-                hbn_bridge: "br-hbn".to_string(),
-                vf_intercept_bridge_name: "br-beans".to_string(),
-                vf_intercept_bridge_port: "patch-br-beans-to-hbn".to_string(),
-                vf_intercept_bridge_sf: "pf0dpu5".to_string(),
-                host_representor_intercept_bridging: BTreeMap::from([(
-                    "pf0hpf".to_string(),
-                    rpc::HostRepresentorInterceptBridging {
-                        bridge: "br-pf0".to_string(),
-                        patch_port: "pp-pf0".to_string(),
-                    },
-                )]),
-            }),
-        });
-
-        fs::remove_file(traffic_intercept_bridging::SAVE_PATH).unwrap_or_default();
-        let has_changes = super::update_traffic_intercept_bridging(
-            &network_config,
-            HBNDeviceNames::hbn_23(),
-            true,
-        )
-        .await?;
-        assert!(
-            has_changes,
-            "update_traffic_intercept_bridging should have written the file, there should be changes"
-        );
-
-        // check startup.yaml
-        let expected = include_str!("../templates/tests/test_with_tenant_with_bridging.expected");
-        compare_diffed(traffic_intercept_bridging::SAVE_PATH, expected)?;
-
-        Ok(())
-    }
     #[tokio::test]
     async fn test_with_tenant_fnn_with_missing_vpcs() -> Result<(), Box<dyn std::error::Error>> {
         let virtualization_type = VpcVirtualizationType::Fnn;
@@ -2950,6 +2817,7 @@ mod tests {
 
         let netconf = rpc::ManagedHostNetworkConfig {
             loopback_ip: "10.217.5.39".to_string(),
+            loopback_ip_v6: None,
             quarantine_state: None,
         };
         rpc::ManagedHostNetworkConfigResponse {
@@ -3031,26 +2899,6 @@ mod tests {
 
             use_admin_network: false,
             admin_interface: Some(admin_interface),
-
-            traffic_intercept_config: Some(rpc::TrafficInterceptConfig {
-                bridging: Some(rpc::TrafficInterceptBridging {
-                    vf_intercept_bridge_port: "dpuVf0mg".to_string(),
-                    vf_intercept_bridge_name: "br-dpu".to_string(),
-                    vf_intercept_bridge_sf: "pf0dpu5".to_string(),
-                    internal_bridge_routing_prefix: "10.10.10.0/29".to_string(),
-                    hbn_bridge: "br-hbn".to_string(),
-                    host_representor_intercept_bridging: BTreeMap::from([(
-                        "pf0hpf".to_string(),
-                        rpc::HostRepresentorInterceptBridging {
-                            bridge: "br-pf0".to_string(),
-                            patch_port: "pp-pf0".to_string(),
-                        },
-                    )]),
-                }),
-                additional_overlay_vtep_ip: Some("10.255.254.253".to_string()),
-                public_prefixes: vec!["7.6.5.0/24".to_string()],
-                secondary_vtep_aggregate_prefixes: vec!["10.255.254.0/24".to_string()],
-            }),
 
             tenant_interfaces,
             instance_network_config_version: "V1-T1666644937952999".to_string(),
@@ -3209,12 +3057,7 @@ mod tests {
             tenancy_enabled: true,
             site_global_vpc_vni: None,
             loopback_ip: "10.217.5.39".parse().unwrap(),
-            secondary_overlay_vtep_ip: Some("10.255.254.253".parse().unwrap()),
-            internal_bridge_routing_prefix: Some("10.255.255.0/29".parse().unwrap()),
-            vf_intercept_bridge_port_name: Some("pfdpu0".to_string()),
-            vf_intercept_bridge_sf: Some("pf0dpu5".to_string()),
-            host_intercept_bridge_port_name: Some("pfdpu1".to_string()),
-            traffic_intercept_public_prefixes: vec!["7.6.5.0/24".to_string()],
+            loopback_ip_v6: None,
             asn: 65535,
             datacenter_asn: 11414,
             anycast_site_prefixes: vec!["5.255.255.0/24".to_string()],
@@ -3482,6 +3325,7 @@ mod tests {
 
         let netconf = rpc::ManagedHostNetworkConfig {
             loopback_ip: "10.217.5.39".to_string(),
+            loopback_ip_v6: None,
             quarantine_state: None,
         };
 
@@ -3534,7 +3378,6 @@ mod tests {
                     vni: 800,
                 }],
             }),
-            traffic_intercept_config: None,
 
             // yes it's in there twice I dunno either
             dhcp_servers: vec!["10.217.5.197".to_string(), "10.217.5.197".to_string()],
@@ -3723,6 +3566,7 @@ mod tests {
     fn test_dhcp_server_config_errors_without_ipv4_pxe() -> Result<(), Box<dyn std::error::Error>> {
         let netconf = rpc::ManagedHostNetworkConfig {
             loopback_ip: "10.217.5.39".to_string(),
+            loopback_ip_v6: None,
             quarantine_state: None,
         };
         let network_config = rpc::ManagedHostNetworkConfigResponse {
@@ -3735,7 +3579,6 @@ mod tests {
             anycast_site_prefixes: vec![],
             tenant_host_asn: None,
             routing_profile: None,
-            traffic_intercept_config: None,
             dhcp_servers: vec![],
             ntp_servers: vec![],
             vni_device: "vxlan48".to_string(),

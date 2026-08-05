@@ -203,6 +203,13 @@ pub struct SwitchData {
     pub serial: String,
     pub slot_number: Option<i32>,
     pub tray_index: Option<i32>,
+
+    /// NVLink domain UUID associated with the switch, when known.
+    ///
+    /// Discovery restarts collectors when this value changes so subsequent
+    /// telemetry uses current metadata.
+    pub nvlink_domain_uuid: Option<NvLinkDomainId>,
+
     pub endpoint_role: SwitchEndpointRole,
     pub is_primary: bool,
     pub nmxc_enabled: bool,

@@ -6,6 +6,8 @@ package util
 import (
 	"errors"
 	"fmt"
+	"slices"
+	"strings"
 
 	corev1 "github.com/NVIDIA/infra-controller/rest-api/proto/core/gen/v1"
 	"gopkg.in/yaml.v3"
@@ -194,6 +196,28 @@ func mappingValue(mappingNode *yaml.Node, key string) *yaml.Node {
 	}
 
 	return nil
+}
+
+// ReverseMap swaps unique keys and values using Go generics. The input values
+// must be unique; if two keys share a value the result keeps an arbitrary one.
+func ReverseMap[K comparable, V comparable](m map[K]V) map[V]K {
+	inverted := make(map[V]K, len(m))
+	for k, v := range m {
+		inverted[v] = k
+	}
+	return inverted
+}
+
+// SprintMapKeys renders a map's keys as a sorted, comma-separated string. It is
+// handy for building deterministic "expected one of" error messages from an
+// allow-list map so the wording cannot drift from the map it derives from.
+func SprintMapKeys[K comparable, V any](m map[K]V) string {
+	parts := make([]string, 0, len(m))
+	for k := range m {
+		parts = append(parts, fmt.Sprint(k))
+	}
+	slices.Sort(parts)
+	return strings.Join(parts, ", ")
 }
 
 // ProtobufLabelsFromAPILabels converts API labels (map[string]string) to protobuf labels ([]*corev1.Label)

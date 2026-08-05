@@ -73,8 +73,12 @@ spec:
                   Template is the DPUFlavor body as a YAML/JSON string with Go template actions
                   (delimited by double curly braces). It is rendered against DPUDevice.spec.values and the result is
                   unmarshalled into a typed DPUFlavor and validated by DPUFlavor admission when
-                  the generated flavor is created. It must NOT contain dpuResources or
-                  systemReservedResources; those are provided by the structured fields below.
+                  the generated flavor is created. Referencing a key that is absent from the device
+                  values fails the render, and the "define", "block" and "template" actions are
+                  rejected. It should not contain dpuResources or systemReservedResources: the
+                  structured fields below take precedence and, when set, override anything the
+                  rendered body contains.
+                maxLength: 1048576
                 minLength: 1
                 type: string
             required:

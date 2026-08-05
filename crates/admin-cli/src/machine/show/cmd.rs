@@ -393,7 +393,7 @@ async fn show_machine_information(
     Ok(())
 }
 
-pub async fn handle_show(
+pub(crate) async fn handle_show(
     args: Args,
     output_format: &OutputFormat,
     output_file: &mut Box<dyn tokio::io::AsyncWrite + Unpin>,
@@ -428,7 +428,7 @@ pub async fn handle_show(
 }
 
 #[allow(deprecated)]
-pub async fn get_next_free_machine(
+pub(crate) async fn get_next_free_machine(
     api_client: &ApiClient,
     machine_ids: &mut VecDeque<MachineId>,
     min_interface_count: usize,

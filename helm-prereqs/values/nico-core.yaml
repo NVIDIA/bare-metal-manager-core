@@ -52,11 +52,33 @@ nico-api:
   hostname: ""   # REQUIRED: external nico-api hostname (e.g. api-<site>.<domain>)
 
   ## Trust admin-CLI client certs minted from the site CA (CN=site-root) so admin-cli works
-  ## with NO manual ConfigMap edit. Pair with helm-prereqs vault.nicoCliClientRole (ou: "Invalid").
+  ## with NO manual ConfigMap edit. Pair with helm-prereqs vault.nicoCliClientRole.
   ## "site-root" is the CN of the cert-manager site root created by nico-prereqs — generic, keep as-is.
+  ## This issuer-CN entry is what authorizes admin-CLI certs; the cert's OU only names the group.
   auth:
     additionalIssuerCns:
       - "site-root"
+
+  ## Rack management — chart defaults enable both switches (RMS connectivity
+  ## and the component manager with rms backends). Override vendors or add
+  ## test profiles in siteConfig. Chart defaults cover standard mTLS (SPIFFE
+  ## auto-discovery — no extra mounts).
+  ##
+  ## Sites WITHOUT rack management (no RMS deployed, no DPF rack operations)
+  ## must opt out explicitly, otherwise carbide-api initializes the component
+  ## manager and RMS client against an unreachable endpoint:
+  # componentManager:
+  #   enabled: false
+  # rms:
+  #   enabled: false
+  ##
+  ## Sites WITH rack management that need non-standard vendors or a test
+  ## profile can override individual fields via siteConfig (Figment merges
+  ## per-key, so only changed values need to be restated):
+  # siteConfig:
+  #   nicoApiSiteConfig: |
+  #     [rack_profiles.NVL72.rack_capabilities.compute]
+  #     vendor = "Lenovo"   # override compute vendor only
 
   ## MetalLB VIP for the nico-api LoadBalancer service.
   ## Must be an IP within your external IPAddressPool (values/metallb-config.yaml).
@@ -311,6 +333,29 @@ nico-api:
       ranges = [
         { start = "51008", end = "51011" },
       ]
+
+      # -----------------------------------------------------------------------
+      # DPF — DPU provisioning via the DOCA Platform Framework.
+      # setup.sh uncomments this block automatically when installing DPF (the default; the
+      # '#dpf# ' prefixes are its marker). To enable manually: install the DPF
+      # stack (docs/manuals/dpf.md), remove every '#dpf# ' prefix, and restart
+      # carbide-api — [dpf] is read at startup only.
+      # docker_image_pull_secret is created by setup.sh phase 5b.
+      # -----------------------------------------------------------------------
+      #dpf# [dpf]
+      #dpf# enabled = true
+      #dpf# docker_image_pull_secret = "nico-pull-secret"
+
+      # BF3 deployment defaults, shown for reference — these match the built-in
+      # defaults and only need uncommenting to override (e.g. a different BFB).
+      # BF4 is opt-in via an additional [dpf.deployments.bf4_generic] table;
+      # see docs/manuals/dpf.md §3.5.
+      #
+      # [dpf.deployments.bf3]
+      # bfb_url         = "https://content.mellanox.com/BlueField/BFBs/Ubuntu24.04/bf-bundle-3.2.2-125_26.02_ubuntu-24.04_64k_prod.bfb"
+      # flavor_name     = "carbide-dpu-flavor"
+      # deployment_name = "nico-deployment-v2"
+      # node_label_key  = "carbide.nvidia.com/controlled.node.v2"
 
 ## ---------------------------------------------------------------------------
 ## Service VIP assignments - MetalLB loadBalancerIPs

@@ -41,6 +41,7 @@
 //     `cfg::file` config types).
 // Anything that doesn't need to cross a crate boundary should stay private.
 
+mod admission;
 mod api;
 mod attestation;
 mod auth;
