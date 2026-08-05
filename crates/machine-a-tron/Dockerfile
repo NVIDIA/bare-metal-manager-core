@@ -17,7 +17,7 @@
 #     -t machine-a-tron:latest \
 #     .
 #
-ARG RUST_VERSION=1.96.0
+ARG RUST_VERSION=1.97.1
 
 FROM --platform=$BUILDPLATFORM rust:${RUST_VERSION}-slim-bookworm AS builder
 
