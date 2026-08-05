@@ -51,8 +51,8 @@ Other common places where we've seen `#[allow(dead_code)]` that are not necessar
 
 For binaries, add the following to the beginning of your main.rs:
 
-```
-#![cfg_attr(not(test), deny(dead_code_pub_in_binary))]`
+```rust
+#![cfg_attr(not(test), deny(dead_code_pub_in_binary))]
 ```
 
 This ensures that dead code is detected even if it's marked `pub` in a binary, since binaries cannot be used by other
