@@ -549,4 +549,69 @@ firmware_urll = "https://typo.example.com/fw.bin"
         let error = FirmwareFlasherProfile::from_toml(toml_str).unwrap_err();
         assert!(error.to_string().contains("firmware_urll"));
     }
+
+    #[test]
+    fn profile_serde_round_trip_preserves_every_field() {
+        let original = FirmwareFlasherProfile {
+            firmware_spec: FirmwareSpec {
+                part_number: "900-9D3B4-00CV-TA0".to_string(),
+                psid: "MT_0000000884".to_string(),
+                version: "32.43.1014".to_string(),
+            },
+            flash_spec: FlashSpec {
+                firmware_url: "https://artifacts.nvidia.com/fw.bin".to_string(),
+                firmware_credentials: Some(Credentials::bearer_token("token123")),
+                device_conf_url: Some("https://artifacts.nvidia.com/debug.conf".to_string()),
+                device_conf_credentials: Some(Credentials::basic_auth("user", "pass")),
+                verify_from_cache: true,
+                cache_dir: Some(PathBuf::from("/var/cache/fw")),
+            },
+            flash_options: FlashOptions {
+                verify_image: true,
+                verify_version: true,
+                reset: true,
+                reset_level: 5,
+            },
+        };
+
+        let encoded = toml::to_string(&original).expect("profile serializes");
+        let decoded = FirmwareFlasherProfile::from_toml(&encoded)
+            .expect("serialized profile must deserialize under the strict schema");
+
+        assert_eq!(
+            decoded.firmware_spec.part_number,
+            original.firmware_spec.part_number
+        );
+        assert_eq!(decoded.firmware_spec.psid, original.firmware_spec.psid);
+        assert_eq!(
+            decoded.firmware_spec.version,
+            original.firmware_spec.version
+        );
+        assert_eq!(
+            decoded.flash_spec.firmware_url,
+            original.flash_spec.firmware_url
+        );
+        assert_eq!(
+            decoded.flash_spec.device_conf_url,
+            original.flash_spec.device_conf_url
+        );
+        assert!(decoded.flash_spec.verify_from_cache);
+        assert_eq!(decoded.flash_spec.cache_dir, original.flash_spec.cache_dir);
+        assert!(matches!(
+            decoded.flash_spec.firmware_credentials,
+            Some(Credentials::BearerToken { token }) if token == "token123"
+        ));
+        assert!(matches!(
+            decoded.flash_spec.device_conf_credentials,
+            Some(Credentials::BasicAuth { username, password })
+                if username == "user" && password == "pass"
+        ));
+        assert!(decoded.flash_options.verify_image);
+        assert!(decoded.flash_options.verify_version);
+        assert!(decoded.flash_options.reset);
+        assert_eq!(
+            decoded.flash_options.reset_level,
+            original.flash_options.reset_level
+        );
+    }
 }

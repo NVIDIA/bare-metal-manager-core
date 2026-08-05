@@ -50,7 +50,7 @@ spec:
             - /bin/sh
             - -c
             # if you change this command, keep it in sync (as appropriate) with the overlay in local-dev for the local workflow
-            - exec /opt/carbide/carbide-api run --config-path /etc/forge/carbide-api/carbide-api-config.toml --site-config-path /etc/forge/carbide-api/site/carbide-api-site-config.toml
+            - exec /opt/carbide/carbide-api run --config-path /etc/forge/carbide-api/nico-api-config.toml --site-config-path /etc/forge/carbide-api/site/nico-api-site-config.toml
           env:
             - name: VAULT_ROLE_ID
               valueFrom:
@@ -111,7 +111,7 @@ spec:
                 configMapKeyRef:
                   name: nico-system-nico-database-config
                   key: DB_NAME
-            - name: CARBIDE_API_DATABASE_URL # Overwrites `database_url` in carbide-api-config.toml
+            - name: CARBIDE_API_DATABASE_URL # Overwrites `database_url` in nico-api-config.toml
               value: postgres://$(DATASTORE_USER):$(DATASTORE_PASSWORD)@$(DATASTORE_HOST):$(DATASTORE_PORT)/$(DATASTORE_NAME)
             - name: CARBIDE_WEB_PRIVATE_COOKIEJAR_KEY
               value: $(DATASTORE_PASSWORD)

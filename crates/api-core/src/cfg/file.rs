@@ -5043,16 +5043,146 @@ mod tests {
         );
     }
 
-    #[test]
-    fn deserialize_shipped_deployment_config() {
-        let path = concat!(
-            env!("CARGO_MANIFEST_DIR"),
-            "/../../deploy/nico-base/api/config-files/nico-api-config.toml"
+    fn rendered_helm_api_config() -> String {
+        let mut config =
+            include_str!("../../../../helm/charts/nico-api/files/carbide-api-config.toml")
+                .to_string();
+        for (template, rendered) in [
+            (
+                r#"{{ .Values.auth.adminRootCafilePath | default "/etc/forge/carbide-api/site/admin_root_cert_pem" }}"#,
+                "/etc/forge/carbide-api/site/admin_root_cert_pem",
+            ),
+            ("{{ .Values.auth.permissiveMode | default false }}", "false"),
+            ("{{ .Values.global.spiffe.trustDomain }}", "example.test"),
+            (
+                r#"{{ .Values.auth.namespace | default (include "nico-api.namespace" .) }}"#,
+                "nico-system",
+            ),
+            (
+                "{{ range $i, $cn := .Values.auth.additionalIssuerCns }}{{ if $i }}, {{ end }}{{ $cn | quote }}{{ end }}",
+                "",
+            ),
+            (
+                "{{ .Values.service.perObjectStateMetrics.enabled }}",
+                "false",
+            ),
+            ("{{ .Values.service.perObjectStateMetrics.port }}", "9091"),
+            (
+                "{{ default list .Values.service.perObjectStateMetrics.objectTypes | toJson }}",
+                "[]",
+            ),
+            (
+                "{{ .Values.componentManager.computeTrayBackend | quote }}",
+                r#""rms""#,
+            ),
+            (
+                "{{ .Values.componentManager.nvSwitchBackend | quote }}",
+                r#""rms""#,
+            ),
+            (
+                "{{ .Values.componentManager.powerShelfBackend | quote }}",
+                r#""rms""#,
+            ),
+            (
+                "{{ .Values.componentManager.nvSwitchUseStateController }}",
+                "false",
+            ),
+            (
+                "{{ .Values.componentManager.powerShelfUseStateController }}",
+                "false",
+            ),
+            (
+                "{{ .Values.componentManager.computeTrayUseStateController }}",
+                "false",
+            ),
+            (
+                "{{ .Values.rms.apiUrl | quote }}",
+                r#""https://rms.example.test""#,
+            ),
+            ("{{ .Values.rms.enforceTls }}", "true"),
+            ("{{ . | quote }}", r#""/tmp/test.pem""#),
+        ] {
+            config = config.replace(template, rendered);
+        }
+
+        let config = config
+            .lines()
+            .filter(|line| !line.trim_start().starts_with("{{-"))
+            .join("\n");
+        assert!(
+            !config.contains("{{"),
+            "all Helm template expressions must be rendered for this test"
         );
-        Figment::new()
-            .merge(Toml::file(path))
+        config
+    }
+
+    fn rendered_deployment_site_config() -> String {
+        let mut config =
+            include_str!("../../../../deploy/files/nico-api/nico-api-site-config.toml").to_string();
+        for (placeholder, value) in [
+            ("MANAGED_HOST_IPMI_POOL_1_GATEWAY_IP", "203.0.113.1"),
+            ("MANAGED_HOST_IPMI_POOL_1", "203.0.113.0/24"),
+            ("CONTROL_PLANE_IPMI_POOL_1", "198.51.100.0/24"),
+            ("ADMIN_NETWORK_GATEWAY_IP", "192.0.2.1"),
+            ("ADMIN_NETWORK_IP_POOL", "192.0.2.0/24"),
+            ("DPU_LOOPBACK_START_IP", "10.180.62.1"),
+            ("DPU_LOOPBACK_END_IP", "10.180.62.62"),
+            ("NICO_DHCP_EXTERNAL_IP", "192.0.2.10"),
+            ("SITE_FABRIC_PREFIX_1", "10.0.0.0/8"),
+            ("ENVIORNMENT_NAME", "test"),
+        ] {
+            config = config.replace(placeholder, value);
+        }
+        config
+    }
+
+    #[test]
+    fn deserialize_shipped_api_configurations() {
+        let repository_root = concat!(env!("CARGO_MANIFEST_DIR"), "/../..");
+        let deploy_path =
+            format!("{repository_root}/deploy/nico-base/api/config-files/nico-api-config.toml");
+        let docker_path = format!("{repository_root}/dev/docker-env/carbide-api-config.toml");
+        let webdev_path = format!("{repository_root}/dev/webdev-env/carbide-api-config.toml");
+        let site_config = rendered_deployment_site_config();
+        let helm_config = rendered_helm_api_config();
+
+        let deploy_config = Figment::new()
+            .merge(Toml::file(&deploy_path))
             .extract::<CarbideConfig>()
             .expect("the shipped deployment config must match the strict schema");
+        assert_eq!(
+            deploy_config.dpu_config.dpu_nic_firmware_update_versions,
+            [BF2_NIC_VERSION.to_string(), BF3_NIC_VERSION.to_string()]
+        );
+
+        for (name, figment) in [
+            (
+                "deployment base plus site override",
+                Figment::new()
+                    .merge(Toml::file(&deploy_path))
+                    .merge(Toml::string(&site_config)),
+            ),
+            (
+                "Docker development",
+                Figment::new()
+                    .merge(Toml::file(&docker_path))
+                    .merge(Toml::string(
+                        r#"database_url = "postgres://test:test@localhost/test""#,
+                    )),
+            ),
+            (
+                "web development",
+                Figment::new().merge(Toml::file(&webdev_path)),
+            ),
+            (
+                "rendered Helm",
+                Figment::new().merge(Toml::string(&helm_config)),
+            ),
+        ] {
+            figment.extract::<CarbideConfig>().unwrap_or_else(|error| {
+                panic!("{name} config must match the strict schema: {error}")
+            });
+        }
     }
 
     #[test]
@@ -5959,7 +6089,10 @@ mod tests {
                 .merge(Toml::string(patch))
                 .extract::<CarbideConfig>()
                 .map(drop)
-                .map_err(drop);
+                .map_err(|error| match error.kind {
+                    Kind::UnknownField(field, _) => field,
+                    other => panic!("expected an unknown-field rejection, got {other:?}"),
+                });
 
             "unknown fields are rejected" {
                 "unknown_top_level = true" => Fails,
@@ -6072,7 +6205,10 @@ priority = 1
                 .merge(Toml::string(input))
                 .extract::<InitialObjectsConfig>()
                 .map(drop)
-                .map_err(drop);
+                .map_err(|error| match error.kind {
+                    Kind::UnknownField(field, _) => field,
+                    other => panic!("expected an unknown-field rejection, got {other:?}"),
+                });
 
             "unknown fields are rejected" {
                 "unknown_top_level = true" => Fails,

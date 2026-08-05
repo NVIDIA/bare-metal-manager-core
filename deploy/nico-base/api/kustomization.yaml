@@ -38,7 +38,7 @@ resources:
 configMapGenerator:
   - name: nico-api-config-files
     files:
-      - config-files/carbide-api-config.toml
+      - config-files/nico-api-config.toml
       - config-files/casbin-policy.csv
   - name: nico-api-site-config-files
     # Site specific list of files is added in `envs`
