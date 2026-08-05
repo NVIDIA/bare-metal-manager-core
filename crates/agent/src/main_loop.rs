@@ -424,6 +424,7 @@ pub(super) async fn setup_and_run(
         has_logged_stable: false,
         version_check_time: std::time::Instant::now(),
         inventory_updater_time: std::time::Instant::now(),
+        ca_republish_time: std::time::Instant::now(),
         started_at: std::time::Instant::now(),
         inventory_updater_config,
         options,
@@ -462,6 +463,7 @@ struct MainLoop {
     started_at: std::time::Instant,
     version_check_time: std::time::Instant,
     inventory_updater_time: std::time::Instant,
+    ca_republish_time: std::time::Instant,
     inventory_updater_config: MachineInventoryUpdaterConfig,
     options: command_line::RunOptions,
     agent_config: AgentConfig,
@@ -1221,6 +1223,17 @@ impl MainLoop {
         self.client_cert_renewer
             .renew_certificates_if_necessary(None)
             .await;
+
+        // Beside renewal because the two revolve around the same files:
+        // renewal rewrites the credentials, and key-less consumers need the
+        // resulting trust anchor mirrored into `pub/` (issue #355). Driving it
+        // from here rather than a spawned task means it inherits the loop's
+        // shutdown handling, and a panic takes the agent down for a restart
+        // instead of silently leaving consumers on a stale anchor.
+        if now > self.ca_republish_time {
+            self.ca_republish_time = now.add(crate::CA_REPUBLISH_INTERVAL);
+            crate::republish_bootstrap_ca_if_changed(&self.agent_config.forge_system.root_ca);
+        }
 
         if now > self.inventory_updater_time {
             self.inventory_updater_time =

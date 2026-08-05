@@ -119,6 +119,45 @@ pub struct ForgeSystemConfig {
     pub client_cert: String,
     #[serde(default = "default_client_key")]
     pub client_key: String,
+    /// Unix socket where the agent serves its local API (node tokens for
+    /// co-located services, issue #355). Works the same containerized (DPF)
+    /// and as a plain service on DPU OS; override when `/opt/forge` is not
+    /// the shared credential directory in a deployment.
+    #[serde(default = "default_local_api_socket")]
+    pub local_api_socket: String,
+    /// `aud` stamped on node-auth bearer JWTs (issue #355). Must match the
+    /// API's `[node_auth] audience`; a site that changes one must change the
+    /// other, or the API rejects every token this node mints.
+    ///
+    /// Trimmed on load, matching what `[node_auth] audience` and the
+    /// `--node-auth-audience` flags do. `aud` is compared verbatim, so every
+    /// path that can carry this value has to normalize the same way — trimming
+    /// one end and not another turns a value an operator indented in both
+    /// config files into a mismatch that rejects every token.
+    #[serde(
+        default = "default_node_auth_audience",
+        deserialize_with = "trimmed_node_auth_audience"
+    )]
+    pub node_auth_audience: String,
+}
+
+impl ForgeSystemConfig {
+    /// Rejects values that would leave the node unable to authenticate.
+    ///
+    /// The `--node-auth-audience` flag validates itself at parse time, but the
+    /// TOML path had no equivalent, so a blank or whitespace-only audience in
+    /// a config file reached the minter and produced tokens the API rejects on
+    /// every request — the silent lockout the audience plumbing exists to
+    /// prevent. Callers run this after applying any CLI override so both
+    /// sources are held to the same rule.
+    pub fn validate(&self) -> Result<(), String> {
+        if self.node_auth_audience.trim().is_empty() {
+            return Err(
+                "forge-system.node-auth-audience: must not be empty or whitespace-only".to_string(),
+            );
+        }
+        Ok(())
+    }
 }
 
 // Called if no `[forge-system]` is provided at all.
@@ -130,6 +169,8 @@ impl Default for ForgeSystemConfig {
             root_ca: default_root_ca(),
             client_cert: default_client_cert(),
             client_key: default_client_key(),
+            local_api_socket: default_local_api_socket(),
+            node_auth_audience: default_node_auth_audience(),
         }
     }
 }
@@ -148,6 +189,24 @@ pub fn default_client_cert() -> String {
 
 pub fn default_client_key() -> String {
     tls_default::default_client_key().to_string()
+}
+
+pub fn default_local_api_socket() -> String {
+    ::rpc::node_token_socket::DEFAULT_AGENT_LOCAL_SOCKET.to_string()
+}
+
+pub fn default_node_auth_audience() -> String {
+    ::rpc::node_jwt::NODE_JWT_AUDIENCE.to_string()
+}
+
+/// Trims `[forge-system] node-auth-audience` as it is read, so the value
+/// [`ForgeSystemConfig::validate`] checks is the value the minter stamps.
+fn trimmed_node_auth_audience<'de, D>(deserializer: D) -> Result<String, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    use serde::Deserialize as _;
+    Ok(String::deserialize(deserializer)?.trim().to_string())
 }
 
 #[derive(Debug, Default, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -1084,5 +1143,104 @@ interface-id = \"91609f10-c91d-470d-a260-6293ea0c1200\"
         let expected_output =
             fs::read_to_string(format!("{TEST_DATA_DIR}/min_agent_config/output.toml")).unwrap();
         assert_eq!(observed_output, expected_output);
+    }
+
+    /// The `--node-auth-audience` flag rejects a blank value at parse time; the
+    /// TOML path has to hold the same line. A blank audience mints tokens the
+    /// API rejects on every request, which is the silent lockout the whole
+    /// audience plumbing exists to prevent.
+    // Convenience: the default `[forge-system]` with one audience swapped in.
+    fn forge_system_with_audience(audience: &str) -> ForgeSystemConfig {
+        ForgeSystemConfig {
+            node_auth_audience: audience.to_string(),
+            ..ForgeSystemConfig::default()
+        }
+    }
+
+    #[test]
+    fn forge_system_config_rejects_a_blank_node_auth_audience() {
+        check_cases(
+            [
+                // ----- accepts -----
+                Case {
+                    scenario: "the default audience",
+                    input: ForgeSystemConfig::default(),
+                    expect: Yields(()),
+                },
+                Case {
+                    scenario: "a site-specific audience",
+                    input: forge_system_with_audience("nico-api-eu"),
+                    expect: Yields(()),
+                },
+                // ----- rejects: all reach the minter and mint tokens the API
+                // cannot match, with nothing in the logs naming the setting -----
+                Case {
+                    scenario: "empty",
+                    input: forge_system_with_audience(""),
+                    expect: FailsWith(
+                        "forge-system.node-auth-audience: must not be empty or whitespace-only"
+                            .to_string(),
+                    ),
+                },
+                Case {
+                    scenario: "spaces only",
+                    input: forge_system_with_audience("   "),
+                    expect: FailsWith(
+                        "forge-system.node-auth-audience: must not be empty or whitespace-only"
+                            .to_string(),
+                    ),
+                },
+                Case {
+                    scenario: "a tab",
+                    input: forge_system_with_audience("\t"),
+                    expect: FailsWith(
+                        "forge-system.node-auth-audience: must not be empty or whitespace-only"
+                            .to_string(),
+                    ),
+                },
+            ],
+            |c| c.validate(),
+        );
+    }
+
+    /// `aud` is compared verbatim, so the API and every node have to normalize
+    /// it identically. The API trims `[node_auth] audience` on load and both
+    /// `--node-auth-audience` flags trim at parse; if this path did not, a site
+    /// that indented the same value in both config files would mint
+    /// `" nico-api "` against an API expecting `"nico-api"` and reject its whole
+    /// fleet.
+    #[test]
+    fn a_padded_node_auth_audience_is_trimmed_on_load() {
+        let config: AgentConfig = toml::from_str(
+            "[forge-system]\nnode-auth-audience = \"  nico-api-eu  \"\n\n[machine]\n",
+        )
+        .expect("config parses");
+        assert_eq!(config.forge_system.node_auth_audience, "nico-api-eu");
+        assert!(config.forge_system.validate().is_ok());
+    }
+
+    /// Whitespace-only collapses to empty on load, which `validate` then
+    /// rejects — the operator hears about it instead of the fleet silently
+    /// failing to authenticate.
+    #[test]
+    fn a_whitespace_only_audience_survives_load_and_is_rejected() {
+        let config: AgentConfig =
+            toml::from_str("[forge-system]\nnode-auth-audience = \"   \"\n\n[machine]\n")
+                .expect("config parses");
+        assert_eq!(config.forge_system.node_auth_audience, "");
+        assert!(config.forge_system.validate().is_err());
+    }
+
+    /// A config file that omits the key entirely still gets the default, so
+    /// validation must not turn an ordinary minimal config into a hard failure.
+    #[test]
+    fn a_config_without_an_audience_key_still_validates() {
+        let config: AgentConfig = toml::from_str(
+            fs::read_to_string(format!("{TEST_DATA_DIR}/min_agent_config/input.toml"))
+                .unwrap()
+                .as_str(),
+        )
+        .unwrap();
+        assert!(config.forge_system.validate().is_ok());
     }
 }

@@ -36,6 +36,19 @@ impl std::fmt::Display for Mode {
         }
     }
 }
+/// Rejects an empty or whitespace-only audience at parse time, and returns it
+/// trimmed. A blank value would otherwise reach the minter and produce tokens
+/// the API cannot match, with nothing in the logs pointing at the flag — and
+/// surrounding whitespace does exactly the same thing while passing the blank
+/// check, since `aud` is compared verbatim.
+fn non_blank_audience(value: &str) -> Result<String, String> {
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        return Err("node-auth audience must not be empty".to_string());
+    }
+    Ok(trimmed.to_string())
+}
+
 #[derive(Clone, Parser)]
 #[clap(name = env!("CARGO_BIN_NAME"))]
 pub(crate) struct Options {
@@ -83,6 +96,14 @@ pub(crate) struct Options {
     default_value_t = tls_default::CLIENT_KEY.to_string(),
     )]
     pub(crate) client_key: String,
+
+    #[clap(
+    long,
+    value_parser = non_blank_audience,
+    help = "Audience claim stamped on node-auth bearer JWTs; must match the API's [node_auth] audience",
+    default_value_t = ::rpc::node_jwt::NODE_JWT_AUDIENCE.to_string(),
+    )]
+    pub node_auth_audience: String,
 
     // Combined with discovery_retries_max, the default of 60
     // seconds worth of discovery_retry_secs provides for 1

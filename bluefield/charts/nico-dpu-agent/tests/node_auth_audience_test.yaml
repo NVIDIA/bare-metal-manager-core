@@ -1,0 +1,68 @@
+suite: node-auth audience
+templates:
+  - daemonset.yaml
+tests:
+  # DPF agents run with no config file, so the flag is the only way the API's
+  # [node_auth] audience reaches them. A mismatch means every token this agent
+  # mints -- and every token it brokers to co-located services -- is rejected.
+  - it: should pass the configured audience to the agent
+    set:
+      image:
+        repository: test
+        tag: test
+      nodeAuth:
+        audience: nico-api-eu
+    asserts:
+      # `count: 1` so a template that rendered the flag twice — where the last
+      # occurrence wins on the command line — cannot satisfy `contains`.
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --node-auth-audience=nico-api-eu
+          count: 1
+
+  # Empty means "say nothing and let the agent default apply", so the flag must
+  # not be rendered with an empty value -- that would fail the agent's
+  # non-blank parser at startup.
+  - it: should omit the flag entirely when no audience is set
+    set:
+      image:
+        repository: test
+        tag: test
+    asserts:
+      - notContains:
+          path: spec.template.spec.containers[0].args
+          content: --node-auth-audience=
+      - lengthEqual:
+          path: spec.template.spec.containers[0].args
+          count: 5
+
+  # A whitespace-only value is truthy to `with` but blank to the agent's
+  # parser, so rendering it verbatim would produce a flag that fails startup.
+  # The API trims before it templates these values; the chart trims too, so a
+  # hand-written values file cannot reintroduce the failure.
+  - it: should omit the flag when the audience is only whitespace
+    set:
+      image:
+        repository: test
+        tag: test
+      nodeAuth:
+        audience: '   '
+    asserts:
+      - notContains:
+          path: spec.template.spec.containers[0].args
+          content: --node-auth-audience=
+      - lengthEqual:
+          path: spec.template.spec.containers[0].args
+          count: 5
+
+  - it: should quote an audience containing shell-significant characters
+    set:
+      image:
+        repository: test
+        tag: test
+      nodeAuth:
+        audience: 'nico"api'
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: '--node-auth-audience=nico"api'

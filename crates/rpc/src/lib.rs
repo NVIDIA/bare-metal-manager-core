@@ -74,13 +74,15 @@ pub use crate::protos::machine_discovery::{
     self, BlockDevice, Cpu, DiscoveryInfo, DmiData, NetworkInterface, NvmeDevice,
     PciDeviceProperties,
 };
-pub use crate::protos::{fmds, health, scout_firmware_upgrade, site_explorer};
+pub use crate::protos::{agent_local, fmds, health, scout_firmware_upgrade, site_explorer};
 
 pub mod errors;
 pub mod forge_tls_client;
 pub mod libmlx;
 pub mod measured_boot;
 pub mod network;
+pub mod node_jwt;
+pub mod node_token_socket;
 pub mod protos;
 pub mod secrets;
 mod site_explorer_report;

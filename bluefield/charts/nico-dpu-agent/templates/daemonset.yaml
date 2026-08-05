@@ -141,6 +141,9 @@ spec:
             {{- with .Values.fmds.sign_proxy_url }}
             - "--config-path=/etc/forge/config.toml"
             {{- end }}
+            {{- with (.Values.nodeAuth.audience | default "" | trim) }}
+            - {{ printf "--node-auth-audience=%s" . | quote }}
+            {{- end }}
             - run
             - "--hbn-config-mode=nvue-rest"
             - "--agent-platform-type=containerized"

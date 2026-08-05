@@ -137,6 +137,7 @@ Use `site_explorer.dpu_policy` instead.
 | `dhcp_lease_expiry_handling` | `bool` | `false` | `networking` | Enables IP cleanup when a DHCP lease expires. |
 | `certificates` | `CertificatesConfig` | *(default)* | `security` | Certificate vending backend, selected independently of the credential store; the default shares the credential Vault (see [CertificatesConfig](#certificatesconfig)). |
 | `allow_insecure_discovery` | `bool` | `false` | `machines` | Allows machines to submit discovery without enforcing the request comes from the expected IP address. Needed for *Integration tests only*, should otherwise not be used. |
+| `node_auth` | `NodeAuthConfig` | *(default)* | `security` | How Scout and the DPU-agent authenticate: bearer JWTs, machine mTLS client certificates, or both during a migration (see [NodeAuthConfig](#nodeauthconfig)). |
 
 ---
 
@@ -329,6 +330,28 @@ extracted identifier contains characters such as `/` or `.`.
 | `identity_pemfile_path` | `String` | `""` | Server identity certificate PEM. |
 | `identity_keyfile_path` | `String` | `""` | Server identity private key. |
 | `admin_root_cafile_path` | `String` | `""` | Admin root CA for admin client validation. |
+
+### `NodeAuthConfig`
+
+Node (Scout / DPU-agent) authentication. Bearer tokens are off by default, so
+the default is machine mTLS exactly as before. See
+`docs/design/machine-identity/node-auth-jwt.md`.
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `enabled` | `bool` | `false` | Accept `Authorization: Bearer` node JWTs. Nodes self-sign these with their existing mTLS client-certificate key and carry the certificate in the token's `x5c` header; the API verifies it against `[tls] root_cafile_path`. Requires a TLS listener -- the API refuses to accept bearer tokens over plaintext. |
+| `mtls_enabled` | `bool` | `true` | Accept machine mTLS client certificates as node identity. Turn off only once the fleet presents bearer tokens; startup fails if this and `enabled` are both false. Scoped to machine certificates -- service and admin-CLI certificates are unaffected. Requires a TLS listener to mean anything: a plaintext `listen_mode` presents no peer certificates, so this silently authenticates nobody. |
+| `audience` | `String` | `nico-api` | Required `aud` claim. Nodes must stamp the same value (`--node-auth-audience` for Scout and the agent; the API templates it onto DPF-deployed agents), or every token they mint is rejected. |
+| `max_token_ttl_sec` | `u32` | `900` | Longest accepted token lifetime, in seconds. Clients mint 300 s tokens; this caps how far a client may push `exp`. Must be greater than zero and at most 86400. |
+| `fmds_use_node_tokens` | `Option<bool>` | *(unset)* | Whether DPF-deployed fmds is rendered in token mode. Unset follows `enabled`, which is what almost every site wants. Set it to `false` while `enabled` is still `true` to move fmds back to client certificates *first* -- the supported way to stage a disable, since the API stops accepting tokens the moment it restarts while fmds keeps presenting them until DPF has rolled every DaemonSet. `true` with `enabled = false` is refused at startup. |
+
+Both mechanisms need `listen_mode = "tls"`. Bearer tokens are refused over
+plaintext explicitly, at startup; machine mTLS simply has no certificates to
+inspect, because a plaintext listener hands the middleware an empty peer-cert
+list. The `enabled = false` + `mtls_enabled = false` lockout check therefore
+guarantees a working node-auth path *only on a TLS listener* -- on plaintext,
+`mtls_enabled = true` satisfies the check while authenticating nobody. No
+shipped configuration selects a plaintext mode.
 
 ### `AuthConfig`
 

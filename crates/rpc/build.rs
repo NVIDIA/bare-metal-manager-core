@@ -45,6 +45,19 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // so that different builds get a different binary file and concurrent builds don't collide
     let reflection = out_dir.join("forge.bin");
 
+    // AgentLocal is the dpu-agent's local unix-socket service (issue #355).
+    // The agent owns the file and serves it; this crate needs the client, for
+    // `SocketTokenSource`. The server is generated as well, but only so the
+    // tests here can stand up a fake agent to exercise that client against.
+    //
+    // Compiled outside the schema below on purpose: that schema feeds the API's
+    // reflection descriptor, and nico-api does not serve AgentLocal.
+    tonic_prost_build::configure()
+        .build_server(true)
+        .build_client(true)
+        .protoc_arg("--experimental_allow_proto3_optional")
+        .compile_protos(&["../agent/proto/agent_local.proto"], &["../agent/proto"])?;
+
     // Run protoc once as the schema frontend. The resulting Schema fans out to
     // every code-generation backend and to runtime reflection.
     let schema = compile(&CompilerConfig {

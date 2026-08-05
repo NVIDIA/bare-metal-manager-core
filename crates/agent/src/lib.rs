@@ -65,6 +65,7 @@ mod host_machine_id;
 mod instance_metadata_endpoint;
 pub mod instrumentation;
 pub mod lldp;
+mod local_api;
 mod machine_inventory_updater;
 mod main_loop;
 mod managed_files;
@@ -91,7 +92,21 @@ pub const FMDS_MINIMUM_HBN_VERSION: &str = "1.5.0-doca2.2.0";
 /// supported configuration path, DPUs running older HBN versions cannot be configured.
 pub const NVUE_MINIMUM_HBN_VERSION: &str = "2.0.0-doca2.5.0";
 
-const BOOTSTRAP_CA_OUTPUT_PATH: &str = "/opt/forge/forge_root.pem";
+/// Subdirectory holding a second copy of the trust anchor, and nothing else.
+///
+/// Co-located services need the root CA but must never see the machine private
+/// key that lives beside it (issue #355). A container can only be given one or
+/// the other: mounting the credentials directory exposes the key, and mounting
+/// the CA file alone by `subPath` bind-mounts its inode, so the atomic rename
+/// in `install_bootstrap_ca` would never reach a running consumer. A directory
+/// containing only the CA gives both properties — no key, and renames resolve.
+///
+/// Placed beside whichever CA path is configured rather than at a fixed
+/// location, so it tracks a deployment that moves the credentials directory —
+/// token-mode fmds watches `<certsDir>/pub/<rootCaFile>` and would otherwise
+/// block forever. With the defaults on both sides this resolves to
+/// `/opt/forge/pub/forge_root.pem`.
+const BOOTSTRAP_CA_PUBLIC_SUBDIR: &str = "pub";
 const MOUNTED_BOOTSTRAP_CA_PATH: &str = "/var/run/secrets/nico-bootstrap-ca/ca.pem";
 const MAX_BOOTSTRAP_CA_BYTES: usize = 1024 * 1024;
 const BOOTSTRAP_CA_DOWNLOAD_TIMEOUT: Duration = Duration::from_secs(30);
@@ -269,10 +284,97 @@ fn install_bootstrap_ca(contents: &[u8], output_path: &Path) -> eyre::Result<()>
     Ok(())
 }
 
-async fn provision_bootstrap_ca(options: &command_line::InitContainerOptions) -> eyre::Result<()> {
+async fn provision_bootstrap_ca(
+    options: &command_line::InitContainerOptions,
+    root_ca_path: &str,
+) -> eyre::Result<()> {
     let contents =
         acquire_bootstrap_ca(options.bootstrap_ca_source, &options.bootstrap_ca_url).await?;
-    install_bootstrap_ca(&contents, Path::new(BOOTSTRAP_CA_OUTPUT_PATH))
+    // Installed where the agent will later look for it, rather than at a
+    // constant of its own. The two were equal by coincidence -- `[forge-system]
+    // root-ca` defaults to the same path -- and nothing kept them that way, so
+    // a deployment that moved the CA would have had the init container write
+    // one place and every reader look in another.
+    let output_path = Path::new(root_ca_path);
+    install_bootstrap_ca(&contents, output_path)?;
+    publish_bootstrap_ca(&contents, output_path)
+}
+
+/// Mirrors the trust anchor into a `pub/` subdirectory beside `source_ca_path`
+/// for key-less consumers. Same atomic install, so a consumer with the
+/// directory mounted picks up a replacement without restarting.
+///
+/// Derived from the configured CA rather than a constant: token-mode fmds
+/// waits on `<certsDir>/pub/<rootCaFile>`, so a deployment that moves the
+/// credentials directory would otherwise have the agent publish to the default
+/// location while fmds watched the configured one — leaving its init container
+/// blocked forever with nothing to say why.
+fn publish_bootstrap_ca(contents: &[u8], source_ca_path: &Path) -> eyre::Result<()> {
+    let dir = source_ca_path
+        .parent()
+        .ok_or_else(|| eyre::eyre!("CA path has no parent: {}", source_ca_path.display()))?;
+    let file_name = source_ca_path
+        .file_name()
+        .ok_or_else(|| eyre::eyre!("CA path has no file name: {}", source_ca_path.display()))?;
+    let parent = dir.join(BOOTSTRAP_CA_PUBLIC_SUBDIR);
+    std::fs::create_dir_all(&parent)
+        .wrap_err_with(|| format!("failed to create public CA directory {}", parent.display()))?;
+    install_bootstrap_ca(contents, &parent.join(file_name))
+}
+
+/// How often the published copy of the trust anchor is reconciled against the
+/// configured one. Matches the API listener's own reload cadence, so a rotation
+/// reaches key-less consumers on roughly the same clock as it reaches the
+/// listener and the token validator.
+const CA_REPUBLISH_INTERVAL: Duration = Duration::from_secs(5 * 60);
+
+/// Copies the configured trust anchor into its `pub/` mirror when the two
+/// differ.
+///
+/// Publishing only at startup is not enough. `pub/` is the only trust anchor a
+/// token-mode consumer has — it does not mount the credentials directory — so a
+/// CA rotated while the agent is running would leave fmds pinned to the old
+/// issuer indefinitely, and it would stop being able to verify the API the
+/// moment that issuer is retired. The API listener re-reads the same material
+/// every few minutes; the published copy has to keep pace.
+///
+/// Compares before writing so a steady state costs a read rather than an atomic
+/// rename every interval, and best-effort throughout: a missing or unreadable
+/// CA is the pre-registration case, and a failed write leaves the previous copy
+/// in place for the next pass.
+fn republish_bootstrap_ca_if_changed(root_ca_path: &str) {
+    let source = Path::new(root_ca_path);
+    let Ok(contents) = std::fs::read(source) else {
+        tracing::debug!(
+            target: "node_auth",
+            path = %root_ca_path,
+            "node-auth: no root CA to publish for co-located services yet"
+        );
+        return;
+    };
+
+    let published = source
+        .parent()
+        .zip(source.file_name())
+        .map(|(dir, name)| dir.join(BOOTSTRAP_CA_PUBLIC_SUBDIR).join(name));
+    if let Some(published) = &published
+        && std::fs::read(published).is_ok_and(|existing| existing == contents)
+    {
+        return;
+    }
+
+    match publish_bootstrap_ca(&contents, source) {
+        Ok(()) => tracing::info!(
+            target: "node_auth",
+            path = %root_ca_path,
+            "node-auth: published the root CA for co-located services"
+        ),
+        Err(error) => tracing::warn!(
+            target: "node_auth",
+            %error,
+            "node-auth: could not publish the root CA for co-located services"
+        ),
+    }
 }
 
 pub async fn start(cmdline: command_line::Options) -> eyre::Result<()> {
@@ -281,7 +383,7 @@ pub async fn start(cmdline: command_line::Options) -> eyre::Result<()> {
         return Ok(());
     }
 
-    let (agent, path) = match cmdline.config_path {
+    let (mut agent, path) = match cmdline.config_path {
         // normal production case
         None => (AgentConfig::default(), "default".to_string()),
         // development overrides
@@ -293,6 +395,17 @@ pub async fn start(cmdline: command_line::Options) -> eyre::Result<()> {
             config_path.display().to_string(),
         ),
     };
+    // Containerized (DPF) agents run without a config file, so the flag is the
+    // only way the API's configured audience reaches them.
+    if let Some(node_auth_audience) = cmdline.node_auth_audience.clone() {
+        agent.forge_system.node_auth_audience = node_auth_audience;
+    }
+    // After the override above, so the flag and the file are held to the same
+    // rule rather than only the flag validating itself at parse time.
+    agent
+        .forge_system
+        .validate()
+        .map_err(|e| eyre::eyre!("invalid [forge-system] in agent config: {e}"))?;
     agent
         .machine_identity
         .validate()
@@ -303,6 +416,20 @@ pub async fn start(cmdline: command_line::Options) -> eyre::Result<()> {
         tracing::warn!("Pretending local host is a DPU. Dev only.");
     }
 
+    // Published once here so it exists before anything else starts, then kept
+    // current by `main_loop::run_single_iteration`, which reconciles it beside
+    // certificate renewal.
+    republish_bootstrap_ca_if_changed(&agent.forge_system.root_ca);
+
+    // Node-auth (#355): the agent is the only process on the DPU that holds
+    // the machine key. This minter signs bearer JWTs for the agent's own API
+    // calls AND backs the local API socket that brokers tokens to co-located
+    // services (fmds, ...). Ignored by the API unless [node_auth] is enabled.
+    let node_jwt_minter = ::rpc::node_jwt::NodeJwtMinter::with_audience(
+        agent.forge_system.client_cert.clone(),
+        agent.forge_system.client_key.clone(),
+        agent.forge_system.node_auth_audience.clone(),
+    );
     let forge_client_config = Arc::new(
         ForgeClientConfig::new(
             agent.forge_system.root_ca.clone(),
@@ -311,6 +438,7 @@ pub async fn start(cmdline: command_line::Options) -> eyre::Result<()> {
                 key_path: agent.forge_system.client_key.clone(),
             }),
         )
+        .with_token_provider(node_jwt_minter.clone())
         .use_mgmt_vrf()?,
     );
 
@@ -324,6 +452,31 @@ pub async fn start(cmdline: command_line::Options) -> eyre::Result<()> {
             if options.skip_upgrade_check {
                 tracing::warn!("Upgrades disabled. Dev only");
             }
+
+            // Broker node tokens to co-located services over the local API
+            // socket. Not fatal on failure, and retried forever: consumers
+            // fall back to their own credentials (mTLS client cert) until the
+            // socket comes up, and on non-DPF DPU OS the agent may start
+            // before its socket directory is usable.
+            //
+            // The handle is kept rather than detached. The loop never returns,
+            // so the only way this task can finish is a panic — and a detached
+            // panic would leave the socket silently gone for the rest of the
+            // process, with every co-located consumer quietly falling back to
+            // whatever credential it has. Joining it below turns that into a
+            // reported error at shutdown instead of an invisible degradation.
+            let mut local_api_task = tokio::spawn({
+                let minter = node_jwt_minter.clone();
+                let socket_path = agent.forge_system.local_api_socket.clone();
+                async move {
+                    loop {
+                        if let Err(error) = local_api::serve(minter.clone(), &socket_path).await {
+                            tracing::warn!(target: "node_auth", %error, "node-auth: agent local API server failed; retrying");
+                        }
+                        tokio::time::sleep(std::time::Duration::from_secs(10)).await;
+                    }
+                }
+            });
 
             let Registration {
                 machine_id,
@@ -339,15 +492,40 @@ pub async fn start(cmdline: command_line::Options) -> eyre::Result<()> {
                     factory_mac_address: "11:22:33:44:55:66".parse().unwrap(),
                 },
             };
-            main_loop::setup_and_run(
-                machine_id,
-                factory_mac_address,
-                forge_client_config,
-                agent,
-                *options,
-            )
-            .await
-            .wrap_err("main_loop error exit")?;
+            // The broker loop is infinite, so its finishing means it panicked.
+            // Racing it against the main loop makes that fatal rather than
+            // silent: a detached panic would leave the agent running for the
+            // rest of its life with no token broker, so co-located services
+            // would quietly lose their credential — invisible until something
+            // downstream failed.
+            //
+            // Exiting is safe because both deployments restart us:
+            // `forge-dpu-agent.service` sets `Restart=always` (with the start
+            // limits deliberately removed so it never wedges), and the DPF
+            // DaemonSet restarts its pods. A restart also re-runs the whole
+            // init path — config reload, CA republish, socket rebind — which an
+            // in-process retry would not.
+            let main_loop_result = tokio::select! {
+                result = main_loop::setup_and_run(
+                    machine_id,
+                    factory_mac_address,
+                    forge_client_config,
+                    agent,
+                    *options,
+                ) => result.wrap_err("main_loop error exit"),
+                joined = &mut local_api_task => {
+                    let Err(error) = joined;
+                    Err(eyre::eyre!(
+                        "agent local API task exited unexpectedly ({error}); \
+                         co-located services would have no token source"
+                    ))
+                }
+            };
+
+            // Whichever arm won, the broker loop may not outlive this scope.
+            local_api_task.abort();
+
+            main_loop_result?;
             tracing::info!("Agent exit");
         }
 
@@ -372,7 +550,7 @@ pub async fn start(cmdline: command_line::Options) -> eyre::Result<()> {
         // Init-container entry point: provision the CA + snapshot hardware to the shared volume.
         // Output path is fixed (HW_CACHE_PATH) so the main container can always find it.
         Some(AgentCommand::InitContainer(options)) => {
-            provision_bootstrap_ca(&options).await?;
+            provision_bootstrap_ca(&options, &agent.forge_system.root_ca).await?;
             enumerate_and_save_hardware().await?;
             util::save_host_nameservers()?;
         }

@@ -145,6 +145,7 @@ pub fn get() -> CarbideConfig {
         web_ui_sidebar_tools: vec![],
         web_ui_logs_link_template: String::new(),
         log_history: Default::default(),
+        node_auth: Default::default(),
         observability: Default::default(),
         bgp_leaf_session_password: None,
         rack_validation_config: RackValidationConfig {
