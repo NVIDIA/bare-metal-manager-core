@@ -12,7 +12,7 @@ This design moves that behavior into operation-specific drivers:
 - Each capability has a standard Redfish implementation plus narrowly scoped vendor or model implementations for known deviations.
 - Declarative rules resolve every capability from hardware identity and firmware data gathered during exploration.
 - Controllers call the capabilities and never branch on vendor or model.
-- A common receipt type replaces the repeated job polling logic in controllers.
+- A common receipt type records asynchronous tasks and jobs.
 - BIOS values become declarative baseline data, separate from the driver that knows how to apply them.
 - Selection and driver behavior are tested independently.
 
@@ -73,14 +73,14 @@ flowchart LR
   pub struct OperationReceipt {
       pub driver: DriverId,
       pub operation: Op,
-      pub state: ReceiptState,
+      pub reference: OperationReference,
   }
 
-  pub enum ReceiptState {
-      /// A standard Redfish task must be polled.
-      Task(TaskRef),
-      /// A vendor-specific job must be polled by the issuing driver.
-      Job(JobRef),
+  pub enum OperationReference {
+      /// Standard Redfish task URI.
+      RedfishTask { uri: String },
+      /// Vendor job id.
+      VendorJob { job_id: String },
   }
 
   /// A typed failure that controllers can handle without matching strings.
@@ -137,7 +137,6 @@ Read-only inventory, health, metrics, and exploration reports remain direct `nv-
 - credential lookup and cache invalidation
 - Redfish session pooling
 - Redfish, IPMI, and SSH transport handles
-- receipt polling.
 
 Drivers are stateless and open no connections. The runtime gives them lazy transport handles for each operation.
 
@@ -234,7 +233,7 @@ driver = "sr650v4-power"
 
 ## Operation results
 
-Every capability method returns `Result<DriverOutcome<T>, PlatformError>`, where `T` is the operation's value or `()` for a mutation. `OperationReceipt` is defined under Contracts and records the issuing driver, operation, and vendor task or job reference.
+Every capability method returns `Result<DriverOutcome<T>, PlatformError>`, where `T` is the operation's value or `()` for a mutation.
 
 ```rust
 pub enum DriverOutcome<T> {
@@ -243,8 +242,8 @@ pub enum DriverOutcome<T> {
         value: T,
         follow_up: Vec<ControllerAction>,
     },
-    /// The BMC accepted asynchronous work. Poll the persisted receipt.
-    Pending(OperationReceipt),
+    /// The BMC accepted asynchronous work.
+    Accepted(OperationReceipt),
     /// Execute these prerequisites, then retry the same capability call.
     Blocked {
         prerequisites: Vec<ControllerAction>,
@@ -262,13 +261,13 @@ pub enum ControllerAction {
 }
 ```
 
-`Blocked` is for prerequisites such as disabling lockdown before a BIOS write. `Complete.follow_up` is for actions such as resetting the BMC after firmware installation. Actions are ordered and persisted by the state controller before execution. After prerequisites, the controller retries the same capability call. After follow-up actions, it verifies the resulting capability status before advancing.
+`Blocked` is for prerequisites such as disabling lockdown before a BIOS write. `Complete.follow_up` is for actions such as resetting the BMC after firmware installation.
 
-Polling a receipt returns another `DriverOutcome<()>`, so an asynchronous job can finish with follow-up actions. The issuing driver interprets vendor task and job states and produces the normalized outcome.
+The state controller also orders and persists prerequisites and follow-up actions before executing them. It retries the capability call after prerequisites and verifies capability status after follow-up actions.
 
 Receipts and queued actions are stored in controller state, so their serialized representation must remain backward-compatible across upgrades.
 
-State controllers may branch on `DriverOutcome`, capability-specific status enums, typed errors, capability availability, and controller policy. They must not branch on vendor, model, driver id, OEM strings, or firmware versions. Drivers do not execute `ControllerAction` directly because disruptive cross-capability work must remain visible and crash-safe in controller state.
+State controllers may branch on `DriverOutcome`, capability-specific status enums, typed errors, capability availability, and controller policy. They must not branch on vendor, model, driver id, OEM strings, or firmware versions. Drivers only issue hardware calls and return normalized information.
 
 ## BIOS configuration
 
