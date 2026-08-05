@@ -19,6 +19,9 @@ tests:
         tag: test
       fmds:
         sign_proxy_url: http://dsx-imds.dpf-operator-system.svc.cluster.local:8080
+      serviceDaemonSet:
+        annotations:
+          checksum/machine-identity-config: user-value
     asserts:
       - contains:
           path: spec.template.spec.containers[0].args
@@ -36,3 +39,6 @@ tests:
             name: agent-config
             configMap:
               name: RELEASE-NAME-config
+      - notEqual:
+          path: spec.template.metadata.annotations["checksum/machine-identity-config"]
+          value: user-value

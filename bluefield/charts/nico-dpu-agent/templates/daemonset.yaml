@@ -9,6 +9,10 @@
 {{- $bootstrapCaObjectKey = get $bootstrapCaObject "key" -}}
 {{- end -}}
 {{- $certsDir := .Values.certsDir | default "/opt/nico" -}}
+{{- $podAnnotations := .Values.serviceDaemonSet.annotations -}}
+{{- if .Values.fmds.sign_proxy_url -}}
+{{- $podAnnotations = omit $podAnnotations "checksum/machine-identity-config" -}}
+{{- end -}}
 {{- if not (has $bootstrapCaSource (list "legacy_download" "mounted")) -}}
 {{- fail (printf "bootstrapCa.source must be one of legacy_download or mounted; got %q" $bootstrapCaSource) -}}
 {{- end -}}
@@ -60,11 +64,11 @@ spec:
   template:
     metadata:
       annotations:
+        {{- with $podAnnotations }}
+          {{- toYaml . | nindent 8 }}
+        {{- end }}
         {{- with .Values.fmds.sign_proxy_url }}
         checksum/machine-identity-config: {{ include (print $.Template.BasePath "/configmap.yaml") $ | sha256sum }}
-        {{- end }}
-        {{- with .Values.serviceDaemonSet.annotations }}
-          {{- toYaml . | nindent 8 }}
         {{- end }}
       labels:
         {{- include "nico-dpu-agent.selectorLabels" . | nindent 8 }}
