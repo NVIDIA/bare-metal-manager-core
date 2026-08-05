@@ -349,14 +349,7 @@ impl ApiAdmissionControl {
     fn client(&self, request: &Request) -> (ClientKey, ClientLimits) {
         let auth_context = request.extensions().get::<AuthContext>();
         if let Some(external_user) = auth_context.and_then(AuthContext::get_external_user_info) {
-            let key = encode_client_key(
-                0,
-                &[
-                    external_user.org.as_deref().unwrap_or_default(),
-                    external_user.group.as_str(),
-                    external_user.user.as_deref().unwrap_or_default(),
-                ],
-            );
+            let key = ClientKey::ExternalUser(Arc::new(external_user.clone()));
             return (key, self.default_client_limits);
         }
         if let Some(service_id) = auth_context.and_then(AuthContext::get_spiffe_service_id) {
@@ -365,35 +358,16 @@ impl ApiAdmissionControl {
                 .get(service_id)
                 .copied()
                 .unwrap_or(self.default_client_limits);
-            return (encode_client_key(1, &[service_id]), limits);
+            return (ClientKey::ServiceId(Arc::from(service_id)), limits);
         }
         if let Some(machine_id) = auth_context.and_then(AuthContext::get_spiffe_machine_id) {
             return (
-                encode_client_key(2, &[machine_id]),
+                ClientKey::MachineId(Arc::from(machine_id)),
                 self.default_client_limits,
             );
         }
-        (encode_client_key(3, &[]), self.default_client_limits)
+        (ClientKey::Default, self.default_client_limits)
     }
-}
-
-fn encode_client_key(kind: u8, parts: &[&str]) -> ClientKey {
-    let mut encoded = Vec::with_capacity(
-        1 + parts
-            .iter()
-            .map(|part| size_of::<u64>() + part.len())
-            .sum::<usize>(),
-    );
-    encoded.push(kind);
-    for part in parts {
-        encoded.extend_from_slice(
-            &u64::try_from(part.len())
-                .expect("client identity component length fits in u64")
-                .to_be_bytes(),
-        );
-        encoded.extend_from_slice(part.as_bytes());
-    }
-    ClientKey::new(encoded)
 }
 
 fn register_occupancy_gauge(
@@ -507,9 +481,21 @@ mod tests {
 
     fn test_client(control: &ApiAdmissionControl) -> (ClientKey, ClientLimits) {
         (
-            ClientKey::new(Vec::from("test-client".as_bytes())),
+            ClientKey::ServiceId(Arc::from("test-client")),
             control.default_client_limits,
         )
+    }
+
+    #[test]
+    fn client_keys_distinguish_identity_kinds() {
+        assert_ne!(
+            ClientKey::ServiceId(Arc::from("same-identifier")),
+            ClientKey::MachineId(Arc::from("same-identifier"))
+        );
+        assert_ne!(
+            ClientKey::ServiceId(Arc::from("default")),
+            ClientKey::Default
+        );
     }
 
     fn rejection(reason: RejectionReason, seconds: u64) -> AdmissionRejection {

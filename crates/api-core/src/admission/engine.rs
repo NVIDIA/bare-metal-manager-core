@@ -30,6 +30,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::{Duration, Instant};
 
+use carbide_authn::middleware::ExternalUserInfo;
 use nv_redfish_dispatcher::schedulers::{
     BoundedConcurrency, BoundedQueue, BoundedQueueProducer, Fifo, RoundRobin, TailDrop,
 };
@@ -85,12 +86,15 @@ pub(super) struct AdmissionRejection {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub(super) struct ClientKey(Arc<[u8]>);
-
-impl ClientKey {
-    pub(super) fn new(value: impl Into<Arc<[u8]>>) -> Self {
-        Self(value.into())
-    }
+pub(super) enum ClientKey {
+    /// An authenticated user, grouped by its complete certificate identity.
+    ExternalUser(Arc<ExternalUserInfo>),
+    /// A SPIFFE service identifier.
+    ServiceId(Arc<str>),
+    /// A SPIFFE machine identifier.
+    MachineId(Arc<str>),
+    /// A request that has no recognized client identity.
+    Default,
 }
 
 pub(super) trait AdmissionObserver: Send + Sync + 'static {
