@@ -24,7 +24,8 @@ var _ MappedNullable = &ExpectedSwitchUpdateRequest{}
 type ExpectedSwitchUpdateRequest struct {
 	// ID of the Expected Switch to update (ignored for single update, used for identification in batch operations).
 	Id NullableString `json:"id,omitempty"`
-	// MAC address of the Expected Switch's BMC (Baseboard Management Controller)
+	// Immutable MAC address of the Expected Switch's BMC (Baseboard Management Controller). Omit this field when updating. A formatting-equivalent value is accepted for compatibility, but changing the physical MAC address is rejected.
+	// Deprecated
 	BmcMacAddress NullableString `json:"bmcMacAddress,omitempty" validate:"regexp=^([0-9A-Fa-f]{2}[:-]){5}([0-9A-Fa-f]{2})$"`
 	// Username for accessing the Expected Switch's BMC
 	DefaultBmcUsername NullableString `json:"defaultBmcUsername,omitempty"`
@@ -121,6 +122,7 @@ func (o *ExpectedSwitchUpdateRequest) UnsetId() {
 }
 
 // GetBmcMacAddress returns the BmcMacAddress field value if set, zero value otherwise (both if not set or set to explicit null).
+// Deprecated
 func (o *ExpectedSwitchUpdateRequest) GetBmcMacAddress() string {
 	if o == nil || IsNil(o.BmcMacAddress.Get()) {
 		var ret string
@@ -132,6 +134,7 @@ func (o *ExpectedSwitchUpdateRequest) GetBmcMacAddress() string {
 // GetBmcMacAddressOk returns a tuple with the BmcMacAddress field value if set, nil otherwise
 // and a boolean to check if the value has been set.
 // NOTE: If the value is an explicit nil, `nil, true` will be returned
+// Deprecated
 func (o *ExpectedSwitchUpdateRequest) GetBmcMacAddressOk() (*string, bool) {
 	if o == nil {
 		return nil, false
@@ -149,6 +152,7 @@ func (o *ExpectedSwitchUpdateRequest) HasBmcMacAddress() bool {
 }
 
 // SetBmcMacAddress gets a reference to the given NullableString and assigns it to the BmcMacAddress field.
+// Deprecated
 func (o *ExpectedSwitchUpdateRequest) SetBmcMacAddress(v string) {
 	o.BmcMacAddress.Set(&v)
 }

@@ -24255,7 +24255,11 @@ components:
             - string
             - 'null'
           pattern: '^([0-9A-Fa-f]{2}[:-]){5}([0-9A-Fa-f]{2})$'
-          description: MAC address of the Expected Power Shelf's BMC (Baseboard Management Controller)
+          deprecated: true
+          description: |-
+            Immutable MAC address of the Expected Power Shelf's BMC (Baseboard Management Controller).
+            Omit this field when updating. A formatting-equivalent value is accepted for compatibility,
+            but changing the physical MAC address is rejected.
         defaultBmcUsername:
           type:
             - string
@@ -24815,7 +24819,11 @@ components:
             - string
             - 'null'
           pattern: '^([0-9A-Fa-f]{2}[:-]){5}([0-9A-Fa-f]{2})$'
-          description: MAC address of the Expected Switch's BMC (Baseboard Management Controller)
+          deprecated: true
+          description: |-
+            Immutable MAC address of the Expected Switch's BMC (Baseboard Management Controller).
+            Omit this field when updating. A formatting-equivalent value is accepted for compatibility,
+            but changing the physical MAC address is rejected.
         defaultBmcUsername:
           type:
             - string

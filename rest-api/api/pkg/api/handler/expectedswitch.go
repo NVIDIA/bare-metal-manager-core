@@ -613,6 +613,11 @@ func (uesh UpdateExpectedSwitchHandler) Handle(c echo.Context) error {
 		return cutil.NewAPIErrorResponse(c, http.StatusForbidden, "Current org is not associated with the Site of the Expected Switch", nil)
 	}
 
+	if !expectedComponentBmcMacUnchanged(expectedSwitch.BmcMacAddress, apiRequest.BmcMacAddress) {
+		validationErrors := expectedComponentBmcMacImmutableValidationError()
+		return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, "Failed to validate Expected Switch update data", validationErrors)
+	}
+
 	// NVOS MACs identify the switch's management ports during discovery, so a
 	// MAC claimed by another Expected Switch on the Site is a conflict. The
 	// switch being updated is excluded so re-asserting its own MACs stays valid.
@@ -646,7 +651,6 @@ func (uesh UpdateExpectedSwitchHandler) Handle(c echo.Context) error {
 			tx,
 			cdbm.ExpectedSwitchUpdateInput{
 				ExpectedSwitchID:   expectedSwitch.ID,
-				BmcMacAddress:      apiRequest.BmcMacAddress,
 				BmcIpAddress:       apiRequest.BmcIpAddress,
 				SwitchSerialNumber: apiRequest.SwitchSerialNumber,
 				NvosMacAddresses:   apiRequest.NvosMacAddresses,
