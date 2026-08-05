@@ -15,6 +15,54 @@ tests:
       - matchRegex:
           path: data["mat.toml"]
           pattern: "use_single_bmc_mock = true"
+      - notMatchRegex:
+          path: data["mat.toml"]
+          pattern: '\[nmxc\]'
+
+  - it: should configure NMX-C when enabled for a pod
+    set:
+      pods:
+        mat-0:
+          nmxc:
+            enabled: true
+            port: 9602
+            endpoint: "http://nico-machine-a-tron-mat-0-bmc-mock.nico-system.svc.cluster.local:9602"
+            domainUuid: "8f3b6a62-12c4-4e7f-9a31-6d5c8b2f1047"
+            registerEndpoints: true
+    asserts:
+      - matchRegex:
+          path: data["mat.toml"]
+          pattern: '\[nmxc\]'
+      - matchRegex:
+          path: data["mat.toml"]
+          pattern: 'port = 9602'
+      - matchRegex:
+          path: data["mat.toml"]
+          pattern: 'endpoint = "http://nico-machine-a-tron-mat-0-bmc-mock.nico-system.svc.cluster.local:9602"'
+      - matchRegex:
+          path: data["mat.toml"]
+          pattern: 'domain_uuid = "8f3b6a62-12c4-4e7f-9a31-6d5c8b2f1047"'
+      - matchRegex:
+          path: data["mat.toml"]
+          pattern: 'register_endpoints = true'
+
+  - it: should reject NMX-C with more than one active pod
+    set:
+      pods:
+        mat-0:
+          nmxc:
+            enabled: true
+            port: 9602
+            endpoint: "http://nico-machine-a-tron-mat-0-bmc-mock.nico-system.svc.cluster.local:9602"
+            domainUuid: "8f3b6a62-12c4-4e7f-9a31-6d5c8b2f1047"
+        mat-1:
+          machines:
+            compute:
+              hwType: wiwynn_gb200_nvl
+              hostCount: 2
+    asserts:
+      - failedTemplate:
+          errorMessage: "NMX-C simulation requires exactly one active machine-a-tron pod"
 
   - it: should configure custom host count via pods structure
     set:

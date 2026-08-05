@@ -27,6 +27,7 @@ use carbide_uuid::rack::RackId;
 use tower::Service;
 
 use crate::device_simulator::SimulatorLifecycle;
+use crate::nmxc_simulator::{NmxcHealthUpdate, NmxcSimulator};
 use crate::simulator_registry::SimulatorRegistry;
 use crate::status::{DeviceStatusConfig, DevicesStatusResponse};
 
@@ -36,6 +37,7 @@ pub fn append(router: Router, control_state: ControlState) -> Router {
         .route("/machines/status", get(get_machines_status))
         .route("/racks/status", get(get_racks_status))
         .route("/racks/{rack_id}/status", get(get_rack_status))
+        .route("/nmxc/health", get(get_nmxc_health).put(update_nmxc_health))
         .route(
             "/machines/{id}/bmc/injection/rules",
             get(list_bmc_injection_rules).post(upsert_bmc_injection_rule),
@@ -55,6 +57,7 @@ pub fn append(router: Router, control_state: ControlState) -> Router {
 pub struct ControlState {
     simulators: SimulatorRegistry,
     status_config: DeviceStatusConfig,
+    nmxc: Option<NmxcSimulator>,
 }
 
 impl ControlState {
@@ -62,7 +65,13 @@ impl ControlState {
         Self {
             simulators,
             status_config,
+            nmxc: None,
         }
+    }
+
+    pub fn with_nmxc(mut self, nmxc: NmxcSimulator) -> Self {
+        self.nmxc = Some(nmxc);
+        self
     }
 
     fn devices_status(&self) -> DevicesStatusResponse {
@@ -115,6 +124,31 @@ async fn get_rack_status(
 
 async fn get_machines_ui() -> Html<&'static str> {
     Html(include_str!("../web/index.html"))
+}
+
+async fn get_nmxc_health(State(state): State<ControlRouter>) -> Response {
+    state
+        .control_state
+        .nmxc
+        .as_ref()
+        .map(|nmxc| Json(nmxc.health()).into_response())
+        .unwrap_or_else(nmxc_not_enabled)
+}
+
+async fn update_nmxc_health(
+    State(state): State<ControlRouter>,
+    Json(update): Json<NmxcHealthUpdate>,
+) -> Response {
+    state
+        .control_state
+        .nmxc
+        .as_ref()
+        .map(|nmxc| Json(nmxc.update_health(update)).into_response())
+        .unwrap_or_else(nmxc_not_enabled)
+}
+
+fn nmxc_not_enabled() -> Response {
+    (StatusCode::NOT_FOUND, "NMX-C simulator is not enabled").into_response()
 }
 
 async fn list_bmc_injection_rules(
@@ -199,12 +233,14 @@ mod tests {
     use uuid::Uuid;
 
     use super::{ControlState, append};
-    use crate::DeviceHandle;
     use crate::device_simulator::DeviceSimulator;
     use crate::dpu_machine::DpuMachineHandle;
     use crate::rack::{RackMemberRegistration, RackRegistration};
     use crate::simulator_registry::SimulatorRegistry;
     use crate::status::DeviceStatusConfig;
+    use crate::{
+        DeviceHandle, NmxcComputeNodeHealth, NmxcGpuHealth, NmxcPartitionHealth, NmxcSimulator,
+    };
 
     fn control_state(handles: Vec<DeviceHandle>) -> ControlState {
         ControlState::new(
@@ -284,6 +320,54 @@ mod tests {
         assert_eq!(response.status(), StatusCode::OK);
         let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
         assert!(String::from_utf8_lossy(&body).contains("machine-a-tron machines"));
+    }
+
+    #[tokio::test]
+    async fn nmxc_health_can_be_changed_through_control_route() {
+        let nmxc = NmxcSimulator::for_test(Uuid::from_u128(1));
+        let router = append(
+            Router::new(),
+            control_state(Vec::new()).with_nmxc(nmxc.clone()),
+        );
+
+        let response = router
+            .oneshot(
+                Request::builder()
+                    .method(Method::PUT)
+                    .uri("/nmxc/health")
+                    .header("content-type", "application/json")
+                    .body(Body::from(
+                        r#"{"gpu":"degraded","compute_node":"unhealthy","partition":"degraded_bandwidth"}"#,
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(nmxc.health().gpu, NmxcGpuHealth::Degraded);
+        assert_eq!(nmxc.health().compute_node, NmxcComputeNodeHealth::Unhealthy);
+        assert_eq!(
+            nmxc.health().partition,
+            NmxcPartitionHealth::DegradedBandwidth
+        );
+    }
+
+    #[tokio::test]
+    async fn nmxc_health_route_is_not_exposed_when_disabled() {
+        let router = append(Router::new(), control_state(Vec::new()));
+
+        let response = router
+            .oneshot(
+                Request::builder()
+                    .uri("/nmxc/health")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::NOT_FOUND);
     }
 
     #[tokio::test]

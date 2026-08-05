@@ -348,7 +348,7 @@ fn wiwynn_gb200(host: &HostMachineInfo) -> DiscoveryInfo {
             product_name: "GB200 NVL".into(),
             sys_vendor: "NVIDIA".into(),
         }),
-        gpus: gb200_gpus(),
+        gpus: gb200_gpus(host),
         memory_devices: memory_devices(2, 491520, "LPDDR5"),
         ..Default::default()
     }
@@ -693,30 +693,36 @@ fn nvme_pci_path(index: usize) -> String {
     )
 }
 
-fn gb200_gpus() -> Vec<Gpu> {
+fn gb200_gpus(host: &HostMachineInfo) -> Vec<Gpu> {
     (0..2)
         .flat_map(|board| {
-            (0..2).map(move |gpu| Gpu {
-                name: "NVIDIA GB200".into(),
-                serial: format!("16530000000{}", board + 1),
-                driver_version: "580.126.16".into(),
-                vbios_version: "97.00.B9.00.76".into(),
-                inforom_version: "G548.0201.00.06".into(),
-                total_memory: "189471 MiB".into(),
-                frequency: "2062 MHz".into(),
-                pci_bus_id: [
-                    ["00000008:01:00.0", "00000009:01:00.0"],
-                    ["00000018:01:00.0", "00000019:01:00.0"],
-                ][board][gpu]
-                    .into(),
-                platform_info: Some(GpuPlatformInfo {
-                    chassis_serial: format!("182100000000{board}{gpu}"),
-                    slot_number: 24,
-                    tray_index: 14,
-                    host_id: 1,
-                    module_id: [[2, 1], [4, 3]][board][gpu],
-                    fabric_guid: format!("0xfeeeeeeeeeeeee{gpu:02x}"),
-                }),
+            (0..2).map(move |gpu| {
+                let module_id = [[2, 1], [4, 3]][board][gpu];
+                Gpu {
+                    name: "NVIDIA GB200".into(),
+                    serial: format!("16530000000{}", board + 1),
+                    driver_version: "580.126.16".into(),
+                    vbios_version: "97.00.B9.00.76".into(),
+                    inforom_version: "G548.0201.00.06".into(),
+                    total_memory: "189471 MiB".into(),
+                    frequency: "2062 MHz".into(),
+                    pci_bus_id: [
+                        ["00000008:01:00.0", "00000009:01:00.0"],
+                        ["00000018:01:00.0", "00000019:01:00.0"],
+                    ][board][gpu]
+                        .into(),
+                    platform_info: Some(GpuPlatformInfo {
+                        chassis_serial: format!("182100000000{board}{gpu}"),
+                        slot_number: 24,
+                        tray_index: 14,
+                        host_id: 1,
+                        module_id,
+                        fabric_guid: format!(
+                            "0xfe{}{module_id:02x}",
+                            host.bmc_mac_address.to_string().replace(':', "")
+                        ),
+                    }),
+                }
             })
         })
         .collect()

@@ -31,7 +31,7 @@ use rpc::forge::machine_cleanup_info::CleanupStepResult;
 use rpc::forge::{
     ConfigSetting, ExpectedInterface, ExpectedMachine, ExpectedPowerShelf, ExpectedRack,
     ExpectedRackRequest, ExpectedSwitch, InlineIpxe, InstanceOperatingSystemConfig,
-    MachinesByIdsRequest, SetDynamicConfigRequest, VpcVirtualizationType,
+    MachinesByIdsRequest, NvlinkNmxcEndpoint, SetDynamicConfigRequest, VpcVirtualizationType,
 };
 use rpc::protos::forge_api_client::ForgeApiClient;
 
@@ -649,6 +649,46 @@ impl ApiClient {
             .map_err(ClientApiError::InvocationError)
     }
 
+    pub async fn ensure_nvlink_nmxc_endpoints(
+        &self,
+        chassis_serials: &[String],
+        endpoint: &str,
+    ) -> ClientApiResult<()> {
+        let existing = self
+            .0
+            .list_nvlink_nmxc_endpoints()
+            .await
+            .map_err(ClientApiError::InvocationError)?;
+
+        for chassis_serial in chassis_serials {
+            let mapping = NvlinkNmxcEndpoint {
+                chassis_serial: chassis_serial.clone(),
+                endpoint: endpoint.to_string(),
+            };
+            match existing
+                .entries
+                .iter()
+                .find(|entry| entry.chassis_serial == *chassis_serial)
+            {
+                Some(entry) if same_url(&entry.endpoint, endpoint) => {}
+                Some(_) => {
+                    self.0
+                        .update_nvlink_nmxc_endpoint(mapping)
+                        .await
+                        .map_err(ClientApiError::InvocationError)?;
+                }
+                None => {
+                    self.0
+                        .create_nvlink_nmxc_endpoint(mapping)
+                        .await
+                        .map_err(ClientApiError::InvocationError)?;
+                }
+            }
+        }
+
+        Ok(())
+    }
+
     pub async fn ensure_expected_rack(
         &self,
         rack_id: RackId,
@@ -685,5 +725,48 @@ impl ApiClient {
             }
             Err(status) => Err(ClientApiError::InvocationError(status)),
         }
+    }
+}
+
+fn same_url(left: &str, right: &str) -> bool {
+    matches!(
+        (reqwest::Url::parse(left), reqwest::Url::parse(right)),
+        (Ok(left), Ok(right)) if left == right
+    )
+}
+
+#[cfg(test)]
+mod tests {
+    use carbide_test_support::{Check, check_values};
+
+    use super::same_url;
+
+    #[test]
+    fn endpoint_identity_uses_url_components() {
+        check_values(
+            [
+                Check {
+                    scenario: "equivalent host case and default port",
+                    input: ("http://NMX-C.example:80", "http://nmx-c.example/"),
+                    expect: true,
+                },
+                Check {
+                    scenario: "different path case",
+                    input: ("http://nmx-c.example/Path", "http://nmx-c.example/path"),
+                    expect: false,
+                },
+                Check {
+                    scenario: "different query value case",
+                    input: ("http://nmx-c.example/?key=A", "http://nmx-c.example/?key=a"),
+                    expect: false,
+                },
+                Check {
+                    scenario: "two invalid URLs",
+                    input: ("not a URL", "also not a URL"),
+                    expect: false,
+                },
+            ],
+            |(left, right)| same_url(left, right),
+        );
     }
 }

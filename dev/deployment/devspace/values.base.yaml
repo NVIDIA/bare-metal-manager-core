@@ -83,6 +83,11 @@ nico-api:
       [host_health]
       hardware_health_reports = "MonitorOnly"
 
+      [nvlink_config]
+      enabled = true
+      allow_insecure = true
+      monitor_run_interval = "2s"
+
       [machine_state_controller]
       dpu_wait_time = "1s"
       skip_polling_checks = true
@@ -166,6 +171,12 @@ nico-machine-a-tron:
       - "spiffe://nico.local/nico-system/sa/machine-a-tron"
   pods:
     mat-0:
+      nmxc:
+        enabled: true
+        port: 9601
+        endpoint: "http://nico-machine-a-tron-mat-0-bmc-mock.nico-system.svc.cluster.local:9601"
+        domainUuid: "8f3b6a62-12c4-4e7f-9a31-6d5c8b2f1047"
+        registerEndpoints: true
       machines:
         rack-machines:
           hwType: wiwynn_gb200_nvl

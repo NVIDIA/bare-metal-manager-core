@@ -54,6 +54,25 @@ tests:
           value: redfish
         template: deployment.yaml
 
+  - it: should expose NMX-C container port when enabled for a pod
+    set:
+      pods:
+        mat-0:
+          nmxc:
+            enabled: true
+            port: 9602
+            endpoint: "http://nico-machine-a-tron-mat-0-bmc-mock.nico-system.svc.cluster.local:9602"
+            domainUuid: "8f3b6a62-12c4-4e7f-9a31-6d5c8b2f1047"
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].ports[2].name
+          value: nmxc
+        template: deployment.yaml
+      - equal:
+          path: spec.template.spec.containers[0].ports[2].containerPort
+          value: 9602
+        template: deployment.yaml
+
   - it: should omit ssh container port when ssh mock is disabled
     set:
       machineATron:

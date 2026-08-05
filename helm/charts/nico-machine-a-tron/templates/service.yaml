@@ -37,4 +37,11 @@ spec:
       targetPort: ssh
       protocol: TCP
     {{- end }}
+    {{- $nmxc := $podConfig.nmxc | default dict }}
+    {{- if $nmxc.enabled }}
+    - port: {{ $nmxc.port }}
+      name: nmxc
+      targetPort: nmxc
+      protocol: TCP
+    {{- end }}
 {{- end }}

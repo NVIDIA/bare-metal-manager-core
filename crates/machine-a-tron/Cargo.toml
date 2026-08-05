@@ -79,6 +79,7 @@ carbide-utils = { path = "../utils", features = ["test-support"] }
 
 [dev-dependencies]
 carbide-test-support = { path = "../test-support" }
+libnmxc = { path = "../libnmxc" }
 toml = { workspace = true }
 
 [build-dependencies]

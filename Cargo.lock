@@ -2424,6 +2424,7 @@ dependencies = [
  "figment",
  "futures",
  "lazy_static",
+ "libnmxc",
  "mac_address",
  "rand 0.10.1",
  "ratatui",

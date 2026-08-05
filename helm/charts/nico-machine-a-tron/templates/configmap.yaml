@@ -13,6 +13,20 @@ Build ordered list of pod names for consistent MAC address indexing
 {{- end }}
 {{- $podList = $podList | sortAlpha }}
 
+{{/* NMX-C inventory and endpoint mappings are local to one machine-a-tron pod. */}}
+{{- $nmxcEnabled := false }}
+{{- range $podName, $podConfig := .Values.pods }}
+{{- if and $podConfig $podConfig.machines (gt (len $podConfig.machines) 0) }}
+{{- $nmxc := $podConfig.nmxc | default dict }}
+{{- if $nmxc.enabled }}
+{{- $nmxcEnabled = true }}
+{{- end }}
+{{- end }}
+{{- end }}
+{{- if and $nmxcEnabled (gt (len $podList) 1) }}
+{{- fail "NMX-C simulation requires exactly one active machine-a-tron pod" }}
+{{- end }}
+
 {{/* Machine defaults */}}
 {{- $defaults := .Values.machineDefaults | default dict }}
 {{/* MAC address pool config */}}
@@ -99,6 +113,15 @@ data:
     dpu_bmc_password = {{ $root.Values.machineATron.dpuBmcPassword | quote }}
     {{- end }}
     api_refresh_interval = {{ $root.Values.machineATron.apiRefreshInterval | quote }}
+
+    {{- $nmxc := $podConfig.nmxc | default dict }}
+    {{- if $nmxc.enabled }}
+    [nmxc]
+    port = {{ $nmxc.port }}
+    endpoint = {{ $nmxc.endpoint | quote }}
+    domain_uuid = {{ $nmxc.domainUuid | quote }}
+    register_endpoints = {{ $nmxc.registerEndpoints | default false }}
+    {{- end }}
 
     {{/*
     MAC Address Pool Configuration

@@ -133,6 +133,7 @@ async fn run_machine_a_tron_rack_test(
             },
         )]),
         machines: BTreeMap::new(),
+        nmxc: None,
         carbide_api_url: format!("https://{}:{}", api_addr.ip(), api_addr.port()),
         dhcp: DhcpType::Api {},
         log_file: None,

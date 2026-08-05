@@ -35,8 +35,8 @@ use mac_address::MacAddress;
 use machine_a_tron::{
     AppEvent, BmcMockRegistry, BmcRegistrationMode, ControlState, DeviceStatusConfig, DhcpClient,
     MachineATron, MachineATronArgs, MachineATronConfig, MachineATronContext, MockSshServerHandle,
-    PromptBehavior, SimulatorLifecycle, Tui, TuiHostLogs, api_throttler, append_control_routes,
-    spawn_mock_ssh_server,
+    NmxcServer, NmxcSimulator, PromptBehavior, SimulatorLifecycle, Tui, TuiHostLogs, api_throttler,
+    append_control_routes, spawn_mock_ssh_server,
 };
 use rpc::forge_tls_client::{ApiConfig, ForgeClientConfig};
 use rpc::protos::forge_api_client::ForgeApiClient;
@@ -214,11 +214,43 @@ async fn main() -> Result<(), Box<dyn Error>> {
             .as_slice(),
     )?;
 
+    let (nmxc_simulator, nmxc_server) = if let Some(config) = app_context.app_config.nmxc.as_ref() {
+        let (simulator, chassis_serials) =
+            NmxcSimulator::from_registry(config.domain_uuid, &simulators)?;
+        let server = NmxcServer::start(
+            format!("0.0.0.0:{}", config.port).parse().unwrap(),
+            simulator.clone(),
+        )
+        .await?;
+        if config.register_endpoints {
+            // Endpoint mappings are operator-owned Core state. DevSpace opts in because its Core
+            // deployment bypasses RBAC; other environments can register the mapping separately.
+            app_context
+                .api_client()
+                .ensure_nvlink_nmxc_endpoints(&chassis_serials, &config.endpoint)
+                .await?;
+        }
+        tracing::info!(
+            address = %server.address(),
+            endpoint = %config.endpoint,
+            domain_uuid = %config.domain_uuid,
+            register_endpoints = config.register_endpoints,
+            chassis_serials = ?chassis_serials,
+            "Started NMX-C simulator"
+        );
+        (Some(simulator), Some(server))
+    } else {
+        (None, None)
+    };
+
     // Launch the control UI after the machines are created so it can report their handles. In
     // combined-BMC mode it shares the combined BMC listener. In per-IP mode it listens on the
     // loopback address at the same port, independently of the per-machine BMC listeners.
-    let control_state =
+    let mut control_state =
         ControlState::new(simulators.clone(), DeviceStatusConfig::new(bmc_mock_port));
+    if let Some(nmxc_simulator) = nmxc_simulator {
+        control_state = control_state.with_nmxc(nmxc_simulator);
+    }
     let certs_dir = app_context
         .bmc_mock_certs_dir
         .as_ref()
@@ -341,6 +373,9 @@ async fn main() -> Result<(), Box<dyn Error>> {
     server_handle.stop().await?;
     if let Some(dhcp_service) = dhcp_service {
         dhcp_service.shutdown().await?;
+    }
+    if let Some(nmxc_server) = nmxc_server {
+        nmxc_server.shutdown().await?;
     }
     mat_result?;
     Ok(())

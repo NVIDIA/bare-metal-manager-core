@@ -1,0 +1,38 @@
+suite: service tests
+templates:
+  - service.yaml
+tests:
+  - it: should expose default BMC ports without NMX-C
+    asserts:
+      - lengthEqual:
+          path: spec.ports
+          count: 2
+      - equal:
+          path: spec.ports[0].name
+          value: redfish
+      - equal:
+          path: spec.ports[1].name
+          value: ssh
+
+  - it: should expose NMX-C service port when enabled for a pod
+    set:
+      pods:
+        mat-0:
+          nmxc:
+            enabled: true
+            port: 9602
+            endpoint: "http://nico-machine-a-tron-mat-0-bmc-mock.nico-system.svc.cluster.local:9602"
+            domainUuid: "8f3b6a62-12c4-4e7f-9a31-6d5c8b2f1047"
+    asserts:
+      - lengthEqual:
+          path: spec.ports
+          count: 3
+      - equal:
+          path: spec.ports[2].name
+          value: nmxc
+      - equal:
+          path: spec.ports[2].port
+          value: 9602
+      - equal:
+          path: spec.ports[2].targetPort
+          value: nmxc

@@ -242,6 +242,16 @@ pods:
   ## Names must be valid K8s label values (alphanumeric, -, _, ., max 63 chars)
   mat-0:
 
+    ## Optional NMX-C simulator for this pod
+    ## NMX-C simulation requires exactly one active machine-a-tron pod. Endpoint
+    ## auto-registration requires Core RBAC bypass or separate administrator-managed registration.
+    nmxc:
+      enabled: false
+      port: 9601
+      endpoint: ""
+      domainUuid: ""
+      registerEndpoints: false
+
     ## Machine groups for this pod
     machines:
       rack-machines:

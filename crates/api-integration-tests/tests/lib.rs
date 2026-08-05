@@ -1399,6 +1399,7 @@ where
                 dpu_agent_version: None,
             }),
         )]),
+        nmxc: None,
         carbide_api_url: format!("https://{}:{}", api_addr.ip(), api_addr.port()),
         dhcp: DhcpType::Api {},
         log_file: None,

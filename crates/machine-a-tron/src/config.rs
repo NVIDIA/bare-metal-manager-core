@@ -300,6 +300,17 @@ impl DpuFirmwareVersions {
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize, Eq, PartialEq)]
+pub struct NmxcSimulatorConfig {
+    pub port: u16,
+    pub endpoint: String,
+    pub domain_uuid: Uuid,
+    /// Register the simulated endpoint with Core on startup. This requires an environment where
+    /// Machine-a-tron's Core client is allowed to manage NMX-C endpoint mappings.
+    #[serde(default)]
+    pub register_endpoints: bool,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, Eq, PartialEq)]
 pub struct MachineATronConfig {
     #[serde(default)]
     pub racks: BTreeMap<String, RackConfig>,
@@ -309,6 +320,8 @@ pub struct MachineATronConfig {
         serialize_with = "serialize_machine_config"
     )]
     pub machines: BTreeMap<String, Arc<MachineConfig>>,
+    #[serde(default)]
+    pub nmxc: Option<NmxcSimulatorConfig>,
     pub carbide_api_url: String,
     pub log_file: Option<String>,
     pub interface: String,
@@ -399,6 +412,37 @@ pub struct MachineATronConfig {
 
 impl MachineATronConfig {
     pub fn validate(&self) -> eyre::Result<()> {
+        if let Some(nmxc) = &self.nmxc {
+            eyre::ensure!(nmxc.port != 0, "NMX-C port must be nonzero");
+            eyre::ensure!(
+                nmxc.port != self.bmc_mock_port,
+                "NMX-C port must not conflict with BMC mock port"
+            );
+            if self.mock_bmc_ssh_server {
+                if let Some(ssh_port) = self.mock_bmc_ssh_port {
+                    eyre::ensure!(
+                        nmxc.port != ssh_port,
+                        "NMX-C port must not conflict with BMC SSH mock port"
+                    );
+                } else if !self.use_single_bmc_mock {
+                    eyre::ensure!(
+                        nmxc.port != 2222,
+                        "NMX-C port must not conflict with default BMC SSH mock port"
+                    );
+                }
+            }
+            eyre::ensure!(
+                !nmxc.domain_uuid.is_nil(),
+                "NMX-C domain UUID must be non-nil"
+            );
+            let endpoint = reqwest::Url::parse(&nmxc.endpoint)
+                .map_err(|error| eyre::eyre!("invalid NMX-C endpoint: {error}"))?;
+            eyre::ensure!(
+                endpoint.scheme() == "http" && endpoint.host().is_some(),
+                "NMX-C endpoint must be an HTTP URL with a host"
+            );
+        }
+
         if let DhcpType::UdpRelay {
             server_address,
             listen_address,
@@ -1010,6 +1054,125 @@ scout_run_interval = "5s"
     #[test]
     fn dhcp_uses_api_by_default() {
         assert_eq!(rack_config().dhcp, DhcpType::Api {});
+    }
+
+    #[test]
+    fn nmxc_configuration_round_trips() {
+        let mut config = rack_config();
+        config.nmxc = Some(NmxcSimulatorConfig {
+            port: 9601,
+            endpoint: "http://machine-a-tron.example:9601".to_string(),
+            domain_uuid: Uuid::from_u128(1),
+            register_endpoints: true,
+        });
+
+        config.validate().unwrap();
+        let serialized = toml::to_string(&config).unwrap();
+        let round_tripped = toml::from_str::<MachineATronConfig>(&serialized).unwrap();
+
+        assert_eq!(round_tripped, config);
+    }
+
+    #[test]
+    fn nmxc_configuration_is_validated() {
+        fn with_nmxc(port: u16, endpoint: &str, domain_uuid: Uuid) -> MachineATronConfig {
+            let mut config = rack_config();
+            config.nmxc = Some(NmxcSimulatorConfig {
+                port,
+                endpoint: endpoint.to_string(),
+                domain_uuid,
+                register_endpoints: false,
+            });
+            config
+        }
+
+        check_cases(
+            [
+                Case {
+                    scenario: "valid NMX-C configuration",
+                    input: with_nmxc(
+                        9601,
+                        "http://machine-a-tron.example:9601",
+                        Uuid::from_u128(1),
+                    ),
+                    expect: Yields(()),
+                },
+                Case {
+                    scenario: "zero NMX-C port",
+                    input: with_nmxc(0, "http://machine-a-tron.example:9601", Uuid::from_u128(1)),
+                    expect: Fails,
+                },
+                Case {
+                    scenario: "nil NMX-C domain UUID",
+                    input: with_nmxc(9601, "http://machine-a-tron.example:9601", Uuid::nil()),
+                    expect: Fails,
+                },
+                Case {
+                    scenario: "TLS endpoint for plaintext NMX-C server",
+                    input: with_nmxc(
+                        9601,
+                        "https://machine-a-tron.example:9601",
+                        Uuid::from_u128(1),
+                    ),
+                    expect: Fails,
+                },
+                Case {
+                    scenario: "malformed NMX-C endpoint",
+                    input: with_nmxc(9601, "not a URL", Uuid::from_u128(1)),
+                    expect: Fails,
+                },
+                Case {
+                    scenario: "NMX-C conflicts with BMC mock port",
+                    input: with_nmxc(
+                        1266,
+                        "http://machine-a-tron.example:1266",
+                        Uuid::from_u128(1),
+                    ),
+                    expect: Fails,
+                },
+            ],
+            |config| config.validate().map_err(drop),
+        );
+    }
+
+    #[test]
+    fn nmxc_port_must_not_conflict_with_bmc_ssh_mock() {
+        let mut explicit_port = rack_config();
+        explicit_port.mock_bmc_ssh_server = true;
+        explicit_port.mock_bmc_ssh_port = Some(9601);
+        explicit_port.nmxc = Some(NmxcSimulatorConfig {
+            port: 9601,
+            endpoint: "http://machine-a-tron.example:9601".to_string(),
+            domain_uuid: Uuid::from_u128(1),
+            register_endpoints: false,
+        });
+
+        let mut default_port = rack_config();
+        default_port.mock_bmc_ssh_server = true;
+        default_port.mock_bmc_ssh_port = None;
+        default_port.use_single_bmc_mock = false;
+        default_port.nmxc = Some(NmxcSimulatorConfig {
+            port: 2222,
+            endpoint: "http://machine-a-tron.example:2222".to_string(),
+            domain_uuid: Uuid::from_u128(1),
+            register_endpoints: false,
+        });
+
+        check_cases(
+            [
+                Case {
+                    scenario: "explicit BMC SSH mock port",
+                    input: explicit_port,
+                    expect: Fails,
+                },
+                Case {
+                    scenario: "default per-IP BMC SSH mock port",
+                    input: default_port,
+                    expect: Fails,
+                },
+            ],
+            |config| config.validate().map_err(drop),
+        );
     }
 
     #[test]

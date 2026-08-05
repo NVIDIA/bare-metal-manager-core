@@ -548,6 +548,22 @@ pub(crate) struct MachineHandle(Arc<HostMachineActor>);
 
 impl MachineHandle {
     #[cfg(test)]
+    pub(crate) fn for_nmxc_test(host_info: HostMachineInfo) -> Self {
+        let (message_tx, _message_rx) = mpsc::unbounded_channel();
+        let machine_config_section = host_info.serial.clone();
+        Self(Arc::new(HostMachineActor {
+            message_tx,
+            join_handle: Mutex::new(None),
+            live_state: Arc::new(RwLock::new(LiveState::default())),
+            mat_id: Uuid::new_v4(),
+            host_info,
+            dpus: Vec::new(),
+            machine_config_section,
+            bmc_injection: Arc::new(InjectionStore::new()),
+        }))
+    }
+
+    #[cfg(test)]
     pub(crate) fn for_control_test(
         dpus: Vec<DpuMachineHandle>,
         ipmi_endpoint: Option<bmc_mock::ipmi_sim::IpmiEndpoint>,

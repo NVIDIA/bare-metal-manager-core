@@ -67,6 +67,12 @@ spec:
               containerPort: {{ $root.Values.machineATron.mockBmcSshPort }}
               protocol: TCP
             {{- end }}
+            {{- $nmxc := $podConfig.nmxc | default dict }}
+            {{- if $nmxc.enabled }}
+            - name: nmxc
+              containerPort: {{ $nmxc.port }}
+              protocol: TCP
+            {{- end }}
           {{- with $root.Values.livenessProbe }}
           livenessProbe:
             {{- toYaml . | nindent 12 }}
