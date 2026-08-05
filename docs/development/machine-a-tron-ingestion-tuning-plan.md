@@ -4,6 +4,11 @@ Goal: make machine-ingestion time scale linearly with fleet size, by measuring
 the effect of each throughput knob in isolation. Companion to
 [machine-a-tron-scale-testing.md](machine-a-tron-scale-testing.md).
 
+> Developer working notes, deliberately not registered in `docs/index.yml` —
+> same treatment as the scale-testing companion above. Tracked under epic
+> NVIDIA/infra-controller#3738; per-knob results are recorded on the
+> subtickets #3758-#3763.
+
 ## Knob inventory
 
 | # | Knob (TOML path) | Default | Scale-script value | Consumed in |
@@ -18,7 +23,7 @@ the effect of each throughput knob in isolation. Companion to
 
 Throughput model (creation phase): `hosts_per_hour ≈ K4 × (3600 / K1_secs)`,
 provided the cycle actually completes within `K1` (K3 too high breaks this —
-see issue 17). Defaults give 120 hosts/h; current scale settings give 1,200
+see the K3 row below and NVIDIA/infra-controller#3758). Defaults give 120 hosts/h; current scale settings give 1,200
 hosts/h → ~3.75 h floor for 4,500 hosts, consistent with observed runs.
 
 ## Method
@@ -57,9 +62,8 @@ at 13.5k scale.
 
 ## Open items
 
-- Ask Matthias Einwag whether `COMMAND_BUFFER_SIZE = 100`
-  (`work_lock_manager.rs`) should become configurable before pushing K7
-  toward 100.
+- Decide whether `COMMAND_BUFFER_SIZE = 100` (`work_lock_manager.rs`) should
+  become configurable before pushing K7 toward 100.
 - `site_explorer.run_interval`'s doc comment says "5 Minutes" but the default
   is 120 s — fix the comment while we're in there.
 - Add env-var overrides in `setup-machine-a-tron.sh` for K1/K5/K6/K7 (K2–K4
