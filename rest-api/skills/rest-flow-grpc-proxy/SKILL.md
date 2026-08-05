@@ -1,6 +1,6 @@
 ---
 name: rest-flow-grpc-proxy
-description: Build or migrate infra-controller REST API endpoints that call on-site Flow through the generic Flow gRPC proxy. Use when working on REST-to-Flow operations, ExecuteFlowGRPC, flowproxy, v1.Flow methods, or migrating bespoke TaskRun/Flow workflows to the gRPC proxy.
+description: Build or migrate infra-controller REST API endpoints that call on-site Flow through the generic Flow gRPC proxy. Use when working on REST-to-Flow operations, ExecuteFlowGRPC, grpcproxy, v1.Flow methods, or migrating bespoke TaskRun/Flow workflows to the gRPC proxy.
 ---
 
 # REST Flow gRPC Proxy Skill
@@ -10,10 +10,13 @@ endpoints that need to call on-site Flow through the generic Flow gRPC proxy.
 
 ## Current Proxy Contract
 
-- Cloud helper: `rest-api/api/pkg/api/handler/util/common/flowproxy.go`,
+- Cloud helper: `rest-api/api/pkg/api/handler/util/common/grpcproxy.go`,
   `ExecuteFlowGRPC`.
-- Shared contract: `rest-api/common/pkg/flowproxy/flowproxy.go`, with
-  `flowproxy.Request` and `flowproxy.Response`.
+- Shared contract: `rest-api/common/pkg/grpcproxy/grpcproxy.go`, with
+  `grpcproxy.Request` and `grpcproxy.Response`. Flow and Core share every layer
+  of the proxy; the backend is named by `grpcproxy.Flow`, and each layer keeps a
+  per-backend wrapper only because Temporal dispatches on the registered
+  workflow and activity names.
 - Site workflow/activity: `InvokeFlowGRPC` and `InvokeFlowGRPCOnSite`.
 - Site Flow invocation: `FlowGrpcClient.InvokeJSON`.
 - Temporal transport payload: protojson, so non-secret request fields and
@@ -60,7 +63,7 @@ cannot decode.
 The ladder is bounded from the outside, not chosen from the on-site budget:
 `server.WriteTimeout` is a deadline on the response write, so a handler that
 answers later than that cannot deliver its answer. Keep
-`ActivityStartToCloseTimeout` < `flowproxy.WorkflowExecutionTimeout` <
+`ActivityStartToCloseTimeout` < `grpcproxy.WorkflowExecutionTimeout` <
 `cutil.WorkflowContextTimeout` < `server.WriteTimeout`, currently
 40s < 45s < 50s < 60s. `Test_ProxyTimeoutsFitWriteTimeout` in
 `api/internal/server` guards the outer bound. Raising the on-site budget means
@@ -107,7 +110,7 @@ and each site's agent ship as separate Helm releases (`nico-rest` and
 `nico-rest-site-agent`) and cannot be upgraded atomically, and Temporal accepts
 a submission for a type no worker knows: the execution is created, no worker can
 advance it, and the caller sees only a timeout after
-`flowproxy.WorkflowExecutionTimeout`.
+`grpcproxy.WorkflowExecutionTimeout`.
 
 So a handler may not start dispatching through `InvokeFlowGRPC` in the same
 release that first registers it on the site agent. Register the proxy first,

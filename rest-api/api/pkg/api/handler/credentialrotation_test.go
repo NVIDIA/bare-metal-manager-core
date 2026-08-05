@@ -26,7 +26,7 @@ import (
 	"github.com/NVIDIA/infra-controller/rest-api/api/pkg/api/model"
 	sc "github.com/NVIDIA/infra-controller/rest-api/api/pkg/client/site"
 	authz "github.com/NVIDIA/infra-controller/rest-api/auth/pkg/authorization"
-	"github.com/NVIDIA/infra-controller/rest-api/common/pkg/coreproxy"
+	"github.com/NVIDIA/infra-controller/rest-api/common/pkg/grpcproxy"
 	"github.com/NVIDIA/infra-controller/rest-api/common/pkg/secretjson"
 	cutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
 	cdb "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db"
@@ -161,7 +161,7 @@ type credentialRotationHandlerFixture struct {
 	user       interface{}
 	dbSession  *cdb.Session
 	scp        *sc.ClientPool
-	proxiedReq *coreproxy.Request
+	proxiedReq *grpcproxy.Request
 }
 
 func newCredentialRotationHandlerFixture(t *testing.T, response proto.Message) credentialRotationHandlerFixture {
@@ -182,13 +182,13 @@ func newCredentialRotationHandlerFixture(t *testing.T, response proto.Message) c
 	})
 	require.NoError(t, err)
 
-	proxiedReq := &coreproxy.Request{}
+	proxiedReq := &grpcproxy.Request{}
 	wrun := &tmocks.WorkflowRun{}
 	wrun.On("Get", mock.Anything, mock.Anything).Run(func(args mock.Arguments) {
 		if response == nil {
 			return
 		}
-		out := args.Get(1).(*coreproxy.Response)
+		out := args.Get(1).(*grpcproxy.Response)
 		respJSON, merr := protojson.Marshal(response)
 		require.NoError(t, merr)
 		out.ResponseJSON = respJSON
@@ -199,8 +199,8 @@ func newCredentialRotationHandlerFixture(t *testing.T, response proto.Message) c
 		"ExecuteWorkflow",
 		mock.Anything,
 		mock.Anything,
-		coreproxy.WorkflowName,
-		mock.MatchedBy(func(req coreproxy.Request) bool {
+		grpcproxy.Core.WorkflowName,
+		mock.MatchedBy(func(req grpcproxy.Request) bool {
 			*proxiedReq = req
 			return true
 		}),

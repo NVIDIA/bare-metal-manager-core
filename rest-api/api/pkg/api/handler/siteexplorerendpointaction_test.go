@@ -24,7 +24,7 @@ import (
 	"github.com/NVIDIA/infra-controller/rest-api/api/pkg/api/model"
 	sc "github.com/NVIDIA/infra-controller/rest-api/api/pkg/client/site"
 	authz "github.com/NVIDIA/infra-controller/rest-api/auth/pkg/authorization"
-	"github.com/NVIDIA/infra-controller/rest-api/common/pkg/coreproxy"
+	"github.com/NVIDIA/infra-controller/rest-api/common/pkg/grpcproxy"
 	cutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
 	cdbm "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/model"
 	corev1 "github.com/NVIDIA/infra-controller/rest-api/proto/core/gen/v1"
@@ -112,7 +112,7 @@ type siteExplorerEndpointActionHandlerFixture struct {
 	user        interface{}
 	handler     SiteExplorerEndpointActionHandler
 	tsc         *tmocks.Client
-	proxiedReqs []coreproxy.Request
+	proxiedReqs []grpcproxy.Request
 }
 
 func newSiteExplorerEndpointActionHandlerFixture(t *testing.T, roles []string) *siteExplorerEndpointActionHandlerFixture {
@@ -154,7 +154,7 @@ func (f *siteExplorerEndpointActionHandlerFixture) expectProxyResponse(t *testin
 		if resp == nil {
 			return
 		}
-		out := args.Get(1).(*coreproxy.Response)
+		out := args.Get(1).(*grpcproxy.Response)
 		responseJSON, err := protojson.Marshal(resp)
 		require.NoError(t, err)
 		out.ResponseJSON = responseJSON
@@ -164,10 +164,10 @@ func (f *siteExplorerEndpointActionHandlerFixture) expectProxyResponse(t *testin
 		"ExecuteWorkflow",
 		mock.Anything,
 		mock.Anything,
-		coreproxy.WorkflowName,
+		grpcproxy.Core.WorkflowName,
 		mock.Anything,
 	).Run(func(args mock.Arguments) {
-		f.proxiedReqs = append(f.proxiedReqs, args.Get(3).(coreproxy.Request))
+		f.proxiedReqs = append(f.proxiedReqs, args.Get(3).(grpcproxy.Request))
 	}).Return(wrun, nil).Once()
 }
 

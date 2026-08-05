@@ -1,6 +1,6 @@
 ---
 name: rest-core-grpc-proxy
-description: Build or migrate infra-controller REST API endpoints that call on-site NICo Core through the generic Core gRPC proxy. Use when working on REST-to-Core operations, ExecuteCoreGRPC, coreproxy, forge.Forge methods, creating new proxied REST endpoints, or migrating bespoke workflows to the gRPC proxy.
+description: Build or migrate infra-controller REST API endpoints that call on-site NICo Core through the generic Core gRPC proxy. Use when working on REST-to-Core operations, ExecuteCoreGRPC, grpcproxy, forge.Forge methods, creating new proxied REST endpoints, or migrating bespoke workflows to the gRPC proxy.
 ---
 
 # REST Core gRPC Proxy Skill
@@ -9,8 +9,8 @@ Use this guidance when building or converting `infra-controller` REST API endpoi
 
 ## Current Proxy Contract
 
-- Cloud helper: `rest-api/api/pkg/api/handler/util/common/coreproxy.go`, `ExecuteCoreGRPC`.
-- Shared contract: `rest-api/common/pkg/coreproxy/coreproxy.go`, with `coreproxy.Request` and `coreproxy.Response`.
+- Cloud helper: `rest-api/api/pkg/api/handler/util/common/grpcproxy.go`, `ExecuteCoreGRPC`.
+- Shared contract: `rest-api/common/pkg/grpcproxy/grpcproxy.go`, with `grpcproxy.Request` and `grpcproxy.Response`. Core and Flow share every layer of the proxy; the backend is named by `grpcproxy.Core`, and each layer keeps a per-backend wrapper only because Temporal dispatches on the registered workflow and activity names.
 - Site workflow/activity: `InvokeCoreGRPC` and `InvokeCoreGRPCOnSite`.
 - Site Core invocation: `CoreGrpcClient.InvokeJSON`.
 - Temporal transport payload: protojson, so non-secret request fields and responses remain readable in Temporal UI.

@@ -22,7 +22,7 @@ import (
 	"github.com/NVIDIA/infra-controller/rest-api/api/pkg/api/model"
 	sc "github.com/NVIDIA/infra-controller/rest-api/api/pkg/client/site"
 	authz "github.com/NVIDIA/infra-controller/rest-api/auth/pkg/authorization"
-	"github.com/NVIDIA/infra-controller/rest-api/common/pkg/coreproxy"
+	"github.com/NVIDIA/infra-controller/rest-api/common/pkg/grpcproxy"
 	cutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
 	cdbm "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/model"
 	corev1 "github.com/NVIDIA/infra-controller/rest-api/proto/core/gen/v1"
@@ -84,7 +84,7 @@ type bmcCredentialHandlerFixture struct {
 	siteID     string
 	user       interface{}
 	handler    CreateOrUpdateBMCCredentialHandler
-	proxiedReq *coreproxy.Request
+	proxiedReq *grpcproxy.Request
 }
 
 func newBMCCredentialHandlerFixture(t *testing.T) bmcCredentialHandlerFixture {
@@ -105,7 +105,7 @@ func newBMCCredentialHandlerFixture(t *testing.T) bmcCredentialHandlerFixture {
 	})
 	require.NoError(t, err)
 
-	proxiedReq := &coreproxy.Request{}
+	proxiedReq := &grpcproxy.Request{}
 	wrun := &tmocks.WorkflowRun{}
 	wrun.On("Get", mock.Anything, mock.Anything).Return(nil)
 
@@ -114,8 +114,8 @@ func newBMCCredentialHandlerFixture(t *testing.T) bmcCredentialHandlerFixture {
 		"ExecuteWorkflow",
 		mock.Anything,
 		mock.Anything,
-		coreproxy.WorkflowName,
-		mock.MatchedBy(func(req coreproxy.Request) bool {
+		grpcproxy.Core.WorkflowName,
+		mock.MatchedBy(func(req grpcproxy.Request) bool {
 			*proxiedReq = req
 			return true
 		}),
@@ -133,7 +133,7 @@ func newBMCCredentialHandlerFixture(t *testing.T) bmcCredentialHandlerFixture {
 	}
 }
 
-func (f bmcCredentialHandlerFixture) request(t *testing.T, target string, apiReq model.APIBMCCredentialRequest) (*httptest.ResponseRecorder, coreproxy.Request) {
+func (f bmcCredentialHandlerFixture) request(t *testing.T, target string, apiReq model.APIBMCCredentialRequest) (*httptest.ResponseRecorder, grpcproxy.Request) {
 	t.Helper()
 
 	body, err := json.Marshal(apiReq)

@@ -22,7 +22,7 @@ import (
 	"github.com/NVIDIA/infra-controller/rest-api/api/pkg/api/model"
 	sc "github.com/NVIDIA/infra-controller/rest-api/api/pkg/client/site"
 	authz "github.com/NVIDIA/infra-controller/rest-api/auth/pkg/authorization"
-	"github.com/NVIDIA/infra-controller/rest-api/common/pkg/coreproxy"
+	"github.com/NVIDIA/infra-controller/rest-api/common/pkg/grpcproxy"
 	"github.com/NVIDIA/infra-controller/rest-api/common/pkg/secretjson"
 	cutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
 	cdbm "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/model"
@@ -78,7 +78,7 @@ type uefiCredentialHandlerFixture struct {
 	siteID     string
 	user       interface{}
 	handler    CreateUEFICredentialHandler
-	proxiedReq *coreproxy.Request
+	proxiedReq *grpcproxy.Request
 }
 
 func newUEFICredentialHandlerFixture(t *testing.T) uefiCredentialHandlerFixture {
@@ -99,7 +99,7 @@ func newUEFICredentialHandlerFixture(t *testing.T) uefiCredentialHandlerFixture 
 	})
 	require.NoError(t, err)
 
-	proxiedReq := &coreproxy.Request{}
+	proxiedReq := &grpcproxy.Request{}
 	wrun := &tmocks.WorkflowRun{}
 	wrun.On("Get", mock.Anything, mock.Anything).Return(nil)
 
@@ -108,8 +108,8 @@ func newUEFICredentialHandlerFixture(t *testing.T) uefiCredentialHandlerFixture 
 		"ExecuteWorkflow",
 		mock.Anything,
 		mock.Anything,
-		coreproxy.WorkflowName,
-		mock.MatchedBy(func(req coreproxy.Request) bool {
+		grpcproxy.Core.WorkflowName,
+		mock.MatchedBy(func(req grpcproxy.Request) bool {
 			*proxiedReq = req
 			return true
 		}),
@@ -127,7 +127,7 @@ func newUEFICredentialHandlerFixture(t *testing.T) uefiCredentialHandlerFixture 
 	}
 }
 
-func (f uefiCredentialHandlerFixture) request(t *testing.T, apiReq model.APIUEFICredentialRequest) (*httptest.ResponseRecorder, coreproxy.Request) {
+func (f uefiCredentialHandlerFixture) request(t *testing.T, apiReq model.APIUEFICredentialRequest) (*httptest.ResponseRecorder, grpcproxy.Request) {
 	t.Helper()
 
 	body, err := json.Marshal(apiReq)
