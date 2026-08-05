@@ -46,7 +46,7 @@ struct SwitchRecord {
 }
 
 /// Show all switches
-pub async fn show_html(state: AxumState<Arc<Api>>) -> Response {
+pub(super) async fn show_html(state: AxumState<Arc<Api>>) -> Response {
     let switches = match fetch_switches(&state).await {
         Ok(switches) => switches,
         Err(err) => {
@@ -89,7 +89,7 @@ pub async fn show_html(state: AxumState<Arc<Api>>) -> Response {
 }
 
 /// Show all switches as JSON
-pub async fn show_json(state: AxumState<Arc<Api>>) -> Response {
+pub(super) async fn show_json(state: AxumState<Arc<Api>>) -> Response {
     let switches = match fetch_switches(&state).await {
         Ok(switches) => switches,
         Err(err) => {
@@ -206,7 +206,7 @@ impl SwitchDetail {
 }
 
 /// View details about a Switch.
-pub async fn detail(
+pub(super) async fn detail(
     AxumState(api): AxumState<Arc<Api>>,
     AxumPath(switch_id): AxumPath<String>,
 ) -> Response {

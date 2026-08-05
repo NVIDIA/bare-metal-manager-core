@@ -185,7 +185,7 @@ impl From<ShowLogicalPartition> for LogicalPartitionDetail {
 }
 
 /// List logical partitions
-pub async fn show_nvlink_logical_partitions_html(
+pub(super) async fn show_nvlink_logical_partitions_html(
     AxumState(state): AxumState<Arc<Api>>,
 ) -> Response {
     let partitions = match fetch_logical_partitions(state.clone(), false, None).await {
@@ -206,7 +206,7 @@ pub async fn show_nvlink_logical_partitions_html(
     (StatusCode::OK, Html(tmpl.render().unwrap())).into_response()
 }
 
-pub async fn show_nvlink_logical_partitions_json(
+pub(super) async fn show_nvlink_logical_partitions_json(
     AxumState(state): AxumState<Arc<Api>>,
 ) -> impl IntoResponse {
     let partitions = match fetch_logical_partitions(state, false, None).await {
@@ -224,7 +224,7 @@ pub async fn show_nvlink_logical_partitions_json(
 }
 
 /// List NVLink domains with health reports.
-pub async fn show_nvlink_domain_health_html(
+pub(super) async fn show_nvlink_domain_health_html(
     AxumState(state): AxumState<Arc<Api>>,
     Query(params): Query<NvLinkDomainHealthParams>,
     uri: OriginalUri,
@@ -268,7 +268,9 @@ pub async fn show_nvlink_domain_health_html(
 }
 
 /// List NVLink domains with health reports as JSON.
-pub async fn show_nvlink_domain_health_json(AxumState(state): AxumState<Arc<Api>>) -> Response {
+pub(super) async fn show_nvlink_domain_health_json(
+    AxumState(state): AxumState<Arc<Api>>,
+) -> Response {
     let rows = match fetch_nvlink_domain_health_rows(&state).await {
         Ok(rows) => rows,
         Err(err) => {
@@ -285,7 +287,7 @@ pub async fn show_nvlink_domain_health_json(AxumState(state): AxumState<Arc<Api>
 }
 
 /// View Logical Partition details
-pub async fn detail(
+pub(super) async fn detail(
     AxumState(state): AxumState<Arc<Api>>,
     AxumPath(partition_id): AxumPath<String>,
 ) -> Response {

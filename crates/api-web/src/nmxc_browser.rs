@@ -46,7 +46,7 @@ struct Header {
 }
 
 #[derive(Debug, Deserialize)]
-pub struct QueryParams {
+pub(super) struct QueryParams {
     chassis_serial: Option<String>,
     operation: Option<String>,
     gpu_uid: Option<String>,
@@ -65,7 +65,7 @@ fn browse_operation_from_query(s: &str) -> i32 {
 }
 
 /// Runs a selected NMX-C browse operation against the endpoint mapped for `chassis_serial`.
-pub async fn query(
+pub(super) async fn query(
     AxumState(state): AxumState<Arc<Api>>,
     AxumQuery(query): AxumQuery<QueryParams>,
 ) -> Response {

@@ -22,7 +22,7 @@ use hyper::http::request::Builder;
 use crate::{WebAuthMode, routes_with_auth_mode};
 
 mod component_detail;
-mod env;
+pub(super) mod env;
 mod explored_endpoint;
 mod firmware;
 mod health;

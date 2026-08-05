@@ -34,7 +34,7 @@ struct DomainShow {
 }
 
 /// List domains
-pub async fn show_html(AxumState(state): AxumState<Arc<Api>>) -> Response {
+pub(super) async fn show_html(AxumState(state): AxumState<Arc<Api>>) -> Response {
     let domains = match fetch_domains(state).await {
         Ok(m) => m,
         Err(err) => {
@@ -48,7 +48,7 @@ pub async fn show_html(AxumState(state): AxumState<Arc<Api>>) -> Response {
     };
     (StatusCode::OK, Html(tmpl.render().unwrap())).into_response()
 }
-pub async fn show_all_json(AxumState(state): AxumState<Arc<Api>>) -> Response {
+pub(super) async fn show_all_json(AxumState(state): AxumState<Arc<Api>>) -> Response {
     let domains = match fetch_domains(state).await {
         Ok(m) => m,
         Err(err) => {

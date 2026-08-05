@@ -21,17 +21,16 @@ use axum::response::Response;
 use carbide_rpc_utils::ManagedHostOutput;
 use carbide_test_harness::TestMachine as _;
 use carbide_uuid::machine::{MachineId, MachineInterfaceId};
-use db::{machine, managed_host};
+use db::machine;
 use health_report::{
     HealthAlertClassification, HealthProbeAlert, HealthProbeId, HealthReport, HealthReportApplyMode,
 };
 use http_body_util::BodyExt;
 use hyper::http::header::CONTENT_TYPE;
 use hyper::http::{Method, StatusCode};
-use model::machine::{InstanceState, LoadSnapshotOptions, ManagedHostState, RetryInfo};
+use model::machine::{InstanceState, ManagedHostState, RetryInfo};
 use tower::ServiceExt;
 
-use crate::managed_host::ManagedHostRowDisplay;
 use crate::tests::env::TestEnv;
 use crate::tests::{make_test_app, web_request_builder};
 
@@ -418,93 +417,6 @@ async fn test_multi_dpu(pool: sqlx::PgPool) {
             "DPU should not have the same machine ID as the host"
         );
     }
-}
-
-// Test the ManagedHostRowDisplay as a proxy for testing that the HTML has what we want in
-// managed_host::show_html (parsing the HTML string is prohibitive)
-#[crate::sqlx_test]
-async fn test_managed_host_row_display(pool: sqlx::PgPool) -> eyre::Result<()> {
-    let env = TestEnv::new(pool).await;
-    let (mh, build_data) = env.create_ready_managed_host(2).await;
-    let hardware_info = mh.host.hardware_info();
-    let dpu_1 = mh.dpu(0);
-    let dpu_2 = mh.dpu(1);
-
-    // Get info from the test managed host so we know what to assert on in the ManagedHostRowDisplay.
-    let machine_id = mh.host.id;
-
-    let snapshots = managed_host::load_all(
-        &env.api().database_connection,
-        LoadSnapshotOptions {
-            include_history: false,
-            include_instance_data: false,
-            host_health_config: env.api().runtime_config.host_health,
-        },
-    )
-    .await?;
-
-    assert_eq!(
-        snapshots.len(),
-        1,
-        "Unexpected number of managed host snapshots"
-    );
-
-    let snapshot = snapshots.into_iter().next().unwrap();
-    assert_eq!(snapshot.host_snapshot.id, machine_id);
-
-    let sla_config = model::machine::slas::MachineSlaConfig::new(
-        env.api()
-            .runtime_config
-            .machine_state_controller
-            .failure_retry_time,
-    );
-    let row = ManagedHostRowDisplay::from_snapshot(snapshot.clone(), &sla_config);
-
-    assert!(row.maintenance_start_time.is_empty());
-    assert!(row.maintenance_reference.is_empty());
-    assert_eq!(row.state, "Ready");
-    assert_eq!(row.num_ib_ifs, hardware_info.infiniband_interfaces.len());
-    assert_eq!(row.num_gpus, hardware_info.gpus.len(),);
-    assert!(!row.time_in_state_above_sla);
-    assert!(!row.time_in_state.is_empty()); // Should match something like "0 seconds"
-    assert_eq!(row.host_bmc_ip, build_data.host_bmc_ip().to_string());
-    assert_eq!(row.host_bmc_mac, mh.host.bmc_mac.to_string());
-    assert_eq!(
-        row.vendor,
-        hardware_info.dmi_data.as_ref().unwrap().sys_vendor
-    );
-    assert_eq!(
-        row.model,
-        hardware_info.dmi_data.as_ref().unwrap().product_name
-    );
-    assert_eq!(row.machine_id, machine_id.to_string());
-    assert!(!row.health_sources.is_empty());
-    assert!(row.health_probe_alerts.is_empty());
-    assert!(!row.host_admin_ip.is_empty());
-    assert_eq!(row.host_admin_mac, mh.host.primary_mac().to_string());
-    assert!(row.state_reason.is_empty());
-
-    assert_eq!(row.dpus.len(), 2);
-
-    assert_eq!(
-        row.dpus[0].machine_id,
-        snapshot.dpu_snapshots[0].id.to_string()
-    );
-    assert_eq!(row.dpus[0].bmc_ip, build_data.dpu_bmc_ip(0).to_string());
-    assert_eq!(row.dpus[0].bmc_mac, dpu_1.bmc_mac.to_string());
-    assert_eq!(row.dpus[0].oob_mac, dpu_1.oob_mac().to_string());
-    assert!(!row.dpus[0].oob_ip.is_empty(), "dpu should show an oob ip");
-
-    assert_eq!(
-        row.dpus[1].machine_id,
-        snapshot.dpu_snapshots[1].id.to_string()
-    );
-    assert_eq!(row.dpus[1].bmc_ip, build_data.dpu_bmc_ip(1).to_string());
-    assert_eq!(row.dpus[1].bmc_mac, dpu_2.bmc_mac.to_string());
-    assert_eq!(row.dpus[1].oob_mac, dpu_2.oob_mac().to_string());
-    assert!(!row.dpus[1].oob_ip.is_empty(), "dpu should show an oob ip");
-
-    Ok(())
 }
 
 #[crate::sqlx_test]
