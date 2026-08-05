@@ -105,7 +105,6 @@ pub async fn run(
     // while propagating any panics to the current task.
     let mut join_set = JoinSet::new();
     crate::shutdown_handler::start(&mut join_set, cancel_token.clone());
-    start_metrics_endpoint(
     let metrics_address = start_metrics_endpoint(
         &mut join_set,
         &carbide_config,
