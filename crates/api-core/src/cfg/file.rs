@@ -47,6 +47,7 @@ use chrono::Duration;
 use db::host_naming::HostNamingStrategyKind;
 use duration_str::{deserialize_duration, deserialize_duration_chrono};
 use figment::Figment;
+use figment::providers::Serialized;
 use health_report::HealthAlertClassification;
 use ipnetwork::{IpNetwork, Ipv4Network};
 use itertools::Itertools;
@@ -1461,20 +1462,42 @@ fn default_dpf_node_label_key() -> String {
 /// testing/dev purpose).
 /// There are following mandatory services:
 /// dpu-agent, fmds, dhcp-server, doca-hbn, dts and otel.
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize)]
 pub struct DpfMandatoryServicesConfig {
-    #[serde(default = "crate::dpf_services::default_dts_service")]
     pub dts: DpfServiceConfig,
-    #[serde(default = "crate::dpf_services::default_doca_hbn_service")]
     pub doca_hbn: DpfServiceConfig,
-    #[serde(default = "crate::dpf_services::default_dpu_agent_service")]
     pub dpu_agent: DpfServiceConfig,
-    #[serde(default = "crate::dpf_services::default_dhcp_server_service")]
     pub dhcp_server: DpfServiceConfig,
-    #[serde(default = "crate::dpf_services::default_fmds_service")]
     pub fmds: DpfServiceConfig,
-    #[serde(default = "crate::dpf_services::default_otelcol_service")]
     pub otel: DpfServiceConfig,
+}
+
+impl<'de> Deserialize<'de> for DpfMandatoryServicesConfig {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        // `#[serde(default)]` only handles an absent `services` field. For a present,
+        // partial table, start with every service default and overlay the supplied fields.
+        let configured = BTreeMap::<String, serde_json::Value>::deserialize(deserializer)?;
+        let mut services = Self::default();
+        for (name, configured) in configured {
+            let service = match name.as_str() {
+                "dts" => &mut services.dts,
+                "doca_hbn" => &mut services.doca_hbn,
+                "dpu_agent" => &mut services.dpu_agent,
+                "dhcp_server" => &mut services.dhcp_server,
+                "fmds" => &mut services.fmds,
+                "otel" => &mut services.otel,
+                _ => continue,
+            };
+            *service = Figment::from(Serialized::defaults(std::mem::take(service)))
+                .merge(Serialized::defaults(configured))
+                .extract()
+                .map_err(serde::de::Error::custom)?;
+        }
+        Ok(services)
+    }
 }
 
 impl Default for DpfMandatoryServicesConfig {
@@ -1564,6 +1587,10 @@ pub struct DpfServiceConfig {
     /// `imagePullSecrets` entry is emitted in the service's Helm values.
     #[serde(default)]
     pub docker_image_pull_secret: Option<String>,
+    /// Chart-native values deep-merged over NICo's generated template values.
+    /// Tables merge recursively. Scalars and arrays replace generated values.
+    #[serde(default)]
+    pub extra_helm_values: Option<serde_json::Map<String, serde_json::Value>>,
 }
 
 /// Per-deployment DPF configuration for named entries under `[dpf.deployments]`.
@@ -5851,6 +5878,87 @@ object_kind = "secret"
         .unwrap_err();
 
         assert!(error.to_string().contains("unknown field `object_kind`"));
+    }
+
+    #[test]
+    fn empty_dpf_service_uses_its_defaults() {
+        let config = toml::from_str::<DpfConfig>("[services.dpu_agent]").unwrap();
+        let expected_agent = crate::dpf_services::default_dpu_agent_service();
+        let expected_fmds = crate::dpf_services::default_fmds_service();
+
+        assert_eq!(config.services.dpu_agent.name, expected_agent.name);
+        assert_eq!(
+            config.services.dpu_agent.helm_chart,
+            expected_agent.helm_chart
+        );
+        assert_eq!(config.services.fmds.name, expected_fmds.name);
+    }
+
+    #[test]
+    fn top_level_dpf_service_overlays_its_defaults() {
+        let config = toml::from_str::<DpfConfig>(
+            r#"
+[services.dpu_agent]
+helm_version = "configured-version"
+
+[services.dpu_agent.extra_helm_values.fmds]
+sign_proxy_url = "http://dsx-imds.dpf-operator-system.svc.cluster.local:8080"
+"#,
+        )
+        .unwrap();
+        let expected = crate::dpf_services::default_dpu_agent_service();
+
+        assert_eq!(config.services.dpu_agent.name, expected.name);
+        assert_eq!(
+            config.services.dpu_agent.docker_repo_url,
+            expected.docker_repo_url
+        );
+        assert_eq!(config.services.dpu_agent.helm_version, "configured-version");
+        assert_eq!(
+            config.services.dpu_agent.extra_helm_values.unwrap()["fmds"]["sign_proxy_url"],
+            "http://dsx-imds.dpf-operator-system.svc.cluster.local:8080"
+        );
+    }
+
+    #[test]
+    fn dpf_service_helm_values_require_a_table() {
+        for value in ["true", "[\"value\"]"] {
+            let config = format!("[services.dpu_agent]\nextra_helm_values = {value}\n");
+
+            assert!(toml::from_str::<DpfConfig>(&config).is_err(), "{value}");
+        }
+    }
+
+    #[test]
+    fn deployment_dpf_service_overlays_its_defaults() {
+        let config = toml::from_str::<DpfConfig>(
+            r#"
+[deployments.bf4_generic]
+flavor_name = "bf4-flavor"
+deployment_name = "bf4-deployment"
+node_label_key = "carbide.nvidia.com/bf4"
+
+[deployments.bf4_generic.services.dpu_agent]
+helm_version = "configured-version"
+
+[deployments.bf4_generic.services.dpu_agent.extra_helm_values.fmds]
+sign_proxy_url = "http://bf4-dsx-imds.dpf-operator-system.svc.cluster.local:8080"
+
+[deployments.bf4_generic.services.fmds]
+"#,
+        )
+        .unwrap();
+        let services = config.deployments.bf4_generic.unwrap().services.unwrap();
+        let expected_agent = crate::dpf_services::default_dpu_agent_service();
+        let expected_fmds = crate::dpf_services::default_fmds_service();
+
+        assert_eq!(services.dpu_agent.name, expected_agent.name);
+        assert_eq!(services.dpu_agent.helm_version, "configured-version");
+        assert_eq!(services.fmds.name, expected_fmds.name);
+        assert_eq!(
+            services.dpu_agent.extra_helm_values.unwrap()["fmds"]["sign_proxy_url"],
+            "http://bf4-dsx-imds.dpf-operator-system.svc.cluster.local:8080"
+        );
     }
 
     #[test]
