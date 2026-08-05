@@ -286,8 +286,8 @@ mod tests {
     /// Mapped error discriminant so table rows can assert which validation rule fired.
     #[derive(Debug, PartialEq)]
     enum SelectionError {
-        BothProvided,
-        NeitherProvided,
+        Both,
+        Neither,
     }
 
     #[test]
@@ -295,8 +295,8 @@ mod tests {
         scenarios!(run = |(chassis_serial, rack_id_str): (&str, Option<&str>)| {
             let rack_id = rack_id_str.map(RackId::new);
             resolve_group_type(chassis_serial, rack_id.as_ref()).map_err(|e| match e {
-                CarbideError::InvalidArgument(_) => SelectionError::BothProvided,
-                _ => SelectionError::NeitherProvided,
+                CarbideError::InvalidArgument(_) => SelectionError::Both,
+                _ => SelectionError::Neither,
             })
         };
             "rack-only" {
@@ -309,12 +309,12 @@ mod tests {
             }
 
             "both provided" {
-                ("SN-123", Some("rack-a")) => FailsWith(SelectionError::BothProvided),
+                ("SN-123", Some("rack-a")) => FailsWith(SelectionError::Both),
             }
 
             "neither provided" {
-                ("", None) => FailsWith(SelectionError::NeitherProvided),
-                ("   ", None) => FailsWith(SelectionError::NeitherProvided),
+                ("", None) => FailsWith(SelectionError::Neither),
+                ("   ", None) => FailsWith(SelectionError::Neither),
             }
         );
     }
