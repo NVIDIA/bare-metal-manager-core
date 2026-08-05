@@ -137,11 +137,6 @@ pub async fn start(
         prefix = "10.180.62.1/26"
         type = "ipv4"
 
-        [pools.secondary-vtep-ip]
-        ranges = []
-        prefix = "10.181.62.1/26"
-        type = "ipv4"
-
         [pools.vni]
         type = "integer"
 

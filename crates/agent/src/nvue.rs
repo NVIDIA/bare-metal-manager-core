@@ -21,7 +21,7 @@ use std::net::{IpAddr, Ipv6Addr};
 use std::path::Path;
 
 use ::rpc::forge as rpc;
-use carbide_network::ip::prefix::{IpNet, Ipv4Net};
+use carbide_network::ip::prefix::IpNet;
 use carbide_network::sanitized_mac;
 use carbide_network::virtualization::VpcVirtualizationType;
 use eyre::WrapErr;
@@ -514,64 +514,6 @@ pub fn build(conf: NvueConfig) -> eyre::Result<String> {
     // This is just an easy way to maintain the ordering of the original behavior.
     let deny_prefix_index_offset = conf.site_fabric_prefixes.len();
 
-    let has_static_advertisements = conf.secondary_overlay_vtep_ip.is_some();
-
-    let (
-        has_internal_bridging,
-        vf_intercept_bridge_ip,
-        vf_intercept_hbn_representor_ip,
-        public_prefix_internal_next_hop,
-        intercept_bridge_prefix_len,
-        // IPv4 only for now. Internal HBN bridge plumbing uses 169.254.x.x
-        // link-local addressing for DPU to HBN communication. An IPv6 equivalent
-        // (fe80:: or similar) may be needed in the future for dual-stack bridging.
-    ) = if let Some(bridge_prefix) = conf.internal_bridge_routing_prefix {
-        let prefix_len = bridge_prefix.prefix_len();
-        let mut hosts = bridge_prefix.hosts();
-
-        // 1st host is for the VF intercept bridge.
-        let Some(vf_intercept_bridge_ip) = hosts.next() else {
-            return Err(eyre::eyre!(
-                "expected VF intercept bridge IP not found in bridge routing prefix supplied by internal_bridge_routing_prefix",
-            ));
-        };
-
-        // 2nd host address is used within the HBN container on the SF being used for
-        // intercepted VF traffic.
-        let Some(vf_intercept_hbn_representor_ip) = hosts.next() else {
-            return Err(eyre::eyre!(
-                "expected VF intercept HBN representor IP not found in bridge routing prefix supplied by internal_bridge_routing_prefix",
-            ));
-        };
-
-        // 3rd host is for use by a traffic intercept user.  This lets the user know, a priori, of an IP
-        // within the stretched L2 domain of the combined br-hbn and custom bridges.
-        // This allows them to route traffic directly to and out of the HBN pod.
-        let Some(public_prefix_internal_next_hop) = hosts.next() else {
-            return Err(eyre::eyre!(
-                "expected public_prefix_internal_next_hop bridge IP not found in bridge routing prefix supplied by internal_bridge_routing_prefix",
-            ));
-        };
-
-        // >= 4th host is currently unused.
-
-        (
-            true,
-            format!("{vf_intercept_bridge_ip}"),
-            format!("{vf_intercept_hbn_representor_ip}"),
-            format!("{public_prefix_internal_next_hop}"),
-            prefix_len,
-        )
-    } else {
-        (
-            false,
-            String::default(),
-            String::default(),
-            String::default(),
-            0,
-        )
-    };
-
     let mut vpcs = vpc_configs.into_values().collect::<Vec<TmplVpc>>();
     vpcs.sort_by_key(|a| a.L3VNI);
     let has_any_vpc_tenant_host_leak_to_underlay = vpcs.iter().any(|vpc| {
@@ -580,8 +522,6 @@ pub fn build(conf: NvueConfig) -> eyre::Result<String> {
             .is_some_and(|profile| profile.LeakTenantHostRoutesToUnderlay)
     });
 
-    let (traffic_intercept_ipv4, traffic_intercept_ipv6) =
-        split_prefixes_by_family(&conf.traffic_intercept_public_prefixes, None, 1);
     let (anycast_ipv4, anycast_ipv6) =
         split_prefixes_by_family(&conf.anycast_site_prefixes, None, 1000);
     let (site_fabric_ipv4, site_fabric_ipv6) =
@@ -601,22 +541,8 @@ pub fn build(conf: NvueConfig) -> eyre::Result<String> {
             .unwrap_or_default(),
         HasSiteGlobalVpcVni: conf.site_global_vpc_vni.is_some(),
         SiteGlobalVpcVni: conf.site_global_vpc_vni.unwrap_or_default(),
-        HasStaticAdvertisements: has_static_advertisements,
-        HasSecondaryOverlayVTEP: conf.secondary_overlay_vtep_ip.is_some(),
-        SecondaryOverlayVtepIP: conf
-            .secondary_overlay_vtep_ip
-            .map(|ip| ip.to_string())
-            .unwrap_or_default(),
-        HasInternalBridgeRouting: has_internal_bridging,
-        VfInterceptBridgeIP: vf_intercept_bridge_ip,
-        InterceptBridgePrefixLen: intercept_bridge_prefix_len,
-        PublicPrefixInternalNextHop: public_prefix_internal_next_hop,
-        VfInterceptHbnRepresentorIp: vf_intercept_hbn_representor_ip,
-        VfInterceptBridgeSf: conf.vf_intercept_bridge_sf.unwrap_or_default(),
         HasAnyVpcTenantHostLeakToUnderlay: has_any_vpc_tenant_host_leak_to_underlay,
         HasAnyVpcVrfLoopback: has_any_vpc_vrf_loopback,
-        TrafficInterceptPublicPrefixes: traffic_intercept_ipv4,
-        TrafficInterceptPublicPrefixesIpv6: traffic_intercept_ipv6,
         ASN: conf.asn,
         DatacenterASN: conf.datacenter_asn,
         UseCommonInternalTenantRouteTarget: conf.common_internal_route_target.is_some(),
@@ -1154,13 +1080,6 @@ pub struct NvueConfig {
     pub additional_route_target_imports: Vec<RouteTargetConfig>,
     pub bgp_leaf_session_password: Option<String>,
 
-    pub secondary_overlay_vtep_ip: Option<IpAddr>,
-    pub vf_intercept_bridge_port_name: Option<String>,
-    pub vf_intercept_bridge_sf: Option<String>,
-    pub host_intercept_bridge_port_name: Option<String>,
-    pub internal_bridge_routing_prefix: Option<Ipv4Net>,
-    pub traffic_intercept_public_prefixes: Vec<String>,
-
     pub dpu_hostname: String,
     pub dpu_search_domain: String,
     pub hbn_version: Option<String>,
@@ -1358,35 +1277,12 @@ struct TmplNvue {
     LoopbackIP: String,
     HasLoopbackIpv6: bool,
     LoopbackIpv6: String,
-    HasSecondaryOverlayVTEP: bool,
-    HasStaticAdvertisements: bool,
-    SecondaryOverlayVtepIP: String,
-    HasInternalBridgeRouting: bool,
-    /// This IP is used in a static route in NVUE
-    /// to send traffic over to a bridge used by a traffic
-    /// intercept user for further processing.
-    VfInterceptBridgeIP: String,
-    /// This _might_ be the same IP as VfInterceptBridgeIP,
-    /// or it might not.  See the details of VfInterceptBridgeIP.
-    PublicPrefixInternalNextHop: String,
-    /// An IP from the same subnet as VfInterceptBridgeIP
-    VfInterceptHbnRepresentorIp: String,
-    /// The SF used to route traffic VF traffic to the HBN pod.
-    VfInterceptBridgeSf: String,
-
     /// Does any VPC at all have a routing profile that says
     /// tenant routes should leak to the underlay?
     HasAnyVpcTenantHostLeakToUnderlay: bool,
 
     /// Does any VPC have a VRF loopback?
     HasAnyVpcVrfLoopback: bool,
-
-    /// The size of the of the prefix used for the internal
-    /// bridge routing.
-    InterceptBridgePrefixLen: u8,
-
-    TrafficInterceptPublicPrefixes: Vec<Prefix>,
-    TrafficInterceptPublicPrefixesIpv6: Vec<Prefix>,
 
     ASN: u32,
     DatacenterASN: u32,
@@ -1863,12 +1759,6 @@ mod tests {
             site_global_vpc_vni: None,
             common_internal_route_target: None,
             additional_route_target_imports: vec![],
-            secondary_overlay_vtep_ip: None,
-            vf_intercept_bridge_port_name: None,
-            vf_intercept_bridge_sf: None,
-            host_intercept_bridge_port_name: None,
-            internal_bridge_routing_prefix: None,
-            traffic_intercept_public_prefixes: vec![],
             dpu_hostname: "test-dpu".to_string(),
             dpu_search_domain: "test.local".to_string(),
             hbn_version: None,

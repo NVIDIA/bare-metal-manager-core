@@ -4617,9 +4617,8 @@ message ManagedHostNetworkConfigResponse {
   // Extension services that should be deployed on this DPU
   repeated ManagedHostDpuExtensionServiceConfig dpu_extension_services = 112;
 
-  // All config related to traffic interception on
-  // the DPU: intermediate bridging, additional VTEPs, etc.
-  optional TrafficInterceptConfig traffic_intercept_config = 113;
+  reserved 113;
+  reserved "traffic_intercept_config";
 
   // Route imports and tagging details for exports
   // used by FNN configs.
@@ -4660,55 +4659,6 @@ message ManagedHostNetworkConfigResponse {
   // restart openvswitch-switch if this is set. Other actions could also
   // be added based on this tracking variable.
   optional bool use_admin_network_changed = 120;
-}
-
-message TrafficInterceptConfig {
-  // Optional IP to be used for a VTEP for an additional
-  // overlay network.  Initial use-case is catalyst VMaaS's
-  // GENEVE overlay.
-  optional string additional_overlay_vtep_ip = 1;
-
-  // Internal DPU bridging config VMaaS support
-  optional TrafficInterceptBridging bridging = 2;
-
-  // Prefixes expected to be publicly routable and used
-  // by VMaaS for internet gateways.
-  repeated string public_prefixes            = 3;
-
-  // IPv4 or IPv6 aggregate prefixes associated with secondary
-  // VTEPs. These are used only for routing and filtering, not for
-  // allocating IPs. IP allocation is provided by the secondary VTEP
-  // resource pool.
-  repeated string secondary_vtep_aggregate_prefixes = 4;
-}
-
-message TrafficInterceptBridging {
-  reserved 2, 4;
-  reserved "host_intercept_bridge_name", "host_intercept_bridge_port";
-
-  // Prefix to be used for assigning gateway IPs
-  // to bridges used for VMaaS routing within the DPU.
-  string internal_bridge_routing_prefix  = 1;
-
-  // Name of the bridge acting as the gateway for packets
-  // leaving VMaaS pods and destined for the outside.
-  // (E.g., internet or pods on other hosts)
-  string vf_intercept_bridge_name        = 3;
-
-  // Name of the patch-port on the intercept bridge side
-  // of the vf_intercept_bridge that connects to the HBN pod
-  // via br-hbn.
-  string vf_intercept_bridge_port        = 5;
-
-  // Name of SF used for routing VMaaS VF traffic into
-  // the HBN pod.
-  string vf_intercept_bridge_sf          = 6;
-
-  // Host-owned PF/VF representor bridging layout keyed by representor name.
-  map<string, HostRepresentorInterceptBridging> host_representor_intercept_bridging = 7;
-
-  // Bridge that intercept patch ports attach to during provisioning.
-  string hbn_bridge = 8;
 }
 
 message ManagedHostDpuExtensionServiceConfig {
@@ -5380,23 +5330,12 @@ enum BootstrapCaSource {
 message CloudInitDiscoveryInstructions {
   MachineInterface machine_interface = 1;
   PxeDomain domain = 2;
+  // Selects which representors from the configured VF population HBN is expected to use.
   optional string hbn_reps = 3;
-  optional string hbn_sfs = 4;
-  optional string vf_intercept_bridge_name = 5;
 
-  reserved 6;
-  reserved "host_intercept_bridge_name";
-
-  // The <vf_intercept_bridge_name> side of the SF representor that connects the HBN pod to br-hbn.
-  // This will be the side owned by the <vf_intercept_bridge_name> bridge
-  optional string vf_intercept_bridge_port   = 7;
-
-  reserved 8;
-  reserved "host_intercept_bridge_port";
-
-  // The representor that will plug into the HBN container to connect it to br-hbn
-  // to open connectivity between all the VFs.
-  optional string vf_intercept_bridge_sf = 9;
+  reserved 4, 5, 6, 7, 8, 9;
+  reserved "hbn_sfs", "vf_intercept_bridge_name", "host_intercept_bridge_name",
+           "vf_intercept_bridge_port", "host_intercept_bridge_port", "vf_intercept_bridge_sf";
 
   // Number of VFs to configure per DPU PF during BlueField provisioning.
   // If absent, nico-pxe uses the legacy default of 16 for rolling upgrades.
@@ -9517,11 +9456,6 @@ message IpxeTemplateArtifactUpdateRequest {
 message UpdateOperatingSystemIpxeTemplateArtifactRequest {
   common.OperatingSystemId id = 1;
   repeated IpxeTemplateArtifactUpdateRequest updates = 2;
-}
-
-message HostRepresentorInterceptBridging {
-  string bridge     = 1;
-  string patch_port = 2;
 }
 
 message ReWrapSecretsRequest {

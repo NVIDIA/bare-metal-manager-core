@@ -151,7 +151,6 @@ pub fn get() -> CarbideConfig {
             concurrent_explorations: 0,
             explorations_per_run: 0,
             create_machines: Arc::new(false.into()),
-            allocate_secondary_vtep_ip: true,
             ..Default::default()
         },
         vpc_peering_policy: Some(VpcPeeringPolicy::Exclusive),
@@ -260,11 +259,7 @@ pub fn get() -> CarbideConfig {
         vmaas_config: Some(VmaasConfig {
             allow_instance_vf: true,
             hbn_reps: None,
-            hbn_sfs: None,
-            secondary_overlay_support: true,
             bridging: None,
-            public_prefixes: vec![],
-            secondary_vtep_aggregate_prefixes: vec![],
         }),
         mlxconfig_profiles: None,
         rack_management_enabled: false,

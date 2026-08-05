@@ -38,7 +38,6 @@ impl TestEnv {
                 ResourcePoolBuilder::default()
                     .with_vlan_ids(1, 64)
                     .with_vnis(10001, 10064)
-                    .with_secondary_vtep_ip("192.0.7.0/24")
                     .build(),
             )
             .build()

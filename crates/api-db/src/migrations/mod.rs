@@ -199,6 +199,11 @@ async fn load_and_validate_history(
 mod tests {
     use super::*;
 
+    const REMOVE_SECONDARY_VTEP_DATA: &str =
+        include_str!("../../migrations/20260804153414_remove_secondary_vtep_data.sql");
+    const VALIDATE_SECONDARY_VTEP_CONSTRAINT: &str =
+        include_str!("../../migrations/20260804171948_validate_secondary_vtep_constraint.sql");
+
     #[test]
     fn migration_versions_are_unique() {
         let mut versions = HashSet::new();
@@ -258,6 +263,117 @@ mod tests {
         assert_eq!(epoch.squash.iter().count(), 1);
         assert_eq!(epoch.post_squash.iter().count(), 1);
         assert!(epoch.post_squash.version_exists(squash_version - 1));
+    }
+
+    #[crate::sqlx_test]
+    async fn secondary_vtep_migration_removes_persisted_data(pool: PgPool) {
+        sqlx::query(
+            "ALTER TABLE machines \
+             DROP CONSTRAINT machines_network_config_excludes_secondary_vtep_ip",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            r#"INSERT INTO machines (id, network_config, dpf)
+               VALUES (
+                   'fm100dsecondaryvtep',
+                   '{"loopback_ip":"192.0.2.1","secondary_overlay_vtep_ip":"198.51.100.1"}',
+                   '{"enabled":true,"used_for_ingestion":false}'
+               )"#,
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            r#"INSERT INTO resource_pool_def (name, definition)
+               VALUES
+                   ('secondary-vtep-ip', '{}'),
+                   ('retained-pool', '{}')"#,
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            r#"INSERT INTO resource_pool
+                   (name, value, allocated, state, value_type)
+               VALUES
+                   ('secondary-vtep-ip', '198.51.100.1', NOW(), '{"owner_id":"fm100dsecondaryvtep"}', 'ipv4'),
+                   ('secondary-vtep-ip', '198.51.100.2', NULL, '{}', 'ipv4'),
+                   ('retained-pool', '203.0.113.1', NULL, '{}', 'ipv4')"#,
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        sqlx::raw_sql(REMOVE_SECONDARY_VTEP_DATA)
+            .execute(&pool)
+            .await
+            .unwrap();
+        sqlx::raw_sql(VALIDATE_SECONDARY_VTEP_CONSTRAINT)
+            .execute(&pool)
+            .await
+            .unwrap();
+
+        let network_config: serde_json::Value = sqlx::query_scalar(
+            "SELECT network_config FROM machines WHERE id = 'fm100dsecondaryvtep'",
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(network_config["loopback_ip"], "192.0.2.1");
+        assert!(network_config.get("secondary_overlay_vtep_ip").is_none());
+
+        let obsolete_values: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM resource_pool WHERE name = 'secondary-vtep-ip'",
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        let obsolete_definitions: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM resource_pool_def WHERE name = 'secondary-vtep-ip'",
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(obsolete_values, 0);
+        assert_eq!(obsolete_definitions, 0);
+
+        let retained_values: i64 =
+            sqlx::query_scalar("SELECT COUNT(*) FROM resource_pool WHERE name = 'retained-pool'")
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        let retained_definitions: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM resource_pool_def WHERE name = 'retained-pool'",
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(retained_values, 1);
+        assert_eq!(retained_definitions, 1);
+
+        let constraint_is_valid: bool = sqlx::query_scalar(
+            "SELECT convalidated FROM pg_constraint \
+             WHERE conname = 'machines_network_config_excludes_secondary_vtep_ip' \
+               AND conrelid = 'machines'::regclass",
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert!(constraint_is_valid);
+        sqlx::query(
+            r#"UPDATE machines
+               SET network_config = jsonb_set(
+                   network_config,
+                   '{secondary_overlay_vtep_ip}',
+                   '"198.51.100.3"'
+               )
+               WHERE id = 'fm100dsecondaryvtep'"#,
+        )
+        .execute(&pool)
+        .await
+        .expect_err("the constraint must reject the removed field");
     }
 
     #[crate::sqlx_test]
