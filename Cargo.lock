@@ -1262,6 +1262,8 @@ dependencies = [
  "pkcs1 0.7.5",
  "prometheus",
  "prometheus-text-parser",
+ "prost",
+ "prost-types",
  "rand 0.10.1",
  "rcgen",
  "regex",
@@ -1541,6 +1543,7 @@ name = "carbide-authn"
 version = "0.0.0"
 dependencies = [
  "carbide-instrument",
+ "carbide-rpc",
  "carbide-test-support",
  "hyper",
  "rcgen",
@@ -2897,6 +2900,7 @@ dependencies = [
  "chrono",
  "clap",
  "config-version",
+ "const_format",
  "criterion",
  "csv",
  "data-encoding",
@@ -6840,7 +6844,7 @@ dependencies = [
 [[package]]
 name = "libredfish"
 version = "0.0.0"
-source = "git+https://github.com/NVIDIA/libredfish.git?tag=v0.46.2#5bf822b5e7814df67e2b9a8f98f41fb96dea0a3b"
+source = "git+https://github.com/NVIDIA/libredfish.git?tag=v0.46.3#b199e7bebeb8238fe1440f110d06affba5b6b799"
 dependencies = [
  "chrono",
  "clap",

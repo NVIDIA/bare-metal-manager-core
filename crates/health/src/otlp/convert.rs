@@ -18,6 +18,8 @@
 use std::collections::HashMap;
 use std::time::SystemTime;
 
+use serde::Serialize;
+
 use super::collector_logs::ExportLogsServiceRequest;
 use super::collector_metrics::ExportMetricsServiceRequest;
 use super::common::{AnyValue, KeyValue, any_value};
@@ -28,7 +30,15 @@ use super::metrics::{
 };
 use super::resource::Resource;
 use crate::endpoint::SwitchEndpointRole;
-use crate::sink::{CollectorEvent, EventContext, MetricSample};
+use crate::sink::{CollectorEvent, EventContext, HealthReportAlert, MetricSample};
+
+/// Maximum alerts serialized into the `health_report.alerts` attribute.
+///
+/// A fully degraded endpoint reports an alert per failing sensor, and an export
+/// that exceeds the collector's receive limit fails as `ResourceExhausted`,
+/// which the drain retries before dropping the whole batch. Truncating here
+/// keeps one degraded endpoint from taking unrelated records down with it.
+const MAX_SERIALIZED_ALERTS: usize = 64;
 
 fn severity_text_to_number(severity: &str) -> i32 {
     match severity.to_uppercase().as_str() {
@@ -166,7 +176,72 @@ fn convert_log(log: &crate::sink::LogRecord, observed_nanos: u64) -> OtlpLogReco
     }
 }
 
-fn convert_event(event: &CollectorEvent, observed_nanos: u64) -> Option<OtlpLogRecord> {
+/// Alert detail as it appears inside the `health_report.alerts` JSON array.
+///
+/// Probe and classification identities use the wire names the health API
+/// already accepts, so `Probe::GpuInventory` reports as `SkuValidation`.
+#[derive(Serialize)]
+struct AlertDetail<'a> {
+    probe_id: &'static str,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    target: Option<&'a str>,
+
+    message: &'a str,
+    classifications: Vec<&'static str>,
+}
+
+/// Serializes alert detail, truncating to [`MAX_SERIALIZED_ALERTS`].
+///
+/// Returns no attributes when serialization fails so a malformed report costs
+/// only the detail, not the record.
+fn alert_detail_attributes(alerts: &[HealthReportAlert]) -> Vec<KeyValue> {
+    let details: Vec<AlertDetail<'_>> = alerts
+        .iter()
+        .take(MAX_SERIALIZED_ALERTS)
+        .map(|alert| AlertDetail {
+            probe_id: alert.probe_id.as_str(),
+            target: alert.target.as_deref(),
+            message: &alert.message,
+            classifications: alert
+                .classifications
+                .iter()
+                .map(|classification| classification.as_str())
+                .collect(),
+        })
+        .collect();
+
+    let json = match serde_json::to_string(&details) {
+        Ok(json) => json,
+        Err(error) => {
+            tracing::warn!(
+                ?error,
+                alert_count = alerts.len(),
+                "failed to serialize health report alert details"
+            );
+
+            return Vec::new();
+        }
+    };
+
+    let mut attributes = vec![kv("health_report.alerts", json)];
+    let dropped = alerts.len().saturating_sub(MAX_SERIALIZED_ALERTS);
+
+    if dropped > 0 {
+        attributes.push(int_kv(
+            "health_report.alerts.dropped",
+            i64::try_from(dropped).unwrap_or(i64::MAX),
+        ));
+    }
+
+    attributes
+}
+
+fn convert_event(
+    event: &CollectorEvent,
+    observed_nanos: u64,
+    include_alert_details: bool,
+) -> Option<OtlpLogRecord> {
     match event {
         CollectorEvent::Log(log) => Some(convert_log(log, observed_nanos)),
         CollectorEvent::HealthReport(report) => {
@@ -181,13 +256,20 @@ fn convert_event(event: &CollectorEvent, observed_nanos: u64) -> Option<OtlpLogR
             } else {
                 "WARN"
             };
+
+            let mut attributes = vec![kv("event.type", "health_report".to_string())];
+
+            if include_alert_details && !report.alerts.is_empty() {
+                attributes.extend(alert_detail_attributes(&report.alerts));
+            }
+
             Some(OtlpLogRecord {
                 time_unix_nano: observed_nanos,
                 observed_time_unix_nano: observed_nanos,
                 severity_number: severity_text_to_number(severity),
                 severity_text: severity.to_string(),
                 body: string_value(body),
-                attributes: vec![kv("event.type", "health_report".to_string())],
+                attributes,
                 ..Default::default()
             })
         }
@@ -211,7 +293,13 @@ fn convert_event(event: &CollectorEvent, observed_nanos: u64) -> Option<OtlpLogR
 }
 
 /// Builds an OTLP log export request grouped by endpoint.
-pub fn build_export_request(batch: &[(EventContext, CollectorEvent)]) -> ExportLogsServiceRequest {
+///
+/// `include_alert_details` is the receiving target's policy, so one target can
+/// carry per-alert detail while another receives only the report counts.
+pub fn build_export_request(
+    batch: &[(EventContext, CollectorEvent)],
+    include_alert_details: bool,
+) -> ExportLogsServiceRequest {
     let observed_nanos = SystemTime::now()
         .duration_since(SystemTime::UNIX_EPOCH)
         .unwrap_or_default()
@@ -220,7 +308,7 @@ pub fn build_export_request(batch: &[(EventContext, CollectorEvent)]) -> ExportL
     let mut by_endpoint: HashMap<String, (Vec<KeyValue>, Vec<OtlpLogRecord>)> = HashMap::new();
 
     for (context, event) in batch {
-        let Some(record) = convert_event(event, observed_nanos) else {
+        let Some(record) = convert_event(event, observed_nanos, include_alert_details) else {
             continue;
         };
         by_endpoint
@@ -487,6 +575,9 @@ mod tests {
     fn resource_attributes_include_switch_placement_metadata_when_present() {
         let switch_id = test_switch_id("switch-a");
         let switch_id_attr = switch_id.to_string();
+        let nvlink_domain_uuid = NvLinkDomainId::new();
+        let nvlink_domain_uuid_attr = nvlink_domain_uuid.to_string();
+
         let context = EventContext {
             endpoint_key: "11:22:33:44:55:66".to_string(),
             addr: BmcAddr {
@@ -501,6 +592,7 @@ mod tests {
                 serial: "SN-SWITCH-001".to_string(),
                 slot_number: Some(7),
                 tray_index: Some(3),
+                nvlink_domain_uuid: Some(nvlink_domain_uuid),
                 endpoint_role: SwitchEndpointRole::Host,
                 is_primary: false,
                 nmxc_enabled: false,
@@ -519,6 +611,11 @@ mod tests {
         assert_eq!(attr_value(&attrs, "component.type"), Some("nvlink_switch"));
         assert_eq!(attr_int_value(&attrs, "switch.slot_number"), Some(7));
         assert_eq!(attr_int_value(&attrs, "switch.tray_index"), Some(3));
+
+        assert_eq!(
+            attr_value(&attrs, "nvlink.domain.uuid"),
+            Some(nvlink_domain_uuid_attr.as_str())
+        );
     }
 
     #[test]
@@ -539,6 +636,7 @@ mod tests {
                 serial: "SN-SWITCH-001".to_string(),
                 slot_number: Some(7),
                 tray_index: Some(3),
+                nvlink_domain_uuid: None,
                 endpoint_role: SwitchEndpointRole::Host,
                 is_primary: true,
                 nmxc_enabled: true,
@@ -592,6 +690,7 @@ mod tests {
                 serial: "SN-SWITCH-BMC-001".to_string(),
                 slot_number: Some(8),
                 tray_index: Some(4),
+                nvlink_domain_uuid: None,
                 endpoint_role: SwitchEndpointRole::Bmc,
                 is_primary: false,
                 nmxc_enabled: false,
@@ -660,7 +759,7 @@ mod tests {
             diagnostic_record: None,
         }));
 
-        let request = build_export_request(&[(ctx, log)]);
+        let request = build_export_request(&[(ctx, log)], false);
         assert_eq!(request.resource_logs.len(), 1);
 
         let records = &request.resource_logs[0].scope_logs[0].log_records;
@@ -697,7 +796,7 @@ mod tests {
             diagnostic_record: None,
         }));
 
-        let request = build_export_request(&[(ctx, log)]);
+        let request = build_export_request(&[(ctx, log)], false);
 
         let records = &request.resource_logs[0].scope_logs[0].log_records;
         let record = &records[0];
@@ -723,32 +822,174 @@ mod tests {
             (ctx.clone(), CollectorEvent::MetricCollectionStart),
             (ctx, CollectorEvent::MetricCollectionEnd),
         ];
-        let request = build_export_request(&batch);
+        let request = build_export_request(&batch, false);
         assert!(request.resource_logs.is_empty());
     }
 
-    #[test]
-    fn health_report_converts_with_alert_severity() {
-        let ctx = test_context();
+    fn sensor_alert() -> HealthReportAlert {
+        HealthReportAlert {
+            probe_id: Probe::Sensor,
+            target: Some("Temp1".to_string()),
+            message: "critical".to_string(),
+            classifications: vec![Classification::SensorCritical],
+        }
+    }
+
+    fn health_report_record(
+        alerts: Vec<HealthReportAlert>,
+        include_alert_details: bool,
+    ) -> OtlpLogRecord {
         let report = CollectorEvent::HealthReport(
             HealthReport {
                 source: ReportSource::BmcSensors,
                 target: None,
                 observed_at: None,
                 successes: vec![],
-                alerts: vec![HealthReportAlert {
-                    probe_id: Probe::Sensor,
-                    target: Some("Temp1".to_string()),
-                    message: "critical".to_string(),
-                    classifications: vec![Classification::SensorCritical],
-                }],
+                alerts,
             }
             .into(),
         );
 
-        let request = build_export_request(&[(ctx, report)]);
-        let records = &request.resource_logs[0].scope_logs[0].log_records;
-        assert_eq!(records[0].severity_text, "WARN");
+        let request = build_export_request(&[(test_context(), report)], include_alert_details);
+
+        request.resource_logs[0].scope_logs[0].log_records[0].clone()
+    }
+
+    fn alert_details(record: &OtlpLogRecord) -> Vec<serde_json::Value> {
+        let json = attr_value(&record.attributes, "health_report.alerts")
+            .expect("alert details attribute");
+
+        serde_json::from_str::<serde_json::Value>(json)
+            .expect("alert details parse as JSON")
+            .as_array()
+            .expect("alert details are a JSON array")
+            .clone()
+    }
+
+    #[test]
+    fn health_report_converts_with_alert_severity() {
+        let record = health_report_record(vec![sensor_alert()], false);
+
+        assert_eq!(record.severity_text, "WARN");
+    }
+
+    /// Guards the flag-off record against any change from the alert detail work.
+    #[test]
+    fn health_report_omits_alert_details_when_disabled() {
+        let record = health_report_record(vec![sensor_alert()], false);
+
+        assert_eq!(record.attributes.len(), 1);
+        assert_eq!(
+            attr_value(&record.attributes, "event.type"),
+            Some("health_report")
+        );
+    }
+
+    #[test]
+    fn health_report_serializes_alert_details_when_enabled() {
+        let alerts = vec![
+            HealthReportAlert {
+                probe_id: Probe::LeakDetection,
+                target: Some(
+                    "/redfish/v1/Chassis/BMC_0/ThermalSubsystem/LeakDetection/LeakDetectors/1"
+                        .to_string(),
+                ),
+                message: "Leak detected: 2 detector alerts reached threshold 1".to_string(),
+                classifications: vec![Classification::Leak, Classification::PreventAllocations],
+            },
+            sensor_alert(),
+        ];
+
+        let record = health_report_record(alerts, true);
+
+        // The body, severity, and event.type stay as they are without the flag.
+        assert_eq!(record.severity_text, "WARN");
+        assert_eq!(record.severity_number, SeverityNumber::Warn as i32);
+        assert_eq!(
+            record.body.as_ref().and_then(|body| body.value.as_ref()),
+            Some(&any_value::Value::StringValue(
+                "health report: 2 alerts, 0 ok (source: BmcSensors)".to_string()
+            ))
+        );
+        assert_eq!(
+            attr_value(&record.attributes, "event.type"),
+            Some("health_report")
+        );
+
+        let details = alert_details(&record);
+
+        assert_eq!(details.len(), 2);
+        assert_eq!(details[0]["probe_id"], "BmcLeakDetection");
+        assert_eq!(
+            details[0]["target"],
+            "/redfish/v1/Chassis/BMC_0/ThermalSubsystem/LeakDetection/LeakDetectors/1"
+        );
+        assert_eq!(
+            details[0]["message"],
+            "Leak detected: 2 detector alerts reached threshold 1"
+        );
+        assert_eq!(
+            details[0]["classifications"],
+            serde_json::json!(["Leak", "PreventAllocations"])
+        );
+
+        assert_eq!(details[1]["probe_id"], "BmcSensor");
+        assert_eq!(details[1]["target"], "Temp1");
+        assert_eq!(details[1]["message"], "critical");
+        assert_eq!(
+            details[1]["classifications"],
+            serde_json::json!(["SensorCritical"])
+        );
+
+        assert_eq!(
+            attr_int_value(&record.attributes, "health_report.alerts.dropped"),
+            None
+        );
+    }
+
+    #[test]
+    fn health_report_without_alerts_omits_alert_details() {
+        let record = health_report_record(vec![], true);
+
+        assert_eq!(record.attributes.len(), 1);
+        assert_eq!(attr_value(&record.attributes, "health_report.alerts"), None);
+    }
+
+    #[test]
+    fn health_report_alert_details_omit_absent_target() {
+        let alert = HealthReportAlert {
+            target: None,
+            ..sensor_alert()
+        };
+
+        let record = health_report_record(vec![alert], true);
+        let details = alert_details(&record);
+
+        assert_eq!(details.len(), 1);
+        assert!(details[0].get("target").is_none());
+        assert_eq!(details[0]["probe_id"], "BmcSensor");
+    }
+
+    /// A fully degraded endpoint reports an alert per sensor; the attribute is
+    /// capped so one endpoint cannot push the export past the receive limit.
+    #[test]
+    fn health_report_alert_details_are_capped() {
+        let alerts = (0..MAX_SERIALIZED_ALERTS + 3)
+            .map(|index| HealthReportAlert {
+                target: Some(format!("Temp{index}")),
+                ..sensor_alert()
+            })
+            .collect();
+
+        let record = health_report_record(alerts, true);
+        let details = alert_details(&record);
+
+        assert_eq!(details.len(), MAX_SERIALIZED_ALERTS);
+        assert_eq!(details[0]["target"], "Temp0");
+        assert_eq!(
+            attr_int_value(&record.attributes, "health_report.alerts.dropped"),
+            Some(3)
+        );
     }
 
     #[test]
@@ -783,7 +1024,7 @@ mod tests {
         };
 
         let batch = vec![log(ctx1.clone()), log(ctx2), log(ctx1)];
-        let request = build_export_request(&batch);
+        let request = build_export_request(&batch, false);
 
         assert_eq!(request.resource_logs.len(), 2);
         let total_records: usize = request
@@ -878,6 +1119,7 @@ mod tests {
                 serial: "SN-SWITCH-001".to_string(),
                 slot_number: Some(7),
                 tray_index: Some(3),
+                nvlink_domain_uuid: None,
                 endpoint_role: SwitchEndpointRole::Host,
                 is_primary: true,
                 nmxc_enabled: true,

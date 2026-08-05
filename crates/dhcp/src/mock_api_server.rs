@@ -42,8 +42,8 @@ use tokio::task::JoinHandle;
 
 use crate::machine::Machine;
 
-pub const ENDPOINT_DISCOVER_DHCP: &str = "/forge.Forge/DiscoverDhcp";
-pub const ENDPOINT_EXPIRE_DHCP_LEASE: &str = "/forge.Forge/ExpireDhcpLease";
+pub const ENDPOINT_DISCOVER_DHCP: &str = ::rpc::service_path!("DiscoverDhcp");
+pub const ENDPOINT_EXPIRE_DHCP_LEASE: &str = ::rpc::service_path!("ExpireDhcpLease");
 
 // Contents of the response
 pub const DHCP_RESPONSE_FQDN: &str = "december-nitrogen.forge.local";
@@ -426,10 +426,10 @@ impl MockAPIServer {
                     status: rpc::ExpireDhcpLeaseStatus::Released.into(),
                 })
             }
-            "/forge.Forge/Echo" => respond(rpc::EchoResponse {
+            path if path == ::rpc::service_path!("Echo") => respond(rpc::EchoResponse {
                 message: "dhcp_echo".into(),
             }),
-            "/forge.Forge/Version" => respond(rpc::BuildInfo::default()),
+            path if path == ::rpc::service_path!("Version") => respond(rpc::BuildInfo::default()),
             _ => panic!("DHCP -> API wrong uri: {}", req.uri().path()),
         }
     }

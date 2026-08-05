@@ -3577,6 +3577,11 @@ pub async fn delete(
         "DELETE FROM machine_interfaces WHERE id=$1 RETURNING mac_address, boot_interface_id";
     crate::machine_interface_address::delete(txn, interface_id).await?;
     crate::dhcp_entry::delete(txn, interface_id).await?;
+    // `machine_boot_override` references this row with no ON DELETE CASCADE, so a
+    // leftover override otherwise fails the delete below with a foreign-key violation.
+    // The override is meaningless once its interface is gone, so drop it here for every
+    // caller rather than making each one remember.
+    crate::machine_boot_override::clear(txn, *interface_id).await?;
     let deleted: Option<(MacAddress, Option<String>)> = sqlx::query_as(query)
         .bind(*interface_id)
         .fetch_optional(&mut *txn)

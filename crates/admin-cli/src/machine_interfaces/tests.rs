@@ -85,13 +85,31 @@ fn parse_delete_variants() {
         run = |argv| {
             Cmd::try_parse_from(argv.iter().copied())
                 .map(|cmd| match cmd {
-                    Cmd::Delete(args) => args.interface_id.to_string(),
+                    Cmd::Delete(args) => (
+                        args.interface_id.map(|id| id.to_string()),
+                        args.mac_address.map(|mac| mac.to_string()),
+                    ),
                     _ => panic!("expected Delete variant"),
                 })
                 .map_err(drop)
         };
         "with an interface ID" {
-            &["machine-interface", "delete", TEST_INTERFACE_ID][..] => Yields(TEST_INTERFACE_ID.to_string()),
+            &["machine-interface", "delete", TEST_INTERFACE_ID][..]
+                => Yields((Some(TEST_INTERFACE_ID.to_string()), None)),
+        }
+
+        "with a MAC address" {
+            &["machine-interface", "delete", "--mac-address", "00:11:22:33:44:55"][..]
+                => Yields((None, Some("00:11:22:33:44:55".to_string()))),
+        }
+
+        "ID and MAC together are rejected" {
+            &["machine-interface", "delete", TEST_INTERFACE_ID, "--mac-address", "00:11:22:33:44:55"][..]
+                => Fails,
+        }
+
+        "a malformed MAC is rejected at parse time" {
+            &["machine-interface", "delete", "--mac-address", "not-a-mac"][..] => Fails,
         }
     );
 }

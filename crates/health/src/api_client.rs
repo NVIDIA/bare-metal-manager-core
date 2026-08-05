@@ -25,6 +25,7 @@ use std::net::IpAddr;
 use std::str::FromStr;
 use std::sync::{Arc, Mutex};
 
+use carbide_uuid::nvlink::NvLinkDomainId;
 use carbide_uuid::rack::RackId;
 use carbide_uuid::switch::SwitchId;
 use forge_tls::client_config::ClientCert;
@@ -275,6 +276,9 @@ fn switch_endpoint_metadata(
             .placement_in_rack
             .as_ref()
             .and_then(|placement| placement.tray_index),
+        nvlink_domain_uuid: switch
+            .nvlink_domain_uuid
+            .filter(|domain_uuid| domain_uuid != &NvLinkDomainId::nil()),
         endpoint_role,
         is_primary: switch.is_primary,
         nmxc_enabled: config.enable_nmxc,
@@ -755,7 +759,8 @@ impl From<rpc::forge::bmc_credentials::Type> for BmcCredentials {
 mod tests {
     use std::sync::atomic::{AtomicUsize, Ordering};
 
-    use carbide_test_support::value_scenarios;
+    use carbide_test_support::{Check, check_values, value_scenarios};
+    use carbide_uuid::nvlink::NvLinkDomainId;
     use carbide_uuid::switch::{SwitchId, SwitchIdSource, SwitchType};
     use nv_redfish::bmc_http::reqwest::ClientParams as ReqwestClientParams;
 
@@ -844,6 +849,53 @@ mod tests {
             "mixed gpu driver versions" {
                 Some(discovery_with_driver_versions(&["570.82", "580.12"])) => None,
             }
+        );
+    }
+
+    #[test]
+    fn switch_endpoint_metadata_uses_non_nil_api_domain() {
+        let domain = NvLinkDomainId::from_str("9f4b45ec-705a-4af4-89f7-a112bc9c8f4e")
+            .expect("valid domain UUID");
+
+        check_values(
+            [
+                Check {
+                    scenario: "domain is missing",
+                    input: None,
+                    expect: None,
+                },
+                Check {
+                    scenario: "nil domain is absent",
+                    input: Some(NvLinkDomainId::nil()),
+                    expect: None,
+                },
+                Check {
+                    scenario: "non-nil API switch field",
+                    input: Some(domain),
+                    expect: Some(domain),
+                },
+            ],
+            |nvlink_domain_uuid| {
+                let metadata = switch_endpoint_metadata(
+                    &rpc::forge::Switch {
+                        config: Some(rpc::forge::SwitchConfig {
+                            name: "switch-a".to_string(),
+                            ..Default::default()
+                        }),
+                        nvlink_domain_uuid,
+                        ..Default::default()
+                    },
+                    SwitchEndpointRole::Bmc,
+                    false,
+                )
+                .expect("switch metadata");
+
+                let EndpointMetadata::Switch(switch) = metadata else {
+                    panic!("expected switch metadata");
+                };
+
+                switch.nvlink_domain_uuid
+            },
         );
     }
 

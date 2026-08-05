@@ -78,13 +78,23 @@ enable_ipmi_simulation = false
 # host_bmc_password = "vault-password"
 # dpu_bmc_password = "vault-password"
 
-# Optional rack declarations. Machine groups can reference these declarations
-# with rack_id to register rack-aware expected inventory.
+# Selecting the concrete WIWYNN GB200 rack supplies its 18 WIWYNN compute
+# trays, 9 NVIDIA ND5200 switch trays, and 8 LiteOn power shelves. The rack
+# profile tells NICo core how to manage the simulated rack.
 #
-# [racks.rack-001]
+# [racks.default]
+# type = "wiwynn_gb200_nvl72"
 # rack_profile_id = "NVL72"
+# ids = ["rack-001", "rack-002"]
+# dpu_reboot_delay = 20
+# host_reboot_delay = 10
+# oob_dhcp_relay_address = "192.168.192.1"
+# admin_dhcp_relay_address = "192.168.176.1"
+# host_inband_dhcp_relay_address = "192.168.177.1"
 
 [machines.config]
+# Standalone devices can share any rack ID. They cannot be added to one of the
+# atomic racks declared above.
 # rack_id = "rack-001"
 host_count = 3
 vpc_count = 10

@@ -102,13 +102,6 @@ func unmarshalActionV1(data json.RawMessage) (eventrule.Action, error) {
 				)
 			}
 
-			if decodedSeverity.IsUnspecified() {
-				return eventrule.Action{}, fmt.Errorf(
-					"condition severities[%d] cannot be unspecified",
-					i,
-				)
-			}
-
 			severities[i] = decodedSeverity
 		}
 
@@ -191,7 +184,6 @@ func unmarshalActionSpecV1(
 		if err != nil {
 			return nil, fmt.Errorf("decode send_alert action spec v1 severity: %w", err)
 		}
-
 		return eventrule.SendAlert{
 			Severity: severity,
 			Message:  persisted.Message,

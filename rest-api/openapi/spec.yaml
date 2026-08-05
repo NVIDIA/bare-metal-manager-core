@@ -4765,6 +4765,8 @@ paths:
         Infrastructure Provider must own the Expected Rack.
 
         Alternatively, Tenant Admins with `TargetedInstanceCreation` capability can also update Expected Racks if they have an account with the Site's Infrastructure Provider.
+
+        `rackId` is immutable: an update that changes it is rejected with `400` before any database mutation.
       requestBody:
         content:
           application/json:
@@ -17025,6 +17027,15 @@ components:
           minLength: 3
           maxLength: 64
           description: Routing profile type for the VPC. Populated when Site has Native Networking enabled and network virtualization type is `FNN`.
+        routingProfileOverrides:
+          oneOf:
+            - $ref: '#/components/schemas/VpcRoutingProfileOverrides'
+            - type: 'null'
+          description: Routing-profile properties set directly on the VPC. Unset properties inherit from the named routing profile.
+        effectiveRoutingProfile:
+          $ref: '#/components/schemas/VpcEffectiveRoutingProfile'
+          readOnly: true
+          description: Fully resolved routing profile last reported by Core for the VPC. This property is included only when the requesting Tenant has effective TargetedInstanceCreation permission for the VPC's Site.
         requestedVni:
           type:
             - integer
@@ -17078,6 +17089,119 @@ components:
           format: date-time
           readOnly: true
           description: Date/time when VPC was last updated
+    VpcRouteTarget:
+      title: VpcRouteTarget
+      type: object
+      description: BGP route target represented by an autonomous system number and VNI.
+      properties:
+        asn:
+          type: integer
+          format: int64
+          minimum: 0
+          maximum: 4294967295
+          description: Autonomous system number.
+        vni:
+          type: integer
+          format: int64
+          minimum: 0
+          maximum: 4294967295
+          description: Route-target VNI.
+    VpcRoutingProfileOverrides:
+      title: VpcRoutingProfileOverrides
+      type: object
+      description: Presence-aware routing-profile properties set directly on a VPC. Each present property replaces the corresponding named-profile value; omitted properties inherit from that profile.
+      properties:
+        routeTargetImports:
+          type:
+            - array
+            - 'null'
+          items:
+            $ref: '#/components/schemas/VpcRouteTarget'
+          description: Route targets imported into the VPC. An empty array overrides the named profile with no imports.
+        routeTargetsOnExports:
+          type:
+            - array
+            - 'null'
+          items:
+            $ref: '#/components/schemas/VpcRouteTarget'
+          description: Route targets attached to VPC exports. An empty array overrides the named profile with no export targets.
+        leakDefaultRouteFromUnderlay:
+          type:
+            - boolean
+            - 'null'
+          description: Whether the underlay default route is leaked into the VPC.
+        leakTenantHostRoutesToUnderlay:
+          type:
+            - boolean
+            - 'null'
+          description: Whether tenant host routes are leaked into the underlay.
+        tenantLeakCommunitiesAccepted:
+          type:
+            - boolean
+            - 'null'
+          description: Whether tenant-supplied route-leak communities are honored.
+        acceptedLeaksFromUnderlay:
+          type:
+            - array
+            - 'null'
+          items:
+            type: string
+            example: 192.0.2.0/24
+          description: IPv4 or IPv6 CIDR prefixes allowed to leak from the underlay. An empty array disables explicitly accepted leaks.
+        allowedAnycastPrefixes:
+          type:
+            - array
+            - 'null'
+          items:
+            type: string
+            example: 2001:db8::/64
+          description: IPv4 or IPv6 CIDR prefixes tenant hosts may announce as anycast routes. An empty array disables anycast announcements.
+    VpcEffectiveRoutingProfile:
+      title: VpcEffectiveRoutingProfile
+      type: object
+      description: Fully resolved routing profile computed by Core from the named profile and the VPC overrides.
+      properties:
+        routeTargetImports:
+          type: array
+          items:
+            $ref: '#/components/schemas/VpcRouteTarget'
+        routeTargetsOnExports:
+          type: array
+          items:
+            $ref: '#/components/schemas/VpcRouteTarget'
+        leakDefaultRouteFromUnderlay:
+          type: boolean
+        leakTenantHostRoutesToUnderlay:
+          type: boolean
+        tenantLeakCommunitiesAccepted:
+          type: boolean
+        acceptedLeaksFromUnderlay:
+          type: array
+          items:
+            type: string
+        allowedAnycastPrefixes:
+          type: array
+          items:
+            type: string
+        internal:
+          type: boolean
+          description: Operator-controlled internal-routing classification inherited from the named profile.
+        accessTier:
+          type: integer
+          format: int64
+          minimum: 0
+          maximum: 4294967295
+          description: Operator-controlled access tier inherited from the named profile.
+      required:
+        - routeTargetImports
+        - routeTargetsOnExports
+        - leakDefaultRouteFromUnderlay
+        - leakTenantHostRoutesToUnderlay
+        - tenantLeakCommunitiesAccepted
+        - acceptedLeaksFromUnderlay
+        - allowedAnycastPrefixes
+        - internal
+        - accessTier
     VpcStatus:
       title: VpcStatus
       type: string
@@ -17151,6 +17275,11 @@ components:
           minLength: 3
           maxLength: 64
           description: Specify routing profile for the VPC. Only supported when `networkVirtualizationType` is set to `FNN`, or when `networkVirtualizationType` is omitted and Site has Native Networking enabled. Requires Tenant to have elevated privilege. Current accepted values are `privileged-internal`, `internal`, and `external`.
+        routingProfileOverrides:
+          oneOf:
+            - $ref: '#/components/schemas/VpcRoutingProfileOverrides'
+            - type: 'null'
+          description: Routing-profile properties to overlay on the resolved named profile. Only supported for FNN VPCs and requires `TargetedInstanceCreation` to be effective for the Tenant at the VPC's Site. `routingProfile` may be omitted when the Site and Tenant configuration select a named profile.
         networkSecurityGroupId:
           type:
             - string
@@ -17206,6 +17335,11 @@ components:
             - 'null'
           format: uuid
           description: ID of the default NVLink Logical Partition that GPUs for all Instances in the VPC will attach to. Can only be updated if VPC currently has no active Instances
+        routingProfileOverrides:
+          oneOf:
+            - $ref: '#/components/schemas/VpcRoutingProfileOverrides'
+            - type: 'null'
+          description: Replaces the current inline routing-profile definition when present. Requires `TargetedInstanceCreation` to be effective for the Tenant at the VPC's Site. Omission or `null` preserves the current definition. An empty object restores inheritance for every property; a partial object replaces the previous definition and inherits its omitted properties from the named profile.
         labels:
           $ref: '#/components/schemas/Labels'
           description: 'Update labels of the VPC. Up to 10 key-value pairs can be specified. The labels will be replaced with the labels sent in the request. Any labels not included in the request will be removed. To retain existing labels, fetch them first and include them in this request.'
@@ -24364,6 +24498,8 @@ components:
 
         For single updates (PATCH /expected-rack/{id}), the `id` field is optional in the body and will be ignored if provided (the `id` from the URL path is used).
 
+        The `rackId` field is immutable on update — omit it or provide the existing value.
+
         Chassis identity and physical location information are conveyed via well-known label keys in `labels`:
         - `chassis.manufacturer`, `chassis.serial-number`, `chassis.model`
         - `location.region`, `location.datacenter`, `location.room`, `location.position`
@@ -24390,7 +24526,9 @@ components:
             - string
             - 'null'
           minLength: 1
-          description: Optional new operator-supplied rack identifier. If provided, must be non-empty and unique within the Site.
+          deprecated: true
+          description: |-
+            Operator-supplied rack identifier. Immutable on update: omit this field, send `null`, or provide the existing value as a compatibility no-op. A changed value is rejected because Core and Flow use rackId as the identity key for expected racks.
         rackProfileId:
           type:
             - string

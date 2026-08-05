@@ -1,9 +1,8 @@
 # How to write Rust in infra-controller
 
-The goal of this document is to help keep our codebase consistent and maintainable by outlining best-practices we've
-learned through experience. It is currently a mix of best practices for _this codebase_ (ie. how we expect code to
-be organized), and best practices for *Rust in general*. The latter is mostly motivated by issues we seen enough to
-warrant writing them down, but otherwise this document not aim to be a "how to write Rust" guide.
+This document helps keep our codebase consistent and maintainable by recording practices we have learned through
+experience. It combines conventions specific to this codebase, such as how we organize code, with Rust practices in
+general. The Rust guidance focuses on recurring issues rather than serving as a comprehensive guide.
 
 ## Core Principles
 
@@ -40,7 +39,8 @@ necessary for it to be merged early.
 
 Other common places where we've seen `#[allow(dead_code)]` that are not necessary:
 
-- If a field or function is only used in tests: Use `#[cfg(test)]` to include it only in test builds.
+- If a field or function exists only to support unit tests in the same crate, use `#[cfg(test)]` to include it only in
+  test builds.
 - If a field is written to but never read, but needs to be held so its `Drop` impl does not run: Name it with an
   underscore to hint that it's not supposed to be read
 - If a field is only used if certain crate features are enabled, prefer `#[cfg(feature = "feature")]` to only
@@ -48,6 +48,50 @@ Other common places where we've seen `#[allow(dead_code)]` that are not necessar
 - If a field isn't currently yet, but you want to leave it around as documentation on what fields could exist (like an
   unused database column, or unused JSON field), comment it out.
 - Otherwise, strongly consider deleting the code.
+
+## Visibility
+
+Visibility is an API boundary. Keep modules, types, fields, functions, methods, constants, and re-exports private by
+default, and widen each declaration only as far as its actual callers require:
+
+| Required Caller | Visibility |
+| --- | --- |
+| The defining module and its descendants | No modifier (private) |
+| The parent module and its descendants | `pub(super)` |
+| One named ancestor module and its descendants | `pub(in crate::path)` |
+| Any module in the same crate | `pub(crate)` |
+| Another crate, including another workspace package | `pub` |
+
+Every module in an item's declaration path limits access. A re-export creates a separate access path and must use the
+visibility intended for that API. Keep implementation modules private and re-export only the intended public types when
+this produces a clearer API:
+
+```rust
+mod client;
+pub use client::Client;
+```
+
+A bare `pub` declaration inside a private module is appropriate when an intentional public re-export exposes it.
+Otherwise, declare the restricted visibility that matches its callers. Start new code private, and widen it only when
+compiler errors or known callers establish a broader boundary.
+
+Do not use `pub` to avoid a `dead_code` warning. If a declaration has no caller, remove it, gate test-only support, or
+use the phased-development exception in [A note on dead code](#a-note-on-dead-code).
+
+See [Fields and getters](#fields-and-getters) for guidance on direct field access. A visible field should be no more
+visible than its type and may be narrower when only some callers need it.
+
+Unit tests in a descendant `#[cfg(test)] mod tests` can access private ancestor items. Do not widen production
+visibility for them. Put a declaration behind `#[cfg(test)]` when the declaration itself is test support, not when
+production logic merely lacks a production caller.
+
+Integration tests, examples, and benchmarks compile as separate crates, so library items behind `#[cfg(test)]` are not
+available to them. Prefer testing the public API. When fixtures must cross a crate boundary, use a dedicated
+test-support crate or an explicit feature, following the existing
+`#[cfg(any(test, feature = "test-support"))] pub mod test_support;` pattern.
+
+Keep helper paths referenced by exported macro expansions public, even when they are hidden from generated
+documentation.
 
 ## Testing
 
@@ -117,23 +161,24 @@ See [`crates/test-support/src/lib.rs`](crates/test-support/src/lib.rs) for the f
 
 - APIs to list resources and retrieve resource state should be paginated in order to scale to a high amount of managed
   resources. Pagination should be achieved in the following fashion:
-    - An API call with the format `FindResourceNameIds` (e.g. `FindMachineIds`) should be used to list the IDs of all
-      resources. It should take a `ResourceNameSearchFilter` message as argument, that allows to narrow down the amount
-      of returned IDs according to certain criteria. If multiple criteria are provided, the API should search for
-      resources where all criteria apply.
-    - An API call with the format `FindResourceNamesByIds` (e.g. `FindMachinesByIds`) should be used to retrieve the
-      state of the resources.
+  - An API call with the format `FindResourceNameIds` (e.g. `FindMachineIds`) should be used to list the IDs of all
+    resources. It should take a `ResourceNameSearchFilter` message as argument, that allows to narrow down the amount
+    of returned IDs according to certain criteria. If multiple criteria are provided, the API should search for
+    resources where all criteria apply.
+  - An API call with the format `FindResourceNamesByIds` (e.g. `FindMachinesByIds`) should be used to retrieve the
+    state of the resources.
 - Each resource object that is configurable by API users should contain the following set of fields:
-    - An `id` field that identifies the resource.
-    - A `config` field that holds every value that is set by API callers (site admins or tenants).
-    - A `status` field which holds every value that is generated by the system (not user-provided)
-    - A `metadata` field if the resource has user-changeable metadata (name, description or labels)
-    - A `version` field which describes how often the `config` of the resource was updated and when the last change
-      occured. The version field needs to get incremented every time a tenant or site admin changes the `config` of a
-      certain resource. This allows the system to identify whether anything changed purely by comparing version numbers.
+  - An `id` field that identifies the resource.
+  - A `config` field that holds every value that is set by API callers (site admins or tenants).
+  - A `status` field which holds every value that is generated by the system (not user-provided)
+  - A `metadata` field if the resource has user-changeable metadata (name, description or labels)
+  - A `version` field which describes how often the `config` of the resource was updated and when the last change
+    occurred. The version field needs to get incremented every time a tenant or site admin changes the `config` of a
+    certain resource. This allows the system to identify whether anything changed purely by comparing version numbers.
 
   Example of a complete resource:
-  ```
+
+  ```protobuf
   message AmazingResource {
     common.AmazingResourceId id = 1;
     Metadata metadata = 2;
@@ -142,15 +187,17 @@ See [`crates/test-support/src/lib.rs`](crates/test-support/src/lib.rs) for the f
     string version = 5;
   }
   ```
+
 - If the lifecycle of a resource is managed by a state handler, the resource should contain the following extra fields:
-    - A `state` field which shows the lifecycle state of the resource
-    - A `state_version` field which gets incremented every time the resource switches between states
-    - A `state_reason` field which shows the outcome of the last state handler run
-    - A `state_sla` field which shows the SLA for the state, and whether it had been breached.
+  - A `state` field which shows the lifecycle state of the resource
+  - A `state_version` field which gets incremented every time the resource switches between states
+  - A `state_reason` field which shows the outcome of the last state handler run
+  - A `state_sla` field which shows the SLA for the state, and whether it had been breached.
 
 ## Networking integrations
 
-Networking technologies should be integrated using the workflows described in [Networking Integrations](book/src/architecture/networking_integrations.md).
+Networking technologies should be integrated using the workflows described in
+[Networking Integrations](docs/architecture/networking_integrations.md).
 
 ## Metrics
 
@@ -619,11 +666,12 @@ callers call `.parse()`, which can be given a `&str` slice, which can avoid need
 
 ### Fields and getters
 
-Avoid writing getters like `.some_field()` for a type, and prefer just making that field public.
+Avoid writing getters like `.some_field()` for a type, and prefer giving the field the narrowest direct visibility its
+callers need.
 
-The reason for this is specific to Rust and its ownership model: Public fields allow _partial moves_ of an object to
-take ownership of its fields, whereas getters have to pick an ownership model that might not match what the caller
-needs.
+The reason for this is specific to Rust and its ownership model: Directly visible fields allow *partial moves* of an
+object to take ownership of its fields, whereas getters have to pick an ownership model that might not match what the
+caller needs.
 
 For example, if a type `User` has a field `pub name: String`, callers that own a User have several options for
 reading the name field:
@@ -655,8 +703,8 @@ impl User {
 }
 ```
 
-In cases where you don't want a field to be public for other reasons (like not allowing callers to write to it), and
-you must write a getter, consider making two versions, a borrowed getter and an `into_` getter:
+In cases where you do not want a field to be directly visible for other reasons, such as preventing callers from
+writing to it, and you must write a getter, consider making two versions, a borrowed getter and an `into_` getter:
 
 ```rust
 impl User {
@@ -672,8 +720,8 @@ impl User {
 }
 ```
 
-or an `into_parts` function, if you want to return multiple fields at once. But again, `pub` fields are
-simplest and can avoid all of this, if you are able to use them.
+or an `into_parts` function, if you want to return multiple fields at once. Exposing fields directly at the required
+scope is simpler and avoids all of this whenever the field can be exposed safely.
 
 ### Avoid needless clones
 

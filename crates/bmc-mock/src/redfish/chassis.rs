@@ -140,6 +140,7 @@ pub struct SingleChassisConfig {
     pub manufacturer: Option<Cow<'static, str>>,
     pub model: Option<Cow<'static, str>>,
     pub part_number: Option<Cow<'static, str>>,
+    pub sku: Option<Cow<'static, str>>,
     pub network_adapters: Option<Vec<redfish::network_adapter::NetworkAdapter>>,
     pub pcie_devices: Option<Vec<redfish::pcie_device::PCIeDevice>>,
     pub sensors: Option<Vec<redfish::sensor::Sensor>>,
@@ -161,6 +162,7 @@ impl SingleChassisConfig {
             manufacturer: None,
             model: None,
             part_number: None,
+            sku: None,
             network_adapters: None,
             pcie_devices: None,
             sensors: None,
@@ -317,6 +319,7 @@ async fn get_chassis(State(state): State<BmcState>, Path(chassis_id): Path<Strin
         .maybe_with(ChassisBuilder::serial_number, &config.serial_number)
         .maybe_with(ChassisBuilder::manufacturer, &config.manufacturer)
         .maybe_with(ChassisBuilder::part_number, &config.part_number)
+        .maybe_with(ChassisBuilder::sku, &config.sku)
         .maybe_with(ChassisBuilder::power_subsystem, &power_subsystem)
         .maybe_with(ChassisBuilder::thermal_subsystem, &thermal_subsystem)
         .maybe_with(ChassisBuilder::model, &config.model);
@@ -644,6 +647,10 @@ impl ChassisBuilder {
 
     pub fn model(self, v: &str) -> Self {
         self.add_str_field("Model", v)
+    }
+
+    pub fn sku(self, v: &str) -> Self {
+        self.add_str_field("SKU", v)
     }
 
     pub fn assembly(self, v: &redfish::Resource<'_>) -> Self {

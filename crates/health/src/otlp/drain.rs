@@ -171,7 +171,7 @@ impl OtlpDrainTask {
             return;
         }
 
-        let request = build_export_request(batch);
+        let request = build_export_request(batch, self.target.include_alert_details);
         batch.clear();
 
         let record_count = request

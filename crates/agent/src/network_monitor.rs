@@ -624,19 +624,13 @@ impl Ping for HbnExecPinger {
 /// Parse ping standard output to valid dpu ping result,
 /// including number of successful pings and average latency.
 pub fn parse_ping_stdout(dpu_info: DpuInfo, stdout: &str) -> Result<DpuPingResult, eyre::Report> {
-    let summary_re = Regex::new(r"(\d+) packets transmitted, (\d+) received, (\d+)% packet loss")?;
+    let summary_re = Regex::new(
+        r"(\d+) packets transmitted, (\d+) received,(?:\s*\+\d+ errors,)? (\d+)% packet loss",
+    )?;
     let rtt_re = Regex::new(r"rtt min/avg/max/mdev = [\d\.]+/([\d\.]+)/[\d\.]+/[\d\.]+ ms")?;
 
-    let mut lines_iter = stdout.lines().rev();
-    let rtt_line = lines_iter
-        .next()
-        .ok_or_else(|| eyre::eyre!("failed to find RTT line"))?;
-    let summary_line = lines_iter
-        .next()
-        .ok_or_else(|| eyre::eyre!("failed to find summary line"))?;
-
     let success_count = summary_re
-        .captures(summary_line)
+        .captures(stdout)
         .and_then(|caps| caps.get(2).and_then(|m| m.as_str().parse::<u32>().ok()))
         .ok_or_else(|| eyre::eyre!("failed to parse number of success packets"))?;
 
@@ -649,7 +643,7 @@ pub fn parse_ping_stdout(dpu_info: DpuInfo, stdout: &str) -> Result<DpuPingResul
     }
 
     let latency = rtt_re
-        .captures(rtt_line)
+        .captures(stdout)
         .and_then(|caps| caps.get(1).and_then(|m| m.as_str().parse::<f64>().ok()))
         .ok_or_else(|| eyre::eyre!("failed to average latency"))?;
 
@@ -658,6 +652,58 @@ pub fn parse_ping_stdout(dpu_info: DpuInfo, stdout: &str) -> Result<DpuPingResul
         success_count,
         average_latency: Some(Duration::from_secs_f64(latency / 1000.0)),
     })
+}
+
+#[cfg(test)]
+mod parse_ping_stdout_tests {
+    use std::time::Duration;
+
+    use carbide_test_support::Outcome::*;
+    use carbide_test_support::scenarios;
+
+    use super::{DpuInfo, parse_ping_stdout};
+
+    const DPU_ID: &str = "fm100dsvstfujf6mis0gpsoi81tadmllicv7rqo4s7gc16gi0t2478672vg";
+
+    #[test]
+    fn parses_ping_results() {
+        scenarios!(run = |stdout| {
+            let result = parse_ping_stdout(
+                DpuInfo {
+                    id: DPU_ID.parse().expect("valid machine id"),
+                    ip: "172.20.0.200".parse().expect("valid IP address"),
+                },
+                stdout,
+            )
+            .map_err(|_| ())?;
+
+            Ok::<_, ()>((result.success_count, result.average_latency))
+        };
+            "successful ping" {
+                "5 packets transmitted, 5 received, 0% packet loss, time 4006ms\n\
+                 rtt min/avg/max/mdev = 0.084/0.102/0.127/0.014 ms" =>
+                    Yields((5, Some(Duration::from_secs_f64(0.102 / 1000.0)))),
+            }
+
+            "complete packet loss without RTT line" {
+                "PING 172.20.0.200 (172.20.0.200) 56(84) bytes of data.\n\n\
+                 --- 172.20.0.200 ping statistics ---\n\
+                 5 packets transmitted, 0 received, 100% packet loss, time 4092ms" =>
+                    Yields((0, None)),
+            }
+
+            "complete packet loss with errors field" {
+                "PING 172.20.0.200 (172.20.0.200) 56(84) bytes of data.\n\n\
+                 --- 172.20.0.200 ping statistics ---\n\
+                 5 packets transmitted, 0 received, +5 errors, 100% packet loss, time 4092ms" =>
+                    Yields((0, None)),
+            }
+
+            "missing packet summary" {
+                "PING 172.20.0.200 (172.20.0.200) 56(84) bytes of data." => Fails,
+            }
+        );
+    }
 }
 
 #[derive(Debug)]

@@ -5,6 +5,12 @@ This file contains a list of metrics exported by NVIDIA Infra Controller (NICo).
 <table>
 <tr><td>Name</td><td>Type</td><td>Description</td></tr>
 <tr><td>carbide_active_host_firmware_update_count</td><td>gauge</td><td>Number of host machines in the system currently working on updating their firmware.</td></tr>
+<tr><td>carbide_api_admission_admitted_total</td><td>counter</td><td>Number of API requests admitted for execution</td></tr>
+<tr><td>carbide_api_admission_handler_execution_duration_seconds</td><td>histogram</td><td>Duration of admitted API request handler execution</td></tr>
+<tr><td>carbide_api_admission_pending_requests</td><td>gauge</td><td>Number of API requests currently waiting for an execution slot</td></tr>
+<tr><td>carbide_api_admission_pending_wait_duration_seconds</td><td>histogram</td><td>Duration API requests spent waiting for admission</td></tr>
+<tr><td>carbide_api_admission_rejected_total</td><td>counter</td><td>Number of API requests rejected before handler execution</td></tr>
+<tr><td>carbide_api_admission_work_in_flight</td><td>gauge</td><td>Number of API requests currently holding an execution slot</td></tr>
 <tr><td>carbide_api_db_queries_total</td><td>counter</td><td>Number of database queries that occurred inside a span</td></tr>
 <tr><td>carbide_api_db_span_query_time_milliseconds</td><td>histogram</td><td>Total time the request spent inside a span on database transactions</td></tr>
 <tr><td>carbide_api_grpc_server_duration_milliseconds</td><td>histogram</td><td>Processing time for a request on the carbide API server</td></tr>

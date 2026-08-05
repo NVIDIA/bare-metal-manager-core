@@ -205,6 +205,14 @@ pub(crate) async fn start_runtime(
     cancel_token: CancellationToken,
     ready_channel: Sender<()>,
 ) -> eyre::Result<()> {
+    eyre::ensure!(
+        !matches!(
+            (carbide_config.dpf.enabled, &carbide_config.vmaas_config),
+            (true, Some(_))
+        ),
+        "cannot enable both VMaaS and DPF; disable one in the configuration"
+    );
+
     let shared_redfish_pool = create_redfish_pool(&carbide_config, credential_manager.clone())?;
     let shared_nv_redfish_pool =
         carbide_redfish::nv_redfish::new_pool(carbide_config.site_explorer.bmc_proxy.clone());

@@ -42,6 +42,12 @@ pub mod dell_poweredge_r760_bf4;
 /// Support of Wiwynn GB200 NVL servers.
 pub mod wiwynn_gb200_nvl;
 
+/// Rack hardware layouts.
+pub mod rack;
+
+/// WIWYNN GB200 NVL72 rack.
+pub mod wiwynn_gb200_nvl72_rack;
+
 /// Support of Lenovo GB300 NVL servers.
 pub mod lenovo_gb300_nvl;
 
@@ -62,6 +68,9 @@ pub mod delta_power_shelf;
 
 /// Support of NVIDIA Switch ND5200_LD.
 pub mod nvidia_switch_nd5200_ld;
+
+/// Support of NVIDIA Switch N5700_LD.
+pub mod nvidia_switch_n5700_ld;
 
 /// Support of NVIDIA DGX H100.
 pub mod nvidia_dgx_h100;

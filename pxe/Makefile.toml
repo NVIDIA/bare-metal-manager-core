@@ -108,10 +108,18 @@ dependencies = [
 ]
 
 [tasks.stage-scout-loader-rclocal]
-description = "Copies the rc.local script to the scout loader profile directories"
+description = "Copies the Scout loader helpers to the scout loader profile directories"
 script = '''
+  set -e
+
   cp ${REPO_ROOT}/pxe/common_files/scout-loader-rclocal ${REPO_ROOT}/pxe/mkosi.profiles/scout-loader-aarch64/mkosi.extra/etc/rc.local
   cp ${REPO_ROOT}/pxe/common_files/scout-loader-rclocal ${REPO_ROOT}/pxe/mkosi.profiles/scout-loader-x86_64/mkosi.extra/etc/rc.local
+
+  mkdir -p ${REPO_ROOT}/pxe/mkosi.profiles/scout-loader-aarch64/mkosi.extra/opt/forge/
+  cp ${REPO_ROOT}/pxe/common_files/forge-scout-network.sh ${REPO_ROOT}/pxe/mkosi.profiles/scout-loader-aarch64/mkosi.extra/opt/forge/
+
+  mkdir -p ${REPO_ROOT}/pxe/mkosi.profiles/scout-loader-x86_64/mkosi.extra/opt/forge/
+  cp ${REPO_ROOT}/pxe/common_files/forge-scout-network.sh ${REPO_ROOT}/pxe/mkosi.profiles/scout-loader-x86_64/mkosi.extra/opt/forge/
 '''
 
 [tasks.stage-scout-update-check]
@@ -196,6 +204,7 @@ dependencies = [
 dependencies = [
   "mkdir-static",
   { name = "package-scout-aarch64-release-cross", path = "${REPO_ROOT}" },
+  "create-ephemeral-image-arm-host",
   "bfb-aarch64-sa",
   "ipxe-aarch64-sa",
   "setup-apt-repo-arm64",

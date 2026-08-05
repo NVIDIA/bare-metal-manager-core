@@ -21317,9 +21317,19 @@ func (x *MachineList) GetMachines() []*Machine {
 	return nil
 }
 
+// Selects the interface(s) to delete. Exactly one of `id` or `mac_address` must be set.
+// Deleting by MAC exists for cleaning up a leftover interface when the operator has the
+// MAC but not the interface id -- e.g. a replacement host whose ingestion is blocked by
+// a stale interface record, where the MAC is read off the chassis or expected machines.
 type InterfaceDeleteQuery struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Id            *MachineInterfaceId    `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	state protoimpl.MessageState `protogen:"open.v1"`
+	Id    *MachineInterfaceId    `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	// Delete every interface whose own MAC address matches this value; it is not filtered
+	// by interface type (for a BMC interface this is the BMC MAC). A MAC is unique only
+	// per network segment, so this may match more than one interface -- they are all
+	// validated before any is deleted, so a match that still belongs to a live machine,
+	// DPU, switch or power shelf refuses the whole request.
+	MacAddress    *string `protobuf:"bytes,2,opt,name=mac_address,json=macAddress,proto3,oneof" json:"mac_address,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -21359,6 +21369,13 @@ func (x *InterfaceDeleteQuery) GetId() *MachineInterfaceId {
 		return x.Id
 	}
 	return nil
+}
+
+func (x *InterfaceDeleteQuery) GetMacAddress() string {
+	if x != nil && x.MacAddress != nil {
+		return *x.MacAddress
+	}
+	return ""
 }
 
 type InterfaceSearchQuery struct {
@@ -64596,9 +64613,12 @@ const file_nico_nico_proto_rawDesc = "" +
 	"interfaces\x18\x01 \x03(\v2\x17.forge.MachineInterfaceR\n" +
 	"interfaces\"9\n" +
 	"\vMachineList\x12*\n" +
-	"\bmachines\x18\x01 \x03(\v2\x0e.forge.MachineR\bmachines\"B\n" +
+	"\bmachines\x18\x01 \x03(\v2\x0e.forge.MachineR\bmachines\"x\n" +
 	"\x14InterfaceDeleteQuery\x12*\n" +
-	"\x02id\x18\x01 \x01(\v2\x1a.common.MachineInterfaceIdR\x02id\"j\n" +
+	"\x02id\x18\x01 \x01(\v2\x1a.common.MachineInterfaceIdR\x02id\x12$\n" +
+	"\vmac_address\x18\x02 \x01(\tH\x00R\n" +
+	"macAddress\x88\x01\x01B\x0e\n" +
+	"\f_mac_address\"j\n" +
 	"\x14InterfaceSearchQuery\x12/\n" +
 	"\x02id\x18\x01 \x01(\v2\x1a.common.MachineInterfaceIdH\x00R\x02id\x88\x01\x01\x12\x13\n" +
 	"\x02ip\x18\x02 \x01(\tH\x01R\x02ip\x88\x01\x01B\x05\n" +
@@ -72845,6 +72865,7 @@ func file_nico_nico_proto_init() {
 	file_nico_nico_proto_msgTypes[222].OneofWrappers = []any{}
 	file_nico_nico_proto_msgTypes[225].OneofWrappers = []any{}
 	file_nico_nico_proto_msgTypes[234].OneofWrappers = []any{}
+	file_nico_nico_proto_msgTypes[239].OneofWrappers = []any{}
 	file_nico_nico_proto_msgTypes[240].OneofWrappers = []any{}
 	file_nico_nico_proto_msgTypes[248].OneofWrappers = []any{}
 	file_nico_nico_proto_msgTypes[249].OneofWrappers = []any{}

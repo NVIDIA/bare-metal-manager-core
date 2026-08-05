@@ -90,6 +90,7 @@ fn vendor_class_for(machine: DhcpMachine, requester: DhcpRequester) -> Option<&'
                 | HardwareType::LiteOnPowerShelf
                 | HardwareType::DeltaPowerShelf
                 | HardwareType::NvidiaSwitchNd5200Ld
+                | HardwareType::NvidiaSwitchN5700Ld
                 | HardwareType::NvidiaDgxH100
                 | HardwareType::GenericAmi
                 | HardwareType::GenericSupermicro,
@@ -108,6 +109,7 @@ fn vendor_class_for(machine: DhcpMachine, requester: DhcpRequester) -> Option<&'
                 | HardwareType::LiteOnPowerShelf
                 | HardwareType::DeltaPowerShelf
                 | HardwareType::NvidiaSwitchNd5200Ld
+                | HardwareType::NvidiaSwitchN5700Ld
                 | HardwareType::NvidiaDgxH100
                 | HardwareType::GenericAmi
                 | HardwareType::HpeProliantDl380aGen11
@@ -387,6 +389,22 @@ mod tests {
                     scenario: "host system PXE client",
                     input: (
                         DhcpMachine::Host(HardwareType::GenericAmi),
+                        DhcpRequester::System,
+                    ),
+                    expect: Some("PXEClient:Arch:00007:UNDI:003000"),
+                },
+                Check {
+                    scenario: "N5700_LD BMC has no verified vendor class",
+                    input: (
+                        DhcpMachine::Host(HardwareType::NvidiaSwitchN5700Ld),
+                        DhcpRequester::Bmc,
+                    ),
+                    expect: None,
+                },
+                Check {
+                    scenario: "N5700_LD NVOS PXE client",
+                    input: (
+                        DhcpMachine::Host(HardwareType::NvidiaSwitchN5700Ld),
                         DhcpRequester::System,
                     ),
                     expect: Some("PXEClient:Arch:00007:UNDI:003000"),

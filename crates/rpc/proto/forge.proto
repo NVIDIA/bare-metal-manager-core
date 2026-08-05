@@ -3685,8 +3685,19 @@ message MachineList {
   repeated Machine machines = 1;
 }
 
+// Selects the interface(s) to delete. Exactly one of `id` or `mac_address` must be set.
+// Deleting by MAC exists for cleaning up a leftover interface when the operator has the
+// MAC but not the interface id -- e.g. a replacement host whose ingestion is blocked by
+// a stale interface record, where the MAC is read off the chassis or expected machines.
 message InterfaceDeleteQuery {
   common.MachineInterfaceId id = 1;
+
+  // Delete every interface whose own MAC address matches this value; it is not filtered
+  // by interface type (for a BMC interface this is the BMC MAC). A MAC is unique only
+  // per network segment, so this may match more than one interface -- they are all
+  // validated before any is deleted, so a match that still belongs to a live machine,
+  // DPU, switch or power shelf refuses the whole request.
+  optional string mac_address = 2;
 }
 
 message InterfaceSearchQuery {

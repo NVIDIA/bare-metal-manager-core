@@ -225,4 +225,13 @@ impl DeviceHandle {
     ) -> Self {
         Self::machine(MachineHandle::for_control_test(dpus, ipmi_endpoint))
     }
+
+    #[cfg(test)]
+    pub(crate) fn for_control_test_in_section(machine_config_section: &str) -> Self {
+        Self::machine(MachineHandle::for_control_test_in_section(
+            Vec::new(),
+            None,
+            machine_config_section,
+        ))
+    }
 }

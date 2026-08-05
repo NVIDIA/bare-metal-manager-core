@@ -111,7 +111,7 @@ The DevSpace images also use Dockerfile-specific ignore files: [`Dockerfile.api.
 
 DevSpace watches the Rust workspace, toolchain metadata, and the runtime Dockerfiles to decide when images need rebuilding. On kind clusters, the pre-deploy hooks load all Core and REST images into the cluster selected by the current kube context.
 
-The `nico-machine-a-tron` Helm subchart configuration is in [`values.base.yaml`](values.base.yaml). The local API and BMC proxy configs point BMC traffic at `nico-machine-a-tron-bmc-mock.nico-system.svc.cluster.local:1266`.
+The `nico-machine-a-tron` Helm subchart configuration is in [`values.base.yaml`](values.base.yaml). The local API and BMC proxy configs point BMC traffic at `nico-machine-a-tron-mat-0-bmc-mock.nico-system.svc.cluster.local:1266`.
 
 Common usage:
 

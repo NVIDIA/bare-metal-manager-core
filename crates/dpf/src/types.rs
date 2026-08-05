@@ -377,6 +377,7 @@ impl From<DpuStatusPhase> for DpuPhase {
                 Self::Provisioning("PerformArmForceRestart".into())
             }
             DpuStatusPhase::UpdateFirmware => Self::Provisioning("UpdateFirmware".into()),
+            DpuStatusPhase::HostOsInitRelease => Self::Provisioning("HostOsInitRelease".into()),
         }
     }
 }

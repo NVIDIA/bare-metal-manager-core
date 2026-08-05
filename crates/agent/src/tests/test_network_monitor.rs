@@ -60,11 +60,11 @@ pub async fn test_network_monitor() -> eyre::Result<()> {
     let app = Router::new()
         .route("/up", get(handle_up))
         .route(
-            "/forge.Forge/GetDpuInfoList",
+            ::rpc::service_path!("GetDpuInfoList"),
             post(handle_get_dpu_info_list),
         )
         // ForgeApiClient needs a working Version route for connection retrying
-        .route("/forge.Forge/Version", post(handle_version))
+        .route(::rpc::service_path!("Version"), post(handle_version))
         .fallback(handler)
         .with_state(state.clone());
     let (addr, join_handle) = common::run_grpc_server(app).await?;

@@ -74,6 +74,9 @@ func TestActionRejectsInvalidDomainValues(t *testing.T) {
 		"unspecified severity": NewAction(
 			"noop", ActionCondition{Severities: []Severity{SeverityUnspecified}}, Noop{},
 		),
+		"unspecified alert severity": NewAction(
+			"alert", ActionCondition{}, SendAlert{Severity: SeverityUnspecified},
+		),
 		"unknown strategy": NewAction(
 			"task", ActionCondition{}, unknownStrategySpec,
 		),
@@ -120,19 +123,40 @@ func TestActionConditionAppliesTo(t *testing.T) {
 		ComponentTypes: []flowtypes.ComponentType{flowtypes.ComponentTypeCompute},
 	}
 
-	assert.True(t, condition.AppliesTo(Envelope{
-		Severity: SeverityCritical,
-		Resource: Resource{ComponentType: flowtypes.ComponentTypeCompute},
-	}))
-	assert.False(t, condition.AppliesTo(Envelope{
-		Severity: SeverityInfo,
-		Resource: Resource{ComponentType: flowtypes.ComponentTypeCompute},
-	}))
-	assert.False(t, condition.AppliesTo(Envelope{
-		Severity: SeverityCritical,
-		Resource: Resource{ComponentType: flowtypes.ComponentTypeNVSwitch},
-	}))
-	assert.False(t, ActionCondition{Severities: []Severity{}}.AppliesTo(Envelope{
-		Severity: SeverityCritical,
-	}))
+	tests := map[string]struct {
+		condition ActionCondition
+		envelope  Envelope
+		resource  ResolvedResource
+		want      bool
+	}{
+		"matches severity and component type": {
+			condition: condition,
+			envelope:  Envelope{Severity: SeverityCritical},
+			resource:  ResolvedResource{ComponentType: flowtypes.ComponentTypeCompute},
+			want:      true,
+		},
+		"rejects severity": {
+			condition: condition,
+			envelope:  Envelope{Severity: SeverityInfo},
+			resource:  ResolvedResource{ComponentType: flowtypes.ComponentTypeCompute},
+		},
+		"rejects component type": {
+			condition: condition,
+			envelope:  Envelope{Severity: SeverityCritical},
+			resource:  ResolvedResource{ComponentType: flowtypes.ComponentTypeNVSwitch},
+		},
+		"empty severity set matches nothing": {
+			condition: ActionCondition{Severities: []Severity{}},
+			envelope:  Envelope{Severity: SeverityCritical},
+		},
+	}
+
+	for name, test := range tests {
+		t.Run(name, func(t *testing.T) {
+			assert.Equal(t, test.want, test.condition.AppliesTo(
+				test.envelope,
+				test.resource,
+			))
+		})
+	}
 }

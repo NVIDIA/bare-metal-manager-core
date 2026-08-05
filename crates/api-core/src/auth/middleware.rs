@@ -248,7 +248,7 @@ impl<B> From<&Request<B>> for RequestClass {
 
         if let Some((service_name, method_name)) = endpoint_path.split_once('/') {
             match (service_name, method_name) {
-                ("forge.Forge", m) => ForgeMethod(m.into()),
+                (::rpc::forge::forge_server::SERVICE_NAME, m) => ForgeMethod(m.into()),
                 (s, "ServerReflectionInfo") if s.ends_with(".ServerReflection") => GrpcReflection,
                 _ => Unrecognized,
             }
@@ -419,8 +419,10 @@ mod tests {
         handler: MissingAuthContextHandler,
     ) -> MissingAuthContextObservation {
         let metrics = MetricsCapture::start();
-        let request =
-            forge_request_without_auth_context("/forge.Forge/PowerControl", "203.0.113.15:41000");
+        let request = forge_request_without_auth_context(
+            ::rpc::service_path!("PowerControl"),
+            "203.0.113.15:41000",
+        );
         let mut status = None;
 
         let logs = capture_logs(|| {
@@ -516,7 +518,7 @@ mod tests {
 
         let logs = capture_logs(|| {
             let request = forge_request(
-                "/forge.Forge/PowerControl",
+                ::rpc::service_path!("PowerControl"),
                 vec![Principal::TrustedCertificate],
                 "203.0.113.9:52011",
             );
@@ -569,7 +571,7 @@ mod tests {
             // MachineSetup permits only the admin CLI, never a bare trusted
             // certificate.
             let request = forge_request(
-                "/forge.Forge/MachineSetup",
+                ::rpc::service_path!("MachineSetup"),
                 vec![Principal::TrustedCertificate],
                 "198.51.100.4:40000",
             );
