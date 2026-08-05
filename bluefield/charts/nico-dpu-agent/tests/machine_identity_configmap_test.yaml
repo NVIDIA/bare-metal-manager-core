@@ -10,8 +10,5 @@ tests:
       - equal:
           path: data["config.toml"]
           value: |
-            # AgentConfig requires the machine table even when all fields use defaults.
-            [machine]
-
             [machine-identity]
             sign-proxy-url = "http://dsx-imds.dpf-operator-system.svc.cluster.local:8080"

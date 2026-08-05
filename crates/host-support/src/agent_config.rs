@@ -68,10 +68,11 @@ pub struct MachineConfigFromPxe {
 ///
 /// This is what we READ from /etc/forge/config.toml. In prod most of the fields will default.
 /// We only implement Serialize for unit tests.
-#[derive(Debug, Default, Clone, Serialize, Deserialize)]
+#[derive(Debug, Default, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AgentConfig {
     #[serde(default, rename = "forge-system")]
     pub forge_system: ForgeSystemConfig,
+    #[serde(default)]
     pub machine: MachineConfig,
     #[serde(default, rename = "metadata-service")]
     pub metadata_service: MetadataServiceConfig,
@@ -817,6 +818,17 @@ sign-timeout-secs = 9
                 "[fmds-armos-networking.config]\naddresses = [\"not-a-cidr\"]\n" => Fails,
             }
         );
+    }
+
+    #[test]
+    fn machine_identity_only_uses_agent_defaults() {
+        let url = "http://dsx-imds.dpf-operator-system.svc.cluster.local:8080";
+        let actual: AgentConfig =
+            toml::from_str(&format!("[machine-identity]\nsign-proxy-url = {url:?}\n")).unwrap();
+        let mut expected = AgentConfig::default();
+        expected.machine_identity.sign_proxy_url = Some(url.to_string());
+
+        assert_eq!(actual, expected);
     }
 
     // Field-level assertions on the FULL parse: each original `assert_eq!` becomes

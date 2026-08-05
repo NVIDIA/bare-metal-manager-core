@@ -7,9 +7,6 @@ metadata:
     {{- include "nico-dpu-agent.labels" $ | nindent 4 }}
 data:
   config.toml: |
-    # AgentConfig requires the machine table even when all fields use defaults.
-    [machine]
-
     [machine-identity]
     sign-proxy-url = {{ . | quote }}
 {{- end }}
