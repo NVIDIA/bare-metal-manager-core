@@ -1458,12 +1458,20 @@ jobs:
           persist-credentials: false
 
       - name: Build pull request merge result
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
         run: |
           git config --global --add safe.directory "$GITHUB_WORKSPACE"
-          git fetch --no-tags origin main:refs/remotes/origin/main
+          PR_NUMBER="${GITHUB_REF_NAME##pull-request/}"
+          TARGET=$(curl -sf \
+            -H "Authorization: Bearer $GITHUB_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER" \
+            | jq -r '.base.ref')
+          git fetch --no-tags origin "${TARGET}:refs/remotes/origin/${TARGET}"
           git -c user.name="CI merge validation" \
             -c user.email=ci@example.invalid \
-            merge --no-commit --no-ff origin/main
+            merge --no-commit --no-ff "origin/${TARGET}"
 
       - name: Validate Cargo metadata
         run: cargo metadata --locked --no-deps --format-version 1 >/dev/null
