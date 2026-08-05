@@ -16,9 +16,11 @@
  */
 
 use ipnetwork::IpNetwork;
+use model::metadata::Metadata;
 use model::site_prefix::{
-    PrefixMatch, SitePrefix, SitePrefixAuthority, SitePrefixLifecycleState, SitePrefixRoutingScope,
-    SitePrefixSearchFilter,
+    NewTenantManagedSitePrefix, PrefixMatch, RetireTenantManagedSitePrefix, SitePrefix,
+    SitePrefixAuthority, SitePrefixLifecycleState, SitePrefixRoutingScope, SitePrefixSearchFilter,
+    UpdateSitePrefixMetadata,
 };
 use model::tenant::TenantOrganizationId;
 
@@ -125,12 +127,113 @@ impl From<SitePrefix> for rpc::SitePrefix {
             status: Some(rpc::SitePrefixStatus {
                 authority: rpc::SitePrefixAuthority::from(status.authority) as i32,
                 lifecycle_state: rpc::SitePrefixLifecycleState::from(status.lifecycle_state) as i32,
+                quota: None,
             }),
             metadata: Some(metadata.into()),
             version: version.version_string(),
             created_at: Some(created_at.into()),
             updated_at: Some(updated_at.into()),
         }
+    }
+}
+
+impl rpc::SitePrefix {
+    /// Adds the tenant aggregate quota computed by Core's read path.
+    pub fn with_quota(mut self, used: u32, limit: u32) -> Self {
+        if let Some(status) = &mut self.status {
+            status.quota = Some(rpc::SitePrefixQuotaUsage { used, limit });
+        }
+        self
+    }
+}
+
+impl TryFrom<rpc::SitePrefixCreationRequest> for NewTenantManagedSitePrefix {
+    type Error = RpcDataConversionError;
+
+    fn try_from(value: rpc::SitePrefixCreationRequest) -> Result<Self, Self::Error> {
+        let id = value
+            .id
+            .ok_or(RpcDataConversionError::MissingArgument("id"))?;
+        let tenant_organization_id =
+            TenantOrganizationId::try_from(value.tenant_organization_id.clone()).map_err(|_| {
+                RpcDataConversionError::InvalidTenantOrg(value.tenant_organization_id.clone())
+            })?;
+        let prefix = IpNetwork::try_from(value.prefix.as_str())?;
+        let metadata = value
+            .metadata
+            .map(TryInto::try_into)
+            .transpose()?
+            .unwrap_or_else(Metadata::new_with_default_name);
+
+        let site_prefix = Self {
+            id,
+            tenant_organization_id,
+            prefix,
+            metadata,
+        };
+        site_prefix.validate().map_err(|error| {
+            RpcDataConversionError::InvalidArgument(format!(
+                "tenant-managed SitePrefix is not valid: {error}"
+            ))
+        })?;
+        Ok(site_prefix)
+    }
+}
+
+impl TryFrom<rpc::SitePrefixUpdateRequest> for UpdateSitePrefixMetadata {
+    type Error = RpcDataConversionError;
+
+    fn try_from(value: rpc::SitePrefixUpdateRequest) -> Result<Self, Self::Error> {
+        let id = value
+            .id
+            .ok_or(RpcDataConversionError::MissingArgument("id"))?;
+        let tenant_organization_id =
+            TenantOrganizationId::try_from(value.tenant_organization_id.clone()).map_err(|_| {
+                RpcDataConversionError::InvalidTenantOrg(value.tenant_organization_id.clone())
+            })?;
+        let metadata: Metadata = value
+            .metadata
+            .ok_or(RpcDataConversionError::MissingArgument("metadata"))?
+            .try_into()?;
+        metadata.validate(true).map_err(|error| {
+            RpcDataConversionError::InvalidArgument(format!(
+                "SitePrefix metadata is not valid: {error}"
+            ))
+        })?;
+        let if_version_match = value
+            .if_version_match
+            .map(|version| {
+                version
+                    .parse()
+                    .map_err(|_| RpcDataConversionError::InvalidConfigVersion(version.to_string()))
+            })
+            .transpose()?;
+
+        Ok(Self {
+            id,
+            tenant_organization_id,
+            metadata,
+            if_version_match,
+        })
+    }
+}
+
+impl TryFrom<rpc::SitePrefixDeletionRequest> for RetireTenantManagedSitePrefix {
+    type Error = RpcDataConversionError;
+
+    fn try_from(value: rpc::SitePrefixDeletionRequest) -> Result<Self, Self::Error> {
+        let id = value
+            .id
+            .ok_or(RpcDataConversionError::MissingArgument("id"))?;
+        let tenant_organization_id =
+            TenantOrganizationId::try_from(value.tenant_organization_id.clone()).map_err(|_| {
+                RpcDataConversionError::InvalidTenantOrg(value.tenant_organization_id)
+            })?;
+
+        Ok(Self {
+            id,
+            tenant_organization_id,
+        })
     }
 }
 
@@ -268,6 +371,312 @@ mod tests {
                 prefix_match,
             }
         }
+    }
+
+    fn rpc_metadata(name: &str) -> rpc::Metadata {
+        rpc::Metadata {
+            name: name.to_string(),
+            description: "test metadata".to_string(),
+            labels: vec![rpc::Label {
+                key: "env".to_string(),
+                value: Some("test".to_string()),
+            }],
+        }
+    }
+
+    #[derive(Debug, Eq, PartialEq)]
+    struct CreationView {
+        id: SitePrefixId,
+        tenant_organization_id: String,
+        prefix: String,
+        metadata_name: String,
+    }
+
+    impl From<NewTenantManagedSitePrefix> for CreationView {
+        fn from(value: NewTenantManagedSitePrefix) -> Self {
+            Self {
+                id: value.id,
+                tenant_organization_id: value.tenant_organization_id.to_string(),
+                prefix: value.prefix.to_string(),
+                metadata_name: value.metadata.name,
+            }
+        }
+    }
+
+    #[test]
+    fn site_prefix_creation_conversion_is_strict() {
+        let id = SitePrefixId::new();
+        check_cases(
+            [
+                Case {
+                    scenario: "valid request",
+                    input: rpc::SitePrefixCreationRequest {
+                        id: Some(id),
+                        tenant_organization_id: "tenant-a".to_string(),
+                        prefix: "10.0.0.0/24".to_string(),
+                        metadata: Some(rpc_metadata("tenant prefix")),
+                    },
+                    expect: Yields(CreationView {
+                        id,
+                        tenant_organization_id: "tenant-a".to_string(),
+                        prefix: "10.0.0.0/24".to_string(),
+                        metadata_name: "tenant prefix".to_string(),
+                    }),
+                },
+                Case {
+                    scenario: "metadata defaults on create",
+                    input: rpc::SitePrefixCreationRequest {
+                        id: Some(id),
+                        tenant_organization_id: "tenant-a".to_string(),
+                        prefix: "172.16.0.0/16".to_string(),
+                        metadata: None,
+                    },
+                    expect: Yields(CreationView {
+                        id,
+                        tenant_organization_id: "tenant-a".to_string(),
+                        prefix: "172.16.0.0/16".to_string(),
+                        metadata_name: "default_name".to_string(),
+                    }),
+                },
+                Case {
+                    scenario: "missing ID",
+                    input: rpc::SitePrefixCreationRequest {
+                        id: None,
+                        tenant_organization_id: "tenant-a".to_string(),
+                        prefix: "10.0.0.0/24".to_string(),
+                        metadata: Some(rpc_metadata("tenant prefix")),
+                    },
+                    expect: Fails,
+                },
+                Case {
+                    scenario: "invalid tenant",
+                    input: rpc::SitePrefixCreationRequest {
+                        id: Some(id),
+                        tenant_organization_id: "tenant a".to_string(),
+                        prefix: "10.0.0.0/24".to_string(),
+                        metadata: Some(rpc_metadata("tenant prefix")),
+                    },
+                    expect: Fails,
+                },
+                Case {
+                    scenario: "non-canonical prefix",
+                    input: rpc::SitePrefixCreationRequest {
+                        id: Some(id),
+                        tenant_organization_id: "tenant-a".to_string(),
+                        prefix: "10.0.0.1/24".to_string(),
+                        metadata: Some(rpc_metadata("tenant prefix")),
+                    },
+                    expect: Fails,
+                },
+                Case {
+                    scenario: "non-private prefix",
+                    input: rpc::SitePrefixCreationRequest {
+                        id: Some(id),
+                        tenant_organization_id: "tenant-a".to_string(),
+                        prefix: "203.0.113.0/24".to_string(),
+                        metadata: Some(rpc_metadata("tenant prefix")),
+                    },
+                    expect: Fails,
+                },
+                Case {
+                    scenario: "IPv6 prefix",
+                    input: rpc::SitePrefixCreationRequest {
+                        id: Some(id),
+                        tenant_organization_id: "tenant-a".to_string(),
+                        prefix: "fd00::/48".to_string(),
+                        metadata: Some(rpc_metadata("tenant prefix")),
+                    },
+                    expect: Fails,
+                },
+                Case {
+                    scenario: "invalid metadata",
+                    input: rpc::SitePrefixCreationRequest {
+                        id: Some(id),
+                        tenant_organization_id: "tenant-a".to_string(),
+                        prefix: "10.0.0.0/24".to_string(),
+                        metadata: Some(rpc_metadata("x")),
+                    },
+                    expect: Fails,
+                },
+            ],
+            |request| {
+                NewTenantManagedSitePrefix::try_from(request)
+                    .map(CreationView::from)
+                    .map_err(drop)
+            },
+        );
+    }
+
+    #[derive(Debug, Eq, PartialEq)]
+    struct UpdateView {
+        id: SitePrefixId,
+        tenant_organization_id: String,
+        metadata_name: String,
+        if_version_match: Option<String>,
+    }
+
+    impl From<UpdateSitePrefixMetadata> for UpdateView {
+        fn from(value: UpdateSitePrefixMetadata) -> Self {
+            Self {
+                id: value.id,
+                tenant_organization_id: value.tenant_organization_id.to_string(),
+                metadata_name: value.metadata.name,
+                if_version_match: value
+                    .if_version_match
+                    .map(|version| version.version_string()),
+            }
+        }
+    }
+
+    #[test]
+    fn site_prefix_update_conversion_requires_valid_metadata() {
+        let id = SitePrefixId::new();
+        let version = ConfigVersion::initial().version_string();
+        check_cases(
+            [
+                Case {
+                    scenario: "valid versioned update",
+                    input: rpc::SitePrefixUpdateRequest {
+                        id: Some(id),
+                        tenant_organization_id: "tenant-a".to_string(),
+                        metadata: Some(rpc_metadata("updated prefix")),
+                        if_version_match: Some(version.clone()),
+                    },
+                    expect: Yields(UpdateView {
+                        id,
+                        tenant_organization_id: "tenant-a".to_string(),
+                        metadata_name: "updated prefix".to_string(),
+                        if_version_match: Some(version),
+                    }),
+                },
+                Case {
+                    scenario: "valid unversioned update",
+                    input: rpc::SitePrefixUpdateRequest {
+                        id: Some(id),
+                        tenant_organization_id: "tenant-a".to_string(),
+                        metadata: Some(rpc_metadata("updated prefix")),
+                        if_version_match: None,
+                    },
+                    expect: Yields(UpdateView {
+                        id,
+                        tenant_organization_id: "tenant-a".to_string(),
+                        metadata_name: "updated prefix".to_string(),
+                        if_version_match: None,
+                    }),
+                },
+                Case {
+                    scenario: "missing ID",
+                    input: rpc::SitePrefixUpdateRequest {
+                        id: None,
+                        tenant_organization_id: "tenant-a".to_string(),
+                        metadata: Some(rpc_metadata("updated prefix")),
+                        if_version_match: None,
+                    },
+                    expect: Fails,
+                },
+                Case {
+                    scenario: "invalid tenant",
+                    input: rpc::SitePrefixUpdateRequest {
+                        id: Some(id),
+                        tenant_organization_id: "tenant a".to_string(),
+                        metadata: Some(rpc_metadata("updated prefix")),
+                        if_version_match: None,
+                    },
+                    expect: Fails,
+                },
+                Case {
+                    scenario: "missing metadata",
+                    input: rpc::SitePrefixUpdateRequest {
+                        id: Some(id),
+                        tenant_organization_id: "tenant-a".to_string(),
+                        metadata: None,
+                        if_version_match: None,
+                    },
+                    expect: Fails,
+                },
+                Case {
+                    scenario: "invalid metadata",
+                    input: rpc::SitePrefixUpdateRequest {
+                        id: Some(id),
+                        tenant_organization_id: "tenant-a".to_string(),
+                        metadata: Some(rpc_metadata("x")),
+                        if_version_match: None,
+                    },
+                    expect: Fails,
+                },
+                Case {
+                    scenario: "invalid version",
+                    input: rpc::SitePrefixUpdateRequest {
+                        id: Some(id),
+                        tenant_organization_id: "tenant-a".to_string(),
+                        metadata: Some(rpc_metadata("updated prefix")),
+                        if_version_match: Some("not-a-version".to_string()),
+                    },
+                    expect: Fails,
+                },
+            ],
+            |request| {
+                UpdateSitePrefixMetadata::try_from(request)
+                    .map(UpdateView::from)
+                    .map_err(drop)
+            },
+        );
+    }
+
+    #[derive(Debug, Eq, PartialEq)]
+    struct DeletionView {
+        id: SitePrefixId,
+        tenant_organization_id: String,
+    }
+
+    impl From<RetireTenantManagedSitePrefix> for DeletionView {
+        fn from(value: RetireTenantManagedSitePrefix) -> Self {
+            Self {
+                id: value.id,
+                tenant_organization_id: value.tenant_organization_id.to_string(),
+            }
+        }
+    }
+
+    #[test]
+    fn site_prefix_deletion_conversion_requires_identity_and_owner() {
+        let id = SitePrefixId::new();
+        check_cases(
+            [
+                Case {
+                    scenario: "valid retirement request",
+                    input: rpc::SitePrefixDeletionRequest {
+                        id: Some(id),
+                        tenant_organization_id: "tenant-a".to_string(),
+                    },
+                    expect: Yields(DeletionView {
+                        id,
+                        tenant_organization_id: "tenant-a".to_string(),
+                    }),
+                },
+                Case {
+                    scenario: "missing ID",
+                    input: rpc::SitePrefixDeletionRequest {
+                        id: None,
+                        tenant_organization_id: "tenant-a".to_string(),
+                    },
+                    expect: Fails,
+                },
+                Case {
+                    scenario: "invalid tenant",
+                    input: rpc::SitePrefixDeletionRequest {
+                        id: Some(id),
+                        tenant_organization_id: "tenant a".to_string(),
+                    },
+                    expect: Fails,
+                },
+            ],
+            |request| {
+                RetireTenantManagedSitePrefix::try_from(request)
+                    .map(DeletionView::from)
+                    .map_err(drop)
+            },
+        );
     }
 
     #[test]
@@ -482,6 +891,15 @@ mod tests {
 
             let converted = rpc::SitePrefix::from(model);
             assert_eq!(converted.id, Some(id), "{}", case.scenario);
+            let tenant_quota = (case.authority == SitePrefixAuthority::TenantManaged).then(|| {
+                converted
+                    .clone()
+                    .with_quota(3, 8)
+                    .status
+                    .unwrap()
+                    .quota
+                    .unwrap()
+            });
             assert_eq!(
                 converted.version,
                 version.version_string(),
@@ -517,6 +935,10 @@ mod tests {
             );
 
             let status = converted.status.expect("status should be populated");
+            assert!(
+                status.quota.is_none(),
+                "base conversion should not invent tenant quota"
+            );
             assert_eq!(
                 SitePrefixAuthority::try_from(
                     rpc::SitePrefixAuthority::try_from(status.authority).unwrap()
@@ -535,6 +957,11 @@ mod tests {
                 "{}",
                 case.scenario
             );
+
+            if let Some(quota) = tenant_quota {
+                assert_eq!(quota.used, 3, "{}", case.scenario);
+                assert_eq!(quota.limit, 8, "{}", case.scenario);
+            }
 
             let metadata = converted.metadata.expect("metadata should be populated");
             assert_eq!(metadata.name, "site-prefix", "{}", case.scenario);

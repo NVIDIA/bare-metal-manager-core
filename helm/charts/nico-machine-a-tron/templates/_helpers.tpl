@@ -55,7 +55,7 @@ Count pods with machines defined.
 {{- define "nico-machine-a-tron.activePods" -}}
 {{- $activePods := 0 -}}
 {{- range $podName, $podConfig := .Values.pods -}}
-{{- if and $podConfig.machines (gt (len $podConfig.machines) 0) -}}
+{{- if and $podConfig $podConfig.machines (gt (len $podConfig.machines) 0) -}}
 {{- $activePods = add $activePods 1 -}}
 {{- end -}}
 {{- end -}}

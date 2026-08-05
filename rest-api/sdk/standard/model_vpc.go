@@ -41,6 +41,10 @@ type VPC struct {
 	NetworkVirtualizationType NullableString `json:"networkVirtualizationType,omitempty"`
 	// Routing profile type for the VPC. Populated when Site has Native Networking enabled and network virtualization type is `FNN`.
 	RoutingProfile NullableString `json:"routingProfile,omitempty"`
+	// Routing-profile properties set directly on the VPC. Unset properties inherit from the named routing profile.
+	RoutingProfileOverrides NullableVpcRoutingProfileOverrides `json:"routingProfileOverrides,omitempty"`
+	// Fully resolved routing profile last reported by Core for the VPC. This property is included only when the requesting Tenant has effective TargetedInstanceCreation permission for the VPC's Site.
+	EffectiveRoutingProfile *VpcEffectiveRoutingProfile `json:"effectiveRoutingProfile,omitempty"`
 	// Explicitly requested VNI for the VPC if one was requested at creation time
 	RequestedVni NullableInt32 `json:"requestedVni,omitempty"`
 	// Active VNI assigned to the VPC
@@ -410,6 +414,81 @@ func (o *VPC) SetRoutingProfileNil() {
 // UnsetRoutingProfile ensures that no value is present for RoutingProfile, not even an explicit nil
 func (o *VPC) UnsetRoutingProfile() {
 	o.RoutingProfile.Unset()
+}
+
+// GetRoutingProfileOverrides returns the RoutingProfileOverrides field value if set, zero value otherwise (both if not set or set to explicit null).
+func (o *VPC) GetRoutingProfileOverrides() VpcRoutingProfileOverrides {
+	if o == nil || IsNil(o.RoutingProfileOverrides.Get()) {
+		var ret VpcRoutingProfileOverrides
+		return ret
+	}
+	return *o.RoutingProfileOverrides.Get()
+}
+
+// GetRoutingProfileOverridesOk returns a tuple with the RoutingProfileOverrides field value if set, nil otherwise
+// and a boolean to check if the value has been set.
+// NOTE: If the value is an explicit nil, `nil, true` will be returned
+func (o *VPC) GetRoutingProfileOverridesOk() (*VpcRoutingProfileOverrides, bool) {
+	if o == nil {
+		return nil, false
+	}
+	return o.RoutingProfileOverrides.Get(), o.RoutingProfileOverrides.IsSet()
+}
+
+// HasRoutingProfileOverrides returns a boolean if a field has been set.
+func (o *VPC) HasRoutingProfileOverrides() bool {
+	if o != nil && o.RoutingProfileOverrides.IsSet() {
+		return true
+	}
+
+	return false
+}
+
+// SetRoutingProfileOverrides gets a reference to the given NullableVpcRoutingProfileOverrides and assigns it to the RoutingProfileOverrides field.
+func (o *VPC) SetRoutingProfileOverrides(v VpcRoutingProfileOverrides) {
+	o.RoutingProfileOverrides.Set(&v)
+}
+
+// SetRoutingProfileOverridesNil sets the value for RoutingProfileOverrides to be an explicit nil
+func (o *VPC) SetRoutingProfileOverridesNil() {
+	o.RoutingProfileOverrides.Set(nil)
+}
+
+// UnsetRoutingProfileOverrides ensures that no value is present for RoutingProfileOverrides, not even an explicit nil
+func (o *VPC) UnsetRoutingProfileOverrides() {
+	o.RoutingProfileOverrides.Unset()
+}
+
+// GetEffectiveRoutingProfile returns the EffectiveRoutingProfile field value if set, zero value otherwise.
+func (o *VPC) GetEffectiveRoutingProfile() VpcEffectiveRoutingProfile {
+	if o == nil || IsNil(o.EffectiveRoutingProfile) {
+		var ret VpcEffectiveRoutingProfile
+		return ret
+	}
+	return *o.EffectiveRoutingProfile
+}
+
+// GetEffectiveRoutingProfileOk returns a tuple with the EffectiveRoutingProfile field value if set, nil otherwise
+// and a boolean to check if the value has been set.
+func (o *VPC) GetEffectiveRoutingProfileOk() (*VpcEffectiveRoutingProfile, bool) {
+	if o == nil || IsNil(o.EffectiveRoutingProfile) {
+		return nil, false
+	}
+	return o.EffectiveRoutingProfile, true
+}
+
+// HasEffectiveRoutingProfile returns a boolean if a field has been set.
+func (o *VPC) HasEffectiveRoutingProfile() bool {
+	if o != nil && !IsNil(o.EffectiveRoutingProfile) {
+		return true
+	}
+
+	return false
+}
+
+// SetEffectiveRoutingProfile gets a reference to the given VpcEffectiveRoutingProfile and assigns it to the EffectiveRoutingProfile field.
+func (o *VPC) SetEffectiveRoutingProfile(v VpcEffectiveRoutingProfile) {
+	o.EffectiveRoutingProfile = &v
 }
 
 // GetRequestedVni returns the RequestedVni field value if set, zero value otherwise (both if not set or set to explicit null).
@@ -812,6 +891,12 @@ func (o VPC) ToMap() (map[string]interface{}, error) {
 	}
 	if o.RoutingProfile.IsSet() {
 		toSerialize["routingProfile"] = o.RoutingProfile.Get()
+	}
+	if o.RoutingProfileOverrides.IsSet() {
+		toSerialize["routingProfileOverrides"] = o.RoutingProfileOverrides.Get()
+	}
+	if !IsNil(o.EffectiveRoutingProfile) {
+		toSerialize["effectiveRoutingProfile"] = o.EffectiveRoutingProfile
 	}
 	if o.RequestedVni.IsSet() {
 		toSerialize["requestedVni"] = o.RequestedVni.Get()

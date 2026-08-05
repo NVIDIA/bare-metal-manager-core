@@ -149,6 +149,18 @@ jobs:
           rust-version: '1.96.0'
           arch: ${{ inputs.arch }}
 
+      # Persist mkosi's downloaded distro packages between runs. Restore-keys let
+      # a run start from the most recent cache for this arch even when the
+      # profile set has changed, which is the common case.
+      - name: Restore mkosi package cache
+        if: inputs.build_type == 'ephemeral'
+        uses: actions/cache@v4
+        with:
+          path: pxe/.mkosi-package-cache
+          key: mkosi-pkgs-${{ inputs.arch }}-${{ hashFiles('pxe/mkosi.conf', 'pxe/mkosi.profiles/**/mkosi.conf') }}
+          restore-keys: |
+            mkosi-pkgs-${{ inputs.arch }}-
+
       # Setup Docker for container-based builds
       - name: Derive registry hosts
         id: registry-hosts
@@ -549,6 +561,17 @@ jobs:
           echo "paths=${ARTIFACTS}" >> $GITHUB_OUTPUT
           echo "Artifacts to upload: ${ARTIFACTS}"
 
+      # Only paths that a downstream job actually consumes are uploaded. The
+      # ephemeral build takes the packaged .deb (see copy-forge-scout-* in
+      # pxe/Makefile.toml) and the release-artifacts carriers only COPY
+      # pxe/static/blobs/internal/, so the cargo target tree and the
+      # mkosi.profiles staging inputs are deliberately excluded -- they added
+      # ~14 GB of upload/download to the critical path for no consumer. The
+      # unstripped forge-scout binary is kept so crashes from the shipped image
+      # can still be symbolicated.
+      #
+      # compression-level: 0 because squashfs/bfb/efi payloads are already
+      # compressed; re-deflating them burns CPU for a rounding error of savings.
       - name: Upload artifacts
         if: always()  # Upload artifacts even if build fails (matches GitLab CI 'when: always')
         uses: actions/upload-artifact@v4
@@ -558,9 +581,9 @@ jobs:
             pxe/static/blobs/
             target/debug/nico-admin-cli
             target/debs/
-            target/aarch64-unknown-linux-gnu/
-            pxe/mkosi.profiles/
+            target/aarch64-unknown-linux-gnu/release/forge-scout
           if-no-files-found: warn
+          compression-level: 0
           retention-days: 1
 
       - name: Upload build log on failure

@@ -340,7 +340,8 @@ core-protogen: .tools-stamp
 	echo "Generating protobuf for Core"
 	cd proto/core && PATH="$(TOOLS_DIR):$$PATH" $(BUF) generate
 	go fmt ./...
-	python3 scripts/check_source_headers.py --fix
+	python3 scripts/check_source_headers.py --fix \
+		--include-untracked 'proto/core/gen/v1/*.pb.go'
 
 flow-proto:
 	$(MAKE) flow-proto-clean
@@ -893,7 +894,9 @@ generate-sdk: $(OPENAPI_GENERATOR_JAR)
 		--additional-properties=isGoSubmodule=true,enumClassPrefix=true \
 		--global-property=apis,models,supportingFiles
 	rm -rf sdk/standard/docs sdk/standard/api sdk/standard/README.md sdk/standard/test sdk/standard/.openapi-generator
-	python3 scripts/check_source_headers.py --fix
+	python3 scripts/check_source_headers.py --fix \
+		--include-untracked 'sdk/standard/api_*.go' \
+		--include-untracked 'sdk/standard/model_*.go'
 	@echo "Client generated in sdk/standard/"
 	cd sdk/standard && go build ./...
 	@echo "Client compiles successfully"

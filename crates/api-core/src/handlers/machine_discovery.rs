@@ -329,21 +329,6 @@ pub(crate) async fn discover_machine(
             network_config_changed = true;
         }
 
-        if api
-            .runtime_config
-            .vmaas_config
-            .as_ref()
-            .map(|vc| vc.secondary_overlay_support)
-            .unwrap_or_default()
-            && network_config.secondary_overlay_vtep_ip.is_none()
-        {
-            let secondary_vtep_ip =
-                db::machine::allocate_secondary_vtep_ip(&api.common_pools, &mut txn, &owner_id)
-                    .await?;
-            network_config.secondary_overlay_vtep_ip = Some(secondary_vtep_ip);
-            network_config_changed = true;
-        }
-
         if network_config_changed
             && !db::machine::try_update_network_config(
                 &mut txn,

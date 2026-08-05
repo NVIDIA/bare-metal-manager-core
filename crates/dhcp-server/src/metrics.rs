@@ -15,13 +15,15 @@
  * limitations under the License.
  */
 
-//! Packet-level counters for the DHCP server. The request and reply events
-//! are metric-only (`log = off`): their rates are the INFO-level signal,
-//! while the per-packet log lines stay reachable at DEBUG for forensics. A
-//! drop is the operational error, so its event also writes the ERROR line --
+//! Packet-level counters and logs for the DHCP server. Request and reply
+//! Events write INFO records with selected BOOTP header and socket details,
+//! while full packets (including their options) stay at DEBUG for forensics. A
+//! drop is the operational error, so its Event also writes the ERROR line --
 //! one declaration moves the counter and logs the reason together.
 //! Timestamp-file failures share a counter by operation while their paths,
 //! host interface, and errors remain log-only diagnostics.
+
+use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
 
 use carbide_instrument::{Event, LabelValue, MetricFamily};
 use dhcproto::v4::MessageType;
@@ -331,19 +333,40 @@ impl DhcpInterfaceBindFailed {
     }
 }
 
-/// A DHCP packet was decoded from the wire, whatever becomes of it next.
+/// A DHCP packet with a usable BOOTP header was decoded from the wire. Its
+/// selected header fields and source socket stay on the log line and never
+/// become metric labels; the option-rich full packet stays at DEBUG.
 #[derive(Event)]
 #[event(
     event_name = "dhcp_server_request_received",
     metric_name = "carbide_dhcp_requests_total",
     component = "nico-dhcp",
-    log = off,
+    log = info,
     metric = counter,
+    message = "Decoded DHCP packet",
     describe = "Number of DHCP packets received and decoded, by DHCP message type."
 )]
 pub struct DhcpRequestReceived {
     #[label]
     pub message_type: MessageTypeLabel,
+    #[context(value)]
+    pub bootp_op: i64,
+    #[context]
+    pub source_address: SocketAddr,
+    #[context(value)]
+    pub xid: i64,
+    #[context(value)]
+    pub broadcast_flag: bool,
+    #[context]
+    pub ciaddr: Ipv4Addr,
+    #[context]
+    pub yiaddr: Ipv4Addr,
+    #[context]
+    pub siaddr: Ipv4Addr,
+    #[context]
+    pub giaddr: Ipv4Addr,
+    #[context(value)]
+    pub chaddr: String,
 }
 
 /// A packet was dropped without a reply reaching the client -- anywhere from
@@ -369,19 +392,38 @@ pub struct DhcpPacketDropped {
 }
 
 /// A DHCP reply was sent, labelled by the reply's message type: an `offer` is
-/// a proposed lease, an `ack` a committed one, a `nak` a refusal.
+/// a proposed lease, an `ack` a committed one, a `nak` a refusal. Its selected
+/// BOOTP header fields and destination stay on the log line only; the
+/// option-rich full packet stays at DEBUG.
 #[derive(Event)]
 #[event(
     event_name = "dhcp_server_reply_sent",
     metric_name = "carbide_dhcp_replies_sent_total",
     component = "nico-dhcp",
-    log = off,
+    log = info,
     metric = counter,
+    message = "Sent DHCP reply",
     describe = "Number of DHCP replies sent, by reply message type."
 )]
 pub struct DhcpReplySent {
     #[label]
     pub message_type: MessageTypeLabel,
+    #[context]
+    pub destination_address: SocketAddrV4,
+    #[context(value)]
+    pub xid: i64,
+    #[context(value)]
+    pub broadcast_flag: bool,
+    #[context]
+    pub ciaddr: Ipv4Addr,
+    #[context]
+    pub yiaddr: Ipv4Addr,
+    #[context]
+    pub siaddr: Ipv4Addr,
+    #[context]
+    pub giaddr: Ipv4Addr,
+    #[context(value)]
+    pub chaddr: String,
 }
 
 /// A DHCP timestamp-file operation failed. Each variant is one operation, and
@@ -1089,13 +1131,11 @@ mod tests {
         );
     }
 
-    /// Every packet event moves exactly its counter, per label value. The
-    /// request and grant counters are silent (the counters are the INFO-level
-    /// signal, the packet logs stay DEBUG); a drop is the operational error,
-    /// so its event also writes the error line -- one declaration, both
-    /// signals.
+    /// Every packet Event moves exactly its counter and writes the matching
+    /// operational record: request and reply activity at INFO, and drops at
+    /// ERROR.
     #[test]
-    fn packet_events_count_per_label_and_drops_log_at_error() {
+    fn packet_events_count_per_label_and_log_at_their_operational_level() {
         let metrics = MetricsCapture::start();
         let logs = capture_logs(|| {
             // Labels deliberately unused by any other test in this binary:
@@ -1104,12 +1144,38 @@ mod tests {
             // with the end-to-end packet tests.
             emit(DhcpRequestReceived {
                 message_type: MessageTypeLabel::Release,
+                bootp_op: 1,
+                source_address: "192.0.2.10:68".parse().unwrap(),
+                xid: 0x0102_0304,
+                broadcast_flag: true,
+                ciaddr: Ipv4Addr::new(192, 0, 2, 20),
+                yiaddr: Ipv4Addr::new(192, 0, 2, 21),
+                siaddr: Ipv4Addr::new(192, 0, 2, 1),
+                giaddr: Ipv4Addr::new(192, 0, 2, 254),
+                chaddr: "00:11:22:33:44:55".to_string(),
             });
             emit(DhcpRequestReceived {
                 message_type: MessageTypeLabel::Release,
+                bootp_op: 1,
+                source_address: "192.0.2.10:68".parse().unwrap(),
+                xid: 0x0102_0304,
+                broadcast_flag: true,
+                ciaddr: Ipv4Addr::new(192, 0, 2, 20),
+                yiaddr: Ipv4Addr::new(192, 0, 2, 21),
+                siaddr: Ipv4Addr::new(192, 0, 2, 1),
+                giaddr: Ipv4Addr::new(192, 0, 2, 254),
+                chaddr: "00:11:22:33:44:55".to_string(),
             });
             emit(DhcpReplySent {
                 message_type: MessageTypeLabel::Nak,
+                destination_address: "192.0.2.10:68".parse().unwrap(),
+                xid: 0x0102_0304,
+                broadcast_flag: true,
+                ciaddr: Ipv4Addr::new(192, 0, 2, 20),
+                yiaddr: Ipv4Addr::new(192, 0, 2, 21),
+                siaddr: Ipv4Addr::new(192, 0, 2, 1),
+                giaddr: Ipv4Addr::new(192, 0, 2, 254),
+                chaddr: "00:11:22:33:44:55".to_string(),
             });
             emit(DhcpPacketDropped {
                 reason: DropReason::RateLimited,
@@ -1122,32 +1188,99 @@ mod tests {
             });
         });
 
-        let (drop_logs, other_logs): (Vec<_>, Vec<_>) = logs
+        assert_eq!(logs.len(), 5, "each packet Event writes one log record");
+        let request_logs: Vec<_> = logs
             .iter()
-            .partition(|entry| entry.message.contains("Dropped a DHCP packet"));
-        assert!(
-            other_logs.is_empty(),
-            "request/grant events are metric-only, got {other_logs:?}"
+            .filter(|entry| entry.metadata_name == "dhcp_server_request_received")
+            .collect();
+        let reply_logs: Vec<_> = logs
+            .iter()
+            .filter(|entry| entry.metadata_name == "dhcp_server_reply_sent")
+            .collect();
+        let drop_logs: Vec<_> = logs
+            .iter()
+            .filter(|entry| entry.metadata_name == "dhcp_server_packet_dropped")
+            .collect();
+
+        assert_eq!(request_logs.len(), 2, "each request writes one INFO line");
+        for entry in request_logs {
+            assert_eq!(entry.level, tracing::Level::INFO);
+            assert_eq!(entry.message, "Decoded DHCP packet");
+            assert_eq!(
+                entry.field("event_name"),
+                Some("dhcp_server_request_received")
+            );
+            assert_eq!(
+                entry.field("metric_name"),
+                Some("carbide_dhcp_requests_total")
+            );
+            assert_eq!(entry.field("message_type"), Some("release"));
+            assert_eq!(entry.field("bootp_op"), Some("1"));
+            assert_eq!(entry.field_kind("bootp_op"), Some(CapturedFieldKind::I64));
+            assert_eq!(entry.field("source_address"), Some("192.0.2.10:68"));
+            assert_eq!(entry.field("xid"), Some("16909060"));
+            assert_eq!(entry.field_kind("xid"), Some(CapturedFieldKind::I64));
+            assert_eq!(entry.field("broadcast_flag"), Some("true"));
+            assert_eq!(
+                entry.field_kind("broadcast_flag"),
+                Some(CapturedFieldKind::Bool)
+            );
+            assert_eq!(entry.field("ciaddr"), Some("192.0.2.20"));
+            assert_eq!(entry.field("yiaddr"), Some("192.0.2.21"));
+            assert_eq!(entry.field("siaddr"), Some("192.0.2.1"));
+            assert_eq!(entry.field("giaddr"), Some("192.0.2.254"));
+            assert_eq!(entry.field("chaddr"), Some("00:11:22:33:44:55"));
+            assert_eq!(entry.field_kind("chaddr"), Some(CapturedFieldKind::String));
+            assert_eq!(entry.field("received_packet"), None);
+        }
+
+        let [reply_log] = reply_logs.as_slice() else {
+            panic!("the reply Event should write one INFO line, got {reply_logs:?}");
+        };
+        assert_eq!(reply_log.level, tracing::Level::INFO);
+        assert_eq!(reply_log.message, "Sent DHCP reply");
+        assert_eq!(
+            reply_log.field("event_name"),
+            Some("dhcp_server_reply_sent")
         );
+        assert_eq!(
+            reply_log.field("metric_name"),
+            Some("carbide_dhcp_replies_sent_total")
+        );
+        assert_eq!(reply_log.field("message_type"), Some("nak"));
+        assert_eq!(
+            reply_log.field("destination_address"),
+            Some("192.0.2.10:68")
+        );
+        assert_eq!(reply_log.field("xid"), Some("16909060"));
+        assert_eq!(reply_log.field_kind("xid"), Some(CapturedFieldKind::I64));
+        assert_eq!(reply_log.field("broadcast_flag"), Some("true"));
+        assert_eq!(
+            reply_log.field_kind("broadcast_flag"),
+            Some(CapturedFieldKind::Bool)
+        );
+        assert_eq!(reply_log.field("ciaddr"), Some("192.0.2.20"));
+        assert_eq!(reply_log.field("yiaddr"), Some("192.0.2.21"));
+        assert_eq!(reply_log.field("siaddr"), Some("192.0.2.1"));
+        assert_eq!(reply_log.field("giaddr"), Some("192.0.2.254"));
+        assert_eq!(reply_log.field("chaddr"), Some("00:11:22:33:44:55"));
+        assert_eq!(
+            reply_log.field_kind("chaddr"),
+            Some(CapturedFieldKind::String)
+        );
+        assert_eq!(reply_log.field("sent_packet"), None);
+
         assert_eq!(drop_logs.len(), 2, "each drop writes one error line");
         assert!(
             drop_logs
                 .iter()
                 .all(|entry| entry.level == tracing::Level::ERROR)
         );
-        let field = |entry: &&carbide_instrument::testing::CapturedLog, name: &str| {
-            entry
-                .fields
-                .iter()
-                .find(|(key, _)| key == name)
-                .map(|(_, value)| value.clone())
-        };
-        assert_eq!(
-            field(&drop_logs[0], "reason").as_deref(),
-            Some("rate_limited")
-        );
+        assert_eq!(drop_logs[0].field("reason"), Some("rate_limited"));
         assert!(
-            field(&drop_logs[1], "error").is_some_and(|error| error.contains("api down")),
+            drop_logs[1]
+                .field("error")
+                .is_some_and(|error| error.contains("api down")),
             "the drop line carries the upstream error detail"
         );
         assert_eq!(

@@ -220,6 +220,34 @@ impl Forge for Api {
         crate::handlers::site_prefix::find_by_ids(self, request).await
     }
 
+    async fn create_site_prefix(
+        &self,
+        request: Request<rpc::SitePrefixCreationRequest>,
+    ) -> Result<Response<rpc::SitePrefix>, Status> {
+        crate::handlers::site_prefix::create(self, request).await
+    }
+
+    async fn update_site_prefix(
+        &self,
+        request: Request<rpc::SitePrefixUpdateRequest>,
+    ) -> Result<Response<rpc::SitePrefix>, Status> {
+        crate::handlers::site_prefix::update(self, request).await
+    }
+
+    async fn delete_site_prefix(
+        &self,
+        request: Request<rpc::SitePrefixDeletionRequest>,
+    ) -> Result<Response<rpc::SitePrefixDeletionResult>, Status> {
+        crate::handlers::site_prefix::delete(self, request).await
+    }
+
+    async fn find_site_prefix_state_histories(
+        &self,
+        request: Request<rpc::SitePrefixStateHistoriesRequest>,
+    ) -> Result<Response<rpc::StateHistories>, Status> {
+        crate::handlers::site_prefix::find_state_histories(self, request).await
+    }
+
     async fn create_vpc_prefix(
         &self,
         request: Request<rpc::VpcPrefixCreationRequest>,

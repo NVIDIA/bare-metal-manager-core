@@ -70,13 +70,18 @@ on:
         required: false
         default: false
         type: boolean
+      artifact_pattern:
+        description: 'Glob for which run artifacts to download. Defaults to every artifact in the run, which is rarely what a build needs -- set this to the arch/type the Dockerfile actually consumes.'
+        required: false
+        default: ''
+        type: string
       scan:
         description: 'Run a Grype vulnerability scan on main after the built image has been pushed.'
         required: false
         default: false
         type: boolean
       cache:
-        description: 'Use the GitHub Actions buildx layer cache. Turn off for images whose Dockerfile has no RUN steps.'
+        description: 'Use the GitHub Actions buildx layer cache, scoped per image and architecture. Turn off for images whose Dockerfile has no RUN steps: there are no expensive layers to reuse, and caching them just pushes gigabytes of payload into the cache for no gain.'
         required: false
         default: true
         type: boolean
@@ -134,13 +139,16 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Download all artifacts
+      - name: Download build artifacts
         if: inputs.download_artifacts == true
         uses: actions/download-artifact@v4
         with:
-          pattern: '*-${{ github.run_id }}'
+          pattern: ${{ inputs.artifact_pattern != '' && inputs.artifact_pattern || format('*-{0}', github.run_id) }}
           merge-multiple: true
 
+      # Must run unconditionally, not just when pushing. The default docker
+      # driver can neither import nor export a build cache, so gating this on
+      # `push` is what silently disabled layer caching on every PR build.
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
         with:
@@ -201,6 +209,45 @@ jobs:
             echo "EOF"
           } >> "$GITHUB_OUTPUT"
 
+      # A per-image, per-arch cache scope. Without this every image shares one
+      # unscoped namespace and they evict each other; with it, an x86 release
+      # container build only ever reads layers from previous x86 release
+      # container builds.
+      - name: Compute cache scope
+        id: cache
+        if: inputs.cache
+        env:
+          IMAGE_NAME: ${{ inputs.image_name }}
+          PLATFORMS: ${{ inputs.platforms }}
+        run: |
+          set -euo pipefail
+          scope="$(basename -- "$IMAGE_NAME")-$(echo "$PLATFORMS" | tr '/,' '--')"
+          echo "scope=${scope}" >> "$GITHUB_OUTPUT"
+          echo "Cache scope: ${scope}"
+
+      # sccache inside the build needs to reach the Actions cache service, but
+      # ACTIONS_RUNTIME_TOKEN is only visible to JS actions, never to `run:`
+      # steps. github-script is first-party, so we use it to re-export the two
+      # values instead of taking on a third-party action for this.
+      #
+      # Runs unconditionally and always exports a non-empty value. buildx
+      # rejects a secret whose value is empty, so a skipped step or an unset
+      # token would fail the build outright instead of merely disabling the
+      # cache. The sentinel is what the Dockerfiles detect.
+      - name: Expose Actions cache credentials to the build
+        uses: actions/github-script@v7
+        env:
+          CACHE_ENABLED: ${{ inputs.cache }}
+        with:
+          script: |
+            const enabled = process.env.CACHE_ENABLED === 'true';
+            const token = enabled ? (process.env.ACTIONS_RUNTIME_TOKEN || '') : '';
+            const url = enabled ? (process.env.ACTIONS_RESULTS_URL || '') : '';
+            if (token) core.setSecret(token);
+            core.exportVariable('BUILD_ACTIONS_RUNTIME_TOKEN', token || 'unavailable');
+            core.exportVariable('BUILD_ACTIONS_RESULTS_URL', url || 'unavailable');
+            core.info(`In-build sccache backend: ${token && url ? 'enabled' : 'disabled'}`);
+
       - name: Parse build arguments
         id: parse-args
         run: |
@@ -234,8 +281,24 @@ jobs:
           provenance: ${{ github.repository == 'NVIDIA/infra-controller' && 'mode=min' || 'false' }}
           tags: ${{ steps.tag_list.outputs.tags }}
           build-args: ${{ steps.parse-args.outputs.build_args }}
-          cache-from: ${{ inputs.cache && 'type=gha' || '' }}
-          cache-to: ${{ inputs.cache && inputs.push && 'type=gha,mode=max' || '' }}
+          # Every ref reads the cache; only main writes it. The Rust images
+          # `COPY . ./` before the compile, so any new commit invalidates the
+          # builder layer and a PR can never hit its own exported cache -- a
+          # measured 18-21 min per job spent exporting layers that only a
+          # byte-identical tree could ever reuse. sccache, not the layer cache,
+          # is what carries reuse across commits.
+          cache-from: ${{ inputs.cache && format('type=gha,scope={0}', steps.cache.outputs.scope) || '' }}
+          cache-to: ${{ inputs.cache && github.ref == 'refs/heads/main' && format('type=gha,mode=max,scope={0}', steps.cache.outputs.scope) || '' }}
+          # Lets sccache in the builder stage use the Actions cache as a shared
+          # backend. Always passed and never empty -- buildx rejects a secret
+          # with an empty value outright. The Dockerfiles check the URL for a
+          # real endpoint and fall back to the local BuildKit cache mount when
+          # it is absent, so a plain local `docker build` still works. PRs can
+          # read compiler entries populated by main but never upload their own.
+          secrets: |
+            actions_results_url=${{ env.BUILD_ACTIONS_RESULTS_URL }}
+            actions_runtime_token=${{ env.BUILD_ACTIONS_RUNTIME_TOKEN }}
+            sccache_gha_rw_mode=${{ github.ref == 'refs/heads/main' && 'READ_WRITE' || 'READ_ONLY' }}
 
       - name: Login to target registry
         if: ${{ inputs.push && !contains(inputs.platforms, ',') && github.repository != 'NVIDIA/infra-controller' }}

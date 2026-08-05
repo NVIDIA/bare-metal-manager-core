@@ -74,8 +74,15 @@ impl InternalRBACRules {
         x.perm("DeleteVpc", vec![Machineatron, SiteAgent]);
         x.perm("FindVpcIds", vec![SiteAgent, ForgeAdminCLI, Machineatron]);
         x.perm("FindVpcsByIds", vec![ForgeAdminCLI, SiteAgent]);
+        x.perm("CreateSitePrefix", vec![ForgeAdminCLI, SiteAgent]);
+        x.perm("UpdateSitePrefix", vec![ForgeAdminCLI, SiteAgent]);
+        x.perm("DeleteSitePrefix", vec![ForgeAdminCLI, SiteAgent]);
         x.perm("FindSitePrefixIds", vec![ForgeAdminCLI, SiteAgent]);
         x.perm("FindSitePrefixesByIds", vec![ForgeAdminCLI, SiteAgent]);
+        x.perm(
+            "FindSitePrefixStateHistories",
+            vec![ForgeAdminCLI, SiteAgent],
+        );
         x.perm("CreateVpcPrefix", vec![ForgeAdminCLI, SiteAgent]);
         x.perm("SearchVpcPrefixes", vec![ForgeAdminCLI, SiteAgent]);
         x.perm("GetVpcPrefixes", vec![ForgeAdminCLI, SiteAgent]);

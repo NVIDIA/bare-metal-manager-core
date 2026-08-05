@@ -145,8 +145,9 @@ func TestManagerEffectiveRulePrecedence(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, site.ID, rule.ID)
 
-	_, err = manager.GetEffective(context.Background(), "unknown.event", rackID)
-	require.ErrorIs(t, err, eventrule.ErrRuleNotFound)
+	rule, err = manager.GetEffective(context.Background(), "unknown.event", rackID)
+	require.NoError(t, err)
+	assert.Nil(t, rule)
 }
 
 func TestManagerRejectsMissingIDs(t *testing.T) {

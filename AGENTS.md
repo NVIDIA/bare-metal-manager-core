@@ -171,6 +171,10 @@ verification expectations.
 See [`STYLE_GUIDE.md`](STYLE_GUIDE.md) for detailed Rust coding conventions.
 Make sure to review it to ensure changes meet the expected style of the codebase.
 
+Use the narrowest Rust visibility required by actual callers. Do not use `pub`
+to suppress dead-code warnings or widen production visibility solely for unit
+tests. Follow the [visibility guidance](STYLE_GUIDE.md#visibility).
+
 Name new Core database migrations with the fully populated
 `YYYYMMDDhhmmss_description.sql` format described in
 [`STYLE_GUIDE.md`](STYLE_GUIDE.md#database-migrations). The `migration-police`

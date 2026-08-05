@@ -381,7 +381,7 @@ pub async fn insert_rack_health_report(
         report.observed_at = Some(chrono::Utc::now());
     }
     report.triggered_by = triggered_by;
-    report.update_in_alert_since(None);
+    report.update_in_alert_since(rack.health_reports.by_source(&report.source));
 
     match remove_rack_override_by_source(&rack, &mut txn, report.source.clone()).await {
         Ok(_) | Err(CarbideError::NotFoundError { .. }) => {}

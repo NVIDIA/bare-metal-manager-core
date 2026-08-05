@@ -207,12 +207,16 @@ jobs:
         run: make generate-sdk
 
       - name: Check for uncommitted changes
-        run: bash ../scripts/check-repo-clean.sh "REST SDK generation"
+        run: >-
+          bash ../scripts/check-repo-clean.sh "REST SDK generation"
+          "make rest-api/generate-sdk (from the repository root)"
 
   check-protobuf-generated:
     name: Check Protobuf Generated Code
     runs-on: linux-amd64-cpu4
     continue-on-error: false
+    permissions:
+      contents: read
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -230,7 +234,9 @@ jobs:
         run: make core-proto
 
       - name: Check for uncommitted changes
-        run: bash ../scripts/check-repo-clean.sh "REST protobuf generation"
+        run: >-
+          bash ../scripts/check-repo-clean.sh "REST protobuf generation"
+          "make sync-protobuf (from the repository root)"
 
   test:
     name: Test (${{ matrix.module }})

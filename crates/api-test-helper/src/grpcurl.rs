@@ -42,7 +42,7 @@ pub async fn grpcurl_for<T: ToString>(
         .choose(&mut rand::rng())
         .context("no API servers configured")?
         .to_string();
-    let grpc_endpoint = format!("forge.Forge/{endpoint}");
+    let grpc_endpoint = format!("{}/{endpoint}", rpc::forge::forge_server::SERVICE_NAME);
     let mut args = vec![
         "-cacert",
         LOCALHOST_CERTS.ca_cert.to_str().unwrap(),

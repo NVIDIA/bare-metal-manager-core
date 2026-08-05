@@ -7,7 +7,7 @@ Build ordered list of pod names for consistent MAC address indexing
 */}}
 {{- $podList := list }}
 {{- range $podName, $podConfig := .Values.pods }}
-{{- if and $podConfig.machines (gt (len $podConfig.machines) 0) }}
+{{- if and $podConfig $podConfig.machines (gt (len $podConfig.machines) 0) }}
 {{- $podList = append $podList $podName }}
 {{- end }}
 {{- end }}
@@ -38,7 +38,7 @@ Build ordered list of pod names for consistent MAC address indexing
 {{/*
 Skip pods without machines
 */}}
-{{- if not (and $podConfig.machines (gt (len $podConfig.machines) 0)) }}
+{{- if not (and $podConfig $podConfig.machines (gt (len $podConfig.machines) 0)) }}
 {{- continue }}
 {{- end }}
 

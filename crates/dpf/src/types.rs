@@ -257,15 +257,6 @@ impl ServiceDefinition {
     }
 }
 
-#[derive(Debug, Clone, Default)]
-pub struct DpuFlavorBridgeDefinition {
-    pub vf_intercept_bridge_name: String,
-    pub vf_intercept_bridge_port: String,
-    pub host_intercept_bridge_name: String,
-    pub host_intercept_bridge_port: String,
-    pub vf_intercept_bridge_sf: String,
-}
-
 /// Deployment type of a DPU — used to route devices to the correct
 /// DPUDeployment and select the appropriate DPUFlavor configuration.
 ///
@@ -377,6 +368,7 @@ impl From<DpuStatusPhase> for DpuPhase {
                 Self::Provisioning("PerformArmForceRestart".into())
             }
             DpuStatusPhase::UpdateFirmware => Self::Provisioning("UpdateFirmware".into()),
+            DpuStatusPhase::HostOsInitRelease => Self::Provisioning("HostOsInitRelease".into()),
         }
     }
 }

@@ -7,7 +7,9 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"net/netip"
 	"regexp"
+	"slices"
 	"time"
 
 	"github.com/NVIDIA/infra-controller/rest-api/api/pkg/api/model/util"
@@ -61,6 +63,209 @@ func normalizeAPIVpcRoutingProfileFromSite(routingProfile string) string {
 	return routingProfile
 }
 
+// APIVpcRouteTarget identifies a BGP route target by ASN and VNI.
+type APIVpcRouteTarget struct {
+	ASN int `json:"asn"`
+	VNI int `json:"vni"`
+}
+
+// ToDBModel converts an API route target to its persisted representation.
+func (target APIVpcRouteTarget) ToDBModel() cdbm.VpcRouteTarget {
+	return cdbm.VpcRouteTarget{ASN: uint32(target.ASN), VNI: uint32(target.VNI)}
+}
+
+// FromDBModel populates an API route target from its persisted representation.
+func (target *APIVpcRouteTarget) FromDBModel(dbTarget cdbm.VpcRouteTarget) {
+	*target = APIVpcRouteTarget{ASN: int(dbTarget.ASN), VNI: int(dbTarget.VNI)}
+}
+
+// Validate ensures the route target fits the unsigned Core wire representation.
+func (target APIVpcRouteTarget) Validate() error {
+	return validation.ValidateStruct(&target,
+		validation.Field(&target.ASN,
+			validation.Min(0).Error("must be non-negative"),
+			validation.Max(math.MaxUint32).Error(fmt.Sprintf("must fit in uint32 (0..%d)", uint32(math.MaxUint32)))),
+		validation.Field(&target.VNI,
+			validation.Min(0).Error("must be non-negative"),
+			validation.Max(math.MaxUint32).Error(fmt.Sprintf("must fit in uint32 (0..%d)", uint32(math.MaxUint32)))),
+	)
+}
+
+// APIVpcRouteTargets is a collection of API route targets with DB conversion behavior.
+type APIVpcRouteTargets []APIVpcRouteTarget
+
+// ToDBModel converts route targets to their persisted representation.
+// Nil input is normalized to an allocated empty slice.
+func (targets APIVpcRouteTargets) ToDBModel() []cdbm.VpcRouteTarget {
+	dbTargets := make([]cdbm.VpcRouteTarget, 0, len(targets))
+	for _, target := range targets {
+		dbTargets = append(dbTargets, target.ToDBModel())
+	}
+	return dbTargets
+}
+
+// FromDBModel populates route targets from their persisted representation.
+// Nil input is normalized to an allocated empty slice.
+func (targets *APIVpcRouteTargets) FromDBModel(dbTargets []cdbm.VpcRouteTarget) {
+	*targets = make(APIVpcRouteTargets, 0, len(dbTargets))
+	for _, dbTarget := range dbTargets {
+		target := APIVpcRouteTarget{}
+		target.FromDBModel(dbTarget)
+		*targets = append(*targets, target)
+	}
+}
+
+// APIVpcRoutingProfileOverrides contains presence-aware routing properties set on a VPC.
+// Nil fields inherit from the named routing profile, while present empty lists
+// explicitly replace the corresponding base-profile lists.
+type APIVpcRoutingProfileOverrides struct {
+	RouteTargetImports             *APIVpcRouteTargets `json:"routeTargetImports"`
+	RouteTargetsOnExports          *APIVpcRouteTargets `json:"routeTargetsOnExports"`
+	LeakDefaultRouteFromUnderlay   *bool               `json:"leakDefaultRouteFromUnderlay"`
+	LeakTenantHostRoutesToUnderlay *bool               `json:"leakTenantHostRoutesToUnderlay"`
+	TenantLeakCommunitiesAccepted  *bool               `json:"tenantLeakCommunitiesAccepted"`
+	AcceptedLeaksFromUnderlay      *[]string           `json:"acceptedLeaksFromUnderlay"`
+	AllowedAnycastPrefixes         *[]string           `json:"allowedAnycastPrefixes"`
+}
+
+// validateVpcRoutingProfilePrefix ensures a routing-policy prefix is valid IPv4 or IPv6 CIDR.
+func validateVpcRoutingProfilePrefix(value any) error {
+	prefix, ok := value.(string)
+	if !ok {
+		return nil
+	}
+	if _, err := netip.ParsePrefix(prefix); err != nil {
+		return fmt.Errorf("invalid prefix `%s`", prefix)
+	}
+	return nil
+}
+
+// validateVpcRoutingProfilePrefixes validates every prefix while preserving empty-list support.
+func validateVpcRoutingProfilePrefixes(value any) error {
+	prefixes, ok := value.(*[]string)
+	if !ok || prefixes == nil {
+		return nil
+	}
+	return validation.Validate(*prefixes,
+		validation.Each(validation.By(validateVpcRoutingProfilePrefix)),
+	)
+}
+
+// Validate ensures every supplied override can be represented by Core.
+func (profile *APIVpcRoutingProfileOverrides) Validate() error {
+	if profile == nil {
+		return nil
+	}
+	return validation.ValidateStruct(profile,
+		validation.Field(&profile.RouteTargetImports),
+		validation.Field(&profile.RouteTargetsOnExports),
+		validation.Field(&profile.AcceptedLeaksFromUnderlay,
+			validation.By(validateVpcRoutingProfilePrefixes)),
+		validation.Field(&profile.AllowedAnycastPrefixes,
+			validation.By(validateVpcRoutingProfilePrefixes)),
+	)
+}
+
+// ToDB converts API routing-profile overrides to their persisted representation.
+func (profile *APIVpcRoutingProfileOverrides) ToDB() *cdbm.VpcRoutingProfileOverrides {
+	if profile == nil {
+		return nil
+	}
+
+	dbProfile := &cdbm.VpcRoutingProfileOverrides{
+		LeakDefaultRouteFromUnderlay:   profile.LeakDefaultRouteFromUnderlay,
+		LeakTenantHostRoutesToUnderlay: profile.LeakTenantHostRoutesToUnderlay,
+		TenantLeakCommunitiesAccepted:  profile.TenantLeakCommunitiesAccepted,
+	}
+	if profile.RouteTargetImports != nil {
+		targets := profile.RouteTargetImports.ToDBModel()
+		dbProfile.RouteTargetImports = &targets
+	}
+	if profile.RouteTargetsOnExports != nil {
+		targets := profile.RouteTargetsOnExports.ToDBModel()
+		dbProfile.RouteTargetsOnExports = &targets
+	}
+	if profile.AcceptedLeaksFromUnderlay != nil {
+		prefixes := slices.Clone(*profile.AcceptedLeaksFromUnderlay)
+		dbProfile.AcceptedLeaksFromUnderlay = &prefixes
+	}
+	if profile.AllowedAnycastPrefixes != nil {
+		prefixes := slices.Clone(*profile.AllowedAnycastPrefixes)
+		dbProfile.AllowedAnycastPrefixes = &prefixes
+	}
+
+	return dbProfile
+}
+
+// FromDB populates API routing-profile overrides from their persisted representation.
+func (profile *APIVpcRoutingProfileOverrides) FromDB(dbProfile *cdbm.VpcRoutingProfileOverrides) {
+	*profile = APIVpcRoutingProfileOverrides{}
+	if dbProfile == nil {
+		return
+	}
+
+	profile.LeakDefaultRouteFromUnderlay = dbProfile.LeakDefaultRouteFromUnderlay
+	profile.LeakTenantHostRoutesToUnderlay = dbProfile.LeakTenantHostRoutesToUnderlay
+	profile.TenantLeakCommunitiesAccepted = dbProfile.TenantLeakCommunitiesAccepted
+	if dbProfile.RouteTargetImports != nil {
+		targets := APIVpcRouteTargets{}
+		targets.FromDBModel(*dbProfile.RouteTargetImports)
+		profile.RouteTargetImports = &targets
+	}
+	if dbProfile.RouteTargetsOnExports != nil {
+		targets := APIVpcRouteTargets{}
+		targets.FromDBModel(*dbProfile.RouteTargetsOnExports)
+		profile.RouteTargetsOnExports = &targets
+	}
+	if dbProfile.AcceptedLeaksFromUnderlay != nil {
+		prefixes := slices.Clone(*dbProfile.AcceptedLeaksFromUnderlay)
+		profile.AcceptedLeaksFromUnderlay = &prefixes
+	}
+	if dbProfile.AllowedAnycastPrefixes != nil {
+		prefixes := slices.Clone(*dbProfile.AllowedAnycastPrefixes)
+		profile.AllowedAnycastPrefixes = &prefixes
+	}
+}
+
+// APIVpcEffectiveRoutingProfile is the fully resolved routing policy reported by Core.
+// It does not preserve override presence semantics, and its list fields are
+// exposed as non-nil arrays.
+type APIVpcEffectiveRoutingProfile struct {
+	RouteTargetImports             APIVpcRouteTargets `json:"routeTargetImports"`
+	RouteTargetsOnExports          APIVpcRouteTargets `json:"routeTargetsOnExports"`
+	LeakDefaultRouteFromUnderlay   bool               `json:"leakDefaultRouteFromUnderlay"`
+	LeakTenantHostRoutesToUnderlay bool               `json:"leakTenantHostRoutesToUnderlay"`
+	TenantLeakCommunitiesAccepted  bool               `json:"tenantLeakCommunitiesAccepted"`
+	AcceptedLeaksFromUnderlay      []string           `json:"acceptedLeaksFromUnderlay"`
+	AllowedAnycastPrefixes         []string           `json:"allowedAnycastPrefixes"`
+	Internal                       bool               `json:"internal"`
+	AccessTier                     int                `json:"accessTier"`
+}
+
+// FromDB populates an API effective routing profile from the last Core-reported value.
+func (profile *APIVpcEffectiveRoutingProfile) FromDB(dbProfile *cdbm.VpcEffectiveRoutingProfile) {
+	*profile = APIVpcEffectiveRoutingProfile{}
+	if dbProfile == nil {
+		return
+	}
+
+	profile.RouteTargetImports.FromDBModel(dbProfile.RouteTargetImports)
+	profile.RouteTargetsOnExports.FromDBModel(dbProfile.RouteTargetsOnExports)
+	profile.LeakDefaultRouteFromUnderlay = dbProfile.LeakDefaultRouteFromUnderlay
+	profile.LeakTenantHostRoutesToUnderlay = dbProfile.LeakTenantHostRoutesToUnderlay
+	profile.TenantLeakCommunitiesAccepted = dbProfile.TenantLeakCommunitiesAccepted
+	profile.AcceptedLeaksFromUnderlay = slices.Clone(dbProfile.AcceptedLeaksFromUnderlay)
+	if profile.AcceptedLeaksFromUnderlay == nil {
+		profile.AcceptedLeaksFromUnderlay = []string{}
+	}
+	profile.AllowedAnycastPrefixes = slices.Clone(dbProfile.AllowedAnycastPrefixes)
+	if profile.AllowedAnycastPrefixes == nil {
+		profile.AllowedAnycastPrefixes = []string{}
+	}
+	profile.Internal = dbProfile.Internal
+	profile.AccessTier = int(dbProfile.AccessTier)
+}
+
 // APIVpcCreateRequest captures the request data for creating a new VPC
 type APIVpcCreateRequest struct {
 	// ID is the user-specified UUID of the VPC.
@@ -90,6 +295,8 @@ type APIVpcCreateRequest struct {
 	// This requires the Tenant to have elevated privileges. Current accepted values
 	// are `privileged-internal`, `internal`, and `external`.
 	RoutingProfile *string `json:"routingProfile"`
+	// RoutingProfileOverrides replaces selected properties from the VPC's named routing profile.
+	RoutingProfileOverrides *APIVpcRoutingProfileOverrides `json:"routingProfileOverrides"`
 }
 
 // Validate ensure the values passed in create request are acceptable
@@ -110,6 +317,7 @@ func (ascr APIVpcCreateRequest) Validate() error {
 				validation.Match(vpcRoutingProfileAllowedCharsRegexp).Error("`routingProfile` may only contain letters, numbers, or dashes"),
 			),
 		),
+		validation.Field(&ascr.RoutingProfileOverrides),
 		validation.Field(&ascr.SiteID,
 			validation.Required.Error(validationErrorValueRequired),
 			validationis.UUID.Error(validationErrorInvalidUUID)),
@@ -141,6 +349,12 @@ func (ascr APIVpcCreateRequest) Validate() error {
 			return validation.Errors{
 				"routingProfile": errors.New("`routingProfile` is only supported when `networkVirtualizationType` is FNN"),
 			}
+		}
+	}
+
+	if ascr.RoutingProfileOverrides != nil && ascr.NetworkVirtualizationType != nil && !cdbm.VpcTypeSupportsRoutingProfile(ascr.NetworkVirtualizationType) {
+		return validation.Errors{
+			"routingProfileOverrides": fmt.Errorf("`routingProfileOverrides` is not supported when `networkVirtualizationType` is `%s`", *ascr.NetworkVirtualizationType),
 		}
 	}
 
@@ -187,6 +401,7 @@ func (ascr APIVpcCreateRequest) ToProto(vpc *cdbm.Vpc) *corev1.VpcCreationReques
 		TenantOrganizationId:            config.TenantOrganizationId,
 		NetworkVirtualizationType:       config.NetworkVirtualizationType,
 		RoutingProfileType:              routingProfile,
+		RoutingProfileOverrides:         ascr.RoutingProfileOverrides.ToDB().ToProto(),
 		NetworkSecurityGroupId:          config.NetworkSecurityGroupId,
 		Vni:                             vni,
 		Metadata:                        vpcProto.Metadata,
@@ -207,6 +422,8 @@ type APIVpcUpdateRequest struct {
 	NetworkSecurityGroupID *string `json:"networkSecurityGroupId"`
 	// NVLinkLogicalPartitionID is the ID of the NVLinkLogicalPartition
 	NVLinkLogicalPartitionID *string `json:"nvLinkLogicalPartitionId"`
+	// RoutingProfileOverrides replaces the VPC's current inline routing-profile definition when present.
+	RoutingProfileOverrides *APIVpcRoutingProfileOverrides `json:"routingProfileOverrides"`
 }
 
 // Validate ensure the values passed in update request are acceptable
@@ -219,6 +436,7 @@ func (asur APIVpcUpdateRequest) Validate() error {
 		validation.Field(&asur.Description,
 			validation.When(asur.Description != nil, validation.Length(0, 1024).Error(validationErrorDescriptionStringLength)),
 		),
+		validation.Field(&asur.RoutingProfileOverrides),
 	)
 
 	if err != nil {
@@ -251,6 +469,7 @@ func (asur APIVpcUpdateRequest) ToProto(vpc *cdbm.Vpc) *corev1.VpcUpdateRequest 
 		Id:                              vpcProto.Id,
 		NetworkSecurityGroupId:          config.NetworkSecurityGroupId,
 		DefaultNvlinkLogicalPartitionId: config.DefaultNvlinkLogicalPartitionId,
+		RoutingProfileOverrides:         asur.RoutingProfileOverrides.ToDB().ToProto(),
 		Metadata:                        vpcProto.Metadata,
 	}
 }
@@ -329,6 +548,10 @@ type APIVpc struct {
 	NetworkSecurityGroupPropagationDetails *APINetworkSecurityGroupPropagationDetails `json:"networkSecurityGroupPropagationDetails"`
 	// RoutingProfile is the applied routing profile for the VPC, when known.
 	RoutingProfile *string `json:"routingProfile"`
+	// RoutingProfileOverrides contains properties set directly on the VPC.
+	RoutingProfileOverrides *APIVpcRoutingProfileOverrides `json:"routingProfileOverrides"`
+	// EffectiveRoutingProfile is visible only to tenants with targeted instance creation permission for the Site.
+	EffectiveRoutingProfile *APIVpcEffectiveRoutingProfile `json:"effectiveRoutingProfile,omitempty"`
 	// RequestedVni is the explicitly requested VPC VNI at creation time _if_ one was requested.
 	RequestedVni *int `json:"requestedVni"`
 	// Vni is the active/actual VNI of the VPC, regardless of whether it was
@@ -344,8 +567,10 @@ type APIVpc struct {
 	Updated time.Time `json:"updated"`
 }
 
-// NewAPIVpc creates and returns a new APIVpc object
-func NewAPIVpc(dbVpc cdbm.Vpc, dbsds []cdbm.StatusDetail) APIVpc {
+// NewAPIVpc converts a persisted VPC to its REST representation.
+// includeEffectiveRoutingProfile controls whether cached controller-resolved
+// routing state is exposed.
+func NewAPIVpc(dbVpc cdbm.Vpc, dbsds []cdbm.StatusDetail, includeEffectiveRoutingProfile bool) APIVpc {
 	apivpc := APIVpc{
 		ID:                                     dbVpc.ID.String(),
 		Name:                                   dbVpc.Name,
@@ -371,6 +596,16 @@ func NewAPIVpc(dbVpc cdbm.Vpc, dbsds []cdbm.StatusDetail) APIVpc {
 	if dbVpc.RoutingProfile != nil {
 		routingProfile := normalizeAPIVpcRoutingProfileFromSite(*dbVpc.RoutingProfile)
 		apivpc.RoutingProfile = &routingProfile
+	}
+
+	if dbVpc.RoutingProfileOverrides != nil {
+		apivpc.RoutingProfileOverrides = &APIVpcRoutingProfileOverrides{}
+		apivpc.RoutingProfileOverrides.FromDB(dbVpc.RoutingProfileOverrides)
+	}
+
+	if includeEffectiveRoutingProfile && dbVpc.EffectiveRoutingProfile != nil {
+		apivpc.EffectiveRoutingProfile = &APIVpcEffectiveRoutingProfile{}
+		apivpc.EffectiveRoutingProfile.FromDB(dbVpc.EffectiveRoutingProfile)
 	}
 
 	if dbVpc.ControllerVpcID != nil {

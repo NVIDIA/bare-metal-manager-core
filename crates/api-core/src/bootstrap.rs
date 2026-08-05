@@ -21,6 +21,7 @@
 //! types that must cross the crate boundary while service implementation stays
 //! in `carbide-api-core`.
 
+use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -32,7 +33,6 @@ use eyre::WrapErr;
 use sqlx::PgPool;
 #[cfg(test)]
 use tokio::sync::Notify;
-use tokio::sync::oneshot::Sender;
 use tokio::task::JoinSet;
 use tokio_util::sync::CancellationToken;
 
@@ -126,7 +126,6 @@ pub struct RuntimeInputs<'a> {
     pub secrets_context: Option<SecretsContext>,
     pub admin_ui_routes_builder: Option<AdminUiRoutesBuilder>,
     pub cancel_token: CancellationToken,
-    pub ready_channel: Sender<()>,
 }
 
 /// Enter api-core's private service runtime with fully prepared resources.
@@ -143,8 +142,10 @@ pub struct RuntimeInputs<'a> {
 /// "offer the UI", not "force it on". The flag also gates the log-stream
 /// layer feeding the UI's live log viewer: with the UI off, no per-event
 /// work is spent collecting lines nothing can read.
+///
+/// Returns the effective API listener address after startup completes.
 #[doc(hidden)]
-pub async fn start_runtime(inputs: RuntimeInputs<'_>) -> eyre::Result<()> {
+pub async fn start_runtime(inputs: RuntimeInputs<'_>) -> eyre::Result<SocketAddr> {
     let RuntimeInputs {
         carbide_config,
         initial_objects,
@@ -159,7 +160,6 @@ pub async fn start_runtime(inputs: RuntimeInputs<'_>) -> eyre::Result<()> {
         secrets_context,
         admin_ui_routes_builder,
         cancel_token,
-        ready_channel,
     } = inputs;
     let RuntimePrelude { dynamic_settings } = runtime_prelude;
 
@@ -177,7 +177,6 @@ pub async fn start_runtime(inputs: RuntimeInputs<'_>) -> eyre::Result<()> {
         secrets_context,
         admin_ui_routes_builder,
         cancel_token,
-        ready_channel,
     )
     .await
 }

@@ -1045,10 +1045,59 @@ else
         # does not exist in the registry.
         _dpf_inject_service_overrides() {
             local file="$1"
-            [[ -n "${NICO_DPF_DPU_AGENT_CHART_VERSION}" ]] && printf '\n[dpf.services.dpu_agent]\nhelm_version = "%s"\n' "${NICO_DPF_DPU_AGENT_CHART_VERSION}" >> "${file}"
-            [[ -n "${NICO_DPF_FMDS_CHART_VERSION}" ]]      && printf '\n[dpf.services.fmds]\nhelm_version = "%s"\n'      "${NICO_DPF_FMDS_CHART_VERSION}"      >> "${file}"
-            [[ -n "${NICO_DPF_DHCP_SERVER_CHART_VERSION}" ]] && printf '\n[dpf.services.dhcp_server]\nhelm_version = "%s"\n' "${NICO_DPF_DHCP_SERVER_CHART_VERSION}" >> "${file}"
-            [[ -n "${NICO_DPF_OTEL_CHART_VERSION}" ]]      && printf '\n[dpf.services.otel]\nhelm_version = "%s"\n'      "${NICO_DPF_OTEL_CHART_VERSION}"      >> "${file}"
+            # Build the extra TOML fragment. The [[ ]] && pattern is intentionally
+            # avoided: with set -euo pipefail, [[ -n "" ]] returns 1 and the whole
+            # compound expression exits non-zero, aborting the script even when no
+            # override is needed. Use if-then to keep exit-code semantics clean.
+            local _extra=""
+            if [[ -n "${NICO_DPF_DPU_AGENT_CHART_VERSION}" ]]; then
+                _extra+="$(printf '\n[dpf.services.dpu_agent]\nhelm_version = "%s"\n' "${NICO_DPF_DPU_AGENT_CHART_VERSION}")"
+            fi
+            if [[ -n "${NICO_DPF_FMDS_CHART_VERSION}" ]]; then
+                _extra+="$(printf '\n[dpf.services.fmds]\nhelm_version = "%s"\n' "${NICO_DPF_FMDS_CHART_VERSION}")"
+            fi
+            if [[ -n "${NICO_DPF_DHCP_SERVER_CHART_VERSION}" ]]; then
+                _extra+="$(printf '\n[dpf.services.dhcp_server]\nhelm_version = "%s"\n' "${NICO_DPF_DHCP_SERVER_CHART_VERSION}")"
+            fi
+            if [[ -n "${NICO_DPF_OTEL_CHART_VERSION}" ]]; then
+                _extra+="$(printf '\n[dpf.services.otel]\nhelm_version = "%s"\n' "${NICO_DPF_OTEL_CHART_VERSION}")"
+            fi
+            [[ -z "${_extra}" ]] && return 0
+
+            # The overrides are TOML that must live INSIDE the nicoApiSiteConfig
+            # YAML literal block scalar, not appended at file level. Appending raw
+            # TOML at the YAML file level produces invalid YAML (helm reports
+            # "could not find expected ':'"). The nicoApiSiteConfig block uses
+            # 6-space indentation; we insert the extra TOML lines with that same
+            # indent immediately before the first line that drops below it (which
+            # ends the YAML literal block scalar).
+            # Write the indented TOML lines to a temp file — awk -v cannot
+            # hold newlines so we pass a filename instead.
+            local _inject_file
+            _inject_file="$(mktemp)"
+            printf '%s' "${_extra}" | sed 's/^/      /' > "${_inject_file}"
+            awk -v inject_file="${_inject_file}" '
+                /^    nicoApiSiteConfig:/ { in_block=1; print; next }
+                # Stay in block on 6-space-indented content OR blank/whitespace-
+                # only lines (YAML literal block scalars allow blank lines as
+                # part of the content; only a non-blank line at lower indentation
+                # terminates the block).
+                in_block && (/^      / || /^[[:space:]]*$/) { print; next }
+                in_block {
+                    while ((getline line < inject_file) > 0) print line
+                    close(inject_file)
+                    in_block=0
+                    print; next
+                }
+                { print }
+                END {
+                    if (in_block) {
+                        while ((getline line < inject_file) > 0) print line
+                        close(inject_file)
+                    }
+                }
+            ' "${file}" > "${file}.tmp" && mv "${file}.tmp" "${file}"
+            rm -f "${_inject_file}"
         }
         _dpf_inject_service_overrides "${_DPF_ON_VALUES}"
         _dpf_inject_service_overrides "${_DPF_OFF_VALUES}"

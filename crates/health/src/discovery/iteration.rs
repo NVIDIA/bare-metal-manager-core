@@ -23,7 +23,9 @@ use std::time::Instant;
 use futures::{StreamExt, stream};
 
 use super::DiscoveryIterationStats;
-use super::cleanup::{stop_ineligible_nmxc_collectors, stop_removed_bmc_collectors};
+use super::cleanup::{
+    stop_ineligible_nmxc_collectors, stop_removed_bmc_collectors, stop_stale_switch_collectors,
+};
 use super::context::{CollectorKind, DiscoveryLoopContext};
 use super::identity::ensure_primary_system_uuid;
 use super::spawn::{spawn_collectors_for_endpoint, switch_supports_nmxc_subscription};
@@ -107,6 +109,11 @@ pub async fn run_discovery_iteration(
     // prune before respawn so downgraded auto-mode endpoints get replaced
     ctx.collectors.prune_finished_logs();
 
+    // A domain change keeps the same endpoint key and collector type. Complete
+    // old collector cleanup before respawn so a late CollectorRemoved cannot
+    // unregister the replacement's metrics.
+    stop_stale_switch_collectors(ctx, &sharded_endpoints).await;
+
     for endpoint in &sharded_endpoints {
         spawn_collectors_for_endpoint(ctx, endpoint, data_sink.clone(), metrics_prefix)?;
     }
@@ -160,6 +167,7 @@ mod tests {
                 serial: format!("serial-{mac}"),
                 slot_number: None,
                 tray_index: None,
+                nvlink_domain_uuid: None,
                 endpoint_role: SwitchEndpointRole::Host,
                 is_primary: false,
                 nmxc_enabled: false,
@@ -208,6 +216,7 @@ mod tests {
                 serial: format!("serial-{mac}"),
                 slot_number: None,
                 tray_index: None,
+                nvlink_domain_uuid: None,
                 endpoint_role,
                 is_primary,
                 nmxc_enabled,

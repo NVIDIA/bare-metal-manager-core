@@ -129,6 +129,7 @@ impl DpuMachineInfo {
             HardwareType::LiteOnPowerShelf
             | HardwareType::DeltaPowerShelf
             | HardwareType::NvidiaSwitchNd5200Ld
+            | HardwareType::NvidiaSwitchN5700Ld
             | HardwareType::NvidiaDgxVr
             | HardwareType::DellPowerEdgeR760Bf4 => {
                 panic!("Bluefield3 DPU is defined for {}", self.hw_type)
@@ -163,7 +164,8 @@ impl DpuMachineInfo {
             | HardwareType::SupermicroGb300Nvl
             | HardwareType::LiteOnPowerShelf
             | HardwareType::DeltaPowerShelf
-            | HardwareType::NvidiaSwitchNd5200Ld => {
+            | HardwareType::NvidiaSwitchNd5200Ld
+            | HardwareType::NvidiaSwitchN5700Ld => {
                 panic!("Bluefield4 DPU is defined for {}", self.hw_type)
             }
             HardwareType::NvidiaDgxVr => hw::bluefield4::Mode::B4240V,
@@ -191,7 +193,8 @@ impl DpuMachineInfo {
             | HardwareType::SupermicroGb300Nvl
             | HardwareType::LiteOnPowerShelf
             | HardwareType::DeltaPowerShelf
-            | HardwareType::NvidiaSwitchNd5200Ld => DpuType::Bluefield3,
+            | HardwareType::NvidiaSwitchNd5200Ld
+            | HardwareType::NvidiaSwitchN5700Ld => DpuType::Bluefield3,
             HardwareType::DellPowerEdgeR760Bf4 | HardwareType::NvidiaDgxVr => DpuType::Bluefield4,
         }
     }
@@ -268,7 +271,10 @@ impl HostMachineInfo {
     ) -> Self {
         let mut next_mac = || pool.allocate().expect("MAC address must be allocated");
         let bmc_mac_address = next_mac();
-        let nvos_mac_addresses = if matches!(hw_type, HardwareType::NvidiaSwitchNd5200Ld) {
+        let nvos_mac_addresses = if matches!(
+            hw_type,
+            HardwareType::NvidiaSwitchNd5200Ld | HardwareType::NvidiaSwitchN5700Ld
+        ) {
             vec![next_mac()]
         } else {
             vec![]
@@ -286,6 +292,7 @@ impl HostMachineInfo {
                     HardwareType::LiteOnPowerShelf
                         | HardwareType::DeltaPowerShelf
                         | HardwareType::NvidiaSwitchNd5200Ld
+                        | HardwareType::NvidiaSwitchN5700Ld
                 ) {
                 Some(next_mac())
             } else {
@@ -331,6 +338,7 @@ impl HostMachineInfo {
             | HardwareType::DeltaPowerShelf
             | HardwareType::NvidiaDgxH100
             | HardwareType::NvidiaSwitchNd5200Ld
+            | HardwareType::NvidiaSwitchN5700Ld
             | HardwareType::GenericAmi
             | HardwareType::HpeProliantDl380aGen11
             | HardwareType::GenericSupermicro => redfish::oem::State::Other,
@@ -359,6 +367,9 @@ impl HostMachineInfo {
             HardwareType::NvidiaSwitchNd5200Ld => {
                 redfish::oem::BmcVendor::Nvidia(redfish::oem::NvidiaNamestyle::Uppercase)
             }
+            HardwareType::NvidiaSwitchN5700Ld => {
+                redfish::oem::BmcVendor::Nvidia(redfish::oem::NvidiaNamestyle::Uppercase)
+            }
             HardwareType::NvidiaDgxH100 => redfish::oem::BmcVendor::Ami,
             HardwareType::GenericAmi => redfish::oem::BmcVendor::Ami,
             HardwareType::HpeProliantDl380aGen11 => redfish::oem::BmcVendor::Hpe,
@@ -378,6 +389,7 @@ impl HostMachineInfo {
             HardwareType::LiteOnPowerShelf => None,
             HardwareType::DeltaPowerShelf => None,
             HardwareType::NvidiaSwitchNd5200Ld => Some("P3809"),
+            HardwareType::NvidiaSwitchN5700Ld => Some("P3809"),
             HardwareType::NvidiaDgxH100 => Some("AMI Redfish Server"),
             HardwareType::GenericAmi => Some("AMI Redfish Server"),
             HardwareType::HpeProliantDl380aGen11 => Some("ProLiant DL380a Gen11"),
@@ -396,6 +408,7 @@ impl HostMachineInfo {
             HardwareType::LiteOnPowerShelf => "1.9.0",
             HardwareType::DeltaPowerShelf => "1.9.0",
             HardwareType::NvidiaSwitchNd5200Ld => "1.17.0",
+            HardwareType::NvidiaSwitchN5700Ld => "1.17.0",
             HardwareType::NvidiaDgxH100 => "1.11.0",
             HardwareType::GenericAmi => "1.17.0",
             HardwareType::HpeProliantDl380aGen11 => "1.13.0",
@@ -415,6 +428,7 @@ impl HostMachineInfo {
             HardwareType::LiteOnPowerShelf => self.liteon_power_shelf().manager_config(),
             HardwareType::DeltaPowerShelf => self.delta_power_shelf().manager_config(),
             HardwareType::NvidiaSwitchNd5200Ld => self.nvidia_switch_nd5200_ld().manager_config(),
+            HardwareType::NvidiaSwitchN5700Ld => self.nvidia_switch_n5700_ld().manager_config(),
             HardwareType::NvidiaDgxH100 => self.nvidia_dgx_h100().manager_config(),
             HardwareType::HpeProliantDl380aGen11 => {
                 self.hpe_proliant_dl380a_gen11().manager_config()
@@ -444,6 +458,7 @@ impl HostMachineInfo {
             HardwareType::LiteOnPowerShelf => self.liteon_power_shelf().system_config(),
             HardwareType::DeltaPowerShelf => self.delta_power_shelf().system_config(),
             HardwareType::NvidiaSwitchNd5200Ld => self.nvidia_switch_nd5200_ld().system_config(),
+            HardwareType::NvidiaSwitchN5700Ld => self.nvidia_switch_n5700_ld().system_config(),
             HardwareType::NvidiaDgxH100 => self.nvidia_dgx_h100().system_config(callbacks),
             HardwareType::HpeProliantDl380aGen11 => {
                 self.hpe_proliant_dl380a_gen11().system_config(callbacks)
@@ -466,6 +481,7 @@ impl HostMachineInfo {
             HardwareType::LiteOnPowerShelf => self.liteon_power_shelf().chassis_config(),
             HardwareType::DeltaPowerShelf => self.delta_power_shelf().chassis_config(),
             HardwareType::NvidiaSwitchNd5200Ld => self.nvidia_switch_nd5200_ld().chassis_config(),
+            HardwareType::NvidiaSwitchN5700Ld => self.nvidia_switch_n5700_ld().chassis_config(),
             HardwareType::NvidiaDgxH100 => self.nvidia_dgx_h100().chassis_config(),
             HardwareType::HpeProliantDl380aGen11 => {
                 self.hpe_proliant_dl380a_gen11().chassis_config()
@@ -491,6 +507,9 @@ impl HostMachineInfo {
             HardwareType::DeltaPowerShelf => self.delta_power_shelf().update_service_config(),
             HardwareType::NvidiaSwitchNd5200Ld => {
                 self.nvidia_switch_nd5200_ld().update_service_config()
+            }
+            HardwareType::NvidiaSwitchN5700Ld => {
+                self.nvidia_switch_n5700_ld().update_service_config()
             }
             HardwareType::NvidiaDgxH100 => self.nvidia_dgx_h100().update_service_config(),
             HardwareType::HpeProliantDl380aGen11 => {
@@ -792,6 +811,22 @@ impl HostMachineInfo {
         let mut pool = MacAddressPool::new_pool(self.hw_mac_addr_pool);
         let mut next_mac = || pool.allocate().expect("MAC address must be allocated");
         hw::nvidia_switch_nd5200_ld::NvidiaSwitchNd5200Ld {
+            bmc_mac_address_eth0: self.bmc_mac_address,
+            bmc_mac_address_eth1: next_mac(),
+            bmc_mac_address_usb0: next_mac(),
+            bmc_serial_number: Cow::Borrowed(&self.serial),
+            switch_serial_number: self
+                .switch_serial_number
+                .as_deref()
+                .unwrap_or(&self.serial)
+                .into(),
+        }
+    }
+
+    fn nvidia_switch_n5700_ld(&self) -> hw::nvidia_switch_n5700_ld::NvidiaSwitchN5700Ld<'_> {
+        let mut pool = MacAddressPool::new_pool(self.hw_mac_addr_pool);
+        let mut next_mac = || pool.allocate().expect("MAC address must be allocated");
+        hw::nvidia_switch_n5700_ld::NvidiaSwitchN5700Ld {
             bmc_mac_address_eth0: self.bmc_mac_address,
             bmc_mac_address_eth1: next_mac(),
             bmc_mac_address_usb0: next_mac(),
@@ -1110,5 +1145,28 @@ mod tests {
             supermicro.serial
         );
         assert_ne!(dgx.serial, supermicro.serial);
+    }
+
+    #[test]
+    fn switch_profiles_allocate_one_nvos_mac() {
+        for hardware_type in [
+            HardwareType::NvidiaSwitchNd5200Ld,
+            HardwareType::NvidiaSwitchN5700Ld,
+        ] {
+            let pool_config =
+                PoolConfig::new(MacAddress::new([2, 0, 0, 0, 0, 0]), 16).expect("valid MAC pool");
+            let mut pool = MacAddressPool::new(Config {
+                ranges: None,
+                pool: Some(pool_config),
+            });
+            let hw_mac_addr_pool = PoolConfig::new(MacAddress::new([6, 0, 0, 0, 0, 0]), 16)
+                .expect("valid hardware MAC pool");
+
+            let host = HostMachineInfo::new(hardware_type, vec![], &mut pool, hw_mac_addr_pool);
+
+            assert_eq!(host.nvos_mac_addresses.len(), 1, "{hardware_type}");
+            assert!(host.switch_serial_number.is_some(), "{hardware_type}");
+            assert_eq!(host.non_dpu_mac_address, None, "{hardware_type}");
+        }
     }
 }

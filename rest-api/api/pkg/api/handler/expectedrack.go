@@ -582,27 +582,27 @@ func (uerh UpdateExpectedRackHandler) Handle(c echo.Context) error {
 		return cutil.NewAPIErrorResponse(c, http.StatusForbidden, "Current org is not associated with the Site of the Expected Rack", nil)
 	}
 
-	// If RackID is changing, ensure the new value is not already taken in this site
+	// RackID is immutable: Core and Flow identify expected racks by rackId, so
+	// PATCH may reassert the existing identity but cannot replace it. A rename
+	// would first mutate the Cloud record and only then fail in Core's lookup
+	// by the new rackId, so the mismatch is rejected here before any database
+	// write or workflow trigger. This mirrors the ExpectedMachine BMC MAC
+	// identity boundary.
 	if apiRequest.RackID != nil && *apiRequest.RackID != expectedRack.RackID {
-		_, count, err := erDAO.GetAll(ctx, nil, cdbm.ExpectedRackFilterInput{
-			SiteIDs: []uuid.UUID{expectedRack.SiteID},
-			RackIDs: []string{*apiRequest.RackID},
-		}, paginator.PageInput{Limit: cutil.GetPtr(1)}, nil)
-		if err != nil {
-			logger.Error().Err(err).Msg("error checking for duplicate Expected Rack")
-			return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to validate Expected Rack uniqueness due to DB error", nil)
-		}
-		if count > 0 {
-			return cutil.NewAPIErrorResponse(c, http.StatusConflict, "Expected Rack with specified RackID already exists for Site", validation.Errors{
-				"rackId": errors.New(*apiRequest.RackID),
-			})
-		}
+		logger.Warn().
+			Str("requestRackID", *apiRequest.RackID).
+			Str("currentRackID", expectedRack.RackID).
+			Msg("RackID cannot be changed after creation")
+		return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, "Failed to validate ExpectedRack update request data", validation.Errors{
+			"rackId": errors.New("RackID cannot be changed after creation"),
+		})
 	}
 
-	// Build update input from request, mapping flat API fields to DAO fields
+	// Build update input from request, mapping flat API fields to DAO fields.
+	// RackID is intentionally not passed through: it is immutable, so the DAO
+	// update path is structurally incapable of renaming an Expected Rack.
 	updateInput := cdbm.ExpectedRackUpdateInput{
 		ExpectedRackID: expectedRack.ID,
-		RackID:         apiRequest.RackID,
 		RackProfileID:  apiRequest.RackProfileID,
 		Name:           apiRequest.Name,
 		Description:    apiRequest.Description,

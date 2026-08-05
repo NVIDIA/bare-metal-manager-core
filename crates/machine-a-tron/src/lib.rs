@@ -34,6 +34,7 @@ mod machine_utils;
 mod mock_ssh_server;
 mod power_shelf_fsm;
 mod power_shelf_simulator;
+mod rack;
 mod simulator_registry;
 mod status;
 mod subnet;
@@ -49,7 +50,7 @@ use std::time::{Duration, Instant};
 pub use bmc_mock_wrapper::BmcMockRegistry;
 pub use config::{
     DhcpType, MachineATronArgs, MachineATronConfig, MachineATronContext, MachineConfig,
-    PersistedDevice, PersistedDpuMachine, RackConfig,
+    PersistedDevice, PersistedDpuMachine, RackConfig, RackModelConfig, WiwynnGb200RackConfig,
 };
 pub use control_router::{ControlState, append as append_control_routes};
 pub use device_handle::DeviceHandle;
@@ -64,6 +65,7 @@ pub use mock_ssh_server::{
     Credentials as MockSshCredentials, MockSshServerHandle, PromptBehavior,
     spawn as spawn_mock_ssh_server,
 };
+pub use rack::{RackMemberStatus, RackStatus, RacksStatusResponse};
 pub use simulator_registry::SimulatorRegistry;
 pub use status::{DeviceKind, DeviceStatus, DeviceStatusConfig, DevicesStatusResponse};
 pub use tui::{Tui, UiUpdate};

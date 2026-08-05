@@ -226,6 +226,8 @@ pub fn flavor_bf4(
             ew_nic_configurations: None,
             packages: None,
             systemd_services: None,
+            host_os_init: None,
+            scalable_functions: None,
         },
     })
 }
@@ -272,6 +274,8 @@ pub fn flavor_bf4_astra(
             }),
             system_reserved_resources: None,
             systemd_services: Some(vec![]),
+            host_os_init: None,
+            scalable_functions: None,
         },
     })
 }
@@ -457,6 +461,8 @@ pub fn default_flavor(
             ew_nic_configurations: None,
             packages: None,
             systemd_services: None,
+            host_os_init: None,
+            scalable_functions: None,
         },
     })
 }

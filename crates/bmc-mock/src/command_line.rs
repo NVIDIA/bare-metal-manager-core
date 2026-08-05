@@ -38,7 +38,8 @@ fn parse_hardware_profile(value: &str) -> Result<HardwareType, String> {
     match hardware_type {
         HardwareType::LiteOnPowerShelf
         | HardwareType::DeltaPowerShelf
-        | HardwareType::NvidiaSwitchNd5200Ld => {
+        | HardwareType::NvidiaSwitchNd5200Ld
+        | HardwareType::NvidiaSwitchN5700Ld => {
             Err(format!("hardware profile is not a host or DPU: {value}"))
         }
         hardware_type => Ok(hardware_type),
@@ -199,10 +200,21 @@ mod tests {
 
     #[test]
     fn rejects_non_host_hardware_profile() {
-        let error = Args::try_parse_from(["bmc-mock", "--hardware-profile", "liteon_power_shelf"])
-            .unwrap_err();
+        for profile in [
+            "liteon_power_shelf",
+            "delta_power_shelf",
+            "nvidia_switch_nd5200_ld",
+            "nvidia_switch_n5700_ld",
+        ] {
+            let error =
+                Args::try_parse_from(["bmc-mock", "--hardware-profile", profile]).unwrap_err();
 
-        assert_eq!(error.kind(), ErrorKind::ValueValidation);
+            assert_eq!(
+                error.kind(),
+                ErrorKind::ValueValidation,
+                "profile {profile}"
+            );
+        }
     }
 
     #[test]
