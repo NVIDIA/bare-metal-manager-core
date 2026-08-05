@@ -4,6 +4,7 @@
 package config
 
 import (
+	"context"
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
@@ -13,6 +14,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -81,7 +83,7 @@ func TestNewJwksConfig(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			config := NewJwksConfig("test-config", tt.url, tt.issuer, TokenOriginKasSsa, false, nil, nil)
+			config := NewJwksConfig(tt.url, tt.issuer, TokenOriginKasSsa, false, nil, nil)
 			require.NotNil(t, config)
 			tt.validate(t, config)
 
@@ -556,7 +558,7 @@ func TestGetKeyFromJWKS_NoKidWithAlgorithm(t *testing.T) {
 			defer jwksServer.Close()
 
 			// Create and configure JWKS config
-			jwksConfig := NewJwksConfig("test-config", jwksServer.URL, "test-issuer", TokenOriginKasSsa, false, nil, nil)
+			jwksConfig := NewJwksConfig(jwksServer.URL, "test-issuer", TokenOriginKasSsa, false, nil, nil)
 			err = jwksConfig.UpdateJWKS()
 			require.NoError(t, err, "Failed to update JWKS")
 
@@ -766,7 +768,6 @@ func TestGetScopes_Formats(t *testing.T) {
 func TestValidateScopes(t *testing.T) {
 	// Config with issuer-level scopes
 	config := &JwksConfig{
-		Name:   "scope-test",
 		Scopes: []string{"nico", "openid"}, // Requires BOTH scopes at issuer level
 	}
 
@@ -808,7 +809,6 @@ func TestValidateScopes(t *testing.T) {
 
 	t.Run("no scopes configured accepts any token", func(t *testing.T) {
 		noScopeConfig := &JwksConfig{
-			Name: "no-scope-test",
 			// No Scopes configured
 		}
 		claims := jwt.MapClaims{
@@ -868,7 +868,6 @@ func TestAudienceFormats(t *testing.T) {
 func TestValidateAudiences(t *testing.T) {
 	t.Run("no_audiences_configured_passes", func(t *testing.T) {
 		config := &JwksConfig{
-			Name:      "test",
 			Audiences: nil,
 		}
 		claims := jwt.MapClaims{"sub": "user"}
@@ -878,7 +877,6 @@ func TestValidateAudiences(t *testing.T) {
 
 	t.Run("token_matches_one_of_configured_audiences", func(t *testing.T) {
 		config := &JwksConfig{
-			Name:      "test",
 			Audiences: []string{"nico-rest-api", "other-api"},
 		}
 		claims := jwt.MapClaims{"sub": "user", "aud": "nico-rest-api"}
@@ -888,7 +886,6 @@ func TestValidateAudiences(t *testing.T) {
 
 	t.Run("token_audience_array_matches_configured", func(t *testing.T) {
 		config := &JwksConfig{
-			Name:      "test",
 			Audiences: []string{"nico-rest-api"},
 		}
 		claims := jwt.MapClaims{"sub": "user", "aud": []string{"other", "nico-rest-api"}}
@@ -898,7 +895,6 @@ func TestValidateAudiences(t *testing.T) {
 
 	t.Run("token_audience_exact_match_required", func(t *testing.T) {
 		config := &JwksConfig{
-			Name:      "test",
 			Audiences: []string{"NICo-REST-API"},
 		}
 		// Different case should NOT match (exact string comparison)
@@ -909,7 +905,6 @@ func TestValidateAudiences(t *testing.T) {
 
 	t.Run("token_audience_does_not_match", func(t *testing.T) {
 		config := &JwksConfig{
-			Name:      "test",
 			Audiences: []string{"nico-rest-api"},
 		}
 		claims := jwt.MapClaims{"sub": "user", "aud": "wrong-audience"}
@@ -919,7 +914,6 @@ func TestValidateAudiences(t *testing.T) {
 
 	t.Run("missing_audience_when_required_fails", func(t *testing.T) {
 		config := &JwksConfig{
-			Name:      "test",
 			Audiences: []string{"nico-rest-api"},
 		}
 		claims := jwt.MapClaims{"sub": "user"}
@@ -995,4 +989,328 @@ func TestGetOrgDataFromClaimMappingAudiences(t *testing.T) {
 			assert.Contains(t, orgData, strings.ToLower(tt.requestOrg))
 		})
 	}
+}
+
+const cachedKeySetJSON = `{"keys":[{"kty":"RSA","use":"sig","kid":"cached-key","alg":"RS256","n":"test-n-value","e":"AQAB"}]}`
+
+// rotatedKeySetJSON stands in for the key set an issuer publishes after a rotation,
+// so a test can tell which of two competing installs won.
+const rotatedKeySetJSON = `{"keys":[{"kty":"RSA","use":"sig","kid":"rotated-key","alg":"RS256","n":"test-n-value","e":"AQAB"}]}`
+
+// countingJWKSServer serves a fixed key set and counts how many times it was hit,
+// which is how the anti-stall tests assert that concurrent misses collapse into
+// one request rather than one per caller.
+func countingJWKSServer(t *testing.T, delay time.Duration) (*httptest.Server, *atomic.Int32) {
+	t.Helper()
+
+	var hits atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		hits.Add(1)
+		if delay > 0 {
+			time.Sleep(delay)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(cachedKeySetJSON))
+	}))
+	t.Cleanup(server.Close)
+
+	return server, &hits
+}
+
+func TestSetJWKSFromCache(t *testing.T) {
+	jwks, err := core.NewJWKSFromBytes([]byte(cachedKeySetJSON))
+	require.NoError(t, err)
+
+	server, hits := countingJWKSServer(t, 0)
+	cfg := &JwksConfig{URL: server.URL, Issuer: "https://idp.example.com"}
+
+	fetchedAt := time.Now().Add(-time.Second)
+	cfg.SetJWKSFromCache(jwks, fetchedAt)
+
+	assert.Equal(t, 1, cfg.KeyCount(), "hydration installs the cached keys")
+	assert.Equal(t, fetchedAt, cfg.LastFetchedAt(), "hydration seeds the throttle with the cached fetch time")
+	assert.Zero(t, hits.Load(), "hydration must not touch the network")
+
+	// The seeded timestamp is recent, so the throttle must suppress a refresh: a
+	// restarting replica should not stampede the IdP for keys it already has.
+	_, _, fetched, rerr := cfg.RefreshJWKS(context.Background())
+	require.NoError(t, rerr)
+	assert.False(t, fetched, "a recently cached key set must not trigger an immediate refetch")
+	assert.Zero(t, hits.Load())
+}
+
+func TestRefreshJWKSDistinguishesThrottledFromFetched(t *testing.T) {
+	server, hits := countingJWKSServer(t, 0)
+	cfg := &JwksConfig{URL: server.URL, Issuer: "https://idp.example.com"}
+
+	raw, _, fetched, err := cfg.RefreshJWKS(context.Background())
+	require.NoError(t, err)
+	assert.True(t, fetched, "the first refresh actually fetches")
+	assert.NotEmpty(t, raw, "a fetched key set is returned for persistence")
+	assert.Equal(t, int32(1), hits.Load())
+
+	raw, _, fetched, err = cfg.RefreshJWKS(context.Background())
+	require.NoError(t, err)
+	assert.False(t, fetched, "a refresh inside the throttle window reports that it did nothing")
+	assert.Nil(t, raw)
+	assert.Equal(t, int32(1), hits.Load(), "the throttled call must not reach the IdP")
+}
+
+// TestExpiredKeySetIsRefreshedBeforeUse covers the ceiling on cached trust: a
+// snapshot older than maxJWKSAge cannot validate tokens on its own, and the miss it
+// produces drives the refresh that makes the issuer usable again.
+func TestExpiredKeySetIsRefreshedBeforeUse(t *testing.T) {
+	jwks, err := core.NewJWKSFromBytes([]byte(cachedKeySetJSON))
+	require.NoError(t, err)
+
+	server, hits := countingJWKSServer(t, 0)
+	cfg := &JwksConfig{URL: server.URL, Issuer: "https://idp.example.com"}
+	cfg.SetJWKSFromCache(jwks, time.Now().Add(-maxJWKSAge-time.Minute))
+
+	assert.Nil(t, cfg.GetJWKS(), "a key set past maxJWKSAge is no longer usable")
+	_, kerr := cfg.GetKeyByID("cached-key")
+	assert.ErrorIs(t, kerr, core.ErrJWKSExpired)
+
+	token := &jwt.Token{Header: map[string]interface{}{"alg": "RS256", "kid": "cached-key"}}
+	_, _ = cfg.getPublicKey(context.Background(), token)
+
+	assert.Equal(t, int32(1), hits.Load(), "an expired key set is re-fetched on the request path")
+	assert.NotNil(t, cfg.GetJWKS(), "the confirmed key set is trusted again")
+}
+
+// TestExpiredKeySetFailsClosedWhileIssuerIsUnreachable is the security half of the
+// same policy: availability during an issuer outage stops at maxJWKSAge instead of
+// continuing indefinitely on keys the issuer may have retired.
+func TestExpiredKeySetFailsClosedWhileIssuerIsUnreachable(t *testing.T) {
+	jwks, err := core.NewJWKSFromBytes([]byte(cachedKeySetJSON))
+	require.NoError(t, err)
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	t.Cleanup(server.Close)
+
+	cfg := &JwksConfig{URL: server.URL, Issuer: "https://idp.example.com"}
+	cfg.SetJWKSFromCache(jwks, time.Now().Add(-maxJWKSAge-time.Minute))
+
+	token := &jwt.Token{Header: map[string]interface{}{"alg": "RS256", "kid": "cached-key"}}
+	_, kerr := cfg.getPublicKey(context.Background(), token)
+
+	require.Error(t, kerr, "keys the issuer has not confirmed within maxJWKSAge must not validate tokens")
+	assert.Equal(t, 1, cfg.KeyCount(), "the expired set is kept for the next refresh attempt, not evicted")
+}
+
+// TestInstallRejectsAnOlderKeySet covers the stale-write race persistence makes
+// possible: a fetch that started before another replica's newer snapshot was
+// hydrated must not roll this replica back to the older keys and reject tokens
+// signed by the new ones until the next reload.
+func TestInstallRejectsAnOlderKeySet(t *testing.T) {
+	older, err := core.NewJWKSFromBytes([]byte(cachedKeySetJSON))
+	require.NoError(t, err)
+	newer, err := core.NewJWKSFromBytes([]byte(rotatedKeySetJSON))
+	require.NoError(t, err)
+
+	slowFetchStartedAt := time.Now().Add(-time.Minute)
+	hydratedAt := slowFetchStartedAt.Add(30 * time.Second)
+
+	cfg := &JwksConfig{URL: "https://idp.example.com/jwks", Issuer: "https://idp.example.com"}
+	cfg.SetJWKSFromCache(newer, hydratedAt)
+	cfg.install(older, slowFetchStartedAt)
+
+	live := cfg.GetJWKS()
+	require.NotNil(t, live)
+	require.Len(t, live.Set.Keys, 1)
+	assert.Equal(t, "rotated-key", live.Set.Keys[0].KeyID,
+		"the newer key set survives a late-completing older fetch")
+	assert.Equal(t, hydratedAt, cfg.LastFetchedAt())
+}
+
+// TestConcurrentKIDMissesProduceOneFetch is the core anti-stall guarantee: a burst
+// of requests all missing on the same unknown kid must cost one HTTP fetch, not
+// one per request.
+func TestConcurrentKIDMissesProduceOneFetch(t *testing.T) {
+	server, hits := countingJWKSServer(t, 50*time.Millisecond)
+	cfg := &JwksConfig{URL: server.URL, Issuer: "https://idp.example.com"}
+
+	const callers = 20
+	var wg sync.WaitGroup
+	for i := 0; i < callers; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			token := &jwt.Token{Header: map[string]interface{}{"alg": "RS256", "kid": "unknown-kid"}}
+			_, _ = cfg.getPublicKey(context.Background(), token)
+		}()
+	}
+	wg.Wait()
+
+	assert.Equal(t, int32(1), hits.Load(), "concurrent misses must collapse into a single fetch")
+}
+
+// TestSharedFlightInstallsOnEveryWaiter covers the case the URL-keyed flight
+// makes possible: the config that joins a fetch started by a different config
+// (a registry rebuild mid-flight, or two issuers sharing a JWKS endpoint) must
+// still end up with the keys installed on itself.
+func TestSharedFlightInstallsOnEveryWaiter(t *testing.T) {
+	server, hits := countingJWKSServer(t, 50*time.Millisecond)
+
+	first := &JwksConfig{URL: server.URL, Issuer: "https://idp-a.example.com"}
+	second := &JwksConfig{URL: server.URL, Issuer: "https://idp-b.example.com"}
+
+	var wg sync.WaitGroup
+	for _, cfg := range []*JwksConfig{first, second} {
+		wg.Add(1)
+		go func(cfg *JwksConfig) {
+			defer wg.Done()
+			_, _, fetched, err := cfg.RefreshJWKS(context.Background())
+			assert.NoError(t, err)
+			assert.True(t, fetched)
+		}(cfg)
+	}
+	wg.Wait()
+
+	assert.Equal(t, int32(1), hits.Load(), "the two configs share one fetch")
+	assert.Equal(t, 1, first.KeyCount())
+	assert.Equal(t, 1, second.KeyCount(), "a waiter must install the shared result on itself")
+}
+
+// TestUnknownKIDIsNegativeCached covers the sequential case singleflight cannot:
+// once a fresh key set has been seen without the kid, later requests carrying it
+// must be rejected without another fetch.
+func TestUnknownKIDIsNegativeCached(t *testing.T) {
+	server, hits := countingJWKSServer(t, 0)
+	cfg := &JwksConfig{URL: server.URL, Issuer: "https://idp.example.com"}
+
+	token := &jwt.Token{Header: map[string]interface{}{"alg": "RS256", "kid": "unknown-kid"}}
+
+	_, err := cfg.getPublicKey(context.Background(), token)
+	require.Error(t, err)
+	require.Equal(t, int32(1), hits.Load())
+
+	assert.True(t, cfg.isUnknownKID("unknown-kid"), "a kid absent from a fresh key set is remembered")
+
+	_, err = cfg.getPublicKey(context.Background(), token)
+	require.Error(t, err)
+	assert.Equal(t, int32(1), hits.Load(), "a negative-cached kid must not drive another fetch")
+}
+
+// TestNegativeCacheClearedOnNewKeySet proves the cache cannot outlive the key set
+// it was derived from, so a key the IdP publishes later is still picked up.
+func TestNegativeCacheClearedOnNewKeySet(t *testing.T) {
+	jwks, err := core.NewJWKSFromBytes([]byte(cachedKeySetJSON))
+	require.NoError(t, err)
+
+	cfg := &JwksConfig{URL: "https://idp.example.com/jwks", Issuer: "https://idp.example.com"}
+	cfg.rememberUnknownKID("rotated-in-key")
+	require.True(t, cfg.isUnknownKID("rotated-in-key"))
+
+	cfg.SetJWKSFromCache(jwks, time.Now())
+	assert.False(t, cfg.isUnknownKID("rotated-in-key"), "installing a new key set invalidates the negative cache")
+}
+
+func TestNegativeCacheIsBounded(t *testing.T) {
+	cfg := &JwksConfig{URL: "https://idp.example.com/jwks", Issuer: "https://idp.example.com"}
+
+	for i := 0; i < maxNegativeKIDs*3; i++ {
+		cfg.rememberUnknownKID(string(rune(i)))
+	}
+
+	cfg.RLock()
+	defer cfg.RUnlock()
+	assert.LessOrEqual(t, len(cfg.negativeKIDs), maxNegativeKIDs,
+		"an attacker minting random kids must not be able to grow the cache without limit")
+}
+
+// TestRefreshJWKSHonorsContext guards against the old sleep-based retry loop
+// returning: a caller that has given up must not be held by a hung IdP.
+func TestRefreshJWKSHonorsContext(t *testing.T) {
+	release := make(chan struct{})
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		<-release
+	}))
+	defer server.Close()
+	defer close(release)
+
+	cfg := &JwksConfig{URL: server.URL, Issuer: "https://idp.example.com", JWKSTimeout: 30 * time.Second}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+
+	start := time.Now()
+	_, _, fetched, err := cfg.RefreshJWKS(ctx)
+	elapsed := time.Since(start)
+
+	require.Error(t, err)
+	assert.False(t, fetched)
+	assert.Less(t, elapsed, 5*time.Second, "a cancelled request must abort promptly")
+}
+
+// TestRefreshJWKSStampsFetchStart pins the timestamp semantics the persisted
+// cache's stale-write guard depends on: the key set is stamped with the time its
+// request was issued, not the time it completed, so a slow fetch that started
+// first can never look newer than one that started later.
+func TestRefreshJWKSStampsFetchStart(t *testing.T) {
+	const delay = 300 * time.Millisecond
+	server, _ := countingJWKSServer(t, delay)
+	cfg := &JwksConfig{URL: server.URL, Issuer: "https://idp.example.com"}
+
+	_, fetchedAt, fetched, err := cfg.RefreshJWKS(context.Background())
+	completedAt := time.Now().UTC()
+
+	require.NoError(t, err)
+	require.True(t, fetched)
+	assert.GreaterOrEqual(t, completedAt.Sub(fetchedAt), delay,
+		"the stamp predates the response by at least the time the IdP took")
+	assert.Equal(t, fetchedAt, cfg.LastFetchedAt(), "the same stamp is what gets installed")
+}
+
+// TestRefreshJWKSWaiterCancellationIsIndependent covers the two halves of the
+// singleflight contract: a waiter that gives up returns on its own context, and
+// its departure neither cancels nor is required by the shared fetch.
+func TestRefreshJWKSWaiterCancellationIsIndependent(t *testing.T) {
+	entered := make(chan struct{}, 1)
+	release := make(chan struct{})
+	releaseOnce := sync.OnceFunc(func() { close(release) })
+
+	var hits atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		hits.Add(1)
+		select {
+		case entered <- struct{}{}:
+		default:
+		}
+		<-release
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(cachedKeySetJSON))
+	}))
+	// Cleanups run last-registered-first, so the handlers are released before Close
+	// waits on them.
+	t.Cleanup(server.Close)
+	t.Cleanup(releaseOnce)
+
+	leader := &JwksConfig{URL: server.URL, Issuer: "https://idp-a.example.com", JWKSTimeout: 30 * time.Second}
+	waiter := &JwksConfig{URL: server.URL, Issuer: "https://idp-b.example.com", JWKSTimeout: 30 * time.Second}
+
+	leaderDone := make(chan error, 1)
+	go func() {
+		_, _, _, lerr := leader.RefreshJWKS(context.Background())
+		leaderDone <- lerr
+	}()
+	<-entered
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	start := time.Now()
+	_, _, fetched, err := waiter.RefreshJWKS(ctx)
+
+	require.Error(t, err, "a waiter whose caller gave up must not wait for the flight")
+	assert.False(t, fetched)
+	assert.Less(t, time.Since(start), time.Second)
+	assert.Equal(t, 0, waiter.KeyCount(), "the departed waiter installs nothing")
+
+	releaseOnce()
+	require.NoError(t, <-leaderDone, "the shared fetch survives the waiter's cancellation")
+	assert.Equal(t, 1, leader.KeyCount())
+	assert.Equal(t, int32(1), hits.Load(), "both callers shared one request")
 }

@@ -164,8 +164,37 @@ func TestNewAPIRoutes(t *testing.T) {
 			assertRouteExists(t, got, http.MethodPost, runPath+"/:id/resume")
 			assertRouteExists(t, got, http.MethodPost, runPath+"/:id/advance")
 			assertRouteExists(t, got, http.MethodPost, runPath+"/:id/cancel")
+
 		})
 	}
+}
+
+func TestNewIssuerRoutes(t *testing.T) {
+	// One static custom issuer is the bootstrap IdP: with keycloak off and an
+	// empty issuers list there is nothing to verify a Provider Admin token
+	// against, so these routes would never be reachable.
+	cfg, err := config.NewConfigFromYAML(`
+keycloak:
+  enabled: false
+issuers:
+  - issuer: https://provider.example.com
+    jwks: https://provider.example.com/jwks
+    origin: custom
+    claimMappings:
+      - orgName: provider-org
+        roles: [PROVIDER_ADMIN]
+env:
+  disconnected: true
+`)
+	assert.NoError(t, err)
+
+	got := NewIssuerRoutes(&cdb.Session{}, cfg)
+	issuerPath := "/org/:orgName/" + cfg.GetAPIName() + "/issuer"
+	assert.Len(t, got, 4)
+	assertRouteExists(t, got, http.MethodPut, issuerPath)
+	assertRouteExists(t, got, http.MethodGet, issuerPath)
+	assertRouteExists(t, got, http.MethodGet, issuerPath+"/:issuerId")
+	assertRouteExists(t, got, http.MethodDelete, issuerPath+"/:issuerId")
 }
 
 func assertRouteExists(t *testing.T, routes []Route, method, path string) {

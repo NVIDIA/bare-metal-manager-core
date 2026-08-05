@@ -70,8 +70,34 @@ func Test_InitAPIServer(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			InitAPIServer(tt.args.cfg, tt.args.dbSession, tt.args.tc, tt.args.tnc, tt.args.scp)
+			e := InitAPIServer(tt.args.cfg, tt.args.dbSession, tt.args.tc, tt.args.tnc, tt.args.scp)
+			assertIssuerRoutesMatchPolicy(t, e, tt.args.cfg)
 		})
+	}
+}
+
+// assertIssuerRoutesMatchPolicy checks the route table the server actually built
+// against the single condition that is supposed to govern it. The issuer routes
+// and the DB-backed issuer machinery are gated together, so the registered
+// surface is the observable half of that decision.
+func assertIssuerRoutesMatchPolicy(t *testing.T, e *echo.Echo, cfg *config.Config) {
+	t.Helper()
+
+	prefix := "/" + cfg.GetAPIRouteVersion() + "/org/:orgName/" + cfg.GetAPIName()
+	issuerRoutes := []string{
+		http.MethodPut + " " + prefix + "/issuer",
+		http.MethodGet + " " + prefix + "/issuer",
+		http.MethodGet + " " + prefix + "/issuer/:issuerId",
+		http.MethodDelete + " " + prefix + "/issuer/:issuerId",
+	}
+
+	registered := make(map[string]bool, len(e.Routes()))
+	for _, r := range e.Routes() {
+		registered[r.Method+" "+r.Path] = true
+	}
+
+	for _, route := range issuerRoutes {
+		assert.Equal(t, cfg.DynamicIssuersEnabled(), registered[route], route)
 	}
 }
 

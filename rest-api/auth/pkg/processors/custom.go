@@ -48,7 +48,7 @@ func (h *CustomProcessor) ProcessToken(c echo.Context, tokenStr string, jwksConf
 	// Use map claims to be able to extract custom claims like scopes
 	claims := jwt.MapClaims{}
 
-	token, err := jwksConfig.ValidateToken(tokenStr, claims)
+	token, err := jwksConfig.ValidateTokenContext(c.Request().Context(), tokenStr, claims)
 	if err != nil {
 		if strings.Contains(err.Error(), jwt.ErrTokenExpired.Error()) {
 			logger.Error().Err(err).Msg("Token expired")

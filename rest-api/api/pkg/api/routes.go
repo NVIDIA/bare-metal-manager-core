@@ -1245,6 +1245,35 @@ func NewAPIRoutes(dbSession *cdb.Session, tc tClient.Client, tnc tClient.Namespa
 	return apiRoutes
 }
 
+// NewIssuerRoutes returns the four Provider Admin issuer-management routes.
+// Callers must only register these when Config.DynamicIssuersEnabled reports that
+// this deployment manages issuers through the issuer table.
+func NewIssuerRoutes(dbSession *cdb.Session, cfg *config.Config) []Route {
+	apiPathPrefix := "/org/:orgName/" + cfg.GetAPIName()
+	return []Route{
+		{
+			Path:    apiPathPrefix + "/issuer",
+			Method:  http.MethodPut,
+			Handler: apiHandler.NewCreateIssuerHandler(dbSession, cfg),
+		},
+		{
+			Path:    apiPathPrefix + "/issuer",
+			Method:  http.MethodGet,
+			Handler: apiHandler.NewGetAllIssuerHandler(dbSession, cfg),
+		},
+		{
+			Path:    apiPathPrefix + "/issuer/:issuerId",
+			Method:  http.MethodGet,
+			Handler: apiHandler.NewGetIssuerHandler(dbSession, cfg),
+		},
+		{
+			Path:    apiPathPrefix + "/issuer/:issuerId",
+			Method:  http.MethodDelete,
+			Handler: apiHandler.NewDeleteIssuerHandler(dbSession, cfg),
+		},
+	}
+}
+
 // NewWellKnownRoutes returns the public tenant-identity discovery routes.
 // Registered before the auth middleware in server.go.
 func NewWellKnownRoutes(dbSession *cdb.Session, scp *sc.ClientPool, cfg *config.Config) []Route {

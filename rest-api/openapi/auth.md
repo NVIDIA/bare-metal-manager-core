@@ -50,8 +50,7 @@ For local or direct REST API configuration, update `issuers` or `keycloak` in [`
 
 ```yaml
 issuers:
-  - name: acme-corp-sso
-    issuer: "https://auth.example.com"
+  - issuer: "https://auth.example.com"
     jwks: "https://auth.example.com/.well-known/jwks.json"
     audiences: ["nico-api"]
     claimMappings:
@@ -68,8 +67,7 @@ For Helm deployments, set the same values under `config` in [`helm/rest/nico-res
 ```yaml
 config:
   issuers:
-    - name: acme-corp-sso
-      issuer: "https://auth.example.com"
+    - issuer: "https://auth.example.com"
       jwks: "https://auth.example.com/.well-known/jwks.json"
       audiences: ["nico-api"]
       claimMappings:
@@ -91,8 +89,7 @@ metadata:
 data:
   config.yaml: |
     issuers:
-      - name: acme-corp-sso
-        issuer: "https://auth.example.com"
+      - issuer: "https://auth.example.com"
         jwks: "https://auth.example.com/.well-known/jwks.json"
         audiences: ["nico-api"]
         claimMappings:
@@ -111,8 +108,7 @@ Use `issuers` when tokens are issued by an external identity provider. Each issu
 
 ```yaml
 issuers:
-  - name: "my-idp"
-    issuer: "https://auth.example.com"
+  - issuer: "https://auth.example.com"
     jwks: "https://auth.example.com/.well-known/jwks.json"
     jwksTimeout: "5s"
     audiences: ["nico-api"]
@@ -128,8 +124,7 @@ issuers:
 
 Key fields:
 
-- `name` is a unique name for this issuer configuration.
-- `issuer` must exactly match the token `iss` claim.
+- `issuer` must exactly match the token `iss` claim and identifies the entry; it must be unique across all issuers.
 - `jwks` is the identity provider's JWKS endpoint.
 - `jwksTimeout` controls how long NICo waits when fetching signing keys. If omitted, the default is `5s`.
 - `audiences` is optional. If set, the token `aud` claim must contain at least one configured audience.
@@ -145,8 +140,7 @@ With one issuer-level audience:
 
 ```yaml
 issuers:
-  - name: "shared-issuer"
-    issuer: "https://idp.example.com"
+  - issuer: "https://idp.example.com"
     jwks: "https://idp.example.com/.well-known/jwks.json"
     origin: "custom"
     audiences: ["api-audience"]
@@ -162,8 +156,7 @@ With multiple issuer-level audiences:
 
 ```yaml
 issuers:
-  - name: "shared-issuer"
-    issuer: "https://idp.example.com"
+  - issuer: "https://idp.example.com"
     jwks: "https://idp.example.com/.well-known/jwks.json"
     origin: "custom"
     audiences: ["api-audience", "admin-api-audience"]
@@ -179,8 +172,7 @@ Mapping audiences can be used without issuer-level audiences:
 
 ```yaml
 issuers:
-  - name: "shared-issuer"
-    issuer: "https://idp.example.com"
+  - issuer: "https://idp.example.com"
     jwks: "https://idp.example.com/.well-known/jwks.json"
     origin: "custom"
     claimMappings:
@@ -200,8 +192,7 @@ When issuer-level and mapping audiences are both configured, they are independen
 
 ```yaml
 issuers:
-  - name: "shared-issuer"
-    issuer: "https://idp.example.com"
+  - issuer: "https://idp.example.com"
     jwks: "https://idp.example.com/.well-known/jwks.json"
     origin: "custom"
     audiences: ["api-audience", "admin-api-audience"]
@@ -315,8 +306,7 @@ Use this when building a SaaS on top of NICo with its own tenancy layer. NICo se
 
 ```yaml
 issuers:
-  - name: acme-corp-saas
-    issuer: "https://auth.acme-corp.example.com"
+  - issuer: "https://auth.acme-corp.example.com"
     jwks: "https://auth.acme-corp.example.com/.well-known/jwks.json"
     audiences: ["nico-api"]
     claimMappings:
@@ -330,8 +320,7 @@ Use this when one team or group manages infrastructure and another team or group
 
 ```yaml
 issuers:
-  - name: acme-corp-sso
-    issuer: "https://login.acme-corp.example.com"
+  - issuer: "https://login.acme-corp.example.com"
     jwks: "https://login.acme-corp.example.com/.well-known/jwks.json"
     audiences: ["nico-api"]
     claimMappings:
@@ -348,24 +337,21 @@ Use this when NICo has one provider organization and multiple tenant organizatio
 
 ```yaml
 issuers:
-  - name: acme-corp-provider
-    issuer: "https://login.acme-corp.example.com"
+  - issuer: "https://login.acme-corp.example.com"
     jwks: "https://login.acme-corp.example.com/.well-known/jwks.json"
     audiences: ["nico-api"]
     claimMappings:
       - orgName: "acme-corp-provider"
         orgDisplayName: "ACME Corp Provider"
         roles: ["PROVIDER_ADMIN"]
-  - name: tenant-a
-    issuer: "https://login.tenant-a.example.com"
+  - issuer: "https://login.tenant-a.example.com"
     jwks: "https://login.tenant-a.example.com/.well-known/jwks.json"
     audiences: ["nico-api"]
     claimMappings:
       - orgName: "tenant-a"
         orgDisplayName: "Tenant A"
         roles: ["TENANT_ADMIN"]
-  - name: tenant-b
-    issuer: "https://login.tenant-b.example.com"
+  - issuer: "https://login.tenant-b.example.com"
     jwks: "https://login.tenant-b.example.com/.well-known/jwks.json"
     audiences: ["nico-api"]
     claimMappings:
@@ -373,6 +359,47 @@ issuers:
         orgDisplayName: "Tenant B"
         roles: ["TENANT_ADMIN"]
 ```
+
+#### One Organization Behind Two Identity Providers
+
+Use this when the same organization admits users from more than one identity provider, or grants different roles depending on which provider authenticated the user. Sharing an organization name is off by default; set `auth.sharedStaticOrgs: true` to allow it deployment-wide. The name remains reserved, so a dynamic (`orgAttribute`) mapping still cannot claim it, and only one issuer may hold the organization's service account mapping.
+
+```yaml
+auth:
+  sharedStaticOrgs: true
+
+issuers:
+  - issuer: "https://login.acme-corp.example.com"
+    jwks: "https://login.acme-corp.example.com/.well-known/jwks.json"
+    audiences: ["nico-api"]
+    claimMappings:
+      - orgName: "acme-corp"
+        orgDisplayName: "ACME Corp"
+        roles: ["PROVIDER_ADMIN"]
+  - issuer: "https://login.contractors.example.com"
+    jwks: "https://login.contractors.example.com/.well-known/jwks.json"
+    audiences: ["nico-api"]
+    claimMappings:
+      - orgName: "acme-corp"
+        orgDisplayName: "ACME Corp"
+        roles: ["TENANT_ADMIN"]
+```
+
+Each token receives the roles its own issuer declares for the organization, so a contractor token is a `TENANT_ADMIN` in `acme-corp` and an employee token is a `PROVIDER_ADMIN`. The setting applies to issuers created through the issuer API as well as those defined here.
+
+#### Replica convergence and key refresh
+
+These are Go duration strings. Omit them to keep the defaults.
+
+```yaml
+auth:
+  sharedStaticOrgs: false
+  issuerReloadInterval: 30s   # how often each replica rebuilds DB issuers
+  jwksRefreshInterval: 15m    # how often each replica re-fetches signing keys
+  resolveFlightTimeout: 30s   # ceiling for one on-demand issuer lookup
+```
+
+`jwksRefreshInterval` may be raised (for example `30m`) when identity-provider key rotation is slow. `issuerReloadInterval` is the idle convergence floor across replicas; a token naming a new issuer still resolves on demand without waiting for that tick.
 
 ### Configure Keycloak
 Use the `keycloak` section when deploying NICo with the built-in Keycloak integration.
@@ -420,9 +447,8 @@ Block administrative and token-exchange paths, including `/admin/*` and `/realms
 ### Validation Rules
 Use these rules when reviewing a configuration before rollout:
 
-- Issuer names must be unique.
-- The same issuer URL can only appear once.
-- Static `orgName` values must be unique across all issuers.
+- The same issuer URL can only appear once, and the same JWKS URL can only appear once.
+- A static `orgName` appears at most once within an issuer, and at most once across all issuers unless the deployment sets `auth.sharedStaticOrgs: true`. A shared name stays reserved, so dynamic organization mappings still cannot claim it.
 - Static mappings require `orgDisplayName`.
 - Service account mappings are limited to one total in disconnected mode, or one per issuer URL in connected mode.
 - Dynamic organization mappings are limited to one across all issuers.

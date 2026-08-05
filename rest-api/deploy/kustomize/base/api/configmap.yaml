@@ -57,14 +57,47 @@ data:
       enabled: false
       serviceName: nico-rest-api
 
+    # Deployment-wide auth policy.
+    # sharedStaticOrgs lets several static claim mappings (ConfigMap or API-managed)
+    # name the same org with different issuers or roles. A shared org name is still
+    # reserved, so no attribute-driven mapping can claim it. Default false: an org
+    # name is owned by exactly one issuer.
+    #
+    # issuerReloadInterval is how often every replica rebuilds DB-sourced issuers
+    # into the live registry (default 30s). jwksRefreshInterval is how often each
+    # replica re-fetches signing keys for those issuers (default 15m).
+    # resolveFlightTimeout is the ceiling for one on-demand issuer lookup when a
+    # token names an issuer this replica has not reloaded yet (default 30s).
+    # All three are Go duration strings.
+    auth:
+      sharedStaticOrgs: false
+      issuerReloadInterval: 30s
+      jwksRefreshInterval: 15m
+      resolveFlightTimeout: 30s
+
+    # Keycloak disabled — auth is handled via the issuers block below.
+    # Dynamic issuer management via the /nico/issuer API requires keycloak.enabled=false.
     keycloak:
-      enabled: true
+      enabled: false
       baseURL: http://keycloak:8082
       externalBaseURL: http://localhost:8082
       realm: nico-dev
       clientID: nico-api
       clientSecretPath: /var/secrets/keycloak/client-secret
       serviceAccount: true
+
+    # Static issuers (ConfigMap-managed, trusted at deploy time).
+    # These are the source of truth — a DB issuer that conflicts with any entry
+    # here (by issuerUrl or jwks) is rejected at API create time.
+    issuers:
+      - issuer: http://localhost:8082/realms/nico-dev
+        jwks: http://keycloak.nico-rest:8082/realms/nico-dev/protocol/openid-connect/certs
+        origin: custom
+        claimMappings:
+          - orgName: test-org
+            roles:
+              - PROVIDER_ADMIN
+              - TENANT_ADMIN
 
     rateLimiter:
       enabled: false

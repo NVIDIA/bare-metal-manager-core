@@ -11,8 +11,7 @@ Configure external identity providers (IdPs) for JWT authentication in `nico-res
 
 ```yaml
 issuers:
-  - name: "my-idp"                              # Unique identifier (required)
-    issuer: "https://auth.example.com"          # Expected JWT "iss" claim (required)
+  - issuer: "https://auth.example.com"          # Expected JWT "iss" claim, unique (required)
     jwks: "https://auth.example.com/.well-known/jwks.json"  # JWKS URL (required)
     jwksTimeout: "5s"                           # Fetch timeout (default: 5s)
     audiences: ["my-api"]                       # Token must have ≥1 (optional)
@@ -44,7 +43,7 @@ issuers:
 | **C: Service Account** | `orgName` + `isServiceAccount: true` | 1 global** | M2M with admin roles |
 | **D: Dynamic-Dynamic** | `orgAttribute` + `orgDisplayAttribute` + `rolesAttribute` | 1 global | Multi-tenant IdP |
 
-\*Each `orgName` must be globally unique across all issuers
+\*Each `orgName` maps at most once per issuer, and at most once across all issuers unless `auth.sharedStaticOrgs` is enabled
 \*\*1 per issuer URL in connected mode; 1 total in disconnected mode
 
 ---
@@ -99,8 +98,7 @@ claimMappings:
 
 ```yaml
 issuers:
-  - name: corporate-sso
-    issuer: "https://login.corp.com"
+  - issuer: "https://login.corp.com"
     jwks: "https://login.corp.com/.well-known/jwks.json"
     audiences: ["nico-api"]
     claimMappings:
@@ -113,8 +111,7 @@ issuers:
 
 ```yaml
 issuers:
-  - name: saas-provider
-    issuer: "https://auth.saas.com"
+  - issuer: "https://auth.saas.com"
     jwks: "https://auth.saas.com/.well-known/jwks.json"
     audiences: ["api"]
     scopes: ["nico"]
@@ -142,8 +139,7 @@ Issuer-level and mapping-level `audiences` both use ANY-match semantics. When bo
 
 ```yaml
 issuers:
-  - name: shared-issuer
-    issuer: https://idp.example.com
+  - issuer: https://idp.example.com
     jwks: https://idp.example.com/.well-known/jwks.json
     origin: custom
     audiences: ["nico-api"]
@@ -166,9 +162,10 @@ A token with `aud: ["nico-api", "clientA"]` can access only `orgA`; a token with
 
 | Rule | Constraint |
 |------|------------|
-| Issuer name | Must be unique across all configs |
-| Issuer URL | Can only appear once (no merging) |
-| `orgName` | Must be globally unique across all issuers |
+| Issuer URL | Can only appear once (no merging); it is the issuer's identity |
+| JWKS URL | Can only appear once |
+| `orgName` | At most once per issuer; unique across all issuers unless `auth.sharedStaticOrgs` is enabled |
+| Shared `orgName` | Still reserved, so a dynamic (Type D) mapping can never claim it |
 | Type C (Service Account) | 1 total (disconnected) or 1 per issuer (connected) |
 | Type D (Dynamic Org) | Only 1 allowed across all issuers |
 | Static `orgDisplayName` | Required for Types A, B, C |

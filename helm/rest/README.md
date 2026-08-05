@@ -54,8 +54,7 @@ Where `my-auth-values.yaml` contains:
 nico-rest-api:
   config:
     issuers:
-      - name: my-idp
-        origin: custom
+      - origin: custom
         jwks: https://my-idp.example.com/.well-known/jwks.json
         issuer: "my-idp.example.com"
 ```
