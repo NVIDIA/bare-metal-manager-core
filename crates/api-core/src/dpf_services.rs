@@ -52,7 +52,7 @@ pub const DOCA_WEAVE_CHART_REPO_URL: &str = "oci://harbor.mellanox.com/cloud-orc
 pub const DOCA_WEAVE_IMAGE_REGISTRY: &str = "nvcr.io/nvstaging/doca";
 
 pub const DOCA_XPLANE_CHART_REPO_URL: &str = "https://helm.ngc.nvidia.com/nvstaging/doca";
-pub const DOCA_XPLANE_IMAGE_REGISTRY: &str = "nvcr.io/nvstaging/doca"; // XXX Needs to be verified XXX
+pub const DOCA_XPLANE_IMAGE_REGISTRY: &str = "nvcr.io/nvstaging/doca";
 
 /// HBN service Definitions
 pub const DOCA_HBN_SERVICE_HELM_NAME: &str = "doca-hbn";
