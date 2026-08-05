@@ -32,7 +32,7 @@ use axum_extra::extract::cookie::{Cookie, Key, PrivateCookieJar};
 use base64::Engine as _;
 use base64::prelude::BASE64_STANDARD;
 use carbide_api_core::cfg::file::ToolLink;
-use carbide_api_core::{Api, AuthContext, CarbideError, DefaultCredential};
+use carbide_api_core::{AdminAdmissionControl, Api, AuthContext, CarbideError, DefaultCredential};
 use carbide_authn::middleware::Principal;
 use http::header::{AUTHORIZATION, CONTENT_TYPE, WWW_AUTHENTICATE};
 use http::{HeaderMap, Request, StatusCode};
@@ -401,15 +401,19 @@ impl WebAuth {
 }
 
 /// All the URLs in the admin interface. Nested under /admin in api.rs.
-pub fn routes(api: Arc<Api>) -> eyre::Result<NormalizePath<Router>> {
+pub fn routes(
+    api: Arc<Api>,
+    admission: Option<AdminAdmissionControl>,
+) -> eyre::Result<NormalizePath<Router>> {
     let auth_mode =
         env::var(AUTH_TYPE_ENV).map_or(Ok(WebAuthMode::default()), |value| value.parse())?;
-    routes_with_auth_mode(api, auth_mode)
+    routes_with_auth_mode(api, auth_mode, admission)
 }
 
 fn routes_with_auth_mode(
     api: Arc<Api>,
     auth_mode: WebAuthMode,
+    admission: Option<AdminAdmissionControl>,
 ) -> eyre::Result<NormalizePath<Router>> {
     let web_auth = match auth_mode {
         WebAuthMode::OAuth2 => {
@@ -893,6 +897,13 @@ fn routes_with_auth_mode(
             .route("/logs", get(logs::page))
             .route("/logs/{source}/stream", get(logs::stream))
             .route("/logs/{source}/history", get(logs::history))
+            // Admission is intentionally inside web authentication: OAuth
+            // identity is established before fair scheduling classifies the
+            // client. Axum runs the later web-auth layer first.
+            .layer(axum::middleware::from_fn_with_state(
+                admission,
+                AdminAdmissionControl::middleware,
+            ))
             .layer(axum::middleware::from_fn(web_auth_middleware_fn))
             .layer(CsrfLayer::new())
             .layer(Extension(Arc::new(web_auth)))

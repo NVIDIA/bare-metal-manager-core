@@ -1256,6 +1256,7 @@ dependencies = [
  "nras",
  "num_cpus",
  "nv-redfish",
+ "nv-redfish-dispatcher",
  "opentelemetry 0.32.0",
  "opentelemetry_sdk",
  "p256 0.14.0",
@@ -7866,6 +7867,16 @@ dependencies = [
  "syn 2.0.117",
  "tagged-types",
  "toml 0.9.12+spec-1.1.0",
+]
+
+[[package]]
+name = "nv-redfish-dispatcher"
+version = "0.13.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "04442d12d0ca0ab617ce0ed0ba15d305a0505a98833b2d102576c5f13dfbaac6"
+dependencies = [
+ "futures-core",
+ "futures-util",
 ]
 
 [[package]]

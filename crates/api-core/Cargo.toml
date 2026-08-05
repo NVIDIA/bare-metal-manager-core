@@ -115,6 +115,7 @@ librms = { workspace = true }
 mac_address = { workspace = true }
 num_cpus = { workspace = true }
 nv-redfish = { workspace = true }
+nv-redfish-dispatcher = { workspace = true }
 opentelemetry = { workspace = true, features = ["logs"] }
 opentelemetry_sdk = { workspace = true, features = [
   "logs",
