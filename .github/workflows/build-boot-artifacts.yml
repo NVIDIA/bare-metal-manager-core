@@ -573,7 +573,7 @@ jobs:
       # compression-level: 0 because squashfs/bfb/efi payloads are already
       # compressed; re-deflating them burns CPU for a rounding error of savings.
       - name: Upload artifacts
-        if: always()  # Upload artifacts even if build fails (matches GitLab CI 'when: always')
+        if: ${{ !cancelled() }}  # Upload artifacts even if build fails (matches GitLab CI 'when: always')
         uses: actions/upload-artifact@v4
         with:
           name: ${{ inputs.build_type }}-artifacts-${{ inputs.arch }}-${{ github.run_id }}

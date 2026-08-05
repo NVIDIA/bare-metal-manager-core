@@ -26,6 +26,10 @@ on:
       - "v[0-9][0-9][0-9][0-9].[0-9][0-9].[0-9][0-9]*"
       - "v[0-9].[0-9].[0-9]-rc[0-9]*"
 
+concurrency:
+  group: ${{ github.event_name == 'push' && github.run_attempt == '1' && startsWith(github.ref, 'refs/heads/pull-request/') && format('core-pr-{0}', github.ref_name) || format('core-run-{0}-{1}', github.run_id, github.run_attempt) }}
+  cancel-in-progress: ${{ github.event_name == 'push' && github.run_attempt == '1' && startsWith(github.ref, 'refs/heads/pull-request/') }}
+
 env:
   # Build configuration
   CARGO_INCREMENTAL: 0
@@ -47,6 +51,9 @@ jobs:
         with:
           persist-credentials: false
           fetch-depth: 0
+
+      - name: Check Core CI concurrency policy
+        run: bash scripts/check-ci-concurrency.sh core
 
       - name: Detect non-rest changes
         id: non-rest-changes
@@ -685,7 +692,7 @@ jobs:
   build-release-container-x86_64:
     if: >-
       ${{
-        always()
+        !cancelled()
         && github.event_name != 'schedule'
         && needs.prepare.result == 'success'
         && contains('success,skipped', needs.build-container-x86_64.result)
@@ -719,7 +726,7 @@ jobs:
   build-release-container-aarch64:
     if: >-
       ${{
-        always()
+        !cancelled()
         && github.event_name != 'schedule'
         && needs.prepare.result == 'success'
         && contains('success,skipped', needs.build-container-aarch64.result)
@@ -796,7 +803,7 @@ jobs:
   build-machine-a-tron:
     if: >-
       ${{
-        always()
+        !cancelled()
         && github.event_name != 'schedule'
         && needs.prepare.result == 'success'
         && needs.prepare.outputs.source_files_changed == 'true'
@@ -826,7 +833,7 @@ jobs:
   build-mat-k8s-controller:
     if: >-
       ${{
-        always()
+        !cancelled()
         && github.event_name != 'schedule'
         && needs.prepare.result == 'success'
         && needs.prepare.outputs.source_files_changed == 'true'
@@ -852,7 +859,7 @@ jobs:
   test-release-container-services:
     if: >-
       ${{
-        always()
+        !cancelled()
         && github.event_name != 'schedule'
         && needs.prepare.result == 'success'
         && contains('success,skipped', needs.build-container-x86_64.result)
@@ -945,7 +952,7 @@ jobs:
     needs:
       - prepare
       - build-artifacts-container-x86_64
-    if: ${{ always() && github.event_name != 'schedule' && needs.prepare.result == 'success' }}
+    if: ${{ !cancelled() && github.event_name != 'schedule' && needs.prepare.result == 'success' }}
     uses: ./.github/workflows/docker-build.yml
     with:
       source_registry_host: ${{ needs.prepare.outputs.source_registry_host }}
@@ -966,7 +973,7 @@ jobs:
     needs:
       - prepare
       - build-artifacts-container-aarch64
-    if: ${{ always() && github.event_name != 'schedule' && needs.prepare.result == 'success' }}
+    if: ${{ !cancelled() && github.event_name != 'schedule' && needs.prepare.result == 'success' }}
     uses: ./.github/workflows/docker-build.yml
     with:
       source_registry_host: ${{ needs.prepare.outputs.source_registry_host }}
@@ -1911,7 +1918,7 @@ jobs:
 
   build-summary:
     runs-on: linux-amd64-cpu4
-    if: ${{ always() && github.event_name != 'schedule' && needs.prepare.result == 'success' }}
+    if: ${{ !cancelled() && github.event_name != 'schedule' && needs.prepare.result == 'success' }}
     needs:
       - prepare
       - build-container-x86_64
