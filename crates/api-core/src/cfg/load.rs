@@ -107,6 +107,46 @@ pub fn parse_carbide_config(
         .extract()
         .wrap_err("failed to load configuration files")?;
 
+    // Fill any empty DpfServiceConfig fields from the compiled-in service defaults.
+    // A site-config partial override (e.g. only `helm_version`) leaves the other
+    // fields as empty strings after Figment extraction because the compiled-in
+    // defaults live in Rust code, not in any TOML file that Figment can deep-merge.
+    // `fill_from_defaults` restores those fields so the rest of the API sees a
+    // fully-populated config regardless of how many fields were overridden.
+    {
+        use crate::dpf_services::{
+            default_dhcp_server_service, default_doca_hbn_service, default_dpu_agent_service,
+            default_fmds_service, default_otelcol_service, default_dts_service,
+        };
+        let s = &mut config.dpf.services;
+        s.dts.fill_from_defaults(&default_dts_service());
+        s.doca_hbn.fill_from_defaults(&default_doca_hbn_service());
+        s.dpu_agent.fill_from_defaults(&default_dpu_agent_service());
+        s.dhcp_server.fill_from_defaults(&default_dhcp_server_service());
+        s.fmds.fill_from_defaults(&default_fmds_service());
+        s.otel.fill_from_defaults(&default_otelcol_service());
+
+        // Apply the same fill to per-deployment service overrides (bf3, bf4_generic, bf4_astra).
+        // These use the same DpfMandatoryServicesConfig type as the top-level services block.
+        let fill_deployment = |dep: &mut crate::cfg::file::DpfDeploymentConfig| {
+            if let Some(ref mut dep_services) = dep.services {
+                dep_services.dts.fill_from_defaults(&default_dts_service());
+                dep_services.doca_hbn.fill_from_defaults(&default_doca_hbn_service());
+                dep_services.dpu_agent.fill_from_defaults(&default_dpu_agent_service());
+                dep_services.dhcp_server.fill_from_defaults(&default_dhcp_server_service());
+                dep_services.fmds.fill_from_defaults(&default_fmds_service());
+                dep_services.otel.fill_from_defaults(&default_otelcol_service());
+            }
+        };
+        fill_deployment(&mut config.dpf.deployments.bf3);
+        if let Some(ref mut dep) = config.dpf.deployments.bf4_generic {
+            fill_deployment(dep);
+        }
+        if let Some(ref mut dep) = config.dpf.deployments.bf4_astra {
+            fill_deployment(dep);
+        }
+    }
+
     config.config_ctx = Some(merged_config);
 
     for (label, _) in config

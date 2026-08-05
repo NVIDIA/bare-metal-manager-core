@@ -1614,7 +1614,15 @@ pub struct DpfResolvedMandatoryServicesConfig {
 }
 
 /// Configuration for a single Helm-based DPF service.
+///
+/// All string fields default to the empty string when absent from the config
+/// file so that a site-config override can supply only the fields that differ
+/// (e.g. only `helm_version`) without triggering a deserialization error for
+/// the fields it omits.  The caller is responsible for filling any empty fields
+/// from the service's compiled-in defaults after deserialization; see
+/// [`DpfServiceConfig::fill_from_defaults`].
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
+#[serde(default)]
 pub struct DpfServiceConfig {
     /// Name of the Helm service.
     pub name: String,
@@ -1631,8 +1639,38 @@ pub struct DpfServiceConfig {
     /// Secret to use to pull the docker images. `None` when the service pulls from
     /// a public registry (`dts` and `doca_hbn` default to this); when set, an
     /// `imagePullSecrets` entry is emitted in the service's Helm values.
-    #[serde(default)]
     pub docker_image_pull_secret: Option<String>,
+}
+
+impl DpfServiceConfig {
+    /// Fill every empty field in `self` from the corresponding field in
+    /// `defaults`.  This is used after Figment extraction to ensure that a
+    /// site-config partial override (e.g. only `helm_version`) still produces
+    /// a fully-populated config: the compiled-in service defaults supply every
+    /// field that the operator did not explicitly override.
+    pub fn fill_from_defaults(&mut self, defaults: &DpfServiceConfig) {
+        if self.name.is_empty() {
+            self.name = defaults.name.clone();
+        }
+        if self.helm_repo_url.is_empty() {
+            self.helm_repo_url = defaults.helm_repo_url.clone();
+        }
+        if self.helm_chart.is_empty() {
+            self.helm_chart = defaults.helm_chart.clone();
+        }
+        if self.helm_version.is_empty() {
+            self.helm_version = defaults.helm_version.clone();
+        }
+        if self.docker_repo_url.is_empty() {
+            self.docker_repo_url = defaults.docker_repo_url.clone();
+        }
+        if self.docker_image_tag.is_empty() {
+            self.docker_image_tag = defaults.docker_image_tag.clone();
+        }
+        if self.docker_image_pull_secret.is_none() {
+            self.docker_image_pull_secret = defaults.docker_image_pull_secret.clone();
+        }
+    }
 }
 
 /// Per-deployment DPF configuration for named entries under `[dpf.deployments]`.
@@ -1774,8 +1812,15 @@ impl DpfDeploymentsConfig {
             .copied()
             .map(|service| (service, service.default_config()))
             .collect();
-        // A configured entry replaces only that service's built-in definition.
-        deployment.extra_services.extend(configured);
+        // A configured entry overrides the built-in definition for that service.
+        // `DpfServiceConfig` now allows partial TOML entries (see `#[serde(default)]`),
+        // so a configured entry may have empty string fields.  Fill those from the
+        // service's built-in default before inserting so a partial override does not
+        // silently leave `name`, `helm_repo_url`, etc. blank.
+        for (service, mut partial) in configured {
+            partial.fill_from_defaults(&service.default_config());
+            deployment.extra_services.insert(service, partial);
+        }
     }
 
     /// Returns all active deployment configs as `(name, config)` pairs.
@@ -6730,6 +6775,74 @@ node_label_key = "carbide.nvidia.com/astra"
             ],
             |deployments| deployments.validate_provisioning_sources().is_err(),
         );
+    }
+
+    // -------------------------------------------------------------------------
+    // DpfServiceConfig::fill_from_defaults
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn fill_from_defaults_preserves_non_empty_fields() {
+        let default = DpfServiceConfig {
+            name: "carbide-dhcp-server".to_string(),
+            helm_repo_url: "https://default-repo.example.com".to_string(),
+            helm_chart: "carbide-dhcp-server".to_string(),
+            helm_version: "1.0.0".to_string(),
+            docker_repo_url: "nvcr.io/default/dhcp".to_string(),
+            docker_image_tag: "1.0.0".to_string(),
+            docker_image_pull_secret: Some("default-pull-secret".to_string()),
+        };
+
+        // Simulate a partial site-config entry: only helm_version is set,
+        // everything else is the empty-string default that #[serde(default)]
+        // produces when the field is absent from the TOML.
+        let mut partial = DpfServiceConfig {
+            helm_version: "2.1.0-pr-385".to_string(),
+            ..DpfServiceConfig::default()
+        };
+
+        partial.fill_from_defaults(&default);
+
+        // The overridden field must be preserved.
+        assert_eq!(partial.helm_version, "2.1.0-pr-385");
+        // All other fields must come from the default.
+        assert_eq!(partial.name, "carbide-dhcp-server");
+        assert_eq!(partial.helm_repo_url, "https://default-repo.example.com");
+        assert_eq!(partial.helm_chart, "carbide-dhcp-server");
+        assert_eq!(partial.docker_repo_url, "nvcr.io/default/dhcp");
+        assert_eq!(partial.docker_image_tag, "1.0.0");
+        assert_eq!(
+            partial.docker_image_pull_secret,
+            Some("default-pull-secret".to_string())
+        );
+    }
+
+    #[test]
+    fn fill_from_defaults_full_config_unchanged() {
+        // When all fields are already populated, fill_from_defaults must not overwrite any of them.
+        let default = DpfServiceConfig {
+            name: "default-name".to_string(),
+            helm_repo_url: "https://default.example.com".to_string(),
+            helm_chart: "default-chart".to_string(),
+            helm_version: "1.0.0".to_string(),
+            docker_repo_url: "nvcr.io/default/image".to_string(),
+            docker_image_tag: "1.0.0".to_string(),
+            docker_image_pull_secret: Some("default-secret".to_string()),
+        };
+        let mut full = DpfServiceConfig {
+            name: "custom-name".to_string(),
+            helm_repo_url: "https://custom.example.com".to_string(),
+            helm_chart: "custom-chart".to_string(),
+            helm_version: "2.0.0".to_string(),
+            docker_repo_url: "nvcr.io/custom/image".to_string(),
+            docker_image_tag: "2.0.0".to_string(),
+            docker_image_pull_secret: Some("custom-secret".to_string()),
+        };
+        full.fill_from_defaults(&default);
+
+        assert_eq!(full.name, "custom-name");
+        assert_eq!(full.helm_version, "2.0.0");
+        assert_eq!(full.docker_image_pull_secret, Some("custom-secret".to_string()));
     }
 
     #[test]
