@@ -790,8 +790,8 @@ sign-timeout-secs = 9
                 MID_SECTION => Yields(()),
             }
 
-            "completely empty config is rejected (a required field is missing)" {
-                "" => Fails,
+            "completely empty config uses defaults" {
+                "" => Yields(()),
             }
 
             "unknown top-level key is rejected (deny_unknown_fields)" {
