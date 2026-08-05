@@ -15,7 +15,16 @@
  * limitations under the License.
  */
 
+use carbide_uuid::site_prefix::SitePrefixId;
 use carbide_uuid::vpc::{VpcId, VpcPrefixId};
+use config_version::ConfigVersion;
+use ipnetwork::IpNetwork;
+use model::metadata::Metadata as ModelMetadata;
+use model::site_prefix::{
+    NewTenantManagedSitePrefix, RetireTenantManagedSitePrefix, SitePrefixAuthority,
+    SitePrefixLifecycleState, SitePrefixRoutingScope,
+};
+use model::vpc_prefix::{NewVpcPrefix, VpcPrefixConfig};
 use rpc::Metadata;
 use rpc::forge::forge_server::Forge;
 use rpc::forge::{
@@ -25,14 +34,17 @@ use rpc::forge::{
 use sqlx::PgPool;
 use tonic::Request;
 
+use crate::network_segment::allocate::PrefixAllocator;
 use crate::test_support::network_segment::FIXTURE_TENANT_ORG_ID;
 use crate::tests::common::api_fixtures::instance::{
     default_os_config, default_tenant_config, single_interface_network_config_with_vpc_prefix,
 };
+use crate::tests::common::api_fixtures::tenant::create_fixture_tenant;
 use crate::tests::common::api_fixtures::{
     self, TEST_SITE_PREFIXES, TestEnv, TestEnvOverrides, create_managed_host, create_test_env,
     create_test_env_with_overrides, get_vpc_fixture_id,
 };
+use crate::tests::common::rpc_builder::VpcCreationRequest;
 
 const REFERENCED_VPC_PREFIX: &str = "192.0.4.0/24";
 const UNREFERENCED_VPC_PREFIX: &str = "192.1.4.0/27";
@@ -44,6 +56,117 @@ fn fixture_tenant_config() -> rpc::TenantConfig {
         tenant_organization_id: FIXTURE_TENANT_ORG_ID.to_string(),
         ..default_tenant_config()
     }
+}
+
+/// Seeds a tenant-managed SitePrefix at the requested lifecycle boundary.
+async fn seed_tenant_managed_site_prefix(
+    env: &TestEnv,
+    tenant_organization_id: &str,
+    prefix: &str,
+    lifecycle_state: SitePrefixLifecycleState,
+) -> SitePrefixId {
+    let site_prefix_id = SitePrefixId::new();
+    sqlx::query(
+        r#"
+            INSERT INTO site_prefixes (
+                id,
+                prefix,
+                authority,
+                tenant_organization_id,
+                routing_scope,
+                lifecycle_state,
+                name,
+                version
+            )
+            VALUES ($1, $2::cidr, $3, $4, $5, $6, $7, $8)
+        "#,
+    )
+    .bind(site_prefix_id)
+    .bind(prefix)
+    .bind(SitePrefixAuthority::TenantManaged)
+    .bind(tenant_organization_id)
+    .bind(SitePrefixRoutingScope::DatacenterOnly)
+    .bind(lifecycle_state)
+    .bind(format!("tenant SitePrefix {prefix}"))
+    .bind(ConfigVersion::initial())
+    .execute(&env.pool)
+    .await
+    .expect("tenant-managed SitePrefix fixture should be persisted");
+    site_prefix_id
+}
+
+/// Creates an FNN VPC owned by one already-persisted tenant.
+async fn create_fnn_vpc_for_tenant(env: &TestEnv, tenant: &str, name: &str) -> VpcId {
+    env.api
+        .create_vpc(
+            VpcCreationRequest::builder(tenant.to_owned())
+                .metadata(Metadata {
+                    name: name.to_owned(),
+                    ..Default::default()
+                })
+                .network_virtualization_type(rpc::forge::VpcVirtualizationType::Fnn as i32)
+                .tonic_request(),
+        )
+        .await
+        .expect("FNN VPC fixture should be created")
+        .into_inner()
+        .id
+        .expect("created FNN VPC should include an ID")
+}
+
+/// Builds an exact-parent VPC-prefix request for admission and locking tests.
+fn site_prefix_child_request(
+    id: VpcPrefixId,
+    vpc_id: VpcId,
+    site_prefix_id: Option<SitePrefixId>,
+    prefix: &str,
+) -> VpcPrefixCreationRequest {
+    VpcPrefixCreationRequest {
+        id: Some(id),
+        prefix: String::new(),
+        vpc_id: Some(vpc_id),
+        config: Some(rpc::forge::VpcPrefixConfig {
+            prefix: prefix.to_owned(),
+        }),
+        metadata: Some(Metadata {
+            name: format!("VPC prefix {prefix}"),
+            ..Default::default()
+        }),
+        site_prefix_id,
+    }
+}
+
+/// Waits until one database query is blocked by a known transaction.
+async fn wait_until_query_is_blocked_by(
+    pool: &PgPool,
+    blocker_pid: i32,
+    query_fragment: &str,
+) -> i32 {
+    for _ in 0..300 {
+        let blocked_pid: Option<i32> = sqlx::query_scalar(
+            r#"
+                SELECT activity.pid
+                FROM pg_stat_activity AS activity
+                WHERE activity.datname = current_database()
+                  AND activity.wait_event_type = 'Lock'
+                  AND $1 = ANY(pg_blocking_pids(activity.pid))
+                  AND activity.query ILIKE '%' || $2 || '%'
+                ORDER BY activity.pid
+                LIMIT 1
+            "#,
+        )
+        .bind(blocker_pid)
+        .bind(query_fragment)
+        .fetch_optional(pool)
+        .await
+        .expect("database lock state should be readable");
+        if let Some(blocked_pid) = blocked_pid {
+            return blocked_pid;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+    }
+
+    panic!("query containing {query_fragment:?} never waited for database lock");
 }
 
 #[derive(serde::Deserialize)]
@@ -59,6 +182,7 @@ async fn create_vpc_prefix(env: &TestEnv, vpc_id: VpcId, prefix: &str) -> rpc::f
             id: None,
             prefix: String::new(),
             vpc_id: Some(vpc_id),
+            site_prefix_id: None,
             config: Some(rpc::forge::VpcPrefixConfig {
                 prefix: prefix.into(),
             }),
@@ -267,6 +391,7 @@ async fn test_create_and_delete_vpc_prefix(pool: PgPool) -> Result<(), Box<dyn s
         id: None,
         prefix: String::new(),
         vpc_id: Some(vpc_id),
+        site_prefix_id: None,
         config: Some(rpc::forge::VpcPrefixConfig {
             prefix: ip_prefix.into(),
         }),
@@ -694,14 +819,14 @@ async fn test_vpc_prefix_rpc_status_includes_lifecycle_and_counters(
     let id = created.id.expect("created VPC prefix should include an id");
     let ready = drive_vpc_prefix_to_ready(&env, id).await;
 
-    // Verify lifecycle fields and existing utilization counters share the RPC status.
-    assert_status_with_lifecycle_and_linknet_counters(&ready, "ready", 128, 127);
+    // The adopted /24 tenant segment occupies every /31 in this /24 VPC prefix.
+    assert_status_with_lifecycle_and_linknet_counters(&ready, "ready", 128, 0);
     let status = ready
         .status
         .as_ref()
         .expect("VPC prefix status should be populated");
     assert_eq!(u64::from(status.total_31_segments), 128);
-    assert_eq!(u64::from(status.available_31_segments), 127);
+    assert_eq!(u64::from(status.available_31_segments), 0);
     let lifecycle_status = status
         .lifecycle
         .as_ref()
@@ -776,6 +901,7 @@ async fn test_overlapping_vpc_prefixes(pool: PgPool) -> Result<(), Box<dyn std::
         id: None,
         prefix: String::new(),
         vpc_id: Some(vpc_id),
+        site_prefix_id: None,
         config: Some(rpc::forge::VpcPrefixConfig {
             prefix: ip_prefix.into(),
         }),
@@ -796,6 +922,7 @@ async fn test_overlapping_vpc_prefixes(pool: PgPool) -> Result<(), Box<dyn std::
         id: None,
         prefix: String::new(),
         vpc_id: Some(vpc_id),
+        site_prefix_id: None,
         config: Some(rpc::forge::VpcPrefixConfig {
             prefix: overlapping_ip_prefix.into(),
         }),
@@ -829,6 +956,7 @@ async fn test_reject_create_with_invalid_metadata(
         id: None,
         prefix: String::new(),
         vpc_id: Some(vpc_id),
+        site_prefix_id: None,
         config: Some(rpc::forge::VpcPrefixConfig {
             prefix: ip_prefix.into(),
         }),
@@ -878,6 +1006,7 @@ async fn test_invalid_vpc_prefixes(pool: PgPool) -> Result<(), Box<dyn std::erro
             id: None,
             prefix: String::new(),
             vpc_id: Some(vpc_id),
+            site_prefix_id: None,
 
             config: Some(rpc::forge::VpcPrefixConfig {
                 prefix: prefix.into(),
@@ -911,6 +1040,7 @@ async fn test_vpc_prefix_search(pool: PgPool) -> Result<(), Box<dyn std::error::
         id: None,
         prefix: String::new(),
         vpc_id: Some(vpc_id),
+        site_prefix_id: None,
         config: Some(rpc::forge::VpcPrefixConfig { prefix: p1.into() }),
         metadata: Some(rpc::forge::Metadata {
             name: "VPC prefix p1".into(),
@@ -921,6 +1051,7 @@ async fn test_vpc_prefix_search(pool: PgPool) -> Result<(), Box<dyn std::error::
         id: None,
         prefix: String::new(),
         vpc_id: Some(vpc_id),
+        site_prefix_id: None,
         config: Some(rpc::forge::VpcPrefixConfig { prefix: p2.into() }),
         metadata: Some(rpc::forge::Metadata {
             name: "VPC prefix p2".into(),
@@ -949,6 +1080,7 @@ async fn test_vpc_prefix_search(pool: PgPool) -> Result<(), Box<dyn std::error::
             prefix_match: Some(prefix.into()),
             prefix_match_type: Some(PrefixMatchType::PrefixExact as i32),
             deleted: rpc::forge::DeletedFilter::Exclude as i32,
+            site_prefix_id: None,
         };
         let search_request = Request::new(prefix_query);
         let search_response = env.api.search_vpc_prefixes(search_request).await;
@@ -981,6 +1113,7 @@ async fn test_vpc_prefix_search(pool: PgPool) -> Result<(), Box<dyn std::error::
             prefix_match: Some(prefix.into()),
             prefix_match_type: Some(PrefixMatchType::PrefixContains as i32),
             deleted: rpc::forge::DeletedFilter::Exclude as i32,
+            site_prefix_id: None,
         };
         let search_request = Request::new(prefix_query);
         let search_response = env.api.search_vpc_prefixes(search_request).await;
@@ -1008,6 +1141,7 @@ async fn test_vpc_prefix_search(pool: PgPool) -> Result<(), Box<dyn std::error::
         prefix_match: Some(prefix.into()),
         prefix_match_type: Some(PrefixMatchType::PrefixContainedBy as i32),
         deleted: rpc::forge::DeletedFilter::Exclude as i32,
+        site_prefix_id: None,
     };
     let search_request = Request::new(prefix_query);
     let search_response = env.api.search_vpc_prefixes(search_request).await;
@@ -1028,6 +1162,584 @@ async fn test_vpc_prefix_search(pool: PgPool) -> Result<(), Box<dyn std::error::
 }
 
 #[crate::sqlx_test]
+async fn exact_site_prefix_attachment_enforces_lineage_and_round_trips(
+    pool: PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = create_test_env(pool).await;
+    let tenant = "site-prefix-tenant-a";
+    let other_tenant = "site-prefix-tenant-b";
+    create_fixture_tenant(&env, tenant).await?;
+    create_fixture_tenant(&env, other_tenant).await?;
+    let fnn_vpc_id = create_fnn_vpc_for_tenant(&env, tenant, "tenant-root FNN VPC").await;
+
+    let ready_parent = seed_tenant_managed_site_prefix(
+        &env,
+        tenant,
+        "10.40.0.0/16",
+        SitePrefixLifecycleState::Ready,
+    )
+    .await;
+    let vpc_prefix_id = VpcPrefixId::new();
+    let created = env
+        .api
+        .create_vpc_prefix(Request::new(site_prefix_child_request(
+            vpc_prefix_id,
+            fnn_vpc_id,
+            Some(ready_parent),
+            "10.40.1.0/24",
+        )))
+        .await?
+        .into_inner();
+    assert_eq!(created.site_prefix_id, Some(ready_parent));
+
+    let persisted = find_vpc_prefix(&env, vpc_prefix_id)
+        .await
+        .expect("exact-parent VPC prefix should be readable");
+    assert_eq!(persisted.site_prefix_id, Some(ready_parent));
+    let ids = env
+        .api
+        .search_vpc_prefixes(Request::new(VpcPrefixSearchQuery {
+            site_prefix_id: Some(ready_parent),
+            ..Default::default()
+        }))
+        .await?
+        .into_inner()
+        .vpc_prefix_ids;
+    assert_eq!(ids, vec![vpc_prefix_id]);
+
+    let wrong_tenant_parent = seed_tenant_managed_site_prefix(
+        &env,
+        other_tenant,
+        "10.41.0.0/16",
+        SitePrefixLifecycleState::Deleting,
+    )
+    .await;
+    let error = env
+        .api
+        .create_vpc_prefix(Request::new(site_prefix_child_request(
+            VpcPrefixId::new(),
+            fnn_vpc_id,
+            Some(wrong_tenant_parent),
+            "10.41.1.0/24",
+        )))
+        .await
+        .unwrap_err();
+    assert_eq!(error.code(), tonic::Code::PermissionDenied);
+
+    let _omitted_tenant_parent = seed_tenant_managed_site_prefix(
+        &env,
+        tenant,
+        "10.47.0.0/16",
+        SitePrefixLifecycleState::Ready,
+    )
+    .await;
+    let omitted_tenant_child_id = VpcPrefixId::new();
+    let error = env
+        .api
+        .create_vpc_prefix(Request::new(site_prefix_child_request(
+            omitted_tenant_child_id,
+            fnn_vpc_id,
+            None,
+            "10.47.1.0/24",
+        )))
+        .await
+        .unwrap_err();
+    assert_eq!(error.code(), tonic::Code::FailedPrecondition);
+    assert_eq!(
+        stored_vpc_prefix_count(&env, omitted_tenant_child_id).await,
+        0
+    );
+
+    for (state, parent_prefix, child_prefix) in [
+        (
+            SitePrefixLifecycleState::Provisioning,
+            "10.42.0.0/16",
+            "10.42.1.0/24",
+        ),
+        (
+            SitePrefixLifecycleState::Deleting,
+            "10.43.0.0/16",
+            "10.43.1.0/24",
+        ),
+        (
+            SitePrefixLifecycleState::Error,
+            "10.44.0.0/16",
+            "10.44.1.0/24",
+        ),
+    ] {
+        let parent = seed_tenant_managed_site_prefix(&env, tenant, parent_prefix, state).await;
+        let error = env
+            .api
+            .create_vpc_prefix(Request::new(site_prefix_child_request(
+                VpcPrefixId::new(),
+                fnn_vpc_id,
+                Some(parent),
+                child_prefix,
+            )))
+            .await
+            .unwrap_err();
+        assert_eq!(error.code(), tonic::Code::FailedPrecondition, "{state:?}");
+    }
+
+    let error = env
+        .api
+        .create_vpc_prefix(Request::new(site_prefix_child_request(
+            VpcPrefixId::new(),
+            fnn_vpc_id,
+            Some(ready_parent),
+            "10.46.1.0/24",
+        )))
+        .await
+        .unwrap_err();
+    assert_eq!(error.code(), tonic::Code::InvalidArgument);
+
+    let non_fnn_parent = seed_tenant_managed_site_prefix(
+        &env,
+        tenant,
+        "10.45.0.0/16",
+        SitePrefixLifecycleState::Ready,
+    )
+    .await;
+    let (non_fnn_vpc_id, _) = api_fixtures::vpc::create_vpc(
+        &env,
+        "tenant-root ETV VPC".to_string(),
+        Some(tenant.to_string()),
+        None,
+    )
+    .await;
+    let error = env
+        .api
+        .create_vpc_prefix(Request::new(site_prefix_child_request(
+            VpcPrefixId::new(),
+            non_fnn_vpc_id,
+            Some(non_fnn_parent),
+            "10.45.1.0/24",
+        )))
+        .await
+        .unwrap_err();
+    assert_eq!(error.code(), tonic::Code::FailedPrecondition);
+
+    let single_linknet_parent = seed_tenant_managed_site_prefix(
+        &env,
+        tenant,
+        "10.49.0.0/31",
+        SitePrefixLifecycleState::Ready,
+    )
+    .await;
+    let single_linknet_vpc_prefix_id = VpcPrefixId::new();
+    let single_linknet: IpNetwork = "10.49.0.0/31".parse()?;
+    let created = env
+        .api
+        .create_vpc_prefix(Request::new(site_prefix_child_request(
+            single_linknet_vpc_prefix_id,
+            fnn_vpc_id,
+            Some(single_linknet_parent),
+            "10.49.0.0/31",
+        )))
+        .await?
+        .into_inner();
+    assert_eq!(created.site_prefix_id, Some(single_linknet_parent));
+
+    let allocator = PrefixAllocator::new(single_linknet_vpc_prefix_id, single_linknet, None, 31)?;
+    let mut allocation = env.pool.begin().await?;
+    let selected = allocator.next_free_prefix(&mut allocation).await?;
+    assert_eq!(selected, single_linknet);
+    allocator
+        .allocate_network_segment_for_prefix(&mut allocation, fnn_vpc_id, selected)
+        .await?;
+    assert!(matches!(
+        allocator.next_free_prefix(&mut allocation).await,
+        Err(crate::CarbideError::ResourceExhausted(_))
+    ));
+    allocation.commit().await?;
+
+    // An old client can omit the ID for a uniquely containing operator root.
+    // That legacy operator root takes precedence even when the tenant owns an
+    // overlapping root, because tenant-managed address space is explicit.
+    let _overlapping_tenant_root = seed_tenant_managed_site_prefix(
+        &env,
+        tenant,
+        "10.50.0.0/16",
+        SitePrefixLifecycleState::Ready,
+    )
+    .await;
+    let operator_root: IpNetwork = "10.50.0.0/16".parse()?;
+    let mut txn = env.pool.begin().await?;
+    db::site_prefix::reconcile_configured(&mut txn, &[operator_root]).await?;
+    let operator_root_id: SitePrefixId =
+        sqlx::query_scalar("SELECT id FROM site_prefixes WHERE prefix = $1 AND authority = $2")
+            .bind(operator_root)
+            .bind(SitePrefixAuthority::OperatorManaged)
+            .fetch_one(&mut *txn)
+            .await?;
+    txn.commit().await?;
+    let legacy = env
+        .api
+        .create_vpc_prefix(Request::new(site_prefix_child_request(
+            VpcPrefixId::new(),
+            fnn_vpc_id,
+            None,
+            "10.50.1.0/24",
+        )))
+        .await?
+        .into_inner();
+    assert_eq!(legacy.site_prefix_id, Some(operator_root_id));
+
+    Ok(())
+}
+
+#[crate::sqlx_test]
+async fn omitted_site_prefix_id_checks_only_the_vpc_tenant(
+    pool: PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = create_test_env_with_overrides(
+        pool,
+        TestEnvOverrides {
+            site_prefixes: Some(Vec::new()),
+            create_network_segments: Some(false),
+            ..Default::default()
+        },
+    )
+    .await;
+    let tenant = "legacy-prefix-tenant-a";
+    let other_tenant = "legacy-prefix-tenant-b";
+    create_fixture_tenant(&env, tenant).await?;
+    create_fixture_tenant(&env, other_tenant).await?;
+    let vpc_id = create_fnn_vpc_for_tenant(&env, tenant, "legacy tenant-scoped VPC").await;
+
+    seed_tenant_managed_site_prefix(
+        &env,
+        other_tenant,
+        "10.80.0.0/16",
+        SitePrefixLifecycleState::Ready,
+    )
+    .await;
+
+    // Another tenant may own the same private address space without changing
+    // this VPC's legacy feature-off behavior.
+    let legacy = env
+        .api
+        .create_vpc_prefix(Request::new(site_prefix_child_request(
+            VpcPrefixId::new(),
+            vpc_id,
+            None,
+            "10.80.1.0/24",
+        )))
+        .await?
+        .into_inner();
+    assert_eq!(legacy.site_prefix_id, None);
+
+    let error = env
+        .api
+        .create_vpc_prefix(Request::new(site_prefix_child_request(
+            VpcPrefixId::new(),
+            VpcId::new(),
+            None,
+            "10.80.2.0/24",
+        )))
+        .await
+        .unwrap_err();
+    assert_eq!(error.code(), tonic::Code::NotFound);
+
+    seed_tenant_managed_site_prefix(
+        &env,
+        tenant,
+        "10.80.0.0/16",
+        SitePrefixLifecycleState::Ready,
+    )
+    .await;
+    let error = env
+        .api
+        .create_vpc_prefix(Request::new(site_prefix_child_request(
+            VpcPrefixId::new(),
+            vpc_id,
+            None,
+            "10.80.2.0/24",
+        )))
+        .await
+        .unwrap_err();
+    assert_eq!(error.code(), tonic::Code::FailedPrecondition);
+
+    Ok(())
+}
+
+#[crate::sqlx_test]
+async fn omitted_site_prefix_id_serializes_with_tenant_root_creation(
+    pool: PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = create_test_env_with_overrides(
+        pool,
+        TestEnvOverrides {
+            site_prefixes: Some(Vec::new()),
+            create_network_segments: Some(false),
+            ..Default::default()
+        },
+    )
+    .await;
+    let tenant = "legacy-prefix-creation-race";
+    create_fixture_tenant(&env, tenant).await?;
+    let vpc_id = create_fnn_vpc_for_tenant(&env, tenant, "legacy creation race VPC").await;
+
+    let mut site_prefix_create = env.pool.begin().await?;
+    let blocker_pid: i32 = sqlx::query_scalar("SELECT pg_backend_pid()")
+        .fetch_one(&mut *site_prefix_create)
+        .await?;
+    db::site_prefix::create_tenant_managed(
+        NewTenantManagedSitePrefix {
+            id: SitePrefixId::new(),
+            tenant_organization_id: tenant.parse()?,
+            prefix: "10.81.0.0/16".parse()?,
+            metadata: ModelMetadata {
+                name: "concurrent tenant root".to_string(),
+                ..Default::default()
+            },
+        },
+        env.config.max_site_prefixes_per_tenant,
+        &mut site_prefix_create,
+    )
+    .await?;
+
+    let vpc_prefix_id = VpcPrefixId::new();
+    let request = site_prefix_child_request(vpc_prefix_id, vpc_id, None, "10.81.1.0/24");
+    let api = env.api.clone();
+    let create = tokio::spawn(async move { api.create_vpc_prefix(Request::new(request)).await });
+    wait_until_query_is_blocked_by(&env.pool, blocker_pid, "site_prefixes:tenant:").await;
+
+    site_prefix_create.commit().await?;
+    let error = create.await?.unwrap_err();
+    assert_eq!(error.code(), tonic::Code::FailedPrecondition);
+    assert_eq!(stored_vpc_prefix_count(&env, vpc_prefix_id).await, 0);
+
+    Ok(())
+}
+
+#[crate::sqlx_test]
+async fn omitted_site_prefix_id_serializes_with_first_operator_root_reconciliation(
+    pool: PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = create_test_env_with_overrides(
+        pool,
+        TestEnvOverrides {
+            site_prefixes: Some(Vec::new()),
+            create_network_segments: Some(false),
+            ..Default::default()
+        },
+    )
+    .await;
+    let tenant = "legacy-operator-creation-race";
+    create_fixture_tenant(&env, tenant).await?;
+    let vpc_id = create_fnn_vpc_for_tenant(&env, tenant, "legacy operator race VPC").await;
+
+    let operator_root: IpNetwork = "198.19.0.0/16".parse()?;
+    let mut reconciliation = env.pool.begin().await?;
+    let blocker_pid: i32 = sqlx::query_scalar("SELECT pg_backend_pid()")
+        .fetch_one(&mut *reconciliation)
+        .await?;
+    db::site_prefix::reconcile_configured(&mut reconciliation, &[operator_root]).await?;
+    let operator_root_id: SitePrefixId =
+        sqlx::query_scalar("SELECT id FROM site_prefixes WHERE prefix = $1")
+            .bind(operator_root)
+            .fetch_one(&mut *reconciliation)
+            .await?;
+
+    let vpc_prefix_id = VpcPrefixId::new();
+    let request = site_prefix_child_request(vpc_prefix_id, vpc_id, None, "198.19.1.0/24");
+    let api = env.api.clone();
+    let create = tokio::spawn(async move { api.create_vpc_prefix(Request::new(request)).await });
+    wait_until_query_is_blocked_by(&env.pool, blocker_pid, "pg_advisory_xact_lock_shared").await;
+
+    reconciliation.commit().await?;
+    let created = create.await??.into_inner();
+    assert_eq!(created.site_prefix_id, Some(operator_root_id));
+    assert_eq!(stored_vpc_prefix_count(&env, vpc_prefix_id).await, 1);
+
+    Ok(())
+}
+
+#[crate::sqlx_test]
+async fn vpc_prefix_create_rechecks_parent_after_concurrent_retirement(
+    pool: PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = create_test_env(pool).await;
+    let tenant = "site-prefix-retirement-race";
+    create_fixture_tenant(&env, tenant).await?;
+    let vpc_id = create_fnn_vpc_for_tenant(&env, tenant, "retirement race VPC").await;
+    let site_prefix_id = seed_tenant_managed_site_prefix(
+        &env,
+        tenant,
+        "10.60.0.0/16",
+        SitePrefixLifecycleState::Ready,
+    )
+    .await;
+
+    let mut retirement = env.pool.begin().await?;
+    let blocker_pid: i32 = sqlx::query_scalar("SELECT pg_backend_pid()")
+        .fetch_one(&mut *retirement)
+        .await?;
+    let current = db::site_prefix::find_by_id_for_update(&mut retirement, site_prefix_id)
+        .await?
+        .expect("SitePrefix should exist");
+    db::site_prefix::retire_tenant_managed(
+        &RetireTenantManagedSitePrefix {
+            id: site_prefix_id,
+            tenant_organization_id: tenant.parse()?,
+        },
+        &current,
+        &mut retirement,
+    )
+    .await?;
+
+    let vpc_prefix_id = VpcPrefixId::new();
+    let request =
+        site_prefix_child_request(vpc_prefix_id, vpc_id, Some(site_prefix_id), "10.60.1.0/24");
+    let api = env.api.clone();
+    let create = tokio::spawn(async move { api.create_vpc_prefix(Request::new(request)).await });
+    wait_until_query_is_blocked_by(&env.pool, blocker_pid, "site_prefixes").await;
+
+    retirement.commit().await?;
+    let error = create.await?.unwrap_err();
+    assert_eq!(error.code(), tonic::Code::FailedPrecondition);
+    assert_eq!(stored_vpc_prefix_count(&env, vpc_prefix_id).await, 0);
+    let lifecycle_state: SitePrefixLifecycleState =
+        sqlx::query_scalar("SELECT lifecycle_state FROM site_prefixes WHERE id = $1")
+            .bind(site_prefix_id)
+            .fetch_one(&env.pool)
+            .await?;
+    assert_eq!(lifecycle_state, SitePrefixLifecycleState::Deleting);
+
+    Ok(())
+}
+
+#[crate::sqlx_test]
+async fn tenant_managed_lineage_blocks_virtualization_transition_and_race(
+    pool: PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = create_test_env(pool).await;
+    let tenant = "site-prefix-virtualization-guard";
+    create_fixture_tenant(&env, tenant).await?;
+
+    let existing_vpc_id = create_fnn_vpc_for_tenant(&env, tenant, "existing lineage VPC").await;
+    let existing_parent_id = seed_tenant_managed_site_prefix(
+        &env,
+        tenant,
+        "10.90.0.0/16",
+        SitePrefixLifecycleState::Ready,
+    )
+    .await;
+    let existing_vpc_prefix_id = env
+        .api
+        .create_vpc_prefix(Request::new(site_prefix_child_request(
+            VpcPrefixId::new(),
+            existing_vpc_id,
+            Some(existing_parent_id),
+            "10.90.1.0/24",
+        )))
+        .await?
+        .into_inner()
+        .id
+        .expect("created VPC prefix should include an ID");
+
+    let error = env
+        .api
+        .update_vpc_virtualization(Request::new(rpc::forge::VpcUpdateVirtualizationRequest {
+            id: Some(existing_vpc_id),
+            if_version_match: None,
+            network_virtualization_type: Some(rpc::forge::VpcVirtualizationType::Flat as i32),
+        }))
+        .await
+        .unwrap_err();
+    assert_eq!(error.code(), tonic::Code::FailedPrecondition);
+
+    env.api
+        .delete_vpc_prefix(Request::new(VpcPrefixDeletionRequest {
+            id: Some(existing_vpc_prefix_id),
+        }))
+        .await?;
+    assert!(stored_vpc_prefix_is_deleted(&env, existing_vpc_prefix_id).await);
+
+    // Soft-deleted lineage still owns address space until the controller
+    // physically removes it, so it must continue to keep the VPC on FNN.
+    let error = env
+        .api
+        .update_vpc_virtualization(Request::new(rpc::forge::VpcUpdateVirtualizationRequest {
+            id: Some(existing_vpc_id),
+            if_version_match: None,
+            network_virtualization_type: Some(rpc::forge::VpcVirtualizationType::Flat as i32),
+        }))
+        .await
+        .unwrap_err();
+    assert_eq!(error.code(), tonic::Code::FailedPrecondition);
+
+    let racing_vpc_id = create_fnn_vpc_for_tenant(&env, tenant, "racing lineage VPC").await;
+    let racing_parent_id = seed_tenant_managed_site_prefix(
+        &env,
+        tenant,
+        "10.91.0.0/16",
+        SitePrefixLifecycleState::Ready,
+    )
+    .await;
+    let mut child_create = env.pool.begin().await?;
+    let blocker_pid: i32 = sqlx::query_scalar("SELECT pg_backend_pid()")
+        .fetch_one(&mut *child_create)
+        .await?;
+    let locked_vpc = db::vpc::find_by_with_lock(
+        child_create.as_mut(),
+        db::ObjectColumnFilter::One(db::vpc::IdColumn, &racing_vpc_id),
+        db::vpc::VpcRowLock::Mutation,
+    )
+    .await?
+    .pop()
+    .expect("racing VPC should exist");
+    let racing_vpc_prefix_id = VpcPrefixId::new();
+    db::vpc_prefix::persist(
+        NewVpcPrefix {
+            id: racing_vpc_prefix_id,
+            site_prefix_id: Some(racing_parent_id),
+            vpc_id: racing_vpc_id,
+            config: VpcPrefixConfig {
+                prefix: "10.91.1.0/24".parse()?,
+            },
+            metadata: ModelMetadata {
+                name: "racing tenant-managed lineage".to_string(),
+                ..Default::default()
+            },
+        },
+        locked_vpc.version,
+        &mut child_create,
+    )
+    .await?;
+
+    let api = env.api.clone();
+    let update = tokio::spawn(async move {
+        api.update_vpc_virtualization(Request::new(rpc::forge::VpcUpdateVirtualizationRequest {
+            id: Some(racing_vpc_id),
+            if_version_match: None,
+            network_virtualization_type: Some(rpc::forge::VpcVirtualizationType::Flat as i32),
+        }))
+        .await
+    });
+    wait_until_query_is_blocked_by(&env.pool, blocker_pid, "vpcs").await;
+    child_create.commit().await?;
+
+    let error = update.await?.unwrap_err();
+    assert_eq!(error.code(), tonic::Code::FailedPrecondition);
+    let vpc = db::vpc::find_by(
+        &env.pool,
+        db::ObjectColumnFilter::One(db::vpc::IdColumn, &racing_vpc_id),
+    )
+    .await?
+    .pop()
+    .expect("racing VPC should remain visible");
+    assert_eq!(
+        vpc.config.network_virtualization_type,
+        carbide_network::virtualization::VpcVirtualizationType::Fnn
+    );
+    assert_eq!(stored_vpc_prefix_count(&env, racing_vpc_prefix_id).await, 1);
+
+    Ok(())
+}
+
+#[crate::sqlx_test]
 async fn flat_vpc_accepts_ipv4_prefix(pool: PgPool) -> Result<(), Box<dyn std::error::Error>> {
     // Flat VPCs should accept IPv4 prefixes just like every other VPC type.
     let env = create_test_env(pool).await;
@@ -1042,6 +1754,7 @@ async fn flat_vpc_accepts_ipv4_prefix(pool: PgPool) -> Result<(), Box<dyn std::e
         id: None,
         prefix: String::new(),
         vpc_id: vpc.id,
+        site_prefix_id: None,
         config: Some(rpc::forge::VpcPrefixConfig {
             prefix: "192.0.2.0/25".to_string(),
         }),
@@ -1095,6 +1808,7 @@ async fn flat_vpc_accepts_ipv6_prefix(pool: PgPool) -> Result<(), Box<dyn std::e
         id: None,
         prefix: String::new(),
         vpc_id: vpc.id,
+        site_prefix_id: None,
         config: Some(rpc::forge::VpcPrefixConfig {
             prefix: "2001:db8::/64".to_string(),
         }),

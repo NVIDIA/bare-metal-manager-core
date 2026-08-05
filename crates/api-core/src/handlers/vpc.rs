@@ -262,6 +262,29 @@ pub(crate) async fn update_virtualization(
 
     let updater = UpdateVpcVirtualization::try_from(request.into_inner())?;
 
+    // Serialize this transition with VpcPrefix creation. A tenant-managed
+    // SitePrefix can be attached only to FNN, so the VPC must remain FNN for
+    // as long as any such VpcPrefix is retained (including soft deletion).
+    let current_vpc = db::vpc::find_by_with_lock(
+        txn.as_mut(),
+        ObjectColumnFilter::One(db::vpc::IdColumn, &updater.id),
+        db::vpc::VpcRowLock::Mutation,
+    )
+    .await?
+    .pop()
+    .ok_or_else(|| CarbideError::NotFoundError {
+        kind: "vpc",
+        id: updater.id.to_string(),
+    })?;
+    if updater.network_virtualization_type != VpcVirtualizationType::Fnn
+        && db::vpc_prefix::has_tenant_managed_site_prefix(&mut txn, current_vpc.id).await?
+    {
+        return Err(CarbideError::FailedPrecondition(
+            "a VPC with tenant-managed SitePrefix address space must remain FNN".to_string(),
+        )
+        .into());
+    }
+
     let instances = db::instance::find_ids(
         &mut txn,
         model::instance::InstanceSearchFilter {

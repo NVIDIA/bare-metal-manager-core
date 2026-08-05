@@ -15,6 +15,7 @@
  * limitations under the License.
  */
 
+use carbide_uuid::site_prefix::SitePrefixId;
 use carbide_uuid::vpc::{VpcId, VpcPrefixId};
 use clap::Parser;
 use ipnet::IpNet;
@@ -33,6 +34,11 @@ Create a prefix with a description and labels:
     --prefix 10.0.0.0/24 --name web-tier --description \"Front-end subnet\" \
     --label environment:production --label team:platform
 
+Create a prefix from a specific SitePrefix:
+    $ nico-admin-cli vpc-prefix create --vpc-id 12345678-1234-5678-90ab-cdef01234567 \
+    --site-prefix-id abcdef01-2345-6789-abcd-ef0123456789 \
+    --prefix 10.0.0.0/24 --name web-tier
+
 ")]
 pub(crate) struct Args {
     #[clap(
@@ -42,6 +48,14 @@ pub(crate) struct Args {
         help = "The ID of the VPC to contain this prefix"
     )]
     vpc_id: VpcId,
+
+    #[clap(
+        long,
+        name = "site-prefix-id",
+        value_name = "SitePrefixId",
+        help = "The exact parent SitePrefix ID. Required for tenant-managed SitePrefixes or when multiple operator-managed SitePrefixes contain this VPC prefix. When omitted, Core selects the unique containing operator-managed SitePrefix when one exists"
+    )]
+    site_prefix_id: Option<SitePrefixId>,
 
     #[clap(
         long,
@@ -110,6 +124,7 @@ impl From<Args> for VpcPrefixCreationRequest {
             id: args.vpc_prefix_id,
             prefix: String::new(), // Deprecated field
             vpc_id: Some(args.vpc_id),
+            site_prefix_id: args.site_prefix_id,
             config: Some(rpc::forge::VpcPrefixConfig {
                 prefix: args.prefix.to_string(),
             }),
