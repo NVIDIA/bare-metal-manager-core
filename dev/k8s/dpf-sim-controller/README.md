@@ -130,6 +130,17 @@ compatible. `crates/dpf/crds/` is that version.
 > `DPF_SIM_IMAGE` (or `${NICO_IMAGE_REGISTRY}/dpf-sim-controller:latest`).
 > On a site without DPF enabled the phase is a no-op, and it hard-fails if
 > the REAL DPF operator is deployed (both would drive `DPU.status.phase` —
+> **Installing NICo alongside this simulator: use `setup.sh --skip-dpf`.**
+> The simulator applies the DPF CRDs itself (`make install-crds`), so letting
+> `setup.sh` also helm-install `dpf-operator` makes Helm try to adopt CRDs it
+> does not own and the install fails with *"exists and cannot be imported into
+> the current release: missing key app.kubernetes.io/managed-by"*. This only
+> shows up on a genuinely clean cluster — an environment that previously ran a
+> real DPF install has Helm-labelled CRDs already, which masks the collision.
+> Likewise, do not pre-create the `nico-api-dpf` Role/RoleBinding: the
+> `nico-api` chart owns those (`dpf.rbacCreate`), and a hand-applied copy blocks
+> the whole `nico` release the same way.
+
 > remove the operator, or pass `--skip-dpf-sim` to keep it). The manual
 > steps below remain for iterating on the simulator itself.
 

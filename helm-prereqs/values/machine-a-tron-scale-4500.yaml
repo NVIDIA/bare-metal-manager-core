@@ -48,6 +48,14 @@ hwMacAddressRanges:
 
 mat-k8s-controller:
   enabled: true
+  # The subchart defaults to a bare local image name with no registry; pin the
+  # published build or the controller ImagePullBackOffs and no BMC Services
+  # are ever created (so exploration finds nothing).
+  image:
+    repository: nvcr.io/0837451325059433/carbide-dev/mat-k8s-controller
+    tag: "v2.1.0-pr-614-g587165fcf"
+  imagePullSecrets:
+    - name: machine-a-tron-pull
   config:
     insecureSkipVerify: true
 
