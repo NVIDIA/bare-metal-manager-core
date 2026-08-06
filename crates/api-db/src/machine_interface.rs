@@ -3597,9 +3597,14 @@ pub async fn delete(
         crate::retained_boot_interface::upsert(&mut *txn, mac_address, &boot_interface_id).await?;
     }
 
+    record_deletion(txn).await
+}
+
+/// Record that machine interface data may have been invalidated so DHCP
+/// servers restart and reload their configuration.
+pub async fn record_deletion(txn: &mut PgConnection) -> Result<(), DatabaseError> {
     let query = "UPDATE machine_interfaces_deletion SET last_deletion=NOW() WHERE id = 1";
     sqlx::query(query)
-        .bind(*interface_id)
         .execute(txn)
         .await
         .map(|_| ())

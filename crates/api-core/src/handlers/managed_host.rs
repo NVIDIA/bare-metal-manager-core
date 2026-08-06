@@ -84,6 +84,30 @@ pub(crate) async fn decommission_managed_host(
         .into());
     }
 
+    let dpus = db::machine::find_dpus_by_host_machine_id(&mut txn, &machine_id).await?;
+    let unsupported_dpus = dpus
+        .iter()
+        .filter(|dpu| !dpu.status.bmc_info.supports_bfb_install())
+        .map(|dpu| {
+            format!(
+                "{} (BMC firmware {})",
+                dpu.id,
+                dpu.status
+                    .bmc_info
+                    .firmware_version
+                    .as_deref()
+                    .unwrap_or("unknown")
+            )
+        })
+        .collect::<Vec<_>>();
+    if !unsupported_dpus.is_empty() {
+        return Err(CarbideError::FailedPrecondition(format!(
+            "managed host {machine_id} cannot be decommissioned because its DPUs do not support BFB installation through Redfish: {}. DPU BMC firmware 24.10 or newer is required",
+            unsupported_dpus.join(", ")
+        ))
+        .into());
+    }
+
     db::machine::set_decommission_requested(&mut txn, machine_id).await?;
     txn.commit().await?;
 
@@ -210,8 +234,21 @@ pub(crate) async fn delete_decommissioned_managed_host(
         .iter()
         .filter_map(|machine| machine.status.bmc_info.mac)
         .collect::<Vec<_>>();
+    let machine_ids = machines
+        .iter()
+        .map(|machine| machine.id)
+        .collect::<Vec<_>>();
 
     db::machine_interface::lock_all_admin_segments(&mut txn).await?;
+
+    let oob_macs = db::machine_interface::find_by_machine_ids(&mut txn, &machine_ids)
+        .await?
+        .into_values()
+        .flatten()
+        .filter(|interface| interface.network_segment_type == Some(NetworkSegmentType::Underlay))
+        .map(|interface| interface.mac_address)
+        .collect::<Vec<_>>();
+    let dhcp_suppression_macs = bmc_macs.iter().copied().chain(oob_macs).collect::<Vec<_>>();
 
     // Remove BMC interfaces, including those not projected into Machine.status.interfaces.
     for machine in &machines {
@@ -271,16 +308,14 @@ pub(crate) async fn delete_decommissioned_managed_host(
     }
     db::machine::force_cleanup(&mut txn, &host.id).await?;
 
-    if !request.retain_bmc_suppressions {
-        db::bmc_suppression::delete_many(
-            &mut txn,
-            &bmc_macs,
-            BmcSuppressionSubsystem::SiteExplorer,
-        )
+    db::bmc_suppression::delete_many(&mut txn, &bmc_macs, BmcSuppressionSubsystem::SiteExplorer)
         .await?;
-        db::bmc_suppression::delete_many(&mut txn, &bmc_macs, BmcSuppressionSubsystem::Dhcp)
-            .await?;
-    }
+    db::bmc_suppression::delete_many(
+        &mut txn,
+        &dhcp_suppression_macs,
+        BmcSuppressionSubsystem::Dhcp,
+    )
+    .await?;
 
     txn.commit().await?;
     Ok(Response::new(()))

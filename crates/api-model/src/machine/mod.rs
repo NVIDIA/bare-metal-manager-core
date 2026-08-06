@@ -1386,9 +1386,6 @@ pub enum DecommissioningState {
     DeconfiguringDpus {
         dpu_states: HashMap<MachineId, DeconfiguringDpuState>,
     },
-    InstallingVanillaBfb {
-        installing_state: InstallingVanillaBfbState,
-    },
     VerifyingDhcpRelease {
         verifying_state: VerifyingDhcpReleaseState,
     },
@@ -1397,21 +1394,11 @@ pub enum DecommissioningState {
 
 #[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq)]
 #[serde(tag = "state", rename_all = "lowercase")]
-pub enum InstallingVanillaBfbState {
-    DeletingFromDpf,
-    Installing {
-        dpu_states: HashMap<MachineId, InstallDpuOsState>,
-    },
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq)]
-#[serde(tag = "state", rename_all = "lowercase")]
 pub enum VerifyingDhcpReleaseState {
-    SuppressingDhcp,
-    ResettingBmcs { completed: HashSet<MachineId> },
-    WaitingForAcknowledgement,
+    PowerCyclingHost,
+    WaitingForOobDhcpAcknowledgement,
     FactoryResettingBmcs { completed: HashSet<MachineId> },
-    WaitingForAcknowledgementAfterFactoryReset,
+    WaitingForBmcDhcpAcknowledgement,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq)]
@@ -1419,12 +1406,12 @@ pub enum VerifyingDhcpReleaseState {
 pub enum DeconfiguringHostState {
     DisableLockdown,
     RebootAfterLockdown,
+    ClearSuperNicLockdown,
+    WaitForSuperNicLockdown,
     ClearUefiPassword,
     WaitForUefiPasswordJobScheduled { job_id: String },
     RebootAfterUefiPassword { job_id: String },
     WaitForUefiPasswordJobCompletion { job_id: String },
-    ClearSuperNicLockdown,
-    WaitForSuperNicLockdown,
     ResetUefiSettings,
     RebootAfterUefiReset,
 }
@@ -1432,12 +1419,10 @@ pub enum DeconfiguringHostState {
 #[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq)]
 #[serde(tag = "state", rename_all = "lowercase")]
 pub enum DeconfiguringDpuState {
-    ClearUefiPassword,
-    WaitForUefiPasswordJobScheduled { job_id: String },
-    RebootAfterUefiPassword { job_id: String },
-    WaitForUefiPasswordJobCompletion { job_id: String },
-    ResetUefiSettings,
-    RebootAfterUefiReset,
+    DeletingFromDpf,
+    InstallingBfb,
+    WaitForInstallComplete { task_id: String },
+    WaitingForBootAfterBfbInstall,
     Complete,
 }
 
@@ -2632,9 +2617,6 @@ impl Display for DecommissioningState {
                 deconfiguring_state,
             } => write!(f, "DeconfiguringHost/{deconfiguring_state:?}"),
             DecommissioningState::DeconfiguringDpus { .. } => write!(f, "DeconfiguringDpus"),
-            DecommissioningState::InstallingVanillaBfb { .. } => {
-                write!(f, "InstallingVanillaBfb")
-            }
             DecommissioningState::VerifyingDhcpRelease { .. } => {
                 write!(f, "VerifyingDhcpRelease")
             }

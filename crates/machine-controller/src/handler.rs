@@ -1157,11 +1157,8 @@ impl MachineStateHandler {
                     .await
                 }
                 DecommissioningState::DeconfiguringDpus { dpu_states } => {
-                    decommissioning::handle_deconfiguring_dpus(dpu_states, mh_snapshot, ctx).await
-                }
-                DecommissioningState::InstallingVanillaBfb { installing_state } => {
-                    decommissioning::handle_installing_vanilla_bfb(
-                        installing_state,
+                    decommissioning::handle_deconfiguring_dpus(
+                        dpu_states,
                         mh_snapshot,
                         ctx,
                         self.dpu_handler.dpf_sdk.as_deref(),

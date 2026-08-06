@@ -4961,8 +4961,6 @@ message AdminForceDeleteMachineRequest {
 
 message DeleteDecommissionedManagedHostRequest {
   common.MachineId machine_id = 1;
-  // Keep the Site Explorer and DHCP BMC suppression entries after deletion.
-  bool retain_bmc_suppressions = 2;
 }
 
 // Response to AdminForceDeleteMachine call

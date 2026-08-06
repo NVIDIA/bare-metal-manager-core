@@ -27465,12 +27465,10 @@ func (x *AdminForceDeleteMachineRequest) GetAllowDeleteWithOrphanedDpfCrds() boo
 }
 
 type DeleteDecommissionedManagedHostRequest struct {
-	state     protoimpl.MessageState `protogen:"open.v1"`
-	MachineId *MachineId             `protobuf:"bytes,1,opt,name=machine_id,json=machineId,proto3" json:"machine_id,omitempty"`
-	// Keep the Site Explorer and DHCP BMC suppression entries after deletion.
-	RetainBmcSuppressions bool `protobuf:"varint,2,opt,name=retain_bmc_suppressions,json=retainBmcSuppressions,proto3" json:"retain_bmc_suppressions,omitempty"`
-	unknownFields         protoimpl.UnknownFields
-	sizeCache             protoimpl.SizeCache
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	MachineId     *MachineId             `protobuf:"bytes,1,opt,name=machine_id,json=machineId,proto3" json:"machine_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *DeleteDecommissionedManagedHostRequest) Reset() {
@@ -27508,13 +27506,6 @@ func (x *DeleteDecommissionedManagedHostRequest) GetMachineId() *MachineId {
 		return x.MachineId
 	}
 	return nil
-}
-
-func (x *DeleteDecommissionedManagedHostRequest) GetRetainBmcSuppressions() bool {
-	if x != nil {
-		return x.RetainBmcSuppressions
-	}
-	return false
 }
 
 // Response to AdminForceDeleteMachine call
@@ -65317,11 +65308,10 @@ const file_nico_nico_proto_rawDesc = "" +
 	"\x11delete_interfaces\x18\x02 \x01(\bR\x10deleteInterfaces\x122\n" +
 	"\x15delete_bmc_interfaces\x18\x03 \x01(\bR\x13deleteBmcInterfaces\x124\n" +
 	"\x16delete_bmc_credentials\x18\x04 \x01(\bR\x14deleteBmcCredentials\x12K\n" +
-	"#allow_delete_with_orphaned_dpf_crds\x18\x05 \x01(\bR\x1eallowDeleteWithOrphanedDpfCrds\"\x92\x01\n" +
+	"#allow_delete_with_orphaned_dpf_crds\x18\x05 \x01(\bR\x1eallowDeleteWithOrphanedDpfCrds\"Z\n" +
 	"&DeleteDecommissionedManagedHostRequest\x120\n" +
 	"\n" +
-	"machine_id\x18\x01 \x01(\v2\x11.common.MachineIdR\tmachineId\x126\n" +
-	"\x17retain_bmc_suppressions\x18\x02 \x01(\bR\x15retainBmcSuppressions\"\xbf\b\n" +
+	"machine_id\x18\x01 \x01(\v2\x11.common.MachineIdR\tmachineId\"\xbf\b\n" +
 	"\x1fAdminForceDeleteMachineResponse\x12\x19\n" +
 	"\ball_done\x18\x01 \x01(\bR\aallDone\x125\n" +
 	"\x17managed_host_machine_id\x18\v \x01(\tR\x14managedHostMachineId\x12H\n" +

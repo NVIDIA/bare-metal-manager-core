@@ -10040,6 +10040,113 @@ paths:
         attached to the Machine, `acknowledgeAttachedInstance` must be `true`.
         
         Org must have an Infrastructure Provider entity and own the Site that the Machine belongs to. User must have authorization role with `PROVIDER_ADMIN` suffix.
+  '/v2/org/{org}/nico/machine/{machineId}/decommission':
+    parameters:
+      - schema:
+          type: string
+        name: org
+        in: path
+        required: true
+        description: Name of the Org
+      - schema:
+          type: string
+        name: machineId
+        in: path
+        required: true
+        description: ID of the managed host Machine
+    post:
+      summary: Decommission a managed host
+      tags:
+        - Machine
+      responses:
+        '202':
+          description: Managed-host decommissioning was accepted and will proceed asynchronously.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MessageResponse'
+              examples:
+                accepted:
+                  value:
+                    message: Managed host decommissioning request was accepted
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '403':
+          $ref: '#/components/responses/ForbiddenError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+        '412':
+          description: The Machine cannot be decommissioned in its current Core state or its DPUs do not support the required BFB installation.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NICoAPIError'
+        '500':
+          $ref: '#/components/responses/GenericHttpError'
+        '503':
+          description: Core is unavailable.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NICoAPIError'
+        '504':
+          description: The Core proxy request timed out.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NICoAPIError'
+      operationId: decommission-managed-host
+      description: |-
+        Start decommissioning a managed host. The host must be in Core's `Ready`
+        state, and every attached DPU must support BFB installation through
+        Redfish. The operation is asynchronous; use the Machine status to
+        observe workflow progress.
+
+        Org must have an Infrastructure Provider entity and own the Site that
+        the Machine belongs to. User must have authorization role with
+        `PROVIDER_ADMIN` suffix.
+    delete:
+      summary: Delete a decommissioned managed host
+      tags:
+        - Machine
+      responses:
+        '204':
+          description: The decommissioned managed host and its attached DPUs were permanently removed. Site Explorer and DHCP suppressions were deleted.
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '403':
+          $ref: '#/components/responses/ForbiddenError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+        '412':
+          description: The Machine has not completed Core decommissioning.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NICoAPIError'
+        '500':
+          $ref: '#/components/responses/GenericHttpError'
+        '503':
+          description: Core is unavailable.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NICoAPIError'
+        '504':
+          description: The Core proxy request timed out.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NICoAPIError'
+      operationId: delete-decommissioned-managed-host
+      description: |-
+        Permanently remove a managed host after Core has reached its terminal
+        `Decommissioned` state. This also removes the managed host's attached
+        DPUs, credentials, and Site Explorer and DHCP suppression entries.
+
+        Org must have an Infrastructure Provider entity and own the Site that
+        the Machine belongs to. User must have authorization role with
+        `PROVIDER_ADMIN` suffix.
   '/v2/org/{org}/nico/machine/{machineId}/status-history':
     parameters:
       - schema:

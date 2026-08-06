@@ -68,6 +68,7 @@ mod machine_topology;
 pub mod machine_update_manager;
 mod machine_validation;
 mod maintenance;
+mod managed_host_decommissioning;
 #[cfg(feature = "linux-build")]
 mod measured_boot;
 mod network_security_group;

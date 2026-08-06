@@ -328,9 +328,6 @@ impl StateControllerIO for MachineStateControllerIO {
                 DecommissioningState::DeconfiguringDpus { .. } => {
                     ("decommissioning", "deconfiguringdpus")
                 }
-                DecommissioningState::InstallingVanillaBfb { .. } => {
-                    ("decommissioning", "installingvanillabfb")
-                }
                 DecommissioningState::VerifyingDhcpRelease { .. } => {
                     ("decommissioning", "verifyingdhcprelease")
                 }

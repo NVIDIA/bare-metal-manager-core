@@ -656,6 +656,16 @@ func NewAPIRoutes(dbSession *cdb.Session, tc tClient.Client, tnc tClient.Namespa
 			Method:  http.MethodPatch,
 			Handler: apiHandler.NewMachinePowerControlHandler(dbSession, scp, cfg),
 		},
+		{
+			Path:    apiPathPrefix + "/machine/:id/decommission",
+			Method:  http.MethodPost,
+			Handler: apiHandler.NewDecommissionManagedHostHandler(dbSession, scp, cfg),
+		},
+		{
+			Path:    apiPathPrefix + "/machine/:id/decommission",
+			Method:  http.MethodDelete,
+			Handler: apiHandler.NewDeleteDecommissionedManagedHostHandler(dbSession, scp, cfg),
+		},
 
 		// Machine GPU Stats endpoint
 		{

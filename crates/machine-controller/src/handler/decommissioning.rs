@@ -17,17 +17,16 @@
 
 use carbide_secrets::credentials::CredentialKey;
 use carbide_uuid::machine::MachineId;
-use chrono::{Duration, Utc};
 use libredfish::model::task::TaskState;
 use libredfish::model::update_service::TransferProtocolType;
 use libredfish::{EnabledDisabled, JobState, RedfishError, SystemPowerControl};
 use model::bmc_suppression::{BmcSuppressionSubsystem, NewBmcSuppression};
 use model::dpa_interface::{DpaInterfaceControllerState, DpaInterfaceType, DpaLockMode};
 use model::machine::{
-    DecommissioningState, DeconfiguringDpuState, DeconfiguringHostState, InstallDpuOsState,
-    InstallingVanillaBfbState, ManagedHostState, ManagedHostStateSnapshot,
-    VerifyingDhcpReleaseState,
+    DecommissioningState, DeconfiguringDpuState, DeconfiguringHostState, ManagedHostState,
+    ManagedHostStateSnapshot, VerifyingDhcpReleaseState,
 };
+use model::network_segment::NetworkSegmentType;
 use state_controller::state_handler::{
     StateHandlerContext, StateHandlerError, StateHandlerOutcome,
 };
@@ -35,7 +34,7 @@ use std::collections::{HashMap, HashSet};
 
 use crate::context::MachineStateHandlerContextObjects;
 use crate::dpf::{DpfOperations, dpf_dpudevices_and_dpunode_crs_noexist};
-use crate::redfish::host_power_control;
+use crate::redfish::{did_dpu_finish_booting, host_power_control};
 
 fn deconfiguring(state: DeconfiguringHostState) -> ManagedHostState {
     ManagedHostState::Decommissioning {
@@ -49,31 +48,6 @@ fn deconfiguring_dpus(dpu_states: HashMap<MachineId, DeconfiguringDpuState>) -> 
     ManagedHostState::Decommissioning {
         decommissioning_state: DecommissioningState::DeconfiguringDpus { dpu_states },
     }
-}
-
-fn installing_vanilla_bfb(installing_state: InstallingVanillaBfbState) -> ManagedHostState {
-    ManagedHostState::Decommissioning {
-        decommissioning_state: DecommissioningState::InstallingVanillaBfb { installing_state },
-    }
-}
-
-fn initial_bfb_install_state(state: &ManagedHostStateSnapshot) -> InstallingVanillaBfbState {
-    InstallingVanillaBfbState::Installing {
-        dpu_states: state
-            .dpu_snapshots
-            .iter()
-            .map(|dpu| (dpu.id, InstallDpuOsState::InstallingBFB))
-            .collect(),
-    }
-}
-
-fn enter_bfb_install(state: &ManagedHostStateSnapshot) -> ManagedHostState {
-    let installing_state = if state.host_snapshot.config.dpf.used_for_ingestion {
-        InstallingVanillaBfbState::DeletingFromDpf
-    } else {
-        initial_bfb_install_state(state)
-    };
-    installing_vanilla_bfb(installing_state)
 }
 
 fn verifying_dhcp_release(verifying_state: VerifyingDhcpReleaseState) -> ManagedHostState {
@@ -135,13 +109,12 @@ pub(super) async fn handle_deconfiguring_host(
     ctx: &mut StateHandlerContext<'_, MachineStateHandlerContextObjects>,
 ) -> Result<StateHandlerOutcome<ManagedHostState>, StateHandlerError> {
     let machine = &state.host_snapshot;
-    let redfish_client = ctx
-        .services
-        .create_redfish_client_from_machine(machine)
-        .await?;
-
     match deconfiguring_state {
         DeconfiguringHostState::DisableLockdown => {
+            let redfish_client = ctx
+                .services
+                .create_redfish_client_from_machine(machine)
+                .await?;
             match redfish_client.lockdown_bmc(EnabledDisabled::Disabled).await {
                 Ok(()) | Err(RedfishError::NotSupported(_)) => {}
                 Err(error) => {
@@ -154,11 +127,15 @@ pub(super) async fn handle_deconfiguring_host(
             let next = if machine.bmc_vendor().is_supermicro() {
                 DeconfiguringHostState::RebootAfterLockdown
             } else {
-                DeconfiguringHostState::ClearUefiPassword
+                DeconfiguringHostState::ClearSuperNicLockdown
             };
             Ok(StateHandlerOutcome::transition(deconfiguring(next)))
         }
         DeconfiguringHostState::RebootAfterLockdown => {
+            let redfish_client = ctx
+                .services
+                .create_redfish_client_from_machine(machine)
+                .await?;
             host_power_control(
                 redfish_client.as_ref(),
                 machine,
@@ -172,15 +149,20 @@ pub(super) async fn handle_deconfiguring_host(
                 ))
             })?;
             Ok(StateHandlerOutcome::transition(deconfiguring(
-                DeconfiguringHostState::ClearUefiPassword,
+                DeconfiguringHostState::ClearSuperNicLockdown,
             )))
         }
         DeconfiguringHostState::ClearUefiPassword => {
             if machine.bios_password_set_time.is_none() {
                 return Ok(StateHandlerOutcome::transition(deconfiguring(
-                    DeconfiguringHostState::ClearSuperNicLockdown,
+                    DeconfiguringHostState::ResetUefiSettings,
                 )));
             }
+
+            let redfish_client = ctx
+                .services
+                .create_redfish_client_from_machine(machine)
+                .await?;
 
             let bmc_mac =
                 machine
@@ -246,11 +228,15 @@ pub(super) async fn handle_deconfiguring_host(
 
             let next = match job_id {
                 Some(job_id) => DeconfiguringHostState::WaitForUefiPasswordJobScheduled { job_id },
-                None => DeconfiguringHostState::ClearSuperNicLockdown,
+                None => DeconfiguringHostState::ResetUefiSettings,
             };
             Ok(StateHandlerOutcome::transition(deconfiguring(next)))
         }
         DeconfiguringHostState::WaitForUefiPasswordJobScheduled { job_id } => {
+            let redfish_client = ctx
+                .services
+                .create_redfish_client_from_machine(machine)
+                .await?;
             let job_state = redfish_client
                 .get_job_state(job_id)
                 .await
@@ -271,6 +257,10 @@ pub(super) async fn handle_deconfiguring_host(
             )))
         }
         DeconfiguringHostState::RebootAfterUefiPassword { job_id } => {
+            let redfish_client = ctx
+                .services
+                .create_redfish_client_from_machine(machine)
+                .await?;
             host_power_control(
                 redfish_client.as_ref(),
                 machine,
@@ -290,6 +280,10 @@ pub(super) async fn handle_deconfiguring_host(
             )))
         }
         DeconfiguringHostState::WaitForUefiPasswordJobCompletion { job_id } => {
+            let redfish_client = ctx
+                .services
+                .create_redfish_client_from_machine(machine)
+                .await?;
             let job_state = redfish_client
                 .get_job_state(job_id)
                 .await
@@ -306,7 +300,7 @@ pub(super) async fn handle_deconfiguring_host(
             let mut txn = ctx.services.db_pool.begin().await?;
             db::machine::clear_bios_password_set_time(&machine.id, &mut txn).await?;
             Ok(StateHandlerOutcome::transition(deconfiguring(
-                DeconfiguringHostState::ClearSuperNicLockdown,
+                DeconfiguringHostState::ResetUefiSettings,
             ))
             .with_txn(txn))
         }
@@ -318,7 +312,7 @@ pub(super) async fn handle_deconfiguring_host(
                 .collect::<Vec<_>>();
             if super_nics.is_empty() {
                 return Ok(StateHandlerOutcome::transition(deconfiguring(
-                    DeconfiguringHostState::ResetUefiSettings,
+                    DeconfiguringHostState::ClearUefiPassword,
                 )));
             }
 
@@ -356,10 +350,14 @@ pub(super) async fn handle_deconfiguring_host(
                 ));
             }
             Ok(StateHandlerOutcome::transition(deconfiguring(
-                DeconfiguringHostState::ResetUefiSettings,
+                DeconfiguringHostState::ClearUefiPassword,
             )))
         }
         DeconfiguringHostState::ResetUefiSettings => {
+            let redfish_client = ctx
+                .services
+                .create_redfish_client_from_machine(machine)
+                .await?;
             redfish_client.reset_bios().await.map_err(|error| {
                 StateHandlerError::GenericError(eyre::eyre!(
                     "failed to reset host UEFI settings: {error}"
@@ -370,6 +368,10 @@ pub(super) async fn handle_deconfiguring_host(
             )))
         }
         DeconfiguringHostState::RebootAfterUefiReset => {
+            let redfish_client = ctx
+                .services
+                .create_redfish_client_from_machine(machine)
+                .await?;
             host_power_control(
                 redfish_client.as_ref(),
                 machine,
@@ -388,7 +390,16 @@ pub(super) async fn handle_deconfiguring_host(
                         dpu_states: state
                             .dpu_snapshots
                             .iter()
-                            .map(|dpu| (dpu.id, DeconfiguringDpuState::ClearUefiPassword))
+                            .map(|dpu| {
+                                (
+                                    dpu.id,
+                                    if state.host_snapshot.config.dpf.used_for_ingestion {
+                                        DeconfiguringDpuState::DeletingFromDpf
+                                    } else {
+                                        DeconfiguringDpuState::InstallingBfb
+                                    },
+                                )
+                            })
                             .collect(),
                     },
                 },
@@ -401,12 +412,21 @@ pub(super) async fn handle_deconfiguring_dpus(
     dpu_states: &HashMap<MachineId, DeconfiguringDpuState>,
     state: &ManagedHostStateSnapshot,
     ctx: &mut StateHandlerContext<'_, MachineStateHandlerContextObjects>,
+    dpf_sdk: Option<&dyn DpfOperations>,
 ) -> Result<StateHandlerOutcome<ManagedHostState>, StateHandlerError> {
+    if dpu_states.is_empty() {
+        return Ok(StateHandlerOutcome::transition(verifying_dhcp_release(
+            VerifyingDhcpReleaseState::PowerCyclingHost,
+        )));
+    }
+
     let Some((&dpu_id, dpu_state)) = dpu_states
         .iter()
         .find(|(_, dpu_state)| !matches!(dpu_state, DeconfiguringDpuState::Complete))
     else {
-        return Ok(StateHandlerOutcome::transition(enter_bfb_install(state)));
+        return Ok(StateHandlerOutcome::transition(verifying_dhcp_release(
+            VerifyingDhcpReleaseState::PowerCyclingHost,
+        )));
     };
     let dpu = state
         .dpu_snapshots
@@ -416,196 +436,10 @@ pub(super) async fn handle_deconfiguring_dpus(
             object_id: state.host_snapshot.id.to_string(),
             missing: "dpu_snapshot",
         })?;
-    let redfish_client = ctx.services.create_redfish_client_from_machine(dpu).await?;
     let mut next_states = dpu_states.clone();
 
     match dpu_state {
-        DeconfiguringDpuState::ClearUefiPassword => {
-            if dpu.bios_password_set_time.is_none() {
-                next_states.insert(dpu_id, DeconfiguringDpuState::ResetUefiSettings);
-                return Ok(StateHandlerOutcome::transition(deconfiguring_dpus(
-                    next_states,
-                )));
-            }
-
-            let bmc_mac =
-                dpu.status
-                    .bmc_info
-                    .mac
-                    .ok_or_else(|| StateHandlerError::MissingData {
-                        object_id: dpu_id.to_string(),
-                        missing: "bmc_mac",
-                    })?;
-            let mut conn = ctx.services.db_pool.acquire().await?;
-            let status = db::credential_rotation::device_rotation_status(
-                &mut conn,
-                db::credential_rotation::CredentialRotationType::DpuUefi,
-                bmc_mac,
-            )
-            .await?
-            .ok_or_else(|| {
-                StateHandlerError::GenericError(eyre::eyre!(
-                    "DPU UEFI credential version is not recorded for {bmc_mac}"
-                ))
-            })?;
-            let version = status.current_version.ok_or_else(|| {
-                StateHandlerError::GenericError(eyre::eyre!(
-                    "DPU UEFI credential version is not established for {bmc_mac}"
-                ))
-            })?;
-            let version = u32::try_from(version).map_err(|error| {
-                StateHandlerError::GenericError(eyre::eyre!(
-                    "invalid DPU UEFI credential version {version}: {error}"
-                ))
-            })?;
-            drop(conn);
-
-            let key = CredentialKey::dpu_uefi_site_default(version);
-            let credentials = ctx
-                .services
-                .redfish_client_pool
-                .credential_reader()
-                .get_credentials(&key)
-                .await
-                .map_err(|error| {
-                    StateHandlerError::GenericError(eyre::eyre!(
-                        "failed to read DPU UEFI credential: {error}"
-                    ))
-                })?
-                .ok_or_else(|| {
-                    StateHandlerError::GenericError(eyre::eyre!(
-                        "DPU UEFI credential {key:?} is not set"
-                    ))
-                })?;
-            let job_id = ctx
-                .services
-                .redfish_client_pool
-                .clear_host_uefi_password(redfish_client.as_ref(), credentials)
-                .await
-                .map_err(|error| {
-                    StateHandlerError::GenericError(eyre::eyre!(
-                        "failed to clear UEFI password on DPU {dpu_id}: {error}"
-                    ))
-                })?;
-            next_states.insert(
-                dpu_id,
-                match job_id {
-                    Some(job_id) => {
-                        DeconfiguringDpuState::WaitForUefiPasswordJobScheduled { job_id }
-                    }
-                    None => DeconfiguringDpuState::ResetUefiSettings,
-                },
-            );
-            Ok(StateHandlerOutcome::transition(deconfiguring_dpus(
-                next_states,
-            )))
-        }
-        DeconfiguringDpuState::WaitForUefiPasswordJobScheduled { job_id } => {
-            let job_state = redfish_client
-                .get_job_state(job_id)
-                .await
-                .map_err(|error| {
-                    StateHandlerError::GenericError(eyre::eyre!(
-                        "failed to read DPU UEFI password job {job_id}: {error}"
-                    ))
-                })?;
-            if !matches!(job_state, JobState::Scheduled) {
-                return Ok(StateHandlerOutcome::wait(format!(
-                    "waiting for DPU UEFI password job {job_id} to be scheduled; current state: {job_state:?}"
-                )));
-            }
-            next_states.insert(
-                dpu_id,
-                DeconfiguringDpuState::RebootAfterUefiPassword {
-                    job_id: job_id.clone(),
-                },
-            );
-            Ok(StateHandlerOutcome::transition(deconfiguring_dpus(
-                next_states,
-            )))
-        }
-        DeconfiguringDpuState::RebootAfterUefiPassword { job_id } => {
-            redfish_client
-                .power(SystemPowerControl::ForceRestart)
-                .await
-                .map_err(|error| {
-                    StateHandlerError::GenericError(eyre::eyre!(
-                        "failed to reboot DPU {dpu_id} for UEFI password job {job_id}: {error}"
-                    ))
-                })?;
-            next_states.insert(
-                dpu_id,
-                DeconfiguringDpuState::WaitForUefiPasswordJobCompletion {
-                    job_id: job_id.clone(),
-                },
-            );
-            Ok(StateHandlerOutcome::transition(deconfiguring_dpus(
-                next_states,
-            )))
-        }
-        DeconfiguringDpuState::WaitForUefiPasswordJobCompletion { job_id } => {
-            let job_state = redfish_client
-                .get_job_state(job_id)
-                .await
-                .map_err(|error| {
-                    StateHandlerError::GenericError(eyre::eyre!(
-                        "failed to read DPU UEFI password job {job_id}: {error}"
-                    ))
-                })?;
-            if !matches!(job_state, JobState::Completed) {
-                return Ok(StateHandlerOutcome::wait(format!(
-                    "waiting for DPU UEFI password job {job_id} to complete; current state: {job_state:?}"
-                )));
-            }
-            next_states.insert(dpu_id, DeconfiguringDpuState::ResetUefiSettings);
-            let mut txn = ctx.services.db_pool.begin().await?;
-            db::machine::clear_bios_password_set_time(&dpu_id, &mut txn).await?;
-            Ok(StateHandlerOutcome::transition(deconfiguring_dpus(next_states)).with_txn(txn))
-        }
-        DeconfiguringDpuState::ResetUefiSettings => {
-            redfish_client.reset_bios().await.map_err(|error| {
-                StateHandlerError::GenericError(eyre::eyre!(
-                    "failed to reset UEFI settings on DPU {dpu_id}: {error}"
-                ))
-            })?;
-            next_states.insert(dpu_id, DeconfiguringDpuState::RebootAfterUefiReset);
-            Ok(StateHandlerOutcome::transition(deconfiguring_dpus(
-                next_states,
-            )))
-        }
-        DeconfiguringDpuState::RebootAfterUefiReset => {
-            redfish_client
-                .power(SystemPowerControl::ForceRestart)
-                .await
-                .map_err(|error| {
-                    StateHandlerError::GenericError(eyre::eyre!(
-                        "failed to reboot DPU {dpu_id} after resetting UEFI settings: {error}"
-                    ))
-                })?;
-            next_states.insert(dpu_id, DeconfiguringDpuState::Complete);
-            if next_states
-                .values()
-                .all(|state| matches!(state, DeconfiguringDpuState::Complete))
-            {
-                Ok(StateHandlerOutcome::transition(enter_bfb_install(state)))
-            } else {
-                Ok(StateHandlerOutcome::transition(deconfiguring_dpus(
-                    next_states,
-                )))
-            }
-        }
-        DeconfiguringDpuState::Complete => unreachable!("complete DPU states are skipped"),
-    }
-}
-
-pub(super) async fn handle_installing_vanilla_bfb(
-    installing_state: &InstallingVanillaBfbState,
-    state: &ManagedHostStateSnapshot,
-    ctx: &mut StateHandlerContext<'_, MachineStateHandlerContextObjects>,
-    dpf_sdk: Option<&dyn DpfOperations>,
-) -> Result<StateHandlerOutcome<ManagedHostState>, StateHandlerError> {
-    match installing_state {
-        InstallingVanillaBfbState::DeletingFromDpf => {
+        DeconfiguringDpuState::DeletingFromDpf => {
             let dpf_sdk = dpf_sdk.ok_or_else(|| {
                 StateHandlerError::GenericError(eyre::eyre!(
                     "managed host {} was provisioned by DPF, but DPF is not configured",
@@ -630,7 +464,6 @@ pub(super) async fn handle_installing_vanilla_bfb(
                     })
                 })
                 .collect::<Result<Vec<_>, _>>()?;
-
             dpf_sdk
                 .force_delete_host(&host_dpf_id, &dpu_dpf_ids)
                 .await
@@ -640,7 +473,6 @@ pub(super) async fn handle_installing_vanilla_bfb(
                         state.host_snapshot.id
                     ))
                 })?;
-
             if !dpf_dpudevices_and_dpunode_crs_noexist(state, dpf_sdk)
                 .await
                 .map_err(|error| StateHandlerError::GenericError(error.into()))?
@@ -649,113 +481,83 @@ pub(super) async fn handle_installing_vanilla_bfb(
                     "waiting for managed host DPF resources to be deleted".to_string(),
                 ));
             }
-
-            Ok(StateHandlerOutcome::transition(installing_vanilla_bfb(
-                initial_bfb_install_state(state),
+            let next_states = dpu_states
+                .keys()
+                .map(|&id| (id, DeconfiguringDpuState::InstallingBfb))
+                .collect();
+            Ok(StateHandlerOutcome::transition(deconfiguring_dpus(
+                next_states,
             )))
         }
-        InstallingVanillaBfbState::Installing { dpu_states } => {
-            let Some((&dpu_id, dpu_state)) = dpu_states
-                .iter()
-                .find(|(_, dpu_state)| !matches!(dpu_state, InstallDpuOsState::Completed))
-            else {
-                return Ok(StateHandlerOutcome::transition(
-                    ManagedHostState::Decommissioning {
-                        decommissioning_state: DecommissioningState::VerifyingDhcpRelease {
-                            verifying_state: VerifyingDhcpReleaseState::SuppressingDhcp,
-                        },
-                    },
-                ));
-            };
-            let dpu = state
-                .dpu_snapshots
-                .iter()
-                .find(|dpu| dpu.id == dpu_id)
-                .ok_or_else(|| StateHandlerError::MissingData {
-                    object_id: dpu_id.to_string(),
-                    missing: "dpu_snapshot",
-                })?;
+        DeconfiguringDpuState::InstallingBfb => {
             let redfish_client = ctx.services.create_redfish_client_from_machine(dpu).await?;
-            let mut next_states = dpu_states.clone();
-
-            match dpu_state {
-                InstallDpuOsState::InstallingBFB => {
-                    let task = redfish_client
-                        .update_firmware_simple_update(
-                            "carbide-pxe.forge//public/blobs/internal/aarch64/preingestion.bfb",
-                            vec!["redfish/v1/UpdateService/FirmwareInventory/DPU_OS".to_string()],
-                            TransferProtocolType::HTTP,
-                        )
-                        .await
-                        .map_err(|error| {
-                            StateHandlerError::GenericError(eyre::eyre!(
-                                "failed to install vanilla BFB on DPU {dpu_id}: {error}"
-                            ))
-                        })?;
-                    next_states.insert(
-                        dpu_id,
-                        InstallDpuOsState::WaitForInstallComplete {
-                            task_id: task.id,
-                            progress: "0".to_string(),
-                        },
-                    );
-                    Ok(StateHandlerOutcome::transition(installing_vanilla_bfb(
-                        InstallingVanillaBfbState::Installing {
-                            dpu_states: next_states,
-                        },
+            let task = redfish_client
+                .update_firmware_simple_update(
+                    "carbide-pxe.forge//public/blobs/internal/aarch64/preingestion.bfb",
+                    vec!["redfish/v1/UpdateService/FirmwareInventory/DPU_OS".to_string()],
+                    TransferProtocolType::HTTP,
+                )
+                .await
+                .map_err(|error| {
+                    StateHandlerError::GenericError(eyre::eyre!(
+                        "failed to install vanilla BFB on DPU {dpu_id}: {error}"
+                    ))
+                })?;
+            next_states.insert(
+                dpu_id,
+                DeconfiguringDpuState::WaitForInstallComplete { task_id: task.id },
+            );
+            Ok(StateHandlerOutcome::transition(deconfiguring_dpus(
+                next_states,
+            )))
+        }
+        DeconfiguringDpuState::WaitForInstallComplete { task_id } => {
+            let redfish_client = ctx.services.create_redfish_client_from_machine(dpu).await?;
+            let task = redfish_client.get_task(task_id).await.map_err(|error| {
+                StateHandlerError::GenericError(eyre::eyre!(
+                    "failed to verify vanilla BFB install task {task_id} on DPU {dpu_id}: {error}"
+                ))
+            })?;
+            match task.task_state {
+                Some(TaskState::Completed) => {
+                    next_states.insert(dpu_id, DeconfiguringDpuState::WaitingForBootAfterBfbInstall);
+                    Ok(StateHandlerOutcome::transition(deconfiguring_dpus(
+                        next_states,
                     )))
                 }
-                InstallDpuOsState::WaitForInstallComplete { task_id, .. } => {
-                    let task = redfish_client.get_task(task_id).await.map_err(|error| {
-                        StateHandlerError::GenericError(eyre::eyre!(
-                            "failed to verify vanilla BFB install task {task_id} on DPU {dpu_id}: {error}"
-                        ))
-                    })?;
-                    match task.task_state {
-                        Some(TaskState::Completed) => {
-                            next_states.insert(dpu_id, InstallDpuOsState::Completed);
-                            if next_states
-                                .values()
-                                .all(|state| matches!(state, InstallDpuOsState::Completed))
-                            {
-                                Ok(StateHandlerOutcome::transition(
-                                    ManagedHostState::Decommissioning {
-                                        decommissioning_state:
-                                            DecommissioningState::VerifyingDhcpRelease {
-                                                verifying_state:
-                                                    VerifyingDhcpReleaseState::SuppressingDhcp,
-                                            },
-                                    },
-                                ))
-                            } else {
-                                Ok(StateHandlerOutcome::transition(installing_vanilla_bfb(
-                                    InstallingVanillaBfbState::Installing {
-                                        dpu_states: next_states,
-                                    },
-                                )))
-                            }
-                        }
-                        Some(TaskState::Running | TaskState::New | TaskState::Starting) => {
-                            Ok(StateHandlerOutcome::wait(format!(
-                                "waiting for vanilla BFB install on DPU {dpu_id} to complete: {}%",
-                                task.percent_complete.unwrap_or_default()
-                            )))
-                        }
-                        task_state => Err(StateHandlerError::GenericError(eyre::eyre!(
-                            "vanilla BFB install task {task_id} on DPU {dpu_id} failed with state {task_state:?}"
-                        ))),
-                    }
+                Some(TaskState::Running | TaskState::New | TaskState::Starting) => {
+                    Ok(StateHandlerOutcome::wait(format!(
+                        "waiting for vanilla BFB install on DPU {dpu_id} to complete: {}%",
+                        task.percent_complete.unwrap_or_default()
+                    )))
                 }
-                InstallDpuOsState::InstallationError { msg } => {
-                    Err(StateHandlerError::GenericError(eyre::eyre!(msg.clone())))
-                }
-                InstallDpuOsState::Completed => unreachable!("completed DPU states are skipped"),
+                task_state => Err(StateHandlerError::GenericError(eyre::eyre!(
+                    "vanilla BFB install task {task_id} on DPU {dpu_id} failed with state {task_state:?}"
+                ))),
             }
         }
+        DeconfiguringDpuState::WaitingForBootAfterBfbInstall => {
+            let redfish_client = ctx.services.create_redfish_client_from_machine(dpu).await?;
+            let (finished_booting, boot_progress) = did_dpu_finish_booting(redfish_client.as_ref())
+                .await
+                .map_err(|error| {
+                    StateHandlerError::GenericError(eyre::eyre!(
+                        "failed to check whether DPU {dpu_id} finished booting after vanilla BFB installation: {error}"
+                    ))
+                })?;
+            if !finished_booting {
+                return Ok(StateHandlerOutcome::wait(format!(
+                    "waiting for DPU {dpu_id} to finish booting after vanilla BFB installation: {boot_progress:?}"
+                )));
+            }
+            next_states.insert(dpu_id, DeconfiguringDpuState::Complete);
+            Ok(StateHandlerOutcome::transition(deconfiguring_dpus(
+                next_states,
+            )))
+        }
+        DeconfiguringDpuState::Complete => unreachable!("complete DPU states are skipped"),
     }
 }
-
-const DHCP_ACKNOWLEDGEMENT_TIMEOUT: Duration = Duration::minutes(30);
 
 fn all_machines(
     state: &ManagedHostStateSnapshot,
@@ -771,22 +573,13 @@ fn next_uncompleted_machine<'a>(
 }
 
 async fn all_dhcp_suppressions_acknowledged(
-    state: &ManagedHostStateSnapshot,
+    mac_addresses: impl IntoIterator<Item = mac_address::MacAddress>,
     ctx: &mut StateHandlerContext<'_, MachineStateHandlerContextObjects>,
 ) -> Result<bool, StateHandlerError> {
-    for machine in all_machines(state) {
-        let bmc_mac =
-            machine
-                .status
-                .bmc_info
-                .mac
-                .ok_or_else(|| StateHandlerError::MissingData {
-                    object_id: machine.id.to_string(),
-                    missing: "bmc_mac",
-                })?;
+    for mac_address in mac_addresses {
         let suppression = db::bmc_suppression::find(
             &ctx.services.db_pool,
-            bmc_mac,
+            mac_address,
             BmcSuppressionSubsystem::Dhcp,
         )
         .await?;
@@ -797,92 +590,119 @@ async fn all_dhcp_suppressions_acknowledged(
     Ok(true)
 }
 
+fn bmc_mac_addresses(
+    state: &ManagedHostStateSnapshot,
+) -> Result<Vec<mac_address::MacAddress>, StateHandlerError> {
+    all_machines(state)
+        .map(|machine| {
+            machine
+                .status
+                .bmc_info
+                .mac
+                .ok_or_else(|| StateHandlerError::MissingData {
+                    object_id: machine.id.to_string(),
+                    missing: "bmc_mac",
+                })
+        })
+        .collect()
+}
+
+async fn oob_interface_mac_addresses(
+    machine_id: MachineId,
+    ctx: &mut StateHandlerContext<'_, MachineStateHandlerContextObjects>,
+) -> Result<Vec<mac_address::MacAddress>, StateHandlerError> {
+    let mut conn = ctx.services.db_pool.acquire().await?;
+    let interfaces = db::machine_interface::find_by_machine_ids(&mut conn, &[machine_id]).await?;
+    Ok(interfaces
+        .into_values()
+        .flatten()
+        .filter(|interface| interface.network_segment_type == Some(NetworkSegmentType::Underlay))
+        .map(|interface| interface.mac_address)
+        .collect())
+}
+
+async fn all_oob_interface_mac_addresses(
+    state: &ManagedHostStateSnapshot,
+    ctx: &mut StateHandlerContext<'_, MachineStateHandlerContextObjects>,
+) -> Result<Vec<mac_address::MacAddress>, StateHandlerError> {
+    let mut mac_addresses = Vec::new();
+    for machine in all_machines(state) {
+        mac_addresses.extend(oob_interface_mac_addresses(machine.id, ctx).await?);
+    }
+    Ok(mac_addresses)
+}
+
+async fn suppress_oob_dhcp(
+    state: &ManagedHostStateSnapshot,
+    ctx: &mut StateHandlerContext<'_, MachineStateHandlerContextObjects>,
+) -> Result<sqlx::PgTransaction<'static>, StateHandlerError> {
+    let oob_mac_addresses = all_oob_interface_mac_addresses(state, ctx).await?;
+    let mut txn = ctx.services.db_pool.begin().await?;
+    for mac_address in oob_mac_addresses {
+        db::bmc_suppression::upsert(
+            &mut txn,
+            &NewBmcSuppression {
+                bmc_mac_address: mac_address,
+                subsystem: BmcSuppressionSubsystem::Dhcp,
+                reason: format!(
+                    "managed host {} is being decommissioned; suppressing OOB DHCP",
+                    state.host_snapshot.id
+                ),
+            },
+        )
+        .await?;
+    }
+    db::machine_interface::record_deletion(&mut txn).await?;
+    Ok(txn)
+}
+
 pub(super) async fn handle_verifying_dhcp_release(
     verifying_state: &VerifyingDhcpReleaseState,
     state: &ManagedHostStateSnapshot,
     ctx: &mut StateHandlerContext<'_, MachineStateHandlerContextObjects>,
 ) -> Result<StateHandlerOutcome<ManagedHostState>, StateHandlerError> {
     match verifying_state {
-        VerifyingDhcpReleaseState::SuppressingDhcp => {
-            let mut txn = ctx.services.db_pool.begin().await?;
-            for machine in all_machines(state) {
-                let bmc_mac =
-                    machine
-                        .status
-                        .bmc_info
-                        .mac
-                        .ok_or_else(|| StateHandlerError::MissingData {
-                            object_id: machine.id.to_string(),
-                            missing: "bmc_mac",
-                        })?;
-                db::bmc_suppression::upsert(
-                    &mut txn,
-                    &NewBmcSuppression {
-                        bmc_mac_address: bmc_mac,
-                        subsystem: BmcSuppressionSubsystem::Dhcp,
-                        reason: format!(
-                            "managed host {} has been decommissioned",
-                            state.host_snapshot.id
-                        ),
-                    },
-                )
+        VerifyingDhcpReleaseState::PowerCyclingHost => {
+            let host = &state.host_snapshot;
+            let redfish_client = ctx
+                .services
+                .create_redfish_client_from_machine(host)
                 .await?;
-            }
+            host_power_control(
+                redfish_client.as_ref(),
+                host,
+                SystemPowerControl::ACPowercycle,
+                ctx,
+            )
+            .await
+            .map_err(|error| {
+                StateHandlerError::GenericError(eyre::eyre!(
+                    "failed to power cycle host before suppressing OOB DHCP: {error}"
+                ))
+            })?;
+            let txn = suppress_oob_dhcp(state, ctx).await?;
             Ok(StateHandlerOutcome::transition(verifying_dhcp_release(
-                VerifyingDhcpReleaseState::ResettingBmcs {
-                    completed: HashSet::new(),
-                },
+                VerifyingDhcpReleaseState::WaitingForOobDhcpAcknowledgement,
             ))
             .with_txn(txn))
         }
-        VerifyingDhcpReleaseState::ResettingBmcs { completed } => {
-            let Some(machine) = next_uncompleted_machine(state, completed) else {
+        VerifyingDhcpReleaseState::WaitingForOobDhcpAcknowledgement => {
+            let oob_mac_addresses = all_oob_interface_mac_addresses(state, ctx).await?;
+            if all_dhcp_suppressions_acknowledged(oob_mac_addresses, ctx).await? {
                 return Ok(StateHandlerOutcome::transition(verifying_dhcp_release(
-                    VerifyingDhcpReleaseState::WaitingForAcknowledgement,
-                )));
-            };
-            ctx.services
-                .create_redfish_client_from_machine(machine)
-                .await?
-                .bmc_reset()
-                .await
-                .map_err(|error| {
-                    StateHandlerError::GenericError(eyre::eyre!(
-                        "failed to reset BMC for {}: {error}",
-                        machine.id
-                    ))
-                })?;
-            let mut completed = completed.clone();
-            completed.insert(machine.id);
-            Ok(StateHandlerOutcome::transition(verifying_dhcp_release(
-                VerifyingDhcpReleaseState::ResettingBmcs { completed },
-            )))
-        }
-        VerifyingDhcpReleaseState::WaitingForAcknowledgement => {
-            if all_dhcp_suppressions_acknowledged(state, ctx).await? {
-                return Ok(StateHandlerOutcome::transition(
-                    ManagedHostState::Decommissioning {
-                        decommissioning_state: DecommissioningState::Decommissioned,
+                    VerifyingDhcpReleaseState::FactoryResettingBmcs {
+                        completed: HashSet::new(),
                     },
-                ));
+                )));
             }
-            if Utc::now() - state.host_snapshot.state.version.timestamp()
-                < DHCP_ACKNOWLEDGEMENT_TIMEOUT
-            {
-                return Ok(StateHandlerOutcome::wait(
-                    "waiting for DHCP suppression acknowledgement after BMC reset".to_string(),
-                ));
-            }
-            Ok(StateHandlerOutcome::transition(verifying_dhcp_release(
-                VerifyingDhcpReleaseState::FactoryResettingBmcs {
-                    completed: HashSet::new(),
-                },
-            )))
+            Ok(StateHandlerOutcome::wait(
+                "waiting for OOB DHCP suppression acknowledgement".to_string(),
+            ))
         }
         VerifyingDhcpReleaseState::FactoryResettingBmcs { completed } => {
             let Some(machine) = next_uncompleted_machine(state, completed) else {
                 return Ok(StateHandlerOutcome::transition(verifying_dhcp_release(
-                    VerifyingDhcpReleaseState::WaitingForAcknowledgementAfterFactoryReset,
+                    VerifyingDhcpReleaseState::WaitingForBmcDhcpAcknowledgement,
                 )));
             };
             ctx.services
@@ -896,32 +716,44 @@ pub(super) async fn handle_verifying_dhcp_release(
                         machine.id
                     ))
                 })?;
+            let bmc_mac_address = machine.status.bmc_info.mac.ok_or_else(|| {
+                StateHandlerError::MissingData {
+                    object_id: machine.id.to_string(),
+                    missing: "bmc_mac",
+                }
+            })?;
+            let mut txn = ctx.services.db_pool.begin().await?;
+            db::bmc_suppression::upsert(
+                &mut txn,
+                &NewBmcSuppression {
+                    bmc_mac_address,
+                    subsystem: BmcSuppressionSubsystem::Dhcp,
+                    reason: format!(
+                        "managed host {} is being decommissioned; suppressing BMC DHCP",
+                        state.host_snapshot.id
+                    ),
+                },
+            )
+            .await?;
+            db::machine_interface::record_deletion(&mut txn).await?;
             let mut completed = completed.clone();
             completed.insert(machine.id);
             Ok(StateHandlerOutcome::transition(verifying_dhcp_release(
                 VerifyingDhcpReleaseState::FactoryResettingBmcs { completed },
-            )))
+            ))
+            .with_txn(txn))
         }
-        VerifyingDhcpReleaseState::WaitingForAcknowledgementAfterFactoryReset => {
-            if all_dhcp_suppressions_acknowledged(state, ctx).await? {
+        VerifyingDhcpReleaseState::WaitingForBmcDhcpAcknowledgement => {
+            if all_dhcp_suppressions_acknowledged(bmc_mac_addresses(state)?, ctx).await? {
                 return Ok(StateHandlerOutcome::transition(
                     ManagedHostState::Decommissioning {
                         decommissioning_state: DecommissioningState::Decommissioned,
                     },
                 ));
             }
-            if Utc::now() - state.host_snapshot.state.version.timestamp()
-                < DHCP_ACKNOWLEDGEMENT_TIMEOUT
-            {
-                return Ok(StateHandlerOutcome::wait(
-                    "waiting for DHCP suppression acknowledgement after BMC factory reset"
-                        .to_string(),
-                ));
-            }
-            Err(StateHandlerError::ManualInterventionRequired(format!(
-                "DHCP suppression for managed host {} was not acknowledged within 30 minutes after BMC factory reset",
-                state.host_snapshot.id
-            )))
+            Ok(StateHandlerOutcome::wait(
+                "waiting for BMC DHCP suppression acknowledgement after factory reset".to_string(),
+            ))
         }
     }
 }
