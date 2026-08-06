@@ -63,18 +63,50 @@ pub(super) struct HostMachine {
     sleep_until: Instant,
 }
 
-/// Derive the desired host firmware versions from the API-configured
-/// `desired_firmware_versions` map.  Returns `None` when neither a BMC nor a
-/// UEFI version is configured.
-fn desired_host_firmware(app_context: &MachineATronContext) -> Option<HostFirmwareVersions> {
-    let bmc = app_context
+/// Return true when `entry` carries firmware versions for hosts of the given
+/// hardware type.  Matching mirrors how DPU firmware is selected in
+/// `DpuFirmwareVersions::fill_missing_from_desired_firmware`: vendor and model
+/// are compared case-insensitively against the Redfish-reported values stored
+/// in the API's desired-firmware table.
+fn firmware_entry_matches_host_hw_type(
+    hw_type: bmc_mock::HardwareType,
+    entry: &rpc::forge::DesiredFirmwareVersionEntry,
+) -> bool {
+    use bmc_mock::HardwareType::*;
+    let vendor = entry.vendor.to_lowercase();
+    let model = entry.model.to_lowercase().replace('-', " ");
+    match hw_type {
+        DellPowerEdgeR750 => vendor.contains("dell") && model.contains("r750"),
+        DellPowerEdgeR760Bf4 => vendor.contains("dell") && model.contains("r760"),
+        WiwynnGB200Nvl => vendor.contains("wiwynn") && model.contains("gb200"),
+        LenovoGB300Nvl => vendor.contains("lenovo") && model.contains("gb300"),
+        NvidiaDgxGb300 => vendor.contains("nvidia") && model.contains("gb300"),
+        NvidiaDgxVr => vendor.contains("nvidia") && model.contains("dgx vr"),
+        SupermicroGb300Nvl => vendor.contains("supermicro") && model.contains("gb300"),
+        NvidiaDgxH100 => vendor.contains("nvidia") && model.contains("h100"),
+        HpeProliantDl380aGen11 => vendor.contains("hpe") || vendor.contains("hewlett"),
+        // Generic and power-shelf types have no specific entry — fall back to
+        // any entry that advertises host-firmware components.
+        _ => {
+            entry.component_versions.contains_key("bmc")
+                || entry.component_versions.contains_key("uefi")
+        }
+    }
+}
+
+/// Find the desired host firmware for `hw_type` from the API-configured entries.
+/// Both bmc and uefi versions are read from the **same** entry so they always
+/// come from a consistent hardware-specific record.
+fn desired_host_firmware(
+    hw_type: bmc_mock::HardwareType,
+    app_context: &MachineATronContext,
+) -> Option<HostFirmwareVersions> {
+    let entry = app_context
         .desired_firmware_versions
         .iter()
-        .find_map(|e| e.component_versions.get("bmc").cloned());
-    let uefi = app_context
-        .desired_firmware_versions
-        .iter()
-        .find_map(|e| e.component_versions.get("uefi").cloned());
+        .find(|e| firmware_entry_matches_host_hw_type(hw_type, e))?;
+    let bmc = entry.component_versions.get("bmc").cloned();
+    let uefi = entry.component_versions.get("uefi").cloned();
     if bmc.is_some() || uefi.is_some() {
         Some(HostFirmwareVersions { bmc, uefi })
     } else {
@@ -132,12 +164,16 @@ impl HostMachine {
             initial_host_firmware: None,
             desired_host_firmware: None,
         };
-        // Re-apply firmware config on restore so the mock starts with the correct
-        // FirmwareInventory versions and a populated pending_upgrades queue.
-        // Without this a machine-a-tron restart would reset the mock to hardware-type
-        // defaults, causing carbide to see stale inventory.
-        host_info.initial_host_firmware = config.host_firmware_versions.clone();
-        host_info.desired_host_firmware = desired_host_firmware(&app_context);
+        // Restore the active firmware inventory persisted from the previous run so
+        // the mock starts at the versions last observed by carbide rather than the
+        // operator-configured starting point.  Falls back to the config's initial
+        // versions when no persisted inventory is available (first run after upgrade).
+        host_info.initial_host_firmware = persisted_device
+            .active_host_firmware
+            .clone()
+            .or_else(|| config.host_firmware_versions.clone());
+        host_info.desired_host_firmware =
+            desired_host_firmware(persisted_device.hw_type, &app_context);
         let dpus = dpu_machines
             .into_iter()
             .map(|d| d.start(true))
@@ -220,7 +256,7 @@ impl HostMachine {
             hw_pool_config,
         );
         host_info.initial_host_firmware = config.host_firmware_versions.clone();
-        host_info.desired_host_firmware = desired_host_firmware(&app_context);
+        host_info.desired_host_firmware = desired_host_firmware(config.hw_type, &app_context);
         let dpus = dpu_machines
             .into_iter()
             .map(|d| d.start(true))
@@ -746,6 +782,7 @@ impl MachineHandle {
                 base: self.0.host_info.hw_mac_addr_pool.base(),
                 host_bits: self.0.host_info.hw_mac_addr_pool.host_bits(),
             }),
+            active_host_firmware: live_state.active_host_firmware.clone(),
         }
     }
 

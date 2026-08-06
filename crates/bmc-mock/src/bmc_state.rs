@@ -34,7 +34,7 @@ pub struct BmcState {
     pub manager: Arc<ManagerState>,
     pub system_state: Arc<SystemState>,
     pub(crate) chassis_state: Arc<ChassisState>,
-    pub(crate) update_service_state: Arc<UpdateServiceState>,
+    pub update_service_state: Arc<UpdateServiceState>,
     pub account_service_state: Arc<AccountServiceState>,
     pub(crate) session_service_state: Arc<SessionServiceState>,
     pub injection: Arc<InjectionStore>,

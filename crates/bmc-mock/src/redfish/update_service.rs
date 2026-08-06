@@ -80,11 +80,7 @@ use crate::json::{JsonExt, JsonPatch};
 use crate::redfish::Builder;
 use crate::{http, redfish};
 
-// ---------------------------------------------------------------------------
-// Redfish resource paths
-// ---------------------------------------------------------------------------
-
-pub fn resource<'a>() -> redfish::Resource<'a> {
+pub(crate) fn resource<'a>() -> redfish::Resource<'a> {
     redfish::Resource {
         odata_id: Cow::Borrowed("/redfish/v1/UpdateService"),
         odata_type: Cow::Borrowed("#UpdateService.v1_9_0.UpdateService"),
@@ -93,25 +89,25 @@ pub fn resource<'a>() -> redfish::Resource<'a> {
     }
 }
 
-pub fn builder(resource: &redfish::Resource) -> UpdateServiceBuilder {
+pub(crate) fn builder(resource: &redfish::Resource) -> UpdateServiceBuilder {
     UpdateServiceBuilder {
         value: resource.json_patch(),
     }
 }
 
-pub fn simple_update_target() -> String {
+pub(crate) fn simple_update_target() -> String {
     format!("{}/Actions/UpdateService.SimpleUpdate", resource().odata_id)
 }
 
 /// AMI MegaRAC multipart upload endpoint (GenericAmi, DGX H100).
 /// Also serves as the `MultipartHttpPushUri` advertised to GB200/GB300/Lenovo.
-pub const MULTIPART_UPLOAD_PATH: &str = "/redfish/v1/UpdateService/upload";
+pub(crate) const MULTIPART_UPLOAD_PATH: &str = "/redfish/v1/UpdateService/upload";
 
 /// Raw HTTP push endpoint — used by older Dell iDRAC firmware versions and some
 /// HPE iLO paths that look for `HttpPushUri` rather than `MultipartHttpPushUri`.
-pub const HTTP_PUSH_URI_PATH: &str = "/redfish/v1/UpdateService/FirmwareInventory";
+pub(crate) const HTTP_PUSH_URI_PATH: &str = "/redfish/v1/UpdateService/FirmwareInventory";
 
-pub fn add_routes(r: Router<BmcState>) -> Router<BmcState> {
+pub(crate) fn add_routes(r: Router<BmcState>) -> Router<BmcState> {
     const FW_INVENTORY_ID: &str = "{fw_inventory_id}";
     r.route(&resource().odata_id, get(get_update_service))
         .route(&simple_update_target(), post(update_firmware_simple_update))
@@ -127,18 +123,14 @@ pub fn add_routes(r: Router<BmcState>) -> Router<BmcState> {
         )
 }
 
-// ---------------------------------------------------------------------------
-// Configuration
-// ---------------------------------------------------------------------------
-
 /// Default delay before a simulated firmware task transitions to Completed.
-pub const DEFAULT_TASK_COMPLETION_DELAY: Duration = Duration::from_secs(2);
+pub(crate) const DEFAULT_TASK_COMPLETION_DELAY: Duration = Duration::from_secs(2);
 
 /// Default random jitter added to the completion delay.
-pub const DEFAULT_TASK_COMPLETION_JITTER: Duration = Duration::from_secs(1);
+pub(crate) const DEFAULT_TASK_COMPLETION_JITTER: Duration = Duration::from_secs(1);
 
-pub struct UpdateServiceConfig {
-    pub firmware_inventory: Vec<redfish::software_inventory::SoftwareInventory>,
+pub(crate) struct UpdateServiceConfig {
+    pub(crate) firmware_inventory: Vec<redfish::software_inventory::SoftwareInventory>,
     /// Ordered queue of `(component_id, target_version)` pairs representing the
     /// expected upgrade sequence.  machine-a-tron populates this from
     /// `desired_firmware_versions`.  Uploads without explicit Targets pop from
@@ -149,12 +141,16 @@ pub struct UpdateServiceConfig {
     /// installs exactly the desired version.  This is a valid simulation
     /// assumption because machine-a-tron controls the firmware catalog and always
     /// points carbide at the desired version's artifact.
-    pub pending_upgrades: VecDeque<(String, String)>,
+    pub(crate) pending_upgrades: VecDeque<(String, String)>,
     /// How long to wait before transitioning a task from `Running` to `Completed`.
     /// Add `task_completion_jitter` of random jitter to desynchronise resets
     /// across many simulated hosts in a load environment.
-    pub task_completion_delay: Duration,
-    pub task_completion_jitter: Duration,
+    pub(crate) task_completion_delay: Duration,
+    pub(crate) task_completion_jitter: Duration,
+    /// Which push URIs to advertise in the UpdateService GET response.
+    /// Set based on the platform's BMC upload mechanism.
+    pub(crate) advertise_http_push_uri: bool,
+    pub(crate) advertise_multipart_push_uri: bool,
 }
 
 impl Default for UpdateServiceConfig {
@@ -164,12 +160,14 @@ impl Default for UpdateServiceConfig {
             pending_upgrades: VecDeque::new(),
             task_completion_delay: DEFAULT_TASK_COMPLETION_DELAY,
             task_completion_jitter: DEFAULT_TASK_COMPLETION_JITTER,
+            advertise_http_push_uri: false,
+            advertise_multipart_push_uri: true,
         }
     }
 }
 
 impl UpdateServiceConfig {
-    pub fn apply_host_firmware_versions(
+    pub(crate) fn apply_host_firmware_versions(
         &mut self,
         fw: &crate::machine_info::HostFirmwareVersions,
     ) {
@@ -194,10 +192,6 @@ impl UpdateServiceConfig {
         }
     }
 }
-
-// ---------------------------------------------------------------------------
-// Task state
-// ---------------------------------------------------------------------------
 
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) enum TaskState {
@@ -250,10 +244,6 @@ impl FirmwareTask {
     }
 }
 
-// ---------------------------------------------------------------------------
-// Mutable runtime state
-// ---------------------------------------------------------------------------
-
 pub struct UpdateServiceState {
     firmware_inventory:
         RwLock<HashMap<String, redfish::software_inventory::SoftwareInventory>>,
@@ -270,10 +260,13 @@ pub struct UpdateServiceState {
     next_task_id: AtomicU64,
     task_completion_delay: Duration,
     task_completion_jitter: Duration,
+    /// Which push URIs this platform advertises in the UpdateService GET response.
+    pub(crate) advertise_http_push_uri: bool,
+    pub(crate) advertise_multipart_push_uri: bool,
 }
 
 impl UpdateServiceState {
-    pub fn from_config(config: UpdateServiceConfig) -> Self {
+    pub(crate) fn from_config(config: UpdateServiceConfig) -> Self {
         let inventory = config
             .firmware_inventory
             .into_iter()
@@ -287,6 +280,8 @@ impl UpdateServiceState {
             next_task_id: AtomicU64::new(1),
             task_completion_delay: config.task_completion_delay,
             task_completion_jitter: config.task_completion_jitter,
+            advertise_http_push_uri: config.advertise_http_push_uri,
+            advertise_multipart_push_uri: config.advertise_multipart_push_uri,
         }
     }
 
@@ -294,11 +289,11 @@ impl UpdateServiceState {
         self.firmware_inventory.read().unwrap().get(id).map(|sw| sw.to_json())
     }
 
-    pub fn all_firmware_inventory_ids(&self) -> Vec<String> {
+    pub(crate) fn all_firmware_inventory_ids(&self) -> Vec<String> {
         self.firmware_inventory.read().unwrap().keys().cloned().collect()
     }
 
-    pub fn find_task(&self, id: &str) -> Option<serde_json::Value> {
+    pub(crate) fn find_task(&self, id: &str) -> Option<serde_json::Value> {
         self.tasks.read().unwrap().get(id).map(|t| t.to_json())
     }
 
@@ -425,7 +420,7 @@ impl UpdateServiceState {
     ///
     /// Completed tasks are pruned from the map after their firmware is applied
     /// so the map does not grow without bound in long-running load tests.
-    pub fn apply_staged_firmware(&self) {
+    pub(crate) fn apply_staged_firmware(&self) {
         // Collect component IDs of completed tasks and prune them from the map.
         let completed_components: Vec<String> = {
             let mut tasks = self.tasks.write().unwrap();
@@ -469,10 +464,6 @@ impl UpdateServiceState {
     }
 }
 
-// ---------------------------------------------------------------------------
-// Body helpers
-// ---------------------------------------------------------------------------
-
 /// Drain a request body frame-by-frame without buffering to avoid memory
 /// pressure when handling large firmware images.  Errors are silently ignored
 /// — the mock does not inspect the uploaded content.
@@ -482,27 +473,24 @@ async fn discard_body(body: Body) {
     while body.frame().await.is_some() {}
 }
 
-// ---------------------------------------------------------------------------
-// Request body types
-// ---------------------------------------------------------------------------
-
 #[derive(Deserialize, Default)]
 struct SimpleUpdateRequest {
     #[serde(rename = "Targets", default)]
     targets: Vec<String>,
 }
 
-// ---------------------------------------------------------------------------
-// Handlers
-// ---------------------------------------------------------------------------
-
-async fn get_update_service() -> Response {
-    builder(&resource())
-        .firmware_inventory(&redfish::software_inventory::firmware_inventory_collection())
-        .http_push_uri(HTTP_PUSH_URI_PATH)
-        .multipart_http_push_uri(MULTIPART_UPLOAD_PATH)
-        .build()
-        .into_ok_response()
+/// Advertise only the push URI(s) that this platform's BMC actually supports.
+async fn get_update_service(State(state): State<BmcState>) -> Response {
+    let us = &state.update_service_state;
+    let mut b = builder(&resource())
+        .firmware_inventory(&redfish::software_inventory::firmware_inventory_collection());
+    if us.advertise_http_push_uri {
+        b = b.http_push_uri(HTTP_PUSH_URI_PATH);
+    }
+    if us.advertise_multipart_push_uri {
+        b = b.multipart_http_push_uri(MULTIPART_UPLOAD_PATH);
+    }
+    b.build().into_ok_response()
 }
 
 /// Redfish SimpleUpdate (Dell iDRAC, BFB/DPU path).
@@ -517,7 +505,7 @@ async fn update_firmware_simple_update(
     let (component_id, target_version) = if let Some(id) = targets
         .first()
         .and_then(|t| t.rsplit('/').next())
-        .map(|s| s.to_string())
+        .map(str::to_owned)
     {
         // Targets is explicit: look up the desired version WITHOUT consuming the
         // pending_upgrades queue so a follow-up multipart upload for a different
@@ -606,11 +594,7 @@ async fn get_firmware_inventory_resource(
         .unwrap_or_else(http::not_found)
 }
 
-// ---------------------------------------------------------------------------
-// Builder
-// ---------------------------------------------------------------------------
-
-pub struct UpdateServiceBuilder {
+pub(crate) struct UpdateServiceBuilder {
     value: serde_json::Value,
 }
 
@@ -623,28 +607,24 @@ impl Builder for UpdateServiceBuilder {
 }
 
 impl UpdateServiceBuilder {
-    pub fn build(self) -> serde_json::Value {
+    pub(crate) fn build(self) -> serde_json::Value {
         self.value
     }
 
-    pub fn firmware_inventory(self, v: &redfish::Collection<'_>) -> Self {
+    pub(crate) fn firmware_inventory(self, v: &redfish::Collection<'_>) -> Self {
         self.apply_patch(v.nav_property("FirmwareInventory"))
     }
 
     /// Raw single-file HTTP push URI (older Dell/HPE consumers).
-    pub fn http_push_uri(self, uri: &str) -> Self {
+    pub(crate) fn http_push_uri(self, uri: &str) -> Self {
         self.apply_patch(json!({ "HttpPushUri": uri }))
     }
 
     /// Multipart HTTP push URI (AMI/GB200/GB300 consumers).
-    pub fn multipart_http_push_uri(self, uri: &str) -> Self {
+    pub(crate) fn multipart_http_push_uri(self, uri: &str) -> Self {
         self.apply_patch(json!({ "MultipartHttpPushUri": uri }))
     }
 }
-
-// ---------------------------------------------------------------------------
-// Unit tests (bmc-mock state transitions; no full E2E preingestion test)
-// ---------------------------------------------------------------------------
 
 #[cfg(test)]
 mod tests {
@@ -672,6 +652,7 @@ mod tests {
                 .collect(),
             task_completion_delay: Duration::ZERO,
             task_completion_jitter: Duration::ZERO,
+            ..Default::default()
         }))
     }
 
@@ -962,11 +943,12 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn update_service_advertises_both_push_uris() {
+    async fn update_service_advertises_multipart_push_uri_for_ami() {
+        // GenericAmi only advertises MultipartHttpPushUri (not HttpPushUri).
         let (router, _) = make_router("24.09.17", "24.10.00");
         let svc = get_json(&router, "/redfish/v1/UpdateService").await;
         assert_eq!(svc["MultipartHttpPushUri"], MULTIPART_UPLOAD_PATH);
-        assert_eq!(svc["HttpPushUri"], HTTP_PUSH_URI_PATH);
+        assert!(svc["HttpPushUri"].is_null(), "GenericAmi must not advertise HttpPushUri");
     }
 
     #[tokio::test]

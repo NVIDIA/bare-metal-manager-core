@@ -738,6 +738,11 @@ pub struct PersistedDevice {
     pub tpm_ek_certificate: Option<Vec<u8>>,
     #[serde(default)]
     pub hw_mac_addr_pool: Option<MacAddressPoolConfig>,
+    /// Active host firmware inventory at the time this snapshot was taken.
+    /// Restored as `initial_host_firmware` on restart so the mock starts with
+    /// the versions last observed, not the operator-configured starting point.
+    #[serde(default)]
+    pub active_host_firmware: Option<HostFirmwareVersions>,
 }
 
 impl PersistedDevice {

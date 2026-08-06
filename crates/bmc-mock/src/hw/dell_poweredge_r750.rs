@@ -315,6 +315,8 @@ impl DellPowerEdgeR750<'_> {
                 .build()
             })
             .collect(),
+            advertise_http_push_uri: true,
+            advertise_multipart_push_uri: false,
             ..Default::default()
         }
     }

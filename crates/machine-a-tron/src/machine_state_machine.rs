@@ -257,6 +257,10 @@ pub(super) struct LiveState {
     /// owning host observe the flip through the DPU handle and converge (detach
     /// its DPU DHCP relay). Always false for a host machine.
     pub(super) dpu_flipped_to_nic_mode: bool,
+    /// Current host firmware inventory, updated on each power-on after staged
+    /// firmware is applied.  Used by `persisted()` so restarts resume from the
+    /// last observed versions rather than the operator-configured starting point.
+    pub(super) active_host_firmware: Option<bmc_mock::HostFirmwareVersions>,
 }
 
 impl Default for LiveState {
@@ -277,6 +281,7 @@ impl Default for LiveState {
             tpm_ek_certificate: None,
             ssh_host_key: None,
             dpu_flipped_to_nic_mode: false,
+            active_host_firmware: None,
         }
     }
 }
@@ -986,6 +991,7 @@ impl MachineStateMachine {
                 .as_ref()
                 .and_then(|state| state.bluefield_nic_mode())
                 .unwrap_or(false);
+        live_state.active_host_firmware = self.current_host_firmware();
     }
 
     /// Whether this machine still relays its data-plane DHCP through a managed
@@ -993,6 +999,26 @@ impl MachineStateMachine {
     /// a host that never had a managed DPU.
     pub(super) fn has_dpu_dhcp_relay(&self) -> bool {
         self.dpu_dhcp_relay.is_some()
+    }
+
+    /// Return the active host firmware versions from the live BMC mock inventory.
+    /// Returns `None` when the BMC mock has not started yet or no firmware
+    /// inventory entries exist for the standard host components.
+    pub(super) fn current_host_firmware(&self) -> Option<bmc_mock::HostFirmwareVersions> {
+        let bmc_state = self.bmc_state.as_ref()?;
+        let bmc = bmc_state
+            .update_service_state
+            .find_firmware_inventory("HostBMC_0")
+            .and_then(|v| v["Version"].as_str().map(str::to_owned));
+        let uefi = bmc_state
+            .update_service_state
+            .find_firmware_inventory("HostBIOS_0")
+            .and_then(|v| v["Version"].as_str().map(str::to_owned));
+        if bmc.is_some() || uefi.is_some() {
+            Some(bmc_mock::HostFirmwareVersions { bmc, uefi })
+        } else {
+            None
+        }
     }
 
     /// Stop relaying data-plane DHCP through the DPU. Once a DPU flips to NIC

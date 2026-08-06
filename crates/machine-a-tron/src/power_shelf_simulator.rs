@@ -536,6 +536,7 @@ impl PowerShelfHandle {
                 base: self.0.host_info.hw_mac_addr_pool.base(),
                 host_bits: self.0.host_info.hw_mac_addr_pool.host_bits(),
             }),
+            active_host_firmware: None,
         }
     }
 

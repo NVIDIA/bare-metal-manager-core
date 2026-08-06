@@ -199,7 +199,9 @@ impl HpeProliantDl380aGen11<'_> {
     pub(crate) fn update_service_config(&self) -> redfish::update_service::UpdateServiceConfig {
         redfish::update_service::UpdateServiceConfig {
             firmware_inventory: vec![],
-                ..Default::default()
+            advertise_http_push_uri: true,
+            advertise_multipart_push_uri: false,
+            ..Default::default()
         }
     }
 }
