@@ -697,10 +697,18 @@ func executeWaitDecommissionedAction(actx actionExecutionContext) error {
 			return fmt.Errorf("workflow sleep interrupted: %w", err)
 		}
 
+		// Use a short fire-once policy so a hung status call fails quickly
+		// and the poll loop's consecutive-failure budget controls retries.
+		statusCtx := workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
+			StartToCloseTimeout: 30 * time.Second,
+			RetryPolicy: &temporal.RetryPolicy{
+				MaximumAttempts: 1,
+			},
+		})
 		var result activity.GetDecommissionStatusResult
 		err := workflow.ExecuteActivity(
-			ctx, activity.NameGetDecommissionStatus, target,
-		).Get(ctx, &result)
+			statusCtx, activity.NameGetDecommissionStatus, target,
+		).Get(statusCtx, &result)
 		if err != nil {
 			consecutiveFailures++
 			log.Warn().
