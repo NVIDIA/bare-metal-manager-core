@@ -419,7 +419,7 @@ fn show_managed_switch_details_view(m: ManagedSwitchOutput) -> CarbideCliResult<
     Ok(())
 }
 
-pub async fn handle_show(
+pub(super) async fn handle_show(
     output_file: &mut Box<dyn tokio::io::AsyncWrite + Unpin>,
     args: Args,
     output_format: OutputFormat,

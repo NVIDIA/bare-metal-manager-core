@@ -103,7 +103,7 @@ struct ComputeAllocationDetailDisplay {
 /// Struct for deserializing a request to view
 /// existing ComputeAllocations
 #[derive(Deserialize, Debug)]
-pub struct ShowComputeAllocationParams {
+pub(super) struct ShowComputeAllocationParams {
     #[serde(default, deserialize_with = "empty_string_as_none")]
     limit: Option<usize>,
     #[serde(default, deserialize_with = "empty_string_as_none")]
@@ -111,7 +111,7 @@ pub struct ShowComputeAllocationParams {
 }
 
 /// Handler for displaying all compute allocations.
-pub async fn show(
+pub(super) async fn show(
     AxumState(api): AxumState<Arc<Api>>,
     Query(params): Query<ShowComputeAllocationParams>,
     path: OriginalUri,
@@ -203,7 +203,7 @@ async fn fetch_compute_allocations(
 }
 
 /// Handler for displaying a single compute allocation.
-pub async fn show_detail(
+pub(super) async fn show_detail(
     AxumState(api): AxumState<Arc<Api>>,
     AxumPath(compute_allocation_id): AxumPath<String>,
 ) -> Response {
@@ -287,7 +287,7 @@ pub async fn show_detail(
 /// Struct for deserializing a request to create
 /// a new ComputeAllocation
 #[derive(Deserialize, Debug)]
-pub struct CreateComputeAllocationForm {
+pub(super) struct CreateComputeAllocationForm {
     id: String,
     tenant_organization_id: String,
     instance_type_id: String,
@@ -298,7 +298,7 @@ pub struct CreateComputeAllocationForm {
 }
 
 /// Handler to create a new ComputeAllocation.
-pub async fn create(
+pub(super) async fn create(
     AxumState(api): AxumState<Arc<Api>>,
     Form(form): Form<CreateComputeAllocationForm>,
 ) -> Response {
@@ -376,7 +376,7 @@ pub async fn create(
 /// Struct for deserializing a request to update
 /// an existing ComputeAllocation
 #[derive(Deserialize, Debug)]
-pub struct UpdateComputeAllocationForm {
+pub(super) struct UpdateComputeAllocationForm {
     tenant_organization_id: String,
     instance_type_id: String,
     count: u32,
@@ -387,7 +387,7 @@ pub struct UpdateComputeAllocationForm {
 }
 
 /// Handler for updating an existing ComputeAllocation.
-pub async fn update(
+pub(super) async fn update(
     AxumState(api): AxumState<Arc<Api>>,
     AxumPath(compute_allocation_id): AxumPath<String>,
     Form(form): Form<UpdateComputeAllocationForm>,
@@ -464,12 +464,12 @@ pub async fn update(
 /// Struct for deserializing a request to delete
 /// an existing ComputeAllocation
 #[derive(Deserialize, Debug)]
-pub struct DeleteComputeAllocationForm {
+pub(super) struct DeleteComputeAllocationForm {
     tenant_organization_id: String,
 }
 
 /// Handler for deleting an existing ComputeAllocation.
-pub async fn delete(
+pub(super) async fn delete(
     AxumState(api): AxumState<Arc<Api>>,
     AxumPath(compute_allocation_id): AxumPath<String>,
     Form(form): Form<DeleteComputeAllocationForm>,

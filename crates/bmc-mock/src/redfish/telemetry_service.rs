@@ -28,9 +28,9 @@ use crate::json::{JsonExt, JsonPatch};
 use crate::{http, redfish};
 
 /// Id of the single aggregated report the mock publishes.
-pub const REPORT_ID: &str = "PlatformEnvironmentMetrics";
+const REPORT_ID: &str = "PlatformEnvironmentMetrics";
 
-pub fn resource() -> redfish::Resource<'static> {
+pub(super) fn resource() -> redfish::Resource<'static> {
     redfish::Resource {
         odata_id: Cow::Borrowed("/redfish/v1/TelemetryService"),
         odata_type: Cow::Borrowed("#TelemetryService.v1_3_1.TelemetryService"),
@@ -39,7 +39,7 @@ pub fn resource() -> redfish::Resource<'static> {
     }
 }
 
-pub fn metric_reports_collection() -> redfish::Collection<'static> {
+fn metric_reports_collection() -> redfish::Collection<'static> {
     redfish::Collection {
         odata_id: Cow::Borrowed("/redfish/v1/TelemetryService/MetricReports"),
         odata_type: Cow::Borrowed("#MetricReportCollection.MetricReportCollection"),
@@ -47,7 +47,7 @@ pub fn metric_reports_collection() -> redfish::Collection<'static> {
     }
 }
 
-pub fn metric_report_resource<'a>(report_id: &'a str) -> redfish::Resource<'a> {
+fn metric_report_resource<'a>(report_id: &'a str) -> redfish::Resource<'a> {
     let odata_id = format!("{}/{report_id}", metric_reports_collection().odata_id);
     redfish::Resource {
         odata_id: Cow::Owned(odata_id),
@@ -57,7 +57,7 @@ pub fn metric_report_resource<'a>(report_id: &'a str) -> redfish::Resource<'a> {
     }
 }
 
-pub fn add_routes(r: Router<BmcState>) -> Router<BmcState> {
+pub(crate) fn add_routes(r: Router<BmcState>) -> Router<BmcState> {
     const REPORT_ID_PARAM: &str = "{report_id}";
     r.route(&resource().odata_id, get(get_telemetry_service))
         .route(

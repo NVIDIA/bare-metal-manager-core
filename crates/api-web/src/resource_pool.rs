@@ -29,7 +29,7 @@ use super::Base;
 
 mod filters {
     #[askama::filter_fn]
-    pub fn resource_pool_allocated_fmt(
+    pub(super) fn resource_pool_allocated_fmt(
         pool: &super::forgerpc::ResourcePool,
         _env: &dyn askama::Values,
     ) -> askama::Result<String> {
@@ -50,7 +50,7 @@ struct ResourcePoolShow {
 }
 
 /// List resource pools
-pub async fn show_html(AxumState(state): AxumState<Arc<Api>>) -> Response {
+pub(super) async fn show_html(AxumState(state): AxumState<Arc<Api>>) -> Response {
     let pools = match fetch_resource_pools(state).await {
         Ok(m) => m,
         Err(err) => {
@@ -66,7 +66,7 @@ pub async fn show_html(AxumState(state): AxumState<Arc<Api>>) -> Response {
     (StatusCode::OK, Html(tmpl.render().unwrap())).into_response()
 }
 
-pub async fn show_all_json(AxumState(state): AxumState<Arc<Api>>) -> Response {
+pub(super) async fn show_all_json(AxumState(state): AxumState<Arc<Api>>) -> Response {
     let out = match fetch_resource_pools(state).await {
         Ok(m) => m,
         Err(err) => {

@@ -218,6 +218,9 @@ impl MachineCreator {
                 None
             };
 
+        // Admission permit BEFORE the transaction: waiters on the admin-segment
+        // advisory lock must queue in memory, not on open pool connections.
+        let _admin_admission = db::machine_interface::admin_lock_admission().await;
         let mut txn = Transaction::begin(pool).await?;
 
         // Advisory-lock the admin segments before any machine-interface row
@@ -1048,18 +1051,6 @@ impl MachineCreator {
                 &dpu_machine.id.to_string(),
             )
             .await?;
-        }
-
-        if self.config.allocate_secondary_vtep_ip
-            && network_config.secondary_overlay_vtep_ip.is_none()
-        {
-            let secondary_vtep_ip = db::machine::allocate_secondary_vtep_ip(
-                &self.common_pools,
-                txn,
-                &dpu_machine.id.to_string(),
-            )
-            .await?;
-            network_config.secondary_overlay_vtep_ip = Some(secondary_vtep_ip);
         }
 
         // A stale version must fail the whole transaction so any addresses

@@ -26,7 +26,6 @@ repository.workspace = true
 default = ["codegen"]
 codegen = [
   "dep:proc-macro2",
-  "dep:tonic-prost-build",
   "dep:quote",
   "dep:syn",
   "dep:prettyplease",
@@ -40,7 +39,6 @@ thiserror = { workspace = true }
 tonic = { workspace = true }
 async-trait = { workspace = true }
 proc-macro2 = { optional = true, workspace = true }
-tonic-prost-build = { optional = true, workspace = true }
 quote = { optional = true, workspace = true }
 syn = { optional = true, workspace = true }
 prettyplease = { optional = true, workspace = true }
@@ -50,6 +48,7 @@ lazy_static = { optional = true, workspace = true }
 
 [dev-dependencies]
 temp-dir = { workspace = true }
+tonic-prost-build = { workspace = true }
 
 [lints]
 workspace = true

@@ -86,7 +86,7 @@ fn resolve_firmware_upgrade_source(
     Ok((firmware_version, access_token))
 }
 
-pub async fn on_demand_rack_maintenance(
+pub(super) async fn on_demand_rack_maintenance(
     api_client: &ApiClient,
     args: MaintenanceOptions,
 ) -> CarbideCliResult<()> {

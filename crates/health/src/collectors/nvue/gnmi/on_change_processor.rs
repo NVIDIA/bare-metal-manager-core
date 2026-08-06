@@ -786,6 +786,7 @@ mod tests {
                     serial: "SN-SWITCH-001".to_string(),
                     slot_number: Some(7),
                     tray_index: Some(3),
+                    nvlink_domain_uuid: None,
                     endpoint_role: SwitchEndpointRole::Host,
                     is_primary: false,
                     nmxc_enabled: false,

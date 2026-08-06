@@ -24,11 +24,7 @@ use rpc::forge::NetworkDeviceIdList;
 
 async fn init(pool: PgPool) -> TestHarness {
     let env = TestHarness::builder(pool)
-        .with_resource_pools(
-            ResourcePoolBuilder::default()
-                .with_secondary_vtep_ip("192.0.7.0/24")
-                .build(),
-        )
+        .with_resource_pools(ResourcePoolBuilder::default().build())
         .build()
         .await;
     let network_controller = env.network_controller();

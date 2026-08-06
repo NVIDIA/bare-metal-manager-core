@@ -29,12 +29,15 @@ use carbide_uuid::machine::MachineId;
 
 /// Generates HTML links for Machine IDs
 #[askama::filter_fn]
-pub fn machine_id_link(id: impl Display, _env: &dyn askama::Values) -> ::askama::Result<String> {
+pub(super) fn machine_id_link(
+    id: impl Display,
+    _env: &dyn askama::Values,
+) -> ::askama::Result<String> {
     machine_link(id, "machine")
 }
 
 /// Generates a formatted link for Machine IDs to a predefined path
-pub fn machine_link(id: impl Display, path: impl Display) -> ::askama::Result<String> {
+pub(super) fn machine_link(id: impl Display, path: impl Display) -> ::askama::Result<String> {
     let id = id.to_string();
     let link_path: String = url::form_urlencoded::byte_serialize(id.as_bytes()).collect();
 
@@ -85,12 +88,15 @@ fn escaped_shortened_id_link(id: impl Display, path: impl Display) -> ::askama::
 }
 
 #[askama::filter_fn]
-pub fn rack_id_link(id: impl Display, _env: &dyn askama::Values) -> ::askama::Result<String> {
+pub(super) fn rack_id_link(
+    id: impl Display,
+    _env: &dyn askama::Values,
+) -> ::askama::Result<String> {
     escaped_shortened_id_link(id, "rack")
 }
 
 #[askama::filter_fn]
-pub fn power_shelf_id_link(
+pub(super) fn power_shelf_id_link(
     id: impl Display,
     _env: &dyn askama::Values,
 ) -> ::askama::Result<String> {
@@ -98,13 +104,16 @@ pub fn power_shelf_id_link(
 }
 
 #[askama::filter_fn]
-pub fn switch_id_link(id: impl Display, _env: &dyn askama::Values) -> ::askama::Result<String> {
+pub(super) fn switch_id_link(
+    id: impl Display,
+    _env: &dyn askama::Values,
+) -> ::askama::Result<String> {
     escaped_shortened_id_link(id, "switch")
 }
 
 /// Formats labels into HTML
 #[askama::filter_fn]
-pub fn label_list_fmt(
+pub(super) fn label_list_fmt(
     labels: &[rpc::forge::Label],
     _env: &dyn askama::Values,
     truncate: bool,
@@ -152,7 +161,7 @@ pub fn label_list_fmt(
 /// If there is no alert, generates a green "None" bubble
 /// Generates HTML using the unified bubble system
 #[askama::filter_fn]
-pub fn health_alerts_fmt(
+pub(super) fn health_alerts_fmt(
     alerts: &[health_report::HealthProbeAlert],
     _env: &dyn askama::Values,
     include_message: bool,
@@ -188,7 +197,7 @@ pub fn health_alerts_fmt(
 /// Formats a list of Health Alert Classifications
 /// If there is no alert, the generated String will be empty
 #[askama::filter_fn]
-pub fn health_alert_classifications_fmt(
+pub(super) fn health_alert_classifications_fmt(
     alerts: &Vec<health_report::HealthProbeAlert>,
     _env: &dyn askama::Values,
 ) -> ::askama::Result<String> {
@@ -197,7 +206,7 @@ pub fn health_alert_classifications_fmt(
 
 /// Formats a single Health Alert Classification
 #[askama::filter_fn]
-pub fn health_alert_classification_fmt(
+pub(super) fn health_alert_classification_fmt(
     alert: &health_report::HealthProbeAlert,
     _env: &dyn askama::Values,
 ) -> ::askama::Result<String> {
@@ -234,7 +243,7 @@ where
 /// Renders version strings including timestamps
 /// Also shows the localized timestamp on Mouseover
 #[askama::filter_fn]
-pub fn config_version(
+pub(super) fn config_version(
     version: impl Display,
     _env: &dyn askama::Values,
 ) -> ::askama::Result<String> {
@@ -253,7 +262,7 @@ pub fn config_version(
 
 /// Prints the value of the `Option` in case it's `Some(x)`, and otherwise an empty string
 #[askama::filter_fn]
-pub fn option_fmt(
+pub(super) fn option_fmt(
     value: &Option<impl Display>,
     _env: &dyn askama::Values,
 ) -> askama::Result<String> {
@@ -264,7 +273,7 @@ pub fn option_fmt(
 }
 
 #[askama::filter_fn]
-pub fn option_fmt_or(
+pub(super) fn option_fmt_or(
     value: &Option<impl Display>,
     _env: &dyn askama::Values,
     default: &str,
@@ -280,7 +289,10 @@ pub fn option_fmt_or(
 /// Invalid JSON is returned unchanged so this can also be used for endpoints whose
 /// response bodies are not guaranteed to be JSON.
 #[askama::filter_fn]
-pub fn pretty_json(value: impl Display, _env: &dyn askama::Values) -> ::askama::Result<String> {
+pub(super) fn pretty_json(
+    value: impl Display,
+    _env: &dyn askama::Values,
+) -> ::askama::Result<String> {
     Ok(format_json(value))
 }
 
@@ -303,7 +315,7 @@ fn format_json(value: impl Display) -> String {
     serde_json::to_string_pretty(&json).unwrap_or(input)
 }
 
-pub(crate) fn state_and_substate_labels(state_json: impl Display) -> (String, String) {
+fn state_and_substate_labels(state_json: impl Display) -> (String, String) {
     let state_json = state_json.to_string();
     let Ok(value) = serde_json::from_str::<serde_json::Value>(&state_json) else {
         return (state_json, String::new());
@@ -331,7 +343,7 @@ pub(crate) fn state_and_substate_labels(state_json: impl Display) -> (String, St
 }
 
 #[askama::filter_fn]
-pub fn state_with_substate_label(
+pub(super) fn state_with_substate_label(
     state: impl Display,
     _env: &dyn askama::Values,
 ) -> ::askama::Result<String> {
@@ -361,7 +373,7 @@ fn capitalize_state(state: &str) -> String {
 
 /// Formats the boot order list
 #[askama::filter_fn]
-pub fn boot_order_fmt(
+pub(super) fn boot_order_fmt(
     boot_order: &Option<rpc::site_explorer::BootOrder>,
     _env: &dyn askama::Values,
 ) -> ::askama::Result<String> {
@@ -377,7 +389,10 @@ pub fn boot_order_fmt(
 }
 
 #[askama::filter_fn]
-pub fn colorize_output(ansi_text: &str, _env: &dyn askama::Values) -> ::askama::Result<String> {
+pub(super) fn colorize_output(
+    ansi_text: &str,
+    _env: &dyn askama::Values,
+) -> ::askama::Result<String> {
     let html = ansi_to_html::Converter::new()
         .convert(ansi_text)
         .unwrap_or_default();
@@ -386,7 +401,7 @@ pub fn colorize_output(ansi_text: &str, _env: &dyn askama::Values) -> ::askama::
 
 /// Formats a state handler outcome
 #[askama::filter_fn]
-pub fn controller_state_reason_fmt(
+pub(super) fn controller_state_reason_fmt(
     reason: &Option<::rpc::forge::ControllerStateReason>,
     _env: &dyn askama::Values,
 ) -> ::askama::Result<String> {

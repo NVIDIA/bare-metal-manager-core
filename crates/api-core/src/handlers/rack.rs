@@ -48,7 +48,7 @@ use crate::api::{Api, log_request_data, log_request_data_redacted};
 use crate::auth::AuthContext;
 use crate::handlers::component_manager::component_manager_error_to_status;
 
-pub async fn get_rack(
+pub(crate) async fn get_rack(
     api: &Api,
     request: Request<rpc::GetRackRequest>,
 ) -> Result<Response<rpc::GetRackResponse>, Status> {
@@ -85,7 +85,7 @@ pub async fn get_rack(
     Ok(Response::new(rpc::GetRackResponse { rack: result }))
 }
 
-pub async fn find_ids(
+pub(crate) async fn find_ids(
     api: &Api,
     request: Request<rpc::RackSearchFilter>,
 ) -> Result<Response<rpc::RackIdList>, Status> {
@@ -98,7 +98,7 @@ pub async fn find_ids(
     Ok(Response::new(rpc::RackIdList { rack_ids }))
 }
 
-pub async fn find_by_ids(
+pub(crate) async fn find_by_ids(
     api: &Api,
     request: Request<rpc::RacksByIdsRequest>,
 ) -> Result<Response<rpc::RackList>, Status> {
@@ -136,7 +136,7 @@ pub async fn find_by_ids(
     Ok(Response::new(rpc::RackList { racks: result }))
 }
 
-pub async fn find_rack_state_histories(
+pub(crate) async fn find_rack_state_histories(
     api: &Api,
     request: Request<rpc::RackStateHistoriesRequest>,
 ) -> Result<Response<rpc::StateHistories>, Status> {
@@ -181,7 +181,7 @@ pub async fn find_rack_state_histories(
     Ok(tonic::Response::new(response))
 }
 
-pub async fn delete_rack(
+pub(crate) async fn delete_rack(
     api: &Api,
     request: Request<rpc::DeleteRackRequest>,
 ) -> Result<Response<()>, Status> {
@@ -252,7 +252,7 @@ async fn delete_rack_maintenance_access_token_after_force_delete(
 /// Force deletes a rack from the database.
 /// Unlike `delete_rack` (soft delete), this immediately hard-deletes the rack
 /// while retaining its state history.
-pub async fn admin_force_delete_rack(
+pub(crate) async fn admin_force_delete_rack(
     api: &Api,
     request: Request<rpc::AdminForceDeleteRackRequest>,
 ) -> Result<Response<rpc::AdminForceDeleteRackResponse>, Status> {
@@ -297,7 +297,7 @@ pub async fn admin_force_delete_rack(
     }))
 }
 
-pub async fn list_rack_health_reports(
+pub(crate) async fn list_rack_health_reports(
     api: &Api,
     request: Request<rpc::ListRackHealthReportsRequest>,
 ) -> Result<Response<rpc::ListHealthReportResponse>, Status> {
@@ -332,7 +332,7 @@ pub async fn list_rack_health_reports(
     }))
 }
 
-pub async fn insert_rack_health_report(
+pub(crate) async fn insert_rack_health_report(
     api: &Api,
     request: Request<rpc::InsertRackHealthReportRequest>,
 ) -> Result<Response<()>, Status> {
@@ -381,7 +381,7 @@ pub async fn insert_rack_health_report(
         report.observed_at = Some(chrono::Utc::now());
     }
     report.triggered_by = triggered_by;
-    report.update_in_alert_since(None);
+    report.update_in_alert_since(rack.health_reports.by_source(&report.source));
 
     match remove_rack_override_by_source(&rack, &mut txn, report.source.clone()).await {
         Ok(_) | Err(CarbideError::NotFoundError { .. }) => {}
@@ -399,7 +399,7 @@ pub async fn insert_rack_health_report(
     Ok(Response::new(()))
 }
 
-pub async fn remove_rack_health_report(
+pub(crate) async fn remove_rack_health_report(
     api: &Api,
     request: Request<rpc::RemoveRackHealthReportRequest>,
 ) -> Result<Response<()>, Status> {
@@ -449,7 +449,7 @@ async fn remove_rack_override_by_source(
     Ok(())
 }
 
-pub async fn get_rack_profile(
+pub(crate) async fn get_rack_profile(
     api: &Api,
     request: Request<rpc::GetRackProfileRequest>,
 ) -> Result<Response<rpc::GetRackProfileResponse>, Status> {
@@ -498,7 +498,7 @@ pub async fn get_rack_profile(
     }))
 }
 
-pub fn list_rack_profiles(
+pub(crate) fn list_rack_profiles(
     api: &Api,
     request: Request<()>,
 ) -> Result<Response<rpc::ListRackProfilesResponse>, Status> {

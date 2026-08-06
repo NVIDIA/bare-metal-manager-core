@@ -107,7 +107,7 @@ struct NetworkSecurityGroupDetailDisplay {
 /// Struct for deserializing a request to view
 /// existing NSGs
 #[derive(Deserialize, Debug)]
-pub struct ShowNetworkSecurityGroupParams {
+pub(super) struct ShowNetworkSecurityGroupParams {
     #[serde(default, deserialize_with = "empty_string_as_none")]
     limit: Option<usize>,
     #[serde(default, deserialize_with = "empty_string_as_none")]
@@ -115,7 +115,7 @@ pub struct ShowNetworkSecurityGroupParams {
 }
 
 /// Handler for displaying all network security groups
-pub async fn show(
+pub(super) async fn show(
     AxumState(api): AxumState<Arc<Api>>,
     Query(params): Query<ShowNetworkSecurityGroupParams>,
     path: OriginalUri,
@@ -220,7 +220,7 @@ async fn fetch_network_security_groups(
 /// It will include some extra details like any objects
 /// that are using the NSG and propagation status for those
 /// objects.
-pub async fn show_detail(
+pub(super) async fn show_detail(
     AxumState(api): AxumState<Arc<Api>>,
     AxumPath(network_security_group_id): AxumPath<String>,
 ) -> Response {
@@ -385,7 +385,7 @@ pub async fn show_detail(
 /// Struct for deserializing a request to create
 /// a new NSG
 #[derive(Deserialize, Debug)]
-pub struct CreateNetworkSecurityGroupForm {
+pub(super) struct CreateNetworkSecurityGroupForm {
     id: String,
     tenant_organization_id: String,
     name: String,
@@ -396,7 +396,7 @@ pub struct CreateNetworkSecurityGroupForm {
 }
 
 // Handler to create a new NSG
-pub async fn create(
+pub(super) async fn create(
     AxumState(api): AxumState<Arc<Api>>,
     Form(form): Form<CreateNetworkSecurityGroupForm>,
 ) -> Response {
@@ -477,7 +477,7 @@ pub async fn create(
 /// Struct for deserializing a request to update
 /// an existing NSG
 #[derive(Deserialize, Debug)]
-pub struct UpdateNetworkSecurityGroupForm {
+pub(super) struct UpdateNetworkSecurityGroupForm {
     tenant_organization_id: String,
     name: String,
     stateful_egress: Option<bool>,
@@ -489,7 +489,7 @@ pub struct UpdateNetworkSecurityGroupForm {
 }
 
 // Handler for updating an existing NSG
-pub async fn update(
+pub(super) async fn update(
     AxumState(api): AxumState<Arc<Api>>,
     AxumPath(network_security_group_id): AxumPath<String>,
     Form(form): Form<UpdateNetworkSecurityGroupForm>,
@@ -569,12 +569,12 @@ pub async fn update(
 /// Struct for deserializing a request to delete
 /// an existing NSG
 #[derive(Deserialize, Debug)]
-pub struct DeleteNetworkSecurityGroupForm {
+pub(super) struct DeleteNetworkSecurityGroupForm {
     tenant_organization_id: String,
 }
 
 // Handler for deleting an existing NSG
-pub async fn delete(
+pub(super) async fn delete(
     AxumState(api): AxumState<Arc<Api>>,
     AxumPath(network_security_group_id): AxumPath<String>,
     Form(form): Form<DeleteNetworkSecurityGroupForm>,

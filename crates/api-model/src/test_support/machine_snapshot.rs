@@ -388,7 +388,6 @@ pub fn machine_snapshot_pg_json(machine_id: MachineId) -> MachineSnapshotPgJson 
         network_config: ManagedHostNetworkConfig {
             loopback_ip: Some(IpAddr::from([172, 20, 0, 42])),
             loopback_ip_v6: None,
-            secondary_overlay_vtep_ip: None,
             use_admin_network: Some(false),
             quarantine_state: None,
             use_admin_network_changed: None,

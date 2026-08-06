@@ -62,7 +62,6 @@ async fn test_disable_machine_creation_outside_site_explorer(
         concurrent_explorations: 1,
         run_interval: std::time::Duration::from_secs(1),
         create_machines: Arc::new(true.into()),
-        allocate_secondary_vtep_ip: true,
         create_power_shelves: Arc::new(true.into()),
         power_shelves_created_per_run: 1,
         create_switches: Arc::new(true.into()),

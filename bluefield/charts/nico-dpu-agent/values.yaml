@@ -67,3 +67,5 @@ dhcp_server:
 fmds:
   # Will be updated in dpf_services.rs
   service_name: ""
+  # Empty keeps NICo's Forge signer.
+  sign_proxy_url: ""

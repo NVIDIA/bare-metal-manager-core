@@ -26,7 +26,7 @@ use crate::CarbideError;
 use crate::api::{Api, log_request_data};
 use crate::auth::AuthContext;
 
-pub async fn find_power_shelf(
+pub(crate) async fn find_power_shelf(
     api: &Api,
     request: Request<rpc::PowerShelfQuery>,
 ) -> Result<Response<rpc::PowerShelfList>, Status> {
@@ -95,7 +95,7 @@ fn convert_power_shelves(
         })
 }
 
-pub async fn find_ids(
+pub(crate) async fn find_ids(
     api: &Api,
     request: Request<rpc::PowerShelfSearchFilter>,
 ) -> Result<Response<rpc::PowerShelfIdList>, Status> {
@@ -110,7 +110,7 @@ pub async fn find_ids(
     }))
 }
 
-pub async fn find_by_ids(
+pub(crate) async fn find_by_ids(
     api: &Api,
     request: Request<rpc::PowerShelvesByIdsRequest>,
 ) -> Result<Response<rpc::PowerShelfList>, Status> {
@@ -146,7 +146,7 @@ pub async fn find_by_ids(
     Ok(Response::new(rpc::PowerShelfList { power_shelves }))
 }
 
-pub async fn delete_power_shelf(
+pub(crate) async fn delete_power_shelf(
     api: &Api,
     request: Request<rpc::PowerShelfDeletionRequest>,
 ) -> Result<Response<rpc::PowerShelfDeletionResult>, Status> {
@@ -203,7 +203,7 @@ pub async fn delete_power_shelf(
 /// Force deletes a power shelf and optionally its associated interfaces from the database.
 /// Unlike `delete_power_shelf` (soft delete), this immediately hard-deletes the power shelf
 /// while retaining its state history.
-pub async fn admin_force_delete_power_shelf(
+pub(crate) async fn admin_force_delete_power_shelf(
     api: &Api,
     request: Request<rpc::AdminForceDeletePowerShelfRequest>,
 ) -> Result<Response<rpc::AdminForceDeletePowerShelfResponse>, Status> {
@@ -260,7 +260,7 @@ pub async fn admin_force_delete_power_shelf(
     }))
 }
 
-pub async fn set_power_shelf_maintenance(
+pub(crate) async fn set_power_shelf_maintenance(
     api: &Api,
     request: Request<rpc::PowerShelfMaintenanceRequest>,
 ) -> Result<Response<()>, Status> {
@@ -356,7 +356,7 @@ pub async fn set_power_shelf_maintenance(
     Ok(Response::new(()))
 }
 
-pub async fn find_power_shelf_state_histories(
+pub(crate) async fn find_power_shelf_state_histories(
     api: &Api,
     request: Request<rpc::PowerShelfStateHistoriesRequest>,
 ) -> Result<Response<rpc::StateHistories>, Status> {
@@ -451,7 +451,7 @@ pub(crate) async fn update_power_shelf_metadata(
     Ok(tonic::Response::new(()))
 }
 
-pub async fn list_power_shelf_health_reports(
+pub(crate) async fn list_power_shelf_health_reports(
     api: &Api,
     request: Request<rpc::ListPowerShelfHealthReportsRequest>,
 ) -> Result<Response<rpc::ListHealthReportResponse>, Status> {
@@ -490,7 +490,7 @@ pub async fn list_power_shelf_health_reports(
     }))
 }
 
-pub async fn insert_power_shelf_health_report(
+pub(crate) async fn insert_power_shelf_health_report(
     api: &Api,
     request: Request<rpc::InsertPowerShelfHealthReportRequest>,
 ) -> Result<Response<()>, Status> {
@@ -536,7 +536,7 @@ pub async fn insert_power_shelf_health_report(
         report.observed_at = Some(chrono::Utc::now());
     }
     report.triggered_by = triggered_by;
-    report.update_in_alert_since(None);
+    report.update_in_alert_since(power_shelf.health_reports.by_source(&report.source));
 
     match remove_power_shelf_health_report_by_source(&power_shelf, &mut txn, report.source.clone())
         .await
@@ -552,7 +552,7 @@ pub async fn insert_power_shelf_health_report(
     Ok(Response::new(()))
 }
 
-pub async fn remove_power_shelf_health_report(
+pub(crate) async fn remove_power_shelf_health_report(
     api: &Api,
     request: Request<rpc::RemovePowerShelfHealthReportRequest>,
 ) -> Result<Response<()>, Status> {

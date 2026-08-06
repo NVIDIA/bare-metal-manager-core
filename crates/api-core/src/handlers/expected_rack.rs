@@ -28,7 +28,7 @@ use crate::api::Api;
 
 /// add_expected_rack creates an expected rack record. Returns AlreadyExists
 /// if the expected rack record already exists.
-pub async fn add_expected_rack(
+pub(crate) async fn add_expected_rack(
     api: &Api,
     request: Request<rpc::ExpectedRack>,
 ) -> Result<Response<()>, Status> {
@@ -87,7 +87,7 @@ pub async fn add_expected_rack(
 }
 
 /// delete_expected_rack deletes an expected rack by its rack_id.
-pub async fn delete_expected_rack(
+pub(crate) async fn delete_expected_rack(
     api: &Api,
     request: Request<rpc::ExpectedRackRequest>,
 ) -> Result<Response<()>, Status> {
@@ -103,7 +103,7 @@ pub async fn delete_expected_rack(
 }
 
 /// update_expected_rack updates an existing expected rack's rack_profile_id and metadata.
-pub async fn update_expected_rack(
+pub(crate) async fn update_expected_rack(
     api: &Api,
     request: Request<rpc::ExpectedRack>,
 ) -> Result<Response<()>, Status> {
@@ -144,7 +144,7 @@ pub async fn update_expected_rack(
 }
 
 /// get_expected_rack returns a specific expected rack by its rack_id.
-pub async fn get_expected_rack(
+pub(crate) async fn get_expected_rack(
     api: &Api,
     request: Request<rpc::ExpectedRackRequest>,
 ) -> Result<Response<rpc::ExpectedRack>, Status> {
@@ -164,7 +164,7 @@ pub async fn get_expected_rack(
 }
 
 /// get_all_expected_racks returns all expected racks.
-pub async fn get_all_expected_racks(
+pub(crate) async fn get_all_expected_racks(
     api: &Api,
     _request: Request<()>,
 ) -> Result<Response<rpc::ExpectedRackList>, Status> {
@@ -181,7 +181,7 @@ pub async fn get_all_expected_racks(
 }
 
 /// replace_all_expected_racks clears all expected racks and creates new ones from the request.
-pub async fn replace_all_expected_racks(
+pub(crate) async fn replace_all_expected_racks(
     api: &Api,
     request: Request<rpc::ExpectedRackList>,
 ) -> Result<Response<()>, Status> {
@@ -218,7 +218,7 @@ pub async fn replace_all_expected_racks(
 }
 
 /// delete_all_expected_racks deletes all expected racks.
-pub async fn delete_all_expected_racks(
+pub(crate) async fn delete_all_expected_racks(
     api: &Api,
     _request: Request<()>,
 ) -> Result<Response<()>, Status> {

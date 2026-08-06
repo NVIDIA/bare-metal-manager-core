@@ -32,7 +32,7 @@ fn with_reboot_context<T>(
         .map_err(CarbideCliError::from)
 }
 
-pub async fn handle_reboot(args: Args, api_client: &ApiClient) -> CarbideCliResult<()> {
+pub(super) async fn handle_reboot(args: Args, api_client: &ApiClient) -> CarbideCliResult<()> {
     with_reboot_context(
         api_client
             .0

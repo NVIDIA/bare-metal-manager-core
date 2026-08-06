@@ -17,7 +17,7 @@
 
 mod boot_interface_resolution;
 mod client_resolution;
-pub mod common;
+pub(in crate::tests) mod common;
 mod credential;
 mod dns;
 mod dpa_interfaces;
@@ -65,7 +65,7 @@ mod machine_metadata;
 mod machine_network;
 mod machine_states;
 mod machine_topology;
-pub mod machine_update_manager;
+mod machine_update_manager;
 mod machine_validation;
 mod maintenance;
 mod managed_host_decommissioning;
@@ -102,10 +102,11 @@ mod vpc_prefix;
 // NOTE: the admin web UI tests moved to the `carbide-api-web` crate (alongside the web code they
 // exercise).
 
+pub(crate) use crate::tests::common::api_fixtures::create_test_env;
 /// Make these symbol available as
 /// crate::tests::sqlx_fixture_from_str, so that the
 /// [`carbide_macros::sqlx_test`] can delegate to them.
-pub use crate::tests::common::sqlx_fixtures::sqlx_fixture_from_str;
+pub(crate) use crate::tests::common::sqlx_fixtures::sqlx_fixture_from_str;
 
 /// Setup logging for tests. Only our own test binary needs this global initializer (it depends on
 /// the dev-only `ctor` crate); consumers of the `test-support` fixtures bring their own logging.

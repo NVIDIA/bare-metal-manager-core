@@ -99,7 +99,7 @@ impl From<forgerpc::Vpc> for VpcRowDisplay {
 }
 
 /// List VPCs
-pub async fn show_html(AxumState(state): AxumState<Arc<Api>>) -> Response {
+pub(super) async fn show_html(AxumState(state): AxumState<Arc<Api>>) -> Response {
     let vpcs = match fetch_vpcs(state.clone()).await {
         Ok(n) => n,
         Err(err) => {
@@ -114,7 +114,7 @@ pub async fn show_html(AxumState(state): AxumState<Arc<Api>>) -> Response {
     (StatusCode::OK, Html(tmpl.render().unwrap())).into_response()
 }
 
-pub async fn show_all_json(AxumState(state): AxumState<Arc<Api>>) -> Response {
+pub(super) async fn show_all_json(AxumState(state): AxumState<Arc<Api>>) -> Response {
     let vpcs = match fetch_vpcs(state).await {
         Ok(n) => n,
         Err(err) => {
@@ -235,7 +235,7 @@ impl From<forgerpc::Vpc> for VpcDetail {
 }
 
 /// View VPC details
-pub async fn detail(
+pub(super) async fn detail(
     AxumState(state): AxumState<Arc<Api>>,
     AxumPath(vpc_id): AxumPath<String>,
 ) -> Response {

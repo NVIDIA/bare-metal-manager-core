@@ -40,7 +40,7 @@ fn setup() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn test_machine_a_tron_rack_integration() -> eyre::Result<()> {
-    let Some(test_env) = IntegrationTestEnvironment::try_from_environment(
+    let Some(mut test_env) = IntegrationTestEnvironment::try_from_environment(
         1,
         "api_server_test_machine_a_tron_rack_integration",
     )
@@ -63,7 +63,7 @@ async fn test_machine_a_tron_rack_integration() -> eyre::Result<()> {
     let empty_firmware_dir = temp_dir::TempDir::with_prefix("firmware")?;
     let cancel_token = CancellationToken::new();
     let server_handle = utils::start_api_server(
-        test_env.clone(),
+        &mut test_env,
         TestApiServerArgs {
             bmc_proxy: Some(HostPortPair::HostAndPort(
                 "127.0.0.1".to_string(),

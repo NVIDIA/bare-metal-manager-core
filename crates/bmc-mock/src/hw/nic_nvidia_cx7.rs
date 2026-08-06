@@ -22,13 +22,13 @@ use mac_address::MacAddress;
 use crate::hw;
 
 // This type describes NVIDIA ConnectX-7A Dual Port NIC.
-pub struct NicNvidiaCx7A<'a> {
-    pub serial_number: Cow<'a, str>,
-    pub mac_addresses: [MacAddress; 2],
+pub(crate) struct NicNvidiaCx7A<'a> {
+    pub(crate) serial_number: Cow<'a, str>,
+    pub(crate) mac_addresses: [MacAddress; 2],
 }
 
 impl NicNvidiaCx7A<'_> {
-    pub fn ethernet_nics(&self) -> [hw::nic::Nic<'_>; 2] {
+    pub(super) fn ethernet_nics(&self) -> [hw::nic::Nic<'_>; 2] {
         self.mac_addresses.map(|mac| hw::nic::Nic {
             mac_address: mac,
             serial_number: Some(self.serial_number.clone()),
@@ -37,19 +37,18 @@ impl NicNvidiaCx7A<'_> {
             description: None,
             part_number: Some("CX755206A      ".into()),
             firmware_version: None,
-            is_mat_dpu: false,
         })
     }
 }
 
 // This type describes NVIDIA ConnectX-7B 4x port NIC Ethernet/IB.
-pub struct NicNvidiaCx7B<'a> {
-    pub serial_number: Cow<'a, str>,
-    pub mac_addresses: [MacAddress; 4],
+pub(crate) struct NicNvidiaCx7B<'a> {
+    pub(crate) serial_number: Cow<'a, str>,
+    pub(crate) mac_addresses: [MacAddress; 4],
 }
 
 impl NicNvidiaCx7B<'_> {
-    pub fn ib_nics(&self) -> [hw::nic::Nic<'_>; 4] {
+    pub(super) fn ib_nics(&self) -> [hw::nic::Nic<'_>; 4] {
         self.mac_addresses.map(|mac_address| hw::nic::Nic {
             mac_address,
             serial_number: Some(self.serial_number.clone()),
@@ -58,7 +57,6 @@ impl NicNvidiaCx7B<'_> {
             description: None,
             part_number: Some("MCX750500B-692".into()),
             firmware_version: None,
-            is_mat_dpu: false,
         })
     }
 }

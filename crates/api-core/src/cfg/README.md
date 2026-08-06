@@ -20,7 +20,7 @@ applicable.
 | `database_pool_acquire_timeout` | `Duration` | `30s` | `server` | How long a caller may wait for a connection from the pool before the attempt fails (sqlx's own default); trips on a stalled database or a saturated pool alike. Must be greater than zero (startup rejects `0`). |
 | `database_pool_idle_timeout` | `Duration` | `10m` | `server` | Idle time after which the pool closes a connection, keeping the pool's own reaping well inside the Postgres server's 60-minute idle-session reaper. Must be greater than zero (startup rejects `0`). |
 | `database_pool_max_lifetime` | `Duration` | `30m` | `server` | Maximum age of a pooled connection before it is recycled, so the pool re-balances onto the current primary after a database failover. Must be greater than zero (startup rejects `0`). |
-| `api_admission_control` | `ApiAdmissionControlConfig` | *(see below)* | `server` | Shared execution and pending-request limits for gRPC and admin HTTP business requests. |
+| `api_admission_control` | `ApiAdmissionControlConfig` | *(see below)* | `server` | Fair per-client admission with global execution and pending-request limits for gRPC and admin HTTP business requests. |
 | `ib_config` | `Option<IBFabricConfig>` | — | `hardware` | InfiniBand fabric configuration (see [IBFabricConfig](#ibfabricconfig)). |
 | `asn` | `u32` | **required** | `networking` | Autonomous System Number, fixed per environment. Used by nico-dpu-agent for `frr.conf` BGP routing. |
 | `dhcp_servers` | `Vec<Ipv4Addr>` | `[]` | `networking` | DHCP server addresses announced to DPUs during network provisioning. |
@@ -29,6 +29,7 @@ applicable.
 | `enable_route_servers` | `bool` | `false` | `networking` | Enables route server injection into DPU FRR configs for L2VPN. |
 | `deny_prefixes` | `Vec<IpNetwork>` | `[]` | `networking` | IPv4 and IPv6 CIDR prefixes that tenant instances are blocked from reaching. FNN generates family-specific NVUE ACL policies; all non-FNN virtualizers apply the IPv4 prefixes only. |
 | `site_fabric_prefixes` | `Vec<IpNetwork>` | `[]` | `networking` | IP prefixes (v4/v6) assigned for tenant use within this site. |
+| `max_site_prefixes_per_tenant` | `u32` | `8` | `networking` | Maximum tenant-managed SitePrefixes retained for one tenant at this site. Prefixes awaiting removal still count against this limit and keep their CIDR reserved. |
 | `anycast_site_prefixes` | `Vec<Ipv4Network>` | `[]` | `networking` | Aggregate IPv4 prefixes containing tenant-announced prefixes (e.g., BYOIP). **Deprecated.** Use [`routing_profiles.allowed_anycast_prefixes`](#fnnroutingprofileconfig) instead. |
 | `common_tenant_host_asn` | `Option<u32>` | — | `networking` | ASN that tenants use to peer with the DPU. If unset, any ASN is accepted. |
 | `vpc_isolation_behavior` | `VpcIsolationBehaviorType` | `MutualIsolation` | `networking` | VPC isolation policy: `mutual_isolation` or `open`. |
@@ -259,12 +260,52 @@ available for topology-specific flows.
 
 ### `ApiAdmissionControlConfig`
 
+Admission control places each authenticated client in its own bounded FIFO and
+schedules those clients fairly within the global execution and pending-request
+budgets. The default per-client limits apply to external users, SPIFFE machines,
+SPIFFE services without an override, and requests without a recognized client
+identity. An exact SPIFFE service override can give a trusted internal service a
+different share without allowing it to exceed either global bound.
+
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
-| `enabled` | `bool` | `true` | Enable bounded API admission. Set to `false` to restore unrestricted request admission. |
+| `enabled` | `bool` | `true` | Enable fair, bounded API admission. When `false`, admission is bypassed and the other fields in this section are not validated. |
 | `max_work_in_flight` | `usize` | `64` | Maximum business requests executing concurrently. When enabled, must be greater than zero and no greater than `tokio::sync::Semaphore::MAX_PERMITS`. |
 | `max_pending` | `usize` | `1024` | Maximum business requests waiting for execution. When enabled, must be greater than zero and no greater than `tokio::sync::Semaphore::MAX_PERMITS`. |
-| `pending_timeout` | `Duration` | `5s` | Maximum time a pending request may wait for execution. Must be greater than zero when admission control is enabled. |
+| `max_work_in_flight_per_client` | `usize` | `8` | Default maximum business requests from one client that may execute concurrently. Must be greater than zero, no greater than `max_work_in_flight`, and representable as a `u32`. |
+| `max_pending_per_client` | `usize` | `64` | Default hard bound on pending business requests from one client. Must be greater than zero and no greater than `max_pending`. |
+| `pending_timeout` | `Duration` | `5s` | Default maximum time a client's pending request may wait for execution. Admission can reject earlier when its queue-delay estimate exceeds this value. Must be greater than zero. |
+| `client_idle_timeout` | `Duration` | `5m` | How long an empty, inactive client's scheduler state is cached before cleanup. Must be greater than zero. |
+| `service_limits` | `BTreeMap<String, ApiAdmissionServiceLimitsConfig>` | `{}` | Per-service overrides keyed by the exact SPIFFE service identifier described below. Unlisted services use the default per-client limits. |
+
+#### `ApiAdmissionServiceLimitsConfig`
+
+Every field is required for each service override; the nested structure has no
+field-level defaults.
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `max_work_in_flight` | `usize` | **required** | Maximum requests from this service that may execute concurrently. Must be greater than zero, no greater than the global `max_work_in_flight`, and representable as a `u32`. |
+| `max_pending` | `usize` | **required** | Hard bound on this service's pending requests. Must be greater than zero and no greater than the global `max_pending`. |
+| `pending_timeout` | `Duration` | **required** | Maximum time this service's pending request may wait for execution. Admission can reject earlier when its queue-delay estimate exceeds this value. Must be greater than zero. |
+
+The map key is the identifier extracted by removing one of
+`auth.trust.spiffe_service_base_paths` from the certificate's SPIFFE path. For
+example, a SPIFFE path `/forge-system/sa/scout` with base path
+`/forge-system/sa/` has service identifier `scout`:
+
+```toml
+[api_admission_control.service_limits.scout]
+max_work_in_flight = 16
+max_pending = 128
+pending_timeout = "5s"
+```
+
+Matching is exact and case-sensitive. Keys are not trimmed, expanded as
+prefixes, or interpreted as globs. Configure `scout`, not the full SPIFFE URI
+and not the rendered principal `spiffe-service-id/scout`. An override key must
+contain at least one non-whitespace character. Quote a TOML key when the
+extracted identifier contains characters such as `/` or `.`.
 
 ### `TlsConfig`
 
@@ -339,7 +380,6 @@ available for topology-specific flows.
 | `allow_changing_bmc_proxy` | `Option<bool>` | *(auto)* | Allow runtime changes to `bmc_proxy`. Auto-detected from initial config. |
 | `reset_rate_limit` | `Duration` | `1h` | Minimum time between SiteExplorer-initiated BMC resets. |
 | `admin_segment_type_non_dpu` | `bool` | `false` | Non-DPU hosts use `HostInband` admin segment type. |
-| `allocate_secondary_vtep_ip` | `bool` | `false` | Allocate secondary VTEP IP for GENEVE traffic intercept. |
 | `create_power_shelves` | `bool` | `true` | Auto-create Power Shelf state machines for explored shelves with a matching `expected_power_shelves` record. Shelves are discovered at their `expected_power_shelves` static IP even without a DHCP lease. |
 | `power_shelves_created_per_run` | `u64` | `1` | Max power shelves created per run. |
 | `create_switches` | `bool` | `true` | Auto-create Switch state machines for explored switches with a matching `expected_switches` record. |
@@ -470,22 +510,14 @@ Extends `StateControllerConfig` with:
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
 | `allow_instance_vf` | `bool` | `true` | Allow VFs on instance creation. |
-| `hbn_reps` | `Option<String>` | — | HBN representors created by DPUs. |
-| `hbn_sfs` | `Option<String>` | — | HBN SF representors created by DPUs. |
-| `bridging` | `Option<TrafficInterceptBridging>` | — | Advanced traffic-intercept routing and bridging options. |
-| `public_prefixes` | `Vec<Ipv4Network>` | **required** | Publicly routable IPv4 CIDR prefixes used by traffic-intercept users. |
-| `secondary_vtep_aggregate_prefixes` | `Vec<IpNetwork>` | `[]` | IPv4 or IPv6 aggregate prefixes used only for routing and filtering. IP allocation is provided by the secondary VTEP resource pool. |
-| `secondary_overlay_support` | `bool` | `true` | Whether secondary overlay VTEP IPs are expected for DPUs. |
+| `hbn_reps` | `Option<String>` | — | Select which representors from the configured VF population HBN is expected to use during DPU provisioning. When omitted, HBN uses its default representor selection. |
+| `bridging` | `Option<HostRepresentorBridgingConfig>` | — | Provisioning-time topology for bridges inserted between host representors and HBN. |
 
-### `TrafficInterceptBridging`
+### `HostRepresentorBridgingConfig`
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
-| `internal_bridge_routing_prefix` | `Ipv4Network` | **required** | Prefix used for internal routing between HBN and intercept bridges within the DPU. |
-| `hbn_bridge` | `String` | `"br-hbn"` | Bridge that intercept patch ports attach to during BlueField provisioning. |
-| `vf_intercept_bridge_name` | `String` | `"br-dpu"` | Bridge between VM-owned VFs and br-hbn. |
-| `vf_intercept_bridge_port` | `String` | `"patch-br-dpu-to-hbn"` | Patch port on the VF intercept bridge side. |
-| `vf_intercept_bridge_sf` | `String` | **required** | SF used for internal routing of VF traffic. |
+| `hbn_bridge` | `String` | `"br-hbn"` | HBN/SFC bridge that host-representor patch ports attach to during BlueField provisioning. |
 | `host_representor_intercept_bridging` | `HashMap<String, HostInterceptBridging>` | `{}` | Host-owned PF/VF representor bridge layout keyed by representor name. Non-skipped entries are sent to BlueField provisioning as `<representor>:<bridge>:<patch_port>`. |
 
 ### `HostInterceptBridging`
@@ -494,7 +526,7 @@ Extends `StateControllerConfig` with:
 |-------|------|---------|-------------|
 | `bridge` | `String` | **required** | Bridge that sits between the host PF/VF representor and br-hbn or br-sfc. |
 | `patch_port` | `String` | **required** | Patch port on this bridge that connects it toward HBN or SFC. |
-| `skip_create` | `bool` | `false` | When true, the entry is sent to DPU agents but omitted from provisioning-time bridge creation. |
+| `skip_create` | `bool` | `false` | When true, the entry is omitted from provisioning-time bridge creation. |
 
 ### `DpuConfig`
 
@@ -628,10 +660,21 @@ events, so consumers handle them identically.
 |-------|------|---------|-------------|
 | `enabled` | `bool` | `false` | Enable DPF Kubernetes deployment. |
 | `dpu_agent_bootstrap_ca` | `DpfDpuAgentBootstrapCa` | `legacy_download` | Bootstrap trust for the containerized DPU agent. Supports `legacy_download` and `mounted`, as described in the following examples. |
-| `services` | `Box<DpfMandatoryServicesConfig>` | built-in mandatory-service defaults | Helm chart, image, and pull-secret settings for the six mandatory DPF services. |
+| `services` | `Box<DpfMandatoryServicesConfig>` | built-in mandatory-service defaults | Helm chart, image, pull-secret, and `extra_helm_values` settings for the six mandatory DPF services. |
 | `docker_image_pull_secret` | `Option<String>` | — | Override for the Kubernetes `imagePullSecrets` entry used to pull mandatory-service images (applied to every mandatory service except `dts` and `doca_hbn`, which take a pull secret only from their per-service config). |
 | `proxy` | `Option<DpfProxyDetails>` | — | Proxy configuration for the DPU. When set, containerd on the DPU routes outbound HTTPS traffic through it. |
 | `deployments` | `DpfDeploymentsConfig` | *(default)* | Per-generation DPUDeployment configurations. BF3 is always present with defaults; BF4 variants are opt-in. BF4 Astra gets default Weave DHCP agent, Weave flow controller, and Xplane services; `extra_services` can replace any of those definitions. |
+
+Each entry under `[dpf.services]` accepts a chart-native `extra_helm_values` table. NICo
+deep-merges it over generated `DPUServiceTemplate` values. Nested scalars and arrays
+replace generated values. DPF applies NICo's deployment-specific
+`DPUServiceConfiguration` values after the template values.
+Top-level and per-deployment service fields both overlay the service's built-in defaults.
+
+```toml
+[dpf.services.dpu_agent.extra_helm_values.fmds]
+sign_proxy_url = "http://dsx-imds.dpf-operator-system.svc.cluster.local:8080"
+```
 
 Omitting `[dpf.dpu_agent_bootstrap_ca]` preserves the historical download URL.
 Use the following configuration to retain download mode while overriding the

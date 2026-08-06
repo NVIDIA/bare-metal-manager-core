@@ -30,7 +30,7 @@ use x509_parser::prelude::{FromDer, GeneralName};
 use crate::attestation::get_ek_cert_by_machine_id;
 use crate::{CarbideError, CarbideResult};
 
-pub fn extract_ca_fields(
+pub(crate) fn extract_ca_fields(
     ca_cert_bytes: &[u8],
 ) -> CarbideResult<(DateTime<Utc>, DateTime<Utc>, Vec<u8>)> {
     let ca_cert = X509Certificate::from_der(ca_cert_bytes)
@@ -48,7 +48,7 @@ pub fn extract_ca_fields(
     ))
 }
 
-pub async fn match_insert_new_ek_cert_status_against_ca(
+pub(crate) async fn match_insert_new_ek_cert_status_against_ca(
     txn: &mut PgConnection,
     tpm_ek_cert: &TpmEkCertificate,
     machine_id: &MachineId,
@@ -165,7 +165,7 @@ pub async fn match_insert_new_ek_cert_status_against_ca(
 }
 
 // returns true if ek cert has been matched and status was updated, false otherwise
-pub async fn match_update_existing_ek_cert_status_against_ca(
+pub(crate) async fn match_update_existing_ek_cert_status_against_ca(
     txn: &mut PgConnection,
     ca_id: i32,
     ca_cert_bytes: &[u8],

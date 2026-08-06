@@ -9,6 +9,10 @@
 {{- $bootstrapCaObjectKey = get $bootstrapCaObject "key" -}}
 {{- end -}}
 {{- $certsDir := .Values.certsDir | default "/opt/nico" -}}
+{{- $podAnnotations := .Values.serviceDaemonSet.annotations -}}
+{{- if .Values.fmds.sign_proxy_url -}}
+{{- $podAnnotations = omit $podAnnotations "checksum/machine-identity-config" -}}
+{{- end -}}
 {{- if not (has $bootstrapCaSource (list "legacy_download" "mounted")) -}}
 {{- fail (printf "bootstrapCa.source must be one of legacy_download or mounted; got %q" $bootstrapCaSource) -}}
 {{- end -}}
@@ -60,8 +64,11 @@ spec:
   template:
     metadata:
       annotations:
-        {{- with .Values.serviceDaemonSet.annotations }}
+        {{- with $podAnnotations }}
           {{- toYaml . | nindent 8 }}
+        {{- end }}
+        {{- with .Values.fmds.sign_proxy_url }}
+        checksum/machine-identity-config: {{ include (print $.Template.BasePath "/configmap.yaml") $ | sha256sum }}
         {{- end }}
       labels:
         {{- include "nico-dpu-agent.selectorLabels" . | nindent 8 }}
@@ -131,6 +138,9 @@ spec:
             {{- toYaml .Values.securityContext | nindent 12 }}
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
           args:
+            {{- with .Values.fmds.sign_proxy_url }}
+            - "--config-path=/etc/forge/config.toml"
+            {{- end }}
             - run
             - "--hbn-config-mode=nvue-rest"
             - "--agent-platform-type=containerized"
@@ -182,12 +192,23 @@ spec:
                   name: {{ .Values.hbn.nvue_credentials_secret_name }}
                   key: {{ .Values.hbn.nvue_password_key }}
           volumeMounts:
+            {{- with .Values.fmds.sign_proxy_url }}
+            - name: agent-config
+              mountPath: /etc/forge/config.toml
+              subPath: config.toml
+              readOnly: true
+            {{- end }}
             - name: nico-certs
               mountPath: {{ .Values.certsDir | default "/opt/nico" }}
             - name: hw-cache
               mountPath: /data
               readOnly: true
       volumes:
+        {{- with .Values.fmds.sign_proxy_url }}
+        - name: agent-config
+          configMap:
+            name: {{ include "nico-dpu-agent.fullname" $ }}-config
+        {{- end }}
         - name: nico-certs
           hostPath:
             path: {{ .Values.certsDir | default "/opt/nico" }}

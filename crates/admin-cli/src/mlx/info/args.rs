@@ -36,7 +36,7 @@ Get the full device report for a machine:
     $ nico-admin-cli mlx info machine 12345678-1234-5678-90ab-cdef01234567
 
 ")]
-pub enum InfoCommand {
+pub(crate) enum InfoCommand {
     #[clap(about = "Get MlxDeviceInfo for a device on a machine")]
     Device(InfoDeviceCommand),
 
@@ -46,19 +46,19 @@ pub enum InfoCommand {
 
 // InfoDeviceCommand shows device information.
 #[derive(Parser, Debug)]
-pub struct InfoDeviceCommand {
+pub(crate) struct InfoDeviceCommand {
     #[arg(help = "Carbide Machine ID")]
-    pub machine_id: MachineId,
+    machine_id: MachineId,
 
     #[arg(help = "Device ID is the PCI or mst path on the target machine")]
-    pub device_id: String,
+    device_id: String,
 }
 
 // InfoMachineCommand shows machine information.
 #[derive(Parser, Debug)]
-pub struct InfoMachineCommand {
+pub(crate) struct InfoMachineCommand {
     #[arg(help = "Carbide Machine ID")]
-    pub machine_id: MachineId,
+    machine_id: MachineId,
 }
 
 impl From<InfoDeviceCommand> for mlx_device_pb::MlxAdminDeviceInfoRequest {

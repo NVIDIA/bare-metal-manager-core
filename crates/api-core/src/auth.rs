@@ -22,9 +22,10 @@ use carbide_authn::middleware::{ExternalUserInfo, Principal};
 use crate::CarbideError;
 
 mod casbin_engine;
-pub mod internal_rbac_rules;
-pub mod middleware;
-pub mod mqtt_auth;
+mod internal_rbac_rules;
+pub(crate) mod middleware;
+pub(crate) mod mqtt_auth;
+#[cfg(test)]
 mod test_certs;
 
 pub type AuthContext = carbide_authn::middleware::AuthContext<Authorization>;
@@ -72,7 +73,7 @@ pub struct Authorization {
 impl carbide_authn::middleware::Authorization for Authorization {}
 
 #[derive(thiserror::Error, Debug, Clone)]
-pub enum AuthorizationError {
+enum AuthorizationError {
     #[error("unauthorized: CasbinEngine: all auth principals denied by enforcer")]
     Unauthorized,
 }
@@ -84,7 +85,7 @@ impl From<AuthorizationError> for tonic::Status {
     }
 }
 
-pub fn external_user_info<T>(
+pub(crate) fn external_user_info<T>(
     request: &tonic::Request<T>,
 ) -> Result<ExternalUserInfo, CarbideError> {
     if let Some(external_user_info) = request
@@ -103,14 +104,14 @@ pub fn external_user_info<T>(
 // This is a "predicate" in the grammar sense of the word, so it's some sort of
 // action that may or may not specify an object it's acting on.
 #[derive(Clone, Debug)]
-pub enum Predicate {
+enum Predicate {
     // A call to a Forge-owned gRPC method. The string is the gRPC method name,
     // relative to the Forge service that contains it (i.e. without any slash
     // delimiters).
     ForgeCall(String),
 }
 
-pub trait PrincipalExtractor {
+trait PrincipalExtractor {
     // Extract all useful principals from a request.
     fn principals(&self) -> Vec<Principal>;
 }
@@ -130,7 +131,7 @@ impl PrincipalExtractor for &[Principal] {
 }
 
 // A PolicyEngine is anything that can enforce whether a request is allowed.
-pub trait PolicyEngine {
+trait PolicyEngine {
     fn authorize(
         &self,
         principals: &[Principal],
@@ -138,19 +139,19 @@ pub trait PolicyEngine {
     ) -> Result<Authorization, AuthorizationError>;
 }
 
-pub type PolicyEngineObject = dyn PolicyEngine + Send + Sync;
+type PolicyEngineObject = dyn PolicyEngine + Send + Sync;
 
 #[derive(Clone)]
-pub struct CasbinAuthorizer {
+pub(crate) struct CasbinAuthorizer {
     policy_engine: Arc<PolicyEngineObject>,
 }
 
 impl CasbinAuthorizer {
-    pub fn new(policy_engine: Arc<PolicyEngineObject>) -> Self {
+    fn new(policy_engine: Arc<PolicyEngineObject>) -> Self {
         Self { policy_engine }
     }
 
-    pub fn authorize<R: PrincipalExtractor>(
+    fn authorize<R: PrincipalExtractor>(
         &self,
         req: &R,
         predicate: Predicate,
@@ -174,7 +175,7 @@ impl CasbinAuthorizer {
         self.policy_engine = permissive_engine;
     }
 
-    pub async fn build_casbin(
+    pub(crate) async fn build_casbin(
         policy_path: &Path,
         permissive_mode: bool,
     ) -> Result<Self, CasbinAuthorizerError> {
@@ -193,7 +194,7 @@ impl CasbinAuthorizer {
 }
 
 #[derive(thiserror::Error, Clone, Debug)]
-pub enum CasbinAuthorizerError {
+pub(crate) enum CasbinAuthorizerError {
     #[error("initialization error: {0}")]
     InitializationError(String),
 }

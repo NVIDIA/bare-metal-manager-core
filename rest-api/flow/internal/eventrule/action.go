@@ -54,15 +54,16 @@ func (c ActionCondition) validate() error {
 	return nil
 }
 
-// AppliesTo reports whether the condition accepts the envelope.
-func (c ActionCondition) AppliesTo(envelope Envelope) bool {
+// AppliesTo reports whether the condition accepts the envelope and its
+// canonically resolved resource.
+func (c ActionCondition) AppliesTo(envelope Envelope, resource ResolvedResource) bool {
 	if c.Severities != nil &&
 		!slices.Contains(c.Severities, envelope.Severity) {
 		return false
 	}
 
 	if c.ComponentTypes != nil &&
-		!slices.Contains(c.ComponentTypes, envelope.Resource.ComponentType) {
+		!slices.Contains(c.ComponentTypes, resource.ComponentType) {
 		return false
 	}
 
@@ -242,6 +243,9 @@ func (s SendAlert) Type() ActionType {
 func (s SendAlert) validate() error {
 	if err := s.Severity.Validate(); err != nil {
 		return err
+	}
+	if s.Severity.IsUnspecified() {
+		return fmt.Errorf("alert severity cannot be unspecified")
 	}
 
 	return validateOptionalString("alert message", s.Message)

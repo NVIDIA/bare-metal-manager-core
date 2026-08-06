@@ -19,79 +19,79 @@
 //! (i.e. how this hardware is represented via Redfish).
 
 /// Description of NIC card.
-pub mod nic;
+pub(super) mod nic;
 
 /// Support of NVIDIA Bluefield3 DPU.
-pub mod bluefield3;
+pub(super) mod bluefield3;
 
 /// Support of NVIDIA Bluefield4 DPU.
-pub mod bluefield4;
+pub(super) mod bluefield4;
 
 /// Generic AMI server.
-pub mod generic_ami;
+pub(super) mod generic_ami;
 
 /// Support of HPE ProLiant DL380a Gen11 servers (iLO 6).
-pub mod hpe_proliant_dl380a_gen11;
+pub(super) mod hpe_proliant_dl380a_gen11;
 
 /// Support of Dell PowerEdge R750 servers.
-pub mod dell_poweredge_r750;
+pub(super) mod dell_poweredge_r750;
 
 /// Support of Dell PowerEdge R760 server with Bluefield4 installed.
-pub mod dell_poweredge_r760_bf4;
+pub(super) mod dell_poweredge_r760_bf4;
 
 /// Support of Wiwynn GB200 NVL servers.
-pub mod wiwynn_gb200_nvl;
+pub(super) mod wiwynn_gb200_nvl;
 
 /// Rack hardware layouts.
-pub mod rack;
+pub(super) mod rack;
 
 /// WIWYNN GB200 NVL72 rack.
-pub mod wiwynn_gb200_nvl72_rack;
+pub(super) mod wiwynn_gb200_nvl72_rack;
 
 /// Support of Lenovo GB300 NVL servers.
-pub mod lenovo_gb300_nvl;
+pub(super) mod lenovo_gb300_nvl;
 
 /// Support of DGX GB300 NVL servers (NVIDIA "GB BMC" host).
-pub mod dgx_gb300_nvl;
+pub(super) mod dgx_gb300_nvl;
 
 /// Support of Supermicro (SMC) GB300 NVL servers (Supermicro OpenBMC host).
-pub mod supermicro_gb300_nvl;
+pub(super) mod supermicro_gb300_nvl;
 
 /// Support of DGX VR NVL servers.
-pub mod dgx_vr_nvl;
+pub(super) mod dgx_vr_nvl;
 
 /// Support of LiteOn Power Shelf.
-pub mod liteon_power_shelf;
+pub(super) mod liteon_power_shelf;
 
 /// Support of Delta Energy Systems Power Shelf.
-pub mod delta_power_shelf;
+pub(super) mod delta_power_shelf;
 
 /// Support of NVIDIA Switch ND5200_LD.
-pub mod nvidia_switch_nd5200_ld;
+pub(super) mod nvidia_switch_nd5200_ld;
 
 /// Support of NVIDIA Switch N5700_LD.
-pub mod nvidia_switch_n5700_ld;
+pub(super) mod nvidia_switch_n5700_ld;
 
 /// Support of NVIDIA DGX H100.
-pub mod nvidia_dgx_h100;
+pub(super) mod nvidia_dgx_h100;
 
 /// Common support of GB200 and GB300
-pub mod nvidia_gbx00;
+pub(super) mod nvidia_gbx00;
 
 /// GB200 CPU/GPU
-pub mod nvidia_gb200;
+pub(super) mod nvidia_gb200;
 
 /// GB300 CPU/GPU
-pub mod nvidia_gb300;
+pub(super) mod nvidia_gb300;
 
 /// Intel E810 NIC.
-pub mod nic_intel_e810;
+pub(super) mod nic_intel_e810;
 
 /// Intel X550 NIC.
-pub mod nic_intel_x550;
+pub(super) mod nic_intel_x550;
 
 /// Intel I210 NIC.
-pub mod nic_intel_i210;
+pub(super) mod nic_intel_i210;
 
 /// NVIDIA ConnectX-7.
-pub mod nic_nvidia_cx7;
+pub(super) mod nic_nvidia_cx7;

@@ -244,6 +244,43 @@ hwMacAddressRanges:
   rangeHostBits: 8
 ```
 
+### Persistence
+
+Persistence is disabled by default. Enable it when machine-a-tron runs alongside
+a long-lived NICo database:
+
+```yaml
+persistence:
+  enabled: true
+  size: 1Gi
+  accessModes:
+    - ReadWriteOnce
+  storageClass: ""
+```
+
+The shown `size`, `accessModes`, and `storageClass` values are the chart
+defaults. `size` accepts a Kubernetes storage quantity, and `accessModes`
+accepts Kubernetes PersistentVolumeClaim access modes supported by the selected
+storage. Set `storageClass` to a StorageClass name to request that class. When
+it is empty, the chart omits `storageClassName`; the cluster then uses its
+default StorageClass. The cluster must provide a default or explicitly selected
+StorageClass capable of satisfying the request, or an eligible pre-provisioned
+PersistentVolume.
+
+The chart creates one PersistentVolumeClaim for each configured `pods` entry
+that contains at least one machine group. It mounts the claim at
+`machineATron.persistDir`, which defaults to `/tmp/machine-a-tron-data`.
+Machine-a-tron stores simulated machine identity and installed operating-system
+state there. On a graceful pod restart it restores the devices and resumes them
+powered on. Without persistence, a restart creates new powered-off simulator
+state while Core may still consider the old machines assigned, preventing the
+simulated DPU agents from resuming their reports.
+
+The PVC does not use Helm's `keep` resource policy. Uninstalling the release or
+deleting the PVC deletes the claim and makes its simulator state unavailable.
+Whether Kubernetes also deletes the bound PersistentVolume and underlying data
+depends on that volume's reclaim policy.
+
 ### Supported Hardware Types
 
 | Type | Description |

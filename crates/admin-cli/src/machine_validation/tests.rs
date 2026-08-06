@@ -25,10 +25,12 @@
 
 use carbide_test_support::Outcome::*;
 use carbide_test_support::scenarios;
+use carbide_uuid::machine::MachineId;
 use carbide_uuid::machine_validation::MachineValidationId;
-use clap::{CommandFactory, Parser};
+use clap::CommandFactory;
 
 use super::*;
+use crate::test_support::{parse_leaf, raw_value, raw_values};
 
 // Define a basic/working MachineId for testing.
 const TEST_MACHINE_ID: &str = "fm100ht038bg3qsho433vkg684heguv282qaggmrsh2ugn1qk096n2c6hcg";
@@ -56,19 +58,16 @@ fn verify_cmd_structure() {
 fn parse_external_config_routes_and_carries_fields() {
     scenarios!(
         run = |argv| {
-            Cmd::try_parse_from(argv.iter().copied())
-                .map(|cmd| match cmd {
-                    Cmd::ExternalConfig(external_config::Args::Show(args)) => {
-                        // show has no file-name; surface its (empty) name filter
-                        // as a joined string so both arms yield (String, String)
-                        (String::new(), args.name.join(","))
-                    }
-                    Cmd::ExternalConfig(external_config::Args::AddUpdate(args)) => {
-                        (args.file_name, args.name)
-                    }
-                    _ => panic!("expected ExternalConfig variant"),
-                })
-                .map_err(drop)
+            let action = argv[2];
+            let matches = parse_leaf::<Cmd>(argv, &["external-config", action]).map_err(drop)?;
+            Ok::<_, ()>(match action {
+                "show" => (String::new(), raw_values(&matches, "name").join(",")),
+                "add-update" => (
+                    raw_value(&matches, "file_name").expect("file name is required"),
+                    raw_value(&matches, "name").expect("name is required"),
+                ),
+                _ => unreachable!("unexpected external-config action"),
+            })
         };
         "show defaults to an empty name filter" {
             &["machine-validation", "external-config", "show"][..] => Yields((String::new(), String::new())),
@@ -96,14 +95,14 @@ fn parse_external_config_routes_and_carries_fields() {
 fn parse_on_demand_start_carries_machine() {
     scenarios!(
         run = |argv| {
-            Cmd::try_parse_from(argv.iter().copied())
-                .map(|cmd| match cmd {
-                    Cmd::OnDemand(on_demand::Args::Start(args)) => {
-                        (args.machine.to_string(), args.run_unverified_tests)
-                    }
-                    _ => panic!("expected OnDemand Start variant"),
-                })
-                .map_err(drop)
+            let matches = parse_leaf::<Cmd>(argv, &["on-demand", "start"]).map_err(drop)?;
+            Ok::<_, ()>((
+                matches
+                    .get_one::<MachineId>("machine")
+                    .copied()
+                    .expect("machine is required"),
+                matches.get_flag("run_unverified_tests"),
+            ))
         };
         "start with a machine ID" {
             &[
@@ -112,7 +111,7 @@ fn parse_on_demand_start_carries_machine() {
                 "start",
                 "--machine",
                 TEST_MACHINE_ID,
-            ][..] => Yields((TEST_MACHINE_ID.to_string(), false)),
+            ][..] => Yields((TEST_MACHINE_ID.parse::<MachineId>().unwrap(), false)),
         }
     );
 }
@@ -123,12 +122,11 @@ fn parse_on_demand_start_carries_machine() {
 fn parse_runs_show_machine_filter() {
     scenarios!(
         run = |argv| {
-            Cmd::try_parse_from(argv.iter().copied())
-                .map(|cmd| match cmd {
-                    Cmd::Runs(runs::Args::Show(args)) => (args.machine.is_some(), args.history),
-                    _ => panic!("expected Runs Show variant"),
-                })
-                .map_err(drop)
+            let matches = parse_leaf::<Cmd>(argv, &["runs", "show"]).map_err(drop)?;
+            Ok::<_, ()>((
+                matches.get_one::<MachineId>("machine").is_some(),
+                matches.get_flag("history"),
+            ))
         };
         "no machine filter (and history defaults off)" {
             &["machine-validation", "runs", "show"][..] => Yields((false, false)),
@@ -153,14 +151,13 @@ fn parse_results_show_filters() {
     let validation_id = MachineValidationId::new();
     scenarios!(
         run = |argv| {
-            Cmd::try_parse_from(argv.iter().copied())
-                .map(|cmd| match cmd {
-                    Cmd::Results(results::Args::Show(args)) => {
-                        (args.machine.is_some(), args.validation_id)
-                    }
-                    _ => panic!("expected Results Show variant"),
-                })
-                .map_err(drop)
+            let matches = parse_leaf::<Cmd>(argv, &["results", "show"]).map_err(drop)?;
+            Ok::<_, ()>((
+                matches.get_one::<MachineId>("machine").is_some(),
+                matches
+                    .get_one::<MachineValidationId>("validation_id")
+                    .copied(),
+            ))
         };
         "with a machine filter" {
             &[
@@ -190,24 +187,33 @@ fn parse_results_show_filters() {
 fn parse_tests_subcommands() {
     scenarios!(
         run = |argv| {
-            Cmd::try_parse_from(argv.iter().copied())
-                .map(|cmd| match cmd {
-                    Cmd::Tests(tests_cmd::Args::Show(args)) => {
-                        // show: only test-id is meaningful; pad the tuple
-                        (args.test_id.is_some(), String::new(), String::new())
-                    }
-                    Cmd::Tests(tests_cmd::Args::Verify(args)) => {
-                        // verify: (present, test-id, version)
-                        (true, args.test_id, args.version)
-                    }
-                    Cmd::Tests(tests_cmd::Args::Add(args)) => {
-                        // add: name/command checked here, args asserted below
-                        assert_eq!(args.args, "--verbose", "tests add --args");
-                        (true, args.name, args.command)
-                    }
-                    _ => panic!("expected Tests variant"),
-                })
-                .map_err(drop)
+            let action = argv[2];
+            let matches = parse_leaf::<Cmd>(argv, &["tests", action]).map_err(drop)?;
+            Ok::<_, ()>(match action {
+                "show" => (
+                    raw_value(&matches, "test_id").is_some(),
+                    String::new(),
+                    String::new(),
+                ),
+                "verify" => (
+                    true,
+                    raw_value(&matches, "test_id").expect("test ID is required"),
+                    raw_value(&matches, "version").expect("version is required"),
+                ),
+                "add" => {
+                    assert_eq!(
+                        raw_value(&matches, "args").as_deref(),
+                        Some("--verbose"),
+                        "tests add --args",
+                    );
+                    (
+                        true,
+                        raw_value(&matches, "name").expect("name is required"),
+                        raw_value(&matches, "command").expect("command is required"),
+                    )
+                }
+                _ => unreachable!("unexpected tests action"),
+            })
         };
         "show leaves test-id unset" {
             &["machine-validation", "tests", "show"][..] => Yields((false, String::new(), String::new())),
@@ -249,12 +255,8 @@ fn parse_tests_add_img_name_validation() {
     let valid_img = format!("nvcr.io/foo/bar:v1.0@sha256:{VALID_DIGEST}");
     scenarios!(
         run = |argv| {
-            Cmd::try_parse_from(argv.iter().copied())
-                .map(|cmd| match cmd {
-                    Cmd::Tests(tests_cmd::Args::Add(args)) => args.img_name,
-                    _ => panic!("expected Tests Add variant"),
-                })
-                .map_err(drop)
+            let matches = parse_leaf::<Cmd>(argv, &["tests", "add"]).map_err(drop)?;
+            Ok::<_, ()>(raw_value(&matches, "img_name"))
         };
         "add accepts a pinned digest" {
             &[
@@ -308,12 +310,8 @@ fn parse_tests_update_img_name_validation() {
     let valid_img = format!("nvcr.io/foo/bar:v1.0@sha256:{VALID_DIGEST}");
     scenarios!(
         run = |argv| {
-            Cmd::try_parse_from(argv.iter().copied())
-                .map(|cmd| match cmd {
-                    Cmd::Tests(tests_cmd::Args::Update(args)) => args.img_name,
-                    _ => panic!("expected Tests Update variant"),
-                })
-                .map_err(drop)
+            let matches = parse_leaf::<Cmd>(argv, &["tests", "update"]).map_err(drop)?;
+            Ok::<_, ()>(raw_value(&matches, "img_name"))
         };
         "update accepts a pinned digest" {
             &[
@@ -356,7 +354,8 @@ fn parse_tests_update_img_name_validation() {
 fn invalid_invocations_are_rejected() {
     scenarios!(
         run = |argv| {
-            Cmd::try_parse_from(argv.iter().copied())
+            Cmd::command()
+                .try_get_matches_from(argv.iter().copied())
                 .map(|_| ())
                 .map_err(drop)
         };

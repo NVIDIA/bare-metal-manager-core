@@ -1142,7 +1142,6 @@ async fn test_site_explorer_unknown_vendor(pool: PgPool) -> Result<(), Box<dyn s
         concurrent_explorations: 1,
         run_interval: std::time::Duration::from_secs(1),
         create_machines: Arc::new(true.into()),
-        allocate_secondary_vtep_ip: true,
         create_power_shelves: Arc::new(true.into()),
         power_shelves_created_per_run: 1,
         create_switches: Arc::new(true.into()),
@@ -1341,7 +1340,6 @@ async fn test_expected_machine_device_type_metrics(
         concurrent_explorations: 1,
         run_interval: std::time::Duration::from_secs(1),
         create_machines: Arc::new(false.into()),
-        allocate_secondary_vtep_ip: true,
         create_power_shelves: Arc::new(true.into()),
         power_shelves_created_per_run: 1,
         create_switches: Arc::new(true.into()),
@@ -2110,7 +2108,6 @@ async fn test_site_explorer_audit_exploration_results(
         bmc_proxy: Arc::default(),
         reset_rate_limit: chrono::Duration::hours(1),
         admin_segment_type_non_dpu: Arc::new(false.into()),
-        allocate_secondary_vtep_ip: false,
         create_power_shelves: Arc::new(true.into()),
         power_shelves_created_per_run: 1,
         create_switches: Arc::new(true.into()),
@@ -2729,11 +2726,7 @@ async fn test_clear_error_resets_failed_preingestion(
 #[sqlx_test]
 async fn test_fallback_dpu_serial(pool: PgPool) -> Result<(), Box<dyn std::error::Error>> {
     let test_harness = TestHarness::builder(pool.clone())
-        .with_resource_pools(
-            ResourcePoolBuilder::default()
-                .with_secondary_vtep_ip("172.30.0.0/24")
-                .build(),
-        )
+        .with_resource_pools(ResourcePoolBuilder::default().build())
         .build()
         .await;
     let domain = test_harness.test_domain().await;
@@ -2773,7 +2766,6 @@ async fn test_fallback_dpu_serial(pool: PgPool) -> Result<(), Box<dyn std::error
         concurrent_explorations: 1,
         run_interval: std::time::Duration::from_secs(1),
         create_machines: Arc::new(true.into()),
-        allocate_secondary_vtep_ip: true,
         create_power_shelves: Arc::new(true.into()),
         power_shelves_created_per_run: 1,
         create_switches: Arc::new(true.into()),
@@ -3082,7 +3074,6 @@ async fn test_machine_creation_with_sku(pool: PgPool) -> Result<(), Box<dyn std:
         concurrent_explorations: 1,
         run_interval: std::time::Duration::from_secs(1),
         create_machines: Arc::new(true.into()),
-        allocate_secondary_vtep_ip: true,
         create_power_shelves: Arc::new(true.into()),
         power_shelves_created_per_run: 1,
         create_switches: Arc::new(true.into()),

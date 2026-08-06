@@ -536,6 +536,7 @@ async fn create_bluefield_software<R: BlueFieldSoftwareRepository>(
             pldm_fw_bundle: params.pldm_fw_bundle.clone(),
             nic_fw: None,
             platform_pldm_fw_bundle: None,
+            force_fw_update: None,
         },
         status: None,
     };

@@ -22,7 +22,7 @@ use clap::CommandFactory;
 use crate::cfg::cli_options::CliOptions;
 use crate::errors::CarbideCliResult;
 
-pub fn generate(out_dir: &Path) -> CarbideCliResult<()> {
+pub(super) fn generate(out_dir: &Path) -> CarbideCliResult<()> {
     std::fs::create_dir_all(out_dir)?;
     let cmd = CliOptions::command().name("nico-admin-cli");
     clap_mangen::generate_to(cmd, out_dir)?;

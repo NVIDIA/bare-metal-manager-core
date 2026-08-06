@@ -167,15 +167,6 @@ pub struct SiteExplorerConfig {
     )]
     pub admin_segment_type_non_dpu: Arc<AtomicBool>,
 
-    /// Whether site-controller should allocate a secondary
-    /// VTEP IP or leave that to discovery.
-    /// Current secondary VTEP use-case is additional
-    /// VTEP IPs for GENEVE VTEPS (GTEPS) used by traffic-intercept users.
-    ///  Only sites expected to support
-    /// additional VTEPS would turn this on.
-    #[serde(default)]
-    pub allocate_secondary_vtep_ip: bool,
-
     /// Whether SiteExplorer should create PowerShelf objects for explored power
     /// shelves that match an `expected_power_shelves` record. Defaults to true;
     /// set false to disable power shelf ingestion site-wide.
@@ -242,7 +233,6 @@ impl Default for SiteExplorerConfig {
             allow_changing_bmc_proxy: None,
             reset_rate_limit: Self::default_reset_rate_limit(),
             admin_segment_type_non_dpu: Self::default_admin_segment_type_non_dpu(),
-            allocate_secondary_vtep_ip: false,
             create_power_shelves: Self::default_create_power_shelves(),
             power_shelves_created_per_run: Self::default_power_shelves_created_per_run(),
             create_switches: Self::default_create_switches(),
@@ -273,7 +263,6 @@ impl PartialEq for SiteExplorerConfig {
             allow_changing_bmc_proxy,
             reset_rate_limit,
             admin_segment_type_non_dpu,
-            allocate_secondary_vtep_ip,
             create_power_shelves,
             power_shelves_created_per_run,
             create_switches,
@@ -303,7 +292,6 @@ impl PartialEq for SiteExplorerConfig {
                 == other
                     .admin_segment_type_non_dpu
                     .load(AtomicOrdering::Relaxed)
-            && *allocate_secondary_vtep_ip == other.allocate_secondary_vtep_ip
             && create_power_shelves.load(AtomicOrdering::Relaxed)
                 == other.create_power_shelves.load(AtomicOrdering::Relaxed)
             && *power_shelves_created_per_run == other.power_shelves_created_per_run

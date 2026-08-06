@@ -93,7 +93,7 @@ async fn host_uefi_device_version(
 /// Takes no database connection: the reader can be Vault-backed, so callers
 /// resolve the version-to-`key` half against the DB first, commit, then call
 /// this -- the remote read must not run while a connection is held.
-pub(crate) async fn read_uefi_credentials(
+pub(super) async fn read_uefi_credentials(
     reader: &dyn CredentialReader,
     key: &CredentialKey,
 ) -> Result<Credentials, CarbideError> {
@@ -119,7 +119,7 @@ pub(crate) async fn read_uefi_credentials(
 /// version and returns the key. The caller reads the secret with
 /// `read_uefi_credentials` after committing, so no connection is held across the
 /// remote reader (Vault) request.
-pub(crate) async fn host_uefi_set_credential_key(
+async fn host_uefi_set_credential_key(
     conn: &mut sqlx::PgConnection,
 ) -> Result<CredentialKey, CarbideError> {
     let version = host_uefi_target_version(conn).await.map_err(|e| {
@@ -136,7 +136,7 @@ pub(crate) async fn host_uefi_set_credential_key(
 /// the device version and returns the key. The caller reads the secret with
 /// `read_uefi_credentials` after committing, so no connection is held across the
 /// remote reader (Vault) request.
-pub(crate) async fn host_uefi_clear_credential_key(
+pub(super) async fn host_uefi_clear_credential_key(
     conn: &mut sqlx::PgConnection,
     bmc_mac: mac_address::MacAddress,
 ) -> Result<CredentialKey, CarbideError> {
@@ -173,7 +173,7 @@ async fn dpu_uefi_target_version(conn: &mut sqlx::PgConnection) -> Result<u32, d
 /// legacy unversioned site-default). The DPU analogue of
 /// [`host_uefi_set_credential_key`]; only the database half (reads the version
 /// and returns the key), so no connection is held across the remote reader.
-pub(crate) async fn dpu_uefi_set_credential_key(
+async fn dpu_uefi_set_credential_key(
     conn: &mut sqlx::PgConnection,
 ) -> Result<CredentialKey, CarbideError> {
     let version = dpu_uefi_target_version(conn).await.map_err(|e| {

@@ -342,11 +342,16 @@ impl BmcClient {
                 );
             })
             .inspect_err(|retry_error| {
-                // Only an auth failure condemns the credentials. A 500, a decode
-                // error or a dropped connection says nothing about them, and
-                // recording one would suppress the refresh for a genuine 401
-                // arriving later in the cooldown.
-                if is_auth_error(retry_error) {
+                // Only a credential rejection condemns the credentials, and
+                // deliberately not every error `is_auth_error` accepts. A 500, a
+                // decode error or a dropped connection says nothing about them,
+                // and neither does a 403: that means this identity may not read
+                // this *resource*, which is per-resource by definition. Treating
+                // one as an endpoint-wide verdict would let a single forbidden
+                // resource suppress the refresh for every other resource — and
+                // since it is polled every interval, it would re-condemn the
+                // credentials as fast as the cooldown expired.
+                if is_credential_rejection(retry_error) {
                     self.note_credentials_refused(retry_generation);
                 }
                 // Freshly fetched credentials were refused too, so this is a
@@ -792,6 +797,34 @@ pub(crate) fn is_auth_error(error: &HealthError) -> bool {
         HealthError::BmcError(inner) => is_auth_bmc_source_error(inner.as_ref()),
         _ => false,
     }
+}
+
+/// Whether the BMC rejected the *credentials themselves*, as opposed to
+/// refusing this identity access to one resource.
+///
+/// Strictly narrower than [`is_auth_error`]: 401 says the credentials are not
+/// valid, which is true of the endpoint as a whole, while 403 says they are
+/// valid but not privileged for the resource that was asked for. Only the
+/// former generalises, so only the former may be recorded as an endpoint-wide
+/// verdict. Retrying still uses the wider predicate — a rotation can change
+/// which account is in play, so replaying a 403 once is harmless.
+pub(crate) fn is_credential_rejection(error: &HealthError) -> bool {
+    match error {
+        HealthError::HttpError(message) => message.contains("HTTP 401"),
+        HealthError::BmcError(inner) => is_credential_rejection_bmc_source_error(inner.as_ref()),
+        _ => false,
+    }
+}
+
+fn is_credential_rejection_bmc_source_error(error: &(dyn std::error::Error + 'static)) -> bool {
+    error.downcast_ref::<BmcError>().is_some_and(|inner| {
+        matches!(
+            inner,
+            BmcError::InvalidResponse { status, .. } if *status == http::StatusCode::UNAUTHORIZED
+        )
+    }) || error
+        .downcast_ref::<HealthError>()
+        .is_some_and(is_credential_rejection)
 }
 
 pub(crate) fn is_auth_bmc_source_error(error: &(dyn std::error::Error + 'static)) -> bool {
@@ -1472,6 +1505,10 @@ mod tests {
         HealthError::BmcError(Box::new(bmc_status_error(http::StatusCode::UNAUTHORIZED)))
     }
 
+    fn forbidden_error() -> HealthError {
+        HealthError::BmcError(Box::new(bmc_status_error(http::StatusCode::FORBIDDEN)))
+    }
+
     #[tokio::test]
     async fn read_retries_once_after_refreshing_on_auth_error() {
         // NVBug 6506008: a 401 that only reflects rotated credentials must not
@@ -1862,6 +1899,93 @@ mod tests {
             !client.credentials_known_bad(generation),
             "a non-auth replay failure must not mark the generation bad"
         );
+    }
+
+    #[tokio::test]
+    async fn a_forbidden_resource_does_not_condemn_the_endpoints_credentials() {
+        // 403 means this identity may not read this *resource*; the credentials
+        // themselves are fine. Condemning them would let one forbidden resource
+        // suppress the refresh-and-replay for every other resource on the
+        // endpoint — and since it is polled every interval, it would re-condemn
+        // them as fast as the cooldown expired, disabling the retry for good.
+        let (provider, _) = CountingProvider::new(
+            BmcCredentials::SessionToken {
+                token: "t".to_string(),
+            },
+            None,
+        );
+        let client = BmcClient::new(reqwest(), test_addr(), provider, None, 10).expect("ok");
+        let (op, attempts) = scripted_op(vec![Err(forbidden_error()), Err(forbidden_error())]);
+
+        client
+            .read_with_auth_retry(op)
+            .await
+            .expect_err("the 403 surfaces");
+
+        assert_eq!(
+            attempts.load(AtomicOrdering::SeqCst),
+            2,
+            "a 403 is still replayed once, since a rotation can change the account"
+        );
+        let generation = client.credential_generation.load(Ordering::Acquire);
+        assert!(
+            !client.credentials_known_bad(generation),
+            "a forbidden resource must not condemn the endpoint's credentials"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_rejected_credential_still_condemns_the_generation() {
+        // The counterpart to the 403 case: 401 does generalise, so it must still
+        // produce the endpoint-wide verdict the suppression relies on.
+        let (provider, _) = CountingProvider::new(
+            BmcCredentials::SessionToken {
+                token: "t".to_string(),
+            },
+            None,
+        );
+        let client = BmcClient::new(reqwest(), test_addr(), provider, None, 10).expect("ok");
+        let (op, _) = scripted_op(vec![Err(auth_error()), Err(auth_error())]);
+
+        client
+            .read_with_auth_retry(op)
+            .await
+            .expect_err("the 401 surfaces");
+
+        let generation = client.credential_generation.load(Ordering::Acquire);
+        assert!(
+            client.credentials_known_bad(generation),
+            "a rejected credential must still be recorded"
+        );
+    }
+
+    #[test]
+    fn credential_rejection_is_narrower_than_auth_failure() {
+        for error in [
+            HealthError::BmcError(Box::new(bmc_status_error(http::StatusCode::UNAUTHORIZED))),
+            HealthError::HttpError("request failed with HTTP 401".to_string()),
+        ] {
+            assert!(is_auth_error(&error), "401 is an auth failure: {error:?}");
+            assert!(
+                is_credential_rejection(&error),
+                "401 rejects the credentials: {error:?}"
+            );
+        }
+
+        for error in [
+            HealthError::BmcError(Box::new(bmc_status_error(http::StatusCode::FORBIDDEN))),
+            HealthError::HttpError("request failed with HTTP 403".to_string()),
+        ] {
+            assert!(is_auth_error(&error), "403 is an auth failure: {error:?}");
+            assert!(
+                !is_credential_rejection(&error),
+                "403 does not reject the credentials: {error:?}"
+            );
+        }
+
+        let other = HealthError::HttpError("request failed with HTTP 404".to_string());
+        assert!(!is_auth_error(&other));
+        assert!(!is_credential_rejection(&other));
     }
 
     #[test]

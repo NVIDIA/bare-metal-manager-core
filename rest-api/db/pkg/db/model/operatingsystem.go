@@ -257,6 +257,18 @@ type OperatingSystem struct {
 	CreatedBy                  uuid.UUID                      `bun:"type:uuid,notnull"`
 }
 
+// IsTenantUsable reports whether the Operating System can be used by the
+// specified Tenant. Tenant-owned definitions are private to their owner.
+// Provider-owned Templated iPXE definitions are shared through synchronized
+// Site associations, which callers validate separately.
+func (os *OperatingSystem) IsTenantUsable(tenantID string) bool {
+	if os.TenantID != nil {
+		return os.TenantID.String() == tenantID
+	}
+
+	return os.InfrastructureProviderID != nil && os.Type == OperatingSystemTypeTemplatedIPXE
+}
+
 // GetSiteID returns the OperatingSystem ID to use when communicating
 // with the Site: ControllerOperatingSystemID when present, otherwise
 // the OS's own ID. The Site treats both as opaque identifiers.

@@ -271,6 +271,17 @@ For leak-related events, look for:
 report_source=tray-leak-detection
 ```
 
+Health report records exported over OTLP carry only these counts by default.
+Setting `include_alert_details = true` on a `[[sinks.otlp.targets]]` entry adds
+a `health_report.alerts` attribute holding a JSON array of the individual
+alerts, each with `probe_id`, `message`, `classifications`, and `target` when
+the alert names one. The setting is per target, so a debugging destination can
+receive detail while a long-term store receives only counts. At most 64 alerts
+are serialized per record; a truncated record also carries
+`health_report.alerts.dropped` with the number omitted. Note that `probe_id`
+uses health API probe names, so OOB GPU inventory alerts appear as
+`SkuValidation` to dedup with the in-band SKU alerts.
+
 ## DPU Health Checks
 
 `dpu-agent` runs on managed DPUs and reports DPU health to NICo. The BlueField
