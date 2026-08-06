@@ -11,68 +11,155 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestRedactAndMergeSecretsRoundTrip(t *testing.T) {
+func TestRedactSecrets(t *testing.T) {
+	cases := []struct {
+		name    string
+		payload string
+		fields  []string
+		// wantSecrets is the decoded secrets object, nil when nothing was
+		// extracted and the payload must come back untouched.
+		wantSecrets map[string]any
+		wantErr     bool
+	}{
+		{
+			name:        "extracts a named field",
+			payload:     `{"credentialType":"SiteWideBmcRoot","password":"s3cr3t","macAddress":"aa:bb"}`,
+			fields:      []string{"password"},
+			wantSecrets: map[string]any{"password": "s3cr3t"},
+		},
+		{
+			name:        "skips fields the payload does not carry",
+			payload:     `{"name":"run-1","password":"s3cr3t","token":"t0ken"}`,
+			fields:      []string{"password", "token", "absent"},
+			wantSecrets: map[string]any{"password": "s3cr3t", "token": "t0ken"},
+		},
+		{
+			name:    "no fields named",
+			payload: `{"credentialType":"SiteWideBmcRoot"}`,
+			fields:  nil,
+		},
+		{
+			name:    "named field absent",
+			payload: `{"credentialType":"SiteWideBmcRoot"}`,
+			fields:  []string{"password"},
+		},
+		{
+			name:    "payload is not an object",
+			payload: `["not-an-object"]`,
+			fields:  []string{"password"},
+			wantErr: true,
+		},
+		{
+			// JSON null decodes into a nil map without an error, so it needs
+			// rejecting explicitly rather than passing through as "no secrets".
+			name:    "payload is null",
+			payload: `null`,
+			fields:  []string{"password"},
+			wantErr: true,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			redacted, secretsJSON, err := RedactSecrets([]byte(tc.payload), tc.fields)
+
+			if tc.wantErr {
+				require.Error(t, err)
+				return
+			}
+			require.NoError(t, err)
+
+			if tc.wantSecrets == nil {
+				assert.Equal(t, []byte(tc.payload), redacted)
+				assert.Nil(t, secretsJSON)
+				return
+			}
+
+			var gotSecrets map[string]any
+			require.NoError(t, json.Unmarshal(secretsJSON, &gotSecrets))
+			assert.Equal(t, tc.wantSecrets, gotSecrets)
+
+			// The redacted payload keeps the non-secret fields readable and
+			// leaves no trace of the secret values.
+			var gotRedacted map[string]any
+			require.NoError(t, json.Unmarshal(redacted, &gotRedacted))
+			for field, secret := range tc.wantSecrets {
+				assert.NotContains(t, string(redacted), secret)
+				assert.Equal(t, RedactedPlaceholder, gotRedacted[field])
+			}
+		})
+	}
+}
+
+func TestMergeSecrets(t *testing.T) {
+	cases := []struct {
+		name        string
+		redacted    string
+		secretsJSON string
+		want        map[string]any
+		wantErr     bool
+	}{
+		{
+			name:        "restores the secret values",
+			redacted:    `{"credentialType":"SiteWideBmcRoot","password":"` + RedactedPlaceholder + `","macAddress":"aa:bb"}`,
+			secretsJSON: `{"password":"s3cr3t"}`,
+			want: map[string]any{
+				"credentialType": "SiteWideBmcRoot",
+				"password":       "s3cr3t",
+				"macAddress":     "aa:bb",
+			},
+		},
+		{
+			name:     "no secrets leaves the payload untouched",
+			redacted: `{"credentialType":"SiteWideBmcRoot"}`,
+			want:     map[string]any{"credentialType": "SiteWideBmcRoot"},
+		},
+		{
+			// Copying into the nil map that JSON null decodes to would panic.
+			name:        "redacted payload is null",
+			redacted:    `null`,
+			secretsJSON: `{"password":"s3cr3t"}`,
+			wantErr:     true,
+		},
+		{
+			name:        "secrets payload is null",
+			redacted:    `{"credentialType":"SiteWideBmcRoot"}`,
+			secretsJSON: `null`,
+			wantErr:     true,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			out, err := MergeSecrets([]byte(tc.redacted), []byte(tc.secretsJSON))
+
+			if tc.wantErr {
+				require.Error(t, err)
+				return
+			}
+			require.NoError(t, err)
+
+			var got map[string]any
+			require.NoError(t, json.Unmarshal(out, &got))
+			assert.Equal(t, tc.want, got)
+		})
+	}
+}
+
+// TestRedactSecretsMergeSecretsRoundTrip pins the property the two functions
+// exist for: what the site merges back is what the cloud started with.
+func TestRedactSecretsMergeSecretsRoundTrip(t *testing.T) {
 	orig := []byte(`{"credentialType":"SiteWideBmcRoot","password":"s3cr3t","macAddress":"aa:bb"}`)
 
 	redacted, secretsJSON, err := RedactSecrets(orig, []string{"password"})
 	require.NoError(t, err)
-
-	// The redacted payload must not contain the secret value, but must keep the
-	// non-secret fields readable and mark the field as redacted.
-	assert.NotContains(t, string(redacted), "s3cr3t")
-	assert.Contains(t, string(redacted), RedactedPlaceholder)
-	assert.Contains(t, string(redacted), "macAddress")
 	require.NotEmpty(t, secretsJSON)
-	assert.Contains(t, string(secretsJSON), "s3cr3t")
 
-	// Merging the secrets back reproduces the original field values.
 	merged, err := MergeSecrets(redacted, secretsJSON)
 	require.NoError(t, err)
 
-	var got map[string]any
+	var got, want map[string]any
 	require.NoError(t, json.Unmarshal(merged, &got))
-	assert.Equal(t, "s3cr3t", got["password"])
-	assert.Equal(t, "SiteWideBmcRoot", got["credentialType"])
-	assert.Equal(t, "aa:bb", got["macAddress"])
-}
-
-func TestRedactSecretsMultipleFieldsSkipsAbsentOnes(t *testing.T) {
-	orig := []byte(`{"name":"run-1","password":"s3cr3t","token":"t0ken"}`)
-
-	redacted, secretsJSON, err := RedactSecrets(orig, []string{"password", "token", "absent"})
-	require.NoError(t, err)
-
-	assert.NotContains(t, string(redacted), "s3cr3t")
-	assert.NotContains(t, string(redacted), "t0ken")
-
-	var secrets map[string]any
-	require.NoError(t, json.Unmarshal(secretsJSON, &secrets))
-	assert.Equal(t, map[string]any{"password": "s3cr3t", "token": "t0ken"}, secrets)
-}
-
-func TestRedactSecretsWithoutMatchingFields(t *testing.T) {
-	orig := []byte(`{"credentialType":"SiteWideBmcRoot"}`)
-
-	redacted, secretsJSON, err := RedactSecrets(orig, nil)
-	require.NoError(t, err)
-	assert.Equal(t, orig, redacted)
-	assert.Nil(t, secretsJSON)
-
-	// A named field that is absent yields no secrets and leaves the input intact.
-	redacted, secretsJSON, err = RedactSecrets(orig, []string{"password"})
-	require.NoError(t, err)
-	assert.Equal(t, orig, redacted)
-	assert.Nil(t, secretsJSON)
-}
-
-func TestRedactSecretsRejectsNonObjectPayload(t *testing.T) {
-	_, _, err := RedactSecrets([]byte(`["not-an-object"]`), []string{"password"})
-	require.Error(t, err)
-}
-
-func TestMergeEmptySecrets(t *testing.T) {
-	redacted := []byte(`{"credentialType":"SiteWideBmcRoot"}`)
-	out, err := MergeSecrets(redacted, nil)
-	require.NoError(t, err)
-	assert.Equal(t, redacted, out)
+	require.NoError(t, json.Unmarshal(orig, &want))
+	assert.Equal(t, want, got)
 }
