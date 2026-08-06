@@ -38,7 +38,7 @@ cd ..
 
 
 # Download DOCA 2.9.2 / HBN 2.4.2
-```
+```bash
 ./build-dpu-install-iso.sh  \
   --control-plane-config site-sample.yaml \
   --download-artifacts  \

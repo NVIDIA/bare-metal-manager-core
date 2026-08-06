@@ -11,7 +11,7 @@ It is designed to be run **manually** by an operator from the host's BMC remote 
 
 ## Overview of steps
 
-```
+```text
 [Build machine]   build-dpu-install-iso.sh   →  dpu_install_<ver>.iso
 [Site controller] mount ISO, run install.sh  →  copies scripts and artifacts to /var/lib/dpu-install/<ver>/
 [Site controller] provision-dpu.sh           →  flashes BFB, deploys HBN  →  power cycle
@@ -63,7 +63,16 @@ brew install yq gomplate wget curl jq zip xorriso
 
 ### Step 1 — Prepare the site config
 
-Copy `site-sample.yaml` and fill in the values for your site. Every field is required.
+Copy `site-sample.yaml` and fill in the values for your site.
+
+Required fields: `datacenterAsn`, `siteControllerRoutesAsn`, `bgpAsnStart`, `siteControllerMtuSize`,
+`forgeDpuLoopbackPrefix`, `forgeServiceVipPrefix`, `forgeControlPlanePrefix`, `nameServer`,
+`ubuntuPasswordHash`, and `siteControllerNodes`.
+
+Optional: the entire `fnn` block (only needed for FNN/SMN networking mode). When present,
+`fnn.controlPlaneVni`, `fnn.commonManagedNodeBmcRouteTarget`, `fnn.commonSiteControllerRouteTarget`,
+and `fnn.commonAdminNetworkTarget` are required; `fnn.vpcVrfLoopbackPrefix` and
+`fnn.routeTargetsToImport` are optional.
 
 ```yaml
 # yaml-language-server: $schema=
@@ -161,7 +170,7 @@ version (e.g. different sites) — you download once and reuse the artifacts.
 
 **Output:**
 
-```
+```text
 output/
   dpu_install_3.2.2_3.2.2.iso
   dpu_install_3.2.2_3.2.2.zip
@@ -174,12 +183,12 @@ use the ZIP if you need to extract files directly onto the host filesystem.
 
 ### ISO contents
 
-```
+```text
 dpu_install_3.2.2_3.2.2.iso
-├── install-dpu.sh                    # Phase 1: run first
+├── install.sh                    # Phase 1: run first
 ├── post-power-cycle.sh               # Phase 2: run after power cycle
 ├── setup_netplan.sh                  # Called automatically by post-power-cycle.sh
-├── dpuinstall.sh                     # Called by install-dpu.sh
+├── dpuinstall.sh                     # Called by provision-dpu.sh
 ├── bf.cfg.template                   # SSH key injection template
 ├── dpu_fw_version.cfg                # DOCA and HBN version info
 ├── doca_hbn_versions.cfg             # Paths inside the HBN config zip
@@ -263,7 +272,7 @@ Verify the mount:
 
 ```bash
 ls /mnt/dpu-install
-# Expected: install-dpu.sh  post-power-cycle.sh  servers/  ...
+# Expected: install.sh  post-power-cycle.sh  servers/  ...
 ```
 
 ---
@@ -306,7 +315,7 @@ This script will:
 
 At the power cycle prompt:
 
-```
+```text
 Press Enter to trigger power cycle via ipmitool, or Ctrl+C to abort and power cycle manually:
 ```
 
@@ -342,7 +351,7 @@ This script will:
 
 On success you will see:
 
-```
+```text
 DPU provisioning complete
 ```
 
@@ -383,7 +392,7 @@ problem and re-run the same command.
 
 Touchfiles live under the working directory:
 
-```
+```text
 /var/lib/dpu-install/<version>/touchfiles/
   bfbupdated          — BFB flash complete
   hbnconfigstaged     — startup.yaml copied to dpucfg/
@@ -473,7 +482,7 @@ filename ends in `amd64.deb` and was downloaded for Ubuntu 24.04.
 
 This warning is expected and harmless:
 
-```
+```text
 Warn: pv command not found. Continue without showing bfb progress.
 ```
 

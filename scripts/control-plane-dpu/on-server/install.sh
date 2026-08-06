@@ -183,6 +183,7 @@ chmod 755 "$WORK_DIR/provision-dpu.sh" \
 
 if [[ -d "$SCRIPT_DIR/servers" ]]; then
     log "Copying per-node server configs..."
+    rm -rf "$WORK_DIR/servers"
     cp -r "$SCRIPT_DIR/servers" "$WORK_DIR/"
     log "  $(ls "$SCRIPT_DIR/servers" | wc -l | tr -d ' ') node(s) copied"
 else

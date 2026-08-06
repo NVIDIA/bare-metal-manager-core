@@ -1,6 +1,11 @@
 #!/bin/bash
 
-# SCRIPTS_DIR is this script's own install directory, set up by install-dpu.sh.
+# Ensure fd 3 is open — wrapper scripts (provision-dpu.sh, post-power-cycle.sh)
+# redirect it to tee(log+tty), but direct invocation or unwrapped sourcing leaves
+# it closed. Fall back to stderr so >&3 writes always succeed.
+{ true >&3; } 2>/dev/null || exec 3>&2
+
+# SCRIPTS_DIR is this script's own install directory, set up by install.sh.
 SCRIPTS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # Touchfiles all live under a dedicated subdirectory so they can be cleared atomically.
 TOUCHFILES_DIR="${SCRIPTS_DIR}/touchfiles"
@@ -174,10 +179,9 @@ dpu_ssh_root() {
 
 	echo "DPU SSH (root): running on ${DPU_SSH_HOST}: $*" >&2
 	for ((attempt = 1; attempt <= max_attempts; attempt++)); do
-		if _dpu_ssh_run "root@${DPU_SSH_HOST}" "$@"; then
-			return 0
-		fi
-		status=$?
+		status=0
+		_dpu_ssh_run "root@${DPU_SSH_HOST}" "$@" || status=$?
+		[ "$status" -eq 0 ] && return 0
 		if [ "$attempt" -lt "$max_attempts" ]; then
 			echo "DPU SSH as root failed, retrying in ${retry_interval}s (attempt ${attempt}/${max_attempts})..." >&3
 			sleep "$retry_interval"
@@ -195,11 +199,12 @@ dpu_scp() {
 	_dpu_ssh_require_key
 	for ((attempt = 1; attempt <= max_attempts; attempt++)); do
 		echo "DPU SCP (attempt ${attempt}/${max_attempts}): $*" >&3
-		if scp "${DPU_SSH_OPTS[@]}" "$@"; then
+		status=0
+		scp "${DPU_SSH_OPTS[@]}" "$@" || status=$?
+		if [ "$status" -eq 0 ]; then
 			echo "DPU SCP: transfer complete" >&3
 			return 0
 		fi
-		status=$?
 		if [ "$attempt" -lt "$max_attempts" ]; then
 			echo "DPU SCP failed (exit ${status}), retrying in ${retry_interval}s (attempt ${attempt}/${max_attempts})..." >&3
 			sleep "$retry_interval"
@@ -352,7 +357,6 @@ install_bfb() {
 	fi
 
 	echo "BFB install completed."
-	touch "$TOUCHFILE_BFB_UPDATED"
 
 	sleep 5
 
@@ -374,6 +378,7 @@ install_bfb() {
 		sleep 60
 	done
 
+	touch "$TOUCHFILE_BFB_UPDATED"
 	sleep 5
 
 }
@@ -531,8 +536,8 @@ setup_hbn() {
 				echo "ERROR: DPU did not become reachable after ${max_attempts} attempts (${max_attempts}x10s)" >&3
 				return 1
 			fi
-			sleep 30
 			echo "  Attempt ${attempt}/${max_attempts}: DPU not yet reachable, retrying in 30s..."
+			sleep 30
 			attempt=$((attempt + 1))
 		done
 

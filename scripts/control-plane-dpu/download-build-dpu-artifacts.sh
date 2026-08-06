@@ -97,16 +97,16 @@ b64decode() {
 # ---------------------------------------------------------------------------
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --doca-version)     DOCA_VERSION="$2";     shift 2 ;;
-    --doca-hbn-version) DOCA_HBN_VERSION="$2"; shift 2 ;;
-    --hbn-container-tag) HBN_CONTAINER_TAG="$2"; shift 2 ;;
-    --bfb-build)        BFB_BUILD="$2";        shift 2 ;;
-    --bfb-release)      BFB_RELEASE="$2";      shift 2 ;;
-    --bfb-url)          BFB_BASE_URL="$2";     shift 2 ;;
-    --hbn-config-url)   HBN_CONFIG_URL="$2";   shift 2 ;;
-    --doca-host-url)    DOCA_HOST_URL="$2";    shift 2 ;;
-    --rshim-url)        RSHIM_URL="$2";        shift 2 ;;
-    --libfuse2-url)     LIBFUSE2_URL="$2";     shift 2 ;;
+    --doca-version)     [[ -z "${2:-}" ]] && die "$1 requires a value"; DOCA_VERSION="$2";     shift 2 ;;
+    --doca-hbn-version) [[ -z "${2:-}" ]] && die "$1 requires a value"; DOCA_HBN_VERSION="$2"; shift 2 ;;
+    --hbn-container-tag) [[ -z "${2:-}" ]] && die "$1 requires a value"; HBN_CONTAINER_TAG="$2"; shift 2 ;;
+    --bfb-build)        [[ -z "${2:-}" ]] && die "$1 requires a value"; BFB_BUILD="$2";        shift 2 ;;
+    --bfb-release)      [[ -z "${2:-}" ]] && die "$1 requires a value"; BFB_RELEASE="$2";      shift 2 ;;
+    --bfb-url)          [[ -z "${2:-}" ]] && die "$1 requires a value"; BFB_BASE_URL="$2";     shift 2 ;;
+    --hbn-config-url)   [[ -z "${2:-}" ]] && die "$1 requires a value"; HBN_CONFIG_URL="$2";   shift 2 ;;
+    --doca-host-url)    [[ -z "${2:-}" ]] && die "$1 requires a value"; DOCA_HOST_URL="$2";    shift 2 ;;
+    --rshim-url)        [[ -z "${2:-}" ]] && die "$1 requires a value"; RSHIM_URL="$2";        shift 2 ;;
+    --libfuse2-url)     [[ -z "${2:-}" ]] && die "$1 requires a value"; LIBFUSE2_URL="$2";     shift 2 ;;
     -h|--help) usage ;;
     *) die "Unknown option: $1" ;;
   esac
@@ -175,7 +175,7 @@ EOF
 # ===========================================================================
 # 1. BFB download (bfb-download)
 # ===========================================================================
-step "1/4 Downloading BFB"
+step "1/6 Downloading BFB"
 log "URL: ${BFB_BASE_URL}/${BFB_NAME}"
 wget -O "${BFB_NAME}" "${BFB_BASE_URL}/${BFB_NAME}" || die "BFB download failed — verify --bfb-build and --bfb-release are correct"
 ok "Downloaded: ${BFB_NAME} ($(du -h "${BFB_NAME}" | cut -f1))"
@@ -187,7 +187,7 @@ ok "Compressed: ${BFB_NAME}.gz ($(du -h "${BFB_NAME}.gz" | cut -f1))"
 # ===========================================================================
 # 2. HBN container image → doca_hbn.tar.gz (bfb-hbn-pull, bfb-hbn-export)
 # ===========================================================================
-step "2/4 Building HBN container tarball"
+step "2/6 Building HBN container tarball"
 
 log "Pulling image: ${DOCA_HBN_IMAGE} (platform: linux/arm64)"
 docker pull --platform=linux/arm64 "${DOCA_HBN_IMAGE}"
@@ -206,8 +206,15 @@ ok "Compressed: doca_hbn.tar.gz ($(du -h doca_hbn.tar.gz | cut -f1))"
 #    (mkdir-hbn-folder-in-bfb, download-hbn-installer-to-bfb,
 #     mv-hbn-configs-to-bfb, mv-hbn-scripts-to-bfb, cleanup-hbn-scripts)
 # ===========================================================================
-step "3/4 Building HBN configs bundle"
+step "3/6 Building HBN configs bundle"
 {
+  # Remove stale staging artifacts from any prior partial run so mkdir/mv
+  # always start from a clean slate and never nest into leftover directories.
+  rm -rf "${CONFIGS_DIR}"
+  rm -f "${ZIP_OUTPUT}" "${ZIP_OUTPUT}.gz"
+
+  # Clean up the staging dir on failure so a rerun starts fresh.
+  trap 'rm -rf "${CONFIGS_DIR:-}" "${TEMP_DL:-}" 2>/dev/null; trap - EXIT' EXIT
 
   log "Creating staging directory: ${CONFIGS_DIR}/"
   mkdir -p "${CONFIGS_DIR}"
@@ -282,6 +289,7 @@ HBN_SCRIPT_DIR="./${CONFIGS_DIR}/scripts"
 HBN_CONFIG_SRC_DIR="./${CONFIGS_DIR}/configs"
 EOF
   ok "Written: doca_hbn_versions.cfg"
+  trap - EXIT
 }
 
 # ===========================================================================

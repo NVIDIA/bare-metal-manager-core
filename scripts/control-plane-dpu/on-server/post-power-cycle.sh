@@ -7,7 +7,7 @@
 #   ./post-power-cycle.sh --server-name <hostname>
 #
 # Options:
-#   --server-name NAME   Hostname of this server (same value used with install-dpu.sh)
+#   --server-name NAME   Hostname of this server (same value used with install.sh)
 #   --help               Show this help message
 #
 # Must be run as root.
@@ -55,7 +55,7 @@ source "$VERSION_CFG"
 [[ -z "${HBN_VERSION:-}" ]]  && die "HBN_VERSION not set in $VERSION_CFG"
 
 WORK_DIR="/var/lib/dpu-install/${DOCA_VERSION}_${HBN_VERSION}"
-[[ -d "$WORK_DIR" ]] || die "Working directory not found: $WORK_DIR — has install-dpu.sh been run?"
+[[ -d "$WORK_DIR" ]] || die "Working directory not found: $WORK_DIR — has install.sh been run?"
 
 # ── Source dpuinstall.sh to load functions ─────────────────────────────────────
 # The BASH_SOURCE guard in dpuinstall.sh prevents the main install block
@@ -64,7 +64,7 @@ WORK_DIR="/var/lib/dpu-install/${DOCA_VERSION}_${HBN_VERSION}"
 # shellcheck source=dpuinstall.sh
 source "$WORK_DIR/dpuinstall.sh"
 
-[[ -f "$TOUCHFILE_HBN_DEPLOYED" ]] || die "HBN deployment touchfile not found — power cycle may have happened too early or install-dpu.sh did not complete"
+[[ -f "$TOUCHFILE_HBN_DEPLOYED" ]] || die "HBN deployment touchfile not found — power cycle may have happened too early or install.sh did not complete"
 
 trap cleanup EXIT
 set -eux

@@ -4,8 +4,9 @@
 # in a single run.
 #
 # Usage:
-#   ./provision-dpu.sh --control-plane-config site-sample.yaml \
-#                      --doca-version 3.2.2 --bfb-build 125 --bfb-release 26.02
+#   ./build-dpu-install-iso.sh --control-plane-config site-sample.yaml \
+#                              --download-artifacts --doca-version 3.2.2 \
+#                              --bfb-build 125 --bfb-release 26.02
 #
 # Required (always):
 #   --control-plane-config <path>  Path to site config YAML
@@ -92,19 +93,19 @@ NO_FNN=false
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
-        --control-plane-config) CONTROL_PLANE_CONFIG="${2:-}"; shift 2 ;;
-        --doca-version)         DOCA_VERSION="$2";             shift 2 ;;
-        --hbn-version)          HBN_VERSION="$2";              shift 2 ;;
-        --hbn-container-tag)    HBN_CONTAINER_TAG="$2";        shift 2 ;;
-        --bfb-build)            BFB_BUILD="$2";                shift 2 ;;
-        --bfb-release)          BFB_RELEASE="$2";              shift 2 ;;
-        --bfb-url)              BFB_URL="$2";                  shift 2 ;;
-        --hbn-config-url)       HBN_CONFIG_URL="$2";           shift 2 ;;
-        --doca-host-url)        DOCA_HOST_URL="$2";            shift 2 ;;
-        --rshim-url)            RSHIM_URL="$2";                shift 2 ;;
-        --libfuse2-url)         LIBFUSE2_URL="$2";             shift 2 ;;
-        --output-dir)           OUTPUT_DIR="$2";               shift 2 ;;
-        --artifacts-dir)        ARTIFACTS_DIR="$2";            shift 2 ;;
+        --control-plane-config) [[ -z "${2:-}" ]] && die "$1 requires a value"; CONTROL_PLANE_CONFIG="$2"; shift 2 ;;
+        --doca-version)         [[ -z "${2:-}" ]] && die "$1 requires a value"; DOCA_VERSION="$2";         shift 2 ;;
+        --hbn-version)          [[ -z "${2:-}" ]] && die "$1 requires a value"; HBN_VERSION="$2";          shift 2 ;;
+        --hbn-container-tag)    [[ -z "${2:-}" ]] && die "$1 requires a value"; HBN_CONTAINER_TAG="$2";    shift 2 ;;
+        --bfb-build)            [[ -z "${2:-}" ]] && die "$1 requires a value"; BFB_BUILD="$2";            shift 2 ;;
+        --bfb-release)          [[ -z "${2:-}" ]] && die "$1 requires a value"; BFB_RELEASE="$2";          shift 2 ;;
+        --bfb-url)              [[ -z "${2:-}" ]] && die "$1 requires a value"; BFB_URL="$2";              shift 2 ;;
+        --hbn-config-url)       [[ -z "${2:-}" ]] && die "$1 requires a value"; HBN_CONFIG_URL="$2";       shift 2 ;;
+        --doca-host-url)        [[ -z "${2:-}" ]] && die "$1 requires a value"; DOCA_HOST_URL="$2";        shift 2 ;;
+        --rshim-url)            [[ -z "${2:-}" ]] && die "$1 requires a value"; RSHIM_URL="$2";            shift 2 ;;
+        --libfuse2-url)         [[ -z "${2:-}" ]] && die "$1 requires a value"; LIBFUSE2_URL="$2";         shift 2 ;;
+        --output-dir)           [[ -z "${2:-}" ]] && die "$1 requires a value"; OUTPUT_DIR="$2";           shift 2 ;;
+        --artifacts-dir)        [[ -z "${2:-}" ]] && die "$1 requires a value"; ARTIFACTS_DIR="$2";        shift 2 ;;
         --download-artifacts)   DOWNLOAD_ARTIFACTS=true;       shift ;;
         --no-fnn)               NO_FNN=true;                   shift ;;
         --help|-h) usage ;;
@@ -114,13 +115,9 @@ done
 
 [[ -z "$CONTROL_PLANE_CONFIG" ]] && die "--control-plane-config is required"
 [[ -f "$CONTROL_PLANE_CONFIG" ]] || die "Config file not found: $CONTROL_PLANE_CONFIG"
-[[ -z "$OUTPUT_DIR" ]]           && OUTPUT_DIR="$(pwd)"
-if [[ -d "$OUTPUT_DIR" ]]; then
-    echo "WARNING: output directory already exists: $OUTPUT_DIR"
-    echo "Leftover artifacts may produce incorrect results."
-    read -r -p "Remove it and continue? [y/N] " _confirm
-    [[ "$(echo "$_confirm" | tr '[:upper:]' '[:lower:]')" == "y" ]] || die "Aborted. Remove $OUTPUT_DIR manually and retry."
-    rm -rf "$OUTPUT_DIR"
+[[ -z "$OUTPUT_DIR" ]] && OUTPUT_DIR="./output"
+if [[ -d "$OUTPUT_DIR" ]] && [[ -n "$(ls -A "$OUTPUT_DIR" 2>/dev/null)" ]]; then
+    die "Output directory $OUTPUT_DIR already exists and is non-empty. Remove it manually or choose a different --output-dir."
 fi
 OUTPUT_DIR="$(mkdir -p "$OUTPUT_DIR" && cd "$OUTPUT_DIR" && pwd)"
 
@@ -222,7 +219,7 @@ render_template() {
     local tmpl_file="$1"
     shift
     local vars_file
-    vars_file="$(mktemp /tmp/gomplate_vars_XXXXXX)"
+    vars_file="$(mktemp "$OUTPUT_DIR/gomplate_vars_XXXXXX")"
 
     while [[ $# -gt 0 ]]; do
         local key="${1%%=*}"
@@ -264,8 +261,15 @@ validate_integer() {
 
 validate_cidr() {
     local field="$1" val="$2"
-    [[ "$val" =~ ^[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}/[0-9]{1,2}$ ]] || \
+    [[ "$val" =~ ^([0-9]{1,3})\.([0-9]{1,3})\.([0-9]{1,3})\.([0-9]{1,3})/([0-9]{1,2})$ ]] || \
         die "'$field' must be a valid CIDR prefix (e.g. 10.0.0.0/24), got: $val"
+    local o1="${BASH_REMATCH[1]}" o2="${BASH_REMATCH[2]}" \
+          o3="${BASH_REMATCH[3]}" o4="${BASH_REMATCH[4]}" \
+          prefix="${BASH_REMATCH[5]}"
+    for octet in "$o1" "$o2" "$o3" "$o4"; do
+        (( octet <= 255 )) || die "'$field': octet $octet is out of range (0-255), got: $val"
+    done
+    (( prefix <= 32 )) || die "'$field': prefix length $prefix is out of range (0-32), got: $val"
 }
 
 # ── Validate site config fields ───────────────────────────────────────────────
@@ -358,14 +362,22 @@ if [[ "$HAS_FNN" == "true" ]]; then
     FNN_CTRL_PLANE_VNI=$(require_field 'fnn.controlPlaneVni')
     validate_integer 'fnn.controlPlaneVni' "$FNN_CTRL_PLANE_VNI"
     FNN_VPC_VRF_PREFIX=$(yq_get 'fnn.vpcVrfLoopbackPrefix')
-    [[ -n "$FNN_VPC_VRF_PREFIX" ]] && validate_cidr 'fnn.vpcVrfLoopbackPrefix' "$FNN_VPC_VRF_PREFIX"
+    if [[ -n "$FNN_VPC_VRF_PREFIX" ]]; then
+        validate_cidr 'fnn.vpcVrfLoopbackPrefix' "$FNN_VPC_VRF_PREFIX"
+        _vpc_prefix="${FNN_VPC_VRF_PREFIX#*/}"
+        _vpc_capacity=$(( 1 << (32 - _vpc_prefix) ))
+        [ "$_vpc_capacity" -ge "$NODE_COUNT" ] || \
+            die "fnn.vpcVrfLoopbackPrefix $FNN_VPC_VRF_PREFIX is too small for $NODE_COUNT node(s) (capacity $_vpc_capacity addresses, need >= $NODE_COUNT)"
+    fi
     FNN_COMMON_MANAGED_NODE_BMC=$(require_field 'fnn.commonManagedNodeBmcRouteTarget')
     validate_integer 'fnn.commonManagedNodeBmcRouteTarget' "$FNN_COMMON_MANAGED_NODE_BMC"
     FNN_COMMON_SC_RT=$(require_field 'fnn.commonSiteControllerRouteTarget')
     validate_integer 'fnn.commonSiteControllerRouteTarget' "$FNN_COMMON_SC_RT"
     FNN_COMMON_ADMIN=$(require_field 'fnn.commonAdminNetworkTarget')
     validate_integer 'fnn.commonAdminNetworkTarget' "$FNN_COMMON_ADMIN"
-    FNN_VPC_VRF_BASE_IP="${FNN_VPC_VRF_PREFIX%/*}"
+    # Normalize to the network address so a host-bit-set CIDR (e.g. 10.0.0.5/24)
+    # doesn't offset all node addresses by the host bits.
+    FNN_VPC_VRF_BASE_IP=$(get_nth_addr "${FNN_VPC_VRF_PREFIX:-0.0.0.0/32}" 0)
 else
     log "fnn: not present in config — using startup.template (non-FNN mode)"
 fi
