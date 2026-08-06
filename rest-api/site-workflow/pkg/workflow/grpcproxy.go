@@ -60,7 +60,8 @@ func invokeGRPCProxy(
 	ctx = workflow.WithActivityOptions(ctx, options)
 
 	var resp grpcproxy.Response
-	if err := workflow.ExecuteActivity(ctx, activityFn, req).Get(ctx, &resp); err != nil {
+	err := workflow.ExecuteActivity(ctx, activityFn, req).Get(ctx, &resp)
+	if err != nil {
 		logger.Error().Err(err).Str("Activity", activityName).Msg("Failed to execute activity from workflow")
 		return grpcproxy.Response{}, err
 	}

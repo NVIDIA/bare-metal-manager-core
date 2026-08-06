@@ -84,6 +84,45 @@ func TestExecuteCoreGRPC(t *testing.T) {
 	})
 }
 
+// TestExecuteGRPCProxyRejectsSecretFieldsWithoutKey covers the combination that
+// would otherwise put a secret into Temporal history in cleartext: the caller
+// named fields to redact but gave no key to encrypt them with.
+func TestExecuteGRPCProxyRejectsSecretFieldsWithoutKey(t *testing.T) {
+	cases := []struct {
+		name    string
+		execute func(tclient.Client) *cutil.APIError
+		message string
+	}{
+		{
+			name: "core",
+			execute: func(stc tclient.Client) *cutil.APIError {
+				return ExecuteCoreGRPC(context.Background(), stc, "/forge.Forge/RotateCredential", &emptypb.Empty{}, nil, "", "password")
+			},
+			message: "Failed to encode Core proxy request",
+		},
+		{
+			name: "flow",
+			execute: func(stc tclient.Client) *cutil.APIError {
+				return ExecuteFlowGRPC(context.Background(), stc, "/v1.Flow/CreateOperationRun", &emptypb.Empty{}, nil, "flow-grpc-create-1", temporalEnums.WORKFLOW_ID_CONFLICT_POLICY_UNSPECIFIED, "", "password")
+			},
+			message: "Failed to encode Flow proxy request",
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			temporalClient := &tmocks.Client{}
+
+			err := tc.execute(temporalClient)
+
+			require.NotNil(t, err)
+			assert.Equal(t, http.StatusInternalServerError, err.Code)
+			assert.Equal(t, tc.message, err.Message)
+			temporalClient.AssertNotCalled(t, "ExecuteWorkflow", mock.Anything, mock.Anything, mock.Anything, mock.Anything)
+		})
+	}
+}
+
 func TestExecuteFlowGRPC(t *testing.T) {
 	temporalClient, started := newTimingOutProxyClient()
 

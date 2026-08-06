@@ -27,7 +27,6 @@ import (
 	sc "github.com/NVIDIA/infra-controller/rest-api/api/pkg/client/site"
 	authz "github.com/NVIDIA/infra-controller/rest-api/auth/pkg/authorization"
 	"github.com/NVIDIA/infra-controller/rest-api/common/pkg/grpcproxy"
-	"github.com/NVIDIA/infra-controller/rest-api/common/pkg/secretjson"
 	cutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
 	cdb "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db"
 	cdbm "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/model"
@@ -58,7 +57,7 @@ func TestRotateCredentialHandlerProxiesRequest(t *testing.T) {
 	var coreReq corev1.RotateCredentialRequest
 	require.NoError(t, protojson.Unmarshal(fixture.proxiedReq.RequestJSON, &coreReq))
 	assert.Equal(t, corev1.RotationCredentialType_ROTATION_BMC, coreReq.GetCredentialType())
-	assert.Equal(t, secretjson.RedactedPlaceholder, coreReq.GetPassword())
+	assert.Equal(t, grpcproxy.RedactedPlaceholder, coreReq.GetPassword())
 	assert.Equal(t, "annual rotation", coreReq.GetReason())
 
 	var resp model.APICredentialRotationResult

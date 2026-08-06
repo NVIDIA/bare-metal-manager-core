@@ -23,8 +23,8 @@ endpoints that need to call on-site Flow through the generic Flow gRPC proxy.
   responses remain readable in Temporal UI.
 - Secret transport payload: selected top-level protojson fields are redacted
   from `RequestJSON` and carried separately in `EncryptedSecrets`.
-  `rest-api/common/pkg/secretjson` (`Redact` / `Merge`) does the splitting and
-  is shared with the Core proxy.
+  `grpcproxy.RedactSecrets` / `grpcproxy.MergeSecrets` do the splitting and are
+  shared with the Core proxy.
 - Final site-to-Flow call: normal binary gRPC. The JSON step is only the
   generic Temporal payload representation.
 
@@ -92,6 +92,8 @@ Confirm these details before editing:
 2. Build the typed Flow protobuf request before calling the proxy.
 3. Call `common.ExecuteFlowGRPC(ctx, siteTemporalClient, fullMethod, reqProto,
    respProtoOrNil, workflowID, conflictPolicy, siteIDSecretKey, secretFields...)`.
+   Passing `secretFields` requires a non-empty `siteIDSecretKey`; the helper
+   rejects the combination rather than send the fields unredacted.
 4. On `StatusGatewayTimeout`, call `TerminateWorkflowOnTimeOut` with the same
    `workflowID` when matching existing TaskRun UX.
 5. Return a curated REST response. Do not expose Flow protobufs or secret

@@ -14,7 +14,7 @@ Use this guidance when building or converting `infra-controller` REST API endpoi
 - Site workflow/activity: `InvokeCoreGRPC` and `InvokeCoreGRPCOnSite`.
 - Site Core invocation: `CoreGrpcClient.InvokeJSON`.
 - Temporal transport payload: protojson, so non-secret request fields and responses remain readable in Temporal UI.
-- Secret transport payload: selected top-level protojson fields are redacted from `RequestJSON` and carried separately in `EncryptedSecrets`. `rest-api/common/pkg/secretjson` (`Redact` / `Merge`) does the splitting and is shared with the Flow proxy.
+- Secret transport payload: selected top-level protojson fields are redacted from `RequestJSON` and carried separately in `EncryptedSecrets`. `grpcproxy.RedactSecrets` / `grpcproxy.MergeSecrets` do the splitting and are shared with the Flow proxy.
 - Final site-to-Core call: normal binary gRPC. The JSON step is only the generic Temporal payload representation.
 
 ## Before Coding
@@ -37,7 +37,7 @@ Confirm these details before editing:
 2. Add or update the API model with validation, REST-to-proto mapping, and response shaping. Keep API compatibility and OpenAPI required/nullable semantics aligned with server validation.
 3. Keep auth, tenant/org membership, site lookup, role checks, request validation, and REST semantics in the REST handler. The proxy is only the cloud-to-site transport.
 4. Build the typed protobuf request before calling the proxy. Prefer generated protobuf types over maps or ad hoc JSON.
-5. Call `common.ExecuteCoreGRPC(ctx, siteTemporalClient, fullMethod, reqProto, respProtoOrNil, siteIDSecretKey, secretFields...)`.
+5. Call `common.ExecuteCoreGRPC(ctx, siteTemporalClient, fullMethod, reqProto, respProtoOrNil, siteIDSecretKey, secretFields...)`. Passing `secretFields` requires a non-empty `siteIDSecretKey`; the helper rejects the combination rather than send the fields unredacted.
 6. Pass the site ID string as the secret key when redacting fields for a site-scoped call; the site-agent decrypts with the same site key.
 7. Never log full request bodies when they can contain secrets. Log method, kind, site ID, or other non-secret metadata only.
 8. Return a curated REST response. Do not expose Core protobufs or secret fields directly unless the API contract already does.

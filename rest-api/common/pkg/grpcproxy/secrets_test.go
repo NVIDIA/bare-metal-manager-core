@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-package secretjson
+package grpcproxy
 
 import (
 	"encoding/json"
@@ -11,10 +11,10 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestRedactAndMergeRoundTrip(t *testing.T) {
+func TestRedactAndMergeSecretsRoundTrip(t *testing.T) {
 	orig := []byte(`{"credentialType":"SiteWideBmcRoot","password":"s3cr3t","macAddress":"aa:bb"}`)
 
-	redacted, secretsJSON, err := Redact(orig, []string{"password"})
+	redacted, secretsJSON, err := RedactSecrets(orig, []string{"password"})
 	require.NoError(t, err)
 
 	// The redacted payload must not contain the secret value, but must keep the
@@ -26,7 +26,7 @@ func TestRedactAndMergeRoundTrip(t *testing.T) {
 	assert.Contains(t, string(secretsJSON), "s3cr3t")
 
 	// Merging the secrets back reproduces the original field values.
-	merged, err := Merge(redacted, secretsJSON)
+	merged, err := MergeSecrets(redacted, secretsJSON)
 	require.NoError(t, err)
 
 	var got map[string]any
@@ -36,10 +36,10 @@ func TestRedactAndMergeRoundTrip(t *testing.T) {
 	assert.Equal(t, "aa:bb", got["macAddress"])
 }
 
-func TestRedactMultipleFieldsSkipsAbsentOnes(t *testing.T) {
+func TestRedactSecretsMultipleFieldsSkipsAbsentOnes(t *testing.T) {
 	orig := []byte(`{"name":"run-1","password":"s3cr3t","token":"t0ken"}`)
 
-	redacted, secretsJSON, err := Redact(orig, []string{"password", "token", "absent"})
+	redacted, secretsJSON, err := RedactSecrets(orig, []string{"password", "token", "absent"})
 	require.NoError(t, err)
 
 	assert.NotContains(t, string(redacted), "s3cr3t")
@@ -50,29 +50,29 @@ func TestRedactMultipleFieldsSkipsAbsentOnes(t *testing.T) {
 	assert.Equal(t, map[string]any{"password": "s3cr3t", "token": "t0ken"}, secrets)
 }
 
-func TestRedactWithoutMatchingFields(t *testing.T) {
+func TestRedactSecretsWithoutMatchingFields(t *testing.T) {
 	orig := []byte(`{"credentialType":"SiteWideBmcRoot"}`)
 
-	redacted, secretsJSON, err := Redact(orig, nil)
+	redacted, secretsJSON, err := RedactSecrets(orig, nil)
 	require.NoError(t, err)
 	assert.Equal(t, orig, redacted)
 	assert.Nil(t, secretsJSON)
 
 	// A named field that is absent yields no secrets and leaves the input intact.
-	redacted, secretsJSON, err = Redact(orig, []string{"password"})
+	redacted, secretsJSON, err = RedactSecrets(orig, []string{"password"})
 	require.NoError(t, err)
 	assert.Equal(t, orig, redacted)
 	assert.Nil(t, secretsJSON)
 }
 
-func TestRedactRejectsNonObjectPayload(t *testing.T) {
-	_, _, err := Redact([]byte(`["not-an-object"]`), []string{"password"})
+func TestRedactSecretsRejectsNonObjectPayload(t *testing.T) {
+	_, _, err := RedactSecrets([]byte(`["not-an-object"]`), []string{"password"})
 	require.Error(t, err)
 }
 
 func TestMergeEmptySecrets(t *testing.T) {
 	redacted := []byte(`{"credentialType":"SiteWideBmcRoot"}`)
-	out, err := Merge(redacted, nil)
+	out, err := MergeSecrets(redacted, nil)
 	require.NoError(t, err)
 	assert.Equal(t, redacted, out)
 }

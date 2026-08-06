@@ -7,7 +7,6 @@ import (
 	"context"
 
 	"github.com/NVIDIA/infra-controller/rest-api/common/pkg/grpcproxy"
-	"github.com/NVIDIA/infra-controller/rest-api/common/pkg/secretjson"
 	cloudutils "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
 	swe "github.com/NVIDIA/infra-controller/rest-api/site-workflow/pkg/error"
 	"github.com/NVIDIA/infra-controller/rest-api/site-workflow/pkg/grpc/client"
@@ -99,7 +98,7 @@ func invokeGRPCProxyOnSite(
 	reqJSON := req.RequestJSON
 	if len(req.EncryptedSecrets) > 0 {
 		secretsJSON := cloudutils.DecryptData(req.EncryptedSecrets, secretKey)
-		merged, err := secretjson.Merge(reqJSON, secretsJSON)
+		merged, err := grpcproxy.MergeSecrets(reqJSON, secretsJSON)
 		if err != nil {
 			logger.Warn().Err(err).Msg("Failed to merge request secrets")
 			return grpcproxy.Response{}, swe.WrapErr(err)

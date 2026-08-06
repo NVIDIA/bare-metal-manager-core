@@ -81,14 +81,16 @@ func invokeProxyJSONConn(ctx context.Context, conn grpc.ClientConnInterface, bac
 
 	in := dynamicpb.NewMessage(md.Input())
 	if len(reqJSON) > 0 {
-		if err := (protojson.UnmarshalOptions{DiscardUnknown: true}).Unmarshal(reqJSON, in); err != nil {
-			return nil, fmt.Errorf("decode request for %q: %w", md.Name(), err)
+		decodeErr := (protojson.UnmarshalOptions{DiscardUnknown: true}).Unmarshal(reqJSON, in)
+		if decodeErr != nil {
+			return nil, fmt.Errorf("decode request for %q: %w", md.Name(), decodeErr)
 		}
 	}
 
 	out := dynamicpb.NewMessage(md.Output())
-	if err := conn.Invoke(ctx, proxyFullMethod(backend, method), in, out); err != nil {
-		return nil, err
+	invokeErr := conn.Invoke(ctx, proxyFullMethod(backend, method), in, out)
+	if invokeErr != nil {
+		return nil, invokeErr
 	}
 
 	respJSON, err := protojson.Marshal(out)

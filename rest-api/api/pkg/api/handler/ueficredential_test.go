@@ -23,7 +23,6 @@ import (
 	sc "github.com/NVIDIA/infra-controller/rest-api/api/pkg/client/site"
 	authz "github.com/NVIDIA/infra-controller/rest-api/auth/pkg/authorization"
 	"github.com/NVIDIA/infra-controller/rest-api/common/pkg/grpcproxy"
-	"github.com/NVIDIA/infra-controller/rest-api/common/pkg/secretjson"
 	cutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
 	cdbm "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/model"
 	corev1 "github.com/NVIDIA/infra-controller/rest-api/proto/core/gen/v1"
@@ -52,7 +51,7 @@ func TestCreateUEFICredentialHandlerProxiesCredential(t *testing.T) {
 			var coreReq corev1.CredentialCreationRequest
 			require.NoError(t, protojson.Unmarshal(proxiedReq.RequestJSON, &coreReq))
 			assert.Equal(t, tc.credentialType, coreReq.GetCredentialType())
-			assert.Equal(t, secretjson.RedactedPlaceholder, coreReq.GetPassword())
+			assert.Equal(t, grpcproxy.RedactedPlaceholder, coreReq.GetPassword())
 
 			var resp model.APIUEFICredential
 			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))

@@ -15,10 +15,10 @@
 //
 // The request/response payloads are carried as protojson (json.RawMessage) so
 // they render as readable JSON in the Temporal UI. Secret fields (e.g. a BMC
-// credential password) are redacted from that readable JSON with the secretjson
-// package and carried separately as an AES-GCM ciphertext (EncryptedSecrets) so
-// they never appear in Temporal history in cleartext; the site decrypts and
-// merges them back before the call.
+// credential password) are redacted from that readable JSON by RedactSecrets
+// and carried separately as an AES-GCM ciphertext (EncryptedSecrets) so they
+// never appear in Temporal history in cleartext; the site decrypts them and
+// calls MergeSecrets before the call.
 package grpcproxy
 
 import (
