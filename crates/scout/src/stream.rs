@@ -31,7 +31,7 @@ use crate::{client, mlx_device};
 // ScoutStreamError represents errors that can
 // occur during the life of a scout stream connection.
 #[derive(Debug, thiserror::Error)]
-pub enum ScoutStreamError {
+enum ScoutStreamError {
     #[error("gRPC error: {0}")]
     Grpc(#[from] tonic::Status),
     #[error("transport error: {0}")]
@@ -50,7 +50,10 @@ pub enum ScoutStreamError {
 
 // start_scout_stream spawns a background task that manages the streaming
 // gRPC connection to carbide-api for scout stream operations.
-pub fn start_scout_stream(machine_id: MachineId, options: &Options) -> tokio::task::JoinHandle<()> {
+pub(super) fn start_scout_stream(
+    machine_id: MachineId,
+    options: &Options,
+) -> tokio::task::JoinHandle<()> {
     let options = options.clone();
     tokio::spawn(async move {
         loop {
@@ -286,7 +289,7 @@ fn handle_scout_stream_api_bound_message(
 }
 
 // handle_ping handles a scout stream agent ping
-pub fn handle_ping(
+fn handle_ping(
     machine_id: MachineId,
     _request: rpc::forge::ScoutStreamAgentPingRequest,
 ) -> rpc::forge::ScoutStreamAgentPingResponse {

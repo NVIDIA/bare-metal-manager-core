@@ -1145,7 +1145,7 @@ pub(crate) async fn run(config: &Options, machine_id: &MachineId) -> CarbideClie
     Ok(())
 }
 
-pub async fn run_no_api(tpm_path: &str) -> Result<(), CarbideClientError> {
+pub(crate) async fn run_no_api(tpm_path: &str) -> Result<(), CarbideClientError> {
     if !platform::is_host() {
         tracing::info!("No cleanup needed on DPU.");
         return Ok(());

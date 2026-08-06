@@ -617,7 +617,7 @@ struct HBNDeviceNames {
 }
 
 impl HBNDeviceNames {
-    pub fn pre_23() -> HBNDeviceNames {
+    fn pre_23() -> HBNDeviceNames {
         HBNDeviceNames {
             uplinks: ["p0_sf", "p1_sf"],
             reps: ["pf0hpf_sf", "pf1hpf_sf"],
@@ -627,7 +627,7 @@ impl HBNDeviceNames {
         }
     }
 
-    pub fn hbn_23() -> HBNDeviceNames {
+    fn hbn_23() -> HBNDeviceNames {
         HBNDeviceNames {
             uplinks: ["p0_if", "p1_if"],
             reps: ["pf0hpf_if", "pf1hpf_if"],
@@ -636,7 +636,7 @@ impl HBNDeviceNames {
             sf_id: "_if",
         }
     }
-    pub fn new(hbn_version: Version) -> Self {
+    fn new(hbn_version: Version) -> Self {
         let min_version: Version = Version::from_parts(
             "2.3.0-doca2.8.0",
             vec![
@@ -655,7 +655,7 @@ impl HBNDeviceNames {
             HBNDeviceNames::hbn_23()
         }
     }
-    pub fn build_virt(&self, virt_rep_id: u32) -> String {
+    fn build_virt(&self, virt_rep_id: u32) -> String {
         format!("{}{}{}", self.virt_rep_begin, virt_rep_id, self.sf_id)
     }
 }

@@ -53,7 +53,7 @@ const NVUED_BLOCK_RULE: &str = r"
 ";
 
 #[derive(PartialEq, Debug, Clone)]
-pub enum InterfaceState {
+enum InterfaceState {
     Up,
     Down,
 }
@@ -71,7 +71,7 @@ impl FromStr for InterfaceState {
 
 impl InterfaceState {
     const HOST_INTERFACE_NAME: &str = "pf0hpf";
-    pub fn command(&self) -> tokio::process::Command {
+    fn command(&self) -> tokio::process::Command {
         let mut cmd = tokio::process::Command::new("ip");
         cmd.arg("link")
             .arg("set")
@@ -84,7 +84,7 @@ impl InterfaceState {
         cmd
     }
 
-    pub async fn update_state(needed_state: &Self) -> eyre::Result<()> {
+    async fn update_state(needed_state: &Self) -> eyre::Result<()> {
         let current_state = get_interface_state(InterfaceState::HOST_INTERFACE_NAME).await?;
 
         if current_state != *needed_state {
@@ -131,10 +131,10 @@ struct DhcpServerPaths {
 /// UEFI HTTP boot in this case, and NTP is still NTP. We should be able
 /// to leverage this struct even in DHCPv6 land (whereas other things don't
 /// really carry through to DHCPv6).
-pub struct ServiceAddresses {
-    pub pxe_ips: Vec<IpAddr>,
-    pub ntpservers: Vec<IpAddr>,
-    pub nameservers: Vec<IpAddr>,
+pub(super) struct ServiceAddresses {
+    pub(super) pxe_ips: Vec<IpAddr>,
+    pub(super) ntpservers: Vec<IpAddr>,
+    pub(super) nameservers: Vec<IpAddr>,
 }
 
 /// Split a dual-stack nameserver list into its IPv4 and IPv6 members, so the
@@ -205,7 +205,7 @@ struct PostAction {
     path: FPath,
 }
 
-pub enum NvueUpdateFlavor<'a> {
+pub(super) enum NvueUpdateFlavor<'a> {
     StartupFile {
         hbn_root: &'a Path,
         skip_post: bool,
@@ -216,13 +216,13 @@ pub enum NvueUpdateFlavor<'a> {
 }
 
 /// The NVUE client and other information associated with it.
-pub struct NvueClientContext {
-    pub nvue_client: NvueClient,
-    pub last_applied_hash: Option<u64>,
+pub(super) struct NvueClientContext {
+    pub(super) nvue_client: NvueClient,
+    last_applied_hash: Option<u64>,
 }
 
 impl NvueClientContext {
-    pub fn new(nvue_client: NvueClient) -> Self {
+    pub(super) fn new(nvue_client: NvueClient) -> Self {
         let last_applied_hash = None;
         Self {
             nvue_client,
@@ -234,7 +234,7 @@ impl NvueClientContext {
     // a configuration we're already using. Returns Ok(Some(revision_id)) on
     // a change, Ok(None) if the config was unchanged, and otherwise passes
     // through errors from the inner client.
-    pub async fn update_config(
+    async fn update_config(
         &mut self,
         config: &NvueConfig,
     ) -> Result<Option<String>, NvueClientError> {
@@ -334,7 +334,7 @@ fn parse_managed_host_loopback_ips(
 
 /// Update the NVUE network config. Returns Ok(true) if the configuration changed, and
 /// Ok(false) if not.
-pub async fn update_nvue(
+pub(super) async fn update_nvue(
     vpc_virtualization_type: VpcVirtualizationType,
     update_flavor: NvueUpdateFlavor<'_>,
     nc: &rpc::ManagedHostNetworkConfigResponse,
@@ -911,7 +911,9 @@ fn needed_interface_state(is_primary_dpu: bool, use_admin_network: bool) -> Inte
     InterfaceState::Down
 }
 
-pub async fn update_interface_state(nc: &ManagedHostNetworkConfigResponse) -> eyre::Result<()> {
+pub(super) async fn update_interface_state(
+    nc: &ManagedHostNetworkConfigResponse,
+) -> eyre::Result<()> {
     let needed_state = needed_interface_state(nc.is_primary_dpu, nc.use_admin_network);
 
     InterfaceState::update_state(&needed_state).await
@@ -1019,7 +1021,7 @@ async fn update_dhcp_via_grpc(
 ///
 /// Returns `Ok(true)` if a reload was triggered, `Ok(false)` if configs were
 /// already up-to-date.
-pub async fn update_dhcp(
+pub(super) async fn update_dhcp(
     hbn_root: &Path,
     network_config: &rpc::ManagedHostNetworkConfigResponse,
     // if true don't run the reload/restart commands after file update
@@ -1104,7 +1106,7 @@ pub async fn update_dhcp(
 }
 
 /// Interfaces to report back to server
-pub async fn interfaces(
+pub(super) async fn interfaces(
     network_config: &rpc::ManagedHostNetworkConfigResponse,
     factory_mac_address: MacAddress,
     nvue_client: Option<&NvueClient>,
@@ -1227,7 +1229,7 @@ pub async fn interfaces(
     Ok(interfaces)
 }
 
-pub fn tenant_peers(network_config: &rpc::ManagedHostNetworkConfigResponse) -> Vec<&str> {
+pub(super) fn tenant_peers(network_config: &rpc::ManagedHostNetworkConfigResponse) -> Vec<&str> {
     network_config
         .tenant_interfaces
         .iter()
@@ -1237,7 +1239,7 @@ pub fn tenant_peers(network_config: &rpc::ManagedHostNetworkConfigResponse) -> V
 
 /// Reset networking to blank.
 /// Clear DHCP and NVUE config files.
-pub async fn reset(hbn_root: &Path, skip_post: bool) {
+pub(super) async fn reset(hbn_root: &Path, skip_post: bool) {
     tracing::debug!("Setting network config to blank");
 
     let mut errs = vec![];
@@ -1506,7 +1508,7 @@ struct Fdb {
 }
 
 impl Fdb {
-    pub fn is_permanent(&self) -> bool {
+    fn is_permanent(&self) -> bool {
         self.state == "permanent"
     }
 }
@@ -1803,13 +1805,13 @@ fn cleanup_old_acls(hbn_root: &Path) {
 // In some cases (e.g. different container namespaces), the other services we
 // send configuration data to might see different interface names from the ones
 // HBN sees. This allows us to translate them.
-pub enum InterfaceTranslationMode {
+pub(super) enum InterfaceTranslationMode {
     // The translated interface is just the input interface with a string prepended.
     Prepend(String),
 }
 
 impl InterfaceTranslationMode {
-    pub fn translate(&self, input_interface_name: &str) -> String {
+    fn translate(&self, input_interface_name: &str) -> String {
         use InterfaceTranslationMode::*;
         match self {
             Prepend(prefix) => {

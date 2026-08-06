@@ -40,14 +40,14 @@ static HBN_VERSION: OnceCell<String> = OnceCell::const_new();
 // We need to move the dpu-agent out of the mgmt VRF because we want to expose services to instances
 // running on an X86 machine, eg FMDS, while still being able to use the mgmt VRF to connect to our control plane
 #[derive(Debug)]
-pub struct RunCommandPredicate<'a> {
-    pub command: TokioCommand,
-    pub args: Vec<&'a str>,
+struct RunCommandPredicate<'a> {
+    command: TokioCommand,
+    args: Vec<&'a str>,
 }
 impl<'a> RunCommandPredicate<'a> {
     /// Create a new `RunCommandPredicate` with the appropriate `Command` and `args`
     /// ENV::VAR `IGNORE_MGMT_VRF` dictates which command predicate to use
-    pub fn new(container_id: &'a str) -> Self {
+    fn new(container_id: &'a str) -> Self {
         let ignore_mgmt_vrf = std::env::var("IGNORE_MGMT_VRF").is_ok();
         tracing::trace!(ignore_mgmt_vrf, "RunCommandPredicate: IGNORE_MGMT_VRF");
 
@@ -64,7 +64,7 @@ impl<'a> RunCommandPredicate<'a> {
     }
 }
 
-pub async fn get_hbn_container_id() -> eyre::Result<String> {
+pub(super) async fn get_hbn_container_id() -> eyre::Result<String> {
     let mut crictl = TokioCommand::new("crictl");
     crictl.kill_on_drop(true);
     let cmd = crictl.args(["ps", "--name=doca-hbn", "-o=json"]);
@@ -91,7 +91,7 @@ fn parse_container_id(json: &str) -> eyre::Result<String> {
 }
 
 // Run the given command inside HBN container in a shell. Ignore the output.
-pub async fn run_in_container_shell(cmd: &str) -> Result<(), eyre::Report> {
+pub(super) async fn run_in_container_shell(cmd: &str) -> Result<(), eyre::Report> {
     let container_id = get_hbn_container_id().await?;
     let check_result = true;
 
@@ -104,7 +104,7 @@ pub async fn run_in_container_shell(cmd: &str) -> Result<(), eyre::Report> {
 }
 
 // Run the given command inside HBN container directly. Return stdout.
-pub async fn run_in_container(
+pub(super) async fn run_in_container(
     container_id: &str,
     command: &[&str],
     need_success: bool,
@@ -161,7 +161,7 @@ async fn fetch_hbn_version() -> eyre::Result<String> {
     Ok(hbn_version)
 }
 
-pub async fn read_version() -> eyre::Result<String> {
+pub(super) async fn read_version() -> eyre::Result<String> {
     Ok(HBN_VERSION
         .get_or_try_init(fetch_hbn_version)
         .await?
@@ -181,7 +181,7 @@ struct Container {
 /// This is used to track the state of some one-time changes that need to be made
 /// inside the HBN container.
 #[derive(Default)]
-pub struct HBNContainerFileConfigs {
+pub(super) struct HBNContainerFileConfigs {
     // A Some(container_id) indicates we've previously seen and modified that
     // container, and no further action is needed unless we see a different
     // container ID appear.
@@ -192,7 +192,7 @@ impl HBNContainerFileConfigs {
     /// This takes care of a couple of file-based configurations that are
     /// currently not supported in NVUE (like ifupdown2 policy and neighmgrd
     /// configuration).
-    pub async fn ensure_configs(&mut self) -> eyre::Result<()> {
+    pub(super) async fn ensure_configs(&mut self) -> eyre::Result<()> {
         let current_container_id = get_hbn_container_id().await?;
 
         match self.last_fixed_container_id.as_ref() {
@@ -261,7 +261,7 @@ async fn set_neighmgr_subnet_checks(container_id: &str) -> eyre::Result<()> {
 
 /// Try to parse the HBN version out of the value of the system build reported
 /// by NVUE.
-pub fn parse_nvue_build_as_hbn_version(build_value: &str) -> eyre::Result<String> {
+pub(super) fn parse_nvue_build_as_hbn_version(build_value: &str) -> eyre::Result<String> {
     // We expect build_value to look like this: "HBN 3.2.0"
     build_value
         .strip_prefix("HBN ")
