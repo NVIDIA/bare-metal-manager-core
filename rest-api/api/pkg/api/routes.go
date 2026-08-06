@@ -817,6 +817,28 @@ func NewAPIRoutes(dbSession *cdb.Session, tc tClient.Client, tnc tClient.Namespa
 			Handler: apiHandler.NewDeleteNetworkSecurityGroupHandler(dbSession, tc, scp, cfg),
 		},
 
+		// Issuer endpoints (Provider Admin) — runtime-managed external JWT issuers
+		{
+			Path:    apiPathPrefix + "/issuer",
+			Method:  http.MethodPut,
+			Handler: apiHandler.NewCreateIssuerHandler(dbSession, cfg),
+		},
+		{
+			Path:    apiPathPrefix + "/issuer",
+			Method:  http.MethodGet,
+			Handler: apiHandler.NewGetAllIssuerHandler(dbSession, cfg),
+		},
+		{
+			Path:    apiPathPrefix + "/issuer/:issuerId",
+			Method:  http.MethodGet,
+			Handler: apiHandler.NewGetIssuerHandler(dbSession, cfg),
+		},
+		{
+			Path:    apiPathPrefix + "/issuer/:issuerId",
+			Method:  http.MethodDelete,
+			Handler: apiHandler.NewDeleteIssuerHandler(dbSession, cfg),
+		},
+
 		// SSHKey endpoints
 		{
 			Path:    apiPathPrefix + "/sshkey",

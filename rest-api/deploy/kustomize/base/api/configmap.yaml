@@ -57,14 +57,30 @@ data:
       enabled: false
       serviceName: nico-rest-api
 
+    # Keycloak disabled — auth is handled via the issuers block below.
+    # Dynamic issuer management via the /nico/issuer API requires keycloak.enabled=false.
     keycloak:
-      enabled: true
+      enabled: false
       baseURL: http://keycloak:8082
       externalBaseURL: http://localhost:8082
       realm: nico-dev
       clientID: nico-api
       clientSecretPath: /var/secrets/keycloak/client-secret
       serviceAccount: true
+
+    # Static issuers (ConfigMap-managed, trusted at deploy time).
+    # These are the source of truth — a DB issuer that conflicts with any entry
+    # here (by name or issuerUrl) is rejected at API create time.
+    issuers:
+      - name: nico-dev-keycloak
+        issuer: http://localhost:8082/realms/nico-dev
+        jwks: http://keycloak.nico-rest:8082/realms/nico-dev/protocol/openid-connect/certs
+        origin: custom
+        claimMappings:
+          - orgName: test-org
+            roles:
+              - PROVIDER_ADMIN
+              - TENANT_ADMIN
 
     rateLimiter:
       enabled: false

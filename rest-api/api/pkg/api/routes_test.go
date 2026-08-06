@@ -70,6 +70,7 @@ func TestNewAPIRoutes(t *testing.T) {
 		"machine-capability":        1,
 		"audit":                     2,
 		"network-security-group":    5,
+		"issuer":                    4,
 		"machine-validation":        11,
 		"dpu-extension-service":     7,
 		"sku":                       5,
@@ -164,6 +165,9 @@ func TestNewAPIRoutes(t *testing.T) {
 			assertRouteExists(t, got, http.MethodPost, runPath+"/:id/resume")
 			assertRouteExists(t, got, http.MethodPost, runPath+"/:id/advance")
 			assertRouteExists(t, got, http.MethodPost, runPath+"/:id/cancel")
+
+			issuerPath := "/org/:orgName/" + cfg.GetAPIName() + "/issuer"
+			assertRouteExists(t, got, http.MethodPut, issuerPath)
 		})
 	}
 }

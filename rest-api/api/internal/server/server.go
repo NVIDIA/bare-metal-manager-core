@@ -4,6 +4,7 @@
 package server
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 	"os"
@@ -257,6 +258,27 @@ func InitAPIServer(cfg *config.Config, dbSession *cdb.Session, tc tsdkClient.Cli
 	jwtOriginConfig := cfg.GetOrInitJWTOriginConfig()
 	if jwtOriginConfig == nil {
 		log.Panic().Msg("JWT origin config not initialized, cannot initialize auth middleware")
+	}
+
+	// DB-sourced issuers and the LISTEN/NOTIFY path are only active when Keycloak is
+	// disabled. In Keycloak mode the issuers block in the ConfigMap is the sole auth
+	// source; the issuer table is not consulted and the issuer_changed channel is not
+	// subscribed to, so no DB round-trips occur on the auth hot path.
+	if !cfg.GetKeycloakEnabled() {
+		issuerCtx := context.Background()
+		if err := cfg.ReloadDBIssuers(issuerCtx, dbSession); err != nil {
+			log.Warn().Err(err).Msg("failed to load DB issuers into auth registry; continuing with ConfigMap issuers only")
+		}
+		cfg.StartIssuerReloadLoop(issuerCtx, dbSession, config.DefaultIssuerReloadInterval)
+
+		// Subscribing to issuer_changed cuts convergence from one reload interval to
+		// sub-second. It only lowers latency: the periodic reload above stays the
+		// correctness floor, so a dropped notification still heals.
+		go dbSession.Listen(issuerCtx, cdb.IssuerChangedChannel, func() {
+			if err := cfg.ReloadDBIssuers(issuerCtx, dbSession); err != nil {
+				log.Warn().Err(err).Msg("notify-triggered DB issuer reload failed; periodic reload will converge")
+			}
+		})
 	}
 
 	keycloakConfig, _ := cfg.GetOrInitKeycloakConfig()
