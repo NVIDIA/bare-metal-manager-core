@@ -23,8 +23,8 @@ use db::{DatabaseError, ObjectColumnFilter, switch as db_switch};
 use model::StateSla;
 use model::controller_outcome::PersistentStateHandlerOutcome;
 use model::switch::{
-    ConfigureCertificateState, Switch, SwitchControllerState, SwitchMaintenanceOperation,
-    SwitchSearchFilter, state_sla,
+    ConfigureCertificateState, Switch, SwitchControllerState, SwitchDecommissioningState,
+    SwitchMaintenanceOperation, SwitchSearchFilter, state_sla,
 };
 use sqlx::PgConnection;
 use state_controller::io::StateControllerIO;
@@ -152,6 +152,21 @@ impl StateControllerIO for SwitchStateControllerIO {
             SwitchControllerState::Validating { .. } => ("validating", ""),
             SwitchControllerState::BomValidating { .. } => ("bomvalidating", ""),
             SwitchControllerState::Ready => ("ready", ""),
+            SwitchControllerState::Decommissioning {
+                decommissioning_state,
+            } => (
+                "decommissioning",
+                match decommissioning_state {
+                    SwitchDecommissioningState::Preparing => "preparing",
+                    SwitchDecommissioningState::FactoryResetNvos { .. } => "factory_reset_nvos",
+                    SwitchDecommissioningState::VerifyNvosDhcpRelease { .. } => {
+                        "verify_nvos_dhcp_release"
+                    }
+                    SwitchDecommissioningState::FactoryResetBmc => "factory_reset_bmc",
+                    SwitchDecommissioningState::VerifyDhcpRelease => "verify_dhcp_release",
+                    SwitchDecommissioningState::Decommissioned => "decommissioned",
+                },
+            ),
             SwitchControllerState::RotatingBmc { .. } => ("rotatingbmc", ""),
             SwitchControllerState::Maintenance {
                 operation,

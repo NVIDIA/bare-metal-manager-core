@@ -74,3 +74,16 @@ fn parse_list() {
 
     assert!(matches!(cmd, Cmd::List(_)));
 }
+
+#[test]
+fn parse_decommission_commands() {
+    let switch_id = "sw100nsner0op5osl6n85t7772j010jmhafm934n7oej4mlome3okrn9b60";
+
+    let cmd = Cmd::try_parse_from(["managed-switch", "decommission", switch_id])
+        .expect("should parse decommission");
+    assert!(matches!(cmd, Cmd::Decommission(_)));
+
+    let cmd = Cmd::try_parse_from(["managed-switch", "delete-decommissioned", switch_id])
+        .expect("should parse delete-decommissioned");
+    assert!(matches!(cmd, Cmd::DeleteDecommissioned(_)));
+}

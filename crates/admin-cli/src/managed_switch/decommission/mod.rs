@@ -15,29 +15,17 @@
  * limitations under the License.
  */
 
-mod decommission;
-mod delete;
-mod delete_decommissioned;
-mod list;
-mod show;
+mod args;
+mod cmd;
 
-#[cfg(test)]
-mod tests;
+pub(super) use args::Args;
 
-use clap::Parser;
+use crate::cfg::run::Run;
+use crate::cfg::runtime::RuntimeContext;
+use crate::errors::CarbideCliResult;
 
-use crate::cfg::dispatch::Dispatch;
-
-#[derive(Parser, Debug, Dispatch)]
-pub(crate) enum Cmd {
-    #[clap(about = "Display managed switch information")]
-    Show(show::Args),
-    #[clap(about = "List all managed switches")]
-    List(list::Args),
-    #[clap(about = "Delete a managed switch")]
-    Delete(delete::Args),
-    #[clap(about = "Start decommissioning a managed switch")]
-    Decommission(decommission::Args),
-    #[clap(about = "Permanently delete a decommissioned managed switch")]
-    DeleteDecommissioned(delete_decommissioned::Args),
+impl Run for Args {
+    async fn run(self, ctx: &mut RuntimeContext) -> CarbideCliResult<()> {
+        cmd::decommission(&ctx.api_client, self).await
+    }
 }

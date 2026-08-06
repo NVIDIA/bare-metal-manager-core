@@ -15,29 +15,12 @@
  * limitations under the License.
  */
 
-mod decommission;
-mod delete;
-mod delete_decommissioned;
-mod list;
-mod show;
+use super::args::Args;
+use crate::errors::CarbideCliResult;
+use crate::rpc::ApiClient;
 
-#[cfg(test)]
-mod tests;
-
-use clap::Parser;
-
-use crate::cfg::dispatch::Dispatch;
-
-#[derive(Parser, Debug, Dispatch)]
-pub(crate) enum Cmd {
-    #[clap(about = "Display managed switch information")]
-    Show(show::Args),
-    #[clap(about = "List all managed switches")]
-    List(list::Args),
-    #[clap(about = "Delete a managed switch")]
-    Delete(delete::Args),
-    #[clap(about = "Start decommissioning a managed switch")]
-    Decommission(decommission::Args),
-    #[clap(about = "Permanently delete a decommissioned managed switch")]
-    DeleteDecommissioned(delete_decommissioned::Args),
+pub(super) async fn decommission(api_client: &ApiClient, args: Args) -> CarbideCliResult<()> {
+    api_client.0.decommission_switch(args.switch_id).await?;
+    println!("Started decommissioning managed switch {}.", args.switch_id);
+    Ok(())
 }

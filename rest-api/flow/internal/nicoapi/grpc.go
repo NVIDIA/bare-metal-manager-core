@@ -563,9 +563,15 @@ func (c *grpcClient) DecommissionMachine(_ context.Context, machineID string) er
 }
 
 // DecommissionSwitch initiates decommissioning of the given switch via Core.
-// TODO: Core Decommission Switch RPC pending — stub returns not-implemented.
-func (c *grpcClient) DecommissionSwitch(_ context.Context, switchID string) error {
-	return fmt.Errorf("not yet implemented: Core DecommissionSwitch RPC pending (switch %s)", switchID)
+func (c *grpcClient) DecommissionSwitch(ctx context.Context, switchID string) error {
+	ctx, cancel := context.WithTimeout(ctx, c.grpcTimeout)
+	defer cancel()
+
+	_, err := c.gclient.DecommissionSwitch(ctx, &corev1.SwitchId{Id: switchID})
+	if err != nil {
+		return fmt.Errorf("DecommissionSwitch failed for %s: %w", switchID, err)
+	}
+	return nil
 }
 
 // DecommissionPowerShelf initiates decommissioning of the given power shelf via Core.

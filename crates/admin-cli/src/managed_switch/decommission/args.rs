@@ -15,29 +15,19 @@
  * limitations under the License.
  */
 
-mod decommission;
-mod delete;
-mod delete_decommissioned;
-mod list;
-mod show;
-
-#[cfg(test)]
-mod tests;
-
+use carbide_uuid::switch::SwitchId;
 use clap::Parser;
 
-use crate::cfg::dispatch::Dispatch;
+/// Start the managed-switch decommissioning workflow.
+#[derive(Parser, Debug)]
+#[command(after_long_help = "\
+EXAMPLES:
 
-#[derive(Parser, Debug, Dispatch)]
-pub(crate) enum Cmd {
-    #[clap(about = "Display managed switch information")]
-    Show(show::Args),
-    #[clap(about = "List all managed switches")]
-    List(list::Args),
-    #[clap(about = "Delete a managed switch")]
-    Delete(delete::Args),
-    #[clap(about = "Start decommissioning a managed switch")]
-    Decommission(decommission::Args),
-    #[clap(about = "Permanently delete a decommissioned managed switch")]
-    DeleteDecommissioned(delete_decommissioned::Args),
+Start decommissioning a ready managed switch:
+    $ nico-admin-cli managed-switch decommission sw100nsner0op5osl6n85t7772j010jmhafm934n7oej4mlome3okrn9b60
+
+")]
+pub(crate) struct Args {
+    #[clap(help = "ID of the ready managed switch to decommission")]
+    pub(super) switch_id: SwitchId,
 }

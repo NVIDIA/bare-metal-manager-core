@@ -177,6 +177,9 @@ pub struct Switch {
     /// one BMC, so the flag's presence on the row names the target device.
     pub bmc_credential_rotation_requested: bool,
 
+    /// Set by the API to start decommissioning once the switch is Ready.
+    pub decommission_requested: bool,
+
     pub controller_state: Versioned<SwitchControllerState>,
 
     /// The result of the last attempt to change state
@@ -258,6 +261,7 @@ impl<'r> FromRow<'r, PgRow> for Switch {
             bmc_credential_rotation_requested: row
                 .try_get("bmc_credential_rotation_requested")
                 .unwrap_or(false),
+            decommission_requested: row.try_get("decommission_requested").unwrap_or(false),
             controller_state: Versioned {
                 value: controller_state.0,
                 version: row.try_get("controller_state_version")?,
@@ -357,6 +361,32 @@ pub enum ReProvisioningState {
     WaitingForNMXCConfigure,
 }
 
+/// Progress through NVOS DHCP release verification.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "state", rename_all = "lowercase")]
+pub enum VerifyNvosDhcpReleaseState {
+    ForceRestarting,
+    WaitingForDhcpAcknowledgement,
+}
+
+/// Progress through the managed-switch decommissioning workflow.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "state", rename_all = "lowercase")]
+pub enum SwitchDecommissioningState {
+    Preparing,
+    /// The absence of a job ID means the destructive RMS operation has not been submitted yet.
+    /// Once accepted, the ID is persisted here so controller retries only poll the existing job.
+    FactoryResetNvos {
+        job_id: Option<String>,
+    },
+    VerifyNvosDhcpRelease {
+        verifying_state: VerifyNvosDhcpReleaseState,
+    },
+    FactoryResetBmc,
+    VerifyDhcpRelease,
+    Decommissioned,
+}
+
 /// State of a Switch as tracked by the controller
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "state", rename_all = "lowercase")]
@@ -379,6 +409,11 @@ pub enum SwitchControllerState {
     },
     /// The Switch is ready for use.
     Ready,
+
+    /// The Switch is being removed from managed service.
+    Decommissioning {
+        decommissioning_state: SwitchDecommissioningState,
+    },
 
     /// The Switch is converging its BMC credentials to the staged site-wide
     /// rotation target. Entered from `Ready` (lowest precedence) when
@@ -457,6 +492,7 @@ pub fn state_sla(state: &SwitchControllerState, state_version: &ConfigVersion) -
             time_in_state,
         ),
         SwitchControllerState::Ready => StateSla::no_sla(),
+        SwitchControllerState::Decommissioning { .. } => StateSla::no_sla(),
         SwitchControllerState::RotatingBmc { .. } => StateSla::with_sla(
             std::time::Duration::from_secs(slas::ROTATING_BMC),
             time_in_state,
@@ -562,6 +598,46 @@ mod tests {
 
             "ready" {
                 SwitchControllerState::Ready => Yields(r#"{"state":"ready"}"#.to_string()),
+            }
+
+            "decommissioning: preparing" {
+                SwitchControllerState::Decommissioning {
+                    decommissioning_state: SwitchDecommissioningState::Preparing,
+                } => Yields(
+                    r#"{"state":"decommissioning","decommissioning_state":{"state":"preparing"}}"#
+                        .to_string(),
+                ),
+            }
+
+            "decommissioning: accepted NVOS reset" {
+                SwitchControllerState::Decommissioning {
+                    decommissioning_state: SwitchDecommissioningState::FactoryResetNvos {
+                        job_id: Some("reset-1".to_string()),
+                    },
+                } => Yields(
+                    r#"{"state":"decommissioning","decommissioning_state":{"state":"factoryresetnvos","job_id":"reset-1"}}"#
+                        .to_string(),
+                ),
+            }
+
+            "decommissioning: waiting for NVOS DHCP acknowledgement" {
+                SwitchControllerState::Decommissioning {
+                    decommissioning_state: SwitchDecommissioningState::VerifyNvosDhcpRelease {
+                        verifying_state: VerifyNvosDhcpReleaseState::WaitingForDhcpAcknowledgement,
+                    },
+                } => Yields(
+                    r#"{"state":"decommissioning","decommissioning_state":{"state":"verifynvosdhcprelease","verifying_state":{"state":"waitingfordhcpacknowledgement"}}}"#
+                        .to_string(),
+                ),
+            }
+
+            "decommissioning: terminal" {
+                SwitchControllerState::Decommissioning {
+                    decommissioning_state: SwitchDecommissioningState::Decommissioned,
+                } => Yields(
+                    r#"{"state":"decommissioning","decommissioning_state":{"state":"decommissioned"}}"#
+                        .to_string(),
+                ),
             }
 
             "rotatingbmc carries its retry count" {
@@ -688,6 +764,14 @@ mod tests {
 
             "ready" {
                 r#"{"state":"ready"}"# => Yields(SwitchControllerState::Ready),
+            }
+
+            "decommissioning terminal state" {
+                r#"{"state":"decommissioning","decommissioning_state":{"state":"decommissioned"}}"# => Yields(
+                    SwitchControllerState::Decommissioning {
+                        decommissioning_state: SwitchDecommissioningState::Decommissioned,
+                    },
+                ),
             }
 
             "legacy ready with stray ready_state still deserializes to Ready" {
