@@ -2094,7 +2094,7 @@ async fn create_without_addresses(
         txn,
         &segment.id,
         macaddr,
-        hostname,
+        &hostname,
         segment.config.subdomain_id,
         primary_interface,
         interface_type,
@@ -2116,13 +2116,18 @@ async fn create_without_addresses(
     Ok(snapshot)
 }
 
-/// Create the actual machine interface once we know what addresses we want.
+/// `create_inner` creates an addressed interface once allocation has selected
+/// its addresses.
+///
+/// The row starts outside `target_domain_id`, claims its address rows in a
+/// deterministic order, and then joins the domain. This keeps creates and
+/// existing-interface replacements on the same address-before-FQDN lock order.
 #[allow(clippy::too_many_arguments)]
 async fn create_inner(
     txn: &mut PgConnection,
     segment: &NetworkSegment,
     macaddr: &MacAddress,
-    domain_id: Option<DomainId>,
+    target_domain_id: Option<DomainId>,
     primary_interface: bool,
     allocated_addresses: &[IpAddr],
     allocation_type: AllocationType,
@@ -2153,24 +2158,36 @@ async fn create_inner(
         interface_type,
         // The row doesn't exist yet.
         interface_id: None,
-        domain_id,
+        domain_id: target_domain_id,
     };
     let hostname = host_naming::hostname_for(txn, &ctx).await?;
 
+    // Address rows need this parent ID, but `domain_id` can wait. Keeping it
+    // `NULL` means this transaction does not claim `fqdn_must_be_unique` until
+    // after it has claimed every address key. Existing-interface replacements
+    // already use that order, so #4150 cannot leave the two paths waiting on
+    // one another's unique keys.
     let interface_id = insert_machine_interface(
         txn,
         &segment.id,
         macaddr,
-        hostname,
-        domain_id,
+        &hostname,
+        None,
         primary_interface,
         interface_type,
     )
     .await?;
 
-    for address in allocated_addresses {
+    // A dual-stack create claims two address keys. Sort them so concurrent
+    // creates cannot take those keys in reverse.
+    let mut sorted_addresses = allocated_addresses.to_vec();
+    sorted_addresses.sort_unstable();
+    for address in &sorted_addresses {
         insert_machine_interface_address(txn, &interface_id, address, allocation_type).await?;
     }
+
+    // The address keys are in place now, so publish the target FQDN.
+    update_hostname_and_domain(txn, interface_id, &hostname, target_domain_id).await?;
 
     Ok(interface_id)
 }
@@ -2470,7 +2487,7 @@ async fn insert_machine_interface(
     txn: &mut PgConnection,
     segment_id: &NetworkSegmentId,
     mac_address: &MacAddress,
-    hostname: String,
+    hostname: &str,
     domain_id: Option<DomainId>,
     is_primary_interface: bool,
     interface_type: InterfaceType,

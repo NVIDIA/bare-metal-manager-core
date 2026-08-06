@@ -128,6 +128,113 @@ async fn create_managed_segment(
     Ok(segment_id)
 }
 
+/// `create_inner` claims addresses in a deterministic order before the new
+/// interface joins its configured DNS domain. The trigger inspects earlier
+/// writes in the same transaction, so an ordering regression fails without
+/// relying on a race.
+#[crate::sqlx_test]
+async fn create_inner_claims_addresses_before_publishing_fqdn(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let segment_name = "address-before-hostname";
+    let segment_id = create_managed_segment(
+        &pool,
+        segment_name,
+        "192.0.2.0/29",
+        NetworkSegmentType::Admin,
+        AllocationStrategy::Dynamic,
+    )
+    .await?;
+
+    let mut txn = db::Transaction::begin(&pool).await?;
+    let domain = db::dns::domain::persist(
+        model::dns::NewDomain::new("address-order.example"),
+        txn.as_pgconn(),
+    )
+    .await?;
+    sqlx::query("UPDATE network_segments SET subdomain_id = $1 WHERE id = $2")
+        .bind(domain.id)
+        .bind(segment_id)
+        .execute(txn.as_pgconn())
+        .await?;
+    // Use one prefix from each family so the trigger can also reject a
+    // reversed dual-stack insert.
+    db::network_prefix::create_for(
+        txn.as_pgconn(),
+        &segment_id,
+        &[NewNetworkPrefix {
+            prefix: "2001:db8::/126".parse()?,
+            gateway: None,
+            dhcpv6_link_address: None,
+            num_reserved: 0,
+        }],
+    )
+    .await?;
+    let segment = db::network_segment::find_by_name(txn.as_pgconn(), segment_name).await?;
+
+    sqlx::raw_sql(
+        r#"
+        CREATE FUNCTION test_assert_create_inner_address_order()
+        RETURNS trigger
+        LANGUAGE plpgsql
+        AS $$
+        BEGIN
+            IF EXISTS (
+                SELECT 1
+                FROM machine_interfaces
+                WHERE id = NEW.interface_id
+                  AND domain_id IS NOT NULL
+            ) THEN
+                RAISE EXCEPTION 'machine interface entered its DNS domain before address insertion';
+            END IF;
+            IF EXISTS (
+                SELECT 1
+                FROM machine_interface_addresses
+                WHERE interface_id = NEW.interface_id
+                  AND address > NEW.address
+            ) THEN
+                RAISE EXCEPTION 'machine interface addresses were not inserted in address order';
+            END IF;
+            RETURN NEW;
+        END;
+        $$;
+
+        CREATE TRIGGER test_assert_create_inner_address_order
+        BEFORE INSERT ON machine_interface_addresses
+        FOR EACH ROW
+        EXECUTE FUNCTION test_assert_create_inner_address_order();
+        "#,
+    )
+    .execute(txn.as_pgconn())
+    .await?;
+
+    let mac_address: MacAddress = "02:00:00:20:04:01".parse()?;
+    let allocated_addresses: [IpAddr; 2] = ["2001:db8::2".parse()?, "192.0.2.2".parse()?];
+    let interface_id = create_inner(
+        txn.as_pgconn(),
+        &segment,
+        &mac_address,
+        segment.config.subdomain_id,
+        false,
+        &allocated_addresses,
+        AllocationType::Dhcp,
+        InterfaceType::Data,
+    )
+    .await?;
+    let mut interface = find_one(txn.as_pgconn(), interface_id).await?;
+    txn.commit().await?;
+
+    interface.addresses.sort_unstable();
+    assert_eq!(
+        interface.addresses,
+        vec![allocated_addresses[1], allocated_addresses[0]]
+    );
+    assert_eq!(interface.hostname, "192-0-2-2");
+    assert_eq!(interface.domain_id, Some(domain.id));
+
+    Ok(())
+}
+
 #[crate::sqlx_test]
 #[allow(txn_held_across_await)] // Intentionally hold interface locks while testing another writer.
 async fn find_by_machine_id_for_update_locks_non_bmc_interfaces_in_id_order(
