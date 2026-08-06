@@ -15,7 +15,7 @@
  * limitations under the License.
  */
 
-pub mod common;
+mod common;
 mod create;
 mod delete;
 mod get_artifacts;
@@ -29,7 +29,7 @@ use crate::cfg::dispatch::Dispatch;
 
 #[derive(Parser, Debug, Clone, Dispatch)]
 #[clap(rename_all = "kebab_case")]
-pub enum Cmd {
+pub(crate) enum Cmd {
     #[clap(
         about = "Show operating system definitions (all, or one by ID).",
         visible_alias = "s"

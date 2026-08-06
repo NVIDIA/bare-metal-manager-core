@@ -17,9 +17,53 @@ inputs:
 runs:
   using: "composite"
   steps:
+    # A cold run pulls ~120 packages from the distro mirror, and on arm64 a
+    # single stalled connection there has taken the whole job down: one 140 kB
+    # package burned two minutes of retries and then failed with a connection
+    # timeout. Keeping the .deb files between runs takes the mirror off the
+    # critical path entirely whenever the set of packages is unchanged.
+    - name: Compute apt cache key
+      id: apt-key
+      shell: bash
+      run: echo "week=$(date -u +%G-%V)" >> "$GITHUB_OUTPUT"
+
+    # The package list lives in this file, so its hash is what should rotate the
+    # cache. The trailing week keeps the contents from ageing indefinitely: a
+    # primary-key hit never re-saves, so without it the archive would drift
+    # further behind the mirror every run.
+    # restore/save rather than actions/cache, whose post step is `post-if:
+    # success()` and so would skip the save on exactly the run that needs it
+    # most -- the one the mirror just failed.
+    - name: Restore apt archives
+      id: apt-cache
+      uses: actions/cache/restore@v4
+      with:
+        path: ~/.cache/nico-apt-archives
+        key: apt-mkosi-${{ runner.arch }}-${{ hashFiles('.github/actions/setup-mkosi-environment/action.yml') }}-${{ steps.apt-key.outputs.week }}
+        restore-keys: |
+          apt-mkosi-${{ runner.arch }}-${{ hashFiles('.github/actions/setup-mkosi-environment/action.yml') }}-
+          apt-mkosi-${{ runner.arch }}-
+
     - name: Update package lists
       shell: bash
       run: |
+        set -euo pipefail
+
+        # apt defaults to three tries against a 120s timeout, so one unhealthy
+        # mirror IP stalls for minutes before it gives up on a package. Failing
+        # faster and trying more often lands on a healthy IP sooner.
+        sudo tee /etc/apt/apt.conf.d/99-nico-acquire >/dev/null <<'EOF'
+        Acquire::Retries "5";
+        Acquire::http::Timeout "20";
+        Acquire::https::Timeout "20";
+        Binary::apt-get::APT::Keep-Downloaded-Packages "true";
+        EOF
+
+        # apt only skips a download when the .deb is already in its own cache
+        # directory, so the restored archives have to be seeded into it.
+        mkdir -p ~/.cache/nico-apt-archives
+        sudo cp -n ~/.cache/nico-apt-archives/*.deb /var/cache/apt/archives/ 2>/dev/null || true
+
         sudo apt-get update
 
     - name: Install system dependencies
@@ -88,6 +132,29 @@ runs:
           protobuf-compiler
         sudo sysctl -w kernel.apparmor_restrict_unprivileged_unconfined=0
         sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+
+    # Runs after a failed install too: apt keeps every .deb it did fetch before
+    # giving up, so banking them shrinks what the retry has to ask the mirror
+    # for. Owned by the runner user so the save step can read them back.
+    #
+    # !cancelled() rather than always(), so a superseded run that CI just
+    # cancelled stops promptly instead of lingering to bank a cache nobody
+    # asked for. An ordinary failure still saves.
+    - name: Collect apt archives
+      if: ${{ !cancelled() }}
+      shell: bash
+      run: |
+        mkdir -p ~/.cache/nico-apt-archives
+        sudo cp -u /var/cache/apt/archives/*.deb ~/.cache/nico-apt-archives/ 2>/dev/null || true
+        sudo chown -R "$(id -u):$(id -g)" ~/.cache/nico-apt-archives
+        echo "apt archives held: $(find ~/.cache/nico-apt-archives -name '*.deb' | wc -l) packages ($(du -sh ~/.cache/nico-apt-archives | cut -f1))"
+
+    - name: Save apt archives
+      if: ${{ !cancelled() && steps.apt-cache.outputs.cache-hit != 'true' }}
+      uses: actions/cache/save@v4
+      with:
+        path: ~/.cache/nico-apt-archives
+        key: ${{ steps.apt-cache.outputs.cache-primary-key }}
 
     - name: Install Rust toolchain
       shell: bash

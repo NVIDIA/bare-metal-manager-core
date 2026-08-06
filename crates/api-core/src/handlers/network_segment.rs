@@ -402,7 +402,7 @@ pub(crate) async fn save(
 /// Allocate a value from the vni resource pool.
 ///
 /// If the pool exists but is empty or has en error, return that.
-pub async fn allocate_vni(
+async fn allocate_vni(
     api: &Api,
     txn: &mut PgConnection,
     owner_id: &str,
@@ -447,7 +447,7 @@ pub async fn allocate_vni(
 /// Allocate a value from the vlan id resource pool.
 ///
 /// If the pool exists but is empty or has en error, return that.
-pub async fn allocate_vlan_id(
+async fn allocate_vlan_id(
     api: &Api,
     txn: &mut PgConnection,
     owner_id: &str,

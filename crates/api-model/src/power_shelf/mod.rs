@@ -33,7 +33,7 @@ use crate::health::HealthReportSources;
 use crate::metadata::Metadata;
 
 pub mod power_shelf_id;
-pub mod slas;
+mod slas;
 
 #[derive(Debug, Clone)]
 pub struct NewPowerShelf {

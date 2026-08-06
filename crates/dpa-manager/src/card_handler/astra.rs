@@ -24,7 +24,7 @@ use crate::errors::DpaManagerResult;
 use crate::metrics::DpaMonitorMetrics;
 use crate::{DpaMonitor, HandlerResult};
 
-pub struct AstraInterfaceHandler;
+pub(super) struct AstraInterfaceHandler;
 
 #[async_trait]
 impl DpaInterfaceStateHandler for AstraInterfaceHandler {

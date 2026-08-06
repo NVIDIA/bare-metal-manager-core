@@ -43,51 +43,51 @@ Update only if the version counter matches (optimistic concurrency):
     --data '{\"image\":\"my-registry/my-service:2.0\"}' --if-version-ctr-match 3
 
 ")]
-pub struct Args {
+pub(crate) struct Args {
     #[clap(short = 'i', long = "id", help = "The extension service ID to update")]
-    pub service_id: String,
+    service_id: String,
 
     #[clap(
         short = 'n',
         long = "name",
         help = "New extension service name (optional)"
     )]
-    pub service_name: Option<String>,
+    service_name: Option<String>,
 
     #[clap(long, help = "New extension service description (optional)")]
-    pub description: Option<String>,
+    description: Option<String>,
 
     #[clap(short = 'd', long, help = "New extension service data")]
-    pub data: String,
+    data: String,
 
     #[clap(long, help = "New registry URL for the service credential (optional)")]
-    pub registry_url: Option<String>,
+    registry_url: Option<String>,
 
     #[clap(
         short = 'u',
         long,
         help = "New username for the service credential (optional)"
     )]
-    pub username: Option<String>,
+    username: Option<String>,
 
     #[clap(
         short = 'p',
         long,
         help = "New password for the service credential (optional)"
     )]
-    pub password: Option<String>,
+    password: Option<String>,
 
     #[clap(
         long,
         help = "Update only if current number of versions matches this number (optional)"
     )]
-    pub if_version_ctr_match: Option<i32>,
+    if_version_ctr_match: Option<i32>,
 
     #[clap(
         long,
         help = "JSON array containing a defined set of extension observability configs (optional)"
     )]
-    pub observability: Option<String>,
+    observability: Option<String>,
 }
 
 impl TryFrom<Args> for ::rpc::forge::UpdateDpuExtensionServiceRequest {

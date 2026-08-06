@@ -36,7 +36,7 @@ use eyre::Context;
 use flate2::read::GzDecoder;
 use regex::Regex;
 
-pub type EntryMap = Arc<Mutex<HashMap<String, String>>>;
+pub(super) type EntryMap = Arc<Mutex<HashMap<String, String>>>;
 
 #[derive(Clone, Default)]
 struct TarRouterCache {
@@ -45,7 +45,7 @@ struct TarRouterCache {
 
 /// Allows callers to specify an in-memory tar (like via include_bytes!()) or a path to one on the
 /// filesystem.
-pub enum TarGzOption<'a> {
+pub(super) enum TarGzOption<'a> {
     Disk(&'a PathBuf),
 }
 
@@ -58,7 +58,7 @@ impl TarGzOption<'_> {
 }
 
 /// Create a mock of
-pub fn tar_router(
+pub(super) fn tar_router(
     targz: TarGzOption,
     existing_tars: Option<&mut HashMap<std::path::PathBuf, EntryMap>>,
 ) -> eyre::Result<Router> {

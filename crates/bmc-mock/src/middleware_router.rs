@@ -28,7 +28,7 @@ use crate::Callbacks;
 use crate::http::call_router_with_new_request;
 use crate::injection::InjectionStore;
 
-pub fn append(
+pub(super) fn append(
     mat_host_id: String,
     router: Router,
     injection: Arc<InjectionStore>,

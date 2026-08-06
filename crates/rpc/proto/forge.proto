@@ -8105,10 +8105,14 @@ message NmxcBrowseRequest {
   reserved 1;
   reserved "path";
   // Chassis serial used to resolve the NMX-C gRPC endpoint URL from `nvlink_nmxc_endpoints`.
+  // Mutually exclusive with `rack_id`; at least one of `chassis_serial` or `rack_id` must be set.
   string chassis_serial = 2;
   NmxcBrowseOperation operation = 3;
   // Required when `operation` is `NMXC_BROWSE_OPERATION_GPU_INFO`; ignored for `NMXC_BROWSE_OPERATION_GPU_INFO_LIST`.
   uint64 gpu_uid = 4;
+  // Rack identifier; used to resolve the NMX-C endpoint from the rack's ready control-plane switch
+  // NVOS IP. Mutually exclusive with `chassis_serial`; at least one of `rack_id` or `chassis_serial` must be set.
+  optional common.RackId rack_id = 5;
 }
 
 message NmxcBrowseResponse {
@@ -9630,8 +9634,11 @@ message SetContainerRegistryCredentialRequest {
 
 // Identifies the lifecycle authority responsible for a site prefix.
 enum SitePrefixAuthority {
+  option allow_alias = true;
+
   SITE_PREFIX_AUTHORITY_UNSPECIFIED = 0;
-  SITE_PREFIX_AUTHORITY_CONFIGURED = 1;
+  SITE_PREFIX_AUTHORITY_OPERATOR_MANAGED = 1;
+  SITE_PREFIX_AUTHORITY_CONFIGURED = 1 [deprecated = true];
   SITE_PREFIX_AUTHORITY_TENANT_MANAGED = 2;
 }
 

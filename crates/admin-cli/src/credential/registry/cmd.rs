@@ -19,7 +19,7 @@ use super::args::SetArgs;
 use crate::errors::CarbideCliResult;
 use crate::rpc::ApiClient;
 
-pub async fn registry_set(args: SetArgs, api_client: &ApiClient) -> CarbideCliResult<()> {
+pub(super) async fn registry_set(args: SetArgs, api_client: &ApiClient) -> CarbideCliResult<()> {
     api_client
         .set_container_registry_credential(args.registry, args.username, args.password)
         .await

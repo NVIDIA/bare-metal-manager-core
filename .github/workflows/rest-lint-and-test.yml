@@ -255,6 +255,7 @@ jobs:
           - ipam
           - nvswitch-manager
           - powershelf-manager
+          - proto
           - site-agent
           - site-manager
           - site-workflow

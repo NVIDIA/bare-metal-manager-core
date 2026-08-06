@@ -34,7 +34,7 @@ use uuid::Uuid;
 
 use super::Base;
 
-pub async fn find(
+pub(super) async fn find(
     AxumState(state): AxumState<Arc<Api>>,
     Query(params): Query<HashMap<String, String>>,
 ) -> Response {

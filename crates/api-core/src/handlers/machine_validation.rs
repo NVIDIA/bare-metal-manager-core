@@ -1096,7 +1096,7 @@ pub(crate) async fn update_machine_validation_run(
     }))
 }
 
-pub async fn apply_config_on_startup(
+pub(crate) async fn apply_config_on_startup(
     api: &Api,
     config: &MachineValidationConfig,
 ) -> Result<(), CarbideError> {

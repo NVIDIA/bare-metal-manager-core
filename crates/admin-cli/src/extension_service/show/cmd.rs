@@ -23,7 +23,7 @@ use super::args::Args;
 use crate::errors::CarbideCliResult;
 use crate::rpc::ApiClient;
 
-pub async fn handle_show(
+pub(super) async fn handle_show(
     args: Args,
     output_format: OutputFormat,
     api_client: &ApiClient,
@@ -55,7 +55,9 @@ pub async fn handle_show(
     Ok(())
 }
 
-pub fn convert_extension_services_to_table(services: &[DpuExtensionService]) -> Box<Table> {
+pub(in crate::extension_service) fn convert_extension_services_to_table(
+    services: &[DpuExtensionService],
+) -> Box<Table> {
     let mut table = Table::new();
 
     table.set_titles(row![

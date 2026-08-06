@@ -35,7 +35,7 @@ pub(crate) struct OtlpDrainTask {
 }
 
 impl OtlpDrainTask {
-    pub fn new(queue: Arc<OtlpQueue>, target: OtlpTargetConfig) -> Self {
+    pub(crate) fn new(queue: Arc<OtlpQueue>, target: OtlpTargetConfig) -> Self {
         Self { queue, target }
     }
 
@@ -50,7 +50,7 @@ impl OtlpDrainTask {
         }
     }
 
-    pub async fn run(self) {
+    pub(crate) async fn run(self) {
         let mut client = self.connect().await;
 
         let mut batch = Vec::with_capacity(self.target.batch_size);

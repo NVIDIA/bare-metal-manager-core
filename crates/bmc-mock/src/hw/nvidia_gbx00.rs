@@ -23,15 +23,15 @@ use serde_json::json;
 
 use crate::redfish;
 
-pub struct Topology {
-    pub chassis_physical_slot_number: u32,
-    pub compute_tray_index: u32,
-    pub revision_id: u32,
-    pub topology_id: u32,
+pub(crate) struct Topology {
+    pub(crate) chassis_physical_slot_number: u32,
+    pub(crate) compute_tray_index: u32,
+    pub(crate) revision_id: u32,
+    pub(crate) topology_id: u32,
 }
 
 // CBC chassis definition.
-pub fn cbc_chassis(
+pub(super) fn cbc_chassis(
     chassis_id: Cow<'static, str>,
     topology: &Topology,
 ) -> redfish::chassis::SingleChassisConfig {

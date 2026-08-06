@@ -30,14 +30,14 @@ use opentelemetry::StringValue;
 use opentelemetry::metrics::Meter;
 
 #[derive(Clone, Debug)]
-pub struct PreingestionMetrics {
-    pub machines_in_preingestion: usize,
-    pub waiting_for_installation: usize,
-    pub delayed_uploading: u64,
+pub(super) struct PreingestionMetrics {
+    pub(super) machines_in_preingestion: usize,
+    pub(super) waiting_for_installation: usize,
+    pub(super) delayed_uploading: u64,
 }
 
 impl PreingestionMetrics {
-    pub fn new() -> Self {
+    pub(super) fn new() -> Self {
         Self {
             machines_in_preingestion: 0,
             waiting_for_installation: 0,
@@ -91,12 +91,12 @@ fn hydrate_meter(meter: Meter, shared_metrics: SharedMetricsHolder<PreingestionM
     }
 }
 
-pub struct MetricHolder {
+pub(super) struct MetricHolder {
     last_iteration_metrics: SharedMetricsHolder<PreingestionMetrics>,
 }
 
 impl MetricHolder {
-    pub fn new(meter: Meter, hold_period: std::time::Duration) -> Self {
+    pub(super) fn new(meter: Meter, hold_period: std::time::Duration) -> Self {
         let last_iteration_metrics = SharedMetricsHolder::with_hold_period(hold_period);
         hydrate_meter(meter, last_iteration_metrics.clone());
         Self {
@@ -105,7 +105,7 @@ impl MetricHolder {
     }
 
     /// Updates the most recent metrics
-    pub fn update_metrics(&self, metrics: PreingestionMetrics) {
+    pub(super) fn update_metrics(&self, metrics: PreingestionMetrics) {
         self.last_iteration_metrics.update(metrics);
     }
 }
@@ -261,10 +261,10 @@ pub(crate) enum FirmwareUploadFinished {
 pub(crate) struct MultipartFirmwareUploadUnsupported {
     /// The BMC whose multipart route rejected the upload.
     #[context]
-    pub bmc_ip_address: IpAddr,
+    pub(crate) bmc_ip_address: IpAddr,
     /// The Redfish unsupported-route error that triggered fallback.
     #[context]
-    pub error: String,
+    pub(crate) error: String,
 }
 
 /// `FirmwareComponentType` as a bounded metric label. The manual impl is the
@@ -273,7 +273,7 @@ pub(crate) struct MultipartFirmwareUploadUnsupported {
 /// derive out of reach from here. The rendering mirrors what
 /// `#[derive(LabelValue)]` would produce.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) struct FirmwareComponentLabel(pub FirmwareComponentType);
+pub(crate) struct FirmwareComponentLabel(pub(crate) FirmwareComponentType);
 
 impl LabelValue for FirmwareComponentLabel {
     fn label_value(&self) -> StringValue {
@@ -496,16 +496,16 @@ pub(crate) struct PreingestionPowerControl {
 )]
 pub(crate) struct PowerControlFinished {
     #[label]
-    pub operation: PowerOperation,
+    pub(crate) operation: PowerOperation,
     #[label]
-    pub outcome: Outcome,
+    pub(crate) outcome: Outcome,
     #[context]
-    pub bmc_ip_address: IpAddr,
+    pub(crate) bmc_ip_address: IpAddr,
     #[context]
-    pub power_step: PowerControlStep,
+    pub(crate) power_step: PowerControlStep,
     /// The Redfish failure; empty when the operation returned `Ok`.
     #[context]
-    pub error: String,
+    pub(crate) error: String,
 }
 
 impl DynamicLog for PowerControlFinished {

@@ -23,7 +23,7 @@ use crate::errors::{CarbideCliError, CarbideCliResult};
 use crate::health_utils;
 use crate::rpc::ApiClient;
 
-pub async fn handle_health_report(
+pub(super) async fn handle_health_report(
     command: Args,
     output_format: OutputFormat,
     api_client: &ApiClient,

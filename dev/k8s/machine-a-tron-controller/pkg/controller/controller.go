@@ -412,6 +412,11 @@ type StatusFetcher interface {
 // StatusFetcherFunc is a function type for creating StatusFetchers per URL.
 type StatusFetcherFunc func(url string) (StatusFetcher, error)
 
+// Closeable is an optional interface for StatusFetchers that need cleanup.
+type Closeable interface {
+	Close() error
+}
+
 // Reconciler reconciles Kubernetes Services with machine-a-tron machine status.
 type Reconciler struct {
 	discovery        Discovery
@@ -422,6 +427,10 @@ type Reconciler struct {
 	statusFetcher    StatusFetcherFunc // Optional, for testing. If nil, uses matclient.
 	logger           zerolog.Logger
 	concurrency      int
+
+	// clientCache caches StatusFetcher instances by URL for connection reuse.
+	// Entries are evicted when their URLs are absent from discovery.
+	clientCache map[string]StatusFetcher
 }
 
 // DeploymentClient is an interface for fetching Deployments.
@@ -446,6 +455,7 @@ func NewReconciler(
 		clientOpts:       clientOpts,
 		logger:           logger,
 		concurrency:      DefaultConcurrency,
+		clientCache:      make(map[string]StatusFetcher),
 	}
 }
 
@@ -454,6 +464,27 @@ func (r *Reconciler) SetConcurrency(n int) {
 	if n > 0 {
 		r.concurrency = n
 	}
+}
+
+// getOrCreateClient returns a cached StatusFetcher or creates a new one.
+func (r *Reconciler) getOrCreateClient(url string) (StatusFetcher, error) {
+	if fetcher, ok := r.clientCache[url]; ok {
+		return fetcher, nil
+	}
+
+	var fetcher StatusFetcher
+	var err error
+	if r.statusFetcher != nil {
+		fetcher, err = r.statusFetcher(url)
+	} else {
+		fetcher, err = matclient.NewClient(url, r.clientOpts...)
+	}
+	if err != nil {
+		return nil, err
+	}
+
+	r.clientCache[url] = fetcher
+	return fetcher, nil
 }
 
 // Reconcile performs a full reconciliation cycle.
@@ -465,6 +496,22 @@ func (r *Reconciler) Reconcile(ctx context.Context) ReconcileResult {
 	if err != nil {
 		result.Errors = append(result.Errors, fmt.Errorf("discovering instances: %w", err))
 		return result
+	}
+
+	// Build set of discovered URLs for cache eviction (even if empty)
+	discoveredURLs := make(map[string]struct{}, len(instances))
+	for _, instance := range instances {
+		discoveredURLs[instance.URL] = struct{}{}
+	}
+
+	// Evict cached clients whose URLs are no longer discovered
+	for url, fetcher := range r.clientCache {
+		if _, found := discoveredURLs[url]; !found {
+			if c, ok := fetcher.(Closeable); ok {
+				_ = c.Close()
+			}
+			delete(r.clientCache, url)
+		}
 	}
 
 	if len(instances) == 0 {
@@ -506,14 +553,7 @@ func (r *Reconciler) Reconcile(ctx context.Context) ReconcileResult {
 	fetchFailed := false
 
 	for _, instance := range instances {
-		var fetcher StatusFetcher
-		var err error
-
-		if r.statusFetcher != nil {
-			fetcher, err = r.statusFetcher(instance.URL)
-		} else {
-			fetcher, err = matclient.NewClient(instance.URL, r.clientOpts...)
-		}
+		fetcher, err := r.getOrCreateClient(instance.URL)
 		if err != nil {
 			result.Errors = append(result.Errors, fmt.Errorf("creating client for %s: %w", instance.URL, err))
 			fetchFailed = true
@@ -571,7 +611,7 @@ func (r *Reconciler) Reconcile(ctx context.Context) ReconcileResult {
 
 	// Process deletes concurrently
 	if !fetchFailed && len(diff.Delete) > 0 {
-		deleted := r.processDeletesConcurrently(ctx, diff.Delete)
+		deleted := r.processDeletesConcurrently(ctx, diff.Delete, &result)
 		result.Deleted = deleted
 	}
 
@@ -598,9 +638,10 @@ func (r *Reconciler) Reconcile(ctx context.Context) ReconcileResult {
 }
 
 // processDeletesConcurrently deletes services using a worker pool.
-func (r *Reconciler) processDeletesConcurrently(ctx context.Context, names []string) int {
+func (r *Reconciler) processDeletesConcurrently(ctx context.Context, names []string, result *ReconcileResult) int {
 	var deleted int64
 	var wg sync.WaitGroup
+	var errMu sync.Mutex
 	sem := make(chan struct{}, r.concurrency)
 
 	for i, name := range names {
@@ -620,6 +661,9 @@ func (r *Reconciler) processDeletesConcurrently(ctx context.Context, names []str
 
 			if err := r.k8sClient.Delete(ctx, r.serviceBuilder.Namespace, name); err != nil {
 				r.logger.Error().Err(err).Str("service", name).Msg("failed to delete service")
+				errMu.Lock()
+				result.Errors = append(result.Errors, fmt.Errorf("deleting service %s: %w", name, err))
+				errMu.Unlock()
 			} else {
 				atomic.AddInt64(&deleted, 1)
 			}

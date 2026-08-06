@@ -933,7 +933,7 @@ func (handler GetMachineValidationResultsHandler) Handle(c echo.Context) error {
 	logger.Info().Str("Workflow ID", getWorkflowID).Msg("completed synchronous get MachineValidationResults workflow")
 
 	// Create response
-	var response []*model.APIMachineValidationResult
+	response := make([]*model.APIMachineValidationResult, 0, len(getProtoResponse.GetResults()))
 	for _, proto := range getProtoResponse.GetResults() {
 		response = append(response, model.NewAPIMachineValidationResult(proto))
 	}
@@ -1059,7 +1059,7 @@ func (handler GetAllMachineValidationRunHandler) Handle(c echo.Context) error {
 	logger.Info().Str("Workflow ID", getWorkflowID).Msg("completed synchronous get MachineValidationRuns workflow")
 
 	// Create response
-	var response []*model.APIMachineValidationRun
+	response := make([]*model.APIMachineValidationRun, 0, len(getProtoResponse.GetRuns()))
 	for _, proto := range getProtoResponse.GetRuns() {
 		response = append(response, model.NewAPIMachineValidationRun(proto))
 	}

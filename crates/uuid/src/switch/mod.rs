@@ -451,9 +451,9 @@ mod legacy_rpc {
     /// manually every time, while still interacting with peers that expect a `.common.SwitchId`
     /// to be serialized.
     #[derive(prost::Message)]
-    pub struct SwitchId {
+    pub(super) struct SwitchId {
         #[prost(string, tag = "1")]
-        pub id: String,
+        pub(super) id: String,
     }
 
     impl From<super::SwitchId> for SwitchId {

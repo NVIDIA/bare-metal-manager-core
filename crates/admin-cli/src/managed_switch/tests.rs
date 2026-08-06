@@ -28,6 +28,7 @@ use carbide_test_support::scenarios;
 use clap::{CommandFactory, Parser};
 
 use super::*;
+use crate::test_support::{parse_leaf, raw_value};
 
 // verify_cmd_structure runs a baseline clap debug_assert()
 // to do basic command configuration checking and validation,
@@ -52,11 +53,8 @@ fn verify_cmd_structure() {
 fn parse_show_identifier() {
     scenarios!(
         run = |argv| {
-            Cmd::try_parse_from(argv.iter().copied())
-                .map(|cmd| match cmd {
-                    Cmd::Show(args) => args.identifier,
-                    _ => panic!("expected Show variant"),
-                })
+            parse_leaf::<Cmd>(argv, &["show"])
+                .map(|matches| raw_value(&matches, "identifier"))
                 .map_err(drop)
         };
         "show with no arguments (all switches)" {

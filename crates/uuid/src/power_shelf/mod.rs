@@ -469,9 +469,9 @@ mod legacy_rpc {
     /// manually every time, while still interacting with peers that expect a `.common.PowerShelfId`
     /// to be serialized.
     #[derive(prost::Message)]
-    pub struct PowerShelfId {
+    pub(super) struct PowerShelfId {
         #[prost(string, tag = "1")]
-        pub id: String,
+        pub(super) id: String,
     }
 
     impl From<super::PowerShelfId> for PowerShelfId {

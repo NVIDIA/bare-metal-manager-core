@@ -37,7 +37,7 @@ use crate::redfish::{account_service, service_root, session_service};
 const WWW_AUTHENTICATE_VALUE: HeaderValue = HeaderValue::from_static("Basic realm=\"bmc-mock\"");
 const X_AUTH_TOKEN_HEADER: &str = "x-auth-token";
 
-pub fn append(router: Router, authorizer: Authorizer) -> Router {
+pub(super) fn append(router: Router, authorizer: Authorizer) -> Router {
     let service_root_path = service_root::resource().odata_id.to_string();
     let service_root_path_with_trailing_slash = format!("{service_root_path}/");
     let account_service_path = account_service::resource().odata_id.to_string();
@@ -162,7 +162,7 @@ impl AuthMiddleware {
 }
 
 #[derive(Clone)]
-pub struct Authorizer {
+pub(super) struct Authorizer {
     account_service_state: Arc<AccountServiceState>,
     session_service_state: Arc<SessionServiceState>,
     forbid_factory_default_password: bool,
@@ -170,7 +170,7 @@ pub struct Authorizer {
 
 impl Authorizer {
     /// Builds the factory-default authorizer for a mock BMC state.
-    pub fn new(
+    pub(super) fn new(
         account_service_state: Arc<AccountServiceState>,
         session_service_state: Arc<SessionServiceState>,
     ) -> Self {
@@ -181,7 +181,7 @@ impl Authorizer {
         }
     }
 
-    pub fn permit_factory_default_password(mut self) -> Self {
+    pub(super) fn permit_factory_default_password(mut self) -> Self {
         self.forbid_factory_default_password = false;
         self
     }

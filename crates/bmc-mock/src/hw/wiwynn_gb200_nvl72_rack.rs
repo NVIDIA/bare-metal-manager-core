@@ -18,10 +18,10 @@
 use crate::hw::rack::RackElevation;
 use crate::{HardwareType, hw};
 
-pub struct WiwynnGB200Nvl72Rack;
+pub(crate) struct WiwynnGB200Nvl72Rack;
 
 impl WiwynnGB200Nvl72Rack {
-    pub fn rack_elevation(&self) -> RackElevation {
+    pub(crate) fn rack_elevation(&self) -> RackElevation {
         hw::nvidia_gb200::nvl72_rack_elevation(
             HardwareType::WiwynnGB200Nvl,
             HardwareType::LiteOnPowerShelf,

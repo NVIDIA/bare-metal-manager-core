@@ -136,7 +136,7 @@ impl Run for Match {
 }
 
 /// create_for_id creates a new measurement report.
-pub async fn create_for_id(
+async fn create_for_id(
     grpc_conn: &ApiClient,
     create: Create,
 ) -> CarbideCliResult<MeasurementReport> {
@@ -147,7 +147,7 @@ pub async fn create_for_id(
 }
 
 /// delete deletes a measurement report with the provided ID.
-pub async fn delete(grpc_conn: &ApiClient, delete: Delete) -> CarbideCliResult<MeasurementReport> {
+async fn delete(grpc_conn: &ApiClient, delete: Delete) -> CarbideCliResult<MeasurementReport> {
     let response = grpc_conn.0.delete_measurement_report(delete).await?;
 
     MeasurementReport::from_grpc_opt(response.report)
@@ -157,7 +157,7 @@ pub async fn delete(grpc_conn: &ApiClient, delete: Delete) -> CarbideCliResult<M
 /// promote promotes a report to an active bundle.
 ///
 /// `report promote <report-id> [pcr-selector]`
-pub async fn promote(
+pub(in crate::attestation::measured_boot) async fn promote(
     grpc_conn: &ApiClient,
     promote: Promote,
 ) -> CarbideCliResult<MeasurementBundle> {
@@ -172,7 +172,7 @@ pub async fn promote(
 /// matching this should be marked as rejected.
 ///
 /// `journal revoke <journal-id> [pcr-selector]`
-pub async fn revoke(grpc_conn: &ApiClient, revoke: Revoke) -> CarbideCliResult<MeasurementBundle> {
+async fn revoke(grpc_conn: &ApiClient, revoke: Revoke) -> CarbideCliResult<MeasurementBundle> {
     let response = grpc_conn.0.revoke_measurement_report(revoke).await?;
 
     MeasurementBundle::from_grpc_opt(response.bundle)
@@ -180,7 +180,7 @@ pub async fn revoke(grpc_conn: &ApiClient, revoke: Revoke) -> CarbideCliResult<M
 }
 
 /// show_for_id dumps all info about a report for the given ID.
-pub async fn show_for_id(
+async fn show_for_id(
     grpc_conn: &ApiClient,
     show_for_id: ShowForId,
 ) -> CarbideCliResult<MeasurementReport> {
@@ -194,7 +194,7 @@ pub async fn show_for_id(
 }
 
 /// show_for_machine dumps reports for a given machine.
-pub async fn show_for_machine(
+async fn show_for_machine(
     grpc_conn: &ApiClient,
     show_for_machine: ShowForMachine,
 ) -> CarbideCliResult<MeasurementReportList> {
@@ -214,7 +214,7 @@ pub async fn show_for_machine(
 }
 
 /// show_all dumps all info about all reports.
-pub async fn show_all(grpc_conn: &ApiClient) -> CarbideCliResult<MeasurementReportList> {
+async fn show_all(grpc_conn: &ApiClient) -> CarbideCliResult<MeasurementReportList> {
     Ok(MeasurementReportList(
         grpc_conn
             .0
@@ -231,7 +231,7 @@ pub async fn show_all(grpc_conn: &ApiClient) -> CarbideCliResult<MeasurementRepo
 }
 
 /// list lists all bundle ids.
-pub async fn list_all(grpc_conn: &ApiClient) -> CarbideCliResult<MeasurementReportRecordList> {
+async fn list_all(grpc_conn: &ApiClient) -> CarbideCliResult<MeasurementReportRecordList> {
     // Request.
     let request = ListMeasurementReportRequest { selector: None };
 
@@ -252,7 +252,7 @@ pub async fn list_all(grpc_conn: &ApiClient) -> CarbideCliResult<MeasurementRepo
 }
 
 /// list_machines lists all reports for the given machine ID.
-pub async fn list_machines(
+async fn list_machines(
     grpc_conn: &ApiClient,
     list_machines: ListMachines,
 ) -> CarbideCliResult<MeasurementReportRecordList> {
@@ -274,7 +274,7 @@ pub async fn list_machines(
 /// match_values matches all reports with the provided PCR values.
 ///
 /// `report match <pcr_register:val>,...`
-pub async fn match_values(
+async fn match_values(
     grpc_conn: &ApiClient,
     match_args: Match,
 ) -> CarbideCliResult<MeasurementReportRecordList> {
@@ -297,7 +297,7 @@ pub async fn match_values(
 /// for a Vec<MeasurementReportRecord> so the ToTable trait can
 /// be leveraged (since we don't define Vec).
 #[derive(Serialize)]
-pub struct MeasurementReportRecordList(Vec<MeasurementReportRecord>);
+struct MeasurementReportRecordList(Vec<MeasurementReportRecord>);
 
 impl ToTable for MeasurementReportRecordList {
     fn into_table(self) -> eyre::Result<String> {
@@ -318,7 +318,7 @@ impl ToTable for MeasurementReportRecordList {
 /// pattern for a Vec<MeasurementReport> so the ToTable
 /// trait can be leveraged (since we don't define Vec).
 #[derive(Serialize)]
-pub struct MeasurementReportList(Vec<MeasurementReport>);
+struct MeasurementReportList(Vec<MeasurementReport>);
 
 // When `report show` gets called (for all entries), and the output format
 // is the default table view, this gets used to print a pretty table.

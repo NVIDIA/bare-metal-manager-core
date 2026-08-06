@@ -351,12 +351,12 @@ impl SwitchCertMonitorInstruments {
     }
 }
 
-pub struct MetricHolder {
+struct MetricHolder {
     last_iteration_metrics: SharedMetricsHolder<SwitchCertMonitorMetrics>,
 }
 
 impl MetricHolder {
-    pub fn new(meter: Meter, hold_period: Duration) -> Self {
+    fn new(meter: Meter, hold_period: Duration) -> Self {
         let last_iteration_metrics = SharedMetricsHolder::with_hold_period(hold_period);
         SwitchCertMonitorInstruments::register(meter, last_iteration_metrics.clone());
         Self {

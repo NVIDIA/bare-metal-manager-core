@@ -122,15 +122,13 @@ fn firmware_task_text_context(value: &str, task: &FirmwareUpgradeTask) -> String
 }
 
 // FirmwareUpgradeResult captures the outcome of a firmware upgrade execution.
-// Fields will be used when ReportScoutFirmwareUpgradeStatus RPC is implemented.
 #[derive(Clone, Debug)]
-#[allow(dead_code)]
-pub struct FirmwareUpgradeResult {
-    pub success: bool,
-    pub exit_code: i32,
-    pub stdout: String,
-    pub stderr: String,
-    pub error: String,
+pub(super) struct FirmwareUpgradeResult {
+    pub(super) success: bool,
+    pub(super) exit_code: i32,
+    pub(super) stdout: String,
+    pub(super) stderr: String,
+    pub(super) error: String,
 }
 
 impl FirmwareUpgradeResult {
@@ -144,7 +142,7 @@ impl FirmwareUpgradeResult {
 
 // handle_firmware_upgrade downloads file artifacts and a script from carbide-api,
 // then executes the script on the host.
-pub async fn handle_firmware_upgrade(
+pub(super) async fn handle_firmware_upgrade(
     client: &reqwest::Client,
     task: &FirmwareUpgradeTask,
 ) -> FirmwareUpgradeResult {

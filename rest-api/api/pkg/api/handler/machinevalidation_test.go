@@ -865,6 +865,7 @@ func TestGetMachineValidationResultsHandler(t *testing.T) {
 		expectedErr    bool
 		expectedStatus int
 		scpClient      *tmocks.Client
+		emptyResponse  bool
 	}{
 		{
 			name:           "error when user not found in request context",
@@ -942,9 +943,36 @@ func TestGetMachineValidationResultsHandler(t *testing.T) {
 			expectedStatus: http.StatusOK,
 			scpClient:      scpClient,
 		},
+		{
+			name:           "empty response is an array for machine route",
+			reqOrgName:     ipOrg1,
+			machineID:      machine.ID,
+			user:           pvu,
+			expectedErr:    false,
+			expectedStatus: http.StatusOK,
+			scpClient:      scpClient,
+			emptyResponse:  true,
+		},
+		{
+			name:           "empty response is an array for legacy route",
+			reqOrgName:     ipOrg1,
+			machineID:      uuid.NewString(),
+			siteID:         site.ID.String(),
+			legacyRoute:    true,
+			user:           pvu,
+			expectedErr:    false,
+			expectedStatus: http.StatusOK,
+			scpClient:      scpClient,
+			emptyResponse:  true,
+		},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
+			if tc.emptyResponse {
+				previousResponse := workflowResponse
+				workflowResponse = nil
+				defer func() { workflowResponse = previousResponse }()
+			}
 			assert.NotEqual(t, tc.name, "")
 			// init temporal client
 			scp.IDClientMap[site.ID.String()] = tc.scpClient
@@ -981,6 +1009,9 @@ func TestGetMachineValidationResultsHandler(t *testing.T) {
 			assert.Equal(t, tc.expectedErr, rec.Code != http.StatusOK)
 			assert.Equal(t, tc.expectedStatus, rec.Code)
 			if !tc.expectedErr {
+				if tc.emptyResponse {
+					assert.JSONEq(t, "[]", rec.Body.String())
+				}
 				var apiResponse []*model.APIMachineValidationResult
 				err := json.Unmarshal(rec.Body.Bytes(), &apiResponse)
 				assert.Nil(t, err)
@@ -1079,6 +1110,7 @@ func TestGetAllMachineValidationRunHandler(t *testing.T) {
 		expectedErr    bool
 		expectedStatus int
 		scpClient      *tmocks.Client
+		emptyResponse  bool
 	}{
 		{
 			name:           "error when user not found in request context",
@@ -1156,9 +1188,36 @@ func TestGetAllMachineValidationRunHandler(t *testing.T) {
 			expectedStatus: http.StatusOK,
 			scpClient:      scpClient,
 		},
+		{
+			name:           "empty response is an array for machine route",
+			reqOrgName:     ipOrg1,
+			machineID:      machine.ID,
+			user:           pvu,
+			expectedErr:    false,
+			expectedStatus: http.StatusOK,
+			scpClient:      scpClient,
+			emptyResponse:  true,
+		},
+		{
+			name:           "empty response is an array for legacy route",
+			reqOrgName:     ipOrg1,
+			machineID:      uuid.NewString(),
+			siteID:         site.ID.String(),
+			legacyRoute:    true,
+			user:           pvu,
+			expectedErr:    false,
+			expectedStatus: http.StatusOK,
+			scpClient:      scpClient,
+			emptyResponse:  true,
+		},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
+			if tc.emptyResponse {
+				previousResponse := workflowResponse
+				workflowResponse = nil
+				defer func() { workflowResponse = previousResponse }()
+			}
 			assert.NotEqual(t, tc.name, "")
 			// init temporal client
 			scp.IDClientMap[site.ID.String()] = tc.scpClient
@@ -1195,6 +1254,9 @@ func TestGetAllMachineValidationRunHandler(t *testing.T) {
 			assert.Equal(t, tc.expectedErr, rec.Code != http.StatusOK)
 			assert.Equal(t, tc.expectedStatus, rec.Code)
 			if !tc.expectedErr {
+				if tc.emptyResponse {
+					assert.JSONEq(t, "[]", rec.Body.String())
+				}
 				var apiResponse []*model.APIMachineValidationRun
 				err := json.Unmarshal(rec.Body.Bytes(), &apiResponse)
 				assert.Nil(t, err)

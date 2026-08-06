@@ -91,7 +91,7 @@ pub type NoAuthorization = ();
 impl Authorization for NoAuthorization {}
 
 // Various properties of a user gleaned from the presented certificate
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct ExternalUserInfo {
     // Organization of the user, currently unused except for reporting
     pub org: Option<String>,

@@ -25,7 +25,7 @@ use crate::CarbideError;
 use crate::api::{Api, log_request_data};
 use crate::auth::AuthContext;
 
-pub async fn list_nv_link_domain_health_reports(
+pub(crate) async fn list_nv_link_domain_health_reports(
     api: &Api,
     request: Request<rpc::ListNvLinkDomainHealthReportsRequest>,
 ) -> Result<Response<rpc::ListHealthReportResponse>, Status> {
@@ -44,7 +44,7 @@ pub async fn list_nv_link_domain_health_reports(
     Ok(Response::new(list_response(health_reports)))
 }
 
-pub async fn insert_nv_link_domain_health_report(
+pub(crate) async fn insert_nv_link_domain_health_report(
     api: &Api,
     request: Request<rpc::InsertNvLinkDomainHealthReportRequest>,
 ) -> Result<Response<()>, Status> {
@@ -103,7 +103,7 @@ pub async fn insert_nv_link_domain_health_report(
     Ok(Response::new(()))
 }
 
-pub async fn remove_nv_link_domain_health_report(
+pub(crate) async fn remove_nv_link_domain_health_report(
     api: &Api,
     request: Request<rpc::RemoveNvLinkDomainHealthReportRequest>,
 ) -> Result<Response<()>, Status> {

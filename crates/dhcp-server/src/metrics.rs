@@ -35,7 +35,7 @@ use crate::errors::DhcpError;
 /// (lease-query extensions, unknown codes, a missing message-type option)
 /// counts as `other`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, LabelValue)]
-pub enum MessageTypeLabel {
+pub(super) enum MessageTypeLabel {
     Discover,
     Request,
     Offer,
@@ -68,7 +68,7 @@ impl From<MessageType> for MessageTypeLabel {
 /// `DhcpError` -- rate limiting, undersized packets, non-IPv4 sources, and
 /// send failures.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, LabelValue)]
-pub enum DropReason {
+pub(super) enum DropReason {
     RateLimited,
     TooShort,
     NotIpv4,
@@ -346,27 +346,27 @@ impl DhcpInterfaceBindFailed {
     message = "Decoded DHCP packet",
     describe = "Number of DHCP packets received and decoded, by DHCP message type."
 )]
-pub struct DhcpRequestReceived {
+pub(super) struct DhcpRequestReceived {
     #[label]
-    pub message_type: MessageTypeLabel,
+    pub(super) message_type: MessageTypeLabel,
     #[context(value)]
-    pub bootp_op: i64,
+    pub(super) bootp_op: i64,
     #[context]
-    pub source_address: SocketAddr,
+    pub(super) source_address: SocketAddr,
     #[context(value)]
-    pub xid: i64,
+    pub(super) xid: i64,
     #[context(value)]
-    pub broadcast_flag: bool,
+    pub(super) broadcast_flag: bool,
     #[context]
-    pub ciaddr: Ipv4Addr,
+    pub(super) ciaddr: Ipv4Addr,
     #[context]
-    pub yiaddr: Ipv4Addr,
+    pub(super) yiaddr: Ipv4Addr,
     #[context]
-    pub siaddr: Ipv4Addr,
+    pub(super) siaddr: Ipv4Addr,
     #[context]
-    pub giaddr: Ipv4Addr,
+    pub(super) giaddr: Ipv4Addr,
     #[context(value)]
-    pub chaddr: String,
+    pub(super) chaddr: String,
 }
 
 /// A packet was dropped without a reply reaching the client -- anywhere from
@@ -382,13 +382,13 @@ pub struct DhcpRequestReceived {
     metric = counter,
     describe = "Number of DHCP packets dropped without a reply, by drop reason."
 )]
-pub struct DhcpPacketDropped {
+pub(super) struct DhcpPacketDropped {
     #[label]
-    pub reason: DropReason,
+    pub(super) reason: DropReason,
     /// The detail behind the drop (an error's Display text where one exists).
     /// Log-line-only by construction; never a metric label.
     #[context]
-    pub error: String,
+    pub(super) error: String,
 }
 
 /// A DHCP reply was sent, labelled by the reply's message type: an `offer` is
@@ -405,25 +405,25 @@ pub struct DhcpPacketDropped {
     message = "Sent DHCP reply",
     describe = "Number of DHCP replies sent, by reply message type."
 )]
-pub struct DhcpReplySent {
+pub(super) struct DhcpReplySent {
     #[label]
-    pub message_type: MessageTypeLabel,
+    pub(super) message_type: MessageTypeLabel,
     #[context]
-    pub destination_address: SocketAddrV4,
+    pub(super) destination_address: SocketAddrV4,
     #[context(value)]
-    pub xid: i64,
+    pub(super) xid: i64,
     #[context(value)]
-    pub broadcast_flag: bool,
+    pub(super) broadcast_flag: bool,
     #[context]
-    pub ciaddr: Ipv4Addr,
+    pub(super) ciaddr: Ipv4Addr,
     #[context]
-    pub yiaddr: Ipv4Addr,
+    pub(super) yiaddr: Ipv4Addr,
     #[context]
-    pub siaddr: Ipv4Addr,
+    pub(super) siaddr: Ipv4Addr,
     #[context]
-    pub giaddr: Ipv4Addr,
+    pub(super) giaddr: Ipv4Addr,
     #[context(value)]
-    pub chaddr: String,
+    pub(super) chaddr: String,
 }
 
 /// A DHCP timestamp-file operation failed. Each variant is one operation, and

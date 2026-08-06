@@ -93,9 +93,7 @@ use crate::network_segment::allocate::PrefixAllocator;
 use crate::test_support::fixture_config::FixtureDefault as _;
 use crate::test_support::network_segment::FIXTURE_TENANT_ORG_ID;
 use crate::tests::common;
-use crate::tests::common::api_fixtures::instance::{
-    advance_created_instance_into_state, single_interface_network_config_with_vfs,
-};
+use crate::tests::common::api_fixtures::instance::single_interface_network_config_with_vfs;
 use crate::tests::common::api_fixtures::rpc_instance::RpcInstance;
 use crate::tests::common::api_fixtures::{
     TestEnv, TestManagedHost, create_managed_host_multi_dpu, create_managed_host_with_ek,
@@ -115,7 +113,7 @@ fn fixture_tenant_config() -> rpc::TenantConfig {
     }
 }
 
-pub async fn find_instances_by_label(
+pub(in crate::tests) async fn find_instances_by_label(
     env: &TestEnv,
     label: rpc::forge::Label,
 ) -> rpc::forge::InstanceList {
@@ -1318,6 +1316,18 @@ async fn test_instance_deletion_before_provisioning_finishes(
 
     let instance_id = instance.id.expect("Missing instance ID");
 
+    // Stop provisioning at the point that normally requires a DPU network-status
+    // observation. Releasing here must not wait for that observation.
+    env.run_network_segment_controller_iteration().await;
+    env.run_machine_state_controller_iteration_until_state_matches(
+        &mh.host().id,
+        10,
+        ManagedHostState::Assigned {
+            instance_state: InstanceState::WaitingForNetworkConfig,
+        },
+    )
+    .await;
+
     env.api
         .release_instance(tonic::Request::new(InstanceReleaseRequest {
             id: Some(instance_id),
@@ -1331,20 +1341,14 @@ async fn test_instance_deletion_before_provisioning_finishes(
     let instance = env.one_instance(instance_id).await;
     assert_eq!(instance.status().tenant(), rpc::TenantState::Terminating);
 
-    // Advance the instance into the "ready" state and then cleanup.
-    // The next state that requires external input is HostPlatformConfiguration.
-    // To the tenant it will however still show up as terminating
-    advance_created_instance_into_state(&env, &mh, |machine| {
-        matches!(
-            machine.state.value,
-            ManagedHostState::Assigned {
-                instance_state: InstanceState::HostPlatformConfiguration { .. },
-            }
-        )
-    })
+    env.run_machine_state_controller_iteration_until_state_matches(
+        &mh.host().id,
+        1,
+        ManagedHostState::Assigned {
+            instance_state: InstanceState::WaitingForRebootToReady,
+        },
+    )
     .await;
-    let instance = env.one_instance(instance_id).await;
-    assert_eq!(instance.status().tenant(), rpc::TenantState::Terminating);
 
     // Now go through regular deletion
     mh.delete_instance(&env, instance_id).await;
@@ -4636,7 +4640,7 @@ async fn test_network_details_migration(
     Ok(())
 }
 
-pub async fn validate_post_migration_instance_network_config(
+pub(in crate::tests) async fn validate_post_migration_instance_network_config(
     env: &TestEnv,
     instance_id: InstanceId,
     segment_id: Option<NetworkSegmentId>,

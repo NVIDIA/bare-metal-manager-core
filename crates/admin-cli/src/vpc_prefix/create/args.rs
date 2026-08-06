@@ -34,14 +34,14 @@ Create a prefix with a description and labels:
     --label environment:production --label team:platform
 
 ")]
-pub struct Args {
+pub(crate) struct Args {
     #[clap(
         long,
         name = "vpc-id",
         value_name = "VpcId",
         help = "The ID of the VPC to contain this prefix"
     )]
-    pub vpc_id: VpcId,
+    vpc_id: VpcId,
 
     #[clap(
         long,
@@ -49,7 +49,7 @@ pub struct Args {
         value_name = "CIDR-prefix",
         help = "The IP prefix in CIDR notation"
     )]
-    pub prefix: IpNet,
+    prefix: IpNet,
 
     #[clap(
         long,
@@ -57,7 +57,7 @@ pub struct Args {
         value_name = "prefix-name",
         help = "A short descriptive name for the prefix"
     )]
-    pub name: String,
+    name: String,
 
     #[clap(
         long,
@@ -65,7 +65,7 @@ pub struct Args {
         value_name = "description",
         help = "Optionally, a longer description for the prefix"
     )]
-    pub description: Option<String>,
+    description: Option<String>,
 
     #[clap(
         long = "label",
@@ -73,7 +73,7 @@ pub struct Args {
         help = "A labels that will be added as metadata for the newly created VPC prefix. The labels key and value must be separated by a : character. E.g. environment:production",
         action = clap::ArgAction::Append
     )]
-    pub labels: Option<Vec<String>>,
+    labels: Option<Vec<String>>,
 
     #[clap(
         long,
@@ -81,7 +81,7 @@ pub struct Args {
         value_name = "VpcPrefixId",
         help = "Specify the VpcPrefixId for the API to use instead of it auto-generating one"
     )]
-    pub vpc_prefix_id: Option<VpcPrefixId>,
+    vpc_prefix_id: Option<VpcPrefixId>,
 }
 
 fn parse_label(s: &str) -> rpc::forge::Label {

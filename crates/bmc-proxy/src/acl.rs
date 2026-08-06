@@ -28,7 +28,7 @@ use serde::{Deserialize, Deserializer};
 /// evaluated in order, and the first matching entry determines the outcome of
 /// the request.
 #[derive(Clone, Default)]
-pub struct AclConfig {
+pub(crate) struct AclConfig {
     // Keys are "users" (ie. service principals), values are a list of AclEntries for authenticating them.
     config: BTreeMap<String, Vec<AclEntry>>,
 }
@@ -49,7 +49,7 @@ impl AclConfig {
     /// The principal's ACL entries are evaluated in order. The first matching
     /// entry wins. If the principal is unknown or no entry matches, this
     /// returns `false`.
-    pub fn allows(&self, principal: &str, method: &http::Method, path: &str) -> bool {
+    pub(crate) fn allows(&self, principal: &str, method: &http::Method, path: &str) -> bool {
         let Some(entries) = self.config.get(principal) else {
             return false;
         };
@@ -179,7 +179,7 @@ impl AclEntry {
 
 #[derive(thiserror::Error, Debug)]
 #[error("error parsing ACL path {orig}: {err}")]
-pub struct AclPathParseError {
+struct AclPathParseError {
     orig: String,
     err: String,
 }

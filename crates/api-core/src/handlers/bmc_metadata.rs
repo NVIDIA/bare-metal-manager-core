@@ -44,7 +44,7 @@ pub(crate) async fn get(
 
 /// This is a separate function so it can be called from redfish_apply_action to build a custom BMC
 /// client.
-pub(crate) async fn get_inner(
+pub(super) async fn get_inner(
     request: rpc::BmcMetaDataGetRequest,
     pool: &PgPool,
     credential_reader: &dyn CredentialReader,

@@ -153,7 +153,7 @@ impl ExponentialBackoff {
     }
 }
 
-pub type SseStream = Pin<
+type SseStream = Pin<
     Box<
         dyn futures::TryStream<
                 Ok = EventStreamPayload,
@@ -164,7 +164,9 @@ pub type SseStream = Pin<
 >;
 
 /// Open a Redfish SSE event stream from a BMC.
-pub async fn open_sse_stream<B: Bmc + 'static>(bmc: Arc<B>) -> Result<SseStream, HealthError> {
+pub(crate) async fn open_sse_stream<B: Bmc + 'static>(
+    bmc: Arc<B>,
+) -> Result<SseStream, HealthError> {
     let root = ServiceRoot::new(bmc)
         .await
         .map_err(|e| HealthError::BmcError(Box::new(e)))?;

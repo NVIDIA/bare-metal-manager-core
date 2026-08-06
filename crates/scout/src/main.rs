@@ -42,7 +42,7 @@ use rpc::{
     ForgeScoutErrorReport, forge as rpc_forge, forge_agent_control_response as fac,
     scout_firmware_upgrade as sfu,
 };
-pub use scout::{CarbideClientError, CarbideClientResult};
+use scout::{CarbideClientError, CarbideClientResult};
 use tokio::sync::RwLock;
 use tryhard::{RetryFutureConfig, RetryPolicy};
 use x509_parser::pem::parse_x509_pem;
@@ -67,7 +67,7 @@ struct DevEnv {
 }
 static IN_QEMU_VM: Lazy<RwLock<DevEnv>> = Lazy::new(|| RwLock::new(DevEnv { in_qemu: false }));
 const POLL_INTERVAL: Duration = Duration::from_secs(60);
-pub const REBOOT_COMPLETED_PATH: &str = "/tmp/reboot_completed";
+const REBOOT_COMPLETED_PATH: &str = "/tmp/reboot_completed";
 const MAX_FIRMWARE_UPGRADE_STATUS_FIELD_SIZE: usize = 1500;
 
 async fn check_if_running_in_qemu() {

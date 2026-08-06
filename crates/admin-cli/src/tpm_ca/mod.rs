@@ -29,7 +29,7 @@ use clap::Parser;
 use crate::cfg::dispatch::Dispatch;
 
 #[derive(Parser, Debug, Dispatch)]
-pub enum Cmd {
+pub(crate) enum Cmd {
     #[clap(about = "Show all TPM CA certificates")]
     Show(show::Args),
     #[clap(about = "Delete TPM CA certificate with a given id")]

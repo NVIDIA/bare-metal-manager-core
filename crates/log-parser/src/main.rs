@@ -121,6 +121,21 @@ struct Configuration {
     pub logs_hash: HashMap<Vec<u8>, usize>,
 }
 
+impl Configuration {
+    fn delimiter_byte(&self) -> Result<u8, anyhow::Error> {
+        match self.delimiter.as_deref() {
+            None => Ok(b'\n'),
+            Some(delimiter) => match delimiter.as_bytes() {
+                [delimiter] => Ok(*delimiter),
+                bytes => Err(anyhow!(
+                    "delimiter must be exactly one byte, got {delimiter:?} ({} bytes)",
+                    bytes.len()
+                )),
+            },
+        }
+    }
+}
+
 /// track each log file we're looking for events in
 /// we only care about the current offset into the file we want to read and search from
 /// the length should always be the latest known length of the file to read up to
@@ -279,6 +294,7 @@ async fn process_log_file_events(
     log_index: usize,
     set_offset: bool,
 ) -> Result<(), anyhow::Error> {
+    let delimiter = cfg.delimiter_byte()?;
     if let Some(log) = cfg.logs.get_mut(log_index) {
         let file_length = tokio::fs::metadata(&log.file_path).await?.len();
         if file_length == log.length {
@@ -304,11 +320,6 @@ async fn process_log_file_events(
         let mut file = tokio::fs::File::open(&log.file_path).await?;
 
         let mut consumed = 0;
-        let delimiter: u8 = if let Some(delim) = cfg.delimiter.clone() {
-            delim.as_bytes()[0]
-        } else {
-            b'\n'
-        };
 
         while consumed < len {
             let mut buffer = vec![0u8; buffer_length as usize];
@@ -316,7 +327,7 @@ async fn process_log_file_events(
             file.read_exact(&mut buffer).await?;
             consumed += buffer_length;
 
-            if buffer.contains(&b'\n') {
+            if buffer.contains(&delimiter) {
                 // find last delimiter and move seek offset to that, truncate buffer to that
                 if let Some(seek_position) = buffer.iter().rev().position(|&c| c == delimiter) {
                     log.offset += buffer_length - seek_position as u64;
@@ -324,7 +335,7 @@ async fn process_log_file_events(
                 } else {
                     log.offset += buffer_length;
                 }
-                let segments = buffer.split(|&c| c == b'\n');
+                let segments = buffer.split(|&c| c == delimiter);
                 for segment in segments {
                     if segment.is_empty() {
                         continue;
@@ -451,6 +462,7 @@ async fn scan_files(cfg: &mut Configuration, set_offset: bool) -> Result<(), any
 async fn read_event_definition(path: &Path) -> Result<Configuration, anyhow::Error> {
     let json = tokio::fs::read_to_string(path).await?;
     let mut config: Configuration = serde_json::from_str(&json)?;
+    config.delimiter_byte()?;
     config.filename = Some(
         path.file_name()
             .unwrap_or_default()

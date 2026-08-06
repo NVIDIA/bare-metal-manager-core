@@ -544,7 +544,7 @@ async fn test_clear_completed_updates_dpf_host_off_list_version(
 }
 
 impl TestManagedHost {
-    pub async fn update_nic_firmware_version(
+    pub(in crate::tests) async fn update_nic_firmware_version(
         &self,
         txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     ) -> CarbideResult<()> {

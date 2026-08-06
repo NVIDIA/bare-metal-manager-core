@@ -23,16 +23,16 @@ use nv_redfish::{Bmc, Resource};
 
 use crate::Error;
 
-pub struct Config {
-    pub need_network_device_fns: bool,
+pub(crate) struct Config {
+    pub(crate) need_network_device_fns: bool,
 }
 
-pub struct ExploredNetworkAdapterCollection<B: Bmc> {
+pub(crate) struct ExploredNetworkAdapterCollection<B: Bmc> {
     members: Vec<ExploredNetworkAdapter<B>>,
 }
 
 impl<B: Bmc> ExploredNetworkAdapterCollection<B> {
-    pub async fn explore(chassis: &Chassis<B>, config: &Config) -> Result<Self, Error<B>> {
+    pub(crate) async fn explore(chassis: &Chassis<B>, config: &Config) -> Result<Self, Error<B>> {
         match chassis.network_adapters().await {
             Ok(Some(network_adapters)) => {
                 let mut members = Vec::new();
@@ -51,7 +51,7 @@ impl<B: Bmc> ExploredNetworkAdapterCollection<B> {
 
     // Find adapater by MAC address. To make it work network adapters
     // must be explored with need_network_device_fns set to true.
-    pub fn find_by_mac(
+    pub(crate) fn find_by_mac(
         &self,
         mac: MacAddress,
     ) -> Option<(&ExploredNetworkAdapter<B>, &NetworkDeviceFunction<B>)> {
@@ -60,22 +60,22 @@ impl<B: Bmc> ExploredNetworkAdapterCollection<B> {
             .find_map(|a| a.find_by_mac(mac).map(|f| (a, f)))
     }
 
-    pub fn to_model(&self) -> Vec<ModelNetworkAdapter> {
+    pub(crate) fn to_model(&self) -> Vec<ModelNetworkAdapter> {
         self.members.iter().map(|v| v.to_model()).collect()
     }
 
-    pub fn members(&self) -> &[ExploredNetworkAdapter<B>] {
+    pub(crate) fn members(&self) -> &[ExploredNetworkAdapter<B>] {
         &self.members
     }
 }
 
-pub struct ExploredNetworkAdapter<B: Bmc> {
-    pub adapter: NetworkAdapter<B>,
-    pub functions: Option<Vec<NetworkDeviceFunction<B>>>,
+pub(crate) struct ExploredNetworkAdapter<B: Bmc> {
+    pub(crate) adapter: NetworkAdapter<B>,
+    pub(crate) functions: Option<Vec<NetworkDeviceFunction<B>>>,
 }
 
 impl<B: Bmc> ExploredNetworkAdapter<B> {
-    pub async fn explore(adapter: NetworkAdapter<B>, config: &Config) -> Result<Self, Error<B>> {
+    async fn explore(adapter: NetworkAdapter<B>, config: &Config) -> Result<Self, Error<B>> {
         let functions = if config.need_network_device_fns {
             if let Some(collection) = adapter
                 .network_device_functions()
@@ -94,7 +94,7 @@ impl<B: Bmc> ExploredNetworkAdapter<B> {
         Ok(Self { adapter, functions })
     }
 
-    pub fn find_by_mac(&self, mac: MacAddress) -> Option<&NetworkDeviceFunction<B>> {
+    fn find_by_mac(&self, mac: MacAddress) -> Option<&NetworkDeviceFunction<B>> {
         self.functions.iter().flatten().find(|f| {
             f.ethernet_permanent_mac_address()
                 .and_then(|mac| mac.as_str().parse::<MacAddress>().ok())
@@ -102,7 +102,7 @@ impl<B: Bmc> ExploredNetworkAdapter<B> {
         })
     }
 
-    pub fn to_model(&self) -> ModelNetworkAdapter {
+    fn to_model(&self) -> ModelNetworkAdapter {
         let hw_id = self.adapter.hardware_id();
         ModelNetworkAdapter {
             id: self.adapter.id().to_string(),
