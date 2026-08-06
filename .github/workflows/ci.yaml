@@ -710,6 +710,13 @@ jobs:
       target_prebuild_login: ${{ needs.prepare.outputs.bases_rebuilt == 'true' && needs.prepare.outputs.publish_images == 'true' }}
       dockerfile_path: dev/docker/Dockerfile.release-container-x86_64
       context_path: .
+      # No layer cache: the Dockerfile does `COPY . ./` before the compile, so
+      # any new commit invalidates the builder layer and the expensive cargo
+      # step can never be restored. Exporting it anyway measured 7m32s on a main
+      # run and bought two cached layers, while its multi-GB blobs were the bulk
+      # of what pushed the 50 GB Actions quota to its ceiling and evicted the
+      # sccache entries. sccache is what carries reuse across commits here.
+      cache: false
       build_args: ${{ needs.prepare.outputs.release_build_args }}
       image_name: ${{ needs.prepare.outputs.image_registry }}/nvmetal-carbide
       image_tag: ${{ needs.prepare.outputs.version }}
@@ -744,6 +751,10 @@ jobs:
       target_prebuild_login: ${{ needs.prepare.outputs.bases_rebuilt == 'true' && needs.prepare.outputs.publish_images == 'true' }}
       dockerfile_path: dev/docker/Dockerfile.release-container-aarch64
       context_path: .
+      # Off for the same reason as the x86_64 release container above, and this
+      # is the worst of the four: 8m21s of cache export on a main run for two
+      # cached layers.
+      cache: false
       build_args: ${{ needs.prepare.outputs.release_build_args_aarch64 }}
       image_name: ${{ needs.prepare.outputs.image_registry }}/nvmetal-carbide-aarch64
       image_tag: ${{ needs.prepare.outputs.version }}
@@ -977,6 +988,9 @@ jobs:
       source_registry_host: ${{ needs.prepare.outputs.source_registry_host }}
       target_prebuild_login: ${{ needs.prepare.outputs.bases_rebuilt == 'true' && needs.prepare.outputs.publish_images == 'true' }}
       dockerfile_path: dev/docker/Dockerfile.release-forge-cli
+      # Off for the same reason as the release containers above: 2m00s of cache
+      # export on a main run for a single cached layer.
+      cache: false
       image_name: ${{ needs.prepare.outputs.image_registry }}/forge-admin-cli-x86_64
       image_tag: ${{ needs.prepare.outputs.version }}
       additional_tags: ${{ needs.prepare.outputs.image_registry }}/forge-admin-cli-x86_64:${{ needs.prepare.outputs.major_minor_version }}-latest
@@ -998,6 +1012,9 @@ jobs:
       source_registry_host: ${{ needs.prepare.outputs.source_registry_host }}
       target_prebuild_login: ${{ needs.prepare.outputs.bases_rebuilt == 'true' && needs.prepare.outputs.publish_images == 'true' }}
       dockerfile_path: dev/docker/Dockerfile.release-forge-cli
+      # Off for the same reason as the release containers above: 3m27s of cache
+      # export on a main run for two cached layers.
+      cache: false
       image_name: ${{ needs.prepare.outputs.image_registry }}/forge-admin-cli-aarch64
       image_tag: ${{ needs.prepare.outputs.version }}
       additional_tags: ${{ needs.prepare.outputs.image_registry }}/forge-admin-cli-aarch64:${{ needs.prepare.outputs.major_minor_version }}-latest
