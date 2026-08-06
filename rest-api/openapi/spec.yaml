@@ -24258,8 +24258,9 @@ components:
           deprecated: true
           description: |-
             Immutable MAC address of the Expected Power Shelf's BMC (Baseboard Management Controller).
-            Omit this field when updating. A formatting-equivalent value is accepted for compatibility,
-            but changing the physical MAC address is rejected.
+            Omit this field when updating. A formatting-equivalent value is accepted for compatibility
+            and preserves the originally stored spelling, but changing the physical MAC address is rejected
+            with HTTP 400.
         defaultBmcUsername:
           type:
             - string
@@ -24822,8 +24823,9 @@ components:
           deprecated: true
           description: |-
             Immutable MAC address of the Expected Switch's BMC (Baseboard Management Controller).
-            Omit this field when updating. A formatting-equivalent value is accepted for compatibility,
-            but changing the physical MAC address is rejected.
+            Omit this field when updating. A formatting-equivalent value is accepted for compatibility
+            and preserves the originally stored spelling, but changing the physical MAC address is rejected
+            with HTTP 400.
         defaultBmcUsername:
           type:
             - string

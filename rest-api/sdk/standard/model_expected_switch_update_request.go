@@ -24,7 +24,7 @@ var _ MappedNullable = &ExpectedSwitchUpdateRequest{}
 type ExpectedSwitchUpdateRequest struct {
 	// ID of the Expected Switch to update (ignored for single update, used for identification in batch operations).
 	Id NullableString `json:"id,omitempty"`
-	// Immutable MAC address of the Expected Switch's BMC (Baseboard Management Controller). Omit this field when updating. A formatting-equivalent value is accepted for compatibility, but changing the physical MAC address is rejected.
+	// Immutable MAC address of the Expected Switch's BMC (Baseboard Management Controller). Omit this field when updating. A formatting-equivalent value is accepted for compatibility and preserves the originally stored spelling, but changing the physical MAC address is rejected with HTTP 400.
 	// Deprecated
 	BmcMacAddress NullableString `json:"bmcMacAddress,omitempty" validate:"regexp=^([0-9A-Fa-f]{2}[:-]){5}([0-9A-Fa-f]{2})$"`
 	// Username for accessing the Expected Switch's BMC
