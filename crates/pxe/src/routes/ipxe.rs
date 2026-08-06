@@ -30,7 +30,7 @@ use crate::common::{AppState, Machine, MachineInterface};
 use crate::metrics::{BootEndpoint, OutcomeReason, PxeBootOutcome, PxeCustomIpxeFetchFailed};
 use crate::routes::RpcContext;
 
-pub enum PxeErrorCode {
+enum PxeErrorCode {
     ArchitectureNotFound = 105,
     InterfaceNotFound = 106,
     InstructionsEmpty = 107,
@@ -52,7 +52,7 @@ exit {error_code} ||
     )])
 }
 
-pub async fn whoami(machine: Machine, state: State<AppState>) -> impl IntoResponse {
+async fn whoami(machine: Machine, state: State<AppState>) -> impl IntoResponse {
     let (template_key, template_data) =
         if let Some(instructions) = machine.instructions.discovery_instructions {
             match (instructions.machine_interface, instructions.domain) {
@@ -98,7 +98,7 @@ pub async fn whoami(machine: Machine, state: State<AppState>) -> impl IntoRespon
     axum_template::Render(template_key, state.engine.clone(), template_data)
 }
 
-pub async fn boot(contents: MachineInterface, state: State<AppState>) -> impl IntoResponse {
+async fn boot(contents: MachineInterface, state: State<AppState>) -> impl IntoResponse {
     let (template_key, template_data) = match contents.architecture {
         Some(arch) => {
             // The wrapping `pxe` Tera template (pxe/templates/pxe) consumes:
@@ -206,7 +206,7 @@ exit 101 ||
     axum_template::Render(template_key, state.engine.clone(), template_data)
 }
 
-pub fn get_router(path_prefix: &str) -> Router<AppState> {
+pub(crate) fn get_router(path_prefix: &str) -> Router<AppState> {
     Router::new()
         .route(
             format!("{}/{}", path_prefix, "whoami").as_str(),

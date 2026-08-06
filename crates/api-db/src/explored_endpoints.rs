@@ -127,7 +127,7 @@ pub async fn find_ips(
     _filter: model::site_explorer::ExploredEndpointSearchFilter,
 ) -> Result<Vec<IpAddr>, DatabaseError> {
     #[derive(Debug, Clone, Copy, FromRow)]
-    pub struct ExploredEndpointIp(IpAddr);
+    struct ExploredEndpointIp(IpAddr);
     // grab list of IPs
     let mut builder = sqlx::QueryBuilder::new("SELECT address FROM explored_endpoints");
     let query = builder.build_query_as();

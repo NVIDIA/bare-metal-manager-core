@@ -29,7 +29,7 @@ use health_report::{
 use crate::Event;
 
 #[derive(thiserror::Error, Debug)]
-pub enum ReportingError {
+pub(super) enum ReportingError {
     #[error("unable to connect to carbide API: {0}")]
     ApiConnectFailed(String),
 

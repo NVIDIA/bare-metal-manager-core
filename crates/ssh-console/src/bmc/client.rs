@@ -43,7 +43,7 @@ use crate::ssh_server::ServerMetrics;
 /// Spawn a connection to the given BMC in the background, returning a handle. Connections will
 /// be retried indefinitely, with exponential backoff, until a shutdown is signaled (ie. by dropping
 /// the ClientHandle.)
-pub fn spawn(
+pub(super) fn spawn(
     connection_details: ConnectionDetails,
     config: Arc<Config>,
     metrics: Arc<BmcPoolMetrics>,
@@ -511,7 +511,7 @@ fn next_retry_backoff(config: &Config, prev: Duration) -> Duration {
     duration
 }
 
-pub struct ClientHandle {
+pub(super) struct ClientHandle {
     machine_id: MachineId,
     kind: connection::Kind,
     /// Writer to send messages (including data) to BMC
@@ -521,7 +521,8 @@ pub struct ClientHandle {
     broadcast_to_frontend_tx: broadcast::Sender<ToFrontendMessage>,
     shutdown_tx: oneshot::Sender<()>,
     join_handle: JoinHandle<()>,
-    pub connection_state: Arc<AtomicConnectionState>, // pub for metrics gathering
+    // Read by the pool's observable-gauge callbacks.
+    pub(super) connection_state: Arc<AtomicConnectionState>,
 }
 
 impl ShutdownHandle<()> for ClientHandle {
@@ -531,7 +532,7 @@ impl ShutdownHandle<()> for ClientHandle {
 }
 
 impl ClientHandle {
-    pub fn subscribe(&self, metrics: Arc<ServerMetrics>) -> BmcConnectionSubscription {
+    pub(super) fn subscribe(&self, metrics: Arc<ServerMetrics>) -> BmcConnectionSubscription {
         tracing::debug!("new bmc subscription");
         metrics.total_clients.add(1, &[]);
         metrics.bmc_clients.add(
@@ -551,11 +552,11 @@ impl ClientHandle {
 
 /// An individual "subscription" to a BMC connection, expected to be used by a frontend. Metrics
 /// are affected when one is created or dropped.
-pub struct BmcConnectionSubscription {
-    pub machine_id: MachineId,
-    pub to_frontend_msg_weak_tx: broadcast::WeakSender<ToFrontendMessage>,
-    pub to_bmc_msg_tx: mpsc::Sender<ToBmcMessage>,
-    pub kind: connection::Kind,
+pub(crate) struct BmcConnectionSubscription {
+    pub(crate) machine_id: MachineId,
+    pub(crate) to_frontend_msg_weak_tx: broadcast::WeakSender<ToFrontendMessage>,
+    pub(crate) to_bmc_msg_tx: mpsc::Sender<ToBmcMessage>,
+    pub(crate) kind: connection::Kind,
     // Not pub, to make sure we go through ClientHandle::subscribe() to build, so we get the
     // right metrics
     metrics: Arc<ServerMetrics>,

@@ -61,7 +61,7 @@ const ASN_CATEGORY: &str = "asn";
 
 #[automock]
 #[async_trait]
-pub trait InstanceMetadataRouterState: Sync + Send {
+pub(super) trait InstanceMetadataRouterState: Sync + Send {
     fn read(
         &self,
     ) -> (
@@ -86,7 +86,7 @@ pub trait InstanceMetadataRouterState: Sync + Send {
     async fn serve_meta_data_identity(&self, uri: Uri, headers: HeaderMap) -> Response;
 }
 
-pub struct InstanceMetadataRouterStateImpl {
+pub(super) struct InstanceMetadataRouterStateImpl {
     latest_instance_data: ArcSwapOption<InstanceMetadata>,
     latest_network_config: ArcSwapOption<ManagedHostNetworkConfigResponse>,
     machine_id: MachineId,
@@ -183,7 +183,7 @@ impl MetaDataIdentitySigner for InstanceMetadataRouterStateImpl {
 
 impl InstanceMetadataRouterStateImpl {
     /// Wait for a `meta-data/identity` rate-limit permit (governor).
-    pub async fn wait_identity_governor(&self) -> Result<(), tonic::Status> {
+    async fn wait_identity_governor(&self) -> Result<(), tonic::Status> {
         wait_identity_rate_limit_permit(
             &self.identity_serving.governor,
             self.identity_serving.wait_timeout,
@@ -196,7 +196,7 @@ impl InstanceMetadataRouterStateImpl {
         })
     }
 
-    pub fn new(
+    pub(super) fn new(
         machine_id: MachineId,
         forge_api: String,
         forge_client_config: Arc<ForgeClientConfig>,
@@ -225,11 +225,11 @@ impl InstanceMetadataRouterStateImpl {
     }
 
     /// Updates the instance metadata that should be served by FMDS
-    pub fn update_instance_data(&self, instance_data: Option<Arc<InstanceMetadata>>) {
+    pub(super) fn update_instance_data(&self, instance_data: Option<Arc<InstanceMetadata>>) {
         self.latest_instance_data.store(instance_data);
     }
 
-    pub fn update_network_configuration(
+    pub(super) fn update_network_configuration(
         &self,
         network_config: Option<Arc<ManagedHostNetworkConfigResponse>>,
     ) {
@@ -237,7 +237,9 @@ impl InstanceMetadataRouterStateImpl {
     }
 }
 
-pub fn get_fmds_router(metadata_router_state: Arc<dyn InstanceMetadataRouterState>) -> Router {
+pub(super) fn get_fmds_router(
+    metadata_router_state: Arc<dyn InstanceMetadataRouterState>,
+) -> Router {
     let user_data_router =
         Router::new().route(&format!("/{USER_DATA_CATEGORY}"), get(get_userdata));
 

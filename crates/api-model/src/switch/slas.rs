@@ -16,16 +16,16 @@
  */
 
 /// SLA for Switch initialization in seconds
-pub const INITIALIZING: u64 = 300; // 5 minutes
+pub(super) const INITIALIZING: u64 = 300; // 5 minutes
 
 /// SLA for Switch configuring in seconds
-pub const CONFIGURING: u64 = 300; // 5 minutes
+pub(super) const CONFIGURING: u64 = 300; // 5 minutes
 
 /// SLA for Switch fetch-info in seconds
-pub const FETCH_INFO: u64 = 300; // 5 minutes
+pub(super) const FETCH_INFO: u64 = 300; // 5 minutes
 
 /// SLA for Switch validating in seconds
-pub const VALIDATING: u64 = 300; // 5 minutes
+pub(super) const VALIDATING: u64 = 300; // 5 minutes
 
 // /// SLA for Switch ready in seconds
 // pub const READY: u64 = 0; // 0 minutes
@@ -34,12 +34,12 @@ pub const VALIDATING: u64 = 300; // 5 minutes
 // pub const ERROR: u64 = 300; // 5 minutes
 
 /// SLA for Switch deleting in seconds
-pub const DELETING: u64 = 300; // 5 minutes
+pub(super) const DELETING: u64 = 300; // 5 minutes
 
 /// SLA for Switch maintenance (PowerOn / PowerOff / Reset) in seconds
-pub const MAINTENANCE: u64 = 300; // 5 minutes
+pub(super) const MAINTENANCE: u64 = 300; // 5 minutes
 
 /// SLA for Switch BMC credential rotation in seconds. Generous enough to absorb
 /// a slow BMC plus the rotation engine's short per-device backoff without
 /// tripping the SLA on the first retry.
-pub const ROTATING_BMC: u64 = 15 * 60; // 15 minutes
+pub(super) const ROTATING_BMC: u64 = 15 * 60; // 15 minutes

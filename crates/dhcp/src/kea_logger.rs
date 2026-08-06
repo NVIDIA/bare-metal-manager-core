@@ -19,7 +19,7 @@ use std::ffi::CString;
 use libc::{c_char, c_int};
 use log::{Level, Metadata, Record};
 
-pub struct KeaLogger;
+pub(super) struct KeaLogger;
 
 // Kea stops at level DEBUG, but splits that into 100 'debuglevel' values, so arbitrarity assign
 // one to Log::Debug and one to Log::Trace.

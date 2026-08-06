@@ -39,8 +39,9 @@ use crate::machine::Machine;
 const MACHINE_CACHE_TIMEOUT: Duration = Duration::from_secs(60);
 // For negative caching, the TTL should be longer
 const MACHINE_DISC_FAILED_CACHE_TIMEOUT: Duration = Duration::from_secs(5 * 60);
-// Max allowed discovery failures before an error is returned to the machine without calling carbide-api. Public so unit tests can access it.
-pub const MAX_DISCOVERY_FAILS: u32 = 5;
+// After this many discovery failures, negative caching stops calling the
+// Carbide API and returns `TooManyFailuresError` to Kea.
+pub(super) const MAX_DISCOVERY_FAILS: u32 = 5;
 /// How many entries to keep. After that we evict the entry used the longest ago.
 const MACHINE_CACHE_SIZE: usize = 1000;
 /// If the cache key comes out shorter than this something went wrong, don't use it.
@@ -56,29 +57,29 @@ lazy_static! {
 }
 
 #[derive(Debug, Clone)]
-pub struct CacheEntry {
-    pub timestamp: Instant,
-    pub status: CacheEntryStatus,
+pub(super) struct CacheEntry {
+    timestamp: Instant,
+    pub(super) status: CacheEntryStatus,
 }
 
 #[derive(Debug, Clone)]
-pub enum CacheEntryStatus {
+pub(super) enum CacheEntryStatus {
     ValidEntry(Box<Machine>),
     DiscoveryFailing(u32),
     DiscoveryFailed,
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
-pub enum CacheClass {
+pub(super) enum CacheClass {
     Lease,
     OptionsOnly,
 }
 
 /// Cache namespace for entries that share identity fields but differ by protocol behavior.
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
-pub struct CacheScope {
-    pub address_family: rpc::AddressFamily,
-    pub cache_class: CacheClass,
+pub(super) struct CacheScope {
+    pub(super) address_family: rpc::AddressFamily,
+    pub(super) cache_class: CacheClass,
 }
 
 /// Fetch an entry from the cache.
@@ -87,7 +88,7 @@ pub struct CacheScope {
 /// Takes a global lock on the cache.
 /// Returns None if we don't have that item in cache, or if we did but
 /// it's no longer valid (e.g. too old).
-pub fn get(
+pub(super) fn get(
     address_family: rpc::AddressFamily,
     mac_address: MacAddress,
     link_address: IpAddr,
@@ -107,7 +108,7 @@ pub fn get(
 }
 
 /// Fetch an entry from the cache with a protocol-specific cache class.
-pub fn get_classed(
+pub(super) fn get_classed(
     address_family: rpc::AddressFamily,
     cache_class: CacheClass,
     mac_address: MacAddress,
@@ -157,7 +158,7 @@ pub fn get_classed(
 ///
 /// This also performs opportunistic cache cleanup for expired or invalidated
 /// entries found while scanning matching vendor variants.
-pub fn get_classed_any_vendor(
+pub(super) fn get_classed_any_vendor(
     address_family: rpc::AddressFamily,
     cache_class: CacheClass,
     mac_address: MacAddress,
@@ -200,7 +201,7 @@ pub fn get_classed_any_vendor(
 }
 
 /// Insert or update an item in the cache
-pub fn put(
+pub(super) fn put(
     address_family: rpc::AddressFamily,
     mac_address: MacAddress,
     link_address: IpAddr,       // relay address
@@ -224,7 +225,7 @@ pub fn put(
 }
 
 /// Insert or update an item in the cache with a protocol-specific cache class.
-pub fn put_classed(
+pub(super) fn put_classed(
     scope: CacheScope,
     mac_address: MacAddress,
     link_address: IpAddr,
@@ -263,7 +264,7 @@ pub fn put_classed(
 }
 
 /// Mark and remove cached DHCPv6 lease entries matching an expired API allocation.
-pub fn invalidate_v6_lease(address: Ipv6Addr, mac_address: MacAddress) -> usize {
+pub(super) fn invalidate_v6_lease(address: Ipv6Addr, mac_address: MacAddress) -> usize {
     INVALIDATED_V6_LEASES.lock().unwrap().put(
         invalidated_v6_lease_key(address, mac_address),
         Instant::now(),
@@ -299,7 +300,7 @@ pub fn invalidate_v6_lease(address: Ipv6Addr, mac_address: MacAddress) -> usize 
 }
 
 /// Clear the recent-expiry tombstone for a DHCPv6 lease.
-pub fn clear_v6_lease_invalidation(address: Ipv6Addr, mac_address: MacAddress) -> bool {
+pub(super) fn clear_v6_lease_invalidation(address: Ipv6Addr, mac_address: MacAddress) -> bool {
     INVALIDATED_V6_LEASES
         .lock()
         .unwrap()
@@ -308,7 +309,7 @@ pub fn clear_v6_lease_invalidation(address: Ipv6Addr, mac_address: MacAddress) -
 }
 
 /// Return whether a Machine points at a recently expired DHCPv6 lease.
-pub fn machine_matches_invalidated_v6_lease(machine: &Machine) -> bool {
+pub(super) fn machine_matches_invalidated_v6_lease(machine: &Machine) -> bool {
     match machine.inner.address.parse::<IpAddr>() {
         Ok(IpAddr::V6(address)) => {
             is_v6_lease_invalidated(address, machine.discovery_info.mac_address)
@@ -408,7 +409,7 @@ impl CacheEntry {
 }
 
 impl CacheEntryStatus {
-    pub fn increment_fails(&self) -> CacheEntryStatus {
+    pub(super) fn increment_fails(&self) -> CacheEntryStatus {
         match self {
             CacheEntryStatus::ValidEntry(_machine) => CacheEntryStatus::DiscoveryFailing(1),
             CacheEntryStatus::DiscoveryFailing(count) => {
