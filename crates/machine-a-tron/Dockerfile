@@ -79,7 +79,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     iputils-ping \
     libssl3 \
     libudev1 \
-    openipmi-utils \
+    openipmi \
     && rm -rf /var/lib/apt/lists/*
 
 RUN mkdir -p /opt/machine-a-tron/bin /tmp/machine-a-tron-data
