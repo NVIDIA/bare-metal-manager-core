@@ -23166,6 +23166,11 @@ components:
               numaNode: 1
               description: 'MT28908 Family [ConnectX-6]'
               slot: '0000:ca:00.0'
+          lifecycleState:
+            value: Ready
+            isAboveSLA: false
+            timeSet: '2026-01-15T12:00:00Z'
+            slaSeconds: 300
       properties:
         dmiData:
           $ref: '#/components/schemas/MachineDMIData'
@@ -23188,6 +23193,38 @@ components:
           items:
             $ref: '#/components/schemas/MachineInfiniBandInterface'
           description: 'List of InfiniBand interfaces of the machine'
+        lifecycleState:
+          $ref: '#/components/schemas/MachineLifecycleState'
+          description: 'Lifecycle state details for the Machine'
+    MachineLifecycleState:
+      title: MachineLifecycleState
+      type: object
+      description: Describes the current Machine lifecycle state and its SLA status
+      required:
+        - value
+        - isAboveSLA
+        - timeSet
+        - slaSeconds
+      examples:
+        - value: Ready
+          isAboveSLA: false
+          timeSet: '2026-01-15T12:00:00Z'
+          slaSeconds: 300
+      properties:
+        value:
+          type: string
+          description: 'Current lifecycle state value of the Machine'
+        isAboveSLA:
+          type: boolean
+          description: 'Whether the Machine has been in the current state longer than the defined SLA'
+        timeSet:
+          type: string
+          description: 'Date/time when the current lifecycle state was set'
+          format: date-time
+        slaSeconds:
+          type: integer
+          format: int64
+          description: 'Defined SLA for the current lifecycle state in seconds'
     MachineBMCInfo:
       title: MachineBMCInfo
       type: object

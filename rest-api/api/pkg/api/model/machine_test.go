@@ -6,6 +6,7 @@ package model
 import (
 	"encoding/json"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 
@@ -13,6 +14,8 @@ import (
 	cdbm "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/model"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
+	"google.golang.org/protobuf/types/known/durationpb"
+	"google.golang.org/protobuf/types/known/timestamppb"
 
 	"github.com/NVIDIA/infra-controller/rest-api/api/pkg/api/model/util"
 	cutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
@@ -21,11 +24,30 @@ import (
 
 func TestMachine_NewAPIMachine(t *testing.T) {
 	mID := uuid.NewString()
+	stateVersion := "state-version-1"
+	stateSetAt := time.Date(2026, 1, 15, 12, 0, 0, 0, time.UTC)
 
 	machineInfo1 := &corev1.MachineInfo{
 		Machine: &corev1.Machine{
-			Id:    &corev1.MachineId{Id: mID},
-			State: "Ready",
+			Id:           &corev1.MachineId{Id: mID},
+			State:        "Ready",
+			StateVersion: stateVersion,
+			StateSla: &corev1.StateSla{
+				Sla:                 durationpb.New(5 * time.Minute),
+				TimeInStateAboveSla: false,
+			},
+			Events: []*corev1.MachineEvent{
+				{
+					Event:   "Provisioning",
+					Version: "older-version",
+					Time:    timestamppb.New(stateSetAt.Add(-time.Hour)),
+				},
+				{
+					Event:   "Ready",
+					Version: stateVersion,
+					Time:    timestamppb.New(stateSetAt),
+				},
+			},
 			DiscoveryInfo: &corev1.DiscoveryInfo{
 				NetworkInterfaces: []*corev1.NetworkInterface{
 					{
@@ -439,6 +461,12 @@ func TestMachine_NewAPIMachine(t *testing.T) {
 		if apimi.Metadata.InfiniBandInterfaces != nil {
 			assert.Equal(t, len(apimi.Metadata.InfiniBandInterfaces), len(machineInfo1.Machine.DiscoveryInfo.InfinibandInterfaces))
 		}
+
+		require.NotNil(t, apimi.Metadata.LifecycleState)
+		assert.Equal(t, machineInfo1.Machine.State, apimi.Metadata.LifecycleState.Value)
+		assert.Equal(t, machineInfo1.Machine.StateSla.TimeInStateAboveSla, apimi.Metadata.LifecycleState.IsAboveSLA)
+		assert.Equal(t, machineInfo1.Machine.StateSla.Sla.GetSeconds(), apimi.Metadata.LifecycleState.SLASeconds)
+		assert.True(t, stateSetAt.Equal(apimi.Metadata.LifecycleState.TimeSet))
 	}
 
 	if apimi.Health != nil {

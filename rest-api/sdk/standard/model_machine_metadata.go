@@ -32,6 +32,8 @@ type MachineMetadata struct {
 	NetworkInterfaces []MachineNetworkInterface `json:"networkInterfaces,omitempty"`
 	// List of InfiniBand interfaces of the machine
 	InfinibandInterfaces []MachineInfiniBandInterface `json:"infinibandInterfaces,omitempty"`
+	// Lifecycle state details for the Machine
+	LifecycleState *MachineLifecycleState `json:"lifecycleState,omitempty"`
 }
 
 // NewMachineMetadata instantiates a new MachineMetadata object
@@ -211,6 +213,38 @@ func (o *MachineMetadata) SetInfinibandInterfaces(v []MachineInfiniBandInterface
 	o.InfinibandInterfaces = v
 }
 
+// GetLifecycleState returns the LifecycleState field value if set, zero value otherwise.
+func (o *MachineMetadata) GetLifecycleState() MachineLifecycleState {
+	if o == nil || IsNil(o.LifecycleState) {
+		var ret MachineLifecycleState
+		return ret
+	}
+	return *o.LifecycleState
+}
+
+// GetLifecycleStateOk returns a tuple with the LifecycleState field value if set, nil otherwise
+// and a boolean to check if the value has been set.
+func (o *MachineMetadata) GetLifecycleStateOk() (*MachineLifecycleState, bool) {
+	if o == nil || IsNil(o.LifecycleState) {
+		return nil, false
+	}
+	return o.LifecycleState, true
+}
+
+// HasLifecycleState returns a boolean if a field has been set.
+func (o *MachineMetadata) HasLifecycleState() bool {
+	if o != nil && !IsNil(o.LifecycleState) {
+		return true
+	}
+
+	return false
+}
+
+// SetLifecycleState gets a reference to the given MachineLifecycleState and assigns it to the LifecycleState field.
+func (o *MachineMetadata) SetLifecycleState(v MachineLifecycleState) {
+	o.LifecycleState = &v
+}
+
 func (o MachineMetadata) MarshalJSON() ([]byte, error) {
 	toSerialize, err := o.ToMap()
 	if err != nil {
@@ -235,6 +269,9 @@ func (o MachineMetadata) ToMap() (map[string]interface{}, error) {
 	}
 	if !IsNil(o.InfinibandInterfaces) {
 		toSerialize["infinibandInterfaces"] = o.InfinibandInterfaces
+	}
+	if !IsNil(o.LifecycleState) {
+		toSerialize["lifecycleState"] = o.LifecycleState
 	}
 	return toSerialize, nil
 }
