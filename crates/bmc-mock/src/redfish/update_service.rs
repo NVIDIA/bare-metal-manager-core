@@ -656,9 +656,6 @@ mod tests {
         }))
     }
 
-    // -----------------------------------------------------------------------
-    // Task lifecycle — use paused time for deterministic scheduling
-    // -----------------------------------------------------------------------
 
     #[tokio::test(start_paused = true)]
     async fn task_starts_running_then_completes() {
@@ -769,9 +766,6 @@ mod tests {
         assert_eq!(state.tasks.read().unwrap().len(), 0, "completed task must be pruned");
     }
 
-    // -----------------------------------------------------------------------
-    // Queue / component identification (table-driven)
-    // -----------------------------------------------------------------------
 
     struct QueueCase {
         label: &'static str,
@@ -835,9 +829,6 @@ mod tests {
         }
     }
 
-    // -----------------------------------------------------------------------
-    // Config
-    // -----------------------------------------------------------------------
 
     #[test]
     fn apply_host_firmware_versions_adds_and_overrides() {
@@ -864,9 +855,6 @@ mod tests {
         );
     }
 
-    // -----------------------------------------------------------------------
-    // HTTP-level tests through the axum router
-    // -----------------------------------------------------------------------
 
     use std::sync::Arc as StdArc;
     use axum::body::to_bytes;

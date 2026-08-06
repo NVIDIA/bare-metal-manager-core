@@ -84,7 +84,10 @@ fn firmware_entry_matches_host_hw_type(
         NvidiaDgxVr => vendor.contains("nvidia") && model.contains("dgx vr"),
         SupermicroGb300Nvl => vendor.contains("supermicro") && model.contains("gb300"),
         NvidiaDgxH100 => vendor.contains("nvidia") && model.contains("h100"),
-        HpeProliantDl380aGen11 => vendor.contains("hpe") || vendor.contains("hewlett"),
+        HpeProliantDl380aGen11 => {
+            (vendor.contains("hpe") || vendor.contains("hewlett"))
+                && model.contains("proliant")
+        }
         // Generic and power-shelf types have no specific entry — fall back to
         // any entry that advertises host-firmware components.
         _ => {
