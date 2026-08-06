@@ -1111,13 +1111,12 @@ func TestManageVpc_CreateOrUpdateVpcFromSite_SkipsIncompleteOwnership(t *testing
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			vpc, err := manager.createOrUpdateVpcFromSite(
+			vpc := manager.createOrUpdateVpcFromSite(
 				ctx,
 				site,
 				tt.controllerVpc,
 				nil,
 			)
-			require.NoError(t, err)
 			if tt.wantVpc {
 				require.NotNil(t, vpc)
 				assert.Equal(t, cdbm.VpcStatusReady, vpc.Status)
