@@ -393,6 +393,18 @@ impl CarbideError {
     pub fn internal(message: String) -> Self {
         CarbideError::Internal { message }
     }
+
+    /// Returns true if this error is a Postgres deadlock (`40P01`) or
+    /// serialization failure (`40001`), both of which are safe to retry.
+    pub(crate) fn is_retryable_transaction_error(&self) -> bool {
+        matches!(
+            self,
+            CarbideError::DBError(db::AnnotatedSqlxError {
+                source: sqlx::Error::Database(db_err),
+                ..
+            }) if matches!(db_err.code().as_deref(), Some("40P01") | Some("40001"))
+        )
+    }
 }
 
 impl OperatorError for CarbideError {
