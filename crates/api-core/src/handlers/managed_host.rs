@@ -291,14 +291,6 @@ pub(crate) async fn delete_decommissioned_managed_host(
             )
             .await?;
         }
-        if let Some(secondary_overlay_vtep_ip) = dpu.network_config.secondary_overlay_vtep_ip {
-            db::resource_pool::release(
-                &api.common_pools.ethernet.pool_secondary_vtep_ip,
-                &mut txn,
-                secondary_overlay_vtep_ip,
-            )
-            .await?;
-        }
         if let Some(asn) = dpu.asn {
             db::resource_pool::release(&api.common_pools.ethernet.pool_fnn_asn, &mut txn, asn)
                 .await?;
