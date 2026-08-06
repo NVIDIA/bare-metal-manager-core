@@ -23194,7 +23194,9 @@ components:
             $ref: '#/components/schemas/MachineInfiniBandInterface'
           description: 'List of InfiniBand interfaces of the machine'
         lifecycleState:
-          $ref: '#/components/schemas/MachineLifecycleState'
+          oneOf:
+            - $ref: '#/components/schemas/MachineLifecycleState'
+            - type: 'null'
           description: 'Lifecycle state details for the Machine'
     MachineLifecycleState:
       title: MachineLifecycleState

@@ -33,7 +33,7 @@ type MachineMetadata struct {
 	// List of InfiniBand interfaces of the machine
 	InfinibandInterfaces []MachineInfiniBandInterface `json:"infinibandInterfaces,omitempty"`
 	// Lifecycle state details for the Machine
-	LifecycleState *MachineLifecycleState `json:"lifecycleState,omitempty"`
+	LifecycleState NullableMachineLifecycleState `json:"lifecycleState,omitempty"`
 }
 
 // NewMachineMetadata instantiates a new MachineMetadata object
@@ -213,36 +213,47 @@ func (o *MachineMetadata) SetInfinibandInterfaces(v []MachineInfiniBandInterface
 	o.InfinibandInterfaces = v
 }
 
-// GetLifecycleState returns the LifecycleState field value if set, zero value otherwise.
+// GetLifecycleState returns the LifecycleState field value if set, zero value otherwise (both if not set or set to explicit null).
 func (o *MachineMetadata) GetLifecycleState() MachineLifecycleState {
-	if o == nil || IsNil(o.LifecycleState) {
+	if o == nil || IsNil(o.LifecycleState.Get()) {
 		var ret MachineLifecycleState
 		return ret
 	}
-	return *o.LifecycleState
+	return *o.LifecycleState.Get()
 }
 
 // GetLifecycleStateOk returns a tuple with the LifecycleState field value if set, nil otherwise
 // and a boolean to check if the value has been set.
+// NOTE: If the value is an explicit nil, `nil, true` will be returned
 func (o *MachineMetadata) GetLifecycleStateOk() (*MachineLifecycleState, bool) {
-	if o == nil || IsNil(o.LifecycleState) {
+	if o == nil {
 		return nil, false
 	}
-	return o.LifecycleState, true
+	return o.LifecycleState.Get(), o.LifecycleState.IsSet()
 }
 
 // HasLifecycleState returns a boolean if a field has been set.
 func (o *MachineMetadata) HasLifecycleState() bool {
-	if o != nil && !IsNil(o.LifecycleState) {
+	if o != nil && o.LifecycleState.IsSet() {
 		return true
 	}
 
 	return false
 }
 
-// SetLifecycleState gets a reference to the given MachineLifecycleState and assigns it to the LifecycleState field.
+// SetLifecycleState gets a reference to the given NullableMachineLifecycleState and assigns it to the LifecycleState field.
 func (o *MachineMetadata) SetLifecycleState(v MachineLifecycleState) {
-	o.LifecycleState = &v
+	o.LifecycleState.Set(&v)
+}
+
+// SetLifecycleStateNil sets the value for LifecycleState to be an explicit nil
+func (o *MachineMetadata) SetLifecycleStateNil() {
+	o.LifecycleState.Set(nil)
+}
+
+// UnsetLifecycleState ensures that no value is present for LifecycleState, not even an explicit nil
+func (o *MachineMetadata) UnsetLifecycleState() {
+	o.LifecycleState.Unset()
 }
 
 func (o MachineMetadata) MarshalJSON() ([]byte, error) {
@@ -270,8 +281,8 @@ func (o MachineMetadata) ToMap() (map[string]interface{}, error) {
 	if !IsNil(o.InfinibandInterfaces) {
 		toSerialize["infinibandInterfaces"] = o.InfinibandInterfaces
 	}
-	if !IsNil(o.LifecycleState) {
-		toSerialize["lifecycleState"] = o.LifecycleState
+	if o.LifecycleState.IsSet() {
+		toSerialize["lifecycleState"] = o.LifecycleState.Get()
 	}
 	return toSerialize, nil
 }
