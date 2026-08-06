@@ -437,7 +437,6 @@ impl DatabaseError {
             _ => false,
         }
     }
-
 }
 
 pub type DatabaseResult<T> = Result<T, DatabaseError>;

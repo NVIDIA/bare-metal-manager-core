@@ -338,6 +338,11 @@ pub(crate) async fn update_machine_metadata(
 /// caller retries: every operation here is idempotent because a deadlock
 /// causes Postgres to roll back this transaction, leaving the DB unchanged.
 ///
+/// Response flags are accumulated into a local value and returned only after
+/// commit. A Postgres rollback does not restore in-memory state, so keeping
+/// the response local ensures the caller only ever sees flags that correspond
+/// to the committed transaction.
+///
 /// BMC credential clearing is intentionally excluded: that is an out-of-band
 /// operation the caller performs after the transaction commits.
 async fn force_delete_cleanup_txn(
@@ -345,8 +350,8 @@ async fn force_delete_cleanup_txn(
     host_machine: Option<&Machine>,
     dpu_machines: &[Machine],
     request: &rpc::AdminForceDeleteMachineRequest,
-    response: &mut rpc::AdminForceDeleteMachineResponse,
-) -> Result<(), CarbideError> {
+) -> Result<rpc::AdminForceDeleteMachineResponse, CarbideError> {
+    let mut response = rpc::AdminForceDeleteMachineResponse::default();
     // Admission permit BEFORE the transaction: waiters on the admin-segment
     // advisory lock must queue in memory, not on open pool connections.
     let _admin_admission = db::machine_interface::admin_lock_admission().await;
@@ -511,7 +516,7 @@ async fn force_delete_cleanup_txn(
 
     txn.commit().await?;
 
-    Ok(())
+    Ok(response)
 }
 
 pub(crate) async fn admin_force_delete_machine(
@@ -830,16 +835,16 @@ pub(crate) async fn admin_force_delete_machine(
     // each attempt (50, 100, 200, 400 ms) for up to five total attempts.
     const MAX_CLEANUP_ATTEMPTS: u32 = 5;
     for attempt in 0..MAX_CLEANUP_ATTEMPTS {
-        match force_delete_cleanup_txn(
-            api,
-            host_machine.as_ref(),
-            &dpu_machines,
-            &request,
-            &mut response,
-        )
-        .await
-        {
-            Ok(()) => break,
+        match force_delete_cleanup_txn(api, host_machine.as_ref(), &dpu_machines, &request).await {
+            Ok(cleanup) => {
+                response.host_bmc_interface_associated = cleanup.host_bmc_interface_associated;
+                response.host_bmc_interface_deleted = cleanup.host_bmc_interface_deleted;
+                response.host_interfaces_deleted = cleanup.host_interfaces_deleted;
+                response.dpu_bmc_interface_associated = cleanup.dpu_bmc_interface_associated;
+                response.dpu_bmc_interface_deleted = cleanup.dpu_bmc_interface_deleted;
+                response.dpu_interfaces_deleted = cleanup.dpu_interfaces_deleted;
+                break;
+            }
             Err(error)
                 if error.is_retryable_transaction_error() && attempt + 1 < MAX_CLEANUP_ATTEMPTS =>
             {
