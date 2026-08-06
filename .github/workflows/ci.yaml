@@ -55,6 +55,12 @@ jobs:
       - name: Check Core CI concurrency policy
         run: bash scripts/check-ci-concurrency.sh core
 
+      - name: Test Core CI final-gate checker
+        run: python3 -B .github/ci/test_check_core_ci_gate.py
+
+      - name: Check Core CI final-gate inventory
+        run: python3 -B .github/ci/check_core_ci_gate.py inventory .github/workflows/ci.yaml
+
       - name: Detect non-rest changes
         id: non-rest-changes
         if: startsWith(github.ref, 'refs/heads/pull-request/')
@@ -1458,6 +1464,9 @@ jobs:
 
   proto-breaking-changes:
     name: Proto Breaking Changes Check
+    needs:
+      - changes
+    if: ${{ needs.changes.outputs.run_core_ci == 'true' }}
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
@@ -2128,61 +2137,100 @@ jobs:
       slack-bot-token: ${{ secrets.CDS_SLACK_BOT_OAUTH_TOKEN }}
 
   # ============================================================================
-  # AGGREGATOR — single required check for branch protection
+  # FINAL CORE CI GATE
   # ============================================================================
-  # Fails iff any required job listed in `needs` is `failure` or `cancelled`.
+  # Passes only when every required job reports `success` or `skipped`.
   # `skipped` counts as pass — that's how rest-only PRs unblock when the
   # `changes` gate intentionally skips the core pipeline.
-  # Every stage of each gated release chain is listed so an upstream failure
-  # cannot be hidden when its downstream jobs become SKIPPED.
-  # `changes` + `prepare` are also included so a gate or prepare failure doesn't
-  # silently pass.
-  # Branch protection ruleset should require ONLY this aggregator + rest-ci-pass.
+  # Any other result, plus missing or malformed data, fails closed.
+  # Every job that can determine Core CI health is listed so an upstream
+  # failure cannot be hidden when its downstream jobs become `skipped`.
+  # Reporting-only jobs are explicitly exempted, and the checker in `changes`
+  # rejects every job that is neither gated nor exempted.
+  # The checker also protects `if: always()` so a failed dependency cannot skip
+  # this required check.
+  # Branch protection should require only this gate and `rest-ci-pass`.
   core-ci-pass:
     name: core-ci-pass
     runs-on: ubuntu-latest
     if: always()
     needs:
+      # Detection and preparation
       - changes
       - prepare
-      # x86_64 release-container chain
+
+      # Build, runtime, and artifact base images
       - build-container-x86_64
-      - build-runtime-container-x86_64
-      - build-release-container-x86_64
-      # aarch64 release-container chain
       - build-container-aarch64
+      - build-runtime-container-x86_64
       - build-runtime-container-aarch64
-      - build-release-container-aarch64
-      - test-release-container-services
-      # x86_64 release-artifact chain
       - build-artifacts-container-x86_64
-      - build-boot-artifacts-x86
-      - build-boot-artifacts-ephemeral-image-x86-host
-      - build-release-artifacts-x86-host
-      # aarch64 release-artifact chain
       - build-artifacts-container-aarch64
-      - build-boot-artifacts-bfb
-      - build-boot-artifacts-ephemeral-image-arm-host
-      - build-release-artifacts-arm-host
-      - security-secret-scan
-      - lint-police
-      - migration-police
-      - check-rest-core-proto-sync
+
+      # Release containers and service builds
+      - build-release-container-x86_64
+      - build-release-container-aarch64
+      - merge-manifests-nvmetal-carbide
       - build-machine-a-tron
       - build-mat-k8s-controller
+      - test-release-container-services
+
+      # CLI images
+      - build-forge-cli-x86_64
+      - build-forge-cli-aarch64
+      - merge-manifests-forge-cli
+
+      # Boot and release artifacts
+      - build-boot-artifacts-x86
+      - build-boot-artifacts-bfb
+      - build-boot-artifacts-ephemeral-image-x86-host
+      - build-boot-artifacts-ephemeral-image-arm-host
+      - build-release-artifacts-x86-host
+      - build-release-artifacts-arm-host
+
+      # Security checks
+      - security-secret-scan
+      - security-codeql-scan
+
+      # Machine validation images
+      - build-release-machine-validation-runner
+      - build-release-machine-validation-artifacts-x86-host
+      - build-release-machine-validation-artifacts-arm-host
+      - merge-manifests-machine-validation
+
+      # Source and repository policy checks
+      - proto-police
+      - lint-police
+      - migration-police
+      - proto-breaking-changes
+      - check-rest-core-proto-sync
+
+      # Core Helm charts
+      - build-validate-helm-chart
+      - build-push-helm-chart
+      - build-validate-helm-prereqs-chart
+      - build-push-helm-prereqs-chart
+
+      # BlueField binaries, images, and charts
+      - build-bluefield-binaries
+      - build-bluefield-otelcol-contrib
+      - build-bluefield-transceiver-exporter
+      - download-mft-aarch64
+      - build-bluefield-forge-dpu-agent
+      - build-bluefield-forge-dhcp-server
+      - build-bluefield-carbide-fmds
+      - build-validate-bluefield-helm-charts
+      - build-push-bluefield-helm-charts
+
+      # Post-build publication
+      - promote-to-be-scanned-image
     steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
       - name: Decide pass/fail
         env:
           NEEDS_JSON: ${{ toJson(needs) }}
-        run: |
-          set -euo pipefail
-          echo "$NEEDS_JSON" | jq -r 'to_entries[] | "\(.key): \(.value.result)"'
-          if echo "$NEEDS_JSON" | jq -e '
-            to_entries
-            | map(select(.value.result == "failure" or .value.result == "cancelled"))
-            | length > 0
-          ' >/dev/null; then
-            echo "::error::One or more required jobs failed or were cancelled"
-            exit 1
-          fi
-          echo "All required jobs OK (success or skipped)"
+        run: python3 -B .github/ci/check_core_ci_gate.py results
