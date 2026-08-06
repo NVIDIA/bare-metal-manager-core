@@ -230,19 +230,24 @@ jobs:
       # steps. github-script is first-party, so we use it to re-export the two
       # values instead of taking on a third-party action for this.
       #
+      # Deliberately not tied to `inputs.cache`. That input turns off the
+      # BuildKit layer cache, which is a different mechanism: sccache caches
+      # individual compilations, so it still pays off for an image whose layers
+      # are worthless because `COPY . ./` invalidates everything after it. When
+      # the two shared one input, turning the layer cache off for the Rust
+      # images also dropped sccache to the local mount and cost
+      # build-release-container-x86_64 its 347 hits and 2m11s.
+      #
       # Runs unconditionally and always exports a non-empty value. buildx
       # rejects a secret whose value is empty, so a skipped step or an unset
       # token would fail the build outright instead of merely disabling the
       # cache. The sentinel is what the Dockerfiles detect.
       - name: Expose Actions cache credentials to the build
         uses: actions/github-script@v7
-        env:
-          CACHE_ENABLED: ${{ inputs.cache }}
         with:
           script: |
-            const enabled = process.env.CACHE_ENABLED === 'true';
-            const token = enabled ? (process.env.ACTIONS_RUNTIME_TOKEN || '') : '';
-            const url = enabled ? (process.env.ACTIONS_RESULTS_URL || '') : '';
+            const token = process.env.ACTIONS_RUNTIME_TOKEN || '';
+            const url = process.env.ACTIONS_RESULTS_URL || '';
             if (token) core.setSecret(token);
             core.exportVariable('BUILD_ACTIONS_RUNTIME_TOKEN', token || 'unavailable');
             core.exportVariable('BUILD_ACTIONS_RESULTS_URL', url || 'unavailable');
