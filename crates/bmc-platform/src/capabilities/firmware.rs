@@ -19,17 +19,12 @@ use std::path::PathBuf;
 use std::time::Duration;
 
 use async_trait::async_trait;
+use nv_redfish::core::ODataId;
+pub use nv_redfish::schema::software_inventory::SoftwareInventory as FirmwareInventory;
+pub use nv_redfish::schema::update_service::TransferProtocolType as TransferProtocol;
 use serde::{Deserialize, Serialize};
 
 use crate::{DriverOutcome, OpCx, PlatformError};
-
-#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
-pub struct FirmwareInventory {
-    pub id: String,
-    pub description: Option<String>,
-    pub version: Option<String>,
-    pub release_date: Option<String>,
-}
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -47,19 +42,6 @@ pub enum FirmwareUploadComponent {
     HgxBmc,
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum TransferProtocol {
-    Ftp,
-    Sftp,
-    Http,
-    Https,
-    Scp,
-    Tftp,
-    Oem,
-    Nfs,
-}
-
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum FirmwareUpdate {
     Multipart {
@@ -70,7 +52,7 @@ pub enum FirmwareUpdate {
     },
     Simple {
         image_uri: String,
-        targets: Vec<String>,
+        targets: Vec<ODataId>,
         transfer_protocol: TransferProtocol,
     },
     HttpPush {

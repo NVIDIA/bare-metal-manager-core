@@ -877,10 +877,10 @@ dependencies = [
  "carbide-test-support",
  "http",
  "mac_address",
+ "nv-redfish",
  "serde",
  "serde_json",
  "thiserror 2.0.18",
- "url",
 ]
 
 [[package]]

@@ -21,6 +21,7 @@ use std::str::FromStr;
 
 use async_trait::async_trait;
 use http::{HeaderValue, StatusCode, Uri};
+use nv_redfish::core::{ODataETag, ODataId};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use serde_json::Value;
 use thiserror::Error;
@@ -128,7 +129,7 @@ pub struct RedfishResponse {
     pub status: StatusCode,
     pub location: Option<HeaderValue>,
     pub retry_after: Option<HeaderValue>,
-    pub etag: Option<HeaderValue>,
+    pub etag: Option<ODataETag>,
     pub body: Option<Value>,
 }
 
@@ -138,7 +139,7 @@ pub struct UploadRequest {
     pub endpoint: RedfishUri,
     pub file_path: PathBuf,
     pub filename: Option<String>,
-    pub targets: Vec<String>,
+    pub targets: Vec<ODataId>,
     pub parameters: Option<Value>,
 }
 
@@ -150,7 +151,7 @@ pub enum PatchCondition {
     /// Send `If-Match: *`.
     IfMatchAny,
     /// Send `If-Match` with the supplied entity tag.
-    IfMatch(HeaderValue),
+    IfMatch(ODataETag),
 }
 
 /// Restricted transport operations available to capability drivers.
@@ -248,7 +249,7 @@ mod tests {
 
     #[test]
     fn patch_condition_preserves_policy_distinctions() {
-        let etag = HeaderValue::from_static("\"revision-42\"");
+        let etag = ODataETag::from("\"revision-42\"".to_string());
 
         assert_ne!(PatchCondition::Unconditional, PatchCondition::IfMatchAny);
         assert_ne!(

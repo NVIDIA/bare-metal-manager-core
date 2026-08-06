@@ -17,41 +17,15 @@
 
 use async_trait::async_trait;
 use mac_address::MacAddress;
+pub use nv_redfish::computer_system::BootOptionReference;
+pub use nv_redfish::schema::boot_option::BootOption;
+pub use nv_redfish::schema::computer_system::{
+    Boot as BootOrderStatus, BootSource as BootTarget, BootSourceOverrideMode as BootFirmwareMode,
+    BootUpdate as BootOverride,
+};
 use serde::{Deserialize, Serialize};
-use url::Url;
 
 use crate::{DriverOutcome, OpCx, PlatformError};
-
-/// A boot source NICo actively requests.
-#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
-#[serde(tag = "type", rename_all = "snake_case")]
-pub enum BootTarget {
-    Pxe,
-    HardDisk,
-    UefiHttp { uri: Option<Url> },
-}
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum BootFirmwareMode {
-    Uefi,
-    Legacy,
-}
-
-/// A valid Redfish boot override request.
-#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
-#[serde(tag = "mode", rename_all = "snake_case")]
-pub enum BootOverride {
-    Disabled,
-    Once {
-        target: BootTarget,
-        firmware_mode: Option<BootFirmwareMode>,
-    },
-    Continuous {
-        target: BootTarget,
-        firmware_mode: Option<BootFirmwareMode>,
-    },
-}
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type", content = "value", rename_all = "snake_case")]
@@ -62,21 +36,6 @@ pub enum BootInterfaceSelector {
         mac_address: MacAddress,
         interface_id: String,
     },
-}
-
-#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
-pub struct BootOption {
-    pub id: String,
-    pub reference: String,
-    pub display_name: String,
-    pub description: Option<String>,
-    pub uefi_device_path: Option<String>,
-    pub enabled: Option<bool>,
-}
-
-#[derive(Clone, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
-pub struct BootOrderStatus {
-    pub order: Vec<String>,
 }
 
 /// One-time boot override and persistent boot-order operations.
@@ -104,7 +63,7 @@ pub trait BootOrder: Send + Sync {
     async fn set_order(
         &self,
         cx: &OpCx<'_>,
-        order: &[String],
+        order: &[BootOptionReference<String>],
     ) -> Result<DriverOutcome, PlatformError>;
 
     /// Moves the selected host boot interface to the first boot position.
@@ -117,61 +76,4 @@ pub trait BootOrder: Send + Sync {
     async fn infinite_boot_enabled(&self, cx: &OpCx<'_>) -> Result<Option<bool>, PlatformError>;
 
     async fn enable_infinite_boot(&self, cx: &OpCx<'_>) -> Result<DriverOutcome, PlatformError>;
-}
-
-#[cfg(test)]
-mod tests {
-    use serde_json::json;
-
-    use super::*;
-
-    #[test]
-    fn boot_override_representation_prevents_unrelated_target_fields() {
-        let cases = [
-            (BootOverride::Disabled, json!({"mode": "disabled"})),
-            (
-                BootOverride::Once {
-                    target: BootTarget::Pxe,
-                    firmware_mode: Some(BootFirmwareMode::Uefi),
-                },
-                json!({
-                    "mode": "once",
-                    "target": {"type": "pxe"},
-                    "firmware_mode": "uefi"
-                }),
-            ),
-            (
-                BootOverride::Continuous {
-                    target: BootTarget::UefiHttp {
-                        uri: Some(
-                            "https://boot.example/image"
-                                .parse()
-                                .expect("fixture URL is valid"),
-                        ),
-                    },
-                    firmware_mode: Some(BootFirmwareMode::Uefi),
-                },
-                json!({
-                    "mode": "continuous",
-                    "target": {
-                        "type": "uefi_http",
-                        "uri": "https://boot.example/image"
-                    },
-                    "firmware_mode": "uefi"
-                }),
-            ),
-        ];
-
-        for (request, expected) in cases {
-            assert_eq!(
-                serde_json::to_value(&request).expect("boot override serializes"),
-                expected
-            );
-            assert_eq!(
-                serde_json::from_value::<BootOverride>(expected)
-                    .expect("boot override deserializes"),
-                request
-            );
-        }
-    }
 }

@@ -15,50 +15,11 @@
  * limitations under the License.
  */
 
-use std::fmt;
-
 use async_trait::async_trait;
-use serde::{Deserialize, Serialize};
+pub use nv_redfish::account::ManagerAccountCreate as AccountCreate;
+pub use nv_redfish::schema::manager_account::ManagerAccount as Account;
 
 use crate::{DriverOutcome, OpCx, PlatformError};
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum RoleId {
-    Administrator,
-    Operator,
-    ReadOnly,
-    NoAccess,
-}
-
-#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
-pub struct Account {
-    pub id: Option<String>,
-    pub username: String,
-    pub role_id: String,
-    pub name: Option<String>,
-    pub description: Option<String>,
-    pub enabled: Option<bool>,
-    pub locked: Option<bool>,
-}
-
-#[derive(Clone, Eq, PartialEq)]
-pub struct AccountCreate {
-    pub username: String,
-    pub password: String,
-    pub role: RoleId,
-}
-
-impl fmt::Debug for AccountCreate {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter
-            .debug_struct("AccountCreate")
-            .field("username", &self.username)
-            .field("password", &"<redacted>")
-            .field("role", &self.role)
-            .finish()
-    }
-}
 
 /// BMC local-account and account-policy operations.
 #[async_trait]

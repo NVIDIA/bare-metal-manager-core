@@ -31,18 +31,19 @@ mod transport;
 pub use capabilities::{
     Account, AccountCreate, Accounts, Attestation, AttestationEvidence, Bios, BiosDiff,
     BiosSettings, BiosStatus, BmcControl, BootFirmwareMode, BootInterfaceSelector, BootOption,
-    BootOrder, BootOrderStatus, BootOverride, BootTarget, CaCertificate, ComponentIntegritySummary,
-    Console, ConsoleFallback, ConsoleSpec, ConsoleSpecError, ConsoleState, ConsoleStatus, Dpu,
-    DpuStatus, EscapeSeq, Firmware, FirmwareInventory, FirmwareUpdate, FirmwareUploadComponent,
-    HostPrivilegeLevel, IpmiOverLanState, Lockdown, LockdownDesiredState, LockdownScope,
-    LockdownState, LockdownStatus, NicMode, Power, PowerAction, PowerState, RoleId, RshimState,
-    SecureBoot, SecureBootCurrentBoot, SecureBootDatabase, SecureBootDesiredState, SecureBootMode,
-    SecureBootStatus, Storage, TransferProtocol,
+    BootOptionReference, BootOrder, BootOrderStatus, BootOverride, BootTarget, CaCertificate,
+    ComponentIntegritySummary, Console, ConsoleFallback, ConsoleSpec, ConsoleSpecError,
+    ConsoleState, ConsoleStatus, Dpu, DpuStatus, EscapeSeq, Firmware, FirmwareInventory,
+    FirmwareUpdate, FirmwareUploadComponent, HostPrivilegeLevel, Lockdown, LockdownDesiredState,
+    LockdownScope, LockdownState, LockdownStatus, NicMode, Power, PowerAction, PowerState,
+    RshimState, SecureBoot, SecureBootDatabase, SecureBootStatus, SecureBootUpdate, Storage,
+    TransferProtocol,
 };
 pub use error::{AuthError, PlatformError};
 pub use identity::{
     ChassisIdentity, ManagerIdentity, PlatformIdentity, ServiceRootIdentity, SystemIdentity,
 };
+pub use nv_redfish::core::{ODataETag, ODataId};
 pub use operation::{
     ControllerAction, DriverOutcome, ManualInterventionCode, ManualInterventionCodeError,
     OperationReference, VendorJobId, VendorJobIdError,

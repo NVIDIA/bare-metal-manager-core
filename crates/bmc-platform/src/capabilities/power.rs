@@ -21,6 +21,7 @@ use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 
 use crate::{DriverOutcome, OpCx, PlatformError};
+pub use nv_redfish::resource::PowerState;
 
 /// A normalized power mutation.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -33,19 +34,6 @@ pub enum PowerAction {
     ForceRestart,
     PowerCycle,
     AcPowerCycle,
-}
-
-/// A normalized power observation.
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum PowerState {
-    On,
-    Off,
-    PoweringOn,
-    PoweringOff,
-    Paused,
-    Reset,
-    Unknown,
 }
 
 /// Host and chassis power observations and mutations.

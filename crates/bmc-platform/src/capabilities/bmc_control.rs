@@ -16,16 +16,8 @@
  */
 
 use async_trait::async_trait;
-use serde::{Deserialize, Serialize};
 
 use crate::{DriverOutcome, OpCx, PlatformError};
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum IpmiOverLanState {
-    Enabled,
-    Disabled,
-}
 
 /// BMC reset, factory-default, and time-configuration mutations.
 #[async_trait]
@@ -50,6 +42,6 @@ pub trait BmcControl: Send + Sync {
     async fn set_ipmi_over_lan(
         &self,
         cx: &OpCx<'_>,
-        state: IpmiOverLanState,
+        enabled: bool,
     ) -> Result<DriverOutcome, PlatformError>;
 }

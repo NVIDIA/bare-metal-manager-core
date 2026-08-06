@@ -16,39 +16,10 @@
  */
 
 use async_trait::async_trait;
+pub use nv_redfish::schema::secure_boot::{SecureBoot as SecureBootStatus, SecureBootUpdate};
 use serde::{Deserialize, Serialize};
 
 use crate::{DriverOutcome, OpCx, PlatformError};
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum SecureBootMode {
-    Setup,
-    User,
-    Audit,
-    Deployed,
-}
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum SecureBootCurrentBoot {
-    Enabled,
-    Disabled,
-}
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum SecureBootDesiredState {
-    Enabled,
-    Disabled,
-}
-
-#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
-pub struct SecureBootStatus {
-    pub secure_boot_enable: Option<bool>,
-    pub secure_boot_current_boot: Option<SecureBootCurrentBoot>,
-    pub secure_boot_mode: Option<SecureBootMode>,
-}
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -67,7 +38,7 @@ pub trait SecureBoot: Send + Sync {
     async fn set(
         &self,
         cx: &OpCx<'_>,
-        state: SecureBootDesiredState,
+        update: &SecureBootUpdate,
     ) -> Result<DriverOutcome, PlatformError>;
 
     async fn has_certificates(
