@@ -20,7 +20,7 @@ use rpc::forge_tls_client::{ApiConfig, ForgeTlsClient};
 use crate::Config;
 use crate::errors::DhcpError;
 
-pub async fn discover_dhcp(
+pub(crate) async fn discover_dhcp(
     discovery_request: DhcpDiscovery,
     config: &Config,
 ) -> Result<DhcpRecord, DhcpError> {

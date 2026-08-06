@@ -21,7 +21,7 @@ use serde::{Deserialize, Serialize};
 use crate::rpc_error::PxeRequestError;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub enum MachineArchitecture {
+pub(crate) enum MachineArchitecture {
     Arm = 0,
     X86 = 1,
 }
