@@ -1423,6 +1423,67 @@ func TestVpcSQLDAO_DeleteByID(t *testing.T) {
 	}
 }
 
+func TestVpcSQLDAO_ClearDeleted(t *testing.T) {
+	dbSession := testInitDB(t)
+	defer dbSession.Close()
+	testVpcSetupSchema(t, dbSession)
+
+	ipu := testBuildUser(t, dbSession, nil, testGenerateStarfleetID(), cutil.GetPtr("johnd@test.com"), cutil.GetPtr("John"), cutil.GetPtr("Doe"))
+	ip := testBuildInfrastructureProvider(t, dbSession, nil, "test-ip", "Test Provider", ipu.ID)
+	tnu := testBuildUser(t, dbSession, nil, testGenerateStarfleetID(), cutil.GetPtr("jdoe@test.com"), cutil.GetPtr("John"), cutil.GetPtr("Doe"))
+	tn := testBuildTenant(t, dbSession, nil, "test-tenant", "test-tenant-org", tnu.ID)
+	st := testBuildSite(t, dbSession, nil, ip.ID, "test-site", "Test Site", ip.Org, ipu.ID)
+	controllerID := uuid.New()
+	vpc := testBuildVpc(
+		t,
+		dbSession,
+		nil,
+		"test-vpc",
+		nil,
+		tn.Org,
+		ip.ID,
+		tn.ID,
+		st.ID,
+		nil,
+		cutil.GetPtr(VpcEthernetVirtualizer),
+		&controllerID,
+		nil,
+		cutil.GetPtr(VpcStatusError),
+		tnu.ID,
+		nil,
+	)
+
+	vpcDAO := NewVpcDAO(dbSession)
+	require.NoError(t, vpcDAO.DeleteByID(context.Background(), nil, vpc.ID))
+
+	t.Run("clears soft-delete marker", func(t *testing.T) {
+		cleared, err := vpcDAO.Clear(context.Background(), nil, VpcClearInput{
+			VpcID:   vpc.ID,
+			Deleted: true,
+		})
+		require.NoError(t, err)
+		require.NotNil(t, cleared)
+		assert.Nil(t, cleared.Deleted)
+
+		updated, err := vpcDAO.Update(context.Background(), nil, VpcUpdateInput{
+			VpcID:           vpc.ID,
+			Status:          cutil.GetPtr(VpcStatusReady),
+			IsMissingOnSite: cutil.GetPtr(false),
+		})
+		require.NoError(t, err)
+		assert.Equal(t, VpcStatusReady, updated.Status)
+		assert.False(t, updated.IsMissingOnSite)
+	})
+
+	t.Run("returns not found for unknown VPC", func(t *testing.T) {
+		_, err := vpcDAO.Clear(context.Background(), nil, VpcClearInput{
+			VpcID:   uuid.New(),
+			Deleted: true,
+		})
+		assert.ErrorIs(t, err, db.ErrDoesNotExist)
+	})
+}
+
 func TestVpcSQLDAO_ClearFromParams(t *testing.T) {
 	// Create test DB
 	dbSession := testInitDB(t)
@@ -1870,6 +1931,10 @@ func TestVpc_FromProto(t *testing.T) {
 		assert.Nil(t, v.EffectiveRoutingProfile)
 		assert.Nil(t, v.Description)
 		assert.Nil(t, v.Labels)
+		assert.Nil(t, v.NetworkVirtualizationType)
+		assert.Nil(t, v.RoutingProfile)
+		assert.Nil(t, v.Vni)
+		assert.Nil(t, v.ActiveVni)
 	})
 
 	t.Run("invalid NVLink partition id clears the field", func(t *testing.T) {

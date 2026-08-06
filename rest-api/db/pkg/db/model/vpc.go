@@ -442,7 +442,6 @@ func (vpc *Vpc) FromProto(proto *corev1.Vpc) {
 	if proto.Metadata != nil && proto.Metadata.Name != "" {
 		vpc.Name = proto.Metadata.Name
 	}
-
 	cfg := proto.GetConfig()
 	if cfg == nil {
 		cfg = &corev1.VpcConfig{}
@@ -513,6 +512,7 @@ type VpcCreateInput struct {
 	RoutingProfile                         *string
 	RoutingProfileOverrides                *VpcRoutingProfileOverrides
 	ControllerVpcID                        *uuid.UUID
+	ActiveVni                              *int
 	NetworkSecurityGroupID                 *string
 	NetworkSecurityGroupPropagationDetails *NetworkSecurityGroupPropagationDetails
 	Labels                                 map[string]string
@@ -553,12 +553,14 @@ type VpcClearInput struct {
 	NetworkSecurityGroupID                 bool
 	NetworkSecurityGroupPropagationDetails bool
 	Labels                                 bool
+	Deleted                                bool
 }
 
 // VpcFilterInput input parameters for Filter method
 type VpcFilterInput struct {
 	Name                      *string
 	VpcIDs                    []uuid.UUID
+	ControllerVpcIDs          []uuid.UUID
 	InfrastructureProviderID  *uuid.UUID
 	TenantIDs                 []uuid.UUID
 	SiteIDs                   []uuid.UUID
@@ -568,6 +570,7 @@ type VpcFilterInput struct {
 	NetworkVirtualizationType *string
 	Statuses                  []string
 	SearchQuery               *string
+	IncludeDeleted            bool
 }
 
 var _ bun.BeforeAppendModelHook = (*Vpc)(nil)
@@ -795,6 +798,14 @@ func (vsd VpcSQLDAO) setQueryWithFilter(filter VpcFilterInput, query *bun.Select
 		}
 	}
 
+	if filter.ControllerVpcIDs != nil {
+		query = query.Where("v.controller_vpc_id IN (?)", bun.In(filter.ControllerVpcIDs))
+
+		if vpcDAOSpan != nil {
+			vsd.tracerSpan.SetAttribute(vpcDAOSpan, "controller_vpc_ids", filter.ControllerVpcIDs)
+		}
+	}
+
 	searchQuery, searchTokens, ok := db.NormalizeSearchQuery(filter.SearchQuery)
 	if ok {
 		query = query.WhereGroup(" AND ", func(q *bun.SelectQuery) *bun.SelectQuery {
@@ -827,6 +838,9 @@ func (vsd VpcSQLDAO) GetAll(ctx context.Context, tx *db.Tx, filter VpcFilterInpu
 	// var vpcs []Vpc
 	vpcs := []Vpc{}
 	query := db.GetIDB(tx, vsd.dbSession).NewSelect().Model(&vpcs)
+	if filter.IncludeDeleted {
+		query = query.WhereAllWithDeleted()
+	}
 
 	query, err := vsd.setQueryWithFilter(filter, query, vpcDAOSpan)
 	if err != nil {
@@ -883,6 +897,7 @@ func (vsd VpcSQLDAO) Create(ctx context.Context, tx *db.Tx, input VpcCreateInput
 		RoutingProfile:                         input.RoutingProfile,
 		RoutingProfileOverrides:                input.RoutingProfileOverrides,
 		ControllerVpcID:                        input.ControllerVpcID,
+		ActiveVni:                              input.ActiveVni,
 		NetworkSecurityGroupID:                 input.NetworkSecurityGroupID,
 		NetworkSecurityGroupPropagationDetails: input.NetworkSecurityGroupPropagationDetails,
 		Labels:                                 input.Labels,
@@ -1092,12 +1107,30 @@ func (vsd VpcSQLDAO) Clear(ctx context.Context, tx *db.Tx, input VpcClearInput) 
 		updatedFields = append(updatedFields, "network_security_group_propagation_details")
 	}
 
+	if input.Deleted {
+		v.Deleted = nil
+		updatedFields = append(updatedFields, "deleted")
+	}
+
 	if len(updatedFields) > 0 {
 		updatedFields = append(updatedFields, "updated")
 
-		_, err := db.GetIDB(tx, vsd.dbSession).NewUpdate().Model(v).Column(updatedFields...).Where("id = ?", input.VpcID).Exec(ctx)
+		query := db.GetIDB(tx, vsd.dbSession).NewUpdate().Model(v).Column(updatedFields...).Where("id = ?", input.VpcID)
+		if input.Deleted {
+			query = query.WhereAllWithDeleted()
+		}
+		result, err := query.Exec(ctx)
 		if err != nil {
 			return nil, err
+		}
+		if input.Deleted {
+			rowsAffected, rowsErr := result.RowsAffected()
+			if rowsErr != nil {
+				return nil, rowsErr
+			}
+			if rowsAffected == 0 {
+				return nil, db.ErrDoesNotExist
+			}
 		}
 	}
 
