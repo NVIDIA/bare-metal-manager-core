@@ -78,7 +78,7 @@ const FORMAT_MACROS: &[&str] = &["format", "format_args"];
 // keeps as an opaque token stream). Those are left as-is; widening the checker
 // further, and re-sweeping what it then catches, is a follow-up.
 
-pub fn check(fix: bool) -> eyre::Result<CheckOutcome> {
+pub(super) fn check(fix: bool) -> eyre::Result<CheckOutcome> {
     let repo_root = PathBuf::from(REPO_ROOT).canonicalize()?;
     let mut violations = Vec::new();
     let mut fixed_files = Vec::new();
@@ -203,7 +203,7 @@ fn push_violations(violations: &mut Vec<Violation>, rel: &Path, f: &Finding) {
     }
 }
 
-pub struct CheckOutcome {
+pub(super) struct CheckOutcome {
     violations: Vec<Violation>,
     fixed_files: Vec<(PathBuf, usize)>,
     fixing: bool,
@@ -213,7 +213,7 @@ pub struct CheckOutcome {
 }
 
 impl CheckOutcome {
-    pub fn report_and_exit(self) -> ! {
+    pub(super) fn report_and_exit(self) -> ! {
         if self.fixing {
             let sites: usize = self.fixed_files.iter().map(|(_, n)| n).sum();
             for (path, n) in &self.fixed_files {

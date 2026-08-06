@@ -157,9 +157,9 @@ mod legacy_rpc {
     /// }
     /// ```
     #[derive(prost::Message)]
-    pub struct RackId {
+    pub(super) struct RackId {
         #[prost(string, tag = "1")]
-        pub id: String,
+        pub(super) id: String,
     }
 
     impl From<super::RackId> for RackId {
@@ -267,9 +267,9 @@ impl prost::Message for RackProfileId {
 
 mod rack_profile_id_rpc {
     #[derive(prost::Message)]
-    pub struct RackProfileId {
+    pub(super) struct RackProfileId {
         #[prost(string, tag = "1")]
-        pub id: String,
+        pub(super) id: String,
     }
 
     impl From<super::RackProfileId> for RackProfileId {
