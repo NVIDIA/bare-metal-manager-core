@@ -235,7 +235,16 @@ jobs:
           tags: ${{ steps.tag_list.outputs.tags }}
           build-args: ${{ steps.parse-args.outputs.build_args }}
           cache-from: ${{ inputs.cache && 'type=gha' || '' }}
-          cache-to: ${{ inputs.cache && inputs.push && 'type=gha,mode=max' || '' }}
+          # Never exported from this branch. The Actions cache is a single 50 GB
+          # pool shared with main and every pull request, and its entries are
+          # scoped per ref: layers pushed from a release branch or a release tag
+          # can only be restored by a later run on that same ref, and a tag is
+          # built exactly once. So an export here buys this branch close to
+          # nothing while costing the pool real space -- the v2.1.0-smcgb300-2 tag
+          # run pushed 32 GB of layers in, which evicted main's sccache entries
+          # from 16 GB down to 5 GB and left main's Rust builds compiling from
+          # scratch. cache-from is kept because a lookup that misses is cheap.
+          cache-to: ''
 
       - name: Login to target registry
         if: ${{ inputs.push && !contains(inputs.platforms, ',') && github.repository != 'NVIDIA/infra-controller' }}
