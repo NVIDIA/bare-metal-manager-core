@@ -1413,7 +1413,6 @@ pub enum DeconfiguringHostState {
     RebootAfterUefiPassword { job_id: String },
     WaitForUefiPasswordJobCompletion { job_id: String },
     ResetUefiSettings,
-    RebootAfterUefiReset,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq)]

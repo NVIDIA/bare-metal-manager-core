@@ -56,6 +56,25 @@ fn verifying_dhcp_release(verifying_state: VerifyingDhcpReleaseState) -> Managed
     }
 }
 
+fn deconfiguring_dpus_after_host_reset(state: &ManagedHostStateSnapshot) -> ManagedHostState {
+    deconfiguring_dpus(
+        state
+            .dpu_snapshots
+            .iter()
+            .map(|dpu| {
+                (
+                    dpu.id,
+                    if state.host_snapshot.config.dpf.used_for_ingestion {
+                        DeconfiguringDpuState::DeletingFromDpf
+                    } else {
+                        DeconfiguringDpuState::InstallingBfb
+                    },
+                )
+            })
+            .collect(),
+    )
+}
+
 pub(super) async fn handle_preparing(
     state: &ManagedHostStateSnapshot,
     ctx: &mut StateHandlerContext<'_, MachineStateHandlerContextObjects>,
@@ -154,9 +173,9 @@ pub(super) async fn handle_deconfiguring_host(
         }
         DeconfiguringHostState::ClearUefiPassword => {
             if machine.bios_password_set_time.is_none() {
-                return Ok(StateHandlerOutcome::transition(deconfiguring(
-                    DeconfiguringHostState::ResetUefiSettings,
-                )));
+                return Ok(StateHandlerOutcome::transition(
+                    deconfiguring_dpus_after_host_reset(state),
+                ));
             }
 
             let redfish_client = ctx
@@ -228,7 +247,11 @@ pub(super) async fn handle_deconfiguring_host(
 
             let next = match job_id {
                 Some(job_id) => DeconfiguringHostState::WaitForUefiPasswordJobScheduled { job_id },
-                None => DeconfiguringHostState::ResetUefiSettings,
+                None => {
+                    return Ok(StateHandlerOutcome::transition(
+                        deconfiguring_dpus_after_host_reset(state),
+                    ));
+                }
             };
             Ok(StateHandlerOutcome::transition(deconfiguring(next)))
         }
@@ -299,10 +322,8 @@ pub(super) async fn handle_deconfiguring_host(
             }
             let mut txn = ctx.services.db_pool.begin().await?;
             db::machine::clear_bios_password_set_time(&machine.id, &mut txn).await?;
-            Ok(StateHandlerOutcome::transition(deconfiguring(
-                DeconfiguringHostState::ResetUefiSettings,
-            ))
-            .with_txn(txn))
+            Ok(StateHandlerOutcome::transition(deconfiguring_dpus_after_host_reset(state))
+                .with_txn(txn))
         }
         DeconfiguringHostState::ClearSuperNicLockdown => {
             let super_nics = state
@@ -312,7 +333,7 @@ pub(super) async fn handle_deconfiguring_host(
                 .collect::<Vec<_>>();
             if super_nics.is_empty() {
                 return Ok(StateHandlerOutcome::transition(deconfiguring(
-                    DeconfiguringHostState::ClearUefiPassword,
+                    DeconfiguringHostState::ResetUefiSettings,
                 )));
             }
 
@@ -350,7 +371,7 @@ pub(super) async fn handle_deconfiguring_host(
                 ));
             }
             Ok(StateHandlerOutcome::transition(deconfiguring(
-                DeconfiguringHostState::ClearUefiPassword,
+                DeconfiguringHostState::ResetUefiSettings,
             )))
         }
         DeconfiguringHostState::ResetUefiSettings => {
@@ -364,46 +385,8 @@ pub(super) async fn handle_deconfiguring_host(
                 ))
             })?;
             Ok(StateHandlerOutcome::transition(deconfiguring(
-                DeconfiguringHostState::RebootAfterUefiReset,
+                DeconfiguringHostState::ClearUefiPassword,
             )))
-        }
-        DeconfiguringHostState::RebootAfterUefiReset => {
-            let redfish_client = ctx
-                .services
-                .create_redfish_client_from_machine(machine)
-                .await?;
-            host_power_control(
-                redfish_client.as_ref(),
-                machine,
-                SystemPowerControl::ForceRestart,
-                ctx,
-            )
-            .await
-            .map_err(|error| {
-                StateHandlerError::GenericError(eyre::eyre!(
-                    "failed to reboot host after resetting UEFI settings: {error}"
-                ))
-            })?;
-            Ok(StateHandlerOutcome::transition(
-                ManagedHostState::Decommissioning {
-                    decommissioning_state: DecommissioningState::DeconfiguringDpus {
-                        dpu_states: state
-                            .dpu_snapshots
-                            .iter()
-                            .map(|dpu| {
-                                (
-                                    dpu.id,
-                                    if state.host_snapshot.config.dpf.used_for_ingestion {
-                                        DeconfiguringDpuState::DeletingFromDpf
-                                    } else {
-                                        DeconfiguringDpuState::InstallingBfb
-                                    },
-                                )
-                            })
-                            .collect(),
-                    },
-                },
-            ))
         }
     }
 }
