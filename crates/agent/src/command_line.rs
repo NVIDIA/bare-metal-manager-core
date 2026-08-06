@@ -71,7 +71,7 @@ pub enum AgentCommand {
     Write(WriteTarget),
 }
 
-pub const DEFAULT_BOOTSTRAP_CA_URL: &str = "http://carbide-pxe.forge/api/v0/tls/root_ca";
+const DEFAULT_BOOTSTRAP_CA_URL: &str = "http://carbide-pxe.forge/api/v0/tls/root_ca";
 
 fn parse_bootstrap_ca_url(value: &str) -> Result<Url, String> {
     let url = Url::parse(value).map_err(|error| format!("invalid URL: {error}"))?;

@@ -37,8 +37,8 @@ use crate::{
     MachineValidation, MachineValidationError, MachineValidationFilter, MachineValidationManager,
     SCHME,
 };
-pub const MAX_STRING_STD_SIZE: usize = 1024 * 1024; // 1MB in bytes;
-pub const DEFAULT_TIMEOUT: u64 = 3600;
+const MAX_STRING_STD_SIZE: usize = 1024 * 1024; // 1MB in bytes;
+const DEFAULT_TIMEOUT: u64 = 3600;
 
 // The API manager clamps heartbeat-based stale reconciliation to at least three missed beats, so
 // low stale_run_timeout config values cannot fail healthy runs between these heartbeat updates.

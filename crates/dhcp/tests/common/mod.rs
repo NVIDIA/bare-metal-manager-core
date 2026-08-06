@@ -19,9 +19,9 @@ mod dhcp_factory;
 #[allow(dead_code)]
 mod dhcpv6_factory;
 #[allow(dead_code)]
-pub(crate) mod kea;
+mod kea;
 #[allow(dead_code)]
-pub(crate) mod kea_v6;
+mod kea_v6;
 
 use std::io::{Read, Write};
 use std::net::{Ipv6Addr, SocketAddr, TcpStream};
@@ -29,23 +29,22 @@ use std::time::{Duration, Instant};
 
 use dhcp::mock_api_server::DHCP_RESPONSE_FQDN;
 #[allow(unused_imports)]
-pub use dhcp_factory::DHCPFactory;
+pub(super) use dhcp_factory::DHCPFactory;
 use dhcproto::v6::{DhcpOption, Message, NtpSuboption, OptionCode};
 #[allow(unused_imports)]
-pub use dhcpv6_factory::DHCPv6Factory;
+pub(super) use dhcpv6_factory::DHCPv6Factory;
 #[allow(unused_imports)]
-pub use kea::Kea;
+pub(super) use kea::Kea;
+use kea_v6::{HOOK_DNS_SERVERS_IPV6, HOOK_NTP_SERVERS_IPV6};
 #[allow(unused_imports)]
-pub use kea_v6::{
-    HOOK_DNS_SERVERS_IPV6, HOOK_NTP_SERVERS_IPV6, Kea6, Kea6Config, Kea6ExpiredLeasesProcessing,
-};
+pub(super) use kea_v6::{Kea6, Kea6Config, Kea6ExpiredLeasesProcessing};
 
 #[allow(dead_code)]
 const METRICS_READ_TIMEOUT: Duration = Duration::from_millis(500);
 
 /// Return the DHCPv6 dropped-request counter value for a reason label.
 #[allow(dead_code)]
-pub fn v6_drop_metric_value(endpoint: SocketAddr, reason: &str) -> f64 {
+pub(super) fn v6_drop_metric_value(endpoint: SocketAddr, reason: &str) -> f64 {
     scrape_metrics(endpoint)
         .map(|metrics| drop_counter_value(&metrics, reason))
         .unwrap_or(0.0)
@@ -53,7 +52,7 @@ pub fn v6_drop_metric_value(endpoint: SocketAddr, reason: &str) -> f64 {
 
 /// Wait until the DHCPv6 dropped-request counter reaches the expected value.
 #[allow(dead_code)]
-pub fn wait_for_v6_drop_metric_at_least(
+pub(super) fn wait_for_v6_drop_metric_at_least(
     endpoint: SocketAddr,
     reason: &str,
     minimum: f64,
@@ -99,7 +98,7 @@ fn drop_counter_value(metrics: &str, reason: &str) -> f64 {
 
 /// Assert that the DHCPv6 response carries hook-configured DNS servers.
 #[allow(dead_code)]
-pub fn assert_hook_v6_dns_servers(response: &Message) {
+pub(super) fn assert_hook_v6_dns_servers(response: &Message) {
     // Keep the expected value tied to the Kea test config, not mock API data.
     let expected = HOOK_DNS_SERVERS_IPV6
         .into_iter()
@@ -114,7 +113,7 @@ pub fn assert_hook_v6_dns_servers(response: &Message) {
 
 /// Assert that the DHCPv6 response carries the API-owned parent domain.
 #[allow(dead_code)]
-pub fn assert_api_v6_domain_search(response: &Message) {
+pub(super) fn assert_api_v6_domain_search(response: &Message) {
     // DHCPv6 domain-search uses the trusted parent domain from the API FQDN.
     let expected = DHCP_RESPONSE_FQDN
         .split_once('.')
@@ -132,7 +131,7 @@ pub fn assert_api_v6_domain_search(response: &Message) {
 
 /// Assert that the DHCPv6 response carries hook-configured NTP servers.
 #[allow(dead_code)]
-pub fn assert_hook_v6_ntp_servers(response: &Message) {
+pub(super) fn assert_hook_v6_ntp_servers(response: &Message) {
     // Keep the expected value tied to the Kea test config, not API mock data.
     let expected = HOOK_NTP_SERVERS_IPV6
         .into_iter()

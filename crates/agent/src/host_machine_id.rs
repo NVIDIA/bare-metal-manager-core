@@ -51,7 +51,7 @@ async fn get_interface(
     Ok(interface_list.interfaces.remove(0))
 }
 
-pub async fn get_host_machine_id(
+async fn get_host_machine_id(
     agent_config: &AgentConfig,
     fetcher: &PeriodicConfigFetcher,
     forge_client_config: Arc<ForgeClientConfig>,
@@ -72,7 +72,7 @@ pub async fn get_host_machine_id(
     Ok(None)
 }
 
-pub async fn get_host_machine_id_retry(
+pub(super) async fn get_host_machine_id_retry(
     agent_config: &AgentConfig,
     fetcher: &PeriodicConfigFetcher,
     forge_client_config: Arc<ForgeClientConfig>,

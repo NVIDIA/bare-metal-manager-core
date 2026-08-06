@@ -34,7 +34,7 @@ use crate::config::Config;
 use crate::shutdown_handle::ShutdownHandle;
 
 /// Spawn a background task which logs all output from a BMC
-pub fn spawn(
+pub(crate) fn spawn(
     machine_id: MachineId,
     addr: SocketAddr,
     message_rx: broadcast::Receiver<ToFrontendMessage>,
@@ -51,7 +51,7 @@ pub fn spawn(
     }
 }
 
-pub struct ConsoleLoggerHandle {
+pub(crate) struct ConsoleLoggerHandle {
     shutdown_tx: oneshot::Sender<()>,
     join_handle: JoinHandle<()>,
 }

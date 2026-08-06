@@ -36,15 +36,15 @@ static PROMPT_WAIT_TIMEOUT: Duration = Duration::from_secs(10);
 static BMC_BACKDOOR_SEQUENCE: &[u8] = b"backdoor_escape_console\n";
 
 #[derive(Copy, Clone)]
-pub struct ConnectionConfig<'a> {
-    pub connection_name: &'a str,
-    pub user: &'a str,
-    pub private_key_path: &'a Path,
-    pub addr: SocketAddr,
-    pub expected_prompt: &'a [u8],
+pub(crate) struct ConnectionConfig<'a> {
+    pub(crate) connection_name: &'a str,
+    pub(crate) user: &'a str,
+    pub(crate) private_key_path: &'a Path,
+    pub(crate) addr: SocketAddr,
+    pub(crate) expected_prompt: &'a [u8],
 }
 
-pub async fn assert_connection_works_with_retries_and_timeout(
+pub(crate) async fn assert_connection_works_with_retries_and_timeout(
     connection_config: &ConnectionConfig<'_>,
     retry_count: u8,
     per_try_timeout: Duration,
@@ -84,7 +84,7 @@ pub async fn assert_connection_works_with_retries_and_timeout(
     }
 }
 
-pub async fn assert_connection_works(
+pub(crate) async fn assert_connection_works(
     ConnectionConfig {
         connection_name,
         user,
@@ -242,7 +242,7 @@ pub async fn assert_connection_works(
     result
 }
 
-pub async fn fill_logs(
+pub(crate) async fn fill_logs(
     ConnectionConfig {
         connection_name: _,
         user,
@@ -332,7 +332,7 @@ pub async fn fill_logs(
     Ok(())
 }
 
-pub async fn assert_reboot_behavior(
+pub(crate) async fn assert_reboot_behavior(
     ConnectionConfig {
         connection_name: _,
         user,
@@ -437,7 +437,7 @@ enum ConnectionTestState {
     TryingBackdoorEscape,
 }
 
-pub struct PermissiveSshClient;
+pub(crate) struct PermissiveSshClient;
 
 impl russh::client::Handler for PermissiveSshClient {
     type Error = eyre::Error;

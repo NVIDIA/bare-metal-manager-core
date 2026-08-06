@@ -1661,6 +1661,7 @@ dependencies = [
 name = "carbide-dhcp"
 version = "0.0.0"
 dependencies = [
+ "carbide-dhcp",
  "carbide-dhcp-common",
  "carbide-instrument",
  "carbide-rpc",

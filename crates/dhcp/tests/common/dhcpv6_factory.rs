@@ -21,41 +21,41 @@ use dhcproto::v6::{
 };
 use dhcproto::{Decodable, Decoder, Encodable, Encoder};
 
-pub const RELAY_ADDR: &str = "::1";
+pub(super) const RELAY_ADDR: &str = "::1";
 
 const RELAY_FORW: u8 = 12;
 const RELAY_REPL: u8 = 13;
 const HTYPE_ETHERNET: u16 = 1;
 
-pub struct DHCPv6Factory {}
+pub(crate) struct DHCPv6Factory {}
 
 impl DHCPv6Factory {
     /// Relay link-address used by generated Relay-Forward packets.
-    pub const RELAY_LINK_ADDR: &str = "2001:db8::1";
+    pub(crate) const RELAY_LINK_ADDR: &str = "2001:db8::1";
 
     /// Hex-encoded relay interface-id expected by the API.
-    pub const RELAY_INTERFACE_ID_HEX: &str = "65746830";
+    pub(crate) const RELAY_INTERFACE_ID_HEX: &str = "65746830";
 
     /// Hex-encoded relay remote-id expected by the API.
-    pub const RELAY_REMOTE_ID_HEX: &str = "7261636b2d61";
+    pub(crate) const RELAY_REMOTE_ID_HEX: &str = "7261636b2d61";
 
     /// Return the stable locally-administered MAC used for one test client.
-    pub fn mac(idx: u8) -> [u8; 6] {
+    fn mac(idx: u8) -> [u8; 6] {
         [0x02, 0x00, 0x00, 0x00, 0x00, idx]
     }
 
     /// Return the mock API address for a client index.
-    pub fn mock_addr(idx: u8) -> Ipv6Addr {
+    pub(crate) fn mock_addr(idx: u8) -> Ipv6Addr {
         Ipv6Addr::from(0x20010db8000000000000000000000000u128 + idx as u128)
     }
 
     /// Return the colon-separated MAC string used by the mock API.
-    pub fn mac_string(idx: u8) -> String {
+    pub(crate) fn mac_string(idx: u8) -> String {
         format!("02:00:00:00:00:{idx:02x}")
     }
 
     /// Return a raw RFC 4704 client-FQDN payload with non-zero flags.
-    pub fn client_fqdn_payload() -> Vec<u8> {
+    pub(crate) fn client_fqdn_payload() -> Vec<u8> {
         let mut payload = vec![0x01];
         payload.extend_from_slice(&[
             9, b't', b'e', b's', b't', b'-', b'h', b'o', b's', b't', 5, b'f', b'o', b'r', b'g',
@@ -65,7 +65,7 @@ impl DHCPv6Factory {
     }
 
     /// Build a DUID-LL identity for one test client.
-    pub fn duid_ll(idx: u8) -> Vec<u8> {
+    pub(crate) fn duid_ll(idx: u8) -> Vec<u8> {
         let mut duid = vec![0, 3];
         duid.extend_from_slice(&HTYPE_ETHERNET.to_be_bytes());
         duid.extend_from_slice(&Self::mac(idx));
@@ -73,17 +73,17 @@ impl DHCPv6Factory {
     }
 
     /// Return the hex-encoded DUID-LL identity for one test client.
-    pub fn duid_ll_hex(idx: u8) -> String {
+    pub(crate) fn duid_ll_hex(idx: u8) -> String {
         Self::duid_hex(&Self::duid_ll(idx))
     }
 
     /// Return the hex-encoded representation of a raw DUID.
-    pub fn duid_hex(duid: &[u8]) -> String {
+    pub(crate) fn duid_hex(duid: &[u8]) -> String {
         duid.iter().map(|byte| format!("{byte:02x}")).collect()
     }
 
     /// Build a DUID-LLT identity for one test client.
-    pub fn duid_llt(idx: u8) -> Vec<u8> {
+    pub(crate) fn duid_llt(idx: u8) -> Vec<u8> {
         let mut duid = vec![0, 1];
         duid.extend_from_slice(&HTYPE_ETHERNET.to_be_bytes());
         duid.extend_from_slice(&1u32.to_be_bytes());
@@ -92,7 +92,7 @@ impl DHCPv6Factory {
     }
 
     /// Build a DUID-EN identity with the requested total byte length.
-    pub fn duid_en(len: usize) -> Vec<u8> {
+    pub(crate) fn duid_en(len: usize) -> Vec<u8> {
         // Type 2 plus enterprise-number form the minimum DUID-EN prefix.
         let mut duid = vec![0, 2, 0, 0, 0, 1];
         duid.resize(len, 0xaa);
@@ -100,45 +100,45 @@ impl DHCPv6Factory {
     }
 
     /// Build a valid DUID-UUID identity with no embedded MAC.
-    pub fn duid_uuid(idx: u8) -> Vec<u8> {
+    pub(crate) fn duid_uuid(idx: u8) -> Vec<u8> {
         vec![0, 4, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, idx]
     }
 
     /// Build a malformed UUID DUID that should be rejected before option 79.
-    pub fn truncated_duid_uuid() -> Vec<u8> {
+    pub(crate) fn truncated_duid_uuid() -> Vec<u8> {
         vec![0, 4, 0, 1, 2, 3]
     }
 
     /// Build a stateful SOLICIT with IA_NA.
-    pub fn solicit(idx: u8) -> Vec<u8> {
+    pub(crate) fn solicit(idx: u8) -> Vec<u8> {
         Self::relay_wrap(Self::stateful_solicit_message(idx), true)
     }
 
     /// Build a stateful SOLICIT with a caller-supplied relay hop count.
-    pub fn solicit_with_hop_count(idx: u8, hop_count: u8) -> Vec<u8> {
+    pub(crate) fn solicit_with_hop_count(idx: u8, hop_count: u8) -> Vec<u8> {
         Self::relay_wrap_with_hop_count(Self::stateful_solicit_message(idx), true, hop_count)
     }
 
     /// Build a SOLICIT wrapped by two Relay-Forward envelopes.
-    pub fn solicit_with_nested_relay(idx: u8) -> Vec<u8> {
+    pub(crate) fn solicit_with_nested_relay(idx: u8) -> Vec<u8> {
         let inner = Self::relay_wrap(Self::stateful_solicit_message(idx), true);
         Self::relay_wrap_payload(&inner, idx, true, 0)
     }
 
     /// Build a stateful SOLICIT without relay option 79.
-    pub fn solicit_without_relay_option79(idx: u8) -> Vec<u8> {
+    pub(crate) fn solicit_without_relay_option79(idx: u8) -> Vec<u8> {
         Self::relay_wrap(Self::stateful_solicit_message(idx), false)
     }
 
     /// Build a stateful SOLICIT carrying vendor-class option 16.
-    pub fn solicit_with_vendor_class(idx: u8, vendor_class: &[u8]) -> Vec<u8> {
+    pub(crate) fn solicit_with_vendor_class(idx: u8, vendor_class: &[u8]) -> Vec<u8> {
         let mut message = Self::stateful_solicit_message(idx);
         Self::add_vendor_class(&mut message, vendor_class);
         Self::relay_wrap(message, true)
     }
 
     /// Build a SOLICIT using a caller-supplied DUID and relay option-79 policy.
-    pub fn solicit_with_duid(idx: u8, duid: Vec<u8>, relay_option79: bool) -> Vec<u8> {
+    pub(crate) fn solicit_with_duid(idx: u8, duid: Vec<u8>, relay_option79: bool) -> Vec<u8> {
         Self::relay_wrap(
             Self::client_message(idx, MessageType::Solicit, duid, None, true, false),
             relay_option79,
@@ -146,7 +146,7 @@ impl DHCPv6Factory {
     }
 
     /// Build a SOLICIT with a spoofed client-supplied option 79 only.
-    pub fn solicit_with_inner_option79(idx: u8, duid: Vec<u8>) -> Vec<u8> {
+    pub(crate) fn solicit_with_inner_option79(idx: u8, duid: Vec<u8>) -> Vec<u8> {
         let mut message = Self::client_message(idx, MessageType::Solicit, duid, None, true, false);
         message
             .opts_mut()
@@ -158,7 +158,7 @@ impl DHCPv6Factory {
     }
 
     /// Build a SOLICIT carrying rapid-commit.
-    pub fn rapid_commit_solicit(idx: u8) -> Vec<u8> {
+    pub(crate) fn rapid_commit_solicit(idx: u8) -> Vec<u8> {
         Self::relay_wrap(
             Self::client_message(
                 idx,
@@ -173,12 +173,12 @@ impl DHCPv6Factory {
     }
 
     /// Build a stateless SOLICIT with no IA_NA.
-    pub fn stateless_solicit(idx: u8) -> Vec<u8> {
+    pub(crate) fn stateless_solicit(idx: u8) -> Vec<u8> {
         Self::relay_wrap(Self::stateless_solicit_message(idx), true)
     }
 
     /// Build a SOLICIT carrying unsupported IA_TA.
-    pub fn solicit_with_ia_ta(idx: u8) -> Vec<u8> {
+    pub(crate) fn solicit_with_ia_ta(idx: u8) -> Vec<u8> {
         // Omit IA_NA so the packet only exercises the unsupported IA_TA path.
         let mut message = Self::stateless_solicit_message(idx);
         Self::add_ia_ta(&mut message, idx);
@@ -186,7 +186,7 @@ impl DHCPv6Factory {
     }
 
     /// Build a SOLICIT carrying supported IA_NA plus unsupported IA_TA.
-    pub fn solicit_with_ia_na_and_ia_ta(idx: u8) -> Vec<u8> {
+    pub(crate) fn solicit_with_ia_na_and_ia_ta(idx: u8) -> Vec<u8> {
         // Keep IA_NA present to exercise mixed-container rejection.
         let mut message = Self::stateful_solicit_message(idx);
         Self::add_ia_ta(&mut message, idx);
@@ -194,7 +194,7 @@ impl DHCPv6Factory {
     }
 
     /// Build a SOLICIT carrying unsupported IA_PD.
-    pub fn solicit_with_ia_pd(idx: u8) -> Vec<u8> {
+    pub(crate) fn solicit_with_ia_pd(idx: u8) -> Vec<u8> {
         // Omit IA_NA so the packet only exercises the unsupported IA_PD path.
         let mut message = Self::stateless_solicit_message(idx);
         Self::add_ia_pd(&mut message, idx);
@@ -202,7 +202,7 @@ impl DHCPv6Factory {
     }
 
     /// Build a SOLICIT carrying supported IA_NA plus unsupported IA_PD.
-    pub fn solicit_with_ia_na_and_ia_pd(idx: u8) -> Vec<u8> {
+    pub(crate) fn solicit_with_ia_na_and_ia_pd(idx: u8) -> Vec<u8> {
         // Keep IA_NA present to exercise mixed-container rejection.
         let mut message = Self::stateful_solicit_message(idx);
         Self::add_ia_pd(&mut message, idx);
@@ -210,7 +210,7 @@ impl DHCPv6Factory {
     }
 
     /// Build a SOLICIT carrying more than one IA_NA container.
-    pub fn solicit_with_multiple_ia_na(idx: u8) -> Vec<u8> {
+    pub(crate) fn solicit_with_multiple_ia_na(idx: u8) -> Vec<u8> {
         // The API contract has one selected address, so multiple IA_NA
         // containers must be rejected before lease override.
         let mut message = Self::stateful_solicit_message(idx);
@@ -224,19 +224,19 @@ impl DHCPv6Factory {
     }
 
     /// Build an INFORMATION-REQUEST.
-    pub fn information_request(idx: u8) -> Vec<u8> {
+    pub(crate) fn information_request(idx: u8) -> Vec<u8> {
         Self::relay_wrap(Self::information_request_message(idx), true)
     }
 
     /// Build an INFORMATION-REQUEST carrying client option 39.
-    pub fn information_request_with_client_fqdn(idx: u8) -> Vec<u8> {
+    pub(crate) fn information_request_with_client_fqdn(idx: u8) -> Vec<u8> {
         let mut message = Self::information_request_message(idx);
         Self::add_client_fqdn(&mut message);
         Self::relay_wrap(message, true)
     }
 
     /// Build a REQUEST selecting the advertised server and address.
-    pub fn request(idx: u8, server_id: Vec<u8>, address: Ipv6Addr) -> Vec<u8> {
+    pub(crate) fn request(idx: u8, server_id: Vec<u8>, address: Ipv6Addr) -> Vec<u8> {
         Self::relay_wrap(
             Self::message_with_server_and_address(idx, MessageType::Request, server_id, address),
             true,
@@ -244,7 +244,7 @@ impl DHCPv6Factory {
     }
 
     /// Build a REQUEST with no IA_NA.
-    pub fn request_without_ia_na(idx: u8) -> Vec<u8> {
+    pub(crate) fn request_without_ia_na(idx: u8) -> Vec<u8> {
         // REQUEST is stateful; this intentionally omits IA_NA to verify drop behavior.
         Self::relay_wrap(
             Self::client_message(
@@ -260,7 +260,7 @@ impl DHCPv6Factory {
     }
 
     /// Build a REQUEST without relay option 79.
-    pub fn request_without_relay_option79(
+    pub(crate) fn request_without_relay_option79(
         idx: u8,
         server_id: Vec<u8>,
         address: Ipv6Addr,
@@ -272,7 +272,7 @@ impl DHCPv6Factory {
     }
 
     /// Build a REQUEST using a caller-supplied DUID and relay option-79 policy.
-    pub fn request_with_duid(
+    pub(crate) fn request_with_duid(
         idx: u8,
         server_id: Vec<u8>,
         address: Ipv6Addr,
@@ -293,7 +293,7 @@ impl DHCPv6Factory {
     }
 
     /// Build a REQUEST carrying vendor-class option 16.
-    pub fn request_with_vendor_class(
+    pub(crate) fn request_with_vendor_class(
         idx: u8,
         server_id: Vec<u8>,
         address: Ipv6Addr,
@@ -306,7 +306,7 @@ impl DHCPv6Factory {
     }
 
     /// Build a RENEW for an existing lease.
-    pub fn renew(idx: u8, server_id: Vec<u8>, address: Ipv6Addr) -> Vec<u8> {
+    pub(crate) fn renew(idx: u8, server_id: Vec<u8>, address: Ipv6Addr) -> Vec<u8> {
         Self::relay_wrap(
             Self::message_with_server_and_address(idx, MessageType::Renew, server_id, address),
             true,
@@ -314,7 +314,7 @@ impl DHCPv6Factory {
     }
 
     /// Build a RENEW using a caller-supplied DUID and relay option-79 policy.
-    pub fn renew_with_duid(
+    pub(crate) fn renew_with_duid(
         idx: u8,
         server_id: Vec<u8>,
         address: Ipv6Addr,
@@ -335,23 +335,15 @@ impl DHCPv6Factory {
     }
 
     /// Build a REBIND for an existing lease.
-    pub fn rebind(idx: u8, address: Ipv6Addr) -> Vec<u8> {
+    pub(crate) fn rebind(idx: u8, address: Ipv6Addr) -> Vec<u8> {
         Self::relay_wrap(
             Self::client_message_with_address(idx, MessageType::Rebind, address, None),
             true,
         )
     }
 
-    /// Build a RELEASE for an existing lease.
-    pub fn release(idx: u8, server_id: Vec<u8>, address: Ipv6Addr) -> Vec<u8> {
-        Self::relay_wrap(
-            Self::message_with_server_and_address(idx, MessageType::Release, server_id, address),
-            true,
-        )
-    }
-
     /// Build a RELEASE with a caller-supplied relay hop count.
-    pub fn release_with_hop_count(
+    pub(crate) fn release_with_hop_count(
         idx: u8,
         server_id: Vec<u8>,
         address: Ipv6Addr,
@@ -365,7 +357,7 @@ impl DHCPv6Factory {
     }
 
     /// Build a RELEASE carrying unsupported IA_TA alongside the released IA_NA.
-    pub fn release_with_ia_ta(idx: u8, server_id: Vec<u8>, address: Ipv6Addr) -> Vec<u8> {
+    pub(crate) fn release_with_ia_ta(idx: u8, server_id: Vec<u8>, address: Ipv6Addr) -> Vec<u8> {
         // Lease-end messages are Kea protocol handling; extra IA_TA must not
         // make the Carbide hook call discovery or drop before Kea responds.
         let mut message =
@@ -374,16 +366,8 @@ impl DHCPv6Factory {
         Self::relay_wrap(message, true)
     }
 
-    /// Build a DECLINE for an unusable offered lease.
-    pub fn decline(idx: u8, server_id: Vec<u8>, address: Ipv6Addr) -> Vec<u8> {
-        Self::relay_wrap(
-            Self::message_with_server_and_address(idx, MessageType::Decline, server_id, address),
-            true,
-        )
-    }
-
     /// Build a DECLINE carrying unsupported IA_PD alongside the declined IA_NA.
-    pub fn decline_with_ia_pd(idx: u8, server_id: Vec<u8>, address: Ipv6Addr) -> Vec<u8> {
+    pub(crate) fn decline_with_ia_pd(idx: u8, server_id: Vec<u8>, address: Ipv6Addr) -> Vec<u8> {
         // Lease-end messages are Kea protocol handling; extra IA_PD must not
         // make the Carbide hook call discovery or drop before Kea responds.
         let mut message =
@@ -393,7 +377,7 @@ impl DHCPv6Factory {
     }
 
     /// Build a DECLINE with a caller-supplied relay hop count.
-    pub fn decline_with_hop_count(
+    pub(crate) fn decline_with_hop_count(
         idx: u8,
         server_id: Vec<u8>,
         address: Ipv6Addr,
@@ -407,7 +391,7 @@ impl DHCPv6Factory {
     }
 
     /// Build a CONFIRM for an address the client wants to keep using.
-    pub fn confirm(idx: u8, address: Ipv6Addr) -> Vec<u8> {
+    pub(crate) fn confirm(idx: u8, address: Ipv6Addr) -> Vec<u8> {
         Self::relay_wrap(
             Self::client_message_with_address(idx, MessageType::Confirm, address, None),
             true,
@@ -538,7 +522,7 @@ impl DHCPv6Factory {
     }
 
     /// Decode Kea's Relay-Reply and return the inner DHCPv6 message.
-    pub fn decode_reply(packet: &[u8]) -> Result<Message, eyre::Report> {
+    pub(crate) fn decode_reply(packet: &[u8]) -> Result<Message, eyre::Report> {
         match packet.first().copied() {
             Some(RELAY_REPL) => {
                 let relay_msg = Self::relay_msg_payload(packet)
@@ -553,7 +537,7 @@ impl DHCPv6Factory {
     }
 
     /// Extract the IAADDR from the first IA_NA option.
-    pub fn ia_addr(message: &Message) -> Option<Ipv6Addr> {
+    pub(crate) fn ia_addr(message: &Message) -> Option<Ipv6Addr> {
         match message.opts().get(OptionCode::IANA) {
             Some(DhcpOption::IANA(ia_na)) => match ia_na.opts.get(OptionCode::IAAddr) {
                 Some(DhcpOption::IAAddr(addr)) => Some(addr.addr),
@@ -564,7 +548,7 @@ impl DHCPv6Factory {
     }
 
     /// Extract the server-id option needed for REQUEST/RENEW/RELEASE.
-    pub fn server_id(message: &Message) -> Vec<u8> {
+    pub(crate) fn server_id(message: &Message) -> Vec<u8> {
         match message.opts().get(OptionCode::ServerId) {
             Some(DhcpOption::ServerId(server_id)) => server_id.clone(),
             other => panic!("DHCPv6 response did not include server-id: {other:?}"),

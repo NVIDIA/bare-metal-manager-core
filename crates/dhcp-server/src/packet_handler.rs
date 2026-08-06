@@ -38,7 +38,7 @@ use crate::{Config, DhcpMode, util};
 const PKT_TYPE_OP_REQUEST: u8 = 1;
 const BOOTP_CHADDR_LEN: u8 = 16;
 
-pub struct DecodedPacket {
+pub(super) struct DecodedPacket {
     packet: Message,
 }
 
@@ -155,7 +155,7 @@ impl DecodedPacket {
         .ok()
     }
 
-    pub fn get_circuit_id(&self) -> Option<String> {
+    pub(super) fn get_circuit_id(&self) -> Option<String> {
         self.get_option_val(
             OptionCode::RelayAgentInformation,
             Some(RelayCode::AgentCircuitId),
@@ -163,7 +163,7 @@ impl DecodedPacket {
         .ok()
     }
 
-    pub fn get_remote_id(&self) -> Option<String> {
+    fn get_remote_id(&self) -> Option<String> {
         self.get_option_val(
             OptionCode::RelayAgentInformation,
             Some(RelayCode::AgentRemoteId),
@@ -209,28 +209,34 @@ impl DecodedPacket {
     }
 }
 
-pub struct Packet {
+pub(super) struct Packet {
     encoded_packet: Vec<u8>,
     sent_packet: Message,
-    pub dst_address: Ipv4Addr,
-    pub dst_port: u16,
+    dst_address: Ipv4Addr,
+    dst_port: u16,
     /// The reply's DHCP message type (an Offer, an Ack, a Nak), as the
     /// bounded label the send path counts lease grants under.
-    pub message_type: MessageTypeLabel,
+    message_type: MessageTypeLabel,
 }
 
 impl Packet {
     #[cfg(test)]
-    pub fn encoded_packet(&self) -> &Vec<u8> {
+    pub(super) fn encoded_packet(&self) -> &Vec<u8> {
         &self.encoded_packet
     }
-    pub fn dst_address(&self) -> SocketAddrV4 {
+
+    #[cfg(test)]
+    pub(super) fn message_type(&self) -> MessageTypeLabel {
+        self.message_type
+    }
+
+    pub(super) fn dst_address(&self) -> SocketAddrV4 {
         SocketAddrV4::new(self.dst_address, self.dst_port)
     }
 }
 
 impl Packet {
-    pub async fn send(
+    pub(super) async fn send(
         &self,
         dst_address: SocketAddrV4,
         socket: Arc<UdpSocket>,
@@ -262,7 +268,7 @@ impl Packet {
     }
 }
 
-pub async fn process_packet(
+pub(super) async fn process_packet(
     buf: &[u8],
     source_address: SocketAddr,
     config: &Config,

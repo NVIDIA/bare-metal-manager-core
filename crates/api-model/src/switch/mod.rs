@@ -33,7 +33,7 @@ use crate::controller_outcome::PersistentStateHandlerOutcome;
 use crate::health::HealthReportSources;
 use crate::metadata::Metadata;
 
-pub mod slas;
+mod slas;
 pub mod switch_id;
 
 #[derive(Debug, Clone)]

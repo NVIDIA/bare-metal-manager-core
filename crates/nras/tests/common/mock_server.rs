@@ -15,7 +15,7 @@
  * limitations under the License.
  */
 
-pub enum Method {
+pub(crate) enum Method {
     Get,
     Post,
 }
@@ -29,7 +29,7 @@ impl Method {
     }
 }
 
-pub fn add_mock(
+pub(crate) fn add_mock(
     server: &mut mockito::ServerGuard,
     path: &str,
     response_body: &str,
@@ -47,7 +47,7 @@ pub fn add_mock(
     format!("{}{}", server.url(), path)
 }
 
-pub async fn create_mock_http_server() -> mockito::ServerGuard {
+pub(crate) async fn create_mock_http_server() -> mockito::ServerGuard {
     // Request a new server from the pool
     mockito::Server::new_async().await
 }

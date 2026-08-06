@@ -781,7 +781,7 @@ where
     }
 }
 
-pub fn deserialize_machine_config<'a, D>(
+fn deserialize_machine_config<'a, D>(
     deserializer: D,
 ) -> Result<BTreeMap<String, Arc<MachineConfig>>, D::Error>
 where

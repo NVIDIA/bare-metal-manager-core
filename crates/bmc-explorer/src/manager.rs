@@ -45,29 +45,29 @@ fn enabled_ipmi_port(
 }
 
 #[derive(Default)]
-pub struct Config {
-    pub need_host_interfaces: bool,
-    pub need_oem_dell_attributes: bool,
-    pub need_oem_lenovo_security_service: bool,
-    pub need_oem_supermicro_kcs_interface: bool,
-    pub need_oem_supermicro_sys_lockdown: bool,
-    pub need_oem_ami_config_bmc: bool,
+pub(crate) struct Config {
+    pub(crate) need_host_interfaces: bool,
+    pub(crate) need_oem_dell_attributes: bool,
+    pub(crate) need_oem_lenovo_security_service: bool,
+    pub(crate) need_oem_supermicro_kcs_interface: bool,
+    pub(crate) need_oem_supermicro_sys_lockdown: bool,
+    pub(crate) need_oem_ami_config_bmc: bool,
 }
 
-pub struct ExploredManager<B: Bmc> {
-    pub manager: Manager<B>,
-    pub eth_interfaces: Vec<EthernetInterface<B>>,
-    pub ipmi_port: Option<u16>,
-    pub host_interfaces: Option<Vec<HostInterface<B>>>,
-    pub oem_dell_attributes: Option<DellAttributes<B>>,
-    pub oem_lenovo_security_service: Option<LenovoSecurityService<B>>,
-    pub oem_supermicro_kcs_interface: Option<KcsInterface<B>>,
-    pub oem_supermicro_sys_lockdown: Option<SysLockdown<B>>,
-    pub oem_ami_config_bmc: Option<ConfigBmc<B>>,
+pub(crate) struct ExploredManager<B: Bmc> {
+    pub(crate) manager: Manager<B>,
+    pub(crate) eth_interfaces: Vec<EthernetInterface<B>>,
+    ipmi_port: Option<u16>,
+    pub(crate) host_interfaces: Option<Vec<HostInterface<B>>>,
+    pub(crate) oem_dell_attributes: Option<DellAttributes<B>>,
+    pub(crate) oem_lenovo_security_service: Option<LenovoSecurityService<B>>,
+    pub(crate) oem_supermicro_kcs_interface: Option<KcsInterface<B>>,
+    pub(crate) oem_supermicro_sys_lockdown: Option<SysLockdown<B>>,
+    pub(crate) oem_ami_config_bmc: Option<ConfigBmc<B>>,
 }
 
 impl<B: Bmc> ExploredManager<B> {
-    pub async fn explore(manager: Manager<B>, config: &Config) -> Result<Self, Error<B>> {
+    pub(crate) async fn explore(manager: Manager<B>, config: &Config) -> Result<Self, Error<B>> {
         let eth_interfaces = manager
             .ethernet_interfaces()
             .await
@@ -185,7 +185,7 @@ impl<B: Bmc> ExploredManager<B> {
         })
     }
 
-    pub fn to_model(&self) -> Result<ModelManager, Error<B>> {
+    pub(crate) fn to_model(&self) -> Result<ModelManager, Error<B>> {
         let ethernet_interfaces = self
             .eth_interfaces
             .iter()

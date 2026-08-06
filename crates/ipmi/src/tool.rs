@@ -27,13 +27,13 @@ use eyre::eyre;
 use crate::IPMITool;
 use crate::metrics::{IpmiCommand, count_ipmi_command};
 
-pub struct IPMIToolImpl {
+pub(super) struct IPMIToolImpl {
     credential_reader: Arc<dyn CredentialReader>,
     attempts: u32,
 }
 
 impl IPMIToolImpl {
-    pub fn new(credential_reader: Arc<dyn CredentialReader>, attempts: Option<u32>) -> Self {
+    pub(super) fn new(credential_reader: Arc<dyn CredentialReader>, attempts: Option<u32>) -> Self {
         IPMIToolImpl {
             credential_reader,
             attempts: attempts.unwrap_or(3),
@@ -177,7 +177,7 @@ mod test {
     use carbide_secrets::test_support::credentials::TestCredentialManager;
 
     #[test]
-    pub fn test_ipmitool_new() {
+    fn test_ipmitool_new() {
         let cp = Arc::new(TestCredentialManager::new(Credentials::UsernamePassword {
             username: "user".to_string(),
             password: "password".to_string(),

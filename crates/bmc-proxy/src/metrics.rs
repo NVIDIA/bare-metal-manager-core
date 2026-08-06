@@ -29,7 +29,7 @@ use metrics_endpoint::{MetricsEndpointConfig, MetricsSetup};
 use tokio::task::JoinSet;
 use tokio_util::sync::CancellationToken;
 
-pub async fn start(
+pub(crate) async fn start(
     address: SocketAddr,
     metrics_setup: MetricsSetup,
     cancellation_token: CancellationToken,
@@ -276,11 +276,11 @@ impl UpstreamStatus {
 )]
 pub(crate) struct UpstreamRequestCompleted {
     #[label]
-    pub method: MethodLabel,
+    pub(crate) method: MethodLabel,
     #[label]
-    pub status: UpstreamStatus,
+    pub(crate) status: UpstreamStatus,
     #[observation]
-    pub took: Duration,
+    pub(crate) took: Duration,
 }
 
 #[cfg(test)]
