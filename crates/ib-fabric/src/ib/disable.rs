@@ -24,7 +24,7 @@ use super::iface::{Filter, GetPartitionOptions, IBFabricRawResponse};
 use super::{IBFabric, IBFabricConfig, IBFabricVersions};
 use crate::errors::IbError;
 
-pub struct DisableIBFabric {}
+pub(super) struct DisableIBFabric {}
 
 #[async_trait]
 impl IBFabric for DisableIBFabric {

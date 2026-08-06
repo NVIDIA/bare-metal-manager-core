@@ -34,8 +34,8 @@ use crate::crds::dpus_generated::*;
 use crate::error::DpfError;
 use crate::repository::{DpfOperatorConfigRepository, DpuRepository, K8sConfigRepository};
 
-pub(crate) struct Collector<T> {
-    pub items: Mutex<Vec<T>>,
+pub(super) struct Collector<T> {
+    pub(super) items: Mutex<Vec<T>>,
     notify: Notify,
 }
 
@@ -49,24 +49,24 @@ impl<T> Default for Collector<T> {
 }
 
 impl<T: Clone> Collector<T> {
-    pub fn push(&self, item: T) {
+    pub(super) fn push(&self, item: T) {
         self.items.lock().unwrap().push(item);
         self.notify.notify_waiters();
     }
 
-    pub fn len(&self) -> usize {
+    pub(super) fn len(&self) -> usize {
         self.items.lock().unwrap().len()
     }
 
-    pub fn get(&self, i: usize) -> Option<T> {
+    pub(super) fn get(&self, i: usize) -> Option<T> {
         self.items.lock().unwrap().get(i).cloned()
     }
 
-    pub fn all(&self) -> Vec<T> {
+    pub(super) fn all(&self) -> Vec<T> {
         self.items.lock().unwrap().clone()
     }
 
-    pub async fn wait_for(&self, n: usize) {
+    pub(super) async fn wait_for(&self, n: usize) {
         let res = timeout(Duration::from_secs(5), async {
             loop {
                 if self.len() >= n {
@@ -84,15 +84,15 @@ impl<T: Clone> Collector<T> {
 
 /// Minimal DpuRepository mock that emits DPUs via broadcast channel.
 #[derive(Clone)]
-pub(crate) struct WatcherMock {
-    pub dpu_tx: broadcast::Sender<DPU>,
+pub(super) struct WatcherMock {
+    dpu_tx: broadcast::Sender<DPU>,
     cancel: CancellationToken,
     watch_count: Arc<AtomicUsize>,
     watch_notify: Arc<Notify>,
 }
 
 impl WatcherMock {
-    pub fn new() -> Self {
+    pub(super) fn new() -> Self {
         let (dpu_tx, _) = broadcast::channel(100);
         Self {
             dpu_tx,
@@ -102,11 +102,11 @@ impl WatcherMock {
         }
     }
 
-    pub fn emit_dpu(&self, dpu: DPU) {
+    pub(super) fn emit_dpu(&self, dpu: DPU) {
         let _ = self.dpu_tx.send(dpu);
     }
 
-    pub async fn wait_for_watchers(&self, n: usize) {
+    pub(super) async fn wait_for_watchers(&self, n: usize) {
         let res = timeout(Duration::from_secs(5), async {
             loop {
                 if self.watch_count.load(Ordering::SeqCst) >= n {
@@ -125,7 +125,7 @@ impl WatcherMock {
         }
     }
 
-    pub async fn wait_for_receivers(&self, n: usize) {
+    pub(super) async fn wait_for_receivers(&self, n: usize) {
         let res = timeout(Duration::from_secs(5), async {
             loop {
                 if self.dpu_tx.receiver_count() == n {
@@ -190,7 +190,7 @@ impl DpuRepository for WatcherMock {
     }
 }
 
-pub(crate) fn make_status(phase: DpuStatusPhase) -> DpuStatus {
+pub(super) fn make_status(phase: DpuStatusPhase) -> DpuStatus {
     DpuStatus {
         addresses: None,
         bf_cfg_file: None,
@@ -221,7 +221,7 @@ pub(crate) fn make_status(phase: DpuStatusPhase) -> DpuStatus {
     }
 }
 
-pub(crate) fn make_dpu(
+pub(super) fn make_dpu(
     ns: &str,
     name: &str,
     device: &str,
@@ -262,11 +262,11 @@ pub(crate) fn make_dpu(
     }
 }
 
-pub(crate) fn make_dpu_reboot(ns: &str, name: &str, device: &str, node: &str) -> DPU {
+pub(super) fn make_dpu_reboot(ns: &str, name: &str, device: &str, node: &str) -> DPU {
     make_dpu(ns, name, device, node, DpuStatusPhase::Rebooting)
 }
 
-pub(crate) fn make_dpu_labeled(
+pub(super) fn make_dpu_labeled(
     ns: &str,
     name: &str,
     device: &str,
@@ -281,7 +281,7 @@ pub(crate) fn make_dpu_labeled(
 
 /// Minimal K8sConfigRepository mock for tests that only need
 /// `build_without_resources` / `initialize` (BMC secret creation).
-pub(crate) struct ConfigMock;
+pub(super) struct ConfigMock;
 
 #[async_trait]
 impl K8sConfigRepository for ConfigMock {
