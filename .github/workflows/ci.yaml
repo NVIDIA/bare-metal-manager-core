@@ -151,6 +151,14 @@ jobs:
           fetch-depth: 0
           fetch-tags: true
 
+      - name: Set up Python for CI helpers
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+
+      - name: Check boot output contracts
+        run: python3 -m unittest discover -s .github/ci -p 'test_validate_boot_outputs.py'
+
       - name: Detect build-container-x86_64 changes
         id: build-container-changes
         uses: dorny/paths-filter@v3
