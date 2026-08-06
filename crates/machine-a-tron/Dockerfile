@@ -74,10 +74,12 @@ LABEL org.opencontainers.image.vendor="NVIDIA"
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
+    ipmitool \
     iproute2 \
     iputils-ping \
     libssl3 \
     libudev1 \
+    openipmi-utils \
     && rm -rf /var/lib/apt/lists/*
 
 RUN mkdir -p /opt/machine-a-tron/bin /tmp/machine-a-tron-data

@@ -160,13 +160,19 @@ spec:
     port: 443
     targetPort: 1266  # Redfish listen port from machine-a-tron (default: service.bmcMock.port)
     protocol: TCP
+  - name: ipmi        # Only present when IPMI simulation is enabled and BMC reports bmc.ipmi
+    port: 623
+    targetPort: 16023  # IPMI listen port from machine-a-tron
+    protocol: UDP
   selector:
     app.kubernetes.io/name: nico-machine-a-tron
     nvidia-infra-controller/pod-name: mat-0
 ```
 
 The `targetPort` is the Redfish listen port reported by machine-a-tron, which
-defaults to the configured `service.bmcMock.port` (1266).
+defaults to the configured `service.bmcMock.port` (1266). When IPMI simulation
+is enabled and the BMC reports `bmc.ipmi` in its status, the controller also
+adds a dynamic target UDP port for IPMI access.
 
 ### Requirements
 
@@ -225,6 +231,32 @@ pods:
         oobDhcpRelayAddress: "10.96.64.1"
         adminDhcpRelayAddress: "192.168.176.1"
 ```
+
+### IPMI/SOL Simulation
+
+Enable IPMI/SOL simulation to expose per-BMC IPMI endpoints for IPMI-capable
+mocked BMCs. This is optional and only affects BMCs that support IPMI (not all
+hardware types have IPMI support).
+
+```yaml
+machineATron:
+  enableIpmiSimulation: true
+```
+
+When enabled:
+
+1. Machine-a-tron starts an independent IPMI simulator (`ipmi_sim`) for each
+   IPMI-capable host BMC
+2. The `/machines/status` API reports `bmc.ipmi` with `reachable_port` and
+   `listen_port` for each BMC with IPMI enabled
+3. The `mat-k8s-controller` creates UDP Service ports for IPMI access alongside
+   the existing TCP Redfish port
+
+**Requirements:**
+
+- The machine-a-tron container image must include `ipmi_sim` (from `openipmi-utils`)
+  and `ipmitool` - these are included in the standard image
+- Only IPMI-capable hardware types will expose IPMI endpoints
 
 ### MAC Address Pool Configuration
 

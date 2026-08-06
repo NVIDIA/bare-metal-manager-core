@@ -84,3 +84,18 @@ tests:
       - matchRegex:
           path: data["mat.toml"]
           pattern: 'scout_run_interval = "120s"'
+
+  - it: should not include enable_ipmi_simulation by default
+    asserts:
+      - notMatchRegex:
+          path: data["mat.toml"]
+          pattern: "enable_ipmi_simulation"
+
+  - it: should include enable_ipmi_simulation when enabled
+    set:
+      machineATron:
+        enableIpmiSimulation: true
+    asserts:
+      - matchRegex:
+          path: data["mat.toml"]
+          pattern: "enable_ipmi_simulation = true"
