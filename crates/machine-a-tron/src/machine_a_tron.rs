@@ -612,6 +612,8 @@ mod tests {
             switch_serial_number: None,
             hw_mac_addr_pool: MacAddressPoolConfig::new(mac("0a:00:00:00:00:00"), 24).unwrap(),
             delta_psu_power: None,
+            initial_host_firmware: None,
+            desired_host_firmware: None,
         }
     }
 

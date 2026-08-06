@@ -263,6 +263,7 @@ impl WiwynnGB200Nvl<'_> {
             .iter()
             .map(|(id, version)| fw_inv_builder(id).version(version).build())
             .collect(),
+                ..Default::default()
         }
     }
 }

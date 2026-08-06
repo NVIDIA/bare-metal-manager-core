@@ -163,6 +163,8 @@ impl SwitchActor {
             switch_serial_number: persisted.switch_serial_number.clone(),
             hw_mac_addr_pool,
             delta_psu_power: None,
+            initial_host_firmware: None,
+            desired_host_firmware: None,
         };
         let (fsm, actions) = SwitchFsm::init(true);
         Self {

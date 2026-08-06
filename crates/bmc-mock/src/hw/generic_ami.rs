@@ -138,7 +138,22 @@ impl GenericAmi<'_> {
 
     pub(crate) fn update_service_config(&self) -> redfish::update_service::UpdateServiceConfig {
         redfish::update_service::UpdateServiceConfig {
-            firmware_inventory: vec![],
+            firmware_inventory: [
+                // BMC version matches manager_config firmware_version.
+                ("HostBMC_0", "47.20.02"),
+                // Representative UEFI version for a generic AMI server.
+                ("HostBIOS_0", "02.04.01"),
+            ]
+            .iter()
+            .map(|(id, version)| {
+                redfish::software_inventory::builder(
+                    &redfish::software_inventory::firmware_inventory_resource(id),
+                )
+                .version(version)
+                .build()
+            })
+            .collect(),
+            ..Default::default()
         }
     }
 }

@@ -22,7 +22,8 @@ use std::time::{Duration, Instant};
 use bmc_mock::injection::InjectionStore;
 use bmc_mock::mac_address_pool::{MacAddressPool, PoolConfig as MacAddressPoolConfig};
 use bmc_mock::{
-    BmcCommand, HostMachineInfo, MachineInfo, SetSystemPowerResult, SystemPowerControl,
+    BmcCommand, HostFirmwareVersions, HostMachineInfo, MachineInfo, SetSystemPowerResult,
+    SystemPowerControl,
 };
 use carbide_utils::test_support::certs::create_random_self_signed_cert;
 use carbide_uuid::machine::MachineId;
@@ -62,6 +63,25 @@ pub(super) struct HostMachine {
     sleep_until: Instant,
 }
 
+/// Derive the desired host firmware versions from the API-configured
+/// `desired_firmware_versions` map.  Returns `None` when neither a BMC nor a
+/// UEFI version is configured.
+fn desired_host_firmware(app_context: &MachineATronContext) -> Option<HostFirmwareVersions> {
+    let bmc = app_context
+        .desired_firmware_versions
+        .iter()
+        .find_map(|e| e.component_versions.get("bmc").cloned());
+    let uefi = app_context
+        .desired_firmware_versions
+        .iter()
+        .find_map(|e| e.component_versions.get("uefi").cloned());
+    if bmc.is_some() || uefi.is_some() {
+        Some(HostFirmwareVersions { bmc, uefi })
+    } else {
+        None
+    }
+}
+
 impl HostMachine {
     pub(super) fn from_persisted(
         persisted_device: PersistedDevice,
@@ -94,7 +114,7 @@ impl HostMachine {
                 )
             })
             .collect::<Vec<_>>();
-        let host_info = HostMachineInfo {
+        let mut host_info = HostMachineInfo {
             hw_type: persisted_device.hw_type,
             bmc_mac_address: persisted_device.bmc_mac_address,
             serial: persisted_device.serial.clone(),
@@ -109,7 +129,15 @@ impl HostMachine {
             switch_serial_number: persisted_device.switch_serial_number.clone(),
             hw_mac_addr_pool,
             delta_psu_power: None,
+            initial_host_firmware: None,
+            desired_host_firmware: None,
         };
+        // Re-apply firmware config on restore so the mock starts with the correct
+        // FirmwareInventory versions and a populated pending_upgrades queue.
+        // Without this a machine-a-tron restart would reset the mock to hardware-type
+        // defaults, causing carbide to see stale inventory.
+        host_info.initial_host_firmware = config.host_firmware_versions.clone();
+        host_info.desired_host_firmware = desired_host_firmware(&app_context);
         let dpus = dpu_machines
             .into_iter()
             .map(|d| d.start(true))
@@ -185,12 +213,14 @@ impl HostMachine {
                 )
             })
             .collect::<Vec<_>>();
-        let host_info = HostMachineInfo::new(
+        let mut host_info = HostMachineInfo::new(
             config.hw_type,
             dpu_machines.iter().map(|d| d.dpu_info().clone()).collect(),
             mac_pool,
             hw_pool_config,
         );
+        host_info.initial_host_firmware = config.host_firmware_versions.clone();
+        host_info.desired_host_firmware = desired_host_firmware(&app_context);
         let dpus = dpu_machines
             .into_iter()
             .map(|d| d.start(true))
@@ -582,6 +612,8 @@ impl MachineHandle {
                 switch_serial_number: None,
                 hw_mac_addr_pool: MacAddressPoolConfig::new(mac, 24).unwrap(),
                 delta_psu_power: None,
+            initial_host_firmware: None,
+            desired_host_firmware: None,
             },
             dpus,
             machine_config_section: machine_config_section.to_string(),

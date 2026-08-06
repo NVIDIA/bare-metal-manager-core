@@ -58,6 +58,9 @@ impl BmcState {
             BmcEvent::PowerOn => {
                 self.complete_all_bios_jobs();
                 self.apply_pending_bluefield_mode();
+                // Move any staged firmware versions into the active inventory so
+                // that site-explorer observes the upgraded version after reset.
+                self.update_service_state.apply_staged_firmware();
             }
             BmcEvent::BootCompleted => {
                 self.system_state.on_boot_completed();

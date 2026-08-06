@@ -48,6 +48,25 @@ pub struct HostMachineInfo {
     /// [`crate::test_support::delta_powershelf_bmc_with_psu_power`] sets it to
     /// model off/mixed shelves. Ignored for non-Delta hardware.
     pub delta_psu_power: Option<Vec<bool>>,
+    /// Initial host firmware versions for the simulated BMC firmware inventory.
+    /// When `None` the hardware-type default is used.  machine-a-tron sets this
+    /// from the operator-provided `host_firmware` config so that the starting
+    /// inventory reflects a version carbide will want to upgrade.
+    pub initial_host_firmware: Option<HostFirmwareVersions>,
+    /// Target host firmware versions to apply after an upload + power-cycle.
+    /// machine-a-tron sets this from `desired_firmware_versions` so the mock
+    /// knows what version to stage when carbide submits any firmware upload —
+    /// without parsing the binary.  Separate from `initial_host_firmware` so
+    /// the two roles (current vs target) are explicit.
+    pub desired_host_firmware: Option<HostFirmwareVersions>,
+}
+
+/// Initial firmware versions for host BMC and UEFI components, used to
+/// populate `UpdateService/FirmwareInventory` when the mock starts.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, Eq, PartialEq)]
+pub struct HostFirmwareVersions {
+    pub bmc: Option<String>,
+    pub uefi: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -303,7 +322,18 @@ impl HostMachineInfo {
             dpus,
             hw_mac_addr_pool,
             delta_psu_power: None,
+            initial_host_firmware: None,
+            desired_host_firmware: None,
         }
+    }
+
+    /// Set the initial host firmware versions used to populate the Redfish
+    /// FirmwareInventory when this machine's mock BMC starts.  machine-a-tron
+    /// calls this from the operator-provided `host_firmware_versions` config.
+    #[must_use]
+    pub fn with_initial_host_firmware(mut self, fw: HostFirmwareVersions) -> Self {
+        self.initial_host_firmware = Some(fw);
+        self
     }
 
     /// Override the Delta power shelf's per-PSU on/off states (one entry per
@@ -493,7 +523,7 @@ impl HostMachineInfo {
     }
 
     fn update_service_config(&self) -> UpdateServiceConfig {
-        match self.hw_type {
+        let mut config = match self.hw_type {
             HardwareType::DellPowerEdgeR750 => self.dell_poweredge_r750().update_service_config(),
             HardwareType::DellPowerEdgeR760Bf4 => {
                 self.dell_poweredge_r760_bf4().update_service_config()
@@ -518,7 +548,32 @@ impl HostMachineInfo {
             HardwareType::GenericAmi | HardwareType::GenericSupermicro => {
                 self.generic_server().update_service_config()
             }
+        };
+
+        // Apply operator-supplied initial host firmware versions on top of the
+        // hardware-type defaults.  machine-a-tron sets these from the
+        // `host_firmware` config block so the inventory starts at the version
+        // carbide needs to upgrade from.
+        if let Some(ref fw) = self.initial_host_firmware {
+            config.apply_host_firmware_versions(fw);
         }
+
+        // Populate the ordered pending_upgrades queue so UpdateServiceState knows
+        // what version to stage for each component when an upload arrives.
+        // machine-a-tron sets desired_host_firmware from desired_firmware_versions
+        // (the API-configured target); bmc-mock pops from this queue in record_upload()
+        // when the upload request carries no explicit Targets — making component
+        // identification deterministic even for multipart/HttpPush uploads.
+        if let Some(ref fw) = self.desired_host_firmware {
+            if let Some(ref bmc) = fw.bmc {
+                config.pending_upgrades.push_back(("HostBMC_0".to_string(), bmc.clone()));
+            }
+            if let Some(ref uefi) = fw.uefi {
+                config.pending_upgrades.push_back(("HostBIOS_0".to_string(), uefi.clone()));
+            }
+        }
+
+        config
     }
 
     fn factory_default_account(&self) -> redfish::account_service::Account {

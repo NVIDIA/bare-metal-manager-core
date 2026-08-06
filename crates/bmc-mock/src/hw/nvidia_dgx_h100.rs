@@ -359,6 +359,7 @@ impl NvidiaDgxH100<'_> {
                 .build()
             })
             .collect(),
+            ..Default::default()
         }
     }
 }
