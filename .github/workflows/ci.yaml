@@ -26,6 +26,9 @@ on:
       - "v[0-9][0-9][0-9][0-9].[0-9][0-9].[0-9][0-9]*"
       - "v[0-9].[0-9].[0-9]-rc[0-9]*"
 
+permissions:
+  contents: read
+
 concurrency:
   group: ${{ github.event_name == 'push' && github.run_attempt == '1' && startsWith(github.ref, 'refs/heads/pull-request/') && format('core-pr-{0}', github.ref_name) || format('core-run-{0}-{1}', github.run_id, github.run_attempt) }}
   cancel-in-progress: ${{ github.event_name == 'push' && github.run_attempt == '1' && startsWith(github.ref, 'refs/heads/pull-request/') }}
@@ -51,6 +54,9 @@ jobs:
         with:
           persist-credentials: false
           fetch-depth: 0
+
+      - name: Check Core CI token permissions
+        run: bash .github/ci/check-core-ci-permissions.sh
 
       - name: Check Core CI concurrency policy
         run: bash scripts/check-ci-concurrency.sh core
@@ -1250,10 +1256,8 @@ jobs:
     needs: prepare
     runs-on: linux-amd64-cpu4
     timeout-minutes: 30
-    permissions:
-      actions: read
-      contents: read
-      pull-requests: write
+    # PR comments are disabled below and this scan does not upload SARIF, so
+    # TruffleHog inherits the read-only workflow permission.
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -1276,12 +1280,11 @@ jobs:
     # default, so the one run in twenty that wedges holds a runner for six hours
     # and leaves the workflow open long after every other job has finished.
     timeout-minutes: 20
+    # `upload-sarif` and `post-pr-comment` are both false below, so CodeQL only
+    # needs to read the workflow metadata and source it analyzes.
     permissions:
       actions: read
       contents: read
-      security-events: write
-      packages: read
-      pull-requests: write
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -1438,8 +1441,6 @@ jobs:
         run: protolint lint -config_path=.protolint.yaml crates/rpc/proto/
 
   migration-police:
-    permissions:
-      contents: read
     needs:
       - changes
     if: ${{ contains(github.ref, 'pull-request/') }}
@@ -1489,8 +1490,6 @@ jobs:
 
   check-rest-core-proto-sync:
     name: Check REST Core Proto Sync
-    permissions:
-      contents: read
     needs:
       - prepare
     if: ${{ needs.prepare.outputs.core_rpc_proto_files_changed == 'true' }}
@@ -1517,6 +1516,11 @@ jobs:
           "make sync-protobuf (from the repository root)"
 
   lint-police:
+    # Merge validation uses the PR API to resolve `.base.ref`, then fetches
+    # that branch before creating the local merge result. It never edits the PR.
+    permissions:
+      contents: read
+      pull-requests: read
     needs:
       - prepare
       - build-container-x86_64
@@ -1535,16 +1539,28 @@ jobs:
           persist-credentials: false
 
       - name: Build pull request merge result
+        shell: bash
         env:
           GITHUB_TOKEN: ${{ github.token }}
         run: |
+          set -o pipefail
           git config --global --add safe.directory "$GITHUB_WORKSPACE"
           PR_NUMBER="${GITHUB_REF_NAME##pull-request/}"
-          TARGET=$(curl -sf \
-            -H "Authorization: Bearer $GITHUB_TOKEN" \
-            -H "Accept: application/vnd.github+json" \
-            "https://api.github.com/repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER" \
-            | jq -r '.base.ref')
+          if ! TARGET="$(
+            curl -sf \
+              -H "Authorization: Bearer $GITHUB_TOKEN" \
+              -H "Accept: application/vnd.github+json" \
+              "https://api.github.com/repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER" \
+              | jq -r '.base.ref'
+          )"; then
+            echo "Could not query the base ref for PR ${PR_NUMBER}." >&2
+            echo "Confirm the lint-police job still declares 'pull-requests: read'." >&2
+            exit 1
+          fi
+          if [[ -z "${TARGET}" || "${TARGET}" == "null" ]]; then
+            echo "Could not resolve the base ref for PR ${PR_NUMBER}." >&2
+            exit 1
+          fi
           git fetch --no-tags origin "${TARGET}:refs/remotes/origin/${TARGET}"
           git -c user.name="CI merge validation" \
             -c user.email=ci@example.invalid \
