@@ -556,11 +556,8 @@ type UpdateExpectedMachineHandler struct {
 	tracerSpan *cutil.TracerSpan
 }
 
-// expectedComponentBmcMacUnchanged accepts an omitted MAC or another spelling
-// of the stored MAC. The BMC MAC identifies the ExpectedMachine,
-// ExpectedSwitch, or ExpectedPowerShelf in Core, so PATCH may reassert that
-// identity but cannot replace it.
-func expectedComponentBmcMacUnchanged(stored string, submitted *string) bool {
+// bmcMacUnchanged accepts an omitted MAC or another spelling of the stored MAC.
+func bmcMacUnchanged(stored string, submitted *string) bool {
 	if submitted == nil {
 		return true
 	}
@@ -570,10 +567,8 @@ func expectedComponentBmcMacUnchanged(stored string, submitted *string) bool {
 	return storedErr == nil && submittedErr == nil && slices.Equal(storedMAC, submittedMAC)
 }
 
-// expectedComponentBmcMacImmutableValidationError keeps PATCH validation
-// responses aligned across ExpectedMachine, ExpectedSwitch, and
-// ExpectedPowerShelf handlers.
-func expectedComponentBmcMacImmutableValidationError() validation.Errors {
+// bmcMacImmutableValidationError keeps BMC MAC PATCH validation responses aligned.
+func bmcMacImmutableValidationError() validation.Errors {
 	return validation.Errors{
 		"bmcMacAddress": errors.New("BMC MAC address cannot be changed after creation"),
 	}
@@ -694,8 +689,8 @@ func (uemh UpdateExpectedMachineHandler) Handle(c echo.Context) error {
 		return cutil.NewAPIErrorResponse(c, http.StatusForbidden, "Current org is not associated with the Site of the Expected Machine", nil)
 	}
 
-	if !expectedComponentBmcMacUnchanged(expectedMachine.BmcMacAddress, apiRequest.BmcMacAddress) {
-		validationErrors := expectedComponentBmcMacImmutableValidationError()
+	if !bmcMacUnchanged(expectedMachine.BmcMacAddress, apiRequest.BmcMacAddress) {
+		validationErrors := bmcMacImmutableValidationError()
 		return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, "Failed to validate Expected Machine update data", validationErrors)
 	}
 
@@ -1461,8 +1456,8 @@ func (uemh UpdateExpectedMachinesHandler) Handle(c echo.Context) error {
 	for i, req := range apiRequests {
 		mid, _ := uuid.Parse(*req.ID)
 		em := requestedEmMap[mid]
-		if !expectedComponentBmcMacUnchanged(em.BmcMacAddress, req.BmcMacAddress) {
-			validationErrors[strconv.Itoa(i)] = expectedComponentBmcMacImmutableValidationError()
+		if !bmcMacUnchanged(em.BmcMacAddress, req.BmcMacAddress) {
+			validationErrors[strconv.Itoa(i)] = bmcMacImmutableValidationError()
 		}
 	}
 	if len(validationErrors) > 0 {

@@ -586,8 +586,8 @@ func (uepsh UpdateExpectedPowerShelfHandler) Handle(c echo.Context) error {
 		return cutil.NewAPIErrorResponse(c, http.StatusForbidden, "Current org is not associated with the Site of the Expected Power Shelf", nil)
 	}
 
-	if !expectedComponentBmcMacUnchanged(expectedPowerShelf.BmcMacAddress, apiRequest.BmcMacAddress) {
-		validationErrors := expectedComponentBmcMacImmutableValidationError()
+	if !bmcMacUnchanged(expectedPowerShelf.BmcMacAddress, apiRequest.BmcMacAddress) {
+		validationErrors := bmcMacImmutableValidationError()
 		return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, "Failed to validate Expected Power Shelf update data", validationErrors)
 	}
 

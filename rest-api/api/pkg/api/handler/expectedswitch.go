@@ -613,8 +613,8 @@ func (uesh UpdateExpectedSwitchHandler) Handle(c echo.Context) error {
 		return cutil.NewAPIErrorResponse(c, http.StatusForbidden, "Current org is not associated with the Site of the Expected Switch", nil)
 	}
 
-	if !expectedComponentBmcMacUnchanged(expectedSwitch.BmcMacAddress, apiRequest.BmcMacAddress) {
-		validationErrors := expectedComponentBmcMacImmutableValidationError()
+	if !bmcMacUnchanged(expectedSwitch.BmcMacAddress, apiRequest.BmcMacAddress) {
+		validationErrors := bmcMacImmutableValidationError()
 		return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, "Failed to validate Expected Switch update data", validationErrors)
 	}
 
