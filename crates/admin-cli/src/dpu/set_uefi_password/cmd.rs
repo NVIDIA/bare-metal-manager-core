@@ -19,7 +19,7 @@ use super::args::Args;
 use crate::errors::CarbideCliResult;
 use crate::rpc::ApiClient;
 
-pub async fn set_uefi_password(data: Args, api_client: &ApiClient) -> CarbideCliResult<()> {
+pub(super) async fn set_uefi_password(data: Args, api_client: &ApiClient) -> CarbideCliResult<()> {
     api_client.0.set_dpu_uefi_password(data).await?;
     // A DPU stages the change through Redfish BIOS settings and schedules no job;
     // it commits on the next DPU restart, so there is no job id to report.

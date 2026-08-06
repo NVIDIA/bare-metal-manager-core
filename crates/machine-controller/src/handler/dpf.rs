@@ -587,7 +587,7 @@ async fn handle_dpf_reprovisioning(
 /// together. All other states (Reprovisioning, WaitingForReady, DeviceReady)
 /// advance the given `dpu_snapshot` independently. DeviceReady acts as a sync
 /// barrier that waits for all DPUs before proceeding.
-pub async fn handle_dpf_state(
+pub(super) async fn handle_dpf_state(
     state: &ManagedHostStateSnapshot,
     dpu_snapshot: &Machine,
     dpf_state: &DpfState,

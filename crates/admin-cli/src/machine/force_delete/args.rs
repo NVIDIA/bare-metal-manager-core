@@ -30,18 +30,18 @@ Force delete a machine and its interfaces (redeploy kea afterward):
     --delete-interfaces
 
 ")]
-pub struct Args {
+pub(crate) struct Args {
     #[clap(
         long,
         help = "UUID, IPv4, MAC or hostnmame of the host or DPU machine to delete"
     )]
-    pub machine: String,
+    pub(super) machine: String,
 
     #[clap(short = 'd', long, action, help = "Delete interfaces.")]
-    pub delete_interfaces: bool,
+    delete_interfaces: bool,
 
     #[clap(short = 'b', long, action, help = "Delete BMC interfaces.")]
-    pub delete_bmc_interfaces: bool,
+    delete_bmc_interfaces: bool,
 
     #[clap(
         short = 'c',
@@ -49,21 +49,21 @@ pub struct Args {
         action,
         help = "Delete BMC credentials. Only applicable if site explorer has configured credentials for the BMCs associated with this managed host."
     )]
-    pub delete_bmc_credentials: bool,
+    delete_bmc_credentials: bool,
 
     #[clap(
         long,
         action,
         help = "Delete machine with allocated instance. This flag acknowledges destroying the user instance as well."
     )]
-    pub allow_delete_with_instance: bool,
+    pub(super) allow_delete_with_instance: bool,
 
     #[clap(
         long,
         action,
         help = "Delete machine even if DPF CRDs exist and DPF is disabled at the site level. This flag acknowledges that orphaned DPF resources may remain"
     )]
-    pub allow_delete_with_orphaned_dpf_crds: bool,
+    allow_delete_with_orphaned_dpf_crds: bool,
 }
 
 impl From<&Args> for AdminForceDeleteMachineRequest {

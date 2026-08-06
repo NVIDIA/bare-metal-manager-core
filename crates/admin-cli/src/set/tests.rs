@@ -28,6 +28,7 @@ use carbide_test_support::scenarios;
 use clap::{CommandFactory, Parser};
 
 use super::*;
+use crate::test_support::{parse_leaf, raw_value};
 
 // verify_cmd_structure runs a baseline clap debug_assert()
 // to do basic command configuration checking and validation,
@@ -77,10 +78,12 @@ fn invalid_invocations_are_rejected() {
 fn parse_log_filter_routes_to_variant() {
     scenarios!(
         run = |argv| {
-            Cmd::try_parse_from(argv.iter().copied())
-                .map(|cmd| match cmd {
-                    Cmd::LogFilter(args) => (args.filter, args.expiry),
-                    _ => panic!("expected LogFilter variant"),
+            parse_leaf::<Cmd>(argv, &["log-filter"])
+                .map(|matches| {
+                    (
+                        raw_value(&matches, "filter").expect("filter is required"),
+                        raw_value(&matches, "expiry").expect("expiry has a default"),
+                    )
                 })
                 .map_err(drop)
         };
@@ -101,17 +104,14 @@ fn parse_log_filter_routes_to_variant() {
     );
 }
 
-// create-machines routes to the CreateMachines variant; --enable yields
-// is_enabled() == true, --disable yields false.
+// create-machines routes to the CreateMachines variant; --enable yields true
+// and --disable yields false.
 #[test]
 fn parse_create_machines_toggle() {
     scenarios!(
         run = |argv| {
-            Cmd::try_parse_from(argv.iter().copied())
-                .map(|cmd| match cmd {
-                    Cmd::CreateMachines(args) => args.is_enabled(),
-                    _ => panic!("expected CreateMachines variant"),
-                })
+            parse_leaf::<Cmd>(argv, &["create-machines"])
+                .map(|matches| matches.get_flag("enable"))
                 .map_err(drop)
         };
         "--enable" {
@@ -124,17 +124,14 @@ fn parse_create_machines_toggle() {
     );
 }
 
-// site-explorer routes to the SiteExplorer variant; --enable yields
-// is_enabled() == true, --disable yields false.
+// site-explorer routes to the SiteExplorer variant; --enable yields true and
+// --disable yields false.
 #[test]
 fn parse_site_explorer_toggle() {
     scenarios!(
         run = |argv| {
-            Cmd::try_parse_from(argv.iter().copied())
-                .map(|cmd| match cmd {
-                    Cmd::SiteExplorer(args) => args.is_enabled(),
-                    _ => panic!("expected SiteExplorer variant"),
-                })
+            parse_leaf::<Cmd>(argv, &["site-explorer"])
+                .map(|matches| matches.get_flag("enable"))
                 .map_err(drop)
         };
         "--enable" {
@@ -153,10 +150,14 @@ fn parse_site_explorer_toggle() {
 fn parse_bmc_proxy_routes_to_variant() {
     scenarios!(
         run = |argv| {
-            Cmd::try_parse_from(argv.iter().copied())
-                .map(|cmd| match cmd {
-                    Cmd::BmcProxy(args) => (args.enabled, args.proxy),
-                    _ => panic!("expected BmcProxy variant"),
+            parse_leaf::<Cmd>(argv, &["bmc-proxy"])
+                .map(|matches| {
+                    (
+                        *matches
+                            .get_one::<bool>("enabled")
+                            .expect("enabled is required"),
+                        raw_value(&matches, "proxy"),
+                    )
                 })
                 .map_err(drop)
         };
@@ -179,10 +180,11 @@ fn parse_bmc_proxy_routes_to_variant() {
 fn parse_tracing_enabled_value() {
     scenarios!(
         run = |argv| {
-            Cmd::try_parse_from(argv.iter().copied())
-                .map(|cmd| match cmd {
-                    Cmd::TracingEnabled(args) => args.value,
-                    _ => panic!("expected TracingEnabled variant"),
+            parse_leaf::<Cmd>(argv, &["tracing-enabled"])
+                .map(|matches| {
+                    *matches
+                        .get_one::<bool>("value")
+                        .expect("value is required")
                 })
                 .map_err(drop)
         };

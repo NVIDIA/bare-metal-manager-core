@@ -65,17 +65,17 @@ struct HealthPage {
 #[derive(Template)]
 #[template(path = "health_history_table.html")]
 pub(super) struct HealthHistoryTable {
-    pub records: Vec<HealthHistoryRecord>,
+    pub(super) records: Vec<HealthHistoryRecord>,
 }
 
 #[derive(Debug, serde::Serialize)]
 pub(super) struct HealthHistoryRecord {
-    pub timestamp: String,
-    pub health: health_report::HealthReport,
+    timestamp: String,
+    health: health_report::HealthReport,
 }
 
 impl HealthHistoryRecord {
-    pub fn from_rpc_convert_invalid(record: ::rpc::forge::HealthHistoryRecord) -> Self {
+    fn from_rpc_convert_invalid(record: ::rpc::forge::HealthHistoryRecord) -> Self {
         HealthHistoryRecord {
             timestamp: record.time.map(|time| time.to_string()).unwrap_or_default(),
             health: record
@@ -179,7 +179,7 @@ struct MachineHealthSnapshot {
 }
 
 /// View machine health.
-pub async fn machine_health(
+pub(super) async fn machine_health(
     AxumState(state): AxumState<Arc<Api>>,
     AxumPath(machine_id): AxumPath<String>,
 ) -> Response {
@@ -196,7 +196,7 @@ pub async fn machine_health(
 }
 
 /// View rack health.
-pub async fn rack_health(
+pub(super) async fn rack_health(
     AxumState(state): AxumState<Arc<Api>>,
     AxumPath(rack_id): AxumPath<String>,
 ) -> Response {
@@ -213,7 +213,7 @@ pub async fn rack_health(
 }
 
 /// View power shelf health.
-pub async fn power_shelf_health(
+pub(super) async fn power_shelf_health(
     AxumState(state): AxumState<Arc<Api>>,
     AxumPath(power_shelf_id): AxumPath<String>,
 ) -> Response {
@@ -230,7 +230,7 @@ pub async fn power_shelf_health(
 }
 
 /// View switch health.
-pub async fn switch_health(
+pub(super) async fn switch_health(
     AxumState(state): AxumState<Arc<Api>>,
     AxumPath(switch_id): AxumPath<String>,
 ) -> Response {
@@ -247,7 +247,7 @@ pub async fn switch_health(
 }
 
 /// View NVLink domain health.
-pub async fn nvlink_domain_health(
+pub(super) async fn nvlink_domain_health(
     AxumState(state): AxumState<Arc<Api>>,
     AxumPath(domain_id): AxumPath<String>,
 ) -> Response {
@@ -264,7 +264,7 @@ pub async fn nvlink_domain_health(
 }
 
 /// Redirect NVLink domain details to the health page.
-pub async fn nvlink_domain_detail(AxumPath(domain_id): AxumPath<String>) -> Response {
+pub(super) async fn nvlink_domain_detail(AxumPath(domain_id): AxumPath<String>) -> Response {
     let Ok(domain_id) = NvLinkDomainId::from_str(&domain_id) else {
         return (StatusCode::BAD_REQUEST, "invalid NVLink domain id").into_response();
     };
@@ -716,7 +716,7 @@ async fn fetch_switch_aggregate_health(
 }
 
 #[derive(serde::Deserialize, serde::Serialize)]
-pub struct HealthReportEntry {
+pub(super) struct HealthReportEntry {
     mode: String,
     health_report: HealthReport,
 }
@@ -763,11 +763,11 @@ impl TryFrom<HealthReportEntry> for ::rpc::forge::HealthReportEntry {
 }
 
 #[derive(serde::Deserialize)]
-pub struct RemoveHealthReport {
+pub(super) struct RemoveHealthReport {
     source: String,
 }
 
-pub async fn add_machine_health_report(
+pub(super) async fn add_machine_health_report(
     AxumState(state): AxumState<Arc<Api>>,
     AxumPath(machine_id): AxumPath<String>,
     auth_context: Option<axum::Extension<AuthContext>>,
@@ -787,7 +787,7 @@ pub async fn add_machine_health_report(
     .await
 }
 
-pub async fn add_rack_health_report(
+pub(super) async fn add_rack_health_report(
     AxumState(state): AxumState<Arc<Api>>,
     AxumPath(rack_id): AxumPath<String>,
     auth_context: Option<axum::Extension<AuthContext>>,
@@ -801,7 +801,7 @@ pub async fn add_rack_health_report(
     add_health_report_for(state, HealthObject::Rack(rack_id), auth_context, payload).await
 }
 
-pub async fn add_power_shelf_health_report(
+pub(super) async fn add_power_shelf_health_report(
     AxumState(state): AxumState<Arc<Api>>,
     AxumPath(power_shelf_id): AxumPath<String>,
     auth_context: Option<axum::Extension<AuthContext>>,
@@ -821,7 +821,7 @@ pub async fn add_power_shelf_health_report(
     .await
 }
 
-pub async fn add_switch_health_report(
+pub(super) async fn add_switch_health_report(
     AxumState(state): AxumState<Arc<Api>>,
     AxumPath(switch_id): AxumPath<String>,
     auth_context: Option<axum::Extension<AuthContext>>,
@@ -842,7 +842,7 @@ pub async fn add_switch_health_report(
 }
 
 /// Insert an NVLink domain health report from the admin web UI.
-pub async fn add_nvlink_domain_health_report(
+pub(super) async fn add_nvlink_domain_health_report(
     AxumState(state): AxumState<Arc<Api>>,
     AxumPath(domain_id): AxumPath<String>,
     auth_context: Option<axum::Extension<AuthContext>>,
@@ -955,7 +955,7 @@ async fn add_health_report_for(
     }
 }
 
-pub async fn remove_machine_health_report(
+pub(super) async fn remove_machine_health_report(
     AxumState(state): AxumState<Arc<Api>>,
     AxumPath(machine_id): AxumPath<String>,
     extract::Json(payload): extract::Json<RemoveHealthReport>,
@@ -968,7 +968,7 @@ pub async fn remove_machine_health_report(
     remove_health_report_for(state, HealthObject::Machine(machine_id), payload).await
 }
 
-pub async fn remove_rack_health_report(
+pub(super) async fn remove_rack_health_report(
     AxumState(state): AxumState<Arc<Api>>,
     AxumPath(rack_id): AxumPath<String>,
     extract::Json(payload): extract::Json<RemoveHealthReport>,
@@ -981,7 +981,7 @@ pub async fn remove_rack_health_report(
     remove_health_report_for(state, HealthObject::Rack(rack_id), payload).await
 }
 
-pub async fn remove_power_shelf_health_report(
+pub(super) async fn remove_power_shelf_health_report(
     AxumState(state): AxumState<Arc<Api>>,
     AxumPath(power_shelf_id): AxumPath<String>,
     extract::Json(payload): extract::Json<RemoveHealthReport>,
@@ -994,7 +994,7 @@ pub async fn remove_power_shelf_health_report(
     remove_health_report_for(state, HealthObject::PowerShelf(power_shelf_id), payload).await
 }
 
-pub async fn remove_switch_health_report(
+pub(super) async fn remove_switch_health_report(
     AxumState(state): AxumState<Arc<Api>>,
     AxumPath(switch_id): AxumPath<String>,
     extract::Json(payload): extract::Json<RemoveHealthReport>,
@@ -1008,7 +1008,7 @@ pub async fn remove_switch_health_report(
 }
 
 /// Remove an NVLink domain health report from the admin web UI.
-pub async fn remove_nvlink_domain_health_report(
+pub(super) async fn remove_nvlink_domain_health_report(
     AxumState(state): AxumState<Arc<Api>>,
     AxumPath(domain_id): AxumPath<String>,
     extract::Json(payload): extract::Json<RemoveHealthReport>,

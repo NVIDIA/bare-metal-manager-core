@@ -16,6 +16,7 @@
  */
 
 use ::rpc::forge as rpc;
+use carbide_instrument::emit;
 use db::{DatabaseError, expected_power_shelf as db_expected_power_shelf};
 use mac_address::MacAddress;
 use model::expected_power_shelf::{ExpectedPowerShelf, ExpectedPowerShelfRequest};
@@ -24,8 +25,9 @@ use tonic::{Request, Response, Status};
 use crate::CarbideError;
 use crate::api::Api;
 use crate::handlers::machine_interface_address::update_preallocated_machine_interface;
+use crate::handlers::static_address_metrics::StaticAddressPreallocationCompleted;
 
-pub async fn add_expected_power_shelf(
+pub(crate) async fn add_expected_power_shelf(
     api: &Api,
     request: Request<rpc::ExpectedPowerShelf>,
 ) -> Result<Response<()>, Status> {
@@ -56,7 +58,7 @@ pub async fn add_expected_power_shelf(
     Ok(Response::new(()))
 }
 
-pub async fn delete_expected_power_shelf(
+pub(crate) async fn delete_expected_power_shelf(
     api: &Api,
     request: Request<rpc::ExpectedPowerShelfRequest>,
 ) -> Result<Response<()>, Status> {
@@ -87,7 +89,7 @@ pub async fn delete_expected_power_shelf(
     Ok(Response::new(()))
 }
 
-pub async fn update_expected_power_shelf(
+pub(crate) async fn update_expected_power_shelf(
     api: &Api,
     request: Request<rpc::ExpectedPowerShelf>,
 ) -> Result<Response<()>, Status> {
@@ -107,15 +109,19 @@ pub async fn update_expected_power_shelf(
             message: format!("Database error: {}", e),
         })?;
 
-    if let Some(bmc_ip) = power_shelf.bmc_ip_address {
-        update_preallocated_machine_interface(
-            &mut txn,
-            power_shelf.bmc_mac_address,
-            bmc_ip,
-            api.runtime_config.retained_boot_interface_window,
+    let preallocation = if let Some(bmc_ip) = power_shelf.bmc_ip_address {
+        Some(
+            update_preallocated_machine_interface(
+                &mut txn,
+                power_shelf.bmc_mac_address,
+                bmc_ip,
+                api.runtime_config.retained_boot_interface_window,
+            )
+            .await?,
         )
-        .await?;
-    }
+    } else {
+        None
+    };
 
     db_expected_power_shelf::update(&mut txn, &power_shelf)
         .await
@@ -125,10 +131,14 @@ pub async fn update_expected_power_shelf(
         message: format!("Failed to commit transaction: {}", e),
     })?;
 
+    if let Some(outcome) = preallocation {
+        emit(StaticAddressPreallocationCompleted::from(outcome));
+    }
+
     Ok(Response::new(()))
 }
 
-pub async fn get_expected_power_shelf(
+pub(crate) async fn get_expected_power_shelf(
     api: &Api,
     request: Request<rpc::ExpectedPowerShelfRequest>,
 ) -> Result<Response<rpc::ExpectedPowerShelf>, Status> {
@@ -168,7 +178,7 @@ pub async fn get_expected_power_shelf(
     Ok(Response::new(response))
 }
 
-pub async fn get_all_expected_power_shelves(
+pub(crate) async fn get_all_expected_power_shelves(
     api: &Api,
     _request: Request<()>,
 ) -> Result<Response<rpc::ExpectedPowerShelfList>, Status> {
@@ -198,7 +208,7 @@ pub async fn get_all_expected_power_shelves(
     }))
 }
 
-pub async fn replace_all_expected_power_shelves(
+pub(crate) async fn replace_all_expected_power_shelves(
     api: &Api,
     request: Request<rpc::ExpectedPowerShelfList>,
 ) -> Result<Response<()>, Status> {
@@ -239,7 +249,7 @@ pub async fn replace_all_expected_power_shelves(
     Ok(Response::new(()))
 }
 
-pub async fn delete_all_expected_power_shelves(
+pub(crate) async fn delete_all_expected_power_shelves(
     api: &Api,
     _request: Request<()>,
 ) -> Result<Response<()>, Status> {
@@ -262,7 +272,7 @@ pub async fn delete_all_expected_power_shelves(
     Ok(Response::new(()))
 }
 
-pub async fn get_all_expected_power_shelves_linked(
+pub(crate) async fn get_all_expected_power_shelves_linked(
     api: &Api,
     _request: Request<()>,
 ) -> Result<Response<rpc::LinkedExpectedPowerShelfList>, Status> {
@@ -295,7 +305,7 @@ pub async fn get_all_expected_power_shelves_linked(
 
 // Utility method called by `explore`. Not a grpc handler.
 // TODO(chet): Remove dead_code once the exploration is wired up.
-pub(crate) async fn query(
+pub(super) async fn query(
     api: &Api,
     mac: MacAddress,
 ) -> Result<Option<model::expected_power_shelf::ExpectedPowerShelf>, CarbideError> {

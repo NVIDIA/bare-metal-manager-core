@@ -29,7 +29,7 @@ use crate::json::{JsonExt, JsonPatch};
 use crate::{http, redfish};
 
 #[derive(Clone)]
-pub struct SupermicroState {
+pub(crate) struct SupermicroState {
     kcs_interface: Arc<Mutex<serde_json::Value>>,
     sys_lockdown: Arc<Mutex<serde_json::Value>>,
 }
@@ -67,7 +67,7 @@ impl SupermicroState {
     }
 }
 
-pub fn kcs_interface_resource(manager_id: &str) -> redfish::Resource<'static> {
+fn kcs_interface_resource(manager_id: &str) -> redfish::Resource<'static> {
     redfish::Resource {
         odata_id: Cow::Owned(format!(
             "/redfish/v1/Managers/{manager_id}/Oem/Supermicro/KCSInterface"
@@ -78,7 +78,7 @@ pub fn kcs_interface_resource(manager_id: &str) -> redfish::Resource<'static> {
     }
 }
 
-pub fn sys_lockdown_resource(manager_id: &str) -> redfish::Resource<'static> {
+fn sys_lockdown_resource(manager_id: &str) -> redfish::Resource<'static> {
     redfish::Resource {
         odata_id: Cow::Owned(format!(
             "/redfish/v1/Managers/{manager_id}/Oem/Supermicro/SysLockdown"
@@ -89,7 +89,7 @@ pub fn sys_lockdown_resource(manager_id: &str) -> redfish::Resource<'static> {
     }
 }
 
-pub fn manager_oem_patch(manager_id: &str) -> serde_json::Value {
+pub(in crate::redfish) fn manager_oem_patch(manager_id: &str) -> serde_json::Value {
     json!({
         "Oem": {
             "Supermicro": {
@@ -100,7 +100,7 @@ pub fn manager_oem_patch(manager_id: &str) -> serde_json::Value {
     })
 }
 
-pub fn add_routes(r: Router<BmcState>) -> Router<BmcState> {
+pub(crate) fn add_routes(r: Router<BmcState>) -> Router<BmcState> {
     r.route(
         "/redfish/v1/Managers/{manager_id}/Oem/Supermicro/KCSInterface",
         get(get_kcs_interface).patch(patch_kcs_interface),

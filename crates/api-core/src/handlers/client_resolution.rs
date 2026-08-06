@@ -19,7 +19,6 @@ use std::collections::HashSet;
 use std::net::IpAddr;
 
 use ::rpc::forge as rpc;
-use db;
 use model::instance::snapshot::InstanceSnapshot;
 use model::machine::{InstanceState, MachineInterfaceSnapshot, ManagedHostState};
 use sqlx::PgConnection;
@@ -96,7 +95,7 @@ async fn resolve_client_ip(
 /// generation. For direct-interface IPs this returns the matching
 /// interface; for tenant-allocated IPs it resolves through the instance
 /// to the host's machine_interfaces, and prefers an admin-segment one.
-pub(crate) async fn resolve_machine_interface(
+pub(super) async fn resolve_machine_interface(
     conn: &mut PgConnection,
     client_ip: IpAddr,
 ) -> Result<MachineInterfaceSnapshot, CarbideError> {
@@ -141,7 +140,7 @@ pub(crate) async fn resolve_machine_interface(
 /// interface arm produces a discovery-instructions response (for
 /// unassigned hosts running scout, etc.); the instance arm produces an
 /// instance-specific response with the tenant-provided user_data.
-pub(crate) async fn resolve_cloud_init_instructions(
+pub(super) async fn resolve_cloud_init_instructions(
     api: &Api,
     conn: &mut PgConnection,
     client_ip: IpAddr,

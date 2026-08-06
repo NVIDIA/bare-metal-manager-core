@@ -28,7 +28,7 @@ Invoke the retained compatibility command (returns an unsupported error):
 
 "
 )]
-pub struct Args {
+pub(crate) struct Args {
     #[clap(long, help = "Legacy NMX-M credential username")]
-    pub username: Option<String>,
+    username: Option<String>,
 }

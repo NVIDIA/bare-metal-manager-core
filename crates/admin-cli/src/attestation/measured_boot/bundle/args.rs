@@ -55,7 +55,7 @@ use crate::errors::CarbideCliError;
 /// CmdBundle provides a container for the `bundle` subcommand, which itself
 /// contains other subcommands for working with profiles.
 #[derive(Parser, Debug, Dispatch)]
-pub enum CmdBundle {
+pub(crate) enum CmdBundle {
     #[clap(
         about = "Create a new bundle with a given values, for a given profile ID.",
         visible_alias = "c"
@@ -107,12 +107,12 @@ Create a bundle in the pending state (awaiting approval):
     12345678-1234-5678-90ab-cdef01234567 0:abc123 --state pending
 
 ")]
-pub struct Create {
+pub(crate) struct Create {
     #[clap(help = "A human-readable name to give this bundle.")]
-    pub name: String,
+    name: String,
 
     #[clap(help = "The profile ID of the profile to associate this bundle with.")]
-    pub profile_id: MeasurementSystemProfileId,
+    profile_id: MeasurementSystemProfileId,
 
     #[clap(
         required = true,
@@ -121,7 +121,7 @@ pub struct Create {
         help = "Comma-separated list of {pcr_register:value,...} to associate with this bundle."
     )]
     #[arg(value_parser = parse_pcr_register_values)]
-    pub values: Vec<PcrRegisterValue>,
+    values: Vec<PcrRegisterValue>,
 
     // state is optional, and if unset, the database itself
     // is configured to default to 'active'.
@@ -130,7 +130,7 @@ pub struct Create {
         value_enum,
         help = "The state for this bundle (default: active)."
     )]
-    pub state: Option<MeasurementBundleState>,
+    state: Option<MeasurementBundleState>,
 }
 
 /// Delete will delete a bundle for the given ID.
@@ -147,12 +147,12 @@ Delete a bundle and purge its journal records:
     12345678-1234-5678-90ab-cdef01234567 --purge-journals
 
 ")]
-pub struct Delete {
+pub(crate) struct Delete {
     #[clap(help = "The bundle ID.")]
-    pub bundle_id: MeasurementBundleId,
+    bundle_id: MeasurementBundleId,
 
     #[clap(long, help = "Also purge any journal records for this bundle.")]
-    pub purge_journals: bool,
+    purge_journals: bool,
 }
 
 /// Rename will rename a bundle for the given ID or name.
@@ -170,18 +170,18 @@ Rename a bundle selected explicitly by ID:
     12345678-1234-5678-90ab-cdef01234567 new-name --is-id
 
 ")]
-pub struct Rename {
+pub(crate) struct Rename {
     #[clap(help = "The existing bundle ID or name.")]
-    pub identifier: String,
+    identifier: String,
 
     #[clap(help = "The new bundle name.")]
-    pub new_bundle_name: String,
+    new_bundle_name: String,
 
     #[clap(long, help = "Explicitly say the identifier is bundle ID.")]
-    pub is_id: bool,
+    is_id: bool,
 
     #[clap(long, help = "Explicitly say the identifier is a bundle name.")]
-    pub is_name: bool,
+    is_name: bool,
 }
 
 impl IdNameIdentifier for Rename {
@@ -211,15 +211,15 @@ Show one bundle by name:
     $ nico-admin-cli attestation measured-boot bundle show my-bundle --is-name
 
 ")]
-pub struct Show {
+pub(crate) struct Show {
     #[clap(help = "The optional bundle ID or name.")]
-    pub identifier: Option<String>,
+    pub(super) identifier: Option<String>,
 
     #[clap(long, help = "Explicitly say the identifier is bundle ID.")]
-    pub is_id: bool,
+    is_id: bool,
 
     #[clap(long, help = "Explicitly say the identifier is a bundle name.")]
-    pub is_name: bool,
+    is_name: bool,
 }
 
 impl IdNameIdentifier for Show {
@@ -246,22 +246,22 @@ Revoke a known-bad bundle by ID:
     12345678-1234-5678-90ab-cdef01234567 revoked --is-id
 
 ")]
-pub struct SetState {
+pub(crate) struct SetState {
     #[clap(help = "The bundle ID or name to update.")]
-    pub identifier: String,
+    identifier: String,
 
     #[clap(
         required = true,
         value_enum,
         help = "The state to set for this bundle."
     )]
-    pub state: MeasurementBundleState,
+    state: MeasurementBundleState,
 
     #[clap(long, help = "Explicitly say the identifier is bundle ID.")]
-    pub is_id: bool,
+    is_id: bool,
 
     #[clap(long, help = "Explicitly say the identifier is a bundle name.")]
-    pub is_name: bool,
+    is_name: bool,
 }
 
 impl IdNameIdentifier for SetState {
@@ -286,7 +286,7 @@ List all machines matching a bundle:
     $ nico-admin-cli attestation measured-boot bundle list machines my-bundle
 
 ")]
-pub enum List {
+pub(crate) enum List {
     #[clap(about = "List all bundles", visible_alias = "a")]
     All(ListAll),
 
@@ -306,7 +306,7 @@ List metadata for all bundles:
     $ nico-admin-cli attestation measured-boot bundle list all
 
 ")]
-pub struct ListAll {}
+pub(crate) struct ListAll {}
 
 /// ListMachines lists all machines for a given bundle (by bundle name or ID).
 #[derive(Parser, Debug)]
@@ -321,15 +321,15 @@ List all machines matching a bundle selected explicitly by ID:
     12345678-1234-5678-90ab-cdef01234567 --is-id
 
 ")]
-pub struct ListMachines {
+pub(crate) struct ListMachines {
     #[clap(help = "The existing bundle ID or name.")]
-    pub identifier: String,
+    identifier: String,
 
     #[clap(long, help = "Explicitly say the identifier is bundle ID.")]
-    pub is_id: bool,
+    is_id: bool,
 
     #[clap(long, help = "Explicitly say the identifier is a bundle name.")]
-    pub is_name: bool,
+    is_name: bool,
 }
 
 impl IdNameIdentifier for ListMachines {
@@ -351,7 +351,7 @@ Find the closest matching bundle for a report:
     12345678-1234-5678-90ab-cdef01234567
 
 ")]
-pub enum FindClosestMatch {
+pub(crate) enum FindClosestMatch {
     #[clap(about = "The existing report ID.")]
     Report(ReportId),
 }
@@ -365,9 +365,9 @@ Find the closest matching bundle for a report:
     12345678-1234-5678-90ab-cdef01234567
 
 ")]
-pub struct ReportId {
+pub(crate) struct ReportId {
     #[clap(help = "Report ID.")]
-    pub id: MeasurementReportId,
+    id: MeasurementReportId,
 }
 
 impl From<Create> for CreateMeasurementBundleRequest {

@@ -93,7 +93,7 @@ pub(super) async fn check_bgp_stats(
     health_data.into_health_report(hr);
 }
 
-pub fn check_daemon_enabled(hr: &mut health_report::HealthReport, hbn_daemons_file: &str) {
+pub(super) fn check_daemon_enabled(hr: &mut health_report::HealthReport, hbn_daemons_file: &str) {
     let daemons = match std::fs::read_to_string(hbn_daemons_file) {
         Ok(s) => s,
         Err(err) => {
@@ -403,7 +403,7 @@ struct BgpHealthData {
 }
 
 impl BgpHealthData {
-    pub fn into_health_report(mut self, hr: &mut health_report::HealthReport) {
+    fn into_health_report(mut self, hr: &mut health_report::HealthReport) {
         if self.other_errors.is_empty() {
             passed(hr, probe_ids::BgpStats.clone(), None);
         } else {
@@ -494,7 +494,7 @@ struct BgpStats {
 
 impl BgpStats {
     /// Returns the list of peers that are not connected to TORs
-    pub fn other_peers(&self) -> impl Iterator<Item = (&String, &BgpPeer)> {
+    fn other_peers(&self) -> impl Iterator<Item = (&String, &BgpPeer)> {
         lazy_static::lazy_static! {
             static ref TOR_SESSION_RE: regex::Regex = regex::Regex::new(r"^p[0-9]+_[si]f$").unwrap();
         }

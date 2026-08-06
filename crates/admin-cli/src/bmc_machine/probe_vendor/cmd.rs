@@ -19,7 +19,7 @@ use super::args::Args;
 use crate::errors::CarbideCliResult;
 use crate::rpc::ApiClient;
 
-pub async fn probe_vendor(args: Args, api_client: &ApiClient) -> CarbideCliResult<()> {
+pub(super) async fn probe_vendor(args: Args, api_client: &ApiClient) -> CarbideCliResult<()> {
     let response = api_client.0.probe_bmc_vendor(args).await?;
     println!("{}", response.vendor);
     Ok(())

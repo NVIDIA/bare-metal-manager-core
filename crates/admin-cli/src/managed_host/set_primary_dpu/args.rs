@@ -32,21 +32,21 @@ Request another reconciliation for the selected DPU:
     abcdef01-2345-6789-abcd-ef0123456789 --force-reconcile
 
 ")]
-pub struct Args {
+pub(crate) struct Args {
     #[clap(help = "ID of the host machine")]
-    pub host_machine_id: MachineId,
+    host_machine_id: MachineId,
     #[clap(help = "ID of the DPU machine to make primary")]
-    pub dpu_machine_id: MachineId,
+    dpu_machine_id: MachineId,
     #[clap(
         long,
         help = "Request a fresh machine-controller reconciliation even when this DPU is already selected"
     )]
-    pub force_reconcile: bool,
+    force_reconcile: bool,
     #[clap(
         long,
         help = "Deprecated compatibility alias; use --force-reconcile with current servers"
     )]
-    pub reboot: bool,
+    reboot: bool,
 }
 
 #[allow(deprecated)] // Keep `--reboot` functional when this CLI calls an older server.

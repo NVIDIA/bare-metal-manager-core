@@ -26,7 +26,7 @@ use tokio_util::sync::CancellationToken;
 use crate::CarbideResult;
 use crate::cfg::file::MeasuredBootMetricsCollectorConfig;
 
-pub(crate) mod metrics;
+pub(in crate::measured_boot) mod metrics;
 use carbide_uuid::measured_boot::MeasurementBundleId;
 use metrics::MeasuredBootMetricsCollectorMetrics;
 
@@ -67,7 +67,7 @@ impl carbide_instrument::DynamicLog for MeasuredBootCollectorIteration {
 }
 
 /// `MeasuredBootMetricsCollector` monitors the state of all measured boot data.
-pub struct MeasuredBootMetricsCollector {
+pub(crate) struct MeasuredBootMetricsCollector {
     database_connection: sqlx::PgPool,
     config: MeasuredBootMetricsCollectorConfig,
     metric_holder: Arc<metrics::MetricHolder>,
@@ -75,7 +75,7 @@ pub struct MeasuredBootMetricsCollector {
 
 impl MeasuredBootMetricsCollector {
     /// Create a MeasuredBootMetricsCollector
-    pub fn new(
+    pub(crate) fn new(
         database_connection: sqlx::PgPool,
         config: MeasuredBootMetricsCollectorConfig,
         meter: opentelemetry::metrics::Meter,
@@ -98,7 +98,7 @@ impl MeasuredBootMetricsCollector {
 
     /// Start the MeasuredBootMetricsCollector and return a [sending channel](tokio::sync::oneshot::Sender)
     /// that will stop the MeasuredBootMetricsCollector when dropped.
-    pub fn start(
+    pub(crate) fn start(
         self,
         join_set: &mut JoinSet<()>,
         cancel_token: CancellationToken,
@@ -130,7 +130,7 @@ impl MeasuredBootMetricsCollector {
         }
     }
 
-    pub async fn run_single_iteration(&self) -> CarbideResult<()> {
+    pub(in crate::measured_boot) async fn run_single_iteration(&self) -> CarbideResult<()> {
         let started = std::time::Instant::now();
         let result = self.collect_metrics().await;
         carbide_instrument::emit(MeasuredBootCollectorIteration {

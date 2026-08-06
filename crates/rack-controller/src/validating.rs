@@ -48,22 +48,22 @@ pub(super) fn strip_rv_labels(metadata: &mut Metadata) -> bool {
 /// Aggregated summary of all partition validation statuses in a rack.
 /// Used by the state handler to determine state transitions.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
-pub(crate) struct RackPartitionSummary {
+struct RackPartitionSummary {
     /// Total number of partitions in the rack
-    pub total_partitions: usize,
+    total_partitions: usize,
     /// Number of partitions that haven't started validation
-    pub pending: usize,
+    pending: usize,
     /// Number of partitions currently being validated
-    pub in_progress: usize,
+    in_progress: usize,
     /// Number of partitions that passed validation
-    pub validated: usize,
+    validated: usize,
     /// Number of partitions that failed validation
-    pub failed: usize,
+    failed: usize,
 }
 
 /// Per-machine rack-validation state, derived from machine metadata labels.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(super) enum MachineRvState {
+enum MachineRvState {
     Idle,
     Inp,
     Pass,
@@ -107,20 +107,20 @@ impl TryFrom<Metadata> for MachineRvState {
 /// validation participants. Machines without it are silently skipped.
 /// Machines whose `rv.run-id` label is missing or doesn't match the
 /// provided `run_id` are also skipped (stale labels from previous runs).
-pub(super) struct RvPartitions {
-    pub(super) inner: HashMap<String, Vec<MachineRvState>>,
+struct RvPartitions {
+    inner: HashMap<String, Vec<MachineRvState>>,
 }
 
 impl RvPartitions {
     /// Build from a vec of machines, filtering by run ID.
-    pub fn from_machines(machines: Vec<Machine>, run_id: &str) -> Result<Self, StateHandlerError> {
+    fn from_machines(machines: Vec<Machine>, run_id: &str) -> Result<Self, StateHandlerError> {
         Self::from_meta_iter(machines.into_iter().map(|m| m.metadata), run_id)
     }
 
     /// Core grouping logic over any iterator of Metadata.
     /// Extracted so unit tests can feed plain metadata without constructing
     /// full Machine values.
-    pub fn from_meta_iter(
+    fn from_meta_iter(
         iter: impl Iterator<Item = Metadata>,
         run_id: &str,
     ) -> Result<Self, StateHandlerError> {
@@ -158,7 +158,7 @@ impl RvPartitions {
     /// - Failed      else if any node is `Fail`
     /// - InProgress  else if any node is `Inp`
     /// - Pending     otherwise (all `Idle`, or a mix of `Idle`/`Pass`)
-    pub fn summarize(&self) -> RackPartitionSummary {
+    fn summarize(&self) -> RackPartitionSummary {
         let mut summary = RackPartitionSummary {
             total_partitions: self.inner.len(),
             ..Default::default()
@@ -187,7 +187,7 @@ impl RvPartitions {
 ///
 /// Queries all machines belonging to the rack, reads their validation metadata
 /// labels, and aggregates the status by partition.
-pub(super) async fn load_partition_summary(
+async fn load_partition_summary(
     rack_id: &RackId,
     rack: &Rack,
     run_id: &str,
@@ -209,7 +209,7 @@ pub(super) async fn load_partition_summary(
 
 /// Scans the rack's machines for an `rv.run-id` label set by RVS.
 /// Returns the first run ID found, or `None` if RVS has not started a run yet.
-pub(super) async fn find_rv_run_id(
+async fn find_rv_run_id(
     rack_id: &RackId,
     rack: &Rack,
     ctx: &mut StateHandlerContext<'_, RackStateHandlerContextObjects>,
@@ -237,7 +237,7 @@ pub(super) async fn find_rv_run_id(
 ///
 /// Pure function encoding the validation state machine transitions.
 /// Returns `None` if no transition should occur.
-pub(crate) fn compute_validation_transition(
+fn compute_validation_transition(
     current: &RackValidationState,
     summary: &RackPartitionSummary,
 ) -> Option<RackValidationState> {
@@ -321,7 +321,7 @@ pub(crate) fn compute_validation_transition(
 //------------------------------------------------------------------------------
 // State handler
 
-pub async fn handle_validating(
+pub(super) async fn handle_validating(
     id: &RackId,
     state: &mut Rack,
     validating_state: &RackValidationState,

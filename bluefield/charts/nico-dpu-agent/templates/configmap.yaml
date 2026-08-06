@@ -1,0 +1,12 @@
+{{- with .Values.fmds.sign_proxy_url }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "nico-dpu-agent.fullname" $ }}-config
+  labels:
+    {{- include "nico-dpu-agent.labels" $ | nindent 4 }}
+data:
+  config.toml: |
+    [machine-identity]
+    sign-proxy-url = {{ . | quote }}
+{{- end }}

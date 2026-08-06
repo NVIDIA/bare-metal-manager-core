@@ -143,7 +143,7 @@ impl Run for RemoveProfileByProfileId {
 }
 
 /// Import imports a serialized SiteModel back into the database.
-pub async fn import(grpc_conn: &ApiClient, import: Import) -> CarbideCliResult<ImportResult> {
+async fn import(grpc_conn: &ApiClient, import: Import) -> CarbideCliResult<ImportResult> {
     // Prepare.
     let reader = BufReader::new(File::open(import.path)?);
     let site_model: SiteModel = serde_json::from_reader(reader)?;
@@ -161,7 +161,7 @@ pub async fn import(grpc_conn: &ApiClient, import: Import) -> CarbideCliResult<I
 
 /// Export grabs all of the data needed to build a SiteModel.
 /// Summary is explicitly set to false so all data is serialized.
-pub async fn export(grpc_conn: &ApiClient, _export: Export) -> CarbideCliResult<SiteModel> {
+async fn export(grpc_conn: &ApiClient, _export: Export) -> CarbideCliResult<SiteModel> {
     // Prepare.
     // Force != summarized output, so all keys
     // accompany the serialized data.
@@ -174,7 +174,7 @@ pub async fn export(grpc_conn: &ApiClient, _export: Export) -> CarbideCliResult<
 }
 
 /// approve_machine is used to approve a trusted machine by machine ID.
-pub async fn approve_machine(
+async fn approve_machine(
     grpc_conn: &ApiClient,
     approve: ApproveMachine,
 ) -> CarbideCliResult<MeasurementApprovedMachineRecord> {
@@ -186,7 +186,7 @@ pub async fn approve_machine(
 
 /// remove_machine_by_approval_id removes a trusted machine approval
 /// by its approval ID.
-pub async fn remove_machine_by_approval_id(
+async fn remove_machine_by_approval_id(
     grpc_conn: &ApiClient,
     by_approval_id: RemoveMachineByApprovalId,
 ) -> CarbideCliResult<MeasurementApprovedMachineRecord> {
@@ -201,7 +201,7 @@ pub async fn remove_machine_by_approval_id(
 
 /// remove_machine_by_machine_id removes a trusted machine approval
 /// by its machine ID.
-pub async fn remove_machine_by_machine_id(
+async fn remove_machine_by_machine_id(
     grpc_conn: &ApiClient,
     by_machine_id: RemoveMachineByMachineId,
 ) -> CarbideCliResult<MeasurementApprovedMachineRecord> {
@@ -215,7 +215,7 @@ pub async fn remove_machine_by_machine_id(
 }
 
 /// list_machines lists all trusted machine approvals.
-pub async fn list_machines(
+async fn list_machines(
     grpc_conn: &ApiClient,
 ) -> CarbideCliResult<MeasurementApprovedMachineRecordList> {
     Ok(MeasurementApprovedMachineRecordList(
@@ -234,7 +234,7 @@ pub async fn list_machines(
 }
 
 /// approve_profile is used to approve a trusted profile by profile ID.
-pub async fn approve_profile(
+async fn approve_profile(
     grpc_conn: &ApiClient,
     approve: ApproveProfile,
 ) -> CarbideCliResult<MeasurementApprovedProfileRecord> {
@@ -246,7 +246,7 @@ pub async fn approve_profile(
 
 /// remove_profile_by_approval_id removes a trusted profile approval
 /// by its approval ID.
-pub async fn remove_profile_by_approval_id(
+async fn remove_profile_by_approval_id(
     grpc_conn: &ApiClient,
     by_approval_id: RemoveProfileByApprovalId,
 ) -> CarbideCliResult<MeasurementApprovedProfileRecord> {
@@ -261,7 +261,7 @@ pub async fn remove_profile_by_approval_id(
 
 /// remove_profile_by_machine_id removes a trusted machine approval
 /// by its profile ID.
-pub async fn remove_profile_by_profile_id(
+async fn remove_profile_by_profile_id(
     grpc_conn: &ApiClient,
     by_profile_id: RemoveProfileByProfileId,
 ) -> CarbideCliResult<MeasurementApprovedProfileRecord> {
@@ -275,7 +275,7 @@ pub async fn remove_profile_by_profile_id(
 }
 
 /// list_profiles lists all trusted profile approvals.
-pub async fn list_profiles(
+async fn list_profiles(
     grpc_conn: &ApiClient,
 ) -> CarbideCliResult<MeasurementApprovedProfileRecordList> {
     Ok(MeasurementApprovedProfileRecordList(
@@ -297,7 +297,7 @@ pub async fn list_profiles(
 /// pattern for a Vec<MeasurementApprovedMachineRecord> so the ToTable
 /// trait can be leveraged (since we don't define Vec).
 #[derive(Serialize)]
-pub struct MeasurementApprovedMachineRecordList(Vec<MeasurementApprovedMachineRecord>);
+struct MeasurementApprovedMachineRecordList(Vec<MeasurementApprovedMachineRecord>);
 
 impl ToTable for MeasurementApprovedMachineRecordList {
     fn into_table(self) -> eyre::Result<String> {
@@ -335,7 +335,7 @@ impl ToTable for MeasurementApprovedMachineRecordList {
 /// pattern for a Vec<MeasurementApprovedProfileRecord> so the ToTable
 /// trait can be leveraged (since we don't define Vec).
 #[derive(Serialize)]
-pub struct MeasurementApprovedProfileRecordList(Vec<MeasurementApprovedProfileRecord>);
+struct MeasurementApprovedProfileRecordList(Vec<MeasurementApprovedProfileRecord>);
 
 impl ToTable for MeasurementApprovedProfileRecordList {
     fn into_table(self) -> eyre::Result<String> {

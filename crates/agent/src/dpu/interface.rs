@@ -236,11 +236,11 @@ mod tests {
     use crate::dpu::interface::IpInterface;
 
     struct TestInterfaceData {
-        pub current: Vec<IpInterface>,
-        pub desired: Vec<IpNetwork>,
+        current: Vec<IpInterface>,
+        desired: Vec<IpNetwork>,
     }
     impl TestInterfaceData {
-        pub async fn new(interface: &str) -> Self {
+        async fn new(interface: &str) -> Self {
             Self {
                 current: Interface::current_addresses(interface).await.unwrap(),
                 desired: Vec::new(),

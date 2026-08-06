@@ -32,17 +32,17 @@ Add a model-specific factory-default for BlueField-4 DPUs:
     $ nico-admin-cli credential add-dpu-factory-default --model bf4 --username admin --password mynewpassword
 
 ")]
-pub struct Args {
+pub(crate) struct Args {
     #[clap(long, required(true), help = "Default username: root, ADMIN, etc")]
-    pub username: String,
+    username: String,
     #[clap(long, required(true), help = "DPU manufacturer default password")]
-    pub password: String,
+    password: String,
     #[clap(
         long,
         default_value = "unknown",
         help = "DPU model: bf2, bf3, bf4, or unknown (catch-all / backward-compatible default)"
     )]
-    pub model: bmc_vendor::DpuModel,
+    model: bmc_vendor::DpuModel,
 }
 
 impl From<Args> for forgerpc::CredentialCreationRequest {

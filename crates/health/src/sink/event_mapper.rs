@@ -19,15 +19,12 @@ use std::borrow::Cow;
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 
-#[allow(dead_code)] // used by OtlpSink in the next commit
 pub trait RedfishEventMapper: Send + Sync {
     fn queue_key(&self, bmc_id: &str, attributes: &[(Cow<'static, str>, String)]) -> String;
 }
 
-#[allow(dead_code)] // used by OtlpSink in the next commit
 pub struct OpenBmcEventMapper;
 
-#[allow(dead_code)]
 impl OpenBmcEventMapper {
     fn find_attr<'a>(attributes: &'a [(Cow<'static, str>, String)], key: &str) -> Option<&'a str> {
         attributes

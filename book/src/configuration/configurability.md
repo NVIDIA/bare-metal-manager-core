@@ -685,7 +685,7 @@ These don't fit any sub-section but show up in production tuning:
 | Field | Default | When to touch |
 |-------|---------|---------------|
 | `max_database_connections` | `1000` | Drop when running multiple `nico-api` replicas to avoid saturating Postgres `max_connections`. |
-| `api_admission_control` | enabled, `64` executing, `1024` pending, `5s` timeout | Tune the bounded shared budget for gRPC and admin business requests after scale testing; disable only as a rollback escape hatch. |
+| [`api_admission_control`](#api-admission-control--api_admission_control) | enabled | Fair per-client scheduling for gRPC and admin business requests. See the dedicated section for configuration and service overrides. |
 | `max_find_by_ids` | `100` | Increase if scripts paginate batch lookups; raise the API-side limit to match the client. |
 | `compute_allocation_enforcement` | `WarnOnly` | Switch to `Enforce` once tenant compute pools are sized correctly — flips over-allocation from a warning to a refusal. |
 | `bmc_session_lockout_threshold` | `3` | Number of consecutive 401/403s from a BMC before NICo stops session-token logins for that BMC. Raise on environments with flaky BMC firmware. |
@@ -699,6 +699,37 @@ These don't fit any sub-section but show up in production tuning:
 | `common_tenant_host_asn` | unset | If set, tenants must use this ASN for peering with the DPU. If unset, any ASN is accepted. |
 | `site_global_vpc_vni` | unset | Cumulus Linux route-leaking workaround — forces every VRF to share one VNI. Limits each DPU to one VRF. |
 | `bgp_leaf_session_password` | unset | When set to `site_wide`, returns one credential to all DPU agents for leaf-facing BGP sessions. Otherwise per-leaf credentials are used. |
+
+### API admission control — `[api_admission_control]`
+
+Admission control places each authenticated client in its own bounded FIFO and
+schedules clients fairly within shared global execution and pending-request
+budgets. It is enabled by default. The defaults apply to external users, SPIFFE
+machines, SPIFFE services without an override, and requests without a
+recognized client identity.
+
+```toml
+[api_admission_control]
+enabled = true
+max_work_in_flight = 64
+max_pending = 1024
+max_work_in_flight_per_client = 8
+max_pending_per_client = 64
+pending_timeout = "5s"
+client_idle_timeout = "5m"
+
+[api_admission_control.service_limits.scout]
+max_work_in_flight = 16
+max_pending = 128
+pending_timeout = "5s"
+```
+
+Service overrides are keyed by the exact SPIFFE service identifier (for
+example, `scout`), and may give trusted internal services a different share
+without exceeding the global bounds. Tune the global and per-client limits
+after scale testing. Set `enabled = false` only as a rollback escape hatch.
+For field-level defaults and validation rules, see
+[`ApiAdmissionControlConfig`](../../../crates/api-core/src/cfg/README.md#apiadmissioncontrolconfig).
 
 ### FNN routing profiles and prefix filters
 

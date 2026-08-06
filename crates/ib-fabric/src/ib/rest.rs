@@ -32,7 +32,7 @@ use super::ufmclient::{
 use super::{IBFabric, IBFabricConfig, IBFabricVersions};
 use crate::errors::IbError;
 
-pub struct RestIBFabric {
+pub(super) struct RestIBFabric {
     ufm: Ufm,
 }
 
@@ -68,7 +68,7 @@ pub(super) fn auth_method(auth: &str) -> (Option<String>, Option<UFMCert>) {
     }
 }
 
-pub fn new_client(addr: &str, auth: &str) -> Result<Arc<dyn IBFabric>, IbError> {
+pub(super) fn new_client(addr: &str, auth: &str) -> Result<Arc<dyn IBFabric>, IbError> {
     let (token, cert) = auth_method(auth);
 
     let conf = UFMConfig {

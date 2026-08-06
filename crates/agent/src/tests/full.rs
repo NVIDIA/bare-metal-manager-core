@@ -140,7 +140,7 @@ async fn test_nvue_generic(
 // and that data populates the data retrieved by the metadata endpoint server.
 #[tokio::test(flavor = "multi_thread")]
 // Test retrieving instance metadata using FMDS
-pub async fn test_fmds_get_data() -> eyre::Result<()> {
+async fn test_fmds_get_data() -> eyre::Result<()> {
     let out = run_common_parts(VpcVirtualizationType::EthernetVirtualizer, true).await?;
     if out.is_skip {
         return Ok(());

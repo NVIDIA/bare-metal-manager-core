@@ -30,6 +30,7 @@ use clap::{CommandFactory, Parser};
 
 use super::common::ExtensionServiceType;
 use super::*;
+use crate::test_support::parse_leaf;
 
 // verify_cmd_structure runs a baseline clap debug_assert()
 // to do basic command configuration checking and validation,
@@ -118,17 +119,23 @@ fn parse_create_routes_and_binds_fields() {
             },
         ],
         |argv| -> Result<CreateFields, ()> {
-            match Cmd::try_parse_from(argv.iter().copied()).map_err(drop)? {
-                Cmd::Create(args) => Ok((
-                    args.service_id,
-                    args.service_name,
-                    args.service_type,
-                    args.data,
-                    args.description,
-                    args.registry_url,
-                )),
-                _ => panic!("expected Create variant"),
-            }
+            let matches = parse_leaf::<Cmd>(argv, &["create"]).map_err(drop)?;
+            Ok((
+                matches.get_one::<String>("service_id").cloned(),
+                matches
+                    .get_one::<String>("service_name")
+                    .expect("service name is required")
+                    .clone(),
+                *matches
+                    .get_one::<ExtensionServiceType>("service_type")
+                    .expect("service type is required"),
+                matches
+                    .get_one::<String>("data")
+                    .expect("data is required")
+                    .clone(),
+                matches.get_one::<String>("description").cloned(),
+                matches.get_one::<String>("registry_url").cloned(),
+            ))
         },
     );
 }
@@ -150,10 +157,17 @@ fn parse_update_routes_and_binds_fields() {
             expect: Yields(("svc-123".to_string(), "{}".to_string())),
         }],
         |argv| -> Result<(String, String), ()> {
-            match Cmd::try_parse_from(argv.iter().copied()).map_err(drop)? {
-                Cmd::Update(args) => Ok((args.service_id, args.data)),
-                _ => panic!("expected Update variant"),
-            }
+            let matches = parse_leaf::<Cmd>(argv, &["update"]).map_err(drop)?;
+            Ok((
+                matches
+                    .get_one::<String>("service_id")
+                    .expect("service ID is required")
+                    .clone(),
+                matches
+                    .get_one::<String>("data")
+                    .expect("data is required")
+                    .clone(),
+            ))
         },
     );
 }
@@ -186,10 +200,19 @@ fn parse_delete_routes_and_binds_fields() {
             },
         ],
         |argv| -> Result<(String, Vec<String>), ()> {
-            match Cmd::try_parse_from(argv.iter().copied()).map_err(drop)? {
-                Cmd::Delete(args) => Ok((args.service_id, args.versions)),
-                _ => panic!("expected Delete variant"),
-            }
+            let matches = parse_leaf::<Cmd>(argv, &["delete"]).map_err(drop)?;
+            Ok((
+                matches
+                    .get_one::<String>("service_id")
+                    .expect("service ID is required")
+                    .clone(),
+                matches
+                    .get_many::<String>("versions")
+                    .into_iter()
+                    .flatten()
+                    .cloned()
+                    .collect(),
+            ))
         },
     );
 }
@@ -227,10 +250,14 @@ fn parse_show_routes_and_binds_fields() {
             },
         ],
         |argv| -> Result<ShowFields, ()> {
-            match Cmd::try_parse_from(argv.iter().copied()).map_err(drop)? {
-                Cmd::Show(args) => Ok((args.id, args.service_type, args.service_name)),
-                _ => panic!("expected Show variant"),
-            }
+            let matches = parse_leaf::<Cmd>(argv, &["show"]).map_err(drop)?;
+            Ok((
+                matches.get_one::<String>("id").cloned(),
+                matches
+                    .get_one::<ExtensionServiceType>("service_type")
+                    .copied(),
+                matches.get_one::<String>("service_name").cloned(),
+            ))
         },
     );
 }
@@ -250,10 +277,19 @@ fn parse_get_version_routes_and_binds_fields() {
             expect: Yields(("svc-123".to_string(), Vec::<String>::new())),
         }],
         |argv| -> Result<(String, Vec<String>), ()> {
-            match Cmd::try_parse_from(argv.iter().copied()).map_err(drop)? {
-                Cmd::GetVersion(args) => Ok((args.service_id, args.versions)),
-                _ => panic!("expected GetVersion variant"),
-            }
+            let matches = parse_leaf::<Cmd>(argv, &["get-version"]).map_err(drop)?;
+            Ok((
+                matches
+                    .get_one::<String>("service_id")
+                    .expect("service ID is required")
+                    .clone(),
+                matches
+                    .get_many::<String>("versions")
+                    .into_iter()
+                    .flatten()
+                    .cloned()
+                    .collect(),
+            ))
         },
     );
 }
@@ -274,10 +310,14 @@ fn parse_show_instances_routes_and_binds_fields() {
             expect: Yields(("svc-123".to_string(), None)),
         }],
         |argv| -> Result<(String, Option<String>), ()> {
-            match Cmd::try_parse_from(argv.iter().copied()).map_err(drop)? {
-                Cmd::ShowInstances(args) => Ok((args.service_id, args.version)),
-                _ => panic!("expected ShowInstances variant"),
-            }
+            let matches = parse_leaf::<Cmd>(argv, &["show-instances"]).map_err(drop)?;
+            Ok((
+                matches
+                    .get_one::<String>("service_id")
+                    .expect("service ID is required")
+                    .clone(),
+                matches.get_one::<String>("version").cloned(),
+            ))
         },
     );
 }

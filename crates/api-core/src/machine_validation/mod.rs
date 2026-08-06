@@ -121,14 +121,14 @@ impl carbide_instrument::DynamicLog for MachineValidationCompleted {
     }
 }
 
-pub struct MachineValidationManager {
+pub(crate) struct MachineValidationManager {
     database_connection: sqlx::PgPool,
     config: MachineValidationConfig,
     metric_holder: Arc<metrics::MetricHolder>,
 }
 
 impl MachineValidationManager {
-    pub fn new(
+    pub(crate) fn new(
         database_connection: sqlx::PgPool,
         mut config: MachineValidationConfig,
         meter: opentelemetry::metrics::Meter,
@@ -155,7 +155,7 @@ impl MachineValidationManager {
             metric_holder,
         }
     }
-    pub fn start(
+    pub(crate) fn start(
         self,
         join_set: &mut JoinSet<()>,
         cancel_token: CancellationToken,
@@ -188,7 +188,7 @@ impl MachineValidationManager {
 
     /// run_single_iteration runs a single iteration of the state machine across all explored endpoints in the preingestion state.
     /// Returns true if we stopped early due to a timeout.
-    pub async fn run_single_iteration(&self) -> CarbideResult<()> {
+    pub(crate) async fn run_single_iteration(&self) -> CarbideResult<()> {
         let mut metrics = MachineValidationMetrics::new();
         // Completion events for the runs this iteration transitions, emitted
         // only after the transaction commits: an iteration that fails and

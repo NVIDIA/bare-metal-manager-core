@@ -230,19 +230,24 @@ jobs:
       # steps. github-script is first-party, so we use it to re-export the two
       # values instead of taking on a third-party action for this.
       #
+      # Deliberately not tied to `inputs.cache`. That input turns off the
+      # BuildKit layer cache, which is a different mechanism: sccache caches
+      # individual compilations, so it still pays off for an image whose layers
+      # are worthless because `COPY . ./` invalidates everything after it. When
+      # the two shared one input, turning the layer cache off for the Rust
+      # images also dropped sccache to the local mount and cost
+      # build-release-container-x86_64 its 347 hits and 2m11s.
+      #
       # Runs unconditionally and always exports a non-empty value. buildx
       # rejects a secret whose value is empty, so a skipped step or an unset
       # token would fail the build outright instead of merely disabling the
       # cache. The sentinel is what the Dockerfiles detect.
       - name: Expose Actions cache credentials to the build
         uses: actions/github-script@v7
-        env:
-          CACHE_ENABLED: ${{ inputs.cache }}
         with:
           script: |
-            const enabled = process.env.CACHE_ENABLED === 'true';
-            const token = enabled ? (process.env.ACTIONS_RUNTIME_TOKEN || '') : '';
-            const url = enabled ? (process.env.ACTIONS_RESULTS_URL || '') : '';
+            const token = process.env.ACTIONS_RUNTIME_TOKEN || '';
+            const url = process.env.ACTIONS_RESULTS_URL || '';
             if (token) core.setSecret(token);
             core.exportVariable('BUILD_ACTIONS_RUNTIME_TOKEN', token || 'unavailable');
             core.exportVariable('BUILD_ACTIONS_RESULTS_URL', url || 'unavailable');
@@ -262,6 +267,19 @@ jobs:
             echo "build_args=" >> $GITHUB_OUTPUT
           fi
 
+      # Loading means exporting the whole image to the daemon, so it is only
+      # worth doing when a later step reads it back: the deferred push on
+      # mirrors, or the main-branch Grype scan, which inspects the local
+      # daemon. A pull request runs neither, yet the 8 GB boot-artifacts
+      # carrier still spent a measured 5m20s on the export before every step
+      # that could have used it was skipped. Decided once here so the build and
+      # the summary cannot disagree about what happened.
+      - name: Decide whether to load the image locally
+        id: loadgate
+        env:
+          NEEDED: ${{ (inputs.load && !inputs.push && inputs.scan && github.ref == 'refs/heads/main') || (inputs.push && !contains(inputs.platforms, ',') && github.repository != 'NVIDIA/infra-controller') }}
+        run: printf 'load=%s\n' "${NEEDED}" >> "$GITHUB_OUTPUT"
+
       - name: Build image
         id: build
         uses: docker/build-push-action@v5
@@ -275,7 +293,7 @@ jobs:
           # images cannot be loaded into the classic store, so they always push
           # directly.
           push: ${{ inputs.push && (contains(inputs.platforms, ',') || github.repository == 'NVIDIA/infra-controller') }}
-          load: ${{ (inputs.load && !inputs.push) || (inputs.push && !contains(inputs.platforms, ',') && github.repository != 'NVIDIA/infra-controller') }}
+          load: ${{ steps.loadgate.outputs.load == 'true' }}
           # mirrors: the docker exporter cannot attach attestations, and
           # provenance would embed private downstream repo refs into artifacts
           provenance: ${{ github.repository == 'NVIDIA/infra-controller' && 'mode=min' || 'false' }}
@@ -335,6 +353,23 @@ jobs:
           key="$(basename -- "$IMAGE_NAME")"
           printf 'key=%s\n' "$key" >> "$GITHUB_OUTPUT"
 
+      # security-container-scan inspects the local Docker daemon and never pulls
+      # for itself. On this repo main pushes straight from buildx and loads
+      # nothing, so the scan's precheck reported "local docker image not found"
+      # and both the SBOM and Grype steps recorded outcome=skipped -- invisible,
+      # because continue-on-error and fail-build=false turn that into a green
+      # check. Fetching the image we just pushed is what makes the mainline scan
+      # actually scan. A warning rather than a failure: this must not be able to
+      # break publishing, but it must stop being silent.
+      - name: Fetch pushed image for the scan
+        if: ${{ inputs.scan && github.ref == 'refs/heads/main' && steps.build.outcome == 'success' && steps.loadgate.outputs.load != 'true' }}
+        env:
+          IMAGE: ${{ steps.tag_list.outputs.primary }}
+        run: |
+          if ! docker pull "${IMAGE}"; then
+            echo "::warning::could not pull ${IMAGE}; the Grype scan will find no local image and skip"
+          fi
+
       - name: Grype vulnerability scan
         if: ${{ inputs.scan && github.ref == 'refs/heads/main' && steps.build.outcome == 'success' }}
         continue-on-error: true
@@ -354,4 +389,4 @@ jobs:
           echo "  Digest: ${{ steps.build.outputs.digest }}"
           echo "  Platforms: ${{ inputs.platforms }}"
           echo "  Pushed: ${{ inputs.push }}"
-          echo "  Loaded locally: ${{ inputs.load && !inputs.push }}"
+          echo "  Loaded locally: ${{ steps.loadgate.outputs.load }}"

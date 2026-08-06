@@ -21,9 +21,9 @@ use clap::Parser;
 use crate::errors::{CarbideCliError, CarbideCliResult};
 
 #[derive(Parser, Debug)]
-pub struct DpfQuery {
+pub(super) struct DpfQuery {
     #[clap(help = "Host machine id")]
-    pub host: Option<MachineId>,
+    pub(super) host: Option<MachineId>,
 }
 
 impl TryFrom<&DpfQuery> for MachineId {

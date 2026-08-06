@@ -33,7 +33,7 @@ use tracing::{trace, warn};
 use crate::instrumentation::ConfigFetch;
 use crate::util::{get_periodic_dpu_config, get_sitename};
 
-pub struct PeriodicFetcherState {
+struct PeriodicFetcherState {
     config: PeriodicConfigFetcherConfig,
     netconf: ArcSwapOption<rpc::ManagedHostNetworkConfigResponse>,
     instmeta: ArcSwapOption<InstanceMetadata>,
@@ -42,50 +42,50 @@ pub struct PeriodicFetcherState {
 }
 
 /// Fetches the desired network configuration for a managed host in regular intervals
-pub struct PeriodicConfigFetcher {
+pub(super) struct PeriodicConfigFetcher {
     state: Arc<PeriodicFetcherState>,
     join_handle: Option<tokio::task::JoinHandle<()>>,
 }
 
-pub struct PeriodicConfigFetcherReader {
+pub(super) struct PeriodicConfigFetcherReader {
     state: Arc<PeriodicFetcherState>,
 }
 /// The instance metadata - as fetched from the
 /// Forge Site Controller
 #[derive(Clone, Debug)]
-pub struct InstanceMetadata {
-    pub address: String,
-    pub hostname: String,
-    pub instance_name: Option<String>,
-    pub sitename: Option<String>,
-    pub instance_id: Option<InstanceId>,
-    pub machine_id: Option<MachineId>,
-    pub user_data: String,
-    pub ib_devices: Option<Vec<IBDeviceConfig>>,
-    pub config_version: ConfigVersion,
-    pub network_config_version: ConfigVersion,
-    pub extension_service_version: ConfigVersion,
+pub(super) struct InstanceMetadata {
+    pub(super) address: String,
+    pub(super) hostname: String,
+    pub(super) instance_name: Option<String>,
+    pub(super) sitename: Option<String>,
+    pub(super) instance_id: Option<InstanceId>,
+    pub(super) machine_id: Option<MachineId>,
+    pub(super) user_data: String,
+    pub(super) ib_devices: Option<Vec<IBDeviceConfig>>,
+    pub(super) config_version: ConfigVersion,
+    pub(super) network_config_version: ConfigVersion,
+    pub(super) extension_service_version: ConfigVersion,
 }
 
 #[derive(Clone, Debug)]
-pub struct IBDeviceConfig {
-    pub pf_guid: String,
-    pub instances: Vec<IBInstanceConfig>,
+pub(super) struct IBDeviceConfig {
+    pub(super) pf_guid: String,
+    pub(super) instances: Vec<IBInstanceConfig>,
 }
 
 #[derive(Clone, Debug)]
-pub struct IBInstanceConfig {
-    pub ib_partition_id: Option<IBPartitionId>,
-    pub ib_guid: Option<String>,
-    pub lid: u32,
+pub(super) struct IBInstanceConfig {
+    pub(super) ib_partition_id: Option<IBPartitionId>,
+    pub(super) ib_guid: Option<String>,
+    pub(super) lid: u32,
 }
 
 impl PeriodicConfigFetcherReader {
-    pub fn net_conf_read(&self) -> Option<Arc<rpc::ManagedHostNetworkConfigResponse>> {
+    pub(super) fn net_conf_read(&self) -> Option<Arc<rpc::ManagedHostNetworkConfigResponse>> {
         self.state.netconf.load_full()
     }
 
-    pub fn meta_data_conf_reader(&self) -> Option<Arc<InstanceMetadata>> {
+    pub(super) fn meta_data_conf_reader(&self) -> Option<Arc<InstanceMetadata>> {
         self.state.instmeta.load_full()
     }
 }
@@ -106,7 +106,7 @@ impl Drop for PeriodicConfigFetcher {
 }
 
 impl PeriodicConfigFetcher {
-    pub async fn new(config: PeriodicConfigFetcherConfig) -> Self {
+    pub(super) async fn new(config: PeriodicConfigFetcherConfig) -> Self {
         let forge_client_config = Arc::clone(&config.forge_client_config);
         // Fetch the sitename from Carbide at the start and keep it in State
         // so that it can be made available as instance metadata.
@@ -143,13 +143,13 @@ impl PeriodicConfigFetcher {
         }
     }
 
-    pub fn reader(&self) -> Box<PeriodicConfigFetcherReader> {
+    pub(super) fn reader(&self) -> Box<PeriodicConfigFetcherReader> {
         Box::new(PeriodicConfigFetcherReader {
             state: self.state.clone(),
         })
     }
 
-    pub fn get_host_machine_interface_id(&self) -> Option<MachineInterfaceId> {
+    pub(super) fn get_host_machine_interface_id(&self) -> Option<MachineInterfaceId> {
         self.state
             .netconf
             .load()
@@ -159,12 +159,12 @@ impl PeriodicConfigFetcher {
     }
 }
 
-pub struct PeriodicConfigFetcherConfig {
+pub(super) struct PeriodicConfigFetcherConfig {
     /// The interval in which the config is fetched
-    pub config_fetch_interval: Duration,
-    pub machine_id: MachineId,
-    pub forge_api: String,
-    pub forge_client_config: Arc<ForgeClientConfig>,
+    pub(super) config_fetch_interval: Duration,
+    pub(super) machine_id: MachineId,
+    pub(super) forge_api: String,
+    pub(super) forge_client_config: Arc<ForgeClientConfig>,
 }
 
 // Use the version grpc call to carbide to get
@@ -245,7 +245,7 @@ async fn single_fetch(
 }
 
 /// Make the network request to get network config
-pub async fn fetch(
+async fn fetch(
     dpu_machine_id: &MachineId,
     forge_api: &str,
     client_config: &ForgeClientConfig,
@@ -255,7 +255,7 @@ pub async fn fetch(
     get_periodic_dpu_config(&mut client, dpu_machine_id).await
 }
 
-pub fn instance_metadata_from_instance(
+fn instance_metadata_from_instance(
     instance: Option<Instance>,
     sitename: Option<String>,
 ) -> Result<Option<InstanceMetadata>, eyre::Error> {

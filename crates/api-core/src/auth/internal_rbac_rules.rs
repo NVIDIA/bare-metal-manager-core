@@ -24,7 +24,7 @@ use crate::auth::Principal;
 static INTERNAL_RBAC_RULES: LazyLock<InternalRBACRules> = LazyLock::new(InternalRBACRules::new);
 
 #[derive(Debug)]
-pub struct InternalRBACRules {
+pub(super) struct InternalRBACRules {
     perms: std::collections::HashMap<String, RuleInfo>,
 }
 
@@ -53,7 +53,7 @@ use self::RulePrincipal::{
 };
 
 impl InternalRBACRules {
-    pub fn new() -> Self {
+    pub(super) fn new() -> Self {
         let mut x = Self {
             perms: HashMap::default(),
         };
@@ -307,7 +307,7 @@ impl InternalRBACRules {
         x.perm("AdminGrowResourcePool", vec![ForgeAdminCLI]);
         x.perm("SetMaintenance", vec![ForgeAdminCLI, SiteAgent, Flow]);
         x.perm("SetDynamicConfig", vec![ForgeAdminCLI, Machineatron]);
-        x.perm("TriggerDpuReprovisioning", vec![ForgeAdminCLI]);
+        x.perm("TriggerDpuReprovisioning", vec![ForgeAdminCLI, SiteAgent]);
         x.perm("TriggerHostReprovisioning", vec![ForgeAdminCLI, Flow]);
         x.perm("ListDpuWaitingForReprovisioning", vec![ForgeAdminCLI]);
         x.perm("MarkManualFirmwareUpgradeComplete", vec![ForgeAdminCLI]);
@@ -524,7 +524,7 @@ impl InternalRBACRules {
         );
         x.perm("HeartbeatMachineValidationRun", vec![Scout, SiteAgent]);
         x.perm("AdminBmcReset", vec![ForgeAdminCLI]);
-        x.perm("AdminPowerControl", vec![ForgeAdminCLI, Flow]);
+        x.perm("AdminPowerControl", vec![ForgeAdminCLI, SiteAgent, Flow]);
         x.perm("DisableSecureBoot", vec![ForgeAdminCLI]);
         x.perm("MachineSetup", vec![ForgeAdminCLI]);
         x.perm("SetDpuFirstBootOrder", vec![ForgeAdminCLI]);
@@ -927,11 +927,14 @@ impl InternalRBACRules {
             .insert(msg.to_string(), RuleInfo::new(principals));
     }
 
-    pub fn allowed_from_static(msg: &str, user_principals: &[crate::auth::Principal]) -> bool {
+    pub(super) fn allowed_from_static(
+        msg: &str,
+        user_principals: &[crate::auth::Principal],
+    ) -> bool {
         INTERNAL_RBAC_RULES.allowed(msg, user_principals)
     }
 
-    pub fn allowed(&self, msg: &str, user_principals: &[crate::auth::Principal]) -> bool {
+    pub(super) fn allowed(&self, msg: &str, user_principals: &[crate::auth::Principal]) -> bool {
         if let Some(perm_info) = self.perms.get(msg) {
             if user_principals.is_empty() {
                 // No proper cert presented, but we will allow stuff that allows just Anonymous
@@ -961,7 +964,7 @@ struct RuleInfo {
 }
 
 impl RuleInfo {
-    pub fn new(principals: Vec<RulePrincipal>) -> Self {
+    fn new(principals: Vec<RulePrincipal>) -> Self {
         // Helper: emit both the nico-* and carbide-* SPIFFE service identifiers
         // for a renamed service. The matcher in `allowed()` walks this Vec with
         // `.any(...)`, so any cert presenting either string is accepted. Drop
@@ -1143,6 +1146,27 @@ mod rbac_rule_tests {
                 "elektra-site-agent".to_string()
             )]
         ));
+
+        // REST admin operations proxy to Core as the site agent (issue #4597).
+        for method in ["AdminPowerControl", "TriggerDpuReprovisioning"] {
+            assert!(
+                InternalRBACRules::allowed_from_static(
+                    method,
+                    &[Principal::SpiffeServiceIdentifier(
+                        "elektra-site-agent".to_string()
+                    )]
+                ),
+                "{method} should allow the site agent"
+            );
+            assert!(
+                !InternalRBACRules::allowed_from_static(
+                    method,
+                    &[Principal::SpiffeServiceIdentifier("nico-dns".to_string())]
+                ),
+                "{method} should reject unrelated services"
+            );
+        }
+
         assert!(InternalRBACRules::allowed_from_static(
             "FindNetworkSegmentsByIds",
             &[

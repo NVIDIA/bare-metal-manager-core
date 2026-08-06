@@ -15,6 +15,7 @@
  * limitations under the License.
  */
 
+use carbide_uuid::rack::RackId;
 use clap::{Parser, ValueEnum};
 use rpc::forge as forgerpc;
 
@@ -24,7 +25,7 @@ use rpc::forge as forgerpc;
 // render and validate the choices.
 #[derive(ValueEnum, Debug, Clone)]
 #[clap(rename_all = "kebab-case")]
-pub enum NmxcOperationArg {
+pub(super) enum NmxcOperationArg {
     ComputeNodeInfoList,
     SwitchNodeInfoList,
     GpuInfo,
@@ -59,6 +60,9 @@ EXAMPLES:
 List the GPUs on a chassis via NMX-C:
     $ nico-admin-cli browse nmxc --chassis-serial 1234567890 --operation gpu-info-list
 
+List the GPUs in a rack via NMX-C:
+    $ nico-admin-cli browse nmxc --rack-id rack_vr_min_1 --operation gpu-info-list
+
 List the compute nodes on a chassis:
     $ nico-admin-cli browse nmxc --chassis-serial 1234567890 --operation compute-node-info-list
 
@@ -75,17 +79,30 @@ Get NMX-C domain properties:
     $ nico-admin-cli browse nmxc --chassis-serial 1234567890 --operation get-domain-properties
 
 ")]
-pub struct Args {
-    #[clap(long, help = "Chassis serial number")]
-    pub chassis_serial: String,
+pub(crate) struct Args {
+    #[clap(
+        long,
+        help = "Chassis serial number (mutually exclusive with --rack-id)",
+        conflicts_with = "rack_id",
+        required_unless_present = "rack_id"
+    )]
+    pub(super) chassis_serial: Option<String>,
+
+    #[clap(
+        long,
+        help = "Rack ID; resolves the NMX-C endpoint from the rack's ready control-plane switch (mutually exclusive with --chassis-serial)",
+        conflicts_with = "chassis_serial",
+        required_unless_present = "chassis_serial"
+    )]
+    pub(super) rack_id: Option<RackId>,
 
     #[clap(long, value_enum, help = "NMX-C browse operation to run")]
-    pub operation: NmxcOperationArg,
+    pub(super) operation: NmxcOperationArg,
 
     #[clap(
         long,
         default_value = "0",
         help = "GPU UID (used by the gpu-info operation)"
     )]
-    pub gpu_uid: u64,
+    pub(super) gpu_uid: u64,
 }

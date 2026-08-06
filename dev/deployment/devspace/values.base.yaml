@@ -155,6 +155,11 @@ nico-machine-a-tron:
   # No need to copy secrets or configure cross-namespace access
   machineATron:
     nicoApiUrl: "https://nico-api.nico-system.svc.cluster.local:1079"
+  # Preserve simulated machine identity and installed OS across pod restarts.
+  # Without this, Core can remain in an Assigned state while a restarted
+  # machine-a-tron has reset the corresponding host and DPUs to MachineDown.
+  persistence:
+    enabled: true
   # SPIFFE URI must match nico-api's allowed service_base_paths
   certificate:
     uris:

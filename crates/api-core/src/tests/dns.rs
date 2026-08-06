@@ -498,7 +498,7 @@ fn ip_to_arpa(addr: IpAddr) -> String {
 // TODO(chet): Find a common place for this and the same exact
 // function in api-test/tests/integration/main.rs to exist, instead
 // of it being in two places.
-pub async fn get_dns_record_count(pool: &sqlx::Pool<Postgres>) -> i64 {
+pub(in crate::tests) async fn get_dns_record_count(pool: &sqlx::Pool<Postgres>) -> i64 {
     let mut txn = pool.begin().await.unwrap();
     let query = "SELECT COUNT(*) as row_cnt FROM dns_records";
     let rows = sqlx::query::<_>(query).fetch_one(&mut *txn).await.unwrap();

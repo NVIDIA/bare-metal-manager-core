@@ -27,7 +27,7 @@ use crate::cfg::dispatch::Dispatch;
 
 #[derive(Parser, Debug, Clone, Dispatch)]
 #[clap(rename_all = "kebab_case")]
-pub enum Cmd {
+pub(crate) enum Cmd {
     #[clap(about = "Display tenant details")]
     Show(show::Args),
     #[clap(about = "Update an existing tenant")]

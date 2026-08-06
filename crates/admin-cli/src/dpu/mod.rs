@@ -24,7 +24,7 @@ mod status;
 mod versions;
 
 // Cross-module re-exports for machine module
-pub use network::cmd::show_dpu_status;
+pub(crate) use network::cmd::show_dpu_status;
 
 #[cfg(test)]
 mod tests;
@@ -34,7 +34,7 @@ use clap::Parser;
 use crate::cfg::dispatch::Dispatch;
 
 #[derive(Parser, Debug, Dispatch)]
-pub enum Cmd {
+pub(crate) enum Cmd {
     #[clap(subcommand, about = "DPU Reprovisioning handling")]
     Reprovision(reprovision::Args),
     #[clap(about = "Get or set forge-dpu-agent upgrade policy")]

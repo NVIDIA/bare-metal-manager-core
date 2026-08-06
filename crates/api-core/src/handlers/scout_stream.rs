@@ -122,7 +122,7 @@ where
     }
 }
 
-pub async fn show_connections(
+pub(crate) async fn show_connections(
     api: &Api,
     request: Request<rpc::ScoutStreamShowConnectionsRequest>,
 ) -> Result<Response<rpc::ScoutStreamShowConnectionsResponse>, Status> {
@@ -149,7 +149,7 @@ pub async fn show_connections(
         scout_stream_connections: connection_list,
     }))
 }
-pub async fn disconnect(
+pub(crate) async fn disconnect(
     api: &Api,
     request: Request<rpc::ScoutStreamDisconnectRequest>,
 ) -> Result<Response<rpc::ScoutStreamDisconnectResponse>, Status> {
@@ -163,7 +163,7 @@ pub async fn disconnect(
     }))
 }
 
-pub async fn ping(
+pub(crate) async fn ping(
     api: &Api,
     request: Request<rpc::ScoutStreamAdminPingRequest>,
 ) -> Result<Response<rpc::ScoutStreamAdminPingResponse>, Status> {
@@ -256,26 +256,33 @@ mod tests {
     use axum::routing::post;
     use futures::stream;
     use tokio::sync::Notify;
+    use tokio::task::JoinSet;
     use tokio_util::sync::CancellationToken;
     use tower::ServiceExt;
 
     use super::*;
     use crate::admission::{ApiAdmissionControl, enforce as enforce_admission};
     use crate::cfg::file::ApiAdmissionControlConfig;
-    use crate::tests::common::api_fixtures::create_test_env;
+    use crate::tests::create_test_env;
 
     #[crate::sqlx_test]
     async fn stalled_initial_message_times_out_and_releases_admission_capacity(pool: sqlx::PgPool) {
         let env = create_test_env(pool).await;
+        let mut join_set = JoinSet::new();
         let controller = ApiAdmissionControl::from_config(
             &ApiAdmissionControlConfig {
                 enabled: true,
                 max_work_in_flight: 1,
                 max_pending: 1,
+                max_work_in_flight_per_client: 1,
+                max_pending_per_client: 1,
                 pending_timeout: SCOUT_STREAM_INIT_TIMEOUT + Duration::from_secs(1),
+                client_idle_timeout: Duration::from_secs(60),
+                service_limits: Default::default(),
             },
             &opentelemetry::global::meter("scout-stream-init-timeout-test"),
             CancellationToken::new(),
+            &mut join_set,
         )
         .expect("test admission config is valid")
         .expect("test admission is enabled");

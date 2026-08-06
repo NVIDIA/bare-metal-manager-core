@@ -38,7 +38,7 @@ use crate::context::MachineStateHandlerContextObjects;
 
 /// Handles the Maintenance state for a host, dispatching on the requested
 /// operation (`PowerOn` / `PowerOff` / `Reset`).
-pub async fn handle_maintenance(
+pub(super) async fn handle_maintenance(
     host_machine_id: &MachineId,
     mh_snapshot: &ManagedHostStateSnapshot,
     ctx: &mut StateHandlerContext<'_, MachineStateHandlerContextObjects>,
@@ -279,7 +279,7 @@ async fn finish_maintenance_with_error(
 
 /// If a maintenance request has been posted via `machine_maintenance_requested`,
 /// transitions to [`ManagedHostState::Maintenance`] with the requested operation.
-pub fn maintenance_transition_if_requested(
+pub(super) fn maintenance_transition_if_requested(
     mh_snapshot: &ManagedHostStateSnapshot,
 ) -> Option<StateHandlerOutcome<ManagedHostState>> {
     let req = mh_snapshot

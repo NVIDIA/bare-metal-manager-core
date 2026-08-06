@@ -28,13 +28,13 @@ use std::sync::{Arc, Mutex};
 /// duplicate probe is harmless and writes are still guarded by optimistic concurrency. If `nico-api`
 /// is ever scaled to multiple active replicas, this would no longer dedupe across them.
 #[derive(Clone, Default)]
-pub struct EndpointExplorationLocks {
+pub(super) struct EndpointExplorationLocks {
     in_flight: Arc<Mutex<HashSet<IpAddr>>>,
 }
 
 /// A claim on exploring a single endpoint. The endpoint is released when this is dropped, including
 /// on panic or task cancellation.
-pub struct EndpointExplorationGuard {
+pub(super) struct EndpointExplorationGuard {
     in_flight: Arc<Mutex<HashSet<IpAddr>>>,
     bmc_ip: IpAddr,
 }
@@ -51,7 +51,7 @@ impl Drop for EndpointExplorationGuard {
 impl EndpointExplorationLocks {
     /// Try to claim exclusive exploration of `bmc_ip` within this process. Returns `None` if another
     /// task is already exploring it.
-    pub fn try_claim(&self, bmc_ip: IpAddr) -> Option<EndpointExplorationGuard> {
+    pub(super) fn try_claim(&self, bmc_ip: IpAddr) -> Option<EndpointExplorationGuard> {
         let claimed = self
             .in_flight
             .lock()

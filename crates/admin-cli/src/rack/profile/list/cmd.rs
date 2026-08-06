@@ -130,7 +130,7 @@ fn build_profile_table(rack_profiles: &[ConfiguredRackProfile]) -> Table {
     table
 }
 
-pub async fn list_profiles(
+pub(in crate::rack::profile) async fn list_profiles(
     api_client: &ApiClient,
     _args: Args,
     config: &RuntimeConfig,

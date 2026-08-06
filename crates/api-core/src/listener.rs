@@ -38,7 +38,7 @@ use tower_http::add_extension::AddExtensionLayer;
 use tower_http::auth::AsyncRequireAuthorizationLayer;
 use tower_http::normalize_path::NormalizePath;
 
-use crate::admission::{ApiAdmissionControl, enforce as enforce_admission};
+use crate::admission::{AdminAdmissionControl, ApiAdmissionControl, enforce_grpc};
 use crate::api::Api;
 use crate::auth;
 use crate::auth::Authorization;
@@ -47,25 +47,29 @@ use crate::errors::CarbideError;
 use crate::logging::api_logs::LogLayer;
 
 /// Builds the admin web UI, i.e. all the `/admin/...` HTML pages (hosts, instances,
-/// IB fabrics, etc.). Given the [`Api`] service, it returns the axum router holding
-/// those pages.
+/// IB fabrics, etc.). Given the [`Api`] service and optional shared admission
+/// handle, it returns the axum router holding those pages. The web crate installs
+/// admission after its authentication middleware so fair scheduling sees the
+/// authenticated user identity.
 ///
 /// `None` means "don't serve the admin UI at all" -- used by the in-process test
 /// servers, which only exercise the gRPC API and never load the web pages.
-pub type AdminUiRoutesBuilder =
-    Box<dyn FnOnce(Arc<Api>) -> eyre::Result<NormalizePath<axum::Router>> + Send>;
+pub type AdminUiRoutesBuilder = Box<
+    dyn FnOnce(Arc<Api>, Option<AdminAdmissionControl>) -> eyre::Result<NormalizePath<axum::Router>>
+        + Send,
+>;
 
-pub enum ApiListenMode {
+pub(crate) enum ApiListenMode {
     Tls(Arc<ApiTlsConfig>),
     PlaintextHttp1,
     PlaintextHttp2,
 }
 
-pub struct ApiTlsConfig {
-    pub identity_pemfile_path: String,
-    pub identity_keyfile_path: String,
-    pub root_cafile_path: String,
-    pub admin_root_cafile_path: String,
+pub(crate) struct ApiTlsConfig {
+    pub(crate) identity_pemfile_path: String,
+    pub(crate) identity_keyfile_path: String,
+    pub(crate) root_cafile_path: String,
+    pub(crate) admin_root_cafile_path: String,
 }
 
 /// this function blocks, don't use it in a raw async context
@@ -282,7 +286,7 @@ struct TlsConnectionFailed {
 /// `listen_port` uses port zero.
 #[allow(clippy::too_many_arguments)]
 #[tracing::instrument(skip_all)]
-pub async fn start(
+pub(crate) async fn start(
     join_set: &mut JoinSet<()>,
     api_service: Arc<Api>,
     listen_mode: ApiListenMode,
@@ -362,12 +366,27 @@ pub async fn start(
         ))
     };
 
+    let admission_config = &api_service.runtime_config.api_admission_control;
+    let admission_control =
+        ApiAdmissionControl::from_config(admission_config, &meter, cancel_token.clone(), join_set)?;
+    if admission_control.is_none() {
+        tracing::info!("API admission control disabled");
+    }
+
+    let grpc_router = axum::Router::new().route_service(
+        ::rpc::service_path!("{*rpc}"),
+        rpc::forge_server::ForgeServer::from_arc(api_service.clone()),
+    );
+    let grpc_router = match admission_control.as_ref() {
+        Some(control) => grpc_router.layer(axum::middleware::from_fn_with_state(
+            Arc::clone(control),
+            enforce_grpc,
+        )),
+        None => grpc_router,
+    };
     let router = axum::Router::new()
         .route("/", axum::routing::get(root_url))
-        .route_service(
-            ::rpc::service_path!("{*rpc}"),
-            rpc::forge_server::ForgeServer::from_arc(api_service.clone()),
-        )
+        .merge(grpc_router)
         .route_service(
             "/grpc.reflection.v1alpha.ServerReflection/{*r}",
             api_reflection_service,
@@ -378,24 +397,15 @@ pub async fn start(
     // top-level binary so that this crate doesn't depend on it (see
     // [`AdminUiRoutesBuilder`]).
     let router = match admin_ui_routes_builder {
-        Some(build_admin_router) => {
-            router.nest_service("/admin", build_admin_router(api_service.clone())?)
-        }
+        Some(build_admin_router) => router.nest_service(
+            "/admin",
+            build_admin_router(
+                api_service.clone(),
+                admission_control.map(AdminAdmissionControl::new),
+            )?,
+        ),
         None => router,
     };
-
-    let admission_config = &api_service.runtime_config.api_admission_control;
-    let router =
-        match ApiAdmissionControl::from_config(admission_config, &meter, cancel_token.clone())? {
-            Some(control) => router.layer(axum::middleware::from_fn_with_state(
-                control,
-                enforce_admission,
-            )),
-            None => {
-                tracing::info!("API admission control disabled");
-                router
-            }
-        };
 
     let app = tower::ServiceBuilder::new()
         .layer(LogLayer::new(meter.clone()))

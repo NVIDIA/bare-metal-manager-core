@@ -32,7 +32,7 @@ use sqlx::postgres::PgConnectOptions;
 /// directory is created containing only the snapshot.
 #[derive(Parser)]
 #[command(name = "squash-migrations")]
-pub struct Args {
+pub(super) struct Args {
     /// Postgres user.
     /// Defaults to TESTDB_USER, assuming you're running
     /// this from the repo with a loaded up .envrc.
@@ -57,7 +57,7 @@ pub struct Args {
     migrations_dir: Option<PathBuf>,
 }
 
-pub async fn run(args: Args) -> Result<()> {
+pub(super) async fn run(args: Args) -> Result<()> {
     let migrations_dir = args
         .migrations_dir
         .as_ref()

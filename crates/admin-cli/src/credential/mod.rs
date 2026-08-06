@@ -46,7 +46,7 @@ pub(crate) const NMX_M_UNSUPPORTED_MESSAGE: &str =
 
 #[derive(Parser, Debug, Clone, Dispatch)]
 #[clap(rename_all = "kebab_case")]
-pub enum Cmd {
+pub(crate) enum Cmd {
     #[clap(about = "Add UFM credential")]
     AddUFM(add_ufm::Args),
     #[clap(about = "Delete UFM credential")]

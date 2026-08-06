@@ -276,7 +276,7 @@ async fn handle_dpa_message(services: Arc<Api>, message: SetVni, topic: String) 
 
 // Create an MQTTEA client, and start up the thread that will do eventloop polling
 // by doing a connect.
-pub async fn start_dpa_handler(
+pub(crate) async fn start_dpa_handler(
     join_set: &mut JoinSet<()>,
     api_service: Arc<Api>,
     cancel_token: CancellationToken,

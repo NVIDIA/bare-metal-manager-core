@@ -20,14 +20,14 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use carbide_uuid::machine::MachineId;
 use opentelemetry::metrics::Meter;
 
-pub struct MachineUpdateManagerMetrics {
-    pub machines_in_maintenance: Arc<AtomicU64>,
-    pub machine_updates_started: Arc<AtomicU64>,
-    pub concurrent_machine_updates_available: Arc<AtomicU64>,
+pub(super) struct MachineUpdateManagerMetrics {
+    pub(super) machines_in_maintenance: Arc<AtomicU64>,
+    pub(super) machine_updates_started: Arc<AtomicU64>,
+    pub(super) concurrent_machine_updates_available: Arc<AtomicU64>,
 }
 
 impl MachineUpdateManagerMetrics {
-    pub fn new() -> Self {
+    pub(super) fn new() -> Self {
         MachineUpdateManagerMetrics {
             machines_in_maintenance: Arc::new(AtomicU64::new(0)),
             machine_updates_started: Arc::new(AtomicU64::new(0)),
@@ -35,7 +35,7 @@ impl MachineUpdateManagerMetrics {
         }
     }
 
-    pub fn register_callbacks(&mut self, meter: &Meter) {
+    pub(super) fn register_callbacks(&mut self, meter: &Meter) {
         let machines_in_maintenance = self.machines_in_maintenance.clone();
         let machine_updates_started = self.machine_updates_started.clone();
         let concurrent_machine_updates_available =
@@ -70,7 +70,7 @@ impl MachineUpdateManagerMetrics {
 /// The device class a firmware update targets: the `target` label shared by
 /// [`FirmwareUpdateProgress`] and [`FirmwareUpdateFailed`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq, carbide_instrument::LabelValue)]
-pub enum FirmwareUpdateTarget {
+pub(crate) enum FirmwareUpdateTarget {
     /// Host firmware, applied through host reprovisioning.
     Host,
     /// DPU NIC firmware, applied through DPU reprovisioning.
@@ -82,7 +82,7 @@ pub enum FirmwareUpdateTarget {
 /// The phase a firmware update just reached, as the `phase` label on
 /// [`FirmwareUpdateProgress`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq, carbide_instrument::LabelValue)]
-pub enum FirmwareUpdatePhase {
+pub(crate) enum FirmwareUpdatePhase {
     Started,
     Completed,
 }
@@ -107,27 +107,27 @@ pub enum FirmwareUpdatePhase {
     message = "Firmware update progress",
     describe = "Number of firmware updates started and completed, by update target and phase; only the host target emits both phases"
 )]
-pub struct FirmwareUpdateProgress {
+pub(crate) struct FirmwareUpdateProgress {
     #[label]
-    pub target: FirmwareUpdateTarget,
+    pub(crate) target: FirmwareUpdateTarget,
     #[label]
-    pub phase: FirmwareUpdatePhase,
+    pub(crate) phase: FirmwareUpdatePhase,
     /// The host being reprovisioned (Host), the host whose DPUs update
     /// (DpuNic), or the machine holding the device (SuperNic).
     #[context]
-    pub machine_id: MachineId,
+    pub(crate) machine_id: MachineId,
     /// What the site knows beyond the machine id: the DPU list with firmware
     /// versions for DpuNic, the device identity and observed/expected
     /// versions for SuperNic. For Host it is empty on automatic starts and
     /// names the initiator on operator-initiated ones.
     #[context]
-    pub detail: String,
+    pub(crate) detail: String,
 }
 
 /// Why a firmware update failed, as the `cause` label on
 /// [`FirmwareUpdateFailed`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq, carbide_instrument::LabelValue)]
-pub enum FirmwareUpdateFailureCause {
+pub(crate) enum FirmwareUpdateFailureCause {
     /// Triggering reprovisioning found no ready machine row to update.
     NoUpdateMatch,
     /// The update ran but the device still reports an unexpected version.
@@ -146,23 +146,23 @@ pub enum FirmwareUpdateFailureCause {
     message = "Firmware update failed",
     describe = "Number of firmware update failures, by update target and cause"
 )]
-pub struct FirmwareUpdateFailed {
+pub(crate) struct FirmwareUpdateFailed {
     #[label]
-    pub target: FirmwareUpdateTarget,
+    pub(crate) target: FirmwareUpdateTarget,
     #[label]
-    pub cause: FirmwareUpdateFailureCause,
+    pub(crate) cause: FirmwareUpdateFailureCause,
     /// The host whose update could not start (NoUpdateMatch) or the DPU
     /// reporting the wrong version (WrongVersionAfterUpdate).
     #[context]
-    pub machine_id: MachineId,
+    pub(crate) machine_id: MachineId,
     /// The DPU the reprovisioning trigger could not match (NoUpdateMatch);
     /// empty otherwise.
     #[context]
-    pub unmatched_dpu_machine_id: String,
+    pub(crate) unmatched_dpu_machine_id: String,
     /// The firmware version observed after the attempted update
     /// (WrongVersionAfterUpdate); empty otherwise.
     #[context]
-    pub firmware_version: String,
+    pub(crate) firmware_version: String,
 }
 
 #[cfg(test)]

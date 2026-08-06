@@ -112,7 +112,7 @@ use crate::mqtt_state_change_hook::republisher::{
 use crate::scout_stream::ConnectionRegistry;
 use crate::{CarbideError, attestation, db_init, ethernet_virtualization, listener};
 
-pub fn create_ipmi_tool(
+fn create_ipmi_tool(
     credential_reader: Arc<dyn CredentialReader>,
     carbide_config: &CarbideConfig,
     bmc_proxy: Arc<ArcSwap<Option<HostPortPair>>>,

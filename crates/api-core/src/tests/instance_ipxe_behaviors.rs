@@ -198,7 +198,7 @@ async fn invoke_instance_power(
         .unwrap();
 }
 
-pub async fn create_instance<'a, 'b>(
+pub(in crate::tests) async fn create_instance<'a, 'b>(
     env: &'a TestEnv,
     mh: &'b TestManagedHost,
     run_provisioning_instructions_on_every_boot: bool,

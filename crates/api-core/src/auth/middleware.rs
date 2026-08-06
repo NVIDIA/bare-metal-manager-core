@@ -125,12 +125,12 @@ fn client_address(peer_address: Option<std::net::SocketAddr>) -> String {
 // tell from the implementation in the code, we are free to do it however we
 // like without violating any contracts.
 #[derive(Clone)]
-pub struct CasbinHandler {
+pub(crate) struct CasbinHandler {
     authorizer: Arc<CasbinAuthorizer>,
 }
 
 impl CasbinHandler {
-    pub fn new(authorizer: Arc<CasbinAuthorizer>) -> Self {
+    pub(crate) fn new(authorizer: Arc<CasbinAuthorizer>) -> Self {
         CasbinHandler { authorizer }
     }
 }
@@ -266,10 +266,10 @@ fn empty_response_with_status(status: StatusCode) -> Response<AxumBody> {
 }
 
 #[derive(Clone)]
-pub struct InternalRBACHandler {}
+pub(crate) struct InternalRBACHandler {}
 
 impl InternalRBACHandler {
-    pub fn new() -> Self {
+    pub(crate) fn new() -> Self {
         Self {}
     }
 }

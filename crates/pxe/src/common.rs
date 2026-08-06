@@ -28,32 +28,32 @@ use crate::extractors::machine_architecture;
 
 #[derive(Debug)]
 pub(crate) struct Machine {
-    pub instructions: CloudInitInstructions,
+    pub(super) instructions: CloudInitInstructions,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
 pub(crate) struct MachineInterface {
-    pub architecture: Option<machine_architecture::MachineArchitecture>,
+    pub(super) architecture: Option<machine_architecture::MachineArchitecture>,
     /// IP carbide-pxe observed for the booting machine: Does not support `X-Forwarded-For` for
     /// proxying, it is the real IP of the connecting client.
-    pub client_ip: IpAddr,
-    pub platform: Option<String>,
-    pub manufacturer: Option<String>,
-    pub product: Option<String>,
-    pub serial: Option<String>,
-    pub asset: Option<String>,
+    pub(super) client_ip: IpAddr,
+    pub(super) platform: Option<String>,
+    pub(super) manufacturer: Option<String>,
+    pub(super) product: Option<String>,
+    pub(super) serial: Option<String>,
+    pub(super) asset: Option<String>,
 }
 
 #[derive(Clone, Debug)]
 pub(crate) struct AppState {
-    pub engine: Engine<Tera>,
+    pub(super) engine: Engine<Tera>,
     // pub request_metrics: RequestMetrics,
-    pub runtime_config: RuntimeConfig,
-    pub prometheus_handle: PrometheusHandle,
+    pub(super) runtime_config: RuntimeConfig,
+    pub(super) prometheus_handle: PrometheusHandle,
     /// The registry behind the global OTel meter, where the instrumentation
     /// framework's events record; `/metrics` renders it alongside the
     /// `metrics-exporter-prometheus` recorder above.
-    pub otel_registry: prometheus::Registry,
+    pub(super) otel_registry: prometheus::Registry,
 }
 
 /// An [`AppState`] for handler tests: an empty template engine, a local

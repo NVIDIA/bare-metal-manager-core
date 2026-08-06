@@ -27,16 +27,16 @@ const BMC_FIRMWARE_VERSION: &str = "88.0002.1978";
 const SWITCH_MODEL: &str = "N5700_LD";
 const SWITCH_PART_NUMBER: &str = "920-9K33D-00MV-GS0";
 
-pub struct NvidiaSwitchN5700Ld<'a> {
-    pub bmc_mac_address_eth0: MacAddress,
-    pub bmc_mac_address_eth1: MacAddress,
-    pub bmc_mac_address_usb0: MacAddress,
-    pub bmc_serial_number: Cow<'a, str>,
-    pub switch_serial_number: Cow<'a, str>,
+pub(crate) struct NvidiaSwitchN5700Ld<'a> {
+    pub(crate) bmc_mac_address_eth0: MacAddress,
+    pub(crate) bmc_mac_address_eth1: MacAddress,
+    pub(crate) bmc_mac_address_usb0: MacAddress,
+    pub(crate) bmc_serial_number: Cow<'a, str>,
+    pub(crate) switch_serial_number: Cow<'a, str>,
 }
 
 impl NvidiaSwitchN5700Ld<'_> {
-    pub fn manager_config(&self) -> redfish::manager::Config {
+    pub(crate) fn manager_config(&self) -> redfish::manager::Config {
         let manager_id = "BMC_0";
         let eth_builder = |eth| {
             redfish::ethernet_interface::builder(&redfish::ethernet_interface::manager_resource(
@@ -68,7 +68,7 @@ impl NvidiaSwitchN5700Ld<'_> {
         }
     }
 
-    pub fn system_config(&self) -> redfish::computer_system::Config {
+    pub(crate) fn system_config(&self) -> redfish::computer_system::Config {
         redfish::computer_system::Config {
             systems: vec![redfish::computer_system::SingleSystemConfig {
                 id: Cow::Borrowed("System_0"),
@@ -92,7 +92,7 @@ impl NvidiaSwitchN5700Ld<'_> {
         }
     }
 
-    pub fn chassis_config(&self) -> redfish::chassis::ChassisConfig {
+    pub(crate) fn chassis_config(&self) -> redfish::chassis::ChassisConfig {
         let mut chassis = vec![
             self.bmc_eeprom_chassis(),
             self.cpld_chassis(),
@@ -129,7 +129,7 @@ impl NvidiaSwitchN5700Ld<'_> {
         redfish::chassis::ChassisConfig { chassis }
     }
 
-    pub fn update_service_config(&self) -> redfish::update_service::UpdateServiceConfig {
+    pub(crate) fn update_service_config(&self) -> redfish::update_service::UpdateServiceConfig {
         let fw_inv_builder = |id: &str| {
             redfish::software_inventory::builder(
                 &redfish::software_inventory::firmware_inventory_resource(id),

@@ -45,7 +45,7 @@ const GENERATED_SOURCE_DIRECTORIES: &[&str] = &["crates/ssh-console-mock-api-ser
 /// are rejected because they would bypass the identity checks. An unresolved
 /// ordinary `mod` is an error. Outlined children of the known generated-source
 /// directories are always skipped, whether their files are present or absent.
-pub fn check() -> eyre::Result<()> {
+pub(super) fn check() -> eyre::Result<()> {
     let metadata = MetadataCommand::new()
         .no_deps()
         .exec()

@@ -40,18 +40,18 @@ const CHASSIS_ID: &str = "chassis";
 
 /// Default per-PSU power states: the six-bay shelf the real scrape reports,
 /// all outputting power.
-pub const DEFAULT_PSU_POWER: &[bool] = &[true; 6];
+pub(crate) const DEFAULT_PSU_POWER: &[bool] = &[true; 6];
 
-pub struct DeltaPowerShelf<'a> {
-    pub bmc_mac_address: MacAddress,
-    pub product_serial_number: Cow<'a, str>,
+pub(crate) struct DeltaPowerShelf<'a> {
+    pub(crate) bmc_mac_address: MacAddress,
+    pub(crate) product_serial_number: Cow<'a, str>,
     /// Commanded on/off state per PSU bay, reported under
     /// `Oem.deltaenergysystems.Power`. One entry per `PowerSupplyUnit`.
-    pub psu_power: Cow<'a, [bool]>,
+    pub(crate) psu_power: Cow<'a, [bool]>,
 }
 
 impl DeltaPowerShelf<'_> {
-    pub fn manager_config(&self) -> redfish::manager::Config {
+    pub(crate) fn manager_config(&self) -> redfish::manager::Config {
         redfish::manager::Config {
             managers: vec![redfish::manager::SingleConfig {
                 id: "SMC",
@@ -74,11 +74,11 @@ impl DeltaPowerShelf<'_> {
     /// Delta power shelves expose no `ComputerSystem`; the collection is empty
     /// and (via the `exposes_computer_systems` gate) is not advertised or
     /// served. Site-explorer synthesizes a system from the chassis instead.
-    pub fn system_config(&self) -> redfish::computer_system::Config {
+    pub(crate) fn system_config(&self) -> redfish::computer_system::Config {
         redfish::computer_system::Config { systems: vec![] }
     }
 
-    pub fn chassis_config(&self) -> redfish::chassis::ChassisConfig {
+    pub(crate) fn chassis_config(&self) -> redfish::chassis::ChassisConfig {
         redfish::chassis::ChassisConfig {
             chassis: vec![redfish::chassis::SingleChassisConfig {
                 id: CHASSIS_ID.into(),
@@ -110,7 +110,7 @@ impl DeltaPowerShelf<'_> {
         }
     }
 
-    pub fn update_service_config(&self) -> redfish::update_service::UpdateServiceConfig {
+    pub(crate) fn update_service_config(&self) -> redfish::update_service::UpdateServiceConfig {
         redfish::update_service::UpdateServiceConfig {
             firmware_inventory: vec![],
         }

@@ -26,7 +26,7 @@ use tss_esapi::handles::KeyHandle;
 
 use crate::{CarbideClientError, attestation as attest, platform, tpm};
 
-pub async fn run(
+pub(super) async fn run(
     forge_api: &str,
     root_ca: String,
     machine_interface_id: Option<uuid::Uuid>,

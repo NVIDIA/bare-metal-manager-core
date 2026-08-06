@@ -28,6 +28,7 @@ use carbide_test_support::scenarios;
 use clap::{CommandFactory, Parser};
 
 use super::*;
+use crate::test_support::{parse_leaf, raw_value};
 
 // verify_cmd_structure runs a baseline clap debug_assert()
 // to do basic command configuration checking and validation,
@@ -75,11 +76,8 @@ fn parse_list() {
 fn parse_grow() {
     scenarios!(
         run = |argv| {
-            Cmd::try_parse_from(argv.iter().copied())
-                .map(|cmd| match cmd {
-                    Cmd::Grow(args) => args.filename,
-                    _ => panic!("expected Grow variant"),
-                })
+            parse_leaf::<Cmd>(argv, &["grow"])
+                .map(|matches| raw_value(&matches, "filename").expect("filename is required"))
                 .map_err(drop)
         };
         "grow with --filename" {
