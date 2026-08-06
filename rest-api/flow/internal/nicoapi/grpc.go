@@ -569,9 +569,16 @@ func (c *grpcClient) DecommissionSwitch(_ context.Context, switchID string) erro
 }
 
 // DecommissionPowerShelf initiates decommissioning of the given power shelf via Core.
-// TODO: Core Decommission PowerShelf RPC pending — stub returns not-implemented.
-func (c *grpcClient) DecommissionPowerShelf(_ context.Context, shelfID string) error {
-	return fmt.Errorf("not yet implemented: Core DecommissionPowerShelf RPC pending (shelf %s)", shelfID)
+func (c *grpcClient) DecommissionPowerShelf(ctx context.Context, shelfID string) error {
+	ctx, cancel := context.WithTimeout(ctx, c.grpcTimeout)
+	defer cancel()
+
+	_, err := c.gclient.DecommissionPowerShelf(ctx, &corev1.PowerShelfId{Id: shelfID})
+	if err != nil {
+		return fmt.Errorf("failed to decommission power shelf %s: %w", shelfID, err)
+	}
+
+	return nil
 }
 
 // AllowIngestionAndPowerOn opens NICo's power-on gate for a

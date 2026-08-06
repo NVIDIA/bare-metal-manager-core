@@ -15,19 +15,21 @@
  * limitations under the License.
  */
 
-//! State Controller implementation for Power Shelves.
+use super::args::Args;
+use crate::errors::CarbideCliResult;
+use crate::rpc::ApiClient;
 
-pub mod configuring;
-pub mod context;
-mod decommissioning;
-pub mod deleting;
-pub mod error_state;
-pub mod fetching_data;
-pub mod handler;
-pub mod initializing;
-pub mod io;
-pub mod maintenance;
-pub mod metrics;
-pub mod ready;
-pub mod reprovisioning;
-pub mod rotating_bmc;
+pub(super) async fn delete_decommissioned(
+    api_client: &ApiClient,
+    args: Args,
+) -> CarbideCliResult<()> {
+    api_client
+        .0
+        .delete_decommissioned_power_shelf(args.power_shelf_id)
+        .await?;
+    println!(
+        "Deleted decommissioned managed power shelf {}.",
+        args.power_shelf_id
+    );
+    Ok(())
+}

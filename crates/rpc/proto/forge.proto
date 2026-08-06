@@ -102,6 +102,10 @@ service Forge {
   rpc FindPowerShelves(PowerShelfQuery) returns (PowerShelfList);
   rpc FindPowerShelfIds(PowerShelfSearchFilter) returns (PowerShelfIdList);
   rpc FindPowerShelvesByIds(PowerShelvesByIdsRequest) returns (PowerShelfList);
+  // Starts the decommissioning workflow for a Ready managed power shelf.
+  rpc DecommissionPowerShelf(common.PowerShelfId) returns (google.protobuf.Empty);
+  // Permanently removes a managed power shelf after decommissioning has completed.
+  rpc DeleteDecommissionedPowerShelf(common.PowerShelfId) returns (google.protobuf.Empty);
   rpc DeletePowerShelf(PowerShelfDeletionRequest) returns (PowerShelfDeletionResult);
   // Force deletes a Power Shelf and optionally its associated interfaces from the database.
   rpc AdminForceDeletePowerShelf(AdminForceDeletePowerShelfRequest) returns (AdminForceDeletePowerShelfResponse);

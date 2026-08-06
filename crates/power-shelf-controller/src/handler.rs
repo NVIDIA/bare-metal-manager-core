@@ -28,6 +28,7 @@ use tracing::instrument;
 
 use crate::configuring::handle_configuring;
 use crate::context::PowerShelfStateHandlerContextObjects;
+use crate::decommissioning::{handle_preparing, handle_verifying_dhcp_release};
 use crate::deleting::handle_deleting;
 use crate::error_state::handle_error;
 use crate::fetching_data::handle_fetching_data;
@@ -90,6 +91,13 @@ impl PowerShelfStateHandler {
             PowerShelfControllerState::ReProvisioning { .. } => {
                 handle_reprovisioning(power_shelf_id, state, ctx).await
             }
+            PowerShelfControllerState::Preparing => {
+                handle_preparing(power_shelf_id, state, ctx).await
+            }
+            PowerShelfControllerState::VerifyingDhcpRelease { verifying_state } => {
+                handle_verifying_dhcp_release(verifying_state, state, ctx).await
+            }
+            PowerShelfControllerState::Decommissioned => Ok(StateHandlerOutcome::do_nothing()),
             PowerShelfControllerState::Deleting => {
                 handle_deleting(power_shelf_id, state, ctx).await
             }

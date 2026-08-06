@@ -54,6 +54,14 @@ pub async fn handle_ready(
         ));
     }
 
+    if state.decommission_requested {
+        let mut txn = ctx.services.db_pool.begin().await?;
+        db_power_shelf::clear_decommission_requested(txn.as_mut(), *power_shelf_id).await?;
+        return Ok(
+            StateHandlerOutcome::transition(PowerShelfControllerState::Preparing).with_txn(txn),
+        );
+    }
+
     if let Some(req) = state.power_shelf_maintenance_requested.as_ref() {
         tracing::info!(
             operation = ?req.operation,

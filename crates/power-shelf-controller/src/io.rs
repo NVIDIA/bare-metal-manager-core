@@ -171,6 +171,19 @@ impl StateControllerIO for PowerShelfStateControllerIO {
                 };
                 ("reprovisioning", sub)
             }
+            PowerShelfControllerState::Preparing => ("preparing", ""),
+            PowerShelfControllerState::VerifyingDhcpRelease { verifying_state } => {
+                let sub = match verifying_state {
+                    model::power_shelf::PowerShelfVerifyingDhcpReleaseState::FactoryResetBmc => {
+                        "factoryresetbmc"
+                    }
+                    model::power_shelf::PowerShelfVerifyingDhcpReleaseState::WaitingForBmcDhcpAcknowledgement => {
+                        "waitingforbmcdhcpacknowledgement"
+                    }
+                };
+                ("verifyingdhcprelease", sub)
+            }
+            PowerShelfControllerState::Decommissioned => ("decommissioned", ""),
             PowerShelfControllerState::Error { .. } => ("error", ""),
             PowerShelfControllerState::Deleting => ("deleting", ""),
         }

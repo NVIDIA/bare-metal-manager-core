@@ -408,6 +408,20 @@ impl Forge for Api {
         crate::handlers::power_shelf::find_by_ids(self, request).await
     }
 
+    async fn decommission_power_shelf(
+        &self,
+        request: Request<carbide_uuid::power_shelf::PowerShelfId>,
+    ) -> Result<Response<()>, Status> {
+        crate::handlers::power_shelf::decommission_power_shelf(self, request).await
+    }
+
+    async fn delete_decommissioned_power_shelf(
+        &self,
+        request: Request<carbide_uuid::power_shelf::PowerShelfId>,
+    ) -> Result<Response<()>, Status> {
+        crate::handlers::power_shelf::delete_decommissioned_power_shelf(self, request).await
+    }
+
     async fn delete_power_shelf(
         &self,
         request: Request<rpc::PowerShelfDeletionRequest>,

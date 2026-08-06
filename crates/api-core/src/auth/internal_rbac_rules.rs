@@ -721,6 +721,14 @@ impl InternalRBACRules {
             vec![ForgeAdminCLI, Machineatron, Flow],
         );
         x.perm("CreatePowerShelf", vec![ForgeAdminCLI, Machineatron]);
+        x.perm(
+            "DecommissionPowerShelf",
+            vec![ForgeAdminCLI, Machineatron, Flow],
+        );
+        x.perm(
+            "DeleteDecommissionedPowerShelf",
+            vec![ForgeAdminCLI, Machineatron, Flow],
+        );
         x.perm("DeletePowerShelf", vec![ForgeAdminCLI, Machineatron]);
         x.perm(
             "AddExpectedPowerShelf",

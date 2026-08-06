@@ -3629,13 +3629,18 @@ pub async fn delete(
         crate::retained_boot_interface::upsert(&mut *txn, mac_address, &boot_interface_id).await?;
     }
 
-    let query = "UPDATE machine_interfaces_deletion SET last_deletion=NOW() WHERE id = 1";
-    sqlx::query(query)
-        .bind(*interface_id)
+    record_deletion(txn).await
+}
+
+/// Record that machine interface data may have been invalidated so DHCP
+/// servers restart and reload their configuration.
+pub async fn record_deletion(txn: &mut PgConnection) -> Result<(), DatabaseError> {
+    const QUERY: &str = "UPDATE machine_interfaces_deletion SET last_deletion=NOW() WHERE id = 1";
+    sqlx::query(QUERY)
         .execute(txn)
         .await
         .map(|_| ())
-        .map_err(|e| DatabaseError::query(query, e))
+        .map_err(|error| DatabaseError::query(QUERY, error))
 }
 
 pub async fn delete_by_ip(txn: &mut PgConnection, ip: IpAddr) -> Result<Option<()>, DatabaseError> {
@@ -3674,6 +3679,18 @@ pub async fn find_ids_by_power_shelf_id(
         .fetch_all(txn)
         .await
         .map_err(|e| DatabaseError::query(query, e))
+}
+
+/// Find all machine interfaces associated with a power shelf.
+pub async fn find_by_power_shelf_id(
+    txn: &mut PgConnection,
+    power_shelf_id: &PowerShelfId,
+) -> Result<Vec<MachineInterfaceSnapshot>, DatabaseError> {
+    find_by(
+        txn,
+        ObjectColumnFilter::One(PowerShelfIdColumn, power_shelf_id),
+    )
+    .await
 }
 
 #[async_trait::async_trait]

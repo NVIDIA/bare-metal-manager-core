@@ -15,19 +15,17 @@
  * limitations under the License.
  */
 
-//! State Controller implementation for Power Shelves.
+mod args;
+mod cmd;
 
-pub mod configuring;
-pub mod context;
-mod decommissioning;
-pub mod deleting;
-pub mod error_state;
-pub mod fetching_data;
-pub mod handler;
-pub mod initializing;
-pub mod io;
-pub mod maintenance;
-pub mod metrics;
-pub mod ready;
-pub mod reprovisioning;
-pub mod rotating_bmc;
+pub(super) use args::Args;
+
+use crate::cfg::run::Run;
+use crate::cfg::runtime::RuntimeContext;
+use crate::errors::CarbideCliResult;
+
+impl Run for Args {
+    async fn run(self, ctx: &mut RuntimeContext) -> CarbideCliResult<()> {
+        cmd::decommission(&ctx.api_client, self).await
+    }
+}

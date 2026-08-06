@@ -74,6 +74,29 @@ fn parse_list() {
     parse_leaf::<Cmd>(&["power-shelf", "list"], &["list"]).expect("should parse list");
 }
 
+#[test]
+fn parse_decommission_lifecycle_commands() {
+    scenarios!(
+        run = |argv| {
+            let operation = argv[1];
+            let matches = parse_leaf::<Cmd>(argv, &[operation]).map_err(drop)?;
+            let power_shelf_id = matches
+                .get_one::<PowerShelfId>("power_shelf_id")
+                .expect("power shelf ID is required");
+            Ok::<_, ()>((operation.to_string(), power_shelf_id.to_string()))
+        };
+        "start decommissioning" {
+            &["power-shelf", "decommission", SAMPLE_PS_ID_1][..] =>
+                Yields(("decommission".to_string(), SAMPLE_PS_ID_1.to_string())),
+        }
+
+        "permanently delete after decommissioning" {
+            &["power-shelf", "delete-decommissioned", SAMPLE_PS_ID_1][..] =>
+                Yields(("delete-decommissioned".to_string(), SAMPLE_PS_ID_1.to_string())),
+        }
+    );
+}
+
 // `list` with all filter flags captures each one: the `--deleted only` filter,
 // the controller-state string, and a parsed `--bmc-mac`.
 #[test]

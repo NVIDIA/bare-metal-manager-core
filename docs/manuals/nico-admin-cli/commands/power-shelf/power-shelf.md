@@ -43,6 +43,8 @@ Print help (see a summary with -h)
 |---|---|
 | [`show`](./power-shelf-show.md) | Show power shelf information |
 | [`list`](./power-shelf-list.md) | List all power shelves |
+| [`decommission`](./power-shelf-decommission.md) | Start decommissioning a managed power shelf |
+| [`delete-decommissioned`](./power-shelf-delete-decommissioned.md) | Permanently delete a decommissioned managed power shelf |
 | [`delete`](./power-shelf-delete.md) | Delete a power shelf |
 | [`force-delete`](./power-shelf-force-delete.md) | Force delete a power shelf and optionally its interfaces |
 | [`metadata`](./power-shelf-metadata.md) | Manage Power Shelf Metadata |

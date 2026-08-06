@@ -82,6 +82,10 @@ pub struct PowerShelf {
     /// device.
     pub bmc_credential_rotation_requested: bool,
 
+    /// When set by the API, the state controller transitions a Ready power shelf
+    /// into the decommissioning workflow and clears the marker atomically.
+    pub decommission_requested: bool,
+
     /// BMC/PMC endpoint (MAC/IP + machine-interface id) resolved from the `Bmc`
     /// machine_interface linked back to this power shelf. Populated by the
     /// standard power-shelf load query, so every consumer (handlers, state
@@ -155,6 +159,7 @@ impl<'r> FromRow<'r, PgRow> for PowerShelf {
             bmc_credential_rotation_requested: row
                 .try_get("bmc_credential_rotation_requested")
                 .unwrap_or(false),
+            decommission_requested: row.try_get("decommission_requested").unwrap_or(false),
             bmc_info,
             controller_state: Versioned {
                 value: controller_state.0,
@@ -263,10 +268,26 @@ pub enum PowerShelfControllerState {
     ReProvisioning {
         reprovisioning_state: ReProvisioningState,
     },
+    /// Site Explorer is being suppressed before the destructive reset.
+    Preparing,
+    /// The controller is resetting the PMC and waiting for DHCP release.
+    VerifyingDhcpRelease {
+        verifying_state: PowerShelfVerifyingDhcpReleaseState,
+    },
+    /// Terminal state: the power shelf has been removed from managed service.
+    Decommissioned,
     /// There is error in PowerShelf; PowerShelf can not be used if it's in error.
     Error { cause: String },
     /// The PowerShelf is in the process of deleting.
     Deleting,
+}
+
+/// Progress while resetting the PMC and waiting for its DHCP lease release.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "state", rename_all = "lowercase")]
+pub enum PowerShelfVerifyingDhcpReleaseState {
+    FactoryResetBmc,
+    WaitingForBmcDhcpAcknowledgement,
 }
 
 /// Returns the SLA for the current state
@@ -302,6 +323,9 @@ pub fn state_sla(state: &PowerShelfControllerState, state_version: &ConfigVersio
             std::time::Duration::from_secs(slas::REPROVISIONING),
             time_in_state,
         ),
+        PowerShelfControllerState::Preparing
+        | PowerShelfControllerState::VerifyingDhcpRelease { .. }
+        | PowerShelfControllerState::Decommissioned => StateSla::no_sla(),
         PowerShelfControllerState::Error { .. } => StateSla::no_sla(),
         PowerShelfControllerState::Deleting => StateSla::with_sla(
             std::time::Duration::from_secs(slas::DELETING),
@@ -424,6 +448,42 @@ mod tests {
                     PowerShelfControllerState::ReProvisioning {
                         reprovisioning_state: ReProvisioningState::WaitingForRackFirmwareUpgrade,
                     },
+                )),
+            }
+
+            "preparing" {
+                PowerShelfControllerState::Preparing {} => Yields((
+                    r#"{"state":"preparing"}"#.to_string(),
+                    PowerShelfControllerState::Preparing {},
+                )),
+            }
+
+            "verifying DHCP release while factory resetting BMC" {
+                PowerShelfControllerState::VerifyingDhcpRelease {
+                    verifying_state: PowerShelfVerifyingDhcpReleaseState::FactoryResetBmc,
+                } => Yields((
+                    r#"{"state":"verifyingdhcprelease","verifying_state":{"state":"factoryresetbmc"}}"#.to_string(),
+                    PowerShelfControllerState::VerifyingDhcpRelease {
+                        verifying_state: PowerShelfVerifyingDhcpReleaseState::FactoryResetBmc,
+                    },
+                )),
+            }
+
+            "verifying DHCP release while waiting for acknowledgement" {
+                PowerShelfControllerState::VerifyingDhcpRelease {
+                    verifying_state: PowerShelfVerifyingDhcpReleaseState::WaitingForBmcDhcpAcknowledgement,
+                } => Yields((
+                    r#"{"state":"verifyingdhcprelease","verifying_state":{"state":"waitingforbmcdhcpacknowledgement"}}"#.to_string(),
+                    PowerShelfControllerState::VerifyingDhcpRelease {
+                        verifying_state: PowerShelfVerifyingDhcpReleaseState::WaitingForBmcDhcpAcknowledgement,
+                    },
+                )),
+            }
+
+            "decommissioned" {
+                PowerShelfControllerState::Decommissioned {} => Yields((
+                    r#"{"state":"decommissioned"}"#.to_string(),
+                    PowerShelfControllerState::Decommissioned {},
                 )),
             }
         );

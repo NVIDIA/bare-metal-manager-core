@@ -17,9 +17,12 @@
 
 use ::rpc::errors::RpcDataConversionError;
 use ::rpc::forge::{self as rpc, HealthReportEntry};
+use carbide_uuid::power_shelf::PowerShelfId;
 use db::{ObjectColumnFilter, power_shelf as db_power_shelf};
 use health_report::HealthReportApplyMode;
+use model::bmc_suppression::BmcSuppressionSubsystem;
 use model::metadata::Metadata;
+use model::power_shelf::{PowerShelf, PowerShelfControllerState};
 use tonic::{Request, Response, Status};
 
 use crate::CarbideError;
@@ -93,6 +96,115 @@ fn convert_power_shelves(
         .map_err(|e| CarbideError::Internal {
             message: format!("Failed to convert power shelf: {}", e),
         })
+}
+
+pub(crate) async fn decommission_power_shelf(
+    api: &Api,
+    request: Request<PowerShelfId>,
+) -> Result<Response<()>, Status> {
+    log_request_data(&request);
+    let power_shelf_id = request.into_inner();
+    let mut txn = api.txn_begin().await?;
+    let power_shelf = db_power_shelf::find_by_id(&mut txn, &power_shelf_id)
+        .await?
+        .ok_or_else(|| CarbideError::NotFoundError {
+            kind: "power_shelf",
+            id: power_shelf_id.to_string(),
+        })?;
+
+    if !matches!(
+        power_shelf.controller_state.value,
+        model::power_shelf::PowerShelfControllerState::Ready
+    ) {
+        return Err(CarbideError::FailedPrecondition(format!(
+            "power shelf {power_shelf_id} must be Ready to be decommissioned (current state: {:?})",
+            power_shelf.controller_state.value
+        ))
+        .into());
+    }
+
+    db_power_shelf::set_decommission_requested(&mut txn, power_shelf_id).await?;
+    txn.commit().await?;
+    Ok(Response::new(()))
+}
+
+fn require_decommissioned(power_shelf: &PowerShelf) -> Result<(), CarbideError> {
+    if matches!(
+        power_shelf.controller_state.value,
+        PowerShelfControllerState::Decommissioned
+    ) {
+        return Ok(());
+    }
+
+    Err(CarbideError::FailedPrecondition(format!(
+        "power shelf {} must be Decommissioned before deletion (current state: {:?})",
+        power_shelf.id, power_shelf.controller_state.value
+    )))
+}
+
+fn power_shelf_bmc_mac(power_shelf: &PowerShelf) -> Option<mac_address::MacAddress> {
+    power_shelf
+        .bmc_info
+        .as_ref()
+        .and_then(|info| info.mac)
+        .or(power_shelf.bmc_mac_address)
+}
+
+pub(crate) async fn delete_decommissioned_power_shelf(
+    api: &Api,
+    request: Request<PowerShelfId>,
+) -> Result<Response<()>, Status> {
+    log_request_data(&request);
+    let power_shelf_id = request.into_inner();
+
+    let mut txn = api.txn_begin().await?;
+    let power_shelf = db_power_shelf::find_by_id(&mut txn, &power_shelf_id)
+        .await?
+        .ok_or_else(|| CarbideError::NotFoundError {
+            kind: "power_shelf",
+            id: power_shelf_id.to_string(),
+        })?;
+    require_decommissioned(&power_shelf)?;
+    let bmc_mac = power_shelf_bmc_mac(&power_shelf);
+    txn.commit().await?;
+
+    // Secret-store operations cannot participate in the database transaction.
+    // Delete the credential first so a failure leaves the terminal shelf
+    // available for a safe retry.
+    if let Some(bmc_mac) = bmc_mac {
+        crate::handlers::credential::delete_bmc_root_credentials_by_mac(api, bmc_mac).await?;
+    }
+
+    let mut txn = api.txn_begin().await?;
+    let power_shelf = db_power_shelf::find_by_id(&mut txn, &power_shelf_id)
+        .await?
+        .ok_or_else(|| CarbideError::NotFoundError {
+            kind: "power_shelf",
+            id: power_shelf_id.to_string(),
+        })?;
+    require_decommissioned(&power_shelf)?;
+
+    let interfaces =
+        db::machine_interface::find_by_power_shelf_id(&mut txn, &power_shelf_id).await?;
+    for interface in &interfaces {
+        db::machine_interface::delete(&interface.id, &mut txn).await?;
+        db::retained_boot_interface::take_by_mac(&mut txn, interface.mac_address, None).await?;
+    }
+
+    if let Some(bmc_mac) = power_shelf_bmc_mac(&power_shelf) {
+        db::bmc_suppression::delete_many(
+            &mut txn,
+            &[bmc_mac],
+            BmcSuppressionSubsystem::SiteExplorer,
+        )
+        .await?;
+        db::bmc_suppression::delete_many(&mut txn, &[bmc_mac], BmcSuppressionSubsystem::Dhcp)
+            .await?;
+    }
+
+    db_power_shelf::final_delete(power_shelf_id, &mut txn).await?;
+    txn.commit().await?;
+    Ok(Response::new(()))
 }
 
 pub(crate) async fn find_ids(

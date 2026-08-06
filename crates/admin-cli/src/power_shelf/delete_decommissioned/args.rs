@@ -15,19 +15,18 @@
  * limitations under the License.
  */
 
-//! State Controller implementation for Power Shelves.
+use carbide_uuid::power_shelf::PowerShelfId;
+use clap::Parser;
 
-pub mod configuring;
-pub mod context;
-mod decommissioning;
-pub mod deleting;
-pub mod error_state;
-pub mod fetching_data;
-pub mod handler;
-pub mod initializing;
-pub mod io;
-pub mod maintenance;
-pub mod metrics;
-pub mod ready;
-pub mod reprovisioning;
-pub mod rotating_bmc;
+#[derive(Parser, Debug)]
+#[command(after_long_help = "\
+EXAMPLES:
+
+Permanently delete a decommissioned managed power shelf:
+    $ nico-admin-cli power-shelf delete-decommissioned ps100htjtiaehv1n5vh67tbmqq4eabcjdng40f7jupsadbedhruh6rag1l0
+
+")]
+pub(crate) struct Args {
+    #[clap(help = "ID of the decommissioned managed power shelf to permanently delete")]
+    pub(super) power_shelf_id: PowerShelfId,
+}
