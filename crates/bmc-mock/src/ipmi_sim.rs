@@ -41,7 +41,6 @@ const START_ATTEMPTS: usize = 5;
 const READY_TIMEOUT: Duration = Duration::from_secs(5);
 const READY_POLL_INTERVAL: Duration = Duration::from_millis(50);
 const PASSWORD_UPDATE_TIMEOUT: Duration = Duration::from_secs(10);
-pub const STANDARD_IPMI_PORT: u16 = 623;
 const IPMI_SIM_EXECUTABLE: &str = "ipmi_sim";
 const CHASSIS_CONTROL_FIFO: &str = "chassis-control.fifo";
 

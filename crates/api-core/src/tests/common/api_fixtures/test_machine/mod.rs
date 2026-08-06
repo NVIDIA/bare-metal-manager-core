@@ -26,23 +26,23 @@ use tonic::Request;
 
 use crate::tests::common::api_fixtures::{Api, TestEnv};
 
-pub mod interface;
+pub(in crate::tests) mod interface;
 
-pub type TestMachineInterface = interface::TestMachineInterface;
+pub(in crate::tests) type TestMachineInterface = interface::TestMachineInterface;
 
-pub struct TestMachine {
-    pub id: MachineId,
+pub(in crate::tests) struct TestMachine {
+    pub(in crate::tests) id: MachineId,
     api: Arc<Api>,
 }
 
 type Txn<'a> = sqlx::Transaction<'a, sqlx::Postgres>;
 
 impl TestMachine {
-    pub fn new(id: MachineId, api: Arc<Api>) -> Self {
+    pub(in crate::tests) fn new(id: MachineId, api: Arc<Api>) -> Self {
         Self { id, api }
     }
 
-    pub async fn rpc_machine(&self) -> rpc::Machine {
+    pub(in crate::tests) async fn rpc_machine(&self) -> rpc::Machine {
         self.api
             .find_machines_by_ids(tonic::Request::new(rpc::forge::MachinesByIdsRequest {
                 machine_ids: vec![self.id],
@@ -55,7 +55,7 @@ impl TestMachine {
             .remove(0)
     }
 
-    pub async fn next_iteration_machine(&self, env: &TestEnv) -> Machine {
+    pub(in crate::tests) async fn next_iteration_machine(&self, env: &TestEnv) -> Machine {
         env.run_machine_state_controller_iteration().await;
         let mut txn = env.pool.begin().await.unwrap();
         let dpu = self.db_machine(&mut txn).await;
@@ -63,21 +63,24 @@ impl TestMachine {
         dpu
     }
 
-    pub async fn db_machine(&self, txn: &mut Txn<'_>) -> Machine {
+    pub(in crate::tests) async fn db_machine(&self, txn: &mut Txn<'_>) -> Machine {
         db::machine::find_one(txn.as_mut(), &self.id, Default::default())
             .await
             .unwrap()
             .unwrap()
     }
 
-    pub async fn bmc_access(&self, txn: &mut Txn<'_>) -> BmcAccessInfo {
+    pub(in crate::tests) async fn bmc_access(&self, txn: &mut Txn<'_>) -> BmcAccessInfo {
         let addr = self.db_machine(txn).await.bmc_addr().unwrap();
         db::machine_interface::lookup_bmc_access_info(txn.as_mut(), addr.ip(), Some(addr.port()))
             .await
             .unwrap()
     }
 
-    pub async fn first_interface(&self, txn: &mut Txn<'_>) -> TestMachineInterface {
+    pub(in crate::tests) async fn first_interface(
+        &self,
+        txn: &mut Txn<'_>,
+    ) -> TestMachineInterface {
         TestMachineInterface::new(
             db::machine_interface::find_by_machine_ids(txn, &[self.id])
                 .await
@@ -89,7 +92,9 @@ impl TestMachine {
         )
     }
 
-    pub async fn reboot_completed(&self) -> rpc::forge::MachineRebootCompletedResponse {
+    pub(in crate::tests) async fn reboot_completed(
+        &self,
+    ) -> rpc::forge::MachineRebootCompletedResponse {
         let response = self
             .api
             .reboot_completed(Request::new(rpc::forge::MachineRebootCompletedRequest {
@@ -105,7 +110,9 @@ impl TestMachine {
         response
     }
 
-    pub async fn forge_agent_control(&self) -> rpc::forge::ForgeAgentControlResponse {
+    pub(in crate::tests) async fn forge_agent_control(
+        &self,
+    ) -> rpc::forge::ForgeAgentControlResponse {
         self.reboot_completed().await;
         self.api
             .forge_agent_control(Request::new(rpc::forge::ForgeAgentControlRequest {
@@ -116,7 +123,7 @@ impl TestMachine {
             .into_inner()
     }
 
-    pub async fn discovery_completed(&self) {
+    pub(in crate::tests) async fn discovery_completed(&self) {
         self.api
             .discovery_completed(Request::new(rpc::forge::MachineDiscoveryCompletedRequest {
                 machine_id: self.id.into(),
@@ -126,7 +133,7 @@ impl TestMachine {
             .into_inner();
     }
 
-    pub async fn trigger_dpu_reprovisioning(
+    pub(in crate::tests) async fn trigger_dpu_reprovisioning(
         &self,
         mode: rpc::forge::dpu_reprovisioning_request::Mode,
         update_firmware: bool,
@@ -145,12 +152,15 @@ impl TestMachine {
             .unwrap();
     }
 
-    pub async fn bmc_ip(&self, txn: &mut Txn<'_>) -> Option<IpAddr> {
+    pub(in crate::tests) async fn bmc_ip(&self, txn: &mut Txn<'_>) -> Option<IpAddr> {
         let machine = self.db_machine(txn).await;
         machine.bmc_addr().map(|addr| addr.ip())
     }
 
-    pub async fn json_history(&self, limit: Option<usize>) -> Vec<serde_json::Value> {
+    pub(in crate::tests) async fn json_history(
+        &self,
+        limit: Option<usize>,
+    ) -> Vec<serde_json::Value> {
         let machine = self.rpc_machine().await;
         let mut states: Vec<serde_json::Value> = machine
             .events
@@ -168,7 +178,10 @@ impl TestMachine {
         }
     }
 
-    pub async fn parsed_history(&self, limit: Option<usize>) -> Vec<ManagedHostState> {
+    pub(in crate::tests) async fn parsed_history(
+        &self,
+        limit: Option<usize>,
+    ) -> Vec<ManagedHostState> {
         let json_states = self.json_history(limit).await;
         json_states
             .into_iter()

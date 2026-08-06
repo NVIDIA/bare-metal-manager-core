@@ -33,20 +33,20 @@ use sqlx::PgConnection;
 
 use crate::CarbideError;
 
-pub struct PxeInstructionRequest {
-    pub arch: rpc::MachineArchitecture,
-    pub product: Option<String>,
-    pub client_ip: IpAddr,
+pub(crate) struct PxeInstructionRequest {
+    pub(crate) arch: rpc::MachineArchitecture,
+    pub(crate) product: Option<String>,
+    pub(crate) client_ip: IpAddr,
 }
 
 /// Input provided to `PxeInstructions::get_pxe_instructions`.
 /// The PxeInstructionsRequest model contains the client_ip
 /// as determined by carbide-pxe, whereas PxeInstructionsInput
 /// contains the resolved machine_interface_id.
-pub struct PxeInstructionsInput {
-    pub interface_id: MachineInterfaceId,
-    pub arch: rpc::MachineArchitecture,
-    pub product: Option<String>,
+pub(crate) struct PxeInstructionsInput {
+    pub(crate) interface_id: MachineInterfaceId,
+    pub(crate) arch: rpc::MachineArchitecture,
+    pub(crate) product: Option<String>,
 }
 
 impl TryFrom<rpc::PxeInstructionRequest> for PxeInstructionRequest {
@@ -155,10 +155,10 @@ fn operating_system_row_to_ipxe_script(
     })
 }
 
-pub struct PxeInstructions;
+pub(crate) struct PxeInstructions;
 
 #[derive(serde::Serialize)]
-pub struct InstructionGenerator {
+struct InstructionGenerator {
     kernel: String,
     command_line: String,
     initrd: Option<String>,
@@ -272,7 +272,7 @@ impl PxeInstructions {
             .map_err(|e| CarbideError::internal(format!("failed to render iPXE script: {}", e)))
     }
 
-    pub async fn get_pxe_instructions(
+    pub(crate) async fn get_pxe_instructions(
         txn: &mut PgConnection,
         target: PxeInstructionsInput,
     ) -> Result<String, CarbideError> {

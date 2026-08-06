@@ -126,6 +126,13 @@ func (c *Client) applyInsecureTLS() {
 	c.httpClient.Transport = transport
 }
 
+// Close releases resources associated with the client.
+// It closes idle connections on the underlying HTTP transport.
+func (c *Client) Close() error {
+	c.httpClient.CloseIdleConnections()
+	return nil
+}
+
 // GetMachinesStatus fetches the current machine status from machine-a-tron.
 func (c *Client) GetMachinesStatus(ctx context.Context) (*MachinesStatusResponse, error) {
 	reqURL := c.baseURL + "/machines/status"

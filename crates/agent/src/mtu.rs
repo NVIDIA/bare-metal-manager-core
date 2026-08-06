@@ -24,7 +24,7 @@ const CORRECT_MTU: usize = 9216;
 ///
 /// HBN sets this but there is a race condition with interfaces being renamed on startup.
 /// https://nvbugswb.nvidia.com/NvBugs5/SWBug.aspx?bugid=4331317
-pub async fn ensure() -> eyre::Result<()> {
+pub(super) async fn ensure() -> eyre::Result<()> {
     for iface in ["p0", "p1"] {
         let current = get_mtu(iface).await?;
         if current != CORRECT_MTU {

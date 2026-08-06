@@ -41,7 +41,7 @@ use crate::machine_identity::{
 };
 
 /// Shared gate for APIs that require site `[machine_identity].enabled` (identity admin + discovery).
-pub(crate) fn require_machine_identity_site_enabled(api: &Api) -> Result<(), Status> {
+pub(super) fn require_machine_identity_site_enabled(api: &Api) -> Result<(), Status> {
     if !api.runtime_config.machine_identity.enabled {
         return Err(CarbideError::InvalidArgument(
             "machine identity must be enabled in site config".to_string(),

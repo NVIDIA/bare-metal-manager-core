@@ -43,7 +43,7 @@ struct ExpectedPowerShelfRow {
 }
 
 /// Show all expected power shelves.
-pub async fn show_html(state: AxumState<Arc<Api>>) -> Response {
+pub(super) async fn show_html(state: AxumState<Arc<Api>>) -> Response {
     let power_shelves = match fetch_expected_power_shelves(&state).await {
         Ok(shelves) => shelves,
         Err((code, msg)) => return (code, msg).into_response(),
@@ -53,7 +53,7 @@ pub async fn show_html(state: AxumState<Arc<Api>>) -> Response {
 }
 
 /// Show all expected power shelves as JSON.
-pub async fn show_json(state: AxumState<Arc<Api>>) -> Response {
+pub(super) async fn show_json(state: AxumState<Arc<Api>>) -> Response {
     let power_shelves = match fetch_expected_power_shelves(&state).await {
         Ok(shelves) => shelves,
         Err((code, msg)) => return (code, msg).into_response(),

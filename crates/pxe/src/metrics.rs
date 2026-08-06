@@ -122,9 +122,9 @@ pub(crate) struct PxeBootOutcomes {
 )]
 pub(crate) struct PxeBootOutcome {
     #[label]
-    pub endpoint: BootEndpoint,
+    pub(super) endpoint: BootEndpoint,
     #[label]
-    pub reason: OutcomeReason,
+    pub(super) reason: OutcomeReason,
 }
 
 // Both failure Events write the same counter as `PxeBootOutcome`. Keep the
@@ -142,11 +142,11 @@ pub(crate) struct PxeBootOutcome {
 )]
 pub(crate) struct PxeCloudInitRequestFailed {
     #[label]
-    pub endpoint: BootEndpoint,
+    pub(super) endpoint: BootEndpoint,
     #[label]
-    pub reason: OutcomeReason,
+    pub(super) reason: OutcomeReason,
     #[context]
-    pub error: String,
+    pub(super) error: String,
 }
 
 /// `PxeCustomIpxeFetchFailed` records a custom iPXE lookup that fell back to
@@ -160,11 +160,11 @@ pub(crate) struct PxeCloudInitRequestFailed {
 )]
 pub(crate) struct PxeCustomIpxeFetchFailed {
     #[label]
-    pub endpoint: BootEndpoint,
+    pub(super) endpoint: BootEndpoint,
     #[label]
-    pub reason: OutcomeReason,
+    pub(super) reason: OutcomeReason,
     #[context]
-    pub error: String,
+    pub(super) error: String,
 }
 
 #[cfg(test)]

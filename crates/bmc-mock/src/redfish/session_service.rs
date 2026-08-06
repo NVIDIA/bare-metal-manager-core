@@ -39,7 +39,7 @@ use crate::{http, redfish};
 const X_AUTH_TOKEN: HeaderName = HeaderName::from_static("x-auth-token");
 const SESSION_TOKEN_TTL: Duration = Duration::from_secs(120);
 
-pub fn service_resource() -> redfish::Resource<'static> {
+pub(super) fn service_resource() -> redfish::Resource<'static> {
     redfish::Resource {
         odata_id: Cow::Borrowed("/redfish/v1/SessionService"),
         odata_type: Cow::Borrowed("#SessionService.v1_1_9.SessionService"),
@@ -48,7 +48,7 @@ pub fn service_resource() -> redfish::Resource<'static> {
     }
 }
 
-pub fn sessions_collection() -> redfish::Collection<'static> {
+pub(crate) fn sessions_collection() -> redfish::Collection<'static> {
     redfish::Collection {
         odata_id: Cow::Borrowed("/redfish/v1/SessionService/Sessions"),
         odata_type: Cow::Borrowed("#SessionCollection.SessionCollection"),
@@ -56,7 +56,7 @@ pub fn sessions_collection() -> redfish::Collection<'static> {
     }
 }
 
-pub fn session_resource(id: impl Display) -> redfish::Resource<'static> {
+fn session_resource(id: impl Display) -> redfish::Resource<'static> {
     redfish::Resource {
         odata_id: Cow::Owned(format!("/redfish/v1/SessionService/Sessions/{id}")),
         odata_type: Cow::Borrowed("#Session.v1_7_0.Session"),
@@ -65,7 +65,7 @@ pub fn session_resource(id: impl Display) -> redfish::Resource<'static> {
     }
 }
 
-pub fn add_routes(r: Router<BmcState>) -> Router<BmcState> {
+pub(crate) fn add_routes(r: Router<BmcState>) -> Router<BmcState> {
     r.route(&service_resource().odata_id, get(get_service))
         .route(
             &sessions_collection().odata_id,
@@ -78,11 +78,11 @@ pub fn add_routes(r: Router<BmcState>) -> Router<BmcState> {
 }
 
 #[derive(Clone, Debug)]
-pub struct SessionRecord {
-    pub id: String,
-    pub username: String,
-    pub token: String,
-    pub expires_at: Instant,
+pub(crate) struct SessionRecord {
+    pub(crate) id: String,
+    pub(crate) username: String,
+    pub(crate) token: String,
+    pub(crate) expires_at: Instant,
 }
 
 impl SessionRecord {
@@ -100,23 +100,23 @@ impl SessionRecord {
 }
 
 #[derive(Debug, Default)]
-pub struct SessionServiceState {
+pub(crate) struct SessionServiceState {
     next_id: Mutex<u64>,
     sessions: Mutex<HashMap<String, SessionRecord>>,
 }
 
 impl SessionServiceState {
-    pub fn new() -> Self {
+    pub(crate) fn new() -> Self {
         Self::default()
     }
 
-    pub fn is_token_valid(&self, token: &str) -> bool {
+    pub(crate) fn is_token_valid(&self, token: &str) -> bool {
         let mut sessions = self.sessions.lock().expect("mutex poisoned");
         Self::prune_expired(&mut sessions, Instant::now());
         sessions.contains_key(token)
     }
 
-    pub fn create(&self, username: impl Into<String>) -> SessionRecord {
+    pub(crate) fn create(&self, username: impl Into<String>) -> SessionRecord {
         let id = {
             let mut next_id = self.next_id.lock().expect("mutex poisoned");
             *next_id += 1;
@@ -136,19 +136,19 @@ impl SessionServiceState {
         record
     }
 
-    pub fn list(&self) -> Vec<SessionRecord> {
+    pub(crate) fn list(&self) -> Vec<SessionRecord> {
         let mut sessions = self.sessions.lock().expect("mutex poisoned");
         Self::prune_expired(&mut sessions, Instant::now());
         sessions.values().cloned().collect()
     }
 
-    pub fn find_by_id(&self, id: &str) -> Option<SessionRecord> {
+    pub(crate) fn find_by_id(&self, id: &str) -> Option<SessionRecord> {
         let mut sessions = self.sessions.lock().expect("mutex poisoned");
         Self::prune_expired(&mut sessions, Instant::now());
         sessions.values().find(|rec| rec.id == id).cloned()
     }
 
-    pub fn delete_by_id(&self, id: &str) -> bool {
+    pub(crate) fn delete_by_id(&self, id: &str) -> bool {
         let mut sessions = self.sessions.lock().expect("mutex poisoned");
         Self::prune_expired(&mut sessions, Instant::now());
         let Some(token) = sessions

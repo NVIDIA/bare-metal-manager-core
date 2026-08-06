@@ -160,7 +160,7 @@ impl From<forgerpc::InstanceTypeMachineCapabilityFilterAttributes>
 /// Struct for deserializing a request to view
 /// existing instance types
 #[derive(Deserialize, Debug)]
-pub struct ShowInstanceTypeParams {
+pub(super) struct ShowInstanceTypeParams {
     #[serde(default, deserialize_with = "empty_string_as_none")]
     limit: Option<usize>,
     #[serde(default, deserialize_with = "empty_string_as_none")]
@@ -168,7 +168,7 @@ pub struct ShowInstanceTypeParams {
 }
 
 /// Handler for displaying all instance types
-pub async fn show(
+pub(super) async fn show(
     AxumState(api): AxumState<Arc<Api>>,
     Query(params): Query<ShowInstanceTypeParams>,
     path: OriginalUri,
@@ -267,7 +267,7 @@ async fn fetch_instance_types(
 }
 
 /// Handler for displaying a single instance type.
-pub async fn show_detail(
+pub(super) async fn show_detail(
     AxumState(api): AxumState<Arc<Api>>,
     AxumPath(instance_type_id): AxumPath<String>,
 ) -> Response {

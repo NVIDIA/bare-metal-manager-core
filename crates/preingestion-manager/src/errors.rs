@@ -36,4 +36,4 @@ impl PreingestionManagerError {
     }
 }
 
-pub type PreingestionManagerResult<T> = Result<T, PreingestionManagerError>;
+pub(super) type PreingestionManagerResult<T> = Result<T, PreingestionManagerError>;

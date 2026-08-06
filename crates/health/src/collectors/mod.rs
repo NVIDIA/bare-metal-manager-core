@@ -48,6 +48,6 @@ pub use nvue::rest::collector::{NvueRestCollector, NvueRestCollectorConfig};
 pub use runtime::{
     BackoffConfig, Collector, CollectorStartContext, EventStream, ExponentialBackoff,
     IterationResult, PeriodicCollector, StreamMetrics, StreamingCollector,
-    StreamingCollectorStartContext, StreamingConnectResult, open_sse_stream,
+    StreamingCollectorStartContext, StreamingConnectResult,
 };
 pub use sensors::{SensorCollector, SensorCollectorConfig};

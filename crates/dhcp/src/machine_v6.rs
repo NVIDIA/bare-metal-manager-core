@@ -68,7 +68,7 @@ pub extern "C" fn carbide_v6_hook_result_as_str(result: V6HookResult) -> *const 
 }
 
 /// Build the Carbide DHCP discovery request for a decoded DHCPv6 packet.
-pub fn build_discovery(v6: &V6Discovery) -> rpc::DhcpDiscovery {
+fn build_discovery(v6: &V6Discovery) -> rpc::DhcpDiscovery {
     rpc::DhcpDiscovery {
         mac_address: v6.selected_mac.to_string(),
         relay_address: v6
@@ -88,7 +88,7 @@ pub fn build_discovery(v6: &V6Discovery) -> rpc::DhcpDiscovery {
 
 impl Machine {
     /// Fetch a DHCPv6 machine record from Carbide using the decoded v6 discovery.
-    pub async fn try_fetch_v6(
+    async fn try_fetch_v6(
         discovery: V6Discovery,
         carbide_api_url: &str,
         client_config: &ForgeClientConfig,

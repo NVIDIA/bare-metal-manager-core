@@ -18,21 +18,20 @@
 use std::borrow::Cow;
 
 use mac_address::MacAddress;
-pub type SlotNumber = usize;
+pub(crate) type SlotNumber = usize;
 
-pub struct Nic<'a> {
-    pub mac_address: MacAddress,
-    pub serial_number: Option<Cow<'a, str>>,
-    pub manufacturer: Option<Cow<'a, str>>,
-    pub model: Option<Cow<'a, str>>,
-    pub description: Option<Cow<'a, str>>,
-    pub part_number: Option<Cow<'a, str>>,
-    pub firmware_version: Option<Cow<'a, str>>,
-    pub is_mat_dpu: bool,
+pub(crate) struct Nic<'a> {
+    pub(crate) mac_address: MacAddress,
+    pub(crate) serial_number: Option<Cow<'a, str>>,
+    pub(crate) manufacturer: Option<Cow<'a, str>>,
+    pub(crate) model: Option<Cow<'a, str>>,
+    pub(crate) description: Option<Cow<'a, str>>,
+    pub(crate) part_number: Option<Cow<'a, str>>,
+    pub(crate) firmware_version: Option<Cow<'a, str>>,
 }
 
 impl Nic<'_> {
-    pub fn rooftop(mac: MacAddress) -> Nic<'static> {
+    pub(crate) fn rooftop(mac: MacAddress) -> Nic<'static> {
         let serial_number = Some(format!("RT{}", mac.to_string().replace(':', "")).into());
         Nic {
             manufacturer: Some("Rooftop Technologies".into()),
@@ -42,7 +41,6 @@ impl Nic<'_> {
             description: None,
             firmware_version: None,
             mac_address: mac,
-            is_mat_dpu: false,
         }
     }
 }

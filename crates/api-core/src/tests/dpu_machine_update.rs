@@ -30,7 +30,7 @@ use crate::CarbideResult;
 use crate::tests::common;
 use crate::tests::common::api_fixtures::dpu::create_dpu_machine_in_waiting_for_network_install;
 
-pub async fn update_nic_firmware_version(
+pub(in crate::tests) async fn update_nic_firmware_version(
     txn: &mut PgConnection,
     machine_id: &MachineId,
     version: &str,
@@ -80,7 +80,9 @@ async fn create_machines(
     .expect("Failed to load snapshots")
 }
 
-pub async fn get_all_snapshots(test_env: &TestEnv) -> HashMap<MachineId, ManagedHostStateSnapshot> {
+pub(in crate::tests) async fn get_all_snapshots(
+    test_env: &TestEnv,
+) -> HashMap<MachineId, ManagedHostStateSnapshot> {
     let mut txn = test_env.pool.begin().await.unwrap();
     let machine_ids = db::machine::find_machine_ids(
         txn.as_mut(),

@@ -62,7 +62,7 @@ struct DeclaredMetric {
     source: PathBuf,
 }
 
-pub fn check(fix: bool) -> eyre::Result<()> {
+pub(super) fn check(fix: bool) -> eyre::Result<()> {
     let repo_root = PathBuf::from(REPO_ROOT).canonicalize()?;
     let catalogue_path = repo_root.join(CATALOGUE);
     let catalogue =

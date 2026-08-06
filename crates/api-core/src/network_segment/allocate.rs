@@ -53,7 +53,7 @@ fn u128_to_ip(val: u128, is_v6: bool) -> IpAddr {
 /// so all internal address arithmetic can rely on the prefix
 /// being valid for the address family without additional checks.
 #[derive(Debug)]
-pub struct PrefixAllocator {
+pub(crate) struct PrefixAllocator {
     vpc_prefix_id: VpcPrefixId,
     vpc_prefix: IpNetwork,
     last_used_prefix: Option<IpNetwork>,
@@ -106,7 +106,7 @@ fn first_unoccupied_index(
 }
 
 impl PrefixAllocator {
-    pub fn new(
+    pub(crate) fn new(
         vpc_prefix_id: VpcPrefixId,
         vpc_prefix: IpNetwork,
         last_used_prefix: Option<IpNetwork>,
@@ -230,7 +230,10 @@ impl PrefixAllocator {
     ///
     /// Occupied ranges are searched as linknet-index intervals so broad IPv6
     /// allocations do not require enumerating their constituent /127 prefixes.
-    pub async fn next_free_prefix(&self, txn: &mut PgConnection) -> CarbideResult<IpNetwork> {
+    pub(crate) async fn next_free_prefix(
+        &self,
+        txn: &mut PgConnection,
+    ) -> CarbideResult<IpNetwork> {
         let vpc_str = self.vpc_prefix.to_string();
         let used_prefixes = db::network_prefix::containing_prefix(txn, vpc_str.as_str())
             .await?
@@ -326,7 +329,7 @@ impl PrefixAllocator {
         })
     }
 
-    pub async fn validate_desired_prefix(
+    pub(crate) async fn validate_desired_prefix(
         &self,
         txn: &mut PgConnection,
         prefix: IpNetwork,

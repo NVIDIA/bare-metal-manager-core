@@ -33,7 +33,9 @@ use crate::{DatabaseError, DatabaseResult};
 
 const TENANT_PREFIX_EXCLUSION: &str = "site_prefixes_tenant_prefix_excl";
 const TENANT_ADMISSION_CHECK: &str = "site_prefixes_tenant_admission_check";
-const CONFIGURED_PREFIX_UNIQUE: &str = "site_prefixes_configured_prefix_key";
+const OPERATOR_MANAGED_PREFIX_UNIQUE: &str = "site_prefixes_operator_managed_prefix_key";
+// `Configured` describes the config-file source here. Keep the key stable so
+// every reconciler uses the same advisory lock.
 const CONFIGURED_RECONCILE_LOCK: &str = "site_prefixes:configured_reconcile";
 
 fn tenant_prefix_overlap_error(prefix: &IpNetwork) -> DatabaseError {
@@ -132,8 +134,8 @@ async fn insert(value: NewSitePrefix, txn: &mut PgConnection) -> DatabaseResult<
 
             match constraint {
                 Some(TENANT_PREFIX_EXCLUSION) => tenant_prefix_overlap_error(&value.config.prefix),
-                Some(CONFIGURED_PREFIX_UNIQUE) => DatabaseError::AlreadyFoundError {
-                    kind: "configured site prefix",
+                Some(OPERATOR_MANAGED_PREFIX_UNIQUE) => DatabaseError::AlreadyFoundError {
+                    kind: "operator-managed site prefix",
                     id: value.config.prefix.to_string(),
                 },
                 // Supported tenant writers validate before insert. Preserve
@@ -249,7 +251,7 @@ async fn lock_configured_reconciliation(txn: &mut PgConnection) -> DatabaseResul
         .map_err(|error| DatabaseError::query(query, error))
 }
 
-/// Reconciles the complete set of configuration-owned site prefixes.
+/// Reconciles config-file site fabric prefixes into operator-managed rows.
 ///
 /// The canonical CIDR is the current configuration identity. Existing rows are
 /// reactivated in place, new rows receive a generated ID, and absent rows move
@@ -269,7 +271,7 @@ pub async fn reconcile_configured(
 
     let find_query = "SELECT * FROM site_prefixes WHERE authority = $1 FOR UPDATE";
     let stored: Vec<SitePrefix> = sqlx::query_as(find_query)
-        .bind(SitePrefixAuthority::Configured)
+        .bind(SitePrefixAuthority::OperatorManaged)
         .fetch_all(&mut *txn)
         .await
         .map_err(|error| DatabaseError::query(find_query, error))?;
@@ -494,7 +496,7 @@ pub async fn retire_tenant_managed(
     }
     if current.status.authority != SitePrefixAuthority::TenantManaged {
         return Err(DatabaseError::FailedPrecondition(
-            "configuration-owned SitePrefixes cannot be retired through the tenant API".to_string(),
+            "operator-managed SitePrefixes cannot be retired through the tenant API".to_string(),
         ));
     }
     if current.config.tenant_organization_id.as_ref() != Some(&value.tenant_organization_id) {
@@ -711,7 +713,7 @@ mod tests {
         let configured_ids = find_ids(
             &pool,
             SitePrefixSearchFilter {
-                authority: Some(SitePrefixAuthority::Configured),
+                authority: Some(SitePrefixAuthority::OperatorManaged),
                 ..Default::default()
             },
         )
@@ -780,7 +782,31 @@ mod tests {
     }
 
     #[crate::sqlx_test]
-    async fn different_tenants_and_config_can_reuse_a_prefix(
+    async fn duplicate_operator_managed_prefix_reports_its_authority(
+        pool: sqlx::PgPool,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let prefix: IpNetwork = "10.0.0.0/8".parse()?;
+
+        let mut txn = pool.begin().await?;
+        insert(NewSitePrefix::configured(prefix), &mut txn).await?;
+        txn.commit().await?;
+
+        let mut txn = pool.begin().await?;
+        let error = insert(NewSitePrefix::configured(prefix), &mut txn)
+            .await
+            .unwrap_err();
+        assert!(matches!(
+            error,
+            DatabaseError::AlreadyFoundError { kind, id }
+                if kind == "operator-managed site prefix" && id == prefix.to_string()
+        ));
+        txn.rollback().await?;
+
+        Ok(())
+    }
+
+    #[crate::sqlx_test]
+    async fn different_tenants_and_operator_can_reuse_a_prefix(
         pool: sqlx::PgPool,
     ) -> Result<(), Box<dyn std::error::Error>> {
         create_tenant(&pool, "tenant-a").await?;
@@ -824,7 +850,7 @@ mod tests {
         let original_ids = find_ids(
             &pool,
             SitePrefixSearchFilter {
-                authority: Some(SitePrefixAuthority::Configured),
+                authority: Some(SitePrefixAuthority::OperatorManaged),
                 ..Default::default()
             },
         )
@@ -1166,10 +1192,10 @@ mod tests {
         check_cases_async(
             [
                 Case {
-                    scenario: "configured without owner",
+                    scenario: "operator-managed without owner",
                     input: OwnershipCase {
                         prefix: "10.0.0.0/8",
-                        authority: SitePrefixAuthority::Configured,
+                        authority: SitePrefixAuthority::OperatorManaged,
                         tenant_organization_id: None,
                         lifecycle_state: SitePrefixLifecycleState::Ready,
                     },
@@ -1186,10 +1212,10 @@ mod tests {
                     expect: Yields(()),
                 },
                 Case {
-                    scenario: "configured with owner",
+                    scenario: "operator-managed with owner",
                     input: OwnershipCase {
                         prefix: "10.0.0.0/8",
-                        authority: SitePrefixAuthority::Configured,
+                        authority: SitePrefixAuthority::OperatorManaged,
                         tenant_organization_id: Some("tenant-a".parse()?),
                         lifecycle_state: SitePrefixLifecycleState::Ready,
                     },
@@ -1206,30 +1232,30 @@ mod tests {
                     expect: Fails,
                 },
                 Case {
-                    scenario: "configured provisioning",
+                    scenario: "operator-managed provisioning",
                     input: OwnershipCase {
                         prefix: "10.0.0.0/8",
-                        authority: SitePrefixAuthority::Configured,
+                        authority: SitePrefixAuthority::OperatorManaged,
                         tenant_organization_id: None,
                         lifecycle_state: SitePrefixLifecycleState::Provisioning,
                     },
                     expect: Fails,
                 },
                 Case {
-                    scenario: "configured public IPv4 remains valid",
+                    scenario: "operator-managed public IPv4 remains valid",
                     input: OwnershipCase {
                         prefix: "203.0.113.0/24",
-                        authority: SitePrefixAuthority::Configured,
+                        authority: SitePrefixAuthority::OperatorManaged,
                         tenant_organization_id: None,
                         lifecycle_state: SitePrefixLifecycleState::Ready,
                     },
                     expect: Yields(()),
                 },
                 Case {
-                    scenario: "configured IPv6 remains valid",
+                    scenario: "operator-managed IPv6 remains valid",
                     input: OwnershipCase {
                         prefix: "2001:db8::/32",
-                        authority: SitePrefixAuthority::Configured,
+                        authority: SitePrefixAuthority::OperatorManaged,
                         tenant_organization_id: None,
                         lifecycle_state: SitePrefixLifecycleState::Ready,
                     },

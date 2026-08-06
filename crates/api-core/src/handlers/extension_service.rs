@@ -1031,7 +1031,7 @@ fn detect_extension_service_spec_change(
 }
 
 /// Create a credential key for extension service registry credentials
-pub(crate) fn create_extension_service_credential_key(
+pub(super) fn create_extension_service_credential_key(
     service_id: &ExtensionServiceId,
     version: ConfigVersion,
 ) -> CredentialKey {
@@ -1095,7 +1095,7 @@ async fn delete_extension_service_credential(
 }
 
 /// Get the extension service credential from the vault using the credential key
-pub(crate) async fn get_extension_service_credential(
+pub(super) async fn get_extension_service_credential(
     credential_reader: &dyn carbide_secrets::credentials::CredentialReader,
     credential_key: CredentialKey,
 ) -> Result<rpc::DpuExtensionServiceCredential, CarbideError> {

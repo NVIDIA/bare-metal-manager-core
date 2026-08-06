@@ -29,36 +29,36 @@ use crate::NmxcPartitionOperationType;
 
 /// Metrics that are gathered in a single nvl partition monitor run
 #[derive(Clone, Debug)]
-pub struct NvlPartitionMonitorMetrics {
+pub(super) struct NvlPartitionMonitorMetrics {
     /// Start time of metrics gathering
-    pub recording_started_at: std::time::Instant,
-    pub nmxc: NmxcMetrics,
-    pub num_machines_scanned: usize,
-    pub num_instances_scanned: usize,
-    pub num_gpus_scanned: usize,
+    pub(super) recording_started_at: std::time::Instant,
+    pub(super) nmxc: NmxcMetrics,
+    pub(super) num_machines_scanned: usize,
+    pub(super) num_instances_scanned: usize,
+    pub(super) num_gpus_scanned: usize,
     /// Number of machines where NVLink status observation got updated
-    pub num_machine_nvl_status_updates: usize,
+    pub(super) num_machine_nvl_status_updates: usize,
     /// Number of logical partitions
-    pub num_logical_partitions: usize,
+    pub(super) num_logical_partitions: usize,
     /// Number of physical partitions
-    pub num_physical_partitions: usize,
+    pub(super) num_physical_partitions: usize,
     /// Number of completed operations in this run
-    pub num_completed_operations: usize,
+    pub(super) num_completed_operations: usize,
     /// Number of NVLink GPU partition ID mismatches between DB and NMX-C
-    pub num_nvlink_info_mismatches: usize,
+    pub(super) num_nvlink_info_mismatches: usize,
     /// Number of stale partitions deleted from DB (not found in NMX-C)
-    pub num_stale_partitions_deleted: usize,
-    pub applied_changes: HashMap<AppliedChange, usize>,
+    pub(super) num_stale_partitions_deleted: usize,
+    pub(super) applied_changes: HashMap<AppliedChange, usize>,
     /// Time from nvlink_config_version for instances currently in Pending (time spent in Pending), in milliseconds
-    pub nvlink_config_apply_durations_ms: Vec<f64>,
+    pub(super) nvlink_config_apply_durations_ms: Vec<f64>,
     /// Chassis- or rack-level NMX-C connectivity failures that caused null nvlink status observations.
     /// Counted per machine group; the OTEL gauge name remains `..._unreachable_chassis_count` for continuity.
-    pub num_nmx_c_unreachable_chassis: HashMap<ChassisNmxCUnreachableReason, usize>,
+    pub(super) num_nmx_c_unreachable_chassis: HashMap<ChassisNmxCUnreachableReason, usize>,
 }
 
 /// Why the partition monitor could not use NMX-C for a machine group during an iteration.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum ChassisNmxCUnreachableReason {
+pub(super) enum ChassisNmxCUnreachableReason {
     /// No rack-switch NVOS IP or `nvlink_nmxc_endpoints` row resolved an endpoint URL.
     NoEndpoint,
     /// The resolved endpoint URL could not be parsed as a valid NMX-C client URI.
@@ -74,7 +74,7 @@ pub enum ChassisNmxCUnreachableReason {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, LabelValue)]
-pub enum NmxcMetricOperation {
+pub(super) enum NmxcMetricOperation {
     Create,
     Remove,
     RemoveDefaultPartition,
@@ -82,26 +82,25 @@ pub enum NmxcMetricOperation {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, LabelValue)]
-pub enum NmxcMetricOperationStatus {
+pub(super) enum NmxcMetricOperationStatus {
     Completed,
     Failed,
     Timedout,
-    Cancelled,
 }
 
 #[derive(Clone, Debug, Hash, PartialEq, Eq)]
-pub struct AppliedChange {
+pub(super) struct AppliedChange {
     /// The operation that has been issued
-    pub operation: NmxcMetricOperation,
+    pub(super) operation: NmxcMetricOperation,
     /// Whether the operation succeeded or failed
-    pub status: NmxcMetricOperationStatus,
+    pub(super) status: NmxcMetricOperationStatus,
 }
 
 /// The NMX-C call that failed inside one partition operation. This stays in
 /// log context rather than becoming another latency label; its only other job
 /// is selecting the diagnostic operators already see for that call.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum NmxcOperationFailureStage {
+pub(super) enum NmxcOperationFailureStage {
     None,
     CreatePartitionRetry,
     CreatePartition,
@@ -112,7 +111,7 @@ pub(crate) enum NmxcOperationFailureStage {
     AddGpus,
 }
 
-pub(crate) const DELETE_DEFAULT_PARTITION_FAILED_MESSAGE: &str =
+pub(super) const DELETE_DEFAULT_PARTITION_FAILED_MESSAGE: &str =
     "Failed to delete default partition";
 
 impl Display for NmxcOperationFailureStage {
@@ -144,32 +143,32 @@ impl Display for NmxcOperationFailureStage {
     message = dynamic,
     describe = "Time consumed for one NMX-C operation"
 )]
-pub(crate) struct NmxcOperationFinished {
+pub(super) struct NmxcOperationFinished {
     #[label]
-    pub operation: NmxcMetricOperation,
+    pub(super) operation: NmxcMetricOperation,
     #[label]
-    pub status: NmxcMetricOperationStatus,
+    pub(super) status: NmxcMetricOperationStatus,
     #[observation]
-    pub latency: Duration,
+    pub(super) latency: Duration,
     #[context]
-    pub failure_stage: NmxcOperationFailureStage,
+    pub(super) failure_stage: NmxcOperationFailureStage,
     #[context]
-    pub nvlink_logical_partition_id: String,
+    pub(super) nvlink_logical_partition_id: String,
     #[context]
-    pub nmx_c_partition_id: String,
+    pub(super) nmx_c_partition_id: String,
     #[context]
-    pub create_partition_request: String,
+    pub(super) create_partition_request: String,
     #[context]
-    pub error: String,
+    pub(super) error: String,
 }
 
 impl DynamicLog for NmxcOperationFinished {
     fn log_at(&self) -> LogAt {
         match self.status {
             NmxcMetricOperationStatus::Completed => LogAt::Off,
-            NmxcMetricOperationStatus::Failed
-            | NmxcMetricOperationStatus::Timedout
-            | NmxcMetricOperationStatus::Cancelled => LogAt::Level(tracing::Level::WARN),
+            NmxcMetricOperationStatus::Failed | NmxcMetricOperationStatus::Timedout => {
+                LogAt::Level(tracing::Level::WARN)
+            }
         }
     }
 }
@@ -203,23 +202,23 @@ impl DynamicMessage for NmxcOperationFinished {
 
 /// Metrics collected for NMX-C data
 #[derive(Clone, Debug, Default)]
-pub struct NmxcMetrics {
+pub(super) struct NmxcMetrics {
     /// The endpoint that we use to interact with NMX-C
-    pub endpoint: String,
+    pub(super) endpoint: String,
     /// connection errors
-    pub connect_error: String,
+    pub(super) connect_error: String,
     /// Version of NMX-C
-    pub version: String,
+    pub(super) version: String,
     /// Partition count per (nvlink_domain_uuid, health).
-    pub partition_health: HashMap<(String, &'static str), usize>,
+    pub(super) partition_health: HashMap<(String, &'static str), usize>,
     /// GPU count per (nvlink_domain_uuid, health).
-    pub gpu_health: HashMap<(String, &'static str), usize>,
+    pub(super) gpu_health: HashMap<(String, &'static str), usize>,
     /// Compute-node count per (nvlink_domain_uuid, health).
-    pub compute_node_health: HashMap<(String, &'static str), usize>,
+    pub(super) compute_node_health: HashMap<(String, &'static str), usize>,
 }
 
 impl NvlPartitionMonitorMetrics {
-    pub fn new() -> Self {
+    pub(super) fn new() -> Self {
         Self {
             recording_started_at: std::time::Instant::now(),
             num_machines_scanned: 0,
@@ -280,7 +279,7 @@ impl Display for NvlPartitionMonitorMetrics {
     metric = histogram,
     describe = "Time consumed for one monitor iteration"
 )]
-pub(crate) enum NvlPartitionMonitorIterationFinished {
+pub(super) enum NvlPartitionMonitorIterationFinished {
     /// A clean pass: sampled, never logged.
     #[event(log = off)]
     Succeeded {
@@ -298,16 +297,13 @@ pub(crate) enum NvlPartitionMonitorIterationFinished {
 }
 
 /// Instruments that are used by pub struct NvlPartitionMonitor
-pub struct NvlPartitionMonitorInstruments {
-    pub nmxc_changes_applied: Counter<u64>,
-    pub nvlink_config_apply_latency: Histogram<f64>,
+struct NvlPartitionMonitorInstruments {
+    nmxc_changes_applied: Counter<u64>,
+    nvlink_config_apply_latency: Histogram<f64>,
 }
 
 impl NvlPartitionMonitorInstruments {
-    pub fn new(
-        meter: Meter,
-        shared_metrics: SharedMetricsHolder<NvlPartitionMonitorMetrics>,
-    ) -> Self {
+    fn new(meter: Meter, shared_metrics: SharedMetricsHolder<NvlPartitionMonitorMetrics>) -> Self {
         let nvlink_config_apply_latency = meter
             .f64_histogram("carbide_nvlink_partition_monitor_nvlink_config_apply_latency")
             .with_description("Time since nvlink config was requested for this instance")
@@ -556,7 +552,7 @@ impl NvlPartitionMonitorInstruments {
 }
 
 impl NmxcMetricOperation {
-    pub fn values() -> impl Iterator<Item = Self> {
+    fn values() -> impl Iterator<Item = Self> {
         [
             Self::Create,
             Self::Update,
@@ -604,7 +600,7 @@ impl From<NmxcPartitionOperationType> for NmxcMetricOperation {
 }
 
 impl NmxcMetricOperationStatus {
-    pub fn values() -> impl Iterator<Item = Self> {
+    fn values() -> impl Iterator<Item = Self> {
         [Self::Completed, Self::Failed, Self::Timedout].into_iter()
     }
 }
@@ -616,13 +612,13 @@ impl From<NmxcMetricOperationStatus> for opentelemetry::Value {
 }
 
 /// Stores Metric data shared between the nvl partition monitor and the OpenTelemetry background task
-pub struct MetricHolder {
+pub(super) struct MetricHolder {
     instruments: NvlPartitionMonitorInstruments,
     last_iteration_metrics: SharedMetricsHolder<NvlPartitionMonitorMetrics>,
 }
 
 impl MetricHolder {
-    pub fn new(meter: Meter, hold_period: Duration) -> Self {
+    pub(super) fn new(meter: Meter, hold_period: Duration) -> Self {
         let last_iteration_metrics = SharedMetricsHolder::with_hold_period(hold_period);
         let instruments =
             NvlPartitionMonitorInstruments::new(meter, last_iteration_metrics.clone());
@@ -634,7 +630,7 @@ impl MetricHolder {
     }
 
     /// Updates the most recent metrics
-    pub fn update_metrics(&self, metrics: NvlPartitionMonitorMetrics) {
+    pub(super) fn update_metrics(&self, metrics: NvlPartitionMonitorMetrics) {
         self.instruments.emit_counters_and_histograms(&metrics);
         self.last_iteration_metrics.update(metrics);
     }

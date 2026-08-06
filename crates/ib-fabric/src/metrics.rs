@@ -30,70 +30,70 @@ use crate::errors::IbResult;
 
 /// Metrics that are gathered in one a single `IbFabricMonitor` run
 #[derive(Clone, Debug)]
-pub struct IbFabricMonitorMetrics {
+pub(super) struct IbFabricMonitorMetrics {
     /// When we started recording these metrics
-    pub recording_started_at: std::time::Instant,
+    pub(super) recording_started_at: std::time::Instant,
     /// The amount of fabrics that are monitored
-    pub num_fabrics: usize,
+    pub(super) num_fabrics: usize,
     /// Per fabric metrics
-    pub fabrics: HashMap<String, FabricMetrics>,
+    pub(super) fabrics: HashMap<String, FabricMetrics>,
     /// The amount of Machines where the IB status observation got updated
-    pub num_machine_ib_status_updates: usize,
+    pub(super) num_machine_ib_status_updates: usize,
     /// The amount of Machines with a certain port state
     /// Key: Tuple of total and active amount of IB ports on the Machines
     /// Value: Amount of Machines with that amount of total and active ports
-    pub num_machines_by_port_states: HashMap<(usize, usize), usize>,
+    pub(super) num_machines_by_port_states: HashMap<(usize, usize), usize>,
     /// The amount of Machines with a certain amount of associated partitions
     /// Key: The amount of associated partitions
     /// Value: Amount of Machines with that amount of associated partitions
-    pub num_machines_by_ports_with_partitions: HashMap<usize, usize>,
+    pub(super) num_machines_by_ports_with_partitions: HashMap<usize, usize>,
     /// The amount of machines where at least one port is not assigned to the
     /// expected pkey on UFM
-    pub num_machines_with_missing_pkeys: usize,
+    pub(super) num_machines_with_missing_pkeys: usize,
     /// The amount of machines where at least one port is assigned to an unexpected
     /// pkey on UFM
-    pub num_machines_with_unexpected_pkeys: usize,
+    pub(super) num_machines_with_unexpected_pkeys: usize,
     /// The amount of machines where at least one port is assigned to a pkey value
     /// that is not associated with any partition ID
-    pub num_machines_with_unknown_pkeys: usize,
+    pub(super) num_machines_with_unknown_pkeys: usize,
 }
 
 /// Metrics collected for a single fabric
 #[derive(Clone, Debug, Default, Serialize)]
-pub struct FabricMetrics {
+pub(super) struct FabricMetrics {
     /// The endpoint that we use to interact with the fabric
-    pub endpoints: Vec<String>,
+    pub(super) endpoints: Vec<String>,
     /// Error when trying to connect to the fabric
     ///
     /// TODO: Replace raw UFM errors with a bounded classification so distinct
     /// error strings do not create separate dimensions.
-    pub fabric_error: String,
+    pub(super) fabric_error: String,
     /// UFM version
-    pub ufm_version: String,
+    pub(super) ufm_version: String,
     /// The subnet_prefix of UFM
-    pub subnet_prefix: String,
+    pub(super) subnet_prefix: String,
     /// The m_key of UFM
-    pub m_key: String,
+    pub(super) m_key: String,
     /// The sm_key of UFM
-    pub sm_key: String,
+    pub(super) sm_key: String,
     /// The sa_key of UFM
-    pub sa_key: String,
+    pub(super) sa_key: String,
     /// The m_key_per_port of UFM
-    pub m_key_per_port: bool,
+    pub(super) m_key_per_port: bool,
     /// Default partition membership
-    pub default_partition_membership: Option<String>,
+    pub(super) default_partition_membership: Option<String>,
     /// The amount of partitions visible at UFM
-    pub num_partitions: Option<usize>,
+    pub(super) num_partitions: Option<usize>,
     /// The amount of ports visible at UFM - indexed by state
-    pub ports_by_state: Option<HashMap<String, usize>>,
+    pub(super) ports_by_state: Option<HashMap<String, usize>>,
     /// Whether the fabric not configured to protect tenants and infrastructure
-    pub insecure_fabric_configuration: bool,
+    pub(super) insecure_fabric_configuration: bool,
     /// Whether an insecure fabric configuration is allowed
-    pub allow_insecure_fabric_configuration: bool,
+    pub(super) allow_insecure_fabric_configuration: bool,
 }
 
 impl IbFabricMonitorMetrics {
-    pub fn new() -> Self {
+    pub(super) fn new() -> Self {
         Self {
             recording_started_at: std::time::Instant::now(),
             num_fabrics: 0,
@@ -620,20 +620,20 @@ impl IbFabricMonitorInstruments {
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, LabelValue)]
 #[allow(clippy::enum_variant_names)]
-pub enum UfmOperation {
+pub(super) enum UfmOperation {
     BindGuidToPkey,
     UnbindGuidFromPkey,
     // If you add anything here, adjust the values function below
 }
 
 impl UfmOperation {
-    pub fn values() -> impl Iterator<Item = Self> {
+    fn values() -> impl Iterator<Item = Self> {
         [Self::BindGuidToPkey, Self::UnbindGuidFromPkey].into_iter()
     }
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, LabelValue)]
-pub enum UfmOperationStatus {
+enum UfmOperationStatus {
     Ok,
     Error,
     // If you add anything here, adjust the values function below
@@ -644,7 +644,7 @@ impl UfmOperationStatus {
     /// enumerate the (operation, status) space directly, so this survives to
     /// pin the vocabulary in tests.
     #[cfg(test)]
-    pub fn values() -> impl Iterator<Item = Self> {
+    fn values() -> impl Iterator<Item = Self> {
         [Self::Ok, Self::Error].into_iter()
     }
 }
@@ -792,13 +792,13 @@ impl UfmGuidPkeyChangeFinished {
 }
 
 /// Stores Metric data shared between the Fabric Monitor and the OpenTelemetry background task
-pub struct MetricHolder {
+pub(super) struct MetricHolder {
     _instruments: IbFabricMonitorInstruments,
     last_iteration_metrics: SharedMetricsHolder<IbFabricMonitorMetrics>,
 }
 
 impl MetricHolder {
-    pub fn new(meter: Meter, hold_period: Duration, fabric_ids: &[&str]) -> Self {
+    pub(super) fn new(meter: Meter, hold_period: Duration, fabric_ids: &[&str]) -> Self {
         let last_iteration_metrics = SharedMetricsHolder::with_hold_period(hold_period);
         let instruments = IbFabricMonitorInstruments::new(meter, last_iteration_metrics.clone());
         UfmGuidPkeyChangeFinished::initialize_counter_series(fabric_ids);
@@ -809,7 +809,7 @@ impl MetricHolder {
     }
 
     /// Updates the most recent metrics
-    pub fn update_metrics(&self, metrics: IbFabricMonitorMetrics) {
+    pub(super) fn update_metrics(&self, metrics: IbFabricMonitorMetrics) {
         self.last_iteration_metrics.update(metrics);
     }
 }

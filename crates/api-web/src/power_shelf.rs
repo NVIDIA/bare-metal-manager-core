@@ -46,7 +46,7 @@ struct PowerShelfRecord {
 }
 
 /// Show all power shelves
-pub async fn show_html(state: AxumState<Arc<Api>>) -> Response {
+pub(super) async fn show_html(state: AxumState<Arc<Api>>) -> Response {
     let power_shelves = match fetch_power_shelves(&state).await {
         Ok(shelves) => shelves,
         Err(err) => {
@@ -89,7 +89,7 @@ pub async fn show_html(state: AxumState<Arc<Api>>) -> Response {
 }
 
 /// Show all power shelves as JSON
-pub async fn show_json(state: AxumState<Arc<Api>>) -> Response {
+pub(super) async fn show_json(state: AxumState<Arc<Api>>) -> Response {
     let power_shelves = match fetch_power_shelves(&state).await {
         Ok(shelves) => shelves,
         Err(err) => {
@@ -172,7 +172,7 @@ impl PowerShelfDetail {
 }
 
 /// View details about a Power Shelf.
-pub async fn detail(
+pub(super) async fn detail(
     AxumState(api): AxumState<Arc<Api>>,
     AxumPath(power_shelf_id): AxumPath<String>,
 ) -> Response {

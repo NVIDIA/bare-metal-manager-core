@@ -76,7 +76,7 @@ use crate::{
 // instance metadata information and stores it. The main loop and the instance
 // metadata service use the information fetched be the periodic fetcher by reading
 // the information stored by the periodic config fetcher.
-pub async fn setup_and_run(
+pub(super) async fn setup_and_run(
     machine_id: MachineId,
     factory_mac_address: MacAddress,
     forge_client_config: Arc<ForgeClientConfig>,
@@ -501,10 +501,7 @@ struct CurrentNetworkVersion {
 
 impl CurrentNetworkVersion {
     // Return whether our stored version matches the specific config.
-    pub fn matches_versions_from(
-        &self,
-        conf: impl AsRef<ManagedHostNetworkConfigResponse>,
-    ) -> bool {
+    fn matches_versions_from(&self, conf: impl AsRef<ManagedHostNetworkConfigResponse>) -> bool {
         let conf = conf.as_ref();
         let managed_host_config_version = get_non_empty_str(&conf.managed_host_config_version);
         let instance_network_config_version =
@@ -529,7 +526,7 @@ impl CurrentNetworkVersion {
         }
     }
 
-    pub fn update_from(&mut self, conf: impl AsRef<ManagedHostNetworkConfigResponse>) {
+    fn update_from(&mut self, conf: impl AsRef<ManagedHostNetworkConfigResponse>) {
         let conf = conf.as_ref();
         self.managed_host_config_version =
             get_non_empty_str(&conf.managed_host_config_version).map(String::from);
@@ -1423,7 +1420,7 @@ async fn plan_fmds_armos_routing(
         Ok(None)
     }
 }
-pub async fn record_network_status(
+async fn record_network_status(
     status: rpc::DpuNetworkStatus,
     forge_api: &str,
     forge_client_config: &forge_tls_client::ForgeClientConfig,

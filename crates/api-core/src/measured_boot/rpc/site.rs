@@ -69,7 +69,7 @@ fn measurement_trust_removal_error(
 
 /// handle_import_site_measurements handles the ImportSiteMeasurements
 /// API endpoint.
-pub async fn handle_import_site_measurements(
+pub(crate) async fn handle_import_site_measurements(
     api: &Api,
     req: ImportSiteMeasurementsRequest,
 ) -> Result<ImportSiteMeasurementsResponse, Status> {
@@ -104,7 +104,7 @@ pub async fn handle_import_site_measurements(
 
 /// handle_export_site_measurements handles the ExportSiteMeasurements
 /// API endpoint.
-pub async fn handle_export_site_measurements(
+pub(crate) async fn handle_export_site_measurements(
     api: &Api,
     _req: ExportSiteMeasurementsRequest,
 ) -> Result<ExportSiteMeasurementsResponse, Status> {
@@ -121,7 +121,7 @@ pub async fn handle_export_site_measurements(
 
 /// handle_add_measurement_trusted_machine handles the
 /// AddMeasurementTrustedMachine API endpoint.
-pub async fn handle_add_measurement_trusted_machine(
+pub(crate) async fn handle_add_measurement_trusted_machine(
     api: &Api,
     req: AddMeasurementTrustedMachineRequest,
 ) -> Result<AddMeasurementTrustedMachineResponse, Status> {
@@ -149,7 +149,7 @@ pub async fn handle_add_measurement_trusted_machine(
 
 /// handle_remove_measurement_trusted_machine handles the
 /// RemoveMeasurementTrustedMachine API endpoint.
-pub async fn handle_remove_measurement_trusted_machine(
+pub(crate) async fn handle_remove_measurement_trusted_machine(
     api: &Api,
     req: RemoveMeasurementTrustedMachineRequest,
 ) -> Result<RemoveMeasurementTrustedMachineResponse, Status> {
@@ -203,7 +203,7 @@ pub async fn handle_remove_measurement_trusted_machine(
 
 /// handle_list_measurement_trusted_machines handles the
 /// ListMeasurementTrustedMachines API endpoint.
-pub async fn handle_list_measurement_trusted_machines(
+pub(crate) async fn handle_list_measurement_trusted_machines(
     api: &Api,
     _req: ListMeasurementTrustedMachinesRequest,
 ) -> Result<ListMeasurementTrustedMachinesResponse, Status> {
@@ -222,7 +222,7 @@ pub async fn handle_list_measurement_trusted_machines(
 
 /// handle_add_measurement_trusted_profile handles the
 /// AddMeasurementTrustedProfile API endpoint.
-pub async fn handle_add_measurement_trusted_profile(
+pub(crate) async fn handle_add_measurement_trusted_profile(
     api: &Api,
     req: AddMeasurementTrustedProfileRequest,
 ) -> Result<AddMeasurementTrustedProfileResponse, Status> {
@@ -260,7 +260,7 @@ pub async fn handle_add_measurement_trusted_profile(
 
 /// handle_remove_measurement_trusted_profile handles the
 /// RemoveMeasurementTrustedProfile API endpoint.
-pub async fn handle_remove_measurement_trusted_profile(
+pub(crate) async fn handle_remove_measurement_trusted_profile(
     api: &Api,
     req: RemoveMeasurementTrustedProfileRequest,
 ) -> Result<RemoveMeasurementTrustedProfileResponse, Status> {
@@ -309,7 +309,7 @@ pub async fn handle_remove_measurement_trusted_profile(
 
 /// handle_list_measurement_trusted_profiles handles the
 /// ListMeasurementTrustedProfiles API endpoint.
-pub async fn handle_list_measurement_trusted_profiles(
+pub(crate) async fn handle_list_measurement_trusted_profiles(
     api: &Api,
     _req: ListMeasurementTrustedProfilesRequest,
 ) -> Result<ListMeasurementTrustedProfilesResponse, Status> {
@@ -326,7 +326,7 @@ pub async fn handle_list_measurement_trusted_profiles(
     Ok(ListMeasurementTrustedProfilesResponse { approval_records })
 }
 
-pub async fn handle_list_attestation_summary(
+pub(crate) async fn handle_list_attestation_summary(
     api: &Api,
     _req: ListAttestationSummaryRequest,
 ) -> Result<ListAttestationSummaryResponse, Status> {

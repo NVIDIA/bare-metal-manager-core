@@ -16,10 +16,10 @@
  */
 use bmc_mock::MockPowerState;
 
-pub type FsmReturn = (PowerShelfFsm, Vec<Action>);
+type FsmReturn = (PowerShelfFsm, Vec<Action>);
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum PowerShelfFsm {
+pub(super) enum PowerShelfFsm {
     BmcInit {
         power_on: bool,
         power_cycle_pending: bool,
@@ -35,7 +35,7 @@ pub enum PowerShelfFsm {
 }
 
 impl PowerShelfFsm {
-    pub fn init(power_on: bool) -> FsmReturn {
+    pub(super) fn init(power_on: bool) -> FsmReturn {
         (
             Self::BmcInit {
                 power_on,
@@ -46,7 +46,7 @@ impl PowerShelfFsm {
         )
     }
 
-    pub fn event(self, event: Event) -> FsmReturn {
+    pub(super) fn event(self, event: Event) -> FsmReturn {
         match event {
             Event::Pause => return (self.with_paused(true), vec![]),
             Event::Resume => return (self.with_paused(false), vec![]),
@@ -67,7 +67,7 @@ impl PowerShelfFsm {
         }
     }
 
-    pub fn is_paused(&self) -> bool {
+    pub(super) fn is_paused(&self) -> bool {
         match self {
             Self::BmcInit { paused, .. }
             | Self::DeviceUp { paused }
@@ -75,7 +75,7 @@ impl PowerShelfFsm {
         }
     }
 
-    pub fn power_state(&self) -> MockPowerState {
+    pub(super) fn power_state(&self) -> MockPowerState {
         match self {
             Self::BmcInit { power_on: true, .. } | Self::DeviceUp { .. } => MockPowerState::On,
             Self::BmcInit {
@@ -85,7 +85,7 @@ impl PowerShelfFsm {
         }
     }
 
-    pub fn state_string(&self) -> &'static str {
+    pub(super) fn state_string(&self) -> &'static str {
         match self {
             Self::BmcInit { .. } => "BmcInit",
             Self::DeviceUp { .. } => "BmcOnly/DeviceUp",
@@ -229,7 +229,7 @@ fn cancel_timer_action(power_cycle_pending: bool) -> Vec<Action> {
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum Event {
+pub(super) enum Event {
     DhcpComplete,
     PowerOn,
     PowerOff,
@@ -240,7 +240,7 @@ pub enum Event {
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum Action {
+pub(super) enum Action {
     Dhcp,
     SetupBmc,
     SetTimer(Timer),
@@ -248,7 +248,7 @@ pub enum Action {
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum Timer {
+pub(super) enum Timer {
     PowerCycle,
 }
 

@@ -171,7 +171,7 @@ struct Timing {
 }
 
 impl Timing {
-    pub fn new() -> Self {
+    fn new() -> Self {
         let now = std::time::Instant::now();
         Self {
             busy_ns: 0,
@@ -211,7 +211,7 @@ struct LogFmtData {
 }
 
 impl LogFmtData {
-    pub fn new() -> Self {
+    fn new() -> Self {
         Self {
             timing: Timing::new(),
             suppressed: false,
@@ -220,7 +220,7 @@ impl LogFmtData {
         }
     }
 
-    pub fn update_attribute(&mut self, field: &Field, value: String) {
+    fn update_attribute(&mut self, field: &Field, value: String) {
         // Note that this doesn't use the `.entry()` API to avoid unnecessary
         // allocations for `.to_string()` if the entry does already exist
         match self.attributes.get_mut(field.name()) {
@@ -860,13 +860,13 @@ mod tests {
     }
 
     impl TestWriter {
-        pub fn new() -> Self {
+        fn new() -> Self {
             Self {
                 buf: Arc::new(Mutex::new(vec![])),
             }
         }
 
-        pub fn text(&self) -> String {
+        fn text(&self) -> String {
             let guard = self.buf.lock().unwrap();
             String::from_utf8_lossy(&guard).into_owned()
         }

@@ -23,7 +23,7 @@ use crate::json::{JsonExt, JsonPatch};
 use crate::redfish;
 use crate::redfish::Builder;
 
-pub fn system_collection(system_id: &str) -> redfish::Collection<'static> {
+pub(super) fn system_collection(system_id: &str) -> redfish::Collection<'static> {
     let odata_id = format!("/redfish/v1/Systems/{system_id}/Processors");
     redfish::Collection {
         odata_id: Cow::Owned(odata_id),
@@ -32,7 +32,7 @@ pub fn system_collection(system_id: &str) -> redfish::Collection<'static> {
     }
 }
 
-pub fn system_resource<'a>(system_id: &str, processor_id: &'a str) -> redfish::Resource<'a> {
+pub(super) fn system_resource<'a>(system_id: &str, processor_id: &'a str) -> redfish::Resource<'a> {
     let odata_id = format!("/redfish/v1/Systems/{system_id}/Processors/{processor_id}");
     redfish::Resource {
         odata_id: Cow::Owned(odata_id),
@@ -42,7 +42,7 @@ pub fn system_resource<'a>(system_id: &str, processor_id: &'a str) -> redfish::R
     }
 }
 
-pub fn metrics_resource(system_id: &str, processor_id: &str) -> redfish::Resource<'static> {
+pub(super) fn metrics_resource(system_id: &str, processor_id: &str) -> redfish::Resource<'static> {
     let odata_id =
         format!("/redfish/v1/Systems/{system_id}/Processors/{processor_id}/ProcessorMetrics");
     redfish::Resource {
@@ -54,30 +54,30 @@ pub fn metrics_resource(system_id: &str, processor_id: &str) -> redfish::Resourc
 }
 
 /// A mock Redfish `Processor` plus its associated `ProcessorMetrics` resource.
-pub struct Processor {
-    pub id: Cow<'static, str>,
+pub(crate) struct Processor {
+    pub(crate) id: Cow<'static, str>,
     resource: serde_json::Value,
     metrics: serde_json::Value,
 }
 
 impl Processor {
-    pub fn to_json(&self) -> serde_json::Value {
+    pub(crate) fn to_json(&self) -> serde_json::Value {
         self.resource.clone()
     }
 
-    pub fn metrics_json(&self) -> serde_json::Value {
+    pub(crate) fn metrics_json(&self) -> serde_json::Value {
         self.metrics.clone()
     }
 }
 
-pub fn builder(resource: &redfish::Resource) -> ProcessorBuilder {
+fn builder(resource: &redfish::Resource) -> ProcessorBuilder {
     ProcessorBuilder {
         id: Cow::Owned(resource.id.to_string()),
         value: resource.json_patch(),
     }
 }
 
-pub struct ProcessorBuilder {
+struct ProcessorBuilder {
     id: Cow<'static, str>,
     value: serde_json::Value,
 }
@@ -92,15 +92,15 @@ impl Builder for ProcessorBuilder {
 }
 
 impl ProcessorBuilder {
-    pub fn processor_type(self, value: &str) -> Self {
+    fn processor_type(self, value: &str) -> Self {
         self.add_str_field("ProcessorType", value)
     }
 
-    pub fn metrics(self, metrics: &redfish::Resource<'_>) -> Self {
+    fn metrics(self, metrics: &redfish::Resource<'_>) -> Self {
         self.apply_patch(metrics.nav_property("Metrics"))
     }
 
-    pub fn status(self, status: redfish::resource::Status) -> Self {
+    fn status(self, status: redfish::resource::Status) -> Self {
         self.apply_patch(json!({ "Status": status.into_json() }))
     }
 
@@ -113,7 +113,7 @@ impl ProcessorBuilder {
     }
 }
 
-pub fn gpu(system_id: &str, processor_id: &str, core_voltage_sensor_uri: &str) -> Processor {
+pub(crate) fn gpu(system_id: &str, processor_id: &str, core_voltage_sensor_uri: &str) -> Processor {
     let metrics = metrics_resource(system_id, processor_id);
     let metrics_json = nvidia_gpu_metrics(&metrics, processor_id, core_voltage_sensor_uri);
     builder(&system_resource(system_id, processor_id))
