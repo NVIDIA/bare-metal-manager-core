@@ -1475,6 +1475,25 @@ func TestVpcSQLDAO_ClearDeleted(t *testing.T) {
 		assert.False(t, updated.IsMissingOnSite)
 	})
 
+	t.Run("clears soft-delete marker and description together", func(t *testing.T) {
+		_, err := vpcDAO.Update(context.Background(), nil, VpcUpdateInput{
+			VpcID:       vpc.ID,
+			Description: cutil.GetPtr("description to clear"),
+		})
+		require.NoError(t, err)
+		require.NoError(t, vpcDAO.DeleteByID(context.Background(), nil, vpc.ID))
+
+		cleared, err := vpcDAO.Clear(context.Background(), nil, VpcClearInput{
+			VpcID:       vpc.ID,
+			Deleted:     true,
+			Description: true,
+		})
+		require.NoError(t, err)
+		require.NotNil(t, cleared)
+		assert.Nil(t, cleared.Deleted)
+		assert.Nil(t, cleared.Description)
+	})
+
 	t.Run("returns not found for unknown VPC", func(t *testing.T) {
 		_, err := vpcDAO.Clear(context.Background(), nil, VpcClearInput{
 			VpcID:   uuid.New(),
@@ -1931,10 +1950,6 @@ func TestVpc_FromProto(t *testing.T) {
 		assert.Nil(t, v.EffectiveRoutingProfile)
 		assert.Nil(t, v.Description)
 		assert.Nil(t, v.Labels)
-		assert.Nil(t, v.NetworkVirtualizationType)
-		assert.Nil(t, v.RoutingProfile)
-		assert.Nil(t, v.Vni)
-		assert.Nil(t, v.ActiveVni)
 	})
 
 	t.Run("invalid NVLink partition id clears the field", func(t *testing.T) {

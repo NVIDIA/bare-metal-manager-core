@@ -567,11 +567,10 @@ func (mv ManageVpc) createOrUpdateVpcFromSite(
 		if nameErr != nil {
 			return nil, fmt.Errorf("check inventory VPC name conflict: %w", nameErr)
 		}
-		for i := range nameConflictVpcs {
-			if softDeletedVpc == nil || nameConflictVpcs[i].ID != softDeletedVpc.ID {
-				logger.Warn().Msg("skipping VPC from Site: an active VPC with the same name already exists for the Tenant and Site")
-				return nil, nil
-			}
+		// Soft-deleted rows are excluded by GetAll, so any hit is an active conflict.
+		if len(nameConflictVpcs) > 0 {
+			logger.Warn().Msg("skipping VPC from Site: an active VPC with the same name already exists for the Tenant and Site")
+			return nil, nil
 		}
 
 		statusDetailDAO := cdbm.NewStatusDetailDAO(mv.dbSession)
@@ -654,6 +653,7 @@ func (mv ManageVpc) createOrUpdateVpcFromSite(
 			NetworkVirtualizationType:              fromSite.NetworkVirtualizationType,
 			RoutingProfile:                         fromSite.RoutingProfile,
 			RoutingProfileOverrides:                fromSite.RoutingProfileOverrides,
+			EffectiveRoutingProfile:                fromSite.EffectiveRoutingProfile,
 			ControllerVpcID:                        &vpcID,
 			ActiveVni:                              fromSite.ActiveVni,
 			NetworkSecurityGroupID:                 nsgID,
@@ -665,15 +665,6 @@ func (mv ManageVpc) createOrUpdateVpcFromSite(
 		})
 		if createErr != nil {
 			return nil, fmt.Errorf("create VPC from Site: %w", createErr)
-		}
-		// EffectiveRoutingProfile is not part of CreateInput, so set it in a follow-up Update.
-		if fromSite.EffectiveRoutingProfile != nil {
-			created, createErr = vpcDAO.Update(ctx, tx, cdbm.VpcUpdateInput{
-				VpcID: created.ID, EffectiveRoutingProfile: fromSite.EffectiveRoutingProfile,
-			})
-			if createErr != nil {
-				return nil, fmt.Errorf("update created VPC effective routing profile: %w", createErr)
-			}
 		}
 		if _, statusErr := statusDetailDAO.Create(ctx, tx, cdbm.StatusDetailCreateInput{
 			EntityID: created.ID.String(), Status: cdbm.VpcStatusReady, Message: &readyMsg,

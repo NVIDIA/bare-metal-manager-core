@@ -519,6 +519,7 @@ type VpcCreateInput struct {
 	Status                                 string
 	CreatedBy                              User
 	Vni                                    *int
+	EffectiveRoutingProfile                *VpcEffectiveRoutingProfile
 }
 
 // VpcUpdateInput input parameters for Update method
@@ -907,6 +908,7 @@ func (vsd VpcSQLDAO) Create(ctx context.Context, tx *db.Tx, input VpcCreateInput
 		IsMissingOnSite:                        false,
 		CreatedBy:                              input.CreatedBy.ID,
 		Vni:                                    input.Vni,
+		EffectiveRoutingProfile:                input.EffectiveRoutingProfile,
 	}
 
 	_, err := db.GetIDB(tx, vsd.dbSession).NewInsert().Model(v).Exec(ctx)

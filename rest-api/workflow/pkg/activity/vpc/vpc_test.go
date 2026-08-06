@@ -988,6 +988,55 @@ func TestManageVpc_UpdateVpcsInDB_AutoCreatesAndRestores(t *testing.T) {
 		}
 		assert.True(t, foundReadyMessage)
 	})
+
+	t.Run("inventory skips restore when tenant organization differs", func(t *testing.T) {
+		require.NoError(t, vpcDAO.DeleteByID(ctx, nil, controllerVpcID))
+		deletedVpcs, _, err := vpcDAO.GetAll(
+			ctx,
+			nil,
+			cdbm.VpcFilterInput{VpcIDs: []uuid.UUID{controllerVpcID}, IncludeDeleted: true},
+			cdbp.PageInput{Limit: cutil.GetPtr(cdbp.TotalLimit)},
+			nil,
+		)
+		require.NoError(t, err)
+		require.Len(t, deletedVpcs, 1)
+		require.NotNil(t, deletedVpcs[0].Deleted)
+		deletedAt := *deletedVpcs[0].Deleted
+
+		mismatchedInventory := &corev1.VPCInventory{
+			Vpcs: []*corev1.Vpc{{
+				Id: &corev1.VpcId{Value: controllerVpcID.String()},
+				Config: &corev1.VpcConfig{
+					TenantOrganizationId:      "other-tenant-org",
+					NetworkVirtualizationType: &networkVirtualizationType,
+					RoutingProfileType:        &routingProfile,
+					Vni:                       &requestedVni,
+				},
+				Status: &corev1.VpcStatus{Vni: &activeVni},
+				Metadata: &corev1.Metadata{
+					Name:        "site-created-vpc",
+					Description: "created directly on Site",
+				},
+			}},
+		}
+		_, err = manager.UpdateVpcsInDB(ctx, site.ID, mismatchedInventory)
+		require.NoError(t, err)
+
+		stillDeleted, _, err := vpcDAO.GetAll(
+			ctx,
+			nil,
+			cdbm.VpcFilterInput{VpcIDs: []uuid.UUID{controllerVpcID}, IncludeDeleted: true},
+			cdbp.PageInput{Limit: cutil.GetPtr(cdbp.TotalLimit)},
+			nil,
+		)
+		require.NoError(t, err)
+		require.Len(t, stillDeleted, 1)
+		require.NotNil(t, stillDeleted[0].Deleted)
+		assert.Equal(t, deletedAt, *stillDeleted[0].Deleted)
+
+		_, err = vpcDAO.GetByID(ctx, nil, controllerVpcID, nil)
+		assert.ErrorIs(t, err, cdb.ErrDoesNotExist)
+	})
 }
 
 func TestManageVpc_CreateOrUpdateVpcFromSite_SkipsIncompleteOwnership(t *testing.T) {
@@ -1099,6 +1148,22 @@ func TestManageVpc_CreateOrUpdateVpcFromSite_SkipsIncompleteOwnership(t *testing
 			},
 		},
 		{
+			name: "empty VPC name is rejected",
+			controllerVpc: &corev1.Vpc{
+				Id:       &corev1.VpcId{Value: uuid.NewString()},
+				Config:   &corev1.VpcConfig{TenantOrganizationId: authorizedTenantOrg},
+				Metadata: &corev1.Metadata{Name: ""},
+			},
+		},
+		{
+			name: "empty tenant organization is rejected",
+			controllerVpc: &corev1.Vpc{
+				Id:       &corev1.VpcId{Value: uuid.NewString()},
+				Config:   &corev1.VpcConfig{TenantOrganizationId: ""},
+				Metadata: &corev1.Metadata{Name: "missing-tenant-org-vpc"},
+			},
+		},
+		{
 			name: "creates VPC without Site allocation",
 			controllerVpc: &corev1.Vpc{
 				Id:       &corev1.VpcId{Value: uuid.NewString()},
@@ -1120,6 +1185,7 @@ func TestManageVpc_CreateOrUpdateVpcFromSite_SkipsIncompleteOwnership(t *testing
 			if tt.wantVpc {
 				require.NotNil(t, vpc)
 				assert.Equal(t, cdbm.VpcStatusReady, vpc.Status)
+				assert.Equal(t, authorizedTenant.ID, vpc.TenantID)
 				return
 			}
 			assert.Nil(t, vpc)
