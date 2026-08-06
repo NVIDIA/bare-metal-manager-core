@@ -18,7 +18,7 @@
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 
-use crate::{DriverOutcome, FirmwareInventory, OpCx, PlatformError, RedfishUri};
+use crate::{DriverOutcome, FirmwareInventory, OpCx, PlatformError};
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct ComponentIntegritySummary {
@@ -27,10 +27,6 @@ pub struct ComponentIntegritySummary {
     pub enabled: bool,
     pub component_type: String,
     pub component_type_version: String,
-    pub target_component_uri: Option<RedfishUri>,
-    pub protected_component_uris: Vec<RedfishUri>,
-    pub certificate_link: Option<RedfishUri>,
-    pub measurement_action_target: Option<RedfishUri>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -68,20 +64,20 @@ pub trait Attestation: Send + Sync {
     async fn ca_certificate(
         &self,
         cx: &OpCx<'_>,
-        uri: &RedfishUri,
+        component_id: &str,
     ) -> Result<CaCertificate, PlatformError>;
 
     async fn trigger_evidence(
         &self,
         cx: &OpCx<'_>,
-        uri: &RedfishUri,
-        nonce_hex: &str,
+        component_id: &str,
+        nonce: &[u8],
     ) -> Result<DriverOutcome, PlatformError>;
 
     async fn evidence(
         &self,
         cx: &OpCx<'_>,
-        uri: &RedfishUri,
+        component_id: &str,
     ) -> Result<AttestationEvidence, PlatformError>;
 
     async fn clear_tpm(&self, cx: &OpCx<'_>) -> Result<DriverOutcome, PlatformError>;

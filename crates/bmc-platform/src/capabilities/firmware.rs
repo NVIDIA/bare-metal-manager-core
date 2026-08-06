@@ -45,7 +45,6 @@ pub enum FirmwareUploadComponent {
     PcieSwitch { number: u32 },
     PcieRetimer { number: u32 },
     HgxBmc,
-    Unknown,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -79,7 +78,7 @@ pub enum FirmwareUpdate {
     },
 }
 
-/// Firmware inventory and simple-image update operations.
+/// Firmware inventory and update operations.
 #[async_trait]
 pub trait Firmware: Send + Sync {
     async fn inventory(&self, cx: &OpCx<'_>) -> Result<Vec<FirmwareInventory>, PlatformError>;

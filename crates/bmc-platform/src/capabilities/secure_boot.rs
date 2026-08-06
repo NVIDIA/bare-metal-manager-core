@@ -17,7 +17,6 @@
 
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
-use serde_json::{Map, Value};
 
 use crate::{DriverOutcome, OpCx, PlatformError};
 
@@ -51,13 +50,13 @@ pub struct SecureBootStatus {
     pub secure_boot_mode: Option<SecureBootMode>,
 }
 
-#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
-pub struct SecureBootCertificateInfo {
-    pub certificate_string: String,
-    pub certificate_type: String,
-    pub issuer: Map<String, Value>,
-    pub valid_not_before: String,
-    pub valid_not_after: String,
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SecureBootDatabase {
+    PlatformKey,
+    KeyExchangeKey,
+    AllowedSignatures,
+    ForbiddenSignatures,
 }
 
 /// Secure Boot status, enablement, and certificate operations.
@@ -71,23 +70,16 @@ pub trait SecureBoot: Send + Sync {
         state: SecureBootDesiredState,
     ) -> Result<DriverOutcome, PlatformError>;
 
-    async fn list_certificates(
+    async fn has_certificates(
         &self,
         cx: &OpCx<'_>,
-        database: &str,
-    ) -> Result<Vec<String>, PlatformError>;
-
-    async fn get_certificate(
-        &self,
-        cx: &OpCx<'_>,
-        database: &str,
-        certificate_id: &str,
-    ) -> Result<SecureBootCertificateInfo, PlatformError>;
+        database: SecureBootDatabase,
+    ) -> Result<bool, PlatformError>;
 
     async fn add_certificate(
         &self,
         cx: &OpCx<'_>,
-        database: &str,
+        database: SecureBootDatabase,
         pem: &str,
     ) -> Result<DriverOutcome, PlatformError>;
 }

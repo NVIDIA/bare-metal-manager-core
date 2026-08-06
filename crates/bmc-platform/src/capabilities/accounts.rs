@@ -73,17 +73,14 @@ pub trait Accounts: Send + Sync {
 
     async fn delete(&self, cx: &OpCx<'_>, username: &str) -> Result<DriverOutcome, PlatformError>;
 
+    /// Changes the named account's password.
+    ///
+    /// The driver resolves vendor account IDs and handles first-password-change
+    /// paths where account lookup is unavailable.
     async fn change_password(
         &self,
         cx: &OpCx<'_>,
-        username: &str,
-        password: &str,
-    ) -> Result<DriverOutcome, PlatformError>;
-
-    async fn change_password_by_id(
-        &self,
-        cx: &OpCx<'_>,
-        account_id: &str,
+        account_username: &str,
         password: &str,
     ) -> Result<DriverOutcome, PlatformError>;
 

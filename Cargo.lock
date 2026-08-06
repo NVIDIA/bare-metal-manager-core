@@ -876,9 +876,11 @@ dependencies = [
  "async-trait",
  "carbide-test-support",
  "http",
+ "mac_address",
  "serde",
  "serde_json",
  "thiserror 2.0.18",
+ "url",
 ]
 
 [[package]]

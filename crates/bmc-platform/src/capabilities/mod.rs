@@ -46,7 +46,7 @@ pub use firmware::{
 pub use lockdown::{Lockdown, LockdownDesiredState, LockdownScope, LockdownState, LockdownStatus};
 pub use power::{Power, PowerAction, PowerState};
 pub use secure_boot::{
-    SecureBoot, SecureBootCertificateInfo, SecureBootCurrentBoot, SecureBootDesiredState,
-    SecureBootMode, SecureBootStatus,
+    SecureBoot, SecureBootCurrentBoot, SecureBootDatabase, SecureBootDesiredState, SecureBootMode,
+    SecureBootStatus,
 };
 pub use storage::Storage;

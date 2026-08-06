@@ -36,8 +36,8 @@ pub use capabilities::{
     DpuStatus, EscapeSeq, Firmware, FirmwareInventory, FirmwareUpdate, FirmwareUploadComponent,
     HostPrivilegeLevel, IpmiOverLanState, Lockdown, LockdownDesiredState, LockdownScope,
     LockdownState, LockdownStatus, NicMode, Power, PowerAction, PowerState, RoleId, RshimState,
-    SecureBoot, SecureBootCertificateInfo, SecureBootCurrentBoot, SecureBootDesiredState,
-    SecureBootMode, SecureBootStatus, Storage, TransferProtocol,
+    SecureBoot, SecureBootCurrentBoot, SecureBootDatabase, SecureBootDesiredState, SecureBootMode,
+    SecureBootStatus, Storage, TransferProtocol,
 };
 pub use error::{AuthError, PlatformError};
 pub use identity::{

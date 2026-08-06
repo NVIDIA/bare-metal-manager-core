@@ -16,7 +16,9 @@
  */
 
 use async_trait::async_trait;
+use mac_address::MacAddress;
 use serde::{Deserialize, Serialize};
+use url::Url;
 
 use crate::{DriverOutcome, OpCx, PlatformError};
 
@@ -26,7 +28,7 @@ use crate::{DriverOutcome, OpCx, PlatformError};
 pub enum BootTarget {
     Pxe,
     HardDisk,
-    UefiHttp { uri: Option<String> },
+    UefiHttp { uri: Option<Url> },
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -54,10 +56,10 @@ pub enum BootOverride {
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type", content = "value", rename_all = "snake_case")]
 pub enum BootInterfaceSelector {
-    Mac(String),
+    Mac(MacAddress),
     InterfaceId(String),
     Pair {
-        mac_address: String,
+        mac_address: MacAddress,
         interface_id: String,
     },
 }
@@ -141,7 +143,11 @@ mod tests {
             (
                 BootOverride::Continuous {
                     target: BootTarget::UefiHttp {
-                        uri: Some("https://boot.example/image".to_string()),
+                        uri: Some(
+                            "https://boot.example/image"
+                                .parse()
+                                .expect("fixture URL is valid"),
+                        ),
                     },
                     firmware_mode: Some(BootFirmwareMode::Uefi),
                 },
