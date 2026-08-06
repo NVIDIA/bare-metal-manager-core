@@ -1237,6 +1237,7 @@ dependencies = [
  "figment",
  "futures",
  "futures-util",
+ "hashbrown 0.17.1",
  "hex",
  "hkdf 0.13.0",
  "hostname",
@@ -1256,6 +1257,7 @@ dependencies = [
  "nras",
  "num_cpus",
  "nv-redfish",
+ "nv-redfish-dispatcher",
  "opentelemetry 0.32.0",
  "opentelemetry_sdk",
  "p256 0.14.0",
@@ -1499,6 +1501,7 @@ dependencies = [
  "carbide-health-report",
  "carbide-macros",
  "carbide-measured-boot",
+ "carbide-redfish",
  "carbide-rpc",
  "carbide-rpc-utils",
  "carbide-sqlx-testing",
@@ -6874,7 +6877,7 @@ dependencies = [
 [[package]]
 name = "librms"
 version = "0.0.14"
-source = "git+https://github.com/NVIDIA/nv-rms-client.git?tag=v0.10.0#0769455549f85e64c4fcc471bd24aa7fa6622609"
+source = "git+https://github.com/NVIDIA/nv-rms-client.git?tag=v0.10.1#4bbd502d3d9822fb1dcb8d205b7edaecabb497a6"
 dependencies = [
  "async-trait",
  "chrono",
@@ -7866,6 +7869,16 @@ dependencies = [
  "syn 2.0.117",
  "tagged-types",
  "toml 0.9.12+spec-1.1.0",
+]
+
+[[package]]
+name = "nv-redfish-dispatcher"
+version = "0.13.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "04442d12d0ca0ab617ce0ed0ba15d305a0505a98833b2d102576c5f13dfbaac6"
+dependencies = [
+ "futures-core",
+ "futures-util",
 ]
 
 [[package]]
@@ -11903,7 +11916,7 @@ dependencies = [
 [[package]]
 name = "tonic-client-wrapper"
 version = "1.0.0"
-source = "git+https://github.com/NVIDIA/nv-rms-client.git?tag=v0.10.0#0769455549f85e64c4fcc471bd24aa7fa6622609"
+source = "git+https://github.com/NVIDIA/nv-rms-client.git?tag=v0.10.1#4bbd502d3d9822fb1dcb8d205b7edaecabb497a6"
 dependencies = [
  "async-trait",
  "heck",

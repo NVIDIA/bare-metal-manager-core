@@ -28,10 +28,13 @@ use axum::response::{Html, IntoResponse, Redirect, Response};
 use axum::{Form, Json};
 use carbide_api_core::Api;
 use carbide_rpc_utils::managed_host_display::to_time;
-use carbide_uuid::machine::{MachineId, MachineType};
+use carbide_uuid::machine::{MachineId, MachineInterfaceId, MachineType};
 use hyper::http::StatusCode;
 use itertools::Itertools;
+use mac_address::MacAddress;
 use model::machine::network::ManagedHostQuarantineState;
+use model::machine_boot_interface::canonical_redfish_boot_interface_id;
+use model::network_segment::NetworkSegmentType;
 use rpc::forge::forge_server::Forge;
 use rpc::forge::get_machine_boot_interfaces_response::Reconciliation as BootInterfaceReconciliation;
 use rpc::forge::get_machine_boot_interfaces_response::reconciliation::State as BootInterfaceReconciliationState;
@@ -183,7 +186,7 @@ impl MachineRowDisplay {
     }
 }
 
-pub async fn show_hosts_html(
+pub(super) async fn show_hosts_html(
     state: AxumState<Arc<Api>>,
     query: Query<PaginationParams>,
     path: OriginalUri,
@@ -191,7 +194,7 @@ pub async fn show_hosts_html(
     show(state, true, false, query, path).await
 }
 
-pub async fn show_hosts_json(AxumState(state): AxumState<Arc<Api>>) -> Response {
+pub(super) async fn show_hosts_json(AxumState(state): AxumState<Arc<Api>>) -> Response {
     let machines = match fetch_machines(state, false, true).await {
         Ok(r) => r,
         Err(err) => {
@@ -202,7 +205,7 @@ pub async fn show_hosts_json(AxumState(state): AxumState<Arc<Api>>) -> Response 
     (StatusCode::OK, Json(machines)).into_response()
 }
 
-pub async fn show_dpus_html(
+pub(super) async fn show_dpus_html(
     state: AxumState<Arc<Api>>,
     query: Query<PaginationParams>,
     path: OriginalUri,
@@ -210,7 +213,7 @@ pub async fn show_dpus_html(
     show(state, false, true, query, path).await
 }
 
-pub async fn show_dpus_json(AxumState(state): AxumState<Arc<Api>>) -> Response {
+pub(super) async fn show_dpus_json(AxumState(state): AxumState<Arc<Api>>) -> Response {
     let mut machines = match fetch_machines(state, true, true).await {
         Ok(r) => r,
         Err(err) => {
@@ -225,7 +228,7 @@ pub async fn show_dpus_json(AxumState(state): AxumState<Arc<Api>>) -> Response {
 }
 
 /// List machines
-pub async fn show_all_html(
+pub(super) async fn show_all_html(
     state: AxumState<Arc<Api>>,
     query: Query<PaginationParams>,
     path: OriginalUri,
@@ -233,7 +236,7 @@ pub async fn show_all_html(
     show(state, true, true, query, path).await
 }
 
-pub async fn show_all_json(AxumState(state): AxumState<Arc<Api>>) -> Response {
+pub(super) async fn show_all_json(AxumState(state): AxumState<Arc<Api>>) -> Response {
     let machines = match fetch_machines(state, true, true).await {
         Ok(r) => r,
         Err(err) => {
@@ -317,7 +320,7 @@ async fn show(
     (StatusCode::OK, Html(tmpl.render().unwrap())).into_response()
 }
 
-pub async fn fetch_machine(
+async fn fetch_machine(
     api: &Api,
     machine_id: MachineId,
 ) -> Result<::rpc::forge::Machine, Response> {
@@ -360,7 +363,7 @@ pub async fn fetch_machine(
 }
 
 /// Fetches Instance Type Names for the given Instance Type IDs
-pub async fn fetch_instance_type_names(
+async fn fetch_instance_type_names(
     api: &Api,
     instance_type_ids: Vec<String>,
 ) -> Result<HashMap<String, String>, Response> {
@@ -394,7 +397,7 @@ pub async fn fetch_instance_type_names(
     Ok(result)
 }
 
-pub async fn fetch_machines(
+pub(super) async fn fetch_machines(
     api: Arc<Api>,
     include_dpus: bool,
     include_history: bool,
@@ -459,6 +462,7 @@ struct MachineDetail<'a> {
     inventory: Vec<MachineInventorySoftwareComponent>,
     health_detail: super::HealthDetail,
     bmc_info: Option<rpc::forge::BmcInfo>,
+    has_complete_bmc_info: bool,
     discovery_info_json: String,
     metadata_detail: super::MetadataDetail,
     capabilities: Vec<MachineCapability>,
@@ -472,15 +476,26 @@ struct MachineDetail<'a> {
     instance_type: String,
     has_instance_type: bool,
     nvlink_gpus: Vec<MachineNvLinkGpuDisplay>,
-    boot_interface_reconciliation: Option<BootInterfaceReconciliationDisplay>,
+    desired_boot_interface: Option<DesiredBootInterfaceDisplay>,
     action_status: Option<ActionStatus<'a>>,
+}
+
+/// Template projection of the managed host's boot-interface lookup. Outer
+/// `None` means the lookup failed; `reconciliation: None` means the lookup
+/// succeeded before Site Explorer initialized a desired target.
+struct DesiredBootInterfaceDisplay {
+    reconciliation: Option<BootInterfaceReconciliationDisplay>,
+    candidates: Vec<BootInterfaceCandidateDisplay>,
+    predicted_candidates: Vec<PredictedBootInterfaceDisplay>,
+    default_machine_interface_id: Option<String>,
+    has_selectable_candidates: bool,
 }
 
 /// Template projection of the targeted boot-interface reconciliation status.
 struct BootInterfaceReconciliationDisplay {
     reconciliation_state: &'static str,
     desired_mac_address: String,
-    desired_interface_id: String,
+    desired_redfish_interface_id: String,
     desired_version: String,
     verified_version: String,
     observed_at: String,
@@ -488,6 +503,226 @@ struct BootInterfaceReconciliationDisplay {
     machine_state: String,
     reconciling_version: String,
     failure: Option<String>,
+}
+
+/// One owned `machine_interfaces` row that an operator can select by its exact
+/// UUID. The annotations come from the server's effective and default picks.
+struct BootInterfaceCandidateDisplay {
+    machine_interface_id: Option<String>,
+    mac_address: String,
+    redfish_interface_id: String,
+    network_segment_type: String,
+    is_selectable: bool,
+    is_current: bool,
+    is_desired: bool,
+    is_default: bool,
+}
+
+/// One pre-lease boot candidate. Predictions do not have an owned interface
+/// UUID yet, so the managed-host page keeps them informational.
+struct PredictedBootInterfaceDisplay {
+    mac_address: String,
+    redfish_interface_id: String,
+    network_segment_type: String,
+    is_primary: bool,
+    is_default: bool,
+}
+
+impl DesiredBootInterfaceDisplay {
+    /// Builds the operator projection with the same primary-interface policy
+    /// enforced by `SetPrimaryInterface`.
+    fn new(
+        response: forgerpc::GetMachineBootInterfacesResponse,
+        dpu_backed_machine_interface_ids: &HashSet<MachineInterfaceId>,
+    ) -> Self {
+        let forgerpc::GetMachineBootInterfacesResponse {
+            machine_interfaces,
+            predicted_interfaces,
+            effective_boot_interface_mac,
+            effective_boot_interface_id,
+            default_boot_interface,
+            predicted_boot_interface,
+            reconciliation,
+            ..
+        } = response;
+
+        let effective_boot_interface =
+            effective_boot_interface_mac.map(|mac_address| forgerpc::MachineBootInterface {
+                mac_address,
+                interface_id: effective_boot_interface_id,
+            });
+        let effective_machine_interface_id = effective_boot_interface
+            .as_ref()
+            .and_then(|target| unique_managed_interface_id(target, &machine_interfaces));
+        let current_machine_interface_id = match machine_interfaces
+            .iter()
+            .find(|candidate| candidate.primary_interface)
+        {
+            Some(candidate) => candidate.interface_id,
+            None => effective_machine_interface_id,
+        };
+        let desired_boot_interface = reconciliation
+            .as_ref()
+            .and_then(|status| status.desired_boot_interface.as_ref());
+        let host_has_dpu_backed_admin_interface = machine_interfaces.iter().any(|candidate| {
+            candidate.interface_id.is_some_and(|interface_id| {
+                dpu_backed_machine_interface_ids.contains(&interface_id)
+            }) && candidate
+                .network_segment_type
+                .as_deref()
+                .and_then(|segment_type| segment_type.parse().ok())
+                == Some(NetworkSegmentType::Admin)
+        });
+        let selectable_machine_interface_ids = machine_interfaces
+            .iter()
+            .filter(|candidate| {
+                managed_interface_is_selectable(candidate, host_has_dpu_backed_admin_interface)
+            })
+            .filter_map(|candidate| candidate.interface_id)
+            .collect::<HashSet<_>>();
+        let default_machine_interface_id = default_boot_interface
+            .as_ref()
+            .and_then(|target| unique_managed_interface_id(target, &machine_interfaces))
+            .filter(|interface_id| selectable_machine_interface_ids.contains(interface_id));
+        let has_selectable_candidates = !selectable_machine_interface_ids.is_empty();
+
+        let mut candidates = machine_interfaces
+            .into_iter()
+            .map(|candidate| {
+                let interface_id = candidate.interface_id;
+                BootInterfaceCandidateDisplay {
+                    is_current: interface_id.is_some()
+                        && interface_id == current_machine_interface_id,
+                    is_desired: desired_boot_interface.as_ref().is_some_and(|target| {
+                        boot_interface_target_matches(
+                            target,
+                            &candidate.mac_address,
+                            candidate.boot_interface_id.as_deref(),
+                        )
+                    }),
+                    is_default: default_boot_interface.as_ref().is_some_and(|target| {
+                        boot_interface_target_matches(
+                            target,
+                            &candidate.mac_address,
+                            candidate.boot_interface_id.as_deref(),
+                        )
+                    }),
+                    machine_interface_id: interface_id
+                        .map(|machine_interface_id| machine_interface_id.to_string()),
+                    is_selectable: interface_id.is_some_and(|interface_id| {
+                        selectable_machine_interface_ids.contains(&interface_id)
+                    }),
+                    mac_address: candidate.mac_address,
+                    redfish_interface_id: candidate
+                        .boot_interface_id
+                        .unwrap_or_else(|| "-".to_string()),
+                    network_segment_type: candidate
+                        .network_segment_type
+                        .unwrap_or_else(|| "-".to_string()),
+                }
+            })
+            .collect::<Vec<_>>();
+        candidates.sort_by(|left, right| {
+            (&left.mac_address, &left.machine_interface_id)
+                .cmp(&(&right.mac_address, &right.machine_interface_id))
+        });
+
+        let mut predicted_candidates = predicted_interfaces
+            .into_iter()
+            .map(|candidate| PredictedBootInterfaceDisplay {
+                is_default: predicted_boot_interface.as_ref().is_some_and(|target| {
+                    boot_interface_target_matches(
+                        target,
+                        &candidate.mac_address,
+                        candidate.boot_interface_id.as_deref(),
+                    )
+                }),
+                mac_address: candidate.mac_address,
+                redfish_interface_id: candidate
+                    .boot_interface_id
+                    .unwrap_or_else(|| "-".to_string()),
+                network_segment_type: candidate
+                    .network_segment_type
+                    .unwrap_or_else(|| "-".to_string()),
+                is_primary: candidate.primary_interface,
+            })
+            .collect::<Vec<_>>();
+        predicted_candidates.sort_by(|left, right| left.mac_address.cmp(&right.mac_address));
+
+        Self {
+            reconciliation: reconciliation.map(Into::into),
+            candidates,
+            predicted_candidates,
+            default_machine_interface_id: default_machine_interface_id
+                .map(|machine_interface_id| machine_interface_id.to_string()),
+            has_selectable_candidates,
+        }
+    }
+}
+
+/// Mirrors the eligibility guard in `SetPrimaryInterface`. Hosts with a
+/// DPU-backed Admin link must keep an Admin primary; other hosts may select any
+/// owned row.
+fn managed_interface_is_selectable(
+    candidate: &forgerpc::MachineInterfaceBootInterface,
+    host_has_dpu_backed_admin_interface: bool,
+) -> bool {
+    candidate.interface_id.is_some()
+        && (!host_has_dpu_backed_admin_interface
+            || candidate
+                .network_segment_type
+                .as_deref()
+                .and_then(|segment_type| segment_type.parse().ok())
+                == Some(NetworkSegmentType::Admin))
+}
+
+/// Finds the one owned interface row represented by a server-selected target.
+/// A MAC-only target that matches several rows is deliberately not selectable.
+fn unique_managed_interface_id(
+    target: &forgerpc::MachineBootInterface,
+    candidates: &[forgerpc::MachineInterfaceBootInterface],
+) -> Option<MachineInterfaceId> {
+    candidates
+        .iter()
+        .filter(|candidate| {
+            boot_interface_target_matches(
+                target,
+                &candidate.mac_address,
+                candidate.boot_interface_id.as_deref(),
+            )
+        })
+        .exactly_one()
+        .ok()?
+        .interface_id
+}
+
+/// Compares a server-selected target with one candidate. Redfish IDs use the
+/// model's boundary-whitespace normalization; a MAC-only target matches by MAC.
+fn boot_interface_target_matches(
+    target: &forgerpc::MachineBootInterface,
+    candidate_mac_address: &str,
+    candidate_redfish_interface_id: Option<&str>,
+) -> bool {
+    let Ok(target_mac_address) = target.mac_address.parse::<MacAddress>() else {
+        return false;
+    };
+    let Ok(candidate_mac_address) = candidate_mac_address.parse::<MacAddress>() else {
+        return false;
+    };
+    if target_mac_address != candidate_mac_address {
+        return false;
+    }
+
+    match target.interface_id.as_deref() {
+        Some(target_redfish_interface_id) => canonical_redfish_boot_interface_id(
+            target_redfish_interface_id,
+        )
+        .is_some_and(|target_redfish_interface_id| {
+            candidate_redfish_interface_id.and_then(canonical_redfish_boot_interface_id)
+                == Some(target_redfish_interface_id)
+        }),
+        None => true,
+    }
 }
 
 impl From<BootInterfaceReconciliation> for BootInterfaceReconciliationDisplay {
@@ -516,7 +751,7 @@ impl From<BootInterfaceReconciliation> for BootInterfaceReconciliationDisplay {
             } else {
                 desired_boot_interface.mac_address
             },
-            desired_interface_id: desired_boot_interface
+            desired_redfish_interface_id: desired_boot_interface
                 .interface_id
                 .unwrap_or_else(|| "-".to_string()),
             desired_version: status.desired_version,
@@ -574,13 +809,13 @@ struct MachineNvLinkGpuDisplay {
     guid: u64,
 }
 
-pub struct ValidationRun {
-    pub status: String,
-    pub context: String,
-    pub validation_id: String,
-    pub start_time: String,
-    pub end_time: String,
-    pub machine_id: String,
+pub(super) struct ValidationRun {
+    pub(super) status: String,
+    pub(super) context: String,
+    pub(super) validation_id: String,
+    pub(super) start_time: String,
+    pub(super) end_time: String,
+    pub(super) machine_id: String,
 }
 
 impl From<forgerpc::Machine> for MachineDetail<'_> {
@@ -721,6 +956,10 @@ impl From<forgerpc::Machine> for MachineDetail<'_> {
             m.health,
             m.health_sources,
         );
+        let has_complete_bmc_info = m
+            .bmc_info
+            .as_ref()
+            .is_some_and(|bmc_info| bmc_info.ip.is_some() && bmc_info.mac.is_some());
 
         MachineDetail {
             id: machine_id.clone(),
@@ -741,6 +980,7 @@ impl From<forgerpc::Machine> for MachineDetail<'_> {
             is_host,
             network_config: String::new(), // filled in later
             bmc_info: m.bmc_info,
+            has_complete_bmc_info,
             history,
             bios_version,
             board_version,
@@ -835,14 +1075,14 @@ impl From<forgerpc::Machine> for MachineDetail<'_> {
             instance_type_id: m.instance_type_id.unwrap_or_default(),
             instance_type: "".to_string(),
             nvlink_gpus,
-            boot_interface_reconciliation: None,
+            desired_boot_interface: None,
             action_status: None,
         }
     }
 }
 
 /// View machine
-pub async fn detail(
+pub(super) async fn detail(
     AxumState(state): AxumState<Arc<Api>>,
     AxumPath(machine_id): AxumPath<String>,
     Query(params): Query<HashMap<String, String>>,
@@ -866,6 +1106,19 @@ pub async fn detail(
         return (StatusCode::OK, Json(machine)).into_response();
     }
 
+    // DPU attachment lives on the machine response, while segment type lives
+    // on the boot-interface response. Preserve the exact row IDs to join those
+    // two facts when projecting the API's primary-interface policy.
+    let dpu_backed_machine_interface_ids = machine
+        .interfaces
+        .iter()
+        .filter(|interface| {
+            interface
+                .attached_dpu_machine_id
+                .is_some_and(|machine_id| machine_id.machine_type().is_dpu())
+        })
+        .filter_map(|interface| interface.id)
+        .collect::<HashSet<_>>();
     let mut display: MachineDetail = machine.into();
 
     if display.is_host {
@@ -898,8 +1151,10 @@ pub async fn detail(
             .map(|response| response.into_inner())
         {
             Ok(boot_interfaces) => {
-                display.boot_interface_reconciliation =
-                    boot_interfaces.reconciliation.map(Into::into);
+                display.desired_boot_interface = Some(DesiredBootInterfaceDisplay::new(
+                    boot_interfaces,
+                    &dpu_backed_machine_interface_ids,
+                ));
             }
             Err(err) => {
                 tracing::warn!(
@@ -992,20 +1247,20 @@ pub async fn detail(
     (StatusCode::OK, Html(display.render().unwrap())).into_response()
 }
 
-pub fn get_machine_type(machine_id: &str) -> String {
+fn get_machine_type(machine_id: &str) -> String {
     MachineType::from_id_string(machine_id)
         .map(|t| t.to_string())
         .unwrap_or_else(|| "Unknown".to_string())
 }
 
 #[derive(Deserialize, Debug)]
-pub struct MaintenanceAction {
+pub(super) struct MaintenanceAction {
     action: String,
     reference: Option<String>,
 }
 
 /// Enter / Exit maintenance mode
-pub async fn maintenance(
+pub(super) async fn maintenance(
     AxumState(state): AxumState<Arc<Api>>,
     AxumPath(machine_id): AxumPath<String>,
     Form(form): Form<MaintenanceAction>,
@@ -1052,14 +1307,14 @@ pub async fn maintenance(
 }
 
 #[derive(Deserialize, Debug)]
-pub struct QuarantineAction {
+pub(super) struct QuarantineAction {
     action: String,
     mode: Option<String>,
     reason: Option<String>,
 }
 
 /// Enter / Exit quarantine
-pub async fn quarantine(
+pub(super) async fn quarantine(
     AxumState(state): AxumState<Arc<Api>>,
     AxumPath(machine_id): AxumPath<String>,
     Form(form): Form<QuarantineAction>,
@@ -1108,14 +1363,14 @@ pub async fn quarantine(
 }
 
 #[derive(Deserialize, Debug)]
-pub struct SkuAction {
+pub(super) struct SkuAction {
     action: String,
     sku_id: Option<String>,
     force: Option<String>,
 }
 
 /// Assign / Remove a SKU on a machine
-pub async fn sku(
+pub(super) async fn sku(
     AxumState(state): AxumState<Arc<Api>>,
     AxumPath(machine_id): AxumPath<String>,
     Form(form): Form<SkuAction>,
@@ -1185,42 +1440,128 @@ pub async fn sku(
     Redirect::to(&redirect_url).into_response()
 }
 
+/// Form fields for selecting one exact owned interface as the host's desired
+/// boot interface.
 #[derive(Deserialize, Debug)]
-pub struct SetDpuFirstBootOrderAction {
-    bmc_ip: String,
-    boot_interface_mac: String,
+pub(super) struct SetDesiredBootInterfaceAction {
+    machine_interface_id: MachineInterfaceId,
 }
 
-pub async fn set_dpu_first_boot_order(
+/// Updates the host's primary and desired boot interface together. The API
+/// records the intent and leaves Redfish convergence to machine-controller.
+pub(super) async fn set_desired_boot_interface(
     AxumState(state): AxumState<Arc<Api>>,
     AxumPath(machine_id): AxumPath<String>,
-    Form(form): Form<SetDpuFirstBootOrderAction>,
+    Form(form): Form<SetDesiredBootInterfaceAction>,
 ) -> Response {
-    let view_url = format!("/admin/machine/{machine_id}#bmc_info_view");
+    let view_url = format!("/admin/machine/{machine_id}#desired_boot_interface");
+
+    let machine_id = match machine_id.parse::<MachineId>() {
+        Ok(machine_id) => machine_id,
+        Err(error) => return (StatusCode::BAD_REQUEST, error.to_string()).into_response(),
+    };
+    if !machine_id.machine_type().is_host() {
+        return (StatusCode::BAD_REQUEST, "machine must be a host").into_response();
+    }
 
     let redirect_url = match state
-        .set_dpu_first_boot_order(tonic::Request::new(
-            rpc::forge::SetDpuFirstBootOrderRequest {
-                machine_id: None,
-                bmc_endpoint_request: Some(rpc::forge::BmcEndpointRequest {
-                    ip_address: form.bmc_ip,
-                    mac_address: None,
-                }),
-                boot_interface_mac: Some(form.boot_interface_mac),
+        .set_primary_interface(tonic::Request::new(forgerpc::SetPrimaryInterfaceRequest {
+            host_machine_id: Some(machine_id),
+            interface_id: Some(form.machine_interface_id),
+            force_reconcile: true,
+            ..Default::default()
+        }))
+        .await
+    {
+        Ok(_) => ActionStatus {
+            action: action_status::Type::DesiredBootInterface,
+            class: action_status::Class::Success,
+            message: "Desired boot interface updated".into(),
+        }
+        .update_redirect_url(&view_url),
+        Err(err) => {
+            tracing::error!(
+                error = %err,
+                %machine_id,
+                machine_interface_id = %form.machine_interface_id,
+                "set_primary_interface failed",
+            );
+            ActionStatus {
+                action: action_status::Type::DesiredBootInterface,
+                class: action_status::Class::Error,
+                message: err.message().into(),
+            }
+            .update_redirect_url(&view_url)
+        }
+    };
+
+    Redirect::to(&redirect_url).into_response()
+}
+
+/// Requests another machine-controller pass for the persisted desired target
+/// without replacing it with the primary interface shown by the page.
+pub(super) async fn reconcile_boot_interface(
+    AxumState(state): AxumState<Arc<Api>>,
+    AxumPath(machine_id): AxumPath<String>,
+) -> Response {
+    let view_url = format!("/admin/machine/{machine_id}#desired_boot_interface");
+
+    let machine_id = match machine_id.parse::<MachineId>() {
+        Ok(machine_id) => machine_id,
+        Err(error) => return (StatusCode::BAD_REQUEST, error.to_string()).into_response(),
+    };
+    if !machine_id.machine_type().is_host() {
+        return (StatusCode::BAD_REQUEST, "machine must be a host").into_response();
+    }
+
+    let boot_interfaces = match state
+        .get_machine_boot_interfaces(tonic::Request::new(
+            forgerpc::GetMachineBootInterfacesRequest {
+                machine_id: Some(machine_id),
             },
         ))
         .await
     {
+        Ok(response) => response.into_inner(),
+        Err(err) => {
+            tracing::error!(error = %err, %machine_id, "get_machine_boot_interfaces failed");
+            let redirect_url = ActionStatus {
+                action: action_status::Type::DesiredBootInterface,
+                class: action_status::Class::Error,
+                message: err.message().into(),
+            }
+            .update_redirect_url(&view_url);
+            return Redirect::to(&redirect_url).into_response();
+        }
+    };
+    if boot_interfaces.reconciliation.is_none() {
+        let redirect_url = ActionStatus {
+            action: action_status::Type::DesiredBootInterface,
+            class: action_status::Class::Error,
+            message: "Desired boot interface has not been initialized".into(),
+        }
+        .update_redirect_url(&view_url);
+        return Redirect::to(&redirect_url).into_response();
+    }
+
+    let redirect_url = match state
+        .set_dpu_first_boot_order(tonic::Request::new(forgerpc::SetDpuFirstBootOrderRequest {
+            machine_id: Some(machine_id.to_string()),
+            bmc_endpoint_request: None,
+            boot_interface_mac: None,
+        }))
+        .await
+    {
         Ok(_) => ActionStatus {
-            action: action_status::Type::SetDpuFirstBootOrder,
+            action: action_status::Type::DesiredBootInterface,
             class: action_status::Class::Success,
-            message: "Boot-interface reconciliation request accepted".into(),
+            message: "Boot-interface reconciliation requested".into(),
         }
         .update_redirect_url(&view_url),
         Err(err) => {
-            tracing::error!(error = %err, "set_dpu_first_boot_order failed");
+            tracing::error!(error = %err, %machine_id, "set_dpu_first_boot_order failed");
             ActionStatus {
-                action: action_status::Type::SetDpuFirstBootOrder,
+                action: action_status::Type::DesiredBootInterface,
                 class: action_status::Class::Error,
                 message: err.message().into(),
             }
@@ -1233,3 +1574,219 @@ pub async fn set_dpu_first_boot_order(
 
 impl super::Base for MachineShow {}
 impl<'a> super::Base for MachineDetail<'a> {}
+
+#[cfg(test)]
+mod boot_interface_display_tests {
+    use carbide_test_support::value_scenarios;
+
+    use super::*;
+
+    /// Builds one managed candidate for the target-to-row resolution table.
+    fn managed_candidate(
+        machine_interface_id: &str,
+        mac_address: &str,
+        redfish_interface_id: Option<&str>,
+    ) -> forgerpc::MachineInterfaceBootInterface {
+        forgerpc::MachineInterfaceBootInterface {
+            mac_address: mac_address.to_string(),
+            primary_interface: false,
+            boot_interface_id: redfish_interface_id.map(str::to_string),
+            network_segment_type: None,
+            interface_id: Some(machine_interface_id.parse().unwrap()),
+        }
+    }
+
+    /// Builds the server-selected target used by the same resolution table.
+    fn boot_interface_target(
+        mac_address: &str,
+        redfish_interface_id: Option<&str>,
+    ) -> forgerpc::MachineBootInterface {
+        forgerpc::MachineBootInterface {
+            mac_address: mac_address.to_string(),
+            interface_id: redfish_interface_id.map(str::to_string),
+        }
+    }
+
+    #[test]
+    fn managed_targets_resolve_only_to_one_exact_row() {
+        const FIRST_ID: &str = "12345678-1234-5678-90ab-cdef01234567";
+        const SECOND_ID: &str = "abcdef01-2345-6789-abcd-ef0123456789";
+
+        value_scenarios!(run = |(target, candidates)| {
+            unique_managed_interface_id(&target, &candidates)
+        };
+            "canonical Redfish id pair" {
+                (
+                    boot_interface_target("00:11:22:33:44:55", Some("NIC.Slot.1")),
+                    vec![
+                        managed_candidate(FIRST_ID, "00:11:22:33:44:55", Some(" NIC.Slot.1 ")),
+                        managed_candidate(SECOND_ID, "00:11:22:33:44:55", Some("NIC.Slot.2")),
+                    ],
+                ) => Some(FIRST_ID.parse().unwrap()),
+            }
+
+            "unique MAC-only target" {
+                (
+                    boot_interface_target("00:11:22:33:44:55", None),
+                    vec![managed_candidate(FIRST_ID, "00:11:22:33:44:55", None)],
+                ) => Some(FIRST_ID.parse().unwrap()),
+            }
+
+            "ambiguous MAC-only target" {
+                (
+                    boot_interface_target("00:11:22:33:44:55", None),
+                    vec![
+                        managed_candidate(FIRST_ID, "00:11:22:33:44:55", None),
+                        managed_candidate(SECOND_ID, "00:11:22:33:44:55", None),
+                    ],
+                ) => None,
+            }
+
+            "unknown target" {
+                (
+                    boot_interface_target("00:11:22:33:44:66", Some("NIC.Slot.1")),
+                    vec![managed_candidate(
+                        FIRST_ID,
+                        "00:11:22:33:44:55",
+                        Some("NIC.Slot.1"),
+                    )],
+                ) => None,
+            }
+        );
+    }
+
+    #[test]
+    fn first_primary_row_remains_current_when_the_effective_target_is_ambiguous() {
+        let mut primary = managed_candidate(
+            "12345678-1234-5678-90ab-cdef01234567",
+            "00:11:22:33:44:55",
+            None,
+        );
+        primary.primary_interface = true;
+        let mut duplicate = managed_candidate(
+            "abcdef01-2345-6789-abcd-ef0123456789",
+            "00:11:22:33:44:55",
+            None,
+        );
+        duplicate.primary_interface = true;
+        let display = DesiredBootInterfaceDisplay::new(
+            forgerpc::GetMachineBootInterfacesResponse {
+                machine_interfaces: vec![primary, duplicate],
+                effective_boot_interface_mac: Some("00:11:22:33:44:55".to_string()),
+                default_boot_interface: Some(boot_interface_target("00:11:22:33:44:55", None)),
+                ..Default::default()
+            },
+            &HashSet::new(),
+        );
+
+        let current_candidates = display
+            .candidates
+            .iter()
+            .filter(|candidate| candidate.is_current)
+            .collect::<Vec<_>>();
+        assert_eq!(current_candidates.len(), 1);
+        assert_eq!(
+            current_candidates[0].machine_interface_id.as_deref(),
+            Some("12345678-1234-5678-90ab-cdef01234567"),
+        );
+        assert!(display.default_machine_interface_id.is_none());
+        assert!(
+            display
+                .candidates
+                .iter()
+                .all(|candidate| candidate.is_default),
+            "matching rows stay annotated even when no default action is safe",
+        );
+    }
+
+    #[test]
+    fn unresolved_effective_target_does_not_mark_idless_rows_current() {
+        let mut first = managed_candidate(
+            "12345678-1234-5678-90ab-cdef01234567",
+            "00:11:22:33:44:55",
+            None,
+        );
+        first.interface_id = None;
+        let mut duplicate = managed_candidate(
+            "abcdef01-2345-6789-abcd-ef0123456789",
+            "00:11:22:33:44:55",
+            None,
+        );
+        duplicate.interface_id = None;
+
+        let display = DesiredBootInterfaceDisplay::new(
+            forgerpc::GetMachineBootInterfacesResponse {
+                machine_interfaces: vec![first, duplicate],
+                effective_boot_interface_mac: Some("00:11:22:33:44:55".to_string()),
+                ..Default::default()
+            },
+            &HashSet::new(),
+        );
+
+        assert!(
+            display
+                .candidates
+                .iter()
+                .all(|candidate| !candidate.is_current),
+        );
+    }
+
+    #[test]
+    fn selectable_rows_follow_primary_interface_policy() {
+        value_scenarios!(run = |(network_segment_type, requires_admin, has_interface_id)| {
+            let mut candidate = managed_candidate(
+                "12345678-1234-5678-90ab-cdef01234567",
+                "00:11:22:33:44:55",
+                Some("NIC.Slot.1"),
+            );
+            candidate.network_segment_type = network_segment_type.map(|value| value.to_string());
+            if !has_interface_id {
+                candidate.interface_id = None;
+            }
+            managed_interface_is_selectable(&candidate, requires_admin)
+        };
+            "DPU-managed Admin row" {
+                (Some(NetworkSegmentType::Admin), true, true) => true,
+            }
+            "DPU-managed HostInband row" {
+                (Some(NetworkSegmentType::HostInband), true, true) => false,
+            }
+            "zero-DPU HostInband row" {
+                (Some(NetworkSegmentType::HostInband), false, true) => true,
+            }
+            "zero-DPU Underlay row follows the RPC" {
+                (Some(NetworkSegmentType::Underlay), false, true) => true,
+            }
+            "row without an exact UUID" {
+                (Some(NetworkSegmentType::Admin), false, false) => false,
+            }
+        );
+    }
+
+    #[test]
+    fn ineligible_default_is_not_actionable() {
+        const ADMIN_ID: &str = "12345678-1234-5678-90ab-cdef01234567";
+        let mut admin = managed_candidate(ADMIN_ID, "00:11:22:33:44:55", Some("Admin"));
+        admin.network_segment_type = Some(NetworkSegmentType::Admin.to_string());
+        let mut host_inband = managed_candidate(
+            "abcdef01-2345-6789-abcd-ef0123456789",
+            "00:11:22:33:44:66",
+            Some("HostInband"),
+        );
+        host_inband.network_segment_type = Some(NetworkSegmentType::HostInband.to_string());
+
+        let display = DesiredBootInterfaceDisplay::new(
+            forgerpc::GetMachineBootInterfacesResponse {
+                machine_interfaces: vec![admin, host_inband.clone()],
+                default_boot_interface: Some(boot_interface_target(
+                    &host_inband.mac_address,
+                    host_inband.boot_interface_id.as_deref(),
+                )),
+                ..Default::default()
+            },
+            &HashSet::from([ADMIN_ID.parse().unwrap()]),
+        );
+
+        assert!(display.default_machine_interface_id.is_none());
+    }
+}

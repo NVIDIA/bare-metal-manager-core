@@ -113,7 +113,7 @@ fn deprecated_deny_prefixes_for_agent(
     }
 }
 
-pub(crate) async fn get_managed_host_network_config_inner(
+async fn get_managed_host_network_config_inner(
     api: &Api,
     dpu_machine_id: MachineId,
 ) -> Result<rpc::ManagedHostNetworkConfigResponse, tonic::Status> {
@@ -169,23 +169,6 @@ pub(crate) async fn get_managed_host_network_config_inner(
             ))
             .into());
         }
-    };
-
-    if api
-        .runtime_config
-        .vmaas_config
-        .as_ref()
-        .map(|vc| vc.secondary_overlay_support)
-        .unwrap_or_default()
-        && dpu_snapshot
-            .network_config
-            .secondary_overlay_vtep_ip
-            .is_none()
-    {
-        return Err(CarbideError::FailedPrecondition(format!(
-            "DPU {dpu_machine_id} needs discovery. does not have a secondary VTEP IP yet"
-        ))
-        .into());
     };
 
     // its ok if there is no locator here.  if there isn't one, then only the primary dpu is allowed to be configred (checked below)
@@ -760,40 +743,6 @@ pub(crate) async fn get_managed_host_network_config_inner(
                 })
         }),
         routing_profile: deprecated_routing_profile,
-        traffic_intercept_config: api.runtime_config.vmaas_config.as_ref().map(|c| {
-            rpc::TrafficInterceptConfig {
-                bridging: c.bridging.as_ref().map(|b| rpc::TrafficInterceptBridging {
-                    internal_bridge_routing_prefix: b.internal_bridge_routing_prefix.to_string(),
-                    hbn_bridge: b.hbn_bridge.clone(),
-                    vf_intercept_bridge_name: b.vf_intercept_bridge_name.clone(),
-                    vf_intercept_bridge_port: b.vf_intercept_bridge_port.clone(),
-                    vf_intercept_bridge_sf: b.vf_intercept_bridge_sf.clone(),
-                    host_representor_intercept_bridging: b
-                        .host_representor_intercept_bridging
-                        .iter()
-                        .map(|(representor, bridge)| {
-                            (
-                                representor.clone(),
-                                rpc::HostRepresentorInterceptBridging {
-                                    bridge: bridge.bridge.clone(),
-                                    patch_port: bridge.patch_port.clone(),
-                                },
-                            )
-                        })
-                        .collect(),
-                }),
-                public_prefixes: c.public_prefixes.iter().map(|p| p.to_string()).collect(),
-                secondary_vtep_aggregate_prefixes: c
-                    .secondary_vtep_aggregate_prefixes
-                    .iter()
-                    .map(|p| p.to_string())
-                    .collect(),
-                additional_overlay_vtep_ip: dpu_snapshot
-                    .network_config
-                    .secondary_overlay_vtep_ip
-                    .map(|i| i.to_string()),
-            }
-        }),
 
         additional_route_target_imports: api
             .runtime_config
@@ -1480,7 +1429,7 @@ pub(crate) async fn list_dpu_waiting_for_reprovisioning(
 }
 
 /// Get the configured BGP password.
-pub(crate) async fn get_bgp_password(
+async fn get_bgp_password(
     credential_reader: &dyn carbide_secrets::credentials::CredentialReader,
     credential_key: carbide_secrets::credentials::CredentialKey,
 ) -> Result<String, CarbideError> {
@@ -1616,8 +1565,8 @@ mod consolidated_network_config_tests {
     }
 
     // Host-layer fields that aren't part of the consolidated proto shape
-    // (loopback_ip on the host, secondary_overlay_vtep_ip, use_admin_network)
-    // do NOT leak into the response -- the consolidator deliberately picks
+    // (loopback_ip on the host and use_admin_network) do NOT leak into the
+    // response -- the consolidator deliberately picks
     // only quarantine_state from the host layer. Catches accidental changes
     // to that contract.
     #[test]
@@ -1628,7 +1577,6 @@ mod consolidated_network_config_tests {
             // (passed separately) is what matters.
             loopback_ip: Some(IpAddr::V4(Ipv4Addr::new(192, 0, 2, 99))),
             loopback_ip_v6: None,
-            secondary_overlay_vtep_ip: Some(IpAddr::V4(Ipv4Addr::new(192, 0, 2, 100))),
             // The host-level use_admin_network is reported in a separate
             // top-level response field, not in this consolidated struct.
             use_admin_network: Some(false),

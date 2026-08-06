@@ -817,26 +817,81 @@ automatic conversions to convert between errors, or `.map_err()` if you have to.
 that are used for tests/mocks, or for toplevel binaries where errors are given to the user for informational purposes,
 and not intended to be inspected by other rust code. (We do not always adhere to this rule.)
 
-Avoid using `let _unused = foo();` to discard errors. This is error-prone: If later `foo()` is refactored to become
-an async function, assigning the result to `_unused` silences the compiler warning telling you forgot to call `.await`.
-If you don't care about the errors a function produces, prefer using `.ok()` to convert the error into a
-(discardable) Option.
+#### Preserve error sources and semantic meaning
+
+Preserve the source error as it moves through the system, and add context at abstraction boundaries. Do not replace an
+error with only its display string while another layer may still need to inspect its type or source. At an external API
+or user-facing boundary, map the failure to a stable semantic variant rather than exposing internal details. Where
+operators need root-cause detail, record the source chain internally, but redact secrets from both user-facing errors
+and operator records.
+
+Use a default only when absence is semantically equivalent to that value. Keep missing, malformed, unavailable, and
+explicitly empty states distinct when callers or operators need to react to them differently. Fallback helpers such as
+`unwrap_or_default()` and `or_default()` are appropriate only when this equivalence is part of the contract; do not use
+them merely to erase an error or simplify control flow. Compatibility defaults must preserve the previous contract;
+document omission behavior and test omitted values separately from explicitly supplied default values.
+
+#### Choose the failure policy before the syntax
+
+For each `Result`, deliberately choose whether to propagate, handle, retry, record and continue, or intentionally
+discard the failure. Avoid using `let _ = foo();` or an underscore-prefixed binding such as `let _unused = foo();` to
+discard errors. This is error-prone: if `foo()` is later refactored to become async, binding its result this way
+silences the compiler warning that `.await` is missing. When intentionally discarding an error, prefer `.ok()` to
+convert it into a discardable `Option`; this makes such an async refactor fail to compile. The use of `.ok()` does not
+itself justify ignoring an operational failure.
 
 ```rust
-fn fails() -> Result<(), Error> {}
+fn fails() -> std::io::Result<()> {
+    Err(std::io::Error::other("example failure"))
+}
 
 fn avoid() {
-    // if somebody makes `fails()` async later, the compiler won't complain, and the future will
-    // never get run
+    // If somebody makes `fails()` async later, the compiler won't complain, and the future will
+    // never get run.
     let _dontcare = fails();
 }
 
-
-fn prefer() {
-    // if somebody makes `fails()` async later, you get a compiler error
+fn intentionally_discard() {
+    // If somebody makes `fails()` async later, this becomes a compiler error.
     fails().ok();
 }
 ```
+
+Best-effort paths should still make repeated operational failures observable. Follow
+[Instrumentation](#instrumentation): use a plain `tracing::` macro when diagnostic text is enough; use a
+`carbide_instrument::Event` when the failure merits a count, rate, or duration.
+
+#### Keep operational failures recoverable
+
+Do not use a panicking operation — including `unwrap()`, `expect()`, `panic!`, `assert!`, or `unreachable!` — when
+failure can be caused by routine or malformed request data, persisted data, configuration, the network, hardware, or a
+recoverable dependency failure. Return a typed error with context so callers retain the option to apply appropriate
+logging, metrics, retry, and API error mapping. Do not leave `todo!` or `unimplemented!` on a reachable production path.
+
+Tests may use panicking assertions and call `unwrap()` on known-good fixture values when a panic is the intended failure
+report. In production, a task- or process-terminating operation is acceptable only for a proven local invariant or an
+intentional fail-fast boundary. Keep the proof or boundary rationale close to the operation, use an `expect()` message
+that explains the invariant where appropriate, and prefer a type or construction API that makes the invalid state
+unrepresentable.
+
+Treating a poisoned `std::sync::Mutex` as fatal can be an intentional fail-fast choice. If a thread panics while holding
+the lock, it may have left the guarded state in a condition where application invariants no longer hold. When the state
+cannot be safely validated or rebuilt, using `expect()` on `lock()` makes the decision to fail fast explicit:
+
+```rust
+let mut state = shared_state
+    .lock()
+    .expect("shared state mutex poisoned; guarded invariants may be broken");
+state.apply_update();
+```
+
+When recovery is safe, handle the `PoisonError` and validate or rebuild the state instead, calling `clear_poison()` only
+after restoring the invariant. Mutex poisoning signals a possible broken invariant; it does not by itself require
+termination.
+
+A supervised task boundary may intentionally propagate a child panic as described in
+[Background tasks](#background-tasks). This is different from panicking on an ordinary operational error inside the
+task.
 
 ### Avoid stringly-typed values
 

@@ -5,6 +5,7 @@
 set -euo pipefail
 
 context="${1:-Repository check}"
+remediation="${2:-}"
 
 if [[ "${GITHUB_ACTIONS:-}" == "true" ]]; then
 	git config --global --add safe.directory "$(pwd -P)"
@@ -17,7 +18,12 @@ if git diff --quiet --exit-code && [[ -z "${untracked}" ]]; then
 	exit 0
 fi
 
-echo "::error::${context} left uncommitted changes. Regenerate and commit the results."
+message="${context} left uncommitted changes. Regenerate and commit the results."
+if [[ -n "${remediation}" ]]; then
+	message="${message} To fix, run: ${remediation}"
+fi
+
+echo "::error::${message}"
 echo
 echo "Changed files:"
 git status --porcelain

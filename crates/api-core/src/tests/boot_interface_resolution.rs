@@ -34,7 +34,7 @@ use model::test_support::ManagedHostConfig;
 use rpc::forge;
 use rpc::forge::forge_server::Forge;
 
-use crate::handlers::bmc_endpoint_explorer::boot_interface_candidates;
+use crate::handlers::bmc_endpoint_explorer::summarize_boot_interface_candidates_for_test;
 use crate::test_support::fixture_config::{FixtureDefault as _, ManagedHostConfigExt as _};
 use crate::tests::common::api_fixtures;
 use crate::tests::common::api_fixtures::network_segment::{
@@ -391,26 +391,27 @@ async fn test_boot_interface_candidates_skips_dpu_machines(
 
     let mut txn = env.pool.begin().await?;
     assert!(
-        boot_interface_candidates(txn.as_mut(), Some(dpu_id))
+        summarize_boot_interface_candidates_for_test(txn.as_mut(), Some(dpu_id))
             .await?
             .is_none(),
         "a DPU machine should not resolve boot-interface rows",
     );
     assert!(
-        boot_interface_candidates(txn.as_mut(), None)
+        summarize_boot_interface_candidates_for_test(txn.as_mut(), None)
             .await?
             .is_none(),
         "an unowned endpoint should not resolve boot-interface rows",
     );
-    let candidates = boot_interface_candidates(txn.as_mut(), Some(host_id))
-        .await?
-        .expect("a host machine should resolve its boot-interface candidates");
+    let (has_primary_interface, predicted_is_empty) =
+        summarize_boot_interface_candidates_for_test(txn.as_mut(), Some(host_id))
+            .await?
+            .expect("a host machine should resolve its boot-interface candidates");
     assert!(
-        candidates.interfaces.iter().any(|i| i.primary_interface),
+        has_primary_interface,
         "the host's rows should include its primary interface",
     );
     assert!(
-        candidates.predicted.is_empty(),
+        predicted_is_empty,
         "a fully-leased DPU host should have no pending predictions",
     );
     txn.commit().await?;

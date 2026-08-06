@@ -39,7 +39,7 @@ use crate::{CarbideError, CarbideResult};
 /// the state of a verify_quote call, specifically as
 /// it relates to verifying the signature and PCR hash.
 /// It is used for appropriate logging and error handling.
-pub enum VerifyQuoteState {
+enum VerifyQuoteState {
     Success,
     SignatureInvalid,
     VerifyHashNoMatch,
@@ -83,7 +83,7 @@ pub(crate) struct MeasuredBootVerificationFailed {
 }
 
 impl VerifyQuoteState {
-    pub fn from_results(signature_valid: bool, pcr_hash_matches: bool) -> Self {
+    fn from_results(signature_valid: bool, pcr_hash_matches: bool) -> Self {
         match (signature_valid, pcr_hash_matches) {
             (true, true) => Self::Success,
             (false, true) => Self::SignatureInvalid,
@@ -97,7 +97,7 @@ impl VerifyQuoteState {
 /// PCR hash matching result, and a reference to the event
 /// log, and will check to see if things are good (or if an
 /// error needs to be returned + the event log dumped to log).
-pub fn verify_quote_state(
+pub(crate) fn verify_quote_state(
     signature_valid: bool,
     pcr_hash_matches: bool,
     event_log: &Option<Vec<u8>>,
@@ -139,7 +139,7 @@ pub fn verify_quote_state(
     }
 }
 
-pub fn cli_make_cred(
+pub(crate) fn cli_make_cred(
     pub_key: rsa::RsaPublicKey,
     ak_name_serialized: &Vec<u8>,
     session_key: &[u8],
@@ -233,7 +233,7 @@ pub fn cli_make_cred(
 }
 
 #[cfg_attr(not(feature = "linux-build"), allow(unused_variables))]
-pub fn verify_signature(
+pub(crate) fn verify_signature(
     ak_pub: &[u8],
     attest_vec: &[u8],
     rsa_signature: &[u8],
@@ -260,7 +260,7 @@ pub fn verify_signature(
 }
 
 #[cfg_attr(not(feature = "linux-build"), allow(unused_variables))]
-pub fn verify_pcr_hash(attestation: &[u8], pcr_values: &[Vec<u8>]) -> CarbideResult<bool> {
+pub(crate) fn verify_pcr_hash(attestation: &[u8], pcr_values: &[Vec<u8>]) -> CarbideResult<bool> {
     #[cfg(feature = "linux-build")]
     {
         use tss_esapi::structures::Attest;
@@ -318,7 +318,7 @@ fn extract_cred_secret(creds: &[u8]) -> CarbideResult<(Vec<u8>, Vec<u8>)> {
 ///
 /// since the event log is currently "best effort", we'll log a
 /// little "error" in <>'s if we notice there's no event log.
-pub fn event_log_to_string(event_log: &Option<Vec<u8>>) -> String {
+pub(crate) fn event_log_to_string(event_log: &Option<Vec<u8>>) -> String {
     event_log
         .as_ref()
         .map(|log_utf8| {
@@ -329,7 +329,7 @@ pub fn event_log_to_string(event_log: &Option<Vec<u8>>) -> String {
 }
 
 #[cfg_attr(not(feature = "linux-build"), allow(unused_variables))]
-pub async fn compare_pub_key_against_cert(
+pub(crate) async fn compare_pub_key_against_cert(
     txn: &mut PgConnection,
     machine_id: &MachineId,
     ek_pub: &[u8],
@@ -345,7 +345,7 @@ pub async fn compare_pub_key_against_cert(
     }
 }
 
-pub async fn has_passed_attestation<DB>(
+pub(crate) async fn has_passed_attestation<DB>(
     db: &mut DB,
     machine_id: &MachineId,
     _report_id: &MeasurementReportId,
@@ -373,7 +373,7 @@ fn attestation_unsupported_error() -> CarbideError {
 }
 
 #[cfg(feature = "linux-build")]
-pub mod linux_build {
+pub(crate) mod linux_build {
     use asn1_rs::FromDer;
     use model::hardware_info::TpmEkCertificate;
     use rsa::{BigUint, RsaPublicKey};
@@ -389,7 +389,7 @@ pub mod linux_build {
 
     const RSA_PUBKEY_EXPONENT: u32 = 65537u32;
 
-    pub fn verify_pcr_hash(attest: &Attest, pcr_values: &[Vec<u8>]) -> CarbideResult<bool> {
+    pub(super) fn verify_pcr_hash(attest: &Attest, pcr_values: &[Vec<u8>]) -> CarbideResult<bool> {
         let attest_digest = match attest.attested() {
             AttestInfo::Quote { info } => info.pcr_digest(),
             _other => {
@@ -414,7 +414,7 @@ pub mod linux_build {
         }
     }
 
-    pub fn do_compare_pub_key_against_cert(
+    pub(crate) fn do_compare_pub_key_against_cert(
         tpm_ek_cert: &TpmEkCertificate,
         ek_pub: &[u8],
     ) -> CarbideResult<(bool, rsa::RsaPublicKey)> {
@@ -477,7 +477,7 @@ pub mod linux_build {
         Ok((pub_key_ek == pub_key_cert, pub_key_ek))
     }
 
-    pub fn verify_signature(
+    pub(super) fn verify_signature(
         ak_pub: &Public,
         attest_vec: &[u8],
         signature: &Signature,

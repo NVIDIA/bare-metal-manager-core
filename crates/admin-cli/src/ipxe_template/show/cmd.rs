@@ -30,7 +30,7 @@ fn visibility_display(visibility: i32) -> &'static str {
     }
 }
 
-pub async fn handle_show(
+pub(super) async fn handle_show(
     opts: Args,
     format: OutputFormat,
     api_client: &ApiClient,

@@ -39,6 +39,62 @@ func TestOperatingSystem_GetSiteID(t *testing.T) {
 	})
 }
 
+func TestOperatingSystem_IsTenantUsable(t *testing.T) {
+	tenantID := uuid.New()
+	otherTenantID := uuid.New()
+	providerID := uuid.New()
+
+	tests := []struct {
+		name     string
+		os       OperatingSystem
+		tenantID string
+		want     bool
+	}{
+		{
+			name:     "allows tenant-owned OS for owner",
+			os:       OperatingSystem{TenantID: &tenantID},
+			tenantID: tenantID.String(),
+			want:     true,
+		},
+		{
+			name:     "rejects tenant-owned OS for another tenant",
+			os:       OperatingSystem{TenantID: &tenantID},
+			tenantID: otherTenantID.String(),
+			want:     false,
+		},
+		{
+			name: "allows provider-owned templated iPXE OS",
+			os: OperatingSystem{
+				InfrastructureProviderID: &providerID,
+				Type:                     OperatingSystemTypeTemplatedIPXE,
+			},
+			tenantID: tenantID.String(),
+			want:     true,
+		},
+		{
+			name: "rejects provider-owned raw iPXE OS",
+			os: OperatingSystem{
+				InfrastructureProviderID: &providerID,
+				Type:                     OperatingSystemTypeIPXE,
+			},
+			tenantID: tenantID.String(),
+			want:     false,
+		},
+		{
+			name:     "rejects OS without an owner",
+			os:       OperatingSystem{Type: OperatingSystemTypeTemplatedIPXE},
+			tenantID: tenantID.String(),
+			want:     false,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.want, tc.os.IsTenantUsable(tc.tenantID))
+		})
+	}
+}
+
 func TestOperatingSystem_ToImageAttributesProto(t *testing.T) {
 	id := uuid.New()
 	desc := "primary"

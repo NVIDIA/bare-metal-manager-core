@@ -48,11 +48,11 @@ Replace an expected machine record from a JSON file:
     $ nico-admin-cli expected-machine update --filename ./machine.json
 
 ")]
-pub struct Args {
+pub(crate) struct Args {
     #[clap(
         short,
         long,
         help = "Path to JSON file containing the expected machine data"
     )]
-    pub filename: String,
+    pub(super) filename: String,
 }

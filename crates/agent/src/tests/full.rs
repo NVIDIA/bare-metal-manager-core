@@ -45,7 +45,6 @@ use rpc::{Timestamp, common as rpc_common};
 use tokio::sync::Mutex;
 
 use crate::tests::common;
-use crate::traffic_intercept_bridging;
 use crate::util::compare_lines;
 
 #[derive(Default, Debug)]
@@ -82,37 +81,6 @@ async fn test_etv_nvue() -> eyre::Result<()> {
 async fn test_fnn_l3() -> eyre::Result<()> {
     let expected = include_str!("../../templates/tests/full_nvue_startup_fnn_l3.yaml.expected");
     test_nvue_generic(VpcVirtualizationType::Fnn, expected).await
-}
-
-#[tokio::test(flavor = "multi_thread")]
-async fn test_traffic_intercept_bridging() -> eyre::Result<()> {
-    let expected = include_str!("../../templates/tests/update_intercept_bridging.sh.expected");
-    let bridging = traffic_intercept_bridging::build(
-        traffic_intercept_bridging::TrafficInterceptBridgingConfig {
-            secondary_overlay_vtep_ip: "1.1.1.1".parse().unwrap(),
-            secondary_vtep_aggregate_prefixes: vec!["1.1.1.0/24".to_string()],
-            vf_intercept_bridge_ip: "10.10.10.2".to_string(),
-            vf_intercept_bridge_name: "pfdpu000br-dpu".to_string(),
-            intercept_bridge_prefix_len: 29,
-            host_representor_bridge_vni_mappings: vec![
-                traffic_intercept_bridging::TrafficInterceptBridgeMapping {
-                    bridge: "pf0-br".to_string(),
-                    vni: 333,
-                    patch_port: "patch-pf01".to_string(),
-                    gateway: "10.1.1.0/31".to_string(),
-                },
-            ],
-        },
-    )?;
-
-    let r = compare_lines(bridging.as_str(), expected, None);
-    eprint!("Diff output:\n{}", r.report());
-    assert!(
-        r.is_identical(),
-        "generated bridging script does not match expected bridging script"
-    );
-
-    Ok(())
 }
 
 // All of the new tests are leveraging nvue for configs, regardless
@@ -880,20 +848,6 @@ async fn handle_netconf(AxumState(state): AxumState<Arc<Mutex<State>>>) -> impl 
 
         anycast_site_prefixes: vec!["5.255.255.0/24".to_string()],
         tenant_host_asn: Some(65100),
-        traffic_intercept_config: Some(rpc::forge::TrafficInterceptConfig {
-            bridging: Some(rpc::forge::TrafficInterceptBridging {
-                internal_bridge_routing_prefix: "10.255.255.0/29".to_string(),
-                hbn_bridge: "br-hbn".to_string(),
-                vf_intercept_bridge_name: "br-dpu".to_string(),
-                vf_intercept_bridge_port: "pfdpu000br-dpu".to_string(),
-                vf_intercept_bridge_sf: "pf0dpu5".to_string(),
-                host_representor_intercept_bridging: Default::default(),
-            }),
-            additional_overlay_vtep_ip: Some("10.2.2.1".to_string()),
-            public_prefixes: vec!["7.8.0.0/16".to_string()],
-            secondary_vtep_aggregate_prefixes: vec!["10.2.2.0/24".to_string()],
-        }),
-
         dhcp_servers: vec!["127.0.0.1".to_string()],
         ntp_servers: vec![],
         vni_device: "".to_string(),

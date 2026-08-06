@@ -562,7 +562,9 @@ async fn test_vlan_reallocate(db_pool: sqlx::PgPool) -> Result<(), eyre::Report>
 }
 
 #[crate::sqlx_test]
-pub async fn test_create_initial_networks(db_pool: sqlx::PgPool) -> Result<(), eyre::Report> {
+pub(in crate::tests) async fn test_create_initial_networks(
+    db_pool: sqlx::PgPool,
+) -> Result<(), eyre::Report> {
     let env =
         create_test_env_with_overrides(db_pool.clone(), TestEnvOverrides::no_network_segments())
             .await;
@@ -701,7 +703,7 @@ pub async fn test_create_initial_networks(db_pool: sqlx::PgPool) -> Result<(), e
 }
 
 #[crate::sqlx_test]
-pub async fn test_create_initial_vpc_and_attached_network(
+pub(in crate::tests) async fn test_create_initial_vpc_and_attached_network(
     db_pool: sqlx::PgPool,
 ) -> Result<(), eyre::Report> {
     let env =
@@ -981,7 +983,7 @@ async fn initial_vpc_allocation_failures_preserve_errors_and_emit(
 }
 
 #[crate::sqlx_test]
-pub async fn test_create_initial_network_fails_for_missing_vpc_name(
+pub(in crate::tests) async fn test_create_initial_network_fails_for_missing_vpc_name(
     db_pool: sqlx::PgPool,
 ) -> Result<(), eyre::Report> {
     let env =

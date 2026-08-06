@@ -17,13 +17,14 @@
 
 use std::collections::HashMap;
 
-use carbide_test_support::{Check, check_values};
+use carbide_test_support::Outcome::{Fails, Yields};
+use carbide_test_support::{Case, Check, check_cases, check_values};
 use regex::Regex;
 use serde_json::json;
 
 use super::{
-    Event, EventConstraints, EventSeverity, EventType, LogFile, MAX_EVENTS, check_constraints,
-    process_events, queue_event, read_event_definition,
+    Configuration, Event, EventConstraints, EventSeverity, EventType, LogFile, MAX_EVENTS,
+    check_constraints, process_events, process_log_file_events, queue_event, read_event_definition,
 };
 
 fn event_type(name: impl Into<String>) -> EventType {
@@ -937,5 +938,115 @@ fn event_definitions_compile_filename_and_event_regexes() {
             },
         ],
         |row| inspect_definition(&runtime, &directory, row),
+    );
+}
+
+struct DelimiterRow {
+    delimiter: Option<&'static str>,
+}
+
+fn inspect_delimiter(
+    runtime: &tokio::runtime::Runtime,
+    directory: &tempfile::TempDir,
+    row: DelimiterRow,
+) -> Result<(), ()> {
+    let definition = json!({
+        "pipeline": "test",
+        "delimiter": row.delimiter,
+        "filename_format": ".*",
+        "logs_path": "/unused",
+        "events": [],
+    });
+    let path = directory.path().join("delimiter-definition.json");
+    std::fs::write(&path, serde_json::to_vec(&definition).unwrap()).unwrap();
+
+    runtime
+        .block_on(read_event_definition(&path))
+        .map(drop)
+        .map_err(drop)
+}
+
+#[test]
+fn event_definition_delimiter_is_exactly_one_byte() {
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap();
+    let directory = tempfile::tempdir().unwrap();
+
+    check_cases(
+        [
+            Case {
+                scenario: "omitted delimiter defaults to newline",
+                input: DelimiterRow { delimiter: None },
+                expect: Yields(()),
+            },
+            Case {
+                scenario: "single-byte delimiter",
+                input: DelimiterRow {
+                    delimiter: Some("|"),
+                },
+                expect: Yields(()),
+            },
+            Case {
+                scenario: "empty delimiter",
+                input: DelimiterRow {
+                    delimiter: Some(""),
+                },
+                expect: Fails,
+            },
+            Case {
+                scenario: "multiple-byte ASCII delimiter",
+                input: DelimiterRow {
+                    delimiter: Some("||"),
+                },
+                expect: Fails,
+            },
+            Case {
+                scenario: "multiple-byte UTF-8 delimiter",
+                input: DelimiterRow {
+                    delimiter: Some("→"),
+                },
+                expect: Fails,
+            },
+        ],
+        |row| inspect_delimiter(&runtime, &directory, row),
+    );
+}
+
+#[tokio::test]
+async fn log_records_use_the_configured_delimiter() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("events.log");
+    std::fs::write(&path, b"matched|unfinished").unwrap();
+
+    let mut configuration = Configuration {
+        filename: None,
+        pipeline: "test".to_string(),
+        delimiter: Some("|".to_string()),
+        filename_format: ".*".to_string(),
+        filename_regex: None,
+        logs_path: path.to_string_lossy().into_owned(),
+        events: vec![event_type("matched")],
+        events_regex: Some(vec![Regex::new("^matched$").unwrap()]),
+        logs: vec![LogFile {
+            file_path: path.to_string_lossy().into_owned(),
+            ..Default::default()
+        }],
+        logs_hash: HashMap::new(),
+    };
+
+    process_log_file_events(&mut configuration, 0, false)
+        .await
+        .unwrap();
+
+    let log = &configuration.logs[0];
+    assert_eq!(log.offset, b"matched|".len() as u64);
+    assert_eq!(
+        log.events
+            .iter()
+            .map(|event| event.name.as_str())
+            .collect::<Vec<_>>(),
+        vec!["matched"]
     );
 }

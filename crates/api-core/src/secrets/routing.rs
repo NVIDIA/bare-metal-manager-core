@@ -126,7 +126,7 @@ impl SecretRouting {
 
     /// Return the kek_id that encrypts a new write at `path`, using the
     /// longest matching prefix.
-    pub fn active_kek_for_path(&self, path: &str) -> Result<&str, PgSecretsError> {
+    pub(crate) fn active_kek_for_path(&self, path: &str) -> Result<&str, PgSecretsError> {
         self.routes
             .iter()
             .find(|(prefix, _)| path.starts_with(prefix.as_str()))

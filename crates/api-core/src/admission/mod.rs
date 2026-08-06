@@ -17,29 +17,37 @@
 
 //! Carbide API admission policy and middleware integration.
 //!
-//! The nested engine module owns application-independent admission. This
-//! module supplies Carbide configuration, route classification, transport
+//! The engine, limits, and retry modules own application-independent admission.
+//! This module supplies Carbide configuration, route classification, transport
 //! responses, metrics, and rate-limited diagnostics.
 
 mod engine;
+mod limits;
+mod peak_ewma;
+mod retry;
 
+use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
 
 use axum::body::Body;
-use axum::extract::{Request, State};
-use axum::http::{Response, StatusCode, header};
+use axum::extract::{OriginalUri, Request, State};
+use axum::http::{HeaderValue, Response, StatusCode, header};
 use axum::middleware::Next;
 use axum::response::IntoResponse;
-pub(crate) use engine::AdmissionLimits;
-use engine::{AdmissionObserver, RejectionReason, SemaphoreAdmission};
+use engine::{AdmissionObserver, AdmissionRejection, ClientKeyRef, FairAdmission, RejectionReason};
+pub(crate) use limits::{AdmissionLimits, ClientLimits};
 use opentelemetry::metrics::{Meter, ObservableGauge};
+use retry::{RejectionScope, RetryAdvice};
+use tokio::task::JoinSet;
 use tokio_util::sync::CancellationToken;
 
+use crate::auth::AuthContext;
 use crate::cfg::file::ApiAdmissionControlConfig;
 use crate::logging::log_limiter::LogLimiter;
 
 const EXCLUDED_ADMIN_PATHS: &[&str] = &["/admin/static", "/admin/auth-callback", "/admin/logs"];
+const GRPC_RETRY_PUSHBACK_HEADER: &str = "grpc-retry-pushback-ms";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 enum RequestTransport {
@@ -68,16 +76,32 @@ impl RequestTransport {
         Some(Self::Http)
     }
 
-    fn overloaded_response(self) -> Response<Body> {
+    fn overloaded_response(self, retry: RetryAdvice) -> Response<Body> {
         match self {
-            Self::Grpc => tonic::Status::resource_exhausted("API admission capacity exhausted")
-                .into_http::<Body>(),
-            Self::Http => (
-                StatusCode::SERVICE_UNAVAILABLE,
-                [(header::RETRY_AFTER, "1")],
-                "API admission capacity exhausted",
-            )
-                .into_response(),
+            Self::Grpc => {
+                let mut status =
+                    tonic::Status::resource_exhausted("API admission capacity exhausted");
+                // gRPC retry pushback is the transport-native equivalent of
+                // Retry-After. Use the same normalized delay (expressed in
+                // milliseconds) so HTTP and gRPC clients receive one policy.
+                let pushback_milliseconds = retry.delay_seconds().saturating_mul(1_000).to_string();
+                status.metadata_mut().insert(
+                    GRPC_RETRY_PUSHBACK_HEADER,
+                    tonic::metadata::MetadataValue::try_from(pushback_milliseconds.as_str())
+                        .expect("retry pushback is an ASCII integer"),
+                );
+                status.into_http::<Body>()
+            }
+            Self::Http => {
+                let retry_after = HeaderValue::from_str(&retry.delay_seconds().to_string())
+                    .expect("retry delay is an ASCII integer");
+                (
+                    StatusCode::SERVICE_UNAVAILABLE,
+                    [(header::RETRY_AFTER, retry_after)],
+                    "API admission capacity exhausted",
+                )
+                    .into_response()
+            }
         }
     }
 }
@@ -92,6 +116,7 @@ fn is_path_or_child(path: &str, root: &str) -> bool {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, carbide_instrument::LabelValue)]
 enum RejectionReasonLabel {
     QueueFull,
+    EstimatedQueueDelay,
     QueueTimeout,
     ControllerUnavailable,
     ShuttingDown,
@@ -100,7 +125,8 @@ enum RejectionReasonLabel {
 impl From<RejectionReason> for RejectionReasonLabel {
     fn from(reason: RejectionReason) -> Self {
         match reason {
-            RejectionReason::QueueFull => Self::QueueFull,
+            RejectionReason::QueueFull(_) => Self::QueueFull,
+            RejectionReason::EstimatedQueueDelay(_) => Self::EstimatedQueueDelay,
             RejectionReason::QueueTimeout => Self::QueueTimeout,
             RejectionReason::ControllerUnavailable => Self::ControllerUnavailable,
             RejectionReason::ShuttingDown => Self::ShuttingDown,
@@ -131,6 +157,25 @@ struct RequestAdmitted;
 struct RequestRejected {
     #[label]
     reason: RejectionReasonLabel,
+    #[label]
+    scope: RejectionScopeLabel,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, carbide_instrument::LabelValue)]
+enum RejectionScopeLabel {
+    Global,
+    Client,
+    Other,
+}
+
+impl From<Option<RejectionScope>> for RejectionScopeLabel {
+    fn from(scope: Option<RejectionScope>) -> Self {
+        match scope {
+            Some(RejectionScope::Global) => Self::Global,
+            Some(RejectionScope::Client) => Self::Client,
+            None => Self::Other,
+        }
+    }
 }
 
 #[derive(carbide_instrument::Event)]
@@ -178,10 +223,41 @@ impl AdmissionObserver for CarbideAdmissionObserver {
 }
 
 pub(crate) struct ApiAdmissionControl {
-    engine: Arc<SemaphoreAdmission>,
+    engine: Arc<FairAdmission>,
+    default_client_limits: ClientLimits,
+    service_limits: HashMap<String, ClientLimits>,
     rejection_log_limiter: LogLimiter<(RejectionReason, RequestTransport)>,
     _work_in_flight_gauge: ObservableGauge<u64>,
     _pending_requests_gauge: ObservableGauge<u64>,
+}
+
+/// Shared admission handle installed inside the authenticated admin router.
+///
+/// The admin UI owns its OAuth middleware, so admission must be layered inside
+/// that crate after authentication has populated [`AuthContext`]. Keeping this
+/// as an opaque handle lets the web crate place the middleware correctly
+/// without exposing the transport-independent engine or Carbide policy.
+#[derive(Clone)]
+pub struct AdminAdmissionControl(Arc<ApiAdmissionControl>);
+
+impl AdminAdmissionControl {
+    pub(crate) fn new(control: Arc<ApiAdmissionControl>) -> Self {
+        Self(control)
+    }
+
+    pub async fn middleware(
+        State(control): State<Option<Self>>,
+        request: Request,
+        next: Next,
+    ) -> Response<Body> {
+        let Some(control) = control else {
+            return next.run(request).await;
+        };
+        if classify_request(&request) != Some(RequestTransport::Http) {
+            return next.run(request).await;
+        }
+        enforce_transport(control.0, request, next, RequestTransport::Http).await
+    }
 }
 
 impl ApiAdmissionControl {
@@ -189,13 +265,32 @@ impl ApiAdmissionControl {
         config: &ApiAdmissionControlConfig,
         meter: &Meter,
         shutdown: CancellationToken,
+        join_set: &mut JoinSet<()>,
     ) -> eyre::Result<Option<Arc<Self>>> {
         let Some(limits) = config.admission_limits()? else {
             return Ok(None);
         };
 
+        let service_limits = config
+            .service_limits
+            .iter()
+            .map(|(service_id, service_limits)| {
+                ClientLimits::new(
+                    service_limits.max_work_in_flight,
+                    service_limits.max_pending,
+                    service_limits.pending_timeout,
+                    limits.max_work_in_flight(),
+                    limits.max_pending(),
+                )
+                .map(|limits| (service_id.clone(), limits))
+                .map_err(|error| {
+                    eyre::eyre!("api_admission_control.service_limits.{service_id}.{error}")
+                })
+            })
+            .collect::<eyre::Result<HashMap<_, _>>>()?;
+
         let observer: Arc<dyn AdmissionObserver> = Arc::new(CarbideAdmissionObserver);
-        let engine = SemaphoreAdmission::new(limits, shutdown, observer);
+        let engine = FairAdmission::start(limits, shutdown, observer, join_set);
         let work_in_flight_gauge = register_occupancy_gauge(
             meter,
             "carbide_api_admission_work_in_flight",
@@ -210,9 +305,10 @@ impl ApiAdmissionControl {
             Arc::clone(&engine),
             |snapshot| snapshot.pending,
         );
-
         Ok(Some(Arc::new(Self {
             engine,
+            default_client_limits: limits.default_client(),
+            service_limits,
             rejection_log_limiter: LogLimiter::default(),
             _work_in_flight_gauge: work_in_flight_gauge,
             _pending_requests_gauge: pending_requests_gauge,
@@ -222,10 +318,12 @@ impl ApiAdmissionControl {
     fn rejection_response(
         &self,
         transport: RequestTransport,
-        reason: RejectionReason,
+        rejection: AdmissionRejection,
     ) -> Response<Body> {
+        let AdmissionRejection { reason, retry } = rejection;
         carbide_instrument::emit(RequestRejected {
             reason: reason.into(),
+            scope: reason.scope().into(),
         });
         if self.rejection_log_limiter.should_log(
             &(reason, transport),
@@ -233,16 +331,42 @@ impl ApiAdmissionControl {
         ) {
             tracing::warn!(
                 rejection_reason = ?reason,
+                rejection_scope = ?reason.scope(),
+                retry_pressure_scope = ?retry.pressure_scope(),
+                retry_delay_seconds = retry.delay_seconds(),
                 request_transport = ?transport,
                 "API request rejected by admission control"
             );
         }
-        transport.overloaded_response()
+        transport.overloaded_response(retry)
     }
 
     #[cfg(test)]
     fn snapshot(&self) -> engine::AdmissionSnapshot {
         self.engine.snapshot()
+    }
+
+    fn client<'a>(&self, request: &'a Request) -> (ClientKeyRef<'a>, ClientLimits) {
+        let auth_context = request.extensions().get::<AuthContext>();
+        if let Some(external_user) = auth_context.and_then(AuthContext::get_external_user_info) {
+            let key = ClientKeyRef::ExternalUser(external_user);
+            return (key, self.default_client_limits);
+        }
+        if let Some(service_id) = auth_context.and_then(AuthContext::get_spiffe_service_id) {
+            let limits = self
+                .service_limits
+                .get(service_id)
+                .copied()
+                .unwrap_or(self.default_client_limits);
+            return (ClientKeyRef::ServiceId(service_id), limits);
+        }
+        if let Some(machine_id) = auth_context.and_then(AuthContext::get_spiffe_machine_id) {
+            return (
+                ClientKeyRef::MachineId(machine_id),
+                self.default_client_limits,
+            );
+        }
+        (ClientKeyRef::Default, self.default_client_limits)
     }
 }
 
@@ -250,7 +374,7 @@ fn register_occupancy_gauge(
     meter: &Meter,
     name: &'static str,
     description: &'static str,
-    engine: Arc<SemaphoreAdmission>,
+    engine: Arc<FairAdmission>,
     value: fn(engine::AdmissionSnapshot) -> usize,
 ) -> ObservableGauge<u64> {
     meter
@@ -262,18 +386,48 @@ fn register_occupancy_gauge(
         .build()
 }
 
+#[cfg(test)]
 pub(crate) async fn enforce(
     State(control): State<Arc<ApiAdmissionControl>>,
     request: Request,
     next: Next,
 ) -> Response<Body> {
-    let Some(transport) = RequestTransport::classify(request.uri().path()) else {
+    let Some(transport) = classify_request(&request) else {
         return next.run(request).await;
     };
 
-    let permit = match control.engine.acquire(()).await {
+    enforce_transport(control, request, next, transport).await
+}
+
+pub(crate) async fn enforce_grpc(
+    State(control): State<Arc<ApiAdmissionControl>>,
+    request: Request,
+    next: Next,
+) -> Response<Body> {
+    if classify_request(&request) != Some(RequestTransport::Grpc) {
+        return next.run(request).await;
+    }
+    enforce_transport(control, request, next, RequestTransport::Grpc).await
+}
+
+fn classify_request(request: &Request) -> Option<RequestTransport> {
+    let path = request
+        .extensions()
+        .get::<OriginalUri>()
+        .map_or_else(|| request.uri().path(), |uri| uri.path());
+    RequestTransport::classify(path)
+}
+
+async fn enforce_transport(
+    control: Arc<ApiAdmissionControl>,
+    request: Request,
+    next: Next,
+    transport: RequestTransport,
+) -> Response<Body> {
+    let (client_key, client_limits) = control.client(&request);
+    let permit = match control.engine.acquire(client_key, client_limits).await {
         Ok(permit) => permit,
-        Err(reason) => return control.rejection_response(transport, reason),
+        Err(rejection) => return control.rejection_response(transport, rejection),
     };
     let response = next.run(request).await;
     drop(permit);
@@ -303,19 +457,49 @@ mod tests {
         max_pending: usize,
         pending_timeout: Duration,
         shutdown: CancellationToken,
-    ) -> Arc<ApiAdmissionControl> {
-        ApiAdmissionControl::from_config(
+    ) -> (Arc<ApiAdmissionControl>, JoinSet<()>) {
+        let mut join_set = JoinSet::new();
+        let control = ApiAdmissionControl::from_config(
             &ApiAdmissionControlConfig {
                 enabled: true,
                 max_work_in_flight,
                 max_pending,
+                max_work_in_flight_per_client: max_work_in_flight,
+                max_pending_per_client: max_pending,
                 pending_timeout,
+                client_idle_timeout: Duration::from_secs(60),
+                service_limits: Default::default(),
             },
             &opentelemetry::global::meter("api-admission-tests"),
             shutdown,
+            &mut join_set,
         )
         .expect("test admission config is valid")
-        .expect("test admission is enabled")
+        .expect("test admission is enabled");
+        (control, join_set)
+    }
+
+    fn test_client(control: &ApiAdmissionControl) -> (ClientKeyRef<'_>, ClientLimits) {
+        (
+            ClientKeyRef::ServiceId("test-client"),
+            control.default_client_limits,
+        )
+    }
+
+    #[test]
+    fn client_keys_distinguish_identity_kinds() {
+        assert_ne!(
+            ClientKeyRef::ServiceId("same-identifier"),
+            ClientKeyRef::MachineId("same-identifier"),
+        );
+        assert_ne!(ClientKeyRef::ServiceId("default"), ClientKeyRef::Default,);
+    }
+
+    fn rejection(reason: RejectionReason, seconds: u64) -> AdmissionRejection {
+        AdmissionRejection {
+            reason,
+            retry: RetryAdvice::for_test(seconds, reason.scope().unwrap_or(RejectionScope::Global)),
+        }
     }
 
     #[test]
@@ -349,6 +533,29 @@ mod tests {
             assert_eq!(RequestTransport::classify(excluded_path), None);
             let child_path = format!("{excluded_path}/child");
             assert_eq!(RequestTransport::classify(&child_path), None);
+        }
+    }
+
+    #[test]
+    fn nested_admin_classification_uses_original_uri() {
+        let cases = [
+            ("/machine", "/admin/machine", Some(RequestTransport::Http)),
+            ("/static/app.css", "/admin/static/app.css", None),
+        ];
+
+        for (nested_path, original_path, expected) in cases {
+            let mut request = Request::builder()
+                .uri(nested_path)
+                .body(Body::empty())
+                .unwrap();
+            request
+                .extensions_mut()
+                .insert(OriginalUri(original_path.parse().unwrap()));
+            assert_eq!(
+                classify_request(&request),
+                expected,
+                "original path: {original_path}"
+            );
         }
     }
 
@@ -392,39 +599,46 @@ mod tests {
 
     #[test]
     fn overload_responses_match_the_request_transport() {
-        let grpc = RequestTransport::Grpc.overloaded_response();
+        let retry = RetryAdvice::for_test(7, RejectionScope::Client);
+        let grpc = RequestTransport::Grpc.overloaded_response(retry);
         assert_eq!(grpc.status(), StatusCode::OK);
         assert_eq!(grpc.headers().get("grpc-status").unwrap(), "8");
+        assert_eq!(
+            grpc.headers().get(GRPC_RETRY_PUSHBACK_HEADER).unwrap(),
+            "7000"
+        );
 
-        let http = RequestTransport::Http.overloaded_response();
+        let http = RequestTransport::Http.overloaded_response(retry);
         assert_eq!(http.status(), StatusCode::SERVICE_UNAVAILABLE);
-        assert_eq!(http.headers().get(header::RETRY_AFTER).unwrap(), "1");
+        assert_eq!(http.headers().get(header::RETRY_AFTER).unwrap(), "7");
     }
 
     #[tokio::test(start_paused = true)]
     async fn rejection_reason_is_preserved_in_metrics() {
         let _serial = ADMISSION_TEST_SERIAL.lock().await;
         let metrics = MetricsCapture::start();
-        let control = controller(1, 1, Duration::from_secs(5), CancellationToken::new());
+        let (control, _join_set) =
+            controller(1, 1, Duration::from_secs(5), CancellationToken::new());
+        let (client_key, client_limits) = test_client(&control);
         let executing = control
             .engine
-            .acquire(())
+            .acquire(client_key, client_limits)
             .await
             .expect("first work is admitted");
-        let pending = control.engine.acquire(());
+        let pending = control.engine.acquire(client_key, client_limits);
         tokio::pin!(pending);
         assert!(poll!(&mut pending).is_pending());
 
         tokio::time::advance(Duration::from_secs(5)).await;
-        let reason = pending.await.expect_err("pending work must time out");
-        let response = control.rejection_response(RequestTransport::Grpc, reason);
+        let timeout_rejection = pending.await.expect_err("pending work must time out");
+        let response = control.rejection_response(RequestTransport::Grpc, timeout_rejection);
         assert_eq!(response.headers().get("grpc-status").unwrap(), "8");
         drop(executing);
 
         assert_eq!(
             metrics.counter_delta(
                 "carbide_api_admission_rejected_total",
-                &[("reason", "queue_timeout")],
+                &[("reason", "queue_timeout"), ("scope", "other")],
             ),
             1.0
         );
@@ -433,42 +647,58 @@ mod tests {
                 .histogram_count_delta("carbide_api_admission_pending_wait_duration_seconds", &[]),
             1
         );
-
         let cases = [
-            (RejectionReason::QueueFull, "queue_full"),
+            (
+                RejectionReason::QueueFull(RejectionScope::Global),
+                "queue_full",
+                "global",
+            ),
             (
                 RejectionReason::ControllerUnavailable,
                 "controller_unavailable",
+                "other",
             ),
-            (RejectionReason::ShuttingDown, "shutting_down"),
+            (RejectionReason::ShuttingDown, "shutting_down", "other"),
         ];
-        for (reason, label) in cases {
-            let response = control.rejection_response(RequestTransport::Http, reason);
+        for (reason, label, scope) in cases {
+            let response = control.rejection_response(RequestTransport::Http, rejection(reason, 3));
             assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
             assert_eq!(
-                metrics
-                    .counter_delta("carbide_api_admission_rejected_total", &[("reason", label)],),
+                metrics.counter_delta(
+                    "carbide_api_admission_rejected_total",
+                    &[("reason", label), ("scope", scope)],
+                ),
                 1.0,
                 "rejection reason {reason:?} must be preserved"
             );
         }
     }
 
-    #[test]
-    fn rejection_log_limiter_distinguishes_reason_and_transport() {
-        let control = controller(1, 1, Duration::from_secs(1), CancellationToken::new());
+    #[tokio::test]
+    async fn rejection_log_limiter_distinguishes_reason_and_transport() {
+        let (control, _join_set) =
+            controller(1, 1, Duration::from_secs(1), CancellationToken::new());
         let summary = "API request rejected by admission control";
 
         assert!(control.rejection_log_limiter.should_log(
-            &(RejectionReason::QueueFull, RequestTransport::Grpc),
+            &(
+                RejectionReason::QueueFull(RejectionScope::Global),
+                RequestTransport::Grpc,
+            ),
             summary
         ));
         assert!(!control.rejection_log_limiter.should_log(
-            &(RejectionReason::QueueFull, RequestTransport::Grpc),
+            &(
+                RejectionReason::QueueFull(RejectionScope::Global),
+                RequestTransport::Grpc,
+            ),
             summary
         ));
         assert!(control.rejection_log_limiter.should_log(
-            &(RejectionReason::QueueFull, RequestTransport::Http),
+            &(
+                RejectionReason::QueueFull(RejectionScope::Global),
+                RequestTransport::Http,
+            ),
             summary
         ));
         assert!(control.rejection_log_limiter.should_log(
@@ -480,7 +710,8 @@ mod tests {
     #[tokio::test]
     async fn grpc_and_admin_routes_share_capacity_and_bypasses_remain_available() {
         let _serial = ADMISSION_TEST_SERIAL.lock().await;
-        let controller = controller(1, 1, Duration::from_secs(1), CancellationToken::new());
+        let (controller, _join_set) =
+            controller(1, 1, Duration::from_secs(1), CancellationToken::new());
         let handler_calls = Arc::new(AtomicUsize::new(0));
         let handler_started = Arc::new(Notify::new());
         let release_handler = Arc::new(Notify::new());
@@ -510,14 +741,22 @@ mod tests {
                 }
             }
         };
-        let router = Router::new()
+        let grpc_router = Router::new()
             .route(::rpc::service_path!("Test"), get(immediate_handler))
-            .route("/admin/business", get(blocking_handler))
-            .route("/admin/static/test.css", get(|| async { "static" }))
             .layer(axum::middleware::from_fn_with_state(
                 Arc::clone(&controller),
-                enforce,
+                enforce_grpc,
             ));
+        let admin_router = Router::new()
+            .route("/business", get(blocking_handler))
+            .route("/static/test.css", get(|| async { "static" }))
+            .layer(axum::middleware::from_fn_with_state(
+                Some(AdminAdmissionControl::new(Arc::clone(&controller))),
+                AdminAdmissionControl::middleware,
+            ));
+        let router = Router::new()
+            .merge(grpc_router)
+            .nest("/admin", admin_router);
 
         let executing_router = router.clone();
         let executing = tokio::spawn(async move {
@@ -577,7 +816,38 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(rejected.status(), StatusCode::SERVICE_UNAVAILABLE);
-        assert_eq!(rejected.headers().get(header::RETRY_AFTER).unwrap(), "1");
+        let http_retry_seconds = rejected
+            .headers()
+            .get(header::RETRY_AFTER)
+            .unwrap()
+            .to_str()
+            .unwrap()
+            .parse::<u64>()
+            .unwrap();
+        assert!((1..=30).contains(&http_retry_seconds));
+        assert_eq!(handler_calls.load(Ordering::SeqCst), 1);
+
+        let rejected_grpc = router
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri(::rpc::service_path!("Test"))
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(rejected_grpc.headers().get("grpc-status").unwrap(), "8");
+        let grpc_pushback_milliseconds = rejected_grpc
+            .headers()
+            .get(GRPC_RETRY_PUSHBACK_HEADER)
+            .unwrap()
+            .to_str()
+            .unwrap()
+            .parse::<u64>()
+            .unwrap();
+        assert_eq!(grpc_pushback_milliseconds % 1_000, 0);
+        assert!((1_000..=30_000).contains(&grpc_pushback_milliseconds));
         assert_eq!(handler_calls.load(Ordering::SeqCst), 1);
 
         release_handler.notify_one();

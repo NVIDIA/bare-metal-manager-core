@@ -19,6 +19,7 @@ use std::collections::HashSet;
 
 use ::rpc::forge as rpc;
 use ::rpc::forge_api_client::{EXPECTED_SWITCH_UPDATE_MASK_HEADER, ExpectedSwitchUpdateField};
+use carbide_instrument::emit;
 use db::{DatabaseError, expected_switch as db_expected_switch};
 use mac_address::MacAddress;
 use model::expected_switch::{ExpectedSwitch, ExpectedSwitchRequest};
@@ -27,6 +28,7 @@ use tonic::{Request, Response, Status};
 use crate::CarbideError;
 use crate::api::Api;
 use crate::handlers::machine_interface_address::update_preallocated_machine_interface;
+use crate::handlers::static_address_metrics::StaticAddressPreallocationCompleted;
 
 fn parse_expected_switch_update_mask(
     request: &Request<rpc::ExpectedSwitch>,
@@ -155,7 +157,7 @@ fn validate_expected_switch(switch: &ExpectedSwitch) -> Result<(), CarbideError>
     Ok(())
 }
 
-pub async fn add_expected_switch(
+pub(crate) async fn add_expected_switch(
     api: &Api,
     request: Request<rpc::ExpectedSwitch>,
 ) -> Result<Response<()>, Status> {
@@ -188,7 +190,7 @@ pub async fn add_expected_switch(
     Ok(Response::new(()))
 }
 
-pub async fn delete_expected_switch(
+pub(crate) async fn delete_expected_switch(
     api: &Api,
     request: Request<rpc::ExpectedSwitchRequest>,
 ) -> Result<Response<()>, Status> {
@@ -219,7 +221,7 @@ pub async fn delete_expected_switch(
     Ok(Response::new(()))
 }
 
-pub async fn update_expected_switch(
+pub(crate) async fn update_expected_switch(
     api: &Api,
     request: Request<rpc::ExpectedSwitch>,
 ) -> Result<Response<()>, Status> {
@@ -271,25 +273,30 @@ pub async fn update_expected_switch(
 
     validate_expected_switch(&switch)?;
 
+    let mut preallocations = Vec::with_capacity(2);
     if let Some(bmc_ip) = switch.bmc_ip_address {
-        update_preallocated_machine_interface(
-            &mut txn,
-            switch.bmc_mac_address,
-            bmc_ip,
-            api.runtime_config.retained_boot_interface_window,
-        )
-        .await?;
+        preallocations.push(
+            update_preallocated_machine_interface(
+                &mut txn,
+                switch.bmc_mac_address,
+                bmc_ip,
+                api.runtime_config.retained_boot_interface_window,
+            )
+            .await?,
+        );
     }
     if let Some(nvos_ip) = switch.nvos_ip_address {
         // Pairing already validated above; nvos_mac_addresses has exactly one entry.
         let nvos_mac = switch.nvos_mac_addresses[0];
-        update_preallocated_machine_interface(
-            &mut txn,
-            nvos_mac,
-            nvos_ip,
-            api.runtime_config.retained_boot_interface_window,
-        )
-        .await?;
+        preallocations.push(
+            update_preallocated_machine_interface(
+                &mut txn,
+                nvos_mac,
+                nvos_ip,
+                api.runtime_config.retained_boot_interface_window,
+            )
+            .await?,
+        );
     }
 
     db_expected_switch::update(&mut txn, &switch)
@@ -300,10 +307,14 @@ pub async fn update_expected_switch(
         message: format!("Failed to commit transaction: {}", e),
     })?;
 
+    for outcome in preallocations {
+        emit(StaticAddressPreallocationCompleted::from(outcome));
+    }
+
     Ok(Response::new(()))
 }
 
-pub async fn get_expected_switch(
+pub(crate) async fn get_expected_switch(
     api: &Api,
     request: Request<rpc::ExpectedSwitchRequest>,
 ) -> Result<Response<rpc::ExpectedSwitch>, Status> {
@@ -343,7 +354,7 @@ pub async fn get_expected_switch(
     Ok(Response::new(response))
 }
 
-pub async fn get_all_expected_switches(
+pub(crate) async fn get_all_expected_switches(
     api: &Api,
     _request: Request<()>,
 ) -> Result<Response<rpc::ExpectedSwitchList>, Status> {
@@ -371,7 +382,7 @@ pub async fn get_all_expected_switches(
     Ok(Response::new(rpc::ExpectedSwitchList { expected_switches }))
 }
 
-pub async fn replace_all_expected_switches(
+pub(crate) async fn replace_all_expected_switches(
     api: &Api,
     request: Request<rpc::ExpectedSwitchList>,
 ) -> Result<Response<()>, Status> {
@@ -419,7 +430,7 @@ pub async fn replace_all_expected_switches(
     Ok(Response::new(()))
 }
 
-pub async fn delete_all_expected_switches(
+pub(crate) async fn delete_all_expected_switches(
     api: &Api,
     _request: Request<()>,
 ) -> Result<Response<()>, Status> {
@@ -442,7 +453,7 @@ pub async fn delete_all_expected_switches(
     Ok(Response::new(()))
 }
 
-pub async fn get_all_expected_switches_linked(
+pub(crate) async fn get_all_expected_switches_linked(
     api: &Api,
     _request: Request<()>,
 ) -> Result<Response<rpc::LinkedExpectedSwitchList>, Status> {
@@ -474,7 +485,7 @@ pub async fn get_all_expected_switches_linked(
 
 // Utility method called by `explore`. Not a grpc handler.
 // TODO(chet): Remove dead_code once wired up with the explorer.
-pub(crate) async fn query(
+pub(super) async fn query(
     api: &Api,
     mac: MacAddress,
 ) -> Result<Option<model::expected_switch::ExpectedSwitch>, CarbideError> {

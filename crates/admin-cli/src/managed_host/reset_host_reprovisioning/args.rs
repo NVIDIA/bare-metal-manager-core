@@ -27,7 +27,7 @@ Reset a host's reprovisioning back to CheckingFirmware:
     $ nico-admin-cli managed-host reset-host-reprovisioning --machine 12345678-1234-5678-90ab-cdef01234567
 
 ")]
-pub struct Args {
+pub(crate) struct Args {
     #[clap(long, required(true), help = "Machine ID to reset host reprovision on")]
-    pub machine: MachineId,
+    pub(super) machine: MachineId,
 }

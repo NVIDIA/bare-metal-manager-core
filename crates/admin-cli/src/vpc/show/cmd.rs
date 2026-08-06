@@ -26,7 +26,7 @@ use super::args::Args;
 use crate::errors::{CarbideCliError, CarbideCliResult};
 use crate::rpc::ApiClient;
 
-pub async fn show(
+pub(crate) async fn show(
     args: Args,
     output_format: OutputFormat,
     api_client: &ApiClient,
@@ -181,7 +181,7 @@ fn convert_vpcs_to_nice_table(vpcs: forgerpc::VpcList) -> Box<Table> {
 }
 
 #[allow(deprecated)]
-pub fn convert_vpc_to_nice_format(vpc: &forgerpc::Vpc) -> CarbideCliResult<String> {
+pub(in crate::vpc) fn convert_vpc_to_nice_format(vpc: &forgerpc::Vpc) -> CarbideCliResult<String> {
     let width = 25;
     let mut lines = String::new();
     let config = vpc_config(vpc);

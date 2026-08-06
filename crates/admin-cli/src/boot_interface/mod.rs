@@ -22,16 +22,16 @@
 //! `set` fronts the same `SetPrimaryInterface` RPC as
 //! `managed-host set-primary-interface`.
 
-pub mod candidates;
-pub mod set;
-pub mod show;
+mod candidates;
+mod set;
+pub(crate) mod show;
 
 use clap::Parser;
 
 use crate::cfg::dispatch::Dispatch;
 
 #[derive(Parser, Debug, Dispatch)]
-pub enum Cmd {
+pub(crate) enum Cmd {
     // Note for the abouts below: possessives are deliberately avoided -- the
     // man-page path (clap_mangen -> pandoc) drops apostrophes, so "a machine's
     // boot interface" renders as "a machines boot interface" in the generated

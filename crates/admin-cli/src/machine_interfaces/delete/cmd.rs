@@ -21,7 +21,7 @@ use super::args::Args;
 use crate::errors::CarbideCliResult;
 use crate::rpc::ApiClient;
 
-pub async fn handle_delete(args: Args, api_client: &ApiClient) -> CarbideCliResult<()> {
+pub(super) async fn handle_delete(args: Args, api_client: &ApiClient) -> CarbideCliResult<()> {
     // Clap's ArgGroup guarantees exactly one of these is set.
     api_client
         .0

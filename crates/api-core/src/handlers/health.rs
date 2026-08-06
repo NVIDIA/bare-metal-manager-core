@@ -27,7 +27,7 @@ use crate::api::Api;
 use crate::auth::AuthContext;
 use crate::handlers::utils::convert_and_log_machine_id;
 
-pub async fn list_machine_health_reports(
+pub(crate) async fn list_machine_health_reports(
     api: &Api,
     machine_id: Request<MachineId>,
 ) -> Result<Response<rpc::ListHealthReportResponse>, Status> {
@@ -95,7 +95,7 @@ async fn remove_by_source(
     Ok(())
 }
 
-pub async fn insert_machine_health_report(
+pub(crate) async fn insert_machine_health_report(
     api: &Api,
     request: Request<rpc::InsertMachineHealthReportRequest>,
 ) -> Result<Response<()>, Status> {
@@ -121,7 +121,7 @@ pub async fn insert_machine_health_report(
     };
     let mode: HealthReportApplyMode = mode.into();
     let mut txn = api.txn_begin().await?;
-    let _machine = db::machine::find_one(&mut txn, &machine_id, MachineSearchConfig::default())
+    let machine = db::machine::find_one(&mut txn, &machine_id, MachineSearchConfig::default())
         .await?
         .ok_or_else(|| CarbideError::NotFoundError {
             kind: "machine",
@@ -134,7 +134,7 @@ pub async fn insert_machine_health_report(
         report.observed_at = Some(chrono::Utc::now());
     }
     report.triggered_by = triggered_by;
-    report.update_in_alert_since(None);
+    report.update_in_alert_since(machine.health_reports.by_source(&report.source));
 
     // In case a report with the same source exists, either as merge or replace,
     // remove it. If such a report does not exist, ignore error.
@@ -150,7 +150,7 @@ pub async fn insert_machine_health_report(
     Ok(Response::new(()))
 }
 
-pub async fn remove_machine_health_report(
+pub(crate) async fn remove_machine_health_report(
     api: &Api,
     request: Request<rpc::RemoveMachineHealthReportRequest>,
 ) -> Result<Response<()>, Status> {

@@ -30,14 +30,14 @@ use crate::errors::CarbideErrorWithLocation;
 
 /// A tower Layer which creates a `LogService` for every request
 #[derive(Debug, Clone)]
-pub struct LogLayer {
+pub(crate) struct LogLayer {
     /// Captures metrics in server requests
     /// This is an `Arc` because it will be shared with every request handler
     metrics: Arc<RequestMetrics>,
 }
 
 impl LogLayer {
-    pub fn new(meter: Meter) -> Self {
+    pub(crate) fn new(meter: Meter) -> Self {
         // The metrics here loosly follow
         // https://opentelemetry.io/docs/reference/specification/metrics/semantic_conventions/http-metrics/#http-server
         // We include the service name here for extra discoverability,
@@ -82,7 +82,7 @@ struct RequestMetrics {
 
 // This service implements the Forge API server logging behavior
 #[derive(Clone, Debug)]
-pub struct LogService<S> {
+pub(crate) struct LogService<S> {
     service: S,
     metrics: Arc<RequestMetrics>,
 }

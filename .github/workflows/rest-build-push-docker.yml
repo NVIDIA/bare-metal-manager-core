@@ -337,7 +337,7 @@ jobs:
       - build-nico-psm
       - build-nico-nsm
       - build-nico-mcp
-    if: always()
+    if: ${{ !cancelled() }}
     outputs:
       build_artifacts: ${{ steps.aggregate.outputs.artifacts }}
 

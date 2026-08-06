@@ -24,7 +24,7 @@ use super::args::{
 use crate::errors::{CarbideCliError, CarbideCliResult};
 use crate::rpc::ApiClient;
 
-pub async fn metadata(
+pub(super) async fn metadata(
     api_client: &ApiClient,
     cmd: Args,
     output_file: &mut Box<dyn tokio::io::AsyncWrite + Unpin>,

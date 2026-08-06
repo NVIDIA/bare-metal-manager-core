@@ -18,7 +18,7 @@
 use clap::{Parser, ValueEnum};
 
 #[derive(ValueEnum, Parser, Debug, Clone)]
-pub enum AdminPowerControlAction {
+pub(super) enum AdminPowerControlAction {
     On,
     GracefulShutdown,
     ForceOff,
@@ -53,9 +53,9 @@ impl From<AdminPowerControlAction> for rpc::forge::admin_power_control_request::
 }
 
 #[derive(Parser, Debug, Clone)]
-pub struct InfiniteBootArgs {
+pub(super) struct InfiniteBootArgs {
     #[clap(long, help = "ID of the machine to enable/query infinite boot")]
-    pub machine: String,
+    pub(super) machine: String,
     #[clap(short, long, help = "Issue reboot to apply BIOS change")]
-    pub reboot: bool,
+    pub(super) reboot: bool,
 }

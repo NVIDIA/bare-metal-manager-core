@@ -24,7 +24,7 @@ use crate::auth::Principal;
 static INTERNAL_RBAC_RULES: LazyLock<InternalRBACRules> = LazyLock::new(InternalRBACRules::new);
 
 #[derive(Debug)]
-pub struct InternalRBACRules {
+pub(super) struct InternalRBACRules {
     perms: std::collections::HashMap<String, RuleInfo>,
 }
 
@@ -53,7 +53,7 @@ use self::RulePrincipal::{
 };
 
 impl InternalRBACRules {
-    pub fn new() -> Self {
+    pub(super) fn new() -> Self {
         let mut x = Self {
             perms: HashMap::default(),
         };
@@ -74,8 +74,15 @@ impl InternalRBACRules {
         x.perm("DeleteVpc", vec![Machineatron, SiteAgent]);
         x.perm("FindVpcIds", vec![SiteAgent, ForgeAdminCLI, Machineatron]);
         x.perm("FindVpcsByIds", vec![ForgeAdminCLI, SiteAgent]);
+        x.perm("CreateSitePrefix", vec![ForgeAdminCLI, SiteAgent]);
+        x.perm("UpdateSitePrefix", vec![ForgeAdminCLI, SiteAgent]);
+        x.perm("DeleteSitePrefix", vec![ForgeAdminCLI, SiteAgent]);
         x.perm("FindSitePrefixIds", vec![ForgeAdminCLI, SiteAgent]);
         x.perm("FindSitePrefixesByIds", vec![ForgeAdminCLI, SiteAgent]);
+        x.perm(
+            "FindSitePrefixStateHistories",
+            vec![ForgeAdminCLI, SiteAgent],
+        );
         x.perm("CreateVpcPrefix", vec![ForgeAdminCLI, SiteAgent]);
         x.perm("SearchVpcPrefixes", vec![ForgeAdminCLI, SiteAgent]);
         x.perm("GetVpcPrefixes", vec![ForgeAdminCLI, SiteAgent]);
@@ -920,11 +927,14 @@ impl InternalRBACRules {
             .insert(msg.to_string(), RuleInfo::new(principals));
     }
 
-    pub fn allowed_from_static(msg: &str, user_principals: &[crate::auth::Principal]) -> bool {
+    pub(super) fn allowed_from_static(
+        msg: &str,
+        user_principals: &[crate::auth::Principal],
+    ) -> bool {
         INTERNAL_RBAC_RULES.allowed(msg, user_principals)
     }
 
-    pub fn allowed(&self, msg: &str, user_principals: &[crate::auth::Principal]) -> bool {
+    pub(super) fn allowed(&self, msg: &str, user_principals: &[crate::auth::Principal]) -> bool {
         if let Some(perm_info) = self.perms.get(msg) {
             if user_principals.is_empty() {
                 // No proper cert presented, but we will allow stuff that allows just Anonymous
@@ -954,7 +964,7 @@ struct RuleInfo {
 }
 
 impl RuleInfo {
-    pub fn new(principals: Vec<RulePrincipal>) -> Self {
+    fn new(principals: Vec<RulePrincipal>) -> Self {
         // Helper: emit both the nico-* and carbide-* SPIFFE service identifiers
         // for a renamed service. The matcher in `allowed()` walks this Vec with
         // `.any(...)`, so any cert presenting either string is accepted. Drop

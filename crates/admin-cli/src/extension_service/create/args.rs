@@ -44,43 +44,43 @@ Create with private-registry pull credentials:
     --username admin --password mypassword
 
 ")]
-pub struct Args {
+pub(crate) struct Args {
     #[clap(
         short = 'i',
         long = "id",
         help = "The extension service ID to create (optional)"
     )]
-    pub service_id: Option<String>,
+    service_id: Option<String>,
 
     #[clap(short = 'n', long = "name", help = "Extension service name")]
-    pub service_name: String,
+    service_name: String,
 
     #[clap(short = 't', long = "type", help = "Extension service type")]
-    pub service_type: ExtensionServiceType,
+    service_type: ExtensionServiceType,
 
     #[clap(long, help = "Extension service description (optional)")]
-    pub description: Option<String>,
+    description: Option<String>,
 
     #[clap(long, help = "Tenant organization ID")]
-    pub tenant_organization_id: Option<String>,
+    tenant_organization_id: Option<String>,
 
     #[clap(short = 'd', long, help = "Extension service data")]
-    pub data: String,
+    data: String,
 
     #[clap(long, help = "Registry URL for the service credential (optional)")]
-    pub registry_url: Option<String>,
+    registry_url: Option<String>,
 
     #[clap(long, help = "Username for the service credential (optional)")]
-    pub username: Option<String>,
+    username: Option<String>,
 
     #[clap(long, help = "Password for the service credential (optional)")]
-    pub password: Option<String>,
+    password: Option<String>,
 
     #[clap(
         long,
         help = "JSON array containing a defined set of extension observability configs (optional)"
     )]
-    pub observability: Option<String>,
+    observability: Option<String>,
 }
 
 impl TryFrom<Args> for ::rpc::forge::CreateDpuExtensionServiceRequest {

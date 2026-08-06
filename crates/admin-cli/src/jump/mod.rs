@@ -15,13 +15,13 @@
  * limitations under the License.
  */
 
-pub mod args;
-pub mod cmd;
+mod args;
+mod cmd;
 
 #[cfg(test)]
 mod tests;
 
-pub use args::Cmd;
+pub(crate) use args::Cmd;
 
 use crate::cfg::dispatch::dispatch_via_run;
 use crate::cfg::run::Run;

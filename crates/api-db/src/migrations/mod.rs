@@ -199,6 +199,12 @@ async fn load_and_validate_history(
 mod tests {
     use super::*;
 
+    const RENAME_SITE_PREFIX_AUTHORITY_VERSION: i64 = 20260805083545;
+    const REMOVE_SECONDARY_VTEP_DATA: &str =
+        include_str!("../../migrations/20260804153414_remove_secondary_vtep_data.sql");
+    const VALIDATE_SECONDARY_VTEP_CONSTRAINT: &str =
+        include_str!("../../migrations/20260804171948_validate_secondary_vtep_constraint.sql");
+
     #[test]
     fn migration_versions_are_unique() {
         let mut versions = HashSet::new();
@@ -258,6 +264,259 @@ mod tests {
         assert_eq!(epoch.squash.iter().count(), 1);
         assert_eq!(epoch.post_squash.iter().count(), 1);
         assert!(epoch.post_squash.version_exists(squash_version - 1));
+    }
+
+    #[crate::sqlx_test]
+    async fn site_prefix_authority_migration_preserves_rows_and_schema_objects(pool: PgPool) {
+        sqlx::raw_sql("DROP SCHEMA public CASCADE; CREATE SCHEMA public")
+            .execute(&pool)
+            .await
+            .unwrap();
+
+        let current_epoch = MIGRATION_LAYOUT.epochs.last().unwrap();
+        assert!(
+            current_epoch
+                .post_squash
+                .version_exists(RENAME_SITE_PREFIX_AUTHORITY_VERSION),
+            "site prefix authority migration must belong to the current epoch"
+        );
+        current_epoch.squash.run(&pool).await.unwrap();
+
+        let pre_rename_migrations = current_epoch
+            .post_squash
+            .iter()
+            .filter(|migration| migration.version < RENAME_SITE_PREFIX_AUTHORITY_VERSION)
+            .cloned()
+            .collect();
+        Migrator::with_migrations(pre_rename_migrations)
+            .ignoring_missing()
+            .run(&pool)
+            .await
+            .unwrap();
+
+        let site_prefix_id = "626a8858-9896-4c14-9564-cb1f15e88b23";
+        sqlx::query(
+            r#"
+                INSERT INTO site_prefixes (
+                    id,
+                    prefix,
+                    authority,
+                    tenant_organization_id,
+                    routing_scope,
+                    lifecycle_state,
+                    name,
+                    description,
+                    labels,
+                    version
+                )
+                VALUES (
+                    $1::uuid,
+                    '203.0.113.0/24',
+                    'configured',
+                    NULL,
+                    'datacenter_only',
+                    'ready',
+                    'operator root',
+                    'preserve every field',
+                    '{"source":"migration-test"}',
+                    '1'
+                )
+            "#,
+        )
+        .bind(site_prefix_id)
+        .execute(&pool)
+        .await
+        .unwrap();
+        let row_before: serde_json::Value = sqlx::query_scalar(
+            "SELECT to_jsonb(site_prefixes) - 'authority' \
+             FROM site_prefixes WHERE id = $1::uuid",
+        )
+        .bind(site_prefix_id)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+
+        migrate(&pool).await.unwrap();
+
+        let row_after: serde_json::Value = sqlx::query_scalar(
+            "SELECT to_jsonb(site_prefixes) - 'authority' \
+             FROM site_prefixes WHERE id = $1::uuid",
+        )
+        .bind(site_prefix_id)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(row_after, row_before);
+
+        let authority: String =
+            sqlx::query_scalar("SELECT authority::text FROM site_prefixes WHERE id = $1::uuid")
+                .bind(site_prefix_id)
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        assert_eq!(authority, "operator_managed");
+
+        let authority_labels: Vec<String> = sqlx::query_scalar(
+            r#"
+                SELECT enum_value.enumlabel::text
+                FROM pg_enum enum_value
+                JOIN pg_type enum_type ON enum_type.oid = enum_value.enumtypid
+                JOIN pg_namespace namespace ON namespace.oid = enum_type.typnamespace
+                WHERE namespace.nspname = 'public'
+                  AND enum_type.typname = 'site_prefix_authority'
+                ORDER BY enum_value.enumsortorder
+            "#,
+        )
+        .fetch_all(&pool)
+        .await
+        .unwrap();
+        assert_eq!(
+            authority_labels,
+            vec!["operator_managed".to_string(), "tenant_managed".to_string()]
+        );
+
+        let (
+            operator_constraint_exists,
+            configured_constraint_exists,
+            operator_index_exists,
+            configured_index_exists,
+        ): (bool, bool, bool, bool) = sqlx::query_as(
+            r#"
+                SELECT
+                    EXISTS (
+                        SELECT 1
+                        FROM pg_constraint
+                        WHERE conrelid = 'site_prefixes'::regclass
+                          AND conname = 'site_prefixes_operator_managed_lifecycle_check'
+                    ),
+                    EXISTS (
+                        SELECT 1
+                        FROM pg_constraint
+                        WHERE conrelid = 'site_prefixes'::regclass
+                          AND conname = 'site_prefixes_configured_lifecycle_check'
+                    ),
+                    to_regclass('public.site_prefixes_operator_managed_prefix_key') IS NOT NULL,
+                    to_regclass('public.site_prefixes_configured_prefix_key') IS NOT NULL
+            "#,
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert!(operator_constraint_exists);
+        assert!(!configured_constraint_exists);
+        assert!(operator_index_exists);
+        assert!(!configured_index_exists);
+    }
+
+    #[crate::sqlx_test]
+    async fn secondary_vtep_migration_removes_persisted_data(pool: PgPool) {
+        sqlx::query(
+            "ALTER TABLE machines \
+             DROP CONSTRAINT machines_network_config_excludes_secondary_vtep_ip",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            r#"INSERT INTO machines (id, network_config, dpf)
+               VALUES (
+                   'fm100dsecondaryvtep',
+                   '{"loopback_ip":"192.0.2.1","secondary_overlay_vtep_ip":"198.51.100.1"}',
+                   '{"enabled":true,"used_for_ingestion":false}'
+               )"#,
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            r#"INSERT INTO resource_pool_def (name, definition)
+               VALUES
+                   ('secondary-vtep-ip', '{}'),
+                   ('retained-pool', '{}')"#,
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            r#"INSERT INTO resource_pool
+                   (name, value, allocated, state, value_type)
+               VALUES
+                   ('secondary-vtep-ip', '198.51.100.1', NOW(), '{"owner_id":"fm100dsecondaryvtep"}', 'ipv4'),
+                   ('secondary-vtep-ip', '198.51.100.2', NULL, '{}', 'ipv4'),
+                   ('retained-pool', '203.0.113.1', NULL, '{}', 'ipv4')"#,
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        sqlx::raw_sql(REMOVE_SECONDARY_VTEP_DATA)
+            .execute(&pool)
+            .await
+            .unwrap();
+        sqlx::raw_sql(VALIDATE_SECONDARY_VTEP_CONSTRAINT)
+            .execute(&pool)
+            .await
+            .unwrap();
+
+        let network_config: serde_json::Value = sqlx::query_scalar(
+            "SELECT network_config FROM machines WHERE id = 'fm100dsecondaryvtep'",
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(network_config["loopback_ip"], "192.0.2.1");
+        assert!(network_config.get("secondary_overlay_vtep_ip").is_none());
+
+        let obsolete_values: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM resource_pool WHERE name = 'secondary-vtep-ip'",
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        let obsolete_definitions: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM resource_pool_def WHERE name = 'secondary-vtep-ip'",
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(obsolete_values, 0);
+        assert_eq!(obsolete_definitions, 0);
+
+        let retained_values: i64 =
+            sqlx::query_scalar("SELECT COUNT(*) FROM resource_pool WHERE name = 'retained-pool'")
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        let retained_definitions: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM resource_pool_def WHERE name = 'retained-pool'",
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(retained_values, 1);
+        assert_eq!(retained_definitions, 1);
+
+        let constraint_is_valid: bool = sqlx::query_scalar(
+            "SELECT convalidated FROM pg_constraint \
+             WHERE conname = 'machines_network_config_excludes_secondary_vtep_ip' \
+               AND conrelid = 'machines'::regclass",
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert!(constraint_is_valid);
+        sqlx::query(
+            r#"UPDATE machines
+               SET network_config = jsonb_set(
+                   network_config,
+                   '{secondary_overlay_vtep_ip}',
+                   '"198.51.100.3"'
+               )
+               WHERE id = 'fm100dsecondaryvtep'"#,
+        )
+        .execute(&pool)
+        .await
+        .expect_err("the constraint must reject the removed field");
     }
 
     #[crate::sqlx_test]

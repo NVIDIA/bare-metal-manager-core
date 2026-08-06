@@ -610,22 +610,6 @@ impl CurrentNetworkVersion {
             }
         }
 
-        if let Some(traffic_intercept_config) = &conf.traffic_intercept_config {
-            traffic_intercept_config.additional_overlay_vtep_ip.hash(h);
-            traffic_intercept_config.public_prefixes.hash(h);
-            traffic_intercept_config
-                .secondary_vtep_aggregate_prefixes
-                .hash(h);
-            if let Some(bridging) = &traffic_intercept_config.bridging {
-                bridging.hbn_bridge.hash(h);
-                bridging.host_representor_intercept_bridging.hash(h);
-                bridging.internal_bridge_routing_prefix.hash(h);
-                bridging.vf_intercept_bridge_name.hash(h);
-                bridging.vf_intercept_bridge_port.hash(h);
-                bridging.vf_intercept_bridge_sf.hash(h);
-            }
-        }
-
         hasher.finish()
     }
 }
@@ -952,43 +936,20 @@ impl MainLoop {
                             }
                         }
 
-                        // We'll update some internal bridging config if bridging config
-                        // for traffic_intercept was sent in.
-                        let bridging_result = if self.options.agent_platform_type.is_dpu_os()
-                            && conf
-                                .traffic_intercept_config
-                                .as_ref()
-                                .map(|vc| vc.bridging.is_some())
-                                .unwrap_or_default()
-                        {
-                            ethernet_virtualization::update_traffic_intercept_bridging(
-                                &conf,
-                                self.hbn_device_names.clone(),
-                                self.agent_config.hbn.skip_reload,
-                            )
-                            .await
-                        } else {
-                            Ok(false) // No errors and no change.
+                        let update_flavor = match self.nvue_context.as_mut() {
+                            Some(nvue_context) => NvueUpdateFlavor::RestApi { nvue_context },
+                            None => NvueUpdateFlavor::StartupFile {
+                                hbn_root: &self.agent_config.hbn.root_dir,
+                                skip_post: self.agent_config.hbn.skip_reload,
+                            },
                         };
-
-                        if bridging_result.is_ok() {
-                            let update_flavor = match self.nvue_context.as_mut() {
-                                Some(nvue_context) => NvueUpdateFlavor::RestApi { nvue_context },
-                                None => NvueUpdateFlavor::StartupFile {
-                                    hbn_root: &self.agent_config.hbn.root_dir,
-                                    skip_post: self.agent_config.hbn.skip_reload,
-                                },
-                            };
-                            ethernet_virtualization::update_nvue(
-                                virtualization_type,
-                                update_flavor,
-                                &conf,
-                                self.hbn_device_names.clone(),
-                            )
-                            .await
-                        } else {
-                            bridging_result
-                        }
+                        ethernet_virtualization::update_nvue(
+                            virtualization_type,
+                            update_flavor,
+                            &conf,
+                            self.hbn_device_names.clone(),
+                        )
+                        .await
                     };
 
                     let astra_config_status =

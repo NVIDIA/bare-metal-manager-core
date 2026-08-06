@@ -37,14 +37,14 @@ mod tests {
     use crate::measured_boot::convert_vec;
     use crate::measured_boot::rpc::{bundle, journal, machine, profile, report, site};
     use crate::measured_boot::tests::common::{create_test_machine, load_topology_json};
-    use crate::tests::common::api_fixtures::create_test_env;
+    use crate::tests::create_test_env;
 
     // test_measurement_system_profiles is used to test all of the different
     // API handler functions that work with measured boot system profiles,
     // going through the steps of making profiles, making sure they can
     // be read back (via show/list), modified (via update/delete), etc.
     #[crate::sqlx_test]
-    pub async fn test_measurement_system_profiles(
+    async fn test_measurement_system_profiles(
         db_conn: sqlx::PgPool,
     ) -> Result<(), Box<dyn std::error::Error>> {
         let env = create_test_env(db_conn).await;
@@ -250,7 +250,7 @@ mod tests {
     // handler functions that work with measured boot machines (show,
     // list, attest, etc).
     #[crate::sqlx_test]
-    pub async fn test_machines(db_conn: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
+    async fn test_machines(db_conn: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
         let env = create_test_env(db_conn).await;
         let api = &env.api;
 
@@ -355,7 +355,7 @@ mod tests {
     // measured boot (reports + journals + machines, etc), but this is
     // for focusing specifically on the report calls.
     #[crate::sqlx_test]
-    pub async fn test_measurement_reports(
+    async fn test_measurement_reports(
         db_conn: sqlx::PgPool,
     ) -> Result<(), Box<dyn std::error::Error>> {
         let env = create_test_env(db_conn).await;
@@ -525,7 +525,7 @@ mod tests {
     // measured boot (reports + journals + machines, etc), but this is
     // for focusing specifically on the journal calls.
     #[crate::sqlx_test]
-    pub async fn test_measurement_journals(
+    async fn test_measurement_journals(
         db_conn: sqlx::PgPool,
     ) -> Result<(), Box<dyn std::error::Error>> {
         let env = create_test_env(db_conn).await;
@@ -621,7 +621,7 @@ mod tests {
     // measured boot (reports + journals + machines, etc), but this is
     // for focusing specifically on the bundle calls.
     #[crate::sqlx_test]
-    pub async fn test_measurement_bundles(
+    async fn test_measurement_bundles(
         db_conn: sqlx::PgPool,
     ) -> Result<(), Box<dyn std::error::Error>> {
         let env = create_test_env(db_conn).await;
@@ -841,7 +841,7 @@ mod tests {
     //  this tests the ability to find a the closest matching bundle to a
     // a given report
     #[crate::sqlx_test]
-    pub async fn test_get_closest_match(
+    async fn test_get_closest_match(
         db_conn: sqlx::PgPool,
     ) -> Result<(), Box<dyn std::error::Error>> {
         let env = create_test_env(db_conn).await;
@@ -1150,7 +1150,7 @@ mod tests {
     }
 
     #[crate::sqlx_test]
-    pub async fn test_list_attestation_summary(
+    async fn test_list_attestation_summary(
         db_conn: sqlx::PgPool,
     ) -> Result<(), Box<dyn std::error::Error>> {
         let env = create_test_env(db_conn).await;
@@ -1307,7 +1307,7 @@ mod tests {
     // boot, including import/export, and management of trusted
     // machine and profile approvals.
     #[crate::sqlx_test]
-    pub async fn test_measurement_site(
+    async fn test_measurement_site(
         db_conn: sqlx::PgPool,
     ) -> Result<(), Box<dyn std::error::Error>> {
         let env = create_test_env(db_conn).await;
@@ -1762,7 +1762,7 @@ mod tests {
     // having a site-wide "permissive" approval of "*" works
     // as intended.
     #[crate::sqlx_test]
-    pub async fn test_permissive_approvals(
+    async fn test_permissive_approvals(
         db_conn: sqlx::PgPool,
     ) -> Result<(), Box<dyn std::error::Error>> {
         let env = create_test_env(db_conn).await;

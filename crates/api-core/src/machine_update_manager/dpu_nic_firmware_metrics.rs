@@ -20,10 +20,10 @@ use std::sync::atomic::Ordering::Relaxed;
 
 use opentelemetry::metrics::Meter;
 
-pub struct DpuNicFirmwareUpdateMetrics {
-    pub pending_firmware_updates: Arc<AtomicU64>,
-    pub unavailable_dpu_updates: Arc<AtomicU64>,
-    pub running_dpu_updates: Arc<AtomicU64>,
+pub(crate) struct DpuNicFirmwareUpdateMetrics {
+    pub(crate) pending_firmware_updates: Arc<AtomicU64>,
+    pub(crate) unavailable_dpu_updates: Arc<AtomicU64>,
+    pub(crate) running_dpu_updates: Arc<AtomicU64>,
 }
 
 impl Default for DpuNicFirmwareUpdateMetrics {
@@ -33,7 +33,7 @@ impl Default for DpuNicFirmwareUpdateMetrics {
 }
 
 impl DpuNicFirmwareUpdateMetrics {
-    pub fn new() -> Self {
+    pub(crate) fn new() -> Self {
         DpuNicFirmwareUpdateMetrics {
             pending_firmware_updates: Arc::new(AtomicU64::new(0)),
             unavailable_dpu_updates: Arc::new(AtomicU64::new(0)),
@@ -41,7 +41,7 @@ impl DpuNicFirmwareUpdateMetrics {
         }
     }
 
-    pub fn register_callbacks(&mut self, meter: &Meter) {
+    pub(crate) fn register_callbacks(&mut self, meter: &Meter) {
         let pending_firmware_updates = self.pending_firmware_updates.clone();
         let unavailable_dpu_updates = self.unavailable_dpu_updates.clone();
         let running_dpu_updates = self.running_dpu_updates.clone();

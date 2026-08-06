@@ -47,6 +47,9 @@ const (
 	Forge_GetVpcPrefixes_FullMethodName                                     = "/forge.Forge/GetVpcPrefixes"
 	Forge_UpdateVpcPrefix_FullMethodName                                    = "/forge.Forge/UpdateVpcPrefix"
 	Forge_DeleteVpcPrefix_FullMethodName                                    = "/forge.Forge/DeleteVpcPrefix"
+	Forge_CreateSitePrefix_FullMethodName                                   = "/forge.Forge/CreateSitePrefix"
+	Forge_UpdateSitePrefix_FullMethodName                                   = "/forge.Forge/UpdateSitePrefix"
+	Forge_DeleteSitePrefix_FullMethodName                                   = "/forge.Forge/DeleteSitePrefix"
 	Forge_FindSitePrefixIds_FullMethodName                                  = "/forge.Forge/FindSitePrefixIds"
 	Forge_FindSitePrefixesByIds_FullMethodName                              = "/forge.Forge/FindSitePrefixesByIds"
 	Forge_CreateVpcPeering_FullMethodName                                   = "/forge.Forge/CreateVpcPeering"
@@ -134,6 +137,7 @@ const (
 	Forge_FindSwitchStateHistories_FullMethodName                           = "/forge.Forge/FindSwitchStateHistories"
 	Forge_FindNetworkSegmentStateHistories_FullMethodName                   = "/forge.Forge/FindNetworkSegmentStateHistories"
 	Forge_FindVpcPrefixStateHistories_FullMethodName                        = "/forge.Forge/FindVpcPrefixStateHistories"
+	Forge_FindSitePrefixStateHistories_FullMethodName                       = "/forge.Forge/FindSitePrefixStateHistories"
 	Forge_FindTenantOrganizationIds_FullMethodName                          = "/forge.Forge/FindTenantOrganizationIds"
 	Forge_FindTenantsByOrganizationIds_FullMethodName                       = "/forge.Forge/FindTenantsByOrganizationIds"
 	Forge_FindConnectedDevicesByDpuMachineIds_FullMethodName                = "/forge.Forge/FindConnectedDevicesByDpuMachineIds"
@@ -535,6 +539,9 @@ type ForgeClient interface {
 	UpdateVpcPrefix(ctx context.Context, in *VpcPrefixUpdateRequest, opts ...grpc.CallOption) (*VpcPrefix, error)
 	DeleteVpcPrefix(ctx context.Context, in *VpcPrefixDeletionRequest, opts ...grpc.CallOption) (*VpcPrefixDeletionResult, error)
 	// Site prefixes
+	CreateSitePrefix(ctx context.Context, in *SitePrefixCreationRequest, opts ...grpc.CallOption) (*SitePrefix, error)
+	UpdateSitePrefix(ctx context.Context, in *SitePrefixUpdateRequest, opts ...grpc.CallOption) (*SitePrefix, error)
+	DeleteSitePrefix(ctx context.Context, in *SitePrefixDeletionRequest, opts ...grpc.CallOption) (*SitePrefixDeletionResult, error)
 	FindSitePrefixIds(ctx context.Context, in *SitePrefixSearchFilter, opts ...grpc.CallOption) (*SitePrefixIdList, error)
 	FindSitePrefixesByIds(ctx context.Context, in *SitePrefixesByIdsRequest, opts ...grpc.CallOption) (*SitePrefixList, error)
 	// VPC peering
@@ -684,6 +691,7 @@ type ForgeClient interface {
 	FindSwitchStateHistories(ctx context.Context, in *SwitchStateHistoriesRequest, opts ...grpc.CallOption) (*StateHistories, error)
 	FindNetworkSegmentStateHistories(ctx context.Context, in *NetworkSegmentStateHistoriesRequest, opts ...grpc.CallOption) (*StateHistories, error)
 	FindVpcPrefixStateHistories(ctx context.Context, in *VpcPrefixStateHistoriesRequest, opts ...grpc.CallOption) (*StateHistories, error)
+	FindSitePrefixStateHistories(ctx context.Context, in *SitePrefixStateHistoriesRequest, opts ...grpc.CallOption) (*StateHistories, error)
 	FindTenantOrganizationIds(ctx context.Context, in *TenantSearchFilter, opts ...grpc.CallOption) (*TenantOrganizationIdList, error)
 	FindTenantsByOrganizationIds(ctx context.Context, in *TenantByOrganizationIdsRequest, opts ...grpc.CallOption) (*TenantList, error)
 	FindConnectedDevicesByDpuMachineIds(ctx context.Context, in *MachineIdList, opts ...grpc.CallOption) (*ConnectedDeviceList, error)
@@ -1586,6 +1594,36 @@ func (c *forgeClient) DeleteVpcPrefix(ctx context.Context, in *VpcPrefixDeletion
 	return out, nil
 }
 
+func (c *forgeClient) CreateSitePrefix(ctx context.Context, in *SitePrefixCreationRequest, opts ...grpc.CallOption) (*SitePrefix, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(SitePrefix)
+	err := c.cc.Invoke(ctx, Forge_CreateSitePrefix_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *forgeClient) UpdateSitePrefix(ctx context.Context, in *SitePrefixUpdateRequest, opts ...grpc.CallOption) (*SitePrefix, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(SitePrefix)
+	err := c.cc.Invoke(ctx, Forge_UpdateSitePrefix_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *forgeClient) DeleteSitePrefix(ctx context.Context, in *SitePrefixDeletionRequest, opts ...grpc.CallOption) (*SitePrefixDeletionResult, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(SitePrefixDeletionResult)
+	err := c.cc.Invoke(ctx, Forge_DeleteSitePrefix_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *forgeClient) FindSitePrefixIds(ctx context.Context, in *SitePrefixSearchFilter, opts ...grpc.CallOption) (*SitePrefixIdList, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(SitePrefixIdList)
@@ -2453,6 +2491,16 @@ func (c *forgeClient) FindVpcPrefixStateHistories(ctx context.Context, in *VpcPr
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(StateHistories)
 	err := c.cc.Invoke(ctx, Forge_FindVpcPrefixStateHistories_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *forgeClient) FindSitePrefixStateHistories(ctx context.Context, in *SitePrefixStateHistoriesRequest, opts ...grpc.CallOption) (*StateHistories, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(StateHistories)
+	err := c.cc.Invoke(ctx, Forge_FindSitePrefixStateHistories_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -6101,6 +6149,9 @@ type ForgeServer interface {
 	UpdateVpcPrefix(context.Context, *VpcPrefixUpdateRequest) (*VpcPrefix, error)
 	DeleteVpcPrefix(context.Context, *VpcPrefixDeletionRequest) (*VpcPrefixDeletionResult, error)
 	// Site prefixes
+	CreateSitePrefix(context.Context, *SitePrefixCreationRequest) (*SitePrefix, error)
+	UpdateSitePrefix(context.Context, *SitePrefixUpdateRequest) (*SitePrefix, error)
+	DeleteSitePrefix(context.Context, *SitePrefixDeletionRequest) (*SitePrefixDeletionResult, error)
 	FindSitePrefixIds(context.Context, *SitePrefixSearchFilter) (*SitePrefixIdList, error)
 	FindSitePrefixesByIds(context.Context, *SitePrefixesByIdsRequest) (*SitePrefixList, error)
 	// VPC peering
@@ -6250,6 +6301,7 @@ type ForgeServer interface {
 	FindSwitchStateHistories(context.Context, *SwitchStateHistoriesRequest) (*StateHistories, error)
 	FindNetworkSegmentStateHistories(context.Context, *NetworkSegmentStateHistoriesRequest) (*StateHistories, error)
 	FindVpcPrefixStateHistories(context.Context, *VpcPrefixStateHistoriesRequest) (*StateHistories, error)
+	FindSitePrefixStateHistories(context.Context, *SitePrefixStateHistoriesRequest) (*StateHistories, error)
 	FindTenantOrganizationIds(context.Context, *TenantSearchFilter) (*TenantOrganizationIdList, error)
 	FindTenantsByOrganizationIds(context.Context, *TenantByOrganizationIdsRequest) (*TenantList, error)
 	FindConnectedDevicesByDpuMachineIds(context.Context, *MachineIdList) (*ConnectedDeviceList, error)
@@ -6979,6 +7031,15 @@ func (UnimplementedForgeServer) UpdateVpcPrefix(context.Context, *VpcPrefixUpdat
 func (UnimplementedForgeServer) DeleteVpcPrefix(context.Context, *VpcPrefixDeletionRequest) (*VpcPrefixDeletionResult, error) {
 	return nil, status.Error(codes.Unimplemented, "method DeleteVpcPrefix not implemented")
 }
+func (UnimplementedForgeServer) CreateSitePrefix(context.Context, *SitePrefixCreationRequest) (*SitePrefix, error) {
+	return nil, status.Error(codes.Unimplemented, "method CreateSitePrefix not implemented")
+}
+func (UnimplementedForgeServer) UpdateSitePrefix(context.Context, *SitePrefixUpdateRequest) (*SitePrefix, error) {
+	return nil, status.Error(codes.Unimplemented, "method UpdateSitePrefix not implemented")
+}
+func (UnimplementedForgeServer) DeleteSitePrefix(context.Context, *SitePrefixDeletionRequest) (*SitePrefixDeletionResult, error) {
+	return nil, status.Error(codes.Unimplemented, "method DeleteSitePrefix not implemented")
+}
 func (UnimplementedForgeServer) FindSitePrefixIds(context.Context, *SitePrefixSearchFilter) (*SitePrefixIdList, error) {
 	return nil, status.Error(codes.Unimplemented, "method FindSitePrefixIds not implemented")
 }
@@ -7239,6 +7300,9 @@ func (UnimplementedForgeServer) FindNetworkSegmentStateHistories(context.Context
 }
 func (UnimplementedForgeServer) FindVpcPrefixStateHistories(context.Context, *VpcPrefixStateHistoriesRequest) (*StateHistories, error) {
 	return nil, status.Error(codes.Unimplemented, "method FindVpcPrefixStateHistories not implemented")
+}
+func (UnimplementedForgeServer) FindSitePrefixStateHistories(context.Context, *SitePrefixStateHistoriesRequest) (*StateHistories, error) {
+	return nil, status.Error(codes.Unimplemented, "method FindSitePrefixStateHistories not implemented")
 }
 func (UnimplementedForgeServer) FindTenantOrganizationIds(context.Context, *TenantSearchFilter) (*TenantOrganizationIdList, error) {
 	return nil, status.Error(codes.Unimplemented, "method FindTenantOrganizationIds not implemented")
@@ -8768,6 +8832,60 @@ func _Forge_DeleteVpcPrefix_Handler(srv interface{}, ctx context.Context, dec fu
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(ForgeServer).DeleteVpcPrefix(ctx, req.(*VpcPrefixDeletionRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _Forge_CreateSitePrefix_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(SitePrefixCreationRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ForgeServer).CreateSitePrefix(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Forge_CreateSitePrefix_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ForgeServer).CreateSitePrefix(ctx, req.(*SitePrefixCreationRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _Forge_UpdateSitePrefix_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(SitePrefixUpdateRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ForgeServer).UpdateSitePrefix(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Forge_UpdateSitePrefix_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ForgeServer).UpdateSitePrefix(ctx, req.(*SitePrefixUpdateRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _Forge_DeleteSitePrefix_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(SitePrefixDeletionRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ForgeServer).DeleteSitePrefix(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Forge_DeleteSitePrefix_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ForgeServer).DeleteSitePrefix(ctx, req.(*SitePrefixDeletionRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -10334,6 +10452,24 @@ func _Forge_FindVpcPrefixStateHistories_Handler(srv interface{}, ctx context.Con
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(ForgeServer).FindVpcPrefixStateHistories(ctx, req.(*VpcPrefixStateHistoriesRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _Forge_FindSitePrefixStateHistories_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(SitePrefixStateHistoriesRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ForgeServer).FindSitePrefixStateHistories(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Forge_FindSitePrefixStateHistories_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ForgeServer).FindSitePrefixStateHistories(ctx, req.(*SitePrefixStateHistoriesRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -16911,6 +17047,18 @@ var Forge_ServiceDesc = grpc.ServiceDesc{
 			Handler:    _Forge_DeleteVpcPrefix_Handler,
 		},
 		{
+			MethodName: "CreateSitePrefix",
+			Handler:    _Forge_CreateSitePrefix_Handler,
+		},
+		{
+			MethodName: "UpdateSitePrefix",
+			Handler:    _Forge_UpdateSitePrefix_Handler,
+		},
+		{
+			MethodName: "DeleteSitePrefix",
+			Handler:    _Forge_DeleteSitePrefix_Handler,
+		},
+		{
 			MethodName: "FindSitePrefixIds",
 			Handler:    _Forge_FindSitePrefixIds_Handler,
 		},
@@ -17257,6 +17405,10 @@ var Forge_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "FindVpcPrefixStateHistories",
 			Handler:    _Forge_FindVpcPrefixStateHistories_Handler,
+		},
+		{
+			MethodName: "FindSitePrefixStateHistories",
+			Handler:    _Forge_FindSitePrefixStateHistories_Handler,
 		},
 		{
 			MethodName: "FindTenantOrganizationIds",

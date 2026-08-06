@@ -45,12 +45,12 @@ Find the prefixes contained by a larger prefix:
     $ nico-admin-cli vpc-prefix show --contained-by 10.0.0.0/16
 
 ")]
-pub struct Args {
+pub(crate) struct Args {
     #[clap(
         name = "VpcPrefixSelector",
         help = "The VPC prefix (by ID or exact unique prefix) to show (omit for all)"
     )]
-    pub prefix_selector: Option<VpcPrefixSelector>,
+    pub(super) prefix_selector: Option<VpcPrefixSelector>,
 
     #[clap(
         long,
@@ -59,7 +59,7 @@ pub struct Args {
         help = "Search by VPC ID",
         conflicts_with = "VpcPrefixSelector"
     )]
-    pub vpc_id: Option<VpcId>,
+    pub(super) vpc_id: Option<VpcId>,
 
     #[clap(
         long,
@@ -68,7 +68,7 @@ pub struct Args {
         help = "Search by an address or prefix the VPC prefix contains",
         conflicts_with_all = ["VpcPrefixSelector", "contained-by"],
     )]
-    pub contains: Option<IpNet>,
+    pub(super) contains: Option<IpNet>,
 
     #[clap(
         long,
@@ -77,9 +77,9 @@ pub struct Args {
         help = "Search by a prefix containing the VPC prefix",
         conflicts_with_all = ["VpcPrefixSelector", "contains"],
     )]
-    pub contained_by: Option<IpNet>,
+    pub(super) contained_by: Option<IpNet>,
 
     /// Include soft-deleted VPC prefixes
     #[clap(long, value_enum, default_value = "exclude")]
-    pub deleted: DeletedFilter,
+    pub(super) deleted: DeletedFilter,
 }

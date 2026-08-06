@@ -28,16 +28,16 @@ use super::routing::SecretRouting;
 pub(super) const RE_WRAP_WORK_KEY: &str = "secrets::re_wrap_stale";
 
 /// What a re-wrap pass did, in journal rows.
-pub struct ReWrapStaleResult {
+pub(crate) struct ReWrapStaleResult {
     /// Rows whose DEK was re-wrapped to the routed KEK.
-    pub re_wrapped: u64,
+    pub(crate) re_wrapped: u64,
     /// Rows already wrapped by the routed KEK.
-    pub already_current: u64,
+    pub(crate) already_current: u64,
     /// Rows still wrapped by a KEK outside the routing config after the
     /// walk. Zero means every unrouted KEK can be retired; nonzero right
     /// after a run means concurrent writers landed rows mid-walk -- run
     /// re-wrap again once the fleet's config has converged.
-    pub stale_remaining: u64,
+    pub(crate) stale_remaining: u64,
 }
 
 /// A re-wrapped DEK waiting to be written back to its row.
@@ -59,7 +59,7 @@ struct PendingReWrap {
 /// Historical journal entries are re-wrapped too: they must stay
 /// decryptable, and re-wrapping them is what lets an old KEK be retired
 /// completely.
-pub async fn re_wrap_stale(
+pub(crate) async fn re_wrap_stale(
     pool: &PgPool,
     work_lock_manager: &WorkLockManagerHandle,
     kms: &dyn KmsBackend,

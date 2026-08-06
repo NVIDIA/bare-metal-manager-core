@@ -32,7 +32,7 @@ use crate::CarbideError;
 ///
 /// Returns `None` unless `prefix` is an IPv6 /64, because modified EUI-64
 /// interface identifiers are defined for 64-bit subnet prefixes.
-pub fn slaac_gua_from_eui64(prefix: &IpNetwork, mac: &MacAddress) -> Option<Ipv6Addr> {
+fn slaac_gua_from_eui64(prefix: &IpNetwork, mac: &MacAddress) -> Option<Ipv6Addr> {
     // SLAAC EUI-64 is only meaningful for IPv6 /64 prefixes.
     let IpNetwork::V6(prefix) = prefix else {
         return None;
@@ -62,7 +62,7 @@ pub fn slaac_gua_from_eui64(prefix: &IpNetwork, mac: &MacAddress) -> Option<Ipv6
 /// prefix is /64. Stateful DHCPv6 or static IPv6 assignments therefore
 /// suppress SLAAC observation. Reserved segments serve DHCPv6 options without
 /// creating observed SLAAC rows.
-pub async fn observe_slaac_address(
+pub(super) async fn observe_slaac_address(
     txn: &mut PgConnection,
     interface_id: MachineInterfaceId,
     segment: &NetworkSegment,

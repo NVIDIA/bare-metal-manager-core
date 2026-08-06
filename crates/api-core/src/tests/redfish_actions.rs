@@ -23,7 +23,7 @@ use sqlx::postgres::{PgConnectOptions, PgPoolOptions};
 use tokio::time::Instant;
 
 use crate::auth::AuthContext;
-use crate::handlers::redfish::TestBehavior;
+use crate::handlers::redfish::test_behavior;
 use crate::tests::common::api_fixtures::{TestEnv, create_managed_host, create_test_env};
 
 #[crate::sqlx_test]
@@ -46,7 +46,7 @@ async fn test_create_and_approve_action(_: PgPoolOptions, options: PgConnectOpti
         action: "#ComputerSystem.Reset".to_string(),
         target: "/redfish/v1/Systems/System.Embedded.1/Actions/ComputerSystem.Reset".to_string(),
         parameters:
-            serde_json::json!({"ResetType": "ForceOff", "__TEST_BEHAVIOR__": TestBehavior::Success})
+            serde_json::json!({"ResetType": "ForceOff", "__TEST_BEHAVIOR__": test_behavior::success()})
                 .to_string(),
     };
 
@@ -180,7 +180,7 @@ async fn test_action_failure_at_bmc_request(_: PgPoolOptions, options: PgConnect
         ips: vec![bmc_ip.clone()],
         action: "#ComputerSystem.Reset".to_string(),
         target: "/redfish/v1/Systems/System.Embedded.1/Actions/ComputerSystem.Reset".to_string(),
-        parameters: serde_json::json!({"ResetType": "ForceOff", "__TEST_BEHAVIOR__": TestBehavior::FailureAtRequest}).to_string(),
+        parameters: serde_json::json!({"ResetType": "ForceOff", "__TEST_BEHAVIOR__": test_behavior::failure_at_request()}).to_string(),
     };
 
     let response = env
@@ -215,13 +215,7 @@ async fn test_action_failure_at_bmc_request(_: PgPoolOptions, options: PgConnect
             result.status,
             http::StatusCode::INTERNAL_SERVER_ERROR.to_string()
         );
-        assert_eq!(
-            result.body,
-            TestBehavior::FailureAtRequest
-                .into_request_error()
-                .unwrap()
-                .description,
-        );
+        assert_eq!(result.body, test_behavior::request_failure_description(),);
     }
 }
 
@@ -244,7 +238,7 @@ async fn test_action_failure_at_client_creation(_: PgPoolOptions, options: PgCon
         ips: vec![bmc_ip.clone()],
         action: "#ComputerSystem.Reset".to_string(),
         target: "/redfish/v1/Systems/System.Embedded.1/Actions/ComputerSystem.Reset".to_string(),
-        parameters: serde_json::json!({"ResetType": "ForceOff", "__TEST_BEHAVIOR__": TestBehavior::FailureAtClientCreation}).to_string(),
+        parameters: serde_json::json!({"ResetType": "ForceOff", "__TEST_BEHAVIOR__": test_behavior::failure_at_client_creation()}).to_string(),
     };
 
     let response = env

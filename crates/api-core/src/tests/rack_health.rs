@@ -166,6 +166,16 @@ async fn test_idempotent_insert(pool: sqlx::PgPool) -> Result<(), Box<dyn std::e
 }
 
 #[crate::sqlx_test]
+async fn test_retains_in_alert_since(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
+    let env = test_env(pool.clone()).await;
+    let rack_id = new_rack(&pool).await?;
+    rack_crud(&env, rack_id)
+        .check_retains_in_alert_since()
+        .await;
+    Ok(())
+}
+
+#[crate::sqlx_test]
 async fn test_remove_nonexistent_source(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
