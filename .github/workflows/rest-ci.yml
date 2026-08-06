@@ -143,7 +143,6 @@ jobs:
     permissions:
       contents: read
       packages: write
-      pull-requests: write
       security-events: write
     uses: ./.github/workflows/rest-build-push-docker.yml
     with:
@@ -174,6 +173,13 @@ jobs:
   # No secrets are passed. Every step that consumes them (registry login, the
   # image push, the NGC resource uploads, and the whole `merge` job) is already
   # gated on `push_enabled`, which is hard-coded false here.
+  #
+  # The write scopes below go unused for the same reason, but they cannot be
+  # dropped: the nested `build` job in rest-build-push-service.yml declares
+  # `packages` and `security-events` itself, and a called workflow requesting
+  # more than its caller grants fails validation before the run starts. The
+  # `permissions` key takes no expressions, so the callee cannot ask for less
+  # when `push_enabled` is false either.
   build-and-push-pr:
     name: Build Docker Images
     if: ${{ startsWith(github.ref, 'refs/heads/pull-request/') }}
@@ -182,7 +188,6 @@ jobs:
     permissions:
       contents: read
       packages: write
-      pull-requests: write
       security-events: write
     uses: ./.github/workflows/rest-build-push-docker.yml
     with:
