@@ -28,7 +28,7 @@ use tokio::task::JoinHandle;
 use crate::shutdown_handle::ShutdownHandle;
 
 /// Proxy messages from the BMC to the user's connection.
-pub fn spawn(
+pub(crate) fn spawn(
     mut from_bmc_rx: broadcast::Receiver<ToFrontendMessage>,
     to_frontend_tx: russh::ChannelWriteHalf<Msg>,
     peer_addr: String,
@@ -74,7 +74,7 @@ pub fn spawn(
     }
 }
 
-pub struct Handle {
+pub(crate) struct Handle {
     shutdown_tx: oneshot::Sender<()>,
     join_handle: JoinHandle<()>,
 }
@@ -87,7 +87,7 @@ impl ShutdownHandle<()> for Handle {
 
 /// Holds messages to be sent to a frontend: Data from the BMC channel, or connection status messages.
 #[derive(Clone)]
-pub enum ToFrontendMessage {
+pub(crate) enum ToFrontendMessage {
     /// Data coming from the BMC
     Channel(Arc<ChannelMsg>),
     /// An alert that the console was connected or disconnected
@@ -97,7 +97,7 @@ pub enum ToFrontendMessage {
 }
 
 #[derive(Clone)]
-pub enum ConnectionChangeMessage {
+pub(crate) enum ConnectionChangeMessage {
     Disconnected,
     Connected {
         last_disconnect: Option<DateTime<Utc>>,
@@ -153,7 +153,7 @@ impl From<ConnectionChangeMessage> for Arc<ChannelMsg> {
 /// This is the main proxy logic between the frontend SSH connection and the backend BMC connection.
 /// This whole thing would be unnecessary if [`russh::channels::ChanelWriteHalf::send_msg`] were
 /// public. :(
-pub(crate) async fn proxy_channel_message<S>(
+pub(super) async fn proxy_channel_message<S>(
     channel_msg: &russh::ChannelMsg,
     channel: &russh::ChannelWriteHalf<S>,
 ) -> Result<(), MessageProxyError>
@@ -259,7 +259,7 @@ where
 }
 
 #[derive(thiserror::Error, Debug)]
-pub enum MessageProxyError {
+pub(super) enum MessageProxyError {
     #[error("error sending {what}: {error}")]
     Sending {
         what: &'static str,
@@ -268,7 +268,7 @@ pub enum MessageProxyError {
 }
 
 #[derive(Debug)]
-pub enum ToBmcMessage {
+pub(crate) enum ToBmcMessage {
     /// Normal SSH message
     ChannelMsg(ChannelMsg),
     /// Exec request (e.g. power reset)
@@ -283,7 +283,7 @@ pub enum ToBmcMessage {
 }
 
 #[derive(Debug)]
-pub struct ExecReply {
-    pub output: Vec<u8>,
-    pub exit_status: u32,
+pub(crate) struct ExecReply {
+    pub(crate) output: Vec<u8>,
+    pub(crate) exit_status: u32,
 }

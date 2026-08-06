@@ -79,7 +79,7 @@ lazy_static! {
         [opentelemetry::KeyValue::new("auth_type", "public_key",)];
 }
 
-pub struct Handler {
+pub(crate) struct Handler {
     config: Arc<Config>,
     forge_api_client: ForgeApiClient,
     bmc_connection_store: BmcConnectionStore,
@@ -99,7 +99,7 @@ struct PerClientState {
 }
 
 impl Handler {
-    pub fn new(
+    pub(crate) fn new(
         bmc_connection_store: BmcConnectionStore,
         config: Arc<Config>,
         forge_api_client: ForgeApiClient,
@@ -620,7 +620,7 @@ impl russh::server::Handler for Handler {
 }
 
 #[derive(thiserror::Error, Debug)]
-pub enum HandlerError {
+pub(crate) enum HandlerError {
     #[error("BUG: {method} called but we don't have an authenticated user")]
     MissingAuthenticatedUser { method: &'static str },
     #[error("could not get BMC connection for {machine}: {error}")]
@@ -653,7 +653,7 @@ pub enum HandlerError {
 }
 
 #[derive(thiserror::Error, Debug)]
-pub enum PubkeyAuthError {
+pub(crate) enum PubkeyAuthError {
     #[error("error reading authorized_keys file at {path}: {error}")]
     ReadingAuthorizedKeys {
         path: String,
