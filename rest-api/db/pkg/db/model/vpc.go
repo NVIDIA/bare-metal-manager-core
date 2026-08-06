@@ -553,7 +553,8 @@ type VpcClearInput struct {
 	NetworkSecurityGroupID                 bool
 	NetworkSecurityGroupPropagationDetails bool
 	Labels                                 bool
-	Deleted                                bool
+	// Deleted clears the soft-delete timestamp (undelete).
+	Deleted bool
 }
 
 // VpcFilterInput input parameters for Filter method
@@ -570,7 +571,8 @@ type VpcFilterInput struct {
 	NetworkVirtualizationType *string
 	Statuses                  []string
 	SearchQuery               *string
-	IncludeDeleted            bool
+	// IncludeDeleted returns soft-deleted rows in addition to active ones.
+	IncludeDeleted bool
 }
 
 var _ bun.BeforeAppendModelHook = (*Vpc)(nil)
@@ -835,9 +837,9 @@ func (vsd VpcSQLDAO) GetAll(ctx context.Context, tx *db.Tx, filter VpcFilterInpu
 		defer vpcDAOSpan.End()
 	}
 
-	// var vpcs []Vpc
 	vpcs := []Vpc{}
 	query := db.GetIDB(tx, vsd.dbSession).NewSelect().Model(&vpcs)
+	// Soft-deleted rows are excluded by default.
 	if filter.IncludeDeleted {
 		query = query.WhereAllWithDeleted()
 	}
@@ -1116,6 +1118,7 @@ func (vsd VpcSQLDAO) Clear(ctx context.Context, tx *db.Tx, input VpcClearInput) 
 		updatedFields = append(updatedFields, "updated")
 
 		query := db.GetIDB(tx, vsd.dbSession).NewUpdate().Model(v).Column(updatedFields...).Where("id = ?", input.VpcID)
+		// Soft-deleted rows are excluded by default; include them when undeleting.
 		if input.Deleted {
 			query = query.WhereAllWithDeleted()
 		}
