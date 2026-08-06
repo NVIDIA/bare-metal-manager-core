@@ -557,8 +557,9 @@ type UpdateExpectedMachineHandler struct {
 }
 
 // expectedComponentBmcMacUnchanged accepts an omitted MAC or another spelling
-// of the stored MAC. The BMC MAC identifies expected hardware in Core, so PATCH
-// may reassert that identity but cannot replace it.
+// of the stored MAC. The BMC MAC identifies the ExpectedMachine,
+// ExpectedSwitch, or ExpectedPowerShelf in Core, so PATCH may reassert that
+// identity but cannot replace it.
 func expectedComponentBmcMacUnchanged(stored string, submitted *string) bool {
 	if submitted == nil {
 		return true
@@ -570,7 +571,8 @@ func expectedComponentBmcMacUnchanged(stored string, submitted *string) bool {
 }
 
 // expectedComponentBmcMacImmutableValidationError keeps PATCH validation
-// responses aligned across expected hardware types.
+// responses aligned across ExpectedMachine, ExpectedSwitch, and
+// ExpectedPowerShelf handlers.
 func expectedComponentBmcMacImmutableValidationError() validation.Errors {
 	return validation.Errors{
 		"bmcMacAddress": errors.New("BMC MAC address cannot be changed after creation"),
