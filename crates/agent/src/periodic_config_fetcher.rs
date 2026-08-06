@@ -56,6 +56,7 @@ pub struct PeriodicConfigFetcherReader {
 pub struct InstanceMetadata {
     pub address: String,
     pub hostname: String,
+    pub instance_name: Option<String>,
     pub sitename: Option<String>,
     pub instance_id: Option<InstanceId>,
     pub machine_id: Option<MachineId>,
@@ -272,6 +273,12 @@ pub fn instance_metadata_from_instance(
 
     let instance_id = instance.id;
 
+    let instance_name = instance
+        .metadata
+        .as_ref()
+        .map(|metadata| metadata.name.clone())
+        .filter(|name| !name.is_empty());
+
     let pf_address = instance
         .status
         .as_ref()
@@ -303,6 +310,7 @@ pub fn instance_metadata_from_instance(
     Ok(Some(InstanceMetadata {
         address: pf_address,
         hostname,
+        instance_name,
         sitename,
         instance_id,
         machine_id,

@@ -90,6 +90,7 @@ impl FmdsState {
 pub struct FmdsConfig {
     pub address: String,
     pub hostname: String,
+    pub instance_name: Option<String>,
     pub sitename: Option<String>,
     pub instance_id: Option<InstanceId>,
     pub machine_id: Option<MachineId>,
@@ -121,6 +122,7 @@ mod tests {
         FmdsConfig {
             address: "10.0.0.1".to_string(),
             hostname: "test-host".to_string(),
+            instance_name: Some("test-instance".to_string()),
             sitename: Some("test-site".to_string()),
             instance_id: Some(uuid::uuid!("67e55044-10b1-426f-9247-bb680e5fe0c8").into()),
             machine_id: Some(
@@ -195,6 +197,7 @@ mod tests {
         let loaded = state.config.load_full().unwrap();
         assert_eq!(loaded.address, "10.0.0.1");
         assert_eq!(loaded.hostname, "test-host");
+        assert_eq!(loaded.instance_name.as_deref(), Some("test-instance"));
         assert_eq!(loaded.sitename.as_deref(), Some("test-site"));
         assert_eq!(loaded.user_data, "cloud-init-data");
         assert_eq!(loaded.asn, 65000);
