@@ -51,6 +51,15 @@ hwMacAddressRanges:
 # Controller mode - dynamically creates Services with BMC IP as ClusterIP
 mat-k8s-controller:
   enabled: true
+  # The subchart defaults to a bare local image name with no registry or pull
+  # secret, so the controller ImagePullBackOffs on any cluster needing auth —
+  # and with no controller there are no per-BMC Services, so exploration finds
+  # nothing and the whole run silently reports zeros.
+  image:
+    repository: nvcr.io/0837451325059433/carbide-dev/mat-k8s-controller
+    tag: "v2.1.0-pr-614-g587165fcf"
+  imagePullSecrets:
+    - name: machine-a-tron-pull
   config:
     insecureSkipVerify: true  # For self-signed certs
 
