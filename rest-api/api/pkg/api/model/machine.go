@@ -542,8 +542,8 @@ type APIMachineLifecycleState struct {
 	Value string `json:"value"`
 	// IsAboveSLA indicates if the machine has been in the state longer than the defined SLA
 	IsAboveSLA bool `json:"isAboveSLA"`
-	// TimeSet indicates when the current state was set
-	TimeSet time.Time `json:"timeSet"`
+	// Updated indicates when the state was updated to the latest value
+	Updated *time.Time `json:"updated"`
 	// SLASeconds is the defined SLA for the current state in seconds
 	SLASeconds int64 `json:"slaSeconds"`
 }
@@ -704,7 +704,10 @@ func NewAPIMachine(dbm *cdbm.Machine, dbmcs []cdbm.MachineCapability, dbmis []cd
 		if events := machine.GetEvents(); len(events) > 0 {
 			for _, event := range events {
 				if event.GetVersion() == machine.GetStateVersion() {
-					apim.Metadata.LifecycleState.TimeSet = event.GetTime().AsTime()
+					if ts := event.GetTime(); ts != nil {
+						apim.Metadata.LifecycleState.Updated = new(ts.AsTime())
+					}
+					break
 				}
 			}
 		}

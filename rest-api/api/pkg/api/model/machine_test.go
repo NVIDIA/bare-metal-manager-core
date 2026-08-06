@@ -466,7 +466,8 @@ func TestMachine_NewAPIMachine(t *testing.T) {
 		assert.Equal(t, machineInfo1.Machine.State, apimi.Metadata.LifecycleState.Value)
 		assert.Equal(t, machineInfo1.Machine.StateSla.TimeInStateAboveSla, apimi.Metadata.LifecycleState.IsAboveSLA)
 		assert.Equal(t, machineInfo1.Machine.StateSla.Sla.GetSeconds(), apimi.Metadata.LifecycleState.SLASeconds)
-		assert.True(t, stateSetAt.Equal(apimi.Metadata.LifecycleState.TimeSet))
+		require.NotNil(t, apimi.Metadata.LifecycleState.Updated)
+		assert.True(t, stateSetAt.Equal(*apimi.Metadata.LifecycleState.Updated))
 	}
 
 	if apimi.Health != nil {

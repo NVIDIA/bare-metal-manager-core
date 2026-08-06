@@ -29,8 +29,8 @@ type MachineLifecycleState struct {
 	Value string `json:"value"`
 	// Whether the Machine has been in the current state longer than the defined SLA
 	IsAboveSLA bool `json:"isAboveSLA"`
-	// Date/time when the current lifecycle state was set
-	TimeSet time.Time `json:"timeSet"`
+	// Date/time when the lifecycle state was updated to the current value
+	Updated NullableTime `json:"updated,omitempty"`
 	// Defined SLA for the current lifecycle state in seconds
 	SlaSeconds int64 `json:"slaSeconds"`
 }
@@ -41,11 +41,10 @@ type _MachineLifecycleState MachineLifecycleState
 // This constructor will assign default values to properties that have it defined,
 // and makes sure properties required by API are set, but the set of arguments
 // will change when the set of required properties is changed
-func NewMachineLifecycleState(value string, isAboveSLA bool, timeSet time.Time, slaSeconds int64) *MachineLifecycleState {
+func NewMachineLifecycleState(value string, isAboveSLA bool, slaSeconds int64) *MachineLifecycleState {
 	this := MachineLifecycleState{}
 	this.Value = value
 	this.IsAboveSLA = isAboveSLA
-	this.TimeSet = timeSet
 	this.SlaSeconds = slaSeconds
 	return &this
 }
@@ -106,28 +105,47 @@ func (o *MachineLifecycleState) SetIsAboveSLA(v bool) {
 	o.IsAboveSLA = v
 }
 
-// GetTimeSet returns the TimeSet field value
-func (o *MachineLifecycleState) GetTimeSet() time.Time {
-	if o == nil {
+// GetUpdated returns the Updated field value if set, zero value otherwise (both if not set or set to explicit null).
+func (o *MachineLifecycleState) GetUpdated() time.Time {
+	if o == nil || IsNil(o.Updated.Get()) {
 		var ret time.Time
 		return ret
 	}
-
-	return o.TimeSet
+	return *o.Updated.Get()
 }
 
-// GetTimeSetOk returns a tuple with the TimeSet field value
+// GetUpdatedOk returns a tuple with the Updated field value if set, nil otherwise
 // and a boolean to check if the value has been set.
-func (o *MachineLifecycleState) GetTimeSetOk() (*time.Time, bool) {
+// NOTE: If the value is an explicit nil, `nil, true` will be returned
+func (o *MachineLifecycleState) GetUpdatedOk() (*time.Time, bool) {
 	if o == nil {
 		return nil, false
 	}
-	return &o.TimeSet, true
+	return o.Updated.Get(), o.Updated.IsSet()
 }
 
-// SetTimeSet sets field value
-func (o *MachineLifecycleState) SetTimeSet(v time.Time) {
-	o.TimeSet = v
+// HasUpdated returns a boolean if a field has been set.
+func (o *MachineLifecycleState) HasUpdated() bool {
+	if o != nil && o.Updated.IsSet() {
+		return true
+	}
+
+	return false
+}
+
+// SetUpdated gets a reference to the given NullableTime and assigns it to the Updated field.
+func (o *MachineLifecycleState) SetUpdated(v time.Time) {
+	o.Updated.Set(&v)
+}
+
+// SetUpdatedNil sets the value for Updated to be an explicit nil
+func (o *MachineLifecycleState) SetUpdatedNil() {
+	o.Updated.Set(nil)
+}
+
+// UnsetUpdated ensures that no value is present for Updated, not even an explicit nil
+func (o *MachineLifecycleState) UnsetUpdated() {
+	o.Updated.Unset()
 }
 
 // GetSlaSeconds returns the SlaSeconds field value
@@ -166,7 +184,9 @@ func (o MachineLifecycleState) ToMap() (map[string]interface{}, error) {
 	toSerialize := map[string]interface{}{}
 	toSerialize["value"] = o.Value
 	toSerialize["isAboveSLA"] = o.IsAboveSLA
-	toSerialize["timeSet"] = o.TimeSet
+	if o.Updated.IsSet() {
+		toSerialize["updated"] = o.Updated.Get()
+	}
 	toSerialize["slaSeconds"] = o.SlaSeconds
 	return toSerialize, nil
 }
@@ -178,7 +198,6 @@ func (o *MachineLifecycleState) UnmarshalJSON(data []byte) (err error) {
 	requiredProperties := []string{
 		"value",
 		"isAboveSLA",
-		"timeSet",
 		"slaSeconds",
 	}
 

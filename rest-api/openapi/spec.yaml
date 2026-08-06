@@ -23169,7 +23169,7 @@ components:
           lifecycleState:
             value: Ready
             isAboveSLA: false
-            timeSet: '2026-01-15T12:00:00Z'
+            updated: '2026-01-15T12:00:00Z'
             slaSeconds: 300
       properties:
         dmiData:
@@ -23203,12 +23203,11 @@ components:
       required:
         - value
         - isAboveSLA
-        - timeSet
         - slaSeconds
       examples:
         - value: Ready
           isAboveSLA: false
-          timeSet: '2026-01-15T12:00:00Z'
+          updated: '2026-01-15T12:00:00Z'
           slaSeconds: 300
       properties:
         value:
@@ -23217,9 +23216,11 @@ components:
         isAboveSLA:
           type: boolean
           description: 'Whether the Machine has been in the current state longer than the defined SLA'
-        timeSet:
-          type: string
-          description: 'Date/time when the current lifecycle state was set'
+        updated:
+          type:
+            - string
+            - 'null'
+          description: 'Date/time when the lifecycle state was updated to the current value'
           format: date-time
         slaSeconds:
           type: integer
