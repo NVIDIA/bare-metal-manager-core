@@ -54,11 +54,21 @@ pub struct NvLinkConfig {
     /// Optional expiry-driven rotation for NMX-C server certificates.
     #[serde(default)]
     pub nmx_c_certificate_rotation: NmxCCertificateRotationConfig,
+
+    /// Maximum number of NMX-C machine groups (chassis or rack) processed concurrently
+    /// during a partition monitor iteration. Bounds DB pool usage and gRPC fan-out.
+    /// Defaults to 16.
+    #[serde(default = "NvLinkConfig::default_partition_monitor_max_concurrent_groups")]
+    pub partition_monitor_max_concurrent_groups: usize,
 }
 
 impl NvLinkConfig {
     pub const fn default_monitor_run_interval() -> std::time::Duration {
         std::time::Duration::from_secs(60)
+    }
+
+    pub const fn default_partition_monitor_max_concurrent_groups() -> usize {
+        16
     }
 }
 
@@ -131,6 +141,8 @@ impl Default for NvLinkConfig {
             nmx_c_endpoint_port: None,
             allow_insecure: false,
             nmx_c_certificate_rotation: NmxCCertificateRotationConfig::default(),
+            partition_monitor_max_concurrent_groups:
+                Self::default_partition_monitor_max_concurrent_groups(),
         }
     }
 }
@@ -157,6 +169,8 @@ mod test {
                 nmx_c_endpoint_port: None,
                 allow_insecure: true,
                 nmx_c_certificate_rotation: NmxCCertificateRotationConfig::default(),
+                partition_monitor_max_concurrent_groups:
+                    NvLinkConfig::default_partition_monitor_max_concurrent_groups(),
             }
         );
     }
