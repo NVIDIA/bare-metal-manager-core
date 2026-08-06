@@ -432,20 +432,18 @@ async fn force_delete_cleanup_txn(
             response.host_interfaces_deleted = true;
         }
 
-        if let Err(e) =
-            db::attestation::ek_cert_verification_status::delete_ca_verification_status_by_machine_id(
-                &mut txn,
-                &machine.id,
-            )
-            .await
-        {
-            // just log the error and carry on
+        db::attestation::ek_cert_verification_status::delete_ca_verification_status_by_machine_id(
+            &mut txn,
+            &machine.id,
+        )
+        .await
+        .inspect_err(|e| {
             tracing::error!(
                 machine_id = %machine.id,
                 error = %e,
                 "Could not remove EK certificate status",
             );
-        }
+        })?;
     }
 
     for dpu_machine in dpu_machines {
@@ -852,8 +850,9 @@ pub(crate) async fn admin_force_delete_machine(
                 tracing::warn!(
                     attempt_number = attempt + 1,
                     retry_delay_milliseconds = delay.as_millis(),
+                    pg_sqlstate = error.pg_sqlstate().as_deref().unwrap_or("unknown"),
                     error = %error,
-                    "force-delete cleanup transaction deadlocked; retrying",
+                    "force-delete cleanup transaction conflict; retrying",
                 );
                 tokio::time::sleep(delay).await;
             }
