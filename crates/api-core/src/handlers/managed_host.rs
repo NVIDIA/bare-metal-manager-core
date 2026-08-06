@@ -78,7 +78,7 @@ pub(crate) async fn decommission_managed_host(
 
     if !matches!(machine.current_state(), ManagedHostState::Ready) {
         return Err(CarbideError::FailedPrecondition(format!(
-            "managed host {machine_id} must be Ready to be decommissioned (current state: {})",
+            "managed host {machine_id} must be in the ready state to be decommissioned (current state: {})",
             machine.current_state()
         ))
         .into());
@@ -102,7 +102,7 @@ pub(crate) async fn decommission_managed_host(
         .collect::<Vec<_>>();
     if !unsupported_dpus.is_empty() {
         return Err(CarbideError::FailedPrecondition(format!(
-            "managed host {machine_id} cannot be decommissioned because its DPUs do not support BFB installation through Redfish: {}. DPU BMC firmware 24.10 or newer is required",
+            "managed host {machine_id} cannot be decommissioned because its dpus do not support bfb installation through redfish: {}",
             unsupported_dpus.join(", ")
         ))
         .into());
@@ -161,7 +161,7 @@ pub(crate) async fn delete_decommissioned_managed_host(
         }
     ) {
         return Err(CarbideError::FailedPrecondition(format!(
-            "managed host {machine_id} must be Decommissioned before deletion (current state: {})",
+            "managed host {machine_id} must be in the terminal decommissioned state before deletion (current state: {})",
             host.current_state()
         ))
         .into());
@@ -223,7 +223,7 @@ pub(crate) async fn delete_decommissioned_managed_host(
         }
     ) {
         return Err(CarbideError::FailedPrecondition(format!(
-            "managed host {machine_id} must be Decommissioned before deletion (current state: {})",
+            "managed host {machine_id} must be in the terminal decommissioned before deletion (current state: {})",
             host.current_state()
         ))
         .into());
