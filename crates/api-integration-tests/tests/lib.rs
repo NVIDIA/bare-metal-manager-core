@@ -1396,6 +1396,7 @@ where
                 network_virtualization_type: None,
                 dpus_in_nic_mode,
                 dpu_firmware_versions: None,
+                host_firmware_versions: None,
                 dpu_agent_version: None,
             }),
         )]),

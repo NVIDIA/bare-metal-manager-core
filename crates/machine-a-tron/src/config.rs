@@ -290,6 +290,7 @@ impl LenovoGb300RackConfig {
             network_virtualization_type: self.network_virtualization_type.clone(),
             dpus_in_nic_mode: self.dpus_in_nic_mode,
             dpu_firmware_versions: self.dpu_firmware_versions.clone(),
+            host_firmware_versions: None,
             dpu_agent_version: self.dpu_agent_version.clone(),
         }
     }
