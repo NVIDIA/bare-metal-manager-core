@@ -38,8 +38,17 @@ metadata:
     {{- include "nico-api.labels" . | nindent 4 }}
 data:
   # Both filenames populated for dual carbide/nico image support.
-  carbide-api-site-config.toml: {{ .Values.siteConfig.nicoApiSiteConfig | default "" | quote }}
-  nico-api-site-config.toml:    {{ .Values.siteConfig.nicoApiSiteConfig | default "" | quote }}
+  #
+  # spiffe_trust_domain is stripped from the site TOML before rendering.
+  # The built-in config (carbide-api-config.toml) always renders it from
+  # global.spiffe.trustDomain, so a stale "forge.local" in a migrated site
+  # overlay cannot silently override it and cause bare HTTP 403s (issue #3666).
+  # Operators who need a non-default trust domain should set
+  # global.spiffe.trustDomain in their helm values instead.
+  {{- $raw := .Values.siteConfig.nicoApiSiteConfig | default "" }}
+  {{- $siteConfig := regexReplaceAll `(?m)^\s*spiffe_trust_domain\s*=\s*"[^"]*"\s*$` $raw "" }}
+  carbide-api-site-config.toml: {{ $siteConfig | quote }}
+  nico-api-site-config.toml:    {{ $siteConfig | quote }}
 {{- with .Values.siteConfig.adminRootCertPem }}
   admin_root_cert_pem: |
     {{- . | nindent 4 }}

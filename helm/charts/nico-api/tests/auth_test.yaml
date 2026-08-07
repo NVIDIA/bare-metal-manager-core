@@ -50,3 +50,36 @@ tests:
       - matchRegex:
           path: data["casbin-policy.csv"]
           pattern: 'g, spiffe-service-id/carbide-dns, nico-dns'
+
+  - it: strips stale spiffe_trust_domain from the site TOML (issue 3666)
+    documentIndex: 1
+    set:
+      siteConfig:
+        enabled: true
+        nicoApiSiteConfig: |
+          [auth.trust]
+          spiffe_trust_domain = "forge.local"
+          some_other_key = "preserved"
+    asserts:
+      - notMatchRegex:
+          path: data["nico-api-site-config.toml"]
+          pattern: 'spiffe_trust_domain'
+      - matchRegex:
+          path: data["nico-api-site-config.toml"]
+          pattern: 'some_other_key = "preserved"'
+
+  - it: leaves site TOML untouched when spiffe_trust_domain is absent
+    documentIndex: 1
+    set:
+      siteConfig:
+        enabled: true
+        nicoApiSiteConfig: |
+          [auth.trust]
+          some_other_key = "value"
+    asserts:
+      - matchRegex:
+          path: data["nico-api-site-config.toml"]
+          pattern: 'some_other_key = "value"'
+      - notMatchRegex:
+          path: data["nico-api-site-config.toml"]
+          pattern: 'spiffe_trust_domain'
