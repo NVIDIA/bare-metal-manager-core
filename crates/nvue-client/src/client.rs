@@ -24,6 +24,7 @@ use reqwest::{Client, ClientBuilder, Method, Response, Url};
 pub use serde_json::Value as JsonValue;
 
 use crate::config::{NvueConfig, NvueConfigWithHeader, NvueRevision};
+use crate::types::revision::RevisionData;
 
 #[derive(Debug)]
 pub struct NvueClient {
@@ -130,6 +131,20 @@ impl NvueClient {
             .get_revision_id()
             .ok_or(NvueClientError::SchemaMismatch("Missing revision id"))?;
         Ok(revision_id)
+    }
+
+    /// Return data about the specified revision.
+    pub async fn get_revision(&self, revision_id: &str) -> Result<RevisionData, NvueClientError> {
+        let revision_path = format!("/nvue_v1/revision/{revision_id}");
+        let request = self.request(Method::GET, &revision_path)?.build()?;
+        let response = self.execute("get_revision", request).await?;
+
+        // For some reason, the NVUE schema allows the response to be nulled,
+        // but as far as we're concerned that's an error.
+        let revision_data: Option<_> = response.json().await?;
+        revision_data.ok_or(NvueClientError::SchemaMismatch(
+            "Revision response was null",
+        ))
     }
 
     /// Replace the specified config revision. Under the hood, this is a
