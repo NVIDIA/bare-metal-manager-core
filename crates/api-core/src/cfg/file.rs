@@ -137,6 +137,13 @@ pub struct CarbideConfig {
     #[serde(default = "default_max_database_connections")]
     pub max_database_connections: u32,
 
+    /// Whether unknown configuration fields should prevent startup.
+    ///
+    /// Defaults to `false`, which logs each unknown field and continues so
+    /// configuration can be deployed independently of the supporting binary.
+    #[serde(default)]
+    pub deny_unknown_fields: bool,
+
     /// How long a caller may wait for a connection from the pool before the
     /// attempt fails (sqlx's own default). It trips on a stalled database or
     /// a saturated pool alike. Default is 30s.
@@ -4758,6 +4765,7 @@ mod tests {
             config.max_database_connections,
             default_max_database_connections()
         );
+        assert!(!config.deny_unknown_fields);
         // Literals on purpose: these pin the documented defaults (30s/10m/30m
         // -- sqlx's own), so silently changing a default fn fails here rather
         // than passing self-referentially.

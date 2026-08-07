@@ -156,6 +156,7 @@ pub fn get() -> CarbideConfig {
         alt_metric_prefix: None,
         database_url: "pgsql:://localhost".to_string(),
         max_database_connections: 1000,
+        deny_unknown_fields: false,
         database_pool_acquire_timeout: default_database_pool_acquire_timeout(),
         database_pool_idle_timeout: default_database_pool_idle_timeout(),
         database_pool_max_lifetime: default_database_pool_max_lifetime(),

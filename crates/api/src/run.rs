@@ -69,6 +69,7 @@ pub async fn run(
     let initial_objects = if let Some(path) = carbide_config.initial_objects_file.as_deref() {
         Some(carbide_api_core::cfg::load::parse_initial_objects_config(
             path,
+            carbide_config.deny_unknown_fields,
         )?)
     } else {
         None

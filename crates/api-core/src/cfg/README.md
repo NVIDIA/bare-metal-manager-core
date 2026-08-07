@@ -5,15 +5,17 @@ configuration file, which is deserialized into `NicoConfig` (defined in
 `file.rs`). Fields are listed in declaration order. Defaults are noted where
 applicable.
 
-Unknown fields are rejected after the base file, optional site override, and
-`CARBIDE_API_` environment values are merged. The startup error reports the
-invalid key's full section path. Names inside intentionally dynamic maps, such
-as pool names and rack-profile IDs, remain user-defined; fields within each map
-value must still match the documented schema.
+Unknown fields are reported after the base file, optional site override, and
+`CARBIDE_API_` environment values are merged. They produce warnings by default
+so configuration can be deployed ahead of the supporting binary. Set
+`deny_unknown_fields = true` to reject them during startup. Diagnostics include
+the invalid key's full section path and source. Names inside intentionally
+dynamic maps, such as pool names and rack-profile IDs, remain user-defined;
+fields within each map value must still match the documented schema.
 
-The removed `force_dpu_nic_mode` key is the sole compatibility exception: it
-is temporarily accepted at the top level and under `[site_explorer]`, ignored,
-and reported as a deprecation warning. Use `site_explorer.dpu_policy` instead.
+The removed `force_dpu_nic_mode` key is explicitly recognized at the top level
+and under `[site_explorer]`, ignored, and reported as a deprecation warning.
+Use `site_explorer.dpu_policy` instead.
 
 ---
 
@@ -27,6 +29,7 @@ and reported as a deprecation warning. Use `site_explorer.dpu_policy` instead.
 | `alt_metric_prefix` | `Option<String>` | — | `integrations` | Alternative metric prefix emitted alongside `nico_` for dashboard migration. |
 | `database_url` | `String` | **required** | `server` | Postgres connection string for all persistent state. |
 | `max_database_connections` | `u32` | `1000` | `server` | Maximum database connection pool size. |
+| `deny_unknown_fields` | `bool` | `false` | `server` | Reject unknown configuration fields instead of logging warnings and continuing. |
 | `database_pool_acquire_timeout` | `Duration` | `30s` | `server` | How long a caller may wait for a connection from the pool before the attempt fails (sqlx's own default); trips on a stalled database or a saturated pool alike. Must be greater than zero (startup rejects `0`). |
 | `database_pool_idle_timeout` | `Duration` | `10m` | `server` | Idle time after which the pool closes a connection, keeping the pool's own reaping well inside the Postgres server's 60-minute idle-session reaper. Must be greater than zero (startup rejects `0`). |
 | `database_pool_max_lifetime` | `Duration` | `30m` | `server` | Maximum age of a pooled connection before it is recycled, so the pool re-balances onto the current primary after a database failover. Must be greater than zero (startup rejects `0`). |

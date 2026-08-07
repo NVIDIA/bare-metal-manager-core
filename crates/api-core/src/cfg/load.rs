@@ -15,6 +15,7 @@
  * limitations under the License.
  */
 
+use std::collections::BTreeMap;
 use std::path::Path;
 use std::sync::Arc;
 
@@ -22,16 +23,128 @@ use eyre::WrapErr;
 use figment::providers::{Env, Format, Toml};
 use figment::value::{Dict, Map, Value};
 use figment::{Figment, Metadata, Profile, Provider};
+use serde::de::DeserializeOwned;
 
 use super::file::{CarbideConfig, InitialObjectsConfig};
 
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct UnknownConfigurationField {
+    path: String,
+    source: String,
+}
+
+fn remove_value_at_path(value: &mut Value, path: &[String]) -> bool {
+    let Some((head, tail)) = path.split_first() else {
+        return false;
+    };
+
+    match value {
+        Value::Dict(_, values) if tail.is_empty() => values.remove(head).is_some(),
+        Value::Dict(_, values) => values
+            .get_mut(head)
+            .is_some_and(|value| remove_value_at_path(value, tail)),
+        Value::Array(_, values) => head
+            .parse::<usize>()
+            .ok()
+            .and_then(|index| values.get_mut(index))
+            .is_some_and(|value| remove_value_at_path(value, tail)),
+        _ => false,
+    }
+}
+
+fn resolve_error_metadata(mut error: figment::Error, figment: &Figment) -> figment::Error {
+    if error.metadata.is_none() {
+        error.metadata = figment.find_metadata(&error.path.join(".")).cloned();
+    }
+    if error.profile.is_none() {
+        error.profile = Some(figment.profile().clone());
+    }
+    error
+}
+
+#[allow(clippy::result_large_err)] // Figment controls the error representation.
+fn extract_with_unknown_fields<T>(
+    figment: &Figment,
+) -> Result<(T, Vec<UnknownConfigurationField>), figment::Error>
+where
+    T: DeserializeOwned,
+{
+    let mut value = figment.extract::<Value>()?;
+    let mut unknown_fields = BTreeMap::new();
+
+    loop {
+        match T::deserialize(&value) {
+            Ok(config) => return Ok((config, unknown_fields.into_values().collect())),
+            Err(error) => {
+                let figment::error::Kind::UnknownField(field, _) = &error.kind else {
+                    return Err(resolve_error_metadata(error, figment));
+                };
+
+                let mut path = error.path.clone();
+                if path.last().map(String::as_str) != Some(field) {
+                    path.push(field.clone());
+                }
+                let dotted_path = path.join(".");
+                let source = figment
+                    .find_metadata(&dotted_path)
+                    .map(super::provenance::source_label)
+                    .unwrap_or_else(|| "configuration".to_string());
+
+                if !remove_value_at_path(&mut value, &path) {
+                    return Err(resolve_error_metadata(error, figment));
+                }
+
+                unknown_fields.insert(
+                    dotted_path.clone(),
+                    UnknownConfigurationField {
+                        path: dotted_path,
+                        source,
+                    },
+                );
+            }
+        }
+    }
+}
+
+fn apply_unknown_field_policy(
+    unknown_fields: &[UnknownConfigurationField],
+    deny_unknown_fields: bool,
+) -> eyre::Result<()> {
+    if unknown_fields.is_empty() {
+        return Ok(());
+    }
+
+    if deny_unknown_fields {
+        let fields = unknown_fields
+            .iter()
+            .map(|field| format!("{} ({})", field.path, field.source))
+            .collect::<Vec<_>>()
+            .join(", ");
+        return Err(eyre::eyre!("unknown configuration fields: {fields}"));
+    }
+
+    for field in unknown_fields {
+        tracing::warn!(
+            config_key = %field.path,
+            config_source = %field.source,
+            "Ignoring unknown configuration key"
+        );
+    }
+    Ok(())
+}
+
 /// Parse the `InitialObjectsConfig` file referenced by
 /// [`CarbideConfig::initial_objects_file`].
-pub fn parse_initial_objects_config(path: &Path) -> eyre::Result<InitialObjectsConfig> {
-    Figment::new()
-        .merge(Toml::file(path))
-        .extract()
-        .wrap_err_with(|| format!("while parsing InitialObjectsConfig at {}", path.display()))
+pub fn parse_initial_objects_config(
+    path: &Path,
+    deny_unknown_fields: bool,
+) -> eyre::Result<InitialObjectsConfig> {
+    let figment = Figment::new().merge(Toml::file(path));
+    let (config, unknown_fields) = extract_with_unknown_fields::<InitialObjectsConfig>(&figment)
+        .wrap_err_with(|| format!("while parsing InitialObjectsConfig at {}", path.display()))?;
+    apply_unknown_field_policy(&unknown_fields, deny_unknown_fields)
+        .wrap_err_with(|| format!("while parsing InitialObjectsConfig at {}", path.display()))?;
+    Ok(config)
 }
 
 /// Return a list of all configuration files that were merged to create the
@@ -103,8 +216,9 @@ pub fn parse_carbide_config(
     site_config_path: Option<&Path>,
 ) -> eyre::Result<Arc<CarbideConfig>> {
     let merged_config = merged_carbide_config_figment(config_path, site_config_path);
-    let mut config: CarbideConfig = merged_config
-        .extract()
+    let (mut config, unknown_fields) = extract_with_unknown_fields::<CarbideConfig>(&merged_config)
+        .wrap_err("failed to load configuration files")?;
+    apply_unknown_field_policy(&unknown_fields, config.deny_unknown_fields)
         .wrap_err("failed to load configuration files")?;
 
     config.config_ctx = Some(merged_config);
@@ -222,7 +336,7 @@ mod tests {
 
     #[test]
     #[allow(clippy::result_large_err)]
-    fn unknown_site_override_field_reports_key_and_source_file() {
+    fn unknown_site_override_field_is_collected_with_source() {
         figment::Jail::expect_with(|jail| {
             jail.create_file(
                 "base.toml",
@@ -237,31 +351,71 @@ mod tests {
                 "[site_explorer]\nunknown_site_override_field = true",
             )?;
 
-            let report = parse_carbide_config(Path::new("base.toml"), Some(Path::new("site.toml")))
-                .unwrap_err();
-            let error = report
-                .downcast_ref::<figment::Error>()
-                .expect("configuration error retains the Figment source");
+            let figment =
+                merged_carbide_config_figment(Path::new("base.toml"), Some(Path::new("site.toml")));
+            let (config, unknown_fields) = extract_with_unknown_fields::<CarbideConfig>(&figment)?;
 
-            assert!(matches!(
-                &error.kind,
-                figment::error::Kind::UnknownField(field, _)
-                    if field == "unknown_site_override_field"
-            ));
+            assert!(!config.deny_unknown_fields);
             assert_eq!(
-                error.path,
-                vec![
-                    "site_explorer".to_string(),
-                    "unknown_site_override_field".to_string()
-                ]
+                unknown_fields,
+                vec![UnknownConfigurationField {
+                    path: "site_explorer.unknown_site_override_field".to_string(),
+                    source: "site.toml".to_string(),
+                }]
             );
-            let source_path = error
-                .metadata
-                .as_ref()
-                .and_then(|metadata| metadata.source.as_ref())
-                .and_then(|source| source.file_path())
-                .expect("unknown site key is attributed to its source file");
-            assert!(source_path.ends_with("site.toml"));
+            apply_unknown_field_policy(&unknown_fields, config.deny_unknown_fields)
+                .expect("unknown fields warn by default");
+            Ok(())
+        })
+    }
+
+    #[test]
+    #[allow(clippy::result_large_err)]
+    fn strict_mode_rejects_all_unknown_fields() {
+        figment::Jail::expect_with(|jail| {
+            jail.create_file(
+                "base.toml",
+                r#"
+                database_url = "postgres://test"
+                listen = "[::]:1081"
+                asn = 1
+                deny_unknown_fields = true
+                unknown_root_field = true
+                [site_explorer]
+                unknown_nested_field = true
+                "#,
+            )?;
+
+            let figment = merged_carbide_config_figment(Path::new("base.toml"), None);
+            let (config, unknown_fields) = extract_with_unknown_fields::<CarbideConfig>(&figment)?;
+            let error = apply_unknown_field_policy(&unknown_fields, config.deny_unknown_fields)
+                .expect_err("strict mode rejects unknown fields");
+            let message = error.to_string();
+            assert!(message.contains("unknown_root_field (base.toml)"));
+            assert!(message.contains("site_explorer.unknown_nested_field (base.toml)"));
+            Ok(())
+        })
+    }
+
+    #[test]
+    #[allow(clippy::result_large_err)]
+    fn invalid_known_field_still_fails_in_warning_mode() {
+        figment::Jail::expect_with(|jail| {
+            jail.create_file(
+                "base.toml",
+                r#"
+                database_url = "postgres://test"
+                listen = "[::]:1081"
+                asn = 1
+                max_database_connections = "many"
+                "#,
+            )?;
+
+            let figment = merged_carbide_config_figment(Path::new("base.toml"), None);
+            let error = extract_with_unknown_fields::<CarbideConfig>(&figment)
+                .expect_err("invalid known values remain fatal");
+            assert!(matches!(error.kind, figment::error::Kind::InvalidType(..)));
+            assert_eq!(error.path, vec!["max_database_connections".to_string()]);
             Ok(())
         })
     }
