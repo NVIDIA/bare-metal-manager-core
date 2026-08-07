@@ -1403,7 +1403,7 @@ impl NvlPartitionMonitor {
 
         // Bound concurrency so group processing cannot exhaust the shared DB pool
         // or open an unbounded number of NMX-C gRPC clients at once.
-        let concurrency = Semaphore::new(self.config.partition_monitor_max_concurrent_groups);
+        let concurrency = Semaphore::new(self.config.partition_monitor_max_concurrent_groups.get());
         let all_group_results = future::join_all(all_group_inputs.into_iter().map(|input| {
             // Borrow outside `async move` so the closure copies the &Semaphore reference
             // (which is Copy) rather than trying to move the Semaphore itself.
