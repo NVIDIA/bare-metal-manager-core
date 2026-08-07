@@ -432,7 +432,7 @@ impl<B: Bmc> ExploredChassis<B> {
 
         let nvidia_oem = self
             .chassis
-            .oem_nvidia_baseboard_cbc()
+            .oem_nvidia_cbc()
             .ok()
             .and_then(identity);
         Chassis {
