@@ -26,11 +26,16 @@ use tss_esapi::handles::KeyHandle;
 
 use crate::{CarbideClientError, attestation as attest, platform, tpm};
 
-// Mellanox SFs and VFs that have no real MAC address report "ch:64" from udev
-// (carbide_network::MELLANOX_SF_VF_MAC_ADDRESS_IN). VFs additionally appear under
-// a "virtfn" sysfs path segment. Neither is useful to the host inventory model.
+// Sentinel MAC reported by udev for Mellanox SFs and VFs that have no real MAC
+// address. Mirrors carbide_network::MELLANOX_SF_VF_MAC_ADDRESS_IN without
+// adding that crate as a dependency.
+const MELLANOX_SF_VF_MAC_ADDRESS_IN: &str = "ch:64";
+
+// Mellanox SFs and VFs that have no real MAC address report the sentinel above from udev.
+// VFs additionally appear under a "virtfn" sysfs path segment.
+// Neither is useful to the host inventory model.
 fn is_auxiliary_interface(nic: &::rpc::machine_discovery::NetworkInterface) -> bool {
-    let is_sf_or_vf_mac = nic.mac_address == "ch:64";
+    let is_sf_or_vf_mac = nic.mac_address == MELLANOX_SF_VF_MAC_ADDRESS_IN;
     let is_vf_path = nic
         .pci_properties
         .as_ref()
@@ -277,11 +282,11 @@ mod tests {
         assert!(!is_auxiliary_interface(&iface));
     }
 
-    // SFs (scalable functions) report "ch:64" from udev when they have no real MAC.
+    // SFs (scalable functions) report the sentinel MAC from udev when they have no real MAC.
     #[test]
     fn sf_with_sentinel_mac_is_filtered() {
         let iface = nic(
-            "ch:64",
+            MELLANOX_SF_VF_MAC_ADDRESS_IN,
             "/devices/pci0000:00/0000:00:1c.4/0000:08:00.0/net/en_sf0",
         );
         assert!(is_auxiliary_interface(&iface));
@@ -301,7 +306,7 @@ mod tests {
     #[test]
     fn vf_with_sentinel_mac_and_virtfn_path_is_filtered() {
         let iface = nic(
-            "ch:64",
+            MELLANOX_SF_VF_MAC_ADDRESS_IN,
             "/devices/pci0000:00/0000:00:1c.4/0000:08:00.0/virtfn3/net/eth3",
         );
         assert!(is_auxiliary_interface(&iface));
@@ -340,11 +345,11 @@ mod tests {
                 "/devices/pci0000:00/0000:00:1c.4/0000:08:00.0/net/enp8s0f0np0",
             ),
             nic(
-                "ch:64",
+                MELLANOX_SF_VF_MAC_ADDRESS_IN,
                 "/devices/pci0000:00/0000:00:1c.4/0000:08:00.0/net/en_sf0",
             ),
             nic(
-                "ch:64",
+                MELLANOX_SF_VF_MAC_ADDRESS_IN,
                 "/devices/pci0000:00/0000:00:1c.4/0000:08:00.0/net/en_sf1",
             ),
             nic(
