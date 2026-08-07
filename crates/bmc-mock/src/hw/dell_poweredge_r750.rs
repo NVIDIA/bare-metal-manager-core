@@ -315,8 +315,9 @@ impl DellPowerEdgeR750<'_> {
                 .build()
             })
             .collect(),
-            advertise_http_push_uri: true,
             advertise_multipart_push_uri: false,
+            host_bmc_inventory_id: Some("HostBMC_0".to_string()),
+            host_uefi_inventory_id: Some("HostBIOS_0".to_string()),
             ..Default::default()
         }
     }

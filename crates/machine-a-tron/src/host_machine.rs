@@ -64,10 +64,8 @@ pub(super) struct HostMachine {
 }
 
 /// Return true when `entry` carries firmware versions for hosts of the given
-/// hardware type.  Matching mirrors how DPU firmware is selected in
-/// `DpuFirmwareVersions::fill_missing_from_desired_firmware`: vendor and model
-/// are compared case-insensitively against the Redfish-reported values stored
-/// in the API's desired-firmware table.
+/// hardware type.  Vendor and model are compared case-insensitively against
+/// the Redfish-reported values stored in the API's desired-firmware table.
 fn firmware_entry_matches_host_hw_type(
     hw_type: bmc_mock::HardwareType,
     entry: &rpc::forge::DesiredFirmwareVersionEntry,
@@ -85,21 +83,20 @@ fn firmware_entry_matches_host_hw_type(
         SupermicroGb300Nvl => vendor.contains("supermicro") && model.contains("gb300"),
         NvidiaDgxH100 => vendor.contains("nvidia") && model.contains("h100"),
         HpeProliantDl380aGen11 => {
-            (vendor.contains("hpe") || vendor.contains("hewlett"))
-                && model.contains("proliant")
+            (vendor.contains("hpe") || vendor.contains("hewlett")) && model.contains("proliant")
         }
-        // Generic and power-shelf types have no specific entry — fall back to
-        // any entry that advertises host-firmware components.
-        _ => {
-            entry.component_versions.contains_key("bmc")
-                || entry.component_versions.contains_key("uefi")
-        }
+        // All other types (generic, power shelves, switches) do not simulate host
+        // firmware upgrades — no matching entry exists for them.
+        _ => false,
     }
 }
 
 /// Find the desired host firmware for `hw_type` from the API-configured entries.
 /// Both bmc and uefi versions are read from the **same** entry so they always
 /// come from a consistent hardware-specific record.
+///
+/// Uses `hw_type.host_bmc_version_key()` to look up the BMC component key,
+/// since DGX H100 uses `"combinedbmcuefi"` rather than `"bmc"`.
 fn desired_host_firmware(
     hw_type: bmc_mock::HardwareType,
     app_context: &MachineATronContext,
@@ -108,7 +105,10 @@ fn desired_host_firmware(
         .desired_firmware_versions
         .iter()
         .find(|e| firmware_entry_matches_host_hw_type(hw_type, e))?;
-    let bmc = entry.component_versions.get("bmc").cloned();
+    let bmc = entry
+        .component_versions
+        .get(hw_type.host_bmc_version_key())
+        .cloned();
     let uefi = entry.component_versions.get("uefi").cloned();
     if bmc.is_some() || uefi.is_some() {
         Some(HostFirmwareVersions { bmc, uefi })
@@ -651,8 +651,8 @@ impl MachineHandle {
                 switch_serial_number: None,
                 hw_mac_addr_pool: MacAddressPoolConfig::new(mac, 24).unwrap(),
                 delta_psu_power: None,
-            initial_host_firmware: None,
-            desired_host_firmware: None,
+                initial_host_firmware: None,
+                desired_host_firmware: None,
             },
             dpus,
             machine_config_section: machine_config_section.to_string(),

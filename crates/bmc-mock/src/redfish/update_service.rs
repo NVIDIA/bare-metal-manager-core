@@ -20,15 +20,15 @@
 //! ## Design notes
 //!
 //! ### Transport independence
-//! All upload paths (Redfish SimpleUpdate, AMI multipart `UpdateService/upload`,
-//! raw HTTP push) converge on `record_upload()`.  The staging and task lifecycle
-//! are identical regardless of which transport carbide uses.
+//! All upload paths (Redfish SimpleUpdate, AMI multipart `UpdateService/upload`)
+//! converge on `record_upload()`.  The staging and task lifecycle are identical
+//! regardless of which transport carbide uses.
 //!
 //! ### Component identification
 //! When Targets is explicit (SimpleUpdate), the component is derived from the
-//! target path.  When it is absent (multipart, HTTP push), the next entry is
-//! popped from `pending_upgrades` — a deterministic ordered queue injected by
-//! machine-a-tron.  This avoids ambiguity when multiple components are outdated.
+//! target path.  When it is absent (multipart), the next entry is peeked from
+//! `pending_upgrades` — a deterministic ordered map injected by machine-a-tron.
+//! This avoids ambiguity when multiple components are outdated.
 //!
 //! ### Task lifecycle (NICo-compatible)
 //! The upload POST returns immediately with the task in `Running` state (202).
@@ -49,9 +49,16 @@
 //! real BMC updates trigger `Manager.Reset` (currently a no-op in bmc-mock).
 //! Per-component activation events can be added in a follow-up.
 //!
+//! ### Non-destructive queue
+//! `pending_upgrades` is an `IndexMap<component_id, target_version>` (ordered,
+//! key-addressed).  Uploads `peek` the first entry without consuming it.  The
+//! entry is only removed when `apply_staged_firmware` successfully stages the
+//! version on PowerOn.  This makes upload retries safe: a failed or repeated
+//! upload keeps the same queue entry available for the next attempt.
+//!
 //! ### Response format
 //! Every upload response includes **both** the `Location` header (for Dell/DGX H100)
-//! and a full Task JSON body (for GB200/raw HTTP push), satisfying all platform
+//! and a full Task JSON body (for GB200/GB300/Lenovo), satisfying all platform
 //! contracts.
 //!
 //! ### Load isolation
@@ -62,7 +69,7 @@
 //! buffering to avoid unbounded memory use.
 
 use std::borrow::Cow;
-use std::collections::{HashMap, VecDeque};
+use std::collections::HashMap;
 use std::sync::RwLock;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
@@ -72,6 +79,7 @@ use axum::body::Body;
 use axum::extract::{Path, State};
 use axum::response::Response;
 use axum::routing::{get, post};
+use indexmap::IndexMap;
 use serde::Deserialize;
 use serde_json::json;
 
@@ -103,16 +111,11 @@ pub(crate) fn simple_update_target() -> String {
 /// Also serves as the `MultipartHttpPushUri` advertised to GB200/GB300/Lenovo.
 pub(crate) const MULTIPART_UPLOAD_PATH: &str = "/redfish/v1/UpdateService/upload";
 
-/// Raw HTTP push endpoint — used by older Dell iDRAC firmware versions and some
-/// HPE iLO paths that look for `HttpPushUri` rather than `MultipartHttpPushUri`.
-pub(crate) const HTTP_PUSH_URI_PATH: &str = "/redfish/v1/UpdateService/FirmwareInventory";
-
 pub(crate) fn add_routes(r: Router<BmcState>) -> Router<BmcState> {
     const FW_INVENTORY_ID: &str = "{fw_inventory_id}";
     r.route(&resource().odata_id, get(get_update_service))
         .route(&simple_update_target(), post(update_firmware_simple_update))
         .route(MULTIPART_UPLOAD_PATH, post(update_firmware_multipart))
-        .route(HTTP_PUSH_URI_PATH, post(update_firmware_http_push))
         .route(
             &redfish::software_inventory::firmware_inventory_collection().odata_id,
             get(get_firmware_inventory_collection),
@@ -131,37 +134,40 @@ pub(crate) const DEFAULT_TASK_COMPLETION_JITTER: Duration = Duration::from_secs(
 
 pub(crate) struct UpdateServiceConfig {
     pub(crate) firmware_inventory: Vec<redfish::software_inventory::SoftwareInventory>,
-    /// Ordered queue of `(component_id, target_version)` pairs representing the
-    /// expected upgrade sequence.  machine-a-tron populates this from
-    /// `desired_firmware_versions`.  Uploads without explicit Targets pop from
-    /// this queue in order, making component identification deterministic even
-    /// when the request body is absent or empty.
+    /// Ordered map of `component_id → target_version` representing the expected
+    /// upgrade sequence.  machine-a-tron populates this from
+    /// `desired_firmware_versions`.  Uploads without explicit Targets peek the
+    /// first entry (non-destructively).  The entry is removed only when
+    /// `apply_staged_firmware` successfully stages the version on PowerOn.
     ///
-    /// **Assumption (explicit):** the next successful upload for a given component
-    /// installs exactly the desired version.  This is a valid simulation
-    /// assumption because machine-a-tron controls the firmware catalog and always
-    /// points carbide at the desired version's artifact.
-    pub(crate) pending_upgrades: VecDeque<(String, String)>,
+    /// Using `IndexMap` (ordered, key-addressed) instead of `VecDeque` so that
+    /// upload retries cannot lose the pending entry: peek is non-destructive and
+    /// `version_for_component` is a direct key lookup.
+    pub(crate) pending_upgrades: IndexMap<String, String>,
     /// How long to wait before transitioning a task from `Running` to `Completed`.
     /// Add `task_completion_jitter` of random jitter to desynchronise resets
     /// across many simulated hosts in a load environment.
     pub(crate) task_completion_delay: Duration,
     pub(crate) task_completion_jitter: Duration,
-    /// Which push URIs to advertise in the UpdateService GET response.
-    /// Set based on the platform's BMC upload mechanism.
-    pub(crate) advertise_http_push_uri: bool,
+    /// Which push URI to advertise in the UpdateService GET response.
     pub(crate) advertise_multipart_push_uri: bool,
+    /// Inventory ID for the host BMC firmware entry.  `None` means this
+    /// platform has no host firmware simulation (e.g. switches, power shelves).
+    pub(crate) host_bmc_inventory_id: Option<String>,
+    /// Inventory ID for the host UEFI/BIOS firmware entry.
+    pub(crate) host_uefi_inventory_id: Option<String>,
 }
 
 impl Default for UpdateServiceConfig {
     fn default() -> Self {
         Self {
             firmware_inventory: Vec::new(),
-            pending_upgrades: VecDeque::new(),
+            pending_upgrades: IndexMap::new(),
             task_completion_delay: DEFAULT_TASK_COMPLETION_DELAY,
             task_completion_jitter: DEFAULT_TASK_COMPLETION_JITTER,
-            advertise_http_push_uri: false,
             advertise_multipart_push_uri: true,
+            host_bmc_inventory_id: None,
+            host_uefi_inventory_id: None,
         }
     }
 }
@@ -171,7 +177,7 @@ impl UpdateServiceConfig {
         &mut self,
         fw: &crate::machine_info::HostFirmwareVersions,
     ) {
-        let mut upsert = |id: &'static str, version: &str| {
+        let mut upsert = |id: &str, version: &str| {
             if let Some(entry) = self.firmware_inventory.iter_mut().find(|e| e.id == id) {
                 entry.set_version(version);
             } else {
@@ -184,11 +190,11 @@ impl UpdateServiceConfig {
                 );
             }
         };
-        if let Some(ref bmc) = fw.bmc {
-            upsert("HostBMC_0", bmc);
+        if let (Some(id), Some(bmc)) = (&self.host_bmc_inventory_id, &fw.bmc) {
+            upsert(id, bmc);
         }
-        if let Some(ref uefi) = fw.uefi {
-            upsert("HostBIOS_0", uefi);
+        if let (Some(id), Some(uefi)) = (&self.host_uefi_inventory_id, &fw.uefi) {
+            upsert(id, uefi);
         }
     }
 }
@@ -245,11 +251,11 @@ impl FirmwareTask {
 }
 
 pub struct UpdateServiceState {
-    firmware_inventory:
-        RwLock<HashMap<String, redfish::software_inventory::SoftwareInventory>>,
-    /// Remaining expected upgrades, in order.  Uploads without explicit Targets
-    /// pop from the front.
-    pending_upgrades: RwLock<VecDeque<(String, String)>>,
+    firmware_inventory: RwLock<HashMap<String, redfish::software_inventory::SoftwareInventory>>,
+    /// Remaining expected upgrades, key=component_id, value=target_version.
+    /// Peek gives the first entry without consuming; removal happens in
+    /// `apply_staged_firmware` after the version is staged on PowerOn.
+    pending_upgrades: RwLock<IndexMap<String, String>>,
     /// Staged (pending) firmware: component_id → target_version.
     /// Written atomically with the task Completed transition to avoid the race
     /// window where PowerOn fires between the two writes.
@@ -261,8 +267,12 @@ pub struct UpdateServiceState {
     task_completion_delay: Duration,
     task_completion_jitter: Duration,
     /// Which push URIs this platform advertises in the UpdateService GET response.
-    pub(crate) advertise_http_push_uri: bool,
     pub(crate) advertise_multipart_push_uri: bool,
+    /// Inventory ID for the host BMC firmware entry.  `None` means no host
+    /// firmware simulation for this platform (e.g. switches, power shelves).
+    pub host_bmc_inventory_id: Option<String>,
+    /// Inventory ID for the host UEFI/BIOS firmware entry.
+    pub host_uefi_inventory_id: Option<String>,
 }
 
 impl UpdateServiceState {
@@ -280,17 +290,27 @@ impl UpdateServiceState {
             next_task_id: AtomicU64::new(1),
             task_completion_delay: config.task_completion_delay,
             task_completion_jitter: config.task_completion_jitter,
-            advertise_http_push_uri: config.advertise_http_push_uri,
             advertise_multipart_push_uri: config.advertise_multipart_push_uri,
+            host_bmc_inventory_id: config.host_bmc_inventory_id,
+            host_uefi_inventory_id: config.host_uefi_inventory_id,
         }
     }
 
     pub fn find_firmware_inventory(&self, id: &str) -> Option<serde_json::Value> {
-        self.firmware_inventory.read().unwrap().get(id).map(|sw| sw.to_json())
+        self.firmware_inventory
+            .read()
+            .unwrap()
+            .get(id)
+            .map(|sw| sw.to_json())
     }
 
     pub(crate) fn all_firmware_inventory_ids(&self) -> Vec<String> {
-        self.firmware_inventory.read().unwrap().keys().cloned().collect()
+        self.firmware_inventory
+            .read()
+            .unwrap()
+            .keys()
+            .cloned()
+            .collect()
     }
 
     pub(crate) fn find_task(&self, id: &str) -> Option<serde_json::Value> {
@@ -312,7 +332,10 @@ impl UpdateServiceState {
         component_id: &str,
         target_version: String,
     ) -> (String, serde_json::Value) {
-        let task_id = self.next_task_id.fetch_add(1, Ordering::Relaxed).to_string();
+        let task_id = self
+            .next_task_id
+            .fetch_add(1, Ordering::Relaxed)
+            .to_string();
         let task = FirmwareTask {
             id: task_id.clone(),
             component_id: component_id.to_string(),
@@ -324,7 +347,7 @@ impl UpdateServiceState {
         self.tasks.write().unwrap().insert(task_id.clone(), task);
 
         if target_version.is_empty() {
-            tracing::warn!(
+            tracing::debug!(
                 component_id,
                 "firmware upload accepted but pending_upgrades queue was empty; \
                  no version will be staged — carbide will see no inventory change after PowerOn"
@@ -336,17 +359,13 @@ impl UpdateServiceState {
         let jitter = self.task_completion_jitter;
         let component = component_id.to_string();
         // JoinHandle dropped intentionally — see module doc for rationale.
-        let _ = tokio::spawn(async move {
-            // Pseudo-random jitter derived from the task ID to spread out power cycles.
-            // Guard against sub-millisecond jitter durations to prevent hash % 0 panic.
+        drop(tokio::spawn(async move {
+            // True random jitter to desynchronise resets across many simulated hosts.
             let jitter_ms = jitter.as_millis();
             let jitter_offset = if jitter_ms == 0 {
                 0u64
             } else {
-                let hash = task_id
-                    .bytes()
-                    .fold(0u64, |acc, b| acc.wrapping_mul(31).wrapping_add(b as u64));
-                hash % jitter_ms as u64
+                rand::random::<u64>() % jitter_ms as u64
             };
             tokio::time::sleep(delay + Duration::from_millis(jitter_offset)).await;
 
@@ -359,29 +378,43 @@ impl UpdateServiceState {
                 let version = task.target_version.clone();
                 task.state = TaskState::Completed;
                 if !version.is_empty() {
-                    state.staged_firmware.write().unwrap().insert(component, version);
+                    state
+                        .staged_firmware
+                        .write()
+                        .unwrap()
+                        .insert(component, version);
                 }
             }
-        });
+        }));
 
         (odata_id, running_json)
     }
 
-    /// Pop the next pending upgrade from the queue (used when Targets is absent).
-    fn pop_pending(&self) -> Option<(String, String)> {
-        self.pending_upgrades.write().unwrap().pop_front()
-    }
-
-    /// Look up the desired version for a component **without** consuming the
-    /// queue entry.  Used by SimpleUpdate with explicit Targets so that a later
-    /// multipart upload for a different component can still pop its own entry.
-    fn version_for_component(&self, component_id: &str) -> String {
+    /// Peek the first pending upgrade without consuming it.
+    ///
+    /// Returns `None` when the queue is empty.  The caller uses the returned
+    /// `(component_id, target_version)` to create a firmware task; the entry is
+    /// only removed from the map after `apply_staged_firmware` confirms the
+    /// version was staged successfully on PowerOn.  This makes upload retries
+    /// safe: a failed or repeated upload keeps the same entry available.
+    fn peek_pending(&self) -> Option<(String, String)> {
         self.pending_upgrades
             .read()
             .unwrap()
             .iter()
-            .find(|(c, _)| c == component_id)
-            .map(|(_, v)| v.clone())
+            .next()
+            .map(|(k, v)| (k.clone(), v.clone()))
+    }
+
+    /// Look up the desired version for a component **without** consuming the
+    /// queue entry.  Used by SimpleUpdate with explicit Targets so that a later
+    /// multipart upload for a different component can still peek its own entry.
+    fn version_for_component(&self, component_id: &str) -> String {
+        self.pending_upgrades
+            .read()
+            .unwrap()
+            .get(component_id)
+            .cloned()
             .unwrap_or_default()
     }
 
@@ -420,6 +453,8 @@ impl UpdateServiceState {
     ///
     /// Completed tasks are pruned from the map after their firmware is applied
     /// so the map does not grow without bound in long-running load tests.
+    /// Successfully applied components are also removed from `pending_upgrades`
+    /// so a subsequent peek returns the next entry in the ordered map.
     pub(crate) fn apply_staged_firmware(&self) {
         // Collect component IDs of completed tasks and prune them from the map.
         let completed_components: Vec<String> = {
@@ -439,12 +474,16 @@ impl UpdateServiceState {
 
         let mut staged = self.staged_firmware.write().unwrap();
         let mut inventory = self.firmware_inventory.write().unwrap();
+        let mut pending = self.pending_upgrades.write().unwrap();
 
         for component_id in &completed_components {
             match staged.remove(component_id) {
                 Some(target_version) => {
                     if let Some(entry) = inventory.get_mut(component_id) {
                         entry.set_version(&target_version);
+                        // Remove from pending_upgrades so the next peek returns
+                        // the following entry (if any).
+                        pending.swap_remove(component_id);
                     } else {
                         tracing::warn!(
                             component_id,
@@ -484,9 +523,6 @@ async fn get_update_service(State(state): State<BmcState>) -> Response {
     let us = &state.update_service_state;
     let mut b = builder(&resource())
         .firmware_inventory(&redfish::software_inventory::firmware_inventory_collection());
-    if us.advertise_http_push_uri {
-        b = b.http_push_uri(HTTP_PUSH_URI_PATH);
-    }
     if us.advertise_multipart_push_uri {
         b = b.multipart_http_push_uri(MULTIPART_UPLOAD_PATH);
     }
@@ -508,16 +544,16 @@ async fn update_firmware_simple_update(
         .map(str::to_owned)
     {
         // Targets is explicit: look up the desired version WITHOUT consuming the
-        // pending_upgrades queue so a follow-up multipart upload for a different
-        // component can still pop its own entry.
+        // pending_upgrades map so a follow-up multipart upload for a different
+        // component can still peek its own entry.
         let version = state.update_service_state.version_for_component(&id);
         (id, version)
     } else {
-        // No Targets: pop from the ordered queue (same path as multipart).
+        // No Targets: peek from the ordered map (same path as multipart).
         state
             .update_service_state
-            .pop_pending()
-            .unwrap_or_else(|| ("HostBMC_0".to_string(), String::new()))
+            .peek_pending()
+            .unwrap_or_else(|| ("unknown".to_string(), String::new()))
     };
 
     upload_response(&state.update_service_state, &component_id, target_version)
@@ -531,22 +567,8 @@ async fn update_firmware_multipart(
     discard_body(body.into_body()).await;
     let (component_id, target_version) = state
         .update_service_state
-        .pop_pending()
-        .unwrap_or_else(|| ("HostBMC_0".to_string(), String::new()));
-    upload_response(&state.update_service_state, &component_id, target_version)
-}
-
-/// Raw HTTP push (older Dell iDRAC firmware, some HPE iLO paths).
-/// Functionally identical to multipart — pops from pending_upgrades and discards bytes.
-async fn update_firmware_http_push(
-    State(state): State<BmcState>,
-    body: axum::extract::Request,
-) -> Response {
-    discard_body(body.into_body()).await;
-    let (component_id, target_version) = state
-        .update_service_state
-        .pop_pending()
-        .unwrap_or_else(|| ("HostBMC_0".to_string(), String::new()));
+        .peek_pending()
+        .unwrap_or_else(|| ("unknown".to_string(), String::new()));
     upload_response(&state.update_service_state, &component_id, target_version)
 }
 
@@ -565,8 +587,9 @@ fn upload_response(
 
     // Use into_response(ACCEPTED) + Location header.  into_response_with_location
     // sets 200; we override the status after insertion.
-    let location = axum::http::HeaderValue::from_str(&task_odata_id)
-        .unwrap_or_else(|_| axum::http::HeaderValue::from_static("/redfish/v1/TaskService/Tasks/0"));
+    let location = axum::http::HeaderValue::from_str(&task_odata_id).unwrap_or_else(|_| {
+        axum::http::HeaderValue::from_static("/redfish/v1/TaskService/Tasks/0")
+    });
     let mut response = running_task_json.into_ok_response_with_location(location);
     *response.status_mut() = axum::http::StatusCode::ACCEPTED;
     response
@@ -615,11 +638,6 @@ impl UpdateServiceBuilder {
         self.apply_patch(v.nav_property("FirmwareInventory"))
     }
 
-    /// Raw single-file HTTP push URI (older Dell/HPE consumers).
-    pub(crate) fn http_push_uri(self, uri: &str) -> Self {
-        self.apply_patch(json!({ "HttpPushUri": uri }))
-    }
-
     /// Multipart HTTP push URI (AMI/GB200/GB300 consumers).
     pub(crate) fn multipart_http_push_uri(self, uri: &str) -> Self {
         self.apply_patch(json!({ "MultipartHttpPushUri": uri }))
@@ -629,8 +647,8 @@ impl UpdateServiceBuilder {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::sync::Arc;
     use crate::redfish::software_inventory;
+    use std::sync::Arc;
 
     fn make_state(
         entries: &[(&'static str, &'static str)],
@@ -656,13 +674,15 @@ mod tests {
         }))
     }
 
-
     #[tokio::test(start_paused = true)]
     async fn task_starts_running_then_completes() {
         let state = make_state(&[("HostBMC_0", "24.09.17")], &[("HostBMC_0", "24.10.00")]);
         let (task_path, running_json) = state.record_upload("HostBMC_0", "24.10.00".into());
         assert_eq!(running_json["TaskState"], "Running");
-        assert_eq!(running_json["TaskStatus"], "OK", "Running tasks must emit OK not Warning");
+        assert_eq!(
+            running_json["TaskStatus"], "OK",
+            "Running tasks must emit OK not Warning"
+        );
         assert_eq!(running_json["PercentComplete"], 0);
 
         // Yield to the runtime so the spawned task can run (delay=ZERO, no advance needed).
@@ -763,76 +783,82 @@ mod tests {
 
         assert_eq!(state.tasks.read().unwrap().len(), 1);
         state.apply_staged_firmware();
-        assert_eq!(state.tasks.read().unwrap().len(), 0, "completed task must be pruned");
-    }
-
-
-    struct QueueCase {
-        label: &'static str,
-        pending: &'static [(&'static str, &'static str)],
-        /// Expected results from sequential pop_pending calls (None = queue empty).
-        pops: &'static [Option<(&'static str, &'static str)>],
-        /// Component to look up with version_for_component (no queue consumption).
-        peek_id: &'static str,
-        peek_expected: &'static str,
-        /// Expected pop result AFTER the peek.
-        pop_after_peek: Option<(&'static str, &'static str)>,
+        assert_eq!(
+            state.tasks.read().unwrap().len(),
+            0,
+            "completed task must be pruned"
+        );
     }
 
     #[test]
     fn queue_operations() {
-        let cases = [
-            QueueCase {
-                label: "ordered pops",
-                pending: &[("HostBMC_0", "24.10.00"), ("HostBIOS_0", "01.06.00")],
-                pops: &[
-                    Some(("HostBMC_0", "24.10.00")),
-                    Some(("HostBIOS_0", "01.06.00")),
-                    None,
-                ],
-                peek_id: "HostBMC_0",
-                peek_expected: "",  // already consumed
-                pop_after_peek: None,
-            },
-            QueueCase {
-                label: "peek does not consume",
-                pending: &[("HostBMC_0", "24.10.00"), ("HostBIOS_0", "01.06.00")],
-                pops: &[],  // no pops before peek
-                peek_id: "HostBMC_0",
-                peek_expected: "24.10.00",
-                pop_after_peek: Some(("HostBMC_0", "24.10.00")),  // queue still intact
-            },
-        ];
+        // peek_pending returns the first entry without consuming it.
+        let state = make_state(
+            &[("HostBMC_0", "24.09.17"), ("HostBIOS_0", "01.05.03")],
+            &[("HostBMC_0", "24.10.00"), ("HostBIOS_0", "01.06.00")],
+        );
 
-        for case in &cases {
-            let state = make_state(&[], case.pending);
-            for expected in case.pops {
-                assert_eq!(
-                    state.pop_pending(),
-                    expected.map(|(c, v)| (c.to_string(), v.to_string())),
-                    "{}",
-                    case.label
-                );
-            }
-            assert_eq!(
-                state.version_for_component(case.peek_id),
-                case.peek_expected,
-                "{} peek",
-                case.label
-            );
-            assert_eq!(
-                state.pop_pending(),
-                case.pop_after_peek.map(|(c, v)| (c.to_string(), v.to_string())),
-                "{} pop after peek",
-                case.label
-            );
-        }
+        // Multiple peeks all return the same first entry (non-destructive).
+        assert_eq!(
+            state.peek_pending(),
+            Some(("HostBMC_0".to_string(), "24.10.00".to_string())),
+            "first peek"
+        );
+        assert_eq!(
+            state.peek_pending(),
+            Some(("HostBMC_0".to_string(), "24.10.00".to_string())),
+            "second peek must return same entry (non-destructive)"
+        );
+
+        // version_for_component is a direct key lookup, does not consume.
+        assert_eq!(state.version_for_component("HostBMC_0"), "24.10.00");
+        assert_eq!(state.version_for_component("HostBIOS_0"), "01.06.00");
+        assert_eq!(
+            state.version_for_component("NonExistent"),
+            "",
+            "missing key → empty"
+        );
+
+        // After peeking, entry is still present.
+        assert_eq!(
+            state.peek_pending(),
+            Some(("HostBMC_0".to_string(), "24.10.00".to_string())),
+            "peek after version_for_component still returns first entry"
+        );
     }
 
+    /// After apply_staged_firmware removes an entry, peek returns the next one.
+    #[tokio::test(start_paused = true)]
+    async fn pending_entry_removed_after_apply() {
+        let state = make_state(
+            &[("HostBMC_0", "24.09.17"), ("HostBIOS_0", "01.05.03")],
+            &[("HostBMC_0", "24.10.00"), ("HostBIOS_0", "01.06.00")],
+        );
+
+        // Upload BMC, complete it, then apply.
+        state.record_upload("HostBMC_0", "24.10.00".into());
+        tokio::task::yield_now().await;
+        state.apply_staged_firmware();
+
+        // BMC upgraded and removed from pending; BIOS is now first.
+        assert_eq!(
+            state.find_firmware_inventory("HostBMC_0").unwrap()["Version"],
+            "24.10.00"
+        );
+        assert_eq!(
+            state.peek_pending(),
+            Some(("HostBIOS_0".to_string(), "01.06.00".to_string())),
+            "after BMC removed, BIOS becomes first pending entry"
+        );
+    }
 
     #[test]
     fn apply_host_firmware_versions_adds_and_overrides() {
-        let mut config = UpdateServiceConfig::default();
+        let mut config = UpdateServiceConfig {
+            host_bmc_inventory_id: Some("HostBMC_0".to_string()),
+            host_uefi_inventory_id: Some("HostBIOS_0".to_string()),
+            ..Default::default()
+        };
         config.apply_host_firmware_versions(&crate::machine_info::HostFirmwareVersions {
             bmc: Some("24.09.17".into()),
             uefi: Some("01.05.03".into()),
@@ -844,26 +870,47 @@ mod tests {
         });
         assert_eq!(config.firmware_inventory.len(), 2);
         assert_eq!(
-            config.firmware_inventory.iter().find(|e| e.id == "HostBMC_0").unwrap().to_json()
-                ["Version"],
+            config
+                .firmware_inventory
+                .iter()
+                .find(|e| e.id == "HostBMC_0")
+                .unwrap()
+                .to_json()["Version"],
             "24.10.00"
         );
         assert_eq!(
-            config.firmware_inventory.iter().find(|e| e.id == "HostBIOS_0").unwrap().to_json()
-                ["Version"],
+            config
+                .firmware_inventory
+                .iter()
+                .find(|e| e.id == "HostBIOS_0")
+                .unwrap()
+                .to_json()["Version"],
             "01.05.03"
         );
     }
 
+    /// apply_host_firmware_versions is a no-op when inventory IDs are None.
+    #[test]
+    fn apply_host_firmware_versions_no_ids_is_noop() {
+        let mut config = UpdateServiceConfig::default(); // host_bmc_inventory_id = None
+        config.apply_host_firmware_versions(&crate::machine_info::HostFirmwareVersions {
+            bmc: Some("24.09.17".into()),
+            uefi: Some("01.05.03".into()),
+        });
+        assert!(
+            config.firmware_inventory.is_empty(),
+            "no IDs → no inventory entries added"
+        );
+    }
 
-    use std::sync::Arc as StdArc;
-    use axum::body::to_bytes;
-    use axum::http::{Method, Request, StatusCode};
-    use tower::ServiceExt;
     use crate::test_support::{NoopCallbacks, host_info};
     use crate::{
-        HardwareType, MachineRouterOptions, machine_router, machine_info::HostFirmwareVersions,
+        HardwareType, MachineRouterOptions, machine_info::HostFirmwareVersions, machine_router,
     };
+    use axum::body::to_bytes;
+    use axum::http::{Method, Request, StatusCode};
+    use std::sync::Arc as StdArc;
+    use tower::ServiceExt;
 
     fn make_router(
         bmc_current: &str,
@@ -936,7 +983,10 @@ mod tests {
         let (router, _) = make_router("24.09.17", "24.10.00");
         let svc = get_json(&router, "/redfish/v1/UpdateService").await;
         assert_eq!(svc["MultipartHttpPushUri"], MULTIPART_UPLOAD_PATH);
-        assert!(svc["HttpPushUri"].is_null(), "GenericAmi must not advertise HttpPushUri");
+        assert!(
+            svc["HttpPushUri"].is_null(),
+            "GenericAmi must not advertise HttpPushUri"
+        );
     }
 
     #[tokio::test]
@@ -944,37 +994,53 @@ mod tests {
         let (router, _) = make_router("24.09.17", "24.10.00");
         let resp = post_empty(&router, MULTIPART_UPLOAD_PATH).await;
         assert_eq!(resp.status(), StatusCode::ACCEPTED);
-        assert!(resp.headers().contains_key("Location"), "Location header missing");
-        let body: serde_json::Value = serde_json::from_slice(
-            &to_bytes(resp.into_body(), usize::MAX).await.unwrap(),
-        )
-        .unwrap();
+        assert!(
+            resp.headers().contains_key("Location"),
+            "Location header missing"
+        );
+        let body: serde_json::Value =
+            serde_json::from_slice(&to_bytes(resp.into_body(), usize::MAX).await.unwrap()).unwrap();
         assert_eq!(body["TaskState"], "Running");
-        assert_eq!(body["TaskStatus"], "OK", "Running task must not emit Warning");
+        assert_eq!(
+            body["TaskStatus"], "OK",
+            "Running task must not emit Warning"
+        );
     }
 
     #[tokio::test]
     async fn full_upgrade_lifecycle_via_multipart() {
         let (router, bmc_state) = make_router("24.09.17", "24.10.00");
 
-        let inv =
-            get_json(&router, "/redfish/v1/UpdateService/FirmwareInventory/HostBMC_0").await;
+        let inv = get_json(
+            &router,
+            "/redfish/v1/UpdateService/FirmwareInventory/HostBMC_0",
+        )
+        .await;
         assert_eq!(inv["Version"], "24.09.17");
 
         post_empty(&router, MULTIPART_UPLOAD_PATH).await;
 
         // Still old — task is Running.
-        let inv =
-            get_json(&router, "/redfish/v1/UpdateService/FirmwareInventory/HostBMC_0").await;
-        assert_eq!(inv["Version"], "24.09.17", "must stay old while task is Running");
+        let inv = get_json(
+            &router,
+            "/redfish/v1/UpdateService/FirmwareInventory/HostBMC_0",
+        )
+        .await;
+        assert_eq!(
+            inv["Version"], "24.09.17",
+            "must stay old while task is Running"
+        );
 
         // Force-complete the task (async lifecycle is tested in unit tests above).
         bmc_state.update_service_state.complete_all_tasks_for_test();
 
         bmc_state.on_event(&crate::bmc_state::BmcEvent::PowerOn);
 
-        let inv =
-            get_json(&router, "/redfish/v1/UpdateService/FirmwareInventory/HostBMC_0").await;
+        let inv = get_json(
+            &router,
+            "/redfish/v1/UpdateService/FirmwareInventory/HostBMC_0",
+        )
+        .await;
         assert_eq!(inv["Version"], "24.10.00");
     }
 
@@ -990,16 +1056,12 @@ mod tests {
     }
 
     /// SimpleUpdate with explicit Targets must not consume the pending_upgrades
-    /// queue — a follow-up multipart upload should still pop BMC from the queue.
+    /// map — a follow-up multipart upload should still peek BMC from the map.
     /// The BIOS entry is never uploaded so it retains its initial version.
     #[tokio::test]
     async fn simple_update_with_targets_does_not_consume_queue() {
-        let (router, bmc_state) = make_router_with_uefi(
-            "24.09.17",
-            "24.10.00",
-            Some("01.05.03"),
-            Some("01.06.00"),
-        );
+        let (router, bmc_state) =
+            make_router_with_uefi("24.09.17", "24.10.00", Some("01.05.03"), Some("01.06.00"));
 
         // SimpleUpdate targeting BMC explicitly — must NOT consume queue.
         let resp = router
@@ -1007,7 +1069,7 @@ mod tests {
             .oneshot(
                 Request::builder()
                     .method(Method::POST)
-                    .uri(&simple_update_target())
+                    .uri(simple_update_target())
                     .header("Content-Type", "application/json")
                     .body(axum::body::Body::from(
                         r#"{"Targets":["/redfish/v1/UpdateService/FirmwareInventory/HostBMC_0"]}"#,
@@ -1018,7 +1080,7 @@ mod tests {
             .unwrap();
         assert_eq!(resp.status(), StatusCode::ACCEPTED);
 
-        // Multipart upload — pops BMC from the queue (SimpleUpdate did not consume it).
+        // Multipart upload — peeks BMC from the map (SimpleUpdate did not consume it).
         let resp = post_empty(&router, MULTIPART_UPLOAD_PATH).await;
         assert_eq!(resp.status(), StatusCode::ACCEPTED);
 
@@ -1026,12 +1088,22 @@ mod tests {
         bmc_state.on_event(&crate::bmc_state::BmcEvent::PowerOn);
 
         // BMC upgraded (both SimpleUpdate and multipart created tasks for it).
-        let bmc = get_json(&router, "/redfish/v1/UpdateService/FirmwareInventory/HostBMC_0").await;
+        let bmc = get_json(
+            &router,
+            "/redfish/v1/UpdateService/FirmwareInventory/HostBMC_0",
+        )
+        .await;
         assert_eq!(bmc["Version"], "24.10.00");
 
         // BIOS was never uploaded — must retain the initial version.
-        let bios =
-            get_json(&router, "/redfish/v1/UpdateService/FirmwareInventory/HostBIOS_0").await;
-        assert_eq!(bios["Version"], "01.05.03", "BIOS was never uploaded; must be unchanged");
+        let bios = get_json(
+            &router,
+            "/redfish/v1/UpdateService/FirmwareInventory/HostBIOS_0",
+        )
+        .await;
+        assert_eq!(
+            bios["Version"], "01.05.03",
+            "BIOS was never uploaded; must be unchanged"
+        );
     }
 }

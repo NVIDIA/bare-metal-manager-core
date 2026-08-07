@@ -558,18 +558,19 @@ impl HostMachineInfo {
             config.apply_host_firmware_versions(fw);
         }
 
-        // Populate the ordered pending_upgrades queue so UpdateServiceState knows
+        // Populate the ordered pending_upgrades map so UpdateServiceState knows
         // what version to stage for each component when an upload arrives.
         // machine-a-tron sets desired_host_firmware from desired_firmware_versions
-        // (the API-configured target); bmc-mock pops from this queue in record_upload()
+        // (the API-configured target); bmc-mock peeks from this map in record_upload()
         // when the upload request carries no explicit Targets — making component
-        // identification deterministic even for multipart/HttpPush uploads.
+        // identification deterministic even for multipart uploads.
+        // IDs come from the platform-specific UpdateServiceConfig set above.
         if let Some(ref fw) = self.desired_host_firmware {
-            if let Some(ref bmc) = fw.bmc {
-                config.pending_upgrades.push_back(("HostBMC_0".to_string(), bmc.clone()));
+            if let (Some(id), Some(bmc)) = (&config.host_bmc_inventory_id, &fw.bmc) {
+                config.pending_upgrades.insert(id.clone(), bmc.clone());
             }
-            if let Some(ref uefi) = fw.uefi {
-                config.pending_upgrades.push_back(("HostBIOS_0".to_string(), uefi.clone()));
+            if let (Some(id), Some(uefi)) = (&config.host_uefi_inventory_id, &fw.uefi) {
+                config.pending_upgrades.insert(id.clone(), uefi.clone());
             }
         }
 

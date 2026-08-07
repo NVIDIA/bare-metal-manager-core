@@ -359,6 +359,8 @@ impl NvidiaDgxH100<'_> {
                 .build()
             })
             .collect(),
+            host_bmc_inventory_id: Some("HostBMC_0".to_string()),
+            host_uefi_inventory_id: Some("HostBIOS_0".to_string()),
             ..Default::default()
         }
     }

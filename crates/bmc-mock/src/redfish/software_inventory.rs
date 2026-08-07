@@ -66,7 +66,7 @@ impl SoftwareInventory {
     /// Update the `Version` field in-place.  Used by
     /// `UpdateServiceState::apply_staged_firmware` to reflect a firmware
     /// version that became active after a power-cycle.
-    pub fn set_version(&mut self, version: &str) {
+    pub(crate) fn set_version(&mut self, version: &str) {
         if let Some(object) = self.value.as_object_mut() {
             object.insert(
                 "Version".to_string(),

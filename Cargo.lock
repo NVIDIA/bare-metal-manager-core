@@ -888,6 +888,7 @@ dependencies = [
  "glob",
  "http-body-util",
  "hyper",
+ "indexmap 2.14.0",
  "itertools 0.14.0",
  "lazy_static",
  "mac_address",

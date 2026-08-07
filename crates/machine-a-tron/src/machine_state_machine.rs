@@ -1002,18 +1002,31 @@ impl MachineStateMachine {
     }
 
     /// Return the active host firmware versions from the live BMC mock inventory.
-    /// Returns `None` when the BMC mock has not started yet or no firmware
-    /// inventory entries exist for the standard host components.
+    /// Returns `None` when the BMC mock has not started yet, or when this
+    /// platform has no host firmware simulation (inventory IDs are `None`).
     pub(super) fn current_host_firmware(&self) -> Option<bmc_mock::HostFirmwareVersions> {
         let bmc_state = self.bmc_state.as_ref()?;
+        // host_bmc_inventory_id is None for platforms without host firmware simulation
+        // (switches, power shelves, Dell R760+BF4, etc.).  Return None early so
+        // live_state.active_host_firmware stays None for those machines.
+        let bmc_id = bmc_state
+            .update_service_state
+            .host_bmc_inventory_id
+            .as_deref()?;
+        let uefi_id = bmc_state
+            .update_service_state
+            .host_uefi_inventory_id
+            .as_deref();
         let bmc = bmc_state
             .update_service_state
-            .find_firmware_inventory("HostBMC_0")
+            .find_firmware_inventory(bmc_id)
             .and_then(|v| v["Version"].as_str().map(str::to_owned));
-        let uefi = bmc_state
-            .update_service_state
-            .find_firmware_inventory("HostBIOS_0")
-            .and_then(|v| v["Version"].as_str().map(str::to_owned));
+        let uefi = uefi_id.and_then(|id| {
+            bmc_state
+                .update_service_state
+                .find_firmware_inventory(id)
+                .and_then(|v| v["Version"].as_str().map(str::to_owned))
+        });
         if bmc.is_some() || uefi.is_some() {
             Some(bmc_mock::HostFirmwareVersions { bmc, uefi })
         } else {

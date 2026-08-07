@@ -113,7 +113,7 @@ impl DeltaPowerShelf<'_> {
     pub(crate) fn update_service_config(&self) -> redfish::update_service::UpdateServiceConfig {
         redfish::update_service::UpdateServiceConfig {
             firmware_inventory: vec![],
-                ..Default::default()
+            ..Default::default()
         }
     }
 }

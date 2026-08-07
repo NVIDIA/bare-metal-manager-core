@@ -21,7 +21,9 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use bmc_mock::mac_address_pool::MacAddressPool;
-use bmc_mock::{DpuMachineInfo, DpuSettings, HardwareType, HostFirmwareVersions, RackInfo, RackType};
+use bmc_mock::{
+    DpuMachineInfo, DpuSettings, HardwareType, HostFirmwareVersions, RackInfo, RackType,
+};
 use carbide_uuid::machine::MachineId;
 use carbide_uuid::rack::{RackId, RackProfileId};
 use clap::Parser;
