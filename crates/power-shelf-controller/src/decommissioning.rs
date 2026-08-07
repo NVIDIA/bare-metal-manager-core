@@ -92,7 +92,7 @@ async fn handle_factory_reset_bmc(
         .await
         .map_err(|error| {
             StateHandlerError::GenericError(eyre::eyre!(
-                "failed to create Redfish client for power shelf {power_shelf_id}: {error}"
+                "failed to create redfish client for power shelf {power_shelf_id}: {error}"
             ))
         })?
         .bmc_reset_to_defaults()

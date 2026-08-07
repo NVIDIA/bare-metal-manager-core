@@ -117,7 +117,7 @@ pub(crate) async fn decommission_power_shelf(
         model::power_shelf::PowerShelfControllerState::Ready
     ) {
         return Err(CarbideError::FailedPrecondition(format!(
-            "power shelf {power_shelf_id} must be Ready to be decommissioned (current state: {:?})",
+            "power shelf {power_shelf_id} must be in the ready state to be decommissioned (current state: {:?})",
             power_shelf.controller_state.value
         ))
         .into());
@@ -142,7 +142,7 @@ fn require_decommissioned(power_shelf: &PowerShelf) -> Result<(), CarbideError> 
     }
 
     Err(CarbideError::FailedPrecondition(format!(
-        "power shelf {} must be Decommissioned before deletion (current state: {:?})",
+        "power shelf {} must be in the decommissioned state before deletion (current state: {:?})",
         power_shelf.id, power_shelf.controller_state.value
     )))
 }
