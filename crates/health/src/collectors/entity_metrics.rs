@@ -503,6 +503,23 @@ fn nvidia_processor_metric_fields(m: &NvidiaProcessorMetrics) -> Vec<MetricField
     let mut out = Vec::new();
     nvidia_common_processor_fields(&mut out, m.common());
 
+    // Integer activity is declared twice: the GPU shape spells it
+    // correctly, the shared base kept the original `Interger` typo.
+    // Firmware sends one or the other, so read both into one series,
+    // preferring the correctly spelled one.
+    let integer_activity = match m {
+        NvidiaProcessorMetrics::Gpu(gpu) => gpu.integer_activity_utilization_percent.flatten(),
+        NvidiaProcessorMetrics::Generic(_) => None,
+    }
+    .or_else(|| m.common().interger_activity_utilization_percent.flatten());
+    if let Some(value) = integer_activity {
+        out.push(MetricField {
+            metric_type: Cow::Borrowed("nvidia_integer_activity_utilization"),
+            unit: "percent",
+            value,
+        });
+    }
+
     match m {
         NvidiaProcessorMetrics::Gpu(gpu) => {
             scalar!(
@@ -510,13 +527,6 @@ fn nvidia_processor_metric_fields(m: &NvidiaProcessorMetrics) -> Vec<MetricField
                 gpu,
                 sm_utilization_percent,
                 "nvidia_sm_utilization",
-                "percent"
-            );
-            scalar!(
-                out,
-                gpu,
-                integer_activity_utilization_percent,
-                "nvidia_integer_activity_utilization",
                 "percent"
             );
             scalar!(
@@ -1459,6 +1469,17 @@ mod tests {
                         ("nvidia_power_brake_assertion", "seconds", 3.0),
                         ("nvidia_cpu_uptime", "seconds", 86400.0),
                     ]),
+                },
+                Check {
+                    scenario: "integer activity falls back to the base schema's spelling",
+                    input: ProjectionCase {
+                        projection: Projection::NvidiaGenericProcessor,
+                        metrics: json!({
+                            "@odata.type": "#NvidiaProcessorMetrics.v1_5_0.NvidiaProcessorMetrics",
+                            "IntergerActivityUtilizationPercent": 33.0
+                        }),
+                    },
+                    expect: expected([("nvidia_integer_activity_utilization", "percent", 33.0)]),
                 },
                 Check {
                     scenario: "throttle reasons count only the active ones",

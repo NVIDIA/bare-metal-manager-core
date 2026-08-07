@@ -430,11 +430,7 @@ impl<B: Bmc> ExploredChassis<B> {
             .or(hw_id.serial_number.map(|v| v.to_string()))
             .map(|s| s.trim().to_string());
 
-        let nvidia_oem = self
-            .chassis
-            .oem_nvidia_cbc()
-            .ok()
-            .and_then(identity);
+        let nvidia_oem = self.chassis.oem_nvidia_cbc().ok().and_then(identity);
         Chassis {
             id: chassis_id.to_string(),
             manufacturer: hw_id.manufacturer.map(|v| v.to_string()),
