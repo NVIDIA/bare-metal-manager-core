@@ -22,6 +22,7 @@ use std::ops::Deref;
 
 use carbide_uuid::instance::InstanceId;
 use carbide_uuid::machine::{MachineId, MachineType};
+use carbide_uuid::rack::RackId;
 use itertools::Itertools;
 use lazy_static::lazy_static;
 use model::machine::{LoadSnapshotOptions, ManagedHostStateSnapshot};
@@ -79,6 +80,28 @@ pub async fn load_host_ids(txn: impl DbReader<'_>) -> Result<Vec<MachineId>, Dat
         .fetch_all(txn)
         .await
         .map_err(|e| DatabaseError::new("managed_host::load_host_ids", e))
+}
+
+/// Returns whether any managed host in the rack is assigned to an instance.
+pub async fn has_instance_assigned_host_in_rack(
+    txn: &mut PgConnection,
+    rack_id: &RackId,
+) -> Result<bool, DatabaseError> {
+    let query = r#"
+        SELECT EXISTS (
+            SELECT 1
+            FROM machines m
+            INNER JOIN instances i ON i.machine_id = m.id
+            WHERE m.rack_id = $1
+              AND NOT starts_with(m.id, $2)
+        )
+    "#;
+    sqlx::query_scalar(query)
+        .bind(rack_id)
+        .bind(MachineType::Dpu.id_prefix())
+        .fetch_one(txn)
+        .await
+        .map_err(|e| DatabaseError::query(query, e))
 }
 
 /// Loads ManagedHost snapshots from the database for all enumerated machines

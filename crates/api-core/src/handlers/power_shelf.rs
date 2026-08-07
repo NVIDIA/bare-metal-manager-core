@@ -123,6 +123,15 @@ pub(crate) async fn decommission_power_shelf(
         .into());
     }
 
+    if let Some(rack_id) = power_shelf.rack_id.as_ref()
+        && db::managed_host::has_instance_assigned_host_in_rack(&mut txn, rack_id).await?
+    {
+        return Err(CarbideError::FailedPrecondition(format!(
+            "power shelf {power_shelf_id} cannot be decommissioned while a managed host in rack {rack_id} is assigned to an instance"
+        ))
+        .into());
+    }
+
     db_power_shelf::set_decommission_requested(
         &mut txn,
         power_shelf_id,

@@ -22,9 +22,10 @@ use carbide_credential_rotation::RotationGate;
 use carbide_power_shelf_controller::context::PowerShelfStateHandlerServices;
 use carbide_power_shelf_controller::handler::PowerShelfStateHandler;
 use carbide_power_shelf_controller::io::PowerShelfStateControllerIO;
-use carbide_uuid::machine::MachineInterfaceId;
+use carbide_uuid::machine::{MachineId, MachineIdSource, MachineInterfaceId, MachineType};
 use carbide_uuid::network::NetworkSegmentId;
 use carbide_uuid::power_shelf::PowerShelfId;
+use carbide_uuid::rack::RackId;
 use mac_address::MacAddress;
 use model::allocation_type::AllocationType;
 use model::bmc_suppression::BmcSuppressionSubsystem;
@@ -39,6 +40,7 @@ use tonic::{Code, Request};
 
 use super::fixtures::power_shelf::set_power_shelf_controller_state;
 use crate::tests::common;
+use crate::tests::common::api_fixtures::site_explorer::TestRackDbBuilder;
 use crate::tests::common::api_fixtures::{TestEnv, create_test_env};
 
 type TestResult<T = ()> = Result<T, Box<dyn std::error::Error>>;
@@ -126,6 +128,81 @@ async fn decommission_requires_ready_power_shelf(pool: sqlx::PgPool) -> TestResu
         .await
         .expect_err("an initializing power shelf must not be permanently deleted");
     assert_eq!(error.code(), Code::FailedPrecondition);
+    Ok(())
+}
+
+#[crate::sqlx_test]
+async fn decommission_rejects_instance_assigned_host_in_power_shelf_rack(
+    pool: sqlx::PgPool,
+) -> TestResult {
+    let env = create_test_env(pool.clone()).await;
+    let power_shelf_id = common::api_fixtures::site_explorer::new_power_shelf(
+        &env,
+        Some("Assigned host preflight".to_string()),
+        None,
+        None,
+        None,
+    )
+    .await?;
+    let rack_id = RackId::new("power-shelf-decommission-rack");
+    let host_id = MachineId::new(
+        MachineIdSource::ProductBoardChassisSerial,
+        [0x45; 32],
+        MachineType::Host,
+    );
+
+    let mut txn = pool.begin().await?;
+    TestRackDbBuilder::new()
+        .with_rack_id(rack_id.clone())
+        .persist(txn.as_mut())
+        .await?;
+    sqlx::query("UPDATE power_shelves SET rack_id = $1 WHERE id = $2")
+        .bind(&rack_id)
+        .bind(power_shelf_id)
+        .execute(txn.as_mut())
+        .await?;
+    set_power_shelf_controller_state(
+        txn.as_mut(),
+        &power_shelf_id,
+        PowerShelfControllerState::Ready,
+    )
+    .await?;
+    sqlx::query("INSERT INTO machines (id, dpf, rack_id) VALUES ($1, '{}'::jsonb, $2)")
+        .bind(host_id)
+        .bind(&rack_id)
+        .execute(txn.as_mut())
+        .await?;
+    sqlx::query("INSERT INTO instances (machine_id) VALUES ($1)")
+        .bind(host_id)
+        .execute(txn.as_mut())
+        .await?;
+    txn.commit().await?;
+
+    let error = env
+        .api
+        .decommission_power_shelf(Request::new(power_shelf_id))
+        .await
+        .expect_err("a power shelf with an assigned host in its rack must be rejected");
+    assert_eq!(error.code(), Code::FailedPrecondition);
+    assert!(error.message().contains("is assigned to an instance"));
+    assert!(
+        !load_power_shelf(&pool, power_shelf_id)
+            .await?
+            .decommission_requested
+    );
+
+    sqlx::query("DELETE FROM instances WHERE machine_id = $1")
+        .bind(host_id)
+        .execute(&pool)
+        .await?;
+    env.api
+        .decommission_power_shelf(Request::new(power_shelf_id))
+        .await?;
+    assert!(
+        load_power_shelf(&pool, power_shelf_id)
+            .await?
+            .decommission_requested
+    );
     Ok(())
 }
 
