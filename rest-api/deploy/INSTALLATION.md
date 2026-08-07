@@ -170,7 +170,7 @@ A single-replica PostgreSQL 14 StatefulSet that hosts all databases for the NICo
 | `base/postgres/namespace.yaml` | `postgres` namespace |
 | `base/postgres/admin-creds.yaml` | Secret `admin-creds` — postgres superuser password |
 | `base/postgres/init-configmap.yaml` | ConfigMap `postgres-init` — SQL init script |
-| `base/postgres/statefulset.yaml` | StatefulSet `postgres` — `postgres:14.4-alpine`, 1Gi PVC |
+| `base/postgres/statefulset.yaml` | StatefulSet `postgres` — `postgres:14.4-alpine`, 10Gi PVC |
 | `base/postgres/service.yaml` | ClusterIP Service on port 5432 — DNS: `postgres.postgres` |
 | `base/postgres/adminer.yaml` | Optional Adminer web UI |
 
