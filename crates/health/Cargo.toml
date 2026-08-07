@@ -51,7 +51,7 @@ hyper-util = { workspace = true, features = [
 ] }
 mac_address = { workspace = true }
 metrics-endpoint = { path = "../metrics-endpoint" }
-opentelemetry-proto = { workspace = true }
+opentelemetry-proto = { workspace = true, default_features = false, features = ["gen-tonic", "logs", "metrics"] }
 opentelemetry = { workspace = true }
 prometheus = { workspace = true }
 reqwest = { workspace = true, features = ["query", "json", "rustls"] }

@@ -23,7 +23,7 @@ use serde::Serialize;
 
 use super::collector_logs::ExportLogsServiceRequest;
 use super::collector_metrics::ExportMetricsServiceRequest;
-use super::common::{AnyValue, KeyValue, any_value};
+use super::common::{AnyValue, KeyValue};
 use super::logs::{LogRecord as OtlpLogRecord, ResourceLogs, ScopeLogs, SeverityNumber};
 use super::metrics::{
     Gauge as OtlpGauge, Metric as OtlpMetric, NumberDataPoint, ResourceMetrics, ScopeMetrics,
@@ -72,10 +72,7 @@ fn resource_attributes(context: &EventContext) -> Vec<KeyValue> {
             attrs.push(KeyValue::new("bmc.ip", context.addr.ip.to_string()));
         }
     }
-    attrs.push(KeyValue::new(
-        "collector.type",
-        context.collector_type.to_string(),
-    ));
+    attrs.push(KeyValue::new("collector.type", context.collector_type));
     if let Some(machine_id) = context.machine_id() {
         attrs.push(KeyValue::new("machine.id", machine_id.to_string()));
     }
@@ -102,19 +99,10 @@ fn resource_attributes(context: &EventContext) -> Vec<KeyValue> {
             SwitchEndpointRole::Bmc => "bmc",
             SwitchEndpointRole::Host => "host",
         };
-        attrs.push(KeyValue::new(
-            "switch.endpoint_role",
-            endpoint_role.to_string(),
-        ));
+        attrs.push(KeyValue::new("switch.endpoint_role", endpoint_role));
     }
     if let Some(is_primary) = context.switch_is_primary() {
-        attrs.push(KeyValue {
-            key: "switch.is_primary".to_string(),
-            value: Some(AnyValue {
-                value: Some(any_value::Value::BoolValue(is_primary)),
-            }),
-            key_strindex: 0,
-        });
+        attrs.push(KeyValue::new("switch.is_primary", is_primary));
     }
     if let Some(rack_id) = context.rack_id() {
         attrs.push(KeyValue::new("rack.id", rack_id.to_string()));
@@ -446,6 +434,7 @@ mod tests {
     use carbide_uuid::rack::RackId;
     use carbide_uuid::switch::{SwitchId, SwitchIdSource, SwitchType};
     use mac_address::MacAddress;
+    use opentelemetry_proto::tonic::common::v1::any_value;
 
     use super::*;
     use crate::endpoint::{
@@ -825,10 +814,7 @@ mod tests {
         let records = &request.resource_logs[0].scope_logs[0].log_records;
         let record = &records[0];
 
-        assert_eq!(
-            record.body.as_ref().and_then(|body| body.value.as_ref()),
-            Some(&any_value::Value::StringValue(body.to_string()))
-        );
+        assert_eq!(record.body, Some(body.into_any_value()));
         assert_eq!(
             attr_value(&record.attributes, "redfish.diagnostic_data.type"),
             Some("cper")
@@ -930,10 +916,8 @@ mod tests {
         assert_eq!(record.severity_text, "WARN");
         assert_eq!(record.severity_number, SeverityNumber::Warn as i32);
         assert_eq!(
-            record.body.as_ref().and_then(|body| body.value.as_ref()),
-            Some(&any_value::Value::StringValue(
-                "health report: 2 alerts, 0 ok (source: BmcSensors)".to_string()
-            ))
+            record.body,
+            Some("health report: 2 alerts, 0 ok (source: BmcSensors)".into_any_value())
         );
         assert_eq!(
             attr_value(&record.attributes, "event.type"),
