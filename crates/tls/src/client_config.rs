@@ -69,9 +69,10 @@ pub fn get_api_url(api_url: Option<String>, file_config: Option<&FileConfig>) ->
 
 /// Ensures a URL has an HTTP(S) scheme, defaulting to `https://` if missing
 fn ensure_url_has_scheme(url: &str) -> String {
-    let url = url.trim().to_ascii_lowercase();
-    if url.starts_with("http://") || url.starts_with("https://") {
-        url
+    let url = url.trim();
+    let lower = url.to_ascii_lowercase();
+    if lower.starts_with("http://") || lower.starts_with("https://") {
+        url.to_string()
     } else {
         format!("https://{url}")
     }
@@ -588,7 +589,7 @@ mod tests {
 
         assert_eq!(
             ensure_url_has_scheme("HTTPS://example.com"),
-            "https://example.com"
+            "HTTPS://example.com"
         );
 
         assert_eq!(
