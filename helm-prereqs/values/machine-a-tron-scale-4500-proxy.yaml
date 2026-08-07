@@ -1,0 +1,99 @@
+# 4,500 hosts (13,500 machines) in SHARED-PROXY mode.
+#
+# Why this exists (#4732): controller mode gives every simulated BMC its own
+# ClusterIP Service. At 4,500 hosts that is ~13,500 Services, and the dev6
+# control plane does not survive it -- API list operations hit 10-35 s,
+# calico-node crash-loops (137-150 restarts on 2 of 3 nodes), CoreDNS resolution
+# goes intermittent, and nico-api can no longer open a database connection. The
+# cluster, not NICo, becomes the bottleneck, and any rate measured there is
+# meaningless.
+#
+# Shared-proxy mode needs ONE Service for the whole fleet: site-explorer dials
+# `bmc_proxy` and the Redfish client injects `Forwarded: host=<BMC IP>`, which
+# the mock's registry uses to pick the simulated BMC. BMC addresses come from
+# the simulated OOB prefix (SCALE_OOB_PREFIX, default 10.96.64.0/18 -> 16,382
+# usable, enough for 13,500), NOT from the Service CIDR.
+#
+# Single pod on purpose: the chart emits one `-bmc-mock` Service per entry in
+# `pods`, so a single routable proxy host requires a single pod. Resources are
+# sized for the whole fleet in one process accordingly.
+#
+# Run with:
+#   MAT_MODE=scale HOST_COUNT=4500 DPU_PER_HOST=2 \
+#     VALUES_FILE=.../machine-a-tron-scale-4500-proxy.yaml ./setup-machine-a-tron.sh -y
+# and WITHOUT MAT_MULTIPOD=1 -- that variable is what selects controller mode.
+image:
+  repository: ""
+  tag: ""
+  pullPolicy: IfNotPresent
+global:
+  imagePullSecrets:
+    - name: machine-a-tron-pull
+certificate:
+  uris:
+    - "spiffe://nico.local/nico-system/sa/machine-a-tron"
+machineATron:
+  nicoApiUrl: "https://nico-api.nico-system.svc.cluster.local:1079"
+  # The single BMC endpoint the whole fleet is reached through. Name comes from
+  # templates/service.yaml: "<chart name>-<pod key>-bmc-mock".
+  configureBmcProxyHost: "nico-machine-a-tron-default-bmc-mock.nico-mat.svc.cluster.local"
+  registerExpectedMachines: true
+  useSingleBmcMock: true
+macAddressPool:
+  enabled: true
+  basePrefix: "02:00"
+hwMacAddressRanges:
+  enabled: true
+  basePrefix: "02:01"
+# The entire point of this file: no per-BMC ClusterIP Services.
+mat-k8s-controller:
+  enabled: false
+livenessProbe:
+  tcpSocket:
+    port: redfish
+  initialDelaySeconds: 120
+  periodSeconds: 30
+  failureThreshold: 240
+  successThreshold: 1
+  timeoutSeconds: 10
+readinessProbe:
+  tcpSocket:
+    port: redfish
+  initialDelaySeconds: 30
+  periodSeconds: 30
+  failureThreshold: 240
+  successThreshold: 1
+  timeoutSeconds: 5
+# One process now simulates all 13,500 machines instead of three sharing the
+# load, so this is deliberately larger than the multipod per-pod sizing.
+resources:
+  limits:
+    cpu: "32"
+    memory: 64Gi
+  requests:
+    cpu: "8"
+    memory: 16Gi
+pods:
+  default:
+    machines:
+      rack-machines: null
+      compute:
+        hwType: dell_poweredge_r750
+        hostCount: 4500
+        dpuPerHostCount: 2
+        vpcCount: 0
+        subnetsPerVpc: 0
+        dpuRebootDelay: 1
+        hostRebootDelay: 1
+        scoutRunInterval: "300s"
+        runIntervalWorking: "5s"
+        runIntervalIdle: "60s"
+        networkStatusRunInterval: "120s"
+        # Simulated networks (Phase 5/6 constants), not Service CIDR carve-outs.
+        oobDhcpRelayAddress: "10.96.64.1"
+        adminDhcpRelayAddress: "10.102.0.1"
+        networkVirtualizationType: ""
+        dpusInNicMode: false
+extraEnv:
+  - name: RUST_LOG
+    value: "info"
