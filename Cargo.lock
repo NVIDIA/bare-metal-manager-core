@@ -7814,9 +7814,9 @@ dependencies = [
 
 [[package]]
 name = "nv-redfish"
-version = "0.12.1"
+version = "0.12.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2592edb56672a2c7edf127a376cc1ee487ba0e3c6f1de089e0a8074e731fae2c"
+checksum = "a479451ed177b194f1516905192cca7afcb19df746929a696cde25bb59505d22"
 dependencies = [
  "futures-core",
  "futures-util",
