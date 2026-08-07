@@ -1,0 +1,77 @@
+{
+    "ipv4Unicast": {
+        "routerId": "10.217.6.19",
+        "as": 4294967000,
+        "vrfName": "default",
+        "peers": {
+            "p0_if": {
+                "hostname": "PDX01-M01-H21-TOR-01",
+                "remoteAs": 4259906565,
+                "localAs": 4294967000,
+                "version": 4,
+                "pfxRcd": 1,
+                "pfxSnt": 3,
+                "state": "Established",
+                "peerState": "OK",
+                "idType": "interface"
+            },
+            "p1_if": {
+                "hostname": "PDX01-M01-H21-TOR-02",
+                "remoteAs": 4259906566,
+                "localAs": 4294967000,
+                "version": 4,
+                "pfxRcd": 1,
+                "pfxSnt": 3,
+                "state": "Established",
+                "peerState": "OK",
+                "idType": "interface"
+            }
+        },
+        "failedPeers": 0,
+        "totalPeers": 2,
+        "dynamicPeers": 0
+    },
+    "l2VpnEvpn": {
+        "routerId": "10.217.6.19",
+        "as": 4294967000,
+        "vrfName": "default",
+        "peers": {
+            "10.217.126.67": {
+                "hostname": "frrouting-0",
+                "remoteAs": 4200000001,
+                "localAs": 4294967000,
+                "version": 4,
+                "pfxRcd": 198,
+                "pfxSnt": 205,
+                "state": "Established",
+                "peerState": "OK",
+                "idType": "ipv4"
+            },
+            "10.217.126.68": {
+                "hostname": "frrouting-1",
+                "remoteAs": 4200000001,
+                "localAs": 4294967000,
+                "version": 4,
+                "pfxRcd": 0,
+                "pfxSnt": 0,
+                "state": "Active",
+                "peerState": "Passive",
+                "idType": "ipv4"
+            },
+            "10.217.126.69": {
+                "hostname": "frrouting-2",
+                "remoteAs": 4200000001,
+                "localAs": 4294967000,
+                "version": 4,
+                "pfxRcd": 0,
+                "pfxSnt": 0,
+                "state": "Active",
+                "peerState": "Passive",
+                "idType": "ipv4"
+            }
+        },
+        "failedPeers": 2,
+        "totalPeers": 3,
+        "dynamicPeers": 0
+    }
+}

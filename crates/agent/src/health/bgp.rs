@@ -22,6 +22,13 @@ use serde::Deserialize;
 use super::{failed, make_alert, passed, probe_ids};
 use crate::{HBNDeviceNames, hbn};
 
+/// Route servers are redundant: each one advertises the same EVPN routes, so a
+/// DPU keeps full reachability as long as more than one session is up. Peering
+/// failures are therefore only critical once fewer than this many healthy
+/// sessions remain - which also covers a lone route server going down and all
+/// of them failing at once.
+const MIN_HEALTHY_ROUTE_SERVERS: usize = 2;
+
 /// `BgpHealthCheckParams` contains the configured peers, uplinks, and address
 /// families that the BGP health check should require.
 pub(super) struct BgpHealthCheckParams<'a> {
@@ -350,6 +357,7 @@ fn check_bgp_stats_l2_vpn_evpn(
                 .push((name.to_string(), peer_name.clone()));
         }
     } else {
+        health_data.configured_route_servers = route_servers.len();
         let mut other_peers: HashMap<&String, &BgpPeer> = s.other_peers().collect();
         for route_server in route_servers {
             let session_data = other_peers.remove(route_server);
@@ -398,6 +406,10 @@ struct BgpHealthData {
     // emits one alert for each physical link.
     pub unhealthy_tor_peers: HashMap<String, String>,
     pub unhealthy_route_server_peers: Vec<(String, String)>,
+    /// How many route servers the DPU was configured to peer with. Needed to
+    /// tell "one of three is down" (redundancy intact) from "we are down to our
+    /// last one" (redundancy gone).
+    pub configured_route_servers: usize,
     pub unexpected_peers: Vec<(String, String)>,
     pub other_errors: Vec<String>,
 }
@@ -425,12 +437,23 @@ impl BgpHealthData {
             ));
         }
 
+        // Route servers are redundant, so losing one does not change what the
+        // DPU can reach. Report it as a warning - no classifications, so it
+        // neither blocks allocations nor host state changes, while still being
+        // visible in the health report and in
+        // carbide_hosts_unhealthy_by_probe_id_count for operators to watch.
+        // Only escalate once redundancy is actually gone.
+        let healthy_route_servers = self
+            .configured_route_servers
+            .saturating_sub(self.unhealthy_route_server_peers.len());
+        let unhealthy_route_servers_critical = healthy_route_servers < MIN_HEALTHY_ROUTE_SERVERS;
+
         for (route_server, message) in self.unhealthy_route_server_peers.into_iter() {
             hr.alerts.push(make_alert(
                 probe_ids::BgpPeeringRouteServer.clone(),
                 Some(route_server.to_string()),
                 message,
-                true,
+                unhealthy_route_servers_critical,
             ));
         }
 
@@ -533,6 +556,12 @@ mod tests {
         include_str!("../hbn_bgp_summary_with_route_server_and_tenant_routes.json");
     const BGP_SUMMARY_JSON_WITH_ROUTE_SERVER_FAILED_ALL_PEERS: &str =
         include_str!("../hbn_bgp_summary_with_route_server_failed_all_peers.json");
+    const BGP_SUMMARY_JSON_WITH_ROUTE_SERVERS_ONE_FAILED: &str =
+        include_str!("../hbn_bgp_summary_with_route_servers_one_failed.json");
+    const BGP_SUMMARY_JSON_WITH_ROUTE_SERVERS_TWO_FAILED: &str =
+        include_str!("../hbn_bgp_summary_with_route_servers_two_failed.json");
+    const BGP_SUMMARY_JSON_WITH_TWO_ROUTE_SERVERS_ONE_FAILED: &str =
+        include_str!("../hbn_bgp_summary_with_two_route_servers_one_failed.json");
     const BGP_IPV6_UNICAST_SUMMARY_JSON_NO_FAILED_PEERS: &str =
         include_str!("../hbn_bgp_ipv6_unicast_summary_no_failed_peers.json");
 
@@ -672,6 +701,79 @@ mod tests {
                             "p1_if",
                             "Session p1_if is not Established, but in state Idle",
                             true,
+                        ),
+                    ],
+                },
+                Row {
+                    scenario: "one of three route servers down keeps redundancy, warning only",
+                    json: BGP_SUMMARY_JSON_WITH_ROUTE_SERVERS_ONE_FAILED,
+                    host_routes: &[],
+                    route_servers: &["10.217.126.67", "10.217.126.68", "10.217.126.69"],
+                    expected_alerts: vec![make_alert(
+                        probe_ids::BgpPeeringRouteServer.clone(),
+                        Some("10.217.126.69".to_string()),
+                        "Session 10.217.126.69 is not Established, but in state Active".to_string(),
+                        false,
+                    )],
+                },
+                Row {
+                    scenario: "two of three route servers down leaves no redundancy, critical",
+                    json: BGP_SUMMARY_JSON_WITH_ROUTE_SERVERS_TWO_FAILED,
+                    host_routes: &[],
+                    route_servers: &["10.217.126.67", "10.217.126.68", "10.217.126.69"],
+                    expected_alerts: vec![
+                        make_alert(
+                            probe_ids::BgpPeeringRouteServer.clone(),
+                            Some("10.217.126.68".to_string()),
+                            "Session 10.217.126.68 is not Established, but in state Active"
+                                .to_string(),
+                            true,
+                        ),
+                        make_alert(
+                            probe_ids::BgpPeeringRouteServer.clone(),
+                            Some("10.217.126.69".to_string()),
+                            "Session 10.217.126.69 is not Established, but in state Active"
+                                .to_string(),
+                            true,
+                        ),
+                    ],
+                },
+                Row {
+                    scenario: "one of two route servers down leaves no redundancy, critical",
+                    json: BGP_SUMMARY_JSON_WITH_TWO_ROUTE_SERVERS_ONE_FAILED,
+                    host_routes: &[],
+                    route_servers: &["10.217.126.67", "10.217.126.68"],
+                    expected_alerts: vec![make_alert(
+                        probe_ids::BgpPeeringRouteServer.clone(),
+                        Some("10.217.126.68".to_string()),
+                        "Session 10.217.126.68 is not Established, but in state Active".to_string(),
+                        true,
+                    )],
+                },
+                Row {
+                    scenario: "missing route server session is a warning while redundancy holds",
+                    json: BGP_SUMMARY_JSON_WITH_ROUTE_SERVERS_ONE_FAILED,
+                    host_routes: &[],
+                    route_servers: &[
+                        "10.217.126.67",
+                        "10.217.126.68",
+                        "10.217.126.69",
+                        "10.217.126.70",
+                    ],
+                    expected_alerts: vec![
+                        make_alert(
+                            probe_ids::BgpPeeringRouteServer.clone(),
+                            Some("10.217.126.69".to_string()),
+                            "Session 10.217.126.69 is not Established, but in state Active"
+                                .to_string(),
+                            false,
+                        ),
+                        make_alert(
+                            probe_ids::BgpPeeringRouteServer.clone(),
+                            Some("10.217.126.70".to_string()),
+                            "Expected session for 10.217.126.70 was not found in BGP peer data"
+                                .to_string(),
+                            false,
                         ),
                     ],
                 },
