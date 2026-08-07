@@ -2753,9 +2753,11 @@ dependencies = [
  "prost-build",
  "prost-reflect",
  "prost-types",
+ "quote",
  "syn 2.0.117",
  "tempfile",
  "thiserror 2.0.18",
+ "tonic-prost-build",
 ]
 
 [[package]]
@@ -11926,6 +11928,7 @@ name = "tonic-client-wrapper"
 version = "0.1.0"
 dependencies = [
  "async-trait",
+ "carbide-proto-compiler",
  "heck",
  "lazy_static",
  "prettyplease",

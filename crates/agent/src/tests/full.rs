@@ -163,6 +163,23 @@ async fn test_fmds_get_data() -> eyre::Result<()> {
 
     assert_eq!(body_str, "9afaedd3-b36e-4603-a029-8b94a82b89a0");
 
+    // Test get instance name
+    let client = hyper_util::client::legacy::Client::builder(TokioExecutor::new()).build_http();
+    let request: hyper::Request<Full<Bytes>> = hyper::Request::builder()
+        .method(hyper::Method::GET)
+        .uri("http://0.0.0.0:7777/latest/meta-data/instance-name".to_string())
+        .body("".into())
+        .unwrap();
+
+    let response = client.request(request).await.unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let body = response.into_body().collect().await.unwrap().to_bytes();
+    let body_str = std::str::from_utf8(&body).unwrap();
+
+    assert_eq!(body_str, "test-instance");
+
     // Test get machine_id
     let client = hyper_util::client::legacy::Client::builder(TokioExecutor::new()).build_http();
     let request: hyper::Request<Full<Bytes>> = hyper::Request::builder()
@@ -733,7 +750,11 @@ async fn handle_netconf(AxumState(state): AxumState<Arc<Mutex<State>>>) -> impl 
     let instance = rpc::Instance {
         id: Some("9afaedd3-b36e-4603-a029-8b94a82b89a0".parse().unwrap()),
         machine_id: Some("fm100htjsaledfasinabqqer70e2ua5ksqj4kfjii0v0a90vulps48c1h7g".parse().unwrap()),
-        metadata: None,
+        metadata: Some(rpc::Metadata {
+            name: "test-instance".to_string(),
+            description: String::new(),
+            labels: vec![],
+        }),
         instance_type_id: None,
         config: Some(rpc::InstanceConfig {
             tenant: Some(rpc::TenantConfig {

@@ -53,6 +53,9 @@ message FmdsConfigUpdate {
   // When omitted, FMDS leaves machine-identity serving unchanged (startup defaults from `FmdsState::try_new`
   // until the first update that includes this field).
   optional FmdsMachineIdentityConfig machine_identity = 9;
+
+  // Human-readable instance name from forge.Instance.metadata.name.
+  optional string instance_name = 10;
 }
 
 // Mirrors carbide-dpu-agent `[machine-identity]` for standalone FMDS.

@@ -83,6 +83,7 @@ def helm_chart(
         image_dep='',
         image_keys=[],
         port_forwards=[],
+        links=[],
         manual=False,
         wait=True,
         timeout='5m'):
@@ -105,6 +106,7 @@ def helm_chart(
         labels=['application'],
         pod_readiness='wait' if wait else 'ignore',
         port_forwards=port_forwards,
+        links=links,
         flags=flags,
     )
     if manual:
@@ -729,6 +731,8 @@ helm_chart(
     resource_deps=nico_api_dependencies,
     image_dep='nico-api',
     image_keys=[('global.image.repository', 'global.image.tag')],
+    port_forwards=[port_forward(1079, 1079)],
+    links=[link('https://localhost:1079/admin/', 'NICo Web UI')],
     manual=True,
 )
 helm_chart(
@@ -749,6 +753,8 @@ helm_chart(
     resource_deps=['nico-api'],
     image_dep='machine-a-tron',
     image_keys=[('image.repository', 'image.tag')],
+    port_forwards=[port_forward(1266, 1266)],
+    links=[link('https://localhost:1266/', 'Machine-A-Tron UI')],
     manual=True,
 )
 

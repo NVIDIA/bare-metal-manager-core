@@ -29,6 +29,7 @@ use crate::state::FmdsState;
 
 const PUBLIC_IPV4_CATEGORY: &str = "public-ipv4";
 const HOSTNAME_CATEGORY: &str = "hostname";
+const INSTANCE_NAME_CATEGORY: &str = "instance-name";
 const SITENAME_CATEGORY: &str = "sitename";
 const USER_DATA_CATEGORY: &str = "user-data";
 const META_DATA_CATEGORY: &str = "meta-data";
@@ -113,6 +114,15 @@ fn extract_metadata(category: String, state: &FmdsState) -> (StatusCode, String)
     match category.as_str() {
         PUBLIC_IPV4_CATEGORY => (StatusCode::OK, config.address.clone()),
         HOSTNAME_CATEGORY => (StatusCode::OK, config.hostname.clone()),
+        INSTANCE_NAME_CATEGORY => match &config.instance_name {
+            Some(instance_name) if !instance_name.is_empty() => {
+                (StatusCode::OK, instance_name.clone())
+            }
+            _ => (
+                StatusCode::NOT_FOUND,
+                "instance name not available".to_string(),
+            ),
+        },
         SITENAME_CATEGORY => (
             StatusCode::OK,
             config.sitename.clone().unwrap_or(String::new()),
@@ -181,6 +191,7 @@ async fn get_metadata_params(State(_state): State<Arc<FmdsState>>) -> (StatusCod
         StatusCode::OK,
         [
             HOSTNAME_CATEGORY,
+            INSTANCE_NAME_CATEGORY,
             SITENAME_CATEGORY,
             MACHINE_ID_CATEGORY,
             INSTANCE_ID_CATEGORY,
@@ -375,6 +386,7 @@ mod tests {
         FmdsConfig {
             address: "10.0.0.1".to_string(),
             hostname: "test-host".to_string(),
+            instance_name: Some("test-instance".to_string()),
             sitename: Some("test-site".to_string()),
             instance_id: Some(uuid::uuid!("67e55044-10b1-426f-9247-bb680e5fe0c8").into()),
             machine_id: Some(
@@ -438,14 +450,32 @@ mod tests {
 
     // Test basic metadata fields.
     #[tokio::test]
-    async fn test_get_hostname() {
+    async fn test_get_hostname_and_instance_name() {
         let state = make_test_state();
         state.update_config(make_test_config());
-        let (server, port) = setup_server(state).await;
+        let (server, port) = setup_server(state.clone()).await;
 
         let (status, body) = get_request(port, "meta-data/hostname").await;
         assert_eq!(status, StatusCode::OK);
         assert_eq!(body, "test-host");
+
+        for (instance_name, expected_status, expected_body) in [
+            (Some("test-instance"), StatusCode::OK, "test-instance"),
+            (None, StatusCode::NOT_FOUND, "instance name not available"),
+            (
+                Some(""),
+                StatusCode::NOT_FOUND,
+                "instance name not available",
+            ),
+        ] {
+            state.update_config(FmdsConfig {
+                instance_name: instance_name.map(str::to_owned),
+                ..make_test_config()
+            });
+            let (status, body) = get_request(port, "meta-data/instance-name").await;
+            assert_eq!(status, expected_status);
+            assert_eq!(body, expected_body);
+        }
 
         server.abort();
     }
@@ -543,7 +573,15 @@ mod tests {
         state.update_config(make_test_config());
         let (server, port) = setup_server(state).await;
 
-        let expected = ["hostname", "sitename", "machine-id", "instance-id", "asn"].join("\n");
+        let expected = [
+            "hostname",
+            "instance-name",
+            "sitename",
+            "machine-id",
+            "instance-id",
+            "asn",
+        ]
+        .join("\n");
 
         let (status, body) = get_request(port, "meta-data").await;
         assert_eq!(status, StatusCode::OK);
@@ -718,6 +756,7 @@ mod tests {
         let update = FmdsConfigUpdate {
             address: "192.168.1.1".to_string(),
             hostname: "grpc-pushed-host".to_string(),
+            instance_name: Some("grpc-pushed-instance".to_string()),
             sitename: Some("grpc-site".to_string()),
             instance_id: Some(uuid::uuid!("aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee").into()),
             machine_id: None,
@@ -739,6 +778,10 @@ mod tests {
         let (status, body) = get_request(port, "meta-data/hostname").await;
         assert_eq!(status, StatusCode::OK);
         assert_eq!(body, "grpc-pushed-host");
+
+        let (status, body) = get_request(port, "meta-data/instance-name").await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(body, "grpc-pushed-instance");
 
         let (status, body) = get_request(port, "meta-data/public-ipv4").await;
         assert_eq!(status, StatusCode::OK);

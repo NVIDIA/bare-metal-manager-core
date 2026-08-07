@@ -53,17 +53,11 @@ on:
         required: false
         default: false
         type: string
-    outputs:
-      artifacts_json:
-        description: 'Artifacts paths as JSON array'
-        value: ${{ jobs.build.outputs.artifacts }}
 
 jobs:
   build:
     runs-on: ${{ inputs.runner }}
     timeout-minutes: 120
-    outputs:
-      artifacts: ${{ steps.collect-artifacts.outputs.paths }}
 
     steps:
       - name: Checkout code
@@ -72,6 +66,15 @@ jobs:
           persist-credentials: false
           submodules: recursive
           fetch-depth: 0  # Full git history needed for git describe
+
+      # Resolve or download validation Python before the long build, so an
+      # unsupported runner fails immediately. Shell-mode mkosi uses packages
+      # installed for the distro interpreter, so keep this runtime off PATH.
+      - name: Prepare Python for output validation
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+          update-environment: false
 
       - name: Initialize submodules at pinned commits
         run: |
@@ -466,91 +469,25 @@ jobs:
 
           echo "Build completed!"
 
-      - name: Verify generated artifacts (informational only)
-        continue-on-error: true  # Don't fail build - matches GitLab CI behavior (no verification step)
+      # Activate the runtime prepared above only after both build paths finish.
+      # This exports the matching Python library directory beside its PATH.
+      - name: Activate Python for output validation
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+
+      - name: Validate output contract
+        env:
+          ARCH: ${{ inputs.arch }}
+          BUILD_TYPE: ${{ inputs.build_type }}
+          CARGO_MAKE_TASK: ${{ inputs.cargo_make_task }}
+          REPOSITORY_ROOT: ${{ github.workspace }}
         run: |
-          echo "============================================"
-          echo "Checking generated artifacts (informational)"
-          echo "GitLab CI has no verification - uploads whatever exists with 'when: always'"
-          echo "This check provides debug info but won't fail the build"
-          echo "============================================"
-
-          # Expected files match GitLab CI artifact paths
-          if [[ "${{ inputs.build_type }}" == "boot" ]]; then
-            if [[ "${{ inputs.arch }}" == "x86_64" ]]; then
-              EXPECTED_FILES=(
-                "pxe/static/blobs/internal/x86_64/ipxe.efi"
-                "target/debug/nico-admin-cli"
-                # target/debs/* checked separately
-              )
-            else
-              # Full list from GitLab CI lines 608-615
-              EXPECTED_FILES=(
-                "pxe/static/blobs/internal/aarch64/ipxe.efi"
-                "pxe/static/blobs/internal/aarch64/carbide.efi"
-                "pxe/static/blobs/internal/aarch64/carbide.root"
-                "pxe/static/blobs/internal/aarch64/preingestion.bfb"
-                "pxe/static/blobs/internal/aarch64/forge.bfb"
-                "pxe/static/blobs/internal/apt"
-                "target/aarch64-unknown-linux-gnu/release/forge-scout"
-                # target/debs/* checked separately
-              )
-            fi
-          elif [[ "${{ inputs.build_type }}" == "ephemeral" ]]; then
-            if [[ "${{ inputs.arch }}" == "x86_64" ]]; then
-              EXPECTED_FILES=(
-                "pxe/static/blobs/internal/x86_64/scout.efi"
-                "pxe/static/blobs/internal/x86_64/scout.squashfs"
-                "pxe/static/blobs/internal/x86_64/qcow-imager.efi"
-                # target/debs/* checked separately
-              )
-            else
-              EXPECTED_FILES=(
-                "pxe/static/blobs/internal/aarch64/scout.efi"
-                "pxe/static/blobs/internal/aarch64/scout.squashfs"
-                "pxe/static/blobs/internal/aarch64/qcow-imager.efi"
-                # pxe/mkosi.profiles/scout-x86_64/mkosi.extra/build-output/* checked separately
-                # target/debs/* checked separately
-              )
-            fi
-          fi
-
-          echo ""
-          echo "Checking individual files:"
-          MISSING_COUNT=0
-          for file in "${EXPECTED_FILES[@]}"; do
-            if [[ -f "$file" ]] || [[ -d "$file" ]]; then
-              if [[ -f "$file" ]]; then
-                size=$(stat -f%z "$file" 2>/dev/null || stat -c%s "$file" 2>/dev/null)
-                echo "  ✓ Found: $file (${size} bytes)"
-              else
-                echo "  ✓ Found: $file (directory)"
-              fi
-            else
-              echo "  ⚠️  Missing: $file"
-              MISSING_COUNT=$((MISSING_COUNT + 1))
-            fi
-          done
-
-          # Check for .deb files
-          if ls target/debs/*.deb >/dev/null 2>&1; then
-            DEB_COUNT=$(ls target/debs/*.deb 2>/dev/null | wc -l)
-            echo "  ✓ Found: target/debs/*.deb (${DEB_COUNT} files)"
-          else
-            echo "  ⚠️  Missing: target/debs/*.deb"
-            MISSING_COUNT=$((MISSING_COUNT + 1))
-          fi
-
-          echo ""
-          echo "============================================"
-          if [[ $MISSING_COUNT -eq 0 ]]; then
-            echo "✅ All expected artifacts found"
-          else
-            echo "⚠️  ${MISSING_COUNT} expected artifact(s) missing"
-            echo "Note: Some artifacts may be disabled (e.g., BFB build)"
-            echo "This is informational only - build continues"
-          fi
-          echo "============================================"
+          python3 .github/ci/validate_boot_outputs.py \
+            --cargo-make-task "${CARGO_MAKE_TASK}" \
+            --build-type "${BUILD_TYPE}" \
+            --arch "${ARCH}" \
+            --root "${REPOSITORY_ROOT}"
 
       - name: Verify mnv_cli exists in built scout image
         if: inputs.build_type == 'ephemeral' && inputs.inject_extras == true
@@ -571,53 +508,33 @@ jobs:
             exit 1
           fi
 
-      - name: Collect artifacts metadata
-        id: collect-artifacts
-        run: |
-          # Determine artifacts based on build type and architecture
-          # Note: Lists match GitLab CI artifact paths; upload step uses if-no-files-found: warn
-          # so missing files (like BFB artifacts when disabled) won't fail the build
-          if [[ "${{ inputs.build_type }}" == "boot" ]]; then
-            if [[ "${{ inputs.arch }}" == "x86_64" ]]; then
-              ARTIFACTS='["pxe/static/blobs/internal/x86_64/ipxe.efi", "target/debug/nico-admin-cli", "target/debs/*"]'
-            else
-              # Lists all expected BFB artifacts even though some may not be generated (BFB build is disabled)
-              # This matches GitLab CI behavior where artifact paths are listed but upload succeeds if files don't exist
-              ARTIFACTS='["pxe/static/blobs/internal/aarch64/secure-boot-pk.pem", "pxe/static/blobs/internal/aarch64/ipxe.efi", "pxe/static/blobs/internal/aarch64/carbide.efi", "pxe/static/blobs/internal/aarch64/carbide.root", "pxe/static/blobs/internal/aarch64/preingestion.bfb", "pxe/static/blobs/internal/aarch64/forge.bfb", "pxe/static/blobs/internal/apt", "target/aarch64-unknown-linux-gnu/release/forge-scout", "target/debs/*"]'
-            fi
-          else
-            if [[ "${{ inputs.arch }}" == "x86_64" ]]; then
-              ARTIFACTS='["pxe/static/blobs/internal/x86_64/scout.efi", "pxe/static/blobs/internal/x86_64/scout.squashfs", "pxe/static/blobs/internal/x86_64/qcow-imager.efi", "target/debs/*"]'
-            else
-              ARTIFACTS='["pxe/static/blobs/internal/aarch64/scout.efi", "pxe/static/blobs/internal/aarch64/scout.squashfs", "pxe/static/blobs/internal/aarch64/qcow-imager.efi", "pxe/mkosi.profiles/scout-x86_64/mkosi.extra/build-output/*", "target/debs/*"]'
-            fi
-          fi
-
-          echo "paths=${ARTIFACTS}" >> $GITHUB_OUTPUT
-          echo "Artifacts to upload: ${ARTIFACTS}"
-
-      # Only paths that a downstream job actually consumes are uploaded. The
-      # ephemeral build takes the packaged .deb (see copy-forge-scout-* in
-      # pxe/Makefile.toml) and the release-artifacts carriers only COPY
-      # pxe/static/blobs/internal/, so the cargo target tree and the
-      # mkosi.profiles staging inputs are deliberately excluded -- they added
-      # ~14 GB of upload/download to the critical path for no consumer. The
-      # unstripped forge-scout binary is kept so crashes from the shipped image
-      # can still be symbolicated.
+      # Upload production artifacts only after the validator and every other
+      # applicable check pass. Boot failures remain in the Actions step logs;
+      # ephemeral failures also upload `build.log` through the separate
+      # best-effort step below.
       #
-      # compression-level: 0 because squashfs/bfb/efi payloads are already
-      # compressed; re-deflating them burns CPU for a rounding error of savings.
+      # Upload the files used by later jobs. The package task writes
+      # forge-scout to `target/debs/`; the ephemeral job downloads that boot
+      # bundle, and `copy-forge-scout-*` in `pxe/Makefile.toml` copies the deb
+      # into mkosi staging. `Dockerfile.release-artifacts-*` consumes
+      # `pxe/static/blobs/internal/`. Excluding the rest of the cargo target tree
+      # and `mkosi.profiles` staging inputs removes ~14 GB of upload/download
+      # from the critical path. Keep the unstripped aarch64 forge-scout binary
+      # so crashes from the shipped image can still be symbolicated.
+      #
+      # `compression-level: 0` avoids re-deflating squashfs, BFB, and EFI files
+      # that are already compressed. `if-no-files-found` checks the path list as
+      # a whole; the validator above is what requires each contract entry.
       - name: Upload artifacts
-        if: ${{ !cancelled() }}  # Upload artifacts even if build fails (matches GitLab CI 'when: always')
+        if: ${{ success() }}
         uses: actions/upload-artifact@v4
         with:
           name: ${{ inputs.build_type }}-artifacts-${{ inputs.arch }}-${{ github.run_id }}
           path: |
             pxe/static/blobs/
-            target/debug/nico-admin-cli
             target/debs/
             target/aarch64-unknown-linux-gnu/release/forge-scout
-          if-no-files-found: warn
+          if-no-files-found: error
           compression-level: 0
           retention-days: 1
 

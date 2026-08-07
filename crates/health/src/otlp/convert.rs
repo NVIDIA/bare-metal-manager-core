@@ -673,9 +673,11 @@ mod tests {
     }
 
     #[test]
-    fn switch_bmc_resource_keeps_bmc_endpoint_identity_and_switch_metadata() {
+    fn switch_bmc_log_resource_keeps_endpoint_identity_and_switch_metadata() {
         let switch_id = test_switch_id("switch-bmc");
         let switch_id_attr = switch_id.to_string();
+        let nvlink_domain_uuid = NvLinkDomainId::new();
+        let nvlink_domain_uuid_attr = nvlink_domain_uuid.to_string();
         let context = EventContext {
             endpoint_key: "22:33:44:55:66:77".to_string(),
             addr: BmcAddr {
@@ -683,14 +685,14 @@ mod tests {
                 port: Some(443),
                 mac: MacAddress::from_str("22:33:44:55:66:77").expect("valid mac"),
             },
-            collector_type: "sensor_collector",
+            collector_type: "logs_collector",
             labels: Default::default(),
             metadata: Some(EndpointMetadata::Switch(SwitchData {
                 id: Some(switch_id),
                 serial: "SN-SWITCH-BMC-001".to_string(),
                 slot_number: Some(8),
                 tray_index: Some(4),
-                nvlink_domain_uuid: None,
+                nvlink_domain_uuid: Some(nvlink_domain_uuid),
                 endpoint_role: SwitchEndpointRole::Bmc,
                 is_primary: false,
                 nmxc_enabled: false,
@@ -698,28 +700,97 @@ mod tests {
             })),
             rack_id: Some(RackId::new("RACK_3")),
         };
+        let event = CollectorEvent::Log(Box::new(LogRecord {
+            body: "switch BMC event".to_string(),
+            severity: "INFO".to_string(),
+            attributes: Vec::new(),
+            diagnostic_record: None,
+        }));
 
-        let attrs = resource_attributes(&context);
+        let request = build_export_request(&[(context, event)], false);
+        let attrs = &request.resource_logs[0]
+            .resource
+            .as_ref()
+            .expect("log resource metadata")
+            .attributes;
 
+        assert_eq!(attr_value(attrs, "bmc.endpoint"), Some("22:33:44:55:66:77"));
+        assert_eq!(attr_value(attrs, "bmc.ip"), Some("10.0.2.1"));
+        assert_eq!(attr_value(attrs, "switch.endpoint"), None);
+        assert_eq!(attr_value(attrs, "switch.ip"), None);
         assert_eq!(
-            attr_value(&attrs, "bmc.endpoint"),
-            Some("22:33:44:55:66:77")
-        );
-        assert_eq!(attr_value(&attrs, "bmc.ip"), Some("10.0.2.1"));
-        assert_eq!(attr_value(&attrs, "switch.endpoint"), None);
-        assert_eq!(attr_value(&attrs, "switch.ip"), None);
-        assert_eq!(
-            attr_value(&attrs, "switch.id"),
+            attr_value(attrs, "switch.id"),
             Some(switch_id_attr.as_str())
         );
         assert_eq!(
-            attr_value(&attrs, "switch.serial_number"),
+            attr_value(attrs, "switch.serial_number"),
             Some("SN-SWITCH-BMC-001")
         );
-        assert_eq!(attr_value(&attrs, "switch.endpoint_role"), Some("bmc"));
-        assert_eq!(attr_bool_value(&attrs, "switch.is_primary"), Some(false));
-        assert_eq!(attr_value(&attrs, "nvlink.domain.uuid"), None);
-        assert_eq!(attr_value(&attrs, "component.type"), Some("nvlink_switch"));
+        assert_eq!(attr_value(attrs, "switch.endpoint_role"), Some("bmc"));
+        assert_eq!(attr_bool_value(attrs, "switch.is_primary"), Some(false));
+        assert_eq!(attr_int_value(attrs, "switch.slot_number"), Some(8));
+        assert_eq!(attr_int_value(attrs, "switch.tray_index"), Some(4));
+        assert_eq!(attr_value(attrs, "rack.id"), Some("RACK_3"));
+        assert_eq!(attr_value(attrs, "collector.type"), Some("logs_collector"));
+        assert_eq!(
+            attr_value(attrs, "nvlink.domain.uuid"),
+            Some(nvlink_domain_uuid_attr.as_str())
+        );
+        assert_eq!(attr_value(attrs, "component.type"), Some("nvlink_switch"));
+    }
+
+    #[test]
+    fn switch_bmc_log_resource_omits_unavailable_optional_metadata() {
+        let context = EventContext {
+            endpoint_key: "33:44:55:66:77:88".to_string(),
+            addr: BmcAddr {
+                ip: IpAddr::V4(Ipv4Addr::new(10, 0, 2, 2)),
+                port: Some(443),
+                mac: MacAddress::from_str("33:44:55:66:77:88").expect("valid mac"),
+            },
+            collector_type: "logs_collector",
+            labels: Default::default(),
+            metadata: Some(EndpointMetadata::Switch(SwitchData {
+                id: None,
+                serial: "SN-SWITCH-BMC-002".to_string(),
+                slot_number: None,
+                tray_index: None,
+                nvlink_domain_uuid: None,
+                endpoint_role: SwitchEndpointRole::Bmc,
+                is_primary: true,
+                nmxc_enabled: false,
+                nmxt_enabled: false,
+            })),
+            rack_id: None,
+        };
+        let event = CollectorEvent::Log(Box::new(LogRecord {
+            body: "switch BMC event".to_string(),
+            severity: "INFO".to_string(),
+            attributes: Vec::new(),
+            diagnostic_record: None,
+        }));
+
+        let request = build_export_request(&[(context, event)], false);
+        let attrs = &request.resource_logs[0]
+            .resource
+            .as_ref()
+            .expect("log resource metadata")
+            .attributes;
+
+        assert_eq!(attr_value(attrs, "bmc.endpoint"), Some("33:44:55:66:77:88"));
+        assert_eq!(attr_value(attrs, "bmc.ip"), Some("10.0.2.2"));
+        assert_eq!(
+            attr_value(attrs, "switch.serial_number"),
+            Some("SN-SWITCH-BMC-002")
+        );
+        assert_eq!(attr_value(attrs, "switch.endpoint_role"), Some("bmc"));
+        assert_eq!(attr_bool_value(attrs, "switch.is_primary"), Some(true));
+        assert_eq!(attr_value(attrs, "component.type"), Some("nvlink_switch"));
+        assert_eq!(attr_value(attrs, "switch.id"), None);
+        assert_eq!(attr_int_value(attrs, "switch.slot_number"), None);
+        assert_eq!(attr_int_value(attrs, "switch.tray_index"), None);
+        assert_eq!(attr_value(attrs, "nvlink.domain.uuid"), None);
+        assert_eq!(attr_value(attrs, "rack.id"), None);
     }
 
     #[test]

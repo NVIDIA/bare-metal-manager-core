@@ -48,6 +48,9 @@ pub(super) mod rack;
 /// WIWYNN GB200 NVL72 rack.
 pub(super) mod wiwynn_gb200_nvl72_rack;
 
+/// Lenovo GB300 NVL72 rack.
+pub mod lenovo_gb300_nvl72_rack;
+
 /// Support of Lenovo GB300 NVL servers.
 pub(super) mod lenovo_gb300_nvl;
 

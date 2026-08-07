@@ -45,6 +45,7 @@ use crate::util::phone_home;
 
 const PUBLIC_IPV4_CATEGORY: &str = "public-ipv4";
 const HOSTNAME_CATEGORY: &str = "hostname";
+const INSTANCE_NAME_CATEGORY: &str = "instance-name";
 const SITENAME_CATEGORY: &str = "sitename";
 const USER_DATA_CATEGORY: &str = "user-data";
 const META_DATA_CATEGORY: &str = "meta-data";
@@ -317,6 +318,15 @@ fn extract_metadata(
         match category.as_str() {
             PUBLIC_IPV4_CATEGORY => (StatusCode::OK, metadata.address.clone()),
             HOSTNAME_CATEGORY => (StatusCode::OK, metadata.hostname.clone()),
+            INSTANCE_NAME_CATEGORY => match &metadata.instance_name {
+                Some(instance_name) if !instance_name.is_empty() => {
+                    (StatusCode::OK, instance_name.clone())
+                }
+                _ => (
+                    StatusCode::NOT_FOUND,
+                    "instance name not available".to_string(),
+                ),
+            },
             SITENAME_CATEGORY => (
                 StatusCode::OK,
                 metadata.sitename.clone().unwrap_or(String::new()),
@@ -389,6 +399,7 @@ async fn get_metadata_params(
         StatusCode::OK,
         [
             HOSTNAME_CATEGORY,
+            INSTANCE_NAME_CATEGORY,
             SITENAME_CATEGORY,
             MACHINE_ID_CATEGORY,
             INSTANCE_ID_CATEGORY,
@@ -654,6 +665,7 @@ mod tests {
             ),
             address: "127.0.0.1".to_string(),
             hostname: "localhost".to_string(),
+            instance_name: Some("test-instance".to_string()),
             user_data: "\"userData\": {\"data\": 0}".to_string(),
             ib_devices: None,
             config_version: "V2-T1666644937962267".parse().unwrap(),
@@ -678,8 +690,8 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_get_metadata_parameter_hostname_category() {
-        let metadata = InstanceMetadata {
+    async fn test_get_metadata_parameter_hostname_and_instance_name_categories() {
+        let mut metadata = InstanceMetadata {
             instance_id: None,
             machine_id: Some(
                 "fm100ht6n80e7do39u8gmt7cvhm89pb32st9ngevgdolu542l1nfa4an0rg"
@@ -688,6 +700,7 @@ mod tests {
             ),
             address: "127.0.0.1".to_string(),
             hostname: "localhost".to_string(),
+            instance_name: Some("test-instance".to_string()),
             user_data: "\"userData\": {\"data\": 0}".to_string(),
             ib_devices: None,
             config_version: "V2-T1666644937962267".parse().unwrap(),
@@ -709,6 +722,31 @@ mod tests {
         )
         .await;
         server.abort();
+
+        for (instance_name, expected_body, expected_status) in [
+            (Some("test-instance"), "test-instance", StatusCode::OK),
+            (None, "instance name not available", StatusCode::NOT_FOUND),
+            (
+                Some(""),
+                "instance name not available",
+                StatusCode::NOT_FOUND,
+            ),
+        ] {
+            metadata.instance_name = instance_name.map(str::to_owned);
+            let (server, server_port) = setup_server(
+                Some(metadata.clone()),
+                Some(ManagedHostNetworkConfigResponse::default()),
+            )
+            .await;
+            send_request_and_check_response(
+                server_port,
+                "meta-data/instance-name",
+                expected_body,
+                expected_status,
+            )
+            .await;
+            server.abort();
+        }
     }
 
     #[tokio::test]
@@ -722,6 +760,7 @@ mod tests {
             ),
             address: "127.0.0.1".to_string(),
             hostname: "localhost".to_string(),
+            instance_name: Some("test-instance".to_string()),
             user_data: "\"userData\": {\"data\": 0}".to_string(),
             ib_devices: None,
             config_version: "V2-T1666644937962267".parse().unwrap(),
@@ -732,6 +771,7 @@ mod tests {
 
         let expected_output = [
             HOSTNAME_CATEGORY,
+            INSTANCE_NAME_CATEGORY,
             SITENAME_CATEGORY,
             MACHINE_ID_CATEGORY,
             INSTANCE_ID_CATEGORY,
@@ -768,6 +808,7 @@ mod tests {
             ),
             address: "127.0.0.1".to_string(),
             hostname: "localhost".to_string(),
+            instance_name: Some("test-instance".to_string()),
             user_data: "\"userData\": {\"data\": 0}".to_string(),
             ib_devices: None,
             config_version: "V2-T1666644937962267".parse().unwrap(),
@@ -815,6 +856,7 @@ mod tests {
             ),
             address: "127.0.0.1".to_string(),
             hostname: "localhost".to_string(),
+            instance_name: Some("test-instance".to_string()),
             user_data: "\"userData\": {\"data\": 0}".to_string(),
             ib_devices: Some(vec![
                 IBDeviceConfig {
@@ -866,6 +908,7 @@ mod tests {
             ),
             address: "127.0.0.1".to_string(),
             hostname: "localhost".to_string(),
+            instance_name: Some("test-instance".to_string()),
             user_data: "\"userData\": {\"data\": 0}".to_string(),
             ib_devices: Some(vec![IBDeviceConfig {
                 pf_guid: "pfguid1".to_string(),
@@ -907,6 +950,7 @@ mod tests {
             ),
             address: "127.0.0.1".to_string(),
             hostname: "localhost".to_string(),
+            instance_name: Some("test-instance".to_string()),
             user_data: "\"userData\": {\"data\": 0}".to_string(),
             ib_devices: Some(vec![IBDeviceConfig {
                 pf_guid: "guid".to_string(),
@@ -955,6 +999,7 @@ mod tests {
             ),
             address: "127.0.0.1".to_string(),
             hostname: "localhost".to_string(),
+            instance_name: Some("test-instance".to_string()),
             user_data: "\"userData\": {\"data\": 0}".to_string(),
             ib_devices: Some(vec![IBDeviceConfig {
                 pf_guid: "guid".to_string(),
@@ -996,6 +1041,7 @@ mod tests {
             ),
             address: "127.0.0.1".to_string(),
             hostname: "localhost".to_string(),
+            instance_name: Some("test-instance".to_string()),
             user_data: "\"userData\": {\"data\": 0}".to_string(),
             ib_devices: Some(vec![IBDeviceConfig {
                 pf_guid: "guid".to_string(),
@@ -1037,6 +1083,7 @@ mod tests {
             ),
             address: "127.0.0.1".to_string(),
             hostname: "localhost".to_string(),
+            instance_name: Some("test-instance".to_string()),
             user_data: "\"userData\": {\"data\": 0}".to_string(),
             ib_devices: Some(vec![IBDeviceConfig {
                 pf_guid: "guid".to_string(),
@@ -1078,6 +1125,7 @@ mod tests {
             ),
             address: "127.0.0.1".to_string(),
             hostname: "localhost".to_string(),
+            instance_name: Some("test-instance".to_string()),
             user_data: "\"userData\": {\"data\": 0}".to_string(),
             ib_devices: Some(vec![IBDeviceConfig {
                 pf_guid: "guid".to_string(),
@@ -1119,6 +1167,7 @@ mod tests {
             ),
             address: "127.0.0.1".to_string(),
             hostname: "localhost".to_string(),
+            instance_name: Some("test-instance".to_string()),
             user_data: "\"userData\": {\"data\": 0}".to_string(),
             ib_devices: Some(vec![IBDeviceConfig {
                 pf_guid: "guid".to_string(),
@@ -1160,6 +1209,7 @@ mod tests {
             ),
             address: "127.0.0.1".to_string(),
             hostname: "localhost".to_string(),
+            instance_name: Some("test-instance".to_string()),
             user_data: "\"userData\": {\"data\": 0}".to_string(),
             ib_devices: None,
             config_version: "V2-T1666644937962267".parse().unwrap(),
@@ -1194,6 +1244,7 @@ mod tests {
             ),
             address: "127.0.0.1".to_string(),
             hostname: "localhost".to_string(),
+            instance_name: Some("test-instance".to_string()),
             user_data: "\"userData\": {\"data\": 0}".to_string(),
             ib_devices: None,
             config_version: "V2-T1666644937962267".parse().unwrap(),
@@ -1228,6 +1279,7 @@ mod tests {
             ),
             address: "127.0.0.1".to_string(),
             hostname: "localhost".to_string(),
+            instance_name: Some("test-instance".to_string()),
             user_data: "\"userData\": {\"data\": 0}".to_string(),
             ib_devices: None,
             config_version: "V2-T1666644937962267".parse().unwrap(),
@@ -1258,6 +1310,7 @@ mod tests {
             ),
             address: "127.0.0.1".to_string(),
             hostname: "localhost".to_string(),
+            instance_name: Some("test-instance".to_string()),
             user_data: "\"userData\": {\"data\": 0}".to_string(),
             ib_devices: None,
             config_version: "V2-T1666644937962267".parse().unwrap(),

@@ -44,6 +44,8 @@ Tilt forwards these endpoints:
 
 | Service | URL |
 | --- | --- |
+| NICo Web UI | `https://localhost:1079/admin/` |
+| Machine-A-Tron UI | `https://localhost:1266/` |
 | REST API | `http://localhost:18388` |
 | Keycloak | `http://localhost:18082` |
 | MCP | `http://localhost:18080/mcp` |

@@ -134,6 +134,7 @@ impl FmdsGrpcServer {
         let config = FmdsConfig {
             address: update.address,
             hostname: update.hostname,
+            instance_name: update.instance_name.filter(|name| !name.is_empty()),
             sitename: update.sitename,
             instance_id: update.instance_id,
             machine_id: update.machine_id,
@@ -174,6 +175,7 @@ mod tests {
         FmdsConfigUpdate {
             address: "10.0.0.1".to_string(),
             hostname: "test-host".to_string(),
+            instance_name: Some("test-instance".to_string()),
             sitename: Some("test-site".to_string()),
             instance_id: Some(uuid::uuid!("67e55044-10b1-426f-9247-bb680e5fe0c8").into()),
             machine_id: Some(
@@ -245,8 +247,20 @@ mod tests {
         let config = state.config.load_full().unwrap();
         assert_eq!(config.address, "10.0.0.1");
         assert_eq!(config.hostname, "test-host");
+        assert_eq!(config.instance_name.as_deref(), Some("test-instance"));
         assert_eq!(config.sitename.as_deref(), Some("test-site"));
         assert_eq!(config.asn, 65000);
+
+        let mut update = make_test_update();
+        update.instance_name = Some(String::new());
+        server
+            .apply_config_update(Request::new(UpdateConfigRequest {
+                config_update: Some(update),
+            }))
+            .unwrap();
+
+        let config = state.config.load_full().unwrap();
+        assert!(config.instance_name.is_none());
     }
 
     #[test]

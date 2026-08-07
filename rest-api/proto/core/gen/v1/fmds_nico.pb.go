@@ -123,8 +123,10 @@ type FmdsConfigUpdate struct {
 	// When omitted, FMDS leaves machine-identity serving unchanged (startup defaults from `FmdsState::try_new`
 	// until the first update that includes this field).
 	MachineIdentity *FmdsMachineIdentityConfig `protobuf:"bytes,9,opt,name=machine_identity,json=machineIdentity,proto3,oneof" json:"machine_identity,omitempty"`
-	unknownFields   protoimpl.UnknownFields
-	sizeCache       protoimpl.SizeCache
+	// Human-readable instance name from nico.Instance.metadata.name.
+	InstanceName  *string `protobuf:"bytes,10,opt,name=instance_name,json=instanceName,proto3,oneof" json:"instance_name,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *FmdsConfigUpdate) Reset() {
@@ -218,6 +220,13 @@ func (x *FmdsConfigUpdate) GetMachineIdentity() *FmdsMachineIdentityConfig {
 		return x.MachineIdentity
 	}
 	return nil
+}
+
+func (x *FmdsConfigUpdate) GetInstanceName() string {
+	if x != nil && x.InstanceName != nil {
+		return *x.InstanceName
+	}
+	return ""
 }
 
 // Mirrors nico-dpu-agent `[machine-identity]` for standalone FMDS.
@@ -424,7 +433,7 @@ const file_fmds_nico_proto_rawDesc = "" +
 	"\x0ffmds_nico.proto\x12\x04fmds\x1a\x11common_nico.proto\"R\n" +
 	"\x13UpdateConfigRequest\x12;\n" +
 	"\rconfig_update\x18\x01 \x01(\v2\x16.fmds.FmdsConfigUpdateR\fconfigUpdate\"\x16\n" +
-	"\x14UpdateConfigResponse\"\xca\x03\n" +
+	"\x14UpdateConfigResponse\"\x86\x04\n" +
 	"\x10FmdsConfigUpdate\x12\x18\n" +
 	"\aaddress\x18\x01 \x01(\tR\aaddress\x12\x1a\n" +
 	"\bhostname\x18\x02 \x01(\tR\bhostname\x12\x1f\n" +
@@ -437,11 +446,14 @@ const file_fmds_nico_proto_rawDesc = "" +
 	"\n" +
 	"ib_devices\x18\a \x03(\v2\x0e.fmds.IBDeviceR\tibDevices\x12\x10\n" +
 	"\x03asn\x18\b \x01(\rR\x03asn\x12O\n" +
-	"\x10machine_identity\x18\t \x01(\v2\x1f.fmds.FmdsMachineIdentityConfigH\x03R\x0fmachineIdentity\x88\x01\x01B\v\n" +
+	"\x10machine_identity\x18\t \x01(\v2\x1f.fmds.FmdsMachineIdentityConfigH\x03R\x0fmachineIdentity\x88\x01\x01\x12(\n" +
+	"\rinstance_name\x18\n" +
+	" \x01(\tH\x04R\finstanceName\x88\x01\x01B\v\n" +
 	"\t_sitenameB\x0e\n" +
 	"\f_instance_idB\r\n" +
 	"\v_machine_idB\x13\n" +
-	"\x11_machine_identity\"\xcb\x02\n" +
+	"\x11_machine_identityB\x10\n" +
+	"\x0e_instance_name\"\xcb\x02\n" +
 	"\x19FmdsMachineIdentityConfig\x12.\n" +
 	"\x13requests_per_second\x18\x01 \x01(\rR\x11requestsPerSecond\x12\x14\n" +
 	"\x05burst\x18\x02 \x01(\rR\x05burst\x12*\n" +
