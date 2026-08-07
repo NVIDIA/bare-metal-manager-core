@@ -172,6 +172,16 @@ data:
     network_virtualization_type = {{ $nvType | quote }}
     {{- end }}
     dpus_in_nic_mode = {{ $section.dpusInNicMode | default $defaults.dpusInNicMode | default false }}
+    {{- with $section.hostFirmwareVersions }}
+
+    [machines.{{ $sectionName }}.host_firmware_versions]
+    {{- if .bmc }}
+    bmc = {{ .bmc | quote }}
+    {{- end }}
+    {{- if .uefi }}
+    uefi = {{ .uefi | quote }}
+    {{- end }}
+    {{- end }}
     {{- end }}
     {{- end }}
     {{- end }}
