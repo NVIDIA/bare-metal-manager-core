@@ -96,6 +96,7 @@ async fn decommission_request_enters_rms_workflow(
     let switch_id = common::api_fixtures::site_explorer::new_switch(&env, None, None).await?;
 
     let mut txn = pool.begin().await?;
+    set_switch_rack_id(txn.as_mut(), &switch_id, &"rack-id-1".into()).await?;
     transition_switch_controller_state(txn.as_mut(), &switch_id, SwitchControllerState::Ready)
         .await?;
     txn.commit().await?;

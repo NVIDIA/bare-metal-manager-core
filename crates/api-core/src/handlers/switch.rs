@@ -301,6 +301,24 @@ pub(crate) async fn decommission_switch(
         .into());
     }
 
+    let rack_id = switch.rack_id.as_ref().ok_or_else(|| {
+        CarbideError::FailedPrecondition(format!(
+            "switch {switch_id} must be associated with a rack before it can be decommissioned"
+        ))
+    })?;
+    let assigned_hosts = db::managed_host::find_assigned_hosts_in_rack(&mut txn, rack_id).await?;
+    if !assigned_hosts.is_empty() {
+        let assignments = assigned_hosts
+            .iter()
+            .map(|(machine_id, instance_id)| format!("{machine_id} ({instance_id})"))
+            .collect::<Vec<_>>()
+            .join(", ");
+        return Err(CarbideError::FailedPrecondition(format!(
+            "switch {switch_id} cannot be decommissioned while managed hosts in rack {rack_id} are assigned to instances: {assignments}"
+        ))
+        .into());
+    }
+
     db_switch::set_decommission_requested(&mut txn, switch_id).await?;
     txn.commit().await?;
 
