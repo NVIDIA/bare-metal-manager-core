@@ -319,8 +319,10 @@ fn extract_metadata(
             PUBLIC_IPV4_CATEGORY => (StatusCode::OK, metadata.address.clone()),
             HOSTNAME_CATEGORY => (StatusCode::OK, metadata.hostname.clone()),
             INSTANCE_NAME_CATEGORY => match &metadata.instance_name {
-                Some(instance_name) => (StatusCode::OK, instance_name.clone()),
-                None => (
+                Some(instance_name) if !instance_name.is_empty() => {
+                    (StatusCode::OK, instance_name.clone())
+                }
+                _ => (
                     StatusCode::NOT_FOUND,
                     "instance name not available".to_string(),
                 ),
@@ -724,6 +726,11 @@ mod tests {
         for (instance_name, expected_body, expected_status) in [
             (Some("test-instance"), "test-instance", StatusCode::OK),
             (None, "instance name not available", StatusCode::NOT_FOUND),
+            (
+                Some(""),
+                "instance name not available",
+                StatusCode::NOT_FOUND,
+            ),
         ] {
             metadata.instance_name = instance_name.map(str::to_owned);
             let (server, server_port) = setup_server(

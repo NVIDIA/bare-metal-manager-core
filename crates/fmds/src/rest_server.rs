@@ -115,8 +115,10 @@ fn extract_metadata(category: String, state: &FmdsState) -> (StatusCode, String)
         PUBLIC_IPV4_CATEGORY => (StatusCode::OK, config.address.clone()),
         HOSTNAME_CATEGORY => (StatusCode::OK, config.hostname.clone()),
         INSTANCE_NAME_CATEGORY => match &config.instance_name {
-            Some(instance_name) => (StatusCode::OK, instance_name.clone()),
-            None => (
+            Some(instance_name) if !instance_name.is_empty() => {
+                (StatusCode::OK, instance_name.clone())
+            }
+            _ => (
                 StatusCode::NOT_FOUND,
                 "instance name not available".to_string(),
             ),
@@ -460,6 +462,11 @@ mod tests {
         for (instance_name, expected_status, expected_body) in [
             (Some("test-instance"), StatusCode::OK, "test-instance"),
             (None, StatusCode::NOT_FOUND, "instance name not available"),
+            (
+                Some(""),
+                StatusCode::NOT_FOUND,
+                "instance name not available",
+            ),
         ] {
             state.update_config(FmdsConfig {
                 instance_name: instance_name.map(str::to_owned),
