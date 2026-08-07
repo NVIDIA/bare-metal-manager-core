@@ -467,7 +467,7 @@ impl From<rpc::machine_discovery::MemoryDeviceGroup> for model::hardware_info::M
         Self {
             size_mb: value.size_mb,
             mem_type: value.mem_type,
-            count: value.count.max(1),
+            count: value.count,
         }
     }
 }
@@ -526,6 +526,7 @@ impl TryFrom<rpc::machine_discovery::DiscoveryInfo> for HardwareInfo {
                 info.memory_device_groups
                     .into_iter()
                     .map(model::hardware_info::MemoryDeviceGroup::from)
+                    .filter(|g| g.count > 0)
                     .collect()
             } else {
                 #[allow(deprecated)]

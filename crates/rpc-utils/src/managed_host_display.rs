@@ -551,6 +551,9 @@ pub fn get_memory_details(memory_device_groups: &[MemoryDeviceGroup]) -> Option<
     let mut total_size = 0u64;
     let mut total_count = 0u32;
     for group in memory_device_groups {
+        if group.count == 0 {
+            continue;
+        }
         let size = byte_unit::Byte::from_f64_with_unit(
             group.size_mb.unwrap_or(0) as f64,
             byte_unit::Unit::MiB,

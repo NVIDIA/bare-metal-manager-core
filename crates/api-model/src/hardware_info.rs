@@ -302,6 +302,9 @@ where
     let raw = Vec::<MemoryDeviceGroup>::deserialize(deserializer)?;
     let mut merged: Vec<MemoryDeviceGroup> = Vec::new();
     for group in raw {
+        if group.count == 0 {
+            continue;
+        }
         if let Some(existing) = merged
             .iter_mut()
             .find(|g| g.size_mb == group.size_mb && g.mem_type == group.mem_type)
