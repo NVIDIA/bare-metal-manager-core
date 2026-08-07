@@ -2753,6 +2753,7 @@ dependencies = [
  "prost-build",
  "prost-reflect",
  "prost-types",
+ "syn 2.0.117",
  "tempfile",
  "thiserror 2.0.18",
 ]

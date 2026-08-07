@@ -56,3 +56,4 @@ mod schema;
 
 pub use compiler::{CompilerConfig, Error, compile};
 pub use schema::Schema;
+pub use syn;

@@ -35,6 +35,11 @@ fn ipxe_template_visibility_fmt(visibility: &i32) -> Cow<'static, str> {
 }
 
 mod filters {
+    #![allow(
+        unreachable_pub,
+        reason = "askama::filter_fn emits public helper items inside this template-filter module"
+    )]
+
     pub(super) use super::super::filters::option_fmt;
 
     #[askama::filter_fn]

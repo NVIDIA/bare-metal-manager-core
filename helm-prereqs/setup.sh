@@ -380,6 +380,34 @@ fi
 # ---------------------------------------------------------------------------
 _SETUP_PHASE="[1/6] local-path-provisioner"
 echo "=== [1/6] local-path-provisioner ==="
+
+# clean.sh sweeps orphaned host directories with a per-node pod that carries a
+# snapshot of which PVs were live when it was created. One left Pending by an
+# interrupted teardown (image pull, node offline) would still be holding that
+# stale snapshot, and could start after the PVs below exist and delete their
+# directories. Clear any before provisioning storage.
+# This check gates data loss, so it fails closed: a suppressed error here would
+# let storage be provisioned while such a pod is still able to delete it.
+if ! _STALE_SWEEP="$(kubectl get pods -n kube-system \
+    -l nico-lpp-sweep=true -o name 2>/dev/null)"; then
+    echo "ERROR: could not check for clean.sh sweep pods — refusing to provision storage" >&2
+    exit 1
+fi
+
+if [[ -n "${_STALE_SWEEP}" ]]; then
+    echo "  Removing sweep pods left by an interrupted clean.sh..."
+    kubectl delete pod -n kube-system -l nico-lpp-sweep=true \
+        --ignore-not-found --wait --timeout=60s 2>/dev/null || true
+
+    if ! _STALE_SWEEP="$(kubectl get pods -n kube-system \
+        -l nico-lpp-sweep=true -o name 2>/dev/null)" || [[ -n "${_STALE_SWEEP}" ]]; then
+        echo "ERROR: sweep pods from a previous clean.sh are still present in kube-system." >&2
+        echo "       They can delete newly provisioned PV directories. Remove them first:" >&2
+        echo "         kubectl delete pod -n kube-system -l nico-lpp-sweep=true" >&2
+        exit 1
+    fi
+fi
+
 kubectl apply -f operators/local-path-provisioner.yaml
 # StorageClass provisioner is immutable — delete before apply so a stale
 # provisioner from a previous install doesn't block the update.
