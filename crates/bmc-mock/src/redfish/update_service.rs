@@ -483,7 +483,7 @@ impl UpdateServiceState {
                         entry.set_version(&target_version);
                         // Remove from pending_upgrades so the next peek returns
                         // the following entry (if any).
-                        pending.swap_remove(component_id);
+                        pending.shift_remove(component_id);
                     } else {
                         tracing::warn!(
                             component_id,
@@ -646,9 +646,10 @@ impl UpdateServiceBuilder {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
+
     use super::*;
     use crate::redfish::software_inventory;
-    use std::sync::Arc;
 
     fn make_state(
         entries: &[(&'static str, &'static str)],
@@ -903,14 +904,15 @@ mod tests {
         );
     }
 
-    use crate::test_support::{NoopCallbacks, host_info};
-    use crate::{
-        HardwareType, MachineRouterOptions, machine_info::HostFirmwareVersions, machine_router,
-    };
+    use std::sync::Arc as StdArc;
+
     use axum::body::to_bytes;
     use axum::http::{Method, Request, StatusCode};
-    use std::sync::Arc as StdArc;
     use tower::ServiceExt;
+
+    use crate::machine_info::HostFirmwareVersions;
+    use crate::test_support::{NoopCallbacks, host_info};
+    use crate::{HardwareType, MachineRouterOptions, machine_router};
 
     fn make_router(
         bmc_current: &str,
