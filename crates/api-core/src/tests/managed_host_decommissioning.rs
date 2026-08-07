@@ -51,7 +51,7 @@ async fn decommission_requires_redfish_bfb_install_support(pool: sqlx::PgPool) {
     assert!(
         error
             .message()
-            .contains("does not support bfb installation")
+            .contains("dpus do not support bfb installation")
     );
 
     let mut txn = env.pool.begin().await.unwrap();
