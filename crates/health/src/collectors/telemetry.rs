@@ -273,15 +273,26 @@ impl<B: Bmc + 'static> TelemetryCollector<B> {
 
             let mut labels: Vec<MetricLabel> =
                 vec![(Cow::Borrowed("report_id"), report_id.clone())];
-            // The property URI is what ties the reading back to the
-            // resource that produced it.
-            if let Some(property) = value.metric_property.clone().flatten() {
+            // `MetricId` names a *definition*, so one report repeats it
+            // across every property that definition applies to -- a
+            // per-chassis temperature is one id and many readings. The
+            // property URI is what makes the reading unique, so it is
+            // what the key is built from: sinks index gauges by key, and
+            // keying on the id alone would drop every reading but the
+            // last. This also matches the entity collectors, whose keys
+            // are `{resource odata id}/{metric}`.
+            let property = value.metric_property.clone().flatten();
+            let key = match &property {
+                Some(property) => format!("{property}/{metric_id}"),
+                None => format!("{}/{metric_id}", report.odata_id()),
+            };
+            if let Some(property) = property {
                 labels.push((Cow::Borrowed("metric_property"), property));
             }
 
             self.emit_event(CollectorEvent::Metric(
                 MetricSample {
-                    key: format!("{}/{metric_id}", report.odata_id()),
+                    key,
                     name: METRIC_NAME.to_string(),
                     metric_type: metric_type_from_id(&metric_id),
                     unit: unit.to_string(),
@@ -472,7 +483,30 @@ mod tests {
                     metrics: {
                         const REPORT: &str =
                             "/redfish/v1/TelemetryService/MetricReports/PlatformEnvironmentMetrics";
+                        const SENSORS: &str = "/redfish/v1/Chassis/CH0/Sensors";
                         vec![
+                            metric(
+                                &format!("{SENSORS}/GPU0_Temp/GPU0_Temp"),
+                                "gpu0_temp",
+                                "celsius",
+                                48.0,
+                                &[
+                                    ("report_id", "PlatformEnvironmentMetrics"),
+                                    ("metric_property", &format!("{SENSORS}/GPU0_Temp")),
+                                ],
+                            ),
+                            metric(
+                                &format!("{SENSORS}/TotalPower/TotalGPUPowerWatts"),
+                                "total_gpu_power_watts",
+                                "watts",
+                                612.5,
+                                &[
+                                    ("report_id", "PlatformEnvironmentMetrics"),
+                                    ("metric_property", &format!("{SENSORS}/TotalPower")),
+                                ],
+                            ),
+                            // Keyed off the report, because this value
+                            // declares no MetricProperty.
                             metric(
                                 &format!("{REPORT}/FanPWM"),
                                 "fan_pwm",
@@ -480,32 +514,6 @@ mod tests {
                                 "unknown",
                                 30.0,
                                 &[("report_id", "PlatformEnvironmentMetrics")],
-                            ),
-                            metric(
-                                &format!("{REPORT}/GPU0_Temp"),
-                                "gpu0_temp",
-                                "celsius",
-                                48.0,
-                                &[
-                                    ("report_id", "PlatformEnvironmentMetrics"),
-                                    (
-                                        "metric_property",
-                                        "/redfish/v1/Chassis/CH0/Sensors/GPU0_Temp",
-                                    ),
-                                ],
-                            ),
-                            metric(
-                                &format!("{REPORT}/TotalGPUPowerWatts"),
-                                "total_gpu_power_watts",
-                                "watts",
-                                612.5,
-                                &[
-                                    ("report_id", "PlatformEnvironmentMetrics"),
-                                    (
-                                        "metric_property",
-                                        "/redfish/v1/Chassis/CH0/Sensors/TotalPower",
-                                    ),
-                                ],
                             ),
                         ]
                     },
