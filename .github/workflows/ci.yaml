@@ -705,12 +705,13 @@ jobs:
   # ============================================================================
   # BUILD STAGE - Release Container
   # ============================================================================
-  # Deliberately does NOT depend on lint-police or check-rest-core-proto-sync.
-  # The container build consumes nothing either job produces, and gating on
-  # them serialized ~11m of linting (and, on proto-touching changes, ~5m of
-  # proto-sync checking plus queueing) in front of a ~29m build. Their failures
-  # still block the merge independently via core-ci-pass, so the gates are
-  # preserved while the jobs now run in parallel.
+  # Deliberately does NOT depend on `lint-police` or
+  # `check-rest-core-proto-sync`. The container build does not consume
+  # anything either job produces, and gating on them serialized `~11m` of
+  # linting (on proto-touching changes, `~5m` of proto-sync checking plus
+  # queueing) in front of a `~29m` build. Their failures still block the
+  # merge independently via `core-ci-pass`, so the gate is preserved while
+  # the jobs run in parallel.
   build-release-container-x86_64:
     if: >-
       ${{
@@ -846,9 +847,9 @@ jobs:
       # No layer cache, same reasoning as the release containers above: the
       # Dockerfile does `COPY . .` before the cargo build, so any new commit
       # invalidates the builder layer and nothing expensive can ever be
-      # restored. mode=max still exported the whole builder stage on main --
-      # multi-hundred-MB blobs per commit into the 50 GB Actions cache pool
-      # that sccache depends on.
+      # restored. `mode=max` still exported the whole builder stage on every
+      # main commit, pushing `388 MB` blobs into the `50 GB` Actions cache
+      # pool that sccache depends on.
       cache: false
       build_args: >-
         ${{ format('{{"VERSION":"{0}","CI_COMMIT_SHORT_SHA":"{1}"}}',
@@ -893,8 +894,8 @@ jobs:
     secrets: inherit
 
   # Like the release-container builds above, deliberately not gated on
-  # check-rest-core-proto-sync: the tests read nothing it produces, and
-  # core-ci-pass still fails the merge when the protos are out of sync.
+  # `check-rest-core-proto-sync`: the tests do not read anything it produces,
+  # and `core-ci-pass` still fails the merge when the protos are out of sync.
   test-release-container-services:
     if: >-
       ${{
@@ -1139,13 +1140,14 @@ jobs:
     secrets: inherit
 
   # The aarch64 ephemeral (mkosi) build consumes exactly one file from the
-  # boot stage: the packaged forge-scout .deb (pxe copy-forge-scout-aarch64).
-  # Waiting on the full bfb job serialized ~18 min of BFB assembly in front of
-  # a ~14 min mkosi build for that one file -- the longest chain in the run.
-  # This job packages the deb on its own so the mkosi build starts as soon as
-  # it exists, while bfb keeps feeding the release-artifacts carrier in
-  # parallel. bfb still compiles scout itself: its apt repo ships the deb
-  # inside the boot image.
+  # boot stage: the packaged forge-scout `.deb` (pxe `copy-forge-scout-aarch64`).
+  # Waiting on the full bfb job serialized `~18m` of BFB assembly in front of
+  # a `~14m` mkosi build for that one file, which was the longest chain in
+  # the run. This job packages the deb on its own so the mkosi build starts
+  # as soon as it exists, while bfb keeps feeding the release-artifacts
+  # carrier in parallel.
+  # bfb still compiles scout itself: its apt repo ships the deb inside the
+  # boot image.
   build-package-scout-aarch64:
     needs:
       - prepare
@@ -1161,6 +1163,14 @@ jobs:
       runner: linux-arm64-cpu16
       version: ${{ needs.prepare.outputs.version }}
       use_container: true
+      # Not for injection (`inject_extras` stays false, so the extras are
+      # never pulled or extracted). The extras host is what the workflow logs
+      # into for read-only pulls, and prepare pins this ref to the source
+      # registry. On mirrors with a non-NVCR source registry, omitting it
+      # logs into the `nvcr.io` fallback while the build container lives on
+      # the source host, and non-publishing runs never do the target login
+      # that could paper over that.
+      extras_container: ${{ needs.prepare.outputs.extras_container_ref }}
     secrets: inherit
 
   # ============================================================================
@@ -1193,7 +1203,7 @@ jobs:
       - prepare
       - build-package-scout-aarch64
     # Depends on the scout package, not the full bfb build: the forge-scout
-    # .deb is the only boot-stage input the mkosi build reads. The
+    # `.deb` is the only boot-stage input the mkosi build reads. The
     # release-artifacts carrier downstream still requires bfb to have
     # succeeded, so a bfb failure fails the run exactly as before.
     if: ${{ !cancelled() && github.event_name != 'schedule' && needs.prepare.result == 'success' && needs.build-package-scout-aarch64.result == 'success' }}
@@ -1209,9 +1219,9 @@ jobs:
       sa_enablement: true
       inject_extras: true
       extras_container: ${{ needs.prepare.outputs.extras_container_ref }}
-      # Fetch just the ~tens-of-MB deb archive instead of the multi-GB boot
-      # artifact -- a measured 2m06s-2m36s download for one consumed file. The
-      # boot blobs the carrier image needs still travel in bfb's own artifact.
+      # Fetch just the deb archive instead of the `5.4 GB` boot artifact, a
+      # measured `2m06s`-`2m36s` download for one consumed file. The boot
+      # blobs the carrier image needs still travel in bfb's own artifact.
       prereq_artifact: package-artifacts-aarch64-${{ github.run_id }}
     secrets: inherit
 

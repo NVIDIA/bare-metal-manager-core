@@ -21,14 +21,14 @@ use std::process::Command;
 /// Set build script environment variables. Call this from a build script.
 ///
 /// Everything here reads the environment with `std::env::var` at build-script
-/// *runtime*, never with `option_env!`. `option_env!` bakes the value into
-/// this crate's own compiled rlib, making machine- and commit-specific strings
-/// (USER, HOSTNAME, VERSION, CI_COMMIT_SHORT_SHA) part of carbide-version's
-/// compilation fingerprint: every build script that links this crate then
-/// recompiled whenever any of them differed -- in CI that is every runner and
-/// every commit -- and sccache could never reuse any of it. The same
+/// runtime, never with `option_env!`. `option_env!` bakes the value into this
+/// crate's own compiled rlib, so machine- and commit-specific strings
+/// (`USER`, `HOSTNAME`, `VERSION`, `CI_COMMIT_SHORT_SHA`) become part of
+/// carbide-version's compilation fingerprint: every build script that links
+/// this crate recompiles whenever one of them changes (in CI that is every
+/// runner and every commit), and sccache cannot reuse any of it. The same
 /// environment is present when the build script runs, so the values are
-/// identical; only the moment they are read changes.
+/// identical; the only difference is when they are read.
 pub fn build() {
     // In a git worktree in a container (local dev) none of the git commands will work because
     // the real git directory isn't mounted.
@@ -51,14 +51,14 @@ pub fn build() {
     println!("cargo:rustc-env=FORGE_BUILD_HOSTNAME={hostname}");
     println!("cargo:rustc-env=CARBIDE_BUILD_HOSTNAME={hostname}");
 
-    // The committer date of HEAD, not wall-clock `date`: a wall-clock stamp
-    // changes on every invocation, lands in the env-dep list of every crate
-    // that embeds v!(build_date), and guaranteed an sccache miss for those
-    // crates and all their dependents -- even for two jobs compiling the same
-    // commit in the same CI run. The committer date only moves when the commit
-    // does, which is the granularity of everything else stamped here. Without
-    // git (local containers) fall back to wall clock, where caching is not at
-    // stake.
+    // The committer date of HEAD, not wall-clock `date`. A wall-clock stamp
+    // changes on every invocation and lands in the env-dep list of every
+    // crate that embeds `v!(build_date)`, guaranteeing an sccache miss for
+    // those crates and all their dependents, even for two jobs compiling the
+    // same commit in the same CI run. The committer date only moves when the
+    // commit does, which is the granularity of everything else stamped here.
+    // Without git (local containers) fall back to wall clock, where caching
+    // is not at stake.
     let build_date = if can_git {
         run("git", &["log", "-1", "--format=%cI"])
     } else {
@@ -75,11 +75,24 @@ pub fn build() {
     println!("cargo:rustc-env=CARBIDE_BUILD_RUSTC_VERSION={rustc_version}");
 
     println!("cargo:rerun-if-env-changed=CARBIDE_BUILD_HELM_VERSION");
-    // Emitting any rerun-if directive replaces cargo's default rules, and the
-    // values below are now read at script runtime, so their env vars must be
-    // declared for a changed VERSION on an unchanged commit to still re-stamp.
-    println!("cargo:rerun-if-env-changed=VERSION");
-    println!("cargo:rerun-if-env-changed=CI_COMMIT_SHORT_SHA");
+    // Emitting any rerun-if directive replaces cargo's default rules, and
+    // every value stamped here is read at script runtime, so each env var
+    // must be declared here or a change on an unchanged commit does not
+    // re-stamp.
+    // `RUSTC` is deliberately absent: cargo sets it for build scripts itself,
+    // and `rerun-if-env-changed` cannot track cargo-provided variables.
+    for var in [
+        "VERSION",
+        "CI_COMMIT_SHORT_SHA",
+        "USER",
+        "HOSTNAME",
+        "REPO_ROOT",
+        "CONTAINER_REPO_ROOT",
+        "FORGE_VERSION_AVOID_REBUILD",
+        "CARBIDE_VERSION_AVOID_REBUILD",
+    ] {
+        println!("cargo:rerun-if-env-changed={var}");
+    }
 
     if !can_git {
         println!("cargo:warning=No git, version will be blank");
@@ -198,9 +211,26 @@ fn git_allow() {
 }
 
 fn git_mark_safe_directory() {
+    // Only ever trust one concrete repository root. A wildcard
+    // (`safe.directory=*`) disables git's ownership check for every
+    // repository of this user, and outside CI that lands in a developer's
+    // real global config. With no root configured, leave git alone: the
+    // repo-dependent git calls fail softly through `run()`, and the affected
+    // version fields come out blank, the same as having no git at all.
     let repo_root = std::env::var("REPO_ROOT")
-        .or_else(|_| std::env::var("CONTAINER_REPO_ROOT"))
-        .unwrap_or_else(|_| "*".to_string());
+        .ok()
+        .filter(|v| !v.is_empty())
+        .or_else(|| {
+            std::env::var("CONTAINER_REPO_ROOT")
+                .ok()
+                .filter(|v| !v.is_empty())
+        });
+    let Some(repo_root) = repo_root else {
+        println!(
+            "cargo:warning=git reports dubious ownership and neither REPO_ROOT nor CONTAINER_REPO_ROOT is set; leaving safe.directory alone, version info may be blank"
+        );
+        return;
+    };
     run(
         "git",
         &["config", "--global", "--add", "safe.directory", &repo_root],

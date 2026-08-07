@@ -252,9 +252,9 @@ dependencies = [
   "add-secure-boot-pk-pem",
 ]
 
-# CI wrapper: build and package only the aarch64 forge-scout .deb. The
+# CI wrapper: build and package only the aarch64 forge-scout `.deb`. The
 # ephemeral-image build consumes exactly this one file from the boot stage
-# (see copy-forge-scout-aarch64), so CI runs this on its own to unblock the
+# (see `copy-forge-scout-aarch64`), so CI runs this on its own to unblock the
 # mkosi build instead of serializing it behind the full bfb assembly above.
 # The bfb task keeps its own package-scout dependency: its apt repo ships the
 # deb inside the boot image.

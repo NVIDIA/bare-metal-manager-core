@@ -56,10 +56,11 @@ on:
       extras_container:
         description: 'Location of additional artifacts to place into the built images'
         required: false
-        # An empty string, not boolean false: this is a string input, and the
-        # old boolean default reached callers as the literal text "false" --
-        # any job omitting the input would then try to docker-login to a
-        # registry named "false". Empty engages the nvcr.io fallback instead.
+        # An empty string, not boolean false: this is a string input, so a
+        # boolean default reaches callers as the literal text "false" and any
+        # job omitting the input then tries to docker login to a registry
+        # named "false". An empty value engages the `nvcr.io` fallback
+        # instead.
         default: ''
         type: string
 
@@ -548,22 +549,23 @@ jobs:
           compression-level: 0
           retention-days: 1
 
-      # The package build's deliverable is the .deb set alone -- not the
-      # unstripped binary, whose copy for symbolication ships in the boot
-      # artifact. Staged under a directory that reproduces the repo-relative
-      # layout (same pattern as the bluefield binaries in ci.yaml) because
-      # upload-artifact roots the archive at the least common ancestor of what
-      # it matched: uploading target/debs/ directly would drop the target/
-      # prefix that the pxe copy-forge-scout tasks expect after download.
+      # The package build's deliverable is the `.deb` set alone, not the
+      # unstripped binary (its symbolication copy ships in the boot artifact).
+      # Staged under a directory that reproduces the repo-relative layout,
+      # same pattern as the bluefield binaries in ci.yaml: upload-artifact
+      # roots the archive at the least common ancestor of what it matched, so
+      # uploading `target/debs/` directly would drop the `target/` prefix the
+      # pxe copy-forge-scout tasks expect after download.
       - name: Stage package artifacts for upload
         if: ${{ success() && inputs.build_type == 'package' }}
         run: |
           mkdir -p package-artifacts-dir/target
           cp -r target/debs package-artifacts-dir/target/debs
 
-      # .deb payloads are already compressed, hence compression-level 0. The
-      # name matches the release-artifacts download pattern (*-<arch>-<run_id>),
-      # which is harmless: the carrier images COPY only pxe/static/blobs/.
+      # `.deb` payloads are already compressed, so `compression-level: 0`.
+      # The name matches the release-artifacts download pattern
+      # (`*-<arch>-<run_id>`), which is harmless: the carrier images COPY only
+      # `pxe/static/blobs/`.
       - name: Upload package artifacts
         if: ${{ success() && inputs.build_type == 'package' }}
         uses: actions/upload-artifact@v4
