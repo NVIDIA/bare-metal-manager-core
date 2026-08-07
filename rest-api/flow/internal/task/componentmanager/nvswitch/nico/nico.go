@@ -619,7 +619,9 @@ func normalizeDecommissionState(raw string) string {
 			State string `json:"state"`
 		} `json:"decommissioning_state"`
 	}
-	if err := json.Unmarshal([]byte(raw), &state); err != nil || state.State != "decommissioning" {
+	if err := json.Unmarshal([]byte(raw), &state); err != nil ||
+		state.State != "decommissioning" ||
+		state.DecommissioningState.State == "" {
 		return raw
 	}
 	if state.DecommissioningState.State == "decommissioned" {

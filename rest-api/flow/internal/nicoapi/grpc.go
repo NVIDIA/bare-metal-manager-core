@@ -569,7 +569,7 @@ func (c *grpcClient) DecommissionSwitch(ctx context.Context, switchID string) er
 
 	_, err := c.gclient.DecommissionSwitch(ctx, &corev1.SwitchId{Id: switchID})
 	if err != nil {
-		return fmt.Errorf("DecommissionSwitch failed for %s: %w", switchID, err)
+		return fmt.Errorf("decommission switch %s: %w", switchID, err)
 	}
 	return nil
 }

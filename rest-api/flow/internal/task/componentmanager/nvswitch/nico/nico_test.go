@@ -103,6 +103,10 @@ func TestNormalizeDecommissionState(t *testing.T) {
 			raw:  "Ready",
 			want: "Ready",
 		},
+		"decommissioning state without substate remains unchanged": {
+			raw:  `{"state":"decommissioning"}`,
+			want: `{"state":"decommissioning"}`,
+		},
 	}
 
 	for name, tc := range testCases {

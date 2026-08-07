@@ -941,9 +941,14 @@ impl VaultTask<()> for DeleteCredentialsHelper<'_, '_> {
             duration_ms: elapsed_request_duration,
         });
 
-        let _secret_version_metadata = vault_response.inspect_err(|err| {
-            record_vault_credentials_delete_error(err);
-        })?;
+        match vault_response {
+            Ok(_) => {}
+            Err(error) if vault_client_error_status(&error) == Some(404) => {}
+            Err(error) => {
+                record_vault_credentials_delete_error(&error);
+                return Err(error.into());
+            }
+        }
 
         emit(VaultRequestSucceeded {
             request_type: VaultRequestType::DeleteCredentials,
