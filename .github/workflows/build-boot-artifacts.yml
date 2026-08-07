@@ -155,9 +155,13 @@ jobs:
       # Persist mkosi's downloaded distro packages between runs. Restore-keys let
       # a run start from the most recent cache for this arch even when the
       # profile set has changed, which is the common case.
+      #
+      # restore/save rather than actions/cache so the save can be limited to main;
+      # see "Save mkosi package cache" below for why.
       - name: Restore mkosi package cache
+        id: mkosi-cache
         if: inputs.build_type == 'ephemeral'
-        uses: actions/cache@v4
+        uses: actions/cache/restore@v4
         with:
           path: pxe/.mkosi-package-cache
           key: mkosi-pkgs-${{ inputs.arch }}-${{ hashFiles('pxe/mkosi.conf', 'pxe/mkosi.profiles/**/mkosi.conf') }}
@@ -468,6 +472,23 @@ jobs:
           cargo make --cwd pxe ${SA_ENABLEMENT_ARG} ${{ inputs.cargo_make_task }} 2>&1 | tee build.log
 
           echo "Build completed!"
+
+      # Only main publishes this cache. Actions cache entries are ref-scoped: a
+      # pull request that saves writes a copy nothing else can read, so a herd of
+      # concurrent pull requests starting from a cold cache each stores its own
+      # byte-identical archive. Nine copies of this one 1.3 GB entry were live at
+      # once, 10.7 GB of duplication in the same 50 GB pool that has to hold
+      # main's sccache. Pull requests keep restoring main's copy through the
+      # restore-keys prefix above, so they lose nothing.
+      #
+      # Saved on failure as well, because the packages mkosi already downloaded
+      # are valid regardless of whether the image build that followed succeeded.
+      - name: Save mkosi package cache
+        if: ${{ !cancelled() && inputs.build_type == 'ephemeral' && github.ref == 'refs/heads/main' && steps.mkosi-cache.outputs.cache-hit != 'true' }}
+        uses: actions/cache/save@v4
+        with:
+          path: pxe/.mkosi-package-cache
+          key: ${{ steps.mkosi-cache.outputs.cache-primary-key }}
 
       # Activate the runtime prepared above only after both build paths finish.
       # This exports the matching Python library directory beside its PATH.
