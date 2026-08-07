@@ -390,6 +390,36 @@ fi
 phase "Phase 3 — refresh nico-roots CA + Vault secrets"
 copy_secret nico-roots
 ok "nico-roots synced from ${NICO_SYSTEM_NS} (current CA)"
+
+# GOTCHA: nico-roots is not the whole story. machine-a-tron's own serving/client
+# certs are issued by cert-manager into per-deployment secrets, and those are NOT
+# recreated by a reinstall: teardown leaves the namespace secrets behind, and
+# cert-manager will not reissue a certificate that has not expired. So after a
+# site reprovision rotates the nico-system CA, MAT keeps validating against the
+# previous CA and every call to nico-api fails with
+# `invalid peer certificate: BadSignature`. The pods then fail their TCP
+# readiness probe forever — visible as a slow restart climb with zero machine
+# interfaces ever registering, which reads like a scale problem but is not one.
+# Drop any MAT cert secret whose CA no longer matches nico-system's, and let
+# cert-manager reissue from the current one.
+_current_ca=$(kubectl get secret nico-roots -n "$NICO_SYSTEM_NS" \
+                -o jsonpath='{.data.ca\.crt}' 2>/dev/null | base64 -d 2>/dev/null \
+              | openssl x509 -noout -fingerprint -sha256 2>/dev/null | cut -d= -f2)
+if [ -n "$_current_ca" ]; then
+    for _s in $(kubectl get secret -n "$MAT_NAMESPACE" \
+                  -l controller.cert-manager.io/fao=true -o name 2>/dev/null); do
+        _s_ca=$(kubectl get "$_s" -n "$MAT_NAMESPACE" -o jsonpath='{.data.ca\.crt}' 2>/dev/null \
+                | base64 -d 2>/dev/null \
+                | openssl x509 -noout -fingerprint -sha256 2>/dev/null | cut -d= -f2)
+        if [ -n "$_s_ca" ] && [ "$_s_ca" != "$_current_ca" ]; then
+            kubectl delete "$_s" -n "$MAT_NAMESPACE" >/dev/null 2>&1 \
+              && warn "${_s#secret/}: CA did not match nico-system; deleted for reissue"
+        fi
+    done
+    ok "MAT cert secrets checked against the current nico-system CA"
+else
+    warn "could not read the nico-system CA fingerprint; skipping MAT cert CA check"
+fi
 for s in nico-vault-approle-tokens nico-vault-token; do
     if kubectl get secret "$s" -n "$NICO_SYSTEM_NS" >/dev/null 2>&1; then
         copy_secret "$s"; ok "$s synced"
@@ -671,9 +701,10 @@ knobs = [
     # CONTROLLER MODE (MAT_MULTIPOD=1) is the exception: mat-k8s-controller
     # gives every BMC its own ClusterIP and site-explorer must dial those
     # directly, so bmc_proxy stays dropped (values/machine-a-tron-scale*.yaml
-    # documents this requirement).
-] if os.environ.get("MAT_MULTIPOD") == "1" else [
-    f'      bmc_proxy = "{env["BMC_PROXY"]}"',
+    # documents this requirement -- but ONLY bmc_proxy is dropped there; the
+    # throughput knobs below must still be written in both modes.
+    *([] if os.environ.get("MAT_MULTIPOD") == "1"
+        else [f'      bmc_proxy = "{env["BMC_PROXY"]}"']),
     f'      concurrent_explorations = {env["KNOB_CONC"]}',
     f'      explorations_per_run = {env["KNOB_EPR"]}',
     f'      machines_created_per_run = {env["KNOB_MCPR"]}',
