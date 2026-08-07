@@ -150,7 +150,7 @@ impl ExpectedMachineTabs {
     }
 }
 
-pub async fn show_all_html(
+pub(super) async fn show_all_html(
     AxumState(api): AxumState<Arc<Api>>,
     Query(mut params): Query<HashMap<String, String>>,
 ) -> Response {
@@ -277,7 +277,9 @@ pub async fn show_all_html(
     (StatusCode::OK, Html(tmpl.render().unwrap())).into_response()
 }
 
-pub async fn show_expected_machine_raw_json(AxumState(api): AxumState<Arc<Api>>) -> Response {
+pub(super) async fn show_expected_machine_raw_json(
+    AxumState(api): AxumState<Arc<Api>>,
+) -> Response {
     let result = match api
         .get_all_expected_machines(tonic::Request::new(()))
         .await

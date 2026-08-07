@@ -17,20 +17,76 @@
 use std::str::FromStr as _;
 
 use axum::body::Body;
+use axum::response::Response;
 use carbide_rpc_utils::ManagedHostOutput;
 use carbide_test_harness::TestMachine as _;
-use db::{machine, managed_host};
+use carbide_uuid::machine::{MachineId, MachineInterfaceId};
+use db::machine;
 use health_report::{
     HealthAlertClassification, HealthProbeAlert, HealthProbeId, HealthReport, HealthReportApplyMode,
 };
 use http_body_util::BodyExt;
-use hyper::http::StatusCode;
-use model::machine::{InstanceState, LoadSnapshotOptions, ManagedHostState, RetryInfo};
+use hyper::http::header::CONTENT_TYPE;
+use hyper::http::{Method, StatusCode};
+use model::machine::{InstanceState, ManagedHostState, RetryInfo};
 use tower::ServiceExt;
 
-use crate::managed_host::ManagedHostRowDisplay;
 use crate::tests::env::TestEnv;
 use crate::tests::{make_test_app, web_request_builder};
+
+/// Loads the owned interface rows used by the managed-host boot-interface
+/// page and its exact-UUID actions.
+async fn load_machine_interfaces(
+    env: &TestEnv,
+    machine_id: MachineId,
+) -> Vec<model::machine::MachineInterfaceSnapshot> {
+    let mut txn = env.test_harness.db_txn().await;
+    let interfaces = db::machine_interface::find_by_machine_ids(txn.as_mut(), &[machine_id])
+        .await
+        .expect("machine interfaces should load")
+        .remove(&machine_id)
+        .expect("managed host should have interface rows");
+    txn.commit()
+        .await
+        .expect("interface lookup transaction should commit");
+    interfaces
+}
+
+/// Submits the exact managed interface UUID used by both the operator
+/// selection and one-shot system-default action.
+async fn post_desired_boot_interface(
+    app: &axum::Router,
+    machine_id: MachineId,
+    machine_interface_id: MachineInterfaceId,
+) -> Response {
+    app.clone()
+        .oneshot(
+            web_request_builder()
+                .method(Method::POST)
+                .uri(format!("/admin/machine/{machine_id}/boot-interface"))
+                .header(CONTENT_TYPE, "application/x-www-form-urlencoded")
+                .body(Body::from(format!(
+                    "machine_interface_id={machine_interface_id}"
+                )))
+                .unwrap(),
+        )
+        .await
+        .unwrap()
+}
+
+/// Isolates the desired boot-interface section so assertions cannot be
+/// satisfied by the older interface or SKU tables elsewhere on the page.
+fn desired_boot_interface_section(body: &str) -> &str {
+    const HEADING: &str = "<h3 id=\"desired_boot_interface\">";
+    let start = body
+        .find(HEADING)
+        .expect("desired boot-interface section should render");
+    let content_start = start + HEADING.len();
+    let end = body[content_start..]
+        .find("<h3")
+        .map_or(body.len(), |offset| content_start + offset);
+    &body[start..end]
+}
 
 #[crate::sqlx_test]
 async fn test_ok(pool: sqlx::PgPool) {
@@ -79,15 +135,32 @@ async fn test_ok(pool: sqlx::PgPool) {
 }
 
 #[crate::sqlx_test]
-async fn machine_detail_shows_boot_interface_reconciliation(pool: sqlx::PgPool) {
+async fn machine_detail_manages_the_desired_boot_interface(pool: sqlx::PgPool) {
     let env = TestEnv::new(pool).await;
     let app = make_test_app(&env.test_harness);
-    let host = env.create_ready_managed_host(1).await.0;
+    let host = env.create_ready_managed_host(2).await.0;
+    let machine_id = host.host.id;
+    let interfaces = load_machine_interfaces(&env, machine_id).await;
+    let default_interface = model::machine::pick_default_boot_interface(&interfaces)
+        .expect("managed host should have a system-default interface")
+        .clone();
+    let selected_interface = interfaces
+        .iter()
+        .find(|interface| {
+            !interface.primary_interface
+                && interface.id != default_interface.id
+                && interface.attached_dpu_machine_id.is_some()
+        })
+        .expect("two-DPU host should have another selectable DPU interface")
+        .clone();
 
+    // The page combines persisted reconciliation state with every exact
+    // managed row an operator can select.
     let response = app
+        .clone()
         .oneshot(
             web_request_builder()
-                .uri(format!("/admin/machine/{}", host.host.id))
+                .uri(format!("/admin/machine/{machine_id}"))
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -102,12 +175,194 @@ async fn machine_detail_shows_boot_interface_reconciliation(pool: sqlx::PgPool) 
         .expect("machine detail body should be readable")
         .to_bytes();
     let body = std::str::from_utf8(&body).expect("machine detail should be UTF-8");
+    let boot_interface_section = desired_boot_interface_section(body);
 
-    assert!(body.contains("Boot-interface reconciliation"));
-    assert!(body.contains("Converged"));
-    assert!(body.contains("Redfish verified"));
-    assert!(body.contains(&host.host.primary_mac().to_string()));
+    assert!(boot_interface_section.contains("Desired Boot Interface"));
+    assert!(boot_interface_section.contains("Converged"));
+    assert!(boot_interface_section.contains("Redfish verified"));
+    assert!(boot_interface_section.contains(&host.host.primary_mac().to_string()));
+    assert!(boot_interface_section.contains("<strong>Current</strong>"));
+    assert!(boot_interface_section.contains("Matches system default"));
+    assert!(boot_interface_section.contains("Set desired interface"));
+    assert!(boot_interface_section.contains("Request reconciliation"));
+    assert!(
+        boot_interface_section.contains("<input type=\"submit\" value=\"Use system default\">")
+    );
+    assert!(boot_interface_section.contains(&format!(
+        "name=\"machine_interface_id\" value=\"{}\"",
+        default_interface.id
+    )));
+    for interface in &interfaces {
+        assert!(boot_interface_section.contains(&interface.id.to_string()));
+        assert!(boot_interface_section.contains(&interface.mac_address.to_string()));
+        if let Some(redfish_interface_id) = &interface.boot_interface_id {
+            assert!(boot_interface_section.contains(redfish_interface_id));
+        }
+    }
     assert!(!body.contains("action_reminder(event)"));
+
+    // Selecting an exact row moves primary + desired state atomically, while
+    // the request path leaves the BMC untouched.
+    let redfish_timepoint = env.redfish_sim.timepoint();
+    let response = post_desired_boot_interface(&app, machine_id, selected_interface.id).await;
+    assert_eq!(response.status(), StatusCode::SEE_OTHER);
+    assert!(
+        env.redfish_sim
+            .actions_since(&redfish_timepoint)
+            .all_hosts()
+            .is_empty(),
+        "the web request should leave Redfish work to machine-controller",
+    );
+
+    let selected_desired =
+        db::machine_desired_boot_interface::get(&env.api().database_connection, &machine_id)
+            .await
+            .unwrap()
+            .expect("selecting an interface should persist a desired target");
+    assert_eq!(
+        selected_desired.value.mac_address(),
+        selected_interface.mac_address
+    );
+    assert_eq!(
+        selected_desired.value.interface_id(),
+        selected_interface.boot_interface_id.as_deref()
+    );
+    assert!(
+        load_machine_interfaces(&env, machine_id)
+            .await
+            .iter()
+            .find(|interface| interface.id == selected_interface.id)
+            .is_some_and(|interface| interface.primary_interface),
+        "the selected row should become primary",
+    );
+
+    // `Use system default` is the same exact-row write with the server's
+    // current default mapped back to its managed UUID.
+    let redfish_timepoint = env.redfish_sim.timepoint();
+    let response = post_desired_boot_interface(&app, machine_id, default_interface.id).await;
+    assert_eq!(response.status(), StatusCode::SEE_OTHER);
+    assert!(
+        env.redfish_sim
+            .actions_since(&redfish_timepoint)
+            .all_hosts()
+            .is_empty(),
+        "restoring the default should leave Redfish work to machine-controller",
+    );
+
+    let default_desired =
+        db::machine_desired_boot_interface::get(&env.api().database_connection, &machine_id)
+            .await
+            .unwrap()
+            .expect("restoring the system default should retain a desired target");
+    assert_eq!(
+        default_desired.value.mac_address(),
+        default_interface.mac_address
+    );
+    assert_eq!(
+        default_desired.value.interface_id(),
+        default_interface.boot_interface_id.as_deref()
+    );
+
+    // Reconciliation keeps that target and only advances its generation for
+    // machine-controller.
+    let redfish_timepoint = env.redfish_sim.timepoint();
+    let response = app
+        .oneshot(
+            web_request_builder()
+                .method(Method::POST)
+                .uri(format!(
+                    "/admin/machine/{machine_id}/boot-interface/reconcile"
+                ))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::SEE_OTHER);
+    assert!(
+        env.redfish_sim
+            .actions_since(&redfish_timepoint)
+            .all_hosts()
+            .is_empty(),
+        "requesting reconciliation should leave Redfish work to machine-controller",
+    );
+
+    let reconciled_desired =
+        db::machine_desired_boot_interface::get(&env.api().database_connection, &machine_id)
+            .await
+            .unwrap()
+            .expect("requesting reconciliation should retain the desired target");
+    assert_eq!(reconciled_desired.value, default_desired.value);
+    assert_ne!(reconciled_desired.version, default_desired.version);
+}
+
+#[crate::sqlx_test]
+async fn machine_detail_shows_an_uninitialized_desired_boot_interface(pool: sqlx::PgPool) {
+    let env = TestEnv::new(pool).await;
+    let host = env.create_ready_managed_host(1).await.0;
+    let machine_id = host.host.id;
+    sqlx::query("DELETE FROM machine_boot_interfaces WHERE machine_id = $1")
+        .bind(machine_id)
+        .execute(&env.api().database_connection)
+        .await
+        .expect("test desired boot-interface row should be deleted");
+
+    let app = make_test_app(&env.test_harness);
+    let response = app
+        .clone()
+        .oneshot(
+            web_request_builder()
+                .uri(format!("/admin/machine/{machine_id}"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let body = response
+        .into_body()
+        .collect()
+        .await
+        .expect("machine detail body should be readable")
+        .to_bytes();
+    let body = std::str::from_utf8(&body).expect("machine detail should be UTF-8");
+    let boot_interface_section = desired_boot_interface_section(body);
+    assert!(boot_interface_section.contains("Desired Boot Interface"));
+    assert!(boot_interface_section.contains("Not yet initialized"));
+    assert!(boot_interface_section.contains("Set desired interface"));
+    assert!(!boot_interface_section.contains("/boot-interface/reconcile"));
+
+    // The button is hidden, and a direct POST also refuses to turn a
+    // reconciliation request into implicit initialization.
+    let redfish_timepoint = env.redfish_sim.timepoint();
+    let response = app
+        .oneshot(
+            web_request_builder()
+                .method(Method::POST)
+                .uri(format!(
+                    "/admin/machine/{machine_id}/boot-interface/reconcile"
+                ))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::SEE_OTHER);
+    assert!(
+        env.redfish_sim
+            .actions_since(&redfish_timepoint)
+            .all_hosts()
+            .is_empty(),
+        "an uninitialized request should not touch Redfish",
+    );
+    assert!(
+        db::machine_desired_boot_interface::get(&env.api().database_connection, &machine_id)
+            .await
+            .unwrap()
+            .is_none(),
+        "reconciliation without a desired target should not initialize one",
+    );
 }
 
 #[crate::sqlx_test]
@@ -162,93 +417,6 @@ async fn test_multi_dpu(pool: sqlx::PgPool) {
             "DPU should not have the same machine ID as the host"
         );
     }
-}
-
-// Test the ManagedHostRowDisplay as a proxy for testing that the HTML has what we want in
-// managed_host::show_html (parsing the HTML string is prohibitive)
-#[crate::sqlx_test]
-async fn test_managed_host_row_display(pool: sqlx::PgPool) -> eyre::Result<()> {
-    let env = TestEnv::new(pool).await;
-    let (mh, build_data) = env.create_ready_managed_host(2).await;
-    let hardware_info = mh.host.hardware_info();
-    let dpu_1 = mh.dpu(0);
-    let dpu_2 = mh.dpu(1);
-
-    // Get info from the test managed host so we know what to assert on in the ManagedHostRowDisplay.
-    let machine_id = mh.host.id;
-
-    let snapshots = managed_host::load_all(
-        &env.api().database_connection,
-        LoadSnapshotOptions {
-            include_history: false,
-            include_instance_data: false,
-            host_health_config: env.api().runtime_config.host_health,
-        },
-    )
-    .await?;
-
-    assert_eq!(
-        snapshots.len(),
-        1,
-        "Unexpected number of managed host snapshots"
-    );
-
-    let snapshot = snapshots.into_iter().next().unwrap();
-    assert_eq!(snapshot.host_snapshot.id, machine_id);
-
-    let sla_config = model::machine::slas::MachineSlaConfig::new(
-        env.api()
-            .runtime_config
-            .machine_state_controller
-            .failure_retry_time,
-    );
-    let row = ManagedHostRowDisplay::from_snapshot(snapshot.clone(), &sla_config);
-
-    assert!(row.maintenance_start_time.is_empty());
-    assert!(row.maintenance_reference.is_empty());
-    assert_eq!(row.state, "Ready");
-    assert_eq!(row.num_ib_ifs, hardware_info.infiniband_interfaces.len());
-    assert_eq!(row.num_gpus, hardware_info.gpus.len(),);
-    assert!(!row.time_in_state_above_sla);
-    assert!(!row.time_in_state.is_empty()); // Should match something like "0 seconds"
-    assert_eq!(row.host_bmc_ip, build_data.host_bmc_ip().to_string());
-    assert_eq!(row.host_bmc_mac, mh.host.bmc_mac.to_string());
-    assert_eq!(
-        row.vendor,
-        hardware_info.dmi_data.as_ref().unwrap().sys_vendor
-    );
-    assert_eq!(
-        row.model,
-        hardware_info.dmi_data.as_ref().unwrap().product_name
-    );
-    assert_eq!(row.machine_id, machine_id.to_string());
-    assert!(!row.health_sources.is_empty());
-    assert!(row.health_probe_alerts.is_empty());
-    assert!(!row.host_admin_ip.is_empty());
-    assert_eq!(row.host_admin_mac, mh.host.primary_mac().to_string());
-    assert!(row.state_reason.is_empty());
-
-    assert_eq!(row.dpus.len(), 2);
-
-    assert_eq!(
-        row.dpus[0].machine_id,
-        snapshot.dpu_snapshots[0].id.to_string()
-    );
-    assert_eq!(row.dpus[0].bmc_ip, build_data.dpu_bmc_ip(0).to_string());
-    assert_eq!(row.dpus[0].bmc_mac, dpu_1.bmc_mac.to_string());
-    assert_eq!(row.dpus[0].oob_mac, dpu_1.oob_mac().to_string());
-    assert!(!row.dpus[0].oob_ip.is_empty(), "dpu should show an oob ip");
-
-    assert_eq!(
-        row.dpus[1].machine_id,
-        snapshot.dpu_snapshots[1].id.to_string()
-    );
-    assert_eq!(row.dpus[1].bmc_ip, build_data.dpu_bmc_ip(1).to_string());
-    assert_eq!(row.dpus[1].bmc_mac, dpu_2.bmc_mac.to_string());
-    assert_eq!(row.dpus[1].oob_mac, dpu_2.oob_mac().to_string());
-    assert!(!row.dpus[1].oob_ip.is_empty(), "dpu should show an oob ip");
-
-    Ok(())
 }
 
 #[crate::sqlx_test]

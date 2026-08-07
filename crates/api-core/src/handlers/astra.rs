@@ -46,7 +46,7 @@ use crate::api::Api;
 /// 2) Does the host associated with the DPU have any Astra NICs? If not, return None.
 /// 3) Is the host associated with the DPU an instance? If so, return asta_config based on spx_config in instance.
 /// 4) Otherwise, return astra_config with VNI set to 0 for each NIC.
-pub(crate) async fn get_astra_config(
+pub(super) async fn get_astra_config(
     api: &Api,
     snapshot: &ManagedHostStateSnapshot,
 ) -> Result<Option<AstraConfig>, Status> {
@@ -193,7 +193,7 @@ pub(crate) async fn get_astra_config(
 /// We need to update the Astra observation in the database.
 /// 1) Is dpa enabled in config? If not, return None.
 /// 2) Does the host associated with the DPU have any Astra NICs? If not, just return
-pub(crate) async fn process_astra_config_status(
+pub(super) async fn process_astra_config_status(
     api: &Api,
     dpu_machine_id: &MachineId,
     astra_config_status: &AstraConfigStatus,

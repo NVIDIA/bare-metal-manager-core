@@ -1090,6 +1090,25 @@ mod tests {
     use crate::protos::dns::{Domain, Metadata};
 
     #[test]
+    fn reflection_descriptor_contains_all_rpc_services() {
+        let descriptor_set =
+            prost_types::FileDescriptorSet::decode(REFLECTION_API_SERVICE_DESCRIPTOR)
+                .expect("reflection descriptor set decodes");
+        let mut service_names = descriptor_set
+            .file
+            .iter()
+            .flat_map(|file| &file.service)
+            .filter_map(|service| service.name.as_deref())
+            .collect::<Vec<_>>();
+        service_names.sort_unstable();
+
+        assert_eq!(
+            service_names,
+            ["FmdsConfigService", "Forge", "NMX_Controller"]
+        );
+    }
+
+    #[test]
     fn test_serialize_timestamp() {
         let ts = std::time::SystemTime::now();
 

@@ -371,8 +371,8 @@ pub struct MachineATronConfig {
     #[serde(default)]
     pub host_bmc_password: Option<String>,
 
-    /// Same as `host_bmc_password`, for DPU BMC mocks
-    /// (factory default `DUMMY_FACTORY_DPU_PASSWORD`).
+    /// Same as `host_bmc_password`, for DPU BMC mocks. When unset, each DPU
+    /// model uses its factory-default password.
     #[serde(default)]
     pub dpu_bmc_password: Option<String>,
 
@@ -781,7 +781,7 @@ where
     }
 }
 
-pub fn deserialize_machine_config<'a, D>(
+fn deserialize_machine_config<'a, D>(
     deserializer: D,
 ) -> Result<BTreeMap<String, Arc<MachineConfig>>, D::Error>
 where

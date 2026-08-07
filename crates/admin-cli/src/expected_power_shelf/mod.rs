@@ -31,7 +31,7 @@ use clap::Parser;
 use crate::cfg::dispatch::Dispatch;
 
 #[derive(Parser, Debug, Dispatch)]
-pub enum Cmd {
+pub(crate) enum Cmd {
     #[clap(about = "Show expected power shelf")]
     Show(show::Args),
     #[clap(about = "Add expected power shelf")]

@@ -147,7 +147,7 @@ impl<IO: StateControllerIO> StateProcessor<IO> {
     /// amount of time between runs.
     ///
     /// The controller task will continue to run until `self.cancel_token` is cancelled.
-    pub async fn run(mut self) {
+    pub(super) async fn run(mut self) {
         let dispatch_interval = self.iteration_config.processor_dispatch_interval;
         let max_jitter = (dispatch_interval.as_millis() / 3) as u64;
 

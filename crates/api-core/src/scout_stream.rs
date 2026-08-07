@@ -55,7 +55,7 @@ struct AgentConnection {
 // to the AgentConnection, and exposes an interface to show
 // current connections and send messages across them.
 #[derive(Clone)]
-pub struct ConnectionRegistry {
+pub(crate) struct ConnectionRegistry {
     // connections is used to map a machine_id to a scout
     // agent connection.
     connections: Arc<RwLock<HashMap<MachineId, AgentConnection>>>,
@@ -63,7 +63,7 @@ pub struct ConnectionRegistry {
 
 impl ConnectionRegistry {
     // new creates a new connection registry.
-    pub fn new() -> Self {
+    pub(crate) fn new() -> Self {
         Self {
             connections: Arc::new(RwLock::new(HashMap::new())),
         }
@@ -72,7 +72,7 @@ impl ConnectionRegistry {
     // register adds a new scout agent connection to the registry,
     // provisioning data structures necessary for tracking the machine,
     // its singular connection, and active flows over the connection.
-    pub async fn register(
+    pub(crate) async fn register(
         &self,
         machine_id: MachineId,
         tx: mpsc::Sender<Result<ScoutStreamScoutBoundMessage, Status>>,
@@ -144,7 +144,7 @@ impl ConnectionRegistry {
     }
 
     // unregister removes a scout agent connection from the registry.
-    pub async fn unregister(&self, machine_id: MachineId) -> bool {
+    pub(crate) async fn unregister(&self, machine_id: MachineId) -> bool {
         let mut connections = self.connections.write().await;
         if connections.remove(&machine_id).is_some() {
             tracing::info!(
@@ -162,7 +162,7 @@ impl ConnectionRegistry {
     }
 
     // send_request sends a request to a scout agent and waits for a response.
-    pub async fn send_request(
+    pub(crate) async fn send_request(
         &self,
         machine_id: MachineId,
         request: ScoutStreamScoutBoundMessage,
@@ -239,13 +239,13 @@ impl ConnectionRegistry {
     }
 
     // is_connected checks if a machine is currently connected.
-    pub async fn is_connected(&self, machine_id: MachineId) -> bool {
+    pub(crate) async fn is_connected(&self, machine_id: MachineId) -> bool {
         let connections = self.connections.read().await;
         connections.contains_key(&machine_id)
     }
 
     // list_connected returns a list of all connected machines with connection info.
-    pub async fn list_connected(&self) -> Vec<(MachineId, std::time::SystemTime)> {
+    pub(crate) async fn list_connected(&self) -> Vec<(MachineId, std::time::SystemTime)> {
         let connections = self.connections.read().await;
         connections
             .iter()

@@ -21,7 +21,7 @@ use super::{Action, Rule, Selector};
 
 /// BlueField PCIe devices vanish from the chassis collections (and 404 on direct GET)
 /// NetworkAdapter resources report blank vendor strings with no NetworkDeviceFunctions
-pub fn all_dpu_lost_on_host() -> Vec<Rule> {
+pub(super) fn all_dpu_lost_on_host() -> Vec<Rule> {
     vec![
         Rule {
             id: "all_dpu_lost__pcie_hide".into(),

@@ -27,7 +27,7 @@ use tonic::{Request, Response, Status};
 use crate::CarbideError;
 use crate::api::{Api, log_request_data};
 
-pub async fn create(
+pub(crate) async fn create(
     api: &Api,
     request: Request<rpc::VpcPrefixCreationRequest>,
 ) -> Result<Response<rpc::VpcPrefix>, Status> {
@@ -198,7 +198,7 @@ pub async fn create(
     Ok(tonic::Response::new(vpc_prefix.into()))
 }
 
-pub async fn search(
+pub(crate) async fn search(
     api: &Api,
     request: Request<rpc::VpcPrefixSearchQuery>,
 ) -> Result<Response<rpc::VpcPrefixIdList>, Status> {
@@ -265,7 +265,7 @@ pub async fn search(
     }))
 }
 
-pub async fn get(
+pub(crate) async fn get(
     api: &Api,
     request: Request<rpc::VpcPrefixGetRequest>,
 ) -> Result<Response<rpc::VpcPrefixList>, Status> {
@@ -299,7 +299,7 @@ pub async fn get(
 }
 
 /// Finds controller state-history records for VPC prefixes.
-pub async fn find_state_histories(
+pub(crate) async fn find_state_histories(
     api: &Api,
     request: Request<rpc::VpcPrefixStateHistoriesRequest>,
 ) -> Result<Response<rpc::StateHistories>, Status> {
@@ -343,7 +343,7 @@ pub async fn find_state_histories(
     Ok(tonic::Response::new(response))
 }
 
-pub async fn update(
+pub(crate) async fn update(
     api: &Api,
     request: Request<rpc::VpcPrefixUpdateRequest>,
 ) -> Result<Response<rpc::VpcPrefix>, Status> {
@@ -365,7 +365,7 @@ pub async fn update(
     Ok(tonic::Response::new(updated.into()))
 }
 
-pub async fn delete(
+pub(crate) async fn delete(
     api: &Api,
     request: Request<rpc::VpcPrefixDeletionRequest>,
 ) -> Result<Response<rpc::VpcPrefixDeletionResult>, Status> {

@@ -33,7 +33,7 @@ use rpc::forge_agent_control_response as fac;
 /// Which control-loop action scout handled, as a bounded metric label: one
 /// variant per [`fac::Action`] arm the service loop can dispatch.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, LabelValue)]
-pub enum ScoutAction {
+pub(super) enum ScoutAction {
     Noop,
     Reset,
     Discovery,
@@ -73,7 +73,7 @@ impl From<&fac::Action> for ScoutAction {
     describe = "Number of scout control-loop actions handled, by action and outcome.",
     labels(outcome: Outcome, action: ScoutAction),
 )]
-pub(crate) enum ScoutActionHandled {
+pub(super) enum ScoutActionHandled {
     #[event(
         labels(outcome = Outcome::Ok),
         log = info,
@@ -111,9 +111,9 @@ pub(crate) enum ScoutActionHandled {
     metric = counter,
     describe = "Number of scout stream connection attempts, by outcome."
 )]
-pub struct ScoutStreamConnection {
+pub(super) struct ScoutStreamConnection {
     #[label]
-    pub outcome: Outcome,
+    pub(super) outcome: Outcome,
 }
 
 /// `ScoutStreamReconnect` records the retry boundary after a stream closes or
@@ -129,11 +129,11 @@ pub struct ScoutStreamConnection {
     message = "scout stream reconnecting after 10s delay",
     describe = "Number of scout stream reconnect cycles after a stream closed or errored."
 )]
-pub struct ScoutStreamReconnect {
+pub(super) struct ScoutStreamReconnect {
     #[context]
-    pub api_endpoint: String,
+    pub(super) api_endpoint: String,
     #[context]
-    pub machine_id: MachineId,
+    pub(super) machine_id: MachineId,
 }
 
 /// `ScoutStreamResponseDropped` records a response scout could not return
@@ -149,25 +149,25 @@ pub struct ScoutStreamReconnect {
     message = "scout stream failed to send response",
     describe = "Number of scout stream responses dropped after the outbound request stream closed."
 )]
-pub(crate) struct ScoutStreamResponseDropped {
+pub(super) struct ScoutStreamResponseDropped {
     #[context]
-    pub api_endpoint: String,
+    pub(super) api_endpoint: String,
     #[context]
-    pub machine_id: MachineId,
+    pub(super) machine_id: MachineId,
     #[context]
-    pub error: String,
+    pub(super) error: String,
 }
 
 /// Which firmware-upgrade input is being downloaded.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, LabelValue)]
-pub(crate) enum FirmwareDownloadKind {
+pub(super) enum FirmwareDownloadKind {
     Script,
     Artifact,
 }
 
 /// What Scout will do after a failed firmware download attempt.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, LabelValue)]
-pub(crate) enum FirmwareDownloadNextAction {
+pub(super) enum FirmwareDownloadNextAction {
     Retry,
     GiveUp,
 }
@@ -183,24 +183,24 @@ pub(crate) enum FirmwareDownloadNextAction {
     message = "[firmware_upgrade] download attempt failed; retrying",
     describe = "Number of failed Scout firmware download attempts, by download kind and next action."
 )]
-pub(crate) struct ScoutFirmwareDownloadAttemptFailed {
+pub(super) struct ScoutFirmwareDownloadAttemptFailed {
     #[label]
-    pub kind: FirmwareDownloadKind,
+    pub(super) kind: FirmwareDownloadKind,
     #[label]
-    pub next_action: FirmwareDownloadNextAction,
+    pub(super) next_action: FirmwareDownloadNextAction,
     #[context(value)]
-    pub attempt: i64,
+    pub(super) attempt: i64,
     #[context]
-    pub url: String,
+    pub(super) url: String,
     #[context]
-    pub error: String,
+    pub(super) error: String,
     #[context(value)]
-    pub retry_delay_seconds: f64,
+    pub(super) retry_delay_seconds: f64,
 }
 
 /// The bounded operation vocabulary for Scout's MLX failure counter.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, LabelValue)]
-pub(crate) enum ScoutMlxOperation {
+pub(super) enum ScoutMlxOperation {
     DeviceReportPublish,
     InfoReport,
     ObservationReport,
@@ -225,7 +225,7 @@ pub(crate) enum ScoutMlxOperation {
 
 /// Where an MLX operation failed.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, LabelValue)]
-pub(crate) enum ScoutMlxFailureStage {
+pub(super) enum ScoutMlxFailureStage {
     Create,
     Publish,
     Decode,
@@ -248,7 +248,7 @@ pub(crate) enum ScoutMlxFailureStage {
     component = "nico-scout",
     describe = "Number of Scout MLX observation, read, mutation, and recovery failures, by operation and failure stage."
 )]
-pub(crate) struct ScoutMlxFailures {
+pub(super) struct ScoutMlxFailures {
     operation: ScoutMlxOperation,
     failure_stage: ScoutMlxFailureStage,
 }
@@ -272,7 +272,7 @@ pub(crate) struct ScoutMlxFailures {
     event_name = "scout_mlx_operation_failed",
     metric_family = ScoutMlxFailures
 )]
-pub(crate) enum ScoutMlxOperationFailed {
+pub(super) enum ScoutMlxOperationFailed {
     #[event(
         labels(
             operation = ScoutMlxOperation::DeviceReportPublish,
@@ -437,7 +437,7 @@ pub(crate) enum ScoutMlxOperationFailed {
     event_name = "scout_mlx_request_rejected",
     metric_family = ScoutMlxFailures
 )]
-pub(crate) enum ScoutMlxRequestRejected {
+pub(super) enum ScoutMlxRequestRejected {
     #[event(
         labels(
             operation = ScoutMlxOperation::ProfileCompare,
@@ -476,7 +476,7 @@ pub(crate) enum ScoutMlxRequestRejected {
     event_name = "scout_mlx_device_operation_failed",
     metric_family = ScoutMlxFailures
 )]
-pub(crate) enum ScoutMlxDeviceOperationFailed {
+pub(super) enum ScoutMlxDeviceOperationFailed {
     #[event(
         labels(
             operation = ScoutMlxOperation::LockdownStatus,
@@ -545,7 +545,7 @@ pub(crate) enum ScoutMlxDeviceOperationFailed {
     event_name = "scout_mlx_profile_operation_failed",
     metric_family = ScoutMlxFailures
 )]
-pub(crate) enum ScoutMlxProfileOperationFailed {
+pub(super) enum ScoutMlxProfileOperationFailed {
     #[event(
         labels(
             operation = ScoutMlxOperation::ProfileCompare,
@@ -592,7 +592,7 @@ pub(crate) enum ScoutMlxProfileOperationFailed {
     log = error,
     message = "[scout_stream::mlx_device] variable registry not found"
 )]
-pub(crate) struct ScoutMlxRegistryLookupFailed {
+pub(super) struct ScoutMlxRegistryLookupFailed {
     #[label]
     operation: ScoutMlxOperation,
     #[label]
@@ -602,7 +602,7 @@ pub(crate) struct ScoutMlxRegistryLookupFailed {
 }
 
 impl ScoutMlxRegistryLookupFailed {
-    pub(crate) fn registry_show_lookup(registry_name: String) -> Self {
+    pub(super) fn registry_show_lookup(registry_name: String) -> Self {
         let failure_stage = ScoutMlxFailureStage::Lookup;
         Self {
             operation: ScoutMlxOperation::RegistryShow,
@@ -619,7 +619,7 @@ impl ScoutMlxRegistryLookupFailed {
     event_name = "scout_mlx_config_registry_lookup_failed",
     metric_family = ScoutMlxFailures
 )]
-pub(crate) enum ScoutMlxConfigRegistryLookupFailed {
+pub(super) enum ScoutMlxConfigRegistryLookupFailed {
     #[event(
         labels(
             operation = ScoutMlxOperation::ConfigQuery,
@@ -688,7 +688,7 @@ pub(crate) enum ScoutMlxConfigRegistryLookupFailed {
     event_name = "scout_mlx_config_operation_failed",
     metric_family = ScoutMlxFailures
 )]
-pub(crate) enum ScoutMlxConfigOperationFailed {
+pub(super) enum ScoutMlxConfigOperationFailed {
     #[event(
         labels(
             operation = ScoutMlxOperation::ConfigQuery,
@@ -817,7 +817,7 @@ pub(crate) enum ScoutMlxConfigOperationFailed {
     log = error,
     message = "mlxconfig reset failed"
 )]
-pub(crate) struct ScoutMlxProfileResetFailed {
+pub(super) struct ScoutMlxProfileResetFailed {
     #[label]
     operation: ScoutMlxOperation,
     #[label]
@@ -829,7 +829,7 @@ pub(crate) struct ScoutMlxProfileResetFailed {
 }
 
 impl ScoutMlxProfileResetFailed {
-    pub(crate) fn execute(device: String, error: String) -> Self {
+    pub(super) fn execute(device: String, error: String) -> Self {
         let failure_stage = ScoutMlxFailureStage::Execute;
         Self {
             operation: ScoutMlxOperation::ProfileReset,
@@ -848,7 +848,7 @@ impl ScoutMlxProfileResetFailed {
     log = error,
     message = "mlxconfig profile sync failed"
 )]
-pub(crate) struct ScoutMlxProfileApplyFailed {
+pub(super) struct ScoutMlxProfileApplyFailed {
     #[label]
     operation: ScoutMlxOperation,
     #[label]
@@ -862,7 +862,7 @@ pub(crate) struct ScoutMlxProfileApplyFailed {
 }
 
 impl ScoutMlxProfileApplyFailed {
-    pub(crate) fn execute(device: String, profile: String, error: String) -> Self {
+    pub(super) fn execute(device: String, profile: String, error: String) -> Self {
         let failure_stage = ScoutMlxFailureStage::Execute;
         Self {
             operation: ScoutMlxOperation::ProfileApply,
@@ -882,7 +882,7 @@ impl ScoutMlxProfileApplyFailed {
     log = error,
     message = "failed to create FirmwareFlasher"
 )]
-pub(crate) struct ScoutMlxFirmwareFlasherInitializationFailed {
+pub(super) struct ScoutMlxFirmwareFlasherInitializationFailed {
     #[label]
     operation: ScoutMlxOperation,
     #[label]
@@ -898,7 +898,7 @@ pub(crate) struct ScoutMlxFirmwareFlasherInitializationFailed {
 }
 
 impl ScoutMlxFirmwareFlasherInitializationFailed {
-    pub(crate) fn new(device: String, part_number: String, psid: String, error: String) -> Self {
+    pub(super) fn new(device: String, part_number: String, psid: String, error: String) -> Self {
         let failure_stage = ScoutMlxFailureStage::Initialize;
         Self {
             operation: ScoutMlxOperation::FirmwareFlash,
@@ -919,7 +919,7 @@ impl ScoutMlxFirmwareFlasherInitializationFailed {
     log = error,
     message = "firmware flash failed"
 )]
-pub(crate) struct ScoutMlxFirmwareFlashFailed {
+pub(super) struct ScoutMlxFirmwareFlashFailed {
     #[label]
     operation: ScoutMlxOperation,
     #[label]
@@ -939,7 +939,7 @@ pub(crate) struct ScoutMlxFirmwareFlashFailed {
 }
 
 impl ScoutMlxFirmwareFlashFailed {
-    pub(crate) fn execute(
+    pub(super) fn execute(
         device: String,
         part_number: String,
         psid: String,
@@ -968,7 +968,7 @@ impl ScoutMlxFirmwareFlashFailed {
     event_name = "scout_mlx_reconciliation_failed",
     metric_family = ScoutMlxFailures
 )]
-pub(crate) enum ScoutMlxReconciliationFailed {
+pub(super) enum ScoutMlxReconciliationFailed {
     #[event(
         labels(
             operation = ScoutMlxOperation::Reconciliation,
@@ -1032,7 +1032,7 @@ pub(crate) enum ScoutMlxReconciliationFailed {
 
 /// Which storage cleanup path scout ran for a device.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, LabelValue)]
-pub(crate) enum StorageDeviceType {
+pub(super) enum StorageDeviceType {
     Nvme,
     HddSas,
 }
@@ -1047,7 +1047,7 @@ pub(crate) enum StorageDeviceType {
     describe = "Duration of per-device scout storage cleanup operations, by device type and outcome.",
     labels(outcome: Outcome, device_type: StorageDeviceType),
 )]
-pub(crate) enum ScoutStorageDeviceCleanup {
+pub(super) enum ScoutStorageDeviceCleanup {
     #[event(
         labels(outcome = Outcome::Ok),
         log = info,
@@ -1082,7 +1082,7 @@ pub(crate) enum ScoutStorageDeviceCleanup {
 impl ScoutStorageDeviceCleanup {
     /// Which case a cleanup landed in. A success has no error to report, so the
     /// failure text exists only on `Error`.
-    pub(crate) fn from_result<E>(
+    pub(super) fn from_result<E>(
         device_type: StorageDeviceType,
         duration: Duration,
         result: &Result<(), E>,

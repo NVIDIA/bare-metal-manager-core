@@ -26,7 +26,7 @@ use model::machine::{
 };
 use state_controller::state_handler::StateHandlerError;
 
-pub trait NextState {
+pub(super) trait NextState {
     fn next_bfb_install_state(
         &self,
         current_state: &ManagedHostState,
@@ -166,7 +166,7 @@ pub trait NextState {
     }
 }
 
-pub trait DpuDiscoveringStateHelper {
+pub(super) trait DpuDiscoveringStateHelper {
     fn next_state(
         self,
         current_state: &ManagedHostState,
@@ -197,7 +197,7 @@ impl DpuDiscoveringStateHelper for DpuDiscoveringState {
     }
 }
 
-pub trait DpuInitStateHelper {
+pub(super) trait DpuInitStateHelper {
     fn next_state(
         self,
         current_state: &ManagedHostState,
@@ -487,7 +487,7 @@ impl NextState for DpuInitNextStateResolver {
     }
 }
 
-pub(crate) trait ReprovisionStateHelper {
+pub(super) trait ReprovisionStateHelper {
     fn next_state_with_all_dpus_updated(
         self,
         current_state: &ManagedHostState,
@@ -580,7 +580,7 @@ impl ReprovisionStateHelper for ReprovisionState {
     }
 }
 
-pub trait ManagedHostStateHelper {
+pub(super) trait ManagedHostStateHelper {
     fn all_dpu_states_in_sync(&self) -> Result<bool, StateHandlerError>;
 }
 
@@ -622,7 +622,7 @@ fn reprovision_dpf_states_in_sync(
     ))
 }
 
-pub fn all_equal<A>(states: &[A]) -> Result<bool, StateHandlerError>
+pub(super) fn all_equal<A>(states: &[A]) -> Result<bool, StateHandlerError>
 where
     A: PartialEq,
 {

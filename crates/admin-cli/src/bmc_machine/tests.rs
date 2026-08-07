@@ -31,6 +31,7 @@ use clap::{CommandFactory, Parser};
 
 use super::common::AdminPowerControlAction;
 use super::*;
+use crate::test_support::{parse_leaf, raw_value};
 
 // Define a basic/working MachineId for testing.
 const TEST_MACHINE_ID: &str = "fm100ht038bg3qsho433vkg684heguv282qaggmrsh2ugn1qk096n2c6hcg";
@@ -58,10 +59,12 @@ fn verify_cmd_structure() {
 fn parse_bmc_reset() {
     scenarios!(
         run = |argv| {
-            Cmd::try_parse_from(argv.iter().copied())
-                .map(|cmd| match cmd {
-                    Cmd::BmcReset(args) => (args.machine, args.use_ipmitool),
-                    _ => panic!("expected BmcReset variant"),
+            parse_leaf::<Cmd>(argv, &["bmc-reset"])
+                .map(|matches| {
+                    (
+                        raw_value(&matches, "machine").expect("machine is required"),
+                        matches.get_flag("use_ipmitool"),
+                    )
                 })
                 .map_err(drop)
         };
@@ -87,13 +90,15 @@ fn parse_bmc_reset() {
 fn parse_admin_power_control() {
     scenarios!(
         run = |argv| {
-            Cmd::try_parse_from(argv.iter().copied())
-                .map(|cmd| match cmd {
-                    Cmd::AdminPowerControl(args) => (
-                        args.machine,
-                        matches!(args.action, AdminPowerControlAction::On),
-                    ),
-                    _ => panic!("expected AdminPowerControl variant"),
+            parse_leaf::<Cmd>(argv, &["admin-power-control"])
+                .map(|matches| {
+                    (
+                        raw_value(&matches, "machine").expect("machine is required"),
+                        matches!(
+                            matches.get_one::<AdminPowerControlAction>("action"),
+                            Some(AdminPowerControlAction::On)
+                        ),
+                    )
                 })
                 .map_err(drop)
         };
@@ -116,10 +121,9 @@ fn parse_admin_power_control() {
 fn parse_lockdown() {
     scenarios!(
         run = |argv| {
-            Cmd::try_parse_from(argv.iter().copied())
-                .map(|cmd| match cmd {
-                    Cmd::Lockdown(args) => (args.enable, args.disable),
-                    _ => panic!("expected Lockdown variant"),
+            parse_leaf::<Cmd>(argv, &["lockdown"])
+                .map(|matches| {
+                    (matches.get_flag("enable"), matches.get_flag("disable"))
                 })
                 .map_err(drop)
         };
@@ -151,10 +155,13 @@ fn parse_lockdown() {
 fn parse_create_bmc_user() {
     scenarios!(
         run = |argv| {
-            Cmd::try_parse_from(argv.iter().copied())
-                .map(|cmd| match cmd {
-                    Cmd::CreateBmcUser(args) => (args.username, args.password, args.ip_address),
-                    _ => panic!("expected CreateBmcUser variant"),
+            parse_leaf::<Cmd>(argv, &["create-bmc-user"])
+                .map(|matches| {
+                    (
+                        raw_value(&matches, "username").expect("username is required"),
+                        raw_value(&matches, "password").expect("password is required"),
+                        raw_value(&matches, "ip_address"),
+                    )
                 })
                 .map_err(drop)
         };

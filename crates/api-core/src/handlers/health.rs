@@ -27,7 +27,7 @@ use crate::api::Api;
 use crate::auth::AuthContext;
 use crate::handlers::utils::convert_and_log_machine_id;
 
-pub async fn list_machine_health_reports(
+pub(crate) async fn list_machine_health_reports(
     api: &Api,
     machine_id: Request<MachineId>,
 ) -> Result<Response<rpc::ListHealthReportResponse>, Status> {
@@ -95,7 +95,7 @@ async fn remove_by_source(
     Ok(())
 }
 
-pub async fn insert_machine_health_report(
+pub(crate) async fn insert_machine_health_report(
     api: &Api,
     request: Request<rpc::InsertMachineHealthReportRequest>,
 ) -> Result<Response<()>, Status> {
@@ -150,7 +150,7 @@ pub async fn insert_machine_health_report(
     Ok(Response::new(()))
 }
 
-pub async fn remove_machine_health_report(
+pub(crate) async fn remove_machine_health_report(
     api: &Api,
     request: Request<rpc::RemoveMachineHealthReportRequest>,
 ) -> Result<Response<()>, Status> {

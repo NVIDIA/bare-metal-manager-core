@@ -27,18 +27,18 @@ use serde::Serialize;
 /// Serializes to JSON with the state flattened directly into the message,
 /// using `ManagedHostState`'s native serde serialization (lowercase state names).
 #[derive(Debug, Clone, Serialize)]
-pub struct ManagedHostStateMessage<'a> {
+pub(super) struct ManagedHostStateMessage<'a> {
     /// Unique identifier for the managed host machine.
-    pub machine_id: &'a MachineId,
+    pub(super) machine_id: &'a MachineId,
     /// ISO 8601 timestamp when the state was observed for publishing.
-    pub timestamp: DateTime<Utc>,
+    pub(super) timestamp: DateTime<Utc>,
     /// The managed host state.
-    pub managed_host_state: &'a ManagedHostState,
+    pub(super) managed_host_state: &'a ManagedHostState,
 }
 
 impl ManagedHostStateMessage<'_> {
     /// Serialize the message to JSON bytes for MQTT publishing.
-    pub fn to_json_bytes(&self) -> Result<Vec<u8>, serde_json::Error> {
+    pub(super) fn to_json_bytes(&self) -> Result<Vec<u8>, serde_json::Error> {
         serde_json::to_vec(self)
     }
 
@@ -46,7 +46,7 @@ impl ManagedHostStateMessage<'_> {
     ///
     /// Shared by the change-driven hook and the periodic republisher so the
     /// topic layout is defined in exactly one place.
-    pub fn topic(&self, topic_prefix: &str) -> String {
+    pub(super) fn topic(&self, topic_prefix: &str) -> String {
         format!("{topic_prefix}/{}/state", self.machine_id)
     }
 }

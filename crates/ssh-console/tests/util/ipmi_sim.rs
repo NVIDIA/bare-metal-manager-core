@@ -25,15 +25,15 @@ use nix::pty::openpty;
 use nix::unistd;
 use tokio::io::unix::AsyncFd;
 
-pub type IpmiSimHandle = bmc_mock::ipmi_sim::IpmiSimHandle;
+pub(super) type IpmiSimHandle = bmc_mock::ipmi_sim::IpmiSimHandle;
 
-pub struct ActiveSolSession {
+pub(crate) struct ActiveSolSession {
     _ipmitool: tokio::process::Child,
     _pty_master: AsyncFd<OwnedFd>,
 }
 
 impl ActiveSolSession {
-    pub async fn assert_console_works(&self, expected_prompt: &[u8]) -> eyre::Result<()> {
+    pub(crate) async fn assert_console_works(&self, expected_prompt: &[u8]) -> eyre::Result<()> {
         const PROBE: &[u8] = b"original-sol-owner-probe\r";
 
         tokio::time::timeout(Duration::from_secs(10), async {
@@ -83,7 +83,7 @@ impl ActiveSolSession {
     }
 }
 
-pub async fn activate_sol(port: u16) -> eyre::Result<ActiveSolSession> {
+pub(crate) async fn activate_sol(port: u16) -> eyre::Result<ActiveSolSession> {
     let pty = openpty(None, None).context("failed to allocate ipmitool pty")?;
     set_nonblocking(&pty.master).context("failed to make ipmitool pty nonblocking")?;
 
@@ -174,7 +174,7 @@ fn set_nonblocking(fd: &OwnedFd) -> nix::Result<()> {
 /// Run an instance of ipmi_sim and a corresponding instance of a mock serial console, for tests to
 /// use. Accepts a `prompt` parameter which will be echoed back when the clients send data (for
 /// tests to assert that it's the expected host.)
-pub async fn run(prompt: String) -> eyre::Result<IpmiSimHandle> {
+pub(super) async fn run(prompt: String) -> eyre::Result<IpmiSimHandle> {
     let bmc = bmc_mock::test_support::generic_supermicro_bmc().await;
     bmc.state
         .account_service_state

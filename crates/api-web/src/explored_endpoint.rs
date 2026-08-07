@@ -215,7 +215,7 @@ impl From<&ExploredEndpoint> for ExploredEndpointDisplay {
 }
 
 /// List explored endpoints
-pub async fn show_html_all(
+pub(super) async fn show_html_all(
     AxumState(state): AxumState<Arc<Api>>,
     Query(mut params): Query<HashMap<String, String>>,
 ) -> Response {
@@ -273,7 +273,7 @@ pub async fn show_html_all(
     (StatusCode::OK, Html(tmpl.render().unwrap())).into_response()
 }
 
-pub async fn show_html_paired(
+pub(super) async fn show_html_paired(
     AxumState(state): AxumState<Arc<Api>>,
     Query(params): Query<PaginationParams>,
 ) -> Response {
@@ -301,7 +301,7 @@ pub async fn show_html_paired(
     (StatusCode::OK, Html(tmpl.render().unwrap())).into_response()
 }
 
-pub async fn show_html_unpaired(
+pub(super) async fn show_html_unpaired(
     AxumState(state): AxumState<Arc<Api>>,
     Query(mut params): Query<HashMap<String, String>>,
 ) -> Response {
@@ -396,7 +396,7 @@ pub async fn show_html_unpaired(
     (StatusCode::OK, Html(tmpl.render().unwrap())).into_response()
 }
 
-pub async fn show_all_json(AxumState(state): AxumState<Arc<Api>>) -> Response {
+pub(super) async fn show_all_json(AxumState(state): AxumState<Arc<Api>>) -> Response {
     let report = match fetch_explored_endpoints(&state).await {
         Ok(report) => report,
         Err(err) => {
@@ -505,7 +505,7 @@ impl From<ExploredEndpointInfo> for ExploredEndpointDetail<'_> {
 
 /// Fetch a single explored endpoint
 /// TODO: The API is rather inefficient since it loads all of them and filters client side
-pub async fn fetch_explored_endpoint(
+async fn fetch_explored_endpoint(
     api: &Api,
     endpoint_ip: String,
 ) -> Result<ExploredEndpoint, Response> {
@@ -535,7 +535,7 @@ pub async fn fetch_explored_endpoint(
     Ok(endpoint)
 }
 /// View details of an explored endpoint
-pub async fn detail(
+pub(super) async fn detail(
     AxumState(state): AxumState<Arc<Api>>,
     AxumPath(endpoint_ip): AxumPath<String>,
     Query(params): Query<HashMap<String, String>>,
@@ -646,7 +646,7 @@ pub async fn detail(
     (StatusCode::OK, Html(display.render().unwrap())).into_response()
 }
 
-pub async fn re_explore(
+pub(super) async fn re_explore(
     AxumState(state): AxumState<Arc<Api>>,
     AxumPath(endpoint_ip): AxumPath<String>,
     Form(form): Form<ReExploreEndpointAction>,
@@ -668,7 +668,7 @@ pub async fn re_explore(
     Redirect::to(&view_url)
 }
 
-pub async fn refresh_endpoint(
+pub(super) async fn refresh_endpoint(
     AxumState(state): AxumState<Arc<Api>>,
     AxumPath(endpoint_ip): AxumPath<String>,
 ) -> impl IntoResponse {
@@ -710,7 +710,7 @@ pub async fn refresh_endpoint(
     }
 }
 
-pub async fn pause_remediation(
+pub(super) async fn pause_remediation(
     AxumState(state): AxumState<Arc<Api>>,
     AxumPath(endpoint_ip): AxumPath<String>,
     Form(form): Form<PauseRemediationAction>,
@@ -735,12 +735,12 @@ pub async fn pause_remediation(
 }
 
 #[derive(Deserialize, Debug)]
-pub struct ReExploreEndpointAction {
+pub(super) struct ReExploreEndpointAction {
     if_version_match: Option<String>,
 }
 
 #[derive(Deserialize, Debug)]
-pub struct PauseRemediationAction {
+pub(super) struct PauseRemediationAction {
     pause: bool,
 }
 
@@ -777,7 +777,7 @@ fn query_filter_for(
     Box::new(move |x| vf(x) && ef(x))
 }
 
-pub async fn power_control(
+pub(super) async fn power_control(
     AxumState(state): AxumState<Arc<Api>>,
     AxumPath(endpoint_ip): AxumPath<String>,
     Form(form): Form<PowerControlEndpointAction>,
@@ -854,12 +854,12 @@ pub async fn power_control(
 }
 
 #[derive(Deserialize, Debug)]
-pub struct PowerControlEndpointAction {
+pub(super) struct PowerControlEndpointAction {
     action: Option<String>,
     redirect_to: Option<String>,
 }
 
-pub async fn bmc_reset(
+pub(super) async fn bmc_reset(
     AxumState(state): AxumState<Arc<Api>>,
     AxumPath(endpoint_ip): AxumPath<String>,
     Form(form): Form<BmcResetEndpointAction>,
@@ -909,22 +909,22 @@ pub async fn bmc_reset(
 }
 
 #[derive(Deserialize, Debug)]
-pub struct BmcResetEndpointAction {
+pub(super) struct BmcResetEndpointAction {
     use_ipmi: Option<String>,
     redirect_to: Option<String>,
 }
 
 #[derive(Deserialize, Debug)]
-pub struct MachineSetupAction {
+pub(super) struct MachineSetupAction {
     boot_interface_mac: Option<String>,
 }
 
 #[derive(Deserialize, Debug)]
-pub struct DpuFirstBootOrderAction {
+pub(super) struct DpuFirstBootOrderAction {
     boot_interface_mac: Option<String>,
 }
 
-pub async fn clear_last_exploration_error(
+pub(super) async fn clear_last_exploration_error(
     AxumState(state): AxumState<Arc<Api>>,
     AxumPath(endpoint_ip): AxumPath<String>,
 ) -> Response {
@@ -946,7 +946,7 @@ pub async fn clear_last_exploration_error(
     Redirect::to(&view_url).into_response()
 }
 
-pub async fn clear_bmc_credentials(
+pub(super) async fn clear_bmc_credentials(
     AxumState(state): AxumState<Arc<Api>>,
     AxumPath(endpoint_ip): AxumPath<String>,
 ) -> Response {
@@ -983,7 +983,7 @@ pub async fn clear_bmc_credentials(
     Redirect::to(&view_url).into_response()
 }
 
-pub async fn disable_secure_boot(
+pub(super) async fn disable_secure_boot(
     AxumState(state): AxumState<Arc<Api>>,
     AxumPath(endpoint_ip): AxumPath<String>,
 ) -> Response {
@@ -1017,7 +1017,7 @@ pub async fn disable_secure_boot(
     Redirect::to(&redirect_url).into_response()
 }
 
-pub async fn disable_lockdown(
+pub(super) async fn disable_lockdown(
     AxumState(state): AxumState<Arc<Api>>,
     AxumPath(endpoint_ip): AxumPath<String>,
 ) -> Response {
@@ -1055,7 +1055,7 @@ pub async fn disable_lockdown(
     Redirect::to(&redirect_url).into_response()
 }
 
-pub async fn enable_lockdown(
+pub(super) async fn enable_lockdown(
     AxumState(state): AxumState<Arc<Api>>,
     AxumPath(endpoint_ip): AxumPath<String>,
 ) -> Response {
@@ -1093,7 +1093,7 @@ pub async fn enable_lockdown(
     Redirect::to(&redirect_url).into_response()
 }
 
-pub async fn machine_setup(
+pub(super) async fn machine_setup(
     AxumState(state): AxumState<Arc<Api>>,
     AxumPath(endpoint_ip): AxumPath<String>,
     Form(form): Form<MachineSetupAction>,
@@ -1150,7 +1150,7 @@ pub async fn machine_setup(
     Redirect::to(&redirect_url).into_response()
 }
 
-pub async fn set_dpu_first_boot_order(
+pub(super) async fn set_dpu_first_boot_order(
     AxumState(state): AxumState<Arc<Api>>,
     AxumPath(endpoint_ip): AxumPath<String>,
     Form(form): Form<DpuFirstBootOrderAction>,
@@ -1220,7 +1220,7 @@ pub async fn set_dpu_first_boot_order(
 /// id) once a machine owns this endpoint, or site-explorer's automatic default
 /// for a not-yet-managed endpoint. Managed hosts persist a fresh generation
 /// for machine-controller; unowned endpoints still apply it directly.
-pub async fn restore_boot_interface(
+pub(super) async fn restore_boot_interface(
     AxumState(state): AxumState<Arc<Api>>,
     AxumPath(endpoint_ip): AxumPath<String>,
 ) -> Response {
@@ -1260,7 +1260,7 @@ pub async fn restore_boot_interface(
     Redirect::to(&redirect_url).into_response()
 }
 
-pub async fn delete_endpoint(
+pub(super) async fn delete_endpoint(
     AxumState(state): AxumState<Arc<Api>>,
     AxumPath(endpoint_ip): AxumPath<String>,
 ) -> Response {

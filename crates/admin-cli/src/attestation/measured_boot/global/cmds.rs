@@ -24,18 +24,20 @@ use crate::errors::{CarbideCliError, CarbideCliResult};
 /// IdentifierType is a enum that stores the identifer
 /// type when providing a name or ID-based option via the
 /// CLI.
-pub trait IdNameIdentifier {
+pub(in crate::attestation::measured_boot) trait IdNameIdentifier {
     fn is_id(&self) -> bool;
     fn is_name(&self) -> bool;
 }
 
-pub enum IdentifierType {
+pub(in crate::attestation::measured_boot) enum IdentifierType {
     ForId,
     ForName,
     Detect,
 }
 
-pub fn get_identifier<T>(args: &T) -> CarbideCliResult<IdentifierType>
+pub(in crate::attestation::measured_boot) fn get_identifier<T>(
+    args: &T,
+) -> CarbideCliResult<IdentifierType>
 where
     T: IdNameIdentifier,
 {

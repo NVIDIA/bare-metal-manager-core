@@ -41,7 +41,7 @@ Clear a pending force-converge request:
     $ nico-admin-cli credential force-bmc clear --id fm100ht038bg3qsho433vkg684heguv282qaggmrsh2ugn1qk096n2c6hcg
 
 ")]
-pub enum Args {
+pub(crate) enum Args {
     #[clap(
         about = "Request an immediate BMC credential rotation of a machine, switch, or power shelf."
     )]
@@ -69,7 +69,7 @@ Force-converge a BMC now by BMC MAC (machine, switch, or power shelf):
     $ nico-admin-cli credential force-bmc set --bmc-mac 00:11:22:33:44:55
 
 ")]
-pub struct ForceSet {
+pub(crate) struct ForceSet {
     #[clap(
         short,
         long,
@@ -77,14 +77,14 @@ pub struct ForceSet {
         help = "ID of the machine, DPU, switch, or power shelf that owns the BMC. \
                 Provide this or --bmc-mac."
     )]
-    pub id: Option<DeviceId>,
+    pub(super) id: Option<DeviceId>,
 
     #[clap(
         long,
         help = "MAC of the BMC to target (machine, switch, or power shelf). Provide this \
                 or --id; if an id is also given they must identify the same device."
     )]
-    pub bmc_mac: Option<MacAddress>,
+    pub(super) bmc_mac: Option<MacAddress>,
 }
 
 impl From<ForceSet> for BmcCredentialRotationRequest {
@@ -114,7 +114,7 @@ Clear a pending force-converge request by BMC MAC:
     $ nico-admin-cli credential force-bmc clear --bmc-mac 00:11:22:33:44:55
 
 ")]
-pub struct ForceClear {
+pub(crate) struct ForceClear {
     #[clap(
         short,
         long,
@@ -122,10 +122,10 @@ pub struct ForceClear {
         help = "Machine, DPU, switch, or power shelf ID whose pending BMC force-converge request \
                 should be cleared. Provide this or --bmc-mac."
     )]
-    pub id: Option<DeviceId>,
+    pub(super) id: Option<DeviceId>,
 
     #[clap(long, help = "MAC of the BMC whose pending request should be cleared.")]
-    pub bmc_mac: Option<MacAddress>,
+    pub(super) bmc_mac: Option<MacAddress>,
 }
 
 impl From<ForceClear> for BmcCredentialRotationRequest {

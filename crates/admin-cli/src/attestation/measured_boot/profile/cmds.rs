@@ -122,7 +122,7 @@ impl Run for ListMachines {
 
 /// create is `profile create` and used for creating
 /// a new profile.
-pub async fn create(
+async fn create(
     grpc_conn: &ApiClient,
     create: Create,
 ) -> CarbideCliResult<MeasurementSystemProfile> {
@@ -137,7 +137,7 @@ pub async fn create(
 
 /// delete is `delete <profile-id|profile-name>` and is used
 /// for deleting an existing profile by ID or name.
-pub async fn delete(
+async fn delete(
     grpc_conn: &ApiClient,
     delete: Delete,
 ) -> CarbideCliResult<MeasurementSystemProfile> {
@@ -151,7 +151,7 @@ pub async fn delete(
 }
 
 /// rename renames a measurement bundle with the provided name or ID.
-pub async fn rename(
+async fn rename(
     grpc_conn: &ApiClient,
     rename: Rename,
 ) -> CarbideCliResult<MeasurementSystemProfile> {
@@ -167,7 +167,7 @@ pub async fn rename(
 /// show_all is `show`, and is used for showing all
 /// profiles with details (when no <profile_id> is
 /// specified on the command line).
-pub async fn show_all(grpc_conn: &ApiClient) -> CarbideCliResult<MeasurementSystemProfileList> {
+async fn show_all(grpc_conn: &ApiClient) -> CarbideCliResult<MeasurementSystemProfileList> {
     Ok(MeasurementSystemProfileList(
         grpc_conn
             .0
@@ -185,7 +185,7 @@ pub async fn show_all(grpc_conn: &ApiClient) -> CarbideCliResult<MeasurementSyst
 
 /// show_by_id_or_name is `show <profile-id|profile-name>` and is used for
 /// showing a profile (and its details) by ID or name.
-pub async fn show_by_id_or_name(
+async fn show_by_id_or_name(
     grpc_conn: &ApiClient,
     show: Show,
 ) -> CarbideCliResult<MeasurementSystemProfile> {
@@ -201,9 +201,7 @@ pub async fn show_by_id_or_name(
 /// list_all is `list all` and is used for listing all
 /// high level profile info (just IDs). For actual
 /// details, use `show`.
-pub async fn list_all(
-    grpc_conn: &ApiClient,
-) -> CarbideCliResult<MeasurementSystemProfileRecordList> {
+async fn list_all(grpc_conn: &ApiClient) -> CarbideCliResult<MeasurementSystemProfileRecordList> {
     Ok(MeasurementSystemProfileRecordList(
         grpc_conn
             .0
@@ -221,7 +219,7 @@ pub async fn list_all(
 
 /// list_bundles_by_id_or_name is `list bundles <profile-id|profile-name>` and
 /// is used to list all configured bundles for a given profile ID or name.
-pub async fn list_bundles_for_id_or_name(
+async fn list_bundles_for_id_or_name(
     grpc_conn: &ApiClient,
     list_bundles: ListBundles,
 ) -> CarbideCliResult<MeasurementBundleIdList> {
@@ -239,7 +237,7 @@ pub async fn list_bundles_for_id_or_name(
 /// list_machines_for_id_or_name is `list machines <profile-id|profile-name>`
 /// and is used to list all configured machines associated with a given profile
 /// ID or name.
-pub async fn list_machines_for_id_or_name(
+async fn list_machines_for_id_or_name(
     grpc_conn: &ApiClient,
     list_machines: ListMachines,
 ) -> CarbideCliResult<MachineIdList> {
@@ -263,7 +261,7 @@ pub async fn list_machines_for_id_or_name(
 /// for a Vec<MeasurementSystemProfileRecord> so the ToTable trait can
 /// be leveraged (since we don't define Vec).
 #[derive(Serialize)]
-pub struct MeasurementSystemProfileRecordList(Vec<MeasurementSystemProfileRecord>);
+struct MeasurementSystemProfileRecordList(Vec<MeasurementSystemProfileRecord>);
 
 impl ToTable for MeasurementSystemProfileRecordList {
     fn into_table(self) -> eyre::Result<String> {
@@ -284,7 +282,7 @@ impl ToTable for MeasurementSystemProfileRecordList {
 /// for a Vec<MeasurementBundleId> so the ToTable trait can
 /// be leveraged (since we don't define Vec).
 #[derive(Serialize)]
-pub struct MeasurementBundleIdList(Vec<MeasurementBundleId>);
+struct MeasurementBundleIdList(Vec<MeasurementBundleId>);
 
 impl ToTable for MeasurementBundleIdList {
     fn into_table(self) -> eyre::Result<String> {
@@ -301,7 +299,7 @@ impl ToTable for MeasurementBundleIdList {
 /// pattern for a Vec<MeasurementSystemProfile> so the ToTable
 /// trait can be leveraged (since we don't define Vec).
 #[derive(Serialize)]
-pub struct MeasurementSystemProfileList(Vec<MeasurementSystemProfile>);
+struct MeasurementSystemProfileList(Vec<MeasurementSystemProfile>);
 
 // When `profile show` gets called (for all entries), and the output format
 // is the default table view, this gets used to print a pretty table.

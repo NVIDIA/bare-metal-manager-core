@@ -346,13 +346,48 @@ jobs:
             exit 1
           fi
 
+      # The build-artifacts containers ship sccache but never point it anywhere,
+      # so the Rust compile inside them started cold on every run -- 3m36s of the
+      # bfb critical path. These are the same credentials the release image
+      # builds hand to BuildKit. The sentinel keeps the value non-empty so the
+      # in-container check can tell "no backend" from "malformed endpoint".
+      - name: Expose Actions cache credentials to the container build
+        if: inputs.use_container == true
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const token = process.env.ACTIONS_RUNTIME_TOKEN || '';
+            const url = process.env.ACTIONS_RESULTS_URL || '';
+            if (token) core.setSecret(token);
+            core.exportVariable('BUILD_ACTIONS_RUNTIME_TOKEN', token || 'unavailable');
+            core.exportVariable('BUILD_ACTIONS_RESULTS_URL', url || 'unavailable');
+            core.info(`In-container sccache backend: ${token && url ? 'enabled' : 'disabled'}`);
+
       # Run build in container mode (for boot artifacts)
       - name: Run cargo make task (container mode)
         if: inputs.use_container == true
+        env:
+          # Only main publishes; every other ref reads what main left behind.
+          SCCACHE_GHA_RW_MODE: ${{ github.ref == 'refs/heads/main' && 'READ_WRITE' || 'READ_ONLY' }}
         run: |
+          # dev/docker/sccache-cache.sh reads its credentials from /run/secrets
+          # because that is where BuildKit puts them. Staging the same three
+          # files here lets the container reuse that script rather than carry a
+          # second copy of the backend-selection logic.
+          SCCACHE_SECRETS="$(mktemp -d)"
+          # These runners are not guaranteed to be ephemeral, so the token must
+          # not outlive the step that needs it.
+          trap 'rm -rf "${SCCACHE_SECRETS}"' EXIT
+          printf '%s' "${BUILD_ACTIONS_RESULTS_URL}" > "${SCCACHE_SECRETS}/actions_results_url"
+          printf '%s' "${BUILD_ACTIONS_RUNTIME_TOKEN}" > "${SCCACHE_SECRETS}/actions_runtime_token"
+          printf '%s' "${SCCACHE_GHA_RW_MODE}" > "${SCCACHE_SECRETS}/sccache_gha_rw_mode"
+          chmod 600 "${SCCACHE_SECRETS}"/*
+
           # Set up environment variables for container (matches GitLab CI global variables)
           ENV_ARGS="-e CARGO_HOME=/workspace/cargo"
           ENV_ARGS="$ENV_ARGS -e CARGO_INCREMENTAL=0"
+          ENV_ARGS="$ENV_ARGS -e RUSTC_WRAPPER=sccache"
+          ENV_ARGS="$ENV_ARGS -e SCCACHE_DIR=/workspace/cache/sccache"
           ENV_ARGS="$ENV_ARGS -e CACHE_DIRECTORY=/workspace/cache"
           ENV_ARGS="$ENV_ARGS -e APT_CACHE_DIR=/workspace/apt"
           ENV_ARGS="$ENV_ARGS -e LOGNAME=root"
@@ -368,7 +403,7 @@ jobs:
           echo "FORGE_CA=prod"
           echo "============================================"
 
-          EXTRA_DOCKER_ARGS=""
+          EXTRA_DOCKER_ARGS="-v ${SCCACHE_SECRETS}:/run/secrets:ro"
           if [[ "${{ inputs.cargo_make_task }}" == "build-boot-artifacts-bfb-ci" ]]; then
             # bfb build runs `docker pull/save` (see pxe/Makefile.toml tasks.bfb-hbn-pull/export).
             # Allow docker CLI inside the build container to talk to the host Docker daemon.
@@ -400,7 +435,7 @@ jobs:
             -w /workspace \
             ${ENV_ARGS} \
             ${{ inputs.build_container }} \
-            bash -c "git config --global --add safe.directory /workspace && git config --global --add safe.directory /workspace/pxe/ipxe/upstream && echo 'VERSION in container: '\${VERSION} && cargo make --cwd pxe ${SA_ENABLEMENT_ARG} ${{ inputs.cargo_make_task }}"
+            bash -c ". /workspace/dev/docker/sccache-cache.sh && sccache_setup && git config --global --add safe.directory /workspace && git config --global --add safe.directory /workspace/pxe/ipxe/upstream && echo 'VERSION in container: '\${VERSION} && cargo make --cwd pxe ${SA_ENABLEMENT_ARG} ${{ inputs.cargo_make_task }} && sccache_report"
 
       # Run build directly on runner (for ephemeral images with mkosi)
       - name: Run cargo make task (shell mode)
@@ -573,7 +608,7 @@ jobs:
       # compression-level: 0 because squashfs/bfb/efi payloads are already
       # compressed; re-deflating them burns CPU for a rounding error of savings.
       - name: Upload artifacts
-        if: always()  # Upload artifacts even if build fails (matches GitLab CI 'when: always')
+        if: ${{ !cancelled() }}  # Upload artifacts even if build fails (matches GitLab CI 'when: always')
         uses: actions/upload-artifact@v4
         with:
           name: ${{ inputs.build_type }}-artifacts-${{ inputs.arch }}-${{ github.run_id }}

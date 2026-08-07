@@ -24,7 +24,8 @@ var _ MappedNullable = &ExpectedPowerShelfUpdateRequest{}
 type ExpectedPowerShelfUpdateRequest struct {
 	// ID of the Expected Power Shelf to update (ignored for single update, used for identification in batch operations).
 	Id NullableString `json:"id,omitempty"`
-	// MAC address of the Expected Power Shelf's BMC (Baseboard Management Controller)
+	// Immutable MAC address of the Expected Power Shelf's BMC (Baseboard Management Controller). Omit this field when updating. A formatting-equivalent value is accepted for compatibility and preserves the originally stored spelling, but changing the physical MAC address is rejected with HTTP 400.
+	// Deprecated
 	BmcMacAddress NullableString `json:"bmcMacAddress,omitempty" validate:"regexp=^([0-9A-Fa-f]{2}[:-]){5}([0-9A-Fa-f]{2})$"`
 	// Username for accessing the Expected Power Shelf's BMC
 	DefaultBmcUsername NullableString `json:"defaultBmcUsername,omitempty"`
@@ -115,6 +116,7 @@ func (o *ExpectedPowerShelfUpdateRequest) UnsetId() {
 }
 
 // GetBmcMacAddress returns the BmcMacAddress field value if set, zero value otherwise (both if not set or set to explicit null).
+// Deprecated
 func (o *ExpectedPowerShelfUpdateRequest) GetBmcMacAddress() string {
 	if o == nil || IsNil(o.BmcMacAddress.Get()) {
 		var ret string
@@ -126,6 +128,7 @@ func (o *ExpectedPowerShelfUpdateRequest) GetBmcMacAddress() string {
 // GetBmcMacAddressOk returns a tuple with the BmcMacAddress field value if set, nil otherwise
 // and a boolean to check if the value has been set.
 // NOTE: If the value is an explicit nil, `nil, true` will be returned
+// Deprecated
 func (o *ExpectedPowerShelfUpdateRequest) GetBmcMacAddressOk() (*string, bool) {
 	if o == nil {
 		return nil, false
@@ -143,6 +146,7 @@ func (o *ExpectedPowerShelfUpdateRequest) HasBmcMacAddress() bool {
 }
 
 // SetBmcMacAddress gets a reference to the given NullableString and assigns it to the BmcMacAddress field.
+// Deprecated
 func (o *ExpectedPowerShelfUpdateRequest) SetBmcMacAddress(v string) {
 	o.BmcMacAddress.Set(&v)
 }

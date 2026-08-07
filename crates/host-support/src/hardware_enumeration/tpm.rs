@@ -54,7 +54,7 @@ const TPM_EK_CERT_NV_INDICES: &[EkCertNvIndex] = &[
 
 /// Enumerates errors for TPM related operations
 #[derive(Debug, thiserror::Error)]
-pub enum TpmError {
+pub(super) enum TpmError {
     #[error("unable to invoke subprocess {0}: {1}")]
     Subprocess(&'static str, std::io::Error),
     #[error("subprocess exited with exit code {0:?}. stderr: {1}")]
@@ -69,11 +69,11 @@ pub enum TpmError {
 }
 
 /// Returns the TPM's endorsement key certificate in binary format
-pub fn get_ek_certificate() -> Result<Vec<u8>, TpmError> {
+pub(super) fn get_ek_certificate() -> Result<Vec<u8>, TpmError> {
     get_ek_certificate_with_runner(&StdCommandRunner)
 }
 
-pub fn is_tpm_present() -> bool {
+pub(super) fn is_tpm_present() -> bool {
     std::path::Path::new("/dev/tpmrm0").exists() || std::path::Path::new("/dev/tpm0").exists()
 }
 

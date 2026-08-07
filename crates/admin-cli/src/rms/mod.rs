@@ -15,13 +15,13 @@
  * limitations under the License.
  */
 
-pub mod args;
-pub mod cmds;
+pub(crate) mod args;
+mod cmds;
 
 #[cfg(test)]
 mod tests;
 
-pub use args::Cmd;
+use args::Cmd;
 use librms::RackManagerClientPool;
 
 use crate::cfg::cli_options::CliOptions;
@@ -33,7 +33,7 @@ use crate::rms::args::RmsAction;
 // see the `CliCommand::Rms` branch in `main.rs`. The traits carry a
 // `RuntimeContext` rms never has, so it stays a plain `action` fn rather than
 // implementing them. Please don't "realign" it onto the traits.
-pub async fn action(action: RmsAction, config: &CliOptions) -> color_eyre::Result<()> {
+pub(crate) async fn action(action: RmsAction, config: &CliOptions) -> color_eyre::Result<()> {
     let url = if let Some(x) = action.url {
         x
     } else if let Some(y) = config.rms_api_url.clone() {

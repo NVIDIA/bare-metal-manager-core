@@ -89,7 +89,7 @@ use tokio::sync::Mutex;
 
 /// Errors surfaced by [`BmcSessionManager`].
 #[derive(thiserror::Error, Debug)]
-pub enum BmcSessionError {
+pub(crate) enum BmcSessionError {
     /// No BMC root credentials are stored for this MAC; cannot create a
     /// session.
     #[error("BMC root credentials are not configured for MAC {0}")]
@@ -134,12 +134,12 @@ pub enum BmcSessionError {
 /// A live Redfish session that we issued to a caller. The `token` is
 /// transient: it is returned exactly once and never persisted by us.
 #[derive(Clone)]
-pub struct SessionEntry {
+pub(crate) struct SessionEntry {
     /// `X-Auth-Token` value returned by the BMC on session creation.
-    pub token: String,
+    pub(crate) token: String,
     /// `@odata.id` of the session resource on the BMC; used to revoke the
     /// session via `DELETE` on the next rotate.
-    pub session_odata_id: ODataId,
+    session_odata_id: ODataId,
 }
 
 impl fmt::Debug for SessionEntry {
@@ -151,7 +151,7 @@ impl fmt::Debug for SessionEntry {
     }
 }
 
-pub enum BmcAuthMaterial {
+pub(crate) enum BmcAuthMaterial {
     Session(SessionEntry),
     Basic(Credentials),
 }
@@ -322,7 +322,7 @@ struct LockoutState {
 /// Persistence layer for outstanding Redfish sessions. Wraps DB errors as
 /// [`BmcSessionError::Store`] so the manager's surface stays uniform.
 #[async_trait]
-pub trait BmcSessionStore: Send + Sync {
+pub(crate) trait BmcSessionStore: Send + Sync {
     async fn get(
         &self,
         spiffe_service_id: &str,
@@ -340,12 +340,12 @@ pub trait BmcSessionStore: Send + Sync {
 }
 
 /// Postgres-backed [`BmcSessionStore`] used in production.
-pub struct PgBmcSessionStore {
+pub(crate) struct PgBmcSessionStore {
     pool: PgPool,
 }
 
 impl PgBmcSessionStore {
-    pub fn new(pool: PgPool) -> Self {
+    pub(crate) fn new(pool: PgPool) -> Self {
         Self { pool }
     }
 }
@@ -396,7 +396,7 @@ impl BmcSessionStore for PgBmcSessionStore {
     }
 }
 
-pub struct BmcSessionManager {
+pub(crate) struct BmcSessionManager {
     redfish_pool: Arc<NvRedfishClientPool>,
     credential_manager: Arc<dyn CredentialManager>,
     store: Arc<dyn BmcSessionStore>,
@@ -408,7 +408,7 @@ pub struct BmcSessionManager {
 }
 
 impl BmcSessionManager {
-    pub fn new(
+    pub(crate) fn new(
         redfish_pool: Arc<NvRedfishClientPool>,
         credential_manager: Arc<dyn CredentialManager>,
         store: Arc<dyn BmcSessionStore>,
@@ -430,7 +430,7 @@ impl BmcSessionManager {
     /// Revoke the prior session (if any) for the given `(spiffe_service_id,
     /// bmc_mac)` pair, then create a brand new session against the BMC at
     /// `bmc_addr` and return its token.
-    pub async fn rotate(
+    async fn rotate(
         &self,
         spiffe_service_id: &str,
         bmc_mac: MacAddress,
@@ -562,7 +562,7 @@ impl BmcSessionManager {
         })
     }
 
-    pub async fn issue_credentials(
+    pub(crate) async fn issue_credentials(
         &self,
         spiffe_service_id: &str,
         bmc_mac: MacAddress,
@@ -617,7 +617,7 @@ impl BmcSessionManager {
     }
 
     /// Drop all session rows for `bmc_mac` and clear any lockout state.
-    pub async fn flush_mac(&self, bmc_mac: MacAddress) {
+    pub(crate) async fn flush_mac(&self, bmc_mac: MacAddress) {
         if let Err(err) = self.store.delete_by_mac(bmc_mac).await {
             carbide_instrument::emit(BmcSessionCleanupFailed {
                 operation: BmcSessionCleanupOperation::DeleteSessionRows,
@@ -632,7 +632,7 @@ impl BmcSessionManager {
     }
 
     /// Reset Circtuit Breaker
-    pub async fn note_credentials_updated(&self, bmc_mac: MacAddress) {
+    pub(crate) async fn note_credentials_updated(&self, bmc_mac: MacAddress) {
         self.clear_lockout(bmc_mac).await;
         self.clear_no_session_service(bmc_mac).await;
     }
@@ -647,7 +647,7 @@ impl BmcSessionManager {
         }
     }
 
-    pub async fn check_not_locked_out(&self, bmc_mac: MacAddress) -> Option<BmcSessionError> {
+    async fn check_not_locked_out(&self, bmc_mac: MacAddress) -> Option<BmcSessionError> {
         let lockouts = self.lockouts.lock().await;
         let state = lockouts.get(&bmc_mac)?;
         if state.tripped_at.is_some() {
@@ -740,7 +740,7 @@ impl BmcSessionManager {
     }
 }
 
-pub fn classify_unauthorized(err: &NvError<RedfishBmc>) -> Option<u16> {
+fn classify_unauthorized(err: &NvError<RedfishBmc>) -> Option<u16> {
     let NvError::Bmc(BmcError::InvalidResponse { status, .. }) = err else {
         return None;
     };

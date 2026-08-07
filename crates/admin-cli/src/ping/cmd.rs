@@ -23,7 +23,7 @@ use rpc::forge::VersionRequest;
 use super::Opts;
 use crate::rpc::ApiClient;
 
-pub async fn ping(client: &ApiClient, opts: &Opts) -> color_eyre::Result<()> {
+pub(super) async fn ping(client: &ApiClient, opts: &Opts) -> color_eyre::Result<()> {
     let interval = Duration::from_secs_f32(opts.interval);
     let mut total_count = 1;
     let mut err_count = 0;

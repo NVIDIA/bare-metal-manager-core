@@ -26,7 +26,7 @@ use crate::cfg::dispatch::Dispatch;
 
 // a list of subcommands
 #[derive(Dispatch, Parser, Debug)]
-pub enum Cmd {
+pub(crate) enum Cmd {
     #[clap(about = "Cancel attestation for a given machine id")]
     Cancel(cancel::args::Args),
     #[clap(about = "Get SPDM attestation details for a given machine id")]

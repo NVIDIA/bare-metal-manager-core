@@ -57,7 +57,7 @@ pub async fn find_ips(
     _filter: model::site_explorer::ExploredManagedHostSearchFilter,
 ) -> Result<Vec<IpAddr>, DatabaseError> {
     #[derive(Debug, Clone, Copy, FromRow)]
-    pub struct ExploredManagedHostIp(IpAddr);
+    struct ExploredManagedHostIp(IpAddr);
     // grab list of IPs
     let mut builder = sqlx::QueryBuilder::new("SELECT host_bmc_ip FROM explored_managed_hosts");
     let query = builder.build_query_as();

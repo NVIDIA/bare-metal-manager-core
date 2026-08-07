@@ -32,7 +32,7 @@ use crate::json::{JsonExt, JsonPatch};
 use crate::redfish::Builder;
 use crate::{http, redfish};
 
-pub fn collection() -> redfish::Collection<'static> {
+pub(super) fn collection() -> redfish::Collection<'static> {
     redfish::Collection {
         odata_id: Cow::Borrowed("/redfish/v1/Managers"),
         odata_type: Cow::Borrowed("#ManagerCollection.ManagerCollection"),
@@ -40,7 +40,7 @@ pub fn collection() -> redfish::Collection<'static> {
     }
 }
 
-pub fn resource<'a>(manager_id: &'a str) -> redfish::Resource<'a> {
+fn resource<'a>(manager_id: &'a str) -> redfish::Resource<'a> {
     let odata_id = format!("/redfish/v1/Managers/{manager_id}");
     redfish::Resource {
         odata_id: Cow::Owned(odata_id),
@@ -50,11 +50,11 @@ pub fn resource<'a>(manager_id: &'a str) -> redfish::Resource<'a> {
     }
 }
 
-pub fn reset_target(manager_id: &str) -> String {
+pub(super) fn reset_target(manager_id: &str) -> String {
     format!("{}/Actions/Manager.Reset", resource(manager_id).odata_id)
 }
 
-pub fn builder(resource: &redfish::Resource<'_>) -> ManagerBuilder {
+fn builder(resource: &redfish::Resource<'_>) -> ManagerBuilder {
     let reset_target = reset_target(&resource.id);
     ManagerBuilder {
         manager_id: resource.id.to_string(),
@@ -63,7 +63,7 @@ pub fn builder(resource: &redfish::Resource<'_>) -> ManagerBuilder {
     }
 }
 
-pub struct ManagerBuilder {
+struct ManagerBuilder {
     manager_id: String,
     reset_target: String,
     value: serde_json::Value,
@@ -80,19 +80,19 @@ impl Builder for ManagerBuilder {
 }
 
 impl ManagerBuilder {
-    pub fn ethernet_interfaces(self, collection: &redfish::Collection<'_>) -> Self {
+    fn ethernet_interfaces(self, collection: &redfish::Collection<'_>) -> Self {
         self.apply_patch(collection.nav_property("EthernetInterfaces"))
     }
 
-    pub fn host_interfaces(self, collection: &redfish::Collection<'_>) -> Self {
+    fn host_interfaces(self, collection: &redfish::Collection<'_>) -> Self {
         self.apply_patch(collection.nav_property("HostInterfaces"))
     }
 
-    pub fn serial_interfaces(self, collection: &redfish::Collection<'_>) -> Self {
+    fn serial_interfaces(self, collection: &redfish::Collection<'_>) -> Self {
         self.apply_patch(collection.nav_property("SerialInterfaces"))
     }
 
-    pub fn enable_reset_action(self) -> Self {
+    fn enable_reset_action(self) -> Self {
         let patch = json!({
             "Actions": {
                 "#Manager.Reset": {
@@ -103,23 +103,23 @@ impl ManagerBuilder {
         self.apply_patch(patch)
     }
 
-    pub fn log_services(self, collection: redfish::Collection<'_>) -> Self {
+    fn log_services(self, collection: redfish::Collection<'_>) -> Self {
         self.apply_patch(collection.nav_property("LogServices"))
     }
 
-    pub fn firmware_version(self, v: &str) -> Self {
+    fn firmware_version(self, v: &str) -> Self {
         self.add_str_field("FirmwareVersion", v)
     }
 
-    pub fn manager_type(self, v: &str) -> Self {
+    fn manager_type(self, v: &str) -> Self {
         self.add_str_field("ManagerType", v)
     }
 
-    pub fn network_protocol(self, resource: redfish::Resource<'_>) -> Self {
+    fn network_protocol(self, resource: redfish::Resource<'_>) -> Self {
         self.apply_patch(resource.nav_property("NetworkProtocol"))
     }
 
-    pub fn oem(self, oem: &Oem) -> Self {
+    fn oem(self, oem: &Oem) -> Self {
         match oem {
             Oem::Dell => self.apply_patch(json!({
                 "Oem": {
@@ -162,25 +162,25 @@ impl ManagerBuilder {
     // TODO: we can use typed UUID here, but all these fields are
     // really not used it just requirements of libredfish model added
     // "just in case"...
-    pub fn uuid(self, v: &str) -> Self {
+    fn uuid(self, v: &str) -> Self {
         self.add_str_field("UUID", v)
     }
 
-    pub fn date_time(self, v: DateTime<Utc>) -> Self {
+    fn date_time(self, v: DateTime<Utc>) -> Self {
         let current_time = v.format("%Y-%m-%dT%H:%M:%S+00:00").to_string();
         self.add_str_field("DateTime", &current_time)
     }
 
-    pub fn status(self, status: redfish::resource::Status) -> Self {
+    fn status(self, status: redfish::resource::Status) -> Self {
         self.apply_patch(json!({"Status": status.into_json()}))
     }
 
-    pub fn build(self) -> serde_json::Value {
+    fn build(self) -> serde_json::Value {
         self.value
     }
 }
 
-pub fn add_routes(r: Router<BmcState>) -> Router<BmcState> {
+pub(crate) fn add_routes(r: Router<BmcState>) -> Router<BmcState> {
     const MGR_ID: &str = "{manager_id}";
     const ETH_ID: &str = "{ethernet_id}";
     const HOST_IF_ID: &str = "{hostif_id}";
@@ -225,7 +225,7 @@ pub fn add_routes(r: Router<BmcState>) -> Router<BmcState> {
 }
 
 #[derive(Clone, Copy)]
-pub enum Oem {
+pub(crate) enum Oem {
     Dell,
     Hpe,
     Supermicro,
@@ -237,18 +237,18 @@ impl AsRef<Oem> for Oem {
     }
 }
 
-pub struct Config {
-    pub managers: Vec<SingleConfig>,
+pub(crate) struct Config {
+    pub(crate) managers: Vec<SingleConfig>,
 }
 
 #[derive(Clone)]
-pub struct SingleConfig {
-    pub id: &'static str,
-    pub eth_interfaces: Option<Vec<redfish::ethernet_interface::EthernetInterface>>,
-    pub host_interfaces: Option<Vec<redfish::host_interface::HostInterface>>,
-    pub serial_interfaces: Option<Vec<redfish::serial_interface::SerialInterface>>,
-    pub firmware_version: Option<&'static str>,
-    pub oem: Option<Oem>,
+pub(crate) struct SingleConfig {
+    pub(crate) id: &'static str,
+    pub(crate) eth_interfaces: Option<Vec<redfish::ethernet_interface::EthernetInterface>>,
+    pub(crate) host_interfaces: Option<Vec<redfish::host_interface::HostInterface>>,
+    pub(crate) serial_interfaces: Option<Vec<redfish::serial_interface::SerialInterface>>,
+    pub(crate) firmware_version: Option<&'static str>,
+    pub(crate) oem: Option<Oem>,
 }
 
 pub struct ManagerState {
@@ -256,7 +256,7 @@ pub struct ManagerState {
 }
 
 impl ManagerState {
-    pub fn new(config: &Config) -> Self {
+    pub(crate) fn new(config: &Config) -> Self {
         Self {
             managers: config
                 .managers
@@ -266,7 +266,7 @@ impl ManagerState {
         }
     }
 
-    pub fn find(&self, manager_id: &str) -> Option<&SingleManagerState> {
+    pub(crate) fn find(&self, manager_id: &str) -> Option<&SingleManagerState> {
         self.managers.iter().find(|c| c.id == manager_id)
     }
 
@@ -277,7 +277,7 @@ impl ManagerState {
     }
 }
 
-pub struct SingleManagerState {
+pub(crate) struct SingleManagerState {
     id: &'static str,
     ipmi_enabled: Arc<atomic::AtomicBool>,
     ipmi_port: Mutex<Option<u16>>,
@@ -327,7 +327,7 @@ impl NtpState {
 }
 
 impl SingleManagerState {
-    pub fn new(config: &SingleConfig) -> Self {
+    pub(crate) fn new(config: &SingleConfig) -> Self {
         Self {
             id: config.id,
             config: config.clone(),

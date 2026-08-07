@@ -25,9 +25,12 @@
 
 use carbide_test_support::Outcome::*;
 use carbide_test_support::scenarios;
+use carbide_uuid::instance::InstanceId;
+use carbide_uuid::machine::MachineId;
 use clap::{CommandFactory, Parser};
 
 use super::*;
+use crate::test_support::{parse_leaf, raw_value, raw_values};
 
 // Valid InstanceId format for tests (standard UUID format)
 const TEST_INSTANCE_ID: &str = "00000000-0000-0000-0000-000000000001";
@@ -58,15 +61,14 @@ fn verify_cmd_structure() {
 fn parse_show_routes_and_carries_filters() {
     scenarios!(
         run = |argv| {
-            Cmd::try_parse_from(argv.iter().copied())
-                .map(|cmd| match cmd {
-                    Cmd::Show(args) => (
-                        args.id.is_empty(),
-                        args.tenant_org_id,
-                        args.vpc_id,
-                        args.extrainfo,
-                    ),
-                    _ => panic!("expected Show variant"),
+            parse_leaf::<Cmd>(argv, &["show"])
+                .map(|matches| {
+                    (
+                        raw_value(&matches, "id").is_none_or(|id| id.is_empty()),
+                        raw_value(&matches, "tenant_org_id"),
+                        raw_value(&matches, "vpc_id"),
+                        matches.get_flag("extrainfo"),
+                    )
                 })
                 .map_err(drop)
         };
@@ -99,19 +101,21 @@ fn parse_show_routes_and_carries_filters() {
 fn parse_reboot_routes_and_carries_options() {
     scenarios!(
         run = |argv| {
-            Cmd::try_parse_from(argv.iter().copied())
-                .map(|cmd| match cmd {
-                    Cmd::Reboot(args) => (
-                        args.instance.to_string(),
-                        args.custom_pxe,
-                        args.apply_updates_on_reboot,
-                    ),
-                    _ => panic!("expected Reboot variant"),
+            parse_leaf::<Cmd>(argv, &["reboot"])
+                .map(|matches| {
+                    (
+                        matches
+                            .get_one::<InstanceId>("instance")
+                            .copied()
+                            .expect("instance ID is required"),
+                        matches.get_flag("custom_pxe"),
+                        matches.get_flag("apply_updates_on_reboot"),
+                    )
                 })
                 .map_err(drop)
         };
         "reboot with instance only" {
-            &["instance", "reboot", "--instance", TEST_INSTANCE_ID][..] => Yields((TEST_INSTANCE_ID.to_string(), false, false)),
+            &["instance", "reboot", "--instance", TEST_INSTANCE_ID][..] => Yields((TEST_INSTANCE_ID.parse::<InstanceId>().unwrap(), false, false)),
         }
 
         "reboot with all options" {
@@ -122,7 +126,7 @@ fn parse_reboot_routes_and_carries_options() {
                 TEST_INSTANCE_ID,
                 "--custom-pxe",
                 "--apply-updates-on-reboot",
-            ][..] => Yields((TEST_INSTANCE_ID.to_string(), true, true)),
+            ][..] => Yields((TEST_INSTANCE_ID.parse::<InstanceId>().unwrap(), true, true)),
         }
     );
 }
@@ -133,10 +137,12 @@ fn parse_reboot_routes_and_carries_options() {
 fn parse_release_routes_by_target() {
     scenarios!(
         run = |argv| {
-            Cmd::try_parse_from(argv.iter().copied())
-                .map(|cmd| match cmd {
-                    Cmd::Release(args) => (args.instance, args.machine.is_some()),
-                    _ => panic!("expected Release variant"),
+            parse_leaf::<Cmd>(argv, &["release"])
+                .map(|matches| {
+                    (
+                        raw_value(&matches, "instance"),
+                        matches.get_one::<MachineId>("machine").is_some(),
+                    )
                 })
                 .map_err(drop)
         };
@@ -156,16 +162,15 @@ fn parse_release_routes_by_target() {
 fn parse_allocate_routes_and_carries_options() {
     scenarios!(
         run = |argv| {
-            Cmd::try_parse_from(argv.iter().copied())
-                .map(|cmd| match cmd {
-                    Cmd::Allocate(args) => (
-                        args.subnet,
-                        args.prefix_name,
-                        args.number,
-                        args.tenant_org,
-                        args.transactional,
-                    ),
-                    _ => panic!("expected Allocate variant"),
+            parse_leaf::<Cmd>(argv, &["allocate"])
+                .map(|matches| {
+                    (
+                        raw_values(&matches, "subnet"),
+                        raw_value(&matches, "prefix_name").expect("prefix name is required"),
+                        matches.get_one::<u16>("number").copied(),
+                        raw_value(&matches, "tenant_org"),
+                        matches.get_flag("transactional"),
+                    )
                 })
                 .map_err(drop)
         };

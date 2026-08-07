@@ -996,7 +996,7 @@ async fn test_update_instance_ib_config(pool: sqlx::PgPool) {
 
 /// Tries to create an Instance using the Forge API
 /// This does not drive the instance state machine until the ready state.
-pub async fn try_allocate_instance(
+pub(in crate::tests) async fn try_allocate_instance(
     env: &TestEnv,
     host_machine_id: &MachineId,
     ib_config: rpc::forge::InstanceInfinibandConfig,

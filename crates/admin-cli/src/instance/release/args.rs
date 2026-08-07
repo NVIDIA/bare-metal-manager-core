@@ -36,16 +36,16 @@ Release every instance matching a label:
     $ nico-admin-cli instance release --label-key role --label-value training
 
 ")]
-pub struct Args {
+pub(crate) struct Args {
     #[clap(short, long)]
-    pub instance: Option<String>,
+    pub(super) instance: Option<String>,
 
     #[clap(short, long)]
-    pub machine: Option<MachineId>,
+    pub(super) machine: Option<MachineId>,
 
     #[clap(long, help = "The key of label instance to query")]
-    pub label_key: Option<String>,
+    pub(super) label_key: Option<String>,
 
     #[clap(long, help = "The value of label instance to query")]
-    pub label_value: Option<String>,
+    pub(super) label_value: Option<String>,
 }

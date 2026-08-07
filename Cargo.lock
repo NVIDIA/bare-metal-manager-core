@@ -877,6 +877,7 @@ dependencies = [
  "axum-server",
  "bmc-vendor",
  "bytes",
+ "carbide-test-support",
  "chrono",
  "clap",
  "duration-str",
@@ -1237,6 +1238,7 @@ dependencies = [
  "figment",
  "futures",
  "futures-util",
+ "hashbrown 0.17.1",
  "hex",
  "hkdf 0.13.0",
  "hostname",
@@ -1256,6 +1258,7 @@ dependencies = [
  "nras",
  "num_cpus",
  "nv-redfish",
+ "nv-redfish-dispatcher",
  "opentelemetry 0.32.0",
  "opentelemetry_sdk",
  "p256 0.14.0",
@@ -1499,6 +1502,7 @@ dependencies = [
  "carbide-health-report",
  "carbide-macros",
  "carbide-measured-boot",
+ "carbide-redfish",
  "carbide-rpc",
  "carbide-rpc-utils",
  "carbide-sqlx-testing",
@@ -1657,6 +1661,7 @@ dependencies = [
 name = "carbide-dhcp"
 version = "0.0.0"
 dependencies = [
+ "carbide-dhcp",
  "carbide-dhcp-common",
  "carbide-instrument",
  "carbide-rpc",
@@ -2741,6 +2746,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "carbide-proto-compiler"
+version = "0.0.0"
+dependencies = [
+ "prost",
+ "prost-build",
+ "prost-reflect",
+ "prost-types",
+ "tempfile",
+ "thiserror 2.0.18",
+]
+
+[[package]]
 name = "carbide-pxe"
 version = "0.0.1"
 dependencies = [
@@ -2892,6 +2909,7 @@ dependencies = [
  "carbide-measured-boot",
  "carbide-network",
  "carbide-prost-builder",
+ "carbide-proto-compiler",
  "carbide-secrets",
  "carbide-test-support",
  "carbide-tls",
@@ -7869,6 +7887,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "nv-redfish-dispatcher"
+version = "0.13.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "04442d12d0ca0ab617ce0ed0ba15d305a0505a98833b2d102576c5f13dfbaac6"
+dependencies = [
+ "futures-core",
+ "futures-util",
+]
+
+[[package]]
 name = "nv-redfish-schema"
 version = "0.12.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -8958,6 +8986,16 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 2.0.117",
+]
+
+[[package]]
+name = "prost-reflect"
+version = "0.16.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "01b80ea363c31af2de2b92e3c07ed1156628f7838c4afb4df75ee78a37fedbd1"
+dependencies = [
+ "prost",
+ "prost-types",
 ]
 
 [[package]]

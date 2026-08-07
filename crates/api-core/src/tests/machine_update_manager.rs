@@ -45,8 +45,8 @@ const TEST_DATA_DIR: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/src/cfg/test_d
 
 #[derive(Clone)]
 struct TestUpdateModule {
-    pub updates_in_progress: Vec<MachineId>,
-    pub updates_started: HashSet<MachineId>,
+    pub(in crate::tests) updates_in_progress: Vec<MachineId>,
+    pub(in crate::tests) updates_started: HashSet<MachineId>,
     start_updates_called: Arc<Mutex<i32>>,
     clear_completed_updates_called: Arc<Mutex<i32>>,
 }
@@ -91,7 +91,10 @@ impl MachineUpdateModule for TestUpdateModule {
 }
 
 impl TestUpdateModule {
-    pub fn new(updates_in_progress: Vec<MachineId>, updates_started: HashSet<MachineId>) -> Self {
+    pub(in crate::tests) fn new(
+        updates_in_progress: Vec<MachineId>,
+        updates_started: HashSet<MachineId>,
+    ) -> Self {
         TestUpdateModule {
             updates_in_progress,
             updates_started,
@@ -99,11 +102,11 @@ impl TestUpdateModule {
             clear_completed_updates_called: Arc::new(Mutex::new(0)),
         }
     }
-    pub fn get_start_updates_called(&self) -> i32 {
+    pub(in crate::tests) fn get_start_updates_called(&self) -> i32 {
         *self.start_updates_called.lock().unwrap()
     }
 
-    pub fn get_clear_completed_updates_called(&self) -> i32 {
+    pub(in crate::tests) fn get_clear_completed_updates_called(&self) -> i32 {
         *self.clear_completed_updates_called.lock().unwrap()
     }
 }

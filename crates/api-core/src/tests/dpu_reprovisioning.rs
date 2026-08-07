@@ -2386,7 +2386,7 @@ async fn test_dpu_for_reprovisioning_cannot_restart_if_not_started(pool: sqlx::P
 }
 
 impl TestManagedHost {
-    pub async fn mark_machine_for_updates(&self) {
+    pub(in crate::tests) async fn mark_machine_for_updates(&self) {
         self.api
             .insert_machine_health_report(tonic::Request::new(
                 rpc::forge::InsertMachineHealthReportRequest {

@@ -396,27 +396,21 @@ async fn test_queue_objects(pool: sqlx::PgPool) -> sqlx::Result<()> {
 struct TestStateControllerIO {}
 
 #[derive(Debug, Clone)]
-pub struct TestObject {
-    pub id: String,
-    pub controller_state: Versioned<TestObjectControllerState>,
-    #[allow(dead_code)]
-    pub controller_state_outcome: Option<PersistentStateHandlerOutcome>,
+struct TestObject {
+    id: String,
+    controller_state: Versioned<TestObjectControllerState>,
 }
 
 impl<'r> FromRow<'r, PgRow> for TestObject {
     fn from_row(row: &'r PgRow) -> Result<Self, sqlx::Error> {
         let controller_state: sqlx::types::Json<TestObjectControllerState> =
             row.try_get("controller_state")?;
-        let state_outcome: Option<sqlx::types::Json<PersistentStateHandlerOutcome>> =
-            row.try_get("controller_state_outcome")?;
-
         Ok(TestObject {
             id: row.try_get("id")?,
             controller_state: Versioned::new(
                 controller_state.0,
                 row.try_get("controller_state_version")?,
             ),
-            controller_state_outcome: state_outcome.map(|x| x.0),
         })
     }
 }
@@ -424,13 +418,13 @@ impl<'r> FromRow<'r, PgRow> for TestObject {
 /// State of a IB subnet as tracked by the controller
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "state", rename_all = "lowercase")]
-pub enum TestObjectControllerState {
+enum TestObjectControllerState {
     A,
     B,
     C,
 }
 
-pub struct TestStateControllerContextObjects {}
+struct TestStateControllerContextObjects {}
 
 impl StateHandlerContextObjects for TestStateControllerContextObjects {
     type Services = ();
@@ -744,11 +738,11 @@ async fn test_state_controller_handle_set_wait_all_propagates_panic(
 }
 
 #[derive(Debug, Default, Clone)]
-pub struct TestConcurrencyStateHandler {
+struct TestConcurrencyStateHandler {
     /// The total count for the handler
-    pub count: Arc<AtomicUsize>,
+    count: Arc<AtomicUsize>,
     /// We count for every object ID how often the handler was called
-    pub counts_per_id: Arc<Mutex<HashMap<String, usize>>>,
+    counts_per_id: Arc<Mutex<HashMap<String, usize>>>,
 }
 
 #[derive(Debug)]
@@ -1084,7 +1078,7 @@ async fn test_multiple_state_controllers_schedule_object_only_once(
 
 /// A state handler that transitions from A -> B -> C
 #[derive(Debug, Default, Clone)]
-pub struct TestTransitionStateHandler;
+struct TestTransitionStateHandler;
 
 #[async_trait::async_trait]
 impl StateHandler for TestTransitionStateHandler {
@@ -1114,7 +1108,7 @@ impl StateHandler for TestTransitionStateHandler {
 
 /// A state handler that transitions from A -> B -> A
 #[derive(Debug, Default, Clone)]
-pub struct CyclicTransitionStateHandler;
+struct CyclicTransitionStateHandler;
 
 #[async_trait::async_trait]
 impl StateHandler for CyclicTransitionStateHandler {
@@ -1214,7 +1208,7 @@ struct CapturedStateChange {
 }
 
 /// A hook that sends events through a channel for deterministic test verification
-pub struct ChannelHook {
+struct ChannelHook {
     sender: tokio::sync::mpsc::UnboundedSender<CapturedStateChange>,
 }
 
@@ -1369,8 +1363,8 @@ async fn test_state_controller_manual_enqueuing(pool: sqlx::PgPool) -> eyre::Res
 /// A state handler that fails with `ManualInterventionRequired` on its first
 /// invocation, a transient error on its second, and succeeds afterwards.
 #[derive(Debug, Default, Clone)]
-pub struct TestManualInterventionStateHandler {
-    pub calls: Arc<AtomicUsize>,
+struct TestManualInterventionStateHandler {
+    calls: Arc<AtomicUsize>,
 }
 
 #[async_trait::async_trait]
@@ -1744,8 +1738,8 @@ async fn test_per_object_state_metrics_sla_and_state_based_intervention(
 /// A state handler that reports the object as deleted on its second
 /// invocation.
 #[derive(Debug, Default, Clone)]
-pub struct TestDeletionStateHandler {
-    pub calls: Arc<AtomicUsize>,
+struct TestDeletionStateHandler {
+    calls: Arc<AtomicUsize>,
 }
 
 #[async_trait::async_trait]
@@ -1807,9 +1801,9 @@ async fn test_per_object_state_metrics_cleared_on_deletion(pool: sqlx::PgPool) -
 /// object's controller-state version out from under the processor and then
 /// returns a transition, which must lose the optimistic version check.
 #[derive(Debug, Clone)]
-pub struct TestLockLossStateHandler {
-    pub pool: sqlx::PgPool,
-    pub calls: Arc<AtomicUsize>,
+struct TestLockLossStateHandler {
+    pool: sqlx::PgPool,
+    calls: Arc<AtomicUsize>,
 }
 
 #[async_trait::async_trait]

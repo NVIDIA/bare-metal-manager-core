@@ -63,7 +63,7 @@ fn history_output(records: &[StateHistoryRecord]) -> Vec<HistoryRecordOutput> {
         .collect()
 }
 
-pub async fn show_state_history(
+pub(super) async fn show_state_history(
     api_client: &ApiClient,
     args: Args,
     config: &RuntimeConfig,

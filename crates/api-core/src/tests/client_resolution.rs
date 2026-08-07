@@ -26,7 +26,7 @@ use rpc::forge::forge_server::Forge;
 use tonic::IntoRequest;
 
 use crate::CarbideError;
-use crate::handlers::client_resolution::resolve_machine_interface;
+use crate::handlers::resolve_machine_interface_for_test;
 use crate::test_support::fixture_config::ManagedHostConfigExt as _;
 use crate::test_support::network_segment::{FIXTURE_TENANT_ORG_ID, create_default_flat_vpc};
 use crate::tests::common;
@@ -55,7 +55,7 @@ async fn test_resolve_machine_interface_via_direct_admin_ip(pool: sqlx::PgPool) 
     txn.rollback().await.unwrap();
 
     let mut txn = env.pool.begin().await.unwrap();
-    let resolved = resolve_machine_interface(txn.as_mut(), admin_ip)
+    let resolved = resolve_machine_interface_for_test(txn.as_mut(), admin_ip)
         .await
         .expect("admin IP should resolve to its machine_interface");
     txn.rollback().await.unwrap();
@@ -105,7 +105,7 @@ async fn test_resolve_machine_interface_via_instance_address(pool: sqlx::PgPool)
     .expect("instance should have a tenant address on the segment");
     let tenant_ip = inst_addr.address;
 
-    let resolved = resolve_machine_interface(txn.as_mut(), tenant_ip)
+    let resolved = resolve_machine_interface_for_test(txn.as_mut(), tenant_ip)
         .await
         .expect("tenant IP should resolve to the host's admin machine_interface");
     txn.rollback().await.unwrap();
@@ -121,7 +121,8 @@ async fn test_resolve_machine_interface_unknown_ip_returns_not_found(pool: sqlx:
     let env = create_test_env(pool).await;
 
     let mut txn = env.pool.begin().await.unwrap();
-    let result = resolve_machine_interface(txn.as_mut(), "203.0.113.99".parse().unwrap()).await;
+    let result =
+        resolve_machine_interface_for_test(txn.as_mut(), "203.0.113.99".parse().unwrap()).await;
     txn.rollback().await.unwrap();
 
     let err = result.expect_err("expected NotFound for unknown client IP");

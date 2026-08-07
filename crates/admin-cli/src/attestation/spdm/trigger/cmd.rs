@@ -21,7 +21,7 @@ use crate::attestation::spdm::trigger::Args;
 use crate::errors::CarbideCliResult;
 use crate::rpc::ApiClient;
 
-pub async fn trigger(args: Args, api_client: &ApiClient) -> CarbideCliResult<()> {
+pub(super) async fn trigger(args: Args, api_client: &ApiClient) -> CarbideCliResult<()> {
     let res = api_client
         .0
         .trigger_machine_attestation(SpdmMachineAttestationTriggerRequest {

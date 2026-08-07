@@ -25,9 +25,10 @@
 
 use carbide_test_support::Outcome::*;
 use carbide_test_support::scenarios;
-use clap::{CommandFactory, Parser};
+use clap::CommandFactory;
 
 use super::*;
+use crate::test_support::{parse_leaf, raw_value};
 
 // verify_cmd_structure runs a baseline clap debug_assert()
 // to do basic command configuration checking and validation,
@@ -53,10 +54,12 @@ fn verify_cmd_structure() {
 fn parse_show_arg_combinations() {
     scenarios!(
         run = |argv| {
-            Cmd::try_parse_from(argv.iter().copied())
-                .map(|cmd| {
-                    let Cmd::Show(args) = cmd;
-                    (args.id, args.tenant_org_id)
+            parse_leaf::<Cmd>(argv, &["show"])
+                .map(|matches| {
+                    (
+                        raw_value(&matches, "id").unwrap_or_default(),
+                        raw_value(&matches, "tenant_org_id"),
+                    )
                 })
                 .map_err(drop)
         };

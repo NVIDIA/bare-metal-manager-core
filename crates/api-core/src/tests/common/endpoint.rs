@@ -27,7 +27,7 @@ use model::site_explorer::{
 };
 use sqlx::PgConnection;
 
-pub async fn insert_endpoint_version(
+pub(in crate::tests) async fn insert_endpoint_version(
     txn: &mut PgConnection,
     addr: &str,
     version: &str,
@@ -43,7 +43,7 @@ pub async fn insert_endpoint_version(
     .await
 }
 
-pub async fn insert_endpoint_with_firmware_versions(
+pub(in crate::tests) async fn insert_endpoint_with_firmware_versions(
     txn: &mut PgConnection,
     addr: &str,
     versions: HashMap<FirmwareComponentType, String>,

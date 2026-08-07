@@ -24,7 +24,7 @@ use tonic::{Request, Response};
 use crate::api::Api;
 use crate::errors::CarbideError;
 
-pub async fn expire_dhcp_lease(
+pub(crate) async fn expire_dhcp_lease(
     api: &Api,
     request: Request<rpc::ExpireDhcpLeaseRequest>,
 ) -> Result<Response<rpc::ExpireDhcpLeaseResponse>, CarbideError> {

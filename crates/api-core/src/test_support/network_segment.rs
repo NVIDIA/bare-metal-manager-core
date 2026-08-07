@@ -21,8 +21,10 @@
 
 use std::net::{IpAddr, Ipv4Addr};
 
+#[cfg(test)]
 use ::rpc::forge::forge_server::Forge;
 use carbide_uuid::network::NetworkSegmentId;
+#[cfg(test)]
 use carbide_uuid::vpc::VpcId;
 use ipnetwork::IpNetwork;
 use lazy_static::lazy_static;
@@ -63,16 +65,17 @@ lazy_static! {
 }
 
 lazy_static! {
-    pub static ref FIXTURE_HOST_INBAND_NETWORK_SEGMENT_GATEWAY_2: IpNetwork =
+    pub(crate) static ref FIXTURE_HOST_INBAND_NETWORK_SEGMENT_GATEWAY_2: IpNetwork =
         IpNetwork::new(IpAddr::V4(Ipv4Addr::new(192, 0, 6, 1)), 24).unwrap();
 }
 
 lazy_static! {
-    pub static ref FIXTURE_HOST_INBAND_NETWORK_SEGMENT_GATEWAY_3: IpNetwork =
+    pub(crate) static ref FIXTURE_HOST_INBAND_NETWORK_SEGMENT_GATEWAY_3: IpNetwork =
         IpNetwork::new(IpAddr::V4(Ipv4Addr::new(192, 0, 7, 1)), 24).unwrap();
 }
 
-pub async fn create_underlay_network_segment(api: &Api) -> NetworkSegmentId {
+#[cfg(test)]
+pub(crate) async fn create_underlay_network_segment(api: &Api) -> NetworkSegmentId {
     let prefix = IpNetwork::new(
         FIXTURE_UNDERLAY_NETWORK_SEGMENT_GATEWAY.network(),
         FIXTURE_UNDERLAY_NETWORK_SEGMENT_GATEWAY.prefix(),
@@ -113,7 +116,8 @@ pub async fn create_static_assignments_segment(
     seg.id
 }
 
-pub async fn create_admin_network_segment(api: &Api) -> NetworkSegmentId {
+#[cfg(test)]
+pub(crate) async fn create_admin_network_segment(api: &Api) -> NetworkSegmentId {
     let prefix = IpNetwork::new(
         FIXTURE_ADMIN_NETWORK_SEGMENT_GATEWAY.network(),
         FIXTURE_ADMIN_NETWORK_SEGMENT_GATEWAY.prefix(),
@@ -134,7 +138,8 @@ pub async fn create_admin_network_segment(api: &Api) -> NetworkSegmentId {
     .await
 }
 
-pub async fn create_host_inband_network_segment(
+#[cfg(test)]
+pub(crate) async fn create_host_inband_network_segment(
     api: &Api,
     vpc_id: Option<VpcId>,
 ) -> NetworkSegmentId {
@@ -161,7 +166,8 @@ pub async fn create_host_inband_network_segment(
 /// Creates a Flat VPC for the default test tenant and returns its id. Pass the
 /// returned id to `create_host_inband_network_segment` when a test needs an
 /// explicitly VPC-bound HostInband segment.
-pub async fn create_default_flat_vpc(api: &Api, name: &str) -> VpcId {
+#[cfg(test)]
+pub(crate) async fn create_default_flat_vpc(api: &Api, name: &str) -> VpcId {
     let request = rpc::forge::VpcCreationRequest::builder(FIXTURE_TENANT_ORG_ID)
         .metadata(rpc::forge::Metadata {
             name: name.to_string(),
@@ -177,7 +183,8 @@ pub async fn create_default_flat_vpc(api: &Api, name: &str) -> VpcId {
     vpc.id.expect("Created Flat VPC must have an id")
 }
 
-pub async fn create_tenant_network_segment(
+#[cfg(test)]
+pub(crate) async fn create_tenant_network_segment(
     api: &Api,
     vpc_id: Option<VpcId>,
     network: IpNetwork,
@@ -201,7 +208,8 @@ pub async fn create_tenant_network_segment(
     .await
 }
 
-pub async fn create_network_segment(
+#[cfg(test)]
+pub(crate) async fn create_network_segment(
     api: &Api,
     name: &str,
     prefix: &str,

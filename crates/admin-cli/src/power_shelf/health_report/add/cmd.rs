@@ -22,7 +22,7 @@ use crate::errors::CarbideCliResult;
 use crate::health_utils;
 use crate::rpc::ApiClient;
 
-pub async fn add(api_client: &ApiClient, args: Args) -> CarbideCliResult<()> {
+pub(super) async fn add(api_client: &ApiClient, args: Args) -> CarbideCliResult<()> {
     let report =
         health_utils::resolve_health_report(args.template, args.health_report, args.message)?;
 
