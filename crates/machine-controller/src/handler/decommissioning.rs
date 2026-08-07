@@ -15,6 +15,8 @@
  * limitations under the License.
  */
 
+use std::collections::{HashMap, HashSet};
+
 use carbide_secrets::credentials::CredentialKey;
 use carbide_uuid::machine::MachineId;
 use libredfish::model::task::TaskState;
@@ -30,7 +32,6 @@ use model::network_segment::NetworkSegmentType;
 use state_controller::state_handler::{
     StateHandlerContext, StateHandlerError, StateHandlerOutcome,
 };
-use std::collections::{HashMap, HashSet};
 
 use crate::context::MachineStateHandlerContextObjects;
 use crate::dpf::{DpfOperations, dpf_dpudevices_and_dpunode_crs_noexist};
@@ -322,8 +323,10 @@ pub(super) async fn handle_deconfiguring_host(
             }
             let mut txn = ctx.services.db_pool.begin().await?;
             db::machine::clear_bios_password_set_time(&machine.id, &mut txn).await?;
-            Ok(StateHandlerOutcome::transition(deconfiguring_dpus_after_host_reset(state))
-                .with_txn(txn))
+            Ok(
+                StateHandlerOutcome::transition(deconfiguring_dpus_after_host_reset(state))
+                    .with_txn(txn),
+            )
         }
         DeconfiguringHostState::ClearSuperNicLockdown => {
             let super_nics = state
@@ -503,7 +506,8 @@ pub(super) async fn handle_deconfiguring_dpus(
             })?;
             match task.task_state {
                 Some(TaskState::Completed) => {
-                    next_states.insert(dpu_id, DeconfiguringDpuState::WaitingForBootAfterBfbInstall);
+                    next_states
+                        .insert(dpu_id, DeconfiguringDpuState::WaitingForBootAfterBfbInstall);
                     Ok(StateHandlerOutcome::transition(deconfiguring_dpus(
                         next_states,
                     )))
@@ -699,12 +703,15 @@ pub(super) async fn handle_verifying_dhcp_release(
                         machine.id
                     ))
                 })?;
-            let bmc_mac_address = machine.status.bmc_info.mac.ok_or_else(|| {
-                StateHandlerError::MissingData {
-                    object_id: machine.id.to_string(),
-                    missing: "bmc_mac",
-                }
-            })?;
+            let bmc_mac_address =
+                machine
+                    .status
+                    .bmc_info
+                    .mac
+                    .ok_or_else(|| StateHandlerError::MissingData {
+                        object_id: machine.id.to_string(),
+                        missing: "bmc_mac",
+                    })?;
             let mut txn = ctx.services.db_pool.begin().await?;
             db::bmc_suppression::upsert(
                 &mut txn,
