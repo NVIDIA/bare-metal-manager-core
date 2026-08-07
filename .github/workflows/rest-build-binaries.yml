@@ -52,9 +52,9 @@ jobs:
             goos: darwin
             goarch: arm64
     env:
-      # `<name> <package>` per line. Single source for both the build loop and
-      # the inventory check, so a command cannot be dropped from one and not
-      # the other.
+      # `<name> <package>` per line, and the declaration of what gets released.
+      # Single source for both the build loop and the verification loop, so the
+      # two cannot drift.
       COMMANDS: |
         api ./api/cmd/api
         migrations ./db/cmd/migrations
@@ -98,9 +98,12 @@ jobs:
           done <<< "${COMMANDS}"
 
       # A per-command job could not silently produce nothing, because the build
-      # step was the job. Looping means a command dropped from the list, or
-      # built for the wrong platform, would leave a short artifact instead of a
-      # red run, so assert the set and the target explicitly.
+      # step was the job. Looping can, so every declared command is checked for a
+      # file that exists and was built for this target.
+      #
+      # What this cannot do is notice a command missing from COMMANDS, because
+      # COMMANDS is the declaration of what to ship. It needs to be maintained
+      # when new packages are added or removed.
       - name: Verify ${{ matrix.target }} inventory and architecture
         env:
           GOOS_WANT: ${{ matrix.goos }}
@@ -108,7 +111,6 @@ jobs:
           TARGET: ${{ matrix.target }}
         run: |
           set -euo pipefail
-          expected=$(grep -c '[^[:space:]]' <<< "${COMMANDS}")
           binaries=()
           while read -r name _; do
             [ -n "${name}" ] || continue
@@ -126,8 +128,12 @@ jobs:
             done
             binaries+=("${binary}")
           done <<< "${COMMANDS}"
-          [ "${#binaries[@]}" -eq "${expected}" ] \
-            || { echo "::error::expected ${expected} binaries for ${TARGET}, verified ${#binaries[@]}"; exit 1; }
+          # Catches COMMANDS collapsing to nothing -- an easy YAML block-scalar
+          # mistake that would otherwise upload an empty artifact and pass. A
+          # count compared against COMMANDS itself could not catch this, since
+          # both sides would be zero.
+          [ "${#binaries[@]}" -gt 0 ] \
+            || { echo "::error::COMMANDS declared no binaries for ${TARGET}"; exit 1; }
           # Named explicitly rather than globbed, so the checksum file cannot
           # pick itself up on a runner that kept the previous workspace.
           sha256sum "${binaries[@]}" > "dist/SHA256SUMS-${TARGET}"
