@@ -28,6 +28,7 @@ use super::cleanup::{
 };
 use super::context::{CollectorKind, DiscoveryLoopContext};
 use super::identity::ensure_primary_system_uuid;
+use super::reachability::reconcile_reachability_collectors;
 use super::spawn::{spawn_collectors_for_endpoint, switch_supports_nmxc_subscription};
 use crate::HealthError;
 use crate::config::Configurable;
@@ -118,6 +119,9 @@ pub async fn run_discovery_iteration(
         spawn_collectors_for_endpoint(ctx, endpoint, data_sink.clone(), metrics_prefix)?;
     }
 
+    reconcile_reachability_collectors(ctx, &sharded_endpoints, data_sink.clone(), metrics_prefix)
+        .await?;
+
     if matches!(&ctx.nmxc_config, Configurable::Enabled(_)) {
         // Endpoints can remain active while Carbide API changes primary or
         // NMX-C desired-state flags. Reconcile existing streams against the
@@ -154,10 +158,14 @@ mod tests {
     use mac_address::MacAddress;
 
     use super::*;
+    use crate::config::{Config, Configurable, NmxtCollectorConfig, ReachabilityCollectorConfig};
     use crate::endpoint::test_support::endpoint_with_creds;
     use crate::endpoint::{
-        BmcAddr, BmcCredentials, EndpointMetadata, SwitchData, SwitchEndpointRole,
+        BmcAddr, BmcCredentials, EndpointMetadata, StaticEndpointSource, SwitchData,
+        SwitchEndpointRole,
     };
+    use crate::limiter::NoopLimiter;
+    use crate::metrics::MetricsManager;
 
     /// Builds a generic endpoint fixture for discovery iteration tests.
     fn endpoint(mac: MacAddress, switch: bool, rack_id: Option<RackId>) -> Arc<BmcEndpoint> {
@@ -293,5 +301,65 @@ mod tests {
         ]);
 
         assert_eq!(keys, HashSet::from([expected_key]));
+    }
+
+    #[tokio::test]
+    async fn reachability_does_not_change_duplicate_endpoint_spawning() {
+        let mac = MacAddress::from_str("00:00:00:00:00:21").unwrap();
+        let first = switch_endpoint(mac, false, false);
+        let mut duplicate = first.as_ref().clone();
+
+        let Some(EndpointMetadata::Switch(switch)) = duplicate.metadata.as_mut() else {
+            panic!("test endpoint should contain switch metadata");
+        };
+
+        switch.nmxt_enabled = true;
+
+        let source: Arc<dyn EndpointSource> = Arc::new(StaticEndpointSource::new(vec![
+            first.as_ref().clone(),
+            duplicate,
+        ]));
+
+        let mut config = Config::default();
+        config.endpoint_sources.carbide_api = Configurable::Disabled;
+        config.collectors.sensors = Configurable::Disabled;
+        config.collectors.leak_detector = Configurable::Disabled;
+        config.collectors.nmxt = Configurable::Enabled(NmxtCollectorConfig::default());
+        config.collectors.reachability =
+            Configurable::Enabled(ReachabilityCollectorConfig::default());
+
+        let metrics_manager = Arc::new(
+            MetricsManager::new("duplicate_keys_with_reachability")
+                .expect("metrics manager should start"),
+        );
+
+        let mut ctx =
+            DiscoveryLoopContext::new(Arc::new(NoopLimiter), metrics_manager, Arc::new(config))
+                .expect("discovery context should start");
+
+        let stats = run_discovery_iteration(
+            source,
+            &ShardManager {
+                shard: 0,
+                shards_count: 1,
+            },
+            &mut ctx,
+            None,
+            "test",
+        )
+        .await
+        .expect("discovery iteration should succeed");
+
+        assert_eq!(stats.discovered_endpoints, 2);
+        assert_eq!(stats.sharded_endpoints, 2);
+        assert!(ctx.collectors.contains(CollectorKind::Nmxt, &first.key()));
+
+        let collector = ctx
+            .collectors
+            .map_mut(CollectorKind::Nmxt)
+            .remove(first.key().as_str())
+            .expect("NMX-T collector should have started");
+
+        collector.stop().await;
     }
 }

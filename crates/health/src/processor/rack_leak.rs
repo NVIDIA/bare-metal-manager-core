@@ -22,6 +22,7 @@ use carbide_uuid::rack::RackId;
 use dashmap::DashMap;
 
 use super::{EventContext, EventProcessor};
+use crate::collectors::REACHABILITY_COLLECTOR_TYPE;
 use crate::sink::{
     Classification, CollectorEvent, HealthReport, HealthReportAlert, HealthReportSuccess,
     HealthReportTarget, Probe, ReportSource,
@@ -87,6 +88,11 @@ impl EventProcessor for RackLeakProcessor {
         };
 
         if matches!(event, CollectorEvent::CollectorRemoved) {
+            // Reachability removal does not indicate that leak collection stopped.
+            if context.collector_type == REACHABILITY_COLLECTOR_TYPE {
+                return Vec::new();
+            }
+
             if let Some(mut entry) = self.racks.get_mut(rack_id) {
                 entry.leaking_trays.remove(context.endpoint_key());
             }
@@ -347,6 +353,30 @@ mod tests {
         };
         assert_eq!(rack.leaking_trays.len(), 1);
         assert!(rack.leaking_trays.contains(ctx_b.endpoint_key()));
+    }
+
+    #[test]
+    fn reachability_collector_removal_keeps_tray_state() {
+        let processor = RackLeakProcessor::new(1);
+        let leak_context = context_with_rack("42:9e:b1:bd:9d:dd", "rack-1");
+        let mut reachability_context = leak_context.clone();
+        reachability_context.collector_type = "reachability";
+
+        processor.process_event(&leak_context, &tray_leak_report(true));
+
+        let emitted =
+            processor.process_event(&reachability_context, &CollectorEvent::CollectorRemoved);
+
+        assert!(emitted.is_empty());
+
+        let Some(rack) = processor
+            .racks
+            .get(leak_context.rack_id().expect("rack id"))
+        else {
+            panic!("expected rack state");
+        };
+
+        assert!(rack.leaking_trays.contains(leak_context.endpoint_key()));
     }
 
     #[test]
