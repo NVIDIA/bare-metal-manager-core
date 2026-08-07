@@ -1271,7 +1271,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           BEFORE="${{ github.event.before }}"
-          if [[ "$BEFORE" == "0000000000000000000000000000000000000000" || -z "$BEFORE" ]]; then
+          if [[ ("$BEFORE" == "0000000000000000000000000000000000000000" || -z "$BEFORE") && "$GITHUB_REF" == refs/heads/pull-request/* ]]; then
             PR_NUM="${GITHUB_REF_NAME##pull-request/}"
             BASE_BRANCH=$(curl -fsSL \
               -H "Authorization: Bearer $GH_TOKEN" \
@@ -1279,6 +1279,14 @@ jobs:
               "https://api.github.com/repos/${{ github.repository }}/pulls/${PR_NUM}" \
               | jq -r '.base.ref')
             BEFORE=$(git merge-base "origin/${BASE_BRANCH}" HEAD)
+          elif [[ "$GITHUB_REF" == refs/tags/* ]]; then
+            # Tag pushes also have an all-zeros before. Scope the scan to commits
+            # since the previous tag so we don't re-scan the entire history on
+            # every release.
+            PREV_TAG=$(git tag --sort=-version:refname | grep -v "^${GITHUB_REF_NAME}$" | head -1)
+            if [[ -n "$PREV_TAG" ]]; then
+              BEFORE=$(git merge-base "refs/tags/${PREV_TAG}" HEAD)
+            fi
           fi
           echo "base=$BEFORE" >> "$GITHUB_OUTPUT"
 
