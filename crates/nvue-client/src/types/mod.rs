@@ -1,3 +1,5 @@
+pub mod revision;
+
 #[derive(Debug, serde::Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub struct MacTableEntry {
