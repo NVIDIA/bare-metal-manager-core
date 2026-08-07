@@ -784,11 +784,15 @@ func TestUpdateExpectedSwitchHandler_Handle(t *testing.T) {
 	}
 
 	tests := []struct {
-		name           string
-		id             string
-		requestBody    model.APIExpectedSwitchUpdateRequest
-		setupContext   func(c echo.Context)
-		expectedStatus int
+		name                 string
+		id                   string
+		requestBody          model.APIExpectedSwitchUpdateRequest
+		setupContext         func(c echo.Context)
+		expectedStatus       int
+		expectedBmcMac       string
+		expectedStoredBmcMac string
+		expectedErrorMsg     string
+		expectNoWorkflow     bool
 	}{
 		{
 			name: "successful update",
@@ -803,6 +807,37 @@ func TestUpdateExpectedSwitchHandler_Handle(t *testing.T) {
 				c.SetParamValues(org, testES.ID.String())
 			},
 			expectedStatus: http.StatusOK,
+		},
+		{
+			name: "BMC MAC formatting difference preserves stored identity",
+			id:   testES.ID.String(),
+			requestBody: model.APIExpectedSwitchUpdateRequest{
+				BmcMacAddress: cutil.GetPtr("00-11-22-33-44-dd"),
+			},
+			setupContext: func(c echo.Context) {
+				c.Set("user", createMockUser(org))
+				c.SetParamNames("orgName", "id")
+				c.SetParamValues(org, testES.ID.String())
+			},
+			expectedStatus:       http.StatusOK,
+			expectedBmcMac:       testES.BmcMacAddress,
+			expectedStoredBmcMac: testES.BmcMacAddress,
+		},
+		{
+			name: "BMC MAC address cannot be changed",
+			id:   testES.ID.String(),
+			requestBody: model.APIExpectedSwitchUpdateRequest{
+				BmcMacAddress: cutil.GetPtr("AA:BB:CC:DD:EE:FF"),
+			},
+			setupContext: func(c echo.Context) {
+				c.Set("user", createMockUser(org))
+				c.SetParamNames("orgName", "id")
+				c.SetParamValues(org, testES.ID.String())
+			},
+			expectedStatus:       http.StatusBadRequest,
+			expectedStoredBmcMac: testES.BmcMacAddress,
+			expectedErrorMsg:     "BMC MAC address cannot be changed after creation",
+			expectNoWorkflow:     true,
 		},
 		{
 			name: "successful update with BmcIpAddress",
@@ -914,12 +949,30 @@ func TestUpdateExpectedSwitchHandler_Handle(t *testing.T) {
 
 			tt.setupContext(c)
 
+			workflowCallsBefore := len(mockTemporalClient.Calls)
 			err := handler.Handle(c)
 
 			assert.Nil(t, err)
 			assert.Equal(t, tt.expectedStatus, rec.Code)
 			if tt.expectedStatus != rec.Code {
 				t.Errorf("Response: %v", rec.Body.String())
+			}
+			if tt.expectedErrorMsg != "" {
+				assert.Contains(t, rec.Body.String(), tt.expectedErrorMsg)
+			}
+			if tt.expectedBmcMac != "" {
+				var response model.APIExpectedSwitch
+				err := json.Unmarshal(rec.Body.Bytes(), &response)
+				assert.Nil(t, err)
+				assert.Equal(t, tt.expectedBmcMac, response.BmcMacAddress)
+			}
+			if tt.expectedStoredBmcMac != "" {
+				stored, err := esDAO.Get(ctx, nil, testES.ID, nil, false)
+				assert.Nil(t, err)
+				assert.Equal(t, tt.expectedStoredBmcMac, stored.BmcMacAddress)
+			}
+			if tt.expectNoWorkflow {
+				assert.Len(t, mockTemporalClient.Calls, workflowCallsBefore)
 			}
 
 			// Verify BmcIpAddress round-trips through the update response when set
