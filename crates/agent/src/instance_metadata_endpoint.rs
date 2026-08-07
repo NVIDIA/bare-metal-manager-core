@@ -721,34 +721,25 @@ mod tests {
         .await;
         server.abort();
 
-        let (server, server_port) = setup_server(
-            Some(metadata.clone()),
-            Some(ManagedHostNetworkConfigResponse::default()),
-        )
-        .await;
-        send_request_and_check_response(
-            server_port,
-            "meta-data/instance-name",
-            metadata.instance_name.as_deref().unwrap(),
-            StatusCode::OK,
-        )
-        .await;
-        server.abort();
-
-        metadata.instance_name = None;
-        let (server, server_port) = setup_server(
-            Some(metadata),
-            Some(ManagedHostNetworkConfigResponse::default()),
-        )
-        .await;
-        send_request_and_check_response(
-            server_port,
-            "meta-data/instance-name",
-            "instance name not available",
-            StatusCode::NOT_FOUND,
-        )
-        .await;
-        server.abort();
+        for (instance_name, expected_body, expected_status) in [
+            (Some("test-instance"), "test-instance", StatusCode::OK),
+            (None, "instance name not available", StatusCode::NOT_FOUND),
+        ] {
+            metadata.instance_name = instance_name.map(str::to_owned);
+            let (server, server_port) = setup_server(
+                Some(metadata.clone()),
+                Some(ManagedHostNetworkConfigResponse::default()),
+            )
+            .await;
+            send_request_and_check_response(
+                server_port,
+                "meta-data/instance-name",
+                expected_body,
+                expected_status,
+            )
+            .await;
+            server.abort();
+        }
     }
 
     #[tokio::test]

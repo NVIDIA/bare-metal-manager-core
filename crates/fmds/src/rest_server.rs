@@ -457,17 +457,18 @@ mod tests {
         assert_eq!(status, StatusCode::OK);
         assert_eq!(body, "test-host");
 
-        let (status, body) = get_request(port, "meta-data/instance-name").await;
-        assert_eq!(status, StatusCode::OK);
-        assert_eq!(body, "test-instance");
-
-        state.update_config(FmdsConfig {
-            instance_name: None,
-            ..make_test_config()
-        });
-        let (status, body) = get_request(port, "meta-data/instance-name").await;
-        assert_eq!(status, StatusCode::NOT_FOUND);
-        assert_eq!(body, "instance name not available");
+        for (instance_name, expected_status, expected_body) in [
+            (Some("test-instance"), StatusCode::OK, "test-instance"),
+            (None, StatusCode::NOT_FOUND, "instance name not available"),
+        ] {
+            state.update_config(FmdsConfig {
+                instance_name: instance_name.map(str::to_owned),
+                ..make_test_config()
+            });
+            let (status, body) = get_request(port, "meta-data/instance-name").await;
+            assert_eq!(status, expected_status);
+            assert_eq!(body, expected_body);
+        }
 
         server.abort();
     }
