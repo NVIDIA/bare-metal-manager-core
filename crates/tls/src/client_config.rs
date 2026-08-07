@@ -59,7 +59,7 @@ pub fn get_api_url(api_url: Option<String>, file_config: Option<&FileConfig>) ->
     if let Some(file_config) = file_config
         && let Some(api_url) = file_config.api_url.as_ref()
     {
-        return ensure_url_has_scheme(&api_url);
+        return ensure_url_has_scheme(api_url);
     }
 
     // TODO configurable default api_url
@@ -69,9 +69,9 @@ pub fn get_api_url(api_url: Option<String>, file_config: Option<&FileConfig>) ->
 
 /// Ensures a URL has an HTTP(S) scheme, defaulting to `https://` if missing
 fn ensure_url_has_scheme(url: &str) -> String {
-    let url = url.trim();
+    let url = url.trim().to_ascii_lowercase();
     if url.starts_with("http://") || url.starts_with("https://") {
-        url.to_string()
+        url
     } else {
         format!("https://{url}")
     }
@@ -583,6 +583,16 @@ mod tests {
 
         assert_eq!(
             ensure_url_has_scheme("localhost:1079"),
+            "https://localhost:1079"
+        );
+
+        assert_eq!(
+            ensure_url_has_scheme("HTTPS://example.com"),
+            "https://example.com"
+        );
+
+        assert_eq!(
+            ensure_url_has_scheme("  localhost:1079  "),
             "https://localhost:1079"
         );
     }
