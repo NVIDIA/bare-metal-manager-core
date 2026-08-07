@@ -69,15 +69,18 @@ impl log::Log for KeaLogger {
             ))
             .unwrap();
 
+            let ptr = text.into_raw();
             unsafe {
                 use Level::*;
                 match record.metadata().level() {
-                    Trace => kea_log_generic_debug(KEA_DEBUGLEVEL_TRACE, text.into_raw()),
-                    Debug => kea_log_generic_debug(KEA_DEBUGLEVEL_DEBUG, text.into_raw()),
-                    Info => kea_log_generic_info(text.into_raw()),
-                    Warn => kea_log_generic_warn(text.into_raw()),
-                    Error => kea_log_generic_error(text.into_raw()),
+                    Trace => kea_log_generic_debug(KEA_DEBUGLEVEL_TRACE, ptr),
+                    Debug => kea_log_generic_debug(KEA_DEBUGLEVEL_DEBUG, ptr),
+                    Info => kea_log_generic_info(ptr),
+                    Warn => kea_log_generic_warn(ptr),
+                    Error => kea_log_generic_error(ptr),
                 }
+                // retake pointer to free memory
+                let _ = CString::from_raw(ptr);
             }
         }
     }
