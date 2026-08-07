@@ -151,7 +151,7 @@ impl NvueClient {
         // but as far as we're concerned that's an error.
         let revision_data: Option<_> = response.json().await?;
         revision_data.ok_or(NvueClientError::SchemaMismatch(
-            "Revision response was null",
+            "revision response was null",
         ))
     }
 
