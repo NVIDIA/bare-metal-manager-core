@@ -123,7 +123,12 @@ pub(crate) async fn decommission_power_shelf(
         .into());
     }
 
-    db_power_shelf::set_decommission_requested(&mut txn, power_shelf_id).await?;
+    db_power_shelf::set_decommission_requested(
+        &mut txn,
+        power_shelf_id,
+        power_shelf.controller_state.version,
+    )
+    .await?;
     txn.commit().await?;
     Ok(Response::new(()))
 }
