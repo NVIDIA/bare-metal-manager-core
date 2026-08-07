@@ -79,7 +79,7 @@ Path: `deploy/nico-base/api/`
     - `nico-api-metrics` – metrics, port **1080**
     - `nico-api-profiler` – profiler, port **1081**
 - ConfigMaps
-    - `nico-api-config-files` – base config (`nico-api-config.toml`, `casbin-policy.csv`)
+    - `nico-api-config-files` – base config (`carbide-api-config.toml`, `casbin-policy.csv`)
     - `nico-api-site-config-files` – overlay for site‑specific TOML (empty in base)
 - TLS
     - `Certificate/nico-api-certificate` → `Secret/nico-api-certificate` (SPIFFE‑style mTLS)
@@ -99,11 +99,11 @@ Path: `deploy/nico-base/api/`
         - `NICO_VAULT_MOUNT`
         - `NICO_VAULT_PKI_MOUNT`
 - **Root CA bundle**
-    - Secret `<NICO_ROOT_CA_SECRET>` mounted where `nico-api-config.toml` expects it.
+    - Secret `<NICO_ROOT_CA_SECRET>` mounted where `carbide-api-config.toml` expects it.
 
 ### Configuration notes
 
-- Runtime config lives in `nico-api-config.toml` and is overlaid by a site‑specific TOML in `nico-api-site-config-files`.
+- Runtime config lives in `carbide-api-config.toml` and is overlaid by a site‑specific TOML in `nico-api-site-config-files`.
 - Important knobs include:
     - listen/metrics/profiler ports
     - firmware/DPU settings

@@ -5148,7 +5148,7 @@ mod tests {
     fn deserialize_shipped_api_configurations() {
         let repository_root = concat!(env!("CARGO_MANIFEST_DIR"), "/../..");
         let deploy_path =
-            format!("{repository_root}/deploy/nico-base/api/config-files/nico-api-config.toml");
+            format!("{repository_root}/deploy/nico-base/api/config-files/carbide-api-config.toml");
         let docker_path = format!("{repository_root}/dev/docker-env/carbide-api-config.toml");
         let webdev_path = format!("{repository_root}/dev/webdev-env/carbide-api-config.toml");
         let site_config = rendered_deployment_site_config();
