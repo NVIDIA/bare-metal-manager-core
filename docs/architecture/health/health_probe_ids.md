@@ -84,7 +84,7 @@ Indicates that a BGP session with a top-of-rack (TOR) switch could not be establ
 
 ### `BgpPeeringRouteServer`
 
-Indicates that a BGP session with a route server that is part of the NICo control plane could not be established by a host/DPU. Route servers are redundant, so this alert only applies the `PreventAllocations` and `PreventHostStateChanges` classifications when there is one healthy session left or none (including a single configured route server going down). with more than one healthy session, it's just a warning.
+Indicates that a BGP session with a route server that is part of the NICo control plane could not be established by a host/DPU. Route servers are redundant, so this alert only applies the `PreventAllocations` and `PreventHostStateChanges` classifications when there is one healthy session left or none (including a single configured route server going down). With more than one healthy session, it's just a warning.
 
 ### `BgpStats`
 
