@@ -16,20 +16,20 @@
  */
 
 use async_trait::async_trait;
-pub use nv_redfish::account::ManagerAccountCreate as AccountCreate;
-pub use nv_redfish::schema::manager_account::ManagerAccount as Account;
+use nv_redfish::account::ManagerAccountCreate;
+use nv_redfish::schema::manager_account::ManagerAccount;
 
 use crate::{DriverOutcome, OpCx, PlatformError};
 
 /// BMC local-account and account-policy operations.
 #[async_trait]
 pub trait Accounts: Send + Sync {
-    async fn list(&self, cx: &OpCx<'_>) -> Result<Vec<Account>, PlatformError>;
+    async fn list(&self, cx: &OpCx<'_>) -> Result<Vec<ManagerAccount>, PlatformError>;
 
     async fn create(
         &self,
         cx: &OpCx<'_>,
-        request: &AccountCreate,
+        request: &ManagerAccountCreate,
     ) -> Result<DriverOutcome, PlatformError>;
 
     async fn delete(&self, cx: &OpCx<'_>, username: &str) -> Result<DriverOutcome, PlatformError>;

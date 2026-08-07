@@ -21,7 +21,7 @@ use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 
 use crate::{DriverOutcome, OpCx, PlatformError};
-pub use nv_redfish::resource::PowerState;
+use nv_redfish::resource::PowerState;
 
 /// A normalized power mutation.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]

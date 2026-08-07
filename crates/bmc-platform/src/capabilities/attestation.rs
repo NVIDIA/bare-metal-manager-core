@@ -16,9 +16,10 @@
  */
 
 use async_trait::async_trait;
+use nv_redfish::schema::software_inventory::SoftwareInventory;
 use serde::{Deserialize, Serialize};
 
-use crate::{DriverOutcome, FirmwareInventory, OpCx, PlatformError};
+use crate::{DriverOutcome, OpCx, PlatformError};
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct ComponentIntegritySummary {
@@ -59,7 +60,7 @@ pub trait Attestation: Send + Sync {
         &self,
         cx: &OpCx<'_>,
         component_id: &str,
-    ) -> Result<FirmwareInventory, PlatformError>;
+    ) -> Result<SoftwareInventory, PlatformError>;
 
     async fn ca_certificate(
         &self,

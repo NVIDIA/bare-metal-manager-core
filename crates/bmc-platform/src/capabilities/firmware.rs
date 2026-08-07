@@ -15,59 +15,30 @@
  * limitations under the License.
  */
 
-use std::path::PathBuf;
-use std::time::Duration;
+use std::pin::Pin;
 
 use async_trait::async_trait;
-use nv_redfish::core::ODataId;
-pub use nv_redfish::schema::software_inventory::SoftwareInventory as FirmwareInventory;
-pub use nv_redfish::schema::update_service::TransferProtocolType as TransferProtocol;
-use serde::{Deserialize, Serialize};
+use nv_redfish::core::{MultipartUpdateRequest, UploadReader};
+use nv_redfish::schema::software_inventory::SoftwareInventory;
+use nv_redfish::schema::update_service::UpdateServiceSimpleUpdateAction;
+use nv_redfish::update_service::MultipartUpdateParameters;
 
 use crate::{DriverOutcome, OpCx, PlatformError};
-
-#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum FirmwareUploadComponent {
-    Bmc,
-    Uefi,
-    ErotBmc,
-    ErotBios,
-    CpldMid,
-    CpldMb,
-    CpldPdb,
-    Psu { number: u32 },
-    PcieSwitch { number: u32 },
-    PcieRetimer { number: u32 },
-    HgxBmc,
-}
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub enum FirmwareUpdate {
-    Multipart {
-        path: PathBuf,
-        reboot: bool,
-        timeout: Duration,
-        component: FirmwareUploadComponent,
-    },
-    Simple {
-        image_uri: String,
-        targets: Vec<ODataId>,
-        transfer_protocol: TransferProtocol,
-    },
-    HttpPush {
-        path: PathBuf,
-    },
-}
 
 /// Firmware inventory and update operations.
 #[async_trait]
 pub trait Firmware: Send + Sync {
-    async fn inventory(&self, cx: &OpCx<'_>) -> Result<Vec<FirmwareInventory>, PlatformError>;
+    async fn inventory(&self, cx: &OpCx<'_>) -> Result<Vec<SoftwareInventory>, PlatformError>;
 
-    async fn update(
+    async fn multipart_update(
         &self,
         cx: &OpCx<'_>,
-        request: &FirmwareUpdate,
+        request: MultipartUpdateRequest<'_, Pin<Box<dyn UploadReader>>, MultipartUpdateParameters>,
+    ) -> Result<DriverOutcome, PlatformError>;
+
+    async fn simple_update(
+        &self,
+        cx: &OpCx<'_>,
+        request: &UpdateServiceSimpleUpdateAction,
     ) -> Result<DriverOutcome, PlatformError>;
 }

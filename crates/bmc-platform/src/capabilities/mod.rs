@@ -28,22 +28,17 @@ pub mod power;
 pub mod secure_boot;
 pub mod storage;
 
-pub use accounts::{Account, AccountCreate, Accounts};
+pub use accounts::Accounts;
 pub use attestation::{Attestation, AttestationEvidence, CaCertificate, ComponentIntegritySummary};
 pub use bios::{Bios, BiosDiff, BiosSettings, BiosStatus};
 pub use bmc_control::BmcControl;
-pub use boot_order::{
-    BootFirmwareMode, BootInterfaceSelector, BootOption, BootOptionReference, BootOrder,
-    BootOrderStatus, BootOverride, BootTarget,
-};
+pub use boot_order::{BootInterfaceSelector, BootOrder};
 pub use console::{
     Console, ConsoleFallback, ConsoleSpec, ConsoleSpecError, ConsoleState, ConsoleStatus, EscapeSeq,
 };
 pub use dpu::{Dpu, DpuStatus, HostPrivilegeLevel, NicMode, RshimState};
-pub use firmware::{
-    Firmware, FirmwareInventory, FirmwareUpdate, FirmwareUploadComponent, TransferProtocol,
-};
+pub use firmware::Firmware;
 pub use lockdown::{Lockdown, LockdownDesiredState, LockdownScope, LockdownState, LockdownStatus};
-pub use power::{Power, PowerAction, PowerState};
-pub use secure_boot::{SecureBoot, SecureBootDatabase, SecureBootStatus, SecureBootUpdate};
+pub use power::{Power, PowerAction};
+pub use secure_boot::{SecureBoot, SecureBootStatus};
 pub use storage::Storage;

@@ -47,12 +47,17 @@ impl<'a> OpCx<'a> {
 
 #[cfg(test)]
 mod tests {
+    use std::pin::Pin;
+
     use async_trait::async_trait;
+    use nv_redfish::core::query::{ExpandQuery, FilterQuery};
+    use nv_redfish::core::{ModificationResponse, MultipartUpdateRequest, UploadReader};
+    use nv_redfish::update_service::MultipartUpdateParameters;
     use serde_json::Value;
 
     use super::*;
     use crate::PlatformError;
-    use crate::transport::{PatchCondition, RedfishResponse, RedfishUri, UploadRequest};
+    use crate::transport::{PatchCondition, RedfishResponse, RedfishUri};
 
     struct FakeTransport;
 
@@ -62,12 +67,28 @@ mod tests {
             panic!("not used")
         }
 
+        async fn expand(
+            &self,
+            _uri: &RedfishUri,
+            _query: &ExpandQuery,
+        ) -> Result<RedfishResponse, PlatformError> {
+            panic!("not used")
+        }
+
+        async fn filter(
+            &self,
+            _uri: &RedfishUri,
+            _query: &FilterQuery,
+        ) -> Result<RedfishResponse, PlatformError> {
+            panic!("not used")
+        }
+
         async fn patch(
             &self,
             _uri: &RedfishUri,
             _body: &Value,
             _condition: &PatchCondition,
-        ) -> Result<RedfishResponse, PlatformError> {
+        ) -> Result<ModificationResponse<Value>, PlatformError> {
             panic!("not used")
         }
 
@@ -75,15 +96,26 @@ mod tests {
             &self,
             _uri: &RedfishUri,
             _body: &Value,
-        ) -> Result<RedfishResponse, PlatformError> {
+        ) -> Result<ModificationResponse<Value>, PlatformError> {
             panic!("not used")
         }
 
-        async fn delete(&self, _uri: &RedfishUri) -> Result<RedfishResponse, PlatformError> {
+        async fn delete(
+            &self,
+            _uri: &RedfishUri,
+        ) -> Result<ModificationResponse<Value>, PlatformError> {
             panic!("not used")
         }
 
-        async fn upload(&self, _request: &UploadRequest) -> Result<RedfishResponse, PlatformError> {
+        async fn multipart_update(
+            &self,
+            _uri: &RedfishUri,
+            _request: MultipartUpdateRequest<
+                '_,
+                Pin<Box<dyn UploadReader>>,
+                MultipartUpdateParameters,
+            >,
+        ) -> Result<ModificationResponse<Value>, PlatformError> {
             panic!("not used")
         }
     }

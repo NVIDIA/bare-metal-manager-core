@@ -16,12 +16,14 @@
  */
 
 use std::fmt;
-use std::path::PathBuf;
+use std::pin::Pin;
 use std::str::FromStr;
 
 use async_trait::async_trait;
-use http::{HeaderValue, StatusCode, Uri};
-use nv_redfish::core::{ODataETag, ODataId};
+use http::{StatusCode, Uri};
+use nv_redfish::core::query::{ExpandQuery, FilterQuery};
+use nv_redfish::core::{ModificationResponse, MultipartUpdateRequest, ODataETag, UploadReader};
+use nv_redfish::update_service::MultipartUpdateParameters;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use serde_json::Value;
 use thiserror::Error;
@@ -123,24 +125,12 @@ pub enum RedfishUriError {
     Traversal,
 }
 
-/// The response data a driver needs for normal Redfish operations.
+/// The response data a driver needs from a raw Redfish GET.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct RedfishResponse {
     pub status: StatusCode,
-    pub location: Option<HeaderValue>,
-    pub retry_after: Option<HeaderValue>,
     pub etag: Option<ODataETag>,
     pub body: Option<Value>,
-}
-
-/// Path-based upload metadata for the current operation.
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct UploadRequest {
-    pub endpoint: RedfishUri,
-    pub file_path: PathBuf,
-    pub filename: Option<String>,
-    pub targets: Vec<ODataId>,
-    pub parameters: Option<Value>,
 }
 
 /// Conditional request policy for a Redfish PATCH operation.
@@ -159,18 +149,44 @@ pub enum PatchCondition {
 pub trait RedfishOps: Send + Sync {
     async fn get(&self, uri: &RedfishUri) -> Result<RedfishResponse, PlatformError>;
 
+    /// GET with a typed `$expand` query.
+    ///
+    /// Implementations preserve query parameters already present in `uri`.
+    async fn expand(
+        &self,
+        uri: &RedfishUri,
+        query: &ExpandQuery,
+    ) -> Result<RedfishResponse, PlatformError>;
+
+    /// GET with a typed `$filter` query.
+    ///
+    /// Implementations preserve query parameters already present in `uri`.
+    async fn filter(
+        &self,
+        uri: &RedfishUri,
+        query: &FilterQuery,
+    ) -> Result<RedfishResponse, PlatformError>;
+
     async fn patch(
         &self,
         uri: &RedfishUri,
         body: &Value,
         condition: &PatchCondition,
-    ) -> Result<RedfishResponse, PlatformError>;
+    ) -> Result<ModificationResponse<Value>, PlatformError>;
 
-    async fn post(&self, uri: &RedfishUri, body: &Value) -> Result<RedfishResponse, PlatformError>;
+    async fn post(
+        &self,
+        uri: &RedfishUri,
+        body: &Value,
+    ) -> Result<ModificationResponse<Value>, PlatformError>;
 
-    async fn delete(&self, uri: &RedfishUri) -> Result<RedfishResponse, PlatformError>;
+    async fn delete(&self, uri: &RedfishUri) -> Result<ModificationResponse<Value>, PlatformError>;
 
-    async fn upload(&self, request: &UploadRequest) -> Result<RedfishResponse, PlatformError>;
+    async fn multipart_update(
+        &self,
+        uri: &RedfishUri,
+        request: MultipartUpdateRequest<'_, Pin<Box<dyn UploadReader>>, MultipartUpdateParameters>,
+    ) -> Result<ModificationResponse<Value>, PlatformError>;
 }
 
 #[cfg(test)]

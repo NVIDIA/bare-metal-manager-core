@@ -17,12 +17,9 @@
 
 use async_trait::async_trait;
 use mac_address::MacAddress;
-pub use nv_redfish::computer_system::BootOptionReference;
-pub use nv_redfish::schema::boot_option::BootOption;
-pub use nv_redfish::schema::computer_system::{
-    Boot as BootOrderStatus, BootSource as BootTarget, BootSourceOverrideMode as BootFirmwareMode,
-    BootUpdate as BootOverride,
-};
+use nv_redfish::computer_system::BootOptionReference;
+use nv_redfish::schema::boot_option::BootOption;
+use nv_redfish::schema::computer_system::BootUpdate;
 use serde::{Deserialize, Serialize};
 
 use crate::{DriverOutcome, OpCx, PlatformError};
@@ -41,8 +38,6 @@ pub enum BootInterfaceSelector {
 /// One-time boot override and persistent boot-order operations.
 #[async_trait]
 pub trait BootOrder: Send + Sync {
-    async fn status(&self, cx: &OpCx<'_>) -> Result<BootOrderStatus, PlatformError>;
-
     async fn options(&self, cx: &OpCx<'_>) -> Result<Vec<BootOption>, PlatformError>;
 
     /// Reports whether the selected host boot interface is first.
@@ -57,7 +52,7 @@ pub trait BootOrder: Send + Sync {
     async fn set_override(
         &self,
         cx: &OpCx<'_>,
-        override_setting: &BootOverride,
+        override_setting: &BootUpdate,
     ) -> Result<DriverOutcome, PlatformError>;
 
     async fn set_order(

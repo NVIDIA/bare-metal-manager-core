@@ -16,18 +16,18 @@
  */
 
 use async_trait::async_trait;
-pub use nv_redfish::schema::secure_boot::{SecureBoot as SecureBootStatus, SecureBootUpdate};
+use nv_redfish::schema::secure_boot::SecureBootUpdate;
 use serde::{Deserialize, Serialize};
 
 use crate::{DriverOutcome, OpCx, PlatformError};
 
+/// NICo's normalized view of configured and active Secure Boot state.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
-pub enum SecureBootDatabase {
-    PlatformKey,
-    KeyExchangeKey,
-    AllowedSignatures,
-    ForbiddenSignatures,
+pub enum SecureBootStatus {
+    Enabled,
+    Disabled,
+    Pending,
 }
 
 /// Secure Boot status, enablement, and certificate operations.
@@ -41,16 +41,11 @@ pub trait SecureBoot: Send + Sync {
         update: &SecureBootUpdate,
     ) -> Result<DriverOutcome, PlatformError>;
 
-    async fn has_certificates(
-        &self,
-        cx: &OpCx<'_>,
-        database: SecureBootDatabase,
-    ) -> Result<bool, PlatformError>;
+    async fn has_platform_key(&self, cx: &OpCx<'_>) -> Result<bool, PlatformError>;
 
-    async fn add_certificate(
+    async fn add_platform_key(
         &self,
         cx: &OpCx<'_>,
-        database: SecureBootDatabase,
         pem: &str,
     ) -> Result<DriverOutcome, PlatformError>;
 }
