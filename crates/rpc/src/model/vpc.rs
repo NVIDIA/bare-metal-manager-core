@@ -81,6 +81,7 @@ impl From<Vpc> for rpc::forge::Vpc {
                 vni: desired_vni,
                 routing_profile_type: src.config.routing_profile_type.clone(),
                 routing_profile_overrides,
+                power_resource_group: src.config.power_resource_group.clone(),
             }),
             status: Some(rpc::forge::VpcStatus::from(src.status)),
 
@@ -266,6 +267,7 @@ impl TryFrom<rpc::forge::VpcCreationRequest> for NewVpc {
                 .routing_profile_overrides
                 .map(TryInto::try_into)
                 .transpose()?,
+            power_resource_group: value.power_resource_group,
             network_virtualization_type: virt_type,
             metadata,
         })
@@ -308,6 +310,7 @@ impl TryFrom<rpc::forge::VpcUpdateRequest> for UpdateVpc {
                 .routing_profile_overrides
                 .map(TryInto::try_into)
                 .transpose()?,
+            power_resource_group: value.power_resource_group,
             if_version_match,
             metadata,
         })
@@ -393,6 +396,7 @@ mod tests {
                 vni: Some(42),
                 routing_profile_type: Some("EXTERNAL".to_string()),
                 routing_profile_overrides: None,
+                power_resource_group: Some("tenant-1".to_string()),
             },
             status: VpcStatus { vni: Some(100) },
             metadata: Metadata::new_with_default_name(),
@@ -413,6 +417,7 @@ mod tests {
         assert_eq!(config.tenant_keyset_id.as_deref(), Some("keyset-1"));
         assert_eq!(config.vni, Some(42));
         assert_eq!(config.routing_profile_type.as_deref(), Some("EXTERNAL"));
+        assert_eq!(config.power_resource_group.as_deref(), Some("tenant-1"));
         assert_eq!(
             config.network_virtualization_type,
             Some(rpc::forge::VpcVirtualizationType::Fnn as i32)

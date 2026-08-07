@@ -420,6 +420,7 @@ async fn test_measurement_assigned_ready_to_waiting_for_measurements_to_ca_faile
         dpu_extension_services: None,
         nvlink: None,
         spxconfig: None,
+        power_profile: None,
     };
     let instance_id = env
         .api
@@ -1814,6 +1815,7 @@ async fn test_can_not_create_instance_for_dpu(_: PgPoolOptions, options: PgConne
             spxconfig: InstanceSpxConfig::default(),
             network_security_group_id: None,
             extension_services: InstanceExtensionServicesConfig::default(),
+            power_profile: None,
         },
         metadata: Metadata {
             name: "test_instance".to_string(),
@@ -2126,6 +2128,7 @@ async fn test_instance_phone_home(_: PgPoolOptions, options: PgConnectOptions) {
         spxconfig: None,
         network_security_group_id: None,
         dpu_extension_services: None,
+        power_profile: None,
     };
 
     let tinstance = mh
@@ -2289,6 +2292,7 @@ async fn test_create_instance_duplicate_keyset_ids(_: PgPoolOptions, options: Pg
         spxconfig: None,
         network_security_group_id: None,
         dpu_extension_services: None,
+        power_profile: None,
     };
 
     let instance_id: InstanceId = uuid::Uuid::new_v4().into();
@@ -2346,6 +2350,7 @@ async fn test_create_instance_keyset_ids_max(_: PgPoolOptions, options: PgConnec
         spxconfig: None,
         network_security_group_id: None,
         dpu_extension_services: None,
+        power_profile: None,
     };
 
     let instance_id: InstanceId = uuid::Uuid::new_v4().into();
@@ -2502,6 +2507,7 @@ async fn test_allocate_network_vpc_prefix_id(_: PgPoolOptions, options: PgConnec
         spxconfig: None,
         network_security_group_id: None,
         dpu_extension_services: None,
+        power_profile: None,
     };
 
     let mut config: model::instance::config::InstanceConfig = config.try_into().unwrap();
@@ -4548,6 +4554,7 @@ async fn test_network_details_migration(
                 spxconfig: None,
                 network_security_group_id: None,
                 dpu_extension_services: None,
+                power_profile: None,
             }),
             instance_id: None,
             instance_type_id: None,
@@ -4636,6 +4643,7 @@ async fn test_network_details_migration(
                 spxconfig: None,
                 network_security_group_id: None,
                 dpu_extension_services: None,
+                power_profile: None,
             }),
             instance_id: None,
             instance_type_id: None,
@@ -4792,6 +4800,7 @@ async fn test_instance_cannot_allocate_requested_ip_with_network_segment(
                     dpu_extension_services: None,
                     nvlink: None,
                     spxconfig: None,
+                    power_profile: None,
                 })
                 .metadata(rpc::Metadata {
                     name: "test_instance".to_string(),
@@ -4881,6 +4890,7 @@ async fn test_allocate_and_update_network_config_instance(
                     network_security_group_id: None,
                     dpu_extension_services: None,
                     spxconfig: None,
+                    power_profile: None,
                 }),
                 instance_id: instance.rpc_id(),
                 metadata: Some(rpc::forge::Metadata {
@@ -5019,6 +5029,7 @@ async fn test_allocate_and_update_network_config_instance_add_vf(
                     spxconfig: None,
                     network_security_group_id: None,
                     dpu_extension_services: None,
+                    power_profile: None,
                 }),
                 instance_id: instance_id_rpc,
                 metadata: Some(rpc::forge::Metadata {
@@ -5192,6 +5203,7 @@ async fn test_update_instance_config_vpc_prefix_network_update_delete_vf(
         spxconfig: None,
         network_security_group_id: None,
         dpu_extension_services: None,
+        power_profile: None,
     };
 
     let initial_metadata = rpc::Metadata {
@@ -5439,6 +5451,7 @@ async fn test_allocate_and_update_network_config_instance_state_machine(
                     spxconfig: None,
                     network_security_group_id: None,
                     dpu_extension_services: None,
+                    power_profile: None,
                 }),
                 instance_id: instance.rpc_id(),
                 metadata: Some(rpc::forge::Metadata {
@@ -5572,6 +5585,7 @@ async fn test_update_instance_config_vpc_prefix_network_update_state_machine(
         spxconfig: None,
         network_security_group_id: None,
         dpu_extension_services: None,
+        power_profile: None,
     };
 
     let initial_metadata = rpc::Metadata {
@@ -5799,6 +5813,7 @@ async fn test_allocate_network_multi_dpu_vpc_prefix_id(
         spxconfig: None,
         network_security_group_id: None,
         dpu_extension_services: None,
+        power_profile: None,
     };
 
     let mut config: model::instance::config::InstanceConfig = config.try_into().unwrap();
@@ -6085,6 +6100,7 @@ async fn test_fnn_vrf_loopbacks_are_per_vpc_and_removed_on_network_update(pool: 
                 spxconfig: None,
                 network_security_group_id: None,
                 dpu_extension_services: None,
+                power_profile: None,
             }),
             instance_id: Some(instance.id),
             metadata: Some(rpc::Metadata {
@@ -6205,6 +6221,7 @@ async fn test_fnn_vrf_loopbacks_are_per_vpc_for_pf_and_vf_on_one_dpu(pool: sqlx:
                 spxconfig: None,
                 network_security_group_id: None,
                 dpu_extension_services: None,
+                power_profile: None,
             }),
             instance_id: Some(instance.id),
             metadata: Some(rpc::Metadata {
@@ -7551,6 +7568,7 @@ async fn test_allocate_instance_with_extension_services(
                     .clone(),
             }],
         }),
+        power_profile: None,
     };
 
     let _tinstance = mh
@@ -7613,6 +7631,7 @@ async fn test_allocate_instance_with_extension_services_rejected_on_dpf_host(
                         version: service.latest_version_info.unwrap().version,
                     }],
                 }),
+                power_profile: None,
             }),
             instance_id: None,
             instance_type_id: None,
@@ -7780,6 +7799,7 @@ async fn test_allocate_instance_with_duplicate_extension_services(
                         },
                     ],
                 }),
+                power_profile: None,
             }),
             instance_id: None,
             instance_type_id: None,
@@ -7843,6 +7863,7 @@ async fn test_update_instance_with_extension_services(
                 version: service1_version1.clone(),
             }],
         }),
+        power_profile: None,
     };
 
     let tinstance = mh
@@ -7891,6 +7912,7 @@ async fn test_update_instance_with_extension_services(
                 },
             ],
         }),
+        power_profile: None,
     };
     let instance = env
         .api
@@ -7986,6 +8008,7 @@ async fn test_update_instance_with_extension_services(
         dpu_extension_services: Some(rpc::forge::InstanceDpuExtensionServicesConfig {
             service_configs: vec![],
         }),
+        power_profile: None,
     };
     let instance = env
         .api
@@ -8068,6 +8091,7 @@ async fn test_update_instance_with_extension_services(
                 version: service3_version.clone(),
             }],
         }),
+        power_profile: None,
     };
     let instance = env
         .api
@@ -8109,6 +8133,7 @@ async fn test_update_instance_with_extension_services(
                 },
             ],
         }),
+        power_profile: None,
     };
     let instance = env
         .api
@@ -8173,6 +8198,7 @@ async fn test_attach_extension_service_rejected_on_dpf_host(
                         version: service.latest_version_info.unwrap().version,
                     }],
                 }),
+                power_profile: None,
             }),
             metadata: Some(rpc::Metadata {
                 name: "dpf-extension-service".to_string(),
@@ -8227,6 +8253,7 @@ async fn test_extension_service_removed_after_all_dpus_report_terminated(
                 version: service2_version,
             }],
         }),
+        power_profile: None,
     };
 
     let tinstance = mh.instance_builer(&env).config(config).build().await;
@@ -8250,6 +8277,7 @@ async fn test_extension_service_removed_after_all_dpus_report_terminated(
                 dpu_extension_services: Some(rpc::forge::InstanceDpuExtensionServicesConfig {
                     service_configs: vec![],
                 }),
+                power_profile: None,
             }),
             instance_id: Some(instance_id),
             metadata: Some(rpc::forge::Metadata {
@@ -8395,6 +8423,7 @@ async fn test_extension_services_status_observation(
                 version: versions[0].version_string(),
             }],
         }),
+        power_profile: None,
     };
 
     let tinstance = mh
@@ -8514,6 +8543,7 @@ async fn test_allocate_instance_with_invalid_os_image(
                 nvlink: None,
                 spxconfig: None,
                 dpu_extension_services: None,
+                power_profile: None,
             }),
             instance_id: None,
             instance_type_id: None,
@@ -8576,6 +8606,7 @@ async fn test_allocate_instance_with_invalid_ib_partition(
                 nvlink: None,
                 spxconfig: None,
                 dpu_extension_services: None,
+                power_profile: None,
             }),
             instance_id: None,
             instance_type_id: None,

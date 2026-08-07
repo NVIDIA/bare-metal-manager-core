@@ -828,7 +828,7 @@ async fn handle_netconf(AxumState(state): AxumState<Arc<Mutex<State>>>) -> impl 
             dpu_extension_services: None,
             nvlink: None,
             spxconfig: None,
-
+            power_profile: None,
         }),
         status: Some(rpc::InstanceStatus {
             tenant: Some(rpc::InstanceTenantStatus {

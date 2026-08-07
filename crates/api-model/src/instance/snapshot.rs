@@ -144,6 +144,8 @@ pub struct InstanceSnapshotPgJson {
     pub operating_system_id: Option<uuid::Uuid>,
     instance_type_id: Option<InstanceTypeId>,
     network_security_group_id: Option<NetworkSecurityGroupId>,
+    #[serde(default)]
+    power_profile: Option<String>,
     extension_services_config: InstanceExtensionServicesConfig,
     extension_services_config_version: String,
     requested: DateTime<Utc>,
@@ -182,6 +184,7 @@ pub fn from_pg_json_and_os(
         nvlink: value.nvlink_config,
         network_security_group_id: value.network_security_group_id,
         extension_services: value.extension_services_config,
+        power_profile: value.power_profile,
     };
 
     Ok(InstanceSnapshot {
@@ -297,6 +300,7 @@ impl TryFrom<InstanceSnapshotPgJson> for InstanceSnapshot {
             network_security_group_id: value.network_security_group_id,
             extension_services: value.extension_services_config,
             spxconfig: value.spx_config,
+            power_profile: value.power_profile,
         };
 
         Ok(InstanceSnapshot {
@@ -412,6 +416,7 @@ mod tests {
             operating_system_id: None,
             instance_type_id: None,
             network_security_group_id: None,
+            power_profile: None,
             extension_services_config: InstanceExtensionServicesConfig::default(),
             extension_services_config_version: version,
             requested: Utc::now(),
@@ -426,6 +431,7 @@ mod tests {
     fn test_from_pg_json_and_os_uses_provided_os() {
         let mut pg_json = minimal_pg_json();
         pg_json.operating_system_id = Some(Uuid::nil());
+        pg_json.power_profile = Some("balanced".to_string());
         let os = OperatingSystem {
             user_data: Some("user-data".to_string()),
             variant: OperatingSystemVariant::Ipxe(InlineIpxe {
@@ -438,6 +444,7 @@ mod tests {
         assert_eq!(snapshot.config.os.variant, os.variant);
         assert_eq!(snapshot.config.os.user_data, os.user_data);
         assert_eq!(snapshot.config.os.phone_home_enabled, os.phone_home_enabled);
+        assert_eq!(snapshot.config.power_profile.as_deref(), Some("balanced"));
         if let OperatingSystemVariant::Ipxe(ipxe) = &snapshot.config.os.variant {
             assert_eq!(ipxe.ipxe_script, "script-from-os");
         } else {

@@ -67,8 +67,8 @@ pub async fn persist(
     let query =
                 "INSERT INTO vpcs (id, name, organization_id, network_security_group_id, version, network_virtualization_type,
                 description,
-                labels, routing_profile_type, routing_profile_overrides, vni, status)
-                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12) RETURNING *";
+                labels, routing_profile_type, routing_profile_overrides, vni, status, power_resource_group)
+                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13) RETURNING *";
     sqlx::query_as(query)
         .bind(value.id)
         .bind(&value.metadata.name)
@@ -82,6 +82,7 @@ pub async fn persist(
         .bind(value.routing_profile_overrides.map(sqlx::types::Json))
         .bind(value.vni)
         .bind(sqlx::types::Json(&status))
+        .bind(value.power_resource_group)
         .fetch_one(txn)
         .await
         .map_err(|e| DatabaseError::query(query, e))
@@ -334,8 +335,9 @@ pub async fn update(value: &UpdateVpc, txn: &mut PgConnection) -> DatabaseResult
             SET name=$1, version=$2, description=$3, network_security_group_id=$4,
                 labels=$5::json,
                 routing_profile_overrides=COALESCE($6::jsonb, routing_profile_overrides),
+                power_resource_group=COALESCE($7, power_resource_group),
                 updated=NOW()
-            WHERE id=$7 AND version=$8 AND deleted is null
+            WHERE id=$8 AND version=$9 AND deleted is null
             RETURNING *";
     let query_result = sqlx::query_as(query)
         .bind(&value.metadata.name)
@@ -349,6 +351,7 @@ pub async fn update(value: &UpdateVpc, txn: &mut PgConnection) -> DatabaseResult
                 .as_ref()
                 .map(sqlx::types::Json),
         )
+        .bind(&value.power_resource_group)
         .bind(value.id)
         .bind(current_version)
         .fetch_one(txn)

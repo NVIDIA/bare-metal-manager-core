@@ -1271,6 +1271,7 @@ impl ApiClient {
                 vni: None,
                 routing_profile_type: None,
                 routing_profile_overrides: None,
+                power_resource_group: None,
                 tenant_organization_id: "devenv_test_org".to_string(),
                 tenant_keyset_id: None,
                 network_virtualization_type: Some(
@@ -1335,6 +1336,7 @@ impl ApiClient {
                 vni: None,
                 routing_profile_type: None,
                 routing_profile_overrides: None,
+                power_resource_group: None,
                 tenant_organization_id: "devenv_test_org".to_string(),
                 tenant_keyset_id: None,
                 network_virtualization_type: Some(VpcVirtualizationType::Flat.into()),
@@ -1984,6 +1986,7 @@ impl ApiClient {
             dpu_extension_services: None,
             nvlink: None,
             spxconfig: allocate_instance.spxconfig.clone(),
+            power_profile: None,
         };
 
         let mut labels = vec![
@@ -2284,6 +2287,7 @@ impl ApiClient {
             network_security_group_id,
             default_nvlink_logical_partition_id: None,
             routing_profile_overrides: None,
+            power_resource_group: None,
         };
         self.0
             .update_vpc(request)

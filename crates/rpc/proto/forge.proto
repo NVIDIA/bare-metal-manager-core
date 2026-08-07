@@ -1746,6 +1746,8 @@ message VpcConfig {
   optional uint32 vni = 6;
   optional string routing_profile_type = 7;
   optional VpcRoutingProfileOverrides routing_profile_overrides = 8;
+  // Resource group managed by the external power provisioning service.
+  optional string power_resource_group = 9;
 }
 
 message VpcStatus {
@@ -1851,6 +1853,8 @@ message VpcCreationRequest {
   // Properties to overlay on the selected named routing profile. Properties
   // left unset inherit from the base profile.
   optional VpcRoutingProfileOverrides routing_profile_overrides = 18;
+  // Resource group managed by the external power provisioning service.
+  optional string power_resource_group = 19;
 }
 
 enum VpcVirtualizationType {
@@ -1905,6 +1909,8 @@ message VpcUpdateRequest {
   // previous inline definition. Omit this field to preserve the current
   // definition; send an empty message to restore inheritance for every property.
   optional VpcRoutingProfileOverrides routing_profile_overrides = 19;
+  // Replaces the external power provisioning resource group when present.
+  optional string power_resource_group = 20;
 }
 
 message VpcUpdateResult {
@@ -3116,6 +3122,9 @@ message InstanceConfig {
   InstanceNVLinkConfig nvlink = 24;
 
   InstanceSpxConfig spxconfig = 25;
+
+  // Power profile managed by the external power provisioning service.
+  optional string power_profile = 26;
 }
 
 // Desired network configuration for an instance

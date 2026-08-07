@@ -49,6 +49,7 @@ pub struct VpcConfig {
     pub vni: Option<i32>,
     pub routing_profile_type: Option<String>,
     pub routing_profile_overrides: Option<VpcRoutingProfileOverrides>,
+    pub power_resource_group: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
@@ -95,6 +96,7 @@ pub struct NewVpc {
     pub network_security_group_id: Option<NetworkSecurityGroupId>,
     pub routing_profile_type: Option<String>,
     pub routing_profile_overrides: Option<VpcRoutingProfileOverrides>,
+    pub power_resource_group: Option<String>,
     pub vni: Option<i32>,
 }
 
@@ -103,6 +105,7 @@ pub struct UpdateVpc {
     pub id: VpcId,
     pub network_security_group_id: Option<NetworkSecurityGroupId>,
     pub routing_profile_overrides: Option<VpcRoutingProfileOverrides>,
+    pub power_resource_group: Option<String>,
     pub if_version_match: Option<ConfigVersion>,
     pub metadata: Metadata,
 }
@@ -143,6 +146,7 @@ impl<'r> sqlx::FromRow<'r, PgRow> for Vpc {
                         "routing_profile_overrides",
                     )?
                     .map(|profile| profile.0),
+                power_resource_group: row.try_get("power_resource_group")?,
                 vni: row.try_get("vni")?,
                 default_nvlink_logical_partition_id: None,
             },

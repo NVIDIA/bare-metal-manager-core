@@ -104,6 +104,7 @@ async fn test_maintenance(db_pool: sqlx::PgPool) -> Result<(), eyre::Report> {
         spxconfig: None,
         network_security_group_id: None,
         dpu_extension_services: None,
+        power_profile: None,
     };
 
     // allocate: should fail
@@ -244,6 +245,7 @@ async fn test_maintenance_multi_dpu(db_pool: sqlx::PgPool) -> Result<(), eyre::R
         spxconfig: None,
         network_security_group_id: None,
         dpu_extension_services: None,
+        power_profile: None,
     };
 
     // allocate: should fail

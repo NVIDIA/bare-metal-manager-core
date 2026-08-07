@@ -387,6 +387,7 @@ async fn create_vpc(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>
                 network_security_group_id: None,
                 default_nvlink_logical_partition_id: None,
                 routing_profile_overrides: None,
+                power_resource_group: None,
             }))
             .await;
 
@@ -416,12 +417,17 @@ async fn create_vpc(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>
             metadata: updated_metadata.clone(),
             network_security_group_id: None,
             routing_profile_overrides: None,
+            power_resource_group: Some("power-group".to_string()),
         },
         &mut txn,
     )
     .await?;
 
     assert_eq!(updated_vpc.metadata, updated_metadata);
+    assert_eq!(
+        updated_vpc.config.power_resource_group.as_deref(),
+        Some("power-group")
+    );
     assert_eq!(updated_vpc.version.version_nr(), 2);
 
     // DB value "etv" decodes as EthernetVirtualizer.
@@ -483,6 +489,7 @@ async fn create_vpc(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>
             if_version_match: Some(initial_no_org_vpc_version),
             network_security_group_id: None,
             routing_profile_overrides: None,
+            power_resource_group: None,
             metadata: Metadata {
                 name: "never this name".to_string(),
                 description: "".to_string(),
@@ -513,6 +520,7 @@ async fn create_vpc(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>
             id: no_org_vpc_id,
             network_security_group_id: None,
             routing_profile_overrides: None,
+            power_resource_group: None,
             if_version_match: Some(updated_vpc.version),
             metadata: Metadata {
                 name: "yet another new name".to_string(),
@@ -745,7 +753,7 @@ async fn update_vpc_rejects_unresolvable_routing_profile_base(
     // no constraint tying profile names to that configuration.
     let stale_profile_id = VpcId::new();
     let mut txn = env.pool.begin().await?;
-    db::vpc::persist(
+    let stale_vpc = db::vpc::persist(
         NewVpc {
             id: stale_profile_id,
             tenant_organization_id: "stale-profile-vpc".to_string(),
@@ -757,12 +765,17 @@ async fn update_vpc_rejects_unresolvable_routing_profile_base(
             network_security_group_id: None,
             routing_profile_type: Some("REMOVED_PROFILE".to_string()),
             routing_profile_overrides: None,
+            power_resource_group: Some("stale-power-group".to_string()),
             vni: None,
         },
         VpcStatus { vni: None },
         &mut txn,
     )
     .await?;
+    assert_eq!(
+        stale_vpc.config.power_resource_group.as_deref(),
+        Some("stale-power-group")
+    );
     txn.commit().await?;
 
     check_cases_async(

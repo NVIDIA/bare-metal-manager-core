@@ -4047,6 +4047,7 @@ mod tests {
             vni: None,
             routing_profile_type: routing_profile_type.map(str::to_string),
             routing_profile_overrides,
+            power_resource_group: None,
         }
     }
 
