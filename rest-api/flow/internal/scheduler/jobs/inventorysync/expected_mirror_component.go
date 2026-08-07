@@ -493,13 +493,8 @@ func mirrorExpectedComponents(
 			// tombstone row — bun otherwise appends "deleted_at IS NULL" to
 			// the UPDATE and the resurrect would silently match zero rows.
 			p.toUpdate[i].UpdatedAt = now
-			if _, err := tx.NewUpdate().
-				Model(&p.toUpdate[i]).
-				Column("name", "model", "description", "manufacturer", "serial_number", "slot_id",
-					"tray_index", "host_id", "rack_id", "deleted_at", "updated_at").
-				WhereAllWithDeleted().
-				Where("id = ?", p.toUpdate[i].ID).
-				Exec(ctx); err != nil {
+			expectedDescription, _ := p.toUpdate[i].Description[expectedDescriptionKey].(string)
+			if err := updateMirroredComponent(ctx, tx, &p.toUpdate[i], expectedDescription); err != nil {
 				return fmt.Errorf("update component %q: %w", p.toUpdate[i].SerialNumber, err)
 			}
 			ops := p.toUpdateBMCs[i]
@@ -557,6 +552,42 @@ func mirrorExpectedComponents(
 	result.updated = len(p.toUpdate)
 	result.softDeleted = softDeleted
 	return result
+}
+
+// updateMirroredComponent persists mirror-owned scalar fields and changes only
+// Core's reserved description key against the current database value. Keeping
+// the JSONB mutation in SQL prevents a stale reconciliation snapshot from
+// replacing runtime or operator entries written after the snapshot was read.
+func updateMirroredComponent(ctx context.Context, idb bun.IDB, component *model.Component, expectedDescription string) error {
+	var rackID any
+	if component.RackID != uuid.Nil {
+		rackID = component.RackID
+	}
+	query := idb.NewUpdate().
+		Model((*model.Component)(nil)).
+		Set("name = ?", component.Name).
+		Set("model = ?", component.Model).
+		Set("manufacturer = ?", component.Manufacturer).
+		Set("serial_number = ?", component.SerialNumber).
+		Set("slot_id = ?", component.SlotID).
+		Set("tray_index = ?", component.TrayIndex).
+		Set("host_id = ?", component.HostID).
+		Set("rack_id = ?", rackID).
+		Set("deleted_at = ?", component.DeletedAt).
+		Set("updated_at = ?", component.UpdatedAt).
+		WhereAllWithDeleted().
+		Where("id = ?", component.ID)
+	if expectedDescription == "" {
+		query.Set("description = NULLIF((CASE WHEN jsonb_typeof(description) = 'object' THEN description ELSE '{}'::jsonb END) - ?::text, '{}'::jsonb)", expectedDescriptionKey)
+	} else {
+		query.Set(
+			"description = jsonb_set(CASE WHEN jsonb_typeof(description) = 'object' THEN description ELSE '{}'::jsonb END, ARRAY[?::text], to_jsonb(?::text), true)",
+			expectedDescriptionKey,
+			expectedDescription,
+		)
+	}
+	_, err := query.Exec(ctx)
+	return err
 }
 
 // specValid rejects a Core row carrying no BMC MAC address. The MAC is the
