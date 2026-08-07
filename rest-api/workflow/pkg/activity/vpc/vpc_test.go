@@ -938,6 +938,10 @@ func TestManageVpc_UpdateVpcsInDB_AutoCreatesAndRestores(t *testing.T) {
 		_, err := vpcDAO.Update(ctx, nil, cdbm.VpcUpdateInput{
 			VpcID:                    controllerVpcID,
 			NVLinkLogicalPartitionID: &nonReadyNVLink.ID,
+			Status:                   cutil.GetPtr(cdbm.VpcStatusError),
+			IsMissingOnSite:          cutil.GetPtr(true),
+			ActiveVni:                cutil.GetPtr(1),
+			RoutingProfile:           cutil.GetPtr("EXTERNAL"),
 		})
 		require.NoError(t, err)
 
@@ -968,6 +972,7 @@ func TestManageVpc_UpdateVpcsInDB_AutoCreatesAndRestores(t *testing.T) {
 		assert.Equal(t, 202, *restoredVpc.ActiveVni)
 		require.NotNil(t, restoredVpc.RoutingProfile)
 		assert.Equal(t, "INTERNAL", *restoredVpc.RoutingProfile)
+		// Soft-deleted NVLink is preserved; inventory does not overwrite it.
 		require.NotNil(t, restoredVpc.NVLinkLogicalPartitionID)
 		assert.Equal(t, nonReadyNVLink.ID, *restoredVpc.NVLinkLogicalPartitionID)
 
@@ -981,7 +986,7 @@ func TestManageVpc_UpdateVpcsInDB_AutoCreatesAndRestores(t *testing.T) {
 		foundReadyMessage := false
 		for i := range statusDetails {
 			if statusDetails[i].Message != nil &&
-				*statusDetails[i].Message == "VPC was found on Site, Ready for use" {
+				*statusDetails[i].Message == "VPC is ready for use" {
 				foundReadyMessage = true
 				break
 			}

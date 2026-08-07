@@ -139,7 +139,8 @@ func (mv ManageVpc) UpdateVpcsInDB(ctx context.Context, siteID uuid.UUID, vpcInv
 			vpc = existingVpcIDMap[controllerVpcIDStr]
 		}
 
-		// No active REST row for this inventory VPC: create one or undelete a soft-deleted match.
+		// No active REST row for this inventory VPC: create one or undelete a soft-deleted match,
+		// then fall through so the main inventory loop applies Site-reported field updates.
 		if vpc == nil {
 			vpc = mv.createOrUpdateVpcFromSite(ctx, site, controllerVpc, sitePropagationStatus)
 			if vpc == nil {
@@ -151,9 +152,7 @@ func (mv ManageVpc) UpdateVpcsInDB(ctx context.Context, siteID uuid.UUID, vpcInv
 			if vpc.ControllerVpcID != nil {
 				existingVpcCtrlIDMap[vpc.ControllerVpcID.String()] = vpc
 			}
-			reportedVpcIDMap[vpc.ID] = true
-			slogger.Info().Str("VPC ID", vpc.ID.String()).Msg("created or updated VPC from Site inventory")
-			continue
+			slogger.Info().Str("VPC ID", vpc.ID.String()).Msg("created or undeleted VPC from Site inventory")
 		}
 
 		reportedVpcIDMap[vpc.ID] = true
@@ -416,7 +415,8 @@ func (mv ManageVpc) UpdateVpcsInDB(ctx context.Context, siteID uuid.UUID, vpcInv
 }
 
 // createOrUpdateVpcFromSite creates a REST VPC from Site inventory, or undeletes
-// a matching soft-deleted row. Returns nil when skipped or on failure.
+// a matching soft-deleted row. Field refresh after undelete is left to UpdateVpcsInDB.
+// Returns nil when skipped or on failure.
 func (mv ManageVpc) createOrUpdateVpcFromSite(
 	ctx context.Context,
 	site *cdbm.Site,
@@ -446,83 +446,54 @@ func (mv ManageVpc) createOrUpdateVpcFromSite(
 		return nil
 	}
 
-	// Create/restore under one transaction so concurrent inventory pages cannot insert duplicates.
+	// Create/undelete under one transaction so concurrent inventory pages cannot insert duplicates.
 	vpc, err := cdb.WithTxResult(ctx, mv.dbSession, func(tx *cdb.Tx) (*cdbm.Vpc, error) {
 		vpcDAO := cdbm.NewVpcDAO(mv.dbSession)
 
-		// Match by primary key first; DAO ANDs VpcIDs with ControllerVpcIDs, so fall back separately.
+		// ID and ControllerVpcID are aligned, so primary-key lookup is sufficient.
 		matches, _, reloadErr := vpcDAO.GetAll(ctx, tx, cdbm.VpcFilterInput{
 			VpcIDs: []uuid.UUID{vpcID}, SiteIDs: []uuid.UUID{site.ID}, IncludeDeleted: true,
-		}, cdbp.PageInput{Limit: cwutil.GetPtr(cdbp.TotalLimit)}, []string{cdbm.TenantRelationName})
+		}, cdbp.PageInput{Limit: cwutil.GetPtr(cdbp.TotalLimit)}, nil)
 		if reloadErr != nil {
 			return nil, fmt.Errorf("reload VPC by inventory ID: %w", reloadErr)
 		}
-		if len(matches) == 0 {
-			matches, _, reloadErr = vpcDAO.GetAll(ctx, tx, cdbm.VpcFilterInput{
-				ControllerVpcIDs: []uuid.UUID{vpcID}, SiteIDs: []uuid.UUID{site.ID}, IncludeDeleted: true,
-			}, cdbp.PageInput{Limit: cwutil.GetPtr(cdbp.TotalLimit)}, []string{cdbm.TenantRelationName})
-			if reloadErr != nil {
-				return nil, fmt.Errorf("reload VPC by controller ID: %w", reloadErr)
-			}
-		}
 
-		// Split matches into at most one active and one soft-deleted row for this identity.
-		var activeVpc, softDeletedVpc *cdbm.Vpc
-		for i := range matches {
-			row := &matches[i]
-			if row.Deleted == nil {
-				if activeVpc != nil {
-					logger.Warn().Msg("skipping VPC from Site: inventory identity matches multiple active VPCs")
-					return nil, nil
-				}
-				activeVpc = row
-				continue
+		if len(matches) > 0 {
+			existingVpc := &matches[0]
+			if existingVpc.Deleted == nil {
+				return existingVpc, nil
 			}
-			if softDeletedVpc != nil {
-				logger.Warn().Msg("skipping VPC from Site: inventory identity matches multiple soft-deleted VPCs")
-				return nil, nil
-			}
-			softDeletedVpc = row
-		}
-		if activeVpc != nil {
-			return activeVpc, nil
-		}
-
-		// Restore keeps the soft-deleted row's tenant; create resolves tenant from the Site org.
-		var tenant *cdbm.Tenant
-		if softDeletedVpc != nil {
-			if softDeletedVpc.Org != fromSite.Org {
+			if existingVpc.Org != fromSite.Org {
 				logger.Warn().Msg("skipping VPC from Site: soft-deleted VPC tenant organization differs from Site inventory")
 				return nil, nil
 			}
-			if softDeletedVpc.Tenant == nil {
-				logger.Warn().Msg("skipping VPC from Site: soft-deleted VPC tenant does not exist")
+			// Bun soft-delete requires the deleted timestamp to already be in the past.
+			if !time.Now().After(*existingVpc.Deleted) {
+				logger.Warn().Msg("skipping VPC from Site: soft-delete marker is not in the past")
 				return nil, nil
 			}
-			tenant = softDeletedVpc.Tenant
-		} else {
-			tenants, _, tenantErr := cdbm.NewTenantDAO(mv.dbSession).GetAll(
-				ctx, tx, cdbm.TenantFilterInput{Orgs: []string{fromSite.Org}}, cdbp.PageInput{Limit: cwutil.GetPtr(cdbp.TotalLimit)}, nil,
-			)
-			if tenantErr != nil {
-				return nil, fmt.Errorf("get VPC tenant by organization: %w", tenantErr)
+			// Undelete only; UpdateVpcsInDB applies Site-reported field updates.
+			restored, clearErr := vpcDAO.Clear(ctx, tx, cdbm.VpcClearInput{VpcID: existingVpc.ID, Deleted: true})
+			if clearErr != nil {
+				return nil, fmt.Errorf("clear soft-deleted VPC: %w", clearErr)
 			}
-			if len(tenants) == 0 {
-				logger.Warn().Msg("skipping VPC from Site: tenant organization does not have a REST Tenant")
-				return nil, nil
-			}
-			tenant = &tenants[0]
+			return restored, nil
 		}
+
+		tenants, _, tenantErr := cdbm.NewTenantDAO(mv.dbSession).GetAll(
+			ctx, tx, cdbm.TenantFilterInput{Orgs: []string{fromSite.Org}}, cdbp.PageInput{Limit: cwutil.GetPtr(cdbp.TotalLimit)}, nil,
+		)
+		if tenantErr != nil {
+			return nil, fmt.Errorf("get VPC tenant by organization: %w", tenantErr)
+		}
+		if len(tenants) == 0 {
+			logger.Warn().Msg("skipping VPC from Site: tenant organization does not have a REST Tenant")
+			return nil, nil
+		}
+		tenant := &tenants[0]
 
 		nsgID := fromSite.NetworkSecurityGroupID
 		nvLinkID := fromSite.NVLinkLogicalPartitionID
-		if softDeletedVpc != nil {
-			if nsgID == nil {
-				nsgID = softDeletedVpc.NetworkSecurityGroupID
-			}
-			// Existing REST NVLink assignment stays authoritative on restore.
-			nvLinkID = softDeletedVpc.NVLinkLogicalPartitionID
-		}
 
 		// Skip when referenced NSG/NVLink is missing or not owned by this tenant/site.
 		if nsgID != nil {
@@ -549,96 +520,25 @@ func (mv ManageVpc) createOrUpdateVpcFromSite(
 				logger.Warn().Msg("skipping VPC from Site: referenced NVLink Logical Partition belongs to a different Tenant or Site")
 				return nil, nil
 			}
-			// Restore may keep a non-Ready NVLink; new creates require Ready.
-			if softDeletedVpc == nil && nvLink.Status != cdbm.NVLinkLogicalPartitionStatusReady {
+			if nvLink.Status != cdbm.NVLinkLogicalPartitionStatusReady {
 				logger.Warn().Msg("skipping VPC from Site: referenced NVLink Logical Partition is not Ready")
 				return nil, nil
 			}
 		}
 
 		// Reject inventoring a VPC whose name is already taken by another active row.
-		vpcName := fromSite.Name
-		if softDeletedVpc != nil {
-			vpcName = softDeletedVpc.Name
-		}
 		nameConflictVpcs, _, nameErr := vpcDAO.GetAll(ctx, tx, cdbm.VpcFilterInput{
-			Name: &vpcName, TenantIDs: []uuid.UUID{tenant.ID}, SiteIDs: []uuid.UUID{site.ID},
+			Name: &fromSite.Name, TenantIDs: []uuid.UUID{tenant.ID}, SiteIDs: []uuid.UUID{site.ID},
 		}, cdbp.PageInput{Limit: cwutil.GetPtr(cdbp.TotalLimit)}, nil)
 		if nameErr != nil {
 			return nil, fmt.Errorf("check inventory VPC name conflict: %w", nameErr)
 		}
-		// Soft-deleted rows are excluded by GetAll, so any hit is an active conflict.
 		if len(nameConflictVpcs) > 0 {
 			logger.Warn().Msg("skipping VPC from Site: an active VPC with the same name already exists for the Tenant and Site")
 			return nil, nil
 		}
 
-		statusDetailDAO := cdbm.NewStatusDetailDAO(mv.dbSession)
 		readyMsg := "VPC was found on Site, Ready for use"
-
-		if softDeletedVpc != nil {
-			// Bun soft-delete requires the deleted timestamp to already be in the past.
-			if softDeletedVpc.Deleted != nil && !time.Now().After(*softDeletedVpc.Deleted) {
-				logger.Warn().Msg("skipping VPC from Site: soft-delete marker is not in the past")
-				return nil, nil
-			}
-
-			// Prefer Site inventory values; fall back to the soft-deleted row.
-			nvt := softDeletedVpc.NetworkVirtualizationType
-			if fromSite.NetworkVirtualizationType != nil {
-				nvt = fromSite.NetworkVirtualizationType
-			}
-			activeVni := softDeletedVpc.ActiveVni
-			if fromSite.ActiveVni != nil {
-				activeVni = fromSite.ActiveVni
-			}
-			requestedVni := softDeletedVpc.Vni
-			if fromSite.Vni != nil {
-				requestedVni = fromSite.Vni
-			}
-			routingProfile := softDeletedVpc.RoutingProfile
-			if fromSite.RoutingProfile != nil {
-				routingProfile = fromSite.RoutingProfile
-			}
-			routingOverrides := softDeletedVpc.RoutingProfileOverrides
-			if fromSite.RoutingProfileOverrides != nil {
-				routingOverrides = fromSite.RoutingProfileOverrides
-			}
-			effectiveRouting := softDeletedVpc.EffectiveRoutingProfile
-			if fromSite.EffectiveRoutingProfile != nil {
-				effectiveRouting = fromSite.EffectiveRoutingProfile
-			}
-
-			// Clear(Deleted) undeletes the row; Update then refreshes inventory fields to Ready.
-			if _, clearErr := vpcDAO.Clear(ctx, tx, cdbm.VpcClearInput{VpcID: softDeletedVpc.ID, Deleted: true}); clearErr != nil {
-				return nil, fmt.Errorf("clear soft-deleted VPC: %w", clearErr)
-			}
-			restored, updateErr := vpcDAO.Update(ctx, tx, cdbm.VpcUpdateInput{
-				VpcID:                                  softDeletedVpc.ID,
-				ControllerVpcID:                        &vpcID,
-				NetworkVirtualizationType:              nvt,
-				RoutingProfile:                         routingProfile,
-				RoutingProfileOverrides:                routingOverrides,
-				EffectiveRoutingProfile:                effectiveRouting,
-				ActiveVni:                              activeVni,
-				NetworkSecurityGroupID:                 nsgID,
-				NetworkSecurityGroupPropagationDetails: propagationDetails,
-				Status:                                 cwutil.GetPtr(cdbm.VpcStatusReady),
-				IsMissingOnSite:                        cwutil.GetPtr(false),
-				Vni:                                    requestedVni,
-			})
-			if updateErr != nil {
-				return nil, fmt.Errorf("update restored VPC from Site: %w", updateErr)
-			}
-			if _, statusErr := statusDetailDAO.Create(ctx, tx, cdbm.StatusDetailCreateInput{
-				EntityID: restored.ID.String(), Status: cdbm.VpcStatusReady, Message: &readyMsg,
-			}); statusErr != nil {
-				return nil, fmt.Errorf("create restored VPC status detail: %w", statusErr)
-			}
-			return restored, nil
-		}
-
-		// No soft-deleted match: insert a new Ready VPC keyed by the Site inventory ID.
 		createdBy := cdbm.User{}
 		createdBy.ID = site.ID
 		created, createErr := vpcDAO.Create(ctx, tx, cdbm.VpcCreateInput{
@@ -666,7 +566,7 @@ func (mv ManageVpc) createOrUpdateVpcFromSite(
 		if createErr != nil {
 			return nil, fmt.Errorf("create VPC from Site: %w", createErr)
 		}
-		if _, statusErr := statusDetailDAO.Create(ctx, tx, cdbm.StatusDetailCreateInput{
+		if _, statusErr := cdbm.NewStatusDetailDAO(mv.dbSession).Create(ctx, tx, cdbm.StatusDetailCreateInput{
 			EntityID: created.ID.String(), Status: cdbm.VpcStatusReady, Message: &readyMsg,
 		}); statusErr != nil {
 			return nil, fmt.Errorf("create inventory VPC status detail: %w", statusErr)
