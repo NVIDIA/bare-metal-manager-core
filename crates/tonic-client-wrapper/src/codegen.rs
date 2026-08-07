@@ -29,6 +29,7 @@ use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::Path;
 
+use carbide_proto_compiler::ExternPathSearchIndex;
 use heck::{ToSnakeCase, ToUpperCamelCase};
 use proc_macro2::{LexError, TokenStream};
 use prost_types::field_descriptor_proto::Label;
@@ -61,7 +62,7 @@ pub enum Error {
 pub type Result<T> = std::result::Result<T, Error>;
 
 /// Configures code generation of a tonic client wrapper.
-pub struct Config {
+pub struct Config<'a> {
     /// The name of the generated tonic client wrapper.
     pub wrapper_name: String,
     /// The fully qualified type of the tonic client this wrapper will call.
@@ -85,7 +86,7 @@ pub struct Config {
 
     /// List of protobuf types to override with specific Rust types. This should mirror any types
     /// customized through `tonic_prost_build::Builder::extern_path` so the generated code matches.
-    pub extern_paths: Vec<(ProtobufType, RustType)>,
+    pub extern_paths: ExternPathSearchIndex<'a>,
 }
 
 pub type ProtobufType = &'static str;
@@ -101,7 +102,7 @@ pub struct CodeGenerator<'a> {
     root_files: Vec<&'a FileDescriptorProto>,
     generated_types_path_within_crate: TokenStream,
     message_types: HashMap<String, MessageWithPackage<'a>>,
-    extern_paths: HashMap<ProtobufType, RustType>,
+    extern_paths: ExternPathSearchIndex<'a>,
 }
 
 impl<'a> CodeGenerator<'a> {
@@ -110,7 +111,7 @@ impl<'a> CodeGenerator<'a> {
     /// [`Config::root_files`] chooses service roots within `descriptor_set`;
     /// imported and otherwise unselected files remain available for resolving
     /// method types.
-    pub fn new(config: Config, descriptor_set: &'a FileDescriptorSet) -> Result<Self> {
+    pub fn new(config: Config<'a>, descriptor_set: &'a FileDescriptorSet) -> Result<Self> {
         let inner_rpc_client_type =
             config
                 .inner_rpc_client_type
@@ -174,15 +175,13 @@ impl<'a> CodeGenerator<'a> {
             })
             .collect();
 
-        let extern_paths = config.extern_paths.into_iter().collect();
-
         Ok(Self {
             inner_rpc_client_type,
             wrapper_name,
             root_files,
             generated_types_path_within_crate,
             message_types,
-            extern_paths,
+            extern_paths: config.extern_paths,
         })
     }
 
@@ -679,6 +678,8 @@ fn write_token_stream_if_not_up_to_date<T: AsRef<Path>>(
 
 #[cfg(test)]
 mod tests {
+    use carbide_proto_compiler::ExternPaths;
+
     use super::*;
 
     fn descriptor_set(proto_files: &[(&str, &str)]) -> FileDescriptorSet {
@@ -698,19 +699,29 @@ mod tests {
             .expect("Could not compile test descriptors")
     }
 
-    fn test_config(root_files: Vec<String>) -> Config {
+    fn extern_paths() -> ExternPaths {
+        ExternPaths::new([(".ExternType", syn::parse_quote!(crate::CustomExternType))].into_iter())
+    }
+
+    fn test_config<'a>(root_files: Vec<String>, extern_paths: &'a ExternPaths) -> Config<'a> {
         Config {
             wrapper_name: "TestWrapper".to_string(),
             inner_rpc_client_type: "TestInnerClient".to_string(),
             generated_types_path_within_crate: "test".to_string(),
             root_files,
-            extern_paths: vec![(".ExternType", syn::parse_quote!(crate::CustomExternType))],
+            extern_paths: extern_paths.build_index(),
         }
     }
 
-    fn test_generator(descriptor_set: &FileDescriptorSet) -> CodeGenerator<'_> {
-        CodeGenerator::new(test_config(vec!["test.proto".to_string()]), descriptor_set)
-            .expect("Could not build CodeGenerator")
+    fn test_generator<'a>(
+        descriptor_set: &'a FileDescriptorSet,
+        extern_paths: &'a ExternPaths,
+    ) -> CodeGenerator<'a> {
+        CodeGenerator::new(
+            test_config(vec!["test.proto".to_string()], extern_paths),
+            descriptor_set,
+        )
+        .expect("Could not build CodeGenerator")
     }
 
     #[test]
@@ -718,8 +729,9 @@ mod tests {
         let descriptor_set =
             descriptor_set(&[("test.proto", include_str!("test_fixtures/test.proto"))]);
 
+        let extern_paths = extern_paths();
         match CodeGenerator::new(
-            test_config(vec!["missing.proto".to_string()]),
+            test_config(vec!["missing.proto".to_string()], &extern_paths),
             &descriptor_set,
         ) {
             Err(Error::MissingRootFile(root_file)) => assert_eq!(root_file, "missing.proto"),
@@ -728,7 +740,10 @@ mod tests {
         }
 
         match CodeGenerator::new(
-            test_config(vec!["test.proto".to_string(), "test.proto".to_string()]),
+            test_config(
+                vec!["test.proto".to_string(), "test.proto".to_string()],
+                &extern_paths,
+            ),
             &descriptor_set,
         ) {
             Err(Error::DuplicateRootFile(root_file)) => assert_eq!(root_file, "test.proto"),
@@ -741,7 +756,7 @@ mod tests {
             .file
             .push(descriptor_set.file[0].clone());
         match CodeGenerator::new(
-            test_config(vec!["test.proto".to_string()]),
+            test_config(vec!["test.proto".to_string()], &extern_paths),
             &duplicate_descriptor_set,
         ) {
             Err(Error::DuplicateRootFile(root_file)) => assert_eq!(root_file, "test.proto"),
@@ -796,8 +811,9 @@ mod tests {
                 "#,
             ),
         ]);
+        let extern_paths = extern_paths();
         let generator = CodeGenerator::new(
-            test_config(vec!["selected.proto".to_string()]),
+            test_config(vec!["selected.proto".to_string()], &extern_paths),
             &descriptor_set,
         )
         .expect("Could not build CodeGenerator");
@@ -825,9 +841,10 @@ mod tests {
 
     #[test]
     fn generated_files_match_golden() {
+        let extern_paths = extern_paths();
         let descriptor_set =
             descriptor_set(&[("test.proto", include_str!("test_fixtures/golden.proto"))]);
-        let generator = test_generator(&descriptor_set);
+        let generator = test_generator(&descriptor_set, &extern_paths);
         let output_dir = temp_dir::TempDir::new().expect("Could not create temporary directory");
         let wrapper_path = output_dir.path().join("wrapper.rs");
         let converters_path = output_dir.path().join("converters.rs");
@@ -853,7 +870,8 @@ mod tests {
     fn test_rpc_wrapper_method() {
         let descriptor_set =
             descriptor_set(&[("test.proto", include_str!("test_fixtures/test.proto"))]);
-        let generator = test_generator(&descriptor_set);
+        let extern_paths = extern_paths();
+        let generator = test_generator(&descriptor_set, &extern_paths);
 
         let methods = generator
             .root_files
@@ -1012,7 +1030,8 @@ mod tests {
     fn test_convenience_wrapper_method() {
         let descriptor_set =
             descriptor_set(&[("test.proto", include_str!("test_fixtures/test.proto"))]);
-        let generator = test_generator(&descriptor_set);
+        let extern_paths = extern_paths();
+        let generator = test_generator(&descriptor_set, &extern_paths);
 
         {
             let message_with_package = generator.message_types.get(".VoidRequest").unwrap();
