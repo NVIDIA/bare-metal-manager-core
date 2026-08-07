@@ -48,7 +48,9 @@ async fn decommission_requires_redfish_bfb_install_support(pool: sqlx::PgPool) {
     assert_eq!(error.code(), Code::FailedPrecondition);
     assert!(error.message().contains(&dpu_id.to_string()));
     assert!(error.message().contains("BF-24.04-1"));
-    assert!(error.message().contains("24.10 or newer"));
+    assert!(error
+        .message()
+        .contains("does not support bfb installation"));
 
     let mut txn = env.pool.begin().await.unwrap();
     let host = managed_host.host().db_machine(&mut txn).await;
