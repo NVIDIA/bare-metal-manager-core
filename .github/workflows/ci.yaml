@@ -982,7 +982,7 @@ jobs:
       #
       # Only main saves. This entry is ~5 GB, and the restore-keys prefix above
       # means any pull request whose Cargo.lock differs from main's takes a
-      # prefix match rather than an exact one -- so cache-hit is false and the
+      # prefix match rather than an exact one, so cache-hit is false and the
       # save fires, storing a ref-scoped 5 GB copy nothing else can read. Three
       # such copies were live at once, 15 GB of a 50 GB pool, which evicted the
       # sccache objects the image builds read down to 3.5 GB. Pull requests keep

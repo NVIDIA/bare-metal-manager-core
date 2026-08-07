@@ -65,8 +65,8 @@ sccache_degraded_banner() {
 
 # Whether sccache's own startup write check failed, leaving the server unable
 # to write for the rest of its life. `RemoteStorage::check` performs a single
-# write when the server starts and, on any error at all -- including a
-# transient rate limit -- wraps the storage in `ReadOnlyStorage` until the
+# write when the server starts and, on any error at all (including a
+# transient rate limit), wraps the storage in `ReadOnlyStorage` until the
 # process exits. The message it prints is the only way to tell that apart from
 # an individual write losing a race with the rate limiter.
 sccache_startup_check_failed() {
@@ -91,6 +91,10 @@ sccache_probe_source() {
 # The only reliable check is to compile something and look at the resulting
 # write-error count.
 sccache_backend_writable() {
+	# Cleared first because the returns below leave it untouched. A stale
+	# count from a previous attempt would otherwise read as a probe that ran
+	# and found the backend healthy, when no probe ran at all.
+	SCCACHE_PROBE_WRITE_ERRORS=unknown
 	_probe_dir="$(mktemp -d)" || return 1
 	sccache_probe_source >"${_probe_dir}/probe.rs"
 	# Deliberately an ordinary rlib compile. sccache only writes to the

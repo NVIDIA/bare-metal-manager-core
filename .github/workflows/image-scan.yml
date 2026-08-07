@@ -15,8 +15,8 @@
 
 # Grype vulnerability scans of the images main publishes.
 #
-# These ran inside the build job in docker-build.yml. They are advisory --
-# fail-build is false and nothing consumes their result -- but they sat on Core
+# These ran inside the build job in docker-build.yml. They are advisory
+# (fail-build is false and nothing consumes their result), but they sat on Core
 # CI's critical path, where the last job a run waits on spent 24 of its 38
 # minutes fetching an 8 GB image back out of the registry and scanning it.
 # Running them after the workflow finishes covers the same images without Core CI
