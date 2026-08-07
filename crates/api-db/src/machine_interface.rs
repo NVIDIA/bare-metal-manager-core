@@ -2806,11 +2806,189 @@ pub async fn create_host_machine_dpu_interface_proactively(
 ///
 /// Returns `true` only when the externally visible active admin config changed. Dormant-interface
 /// cleanup is persisted but intentionally returns `false` by itself.
+/// Whether the unlocked pre-check in `reconcile_admin_addresses_for_host` runs.
+/// Set `ADMIN_RECONCILE_FAST_PATH=0` to force every reconcile down the locked
+/// path (the pre-#4711 behaviour), so the two can be A/B'd on a live fleet.
+fn admin_reconcile_fast_path_enabled() -> bool {
+    static ENABLED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ENABLED.get_or_init(|| {
+        !matches!(
+            std::env::var("ADMIN_RECONCILE_FAST_PATH").as_deref(),
+            Ok("0") | Ok("false")
+        )
+    })
+}
+
+/// Read-only predicate: would the locked reconcile below write anything?
+///
+/// This mirrors the mutation sites in `reconcile_admin_addresses_for_host` and
+/// must stay conservative -- when it cannot prove the host is already settled it
+/// returns `true` and the caller takes the full locked path. A wrong `true`
+/// only costs a lock acquisition; a wrong `false` would skip real work.
+///
+/// Skipping without the lock is safe against concurrent change because every
+/// flow that mutates a host's admin interfaces reconciles that host afterwards,
+/// and the state controller reconciles periodically regardless. A decision made
+/// against a slightly stale read therefore delays convergence by one pass at
+/// worst; it cannot lose work permanently.
+async fn admin_reconcile_work_needed(
+    txn: &mut PgConnection,
+    host_machine_id: &MachineId,
+    segments_by_id: &HashMap<NetworkSegmentId, &NetworkSegment>,
+    interfaces: &[AdminInterfaceForReconcile],
+) -> DatabaseResult<bool> {
+    // No DPU-backed host link: the locked path commits without writing.
+    if !interfaces
+        .iter()
+        .any(|interface| interface.is_dpu_backed_host_link)
+    {
+        return Ok(false);
+    }
+
+    let primary_to_repair = match interfaces
+        .iter()
+        .position(|interface| interface.primary_interface)
+    {
+        Some(index) if interfaces[index].is_dpu_backed_host_link => {
+            match segments_by_id.get(&interfaces[index].segment_id) {
+                Some(segment) => Some((index, *segment)),
+                // Segment missing: let the locked path raise the real error.
+                None => return Ok(true),
+            }
+        }
+        Some(_) => None,
+        // No primary in the admin set: the locked path decides whether this is
+        // the valid non-admin-primary case or a genuine error.
+        None => return Ok(true),
+    };
+
+    // Site 1: the primary is missing an address for a family its segment serves.
+    if let Some((primary_index, primary_segment)) = primary_to_repair {
+        for family in [IpAddressFamily::Ipv4, IpAddressFamily::Ipv6] {
+            let served = primary_segment
+                .prefixes
+                .iter()
+                .any(|prefix| prefix.prefix.is_address_family(family));
+            if served
+                && !interfaces[primary_index]
+                    .addresses
+                    .iter()
+                    .any(|address| address.address.is_address_family(family))
+            {
+                return Ok(true);
+            }
+        }
+    }
+
+    // Sites 2 and 3: dormant DPU-backed links must already be free of DHCP rows,
+    // and the addressless ones must already be DNS-silent under their settled name.
+    for interface in interfaces
+        .iter()
+        .filter(|interface| interface.is_dpu_backed_host_link && !interface.primary_interface)
+    {
+        if interface
+            .addresses
+            .iter()
+            .any(|address| address.allocation_type == AllocationType::Dhcp)
+        {
+            return Ok(true);
+        }
+        if interface.addresses.is_empty() {
+            let ctx = NamingContext {
+                mac_address: interface.mac_address,
+                addresses: &[],
+                current_hostname: Some(&interface.hostname),
+                machine_id: Some(*host_machine_id),
+                is_primary: interface.primary_interface,
+                interface_type: InterfaceType::Data,
+                interface_id: Some(interface.id),
+                domain_id: interface.domain_id,
+            };
+            let hostname = host_naming::hostname_for(&mut *txn, &ctx).await?;
+            if interface.domain_id.is_some() || interface.hostname != hostname {
+                return Ok(true);
+            }
+        }
+    }
+
+    // Site 4: the primary's name and domain must already match the active config.
+    if let Some((primary_index, primary_segment)) = primary_to_repair {
+        let primary = &interfaces[primary_index];
+        if primary.addresses.is_empty() {
+            return Ok(true);
+        }
+        let active_addresses: Vec<IpAddr> = primary
+            .addresses
+            .iter()
+            .map(|address| address.address)
+            .collect();
+        let ctx = NamingContext {
+            mac_address: primary.mac_address,
+            addresses: &active_addresses,
+            current_hostname: Some(&primary.hostname),
+            machine_id: Some(*host_machine_id),
+            is_primary: true,
+            interface_type: InterfaceType::Data,
+            interface_id: Some(primary.id),
+            domain_id: primary.domain_id,
+        };
+        let hostname = host_naming::hostname_for(&mut *txn, &ctx).await?;
+        if primary.hostname != hostname || primary.domain_id != primary_segment.config.subdomain_id
+        {
+            return Ok(true);
+        }
+    }
+
+    Ok(false)
+}
+
 pub async fn reconcile_admin_addresses_for_host(
     txn: &mut PgConnection,
     host_machine_id: &MachineId,
 ) -> DatabaseResult<bool> {
     let mut txn = Transaction::begin_inner(txn).await?;
+
+    // #4711 fast path. This function is called for every host on every
+    // exploration and state-controller pass, but a host's admin addressing
+    // settles once and then never changes: measured at 4,500 hosts, ~99.6% of
+    // these transactions took every admin-segment advisory lock and wrote
+    // nothing. Because the lock set is global (a site has ~2 admin segments),
+    // that turned a per-host operation into a fleet-wide serialization point
+    // saturated at ~400 acquisitions/sec -- capping ingestion at ~13
+    // machines/min at 4,500 hosts against 138/min at 1,000.
+    //
+    // So: decide with an unlocked read, and only pay for the lock when there is
+    // actually something to write. The locked path below re-reads everything
+    // `FOR UPDATE` under the lock and re-derives its own decisions, so this is a
+    // pure filter -- it never supplies state that the write path then trusts.
+    if admin_reconcile_fast_path_enabled() {
+        let precheck_t0 = std::time::Instant::now();
+        let (segments, _) = load_all_admin_segments(&mut txn).await?;
+        let segments_by_id = segments
+            .iter()
+            .map(|segment| (segment.id, segment))
+            .collect::<HashMap<_, _>>();
+        let interfaces = find_host_admin_interfaces(txn.as_pgconn(), host_machine_id).await?;
+        if !admin_reconcile_work_needed(
+            txn.as_pgconn(),
+            host_machine_id,
+            &segments_by_id,
+            &interfaces,
+        )
+        .await?
+        {
+            txn.commit().await?;
+            tracing::debug!(
+                target: "carbide::lock_profile",
+                phase = "reconcile_admin_addresses",
+                outcome = "skipped_unlocked",
+                interfaces = interfaces.len(),
+                total_ms = precheck_t0.elapsed().as_millis() as u64,
+                "admin reconcile skipped without taking segment locks"
+            );
+            return Ok(false);
+        }
+    }
 
     // Lock all admin segments up front instead of doing a precise pre-read of
     // this host's segment set. The precise approach would need a locked re-read
@@ -3056,7 +3234,29 @@ async fn find_host_admin_interfaces_for_update(
     txn: &mut PgConnection,
     host_machine_id: &MachineId,
 ) -> DatabaseResult<Vec<AdminInterfaceForReconcile>> {
-    let query = r#"
+    find_host_admin_interfaces_inner(txn, host_machine_id, true).await
+}
+
+/// The same read WITHOUT `FOR UPDATE`, for the read-only pre-check. Taking row
+/// locks here would reintroduce exactly the serialization the pre-check exists
+/// to avoid.
+async fn find_host_admin_interfaces(
+    txn: &mut PgConnection,
+    host_machine_id: &MachineId,
+) -> DatabaseResult<Vec<AdminInterfaceForReconcile>> {
+    find_host_admin_interfaces_inner(txn, host_machine_id, false).await
+}
+
+async fn find_host_admin_interfaces_inner(
+    txn: &mut PgConnection,
+    host_machine_id: &MachineId,
+    lock_rows: bool,
+) -> DatabaseResult<Vec<AdminInterfaceForReconcile>> {
+    // Both variants stay string literals so they remain statically auditable --
+    // the only difference is the trailing `FOR UPDATE OF mi`.
+    macro_rules! admin_interfaces_query {
+        () => {
+            r#"
 SELECT
     mi.id,
     mi.segment_id,
@@ -3073,8 +3273,15 @@ JOIN network_segments ns ON ns.id = mi.segment_id
 LEFT JOIN machine_interface_addresses mia ON mia.interface_id = mi.id
 WHERE mi.machine_id = $1
   AND ns.network_segment_type = 'admin'
-ORDER BY mi.id, mia.address
-FOR UPDATE OF mi"#;
+ORDER BY mi.id, mia.address"#
+        };
+    }
+
+    let query = if lock_rows {
+        concat!(admin_interfaces_query!(), "\nFOR UPDATE OF mi")
+    } else {
+        admin_interfaces_query!()
+    };
 
     let rows: Vec<AdminInterfaceForReconcileRow> = sqlx::query_as(query)
         .bind(host_machine_id)
@@ -3156,9 +3363,12 @@ FOR UPDATE"#;
 /// This intentionally locks more broadly than the specific host touches so reconciliation follows
 /// the same high-level lock order as address allocation: segment advisory lock first, then
 /// machine interface/address row locks.
-async fn load_and_lock_all_admin_segments(
+/// Load every admin segment WITHOUT taking the advisory locks. Callers that
+/// intend to write must use `load_and_lock_all_admin_segments`; this exists for
+/// the read-only pre-check that decides whether a write is needed at all.
+async fn load_all_admin_segments(
     txn: &mut Transaction<'_>,
-) -> DatabaseResult<Vec<NetworkSegment>> {
+) -> DatabaseResult<(Vec<NetworkSegment>, Vec<NetworkSegmentId>)> {
     let mut segment_ids =
         db_network_segment::list_segment_ids(txn.as_pgconn(), Some(NetworkSegmentType::Admin))
             .await?;
@@ -3166,7 +3376,7 @@ async fn load_and_lock_all_admin_segments(
     segment_ids.dedup();
 
     if segment_ids.is_empty() {
-        return Ok(Vec::new());
+        return Ok((Vec::new(), Vec::new()));
     }
 
     let mut segments = db_network_segment::find_by(
@@ -3183,6 +3393,17 @@ async fn load_and_lock_all_admin_segments(
             segments.len(),
             segment_ids.len(),
         )));
+    }
+
+    Ok((segments, segment_ids))
+}
+
+async fn load_and_lock_all_admin_segments(
+    txn: &mut Transaction<'_>,
+) -> DatabaseResult<Vec<NetworkSegment>> {
+    let (segments, segment_ids) = load_all_admin_segments(txn).await?;
+    if segment_ids.is_empty() {
+        return Ok(segments);
     }
 
     lock_network_segments_exclusive(txn.as_pgconn(), &segment_ids).await?;
