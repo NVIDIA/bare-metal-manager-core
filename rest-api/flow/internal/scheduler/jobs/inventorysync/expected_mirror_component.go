@@ -37,6 +37,7 @@ const (
 	labelComponentSlotID       = "slot_id"
 	labelComponentTrayIdx      = "tray_idx"
 	labelComponentHostID       = "host_id"
+	expectedDescriptionKey     = "expected_description"
 )
 
 // expectedComponentSpec is the normalised view of one Core expected_* row.
@@ -54,6 +55,7 @@ type expectedComponentSpec struct {
 	SerialNumber   string
 	Model          string
 	Name           string
+	Description    string
 	SlotID         int
 	TrayIndex      int
 	HostID         int
@@ -98,6 +100,7 @@ func machineDetailToSpec(d nicoapi.ExpectedMachineDetail) expectedComponentSpec 
 		Type:           devicetypes.ComponentTypeToString(devicetypes.ComponentTypeCompute),
 		SerialNumber:   d.ChassisSerialNumber,
 		Name:           d.Name,
+		Description:    d.Description,
 		RackExternalID: d.RackID,
 		BMC: expectedBMCSpec{
 			MACAddress: d.BMCMACAddress,
@@ -113,6 +116,7 @@ func switchDetailToSpec(d nicoapi.ExpectedSwitchDetail) expectedComponentSpec {
 		Type:           devicetypes.ComponentTypeToString(devicetypes.ComponentTypeNVSwitch),
 		SerialNumber:   d.SwitchSerialNumber,
 		Name:           d.Name,
+		Description:    d.Description,
 		RackExternalID: d.RackID,
 		BMC: expectedBMCSpec{
 			MACAddress: d.BMCMACAddress,
@@ -128,6 +132,7 @@ func powerShelfDetailToSpec(d nicoapi.ExpectedPowerShelfDetail) expectedComponen
 		Type:           devicetypes.ComponentTypeToString(devicetypes.ComponentTypePowerShelf),
 		SerialNumber:   d.ShelfSerialNumber,
 		Name:           d.Name,
+		Description:    d.Description,
 		RackExternalID: d.RackID,
 		BMC: expectedBMCSpec{
 			MACAddress: d.BMCMACAddress,
@@ -490,7 +495,7 @@ func mirrorExpectedComponents(
 			p.toUpdate[i].UpdatedAt = now
 			if _, err := tx.NewUpdate().
 				Model(&p.toUpdate[i]).
-				Column("name", "model", "manufacturer", "serial_number", "slot_id",
+				Column("name", "model", "description", "manufacturer", "serial_number", "slot_id",
 					"tray_index", "host_id", "rack_id", "deleted_at", "updated_at").
 				WhereAllWithDeleted().
 				Where("id = ?", p.toUpdate[i].ID).
@@ -662,11 +667,31 @@ func componentFromSpec(s expectedComponentSpec, rackID uuid.UUID) model.Componen
 		Manufacturer: s.Manufacturer,
 		SerialNumber: s.SerialNumber,
 		Model:        s.Model,
+		Description:  componentDescriptionWithExpected(nil, s.Description),
 		SlotID:       s.SlotID,
 		TrayIndex:    s.TrayIndex,
 		HostID:       s.HostID,
 		RackID:       rackID,
 	}
+}
+
+// componentDescriptionWithExpected returns a copy with only Core's reserved
+// description key changed. An empty expected description removes that key,
+// while values owned by runtime sync or operators remain untouched.
+func componentDescriptionWithExpected(existing map[string]any, expected string) map[string]any {
+	description := make(map[string]any, len(existing)+1)
+	for key, value := range existing {
+		description[key] = value
+	}
+	if expected == "" {
+		delete(description, expectedDescriptionKey)
+	} else {
+		description[expectedDescriptionKey] = expected
+	}
+	if len(description) == 0 {
+		return nil
+	}
+	return description
 }
 
 // applyComponentChanges copies mirror-managed fields from desired into
@@ -682,6 +707,7 @@ func componentFromSpec(s expectedComponentSpec, rackID uuid.UUID) model.Componen
 func applyComponentChanges(existing, desired *model.Component, spec expectedComponentSpec) {
 	existing.Name = desired.Name
 	existing.Model = desired.Model
+	existing.Description = componentDescriptionWithExpected(existing.Description, spec.Description)
 	existing.RackID = desired.RackID
 	if existing.Manufacturer == "" {
 		existing.Manufacturer = desired.Manufacturer
@@ -721,6 +747,14 @@ func diffComponentFields(existing, desired *model.Component, spec expectedCompon
 	}
 	if existing.SerialNumber == "" && desired.SerialNumber != "" {
 		diffs = append(diffs, fieldChange{"serial_number", existing.SerialNumber, desired.SerialNumber})
+	}
+	existingDescription, hasExpectedDescription := existing.Description[expectedDescriptionKey]
+	if spec.Description == "" {
+		if hasExpectedDescription {
+			diffs = append(diffs, fieldChange{expectedDescriptionKey, fmt.Sprint(existingDescription), ""})
+		}
+	} else if current, ok := existingDescription.(string); !ok || current != spec.Description {
+		diffs = append(diffs, fieldChange{expectedDescriptionKey, fmt.Sprint(existingDescription), spec.Description})
 	}
 	if !spec.preserveFields["slot_id"] && existing.SlotID != desired.SlotID {
 		diffs = append(diffs, fieldChange{"slot_id", strconv.Itoa(existing.SlotID), strconv.Itoa(desired.SlotID)})
