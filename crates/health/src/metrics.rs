@@ -34,6 +34,7 @@ use prometheus::proto::LabelPair;
 use prometheus::{
     Encoder, HistogramOpts, HistogramVec, IntCounterVec, Registry, TextEncoder, proto,
 };
+use serde::{Deserialize, Serialize};
 use tokio::net::TcpListener;
 
 use crate::HealthError;
@@ -45,6 +46,119 @@ pub fn operation_duration_buckets_seconds() -> Vec<f64> {
     vec![
         1.0, 2.0, 5.0, 10.0, 15.0, 20.0, 30.0, 45.0, 60.0, 90.0, 120.0, 180.0, 240.0, 300.0,
     ]
+}
+
+pub fn bmc_latency_buckets_ms() -> Vec<f64> {
+    vec![
+        5.0, 10.0, 25.0, 50.0, 100.0, 250.0, 500.0, 1_000.0, 2_500.0, 5_000.0, 10_000.0, 30_000.0,
+        60_000.0,
+    ]
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum BmcLatencyAttribute {
+    All,
+    HttpResponseStatusCode,
+    HttpRequestMethod,
+    HttpPath,
+    ServerAddress,
+    UrlScheme,
+    BmcVendor,
+    BmcModel,
+}
+
+impl BmcLatencyAttribute {
+    pub const ATTRIBUTES: [Self; 7] = [
+        Self::HttpResponseStatusCode,
+        Self::HttpRequestMethod,
+        Self::HttpPath,
+        Self::ServerAddress,
+        Self::UrlScheme,
+        Self::BmcVendor,
+        Self::BmcModel,
+    ];
+
+    pub fn label_name(self) -> &'static str {
+        match self {
+            Self::All => "all",
+            Self::HttpResponseStatusCode => "http_response_status_code",
+            Self::HttpRequestMethod => "http_request_method",
+            Self::HttpPath => "http_path",
+            Self::ServerAddress => "server_address",
+            Self::UrlScheme => "url_scheme",
+            Self::BmcVendor => "bmc_vendor",
+            Self::BmcModel => "bmc_model",
+        }
+    }
+}
+
+#[derive(Clone)]
+pub struct BmcLatencyMetrics {
+    latency_ms: HistogramVec,
+    attributes: Vec<BmcLatencyAttribute>,
+}
+
+pub struct BmcLatencyObservation<'a> {
+    pub status_code: &'a str,
+    pub method: &'a str,
+    pub path: &'a str,
+    pub server_address: &'a str,
+    pub url_scheme: &'a str,
+    pub bmc_vendor: Option<&'a str>,
+    pub bmc_model: Option<&'a str>,
+    pub duration: std::time::Duration,
+}
+
+impl BmcLatencyMetrics {
+    pub fn new(registry: &Registry, prefix: &str) -> Result<Self, prometheus::Error> {
+        Self::new_with_attributes(registry, prefix, &BmcLatencyAttribute::ATTRIBUTES)
+    }
+
+    pub fn new_with_attributes(
+        registry: &Registry,
+        prefix: &str,
+        attributes: &[BmcLatencyAttribute],
+    ) -> Result<Self, prometheus::Error> {
+        let label_names = attributes
+            .iter()
+            .map(|attribute| attribute.label_name())
+            .collect::<Vec<_>>();
+        let latency_ms = HistogramVec::new(
+            HistogramOpts::new(
+                format!("{prefix}_bmc_latency_ms"),
+                "Duration of outbound Redfish HTTP requests to BMCs, in milliseconds",
+            )
+            .buckets(bmc_latency_buckets_ms()),
+            &label_names,
+        )?;
+        registry.register(Box::new(latency_ms.clone()))?;
+
+        Ok(Self {
+            latency_ms,
+            attributes: attributes.to_vec(),
+        })
+    }
+
+    pub fn observe(&self, observation: BmcLatencyObservation<'_>) {
+        let labels = self
+            .attributes
+            .iter()
+            .map(|attribute| match attribute {
+                BmcLatencyAttribute::All => unreachable!("all is not a concrete metric label"),
+                BmcLatencyAttribute::HttpResponseStatusCode => observation.status_code,
+                BmcLatencyAttribute::HttpRequestMethod => observation.method,
+                BmcLatencyAttribute::HttpPath => observation.path,
+                BmcLatencyAttribute::ServerAddress => observation.server_address,
+                BmcLatencyAttribute::UrlScheme => observation.url_scheme,
+                BmcLatencyAttribute::BmcVendor => observation.bmc_vendor.unwrap_or("unknown"),
+                BmcLatencyAttribute::BmcModel => observation.bmc_model.unwrap_or("unknown"),
+            })
+            .collect::<Vec<_>>();
+        self.latency_ms
+            .with_label_values(&labels)
+            .observe(observation.duration.as_secs_f64() * 1_000.0);
+    }
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

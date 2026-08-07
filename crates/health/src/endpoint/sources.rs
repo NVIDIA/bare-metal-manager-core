@@ -32,6 +32,7 @@ use crate::endpoint::{
     BmcAddr, BmcCredentials, BmcEndpoint, BoxFuture, EndpointMetadata, EndpointSource, MachineData,
     PowerShelfData, SharedSystemUuid, SwitchData, SwitchEndpointRole,
 };
+use crate::metrics::BmcLatencyMetrics;
 
 fn parse_static_nvlink_domain_uuid(
     value: Option<&str>,
@@ -67,6 +68,7 @@ impl StaticEndpointSource {
         reqwest: &ReqwestClient,
         proxy_url: Option<&Url>,
         cache_size: usize,
+        bmc_latency_metrics: Option<Arc<BmcLatencyMetrics>>,
     ) -> Self {
         let mut endpoints = Vec::with_capacity(configs.len());
 
@@ -193,6 +195,7 @@ impl StaticEndpointSource {
                 provider,
                 proxy_url.cloned(),
                 cache_size,
+                bmc_latency_metrics.clone(),
             ) {
                 Ok(client) => Arc::new(client),
                 Err(error) => {
@@ -321,7 +324,7 @@ mod tests {
             },
         ];
 
-        let source = StaticEndpointSource::from_config(&configs, &reqwest(), None, 10);
+        let source = StaticEndpointSource::from_config(&configs, &reqwest(), None, 10, None);
         let endpoints = source.fetch_bmc_hosts().await.expect("fetch should work");
 
         assert_eq!(endpoints.len(), 1);
@@ -359,7 +362,7 @@ mod tests {
             labels: Default::default(),
         }];
 
-        let source = StaticEndpointSource::from_config(&configs, &reqwest(), None, 10);
+        let source = StaticEndpointSource::from_config(&configs, &reqwest(), None, 10, None);
         let endpoints = source.fetch_bmc_hosts().await.unwrap();
 
         assert_eq!(endpoints.len(), 1);
@@ -415,7 +418,7 @@ mod tests {
             })
             .collect::<Vec<_>>();
 
-        let source = StaticEndpointSource::from_config(&configs, &reqwest(), None, 10);
+        let source = StaticEndpointSource::from_config(&configs, &reqwest(), None, 10, None);
         let endpoints = source.fetch_bmc_hosts().await.unwrap();
 
         assert_eq!(endpoints.len(), cases.len());
@@ -446,7 +449,7 @@ mod tests {
             labels: Default::default(),
         }];
 
-        let source = StaticEndpointSource::from_config(&configs, &reqwest(), None, 10);
+        let source = StaticEndpointSource::from_config(&configs, &reqwest(), None, 10, None);
         let endpoints = source.fetch_bmc_hosts().await.unwrap();
 
         assert_eq!(endpoints.len(), 1);
@@ -487,7 +490,7 @@ mod tests {
             labels: std::collections::BTreeMap::from([("site".to_string(), "dev".to_string())]),
         }];
 
-        let source = StaticEndpointSource::from_config(&configs, &reqwest(), None, 10);
+        let source = StaticEndpointSource::from_config(&configs, &reqwest(), None, 10, None);
         let endpoints = source.fetch_bmc_hosts().await.unwrap();
 
         assert_eq!(endpoints.len(), 1);
@@ -537,7 +540,7 @@ mod tests {
             labels: Default::default(),
         }];
 
-        let source = StaticEndpointSource::from_config(&configs, &reqwest(), None, 10);
+        let source = StaticEndpointSource::from_config(&configs, &reqwest(), None, 10, None);
         let endpoints = source.fetch_bmc_hosts().await.unwrap();
 
         assert_eq!(endpoints.len(), 1);
@@ -564,7 +567,7 @@ mod tests {
             labels: Default::default(),
         }];
 
-        let source = StaticEndpointSource::from_config(&configs, &reqwest(), None, 10);
+        let source = StaticEndpointSource::from_config(&configs, &reqwest(), None, 10, None);
         let endpoints = source.fetch_bmc_hosts().await.unwrap();
 
         assert_eq!(endpoints.len(), 1);

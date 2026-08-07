@@ -1341,8 +1341,15 @@ mod tests {
             mac: MacAddress::from_str("99:88:77:66:55:44").expect("valid mac"),
         };
         let bmc = Arc::new(
-            BmcClient::new(reqwest(), addr.clone(), Arc::new(FailingProvider), None, 10)
-                .expect("constructor succeeds"),
+            BmcClient::new(
+                reqwest(),
+                addr.clone(),
+                Arc::new(FailingProvider),
+                None,
+                10,
+                None,
+            )
+            .expect("constructor succeeds"),
         );
         let endpoint = Arc::new(BmcEndpoint {
             addr,

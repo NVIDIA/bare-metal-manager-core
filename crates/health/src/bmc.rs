@@ -15,6 +15,8 @@
  * limitations under the License.
  */
 
+use std::any::Any;
+use std::error::Error as StdError;
 use std::pin::Pin;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex as StdMutex};
@@ -38,6 +40,7 @@ use url::Url;
 
 use crate::HealthError;
 use crate::endpoint::{BmcAddr, BmcCredentials};
+use crate::metrics::{BmcLatencyMetrics, BmcLatencyObservation};
 
 pub(crate) const CREDENTIAL_REFRESH_TIMEOUT: Duration = Duration::from_secs(30);
 
@@ -141,6 +144,12 @@ impl CredentialProvider for FixedCredentialProvider {
     }
 }
 
+#[derive(Clone, Debug, Default)]
+struct BmcIdentity {
+    vendor: Option<String>,
+    model: Option<String>,
+}
+
 pub struct BmcClient {
     inner: HttpBmc<ReqwestClient>,
     addr: BmcAddr,
@@ -162,6 +171,10 @@ pub struct BmcClient {
     /// [`KnownBadCredentials`]. Only touched on the auth-failure path, so the
     /// healthy request path never takes this lock.
     known_bad_credentials: StdMutex<Option<KnownBadCredentials>>,
+    bmc_latency_metrics: Option<Arc<BmcLatencyMetrics>>,
+    server_address: String,
+    url_scheme: String,
+    bmc_identity: StdMutex<BmcIdentity>,
 }
 
 impl BmcClient {
@@ -171,12 +184,15 @@ impl BmcClient {
         provider: Arc<dyn CredentialProvider>,
         proxy_url: Option<Url>,
         cache_size: usize,
+        bmc_latency_metrics: Option<Arc<BmcLatencyMetrics>>,
     ) -> Result<Self, HealthError> {
+        let server_address = bmc_server_address(&addr);
+        let url_scheme = bmc_url_scheme(&addr).to_string();
         let bmc_url = bmc_url(&addr, proxy_url.as_ref())?;
         let headers = bmc_headers(&addr, proxy_url.as_ref())?;
 
-        // Currently nv-redfish BMC, requires credentials, so this placeholder is sued
-        // they will be replaced as soon as we call ensure_credentials
+        // Currently nv-redfish BMC requires credentials, so this placeholder is used;
+        // they will be replaced as soon as we call ensure_credentials.
         let placeholder =
             nv_redfish::bmc_http::BmcCredentials::username_password(String::new(), None::<String>);
         let inner = HttpBmc::with_custom_headers(
@@ -196,7 +212,63 @@ impl BmcClient {
             circuit: StdMutex::new(CircuitState::Closed),
             circuit_tripped: AtomicBool::new(false),
             known_bad_credentials: StdMutex::new(None),
+            bmc_latency_metrics,
+            server_address,
+            url_scheme,
+            bmc_identity: StdMutex::new(BmcIdentity::default()),
         })
+    }
+
+    fn record_bmc_latency(&self, method: &str, path: &str, status_code: &str, duration: Duration) {
+        let Some(metrics) = &self.bmc_latency_metrics else {
+            return;
+        };
+
+        let identity = self
+            .bmc_identity
+            .lock()
+            .expect("BMC identity mutex poisoned")
+            .clone();
+        metrics.observe(BmcLatencyObservation {
+            status_code,
+            method,
+            path,
+            server_address: &self.server_address,
+            url_scheme: &self.url_scheme,
+            bmc_vendor: identity.vendor.as_deref(),
+            bmc_model: identity.model.as_deref(),
+            duration,
+        });
+    }
+
+    fn note_bmc_identity_from<T: 'static>(&self, value: &T) {
+        if let Some(root) =
+            (value as &dyn Any).downcast_ref::<nv_redfish::schema::service_root::ServiceRoot>()
+        {
+            self.note_bmc_identity(
+                root.vendor.as_ref().and_then(Option::as_deref),
+                root.product.as_ref().and_then(Option::as_deref),
+            );
+        }
+    }
+
+    fn note_bmc_identity(&self, vendor: Option<&str>, model: Option<&str>) {
+        let vendor = vendor.and_then(normalize_identity_value);
+        let model = model.and_then(normalize_identity_value);
+        if vendor.is_none() && model.is_none() {
+            return;
+        }
+
+        let mut identity = self
+            .bmc_identity
+            .lock()
+            .expect("BMC identity mutex poisoned");
+        if let Some(vendor) = vendor {
+            identity.vendor = Some(vendor);
+        }
+        if let Some(model) = model {
+            identity.model = Some(model);
+        }
     }
 
     pub async fn ensure_credentials(&self) -> Result<(), HealthError> {
@@ -608,6 +680,18 @@ impl BmcClient {
     }
 }
 
+fn bmc_server_address(addr: &BmcAddr) -> String {
+    addr.ip.to_string()
+}
+
+fn bmc_url_scheme(addr: &BmcAddr) -> &'static str {
+    if addr.port.is_some_and(|port| port == 80) {
+        "http"
+    } else {
+        "https"
+    }
+}
+
 fn bmc_url(addr: &BmcAddr, proxy_url: Option<&Url>) -> Result<Url, HealthError> {
     match proxy_url {
         Some(url) => Ok(url.clone()),
@@ -630,6 +714,93 @@ fn bmc_headers(addr: &BmcAddr, proxy_url: Option<&Url>) -> Result<HeaderMap, Hea
     Ok(headers)
 }
 
+const UNKNOWN_HTTP_STATUS_CODE: &str = "unknown";
+
+fn normalize_identity_value(value: &str) -> Option<String> {
+    let value = value.trim();
+    if value.is_empty() {
+        None
+    } else {
+        Some(value.to_string())
+    }
+}
+
+fn request_path(id: &ODataId) -> String {
+    id.to_string()
+}
+
+fn uri_reference_path(uri: &str) -> String {
+    if let Ok(url) = Url::parse(uri) {
+        return url.path().to_string();
+    }
+
+    let path = uri.split_once('?').map_or(uri, |(path, _query)| path);
+    if path.is_empty() {
+        uri.to_string()
+    } else {
+        path.to_string()
+    }
+}
+
+// The nv-redfish Bmc surface exposes exact HTTP status codes for error
+// responses, but decodes successful responses before health can inspect the raw
+// response. Successful observations therefore use the Redfish status expected
+// for the operation.
+fn result_status_code<T>(result: &Result<T, HealthError>, success_status_code: &str) -> String {
+    match result {
+        Ok(_) => success_status_code.to_string(),
+        Err(error) => {
+            error_status_code(error).unwrap_or_else(|| UNKNOWN_HTTP_STATUS_CODE.to_string())
+        }
+    }
+}
+
+fn modification_result_status_code<T>(
+    result: &Result<ModificationResponse<T>, HealthError>,
+    entity_status_code: &str,
+) -> String {
+    match result {
+        Ok(ModificationResponse::Entity(_)) => entity_status_code.to_string(),
+        Ok(ModificationResponse::Task(_)) => http::StatusCode::ACCEPTED.as_u16().to_string(),
+        Ok(ModificationResponse::Empty) => http::StatusCode::NO_CONTENT.as_u16().to_string(),
+        Err(error) => {
+            error_status_code(error).unwrap_or_else(|| UNKNOWN_HTTP_STATUS_CODE.to_string())
+        }
+    }
+}
+
+fn error_status_code(error: &HealthError) -> Option<String> {
+    match error {
+        HealthError::BmcError(inner) => bmc_source_status_code(inner.as_ref()),
+        HealthError::HttpError(message) => http_error_status_code(message),
+        _ => None,
+    }
+}
+
+fn bmc_source_status_code(error: &(dyn StdError + 'static)) -> Option<String> {
+    if let Some(BmcError::InvalidResponse { status, .. }) = error.downcast_ref::<BmcError>() {
+        return Some(status.as_u16().to_string());
+    }
+
+    error
+        .downcast_ref::<HealthError>()
+        .and_then(error_status_code)
+}
+
+fn http_error_status_code(message: &str) -> Option<String> {
+    message
+        .split(|character: char| !character.is_ascii_digit())
+        .find_map(|token| {
+            if token.len() != 3 {
+                return None;
+            }
+            let code = token.parse::<u16>().ok()?;
+            http::StatusCode::from_u16(code)
+                .ok()
+                .map(|status| status.as_u16().to_string())
+        })
+}
+
 impl Bmc for BmcClient {
     type Error = HealthError;
 
@@ -638,11 +809,21 @@ impl Bmc for BmcClient {
         id: &ODataId,
         query: ExpandQuery,
     ) -> Result<Arc<T>, Self::Error> {
-        self.read_with_auth_retry(|| async {
-            self.inner
-                .expand(id, query.clone())
-                .await
-                .map_err(HealthError::from)
+        let path = request_path(id);
+        self.read_with_auth_retry(|| {
+            let path = path.clone();
+            let query = query.clone();
+            async move {
+                let started = Instant::now();
+                let result = self
+                    .inner
+                    .expand::<T>(id, query)
+                    .await
+                    .map_err(HealthError::from);
+                let status_code = result_status_code(&result, "200");
+                self.record_bmc_latency("GET", &path, &status_code, started.elapsed());
+                result
+            }
         })
         .await
     }
@@ -651,8 +832,21 @@ impl Bmc for BmcClient {
         &self,
         id: &ODataId,
     ) -> Result<Arc<T>, Self::Error> {
-        self.read_with_auth_retry(|| async { self.inner.get(id).await.map_err(HealthError::from) })
-            .await
+        let path = request_path(id);
+        self.read_with_auth_retry(|| {
+            let path = path.clone();
+            async move {
+                let started = Instant::now();
+                let result = self.inner.get::<T>(id).await.map_err(HealthError::from);
+                if let Ok(value) = &result {
+                    self.note_bmc_identity_from(value.as_ref());
+                }
+                let status_code = result_status_code(&result, "200");
+                self.record_bmc_latency("GET", &path, &status_code, started.elapsed());
+                result
+            }
+        })
+        .await
     }
 
     async fn filter<T: EntityTypeRef + for<'de> Deserialize<'de> + 'static>(
@@ -660,11 +854,21 @@ impl Bmc for BmcClient {
         id: &ODataId,
         query: FilterQuery,
     ) -> Result<Arc<T>, Self::Error> {
-        self.read_with_auth_retry(|| async {
-            self.inner
-                .filter(id, query.clone())
-                .await
-                .map_err(HealthError::from)
+        let path = request_path(id);
+        self.read_with_auth_retry(|| {
+            let path = path.clone();
+            let query = query.clone();
+            async move {
+                let started = Instant::now();
+                let result = self
+                    .inner
+                    .filter::<T>(id, query)
+                    .await
+                    .map_err(HealthError::from);
+                let status_code = result_status_code(&result, "200");
+                self.record_bmc_latency("GET", &path, &status_code, started.elapsed());
+                result
+            }
         })
         .await
     }
@@ -675,11 +879,17 @@ impl Bmc for BmcClient {
         query: &V,
     ) -> Result<ModificationResponse<R>, Self::Error> {
         self.ensure_credentials().await?;
+        let path = request_path(id);
         self.guarded(async {
-            self.inner
-                .create(id, query)
+            let started = Instant::now();
+            let result = self
+                .inner
+                .create::<V, R>(id, query)
                 .await
-                .map_err(HealthError::from)
+                .map_err(HealthError::from);
+            let status_code = modification_result_status_code(&result, "201");
+            self.record_bmc_latency("POST", &path, &status_code, started.elapsed());
+            result
         })
         .await
     }
@@ -694,11 +904,17 @@ impl Bmc for BmcClient {
         update: &V,
     ) -> Result<ModificationResponse<R>, Self::Error> {
         self.ensure_credentials().await?;
+        let path = request_path(id);
         self.guarded(async {
-            self.inner
-                .update(id, etag, update)
+            let started = Instant::now();
+            let result = self
+                .inner
+                .update::<V, R>(id, etag, update)
                 .await
-                .map_err(HealthError::from)
+                .map_err(HealthError::from);
+            let status_code = modification_result_status_code(&result, "200");
+            self.record_bmc_latency("PATCH", &path, &status_code, started.elapsed());
+            result
         })
         .await
     }
@@ -714,11 +930,17 @@ impl Bmc for BmcClient {
         V: Send + Sync + Serialize,
     {
         self.ensure_credentials().await?;
+        let path = uri_reference_path(uri);
         self.guarded(async {
-            self.inner
-                .multipart_update(uri, request)
+            let started = Instant::now();
+            let result = self
+                .inner
+                .multipart_update::<U, V, R>(uri, request)
                 .await
-                .map_err(HealthError::from)
+                .map_err(HealthError::from);
+            let status_code = modification_result_status_code(&result, "200");
+            self.record_bmc_latency("POST", &path, &status_code, started.elapsed());
+            result
         })
         .await
     }
@@ -728,8 +950,15 @@ impl Bmc for BmcClient {
         id: &ODataId,
     ) -> Result<ModificationResponse<R>, Self::Error> {
         self.ensure_credentials().await?;
-        self.guarded(async { self.inner.delete(id).await.map_err(HealthError::from) })
-            .await
+        let path = request_path(id);
+        self.guarded(async {
+            let started = Instant::now();
+            let result = self.inner.delete::<R>(id).await.map_err(HealthError::from);
+            let status_code = modification_result_status_code(&result, "200");
+            self.record_bmc_latency("DELETE", &path, &status_code, started.elapsed());
+            result
+        })
+        .await
     }
 
     async fn action<
@@ -741,11 +970,17 @@ impl Bmc for BmcClient {
         params: &T,
     ) -> Result<ModificationResponse<R>, Self::Error> {
         self.ensure_credentials().await?;
+        let path = uri_reference_path(action.target.as_str());
         self.guarded(async {
-            self.inner
-                .action(action, params)
+            let started = Instant::now();
+            let result = self
+                .inner
+                .action::<T, R>(action, params)
                 .await
-                .map_err(HealthError::from)
+                .map_err(HealthError::from);
+            let status_code = modification_result_status_code(&result, "200");
+            self.record_bmc_latency("POST", &path, &status_code, started.elapsed());
+            result
         })
         .await
     }
@@ -762,9 +997,17 @@ impl Bmc for BmcClient {
         // flood — many short requests against a dead endpoint — not a single
         // long-lived connection. Routing item errors here would also couple
         // log-stream health to sensor/discovery collection.
+        let path = uri_reference_path(uri);
         let stream = self
-            .read_with_auth_retry(|| async {
-                self.inner.stream(uri).await.map_err(HealthError::from)
+            .read_with_auth_retry(|| {
+                let path = path.clone();
+                async move {
+                    let started = Instant::now();
+                    let result = self.inner.stream::<T>(uri).await.map_err(HealthError::from);
+                    let status_code = result_status_code(&result, "200");
+                    self.record_bmc_latency("GET", &path, &status_code, started.elapsed());
+                    result
+                }
             })
             .await?;
         Ok(Box::pin(stream.map_err(HealthError::from)))
@@ -779,11 +1022,17 @@ impl Bmc for BmcClient {
         query: &V,
     ) -> Result<SessionCreateResponse<R>, Self::Error> {
         self.ensure_credentials().await?;
+        let path = request_path(id);
         self.guarded(async {
-            self.inner
-                .create_session(id, query)
+            let started = Instant::now();
+            let result = self
+                .inner
+                .create_session::<V, R>(id, query)
                 .await
-                .map_err(HealthError::from)
+                .map_err(HealthError::from);
+            let status_code = result_status_code(&result, "201");
+            self.record_bmc_latency("POST", &path, &status_code, started.elapsed());
+            result
         })
         .await
     }
@@ -878,9 +1127,11 @@ mod tests {
     use carbide_test_support::value_scenarios;
     use mac_address::MacAddress;
     use nv_redfish::bmc_http::reqwest::ClientParams as ReqwestClientParams;
+    use prometheus::{Encoder, Registry, TextEncoder};
 
     use super::*;
     use crate::endpoint::BmcAddr;
+    use crate::metrics::BmcLatencyAttribute;
 
     struct CountingProvider {
         calls: Arc<AtomicUsize>,
@@ -973,7 +1224,7 @@ mod tests {
             },
             None,
         );
-        BmcClient::new(reqwest(), test_addr(), provider, None, 10).expect("constructor ok")
+        BmcClient::new(reqwest(), test_addr(), provider, None, 10, None).expect("constructor ok")
     }
 
     fn dummy_error() -> HealthError {
@@ -1020,8 +1271,9 @@ mod tests {
             port: Some(port),
             mac: MacAddress::from_str("00:11:22:33:44:55").expect("mac"),
         };
-        let client =
-            Arc::new(BmcClient::new(reqwest(), addr, provider, None, 10).expect("constructor ok"));
+        let client = Arc::new(
+            BmcClient::new(reqwest(), addr, provider, None, 10, None).expect("constructor ok"),
+        );
 
         assert_eq!(
             client.collector_sweep(),
@@ -1234,7 +1486,7 @@ mod tests {
             },
             None,
         );
-        let client = BmcClient::new(reqwest(), test_addr(), provider, None, 10)
+        let client = BmcClient::new(reqwest(), test_addr(), provider, None, 10, None)
             .expect("constructor succeeds");
 
         assert_eq!(
@@ -1258,7 +1510,7 @@ mod tests {
             Some(Duration::from_millis(50)),
         );
         let client =
-            Arc::new(BmcClient::new(reqwest(), test_addr(), provider, None, 10).expect("ok"));
+            Arc::new(BmcClient::new(reqwest(), test_addr(), provider, None, 10, None).expect("ok"));
 
         let mut handles = Vec::new();
         for _ in 0..16 {
@@ -1302,7 +1554,7 @@ mod tests {
         let provider = Arc::new(FlakyProvider {
             attempts: AtomicUsize::new(0),
         });
-        let client = BmcClient::new(reqwest(), test_addr(), provider.clone(), None, 10)
+        let client = BmcClient::new(reqwest(), test_addr(), provider.clone(), None, 10, None)
             .expect("constructor succeeds");
 
         assert!(client.ensure_credentials().await.is_err());
@@ -1321,7 +1573,7 @@ mod tests {
             Some(Duration::from_millis(50)),
         );
         let client =
-            Arc::new(BmcClient::new(reqwest(), test_addr(), provider, None, 10).expect("ok"));
+            Arc::new(BmcClient::new(reqwest(), test_addr(), provider, None, 10, None).expect("ok"));
         client.ensure_credentials().await.expect("init ok");
         assert_eq!(calls.load(AtomicOrdering::SeqCst), 1);
 
@@ -1382,7 +1634,7 @@ mod tests {
             handed_out: StdMutex::new(Vec::new()),
             calls: calls.clone(),
         });
-        let client = BmcClient::new(reqwest(), test_addr(), provider.clone(), None, 10)
+        let client = BmcClient::new(reqwest(), test_addr(), provider.clone(), None, 10, None)
             .expect("constructor ok");
 
         client.ensure_credentials().await.expect("init ok");
@@ -1416,8 +1668,15 @@ mod tests {
         }
 
         let client = Arc::new(
-            BmcClient::new(reqwest(), test_addr(), Arc::new(HangingProvider), None, 10)
-                .expect("constructor ok"),
+            BmcClient::new(
+                reqwest(),
+                test_addr(),
+                Arc::new(HangingProvider),
+                None,
+                10,
+                None,
+            )
+            .expect("constructor ok"),
         );
         let refresh_client = client.clone();
         let refresh = tokio::spawn(async move {
@@ -1447,8 +1706,15 @@ mod tests {
         }
 
         let client = Arc::new(
-            BmcClient::new(reqwest(), test_addr(), Arc::new(HangingProvider), None, 10)
-                .expect("constructor ok"),
+            BmcClient::new(
+                reqwest(),
+                test_addr(),
+                Arc::new(HangingProvider),
+                None,
+                10,
+                None,
+            )
+            .expect("constructor ok"),
         );
         let ensure_client = client.clone();
         let ensure = tokio::spawn(async move { ensure_client.ensure_credentials().await });
@@ -1472,7 +1738,7 @@ mod tests {
             },
             None,
         );
-        let recovered = BmcClient::new(reqwest(), test_addr(), recovery_provider, None, 10)
+        let recovered = BmcClient::new(reqwest(), test_addr(), recovery_provider, None, 10, None)
             .expect("constructor ok");
         recovered.ensure_credentials().await.expect("recovery ok");
         assert_eq!(recovery_calls.load(AtomicOrdering::SeqCst), 1);
@@ -1520,7 +1786,7 @@ mod tests {
             },
             None,
         );
-        let client = BmcClient::new(reqwest(), test_addr(), provider, None, 10).expect("ok");
+        let client = BmcClient::new(reqwest(), test_addr(), provider, None, 10, None).expect("ok");
         let (op, attempts) = scripted_op(vec![Err(auth_error()), Ok("body")]);
 
         let value = client
@@ -1546,7 +1812,7 @@ mod tests {
             },
             None,
         );
-        let client = BmcClient::new(reqwest(), test_addr(), provider, None, 10).expect("ok");
+        let client = BmcClient::new(reqwest(), test_addr(), provider, None, 10, None).expect("ok");
         let (op, attempts) = scripted_op(vec![Err(HealthError::HttpError(
             "request failed with HTTP 404".to_string(),
         ))]);
@@ -1574,7 +1840,7 @@ mod tests {
             },
             None,
         );
-        let client = BmcClient::new(reqwest(), test_addr(), provider, None, 10).expect("ok");
+        let client = BmcClient::new(reqwest(), test_addr(), provider, None, 10, None).expect("ok");
         let (op, attempts) = scripted_op(vec![Err(auth_error()), Err(auth_error())]);
 
         client
@@ -1617,7 +1883,7 @@ mod tests {
         let provider = Arc::new(InitOnceThenFailingProvider {
             calls: AtomicUsize::new(0),
         });
-        let client = BmcClient::new(reqwest(), test_addr(), provider, None, 10).expect("ok");
+        let client = BmcClient::new(reqwest(), test_addr(), provider, None, 10, None).expect("ok");
         let (op, attempts) = scripted_op(vec![Err(auth_error())]);
 
         let error = client
@@ -1647,7 +1913,7 @@ mod tests {
             },
             None,
         );
-        let client = BmcClient::new(reqwest(), test_addr(), provider, None, 10).expect("ok");
+        let client = BmcClient::new(reqwest(), test_addr(), provider, None, 10, None).expect("ok");
         client.ensure_credentials().await.expect("init ok");
 
         let attempts = Arc::new(AtomicUsize::new(0));
@@ -1692,7 +1958,7 @@ mod tests {
             },
             None,
         );
-        let client = BmcClient::new(reqwest(), test_addr(), provider, None, 10).expect("ok");
+        let client = BmcClient::new(reqwest(), test_addr(), provider, None, 10, None).expect("ok");
 
         let (first, first_attempts) = scripted_op(vec![Err(auth_error()), Err(auth_error())]);
         client
@@ -1736,7 +2002,7 @@ mod tests {
             },
             None,
         );
-        let client = BmcClient::new(reqwest(), test_addr(), provider, None, 10).expect("ok");
+        let client = BmcClient::new(reqwest(), test_addr(), provider, None, 10, None).expect("ok");
         client.ensure_credentials().await.expect("init ok");
 
         let generation = client.credential_generation.load(Ordering::Acquire);
@@ -1770,7 +2036,7 @@ mod tests {
             },
             None,
         );
-        let client = BmcClient::new(reqwest(), test_addr(), provider, None, 10).expect("ok");
+        let client = BmcClient::new(reqwest(), test_addr(), provider, None, 10, None).expect("ok");
         client.ensure_credentials().await.expect("init ok");
 
         let stale_generation = client.credential_generation.load(Ordering::Acquire) - 1;
@@ -1801,7 +2067,7 @@ mod tests {
             },
             None,
         );
-        let client = BmcClient::new(reqwest(), test_addr(), provider, None, 10).expect("ok");
+        let client = BmcClient::new(reqwest(), test_addr(), provider, None, 10, None).expect("ok");
         client.ensure_credentials().await.expect("init ok");
 
         let observed = client.credential_generation.load(Ordering::Acquire);
@@ -1841,7 +2107,7 @@ mod tests {
             },
             None,
         );
-        let client = BmcClient::new(reqwest(), test_addr(), provider, None, 10).expect("ok");
+        let client = BmcClient::new(reqwest(), test_addr(), provider, None, 10, None).expect("ok");
         client.ensure_credentials().await.expect("init ok");
 
         let attempts = Arc::new(AtomicUsize::new(0));
@@ -1883,7 +2149,7 @@ mod tests {
             },
             None,
         );
-        let client = BmcClient::new(reqwest(), test_addr(), provider, None, 10).expect("ok");
+        let client = BmcClient::new(reqwest(), test_addr(), provider, None, 10, None).expect("ok");
         let (op, _) = scripted_op(vec![
             Err(auth_error()),
             Err(HealthError::HttpError("HTTP 500".to_string())),
@@ -1914,7 +2180,7 @@ mod tests {
             },
             None,
         );
-        let client = BmcClient::new(reqwest(), test_addr(), provider, None, 10).expect("ok");
+        let client = BmcClient::new(reqwest(), test_addr(), provider, None, 10, None).expect("ok");
         let (op, attempts) = scripted_op(vec![Err(forbidden_error()), Err(forbidden_error())]);
 
         client
@@ -1944,7 +2210,7 @@ mod tests {
             },
             None,
         );
-        let client = BmcClient::new(reqwest(), test_addr(), provider, None, 10).expect("ok");
+        let client = BmcClient::new(reqwest(), test_addr(), provider, None, 10, None).expect("ok");
         let (op, _) = scripted_op(vec![Err(auth_error()), Err(auth_error())]);
 
         client
@@ -2027,11 +2293,21 @@ mod tests {
     }
 
     const ENTITY_BODY: &str = r#"{"@odata.id":"/redfish/v1"}"#;
+    const SERVICE_ROOT_BODY: &str = r##"{
+        "@odata.id": "/redfish/v1",
+        "@odata.type": "#ServiceRoot.v1_15_0.ServiceRoot",
+        "Id": "RootService",
+        "Name": "Root Service",
+        "Links": {},
+        "Product": "GB200 BMC",
+        "RedfishVersion": "1.15.0",
+        "Vendor": "NVIDIA"
+    }"##;
 
     /// Minimal Redfish entity, so the wire-level tests below can drive the real
     /// `get`/`delete` implementations without depending on the shape of any
     /// particular generated schema type.
-    #[derive(Deserialize)]
+    #[derive(Debug, Deserialize)]
     struct TestEntity {
         #[serde(rename = "@odata.id")]
         odata_id: ODataId,
@@ -2080,6 +2356,7 @@ mod tests {
                 let reason = match status {
                     200 => "OK",
                     401 => "Unauthorized",
+                    503 => "Service Unavailable",
                     _ => panic!("unsupported test response status {status}"),
                 };
                 let response = format!(
@@ -2094,6 +2371,13 @@ mod tests {
     }
 
     fn client_against(base_url: Url) -> (BmcClient, Arc<AtomicUsize>) {
+        client_against_with_metrics(base_url, None)
+    }
+
+    fn client_against_with_metrics(
+        base_url: Url,
+        bmc_latency_metrics: Option<Arc<BmcLatencyMetrics>>,
+    ) -> (BmcClient, Arc<AtomicUsize>) {
         let (provider, provider_calls) = CountingProvider::new(
             BmcCredentials::SessionToken {
                 token: "t".to_string(),
@@ -2102,9 +2386,147 @@ mod tests {
         );
         // `bmc_url` returns a proxy URL verbatim, so this points the client at
         // the local server over plain HTTP without needing TLS.
-        let client = BmcClient::new(reqwest(), test_addr(), provider, Some(base_url), 10)
-            .expect("constructor ok");
+        let client = BmcClient::new(
+            reqwest(),
+            test_addr(),
+            provider,
+            Some(base_url),
+            10,
+            bmc_latency_metrics,
+        )
+        .expect("constructor ok");
         (client, provider_calls)
+    }
+
+    fn bmc_latency_metrics(prefix: &str) -> (Registry, Arc<BmcLatencyMetrics>) {
+        bmc_latency_metrics_with_attributes(prefix, &BmcLatencyAttribute::ATTRIBUTES)
+    }
+
+    fn bmc_latency_metrics_with_attributes(
+        prefix: &str,
+        attributes: &[BmcLatencyAttribute],
+    ) -> (Registry, Arc<BmcLatencyMetrics>) {
+        let registry = Registry::new();
+        let metrics = Arc::new(
+            BmcLatencyMetrics::new_with_attributes(&registry, prefix, attributes)
+                .expect("BMC latency metrics register"),
+        );
+        (registry, metrics)
+    }
+
+    fn render_metrics(registry: &Registry) -> String {
+        let encoder = TextEncoder::new();
+        let mut buffer = Vec::new();
+        encoder
+            .encode(&registry.gather(), &mut buffer)
+            .expect("metrics encode");
+        String::from_utf8(buffer).expect("prometheus text is UTF-8")
+    }
+
+    fn assert_bmc_latency_series(metrics: &str, labels: &[&str]) {
+        assert!(
+            metrics.lines().any(|line| {
+                line.starts_with("test_health_bmc_latency_ms_bucket")
+                    && labels.iter().all(|label| line.contains(label))
+            }),
+            "missing BMC latency series with labels {labels:?}; metrics:
+{metrics}",
+        );
+    }
+
+    #[tokio::test]
+    async fn bmc_latency_metric_records_status_method_path_and_identity() {
+        let (registry, metrics) = bmc_latency_metrics("test_health");
+        let (base_url, _requests, server) =
+            spawn_scripted_http_server(vec![(200, SERVICE_ROOT_BODY)]);
+        let (client, _provider_calls) = client_against_with_metrics(base_url, Some(metrics));
+
+        let root = client
+            .get::<nv_redfish::schema::service_root::ServiceRoot>(&ODataId::service_root())
+            .await
+            .expect("service root response decodes");
+        assert_eq!(
+            root.vendor.as_ref().and_then(Option::as_deref),
+            Some("NVIDIA")
+        );
+
+        let metrics = render_metrics(&registry);
+        assert!(metrics.contains("# HELP test_health_bmc_latency_ms"));
+        assert_bmc_latency_series(
+            &metrics,
+            &[
+                "http_response_status_code=\"200\"",
+                "http_request_method=\"GET\"",
+                "http_path=\"/redfish/v1\"",
+                "server_address=\"10.0.0.1\"",
+                "url_scheme=\"https\"",
+                "bmc_vendor=\"NVIDIA\"",
+                "bmc_model=\"GB200 BMC\"",
+            ],
+        );
+        server.join().expect("test server thread");
+    }
+
+    #[tokio::test]
+    async fn bmc_latency_metric_records_http_error_status() {
+        let (registry, metrics) = bmc_latency_metrics("test_health");
+        let (base_url, _requests, server) = spawn_scripted_http_server(vec![(503, "{}")]);
+        let (client, _provider_calls) = client_against_with_metrics(base_url, Some(metrics));
+
+        client
+            .get::<TestEntity>(&ODataId::service_root())
+            .await
+            .expect_err("503 must surface to the caller");
+
+        let metrics = render_metrics(&registry);
+        assert_bmc_latency_series(
+            &metrics,
+            &[
+                "http_response_status_code=\"503\"",
+                "http_request_method=\"GET\"",
+                "http_path=\"/redfish/v1\"",
+                "server_address=\"10.0.0.1\"",
+                "url_scheme=\"https\"",
+                "bmc_vendor=\"unknown\"",
+                "bmc_model=\"unknown\"",
+            ],
+        );
+        server.join().expect("test server thread");
+    }
+
+    #[tokio::test]
+    async fn bmc_latency_metric_uses_configured_attributes_only() {
+        let (registry, metrics) = bmc_latency_metrics_with_attributes(
+            "test_health",
+            &[
+                BmcLatencyAttribute::HttpResponseStatusCode,
+                BmcLatencyAttribute::ServerAddress,
+                BmcLatencyAttribute::UrlScheme,
+            ],
+        );
+        let (base_url, _requests, server) =
+            spawn_scripted_http_server(vec![(200, SERVICE_ROOT_BODY)]);
+        let (client, _provider_calls) = client_against_with_metrics(base_url, Some(metrics));
+
+        client
+            .get::<nv_redfish::schema::service_root::ServiceRoot>(&ODataId::service_root())
+            .await
+            .expect("service root response decodes");
+
+        let metrics = render_metrics(&registry);
+        assert_bmc_latency_series(
+            &metrics,
+            &[
+                "http_response_status_code=\"200\"",
+                "server_address=\"10.0.0.1\"",
+                "url_scheme=\"https\"",
+            ],
+        );
+        assert!(!metrics.contains("http_request_method="));
+        assert!(!metrics.contains("http_path="));
+        assert!(!metrics.contains("bmc_vendor="));
+        assert!(!metrics.contains("bmc_model="));
+        server.join().expect("test server thread");
     }
 
     #[tokio::test]

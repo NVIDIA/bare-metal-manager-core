@@ -54,7 +54,7 @@ pub(crate) mod test_support {
     ) -> BmcEndpoint {
         let provider = Arc::new(FixedCredentialProvider::new(creds));
         let bmc = Arc::new(
-            BmcClient::new(reqwest(), addr.clone(), provider, None, 10)
+            BmcClient::new(reqwest(), addr.clone(), provider, None, 10, None)
                 .expect("fixed-credential BmcClient construction is infallible"),
         );
         BmcEndpoint {

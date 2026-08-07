@@ -42,6 +42,7 @@ use crate::endpoint::{
     BmcAddr, BmcCredentials, BmcEndpoint, EndpointMetadata, EndpointSource, MachineData,
     PowerShelfData, SharedSystemUuid, SwitchData, SwitchEndpointRole,
 };
+use crate::metrics::BmcLatencyMetrics;
 
 /// [`ApiEndpointSource`].
 #[derive(Clone)]
@@ -291,6 +292,7 @@ pub struct ApiEndpointSource {
     reqwest: ReqwestClient,
     proxy_url: Option<Url>,
     cache_size: usize,
+    bmc_latency_metrics: Option<Arc<BmcLatencyMetrics>>,
     bmc_client_cache: Mutex<HashMap<MacAddress, CachedBmcClient>>,
 }
 
@@ -307,12 +309,14 @@ impl ApiEndpointSource {
         reqwest: ReqwestClient,
         proxy_url: Option<Url>,
         cache_size: usize,
+        bmc_latency_metrics: Option<Arc<BmcLatencyMetrics>>,
     ) -> Self {
         Self {
             api,
             reqwest,
             proxy_url,
             cache_size,
+            bmc_latency_metrics,
             bmc_client_cache: Mutex::new(HashMap::new()),
         }
     }
@@ -608,6 +612,7 @@ impl ApiEndpointSource {
                     provider,
                     self.proxy_url.clone(),
                     self.cache_size,
+                    self.bmc_latency_metrics.clone(),
                 )?))
             })?
         };
@@ -798,6 +803,7 @@ mod tests {
             provider,
             None,
             10,
+            None,
         )?))
     }
 

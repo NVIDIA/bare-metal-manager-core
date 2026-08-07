@@ -30,6 +30,7 @@ use crate::HealthError;
 use crate::bmc::{BmcClient, FixedCredentialProvider};
 use crate::config::ClusterEndpointSourceConfig;
 use crate::endpoint::{BmcAddr, BmcCredentials, BmcEndpoint, BoxFuture, EndpointSource};
+use crate::metrics::BmcLatencyMetrics;
 
 // ── Inventory file shape ──────────────────────────────────────────────────────
 
@@ -292,6 +293,7 @@ pub struct ClusterEndpointSource {
     reqwest: ReqwestClient,
     proxy_url: Option<Url>,
     cache_size: usize,
+    bmc_latency_metrics: Option<Arc<BmcLatencyMetrics>>,
 }
 
 impl ClusterEndpointSource {
@@ -300,12 +302,14 @@ impl ClusterEndpointSource {
         reqwest: &ReqwestClient,
         proxy_url: Option<&Url>,
         cache_size: usize,
+        bmc_latency_metrics: Option<Arc<BmcLatencyMetrics>>,
     ) -> Self {
         Self {
             cfg,
             reqwest: reqwest.clone(),
             proxy_url: proxy_url.cloned(),
             cache_size,
+            bmc_latency_metrics,
         }
     }
 
@@ -321,6 +325,7 @@ impl ClusterEndpointSource {
             &self.reqwest,
             self.proxy_url.as_ref(),
             self.cache_size,
+            self.bmc_latency_metrics.clone(),
         );
         tracing::info!(endpoint_count = endpoints.len(), "Loaded cluster endpoints");
         Ok(endpoints)
@@ -394,6 +399,7 @@ fn build_endpoints(
     reqwest: &ReqwestClient,
     proxy_url: Option<&Url>,
     cache_size: usize,
+    bmc_latency_metrics: Option<Arc<BmcLatencyMetrics>>,
 ) -> Vec<Arc<BmcEndpoint>> {
     let mut endpoints = Vec::with_capacity(nodes.len());
     for node in nodes {
@@ -427,6 +433,7 @@ fn build_endpoints(
             provider,
             proxy_url.cloned(),
             cache_size,
+            bmc_latency_metrics.clone(),
         ) {
             Ok(c) => Arc::new(c),
             Err(e) => {
