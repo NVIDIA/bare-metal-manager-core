@@ -27,7 +27,9 @@ use serde_json::json;
 use url::Url;
 
 use crate::HealthError;
-use crate::bmc::{BmcClient, FixedCredentialProvider};
+use crate::bmc::{
+    BmcClient, BmcLatencyInstrumentation, FixedCredentialProvider, bmc_latency_endpoint_labels,
+};
 use crate::config::ClusterEndpointSourceConfig;
 use crate::endpoint::{BmcAddr, BmcCredentials, BmcEndpoint, BoxFuture, EndpointSource};
 use crate::metrics::BmcLatencyMetrics;
@@ -422,6 +424,13 @@ fn build_endpoints(
             port,
             mac,
         };
+        let rack_id = node.rack.as_deref().map(RackId::new);
+        let bmc_latency_instrumentation = bmc_latency_metrics.clone().map(|metrics| {
+            BmcLatencyInstrumentation::new(
+                metrics,
+                bmc_latency_endpoint_labels(None, rack_id.as_ref()),
+            )
+        });
         let credentials = BmcCredentials::UsernamePassword {
             username: node.username,
             password: node.password,
@@ -433,7 +442,7 @@ fn build_endpoints(
             provider,
             proxy_url.cloned(),
             cache_size,
-            bmc_latency_metrics.clone(),
+            bmc_latency_instrumentation,
         ) {
             Ok(c) => Arc::new(c),
             Err(e) => {
@@ -448,7 +457,7 @@ fn build_endpoints(
         endpoints.push(Arc::new(BmcEndpoint {
             addr,
             metadata: None,
-            rack_id: node.rack.as_deref().map(RackId::new),
+            rack_id,
             labels: Default::default(),
             bmc,
         }));

@@ -440,5 +440,6 @@ enable_bmc_latency_metrics = false
 
 # Defaults to ["all"]. Set a subset to control emitted labels. Allowed values:
 # "all", "http_response_status_code", "http_request_method", "http_path",
-# "server_address", "url_scheme", "bmc_vendor", "bmc_model".
+# "server_address", "url_scheme", "bmc_vendor", "bmc_model", "entity_type",
+# "machine_id", "rack_id".
 bmc_latency_attributes = ["all"]

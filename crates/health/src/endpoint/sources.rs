@@ -26,7 +26,9 @@ use nv_redfish::bmc_http::reqwest::Client as ReqwestClient;
 use url::Url;
 
 use crate::HealthError;
-use crate::bmc::{BmcClient, FixedCredentialProvider};
+use crate::bmc::{
+    BmcClient, BmcLatencyInstrumentation, FixedCredentialProvider, bmc_latency_endpoint_labels,
+};
 use crate::config::{StaticBmcEndpoint, StaticSwitchEndpointRole};
 use crate::endpoint::{
     BmcAddr, BmcCredentials, BmcEndpoint, BoxFuture, EndpointMetadata, EndpointSource, MachineData,
@@ -189,13 +191,20 @@ impl StaticEndpointSource {
                 password: cfg.password.clone(),
             };
             let provider = Arc::new(FixedCredentialProvider::new(credentials));
+            let rack_id = cfg.rack_id.as_ref().map(|id| RackId::new(id.as_str()));
+            let bmc_latency_instrumentation = bmc_latency_metrics.clone().map(|metrics| {
+                BmcLatencyInstrumentation::new(
+                    metrics,
+                    bmc_latency_endpoint_labels(metadata.as_ref(), rack_id.as_ref()),
+                )
+            });
             let bmc = match BmcClient::new(
                 reqwest.clone(),
                 addr.clone(),
                 provider,
                 proxy_url.cloned(),
                 cache_size,
-                bmc_latency_metrics.clone(),
+                bmc_latency_instrumentation,
             ) {
                 Ok(client) => Arc::new(client),
                 Err(error) => {
@@ -210,7 +219,7 @@ impl StaticEndpointSource {
             let endpoint = BmcEndpoint {
                 addr,
                 metadata,
-                rack_id: cfg.rack_id.as_ref().map(|id| RackId::new(id.as_str())),
+                rack_id,
                 labels: cfg.labels.clone(),
                 bmc,
             };

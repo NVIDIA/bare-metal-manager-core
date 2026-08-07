@@ -37,7 +37,10 @@ use rpc::forge_tls_client::{ApiConfig, ForgeClientConfig};
 use url::Url;
 
 use crate::HealthError;
-use crate::bmc::{BmcClient, BoxFuture, CredentialProvider};
+use crate::bmc::{
+    BmcClient, BmcLatencyInstrumentation, BoxFuture, CredentialProvider,
+    bmc_latency_endpoint_labels,
+};
 use crate::endpoint::{
     BmcAddr, BmcCredentials, BmcEndpoint, EndpointMetadata, EndpointSource, MachineData,
     PowerShelfData, SharedSystemUuid, SwitchData, SwitchEndpointRole,
@@ -599,6 +602,12 @@ impl ApiEndpointSource {
         rack_id: Option<RackId>,
         credential_kind: ApiCredentialKind,
     ) -> Result<Arc<BmcEndpoint>, HealthError> {
+        let bmc_latency_instrumentation = self.bmc_latency_metrics.clone().map(|metrics| {
+            BmcLatencyInstrumentation::new(
+                metrics,
+                bmc_latency_endpoint_labels(metadata.as_ref(), rack_id.as_ref()),
+            )
+        });
         let cached = {
             let mut cache = self.bmc_client_cache.lock().expect("cache mutex poisoned");
             cache_or_create_bmc_client(&mut cache, addr.mac, credential_kind, |kind| {
@@ -612,7 +621,7 @@ impl ApiEndpointSource {
                     provider,
                     self.proxy_url.clone(),
                     self.cache_size,
-                    self.bmc_latency_metrics.clone(),
+                    bmc_latency_instrumentation,
                 )?))
             })?
         };

@@ -1745,6 +1745,10 @@ pub struct MetricsConfig {
     /// Emit per-request BMC latency histograms.
     pub enable_bmc_latency_metrics: bool,
     /// Label attributes emitted on the BMC latency histogram.
+    #[serde(
+        default = "default_bmc_latency_attributes",
+        deserialize_with = "deserialize_bmc_latency_attributes"
+    )]
     pub bmc_latency_attributes: Vec<BmcLatencyAttribute>,
 }
 
@@ -1764,20 +1768,65 @@ impl Default for MetricsConfig {
             endpoint: "0.0.0.0:9009".to_string(),
             prefix: "carbide_hardware_health".to_string(),
             enable_bmc_latency_metrics: false,
-            bmc_latency_attributes: vec![BmcLatencyAttribute::All],
+            bmc_latency_attributes: default_bmc_latency_attributes(),
         }
     }
 }
 
+fn default_bmc_latency_attributes() -> Vec<BmcLatencyAttribute> {
+    BmcLatencyAttribute::ATTRIBUTES.to_vec()
+}
+
+fn deserialize_bmc_latency_attributes<'de, D>(
+    deserializer: D,
+) -> Result<Vec<BmcLatencyAttribute>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let labels = Vec::<String>::deserialize(deserializer)?;
+    let mut has_all = false;
+    let mut unknown = Vec::new();
+
+    for label in &labels {
+        if label == "all" {
+            has_all = true;
+        } else if BmcLatencyAttribute::from_label_name(label).is_none() {
+            unknown.push(label.as_str());
+        }
+    }
+
+    if !unknown.is_empty() {
+        return Err(serde::de::Error::custom(format!(
+            "unknown BMC latency attribute(s): {}; allowed values are: {}",
+            unknown.join(", "),
+            bmc_latency_attribute_allowed_values().join(", ")
+        )));
+    }
+
+    if has_all {
+        return Ok(default_bmc_latency_attributes());
+    }
+
+    let requested = labels.iter().map(String::as_str).collect::<HashSet<_>>();
+    Ok(BmcLatencyAttribute::ATTRIBUTES
+        .iter()
+        .copied()
+        .filter(|attribute| requested.contains(attribute.label_name()))
+        .collect())
+}
+
+fn bmc_latency_attribute_allowed_values() -> Vec<&'static str> {
+    let mut values = vec!["all"];
+    values.extend(
+        BmcLatencyAttribute::ATTRIBUTES
+            .iter()
+            .map(|attribute| attribute.label_name()),
+    );
+    values
+}
+
 impl MetricsConfig {
     pub fn bmc_latency_attributes(&self) -> Vec<BmcLatencyAttribute> {
-        if self
-            .bmc_latency_attributes
-            .contains(&BmcLatencyAttribute::All)
-        {
-            return BmcLatencyAttribute::ATTRIBUTES.to_vec();
-        }
-
         BmcLatencyAttribute::ATTRIBUTES
             .iter()
             .copied()
@@ -3220,7 +3269,7 @@ reload_interval = "30s"
         assert!(!config.metrics.enable_bmc_latency_metrics);
         assert_eq!(
             config.metrics.bmc_latency_attributes,
-            vec![BmcLatencyAttribute::All]
+            BmcLatencyAttribute::ATTRIBUTES.to_vec()
         );
         assert_eq!(
             config.metrics.bmc_latency_attributes(),
@@ -3243,7 +3292,7 @@ reload_interval = "30s"
         let toml_content = r#"
 [metrics]
 enable_bmc_latency_metrics = true
-bmc_latency_attributes = ["http_response_status_code", "server_address", "url_scheme"]
+bmc_latency_attributes = ["http_response_status_code", "server_address", "url_scheme", "entity_type", "machine_id", "rack_id"]
 "#;
 
         let config: Config = Figment::new()
@@ -3259,6 +3308,9 @@ bmc_latency_attributes = ["http_response_status_code", "server_address", "url_sc
                 BmcLatencyAttribute::HttpResponseStatusCode,
                 BmcLatencyAttribute::ServerAddress,
                 BmcLatencyAttribute::UrlScheme,
+                BmcLatencyAttribute::EntityType,
+                BmcLatencyAttribute::MachineId,
+                BmcLatencyAttribute::RackId,
             ]
         );
 
@@ -3273,6 +3325,10 @@ bmc_latency_attributes = ["http_path", "all"]
             .extract()
             .expect("could not parse config toml file");
 
+        assert_eq!(
+            config.metrics.bmc_latency_attributes,
+            BmcLatencyAttribute::ATTRIBUTES.to_vec()
+        );
         assert_eq!(
             config.metrics.bmc_latency_attributes(),
             BmcLatencyAttribute::ATTRIBUTES.to_vec()

@@ -58,7 +58,6 @@ pub fn bmc_latency_buckets_ms() -> Vec<f64> {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum BmcLatencyAttribute {
-    All,
     HttpResponseStatusCode,
     HttpRequestMethod,
     HttpPath,
@@ -66,10 +65,13 @@ pub enum BmcLatencyAttribute {
     UrlScheme,
     BmcVendor,
     BmcModel,
+    EntityType,
+    MachineId,
+    RackId,
 }
 
 impl BmcLatencyAttribute {
-    pub const ATTRIBUTES: [Self; 7] = [
+    pub const ATTRIBUTES: [Self; 10] = [
         Self::HttpResponseStatusCode,
         Self::HttpRequestMethod,
         Self::HttpPath,
@@ -77,11 +79,13 @@ impl BmcLatencyAttribute {
         Self::UrlScheme,
         Self::BmcVendor,
         Self::BmcModel,
+        Self::EntityType,
+        Self::MachineId,
+        Self::RackId,
     ];
 
     pub fn label_name(self) -> &'static str {
         match self {
-            Self::All => "all",
             Self::HttpResponseStatusCode => "http_response_status_code",
             Self::HttpRequestMethod => "http_request_method",
             Self::HttpPath => "http_path",
@@ -89,7 +93,17 @@ impl BmcLatencyAttribute {
             Self::UrlScheme => "url_scheme",
             Self::BmcVendor => "bmc_vendor",
             Self::BmcModel => "bmc_model",
+            Self::EntityType => "entity_type",
+            Self::MachineId => "machine_id",
+            Self::RackId => "rack_id",
         }
+    }
+
+    pub fn from_label_name(label_name: &str) -> Option<Self> {
+        Self::ATTRIBUTES
+            .iter()
+            .copied()
+            .find(|attribute| attribute.label_name() == label_name)
     }
 }
 
@@ -107,6 +121,9 @@ pub struct BmcLatencyObservation<'a> {
     pub url_scheme: &'a str,
     pub bmc_vendor: Option<&'a str>,
     pub bmc_model: Option<&'a str>,
+    pub entity_type: &'a str,
+    pub machine_id: Option<&'a str>,
+    pub rack_id: Option<&'a str>,
     pub duration: std::time::Duration,
 }
 
@@ -145,7 +162,6 @@ impl BmcLatencyMetrics {
             .attributes
             .iter()
             .map(|attribute| match attribute {
-                BmcLatencyAttribute::All => unreachable!("all is not a concrete metric label"),
                 BmcLatencyAttribute::HttpResponseStatusCode => observation.status_code,
                 BmcLatencyAttribute::HttpRequestMethod => observation.method,
                 BmcLatencyAttribute::HttpPath => observation.path,
@@ -153,6 +169,9 @@ impl BmcLatencyMetrics {
                 BmcLatencyAttribute::UrlScheme => observation.url_scheme,
                 BmcLatencyAttribute::BmcVendor => observation.bmc_vendor.unwrap_or("unknown"),
                 BmcLatencyAttribute::BmcModel => observation.bmc_model.unwrap_or("unknown"),
+                BmcLatencyAttribute::EntityType => observation.entity_type,
+                BmcLatencyAttribute::MachineId => observation.machine_id.unwrap_or("unknown"),
+                BmcLatencyAttribute::RackId => observation.rack_id.unwrap_or("unknown"),
             })
             .collect::<Vec<_>>();
         self.latency_ms
