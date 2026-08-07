@@ -21,6 +21,9 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 
 use futures::{StreamExt, stream};
 use nv_redfish::core::Bmc;
+use nv_redfish::oem::nvidia::processor_metrics::NvidiaProcessorMetrics;
+use nv_redfish::oem::nvidia::schema::nvidia_memory_metrics::NvidiaMemoryMetrics;
+use nv_redfish::oem::nvidia::schema::nvidia_processor_metrics::v1_1_0::NvidiaProcessorMetrics as NvidiaCommonProcessorMetrics;
 use nv_redfish::schema::memory_metrics::MemoryMetrics;
 use nv_redfish::schema::pcie_device::PcieErrors;
 use nv_redfish::schema::power_supply_metrics::PowerSupplyMetrics;
@@ -81,6 +84,22 @@ macro_rules! duration_seconds {
                 metric_type: Cow::Borrowed($mt),
                 unit: "seconds",
                 value: duration.as_f64_seconds(),
+            });
+        }
+    };
+}
+
+/// Push a boolean field as `1`/`0`.
+///
+/// `bool` cannot be cast with `as f64`, so these cannot go through
+/// [`scalar!`].
+macro_rules! boolean {
+    ($out:expr, $src:expr, $field:ident, $mt:literal) => {
+        if let Some(Some(value)) = $src.$field {
+            $out.push(MetricField {
+                metric_type: Cow::Borrowed($mt),
+                unit: "bool",
+                value: if value { 1.0 } else { 0.0 },
             });
         }
     };
@@ -299,6 +318,384 @@ fn memory_metric_fields(m: &MemoryMetrics) -> Vec<MetricField> {
     out
 }
 
+/// Throttle reason reported when nothing is throttling.
+///
+/// Firmware spells "no reason" as a single-element list rather than an
+/// empty one, and not consistently: `"None"` is the schema's own value
+/// and `"NA"` is what several platforms send.
+const NO_THROTTLE_REASONS: [&str; 2] = ["None", "NA"];
+
+/// Properties every NVIDIA processor reports, whichever shape the OEM
+/// block used.
+fn nvidia_common_processor_fields(out: &mut Vec<MetricField>, m: &NvidiaCommonProcessorMetrics) {
+    scalar!(
+        out,
+        m,
+        graphics_engine_activity_percent,
+        "nvidia_graphics_engine_activity",
+        "percent"
+    );
+    scalar!(out, m, sm_activity_percent, "nvidia_sm_activity", "percent");
+    scalar!(
+        out,
+        m,
+        sm_occupancy_percent,
+        "nvidia_sm_occupancy",
+        "percent"
+    );
+    scalar!(
+        out,
+        m,
+        tensor_core_activity_percent,
+        "nvidia_tensor_core_activity",
+        "percent"
+    );
+    scalar!(
+        out,
+        m,
+        fp64activity_percent,
+        "nvidia_fp64_activity",
+        "percent"
+    );
+    scalar!(
+        out,
+        m,
+        fp32activity_percent,
+        "nvidia_fp32_activity",
+        "percent"
+    );
+    scalar!(
+        out,
+        m,
+        fp16activity_percent,
+        "nvidia_fp16_activity",
+        "percent"
+    );
+    scalar!(
+        out,
+        m,
+        dmma_utilization_percent,
+        "nvidia_dmma_utilization",
+        "percent"
+    );
+    scalar!(
+        out,
+        m,
+        hmma_utilization_percent,
+        "nvidia_hmma_utilization",
+        "percent"
+    );
+    scalar!(
+        out,
+        m,
+        imma_utilization_percent,
+        "nvidia_imma_utilization",
+        "percent"
+    );
+    scalar!(
+        out,
+        m,
+        nv_dec_utilization_percent,
+        "nvidia_nvdec_utilization",
+        "percent"
+    );
+    scalar!(
+        out,
+        m,
+        nv_jpg_utilization_percent,
+        "nvidia_nvjpg_utilization",
+        "percent"
+    );
+    scalar!(
+        out,
+        m,
+        nv_ofa_utilization_percent,
+        "nvidia_nvofa_utilization",
+        "percent"
+    );
+    scalar!(out, m, pcie_tx_bytes, "nvidia_pcie_tx", "bytes");
+    scalar!(out, m, pcie_rx_bytes, "nvidia_pcie_rx", "bytes");
+    scalar!(
+        out,
+        m,
+        pcie_raw_tx_bandwidth_gbps,
+        "nvidia_pcie_raw_tx_bandwidth",
+        "gbps"
+    );
+    scalar!(
+        out,
+        m,
+        pcie_raw_rx_bandwidth_gbps,
+        "nvidia_pcie_raw_rx_bandwidth",
+        "gbps"
+    );
+    scalar!(
+        out,
+        m,
+        nv_link_raw_tx_bandwidth_gbps,
+        "nvidia_nvlink_raw_tx_bandwidth",
+        "gbps"
+    );
+    scalar!(
+        out,
+        m,
+        nv_link_raw_rx_bandwidth_gbps,
+        "nvidia_nvlink_raw_rx_bandwidth",
+        "gbps"
+    );
+    scalar!(
+        out,
+        m,
+        nv_link_data_tx_bandwidth_gbps,
+        "nvidia_nvlink_data_tx_bandwidth",
+        "gbps"
+    );
+    scalar!(
+        out,
+        m,
+        nv_link_data_rx_bandwidth_gbps,
+        "nvidia_nvlink_data_rx_bandwidth",
+        "gbps"
+    );
+    duration_seconds!(
+        out,
+        m,
+        hardware_violation_throttle_duration,
+        "nvidia_hardware_violation_throttle"
+    );
+    duration_seconds!(
+        out,
+        m,
+        global_software_violation_throttle_duration,
+        "nvidia_global_software_violation_throttle"
+    );
+    duration_seconds!(
+        out,
+        m,
+        accumulated_gpu_context_utilization_duration,
+        "nvidia_accumulated_gpu_context_utilization"
+    );
+    duration_seconds!(
+        out,
+        m,
+        accumulated_sm_utilization_duration,
+        "nvidia_accumulated_sm_utilization"
+    );
+
+    // `ThrottleReasons` is a list of strings; project only how many
+    // reasons are active so it can be alerted on as a scalar. The
+    // reasons themselves stay out of the series -- they are unbounded
+    // label cardinality on a gauge that is read per-GPU per-interval.
+    if let Some(Some(reasons)) = &m.throttle_reasons {
+        let active = reasons
+            .iter()
+            .filter(|reason| !NO_THROTTLE_REASONS.contains(&reason.as_str()))
+            .count();
+        out.push(MetricField {
+            metric_type: Cow::Borrowed("nvidia_throttle_reasons"),
+            unit: "count",
+            value: active as f64,
+        });
+    }
+}
+
+fn nvidia_processor_metric_fields(m: &NvidiaProcessorMetrics) -> Vec<MetricField> {
+    let mut out = Vec::new();
+    nvidia_common_processor_fields(&mut out, m.common());
+
+    match m {
+        NvidiaProcessorMetrics::Gpu(gpu) => {
+            scalar!(
+                out,
+                gpu,
+                sm_utilization_percent,
+                "nvidia_sm_utilization",
+                "percent"
+            );
+            scalar!(
+                out,
+                gpu,
+                integer_activity_utilization_percent,
+                "nvidia_integer_activity_utilization",
+                "percent"
+            );
+            scalar!(
+                out,
+                gpu,
+                nv_enc_utilization_percent,
+                "nvidia_nvenc_utilization",
+                "percent"
+            );
+            scalar!(
+                out,
+                gpu,
+                host_memory_cache_hit_percent,
+                "nvidia_host_memory_cache_hit",
+                "percent"
+            );
+            scalar!(
+                out,
+                gpu,
+                host_memory_cache_miss_percent,
+                "nvidia_host_memory_cache_miss",
+                "percent"
+            );
+            scalar!(
+                out,
+                gpu,
+                peer_memory_cache_hit_percent,
+                "nvidia_peer_memory_cache_hit",
+                "percent"
+            );
+            scalar!(
+                out,
+                gpu,
+                peer_memory_cache_miss_percent,
+                "nvidia_peer_memory_cache_miss",
+                "percent"
+            );
+            scalar!(
+                out,
+                gpu,
+                dram_memory_cache_hit_percent,
+                "nvidia_dram_memory_cache_hit",
+                "percent"
+            );
+            scalar!(
+                out,
+                gpu,
+                dram_memory_cache_miss_percent,
+                "nvidia_dram_memory_cache_miss",
+                "percent"
+            );
+            scalar!(
+                out,
+                gpu,
+                c2c_raw_tx_bandwidth_gbps,
+                "nvidia_c2c_raw_tx_bandwidth",
+                "gbps"
+            );
+            scalar!(
+                out,
+                gpu,
+                c2c_raw_rx_bandwidth_gbps,
+                "nvidia_c2c_raw_rx_bandwidth",
+                "gbps"
+            );
+            scalar!(
+                out,
+                gpu,
+                c2c_data_tx_bandwidth_gbps,
+                "nvidia_c2c_data_tx_bandwidth",
+                "gbps"
+            );
+            scalar!(
+                out,
+                gpu,
+                c2c_data_rx_bandwidth_gbps,
+                "nvidia_c2c_data_rx_bandwidth",
+                "gbps"
+            );
+            boolean!(
+                out,
+                gpu,
+                sramecc_error_threshold_exceeded,
+                "nvidia_sramecc_error_threshold_exceeded"
+            );
+        }
+        NvidiaProcessorMetrics::Generic(generic) => {
+            scalar!(
+                out,
+                generic,
+                memory_page_retirement_count,
+                "nvidia_memory_page_retirement",
+                "count"
+            );
+            boolean!(
+                out,
+                generic,
+                memory_spare_channel_presence,
+                "nvidia_memory_spare_channel_present"
+            );
+            duration_seconds!(
+                out,
+                generic,
+                power_brake_assertion_duration,
+                "nvidia_power_brake_assertion"
+            );
+            duration_seconds!(out, generic, cpu_uptime, "nvidia_cpu_uptime");
+        }
+    }
+
+    out
+}
+
+fn nvidia_memory_metric_fields(m: &NvidiaMemoryMetrics) -> Vec<MetricField> {
+    let mut out = Vec::new();
+    let Some(rr) = &m.row_remapping else {
+        return out;
+    };
+
+    scalar!(
+        out,
+        rr,
+        correctable_row_remapping_count,
+        "nvidia_correctable_row_remapping",
+        "count"
+    );
+    scalar!(
+        out,
+        rr,
+        uncorrectable_row_remapping_count,
+        "nvidia_uncorrectable_row_remapping",
+        "count"
+    );
+
+    // The schema carries each bank-availability counter under both the
+    // misspelled `*Availablity*` name it shipped with and the corrected
+    // `*Availability*` one. Firmware sends whichever its schema version
+    // used, so accept either and emit a single series.
+    macro_rules! bank_count {
+        ($misspelled:ident, $corrected:ident, $mt:literal) => {
+            if let Some(value) = rr.$corrected.flatten().or(rr.$misspelled.flatten()) {
+                out.push(MetricField {
+                    metric_type: Cow::Borrowed($mt),
+                    unit: "count",
+                    value: value as f64,
+                });
+            }
+        };
+    }
+
+    bank_count!(
+        max_availablity_bank_count,
+        max_availability_bank_count,
+        "nvidia_max_availability_banks"
+    );
+    bank_count!(
+        high_availablity_bank_count,
+        high_availability_bank_count,
+        "nvidia_high_availability_banks"
+    );
+    bank_count!(
+        partial_availablity_bank_count,
+        partial_availability_bank_count,
+        "nvidia_partial_availability_banks"
+    );
+    bank_count!(
+        low_availablity_bank_count,
+        low_availability_bank_count,
+        "nvidia_low_availability_banks"
+    );
+    bank_count!(
+        no_availablity_bank_count,
+        no_availability_bank_count,
+        "nvidia_no_availability_banks"
+    );
+
+    out
+}
+
 fn drive_metric_fields(m: &nv_redfish::schema::drive_metrics::DriveMetrics) -> Vec<MetricField> {
     let mut out = Vec::new();
     scalar!(
@@ -460,13 +857,38 @@ impl<B: Bmc + 'static> MetricsCollector<B> {
         let fields = match entity {
             DiscoveredEntity::Processor { entity, .. } => {
                 match self.fetch(entity.metrics().await, "processor metrics", fetch_failures) {
-                    Some(Some(m)) => processor_metric_fields(&m.raw()),
+                    Some(Some(m)) => {
+                        let mut fields = processor_metric_fields(&m.raw());
+                        // The OEM block rides along on the resource that
+                        // was just fetched, so this reads it rather than
+                        // going back to the BMC.
+                        if let Some(oem) = self
+                            .fetch(
+                                m.oem_nvidia(),
+                                "processor NVIDIA OEM metrics",
+                                fetch_failures,
+                            )
+                            .flatten()
+                        {
+                            fields.extend(nvidia_processor_metric_fields(&oem));
+                        }
+                        fields
+                    }
                     _ => return 0,
                 }
             }
             DiscoveredEntity::Memory { entity, .. } => {
                 match self.fetch(entity.metrics().await, "memory metrics", fetch_failures) {
-                    Some(Some(m)) => memory_metric_fields(&m.raw()),
+                    Some(Some(m)) => {
+                        let mut fields = memory_metric_fields(&m.raw());
+                        if let Some(oem) = self
+                            .fetch(m.oem_nvidia(), "memory NVIDIA OEM metrics", fetch_failures)
+                            .flatten()
+                        {
+                            fields.extend(nvidia_memory_metric_fields(&oem));
+                        }
+                        fields
+                    }
                     _ => return 0,
                 }
             }
@@ -559,6 +981,12 @@ mod tests {
         Memory,
         Drive,
         PowerSupply,
+        // The NVIDIA OEM processor shapes are selected by `@odata.type`
+        // inside nv-redfish, whose constructor is crate-private, so each
+        // shape is built here directly.
+        NvidiaGpuProcessor,
+        NvidiaGenericProcessor,
+        NvidiaMemory,
     }
 
     struct ProjectionCase {
@@ -593,6 +1021,22 @@ mod tests {
             Projection::PowerSupply => power_supply_metric_fields(
                 &serde_json::from_value(case.metrics)
                     .expect("power supply metrics should deserialize"),
+            ),
+            Projection::NvidiaGpuProcessor => {
+                nvidia_processor_metric_fields(&NvidiaProcessorMetrics::Gpu(Arc::new(
+                    serde_json::from_value(case.metrics)
+                        .expect("NVIDIA GPU processor metrics should deserialize"),
+                )))
+            }
+            Projection::NvidiaGenericProcessor => {
+                nvidia_processor_metric_fields(&NvidiaProcessorMetrics::Generic(Arc::new(
+                    serde_json::from_value(case.metrics)
+                        .expect("NVIDIA processor metrics should deserialize"),
+                )))
+            }
+            Projection::NvidiaMemory => nvidia_memory_metric_fields(
+                &serde_json::from_value(case.metrics)
+                    .expect("NVIDIA memory metrics should deserialize"),
             ),
         };
 
@@ -948,6 +1392,136 @@ mod tests {
                         ("fan_speed", "percent", 50.0),
                     ]),
                 },
+                Check {
+                    scenario: "NVIDIA GPU OEM metrics, common and GPU-only properties",
+                    input: ProjectionCase {
+                        projection: Projection::NvidiaGpuProcessor,
+                        metrics: json!({
+                            "@odata.type":
+                                "#NvidiaProcessorMetrics.v1_4_0.NvidiaGPUProcessorMetrics",
+                            "SMActivityPercent": 88.0,
+                            "SMOccupancyPercent": 41.0,
+                            "GraphicsEngineActivityPercent": 90.5,
+                            "FP64ActivityPercent": 10.0,
+                            "FP32ActivityPercent": 20.0,
+                            "FP16ActivityPercent": 30.0,
+                            "NVLinkRawTxBandwidthGbps": 100.0,
+                            "NVLinkRawRxBandwidthGbps": 99.0,
+                            "PCIeRawTxBandwidthGbps": 25.0,
+                            "AccumulatedSMUtilizationDuration": "PT1M30S",
+                            "SMUtilizationPercent": 77.0,
+                            "IntegerActivityUtilizationPercent": 5.0,
+                            "DRAMMemoryCacheHitPercent": 95.0,
+                            "DRAMMemoryCacheMissPercent": 5.0,
+                            "C2CDataTxBandwidthGbps": 300.0,
+                            "SRAMECCErrorThresholdExceeded": true
+                        }),
+                    },
+                    expect: expected([
+                        ("nvidia_sm_activity", "percent", 88.0),
+                        ("nvidia_sm_occupancy", "percent", 41.0),
+                        ("nvidia_graphics_engine_activity", "percent", 90.5),
+                        ("nvidia_fp64_activity", "percent", 10.0),
+                        ("nvidia_fp32_activity", "percent", 20.0),
+                        ("nvidia_fp16_activity", "percent", 30.0),
+                        ("nvidia_nvlink_raw_tx_bandwidth", "gbps", 100.0),
+                        ("nvidia_nvlink_raw_rx_bandwidth", "gbps", 99.0),
+                        ("nvidia_pcie_raw_tx_bandwidth", "gbps", 25.0),
+                        ("nvidia_accumulated_sm_utilization", "seconds", 90.0),
+                        ("nvidia_sm_utilization", "percent", 77.0),
+                        ("nvidia_integer_activity_utilization", "percent", 5.0),
+                        ("nvidia_dram_memory_cache_hit", "percent", 95.0),
+                        ("nvidia_dram_memory_cache_miss", "percent", 5.0),
+                        ("nvidia_c2c_data_tx_bandwidth", "gbps", 300.0),
+                        ("nvidia_sramecc_error_threshold_exceeded", "bool", 1.0),
+                    ]),
+                },
+                Check {
+                    scenario: "NVIDIA generic OEM metrics carry no GPU-only properties",
+                    input: ProjectionCase {
+                        projection: Projection::NvidiaGenericProcessor,
+                        metrics: json!({
+                            "@odata.type": "#NvidiaProcessorMetrics.v1_5_0.NvidiaProcessorMetrics",
+                            "SMActivityPercent": 12.0,
+                            "MemoryPageRetirementCount": 4,
+                            "MemorySpareChannelPresence": false,
+                            "PowerBrakeAssertionDuration": "PT3S",
+                            "CPUUptime": "P1D",
+                            // GPU-only, so it must not be projected off
+                            // the generic shape.
+                            "SMUtilizationPercent": 99.0
+                        }),
+                    },
+                    expect: expected([
+                        ("nvidia_sm_activity", "percent", 12.0),
+                        ("nvidia_memory_page_retirement", "count", 4.0),
+                        ("nvidia_memory_spare_channel_present", "bool", 0.0),
+                        ("nvidia_power_brake_assertion", "seconds", 3.0),
+                        ("nvidia_cpu_uptime", "seconds", 86400.0),
+                    ]),
+                },
+                Check {
+                    scenario: "throttle reasons count only the active ones",
+                    input: ProjectionCase {
+                        projection: Projection::NvidiaGpuProcessor,
+                        metrics: json!({
+                            "@odata.type":
+                                "#NvidiaProcessorMetrics.v1_4_0.NvidiaGPUProcessorMetrics",
+                            "ThrottleReasons": ["None", "NA"]
+                        }),
+                    },
+                    expect: expected([("nvidia_throttle_reasons", "count", 0.0)]),
+                },
+                Check {
+                    scenario: "NVIDIA OEM block with no recognised properties yields nothing",
+                    input: ProjectionCase {
+                        projection: Projection::NvidiaGpuProcessor,
+                        metrics: json!({
+                            "@odata.type":
+                                "#NvidiaProcessorMetrics.v1_4_0.NvidiaGPUProcessorMetrics",
+                            "SMActivityPercent": null,
+                            "SMUtilizationPercent": null
+                        }),
+                    },
+                    expect: expected([]),
+                },
+                Check {
+                    scenario: "NVIDIA memory row remapping, both bank-count spellings",
+                    input: ProjectionCase {
+                        projection: Projection::NvidiaMemory,
+                        metrics: json!({
+                            "@odata.type": "#NvidiaMemoryMetrics.v1_2_0.NvidiaMemoryMetrics",
+                            "RowRemapping": {
+                                "CorrectableRowRemappingCount": 12,
+                                "UncorrectableRowRemappingCount": 0,
+                                "MaxAvailabilityBankCount": 30,
+                                "HighAvailablityBankCount": 6,
+                                "PartialAvailabilityBankCount": 2,
+                                "LowAvailablityBankCount": 1,
+                                "NoAvailabilityBankCount": 0
+                            }
+                        }),
+                    },
+                    expect: expected([
+                        ("nvidia_correctable_row_remapping", "count", 12.0),
+                        ("nvidia_uncorrectable_row_remapping", "count", 0.0),
+                        ("nvidia_max_availability_banks", "count", 30.0),
+                        ("nvidia_high_availability_banks", "count", 6.0),
+                        ("nvidia_partial_availability_banks", "count", 2.0),
+                        ("nvidia_low_availability_banks", "count", 1.0),
+                        ("nvidia_no_availability_banks", "count", 0.0),
+                    ]),
+                },
+                Check {
+                    scenario: "NVIDIA memory OEM without row remapping yields nothing",
+                    input: ProjectionCase {
+                        projection: Projection::NvidiaMemory,
+                        metrics: json!({
+                            "@odata.type": "#NvidiaMemoryMetrics.v1_2_0.NvidiaMemoryMetrics"
+                        }),
+                    },
+                    expect: expected([]),
+                },
             ],
             project,
         );
@@ -1104,6 +1678,162 @@ mod tests {
                                 ("model", "Grace"),
                             ],
                         )],
+                    }),
+                },
+                Case {
+                    scenario: "GPU processor metric with NVIDIA OEM extension",
+                    input: CollectionCase {
+                        bmc: fixture.bmc(),
+                        entity: fixture.entity(TestEntity::NvidiaGpuProcessor).await,
+                        with_sink: true,
+                    },
+                    expect: Yields(ObservedCollection {
+                        field_count: 10,
+                        fetch_failures: 0,
+                        events: {
+                            const LABELS: &[(&str, &str)] = &[
+                                ("processor_id", "GPU0"),
+                                ("system_id", "SYS0"),
+                                ("processor_type", "gpu"),
+                                ("model", "NVIDIA GB100"),
+                            ];
+                            const PREFIX: &str = "/redfish/v1/Systems/SYS0/Processors/GPU0";
+                            // The standard projection runs first, then the
+                            // OEM one appends in schema order: common
+                            // properties, then the GPU-only shape.
+                            vec![
+                                metric(
+                                    &format!("{PREFIX}/bandwidth"),
+                                    "bandwidth",
+                                    "percent",
+                                    55.0,
+                                    LABELS,
+                                ),
+                                metric(
+                                    &format!("{PREFIX}/nvidia_sm_activity"),
+                                    "nvidia_sm_activity",
+                                    "percent",
+                                    71.5,
+                                    LABELS,
+                                ),
+                                metric(
+                                    &format!("{PREFIX}/nvidia_tensor_core_activity"),
+                                    "nvidia_tensor_core_activity",
+                                    "percent",
+                                    12.25,
+                                    LABELS,
+                                ),
+                                metric(
+                                    &format!("{PREFIX}/nvidia_pcie_tx"),
+                                    "nvidia_pcie_tx",
+                                    "bytes",
+                                    51108.0,
+                                    LABELS,
+                                ),
+                                metric(
+                                    &format!("{PREFIX}/nvidia_pcie_rx"),
+                                    "nvidia_pcie_rx",
+                                    "bytes",
+                                    45388.0,
+                                    LABELS,
+                                ),
+                                metric(
+                                    &format!("{PREFIX}/nvidia_nvlink_data_tx_bandwidth"),
+                                    "nvidia_nvlink_data_tx_bandwidth",
+                                    "gbps",
+                                    18.5,
+                                    LABELS,
+                                ),
+                                metric(
+                                    &format!("{PREFIX}/nvidia_hardware_violation_throttle"),
+                                    "nvidia_hardware_violation_throttle",
+                                    "seconds",
+                                    2.0,
+                                    LABELS,
+                                ),
+                                metric(
+                                    &format!("{PREFIX}/nvidia_throttle_reasons"),
+                                    "nvidia_throttle_reasons",
+                                    "count",
+                                    2.0,
+                                    LABELS,
+                                ),
+                                metric(
+                                    &format!("{PREFIX}/nvidia_sm_utilization"),
+                                    "nvidia_sm_utilization",
+                                    "percent",
+                                    64.0,
+                                    LABELS,
+                                ),
+                                metric(
+                                    &format!("{PREFIX}/nvidia_sramecc_error_threshold_exceeded"),
+                                    "nvidia_sramecc_error_threshold_exceeded",
+                                    "bool",
+                                    0.0,
+                                    LABELS,
+                                ),
+                            ]
+                        },
+                    }),
+                },
+                Case {
+                    scenario: "memory metric with NVIDIA OEM row remapping",
+                    input: CollectionCase {
+                        bmc: fixture.bmc(),
+                        entity: fixture.entity(TestEntity::NvidiaOemMemory).await,
+                        with_sink: true,
+                    },
+                    expect: Yields(ObservedCollection {
+                        field_count: 5,
+                        fetch_failures: 0,
+                        events: {
+                            const LABELS: &[(&str, &str)] = &[
+                                ("memory_id", "DIMM-oem"),
+                                ("system_id", "SYS0"),
+                                ("device_type", "hbm3"),
+                                ("model", "GB100 HBM"),
+                            ];
+                            const PREFIX: &str = "/redfish/v1/Systems/SYS0/Memory/DIMM-oem";
+                            vec![
+                                metric(
+                                    &format!("{PREFIX}/block_size"),
+                                    "block_size",
+                                    "bytes",
+                                    8192.0,
+                                    LABELS,
+                                ),
+                                metric(
+                                    &format!("{PREFIX}/nvidia_correctable_row_remapping"),
+                                    "nvidia_correctable_row_remapping",
+                                    "count",
+                                    3.0,
+                                    LABELS,
+                                ),
+                                metric(
+                                    &format!("{PREFIX}/nvidia_uncorrectable_row_remapping"),
+                                    "nvidia_uncorrectable_row_remapping",
+                                    "count",
+                                    1.0,
+                                    LABELS,
+                                ),
+                                metric(
+                                    &format!("{PREFIX}/nvidia_max_availability_banks"),
+                                    "nvidia_max_availability_banks",
+                                    "count",
+                                    40.0,
+                                    LABELS,
+                                ),
+                                // Sent under the schema's original
+                                // `NoAvailablityBankCount` misspelling.
+                                metric(
+                                    &format!("{PREFIX}/nvidia_no_availability_banks"),
+                                    "nvidia_no_availability_banks",
+                                    "count",
+                                    2.0,
+                                    LABELS,
+                                ),
+                            ]
+                        },
                     }),
                 },
                 Case {
