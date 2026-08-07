@@ -25,7 +25,7 @@ use ssh_console::shutdown_handle::ShutdownHandle;
 use tracing::metadata::LevelFilter;
 
 #[tokio::main(flavor = "multi_thread")]
-pub async fn main() -> Result<(), Box<dyn std::error::Error>> {
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let cli = Cli::parse();
     setup_logging(&cli);
 

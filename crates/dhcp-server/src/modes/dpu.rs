@@ -27,7 +27,7 @@ use crate::packet_handler::DecodedPacket;
 use crate::{Config, HostConfig};
 
 #[derive(Debug)]
-pub struct Dpu {}
+pub(crate) struct Dpu {}
 
 fn from_host_conf(value: &InterfaceInfo, interface_id: MachineInterfaceId) -> DhcpRecord {
     // Fill only needed fields. Rest are left empty or none.
@@ -93,7 +93,7 @@ impl DhcpMode for Dpu {
 
 /// This config is fetched by dpu-agent from controller periodically. In case of any change in
 /// this configuration, dpu-agent MUST restart dhcp-server.
-pub async fn get_host_config(
+pub(crate) async fn get_host_config(
     host_config_path: Option<String>,
 ) -> Result<Option<HostConfig>, DhcpError> {
     let Some(host_config) = host_config_path else {

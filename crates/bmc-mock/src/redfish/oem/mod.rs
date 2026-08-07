@@ -15,14 +15,14 @@
  * limitations under the License.
  */
 
-pub mod dell;
-pub mod nvidia;
-pub mod supermicro;
+pub(crate) mod dell;
+pub(crate) mod nvidia;
+pub(crate) mod supermicro;
 
 use crate::redfish::Resource;
 
 #[derive(Clone, Copy, Debug)]
-pub enum BmcVendor {
+pub(crate) enum BmcVendor {
     Dell,
     Nvidia(NvidiaNamestyle),
     Wiwynn,
@@ -34,13 +34,13 @@ pub enum BmcVendor {
 }
 
 #[derive(Clone, Copy, Debug)]
-pub enum NvidiaNamestyle {
+pub(crate) enum NvidiaNamestyle {
     Uppercase,
     Capitalized,
 }
 
 impl BmcVendor {
-    pub fn service_root_value(&self) -> Option<&'static str> {
+    pub(crate) fn service_root_value(&self) -> Option<&'static str> {
         match self {
             BmcVendor::Nvidia(NvidiaNamestyle::Capitalized) => Some("Nvidia"),
             BmcVendor::Nvidia(NvidiaNamestyle::Uppercase) => Some("NVIDIA"),
@@ -57,7 +57,7 @@ impl BmcVendor {
     }
     // This function creates settings of the resource from the resource
     // id. Real identifier is different for different BMC vendors.
-    pub fn make_settings_odata_id(&self, resource: &Resource<'_>) -> String {
+    pub(crate) fn make_settings_odata_id(&self, resource: &Resource<'_>) -> String {
         match self {
             // Supermicro uses `{odata_id}/Settings` per the SMC GB300 tray scrape
             // (`/Systems/System_0/Settings`, `/Bios/Settings`). Other Supermicro models
@@ -81,7 +81,7 @@ impl BmcVendor {
 }
 
 #[derive(Clone)]
-pub enum State {
+pub(crate) enum State {
     NvidiaBluefield(nvidia::bluefield::BluefieldState),
     DellIdrac(dell::idrac::IdracState),
     Supermicro(supermicro::manager::SupermicroState),

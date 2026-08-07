@@ -829,9 +829,42 @@ pub struct ApiAdmissionControlConfig {
     #[serde(default = "default_api_admission_max_pending")]
     pub max_pending: usize,
 
+    /// Default maximum number of concurrently executing requests for one
+    /// authenticated client.
+    #[serde(default = "default_api_admission_max_work_in_flight_per_client")]
+    pub max_work_in_flight_per_client: usize,
+
+    /// Default hard pending-request bound for one authenticated client.
+    #[serde(default = "default_api_admission_max_pending_per_client")]
+    pub max_pending_per_client: usize,
+
     /// Maximum time a pending request may wait for execution.
     #[serde(
         default = "default_api_admission_pending_timeout",
+        deserialize_with = "deserialize_duration",
+        serialize_with = "as_std_duration"
+    )]
+    pub pending_timeout: std::time::Duration,
+
+    /// How long empty client scheduling state remains cached.
+    #[serde(
+        default = "default_api_admission_client_idle_timeout",
+        deserialize_with = "deserialize_duration",
+        serialize_with = "as_std_duration"
+    )]
+    pub client_idle_timeout: std::time::Duration,
+
+    /// Capacity overrides keyed by exact SPIFFE service identifier.
+    #[serde(default)]
+    pub service_limits: BTreeMap<String, ApiAdmissionServiceLimitsConfig>,
+}
+
+/// Admission limits for one trusted internal service identity.
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+pub struct ApiAdmissionServiceLimitsConfig {
+    pub max_work_in_flight: usize,
+    pub max_pending: usize,
+    #[serde(
         deserialize_with = "deserialize_duration",
         serialize_with = "as_std_duration"
     )]
@@ -844,7 +877,11 @@ impl Default for ApiAdmissionControlConfig {
             enabled: true,
             max_work_in_flight: default_api_admission_max_work_in_flight(),
             max_pending: default_api_admission_max_pending(),
+            max_work_in_flight_per_client: default_api_admission_max_work_in_flight_per_client(),
+            max_pending_per_client: default_api_admission_max_pending_per_client(),
             pending_timeout: default_api_admission_pending_timeout(),
+            client_idle_timeout: default_api_admission_client_idle_timeout(),
+            service_limits: BTreeMap::new(),
         }
     }
 }
@@ -860,7 +897,10 @@ impl ApiAdmissionControlConfig {
         crate::admission::AdmissionLimits::new(
             self.max_work_in_flight,
             self.max_pending,
+            self.max_work_in_flight_per_client,
+            self.max_pending_per_client,
             self.pending_timeout,
+            self.client_idle_timeout,
         )
         .map(Some)
         .map_err(|error| eyre::eyre!("api_admission_control.{error}"))
@@ -868,7 +908,26 @@ impl ApiAdmissionControlConfig {
 
     /// Reject invalid bounds before the API listener starts.
     pub fn validate(&self) -> eyre::Result<()> {
-        self.admission_limits().map(drop)
+        let Some(_limits) = self.admission_limits()? else {
+            return Ok(());
+        };
+        for (service_id, limits) in &self.service_limits {
+            eyre::ensure!(
+                !service_id.trim().is_empty(),
+                "api_admission_control.service_limits contains an empty service identifier"
+            );
+            crate::admission::ClientLimits::new(
+                limits.max_work_in_flight,
+                limits.max_pending,
+                limits.pending_timeout,
+                self.max_work_in_flight,
+                self.max_pending,
+            )
+            .map_err(|error| {
+                eyre::eyre!("api_admission_control.service_limits.{service_id}.{error}")
+            })?;
+        }
+        Ok(())
     }
 }
 
@@ -2802,8 +2861,23 @@ const fn default_api_admission_max_pending() -> usize {
     1024
 }
 
+const fn default_api_admission_max_work_in_flight_per_client() -> usize {
+    8
+}
+
+const fn default_api_admission_max_pending_per_client() -> usize {
+    64
+}
+
 const fn default_api_admission_pending_timeout() -> std::time::Duration {
+    // This is intentionally half of the normal ten-second client timeout,
+    // leaving roughly half of the deadline for handler execution and response
+    // delivery. Keep the ratio fixed until scale data justifies another knob.
     std::time::Duration::from_secs(5)
+}
+
+const fn default_api_admission_client_idle_timeout() -> std::time::Duration {
+    std::time::Duration::from_secs(5 * 60)
 }
 
 pub const fn default_bmc_session_lockout_threshold() -> u32 {
@@ -4233,11 +4307,20 @@ mod tests {
     #[test]
     fn api_admission_control_only_validates_bounds_when_enabled() {
         type ZeroOut = fn(&mut ApiAdmissionControlConfig);
-        let cases: [(&str, ZeroOut); 3] = [
+        let cases: [(&str, ZeroOut); 6] = [
             ("max_work_in_flight", |config| config.max_work_in_flight = 0),
             ("max_pending", |config| config.max_pending = 0),
+            ("max_work_in_flight_per_client", |config| {
+                config.max_work_in_flight_per_client = 0
+            }),
+            ("max_pending_per_client", |config| {
+                config.max_pending_per_client = 0
+            }),
             ("pending_timeout", |config| {
                 config.pending_timeout = std::time::Duration::ZERO
+            }),
+            ("client_idle_timeout", |config| {
+                config.client_idle_timeout = std::time::Duration::ZERO
             }),
         ];
 
@@ -4245,7 +4328,11 @@ mod tests {
             enabled: false,
             max_work_in_flight: 0,
             max_pending: 0,
+            max_work_in_flight_per_client: 0,
+            max_pending_per_client: 0,
             pending_timeout: std::time::Duration::ZERO,
+            client_idle_timeout: std::time::Duration::ZERO,
+            service_limits: BTreeMap::new(),
         };
         disabled
             .validate()
@@ -4436,7 +4523,11 @@ mod tests {
                 enabled: true,
                 max_work_in_flight: 64,
                 max_pending: 1024,
+                max_work_in_flight_per_client: 8,
+                max_pending_per_client: 64,
                 pending_timeout: std::time::Duration::from_secs(5),
+                client_idle_timeout: std::time::Duration::from_secs(5 * 60),
+                service_limits: BTreeMap::new(),
             }
         );
         assert!(config.dhcp_servers.is_empty());

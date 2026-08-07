@@ -186,3 +186,12 @@ func TestClient_GetMachinesStatus_InvalidBodies(t *testing.T) {
 func ptr[T any](v T) *T {
 	return &v
 }
+
+func TestClient_Close(t *testing.T) {
+	client, err := NewClient("https://example.com")
+	require.NoError(t, err)
+
+	// Close should not error and should be idempotent
+	require.NoError(t, client.Close())
+	require.NoError(t, client.Close())
+}

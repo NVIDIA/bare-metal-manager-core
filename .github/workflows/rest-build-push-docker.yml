@@ -323,9 +323,13 @@ jobs:
       NICO_TARGET_REGISTRY_TOKEN: ${{ secrets.NICO_TARGET_REGISTRY_TOKEN }}
       NICO_NGC_TOKEN: ${{ secrets.NICO_NGC_TOKEN }}
 
+  # GitHub-hosted on purpose. This job only writes markdown to the step summary,
+  # but as the last thing in the run it was spending 75 seconds waiting for a
+  # self-hosted runner to do three seconds of work. The service builds above
+  # still use `inputs.runner`.
   build-summary:
     name: Build Summary
-    runs-on: ${{ inputs.runner }}
+    runs-on: ubuntu-latest
     needs:
       - build-nico-rest-api
       - build-nico-rest-db

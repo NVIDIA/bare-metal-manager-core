@@ -92,6 +92,7 @@ pub(crate) use db::DatabaseError;
 // Save typing
 pub(crate) use errors::CarbideResult;
 
+pub use crate::admission::AdminAdmissionControl;
 pub use crate::api::{Api, DefaultCredential};
 pub use crate::auth::AuthContext;
 use crate::cfg::file::ToolLink;

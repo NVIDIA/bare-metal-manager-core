@@ -26,9 +26,9 @@ use carbide_test_harness::network::segment::TestNetworkSegment;
 use carbide_test_harness::prelude::*;
 use model::test_support::ManagedHostConfig;
 
-pub struct TestEnv {
-    pub test_harness: TestHarness,
-    pub redfish_sim: Arc<RedfishSim>,
+pub(crate) struct TestEnv {
+    pub(super) test_harness: TestHarness,
+    pub(super) redfish_sim: Arc<RedfishSim>,
     site_explorer: TestSiteExplorer,
     domain: TestDomain,
     underlay_segment: TestNetworkSegment,
@@ -36,7 +36,7 @@ pub struct TestEnv {
 }
 
 impl TestEnv {
-    pub async fn new(pool: PgPool) -> Self {
+    pub(crate) async fn new(pool: PgPool) -> Self {
         let redfish_sim = Arc::new(RedfishSim::default());
         let redfish_pool = Arc::clone(&redfish_sim);
         let test_harness = TestHarness::builder(pool)
@@ -64,15 +64,15 @@ impl TestEnv {
         }
     }
 
-    pub fn api(&self) -> &Api {
+    pub(crate) fn api(&self) -> &Api {
         self.test_harness.api()
     }
 
-    pub fn domain(&self) -> &TestDomain {
+    pub(super) fn domain(&self) -> &TestDomain {
         &self.domain
     }
 
-    pub async fn create_ready_managed_host(
+    pub(crate) async fn create_ready_managed_host(
         &self,
         dpu_count: usize,
     ) -> (TestManagedHost, TestManagedHostBuildData) {

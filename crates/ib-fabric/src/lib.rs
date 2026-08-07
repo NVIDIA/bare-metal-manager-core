@@ -510,7 +510,7 @@ struct FabricData {
 }
 
 impl FabricData {
-    pub fn derive_partitions_by_guid(&mut self) {
+    fn derive_partitions_by_guid(&mut self) {
         let Some(partitions) = self.partitions.as_ref() else {
             self.partition_ids_by_guid = None;
             return;

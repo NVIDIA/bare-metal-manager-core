@@ -38,7 +38,7 @@ pub(crate) struct DedupQueue<K: Eq + Hash + Clone, V> {
 }
 
 impl<K: Eq + Hash + Clone, V> DedupQueue<K, V> {
-    pub fn new() -> Self {
+    pub(super) fn new() -> Self {
         Self {
             state: Mutex::new(QueueState {
                 values: HashMap::new(),
@@ -49,7 +49,7 @@ impl<K: Eq + Hash + Clone, V> DedupQueue<K, V> {
     }
 
     /// returns true if an existing value was replaced
-    pub fn save_latest(&self, key: K, value: V) -> bool {
+    pub(super) fn save_latest(&self, key: K, value: V) -> bool {
         let replaced;
         {
             let mut state = self.state.lock().expect("dedup queue mutex poisoned");
@@ -66,7 +66,7 @@ impl<K: Eq + Hash + Clone, V> DedupQueue<K, V> {
         replaced
     }
 
-    pub async fn next(&self) -> (K, V) {
+    pub(super) async fn next(&self) -> (K, V) {
         loop {
             if let Some(pair) = self.pop() {
                 return pair;
@@ -75,7 +75,7 @@ impl<K: Eq + Hash + Clone, V> DedupQueue<K, V> {
         }
     }
 
-    pub fn pop(&self) -> Option<(K, V)> {
+    pub(crate) fn pop(&self) -> Option<(K, V)> {
         let mut state = self.state.lock().expect("dedup queue mutex poisoned");
         while let Some(key) = state.ready.pop_front() {
             if let Some(value) = state.values.remove(&key) {
@@ -85,8 +85,7 @@ impl<K: Eq + Hash + Clone, V> DedupQueue<K, V> {
         None
     }
 
-    #[allow(dead_code)] // used by OtlpDrainTask in the next commit
-    pub async fn notified(&self) {
+    pub(crate) async fn notified(&self) {
         self.notify.notified().await;
     }
 }

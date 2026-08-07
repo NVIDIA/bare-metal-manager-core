@@ -68,7 +68,7 @@ pub extern "C" fn discovery_builder_result_as_str(result: DiscoveryBuilderResult
 }
 
 #[derive(Debug, Clone, Builder)]
-pub struct Discovery {
+pub(super) struct Discovery {
     pub(crate) relay_address: Ipv4Addr,
     pub(crate) mac_address: MacAddress,
 

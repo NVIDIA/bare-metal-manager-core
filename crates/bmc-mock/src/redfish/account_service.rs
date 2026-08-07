@@ -31,7 +31,7 @@ use crate::bmc_state::BmcState;
 use crate::json::JsonExt;
 use crate::{http, redfish};
 
-pub fn resource() -> redfish::Resource<'static> {
+pub(crate) fn resource() -> redfish::Resource<'static> {
     redfish::Resource {
         odata_id: Cow::Borrowed("/redfish/v1/AccountService"),
         odata_type: Cow::Borrowed("#AccountService.v1_9_0.AccountService"),
@@ -40,7 +40,7 @@ pub fn resource() -> redfish::Resource<'static> {
     }
 }
 
-pub fn add_routes(r: Router<BmcState>) -> Router<BmcState> {
+pub(crate) fn add_routes(r: Router<BmcState>) -> Router<BmcState> {
     r.route(&resource().odata_id, get(get_root).patch(patch_root))
         .route(
             &ACCOUNTS_COLLECTION_RESOURCE.odata_id,
@@ -75,7 +75,7 @@ pub(crate) trait PasswordUpdater: Send + Sync {
 }
 
 impl AccountServiceState {
-    pub fn new(factory_default_account: Account) -> Self {
+    pub(crate) fn new(factory_default_account: Account) -> Self {
         Self {
             accounts: Mutex::new(vec![factory_default_account]),
             password_updater: Mutex::new(None),
@@ -86,11 +86,11 @@ impl AccountServiceState {
         *self.password_updater.lock().expect("mutex poisoned") = Some(Arc::downgrade(updater));
     }
 
-    pub fn accounts(&self) -> Vec<Account> {
+    pub(crate) fn accounts(&self) -> Vec<Account> {
         self.accounts.lock().expect("mutex poisoned").clone()
     }
 
-    pub fn find(&self, account_id: &str) -> Option<Account> {
+    pub(crate) fn find(&self, account_id: &str) -> Option<Account> {
         self.accounts
             .lock()
             .expect("mutex poisoned")
@@ -108,7 +108,7 @@ impl AccountServiceState {
             .map(|account| (account.username.clone(), account.password.clone()))
     }
 
-    pub fn is_authorized(&self, username: &str, password: &str) -> bool {
+    pub(crate) fn is_authorized(&self, username: &str, password: &str) -> bool {
         self.accounts
             .lock()
             .expect("mutex poisoned")
@@ -116,7 +116,7 @@ impl AccountServiceState {
             .any(|account| account.matches(username, password))
     }
 
-    pub fn is_factory_default_password(&self, username: &str, password: &str) -> bool {
+    pub(crate) fn is_factory_default_password(&self, username: &str, password: &str) -> bool {
         self.accounts
             .lock()
             .expect("mutex poisoned")
@@ -124,7 +124,7 @@ impl AccountServiceState {
             .any(|account| account.matches_factory_default_password(username, password))
     }
 
-    pub async fn update_password(
+    pub(crate) async fn update_password(
         &self,
         account_id: &str,
         password: impl Into<String>,
@@ -168,7 +168,7 @@ impl AccountServiceState {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct Account {
+pub(crate) struct Account {
     id: String,
     username: String,
     password: String,
@@ -177,7 +177,7 @@ pub struct Account {
 }
 
 impl Account {
-    pub fn administrator(
+    pub(crate) fn administrator(
         id: impl Into<String>,
         username: impl Into<String>,
         password: impl Into<String>,
@@ -210,7 +210,7 @@ impl Account {
     }
 }
 
-pub async fn get_root() -> Response {
+async fn get_root() -> Response {
     let service_attrs = json!({
         "AccountLockoutCounterResetAfter": 0,
         "AccountLockoutDuration": 0,
@@ -226,11 +226,11 @@ pub async fn get_root() -> Response {
         .into_ok_response()
 }
 
-pub async fn patch_root() -> Response {
+async fn patch_root() -> Response {
     http::ok_no_content()
 }
 
-pub fn account_resource(id: impl Display) -> redfish::Resource<'static> {
+fn account_resource(id: impl Display) -> redfish::Resource<'static> {
     redfish::Resource {
         odata_id: Cow::Owned(format!("{}/{id}", ACCOUNTS_COLLECTION_RESOURCE.odata_id)),
         odata_type: Cow::Borrowed("#ManagerAccount.v1_8_0.ManagerAccount"),
@@ -239,7 +239,7 @@ pub fn account_resource(id: impl Display) -> redfish::Resource<'static> {
     }
 }
 
-pub async fn get_accounts(State(state): State<BmcState>) -> Response {
+async fn get_accounts(State(state): State<BmcState>) -> Response {
     let members = state
         .account_service_state
         .accounts()
@@ -251,11 +251,11 @@ pub async fn get_accounts(State(state): State<BmcState>) -> Response {
         .into_ok_response()
 }
 
-pub async fn create_account() -> Response {
+async fn create_account() -> Response {
     json!({}).into_ok_response()
 }
 
-pub async fn patch_account(
+async fn patch_account(
     State(state): State<BmcState>,
     Path(account_id): Path<String>,
     Json(patch_account): Json<serde_json::Value>,
@@ -282,10 +282,7 @@ pub async fn patch_account(
     }
 }
 
-pub async fn get_account(
-    State(state): State<BmcState>,
-    Path(account_id): Path<String>,
-) -> Response {
+async fn get_account(State(state): State<BmcState>, Path(account_id): Path<String>) -> Response {
     state
         .account_service_state
         .find(&account_id)

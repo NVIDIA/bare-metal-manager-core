@@ -36,7 +36,7 @@ use crate::errors::{DpaManagerError, DpaManagerResult};
 use crate::metrics::DpaMonitorMetrics;
 use crate::{DpaMonitor, HandlerResult};
 
-pub struct SvpcInterfaceHandler;
+pub(super) struct SvpcInterfaceHandler;
 
 enum ReconcileAction {
     Noop,

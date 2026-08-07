@@ -24,19 +24,19 @@ use serde_json::json;
 use crate::{BootOptionKind, Callbacks, LogService, LogServices, hw, redfish};
 
 #[derive(Clone, Copy, Debug)]
-pub enum Mode {
+pub(crate) enum Mode {
     // B4240V installed on VR NVL.
     B4240V,
     // Air Cooled Bluefield-4 DPU
     B4240,
 }
 
-pub struct Bluefield4<'a> {
-    pub product_serial_number: Cow<'a, str>,
-    pub host_mac_address: MacAddress,
-    pub oob_mac_address: MacAddress,
-    pub bmc_mac_address: MacAddress,
-    pub mode: Mode,
+pub(crate) struct Bluefield4<'a> {
+    pub(crate) product_serial_number: Cow<'a, str>,
+    pub(crate) host_mac_address: MacAddress,
+    pub(crate) oob_mac_address: MacAddress,
+    pub(crate) bmc_mac_address: MacAddress,
+    pub(crate) mode: Mode,
 }
 
 impl Bluefield4<'_> {
@@ -62,7 +62,7 @@ impl Bluefield4<'_> {
         }
     }
 
-    pub fn chassis_config(&self) -> redfish::chassis::ChassisConfig {
+    pub(crate) fn chassis_config(&self) -> redfish::chassis::ChassisConfig {
         redfish::chassis::ChassisConfig {
             chassis: vec![
                 redfish::chassis::SingleChassisConfig {
@@ -164,7 +164,10 @@ impl Bluefield4<'_> {
         MacAddress::new([bytes[2], bytes[3], bytes[4], bytes[5], bytes[6], bytes[7]])
     }
 
-    pub fn system_config(&self, callbacks: Arc<dyn Callbacks>) -> redfish::computer_system::Config {
+    pub(crate) fn system_config(
+        &self,
+        callbacks: Arc<dyn Callbacks>,
+    ) -> redfish::computer_system::Config {
         let system_id = Self::SYSTEM_ID;
         let boot_opt_builder = |id: &str, kind| {
             redfish::boot_option::builder(&redfish::boot_option::resource(system_id, id), kind)
@@ -395,7 +398,7 @@ impl Bluefield4<'_> {
         }
     }
 
-    pub fn manager_config(&self) -> redfish::manager::Config {
+    pub(crate) fn manager_config(&self) -> redfish::manager::Config {
         redfish::manager::Config {
             managers: vec![redfish::manager::SingleConfig {
                 id: Self::MANAGER_ID,
@@ -415,13 +418,13 @@ impl Bluefield4<'_> {
         }
     }
 
-    pub fn update_service_config(&self) -> redfish::update_service::UpdateServiceConfig {
+    pub(crate) fn update_service_config(&self) -> redfish::update_service::UpdateServiceConfig {
         redfish::update_service::UpdateServiceConfig {
             firmware_inventory: vec![],
         }
     }
 
-    pub fn host_nic(&self) -> hw::nic::Nic<'static> {
+    pub(crate) fn host_nic(&self) -> hw::nic::Nic<'static> {
         match self.mode {
             Mode::B4240 => hw::nic::Nic {
                 mac_address: self.host_mac_address,
@@ -431,7 +434,6 @@ impl Bluefield4<'_> {
                 description: Some("CX9 Family [ConnectX-9]".into()),
                 part_number: Some(self.part_number().into()),
                 firmware_version: Some("82.48.0802".into()),
-                is_mat_dpu: true,
             },
             Mode::B4240V => hw::nic::Nic {
                 mac_address: self.host_mac_address,
@@ -441,12 +443,11 @@ impl Bluefield4<'_> {
                 description: None,
                 part_number: Some(self.part_number().into()),
                 firmware_version: None,
-                is_mat_dpu: true,
             },
         }
     }
 
-    pub fn model(&self) -> &'static str {
+    pub(super) fn model(&self) -> &'static str {
         match self.mode {
             Mode::B4240V => "B4240V",
             Mode::B4240 => "B4240",

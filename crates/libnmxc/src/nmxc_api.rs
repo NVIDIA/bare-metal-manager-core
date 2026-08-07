@@ -35,12 +35,12 @@ fn default_context() -> nmxc_model::Context {
     }
 }
 
-pub struct NmxcApi {
+pub(super) struct NmxcApi {
     client: NmxControllerClient<TraceInjectService<Channel>>,
 }
 
 impl NmxcApi {
-    pub fn new(client: NmxControllerClient<TraceInjectService<Channel>>) -> Self {
+    pub(super) fn new(client: NmxControllerClient<TraceInjectService<Channel>>) -> Self {
         Self { client }
     }
 }

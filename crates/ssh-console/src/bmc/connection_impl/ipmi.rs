@@ -63,7 +63,7 @@ const SOL_DEACTIVATE_TIMEOUT: Duration = Duration::from_secs(10);
 /// `to_frontend_tx` is a [`russh::Channel`] to send data from ipmitool to the SSH frontend.
 ///
 /// Returns a [`mpsc::Sender<ChannelMsg>`] that the frontend can use to send data to ipmitool.
-pub async fn spawn(
+pub(in crate::bmc) async fn spawn(
     connection_details: Arc<ConnectionDetails>,
     to_frontend_tx: broadcast::Sender<ToFrontendMessage>,
     config: Arc<Config>,
@@ -199,14 +199,14 @@ pub async fn spawn(
 }
 
 /// A handle to a BMC connection, which will shut down when dropped.
-pub struct Handle {
-    pub to_bmc_msg_tx: mpsc::Sender<ToBmcMessage>,
-    pub shutdown_tx: oneshot::Sender<()>,
-    pub join_handle: JoinHandle<Result<(), SpawnError>>,
+pub(in crate::bmc) struct Handle {
+    pub(in crate::bmc) to_bmc_msg_tx: mpsc::Sender<ToBmcMessage>,
+    pub(in crate::bmc) shutdown_tx: oneshot::Sender<()>,
+    pub(in crate::bmc) join_handle: JoinHandle<Result<(), SpawnError>>,
 }
 
 #[derive(thiserror::Error, Debug)]
-pub enum SpawnError {
+pub(in crate::bmc) enum SpawnError {
     #[error("error spawning a PTY for ipmitool: {0}")]
     PtyAlloc(#[from] PtyAllocError),
     #[error("error setting up pty: {reason}: {error}")]
@@ -258,7 +258,7 @@ impl SpawnError {
 }
 
 #[derive(thiserror::Error, Debug)]
-pub enum SolDeactivateError {
+pub(in crate::bmc) enum SolDeactivateError {
     #[error("error spawning ipmitool for SOL deactivation: {error}")]
     Spawning { error: std::io::Error },
     #[error("error waiting for ipmitool SOL deactivation: {error}")]
@@ -367,7 +367,7 @@ async fn run_sol_deactivate_command(
 }
 
 #[derive(thiserror::Error, Debug)]
-pub enum ProcessLoopError {
+pub(in crate::bmc) enum ProcessLoopError {
     #[error("error polling from pty master fd: {error}")]
     PollingFromPty { error: std::io::Error },
     #[error("error writing data from ipmitool to frontend channel: no active receivers")]
@@ -387,13 +387,13 @@ pub enum ProcessLoopError {
 }
 
 #[derive(thiserror::Error, Debug)]
-pub enum SendFrontendMessageToIpmiConsoleError {
+pub(in crate::bmc) enum SendFrontendMessageToIpmiConsoleError {
     #[error("error writing to ipmitool pty: {error}")]
     WritingToPty { error: std::io::Error },
 }
 
 #[derive(thiserror::Error, Debug)]
-pub enum PowerResetError {
+pub(in crate::bmc) enum PowerResetError {
     #[error("error spawning ipmitool for power reset: {error}")]
     Spawning { error: std::io::Error },
     #[error("ipmitool error running power reset: {error}")]
@@ -804,11 +804,11 @@ fn sol_activate_command(
 }
 
 #[derive(Clone)]
-pub struct ConnectionDetails {
-    pub machine_id: MachineId,
-    pub addr: SocketAddr,
-    pub user: String,
-    pub password: String,
+pub(in crate::bmc) struct ConnectionDetails {
+    pub(in crate::bmc) machine_id: MachineId,
+    pub(in crate::bmc) addr: SocketAddr,
+    pub(in crate::bmc) user: String,
+    pub(in crate::bmc) password: String,
 }
 
 impl Debug for ConnectionDetails {

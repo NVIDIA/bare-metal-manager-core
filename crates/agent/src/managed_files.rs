@@ -21,7 +21,11 @@ use carbide_uuid::machine::MachineId;
 
 use crate::duppet::{self, FileEnsure, SyncOptions};
 
-pub fn main_sync(sync_options: SyncOptions, machine_id: &MachineId, host_machine_id: &MachineId) {
+pub(super) fn main_sync(
+    sync_options: SyncOptions,
+    machine_id: &MachineId,
+    host_machine_id: &MachineId,
+) {
     // Sync out all duppet-managed config files. This can be called as part of
     // main_loop running if we want (and can also be called willy nilly with
     // ad-hoc sets of files, including whenever the nvue config changes if we
@@ -94,12 +98,12 @@ pub fn main_sync(sync_options: SyncOptions, machine_id: &MachineId, host_machine
 
 // Write "machine.id=<value>" to a file so the OpenTelemetry collector can apply it as a resource
 // attribute.
-pub fn build_otel_machine_id_file_content(machine_id: &MachineId) -> String {
+fn build_otel_machine_id_file_content(machine_id: &MachineId) -> String {
     format!("machine.id={machine_id}\n")
 }
 
 // Write "host.machine.id=<value>" to a file so the OpenTelemetry collector can apply it as a
 // resource attribute.
-pub fn build_otel_host_machine_id_file_content(host_machine_id: &MachineId) -> String {
+fn build_otel_host_machine_id_file_content(host_machine_id: &MachineId) -> String {
     format!("host.machine.id={host_machine_id}\n")
 }

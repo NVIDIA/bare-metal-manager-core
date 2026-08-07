@@ -307,7 +307,7 @@ impl InternalRBACRules {
         x.perm("AdminGrowResourcePool", vec![ForgeAdminCLI]);
         x.perm("SetMaintenance", vec![ForgeAdminCLI, SiteAgent, Flow]);
         x.perm("SetDynamicConfig", vec![ForgeAdminCLI, Machineatron]);
-        x.perm("TriggerDpuReprovisioning", vec![ForgeAdminCLI]);
+        x.perm("TriggerDpuReprovisioning", vec![ForgeAdminCLI, SiteAgent]);
         x.perm("TriggerHostReprovisioning", vec![ForgeAdminCLI, Flow]);
         x.perm("ListDpuWaitingForReprovisioning", vec![ForgeAdminCLI]);
         x.perm("MarkManualFirmwareUpgradeComplete", vec![ForgeAdminCLI]);
@@ -524,7 +524,7 @@ impl InternalRBACRules {
         );
         x.perm("HeartbeatMachineValidationRun", vec![Scout, SiteAgent]);
         x.perm("AdminBmcReset", vec![ForgeAdminCLI]);
-        x.perm("AdminPowerControl", vec![ForgeAdminCLI, Flow]);
+        x.perm("AdminPowerControl", vec![ForgeAdminCLI, SiteAgent, Flow]);
         x.perm("DisableSecureBoot", vec![ForgeAdminCLI]);
         x.perm("MachineSetup", vec![ForgeAdminCLI]);
         x.perm("SetDpuFirstBootOrder", vec![ForgeAdminCLI]);
@@ -1146,6 +1146,27 @@ mod rbac_rule_tests {
                 "elektra-site-agent".to_string()
             )]
         ));
+
+        // REST admin operations proxy to Core as the site agent (issue #4597).
+        for method in ["AdminPowerControl", "TriggerDpuReprovisioning"] {
+            assert!(
+                InternalRBACRules::allowed_from_static(
+                    method,
+                    &[Principal::SpiffeServiceIdentifier(
+                        "elektra-site-agent".to_string()
+                    )]
+                ),
+                "{method} should allow the site agent"
+            );
+            assert!(
+                !InternalRBACRules::allowed_from_static(
+                    method,
+                    &[Principal::SpiffeServiceIdentifier("nico-dns".to_string())]
+                ),
+                "{method} should reject unrelated services"
+            );
+        }
+
         assert!(InternalRBACRules::allowed_from_static(
             "FindNetworkSegmentsByIds",
             &[

@@ -29,7 +29,7 @@ use tracing_subscriber::{Layer, filter};
 use crate::config::TracingConfig;
 
 #[derive(thiserror::Error, Debug)]
-pub enum SetupError {
+pub(crate) enum SetupError {
     #[error("error configuring logging from environment variables: {0}")]
     EnvFilter(#[from] tracing_subscriber::filter::FromEnvError),
     #[error("error initializing tracing subscriber: {0}")]
@@ -38,18 +38,18 @@ pub enum SetupError {
     Metrics(String),
 }
 
-pub type SetupResult<T> = Result<T, SetupError>;
+pub(crate) type SetupResult<T> = Result<T, SetupError>;
 
 /// Owns the OTLP tracer provider for the lifetime of the process. The batch
 /// span processor only exports on its own schedule, so the provider has to be
 /// shut down explicitly at exit or the final batch is dropped.
-pub struct TracingGuard(Option<opentelemetry_sdk::trace::SdkTracerProvider>);
+pub(crate) struct TracingGuard(Option<opentelemetry_sdk::trace::SdkTracerProvider>);
 
 impl TracingGuard {
     /// Flushes and shuts down the OTLP exporter. `SdkTracerProvider::shutdown`
     /// blocks the calling thread for up to five seconds waiting on the batch
     /// processor's worker, so it must not run on a runtime worker.
-    pub async fn shutdown(self) {
+    pub(crate) async fn shutdown(self) {
         let Some(provider) = self.0 else {
             return;
         };
@@ -66,7 +66,10 @@ impl TracingGuard {
     }
 }
 
-pub fn setup_logging(debug: bool, tracing_config: &TracingConfig) -> SetupResult<TracingGuard> {
+pub(crate) fn setup_logging(
+    debug: bool,
+    tracing_config: &TracingConfig,
+) -> SetupResult<TracingGuard> {
     // W3C propagation must be installed before any inbound extract or outbound inject (#2438).
     // Without it, OpenTelemetry's default propagator is a no-op.
     global::set_text_map_propagator(TraceContextPropagator::new());
@@ -202,12 +205,12 @@ fn should_accept_span_or_event(metadata: &tracing::Metadata<'_>) -> bool {
         .is_some_and(|path| path.starts_with("tokio"))
 }
 
-pub fn setup_metrics() -> SetupResult<MetricsSetup> {
+pub(crate) fn setup_metrics() -> SetupResult<MetricsSetup> {
     metrics_endpoint::new_metrics_setup("carbide-bmc-proxy", "carbide-system", true)
         .map_err(|e| SetupError::Metrics(e.to_string()))
 }
 
-pub fn dep_log_filter(env_filter: EnvFilter) -> EnvFilter {
+fn dep_log_filter(env_filter: EnvFilter) -> EnvFilter {
     [
         "hyper=error",
         "rustls=warn",

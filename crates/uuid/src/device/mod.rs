@@ -96,14 +96,14 @@ mod proto {
     /// This lets RPC code use [`super::DeviceId`] directly while retaining the
     /// nested-message wire representation required by the oneof.
     #[derive(Clone, prost::Message)]
-    pub struct DeviceId {
+    pub(super) struct DeviceId {
         #[prost(oneof = "device_id::Value", tags = "1, 2, 3")]
-        pub value: Option<device_id::Value>,
+        value: Option<device_id::Value>,
     }
 
-    pub mod device_id {
+    mod device_id {
         #[derive(Clone, prost::Oneof)]
-        pub enum Value {
+        pub(super) enum Value {
             #[prost(message, tag = "1")]
             Machine(crate::machine::MachineId),
             #[prost(message, tag = "2")]
@@ -363,7 +363,7 @@ mod tests {
 
     mod reference_device_id {
         #[derive(Clone, PartialEq, prost::Oneof)]
-        pub enum Value {
+        pub(super) enum Value {
             #[prost(message, tag = "1")]
             Machine(crate::machine::MachineId),
             #[prost(message, tag = "2")]

@@ -27,23 +27,23 @@ use crate::redfish::update_service::UpdateServiceState;
 
 #[derive(Clone)]
 pub struct BmcState {
-    pub bmc_vendor: redfish::oem::BmcVendor,
-    pub bmc_product: Option<&'static str>,
-    pub bmc_redfish_version: &'static str,
-    pub oem_state: redfish::oem::State,
+    pub(crate) bmc_vendor: redfish::oem::BmcVendor,
+    pub(crate) bmc_product: Option<&'static str>,
+    pub(crate) bmc_redfish_version: &'static str,
+    pub(crate) oem_state: redfish::oem::State,
     pub manager: Arc<ManagerState>,
     pub system_state: Arc<SystemState>,
-    pub chassis_state: Arc<ChassisState>,
-    pub update_service_state: Arc<UpdateServiceState>,
+    pub(crate) chassis_state: Arc<ChassisState>,
+    pub(crate) update_service_state: Arc<UpdateServiceState>,
     pub account_service_state: Arc<AccountServiceState>,
-    pub session_service_state: Arc<SessionServiceState>,
+    pub(crate) session_service_state: Arc<SessionServiceState>,
     pub injection: Arc<InjectionStore>,
-    pub callbacks: Option<Arc<dyn crate::Callbacks>>,
+    pub(crate) callbacks: Option<Arc<dyn crate::Callbacks>>,
     /// Whether this BMC advertises and serves the `/redfish/v1/Systems`
     /// collection. Delta power shelves expose no `ComputerSystem` collection,
     /// so the service root omits the `Systems` link and the collection endpoint
     /// returns 404.
-    pub exposes_computer_systems: bool,
+    pub(crate) exposes_computer_systems: bool,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -65,7 +65,7 @@ impl BmcState {
         }
     }
 
-    pub fn complete_all_bios_jobs(&self) {
+    fn complete_all_bios_jobs(&self) {
         if let redfish::oem::State::DellIdrac(v) = &self.oem_state {
             v.complete_all_bios_jobs()
         }

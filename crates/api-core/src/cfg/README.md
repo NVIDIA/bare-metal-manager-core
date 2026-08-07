@@ -20,7 +20,7 @@ applicable.
 | `database_pool_acquire_timeout` | `Duration` | `30s` | `server` | How long a caller may wait for a connection from the pool before the attempt fails (sqlx's own default); trips on a stalled database or a saturated pool alike. Must be greater than zero (startup rejects `0`). |
 | `database_pool_idle_timeout` | `Duration` | `10m` | `server` | Idle time after which the pool closes a connection, keeping the pool's own reaping well inside the Postgres server's 60-minute idle-session reaper. Must be greater than zero (startup rejects `0`). |
 | `database_pool_max_lifetime` | `Duration` | `30m` | `server` | Maximum age of a pooled connection before it is recycled, so the pool re-balances onto the current primary after a database failover. Must be greater than zero (startup rejects `0`). |
-| `api_admission_control` | `ApiAdmissionControlConfig` | *(see below)* | `server` | Shared execution and pending-request limits for gRPC and admin HTTP business requests. |
+| `api_admission_control` | `ApiAdmissionControlConfig` | *(see below)* | `server` | Fair per-client admission with global execution and pending-request limits for gRPC and admin HTTP business requests. |
 | `ib_config` | `Option<IBFabricConfig>` | — | `hardware` | InfiniBand fabric configuration (see [IBFabricConfig](#ibfabricconfig)). |
 | `asn` | `u32` | **required** | `networking` | Autonomous System Number, fixed per environment. Used by nico-dpu-agent for `frr.conf` BGP routing. |
 | `dhcp_servers` | `Vec<Ipv4Addr>` | `[]` | `networking` | DHCP server addresses announced to DPUs during network provisioning. |
@@ -260,12 +260,52 @@ available for topology-specific flows.
 
 ### `ApiAdmissionControlConfig`
 
+Admission control places each authenticated client in its own bounded FIFO and
+schedules those clients fairly within the global execution and pending-request
+budgets. The default per-client limits apply to external users, SPIFFE machines,
+SPIFFE services without an override, and requests without a recognized client
+identity. An exact SPIFFE service override can give a trusted internal service a
+different share without allowing it to exceed either global bound.
+
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
-| `enabled` | `bool` | `true` | Enable bounded API admission. Set to `false` to restore unrestricted request admission. |
+| `enabled` | `bool` | `true` | Enable fair, bounded API admission. When `false`, admission is bypassed and the other fields in this section are not validated. |
 | `max_work_in_flight` | `usize` | `64` | Maximum business requests executing concurrently. When enabled, must be greater than zero and no greater than `tokio::sync::Semaphore::MAX_PERMITS`. |
 | `max_pending` | `usize` | `1024` | Maximum business requests waiting for execution. When enabled, must be greater than zero and no greater than `tokio::sync::Semaphore::MAX_PERMITS`. |
-| `pending_timeout` | `Duration` | `5s` | Maximum time a pending request may wait for execution. Must be greater than zero when admission control is enabled. |
+| `max_work_in_flight_per_client` | `usize` | `8` | Default maximum business requests from one client that may execute concurrently. Must be greater than zero, no greater than `max_work_in_flight`, and representable as a `u32`. |
+| `max_pending_per_client` | `usize` | `64` | Default hard bound on pending business requests from one client. Must be greater than zero and no greater than `max_pending`. |
+| `pending_timeout` | `Duration` | `5s` | Default maximum time a client's pending request may wait for execution. Admission can reject earlier when its queue-delay estimate exceeds this value. Must be greater than zero. |
+| `client_idle_timeout` | `Duration` | `5m` | How long an empty, inactive client's scheduler state is cached before cleanup. Must be greater than zero. |
+| `service_limits` | `BTreeMap<String, ApiAdmissionServiceLimitsConfig>` | `{}` | Per-service overrides keyed by the exact SPIFFE service identifier described below. Unlisted services use the default per-client limits. |
+
+#### `ApiAdmissionServiceLimitsConfig`
+
+Every field is required for each service override; the nested structure has no
+field-level defaults.
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `max_work_in_flight` | `usize` | **required** | Maximum requests from this service that may execute concurrently. Must be greater than zero, no greater than the global `max_work_in_flight`, and representable as a `u32`. |
+| `max_pending` | `usize` | **required** | Hard bound on this service's pending requests. Must be greater than zero and no greater than the global `max_pending`. |
+| `pending_timeout` | `Duration` | **required** | Maximum time this service's pending request may wait for execution. Admission can reject earlier when its queue-delay estimate exceeds this value. Must be greater than zero. |
+
+The map key is the identifier extracted by removing one of
+`auth.trust.spiffe_service_base_paths` from the certificate's SPIFFE path. For
+example, a SPIFFE path `/forge-system/sa/scout` with base path
+`/forge-system/sa/` has service identifier `scout`:
+
+```toml
+[api_admission_control.service_limits.scout]
+max_work_in_flight = 16
+max_pending = 128
+pending_timeout = "5s"
+```
+
+Matching is exact and case-sensitive. Keys are not trimmed, expanded as
+prefixes, or interpreted as globs. Configure `scout`, not the full SPIFFE URI
+and not the rendered principal `spiffe-service-id/scout`. An override key must
+contain at least one non-whitespace character. Quote a TOML key when the
+extracted identifier contains characters such as `/` or `.`.
 
 ### `TlsConfig`
 

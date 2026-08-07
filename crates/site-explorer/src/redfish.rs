@@ -49,13 +49,13 @@ const BF4_NDF0_TO_BASE_MAC_OFFSET: u64 = 0x10;
 // RedfishClient is a wrapper around a redfish client pool and implements redfish utility functions that the site explorer utilizes.
 // TODO: In the future, we should refactor a lot of this client's work to api/src/redfish.rs because other components in carbide can utilize this functionality.
 // Eventually, this file should only have code related to generating the site exploration report.
-pub struct RedfishClient {
+pub(super) struct RedfishClient {
     redfish_client_pool: Arc<dyn RedfishClientPool>,
     nv_redfish_client_pool: Arc<NvRedfishClientPool>,
 }
 
 impl RedfishClient {
-    pub fn new(
+    pub(super) fn new(
         redfish_client_pool: Arc<dyn RedfishClientPool>,
         nv_redfish_client_pool: Arc<NvRedfishClientPool>,
     ) -> Self {
@@ -98,7 +98,7 @@ impl RedfishClient {
         .await
     }
 
-    pub async fn create_direct_redfish_client(
+    async fn create_direct_redfish_client(
         &self,
         bmc_ip_address: SocketAddr,
         Credentials::UsernamePassword { username, password }: Credentials,
@@ -121,7 +121,7 @@ impl RedfishClient {
             .await
     }
 
-    pub async fn get_redfish_product(
+    pub(super) async fn get_redfish_product(
         &self,
         bmc_ip_address: SocketAddr,
     ) -> Result<Option<String>, EndpointExplorationError> {
@@ -135,7 +135,7 @@ impl RedfishClient {
         Ok(service_root.product)
     }
 
-    pub async fn get_redfish_vendor(
+    pub(super) async fn get_redfish_vendor(
         &self,
         bmc_ip_address: SocketAddr,
     ) -> Result<RedfishVendor, EndpointExplorationError> {
@@ -177,7 +177,10 @@ impl RedfishClient {
     /// (e.g. `"BlueField-3 DPU"`). This makes a single anonymous `/redfish/v1` call and
     /// parses that field. Returns `DpuModel::Unknown` on any error or unrecognized string
     /// so callers can fall back to the catch-all factory credential.
-    pub async fn get_dpu_model_hint(&self, bmc_ip_address: SocketAddr) -> ::bmc_vendor::DpuModel {
+    pub(super) async fn get_dpu_model_hint(
+        &self,
+        bmc_ip_address: SocketAddr,
+    ) -> ::bmc_vendor::DpuModel {
         let client = match self.create_anon_redfish_client(bmc_ip_address).await {
             Ok(c) => c,
             Err(_) => return ::bmc_vendor::DpuModel::Unknown,
@@ -193,7 +196,7 @@ impl RedfishClient {
             .unwrap_or_default()
     }
 
-    pub async fn validate_bmc_credentials(
+    pub(super) async fn validate_bmc_credentials(
         &self,
         bmc_ip_address: SocketAddr,
         credentials: Credentials,
@@ -212,7 +215,7 @@ impl RedfishClient {
     /// credentials, delegating to the shared `RedfishClientPool` probe (an
     /// anonymous service-root read with a credentialed chassis-manufacturer
     /// fallback for BMCs that don't populate the service-root vendor).
-    pub async fn probe_bmc_vendor(
+    pub(super) async fn probe_bmc_vendor(
         &self,
         bmc_ip_address: SocketAddr,
         credentials: Credentials,
@@ -227,7 +230,7 @@ impl RedfishClient {
             .map_err(map_redfish_client_creation_error)
     }
 
-    pub async fn set_bmc_root_password(
+    pub(super) async fn set_bmc_root_password(
         &self,
         bmc_ip_address: SocketAddr,
         vendor: RedfishVendor,
@@ -252,7 +255,7 @@ impl RedfishClient {
             .map_err(map_redfish_client_creation_error)
     }
 
-    pub async fn set_bf4_dpu_service_password(
+    pub(super) async fn set_bf4_dpu_service_password(
         &self,
         bmc_ip_address: SocketAddr,
         root_credentials: Credentials,
@@ -269,7 +272,7 @@ impl RedfishClient {
             .map_err(map_redfish_client_creation_error)
     }
 
-    pub async fn generate_exploration_report(
+    pub(super) async fn generate_exploration_report(
         &self,
         bmc_ip_address: SocketAddr,
         credentials: Credentials,
@@ -395,7 +398,7 @@ impl RedfishClient {
         })
     }
 
-    pub async fn nv_generate_exploration_report(
+    pub(super) async fn nv_generate_exploration_report(
         &self,
         bmc_ip_address: SocketAddr,
         credentials: Credentials,
@@ -432,7 +435,7 @@ impl RedfishClient {
         Ok(report)
     }
 
-    pub async fn reset_bmc(
+    pub(super) async fn reset_bmc(
         &self,
         bmc_ip_address: SocketAddr,
         credentials: Credentials,
@@ -447,7 +450,7 @@ impl RedfishClient {
         Ok(())
     }
 
-    pub async fn get_power_state(
+    pub(super) async fn get_power_state(
         &self,
         bmc_ip_address: SocketAddr,
         credentials: Credentials,
@@ -460,7 +463,7 @@ impl RedfishClient {
         client.get_power_state().await.map_err(map_redfish_error)
     }
 
-    pub async fn power(
+    pub(super) async fn power(
         &self,
         bmc_ip_address: SocketAddr,
         credentials: Credentials,
@@ -475,7 +478,7 @@ impl RedfishClient {
         Ok(())
     }
 
-    pub async fn disable_secure_boot(
+    pub(super) async fn disable_secure_boot(
         &self,
         bmc_ip_address: SocketAddr,
         credentials: Credentials,
@@ -493,7 +496,7 @@ impl RedfishClient {
         Ok(())
     }
 
-    pub async fn lockdown(
+    pub(super) async fn lockdown(
         &self,
         bmc_ip_address: SocketAddr,
         credentials: Credentials,
@@ -509,7 +512,7 @@ impl RedfishClient {
         Ok(())
     }
 
-    pub async fn lockdown_status(
+    pub(super) async fn lockdown_status(
         &self,
         bmc_ip_address: SocketAddr,
         credentials: Credentials,
@@ -526,7 +529,7 @@ impl RedfishClient {
         Ok(response)
     }
 
-    pub async fn enable_infinite_boot(
+    pub(super) async fn enable_infinite_boot(
         &self,
         bmc_ip_address: SocketAddr,
         credentials: Credentials,
@@ -544,7 +547,7 @@ impl RedfishClient {
         Ok(())
     }
 
-    pub async fn is_infinite_boot_enabled(
+    pub(super) async fn is_infinite_boot_enabled(
         &self,
         bmc_ip_address: SocketAddr,
         credentials: Credentials,
@@ -560,7 +563,7 @@ impl RedfishClient {
             .map_err(map_redfish_error)
     }
 
-    pub async fn machine_setup(
+    pub(super) async fn machine_setup(
         &self,
         bmc_ip_address: SocketAddr,
         credentials: Credentials,
@@ -603,7 +606,7 @@ impl RedfishClient {
         Ok(())
     }
 
-    pub async fn set_boot_order_dpu_first(
+    pub(super) async fn set_boot_order_dpu_first(
         &self,
         bmc_ip_address: SocketAddr,
         credentials: Credentials,
@@ -622,7 +625,7 @@ impl RedfishClient {
         Ok(())
     }
 
-    pub async fn set_nic_mode(
+    pub(super) async fn set_nic_mode(
         &self,
         bmc_ip_address: SocketAddr,
         credentials: Credentials,
@@ -638,7 +641,7 @@ impl RedfishClient {
         Ok(())
     }
 
-    pub async fn is_viking(
+    pub(super) async fn is_viking(
         &self,
         bmc_ip_address: SocketAddr,
         credentials: Credentials,
@@ -658,7 +661,7 @@ impl RedfishClient {
         )
     }
 
-    pub async fn clear_nvram(
+    pub(super) async fn clear_nvram(
         &self,
         bmc_ip_address: SocketAddr,
         credentials: Credentials,
@@ -672,7 +675,7 @@ impl RedfishClient {
         Ok(())
     }
 
-    pub async fn create_bmc_user(
+    pub(super) async fn create_bmc_user(
         &self,
         bmc_ip_address: SocketAddr,
         credentials: Credentials,
@@ -692,7 +695,7 @@ impl RedfishClient {
         Ok(())
     }
 
-    pub async fn delete_bmc_user(
+    pub(super) async fn delete_bmc_user(
         &self,
         bmc_ip_address: SocketAddr,
         credentials: Credentials,
@@ -710,7 +713,7 @@ impl RedfishClient {
         Ok(())
     }
 
-    pub async fn probe_vendor_name_from_chassis(
+    pub(super) async fn probe_vendor_name_from_chassis(
         &self,
         bmc_ip_address: SocketAddr,
         username: String,

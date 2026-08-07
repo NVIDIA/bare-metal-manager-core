@@ -35,15 +35,15 @@ use tokio_util::sync::CancellationToken;
 
 #[derive(Parser)]
 #[clap(name = "carbide-bmc-proxy")]
-pub struct Args {
+struct Args {
     #[clap(long, default_value = "false", help = "Print version number and exit")]
-    pub version: bool,
+    version: bool,
 
     #[clap(short, long)]
-    pub debug: bool,
+    debug: bool,
 
     #[clap(long)]
-    pub config_path: String,
+    config_path: String,
 }
 
 #[derive(thiserror::Error, Debug)]

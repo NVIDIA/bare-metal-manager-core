@@ -67,7 +67,7 @@ pub enum SshBmcVendor {
 }
 
 impl BmcVendor {
-    pub fn detect_from_api_vendor(
+    pub(in crate::bmc) fn detect_from_api_vendor(
         vendor_string: &str,
         machine_id: &MachineId,
     ) -> Result<Self, BmcVendorDetectionError> {
@@ -121,7 +121,7 @@ impl BmcVendor {
 }
 
 #[derive(thiserror::Error, Debug)]
-pub enum BmcVendorDetectionError {
+pub(in crate::bmc) enum BmcVendorDetectionError {
     #[error("unknown or unsupported sys_vendor string: {sys_vendor}")]
     UnknownSysVendor { sys_vendor: String },
 }
@@ -151,7 +151,7 @@ impl<'de> Deserialize<'de> for BmcVendor {
 }
 
 impl SshBmcVendor {
-    pub fn serial_activate_command(&self) -> Option<&'static [u8]> {
+    pub(in crate::bmc) fn serial_activate_command(&self) -> Option<&'static [u8]> {
         match self {
             SshBmcVendor::Dell => Some(b"connect com2"),
             SshBmcVendor::Lenovo => Some(b"console kill 1\nconsole 1"),
@@ -161,7 +161,7 @@ impl SshBmcVendor {
         }
     }
 
-    pub fn bmc_prompt(&self) -> Option<&'static [u8]> {
+    pub(in crate::bmc) fn bmc_prompt(&self) -> Option<&'static [u8]> {
         match self {
             SshBmcVendor::Dell => Some(b"\nracadm>>"),
             SshBmcVendor::Lenovo => Some(b"\nsystem>"),
@@ -171,7 +171,7 @@ impl SshBmcVendor {
         }
     }
 
-    pub fn fallback_serial_activate_commands_if_needed(
+    pub(in crate::bmc) fn fallback_serial_activate_commands_if_needed(
         &self,
         prompt_buf: &[u8],
         fallback_sent: bool,
@@ -190,7 +190,7 @@ impl SshBmcVendor {
         }
     }
 
-    pub fn should_accept_sol_activation_output(
+    pub(in crate::bmc) fn should_accept_sol_activation_output(
         &self,
         prompt_buf: &[u8],
         skip_data_read_len: usize,

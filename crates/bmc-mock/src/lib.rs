@@ -20,7 +20,7 @@ use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 use tokio::time::Instant;
-pub mod ipmi;
+mod ipmi;
 pub mod ipmi_sim;
 pub mod libvirt;
 pub mod simulated;
@@ -30,7 +30,7 @@ mod bmc_state;
 mod combined_server;
 mod combined_service;
 mod http;
-pub mod hw;
+mod hw;
 pub mod injection;
 mod json;
 pub mod mac_address_pool;
@@ -45,6 +45,7 @@ pub mod tls;
 pub use bmc_state::{BmcEvent, BmcState};
 pub use combined_server::{CombinedServer, ListenerOrAddress};
 pub use combined_service::combined_router;
+pub use hw::rack::{RackElevation, RackUnit};
 pub use machine_info::{
     DpuFirmwareVersions, DpuMachineInfo, DpuSettings, HostMachineInfo, MachineInfo,
 };
@@ -57,7 +58,6 @@ pub use redfish::virtual_media::DeviceConfig as VirtualMediaDeviceConfig;
 
 pub const DUMMY_FACTORY_USERNAME: &str = "root";
 pub const DUMMY_FACTORY_PASSWORD: &str = "factory_password";
-pub const DUMMY_FACTORY_DPU_PASSWORD: &str = "0penBmc";
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, Eq, PartialEq)]
 pub enum RackType {
@@ -258,7 +258,7 @@ pub enum SystemPowerControl {
     Resume,
 }
 
-pub trait LogServices: Send + Sync {
+trait LogServices: Send + Sync {
     fn services(&self) -> Vec<&(dyn LogService + '_)>;
 
     fn find(&self, id: &str) -> Option<&(dyn LogService + '_)> {
@@ -269,7 +269,7 @@ pub trait LogServices: Send + Sync {
     }
 }
 
-pub trait LogService: Send + Sync {
+trait LogService: Send + Sync {
     fn id(&self) -> &str;
 
     fn entries(&self, collection: &redfish::Collection<'_>) -> Vec<serde_json::Value>;

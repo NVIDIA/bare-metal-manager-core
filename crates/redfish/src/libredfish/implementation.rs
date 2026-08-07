@@ -45,14 +45,14 @@ fn libredfish_endpoint_host(host: &str) -> Cow<'_, str> {
     }
 }
 
-pub struct RedfishClientPoolImpl {
+pub(super) struct RedfishClientPoolImpl {
     pool: libredfish::RedfishClientPool,
     credential_reader: Arc<dyn CredentialReader>,
     proxy_address: Arc<ArcSwap<Option<HostPortPair>>>,
 }
 
 impl RedfishClientPoolImpl {
-    pub fn new(
+    pub(super) fn new(
         credential_reader: Arc<dyn CredentialReader>,
         pool: libredfish::RedfishClientPool,
         proxy_address: Arc<ArcSwap<Option<HostPortPair>>>,

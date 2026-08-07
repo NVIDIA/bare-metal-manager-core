@@ -17,11 +17,11 @@
 
 use ::rpc::forge_tls_client::{self, ApiConfig, ForgeClientConfig};
 use forge_tls::client_config::ClientCert;
-pub use scout::{CarbideClientError, CarbideClientResult};
+use scout::{CarbideClientError, CarbideClientResult};
 
 use crate::Options;
 
-pub(crate) async fn create_forge_client(
+pub(super) async fn create_forge_client(
     config: &Options,
 ) -> CarbideClientResult<forge_tls_client::ForgeClientT> {
     let client_config = ForgeClientConfig::new(

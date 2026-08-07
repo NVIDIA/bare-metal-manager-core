@@ -30,7 +30,7 @@ use crate::json::{JsonExt, JsonPatch};
 use crate::{http, redfish};
 
 #[derive(Clone)]
-pub enum BluefieldState {
+pub(crate) enum BluefieldState {
     Bluefield3 {
         mode: Arc<Mutex<ModeState>>,
         base_mac: MacAddress,
@@ -38,7 +38,7 @@ pub enum BluefieldState {
     Bluefield4,
 }
 
-pub struct ModeState {
+pub(crate) struct ModeState {
     nic_mode: bool,
     /// A `Mode.Set` queues the requested mode here. A real BlueField applies it
     /// only after the host power-cycles, so it lands on `nic_mode` on the next
@@ -47,7 +47,7 @@ pub struct ModeState {
 }
 
 impl BluefieldState {
-    pub fn new_bf3(nic_mode: bool, base_mac: MacAddress) -> Self {
+    pub(crate) fn new_bf3(nic_mode: bool, base_mac: MacAddress) -> Self {
         Self::Bluefield3 {
             mode: Arc::new(Mutex::new(ModeState {
                 nic_mode,
@@ -57,12 +57,12 @@ impl BluefieldState {
         }
     }
 
-    pub fn new_bf4() -> Self {
+    pub(crate) fn new_bf4() -> Self {
         Self::Bluefield4
     }
 
     /// Whether the BlueField currently reports NIC mode.
-    pub fn nic_mode(&self) -> bool {
+    pub(crate) fn nic_mode(&self) -> bool {
         match self {
             Self::Bluefield3 { mode, .. } => mode.lock().unwrap().nic_mode,
             Self::Bluefield4 => false,
@@ -81,7 +81,7 @@ impl BluefieldState {
 
     /// Apply a queued `Mode.Set`, if any -- called on power-on, the point at
     /// which a real BlueField picks up a staged mode change.
-    pub fn apply_pending_mode(&self) {
+    pub(crate) fn apply_pending_mode(&self) {
         match self {
             Self::Bluefield3 { mode, .. } => {
                 let mut mode = mode.lock().unwrap();
@@ -94,7 +94,7 @@ impl BluefieldState {
     }
 }
 
-pub fn resource(system_id: &str) -> redfish::Resource<'static> {
+pub(in crate::redfish) fn resource(system_id: &str) -> redfish::Resource<'static> {
     redfish::Resource {
         odata_id: Cow::Owned(format!("/redfish/v1/Systems/{system_id}/Oem/Nvidia")),
         odata_type: Cow::Borrowed("#NvidiaComputerSystem.v1_0_0.NvidiaComputerSystem"),
@@ -107,7 +107,7 @@ pub fn resource(system_id: &str) -> redfish::Resource<'static> {
 
 const SYSTEMS_OEM_RESOURCE_DELETE_FIELDS: &[&str] = &["Id", "Name"];
 
-pub fn add_routes(r: Router<BmcState>) -> Router<BmcState> {
+pub(crate) fn add_routes(r: Router<BmcState>) -> Router<BmcState> {
     r.route(
         "/redfish/v1/Systems/{system_id}/Oem/Nvidia",
         get(get_oem_nvidia),
