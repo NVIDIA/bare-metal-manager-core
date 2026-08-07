@@ -105,9 +105,9 @@ EPHEMERAL_GENERATED_OUTPUTS: dict[str, tuple[str, ...]] = {
 }
 
 
-# These contracts describe the four tasks selected by Core CI:
+# These contracts describe the five tasks selected by Core CI:
 # `build-boot-artifacts-x86-host-ci`, `build-boot-artifacts-bfb-ci`,
-# `create-ephemeral-image-x86-host-ci`, and
+# `package-scout-aarch64-ci`, `create-ephemeral-image-x86-host-ci`, and
 # `create-ephemeral-image-arm-host-ci`. Each key also locks the task to its
 # expected build type and architecture. A new caller must use one complete
 # identity below or add a contract that describes its actual outputs.
@@ -147,11 +147,25 @@ CONTRACTS: dict[BuildIdentity, ArtifactContract] = {
         build_type="ephemeral",
         arch="aarch64",
     ): ArtifactContract(
+        # Unlike x86_64 above, this job does not carry the boot bundle: it
+        # downloads only the forge-scout deb from the package-scout job, and
+        # the release-artifacts carrier takes the boot blobs from the bfb
+        # job's own artifact.
         required=(
-            BOOT_REQUIRED_OUTPUTS["aarch64"]
+            ("target/debs/forge-scout_*_arm64.deb",)
             + EPHEMERAL_GENERATED_OUTPUTS["aarch64"]
         ),
         optional=("build.log",),
+        disabled=(UNBUILT_ADMIN_CLI,),
+    ),
+    BuildIdentity(
+        cargo_make_task="package-scout-aarch64-ci",
+        build_type="package",
+        arch="aarch64",
+    ): ArtifactContract(
+        # The deb is the whole deliverable; the symbolication copy of the
+        # unstripped binary ships in the bfb job's boot artifact.
+        required=("target/debs/forge-scout_*_arm64.deb",),
         disabled=(UNBUILT_ADMIN_CLI,),
     ),
 }

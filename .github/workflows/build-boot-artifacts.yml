@@ -17,8 +17,13 @@ on:
         required: true
         type: string
       build_type:
-        description: 'Build type: boot or ephemeral'
+        description: 'Build type: boot, ephemeral, or package (compile-and-package only, uploads just target/debs)'
         required: true
+        type: string
+      prereq_artifact:
+        description: 'Artifact holding the prerequisite files for an ephemeral build. Defaults to the full boot-artifacts archive; point it at a package-artifacts archive to fetch only the forge-scout .deb the mkosi build actually consumes.'
+        required: false
+        default: ''
         type: string
       build_container:
         description: 'Build container image to use (for container mode only)'
@@ -51,7 +56,11 @@ on:
       extras_container:
         description: 'Location of additional artifacts to place into the built images'
         required: false
-        default: false
+        # An empty string, not boolean false: this is a string input, and the
+        # old boolean default reached callers as the literal text "false" --
+        # any job omitting the input would then try to docker-login to a
+        # registry named "false". Empty engages the nvcr.io fallback instead.
+        default: ''
         type: string
 
 jobs:
@@ -135,12 +144,12 @@ jobs:
           echo "✅ mkosi commit: $(cd pxe/mkosi && git rev-parse --short HEAD)"
           echo "✅ Submodules ready"
 
-      # For ephemeral builds, download boot artifacts first
+      # For ephemeral builds, download the prerequisite artifacts first
       - name: Download prerequisite boot artifacts
         if: inputs.build_type == 'ephemeral'
         uses: actions/download-artifact@v4
         with:
-          name: boot-artifacts-${{ inputs.arch }}-${{ github.run_id }}
+          name: ${{ inputs.prereq_artifact != '' && inputs.prereq_artifact || format('boot-artifacts-{0}-{1}', inputs.arch, github.run_id) }}
           path: .
         continue-on-error: false
 
@@ -513,9 +522,10 @@ jobs:
       # ephemeral failures also upload `build.log` through the separate
       # best-effort step below.
       #
-      # Upload the files used by later jobs. The package task writes
-      # forge-scout to `target/debs/`; the ephemeral job downloads that boot
-      # bundle, and `copy-forge-scout-*` in `pxe/Makefile.toml` copies the deb
+      # Upload the files used by later jobs. The package-scout task writes
+      # forge-scout to `target/debs/`; the ephemeral job downloads that deb
+      # (x86_64 still downloads the full boot bundle), and
+      # `copy-forge-scout-*` in `pxe/Makefile.toml` copies the deb
       # into mkosi staging. `Dockerfile.release-artifacts-*` consumes
       # `pxe/static/blobs/internal/`. Excluding the rest of the cargo target tree
       # and `mkosi.profiles` staging inputs removes ~14 GB of upload/download
@@ -526,7 +536,7 @@ jobs:
       # that are already compressed. `if-no-files-found` checks the path list as
       # a whole; the validator above is what requires each contract entry.
       - name: Upload artifacts
-        if: ${{ success() }}
+        if: ${{ success() && inputs.build_type != 'package' }}
         uses: actions/upload-artifact@v4
         with:
           name: ${{ inputs.build_type }}-artifacts-${{ inputs.arch }}-${{ github.run_id }}
@@ -534,6 +544,32 @@ jobs:
             pxe/static/blobs/
             target/debs/
             target/aarch64-unknown-linux-gnu/release/forge-scout
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 1
+
+      # The package build's deliverable is the .deb set alone -- not the
+      # unstripped binary, whose copy for symbolication ships in the boot
+      # artifact. Staged under a directory that reproduces the repo-relative
+      # layout (same pattern as the bluefield binaries in ci.yaml) because
+      # upload-artifact roots the archive at the least common ancestor of what
+      # it matched: uploading target/debs/ directly would drop the target/
+      # prefix that the pxe copy-forge-scout tasks expect after download.
+      - name: Stage package artifacts for upload
+        if: ${{ success() && inputs.build_type == 'package' }}
+        run: |
+          mkdir -p package-artifacts-dir/target
+          cp -r target/debs package-artifacts-dir/target/debs
+
+      # .deb payloads are already compressed, hence compression-level 0. The
+      # name matches the release-artifacts download pattern (*-<arch>-<run_id>),
+      # which is harmless: the carrier images COPY only pxe/static/blobs/.
+      - name: Upload package artifacts
+        if: ${{ success() && inputs.build_type == 'package' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ inputs.build_type }}-artifacts-${{ inputs.arch }}-${{ github.run_id }}
+          path: package-artifacts-dir/
           if-no-files-found: error
           compression-level: 0
           retention-days: 1

@@ -46,6 +46,11 @@ EXPECTED_BUILD_IDENTITIES = {
         build_type="ephemeral",
         arch="aarch64",
     ),
+    ("package", "aarch64"): BuildIdentity(
+        cargo_make_task="package-scout-aarch64-ci",
+        build_type="package",
+        arch="aarch64",
+    ),
 }
 
 
@@ -176,7 +181,9 @@ class ValidateBootOutputsTests(unittest.TestCase):
 
     def test_ephemeral_contracts_keep_downloaded_boot_inputs(self) -> None:
         # Keep this inventory independent from the production constants. A
-        # boot-input change must update this reviewable handoff contract too.
+        # handoff change must update this reviewable contract too. The x86_64
+        # job downloads the full boot bundle and re-uploads it; the aarch64
+        # job downloads only the forge-scout deb from the package-scout job.
         expected_boot_inputs = {
             "x86_64": {
                 "pxe/static/blobs/internal/x86_64/ipxe.efi",
@@ -188,19 +195,6 @@ class ValidateBootOutputsTests(unittest.TestCase):
                 "target/debs/forge-scout_*_amd64.deb",
             },
             "aarch64": {
-                "pxe/static/blobs/internal/aarch64/secure-boot-pk.pem",
-                "pxe/static/blobs/internal/aarch64/ipxe.efi",
-                "pxe/static/blobs/internal/aarch64/carbide.efi",
-                "pxe/static/blobs/internal/aarch64/carbide.root",
-                "pxe/static/blobs/internal/aarch64/preingestion.bfb",
-                "pxe/static/blobs/internal/aarch64/forge.bfb",
-                "pxe/static/blobs/internal/apt/dists/focal/Release",
-                "pxe/static/blobs/internal/apt/dists/focal/main/binary-arm64/Packages",
-                "pxe/static/blobs/internal/apt/dists/focal/main/binary-arm64/Release",
-                "pxe/static/blobs/internal/apt/pool/base/f/forge-dpu/forge-dpu_*_arm64.deb",
-                "pxe/static/blobs/internal/apt/pool/base/f/forge-scout/forge-scout_*_arm64.deb",
-                "target/aarch64-unknown-linux-gnu/release/forge-scout",
-                "target/debs/forge-dpu_*_arm64.deb",
                 "target/debs/forge-scout_*_arm64.deb",
             },
         }
@@ -229,7 +223,7 @@ class ValidateBootOutputsTests(unittest.TestCase):
     def test_ephemeral_contracts_reject_missing_boot_inputs(self) -> None:
         boot_inputs = {
             "x86_64": "pxe/static/blobs/internal/x86_64/ipxe.efi",
-            "aarch64": "pxe/static/blobs/internal/aarch64/secure-boot-pk.pem",
+            "aarch64": "target/debs/forge-scout_*_arm64.deb",
         }
 
         for arch, boot_input in boot_inputs.items():
