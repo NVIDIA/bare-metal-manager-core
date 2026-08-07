@@ -15,6 +15,7 @@
  * limitations under the License.
  */
 
+use std::net::{Ipv4Addr, Ipv6Addr};
 use std::sync::Arc;
 
 use arc_swap::{ArcSwap, ArcSwapOption};
@@ -88,7 +89,8 @@ impl FmdsState {
 /// Populated from FmdsConfigUpdate proto.
 #[derive(Clone, Debug)]
 pub struct FmdsConfig {
-    pub address: String,
+    pub public_ipv4: Option<Ipv4Addr>,
+    pub public_ipv6: Option<Ipv6Addr>,
     pub hostname: String,
     pub instance_name: Option<String>,
     pub sitename: Option<String>,
@@ -120,7 +122,8 @@ mod tests {
 
     fn make_test_config() -> FmdsConfig {
         FmdsConfig {
-            address: "10.0.0.1".to_string(),
+            public_ipv4: Some("10.0.0.1".parse().unwrap()),
+            public_ipv6: Some("2001:db8::1".parse().unwrap()),
             hostname: "test-host".to_string(),
             instance_name: Some("test-instance".to_string()),
             sitename: Some("test-site".to_string()),
@@ -195,7 +198,8 @@ mod tests {
         state.update_config(config);
 
         let loaded = state.config.load_full().unwrap();
-        assert_eq!(loaded.address, "10.0.0.1");
+        assert_eq!(loaded.public_ipv4, Some("10.0.0.1".parse().unwrap()));
+        assert_eq!(loaded.public_ipv6, Some("2001:db8::1".parse().unwrap()));
         assert_eq!(loaded.hostname, "test-host");
         assert_eq!(loaded.instance_name.as_deref(), Some("test-instance"));
         assert_eq!(loaded.sitename.as_deref(), Some("test-site"));

@@ -110,21 +110,27 @@ func (*UpdateConfigResponse) Descriptor() ([]byte, []int) {
 // tenants via its REST API, ensuring the data stored
 // within FMDS is targeted specifically for FMDS use.
 type FmdsConfigUpdate struct {
-	state      protoimpl.MessageState `protogen:"open.v1"`
-	Address    string                 `protobuf:"bytes,1,opt,name=address,proto3" json:"address,omitempty"`
-	Hostname   string                 `protobuf:"bytes,2,opt,name=hostname,proto3" json:"hostname,omitempty"`
-	Sitename   *string                `protobuf:"bytes,3,opt,name=sitename,proto3,oneof" json:"sitename,omitempty"`
-	InstanceId *InstanceId            `protobuf:"bytes,4,opt,name=instance_id,json=instanceId,proto3,oneof" json:"instance_id,omitempty"`
-	MachineId  *MachineId             `protobuf:"bytes,5,opt,name=machine_id,json=machineId,proto3,oneof" json:"machine_id,omitempty"`
-	UserData   string                 `protobuf:"bytes,6,opt,name=user_data,json=userData,proto3" json:"user_data,omitempty"`
-	IbDevices  []*IBDevice            `protobuf:"bytes,7,rep,name=ib_devices,json=ibDevices,proto3" json:"ib_devices,omitempty"`
-	Asn        uint32                 `protobuf:"varint,8,opt,name=asn,proto3" json:"asn,omitempty"`
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Current agents send the IPv4 value served by `GET …/meta-data/public-ipv4`.
+	// Older agents may send either address family here, so the field name stays `address` for wire compatibility.
+	Address    string      `protobuf:"bytes,1,opt,name=address,proto3" json:"address,omitempty"`
+	Hostname   string      `protobuf:"bytes,2,opt,name=hostname,proto3" json:"hostname,omitempty"`
+	Sitename   *string     `protobuf:"bytes,3,opt,name=sitename,proto3,oneof" json:"sitename,omitempty"`
+	InstanceId *InstanceId `protobuf:"bytes,4,opt,name=instance_id,json=instanceId,proto3,oneof" json:"instance_id,omitempty"`
+	MachineId  *MachineId  `protobuf:"bytes,5,opt,name=machine_id,json=machineId,proto3,oneof" json:"machine_id,omitempty"`
+	UserData   string      `protobuf:"bytes,6,opt,name=user_data,json=userData,proto3" json:"user_data,omitempty"`
+	IbDevices  []*IBDevice `protobuf:"bytes,7,rep,name=ib_devices,json=ibDevices,proto3" json:"ib_devices,omitempty"`
+	Asn        uint32      `protobuf:"varint,8,opt,name=asn,proto3" json:"asn,omitempty"`
 	// Machine-identity (`GET …/meta-data/identity`) rate limits, timeouts, and optional HTTP sign proxy.
 	// When omitted, FMDS leaves machine-identity serving unchanged (startup defaults from `FmdsState::try_new`
 	// until the first update that includes this field).
 	MachineIdentity *FmdsMachineIdentityConfig `protobuf:"bytes,9,opt,name=machine_identity,json=machineIdentity,proto3,oneof" json:"machine_identity,omitempty"`
 	// Human-readable instance name from nico.Instance.metadata.name.
-	InstanceName  *string `protobuf:"bytes,10,opt,name=instance_name,json=instanceName,proto3,oneof" json:"instance_name,omitempty"`
+	InstanceName *string `protobuf:"bytes,10,opt,name=instance_name,json=instanceName,proto3,oneof" json:"instance_name,omitempty"`
+	// IPv6 value served by `GET …/meta-data/public-ipv6`.
+	// On each config update, an empty or omitted value falls back to an IPv6 value in the legacy
+	// `address` field; a non-empty value takes precedence.
+	AddressIpv6   string `protobuf:"bytes,11,opt,name=address_ipv6,json=addressIpv6,proto3" json:"address_ipv6,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -225,6 +231,13 @@ func (x *FmdsConfigUpdate) GetMachineIdentity() *FmdsMachineIdentityConfig {
 func (x *FmdsConfigUpdate) GetInstanceName() string {
 	if x != nil && x.InstanceName != nil {
 		return *x.InstanceName
+	}
+	return ""
+}
+
+func (x *FmdsConfigUpdate) GetAddressIpv6() string {
+	if x != nil {
+		return x.AddressIpv6
 	}
 	return ""
 }
@@ -433,7 +446,7 @@ const file_fmds_nico_proto_rawDesc = "" +
 	"\x0ffmds_nico.proto\x12\x04fmds\x1a\x11common_nico.proto\"R\n" +
 	"\x13UpdateConfigRequest\x12;\n" +
 	"\rconfig_update\x18\x01 \x01(\v2\x16.fmds.FmdsConfigUpdateR\fconfigUpdate\"\x16\n" +
-	"\x14UpdateConfigResponse\"\x86\x04\n" +
+	"\x14UpdateConfigResponse\"\xa9\x04\n" +
 	"\x10FmdsConfigUpdate\x12\x18\n" +
 	"\aaddress\x18\x01 \x01(\tR\aaddress\x12\x1a\n" +
 	"\bhostname\x18\x02 \x01(\tR\bhostname\x12\x1f\n" +
@@ -448,7 +461,8 @@ const file_fmds_nico_proto_rawDesc = "" +
 	"\x03asn\x18\b \x01(\rR\x03asn\x12O\n" +
 	"\x10machine_identity\x18\t \x01(\v2\x1f.fmds.FmdsMachineIdentityConfigH\x03R\x0fmachineIdentity\x88\x01\x01\x12(\n" +
 	"\rinstance_name\x18\n" +
-	" \x01(\tH\x04R\finstanceName\x88\x01\x01B\v\n" +
+	" \x01(\tH\x04R\finstanceName\x88\x01\x01\x12!\n" +
+	"\faddress_ipv6\x18\v \x01(\tR\vaddressIpv6B\v\n" +
 	"\t_sitenameB\x0e\n" +
 	"\f_instance_idB\r\n" +
 	"\v_machine_idB\x13\n" +

@@ -28,6 +28,7 @@ use forge_dpu_fmds_shared::machine_identity;
 use crate::state::FmdsState;
 
 const PUBLIC_IPV4_CATEGORY: &str = "public-ipv4";
+const PUBLIC_IPV6_CATEGORY: &str = "public-ipv6";
 const HOSTNAME_CATEGORY: &str = "hostname";
 const INSTANCE_NAME_CATEGORY: &str = "instance-name";
 const SITENAME_CATEGORY: &str = "sitename";
@@ -112,7 +113,20 @@ fn extract_metadata(category: String, state: &FmdsState) -> (StatusCode, String)
     };
 
     match category.as_str() {
-        PUBLIC_IPV4_CATEGORY => (StatusCode::OK, config.address.clone()),
+        PUBLIC_IPV4_CATEGORY => (
+            StatusCode::OK,
+            config
+                .public_ipv4
+                .map(|address| address.to_string())
+                .unwrap_or_default(),
+        ),
+        PUBLIC_IPV6_CATEGORY => (
+            StatusCode::OK,
+            config
+                .public_ipv6
+                .map(|address| address.to_string())
+                .unwrap_or_default(),
+        ),
         HOSTNAME_CATEGORY => (StatusCode::OK, config.hostname.clone()),
         INSTANCE_NAME_CATEGORY => match &config.instance_name {
             Some(instance_name) if !instance_name.is_empty() => {
@@ -196,6 +210,8 @@ async fn get_metadata_params(State(_state): State<Arc<FmdsState>>) -> (StatusCod
             MACHINE_ID_CATEGORY,
             INSTANCE_ID_CATEGORY,
             ASN_CATEGORY,
+            PUBLIC_IPV4_CATEGORY,
+            PUBLIC_IPV6_CATEGORY,
         ]
         .join("\n"),
     )
@@ -367,7 +383,7 @@ async fn post_phone_home(State(state): State<Arc<FmdsState>>) -> (StatusCode, St
 
 #[cfg(test)]
 mod tests {
-    use std::net::SocketAddr;
+    use std::net::{Ipv4Addr, Ipv6Addr, SocketAddr};
 
     use axum::http;
     use forge_dpu_fmds_shared::machine_identity::MachineIdentityParams;
@@ -384,7 +400,8 @@ mod tests {
 
     fn make_test_config() -> FmdsConfig {
         FmdsConfig {
-            address: "10.0.0.1".to_string(),
+            public_ipv4: Some("10.0.0.1".parse().unwrap()),
+            public_ipv6: Some("2001:db8::1".parse().unwrap()),
             hostname: "test-host".to_string(),
             instance_name: Some("test-instance".to_string()),
             sitename: Some("test-site".to_string()),
@@ -481,14 +498,60 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_get_public_ipv4() {
+    async fn test_get_public_ip_addresses() {
+        struct PublicAddressCase {
+            public_ipv4: Option<Ipv4Addr>,
+            public_ipv6: Option<Ipv6Addr>,
+            expected_ipv4: &'static str,
+            expected_ipv6: &'static str,
+        }
+
         let state = make_test_state();
         state.update_config(make_test_config());
-        let (server, port) = setup_server(state).await;
+        let (server, port) = setup_server(state.clone()).await;
 
         let (status, body) = get_request(port, "meta-data/public-ipv4").await;
         assert_eq!(status, StatusCode::OK);
         assert_eq!(body, "10.0.0.1");
+
+        let (status, body) = get_request(port, "meta-data/public-ipv6").await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(body, "2001:db8::1");
+
+        for case in [
+            PublicAddressCase {
+                public_ipv4: None,
+                public_ipv6: Some("2001:db8::1".parse().unwrap()),
+                expected_ipv4: "",
+                expected_ipv6: "2001:db8::1",
+            },
+            PublicAddressCase {
+                public_ipv4: Some("10.0.0.1".parse().unwrap()),
+                public_ipv6: None,
+                expected_ipv4: "10.0.0.1",
+                expected_ipv6: "",
+            },
+            PublicAddressCase {
+                public_ipv4: None,
+                public_ipv6: None,
+                expected_ipv4: "",
+                expected_ipv6: "",
+            },
+        ] {
+            state.update_config(FmdsConfig {
+                public_ipv4: case.public_ipv4,
+                public_ipv6: case.public_ipv6,
+                ..make_test_config()
+            });
+
+            let (status, body) = get_request(port, "meta-data/public-ipv4").await;
+            assert_eq!(status, StatusCode::OK);
+            assert_eq!(body, case.expected_ipv4);
+
+            let (status, body) = get_request(port, "meta-data/public-ipv6").await;
+            assert_eq!(status, StatusCode::OK);
+            assert_eq!(body, case.expected_ipv6);
+        }
 
         server.abort();
     }
@@ -580,6 +643,8 @@ mod tests {
             "machine-id",
             "instance-id",
             "asn",
+            "public-ipv4",
+            "public-ipv6",
         ]
         .join("\n");
 
@@ -755,6 +820,7 @@ mod tests {
         let grpc_server = FmdsGrpcServer::new(state.clone());
         let update = FmdsConfigUpdate {
             address: "192.168.1.1".to_string(),
+            address_ipv6: "2001:db8::1".to_string(),
             hostname: "grpc-pushed-host".to_string(),
             instance_name: Some("grpc-pushed-instance".to_string()),
             sitename: Some("grpc-site".to_string()),
@@ -786,6 +852,10 @@ mod tests {
         let (status, body) = get_request(port, "meta-data/public-ipv4").await;
         assert_eq!(status, StatusCode::OK);
         assert_eq!(body, "192.168.1.1");
+
+        let (status, body) = get_request(port, "meta-data/public-ipv6").await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(body, "2001:db8::1");
 
         let (status, body) = get_request(port, "meta-data/asn").await;
         assert_eq!(status, StatusCode::OK);
