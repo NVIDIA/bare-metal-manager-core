@@ -34,7 +34,10 @@ fn is_auxiliary_interface(nic: &::rpc::machine_discovery::NetworkInterface) -> b
     let is_vf_path = nic
         .pci_properties
         .as_ref()
-        .map(|p| p.path.contains("virtfn"))
+        .map(|p| {
+            let pci_portion = p.path.split("/net/").next().unwrap_or("");
+            pci_portion.contains("virtfn")
+        })
         .unwrap_or(false);
     is_sf_or_vf_mac || is_vf_path
 }
@@ -302,6 +305,17 @@ mod tests {
             "/devices/pci0000:00/0000:00:1c.4/0000:08:00.0/virtfn3/net/eth3",
         );
         assert!(is_auxiliary_interface(&iface));
+    }
+
+    // An interface whose name happens to contain "virtfn" (after /net/) is not a VF
+    // and must not be filtered — only a "virtfn" sysfs segment before /net/ indicates a VF.
+    #[test]
+    fn interface_named_virtfn_with_real_mac_is_kept() {
+        let iface = nic(
+            "b4:96:91:aa:bb:cc",
+            "/devices/pci0000:00/0000:00:01.0/0000:01:00.0/net/virtfn0",
+        );
+        assert!(!is_auxiliary_interface(&iface));
     }
 
     // Exercises the unwrap_or(false) in the virtfn path check: absent pci_properties
