@@ -556,10 +556,8 @@ type UpdateExpectedMachineHandler struct {
 	tracerSpan *cutil.TracerSpan
 }
 
-// expectedMachineBmcMacUnchanged accepts an omitted MAC or another spelling of
-// the stored MAC. The BMC MAC identifies the ExpectedMachine in Core, so PATCH
-// may reassert that identity but cannot replace it.
-func expectedMachineBmcMacUnchanged(stored string, submitted *string) bool {
+// bmcMacUnchanged accepts an omitted MAC or another spelling of the stored MAC.
+func bmcMacUnchanged(stored string, submitted *string) bool {
 	if submitted == nil {
 		return true
 	}
@@ -569,9 +567,8 @@ func expectedMachineBmcMacUnchanged(stored string, submitted *string) bool {
 	return storedErr == nil && submittedErr == nil && slices.Equal(storedMAC, submittedMAC)
 }
 
-// expectedMachineBmcMacImmutableValidationError keeps the single and batch
-// PATCH validation responses aligned.
-func expectedMachineBmcMacImmutableValidationError() validation.Errors {
+// bmcMacImmutableValidationError keeps BMC MAC PATCH validation responses aligned.
+func bmcMacImmutableValidationError() validation.Errors {
 	return validation.Errors{
 		"bmcMacAddress": errors.New("BMC MAC address cannot be changed after creation"),
 	}
@@ -692,8 +689,8 @@ func (uemh UpdateExpectedMachineHandler) Handle(c echo.Context) error {
 		return cutil.NewAPIErrorResponse(c, http.StatusForbidden, "Current org is not associated with the Site of the Expected Machine", nil)
 	}
 
-	if !expectedMachineBmcMacUnchanged(expectedMachine.BmcMacAddress, apiRequest.BmcMacAddress) {
-		validationErrors := expectedMachineBmcMacImmutableValidationError()
+	if !bmcMacUnchanged(expectedMachine.BmcMacAddress, apiRequest.BmcMacAddress) {
+		validationErrors := bmcMacImmutableValidationError()
 		return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, "Failed to validate Expected Machine update data", validationErrors)
 	}
 
@@ -1459,8 +1456,8 @@ func (uemh UpdateExpectedMachinesHandler) Handle(c echo.Context) error {
 	for i, req := range apiRequests {
 		mid, _ := uuid.Parse(*req.ID)
 		em := requestedEmMap[mid]
-		if !expectedMachineBmcMacUnchanged(em.BmcMacAddress, req.BmcMacAddress) {
-			validationErrors[strconv.Itoa(i)] = expectedMachineBmcMacImmutableValidationError()
+		if !bmcMacUnchanged(em.BmcMacAddress, req.BmcMacAddress) {
+			validationErrors[strconv.Itoa(i)] = bmcMacImmutableValidationError()
 		}
 	}
 	if len(validationErrors) > 0 {
