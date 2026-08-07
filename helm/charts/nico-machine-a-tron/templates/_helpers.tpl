@@ -50,12 +50,24 @@ app.kubernetes.io/component: machine-a-tron
 {{- end }}
 
 {{/*
-Count pods with machines defined.
+Return true when a pod has generated machine groups or a full config override.
+*/}}
+{{- define "nico-machine-a-tron.podIsActive" -}}
+{{- $matConfigs := .root.Values.configFiles.matConfigs | default dict -}}
+{{- $matConfig := index $matConfigs .podName -}}
+{{- if or (and .podConfig .podConfig.machines (gt (len .podConfig.machines) 0)) $matConfig -}}
+true
+{{- end -}}
+{{- end }}
+
+{{/*
+Count active pods.
 */}}
 {{- define "nico-machine-a-tron.activePods" -}}
 {{- $activePods := 0 -}}
+{{- $root := . -}}
 {{- range $podName, $podConfig := .Values.pods -}}
-{{- if and $podConfig $podConfig.machines (gt (len $podConfig.machines) 0) -}}
+{{- if include "nico-machine-a-tron.podIsActive" (dict "root" $root "podName" $podName "podConfig" $podConfig) -}}
 {{- $activePods = add $activePods 1 -}}
 {{- end -}}
 {{- end -}}

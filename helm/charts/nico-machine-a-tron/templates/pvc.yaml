@@ -4,8 +4,8 @@
 {{- $baseName := include "nico-machine-a-tron.name" . }}
 
 {{- range $podName, $podConfig := .Values.pods }}
-{{/* Skip pods without machines */}}
-{{- if not (and $podConfig $podConfig.machines (gt (len $podConfig.machines) 0)) }}
+{{/* Skip pods without machines or a full config override */}}
+{{- if not (include "nico-machine-a-tron.podIsActive" (dict "root" $root "podName" $podName "podConfig" $podConfig)) }}
 {{- continue }}
 {{- end }}
 

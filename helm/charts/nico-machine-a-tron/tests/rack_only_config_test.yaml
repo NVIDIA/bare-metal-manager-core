@@ -1,0 +1,88 @@
+suite: rack-only config tests
+templates:
+  - certificate.yaml
+  - configmap.yaml
+  - deployment.yaml
+  - pvc.yaml
+  - service.yaml
+tests:
+  - it: should create pod resources for a full config override without machine groups
+    set:
+      pods:
+        mat-0: null
+        rack-0:
+          machines: {}
+      configFiles:
+        matConfigs:
+          rack-0: |
+            carbide_api_url = "https://nico-api:1079"
+            [racks.test]
+            type = "wiwynn_gb200_nvl72"
+            ids = ["rack-test"]
+            [machines]
+      persistence:
+        enabled: true
+    asserts:
+      - isKind:
+          of: Certificate
+        template: certificate.yaml
+      - isKind:
+          of: ConfigMap
+        template: configmap.yaml
+      - matchRegex:
+          path: data["mat.toml"]
+          pattern: 'type = "wiwynn_gb200_nvl72"'
+        template: configmap.yaml
+      - isKind:
+          of: Deployment
+        template: deployment.yaml
+      - isKind:
+          of: PersistentVolumeClaim
+        template: pvc.yaml
+      - isKind:
+          of: Service
+        template: service.yaml
+
+  - it: should not create pod resources without machines or a config override
+    set:
+      pods:
+        mat-0: null
+        inactive:
+          machines: {}
+    asserts:
+      - hasDocuments:
+          count: 0
+        template: certificate.yaml
+      - hasDocuments:
+          count: 0
+        template: configmap.yaml
+      - hasDocuments:
+          count: 0
+        template: deployment.yaml
+      - hasDocuments:
+          count: 0
+        template: pvc.yaml
+      - hasDocuments:
+          count: 0
+        template: service.yaml
+
+  - it: should require the controller for multiple full config overrides
+    set:
+      pods:
+        mat-0: null
+        rack-0:
+          machines: {}
+        rack-1:
+          machines: {}
+      configFiles:
+        matConfigs:
+          rack-0: |
+            carbide_api_url = "https://nico-api:1079"
+            [machines]
+          rack-1: |
+            carbide_api_url = "https://nico-api:1079"
+            [machines]
+    asserts:
+      - failedTemplate:
+          errorMessage: multi-pod machine-a-tron deployments require mat-k8s-controller.enabled=true
+        template: deployment.yaml
