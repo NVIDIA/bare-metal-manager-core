@@ -674,39 +674,10 @@ fi
 '''
 
 [tasks.build-release]
-workspace = false
-description = "Build the production artifacts copied into the release container"
-command = "cargo"
-# Keep this package set aligned with the artifacts copied by the
-# Dockerfile.release-container-* files and checked below.
 args = [
   "build",
   "--locked",
   "--release",
-  "-p",
-  "carbide-api",
-  "-p",
-  "carbide-pxe",
-  "-p",
-  "carbide-dns",
-  "-p",
-  "nico-admin-cli",
-  "-p",
-  "carbide-dsx-exchange-consumer",
-  "-p",
-  "carbide-agent",
-  "-p",
-  "carbide-dhcp-server",
-  "-p",
-  "carbide-health",
-  "-p",
-  "carbide-log-parser",
-  "-p",
-  "carbide-ssh-console",
-  "-p",
-  "carbide-bmc-proxy",
-  "-p",
-  "carbide-dhcp",
   "@@split(CARGO_MAKE_CARGO_BUILD_TEST_FLAGS, )",
 ]
 
@@ -818,6 +789,11 @@ run_task = "package-component-in-container"
 
 [tasks.setup-nightly-rust]
 description = "Install pinned nightly toolchain and components for running format-nightly and carbide-lints tasks"
+# The Nix dev shell already supplies this toolchain and exports CARGO_NIGHTLY
+# pointing at it. rustup may still be on PATH there, inherited from the host,
+# so without this condition the task would install a second, host-owned copy of
+# the same nightly — slow, and no longer pinned by the flake.
+condition = { env_not_set = ["CARGO_NIGHTLY"] }
 script = [
   # Don't waste cycles, only install what isn't installed
   "rustup toolchain list | grep -Fq ${RUST_NIGHTLY} || rustup toolchain install ${RUST_NIGHTLY} --profile minimal",
@@ -831,29 +807,74 @@ workspace = false
 description = "Format with nightly rustfmt options for grouping and sorting import statements"
 category = "Formatting"
 dependencies = ["setup-nightly-rust"]
-script = ["cargo +${RUST_NIGHTLY} fmt --all"]
+script = [
+  '''
+  # `cargo fmt` honours RUSTFMT, which the Nix dev shell points at the pinned
+  # nightly. Outside that shell, select the same toolchain through rustup.
+  if [ -n "${RUSTFMT}" ]; then
+    cargo fmt --all
+  else
+    cargo +${RUST_NIGHTLY} fmt --all
+  fi
+  ''',
+]
 
 [tasks.check-format-nightly]
 workspace = false
 description = "Check format with nightly rustfmt options for grouping and sorting import statements"
 category = "Formatting"
 dependencies = ["setup-nightly-rust"]
-script = ["cargo +${RUST_NIGHTLY} fmt --all -- --check"]
+script = [
+  '''
+  # See format-nightly: RUSTFMT is how the Nix dev shell supplies the nightly.
+  if [ -n "${RUSTFMT}" ]; then
+    cargo fmt --all -- --check
+  else
+    cargo +${RUST_NIGHTLY} fmt --all -- --check
+  fi
+  ''',
+]
 
 [tasks.setup-carbide-lints]
 workspace = false
 description = "Set up the `cargo carbide-lints` command"
 dependencies = ["setup-nightly-rust"]
+# carbide-lints is a rustc driver, so it links against rustc-private. sccache
+# cannot compile against rustc-private, and the failure surfaces as what looks
+# like a compiler error, so clear the wrapper the Nix dev shell sets.
+env = { RUSTC_WRAPPER = "" }
 script = [
+  '''
+  cd "${REPO_ROOT}/lints/carbide-lints"
+  # Under rustup, `+toolchain` selects the nightly. The Nix dev shell has no
+  # rustup-managed cargo — its cargo rejects `+toolchain` outright — so use the
+  # nightly cargo the flake exports instead. RUSTC is set alongside it because
+  # cargo otherwise resolves rustc from PATH, where the stable toolchain comes
+  # first and has no rustc-dev.
   # Don't waste cycles, only install what isn't installed
-  "cd \"${REPO_ROOT}/lints/carbide-lints\" && cargo +${RUST_NIGHTLY} install --path .",
+  if [ -n "${CARGO_NIGHTLY}" ]; then
+    RUSTC="$(dirname "${CARGO_NIGHTLY}")/rustc" "${CARGO_NIGHTLY}" install --path .
+  else
+    cargo +${RUST_NIGHTLY} install --path .
+  fi
+  ''',
 ]
 
 [tasks.carbide-lints]
 workspace = false
 description = "Run custom lints defined in lints/carbide-lints"
 dependencies = ["setup-carbide-lints"]
-script = ["cargo carbide-lints"]
+script = [
+  '''
+  # The driver links against librustc_driver and has to find it at run time.
+  # rustup normally handles this with a shim; the Nix dev shell has no rustup,
+  # so point the loader at the nightly lib dir.
+  if [ -n "${CARGO_NIGHTLY}" ]; then
+    export LD_LIBRARY_PATH="$(dirname "$(dirname "${CARGO_NIGHTLY}")")/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+  fi
+  cargo carbide-lints --all-targets --all-features
+  ''',
+]
 
 [tasks.check-workspace-deps]
 workspace = false
