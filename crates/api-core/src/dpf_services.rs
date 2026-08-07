@@ -52,6 +52,9 @@ pub(crate) const DOCA_WEAVE_CHART_REPO_URL: &str =
     "oci://harbor.mellanox.com/cloud-orchestration-dev/dpf";
 pub(crate) const DOCA_WEAVE_IMAGE_REGISTRY: &str = "nvcr.io/nvstaging/doca";
 
+pub const DOCA_XPLANE_CHART_REPO_URL: &str = "https://helm.ngc.nvidia.com/nvstaging/doca";
+pub const DOCA_XPLANE_IMAGE_REGISTRY: &str = "nvcr.io/nvstaging/doca";
+
 /// HBN service Definitions
 pub(crate) const DOCA_HBN_SERVICE_HELM_NAME: &str = "doca-hbn";
 pub(crate) const DOCA_HBN_SERVICE_HELM_VERSION: &str = "3.4.0";
@@ -97,10 +100,10 @@ pub(crate) const DOCA_WEAVE_FLOW_CONTROLLER_SERVICE_IMAGE_NAME: &str = "weave-sy
 pub(crate) const DOCA_WEAVE_FLOW_CONTROLLER_SERVICE_IMAGE_TAG: &str = "v26.5.0-f2c9f7c4-nightly";
 
 /// Xplane service definitions.
-pub(crate) const DOCA_XPLANE_SERVICE_HELM_NAME: &str = "doca-xplane";
-pub(crate) const DOCA_XPLANE_SERVICE_HELM_VERSION: &str = "1.0";
-pub(crate) const DOCA_XPLANE_SERVICE_IMAGE_NAME: &str = "doca_xplane";
-pub(crate) const DOCA_XPLANE_SERVICE_IMAGE_TAG: &str = "3.2.1-doca3.2.1";
+pub const DOCA_XPLANE_SERVICE_HELM_NAME: &str = "xplane";
+pub const DOCA_XPLANE_SERVICE_HELM_VERSION: &str = "3.5.0020";
+pub const DOCA_XPLANE_SERVICE_IMAGE_NAME: &str = "xplane";
+pub const DOCA_XPLANE_SERVICE_IMAGE_TAG: &str = "3.5.0020";
 
 /// Compile-time helm version (set by CI via VERSION env var). Empty on PR/fork builds.
 pub(crate) const COMPILE_TIME_HELM_VERSION: &str = match option_env!("CARBIDE_BUILD_HELM_VERSION") {
@@ -280,10 +283,10 @@ pub(crate) fn default_doca_weave_flow_controller_service() -> DpfServiceConfig {
 pub(crate) fn default_doca_xplane_service() -> DpfServiceConfig {
     DpfServiceConfig {
         name: DOCA_XPLANE_SERVICE_NAME.to_string(),
-        helm_repo_url: DEFAULT_DOCA_HELM_REGISTRY.to_string(),
+        helm_repo_url: DOCA_XPLANE_CHART_REPO_URL.to_string(),
         helm_chart: DOCA_XPLANE_SERVICE_HELM_NAME.to_string(),
         helm_version: DOCA_XPLANE_SERVICE_HELM_VERSION.to_string(),
-        docker_repo_url: format!("{DEFAULT_DOCA_IMAGE_REGISTRY}/{DOCA_XPLANE_SERVICE_IMAGE_NAME}"),
+        docker_repo_url: format!("{DOCA_XPLANE_IMAGE_REGISTRY}/{DOCA_XPLANE_SERVICE_IMAGE_NAME}"),
         docker_image_tag: DOCA_XPLANE_SERVICE_IMAGE_TAG.to_string(),
         docker_image_pull_secret: None,
         extra_helm_values: None,
@@ -1224,5 +1227,80 @@ mod tests {
                 iface.name
             );
         }
+    }
+
+    // ---- xplane manifest generation ----
+
+    /// Exercises `default_doca_xplane_service` end to end: renders the xplane
+    /// `ServiceDefinition` into its `DPUServiceTemplate` and
+    /// `DPUServiceConfiguration` CRs, serializes both to YAML, and writes the
+    /// manifests to disk for inspection. Set `DPF_XPLANE_YAML_OUT_DIR` to choose
+    /// the output directory; it defaults to a `dpf-xplane-yaml` subdirectory of
+    /// the system temp directory. Run with `--nocapture` to see the paths.
+    #[test]
+    fn xplane_service_generates_dpu_service_yaml_manifests() {
+        use std::fs;
+        use std::path::PathBuf;
+
+        use carbide_dpf::build_service_template;
+
+        const SUFFIX: &str = "bf4astra";
+
+        let cfg = default_doca_xplane_service();
+        let svc = doca_xplane_service(&cfg);
+
+        let template = build_service_template(&svc, TEST_NS, SUFFIX);
+        let configuration = build_service_configuration(&svc, TEST_NS, SUFFIX, &BTreeMap::new());
+
+        let template_yaml =
+            serde_yaml::to_string(&template).expect("DPUServiceTemplate must serialize to YAML");
+        let configuration_yaml = serde_yaml::to_string(&configuration)
+            .expect("DPUServiceConfiguration must serialize to YAML");
+
+        // Round-trip the emitted YAML to prove both manifests are well-formed and
+        // that the xplane chart coordinates from `default_doca_xplane_service`
+        // survived rendering.
+        let template_value: serde_yaml::Value =
+            serde_yaml::from_str(&template_yaml).expect("template YAML must be valid");
+        assert_eq!(template_value["kind"].as_str(), Some("DPUServiceTemplate"));
+        let source = &template_value["spec"]["helmChart"]["source"];
+        assert_eq!(source["repoURL"].as_str(), Some(cfg.helm_repo_url.as_str()));
+        assert_eq!(source["chart"].as_str(), Some(cfg.helm_chart.as_str()));
+        assert_eq!(source["version"].as_str(), Some(cfg.helm_version.as_str()));
+        let image = &template_value["spec"]["helmChart"]["values"]["image"];
+        assert_eq!(
+            image["repository"].as_str(),
+            Some(cfg.docker_repo_url.as_str())
+        );
+        assert_eq!(image["tag"].as_str(), Some(cfg.docker_image_tag.as_str()));
+
+        let configuration_value: serde_yaml::Value =
+            serde_yaml::from_str(&configuration_yaml).expect("configuration YAML must be valid");
+        assert_eq!(
+            configuration_value["kind"].as_str(),
+            Some("DPUServiceConfiguration")
+        );
+        assert_eq!(
+            configuration_value["spec"]["deploymentServiceName"].as_str(),
+            Some(DOCA_XPLANE_SERVICE_NAME)
+        );
+
+        // Persist the manifests so they can be inspected outside the test run.
+        let out_dir = std::env::var_os("DPF_XPLANE_YAML_OUT_DIR")
+            .map(PathBuf::from)
+            .unwrap_or_else(|| std::env::temp_dir().join("dpf-xplane-yaml"));
+        fs::create_dir_all(&out_dir).expect("output directory must be creatable");
+
+        let template_path = out_dir.join("doca-xplane-dpuservicetemplate.yaml");
+        let configuration_path = out_dir.join("doca-xplane-dpuserviceconfiguration.yaml");
+        fs::write(&template_path, &template_yaml).expect("template YAML must be writable");
+        fs::write(&configuration_path, &configuration_yaml)
+            .expect("configuration YAML must be writable");
+
+        assert!(template_path.exists());
+        assert!(configuration_path.exists());
+
+        println!("wrote {}", template_path.display());
+        println!("wrote {}", configuration_path.display());
     }
 }
