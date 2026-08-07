@@ -95,6 +95,9 @@ data:
     {{- if $root.Values.machineATron.enableIpmiSimulation }}
     enable_ipmi_simulation = true
     {{- end }}
+    {{- if (hasKey $root.Values.machineATron "ipmiReachablePort") }}
+    ipmi_reachable_port = {{ $root.Values.machineATron.ipmiReachablePort }}
+    {{- end }}
     {{- if $root.Values.machineATron.hostBmcPassword }}
     host_bmc_password = {{ $root.Values.machineATron.hostBmcPassword | quote }}
     {{- end }}

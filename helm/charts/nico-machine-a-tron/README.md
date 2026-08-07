@@ -241,7 +241,21 @@ hardware types have IPMI support).
 ```yaml
 machineATron:
   enableIpmiSimulation: true
+  # For K8s controller mode, use dynamic ports so each BMC gets a unique port
+  ipmiReachablePort: 0
 ```
+
+**Port Configuration:**
+
+| `ipmiReachablePort` | Behavior |
+|---------------------|----------|
+| Unset (default) | Advertise port 623 in Redfish |
+| `0` | Use dynamic port (required for K8s controller mode) |
+| `1-65535` | Use specified port |
+
+When using K8s controller mode (`use_single_bmc_mock: true`), set
+`ipmiReachablePort: 0` so each IPMI simulator gets a unique dynamic port that
+the `mat-k8s-controller` can map to individual Services.
 
 When enabled:
 
@@ -254,7 +268,7 @@ When enabled:
 
 **Requirements:**
 
-- The machine-a-tron container image must include `ipmi_sim` (from `openipmi-utils`)
+- The machine-a-tron container image must include `ipmi_sim` (from `openipmi`)
   and `ipmitool` - these are included in the standard image
 - Only IPMI-capable hardware types will expose IPMI endpoints
 

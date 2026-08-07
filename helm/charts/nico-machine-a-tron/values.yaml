@@ -137,6 +137,9 @@ machineATron:
   persistDir: "/tmp/machine-a-tron-data"
   cleanupOnQuit: false
   enableIpmiSimulation: false
+  # IPMI port advertised through Redfish. Unset uses default 623
+  # Set to 0 for dynamic port (required for mat-k8s-controller)
+  # ipmiReachablePort: 0
   registerExpectedMachines: true
   hostBmcPassword: ""
   dpuBmcPassword: ""
