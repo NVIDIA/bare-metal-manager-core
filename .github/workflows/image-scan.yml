@@ -185,3 +185,14 @@ jobs:
           if [ "${status}" != 'ok' ]; then
             echo "::warning::${KEY}: Grype status ${status} (${DETAIL:-no detail reported})"
           fi
+
+      # These runners are self-hosted, so the daemon keeps whatever a job leaves
+      # behind. Nothing here reuses the image, and the boot-artifacts carrier
+      # alone is 8 GB, so every scan would otherwise add to the disk until it
+      # ran out. Untagging is enough: the layers become unreferenced and the
+      # daemon reclaims them.
+      - name: Remove the pulled image
+        if: ${{ always() }}
+        env:
+          IMAGE: ${{ matrix.target.image }}
+        run: docker image rm "${IMAGE}" || true
