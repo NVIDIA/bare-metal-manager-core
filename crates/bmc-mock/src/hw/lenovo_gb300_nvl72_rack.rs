@@ -18,10 +18,10 @@
 use crate::hw::rack::RackElevation;
 use crate::{HardwareType, hw};
 
-pub struct LenovoGB300Nvl72Rack;
+pub(crate) struct LenovoGB300Nvl72Rack;
 
 impl LenovoGB300Nvl72Rack {
-    pub fn rack_elevation(&self) -> RackElevation {
+    pub(crate) fn rack_elevation(&self) -> RackElevation {
         hw::nvidia_gb300::nvl72_rack_elevation(
             HardwareType::LenovoGB300Nvl,
             HardwareType::LiteOnPowerShelf,
