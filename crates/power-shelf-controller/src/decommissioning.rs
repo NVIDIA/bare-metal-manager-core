@@ -146,15 +146,15 @@ async fn handle_suppressing_bmc_dhcp(
         db::machine_interface::record_deletion(&mut txn).await?;
     }
 
-    Ok(StateHandlerOutcome::transition(
-        PowerShelfControllerState::Decommissioning {
+    Ok(
+        StateHandlerOutcome::transition(PowerShelfControllerState::Decommissioning {
             decommissioning_state: PowerShelfDecommissioningState::VerifyingDhcpRelease {
                 verifying_state:
                     PowerShelfVerifyingDhcpReleaseState::WaitingForBmcDhcpAcknowledgement,
             },
-        },
+        })
+        .with_txn(txn),
     )
-    .with_txn(txn))
 }
 
 pub(super) async fn handle_verifying_dhcp_release(
