@@ -19,9 +19,8 @@ use carbide_uuid::machine::{MachineId, MachineIdSource, MachineType};
 use carbide_uuid::power_shelf::PowerShelfId;
 use carbide_uuid::rack::RackId;
 use model::power_shelf::{PowerShelf, PowerShelfControllerState};
-use rpc::forge::{
-    DecommissionPowerShelfRequest, DeleteDecommissionedPowerShelfRequest, forge_server::Forge,
-};
+use rpc::forge::forge_server::Forge;
+use rpc::forge::{DecommissionPowerShelfRequest, DeleteDecommissionedPowerShelfRequest};
 use tonic::{Code, Request};
 
 use super::fixtures::power_shelf::set_power_shelf_controller_state;

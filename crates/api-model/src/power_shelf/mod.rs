@@ -288,6 +288,8 @@ pub enum PowerShelfDecommissioningState {
     VerifyingDhcpRelease {
         verifying_state: PowerShelfVerifyingDhcpReleaseState,
     },
+    /// Managed per-device credentials are being removed after DHCP release.
+    DeletingManagedCredentials,
     /// Terminal substate: the power shelf has been removed from managed service.
     Decommissioned,
 }
@@ -361,6 +363,10 @@ pub fn state_sla(state: &PowerShelfControllerState, state_version: &ConfigVersio
                     }
                 }
             }
+            PowerShelfDecommissioningState::DeletingManagedCredentials => StateSla::with_sla(
+                std::time::Duration::from_secs(slas::DECOMMISSIONING_DELETING_MANAGED_CREDENTIALS),
+                time_in_state,
+            ),
             PowerShelfDecommissioningState::Decommissioned => StateSla::no_sla(),
         },
         PowerShelfControllerState::Error { .. } => StateSla::no_sla(),

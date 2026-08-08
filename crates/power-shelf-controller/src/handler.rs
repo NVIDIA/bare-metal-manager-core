@@ -29,7 +29,10 @@ use tracing::instrument;
 
 use crate::configuring::handle_configuring;
 use crate::context::PowerShelfStateHandlerContextObjects;
-use crate::decommissioning::{handle_suppressing_site_explorer, handle_verifying_dhcp_release};
+use crate::decommissioning::{
+    handle_deleting_managed_credentials, handle_suppressing_site_explorer,
+    handle_verifying_dhcp_release,
+};
 use crate::deleting::handle_deleting;
 use crate::error_state::handle_error;
 use crate::fetching_data::handle_fetching_data;
@@ -100,6 +103,9 @@ impl PowerShelfStateHandler {
                 }
                 PowerShelfDecommissioningState::VerifyingDhcpRelease { verifying_state } => {
                     handle_verifying_dhcp_release(verifying_state, state, ctx).await
+                }
+                PowerShelfDecommissioningState::DeletingManagedCredentials => {
+                    handle_deleting_managed_credentials(state, ctx).await
                 }
                 PowerShelfDecommissioningState::Decommissioned => {
                     Ok(StateHandlerOutcome::do_nothing())

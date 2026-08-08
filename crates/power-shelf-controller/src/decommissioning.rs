@@ -18,6 +18,7 @@
 //! Managed power-shelf decommissioning handlers.
 
 use carbide_credential_rotation::BmcEndpoint;
+use carbide_secrets::credentials::{BmcCredentialType, CredentialKey, CredentialWriter};
 use carbide_utils::redfish::BmcAccessInfo;
 use carbide_uuid::power_shelf::PowerShelfId;
 use model::bmc_suppression::{BmcSuppressionSubsystem, NewBmcSuppression};
@@ -189,7 +190,8 @@ pub(super) async fn handle_verifying_dhcp_release(
             if suppression.is_some_and(|suppression| suppression.acknowledged_at.is_some()) {
                 Ok(StateHandlerOutcome::transition(
                     PowerShelfControllerState::Decommissioning {
-                        decommissioning_state: PowerShelfDecommissioningState::Decommissioned,
+                        decommissioning_state:
+                            PowerShelfDecommissioningState::DeletingManagedCredentials,
                     },
                 ))
             } else {
@@ -200,4 +202,50 @@ pub(super) async fn handle_verifying_dhcp_release(
             }
         }
     }
+}
+
+pub(super) async fn handle_deleting_managed_credentials(
+    power_shelf: &PowerShelf,
+    ctx: &mut StateHandlerContext<'_, PowerShelfStateHandlerContextObjects>,
+) -> Result<StateHandlerOutcome<PowerShelfControllerState>, StateHandlerError> {
+    let bmc_mac = power_shelf
+        .bmc_info
+        .as_ref()
+        .and_then(|info| info.mac)
+        .or(power_shelf.bmc_mac_address)
+        .ok_or_else(|| StateHandlerError::MissingData {
+            object_id: power_shelf.id.to_string(),
+            missing: "bmc_mac",
+        })?;
+    let credential_key = CredentialKey::BmcCredentials {
+        credential_type: BmcCredentialType::BmcRoot {
+            bmc_mac_address: bmc_mac,
+        },
+    };
+
+    ctx.services
+        .credential_manager
+        .delete_credentials(&credential_key)
+        .await
+        .map_err(|error| {
+            StateHandlerError::GenericError(eyre::eyre!(
+                "failed to delete managed BMC credentials for power shelf {}: {error}",
+                power_shelf.id
+            ))
+        })?;
+
+    let mut txn = ctx.services.db_pool.begin().await?;
+    db::credential_rotation::delete_device_converged(
+        &mut txn,
+        bmc_mac,
+        db::credential_rotation::CredentialRotationType::Bmc,
+    )
+    .await?;
+
+    Ok(
+        StateHandlerOutcome::transition(PowerShelfControllerState::Decommissioning {
+            decommissioning_state: PowerShelfDecommissioningState::Decommissioned,
+        })
+        .with_txn(txn),
+    )
 }

@@ -191,6 +191,9 @@ impl StateControllerIO for PowerShelfStateControllerIO {
                             "waitingforbmcdhcpacknowledgement"
                         }
                     },
+                    model::power_shelf::PowerShelfDecommissioningState::DeletingManagedCredentials => {
+                        "deletingmanagedcredentials"
+                    }
                     model::power_shelf::PowerShelfDecommissioningState::Decommissioned => {
                         "decommissioned"
                     }

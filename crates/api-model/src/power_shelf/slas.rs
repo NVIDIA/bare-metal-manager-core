@@ -56,3 +56,6 @@ pub(super) const DECOMMISSIONING_SUPPRESSING_BMC_DHCP: u64 = 300; // 5 minutes
 /// SLA for waiting on BMC DHCP suppression acknowledgement after factory
 /// reset. Covers BMC reboot, Kea reload, and the subsequent DHCP discover.
 pub(super) const DECOMMISSIONING_WAITING_FOR_BMC_DHCP_ACK: u64 = 15 * 60; // 15 minutes
+
+/// SLA for deleting managed per-device credentials during decommissioning
+pub(super) const DECOMMISSIONING_DELETING_MANAGED_CREDENTIALS: u64 = 300; // 5 minutes
