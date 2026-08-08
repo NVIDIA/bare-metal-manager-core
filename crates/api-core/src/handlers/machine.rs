@@ -367,7 +367,7 @@ async fn force_delete_cleanup_txn(
     // All admin segments, rather than a set computed from this machine's
     // interfaces: the snapshots predate the BMC work above, and they omit
     // BMC-typed interfaces that `force_cleanup` still row-locks.
-    db::machine_interface::lock_all_admin_segments(&mut txn).await?;
+    db::machine_interface::lock_all_admin_segments(&mut txn, "machine_delete").await?;
 
     // Clean up the explored tables next, in site-explorer's write order
     // (`explored_managed_hosts`, then each machine topology and its

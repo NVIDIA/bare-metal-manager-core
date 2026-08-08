@@ -2319,7 +2319,46 @@ pub async fn lock_network_segments_exclusive(
 /// the transaction so the whole transaction follows the allocator order.
 /// Later acquisitions of the same locks in the same transaction (reconcile's
 /// own pass) are no-ops.
-pub async fn lock_all_admin_segments(txn: &mut PgConnection) -> DatabaseResult<()> {
+/// Per-call-site tally of admin-segment lock acquisitions (#4711).
+///
+/// The first attempt at reducing this traffic optimized ONE of the five call
+/// sites on the assumption it dominated, and measured no reduction at all --
+/// the attribution had been inferred rather than measured. This records which
+/// site actually acquires the lock, so the next change can be aimed.
+static ADMIN_LOCK_SITES: std::sync::LazyLock<std::sync::Mutex<std::collections::HashMap<&'static str, u64>>> =
+    std::sync::LazyLock::new(|| std::sync::Mutex::new(std::collections::HashMap::new()));
+
+/// Count one acquisition and, every 2,000, log the running per-site breakdown.
+/// Logged at INFO deliberately: the previous diagnostic used `debug!` while
+/// RUST_LOG=info, so it produced nothing and the run had to be repeated.
+pub(crate) fn record_admin_lock_site(call_site: &'static str) {
+    let Ok(mut sites) = ADMIN_LOCK_SITES.lock() else {
+        return;
+    };
+    *sites.entry(call_site).or_insert(0) += 1;
+    let total: u64 = sites.values().sum();
+    if total.is_multiple_of(2000) {
+        let mut breakdown: Vec<_> = sites.iter().map(|(k, v)| (*k, *v)).collect();
+        breakdown.sort_by(|a, b| b.1.cmp(&a.1));
+        let rendered = breakdown
+            .iter()
+            .map(|(site, n)| format!("{site}={n}"))
+            .collect::<Vec<_>>()
+            .join(" ");
+        tracing::info!(
+            target: "carbide::lock_profile",
+            total_acquisitions = total,
+            breakdown = %rendered,
+            "admin-segment lock acquisitions by call site"
+        );
+    }
+}
+
+pub async fn lock_all_admin_segments(
+    txn: &mut PgConnection,
+    call_site: &'static str,
+) -> DatabaseResult<()> {
+    record_admin_lock_site(call_site);
     let segment_ids =
         db_network_segment::list_segment_ids(&mut *txn, Some(NetworkSegmentType::Admin)).await?;
     lock_network_segments_exclusive(txn, &segment_ids).await
@@ -2998,7 +3037,7 @@ pub async fn reconcile_admin_addresses_for_host(
     //
     // This matches allocator lock ordering: segment advisory lock first, then
     // machine interface/address row locks.
-    let segments = load_and_lock_all_admin_segments(&mut txn).await?;
+    let segments = load_and_lock_all_admin_segments(&mut txn, "reconcile_admin_addresses").await?;
     let segments_by_id = segments
         .iter()
         .map(|segment| (segment.id, segment))
@@ -3400,7 +3439,9 @@ async fn load_all_admin_segments(
 
 async fn load_and_lock_all_admin_segments(
     txn: &mut Transaction<'_>,
+    call_site: &'static str,
 ) -> DatabaseResult<Vec<NetworkSegment>> {
+    record_admin_lock_site(call_site);
     let (segments, segment_ids) = load_all_admin_segments(txn).await?;
     if segment_ids.is_empty() {
         return Ok(segments);

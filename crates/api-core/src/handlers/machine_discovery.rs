@@ -164,7 +164,7 @@ pub(crate) async fn discover_machine(
     // whole transaction holds locks in the allocator order (segment advisory
     // lock first, then interface rows) all the way to the reconcile pass --
     // which re-acquires the same locks as a no-op.
-    db::machine_interface::lock_all_admin_segments(&mut txn).await?;
+    db::machine_interface::lock_all_admin_segments(&mut txn, "machine_discovery").await?;
 
     tracing::debug!(
         remote_ip_address = ?remote_ip,

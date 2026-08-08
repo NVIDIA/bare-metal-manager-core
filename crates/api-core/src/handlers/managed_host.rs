@@ -139,7 +139,7 @@ async fn set_primary_interface_core(
 
     // Site Explorer takes these locks before it changes interface ownership.
     // Matching that order keeps an operator write from deadlocking discovery.
-    db::machine_interface::lock_all_admin_segments(&mut txn).await?;
+    db::machine_interface::lock_all_admin_segments(&mut txn, "managed_host").await?;
     let interface_snapshots =
         db::machine_interface::find_by_machine_id_for_update(&mut txn, &host_machine_id).await?;
     let machine = db::machine::find_one(

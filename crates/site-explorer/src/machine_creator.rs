@@ -228,7 +228,7 @@ impl MachineCreator {
         // transaction holds locks in the allocator order (segment advisory
         // lock first, then interface rows) all the way to the reconcile
         // pass -- which re-acquires the same locks as a no-op.
-        db::machine_interface::lock_all_admin_segments(txn.as_pgconn()).await?;
+        db::machine_interface::lock_all_admin_segments(txn.as_pgconn(), "machine_creator").await?;
 
         // Zero-dpu case: If the explored host had no DPUs, we can create the machine now
         if managed_host.explored_host.dpus.is_empty() {
