@@ -182,6 +182,7 @@ impl Bluefield3<'_> {
                 })),
                 storage: None,
                 processors: None,
+                memory: None,
                 serial_console: None,
                 secure_boot_available: true,
             }],

@@ -120,6 +120,7 @@ impl WiwynnGB200Nvl<'_> {
                     log_services: None,
                     storage: None,
                     processors: None,
+                    memory: None,
                     serial_console: None,
                     secure_boot_available: true,
                 },
@@ -142,6 +143,12 @@ impl WiwynnGB200Nvl<'_> {
                         self.compute_board
                             .iter()
                             .flat_map(|board| board.hgx_gpu_processors(hgx_baseboard_id))
+                            .collect(),
+                    ),
+                    memory: Some(
+                        self.compute_board
+                            .iter()
+                            .flat_map(|board| board.hgx_gpu_memory(hgx_baseboard_id))
                             .collect(),
                     ),
                     serial_console: None,

@@ -191,6 +191,7 @@ impl DellPowerEdgeR750<'_> {
                 // failure.
                 storage: Some(vec![]),
                 processors: None,
+                memory: None,
                 serial_console: None,
                 secure_boot_available: true,
                 base_bios: Some(redfish::bios::builder(&redfish::bios::resource(system_id))
