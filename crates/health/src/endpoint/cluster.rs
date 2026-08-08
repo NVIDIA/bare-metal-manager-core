@@ -16,6 +16,7 @@
  */
 
 use std::net::IpAddr;
+use std::num::NonZeroUsize;
 use std::sync::Arc;
 
 use carbide_uuid::rack::RackId;
@@ -295,6 +296,7 @@ pub struct ClusterEndpointSource {
     reqwest: ReqwestClient,
     proxy_url: Option<Url>,
     cache_size: usize,
+    bmc_request_concurrency: NonZeroUsize,
     bmc_latency_metrics: Option<Arc<BmcLatencyMetrics>>,
 }
 
@@ -306,11 +308,30 @@ impl ClusterEndpointSource {
         cache_size: usize,
         bmc_latency_metrics: Option<Arc<BmcLatencyMetrics>>,
     ) -> Self {
+        Self::from_config_with_request_concurrency(
+            cfg,
+            reqwest,
+            proxy_url,
+            cache_size,
+            NonZeroUsize::MIN,
+            bmc_latency_metrics,
+        )
+    }
+
+    pub(crate) fn from_config_with_request_concurrency(
+        cfg: ClusterEndpointSourceConfig,
+        reqwest: &ReqwestClient,
+        proxy_url: Option<&Url>,
+        cache_size: usize,
+        bmc_request_concurrency: NonZeroUsize,
+        bmc_latency_metrics: Option<Arc<BmcLatencyMetrics>>,
+    ) -> Self {
         Self {
             cfg,
             reqwest: reqwest.clone(),
             proxy_url: proxy_url.cloned(),
             cache_size,
+            bmc_request_concurrency,
             bmc_latency_metrics,
         }
     }
@@ -327,6 +348,7 @@ impl ClusterEndpointSource {
             &self.reqwest,
             self.proxy_url.as_ref(),
             self.cache_size,
+            self.bmc_request_concurrency,
             self.bmc_latency_metrics.clone(),
         );
         tracing::info!(endpoint_count = endpoints.len(), "Loaded cluster endpoints");
@@ -401,6 +423,7 @@ fn build_endpoints(
     reqwest: &ReqwestClient,
     proxy_url: Option<&Url>,
     cache_size: usize,
+    bmc_request_concurrency: NonZeroUsize,
     bmc_latency_metrics: Option<Arc<BmcLatencyMetrics>>,
 ) -> Vec<Arc<BmcEndpoint>> {
     let mut endpoints = Vec::with_capacity(nodes.len());
@@ -442,6 +465,7 @@ fn build_endpoints(
             provider,
             proxy_url.cloned(),
             cache_size,
+            bmc_request_concurrency,
             bmc_latency_instrumentation,
         ) {
             Ok(c) => Arc::new(c),

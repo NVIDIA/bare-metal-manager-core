@@ -7857,6 +7857,7 @@ version = "0.15.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b2e07bc4a5ae977451c3a89314ddeb2418d5d5a92595a0b28bbfced0de5132b9"
 dependencies = [
+ "async-lock",
  "bytes",
  "futures-core",
  "futures-util",

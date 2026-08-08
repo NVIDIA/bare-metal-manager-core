@@ -18,6 +18,7 @@
 use std::collections::{BTreeMap, HashSet};
 use std::fmt::Debug;
 use std::net::{IpAddr, SocketAddr};
+use std::num::NonZeroUsize;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
@@ -28,6 +29,8 @@ use serde::{Deserialize, Deserializer, Serialize};
 use url::Url;
 
 use crate::metrics::BmcLatencyAttribute;
+
+const DEFAULT_BMC_REQUEST_CONCURRENCY: NonZeroUsize = NonZeroUsize::MIN;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
@@ -55,6 +58,10 @@ pub struct Config {
     /// Maximum cache size per BMC, uses etags
     pub cache_size: usize,
 
+    /// Maximum concurrent Redfish operations per BMC. Changes take effect when
+    /// the service restarts and rebuilds BMC clients.
+    pub bmc_request_concurrency: NonZeroUsize,
+
     /// Interval between BMC endpoint discovery iterations.
     #[serde(with = "humantime_serde")]
     pub endpoint_discovery_interval: Duration,
@@ -76,6 +83,7 @@ impl Default for Config {
             shard: 0,
             shards_count: 1,
             cache_size: 100,
+            bmc_request_concurrency: DEFAULT_BMC_REQUEST_CONCURRENCY,
             endpoint_discovery_interval: Duration::from_secs(300),
             bmc_proxy_url: None,
         }
@@ -2351,6 +2359,7 @@ mod tests {
         assert_eq!(config.shards_count, 1);
 
         assert_eq!(config.cache_size, 100);
+        assert_eq!(config.bmc_request_concurrency.get(), 1);
         assert_eq!(config.endpoint_discovery_interval, Duration::from_secs(300));
 
         if let Configurable::Enabled(ref nvue) = config.collectors.nvue {
@@ -2378,6 +2387,7 @@ mod tests {
     fn test_static_only_config() {
         let toml_content = r#"
 endpoint_discovery_interval = "1m"
+bmc_request_concurrency = 2
 
 [[endpoint_sources.static_bmc_endpoints]]
 ip = "192.168.1.100"
@@ -2414,6 +2424,8 @@ cache_size = 50
         assert!(!config.sinks.health_report.is_enabled());
 
         assert_eq!(config.endpoint_sources.static_bmc_endpoints.len(), 1);
+        assert_eq!(config.bmc_request_concurrency.get(), 2);
+
         assert_eq!(
             config.endpoint_sources.static_bmc_endpoints[0].ip,
             "192.168.1.100".parse::<IpAddr>().unwrap()
@@ -3278,6 +3290,7 @@ reload_interval = "30s"
         assert_eq!(config.shard, 0);
         assert_eq!(config.shards_count, 1);
         assert_eq!(config.cache_size, 100);
+        assert_eq!(config.bmc_request_concurrency.get(), 1);
         assert_eq!(config.metrics.endpoint, "0.0.0.0:9009");
         assert!(!config.metrics.enable_bmc_latency_metrics);
         assert_eq!(
@@ -3298,6 +3311,16 @@ reload_interval = "30s"
         } else {
             panic!("health report sink should be enabled by default");
         }
+    }
+
+    #[test]
+    fn zero_bmc_request_concurrency_is_rejected() {
+        let result = Figment::new()
+            .merge(Serialized::defaults(Config::default()))
+            .merge(Toml::string("bmc_request_concurrency = 0"))
+            .extract::<Config>();
+
+        assert!(result.is_err());
     }
 
     #[test]

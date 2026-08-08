@@ -20,6 +20,9 @@ shard = 0
 shards_count = 1
 
 cache_size = 100
+# Maximum concurrent Redfish operations per BMC. Must be greater than zero. Default: 1.
+# Changes take effect after restarting carbide-health.
+bmc_request_concurrency = 1
 bmc_proxy_url = "http://proxy.example.com:8080"
 
 endpoint_discovery_interval = "5m"

@@ -1347,6 +1347,7 @@ mod tests {
                 Arc::new(FailingProvider),
                 None,
                 10,
+                std::num::NonZeroUsize::MIN,
                 None,
             )
             .expect("constructor succeeds"),
