@@ -31,7 +31,7 @@ use nv_redfish::computer_system::{
     Bios, BootOption, ComputerSystem, SecureBoot, SecureBootCurrentBootType,
 };
 use nv_redfish::ethernet_interface::{EthernetInterface, UefiDevicePath as EthUefiDevicePath};
-use nv_redfish::oem::nvidia::bluefield::NvidiaComputerSystem;
+use nv_redfish::oem::nvidia::NvidiaComputerSystem;
 use nv_redfish::pcie_device::PcieDevice;
 use nv_redfish::resource::PowerState;
 use nv_redfish::{Bmc, Resource, ResourceProvidesStatus};
@@ -94,7 +94,7 @@ impl<B: Bmc> ExploredComputerSystem<B> {
 
         let oem_nvidia_bluefield = if config.need_oem_nvidia_bluefield {
             system
-                .oem_nvidia_bluefield()
+                .oem_nvidia()
                 .await
                 .map_err(Error::nv_redfish("NVIDIA system Bluefield OEM"))?
         } else {
@@ -501,7 +501,7 @@ impl<B: Bmc> ExploredComputerSystem<B> {
                     | Some("Bluefield 3 DPU")
                     | Some("BlueField-3 SmartNIC Main Card")
                     | Some("Bluefield 3 SmartNIC Main Card") => {
-                        use nv_redfish::oem::nvidia::bluefield::nvidia_computer_system::Mode;
+                        use nv_redfish::oem::nvidia::computer_system::Mode;
                         bf_ncs.mode().and_then(|v| match v {
                             Mode::DpuMode => Some(BlueFieldOperatingMode::Dpu),
                             Mode::NicMode => Some(BlueFieldOperatingMode::Nic),

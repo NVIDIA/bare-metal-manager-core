@@ -17,6 +17,7 @@
 use std::collections::HashMap;
 use std::time::Duration;
 
+use carbide_uuid::site_prefix::SitePrefixId;
 use carbide_uuid::vpc::{VpcId, VpcPrefixId};
 use chrono::{DateTime, Utc};
 use config_version::{ConfigVersion, Versioned};
@@ -76,6 +77,7 @@ pub fn state_sla(state: &VpcPrefixControllerState, state_version: &ConfigVersion
 #[derive(Clone, Debug)]
 pub struct VpcPrefix {
     pub id: VpcPrefixId,
+    pub site_prefix_id: Option<SitePrefixId>,
     pub vpc_id: VpcId,
     pub config: VpcPrefixConfig,
     pub metadata: Metadata,
@@ -110,6 +112,7 @@ pub struct VpcPrefixStatus {
 impl<'r> sqlx::FromRow<'r, PgRow> for VpcPrefix {
     fn from_row(row: &'r PgRow) -> Result<Self, sqlx::Error> {
         let id = row.try_get("id")?;
+        let site_prefix_id = row.try_get("site_prefix_id")?;
         let prefix = row.try_get("prefix")?;
         let name = row.try_get("name")?;
         let vpc_id = row.try_get("vpc_id")?;
@@ -123,6 +126,7 @@ impl<'r> sqlx::FromRow<'r, PgRow> for VpcPrefix {
 
         Ok(VpcPrefix {
             id,
+            site_prefix_id,
             config: VpcPrefixConfig { prefix },
             metadata: Metadata {
                 name,
@@ -157,6 +161,7 @@ pub enum PrefixMatch {
 #[derive(Clone, Debug, Default)]
 pub struct VpcPrefixSearch {
     pub vpc_id: Option<VpcId>,
+    pub site_prefix_id: Option<SitePrefixId>,
     pub name: Option<String>,
     pub prefix_match: Option<PrefixMatch>,
     pub deleted_filter: DeletedFilter,
@@ -166,6 +171,7 @@ pub struct VpcPrefixSearch {
 /// database.
 pub struct NewVpcPrefix {
     pub id: VpcPrefixId,
+    pub site_prefix_id: Option<SitePrefixId>,
     pub vpc_id: VpcId,
     pub config: VpcPrefixConfig,
     pub metadata: Metadata,

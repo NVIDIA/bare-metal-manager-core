@@ -54,6 +54,10 @@ helm-prereqs/values/nico-core.yaml.dpf.bak
 # Claude specific
 .claude/
 
+# Python bytecode
+__pycache__/
+*.py[cod]
+
 # Devenv
 .devenv*
 devenv.local.nix

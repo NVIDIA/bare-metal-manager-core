@@ -1934,6 +1934,8 @@ message VpcPrefix {
   VpcPrefixConfig config = 8;
   VpcPrefixStatus status = 9;
   Metadata metadata = 10;
+  // The SitePrefix that contains this VPC prefix.
+  common.SitePrefixId site_prefix_id = 11;
 }
 
 message VpcPrefixConfig {
@@ -1961,6 +1963,8 @@ message VpcPrefixCreationRequest {
   reserved 5; // tenant_prefix_id
   VpcPrefixConfig config = 6;
   Metadata metadata = 7;
+  // Optional for compatibility with callers that predate SitePrefix identity.
+  common.SitePrefixId site_prefix_id = 8;
 }
 
 message VpcPrefixSearchQuery {
@@ -1975,6 +1979,7 @@ message VpcPrefixSearchQuery {
   optional PrefixMatchType prefix_match_type = 5;
   // Controls whether soft-deleted VPC prefixes are included. Defaults to EXCLUDE.
   DeletedFilter deleted = 6;
+  optional common.SitePrefixId site_prefix_id = 7;
 }
 
 message VpcPrefixGetRequest {
