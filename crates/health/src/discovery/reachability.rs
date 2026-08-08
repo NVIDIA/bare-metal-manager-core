@@ -35,45 +35,11 @@ use crate::sink::{DataSink, EventContext};
 
 const DEFAULT_HTTPS_PORT: u16 = 443;
 
-/// Desired targets and sink-visible metadata for one endpoint.
-#[derive(Clone)]
+/// Desired targets and event context for one endpoint.
+#[derive(Clone, PartialEq)]
 pub(super) struct ReachabilitySpec {
     targets: Vec<ReachabilityTarget>,
     event_context: EventContext,
-}
-
-impl PartialEq for ReachabilitySpec {
-    fn eq(&self, other: &Self) -> bool {
-        self.targets == other.targets
-            && sink_contexts_match(&self.event_context, &other.event_context)
-    }
-}
-
-impl Eq for ReachabilitySpec {}
-
-/// Compares only endpoint data exposed by metric and log sinks.
-fn sink_contexts_match(left: &EventContext, right: &EventContext) -> bool {
-    left.endpoint_key == right.endpoint_key
-        && left.addr.ip == right.addr.ip
-        && left.addr.port == right.addr.port
-        && left.addr.mac == right.addr.mac
-        && left.collector_type == right.collector_type
-        && left.machine_id() == right.machine_id()
-        && left.system_uuid() == right.system_uuid()
-        && left.driver_version() == right.driver_version()
-        && left.component_type() == right.component_type()
-        && left.switch_id() == right.switch_id()
-        && left.switch_endpoint_role() == right.switch_endpoint_role()
-        && left.switch_is_primary() == right.switch_is_primary()
-        && left.slot_number() == right.slot_number()
-        && left.tray_index() == right.tray_index()
-        && left.nvlink_domain_uuid() == right.nvlink_domain_uuid()
-        && left.switch_slot_number() == right.switch_slot_number()
-        && left.switch_tray_index() == right.switch_tray_index()
-        && left.power_shelf_id() == right.power_shelf_id()
-        && left.serial_number() == right.serial_number()
-        && left.rack_id() == right.rack_id()
-        && left.labels() == right.labels()
 }
 
 /// Reconciles reachability collectors against the latest discovered endpoints.
@@ -133,6 +99,11 @@ pub(super) async fn reconcile_reachability_collectors(
                 ),
             );
         }
+    }
+
+    // Normalize discovery order while retaining the existing service sequence.
+    for (_, spec) in desired.values_mut() {
+        spec.targets.sort_unstable_by_key(|target| target.service);
     }
 
     let stale_keys = ctx
@@ -501,7 +472,7 @@ mod tests {
 
         reconcile_reachability_collectors(
             &mut ctx,
-            &[endpoint.clone(), Arc::new(duplicate)],
+            &[Arc::new(duplicate), endpoint.clone()],
             Some(sink.clone()),
             "test",
         )
@@ -538,7 +509,7 @@ mod tests {
                     address: (duplicate_ip, NMXT_PORT).into(),
                 },
             ],
-            "later duplicates contribute services at their effective collector addresses",
+            "merged targets use stable service order and effective collector addresses",
         );
 
         let mut changed = endpoint.as_ref().clone();

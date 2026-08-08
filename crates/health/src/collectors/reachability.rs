@@ -33,7 +33,7 @@ pub(crate) const COLLECTOR_TYPE: &str = "reachability";
 const METRIC_NAME: &str = "tcp_port";
 
 /// Collector service represented by a bounded reachability telemetry label.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
 pub(crate) enum ReachabilityService {
     Redfish,
     NvueRest,
