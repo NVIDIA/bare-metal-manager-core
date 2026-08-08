@@ -5,7 +5,7 @@
 set -euo pipefail
 
 usage() {
-	echo "Usage: check-core-ci-permissions.sh [workflow-path]"
+	echo "Usage: check-stale-ci-permissions.sh [workflow-path]"
 }
 
 if (( $# > 1 )); then
@@ -20,14 +20,12 @@ fi
 
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 repo_root="$(cd "${script_dir}/../.." && pwd)"
-workflow_path="${1:-${repo_root}/.github/workflows/ci.yaml}"
+workflow_path="${1:-${repo_root}/.github/workflows/stale-check.yml}"
 
-# A job-level block replaces the workflow default. Keep each complete
-# exception here so a new scope cannot hide beside one that was already
-# reviewed.
+# The `stale` block replaces `contents: read`; it does not extend it. Keep the
+# two writes as the complete job policy unless the action's contract changes.
 bash "${script_dir}/check-ci-permissions.sh" \
-	--workflow-name "Core CI" \
+	--workflow-name "Stale PRs" \
 	--workflow-path "${workflow_path}" \
 	--workflow-permissions "contents=read" \
-	--job-permissions "lint-police=contents=read,pull-requests=read" \
-	--job-permissions "security-codeql-scan=actions=read,contents=read"
+	--job-permissions "stale=issues=write,pull-requests=write"

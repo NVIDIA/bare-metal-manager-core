@@ -55,8 +55,14 @@ jobs:
           persist-credentials: false
           fetch-depth: 0
 
+      - name: Test CI token permission checker
+        run: bash .github/ci/check-ci-permissions.sh --self-test
+
       - name: Check Core CI token permissions
         run: bash .github/ci/check-core-ci-permissions.sh
+
+      - name: Check Stale PRs token permissions
+        run: bash .github/ci/check-stale-ci-permissions.sh
 
       - name: Check Core CI concurrency policy
         run: bash scripts/check-ci-concurrency.sh core
