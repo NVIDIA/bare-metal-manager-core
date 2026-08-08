@@ -30,7 +30,8 @@ use mac_address::MacAddress;
 use model::allocation_type::AllocationType;
 use model::bmc_suppression::BmcSuppressionSubsystem;
 use model::power_shelf::{
-    PowerShelf, PowerShelfControllerState, PowerShelfVerifyingDhcpReleaseState,
+    PowerShelf, PowerShelfControllerState, PowerShelfDecommissioningState,
+    PowerShelfVerifyingDhcpReleaseState,
 };
 use rpc::forge::forge_server::Forge;
 use state_controller::config::IterationConfig;
@@ -251,7 +252,9 @@ async fn managed_power_shelf_reaches_decommissioned_after_dhcp_release(
             .await?
             .controller_state
             .value,
-        PowerShelfControllerState::Preparing
+        PowerShelfControllerState::Decommissioning {
+            decommissioning_state: PowerShelfDecommissioningState::SuppressingSiteExplorer,
+        }
     );
     controller.run_single_iteration().await;
     assert!(
@@ -274,8 +277,10 @@ async fn managed_power_shelf_reaches_decommissioned_after_dhcp_release(
             .await?
             .controller_state
             .value,
-        PowerShelfControllerState::VerifyingDhcpRelease {
-            verifying_state: PowerShelfVerifyingDhcpReleaseState::FactoryResetBmc,
+        PowerShelfControllerState::Decommissioning {
+            decommissioning_state: PowerShelfDecommissioningState::VerifyingDhcpRelease {
+                verifying_state: PowerShelfVerifyingDhcpReleaseState::FactoryResetBmc,
+            },
         }
     );
 
@@ -285,8 +290,29 @@ async fn managed_power_shelf_reaches_decommissioned_after_dhcp_release(
             .await?
             .controller_state
             .value,
-        PowerShelfControllerState::VerifyingDhcpRelease {
-            verifying_state: PowerShelfVerifyingDhcpReleaseState::WaitingForBmcDhcpAcknowledgement,
+        PowerShelfControllerState::Decommissioning {
+            decommissioning_state: PowerShelfDecommissioningState::VerifyingDhcpRelease {
+                verifying_state: PowerShelfVerifyingDhcpReleaseState::SuppressingBmcDhcp,
+            },
+        }
+    );
+    assert!(
+        db::bmc_suppression::find(&pool, pmc_mac, BmcSuppressionSubsystem::Dhcp)
+            .await?
+            .is_none()
+    );
+
+    controller.run_single_iteration().await;
+    assert_eq!(
+        load_power_shelf(&pool, power_shelf_id)
+            .await?
+            .controller_state
+            .value,
+        PowerShelfControllerState::Decommissioning {
+            decommissioning_state: PowerShelfDecommissioningState::VerifyingDhcpRelease {
+                verifying_state:
+                    PowerShelfVerifyingDhcpReleaseState::WaitingForBmcDhcpAcknowledgement,
+            },
         }
     );
     assert!(
@@ -308,7 +334,9 @@ async fn managed_power_shelf_reaches_decommissioned_after_dhcp_release(
     let power_shelf = load_power_shelf(&pool, power_shelf_id).await?;
     assert_eq!(
         power_shelf.controller_state.value,
-        PowerShelfControllerState::Decommissioned
+        PowerShelfControllerState::Decommissioning {
+            decommissioning_state: PowerShelfDecommissioningState::Decommissioned,
+        }
     );
     assert!(!power_shelf.decommission_requested);
 

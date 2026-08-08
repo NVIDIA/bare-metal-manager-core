@@ -171,19 +171,32 @@ impl StateControllerIO for PowerShelfStateControllerIO {
                 };
                 ("reprovisioning", sub)
             }
-            PowerShelfControllerState::Preparing => ("preparing", ""),
-            PowerShelfControllerState::VerifyingDhcpRelease { verifying_state } => {
-                let sub = match verifying_state {
-                    model::power_shelf::PowerShelfVerifyingDhcpReleaseState::FactoryResetBmc => {
-                        "factoryresetbmc"
+            PowerShelfControllerState::Decommissioning {
+                decommissioning_state,
+            } => {
+                let sub = match decommissioning_state {
+                    model::power_shelf::PowerShelfDecommissioningState::SuppressingSiteExplorer => {
+                        "suppressingsiteexplorer"
                     }
-                    model::power_shelf::PowerShelfVerifyingDhcpReleaseState::WaitingForBmcDhcpAcknowledgement => {
-                        "waitingforbmcdhcpacknowledgement"
+                    model::power_shelf::PowerShelfDecommissioningState::VerifyingDhcpRelease {
+                        verifying_state,
+                    } => match verifying_state {
+                        model::power_shelf::PowerShelfVerifyingDhcpReleaseState::FactoryResetBmc => {
+                            "factoryresetbmc"
+                        }
+                        model::power_shelf::PowerShelfVerifyingDhcpReleaseState::SuppressingBmcDhcp => {
+                            "suppressingbmcdhcp"
+                        }
+                        model::power_shelf::PowerShelfVerifyingDhcpReleaseState::WaitingForBmcDhcpAcknowledgement => {
+                            "waitingforbmcdhcpacknowledgement"
+                        }
+                    },
+                    model::power_shelf::PowerShelfDecommissioningState::Decommissioned => {
+                        "decommissioned"
                     }
                 };
-                ("verifyingdhcprelease", sub)
+                ("decommissioning", sub)
             }
-            PowerShelfControllerState::Decommissioned => ("decommissioned", ""),
             PowerShelfControllerState::Error { .. } => ("error", ""),
             PowerShelfControllerState::Deleting => ("deleting", ""),
         }

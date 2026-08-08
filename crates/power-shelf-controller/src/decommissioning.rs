@@ -22,7 +22,8 @@ use carbide_utils::redfish::BmcAccessInfo;
 use carbide_uuid::power_shelf::PowerShelfId;
 use model::bmc_suppression::{BmcSuppressionSubsystem, NewBmcSuppression};
 use model::power_shelf::{
-    PowerShelf, PowerShelfControllerState, PowerShelfVerifyingDhcpReleaseState,
+    PowerShelf, PowerShelfControllerState, PowerShelfDecommissioningState,
+    PowerShelfVerifyingDhcpReleaseState,
 };
 use state_controller::state_handler::{
     StateHandlerContext, StateHandlerError, StateHandlerOutcome,
@@ -30,8 +31,12 @@ use state_controller::state_handler::{
 
 use crate::context::PowerShelfStateHandlerContextObjects;
 
-fn bmc_mac(power_shelf: &PowerShelf) -> Result<mac_address::MacAddress, StateHandlerError> {
-    power_shelf
+pub(super) async fn handle_suppressing_site_explorer(
+    power_shelf_id: &PowerShelfId,
+    power_shelf: &PowerShelf,
+    ctx: &mut StateHandlerContext<'_, PowerShelfStateHandlerContextObjects>,
+) -> Result<StateHandlerOutcome<PowerShelfControllerState>, StateHandlerError> {
+    let bmc_mac = power_shelf
         .bmc_info
         .as_ref()
         .and_then(|info| info.mac)
@@ -39,19 +44,12 @@ fn bmc_mac(power_shelf: &PowerShelf) -> Result<mac_address::MacAddress, StateHan
         .ok_or_else(|| StateHandlerError::MissingData {
             object_id: power_shelf.id.to_string(),
             missing: "bmc_mac",
-        })
-}
-
-pub(super) async fn handle_preparing(
-    power_shelf_id: &PowerShelfId,
-    power_shelf: &PowerShelf,
-    ctx: &mut StateHandlerContext<'_, PowerShelfStateHandlerContextObjects>,
-) -> Result<StateHandlerOutcome<PowerShelfControllerState>, StateHandlerError> {
+        })?;
     let mut txn = ctx.services.db_pool.begin().await?;
     let suppression = db::bmc_suppression::upsert(
         &mut txn,
         &NewBmcSuppression {
-            bmc_mac_address: bmc_mac(power_shelf)?,
+            bmc_mac_address: bmc_mac,
             subsystem: BmcSuppressionSubsystem::SiteExplorer,
             reason: format!("power shelf {power_shelf_id} is being decommissioned"),
         },
@@ -59,8 +57,10 @@ pub(super) async fn handle_preparing(
     .await?;
 
     let outcome = if suppression.acknowledged_at.is_some() {
-        StateHandlerOutcome::transition(PowerShelfControllerState::VerifyingDhcpRelease {
-            verifying_state: PowerShelfVerifyingDhcpReleaseState::FactoryResetBmc,
+        StateHandlerOutcome::transition(PowerShelfControllerState::Decommissioning {
+            decommissioning_state: PowerShelfDecommissioningState::VerifyingDhcpRelease {
+                verifying_state: PowerShelfVerifyingDhcpReleaseState::FactoryResetBmc,
+            },
         })
     } else {
         StateHandlerOutcome::wait(
@@ -103,11 +103,34 @@ async fn handle_factory_reset_bmc(
             ))
         })?;
 
+    Ok(StateHandlerOutcome::transition(
+        PowerShelfControllerState::Decommissioning {
+            decommissioning_state: PowerShelfDecommissioningState::VerifyingDhcpRelease {
+                verifying_state: PowerShelfVerifyingDhcpReleaseState::SuppressingBmcDhcp,
+            },
+        },
+    ))
+}
+
+async fn handle_suppressing_bmc_dhcp(
+    power_shelf_id: &PowerShelfId,
+    power_shelf: &PowerShelf,
+    ctx: &mut StateHandlerContext<'_, PowerShelfStateHandlerContextObjects>,
+) -> Result<StateHandlerOutcome<PowerShelfControllerState>, StateHandlerError> {
+    let bmc_mac = power_shelf
+        .bmc_info
+        .as_ref()
+        .and_then(|info| info.mac)
+        .or(power_shelf.bmc_mac_address)
+        .ok_or_else(|| StateHandlerError::MissingData {
+            object_id: power_shelf.id.to_string(),
+            missing: "bmc_mac",
+        })?;
     let mut txn = ctx.services.db_pool.begin().await?;
-    db::bmc_suppression::upsert(
+    let suppression = db::bmc_suppression::upsert(
         &mut txn,
         &NewBmcSuppression {
-            bmc_mac_address: access.mac_address,
+            bmc_mac_address: bmc_mac,
             subsystem: BmcSuppressionSubsystem::Dhcp,
             reason: format!(
                 "power shelf {power_shelf_id} is being decommissioned; suppressing BMC DHCP"
@@ -115,14 +138,23 @@ async fn handle_factory_reset_bmc(
         },
     )
     .await?;
-    db::machine_interface::record_deletion(&mut txn).await?;
 
-    Ok(
-        StateHandlerOutcome::transition(PowerShelfControllerState::VerifyingDhcpRelease {
-            verifying_state: PowerShelfVerifyingDhcpReleaseState::WaitingForBmcDhcpAcknowledgement,
-        })
-        .with_txn(txn),
+    // this does not actually delete the interface yet,
+    // we use this as a signal to the DHCP server to reload its configuration.
+    let last_invalidation_time = db::dhcp_record::last_invalidation_time(&mut txn).await?;
+    if last_invalidation_time < suppression.requested_at {
+        db::machine_interface::record_deletion(&mut txn).await?;
+    }
+
+    Ok(StateHandlerOutcome::transition(
+        PowerShelfControllerState::Decommissioning {
+            decommissioning_state: PowerShelfDecommissioningState::VerifyingDhcpRelease {
+                verifying_state:
+                    PowerShelfVerifyingDhcpReleaseState::WaitingForBmcDhcpAcknowledgement,
+            },
+        },
     )
+    .with_txn(txn))
 }
 
 pub(super) async fn handle_verifying_dhcp_release(
@@ -130,27 +162,42 @@ pub(super) async fn handle_verifying_dhcp_release(
     power_shelf: &PowerShelf,
     ctx: &mut StateHandlerContext<'_, PowerShelfStateHandlerContextObjects>,
 ) -> Result<StateHandlerOutcome<PowerShelfControllerState>, StateHandlerError> {
-    if matches!(
-        verifying_state,
-        PowerShelfVerifyingDhcpReleaseState::FactoryResetBmc
-    ) {
-        return handle_factory_reset_bmc(&power_shelf.id, power_shelf, ctx).await;
-    }
+    match verifying_state {
+        PowerShelfVerifyingDhcpReleaseState::FactoryResetBmc => {
+            handle_factory_reset_bmc(&power_shelf.id, power_shelf, ctx).await
+        }
+        PowerShelfVerifyingDhcpReleaseState::SuppressingBmcDhcp => {
+            handle_suppressing_bmc_dhcp(&power_shelf.id, power_shelf, ctx).await
+        }
+        PowerShelfVerifyingDhcpReleaseState::WaitingForBmcDhcpAcknowledgement => {
+            let bmc_mac = power_shelf
+                .bmc_info
+                .as_ref()
+                .and_then(|info| info.mac)
+                .or(power_shelf.bmc_mac_address)
+                .ok_or_else(|| StateHandlerError::MissingData {
+                    object_id: power_shelf.id.to_string(),
+                    missing: "bmc_mac",
+                })?;
+            let suppression = db::bmc_suppression::find(
+                &ctx.services.db_pool,
+                bmc_mac,
+                BmcSuppressionSubsystem::Dhcp,
+            )
+            .await?;
 
-    let suppression = db::bmc_suppression::find(
-        &ctx.services.db_pool,
-        bmc_mac(power_shelf)?,
-        BmcSuppressionSubsystem::Dhcp,
-    )
-    .await?;
-
-    if suppression.is_some_and(|suppression| suppression.acknowledged_at.is_some()) {
-        Ok(StateHandlerOutcome::transition(
-            PowerShelfControllerState::Decommissioned,
-        ))
-    } else {
-        Ok(StateHandlerOutcome::wait(
-            "waiting for BMC DHCP suppression acknowledgement after factory reset".to_string(),
-        ))
+            if suppression.is_some_and(|suppression| suppression.acknowledged_at.is_some()) {
+                Ok(StateHandlerOutcome::transition(
+                    PowerShelfControllerState::Decommissioning {
+                        decommissioning_state: PowerShelfDecommissioningState::Decommissioned,
+                    },
+                ))
+            } else {
+                Ok(StateHandlerOutcome::wait(
+                    "waiting for BMC DHCP suppression acknowledgement after factory reset"
+                        .to_string(),
+                ))
+            }
+        }
     }
 }

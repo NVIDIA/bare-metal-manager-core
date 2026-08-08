@@ -3686,11 +3686,12 @@ pub async fn find_by_power_shelf_id(
     txn: &mut PgConnection,
     power_shelf_id: &PowerShelfId,
 ) -> Result<Vec<MachineInterfaceSnapshot>, DatabaseError> {
-    find_by(
-        txn,
-        ObjectColumnFilter::One(PowerShelfIdColumn, power_shelf_id),
-    )
-    .await
+    let query = "SELECT * FROM machine_interfaces WHERE power_shelf_id = $1";
+    sqlx::query_as::<_, MachineInterfaceSnapshot>(query)
+        .bind(power_shelf_id)
+        .fetch_all(txn)
+        .await
+        .map_err(|e| DatabaseError::query(query, e))
 }
 
 #[async_trait::async_trait]

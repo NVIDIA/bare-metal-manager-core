@@ -268,18 +268,28 @@ pub enum PowerShelfControllerState {
     ReProvisioning {
         reprovisioning_state: ReProvisioningState,
     },
-    /// Site Explorer is being suppressed before the destructive reset.
-    Preparing,
-    /// The controller is resetting the PMC and waiting for DHCP release.
-    VerifyingDhcpRelease {
-        verifying_state: PowerShelfVerifyingDhcpReleaseState,
+    /// Managed decommissioning workflow in progress.
+    Decommissioning {
+        decommissioning_state: PowerShelfDecommissioningState,
     },
-    /// Terminal state: the power shelf has been removed from managed service.
-    Decommissioned,
     /// There is error in PowerShelf; PowerShelf can not be used if it's in error.
     Error { cause: String },
     /// The PowerShelf is in the process of deleting.
     Deleting,
+}
+
+/// Progress through managed power-shelf decommissioning.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "state", rename_all = "lowercase")]
+pub enum PowerShelfDecommissioningState {
+    /// Site Explorer is being suppressed before the destructive reset.
+    SuppressingSiteExplorer,
+    /// The controller is resetting the PMC and waiting for DHCP release.
+    VerifyingDhcpRelease {
+        verifying_state: PowerShelfVerifyingDhcpReleaseState,
+    },
+    /// Terminal substate: the power shelf has been removed from managed service.
+    Decommissioned,
 }
 
 /// Progress while resetting the PMC and waiting for its DHCP lease release.
@@ -287,6 +297,7 @@ pub enum PowerShelfControllerState {
 #[serde(tag = "state", rename_all = "lowercase")]
 pub enum PowerShelfVerifyingDhcpReleaseState {
     FactoryResetBmc,
+    SuppressingBmcDhcp,
     WaitingForBmcDhcpAcknowledgement,
 }
 
@@ -323,9 +334,35 @@ pub fn state_sla(state: &PowerShelfControllerState, state_version: &ConfigVersio
             std::time::Duration::from_secs(slas::REPROVISIONING),
             time_in_state,
         ),
-        PowerShelfControllerState::Preparing
-        | PowerShelfControllerState::VerifyingDhcpRelease { .. }
-        | PowerShelfControllerState::Decommissioned => StateSla::no_sla(),
+        PowerShelfControllerState::Decommissioning {
+            decommissioning_state,
+        } => match decommissioning_state {
+            PowerShelfDecommissioningState::SuppressingSiteExplorer => StateSla::with_sla(
+                std::time::Duration::from_secs(slas::DECOMMISSIONING_SUPPRESSING_SITE_EXPLORER),
+                time_in_state,
+            ),
+            PowerShelfDecommissioningState::VerifyingDhcpRelease { verifying_state } => {
+                match verifying_state {
+                    PowerShelfVerifyingDhcpReleaseState::FactoryResetBmc => StateSla::with_sla(
+                        std::time::Duration::from_secs(slas::DECOMMISSIONING_FACTORY_RESET_BMC),
+                        time_in_state,
+                    ),
+                    PowerShelfVerifyingDhcpReleaseState::SuppressingBmcDhcp => StateSla::with_sla(
+                        std::time::Duration::from_secs(slas::DECOMMISSIONING_SUPPRESSING_BMC_DHCP),
+                        time_in_state,
+                    ),
+                    PowerShelfVerifyingDhcpReleaseState::WaitingForBmcDhcpAcknowledgement => {
+                        StateSla::with_sla(
+                            std::time::Duration::from_secs(
+                                slas::DECOMMISSIONING_WAITING_FOR_BMC_DHCP_ACK,
+                            ),
+                            time_in_state,
+                        )
+                    }
+                }
+            }
+            PowerShelfDecommissioningState::Decommissioned => StateSla::no_sla(),
+        },
         PowerShelfControllerState::Error { .. } => StateSla::no_sla(),
         PowerShelfControllerState::Deleting => StateSla::with_sla(
             std::time::Duration::from_secs(slas::DELETING),
@@ -451,39 +488,79 @@ mod tests {
                 )),
             }
 
-            "preparing" {
-                PowerShelfControllerState::Preparing {} => Yields((
-                    r#"{"state":"preparing"}"#.to_string(),
-                    PowerShelfControllerState::Preparing {},
+            "decommissioning: suppressing Site Explorer" {
+                PowerShelfControllerState::Decommissioning {
+                    decommissioning_state:
+                        PowerShelfDecommissioningState::SuppressingSiteExplorer,
+                } => Yields((
+                    r#"{"state":"decommissioning","decommissioning_state":{"state":"suppressingsiteexplorer"}}"#
+                        .to_string(),
+                    PowerShelfControllerState::Decommissioning {
+                        decommissioning_state:
+                            PowerShelfDecommissioningState::SuppressingSiteExplorer,
+                    },
                 )),
             }
 
-            "verifying DHCP release while factory resetting BMC" {
-                PowerShelfControllerState::VerifyingDhcpRelease {
-                    verifying_state: PowerShelfVerifyingDhcpReleaseState::FactoryResetBmc,
-                } => Yields((
-                    r#"{"state":"verifyingdhcprelease","verifying_state":{"state":"factoryresetbmc"}}"#.to_string(),
-                    PowerShelfControllerState::VerifyingDhcpRelease {
+            "decommissioning: verifying DHCP release while factory resetting BMC" {
+                PowerShelfControllerState::Decommissioning {
+                    decommissioning_state: PowerShelfDecommissioningState::VerifyingDhcpRelease {
                         verifying_state: PowerShelfVerifyingDhcpReleaseState::FactoryResetBmc,
                     },
-                )),
-            }
-
-            "verifying DHCP release while waiting for acknowledgement" {
-                PowerShelfControllerState::VerifyingDhcpRelease {
-                    verifying_state: PowerShelfVerifyingDhcpReleaseState::WaitingForBmcDhcpAcknowledgement,
                 } => Yields((
-                    r#"{"state":"verifyingdhcprelease","verifying_state":{"state":"waitingforbmcdhcpacknowledgement"}}"#.to_string(),
-                    PowerShelfControllerState::VerifyingDhcpRelease {
-                        verifying_state: PowerShelfVerifyingDhcpReleaseState::WaitingForBmcDhcpAcknowledgement,
+                    r#"{"state":"decommissioning","decommissioning_state":{"state":"verifyingdhcprelease","verifying_state":{"state":"factoryresetbmc"}}}"#
+                        .to_string(),
+                    PowerShelfControllerState::Decommissioning {
+                        decommissioning_state: PowerShelfDecommissioningState::VerifyingDhcpRelease {
+                            verifying_state: PowerShelfVerifyingDhcpReleaseState::FactoryResetBmc,
+                        },
                     },
                 )),
             }
 
-            "decommissioned" {
-                PowerShelfControllerState::Decommissioned {} => Yields((
-                    r#"{"state":"decommissioned"}"#.to_string(),
-                    PowerShelfControllerState::Decommissioned {},
+            "decommissioning: verifying DHCP release while suppressing BMC DHCP" {
+                PowerShelfControllerState::Decommissioning {
+                    decommissioning_state: PowerShelfDecommissioningState::VerifyingDhcpRelease {
+                        verifying_state: PowerShelfVerifyingDhcpReleaseState::SuppressingBmcDhcp,
+                    },
+                } => Yields((
+                    r#"{"state":"decommissioning","decommissioning_state":{"state":"verifyingdhcprelease","verifying_state":{"state":"suppressingbmcdhcp"}}}"#
+                        .to_string(),
+                    PowerShelfControllerState::Decommissioning {
+                        decommissioning_state: PowerShelfDecommissioningState::VerifyingDhcpRelease {
+                            verifying_state: PowerShelfVerifyingDhcpReleaseState::SuppressingBmcDhcp,
+                        },
+                    },
+                )),
+            }
+
+            "decommissioning: verifying DHCP release while waiting for acknowledgement" {
+                PowerShelfControllerState::Decommissioning {
+                    decommissioning_state: PowerShelfDecommissioningState::VerifyingDhcpRelease {
+                        verifying_state:
+                            PowerShelfVerifyingDhcpReleaseState::WaitingForBmcDhcpAcknowledgement,
+                    },
+                } => Yields((
+                    r#"{"state":"decommissioning","decommissioning_state":{"state":"verifyingdhcprelease","verifying_state":{"state":"waitingforbmcdhcpacknowledgement"}}}"#
+                        .to_string(),
+                    PowerShelfControllerState::Decommissioning {
+                        decommissioning_state: PowerShelfDecommissioningState::VerifyingDhcpRelease {
+                            verifying_state:
+                                PowerShelfVerifyingDhcpReleaseState::WaitingForBmcDhcpAcknowledgement,
+                        },
+                    },
+                )),
+            }
+
+            "decommissioning: decommissioned" {
+                PowerShelfControllerState::Decommissioning {
+                    decommissioning_state: PowerShelfDecommissioningState::Decommissioned,
+                } => Yields((
+                    r#"{"state":"decommissioning","decommissioning_state":{"state":"decommissioned"}}"#
+                        .to_string(),
+                    PowerShelfControllerState::Decommissioning {
+                        decommissioning_state: PowerShelfDecommissioningState::Decommissioned,
+                    },
                 )),
             }
         );
@@ -852,6 +929,44 @@ mod tests {
 
             "rotatingbmc has the rotating-bmc SLA" {
                 PowerShelfControllerState::RotatingBmc { retry_count: 0 } => (secs(slas::ROTATING_BMC), true),
+            }
+
+            "decommissioning suppressing-site-explorer has an SLA" {
+                PowerShelfControllerState::Decommissioning {
+                    decommissioning_state:
+                        PowerShelfDecommissioningState::SuppressingSiteExplorer,
+                } => (secs(slas::DECOMMISSIONING_SUPPRESSING_SITE_EXPLORER), true),
+            }
+
+            "decommissioning factory-reset-bmc has an SLA" {
+                PowerShelfControllerState::Decommissioning {
+                    decommissioning_state: PowerShelfDecommissioningState::VerifyingDhcpRelease {
+                        verifying_state: PowerShelfVerifyingDhcpReleaseState::FactoryResetBmc,
+                    },
+                } => (secs(slas::DECOMMISSIONING_FACTORY_RESET_BMC), true),
+            }
+
+            "decommissioning suppressing-bmc-dhcp has an SLA" {
+                PowerShelfControllerState::Decommissioning {
+                    decommissioning_state: PowerShelfDecommissioningState::VerifyingDhcpRelease {
+                        verifying_state: PowerShelfVerifyingDhcpReleaseState::SuppressingBmcDhcp,
+                    },
+                } => (secs(slas::DECOMMISSIONING_SUPPRESSING_BMC_DHCP), true),
+            }
+
+            "decommissioning waiting-for-bmc-dhcp-ack has an SLA" {
+                PowerShelfControllerState::Decommissioning {
+                    decommissioning_state: PowerShelfDecommissioningState::VerifyingDhcpRelease {
+                        verifying_state:
+                            PowerShelfVerifyingDhcpReleaseState::WaitingForBmcDhcpAcknowledgement,
+                    },
+                } => (secs(slas::DECOMMISSIONING_WAITING_FOR_BMC_DHCP_ACK), true),
+            }
+
+            "decommissioning decommissioned carries no SLA" {
+                PowerShelfControllerState::Decommissioning {
+                    decommissioning_state: PowerShelfDecommissioningState::Decommissioned,
+                } => (None, false),
             }
 
             "ready carries no SLA" {
