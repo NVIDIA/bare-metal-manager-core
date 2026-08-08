@@ -83,3 +83,36 @@ tests:
       - notMatchRegex:
           path: data["nico-api-site-config.toml"]
           pattern: 'spiffe_trust_domain'
+
+  - it: also strips single-quoted spiffe_trust_domain (TOML literal string form)
+    documentIndex: 1
+    set:
+      siteConfig:
+        enabled: true
+        nicoApiSiteConfig: |
+          [auth.trust]
+          spiffe_trust_domain = 'forge.local'
+          other_key = "kept"
+    asserts:
+      - notMatchRegex:
+          path: data["nico-api-site-config.toml"]
+          pattern: 'spiffe_trust_domain'
+      - matchRegex:
+          path: data["nico-api-site-config.toml"]
+          pattern: 'other_key = "kept"'
+
+  - it: round-trip — built-in config still uses global.spiffe.trustDomain after site TOML is stripped
+    documentIndex: 0
+    set:
+      global:
+        spiffe:
+          trustDomain: forge.local
+      siteConfig:
+        enabled: true
+        nicoApiSiteConfig: |
+          [auth.trust]
+          spiffe_trust_domain = "forge.local"
+    asserts:
+      - matchRegex:
+          path: data["nico-api-config.toml"]
+          pattern: 'spiffe_trust_domain = "forge\.local"'
