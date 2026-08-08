@@ -921,6 +921,8 @@ fn enumerate_hardware_inner(
     })
 }
 
+/// Rolls up a flat list of RPC [`MemoryDevice`]s into [`MemoryDeviceGroup`]s,
+/// merging devices with the same `(size_mb, mem_type)` into a single group.
 fn condense_rpc_memory_devices(devices: Vec<MemoryDevice>) -> Vec<MemoryDeviceGroup> {
     let mut groups: Vec<MemoryDeviceGroup> = Vec::new();
     for device in devices {

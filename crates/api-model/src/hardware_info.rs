@@ -235,6 +235,8 @@ pub struct MemoryDevice {
     pub mem_type: Option<String>,
 }
 
+/// Serde default for [`MemoryDeviceGroup::count`]: treats legacy entries without a `count`
+/// field as a single device.
 fn default_count_one() -> u32 {
     1
 }

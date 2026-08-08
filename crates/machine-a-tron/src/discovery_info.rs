@@ -672,6 +672,7 @@ fn network_interface(
     }
 }
 
+/// Builds a single-group mock memory device list for use in simulated machine profiles.
 fn memory_device_groups(count: u32, size_mb: u32, memory_type: &str) -> Vec<MemoryDeviceGroup> {
     vec![MemoryDeviceGroup {
         size_mb: Some(size_mb),

@@ -2095,6 +2095,7 @@ mod tests {
         );
     }
 
+    // Verifies that MemoryDeviceGroups survive a round trip through the rpc DiscoveryInfo proto.
     #[test]
     fn memory_device_groups_round_trip() {
         let original = vec![
