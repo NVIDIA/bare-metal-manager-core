@@ -573,7 +573,9 @@ func (c *grpcClient) DecommissionPowerShelf(ctx context.Context, shelfID string)
 	ctx, cancel := context.WithTimeout(ctx, c.grpcTimeout)
 	defer cancel()
 
-	_, err := c.gclient.DecommissionPowerShelf(ctx, &corev1.PowerShelfId{Id: shelfID})
+	_, err := c.gclient.DecommissionPowerShelf(ctx, &corev1.DecommissionPowerShelfRequest{
+		PowerShelfId: &corev1.PowerShelfId{Id: shelfID},
+	})
 	if err != nil {
 		return fmt.Errorf("failed to decommission power shelf %s: %w", shelfID, err)
 	}

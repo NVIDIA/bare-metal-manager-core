@@ -17,7 +17,6 @@
 
 use ::rpc::errors::RpcDataConversionError;
 use ::rpc::forge::{self as rpc, HealthReportEntry};
-use carbide_uuid::power_shelf::PowerShelfId;
 use db::{ObjectColumnFilter, power_shelf as db_power_shelf};
 use health_report::HealthReportApplyMode;
 use model::bmc_suppression::BmcSuppressionSubsystem;
@@ -100,10 +99,13 @@ fn convert_power_shelves(
 
 pub(crate) async fn decommission_power_shelf(
     api: &Api,
-    request: Request<PowerShelfId>,
-) -> Result<Response<()>, Status> {
+    request: Request<rpc::DecommissionPowerShelfRequest>,
+) -> Result<Response<rpc::DecommissionPowerShelfResponse>, Status> {
     log_request_data(&request);
-    let power_shelf_id = request.into_inner();
+    let power_shelf_id = request
+        .into_inner()
+        .power_shelf_id
+        .ok_or_else(|| CarbideError::InvalidArgument("power_shelf_id is required".to_string()))?;
     let mut txn = api.txn_begin().await?;
     let power_shelf = db_power_shelf::find_by_id(&mut txn, &power_shelf_id)
         .await?
@@ -139,15 +141,18 @@ pub(crate) async fn decommission_power_shelf(
     )
     .await?;
     txn.commit().await?;
-    Ok(Response::new(()))
+    Ok(Response::new(rpc::DecommissionPowerShelfResponse {}))
 }
 
 pub(crate) async fn delete_decommissioned_power_shelf(
     api: &Api,
-    request: Request<PowerShelfId>,
-) -> Result<Response<()>, Status> {
+    request: Request<rpc::DeleteDecommissionedPowerShelfRequest>,
+) -> Result<Response<rpc::DeleteDecommissionedPowerShelfResponse>, Status> {
     log_request_data(&request);
-    let power_shelf_id = request.into_inner();
+    let power_shelf_id = request
+        .into_inner()
+        .power_shelf_id
+        .ok_or_else(|| CarbideError::InvalidArgument("power_shelf_id is required".to_string()))?;
 
     let mut txn = api.txn_begin().await?;
     let power_shelf = db_power_shelf::find_by_id(&mut txn, &power_shelf_id)
@@ -192,7 +197,9 @@ pub(crate) async fn delete_decommissioned_power_shelf(
 
     db_power_shelf::final_delete(power_shelf_id, &mut txn).await?;
     txn.commit().await?;
-    Ok(Response::new(()))
+    Ok(Response::new(
+        rpc::DeleteDecommissionedPowerShelfResponse {},
+    ))
 }
 
 pub(crate) async fn find_ids(

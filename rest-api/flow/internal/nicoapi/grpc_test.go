@@ -13,22 +13,21 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc"
-	"google.golang.org/protobuf/types/known/emptypb"
 )
 
 type decommissionPowerShelfForgeClient struct {
 	corev1.ForgeClient
-	request *corev1.PowerShelfId
+	request *corev1.DecommissionPowerShelfRequest
 	err     error
 }
 
 func (c *decommissionPowerShelfForgeClient) DecommissionPowerShelf(
 	_ context.Context,
-	request *corev1.PowerShelfId,
+	request *corev1.DecommissionPowerShelfRequest,
 	_ ...grpc.CallOption,
-) (*emptypb.Empty, error) {
+) (*corev1.DecommissionPowerShelfResponse, error) {
 	c.request = request
-	return &emptypb.Empty{}, c.err
+	return &corev1.DecommissionPowerShelfResponse{}, c.err
 }
 
 func TestGrpcClient_DecommissionPowerShelf(t *testing.T) {
@@ -58,7 +57,7 @@ func TestGrpcClient_DecommissionPowerShelf(t *testing.T) {
 				require.EqualError(t, err, test.wantError)
 			}
 
-			assert.Equal(t, "shelf-1", forgeClient.request.GetId())
+			assert.Equal(t, "shelf-1", forgeClient.request.GetPowerShelfId().GetId())
 		})
 	}
 }

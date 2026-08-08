@@ -15,6 +15,8 @@
  * limitations under the License.
  */
 
+use rpc::forge::DecommissionPowerShelfRequest;
+
 use super::args::Args;
 use crate::errors::CarbideCliResult;
 use crate::rpc::ApiClient;
@@ -22,7 +24,9 @@ use crate::rpc::ApiClient;
 pub(super) async fn decommission(api_client: &ApiClient, args: Args) -> CarbideCliResult<()> {
     api_client
         .0
-        .decommission_power_shelf(args.power_shelf_id)
+        .decommission_power_shelf(DecommissionPowerShelfRequest {
+            power_shelf_id: Some(args.power_shelf_id),
+        })
         .await?;
     println!(
         "Started decommissioning managed power shelf {}.",

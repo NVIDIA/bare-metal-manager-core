@@ -15,6 +15,8 @@
  * limitations under the License.
  */
 
+use rpc::forge::DeleteDecommissionedPowerShelfRequest;
+
 use super::args::Args;
 use crate::errors::CarbideCliResult;
 use crate::rpc::ApiClient;
@@ -25,7 +27,9 @@ pub(super) async fn delete_decommissioned(
 ) -> CarbideCliResult<()> {
     api_client
         .0
-        .delete_decommissioned_power_shelf(args.power_shelf_id)
+        .delete_decommissioned_power_shelf(DeleteDecommissionedPowerShelfRequest {
+            power_shelf_id: Some(args.power_shelf_id),
+        })
         .await?;
     println!(
         "Deleted decommissioned managed power shelf {}.",
