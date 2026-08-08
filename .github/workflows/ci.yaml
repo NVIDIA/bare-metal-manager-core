@@ -61,11 +61,11 @@ jobs:
       - name: Check Core CI concurrency policy
         run: bash scripts/check-ci-concurrency.sh core
 
-      - name: Test Core CI final-gate checker
-        run: python3 -B .github/ci/test_check_core_ci_gate.py
+      - name: Test CI final-gate checker
+        run: python3 -B .github/ci/test_check_ci_gate.py
 
       - name: Check Core CI final-gate inventory
-        run: python3 -B .github/ci/check_core_ci_gate.py inventory .github/workflows/ci.yaml
+        run: python3 -B .github/ci/check_ci_gate.py inventory --policy core .github/workflows/ci.yaml
 
       - name: Detect non-rest changes
         id: non-rest-changes
@@ -2346,4 +2346,4 @@ jobs:
       - name: Decide pass/fail
         env:
           NEEDS_JSON: ${{ toJson(needs) }}
-        run: python3 -B .github/ci/check_core_ci_gate.py results
+        run: python3 -B .github/ci/check_ci_gate.py results
