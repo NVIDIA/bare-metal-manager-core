@@ -16,12 +16,13 @@
  */
 
 use std::collections::HashMap;
+use std::net::IpAddr;
 use std::sync::Arc;
 use std::sync::atomic::Ordering;
 
 use ::rpc::forge as rpc;
 use carbide_utils::none_if_empty::NoneIfEmpty;
-use carbide_uuid::machine::MachineIdSource;
+use carbide_uuid::machine::{MachineId, MachineIdSource, MachineInterfaceId};
 use carbide_uuid::nvlink::NvLinkDomainId;
 use db::WithTransaction;
 use futures_util::FutureExt;
@@ -116,6 +117,24 @@ pub(crate) async fn discover_machine(
         })?)
     };
 
+    // LOAD-BEARING (#4711): reject the hopeless retries BEFORE the admission
+    // permit and the global admin-segment locks. See
+    // `unlocked_discovery_rejection` for the measurements and the safety
+    // rules; without it this handler is a fleet-wide serialization point that
+    // wedges machine creation at scale.
+    if let Some(rejection) = unlocked_discovery_rejection(
+        api,
+        machine_discovery_info.machine_interface_id,
+        machine_discovery_info.create_machine,
+        &hardware_info,
+        &stable_machine_id,
+        remote_ip,
+    )
+    .await
+    {
+        return Err(rejection.into());
+    }
+
     // Keep readers that are waiting behind instance allocation out of open
     // database transactions. Hold the same permit through the main discovery
     // transaction so the admin-lock queue remains bounded too.
@@ -164,7 +183,19 @@ pub(crate) async fn discover_machine(
     // whole transaction holds locks in the allocator order (segment advisory
     // lock first, then interface rows) all the way to the reconcile pass --
     // which re-acquires the same locks as a no-op.
-    db::machine_interface::lock_all_admin_segments(&mut txn, "machine_discovery").await?;
+    //
+    // The call site is labelled by branch (#4711 attribution): every one of
+    // those interface writes, and the reconcile pass, is gated behind
+    // `if hardware_info.is_dpu()` below, so the `_host` tally is the part of
+    // this traffic that a future change could plausibly stop taking. It is
+    // NOT free to drop today -- see the note on `unlocked_discovery_rejection`
+    // about the host/DPU row-lock ordering these locks currently serialize.
+    let lock_site = if hardware_info.is_dpu() {
+        "machine_discovery_dpu"
+    } else {
+        "machine_discovery_host"
+    };
+    db::machine_interface::lock_all_admin_segments(&mut txn, lock_site).await?;
 
     tracing::debug!(
         remote_ip_address = ?remote_ip,
@@ -617,6 +648,156 @@ fn discovery_source_owner_error() -> CarbideError {
     CarbideError::PermissionDeniedError(
         "discovery source IP and selected interface do not identify one host".to_string(),
     )
+}
+
+/// Unlocked pre-check for `discover_machine`: returns the error the locked
+/// path would return, for the one case that dominates admin-segment lock
+/// traffic, WITHOUT taking the admission permit or the global locks.
+///
+/// # Why this exists (#4711, measured -- do not delete)
+///
+/// Instrumented 4,500-host ingestion run: the `machine_discovery` call site
+/// was 705,875 of 718,000 admin-segment advisory lock acquisitions -- 99% of
+/// all of them -- and roughly **15 of every 16 were failed retries**. A site
+/// has only ~2 admin segments, so `lock_all_admin_segments` is effectively a
+/// global lock, and every discovering machine in the fleet queued on it.
+///
+/// `machine-a-tron` (and scout / DPU agents in the field) re-issue
+/// `DiscoverMachine` every 5 seconds with no backoff until their machine
+/// exists. Each of those retries took every admin-segment lock at the top of
+/// the handler and only then fell out with `PermissionDenied` a few dozen
+/// lines later. That is a positive feedback loop: slower ingestion -> more
+/// retries -> more global-lock traffic -> slower ingestion, until machine
+/// creation wedges with every backend parked in `pg_advisory_xact_lock`.
+///
+/// This is the same shape of fix as the `#4711 fast path` in
+/// `machine_interface::reconcile_admin_addresses_for_host`: decide with an
+/// unlocked read, and only pay for the lock when the call can actually do
+/// work.
+///
+/// # Rules any future edit must keep
+///
+/// 1. **Read-only, and never `FOR UPDATE`.** Taking `machine_interfaces` /
+///    `machine_interface_addresses` row locks before the segment advisory
+///    lock would invert the allocator order documented on
+///    `machine_interface::lock_network_segments_exclusive` (segment advisory
+///    lock first, then interface/address rows) and risk deadlock against
+///    every flow that follows it. Hence
+///    `find_optional_by_ip_unlocked` rather than
+///    `find_optional_for_update_by_ip`, and a `MachineSearchConfig` with
+///    `for_update` left at its `false` default.
+/// 2. **Reject only on monotonic "nothing exists yet" facts.** Both facts
+///    tested here -- the caller's interface has no machine association at
+///    all, and the machine this hardware derives does not exist -- flip false
+///    exactly once, when site-explorer creates and associates, and never flip
+///    back under normal operation. So a rejection here is never durable: the
+///    client's retry 5s later passes the pre-check and takes exactly today's
+///    code path. Do NOT add a condition that can oscillate; that would turn a
+///    transient rejection into a livelock.
+/// 3. **Uncertainty falls through.** No interface for the source IP, an
+///    ambiguous IP, an instance-scoped caller (the allocated-host-running-
+///    scout case, which has no lock-free lookup), or any query error returns
+///    `None` and lets the locked path produce the authoritative answer. This
+///    is a filter, never a source of state the write path then trusts.
+/// 4. **Same error as the locked path.** The rejection below is byte-for-byte
+///    the `PermissionDeniedError` the authorization match returns for these
+///    inputs, so clients and tests see no behavioural change.
+///
+/// Residual risk is one lost round trip: if the association lands between this
+/// read and where the locked path would have read it, the caller is rejected
+/// and retries 5s later. That is the same window the client already tolerates.
+///
+/// Takes the two request fields it needs by value rather than the whole
+/// `MachineDiscoveryInfo`, because `discovery_data` has already been moved out
+/// of it by the time this runs.
+async fn unlocked_discovery_rejection(
+    api: &Api,
+    caller_machine_interface_id: Option<MachineInterfaceId>,
+    create_machine: bool,
+    hardware_info: &HardwareInfo,
+    stable_machine_id: &MachineId,
+    remote_ip: Option<IpAddr>,
+) -> Option<CarbideError> {
+    // Reads go straight to the pool: no transaction is opened, so a rejected
+    // retry never occupies a pool connection while the fleet is contending.
+    let pool = &api.database_connection;
+
+    // Mirror the handler's caller-interface resolution, read-only. Only the
+    // two lookups that have a lock-free equivalent are mirrored; anything else
+    // falls through (rule 3).
+    let caller_interface = if api.runtime_config.allow_insecure_discovery {
+        let interface_id = caller_machine_interface_id?;
+        db::machine_interface::find_one(pool, interface_id)
+            .await
+            .ok()?
+    } else {
+        db::machine_interface::find_optional_by_ip_unlocked(pool, remote_ip?)
+            .await
+            .ok()??
+    };
+
+    // Monotonic fact 1: the caller's interface is not associated with any
+    // machine yet. This is the state every machine sits in while it waits for
+    // site-explorer, and it is what makes the authorization match below
+    // reduce to a constant. Once an association exists the match can succeed,
+    // so we must not decide anything here.
+    if caller_interface.machine_id.is_some() {
+        return None;
+    }
+
+    // Monotonic fact 2: the machine this hardware derives does not exist.
+    // Strictly narrower than fact 1 needs -- `machine_interfaces.machine_id`
+    // has an `ON UPDATE CASCADE` FK to `machines(id)`, so an unassociated
+    // interface already implies the caller owns nothing -- but it anchors the
+    // pre-check on the "site-explorer has not created it yet" condition the
+    // retry loop is actually waiting on, and it guarantees we stop rejecting
+    // the moment the machine appears.
+    let machine_exists = db::machine::find_one(
+        pool,
+        stable_machine_id,
+        MachineSearchConfig {
+            include_dpus: true,
+            ..MachineSearchConfig::default()
+        },
+    )
+    .await
+    .ok()?
+    .is_some();
+    if machine_exists {
+        return None;
+    }
+
+    // With `caller_interface.machine_id == None` the authorization match in
+    // `discover_machine` collapses to exactly this arm:
+    //     None if hardware_info.is_dpu() && create_machine
+    //         => !site_explorer_creates_machines
+    // (every other arm needs a `Some(machine_id)`). Evaluate it here and
+    // reject only when it is false. Keep this expression in sync with that
+    // match.
+    let site_explorer_creates_machines = api
+        .runtime_config
+        .site_explorer
+        .create_machines
+        .load(Ordering::Relaxed);
+    let authorized = hardware_info.is_dpu() && create_machine && !site_explorer_creates_machines;
+    if authorized {
+        // This call would go on to create the machine itself. Not our case.
+        return None;
+    }
+
+    tracing::debug!(
+        target: "carbide::lock_profile",
+        phase = "machine_discovery",
+        outcome = "rejected_unlocked",
+        %stable_machine_id,
+        machine_interface_id = %caller_interface.id,
+        is_dpu = hardware_info.is_dpu(),
+        "discovery rejected without taking admin segment locks"
+    );
+
+    Some(CarbideError::PermissionDeniedError(
+        "machine discovery is not authorized for the selected interface".to_string(),
+    ))
 }
 
 // Host has completed discovery

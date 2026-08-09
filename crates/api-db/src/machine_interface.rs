@@ -2325,8 +2325,9 @@ pub async fn lock_network_segments_exclusive(
 /// sites on the assumption it dominated, and measured no reduction at all --
 /// the attribution had been inferred rather than measured. This records which
 /// site actually acquires the lock, so the next change can be aimed.
-static ADMIN_LOCK_SITES: std::sync::LazyLock<std::sync::Mutex<std::collections::HashMap<&'static str, u64>>> =
-    std::sync::LazyLock::new(|| std::sync::Mutex::new(std::collections::HashMap::new()));
+static ADMIN_LOCK_SITES: std::sync::LazyLock<
+    std::sync::Mutex<std::collections::HashMap<&'static str, u64>>,
+> = std::sync::LazyLock::new(|| std::sync::Mutex::new(std::collections::HashMap::new()));
 
 /// Count one acquisition and, every 2,000, log the running per-site breakdown.
 /// Logged at INFO deliberately: the previous diagnostic used `debug!` while
@@ -2453,6 +2454,43 @@ pub async fn find_optional_for_update_by_ip(
         _ => Err(DatabaseError::internal(format!(
             "multiple machine interfaces map to discovery IP {remote_ip}"
         ))),
+    }
+}
+
+/// Read-only sibling of [`find_optional_for_update_by_ip`], for callers that
+/// must resolve the discovery IP *before* opening the transaction that takes
+/// the admin-segment advisory locks (see `discover_machine`'s pre-check).
+///
+/// Deliberately has no `FOR UPDATE`: row locks taken before the segment
+/// advisory lock would invert the allocator order documented on
+/// [`lock_network_segments_exclusive`] (segment advisory lock first, then
+/// machine interface/address rows) and could deadlock against every flow that
+/// follows that order. It also takes a pool rather than a connection so it
+/// cannot accidentally be spliced into a locking transaction.
+///
+/// Returns `None` both when no interface owns the address and when the address
+/// is ambiguous. Callers are pre-checks: "cannot decide" and "nothing here"
+/// must both fall through to the locked path, which stays the authority on the
+/// decision and on the error text.
+pub async fn find_optional_by_ip_unlocked(
+    pool: &sqlx::PgPool,
+    remote_ip: IpAddr,
+) -> Result<Option<MachineInterfaceSnapshot>, DatabaseError> {
+    let query = r#"
+        SELECT mi.id
+        FROM machine_interface_addresses mia
+        JOIN machine_interfaces mi ON mi.id = mia.interface_id
+        WHERE mia.address = $1::inet
+    "#;
+    let interface_ids: Vec<(MachineInterfaceId,)> = sqlx::query_as(query)
+        .bind(remote_ip)
+        .fetch_all(pool)
+        .await
+        .map_err(|e| DatabaseError::query(query, e))?;
+
+    match interface_ids.as_slice() {
+        [(interface_id,)] => find_one(pool, *interface_id).await.map(Some),
+        _ => Ok(None),
     }
 }
 
