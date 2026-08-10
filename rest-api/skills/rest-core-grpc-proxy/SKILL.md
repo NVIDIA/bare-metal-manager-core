@@ -1,6 +1,6 @@
 ---
 name: rest-core-grpc-proxy
-description: Build or migrate infra-controller REST API endpoints that call on-site NICo Core through the generic Core gRPC proxy. Use when working on REST-to-Core operations, ExecuteCoreGRPC, coreproxy, forge.Forge methods, creating new proxied REST endpoints, or migrating bespoke workflows to the gRPC proxy.
+description: Build or migrate infra-controller REST API endpoints that call on-site NICo Core through the generic Core gRPC proxy. Use when working on REST-to-Core operations, ExecuteCoreGRPC, grpcproxy, forge.Forge methods, creating new proxied REST endpoints, or migrating bespoke workflows to the gRPC proxy.
 ---
 
 # REST Core gRPC Proxy Skill
@@ -9,12 +9,12 @@ Use this guidance when building or converting `infra-controller` REST API endpoi
 
 ## Current Proxy Contract
 
-- Cloud helper: `rest-api/api/pkg/api/handler/util/common/coreproxy.go`, `ExecuteCoreGRPC`.
-- Shared contract: `rest-api/common/pkg/coreproxy/coreproxy.go`, with `coreproxy.Request` and `coreproxy.Response`.
+- Cloud helper: `rest-api/api/pkg/api/handler/util/common/grpcproxy.go`, `ExecuteCoreGRPC`.
+- Shared contract: `rest-api/common/pkg/grpcproxy/grpcproxy.go`, with `grpcproxy.Request` and `grpcproxy.Response`. Core and Flow share every layer of the proxy; the backend is named by `grpcproxy.Core`, and each layer keeps a per-backend wrapper only because Temporal dispatches on the registered workflow and activity names.
 - Site workflow/activity: `InvokeCoreGRPC` and `InvokeCoreGRPCOnSite`.
 - Site Core invocation: `CoreGrpcClient.InvokeJSON`.
 - Temporal transport payload: protojson, so non-secret request fields and responses remain readable in Temporal UI.
-- Secret transport payload: selected top-level protojson fields are redacted from `RequestJSON` and carried separately in `EncryptedSecrets`.
+- Secret transport payload: selected top-level protojson fields are redacted from `RequestJSON` and carried separately in `EncryptedSecrets`. `grpcproxy.RedactSecrets` / `grpcproxy.MergeSecrets` do the splitting and are shared with the Flow proxy.
 - Final site-to-Core call: normal binary gRPC. The JSON step is only the generic Temporal payload representation.
 
 ## Before Coding
@@ -40,7 +40,7 @@ Confirm these details before editing:
 2. Add or update the API model with validation, REST-to-proto mapping, and response shaping. Keep API compatibility and OpenAPI required/nullable semantics aligned with server validation.
 3. Keep auth, tenant/org membership, site lookup, role checks, request validation, and REST semantics in the REST handler. The proxy is only the cloud-to-site transport.
 4. Build the typed protobuf request before calling the proxy. Prefer generated protobuf types over maps or ad hoc JSON.
-5. Call `common.ExecuteCoreGRPC(ctx, siteTemporalClient, fullMethod, reqProto, respProtoOrNil, siteIDSecretKey, secretFields...)`.
+5. Call `common.ExecuteCoreGRPC(ctx, siteTemporalClient, fullMethod, reqProto, respProtoOrNil, siteIDSecretKey, secretFields...)`. Passing `secretFields` requires a non-empty `siteIDSecretKey`; the helper rejects the combination rather than send the fields unredacted.
 6. Pass the site ID string as the secret key when redacting fields for a site-scoped call; the site-agent decrypts with the same site key.
 7. Never log full request bodies when they can contain secrets. Log method, kind, site ID, or other non-secret metadata only.
 8. Return a curated REST response. Do not expose Core protobufs or secret fields directly unless the API contract already does.

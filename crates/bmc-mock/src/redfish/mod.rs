@@ -28,6 +28,7 @@ pub(crate) mod leak_detector;
 pub(crate) mod log_service;
 pub(crate) mod manager;
 mod manager_network_protocol;
+pub(crate) mod memory;
 pub(crate) mod network_adapter;
 pub(crate) mod network_device_function;
 pub(crate) mod oem;

@@ -25,6 +25,7 @@
 
 use carbide_test_support::Outcome::*;
 use carbide_test_support::scenarios;
+use carbide_uuid::site_prefix::SitePrefixId;
 use carbide_uuid::vpc::{VpcId, VpcPrefixId};
 use clap::{CommandFactory, Parser};
 use ipnet::IpNet;
@@ -36,6 +37,7 @@ use crate::test_support::{parse_leaf, raw_value};
 
 const TEST_VPC_ID: &str = "00000000-0000-0000-0000-000000000001";
 const TEST_VPC_PREFIX_ID: &str = "00000000-0000-0000-0000-000000000002";
+const TEST_SITE_PREFIX_ID: &str = "00000000-0000-0000-0000-000000000003";
 
 // verify_cmd_structure runs a baseline clap debug_assert()
 // to do basic command configuration checking and validation,
@@ -110,8 +112,8 @@ fn parse_show_routes_to_show_variant() {
 }
 
 // parse_create routes every valid `create` invocation to the Create variant,
-// reporting (vpc_id, prefix, name, vpc_prefix_id?) so the required-field and
-// optional-id assertions each become a row.
+// reporting (vpc_id, prefix, name, vpc_prefix_id?, site_prefix_id?) so the
+// required-field and optional-id assertions each become a row.
 #[test]
 fn parse_create_routes_to_create_variant() {
     scenarios!(
@@ -130,6 +132,9 @@ fn parse_create_routes_to_create_variant() {
                         matches
                             .get_one::<VpcPrefixId>("vpc-prefix-id")
                             .is_some(),
+                        matches
+                            .get_one::<SitePrefixId>("site-prefix-id")
+                            .copied(),
                     )
                 })
                 .map_err(drop)
@@ -149,6 +154,7 @@ fn parse_create_routes_to_create_variant() {
                 "10.0.0.0/8".parse::<IpNet>().unwrap(),
                 "test-prefix".to_string(),
                 false,
+                None,
             )),
         }
 
@@ -169,8 +175,56 @@ fn parse_create_routes_to_create_variant() {
                 "10.0.0.0/8".parse::<IpNet>().unwrap(),
                 "test-prefix".to_string(),
                 true,
+                None,
             )),
         }
+
+        "create with optional --site-prefix-id" {
+            &[
+                "vpc-prefix",
+                "create",
+                "--vpc-id",
+                TEST_VPC_ID,
+                "--site-prefix-id",
+                TEST_SITE_PREFIX_ID,
+                "--prefix",
+                "10.0.0.0/8",
+                "--name",
+                "test-prefix",
+            ][..] => Yields((
+                TEST_VPC_ID.parse::<VpcId>().unwrap(),
+                "10.0.0.0/8".parse::<IpNet>().unwrap(),
+                "test-prefix".to_string(),
+                false,
+                Some(TEST_SITE_PREFIX_ID.parse::<SitePrefixId>().unwrap()),
+            )),
+        }
+    );
+}
+
+#[test]
+fn create_request_preserves_site_prefix_id() {
+    let Cmd::Create(args) = Cmd::try_parse_from([
+        "vpc-prefix",
+        "create",
+        "--vpc-id",
+        TEST_VPC_ID,
+        "--site-prefix-id",
+        TEST_SITE_PREFIX_ID,
+        "--prefix",
+        "10.0.0.0/8",
+        "--name",
+        "test-prefix",
+    ])
+    .expect("create arguments should parse") else {
+        panic!("create arguments should route to the create command");
+    };
+
+    let request: rpc::forge::VpcPrefixCreationRequest = args.into();
+
+    assert_eq!(
+        request.site_prefix_id,
+        Some(TEST_SITE_PREFIX_ID.parse().unwrap())
     );
 }
 

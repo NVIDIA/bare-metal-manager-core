@@ -6260,7 +6260,7 @@ docker_image_tag = "flow-controller-tag"
                 .get(&DpfExtraService::DocaXplane)
                 .unwrap()
                 .helm_version,
-            crate::dpf_services::DOCA_XPLANE_SERVICE_HELM_VERSION
+            crate::dpf_services::default_doca_xplane_service().helm_version
         );
     }
 
@@ -6277,7 +6277,6 @@ node_label_key = "carbide.nvidia.com/astra"
         .unwrap();
         let deployment = config.deployments.bf4_astra.as_ref().unwrap();
         let resolved = config.resolved_services_for(deployment);
-
         let dhcp_agent = resolved
             .extra
             .get(&DpfExtraService::DocaWeaveDhcpAgent)
@@ -6306,7 +6305,7 @@ node_label_key = "carbide.nvidia.com/astra"
         assert_eq!(xplane.name, carbide_dpf::types::DOCA_XPLANE_SERVICE_NAME);
         assert_eq!(
             xplane.helm_version,
-            crate::dpf_services::DOCA_XPLANE_SERVICE_HELM_VERSION
+            crate::dpf_services::default_doca_xplane_service().helm_version
         );
     }
 

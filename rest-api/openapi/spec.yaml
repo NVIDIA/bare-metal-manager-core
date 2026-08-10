@@ -24141,18 +24141,18 @@ components:
           type:
             - string
             - 'null'
-          maxLength: 20
+          maxLength: 16
           description: Username for accessing the Expected Machine's BMC
         defaultBmcPassword:
           type:
             - string
             - 'null'
-          maxLength: 50
+          maxLength: 20
           description: Password for accessing the Expected Machine's BMC
         chassisSerialNumber:
           type: string
           minLength: 1
-          maxLength: 100
+          maxLength: 32
           description: Serial number of the Expected Machine's chassis
         fallbackDPUSerialNumbers:
           type:
@@ -24276,20 +24276,20 @@ components:
           type:
             - string
             - 'null'
-          maxLength: 20
+          maxLength: 16
           description: Username for accessing the Expected Machine's BMC
         defaultBmcPassword:
           type:
             - string
             - 'null'
-          maxLength: 50
+          maxLength: 20
           description: Password for accessing the Expected Machine's BMC
         chassisSerialNumber:
           type:
             - string
             - 'null'
           minLength: 1
-          maxLength: 100
+          maxLength: 32
           description: Serial number of the Expected Machine's chassis
         fallbackDPUSerialNumbers:
           type:

@@ -23,7 +23,7 @@ import (
 	"github.com/NVIDIA/infra-controller/rest-api/api/pkg/api/model"
 	sc "github.com/NVIDIA/infra-controller/rest-api/api/pkg/client/site"
 	authz "github.com/NVIDIA/infra-controller/rest-api/auth/pkg/authorization"
-	"github.com/NVIDIA/infra-controller/rest-api/common/pkg/coreproxy"
+	"github.com/NVIDIA/infra-controller/rest-api/common/pkg/grpcproxy"
 	cutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
 	cdb "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db"
 	cdbm "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/model"
@@ -37,7 +37,7 @@ type machineValidationOnDemandHandlerFixture struct {
 	siteID     uuid.UUID
 	user       interface{}
 	handler    echo.HandlerFunc
-	proxiedReq *coreproxy.Request
+	proxiedReq *grpcproxy.Request
 }
 
 func newMachineValidationOnDemandHandlerFixture(t *testing.T, response *corev1.MachineValidationOnDemandResponse) machineValidationOnDemandHandlerFixture {
@@ -60,13 +60,13 @@ func newMachineValidationOnDemandHandlerFixture(t *testing.T, response *corev1.M
 	instanceType := common.TestBuildInstanceType(t, dbSession, "test-instance-type", cutil.GetPtr(site.ID), site, nil, user)
 	machine := common.TestBuildMachine(t, dbSession, provider, site, &instanceType.ID, cutil.GetPtr("test-controller-machine-type"), cdbm.MachineStatusReady)
 
-	proxiedReq := &coreproxy.Request{}
+	proxiedReq := &grpcproxy.Request{}
 	workflowRun := &tmocks.WorkflowRun{}
 	workflowRun.On("Get", mock.Anything, mock.Anything).Run(func(args mock.Arguments) {
 		if response == nil {
 			return
 		}
-		out := args.Get(1).(*coreproxy.Response)
+		out := args.Get(1).(*grpcproxy.Response)
 		responseJSON, err := protojson.Marshal(response)
 		require.NoError(t, err)
 		out.ResponseJSON = responseJSON
@@ -77,8 +77,8 @@ func newMachineValidationOnDemandHandlerFixture(t *testing.T, response *corev1.M
 		"ExecuteWorkflow",
 		mock.Anything,
 		mock.Anything,
-		coreproxy.WorkflowName,
-		mock.MatchedBy(func(request coreproxy.Request) bool {
+		grpcproxy.Core.WorkflowName,
+		mock.MatchedBy(func(request grpcproxy.Request) bool {
 			*proxiedReq = request
 			return true
 		}),

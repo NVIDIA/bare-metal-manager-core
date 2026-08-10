@@ -31,7 +31,7 @@ use super::diagnostic::{
 };
 use crate::HealthError;
 use crate::collectors::{IterationResult, PeriodicCollector};
-use crate::endpoint::{BmcEndpoint, EndpointMetadata};
+use crate::endpoint::BmcEndpoint;
 use crate::sink::{CollectorEvent, DataSink, EventContext, LogRecord};
 
 /// Configuration for logs collector
@@ -266,10 +266,11 @@ impl<B: Bmc + 'static> LogsCollector<B> {
     }
 
     async fn collect_logs_from_services(&mut self) -> Result<(usize, usize), HealthError> {
-        let Some(EndpointMetadata::Machine(machine)) = &self.endpoint.metadata else {
+        if !self.endpoint.supports_periodic_logs() {
             return Ok((0, 0));
-        };
-        let machine_id = machine.machine_id.map(|id| id.to_string());
+        }
+
+        let machine_id = self.event_context.machine_id().map(|id| id.to_string());
 
         let Some(state) = self.state.as_mut() else {
             return Ok((0, 0));
