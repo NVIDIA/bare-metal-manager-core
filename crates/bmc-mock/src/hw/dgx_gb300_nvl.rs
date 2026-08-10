@@ -177,6 +177,7 @@ impl DgxGB300Nvl<'_> {
                     serial_number: Some(self.hgx_serial_number.to_string().into()),
                     storage: None,
                     processors: None,
+                    memory: None,
                 },
                 redfish::computer_system::SingleSystemConfig {
                     base_bios: Some(base_bios(system_id)),
@@ -197,6 +198,7 @@ impl DgxGB300Nvl<'_> {
                     serial_number: Some(self.system_0_serial_number.to_string().into()),
                     storage: None,
                     processors: None,
+                    memory: None,
                 },
             ],
         }

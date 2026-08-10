@@ -18,14 +18,77 @@
 use ::db::{ObjectColumnFilter, vpc_prefix as db};
 use ::rpc::forge as rpc;
 use ::rpc::forge::PrefixMatchType;
+use carbide_network::virtualization::VpcVirtualizationType;
 use ipnetwork::IpNetwork;
 use model::network_prefix::NetworkPrefix;
-use model::vpc::VpcVirtualizationTypeCapabilities;
+use model::site_prefix::{
+    SitePrefix, SitePrefixAuthority, SitePrefixLifecycleState, SitePrefixRoutingScope,
+};
+use model::vpc::{Vpc, VpcVirtualizationTypeCapabilities};
 use model::vpc_prefix;
 use tonic::{Request, Response, Status};
 
 use crate::CarbideError;
 use crate::api::{Api, log_request_data};
+
+fn contains_prefix(parent: IpNetwork, child: IpNetwork) -> bool {
+    match (parent, child) {
+        (IpNetwork::V4(parent), IpNetwork::V4(child)) => child.is_subnet_of(parent),
+        (IpNetwork::V6(parent), IpNetwork::V6(child)) => child.is_subnet_of(parent),
+        _ => false,
+    }
+}
+
+fn validate_site_prefix_attachment(
+    site_prefix: &SitePrefix,
+    vpc: &Vpc,
+    vpc_prefix: IpNetwork,
+) -> Result<(), CarbideError> {
+    if site_prefix.status.authority == SitePrefixAuthority::TenantManaged
+        && site_prefix
+            .config
+            .tenant_organization_id
+            .as_ref()
+            .map(|id| id.as_str())
+            != Some(vpc.config.tenant_organization_id.as_str())
+    {
+        return Err(CarbideError::PermissionDeniedError(format!(
+            "SitePrefix {} is not owned by the VPC tenant",
+            site_prefix.id
+        )));
+    }
+
+    if site_prefix.status.lifecycle_state != SitePrefixLifecycleState::Ready {
+        return Err(CarbideError::FailedPrecondition(format!(
+            "SitePrefix {} is not ready for new VPC prefixes",
+            site_prefix.id
+        )));
+    }
+
+    if site_prefix.config.routing_scope != SitePrefixRoutingScope::DatacenterOnly {
+        return Err(CarbideError::FailedPrecondition(format!(
+            "SitePrefix {} has an unsupported routing scope",
+            site_prefix.id
+        )));
+    }
+
+    if !contains_prefix(site_prefix.config.prefix, vpc_prefix) {
+        return Err(CarbideError::InvalidArgument(format!(
+            "the VPC prefix {vpc_prefix} is not contained within SitePrefix {} ({})",
+            site_prefix.id, site_prefix.config.prefix
+        )));
+    }
+
+    if site_prefix.status.authority == SitePrefixAuthority::TenantManaged
+        && vpc.config.network_virtualization_type != VpcVirtualizationType::Fnn
+    {
+        return Err(CarbideError::FailedPrecondition(
+            "tenant-managed SitePrefixes can only be used by FNN VPCs".to_string(),
+        ));
+    }
+
+    Ok(())
+}
 
 pub(crate) async fn create(
     api: &Api,
@@ -33,7 +96,7 @@ pub(crate) async fn create(
 ) -> Result<Response<rpc::VpcPrefix>, Status> {
     log_request_data(&request);
 
-    let new_prefix = vpc_prefix::NewVpcPrefix::try_from(request.into_inner())?;
+    let mut new_prefix = vpc_prefix::NewVpcPrefix::try_from(request.into_inner())?;
 
     // Validate that the new VPC prefix is in canonical form (no bits set to
     // 1 after the prefix).
@@ -49,20 +112,77 @@ pub(crate) async fn create(
         return Err(CarbideError::InvalidArgument(msg).into());
     }
 
-    // Validate that the new VPC prefix is contained within the site prefixes
-    // address space. This will also reject any IPv6 prefixes, since site
-    // prefixes cannot contain any IPv6 address space at the moment.
-    if let Some(ref site_prefixes) = api.eth_data.site_fabric_prefixes {
-        let prefix = new_prefix.config.prefix;
-        if !site_prefixes.contains(prefix) {
-            return Err(CarbideError::InvalidArgument(format!(
-                "the VPC prefix {prefix} is not contained within the site fabric prefixes"
-            ))
-            .into());
-        }
-    }
-
     let mut txn = api.txn_begin().await?;
+
+    // Resolve and lock the exact SitePrefix before locking the VPC. The shared
+    // row lock permits concurrent child creation but conflicts with retirement
+    // and configured-prefix reconciliation, which use FOR UPDATE.
+    let selected_site_prefix = if let Some(site_prefix_id) = new_prefix.site_prefix_id {
+        Some(
+            ::db::site_prefix::find_by_id_for_vpc_prefix_attachment(&mut txn, site_prefix_id)
+                .await?
+                .ok_or_else(|| CarbideError::NotFoundError {
+                    kind: "site prefix",
+                    id: site_prefix_id.to_string(),
+                })?,
+        )
+    } else {
+        // Reconciliation uses the corresponding exclusive namespace lock.
+        // Take the shared form before reading so a concurrent first operator
+        // root cannot be missed when there is not yet a row to lock.
+        ::db::site_prefix::lock_operator_managed_site_prefix_attachments(&mut txn).await?;
+        let mut candidates =
+            ::db::site_prefix::find_legacy_operator_managed_for_vpc_prefix_attachment(
+                &mut txn,
+                new_prefix.config.prefix,
+            )
+            .await?;
+        match candidates.len() {
+            0 => {
+                let vpc = ::db::vpc::find_by(
+                    &mut txn,
+                    ObjectColumnFilter::One(::db::vpc::IdColumn, &new_prefix.vpc_id),
+                )
+                .await?
+                .pop()
+                .ok_or_else(|| CarbideError::NotFoundError {
+                    kind: "vpc",
+                    id: new_prefix.vpc_id.to_string(),
+                })?;
+                ::db::site_prefix::lock_tenant_site_prefix_attachments(
+                    &vpc.config.tenant_organization_id,
+                    &mut txn,
+                )
+                .await?;
+                let tenant_managed =
+                    ::db::site_prefix::find_containing_tenant_managed_for_vpc_prefix_attachment(
+                        &mut txn,
+                        new_prefix.config.prefix,
+                        &vpc.config.tenant_organization_id,
+                    )
+                    .await?;
+                if !tenant_managed.is_empty() {
+                    return Err(CarbideError::FailedPrecondition(format!(
+                        "the VPC prefix {} is contained by a tenant-managed SitePrefix; specify site_prefix_id explicitly",
+                        new_prefix.config.prefix
+                    ))
+                    .into());
+                }
+                None
+            }
+            // Preserve the legacy configured-root behavior. A caller omitting
+            // the ID attaches to its unique operator root even if the tenant
+            // also owns a containing root; tenant-managed roots are explicit.
+            1 => candidates.pop(),
+            count => {
+                return Err(CarbideError::FailedPrecondition(format!(
+                    "the VPC prefix {} has {count} containing operator-managed SitePrefixes; specify site_prefix_id explicitly",
+                    new_prefix.config.prefix
+                ))
+                .into());
+            }
+        }
+    };
 
     let vpcs = ::db::vpc::find_by_with_lock(
         txn.as_mut(),
@@ -74,6 +194,23 @@ pub(crate) async fn create(
         kind: "vpc",
         id: new_prefix.vpc_id.to_string(),
     })?;
+
+    if let Some(site_prefix) = selected_site_prefix {
+        validate_site_prefix_attachment(&site_prefix, vpc, new_prefix.config.prefix)?;
+        new_prefix.site_prefix_id = Some(site_prefix.id);
+    } else if let Some(ref site_prefixes) = api.eth_data.site_fabric_prefixes {
+        // Preserve the mixed-version configured-root path. Production startup
+        // reconciles configured roots into SitePrefix rows; this fallback keeps
+        // feature-off sites and older writers behaviorally compatible while
+        // the nullable expand phase is deployed.
+        let prefix = new_prefix.config.prefix;
+        if !site_prefixes.contains(prefix) {
+            return Err(CarbideError::InvalidArgument(format!(
+                "the VPC prefix {prefix} is not contained within the site fabric prefixes"
+            ))
+            .into());
+        }
+    }
 
     if new_prefix.config.prefix.is_ipv6() {
         vpc.config
@@ -210,6 +347,7 @@ pub(crate) async fn search(
         prefix_match,
         prefix_match_type,
         deleted,
+        site_prefix_id,
     } = request.into_inner();
 
     // We don't have tenant prefixes in this version, so searching against them
@@ -251,6 +389,7 @@ pub(crate) async fn search(
         &mut txn,
         vpc_prefix::VpcPrefixSearch {
             vpc_id,
+            site_prefix_id,
             name,
             prefix_match,
             deleted_filter: model::DeletedFilter::from(deleted),

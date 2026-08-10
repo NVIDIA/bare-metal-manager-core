@@ -369,6 +369,16 @@ impl MetricHolder {
     }
 }
 
+#[cfg(not(feature = "test-support"))]
+pub(crate) struct SwitchCertificateMonitor {
+    db_pool: PgPool,
+    config: NvLinkConfig,
+    component_manager: Option<Arc<ComponentManager>>,
+    metric_holder: Arc<MetricHolder>,
+    work_lock_manager_handle: WorkLockManagerHandle,
+}
+
+#[cfg(feature = "test-support")]
 pub struct SwitchCertificateMonitor {
     db_pool: PgPool,
     config: NvLinkConfig,
@@ -377,6 +387,7 @@ pub struct SwitchCertificateMonitor {
     work_lock_manager_handle: WorkLockManagerHandle,
 }
 
+#[cfg(feature = "test-support")]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SwitchCertificateMonitorIterationResult {
     pub observed_endpoints: usize,
@@ -388,6 +399,7 @@ pub struct SwitchCertificateMonitorIterationResult {
     pub apply_errors: usize,
 }
 
+#[cfg(feature = "test-support")]
 impl SwitchCertificateMonitorIterationResult {
     fn from_metrics(metrics: &SwitchCertMonitorMetrics) -> Self {
         Self {
@@ -427,7 +439,41 @@ impl SwitchCertificateMonitor {
     const PROBE_CANCELLED_ERROR: &'static str = "NMX-C server certificate probe cancelled";
     const APPLY_CANCELLED_ERROR: &'static str = "NMX-C server certificate apply cancelled";
 
+    #[cfg(not(feature = "test-support"))]
+    pub(crate) fn new(
+        db_pool: PgPool,
+        meter: Meter,
+        config: NvLinkConfig,
+        component_manager: Option<Arc<ComponentManager>>,
+        work_lock_manager_handle: WorkLockManagerHandle,
+    ) -> Self {
+        Self::new_inner(
+            db_pool,
+            meter,
+            config,
+            component_manager,
+            work_lock_manager_handle,
+        )
+    }
+
+    #[cfg(feature = "test-support")]
     pub fn new(
+        db_pool: PgPool,
+        meter: Meter,
+        config: NvLinkConfig,
+        component_manager: Option<Arc<ComponentManager>>,
+        work_lock_manager_handle: WorkLockManagerHandle,
+    ) -> Self {
+        Self::new_inner(
+            db_pool,
+            meter,
+            config,
+            component_manager,
+            work_lock_manager_handle,
+        )
+    }
+
+    fn new_inner(
         db_pool: PgPool,
         meter: Meter,
         config: NvLinkConfig,
@@ -448,13 +494,15 @@ impl SwitchCertificateMonitor {
         }
     }
 
-    pub async fn run(&self, cancel_token: CancellationToken) {
+    pub(crate) async fn run(&self, cancel_token: CancellationToken) {
         let timer = PeriodicTimer::new(self.config.nmx_c_certificate_rotation.run_interval);
         loop {
             let tick = timer.tick();
-            // `run_single_iteration` owns the completion event, including the
+            // The iteration helper owns the completion event, including the
             // historical `WARN`, before it returns to this scheduling loop.
-            self.run_single_iteration(&cancel_token).await.ok();
+            self.run_single_iteration_impl(&cancel_token, |_| ())
+                .await
+                .ok();
 
             tokio::select! {
                 _ = tick.sleep() => {},
@@ -466,10 +514,23 @@ impl SwitchCertificateMonitor {
         }
     }
 
+    #[cfg(feature = "test-support")]
     pub async fn run_single_iteration(
         &self,
         cancel_token: &CancellationToken,
     ) -> NvLinkManagerResult<SwitchCertificateMonitorIterationResult> {
+        self.run_single_iteration_impl(
+            cancel_token,
+            SwitchCertificateMonitorIterationResult::from_metrics,
+        )
+        .await
+    }
+
+    async fn run_single_iteration_impl<T>(
+        &self,
+        cancel_token: &CancellationToken,
+        make_result: impl FnOnce(&SwitchCertMonitorMetrics) -> T,
+    ) -> NvLinkManagerResult<T> {
         let mut metrics = SwitchCertMonitorMetrics::new();
         let span_id: String = format!("{:#x}", u64::from_le_bytes(rand::random::<[u8; 8]>()));
         let switch_cert_monitor_span = tracing::span!(
@@ -493,7 +554,7 @@ impl SwitchCertificateMonitor {
             switch_cert_monitor_span.record("otel.status_message", format!("{e:?}"));
         }
         switch_cert_monitor_span.record("metrics", metrics.to_string());
-        let iteration_result = SwitchCertificateMonitorIterationResult::from_metrics(&metrics);
+        let iteration_result = make_result(&metrics);
         switch_cert_monitor_span.in_scope(|| {
             carbide_instrument::emit(match result.as_ref().err() {
                 None => SwitchCertificateMonitorIterationFinished::Succeeded {

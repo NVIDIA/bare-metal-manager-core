@@ -47,7 +47,6 @@ images:
     image: nico-api
     custom:
       command: |-
-        docker image inspect build-container-localdev >/dev/null 2>&1 || docker build --pull=false -t build-container-localdev -f dev/docker/Dockerfile.build-container-x86_64 .
         docker build -t ${runtime.images.nico-api.image}:${runtime.images.nico-api.tag} -f dev/deployment/devspace/Dockerfile.api .
       onChange:
         - .dockerignore
@@ -65,7 +64,6 @@ images:
     image: nico-bmc-proxy
     custom:
       command: |-
-        docker image inspect build-container-localdev >/dev/null 2>&1 || docker build --pull=false -t build-container-localdev -f dev/docker/Dockerfile.build-container-x86_64 .
         docker build -t ${runtime.images.nico-bmc-proxy.image}:${runtime.images.nico-bmc-proxy.tag} -f dev/deployment/devspace/Dockerfile.bmc-proxy .
       onChange:
         - .dockerignore
@@ -80,7 +78,6 @@ images:
     image: machine-a-tron
     custom:
       command: |-
-        docker image inspect build-container-localdev >/dev/null 2>&1 || docker build --pull=false -t build-container-localdev -f dev/docker/Dockerfile.build-container-x86_64 .
         docker build -t ${runtime.images.machine-a-tron.image}:${runtime.images.machine-a-tron.tag} -f dev/deployment/devspace/Dockerfile.machine-a-tron .
       onChange:
         - .dockerignore
@@ -281,6 +278,11 @@ deployments:
           apiName: nico
 
 hooks:
+  - name: build-base-image
+    events: ["before:build"]
+    command: |-
+      docker image inspect build-container-localdev >/dev/null 2>&1 || \
+        docker build --pull=false -t build-container-localdev -f dev/docker/Dockerfile.build-container-x86_64 .
   - name: load-images-into-local-cluster
     events: ["before:deploy"]
     command: |-

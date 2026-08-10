@@ -52,7 +52,10 @@
 //! Cargo's `OUT_DIR`.
 
 mod compiler;
+mod extern_paths;
 mod schema;
 
 pub use compiler::{CompilerConfig, Error, compile};
+pub use extern_paths::{ExternPathSearchIndex, ExternPaths, TonicBuilderExternPaths};
 pub use schema::Schema;
+pub use syn;

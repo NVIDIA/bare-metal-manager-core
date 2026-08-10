@@ -1188,7 +1188,7 @@ func TestGetExpectedMachineHandler_Handle(t *testing.T) {
 	})
 }
 
-func TestExpectedMachineBmcMacUnchanged(t *testing.T) {
+func TestBmcMacUnchanged(t *testing.T) {
 	stored := "00:11:22:33:44:DD"
 	tests := []struct {
 		name      string
@@ -1223,7 +1223,7 @@ func TestExpectedMachineBmcMacUnchanged(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			assert.Equal(t, tt.expected, expectedMachineBmcMacUnchanged(stored, tt.submitted))
+			assert.Equal(t, tt.expected, bmcMacUnchanged(stored, tt.submitted))
 		})
 	}
 }

@@ -23166,6 +23166,11 @@ components:
               numaNode: 1
               description: 'MT28908 Family [ConnectX-6]'
               slot: '0000:ca:00.0'
+          lifecycleState:
+            value: Ready
+            isAboveSLA: false
+            updated: '2026-01-15T12:00:00Z'
+            slaSeconds: 300
       properties:
         dmiData:
           $ref: '#/components/schemas/MachineDMIData'
@@ -23188,6 +23193,41 @@ components:
           items:
             $ref: '#/components/schemas/MachineInfiniBandInterface'
           description: 'List of InfiniBand interfaces of the machine'
+        lifecycleState:
+          oneOf:
+            - $ref: '#/components/schemas/MachineLifecycleState'
+            - type: 'null'
+          description: 'Lifecycle state details for the Machine'
+    MachineLifecycleState:
+      title: MachineLifecycleState
+      type: object
+      description: Describes the current Machine lifecycle state and its SLA status
+      required:
+        - value
+        - isAboveSLA
+        - slaSeconds
+      examples:
+        - value: Ready
+          isAboveSLA: false
+          updated: '2026-01-15T12:00:00Z'
+          slaSeconds: 300
+      properties:
+        value:
+          type: string
+          description: 'Current lifecycle state value of the Machine'
+        isAboveSLA:
+          type: boolean
+          description: 'Whether the Machine has been in the current state longer than the defined SLA'
+        updated:
+          type:
+            - string
+            - 'null'
+          description: 'Date/time when the lifecycle state was updated to the current value'
+          format: date-time
+        slaSeconds:
+          type: integer
+          format: int64
+          description: 'Defined SLA for the current lifecycle state in seconds'
     MachineBMCInfo:
       title: MachineBMCInfo
       type: object
@@ -23804,18 +23844,18 @@ components:
           type:
             - string
             - 'null'
-          maxLength: 20
+          maxLength: 16
           description: Username for accessing the Expected Machine's BMC
         defaultBmcPassword:
           type:
             - string
             - 'null'
-          maxLength: 50
+          maxLength: 20
           description: Password for accessing the Expected Machine's BMC
         chassisSerialNumber:
           type: string
           minLength: 1
-          maxLength: 100
+          maxLength: 32
           description: Serial number of the Expected Machine's chassis
         fallbackDPUSerialNumbers:
           type:
@@ -23939,20 +23979,20 @@ components:
           type:
             - string
             - 'null'
-          maxLength: 20
+          maxLength: 16
           description: Username for accessing the Expected Machine's BMC
         defaultBmcPassword:
           type:
             - string
             - 'null'
-          maxLength: 50
+          maxLength: 20
           description: Password for accessing the Expected Machine's BMC
         chassisSerialNumber:
           type:
             - string
             - 'null'
           minLength: 1
-          maxLength: 100
+          maxLength: 32
           description: Serial number of the Expected Machine's chassis
         fallbackDPUSerialNumbers:
           type:
@@ -24255,7 +24295,12 @@ components:
             - string
             - 'null'
           pattern: '^([0-9A-Fa-f]{2}[:-]){5}([0-9A-Fa-f]{2})$'
-          description: MAC address of the Expected Power Shelf's BMC (Baseboard Management Controller)
+          deprecated: true
+          description: |-
+            Immutable MAC address of the Expected Power Shelf's BMC (Baseboard Management Controller).
+            Omit this field when updating. A formatting-equivalent value is accepted for compatibility
+            and preserves the originally stored spelling, but changing the physical MAC address is rejected
+            with HTTP 400.
         defaultBmcUsername:
           type:
             - string
@@ -24815,7 +24860,12 @@ components:
             - string
             - 'null'
           pattern: '^([0-9A-Fa-f]{2}[:-]){5}([0-9A-Fa-f]{2})$'
-          description: MAC address of the Expected Switch's BMC (Baseboard Management Controller)
+          deprecated: true
+          description: |-
+            Immutable MAC address of the Expected Switch's BMC (Baseboard Management Controller).
+            Omit this field when updating. A formatting-equivalent value is accepted for compatibility
+            and preserves the originally stored spelling, but changing the physical MAC address is rejected
+            with HTTP 400.
         defaultBmcUsername:
           type:
             - string

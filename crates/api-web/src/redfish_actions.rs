@@ -205,6 +205,11 @@ pub(super) async fn cancel(AxumState(state): AxumState<Arc<Api>>, request_id: St
 }
 
 mod filters {
+    #![allow(
+        unreachable_pub,
+        reason = "askama::filter_fn emits public helper items inside this template-filter module"
+    )]
+
     use std::fmt::Write;
 
     use askama_escape::Escaper;
