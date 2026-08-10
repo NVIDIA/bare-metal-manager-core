@@ -2287,7 +2287,7 @@ impl ApiClient {
             network_security_group_id,
             default_nvlink_logical_partition_id: None,
             routing_profile_overrides: None,
-            power_resource_group: None,
+            power_resource_group_update: None,
         };
         self.0
             .update_vpc(request)
