@@ -27,8 +27,8 @@ use db::vpc::{self};
 use db::{self, ObjectColumnFilter};
 use model::metadata::Metadata;
 use model::vpc::{
-    NewVpc, UpdateVpc, UpdateVpcVirtualization, VpcDefinition, VpcRoutingProfileOverrides,
-    VpcStatus,
+    NewVpc, PowerResourceGroupUpdate, UpdateVpc, UpdateVpcVirtualization, VpcDefinition,
+    VpcRoutingProfileOverrides, VpcStatus,
 };
 use rpc::forge::forge_server::Forge;
 
@@ -387,7 +387,7 @@ async fn create_vpc(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>
                 network_security_group_id: None,
                 default_nvlink_logical_partition_id: None,
                 routing_profile_overrides: None,
-                power_resource_group: None,
+                power_resource_group_update: None,
             }))
             .await;
 
@@ -417,7 +417,7 @@ async fn create_vpc(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>
             metadata: updated_metadata.clone(),
             network_security_group_id: None,
             routing_profile_overrides: None,
-            power_resource_group: Some("power-group".to_string()),
+            power_resource_group: Some(PowerResourceGroupUpdate::Set("power-group".to_string())),
         },
         &mut txn,
     )
@@ -543,14 +543,14 @@ async fn create_vpc(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>
             id: no_org_vpc_id,
             network_security_group_id: None,
             routing_profile_overrides: None,
-            power_resource_group: Some(String::new()),
+            power_resource_group: Some(PowerResourceGroupUpdate::Clear),
             if_version_match: Some(updated_vpc.version),
             metadata: updated_vpc.metadata.clone(),
         },
         &mut txn,
     )
     .await?;
-    assert_eq!(updated_vpc.config.power_resource_group.as_deref(), Some(""));
+    assert_eq!(updated_vpc.config.power_resource_group, None);
     assert_eq!(updated_vpc.version.version_nr(), 6);
 
     let mut vpcs = db::vpc::find_by(
@@ -561,7 +561,7 @@ async fn create_vpc(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>
     let first = vpcs.swap_remove(0);
     assert_eq!(&first.metadata.name, "yet another new name");
     assert_eq!(first.version.version_nr(), 6);
-    assert_eq!(first.config.power_resource_group.as_deref(), Some(""));
+    assert_eq!(first.config.power_resource_group, None);
 
     let vpcs = db::vpc::find_by_with_lock(
         txn.as_mut(),

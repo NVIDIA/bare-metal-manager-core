@@ -1909,11 +1909,14 @@ message VpcUpdateRequest {
   // previous inline definition. Omit this field to preserve the current
   // definition; send an empty message to restore inheritance for every property.
   optional VpcRoutingProfileOverrides routing_profile_overrides = 19;
-  // External power provisioning resource group update. Omit this field to
-  // preserve the current value. A present value replaces the current value
-  // exactly, including an empty string. Clearing the association is not
-  // supported by this API.
-  optional string power_resource_group = 20;
+  // External power provisioning resource group update. Omit the operation to
+  // preserve the current association.
+  oneof power_resource_group_update {
+    // Replace the current association. The value must not be empty.
+    string set_power_resource_group = 20;
+    // Remove the current association.
+    google.protobuf.Empty clear_power_resource_group = 21;
+  }
 }
 
 message VpcUpdateResult {

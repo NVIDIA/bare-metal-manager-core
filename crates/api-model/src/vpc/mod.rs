@@ -105,9 +105,15 @@ pub struct UpdateVpc {
     pub id: VpcId,
     pub network_security_group_id: Option<NetworkSecurityGroupId>,
     pub routing_profile_overrides: Option<VpcRoutingProfileOverrides>,
-    pub power_resource_group: Option<String>,
+    pub power_resource_group: Option<PowerResourceGroupUpdate>,
     pub if_version_match: Option<ConfigVersion>,
     pub metadata: Metadata,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum PowerResourceGroupUpdate {
+    Set(String),
+    Clear,
 }
 
 /// UpdateVpcVirtualization exists as a mechanism to translate

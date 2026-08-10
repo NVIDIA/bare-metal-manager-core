@@ -19,7 +19,9 @@ use std::ops::DerefMut;
 use carbide_uuid::network::NetworkSegmentId;
 use carbide_uuid::vpc::VpcId;
 use config_version::ConfigVersion;
-use model::vpc::{NewVpc, UpdateVpc, UpdateVpcVirtualization, Vpc, VpcStatus};
+use model::vpc::{
+    NewVpc, PowerResourceGroupUpdate, UpdateVpc, UpdateVpcVirtualization, Vpc, VpcStatus,
+};
 use sqlx::{PgConnection, PgTransaction};
 
 use super::{ColumnInfo, FilterableQueryBuilder, ObjectColumnFilter, network_segment, vpc};
@@ -329,18 +331,26 @@ pub async fn update(value: &UpdateVpc, txn: &mut PgConnection) -> DatabaseResult
 
     // An omitted override preserves the current definition. A present message
     // replaces it so its unset properties inherit from the named base profile.
-    // An omitted power resource group also preserves the current value. Any
-    // present string replaces it exactly, including the empty string.
+    // An omitted power resource group operation preserves the current value.
+    // Set replaces it and clear stores NULL.
     // network_virtualization_type cannot be changed currently
     // TODO check number of changed rows
     let query = "UPDATE vpcs
             SET name=$1, version=$2, description=$3, network_security_group_id=$4,
                 labels=$5::json,
                 routing_profile_overrides=COALESCE($6::jsonb, routing_profile_overrides),
-                power_resource_group=COALESCE($7, power_resource_group),
+                power_resource_group=CASE WHEN $7 THEN $8 ELSE power_resource_group END,
                 updated=NOW()
-            WHERE id=$8 AND version=$9 AND deleted is null
+            WHERE id=$9 AND version=$10 AND deleted is null
             RETURNING *";
+    let (update_power_resource_group, power_resource_group) =
+        match value.power_resource_group.as_ref() {
+            Some(PowerResourceGroupUpdate::Set(resource_group)) => {
+                (true, Some(resource_group.as_str()))
+            }
+            Some(PowerResourceGroupUpdate::Clear) => (true, None),
+            None => (false, None),
+        };
     let query_result = sqlx::query_as(query)
         .bind(&value.metadata.name)
         .bind(next_version)
@@ -353,7 +363,8 @@ pub async fn update(value: &UpdateVpc, txn: &mut PgConnection) -> DatabaseResult
                 .as_ref()
                 .map(sqlx::types::Json),
         )
-        .bind(&value.power_resource_group)
+        .bind(update_power_resource_group)
+        .bind(power_resource_group)
         .bind(value.id)
         .bind(current_version)
         .fetch_one(txn)
