@@ -123,9 +123,17 @@ jobs:
         with:
           persist-credentials: false
           fetch-depth: 0
+      - name: Compute TruffleHog scan range
+        id: scan-range
+        if: startsWith(github.ref, 'refs/heads/pull-request/')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: bash .github/ci/resolve-pr-scan-range.sh >> "$GITHUB_OUTPUT"
       - name: Run TruffleHog Scan
         uses: NVIDIA/dsx-github-actions/.github/actions/trufflehog-scan@f435aa6bf125fe6f9e5ac438f8cef75f90e29a2b
         with:
+          base: ${{ steps.scan-range.outputs.base }}
+          head: ${{ steps.scan-range.outputs.head }}
           extra-args: '--results=verified,unknown --only-verified'
           post-pr-comment: 'true'
           fail-on-findings: 'true'
