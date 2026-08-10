@@ -7865,16 +7865,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "nv-redfish-dispatcher"
-version = "0.14.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "14522a81dc4de549fcc88b755ed5505d5f5e26ed65a04c7ebec684191ae609ae"
-dependencies = [
- "futures-core",
- "futures-util",
-]
-
-[[package]]
 name = "nv-redfish-schema"
 version = "0.14.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
