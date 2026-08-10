@@ -1688,6 +1688,8 @@ message VpcConfig {
   optional uint32 vni = 6;
   optional string routing_profile_type = 7;
   optional VpcRoutingProfileOverrides routing_profile_overrides = 8;
+  // Resource group managed by the external power provisioning service.
+  optional string power_resource_group = 9;
 }
 
 message VpcStatus {
@@ -1791,6 +1793,8 @@ message VpcCreationRequest {
   // Properties to overlay on the selected named routing profile. Properties
   // left unset inherit from the base profile.
   optional VpcRoutingProfileOverrides routing_profile_overrides = 18;
+  // Resource group managed by the external power provisioning service.
+  optional string power_resource_group = 19;
 }
 
 enum VpcVirtualizationType {
@@ -1845,6 +1849,11 @@ message VpcUpdateRequest {
   // previous inline definition. Omit this field to preserve the current
   // definition; send an empty message to restore inheritance for every property.
   optional VpcRoutingProfileOverrides routing_profile_overrides = 19;
+  // External power provisioning resource group update. Omit this field to
+  // preserve the current value. A present value replaces the current value
+  // exactly, including an empty string. Clearing the association is not
+  // supported by this API.
+  optional string power_resource_group = 20;
 }
 
 message VpcUpdateResult {
@@ -3018,6 +3027,12 @@ message InstanceConfig {
   InstanceNVLinkConfig nvlink = 24;
 
   InstanceSpxConfig spxconfig = 25;
+
+  // Power profile managed by the external power provisioning service. In an
+  // InstanceConfigUpdateRequest, omission preserves the current profile for
+  // compatibility with older clients, an empty string explicitly clears it,
+  // and a non-empty value replaces it.
+  optional string power_profile = 26;
 }
 
 // Desired network configuration for an instance
@@ -3144,9 +3159,11 @@ message InstanceConfigUpdateRequest {
   // a `ConcurrentModificationError`.
   optional string if_version_match = 2;
 
-  // Complete desired configuration replacing the current configuration. The
-  // server does not merge omitted fields. Read-modify-write clients must
-  // preserve fields and oneof variants they do not intend to change.
+  // Complete desired configuration replacing the current configuration. With
+  // the exception of power_profile (whose compatibility semantics are
+  // documented on that field), the server does not merge omitted fields.
+  // Read-modify-write clients must preserve fields and oneof variants they do
+  // not intend to change.
   InstanceConfig config = 3;
   // New Metadata to be utilized by the instance
   Metadata metadata = 4;

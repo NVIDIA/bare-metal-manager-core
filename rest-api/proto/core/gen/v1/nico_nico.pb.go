@@ -9985,8 +9985,10 @@ type VpcConfig struct {
 	Vni                     *uint32                     `protobuf:"varint,6,opt,name=vni,proto3,oneof" json:"vni,omitempty"`
 	RoutingProfileType      *string                     `protobuf:"bytes,7,opt,name=routing_profile_type,json=routingProfileType,proto3,oneof" json:"routing_profile_type,omitempty"`
 	RoutingProfileOverrides *VpcRoutingProfileOverrides `protobuf:"bytes,8,opt,name=routing_profile_overrides,json=routingProfileOverrides,proto3,oneof" json:"routing_profile_overrides,omitempty"`
-	unknownFields           protoimpl.UnknownFields
-	sizeCache               protoimpl.SizeCache
+	// Resource group managed by the external power provisioning service.
+	PowerResourceGroup *string `protobuf:"bytes,9,opt,name=power_resource_group,json=powerResourceGroup,proto3,oneof" json:"power_resource_group,omitempty"`
+	unknownFields      protoimpl.UnknownFields
+	sizeCache          protoimpl.SizeCache
 }
 
 func (x *VpcConfig) Reset() {
@@ -10073,6 +10075,13 @@ func (x *VpcConfig) GetRoutingProfileOverrides() *VpcRoutingProfileOverrides {
 		return x.RoutingProfileOverrides
 	}
 	return nil
+}
+
+func (x *VpcConfig) GetPowerResourceGroup() string {
+	if x != nil && x.PowerResourceGroup != nil {
+		return *x.PowerResourceGroup
+	}
+	return ""
 }
 
 type VpcStatus struct {
@@ -10377,8 +10386,10 @@ type VpcCreationRequest struct {
 	// Properties to overlay on the selected named routing profile. Properties
 	// left unset inherit from the base profile.
 	RoutingProfileOverrides *VpcRoutingProfileOverrides `protobuf:"bytes,18,opt,name=routing_profile_overrides,json=routingProfileOverrides,proto3,oneof" json:"routing_profile_overrides,omitempty"`
-	unknownFields           protoimpl.UnknownFields
-	sizeCache               protoimpl.SizeCache
+	// Resource group managed by the external power provisioning service.
+	PowerResourceGroup *string `protobuf:"bytes,19,opt,name=power_resource_group,json=powerResourceGroup,proto3,oneof" json:"power_resource_group,omitempty"`
+	unknownFields      protoimpl.UnknownFields
+	sizeCache          protoimpl.SizeCache
 }
 
 func (x *VpcCreationRequest) Reset() {
@@ -10488,6 +10499,13 @@ func (x *VpcCreationRequest) GetRoutingProfileOverrides() *VpcRoutingProfileOver
 	return nil
 }
 
+func (x *VpcCreationRequest) GetPowerResourceGroup() string {
+	if x != nil && x.PowerResourceGroup != nil {
+		return *x.PowerResourceGroup
+	}
+	return ""
+}
+
 type VpcUpdateRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	Id    *VpcId                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
@@ -10509,8 +10527,13 @@ type VpcUpdateRequest struct {
 	// previous inline definition. Omit this field to preserve the current
 	// definition; send an empty message to restore inheritance for every property.
 	RoutingProfileOverrides *VpcRoutingProfileOverrides `protobuf:"bytes,19,opt,name=routing_profile_overrides,json=routingProfileOverrides,proto3,oneof" json:"routing_profile_overrides,omitempty"`
-	unknownFields           protoimpl.UnknownFields
-	sizeCache               protoimpl.SizeCache
+	// External power provisioning resource group update. Omit this field to
+	// preserve the current value. A present value replaces the current value
+	// exactly, including an empty string. Clearing the association is not
+	// supported by this API.
+	PowerResourceGroup *string `protobuf:"bytes,20,opt,name=power_resource_group,json=powerResourceGroup,proto3,oneof" json:"power_resource_group,omitempty"`
+	unknownFields      protoimpl.UnknownFields
+	sizeCache          protoimpl.SizeCache
 }
 
 func (x *VpcUpdateRequest) Reset() {
@@ -10590,6 +10613,13 @@ func (x *VpcUpdateRequest) GetRoutingProfileOverrides() *VpcRoutingProfileOverri
 		return x.RoutingProfileOverrides
 	}
 	return nil
+}
+
+func (x *VpcUpdateRequest) GetPowerResourceGroup() string {
+	if x != nil && x.PowerResourceGroup != nil {
+		return *x.PowerResourceGroup
+	}
+	return ""
 }
 
 type VpcUpdateResult struct {
@@ -17854,8 +17884,13 @@ type InstanceConfig struct {
 	// Configures instance extension services (e.g., SDN components)
 	DpuExtensionServices *InstanceDpuExtensionServicesConfig `protobuf:"bytes,23,opt,name=dpu_extension_services,json=dpuExtensionServices,proto3,oneof" json:"dpu_extension_services,omitempty"`
 	// Configures instance nvlink partitions
-	Nvlink        *InstanceNVLinkConfig `protobuf:"bytes,24,opt,name=nvlink,proto3" json:"nvlink,omitempty"`
-	Spxconfig     *InstanceSpxConfig    `protobuf:"bytes,25,opt,name=spxconfig,proto3" json:"spxconfig,omitempty"`
+	Nvlink    *InstanceNVLinkConfig `protobuf:"bytes,24,opt,name=nvlink,proto3" json:"nvlink,omitempty"`
+	Spxconfig *InstanceSpxConfig    `protobuf:"bytes,25,opt,name=spxconfig,proto3" json:"spxconfig,omitempty"`
+	// Power profile managed by the external power provisioning service. In an
+	// InstanceConfigUpdateRequest, omission preserves the current profile for
+	// compatibility with older clients, an empty string explicitly clears it,
+	// and a non-empty value replaces it.
+	PowerProfile  *string `protobuf:"bytes,26,opt,name=power_profile,json=powerProfile,proto3,oneof" json:"power_profile,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -17944,6 +17979,13 @@ func (x *InstanceConfig) GetSpxconfig() *InstanceSpxConfig {
 		return x.Spxconfig
 	}
 	return nil
+}
+
+func (x *InstanceConfig) GetPowerProfile() string {
+	if x != nil && x.PowerProfile != nil {
+		return *x.PowerProfile
+	}
+	return ""
 }
 
 // Desired network configuration for an instance
@@ -18463,9 +18505,11 @@ type InstanceConfigUpdateRequest struct {
 	// If a concurrent update changed the site configuration, the API will return
 	// a `ConcurrentModificationError`.
 	IfVersionMatch *string `protobuf:"bytes,2,opt,name=if_version_match,json=ifVersionMatch,proto3,oneof" json:"if_version_match,omitempty"`
-	// Complete desired configuration replacing the current configuration. The
-	// server does not merge omitted fields. Read-modify-write clients must
-	// preserve fields and oneof variants they do not intend to change.
+	// Complete desired configuration replacing the current configuration. With
+	// the exception of power_profile (whose compatibility semantics are
+	// documented on that field), the server does not merge omitted fields.
+	// Read-modify-write clients must preserve fields and oneof variants they do
+	// not intend to change.
 	Config *InstanceConfig `protobuf:"bytes,3,opt,name=config,proto3" json:"config,omitempty"`
 	// New Metadata to be utilized by the instance
 	Metadata      *Metadata `protobuf:"bytes,4,opt,name=metadata,proto3" json:"metadata,omitempty"`
@@ -63832,7 +63876,7 @@ const file_nico_nico_proto_rawDesc = "" +
 	"\x18allowed_anycast_prefixes\x18\a \x03(\v2\x1e.forge.PrefixFilterPolicyEntryR\x16allowedAnycastPrefixes\x12\x1a\n" +
 	"\binternal\x18\b \x01(\bR\binternal\x12\x1f\n" +
 	"\vaccess_tier\x18\t \x01(\rR\n" +
-	"accessTier\"\xf4\x05\n" +
+	"accessTier\"\xc4\x06\n" +
 	"\tVpcConfig\x124\n" +
 	"\x16tenant_organization_id\x18\x01 \x01(\tR\x14tenantOrganizationId\x12-\n" +
 	"\x10tenant_keyset_id\x18\x02 \x01(\tH\x00R\x0etenantKeysetId\x88\x01\x01\x12a\n" +
@@ -63841,14 +63885,16 @@ const file_nico_nico_proto_rawDesc = "" +
 	"#default_nvlink_logical_partition_id\x18\x05 \x01(\v2 .common.NVLinkLogicalPartitionIdH\x03R\x1fdefaultNvlinkLogicalPartitionId\x88\x01\x01\x12\x15\n" +
 	"\x03vni\x18\x06 \x01(\rH\x04R\x03vni\x88\x01\x01\x125\n" +
 	"\x14routing_profile_type\x18\a \x01(\tH\x05R\x12routingProfileType\x88\x01\x01\x12b\n" +
-	"\x19routing_profile_overrides\x18\b \x01(\v2!.forge.VpcRoutingProfileOverridesH\x06R\x17routingProfileOverrides\x88\x01\x01B\x13\n" +
+	"\x19routing_profile_overrides\x18\b \x01(\v2!.forge.VpcRoutingProfileOverridesH\x06R\x17routingProfileOverrides\x88\x01\x01\x125\n" +
+	"\x14power_resource_group\x18\t \x01(\tH\aR\x12powerResourceGroup\x88\x01\x01B\x13\n" +
 	"\x11_tenant_keyset_idB\x1e\n" +
 	"\x1c_network_virtualization_typeB\x1c\n" +
 	"\x1a_network_security_group_idB&\n" +
 	"$_default_nvlink_logical_partition_idB\x06\n" +
 	"\x04_vniB\x17\n" +
 	"\x15_routing_profile_typeB\x1c\n" +
-	"\x1a_routing_profile_overrides\"\xac\x01\n" +
+	"\x1a_routing_profile_overridesB\x17\n" +
+	"\x15_power_resource_group\"\xac\x01\n" +
 	"\tVpcStatus\x12\x15\n" +
 	"\x03vni\x18\x01 \x01(\rH\x00R\x03vni\x88\x01\x01\x12b\n" +
 	"\x19effective_routing_profile\x18\x02 \x01(\v2!.forge.VpcEffectiveRoutingProfileH\x01R\x17effectiveRoutingProfile\x88\x01\x01B\x06\n" +
@@ -63880,7 +63926,7 @@ const file_nico_nico_proto_rawDesc = "" +
 	"$_default_nvlink_logical_partition_idB\t\n" +
 	"\a_statusB\x06\n" +
 	"\x04_vniB\x17\n" +
-	"\x15_routing_profile_typeJ\x04\b\f\x10\r\"\xe9\x06\n" +
+	"\x15_routing_profile_typeJ\x04\b\f\x10\r\"\xb9\a\n" +
 	"\x12VpcCreationRequest\x12\x12\n" +
 	"\x04name\x18\x02 \x01(\tR\x04name\x122\n" +
 	"\x14tenantOrganizationId\x18\x03 \x01(\tR\x14tenantOrganizationId\x12+\n" +
@@ -63892,7 +63938,8 @@ const file_nico_nico_proto_rawDesc = "" +
 	"#default_nvlink_logical_partition_id\x18\x0e \x01(\v2 .common.NVLinkLogicalPartitionIdH\x04R\x1fdefaultNvlinkLogicalPartitionId\x88\x01\x01\x12\x15\n" +
 	"\x03vni\x18\x0f \x01(\rH\x05R\x03vni\x88\x01\x01\x125\n" +
 	"\x14routing_profile_type\x18\x11 \x01(\tH\x06R\x12routingProfileType\x88\x01\x01\x12b\n" +
-	"\x19routing_profile_overrides\x18\x12 \x01(\v2!.forge.VpcRoutingProfileOverridesH\aR\x17routingProfileOverrides\x88\x01\x01B\x11\n" +
+	"\x19routing_profile_overrides\x18\x12 \x01(\v2!.forge.VpcRoutingProfileOverridesH\aR\x17routingProfileOverrides\x88\x01\x01\x125\n" +
+	"\x14power_resource_group\x18\x13 \x01(\tH\bR\x12powerResourceGroup\x88\x01\x01B\x11\n" +
 	"\x0f_tenantKeysetIdB\x1e\n" +
 	"\x1c_network_virtualization_typeB\x05\n" +
 	"\x03_idB\x1c\n" +
@@ -63900,7 +63947,8 @@ const file_nico_nico_proto_rawDesc = "" +
 	"$_default_nvlink_logical_partition_idB\x06\n" +
 	"\x04_vniB\x17\n" +
 	"\x15_routing_profile_typeB\x1c\n" +
-	"\x1a_routing_profile_overridesJ\x04\b\x10\x10\x11\"\xbf\x04\n" +
+	"\x1a_routing_profile_overridesB\x17\n" +
+	"\x15_power_resource_groupJ\x04\b\x10\x10\x11\"\x8f\x05\n" +
 	"\x10VpcUpdateRequest\x12\x1d\n" +
 	"\x02id\x18\x01 \x01(\v2\r.common.VpcIdR\x02id\x12-\n" +
 	"\x10if_version_match\x18\x02 \x01(\tH\x00R\x0eifVersionMatch\x88\x01\x01\x12\x12\n" +
@@ -63908,11 +63956,13 @@ const file_nico_nico_proto_rawDesc = "" +
 	"\bmetadata\x18\x06 \x01(\v2\x0f.forge.MetadataR\bmetadata\x12>\n" +
 	"\x19network_security_group_id\x18\x11 \x01(\tH\x01R\x16networkSecurityGroupId\x88\x01\x01\x12s\n" +
 	"#default_nvlink_logical_partition_id\x18\x12 \x01(\v2 .common.NVLinkLogicalPartitionIdH\x02R\x1fdefaultNvlinkLogicalPartitionId\x88\x01\x01\x12b\n" +
-	"\x19routing_profile_overrides\x18\x13 \x01(\v2!.forge.VpcRoutingProfileOverridesH\x03R\x17routingProfileOverrides\x88\x01\x01B\x13\n" +
+	"\x19routing_profile_overrides\x18\x13 \x01(\v2!.forge.VpcRoutingProfileOverridesH\x03R\x17routingProfileOverrides\x88\x01\x01\x125\n" +
+	"\x14power_resource_group\x18\x14 \x01(\tH\x04R\x12powerResourceGroup\x88\x01\x01B\x13\n" +
 	"\x11_if_version_matchB\x1c\n" +
 	"\x1a_network_security_group_idB&\n" +
 	"$_default_nvlink_logical_partition_idB\x1c\n" +
-	"\x1a_routing_profile_overridesJ\x04\b\x04\x10\x05J\x04\b\x05\x10\x06\"/\n" +
+	"\x1a_routing_profile_overridesB\x17\n" +
+	"\x15_power_resource_groupJ\x04\b\x04\x10\x05J\x04\b\x05\x10\x06\"/\n" +
 	"\x0fVpcUpdateResult\x12\x1c\n" +
 	"\x03vpc\x18\x01 \x01(\v2\n" +
 	".forge.VpcR\x03vpc\"\x86\x02\n" +
@@ -64576,7 +64626,7 @@ const file_nico_nico_proto_rawDesc = "" +
 	"\n" +
 	"InlineIpxe\x12\x1f\n" +
 	"\vipxe_script\x18\x01 \x01(\tR\n" +
-	"ipxeScriptJ\x04\b\x02\x10\x03\"\xbe\x04\n" +
+	"ipxeScriptJ\x04\b\x02\x10\x03\"\xfa\x04\n" +
 	"\x0eInstanceConfig\x12+\n" +
 	"\x06tenant\x18\x01 \x01(\v2\x13.forge.TenantConfigR\x06tenant\x124\n" +
 	"\x02os\x18\x02 \x01(\v2$.forge.InstanceOperatingSystemConfigR\x02os\x126\n" +
@@ -64587,9 +64637,11 @@ const file_nico_nico_proto_rawDesc = "" +
 	"\x19network_security_group_id\x18\x16 \x01(\tH\x00R\x16networkSecurityGroupId\x88\x01\x01\x12d\n" +
 	"\x16dpu_extension_services\x18\x17 \x01(\v2).forge.InstanceDpuExtensionServicesConfigH\x01R\x14dpuExtensionServices\x88\x01\x01\x123\n" +
 	"\x06nvlink\x18\x18 \x01(\v2\x1b.forge.InstanceNVLinkConfigR\x06nvlink\x126\n" +
-	"\tspxconfig\x18\x19 \x01(\v2\x18.forge.InstanceSpxConfigR\tspxconfigB\x1c\n" +
+	"\tspxconfig\x18\x19 \x01(\v2\x18.forge.InstanceSpxConfigR\tspxconfig\x12(\n" +
+	"\rpower_profile\x18\x1a \x01(\tH\x02R\fpowerProfile\x88\x01\x01B\x1c\n" +
 	"\x1a_network_security_group_idB\x19\n" +
-	"\x17_dpu_extension_servicesJ\x04\b\x15\x10\x16\"\xc7\x01\n" +
+	"\x17_dpu_extension_servicesB\x10\n" +
+	"\x0e_power_profileJ\x04\b\x15\x10\x16\"\xc7\x01\n" +
 	"\x15InstanceNetworkConfig\x12>\n" +
 	"\n" +
 	"interfaces\x18\x01 \x03(\v2\x1e.forge.InstanceInterfaceConfigR\n" +
