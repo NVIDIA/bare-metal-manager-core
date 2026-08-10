@@ -36,17 +36,29 @@ COPY . ./
 # --mount=type=cache persists the sccache directory across docker build invocations.
 # Uses id=sccache-aarch64 (separate from x86_64 cache) since compiled artifacts are arch-specific.
 # Requires BuildKit (default in Docker 23+).
+#
+# The cache mount alone is only useful on a machine that keeps its BuildKit
+# state. CI runners get a fresh builder per job, so when the workflow supplies
+# Actions cache credentials we point sccache at that shared service instead and
+# the mount just becomes local scratch. dev/docker/sccache-cache.sh picks
+# between the two and reports on whether the choice worked.
 RUN --mount=type=cache,id=sccache-aarch64,target=/sccache \
+    --mount=type=secret,id=actions_results_url \
+    --mount=type=secret,id=actions_runtime_token \
+    --mount=type=secret,id=sccache_gha_rw_mode \
   export CARGO_MAKE_SKIP_CODECOV="true" && \
   export DATABASE_URL="postgresql://root@%2Fvar%2Frun%2Fpostgresql/root" && \
   export SCCACHE_DIR=/sccache && \
   export RUSTC_WRAPPER=sccache && \
   export CARGO_PROFILE_RELEASE_DEBUG=true && \
+  . /carbide/dev/docker/sccache-cache.sh && \
+  sccache_setup && \
   /etc/init.d/postgresql start && \
   sudo -u postgres psql -c "ALTER USER root WITH SUPERUSER;" && \
   createdb root && \
   cargo make build-release-container-services && \
   echo "$(date): Finished cargo make build-release-container-services\n" && \
+  sccache_report && \
   mkdir -p /carbide/target/bin && \
   find /carbide/target/release -maxdepth 1 -type f -exec cp -t /carbide/target/bin {} + && \
   rm -rf /carbide/target/debug && \

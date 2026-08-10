@@ -242,6 +242,62 @@ else
 fi
 
 # --------------------------------------------------------------------------
+# 1b. DPF (installed by default; --skip-dpf to opt out)
+# NOTE: 'kubectl get deployment <name> -A' is invalid (by-name lookups cannot
+# cross namespaces); use a field selector for the namespace autodetect.
+# --------------------------------------------------------------------------
+if [[ -z "${DPF_NS:-}" ]]; then
+  DPF_NS=$(kubectl get deployment -A \
+    --field-selector metadata.name=dpf-operator-controller-manager \
+    -o jsonpath='{.items[0].metadata.namespace}' 2>/dev/null || true)
+fi
+
+section "DPF"
+if [[ -n "${DPF_NS:-}" ]]; then
+  _check_deployment "${DPF_NS}" dpf-operator-controller-manager
+  _check_deployment "${DPF_NS}" kamaji
+  _check_deployment "${DPF_NS}" maintenance-operator
+  _check_deployment "${DPF_NS}" node-feature-discovery-master
+  _check_deployment "${DPF_NS}" argo-cd-argocd-repo-server
+  _check_statefulset "${DPF_NS}" argo-cd-argocd-application-controller
+  _check_secret_exists "${DPF_NS}" hbn-user-password
+  # dpf-pull-secret is optional: setup.sh only creates it when an NGC key is
+  # set, and the operator pulls the public nvidia/doca images anonymously.
+  if kc get secret -n "${DPF_NS}" dpf-pull-secret &>/dev/null; then
+    pass "secret/dpf-pull-secret: exists"
+  else
+    skip "secret/dpf-pull-secret: not set (public images pull anonymously)"
+  fi
+  _dpf_cluster_phase=$(kc get dpucluster carbide-dpf-cluster -n "${DPF_NS}" \
+    -o jsonpath='{.status.phase}' || true)
+  if [[ "${_dpf_cluster_phase}" == "Ready" ]]; then
+    pass "dpucluster/carbide-dpf-cluster: Ready"
+  else
+    fail "dpucluster/carbide-dpf-cluster: phase=${_dpf_cluster_phase:-unknown}"
+  fi
+  # DPFOperatorConfig only reaches Ready once its DPU-side services schedule,
+  # which needs actual DPU (BlueField) nodes. On a DPU-less cluster it stays
+  # Ready=False by design — warn, don't fail (see docs/manuals/dpf.md).
+  _dpf_config_ready=$(kc get dpfoperatorconfig dpfoperatorconfig -n "${DPF_NS}" \
+    -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}' || true)
+  _dpf_count=$(kc get dpus.provisioning.dpu.nvidia.com -A \
+    -o name 2>/dev/null | wc -l | tr -d '[:space:]')
+  if [[ "${_dpf_config_ready}" == "True" ]]; then
+    pass "dpfoperatorconfig/dpfoperatorconfig: Ready"
+  elif [[ "${_dpf_count:-0}" == "0" ]]; then
+    warn "dpfoperatorconfig/dpfoperatorconfig: Ready=${_dpf_config_ready:-unknown} (no DPUs — DPU-side services can't schedule; expected)"
+  else
+    fail "dpfoperatorconfig/dpfoperatorconfig: Ready=${_dpf_config_ready:-unknown}"
+  fi
+elif kc get namespace dpf-operator-system &>/dev/null; then
+  # The operator deployment is absent but its namespace lingers — a partial or
+  # failed DPF install, not a clean opt-out. Fail rather than silently skip.
+  fail "dpf-operator-controller-manager: not found, but namespace dpf-operator-system exists (partial/failed DPF install)"
+else
+  skip "not installed (--skip-dpf was used)"
+fi
+
+# --------------------------------------------------------------------------
 # 2. Vault
 # --------------------------------------------------------------------------
 section "Vault"

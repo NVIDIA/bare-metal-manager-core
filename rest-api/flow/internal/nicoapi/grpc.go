@@ -534,6 +534,46 @@ func (c *grpcClient) GetMachinePositionInfo(ctx context.Context, machineIds []st
 	return result, nil
 }
 
+// FindMachineControllerStates returns the raw state string Core reports for
+// each machine. Machines for which Core returns no state are omitted from
+// the result map.
+func (c *grpcClient) FindMachineControllerStates(ctx context.Context, machineIds []string) (map[string]string, error) {
+	if len(machineIds) == 0 {
+		return nil, nil
+	}
+
+	machines, err := c.FindMachinesByIds(ctx, machineIds)
+	if err != nil {
+		return nil, fmt.Errorf("FindMachinesByIds: %w", err)
+	}
+
+	result := make(map[string]string, len(machines))
+	for _, m := range machines {
+		if m.State != "" {
+			result[m.MachineID] = m.State
+		}
+	}
+	return result, nil
+}
+
+// DecommissionMachine initiates decommissioning of the given machine via Core.
+// TODO: Core Decommission Machine RPC pending — stub returns not-implemented.
+func (c *grpcClient) DecommissionMachine(_ context.Context, machineID string) error {
+	return fmt.Errorf("not yet implemented: Core DecommissionMachine RPC pending (machine %s)", machineID)
+}
+
+// DecommissionSwitch initiates decommissioning of the given switch via Core.
+// TODO: Core Decommission Switch RPC pending — stub returns not-implemented.
+func (c *grpcClient) DecommissionSwitch(_ context.Context, switchID string) error {
+	return fmt.Errorf("not yet implemented: Core DecommissionSwitch RPC pending (switch %s)", switchID)
+}
+
+// DecommissionPowerShelf initiates decommissioning of the given power shelf via Core.
+// TODO: Core Decommission PowerShelf RPC pending — stub returns not-implemented.
+func (c *grpcClient) DecommissionPowerShelf(_ context.Context, shelfID string) error {
+	return fmt.Errorf("not yet implemented: Core DecommissionPowerShelf RPC pending (shelf %s)", shelfID)
+}
+
 // AllowIngestionAndPowerOn opens NICo's power-on gate for a
 // BMC endpoint.
 func (c *grpcClient) AllowIngestionAndPowerOn(
@@ -1264,5 +1304,21 @@ func (c *grpcClient) InstancePowerCalls() []InstancePowerCall {
 }
 
 func (c *grpcClient) HostUpdateOverridesActive() map[string]string {
+	panic("Not a unit test")
+}
+
+func (c *grpcClient) SetMachineControllerState(machineID, state string) {
+	panic("Not a unit test")
+}
+
+func (c *grpcClient) SetDecommissionMachineError(err error) {
+	panic("Not a unit test")
+}
+
+func (c *grpcClient) SetDecommissionSwitchError(err error) {
+	panic("Not a unit test")
+}
+
+func (c *grpcClient) SetDecommissionPowerShelfError(err error) {
 	panic("Not a unit test")
 }

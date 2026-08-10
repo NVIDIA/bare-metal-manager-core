@@ -480,7 +480,7 @@ func (oscr *APIOperatingSystemCreateRequest) ValidateAndSetUserData(phonehomeUrl
 	return nil
 }
 
-// ToProto builds the workflow request that asks a Site to create the
+// ToImageProto builds the workflow request that asks a Site to create the
 // OS image for this API request. `os` is the just-persisted DB record;
 // its `ToImageAttributesProto(tenantOrg)` is the source of every wire
 // field because the handler has already merged the request fields into
@@ -495,7 +495,7 @@ func (oscr *APIOperatingSystemCreateRequest) ValidateAndSetUserData(phonehomeUrl
 // `ToImageAttributesProto` dereferences `ImageURL` and `ImageSHA`.
 // For iPXE-typed records there is no Site-side image workflow, so
 // this method should not be called.
-func (oscr *APIOperatingSystemCreateRequest) ToProto(os *cdbm.OperatingSystem, tenantOrg string) *corev1.OsImageAttributes {
+func (oscr *APIOperatingSystemCreateRequest) ToImageProto(os *cdbm.OperatingSystem, tenantOrg string) *corev1.OsImageAttributes {
 	return os.ToImageAttributesProto(tenantOrg)
 }
 
@@ -859,7 +859,7 @@ func (osur *APIOperatingSystemUpdateRequest) ValidateAndSetUserData(phonehomeUrl
 	return nil
 }
 
-// ToProto builds the workflow request that asks a Site to update the
+// ToImageProto builds the workflow request that asks a Site to update the
 // OS image for this API request. `uos` is the post-update DB record;
 // its `ToImageAttributesProto(tenantOrg)` is the source of every wire
 // field, so unchanged fields stay populated and updated fields reflect
@@ -871,14 +871,13 @@ func (osur *APIOperatingSystemUpdateRequest) ValidateAndSetUserData(phonehomeUrl
 // update workflows on the Site side, so this method delegates to the
 // entity-level method rather than building a distinct wire shape. The
 // request-level method exists so call sites stay uniform with the
-// rest of the layered convention (handlers always invoke
-// `apiRequest.ToProto(entity, ...)`).
+// rest of the layered convention.
 //
 // As with the create variant, the method trusts that the request has
 // been Validated (Validate + ValidateAndSetUserData) and that the
 // handler has confirmed the OS is image-typed before this is called;
 // `ToImageAttributesProto` dereferences `ImageURL` and `ImageSHA`.
-func (osur *APIOperatingSystemUpdateRequest) ToProto(uos *cdbm.OperatingSystem, tenantOrg string) *corev1.OsImageAttributes {
+func (osur *APIOperatingSystemUpdateRequest) ToImageProto(uos *cdbm.OperatingSystem, tenantOrg string) *corev1.OsImageAttributes {
 	return uos.ToImageAttributesProto(tenantOrg)
 }
 
@@ -1032,7 +1031,7 @@ func NewAPIOperatingSystemSummary(dbos *cdbm.OperatingSystem) *APIOperatingSyste
 }
 
 // validateTemplatedIpxeOS fully validates a Templated iPXE create request: image
-// fields must be absent, at least one target site must be specified (the site list
+// fields must be absent, exactly one target site must be specified (the site list
 // is fixed at creation and is immutable thereafter), and the template
 // parameters/artifacts must be well-formed.
 func (oscr *APIOperatingSystemCreateRequest) validateTemplatedIpxeOS() error {
@@ -1047,8 +1046,8 @@ func (oscr *APIOperatingSystemCreateRequest) validateTemplatedIpxeOS() error {
 		return err
 	}
 
-	if len(oscr.SiteIDs) == 0 {
-		return validation.Errors{"siteIds": errors.New("at least one siteId must be specified for Templated iPXE Operating Systems")}
+	if len(oscr.SiteIDs) != 1 {
+		return validation.Errors{"siteIds": errors.New("exactly one siteId must be specified for Templated iPXE Operating Systems")}
 	}
 	for _, siteID := range oscr.SiteIDs {
 		if _, err := uuid.Parse(siteID); err != nil {
@@ -1076,85 +1075,47 @@ var validCacheStrategies = func() map[string]struct{} {
 	return m
 }()
 
-// BuildCreateOperatingSystemRequest builds the forge.Forge CreateOperatingSystem
-// request proto from a persisted Operating System record. It is used by the OS
-// handler to push iPXE / Templated iPXE definitions to on-site NICo Core through
-// the generic Core gRPC proxy.
+// ToProto builds the forge.Forge CreateOperatingSystem request from the
+// persisted entity. The handler has already validated and merged this API
+// request into os, whose ToProto method supplies the canonical wire fields.
 //
 // Note: artifact authTokens are nested inside the repeated artifacts message and
 // are therefore carried as-is (the proxy cannot redact nested fields).
-func BuildCreateOperatingSystemRequest(os *cdbm.OperatingSystem) *corev1.CreateOperatingSystemRequest {
+func (oscr *APIOperatingSystemCreateRequest) ToProto(os *cdbm.OperatingSystem) *corev1.CreateOperatingSystemRequest {
+	protoOS := os.ToProto()
 	return &corev1.CreateOperatingSystemRequest{
-		Id:                     &corev1.OperatingSystemId{Value: os.ID.String()},
-		Name:                   os.Name,
-		Description:            os.Description,
-		TenantOrganizationId:   tenantOrganizationIDProto(os.Org),
-		IsActive:               os.IsActive,
-		AllowOverride:          os.AllowOverride,
-		PhoneHomeEnabled:       os.PhoneHomeEnabled,
-		UserData:               os.UserData,
-		IpxeScript:             os.IpxeScript,
-		IpxeTemplateId:         ipxeTemplateIDProto(os.IpxeTemplateId),
-		IpxeTemplateParameters: ipxeParametersProto(os.IpxeTemplateParameters),
-		IpxeTemplateArtifacts:  ipxeArtifactsProto(os.IpxeTemplateArtifacts),
+		Id:                     protoOS.Id,
+		Name:                   protoOS.Name,
+		Description:            protoOS.Description,
+		TenantOrganizationId:   protoOS.TenantOrganizationId,
+		IsActive:               protoOS.IsActive,
+		AllowOverride:          protoOS.AllowOverride,
+		PhoneHomeEnabled:       protoOS.PhoneHomeEnabled,
+		UserData:               protoOS.UserData,
+		IpxeScript:             protoOS.IpxeScript,
+		IpxeTemplateId:         protoOS.IpxeTemplateId,
+		IpxeTemplateParameters: protoOS.IpxeTemplateParameters,
+		IpxeTemplateArtifacts:  protoOS.IpxeTemplateArtifacts,
 	}
 }
 
-// BuildUpdateOperatingSystemRequest builds the forge.Forge UpdateOperatingSystem
-// request proto from a persisted Operating System record.
-func BuildUpdateOperatingSystemRequest(os *cdbm.OperatingSystem) *corev1.UpdateOperatingSystemRequest {
+// ToProto builds the forge.Forge UpdateOperatingSystem request from the
+// post-update entity. The entity conversion keeps unchanged and updated fields
+// populated consistently.
+func (osur *APIOperatingSystemUpdateRequest) ToProto(os *cdbm.OperatingSystem) *corev1.UpdateOperatingSystemRequest {
+	protoOS := os.ToProto()
 	return &corev1.UpdateOperatingSystemRequest{
-		Id:                         &corev1.OperatingSystemId{Value: os.ID.String()},
-		Name:                       &os.Name,
-		Description:                os.Description,
-		IsActive:                   &os.IsActive,
-		AllowOverride:              &os.AllowOverride,
-		PhoneHomeEnabled:           &os.PhoneHomeEnabled,
-		UserData:                   os.UserData,
-		IpxeScript:                 os.IpxeScript,
-		IpxeTemplateId:             ipxeTemplateIDProto(os.IpxeTemplateId),
-		IpxeTemplateParameters:     &corev1.IpxeTemplateParameters{Items: ipxeParametersProto(os.IpxeTemplateParameters)},
-		IpxeTemplateArtifacts:      &corev1.IpxeTemplateArtifacts{Items: ipxeArtifactsProto(os.IpxeTemplateArtifacts)},
-		IpxeTemplateDefinitionHash: os.IpxeTemplateDefinitionHash,
+		Id:                         protoOS.Id,
+		Name:                       &protoOS.Name,
+		Description:                protoOS.Description,
+		IsActive:                   &protoOS.IsActive,
+		AllowOverride:              &protoOS.AllowOverride,
+		PhoneHomeEnabled:           &protoOS.PhoneHomeEnabled,
+		UserData:                   protoOS.UserData,
+		IpxeScript:                 protoOS.IpxeScript,
+		IpxeTemplateId:             protoOS.IpxeTemplateId,
+		IpxeTemplateParameters:     &corev1.IpxeTemplateParameters{Items: protoOS.IpxeTemplateParameters},
+		IpxeTemplateArtifacts:      &corev1.IpxeTemplateArtifacts{Items: protoOS.IpxeTemplateArtifacts},
+		IpxeTemplateDefinitionHash: protoOS.IpxeTemplateDefinitionHash,
 	}
-}
-
-// BuildDeleteOperatingSystemRequest builds the forge.Forge DeleteOperatingSystem
-// request proto for a persisted Operating System record.
-func BuildDeleteOperatingSystemRequest(os *cdbm.OperatingSystem) *corev1.DeleteOperatingSystemRequest {
-	return &corev1.DeleteOperatingSystemRequest{
-		Id: &corev1.OperatingSystemId{Value: os.ID.String()},
-	}
-}
-
-// tenantOrganizationIDProto maps a persisted org string onto the optional Core
-// field. Empty means provider-owned and must be omitted (Core rejects "").
-func tenantOrganizationIDProto(org string) *string {
-	if org == "" {
-		return nil
-	}
-	return &org
-}
-
-func ipxeTemplateIDProto(id *string) *corev1.IpxeTemplateId {
-	if id == nil {
-		return nil
-	}
-	return &corev1.IpxeTemplateId{Value: *id}
-}
-
-func ipxeParametersProto(params []cdbm.OperatingSystemIpxeParameter) []*corev1.IpxeTemplateParameter {
-	out := make([]*corev1.IpxeTemplateParameter, 0, len(params))
-	for i := range params {
-		out = append(out, params[i].ToProto())
-	}
-	return out
-}
-
-func ipxeArtifactsProto(artifacts []cdbm.OperatingSystemIpxeArtifact) []*corev1.IpxeTemplateArtifact {
-	out := make([]*corev1.IpxeTemplateArtifact, 0, len(artifacts))
-	for i := range artifacts {
-		out = append(out, artifacts[i].ToProto())
-	}
-	return out
 }

@@ -158,7 +158,7 @@ use ::rpc::protos::forge::{
 };
 
 /// Compatibility adapter for legacy create_domain RPC
-pub async fn create_legacy_compat(
+pub(crate) async fn create_legacy_compat(
     api: &Api,
     request: Request<DomainLegacy>,
 ) -> Result<Response<DomainLegacy>, Status> {
@@ -188,7 +188,7 @@ pub async fn create_legacy_compat(
 }
 
 /// Compatibility adapter for legacy update_domain RPC
-pub async fn update_legacy_compat(
+pub(crate) async fn update_legacy_compat(
     api: &Api,
     request: Request<DomainLegacy>,
 ) -> Result<Response<DomainLegacy>, Status> {
@@ -226,7 +226,7 @@ pub async fn update_legacy_compat(
 }
 
 /// Compatibility adapter for legacy delete_domain RPC
-pub async fn delete_legacy_compat(
+pub(crate) async fn delete_legacy_compat(
     api: &Api,
     request: Request<DomainDeletionLegacy>,
 ) -> Result<Response<DomainDeletionResultLegacy>, Status> {
@@ -249,7 +249,7 @@ pub async fn delete_legacy_compat(
 }
 
 /// Compatibility adapter for legacy find_domain RPC
-pub async fn find_legacy_compat(
+pub(crate) async fn find_legacy_compat(
     api: &Api,
     request: Request<DomainSearchQueryLegacy>,
 ) -> Result<Response<DomainListLegacy>, Status> {

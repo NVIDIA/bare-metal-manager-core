@@ -35,7 +35,7 @@ pub struct StartArgs {
     pub bmc_proxy: Option<HostPortPair>,
     pub firmware_directory: PathBuf,
     pub cancel_token: CancellationToken,
-    pub ready_channel: Sender<()>,
+    pub ready_channel: Sender<carbide::ApiServerAddresses>,
     pub credential_config: CredentialConfig,
     pub insecure_discovery: bool,
 }
@@ -135,11 +135,6 @@ pub async fn start(
         [pools.lo-ip]
         ranges = []
         prefix = "10.180.62.1/26"
-        type = "ipv4"
-
-        [pools.secondary-vtep-ip]
-        ranges = []
-        prefix = "10.181.62.1/26"
         type = "ipv4"
 
         [pools.vni]
@@ -260,6 +255,20 @@ pub async fn start(
         count = 0
 
         [rack_profiles.NVL72.rack_capabilities.power_shelf]
+        count = 0
+
+        [rack_profiles.NVL72_GB300]
+        product_family = "gb300"
+
+        [rack_profiles.NVL72_GB300.rack_capabilities.compute]
+        name = "GB300"
+        count = 18
+        vendor = "Lenovo"
+
+        [rack_profiles.NVL72_GB300.rack_capabilities.switch]
+        count = 0
+
+        [rack_profiles.NVL72_GB300.rack_capabilities.power_shelf]
         count = 0
 
         [firmware_global]

@@ -36,8 +36,8 @@ use super::metrics::{FirmwareUpdatePhase, FirmwareUpdateProgress, FirmwareUpdate
 use crate::CarbideResult;
 use crate::cfg::file::CarbideConfig;
 
-pub struct HostFirmwareUpdate {
-    pub metrics: HostFirmwareUpdateMetrics,
+pub(super) struct HostFirmwareUpdate {
+    pub(super) metrics: HostFirmwareUpdateMetrics,
     config: Arc<CarbideConfig>,
     firmware_config: FirmwareConfig,
     firmware_catalog_last_read: Arc<Mutex<Option<FirmwareCatalogMarker>>>,
@@ -181,7 +181,7 @@ impl MachineUpdateModule for HostFirmwareUpdate {
 }
 
 impl HostFirmwareUpdate {
-    pub fn new(
+    pub(super) fn new(
         config: Arc<CarbideConfig>,
         meter: opentelemetry::metrics::Meter,
         firmware_config: FirmwareConfig,
@@ -219,7 +219,7 @@ impl HostFirmwareUpdate {
             .create_snapshot_with_overrides(host_firmware_configs))
     }
 
-    pub async fn check_for_updates(
+    pub(super) async fn check_for_updates(
         &self,
         txn: &mut PgConnection,
         mut available_updates: i32,
@@ -262,14 +262,14 @@ impl fmt::Display for HostFirmwareUpdate {
     }
 }
 
-pub struct HostFirmwareUpdateMetrics {
-    pub pending_firmware_updates: Arc<AtomicU64>,
-    pub active_firmware_updates: Arc<AtomicU64>,
-    pub exhausted_reprovision_retries: Arc<AtomicU64>,
+pub(super) struct HostFirmwareUpdateMetrics {
+    pub(super) pending_firmware_updates: Arc<AtomicU64>,
+    pub(super) active_firmware_updates: Arc<AtomicU64>,
+    pub(super) exhausted_reprovision_retries: Arc<AtomicU64>,
 }
 
 impl HostFirmwareUpdateMetrics {
-    pub fn new() -> Self {
+    pub(super) fn new() -> Self {
         HostFirmwareUpdateMetrics {
             pending_firmware_updates: Arc::new(AtomicU64::new(0)),
             active_firmware_updates: Arc::new(AtomicU64::new(0)),
@@ -277,7 +277,7 @@ impl HostFirmwareUpdateMetrics {
         }
     }
 
-    pub fn register_callbacks(&self, meter: &Meter) {
+    pub(super) fn register_callbacks(&self, meter: &Meter) {
         let pending_firmware_updates = self.pending_firmware_updates.clone();
         let active_firmware_updates = self.active_firmware_updates.clone();
         let exhausted_reprovision_retries = self.exhausted_reprovision_retries.clone();

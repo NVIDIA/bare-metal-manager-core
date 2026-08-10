@@ -30,7 +30,7 @@ mod tests {
     // test_measured_boot_integration tests all sorts of
     // things like it was a real active environment.
     #[crate::sqlx_test]
-    pub async fn test_measured_boot_integration(
+    async fn test_measured_boot_integration(
         pool: sqlx::PgPool,
     ) -> Result<(), Box<dyn std::error::Error>> {
         let mut txn = pool.begin().await?;

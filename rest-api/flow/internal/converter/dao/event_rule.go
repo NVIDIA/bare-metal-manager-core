@@ -51,7 +51,11 @@ func EventRuleFrom(dbRule *dbmodel.EventRule) (*eventrule.Rule, error) {
 
 	policy, err := policycodec.Unmarshal(dbRule.Policy)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf(
+			"%w: decode policy: %w",
+			eventrule.ErrInvalidPersistedRule,
+			err,
+		)
 	}
 
 	rule := &eventrule.Rule{
@@ -67,7 +71,7 @@ func EventRuleFrom(dbRule *dbmodel.EventRule) (*eventrule.Rule, error) {
 	}
 
 	if err := rule.Validate(); err != nil {
-		return nil, fmt.Errorf("decode persisted event rule: %w", err)
+		return nil, fmt.Errorf("%w: %w", eventrule.ErrInvalidPersistedRule, err)
 	}
 
 	return rule, nil

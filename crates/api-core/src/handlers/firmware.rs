@@ -138,7 +138,7 @@ pub(crate) async fn get_desired_firmware_versions(
     }))
 }
 
-pub(crate) async fn load_desired_firmware_version_entries(
+pub(super) async fn load_desired_firmware_version_entries(
     api: &Api,
 ) -> Result<Vec<rpc::DesiredFirmwareVersionEntry>, CarbideError> {
     effective_host_firmware_snapshot(api)

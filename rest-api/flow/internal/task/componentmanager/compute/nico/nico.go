@@ -113,6 +113,8 @@ func Descriptor() cmcatalog.Descriptor {
 		Capabilities: capability.CapabilitySet{
 			capability.CapabilityBringUpControl,
 			capability.CapabilityBringUpStatus,
+			capability.CapabilityDecommissionControl,
+			capability.CapabilityDecommissionStatus,
 			capability.CapabilityFirmwareControl,
 			capability.CapabilityFirmwareStatus,
 			capability.CapabilityInjectExpectation,
@@ -626,4 +628,53 @@ func nicoToBringUpState(s nicoapi.BringUpState) operations.MachineBringUpState {
 	default:
 		return operations.MachineBringUpStateNotDiscovered
 	}
+}
+
+// Decommission initiates decommissioning of the target compute machines via NICo.
+func (m *Manager) Decommission(
+	ctx context.Context,
+	target common.Target,
+	_ operations.DecommissionTaskInfo,
+) error {
+	if err := target.Validate(); err != nil {
+		return fmt.Errorf("target is invalid: %w", err)
+	}
+
+	for _, machineID := range target.ComponentIDs {
+		if err := m.nicoClient.DecommissionMachine(ctx, machineID); err != nil {
+			return fmt.Errorf("DecommissionMachine failed for %s: %w", machineID, err)
+		}
+	}
+
+	log.Info().
+		Strs("machine_ids", target.ComponentIDs).
+		Msg("Decommission initiated for compute components")
+	return nil
+}
+
+// GetDecommissionStatus returns the current decommission state for each
+// target compute machine, keyed by machine ID.
+func (m *Manager) GetDecommissionStatus(
+	ctx context.Context,
+	target common.Target,
+) (map[string]string, error) {
+	if err := target.Validate(); err != nil {
+		return nil, fmt.Errorf("target is invalid: %w", err)
+	}
+
+	states, err := m.nicoClient.FindMachineControllerStates(ctx, target.ComponentIDs)
+	if err != nil {
+		return nil, fmt.Errorf("FindMachineControllerStates: %w", err)
+	}
+
+	// Ensure every requested component is present in the result.
+	result := make(map[string]string, len(target.ComponentIDs))
+	for _, id := range target.ComponentIDs {
+		if s, ok := states[id]; ok {
+			result[id] = s
+		} else {
+			result[id] = ""
+		}
+	}
+	return result, nil
 }

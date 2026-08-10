@@ -588,13 +588,6 @@ fn requested_nvos_config_json(scope: &MaintenanceScope) -> Option<String> {
     })
 }
 
-fn explicit_firmware_upgrade_requested(scope: &MaintenanceScope) -> bool {
-    scope
-        .activities
-        .iter()
-        .any(|activity| matches!(activity, MaintenanceActivity::FirmwareUpgrade { .. }))
-}
-
 fn profile_hardware_type_or_any(profile: Option<&RackProfile>) -> String {
     profile
         .map(profile_hardware_type_wire_value)
@@ -613,6 +606,36 @@ fn requested_firmware_object_json_upgrade(
         } => Some((firmware_version.clone(), components.clone(), *force_update)),
         _ => None,
     })
+}
+
+/// Loads and validates the default firmware object selected by a rack profile.
+///
+/// A missing or unknown profile, or a profile without a firmware-object
+/// source, returns `Ok(None)`. Fetch and JSON validation failures are returned
+/// so the state controller can retry `FirmwareUpgrade(Start)`.
+async fn configured_ingestion_firmware_object_json(
+    rack_id: &RackId,
+    rack_profile_id: Option<&RackProfileId>,
+    ctx: &mut StateHandlerContext<'_, RackStateHandlerContextObjects>,
+) -> Result<Option<String>, String> {
+    let Some(profile) = super::resolve_profile(rack_id, rack_profile_id, ctx) else {
+        return Ok(None);
+    };
+
+    let Some(firmware_object) = profile.firmware_object.clone() else {
+        return Ok(None);
+    };
+
+    let config_json = ctx
+        .services
+        .firmware_object_fetcher
+        .fetch(firmware_object.url.as_str(), firmware_object.fetch_timeout)
+        .await?;
+
+    serde_json::from_str::<std::collections::HashMap<String, serde::de::IgnoredAny>>(&config_json)
+        .map_err(|error| format!("configured SOT firmware object is not a JSON object: {error}"))?;
+
+    Ok(Some(config_json))
 }
 
 async fn load_rack_maintenance_access_token(
@@ -2181,6 +2204,16 @@ async fn verify_scale_up_fabric_manager_v2(
     }))
 }
 
+/// Advances the rack's current maintenance substate.
+///
+/// At firmware-upgrade start, an explicit maintenance activity takes
+/// precedence over the optional rack-profile firmware object. When neither
+/// source exists, the firmware step is skipped.
+///
+/// # Errors
+///
+/// Returns an error when a required database, credential, firmware-source, or
+/// backend operation fails.
 pub async fn handle_maintenance(
     id: &RackId,
     state: &mut Rack,
@@ -2212,10 +2245,29 @@ pub async fn handle_maintenance(
             rack_firmware_upgrade,
         } => match rack_firmware_upgrade {
             FirmwareUpgradeState::Start => {
-                let Some((config_json, components, force_update)) =
-                    requested_firmware_object_json_upgrade(scope)
-                else {
-                    if explicit_firmware_upgrade_requested(scope) {
+                // A stored access token exists only for explicit maintenance requests
+                // and must be cleaned up by the branches that consume those requests.
+                let requested_source = requested_firmware_object_json_upgrade(scope);
+                let uses_stored_token = requested_source.is_some();
+
+                let (config_json, components, force_update) = match requested_source {
+                    Some(requested_source) => requested_source,
+                    None => {
+                        let config_json =
+                            configured_ingestion_firmware_object_json(id, rack_profile_id, ctx)
+                                .await
+                                .map_err(|error| {
+                                    StateHandlerError::GenericError(eyre::eyre!(error))
+                                })?;
+
+                        (config_json, Vec::new(), false)
+                    }
+                };
+
+                // Defensive: older persisted maintenance state may predate API-side JSON
+                // validation.
+                let Some(config_json) = config_json.filter(|json| !json.trim().is_empty()) else {
+                    if uses_stored_token {
                         return transition_to_rack_error(
                             id,
                             state,
@@ -2224,44 +2276,46 @@ pub async fn handle_maintenance(
                         )
                         .await;
                     }
+
                     return Ok(skip_firmware_upgrade_outcome(
                         id,
                         "firmware object JSON source is not configured for rack maintenance; skipping firmware update",
                         scope,
                     ));
                 };
-                // Defensive: older persisted maintenance state may predate API-side JSON
-                // validation.
-                let Some(config_json) = config_json.filter(|json| !json.trim().is_empty()) else {
-                    return transition_to_rack_error(
-                        id,
-                        state,
-                        "firmware object JSON source is configured but target firmware version does not contain SOT JSON",
-                        ctx,
-                    )
-                    .await;
-                };
+
                 let nvos_json_pending = requested_nvos_config_json(scope).is_some();
+
                 let Some(rms_client) = ctx.services.rms_client.as_ref() else {
-                    delete_rack_maintenance_access_token(
-                        ctx.services.credential_manager.as_ref(),
-                        id,
-                    )
-                    .await;
+                    if uses_stored_token {
+                        delete_rack_maintenance_access_token(
+                            ctx.services.credential_manager.as_ref(),
+                            id,
+                        )
+                        .await;
+                    }
+
                     return transition_to_rack_error(id, state, "RMS client not configured", ctx)
                         .await;
                 };
-                let access_token = match load_rack_maintenance_access_token(
-                    ctx.services.credential_manager.as_ref(),
-                    id,
-                )
-                .await
-                {
-                    Ok(access_token) => access_token,
-                    Err(error) => {
-                        let message = error.to_string();
-                        return transition_to_rack_error(id, state, &message, ctx).await;
+
+                // Profile-driven ingestion has no caller token, so it uses the RMS
+                // NOAUTH sentinel.
+                let access_token = if uses_stored_token {
+                    match load_rack_maintenance_access_token(
+                        ctx.services.credential_manager.as_ref(),
+                        id,
+                    )
+                    .await
+                    {
+                        Ok(access_token) => access_token,
+                        Err(error) => {
+                            let message = error.to_string();
+                            return transition_to_rack_error(id, state, &message, ctx).await;
+                        }
                     }
+                } else {
+                    rms_access_token_or_noauth(None)
                 };
                 let profile = super::resolve_profile(id, rack_profile_id, ctx);
                 let rack_hardware_type = profile_hardware_type_or_any(profile);
@@ -2284,7 +2338,7 @@ pub async fn handle_maintenance(
                 let inventory = filter_inventory_by_scope(inventory, scope);
 
                 if inventory.machines.is_empty() && inventory.switches.is_empty() {
-                    if !nvos_json_pending {
+                    if uses_stored_token && !nvos_json_pending {
                         delete_rack_maintenance_access_token(
                             ctx.services.credential_manager.as_ref(),
                             id,
@@ -2302,11 +2356,14 @@ pub async fn handle_maintenance(
                     // Keep this aligned with the NVOS missing-profile path.
                     // Startup validation deliberately does not scan rack rows,
                     // so this call-time error still owns token cleanup.
-                    delete_rack_maintenance_access_token(
-                        ctx.services.credential_manager.as_ref(),
-                        id,
-                    )
-                    .await;
+                    if uses_stored_token {
+                        delete_rack_maintenance_access_token(
+                            ctx.services.credential_manager.as_ref(),
+                            id,
+                        )
+                        .await;
+                    }
+
                     return transition_to_rack_error(
                         id,
                         state,
@@ -2342,7 +2399,8 @@ pub async fn handle_maintenance(
                     },
                 )
                 .await;
-                if submit_result.is_err() || !nvos_json_pending {
+
+                if uses_stored_token && (submit_result.is_err() || !nvos_json_pending) {
                     delete_rack_maintenance_access_token(
                         ctx.services.credential_manager.as_ref(),
                         id,

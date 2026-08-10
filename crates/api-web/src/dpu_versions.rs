@@ -125,7 +125,7 @@ async fn fetch_dpus(api: &Arc<Api>) -> Result<Vec<Row>, tonic::Status> {
     Ok(machines)
 }
 
-pub async fn list_html(
+pub(super) async fn list_html(
     AxumState(state): AxumState<Arc<Api>>,
     Query(params): Query<PaginationParams>,
 ) -> impl IntoResponse {
@@ -146,7 +146,7 @@ pub async fn list_html(
     (StatusCode::OK, Html(tmpl.render().unwrap())).into_response()
 }
 
-pub async fn list_json(AxumState(state): AxumState<Arc<Api>>) -> impl IntoResponse {
+pub(super) async fn list_json(AxumState(state): AxumState<Arc<Api>>) -> impl IntoResponse {
     let machines = match fetch_dpus(&state).await {
         Ok(m) => m,
         Err(err) => {

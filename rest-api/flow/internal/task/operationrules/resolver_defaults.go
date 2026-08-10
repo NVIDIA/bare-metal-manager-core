@@ -24,6 +24,7 @@ func init() {
 	firmwareUpgradeRule := buildFirmwareUpgradeRule()
 	bringUpRule := buildBringUpRule()
 	ingestRule := buildIngestRule()
+	decommissionRule := buildDecommissionRule()
 
 	// Populate lookup map
 	hardcodedRuleMap = map[string]*OperationRule{
@@ -38,6 +39,7 @@ func init() {
 		ruleKey(common.TaskTypeFirmwareControl, SequenceRollback):   firmwareUpgradeRule, // Same rule
 		ruleKey(common.TaskTypeBringUp, SequenceBringUp):            bringUpRule,
 		ruleKey(common.TaskTypeBringUp, SequenceIngest):             ingestRule,
+		ruleKey(common.TaskTypeDecommission, SequenceDecommission):  decommissionRule,
 	}
 }
 
@@ -1246,6 +1248,93 @@ func buildForceRestartRule() *OperationRule {
 						PollInterval: 5 * time.Second,
 						Parameters: map[string]any{
 							ParamExpectedStatus: "on",
+						},
+					},
+				},
+			},
+		},
+	}
+}
+
+// buildDecommissionRule creates the hardcoded default rule for rack decommissioning.
+//
+// Strict ordering is enforced to prevent state corruption:
+//
+//	Stage 1: Compute — initiate decommission and wait for all to reach Decommissioned
+//	Stage 2: NVSwitch — initiate decommission and wait
+//	Stage 3: PowerShelf — initiate decommission and wait
+func buildDecommissionRule() *OperationRule {
+	return &OperationRule{
+		Name:          "Hardcoded Default Decommission",
+		Description:   "Rack decommission: compute first, then NVSwitch, then PowerShelf",
+		OperationType: common.TaskTypeDecommission,
+		OperationCode: SequenceDecommission,
+		RuleDefinition: RuleDefinition{
+			Version: CurrentRuleDefinitionVersion,
+			Steps: []SequenceStep{
+				// === Stage 1: Compute ===
+				{
+					ComponentType: devicetypes.ComponentTypeCompute,
+					Stage:         1,
+					MaxParallel:   0,
+					Timeout:       4 * time.Hour,
+					RetryPolicy: &RetryPolicy{
+						MaxAttempts:        3,
+						InitialInterval:    30 * time.Second,
+						BackoffCoefficient: 2.0,
+					},
+					MainOperation: ActionConfig{
+						Name: ActionDecommissionControl,
+					},
+					PostOperation: []ActionConfig{
+						{
+							Name:         ActionWaitDecommissioned,
+							Timeout:      4 * time.Hour,
+							PollInterval: 30 * time.Second,
+						},
+					},
+				},
+				// === Stage 2: NVSwitch ===
+				{
+					ComponentType: devicetypes.ComponentTypeNVSwitch,
+					Stage:         2,
+					MaxParallel:   0,
+					Timeout:       4 * time.Hour,
+					RetryPolicy: &RetryPolicy{
+						MaxAttempts:        3,
+						InitialInterval:    30 * time.Second,
+						BackoffCoefficient: 2.0,
+					},
+					MainOperation: ActionConfig{
+						Name: ActionDecommissionControl,
+					},
+					PostOperation: []ActionConfig{
+						{
+							Name:         ActionWaitDecommissioned,
+							Timeout:      4 * time.Hour,
+							PollInterval: 30 * time.Second,
+						},
+					},
+				},
+				// === Stage 3: PowerShelf ===
+				{
+					ComponentType: devicetypes.ComponentTypePowerShelf,
+					Stage:         3,
+					MaxParallel:   0,
+					Timeout:       4 * time.Hour,
+					RetryPolicy: &RetryPolicy{
+						MaxAttempts:        3,
+						InitialInterval:    30 * time.Second,
+						BackoffCoefficient: 2.0,
+					},
+					MainOperation: ActionConfig{
+						Name: ActionDecommissionControl,
+					},
+					PostOperation: []ActionConfig{
+						{
+							Name:         ActionWaitDecommissioned,
+							Timeout:      4 * time.Hour,
+							PollInterval: 30 * time.Second,
 						},
 					},
 				},

@@ -19,15 +19,22 @@ use std::borrow::Cow;
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 
-#[allow(dead_code)] // used by OtlpSink in the next commit
+#[cfg(not(feature = "bench-hooks"))]
+pub(crate) trait RedfishEventMapper: Send + Sync {
+    fn queue_key(&self, bmc_id: &str, attributes: &[(Cow<'static, str>, String)]) -> String;
+}
+
+#[cfg(feature = "bench-hooks")]
 pub trait RedfishEventMapper: Send + Sync {
     fn queue_key(&self, bmc_id: &str, attributes: &[(Cow<'static, str>, String)]) -> String;
 }
 
-#[allow(dead_code)] // used by OtlpSink in the next commit
+#[cfg(not(feature = "bench-hooks"))]
+pub(crate) struct OpenBmcEventMapper;
+
+#[cfg(feature = "bench-hooks")]
 pub struct OpenBmcEventMapper;
 
-#[allow(dead_code)]
 impl OpenBmcEventMapper {
     fn find_attr<'a>(attributes: &'a [(Cow<'static, str>, String)], key: &str) -> Option<&'a str> {
         attributes

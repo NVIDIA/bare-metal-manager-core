@@ -38,6 +38,8 @@ ssh-console/legacy/ssh-console
 
 dev/mac-local-dev/carbide-api-config-*.toml
 crates/dpf/doca-platform
+helm-prereqs/.dpf-src/
+helm-prereqs/values/nico-core.yaml.dpf.bak
 
 /helm/Chart.lock
 
@@ -51,6 +53,10 @@ crates/dpf/doca-platform
 
 # Claude specific
 .claude/
+
+# Python bytecode
+__pycache__/
+*.py[cod]
 
 # Devenv
 .devenv*

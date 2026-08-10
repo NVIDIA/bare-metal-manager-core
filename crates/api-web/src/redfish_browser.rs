@@ -59,7 +59,7 @@ struct Header {
 }
 
 #[derive(Debug, Deserialize)]
-pub struct QueryParams {
+pub(super) struct QueryParams {
     url: Option<String>,
 }
 
@@ -81,7 +81,7 @@ fn bmc_base_url(uri: &http::Uri, bmc_ip: IpAddr) -> Result<String, http::uri::In
 
 /// Queries the redfish endpoint in the query parameter
 /// and displays the result
-pub async fn query(
+pub(super) async fn query(
     AxumState(state): AxumState<Arc<Api>>,
     AxumQuery(query): AxumQuery<QueryParams>,
     Extension(oauth2_layer): Extension<Option<Arc<Oauth2Layer>>>,
@@ -244,8 +244,8 @@ async fn find_machine_id(
     Ok(None)
 }
 
-pub mod filters {
-    pub use super::super::filters::*;
+mod filters {
+    pub(super) use super::super::filters::*;
 }
 
 impl super::Base for RedfishBrowser {}

@@ -32,7 +32,7 @@ use axum_extra::extract::cookie::{Cookie, Key, PrivateCookieJar};
 use base64::Engine as _;
 use base64::prelude::BASE64_STANDARD;
 use carbide_api_core::cfg::file::ToolLink;
-use carbide_api_core::{Api, AuthContext, CarbideError, DefaultCredential};
+use carbide_api_core::{AdminAdmissionControl, Api, AuthContext, CarbideError, DefaultCredential};
 use carbide_authn::middleware::Principal;
 use http::header::{AUTHORIZATION, CONTENT_TYPE, WWW_AUTHENTICATE};
 use http::{HeaderMap, Request, StatusCode};
@@ -57,12 +57,12 @@ use tower_http::normalize_path::NormalizePath;
 /// `Self::tools()`.
 ///
 /// The tool list itself is owned by `carbide-api-core` (it is derived from the
-/// parsed `CarbideConfig` during startup, via [`carbide_api_core::init_tools`]).
+/// parsed `CarbideConfig` during API Core configuration loading).
 /// This trait just surfaces it to templates.
-pub trait Base {
+trait Base {
     /// Configured external tool links rendered in the admin UI's
     /// "Tools" sidebar. Empty when no tools are configured or
-    /// when `carbide_api_core::init_tools` has not been called (e.g. unit tests).
+    /// before API Core configuration loading has initialized them (e.g. unit tests).
     fn tools() -> &'static [ToolLink] {
         carbide_api_core::configured_tools()
     }
@@ -78,24 +78,24 @@ pub trait Base {
 /// in entity detail pages. Render with `{{ metadata_detail|safe }}`.
 #[derive(Template)]
 #[template(path = "metadata_details.html")]
-pub(crate) struct MetadataDetail {
-    pub metadata: rpc::forge::Metadata,
-    pub metadata_version: String,
+struct MetadataDetail {
+    metadata: rpc::forge::Metadata,
+    metadata_version: String,
 }
 
 /// Reusable template for rendering aggregate health details in entity detail
 /// pages. Render with `{{ health_detail|safe }}`.
 #[derive(Template)]
 #[template(path = "health_detail.html")]
-pub(crate) struct HealthDetail {
-    pub health_reports_url: String,
-    pub health_reports_link_text: &'static str,
-    pub health: health_report::HealthReport,
-    pub health_sources: Vec<String>,
+struct HealthDetail {
+    health_reports_url: String,
+    health_reports_link_text: &'static str,
+    health: health_report::HealthReport,
+    health_sources: Vec<String>,
 }
 
 impl HealthDetail {
-    pub(crate) fn new(
+    fn new(
         health_reports_url: String,
         health_reports_link_text: &'static str,
         health: Option<rpc::health::HealthReport>,
@@ -122,13 +122,13 @@ impl HealthDetail {
 /// Render with `{{ state_display|safe }}`.
 #[derive(Debug, Clone, PartialEq, Eq, Template)]
 #[template(path = "state_display.html")]
-pub(crate) struct StateDisplay {
-    pub state: String,
-    pub time_in_state_above_sla: bool,
+struct StateDisplay {
+    state: String,
+    time_in_state_above_sla: bool,
 }
 
 impl StateDisplay {
-    pub fn from_lifecycle(lifecycle: Option<&forgerpc::LifecycleStatus>) -> Self {
+    fn from_lifecycle(lifecycle: Option<&forgerpc::LifecycleStatus>) -> Self {
         let state = lifecycle
             .map(|lifecycle| lifecycle.state.clone())
             .filter(|state| !state.is_empty())
@@ -150,29 +150,29 @@ impl StateDisplay {
 /// Render with `{{ state_sla_detail|safe }}`.
 #[derive(Template)]
 #[template(path = "state_sla_details.html")]
-pub(crate) struct StateSlaDetail {
-    pub state_sla: String,
-    pub time_in_state_above_sla: bool,
-    pub state_reason: Option<rpc::forge::ControllerStateReason>,
+struct StateSlaDetail {
+    state_sla: String,
+    time_in_state_above_sla: bool,
+    state_reason: Option<rpc::forge::ControllerStateReason>,
 }
 
 /// Reusable template for rendering lifecycle fields.
 /// Render with `{{ lifecycle_detail|safe }}`.
 #[derive(Template)]
 #[template(path = "lifecycle_detail.html")]
-pub(crate) struct LifecycleDetail {
-    pub state_display: StateDisplay,
-    pub associated_instance_id: Option<String>,
-    pub json_state: Option<String>,
-    pub version: String,
-    pub time_in_state: String,
-    pub state_sla: String,
-    pub time_in_state_above_sla: bool,
-    pub state_reason: Option<rpc::forge::ControllerStateReason>,
+struct LifecycleDetail {
+    state_display: StateDisplay,
+    associated_instance_id: Option<String>,
+    json_state: Option<String>,
+    version: String,
+    time_in_state: String,
+    state_sla: String,
+    time_in_state_above_sla: bool,
+    state_reason: Option<rpc::forge::ControllerStateReason>,
 }
 
 impl LifecycleDetail {
-    pub fn new(
+    fn new(
         state: String,
         version: String,
         state_reason: Option<forgerpc::ControllerStateReason>,
@@ -230,7 +230,7 @@ fn format_state_sla(sla: Option<&forgerpc::StateSla>) -> String {
 // `#[crate::sqlx_test]` in the admin-UI tests. These tests do not support
 // `fixtures(...)`; use explicit setup helpers instead.
 #[cfg(test)]
-pub(crate) use carbide_macros::sqlx_test;
+use carbide_macros::sqlx_test;
 use carbide_utils::none_if_empty::NoneIfEmpty;
 
 #[cfg(test)]
@@ -263,7 +263,7 @@ mod ipxe_template;
 mod logs;
 mod machine;
 mod machine_validation;
-pub mod managed_host;
+mod managed_host;
 mod network_device;
 mod network_security_group;
 mod network_segment;
@@ -271,7 +271,7 @@ mod network_status;
 mod nmxc_browser;
 mod nvlink;
 mod operating_system;
-pub(crate) mod pagination;
+mod pagination;
 mod power_shelf;
 mod rack;
 mod redfish_actions;
@@ -320,7 +320,7 @@ const TABLE_FILTER_JS: &str = include_str!("../templates/static/table_filter.js"
 // It would appear the oauth2 author read about the typestate pattern and decided making
 // everyone declare 10 type parameters when storing a Client sounds like a great idea.
 // https://github.com/ramosbugs/oauth2-rs/blob/main/UPGRADE.md#add-typestate-generic-types-to-client
-pub(crate) type Oauth2ClientWithPropertiesSet = Client<
+type Oauth2ClientWithPropertiesSet = Client<
     BasicErrorResponse,
     BasicTokenResponse,
     BasicTokenIntrospectionResponse,
@@ -333,7 +333,7 @@ pub(crate) type Oauth2ClientWithPropertiesSet = Client<
     EndpointSet,
 >;
 
-pub(crate) struct Oauth2Layer {
+struct Oauth2Layer {
     client: Oauth2ClientWithPropertiesSet,
     http_client: reqwest::Client,
     private_cookiejar_key: Key,
@@ -401,15 +401,19 @@ impl WebAuth {
 }
 
 /// All the URLs in the admin interface. Nested under /admin in api.rs.
-pub fn routes(api: Arc<Api>) -> eyre::Result<NormalizePath<Router>> {
+pub fn routes(
+    api: Arc<Api>,
+    admission: Option<AdminAdmissionControl>,
+) -> eyre::Result<NormalizePath<Router>> {
     let auth_mode =
         env::var(AUTH_TYPE_ENV).map_or(Ok(WebAuthMode::default()), |value| value.parse())?;
-    routes_with_auth_mode(api, auth_mode)
+    routes_with_auth_mode(api, auth_mode, admission)
 }
 
 fn routes_with_auth_mode(
     api: Arc<Api>,
     auth_mode: WebAuthMode,
+    admission: Option<AdminAdmissionControl>,
 ) -> eyre::Result<NormalizePath<Router>> {
     let web_auth = match auth_mode {
         WebAuthMode::OAuth2 => {
@@ -648,8 +652,12 @@ fn routes_with_auth_mode(
             )
             .route("/machine/{machine_id}/sku", post(machine::sku))
             .route(
-                "/machine/{machine_id}/set-dpu-first-boot-order",
-                post(machine::set_dpu_first_boot_order),
+                "/machine/{machine_id}/boot-interface",
+                post(machine::set_desired_boot_interface),
+            )
+            .route(
+                "/machine/{machine_id}/boot-interface/reconcile",
+                post(machine::reconcile_boot_interface),
             )
             .route("/machine/{machine_id}/health", get(health::machine_health))
             .route(
@@ -893,6 +901,13 @@ fn routes_with_auth_mode(
             .route("/logs", get(logs::page))
             .route("/logs/{source}/stream", get(logs::stream))
             .route("/logs/{source}/history", get(logs::history))
+            // Admission is intentionally inside web authentication: OAuth
+            // identity is established before fair scheduling classifies the
+            // client. Axum runs the later web-auth layer first.
+            .layer(axum::middleware::from_fn_with_state(
+                admission,
+                AdminAdmissionControl::middleware,
+            ))
             .layer(axum::middleware::from_fn(web_auth_middleware_fn))
             .layer(CsrfLayer::new())
             .layer(Extension(Arc::new(web_auth)))
@@ -901,7 +916,7 @@ fn routes_with_auth_mode(
     ))
 }
 
-pub async fn web_auth_middleware_fn(
+async fn web_auth_middleware_fn(
     headers: HeaderMap,
     mut req: Request<AxumBody>,
     next: Next,
@@ -1224,7 +1239,7 @@ struct Index {
 
 impl Base for Index {}
 
-pub async fn root(state: AxumState<Arc<Api>>) -> impl IntoResponse {
+async fn root(state: AxumState<Arc<Api>>) -> impl IntoResponse {
     let request = tonic::Request::new(forgerpc::DpuAgentUpgradePolicyRequest { new_policy: None });
     use forgerpc::AgentUpgradePolicy::*;
     let agent_upgrade_policy = match state
@@ -1301,7 +1316,7 @@ pub async fn root(state: AxumState<Arc<Api>>) -> impl IntoResponse {
     (StatusCode::OK, Html(index.render().unwrap()))
 }
 
-pub async fn static_data(
+async fn static_data(
     _state: AxumState<Arc<Api>>,
     AxumPath(filename): AxumPath<String>,
 ) -> Response {
@@ -1330,7 +1345,7 @@ pub async fn static_data(
 }
 
 /// Creates a response that describes that `resource` was not found
-pub(crate) fn not_found_response(resource: String) -> Response {
+fn not_found_response(resource: String) -> Response {
     (
         StatusCode::NOT_FOUND,
         Html(format!("Not found: {resource}")),
@@ -1338,7 +1353,7 @@ pub(crate) fn not_found_response(resource: String) -> Response {
         .into_response()
 }
 
-pub(crate) fn invalid_machine_id() -> String {
+fn invalid_machine_id() -> String {
     "INVALID_MACHINE".to_string()
 }
 

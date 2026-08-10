@@ -146,7 +146,7 @@ pub(crate) async fn list_hosts_waiting_for_reprovisioning(
     Ok(Response::new(rpc::HostReprovisioningListResponse { hosts }))
 }
 
-pub async fn mark_manual_firmware_upgrade_complete(
+pub(crate) async fn mark_manual_firmware_upgrade_complete(
     api: &Api,
     request: Request<MachineId>,
 ) -> Result<Response<()>, Status> {
@@ -162,7 +162,7 @@ pub async fn mark_manual_firmware_upgrade_complete(
     Ok(Response::new(()))
 }
 
-pub async fn report_scout_firmware_upgrade_status(
+pub(crate) async fn report_scout_firmware_upgrade_status(
     api: &Api,
     request: Request<rpc::ScoutFirmwareUpgradeStatusRequest>,
 ) -> Result<Response<()>, Status> {

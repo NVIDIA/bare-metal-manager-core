@@ -45,16 +45,16 @@ use serde::Deserialize;
 use sqlx::PgPool;
 use zeroize::Zeroizing;
 
-pub mod import;
-pub mod metrics;
-pub mod re_wrap;
-pub mod routing;
+mod import;
+mod metrics;
+mod re_wrap;
+mod routing;
 #[cfg(test)]
 mod tests;
 
-pub use import::{import_secrets, is_vault_import_complete, mark_vault_import_complete};
+pub use import::{import_vault_secrets, is_vault_import_complete};
 pub use metrics::{OperationTimer, SecretsOperation};
-pub use re_wrap::{ReWrapStaleResult, re_wrap_stale};
+pub(crate) use re_wrap::re_wrap_stale;
 pub use routing::SecretRouting;
 
 /// The KMS and routing handles that secrets admin operations (re-wrap)
@@ -100,14 +100,20 @@ pub enum ImportApproach {
     All,
 }
 
-/// What an import did.
-#[derive(Debug, Default)]
-pub struct ImportResult {
-    /// Secrets written to Postgres.
-    pub imported: u64,
-    /// Secrets left alone because their path already had entries
-    /// (`MissingOnly` only).
-    pub skipped: u64,
+/// What happened after a Vault import acquired its database interlock.
+#[derive(Debug, PartialEq, Eq)]
+pub enum ImportResult {
+    /// This transaction committed the secrets and completion marker.
+    Completed {
+        /// Secrets written to Postgres.
+        imported: u64,
+        /// Secrets left alone because their path already had entries
+        /// (`MissingOnly` only).
+        skipped: u64,
+    },
+    /// The permanent marker was already present after taking the import
+    /// interlock, so this transaction wrote nothing.
+    AlreadyComplete,
 }
 
 /// Errors from the Postgres secrets backend.
@@ -142,19 +148,20 @@ impl From<PgSecretsError> for SecretsError {
 }
 
 /// A decrypted journal entry, returned by the history and lookup methods.
-pub struct SecretEntry {
+#[allow(dead_code)] // Staged for credential rotation: https://github.com/NVIDIA/infra-controller/issues/367.
+struct SecretEntry {
     /// Identifies this journal entry.
-    pub secret_id: carbide_uuid::secret::SecretId,
+    secret_id: carbide_uuid::secret::SecretId,
     /// The journal order -- higher means written later.
-    pub seq: i64,
+    seq: i64,
     /// The credential path.
-    pub path: String,
+    path: String,
     /// The decrypted credential value.
-    pub credentials: Credentials,
+    credentials: Credentials,
     /// The KEK that wrapped this entry's DEK.
-    pub kek_id: String,
+    kek_id: String,
     /// When this entry was written.
-    pub created_at: chrono::DateTime<chrono::Utc>,
+    created_at: chrono::DateTime<chrono::Utc>,
 }
 
 /// The `CredentialManager` backed by the Postgres secrets journal. Reads
@@ -192,17 +199,16 @@ impl PostgresCredentialManager {
     // entry by id, which makes the previous entry current again.
 
     /// Return every journal entry for a credential, newest first.
-    pub async fn get_history(
-        &self,
-        key: &CredentialKey,
-    ) -> Result<Vec<SecretEntry>, PgSecretsError> {
+    #[allow(dead_code)] // Staged for credential rotation: https://github.com/NVIDIA/infra-controller/issues/367.
+    async fn get_history(&self, key: &CredentialKey) -> Result<Vec<SecretEntry>, PgSecretsError> {
         let path = key.to_key_str();
         let rows = db::secrets::get_history(&self.pool, &path).await?;
         self.decrypt_rows(rows).await
     }
 
     /// Return one journal entry by id.
-    pub async fn get_by_id(
+    #[allow(dead_code)] // Staged for credential rotation: https://github.com/NVIDIA/infra-controller/issues/367.
+    async fn get_by_id(
         &self,
         secret_id: carbide_uuid::secret::SecretId,
     ) -> Result<Option<SecretEntry>, PgSecretsError> {
@@ -213,17 +219,16 @@ impl PostgresCredentialManager {
     }
 
     /// Return every journal entry wrapped by the given KEK.
-    pub async fn get_all_for_kek_id(
-        &self,
-        kek_id: &str,
-    ) -> Result<Vec<SecretEntry>, PgSecretsError> {
+    #[allow(dead_code)] // Staged for credential rotation: https://github.com/NVIDIA/infra-controller/issues/367.
+    async fn get_all_for_kek_id(&self, kek_id: &str) -> Result<Vec<SecretEntry>, PgSecretsError> {
         let rows = db::secrets::get_all_for_kek_id(&self.pool, kek_id).await?;
         self.decrypt_rows(rows).await
     }
 
     /// Return the credentials whose newest journal entry is wrapped by the
     /// given KEK.
-    pub async fn get_latest_with_kek_id(
+    #[allow(dead_code)] // Staged for credential rotation: https://github.com/NVIDIA/infra-controller/issues/367.
+    async fn get_latest_with_kek_id(
         &self,
         kek_id: &str,
     ) -> Result<Vec<SecretEntry>, PgSecretsError> {
@@ -233,7 +238,8 @@ impl PostgresCredentialManager {
 
     /// Remove one journal entry by id. Deleting the newest entry makes the
     /// previous one current again.
-    pub async fn delete_by_id(
+    #[allow(dead_code)] // Staged for credential rotation: https://github.com/NVIDIA/infra-controller/issues/367.
+    async fn delete_by_id(
         &self,
         secret_id: carbide_uuid::secret::SecretId,
     ) -> Result<bool, PgSecretsError> {
@@ -422,30 +428,22 @@ impl CredentialWriter for PostgresCredentialManager {
             Zeroizing::new(serde_json::to_vec(credentials).map_err(PgSecretsError::from)?);
         let envelope = self.encrypt_envelope(&path, &json_bytes).await?;
 
-        // Create-only means check-then-insert, and those are two
-        // statements: hold the path's advisory lock for the transaction so
-        // a concurrent create cannot slip between them. Vault gave us this
-        // through its compare-and-set; Postgres needs the lock because the
-        // journal has no unique index to enforce it.
+        // Create-only means check-then-insert, and those are two statements:
+        // hold the path's advisory lock to serialize creates and the table's
+        // write lock to order the check against a bulk import. Vault gave us
+        // the first property through its compare-and-set; Postgres needs both
+        // locks because the journal has no unique path index to enforce it.
         let mut txn = self
             .pool
             .begin()
             .await
             .map_err(|e| PgSecretsError::Database(db::DatabaseError::acquire(e)))?;
-        db::secrets::lock_path(&mut txn, &path)
+        let inserted = db::secrets::insert_if_missing(&mut txn, &envelope.as_new_entry(&path))
             .await
             .map_err(PgSecretsError::from)?;
-
-        if db::secrets::exists(&mut *txn, &path)
-            .await
-            .map_err(PgSecretsError::from)?
-        {
+        if !inserted {
             return Err(PgSecretsError::AlreadyExists(path.to_string()).into());
         }
-
-        db::secrets::insert(&mut txn, &envelope.as_new_entry(&path))
-            .await
-            .map_err(PgSecretsError::from)?;
         txn.commit()
             .await
             .map_err(|e| PgSecretsError::Database(db::DatabaseError::new("commit create", e)))?;

@@ -27,11 +27,11 @@ use crate::api::{Api, log_machine_id, log_request_data};
 /// Operator force-converge escape hatch: record (or clear) a request to
 /// immediately rotate a device's BMC credentials, bypassing the passive
 /// site-wide gate and the device's backoff quarantine. The target BMC is
-/// addressed by the owning device's id (machine or switch), its BMC MAC, or a
-/// combination (see [`resolve_target`]); the flag is written on that device's
-/// row. The owning device's state controller consumes the request on its next
-/// sweep; this handler only writes the flag (it performs no Redfish work
-/// itself).
+/// addressed by the owning device's id (a machine, switch, or power shelf), its
+/// BMC MAC, or a combination (see [`resolve_target`]); the flag is written on
+/// that device's row. The owning device's state controller consumes the request
+/// on its next sweep; this handler only writes the flag (it performs no Redfish
+/// work itself).
 pub(crate) async fn trigger_bmc_credential_rotation(
     api: &Api,
     request: Request<rpc::BmcCredentialRotationRequest>,
@@ -39,11 +39,10 @@ pub(crate) async fn trigger_bmc_credential_rotation(
     log_request_data(&request);
     let req = request.into_inner();
     let mode = req.mode();
-    let device_id = reject_unsupported_device_id(req.device_id)?;
 
     let mut txn = api.txn_begin().await?;
 
-    let target = resolve_target(&mut txn, device_id, req.bmc_mac).await?;
+    let target = resolve_target(&mut txn, req.device_id, req.bmc_mac).await?;
 
     match mode {
         Mode::Set => match target {
@@ -53,11 +52,8 @@ pub(crate) async fn trigger_bmc_credential_rotation(
             DeviceId::Switch(id) => {
                 db::switch::set_bmc_credential_rotation_requested(&mut txn, id).await?;
             }
-            DeviceId::PowerShelf(_) => {
-                return Err(CarbideError::InvalidArgument(
-                    "power shelf BMC credential rotation is not yet supported".to_string(),
-                )
-                .into());
+            DeviceId::PowerShelf(id) => {
+                db::power_shelf::set_bmc_credential_rotation_requested(&mut txn, id).await?;
             }
         },
         Mode::Clear => match target {
@@ -67,11 +63,8 @@ pub(crate) async fn trigger_bmc_credential_rotation(
             DeviceId::Switch(id) => {
                 db::switch::clear_bmc_credential_rotation_requested(&mut txn, id).await?;
             }
-            DeviceId::PowerShelf(_) => {
-                return Err(CarbideError::InvalidArgument(
-                    "power shelf BMC credential rotation is not yet supported".to_string(),
-                )
-                .into());
+            DeviceId::PowerShelf(id) => {
+                db::power_shelf::clear_bmc_credential_rotation_requested(&mut txn, id).await?;
             }
         },
         // An omitted `mode` decodes as `Unspecified`; reject it rather than let
@@ -88,24 +81,12 @@ pub(crate) async fn trigger_bmc_credential_rotation(
     Ok(Response::new(()))
 }
 
-fn reject_unsupported_device_id(
-    device_id: Option<DeviceId>,
-) -> Result<Option<DeviceId>, CarbideError> {
-    match device_id {
-        Some(DeviceId::PowerShelf(_)) => Err(CarbideError::InvalidArgument(
-            "power shelf BMC credential rotation is not yet supported".to_string(),
-        )),
-        device_id => Ok(device_id),
-    }
-}
-
 /// Resolve the device that owns the target BMC from an operator request that
-/// carries a `device_id`, a BMC MAC, or both. A supported device has exactly one
-/// BMC, so any single identifier uniquely names it. When a MAC is supplied
-/// alongside a `device_id` they must agree, which lets an operator double-check
-/// that a MAC pulled from an alert really is the BMC of the device they mean.
-/// Power shelf IDs are part of the shared type for forward compatibility but
-/// are rejected until power shelf BMC rotation is implemented.
+/// carries a `device_id` (a machine, switch, or power shelf), a BMC MAC, or
+/// both. A device has exactly one BMC, so any single identifier uniquely names
+/// it. When a MAC is supplied alongside a `device_id` they must resolve to the
+/// same device, which lets an operator double-check that a MAC pulled from an
+/// alert really is the BMC of the device they mean.
 async fn resolve_target(
     txn: &mut PgConnection,
     device_id: Option<DeviceId>,
@@ -119,54 +100,32 @@ async fn resolve_target(
         })
         .transpose()?;
 
-    // A MAC uniquely names one BMC device; resolve which device kind owns it.
-    let mac_target = match bmc_mac {
-        Some(mac) => Some(resolve_mac_owner(txn, mac).await?),
+    // A MAC uniquely names one BMC device; resolve which device kind owns it,
+    // keeping the parsed MAC alongside its owner for cross-check error messages.
+    let mac_address_and_target = match bmc_mac {
+        Some(mac) => Some((mac, resolve_mac_owner(txn, mac).await?)),
         None => None,
     };
 
-    let target = match (device_id, mac_target) {
-        // Explicit machine id, optionally cross-checked against the MAC's owner.
-        (Some(DeviceId::Machine(machine_id)), None) => DeviceId::Machine(machine_id),
-        (Some(DeviceId::Machine(machine_id)), Some(DeviceId::Machine(mac_machine_id))) => {
-            if machine_id != mac_machine_id {
+    let target = match (device_id, mac_address_and_target) {
+        // Both supplied: the explicit id and the MAC's owner must be the same
+        // device, so a mismatched cross-check is rejected.
+        (Some(id_target), Some((mac, mac_target))) => {
+            if id_target != mac_target {
                 return Err(CarbideError::InvalidArgument(format!(
-                    "bmc {} belongs to machine {mac_machine_id}, not the requested machine {machine_id}",
-                    bmc_mac.expect("a mac target implies a parsed mac")
+                    "bmc {} belongs to {} {}, not the requested {} {}",
+                    mac,
+                    mac_target.kind(),
+                    mac_target,
+                    id_target.kind(),
+                    id_target,
                 )));
             }
-            DeviceId::Machine(machine_id)
+            id_target
         }
-        (Some(DeviceId::Machine(machine_id)), Some(DeviceId::Switch(switch_id))) => {
-            return Err(CarbideError::InvalidArgument(format!(
-                "bmc {} belongs to switch {switch_id}, not the requested machine {machine_id}",
-                bmc_mac.expect("a mac target implies a parsed mac")
-            )));
-        }
-        // Explicit switch id, optionally cross-checked against the MAC's owner.
-        (Some(DeviceId::Switch(switch_id)), None) => DeviceId::Switch(switch_id),
-        (Some(DeviceId::Switch(switch_id)), Some(DeviceId::Switch(mac_switch_id))) => {
-            if switch_id != mac_switch_id {
-                return Err(CarbideError::InvalidArgument(format!(
-                    "bmc {} belongs to switch {mac_switch_id}, not the requested switch {switch_id}",
-                    bmc_mac.expect("a mac target implies a parsed mac")
-                )));
-            }
-            DeviceId::Switch(switch_id)
-        }
-        (Some(DeviceId::Switch(switch_id)), Some(DeviceId::Machine(machine_id))) => {
-            return Err(CarbideError::InvalidArgument(format!(
-                "bmc {} belongs to machine {machine_id}, not the requested switch {switch_id}",
-                bmc_mac.expect("a mac target implies a parsed mac")
-            )));
-        }
+        (Some(id_target), None) => id_target,
         // MAC only: the owner the MAC resolved to.
-        (None, Some(target)) => target,
-        (Some(DeviceId::PowerShelf(_)), _) | (_, Some(DeviceId::PowerShelf(_))) => {
-            return Err(CarbideError::InvalidArgument(
-                "power shelf BMC credential rotation is not yet supported".to_string(),
-            ));
-        }
+        (None, Some((_mac, mac_target))) => mac_target,
         (None, None) => {
             return Err(CarbideError::InvalidArgument(
                 "one of device_id or bmc_mac must be provided".to_string(),
@@ -181,8 +140,9 @@ async fn resolve_target(
 }
 
 /// Resolve which device kind owns a BMC MAC. A physical BMC MAC lives on exactly
-/// one interface row, keyed to a machine *or* a switch, so try the machine
-/// resolver first (its `machine_id`-keyed BMC interface) then the switch one.
+/// one interface row, keyed to a machine, a switch, *or* a power shelf, so try
+/// the machine resolver first (its `machine_id`-keyed BMC interface), then the
+/// switch one, then the power shelf one.
 async fn resolve_mac_owner(
     txn: &mut PgConnection,
     mac: MacAddress,
@@ -193,6 +153,9 @@ async fn resolve_mac_owner(
     if let Some(switch_id) = db::switch::find_switch_id_by_bmc_mac(txn, mac).await? {
         return Ok(DeviceId::Switch(switch_id));
     }
+    if let Some(power_shelf) = db::power_shelf::find_by_bmc_mac_address(txn, mac).await? {
+        return Ok(DeviceId::PowerShelf(power_shelf.id));
+    }
     Err(CarbideError::NotFoundError {
         kind: "BMC",
         id: mac.to_string(),
@@ -201,37 +164,111 @@ async fn resolve_mac_owner(
 
 #[cfg(test)]
 mod tests {
-    use std::str::FromStr;
-
-    use carbide_test_support::Outcome::*;
-    use carbide_test_support::scenarios;
-    use carbide_uuid::machine::MachineId;
-    use carbide_uuid::power_shelf::PowerShelfId;
-    use carbide_uuid::switch::SwitchId;
+    use carbide_uuid::power_shelf::{PowerShelfId, PowerShelfIdSource, PowerShelfType};
+    use model::power_shelf::{NewPowerShelf, PowerShelfConfig};
 
     use super::*;
 
-    const MACHINE_ID: &str = "fm100ht038bg3qsho433vkg684heguv282qaggmrsh2ugn1qk096n2c6hcg";
-    const SWITCH_ID: &str = "sw100nt038bg3qsho433vkg684heguv282qaggmrsh2ugn1qk096n2c6hcg";
-    const POWER_SHELF_ID: &str = "ps100ht038bg3qsho433vkg684heguv282qaggmrsh2ugn1qk096n2c6hcg";
+    fn mac(last: u8) -> MacAddress {
+        MacAddress::new([0x02, 0, 0, 0, 0, last])
+    }
 
-    #[test]
-    fn rejects_only_power_shelf_device_ids() {
-        let machine_id = MachineId::from_str(MACHINE_ID).unwrap();
-        let switch_id = SwitchId::from_str(SWITCH_ID).unwrap();
-        let power_shelf_id = PowerShelfId::from_str(POWER_SHELF_ID).unwrap();
+    /// Insert a power shelf carrying `bmc_mac` on its row so `resolve_mac_owner`
+    /// resolves the MAC to it. `power_shelves.bmc_mac_address` has a foreign key
+    /// into `expected_power_shelves`, so seed that row first. Returns the shelf's
+    /// id.
+    async fn seed_power_shelf(
+        conn: &mut PgConnection,
+        seed: u8,
+        bmc_mac: MacAddress,
+    ) -> PowerShelfId {
+        sqlx::query(
+            "INSERT INTO expected_power_shelves \
+                 (serial_number, bmc_mac_address, bmc_username, bmc_password) \
+             VALUES ($1, $2::macaddr, 'admin', 'pw')",
+        )
+        .bind(format!("resolve-target-sn-{seed}"))
+        .bind(bmc_mac)
+        .execute(&mut *conn)
+        .await
+        .expect("seeding the expected_power_shelves row should succeed");
 
-        scenarios!(
-            run = |device_id| reject_unsupported_device_id(device_id).map_err(drop);
-            "supported targets" {
-                Some(DeviceId::Machine(machine_id)) => Yields(Some(DeviceId::Machine(machine_id))),
-                Some(DeviceId::Switch(switch_id)) => Yields(Some(DeviceId::Switch(switch_id))),
-                None => Yields(None),
-            }
+        let id = PowerShelfId::new(
+            PowerShelfIdSource::ProductBoardChassisSerial,
+            [seed; 32],
+            PowerShelfType::Rack,
+        );
+        let new_power_shelf = NewPowerShelf {
+            id,
+            config: PowerShelfConfig {
+                name: format!("resolve-target-shelf-{seed}"),
+                capacity: Some(100),
+                voltage: Some(240),
+            },
+            bmc_mac_address: Some(bmc_mac),
+            metadata: None,
+            rack_id: None,
+        };
+        db::power_shelf::create(conn, &new_power_shelf)
+            .await
+            .expect("seeding a power shelf should succeed");
+        id
+    }
 
-            "future target" {
-                Some(DeviceId::PowerShelf(power_shelf_id)) => Fails,
-            }
+    /// A power shelf device id resolves to the owning power shelf, whether
+    /// addressed by id alone, by its BMC MAC alone, or by both when they agree.
+    #[crate::sqlx_test]
+    async fn resolve_target_resolves_a_power_shelf_by_id_and_mac(pool: sqlx::PgPool) {
+        let mut conn = pool.acquire().await.unwrap();
+        let shelf_mac = mac(1);
+        let shelf_id = seed_power_shelf(&mut conn, 1, shelf_mac).await;
+
+        // Id only: no MAC lookup, returns the addressed shelf.
+        let by_id = resolve_target(&mut conn, Some(DeviceId::PowerShelf(shelf_id)), None)
+            .await
+            .expect("a power shelf id alone should resolve");
+        assert_eq!(by_id, DeviceId::PowerShelf(shelf_id));
+
+        // MAC only: the owner the MAC resolves to.
+        let by_mac = resolve_target(&mut conn, None, Some(shelf_mac.to_string()))
+            .await
+            .expect("a power shelf BMC MAC alone should resolve to its shelf");
+        assert_eq!(by_mac, DeviceId::PowerShelf(shelf_id));
+
+        // Id + agreeing MAC: the cross-check passes.
+        let by_both = resolve_target(
+            &mut conn,
+            Some(DeviceId::PowerShelf(shelf_id)),
+            Some(shelf_mac.to_string()),
+        )
+        .await
+        .expect("a power shelf id with its own BMC MAC should resolve");
+        assert_eq!(by_both, DeviceId::PowerShelf(shelf_id));
+    }
+
+    /// A power shelf id cross-checked against a BMC MAC that belongs to a
+    /// *different* device is rejected rather than silently trusting either.
+    #[crate::sqlx_test]
+    async fn resolve_target_rejects_a_power_shelf_id_that_disagrees_with_the_mac(
+        pool: sqlx::PgPool,
+    ) {
+        let mut conn = pool.acquire().await.unwrap();
+        let shelf_a = seed_power_shelf(&mut conn, 1, mac(1)).await;
+        let mac_b = mac(2);
+        let _shelf_b = seed_power_shelf(&mut conn, 2, mac_b).await;
+
+        // Request shelf A but hand over shelf B's BMC MAC: the id and the MAC's
+        // owner disagree, so the request is an invalid argument.
+        let err = resolve_target(
+            &mut conn,
+            Some(DeviceId::PowerShelf(shelf_a)),
+            Some(mac_b.to_string()),
+        )
+        .await
+        .expect_err("a power shelf id that disagrees with the MAC owner must be rejected");
+        assert!(
+            matches!(err, CarbideError::InvalidArgument(_)),
+            "expected InvalidArgument, got {err:?}"
         );
     }
 }

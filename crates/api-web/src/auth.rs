@@ -49,12 +49,12 @@ const CLIENT_SECRET_HEADER: &str = "client_secret";
 const CLIENT_CREDENTIALS_FLOW_SESSION_EXPIRATION_SECONDS: u32 = 600;
 
 #[derive(Debug, Deserialize)]
-pub struct AuthRequest {
+pub(super) struct AuthRequest {
     code: Option<String>,
     state: Option<String>,
 }
 
-pub async fn callback(
+pub(super) async fn callback(
     AxumState(_state): AxumState<Arc<Api>>,
     request_headers: HeaderMap,
     Query(query): Query<AuthRequest>,
@@ -374,13 +374,13 @@ pub async fn callback(
 ///
 /// Note: Use the Error variant to return INTERNAL_SERVER_ERROR, don't use
 /// (INTERNAL_SERVER_ERROR, "error string"), as the latter will not be logged properly.
-pub enum AuthCallbackResponse {
+pub(super) enum AuthCallbackResponse {
     Response(Response),
     Error(AuthCallbackError),
 }
 
 #[derive(thiserror::Error, Debug)]
-pub enum AuthCallbackError {
+pub(super) enum AuthCallbackError {
     #[error("expected oauth2 extension layer is empty")]
     EmptyOauth2Layer,
     #[error(
@@ -470,7 +470,7 @@ impl From<Response> for AuthCallbackResponse {
 /// What's really being parsed in the claims portion
 /// of the JWT, which holds a lot of user-data.
 #[derive(Debug, Deserialize)]
-pub struct OauthUserData {
+struct OauthUserData {
     oid: String,
     name: String,
     unique_name: String,
@@ -479,7 +479,7 @@ pub struct OauthUserData {
 /// A container for the list of groups return in
 /// a graph response to a /transitiveMemberOf call
 #[derive(Debug, Deserialize)]
-pub struct OauthUserGroups {
+struct OauthUserGroups {
     value: Vec<OauthUserGroup>,
 }
 
@@ -487,7 +487,7 @@ pub struct OauthUserGroups {
 /// returned in a graph response to a
 /// /transitiveMemberOf call
 #[derive(Debug, Deserialize)]
-pub struct OauthUserGroup {
+struct OauthUserGroup {
     id: String,
 }
 
@@ -498,7 +498,7 @@ struct AsyncRequestHandlerWithTimeouts<'a> {
 }
 
 impl<'a> AsyncRequestHandlerWithTimeouts<'a> {
-    pub fn new(client: &'a reqwest::Client) -> Self {
+    fn new(client: &'a reqwest::Client) -> Self {
         Self { client }
     }
 }

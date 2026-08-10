@@ -20,7 +20,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{SyncSender, TrySendError, sync_channel};
 
 use bytes::Bytes;
-use carbide_instrument::{DynamicLog, DynamicMessage, Event, LabelValue, LogAt, emit};
+use carbide_instrument::{Event, LabelValue, emit};
 use carbide_metrics_utils::OtelView;
 use http_body_util::Full;
 use hyper::header::{CONTENT_LENGTH, CONTENT_TYPE};
@@ -131,43 +131,37 @@ enum ScrapeOutcome {
     ReplyDropped,
 }
 
-/// Counts `/metrics` scrape failures by outcome, alongside the existing per-branch logs.
-/// Meta-observability: it surfaces a busy or erroring encoder on the next successful
-/// scrape, where aggregatable/alertable counters beat logs alone.
+/// A metrics scrape did not produce a response. Each variant is one way that
+/// happens, and picks the level and diagnostic that case already had.
 #[derive(Event)]
 #[event(
     event_name = "metrics_scrape_failed",
     metric_name = "carbide_metrics_scrape_failures_total",
     component = "metrics-endpoint",
     metric = counter,
-    log = dynamic,
-    message = dynamic,
-    describe = "Number of /metrics scrape failures, by outcome."
+    describe = "Number of /metrics scrape failures, by outcome.",
+    labels(outcome: ScrapeOutcome),
 )]
-struct MetricsScrapeFailed {
-    #[label]
-    outcome: ScrapeOutcome,
-}
+enum MetricsScrapeFailed {
+    /// The encoder queue was full; the scrape was shed (503).
+    #[event(labels(outcome = EncoderBusy), log = warn, message = "metrics encoder busy; shedding scrape with 503")]
+    EncoderBusy {},
 
-impl DynamicLog for MetricsScrapeFailed {
-    fn log_at(&self) -> LogAt {
-        match self.outcome {
-            ScrapeOutcome::EncoderBusy => LogAt::Level(tracing::Level::WARN),
-            _ => LogAt::Level(tracing::Level::ERROR),
-        }
-    }
-}
+    /// The encoder thread was gone, so nothing could be enqueued (500).
+    #[event(labels(outcome = EncoderGone), log = error, message = "metrics encoder thread is gone; cannot encode metrics")]
+    EncoderGone {},
 
-impl DynamicMessage for MetricsScrapeFailed {
-    fn message(&self) -> &'static str {
-        match self.outcome {
-            ScrapeOutcome::EncoderBusy => "metrics encoder busy; shedding scrape with 503",
-            ScrapeOutcome::EncoderGone => "metrics encoder thread is gone; cannot encode metrics",
-            ScrapeOutcome::EncodeFailed => "failed to encode metrics",
-            ScrapeOutcome::EncoderPanicked => "metrics encoder caught a panic while encoding",
-            ScrapeOutcome::ReplyDropped => "metrics encoder dropped the reply without responding",
-        }
-    }
+    /// The Prometheus text encoder returned an error (500).
+    #[event(labels(outcome = EncodeFailed), log = error, message = "failed to encode metrics")]
+    EncodeFailed {},
+
+    /// A collector/observable callback panicked during gather/encode (500).
+    #[event(labels(outcome = EncoderPanicked), log = error, message = "metrics encoder caught a panic while encoding")]
+    EncoderPanicked {},
+
+    /// The encoder dropped the reply without answering, e.g. during shutdown (500).
+    #[event(labels(outcome = ReplyDropped), log = error, message = "metrics encoder dropped the reply without responding")]
+    ReplyDropped {},
 }
 
 /// The reply channel a scrape hands to the encoder thread. The thread sends the encoded
@@ -504,18 +498,14 @@ async fn handle_metrics_request<B>(
                 Err(TrySendError::Full(_)) => {
                     // The single encoder is already busy with a backlog; shed this
                     // scrape rather than pile on more work.
-                    emit(MetricsScrapeFailed {
-                        outcome: ScrapeOutcome::EncoderBusy,
-                    });
+                    emit(MetricsScrapeFailed::EncoderBusy {});
                     return Ok(Response::builder()
                         .status(503)
                         .body(Full::new(Bytes::from("metrics encoder busy")))
                         .unwrap());
                 }
                 Err(TrySendError::Disconnected(_)) => {
-                    emit(MetricsScrapeFailed {
-                        outcome: ScrapeOutcome::EncoderGone,
-                    });
+                    emit(MetricsScrapeFailed::EncoderGone {});
                     return Ok(Response::builder()
                         .status(500)
                         .body(Full::new(Bytes::from("Failed to encode metrics")))
@@ -531,18 +521,14 @@ async fn handle_metrics_request<B>(
                     .body(Full::new(Bytes::from(buffer)))
                     .unwrap(),
                 Ok(Err(EncodeError::Encode(_err))) => {
-                    emit(MetricsScrapeFailed {
-                        outcome: ScrapeOutcome::EncodeFailed,
-                    });
+                    emit(MetricsScrapeFailed::EncodeFailed {});
                     Response::builder()
                         .status(500)
                         .body(Full::new(Bytes::from("Failed to encode metrics")))
                         .unwrap()
                 }
                 Ok(Err(EncodeError::Panicked)) => {
-                    emit(MetricsScrapeFailed {
-                        outcome: ScrapeOutcome::EncoderPanicked,
-                    });
+                    emit(MetricsScrapeFailed::EncoderPanicked {});
                     Response::builder()
                         .status(500)
                         .body(Full::new(Bytes::from("Failed to encode metrics")))
@@ -552,9 +538,7 @@ async fn handle_metrics_request<B>(
                     // The encoder thread dropped the reply without answering — it was told
                     // to stop (shutdown) or otherwise went away. Distinct from a busy or
                     // already-gone encoder above.
-                    emit(MetricsScrapeFailed {
-                        outcome: ScrapeOutcome::ReplyDropped,
-                    });
+                    emit(MetricsScrapeFailed::ReplyDropped {});
                     Response::builder()
                         .status(500)
                         .body(Full::new(Bytes::from("Failed to encode metrics")))
@@ -613,9 +597,7 @@ mod tests {
     fn encode_failed_outcome_emits_counter() {
         let metrics = MetricsCapture::start();
 
-        emit(MetricsScrapeFailed {
-            outcome: ScrapeOutcome::EncodeFailed,
-        });
+        emit(MetricsScrapeFailed::EncodeFailed {});
 
         assert_eq!(
             metrics.counter_delta(

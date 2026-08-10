@@ -163,7 +163,7 @@ impl ServiceAddresses {
     /// containerized mode the agent's own `/etc/resolv.conf` points at the
     /// cluster DNS, so nameservers are read from a file the init-container
     /// populated from the *host's* `/etc/resolv.conf`.
-    pub async fn build(
+    pub(super) async fn build(
         agent_platform_type: &AgentPlatformType,
         is_fake_dpu: bool,
     ) -> Result<Self, eyre::Report> {

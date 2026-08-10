@@ -35,10 +35,15 @@ fn ipxe_template_visibility_fmt(visibility: &i32) -> Cow<'static, str> {
 }
 
 mod filters {
-    pub use super::super::filters::option_fmt;
+    #![allow(
+        unreachable_pub,
+        reason = "askama::filter_fn emits public helper items inside this template-filter module"
+    )]
+
+    pub(super) use super::super::filters::option_fmt;
 
     #[askama::filter_fn]
-    pub fn ipxe_template_visibility_fmt(
+    pub(super) fn ipxe_template_visibility_fmt(
         visibility: &i32,
         _env: &dyn askama::Values,
     ) -> askama::Result<super::Cow<'static, str>> {
@@ -54,7 +59,7 @@ struct IpxeTemplateShow {
     templates: Vec<forgerpc::IpxeTemplate>,
 }
 
-pub async fn show_html(AxumState(state): AxumState<Arc<Api>>) -> Response {
+pub(super) async fn show_html(AxumState(state): AxumState<Arc<Api>>) -> Response {
     let templates = match fetch_templates(state).await {
         Ok(t) => t,
         Err(err) => {
@@ -71,7 +76,7 @@ pub async fn show_html(AxumState(state): AxumState<Arc<Api>>) -> Response {
     (StatusCode::OK, Html(tmpl.render().unwrap())).into_response()
 }
 
-pub async fn show_all_json(AxumState(state): AxumState<Arc<Api>>) -> Response {
+pub(super) async fn show_all_json(AxumState(state): AxumState<Arc<Api>>) -> Response {
     let templates = match fetch_templates(state).await {
         Ok(t) => t,
         Err(err) => {
@@ -106,7 +111,7 @@ impl From<forgerpc::IpxeTemplate> for IpxeTemplateDetail {
     }
 }
 
-pub async fn detail(
+pub(super) async fn detail(
     AxumState(state): AxumState<Arc<Api>>,
     AxumPath(id_str): AxumPath<String>,
 ) -> Response {

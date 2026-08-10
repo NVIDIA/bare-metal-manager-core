@@ -17,10 +17,10 @@
 use log::LevelFilter;
 
 unsafe extern "C" {
-    pub fn shim_version() -> libc::c_int;
-    pub fn shim_load(_: *mut libc::c_void) -> libc::c_int;
-    pub fn shim_unload() -> libc::c_int;
-    pub fn shim_multi_threading_compatible() -> libc::c_int;
+    fn shim_version() -> libc::c_int;
+    fn shim_load(_: *mut libc::c_void) -> libc::c_int;
+    fn shim_unload() -> libc::c_int;
+    fn shim_multi_threading_compatible() -> libc::c_int;
 }
 
 #[unsafe(no_mangle)]

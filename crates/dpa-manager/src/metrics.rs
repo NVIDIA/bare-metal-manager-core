@@ -20,24 +20,24 @@ use std::fmt::Display;
 use std::time::Duration;
 
 use ::carbide_utils::metrics::SharedMetricsHolder;
-use carbide_instrument::{DynamicLog, Event, LogAt};
-use opentelemetry::metrics::{Counter, Histogram, Meter};
+use carbide_instrument::Event;
+use opentelemetry::metrics::{Counter, Meter};
 
 /// Metrics that are gathered in a single dpa monitor run
 #[derive(Clone, Debug)]
-pub struct DpaMonitorMetrics {
+pub(super) struct DpaMonitorMetrics {
     /// Start time of metrics gathering
-    pub recording_started_at: std::time::Instant,
-    pub num_machines_scanned: usize,
-    pub num_instances_scanned: usize,
-    pub num_dpa_interfaces_scanned: usize,
-    pub num_heartbeats_sent: usize,
-    pub num_creates: usize,
-    pub num_deletes: usize,
+    pub(super) recording_started_at: std::time::Instant,
+    pub(super) num_machines_scanned: usize,
+    pub(super) num_instances_scanned: usize,
+    pub(super) num_dpa_interfaces_scanned: usize,
+    pub(super) num_heartbeats_sent: usize,
+    pub(super) num_creates: usize,
+    pub(super) num_deletes: usize,
 }
 
 impl DpaMonitorMetrics {
-    pub fn new() -> Self {
+    pub(super) fn new() -> Self {
         Self {
             recording_started_at: std::time::Instant::now(),
             num_machines_scanned: 0,
@@ -63,13 +63,13 @@ impl Display for DpaMonitorMetrics {
 }
 
 /// Stores Metric data shared between the dpa monitor and the OpenTelemetry background task
-pub struct MetricHolder {
+pub(super) struct MetricHolder {
     instruments: DpaMonitorInstruments,
     last_iteration_metrics: SharedMetricsHolder<DpaMonitorMetrics>,
 }
 
 impl MetricHolder {
-    pub fn new(meter: Meter, hold_period: Duration) -> Self {
+    pub(super) fn new(meter: Meter, hold_period: Duration) -> Self {
         let last_iteration_metrics = SharedMetricsHolder::with_hold_period(hold_period);
         let instruments = DpaMonitorInstruments::new(meter, last_iteration_metrics.clone());
         instruments.init_counters();
@@ -80,59 +80,48 @@ impl MetricHolder {
     }
 
     /// Updates the most recent metrics
-    pub fn update_metrics(&self, metrics: DpaMonitorMetrics) {
+    pub(super) fn update_metrics(&self, metrics: DpaMonitorMetrics) {
         self.instruments.emit_counters(&metrics);
         self.last_iteration_metrics.update(metrics);
     }
 }
 
-/// `DpaMonitorIterationFinished` closes one DPA monitor pass. Every emission
-/// records its duration in the existing label-free histogram; a non-empty
-/// `error` also retains the historical warning.
+/// One DPA monitor pass. Both cases sample the pass duration; only a failure
+/// logs, so a clean pass is measured without writing a line.
 #[derive(Event)]
 #[event(
     event_name = "dpa_monitor_iteration_finished",
     metric_name = "carbide_dpa_monitor_iteration_latency_milliseconds",
     component = "dpa-monitor",
-    log = dynamic,
     metric = histogram,
-    message = "DPA monitor error",
     describe = "Time consumed for one monitor iteration"
 )]
-pub(crate) struct DpaMonitorIterationFinished {
-    #[observation]
-    pub latency: Duration,
-    /// An empty value turns off logging without skipping the latency sample.
-    #[context]
-    pub error: String,
-}
+pub(crate) enum DpaMonitorIterationFinished {
+    /// A clean pass: sampled, never logged.
+    #[event(log = off)]
+    Succeeded {
+        #[observation]
+        latency: Duration,
+    },
 
-impl DynamicLog for DpaMonitorIterationFinished {
-    fn log_at(&self) -> LogAt {
-        if self.error.is_empty() {
-            LogAt::Off
-        } else {
-            LogAt::Level(tracing::Level::WARN)
-        }
-    }
+    #[event(log = warn, message = "DPA monitor error")]
+    Failed {
+        #[observation]
+        latency: Duration,
+        #[context]
+        error: String,
+    },
 }
 
 /// Instruments that are used by pub struct DpaMonitor
-#[allow(dead_code)]
-pub struct DpaMonitorInstruments {
-    pub dpa_config_apply_latency: Histogram<f64>,
-    pub heartbeats_sent: Counter<u64>,
-    pub creates: Counter<u64>,
-    pub deletes: Counter<u64>,
+struct DpaMonitorInstruments {
+    heartbeats_sent: Counter<u64>,
+    creates: Counter<u64>,
+    deletes: Counter<u64>,
 }
 
 impl DpaMonitorInstruments {
-    pub fn new(meter: Meter, shared_metrics: SharedMetricsHolder<DpaMonitorMetrics>) -> Self {
-        let dpa_config_apply_latency = meter
-            .f64_histogram("carbide_dpa_monitor_dpa_config_apply_latency")
-            .with_description("Time since dpa config was requested for this instance")
-            .with_unit("ms")
-            .build();
+    fn new(meter: Meter, shared_metrics: SharedMetricsHolder<DpaMonitorMetrics>) -> Self {
         let heartbeats_sent = meter
             .u64_counter("carbide_dpa_monitor_heartbeats_sent")
             .with_description("Number of heartbeats sent to DPA interfaces")
@@ -157,7 +146,6 @@ impl DpaMonitorInstruments {
             .build();
 
         Self {
-            dpa_config_apply_latency,
             heartbeats_sent,
             creates,
             deletes,
@@ -217,9 +205,13 @@ mod tests {
             run = |IterationCase { latency, error }| {
                 let metrics = MetricsCapture::start();
                 let logs = capture_logs(|| {
-                    emit(DpaMonitorIterationFinished {
-                        latency,
-                        error: error.to_string(),
+                    emit(if error.is_empty() {
+                        DpaMonitorIterationFinished::Succeeded { latency }
+                    } else {
+                        DpaMonitorIterationFinished::Failed {
+                            latency,
+                            error: error.to_string(),
+                        }
                     });
                 });
                 let log = logs.first().map(|log| LogObservation {
@@ -286,9 +278,8 @@ mod tests {
     #[test]
     fn dpa_monitor_iteration_histogram_exposition_stays_stable() {
         let metrics = MetricsCapture::start();
-        emit(DpaMonitorIterationFinished {
+        emit(DpaMonitorIterationFinished::Succeeded {
             latency: Duration::from_millis(125),
-            error: String::new(),
         });
 
         let encoded = metrics.render();

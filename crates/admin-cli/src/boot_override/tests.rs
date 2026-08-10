@@ -25,9 +25,11 @@
 
 use carbide_test_support::Outcome::*;
 use carbide_test_support::scenarios;
+use carbide_uuid::machine::MachineInterfaceId;
 use clap::{CommandFactory, Parser};
 
 use super::*;
+use crate::test_support::{parse_with_leaf_matches, raw_value};
 
 // verify_cmd_structure runs a baseline clap debug_assert()
 // to do basic command configuration checking and validation,
@@ -53,11 +55,21 @@ fn verify_cmd_structure() {
 fn parse_get_and_clear() {
     scenarios!(
         run = |argv| {
-            Cmd::try_parse_from(argv.iter().copied())
-                .map(|cmd| match cmd {
-                    Cmd::Get(args) => ("get", args.inner.interface_id.to_string()),
-                    Cmd::Clear(args) => ("clear", args.inner.interface_id.to_string()),
-                    _ => panic!("expected Get or Clear variant"),
+            let subcommand = argv[1];
+            parse_with_leaf_matches::<Cmd>(argv, &[subcommand])
+                .map(|(cmd, matches)| {
+                    let variant = match cmd {
+                        Cmd::Get(_) => "get",
+                        Cmd::Clear(_) => "clear",
+                        _ => panic!("expected Get or Clear variant"),
+                    };
+                    (
+                        variant,
+                        matches
+                            .get_one::<MachineInterfaceId>("interface_id")
+                            .expect("interface_id is required")
+                            .to_string(),
+                    )
                 })
                 .map_err(drop)
         };
@@ -87,14 +99,17 @@ fn parse_get_and_clear() {
 fn parse_set() {
     scenarios!(
         run = |argv| {
-            Cmd::try_parse_from(argv.iter().copied())
-                .map(|cmd| match cmd {
-                    Cmd::Set(args) => (
-                        args.interface_id.to_string(),
-                        args.custom_pxe,
-                        args.custom_user_data,
-                    ),
-                    _ => panic!("expected Set variant"),
+            parse_with_leaf_matches::<Cmd>(argv, &["set"])
+                .map(|(cmd, matches)| {
+                    assert!(matches!(cmd, Cmd::Set(_)));
+                    (
+                        matches
+                            .get_one::<MachineInterfaceId>("interface_id")
+                            .expect("interface_id is required")
+                            .to_string(),
+                        raw_value(&matches, "custom_pxe"),
+                        raw_value(&matches, "custom_user_data"),
+                    )
                 })
                 .map_err(drop)
         };

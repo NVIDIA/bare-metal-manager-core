@@ -28,6 +28,8 @@ use std::pin::Pin;
 use std::str::FromStr;
 
 use chrono::{DateTime, Utc};
+#[doc(hidden)]
+pub use const_format;
 use dns_record::DnsResourceRecordReply;
 use errors::RpcDataConversionError;
 use mac_address::{MacAddress, MacParseError};
@@ -37,6 +39,20 @@ use serde_json::{Value, json};
 use tokio_stream::Stream;
 
 use crate::forge_agent_control_response::LegacyAction;
+
+/// Returns the compile-time gRPC path for a Forge service method.
+#[macro_export]
+macro_rules! service_path {
+    ($method:literal) => {
+        $crate::const_format::concatcp!(
+            "/",
+            $crate::forge::forge_server::SERVICE_NAME,
+            "/",
+            $method
+        )
+    };
+}
+
 pub use crate::protos::common::{self, Uuid};
 pub use crate::protos::dns::{self};
 pub use crate::protos::forge::machine_credentials_update_request::CredentialPurpose;
@@ -1072,6 +1088,25 @@ mod tests {
     use self::forge::{InlineIpxe, InstanceOperatingSystemConfig};
     use super::*;
     use crate::protos::dns::{Domain, Metadata};
+
+    #[test]
+    fn reflection_descriptor_contains_all_rpc_services() {
+        let descriptor_set =
+            prost_types::FileDescriptorSet::decode(REFLECTION_API_SERVICE_DESCRIPTOR)
+                .expect("reflection descriptor set decodes");
+        let mut service_names = descriptor_set
+            .file
+            .iter()
+            .flat_map(|file| &file.service)
+            .filter_map(|service| service.name.as_deref())
+            .collect::<Vec<_>>();
+        service_names.sort_unstable();
+
+        assert_eq!(
+            service_names,
+            ["FmdsConfigService", "Forge", "NMX_Controller"]
+        );
+    }
 
     #[test]
     fn test_serialize_timestamp() {

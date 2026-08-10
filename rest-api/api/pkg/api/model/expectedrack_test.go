@@ -189,7 +189,7 @@ func TestAPIExpectedRackUpdateRequest_Validate(t *testing.T) {
 			expectErr: false,
 		},
 		{
-			desc: "ok when RackID rename is provided",
+			desc: "ok when RackID is provided (structural validation; immutability is enforced by the handler)",
 			obj: APIExpectedRackUpdateRequest{
 				RackID: &validRackID,
 			},

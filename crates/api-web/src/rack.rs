@@ -70,7 +70,7 @@ struct RackDetail {
 }
 
 /// Show all racks
-pub async fn show_html(state: AxumState<Arc<Api>>) -> Response {
+pub(super) async fn show_html(state: AxumState<Arc<Api>>) -> Response {
     let racks = match fetch_racks(&state).await {
         Ok(racks) => racks,
         Err(err) => {
@@ -86,7 +86,7 @@ pub async fn show_html(state: AxumState<Arc<Api>>) -> Response {
 }
 
 /// Show all racks as JSON
-pub async fn show_json(state: AxumState<Arc<Api>>) -> Response {
+pub(super) async fn show_json(state: AxumState<Arc<Api>>) -> Response {
     let racks = match fetch_racks(&state).await {
         Ok(racks) => racks,
         Err(err) => {
@@ -97,7 +97,7 @@ pub async fn show_json(state: AxumState<Arc<Api>>) -> Response {
     (StatusCode::OK, Json(racks)).into_response()
 }
 
-pub async fn fetch_racks(api: &Api) -> Result<rpc::forge::RackList, tonic::Status> {
+async fn fetch_racks(api: &Api) -> Result<rpc::forge::RackList, tonic::Status> {
     let request = tonic::Request::new(rpc::forge::RackSearchFilter::default());
 
     let rack_ids = api.find_rack_ids(request).await?.into_inner().rack_ids;
@@ -122,10 +122,7 @@ pub async fn fetch_racks(api: &Api) -> Result<rpc::forge::RackList, tonic::Statu
     Ok(rpc::forge::RackList { racks })
 }
 
-pub async fn fetch_rack(
-    api: &Api,
-    rack_id: &RackId,
-) -> Result<Option<::rpc::forge::Rack>, Response> {
+async fn fetch_rack(api: &Api, rack_id: &RackId) -> Result<Option<::rpc::forge::Rack>, Response> {
     let request = tonic::Request::new(rpc::forge::RacksByIdsRequest {
         rack_ids: vec![rack_id.clone()],
     });
@@ -159,7 +156,7 @@ pub async fn fetch_rack(
 }
 
 /// View details about a Rack
-pub async fn detail(
+pub(super) async fn detail(
     AxumState(api): AxumState<Arc<Api>>,
     AxumPath(rack_id): AxumPath<String>,
     Query(_params): Query<HashMap<String, String>>,
@@ -264,10 +261,7 @@ pub async fn detail(
     (StatusCode::OK, Html(display.render().unwrap())).into_response()
 }
 
-pub async fn fetch_machine_ids(
-    api: Arc<Api>,
-    rack_id: RackId,
-) -> Result<Vec<String>, tonic::Status> {
+async fn fetch_machine_ids(api: Arc<Api>, rack_id: RackId) -> Result<Vec<String>, tonic::Status> {
     let request = tonic::Request::new(rpc::forge::MachineSearchConfig {
         include_predicted_host: true,
         rack_id: Some(rack_id.clone()),

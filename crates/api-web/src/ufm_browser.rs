@@ -46,14 +46,14 @@ struct Header {
 }
 
 #[derive(Debug, Deserialize)]
-pub struct QueryParams {
+pub(super) struct QueryParams {
     fabric_id: Option<String>,
     path: Option<String>,
 }
 
 /// Queries the redfish endpoint in the query parameter
 /// and displays the result
-pub async fn query(
+pub(super) async fn query(
     AxumState(state): AxumState<Arc<Api>>,
     AxumQuery(query): AxumQuery<QueryParams>,
 ) -> Response {

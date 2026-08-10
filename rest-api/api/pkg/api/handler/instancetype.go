@@ -96,7 +96,7 @@ func (cith CreateInstanceTypeHandler) Handle(c echo.Context) error {
 	// Validate role, only Provider Admins are allowed to create Instance Types
 	ok = auth.ValidateUserRoles(dbUser, org, nil, auth.ProviderAdminRole)
 	if !ok {
-		logger.Warn().Msg("user does not have Tenant Admin role, access denied")
+		logger.Warn().Msg("user does not have Provider Admin role, access denied")
 		return cutil.NewAPIErrorResponse(c, http.StatusForbidden, "User does not have Provider Admin role with org", nil)
 	}
 

@@ -19,8 +19,8 @@ mod delete;
 mod force_delete;
 mod list;
 mod maintenance;
-pub mod metadata;
-pub mod profile;
+mod metadata;
+mod profile;
 mod show;
 mod state_history;
 
@@ -32,7 +32,7 @@ use clap::Parser;
 use crate::cfg::dispatch::Dispatch;
 
 #[derive(Parser, Debug, Dispatch)]
-pub enum Cmd {
+pub(crate) enum Cmd {
     #[clap(about = "Show rack information")]
     Show(show::Args),
     #[clap(about = "List all racks")]

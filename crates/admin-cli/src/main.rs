@@ -113,6 +113,8 @@ mod ssh;
 mod switch;
 mod tenant;
 mod tenant_keyset;
+#[cfg(test)]
+mod test_support;
 mod tpm_ca;
 mod trim_table;
 mod version;
@@ -120,13 +122,7 @@ mod vpc;
 mod vpc_peering;
 mod vpc_prefix;
 
-pub fn default_uuid() -> ::rpc::common::Uuid {
-    ::rpc::common::Uuid {
-        value: "00000000-0000-0000-0000-000000000000".to_string(),
-    }
-}
-
-pub fn invalid_machine_id() -> String {
+fn invalid_machine_id() -> String {
     "INVALID_MACHINE".to_string()
 }
 
@@ -301,7 +297,7 @@ async fn main() -> color_eyre::Result<()> {
     Ok(())
 }
 
-pub async fn get_output_file_or_stdout(
+async fn get_output_file_or_stdout(
     output_filename: Option<&str>,
 ) -> Result<Box<dyn tokio::io::AsyncWrite + Unpin>, CarbideCliError> {
     let output: Box<dyn tokio::io::AsyncWrite + Unpin> = if let Some(filename) = output_filename {
@@ -335,7 +331,7 @@ impl<T> IntoOnlyOne<T> for Vec<T> {
 
 /// Destination is an enum used to determine whether CLI output is going
 /// to a file path or stdout.
-pub enum Destination {
+enum Destination {
     Path(String),
     Stdout(),
 }
@@ -343,7 +339,7 @@ pub enum Destination {
 /// cli_output is the generic function implementation used by the OutputResult
 /// trait, allowing callers to pass a Serialize-derived struct and have it
 /// print in either JSON or YAML.
-pub fn cli_output<T: Serialize + ToTable>(
+fn cli_output<T: Serialize + ToTable>(
     input: T,
     format: &OutputFormat,
     destination: Destination,

@@ -17,6 +17,8 @@ import (
 	"strings"
 
 	"github.com/google/uuid"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/types/known/emptypb"
 
 	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/converter/protobuf"
@@ -791,6 +793,71 @@ func (rs *FlowServerImpl) IngestRack(
 
 	if len(taskIDs) == 0 {
 		return nil, errors.New("failed to create any tasks")
+	}
+
+	return &pb.SubmitTaskResponse{
+		TaskIds: protobuf.UUIDsTo(taskIDs),
+	}, nil
+}
+
+// DecommissionRack is not yet available: the Core decommission RPCs
+// (DecommissionMachine, DecommissionSwitch, DecommissionPowerShelf) are
+// pending. Reject requests synchronously so no tasks are created for work
+// that cannot start.
+//
+// TODO: remove this guard once Core RPCs are merged.
+func (rs *FlowServerImpl) DecommissionRack(
+	_ context.Context,
+	_ *pb.DecommissionRackRequest,
+) (*pb.SubmitTaskResponse, error) {
+	return nil, status.Error(
+		codes.Unimplemented,
+		"decommission is not yet available: Core decommission RPCs are pending",
+	)
+}
+
+// decommissionRackImpl is the real implementation, wired up once Core RPCs exist.
+//
+//nolint:unused
+func (rs *FlowServerImpl) decommissionRackImpl(
+	ctx context.Context,
+	req *pb.DecommissionRackRequest,
+) (*pb.SubmitTaskResponse, error) {
+	if rs.taskManager == nil {
+		return nil, errors.New(
+			"task manager is not available",
+		)
+	}
+
+	targetSpec := req.GetTargetSpec()
+	if targetSpec == nil {
+		return nil, errors.New(
+			"target_spec is required",
+		)
+	}
+
+	info := &operations.DecommissionTaskInfo{
+		RuleID: protobuf.UUIDStringFrom(req.GetRuleId()),
+	}
+	opReq, err := rs.convertTargetSpecToOperationRequest(
+		targetSpec, req.GetDescription(), info,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	opReq.ConflictStrategy, opReq.QueueTimeout = protobuf.QueueOptionsFrom(req.GetQueueOptions())
+	opReq.RuleID = protobuf.OptionalUUIDFrom(req.GetRuleId())
+
+	taskIDs, err := rs.taskManager.SubmitTask(ctx, opReq)
+	if err != nil {
+		return nil, err
+	}
+
+	if len(taskIDs) == 0 {
+		return nil, errors.New(
+			"failed to create any tasks",
+		)
 	}
 
 	return &pb.SubmitTaskResponse{

@@ -37,14 +37,14 @@ lazy_static! {
 }
 
 #[derive(Debug, Clone)]
-pub enum PxeResponse {
+pub(super) enum PxeResponse {
     Exit,
     Scout,    // PXE script is booting scout.efi
     DpuAgent, // PXE script is booting carbide.efi
 }
 
 #[derive(thiserror::Error, Debug)]
-pub enum PxeError {
+pub(super) enum PxeError {
     #[error("API client error running PXE request: {0}")]
     ClientApi(#[from] ClientApiError),
     #[error("PXE request failed with status: {0}")]
@@ -53,7 +53,7 @@ pub enum PxeError {
     Reqwest(#[from] reqwest::Error),
 }
 
-pub async fn forge_agent_control(
+pub(super) async fn forge_agent_control(
     app_context: &MachineATronContext,
     machine_id: MachineId,
 ) -> Option<ForgeAgentControlResponse> {
@@ -76,7 +76,9 @@ pub async fn forge_agent_control(
     }
 }
 
-pub fn get_validation_id(response: &ForgeAgentControlResponse) -> Option<MachineValidationId> {
+pub(super) fn get_validation_id(
+    response: &ForgeAgentControlResponse,
+) -> Option<MachineValidationId> {
     if let Some(rpc::forge::forge_agent_control_response::Action::MachineValidation(
         machine_validation,
     )) = &response.action
@@ -87,7 +89,7 @@ pub fn get_validation_id(response: &ForgeAgentControlResponse) -> Option<Machine
     }
 }
 
-pub async fn send_pxe_boot_request(
+pub(super) async fn send_pxe_boot_request(
     app_context: &MachineATronContext,
     arch: MachineArchitecture,
     client_ip: std::net::IpAddr,
@@ -135,7 +137,7 @@ pub async fn send_pxe_boot_request(
     Ok(response)
 }
 
-pub async fn get_next_free_machine(
+pub(super) async fn get_next_free_machine(
     provisionable_handles: &Vec<DeviceHandle>,
     assigned_mat_ids: &HashSet<Uuid>,
 ) -> Option<DeviceHandle> {
@@ -151,7 +153,7 @@ pub async fn get_next_free_machine(
     None
 }
 
-pub async fn add_address_to_interface(
+pub(super) async fn add_address_to_interface(
     address: &str,
     interface: &str,
 ) -> Result<(), AddressConfigError> {

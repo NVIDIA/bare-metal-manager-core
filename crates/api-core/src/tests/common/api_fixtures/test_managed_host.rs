@@ -37,10 +37,10 @@ use tonic::Request;
 use crate::tests::common::api_fixtures::instance::TestInstanceBuilder;
 use crate::tests::common::api_fixtures::{Api, TestEnv, TestMachine};
 
-pub struct TestManagedHost {
-    pub id: MachineId,
-    pub dpu_ids: Vec<MachineId>,
-    pub api: Arc<Api>,
+pub(in crate::tests) struct TestManagedHost {
+    pub(in crate::tests) id: MachineId,
+    pub(in crate::tests) dpu_ids: Vec<MachineId>,
+    pub(in crate::tests) api: Arc<Api>,
 }
 
 impl From<TestManagedHost> for (MachineId, MachineId) {
@@ -56,7 +56,7 @@ impl TestManagedHost {
     // and fall back to the deprecated m.interfaces only if status is absent
     // or if status.interfaces yields zero DPU ids
     #[allow(deprecated)]
-    pub fn from_rpc_machine(m: &rpc::Machine, api: Arc<Api>) -> Self {
+    pub(in crate::tests) fn from_rpc_machine(m: &rpc::Machine, api: Arc<Api>) -> Self {
         TestManagedHost {
             id: m.id.unwrap(),
             dpu_ids: m
@@ -79,33 +79,36 @@ impl TestManagedHost {
         }
     }
 
-    pub fn dpu(&self) -> TestMachine {
+    pub(in crate::tests) fn dpu(&self) -> TestMachine {
         TestMachine::new(self.dpu_ids[0], self.api.clone())
     }
 
-    pub fn dpu_n(&self, n: usize) -> TestMachine {
+    pub(in crate::tests) fn dpu_n(&self, n: usize) -> TestMachine {
         assert!(n < self.dpu_ids.len());
         TestMachine::new(self.dpu_ids[n], self.api.clone())
     }
 
-    pub fn host(&self) -> TestMachine {
+    pub(in crate::tests) fn host(&self) -> TestMachine {
         TestMachine::new(self.id, self.api.clone())
     }
 
-    pub async fn snapshot(&self, txn: &mut Txn<'_>) -> ManagedHostStateSnapshot {
+    pub(in crate::tests) async fn snapshot(&self, txn: &mut Txn<'_>) -> ManagedHostStateSnapshot {
         db::managed_host::load_snapshot(txn.as_mut(), &self.id, Default::default())
             .await
             .unwrap()
             .unwrap()
     }
 
-    pub async fn dpu_db_machines(&self, txn: &mut Txn<'_>) -> Vec<Machine> {
+    pub(in crate::tests) async fn dpu_db_machines(&self, txn: &mut Txn<'_>) -> Vec<Machine> {
         db::machine::find_dpus_by_host_machine_id(txn, &self.id)
             .await
             .unwrap()
     }
 
-    pub fn new_dpu_reprovision_state(&self, state: ReprovisionState) -> ManagedHostState {
+    pub(in crate::tests) fn new_dpu_reprovision_state(
+        &self,
+        state: ReprovisionState,
+    ) -> ManagedHostState {
         ManagedHostState::DPUReprovision {
             dpu_states: model::machine::DpuReprovisionStates {
                 states: HashMap::from([(self.dpu().id, state)]),
@@ -113,7 +116,10 @@ impl TestManagedHost {
         }
     }
 
-    pub fn new_dpus_reprovision_state(&self, states: &[&ReprovisionState]) -> ManagedHostState {
+    pub(in crate::tests) fn new_dpus_reprovision_state(
+        &self,
+        states: &[&ReprovisionState],
+    ) -> ManagedHostState {
         assert_eq!(states.len(), self.dpu_ids.len());
         ManagedHostState::DPUReprovision {
             dpu_states: model::machine::DpuReprovisionStates {
@@ -127,7 +133,10 @@ impl TestManagedHost {
         }
     }
 
-    pub fn new_dpu_assigned_reprovision_state(&self, state: ReprovisionState) -> ManagedHostState {
+    pub(in crate::tests) fn new_dpu_assigned_reprovision_state(
+        &self,
+        state: ReprovisionState,
+    ) -> ManagedHostState {
         ManagedHostState::Assigned {
             instance_state: InstanceState::DPUReprovision {
                 dpu_states: model::machine::DpuReprovisionStates {
@@ -137,11 +146,11 @@ impl TestManagedHost {
         }
     }
 
-    pub async fn network_configured(&self, test_env: &TestEnv) {
+    pub(in crate::tests) async fn network_configured(&self, test_env: &TestEnv) {
         crate::tests::common::api_fixtures::network_configured(test_env, &self.dpu_ids).await
     }
 
-    pub async fn machine_validation_completed(&self) {
+    pub(in crate::tests) async fn machine_validation_completed(&self) {
         let response = self.host().forge_agent_control().await;
         let Some(Action::MachineValidation(machine_validation)) = response.action else {
             panic!("expected typed machine validation action");
@@ -166,11 +175,14 @@ impl TestManagedHost {
             .into_inner();
     }
 
-    pub fn instance_builer<'a, 'b>(&'b self, test_env: &'a TestEnv) -> TestInstanceBuilder<'a, 'b> {
+    pub(in crate::tests) fn instance_builer<'a, 'b>(
+        &'b self,
+        test_env: &'a TestEnv,
+    ) -> TestInstanceBuilder<'a, 'b> {
         TestInstanceBuilder::new(test_env, self)
     }
 
-    pub async fn delete_instance(&self, env: &TestEnv, instance_id: InstanceId) {
+    pub(in crate::tests) async fn delete_instance(&self, env: &TestEnv, instance_id: InstanceId) {
         crate::tests::common::api_fixtures::instance::delete_instance(env, instance_id, self).await
     }
 }
@@ -178,7 +190,7 @@ impl TestManagedHost {
 // Only consumed by this crate's own `#[cfg(test)]` test cases (not by the `test-support` consumers),
 // so gate it out of test-support-only builds to keep dead-code detection working.
 #[cfg(test)]
-pub(crate) trait TestManagedHostSnapshots {
+pub(in crate::tests) trait TestManagedHostSnapshots {
     async fn snapshots(
         &self,
         txn: &mut PgPoolReader,

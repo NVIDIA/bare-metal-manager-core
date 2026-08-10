@@ -441,9 +441,9 @@ func (mos ManageOsImage) UpdateOperatingSystemsInDB(ctx context.Context, siteID 
 		return err
 	}
 
-	// OSes that originate in nico-core are owned by the infrastructure provider, not by
-	// any individual tenant. We tag them with the site's InfrastructureProviderID so that
-	// ProviderAdmin can update them and all tenants of that provider can read them.
+	// Resolve the reporting Site's provider. It is used as the owner for OSes
+	// reported without tenant_organization_id; OSes that carry a tenant org are
+	// attributed to the matching REST tenant below.
 	logger.Debug().Str("InfrastructureProviderID", site.InfrastructureProviderID.String()).Msg("Resolved Infrastructure Provider from Site")
 
 	osDAO := cdbm.NewOperatingSystemDAO(mos.dbSession)

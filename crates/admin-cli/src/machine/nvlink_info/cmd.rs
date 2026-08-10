@@ -24,7 +24,7 @@ use crate::errors::{CarbideCliError, CarbideCliResult};
 use crate::rpc::ApiClient;
 
 #[allow(deprecated)]
-pub async fn handle_nvlink_info_show(
+pub(super) async fn handle_nvlink_info_show(
     args: NvlinkInfoArgs,
     api_client: &ApiClient,
 ) -> CarbideCliResult<()> {
@@ -61,7 +61,7 @@ pub async fn handle_nvlink_info_show(
 }
 
 #[allow(deprecated)]
-pub async fn handle_nvlink_info_populate(
+pub(super) async fn handle_nvlink_info_populate(
     args: NvlinkInfoPopulateArgs,
     _output_format: OutputFormat,
     api_client: &ApiClient,
@@ -128,6 +128,7 @@ pub async fn handle_nvlink_info_populate(
         .0
         .nmxc_browse(forgerpc::NmxcBrowseRequest {
             chassis_serial: serial_number.clone(),
+            rack_id: None,
             operation: forgerpc::NmxcBrowseOperation::GpuInfoList as i32,
             gpu_uid: 0,
         })

@@ -116,6 +116,12 @@ pub enum ConfigValidationError {
     #[error("invalid value: {0}")]
     InvalidValue(String),
 
+    #[error(
+        "initial VPC `{name}` cannot define `routing_profile_overrides`; inline routing-profile \
+         overrides are only supported by VPC creation requests"
+    )]
+    InitialVpcRoutingProfileOverridesUnsupported { name: String },
+
     #[error("found unknown segments")]
     UnknownSegments,
 
@@ -308,7 +314,7 @@ mod tests {
     use super::*;
 
     #[test]
-    pub fn serialize_mac_address() {
+    fn serialize_mac_address() {
         let mac = MacAddress::new([1, 2, 3, 4, 5, 6]);
         let serialized = serde_json::to_string(&SerializableMacAddress::from(mac)).unwrap();
         assert_eq!(serialized, "\"01:02:03:04:05:06\"");

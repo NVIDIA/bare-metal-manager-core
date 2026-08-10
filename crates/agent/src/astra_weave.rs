@@ -660,7 +660,7 @@ fn weave_ew_vpc_attachment_exists_in_astra_config(
         })
 }
 
-pub async fn delete_match_attachment_with_vni_changed(
+async fn delete_match_attachment_with_vni_changed(
     socket_path: &str,
     match_attachment: Option<&VirtualNetworkAttachment>,
     deleted_attachment_ids: &mut HashSet<String>,
@@ -727,7 +727,7 @@ pub async fn delete_match_attachment_with_vni_changed(
 // This is the main entry point into this module. The agent main_loop calls
 // this function during every iteration with the AstraConfig supplied by
 // Carbide.
-pub async fn update_weave_ew_vpc_astra_config(
+pub(super) async fn update_weave_ew_vpc_astra_config(
     astra_config: Option<&AstraConfig>,
 ) -> eyre::Result<AstraConfigStatus> {
     update_weave_ew_vpc_astra_config_uds(WEAVE_EW_VPC_FLOW_CONTROLLER_SOCKET_PATH, astra_config)
@@ -1022,7 +1022,7 @@ fn debug_check_weave_ew_vpc_attachment_revisions(
     }
 }
 
-pub fn set_astra_attachment_status_with_weave_ew_vpc_status(
+fn set_astra_attachment_status_with_weave_ew_vpc_status(
     astra_attachment_status: &mut AstraAttachmentStatus,
     weave_ew_vpc_state: State,
 ) {

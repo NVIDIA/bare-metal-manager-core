@@ -48,7 +48,8 @@ use crate::cfg::file::{
     SwitchStateControllerConfig, TracingConfig, VmaasConfig, VpcPeeringPolicy,
     VpcPrefixStateControllerConfig, default_bmc_session_lockout_threshold,
     default_database_pool_acquire_timeout, default_database_pool_idle_timeout,
-    default_database_pool_max_lifetime, default_max_find_by_ids, default_pxe_public_base_url,
+    default_database_pool_max_lifetime, default_max_find_by_ids,
+    default_max_site_prefixes_per_tenant, default_pxe_public_base_url,
 };
 
 /// [`get`] with every `Option` config section populated. Used by tests that
@@ -109,6 +110,7 @@ pub fn get() -> CarbideConfig {
         database_pool_acquire_timeout: default_database_pool_acquire_timeout(),
         database_pool_idle_timeout: default_database_pool_idle_timeout(),
         database_pool_max_lifetime: default_database_pool_max_lifetime(),
+        api_admission_control: Default::default(),
         compute_allocation_enforcement: Default::default(),
         asn: 0,
         datacenter_asn: 0,
@@ -117,6 +119,7 @@ pub fn get() -> CarbideConfig {
         enable_route_servers: false,
         deny_prefixes: vec![],
         site_fabric_prefixes: vec![],
+        max_site_prefixes_per_tenant: default_max_site_prefixes_per_tenant(),
         anycast_site_prefixes: vec![],
         common_tenant_host_asn: None,
         vpc_isolation_behavior: <_ as Default>::default(),
@@ -148,13 +151,13 @@ pub fn get() -> CarbideConfig {
             concurrent_explorations: 0,
             explorations_per_run: 0,
             create_machines: Arc::new(false.into()),
-            allocate_secondary_vtep_ip: true,
             ..Default::default()
         },
         vpc_peering_policy: Some(VpcPeeringPolicy::Exclusive),
         vpc_peering_policy_on_existing: None,
         attestation_enabled: false,
         bmc_rotation_enabled: false,
+        uefi_rotation_enabled: false,
         tpm_required: true,
         ib_config: None,
         ib_fabrics: [(
@@ -256,11 +259,7 @@ pub fn get() -> CarbideConfig {
         vmaas_config: Some(VmaasConfig {
             allow_instance_vf: true,
             hbn_reps: None,
-            hbn_sfs: None,
-            secondary_overlay_support: true,
             bridging: None,
-            public_prefixes: vec![],
-            secondary_vtep_aggregate_prefixes: vec![],
         }),
         mlxconfig_profiles: None,
         rack_management_enabled: false,

@@ -72,7 +72,7 @@ func TestNewAPIRoutes(t *testing.T) {
 		"network-security-group":    5,
 		"machine-validation":        11,
 		"dpu-extension-service":     7,
-		"sku":                       2,
+		"sku":                       5,
 		"task":                      2,
 		"rule":                      5,
 		"run":                       8,
@@ -148,7 +148,14 @@ func TestNewAPIRoutes(t *testing.T) {
 			assertRouteExists(t, got, http.MethodGet, ipxeTemplatePath)
 			assertRouteExists(t, got, http.MethodGet, ipxeTemplatePath+"/:id")
 
+			skuPath := "/org/:orgName/" + cfg.GetAPIName() + "/sku"
+			assertRouteExists(t, got, http.MethodPost, skuPath)
+			assertRouteExists(t, got, http.MethodGet, skuPath)
+			assertRouteExists(t, got, http.MethodGet, skuPath+"/:id")
+			assertRouteExists(t, got, http.MethodPatch, skuPath+"/:id")
+			assertRouteExists(t, got, http.MethodDelete, skuPath+"/:id")
 			runPath := "/org/:orgName/" + cfg.GetAPIName() + "/task/run"
+
 			assertRouteExists(t, got, http.MethodPost, runPath)
 			assertRouteExists(t, got, http.MethodGet, runPath)
 			assertRouteExists(t, got, http.MethodGet, runPath+"/:id")

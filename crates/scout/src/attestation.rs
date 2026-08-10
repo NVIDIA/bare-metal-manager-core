@@ -41,14 +41,14 @@ use tss_esapi::{Context, TctiNameConf};
 
 use crate::CarbideClientError;
 
-pub(crate) fn create_context_from_path(path: &str) -> Result<Context, Box<dyn std::error::Error>> {
+pub(super) fn create_context_from_path(path: &str) -> Result<Context, Box<dyn std::error::Error>> {
     let tcti = TctiNameConf::from_str(path)?;
     // create context
     let ctx = Context::new(tcti)?;
     Ok(ctx)
 }
 
-pub(crate) fn create_attest_key_info(
+pub(super) fn create_attest_key_info(
     ctx: &mut Context,
 ) -> Result<(rpc_md::AttestKeyInfo, KeyHandle, KeyHandle), Box<dyn std::error::Error>> {
     // obtain EK
@@ -88,7 +88,7 @@ pub(crate) fn create_attest_key_info(
     Ok((attest_key_info, ek_handle, ak_handle))
 }
 
-pub(crate) fn activate_credential(
+pub(super) fn activate_credential(
     cred_blob_serialized: &[u8],
     encr_secret_serialized: &[u8],
     ctx: &mut Context,
@@ -217,7 +217,7 @@ fn probe_sample_pcr_value(
     Ok(!digest_list.is_empty())
 }
 
-pub(crate) fn get_pcr_quote(
+pub(super) fn get_pcr_quote(
     ctx: &mut Context,
     ak_handle: &KeyHandle,
 ) -> Result<(Attest, Signature, Vec<Digest>), Box<dyn std::error::Error>> {
@@ -319,7 +319,7 @@ pub(crate) fn get_pcr_quote(
     Ok((attest, signature, digest_vec))
 }
 
-pub(crate) fn create_quote_request(
+pub(super) fn create_quote_request(
     attestation: Attest,
     signature: Signature,
     pcr_values: Vec<Digest>,
@@ -342,7 +342,7 @@ pub(crate) fn create_quote_request(
     Ok(request)
 }
 
-pub(crate) fn get_tpm_eventlog() -> Option<Vec<u8>> {
+pub(super) fn get_tpm_eventlog() -> Option<Vec<u8>> {
     let output_res = Command::new("sh")
         .arg("-c")
         .arg("tpm2_eventlog /sys/kernel/security/tpm0/binary_bios_measurements")
@@ -368,7 +368,7 @@ pub(crate) fn get_tpm_eventlog() -> Option<Vec<u8>> {
     }
 }
 
-pub fn get_tpm_description(ctx: &mut Context) -> Option<TpmDescription> {
+pub(super) fn get_tpm_description(ctx: &mut Context) -> Option<TpmDescription> {
     let (capabilities, _more) = match ctx.get_capability(CapabilityType::TpmProperties, 0, 80) {
         Ok(tuple) => tuple,
         Err(e) => {

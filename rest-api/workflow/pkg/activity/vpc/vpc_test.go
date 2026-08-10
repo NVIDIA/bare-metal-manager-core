@@ -271,6 +271,19 @@ func TestManageVpc_UpdateVpcsInDB(t *testing.T) {
 	assert.NoError(t, err)
 	vpc2, err = vpcDAO.Update(ctx, nil, cdbm.VpcUpdateInput{VpcID: vpc2.ID, RoutingProfile: cutil.GetPtr("EXTERNAL")})
 	assert.NoError(t, err)
+	// Seed cached profile data so an inventory omission must actively clear it.
+	vpc2, err = vpcDAO.Update(ctx, nil, cdbm.VpcUpdateInput{
+		VpcID: vpc2.ID,
+		RoutingProfileOverrides: &cdbm.VpcRoutingProfileOverrides{
+			LeakDefaultRouteFromUnderlay: cutil.GetPtr(true),
+		},
+		EffectiveRoutingProfile: &cdbm.VpcEffectiveRoutingProfile{
+			LeakDefaultRouteFromUnderlay: true,
+			Internal:                     true,
+			AccessTier:                   3,
+		},
+	})
+	assert.NoError(t, err)
 
 	vpc12 := testVPCBuildVPC(t, dbSession, "test-vpc-12", ip, tn, st, nil, cutil.GetPtr(uuid.New()), nil, tnu, cdbm.VpcStatusReady)
 	// Set propagation details for VPC21.
@@ -281,6 +294,19 @@ func TestManageVpc_UpdateVpcsInDB(t *testing.T) {
 	cwu.TestUpdateVPC(t, dbSession, vpc12)
 
 	vpc13 := testVPCBuildVPC(t, dbSession, "test-vpc-13", ip, tn, st, nil, cutil.GetPtr(uuid.New()), nil, tnu, cdbm.VpcStatusReady)
+
+	// Build real NSG rows so reconciliation exercises the VPC foreign-key column.
+	networkSecurityGroupA := util.TestBuildNetworkSecurityGroup(t, dbSession, "test-nsg-a", st, tn, cdbm.NetworkSecurityGroupStatusReady, tnu)
+	networkSecurityGroupB := util.TestBuildNetworkSecurityGroup(t, dbSession, "test-nsg-b", st, tn, cdbm.NetworkSecurityGroupStatusReady, tnu)
+	vpc14 := testVPCBuildVPC(t, dbSession, "test-vpc-14", ip, tn, st, nil, cutil.GetPtr(uuid.New()), nil, tnu, cdbm.VpcStatusReady)
+	vpc15 := testVPCBuildVPC(t, dbSession, "test-vpc-15", ip, tn, st, nil, cutil.GetPtr(uuid.New()), nil, tnu, cdbm.VpcStatusReady)
+	vpc16 := testVPCBuildVPC(t, dbSession, "test-vpc-16", ip, tn, st, nil, cutil.GetPtr(uuid.New()), nil, tnu, cdbm.VpcStatusReady)
+
+	// Seed the replace and clear cases with the first NSG association.
+	vpc15, err = vpcDAO.Update(ctx, nil, cdbm.VpcUpdateInput{VpcID: vpc15.ID, NetworkSecurityGroupID: cutil.GetPtr(networkSecurityGroupA.ID)})
+	require.NoError(t, err)
+	vpc16, err = vpcDAO.Update(ctx, nil, cdbm.VpcUpdateInput{VpcID: vpc16.ID, NetworkSecurityGroupID: cutil.GetPtr(networkSecurityGroupA.ID)})
+	require.NoError(t, err)
 
 	// Build VPC inventory that is paginated
 	// Generate data for 34 VPCs reported from Site Agent while Cloud has 38 VPCs
@@ -382,6 +408,9 @@ func TestManageVpc_UpdateVpcsInDB(t *testing.T) {
 		ethernetVirtualizationUpdatedVpcs []*cdbm.Vpc
 		routingProfileUpdatedVpcs         []*cdbm.Vpc
 		routingProfileClearedVpcs         []*cdbm.Vpc
+		routingProfileStateUpdatedVpc     *cdbm.Vpc
+		routingProfileStateClearedVpc     *cdbm.Vpc
+		expectedNetworkSecurityGroupIDs   map[uuid.UUID]*string
 		readyStatusDetailVpcs             []*cdbm.Vpc
 		requiredMetadataUpdate            bool
 		metadataVpcUpdate                 *cdbm.Vpc
@@ -430,6 +459,19 @@ func TestManageVpc_UpdateVpcsInDB(t *testing.T) {
 							Config: &corev1.VpcConfig{
 								NetworkVirtualizationType: &nwvt,
 								RoutingProfileType:        cutil.GetPtr("INTERNAL"),
+								RoutingProfileOverrides: &corev1.VpcRoutingProfileOverrides{
+									LeakDefaultRouteFromUnderlay: cutil.GetPtr(false),
+									AllowedAnycastPrefixes: &corev1.PrefixFilterPolicyEntries{
+										Values: []*corev1.PrefixFilterPolicyEntry{{Prefix: "192.0.2.1/24"}},
+									},
+								},
+							},
+							Status: &corev1.VpcStatus{
+								EffectiveRoutingProfile: &corev1.VpcEffectiveRoutingProfile{
+									LeakDefaultRouteFromUnderlay: true,
+									Internal:                     true,
+									AccessTier:                   8,
+								},
 							},
 						},
 						{
@@ -470,6 +512,24 @@ func TestManageVpc_UpdateVpcsInDB(t *testing.T) {
 								NetworkVirtualizationType: &evt,
 							},
 						},
+						{
+							Id:   &corev1.VpcId{Value: vpc14.ControllerVpcID.String()},
+							Name: vpc14.ID.String(),
+							Config: &corev1.VpcConfig{
+								NetworkSecurityGroupId: cutil.GetPtr(networkSecurityGroupA.ID),
+							},
+						},
+						{
+							Id:   &corev1.VpcId{Value: vpc15.ControllerVpcID.String()},
+							Name: vpc15.ID.String(),
+							Config: &corev1.VpcConfig{
+								NetworkSecurityGroupId: cutil.GetPtr(networkSecurityGroupB.ID),
+							},
+						},
+						{
+							Id:   &corev1.VpcId{Value: vpc16.ControllerVpcID.String()},
+							Name: vpc16.ID.String(),
+						},
 					},
 				},
 			},
@@ -479,12 +539,19 @@ func TestManageVpc_UpdateVpcsInDB(t *testing.T) {
 			ethernetVirtualizationUpdatedVpcs: []*cdbm.Vpc{vpc12, vpc13},
 			routingProfileUpdatedVpcs:         []*cdbm.Vpc{vpc1},
 			routingProfileClearedVpcs:         []*cdbm.Vpc{vpc2},
-			deletedVpcs:                       []*cdbm.Vpc{vpc5, vpc6},
-			missingVpcs:                       []*cdbm.Vpc{vpc7, vpc11},
-			restoredVpcs:                      []*cdbm.Vpc{vpc8},
-			unpairedVpcs:                      []*cdbm.Vpc{vpc9, vpc10},
-			readyStatusDetailVpcs:             []*cdbm.Vpc{vpc1},
-			wantErr:                           false,
+			routingProfileStateUpdatedVpc:     vpc1,
+			routingProfileStateClearedVpc:     vpc2,
+			expectedNetworkSecurityGroupIDs: map[uuid.UUID]*string{
+				vpc14.ID: cutil.GetPtr(networkSecurityGroupA.ID),
+				vpc15.ID: cutil.GetPtr(networkSecurityGroupB.ID),
+				vpc16.ID: nil,
+			},
+			deletedVpcs:           []*cdbm.Vpc{vpc5, vpc6},
+			missingVpcs:           []*cdbm.Vpc{vpc7, vpc11},
+			restoredVpcs:          []*cdbm.Vpc{vpc8},
+			unpairedVpcs:          []*cdbm.Vpc{vpc9, vpc10},
+			readyStatusDetailVpcs: []*cdbm.Vpc{vpc1},
+			wantErr:               false,
 		},
 		{
 			name: "test paged VPC inventory processing, empty inventory",
@@ -632,6 +699,13 @@ func TestManageVpc_UpdateVpcsInDB(t *testing.T) {
 				assert.Nil(t, updatedVPC.NetworkSecurityGroupPropagationDetails)
 			}
 
+			// Attach, replace, and clear must each persist when NSG is the only reported difference.
+			for vpcID, expectedNetworkSecurityGroupID := range tt.expectedNetworkSecurityGroupIDs {
+				updatedVPC, gerr := vpcDAO.GetByID(ctx, nil, vpcID, nil)
+				require.NoError(t, gerr)
+				assert.Equal(t, expectedNetworkSecurityGroupID, updatedVPC.NetworkSecurityGroupID)
+			}
+
 			// Check that VPC status was updated in DB for VPC1
 			if tt.updatedVpc != nil {
 				updatedVPC, _ := vpcDAO.GetByID(ctx, nil, tt.updatedVpc.ID, nil)
@@ -657,6 +731,29 @@ func TestManageVpc_UpdateVpcsInDB(t *testing.T) {
 			for _, vpc := range tt.routingProfileClearedVpcs {
 				clearedRoutingProfileVPC, _ := vpcDAO.GetByID(ctx, nil, vpc.ID, nil)
 				assert.Nil(t, clearedRoutingProfileVPC.RoutingProfile)
+			}
+
+			// Controller-reported desired and effective profiles must be cached together.
+			if tt.routingProfileStateUpdatedVpc != nil {
+				updatedProfileVPC, gerr := vpcDAO.GetByID(ctx, nil, tt.routingProfileStateUpdatedVpc.ID, nil)
+				require.NoError(t, gerr)
+				require.NotNil(t, updatedProfileVPC.RoutingProfileOverrides)
+				require.NotNil(t, updatedProfileVPC.RoutingProfileOverrides.LeakDefaultRouteFromUnderlay)
+				assert.False(t, *updatedProfileVPC.RoutingProfileOverrides.LeakDefaultRouteFromUnderlay)
+				require.NotNil(t, updatedProfileVPC.RoutingProfileOverrides.AllowedAnycastPrefixes)
+				assert.Equal(t, []string{"192.0.2.1/24"}, *updatedProfileVPC.RoutingProfileOverrides.AllowedAnycastPrefixes)
+				require.NotNil(t, updatedProfileVPC.EffectiveRoutingProfile)
+				assert.True(t, updatedProfileVPC.EffectiveRoutingProfile.LeakDefaultRouteFromUnderlay)
+				assert.True(t, updatedProfileVPC.EffectiveRoutingProfile.Internal)
+				assert.Equal(t, uint32(8), updatedProfileVPC.EffectiveRoutingProfile.AccessTier)
+			}
+
+			// Omission from inventory clears both stale cached values instead of preserving them.
+			if tt.routingProfileStateClearedVpc != nil {
+				clearedProfileVPC, gerr := vpcDAO.GetByID(ctx, nil, tt.routingProfileStateClearedVpc.ID, nil)
+				require.NoError(t, gerr)
+				assert.Nil(t, clearedProfileVPC.RoutingProfileOverrides)
+				assert.Nil(t, clearedProfileVPC.EffectiveRoutingProfile)
 			}
 
 			for _, vpc := range tt.readyVpcs {

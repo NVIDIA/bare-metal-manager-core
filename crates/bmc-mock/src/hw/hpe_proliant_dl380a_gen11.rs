@@ -25,17 +25,17 @@ use crate::{BootOptionKind, Callbacks, hw, redfish};
 
 /// Values are taken from a Redfish dump of a real ProLiant DL380a Gen11
 /// (iLO 6 v1.58, BIOS U58 v2.22) with a BlueField-3 SuperNIC installed.
-pub struct HpeProliantDl380aGen11<'a> {
-    pub bmc_mac_address: MacAddress,
-    pub product_serial_number: Cow<'a, str>,
-    pub nics: Vec<(hw::nic::SlotNumber, hw::nic::Nic<'a>)>,
+pub(crate) struct HpeProliantDl380aGen11<'a> {
+    pub(crate) bmc_mac_address: MacAddress,
+    pub(crate) product_serial_number: Cow<'a, str>,
+    pub(crate) nics: Vec<(hw::nic::SlotNumber, hw::nic::Nic<'a>)>,
 }
 
 const MODEL: &str = "ProLiant DL380a Gen11";
 const SKU: &str = "P54903-B21";
 
 impl HpeProliantDl380aGen11<'_> {
-    pub fn manager_config(&self) -> redfish::manager::Config {
+    pub(crate) fn manager_config(&self) -> redfish::manager::Config {
         redfish::manager::Config {
             managers: vec![redfish::manager::SingleConfig {
                 id: "1",
@@ -56,7 +56,10 @@ impl HpeProliantDl380aGen11<'_> {
         }
     }
 
-    pub fn system_config(&self, callbacks: Arc<dyn Callbacks>) -> redfish::computer_system::Config {
+    pub(crate) fn system_config(
+        &self,
+        callbacks: Arc<dyn Callbacks>,
+    ) -> redfish::computer_system::Config {
         let system_id = "1";
 
         let eth_interfaces = self
@@ -117,6 +120,7 @@ impl HpeProliantDl380aGen11<'_> {
                 log_services: None,
                 storage: None,
                 processors: None,
+                memory: None,
                 serial_console: None,
                 secure_boot_available: true,
                 // Locked-down production state expected by nico: USB boot off,
@@ -145,7 +149,7 @@ impl HpeProliantDl380aGen11<'_> {
         }
     }
 
-    pub fn chassis_config(&self) -> redfish::chassis::ChassisConfig {
+    pub(crate) fn chassis_config(&self) -> redfish::chassis::ChassisConfig {
         let chassis_id = "1";
 
         let network_adapters = self
@@ -193,7 +197,7 @@ impl HpeProliantDl380aGen11<'_> {
         }
     }
 
-    pub fn update_service_config(&self) -> redfish::update_service::UpdateServiceConfig {
+    pub(crate) fn update_service_config(&self) -> redfish::update_service::UpdateServiceConfig {
         redfish::update_service::UpdateServiceConfig {
             firmware_inventory: vec![],
         }

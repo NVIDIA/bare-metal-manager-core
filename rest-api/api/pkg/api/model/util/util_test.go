@@ -6,10 +6,32 @@ package util
 import (
 	"testing"
 
+	"github.com/santhosh-tekuri/jsonschema/v6"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"gopkg.in/yaml.v3"
 )
+
+func TestInsertedPhoneHomeMatchesCloudInitSchema(t *testing.T) {
+	documentRoot := unmarshalDocumentRoot(t, `autoinstall:
+  version: 1
+`)
+	require.NoError(t, InsertPhoneHomeIntoUserData(documentRoot, "http://169.254.169.254/phone_home"))
+
+	autoinstallNode := mappingNodeValue(documentRoot, "autoinstall")
+	require.NotNil(t, autoinstallNode)
+	targetUserDataNode := mappingNodeValue(autoinstallNode, "user-data")
+	require.NotNil(t, targetUserDataNode)
+
+	var targetUserData any
+	require.NoError(t, targetUserDataNode.Decode(&targetUserData))
+
+	compiler := jsonschema.NewCompiler()
+	compiler.AssertFormat()
+	schema, err := compiler.Compile("testdata/cloud-init-phone-home.schema.json")
+	require.NoError(t, err)
+	require.NoError(t, schema.Validate(targetUserData))
+}
 
 func TestInsertPhoneHomeIntoUserData(t *testing.T) {
 	const phoneHomeURL = "http://169.254.169.254/phone-home"

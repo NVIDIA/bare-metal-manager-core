@@ -30,7 +30,7 @@ use crate::collectors::{
     MetricsCollector, MetricsCollectorConfig, NmxcCollector, NmxcCollectorConfig, NmxtCollector,
     NmxtCollectorConfig, NvueRestCollector, NvueRestCollectorConfig, SensorCollector,
     SensorCollectorConfig, SseLogCollector, SseLogCollectorConfig, StreamingCollectorStartContext,
-    spawn_gnmi_collector,
+    TelemetryCollector, TelemetryCollectorConfig, spawn_gnmi_collector,
 };
 use crate::config::{Configurable, LogCollectionMode, PeriodicLogConfig};
 use crate::endpoint::{BmcEndpoint, EndpointMetadata, SwitchEndpointRole};
@@ -211,6 +211,45 @@ fn spawn_generic_redfish_collectors(
                     ?error,
                     endpoint = ?endpoint.addr,
                     "Could not start entity metrics collector"
+                );
+            }
+        }
+    }
+
+    if let Configurable::Enabled(telemetry_cfg) = &ctx.telemetry_config
+        && !ctx.collectors.contains(CollectorKind::Telemetry, &key)
+    {
+        let collector_registry = Arc::new(
+            ctx.metrics_manager
+                .create_collector_registry(format!("telemetry_collector_{key}"), metrics_prefix)?,
+        );
+        match Collector::start::<TelemetryCollector<BmcClient>>(
+            endpoint_arc.clone(),
+            bmc.clone(),
+            TelemetryCollectorConfig {
+                data_sink: data_sink.clone(),
+            },
+            CollectorStartContext {
+                limiter: ctx.limiter.clone(),
+                iteration_interval: telemetry_cfg.fetch_interval,
+                collector_registry,
+                metrics_manager: ctx.metrics_manager.clone(),
+            },
+        ) {
+            Ok(monitor) => {
+                ctx.collectors
+                    .insert(CollectorKind::Telemetry, key.clone().into(), monitor);
+                tracing::info!(
+                    endpoint_key = %key,
+                    telemetry_collector_count = ctx.collectors.len(CollectorKind::Telemetry),
+                    "Started telemetry service collection for BMC endpoint"
+                );
+            }
+            Err(error) => {
+                tracing::error!(
+                    ?error,
+                    endpoint = ?endpoint.addr,
+                    "Could not start telemetry collector"
                 );
             }
         }
@@ -770,6 +809,7 @@ mod tests {
             serial: serial.to_string(),
             slot_number: None,
             tray_index: None,
+            nvlink_domain_uuid: None,
             endpoint_role,
             is_primary,
             nmxc_enabled,

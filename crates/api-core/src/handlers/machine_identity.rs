@@ -36,13 +36,12 @@ use crate::api::{Api, log_request_data};
 use crate::auth::AuthContext;
 use crate::machine_identity::{
     Es256Signer, MachineIdentityStoredSecretDecryptionFailed, SignOptions, Signer,
-    StoredMachineIdentitySecretKind, decrypt_machine_identity_ciphertext,
-    decrypt_token_delegation_encrypted_blob, token_delegation_credentials,
-    token_exchange_http_client, token_exchange_request,
+    decrypt_machine_identity_ciphertext, decrypt_token_delegation_encrypted_blob,
+    token_delegation_credentials, token_exchange_http_client, token_exchange_request,
 };
 
 /// Shared gate for APIs that require site `[machine_identity].enabled` (identity admin + discovery).
-pub(crate) fn require_machine_identity_site_enabled(api: &Api) -> Result<(), Status> {
+pub(super) fn require_machine_identity_site_enabled(api: &Api) -> Result<(), Status> {
     if !api.runtime_config.machine_identity.enabled {
         return Err(CarbideError::InvalidArgument(
             "machine identity must be enabled in site config".to_string(),
@@ -194,11 +193,10 @@ pub(crate) async fn sign_machine_identity(
         decrypt_machine_identity_ciphertext(api.credential_manager.as_ref(), enc_key.as_str())
             .await
             .inspect_err(|e| {
-                carbide_instrument::emit(MachineIdentityStoredSecretDecryptionFailed::from_status(
-                    StoredMachineIdentitySecretKind::SigningKey,
-                    identity_row.organization_id.as_str(),
-                    e,
-                ));
+                carbide_instrument::emit(MachineIdentityStoredSecretDecryptionFailed::SigningKey {
+                    organization_id: identity_row.organization_id.to_string(),
+                    error: e.message().to_string(),
+                });
             })
             .map_err(|_| {
                 CarbideError::internal("stored signing key could not be decrypted".to_string())
@@ -244,11 +242,12 @@ pub(crate) async fn sign_machine_identity(
         )
         .await
         .inspect_err(|e| {
-            carbide_instrument::emit(MachineIdentityStoredSecretDecryptionFailed::from_status(
-                StoredMachineIdentitySecretKind::TokenDelegationAuth,
-                identity_row.organization_id.as_str(),
-                e,
-            ));
+            carbide_instrument::emit(
+                MachineIdentityStoredSecretDecryptionFailed::TokenDelegationAuth {
+                    organization_id: identity_row.organization_id.to_string(),
+                    error: e.message().to_string(),
+                },
+            );
         })?;
         let delegation_creds =
             token_delegation_credentials(auth_method, delegation_plain.as_deref())?;

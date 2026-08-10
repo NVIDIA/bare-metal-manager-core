@@ -21,7 +21,7 @@ use crate::json::{JsonExt, JsonPatch};
 use crate::redfish;
 use crate::redfish::Builder;
 
-pub fn manager_collection(manager_id: &str) -> redfish::Collection<'static> {
+pub(super) fn manager_collection(manager_id: &str) -> redfish::Collection<'static> {
     let odata_id = format!("/redfish/v1/Managers/{manager_id}/LogServices");
     redfish::Collection {
         odata_id: Cow::Owned(odata_id),
@@ -30,7 +30,7 @@ pub fn manager_collection(manager_id: &str) -> redfish::Collection<'static> {
     }
 }
 
-pub fn system_collection(system_id: &str) -> redfish::Collection<'static> {
+pub(super) fn system_collection(system_id: &str) -> redfish::Collection<'static> {
     let odata_id = format!("/redfish/v1/Systems/{system_id}/LogServices");
     redfish::Collection {
         odata_id: Cow::Owned(odata_id),
@@ -39,7 +39,7 @@ pub fn system_collection(system_id: &str) -> redfish::Collection<'static> {
     }
 }
 
-pub fn system_resource<'a>(system_id: &str, service_id: &'a str) -> redfish::Resource<'a> {
+pub(super) fn system_resource<'a>(system_id: &str, service_id: &'a str) -> redfish::Resource<'a> {
     let odata_id = format!("/redfish/v1/Systems/{system_id}/LogServices/{service_id}");
     redfish::Resource {
         odata_id: Cow::Owned(odata_id),
@@ -49,7 +49,7 @@ pub fn system_resource<'a>(system_id: &str, service_id: &'a str) -> redfish::Res
     }
 }
 
-pub fn system_entries_collection<'a>(
+pub(super) fn system_entries_collection<'a>(
     system_id: &str,
     service_id: &'a str,
 ) -> redfish::Collection<'a> {
@@ -61,13 +61,13 @@ pub fn system_entries_collection<'a>(
     }
 }
 
-pub fn builder(resource: &redfish::Resource<'_>) -> LogServiceBuilder {
+pub(super) fn builder(resource: &redfish::Resource<'_>) -> LogServiceBuilder {
     LogServiceBuilder {
         value: resource.json_patch(),
     }
 }
 
-pub fn event_entry(collection: &redfish::Collection<'_>, id: &str) -> EntryBuilder {
+pub(crate) fn event_entry(collection: &redfish::Collection<'_>, id: &str) -> EntryBuilder {
     let odata_id = format!("{}/{}", collection.odata_id, id);
     EntryBuilder {
         value: redfish::Resource {
@@ -81,7 +81,7 @@ pub fn event_entry(collection: &redfish::Collection<'_>, id: &str) -> EntryBuild
     .entry_type("Event")
 }
 
-pub struct LogServiceBuilder {
+pub(super) struct LogServiceBuilder {
     value: serde_json::Value,
 }
 
@@ -94,16 +94,16 @@ impl Builder for LogServiceBuilder {
 }
 
 impl LogServiceBuilder {
-    pub fn entries(self, v: &redfish::Collection<'_>) -> Self {
+    pub(super) fn entries(self, v: &redfish::Collection<'_>) -> Self {
         self.apply_patch(v.nav_property("Entries"))
     }
 
-    pub fn build(self) -> serde_json::Value {
+    pub(super) fn build(self) -> serde_json::Value {
         self.value
     }
 }
 
-pub struct EntryBuilder {
+pub(crate) struct EntryBuilder {
     value: serde_json::Value,
 }
 
@@ -116,23 +116,23 @@ impl Builder for EntryBuilder {
 }
 
 impl EntryBuilder {
-    pub fn entry_type(self, v: &str) -> Self {
+    fn entry_type(self, v: &str) -> Self {
         self.add_str_field("EntryType", v)
     }
 
-    pub fn message(self, v: &str) -> Self {
+    pub(crate) fn message(self, v: &str) -> Self {
         self.add_str_field("Message", v)
     }
 
-    pub fn severity(self, v: &str) -> Self {
+    pub(crate) fn severity(self, v: &str) -> Self {
         self.add_str_field("Severity", v)
     }
 
-    pub fn created(self, v: &str) -> Self {
+    pub(crate) fn created(self, v: &str) -> Self {
         self.add_str_field("Created", v)
     }
 
-    pub fn build(self) -> serde_json::Value {
+    pub(crate) fn build(self) -> serde_json::Value {
         self.value
     }
 }

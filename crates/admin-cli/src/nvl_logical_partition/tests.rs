@@ -28,6 +28,7 @@ use carbide_test_support::scenarios;
 use clap::{CommandFactory, Parser};
 
 use super::*;
+use crate::test_support::{parse_leaf, raw_value};
 
 // verify_cmd_structure runs a baseline clap debug_assert()
 // to do basic command configuration checking and validation,
@@ -53,10 +54,12 @@ fn verify_cmd_structure() {
 fn parse_show() {
     scenarios!(
         run = |argv| {
-            Cmd::try_parse_from(argv.iter().copied())
-                .map(|cmd| match cmd {
-                    Cmd::Show(args) => (args.id.is_empty(), args.name),
-                    _ => panic!("expected Show variant"),
+            parse_leaf::<Cmd>(argv, &["show"])
+                .map(|matches| {
+                    (
+                        raw_value(&matches, "id").is_none_or(|id| id.is_empty()),
+                        raw_value(&matches, "name"),
+                    )
                 })
                 .map_err(drop)
         };
@@ -76,10 +79,13 @@ fn parse_show() {
 fn parse_create() {
     scenarios!(
         run = |argv| {
-            Cmd::try_parse_from(argv.iter().copied())
-                .map(|cmd| match cmd {
-                    Cmd::Create(args) => (args.name, args.tenant_organization_id),
-                    _ => panic!("expected Create variant"),
+            parse_leaf::<Cmd>(argv, &["create"])
+                .map(|matches| {
+                    (
+                        raw_value(&matches, "name").expect("name is required"),
+                        raw_value(&matches, "tenant_organization_id")
+                            .expect("tenant organization ID is required"),
+                    )
                 })
                 .map_err(drop)
         };
@@ -100,14 +106,9 @@ fn parse_create() {
 #[test]
 fn parse_delete() {
     scenarios!(
-        run = |argv| {
-            Cmd::try_parse_from(argv.iter().copied())
-                .map(|cmd| match cmd {
-                    Cmd::Delete(args) => args.name,
-                    _ => panic!("expected Delete variant"),
-                })
-                .map_err(drop)
-        };
+        run = |argv| parse_leaf::<Cmd>(argv, &["delete"])
+            .map(|matches| raw_value(&matches, "name").expect("name is required"))
+            .map_err(drop);
         "delete with required --name" {
             &["nvl-logical-partition", "delete", "--name", "my-partition"][..] => Yields("my-partition".to_string()),
         }

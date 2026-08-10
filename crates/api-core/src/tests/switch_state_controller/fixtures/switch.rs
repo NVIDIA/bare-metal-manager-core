@@ -22,7 +22,7 @@ use model::switch::{ConfigureCertificateState, ConfiguringState, SwitchControlle
 use sqlx::PgConnection;
 
 /// Helper function to set switch controller state directly in database
-pub async fn set_switch_controller_state(
+pub(in crate::tests) async fn set_switch_controller_state(
     txn: &mut PgConnection,
     switch_id: &SwitchId,
     state: SwitchControllerState,
@@ -36,7 +36,7 @@ pub async fn set_switch_controller_state(
     Ok(())
 }
 
-pub async fn set_switch_rack_id(
+pub(in crate::tests) async fn set_switch_rack_id(
     txn: &mut PgConnection,
     switch_id: &SwitchId,
     rack_id: &RackId,
@@ -49,7 +49,7 @@ pub async fn set_switch_rack_id(
     Ok(())
 }
 
-pub async fn transition_switch_controller_state(
+pub(in crate::tests) async fn transition_switch_controller_state(
     txn: &mut PgConnection,
     switch_id: &SwitchId,
     new_state: SwitchControllerState,
@@ -68,7 +68,7 @@ pub async fn transition_switch_controller_state(
     Ok(())
 }
 
-pub fn configure_certificate_start_state() -> SwitchControllerState {
+pub(in crate::tests) fn configure_certificate_start_state() -> SwitchControllerState {
     SwitchControllerState::Configuring {
         config_state: ConfiguringState::ConfigureCertificate {
             configure_certificate: ConfigureCertificateState::Start,
@@ -76,7 +76,7 @@ pub fn configure_certificate_start_state() -> SwitchControllerState {
     }
 }
 
-pub fn configure_certificate_wait_state(job_id: &str) -> SwitchControllerState {
+pub(in crate::tests) fn configure_certificate_wait_state(job_id: &str) -> SwitchControllerState {
     SwitchControllerState::Configuring {
         config_state: ConfiguringState::ConfigureCertificate {
             configure_certificate: ConfigureCertificateState::WaitForComplete {
@@ -87,7 +87,7 @@ pub fn configure_certificate_wait_state(job_id: &str) -> SwitchControllerState {
 }
 
 /// Helper function to mark switch as deleted
-pub async fn mark_switch_as_deleted(
+pub(in crate::tests) async fn mark_switch_as_deleted(
     txn: &mut PgConnection,
     switch_id: &SwitchId,
 ) -> Result<(), sqlx::Error> {

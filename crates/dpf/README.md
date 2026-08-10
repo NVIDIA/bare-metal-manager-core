@@ -35,10 +35,10 @@ This SDK provides a Rust interface for NICo to interact with the DPF operator. I
 
 ## API harness CLI
 
-The `nico-dpf-api-harness` binary exercises the DPF SDK (same surface as NICo API) against a real DPF operator for integration testing. Build with the `driver` feature:
+The `carbide-dpf-api-harness` binary exercises the DPF SDK (same surface as NICo API) against a real DPF operator for integration testing. Build with the `driver` feature:
 
 ```bash
-cargo build -p nico-dpf --features driver --bin nico-dpf-api-harness
+cargo build -p carbide-dpf --features driver --bin carbide-dpf-api-harness
 ```
 
 **Main flows:**
@@ -46,23 +46,23 @@ cargo build -p nico-dpf --features driver --bin nico-dpf-api-harness
 ```bash
 # Full provisioning flow. --dpus is device_name:dpu_bmc_ip:serial (comma-separated for multiple).
 # Optional: --services-file <PATH> for service definitions JSON.
-nico-dpf-api-harness provision --bfb-url <URL> --bmc-password <PWD> --host-bmc-ip <IP> --dpus device1:10.0.0.1:SN001
+carbide-dpf-api-harness provision --bfb-url <URL> --bmc-password <PWD> --host-bmc-ip <IP> --dpus device1:10.0.0.1:SN001
 
 # Reprovision a single DPU: delete DPU CR, watch for new DPU (creation time after delete), then same monitor flow.
 # Node name is dpu-node-<device_name>. Use --timeout for wait/monitor (default varies).
-nico-dpf-api-harness reprovision --host-bmc-ip <IP> --device-name <NAME> --timeout 600
+carbide-dpf-api-harness reprovision --host-bmc-ip <IP> --device-name <NAME> --timeout 600
 
 # Clean up all DPF resources for a host (node derived from first device name)
-nico-dpf-api-harness cleanup --host-bmc-ip <IP> --dpu-device-names name1,name2
+carbide-dpf-api-harness cleanup --host-bmc-ip <IP> --dpu-device-names name1,name2
 
 # Show current DPF resource state (optional: --host-bmc-ip to filter)
-nico-dpf-api-harness status
+carbide-dpf-api-harness status
 
 # Stream DPF events
-nico-dpf-api-harness watch
+carbide-dpf-api-harness watch
 ```
 
-Other subcommands: `get-phase`, `force-delete-dpu`, `force-delete-node`, `delete-device`, `delete-node`, `is-reboot-required`, `clear-reboot`, `release-hold`, `update-bfb`. Run `nico-dpf-api-harness --help` for the full list and options.
+Other subcommands: `get-phase`, `force-delete-dpu`, `force-delete-node`, `delete-device`, `delete-node`, `is-reboot-required`, `clear-reboot`, `release-hold`, `update-bfb`. Run `carbide-dpf-api-harness --help` for the full list and options.
 
 ## Regenerating CRDs
 

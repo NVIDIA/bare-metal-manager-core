@@ -77,12 +77,8 @@ impl InjectionStore {
         })
     }
 
-    pub fn clear(&self) {
+    pub(super) fn clear(&self) {
         self.rules.store(Arc::new(Vec::new()));
-    }
-
-    pub fn is_empty(&self) -> bool {
-        self.rules.load().is_empty()
     }
 
     fn rcu_with<R: Default>(
@@ -99,7 +95,7 @@ impl InjectionStore {
     }
 
     /// Used to modify HTTP response and inject latency.
-    pub async fn pre_handle(&self, method: &Method, path: &str) -> Option<Response> {
+    pub(crate) async fn pre_handle(&self, method: &Method, path: &str) -> Option<Response> {
         let snapshot = self.rules.load_full();
         if snapshot.is_empty() {
             return None;
@@ -170,7 +166,7 @@ impl InjectionStore {
     }
 
     /// Modify response body
-    pub async fn post_handle(&self, path: &str, response: Response) -> Response {
+    pub(crate) async fn post_handle(&self, path: &str, response: Response) -> Response {
         let snapshot = self.rules.load_full();
         if snapshot.is_empty() {
             return response;

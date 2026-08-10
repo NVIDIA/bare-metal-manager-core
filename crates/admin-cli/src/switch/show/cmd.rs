@@ -434,7 +434,7 @@ fn switch_details_text(switch: &Switch) -> CarbideCliResult<String> {
     Ok(lines)
 }
 
-pub async fn handle_show(
+pub(super) async fn handle_show(
     args: Args,
     output_format: &OutputFormat,
     output_file: &mut Box<dyn tokio::io::AsyncWrite + Unpin>,

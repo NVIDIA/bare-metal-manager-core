@@ -55,7 +55,7 @@ const READINESS_CHECK_FREQUENCY: Duration = Duration::from_secs(30);
 /// are the only types a DHCPv4 server sends, so any other code counts as
 /// `other`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, LabelValue)]
-pub enum ReplyMessageType {
+pub(super) enum ReplyMessageType {
     Offer,
     Ack,
     Nak,
@@ -79,7 +79,7 @@ impl From<u8> for ReplyMessageType {
 /// (`Pkt6::getType()`). Kea represents relay envelopes separately, so this
 /// label intentionally describes the inner response type.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, LabelValue)]
-pub enum V6ReplyMessageType {
+pub(super) enum V6ReplyMessageType {
     Advertise,
     Reply,
     Reconfigure,
@@ -108,7 +108,7 @@ impl From<u8> for V6ReplyMessageType {
 /// [`DropReason::Unknown`] closes the domain: a reason string outside this
 /// taxonomy buckets there instead of minting a new time series.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum DropReason {
+pub(super) enum DropReason {
     /// `pkt4_receive` refuses packets that did not arrive through a relay.
     NonRelayedPacket,
     /// `pkt4_receive` drops packets whose machine carries no usable IPv4
@@ -220,7 +220,7 @@ impl From<&str> for DropReason {
 /// These labels intentionally follow the existing DHCPv6 snake_case contract,
 /// except `NonRelayedPacket`, which is shared with the v4 drop path.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum V6DropReason {
+pub(super) enum V6DropReason {
     NonRelayedPacket,
     Success,
     Ignore,
@@ -302,7 +302,7 @@ impl From<&str> for V6DropReason {
     metric = counter,
     describe = "Number of DHCP requests received."
 )]
-pub struct DhcpRequestReceived;
+struct DhcpRequestReceived;
 
 /// The hook dropped or refused a DHCP request. This counts refusal events,
 /// not packets: an exchange that fails at more than one callout (a refused
@@ -316,9 +316,9 @@ pub struct DhcpRequestReceived;
     metric = counter,
     describe = "Number of DHCP requests dropped or refused, by reason."
 )]
-pub struct DhcpRequestDropped {
+struct DhcpRequestDropped {
     #[label]
-    pub reason: DropReason,
+    reason: DropReason,
 }
 
 /// The DHCPv6 hook dropped a packet before Kea could safely answer it.
@@ -331,9 +331,9 @@ pub struct DhcpRequestDropped {
     metric = counter,
     describe = "Number of dropped DHCPv6 requests, by reason."
 )]
-pub struct DhcpV6RequestDropped {
+struct DhcpV6RequestDropped {
     #[label]
-    pub reason: V6DropReason,
+    reason: V6DropReason,
 }
 
 /// A fully assembled DHCP reply left `pkt4_send` for transmission: an `offer`
@@ -350,9 +350,9 @@ pub struct DhcpV6RequestDropped {
     metric = counter,
     describe = "Number of DHCP replies sent, by reply message type."
 )]
-pub struct DhcpReplySent {
+struct DhcpReplySent {
     #[label]
-    pub message_type: ReplyMessageType,
+    message_type: ReplyMessageType,
 }
 
 /// A fully assembled DHCPv6 response left `pkt6_send` for transmission.
@@ -365,12 +365,12 @@ pub struct DhcpReplySent {
     metric = counter,
     describe = "Number of DHCPv6 replies sent, by response message type."
 )]
-pub struct DhcpV6ReplySent {
+struct DhcpV6ReplySent {
     #[label]
-    pub message_type: V6ReplyMessageType,
+    message_type: V6ReplyMessageType,
 }
 
-pub async fn certificate_loop() {
+async fn certificate_loop() {
     let mut interval = tokio::time::interval(METRICS_CAPTURE_FREQUENCY);
     loop {
         interval.tick().await;
@@ -412,7 +412,7 @@ fn initialize_metrics(mconf: &MetricsSetup) -> CarbideDhcpMetrics {
     metrics
 }
 
-pub fn metrics_server() {
+pub(super) fn metrics_server() {
     let metrics_endpoint = CONFIG
         .read()
         .expect("config lock poisoned?")
@@ -488,7 +488,7 @@ async fn check_api_connectivity(carbide_api_url: &str, client_config: &ForgeClie
     }
 }
 
-pub async fn start_readiness_monitoring() {
+async fn start_readiness_monitoring() {
     let mut readiness_interval = interval(READINESS_CHECK_FREQUENCY);
     let forge_client_config = tls::build_forge_client_config();
 
@@ -526,39 +526,39 @@ fn metrics_initialized() -> bool {
         .is_some()
 }
 
-pub fn increment_total_requests() {
+pub(super) fn increment_total_requests() {
     if metrics_initialized() {
         emit(DhcpRequestReceived);
     }
 }
 
-pub fn increment_dropped_requests(reason: DropReason) {
+pub(super) fn increment_dropped_requests(reason: DropReason) {
     if metrics_initialized() {
         emit(DhcpRequestDropped { reason });
     }
 }
 
-pub fn increment_reply_sent(message_type: ReplyMessageType) {
+pub(super) fn increment_reply_sent(message_type: ReplyMessageType) {
     if metrics_initialized() {
         emit(DhcpReplySent { message_type });
     }
 }
 
 /// Increment the DHCPv6 reply-sent counter for an outgoing response type.
-pub fn increment_v6_reply_sent(message_type: V6ReplyMessageType) {
+pub(super) fn increment_v6_reply_sent(message_type: V6ReplyMessageType) {
     if metrics_initialized() {
         emit(DhcpV6ReplySent { message_type });
     }
 }
 
 /// Increment the DHCPv6-specific dropped-request counter for a reason label.
-pub fn increment_dropped_v6_requests(reason: V6DropReason) {
+pub(super) fn increment_dropped_v6_requests(reason: V6DropReason) {
     if metrics_initialized() {
         emit(DhcpV6RequestDropped { reason });
     }
 }
 
-pub fn set_service_ready(ready: bool) {
+fn set_service_ready(ready: bool) {
     if let Some(health_controller) = &CONFIG
         .read()
         .expect("config lock poisoned")
@@ -569,7 +569,7 @@ pub fn set_service_ready(ready: bool) {
     }
 }
 
-pub fn set_service_healthy(healthy: bool) {
+pub(super) fn set_service_healthy(healthy: bool) {
     if let Some(health_controller) = &CONFIG
         .read()
         .expect("config lock poisoned")

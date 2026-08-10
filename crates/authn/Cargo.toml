@@ -39,6 +39,7 @@ tracing = { workspace = true }
 
 [dev-dependencies]
 carbide-instrument = { path = "../instrument", features = ["test-support"] }
+carbide-rpc = { path = "../rpc" }
 carbide-test-support = { path = "../test-support" }
 rcgen = { workspace = true }
 

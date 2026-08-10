@@ -36,7 +36,7 @@ use crate::bmc::vendor::{BmcVendor, BmcVendorDetectionError, SshBmcVendor};
 use crate::config::{Config, ConfigError};
 use crate::shutdown_handle::ShutdownHandle;
 
-pub async fn spawn(
+pub(super) async fn spawn(
     connection_details: ConnectionDetails,
     broadcast_to_frontend_tx: broadcast::Sender<ToFrontendMessage>,
     metrics: Arc<BmcPoolMetrics>,
@@ -62,7 +62,7 @@ pub async fn spawn(
 }
 
 #[derive(thiserror::Error, Debug)]
-pub enum SpawnError {
+pub(super) enum SpawnError {
     #[error(transparent)]
     Ssh(#[from] connection_impl::ssh::SpawnError),
     #[error(transparent)]
@@ -79,7 +79,7 @@ impl SpawnError {
 ///
 /// This information is normally gotten by calling GetBMCMetadData on carbide-api, but it can
 /// also obey overridden information from ssh-console's config.
-pub async fn lookup(
+pub(super) async fn lookup(
     machine_or_instance_id: &str,
     config: &Config,
     forge_api_client: &ForgeApiClient,
@@ -238,7 +238,7 @@ pub async fn lookup(
 }
 
 #[derive(thiserror::Error, Debug)]
-pub enum LookupError {
+pub(super) enum LookupError {
     #[error("configuration error: {0}")]
     Config(#[from] ConfigError),
     #[error("error looking up instance ID {instance_id}: {tonic_status}")]
@@ -267,10 +267,10 @@ pub enum LookupError {
 }
 
 /// A handle to a BMC connection, which will shut down when dropped.
-pub struct Handle {
-    pub to_bmc_msg_tx: mpsc::Sender<ToBmcMessage>,
-    pub shutdown_tx: oneshot::Sender<()>,
-    pub join_handle: JoinHandle<Result<(), SpawnError>>,
+pub(super) struct Handle {
+    pub(super) to_bmc_msg_tx: mpsc::Sender<ToBmcMessage>,
+    pub(super) shutdown_tx: oneshot::Sender<()>,
+    pub(super) join_handle: JoinHandle<Result<(), SpawnError>>,
 }
 
 impl From<ipmi::Handle> for Handle {
@@ -312,27 +312,27 @@ impl ShutdownHandle<Result<(), SpawnError>> for Handle {
 }
 
 #[derive(Debug, Clone)]
-pub enum ConnectionDetails {
+pub(super) enum ConnectionDetails {
     Ssh(Arc<ssh::ConnectionDetails>),
     Ipmi(Arc<ipmi::ConnectionDetails>),
 }
 
 impl ConnectionDetails {
-    pub fn addr(&self) -> SocketAddr {
+    pub(super) fn addr(&self) -> SocketAddr {
         match self {
             ConnectionDetails::Ssh(s) => s.addr,
             ConnectionDetails::Ipmi(i) => i.addr,
         }
     }
 
-    pub fn machine_id(&self) -> MachineId {
+    pub(super) fn machine_id(&self) -> MachineId {
         match self {
             ConnectionDetails::Ssh(s) => s.machine_id,
             ConnectionDetails::Ipmi(i) => i.machine_id,
         }
     }
 
-    pub fn kind(&self) -> Kind {
+    pub(super) fn kind(&self) -> Kind {
         match self {
             ConnectionDetails::Ssh(_) => Kind::Ssh,
             ConnectionDetails::Ipmi(_) => Kind::Ipmi,
@@ -341,7 +341,7 @@ impl ConnectionDetails {
 }
 
 #[derive(Copy, Clone)]
-pub enum Kind {
+pub(crate) enum Kind {
     Ssh,
     Ipmi,
 }
@@ -349,7 +349,7 @@ pub enum Kind {
 /// Represents the state of a connection to a BMC
 #[repr(u8)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum State {
+pub(super) enum State {
     Disconnected = 0,
     Connecting = 1,
     Connected = 2,
@@ -379,21 +379,21 @@ impl TryFrom<u8> for State {
 /// Wrapper for an AtomicU8 representing a [`State`], so that the state can be shared
 /// between threads.
 #[derive(Debug)]
-pub struct AtomicConnectionState(AtomicU8);
+pub(super) struct AtomicConnectionState(AtomicU8);
 
 impl AtomicConnectionState {
     #[inline]
-    pub fn new(state: State) -> Self {
+    pub(super) fn new(state: State) -> Self {
         Self(AtomicU8::new(state.into()))
     }
 
     #[inline]
-    pub fn load(&self) -> State {
+    pub(super) fn load(&self) -> State {
         State::try_from(self.0.load(Ordering::SeqCst)).expect("BUG: connection state corrupted")
     }
 
     #[inline]
-    pub fn store(&self, state: State) {
+    pub(super) fn store(&self, state: State) {
         self.0.store(state.into(), Ordering::SeqCst);
     }
 }

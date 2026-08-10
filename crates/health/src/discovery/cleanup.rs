@@ -17,13 +17,19 @@
 
 use std::borrow::Cow;
 use std::collections::HashSet;
+use std::sync::Arc;
+
+use futures::future::join_all;
 
 use super::context::{CollectorKind, DiscoveryLoopContext};
+use crate::collectors::Collector;
+use crate::endpoint::BmcEndpoint;
 
 #[derive(Clone, Copy)]
 enum CollectorStopReason {
     EndpointRemoved,
     SwitchEndpointNoLongerEligible,
+    SwitchDomainChanged,
 }
 
 impl std::fmt::Display for CollectorStopReason {
@@ -31,17 +37,82 @@ impl std::fmt::Display for CollectorStopReason {
         f.write_str(match self {
             Self::EndpointRemoved => "endpoint removed",
             Self::SwitchEndpointNoLongerEligible => "switch endpoint is no longer eligible",
+            Self::SwitchDomainChanged => "switch NVLink domain changed",
         })
     }
 }
 
-fn stop_collectors_for_keys(
+/// Restarts switch collectors when discovery reports a different NVLink domain.
+///
+/// Collectors retain the endpoint metadata captured at startup. Because the
+/// endpoint key does not change with the domain UUID, removed-endpoint cleanup
+/// cannot refresh that metadata. This function removes affected collectors and
+/// waits for their shutdown before discovery respawns them.
+pub(super) async fn stop_stale_switch_collectors(
+    ctx: &mut DiscoveryLoopContext,
+    endpoints: &[Arc<BmcEndpoint>],
+) {
+    // Keep one domain observation per collector key. The active set also
+    // identifies which saved observations remain valid after this pass.
+    let mut active_switch_endpoints = HashSet::with_capacity(endpoints.len());
+    let mut changed_endpoints = HashSet::new();
+
+    for endpoint in endpoints {
+        let Some(switch) = endpoint.switch_data() else {
+            continue;
+        };
+
+        let key = Cow::Owned(endpoint.key());
+
+        // Collector spawning uses the first endpoint for a key. Apply the same
+        // precedence here so a later source cannot create a false domain change
+        // for the collector that was spawned from the first endpoint.
+        if active_switch_endpoints.contains(&key) {
+            continue;
+        }
+
+        if ctx
+            .collectors
+            .observe_switch_domain(&key, switch.nvlink_domain_uuid)
+        {
+            changed_endpoints.insert(key.clone());
+        }
+
+        active_switch_endpoints.insert(key);
+    }
+
+    // Forget observations for switches absent from this discovery pass. If a
+    // switch returns later, its current domain establishes a fresh baseline.
+    ctx.collectors
+        .retain_switch_domains(&active_switch_endpoints);
+
+    // Remove every collector kind before awaiting shutdown. Same-pass spawning
+    // can then create replacements with the updated endpoint metadata.
+    let stale_collectors = CollectorKind::ALL
+        .into_iter()
+        .flat_map(|kind| {
+            take_collectors_for_keys(
+                ctx,
+                kind,
+                &changed_endpoints,
+                CollectorStopReason::SwitchDomainChanged,
+            )
+        })
+        .collect::<Vec<_>>();
+
+    // CollectorRemoved unregisters the old Prometheus label set. Wait for that
+    // cleanup before replacement collectors register the new domain UUID.
+    join_all(stale_collectors.into_iter().map(Collector::stop)).await;
+}
+
+fn take_collectors_for_keys(
     ctx: &mut DiscoveryLoopContext,
     kind: CollectorKind,
     removed_keys: &HashSet<Cow<'static, str>>,
     stop_reason: CollectorStopReason,
-) {
+) -> Vec<Collector> {
     let collectors = ctx.collectors.map_mut(kind);
+    let mut removed = Vec::new();
     for key in removed_keys {
         if let Some(collector) = collectors.remove(key) {
             tracing::info!(
@@ -51,10 +122,22 @@ fn stop_collectors_for_keys(
                 remaining_collector_count = collectors.len(),
                 "Stopping collector"
             );
-            tokio::spawn(async move {
-                collector.stop().await;
-            });
+            removed.push(collector);
         }
+    }
+    removed
+}
+
+fn stop_collectors_for_keys(
+    ctx: &mut DiscoveryLoopContext,
+    kind: CollectorKind,
+    removed_keys: &HashSet<Cow<'static, str>>,
+    stop_reason: CollectorStopReason,
+) {
+    for collector in take_collectors_for_keys(ctx, kind, removed_keys, stop_reason) {
+        tokio::spawn(async move {
+            collector.stop().await;
+        });
     }
 }
 
@@ -134,6 +217,8 @@ mod tests {
     use super::*;
     use crate::collectors::Collector;
     use crate::config::Config;
+    use crate::endpoint::test_support::{mac, test_endpoint};
+    use crate::endpoint::{EndpointMetadata, SwitchData, SwitchEndpointRole};
     use crate::limiter::{NoopLimiter, RateLimiter};
     use crate::metrics::MetricsManager;
 
@@ -219,5 +304,95 @@ mod tests {
             ctx.collectors
                 .contains(CollectorKind::Nmxt, "ineligible-switch")
         );
+    }
+
+    #[tokio::test]
+    async fn switch_domain_change_restarts_collectors_for_same_endpoint_key() {
+        let mut ctx = context("switch_domain_change_restarts_collectors");
+        let mut endpoint = test_endpoint(mac("00:11:22:33:44:55"));
+        endpoint.metadata = Some(EndpointMetadata::Switch(SwitchData {
+            id: None,
+            serial: "switch-1".to_string(),
+            slot_number: None,
+            tray_index: None,
+            nvlink_domain_uuid: None,
+            endpoint_role: SwitchEndpointRole::Host,
+            is_primary: true,
+            nmxc_enabled: true,
+            nmxt_enabled: true,
+        }));
+        let key = endpoint.key();
+        let mut endpoint = Arc::new(endpoint);
+
+        ctx.collectors.insert(
+            CollectorKind::NvueRest,
+            Cow::Owned(key.clone()),
+            noop_collector(),
+        );
+        stop_stale_switch_collectors(&mut ctx, std::slice::from_ref(&endpoint)).await;
+        assert!(ctx.collectors.contains(CollectorKind::NvueRest, &key));
+
+        let expected_domain = carbide_uuid::nvlink::NvLinkDomainId::new();
+        let Some(EndpointMetadata::Switch(switch)) = Arc::make_mut(&mut endpoint).metadata.as_mut()
+        else {
+            panic!("test endpoint should contain switch metadata");
+        };
+        switch.nvlink_domain_uuid = Some(expected_domain);
+
+        stop_stale_switch_collectors(&mut ctx, std::slice::from_ref(&endpoint)).await;
+
+        assert!(!ctx.collectors.contains(CollectorKind::NvueRest, &key));
+
+        let updated_context = crate::sink::EventContext::from_endpoint(&endpoint, "nvue_rest");
+        assert_eq!(updated_context.nvlink_domain_uuid(), Some(expected_domain));
+
+        ctx.collectors.insert(
+            CollectorKind::NvueRest,
+            Cow::Owned(key.clone()),
+            noop_collector(),
+        );
+        stop_stale_switch_collectors(&mut ctx, &[endpoint]).await;
+        assert!(ctx.collectors.contains(CollectorKind::NvueRest, &key));
+    }
+
+    #[tokio::test]
+    async fn duplicate_switch_domains_use_first_source_without_restarts() {
+        let mut ctx = context("duplicate_switch_domains_use_first_source");
+        let mut first = test_endpoint(mac("00:11:22:33:44:55"));
+
+        first.metadata = Some(EndpointMetadata::Switch(SwitchData {
+            id: None,
+            serial: "switch-1".to_string(),
+            slot_number: None,
+            tray_index: None,
+            nvlink_domain_uuid: None,
+            endpoint_role: SwitchEndpointRole::Host,
+            is_primary: true,
+            nmxc_enabled: true,
+            nmxt_enabled: true,
+        }));
+
+        let key = first.key();
+        let first = Arc::new(first);
+        let mut duplicate = first.as_ref().clone();
+
+        let Some(EndpointMetadata::Switch(switch)) = duplicate.metadata.as_mut() else {
+            panic!("test endpoint should contain switch metadata");
+        };
+
+        switch.nvlink_domain_uuid = Some(carbide_uuid::nvlink::NvLinkDomainId::new());
+
+        let endpoints = [first, Arc::new(duplicate)];
+        stop_stale_switch_collectors(&mut ctx, &endpoints).await;
+
+        ctx.collectors.insert(
+            CollectorKind::NvueRest,
+            Cow::Owned(key.clone()),
+            noop_collector(),
+        );
+
+        stop_stale_switch_collectors(&mut ctx, &endpoints).await;
+
+        assert!(ctx.collectors.contains(CollectorKind::NvueRest, &key));
     }
 }

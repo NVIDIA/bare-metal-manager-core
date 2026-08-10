@@ -393,18 +393,53 @@ pub async fn set(
     machine_id: &MachineId,
     target: &MachineBootInterfaceTarget,
 ) -> Result<Versioned<MachineBootInterfaceTarget>, DatabaseError> {
+    set_with_mode(txn, machine_id, target, SetMode::IfChanged).await
+}
+
+/// `force_set` stores an operator-selected target as a new pending generation,
+/// even when the value is unchanged.
+///
+/// A same-MAC MAC-only request keeps an existing complete pair, so forcing
+/// convergence cannot discard the Redfish id we already learned.
+pub async fn force_set(
+    txn: &mut PgConnection,
+    machine_id: &MachineId,
+    target: &MachineBootInterfaceTarget,
+) -> Result<Versioned<MachineBootInterfaceTarget>, DatabaseError> {
+    set_with_mode(txn, machine_id, target, SetMode::Force).await
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum SetMode {
+    IfChanged,
+    Force,
+}
+
+/// Serializes the desired-target write and applies the caller's generation
+/// policy without weakening a complete interface pair.
+async fn set_with_mode(
+    txn: &mut PgConnection,
+    machine_id: &MachineId,
+    target: &MachineBootInterfaceTarget,
+    mode: SetMode,
+) -> Result<Versioned<MachineBootInterfaceTarget>, DatabaseError> {
     validate_machine_id(machine_id)?;
     validate_target(target)?;
 
     let row = load_for_update(txn, machine_id).await?;
     let current_machine_version = row.machine_version;
     let current = row.decode(machine_id)?;
-    if let Some(current) = current.as_ref()
+    if mode == SetMode::IfChanged
+        && let Some(current) = current.as_ref()
         && request_is_satisfied(&current.value, target)
     {
         return Ok(current.clone());
     }
 
+    let target = current
+        .as_ref()
+        .filter(|current| request_is_satisfied(&current.value, target))
+        .map_or(target, |current| &current.value);
     let expected_version = current.as_ref().map(|current| current.version);
     let Some(version) = update(
         txn,
@@ -536,6 +571,71 @@ pub async fn enrich_interface_id(
     Ok(Some(Versioned {
         value: target,
         version,
+    }))
+}
+
+/// Tries to reopen an inspected target as a new pending generation after
+/// Redfish drift.
+///
+/// The parent-machine lock and exact desired-generation check make this an
+/// observation result, not a blind `force_set`: newer operator intent wins.
+/// The verified-version check also makes replay a no-op once a generation is
+/// already pending. `None` means either condition changed before this result
+/// could be persisted.
+pub async fn try_reopen_after_observed_drift(
+    txn: &mut PgConnection,
+    machine_id: &MachineId,
+    inspected_boot_interface: &Versioned<MachineBootInterfaceTarget>,
+) -> Result<Option<Versioned<MachineBootInterfaceTarget>>, DatabaseError> {
+    validate_machine_id(machine_id)?;
+    validate_target(&inspected_boot_interface.value)?;
+
+    let desired_boot_interface_row = load_for_update(txn, machine_id).await?;
+    let current_machine_version = desired_boot_interface_row.machine_version;
+    let Some(current_desired_boot_interface) = desired_boot_interface_row.decode(machine_id)?
+    else {
+        return Ok(None);
+    };
+    if current_desired_boot_interface.version != inspected_boot_interface.version
+        || current_desired_boot_interface.value != inspected_boot_interface.value
+    {
+        return Ok(None);
+    }
+
+    // Read and lock the child status only after `load_for_update` has acquired
+    // the parent-machine lock. Every desired/status writer uses this same
+    // parent-first order, so this is both a fresh status read and deadlock-safe.
+    let verified_version_query = r#"
+        SELECT verified_version
+        FROM machine_boot_interfaces
+        WHERE machine_id = $1
+        FOR UPDATE
+    "#;
+    let verified_version: Option<ConfigVersion> = sqlx::query_scalar(verified_version_query)
+        .bind(machine_id)
+        .fetch_one(&mut *txn)
+        .await
+        .map_err(|error| DatabaseError::query(verified_version_query, error))?;
+    if verified_version != Some(current_desired_boot_interface.version) {
+        return Ok(None);
+    }
+
+    let Some(reopened_version) = update(
+        txn,
+        machine_id,
+        current_machine_version,
+        Some(current_desired_boot_interface.version),
+        &current_desired_boot_interface.value,
+        VerificationPolicy::Pending,
+    )
+    .await?
+    else {
+        return Ok(None);
+    };
+
+    Ok(Some(Versioned {
+        value: current_desired_boot_interface.value,
+        version: reopened_version,
     }))
 }
 
@@ -814,6 +914,113 @@ mod tests {
         Ok(())
     }
 
+    /// A drift result for an old generation cannot overwrite newer operator intent.
+    #[crate::sqlx_test]
+    async fn observation_results_reject_a_newer_desired_generation(
+        pool: PgPool,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let mut txn = pool.begin().await?;
+        let machine_id = machine_id(MachineType::Host, 44);
+        seed_machine(txn.as_mut(), &machine_id).await?;
+        let inspected_target = MachineBootInterfaceTarget::Pair(MachineBootInterface {
+            mac_address: MacAddress::new([2, 0, 0, 0, 4, 4]),
+            interface_id: "NIC.Slot.4-1-1".to_string(),
+        });
+        let inspected_desired = set(txn.as_mut(), &machine_id, &inspected_target).await?;
+        let observed_at =
+            DateTime::from_timestamp(1_722_000_300, 123_000_000).expect("fixture timestamp");
+        assert!(
+            mark_verified(
+                txn.as_mut(),
+                &machine_id,
+                inspected_desired.version,
+                observed_at,
+            )
+            .await?
+        );
+
+        let operator_target =
+            MachineBootInterfaceTarget::MacOnly(MacAddress::new([2, 0, 0, 0, 4, 5]));
+        let operator_desired = set(txn.as_mut(), &machine_id, &operator_target).await?;
+        assert!(
+            try_reopen_after_observed_drift(txn.as_mut(), &machine_id, &inspected_desired)
+                .await?
+                .is_none()
+        );
+        let persisted_desired = get(txn.as_mut(), &machine_id)
+            .await?
+            .expect("operator-selected target");
+        assert_target(&persisted_desired, &operator_desired.value);
+        assert_eq!(persisted_desired.version, operator_desired.version);
+        assert_eq!(
+            status_observation(txn.as_mut(), &machine_id).await?,
+            (Some(inspected_desired.version), Some(observed_at), false,),
+        );
+
+        Ok(())
+    }
+
+    /// Exact Pair drift opens one pending generation for the same target.
+    #[crate::sqlx_test]
+    async fn observation_drift_reopens_the_exact_pair_once(
+        pool: PgPool,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let mut txn = pool.begin().await?;
+        let machine_id = machine_id(MachineType::Host, 45);
+        let initial_machine_version = seed_machine(txn.as_mut(), &machine_id).await?;
+        let inspected_target = MachineBootInterfaceTarget::Pair(MachineBootInterface {
+            mac_address: MacAddress::new([2, 0, 0, 0, 4, 6]),
+            interface_id: "NIC.Slot.4-1-2".to_string(),
+        });
+        let inspected_desired = set(txn.as_mut(), &machine_id, &inspected_target).await?;
+        let observed_at =
+            DateTime::from_timestamp(1_722_000_400, 123_000_000).expect("fixture timestamp");
+        assert!(
+            mark_verified(
+                txn.as_mut(),
+                &machine_id,
+                inspected_desired.version,
+                observed_at,
+            )
+            .await?
+        );
+
+        let pending_desired =
+            try_reopen_after_observed_drift(txn.as_mut(), &machine_id, &inspected_desired)
+                .await?
+                .expect("fresh pending generation");
+        assert_target(&pending_desired, &inspected_target);
+        assert_eq!(
+            pending_desired.version.version_nr(),
+            inspected_desired.version.version_nr() + 1
+        );
+        assert_eq!(
+            status_observation(txn.as_mut(), &machine_id).await?,
+            (Some(inspected_desired.version), Some(observed_at), false,),
+            "drift keeps the last factual observation while the new generation is pending",
+        );
+        let (machine_version_after_reopen, desired_version_after_reopen) =
+            versions(txn.as_mut(), &machine_id).await?;
+        assert_eq!(
+            machine_version_after_reopen.version_nr(),
+            initial_machine_version.version_nr() + 2,
+        );
+        assert_eq!(desired_version_after_reopen, Some(pending_desired.version));
+
+        assert!(
+            try_reopen_after_observed_drift(txn.as_mut(), &machine_id, &pending_desired)
+                .await?
+                .is_none(),
+            "an already-pending generation must not be reopened",
+        );
+        assert_eq!(
+            versions(txn.as_mut(), &machine_id).await?,
+            (machine_version_after_reopen, desired_version_after_reopen),
+        );
+
+        Ok(())
+    }
+
     #[crate::sqlx_test]
     #[allow(txn_held_across_await)] // Intentionally hold a row lock while exercising concurrency.
     async fn concurrent_set_and_mark_verified_use_parent_first_lock_order(
@@ -1047,6 +1254,48 @@ mod tests {
         .await?;
         assert_target(&unchanged, &pair);
         assert_eq!(unchanged.version, paired.version);
+
+        Ok(())
+    }
+
+    #[crate::sqlx_test]
+    async fn force_set_creates_a_pending_generation_without_weakening_pairs(
+        pool: PgPool,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let mut txn = pool.begin().await?;
+        let machine_id = machine_id(MachineType::Host, 37);
+        seed_machine(txn.as_mut(), &machine_id).await?;
+        let mac_address = MacAddress::new([2, 0, 0, 0, 3, 10]);
+        let pair = MachineBootInterfaceTarget::Pair(MachineBootInterface {
+            mac_address,
+            interface_id: "NIC.Slot.10-1-1".to_string(),
+        });
+        let paired = set(txn.as_mut(), &machine_id, &pair).await?;
+        let observed_at =
+            DateTime::from_timestamp(1_722_000_200, 123_000_000).expect("fixture timestamp");
+        assert!(mark_verified(txn.as_mut(), &machine_id, paired.version, observed_at).await?);
+        let versions_before = versions(txn.as_mut(), &machine_id).await?;
+
+        let forced = force_set(
+            txn.as_mut(),
+            &machine_id,
+            &MachineBootInterfaceTarget::MacOnly(mac_address),
+        )
+        .await?;
+        assert_target(&forced, &pair);
+        assert_eq!(forced.version.version_nr(), paired.version.version_nr() + 1);
+        assert_eq!(
+            status_observation(txn.as_mut(), &machine_id).await?,
+            (Some(paired.version), Some(observed_at), false),
+            "the fresh generation must remain pending",
+        );
+
+        let versions_after = versions(txn.as_mut(), &machine_id).await?;
+        assert_eq!(
+            versions_after.0.version_nr(),
+            versions_before.0.version_nr() + 1
+        );
+        assert_eq!(versions_after.1, Some(forced.version));
 
         Ok(())
     }

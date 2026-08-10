@@ -24,7 +24,7 @@ use bmc_explorer::ErrorClass;
 use bmc_mock::test_support::TestBmc;
 use bmc_mock::test_support::axum_http_client::Error as TestBmcError;
 
-pub fn error_classifier(err: &<TestBmc as nv_redfish::Bmc>::Error) -> Option<ErrorClass> {
+pub(crate) fn error_classifier(err: &<TestBmc as nv_redfish::Bmc>::Error) -> Option<ErrorClass> {
     match err {
         TestBmcError::InvalidResponse { status, .. } => match *status {
             StatusCode::NOT_FOUND => Some(ErrorClass::NotFound),
@@ -35,7 +35,7 @@ pub fn error_classifier(err: &<TestBmc as nv_redfish::Bmc>::Error) -> Option<Err
     }
 }
 
-pub fn explorer_config() -> bmc_explorer::Config<'static, TestBmc> {
+pub(crate) fn explorer_config() -> bmc_explorer::Config<'static, TestBmc> {
     bmc_explorer::Config {
         boot_interface_mac: None,
         error_classifier: &error_classifier,

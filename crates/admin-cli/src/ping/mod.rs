@@ -15,8 +15,8 @@
  * limitations under the License.
  */
 
-pub mod args;
-pub mod cmd;
+mod args;
+mod cmd;
 
 #[cfg(test)]
 mod tests;
@@ -25,7 +25,7 @@ mod tests;
 // This is different than others that pull in Cmd, since
 // this is just a single top-level command without any
 // subcommands.
-pub use args::Opts;
+pub(crate) use args::Opts;
 
 use crate::cfg::dispatch::dispatch_via_run;
 use crate::cfg::run::Run;

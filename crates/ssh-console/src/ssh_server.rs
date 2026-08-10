@@ -35,7 +35,7 @@ use crate::frontend::{Handler, HandlerError};
 use crate::shutdown_handle::ShutdownHandle;
 use crate::tcp_listener;
 
-pub async fn spawn(
+pub(crate) async fn spawn(
     config: Arc<Config>,
     forge_api_client: ForgeApiClient,
     bmc_connection_store: BmcConnectionStore,
@@ -90,6 +90,7 @@ pub async fn spawn(
 }
 
 #[derive(thiserror::Error, Debug)]
+// Kept public because `crate::SpawnError` exposes it as a payload.
 pub enum SpawnError {
     #[error("error reading host key file at {path}: {error}")]
     ReadingHostKeyFile {
@@ -103,14 +104,14 @@ pub enum SpawnError {
     },
 }
 
-pub struct Handle {
+pub(crate) struct Handle {
     listen_address: SocketAddr,
     shutdown_tx: oneshot::Sender<()>,
     join_handle: JoinHandle<()>,
 }
 
 impl Handle {
-    pub fn listen_address(&self) -> SocketAddr {
+    pub(crate) fn listen_address(&self) -> SocketAddr {
         self.listen_address
     }
 }
@@ -132,7 +133,7 @@ struct SshServer {
 impl SshServer {
     /// Run an instance of ssh-console on the given socket, looping forever until `shutdown` is
     /// received (or if the sending end of `shutdown` is dropped.)
-    pub async fn run(mut self, socket: TcpListener, mut shutdown: oneshot::Receiver<()>) {
+    async fn run(mut self, socket: TcpListener, mut shutdown: oneshot::Receiver<()>) {
         loop {
             tokio::select! {
                 accept_result = socket.accept() => {
@@ -203,14 +204,14 @@ impl SshServer {
     }
 }
 
-pub struct ServerMetrics {
-    pub total_clients: UpDownCounter<i64>,
-    pub client_auth_failures_total: Counter<u64>,
+pub(crate) struct ServerMetrics {
+    pub(crate) total_clients: UpDownCounter<i64>,
+    pub(crate) client_auth_failures_total: Counter<u64>,
     _auth_enforced: ObservableGauge<u64>,
     _include_dpus: ObservableGauge<u64>,
 
     // per-BMC stats
-    pub bmc_clients: UpDownCounter<i64>,
+    pub(crate) bmc_clients: UpDownCounter<i64>,
 }
 
 impl ServerMetrics {

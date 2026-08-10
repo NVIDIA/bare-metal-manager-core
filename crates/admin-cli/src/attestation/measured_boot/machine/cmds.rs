@@ -72,7 +72,7 @@ impl Run for List {
 
 /// attest sends attestation data for the given machine ID, as in, PCR
 /// register + value pairings, which results in a journal entry being made.
-pub async fn attest(grpc_conn: &ApiClient, attest: Attest) -> CarbideCliResult<MeasurementReport> {
+async fn attest(grpc_conn: &ApiClient, attest: Attest) -> CarbideCliResult<MeasurementReport> {
     let response = grpc_conn.0.attest_candidate_machine(attest).await?;
 
     MeasurementReport::from_grpc_opt(response.report)
@@ -80,7 +80,7 @@ pub async fn attest(grpc_conn: &ApiClient, attest: Attest) -> CarbideCliResult<M
 }
 
 /// show_by_id shows all info about a given machine ID.
-pub async fn show_by_id(grpc_conn: &ApiClient, show: Show) -> CarbideCliResult<CandidateMachine> {
+async fn show_by_id(grpc_conn: &ApiClient, show: Show) -> CarbideCliResult<CandidateMachine> {
     let response = grpc_conn
         .0
         .show_candidate_machine(ShowCandidateMachineRequest::try_from(show)?)
@@ -91,10 +91,7 @@ pub async fn show_by_id(grpc_conn: &ApiClient, show: Show) -> CarbideCliResult<C
 }
 
 /// show_all shows all info about all machines.
-pub async fn show_all(
-    grpc_conn: &ApiClient,
-    _show: Show,
-) -> CarbideCliResult<CandidateMachineList> {
+async fn show_all(grpc_conn: &ApiClient, _show: Show) -> CarbideCliResult<CandidateMachineList> {
     Ok(CandidateMachineList(
         grpc_conn
             .0
@@ -111,7 +108,7 @@ pub async fn show_all(
 }
 
 /// list lists all machine IDs.
-pub async fn list(grpc_conn: &ApiClient) -> CarbideCliResult<CandidateMachineSummaryList> {
+async fn list(grpc_conn: &ApiClient) -> CarbideCliResult<CandidateMachineSummaryList> {
     Ok(CandidateMachineSummaryList(
         grpc_conn
             .0
@@ -131,7 +128,7 @@ pub async fn list(grpc_conn: &ApiClient) -> CarbideCliResult<CandidateMachineSum
 /// for a Vec<CandidateMachineSummary> so the ToTable trait can
 /// be leveraged (since we don't define Vec).
 #[derive(Serialize)]
-pub struct CandidateMachineSummaryList(Vec<CandidateMachineSummary>);
+struct CandidateMachineSummaryList(Vec<CandidateMachineSummary>);
 
 impl ToTable for CandidateMachineSummaryList {
     fn into_table(self) -> eyre::Result<String> {
@@ -148,7 +145,7 @@ impl ToTable for CandidateMachineSummaryList {
 /// pattern for a Vec<CandidateMachine> so the ToTable
 /// trait can be leveraged (since we don't define Vec).
 #[derive(Serialize)]
-pub struct CandidateMachineList(Vec<CandidateMachine>);
+struct CandidateMachineList(Vec<CandidateMachine>);
 
 impl ToTable for CandidateMachineList {
     fn into_table(self) -> eyre::Result<String> {

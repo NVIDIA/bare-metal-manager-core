@@ -44,6 +44,7 @@ async fn test_machine_state_history(pool: sqlx::PgPool) -> Result<(), Box<dyn st
         {"state": "dpuinit", "dpu_states": {"states": {&dpu_machine_id_string: {"dpustate": "installdpuos", "substate": {"installdpuosstate": "waitforinstallcomplete", "progress": "0", "task_id": "0"}}}}},
         {"state": "dpuinit", "dpu_states": {"states": {&dpu_machine_id_string: {"dpustate": "init"}}}},
         {"state": "dpuinit", "dpu_states": {"states": {&dpu_machine_id_string: {"dpustate": "waitingforplatformpowercycle", "substate": {"state": "off"}}}}},
+        {"state": "dpuinit", "dpu_states": {"states": {&dpu_machine_id_string: {"dpustate": "waitingforplatformpoweroff"}}}},
         {"state": "dpuinit", "dpu_states": {"states": {&dpu_machine_id_string: {"dpustate": "waitingforplatformpowercycle", "substate": {"state": "on"}}}}},
         {"state": "dpuinit", "dpu_states": {"states": {&dpu_machine_id_string: {"dpustate": "waitingforplatformconfiguration"}}}},
         {"state": "dpuinit", "dpu_states": {"states": {&dpu_machine_id_string: {"dpustate": "pollingbiossetup"}}}},

@@ -76,7 +76,7 @@ use crate::{
 // instance metadata information and stores it. The main loop and the instance
 // metadata service use the information fetched be the periodic fetcher by reading
 // the information stored by the periodic config fetcher.
-pub async fn setup_and_run(
+pub(super) async fn setup_and_run(
     machine_id: MachineId,
     factory_mac_address: MacAddress,
     forge_client_config: Arc<ForgeClientConfig>,
@@ -501,10 +501,7 @@ struct CurrentNetworkVersion {
 
 impl CurrentNetworkVersion {
     // Return whether our stored version matches the specific config.
-    pub fn matches_versions_from(
-        &self,
-        conf: impl AsRef<ManagedHostNetworkConfigResponse>,
-    ) -> bool {
+    fn matches_versions_from(&self, conf: impl AsRef<ManagedHostNetworkConfigResponse>) -> bool {
         let conf = conf.as_ref();
         let managed_host_config_version = get_non_empty_str(&conf.managed_host_config_version);
         let instance_network_config_version =
@@ -529,7 +526,7 @@ impl CurrentNetworkVersion {
         }
     }
 
-    pub fn update_from(&mut self, conf: impl AsRef<ManagedHostNetworkConfigResponse>) {
+    fn update_from(&mut self, conf: impl AsRef<ManagedHostNetworkConfigResponse>) {
         let conf = conf.as_ref();
         self.managed_host_config_version =
             get_non_empty_str(&conf.managed_host_config_version).map(String::from);
@@ -579,7 +576,8 @@ impl CurrentNetworkVersion {
                 // behavior from the versioning.
             });
 
-        if let Some(routing_profile) = &conf.routing_profile {
+        let hash_routing_profile = |routing_profile: &rpc::RoutingProfile,
+                                    h: &mut DefaultHasher| {
             routing_profile.accepted_leaks_from_underlay.hash(h);
             routing_profile.allowed_anycast_prefixes.hash(h);
             routing_profile.leak_default_route_from_underlay.hash(h);
@@ -587,21 +585,25 @@ impl CurrentNetworkVersion {
             routing_profile.route_target_imports.hash(h);
             routing_profile.route_targets_on_exports.hash(h);
             routing_profile.tenant_leak_communities_accepted.hash(h);
+        };
+
+        if let Some(routing_profile) = &conf.routing_profile {
+            hash_routing_profile(routing_profile, h);
         }
 
-        if let Some(traffic_intercept_config) = &conf.traffic_intercept_config {
-            traffic_intercept_config.additional_overlay_vtep_ip.hash(h);
-            traffic_intercept_config.public_prefixes.hash(h);
-            traffic_intercept_config
-                .secondary_vtep_aggregate_prefixes
-                .hash(h);
-            if let Some(bridging) = &traffic_intercept_config.bridging {
-                bridging.hbn_bridge.hash(h);
-                bridging.host_representor_intercept_bridging.hash(h);
-                bridging.internal_bridge_routing_prefix.hash(h);
-                bridging.vf_intercept_bridge_name.hash(h);
-                bridging.vf_intercept_bridge_port.hash(h);
-                bridging.vf_intercept_bridge_sf.hash(h);
+        // Parent VPC profile changes do not increment either version supplied
+        // to the agent, so hash every interface's resolved profile explicitly.
+        // TODO: Consider replacing this fallback hash with explicit invalidation
+        // by incrementing every affected instance's network-config or config
+        // version, or by introducing a dedicated dependency version. Fan-out
+        // updates could contend at scale, and changing an instance version is
+        // misleading when only its parent VPC policy changed.
+        conf.tenant_interfaces.len().hash(h);
+        for interface in &conf.tenant_interfaces {
+            interface.internal_uuid.hash(h);
+            interface.vpc_routing_profile.is_some().hash(h);
+            if let Some(routing_profile) = &interface.vpc_routing_profile {
+                hash_routing_profile(routing_profile, h);
             }
         }
 
@@ -737,11 +739,10 @@ impl MainLoop {
                 .await
                 .wrap_err("restarting OVS after admin network change")
             {
-                OvsRestart::Retrying {
+                carbide_instrument::emit(OvsRestart::Retrying {
                     error: format!("{err:#}"),
                     managed_host_config_version: conf.managed_host_config_version.clone(),
-                }
-                .emit();
+                });
                 status_out.network_config_error = Some(err.to_string());
                 self.ovs_restart_retry_backoff = Some(OvsRestartRetryBackoff {
                     managed_host_config_version: conf.managed_host_config_version.clone(),
@@ -824,6 +825,7 @@ impl MainLoop {
                     .collect();
 
                 let tenant_peers = ethernet_virtualization::tenant_peers(&conf);
+                let mut should_check_ipv6_unicast = false;
                 if self.is_hbn_up {
                     // First thing is to read the existing HBN version and properly set the hbn device names
                     // associated with that version.
@@ -876,10 +878,12 @@ impl MainLoop {
                     }
 
                     tracing::trace!(network_config = ?conf, "Desired network config");
-                    // Get the actual virtualization type to use for configuring
-                    // an interface, where we'll default to reading the one provided
-                    // by the Carbide API, with the ability to override via RunOptions.
+                    // Resolve the virtualization type used to generate HBN
+                    // configuration, including any RunOptions override. The IPv6
+                    // health gate follows that same effective value.
                     let virtualization_type = effective_virtualization_type(&conf, &self.options)?;
+                    should_check_ipv6_unicast =
+                        ipv6_unicast_health_enabled(&conf, virtualization_type);
 
                     let dhcp_result = ethernet_virtualization::update_dhcp(
                         &self.agent_config.hbn.root_dir,
@@ -903,8 +907,6 @@ impl MainLoop {
                         if self.options.agent_platform_type.is_dpu_os()
                             && hbn_version >= self.fmds_minimum_hbn_version
                         {
-                            // Generate the fmds interface plan from the config. This does not apply the plan.
-                            // The plan is applied when the NVUE template is written
                             let fmds_proposed_interfaces = &self.agent_config.fmds_armos_networking;
                             let network_plan = DpuNetworkInterfaces::new(fmds_proposed_interfaces);
 
@@ -912,8 +914,13 @@ impl MainLoop {
                                 Interface::plan(self.hbn_device_names.sfs[0], network_plan).await?;
                             tracing::trace!(interface_plan = ?fmds_interface_plan, "Interface plan");
 
-                            // Generate the fmds route plan from conf.tenant_interfaces[n].address
-                            // the plan is applied when the nvue template is written
+                            Interface::apply(fmds_interface_plan).await?;
+
+                            // plan_fmds_armos_routing reads the interface's current IPv4 address
+                            // for prefsrc and returns Ok(None) when no address is present, skipping
+                            // route installation entirely. The config-version cache can prevent a
+                            // retry on the next tick, so the interface address must be applied
+                            // before the route plan is computed.
                             let route_plan = plan_fmds_armos_routing(
                                 self.hbn_device_names.sfs[0],
                                 &proposed_routes,
@@ -921,62 +928,25 @@ impl MainLoop {
                             .await?;
                             tracing::trace!(route_plan = ?route_plan, "Route plan");
 
-                            // Apply the interface plan. This is where we actually configure
-                            // the FMDS phone home interface on the DPU.
-                            Interface::apply(fmds_interface_plan).await?;
-
-                            // If there are routes, apply the route plan. This is where we
-                            // actually add and remove FMDS phone home routes.
-                            //
-                            // When a DPU has recently booted, there may not be a pf0dpu1
-                            // interface configured yet, so routes may not be applied on the
-                            // first tick of the loop. Once the interface is configured, routes
-                            // can be added and removed.
-
-                            // This means that routes will be added last and might take a few seconds
-                            // to appear
                             if let Some(route_plan) = route_plan {
                                 Route::apply(route_plan).await?;
                             }
                         }
 
-                        // We'll update some internal bridging config if bridging config
-                        // for traffic_intercept was sent in.
-                        let bridging_result = if self.options.agent_platform_type.is_dpu_os()
-                            && conf
-                                .traffic_intercept_config
-                                .as_ref()
-                                .map(|vc| vc.bridging.is_some())
-                                .unwrap_or_default()
-                        {
-                            ethernet_virtualization::update_traffic_intercept_bridging(
-                                &conf,
-                                self.hbn_device_names.clone(),
-                                self.agent_config.hbn.skip_reload,
-                            )
-                            .await
-                        } else {
-                            Ok(false) // No errors and no change.
+                        let update_flavor = match self.nvue_context.as_mut() {
+                            Some(nvue_context) => NvueUpdateFlavor::RestApi { nvue_context },
+                            None => NvueUpdateFlavor::StartupFile {
+                                hbn_root: &self.agent_config.hbn.root_dir,
+                                skip_post: self.agent_config.hbn.skip_reload,
+                            },
                         };
-
-                        if bridging_result.is_ok() {
-                            let update_flavor = match self.nvue_context.as_mut() {
-                                Some(nvue_context) => NvueUpdateFlavor::RestApi { nvue_context },
-                                None => NvueUpdateFlavor::StartupFile {
-                                    hbn_root: &self.agent_config.hbn.root_dir,
-                                    skip_post: self.agent_config.hbn.skip_reload,
-                                },
-                            };
-                            ethernet_virtualization::update_nvue(
-                                virtualization_type,
-                                update_flavor,
-                                &conf,
-                                self.hbn_device_names.clone(),
-                            )
-                            .await
-                        } else {
-                            bridging_result
-                        }
+                        ethernet_virtualization::update_nvue(
+                            virtualization_type,
+                            update_flavor,
+                            &conf,
+                            self.hbn_device_names.clone(),
+                        )
+                        .await
                     };
 
                     let astra_config_status =
@@ -1086,6 +1056,7 @@ impl MainLoop {
                             has_changed_configs,
                             min_healthy_links: conf.min_dpu_functioning_links.unwrap_or(2),
                             route_servers: &conf.route_servers,
+                            should_check_ipv6_unicast,
                             hbn_device_names: self.hbn_device_names.clone(),
                             include_dhcp_server: !conf.use_admin_network || conf.is_primary_dpu,
                             run_restricted_mode_check: false,
@@ -1293,6 +1264,23 @@ impl MainLoop {
     }
 }
 
+/// Enables IPv6-unicast health only after the effective FNN configuration has
+/// the dedicated IPv6 loopback used by that underlay.
+///
+/// FNN templates activate the address family before the loopback pool is
+/// available, so FRR summary-key presence cannot serve as the activation
+/// signal.
+fn ipv6_unicast_health_enabled(
+    conf: &ManagedHostNetworkConfigResponse,
+    virtualization_type: VpcVirtualizationType,
+) -> bool {
+    virtualization_type == VpcVirtualizationType::Fnn
+        && conf
+            .managed_host_config
+            .as_ref()
+            .is_some_and(|config| config.loopback_ip_v6.is_some())
+}
+
 /// effective_virtualization_type returns the virtualization type
 /// to use for generating configuration. This defaults to whatever
 /// comes from Carbide API, with the ability to override with runtime
@@ -1432,7 +1420,7 @@ async fn plan_fmds_armos_routing(
         Ok(None)
     }
 }
-pub async fn record_network_status(
+async fn record_network_status(
     status: rpc::DpuNetworkStatus,
     forge_api: &str,
     forge_client_config: &forge_tls_client::ForgeClientConfig,
@@ -1641,6 +1629,168 @@ ATF: v2.2(release):4.9.3-")
 #[cfg(test)]
 mod test {
     use super::*;
+
+    /// Verifies the supplemental cache hash tracks every interface's parent
+    /// VPC profile and stable identity so non-first changes trigger rendering.
+    #[test]
+    fn test_current_network_version_hashes_all_vpc_routing_profiles() {
+        use carbide_test_support::value_scenarios;
+
+        /// Selects the non-first interface mutation applied after caching.
+        #[derive(Clone, Copy, Debug)]
+        enum InterfaceChange {
+            Unchanged,
+            Profile,
+            ProfilePresence,
+            Identity,
+        }
+
+        value_scenarios!(run = |change| {
+            let first_profile = rpc::RoutingProfile {
+                leak_default_route_from_underlay: true,
+                ..Default::default()
+            };
+            let second_profile = rpc::RoutingProfile::default();
+            let mut conf = Arc::new(ManagedHostNetworkConfigResponse {
+                managed_host_config_version: "managed-v1".to_string(),
+                instance_network_config_version: "instance-v1".to_string(),
+                // Preserve the compatibility field derived from the first
+                // interface so only per-interface hashing can catch changes.
+                routing_profile: Some(first_profile.clone()),
+                tenant_interfaces: vec![
+                    rpc::FlatInterfaceConfig {
+                        internal_uuid: Some(::rpc::common::Uuid {
+                            value: "first-interface".to_string(),
+                        }),
+                        vpc_routing_profile: Some(first_profile),
+                        ..Default::default()
+                    },
+                    rpc::FlatInterfaceConfig {
+                        internal_uuid: Some(::rpc::common::Uuid {
+                            value: "second-interface".to_string(),
+                        }),
+                        vpc_routing_profile: Some(second_profile),
+                        ..Default::default()
+                    },
+                ],
+                ..Default::default()
+            });
+            let mut current = CurrentNetworkVersion::default();
+            current.update_from(&conf);
+
+            // Change only the second interface while leaving both compared
+            // configuration versions and the compatibility profile untouched.
+            let second_interface = &mut Arc::get_mut(&mut conf)
+                .expect("network configuration must not be shared")
+                .tenant_interfaces[1];
+            match change {
+                InterfaceChange::Unchanged => {}
+                InterfaceChange::Profile => {
+                    second_interface
+                        .vpc_routing_profile
+                        .as_mut()
+                        .expect("second interface profile")
+                        .leak_default_route_from_underlay = true;
+                }
+                InterfaceChange::ProfilePresence => {
+                    second_interface.vpc_routing_profile = None;
+                }
+                InterfaceChange::Identity => {
+                    second_interface.internal_uuid = Some(::rpc::common::Uuid {
+                        value: "replacement-interface".to_string(),
+                    });
+                }
+            }
+
+            current.matches_versions_from(&conf)
+        };
+            "unchanged interface state" {
+                // Identical interface profiles and identities remain cached.
+                InterfaceChange::Unchanged => true,
+            }
+            "non-first interface changes" {
+                // A changed parent VPC profile must invalidate the cached render.
+                InterfaceChange::Profile => false,
+                // Profile presence is meaningful even when all present fields
+                // would otherwise have default values.
+                InterfaceChange::ProfilePresence => false,
+                // Interface identity prevents profiles from being silently
+                // reassociated with a different port.
+                InterfaceChange::Identity => false,
+            }
+        );
+    }
+
+    enum ManagedHostConfigInput {
+        Missing,
+        WithoutIpv6Loopback,
+        WithIpv6Loopback(&'static str),
+    }
+
+    struct Ipv6UnicastHealthRow {
+        virtualization_type: VpcVirtualizationType,
+        managed_host_config: ManagedHostConfigInput,
+    }
+
+    #[test]
+    fn ipv6_unicast_health_requires_fnn_with_an_ipv6_loopback() {
+        use carbide_test_support::value_scenarios;
+
+        value_scenarios!(run = |row: Ipv6UnicastHealthRow| {
+            let managed_host_config = match row.managed_host_config {
+                ManagedHostConfigInput::Missing => None,
+                ManagedHostConfigInput::WithoutIpv6Loopback => {
+                    Some(rpc::ManagedHostNetworkConfig {
+                        loopback_ip: "10.0.0.1".to_string(),
+                        loopback_ip_v6: None,
+                        quarantine_state: None,
+                    })
+                }
+                ManagedHostConfigInput::WithIpv6Loopback(loopback_ip_v6) => {
+                    Some(rpc::ManagedHostNetworkConfig {
+                        loopback_ip: "10.0.0.1".to_string(),
+                        loopback_ip_v6: Some(loopback_ip_v6.to_string()),
+                        quarantine_state: None,
+                    })
+                }
+            };
+            let conf = ManagedHostNetworkConfigResponse {
+                managed_host_config,
+                ..Default::default()
+            };
+            ipv6_unicast_health_enabled(&conf, row.virtualization_type)
+        };
+            "FNN with a reserved IPv6 loopback" {
+                Ipv6UnicastHealthRow {
+                    virtualization_type: VpcVirtualizationType::Fnn,
+                    managed_host_config: ManagedHostConfigInput::WithIpv6Loopback("2001:db8::1"),
+                } => true,
+            }
+
+            "inactive IPv6 underlay" {
+                Ipv6UnicastHealthRow {
+                    virtualization_type: VpcVirtualizationType::Fnn,
+                    managed_host_config: ManagedHostConfigInput::Missing,
+                } => false,
+                Ipv6UnicastHealthRow {
+                    virtualization_type: VpcVirtualizationType::Fnn,
+                    managed_host_config: ManagedHostConfigInput::WithoutIpv6Loopback,
+                } => false,
+                Ipv6UnicastHealthRow {
+                    virtualization_type: VpcVirtualizationType::EthernetVirtualizer,
+                    managed_host_config: ManagedHostConfigInput::WithIpv6Loopback("2001:db8::1"),
+                } => false,
+                Ipv6UnicastHealthRow {
+                    virtualization_type: VpcVirtualizationType::EthernetVirtualizerWithNvue,
+                    managed_host_config: ManagedHostConfigInput::WithIpv6Loopback("2001:db8::1"),
+                } => false,
+                Ipv6UnicastHealthRow {
+                    virtualization_type: VpcVirtualizationType::Flat,
+                    managed_host_config: ManagedHostConfigInput::WithIpv6Loopback("2001:db8::1"),
+                } => false,
+            }
+        );
+    }
 
     #[test]
     fn test_current_network_version_hashes_nested_managed_host_config() {

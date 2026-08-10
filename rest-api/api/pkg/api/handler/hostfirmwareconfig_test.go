@@ -28,7 +28,7 @@ import (
 	"github.com/NVIDIA/infra-controller/rest-api/api/pkg/api/model"
 	sc "github.com/NVIDIA/infra-controller/rest-api/api/pkg/client/site"
 	authz "github.com/NVIDIA/infra-controller/rest-api/auth/pkg/authorization"
-	"github.com/NVIDIA/infra-controller/rest-api/common/pkg/coreproxy"
+	"github.com/NVIDIA/infra-controller/rest-api/common/pkg/grpcproxy"
 	cutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
 	cdbm "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/model"
 	corev1 "github.com/NVIDIA/infra-controller/rest-api/proto/core/gen/v1"
@@ -143,7 +143,7 @@ type hostFirmwareConfigHandlerFixture struct {
 	user                *cdbm.User
 	createUpdateHandler CreateOrUpdateHostFirmwareConfigHandler
 	deleteHandler       DeleteHostFirmwareConfigHandler
-	proxiedReq          *coreproxy.Request
+	proxiedReq          *grpcproxy.Request
 }
 
 func newHostFirmwareConfigHandlerFixture(t *testing.T, opts hostFirmwareConfigHandlerFixtureOptions) hostFirmwareConfigHandlerFixture {
@@ -173,7 +173,7 @@ func newHostFirmwareConfigHandlerFixture(t *testing.T, opts hostFirmwareConfigHa
 
 	siteID := site.ID.String()
 
-	proxiedReq := &coreproxy.Request{}
+	proxiedReq := &grpcproxy.Request{}
 	wrun := &tmocks.WorkflowRun{}
 	if opts.getErr != nil {
 		wrun.On("Get", mock.Anything, mock.Anything).Return(opts.getErr)
@@ -185,7 +185,7 @@ func newHostFirmwareConfigHandlerFixture(t *testing.T, opts hostFirmwareConfigHa
 			require.NoError(t, err)
 		}
 		wrun.On("Get", mock.Anything, mock.Anything).Run(func(args mock.Arguments) {
-			out, ok := args.Get(1).(*coreproxy.Response)
+			out, ok := args.Get(1).(*grpcproxy.Response)
 			require.True(t, ok)
 			out.ResponseJSON = responseJSON
 		}).Return(nil)
@@ -196,8 +196,8 @@ func newHostFirmwareConfigHandlerFixture(t *testing.T, opts hostFirmwareConfigHa
 		"ExecuteWorkflow",
 		mock.Anything,
 		mock.Anything,
-		coreproxy.WorkflowName,
-		mock.MatchedBy(func(req coreproxy.Request) bool {
+		grpcproxy.Core.WorkflowName,
+		mock.MatchedBy(func(req grpcproxy.Request) bool {
 			*proxiedReq = req
 			return true
 		}),
@@ -216,13 +216,13 @@ func newHostFirmwareConfigHandlerFixture(t *testing.T, opts hostFirmwareConfigHa
 	}
 }
 
-func (f hostFirmwareConfigHandlerFixture) put(t *testing.T, apiReq model.APIHostFirmwareConfigCreateOrUpdateRequest) (*httptest.ResponseRecorder, coreproxy.Request) {
+func (f hostFirmwareConfigHandlerFixture) put(t *testing.T, apiReq model.APIHostFirmwareConfigCreateOrUpdateRequest) (*httptest.ResponseRecorder, grpcproxy.Request) {
 	t.Helper()
 	rec := f.doRequest(t, http.MethodPut, apiReq, f.createUpdateHandler.Handle)
 	return rec, *f.proxiedReq
 }
 
-func (f hostFirmwareConfigHandlerFixture) delete(t *testing.T, apiReq model.APIHostFirmwareConfigDeleteRequest) (*httptest.ResponseRecorder, coreproxy.Request) {
+func (f hostFirmwareConfigHandlerFixture) delete(t *testing.T, apiReq model.APIHostFirmwareConfigDeleteRequest) (*httptest.ResponseRecorder, grpcproxy.Request) {
 	t.Helper()
 	rec := f.doRequest(t, http.MethodDelete, apiReq, f.deleteHandler.Handle)
 	return rec, *f.proxiedReq

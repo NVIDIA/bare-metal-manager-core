@@ -149,7 +149,7 @@ impl<'a, 'c> RegistrationClient<'a, 'c> {
 
     // discover_machine is a retrying wrapper around making
     // discover_machine gRPC calls to the Carbide API.
-    pub async fn discover_machine(
+    async fn discover_machine(
         &mut self,
         info: MachineDiscoveryInfo,
     ) -> Result<rpc::MachineDiscoveryResult, RegistrationError> {

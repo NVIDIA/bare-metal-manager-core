@@ -19,19 +19,13 @@ use std::fmt::{Debug, Display};
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use axum_client_ip::Rejection;
-use carbide_uuid::UuidConversionError;
-use rpc::errors::RpcDataConversionError;
 
-pub enum PxeRequestError {
+pub(super) enum PxeRequestError {
     CarbideApiError(tonic::Status),
     MissingClientConfig,
-    MissingMachineId,
     MissingIp(Rejection),
     InvalidBuildArch,
-    MalformedMachineId(String),
     MalformedBuildArch(String),
-    RpcConversion(RpcDataConversionError),
-    UuidConversion(UuidConversionError),
 }
 
 impl IntoResponse for PxeRequestError {
@@ -59,15 +53,10 @@ impl Display for PxeRequestError {
                 Self::MissingClientConfig =>
                     "Missing client configuration from server config (should not reach this case)"
                         .to_string(),
-                Self::MissingMachineId =>
-                    "Missing Machine Identifier (UUID) specified in URI parameter uuid".to_string(),
                 Self::InvalidBuildArch =>
                     "Invalid build arch specified in URI parameter buildarch".to_string(),
-                Self::MalformedMachineId(err) => format!("Malformed Machine UUID: {err}"),
                 Self::MalformedBuildArch(err) => format!("Malformed build arch: {err}"),
                 Self::MissingIp(err) => format!("Source IP is missing. Error: {err:?}"),
-                Self::RpcConversion(err) => format!("Error converting RPC data: {err:?}"),
-                Self::UuidConversion(err) => format!("Error converting RPC UUID data: {err:?}"),
             }
         )
     }
@@ -82,20 +71,14 @@ mod tests {
     #[derive(Clone, Copy, Debug)]
     enum ErrorCase {
         MissingClientConfig,
-        MissingMachineId,
         InvalidBuildArch,
-        MalformedMachineId,
         MalformedBuildArch,
     }
 
     fn error_for(case: ErrorCase) -> PxeRequestError {
         match case {
             ErrorCase::MissingClientConfig => PxeRequestError::MissingClientConfig,
-            ErrorCase::MissingMachineId => PxeRequestError::MissingMachineId,
             ErrorCase::InvalidBuildArch => PxeRequestError::InvalidBuildArch,
-            ErrorCase::MalformedMachineId => {
-                PxeRequestError::MalformedMachineId("bad uuid".to_string())
-            }
             ErrorCase::MalformedBuildArch => {
                 PxeRequestError::MalformedBuildArch("bad arch".to_string())
             }
@@ -120,12 +103,10 @@ mod tests {
         value_scenarios!(display_error:
             "missing inputs" {
                 ErrorCase::MissingClientConfig => "Missing client configuration from server config (should not reach this case)".to_string(),
-                ErrorCase::MissingMachineId => "Missing Machine Identifier (UUID) specified in URI parameter uuid".to_string(),
                 ErrorCase::InvalidBuildArch => "Invalid build arch specified in URI parameter buildarch".to_string(),
             }
 
             "malformed inputs" {
-                ErrorCase::MalformedMachineId => "Malformed Machine UUID: bad uuid".to_string(),
                 ErrorCase::MalformedBuildArch => "Malformed build arch: bad arch".to_string(),
             }
         );
@@ -136,9 +117,7 @@ mod tests {
         value_scenarios!(debug_matches_display:
             "debug" {
                 ErrorCase::MissingClientConfig => true,
-                ErrorCase::MissingMachineId => true,
                 ErrorCase::InvalidBuildArch => true,
-                ErrorCase::MalformedMachineId => true,
                 ErrorCase::MalformedBuildArch => true,
             }
         );
@@ -149,9 +128,7 @@ mod tests {
         value_scenarios!(response_status:
             "response status" {
                 ErrorCase::MissingClientConfig => StatusCode::BAD_REQUEST,
-                ErrorCase::MissingMachineId => StatusCode::BAD_REQUEST,
                 ErrorCase::InvalidBuildArch => StatusCode::BAD_REQUEST,
-                ErrorCase::MalformedMachineId => StatusCode::BAD_REQUEST,
                 ErrorCase::MalformedBuildArch => StatusCode::BAD_REQUEST,
             }
         );

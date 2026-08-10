@@ -19,8 +19,10 @@ use std::net::IpAddr;
 use carbide_network::ip::{IdentifyAddressFamily, IpAddressFamily};
 use carbide_uuid::machine::{MachineId, MachineInterfaceId};
 use carbide_uuid::network::NetworkSegmentId;
+use carbide_uuid::switch::SwitchId;
 use mac_address::MacAddress;
 use model::allocation_type::{AllocationType, AssignStaticResult};
+use model::machine_interface::InterfaceType;
 use model::network_segment::NetworkSegmentType;
 use sqlx::{FromRow, PgConnection};
 
@@ -65,16 +67,17 @@ pub async fn find_ipv4_for_interface(
         .map_err(|e| DatabaseError::query(query, e))
 }
 
-/// Looks up which machine interface owns an IP, with segment metadata and **allocation type**.
+/// Looks up which machine interface owns an IP, with association, segment, role, and allocation
+/// metadata.
 ///
-/// `allocation_type` is used by the IP finder to classify operator static assignments
-/// (`AllocationType::Static` or addresses on the `static-assignments` segment) as
-/// `IpTypeStaticBmcIp` where appropriate.
+/// The IP finder uses `interface_type` together with `allocation_type` and segment metadata to
+/// distinguish static BMC addresses from static Data addresses.
 pub async fn find_by_address(
     txn: impl DbReader<'_>,
     address: IpAddr,
 ) -> Result<Option<MachineInterfaceSearchResult>, DatabaseError> {
-    let query = "SELECT mi.id, mi.machine_id, ns.name, ns.network_segment_type, mia.allocation_type
+    let query = "SELECT mi.id, mi.machine_id, mi.switch_id, mi.interface_type,
+                ns.name, ns.network_segment_type, mia.allocation_type
             FROM machine_interface_addresses mia
             INNER JOIN machine_interfaces mi ON mi.id = mia.interface_id
             INNER JOIN network_segments ns ON ns.id = mi.segment_id
@@ -291,12 +294,14 @@ pub async fn has_address_for_family(
         .map_err(|e| DatabaseError::query(query, e))
 }
 
-/// Row shape for [`find_by_address`]: interface identity, owning segment, and how the address was
-/// assigned (DHCP vs static / operator-configured).
+/// Row shape for [`find_by_address`]: interface identity, association, role, owning segment, and
+/// how the address was assigned (DHCP vs static / operator-configured).
 #[derive(Debug, FromRow)]
 pub struct MachineInterfaceSearchResult {
     pub id: MachineInterfaceId,
     pub machine_id: Option<MachineId>,
+    pub switch_id: Option<SwitchId>,
+    pub interface_type: InterfaceType,
     pub name: String,
     pub network_segment_type: NetworkSegmentType,
     pub allocation_type: AllocationType,

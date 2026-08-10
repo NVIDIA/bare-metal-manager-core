@@ -19,7 +19,7 @@ use russh::keys::Certificate;
 use crate::config::{CertAuthorization, CertAuthorizationStrategy, KeyIdFormat};
 
 /// Search for the given role in the Key ID field of a certificate, returning if it is declared.
-pub fn certificate_contains_role(
+pub(crate) fn certificate_contains_role(
     certificate: &Certificate,
     role: &str,
     cert_authorization: &CertAuthorization,
@@ -42,7 +42,7 @@ pub fn certificate_contains_role(
 }
 
 /// Try to get the username from the given certificate, or return None if we couldn't find one.
-pub fn get_user_from_certificate<'a>(
+pub(crate) fn get_user_from_certificate<'a>(
     certificate: &'a Certificate,
     cert_authorization: &CertAuthorization,
 ) -> Option<&'a str> {

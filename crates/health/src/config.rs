@@ -255,6 +255,11 @@ pub struct StaticSwitchEndpoint {
     pub slot_number: Option<i32>,
     #[serde(alias = "compute_tray_index")]
     pub tray_index: Option<i32>,
+
+    /// Optional non-nil NVLink domain UUID associated with this switch.
+    /// Invalid or nil values are omitted from telemetry.
+    pub nvlink_domain_uuid: Option<String>,
+
     #[serde(default = "default_static_switch_endpoint_role")]
     pub endpoint_role: StaticSwitchEndpointRole,
     #[serde(default)]
@@ -537,6 +542,14 @@ pub struct OtlpTargetConfig {
     /// up.
     #[serde(default)]
     pub include_diagnostics: bool,
+
+    /// Emit per-alert detail on health report log records sent to this target.
+    ///
+    /// Disabled by default because alert messages are free-form and a fully
+    /// degraded endpoint can produce many of them. When enabled, health report
+    /// records carry a `health_report.alerts` attribute holding a JSON array.
+    #[serde(default)]
+    pub include_alert_details: bool,
 }
 
 impl OtlpTargetConfig {
@@ -822,6 +835,10 @@ pub struct CollectorsConfig {
     /// Entity metrics collector configuration (if present, metrics collector is enabled)
     pub metrics: Configurable<MetricsCollectorConfig>,
 
+    /// Redfish telemetry service collector configuration (if present, telemetry
+    /// collector is enabled)
+    pub telemetry: Configurable<TelemetryCollectorConfig>,
+
     /// Firmware collector configuration (if present, firmware collector is enabled)
     pub firmware: Configurable<FirmwareCollectorConfig>,
 
@@ -850,6 +867,7 @@ impl Default for CollectorsConfig {
             discovery: DiscoveryConfig::default(),
             sensors: Configurable::Enabled(SensorCollectorConfig::default()),
             metrics: Configurable::Disabled,
+            telemetry: Configurable::Disabled,
             firmware: Configurable::Disabled,
             leak_detector: Configurable::Enabled(LeakDetectorCollectorConfig::default()),
             logs: Configurable::Disabled,
@@ -971,6 +989,26 @@ impl Default for MetricsCollectorConfig {
         Self {
             fetch_interval: Duration::from_secs(120),
             fetch_concurrency: 4,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct TelemetryCollectorConfig {
+    /// Interval between metric report fetches.
+    ///
+    /// A report is one GET covering many readings, so this can run
+    /// tighter than the per-resource collectors without adding load
+    /// proportional to entity count.
+    #[serde(with = "humantime_serde")]
+    pub fetch_interval: Duration,
+}
+
+impl Default for TelemetryCollectorConfig {
+    fn default() -> Self {
+        Self {
+            fetch_interval: Duration::from_secs(60),
         }
     }
 }
@@ -1918,6 +1956,7 @@ mod tests {
             serial: Some("switch-serial".to_string()),
             slot_number: None,
             tray_index: None,
+            nvlink_domain_uuid: None,
             endpoint_role: StaticSwitchEndpointRole::Host,
             is_primary: false,
             nmxc_enabled: None,
@@ -1932,6 +1971,7 @@ mod tests {
             batch_size: 512,
             flush_interval: Duration::from_secs(2),
             include_diagnostics: false,
+            include_alert_details: false,
         }
     }
 
@@ -2636,6 +2676,7 @@ endpoint = "https://central.example:4317"
 batch_size = 1024
 flush_interval = "5s"
 include_diagnostics = true
+include_alert_details = true
 
 [targets.tls]
 ca_cert_path = "/central/ca.crt"
@@ -2657,6 +2698,8 @@ reload_interval = "30s"
         assert_eq!(targets[1].batch_size, 1024);
         assert_eq!(targets[1].flush_interval, Duration::from_secs(5));
         assert!(targets[1].include_diagnostics);
+        assert!(!targets[0].include_alert_details);
+        assert!(targets[1].include_alert_details);
 
         let tls = targets[1]
             .tls
@@ -2892,6 +2935,7 @@ reload_interval = "30s"
                             batch_size: 512,
                             flush_interval: Duration::from_secs(2),
                             include_diagnostics: false,
+                            include_alert_details: false,
                             tls: None,
                         }],
                     }),
@@ -2929,6 +2973,7 @@ reload_interval = "30s"
                             batch_size: 512,
                             flush_interval: Duration::from_secs(2),
                             include_diagnostics: true,
+                            include_alert_details: false,
                             tls: None,
                         }],
                     }),
@@ -2946,6 +2991,7 @@ reload_interval = "30s"
                                 batch_size: 512,
                                 flush_interval: Duration::from_secs(2),
                                 include_diagnostics: false,
+                                include_alert_details: false,
                                 tls: None,
                             },
                             OtlpTargetConfig {
@@ -2953,6 +2999,7 @@ reload_interval = "30s"
                                 batch_size: 512,
                                 flush_interval: Duration::from_secs(2),
                                 include_diagnostics: true,
+                                include_alert_details: false,
                                 tls: None,
                             },
                         ],
@@ -2998,6 +3045,7 @@ reload_interval = "30s"
                             batch_size: 512,
                             flush_interval: Duration::from_secs(2),
                             include_diagnostics: false,
+                            include_alert_details: false,
                             tls: None,
                         }],
                     }),
@@ -3866,7 +3914,7 @@ ip = "10.0.1.2"
 mac = "11:22:33:44:55:77"
 username = "admin"
 password = "pass"
-switch = { id = "fsw100htjtiaehv1n5vh67tbmqq4eabcjdng40f7jupsadbedhruh6rag1l0", serial = "SN-SW-002", endpoint_role = "host", is_primary = false, nmxc_enabled = true, nmxt_enabled = true }
+switch = { id = "fsw100htjtiaehv1n5vh67tbmqq4eabcjdng40f7jupsadbedhruh6rag1l0", serial = "SN-SW-002", endpoint_role = "host", is_primary = false, nmxc_enabled = true, nmxt_enabled = true, nvlink_domain_uuid = "9f4b45ec-705a-4af4-89f7-a112bc9c8f4e" }
 "#;
 
         let config: Config = Figment::new()
@@ -3884,6 +3932,11 @@ switch = { id = "fsw100htjtiaehv1n5vh67tbmqq4eabcjdng40f7jupsadbedhruh6rag1l0", 
         assert!(!switch.is_primary);
         assert_eq!(switch.nmxc_enabled, Some(true));
         assert_eq!(switch.nmxt_enabled, Some(true));
+
+        assert_eq!(
+            switch.nvlink_domain_uuid.as_deref(),
+            Some("9f4b45ec-705a-4af4-89f7-a112bc9c8f4e")
+        );
     }
 
     #[test]

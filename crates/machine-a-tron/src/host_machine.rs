@@ -42,7 +42,7 @@ use crate::saturating_add_duration_to_instant;
 use crate::status::{BmcStatus, DeviceKind, DeviceStatus, DeviceStatusConfig, EndpointStatus};
 use crate::tui::{HostDetails, UiUpdate};
 
-pub struct HostMachine {
+pub(super) struct HostMachine {
     mat_id: Uuid,
     machine_config_section: String,
     host_info: HostMachineInfo,
@@ -63,7 +63,7 @@ pub struct HostMachine {
 }
 
 impl HostMachine {
-    pub fn from_persisted(
+    pub(super) fn from_persisted(
         persisted_device: PersistedDevice,
         machine_config_section: String,
         app_context: Arc<MachineATronContext>,
@@ -150,7 +150,7 @@ impl HostMachine {
         }
     }
 
-    pub fn new(
+    pub(super) fn new(
         app_context: Arc<MachineATronContext>,
         machine_config_section: String,
         config: Arc<MachineConfig>,
@@ -518,7 +518,7 @@ impl HostMachine {
 }
 
 // Shared with DpuMachine
-pub enum HandleMessageResult {
+pub(super) enum HandleMessageResult {
     ContinuePolling,
     ProcessStateNow,
 }
@@ -552,6 +552,15 @@ impl MachineHandle {
         dpus: Vec<DpuMachineHandle>,
         ipmi_endpoint: Option<bmc_mock::ipmi_sim::IpmiEndpoint>,
     ) -> Self {
+        Self::for_control_test_in_section(dpus, ipmi_endpoint, "test")
+    }
+
+    #[cfg(test)]
+    pub(crate) fn for_control_test_in_section(
+        dpus: Vec<DpuMachineHandle>,
+        ipmi_endpoint: Option<bmc_mock::ipmi_sim::IpmiEndpoint>,
+        machine_config_section: &str,
+    ) -> Self {
         let (message_tx, _message_rx) = mpsc::unbounded_channel();
         let mac = mac_address::MacAddress::new([2, 0, 0, 0, 0, 2]);
         let live_state = LiveState {
@@ -575,16 +584,16 @@ impl MachineHandle {
                 delta_psu_power: None,
             },
             dpus,
-            machine_config_section: "test".to_string(),
+            machine_config_section: machine_config_section.to_string(),
             bmc_injection: Arc::new(InjectionStore::new()),
         }))
     }
 
-    pub fn mat_id(&self) -> Uuid {
+    pub(super) fn mat_id(&self) -> Uuid {
         self.0.mat_id
     }
 
-    pub fn observed_machine_id(&self) -> Option<MachineId> {
+    pub(super) fn observed_machine_id(&self) -> Option<MachineId> {
         self.0
             .live_state
             .read()
@@ -594,7 +603,7 @@ impl MachineHandle {
             .map(|m| m.to_owned())
     }
 
-    pub async fn api_state(&self) -> eyre::Result<String> {
+    pub(super) async fn api_state(&self) -> eyre::Result<String> {
         let (tx, rx) = oneshot::channel();
         self.0
             .message_tx
@@ -606,7 +615,7 @@ impl MachineHandle {
         self.0.bmc_injection.clone()
     }
 
-    pub async fn wait_until_machine_up_with_api_state(
+    pub(super) async fn wait_until_machine_up_with_api_state(
         &self,
         state: &str,
         timeout: Duration,
@@ -625,36 +634,39 @@ impl MachineHandle {
         Ok(())
     }
 
-    pub fn attach_to_tui(&self, tui_event_tx: Option<mpsc::Sender<UiUpdate>>) -> eyre::Result<()> {
+    pub(super) fn attach_to_tui(
+        &self,
+        tui_event_tx: Option<mpsc::Sender<UiUpdate>>,
+    ) -> eyre::Result<()> {
         Ok(self
             .0
             .message_tx
             .send(HostMachineMessage::AttachToUI(tui_event_tx))?)
     }
 
-    pub fn pause(&self) -> eyre::Result<()> {
+    pub(super) fn pause(&self) -> eyre::Result<()> {
         self.0
             .message_tx
             .send(HostMachineMessage::SetPaused(true))?;
         Ok(())
     }
 
-    pub fn resume(&self) -> eyre::Result<()> {
+    pub(super) fn resume(&self) -> eyre::Result<()> {
         self.0
             .message_tx
             .send(HostMachineMessage::SetPaused(false))?;
         Ok(())
     }
 
-    pub fn host_info(&self) -> &HostMachineInfo {
+    pub(super) fn host_info(&self) -> &HostMachineInfo {
         &self.0.host_info
     }
 
-    pub fn machine_config_section(&self) -> &str {
+    pub(super) fn machine_config_section(&self) -> &str {
         &self.0.machine_config_section
     }
 
-    pub fn status(&self, config: &DeviceStatusConfig) -> DeviceStatus {
+    pub(super) fn status(&self, config: &DeviceStatusConfig) -> DeviceStatus {
         let live_state = self.0.live_state.read().unwrap();
         DeviceStatus {
             mat_id: self.0.mat_id.to_string(),
@@ -683,7 +695,7 @@ impl MachineHandle {
         }
     }
 
-    pub fn persisted(&self) -> PersistedDevice {
+    pub(super) fn persisted(&self) -> PersistedDevice {
         let live_state = self.0.live_state.read().unwrap();
         PersistedDevice {
             hw_type: self.0.host_info.hw_type,
@@ -705,11 +717,11 @@ impl MachineHandle {
         }
     }
 
-    pub fn dpus(&self) -> &[DpuMachineHandle] {
+    pub(super) fn dpus(&self) -> &[DpuMachineHandle] {
         &self.0.dpus
     }
 
-    pub async fn delete_from_api(self, api_client: ApiClient) -> eyre::Result<()> {
+    pub(super) async fn delete_from_api(self, api_client: ApiClient) -> eyre::Result<()> {
         let delete_by = match self
             .0
             .live_state
@@ -749,7 +761,7 @@ impl MachineHandle {
         Ok(())
     }
 
-    pub fn abort(&self) {
+    pub(super) fn abort(&self) {
         for dpu in &self.0.dpus {
             dpu.abort();
         }
@@ -758,7 +770,7 @@ impl MachineHandle {
         }
     }
 
-    pub async fn abort_and_wait(&self) -> eyre::Result<()> {
+    pub(super) async fn abort_and_wait(&self) -> eyre::Result<()> {
         let mut join_handles = self
             .0
             .dpus
@@ -780,11 +792,11 @@ impl MachineHandle {
         Ok(())
     }
 
-    pub fn bmc_ssh_host_pubkey(&self) -> Option<String> {
+    pub(super) fn bmc_ssh_host_pubkey(&self) -> Option<String> {
         self.0.live_state.read().unwrap().ssh_host_key.clone()
     }
 
-    pub fn bmc_ip(&self) -> Option<Ipv4Addr> {
+    pub(super) fn bmc_ip(&self) -> Option<Ipv4Addr> {
         self.0.live_state.read().unwrap().bmc_ip
     }
 }

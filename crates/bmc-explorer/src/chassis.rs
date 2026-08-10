@@ -37,18 +37,18 @@ use crate::{Error, network_adapter};
 
 type AssemblyModelFilterFn = fn(Option<AssemblyModel<&str>>) -> bool;
 const BF4_NDF0_TO_BASE_MAC_OFFSET: u64 = 0x10;
-pub struct Config {
-    pub network_adapter: network_adapter::Config,
-    pub need_assembly_sn: fn(ResourceIdRef) -> Option<AssemblyModelFilterFn>,
-    pub lazy_fetch: Option<fn(&ODataId) -> bool>,
+pub(crate) struct Config {
+    pub(crate) network_adapter: network_adapter::Config,
+    pub(crate) need_assembly_sn: fn(ResourceIdRef) -> Option<AssemblyModelFilterFn>,
+    pub(crate) lazy_fetch: Option<fn(&ODataId) -> bool>,
 }
 
-pub struct ExploredChassisCollection<B: Bmc> {
-    pub members: Vec<ExploredChassis<B>>,
+pub(crate) struct ExploredChassisCollection<B: Bmc> {
+    pub(super) members: Vec<ExploredChassis<B>>,
 }
 
 impl<B: Bmc> ExploredChassisCollection<B> {
-    pub async fn explore(root: &ServiceRoot<B>, config: &Config) -> Result<Self, Error<B>> {
+    pub(crate) async fn explore(root: &ServiceRoot<B>, config: &Config) -> Result<Self, Error<B>> {
         let mut members = Vec::new();
         for m in Self::fetch_members(root, config).await? {
             members.push(ExploredChassis::explore(m, config).await?);
@@ -88,11 +88,11 @@ impl<B: Bmc> ExploredChassisCollection<B> {
         }
     }
 
-    pub fn to_model(&self) -> Vec<Chassis> {
+    pub(crate) fn to_model(&self) -> Vec<Chassis> {
         self.members.iter().map(|v| v.to_model()).collect()
     }
 
-    pub fn is_liteon_powershelf(&self) -> bool {
+    pub(crate) fn is_liteon_powershelf(&self) -> bool {
         self.members.iter().any(|m| {
             m.chassis.id().into_inner() == "powershelf"
                 || (m.chassis.id().into_inner() == "chassis"
@@ -104,7 +104,7 @@ impl<B: Bmc> ExploredChassisCollection<B> {
         })
     }
 
-    pub fn liteon_power_state(&self) -> Option<LiteOnSuppliesState<'_>> {
+    pub(crate) fn liteon_power_state(&self) -> Option<LiteOnSuppliesState<'_>> {
         self.members.iter().find_map(|m| {
             m.oem_liteon_power_supplies
                 .as_ref()
@@ -118,7 +118,7 @@ impl<B: Bmc> ExploredChassisCollection<B> {
     /// or "powershelf"). The manufacturer gate is what distinguishes Delta from
     /// the Lite-On power shelf, which shares the generic "powershelf" chassis
     /// id.
-    pub fn is_delta_powershelf(&self) -> bool {
+    pub(crate) fn is_delta_powershelf(&self) -> bool {
         self.members.iter().any(|m| {
             is_delta_powershelf_chassis(
                 m.chassis.id().into_inner(),
@@ -134,7 +134,7 @@ impl<B: Bmc> ExploredChassisCollection<B> {
     /// Aggregate power state across all Delta PSUs found on the chassis members.
     /// Delta reports commanded PSU on/off state under
     /// `Oem.deltaenergysystems.Power`.
-    pub fn delta_power_state(&self) -> ModelPowerState {
+    fn delta_power_state(&self) -> ModelPowerState {
         let supplies: Vec<&DeltaPowerSupply> = self
             .members
             .iter()
@@ -159,7 +159,7 @@ impl<B: Bmc> ExploredChassisCollection<B> {
     /// Synthesizes a [`ModelComputerSystem`] for a power shelf that does not
     /// expose a Redfish `ComputerSystem`. Identity is taken from the primary
     /// power-shelf chassis member (mirrors the libredfish Delta path).
-    pub fn synthesized_powershelf_system(&self) -> ModelComputerSystem {
+    pub(crate) fn synthesized_powershelf_system(&self) -> ModelComputerSystem {
         let member = self
             .members
             .iter()
@@ -193,14 +193,14 @@ impl<B: Bmc> ExploredChassisCollection<B> {
         }
     }
 
-    pub fn is_gb300(&self) -> bool {
+    pub(crate) fn is_gb300(&self) -> bool {
         self.members.iter().any(|m| {
             m.chassis.hardware_id().manufacturer == Some(Manufacturer::new("NVIDIA"))
                 && m.chassis.hardware_id().model == Some(Model::new("NVIDIA GB300"))
         })
     }
 
-    pub fn is_mgx_c2(&self) -> bool {
+    pub(crate) fn is_mgx_c2(&self) -> bool {
         self.members.iter().any(|m| {
             let hardware_id = m.chassis.hardware_id();
             is_mgx_c2_processor_module(
@@ -211,13 +211,13 @@ impl<B: Bmc> ExploredChassisCollection<B> {
         })
     }
 
-    pub fn is_lenovo(&self) -> bool {
+    pub(crate) fn is_lenovo(&self) -> bool {
         self.members
             .iter()
             .any(|m| m.chassis.hardware_id().manufacturer == Some(Manufacturer::new("Lenovo")))
     }
 
-    pub fn is_bluefield2(&self) -> bool {
+    pub(crate) fn is_bluefield2(&self) -> bool {
         self.members
             .iter()
             .find(|c| c.chassis.id().into_inner() == "Card1")
@@ -228,14 +228,14 @@ impl<B: Bmc> ExploredChassisCollection<B> {
             })
     }
 
-    pub fn is_bluefield4(&self) -> bool {
+    pub(crate) fn is_bluefield4(&self) -> bool {
         self.members.iter().any(|c| {
             c.chassis.hardware_id().model == Some(Model::new("B4240"))
                 || c.chassis.hardware_id().model == Some(Model::new("B4240V"))
         })
     }
 
-    pub fn dpu_card1_serial_number(&self) -> Result<Option<&str>, Error<B>> {
+    pub(crate) fn dpu_card1_serial_number(&self) -> Result<Option<&str>, Error<B>> {
         let maybe_sn = self
             .members
             .iter()
@@ -252,7 +252,7 @@ impl<B: Bmc> ExploredChassisCollection<B> {
     // read NDF0 PermanentMACAddress from known BF4 Redfish topology paths and
     // derive PF0 base MAC as (NDF0 - 0x10).
     // Remove callers once BF4 BMC exposes PF0 base MAC in ComputerSystem BaseMAC.
-    pub fn dpu_bf4_ndf0_permanent_mac(&self) -> Option<BaseMac> {
+    pub(crate) fn dpu_bf4_ndf0_permanent_mac(&self) -> Option<BaseMac> {
         const BF4_NDF0_PATHS: [(&str, &str, &str); 2] = [
             // /redfish/v1/Chassis/BlueField_0/NetworkAdapters/BlueField_NIC_0/NetworkDeviceFunctions/0
             ("BlueField_0", "BlueField_NIC_0", "0"),
@@ -289,7 +289,7 @@ impl<B: Bmc> ExploredChassisCollection<B> {
         None
     }
 
-    pub async fn pcie_devices(
+    pub(crate) async fn pcie_devices(
         &self,
         chassis_filter: impl Fn(&ExploredChassis<B>) -> bool,
     ) -> Result<Vec<PcieDevice<B>>, Error<B>> {
@@ -324,12 +324,12 @@ fn u64_to_mac(value: u64) -> MacAddress {
     MacAddress::new([b[2], b[3], b[4], b[5], b[6], b[7]])
 }
 
-pub struct ExploredChassis<B: Bmc> {
-    pub chassis: NvChassis<B>,
-    pub network_adapters: ExploredNetworkAdapterCollection<B>,
-    pub assembly_sn: Option<String>,
-    pub oem_liteon_power_supplies: Option<Vec<LiteOnPowerSupply>>,
-    pub oem_delta_power_supplies: Option<Vec<DeltaPowerSupply>>,
+pub(crate) struct ExploredChassis<B: Bmc> {
+    pub(crate) chassis: NvChassis<B>,
+    pub(crate) network_adapters: ExploredNetworkAdapterCollection<B>,
+    assembly_sn: Option<String>,
+    oem_liteon_power_supplies: Option<Vec<LiteOnPowerSupply>>,
+    oem_delta_power_supplies: Option<Vec<DeltaPowerSupply>>,
 }
 
 impl<B: Bmc> ExploredChassis<B> {
@@ -430,11 +430,7 @@ impl<B: Bmc> ExploredChassis<B> {
             .or(hw_id.serial_number.map(|v| v.to_string()))
             .map(|s| s.trim().to_string());
 
-        let nvidia_oem = self
-            .chassis
-            .oem_nvidia_baseboard_cbc()
-            .ok()
-            .and_then(identity);
+        let nvidia_oem = self.chassis.oem_nvidia_cbc().ok().and_then(identity);
         Chassis {
             id: chassis_id.to_string(),
             manufacturer: hw_id.manufacturer.map(|v| v.to_string()),
@@ -462,15 +458,15 @@ impl<B: Bmc> ExploredChassis<B> {
     }
 }
 
-pub struct LiteOnPowerSupply {
-    pub id: String,
-    pub serial_number: Option<String>,
-    pub power_state: Option<bool>,
+struct LiteOnPowerSupply {
+    id: String,
+    serial_number: Option<String>,
+    power_state: Option<bool>,
 }
 
-pub struct DeltaPowerSupply {
-    pub id: String,
-    pub power_state: Option<bool>,
+struct DeltaPowerSupply {
+    id: String,
+    power_state: Option<bool>,
 }
 
 /// Reads a Delta PSU's commanded on/off state from its OEM extension.
@@ -528,7 +524,7 @@ fn powershelf_power_state(states: impl Iterator<Item = Option<bool>>) -> ModelPo
     }
 }
 
-pub struct LiteOnSuppliesState<'a>(&'a [LiteOnPowerSupply]);
+pub(crate) struct LiteOnSuppliesState<'a>(&'a [LiteOnPowerSupply]);
 
 impl fmt::Display for LiteOnSuppliesState<'_> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -541,7 +537,7 @@ impl fmt::Display for LiteOnSuppliesState<'_> {
 }
 
 impl LiteOnSuppliesState<'_> {
-    pub fn to_model(&self) -> ModelPowerState {
+    pub(crate) fn to_model(&self) -> ModelPowerState {
         if self.0.is_empty() {
             return ModelPowerState::Unknown;
         }

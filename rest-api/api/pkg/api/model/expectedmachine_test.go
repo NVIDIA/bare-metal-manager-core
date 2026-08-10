@@ -1145,9 +1145,9 @@ func TestNewAPIExpectedMachineWithSkuComponents(t *testing.T) {
 
 				// Validate Storage components
 				assert.Len(t, apiEM.Sku.Components.Storage, 1)
-				assert.Equal(t, "Samsung", apiEM.Sku.Components.Storage[0].Vendor)
+				assert.Equal(t, cutil.GetPtr("Samsung"), apiEM.Sku.Components.Storage[0].Vendor)
 				assert.Equal(t, "PM9A3", apiEM.Sku.Components.Storage[0].Model)
-				assert.Equal(t, uint32(3840000), apiEM.Sku.Components.Storage[0].CapacityMb)
+				assert.Equal(t, cutil.GetPtr(uint32(3840000)), apiEM.Sku.Components.Storage[0].CapacityMb)
 				assert.Equal(t, uint32(4), apiEM.Sku.Components.Storage[0].Count)
 
 				// Validate Chassis component
@@ -1291,8 +1291,8 @@ func TestNewAPIExpectedMachineWithSkuComponents(t *testing.T) {
 
 				// Validate multiple Storage components
 				assert.Len(t, apiEM.Sku.Components.Storage, 2)
-				assert.Equal(t, "Samsung", apiEM.Sku.Components.Storage[0].Vendor)
-				assert.Equal(t, "Intel", apiEM.Sku.Components.Storage[1].Vendor)
+				assert.Equal(t, cutil.GetPtr("Samsung"), apiEM.Sku.Components.Storage[0].Vendor)
+				assert.Equal(t, cutil.GetPtr("Intel"), apiEM.Sku.Components.Storage[1].Vendor)
 			},
 		},
 		{

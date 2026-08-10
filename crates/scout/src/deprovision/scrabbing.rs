@@ -451,7 +451,7 @@ async fn all_nvme_cleanup() -> Result<(), CarbideClientError> {
                     let result = clean_this_nvme(&nvmename).await;
                     let duration = device_start.elapsed();
 
-                    emit(ScoutStorageDeviceCleanup::new(
+                    emit(ScoutStorageDeviceCleanup::from_result(
                         StorageDeviceType::Nvme,
                         duration,
                         &result,
@@ -744,7 +744,7 @@ async fn all_hdd_cleanup() -> Result<(), CarbideClientError> {
                     let result = clean_this_block_device(&devpath).await;
                     let duration = device_start.elapsed();
 
-                    emit(ScoutStorageDeviceCleanup::new(
+                    emit(ScoutStorageDeviceCleanup::from_result(
                         StorageDeviceType::HddSas,
                         duration,
                         &result,
@@ -1145,7 +1145,7 @@ pub(crate) async fn run(config: &Options, machine_id: &MachineId) -> CarbideClie
     Ok(())
 }
 
-pub async fn run_no_api(tpm_path: &str) -> Result<(), CarbideClientError> {
+pub(crate) async fn run_no_api(tpm_path: &str) -> Result<(), CarbideClientError> {
     if !platform::is_host() {
         tracing::info!("No cleanup needed on DPU.");
         return Ok(());

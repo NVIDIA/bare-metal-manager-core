@@ -37,6 +37,11 @@ const (
 	OpCodeIngest  = "ingest"
 )
 
+// Decommission operation codes
+const (
+	OpCodeDecommission = "decommission"
+)
+
 // String returns the operation code's wire value.
 func (c OperationCode) String() string {
 	return string(c)
@@ -70,6 +75,10 @@ func (c OperationCode) ValidateFor(taskType TaskType) error {
 		}
 	case TaskTypeBringUp:
 		if c == OpCodeBringUp || c == OpCodeIngest {
+			return nil
+		}
+	case TaskTypeDecommission:
+		if c == OpCodeDecommission {
 			return nil
 		}
 	default:

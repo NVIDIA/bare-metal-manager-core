@@ -13,6 +13,11 @@ import (
 // ErrRuleNotFound identifies an unsuccessful rule lookup.
 var ErrRuleNotFound = errors.New("event rule not found")
 
+// ErrInvalidPersistedRule identifies persisted rule data that cannot be
+// decoded into a valid domain rule. Retrying without repairing the stored data
+// cannot succeed.
+var ErrInvalidPersistedRule = errors.New("invalid persisted event rule")
+
 // RuleFilter limits rules returned by a store.
 type RuleFilter struct {
 	EventType *Type

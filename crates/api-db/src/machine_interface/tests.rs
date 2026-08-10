@@ -128,6 +128,94 @@ async fn create_managed_segment(
     Ok(segment_id)
 }
 
+#[crate::sqlx_test]
+#[allow(txn_held_across_await)] // Intentionally hold interface locks while testing another writer.
+async fn find_by_machine_id_for_update_locks_non_bmc_interfaces_in_id_order(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let segment_id = create_test_segment(&pool, "host-interface-locks").await?;
+    let machine_id = MachineId::new(
+        MachineIdSource::ProductBoardChassisSerial,
+        [0x45; 32],
+        MachineType::Host,
+    );
+    let first_interface_id = MachineInterfaceId::new();
+    let second_interface_id = first_interface_id.offset(1);
+    let bmc_interface_id = first_interface_id.offset(2);
+
+    let mut setup_txn = pool.begin().await?;
+    sqlx::query("INSERT INTO machines (id, dpf) VALUES ($1, '{}'::jsonb)")
+        .bind(machine_id)
+        .execute(setup_txn.as_mut())
+        .await?;
+    let query = r#"
+        INSERT INTO machine_interfaces (
+            id,
+            machine_id,
+            segment_id,
+            mac_address,
+            primary_interface,
+            hostname,
+            association_type,
+            interface_type
+        )
+        VALUES
+            ($1, $3, $4, '7A:7B:7C:7D:7E:53', false, 'second', 'Machine', 'Data'),
+            ($2, $3, $4, '7A:7B:7C:7D:7E:52', false, 'first', 'Machine', 'Data'),
+            ($5, $3, $4, '7A:7B:7C:7D:7E:54', false, 'bmc', 'Machine', 'Bmc')
+    "#;
+    sqlx::query(query)
+        .bind(second_interface_id)
+        .bind(first_interface_id)
+        .bind(machine_id)
+        .bind(segment_id)
+        .bind(bmc_interface_id)
+        .execute(setup_txn.as_mut())
+        .await?;
+    setup_txn.commit().await?;
+
+    let mut lock_txn = pool.begin().await?;
+    let interfaces = find_by_machine_id_for_update(lock_txn.as_mut(), &machine_id).await?;
+    assert_eq!(
+        interfaces
+            .iter()
+            .map(|interface| interface.id)
+            .collect::<Vec<_>>(),
+        vec![first_interface_id, second_interface_id],
+    );
+
+    let mut bmc_writer = pool.begin().await?;
+    sqlx::query("SET LOCAL lock_timeout = '100ms'")
+        .execute(bmc_writer.as_mut())
+        .await?;
+    sqlx::query("UPDATE machine_interfaces SET hostname = hostname WHERE id = $1")
+        .bind(bmc_interface_id)
+        .execute(bmc_writer.as_mut())
+        .await?;
+    bmc_writer.commit().await?;
+
+    let mut host_writer = pool.begin().await?;
+    sqlx::query("SET LOCAL lock_timeout = '100ms'")
+        .execute(host_writer.as_mut())
+        .await?;
+    let error = sqlx::query("UPDATE machine_interfaces SET hostname = hostname WHERE id = $1")
+        .bind(first_interface_id)
+        .execute(host_writer.as_mut())
+        .await
+        .expect_err("a concurrent host-interface writer must wait for the row lock");
+    assert_eq!(
+        error
+            .as_database_error()
+            .and_then(sqlx::error::DatabaseError::code)
+            .as_deref(),
+        Some("55P03"),
+    );
+    host_writer.rollback().await?;
+    lock_txn.rollback().await?;
+
+    Ok(())
+}
+
 /// A MAC identifies one physical interface even when stale or transitional
 /// rows represent it on more than one segment. Site Explorer learns one
 /// vendor-native Redfish id for that interface, so `set_boot_interface_id`

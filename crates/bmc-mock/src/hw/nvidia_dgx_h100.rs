@@ -24,22 +24,22 @@ use serde_json::json;
 use crate::json::JsonExt;
 use crate::{BootOptionKind, Callbacks, hw, redfish};
 
-pub struct NvidiaDgxH100<'a> {
-    pub dgx_system_serial_number: Cow<'a, str>,
-    pub dgx_chassis_serial_number: Cow<'a, str>,
-    pub ib_nics: [hw::nic_nvidia_cx7::NicNvidiaCx7B<'a>; 2],
-    pub mgmt_nic: hw::nic_intel_x550::NicIntelX550,
-    pub dpu: hw::bluefield3::Bluefield3<'a>,
-    pub storage_nic0: hw::nic_nvidia_cx7::NicNvidiaCx7A<'a>,
-    pub storage_nic1: hw::nic_intel_e810::NicIntelE810,
-    pub gpu_serial: [Cow<'a, str>; 8],
-    pub bmc_mac_address_eth0: MacAddress,
-    pub bmc_mac_address_usb0: MacAddress,
-    pub hgx_bmc_mac_address_usb0: MacAddress,
+pub(crate) struct NvidiaDgxH100<'a> {
+    pub(crate) dgx_system_serial_number: Cow<'a, str>,
+    pub(crate) dgx_chassis_serial_number: Cow<'a, str>,
+    pub(crate) ib_nics: [hw::nic_nvidia_cx7::NicNvidiaCx7B<'a>; 2],
+    pub(crate) mgmt_nic: hw::nic_intel_x550::NicIntelX550,
+    pub(crate) dpu: hw::bluefield3::Bluefield3<'a>,
+    pub(crate) storage_nic0: hw::nic_nvidia_cx7::NicNvidiaCx7A<'a>,
+    pub(crate) storage_nic1: hw::nic_intel_e810::NicIntelE810,
+    pub(crate) gpu_serial: [Cow<'a, str>; 8],
+    pub(crate) bmc_mac_address_eth0: MacAddress,
+    pub(crate) bmc_mac_address_usb0: MacAddress,
+    pub(crate) hgx_bmc_mac_address_usb0: MacAddress,
 }
 
 impl NvidiaDgxH100<'_> {
-    pub fn manager_config(&self) -> redfish::manager::Config {
+    pub(crate) fn manager_config(&self) -> redfish::manager::Config {
         let bmc_manager_id = "BMC";
         let bmc_eth_builder = |eth| {
             redfish::ethernet_interface::builder(&redfish::ethernet_interface::manager_resource(
@@ -99,7 +99,10 @@ impl NvidiaDgxH100<'_> {
         }
     }
 
-    pub fn system_config(&self, callbacks: Arc<dyn Callbacks>) -> redfish::computer_system::Config {
+    pub(crate) fn system_config(
+        &self,
+        callbacks: Arc<dyn Callbacks>,
+    ) -> redfish::computer_system::Config {
         let system_id = "DGX";
         let callbacks = Some(callbacks);
         let storage_nic0_ports = self.storage_nic0.ethernet_nics();
@@ -186,6 +189,7 @@ impl NvidiaDgxH100<'_> {
                     log_services: None,
                     storage: None,
                     processors: None,
+                    memory: None,
                     serial_console: None,
                     secure_boot_available: true,
                 },
@@ -205,6 +209,7 @@ impl NvidiaDgxH100<'_> {
                     log_services: None,
                     storage: None,
                     processors: None,
+                    memory: None,
                     serial_console: None,
                     secure_boot_available: false,
                 },
@@ -212,7 +217,7 @@ impl NvidiaDgxH100<'_> {
         }
     }
 
-    pub fn chassis_config(&self) -> redfish::chassis::ChassisConfig {
+    pub(crate) fn chassis_config(&self) -> redfish::chassis::ChassisConfig {
         let dgx_chassis_id = "DGX";
         let net_adapter_builder = |id: &str| {
             redfish::network_adapter::builder(&redfish::network_adapter::chassis_resource(
@@ -337,7 +342,7 @@ impl NvidiaDgxH100<'_> {
         }
     }
 
-    pub fn update_service_config(&self) -> redfish::update_service::UpdateServiceConfig {
+    pub(crate) fn update_service_config(&self) -> redfish::update_service::UpdateServiceConfig {
         redfish::update_service::UpdateServiceConfig {
             firmware_inventory: [
                 // version required carbide to pass ingestion test in site explorer.

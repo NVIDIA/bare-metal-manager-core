@@ -45,8 +45,8 @@ pub struct HostMachineInfo {
     pub hw_mac_addr_pool: MacAddressPoolConfig,
     /// Per-PSU commanded on/off states for a Delta power shelf, reported under
     /// `Oem.deltaenergysystems.Power`. `None` uses the default all-on shelf;
-    /// set it (e.g. via [`HostMachineInfo::with_delta_psu_power`]) to model
-    /// off/mixed shelves. Ignored for non-Delta hardware.
+    /// [`crate::test_support::delta_powershelf_bmc_with_psu_power`] sets it to
+    /// model off/mixed shelves. Ignored for non-Delta hardware.
     pub delta_psu_power: Option<Vec<bool>>,
 }
 
@@ -129,6 +129,7 @@ impl DpuMachineInfo {
             HardwareType::LiteOnPowerShelf
             | HardwareType::DeltaPowerShelf
             | HardwareType::NvidiaSwitchNd5200Ld
+            | HardwareType::NvidiaSwitchN5700Ld
             | HardwareType::NvidiaDgxVr
             | HardwareType::DellPowerEdgeR760Bf4 => {
                 panic!("Bluefield3 DPU is defined for {}", self.hw_type)
@@ -163,7 +164,8 @@ impl DpuMachineInfo {
             | HardwareType::SupermicroGb300Nvl
             | HardwareType::LiteOnPowerShelf
             | HardwareType::DeltaPowerShelf
-            | HardwareType::NvidiaSwitchNd5200Ld => {
+            | HardwareType::NvidiaSwitchNd5200Ld
+            | HardwareType::NvidiaSwitchN5700Ld => {
                 panic!("Bluefield4 DPU is defined for {}", self.hw_type)
             }
             HardwareType::NvidiaDgxVr => hw::bluefield4::Mode::B4240V,
@@ -191,7 +193,8 @@ impl DpuMachineInfo {
             | HardwareType::SupermicroGb300Nvl
             | HardwareType::LiteOnPowerShelf
             | HardwareType::DeltaPowerShelf
-            | HardwareType::NvidiaSwitchNd5200Ld => DpuType::Bluefield3,
+            | HardwareType::NvidiaSwitchNd5200Ld
+            | HardwareType::NvidiaSwitchN5700Ld => DpuType::Bluefield3,
             HardwareType::DellPowerEdgeR760Bf4 | HardwareType::NvidiaDgxVr => DpuType::Bluefield4,
         }
     }
@@ -206,21 +209,21 @@ impl DpuMachineInfo {
         }
     }
 
-    pub fn bmc_product(&self) -> Option<&'static str> {
+    fn bmc_product(&self) -> Option<&'static str> {
         match self.dpu_type() {
             DpuType::Bluefield3 => Some("BlueField-3 DPU"),
             DpuType::Bluefield4 => Some("BlueField-4"),
         }
     }
 
-    pub fn manager_config(&self) -> redfish::manager::Config {
+    fn manager_config(&self) -> redfish::manager::Config {
         match self.dpu_type() {
             DpuType::Bluefield3 => self.bluefield3().manager_config(),
             DpuType::Bluefield4 => self.bluefield4().manager_config(),
         }
     }
 
-    pub fn system_config(
+    fn system_config(
         &self,
         callbacks: Arc<dyn crate::Callbacks>,
     ) -> redfish::computer_system::Config {
@@ -230,21 +233,21 @@ impl DpuMachineInfo {
         }
     }
 
-    pub fn chassis_config(&self) -> redfish::chassis::ChassisConfig {
+    fn chassis_config(&self) -> redfish::chassis::ChassisConfig {
         match self.dpu_type() {
             DpuType::Bluefield3 => self.bluefield3().chassis_config(),
             DpuType::Bluefield4 => self.bluefield4().chassis_config(),
         }
     }
 
-    pub fn update_service_config(&self) -> UpdateServiceConfig {
+    fn update_service_config(&self) -> UpdateServiceConfig {
         match self.dpu_type() {
             DpuType::Bluefield3 => self.bluefield3().update_service_config(),
             DpuType::Bluefield4 => self.bluefield4().update_service_config(),
         }
     }
 
-    pub fn oem_state(&self) -> redfish::oem::State {
+    fn oem_state(&self) -> redfish::oem::State {
         match self.dpu_type() {
             DpuType::Bluefield3 => redfish::oem::State::NvidiaBluefield(
                 redfish::oem::nvidia::bluefield::BluefieldState::new_bf3(
@@ -268,7 +271,10 @@ impl HostMachineInfo {
     ) -> Self {
         let mut next_mac = || pool.allocate().expect("MAC address must be allocated");
         let bmc_mac_address = next_mac();
-        let nvos_mac_addresses = if matches!(hw_type, HardwareType::NvidiaSwitchNd5200Ld) {
+        let nvos_mac_addresses = if matches!(
+            hw_type,
+            HardwareType::NvidiaSwitchNd5200Ld | HardwareType::NvidiaSwitchN5700Ld
+        ) {
             vec![next_mac()]
         } else {
             vec![]
@@ -286,6 +292,7 @@ impl HostMachineInfo {
                     HardwareType::LiteOnPowerShelf
                         | HardwareType::DeltaPowerShelf
                         | HardwareType::NvidiaSwitchNd5200Ld
+                        | HardwareType::NvidiaSwitchN5700Ld
                 ) {
                 Some(next_mac())
             } else {
@@ -303,12 +310,12 @@ impl HostMachineInfo {
     /// PSU bay). Used by tests to model off/mixed shelves; the default is an
     /// all-on six-bay shelf.
     #[must_use]
-    pub fn with_delta_psu_power(mut self, states: Vec<bool>) -> Self {
+    pub(super) fn with_delta_psu_power(mut self, states: Vec<bool>) -> Self {
         self.delta_psu_power = Some(states);
         self
     }
 
-    pub fn primary_dpu(&self) -> Option<&DpuMachineInfo> {
+    fn primary_dpu(&self) -> Option<&DpuMachineInfo> {
         self.dpus.first()
     }
 
@@ -318,7 +325,7 @@ impl HostMachineInfo {
             .or(self.non_dpu_mac_address)
     }
 
-    pub fn oem_state(&self) -> redfish::oem::State {
+    fn oem_state(&self) -> redfish::oem::State {
         match self.hw_type {
             HardwareType::DellPowerEdgeR750 | HardwareType::DellPowerEdgeR760Bf4 => {
                 redfish::oem::State::DellIdrac(redfish::oem::dell::idrac::IdracState::default())
@@ -331,6 +338,7 @@ impl HostMachineInfo {
             | HardwareType::DeltaPowerShelf
             | HardwareType::NvidiaDgxH100
             | HardwareType::NvidiaSwitchNd5200Ld
+            | HardwareType::NvidiaSwitchN5700Ld
             | HardwareType::GenericAmi
             | HardwareType::HpeProliantDl380aGen11
             | HardwareType::GenericSupermicro => redfish::oem::State::Other,
@@ -340,7 +348,7 @@ impl HostMachineInfo {
         }
     }
 
-    pub fn bmc_vendor(&self) -> redfish::oem::BmcVendor {
+    fn bmc_vendor(&self) -> redfish::oem::BmcVendor {
         match self.hw_type {
             HardwareType::DellPowerEdgeR750 | HardwareType::DellPowerEdgeR760Bf4 => {
                 redfish::oem::BmcVendor::Dell
@@ -359,6 +367,9 @@ impl HostMachineInfo {
             HardwareType::NvidiaSwitchNd5200Ld => {
                 redfish::oem::BmcVendor::Nvidia(redfish::oem::NvidiaNamestyle::Uppercase)
             }
+            HardwareType::NvidiaSwitchN5700Ld => {
+                redfish::oem::BmcVendor::Nvidia(redfish::oem::NvidiaNamestyle::Uppercase)
+            }
             HardwareType::NvidiaDgxH100 => redfish::oem::BmcVendor::Ami,
             HardwareType::GenericAmi => redfish::oem::BmcVendor::Ami,
             HardwareType::HpeProliantDl380aGen11 => redfish::oem::BmcVendor::Hpe,
@@ -366,7 +377,7 @@ impl HostMachineInfo {
         }
     }
 
-    pub fn bmc_product(&self) -> Option<&'static str> {
+    fn bmc_product(&self) -> Option<&'static str> {
         match self.hw_type {
             HardwareType::DellPowerEdgeR750 => None,
             HardwareType::DellPowerEdgeR760Bf4 => Some("Integrated Dell Remote Access Controller"),
@@ -378,6 +389,7 @@ impl HostMachineInfo {
             HardwareType::LiteOnPowerShelf => None,
             HardwareType::DeltaPowerShelf => None,
             HardwareType::NvidiaSwitchNd5200Ld => Some("P3809"),
+            HardwareType::NvidiaSwitchN5700Ld => Some("P3809"),
             HardwareType::NvidiaDgxH100 => Some("AMI Redfish Server"),
             HardwareType::GenericAmi => Some("AMI Redfish Server"),
             HardwareType::HpeProliantDl380aGen11 => Some("ProLiant DL380a Gen11"),
@@ -385,7 +397,7 @@ impl HostMachineInfo {
         }
     }
 
-    pub fn bmc_redfish_version(&self) -> &'static str {
+    fn bmc_redfish_version(&self) -> &'static str {
         match self.hw_type {
             HardwareType::DellPowerEdgeR750 | HardwareType::DellPowerEdgeR760Bf4 => "1.18.0",
             HardwareType::WiwynnGB200Nvl => "1.17.0",
@@ -396,6 +408,7 @@ impl HostMachineInfo {
             HardwareType::LiteOnPowerShelf => "1.9.0",
             HardwareType::DeltaPowerShelf => "1.9.0",
             HardwareType::NvidiaSwitchNd5200Ld => "1.17.0",
+            HardwareType::NvidiaSwitchN5700Ld => "1.17.0",
             HardwareType::NvidiaDgxH100 => "1.11.0",
             HardwareType::GenericAmi => "1.17.0",
             HardwareType::HpeProliantDl380aGen11 => "1.13.0",
@@ -403,7 +416,7 @@ impl HostMachineInfo {
         }
     }
 
-    pub fn manager_config(&self) -> redfish::manager::Config {
+    fn manager_config(&self) -> redfish::manager::Config {
         match self.hw_type {
             HardwareType::DellPowerEdgeR750 => self.dell_poweredge_r750().manager_config(),
             HardwareType::DellPowerEdgeR760Bf4 => self.dell_poweredge_r760_bf4().manager_config(),
@@ -415,6 +428,7 @@ impl HostMachineInfo {
             HardwareType::LiteOnPowerShelf => self.liteon_power_shelf().manager_config(),
             HardwareType::DeltaPowerShelf => self.delta_power_shelf().manager_config(),
             HardwareType::NvidiaSwitchNd5200Ld => self.nvidia_switch_nd5200_ld().manager_config(),
+            HardwareType::NvidiaSwitchN5700Ld => self.nvidia_switch_n5700_ld().manager_config(),
             HardwareType::NvidiaDgxH100 => self.nvidia_dgx_h100().manager_config(),
             HardwareType::HpeProliantDl380aGen11 => {
                 self.hpe_proliant_dl380a_gen11().manager_config()
@@ -425,7 +439,7 @@ impl HostMachineInfo {
         }
     }
 
-    pub fn system_config(
+    fn system_config(
         &self,
         callbacks: Arc<dyn crate::Callbacks>,
     ) -> redfish::computer_system::Config {
@@ -444,6 +458,7 @@ impl HostMachineInfo {
             HardwareType::LiteOnPowerShelf => self.liteon_power_shelf().system_config(),
             HardwareType::DeltaPowerShelf => self.delta_power_shelf().system_config(),
             HardwareType::NvidiaSwitchNd5200Ld => self.nvidia_switch_nd5200_ld().system_config(),
+            HardwareType::NvidiaSwitchN5700Ld => self.nvidia_switch_n5700_ld().system_config(),
             HardwareType::NvidiaDgxH100 => self.nvidia_dgx_h100().system_config(callbacks),
             HardwareType::HpeProliantDl380aGen11 => {
                 self.hpe_proliant_dl380a_gen11().system_config(callbacks)
@@ -454,7 +469,7 @@ impl HostMachineInfo {
         }
     }
 
-    pub fn chassis_config(&self) -> redfish::chassis::ChassisConfig {
+    fn chassis_config(&self) -> redfish::chassis::ChassisConfig {
         match self.hw_type {
             HardwareType::DellPowerEdgeR750 => self.dell_poweredge_r750().chassis_config(),
             HardwareType::DellPowerEdgeR760Bf4 => self.dell_poweredge_r760_bf4().chassis_config(),
@@ -466,6 +481,7 @@ impl HostMachineInfo {
             HardwareType::LiteOnPowerShelf => self.liteon_power_shelf().chassis_config(),
             HardwareType::DeltaPowerShelf => self.delta_power_shelf().chassis_config(),
             HardwareType::NvidiaSwitchNd5200Ld => self.nvidia_switch_nd5200_ld().chassis_config(),
+            HardwareType::NvidiaSwitchN5700Ld => self.nvidia_switch_n5700_ld().chassis_config(),
             HardwareType::NvidiaDgxH100 => self.nvidia_dgx_h100().chassis_config(),
             HardwareType::HpeProliantDl380aGen11 => {
                 self.hpe_proliant_dl380a_gen11().chassis_config()
@@ -476,7 +492,7 @@ impl HostMachineInfo {
         }
     }
 
-    pub fn update_service_config(&self) -> UpdateServiceConfig {
+    fn update_service_config(&self) -> UpdateServiceConfig {
         match self.hw_type {
             HardwareType::DellPowerEdgeR750 => self.dell_poweredge_r750().update_service_config(),
             HardwareType::DellPowerEdgeR760Bf4 => {
@@ -492,6 +508,9 @@ impl HostMachineInfo {
             HardwareType::NvidiaSwitchNd5200Ld => {
                 self.nvidia_switch_nd5200_ld().update_service_config()
             }
+            HardwareType::NvidiaSwitchN5700Ld => {
+                self.nvidia_switch_n5700_ld().update_service_config()
+            }
             HardwareType::NvidiaDgxH100 => self.nvidia_dgx_h100().update_service_config(),
             HardwareType::HpeProliantDl380aGen11 => {
                 self.hpe_proliant_dl380a_gen11().update_service_config()
@@ -502,7 +521,7 @@ impl HostMachineInfo {
         }
     }
 
-    pub fn factory_default_account(&self) -> redfish::account_service::Account {
+    fn factory_default_account(&self) -> redfish::account_service::Account {
         // TODO: need to be updated for each individual system.
         let id = match self.hw_type {
             HardwareType::NvidiaDgxH100 | HardwareType::GenericAmi => "2",
@@ -695,7 +714,12 @@ impl HostMachineInfo {
         let io_board1_sn = "MT2524000002";
         let mut pool = MacAddressPool::new_pool(self.hw_mac_addr_pool);
         let mut next_mac = || pool.allocate().expect("MAC address must be allocated");
-        let cx8_mac_addresses = std::array::from_fn(|_| next_mac());
+        // Machine-a-tron's `lenovo_network_interfaces` assigns the first ten
+        // addresses to the CX-8s. Reserve the same slots here so the embedded
+        // NIC and BMC interfaces report matching addresses.
+        for _ in 0..10 {
+            next_mac();
+        }
         hw::lenovo_gb300_nvl::LenovoGB300Nvl {
             system_0_serial_number: Cow::Borrowed(&self.serial),
             chassis_0_serial_number: Cow::Borrowed(&self.serial),
@@ -703,7 +727,6 @@ impl HostMachineInfo {
                 .next()
                 .expect("One DPU must present for GB300 NVL")
                 .bluefield3(),
-            cx8_mac_addresses,
             embedded_1g_nic: hw::nic_intel_i210::NicIntelI210 {
                 mac_address: next_mac(),
             },
@@ -784,7 +807,7 @@ impl HostMachineInfo {
 
     /// Whether this host advertises and serves a `/redfish/v1/Systems`
     /// collection. Delta power shelves do not.
-    pub fn exposes_computer_systems(&self) -> bool {
+    fn exposes_computer_systems(&self) -> bool {
         !matches!(self.hw_type, HardwareType::DeltaPowerShelf)
     }
 
@@ -792,6 +815,22 @@ impl HostMachineInfo {
         let mut pool = MacAddressPool::new_pool(self.hw_mac_addr_pool);
         let mut next_mac = || pool.allocate().expect("MAC address must be allocated");
         hw::nvidia_switch_nd5200_ld::NvidiaSwitchNd5200Ld {
+            bmc_mac_address_eth0: self.bmc_mac_address,
+            bmc_mac_address_eth1: next_mac(),
+            bmc_mac_address_usb0: next_mac(),
+            bmc_serial_number: Cow::Borrowed(&self.serial),
+            switch_serial_number: self
+                .switch_serial_number
+                .as_deref()
+                .unwrap_or(&self.serial)
+                .into(),
+        }
+    }
+
+    fn nvidia_switch_n5700_ld(&self) -> hw::nvidia_switch_n5700_ld::NvidiaSwitchN5700Ld<'_> {
+        let mut pool = MacAddressPool::new_pool(self.hw_mac_addr_pool);
+        let mut next_mac = || pool.allocate().expect("MAC address must be allocated");
+        hw::nvidia_switch_n5700_ld::NvidiaSwitchN5700Ld {
             bmc_mac_address_eth0: self.bmc_mac_address,
             bmc_mac_address_eth1: next_mac(),
             bmc_mac_address_usb0: next_mac(),
@@ -904,21 +943,21 @@ impl MachineInfo {
         )
     }
 
-    pub fn oem_state(&self) -> redfish::oem::State {
+    pub(super) fn oem_state(&self) -> redfish::oem::State {
         match self {
             MachineInfo::Host(host) => host.oem_state(),
             MachineInfo::Dpu(dpu) => dpu.oem_state(),
         }
     }
 
-    pub fn manager_config(&self) -> redfish::manager::Config {
+    pub(super) fn manager_config(&self) -> redfish::manager::Config {
         match self {
             MachineInfo::Host(host) => host.manager_config(),
             MachineInfo::Dpu(dpu) => dpu.manager_config(),
         }
     }
 
-    pub fn bmc_vendor(&self) -> redfish::oem::BmcVendor {
+    pub(super) fn bmc_vendor(&self) -> redfish::oem::BmcVendor {
         match self {
             MachineInfo::Host(h) => h.bmc_vendor(),
             MachineInfo::Dpu(_) => {
@@ -927,21 +966,21 @@ impl MachineInfo {
         }
     }
 
-    pub fn bmc_redfish_version(&self) -> &'static str {
+    pub(super) fn bmc_redfish_version(&self) -> &'static str {
         match self {
             MachineInfo::Host(h) => h.bmc_redfish_version(),
             MachineInfo::Dpu(_) => "1.17.0",
         }
     }
 
-    pub fn bmc_product(&self) -> Option<&'static str> {
+    pub(super) fn bmc_product(&self) -> Option<&'static str> {
         match self {
             MachineInfo::Host(h) => h.bmc_product(),
             MachineInfo::Dpu(d) => d.bmc_product(),
         }
     }
 
-    pub fn system_config(
+    pub(super) fn system_config(
         &self,
         callbacks: Arc<dyn crate::Callbacks>,
     ) -> redfish::computer_system::Config {
@@ -951,14 +990,14 @@ impl MachineInfo {
         }
     }
 
-    pub fn chassis_config(&self) -> redfish::chassis::ChassisConfig {
+    pub(super) fn chassis_config(&self) -> redfish::chassis::ChassisConfig {
         match self {
             Self::Host(h) => h.chassis_config(),
             Self::Dpu(dpu) => dpu.chassis_config(),
         }
     }
 
-    pub fn update_service_config(&self) -> UpdateServiceConfig {
+    pub(super) fn update_service_config(&self) -> UpdateServiceConfig {
         match self {
             Self::Host(h) => h.update_service_config(),
             Self::Dpu(dpu) => dpu.update_service_config(),
@@ -967,17 +1006,10 @@ impl MachineInfo {
 
     /// Whether this machine advertises and serves a `/redfish/v1/Systems`
     /// collection. Only Delta power shelves omit it.
-    pub fn exposes_computer_systems(&self) -> bool {
+    pub(super) fn exposes_computer_systems(&self) -> bool {
         match self {
             Self::Host(h) => h.exposes_computer_systems(),
             Self::Dpu(_) => true,
-        }
-    }
-
-    pub fn product_serial(&self) -> &String {
-        match self {
-            Self::Host(h) => &h.serial,
-            Self::Dpu(d) => &d.serial,
         }
     }
 
@@ -1011,7 +1043,7 @@ impl MachineInfo {
         }
     }
 
-    pub fn factory_default_account(&self) -> redfish::account_service::Account {
+    pub(super) fn factory_default_account(&self) -> redfish::account_service::Account {
         match self {
             MachineInfo::Host(h) => h.factory_default_account(),
             MachineInfo::Dpu(d) => {
@@ -1110,5 +1142,28 @@ mod tests {
             supermicro.serial
         );
         assert_ne!(dgx.serial, supermicro.serial);
+    }
+
+    #[test]
+    fn switch_profiles_allocate_one_nvos_mac() {
+        for hardware_type in [
+            HardwareType::NvidiaSwitchNd5200Ld,
+            HardwareType::NvidiaSwitchN5700Ld,
+        ] {
+            let pool_config =
+                PoolConfig::new(MacAddress::new([2, 0, 0, 0, 0, 0]), 16).expect("valid MAC pool");
+            let mut pool = MacAddressPool::new(Config {
+                ranges: None,
+                pool: Some(pool_config),
+            });
+            let hw_mac_addr_pool = PoolConfig::new(MacAddress::new([6, 0, 0, 0, 0, 0]), 16)
+                .expect("valid hardware MAC pool");
+
+            let host = HostMachineInfo::new(hardware_type, vec![], &mut pool, hw_mac_addr_pool);
+
+            assert_eq!(host.nvos_mac_addresses.len(), 1, "{hardware_type}");
+            assert!(host.switch_serial_number.is_some(), "{hardware_type}");
+            assert_eq!(host.non_dpu_mac_address, None, "{hardware_type}");
+        }
     }
 }

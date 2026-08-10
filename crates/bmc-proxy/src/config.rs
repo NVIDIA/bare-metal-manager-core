@@ -29,7 +29,7 @@ use url::Url;
 use crate::acl::AclConfig;
 
 #[derive(thiserror::Error, Debug)]
-pub enum ConfigError {
+pub(crate) enum ConfigError {
     #[error("{0}")]
     Read(String),
     #[error(transparent)]
@@ -43,18 +43,33 @@ impl From<figment::Error> for ConfigError {
 }
 
 #[derive(Deserialize)]
-pub struct Config {
+pub(crate) struct Config {
     #[serde(default = "Defaults::listen")]
-    pub listen: SocketAddr,
+    pub(crate) listen: SocketAddr,
     #[serde(default = "Defaults::metrics_endpoint")]
-    pub metrics_endpoint: SocketAddr,
+    pub(crate) metrics_endpoint: SocketAddr,
     #[serde(default)]
-    pub allowed_principals: HashSet<String>,
-    pub tls: TlsConfig,
-    pub auth: AuthConfig,
+    pub(crate) allowed_principals: HashSet<String>,
+    pub(crate) tls: TlsConfig,
+    pub(crate) auth: AuthConfig,
     #[serde(default)]
-    pub carbide_api: CarbideApiConfig,
-    pub bmc_proxy: Option<HostPortPair>,
+    pub(crate) carbide_api: CarbideApiConfig,
+    pub(crate) bmc_proxy: Option<HostPortPair>,
+    #[serde(default)]
+    pub(crate) tracing: TracingConfig,
+}
+
+/// OpenTelemetry trace export settings for proxied BMC requests.
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+pub(crate) struct TracingConfig {
+    /// Whether to record and export OTLP spans. Default: false.
+    #[serde(default)]
+    pub(crate) enabled: bool,
+    /// Collector endpoint for OTLP/gRPC traces. Overridden by the standard
+    /// `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` and `OTEL_EXPORTER_OTLP_ENDPOINT`
+    /// variables when either is set.
+    #[serde(default)]
+    pub(crate) otlp_endpoint: Option<String>,
 }
 
 struct Defaults;
@@ -82,11 +97,11 @@ impl Defaults {
 }
 
 #[derive(Clone, Serialize, Deserialize)]
-pub struct TlsConfig {
-    pub identity_pemfile_path: String,
-    pub identity_keyfile_path: String,
-    pub root_cafile_path: String,
-    pub admin_root_cafile_path: String,
+pub(crate) struct TlsConfig {
+    pub(crate) identity_pemfile_path: String,
+    pub(crate) identity_keyfile_path: String,
+    pub(crate) root_cafile_path: String,
+    pub(crate) admin_root_cafile_path: String,
 }
 
 impl Default for TlsConfig {
@@ -102,11 +117,11 @@ impl Default for TlsConfig {
 }
 
 #[derive(Clone, Serialize, Deserialize)]
-pub struct CarbideApiConfig {
-    pub root_ca: String,
-    pub client_cert: String,
-    pub client_key: String,
-    pub api_url: Url,
+pub(crate) struct CarbideApiConfig {
+    pub(crate) root_ca: String,
+    pub(crate) client_cert: String,
+    pub(crate) client_key: String,
+    pub(crate) api_url: Url,
 }
 
 impl Default for CarbideApiConfig {
@@ -122,21 +137,21 @@ impl Default for CarbideApiConfig {
 
 /// Authentication related configuration
 #[derive(Clone, Deserialize)]
-pub struct AuthConfig {
+pub(crate) struct AuthConfig {
     /// Additional nico-admin-cli certs allowed.  This does not include actually allowing the cert to connect, just that certs that can be verified which match these criteria can do GRPC requests.
     #[serde(default)]
-    pub cli_certs: Option<AllowedCertCriteria>,
+    pub(crate) cli_certs: Option<AllowedCertCriteria>,
 
     /// Configuration for the root of trust for client cert auth
     #[serde(default = "Defaults::trust_config")]
-    pub trust: TrustConfig,
+    pub(crate) trust: TrustConfig,
 
     #[serde(default)]
-    pub acls: AclConfig,
+    pub(crate) acls: AclConfig,
 }
 
 impl Config {
-    pub fn parse(s: &str) -> Result<Config, ConfigError> {
+    pub(crate) fn parse(s: &str) -> Result<Config, ConfigError> {
         Figment::new()
             .merge(Toml::string(s))
             .merge(Env::prefixed("CARBIDE_BMC_PROXY_"))
@@ -170,6 +185,7 @@ mod tests {
         ProxyPortOnly,
         ProxyHostAndPort,
         ExplicitCarbideApi,
+        TracingSection,
     }
 
     #[derive(Debug, PartialEq)]
@@ -183,6 +199,8 @@ mod tests {
         service_base_paths: Vec<String>,
         carbide_api_url: String,
         bmc_proxy: Option<String>,
+        tracing_enabled: bool,
+        tracing_otlp_endpoint: Option<String>,
     }
 
     fn config_source(case: ConfigCase) -> String {
@@ -223,6 +241,13 @@ mod tests {
                 api_url = "https://api.example.com:1079"
             "#
             }
+            ConfigCase::TracingSection => {
+                r#"
+                [tracing]
+                enabled = true
+                otlp_endpoint = "http://collector.example.com:4317"
+            "#
+            }
         };
 
         format!("{extra}\n{MINIMAL_TLS}")
@@ -245,6 +270,8 @@ mod tests {
             service_base_paths: config.auth.trust.spiffe_service_base_paths,
             carbide_api_url: config.carbide_api.api_url.to_string(),
             bmc_proxy: config.bmc_proxy.map(|pair| pair.to_string()),
+            tracing_enabled: config.tracing.enabled,
+            tracing_otlp_endpoint: config.tracing.otlp_endpoint,
         }
     }
 
@@ -267,6 +294,8 @@ mod tests {
                     carbide_api_url: "https://carbide-api.forge-system.svc.cluster.local:1079/"
                         .to_string(),
                     bmc_proxy: None,
+                    tracing_enabled: false,
+                    tracing_otlp_endpoint: None,
                 },
             }
 
@@ -285,6 +314,8 @@ mod tests {
                     carbide_api_url: "https://carbide-api.forge-system.svc.cluster.local:1079/"
                         .to_string(),
                     bmc_proxy: None,
+                    tracing_enabled: false,
+                    tracing_otlp_endpoint: None,
                 },
             }
 
@@ -306,6 +337,8 @@ mod tests {
                     carbide_api_url: "https://carbide-api.forge-system.svc.cluster.local:1079/"
                         .to_string(),
                     bmc_proxy: None,
+                    tracing_enabled: false,
+                    tracing_otlp_endpoint: None,
                 },
             }
 
@@ -324,6 +357,8 @@ mod tests {
                     carbide_api_url: "https://carbide-api.forge-system.svc.cluster.local:1079/"
                         .to_string(),
                     bmc_proxy: Some("proxy.local".to_string()),
+                    tracing_enabled: false,
+                    tracing_otlp_endpoint: None,
                 },
             }
 
@@ -342,6 +377,8 @@ mod tests {
                     carbide_api_url: "https://carbide-api.forge-system.svc.cluster.local:1079/"
                         .to_string(),
                     bmc_proxy: Some("8443".to_string()),
+                    tracing_enabled: false,
+                    tracing_otlp_endpoint: None,
                 },
             }
 
@@ -360,6 +397,8 @@ mod tests {
                     carbide_api_url: "https://carbide-api.forge-system.svc.cluster.local:1079/"
                         .to_string(),
                     bmc_proxy: Some("proxy.local:8443".to_string()),
+                    tracing_enabled: false,
+                    tracing_otlp_endpoint: None,
                 },
             }
 
@@ -377,6 +416,28 @@ mod tests {
                     ],
                     carbide_api_url: "https://api.example.com:1079/".to_string(),
                     bmc_proxy: None,
+                    tracing_enabled: false,
+                    tracing_otlp_endpoint: None,
+                },
+            }
+
+            "tracing section" {
+                ConfigCase::TracingSection => ConfigSummary {
+                    listen: "[::]:1079".to_string(),
+                    metrics_endpoint: "[::]:1080".to_string(),
+                    allowed_principals: vec![],
+                    identity_pemfile_path: "/tls/cert.pem".to_string(),
+                    root_cafile_path: "/tls/ca.pem".to_string(),
+                    trust_domain: "nico.local".to_string(),
+                    service_base_paths: vec![
+                        "/forge-system/sa/".to_string(),
+                        "/default/sa/".to_string(),
+                    ],
+                    carbide_api_url: "https://carbide-api.forge-system.svc.cluster.local:1079/"
+                        .to_string(),
+                    bmc_proxy: None,
+                    tracing_enabled: true,
+                    tracing_otlp_endpoint: Some("http://collector.example.com:4317".to_string()),
                 },
             }
         );
