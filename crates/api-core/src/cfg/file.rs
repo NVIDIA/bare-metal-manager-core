@@ -60,7 +60,10 @@ use model::firmware::{
     AgentUpgradePolicyChoice, Firmware, FirmwareComponent, FirmwareComponentType, FirmwareEntry,
 };
 use model::machine::HostHealthConfig;
-use model::network_security_group::NetworkSecurityGroupRule;
+use model::network_security_group::{
+    NetworkSecurityGroupRule, NetworkSecurityGroupRuleAction, NetworkSecurityGroupRuleDirection,
+    NetworkSecurityGroupRuleNet, NetworkSecurityGroupRuleProtocol,
+};
 use model::network_segment::NetworkDefinition;
 use model::resource_pool::define::ResourcePoolDef;
 use model::tenant::identity_config::SigningAlgorithm;
@@ -3275,6 +3278,52 @@ impl Default for DpuConfig {
     }
 }
 
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct NetworkSecurityGroupRuleConfig {
+    id: Option<String>,
+    src_net: NetworkSecurityGroupRuleNet,
+    dst_net: NetworkSecurityGroupRuleNet,
+    direction: NetworkSecurityGroupRuleDirection,
+    ipv6: bool,
+    src_port_start: Option<u32>,
+    src_port_end: Option<u32>,
+    dst_port_start: Option<u32>,
+    dst_port_end: Option<u32>,
+    protocol: NetworkSecurityGroupRuleProtocol,
+    action: NetworkSecurityGroupRuleAction,
+    priority: u32,
+}
+
+impl From<NetworkSecurityGroupRuleConfig> for NetworkSecurityGroupRule {
+    fn from(rule: NetworkSecurityGroupRuleConfig) -> Self {
+        Self {
+            id: rule.id,
+            src_net: rule.src_net,
+            dst_net: rule.dst_net,
+            direction: rule.direction,
+            ipv6: rule.ipv6,
+            src_port_start: rule.src_port_start,
+            src_port_end: rule.src_port_end,
+            dst_port_start: rule.dst_port_start,
+            dst_port_end: rule.dst_port_end,
+            protocol: rule.protocol,
+            action: rule.action,
+            priority: rule.priority,
+        }
+    }
+}
+
+fn deserialize_network_security_group_policy_overrides<'de, D>(
+    deserializer: D,
+) -> Result<Vec<NetworkSecurityGroupRule>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    Vec::<NetworkSecurityGroupRuleConfig>::deserialize(deserializer)
+        .map(|rules| rules.into_iter().map(Into::into).collect())
+}
+
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct NetworkSecurityGroupConfig {
@@ -3291,7 +3340,10 @@ pub struct NetworkSecurityGroupConfig {
     pub stateful_acls_enabled: bool,
 
     /// A set of NSG rules that will be inserted before any user-defined rules.
-    #[serde(default)]
+    #[serde(
+        default,
+        deserialize_with = "deserialize_network_security_group_policy_overrides"
+    )]
     pub policy_overrides: Vec<NetworkSecurityGroupRule>,
 }
 
@@ -5149,8 +5201,8 @@ mod tests {
         let repository_root = concat!(env!("CARGO_MANIFEST_DIR"), "/../..");
         let deploy_path =
             format!("{repository_root}/deploy/nico-base/api/config-files/carbide-api-config.toml");
-        let docker_path = format!("{repository_root}/dev/docker-env/carbide-api-config.toml");
-        let webdev_path = format!("{repository_root}/dev/webdev-env/carbide-api-config.toml");
+        let docker_config = include_str!("../../../../dev/docker-env/carbide-api-config.toml");
+        let webdev_config = include_str!("../../../../dev/webdev-env/carbide-api-config.toml");
         let site_config = rendered_deployment_site_config();
         let helm_config = rendered_helm_api_config();
 
@@ -5173,14 +5225,14 @@ mod tests {
             (
                 "Docker development",
                 Figment::new()
-                    .merge(Toml::file(&docker_path))
+                    .merge(Toml::string(docker_config))
                     .merge(Toml::string(
                         r#"database_url = "postgres://test:test@localhost/test""#,
                     )),
             ),
             (
                 "web development",
-                Figment::new().merge(Toml::file(&webdev_path)),
+                Figment::new().merge(Toml::string(webdev_config)),
             ),
             (
                 "rendered Helm",
