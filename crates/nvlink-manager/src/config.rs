@@ -189,8 +189,9 @@ mod test {
 
     #[test]
     fn deserialize_zero_concurrent_groups_is_rejected() {
-        let err =
-            serde_json::from_str::<NvLinkConfig>(r#"{"allow_insecure":false,"partition_monitor_max_concurrent_groups":0}"#);
+        let err = serde_json::from_str::<NvLinkConfig>(
+            r#"{"allow_insecure":false,"partition_monitor_max_concurrent_groups":0}"#,
+        );
         assert!(err.is_err(), "zero must be rejected by NonZeroUsize");
     }
 
