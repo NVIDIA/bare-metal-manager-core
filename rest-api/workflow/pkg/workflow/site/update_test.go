@@ -14,6 +14,7 @@ import (
 	"go.temporal.io/sdk/testsuite"
 
 	corev1 "github.com/NVIDIA/infra-controller/rest-api/proto/core/gen/v1"
+	cwm "github.com/NVIDIA/infra-controller/rest-api/workflow/internal/metrics"
 	siteActivity "github.com/NVIDIA/infra-controller/rest-api/workflow/pkg/activity/site"
 )
 
@@ -33,17 +34,25 @@ func (s *UpdateSiteConfigInventoryWorkflowTestSuite) AfterTest(suiteName, testNa
 
 func (s *UpdateSiteConfigInventoryWorkflowTestSuite) Test_UpdateSiteConfigInventoryWorkflow_Success() {
 	var siteManager siteActivity.ManageSite
+	var metricsManager cwm.ManageInventoryMetrics
 
 	siteID := uuid.New()
 	prefixes := []string{"10.0.0.0/16", "2001:db8::/64"}
 	buildInfo := &corev1.BuildInfo{
+		BuildVersion: "1.2.3",
 		RuntimeConfig: &corev1.RuntimeConfig{
 			SiteFabricPrefixes: prefixes,
 		},
 	}
 
+	s.env.RegisterActivity(siteManager.UpdateSiteInDB)
+	s.env.OnActivity(siteManager.UpdateSiteInDB, mock.Anything, siteID, buildInfo).Return(nil)
+
 	s.env.RegisterActivity(siteManager.UpdateIPBlocksInDBFromFabricPrefixes)
 	s.env.OnActivity(siteManager.UpdateIPBlocksInDBFromFabricPrefixes, mock.Anything, siteID, prefixes).Return(nil)
+
+	s.env.RegisterActivity(metricsManager.RecordLatency)
+	s.env.OnActivity(metricsManager.RecordLatency, mock.Anything, siteID, "UpdateSiteConfigInventory", false, mock.Anything).Return(nil)
 
 	s.env.ExecuteWorkflow(UpdateSiteConfigInventory, siteID.String(), buildInfo)
 	s.True(s.env.IsWorkflowCompleted())
@@ -52,17 +61,25 @@ func (s *UpdateSiteConfigInventoryWorkflowTestSuite) Test_UpdateSiteConfigInvent
 
 func (s *UpdateSiteConfigInventoryWorkflowTestSuite) Test_UpdateSiteConfigInventoryWorkflow_ActivityFails() {
 	var siteManager siteActivity.ManageSite
+	var metricsManager cwm.ManageInventoryMetrics
 
 	siteID := uuid.New()
 	prefixes := []string{"10.0.0.0/16"}
 	buildInfo := &corev1.BuildInfo{
+		BuildVersion: "1.2.3",
 		RuntimeConfig: &corev1.RuntimeConfig{
 			SiteFabricPrefixes: prefixes,
 		},
 	}
 
+	s.env.RegisterActivity(siteManager.UpdateSiteInDB)
+	s.env.OnActivity(siteManager.UpdateSiteInDB, mock.Anything, siteID, buildInfo).Return(nil)
+
 	s.env.RegisterActivity(siteManager.UpdateIPBlocksInDBFromFabricPrefixes)
 	s.env.OnActivity(siteManager.UpdateIPBlocksInDBFromFabricPrefixes, mock.Anything, siteID, prefixes).Return(errors.New("failed to update Site IP Blocks"))
+
+	s.env.RegisterActivity(metricsManager.RecordLatency)
+	s.env.OnActivity(metricsManager.RecordLatency, mock.Anything, siteID, "UpdateSiteConfigInventory", true, mock.Anything).Return(nil).Maybe()
 
 	s.env.ExecuteWorkflow(UpdateSiteConfigInventory, siteID.String(), buildInfo)
 	s.True(s.env.IsWorkflowCompleted())
@@ -72,6 +89,35 @@ func (s *UpdateSiteConfigInventoryWorkflowTestSuite) Test_UpdateSiteConfigInvent
 	var applicationErr *temporal.ApplicationError
 	s.True(errors.As(err, &applicationErr))
 	s.Equal("failed to update Site IP Blocks", applicationErr.Error())
+}
+
+func (s *UpdateSiteConfigInventoryWorkflowTestSuite) Test_UpdateSiteConfigInventoryWorkflow_UpdateSiteInDBFailsContinues() {
+	var siteManager siteActivity.ManageSite
+	var metricsManager cwm.ManageInventoryMetrics
+
+	siteID := uuid.New()
+	prefixes := []string{"10.0.0.0/16"}
+	buildInfo := &corev1.BuildInfo{
+		BuildVersion: "1.2.3",
+		RuntimeConfig: &corev1.RuntimeConfig{
+			SiteFabricPrefixes: prefixes,
+		},
+	}
+
+	// UpdateSiteInDB failures are logged and do not stop the workflow from
+	// creating Site fabric IP Blocks from the reported prefixes.
+	s.env.RegisterActivity(siteManager.UpdateSiteInDB)
+	s.env.OnActivity(siteManager.UpdateSiteInDB, mock.Anything, siteID, buildInfo).Return(errors.New("failed to update Site metadata"))
+
+	s.env.RegisterActivity(siteManager.UpdateIPBlocksInDBFromFabricPrefixes)
+	s.env.OnActivity(siteManager.UpdateIPBlocksInDBFromFabricPrefixes, mock.Anything, siteID, prefixes).Return(nil)
+
+	s.env.RegisterActivity(metricsManager.RecordLatency)
+	s.env.OnActivity(metricsManager.RecordLatency, mock.Anything, siteID, "UpdateSiteConfigInventory", false, mock.Anything).Return(nil)
+
+	s.env.ExecuteWorkflow(UpdateSiteConfigInventory, siteID.String(), buildInfo)
+	s.True(s.env.IsWorkflowCompleted())
+	s.NoError(s.env.GetWorkflowError())
 }
 
 func (s *UpdateSiteConfigInventoryWorkflowTestSuite) Test_UpdateSiteConfigInventoryWorkflow_InvalidSiteID() {
