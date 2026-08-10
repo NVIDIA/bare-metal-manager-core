@@ -254,6 +254,13 @@ pub struct MemoryDeviceGroup {
 }
 
 impl MemoryDeviceGroup {
+    /// Returns `Some(self)` when `count > 0`, `None` otherwise.
+    ///
+    /// Use at ingestion boundaries to drop proto or stored groups that carry no devices.
+    pub fn nonzero(self) -> Option<Self> {
+        (self.count > 0).then_some(self)
+    }
+
     /// Expands this group back into a flat iterator of individual [`MemoryDevice`]s.
     pub fn rehydrate(&self) -> impl Iterator<Item = MemoryDevice> + '_ {
         std::iter::repeat_n(
@@ -303,10 +310,7 @@ where
     use serde::Deserialize as _;
     let raw = Vec::<MemoryDeviceGroup>::deserialize(deserializer)?;
     let mut merged: Vec<MemoryDeviceGroup> = Vec::new();
-    for group in raw {
-        if group.count == 0 {
-            continue;
-        }
+    for group in raw.into_iter().filter_map(|g| g.nonzero()) {
         if let Some(existing) = merged
             .iter_mut()
             .find(|g| g.size_mb == group.size_mb && g.mem_type == group.mem_type)
@@ -1300,6 +1304,64 @@ mod tests {
                     guid: 0,
                 },
             }
+        );
+    }
+
+    #[test]
+    fn memory_device_group_nonzero() {
+        value_scenarios!(
+            run = |count| MemoryDeviceGroup {
+                size_mb: Some(8192),
+                mem_type: Some("DDR5".into()),
+                count,
+            }
+            .nonzero();
+            "zero count produces None" {
+                0u32 => None,
+            }
+
+            "nonzero count produces Some preserving all fields" {
+                4u32 => Some(MemoryDeviceGroup {
+                    size_mb: Some(8192),
+                    mem_type: Some("DDR5".into()),
+                    count: 4,
+                }),
+            }
+        );
+    }
+
+    // Zero-count entries in stored JSON are silently dropped:
+    //   - a zero-count group with a unique key is absent from the output entirely
+    //   - nonzero groups with the same key merge normally
+    //   - a zero-count group followed by a nonzero group with the same key does not
+    //     increase the merged count
+    #[test]
+    fn deserialize_memory_devices_drops_zero_count_groups() {
+        let json = r#"{
+            "machine_type": "x86_64",
+            "memory_devices": [
+                {"size_mb": 8192,  "mem_type": "DDR4", "count": 0},
+                {"size_mb": 16384, "mem_type": "DDR5", "count": 2},
+                {"size_mb": 16384, "mem_type": "DDR5", "count": 1},
+                {"size_mb": 32768, "mem_type": "DDR5", "count": 0},
+                {"size_mb": 32768, "mem_type": "DDR5", "count": 5}
+            ]
+        }"#;
+        let info: HardwareInfo = serde_json::from_str(json).unwrap();
+        assert_eq!(
+            info.memory_devices,
+            vec![
+                MemoryDeviceGroup {
+                    size_mb: Some(16384),
+                    mem_type: Some("DDR5".into()),
+                    count: 3,
+                },
+                MemoryDeviceGroup {
+                    size_mb: Some(32768),
+                    mem_type: Some("DDR5".into()),
+                    count: 5,
+                },
+            ]
         );
     }
 }

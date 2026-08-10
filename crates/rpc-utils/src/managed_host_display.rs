@@ -186,7 +186,13 @@ impl From<Machine> for ManagedHostOutput {
             .unwrap_or_default();
         let host_memory = discovery_info.as_ref().and_then(|di| {
             if !di.memory_device_groups.is_empty() {
-                get_memory_details(&di.memory_device_groups)
+                let valid: Vec<_> = di
+                    .memory_device_groups
+                    .iter()
+                    .cloned()
+                    .filter_map(|g| g.nonzero())
+                    .collect();
+                get_memory_details(&valid)
             } else {
                 #[allow(deprecated)]
                 let groups: Vec<MemoryDeviceGroup> = di
@@ -551,9 +557,6 @@ pub fn get_memory_details(memory_device_groups: &[MemoryDeviceGroup]) -> Option<
     let mut total_size = 0u64;
     let mut total_count = 0u32;
     for group in memory_device_groups {
-        if group.count == 0 {
-            continue;
-        }
         let size = byte_unit::Byte::from_f64_with_unit(
             group.size_mb.unwrap_or(0) as f64,
             byte_unit::Unit::MiB,

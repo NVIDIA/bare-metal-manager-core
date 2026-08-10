@@ -525,8 +525,7 @@ impl TryFrom<rpc::machine_discovery::DiscoveryInfo> for HardwareInfo {
             memory_devices: if !info.memory_device_groups.is_empty() {
                 info.memory_device_groups
                     .into_iter()
-                    .map(model::hardware_info::MemoryDeviceGroup::from)
-                    .filter(|g| g.count > 0)
+                    .filter_map(|g| model::hardware_info::MemoryDeviceGroup::from(g).nonzero())
                     .collect()
             } else {
                 #[allow(deprecated)]
@@ -2412,6 +2411,36 @@ mod tests {
                 },
             }],
             |value| project_rpc_nvlink(rpc::forge::MachineNvLinkInfo::from(value)),
+        );
+    }
+
+    // Zero-count groups in the proto `memory_device_groups` field are dropped and do
+    // not appear in the converted `HardwareInfo.memory_devices`.
+    #[test]
+    fn discovery_info_conversion_drops_zero_count_memory_groups() {
+        let info = rpc::machine_discovery::DiscoveryInfo {
+            memory_device_groups: vec![
+                rpc::machine_discovery::MemoryDeviceGroup {
+                    size_mb: Some(16384),
+                    mem_type: Some("DDR5".to_string()),
+                    count: 4,
+                },
+                rpc::machine_discovery::MemoryDeviceGroup {
+                    size_mb: Some(8192),
+                    mem_type: Some("DDR4".to_string()),
+                    count: 0,
+                },
+            ],
+            ..Default::default()
+        };
+        let hw = HardwareInfo::try_from(info).unwrap();
+        assert_eq!(
+            hw.memory_devices,
+            vec![MemoryDeviceGroup {
+                size_mb: Some(16384),
+                mem_type: Some("DDR5".to_string()),
+                count: 4,
+            }]
         );
     }
 }

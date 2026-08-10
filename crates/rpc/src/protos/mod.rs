@@ -70,6 +70,15 @@ pub mod machine_discovery {
     include!(concat!(env!("OUT_DIR"), "/machine_discovery.rs"));
 }
 
+impl machine_discovery::MemoryDeviceGroup {
+    /// Returns `Some(self)` when `count > 0`, `None` otherwise.
+    ///
+    /// Use at ingestion boundaries to drop proto groups that carry no devices.
+    pub fn nonzero(self) -> Option<Self> {
+        (self.count > 0).then_some(self)
+    }
+}
+
 #[allow(non_snake_case, unknown_lints, clippy::all)]
 #[rustfmt::skip]
 pub mod measured_boot {
