@@ -2000,7 +2000,7 @@ impl ApiClient {
             allow_unhealthy_machine: false,
         };
 
-        tracing::trace!("{}", serde_json::to_string(&instance_request).unwrap());
+        tracing::trace!("{}", serde_json::to_string(&instance_request)?);
         Ok(instance_request)
     }
 

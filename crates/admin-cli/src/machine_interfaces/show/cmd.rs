@@ -122,7 +122,10 @@ fn convert_machines_to_nice_table(
     ));
 
     for machine_interface in machine_interfaces.interfaces {
-        let domain_name = domainlist_map.get(&machine_interface.domain_id.unwrap_or_default());
+        let domain_name = domainlist_map
+            .get(&machine_interface.domain_id.unwrap_or_default())
+            .map(Cow::Borrowed)
+            .unwrap_or_default();
         let mut row = vec![
             Cow::Owned(machine_interface.id.unwrap_or_default().to_string()),
             machine_interface.mac_address.as_str().into(),
@@ -136,7 +139,7 @@ fn convert_machines_to_nice_table(
             machine_interface.hostname.into(),
             machine_interface.vendor.unwrap_or_default().into(),
         ];
-        if has_more && let Some(domain_name) = domain_name {
+        if has_more {
             row.extend_from_slice(&[domain_name.as_str().into()]);
         }
         table.add_row(row.into());
