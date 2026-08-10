@@ -758,7 +758,7 @@ func TestCreateSkuHandler(t *testing.T) {
 		assert.Equal(t, req.DeviceType, response.DeviceType)
 		assert.Equal(t, model.NewAPISkuComponents(req.Components.ToProto()), response.Components)
 		assert.Empty(t, response.AssociatedMachineIds)
-		assert.Nil(t, response.Created)
+		assert.True(t, response.Created.After(beforeCreate))
 
 		saved, err := cdbm.NewSkuDAO(fixture.createHandler.dbSession).Get(context.Background(), nil, req.ID)
 		require.NoError(t, err)

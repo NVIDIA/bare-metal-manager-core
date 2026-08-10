@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"time"
 
+	cutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
 	cdbm "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/model"
 	corev1 "github.com/NVIDIA/infra-controller/rest-api/proto/core/gen/v1"
 	validation "github.com/go-ozzo/ozzo-validation/v4"
@@ -171,6 +172,7 @@ func NewAPISkuFromCreateRequest(req APISkuCreateRequest, skuID, siteID string) *
 		DeviceType:           req.DeviceType,
 		AssociatedMachineIds: []string{},
 		Components:           NewAPISkuComponents(req.Components.ToProto()),
+		Created:              cutil.GetPtr(time.Now().UTC()), // best guess in absence of data from Core
 	}
 }
 
