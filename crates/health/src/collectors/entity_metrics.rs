@@ -460,13 +460,13 @@ impl<B: Bmc + 'static> MetricsCollector<B> {
         let fields = match entity {
             DiscoveredEntity::Processor { entity, .. } => {
                 match self.fetch(entity.metrics().await, "processor metrics", fetch_failures) {
-                    Some(Some(m)) => processor_metric_fields(&m),
+                    Some(Some(m)) => processor_metric_fields(&m.raw()),
                     _ => return 0,
                 }
             }
             DiscoveredEntity::Memory { entity, .. } => {
                 match self.fetch(entity.metrics().await, "memory metrics", fetch_failures) {
-                    Some(Some(m)) => memory_metric_fields(&m),
+                    Some(Some(m)) => memory_metric_fields(&m.raw()),
                     _ => return 0,
                 }
             }
