@@ -15,14 +15,18 @@
  * limitations under the License.
  */
 
+use rpc::forge::DecommissionManagedHostRequest;
+
 use super::args::Args;
 use crate::errors::CarbideCliResult;
 use crate::rpc::ApiClient;
 
-pub async fn decommission(api_client: &ApiClient, args: Args) -> CarbideCliResult<()> {
+pub(super) async fn decommission(api_client: &ApiClient, args: Args) -> CarbideCliResult<()> {
     api_client
         .0
-        .decommission_managed_host(args.machine_id)
+        .decommission_managed_host(DecommissionManagedHostRequest {
+            machine_id: Some(args.machine_id),
+        })
         .await?;
     println!("Started decommissioning managed host {}.", args.machine_id);
     Ok(())

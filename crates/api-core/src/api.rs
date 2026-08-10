@@ -1204,15 +1204,15 @@ impl Forge for Api {
 
     async fn decommission_managed_host(
         &self,
-        request: Request<carbide_uuid::machine::MachineId>,
-    ) -> Result<Response<()>, Status> {
+        request: Request<rpc::DecommissionManagedHostRequest>,
+    ) -> Result<Response<rpc::DecommissionManagedHostResponse>, Status> {
         crate::handlers::managed_host::decommission_managed_host(self, request).await
     }
 
     async fn delete_decommissioned_managed_host(
         &self,
         request: Request<rpc::DeleteDecommissionedManagedHostRequest>,
-    ) -> Result<Response<()>, Status> {
+    ) -> Result<Response<rpc::DeleteDecommissionedManagedHostResponse>, Status> {
         crate::handlers::managed_host::delete_decommissioned_managed_host(self, request).await
     }
 

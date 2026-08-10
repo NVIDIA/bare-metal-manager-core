@@ -340,10 +340,10 @@ service Forge {
   rpc AdminForceDeleteMachine(AdminForceDeleteMachineRequest) returns (AdminForceDeleteMachineResponse);
 
   // Starts the managed host decommissioning workflow. The host must be Ready.
-  rpc DecommissionManagedHost(common.MachineId) returns (google.protobuf.Empty);
+  rpc DecommissionManagedHost(DecommissionManagedHostRequest) returns (DecommissionManagedHostResponse);
 
   // Permanently removes a managed host after decommissioning has completed.
-  rpc DeleteDecommissionedManagedHost(DeleteDecommissionedManagedHostRequest) returns (google.protobuf.Empty);
+  rpc DeleteDecommissionedManagedHost(DeleteDecommissionedManagedHostRequest) returns (DeleteDecommissionedManagedHostResponse);
 
   // List existing resource pools and their stats
   rpc AdminListResourcePools(ListResourcePoolsRequest) returns (ResourcePools);
@@ -4919,8 +4919,18 @@ message AdminForceDeleteMachineRequest {
   bool allow_delete_with_orphaned_dpf_crds = 5;
 }
 
+message DecommissionManagedHostRequest {
+  common.MachineId machine_id = 1;
+}
+
+message DecommissionManagedHostResponse {
+}
+
 message DeleteDecommissionedManagedHostRequest {
   common.MachineId machine_id = 1;
+}
+
+message DeleteDecommissionedManagedHostResponse {
 }
 
 // Response to AdminForceDeleteMachine call

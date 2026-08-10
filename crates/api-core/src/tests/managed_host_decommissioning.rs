@@ -15,6 +15,7 @@
  * limitations under the License.
  */
 
+use rpc::forge::DecommissionManagedHostRequest;
 use rpc::forge::forge_server::Forge;
 use tonic::{Code, Request};
 
@@ -42,7 +43,9 @@ async fn decommission_requires_redfish_bfb_install_support(pool: sqlx::PgPool) {
 
     let error = env
         .api
-        .decommission_managed_host(Request::new(managed_host.id))
+        .decommission_managed_host(Request::new(DecommissionManagedHostRequest {
+            machine_id: Some(managed_host.id),
+        }))
         .await
         .unwrap_err();
     assert_eq!(error.code(), Code::FailedPrecondition);
@@ -74,7 +77,9 @@ async fn decommission_requires_redfish_bfb_install_support(pool: sqlx::PgPool) {
     .unwrap();
 
     env.api
-        .decommission_managed_host(Request::new(managed_host.id))
+        .decommission_managed_host(Request::new(DecommissionManagedHostRequest {
+            machine_id: Some(managed_host.id),
+        }))
         .await
         .unwrap();
 

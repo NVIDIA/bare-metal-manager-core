@@ -27,7 +27,7 @@ Permanently delete a decommissioned managed host:
     $ nico-admin-cli managed-host delete-decommissioned fm100ht038bg3qsho433vkg684heguv282qaggmrsh2ugn1qk096n2c6hcg
 
 ")]
-pub struct Args {
+pub(crate) struct Args {
     #[clap(help = "ID of the decommissioned managed host to permanently delete")]
-    pub machine_id: MachineId,
+    pub(crate) machine_id: MachineId,
 }

@@ -21,7 +21,7 @@ import (
 	"github.com/NVIDIA/infra-controller/rest-api/api/pkg/api/model"
 	sc "github.com/NVIDIA/infra-controller/rest-api/api/pkg/client/site"
 	authz "github.com/NVIDIA/infra-controller/rest-api/auth/pkg/authorization"
-	"github.com/NVIDIA/infra-controller/rest-api/common/pkg/coreproxy"
+	"github.com/NVIDIA/infra-controller/rest-api/common/pkg/grpcproxy"
 	cutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
 	cdb "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db"
 	cdbm "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/model"
@@ -35,7 +35,7 @@ type decommissionManagedHostFixture struct {
 	user          interface{}
 	handler       echo.HandlerFunc
 	deleteHandler echo.HandlerFunc
-	proxiedReq    *coreproxy.Request
+	proxiedReq    *grpcproxy.Request
 }
 
 func newDecommissionManagedHostFixture(t *testing.T) decommissionManagedHostFixture {
@@ -57,7 +57,7 @@ func newDecommissionManagedHostFixture(t *testing.T) decommissionManagedHostFixt
 	instanceType := common.TestBuildInstanceType(t, dbSession, "test-instance-type", cutil.GetPtr(site.ID), site, nil, user)
 	machine := common.TestBuildMachine(t, dbSession, provider, site, &instanceType.ID, cutil.GetPtr("test-controller-machine-type"), cdbm.MachineStatusReady)
 
-	proxiedReq := &coreproxy.Request{}
+	proxiedReq := &grpcproxy.Request{}
 	workflowRun := &tmocks.WorkflowRun{}
 	workflowRun.On("Get", mock.Anything, mock.Anything).Return(nil)
 	temporalClient := &tmocks.Client{}
@@ -65,8 +65,8 @@ func newDecommissionManagedHostFixture(t *testing.T) decommissionManagedHostFixt
 		"ExecuteWorkflow",
 		mock.Anything,
 		mock.Anything,
-		coreproxy.WorkflowName,
-		mock.MatchedBy(func(request coreproxy.Request) bool {
+		grpcproxy.Core.WorkflowName,
+		mock.MatchedBy(func(request grpcproxy.Request) bool {
 			*proxiedReq = request
 			return true
 		}),
@@ -109,9 +109,9 @@ func TestDecommissionManagedHostHandlerProxiesRequest(t *testing.T) {
 	assert.Equal(t, http.StatusAccepted, recorder.Code)
 	assert.Equal(t, corev1.Forge_DecommissionManagedHost_FullMethodName, fixture.proxiedReq.FullMethod)
 
-	var coreRequest corev1.MachineId
+	var coreRequest corev1.DecommissionManagedHostRequest
 	require.NoError(t, protojson.Unmarshal(fixture.proxiedReq.RequestJSON, &coreRequest))
-	assert.Equal(t, fixture.machineID, coreRequest.GetId())
+	assert.Equal(t, fixture.machineID, coreRequest.GetMachineId().GetId())
 
 	var response model.APIMessageResponse
 	require.NoError(t, json.Unmarshal(recorder.Body.Bytes(), &response))

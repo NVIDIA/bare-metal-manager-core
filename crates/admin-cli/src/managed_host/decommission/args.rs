@@ -27,7 +27,7 @@ Start decommissioning a ready managed host:
     $ nico-admin-cli managed-host decommission fm100ht038bg3qsho433vkg684heguv282qaggmrsh2ugn1qk096n2c6hcg
 
 ")]
-pub struct Args {
+pub(crate) struct Args {
     #[clap(help = "ID of the ready managed host to decommission")]
-    pub machine_id: MachineId,
+    pub(crate) machine_id: MachineId,
 }

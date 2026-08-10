@@ -50,10 +50,10 @@ fn boot_target_for_interface(
 
 pub(crate) async fn decommission_managed_host(
     api: &Api,
-    request: Request<MachineId>,
-) -> Result<Response<()>, Status> {
+    request: Request<rpc::DecommissionManagedHostRequest>,
+) -> Result<Response<rpc::DecommissionManagedHostResponse>, Status> {
     log_request_data(&request);
-    let machine_id = convert_and_log_machine_id(Some(&request.into_inner()))?;
+    let machine_id = convert_and_log_machine_id(request.into_inner().machine_id.as_ref())?;
     if machine_id.machine_type().is_dpu() {
         return Err(CarbideError::InvalidArgument(format!(
             "machine {machine_id} is a DPU, not a managed host"
@@ -123,13 +123,13 @@ pub(crate) async fn decommission_managed_host(
         );
     }
 
-    Ok(Response::new(()))
+    Ok(Response::new(rpc::DecommissionManagedHostResponse {}))
 }
 
 pub(crate) async fn delete_decommissioned_managed_host(
     api: &Api,
     request: Request<rpc::DeleteDecommissionedManagedHostRequest>,
-) -> Result<Response<()>, Status> {
+) -> Result<Response<rpc::DeleteDecommissionedManagedHostResponse>, Status> {
     log_request_data(&request);
     let request = request.into_inner();
     let machine_id = convert_and_log_machine_id(request.machine_id.as_ref())?;
@@ -310,7 +310,7 @@ pub(crate) async fn delete_decommissioned_managed_host(
     .await?;
 
     txn.commit().await?;
-    Ok(Response::new(()))
+    Ok(Response::new(rpc::DeleteDecommissionedManagedHostResponse {}))
 }
 
 /// Identifies the row directly or through the DPU attached to it.
