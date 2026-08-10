@@ -839,6 +839,24 @@ mod tests {
         assert_eq!(records[0].severity_number, SeverityNumber::Warn as i32);
     }
 
+    #[test]
+    fn empty_log_body_is_exported_as_empty_string() {
+        let log = CollectorEvent::Log(Box::new(LogRecord {
+            body: String::new(),
+            severity: "Critical".to_string(),
+            attributes: Vec::new(),
+            diagnostic_record: None,
+        }));
+
+        let request = build_export_request(&[(test_context(), log)], false);
+        let record = &request.resource_logs[0].scope_logs[0].log_records[0];
+
+        assert_eq!(
+            record.body.as_ref().and_then(|body| body.value.as_ref()),
+            Some(&any_value::Value::StringValue(String::new()))
+        );
+    }
+
     /// Verifies OTLP conversion preserves an already-emitted diagnostic log.
     #[test]
     fn diagnostic_log_event_preserves_diagnostic_body_and_attributes() {

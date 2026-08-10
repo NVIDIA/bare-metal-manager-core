@@ -161,9 +161,10 @@ async fn event_to_logs_with_timeout<B: Bmc>(
     resolution_timeout: Duration,
 ) -> Vec<Result<CollectorEvent, HealthError>> {
     let mut logs = Vec::with_capacity(event.events.len());
+    let deadline = tokio::time::Instant::now() + resolution_timeout;
 
     for nav in &event.events {
-        if let Some(record) = resolve_event_record(nav, bmc, resolution_timeout).await {
+        if let Some(record) = resolve_event_record(nav, bmc, deadline).await {
             logs.push(Ok(record_to_log(&record, include_diagnostics)));
         }
     }
@@ -174,10 +175,10 @@ async fn event_to_logs_with_timeout<B: Bmc>(
 async fn resolve_event_record<B: Bmc>(
     nav: &nv_redfish::core::NavProperty<nv_redfish::schema::event::EventRecord>,
     bmc: &B,
-    resolution_timeout: Duration,
+    deadline: tokio::time::Instant,
 ) -> Option<Arc<nv_redfish::schema::event::EventRecord>> {
     let odata_id = nav.odata_id().to_string();
-    match tokio::time::timeout(resolution_timeout, nav.get(bmc)).await {
+    match tokio::time::timeout_at(deadline, nav.get(bmc)).await {
         Ok(Ok(record)) => Some(record),
         Ok(Err(error)) => {
             carbide_instrument::emit(EventRecordResolutionFailed {
@@ -434,24 +435,33 @@ mod tests {
         );
     }
 
-    #[tokio::test]
-    async fn referenced_event_record_fetch_is_bounded() {
-        let path = "/redfish/v1/EventService/Events/records/hung";
-        let router = Router::new().route(
-            path,
-            get(|| async { std::future::pending::<Json<Value>>().await }),
-        );
+    #[tokio::test(start_paused = true)]
+    async fn referenced_event_record_batch_fetch_is_bounded() {
+        let first_path = "/redfish/v1/EventService/Events/records/hung-1";
+        let second_path = "/redfish/v1/EventService/Events/records/hung-2";
+        let router = Router::new()
+            .route(
+                first_path,
+                get(|| async { std::future::pending::<Json<Value>>().await }),
+            )
+            .route(
+                second_path,
+                get(|| async { std::future::pending::<Json<Value>>().await }),
+            );
         let bmc = test_bmc(router);
+        let resolution_timeout = Duration::from_secs(10);
+        let started_at = tokio::time::Instant::now();
 
         let logs = event_to_logs_with_timeout(
-            &referenced_event(&[path]),
+            &referenced_event(&[first_path, second_path]),
             &bmc,
             false,
-            Duration::from_millis(1),
+            resolution_timeout,
         )
         .await;
 
         assert!(logs.is_empty());
+        assert_eq!(tokio::time::Instant::now() - started_at, resolution_timeout);
     }
 
     #[test]
