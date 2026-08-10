@@ -1751,7 +1751,7 @@ fn dpu_mismatch(namespace: &str, dpu: &DPU, deployment: &DPUDeployment) -> Optio
     // instead: the DPUSet strategy is OnDelete, so an existing DPU keeps the
     // spec it was created with, and a spec mismatch means it predates the
     // current deployment.
-    let (source_matches, target_bfb) = match (
+    let (source_matches, target_source) = match (
         deployment.spec.dpus.bfb.as_deref(),
         deployment.spec.dpus.blue_field_software.as_deref(),
     ) {
@@ -1787,7 +1787,7 @@ fn dpu_mismatch(namespace: &str, dpu: &DPU, deployment: &DPUDeployment) -> Optio
     Some(DpuMismatch {
         dpu_cr_name: cr_name,
         dpu_labels: dpu.metadata.labels.clone().unwrap_or_default(),
-        target_bfb,
+        target_source,
     })
 }
 
@@ -4040,7 +4040,7 @@ mod tests {
         );
 
         let mismatch = dpu_mismatch(TEST_NAMESPACE, &dpu, &deployment).expect("outdated");
-        assert_eq!(mismatch.target_bfb, "test-namespace-bf-bundle-new.bfb");
+        assert_eq!(mismatch.target_source, "test-namespace-bf-bundle-new.bfb");
     }
 
     #[test]
@@ -4066,7 +4066,7 @@ mod tests {
         let dpu = dpu_with(None, Some("bf-software-old"), TEST_FLAVOR, None);
 
         let mismatch = dpu_mismatch(TEST_NAMESPACE, &dpu, &deployment).expect("outdated");
-        assert_eq!(mismatch.target_bfb, "bf-software-new");
+        assert_eq!(mismatch.target_source, "bf-software-new");
     }
 
     #[test]
@@ -4078,7 +4078,7 @@ mod tests {
         let dpu = dpu_with(None, Some("bf-software-abc"), TEST_FLAVOR, None);
 
         let mismatch = dpu_mismatch(TEST_NAMESPACE, &dpu, &deployment).expect("outdated");
-        assert_eq!(mismatch.target_bfb, "bf-software-abc");
+        assert_eq!(mismatch.target_source, "bf-software-abc");
     }
 
     /// The DPU CRD requires exactly one provisioning source. A deployment that

@@ -121,7 +121,7 @@ pub struct DpuMismatch {
     /// deployment this is the expected BFB filename (e.g.
     /// `<namespace>-bf-bundle-<sha256>.bfb`); for a BlueFieldSoftware-based one
     /// it is the expected BlueFieldSoftware CR name.
-    pub target_bfb: String,
+    pub target_source: String,
 }
 
 /// Service type for configPorts (DPUServiceConfiguration).
