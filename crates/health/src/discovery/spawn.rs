@@ -117,6 +117,7 @@ pub(super) fn collector_eligibility(
         return CollectorEligibility {
             redfish: ctx.sensors_config.is_enabled()
                 || ctx.metrics_config.is_enabled()
+                || ctx.telemetry_config.is_enabled()
                 || logs
                 || ctx.firmware_config.is_enabled()
                 || ctx.leak_detector_config.is_enabled()

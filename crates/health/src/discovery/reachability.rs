@@ -295,6 +295,7 @@ mod tests {
         let mut config = Config::default();
         config.collectors.sensors = Configurable::Disabled;
         config.collectors.metrics = Configurable::Disabled;
+        config.collectors.telemetry = Configurable::Disabled;
         config.collectors.logs = Configurable::Disabled;
         config.collectors.firmware = Configurable::Disabled;
         config.collectors.leak_detector = Configurable::Disabled;
@@ -339,6 +340,11 @@ mod tests {
         sensor_config.collectors.sensors = Configurable::Enabled(Default::default());
 
         assert_eq!(targets_for_config(&bmc, &sensor_config, true), expected);
+
+        let mut telemetry_config = config_without_target_collectors();
+        telemetry_config.collectors.telemetry = Configurable::Enabled(Default::default());
+
+        assert_eq!(targets_for_config(&bmc, &telemetry_config, true), expected);
 
         let mut log_config = config_without_target_collectors();
         log_config.collectors.logs = Configurable::Enabled(Default::default());
