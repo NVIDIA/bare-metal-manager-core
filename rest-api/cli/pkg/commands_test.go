@@ -405,7 +405,7 @@ func TestBuildCommands_NoDuplicateFlags(t *testing.T) {
 	visit("nicocli", cmds)
 }
 
-func TestGeneratedCommandInfos_ContainsMachinePowerAliases(t *testing.T) {
+func TestGeneratedCommandInfos_ContainsConciseAliases(t *testing.T) {
 	spec, err := ParseSpec(openapi.Spec)
 	require.NoError(t, err)
 

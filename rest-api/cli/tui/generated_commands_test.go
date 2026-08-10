@@ -70,10 +70,21 @@ func TestAllCommands_CoversGeneratedCLISurface(t *testing.T) {
 	assert.Empty(t, missing, "generated CLI commands missing from the TUI")
 }
 
-func TestAllCommands_RegistersMachinePowerAliases(t *testing.T) {
+func TestAllCommands_RegistersConciseAliases(t *testing.T) {
 	commands := commandNames(AllCommands())
-	assert.Contains(t, commands, "machine power")
-	assert.Contains(t, commands, "machine power-control-machine machine-power-control-machine")
+	for _, name := range []string{
+		"machine power",
+		"machine power-control-machine machine-power-control-machine",
+		"measured-boot machine approve",
+		"measured-boot machine list",
+		"measured-boot machine remove",
+		"measured-boot profile approve",
+		"measured-boot profile list",
+		"measured-boot profile remove",
+		"site-explorer endpoint action",
+	} {
+		assert.Containsf(t, commands, name, "expected concise command %q", name)
+	}
 }
 
 func TestMachinePowerAliasesExecuteSameOperation(t *testing.T) {
@@ -567,6 +578,10 @@ func TestGeneratedPathResourcePolicy_CoversEveryParameter(t *testing.T) {
 		}
 	}
 	assert.ElementsMatch(t, []string{
+		"measured-boot machine remove|id",
+		"measured-boot profile remove|id",
+		"measured-boot-trusted-machine delete|id",
+		"measured-boot-trusted-profile delete|id",
 		"task cancel|id",
 		"task cancel cancel-task|id",
 		"task get|id",
