@@ -91,10 +91,10 @@ error: A sqlx::Transaction is being held across this 'await' point
     |                                     ^^^^^
     |
 note: Transaction declared here
-   --> src/main.rs:190:32
+   --> src/main.rs:190:28
     |
-190 |     pub async fn bad_fn(&self, _txn: &mut PgTransaction<'_>) {
-    |                                ^^^^
+190 |     async fn bad_fn(&self, _txn: &mut PgTransaction<'_>) {
+    |                            ^^^^
 
 error: A sqlx::Transaction is being held across this 'await' point
    --> src/main.rs:234:33

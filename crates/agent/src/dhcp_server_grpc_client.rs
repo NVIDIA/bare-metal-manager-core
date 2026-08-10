@@ -16,6 +16,11 @@
  */
 
 mod proto {
+    #![allow(
+        unreachable_pub,
+        reason = "tonic_prost_build emits public items for this crate-internal protocol module"
+    )]
+
     tonic::include_proto!("dhcp_server_control");
 }
 

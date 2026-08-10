@@ -17,7 +17,7 @@ import (
 	"github.com/NVIDIA/infra-controller/rest-api/api/pkg/api/model"
 	sc "github.com/NVIDIA/infra-controller/rest-api/api/pkg/client/site"
 	authz "github.com/NVIDIA/infra-controller/rest-api/auth/pkg/authorization"
-	"github.com/NVIDIA/infra-controller/rest-api/common/pkg/coreproxy"
+	"github.com/NVIDIA/infra-controller/rest-api/common/pkg/grpcproxy"
 	cutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
 	cdb "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db"
 	cdbm "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/model"
@@ -1206,7 +1206,7 @@ type skuManagementFixture struct {
 	createHandler CreateSkuHandler
 	updateHandler UpdateSkuHandler
 	deleteHandler DeleteSkuHandler
-	requests      []coreproxy.Request
+	requests      []grpcproxy.Request
 }
 
 type skuManagementFixtureOptions struct {
@@ -1308,10 +1308,10 @@ func (f *skuManagementFixture) addWorkflowError(client *tmocks.Client, method st
 		"ExecuteWorkflow",
 		mock.Anything,
 		mock.Anything,
-		coreproxy.WorkflowName,
-		mock.MatchedBy(func(req coreproxy.Request) bool { return req.FullMethod == method }),
+		grpcproxy.Core.WorkflowName,
+		mock.MatchedBy(func(req grpcproxy.Request) bool { return req.FullMethod == method }),
 	).Run(func(args mock.Arguments) {
-		f.requests = append(f.requests, args.Get(3).(coreproxy.Request))
+		f.requests = append(f.requests, args.Get(3).(grpcproxy.Request))
 	}).Return(run, nil).Maybe()
 }
 
@@ -1325,7 +1325,7 @@ func (f *skuManagementFixture) addWorkflow(t *testing.T, client *tmocks.Client, 
 		require.NoError(t, err)
 	}
 	run.On("Get", mock.Anything, mock.Anything).Run(func(args mock.Arguments) {
-		out, ok := args.Get(1).(*coreproxy.Response)
+		out, ok := args.Get(1).(*grpcproxy.Response)
 		require.True(t, ok)
 		out.ResponseJSON = responseJSON
 		for _, callback := range afterGet {
@@ -1336,10 +1336,10 @@ func (f *skuManagementFixture) addWorkflow(t *testing.T, client *tmocks.Client, 
 		"ExecuteWorkflow",
 		mock.Anything,
 		mock.Anything,
-		coreproxy.WorkflowName,
-		mock.MatchedBy(func(req coreproxy.Request) bool { return req.FullMethod == method }),
+		grpcproxy.Core.WorkflowName,
+		mock.MatchedBy(func(req grpcproxy.Request) bool { return req.FullMethod == method }),
 	).Run(func(args mock.Arguments) {
-		f.requests = append(f.requests, args.Get(3).(coreproxy.Request))
+		f.requests = append(f.requests, args.Get(3).(grpcproxy.Request))
 	}).Return(run, nil).Maybe()
 }
 

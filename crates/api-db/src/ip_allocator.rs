@@ -23,9 +23,7 @@ use carbide_uuid::instance::InstanceId;
 use carbide_uuid::network::NetworkPrefixId;
 use ipnetwork::{IpNetwork, Ipv4Network, Ipv6Network};
 use model::address_selection_strategy::AddressSelectionStrategy;
-use model::network_prefix::NetworkPrefix;
 use model::network_segment::NetworkSegment;
-use sqlx::PgConnection;
 
 use crate::db_read::DbReader;
 use crate::{DatabaseError, DatabaseResult};
@@ -295,88 +293,6 @@ impl Iterator for IpAllocator {
                 Err(DhcpError::PrefixExhausted(segment_prefix.prefix.ip()).into()),
             )),
             Some(network) => Some((segment_prefix.id, Ok(network))),
-        }
-    }
-}
-
-/// NOTE(chet): This has been deprecated, but I'm keeping it here for reference
-/// just incase the topic comes up again, and/or we want to revisit a SQL
-/// based allocation fast-path again. The reasons this is being deprecated
-/// are because its introduction actually dropped support for dual-stacking
-/// environments, and because it cannot actually support IPv6 allocation. It
-/// ends up being a little complicated to try to leverage this for IPv4 single
-/// IP allocations amidst IPv6 allocations. BUT, we should definitely always
-/// be looking into more efficient ways of bulk allocation.
-///
-/// next_machine_interface_v4_ip is a SQL fast-path for allocating a single
-/// IPv4 address from a prefix.
-///
-/// This finds the next available IP in a single database query by using
-/// `generate_series()` to enumerate all candidate addresses and LEFT JOIN
-/// against already-allocated addresses. This is much faster than the
-/// Rust-based `IpAllocator` (which loads all used IPs into memory) during
-/// bulk operations like ingestion.
-///
-/// This is permanently IPv4-only for two reasons:
-///
-/// 1. `generate_series()` uses PostgreSQL `bigint` (64-bit). IPv6 addresses
-///    are 128-bit — there is no native 128-bit integer type in PostgreSQL.
-/// 2. `generate_series()` materializes the entire range in memory. Even a
-///    /96 prefix has ~4 billion addresses; a /64 has 2^64. The query would
-///    either OOM or take effectively forever.
-///
-/// IPv6 allocation uses the Rust-based `IpAllocator` instead, which uses
-/// u128 math and steps through candidate subnets without enumerating the
-/// full address space. See `machine_interface::create()` for the fallback.
-pub async fn next_machine_interface_v4_ip(
-    txn: &mut PgConnection,
-    prefix: &NetworkPrefix,
-) -> DatabaseResult<Option<IpAddr>> {
-    if prefix.prefix.is_ipv6() {
-        return Ok(None);
-    }
-    match prefix.gateway {
-        None => {
-            let nr = prefix.num_reserved.max(2); // Reserve network and gateway addresses at least
-            let query = r#"
-SELECT ($1::inet + ip_series.n)::inet AS ip
-FROM generate_series($3, (1 << (32 - $2)) - 2) AS ip_series(n)
-LEFT JOIN machine_interface_addresses AS mia
-  ON mia.address = ($1::inet + ip_series.n)::inet
-WHERE mia.address IS NULL
-ORDER BY ip
-LIMIT 1;
-    "#;
-
-            sqlx::query_scalar(query)
-                .bind(prefix.prefix.ip())
-                .bind(prefix.prefix.prefix() as i32)
-                .bind(nr)
-                .fetch_optional(txn)
-                .await
-                .map_err(|e| DatabaseError::query(query, e))
-        }
-        Some(gw) => {
-            let nr = prefix.num_reserved.max(1); // Reserve network address at least
-            let query = r#"
-SELECT ($1::inet + ip_series.n)::inet AS ip
-FROM generate_series($3, (1 << (32 - $2)) - 2) AS ip_series(n)
-LEFT JOIN machine_interface_addresses AS mia
-  ON mia.address = ($1::inet + ip_series.n)::inet
-WHERE mia.address IS NULL
-  AND ($1::inet + ip_series.n)::inet <> $4::inet
-ORDER BY ip
-LIMIT 1;
-    "#;
-
-            sqlx::query_scalar(query)
-                .bind(prefix.prefix.ip())
-                .bind(prefix.prefix.prefix() as i32)
-                .bind(nr)
-                .bind(gw)
-                .fetch_optional(txn)
-                .await
-                .map_err(|e| DatabaseError::query(query, e))
         }
     }
 }

@@ -218,6 +218,21 @@ func (flowgrpc *API) RegisterSubscriber() error {
 	ManagerAccess.Data.EB.Managers.Workflow.Temporal.Worker.RegisterActivity(runManager.CancelTaskRunOnFlow)
 	ManagerAccess.Data.EB.Log.Info().Msg("FlowGrpc: Successfully registered CancelTaskRunOnFlow activity")
 
+	// Register the generic Flow gRPC proxy alongside the per-method workflows
+	// above. Registering it here, before any handler dispatches through it, is
+	// what lets a later release switch handlers over safely: a workflow type is
+	// known only to workers that registered it, the cloud API and each site's
+	// agent ship as separate Helm releases, and a type no worker knows is still
+	// accepted at submission, so the caller learns of it only as a timeout.
+	ManagerAccess.Data.EB.Log.Info().Msg("FlowGrpc: Registering generic Flow gRPC proxy workflow and activity")
+	ManagerAccess.Data.EB.Managers.Workflow.Temporal.Worker.RegisterWorkflow(sww.InvokeFlowGRPC)
+	flowProxyManager := swa.NewManageFlowProxy(
+		ManagerAccess.Data.EB.Managers.FlowGrpc.Client,
+		ManagerAccess.Conf.EB.Temporal.ClusterID,
+	)
+	ManagerAccess.Data.EB.Managers.Workflow.Temporal.Worker.RegisterActivity(flowProxyManager.InvokeFlowGRPCOnSite)
+	ManagerAccess.Data.EB.Log.Info().Msg("FlowGrpc: Successfully registered InvokeFlowGRPC workflow and activity")
+
 	// Register the tray subscribers here
 	ManagerAccess.Data.EB.Log.Info().Msg("FlowGrpc: Registering tray workflows")
 

@@ -113,6 +113,32 @@ fn deprecated_deny_prefixes_for_agent(
     }
 }
 
+/// `preferred_physical_ip` chooses a stable address for the fallback tenant
+/// hostname. IPv4 remains the familiar name for a dual-stack interface, while
+/// choosing the lowest address within each family keeps the result independent
+/// of `HashMap` iteration order.
+fn preferred_physical_ip(ip_addresses: impl IntoIterator<Item = IpAddr>) -> Option<IpAddr> {
+    ip_addresses
+        .into_iter()
+        .min_by_key(|ip_address| (!ip_address.is_ipv4(), *ip_address))
+}
+
+/// `tenant_interface_fqdn` keeps the tenant's hostname intact when one was
+/// provided. Otherwise, the physical address becomes a valid DNS label through
+/// the same formatter used by IP-based host naming.
+fn tenant_interface_fqdn(
+    tenant_hostname: Option<&str>,
+    physical_ip: &IpAddr,
+    domain: &str,
+) -> Result<String, DatabaseError> {
+    let hostname = match tenant_hostname {
+        Some(hostname) => hostname.to_string(),
+        None => db::host_naming::address_to_hostname(physical_ip)?,
+    };
+
+    Ok(format!("{hostname}.{domain}"))
+}
+
 async fn get_managed_host_network_config_inner(
     api: &Api,
     dpu_machine_id: MachineId,
@@ -340,7 +366,6 @@ async fn get_managed_host_network_config_inner(
 
             let mut tenant_interfaces = Vec::with_capacity(interfaces.len());
 
-            //Get Physical interface
             let physical_iface = interfaces.iter().find(|x| {
                 rpc::InterfaceFunctionType::from(x.function_id.function_type())
                     == rpc::InterfaceFunctionType::Physical
@@ -353,15 +378,13 @@ async fn get_managed_host_network_config_inner(
                 .into());
             };
 
-            //Get Physical IP
-            let physical_ip: IpAddr = match physical_iface.ip_addrs.iter().next() {
-                Some((_, ip_addr)) => *ip_addr,
-                None => {
-                    return Err(CarbideError::internal(String::from(
-                        "Physical IP address not found",
-                    ))
-                    .into())
-                }
+            let Some(physical_ip) =
+                preferred_physical_ip(physical_iface.ip_addrs.values().copied())
+            else {
+                return Err(CarbideError::internal(String::from(
+                    "physical IP address not found",
+                ))
+                .into());
             };
 
             // All interfaces have the segment id allocated. It is already validated during
@@ -449,16 +472,11 @@ async fn get_managed_host_network_config_inner(
                         .clone(),
                     None => "unknowndomain".to_string(),
                 };
-                let fqdn = if let Some(hostname) = &instance.config.tenant.hostname {
-                    format!("{hostname}.{domain}")
-                } else {
-                    let dashed_ip = physical_ip
-                        .to_string()
-                        .split('.')
-                        .collect::<Vec<_>>()
-                        .join("-");
-                    format!("{dashed_ip}.{domain}")
-                };
+                let fqdn = tenant_interface_fqdn(
+                    instance.config.tenant.hostname.as_deref(),
+                    &physical_ip,
+                    &domain,
+                )?;
 
                 let tenant_interface = ethernet_virtualization::tenant_network(
                     &mut txn,
@@ -1507,6 +1525,78 @@ mod deny_prefix_tests {
                 VpcVirtualizationType::EthernetVirtualizer => ipv4_only.clone(),
                 VpcVirtualizationType::EthernetVirtualizerWithNvue => ipv4_only.clone(),
                 VpcVirtualizationType::Flat => ipv4_only,
+            }
+        );
+    }
+}
+
+#[cfg(test)]
+mod tenant_fqdn_tests {
+    use carbide_test_support::Outcome::Yields;
+    use carbide_test_support::{scenarios, value_scenarios};
+
+    use super::*;
+
+    #[test]
+    fn physical_ip_selection_is_stable_and_prefers_ipv4() {
+        let ipv4_low: IpAddr = "192.0.2.10".parse().unwrap();
+        let ipv4_high: IpAddr = "192.0.2.20".parse().unwrap();
+        let ipv6_low: IpAddr = "2001:db8::10".parse().unwrap();
+        let ipv6_high: IpAddr = "2001:db8::20".parse().unwrap();
+
+        value_scenarios!(
+            run = preferred_physical_ip;
+            "no physical address" {
+                vec![] => None,
+            }
+
+            "one address family" {
+                vec![ipv4_high, ipv4_low] => Some(ipv4_low),
+                vec![ipv6_high, ipv6_low] => Some(ipv6_low),
+            }
+
+            "dual-stack address order" {
+                vec![ipv6_low, ipv4_high, ipv6_high, ipv4_low] => Some(ipv4_low),
+                vec![ipv4_low, ipv6_high, ipv4_high, ipv6_low] => Some(ipv4_low),
+            }
+        );
+    }
+
+    #[test]
+    fn tenant_fqdn_uses_the_configured_name_or_physical_address() {
+        struct FqdnCase {
+            tenant_hostname: Option<&'static str>,
+            physical_ip: IpAddr,
+        }
+
+        let ipv4: IpAddr = "192.0.2.10".parse().unwrap();
+        let ipv6: IpAddr = "2001:db8::10".parse().unwrap();
+
+        scenarios!(
+            run = |FqdnCase {
+                tenant_hostname,
+                physical_ip,
+            }| tenant_interface_fqdn(tenant_hostname, &physical_ip, "tenant.example").map_err(drop);
+            "tenant-supplied hostname" {
+                FqdnCase {
+                    tenant_hostname: Some("customer-host"),
+                    physical_ip: ipv6,
+                } => Yields("customer-host.tenant.example".to_string()),
+            }
+
+            "address-derived hostname" {
+                FqdnCase {
+                    tenant_hostname: None,
+                    physical_ip: ipv4,
+                } => Yields("192-0-2-10.tenant.example".to_string()),
+                FqdnCase {
+                    tenant_hostname: None,
+                    physical_ip: ipv6,
+                } => Yields(concat!(
+                    "2001-0db8-0000-0000-0000-0000-0000-0010",
+                    ".tenant.example"
+                )
+                .to_string()),
             }
         );
     }

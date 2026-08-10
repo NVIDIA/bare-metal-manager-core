@@ -16,7 +16,7 @@ import (
 const (
 	// configuration for phone home
 	SitePhoneHomeName    = "phone_home"
-	SitePhoneHomePost    = "POST"
+	SitePhoneHomePost    = "post"
 	SitePhoneHomePostAll = "all"
 	SitePhoneHomeUrl     = "url"
 	SiteCloudConfig      = "#cloud-config"

@@ -35,6 +35,8 @@ codegen = [
 ]
 
 [dependencies]
+carbide-proto-compiler = { path = "../proto-compiler" }
+
 thiserror = { workspace = true }
 tonic = { workspace = true }
 async-trait = { workspace = true }
