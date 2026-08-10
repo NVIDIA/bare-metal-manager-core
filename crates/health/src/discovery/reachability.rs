@@ -16,7 +16,7 @@
  */
 
 use std::borrow::Cow;
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::sync::Arc;
 
 use futures::future::join_all;
@@ -38,8 +38,47 @@ const DEFAULT_HTTPS_PORT: u16 = 443;
 /// Desired targets and event context for one endpoint.
 #[derive(Clone, PartialEq)]
 pub(super) struct ReachabilitySpec {
-    targets: Vec<ReachabilityTarget>,
+    targets: BTreeMap<ReachabilityService, ReachabilityTarget>,
     event_context: EventContext,
+}
+
+/// Builds one order-independent reachability specification per endpoint key.
+///
+/// When sources repeat a key, the first eligible target for each service wins.
+fn desired_reachability_specs(
+    ctx: &DiscoveryLoopContext,
+    endpoints: &[Arc<BmcEndpoint>],
+) -> HashMap<Cow<'static, str>, (Arc<BmcEndpoint>, ReachabilitySpec)> {
+    let mut desired = HashMap::new();
+
+    for endpoint in endpoints {
+        let targets = resolve_targets(endpoint, ctx, true);
+
+        if targets.is_empty() {
+            continue;
+        }
+
+        let key: Cow<'static, str> = Cow::Owned(endpoint.key());
+
+        let (_, spec) = desired.entry(key).or_insert_with(|| {
+            (
+                endpoint.clone(),
+                ReachabilitySpec {
+                    targets: BTreeMap::new(),
+                    event_context: EventContext::from_endpoint(
+                        endpoint,
+                        REACHABILITY_COLLECTOR_TYPE,
+                    ),
+                },
+            )
+        });
+
+        for target in targets {
+            spec.targets.entry(target.service).or_insert(target);
+        }
+    }
+
+    desired
 }
 
 /// Reconciles reachability collectors against the latest discovered endpoints.
@@ -55,56 +94,11 @@ pub(super) async fn reconcile_reachability_collectors(
 ) -> Result<(), HealthError> {
     let config = ctx.reachability_config.clone();
 
-    let mut desired: HashMap<Cow<'static, str>, (Arc<BmcEndpoint>, ReachabilitySpec)> =
-        HashMap::new();
-
-    if config.is_some() && sink.is_some() {
-        for endpoint in endpoints {
-            let key: Cow<'static, str> = Cow::Owned(endpoint.key());
-            let targets = resolve_targets(endpoint, ctx, true);
-
-            if targets.is_empty() {
-                continue;
-            }
-
-            if let Some((_, current)) = desired.get_mut(&key) {
-                // Match per-kind collector maps: the first eligible target wins
-                // for each service.
-                for target in targets {
-                    if current
-                        .targets
-                        .iter()
-                        .any(|existing| existing.service == target.service)
-                    {
-                        continue;
-                    }
-
-                    current.targets.push(target);
-                }
-
-                continue;
-            }
-
-            desired.insert(
-                key,
-                (
-                    endpoint.clone(),
-                    ReachabilitySpec {
-                        targets,
-                        event_context: EventContext::from_endpoint(
-                            endpoint,
-                            REACHABILITY_COLLECTOR_TYPE,
-                        ),
-                    },
-                ),
-            );
-        }
-    }
-
-    // Normalize discovery order while retaining the existing service sequence.
-    for (_, spec) in desired.values_mut() {
-        spec.targets.sort_unstable_by_key(|target| target.service);
-    }
+    let desired = if config.is_some() && sink.is_some() {
+        desired_reachability_specs(ctx, endpoints)
+    } else {
+        HashMap::new()
+    };
 
     let stale_keys = ctx
         .collectors
@@ -150,7 +144,7 @@ pub(super) async fn reconcile_reachability_collectors(
             endpoint.clone(),
             endpoint.bmc().clone(),
             ReachabilityCollectorStartConfig {
-                targets: spec.targets.clone(),
+                targets: spec.targets.values().cloned().collect(),
                 timeout: config.timeout,
                 log_mode: ctx.log_event_sink_enabled.then_some(config.log_mode),
                 sink: sink.clone(),
@@ -498,7 +492,7 @@ mod tests {
             .expect("initial reachability spec");
 
         assert_eq!(
-            initial.targets,
+            initial.targets.values().cloned().collect::<Vec<_>>(),
             vec![
                 ReachabilityTarget {
                     service: ReachabilityService::Redfish,
