@@ -34,7 +34,7 @@ struct RackLeakState {
 }
 
 impl RackLeakState {
-    fn remove_reporter(&mut self, endpoint_key: &str, collector_type: &'static str) {
+    fn remove_reporter(&mut self, endpoint_key: &str, collector_type: &'static str) -> bool {
         let last_reporter_removed =
             self.leaking_trays
                 .get_mut(endpoint_key)
@@ -46,6 +46,8 @@ impl RackLeakState {
         if last_reporter_removed {
             self.leaking_trays.remove(endpoint_key);
         }
+
+        last_reporter_removed
     }
 }
 
@@ -105,10 +107,17 @@ impl EventProcessor for RackLeakProcessor {
         };
 
         if matches!(event, CollectorEvent::CollectorRemoved) {
-            if let Some(mut entry) = self.racks.get_mut(rack_id) {
-                entry.remove_reporter(context.endpoint_key(), context.collector_type);
+            let Some(mut entry) = self.racks.get_mut(rack_id) else {
+                return Vec::new();
+            };
+
+            if !entry.remove_reporter(context.endpoint_key(), context.collector_type) {
+                return Vec::new();
             }
-            return Vec::new();
+
+            let report = self.build_report(entry.leaking_trays.len());
+
+            return vec![CollectorEvent::HealthReport(Arc::new(report))];
         }
 
         let CollectorEvent::HealthReport(report) = event else {
@@ -363,7 +372,13 @@ mod tests {
 
         let emitted = processor.process_event(&ctx_a, &CollectorEvent::CollectorRemoved);
 
-        assert!(emitted.is_empty());
+        let Some(CollectorEvent::HealthReport(report)) = emitted.first() else {
+            panic!("expected updated rack health report");
+        };
+
+        assert!(report.alerts.is_empty());
+        assert_eq!(report.successes.len(), 1);
+
         let Some(rack) = processor.racks.get(ctx_a.rack_id().expect("rack id")) else {
             panic!("expected rack state");
         };
@@ -430,7 +445,10 @@ mod tests {
         }
 
         processor.process_event(&second_context, &tray_leak_report(true));
-        processor.process_event(&first_context, &CollectorEvent::CollectorRemoved);
+
+        let emitted = processor.process_event(&first_context, &CollectorEvent::CollectorRemoved);
+
+        assert!(emitted.is_empty());
 
         {
             let rack = processor

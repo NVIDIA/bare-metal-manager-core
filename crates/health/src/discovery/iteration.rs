@@ -115,6 +115,9 @@ pub async fn run_discovery_iteration(
     // unregister the replacement's metrics.
     stop_stale_switch_collectors(ctx, &sharded_endpoints).await;
 
+    let active_endpoints = active_keys(&sharded_endpoints);
+    stop_removed_bmc_collectors(ctx, &active_endpoints).await;
+
     for endpoint in &sharded_endpoints {
         spawn_collectors_for_endpoint(ctx, endpoint, data_sink.clone(), metrics_prefix)?;
     }
@@ -125,8 +128,7 @@ pub async fn run_discovery_iteration(
     if matches!(&ctx.nmxc_config, Configurable::Enabled(_)) {
         // Endpoints can remain active while Carbide API changes primary or
         // NMX-C desired-state flags. Reconcile existing streams against the
-        // same target policy used for spawn before generic removed-endpoint
-        // cleanup runs.
+        // same target policy used for spawn.
         let nmxc_eligible_endpoints = nmxc_subscription_keys(&sharded_endpoints);
         stop_ineligible_nmxc_collectors(ctx, &nmxc_eligible_endpoints);
     } else {
@@ -134,9 +136,6 @@ pub async fn run_discovery_iteration(
         // remains eligible even though the endpoint keys may still be active.
         stop_ineligible_nmxc_collectors(ctx, &HashSet::new());
     }
-
-    let active_endpoints = active_keys(&sharded_endpoints);
-    stop_removed_bmc_collectors(ctx, &active_endpoints);
 
     let iteration_duration = iteration_start.elapsed();
     ctx.discovery_iteration_histogram
@@ -361,5 +360,84 @@ mod tests {
             .expect("NMX-T collector should have started");
 
         collector.stop().await;
+    }
+
+    #[tokio::test]
+    async fn discovery_iteration_waits_for_removed_nmxc_shutdown_before_spawn_error() {
+        let active_endpoint = endpoint(
+            MacAddress::from_str("00:00:00:00:00:31").unwrap(),
+            false,
+            None,
+        );
+
+        let source: Arc<dyn EndpointSource> = Arc::new(StaticEndpointSource::new(vec![
+            active_endpoint.as_ref().clone(),
+        ]));
+
+        let metrics_manager = Arc::new(
+            MetricsManager::new("removed_nmxc_shutdown").expect("metrics manager should start"),
+        );
+
+        let _conflicting_registry = metrics_manager
+            .create_collector_registry(
+                format!("entity_discovery_collector_{}", active_endpoint.key()),
+                "test",
+            )
+            .expect("conflicting registry should start");
+
+        let mut ctx = DiscoveryLoopContext::new(
+            Arc::new(NoopLimiter),
+            metrics_manager,
+            Arc::new(Config::default()),
+        )
+        .expect("discovery context should start");
+
+        let cancelled = Arc::new(tokio::sync::Notify::new());
+        let release = Arc::new(tokio::sync::Notify::new());
+        let collector_cancelled = Arc::clone(&cancelled);
+        let collector_release = Arc::clone(&release);
+
+        ctx.collectors.insert(
+            CollectorKind::Nmxc,
+            Cow::Borrowed("removed-switch"),
+            crate::collectors::Collector::spawn_task(move |cancel| async move {
+                cancel.cancelled().await;
+                collector_cancelled.notify_one();
+                collector_release.notified().await;
+            }),
+        );
+
+        let iteration = tokio::spawn(async move {
+            run_discovery_iteration(
+                source,
+                &ShardManager {
+                    shard: 0,
+                    shards_count: 1,
+                },
+                &mut ctx,
+                None,
+                "test",
+            )
+            .await
+        });
+
+        tokio::time::timeout(std::time::Duration::from_secs(1), cancelled.notified())
+            .await
+            .expect("removed collector should be cancelled");
+
+        assert!(!iteration.is_finished());
+
+        release.notify_one();
+
+        let error = tokio::time::timeout(std::time::Duration::from_secs(1), iteration)
+            .await
+            .expect("discovery iteration should finish after collector shutdown")
+            .expect("discovery task should not panic")
+            .expect_err("collector registry conflict should fail spawning");
+
+        assert!(matches!(
+            error,
+            HealthError::PrometheusError(prometheus::Error::AlreadyReg)
+        ));
     }
 }
