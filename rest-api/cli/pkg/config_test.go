@@ -228,12 +228,15 @@ func TestLoadConfigFromPath_Roundtrip(t *testing.T) {
 		},
 		Auth: ConfigAuth{
 			OIDC: &ConfigOIDC{
-				TokenURL:     "http://localhost:8080/realms/nico-dev/protocol/openid-connect/token",
-				ClientID:     "nico-api",
-				ClientSecret: "secret",
-				Token:        "eyJhbG...",
-				RefreshToken: "refresh...",
-				ExpiresAt:    "2026-01-01T00:00:00Z",
+				TokenURL:         "http://localhost:8080/realms/nico-dev/protocol/openid-connect/token",
+				ClientID:         "nico-api",
+				ClientSecret:     "secret",
+				ClientAuthMethod: "client_secret_basic",
+				Scopes:           []string{"carbide", "offline_access"},
+				TokenParameters:  map[string]string{"audience": "nico"},
+				Token:            "eyJhbG...",
+				RefreshToken:     "refresh...",
+				ExpiresAt:        "2026-01-01T00:00:00Z",
 			},
 		},
 	}
@@ -262,6 +265,9 @@ func TestLoadConfigFromPath_Roundtrip(t *testing.T) {
 	if loaded.Auth.OIDC.ClientSecret != original.Auth.OIDC.ClientSecret {
 		t.Errorf("Auth.OIDC.ClientSecret = %q, want %q", loaded.Auth.OIDC.ClientSecret, original.Auth.OIDC.ClientSecret)
 	}
+	require.Equal(t, original.Auth.OIDC.ClientAuthMethod, loaded.Auth.OIDC.ClientAuthMethod)
+	require.Equal(t, original.Auth.OIDC.Scopes, loaded.Auth.OIDC.Scopes)
+	require.Equal(t, original.Auth.OIDC.TokenParameters, loaded.Auth.OIDC.TokenParameters)
 }
 
 func contains(s, substr string) bool {

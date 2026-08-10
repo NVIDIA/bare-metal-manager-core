@@ -17,6 +17,75 @@ import (
 	cli "github.com/urfave/cli/v2"
 )
 
+func TestLoginWithOIDCConfigCustomizesClientCredentialsRequest(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		require.NoError(t, r.ParseForm())
+		require.Equal(t, "client_credentials", r.Form.Get("grant_type"))
+		require.Equal(t, "carbide offline_access", r.Form.Get("scope"))
+		require.Equal(t, "nico", r.Form.Get("audience"))
+		require.Empty(t, r.Form.Get("client_id"))
+		require.Empty(t, r.Form.Get("client_secret"))
+		clientID, clientSecret, ok := r.BasicAuth()
+		require.True(t, ok)
+		require.Equal(t, "client-id", clientID)
+		require.Equal(t, "client-secret", clientSecret)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"access_token":"new-token","expires_in":3600}`))
+	}))
+	defer server.Close()
+
+	configPath := filepath.Join(t.TempDir(), "config.yaml")
+	cfg := &ConfigFile{Auth: ConfigAuth{OIDC: &ConfigOIDC{
+		TokenURL:         server.URL,
+		ClientID:         "client-id",
+		ClientSecret:     "client-secret",
+		Scopes:           []string{"carbide", "offline_access"},
+		TokenParameters:  map[string]string{"audience": "nico"},
+		ClientAuthMethod: "client_secret_basic",
+	}}}
+	require.NoError(t, SaveConfigToPath(cfg, configPath))
+	SetConfigPath(configPath)
+	defer SetConfigPath("")
+	app, err := NewApp([]byte(`{"openapi":"3.0.0","info":{"title":"test","version":"test"},"paths":{}}`))
+	require.NoError(t, err)
+	require.NoError(t, app.Run([]string{"nicocli", "login"}))
+	loaded, err := LoadConfigFromPath(configPath)
+	require.NoError(t, err)
+	require.Equal(t, "new-token", loaded.Auth.OIDC.Token)
+}
+
+func TestLoginWithOIDCConfigPreservesDefaultClientCredentialsRequest(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		require.NoError(t, r.ParseForm())
+		require.Equal(t, "client_credentials", r.Form.Get("grant_type"))
+		require.Equal(t, "openid", r.Form.Get("scope"))
+		require.Equal(t, "client-id", r.Form.Get("client_id"))
+		require.Equal(t, "client-secret", r.Form.Get("client_secret"))
+		require.Empty(t, r.Header.Get("Authorization"))
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"access_token":"new-token","expires_in":3600}`))
+	}))
+	defer server.Close()
+
+	cfg := &ConfigFile{Auth: ConfigAuth{OIDC: &ConfigOIDC{
+		TokenURL: server.URL, ClientID: "client-id", ClientSecret: "client-secret",
+	}}}
+	_, err := LoginWithOIDCConfig(cfg, filepath.Join(t.TempDir(), "config.yaml"))
+	require.NoError(t, err)
+}
+
+func TestLoginWithOIDCConfigRejectsReservedTokenParameter(t *testing.T) {
+	cfg := &ConfigFile{Auth: ConfigAuth{OIDC: &ConfigOIDC{
+		TokenURL:        "https://auth.example.invalid/token",
+		ClientID:        "client-id",
+		ClientSecret:    "client-secret",
+		TokenParameters: map[string]string{"client_secret": "replacement"},
+	}}}
+
+	_, err := LoginWithOIDCConfig(cfg, filepath.Join(t.TempDir(), "config.yaml"))
+	require.ErrorContains(t, err, "reserved token parameter")
+}
+
 func TestExtractNGCToken(t *testing.T) {
 	tests := []struct {
 		name string

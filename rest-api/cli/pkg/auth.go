@@ -239,7 +239,7 @@ func LoginWithOIDCConfig(cfg *ConfigFile, configPath string) (string, error) {
 		tokenResp, err = refreshTokenGrant(oidc.TokenURL, oidc.ClientID, oidc.ClientSecret, oidc.RefreshToken)
 	}
 	if tokenResp == nil && oidc.Username == "" && oidc.ClientSecret != "" {
-		tokenResp, err = clientCredentialsGrant(oidc.TokenURL, oidc.ClientID, oidc.ClientSecret)
+		tokenResp, err = clientCredentialsGrant(oidc)
 	}
 	if tokenResp == nil && oidc.Username != "" && oidc.Password != "" {
 		tokenResp, err = passwordGrant(oidc.TokenURL, oidc.ClientID, oidc.ClientSecret, oidc.Username, oidc.Password)
@@ -416,7 +416,9 @@ func loginWithOIDCCmd(c *cli.Context, cfg *ConfigFile) error {
 	var err error
 
 	if username == "" && clientSecret != "" {
-		tokenResp, err = clientCredentialsGrant(tokenURL, clientID, clientSecret)
+		tokenResp, err = clientCredentialsGrant(&ConfigOIDC{
+			TokenURL: tokenURL, ClientID: clientID, ClientSecret: clientSecret,
+		})
 	} else {
 		if username == "" {
 			fmt.Print("Username: ")
@@ -468,14 +470,59 @@ func passwordGrant(tokenURL, clientID, clientSecret, username, password string) 
 	return postToken(tokenURL, data)
 }
 
-func clientCredentialsGrant(tokenURL, clientID, clientSecret string) (*TokenResponse, error) {
-	data := url.Values{
-		"grant_type":    {"client_credentials"},
-		"client_id":     {clientID},
-		"client_secret": {clientSecret},
-		"scope":         {"openid"},
+func clientCredentialsGrant(oidc *ConfigOIDC) (*TokenResponse, error) {
+	const (
+		clientSecretPost  = "client_secret_post"
+		clientSecretBasic = "client_secret_basic"
+	)
+	reserved := map[string]struct{}{
+		"grant_type": {}, "client_id": {}, "client_secret": {}, "scope": {},
+		"username": {}, "password": {}, "refresh_token": {},
+		"client_assertion": {}, "client_assertion_type": {},
 	}
-	return postToken(tokenURL, data)
+	data := url.Values{
+		"grant_type": {"client_credentials"},
+	}
+	scopes := oidc.Scopes
+	if len(scopes) == 0 {
+		scopes = []string{"openid"}
+	}
+	data.Set("scope", strings.Join(scopes, " "))
+	for name, value := range oidc.TokenParameters {
+		if _, blocked := reserved[name]; blocked {
+			return nil, fmt.Errorf("reserved token parameter %q cannot be configured", name)
+		}
+		data.Set(name, value)
+	}
+
+	method := oidc.ClientAuthMethod
+	if method == "" {
+		method = clientSecretPost
+	}
+	switch method {
+	case clientSecretPost:
+		data.Set("client_id", oidc.ClientID)
+		data.Set("client_secret", oidc.ClientSecret)
+		return postToken(oidc.TokenURL, data)
+	case clientSecretBasic:
+		return postTokenWithBasicAuth(oidc.TokenURL, data, oidc.ClientID, oidc.ClientSecret)
+	default:
+		return nil, fmt.Errorf("unsupported client_auth_method %q", method)
+	}
+}
+
+func postTokenWithBasicAuth(tokenURL string, data url.Values, clientID, clientSecret string) (*TokenResponse, error) {
+	req, err := http.NewRequest(http.MethodPost, tokenURL, strings.NewReader(data.Encode()))
+	if err != nil {
+		return nil, fmt.Errorf("token request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.SetBasicAuth(clientID, clientSecret)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("token request: %w", err)
+	}
+	return parseTokenResponse(resp)
 }
 
 func refreshTokenGrant(tokenURL, clientID, clientSecret, refreshToken string) (*TokenResponse, error) {
@@ -495,6 +542,10 @@ func postToken(tokenURL string, data url.Values) (*TokenResponse, error) {
 	if err != nil {
 		return nil, fmt.Errorf("token request: %w", err)
 	}
+	return parseTokenResponse(resp)
+}
+
+func parseTokenResponse(resp *http.Response) (*TokenResponse, error) {
 	defer resp.Body.Close()
 
 	if resp.StatusCode != 200 {
