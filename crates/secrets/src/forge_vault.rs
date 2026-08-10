@@ -106,7 +106,7 @@ fn resolve_vault_root_ca_path(configured_path: &str) -> Result<String, eyre::Rep
 }
 
 impl ForgeVaultClientConfig {
-    pub fn vault_root_ca_path(&self) -> Result<String, eyre::Report> {
+    fn vault_root_ca_path(&self) -> Result<String, eyre::Report> {
         resolve_vault_root_ca_path(&self.vault_root_ca_path)
     }
 }

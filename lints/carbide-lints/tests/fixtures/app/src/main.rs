@@ -157,10 +157,10 @@ fn non_async_work() {}
 mod db {
     use sqlx::{PgExecutor, PgTransaction, Postgres};
 
-    pub struct Transaction;
+    pub(super) struct Transaction;
 
     impl Transaction {
-        pub async fn begin_inner<'a, A>(acquire: A) -> PgTransaction<'a>
+        pub(super) async fn begin_inner<'a, A>(acquire: A) -> PgTransaction<'a>
         where
             A: sqlx::Acquire<'a, Database = Postgres>,
         {
@@ -168,8 +168,8 @@ mod db {
         }
     }
 
-    pub async fn actually_use_txn(_db: impl sqlx::PgExecutor<'_>) {}
-    pub async fn use_db_as_trait<DB>(_db: &mut DB)
+    pub(super) async fn actually_use_txn(_db: impl sqlx::PgExecutor<'_>) {}
+    pub(super) async fn use_db_as_trait<DB>(_db: &mut DB)
     where
         for<'db> &'db mut DB: PgExecutor<'db>,
     {
@@ -180,14 +180,14 @@ struct HasDbMethods;
 
 impl HasDbMethods {
     // No warnings: txn is forwarded to db::actually_use_txn
-    pub async fn good_fn(&self, txn: &mut PgTransaction<'_>) {
+    async fn good_fn(&self, txn: &mut PgTransaction<'_>) {
         non_async_work();
         db::actually_use_txn(txn.deref_mut()).await;
         db::use_db_as_trait(&mut **txn).await;
     }
 
     // Warnings: unrelated_async_work is called while txn is in scope
-    pub async fn bad_fn(&self, _txn: &mut PgTransaction<'_>) {
+    async fn bad_fn(&self, _txn: &mut PgTransaction<'_>) {
         unrelated_async_work("bad").await;
     }
 }

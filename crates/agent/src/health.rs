@@ -28,7 +28,7 @@ use tokio::time::timeout;
 
 use crate::{HBNDeviceNames, hbn};
 mod bgp;
-pub mod probe_ids;
+mod probe_ids;
 
 const HBN_DAEMONS_FILE: &str = "etc/frr/daemons";
 const DHCP_SERVER_FILE: &str = "etc/supervisor/conf.d/default-forge-dhcp-server.conf";
@@ -94,7 +94,7 @@ fn passed(
 }
 
 /// Is enough of HBN ready so that we can configure it?
-pub fn is_up(health_report: &health_report::HealthReport) -> bool {
+pub(super) fn is_up(health_report: &health_report::HealthReport) -> bool {
     let has_failed_services = health_report
         .alerts
         .iter()
@@ -115,21 +115,21 @@ pub fn is_up(health_report: &health_report::HealthReport) -> bool {
     hbn_healthy && !has_failed_services
 }
 
-pub struct HealthCheckParams<'a> {
-    pub hbn_root: &'a Path,
-    pub host_routes: &'a [&'a str],
-    pub has_changed_configs: bool,
-    pub min_healthy_links: u32,
-    pub route_servers: &'a [String],
+pub(super) struct HealthCheckParams<'a> {
+    pub(super) hbn_root: &'a Path,
+    pub(super) host_routes: &'a [&'a str],
+    pub(super) has_changed_configs: bool,
+    pub(super) min_healthy_links: u32,
+    pub(super) route_servers: &'a [String],
     /// Whether this check should require the FNN IPv6-unicast underlay.
-    pub should_check_ipv6_unicast: bool,
-    pub hbn_device_names: HBNDeviceNames,
-    pub include_dhcp_server: bool,
-    pub run_restricted_mode_check: bool,
+    pub(super) should_check_ipv6_unicast: bool,
+    pub(super) hbn_device_names: HBNDeviceNames,
+    pub(super) include_dhcp_server: bool,
+    pub(super) run_restricted_mode_check: bool,
 }
 
 /// Check the health of HBN
-pub async fn health_check(params: HealthCheckParams<'_>) -> health_report::HealthReport {
+pub(super) async fn health_check(params: HealthCheckParams<'_>) -> health_report::HealthReport {
     let mut hr = health_report::HealthReport::empty("forge-dpu-agent".to_string());
 
     // Check whether the disk is full
@@ -727,7 +727,7 @@ enum SctlState {
     Fatal,
 }
 
-pub async fn nvue_api_health(nvue_client: &NvueClient) -> HealthReport {
+pub(super) async fn nvue_api_health(nvue_client: &NvueClient) -> HealthReport {
     // All we can really do here is check that the API is alive. The HBN flavor of NVUE
     // doesn't seem to expose much of anything that we can look at for node health.
     let mut report = HealthReport::empty("forge-dpu-agent".into());

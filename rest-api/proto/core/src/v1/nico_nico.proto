@@ -1909,6 +1909,8 @@ message VpcPrefix {
   VpcPrefixConfig config = 8;
   VpcPrefixStatus status = 9;
   Metadata metadata = 10;
+  // The SitePrefix that contains this VPC prefix.
+  common.SitePrefixId site_prefix_id = 11;
 }
 
 message VpcPrefixConfig {
@@ -1936,6 +1938,8 @@ message VpcPrefixCreationRequest {
   reserved 5; // tenant_prefix_id
   VpcPrefixConfig config = 6;
   Metadata metadata = 7;
+  // Optional for compatibility with callers that predate SitePrefix identity.
+  common.SitePrefixId site_prefix_id = 8;
 }
 
 message VpcPrefixSearchQuery {
@@ -1950,6 +1954,7 @@ message VpcPrefixSearchQuery {
   optional PrefixMatchType prefix_match_type = 5;
   // Controls whether soft-deleted VPC prefixes are included. Defaults to EXCLUDE.
   DeletedFilter deleted = 6;
+  optional common.SitePrefixId site_prefix_id = 7;
 }
 
 message VpcPrefixGetRequest {
@@ -8121,10 +8126,14 @@ message NmxcBrowseRequest {
   reserved 1;
   reserved "path";
   // Chassis serial used to resolve the NMX-C gRPC endpoint URL from `nvlink_nmxc_endpoints`.
+  // Mutually exclusive with `rack_id`; at least one of `chassis_serial` or `rack_id` must be set.
   string chassis_serial = 2;
   NmxcBrowseOperation operation = 3;
   // Required when `operation` is `NMXC_BROWSE_OPERATION_GPU_INFO`; ignored for `NMXC_BROWSE_OPERATION_GPU_INFO_LIST`.
   uint64 gpu_uid = 4;
+  // Rack identifier; used to resolve the NMX-C endpoint from the rack's ready control-plane switch
+  // NVOS IP. Mutually exclusive with `chassis_serial`; at least one of `rack_id` or `chassis_serial` must be set.
+  optional common.RackId rack_id = 5;
 }
 
 message NmxcBrowseResponse {

@@ -81,6 +81,7 @@ impl NvidiaSwitchNd5200Ld<'_> {
                 log_services: None,
                 storage: Some(vec![]),
                 processors: None,
+                memory: None,
                 base_bios: None,
                 serial_console: None,
                 secure_boot_available: false,

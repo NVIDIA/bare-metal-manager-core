@@ -18,6 +18,7 @@
 use std::collections::HashMap;
 
 use ::rpc::forge as rpc;
+use carbide_nvlink_manager::nmx_c_endpoint::{ManagedHostGroupType, resolve_nmx_c_endpoint_url};
 use libnmxc::nmxc_model::{
     GetComputeNodeInfoListRequest, GetGpuInfoListRequest, GetPartitionInfoListRequest,
     GetSwitchNodeInfoListRequest, GpuAttr,
@@ -151,10 +152,9 @@ pub(crate) async fn nmxc_browse(
 
     let request = request.into_inner();
 
+    let rack_id = request.rack_id.as_ref();
+    let group_type = resolve_group_type(&request.chassis_serial, rack_id)?;
     let chassis_serial = request.chassis_serial.trim();
-    if chassis_serial.is_empty() {
-        return Err(CarbideError::MissingArgument("chassis_serial").into());
-    }
 
     let op = rpc::NmxcBrowseOperation::try_from(request.operation)
         .unwrap_or(rpc::NmxcBrowseOperation::Unspecified);
@@ -162,23 +162,34 @@ pub(crate) async fn nmxc_browse(
     if let Some(nvlink_config) = api.runtime_config.nvlink_config.as_ref()
         && nvlink_config.enabled
     {
-        let endpoint_row = db::nvlink_nmxc_endpoints::find_by_chassis_serial(
-            &api.database_connection,
-            chassis_serial,
+        let mut db = api.db_reader();
+        let endpoint_url = resolve_nmx_c_endpoint_url(
+            &mut db,
+            group_type,
+            rack_id,
+            if chassis_serial.is_empty() {
+                None
+            } else {
+                Some(chassis_serial)
+            },
+            nvlink_config,
         )
         .await?;
 
-        let Some(row) = endpoint_row else {
+        let Some(url) = endpoint_url else {
+            let endpoint_id = rack_id
+                .map(|r| r.to_string())
+                .unwrap_or_else(|| chassis_serial.to_string());
             return Err(CarbideError::NotFoundError {
                 kind: "nvlink_nmxc_endpoint",
-                id: chassis_serial.to_string(),
+                id: endpoint_id,
             }
             .into());
         };
 
         let mut nmxc = api
             .nmxc_client_pool
-            .create_client(Endpoint::new(row.endpoint.clone()).map_err(CarbideError::from)?)
+            .create_client(Endpoint::new(url).map_err(CarbideError::from)?)
             .await
             .map_err(CarbideError::from)?;
 
@@ -237,5 +248,73 @@ pub(crate) async fn nmxc_browse(
         }
     } else {
         Err(CarbideError::internal("nvlink config not enabled".to_string()).into())
+    }
+}
+
+/// Determines the `ManagedHostGroupType` from a browse request's selector fields.
+///
+/// The two selectors are mutually exclusive: providing both is an `InvalidArgument` error;
+/// providing neither is a `MissingArgument` error.
+fn resolve_group_type(
+    chassis_serial: &str,
+    rack_id: Option<&carbide_uuid::rack::RackId>,
+) -> Result<ManagedHostGroupType, CarbideError> {
+    let chassis_serial = chassis_serial.trim();
+    if rack_id.is_some() && !chassis_serial.is_empty() {
+        return Err(CarbideError::InvalidArgument(
+            "chassis_serial and rack_id are mutually exclusive".to_string(),
+        ));
+    }
+    if rack_id.is_some() {
+        Ok(ManagedHostGroupType::Rack)
+    } else if !chassis_serial.is_empty() {
+        Ok(ManagedHostGroupType::Chassis)
+    } else {
+        Err(CarbideError::MissingArgument("chassis_serial or rack_id"))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use carbide_test_support::Outcome::{FailsWith, Yields};
+    use carbide_test_support::scenarios;
+    use carbide_uuid::rack::RackId;
+
+    use super::*;
+
+    /// Mapped error discriminant so table rows can assert which validation rule fired.
+    #[derive(Debug, PartialEq)]
+    enum SelectionError {
+        Both,
+        Neither,
+    }
+
+    #[test]
+    fn selector_validation_resolves_group_type_or_rejects_invalid_inputs() {
+        scenarios!(run = |(chassis_serial, rack_id_str): (&str, Option<&str>)| {
+            let rack_id = rack_id_str.map(RackId::new);
+            resolve_group_type(chassis_serial, rack_id.as_ref()).map_err(|e| match e {
+                CarbideError::InvalidArgument(_) => SelectionError::Both,
+                _ => SelectionError::Neither,
+            })
+        };
+            "rack-only" {
+                ("", Some("rack-a")) => Yields(ManagedHostGroupType::Rack),
+            }
+
+            "chassis-only" {
+                ("SN-123", None) => Yields(ManagedHostGroupType::Chassis),
+                ("  SN-123  ", None) => Yields(ManagedHostGroupType::Chassis),
+            }
+
+            "both provided" {
+                ("SN-123", Some("rack-a")) => FailsWith(SelectionError::Both),
+            }
+
+            "neither provided" {
+                ("", None) => FailsWith(SelectionError::Neither),
+                ("   ", None) => FailsWith(SelectionError::Neither),
+            }
+        );
     }
 }

@@ -251,7 +251,7 @@ struct NvueApplyData {
 }
 
 impl NvueApplyData {
-    pub fn force_apply() -> Self {
+    fn force_apply() -> Self {
         let state = "apply".into();
         let auto_prompt = NvueAutoPrompt::ays_yes();
         Self { state, auto_prompt }
@@ -266,7 +266,7 @@ struct NvueAutoPrompt {
 }
 
 impl NvueAutoPrompt {
-    pub fn ays_yes() -> Self {
+    fn ays_yes() -> Self {
         let ays = "ays_yes".into();
         Self { ays }
     }

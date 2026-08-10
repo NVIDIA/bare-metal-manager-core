@@ -63,15 +63,40 @@ sccache_degraded_banner() {
 	return 0
 }
 
+# Whether sccache's own startup write check failed, leaving the server unable
+# to write for the rest of its life. `RemoteStorage::check` performs a single
+# write when the server starts and, on any error at all (including a
+# transient rate limit), wraps the storage in `ReadOnlyStorage` until the
+# process exits. The message it prints is the only way to tell that apart from
+# an individual write losing a race with the rate limiter.
+sccache_startup_check_failed() {
+	[ -n "${SCCACHE_ERROR_LOG}" ] && [ -s "${SCCACHE_ERROR_LOG}" ] || return 1
+	grep -q 'storage write check failed' "${SCCACHE_ERROR_LOG}"
+}
+
+# A probe crate whose contents have never been compiled before. The nonce is
+# what makes the check below meaningful: with fixed contents the probe's own
+# artifact ends up in the cache, and from then on every probe is a read hit
+# that attempts no write, records no write error, and so reports a server that
+# cannot write anything as healthy.
+sccache_probe_source() {
+	_nonce="$(od -An -tx4 -N16 /dev/urandom 2>/dev/null | tr -d ' \n')"
+	[ -n "${_nonce}" ] || _nonce="$$$(date +%s)"
+	printf 'pub const PROBE: &str = "%s";\n' "${_nonce}"
+}
+
 # Whether the configured backend actually stores anything. `sccache
-# --start-server` only proves the local daemon came up: sccache latches into
-# read-only mode for the life of the process once a backend write fails, so a
-# server that starts cleanly can still silently discard every artifact for the
-# rest of the build. The only reliable check is to compile something and look
-# at the resulting write-error count.
+# --start-server` only proves the local daemon came up; a server that starts
+# cleanly can still silently discard every artifact for the rest of the build.
+# The only reliable check is to compile something and look at the resulting
+# write-error count.
 sccache_backend_writable() {
+	# Cleared first because the returns below leave it untouched. A stale
+	# count from a previous attempt would otherwise read as a probe that ran
+	# and found the backend healthy, when no probe ran at all.
+	SCCACHE_PROBE_WRITE_ERRORS=unknown
 	_probe_dir="$(mktemp -d)" || return 1
-	echo 'pub fn probe() {}' >"${_probe_dir}/probe.rs"
+	sccache_probe_source >"${_probe_dir}/probe.rs"
 	# Deliberately an ordinary rlib compile. sccache only writes to the
 	# backend for invocations it considers cacheable, so a probe using an
 	# exotic --emit would pass without exercising a write.
@@ -122,27 +147,66 @@ sccache_setup() {
 	export SCCACHE_GHA_ENABLED ACTIONS_RESULTS_URL ACTIONS_RUNTIME_TOKEN
 	export SCCACHE_GHA_RW_MODE ACTIONS_CACHE_SERVICE_V2
 
-	if ! sccache --start-server >/dev/null 2>&1; then
-		_reason="the sccache server would not start"
-	elif [ "${SCCACHE_GHA_RW_MODE}" = READ_ONLY ]; then
-		echo "sccache: using GitHub Actions cache backend (read-only)"
-		SCCACHE_BACKEND_READ_ONLY=1
-		return 0
-	elif ! sccache_backend_writable; then
+	# Retried because the decision is made once and is unrecoverable: a
+	# single rate-limited call during the server's startup write check
+	# disables writes for as long as that server lives, which on a container
+	# build means every artifact of a twenty-minute compile is discarded. A
+	# fresh server runs a fresh check, so the cost of being wrong here is far
+	# higher than the cost of a few restarts.
+	_attempt=1
+	while :; do
+		# Emptied so that the classification below reads only the server
+		# started on this iteration. The log path is fixed, and a Docker
+		# build reuses /tmp across RUN layers, so anything left behind by
+		# an earlier server would otherwise be attributed to this one.
+		: >"${SCCACHE_ERROR_LOG}"
+		if ! sccache --start-server >/dev/null 2>&1; then
+			_reason="the sccache server would not start"
+			break
+		fi
+
+		if [ "${SCCACHE_GHA_RW_MODE}" = READ_ONLY ]; then
+			echo "sccache: using GitHub Actions cache backend (read-only)"
+			SCCACHE_BACKEND_READ_ONLY=1
+			return 0
+		fi
+
+		if sccache_backend_writable; then
+			echo "sccache: using GitHub Actions cache backend"
+			return 0
+		fi
+
 		if [ "${SCCACHE_PROBE_WRITE_ERRORS}" = unknown ]; then
 			_reason="the Actions cache write probe statistics were unavailable"
-		else
-			_reason="the Actions cache rejected the write probe (${SCCACHE_PROBE_WRITE_ERRORS} write errors)"
+			break
 		fi
-	else
-		echo "sccache: using GitHub Actions cache backend"
-		return 0
-	fi
+
+		# Checked before the log is dumped, because dumping truncates it.
+		if ! sccache_startup_check_failed; then
+			# The server can write; this one probe was throttled. That
+			# costs a single artifact, so replacing a shared backend
+			# over it would be a much worse trade.
+			sccache_dump_log
+			echo "sccache: using GitHub Actions cache backend (the write probe was rate-limited, but the backend accepts writes)"
+			return 0
+		fi
+
+		sccache_dump_log
+		if [ "${_attempt}" -ge 3 ]; then
+			_reason="the Actions cache rejected the startup write check on ${_attempt} successive servers"
+			break
+		fi
+		echo "sccache: the Actions cache rejected the startup write check (attempt ${_attempt}); restarting the server"
+		# A restart is required, not just a reconfigure: read-only mode is
+		# held by the running server and survives any change to the
+		# environment.
+		sccache --stop-server >/dev/null 2>&1 || true
+		sleep "$((_attempt * 5))"
+		_attempt="$((_attempt + 1))"
+	done
 
 	sccache_dump_log
 	sccache_degraded_banner "${_reason}; falling back to the local cache mount"
-	# A restart is required, not just a reconfigure: read-only mode is held
-	# by the running server and survives any change to the environment.
 	sccache --stop-server >/dev/null 2>&1 || true
 	unset SCCACHE_GHA_ENABLED ACTIONS_RESULTS_URL ACTIONS_RUNTIME_TOKEN
 	unset SCCACHE_GHA_RW_MODE ACTIONS_CACHE_SERVICE_V2

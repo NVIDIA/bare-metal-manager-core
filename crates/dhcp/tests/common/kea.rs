@@ -93,7 +93,7 @@ impl Drop for KeaRunPermit {
     }
 }
 
-pub struct Kea {
+pub(crate) struct Kea {
     temp_conf_file: PathBuf,
 
     dhcp_in_port: u16,
@@ -111,7 +111,7 @@ impl Kea {
     /// Reserve dynamic DHCP ports, start Kea, and return it with a connected
     /// relay socket. The Kea process is stopped when the harness drops. Tests
     /// that inspect Kea's memfile can pass an externally-owned lease path.
-    pub fn start(
+    pub(crate) fn start(
         api_server_url: &str,
         lease_file: Option<&Path>,
     ) -> Result<(Kea, UdpSocket), eyre::Report> {

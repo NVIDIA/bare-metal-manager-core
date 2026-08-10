@@ -38,7 +38,7 @@ use crate::mock_ssh_server::{MockSshServerHandle, PromptBehavior};
 /// BmcMockWrapper launches a single instance of bmc-mock, configured to mock a single BMC for
 /// either a DPU or a Host. It will rewrite certain responses to customize them for the machines
 /// machine-a-tron is mocking.
-pub struct BmcMockWrapper {
+pub(super) struct BmcMockWrapper {
     ssh_prompt_behavior: PromptBehavior,
     app_context: Arc<MachineATronContext>,
     bmc_mock_router: Router,
@@ -49,7 +49,7 @@ pub struct BmcMockWrapper {
 }
 
 impl BmcMockWrapper {
-    pub fn new(
+    pub(super) fn new(
         machine_info: &MachineInfo,
         app_context: Arc<MachineATronContext>,
         callbacks: Arc<dyn Callbacks>,
@@ -81,7 +81,7 @@ impl BmcMockWrapper {
 
     /// Starts the per-machine Redfish server and any enabled SSH and IPMI simulators.
     /// When requested, the BMC address is first added as an alias on the configured interface.
-    pub async fn start(
+    pub(super) async fn start(
         &mut self,
         address: SocketAddr,
         add_ip_alias: bool,
@@ -183,7 +183,7 @@ impl BmcMockWrapper {
 
     /// Starts only the optional IPMI simulator when Redfish is served by a shared BMC mock.
     /// Returns `None` when IPMI simulation is disabled or the machine does not support IPMI SOL.
-    pub async fn start_ipmi_only(
+    pub(super) async fn start_ipmi_only(
         &self,
         bind_ip: std::net::IpAddr,
     ) -> Result<Option<BmcMockWrapperHandle>, MachineStateError> {
@@ -221,24 +221,24 @@ impl BmcMockWrapper {
         .map_err(MachineStateError::IpmiSim)
     }
 
-    pub fn router(&self) -> &Router {
+    pub(super) fn router(&self) -> &Router {
         &self.bmc_mock_router
     }
 
-    pub fn state(&self) -> &BmcState {
+    pub(super) fn state(&self) -> &BmcState {
         &self.bmc_mock_state
     }
 }
 
 #[derive(Debug)]
-pub struct BmcMockWrapperHandle {
-    pub _bmc_mock: Option<CombinedServer>,
-    pub ssh_handle: Option<MockSshServerHandle>,
+pub(super) struct BmcMockWrapperHandle {
+    _bmc_mock: Option<CombinedServer>,
+    pub(super) ssh_handle: Option<MockSshServerHandle>,
     _ipmi_sim_handle: Option<IpmiSimHandle>,
 }
 
 impl BmcMockWrapperHandle {
-    pub fn ipmi_endpoint(&self) -> Option<IpmiEndpoint> {
+    pub(super) fn ipmi_endpoint(&self) -> Option<IpmiEndpoint> {
         self._ipmi_sim_handle.as_ref().map(|handle| handle.endpoint)
     }
 }

@@ -173,7 +173,7 @@ fn user_data_handler(
     ("user-data".to_string(), context)
 }
 
-pub async fn user_data(machine: Machine, state: State<AppState>) -> impl IntoResponse {
+async fn user_data(machine: Machine, state: State<AppState>) -> impl IntoResponse {
     let (template_key, template_data) = match (
         machine.instructions.custom_cloud_init,
         machine.instructions.discovery_instructions,
@@ -246,7 +246,7 @@ pub async fn user_data(machine: Machine, state: State<AppState>) -> impl IntoRes
     axum_template::Render(template_key, state.engine.clone(), template_data)
 }
 
-pub async fn meta_data(machine: Machine, state: State<AppState>) -> impl IntoResponse {
+async fn meta_data(machine: Machine, state: State<AppState>) -> impl IntoResponse {
     let (template_key, template_data) = match machine.instructions.metadata {
         None => log_and_generate_generic_error(
             format!("No metadata was found for machine {machine:?}"),
@@ -318,14 +318,14 @@ fn resolve_network_config(custom_cloud_init: Option<&str>) -> Cow<'static, str> 
 /// DEFAULT_NETWORK_CONFIG instead of an empty document, so hosts get
 /// DHCP on every interface by default rather than cloud-init's own
 /// first-interface-only behavior.
-pub async fn network_config(machine: Machine, state: State<AppState>) -> impl IntoResponse {
+async fn network_config(machine: Machine, state: State<AppState>) -> impl IntoResponse {
     let network_config_yaml =
         resolve_network_config(machine.instructions.custom_cloud_init.as_deref());
     let template_data = HashMap::from([("network_config", network_config_yaml)]);
     axum_template::Render("network-config", state.engine.clone(), template_data)
 }
 
-pub async fn vendor_data(state: State<AppState>) -> impl IntoResponse {
+async fn vendor_data(state: State<AppState>) -> impl IntoResponse {
     emit(PxeBootOutcome {
         endpoint: BootEndpoint::CloudInit,
         reason: OutcomeReason::Ok,
@@ -340,7 +340,7 @@ pub async fn vendor_data(state: State<AppState>) -> impl IntoResponse {
 /// Builds the PXE service's route table for the cloud-init-related
 /// endpoints served under `path_prefix`: `user-data`, `meta-data`,
 /// `vendor-data`, and `network-config`.
-pub fn get_router(path_prefix: &str) -> Router<AppState> {
+pub(crate) fn get_router(path_prefix: &str) -> Router<AppState> {
     Router::new()
         .route(
             format!("{}/{}", path_prefix, "user-data").as_str(),

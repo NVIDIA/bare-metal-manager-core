@@ -49,7 +49,7 @@ fn admin_ui_log_stream_layer(
     enable_admin_ui.then(|| LogStreamLayer::new(log_stream.clone()))
 }
 
-pub fn setup_logging(
+pub(super) fn setup_logging(
     debug: u8,
     extra_logfmt_event_fields: Vec<String>,
     override_logging_subscriber: Option<impl SubscriberInitExt>,

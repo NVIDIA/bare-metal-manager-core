@@ -172,7 +172,7 @@ pub async fn find_pkey_by_partition_id(
     id: IBPartitionId,
 ) -> Result<Option<u16>, DatabaseError> {
     #[derive(Debug, Clone, FromRow)]
-    pub struct Pkey(String);
+    struct Pkey(String);
 
     let mut query = FilterableQueryBuilder::new("SELECT status->>'pkey' FROM ib_partitions")
         .filter(&ObjectColumnFilter::One(IdColumn, &id));

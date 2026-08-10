@@ -246,6 +246,13 @@ When building or converting a REST endpoint that calls on-site NICo Core through
 the generic gRPC proxy, follow
 [`skills/rest-core-grpc-proxy/SKILL.md`](skills/rest-core-grpc-proxy/SKILL.md).
 
+### REST endpoints through the Flow gRPC proxy
+
+When building or converting a REST endpoint that calls on-site Flow through the
+generic gRPC proxy, follow
+[`skills/rest-flow-grpc-proxy/SKILL.md`](skills/rest-flow-grpc-proxy/SKILL.md).
+Callers supply the Temporal workflow ID and conflict policy (unlike CoreProxy).
+
 ### REST endpoint implementation patterns
 
 Before adding REST API code, find the nearest existing endpoint family and copy
@@ -264,6 +271,9 @@ main patterns:
 - Flow-backed inventory and task APIs use Flow request/response protobufs in the
   API model layer and keep target-shape helpers next to the model or handler
   that owns the REST shape. Use Rack, Tray, Task, and Task Rule as references.
+  Thin unary Flow pass-throughs should use `handler/util/common.ExecuteFlowGRPC`
+  rather than a bespoke Temporal workflow per method. Switching an existing
+  endpoint over spans releases; see the skill for the required order.
 - Curated REST endpoints that call NICo Core `forge.Forge` unary methods should
   use `handler/util/common.ExecuteCoreGRPC` with a typed protobuf request. Do
   not create a bespoke Temporal workflow for a simple unary Core call. BMC

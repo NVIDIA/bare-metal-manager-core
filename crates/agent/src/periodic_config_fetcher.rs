@@ -15,6 +15,7 @@
  * limitations under the License.
  */
 
+use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
 use std::time::Duration;
@@ -33,7 +34,7 @@ use tracing::{trace, warn};
 use crate::instrumentation::ConfigFetch;
 use crate::util::{get_periodic_dpu_config, get_sitename};
 
-pub struct PeriodicFetcherState {
+struct PeriodicFetcherState {
     config: PeriodicConfigFetcherConfig,
     netconf: ArcSwapOption<rpc::ManagedHostNetworkConfigResponse>,
     instmeta: ArcSwapOption<InstanceMetadata>,
@@ -42,49 +43,73 @@ pub struct PeriodicFetcherState {
 }
 
 /// Fetches the desired network configuration for a managed host in regular intervals
-pub struct PeriodicConfigFetcher {
+pub(super) struct PeriodicConfigFetcher {
     state: Arc<PeriodicFetcherState>,
     join_handle: Option<tokio::task::JoinHandle<()>>,
 }
 
-pub struct PeriodicConfigFetcherReader {
+pub(super) struct PeriodicConfigFetcherReader {
     state: Arc<PeriodicFetcherState>,
 }
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(super) struct PublicAddresses {
+    pub(super) ipv4: Option<Ipv4Addr>,
+    pub(super) ipv6: Option<Ipv6Addr>,
+}
+
+impl PublicAddresses {
+    /// Preserves FMDS's empty-string contract when no IPv4 address is assigned.
+    pub(super) fn ipv4_string(self) -> String {
+        self.ipv4
+            .map(|address| address.to_string())
+            .unwrap_or_default()
+    }
+
+    /// Preserves FMDS's empty-string contract when no IPv6 address is assigned.
+    pub(super) fn ipv6_string(self) -> String {
+        self.ipv6
+            .map(|address| address.to_string())
+            .unwrap_or_default()
+    }
+}
+
 /// The instance metadata - as fetched from the
 /// Forge Site Controller
 #[derive(Clone, Debug)]
-pub struct InstanceMetadata {
-    pub address: String,
-    pub hostname: String,
-    pub sitename: Option<String>,
-    pub instance_id: Option<InstanceId>,
-    pub machine_id: Option<MachineId>,
-    pub user_data: String,
-    pub ib_devices: Option<Vec<IBDeviceConfig>>,
-    pub config_version: ConfigVersion,
-    pub network_config_version: ConfigVersion,
-    pub extension_service_version: ConfigVersion,
+pub(super) struct InstanceMetadata {
+    pub(super) public_addresses: PublicAddresses,
+    pub(super) hostname: String,
+    pub(super) instance_name: Option<String>,
+    pub(super) sitename: Option<String>,
+    pub(super) instance_id: Option<InstanceId>,
+    pub(super) machine_id: Option<MachineId>,
+    pub(super) user_data: String,
+    pub(super) ib_devices: Option<Vec<IBDeviceConfig>>,
+    pub(super) config_version: ConfigVersion,
+    pub(super) network_config_version: ConfigVersion,
+    pub(super) extension_service_version: ConfigVersion,
 }
 
 #[derive(Clone, Debug)]
-pub struct IBDeviceConfig {
-    pub pf_guid: String,
-    pub instances: Vec<IBInstanceConfig>,
+pub(super) struct IBDeviceConfig {
+    pub(super) pf_guid: String,
+    pub(super) instances: Vec<IBInstanceConfig>,
 }
 
 #[derive(Clone, Debug)]
-pub struct IBInstanceConfig {
-    pub ib_partition_id: Option<IBPartitionId>,
-    pub ib_guid: Option<String>,
-    pub lid: u32,
+pub(super) struct IBInstanceConfig {
+    pub(super) ib_partition_id: Option<IBPartitionId>,
+    pub(super) ib_guid: Option<String>,
+    pub(super) lid: u32,
 }
 
 impl PeriodicConfigFetcherReader {
-    pub fn net_conf_read(&self) -> Option<Arc<rpc::ManagedHostNetworkConfigResponse>> {
+    pub(super) fn net_conf_read(&self) -> Option<Arc<rpc::ManagedHostNetworkConfigResponse>> {
         self.state.netconf.load_full()
     }
 
-    pub fn meta_data_conf_reader(&self) -> Option<Arc<InstanceMetadata>> {
+    pub(super) fn meta_data_conf_reader(&self) -> Option<Arc<InstanceMetadata>> {
         self.state.instmeta.load_full()
     }
 }
@@ -105,7 +130,7 @@ impl Drop for PeriodicConfigFetcher {
 }
 
 impl PeriodicConfigFetcher {
-    pub async fn new(config: PeriodicConfigFetcherConfig) -> Self {
+    pub(super) async fn new(config: PeriodicConfigFetcherConfig) -> Self {
         let forge_client_config = Arc::clone(&config.forge_client_config);
         // Fetch the sitename from Carbide at the start and keep it in State
         // so that it can be made available as instance metadata.
@@ -142,13 +167,13 @@ impl PeriodicConfigFetcher {
         }
     }
 
-    pub fn reader(&self) -> Box<PeriodicConfigFetcherReader> {
+    pub(super) fn reader(&self) -> Box<PeriodicConfigFetcherReader> {
         Box::new(PeriodicConfigFetcherReader {
             state: self.state.clone(),
         })
     }
 
-    pub fn get_host_machine_interface_id(&self) -> Option<MachineInterfaceId> {
+    pub(super) fn get_host_machine_interface_id(&self) -> Option<MachineInterfaceId> {
         self.state
             .netconf
             .load()
@@ -158,12 +183,12 @@ impl PeriodicConfigFetcher {
     }
 }
 
-pub struct PeriodicConfigFetcherConfig {
+pub(super) struct PeriodicConfigFetcherConfig {
     /// The interval in which the config is fetched
-    pub config_fetch_interval: Duration,
-    pub machine_id: MachineId,
-    pub forge_api: String,
-    pub forge_client_config: Arc<ForgeClientConfig>,
+    pub(super) config_fetch_interval: Duration,
+    pub(super) machine_id: MachineId,
+    pub(super) forge_api: String,
+    pub(super) forge_client_config: Arc<ForgeClientConfig>,
 }
 
 // Use the version grpc call to carbide to get
@@ -244,7 +269,7 @@ async fn single_fetch(
 }
 
 /// Make the network request to get network config
-pub async fn fetch(
+async fn fetch(
     dpu_machine_id: &MachineId,
     forge_api: &str,
     client_config: &ForgeClientConfig,
@@ -254,7 +279,45 @@ pub async fn fetch(
     get_periodic_dpu_config(&mut client, dpu_machine_id).await
 }
 
-pub fn instance_metadata_from_instance(
+/// Picks the lowest address in each family across physical interfaces because HostInband status
+/// is built from maps and does not have a stable interface or address order.
+fn select_public_addresses(
+    interfaces: &[rpc::InstanceInterfaceStatus],
+) -> Result<PublicAddresses, eyre::Error> {
+    let mut public_addresses = PublicAddresses::default();
+
+    let addresses = interfaces
+        .iter()
+        .filter(|interface| interface.virtual_function_id.is_none())
+        .flat_map(|interface| &interface.addresses);
+
+    for value in addresses {
+        let address = value
+            .parse::<IpAddr>()
+            .wrap_err_with(|| format!("invalid physical interface address `{value}`"))?;
+
+        match address {
+            IpAddr::V4(address) => {
+                public_addresses.ipv4 = Some(
+                    public_addresses
+                        .ipv4
+                        .map_or(address, |current| current.min(address)),
+                );
+            }
+            IpAddr::V6(address) => {
+                public_addresses.ipv6 = Some(
+                    public_addresses
+                        .ipv6
+                        .map_or(address, |current| current.min(address)),
+                );
+            }
+        }
+    }
+
+    Ok(public_addresses)
+}
+
+fn instance_metadata_from_instance(
     instance: Option<Instance>,
     sitename: Option<String>,
 ) -> Result<Option<InstanceMetadata>, eyre::Error> {
@@ -272,17 +335,18 @@ pub fn instance_metadata_from_instance(
 
     let instance_id = instance.id;
 
-    let pf_address = instance
+    let instance_name = instance
+        .metadata
+        .as_ref()
+        .map(|metadata| metadata.name.clone())
+        .filter(|name| !name.is_empty());
+
+    let public_addresses = instance
         .status
         .as_ref()
         .and_then(|status| status.network.as_ref())
-        .and_then(|network| {
-            network
-                .interfaces
-                .iter()
-                .find(|interface| interface.virtual_function_id.is_none()) // We only want an IP address of a physical function
-                .and_then(|interface| interface.addresses.first().cloned())
-        })
+        .map(|network| select_public_addresses(&network.interfaces))
+        .transpose()?
         .unwrap_or_default();
 
     let user_data = instance
@@ -301,8 +365,9 @@ pub fn instance_metadata_from_instance(
     };
 
     Ok(Some(InstanceMetadata {
-        address: pf_address,
+        public_addresses,
         hostname,
+        instance_name,
         sitename,
         instance_id,
         machine_id,
@@ -369,4 +434,79 @@ fn extract_instance_ib_config(instance: &Instance) -> Result<Vec<IBDeviceConfig>
     }
 
     Ok(devices)
+}
+
+#[cfg(test)]
+mod tests {
+    use carbide_test_support::Outcome::{Fails, Yields};
+    use carbide_test_support::scenarios;
+
+    use super::*;
+
+    #[test]
+    fn public_address_selection_is_family_specific_and_stable() {
+        let ipv4_low: Ipv4Addr = "192.0.2.10".parse().unwrap();
+        let ipv6_low: Ipv6Addr = "2001:db8::10".parse().unwrap();
+
+        scenarios!(
+            run = |interfaces: Vec<(Option<u32>, Vec<&str>)>| {
+                let interfaces = interfaces
+                    .into_iter()
+                    .map(|(virtual_function_id, addresses)| rpc::InstanceInterfaceStatus {
+                        virtual_function_id,
+                        addresses: addresses.into_iter().map(str::to_owned).collect(),
+                        ..Default::default()
+                    })
+                    .collect::<Vec<_>>();
+                select_public_addresses(&interfaces).map_err(drop)
+            };
+            "no addresses" {
+                vec![] => Yields(PublicAddresses::default()),
+            }
+
+            "one address family" {
+                vec![(None, vec!["192.0.2.20", "192.0.2.10"])] => Yields(PublicAddresses {
+                    ipv4: Some(ipv4_low),
+                    ipv6: None,
+                }),
+                vec![(None, vec!["2001:db8::20", "2001:db8::10"])] => Yields(PublicAddresses {
+                    ipv4: None,
+                    ipv6: Some(ipv6_low),
+                }),
+            }
+
+            "dual-stack address order" {
+                vec![(None, vec!["2001:db8::10", "192.0.2.20", "2001:db8::20", "192.0.2.10"])] => Yields(PublicAddresses {
+                    ipv4: Some(ipv4_low),
+                    ipv6: Some(ipv6_low),
+                }),
+                vec![(None, vec!["192.0.2.10", "2001:db8::20", "192.0.2.20", "2001:db8::10"])] => Yields(PublicAddresses {
+                    ipv4: Some(ipv4_low),
+                    ipv6: Some(ipv6_low),
+                }),
+            }
+
+            "dual-stack physical interface order" {
+                vec![
+                    (None, vec!["192.0.2.20", "192.0.2.10"]),
+                    (None, vec!["2001:db8::20", "2001:db8::10"]),
+                ] => Yields(PublicAddresses {
+                    ipv4: Some(ipv4_low),
+                    ipv6: Some(ipv6_low),
+                }),
+                vec![
+                    (None, vec!["2001:db8::10"]),
+                    (Some(0), vec!["192.0.2.1"]),
+                    (None, vec!["192.0.2.10"]),
+                ] => Yields(PublicAddresses {
+                    ipv4: Some(ipv4_low),
+                    ipv6: Some(ipv6_low),
+                }),
+            }
+
+            "invalid address" {
+                vec![(None, vec!["not-an-address"])] => Fails,
+            }
+        );
+    }
 }

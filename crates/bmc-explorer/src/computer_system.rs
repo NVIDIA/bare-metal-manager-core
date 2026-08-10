@@ -31,7 +31,7 @@ use nv_redfish::computer_system::{
     Bios, BootOption, ComputerSystem, SecureBoot, SecureBootCurrentBootType,
 };
 use nv_redfish::ethernet_interface::{EthernetInterface, UefiDevicePath as EthUefiDevicePath};
-use nv_redfish::oem::nvidia::bluefield::NvidiaComputerSystem;
+use nv_redfish::oem::nvidia::NvidiaComputerSystem;
 use nv_redfish::pcie_device::PcieDevice;
 use nv_redfish::resource::PowerState;
 use nv_redfish::{Bmc, Resource, ResourceProvidesStatus};
@@ -46,30 +46,30 @@ lazy_static::lazy_static! {
     static ref UEFI_MAC_PATTERN: Regex = Regex::new(&format!(r"MAC\((?<{UEFI_MAC_PATTERN_CAPTURE}>[[:alnum:]]+)\,")).unwrap();
 }
 
-pub struct Config<'a, B: Bmc> {
-    pub need_oem_nvidia_bluefield: bool,
+pub(crate) struct Config<'a, B: Bmc> {
+    pub(crate) need_oem_nvidia_bluefield: bool,
     // Temporary workaround for BlueField DPU BMCs that intermittently return
     // HTTP 500 for the BIOS resource while the DPU is in NIC mode.
-    pub ignore_500_on_bios_fetch: bool,
+    pub(crate) ignore_500_on_bios_fetch: bool,
     // Temporary workaround for BlueField DPU BMCs that intermittently return
     // HTTP 404 for the OOB interface or the full EthernetInterfaces collection.
     // This is expected to be fixed in BMC firmware 24.10-39, which adds
     // internal retries.
-    pub retry_404_on_eth_interfaces: bool,
-    pub explore: &'a ExploreConfig<'a, B>,
+    pub(crate) retry_404_on_eth_interfaces: bool,
+    pub(crate) explore: &'a ExploreConfig<'a, B>,
 }
 
-pub struct ExploredComputerSystem<B: Bmc> {
-    pub system: ComputerSystem<B>,
-    pub bios: Option<Bios<B>>,
-    pub boot_options: Vec<BootOption<B>>,
-    pub ethernet_interfaces: Vec<EthernetInterface<B>>,
-    pub oem_nvidia_bluefield: Option<NvidiaComputerSystem<B>>,
-    pub secure_boot: Option<SecureBoot<B>>,
+pub(crate) struct ExploredComputerSystem<B: Bmc> {
+    pub(crate) system: ComputerSystem<B>,
+    pub(crate) bios: Option<Bios<B>>,
+    pub(crate) boot_options: Vec<BootOption<B>>,
+    ethernet_interfaces: Vec<EthernetInterface<B>>,
+    oem_nvidia_bluefield: Option<NvidiaComputerSystem<B>>,
+    secure_boot: Option<SecureBoot<B>>,
 }
 
 impl<B: Bmc> ExploredComputerSystem<B> {
-    pub async fn explore(
+    pub(crate) async fn explore(
         system: ComputerSystem<B>,
         config: &Config<'_, B>,
     ) -> Result<Self, Error<B>> {
@@ -94,7 +94,7 @@ impl<B: Bmc> ExploredComputerSystem<B> {
 
         let oem_nvidia_bluefield = if config.need_oem_nvidia_bluefield {
             system
-                .oem_nvidia_bluefield()
+                .oem_nvidia()
                 .await
                 .map_err(Error::nv_redfish("NVIDIA system Bluefield OEM"))?
         } else {
@@ -171,7 +171,7 @@ impl<B: Bmc> ExploredComputerSystem<B> {
             }
         }
     }
-    pub fn to_model(
+    pub(crate) fn to_model(
         &self,
         hw_type: Option<hw::HwType>,
         chassis: &ExploredChassisCollection<B>,
@@ -287,7 +287,7 @@ impl<B: Bmc> ExploredComputerSystem<B> {
         })
     }
 
-    pub fn secure_boot_status(&self) -> Result<SecureBootStatus, Error<B>> {
+    pub(crate) fn secure_boot_status(&self) -> Result<SecureBootStatus, Error<B>> {
         let secure_boot = self
             .secure_boot
             .as_ref()
@@ -308,7 +308,7 @@ impl<B: Bmc> ExploredComputerSystem<B> {
         })
     }
 
-    pub fn boot_order_first_option(&self) -> Option<&BootOption<B>> {
+    pub(crate) fn boot_order_first_option(&self) -> Option<&BootOption<B>> {
         self.system
             .boot_order()
             .as_ref()
@@ -320,7 +320,7 @@ impl<B: Bmc> ExploredComputerSystem<B> {
             })
     }
 
-    pub fn check_boot_by_uefi_prefix(
+    pub(crate) fn check_boot_by_uefi_prefix(
         &self,
         boot_interface_mac: MacAddress,
     ) -> Option<MachineSetupDiff> {
@@ -331,7 +331,7 @@ impl<B: Bmc> ExploredComputerSystem<B> {
         compare_boot_options(expected, actual)
     }
 
-    pub fn check_boot_option_enabled_by_uefi_prefix(
+    pub(crate) fn check_boot_option_enabled_by_uefi_prefix(
         &self,
         boot_interface_mac: MacAddress,
     ) -> Option<MachineSetupDiff> {
@@ -501,7 +501,7 @@ impl<B: Bmc> ExploredComputerSystem<B> {
                     | Some("Bluefield 3 DPU")
                     | Some("BlueField-3 SmartNIC Main Card")
                     | Some("Bluefield 3 SmartNIC Main Card") => {
-                        use nv_redfish::oem::nvidia::bluefield::nvidia_computer_system::Mode;
+                        use nv_redfish::oem::nvidia::computer_system::Mode;
                         bf_ncs.mode().and_then(|v| match v {
                             Mode::DpuMode => Some(BlueFieldOperatingMode::Dpu),
                             Mode::NicMode => Some(BlueFieldOperatingMode::Nic),
@@ -526,7 +526,7 @@ impl<B: Bmc> ExploredComputerSystem<B> {
         }
     }
 
-    pub fn bios_attr_eq(&self, expected: &hw::BiosAttr) -> Option<bool> {
+    fn bios_attr_eq(&self, expected: &hw::BiosAttr) -> Option<bool> {
         self.bios
             .as_ref()
             .and_then(|bios| bios.attribute(expected.key))
@@ -538,7 +538,7 @@ impl<B: Bmc> ExploredComputerSystem<B> {
             })
     }
 
-    pub fn verify_bios_attr(&self, expected: &hw::BiosAttr<'_>) -> Option<MachineSetupDiff> {
+    pub(crate) fn verify_bios_attr(&self, expected: &hw::BiosAttr<'_>) -> Option<MachineSetupDiff> {
         if let Some(actual) = self
             .bios
             .as_ref()

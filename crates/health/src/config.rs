@@ -835,6 +835,10 @@ pub struct CollectorsConfig {
     /// Entity metrics collector configuration (if present, metrics collector is enabled)
     pub metrics: Configurable<MetricsCollectorConfig>,
 
+    /// Redfish telemetry service collector configuration (if present, telemetry
+    /// collector is enabled)
+    pub telemetry: Configurable<TelemetryCollectorConfig>,
+
     /// Firmware collector configuration (if present, firmware collector is enabled)
     pub firmware: Configurable<FirmwareCollectorConfig>,
 
@@ -863,6 +867,7 @@ impl Default for CollectorsConfig {
             discovery: DiscoveryConfig::default(),
             sensors: Configurable::Enabled(SensorCollectorConfig::default()),
             metrics: Configurable::Disabled,
+            telemetry: Configurable::Disabled,
             firmware: Configurable::Disabled,
             leak_detector: Configurable::Enabled(LeakDetectorCollectorConfig::default()),
             logs: Configurable::Disabled,
@@ -984,6 +989,26 @@ impl Default for MetricsCollectorConfig {
         Self {
             fetch_interval: Duration::from_secs(120),
             fetch_concurrency: 4,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct TelemetryCollectorConfig {
+    /// Interval between metric report fetches.
+    ///
+    /// A report is one GET covering many readings, so this can run
+    /// tighter than the per-resource collectors without adding load
+    /// proportional to entity count.
+    #[serde(with = "humantime_serde")]
+    pub fetch_interval: Duration,
+}
+
+impl Default for TelemetryCollectorConfig {
+    fn default() -> Self {
+        Self {
+            fetch_interval: Duration::from_secs(60),
         }
     }
 }

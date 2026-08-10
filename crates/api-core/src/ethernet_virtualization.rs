@@ -45,11 +45,11 @@ use crate::CarbideError;
 use crate::cfg::file::{FnnConfig, FnnRoutingProfileConfig, VpcPeeringPolicy};
 
 #[derive(Default, Clone)]
-pub struct EthVirtData {
-    pub asn: u32,
-    pub dhcp_servers: Vec<Ipv4Addr>,
-    pub deny_prefixes: Vec<IpNetwork>,
-    pub site_fabric_prefixes: Option<SiteFabricPrefixList>,
+pub(crate) struct EthVirtData {
+    pub(crate) asn: u32,
+    pub(crate) dhcp_servers: Vec<Ipv4Addr>,
+    pub(crate) deny_prefixes: Vec<IpNetwork>,
+    pub(crate) site_fabric_prefixes: Option<SiteFabricPrefixList>,
 }
 
 pub(crate) struct AdminNetworkOptions<'a> {
@@ -61,12 +61,12 @@ pub(crate) struct AdminNetworkOptions<'a> {
 }
 
 #[derive(Clone)]
-pub struct SiteFabricPrefixList {
+pub(crate) struct SiteFabricPrefixList {
     prefixes: Vec<IpNetwork>,
 }
 
 impl SiteFabricPrefixList {
-    pub fn from_ipnetwork_vec(prefixes: Vec<IpNetwork>) -> Option<Self> {
+    pub(crate) fn from_ipnetwork_vec(prefixes: Vec<IpNetwork>) -> Option<Self> {
         // Under the current configuration semantics, an empty
         // site_fabric_prefixes list in the site config means we are not using
         // the VPC isolation feature built on top of it, and it is better not
@@ -75,12 +75,12 @@ impl SiteFabricPrefixList {
         prefixes.none_if_empty().map(|prefixes| Self { prefixes })
     }
 
-    pub fn as_ip_slice(&self) -> &[IpNetwork] {
+    pub(crate) fn as_ip_slice(&self) -> &[IpNetwork] {
         &self.prefixes
     }
 
     // Check whether the given network matches any of our site fabric prefixes.
-    pub fn contains(&self, network: IpNetwork) -> bool {
+    pub(crate) fn contains(&self, network: IpNetwork) -> bool {
         use IpNetwork::*;
         self.prefixes
             .iter()
