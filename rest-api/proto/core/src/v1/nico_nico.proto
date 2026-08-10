@@ -1853,7 +1853,7 @@ message VpcUpdateRequest {
   // preserve the current association.
   oneof power_resource_group_update {
     // Replace the current association. The value must not be empty.
-    string set_power_resource_group = 20;
+    string set_power_resource_group = 20 [json_name = "powerResourceGroup"];
     // Remove the current association.
     google.protobuf.Empty clear_power_resource_group = 21;
   }
