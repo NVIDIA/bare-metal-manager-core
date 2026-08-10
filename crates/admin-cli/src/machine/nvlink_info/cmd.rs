@@ -18,6 +18,7 @@
 use ::rpc::admin_cli::OutputFormat;
 use ::rpc::forge as forgerpc;
 use carbide_utils::none_if_empty::NoneIfEmpty;
+use model::hardware_info::gpu_name_indicates_mnnvl;
 
 use super::args::{NvlinkInfoArgs, NvlinkInfoPopulateArgs};
 use crate::errors::{CarbideCliError, CarbideCliResult};
@@ -30,12 +31,19 @@ pub(super) async fn handle_nvlink_info_show(
 ) -> CarbideCliResult<()> {
     let machine = api_client.get_machine(args.machine_id).await?;
 
-    // Check if this is an MNNVL machine (GB200)
+    // Check if this is an MNNVL machine (GB200|GB300)
     let is_mnnvl = machine
         .discovery_info
         .as_ref()
-        .and_then(|info| info.dmi_data.as_ref())
-        .map(|dmi| dmi.product_name.contains("GB200"))
+        .map(|info| {
+            info.dmi_data
+                .as_ref()
+                .is_some_and(|dmi| gpu_name_indicates_mnnvl(&dmi.product_name))
+                || info
+                    .gpus
+                    .iter()
+                    .any(|gpu| gpu_name_indicates_mnnvl(&gpu.name))
+        })
         .unwrap_or(false);
 
     if !is_mnnvl {
@@ -69,12 +77,19 @@ pub(super) async fn handle_nvlink_info_populate(
     let machine = api_client.get_machine(args.machine_id).await?;
     let update_db = args.update_db;
 
-    // Check if this is an MNNVL machine (GB200)
+    // Check if this is an MNNVL machine (GB200|GB300)
     let is_mnnvl = machine
         .discovery_info
         .as_ref()
-        .and_then(|info| info.dmi_data.as_ref())
-        .map(|dmi| dmi.product_name.contains("GB200"))
+        .map(|info| {
+            info.dmi_data
+                .as_ref()
+                .is_some_and(|dmi| gpu_name_indicates_mnnvl(&dmi.product_name))
+                || info
+                    .gpus
+                    .iter()
+                    .any(|gpu| gpu_name_indicates_mnnvl(&gpu.name))
+        })
         .unwrap_or(false);
 
     if !is_mnnvl {
@@ -202,14 +217,21 @@ pub(super) async fn handle_nvlink_info_populate(
                     "GPU entry missing gpu_uid in NMX-C GPU list response".to_string(),
                 )
             })?;
+
         let gpu_slot_id = gpu_json
             .get("loc")
-            .and_then(|loc| loc.get("slot_id"))
+            .and_then(|loc| {
+                loc.get("slot_id").or_else(|| {
+                    loc.get("location")
+                        .and_then(|location| location.get("slot_id"))
+                })
+            })
             .and_then(|v| v.as_i64())
             .map(|v| v as i32)
             .ok_or_else(|| {
                 CarbideCliError::GenericError(
-                    "GPU entry missing loc.slot_id in NMX-C GPU list response".to_string(),
+                    "GPU entry missing loc.slot_id or loc.location.slot_id in NMX-C GPU list response"
+                        .to_string(),
                 )
             })?;
 
