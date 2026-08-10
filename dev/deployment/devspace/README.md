@@ -98,10 +98,9 @@ devspace deploy
 DevSpace will:
 
 - build the local runtime images from [`Dockerfile.api`](Dockerfile.api), [`Dockerfile.bmc-proxy`](Dockerfile.bmc-proxy), and [`Dockerfile.machine-a-tron`](Dockerfile.machine-a-tron)
-- build the REST API, workflow, site-manager, site-agent, database migration, certificate-manager, and MCP images from [`rest-api/docker/local`](../../../rest-api/docker/local)
+- build the REST API, workflow, site-manager, site-agent, database migration, and certificate-manager images from [`rest-api/docker/local`](../../../rest-api/docker/local)
 - deploy the Helm chart in [`helm/`](../../../helm) (including `nico-machine-a-tron`)
-- deploy the REST umbrella, site-agent, and MCP charts in [`helm/rest`](../../../helm/rest)
-- apply the local-only `machine-a-tron` Kubernetes objects from [`machine-a-tron.yaml`](machine-a-tron.yaml) with `kubectl`
+- deploy the REST umbrella and site-agent charts in [`helm/rest`](../../../helm/rest)
 - inject the built image names and DevSpace-generated tags into both deployments at runtime
 - register a local REST site, configure its Temporal namespace, and confirm that the site agent establishes a Core gRPC connection
 
@@ -122,20 +121,36 @@ devspace deploy --skip-build -n nico-system
 devspace deploy --force-build
 ```
 
-To deploy a local DSX Exchange-compatible event bus and enable NICo's managed
-host state publisher, opt in with the `dsx-exchange` profile:
+To deploy NICo MCP, the DSX Agent Gateway hub/leaf bridge topology, and a local
+DSX Exchange-compatible event bus, opt in with the `dsx-exchange` profile:
 
 ```bash
 devspace deploy --profile dsx-exchange
 ```
 
-This profile adds a single-node, unauthenticated NATS MQTT service alongside
-NICo in the local development namespace and publishes managed host state to
-`NICO/v1/machine/<machine-id>/state`. It also republishes current state every
-10 seconds so a local subscriber can observe messages after the initial state
-transitions. The event bus and publisher remain disabled when the profile is
-not selected. The profile does not enable the separate inbound
+The profile checks out NVIDIA/dsx-exchange `v2.9.1` at commit
+`909f21c722b3f4eb6954a63ffbc3cb894685e3cd`, verifies that exact revision,
+builds `dsx-agentgateway-bridge` from that source, and uses the pinned DSX
+Agent Gateway chart from the same checkout. The profile owns the local Gateway
+API `v1.5.1` and Agentgateway CRD `v1.4.1` prerequisites, then deploys a hub
+gateway and a `nico-dev` leaf gateway with NICo MCP as the leaf's discovered
+backend. Both gateways validate the existing local Keycloak tokens. The hub is
+available on NodePort `30180`. Post-deploy verification also forwards it to
+`http://localhost:18080/mcp`, authenticates with the local Keycloak token, and
+requires the hub to return both the bridge shard tool and routed NICo MCP tools.
+
+NATS remains an external upstream dependency: DevSpace consumes NATS Helm chart
+`2.12.6` and its published runtime image instead of building NATS from the DSX
+source checkout. The profile configures that single-node, unauthenticated NATS
+service for bridge request/reply and NICo's managed-host MQTT publications to
+`NICO/v1/machine/<machine-id>/state`. Current state is republished every 10
+seconds. The profile does not enable the separate inbound
 `nico-dsx-exchange-consumer`.
+
+NICo MCP, both gateway releases, the bridge image, NATS, and the publisher are
+absent when the profile is not selected. The first profile build needs public
+GitHub and OCI registry access to fetch the pinned DSX source and chart
+dependencies. Later builds reuse the verified checkout under `.devspace/`.
 
 The post-deploy setup uses temporary port-forwards to register the site and verifies that machines from Core are visible through the REST API. To keep the REST API and Keycloak available on localhost after `devspace deploy` exits, run these in separate terminals:
 
@@ -177,6 +192,7 @@ docker build -t "machine-a-tron:<devspace-generated-tag>" -f dev/deployment/devs
 ```
 
 DevSpace then deploys the Helm chart with:
+
 - the built `nico-api` image wired into `global.image.repository` and `global.image.tag`
 - the built `nico-bmc-proxy` image wired into the `nico-bmc-proxy` chart values
 - the built `machine-a-tron` image wired into the `nico-machine-a-tron` chart values

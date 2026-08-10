@@ -1,0 +1,19 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+agentgateway:
+  discoveryNamespaceSelectors:
+    - matchLabels:
+        kubernetes.io/metadata.name: dsx-gateway-leaf
+    - matchLabels:
+        kubernetes.io/metadata.name: nico-rest
+
+bridge:
+  role: leaf
+  shardId: nico-dev
+
+upstreams:
+  nico-mcp:
+    namespace: nico-rest
+    serviceLabels:
+      app.kubernetes.io/name: nico-mcp

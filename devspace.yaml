@@ -29,6 +29,9 @@ vars:
   LOCAL_DEV_KEYCLOAK_FORWARD_PORT:
     source: env
     default: "18082"
+  LOCAL_DEV_DSX_GATEWAY_FORWARD_PORT:
+    source: env
+    default: "18080"
 
 pipelines:
   purge: |-
@@ -137,15 +140,6 @@ images:
     context: rest-api
     buildKit: {}
     skipPush: true
-  nico-mcp:
-    image: localhost:5000/nico-mcp
-    tags:
-      - ${DEVSPACE_GIT_COMMIT}-${DEVSPACE_TIMESTAMP}
-    dockerfile: rest-api/docker/local/Dockerfile.nico-mcp
-    context: rest-api
-    buildKit: {}
-    skipPush: true
-
 deployments:
   carbide-local:
     namespace: ${LOCAL_DEV_NAMESPACE}
@@ -260,23 +254,6 @@ deployments:
           TEMPORAL_SERVER: site.server.temporal.local
           TEMPORAL_SUBSCRIBE_NAMESPACE: 00000000-0000-4000-8000-000000000001
           TEMPORAL_SUBSCRIBE_QUEUE: site
-  nico-mcp:
-    namespace: nico-rest
-    updateImageTags: false
-    helm:
-      chart:
-        path: ./helm/rest/nico-mcp
-      values:
-        global:
-          image:
-            repository: localhost:5000
-            tag: ${runtime.images.nico-rest-api.tag}
-            pullPolicy: Never
-          imagePullSecrets: []
-        config:
-          baseURL: http://nico-rest-api:8388
-          apiName: nico
-
 hooks:
   - name: build-base-image
     events: ["before:build"]
@@ -310,8 +287,7 @@ hooks:
             "${runtime.images.nico-rest-site-manager.image}:${runtime.images.nico-rest-site-manager.tag}" \
             "${runtime.images.nico-rest-site-agent.image}:${runtime.images.nico-rest-site-agent.tag}" \
             "${runtime.images.nico-rest-db.image}:${runtime.images.nico-rest-db.tag}" \
-            "${runtime.images.nico-rest-cert-manager.image}:${runtime.images.nico-rest-cert-manager.tag}" \
-            "${runtime.images.nico-mcp.image}:${runtime.images.nico-mcp.tag}"
+            "${runtime.images.nico-rest-cert-manager.image}:${runtime.images.nico-rest-cert-manager.tag}"
           ;;
       esac
   - name: setup-rest-integration
@@ -324,6 +300,117 @@ hooks:
 profiles:
   - name: dsx-exchange
     patches:
+      - op: add
+        path: images.nico-mcp
+        value:
+          image: localhost:5000/nico-mcp
+          tags:
+            - ${DEVSPACE_GIT_COMMIT}-${DEVSPACE_TIMESTAMP}
+          dockerfile: rest-api/docker/local/Dockerfile.nico-mcp
+          context: rest-api
+          buildKit: {}
+          skipPush: true
+      - op: add
+        path: images.dsx-agentgateway-bridge
+        value:
+          image: localhost:5000/dsx-agentgateway-bridge
+          custom:
+            command: |-
+              DSX_DIR=$(dev/deployment/devspace/prepare-dsx-exchange.sh)
+              docker build \
+                -t ${runtime.images.dsx-agentgateway-bridge.image}:${runtime.images.dsx-agentgateway-bridge.tag} \
+                -f "${DSX_DIR}/dsx-agentgateway-bridge/Dockerfile" \
+                "${DSX_DIR}/dsx-agentgateway-bridge"
+            onChange:
+              - dev/deployment/devspace/prepare-dsx-exchange.sh
+              - devspace.yaml
+      - op: add
+        path: deployments.nico-mcp
+        value:
+          namespace: nico-rest
+          updateImageTags: false
+          helm:
+            chart:
+              path: ./helm/rest/nico-mcp
+            values:
+              global:
+                image:
+                  repository: localhost:5000
+                  tag: ${runtime.images.nico-rest-api.tag}
+                  pullPolicy: Never
+                imagePullSecrets: []
+              config:
+                baseURL: http://nico-rest-api:8388
+                apiName: nico
+      - op: add
+        path: deployments.dsx-gateway-hub
+        value:
+          namespace: dsx-gateway-hub
+          updateImageTags: false
+          helm:
+            chart:
+              path: ./.devspace/dsx-exchange-v2.9.1/deploy/dsx-agent-gateway
+            valuesFiles:
+              - dev/deployment/devspace/dsx-agent-gateway-common.yaml
+              - dev/deployment/devspace/dsx-agent-gateway-hub.yaml
+            values:
+              bridge:
+                image:
+                  repository: ${runtime.images.dsx-agentgateway-bridge.image}
+                  tag: ${runtime.images.dsx-agentgateway-bridge.tag}
+                  pullPolicy: Never
+      - op: add
+        path: deployments.dsx-gateway-leaf
+        value:
+          namespace: dsx-gateway-leaf
+          updateImageTags: false
+          helm:
+            chart:
+              path: ./.devspace/dsx-exchange-v2.9.1/deploy/dsx-agent-gateway
+            valuesFiles:
+              - dev/deployment/devspace/dsx-agent-gateway-common.yaml
+              - dev/deployment/devspace/dsx-agent-gateway-leaf.yaml
+            values:
+              bridge:
+                image:
+                  repository: ${runtime.images.dsx-agentgateway-bridge.image}
+                  tag: ${runtime.images.dsx-agentgateway-bridge.tag}
+                  pullPolicy: Never
+      - op: add
+        path: hooks
+        value:
+          name: prepare-dsx-exchange-source
+          events: ["before:build"]
+          command: dev/deployment/devspace/prepare-dsx-exchange.sh >/dev/null
+      - op: add
+        path: hooks
+        value:
+          name: install-dsx-gateway-prereqs
+          events: ["before:deploy"]
+          command: dev/deployment/devspace/install-dsx-gateway-prereqs.sh
+      - op: add
+        path: hooks
+        value:
+          name: load-dsx-profile-images-into-local-cluster
+          events: ["before:deploy"]
+          command: |-
+            CONTEXT=$(kubectl config current-context 2>/dev/null || echo "")
+            case "$CONTEXT" in
+              kind-*)
+                echo "Loading NICo MCP and DSX bridge images into kind cluster..."
+                kind load docker-image --name "${CONTEXT#kind-}" \
+                  "${runtime.images.nico-mcp.image}:${runtime.images.nico-mcp.tag}" \
+                  "${runtime.images.dsx-agentgateway-bridge.image}:${runtime.images.dsx-agentgateway-bridge.tag}"
+                ;;
+            esac
+      - op: replace
+        path: hooks.name=setup-rest-integration.command
+        value: |-
+          LOCAL_DEV_REST_API_FORWARD_PORT=${LOCAL_DEV_REST_API_FORWARD_PORT} \
+          LOCAL_DEV_KEYCLOAK_FORWARD_PORT=${LOCAL_DEV_KEYCLOAK_FORWARD_PORT} \
+          LOCAL_DEV_DSX_GATEWAY_FORWARD_PORT=${LOCAL_DEV_DSX_GATEWAY_FORWARD_PORT} \
+          LOCAL_DEV_DSX_GATEWAY_ENABLED=1 \
+            dev/deployment/devspace/setup-rest-integration.sh
       - op: add
         path: deployments.dsx-exchange
         value:
@@ -385,13 +472,9 @@ profiles:
       - op: remove
         path: images.nico-rest-cert-manager
       - op: remove
-        path: images.nico-mcp
-      - op: remove
         path: deployments.nico-rest
       - op: remove
         path: deployments.nico-rest-site-agent
-      - op: remove
-        path: deployments.nico-mcp
       - op: remove
         path: hooks.name=load-rest-images-into-local-cluster
       - op: remove
