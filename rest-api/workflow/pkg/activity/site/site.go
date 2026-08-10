@@ -935,7 +935,8 @@ func (mst ManageSite) UpdateIPBlocksInDBFromFabricPrefixes(ctx context.Context, 
 	statusDetailDAO := cdbm.NewStatusDetailDAO(mst.dbSession)
 
 	err = cdb.WithTx(ctx, mst.dbSession, func(tx *cdb.Tx) error {
-		if derr := tx.AcquireAdvisoryLock(ctx, getSiteFabricIPBlockLockID(dbSite), false); derr != nil {
+		derr := tx.AcquireAdvisoryLock(ctx, getSiteFabricIPBlockLockID(dbSite), false)
+		if derr != nil {
 			logger.Error().Err(derr).Msg("failed to acquire advisory lock for Site fabric IP Blocks")
 			return derr
 		}

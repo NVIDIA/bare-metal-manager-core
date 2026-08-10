@@ -71,7 +71,8 @@ func (mcgsc *MockCoreGrpcServiceClient) Version(ctx context.Context, in *corev1.
 	// Core reports the runtime config only when the request asks for it, so a
 	// caller that omits DisplayConfig gets BuildInfo with no RuntimeConfig.
 	if in.GetDisplayConfig() {
-		if siteFabricPrefixes, ok := ctx.Value("siteFabricPrefixes").([]string); ok {
+		siteFabricPrefixes, ok := ctx.Value("siteFabricPrefixes").([]string)
+		if ok {
 			out.RuntimeConfig = &corev1.RuntimeConfig{
 				SiteFabricPrefixes: siteFabricPrefixes,
 			}

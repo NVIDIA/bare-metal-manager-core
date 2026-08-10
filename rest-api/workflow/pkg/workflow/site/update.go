@@ -25,13 +25,13 @@ import (
 func UpdateSiteConfigInventory(ctx workflow.Context, siteIDStr string, buildInfo *corev1.BuildInfo) error {
 	logger := log.With().Str("Workflow", "UpdateSiteConfigInventory").Str("SiteID", siteIDStr).Logger()
 
-	startTime := time.Now()
+	startTime := workflow.Now(ctx)
 
 	logger.Info().Msg("starting workflow")
 
 	siteID, err := uuid.Parse(siteIDStr)
 	if err != nil {
-		logger.Warn().Err(err).Msg(fmt.Sprintf("workflow triggered with invalid site ID: %s", siteID))
+		logger.Warn().Err(err).Msg(fmt.Sprintf("workflow triggered with invalid site ID: %s", siteIDStr))
 		return err
 	}
 
@@ -62,7 +62,7 @@ func UpdateSiteConfigInventory(ctx workflow.Context, siteIDStr string, buildInfo
 	// Record latency for this inventory call
 	var inventoryMetricsManager cwm.ManageInventoryMetrics
 
-	serr := workflow.ExecuteActivity(ctx, inventoryMetricsManager.RecordLatency, siteID, "UpdateSiteConfigInventory", err != nil, time.Since(startTime)).Get(ctx, nil)
+	serr := workflow.ExecuteActivity(ctx, inventoryMetricsManager.RecordLatency, siteID, "UpdateSiteConfigInventory", err != nil, workflow.Now(ctx).Sub(startTime)).Get(ctx, nil)
 	if serr != nil {
 		logger.Warn().Err(serr).Msg("failed to execute activity: RecordLatency")
 	}
