@@ -1377,30 +1377,33 @@ pub enum ManagedHostState {
 
 /// Progress through the managed host decommissioning workflow.
 #[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq)]
-#[serde(rename_all = "lowercase")]
+#[serde(tag = "state", rename_all = "lowercase")]
 pub enum DecommissioningState {
-    Preparing,
+    /// Site Explorer is being suppressed before the destructive reset.
+    SuppressingSiteExplorer,
     DeconfiguringHost {
         deconfiguring_state: DeconfiguringHostState,
     },
     DeconfiguringDpus {
         dpu_states: HashMap<MachineId, DeconfiguringDpuState>,
     },
-    VerifyingDhcpRelease {
-        verifying_state: VerifyingDhcpReleaseState,
+    /// OOB DHCP is suppressed before the host power cycle so post-cycle discovers are ignored.
+    SuppressingOobDhcp,
+    /// Power-cycles the host to force OOB rediscovery against the pre-cycle suppression.
+    PowerCyclingHost,
+    /// Waiting for the pre-cycle OOB DHCP suppression to be acknowledged.
+    WaitingForOobDhcpAcknowledgement,
+    /// BMC DHCP is suppressed before the BMC factory reset.
+    SuppressingBmcDhcp,
+    /// Issues BMC factory resets for the host and its DPUs.
+    FactoryResettingBmcs {
+        completed: HashSet<MachineId>,
     },
+    /// Waiting for the pre-reset BMC DHCP suppression to be acknowledged.
+    WaitingForBmcDhcpAcknowledgement,
     /// Managed per-device BMC and DPU credentials are being removed after factory reset.
     DeletingManagedCredentials,
     Decommissioned,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq)]
-#[serde(tag = "state", rename_all = "lowercase")]
-pub enum VerifyingDhcpReleaseState {
-    PowerCyclingHost,
-    WaitingForOobDhcpAcknowledgement,
-    FactoryResettingBmcs { completed: HashSet<MachineId> },
-    WaitingForBmcDhcpAcknowledgement,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq)]
@@ -2613,13 +2616,20 @@ impl Display for ReadyBootConfigState {
 impl Display for DecommissioningState {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            DecommissioningState::Preparing => write!(f, "Preparing"),
+            DecommissioningState::SuppressingSiteExplorer => write!(f, "SuppressingSiteExplorer"),
             DecommissioningState::DeconfiguringHost {
                 deconfiguring_state,
             } => write!(f, "DeconfiguringHost/{deconfiguring_state:?}"),
             DecommissioningState::DeconfiguringDpus { .. } => write!(f, "DeconfiguringDpus"),
-            DecommissioningState::VerifyingDhcpRelease { .. } => {
-                write!(f, "VerifyingDhcpRelease")
+            DecommissioningState::SuppressingOobDhcp => write!(f, "SuppressingOobDhcp"),
+            DecommissioningState::PowerCyclingHost => write!(f, "PowerCyclingHost"),
+            DecommissioningState::WaitingForOobDhcpAcknowledgement => {
+                write!(f, "WaitingForOobDhcpAcknowledgement")
+            }
+            DecommissioningState::SuppressingBmcDhcp => write!(f, "SuppressingBmcDhcp"),
+            DecommissioningState::FactoryResettingBmcs { .. } => write!(f, "FactoryResettingBmcs"),
+            DecommissioningState::WaitingForBmcDhcpAcknowledgement => {
+                write!(f, "WaitingForBmcDhcpAcknowledgement")
             }
             DecommissioningState::DeletingManagedCredentials => {
                 write!(f, "DeletingManagedCredentials")
@@ -2980,7 +2990,45 @@ pub fn state_sla(
             _ => StateSla::with_sla(slas::HOST_INIT, time_in_state),
         },
         ManagedHostState::Ready => StateSla::no_sla(),
-        ManagedHostState::Decommissioning { .. } => StateSla::no_sla(),
+        ManagedHostState::Decommissioning {
+            decommissioning_state,
+        } => match decommissioning_state {
+            DecommissioningState::SuppressingSiteExplorer => StateSla::with_sla(
+                slas::DECOMMISSIONING_SUPPRESSING_SITE_EXPLORER,
+                time_in_state,
+            ),
+            DecommissioningState::DeconfiguringHost { .. } => {
+                StateSla::with_sla(slas::DECOMMISSIONING_DECONFIGURING_HOST, time_in_state)
+            }
+            DecommissioningState::DeconfiguringDpus { .. } => {
+                StateSla::with_sla(slas::DECOMMISSIONING_DECONFIGURING_DPUS, time_in_state)
+            }
+            DecommissioningState::SuppressingOobDhcp => {
+                StateSla::with_sla(slas::DECOMMISSIONING_SUPPRESSING_OOB_DHCP, time_in_state)
+            }
+            DecommissioningState::PowerCyclingHost => {
+                StateSla::with_sla(slas::DECOMMISSIONING_POWER_CYCLING_HOST, time_in_state)
+            }
+            DecommissioningState::WaitingForOobDhcpAcknowledgement => StateSla::with_sla(
+                slas::DECOMMISSIONING_WAITING_FOR_OOB_DHCP_ACKNOWLEDGEMENT,
+                time_in_state,
+            ),
+            DecommissioningState::SuppressingBmcDhcp => {
+                StateSla::with_sla(slas::DECOMMISSIONING_SUPPRESSING_BMC_DHCP, time_in_state)
+            }
+            DecommissioningState::FactoryResettingBmcs { .. } => {
+                StateSla::with_sla(slas::DECOMMISSIONING_FACTORY_RESETTING_BMCS, time_in_state)
+            }
+            DecommissioningState::WaitingForBmcDhcpAcknowledgement => StateSla::with_sla(
+                slas::DECOMMISSIONING_WAITING_FOR_BMC_DHCP_ACKNOWLEDGEMENT,
+                time_in_state,
+            ),
+            DecommissioningState::DeletingManagedCredentials => StateSla::with_sla(
+                slas::DECOMMISSIONING_DELETING_MANAGED_CREDENTIALS,
+                time_in_state,
+            ),
+            DecommissioningState::Decommissioned => StateSla::no_sla(),
+        },
         ManagedHostState::BootConfiguring {
             boot_config_state: ReadyBootConfigState::Failed { .. },
             ..

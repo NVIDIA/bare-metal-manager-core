@@ -321,15 +321,30 @@ impl StateControllerIO for MachineStateControllerIO {
             ManagedHostState::Decommissioning {
                 decommissioning_state,
             } => match decommissioning_state {
-                DecommissioningState::Preparing => ("decommissioning", "preparing"),
+                DecommissioningState::SuppressingSiteExplorer => {
+                    ("decommissioning", "suppressingsiteexplorer")
+                }
                 DecommissioningState::DeconfiguringHost { .. } => {
                     ("decommissioning", "deconfiguringhost")
                 }
                 DecommissioningState::DeconfiguringDpus { .. } => {
                     ("decommissioning", "deconfiguringdpus")
                 }
-                DecommissioningState::VerifyingDhcpRelease { .. } => {
-                    ("decommissioning", "verifyingdhcprelease")
+                DecommissioningState::SuppressingOobDhcp => {
+                    ("decommissioning", "suppressingoobdhcp")
+                }
+                DecommissioningState::PowerCyclingHost => ("decommissioning", "powercyclinghost"),
+                DecommissioningState::WaitingForOobDhcpAcknowledgement => {
+                    ("decommissioning", "waitingforoobdhcpacknowledgement")
+                }
+                DecommissioningState::SuppressingBmcDhcp => {
+                    ("decommissioning", "suppressingbmcdhcp")
+                }
+                DecommissioningState::FactoryResettingBmcs { .. } => {
+                    ("decommissioning", "factoryresettingbmcs")
+                }
+                DecommissioningState::WaitingForBmcDhcpAcknowledgement => {
+                    ("decommissioning", "waitingforbmcdhcpacknowledgement")
                 }
                 DecommissioningState::DeletingManagedCredentials => {
                     ("decommissioning", "deletingmanagedcredentials")

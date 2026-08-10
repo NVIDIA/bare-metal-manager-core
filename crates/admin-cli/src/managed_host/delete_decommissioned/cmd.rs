@@ -21,7 +21,10 @@ use super::args::Args;
 use crate::errors::CarbideCliResult;
 use crate::rpc::ApiClient;
 
-pub(super) async fn delete_decommissioned(api_client: &ApiClient, args: Args) -> CarbideCliResult<()> {
+pub(super) async fn delete_decommissioned(
+    api_client: &ApiClient,
+    args: Args,
+) -> CarbideCliResult<()> {
     let machine_id = args.machine_id;
     api_client
         .0

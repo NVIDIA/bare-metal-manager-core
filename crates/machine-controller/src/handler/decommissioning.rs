@@ -26,7 +26,7 @@ use model::bmc_suppression::{BmcSuppressionSubsystem, NewBmcSuppression};
 use model::dpa_interface::{DpaInterfaceControllerState, DpaInterfaceType, DpaLockMode};
 use model::machine::{
     DecommissioningState, DeconfiguringDpuState, DeconfiguringHostState, ManagedHostState,
-    ManagedHostStateSnapshot, VerifyingDhcpReleaseState,
+    ManagedHostStateSnapshot,
 };
 use model::network_segment::NetworkSegmentType;
 use state_controller::state_handler::{
@@ -51,9 +51,9 @@ fn deconfiguring_dpus(dpu_states: HashMap<MachineId, DeconfiguringDpuState>) -> 
     }
 }
 
-fn verifying_dhcp_release(verifying_state: VerifyingDhcpReleaseState) -> ManagedHostState {
+fn decommissioning(state: DecommissioningState) -> ManagedHostState {
     ManagedHostState::Decommissioning {
-        decommissioning_state: DecommissioningState::VerifyingDhcpRelease { verifying_state },
+        decommissioning_state: state,
     }
 }
 
@@ -76,7 +76,7 @@ fn deconfiguring_dpus_after_host_reset(state: &ManagedHostStateSnapshot) -> Mana
     )
 }
 
-pub(super) async fn handle_preparing(
+pub(super) async fn handle_suppressing_site_explorer(
     state: &ManagedHostStateSnapshot,
     ctx: &mut StateHandlerContext<'_, MachineStateHandlerContextObjects>,
 ) -> Result<StateHandlerOutcome<ManagedHostState>, StateHandlerError> {
@@ -401,8 +401,8 @@ pub(super) async fn handle_deconfiguring_dpus(
     dpf_sdk: Option<&dyn DpfOperations>,
 ) -> Result<StateHandlerOutcome<ManagedHostState>, StateHandlerError> {
     if dpu_states.is_empty() {
-        return Ok(StateHandlerOutcome::transition(verifying_dhcp_release(
-            VerifyingDhcpReleaseState::PowerCyclingHost,
+        return Ok(StateHandlerOutcome::transition(decommissioning(
+            DecommissioningState::SuppressingOobDhcp,
         )));
     }
 
@@ -410,8 +410,8 @@ pub(super) async fn handle_deconfiguring_dpus(
         .iter()
         .find(|(_, dpu_state)| !matches!(dpu_state, DeconfiguringDpuState::Complete))
     else {
-        return Ok(StateHandlerOutcome::transition(verifying_dhcp_release(
-            VerifyingDhcpReleaseState::PowerCyclingHost,
+        return Ok(StateHandlerOutcome::transition(decommissioning(
+            DecommissioningState::SuppressingOobDhcp,
         )));
     };
     let dpu = state
@@ -552,13 +552,6 @@ fn all_machines(
     std::iter::once(&state.host_snapshot).chain(&state.dpu_snapshots)
 }
 
-fn next_uncompleted_machine<'a>(
-    state: &'a ManagedHostStateSnapshot,
-    completed: &HashSet<MachineId>,
-) -> Option<&'a model::machine::Machine> {
-    all_machines(state).find(|machine| !completed.contains(&machine.id))
-}
-
 async fn all_dhcp_suppressions_acknowledged(
     mac_addresses: impl IntoIterator<Item = mac_address::MacAddress>,
     ctx: &mut StateHandlerContext<'_, MachineStateHandlerContextObjects>,
@@ -643,109 +636,134 @@ async fn suppress_oob_dhcp(
     Ok(txn)
 }
 
-pub(super) async fn handle_verifying_dhcp_release(
-    verifying_state: &VerifyingDhcpReleaseState,
+async fn suppress_bmc_dhcp(
+    state: &ManagedHostStateSnapshot,
+    ctx: &mut StateHandlerContext<'_, MachineStateHandlerContextObjects>,
+) -> Result<sqlx::PgTransaction<'static>, StateHandlerError> {
+    let mut txn = ctx.services.db_pool.begin().await?;
+    for bmc_mac_address in bmc_mac_addresses(state)? {
+        db::bmc_suppression::upsert(
+            &mut txn,
+            &NewBmcSuppression {
+                bmc_mac_address,
+                subsystem: BmcSuppressionSubsystem::Dhcp,
+                reason: format!(
+                    "managed host {} is being decommissioned; suppressing BMC DHCP",
+                    state.host_snapshot.id
+                ),
+            },
+        )
+        .await?;
+    }
+    db::machine_interface::record_deletion(&mut txn).await?;
+    Ok(txn)
+}
+
+pub(super) async fn handle_suppressing_oob_dhcp(
     state: &ManagedHostStateSnapshot,
     ctx: &mut StateHandlerContext<'_, MachineStateHandlerContextObjects>,
 ) -> Result<StateHandlerOutcome<ManagedHostState>, StateHandlerError> {
-    match verifying_state {
-        VerifyingDhcpReleaseState::PowerCyclingHost => {
-            let host = &state.host_snapshot;
-            let redfish_client = ctx
-                .services
-                .create_redfish_client_from_machine(host)
-                .await?;
-            host_power_control(
-                redfish_client.as_ref(),
-                host,
-                SystemPowerControl::ACPowercycle,
-                ctx,
-            )
-            .await
-            .map_err(|error| {
-                StateHandlerError::GenericError(eyre::eyre!(
-                    "failed to power cycle host before suppressing OOB DHCP: {error}"
-                ))
-            })?;
-            let txn = suppress_oob_dhcp(state, ctx).await?;
-            Ok(StateHandlerOutcome::transition(verifying_dhcp_release(
-                VerifyingDhcpReleaseState::WaitingForOobDhcpAcknowledgement,
-            ))
-            .with_txn(txn))
-        }
-        VerifyingDhcpReleaseState::WaitingForOobDhcpAcknowledgement => {
-            let oob_mac_addresses = all_oob_interface_mac_addresses(state, ctx).await?;
-            if all_dhcp_suppressions_acknowledged(oob_mac_addresses, ctx).await? {
-                return Ok(StateHandlerOutcome::transition(verifying_dhcp_release(
-                    VerifyingDhcpReleaseState::FactoryResettingBmcs {
-                        completed: HashSet::new(),
-                    },
-                )));
-            }
-            Ok(StateHandlerOutcome::wait(
-                "waiting for OOB DHCP suppression acknowledgement".to_string(),
-            ))
-        }
-        VerifyingDhcpReleaseState::FactoryResettingBmcs { completed } => {
-            let Some(machine) = next_uncompleted_machine(state, completed) else {
-                return Ok(StateHandlerOutcome::transition(verifying_dhcp_release(
-                    VerifyingDhcpReleaseState::WaitingForBmcDhcpAcknowledgement,
-                )));
-            };
-            ctx.services
-                .create_redfish_client_from_machine(machine)
-                .await?
-                .bmc_reset_to_defaults()
-                .await
-                .map_err(|error| {
-                    StateHandlerError::GenericError(eyre::eyre!(
-                        "failed to factory reset BMC for {}: {error}",
-                        machine.id
-                    ))
-                })?;
-            let bmc_mac_address =
-                machine
-                    .status
-                    .bmc_info
-                    .mac
-                    .ok_or_else(|| StateHandlerError::MissingData {
-                        object_id: machine.id.to_string(),
-                        missing: "bmc_mac",
-                    })?;
-            let mut txn = ctx.services.db_pool.begin().await?;
-            db::bmc_suppression::upsert(
-                &mut txn,
-                &NewBmcSuppression {
-                    bmc_mac_address,
-                    subsystem: BmcSuppressionSubsystem::Dhcp,
-                    reason: format!(
-                        "managed host {} is being decommissioned; suppressing BMC DHCP",
-                        state.host_snapshot.id
-                    ),
-                },
-            )
-            .await?;
-            db::machine_interface::record_deletion(&mut txn).await?;
-            let mut completed = completed.clone();
-            completed.insert(machine.id);
-            Ok(StateHandlerOutcome::transition(verifying_dhcp_release(
-                VerifyingDhcpReleaseState::FactoryResettingBmcs { completed },
-            ))
-            .with_txn(txn))
-        }
-        VerifyingDhcpReleaseState::WaitingForBmcDhcpAcknowledgement => {
-            if all_dhcp_suppressions_acknowledged(bmc_mac_addresses(state)?, ctx).await? {
-                return Ok(StateHandlerOutcome::transition(
-                    ManagedHostState::Decommissioning {
-                        decommissioning_state: DecommissioningState::DeletingManagedCredentials,
-                    },
-                ));
-            }
-            Ok(StateHandlerOutcome::wait(
-                "waiting for BMC DHCP suppression acknowledgement after factory reset".to_string(),
-            ))
-        }
+    let txn = suppress_oob_dhcp(state, ctx).await?;
+    Ok(
+        StateHandlerOutcome::transition(decommissioning(DecommissioningState::PowerCyclingHost))
+            .with_txn(txn),
+    )
+}
+
+pub(super) async fn handle_power_cycling_host(
+    state: &ManagedHostStateSnapshot,
+    ctx: &mut StateHandlerContext<'_, MachineStateHandlerContextObjects>,
+) -> Result<StateHandlerOutcome<ManagedHostState>, StateHandlerError> {
+    let host = &state.host_snapshot;
+    let redfish_client = ctx
+        .services
+        .create_redfish_client_from_machine(host)
+        .await?;
+    host_power_control(
+        redfish_client.as_ref(),
+        host,
+        SystemPowerControl::ACPowercycle,
+        ctx,
+    )
+    .await
+    .map_err(|error| {
+        StateHandlerError::GenericError(eyre::eyre!(
+            "failed to power cycle host after suppressing OOB DHCP: {error}"
+        ))
+    })?;
+    Ok(StateHandlerOutcome::transition(decommissioning(
+        DecommissioningState::WaitingForOobDhcpAcknowledgement,
+    )))
+}
+
+pub(super) async fn handle_waiting_for_oob_dhcp_acknowledgement(
+    state: &ManagedHostStateSnapshot,
+    ctx: &mut StateHandlerContext<'_, MachineStateHandlerContextObjects>,
+) -> Result<StateHandlerOutcome<ManagedHostState>, StateHandlerError> {
+    let oob_mac_addresses = all_oob_interface_mac_addresses(state, ctx).await?;
+    if all_dhcp_suppressions_acknowledged(oob_mac_addresses, ctx).await? {
+        return Ok(StateHandlerOutcome::transition(decommissioning(
+            DecommissioningState::SuppressingBmcDhcp,
+        )));
     }
+    Ok(StateHandlerOutcome::wait(
+        "waiting for OOB DHCP suppression acknowledgement".to_string(),
+    ))
+}
+
+pub(super) async fn handle_suppressing_bmc_dhcp(
+    state: &ManagedHostStateSnapshot,
+    ctx: &mut StateHandlerContext<'_, MachineStateHandlerContextObjects>,
+) -> Result<StateHandlerOutcome<ManagedHostState>, StateHandlerError> {
+    let txn = suppress_bmc_dhcp(state, ctx).await?;
+    Ok(StateHandlerOutcome::transition(decommissioning(
+        DecommissioningState::FactoryResettingBmcs {
+            completed: HashSet::new(),
+        },
+    ))
+    .with_txn(txn))
+}
+
+pub(super) async fn handle_factory_resetting_bmcs(
+    completed: &HashSet<MachineId>,
+    state: &ManagedHostStateSnapshot,
+    ctx: &mut StateHandlerContext<'_, MachineStateHandlerContextObjects>,
+) -> Result<StateHandlerOutcome<ManagedHostState>, StateHandlerError> {
+    let Some(machine) = all_machines(state).find(|machine| !completed.contains(&machine.id)) else {
+        return Ok(StateHandlerOutcome::transition(decommissioning(
+            DecommissioningState::WaitingForBmcDhcpAcknowledgement,
+        )));
+    };
+    ctx.services
+        .create_redfish_client_from_machine(machine)
+        .await?
+        .bmc_reset_to_defaults()
+        .await
+        .map_err(|error| {
+            StateHandlerError::GenericError(eyre::eyre!(
+                "failed to factory reset BMC for {}: {error}",
+                machine.id
+            ))
+        })?;
+    let mut completed = completed.clone();
+    completed.insert(machine.id);
+    Ok(StateHandlerOutcome::transition(decommissioning(
+        DecommissioningState::FactoryResettingBmcs { completed },
+    )))
+}
+
+pub(super) async fn handle_waiting_for_bmc_dhcp_acknowledgement(
+    state: &ManagedHostStateSnapshot,
+    ctx: &mut StateHandlerContext<'_, MachineStateHandlerContextObjects>,
+) -> Result<StateHandlerOutcome<ManagedHostState>, StateHandlerError> {
+    if all_dhcp_suppressions_acknowledged(bmc_mac_addresses(state)?, ctx).await? {
+        return Ok(StateHandlerOutcome::transition(decommissioning(
+            DecommissioningState::DeletingManagedCredentials,
+        )));
+    }
+    Ok(StateHandlerOutcome::wait(
+        "waiting for BMC DHCP suppression acknowledgement after factory reset".to_string(),
+    ))
 }
 
 pub(super) async fn handle_deleting_managed_credentials(

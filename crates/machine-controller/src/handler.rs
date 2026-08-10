@@ -911,7 +911,7 @@ impl MachineStateHandler {
                     db::machine::clear_decommission_requested(&mut txn, *host_machine_id).await?;
                     return Ok(StateHandlerOutcome::transition(
                         ManagedHostState::Decommissioning {
-                            decommissioning_state: DecommissioningState::Preparing,
+                            decommissioning_state: DecommissioningState::SuppressingSiteExplorer,
                         },
                     )
                     .with_txn(txn));
@@ -1143,8 +1143,8 @@ impl MachineStateHandler {
             ManagedHostState::Decommissioning {
                 decommissioning_state,
             } => match decommissioning_state {
-                DecommissioningState::Preparing => {
-                    decommissioning::handle_preparing(mh_snapshot, ctx).await
+                DecommissioningState::SuppressingSiteExplorer => {
+                    decommissioning::handle_suppressing_site_explorer(mh_snapshot, ctx).await
                 }
                 DecommissioningState::DeconfiguringHost {
                     deconfiguring_state,
@@ -1165,13 +1165,26 @@ impl MachineStateHandler {
                     )
                     .await
                 }
-                DecommissioningState::VerifyingDhcpRelease { verifying_state } => {
-                    decommissioning::handle_verifying_dhcp_release(
-                        verifying_state,
-                        mh_snapshot,
-                        ctx,
-                    )
-                    .await
+                DecommissioningState::SuppressingOobDhcp => {
+                    decommissioning::handle_suppressing_oob_dhcp(mh_snapshot, ctx).await
+                }
+                DecommissioningState::PowerCyclingHost => {
+                    decommissioning::handle_power_cycling_host(mh_snapshot, ctx).await
+                }
+                DecommissioningState::WaitingForOobDhcpAcknowledgement => {
+                    decommissioning::handle_waiting_for_oob_dhcp_acknowledgement(mh_snapshot, ctx)
+                        .await
+                }
+                DecommissioningState::SuppressingBmcDhcp => {
+                    decommissioning::handle_suppressing_bmc_dhcp(mh_snapshot, ctx).await
+                }
+                DecommissioningState::FactoryResettingBmcs { completed } => {
+                    decommissioning::handle_factory_resetting_bmcs(completed, mh_snapshot, ctx)
+                        .await
+                }
+                DecommissioningState::WaitingForBmcDhcpAcknowledgement => {
+                    decommissioning::handle_waiting_for_bmc_dhcp_acknowledgement(mh_snapshot, ctx)
+                        .await
                 }
                 DecommissioningState::DeletingManagedCredentials => {
                     decommissioning::handle_deleting_managed_credentials(mh_snapshot, ctx).await

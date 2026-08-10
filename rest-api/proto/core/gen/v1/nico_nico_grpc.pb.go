@@ -779,9 +779,9 @@ type ForgeClient interface {
 	// appropriate customer-facing workflow available or where those workflows fail.
 	AdminForceDeleteMachine(ctx context.Context, in *AdminForceDeleteMachineRequest, opts ...grpc.CallOption) (*AdminForceDeleteMachineResponse, error)
 	// Starts the managed host decommissioning workflow. The host must be Ready.
-	DecommissionManagedHost(ctx context.Context, in *MachineId, opts ...grpc.CallOption) (*emptypb.Empty, error)
+	DecommissionManagedHost(ctx context.Context, in *DecommissionManagedHostRequest, opts ...grpc.CallOption) (*DecommissionManagedHostResponse, error)
 	// Permanently removes a managed host after decommissioning has completed.
-	DeleteDecommissionedManagedHost(ctx context.Context, in *DeleteDecommissionedManagedHostRequest, opts ...grpc.CallOption) (*emptypb.Empty, error)
+	DeleteDecommissionedManagedHost(ctx context.Context, in *DeleteDecommissionedManagedHostRequest, opts ...grpc.CallOption) (*DeleteDecommissionedManagedHostResponse, error)
 	// List existing resource pools and their stats
 	AdminListResourcePools(ctx context.Context, in *ListResourcePoolsRequest, opts ...grpc.CallOption) (*ResourcePools, error)
 	// Add capacity to a resource pool
@@ -2953,9 +2953,9 @@ func (c *forgeClient) AdminForceDeleteMachine(ctx context.Context, in *AdminForc
 	return out, nil
 }
 
-func (c *forgeClient) DecommissionManagedHost(ctx context.Context, in *MachineId, opts ...grpc.CallOption) (*emptypb.Empty, error) {
+func (c *forgeClient) DecommissionManagedHost(ctx context.Context, in *DecommissionManagedHostRequest, opts ...grpc.CallOption) (*DecommissionManagedHostResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(emptypb.Empty)
+	out := new(DecommissionManagedHostResponse)
 	err := c.cc.Invoke(ctx, Forge_DecommissionManagedHost_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
@@ -2963,9 +2963,9 @@ func (c *forgeClient) DecommissionManagedHost(ctx context.Context, in *MachineId
 	return out, nil
 }
 
-func (c *forgeClient) DeleteDecommissionedManagedHost(ctx context.Context, in *DeleteDecommissionedManagedHostRequest, opts ...grpc.CallOption) (*emptypb.Empty, error) {
+func (c *forgeClient) DeleteDecommissionedManagedHost(ctx context.Context, in *DeleteDecommissionedManagedHostRequest, opts ...grpc.CallOption) (*DeleteDecommissionedManagedHostResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(emptypb.Empty)
+	out := new(DeleteDecommissionedManagedHostResponse)
 	err := c.cc.Invoke(ctx, Forge_DeleteDecommissionedManagedHost_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
@@ -6413,9 +6413,9 @@ type ForgeServer interface {
 	// appropriate customer-facing workflow available or where those workflows fail.
 	AdminForceDeleteMachine(context.Context, *AdminForceDeleteMachineRequest) (*AdminForceDeleteMachineResponse, error)
 	// Starts the managed host decommissioning workflow. The host must be Ready.
-	DecommissionManagedHost(context.Context, *MachineId) (*emptypb.Empty, error)
+	DecommissionManagedHost(context.Context, *DecommissionManagedHostRequest) (*DecommissionManagedHostResponse, error)
 	// Permanently removes a managed host after decommissioning has completed.
-	DeleteDecommissionedManagedHost(context.Context, *DeleteDecommissionedManagedHostRequest) (*emptypb.Empty, error)
+	DeleteDecommissionedManagedHost(context.Context, *DeleteDecommissionedManagedHostRequest) (*DeleteDecommissionedManagedHostResponse, error)
 	// List existing resource pools and their stats
 	AdminListResourcePools(context.Context, *ListResourcePoolsRequest) (*ResourcePools, error)
 	// Add capacity to a resource pool
@@ -7466,10 +7466,10 @@ func (UnimplementedForgeServer) UpdateMachineHardwareInfo(context.Context, *Upda
 func (UnimplementedForgeServer) AdminForceDeleteMachine(context.Context, *AdminForceDeleteMachineRequest) (*AdminForceDeleteMachineResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method AdminForceDeleteMachine not implemented")
 }
-func (UnimplementedForgeServer) DecommissionManagedHost(context.Context, *MachineId) (*emptypb.Empty, error) {
+func (UnimplementedForgeServer) DecommissionManagedHost(context.Context, *DecommissionManagedHostRequest) (*DecommissionManagedHostResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method DecommissionManagedHost not implemented")
 }
-func (UnimplementedForgeServer) DeleteDecommissionedManagedHost(context.Context, *DeleteDecommissionedManagedHostRequest) (*emptypb.Empty, error) {
+func (UnimplementedForgeServer) DeleteDecommissionedManagedHost(context.Context, *DeleteDecommissionedManagedHostRequest) (*DeleteDecommissionedManagedHostResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method DeleteDecommissionedManagedHost not implemented")
 }
 func (UnimplementedForgeServer) AdminListResourcePools(context.Context, *ListResourcePoolsRequest) (*ResourcePools, error) {
@@ -11303,7 +11303,7 @@ func _Forge_AdminForceDeleteMachine_Handler(srv interface{}, ctx context.Context
 }
 
 func _Forge_DecommissionManagedHost_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(MachineId)
+	in := new(DecommissionManagedHostRequest)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
@@ -11315,7 +11315,7 @@ func _Forge_DecommissionManagedHost_Handler(srv interface{}, ctx context.Context
 		FullMethod: Forge_DecommissionManagedHost_FullMethodName,
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(ForgeServer).DecommissionManagedHost(ctx, req.(*MachineId))
+		return srv.(ForgeServer).DecommissionManagedHost(ctx, req.(*DecommissionManagedHostRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }

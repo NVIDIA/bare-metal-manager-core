@@ -247,7 +247,9 @@ pub(crate) async fn delete_decommissioned_managed_host(
     .await?;
 
     txn.commit().await?;
-    Ok(Response::new(rpc::DeleteDecommissionedManagedHostResponse {}))
+    Ok(Response::new(
+        rpc::DeleteDecommissionedManagedHostResponse {},
+    ))
 }
 
 /// Identifies the row directly or through the DPU attached to it.

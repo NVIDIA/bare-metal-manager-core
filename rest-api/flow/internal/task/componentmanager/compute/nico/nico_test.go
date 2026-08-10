@@ -485,6 +485,64 @@ func TestBringUpControl_OverrideBypassesReadinessCheck(t *testing.T) {
 	require.NoError(t, err)
 }
 
+func TestNormalizeDecommissionState(t *testing.T) {
+	testCases := map[string]struct {
+		raw  string
+		want string
+	}{
+		"terminal state": {
+			raw:  `{"state":"decommissioning","decommissioning_state":{"state":"decommissioned"}}`,
+			want: "Decommissioned",
+		},
+		"in-progress state": {
+			raw:  `{"state":"decommissioning","decommissioning_state":{"state":"factoryresettingbmcs"}}`,
+			want: "Decommissioning/factoryresettingbmcs",
+		},
+		"unrelated state remains unchanged": {
+			raw:  `{"state":"ready"}`,
+			want: `{"state":"ready"}`,
+		},
+		"malformed state remains unchanged": {
+			raw:  "Ready",
+			want: "Ready",
+		},
+		"decommissioning state without substate remains unchanged": {
+			raw:  `{"state":"decommissioning"}`,
+			want: `{"state":"decommissioning"}`,
+		},
+	}
+
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
+			assert.Equal(t, tc.want, normalizeDecommissionState(tc.raw))
+		})
+	}
+}
+
+func TestGetDecommissionStatusNormalizesStates(t *testing.T) {
+	client := nicoapi.NewMockClient()
+	client.SetMachineControllerState(
+		"machine-1",
+		`{"state":"decommissioning","decommissioning_state":{"state":"decommissioned"}}`,
+	)
+	client.SetMachineControllerState(
+		"machine-2",
+		`{"state":"decommissioning","decommissioning_state":{"state":"suppressingoobdhcp"}}`,
+	)
+
+	m := New(client, nil)
+	states, err := m.GetDecommissionStatus(context.Background(), common.Target{
+		Type:         devicetypes.ComponentTypeCompute,
+		ComponentIDs: []string{"machine-1", "machine-2", "machine-3"},
+	})
+	require.NoError(t, err)
+	assert.Equal(t, map[string]string{
+		"machine-1": "Decommissioned",
+		"machine-2": "Decommissioning/suppressingoobdhcp",
+		"machine-3": "",
+	}, states)
+}
+
 func mustMarshal(t *testing.T, v any) json.RawMessage {
 	t.Helper()
 	data, err := json.Marshal(v)
