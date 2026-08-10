@@ -675,9 +675,15 @@ impl InternalRBACRules {
             vec![Agent, Scout, Machineatron, ForgeAdminCLI],
         );
         x.perm("TrimTable", vec![ForgeAdminCLI, MaintenanceJobs]);
-        x.perm("ListNvlinkNmxcEndpoints", vec![ForgeAdminCLI]);
-        x.perm("CreateNvlinkNmxcEndpoint", vec![ForgeAdminCLI]);
-        x.perm("UpdateNvlinkNmxcEndpoint", vec![ForgeAdminCLI]);
+        x.perm("ListNvlinkNmxcEndpoints", vec![ForgeAdminCLI, Machineatron]);
+        x.perm(
+            "CreateNvlinkNmxcEndpoint",
+            vec![ForgeAdminCLI, Machineatron],
+        );
+        x.perm(
+            "UpdateNvlinkNmxcEndpoint",
+            vec![ForgeAdminCLI, Machineatron],
+        );
         x.perm("DeleteNvlinkNmxcEndpoint", vec![ForgeAdminCLI]);
         x.perm("CreateRemediation", vec![ForgeAdminCLI]);
         x.perm("ApproveRemediation", vec![ForgeAdminCLI]);
@@ -1139,6 +1145,29 @@ mod rbac_rule_tests {
             "CreateVpc",
             &[Principal::SpiffeServiceIdentifier("nico-dns".to_string())]
         ));
+
+        for method in [
+            "ListNvlinkNmxcEndpoints",
+            "CreateNvlinkNmxcEndpoint",
+            "UpdateNvlinkNmxcEndpoint",
+        ] {
+            assert!(
+                InternalRBACRules::allowed_from_static(
+                    method,
+                    &[Principal::SpiffeServiceIdentifier(
+                        "machine-a-tron".to_string()
+                    )]
+                ),
+                "{method} should allow machine-a-tron"
+            );
+            assert!(
+                !InternalRBACRules::allowed_from_static(
+                    method,
+                    &[Principal::SpiffeServiceIdentifier("nico-dns".to_string())]
+                ),
+                "{method} should reject unrelated services"
+            );
+        }
 
         assert!(InternalRBACRules::allowed_from_static(
             "CreateTenantKeyset",
