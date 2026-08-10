@@ -52,9 +52,11 @@ pub struct MachineStateHandlerSiteConfig {
     /// force-converge escape hatch still works regardless.
     pub bmc_rotation_enabled: bool,
 
-    /// Site-wide kill-switch for the passive UEFI credential rotation guard. When
-    /// `false`, a Ready host never enters `RotatingHostUefi` on its own; the operator
-    /// force-converge escape hatch still works regardless.
+    /// Site-wide kill-switch for the passive UEFI credential rotation guard,
+    /// covering both host and DPU UEFI. When `false`, a Ready host never enters
+    /// `RotatingHostUefi` (nor drives a DPU into `RotatingDpuUefi`) on its own;
+    /// the per-machine operator force-converge escape hatch still works
+    /// regardless, for the host or an individual DPU.
     pub uefi_rotation_enabled: bool,
 
     pub dpu_enable_secure_boot: bool,

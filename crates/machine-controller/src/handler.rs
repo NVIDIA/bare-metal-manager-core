@@ -120,6 +120,7 @@ use crate::{MeasuringOutcome, get_measuring_prerequisites, handle_measuring_stat
 pub mod attestation;
 mod bios_config;
 mod dpf;
+mod dpu_uefi_rotation;
 mod firmware_artifact;
 mod helpers;
 mod host_boot_config;
@@ -1104,6 +1105,20 @@ impl MachineStateHandler {
                     ));
                 }
 
+                // Same lowest-precedence idle-only rule again, for each DPU's
+                // UEFI password. A DPU change stages a Bios/Settings write and
+                // commits it with a DPU restart, so it gets its own state keyed
+                // to one DPU; the guard selects the next lagging or
+                // force-requested DPU and the next sweep re-selects any others.
+                if let Some(dpu_machine_id) =
+                    dpu_uefi_rotation::select_dpu_for_uefi_rotation(ctx.services, mh_snapshot)
+                        .await?
+                {
+                    return Ok(StateHandlerOutcome::transition(
+                        ManagedHostState::RotatingDpuUefi { dpu_machine_id },
+                    ));
+                }
+
                 Ok(StateHandlerOutcome::do_nothing())
             }
 
@@ -1160,6 +1175,10 @@ impl MachineStateHandler {
             ManagedHostState::RotatingHostUefi { uefi_setup_info } => {
                 host_uefi_rotation::handle_rotating_host_uefi(ctx, mh_snapshot, uefi_setup_info)
                     .await
+            }
+
+            ManagedHostState::RotatingDpuUefi { dpu_machine_id } => {
+                dpu_uefi_rotation::handle_rotating_dpu_uefi(ctx, mh_snapshot, *dpu_machine_id).await
             }
 
             ManagedHostState::Assigned { instance_state: _ } => {

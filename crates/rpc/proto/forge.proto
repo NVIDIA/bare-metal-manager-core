@@ -449,6 +449,11 @@ service Forge {
   rpc SetHostUefiPassword(SetHostUefiPasswordRequest) returns (SetHostUefiPasswordResponse);
   rpc ClearHostUefiPassword(ClearHostUefiPasswordRequest) returns (ClearHostUefiPasswordResponse);
 
+  // Set a DPU's UEFI password directly on the device (the DPU equivalent of
+  // SetHostUefiPassword): stage the site-wide DPU UEFI credential through the
+  // DPU's Redfish BIOS settings and restart the DPU to commit it.
+  rpc SetDpuUefiPassword(SetDpuUefiPasswordRequest) returns (SetDpuUefiPasswordResponse);
+
   // Expected Machine Management
   // Add expected machine
   rpc AddExpectedMachine(ExpectedMachine) returns (google.protobuf.Empty);
@@ -6196,6 +6201,19 @@ message ClearHostUefiPasswordRequest {
 
 message ClearHostUefiPasswordResponse {
   optional string job_id = 1;
+}
+
+message SetDpuUefiPasswordRequest {
+  // The DPU machine to set the UEFI password on.
+  common.MachineId dpu_id = 1;
+  // UUID, IP address, hostname or MAC address resolving to the DPU machine
+  // (preferred over dpu_id).
+  optional string machine_query = 2;
+}
+
+message SetDpuUefiPasswordResponse {
+  // A DPU stages the change through Redfish BIOS settings and schedules no job,
+  // so there is nothing to poll and no job id is returned.
 }
 
 enum OsImageStatus {

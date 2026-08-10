@@ -62,7 +62,12 @@ pub struct MachineStateHandlerServices {
     /// Short-TTL cache of the site-wide host-UEFI rotation aggregate, shared
     /// across this replica's per-object ticks. Family-scoped and separate from
     /// `bmc_rotation_gate` so a UEFI sweep never consults BMC counts.
-    pub uefi_rotation_gate: RotationGate,
+    pub host_uefi_rotation_gate: RotationGate,
+    /// Short-TTL cache of the site-wide DPU-UEFI rotation aggregate, shared
+    /// across this replica's per-object ticks. A `RotationGate` is single-family,
+    /// so DPU UEFI gets its own gate separate from `host_uefi_rotation_gate`: a
+    /// DPU sweep queries only `dpu_uefi` counts, keyed by each DPU's BMC MAC.
+    pub dpu_uefi_rotation_gate: RotationGate,
     /// Shared registry backing the generic per-object health metrics.
     pub per_object_metrics_registry: Arc<PerObjectMetricsRegistry>,
     /// Trait/association info gauges for the per-object metrics endpoint,

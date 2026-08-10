@@ -15,7 +15,7 @@
  * limitations under the License.
  */
 
-//! Power-shelf-controller BMC (PMC) credential rotation (REQ-2).
+//! Power-shelf-controller BMC (PMC) credential rotation.
 //!
 //! The shared [`carbide_credential_rotation`] engine owns the password dance,
 //! backoff, and crash-safety; this module is the thin power-shelf-controller

@@ -42,7 +42,7 @@ pub struct PowerShelfStateHandlerServices {
     /// enabled.
     pub rack_firmware_reprovisioning_enabled: bool,
     /// Libredfish pool used to converge the power shelf BMC (PMC) credential
-    /// (REQ-2). The same shared instance the machine- and switch-controllers use.
+    /// The same shared instance the machine- and switch-controllers use.
     pub redfish_client_pool: Arc<dyn RedfishClientPool>,
     /// Short-TTL cache of the site-wide BMC rotation aggregate, shared across
     /// this replica's per-object ticks so the steady state costs one aggregate

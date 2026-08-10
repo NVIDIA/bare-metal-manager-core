@@ -169,7 +169,7 @@ pub struct Switch {
     /// without re-resolving. `None` when no BMC interface is linked yet.
     pub bmc_info: Option<BmcInfo>,
 
-    /// Operator "force-converge this switch BMC now" request (REQ-2). When
+    /// Operator "force-converge this switch BMC now" request. When
     /// `true`, the switch state controller enters `RotatingBmc` and
     /// force-converges the BMC on its next sweep, bypassing the passive
     /// site-wide gate and the device's backoff quarantine. A switch has exactly
@@ -374,7 +374,7 @@ pub enum SwitchControllerState {
     Ready,
 
     /// The Switch is converging its BMC credentials to the staged site-wide
-    /// rotation target (REQ-2). Entered from `Ready` (lowest precedence) when
+    /// rotation target. Entered from `Ready` (lowest precedence) when
     /// the switch BMC lags the target and site-wide rotation is enabled, or when
     /// an operator force-converge request is pending; a BMC password change
     /// never touches the switch data plane, so this is safe in `Ready`. The

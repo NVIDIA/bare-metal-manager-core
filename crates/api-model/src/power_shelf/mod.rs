@@ -74,7 +74,7 @@ pub struct PowerShelf {
 
     pub bmc_mac_address: Option<MacAddress>,
 
-    /// Operator "force-converge this power shelf PMC now" request (REQ-2). When
+    /// Operator "force-converge this power shelf PMC now" request. When
     /// `true`, the power-shelf state controller enters `RotatingBmc` and
     /// force-converges the PMC on its next sweep, bypassing the passive
     /// site-wide gate and the device's backoff quarantine. A power shelf has
@@ -247,7 +247,7 @@ pub enum PowerShelfControllerState {
     Ready,
 
     /// The PowerShelf's BMC (PMC) credential is being converged to the staged
-    /// site-wide rotation target (REQ-2), entered from `Ready` at lowest
+    /// site-wide rotation target, entered from `Ready` at lowest
     /// precedence. The shared engine owns crash-safety and per-device backoff,
     /// so this state carries only a retry budget for transient handler failures.
     RotatingBmc {

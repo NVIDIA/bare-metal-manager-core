@@ -15,7 +15,7 @@
  * limitations under the License.
  */
 
-//! Switch-controller BMC credential rotation (REQ-2).
+//! Switch-controller BMC credential rotation.
 //!
 //! The shared [`carbide_credential_rotation`] engine owns the password dance,
 //! backoff, and crash-safety; this module is the thin switch-controller adapter,

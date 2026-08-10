@@ -612,7 +612,7 @@ pub async fn find_switch_id_by_bmc_mac(
         .map_err(|e| DatabaseError::new("switch::find_switch_id_by_bmc_mac", e))
 }
 
-/// Record an operator force-converge request against a switch's BMC (REQ-2). The
+/// Record an operator force-converge request against a switch's BMC. The
 /// switch state controller consumes it on its next sweep. Mirrors
 /// [`crate::machine::set_bmc_credential_rotation_requested`].
 pub async fn set_bmc_credential_rotation_requested(
@@ -637,7 +637,7 @@ pub async fn set_bmc_credential_rotation_requested(
     Ok(())
 }
 
-/// Clear a switch's force-converge request (REQ-2), committed with the return to
+/// Clear a switch's force-converge request, committed with the return to
 /// `Ready` once a forced tick settles. Mirrors
 /// [`crate::machine::clear_bmc_credential_rotation_requested`].
 pub async fn clear_bmc_credential_rotation_requested(
@@ -1201,7 +1201,7 @@ mod tests {
         Ok(())
     }
 
-    /// The force-converge escape hatch (REQ-2): a switch's BMC MAC resolves back
+    /// The force-converge escape hatch: a switch's BMC MAC resolves back
     /// to its id, the boolean flag round-trips through the load path, and both
     /// mutating DAOs surface a clean not-found for an unknown switch.
     #[crate::sqlx_test]
