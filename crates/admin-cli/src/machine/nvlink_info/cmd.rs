@@ -221,15 +221,16 @@ pub(super) async fn handle_nvlink_info_populate(
         let gpu_slot_id = gpu_json
             .get("loc")
             .and_then(|loc| {
-                loc.get("location")
-                    .and_then(|location| location.get("slot_id"))
-                    .and_then(|v| v.as_i64())
-                    .or_else(|| loc.get("slot_id").and_then(|v| v.as_i64()))
+                loc.get("slot_id").and_then(|v| v.as_i64()).or_else(|| {
+                    loc.get("location")
+                        .and_then(|location| location.get("slot_id"))
+                        .and_then(|v| v.as_i64())
+                })
             })
             .map(|v| v as i32)
             .ok_or_else(|| {
                 CarbideCliError::GenericError(
-                    "GPU entry missing loc.location.slot_id or loc.slot_id in NMX-C GPU list response"
+                    "GPU entry missing loc.slot_id or loc.location.slot_id in NMX-C GPU list response"
                         .to_string(),
                 )
             })?;
