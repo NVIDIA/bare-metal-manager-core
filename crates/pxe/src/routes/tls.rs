@@ -51,7 +51,7 @@ async fn root_ca(headers: HeaderMap, state: State<AppState>) -> impl IntoRespons
     }
 }
 
-pub fn get_router(path_prefix: &str) -> Router<AppState> {
+pub(crate) fn get_router(path_prefix: &str) -> Router<AppState> {
     Router::new().route(
         format!("{}/{}", path_prefix, "root_ca").as_str(),
         get(root_ca),

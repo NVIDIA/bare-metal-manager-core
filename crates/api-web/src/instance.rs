@@ -132,7 +132,7 @@ impl From<forgerpc::Instance> for InstanceDisplay {
 }
 
 /// List instances
-pub async fn show_html(AxumState(state): AxumState<Arc<Api>>) -> Response {
+pub(super) async fn show_html(AxumState(state): AxumState<Arc<Api>>) -> Response {
     let out = match fetch_instances(state).await {
         Ok(m) => m,
         Err(err) => {
@@ -146,7 +146,7 @@ pub async fn show_html(AxumState(state): AxumState<Arc<Api>>) -> Response {
     (StatusCode::OK, Html(tmpl.render().unwrap())).into_response()
 }
 
-pub async fn show_all_json(AxumState(state): AxumState<Arc<Api>>) -> Response {
+pub(super) async fn show_all_json(AxumState(state): AxumState<Arc<Api>>) -> Response {
     let out = match fetch_instances(state).await {
         Ok(m) => m,
         Err(err) => {
@@ -574,7 +574,7 @@ async fn get_interfaces_for_instance_detail(
 }
 
 /// View instance
-pub async fn detail(
+pub(super) async fn detail(
     AxumState(state): AxumState<Arc<Api>>,
     AxumPath(instance_id): AxumPath<String>,
 ) -> Response {

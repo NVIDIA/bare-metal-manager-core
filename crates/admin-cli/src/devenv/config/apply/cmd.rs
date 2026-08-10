@@ -260,6 +260,7 @@ async fn handle_overlay_vpc_prefix_creation(
         let query = VpcPrefixSearchQuery {
             vpc_id: vpc.id,
             tenant_prefix_id: None,
+            site_prefix_id: None,
             name: Some(vpc_prefix_name.clone()),
             prefix_match: Some(network.to_string()),
             prefix_match_type: Some(PrefixMatchType::PrefixExact as i32),
@@ -281,6 +282,7 @@ async fn handle_overlay_vpc_prefix_creation(
             id: Some(uuid::Uuid::new_v4().into()),
             prefix: String::new(),
             vpc_id: vpc.id,
+            site_prefix_id: None,
             config: Some(rpc::forge::VpcPrefixConfig {
                 prefix: network.to_string(),
             }),

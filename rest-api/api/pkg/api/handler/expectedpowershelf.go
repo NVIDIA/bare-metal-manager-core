@@ -586,6 +586,11 @@ func (uepsh UpdateExpectedPowerShelfHandler) Handle(c echo.Context) error {
 		return cutil.NewAPIErrorResponse(c, http.StatusForbidden, "Current org is not associated with the Site of the Expected Power Shelf", nil)
 	}
 
+	if !bmcMacUnchanged(expectedPowerShelf.BmcMacAddress, apiRequest.BmcMacAddress) {
+		validationErrors := bmcMacImmutableValidationError()
+		return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, "Failed to validate Expected Power Shelf update data", validationErrors)
+	}
+
 	updatedExpectedPowerShelf, err := cdb.WithTxResult(ctx, uepsh.dbSession, func(tx *cdb.Tx) (*cdbm.ExpectedPowerShelf, error) {
 		// Note: DefaultBmcUsername and BmcPassword are not stored in DB, only passed to workflow
 		eps, err := epsDAO.Update(
@@ -593,7 +598,6 @@ func (uepsh UpdateExpectedPowerShelfHandler) Handle(c echo.Context) error {
 			tx,
 			cdbm.ExpectedPowerShelfUpdateInput{
 				ExpectedPowerShelfID: expectedPowerShelf.ID,
-				BmcMacAddress:        apiRequest.BmcMacAddress,
 				ShelfSerialNumber:    apiRequest.ShelfSerialNumber,
 				BmcIpAddress:         apiRequest.BmcIpAddress,
 				RackID:               apiRequest.RackID,

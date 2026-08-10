@@ -257,6 +257,20 @@ pub async fn start(
         [rack_profiles.NVL72.rack_capabilities.power_shelf]
         count = 0
 
+        [rack_profiles.NVL72_GB300]
+        product_family = "gb300"
+
+        [rack_profiles.NVL72_GB300.rack_capabilities.compute]
+        name = "GB300"
+        count = 18
+        vendor = "Lenovo"
+
+        [rack_profiles.NVL72_GB300.rack_capabilities.switch]
+        count = 0
+
+        [rack_profiles.NVL72_GB300.rack_capabilities.power_shelf]
+        count = 0
+
         [firmware_global]
         autoupdate = true
         host_enable_autoupdate = []

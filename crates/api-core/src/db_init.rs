@@ -41,7 +41,7 @@ use crate::api::Api;
 
 /// Create a Domain if we don't already have one.
 /// Returns true if we created an entry in the db (we had no domains yet), false otherwise.
-pub async fn create_initial_domain(
+pub(crate) async fn create_initial_domain(
     db_pool: sqlx::pool::Pool<Postgres>,
     domain_name: &str,
 ) -> Result<bool, CarbideError> {
@@ -113,7 +113,7 @@ fn select_seed_network_domain(
     }
 }
 
-pub async fn create_initial_networks(
+pub(crate) async fn create_initial_networks(
     api: &Api,
     db_pool: &Pool<Postgres>,
     networks: &HashMap<String, NetworkDefinition>,
@@ -211,7 +211,7 @@ pub(crate) fn validate_initial_vpcs(
     Ok(())
 }
 
-pub async fn create_initial_vpcs(
+pub(crate) async fn create_initial_vpcs(
     db_pool: &Pool<Postgres>,
     vpcs: &HashMap<String, VpcDefinition>,
     vni_pool: &ResourcePool<i32>,
@@ -295,7 +295,7 @@ pub async fn create_initial_vpcs(
 /// within any managed network prefix. The placeholder prefixes are never
 /// handed out by the allocator; they exist because the schema requires
 /// segment prefixes and because static assignments can be IPv4 or IPv6.
-pub async fn ensure_static_assignments_segment(
+pub(crate) async fn ensure_static_assignments_segment(
     api: &Api,
     txn: &mut db::Transaction<'_>,
     subdomain_id: Option<carbide_uuid::domain::DomainId>,
@@ -343,7 +343,9 @@ pub async fn ensure_static_assignments_segment(
     Ok(())
 }
 
-pub async fn update_network_segments_svi_ip(db_pool: &Pool<Postgres>) -> Result<(), CarbideError> {
+pub(crate) async fn update_network_segments_svi_ip(
+    db_pool: &Pool<Postgres>,
+) -> Result<(), CarbideError> {
     let mut txn = Transaction::begin(db_pool).await?;
     let all_segments = db::network_segment::find_by(
         &mut txn,
@@ -415,7 +417,7 @@ pub async fn update_network_segments_svi_ip(db_pool: &Pool<Postgres>) -> Result<
     Ok(())
 }
 
-pub async fn store_initial_dpu_agent_upgrade_policy(
+pub(crate) async fn store_initial_dpu_agent_upgrade_policy(
     db_pool: &Pool<Postgres>,
     initial_dpu_agent_upgrade_policy: Option<AgentUpgradePolicyChoice>,
 ) -> Result<(), CarbideError> {

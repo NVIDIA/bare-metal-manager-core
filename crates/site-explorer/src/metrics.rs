@@ -594,25 +594,25 @@ pub(crate) enum BmcResetFinished {
 )]
 pub(crate) struct BmcResetTimestampPersistenceFailed {
     #[label]
-    pub method: BmcResetMethod,
+    pub(crate) method: BmcResetMethod,
     #[context]
-    pub bmc_ip_address: IpAddr,
+    pub(crate) bmc_ip_address: IpAddr,
     #[context]
-    pub error: String,
+    pub(crate) error: String,
 }
 
 /// Instruments that are used by the Site Explorer
-pub struct SiteExplorerInstruments {
-    pub endpoint_exploration_duration: Histogram<f64>,
-    pub endpoint_exploration_step_latency: Histogram<f64>,
-    pub site_explorer_phase_latency: Histogram<f64>,
-    pub site_explorer_create_machines_latency: Histogram<f64>,
-    pub site_explorer_create_power_shelves_latency: Histogram<f64>,
-    pub site_explorer_create_switches_latency: Histogram<f64>,
+struct SiteExplorerInstruments {
+    endpoint_exploration_duration: Histogram<f64>,
+    endpoint_exploration_step_latency: Histogram<f64>,
+    site_explorer_phase_latency: Histogram<f64>,
+    site_explorer_create_machines_latency: Histogram<f64>,
+    site_explorer_create_power_shelves_latency: Histogram<f64>,
+    site_explorer_create_switches_latency: Histogram<f64>,
 }
 
 impl SiteExplorerInstruments {
-    pub fn new(
+    fn new(
         meter: Meter,
         shared_metrics: SharedMetricsHolder<SiteExplorationMetrics>,
         config: &SiteExplorerConfig,
@@ -1100,7 +1100,7 @@ impl SiteExplorerInstruments {
     /// Emits the latency metrics that are captured during a single site explorer
     /// iteration. Those are emitted immediately as histograms, whereas the
     /// amount of objects in states is emitted as gauges.
-    pub fn emit_latency_metrics(&self, metrics: &SiteExplorationMetrics) {
+    fn emit_latency_metrics(&self, metrics: &SiteExplorationMetrics) {
         if let Some(latency) = metrics.create_machines_latency {
             self.site_explorer_create_machines_latency
                 .record(1000.0 * latency.as_secs_f64(), &[]);
@@ -1141,7 +1141,7 @@ impl SiteExplorerInstruments {
 ///
 /// Since we want to keep the amount of dimensions in metrics down, only the top
 /// level error information is copied and details are omitted.
-pub fn exploration_error_to_metric_label(error: &EndpointExplorationError) -> String {
+pub(super) fn exploration_error_to_metric_label(error: &EndpointExplorationError) -> String {
     match error {
         EndpointExplorationError::ConnectionRefused { .. } => "connection_refused",
         EndpointExplorationError::ConnectionTimeout { .. } => "connection_timeout",
@@ -1172,13 +1172,13 @@ pub fn exploration_error_to_metric_label(error: &EndpointExplorationError) -> St
 }
 
 /// Stores Metric data shared between SiteExplorer and the OpenTelemetry background task
-pub struct MetricHolder {
+pub(super) struct MetricHolder {
     instruments: SiteExplorerInstruments,
     last_iteration_metrics: SharedMetricsHolder<SiteExplorationMetrics>,
 }
 
 impl MetricHolder {
-    pub fn new(
+    pub(super) fn new(
         meter: Meter,
         hold_period: std::time::Duration,
         config: &SiteExplorerConfig,
@@ -1193,7 +1193,7 @@ impl MetricHolder {
     }
 
     /// Updates the most recent metrics
-    pub fn update_metrics(&self, mut metrics: SiteExplorationMetrics) {
+    pub(super) fn update_metrics(&self, mut metrics: SiteExplorationMetrics) {
         // Emit the last recent latency metrics
         self.instruments.emit_latency_metrics(&metrics);
         // We don't need to store the latency metrics anymore

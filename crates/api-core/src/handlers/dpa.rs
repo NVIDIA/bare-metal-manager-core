@@ -69,7 +69,7 @@ pub(crate) async fn ensure(
 
 /// ensure_interface is the internal helper used by
 /// publish_mlx_device_report and the public ensure handler.
-pub(crate) async fn ensure_interface(
+pub(super) async fn ensure_interface(
     api: &Api,
     new_interface: NewDpaInterface,
 ) -> CarbideResult<DpaInterface> {

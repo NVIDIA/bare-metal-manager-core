@@ -26,7 +26,7 @@ use rpc::forge::{
 };
 use tonic::Code;
 
-use crate::handlers::credential::MAX_BGP_PASSWORD_LENGTH;
+use crate::handlers::credential::TEST_MAX_BGP_PASSWORD_LENGTH;
 use crate::tests::common::api_fixtures::create_test_env;
 use crate::tests::common::api_fixtures::site_explorer::new_switch;
 
@@ -205,7 +205,7 @@ async fn test_create_bgp_credential_validates_max_password_length(pool: sqlx::Pg
     let env = create_test_env(pool).await;
 
     // Create a site-wide DPU BGP credential using the maximum supported length.
-    let max_password = "a".repeat(MAX_BGP_PASSWORD_LENGTH);
+    let max_password = "a".repeat(TEST_MAX_BGP_PASSWORD_LENGTH);
     let ok_response = env
         .api
         .create_credential(tonic::Request::new(CredentialCreationRequest {
@@ -240,7 +240,7 @@ async fn test_create_bgp_credential_validates_max_password_length(pool: sqlx::Pg
         .create_credential(tonic::Request::new(CredentialCreationRequest {
             credential_type: RpcCredentialType::BgpSiteWideLeafPassword.into(),
             username: None,
-            password: "a".repeat(MAX_BGP_PASSWORD_LENGTH + 1),
+            password: "a".repeat(TEST_MAX_BGP_PASSWORD_LENGTH + 1),
             vendor: None,
             mac_address: None,
         }))
@@ -250,7 +250,7 @@ async fn test_create_bgp_credential_validates_max_password_length(pool: sqlx::Pg
     // Verify the handler returns a validation error.
     assert_eq!(err.code(), Code::InvalidArgument);
     assert!(err.message().contains(&format!(
-        "BGP password length exceeds {MAX_BGP_PASSWORD_LENGTH} characters"
+        "BGP password length exceeds {TEST_MAX_BGP_PASSWORD_LENGTH} characters"
     )));
 
     // Verify the previously stored credential was left unchanged.
@@ -265,7 +265,7 @@ async fn test_create_bgp_credential_validates_max_password_length(pool: sqlx::Pg
         stored,
         Some(Credentials::UsernamePassword {
             username: "".to_string(),
-            password: "a".repeat(MAX_BGP_PASSWORD_LENGTH),
+            password: "a".repeat(TEST_MAX_BGP_PASSWORD_LENGTH),
         })
     );
 }
@@ -341,7 +341,7 @@ async fn test_missing_default_credentials(pool: sqlx::PgPool) {
         .missing_default_credentials()
         .await
         .into_iter()
-        .map(|c| c.key)
+        .map(|c| c.key().to_owned())
         .collect();
     assert_eq!(keys.len(), 3, "expected all defaults missing, got {keys:?}");
     assert!(keys.contains(&bmc_root_key));
@@ -358,7 +358,7 @@ async fn test_missing_default_credentials(pool: sqlx::PgPool) {
         .missing_default_credentials()
         .await
         .into_iter()
-        .map(|c| c.key)
+        .map(|c| c.key().to_owned())
         .collect();
     assert_eq!(keys.len(), 2, "got {keys:?}");
     assert!(!keys.contains(&bmc_root_key));
@@ -373,7 +373,7 @@ async fn test_missing_default_credentials(pool: sqlx::PgPool) {
         .missing_default_credentials()
         .await
         .into_iter()
-        .map(|c| c.key)
+        .map(|c| c.key().to_owned())
         .collect();
     assert!(
         keys.contains(&host_uefi_key),

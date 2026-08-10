@@ -734,7 +734,7 @@ mod serialize_option_display {
 
     use serde::{Deserialize, Deserializer, Serializer, de};
 
-    pub fn serialize<T, S>(value: &Option<T>, serializer: S) -> Result<S::Ok, S::Error>
+    pub(super) fn serialize<T, S>(value: &Option<T>, serializer: S) -> Result<S::Ok, S::Error>
     where
         T: Display,
         S: Serializer,
@@ -745,7 +745,7 @@ mod serialize_option_display {
         }
     }
 
-    pub fn deserialize<'de, T, D>(deserializer: D) -> Result<Option<T>, D::Error>
+    pub(super) fn deserialize<'de, T, D>(deserializer: D) -> Result<Option<T>, D::Error>
     where
         T: FromStr,
         T::Err: Display,

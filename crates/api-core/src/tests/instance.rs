@@ -113,7 +113,7 @@ fn fixture_tenant_config() -> rpc::TenantConfig {
     }
 }
 
-pub async fn find_instances_by_label(
+pub(in crate::tests) async fn find_instances_by_label(
     env: &TestEnv,
     label: rpc::forge::Label,
 ) -> rpc::forge::InstanceList {
@@ -3046,6 +3046,29 @@ async fn test_vpc_prefix_handling(pool: PgPool) {
         .await
         .unwrap_err();
     assert!(matches!(error, crate::CarbideError::ResourceExhausted(_)));
+    txn.commit().await.unwrap();
+
+    // An IPv4 /31 VPC prefix is itself one usable /31 linknet.
+    let single_linknet = IpNetwork::V4(Ipv4Network::new(Ipv4Addr::new(10, 217, 6, 4), 31).unwrap());
+    let single_linknet_prefix_id = create_tenant_overlay_prefix_with_prefix(
+        &env,
+        vpc_id,
+        "single-linknet vpc prefix",
+        single_linknet,
+    )
+    .await;
+    let allocator =
+        PrefixAllocator::new(single_linknet_prefix_id, single_linknet, None, 31).unwrap();
+    let mut txn = env.db_txn().await;
+    let (_, allocated_prefix) = allocate_test_network_segment(&allocator, &mut txn, vpc_id, None)
+        .await
+        .unwrap();
+    assert_eq!(allocated_prefix, single_linknet);
+    assert!(matches!(
+        allocator.next_free_prefix(&mut txn).await.unwrap_err(),
+        crate::CarbideError::ResourceExhausted(_)
+    ));
+    txn.commit().await.unwrap();
 }
 
 /// Verifies automatic selection remains deterministic and tenant-scoped across
@@ -3979,6 +4002,7 @@ async fn create_tenant_overlay_prefix_with_prefix(
     let vpc_prefix_id = db::vpc_prefix::persist(
         model::vpc_prefix::NewVpcPrefix {
             id: uuid::Uuid::new_v4().into(),
+            site_prefix_id: None,
             vpc_id,
             config: VpcPrefixConfig { prefix },
             metadata: Metadata {
@@ -4549,6 +4573,7 @@ async fn test_network_details_migration(
             id: None,
             prefix: String::new(),
             vpc_id: Some(vpc_id),
+            site_prefix_id: None,
             config: Some(rpc::forge::VpcPrefixConfig {
                 prefix: ip_prefix.into(),
             }),
@@ -4640,7 +4665,7 @@ async fn test_network_details_migration(
     Ok(())
 }
 
-pub async fn validate_post_migration_instance_network_config(
+pub(in crate::tests) async fn validate_post_migration_instance_network_config(
     env: &TestEnv,
     instance_id: InstanceId,
     segment_id: Option<NetworkSegmentId>,
@@ -5066,6 +5091,7 @@ async fn test_update_instance_config_vpc_prefix_network_update_delete_vf(
         id: None,
         prefix: String::new(),
         vpc_id: Some(vpc_id),
+        site_prefix_id: None,
         config: Some(rpc::forge::VpcPrefixConfig {
             prefix: ip_prefix.into(),
         }),
@@ -5486,6 +5512,7 @@ async fn test_update_instance_config_vpc_prefix_network_update_state_machine(
         id: None,
         prefix: String::new(),
         vpc_id: Some(vpc_id),
+        site_prefix_id: None,
         config: Some(rpc::forge::VpcPrefixConfig {
             prefix: ip_prefix.into(),
         }),

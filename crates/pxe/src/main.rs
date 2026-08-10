@@ -43,7 +43,7 @@ mod rpc_error;
 #[derive(Parser, Debug)]
 struct Args {
     #[clap(long, default_value = "false", help = "Print version number and exit")]
-    pub version: bool,
+    version: bool,
 
     #[clap(short, long, default_value = "static")]
     static_dir: String,

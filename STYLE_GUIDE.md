@@ -159,6 +159,57 @@ See [`crates/test-support/src/lib.rs`](crates/test-support/src/lib.rs) for the f
 
 ## gRPC API definitions
 
+**Choose presence by meaning.** Keep protobuf, Rust, database, and update semantics aligned. For proto3, use:
+
+| Meaning | Representation |
+| --- | --- |
+| Unset differs from zero or the default for a scalar or enum | `optional` |
+| Zero or one structured value | A singular message |
+| Unset differs from empty for a collection | A wrapper message containing a repeated field |
+| Mutually exclusive alternatives | `oneof` |
+
+A `oneof` can be unset. If one member is required, reject an unset `oneof` with a documented validation error;
+otherwise, document whether omission is valid. Do not use a repeated field for zero-or-one data or wrap a scalar when
+`optional` is enough.
+
+Use `Option<T>` in Rust while unset matters. Store `NULL` only when absence is a valid database state. Omitting an
+update field does not require nullable storage.
+
+**Define create and update semantics.**
+
+- **Create:** state whether omission infers, defaults, or rejects the value. Document explicit zero or default values
+  and errors.
+- **Update:** state whether the request is a complete replacement or a patch. Replacements require callers to resubmit
+  unchanged fields and selector variants, and define whether missing values default or fail. Patches preserve omitted
+  fields and document how each supported operation maps from the wire to Rust and storage.
+- **Preserve, set, and clear:** when a patch supports these operations, use a field mask plus values and a clear
+  convention; an operation enum plus its value; or an update `oneof` whose omission means preserve and whose variants
+  mean set and clear. Represent all three in Rust with a nested `Option` or dedicated enum; plain `Option<T>` is not
+  enough.
+- **Field masks:** define how path selection and value presence interact, including whether a selected path with an
+  omitted value preserves, defaults, clears, or fails validation. Define precedence or rejection for overlapping parent
+  and child paths.
+
+For replacements and patches, document operation precedence, fallback behavior, explicit zero or default values,
+invalid field combinations, and errors.
+
+**Make modes explicit.** Use `oneof` or a separate request type when each mode accepts different fields. If an enum
+selects the mode while sibling fields remain, document the valid combinations and reject the rest. Prefer distinct
+methods or a semantic enum over a boolean that selects different operations. When a boolean is clearest, use a positive
+name with obvious `true` and `false` behavior. An implicit proto3 `bool` treats omission as `false`. Use it only when
+both states have the same meaning. If presence matters, use `optional bool` and document the omitted case, including
+any validation error.
+
+**Roll out required fields in order.**
+
+1. Deploy readers that accept omitted and present forms, with documented fallback and error behavior.
+2. Update all writers and backfill existing data.
+3. Verify mixed-version clients and rollback behavior.
+4. Enforce requiredness.
+
+If omission has no safe fallback, add a versioned boundary instead of making a wire or persisted field mandatory in
+place.
+
 - APIs to list resources and retrieve resource state should be paginated in order to scale to a high amount of managed
   resources. Pagination should be achieved in the following fashion:
   - An API call with the format `FindResourceNameIds` (e.g. `FindMachineIds`) should be used to list the IDs of all
@@ -817,26 +868,81 @@ automatic conversions to convert between errors, or `.map_err()` if you have to.
 that are used for tests/mocks, or for toplevel binaries where errors are given to the user for informational purposes,
 and not intended to be inspected by other rust code. (We do not always adhere to this rule.)
 
-Avoid using `let _unused = foo();` to discard errors. This is error-prone: If later `foo()` is refactored to become
-an async function, assigning the result to `_unused` silences the compiler warning telling you forgot to call `.await`.
-If you don't care about the errors a function produces, prefer using `.ok()` to convert the error into a
-(discardable) Option.
+#### Preserve error sources and semantic meaning
+
+Preserve the source error as it moves through the system, and add context at abstraction boundaries. Do not replace an
+error with only its display string while another layer may still need to inspect its type or source. At an external API
+or user-facing boundary, map the failure to a stable semantic variant rather than exposing internal details. Where
+operators need root-cause detail, record the source chain internally, but redact secrets from both user-facing errors
+and operator records.
+
+Use a default only when absence is semantically equivalent to that value. Keep missing, malformed, unavailable, and
+explicitly empty states distinct when callers or operators need to react to them differently. Fallback helpers such as
+`unwrap_or_default()` and `or_default()` are appropriate only when this equivalence is part of the contract; do not use
+them merely to erase an error or simplify control flow. Compatibility defaults must preserve the previous contract;
+document omission behavior and test omitted values separately from explicitly supplied default values.
+
+#### Choose the failure policy before the syntax
+
+For each `Result`, deliberately choose whether to propagate, handle, retry, record and continue, or intentionally
+discard the failure. Avoid using `let _ = foo();` or an underscore-prefixed binding such as `let _unused = foo();` to
+discard errors. This is error-prone: if `foo()` is later refactored to become async, binding its result this way
+silences the compiler warning that `.await` is missing. When intentionally discarding an error, prefer `.ok()` to
+convert it into a discardable `Option`; this makes such an async refactor fail to compile. The use of `.ok()` does not
+itself justify ignoring an operational failure.
 
 ```rust
-fn fails() -> Result<(), Error> {}
+fn fails() -> std::io::Result<()> {
+    Err(std::io::Error::other("example failure"))
+}
 
 fn avoid() {
-    // if somebody makes `fails()` async later, the compiler won't complain, and the future will
-    // never get run
+    // If somebody makes `fails()` async later, the compiler won't complain, and the future will
+    // never get run.
     let _dontcare = fails();
 }
 
-
-fn prefer() {
-    // if somebody makes `fails()` async later, you get a compiler error
+fn intentionally_discard() {
+    // If somebody makes `fails()` async later, this becomes a compiler error.
     fails().ok();
 }
 ```
+
+Best-effort paths should still make repeated operational failures observable. Follow
+[Instrumentation](#instrumentation): use a plain `tracing::` macro when diagnostic text is enough; use a
+`carbide_instrument::Event` when the failure merits a count, rate, or duration.
+
+#### Keep operational failures recoverable
+
+Do not use a panicking operation — including `unwrap()`, `expect()`, `panic!`, `assert!`, or `unreachable!` — when
+failure can be caused by routine or malformed request data, persisted data, configuration, the network, hardware, or a
+recoverable dependency failure. Return a typed error with context so callers retain the option to apply appropriate
+logging, metrics, retry, and API error mapping. Do not leave `todo!` or `unimplemented!` on a reachable production path.
+
+Tests may use panicking assertions and call `unwrap()` on known-good fixture values when a panic is the intended failure
+report. In production, a task- or process-terminating operation is acceptable only for a proven local invariant or an
+intentional fail-fast boundary. Keep the proof or boundary rationale close to the operation, use an `expect()` message
+that explains the invariant where appropriate, and prefer a type or construction API that makes the invalid state
+unrepresentable.
+
+Treating a poisoned `std::sync::Mutex` as fatal can be an intentional fail-fast choice. If a thread panics while holding
+the lock, it may have left the guarded state in a condition where application invariants no longer hold. When the state
+cannot be safely validated or rebuilt, using `expect()` on `lock()` makes the decision to fail fast explicit:
+
+```rust
+let mut state = shared_state
+    .lock()
+    .expect("shared state mutex poisoned; guarded invariants may be broken");
+state.apply_update();
+```
+
+When recovery is safe, handle the `PoisonError` and validate or rebuild the state instead, calling `clear_poison()` only
+after restoring the invariant. Mutex poisoning signals a possible broken invariant; it does not by itself require
+termination.
+
+A supervised task boundary may intentionally propagate a child panic as described in
+[Background tasks](#background-tasks). This is different from panicking on an ordinary operational error inside the
+task.
 
 ### Avoid stringly-typed values
 
@@ -848,6 +954,15 @@ and can't be exhaustively checked by the compiler. See
 [`ErrorCode`](crates/api-model/src/errors.rs) for the pattern: typed
 `ErrorSystem`/`ErrorSubsystem` parts plus a `code`, rendered to the wire string
 in one place. Reserve raw strings for genuinely open-ended values.
+
+**Parse once at the boundary.** Parse and validate structured values at an untyped interface, then keep the domain type
+internally. Prefer `IpAddr`, `Uri`, typed identifiers or enums, and typed serde structures over repeatedly parsing
+strings or generic JSON. Convert only at the interface that requires a string, bytes, number, or structured message.
+
+**Use a newtype only when it adds safety.** It should enforce an invariant or prevent values with the same representation
+from being confused. Otherwise, avoid it. Document the invariant and how invalid input is reported, or state that every
+underlying value is valid and the wrapper exists only to separate types. Test accepted and rejected values when
+applicable, plus each wire, serde, or database representation the type uses.
 
 ### Prefer methods over free functions
 

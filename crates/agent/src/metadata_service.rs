@@ -22,7 +22,7 @@ use axum::Router;
 use crate::instance_metadata_endpoint::{InstanceMetadataRouterStateImpl, get_fmds_router};
 use crate::instrumentation::{AgentMetricsState, WithTracingLayer};
 
-pub fn spawn_metadata_service(
+pub(super) fn spawn_metadata_service(
     metadata_service_address: String,
     metrics_state: Arc<AgentMetricsState>,
     state: Arc<InstanceMetadataRouterStateImpl>,

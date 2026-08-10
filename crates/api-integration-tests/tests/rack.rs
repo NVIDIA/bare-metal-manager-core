@@ -28,8 +28,8 @@ use carbide_uuid::rack::{RackId, RackProfileId};
 use eyre::ContextCompat;
 use futures::future::join_all;
 use machine_a_tron::{
-    BmcMockRegistry, DhcpType, MachineATronConfig, RackConfig, RackModelConfig,
-    WiwynnGb200RackConfig,
+    BmcMockRegistry, DhcpType, LenovoGb300RackConfig, MachineATronConfig, RackConfig,
+    RackModelConfig, WiwynnGb200RackConfig,
 };
 use tokio_util::sync::CancellationToken;
 
@@ -39,7 +39,7 @@ fn setup() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn test_machine_a_tron_rack_integration() -> eyre::Result<()> {
+async fn test_machine_a_tron_racks_integration() -> eyre::Result<()> {
     let Some(mut test_env) = IntegrationTestEnvironment::try_from_environment(
         1,
         "api_server_test_machine_a_tron_rack_integration",
@@ -78,7 +78,7 @@ async fn test_machine_a_tron_rack_integration() -> eyre::Result<()> {
     )
     .await?;
 
-    run_machine_a_tron_rack_test(
+    run_machine_a_tron_racks_test(
         &test_env,
         &bmc_address_registry,
         Ipv4Addr::new(172, 20, 0, 2),
@@ -92,12 +92,13 @@ async fn test_machine_a_tron_rack_integration() -> eyre::Result<()> {
     Ok(())
 }
 
-async fn run_machine_a_tron_rack_test(
+async fn run_machine_a_tron_racks_test(
     test_env: &IntegrationTestEnvironment,
     bmc_mock_registry: &BmcMockRegistry,
     admin_dhcp_relay_address: Ipv4Addr,
 ) -> eyre::Result<()> {
-    let rack_id = RackId::new("machine-a-tron-nvl72");
+    let gb200_rack_id = RackId::new("machine-a-tron-gb200-nvl72");
+    let gb300_rack_id = RackId::new("machine-a-tron-gb300-nvl72");
     let api_addr = test_env
         .carbide_api_addrs
         .first()
@@ -108,30 +109,56 @@ async fn run_machine_a_tron_rack_test(
         .map(|address| format!("https://{}:{}", address.ip(), address.port()))
         .collect();
     let mat_config = MachineATronConfig {
-        racks: BTreeMap::from([(
-            "default".to_string(),
-            RackConfig {
-                rack_profile_id: RackProfileId::new("NVL72"),
-                ids: vec![rack_id.clone()],
-                model: RackModelConfig::WiwynnGb200Nvl72 {
-                    simulation: WiwynnGb200RackConfig {
-                        dpu_reboot_delay: 1,
-                        host_reboot_delay: 1,
-                        scout_run_interval: Duration::from_secs(1),
-                        oob_dhcp_relay_address: Ipv4Addr::new(172, 20, 1, 1),
-                        admin_dhcp_relay_address,
-                        host_inband_dhcp_relay_address: Some(Ipv4Addr::new(10, 10, 11, 2)),
-                        run_interval_working: Duration::from_millis(100),
-                        run_interval_idle: Duration::from_secs(1),
-                        network_status_run_interval: Duration::from_secs(1),
-                        network_virtualization_type: None,
-                        dpus_in_nic_mode: false,
-                        dpu_firmware_versions: None,
-                        dpu_agent_version: None,
+        racks: BTreeMap::from([
+            (
+                "gb200".to_string(),
+                RackConfig {
+                    rack_profile_id: RackProfileId::new("NVL72"),
+                    ids: vec![gb200_rack_id.clone()],
+                    model: RackModelConfig::WiwynnGb200Nvl72 {
+                        simulation: WiwynnGb200RackConfig {
+                            dpu_reboot_delay: 1,
+                            host_reboot_delay: 1,
+                            scout_run_interval: Duration::from_secs(1),
+                            oob_dhcp_relay_address: Ipv4Addr::new(172, 20, 1, 1),
+                            admin_dhcp_relay_address,
+                            host_inband_dhcp_relay_address: Some(Ipv4Addr::new(10, 10, 11, 2)),
+                            run_interval_working: Duration::from_millis(100),
+                            run_interval_idle: Duration::from_secs(1),
+                            network_status_run_interval: Duration::from_secs(1),
+                            network_virtualization_type: None,
+                            dpus_in_nic_mode: false,
+                            dpu_firmware_versions: None,
+                            dpu_agent_version: None,
+                        },
                     },
                 },
-            },
-        )]),
+            ),
+            (
+                "gb300".to_string(),
+                RackConfig {
+                    rack_profile_id: RackProfileId::new("NVL72_GB300"),
+                    ids: vec![gb300_rack_id.clone()],
+                    model: RackModelConfig::LenovoGb300Nvl72 {
+                        simulation: LenovoGb300RackConfig {
+                            dpu_reboot_delay: 1,
+                            host_reboot_delay: 1,
+                            scout_run_interval: Duration::from_secs(1),
+                            oob_dhcp_relay_address: Ipv4Addr::new(172, 20, 1, 1),
+                            admin_dhcp_relay_address,
+                            host_inband_dhcp_relay_address: Some(Ipv4Addr::new(10, 10, 11, 2)),
+                            run_interval_working: Duration::from_millis(100),
+                            run_interval_idle: Duration::from_secs(1),
+                            network_status_run_interval: Duration::from_secs(1),
+                            network_virtualization_type: None,
+                            dpus_in_nic_mode: false,
+                            dpu_firmware_versions: None,
+                            dpu_agent_version: None,
+                        },
+                    },
+                },
+            ),
+        ]),
         machines: BTreeMap::new(),
         nmxc: None,
         carbide_api_url: format!("https://{}:{}", api_addr.ip(), api_addr.port()),
@@ -166,7 +193,7 @@ async fn run_machine_a_tron_rack_test(
     .await?;
 
     let assertion_result = async {
-        assert_eq!(provisionable_handles.len(), 18);
+        assert_eq!(provisionable_handles.len(), 36);
         let machine_ids = join_all(
             provisionable_handles
                 .iter()
@@ -185,42 +212,51 @@ async fn run_machine_a_tron_rack_test(
         .await
         .into_iter()
         .collect::<Result<Vec<_>, _>>()?;
-        assert_eq!(machine_ids.len(), 18);
+        assert_eq!(machine_ids.len(), 36);
 
-        let managed_machine_count: i64 =
-            sqlx::query_scalar("SELECT COUNT(*) FROM machines WHERE rack_id = $1")
-                .bind(rack_id.as_str())
-                .fetch_one(&test_env.db_pool)
-                .await?;
-        assert_eq!(managed_machine_count, 18);
+        for (rack_id, expected_profile_id, expected_power_shelf_count) in [
+            (&gb200_rack_id, "NVL72", 8),
+            (&gb300_rack_id, "NVL72_GB300", 6),
+        ] {
+            let managed_machine_count: i64 =
+                sqlx::query_scalar("SELECT COUNT(*) FROM machines WHERE rack_id = $1")
+                    .bind(rack_id.as_str())
+                    .fetch_one(&test_env.db_pool)
+                    .await?;
+            assert_eq!(managed_machine_count, 18, "rack {rack_id}");
 
-        let expected_machine_count: i64 =
-            sqlx::query_scalar("SELECT COUNT(*) FROM expected_machines WHERE rack_id = $1")
-                .bind(rack_id.as_str())
-                .fetch_one(&test_env.db_pool)
-                .await?;
-        assert_eq!(expected_machine_count, 18);
+            let expected_machine_count: i64 =
+                sqlx::query_scalar("SELECT COUNT(*) FROM expected_machines WHERE rack_id = $1")
+                    .bind(rack_id.as_str())
+                    .fetch_one(&test_env.db_pool)
+                    .await?;
+            assert_eq!(expected_machine_count, 18, "rack {rack_id}");
 
-        let expected_switch_count: i64 =
-            sqlx::query_scalar("SELECT COUNT(*) FROM expected_switches WHERE rack_id = $1")
-                .bind(rack_id.as_str())
-                .fetch_one(&test_env.db_pool)
-                .await?;
-        assert_eq!(expected_switch_count, 9);
+            let expected_switch_count: i64 =
+                sqlx::query_scalar("SELECT COUNT(*) FROM expected_switches WHERE rack_id = $1")
+                    .bind(rack_id.as_str())
+                    .fetch_one(&test_env.db_pool)
+                    .await?;
+            assert_eq!(expected_switch_count, 9, "rack {rack_id}");
 
-        let expected_power_shelf_count: i64 =
-            sqlx::query_scalar("SELECT COUNT(*) FROM expected_power_shelves WHERE rack_id = $1")
-                .bind(rack_id.as_str())
-                .fetch_one(&test_env.db_pool)
-                .await?;
-        assert_eq!(expected_power_shelf_count, 8);
+            let actual_power_shelf_count: i64 = sqlx::query_scalar(
+                "SELECT COUNT(*) FROM expected_power_shelves WHERE rack_id = $1",
+            )
+            .bind(rack_id.as_str())
+            .fetch_one(&test_env.db_pool)
+            .await?;
+            assert_eq!(
+                actual_power_shelf_count, expected_power_shelf_count,
+                "rack {rack_id}"
+            );
 
-        let rack_profile_id: String =
-            sqlx::query_scalar("SELECT rack_profile_id FROM expected_racks WHERE rack_id = $1")
-                .bind(rack_id.as_str())
-                .fetch_one(&test_env.db_pool)
-                .await?;
-        assert_eq!(rack_profile_id, "NVL72");
+            let rack_profile_id: String =
+                sqlx::query_scalar("SELECT rack_profile_id FROM expected_racks WHERE rack_id = $1")
+                    .bind(rack_id.as_str())
+                    .fetch_one(&test_env.db_pool)
+                    .await?;
+            assert_eq!(rack_profile_id, expected_profile_id, "rack {rack_id}");
+        }
 
         Ok::<(), eyre::Report>(())
     }

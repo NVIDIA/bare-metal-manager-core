@@ -289,17 +289,6 @@ impl MacAddressPool {
         Ok(())
     }
 
-    /// Allocate MAC address subrange from ranges pool.
-    pub fn allocate_range(&mut self) -> Result<Self, Error> {
-        self.allocate_range_config().map(|pool| {
-            Self::new(Config {
-                // Returned pool should not have subranges.
-                ranges: None,
-                pool: Some(pool),
-            })
-        })
-    }
-
     fn maybe_reserve_range(&mut self, addr: MacAddress) {
         if let Some(range_base) = self.config.range_base_for(addr) {
             self.allocated_ranges.insert(range_base);
@@ -355,6 +344,14 @@ impl MacAddressExt for MacAddress {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    impl MacAddressPool {
+        /// Build a child pool for tests that exercise allocations within a
+        /// range returned by the production range-allocation API.
+        fn allocate_range(&mut self) -> Result<Self, Error> {
+            self.allocate_range_config().map(Self::new_pool)
+        }
+    }
 
     fn mac(v: u64) -> MacAddress {
         MacAddress::from_u64(v)

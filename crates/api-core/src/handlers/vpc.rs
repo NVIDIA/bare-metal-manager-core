@@ -262,6 +262,29 @@ pub(crate) async fn update_virtualization(
 
     let updater = UpdateVpcVirtualization::try_from(request.into_inner())?;
 
+    // Serialize this transition with VpcPrefix creation. A tenant-managed
+    // SitePrefix can be attached only to FNN, so the VPC must remain FNN for
+    // as long as any such VpcPrefix is retained (including soft deletion).
+    let current_vpc = db::vpc::find_by_with_lock(
+        txn.as_mut(),
+        ObjectColumnFilter::One(db::vpc::IdColumn, &updater.id),
+        db::vpc::VpcRowLock::Mutation,
+    )
+    .await?
+    .pop()
+    .ok_or_else(|| CarbideError::NotFoundError {
+        kind: "vpc",
+        id: updater.id.to_string(),
+    })?;
+    if updater.network_virtualization_type != VpcVirtualizationType::Fnn
+        && db::vpc_prefix::has_tenant_managed_site_prefix(&mut txn, current_vpc.id).await?
+    {
+        return Err(CarbideError::FailedPrecondition(
+            "a VPC with tenant-managed SitePrefix address space must remain FNN".to_string(),
+        )
+        .into());
+    }
+
     let instances = db::instance::find_ids(
         &mut txn,
         model::instance::InstanceSearchFilter {
@@ -550,16 +573,16 @@ async fn allocate_vpc_vni(
 /// (request + tenant + site FNN config), so we return both as one
 /// value.
 #[derive(Debug)]
-pub(crate) struct ResolvedVpcRouting {
+struct ResolvedVpcRouting {
     /// The routing-profile-type name to persist on the VPC. `None`
     /// for VPC types without a NICo-managed data plane, or when
     /// neither the request nor the tenant supplies one.
-    pub profile_type: Option<String>,
+    profile_type: Option<String>,
 
     /// Whether the VPC is "internal" -- drives VNI pool selection
     /// (`vpc-vni` internal pool vs `external-vpc-vni` external pool)
     /// and a couple of downstream behaviors.
-    pub internal: bool,
+    internal: bool,
 }
 
 impl Default for ResolvedVpcRouting {
@@ -592,7 +615,7 @@ impl Default for ResolvedVpcRouting {
 /// This exists as a function so that resolution rules can be
 /// more easily unit-tested directly, vs. as part of a wider
 /// flow.
-pub(crate) fn resolve_vpc_routing(
+fn resolve_vpc_routing(
     virt_type: VpcVirtualizationType,
     requested_profile_type: Option<&str>,
     vpc_profile_overrides: Option<&VpcRoutingProfileOverrides>,

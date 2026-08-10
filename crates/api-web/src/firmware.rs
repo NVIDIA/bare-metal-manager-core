@@ -68,7 +68,7 @@ struct DesiredFirmwareRow {
     explicit_update_start_needed: bool,
 }
 
-pub async fn show_html(AxumState(state): AxumState<Arc<Api>>) -> Response {
+pub(super) async fn show_html(AxumState(state): AxumState<Arc<Api>>) -> Response {
     let desired_firmware = match fetch_desired_firmware(&state).await {
         Ok(rows) => rows,
         Err(err) => {
@@ -87,7 +87,7 @@ pub async fn show_html(AxumState(state): AxumState<Arc<Api>>) -> Response {
     (StatusCode::OK, Html(tmpl.render().unwrap())).into_response()
 }
 
-pub async fn show_json(AxumState(state): AxumState<Arc<Api>>) -> Response {
+pub(super) async fn show_json(AxumState(state): AxumState<Arc<Api>>) -> Response {
     let desired_firmware = match fetch_desired_firmware(&state).await {
         Ok(rows) => rows,
         Err(err) => {

@@ -6,6 +6,23 @@
 ## Enable/disable the controller
 enabled: false
 
+## Container image configuration.
+##
+## IMPORTANT: Production deployments must override these defaults.
+## The default repository has no registry prefix and will not resolve in real clusters.
+##
+## Example install/upgrade command:
+##   helm install nico-machine-a-tron ./helm/charts/nico-machine-a-tron \
+##     --set mat-k8s-controller.enabled=true \
+##     --set mat-k8s-controller.image.repository=<registry>/mat-k8s-controller \
+##     --set mat-k8s-controller.image.tag=<version>
+##
+## Or in values override file:
+##   mat-k8s-controller:
+##     enabled: true
+##     image:
+##       repository: nvcr.io/nvidia/infra-controller/mat-k8s-controller
+##       tag: "1.0.0"
 image:
   repository: mat-k8s-controller
   tag: "0.1.0"

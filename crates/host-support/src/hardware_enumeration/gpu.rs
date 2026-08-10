@@ -22,7 +22,7 @@ use super::HardwareEnumerationResult;
 /// Retrieve nvidia-smi data about a machine.
 ///
 /// It is assumed that the machine should have the nvidia kernel module loaded, or this call will fail.
-pub fn get_nvidia_smi_data() -> HardwareEnumerationResult<Vec<RpcGpu>> {
+pub(super) fn get_nvidia_smi_data() -> HardwareEnumerationResult<Vec<RpcGpu>> {
     let cmd = Cmd::new("timeout")
         .args(vec![
             "--kill-after=120s",

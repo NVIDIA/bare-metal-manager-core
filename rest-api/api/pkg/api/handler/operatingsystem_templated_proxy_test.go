@@ -17,7 +17,7 @@ import (
 	"github.com/NVIDIA/infra-controller/rest-api/api/pkg/api/model"
 	sc "github.com/NVIDIA/infra-controller/rest-api/api/pkg/client/site"
 	authz "github.com/NVIDIA/infra-controller/rest-api/auth/pkg/authorization"
-	"github.com/NVIDIA/infra-controller/rest-api/common/pkg/coreproxy"
+	"github.com/NVIDIA/infra-controller/rest-api/common/pkg/grpcproxy"
 	"github.com/NVIDIA/infra-controller/rest-api/common/pkg/otelecho"
 	cutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
 	cdb "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db"
@@ -117,7 +117,7 @@ func buildTemplatedProxyFixture(t *testing.T) *templatedProxyFixture {
 type proxySiteClient struct {
 	client   *tmocks.Client
 	workflow *tmocks.WorkflowRun
-	captured coreproxy.Request
+	captured grpcproxy.Request
 }
 
 func newProxySiteClient(t *testing.T, wantMethod string, getErr, executeErr error) *proxySiteClient {
@@ -131,8 +131,8 @@ func newProxySiteClient(t *testing.T, wantMethod string, getErr, executeErr erro
 		"ExecuteWorkflow",
 		mock.Anything,
 		mock.Anything,
-		coreproxy.WorkflowName,
-		mock.MatchedBy(func(req coreproxy.Request) bool {
+		grpcproxy.Core.WorkflowName,
+		mock.MatchedBy(func(req grpcproxy.Request) bool {
 			if req.FullMethod != wantMethod {
 				return false
 			}
@@ -231,7 +231,7 @@ func (f *templatedProxyFixture) osStatus(t *testing.T, osID uuid.UUID) string {
 // TestOperatingSystemHandler_TemplatedIPXE_Proxy exercises the full create /
 // update / delete lifecycle of a Templated iPXE Operating System, which is
 // synchronized to its associated Sites through the generic NICo Core gRPC proxy
-// (coreproxy.WorkflowName) rather than the dedicated OsImage workflows used by
+// (grpcproxy.Core.WorkflowName) rather than the dedicated OsImage workflows used by
 // Image based Operating Systems.
 func TestOperatingSystemHandler_TemplatedIPXE_Proxy(t *testing.T) {
 	f := buildTemplatedProxyFixture(t)

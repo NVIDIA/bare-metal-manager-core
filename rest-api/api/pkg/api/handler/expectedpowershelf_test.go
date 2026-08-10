@@ -743,11 +743,15 @@ func TestUpdateExpectedPowerShelfHandler_Handle(t *testing.T) {
 	}
 
 	tests := []struct {
-		name           string
-		id             string
-		requestBody    model.APIExpectedPowerShelfUpdateRequest
-		setupContext   func(c echo.Context)
-		expectedStatus int
+		name                 string
+		id                   string
+		requestBody          model.APIExpectedPowerShelfUpdateRequest
+		setupContext         func(c echo.Context)
+		expectedStatus       int
+		expectedBmcMac       string
+		expectedStoredBmcMac string
+		expectedErrorMsg     string
+		expectNoWorkflow     bool
 	}{
 		{
 			name: "successful update",
@@ -762,6 +766,37 @@ func TestUpdateExpectedPowerShelfHandler_Handle(t *testing.T) {
 				c.SetParamValues(org, testEPS.ID.String())
 			},
 			expectedStatus: http.StatusOK,
+		},
+		{
+			name: "BMC MAC formatting difference preserves stored identity",
+			id:   testEPS.ID.String(),
+			requestBody: model.APIExpectedPowerShelfUpdateRequest{
+				BmcMacAddress: cutil.GetPtr("00-11-22-33-44-dd"),
+			},
+			setupContext: func(c echo.Context) {
+				c.Set("user", createMockUser(org))
+				c.SetParamNames("orgName", "id")
+				c.SetParamValues(org, testEPS.ID.String())
+			},
+			expectedStatus:       http.StatusOK,
+			expectedBmcMac:       testEPS.BmcMacAddress,
+			expectedStoredBmcMac: testEPS.BmcMacAddress,
+		},
+		{
+			name: "BMC MAC address cannot be changed",
+			id:   testEPS.ID.String(),
+			requestBody: model.APIExpectedPowerShelfUpdateRequest{
+				BmcMacAddress: cutil.GetPtr("AA:BB:CC:DD:EE:FF"),
+			},
+			setupContext: func(c echo.Context) {
+				c.Set("user", createMockUser(org))
+				c.SetParamNames("orgName", "id")
+				c.SetParamValues(org, testEPS.ID.String())
+			},
+			expectedStatus:       http.StatusBadRequest,
+			expectedStoredBmcMac: testEPS.BmcMacAddress,
+			expectedErrorMsg:     "BMC MAC address cannot be changed after creation",
+			expectNoWorkflow:     true,
 		},
 		{
 			name: "body ID mismatch with URL should return 400",
@@ -808,12 +843,30 @@ func TestUpdateExpectedPowerShelfHandler_Handle(t *testing.T) {
 
 			tt.setupContext(c)
 
+			workflowCallsBefore := len(mockTemporalClient.Calls)
 			err := handler.Handle(c)
 
 			assert.Nil(t, err)
 			assert.Equal(t, tt.expectedStatus, rec.Code)
 			if tt.expectedStatus != rec.Code {
 				t.Errorf("Response: %v", rec.Body.String())
+			}
+			if tt.expectedErrorMsg != "" {
+				assert.Contains(t, rec.Body.String(), tt.expectedErrorMsg)
+			}
+			if tt.expectedBmcMac != "" {
+				var response model.APIExpectedPowerShelf
+				err := json.Unmarshal(rec.Body.Bytes(), &response)
+				assert.Nil(t, err)
+				assert.Equal(t, tt.expectedBmcMac, response.BmcMacAddress)
+			}
+			if tt.expectedStoredBmcMac != "" {
+				stored, err := epsDAO.Get(ctx, nil, testEPS.ID, nil, false)
+				assert.Nil(t, err)
+				assert.Equal(t, tt.expectedStoredBmcMac, stored.BmcMacAddress)
+			}
+			if tt.expectNoWorkflow {
+				assert.Len(t, mockTemporalClient.Calls, workflowCallsBefore)
 			}
 		})
 	}

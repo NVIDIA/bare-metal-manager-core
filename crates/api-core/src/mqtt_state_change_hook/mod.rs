@@ -22,6 +22,6 @@
 //! 3.1.1. The prefix is supplied via `DsxExchangeEventBusConfig::topic_prefix`
 //! and defaults to `NICO/v1/machine`.
 
-pub mod hook;
-pub mod message;
-pub mod republisher;
+pub(crate) mod hook;
+mod message;
+pub(crate) mod republisher;

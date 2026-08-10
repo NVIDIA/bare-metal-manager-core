@@ -80,27 +80,95 @@ impl<'r> FromRow<'r, PgRow> for NetworkPrefix {
 }
 
 impl NetworkPrefix {
+    /// `gateway_cidr` formats the configured gateway with this segment's
+    /// prefix length.
+    ///
+    /// Consumers install the gateway on the segment, so a gateway of
+    /// `192.0.2.1` in `192.0.2.0/24` becomes `192.0.2.1/24`, not the host
+    /// route `192.0.2.1/32`. Returns `None` when no gateway is configured.
     pub fn gateway_cidr(&self) -> Option<String> {
-        // TODO: This was here before, but seems broken
-        // The gateway address should always be a /32
-        // Should we directly return the prefix?
         self.gateway
             .map(|g| format!("{}/{}", g, self.prefix.prefix()))
     }
 
-    // We use this to try to guess whether an associated segment is stretchable
-    // in cases where the database doesn't contain that information.
+    /// `smells_like_fnn` recognizes narrow segment prefixes generated from a
+    /// VPC prefix when the persisted `can_stretch` value is unavailable.
+    ///
+    /// FNN uses `/31` IPv4 and `/127` IPv6 linknets. The heuristic starts one
+    /// bit wider (`/30` or `/126`) to preserve the existing IPv4 tolerance,
+    /// but only matches rows associated with a `VpcPrefixId`.
     pub fn smells_like_fnn(&self) -> bool {
         self.vpc_prefix_id.is_some()
             && match self.prefix {
-                // A 31 network prefix is used for FNN.
                 IpNetwork::V4(v4) => v4.prefix() >= 30,
-                IpNetwork::V6(_) => {
-                    // We don't have any IPv6 segment prefixes at the time of
-                    // writing so we don't really expect this arm to match, but
-                    // let's provide a safe value just in case.
-                    false
-                }
+                IpNetwork::V6(v6) => v6.prefix() >= 126,
             }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use carbide_test_support::value_scenarios;
+
+    use super::*;
+
+    /// Builds the smallest complete prefix needed to exercise model helpers.
+    fn network_prefix(
+        prefix: &str,
+        gateway: Option<&str>,
+        associated_with_vpc_prefix: bool,
+    ) -> NetworkPrefix {
+        NetworkPrefix {
+            id: NetworkPrefixId::new(),
+            segment_id: NetworkSegmentId::new(),
+            prefix: prefix.parse().unwrap(),
+            gateway: gateway.map(|gateway| gateway.parse().unwrap()),
+            dhcpv6_link_address: None,
+            num_reserved: 0,
+            vpc_prefix_id: associated_with_vpc_prefix.then(VpcPrefixId::new),
+            vpc_prefix: None,
+            svi_ip: None,
+            num_free_ips: None,
+        }
+    }
+
+    #[test]
+    fn gateway_cidr_uses_the_segment_prefix_length() {
+        value_scenarios!(run = |prefix: NetworkPrefix| prefix.gateway_cidr();
+            "configured gateways" {
+                network_prefix("192.0.2.0/24", Some("192.0.2.1"), false)
+                    => Some("192.0.2.1/24".to_string()),
+                network_prefix("2001:db8::/64", Some("2001:db8::1"), false)
+                    => Some("2001:db8::1/64".to_string()),
+            }
+
+            "gateway is not configured" {
+                network_prefix("192.0.2.0/24", None, false) => None,
+            }
+        );
+    }
+
+    #[test]
+    fn smells_like_fnn_requires_a_vpc_prefix_and_narrow_linknet() {
+        value_scenarios!(run = |prefix: NetworkPrefix| prefix.smells_like_fnn();
+            "IPv4 cutoff" {
+                network_prefix("192.0.2.0/29", None, true) => false,
+                network_prefix("192.0.2.0/30", None, true) => true,
+                network_prefix("192.0.2.0/31", None, true) => true,
+                network_prefix("192.0.2.1/32", None, true) => true,
+            }
+
+            "IPv6 cutoff" {
+                network_prefix("2001:db8::/125", None, true) => false,
+                network_prefix("2001:db8::/126", None, true) => true,
+                network_prefix("2001:db8::/127", None, true) => true,
+                network_prefix("2001:db8::1/128", None, true) => true,
+            }
+
+            "prefix is not associated with a VPC prefix" {
+                network_prefix("192.0.2.0/31", None, false) => false,
+                network_prefix("2001:db8::/127", None, false) => false,
+            }
+        );
     }
 }

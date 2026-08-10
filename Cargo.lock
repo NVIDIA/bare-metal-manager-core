@@ -877,6 +877,7 @@ dependencies = [
  "axum-server",
  "bmc-vendor",
  "bytes",
+ "carbide-test-support",
  "chrono",
  "clap",
  "duration-str",
@@ -1237,6 +1238,7 @@ dependencies = [
  "figment",
  "futures",
  "futures-util",
+ "hashbrown 0.17.1",
  "hex",
  "hkdf 0.13.0",
  "hostname",
@@ -1256,6 +1258,7 @@ dependencies = [
  "nras",
  "num_cpus",
  "nv-redfish",
+ "nv-redfish-dispatcher",
  "opentelemetry 0.32.0",
  "opentelemetry_sdk",
  "p256 0.14.0",
@@ -1658,6 +1661,7 @@ dependencies = [
 name = "carbide-dhcp"
 version = "0.0.0"
 dependencies = [
+ "carbide-dhcp",
  "carbide-dhcp-common",
  "carbide-instrument",
  "carbide-rpc",
@@ -2743,6 +2747,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "carbide-proto-compiler"
+version = "0.0.0"
+dependencies = [
+ "prost",
+ "prost-build",
+ "prost-reflect",
+ "prost-types",
+ "quote",
+ "syn 2.0.117",
+ "tempfile",
+ "thiserror 2.0.18",
+ "tonic-prost-build",
+]
+
+[[package]]
 name = "carbide-pxe"
 version = "0.0.1"
 dependencies = [
@@ -2894,6 +2913,7 @@ dependencies = [
  "carbide-measured-boot",
  "carbide-network",
  "carbide-prost-builder",
+ "carbide-proto-compiler",
  "carbide-secrets",
  "carbide-test-support",
  "carbide-tls",
@@ -7797,9 +7817,9 @@ dependencies = [
 
 [[package]]
 name = "nv-redfish"
-version = "0.12.1"
+version = "0.14.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2592edb56672a2c7edf127a376cc1ee487ba0e3c6f1de089e0a8074e731fae2c"
+checksum = "30ebec199a41aa356229f9474566dd259b5342ee0ffa03693cb71e71b8efae15"
 dependencies = [
  "futures-core",
  "futures-util",
@@ -7814,9 +7834,9 @@ dependencies = [
 
 [[package]]
 name = "nv-redfish-bmc-http"
-version = "0.12.1"
+version = "0.14.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "36d20f59e47169c5adc5ee4d16ee58c4be04bdb7b13adf20c95b574b068f2d65"
+checksum = "1312af6ba88347e7baf899dcbc4028a4fe90f1e0a0cbf9642437cc93e1f8e39e"
 dependencies = [
  "bytes",
  "futures-core",
@@ -7839,9 +7859,9 @@ dependencies = [
 
 [[package]]
 name = "nv-redfish-core"
-version = "0.12.1"
+version = "0.14.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d604b8acdfb20dae81b2a0849258126723f649d772e5097c75a54bd75aad53e6"
+checksum = "c8490d57e2e32eea59b06602a9f509b135bab373fd89f567079c3c42a353ecb3"
 dependencies = [
  "futures-core",
  "futures-io",
@@ -7854,9 +7874,9 @@ dependencies = [
 
 [[package]]
 name = "nv-redfish-csdl-compiler"
-version = "0.12.1"
+version = "0.14.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f1b4cbe1798dd45c668d35da308da62fc55e1c321e337685bd2126fc50ba07f1"
+checksum = "1d4908c4aa3667e616b31a519d7bc4956c1347c506818e3e3659e87f4db841bc"
 dependencies = [
  "clap",
  "clap_derive",
@@ -7871,10 +7891,20 @@ dependencies = [
 ]
 
 [[package]]
-name = "nv-redfish-schema"
-version = "0.12.1"
+name = "nv-redfish-dispatcher"
+version = "0.14.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6005f1c3630b8ef4df0a2564fb935a659ae6384a09bd2c7e2081ce20e5033e15"
+checksum = "83fc269d07729c6dcd15554acd0df6771b591916f8edd0e80df6838148b4fa12"
+dependencies = [
+ "futures-core",
+ "futures-util",
+]
+
+[[package]]
+name = "nv-redfish-schema"
+version = "0.14.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "02475039687858405479c5a1773d58d54256bd59be139eec5350072c1f452733"
 dependencies = [
  "glob",
 ]
@@ -8960,6 +8990,16 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 2.0.117",
+]
+
+[[package]]
+name = "prost-reflect"
+version = "0.16.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "01b80ea363c31af2de2b92e3c07ed1156628f7838c4afb4df75ee78a37fedbd1"
+dependencies = [
+ "prost",
+ "prost-types",
 ]
 
 [[package]]
@@ -11889,6 +11929,7 @@ name = "tonic-client-wrapper"
 version = "0.1.0"
 dependencies = [
  "async-trait",
+ "carbide-proto-compiler",
  "heck",
  "lazy_static",
  "prettyplease",

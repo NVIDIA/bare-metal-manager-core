@@ -22,7 +22,7 @@ use hyper::http::request::Builder;
 use crate::{WebAuthMode, routes_with_auth_mode};
 
 mod component_detail;
-mod env;
+pub(super) mod env;
 mod explored_endpoint;
 mod firmware;
 mod health;
@@ -30,7 +30,7 @@ mod managed_host;
 mod vpc;
 
 fn make_test_app(test_harness: &TestHarness) -> Router {
-    let r = routes_with_auth_mode(test_harness.api_arc(), WebAuthMode::None).unwrap();
+    let r = routes_with_auth_mode(test_harness.api_arc(), WebAuthMode::None, None).unwrap();
     Router::new().nest_service("/admin", r)
 }
 

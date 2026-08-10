@@ -45,16 +45,16 @@ use serde::Deserialize;
 use sqlx::PgPool;
 use zeroize::Zeroizing;
 
-pub mod import;
-pub mod metrics;
-pub mod re_wrap;
-pub mod routing;
+mod import;
+mod metrics;
+mod re_wrap;
+mod routing;
 #[cfg(test)]
 mod tests;
 
 pub use import::{import_vault_secrets, is_vault_import_complete};
 pub use metrics::{OperationTimer, SecretsOperation};
-pub use re_wrap::{ReWrapStaleResult, re_wrap_stale};
+pub(crate) use re_wrap::re_wrap_stale;
 pub use routing::SecretRouting;
 
 /// The KMS and routing handles that secrets admin operations (re-wrap)
@@ -148,19 +148,20 @@ impl From<PgSecretsError> for SecretsError {
 }
 
 /// A decrypted journal entry, returned by the history and lookup methods.
-pub struct SecretEntry {
+#[allow(dead_code)] // Staged for credential rotation: https://github.com/NVIDIA/infra-controller/issues/367.
+struct SecretEntry {
     /// Identifies this journal entry.
-    pub secret_id: carbide_uuid::secret::SecretId,
+    secret_id: carbide_uuid::secret::SecretId,
     /// The journal order -- higher means written later.
-    pub seq: i64,
+    seq: i64,
     /// The credential path.
-    pub path: String,
+    path: String,
     /// The decrypted credential value.
-    pub credentials: Credentials,
+    credentials: Credentials,
     /// The KEK that wrapped this entry's DEK.
-    pub kek_id: String,
+    kek_id: String,
     /// When this entry was written.
-    pub created_at: chrono::DateTime<chrono::Utc>,
+    created_at: chrono::DateTime<chrono::Utc>,
 }
 
 /// The `CredentialManager` backed by the Postgres secrets journal. Reads
@@ -198,17 +199,16 @@ impl PostgresCredentialManager {
     // entry by id, which makes the previous entry current again.
 
     /// Return every journal entry for a credential, newest first.
-    pub async fn get_history(
-        &self,
-        key: &CredentialKey,
-    ) -> Result<Vec<SecretEntry>, PgSecretsError> {
+    #[allow(dead_code)] // Staged for credential rotation: https://github.com/NVIDIA/infra-controller/issues/367.
+    async fn get_history(&self, key: &CredentialKey) -> Result<Vec<SecretEntry>, PgSecretsError> {
         let path = key.to_key_str();
         let rows = db::secrets::get_history(&self.pool, &path).await?;
         self.decrypt_rows(rows).await
     }
 
     /// Return one journal entry by id.
-    pub async fn get_by_id(
+    #[allow(dead_code)] // Staged for credential rotation: https://github.com/NVIDIA/infra-controller/issues/367.
+    async fn get_by_id(
         &self,
         secret_id: carbide_uuid::secret::SecretId,
     ) -> Result<Option<SecretEntry>, PgSecretsError> {
@@ -219,17 +219,16 @@ impl PostgresCredentialManager {
     }
 
     /// Return every journal entry wrapped by the given KEK.
-    pub async fn get_all_for_kek_id(
-        &self,
-        kek_id: &str,
-    ) -> Result<Vec<SecretEntry>, PgSecretsError> {
+    #[allow(dead_code)] // Staged for credential rotation: https://github.com/NVIDIA/infra-controller/issues/367.
+    async fn get_all_for_kek_id(&self, kek_id: &str) -> Result<Vec<SecretEntry>, PgSecretsError> {
         let rows = db::secrets::get_all_for_kek_id(&self.pool, kek_id).await?;
         self.decrypt_rows(rows).await
     }
 
     /// Return the credentials whose newest journal entry is wrapped by the
     /// given KEK.
-    pub async fn get_latest_with_kek_id(
+    #[allow(dead_code)] // Staged for credential rotation: https://github.com/NVIDIA/infra-controller/issues/367.
+    async fn get_latest_with_kek_id(
         &self,
         kek_id: &str,
     ) -> Result<Vec<SecretEntry>, PgSecretsError> {
@@ -239,7 +238,8 @@ impl PostgresCredentialManager {
 
     /// Remove one journal entry by id. Deleting the newest entry makes the
     /// previous one current again.
-    pub async fn delete_by_id(
+    #[allow(dead_code)] // Staged for credential rotation: https://github.com/NVIDIA/infra-controller/issues/367.
+    async fn delete_by_id(
         &self,
         secret_id: carbide_uuid::secret::SecretId,
     ) -> Result<bool, PgSecretsError> {

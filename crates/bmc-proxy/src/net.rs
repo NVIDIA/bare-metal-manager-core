@@ -39,7 +39,7 @@ fn should_retry_as_ipv4(address: &SocketAddr, err: &io::Error) -> bool {
         && err.raw_os_error() == Some(libc::EAFNOSUPPORT)
 }
 
-pub async fn bind_with_ipv4_fallback(address: SocketAddr) -> io::Result<TcpListener> {
+pub(crate) async fn bind_with_ipv4_fallback(address: SocketAddr) -> io::Result<TcpListener> {
     match TcpListener::bind(address).await {
         Ok(listener) => Ok(listener),
         Err(e) if should_retry_as_ipv4(&address, &e) => {

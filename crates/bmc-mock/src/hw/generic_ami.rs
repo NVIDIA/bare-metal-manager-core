@@ -22,13 +22,13 @@ use serde_json::json;
 
 use crate::{BootOptionKind, Callbacks, hw, redfish};
 
-pub struct GenericAmi<'a> {
-    pub product_serial_number: Cow<'a, str>,
-    pub nics: Vec<(hw::nic::SlotNumber, hw::nic::Nic<'a>)>,
+pub(crate) struct GenericAmi<'a> {
+    pub(crate) product_serial_number: Cow<'a, str>,
+    pub(crate) nics: Vec<(hw::nic::SlotNumber, hw::nic::Nic<'a>)>,
 }
 
 impl GenericAmi<'_> {
-    pub fn manager_config(&self) -> redfish::manager::Config {
+    pub(crate) fn manager_config(&self) -> redfish::manager::Config {
         let bmc_manager_id = "Self";
         redfish::manager::Config {
             managers: vec![redfish::manager::SingleConfig {
@@ -49,7 +49,10 @@ impl GenericAmi<'_> {
         }
     }
 
-    pub fn system_config(&self, callbacks: Arc<dyn Callbacks>) -> redfish::computer_system::Config {
+    pub(crate) fn system_config(
+        &self,
+        callbacks: Arc<dyn Callbacks>,
+    ) -> redfish::computer_system::Config {
         let system_id = "Self";
 
         let boot_opt_builder = |id: &str, kind| {
@@ -95,6 +98,7 @@ impl GenericAmi<'_> {
                 log_services: None,
                 storage: None,
                 processors: None,
+                memory: None,
                 base_bios: Some(
                     redfish::bios::builder(&redfish::bios::resource(system_id))
                         .attributes(json!({"EndlessBoot":""}))
@@ -106,7 +110,7 @@ impl GenericAmi<'_> {
         }
     }
 
-    pub fn chassis_config(&self) -> redfish::chassis::ChassisConfig {
+    pub(crate) fn chassis_config(&self) -> redfish::chassis::ChassisConfig {
         let chassis_id = "Self";
 
         let pcie_devices = self
@@ -133,7 +137,7 @@ impl GenericAmi<'_> {
         }
     }
 
-    pub fn update_service_config(&self) -> redfish::update_service::UpdateServiceConfig {
+    pub(crate) fn update_service_config(&self) -> redfish::update_service::UpdateServiceConfig {
         redfish::update_service::UpdateServiceConfig {
             firmware_inventory: vec![],
         }

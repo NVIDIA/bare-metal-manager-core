@@ -212,6 +212,79 @@ impl WiwynnGb200RackConfig {
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize, Eq, PartialEq)]
+pub struct LenovoGb300RackConfig {
+    pub dpu_reboot_delay: u64,
+    pub host_reboot_delay: u64,
+    #[serde(
+        default = "default_scout_run_interval",
+        deserialize_with = "deserialize_duration",
+        serialize_with = "as_std_duration"
+    )]
+    pub scout_run_interval: Duration,
+    pub oob_dhcp_relay_address: Ipv4Addr,
+    pub admin_dhcp_relay_address: Ipv4Addr,
+    #[serde(default)]
+    pub host_inband_dhcp_relay_address: Option<Ipv4Addr>,
+    #[serde(
+        default = "default_run_interval_working",
+        deserialize_with = "deserialize_duration",
+        serialize_with = "as_std_duration"
+    )]
+    pub run_interval_working: Duration,
+    #[serde(
+        default = "default_run_interval_idle",
+        deserialize_with = "deserialize_duration",
+        serialize_with = "as_std_duration"
+    )]
+    pub run_interval_idle: Duration,
+    #[serde(
+        default = "default_network_status_run_interval",
+        deserialize_with = "deserialize_duration",
+        serialize_with = "as_std_duration"
+    )]
+    pub network_status_run_interval: Duration,
+    #[serde(default)]
+    pub network_virtualization_type: Option<String>,
+    #[serde(default)]
+    pub dpus_in_nic_mode: bool,
+    #[serde(default)]
+    pub dpu_firmware_versions: Option<DpuFirmwareVersions>,
+    #[serde(default)]
+    pub dpu_agent_version: Option<String>,
+}
+
+impl LenovoGb300RackConfig {
+    fn component_machine_config(
+        &self,
+        rack_id: RackId,
+        hw_type: HardwareType,
+        dpu_per_host_count: u32,
+    ) -> MachineConfig {
+        MachineConfig {
+            rack_id: Some(rack_id),
+            hw_type,
+            host_count: 1,
+            vpc_count: 0,
+            subnets_per_vpc: 0,
+            dpu_per_host_count,
+            dpu_reboot_delay: self.dpu_reboot_delay,
+            host_reboot_delay: self.host_reboot_delay,
+            scout_run_interval: self.scout_run_interval,
+            oob_dhcp_relay_address: self.oob_dhcp_relay_address,
+            admin_dhcp_relay_address: self.admin_dhcp_relay_address,
+            host_inband_dhcp_relay_address: self.host_inband_dhcp_relay_address,
+            run_interval_working: self.run_interval_working,
+            run_interval_idle: self.run_interval_idle,
+            network_status_run_interval: self.network_status_run_interval,
+            network_virtualization_type: self.network_virtualization_type.clone(),
+            dpus_in_nic_mode: self.dpus_in_nic_mode,
+            dpu_firmware_versions: self.dpu_firmware_versions.clone(),
+            dpu_agent_version: self.dpu_agent_version.clone(),
+        }
+    }
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, Eq, PartialEq)]
 pub struct RackConfig {
     pub rack_profile_id: RackProfileId,
     pub ids: Vec<RackId>,
@@ -226,12 +299,17 @@ pub enum RackModelConfig {
         #[serde(flatten)]
         simulation: WiwynnGb200RackConfig,
     },
+    LenovoGb300Nvl72 {
+        #[serde(flatten)]
+        simulation: LenovoGb300RackConfig,
+    },
 }
 
 impl RackModelConfig {
     fn rack_type(&self) -> RackType {
         match self {
             Self::WiwynnGb200Nvl72 { .. } => RackType::WiwynnGb200Nvl72,
+            Self::LenovoGb300Nvl72 { .. } => RackType::LenovoGb300Nvl72,
         }
     }
 
@@ -243,6 +321,9 @@ impl RackModelConfig {
     ) -> MachineConfig {
         match self {
             Self::WiwynnGb200Nvl72 { simulation } => {
+                simulation.component_machine_config(rack_id, hardware_type, dpu_per_host_count)
+            }
+            Self::LenovoGb300Nvl72 { simulation } => {
                 simulation.component_machine_config(rack_id, hardware_type, dpu_per_host_count)
             }
         }
@@ -384,8 +465,8 @@ pub struct MachineATronConfig {
     #[serde(default)]
     pub host_bmc_password: Option<String>,
 
-    /// Same as `host_bmc_password`, for DPU BMC mocks
-    /// (factory default `DUMMY_FACTORY_DPU_PASSWORD`).
+    /// Same as `host_bmc_password`, for DPU BMC mocks. When unset, each DPU
+    /// model uses its factory-default password.
     #[serde(default)]
     pub dpu_bmc_password: Option<String>,
 
@@ -825,7 +906,7 @@ where
     }
 }
 
-pub fn deserialize_machine_config<'a, D>(
+fn deserialize_machine_config<'a, D>(
     deserializer: D,
 ) -> Result<BTreeMap<String, Arc<MachineConfig>>, D::Error>
 where
@@ -911,6 +992,24 @@ scout_run_interval = "5s"
         }
     }
 
+    fn lenovo_gb300_rack_from_machine(machine: &MachineConfig) -> LenovoGb300RackConfig {
+        LenovoGb300RackConfig {
+            dpu_reboot_delay: machine.dpu_reboot_delay,
+            host_reboot_delay: machine.host_reboot_delay,
+            scout_run_interval: machine.scout_run_interval,
+            oob_dhcp_relay_address: machine.oob_dhcp_relay_address,
+            admin_dhcp_relay_address: machine.admin_dhcp_relay_address,
+            host_inband_dhcp_relay_address: machine.host_inband_dhcp_relay_address,
+            run_interval_working: machine.run_interval_working,
+            run_interval_idle: machine.run_interval_idle,
+            network_status_run_interval: machine.network_status_run_interval,
+            network_virtualization_type: machine.network_virtualization_type.clone(),
+            dpus_in_nic_mode: machine.dpus_in_nic_mode,
+            dpu_firmware_versions: machine.dpu_firmware_versions.clone(),
+            dpu_agent_version: machine.dpu_agent_version.clone(),
+        }
+    }
+
     fn gb200_rack_config() -> MachineATronConfig {
         let mut config = rack_config();
         let template = config.machines["config"].clone();
@@ -928,6 +1027,23 @@ scout_run_interval = "5s"
         config
     }
 
+    fn gb300_rack_config() -> MachineATronConfig {
+        let mut config = rack_config();
+        let template = config.machines["config"].clone();
+        config.machines.clear();
+        config.racks.insert(
+            "default".to_string(),
+            RackConfig {
+                ids: vec![RackId::new("rack-002"), RackId::new("rack-001")],
+                rack_profile_id: RackProfileId::new("NVL72_GB300"),
+                model: RackModelConfig::LenovoGb300Nvl72 {
+                    simulation: lenovo_gb300_rack_from_machine(&template),
+                },
+            },
+        );
+        config
+    }
+
     #[test]
     fn test_serialize_config() {
         let cfg = rack_config();
@@ -939,78 +1055,151 @@ scout_run_interval = "5s"
     }
 
     #[test]
-    fn gb200_rack_config_round_trips() {
-        let config = gb200_rack_config();
-        config.validate().unwrap();
-
-        let serialized = toml::to_string(&config).unwrap();
-        assert!(serialized.contains("[racks.default]"));
-        assert!(serialized.contains("type = \"wiwynn_gb200_nvl72\""));
-        assert!(serialized.contains("rack_profile_id = \"NVL72\""));
-        assert!(serialized.contains("ids = [\"rack-002\", \"rack-001\"]"));
-        let round_tripped = toml::from_str::<MachineATronConfig>(&serialized).unwrap();
-
-        assert_eq!(round_tripped, config);
+    fn rack_configs_round_trip() {
+        check_cases(
+            [
+                Case {
+                    scenario: "WIWYNN GB200 rack",
+                    input: (
+                        gb200_rack_config(),
+                        "type = \"wiwynn_gb200_nvl72\"",
+                        "rack_profile_id = \"NVL72\"",
+                    ),
+                    expect: Yields(()),
+                },
+                Case {
+                    scenario: "Lenovo GB300 rack",
+                    input: (
+                        gb300_rack_config(),
+                        "type = \"lenovo_gb300_nvl72\"",
+                        "rack_profile_id = \"NVL72_GB300\"",
+                    ),
+                    expect: Yields(()),
+                },
+            ],
+            |(config, expected_type, expected_profile)| {
+                (|| -> eyre::Result<()> {
+                    config.validate()?;
+                    let serialized = toml::to_string(&config)?;
+                    eyre::ensure!(serialized.contains("[racks.default]"));
+                    eyre::ensure!(serialized.contains(expected_type));
+                    eyre::ensure!(serialized.contains(expected_profile));
+                    eyre::ensure!(serialized.contains("ids = [\"rack-002\", \"rack-001\"]"));
+                    let round_tripped = toml::from_str::<MachineATronConfig>(&serialized)?;
+                    eyre::ensure!(round_tripped == config);
+                    Ok(())
+                })()
+                .map_err(drop)
+            },
+        );
     }
 
     #[test]
-    fn wiwynn_gb200_rack_expands_its_managed_hardware() {
-        let config = gb200_rack_config();
-
-        let first = config.resolved_device_configs().unwrap();
-        let second = config.resolved_device_configs().unwrap();
-
-        assert_eq!(first.machines.len(), 70);
-        assert_eq!(
-            first.machines.keys().collect::<Vec<_>>(),
-            second.machines.keys().collect::<Vec<_>>()
-        );
-        assert_eq!(first.racks.len(), 2);
-        assert_eq!(first.racks[0].rack_id, RackId::new("rack-001"));
-        assert_eq!(first.racks[1].rack_id, RackId::new("rack-002"));
-        for rack in &first.racks {
-            assert_eq!(rack.rack_profile_id, RackProfileId::new("NVL72"));
-            assert_eq!(rack.members.len(), 35);
-            assert_eq!(
-                rack.members
-                    .iter()
-                    .map(|member| member.position)
-                    .collect::<BTreeSet<_>>()
-                    .len(),
-                35
-            );
+    fn rack_models_expand_their_managed_hardware() {
+        #[derive(Debug)]
+        struct ExpectedExpansion {
+            config: MachineATronConfig,
+            rack_profile_id: &'static str,
+            rack_type: RackType,
+            member_count: usize,
+            compute_type: HardwareType,
+            compute_count: usize,
+            switch_type: HardwareType,
+            switch_count: usize,
+            power_shelf_type: HardwareType,
+            power_shelf_count: usize,
         }
 
-        for machine in first.machines.values() {
-            assert_eq!(machine.host_count, 1);
-            assert!(
-                machine.rack_id == Some(RackId::new("rack-001"))
-                    || machine.rack_id == Some(RackId::new("rack-002"))
-            );
-        }
-        assert_eq!(
-            first
-                .machines
-                .values()
-                .filter(|machine| machine.hw_type == HardwareType::WiwynnGB200Nvl)
-                .count(),
-            36
-        );
-        assert_eq!(
-            first
-                .machines
-                .values()
-                .filter(|machine| machine.hw_type == HardwareType::NvidiaSwitchNd5200Ld)
-                .count(),
-            18
-        );
-        assert_eq!(
-            first
-                .machines
-                .values()
-                .filter(|machine| machine.hw_type == HardwareType::LiteOnPowerShelf)
-                .count(),
-            16
+        check_cases(
+            [
+                Case {
+                    scenario: "WIWYNN GB200 rack",
+                    input: ExpectedExpansion {
+                        config: gb200_rack_config(),
+                        rack_profile_id: "NVL72",
+                        rack_type: RackType::WiwynnGb200Nvl72,
+                        member_count: 35,
+                        compute_type: HardwareType::WiwynnGB200Nvl,
+                        compute_count: 36,
+                        switch_type: HardwareType::NvidiaSwitchNd5200Ld,
+                        switch_count: 18,
+                        power_shelf_type: HardwareType::LiteOnPowerShelf,
+                        power_shelf_count: 16,
+                    },
+                    expect: Yields(()),
+                },
+                Case {
+                    scenario: "Lenovo GB300 rack",
+                    input: ExpectedExpansion {
+                        config: gb300_rack_config(),
+                        rack_profile_id: "NVL72_GB300",
+                        rack_type: RackType::LenovoGb300Nvl72,
+                        member_count: 33,
+                        compute_type: HardwareType::LenovoGB300Nvl,
+                        compute_count: 36,
+                        switch_type: HardwareType::NvidiaSwitchN5700Ld,
+                        switch_count: 18,
+                        power_shelf_type: HardwareType::LiteOnPowerShelf,
+                        power_shelf_count: 12,
+                    },
+                    expect: Yields(()),
+                },
+            ],
+            |expected| {
+                (|| -> eyre::Result<()> {
+                    let first = expected.config.resolved_device_configs()?;
+                    let second = expected.config.resolved_device_configs()?;
+
+                    eyre::ensure!(first.machines.len() == expected.member_count * 2);
+                    eyre::ensure!(
+                        first.machines.keys().collect::<Vec<_>>()
+                            == second.machines.keys().collect::<Vec<_>>()
+                    );
+                    eyre::ensure!(first.racks.len() == 2);
+                    eyre::ensure!(first.racks[0].rack_id == RackId::new("rack-001"));
+                    eyre::ensure!(first.racks[1].rack_id == RackId::new("rack-002"));
+                    for rack in &first.racks {
+                        eyre::ensure!(
+                            rack.rack_profile_id == RackProfileId::new(expected.rack_profile_id)
+                        );
+                        eyre::ensure!(rack.rack_type == expected.rack_type);
+                        eyre::ensure!(rack.members.len() == expected.member_count);
+                        eyre::ensure!(
+                            rack.members
+                                .iter()
+                                .map(|member| member.position)
+                                .collect::<BTreeSet<_>>()
+                                .len()
+                                == expected.member_count
+                        );
+                    }
+
+                    for machine in first.machines.values() {
+                        eyre::ensure!(machine.host_count == 1);
+                        eyre::ensure!(
+                            machine.rack_id == Some(RackId::new("rack-001"))
+                                || machine.rack_id == Some(RackId::new("rack-002"))
+                        );
+                    }
+                    for (hardware_type, count) in [
+                        (expected.compute_type, expected.compute_count),
+                        (expected.switch_type, expected.switch_count),
+                        (expected.power_shelf_type, expected.power_shelf_count),
+                    ] {
+                        eyre::ensure!(
+                            first
+                                .machines
+                                .values()
+                                .filter(|machine| machine.hw_type == hardware_type)
+                                .count()
+                                == count
+                        );
+                    }
+
+                    Ok(())
+                })()
+                .map_err(drop)
+            },
         );
     }
 

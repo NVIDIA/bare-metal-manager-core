@@ -45,7 +45,7 @@ use crate::{CarbideError, CarbideResult};
 /// what it should do (ForgeAgentControlRequest). We found the machine in DpaProvisioning state.
 /// So look at each DPA interface and make it progress through the state machine.
 /// If there is work to be done, return an MLX action with per-device commands.
-pub(crate) async fn process_scout_req(
+pub(super) async fn process_scout_req(
     api: &Api,
     machine_id: MachineId,
 ) -> CarbideResult<fac::Action> {

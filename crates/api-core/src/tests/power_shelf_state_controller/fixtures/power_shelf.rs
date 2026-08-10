@@ -20,7 +20,7 @@ use model::power_shelf::PowerShelfControllerState;
 use sqlx::PgConnection;
 
 /// Helper function to set power shelf controller state directly in database
-pub async fn set_power_shelf_controller_state(
+pub(in crate::tests) async fn set_power_shelf_controller_state(
     txn: &mut PgConnection,
     power_shelf_id: &PowerShelfId,
     state: PowerShelfControllerState,
@@ -35,7 +35,7 @@ pub async fn set_power_shelf_controller_state(
 }
 
 /// Helper function to mark power shelf as deleted
-pub async fn mark_power_shelf_as_deleted(
+pub(in crate::tests) async fn mark_power_shelf_as_deleted(
     txn: &mut PgConnection,
     power_shelf_id: &PowerShelfId,
 ) -> Result<(), sqlx::Error> {

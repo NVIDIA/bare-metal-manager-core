@@ -21,7 +21,7 @@ use rpc::forge_server::Forge;
 use super::TestEnv;
 
 /// Creates a tenant using the test site's default tenant routing behavior.
-pub async fn create_fixture_tenant(
+pub(in crate::tests) async fn create_fixture_tenant(
     env: &TestEnv,
     organization_id: impl Into<String>,
 ) -> Result<rpc::Tenant, tonic::Status> {

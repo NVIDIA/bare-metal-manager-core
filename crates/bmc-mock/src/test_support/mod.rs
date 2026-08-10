@@ -35,7 +35,7 @@ use crate::{
 pub mod axum_http_client;
 
 #[derive(Debug)]
-pub struct NoopCallbacks;
+pub(super) struct NoopCallbacks;
 
 impl Callbacks for NoopCallbacks {
     fn get_power_state(&self) -> MockPowerState {
@@ -55,9 +55,6 @@ impl Callbacks for NoopCallbacks {
 pub type TestBmc = HttpBmc<AxumRouterHttpClient>;
 
 lazy_static::lazy_static! {
-    pub static ref TEST_HW_MAC_POOL_CONFIG: MacAddressPoolConfig =
-        MacAddressPoolConfig::new(MacAddress::new([2, 0, 0, 0, 0, 0]), 16).unwrap();
-
     pub static ref TEST_MAC_POOL: Arc<Mutex<MacAddressPool>> =
         Arc::new(Mutex::new(MacAddressPool::new(MacAddressConfig {
             pool: Some(MacAddressPoolConfig::new(MacAddress::new([2, 0, 0, 0, 0, 0]), 32).unwrap()),
@@ -102,7 +99,7 @@ pub async fn bmc_for_machine(machine_info: MachineInfo) -> TestBmcHandle {
     .await
 }
 
-pub(crate) fn host_info(hw_type: HardwareType) -> MachineInfo {
+pub(super) fn host_info(hw_type: HardwareType) -> MachineInfo {
     let ndpu = hw_type.fixed_number_of_dpu().unwrap_or(0);
     let mut pool = TEST_MAC_POOL.lock().unwrap();
     let ranges_config = pool.allocate_range_config().unwrap();

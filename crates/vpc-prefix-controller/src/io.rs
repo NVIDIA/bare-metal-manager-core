@@ -55,6 +55,7 @@ impl StateControllerIO for VpcPrefixStateControllerIO {
         db::vpc_prefix::search(
             txn,
             vpc_prefix::VpcPrefixSearch {
+                site_prefix_id: None,
                 deleted_filter: DeletedFilter::Include,
                 ..Default::default()
             },

@@ -174,7 +174,12 @@ jobs:
             CARBIDE_BUILD_HELM_VERSION=${{ inputs.helm_version }}
           tags: ${{ steps.docker-tags.outputs.arch_tag }}
           cache-from: type=gha,scope=${{ inputs.service_name }}-${{ matrix.arch }}
-          cache-to: type=gha,mode=max,scope=${{ inputs.service_name }}-${{ matrix.arch }}
+          # Export only from main, matching docker-build.yml. Ten services on two
+          # architectures exporting mode=max from every PR push wrote ~10 GiB of
+          # layer blobs per branch into a quota that is already over budget, and
+          # the resulting eviction was costing us the caches that actually get
+          # reused. Pull requests still read main's cache through cache-from.
+          cache-to: ${{ github.ref == 'refs/heads/main' && format('type=gha,mode=max,scope={0}-{1}', inputs.service_name, matrix.arch) || '' }}
           labels: |
             org.opencontainers.image.title=${{ inputs.service_name }}
             org.opencontainers.image.version=${{ inputs.semantic_version }}

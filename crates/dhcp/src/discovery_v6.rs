@@ -46,35 +46,35 @@ const DUID_UUID_LEN: usize = 18;
 
 /// Supplemental relay metadata from Kea when it has already unwrapped the relay envelope.
 #[derive(Debug, Default, Clone)]
-pub struct RelayContext {
-    pub relay_count: usize,
-    pub hop_count: u8,
-    pub link_address: Option<Ipv6Addr>,
-    pub interface_id: Option<Vec<u8>>,
-    pub remote_id: Option<Vec<u8>>,
-    pub client_link_layer: Option<Vec<u8>>,
+pub(super) struct RelayContext {
+    pub(super) relay_count: usize,
+    pub(super) hop_count: u8,
+    pub(super) link_address: Option<Ipv6Addr>,
+    pub(super) interface_id: Option<Vec<u8>>,
+    pub(super) remote_id: Option<Vec<u8>>,
+    pub(super) client_link_layer: Option<Vec<u8>>,
 }
 
 /// DHCPv6 discovery data selected by the hook before calling Carbide.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct V6Discovery {
-    pub selected_mac: MacAddress,
-    pub duid_mac: Option<MacAddress>,
-    pub duid: Vec<u8>,
-    pub message_type: MessageType,
-    pub relay_link: Option<Ipv6Addr>,
-    pub vendor_class: Option<String>,
-    pub interface_id: Option<Vec<u8>>,
-    pub remote_id: Option<Vec<u8>>,
-    pub desired_addr: Option<Ipv6Addr>,
-    pub ia_addrs: Vec<Ipv6Addr>,
-    pub has_ia_na: bool,
-    pub client_link_layer: Option<MacAddress>,
+pub(super) struct V6Discovery {
+    pub(super) selected_mac: MacAddress,
+    pub(super) duid_mac: Option<MacAddress>,
+    pub(super) duid: Vec<u8>,
+    pub(super) message_type: MessageType,
+    pub(super) relay_link: Option<Ipv6Addr>,
+    pub(super) vendor_class: Option<String>,
+    pub(super) interface_id: Option<Vec<u8>>,
+    pub(super) remote_id: Option<Vec<u8>>,
+    pub(super) desired_addr: Option<Ipv6Addr>,
+    pub(super) ia_addrs: Vec<Ipv6Addr>,
+    pub(super) has_ia_na: bool,
+    pub(super) client_link_layer: Option<MacAddress>,
 }
 
 /// Reasons a DHCPv6 packet cannot be decoded or served by this hook.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum V6DecodeError {
+pub(super) enum V6DecodeError {
     MalformedPacket,
     NestedRelay,
     RelayHopCountExceeded(u8),
@@ -86,13 +86,13 @@ pub enum V6DecodeError {
 
 /// Result of parsing a DUID for a link-layer identity.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum DuidMac {
+enum DuidMac {
     Mac(MacAddress),
     NoLinkLayerMac,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum DuidError {
+enum DuidError {
     Malformed,
     UnsupportedType,
 }
@@ -105,12 +105,12 @@ struct RawOption<'a> {
 
 /// Decode a DHCPv6 packet without any Kea-provided relay fallback metadata.
 #[cfg(test)]
-pub fn decode(packet: &[u8]) -> Result<V6Discovery, V6DecodeError> {
+fn decode(packet: &[u8]) -> Result<V6Discovery, V6DecodeError> {
     decode_with_relay_context(packet, &RelayContext::default())
 }
 
 /// Decode a DHCPv6 packet and select the client identity for the Carbide API call.
-pub fn decode_with_relay_context(
+pub(super) fn decode_with_relay_context(
     packet: &[u8],
     relay_context: &RelayContext,
 ) -> Result<V6Discovery, V6DecodeError> {
@@ -131,7 +131,7 @@ pub fn decode_with_relay_context(
 }
 
 /// Extract an Ethernet MAC from a DUID-LL or DUID-LLT byte string.
-pub fn extract_mac_from_duid(duid: &[u8]) -> Result<DuidMac, DuidError> {
+fn extract_mac_from_duid(duid: &[u8]) -> Result<DuidMac, DuidError> {
     // Kea caps DUIDs at RFC 8415's 128-byte maximum.
     if duid.len() < 2 || duid.len() > DUID_MAX_LEN {
         return Err(DuidError::Malformed);
@@ -149,7 +149,7 @@ pub fn extract_mac_from_duid(duid: &[u8]) -> Result<DuidMac, DuidError> {
 }
 
 /// Parse RFC 6939 option 79 and return an Ethernet MAC when it carries one.
-pub fn extract_mac_from_option79(payload: &[u8]) -> Option<MacAddress> {
+fn extract_mac_from_option79(payload: &[u8]) -> Option<MacAddress> {
     if payload.len() != 2 + ETHERNET_MAC_LEN {
         return None;
     }
@@ -374,7 +374,10 @@ fn select_identity(decoded: DecodedV6) -> Result<V6Discovery, V6DecodeError> {
 }
 
 /// Map DHCPv6 transport message type to the existing Carbide API message kind.
-pub fn message_kind_for(message_type: MessageType, has_ia_na: bool) -> Option<rpc::MessageKind> {
+pub(super) fn message_kind_for(
+    message_type: MessageType,
+    has_ia_na: bool,
+) -> Option<rpc::MessageKind> {
     match message_type {
         // Stateless SOLICIT is an information-only observation; stateful
         // SOLICIT starts address allocation.

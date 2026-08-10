@@ -35,7 +35,7 @@ use crate::{
     POWER_CYCLE_DELAY, SetSystemPowerError, http, redfish,
 };
 
-pub fn collection() -> redfish::Collection<'static> {
+pub(super) fn collection() -> redfish::Collection<'static> {
     redfish::Collection {
         odata_id: Cow::Borrowed("/redfish/v1/Systems"),
         odata_type: Cow::Borrowed("#ComputerSystemCollection.ComputerSystemCollection"),
@@ -43,7 +43,7 @@ pub fn collection() -> redfish::Collection<'static> {
     }
 }
 
-pub fn resource<'a>(system_id: &'a str) -> redfish::Resource<'a> {
+pub(super) fn resource<'a>(system_id: &'a str) -> redfish::Resource<'a> {
     let odata_id = format!("/redfish/v1/Systems/{system_id}");
     redfish::Resource {
         odata_id: Cow::Owned(odata_id),
@@ -53,7 +53,7 @@ pub fn resource<'a>(system_id: &'a str) -> redfish::Resource<'a> {
     }
 }
 
-pub fn reset_target(system_id: &str) -> String {
+pub(super) fn reset_target(system_id: &str) -> String {
     format!(
         "{}/Actions/ComputerSystem.Reset",
         resource(system_id).odata_id
@@ -79,13 +79,17 @@ struct HpeBootSettingsPatch {
     persistent_boot_config_order: Vec<String>,
 }
 
-pub fn add_routes(r: Router<BmcState>, bmc_vendor: redfish::oem::BmcVendor) -> Router<BmcState> {
+pub(crate) fn add_routes(
+    r: Router<BmcState>,
+    bmc_vendor: redfish::oem::BmcVendor,
+) -> Router<BmcState> {
     const SYSTEM_ID: &str = "{system_id}";
     const ETH_ID: &str = "{eth_id}";
     const BOOT_OPTION_ID: &str = "{boot_option_id}";
     const LOG_SERVICE_ID: &str = "{log_service_id}";
     const LOG_ENTRY_ID: &str = "{log_entry_id}";
     const PROCESSOR_ID: &str = "{processor_id}";
+    const MEMORY_ID: &str = "{memory_id}";
     let bios = redfish::bios::resource(SYSTEM_ID);
     let routes = r
         .route(&collection().odata_id, get(get_system_collection))
@@ -161,6 +165,18 @@ pub fn add_routes(r: Router<BmcState>, bmc_vendor: redfish::oem::BmcVendor) -> R
             get(get_processor_metrics),
         )
         .route(
+            &redfish::memory::system_collection(SYSTEM_ID).odata_id,
+            get(get_memory_collection),
+        )
+        .route(
+            &redfish::memory::system_resource(SYSTEM_ID, MEMORY_ID).odata_id,
+            get(get_memory),
+        )
+        .route(
+            &redfish::memory::metrics_resource(SYSTEM_ID, MEMORY_ID).odata_id,
+            get(get_memory_metrics),
+        )
+        .route(
             &bmc_vendor.make_settings_odata_id(&bios),
             patch(patch_bios_settings),
         )
@@ -183,28 +199,29 @@ pub fn add_routes(r: Router<BmcState>, bmc_vendor: redfish::oem::BmcVendor) -> R
     }
 }
 
-pub struct SingleSystemConfig {
-    pub id: Cow<'static, str>,
-    pub eth_interfaces: Option<Vec<redfish::ethernet_interface::EthernetInterface>>,
-    pub serial_number: Option<Cow<'static, str>>,
-    pub manufacturer: Option<Cow<'static, str>>,
-    pub model: Option<Cow<'static, str>>,
-    pub boot_order_mode: BootOrderMode,
-    pub callbacks: Option<Arc<dyn Callbacks>>,
-    pub chassis: Vec<Cow<'static, str>>,
-    pub boot_options: Option<Vec<redfish::boot_option::BootOption>>,
-    pub bios_mode: BiosMode,
-    pub base_bios: Option<serde_json::Value>,
-    pub log_services: Option<Arc<dyn LogServices>>,
-    pub storage: Option<Vec<redfish::storage::Storage>>,
-    pub processors: Option<Vec<redfish::processor::Processor>>,
-    pub secure_boot_available: bool,
-    pub serial_console: Option<redfish::serial_console::SerialConsole>,
-    pub oem: Oem,
+pub(crate) struct SingleSystemConfig {
+    pub(crate) id: Cow<'static, str>,
+    pub(crate) eth_interfaces: Option<Vec<redfish::ethernet_interface::EthernetInterface>>,
+    pub(crate) serial_number: Option<Cow<'static, str>>,
+    pub(crate) manufacturer: Option<Cow<'static, str>>,
+    pub(crate) model: Option<Cow<'static, str>>,
+    pub(crate) boot_order_mode: BootOrderMode,
+    pub(crate) callbacks: Option<Arc<dyn Callbacks>>,
+    pub(crate) chassis: Vec<Cow<'static, str>>,
+    pub(crate) boot_options: Option<Vec<redfish::boot_option::BootOption>>,
+    pub(crate) bios_mode: BiosMode,
+    pub(crate) base_bios: Option<serde_json::Value>,
+    pub(crate) log_services: Option<Arc<dyn LogServices>>,
+    pub(crate) storage: Option<Vec<redfish::storage::Storage>>,
+    pub(crate) processors: Option<Vec<redfish::processor::Processor>>,
+    pub(crate) memory: Option<Vec<redfish::memory::Memory>>,
+    pub(crate) secure_boot_available: bool,
+    pub(crate) serial_console: Option<redfish::serial_console::SerialConsole>,
+    pub(crate) oem: Oem,
 }
 
-pub struct Config {
-    pub systems: Vec<SingleSystemConfig>,
+pub(crate) struct Config {
+    pub(crate) systems: Vec<SingleSystemConfig>,
 }
 
 pub struct SystemState {
@@ -212,13 +229,13 @@ pub struct SystemState {
 }
 
 #[derive(Default)]
-pub struct BootSourceOverride {
+struct BootSourceOverride {
     mode: Option<String>,
     enabled: Option<String>,
     target: Option<String>,
 }
 
-pub struct SingleSystemState {
+pub(crate) struct SingleSystemState {
     config: SingleSystemConfig,
     virtual_media: Option<redfish::virtual_media::VirtualMediaState>,
     boot_order_override: Mutex<Option<Vec<String>>>,
@@ -232,34 +249,34 @@ pub struct SingleSystemState {
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum BootOrderMode {
+pub(crate) enum BootOrderMode {
     Generic,
     OrderedCollection,
     ViaSettings, // Set boot order using /Settings resource
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum BiosMode {
+pub(crate) enum BiosMode {
     DellOem,
     Generic,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum Oem {
+pub(crate) enum Oem {
     NvidiaBluefield,
     Generic,
 }
 
 impl SystemState {
-    pub fn from_config(config: Config, options: &MachineRouterOptions) -> Self {
+    pub(crate) fn from_config(config: Config, options: &MachineRouterOptions) -> Self {
         Self::from_configs(config.systems, options.virtual_media_devices.clone())
     }
 
-    pub fn systems(&self) -> &[SingleSystemState] {
+    pub(crate) fn systems(&self) -> &[SingleSystemState] {
         &self.systems
     }
 
-    pub fn find(&self, system_id: &str) -> Option<&SingleSystemState> {
+    pub(crate) fn find(&self, system_id: &str) -> Option<&SingleSystemState> {
         self.systems
             .iter()
             .find(|system| system.config.id.as_ref() == system_id)
@@ -297,7 +314,7 @@ impl SystemState {
             .find_map(|system| system.resolve_current_boot_selection())
     }
 
-    pub fn on_boot_completed(&self) {
+    pub(crate) fn on_boot_completed(&self) {
         self.systems.iter().for_each(|s| s.on_boot_completed())
     }
 }
@@ -319,7 +336,7 @@ impl SingleSystemState {
         }
     }
 
-    pub fn on_boot_completed(&self) {
+    pub(crate) fn on_boot_completed(&self) {
         let mut src = self.boot_source_override.lock().unwrap();
         if src.enabled.as_ref().is_some_and(|v| v == "Once") {
             src.enabled = Some("Disabled".into())
@@ -334,7 +351,18 @@ impl SingleSystemState {
             .find(|processor| processor.id == processor_id)
     }
 
-    pub fn find_boot_option(&self, option_id: &str) -> Option<&redfish::boot_option::BootOption> {
+    fn find_memory(&self, memory_id: &str) -> Option<&redfish::memory::Memory> {
+        self.config
+            .memory
+            .iter()
+            .flatten()
+            .find(|memory| memory.id == memory_id)
+    }
+
+    pub(crate) fn find_boot_option(
+        &self,
+        option_id: &str,
+    ) -> Option<&redfish::boot_option::BootOption> {
         self.config
             .boot_options
             .iter()
@@ -605,6 +633,11 @@ async fn get_system(State(state): State<BmcState>, Path(system_id): Path<String>
         .is_some()
         .then_some(redfish::processor::system_collection(&system_id));
 
+    let memory = config
+        .memory
+        .is_some()
+        .then_some(redfish::memory::system_collection(&system_id));
+
     let secure_boot = config
         .secure_boot_available
         .then_some(redfish::secure_boot::resource(&system_id));
@@ -618,6 +651,7 @@ async fn get_system(State(state): State<BmcState>, Path(system_id): Path<String>
         .maybe_with(SystemBuilder::log_services, &log_services)
         .maybe_with(SystemBuilder::storage, &storage)
         .maybe_with(SystemBuilder::processors, &processors)
+        .maybe_with(SystemBuilder::memory, &memory)
         .maybe_with(SystemBuilder::secure_boot, &secure_boot)
         .pcie_devices(&pcie_devices)
         .build()
@@ -1055,6 +1089,50 @@ async fn get_processor_metrics(
         .unwrap_or_else(http::not_found)
 }
 
+async fn get_memory_collection(
+    State(state): State<BmcState>,
+    Path(system_id): Path<String>,
+) -> Response {
+    state
+        .system_state
+        .find(&system_id)
+        .and_then(|system_state| system_state.config.memory.as_ref())
+        .map(|memory| {
+            let members = memory
+                .iter()
+                .map(|memory| redfish::memory::system_resource(&system_id, &memory.id).entity_ref())
+                .collect::<Vec<_>>();
+            redfish::memory::system_collection(&system_id)
+                .with_members(&members)
+                .into_ok_response()
+        })
+        .unwrap_or_else(http::not_found)
+}
+
+async fn get_memory(
+    State(state): State<BmcState>,
+    Path((system_id, memory_id)): Path<(String, String)>,
+) -> Response {
+    state
+        .system_state
+        .find(&system_id)
+        .and_then(|system_state| system_state.find_memory(&memory_id))
+        .map(|memory| memory.to_json().into_ok_response())
+        .unwrap_or_else(http::not_found)
+}
+
+async fn get_memory_metrics(
+    State(state): State<BmcState>,
+    Path((system_id, memory_id)): Path<(String, String)>,
+) -> Response {
+    state
+        .system_state
+        .find(&system_id)
+        .and_then(|system_state| system_state.find_memory(&memory_id))
+        .map(|memory| memory.metrics_json().into_ok_response())
+        .unwrap_or_else(http::not_found)
+}
+
 async fn get_bios(State(state): State<BmcState>, Path(system_id): Path<String>) -> Response {
     state
         .system_state
@@ -1122,13 +1200,13 @@ async fn change_bios_password_action(Path(_system_id): Path<String>) -> Response
     json!({}).into_ok_response()
 }
 
-pub fn builder(resource: &redfish::Resource) -> SystemBuilder {
+fn builder(resource: &redfish::Resource) -> SystemBuilder {
     SystemBuilder {
         value: resource.json_patch(),
     }
 }
 
-pub struct SystemBuilder {
+struct SystemBuilder {
     value: serde_json::Value,
 }
 
@@ -1141,56 +1219,56 @@ impl Builder for SystemBuilder {
 }
 
 impl SystemBuilder {
-    pub fn serial_console(self, value: &redfish::serial_console::SerialConsole) -> Self {
+    fn serial_console(self, value: &redfish::serial_console::SerialConsole) -> Self {
         self.apply_patch(json!({ "SerialConsole": value.to_json() }))
     }
 
-    pub fn serial_number(self, v: &str) -> Self {
+    fn serial_number(self, v: &str) -> Self {
         self.add_str_field("SerialNumber", v)
     }
 
-    pub fn manufacturer(self, v: &str) -> Self {
+    fn manufacturer(self, v: &str) -> Self {
         self.add_str_field("Manufacturer", v)
     }
 
-    pub fn model(self, v: &str) -> Self {
+    fn model(self, v: &str) -> Self {
         self.add_str_field("Model", v)
     }
 
-    pub fn ethernet_interfaces(self, v: &redfish::Collection<'_>) -> Self {
+    fn ethernet_interfaces(self, v: &redfish::Collection<'_>) -> Self {
         self.apply_patch(v.nav_property("EthernetInterfaces"))
     }
 
-    pub fn boot_order(self, boot_order: &[&str]) -> Self {
+    fn boot_order(self, boot_order: &[&str]) -> Self {
         self.apply_patch(json!({"Boot": {"BootOrder": boot_order}}))
     }
 
-    pub fn boot_options(self, boot_options: &redfish::Collection<'_>) -> Self {
+    fn boot_options(self, boot_options: &redfish::Collection<'_>) -> Self {
         self.apply_patch(json!({"Boot": boot_options.nav_property("BootOptions")}))
     }
 
-    pub fn boot_source_override(self, value: serde_json::Value) -> Self {
+    fn boot_source_override(self, value: serde_json::Value) -> Self {
         self.apply_patch(json!({"Boot": value}))
     }
 
-    pub fn virtual_media(self, value: &redfish::Collection<'_>) -> Self {
+    fn virtual_media(self, value: &redfish::Collection<'_>) -> Self {
         self.apply_patch(value.nav_property("VirtualMedia"))
     }
 
-    pub fn secure_boot(self, secure_boot: &redfish::Resource<'_>) -> Self {
+    fn secure_boot(self, secure_boot: &redfish::Resource<'_>) -> Self {
         self.apply_patch(secure_boot.nav_property("SecureBoot"))
     }
 
-    pub fn pcie_devices(self, devices: &[redfish::Resource<'_>]) -> Self {
+    fn pcie_devices(self, devices: &[redfish::Resource<'_>]) -> Self {
         let devices = devices.iter().map(|r| r.entity_ref()).collect::<Vec<_>>();
         self.apply_patch(json!({"PCIeDevices": devices}))
     }
 
-    pub fn bios(self, resource: &redfish::Resource<'_>) -> Self {
+    fn bios(self, resource: &redfish::Resource<'_>) -> Self {
         self.apply_patch(resource.nav_property("Bios"))
     }
 
-    pub fn power_state(self, state: MockPowerState) -> Self {
+    fn power_state(self, state: MockPowerState) -> Self {
         let power_state = match state {
             MockPowerState::On => "On",
             MockPowerState::Off => "Off",
@@ -1205,19 +1283,23 @@ impl SystemBuilder {
         self.add_str_field("PowerState", power_state)
     }
 
-    pub fn log_services(self, log_services: &redfish::Collection<'_>) -> Self {
+    fn log_services(self, log_services: &redfish::Collection<'_>) -> Self {
         self.apply_patch(log_services.nav_property("LogServices"))
     }
 
-    pub fn storage(self, storage: &redfish::Collection<'_>) -> Self {
+    fn storage(self, storage: &redfish::Collection<'_>) -> Self {
         self.apply_patch(storage.nav_property("Storage"))
     }
 
-    pub fn processors(self, processors: &redfish::Collection<'_>) -> Self {
+    fn processors(self, processors: &redfish::Collection<'_>) -> Self {
         self.apply_patch(processors.nav_property("Processors"))
     }
 
-    pub fn link_chassis(self, ids: &[Cow<'static, str>]) -> Self {
+    fn memory(self, memory: &redfish::Collection<'_>) -> Self {
+        self.apply_patch(memory.nav_property("Memory"))
+    }
+
+    fn link_chassis(self, ids: &[Cow<'static, str>]) -> Self {
         let chassis = ids
             .iter()
             .map(|id| redfish::chassis::resource(id).entity_ref())
@@ -1225,11 +1307,11 @@ impl SystemBuilder {
         self.apply_patch(json!({"Links": {"Chassis": chassis}}))
     }
 
-    pub fn oem_nvidia(self, resource: &redfish::Resource<'_>) -> Self {
+    fn oem_nvidia(self, resource: &redfish::Resource<'_>) -> Self {
         self.apply_patch(json!({"Oem": {"Nvidia": resource.entity_ref()}}))
     }
 
-    pub fn build(self) -> serde_json::Value {
+    fn build(self) -> serde_json::Value {
         self.value
     }
 }

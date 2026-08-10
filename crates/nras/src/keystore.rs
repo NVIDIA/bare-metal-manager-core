@@ -25,8 +25,6 @@ use crate::NrasError;
 #[derive(Debug, serde::Deserialize)]
 struct Jwk {
     kty: String,
-    #[allow(dead_code)]
-    crv: Option<String>,
     kid: String,
     x: Option<String>,
     y: Option<String>,

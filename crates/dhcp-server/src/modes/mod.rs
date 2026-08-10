@@ -27,11 +27,11 @@ use crate::cache::CacheEntry;
 use crate::errors::DhcpError;
 use crate::packet_handler::{DecodedPacket, Packet};
 
-pub mod controller;
-pub mod dpu;
+pub(super) mod controller;
+pub(super) mod dpu;
 
 #[async_trait]
-pub trait DhcpMode: Send + Sync + std::fmt::Debug {
+pub(super) trait DhcpMode: Send + Sync + std::fmt::Debug {
     /// Method to determine IP address to be returned to client.
     async fn discover_dhcp(
         &self,

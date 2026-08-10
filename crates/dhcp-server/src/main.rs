@@ -29,6 +29,7 @@ use std::error::Error;
 use std::net::SocketAddr;
 use std::sync::Arc;
 
+#[cfg(test)]
 use ::rpc::forge::{DhcpDiscovery, DhcpRecord};
 use ::rpc::forge_tls_client::ForgeClientConfig;
 use cache::CacheEntry;
@@ -49,6 +50,7 @@ use modes::dpu::{Dpu, get_host_config};
 use tokio::net::UdpSocket;
 use tokio::sync::Mutex;
 use tokio_util::sync::CancellationToken;
+#[cfg(test)]
 use tonic::async_trait;
 use tracing::level_filters::LevelFilter;
 use tracing_subscriber::EnvFilter;
@@ -56,7 +58,7 @@ use tracing_subscriber::prelude::*;
 
 use crate::util::get_socket;
 
-pub struct Server {
+struct Server {
     socket: Arc<UdpSocket>,
 }
 
@@ -561,7 +563,7 @@ fn get_mode(args_mode: &ServerMode) -> Box<dyn DhcpMode> {
 }
 
 #[derive(Debug, Clone)]
-pub struct Config {
+struct Config {
     dhcp_config: DhcpConfig,
     host_config: Option<HostConfig>, // Valid only for Dpu mode.
     relay_response_port: u16,
@@ -612,9 +614,11 @@ fn forge_client_config(args: &Args) -> Result<ForgeClientConfig, DhcpError> {
     Ok(ForgeClientConfig::new(root_ca_path, Some(client_cert)))
 }
 
+#[cfg(test)]
 #[derive(Debug)]
-pub struct TestArm {}
+struct TestArm {}
 
+#[cfg(test)]
 #[async_trait]
 impl DhcpMode for TestArm {
     async fn discover_dhcp(
@@ -632,11 +636,13 @@ impl DhcpMode for TestArm {
     }
 }
 
+#[cfg(test)]
 #[derive(Debug)]
-pub struct Test {}
+struct Test {}
 
+#[cfg(test)]
 impl Test {
-    pub fn dhcp_record() -> Result<DhcpRecord, DhcpError> {
+    fn dhcp_record() -> Result<DhcpRecord, DhcpError> {
         Ok(DhcpRecord {
             machine_id: Some(
                 "fm100dsbiu5ckus880v8407u0mkcensa39cule26im5gnpvmuufckacguc0"
@@ -659,6 +665,7 @@ impl Test {
     }
 }
 
+#[cfg(test)]
 #[async_trait]
 impl DhcpMode for Test {
     async fn discover_dhcp(
@@ -1494,7 +1501,7 @@ mod test {
         // The reply type the send path counts lease grants under matches the
         // encoded reply.
         assert_eq!(
-            encoded_packet.message_type,
+            encoded_packet.message_type(),
             crate::metrics::MessageTypeLabel::Ack
         );
 
@@ -1528,7 +1535,7 @@ mod test {
 
         // The nak_packet branch reports the refusal, not the request's type.
         assert_eq!(
-            encoded_packet.message_type,
+            encoded_packet.message_type(),
             crate::metrics::MessageTypeLabel::Nak
         );
 

@@ -146,7 +146,7 @@ fn authorize_tenant_mutation(
 ) -> Result<(), CarbideError> {
     if site_prefix.status.authority != SitePrefixAuthority::TenantManaged {
         return Err(CarbideError::FailedPrecondition(
-            "configuration-owned SitePrefixes cannot be changed through the tenant API".to_string(),
+            "operator-managed SitePrefixes cannot be changed through the tenant API".to_string(),
         ));
     }
     if site_prefix.config.tenant_organization_id.as_ref() != Some(tenant_organization_id) {

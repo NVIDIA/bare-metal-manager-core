@@ -26,7 +26,7 @@ use crate::CarbideError;
 use crate::api::{Api, log_request_data};
 use crate::cfg::file::VpcPeeringPolicy;
 
-pub async fn create(
+pub(crate) async fn create(
     api: &Api,
     request: Request<rpc::VpcPeeringCreationRequest>,
 ) -> Result<Response<rpc::VpcPeering>, Status> {
@@ -92,7 +92,7 @@ pub async fn create(
     Ok(tonic::Response::new(vpc_peering.into()))
 }
 
-pub async fn find_ids(
+pub(crate) async fn find_ids(
     api: &Api,
     request: Request<rpc::VpcPeeringSearchFilter>,
 ) -> Result<Response<rpc::VpcPeeringIdList>, Status> {
@@ -111,7 +111,7 @@ pub async fn find_ids(
     }))
 }
 
-pub async fn find_by_ids(
+pub(crate) async fn find_by_ids(
     api: &Api,
     request: Request<rpc::VpcPeeringsByIdsRequest>,
 ) -> Result<Response<rpc::VpcPeeringList>, Status> {
@@ -130,7 +130,7 @@ pub async fn find_by_ids(
     Ok(tonic::Response::new(rpc::VpcPeeringList { vpc_peerings }))
 }
 
-pub async fn delete(
+pub(crate) async fn delete(
     api: &Api,
     request: Request<rpc::VpcPeeringDeletionRequest>,
 ) -> Result<Response<rpc::VpcPeeringDeletionResult>, Status> {

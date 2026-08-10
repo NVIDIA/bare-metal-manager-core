@@ -29,6 +29,7 @@ mod nvue;
 pub(in crate::collectors) mod projection_test_support;
 mod runtime;
 mod sensors;
+mod telemetry;
 
 pub use discovery::{EntityDiscoveryCollector, EntityDiscoveryCollectorConfig};
 pub use entity_metrics::{MetricsCollector, MetricsCollectorConfig};
@@ -48,6 +49,7 @@ pub use nvue::rest::collector::{NvueRestCollector, NvueRestCollectorConfig};
 pub use runtime::{
     BackoffConfig, Collector, CollectorStartContext, EventStream, ExponentialBackoff,
     IterationResult, PeriodicCollector, StreamMetrics, StreamingCollector,
-    StreamingCollectorStartContext, StreamingConnectResult, open_sse_stream,
+    StreamingCollectorStartContext, StreamingConnectResult,
 };
 pub use sensors::{SensorCollector, SensorCollectorConfig};
+pub use telemetry::{TelemetryCollector, TelemetryCollectorConfig};

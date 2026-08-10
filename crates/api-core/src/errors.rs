@@ -393,6 +393,31 @@ impl CarbideError {
     pub fn internal(message: String) -> Self {
         CarbideError::Internal { message }
     }
+
+    /// Returns the Postgres SQLSTATE code if this is a database error, or `None` otherwise.
+    pub(crate) fn pg_sqlstate(&self) -> Option<String> {
+        if let CarbideError::DBError(db::AnnotatedSqlxError {
+            source: sqlx::Error::Database(db_err),
+            ..
+        }) = self
+        {
+            db_err.code().map(|c| c.into_owned())
+        } else {
+            None
+        }
+    }
+
+    /// Returns true if this error is a Postgres deadlock (`40P01`) or
+    /// serialization failure (`40001`), both of which are safe to retry.
+    pub(crate) fn is_retryable_transaction_error(&self) -> bool {
+        matches!(
+            self,
+            CarbideError::DBError(db::AnnotatedSqlxError {
+                source: sqlx::Error::Database(db_err),
+                ..
+            }) if matches!(db_err.code().as_deref(), Some("40P01") | Some("40001"))
+        )
+    }
 }
 
 impl OperatorError for CarbideError {
@@ -547,9 +572,9 @@ impl From<CarbideError> for tonic::Status {
 
 /// A CarbideError with the corresponding source location where it was converted to a tonic::Status
 #[derive(Debug)]
-pub struct CarbideErrorWithLocation {
-    pub error: CarbideError,
-    pub location: String,
+pub(crate) struct CarbideErrorWithLocation {
+    pub(crate) error: CarbideError,
+    pub(crate) location: String,
 }
 
 impl Display for CarbideErrorWithLocation {
@@ -578,13 +603,13 @@ fn insert_ascii_metadata(status: &mut Status, key: &'static str, value: &str) {
 /// Result type for the return type of Carbide functions
 ///
 /// Wraps `CarbideError` into `CarbideResult<T>`
-pub type CarbideResult<T> = Result<T, CarbideError>;
+pub(crate) type CarbideResult<T> = Result<T, CarbideError>;
 
 #[test]
 fn test_carbide_result() {
     use crate::{CarbideError, CarbideResult};
 
-    pub fn do_something() -> CarbideResult<u8> {
+    fn do_something() -> CarbideResult<u8> {
         Err(CarbideError::internal(String::from("can't make u8")))
     }
     assert!(matches!(do_something(), Err(CarbideError::Internal { .. })));

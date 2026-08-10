@@ -14,7 +14,6 @@ nico-api:
   siteConfig:
     enabled: true
     nicoApiSiteConfig: |
-      bypass_rbac = true
       attestation_enabled = false
       dpu_ipmi_tool_impl = "test"
       initial_domain_name = "local.nico"

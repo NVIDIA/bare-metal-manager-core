@@ -51,7 +51,7 @@ struct State {
 }
 
 #[tokio::test]
-pub async fn test_network_monitor() -> eyre::Result<()> {
+async fn test_network_monitor() -> eyre::Result<()> {
     carbide_host_support::init_logging("nico-dpu-agent")?;
 
     let state: Arc<Mutex<State>> = Arc::new(Mutex::new(Default::default()));
@@ -215,7 +215,7 @@ fn verify_metrics(test_meter: &TestMeter) {
     }
 }
 
-pub struct TestMeter {
+struct TestMeter {
     meter: Meter,
     _meter_provider: metrics::SdkMeterProvider,
     registry: prometheus::Registry,
@@ -223,7 +223,7 @@ pub struct TestMeter {
 
 impl TestMeter {
     /// Returns the latest accumulated metrics in prometheus format
-    pub fn export_metrics(&self) -> String {
+    fn export_metrics(&self) -> String {
         let mut buffer = vec![];
         let encoder = TextEncoder::new();
         let metric_families = self.registry.gather();
@@ -231,12 +231,12 @@ impl TestMeter {
         String::from_utf8(buffer).unwrap()
     }
 
-    pub fn meter(&self) -> Meter {
+    fn meter(&self) -> Meter {
         self.meter.clone()
     }
 
     /// Returns the value of a single metric with a given name
-    pub fn formatted_metric(&self, metric_name: &str) -> Option<String> {
+    fn formatted_metric(&self, metric_name: &str) -> Option<String> {
         let mut metrics = self.formatted_metrics(metric_name);
         match metrics.len() {
             0 => None,
@@ -249,7 +249,7 @@ impl TestMeter {
 
     /// Returns the value of multiple metrics with the given name
     /// This can be used if the metric is duplicated due to attributes
-    pub fn formatted_metrics(&self, metric_name: &str) -> Vec<String> {
+    fn formatted_metrics(&self, metric_name: &str) -> Vec<String> {
         let formatted = self.export_metrics();
         let mut result = Vec::new();
         for line in formatted.lines() {
@@ -315,7 +315,7 @@ impl Default for TestMeter {
     }
 }
 
-pub struct MockPinger;
+struct MockPinger;
 #[async_trait]
 impl Ping for MockPinger {
     async fn ping_dpu(

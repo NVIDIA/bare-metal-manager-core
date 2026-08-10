@@ -128,6 +128,7 @@ pub(super) async fn handle_nvlink_info_populate(
         .0
         .nmxc_browse(forgerpc::NmxcBrowseRequest {
             chassis_serial: serial_number.clone(),
+            rack_id: None,
             operation: forgerpc::NmxcBrowseOperation::GpuInfoList as i32,
             gpu_uid: 0,
         })

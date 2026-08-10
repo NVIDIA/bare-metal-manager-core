@@ -23,7 +23,7 @@ use crate::json::{JsonExt, JsonPatch};
 use crate::redfish;
 use crate::redfish::Builder;
 
-pub fn manager_collection(manager_id: &str) -> redfish::Collection<'static> {
+pub(super) fn manager_collection(manager_id: &str) -> redfish::Collection<'static> {
     redfish::Collection {
         odata_id: Cow::Owned(format!(
             "/redfish/v1/Managers/{manager_id}/SerialInterfaces"
@@ -33,7 +33,10 @@ pub fn manager_collection(manager_id: &str) -> redfish::Collection<'static> {
     }
 }
 
-pub fn manager_resource<'a>(manager_id: &'a str, interface_id: &'a str) -> redfish::Resource<'a> {
+pub(crate) fn manager_resource<'a>(
+    manager_id: &'a str,
+    interface_id: &'a str,
+) -> redfish::Resource<'a> {
     redfish::Resource {
         odata_id: Cow::Owned(format!(
             "/redfish/v1/Managers/{manager_id}/SerialInterfaces/{interface_id}"
@@ -45,25 +48,25 @@ pub fn manager_resource<'a>(manager_id: &'a str, interface_id: &'a str) -> redfi
 }
 
 #[derive(Clone)]
-pub struct SerialInterface {
-    pub id: Cow<'static, str>,
+pub(crate) struct SerialInterface {
+    pub(crate) id: Cow<'static, str>,
     value: serde_json::Value,
 }
 
 impl SerialInterface {
-    pub fn to_json(&self) -> serde_json::Value {
+    pub(crate) fn to_json(&self) -> serde_json::Value {
         self.value.clone()
     }
 }
 
-pub fn builder(resource: &redfish::Resource) -> SerialInterfaceBuilder {
+pub(crate) fn builder(resource: &redfish::Resource) -> SerialInterfaceBuilder {
     SerialInterfaceBuilder {
         id: Cow::Owned(resource.id.to_string()),
         value: resource.json_patch(),
     }
 }
 
-pub struct SerialInterfaceBuilder {
+pub(crate) struct SerialInterfaceBuilder {
     id: Cow<'static, str>,
     value: serde_json::Value,
 }
@@ -78,47 +81,47 @@ impl Builder for SerialInterfaceBuilder {
 }
 
 impl SerialInterfaceBuilder {
-    pub fn description(self, value: &str) -> Self {
+    pub(crate) fn description(self, value: &str) -> Self {
         self.add_str_field("Description", value)
     }
 
-    pub fn interface_enabled(self, value: bool) -> Self {
+    pub(crate) fn interface_enabled(self, value: bool) -> Self {
         self.apply_patch(json!({ "InterfaceEnabled": value }))
     }
 
-    pub fn signal_type(self, value: &str) -> Self {
+    pub(crate) fn signal_type(self, value: &str) -> Self {
         self.add_str_field("SignalType", value)
     }
 
-    pub fn bit_rate(self, value: &str) -> Self {
+    pub(crate) fn bit_rate(self, value: &str) -> Self {
         self.add_str_field("BitRate", value)
     }
 
-    pub fn parity(self, value: &str) -> Self {
+    pub(crate) fn parity(self, value: &str) -> Self {
         self.add_str_field("Parity", value)
     }
 
-    pub fn data_bits(self, value: &str) -> Self {
+    pub(crate) fn data_bits(self, value: &str) -> Self {
         self.add_str_field("DataBits", value)
     }
 
-    pub fn stop_bits(self, value: &str) -> Self {
+    pub(crate) fn stop_bits(self, value: &str) -> Self {
         self.add_str_field("StopBits", value)
     }
 
-    pub fn flow_control(self, value: &str) -> Self {
+    pub(crate) fn flow_control(self, value: &str) -> Self {
         self.add_str_field("FlowControl", value)
     }
 
-    pub fn connector_type(self, value: &str) -> Self {
+    pub(crate) fn connector_type(self, value: &str) -> Self {
         self.add_str_field("ConnectorType", value)
     }
 
-    pub fn pin_out(self, value: &str) -> Self {
+    pub(crate) fn pin_out(self, value: &str) -> Self {
         self.add_str_field("PinOut", value)
     }
 
-    pub fn build(self) -> SerialInterface {
+    pub(crate) fn build(self) -> SerialInterface {
         SerialInterface {
             id: self.id,
             value: self.value,

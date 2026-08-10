@@ -186,7 +186,7 @@ impl MachineRowDisplay {
     }
 }
 
-pub async fn show_hosts_html(
+pub(super) async fn show_hosts_html(
     state: AxumState<Arc<Api>>,
     query: Query<PaginationParams>,
     path: OriginalUri,
@@ -194,7 +194,7 @@ pub async fn show_hosts_html(
     show(state, true, false, query, path).await
 }
 
-pub async fn show_hosts_json(AxumState(state): AxumState<Arc<Api>>) -> Response {
+pub(super) async fn show_hosts_json(AxumState(state): AxumState<Arc<Api>>) -> Response {
     let machines = match fetch_machines(state, false, true).await {
         Ok(r) => r,
         Err(err) => {
@@ -205,7 +205,7 @@ pub async fn show_hosts_json(AxumState(state): AxumState<Arc<Api>>) -> Response 
     (StatusCode::OK, Json(machines)).into_response()
 }
 
-pub async fn show_dpus_html(
+pub(super) async fn show_dpus_html(
     state: AxumState<Arc<Api>>,
     query: Query<PaginationParams>,
     path: OriginalUri,
@@ -213,7 +213,7 @@ pub async fn show_dpus_html(
     show(state, false, true, query, path).await
 }
 
-pub async fn show_dpus_json(AxumState(state): AxumState<Arc<Api>>) -> Response {
+pub(super) async fn show_dpus_json(AxumState(state): AxumState<Arc<Api>>) -> Response {
     let mut machines = match fetch_machines(state, true, true).await {
         Ok(r) => r,
         Err(err) => {
@@ -228,7 +228,7 @@ pub async fn show_dpus_json(AxumState(state): AxumState<Arc<Api>>) -> Response {
 }
 
 /// List machines
-pub async fn show_all_html(
+pub(super) async fn show_all_html(
     state: AxumState<Arc<Api>>,
     query: Query<PaginationParams>,
     path: OriginalUri,
@@ -236,7 +236,7 @@ pub async fn show_all_html(
     show(state, true, true, query, path).await
 }
 
-pub async fn show_all_json(AxumState(state): AxumState<Arc<Api>>) -> Response {
+pub(super) async fn show_all_json(AxumState(state): AxumState<Arc<Api>>) -> Response {
     let machines = match fetch_machines(state, true, true).await {
         Ok(r) => r,
         Err(err) => {
@@ -320,7 +320,7 @@ async fn show(
     (StatusCode::OK, Html(tmpl.render().unwrap())).into_response()
 }
 
-pub async fn fetch_machine(
+async fn fetch_machine(
     api: &Api,
     machine_id: MachineId,
 ) -> Result<::rpc::forge::Machine, Response> {
@@ -363,7 +363,7 @@ pub async fn fetch_machine(
 }
 
 /// Fetches Instance Type Names for the given Instance Type IDs
-pub async fn fetch_instance_type_names(
+async fn fetch_instance_type_names(
     api: &Api,
     instance_type_ids: Vec<String>,
 ) -> Result<HashMap<String, String>, Response> {
@@ -397,7 +397,7 @@ pub async fn fetch_instance_type_names(
     Ok(result)
 }
 
-pub async fn fetch_machines(
+pub(super) async fn fetch_machines(
     api: Arc<Api>,
     include_dpus: bool,
     include_history: bool,
@@ -809,13 +809,13 @@ struct MachineNvLinkGpuDisplay {
     guid: u64,
 }
 
-pub struct ValidationRun {
-    pub status: String,
-    pub context: String,
-    pub validation_id: String,
-    pub start_time: String,
-    pub end_time: String,
-    pub machine_id: String,
+pub(super) struct ValidationRun {
+    pub(super) status: String,
+    pub(super) context: String,
+    pub(super) validation_id: String,
+    pub(super) start_time: String,
+    pub(super) end_time: String,
+    pub(super) machine_id: String,
 }
 
 impl From<forgerpc::Machine> for MachineDetail<'_> {
@@ -1082,7 +1082,7 @@ impl From<forgerpc::Machine> for MachineDetail<'_> {
 }
 
 /// View machine
-pub async fn detail(
+pub(super) async fn detail(
     AxumState(state): AxumState<Arc<Api>>,
     AxumPath(machine_id): AxumPath<String>,
     Query(params): Query<HashMap<String, String>>,
@@ -1247,20 +1247,20 @@ pub async fn detail(
     (StatusCode::OK, Html(display.render().unwrap())).into_response()
 }
 
-pub fn get_machine_type(machine_id: &str) -> String {
+fn get_machine_type(machine_id: &str) -> String {
     MachineType::from_id_string(machine_id)
         .map(|t| t.to_string())
         .unwrap_or_else(|| "Unknown".to_string())
 }
 
 #[derive(Deserialize, Debug)]
-pub struct MaintenanceAction {
+pub(super) struct MaintenanceAction {
     action: String,
     reference: Option<String>,
 }
 
 /// Enter / Exit maintenance mode
-pub async fn maintenance(
+pub(super) async fn maintenance(
     AxumState(state): AxumState<Arc<Api>>,
     AxumPath(machine_id): AxumPath<String>,
     Form(form): Form<MaintenanceAction>,
@@ -1307,14 +1307,14 @@ pub async fn maintenance(
 }
 
 #[derive(Deserialize, Debug)]
-pub struct QuarantineAction {
+pub(super) struct QuarantineAction {
     action: String,
     mode: Option<String>,
     reason: Option<String>,
 }
 
 /// Enter / Exit quarantine
-pub async fn quarantine(
+pub(super) async fn quarantine(
     AxumState(state): AxumState<Arc<Api>>,
     AxumPath(machine_id): AxumPath<String>,
     Form(form): Form<QuarantineAction>,
@@ -1363,14 +1363,14 @@ pub async fn quarantine(
 }
 
 #[derive(Deserialize, Debug)]
-pub struct SkuAction {
+pub(super) struct SkuAction {
     action: String,
     sku_id: Option<String>,
     force: Option<String>,
 }
 
 /// Assign / Remove a SKU on a machine
-pub async fn sku(
+pub(super) async fn sku(
     AxumState(state): AxumState<Arc<Api>>,
     AxumPath(machine_id): AxumPath<String>,
     Form(form): Form<SkuAction>,
@@ -1443,13 +1443,13 @@ pub async fn sku(
 /// Form fields for selecting one exact owned interface as the host's desired
 /// boot interface.
 #[derive(Deserialize, Debug)]
-pub struct SetDesiredBootInterfaceAction {
+pub(super) struct SetDesiredBootInterfaceAction {
     machine_interface_id: MachineInterfaceId,
 }
 
 /// Updates the host's primary and desired boot interface together. The API
 /// records the intent and leaves Redfish convergence to machine-controller.
-pub async fn set_desired_boot_interface(
+pub(super) async fn set_desired_boot_interface(
     AxumState(state): AxumState<Arc<Api>>,
     AxumPath(machine_id): AxumPath<String>,
     Form(form): Form<SetDesiredBootInterfaceAction>,
@@ -1500,7 +1500,7 @@ pub async fn set_desired_boot_interface(
 
 /// Requests another machine-controller pass for the persisted desired target
 /// without replacing it with the primary interface shown by the page.
-pub async fn reconcile_boot_interface(
+pub(super) async fn reconcile_boot_interface(
     AxumState(state): AxumState<Arc<Api>>,
     AxumPath(machine_id): AxumPath<String>,
 ) -> Response {

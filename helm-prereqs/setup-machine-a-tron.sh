@@ -58,18 +58,20 @@
 #    hostCount + hostCount*dpuPerHostCount. Overflowing the OOB pool yields
 #    "No IP addresses left in prefix ..." and machines never register.
 #
-#  * DPF simulation (Phase 4b): runs by default ONLY when the nico-core
-#    config enables DPF ([dpf] enabled = true; site config overrides global) —
-#    a simulation site with DPF enabled but no operator parks every host in
-#    dpuinit forever. GUARDRAIL: hard-fails if the real DPF operator is
-#    deployed (both would drive DPU.status.phase); bypass everything with
-#    --skip-dpf-sim. The phase deploys dev/k8s/dpf-sim-controller (namespace,
-#    DPF CRDs, RBAC, Deployment; see its README), grants nico-api its
-#    DPF-namespace Role (nico-api-dpf), and sets
-#    CARBIDE_API_ALLOW_INSECURE_DISCOVERY=true on nico-api — post-#3561 cores
-#    resolve DiscoverMachine callers by source IP, which every simulated
-#    machine shares, so without the flag all agent discovery fails and
-#    dpuinit parks at waitingfornetworkconfig.
+#  * DPF prerequisites + simulation (Phase 4b), when [dpf] enabled = true in
+#    the nico-core config (site config overrides global). Two parts:
+#    (a) INGESTION PREREQUISITES applied whether or not the simulator is
+#        deployed: the nico-api DPF-namespace Role (nico-api-dpf) and
+#        CARBIDE_API_ALLOW_INSECURE_DISCOVERY=true on nico-api. Post-#3561
+#        cores resolve DiscoverMachine callers by source IP, which every
+#        simulated machine shares — without the flag, discovery-gated machine
+#        CREATION stalls short of the target (a --skip-dpf-sim run once wedged
+#        at 2838/3000) and agent self-discovery fails.
+#    (b) SIMULATOR DEPLOYMENT (dev/k8s/dpf-sim-controller: namespace, DPF CRDs,
+#        RBAC, Deployment) — this is the part --skip-dpf-sim skips. Without a
+#        simulator (and no real operator) hosts finish ingestion but park in
+#        dpuinit. GUARDRAIL: hard-fails if the real DPF operator is deployed,
+#        since both would drive DPU.status.phase.
 #
 #  * SVI IPs on the simulated prefixes (Phase 5, scale mode): the host
 #    network-config builder under FNN requires network_prefixes.svi_ip on L2
@@ -122,6 +124,15 @@
 #                          Default: <repo>/helm/charts/nico-machine-a-tron
 #   VALUES_FILE            Base values template.
 #                          Default: <this dir>/values/machine-a-tron.yaml
+#   SCALE_RUN_INTERVAL     Tuning override (#3738): [site_explorer] run_interval
+#                          (e.g. "30s"). Unset = leave the site's value.
+#   SCALE_FW_CONCURRENCY   Tuning override: [firmware_global] concurrency_limit.
+#   SCALE_FW_RUN_INTERVAL  Tuning override: [firmware_global] run_interval.
+#   SCALE_STATE_MAX_CONCURRENCY
+#                          Tuning override: [machine_state_controller.controller]
+#                          max_concurrency (parallel state-machine tasks).
+#   INGEST_RATE_CSV        Where the Phase 10 loop writes its per-sample
+#                          ingestion counters (CSV). Default: a file under /tmp.
 #   DPF_SIM_IMAGE          dpf-sim-controller image ref for Phase 4b. Default:
 #                          ${NICO_IMAGE_REGISTRY}/dpf-sim-controller:${DPF_SIM_IMAGE_TAG}
 #   DPF_SIM_IMAGE_TAG      Tag for the derived default above. Default: latest
@@ -486,56 +497,19 @@ for _src in \
     DPF_ENABLED="$(_toml_dpf_enabled "$(_cm_key $_src)")"
 done
 
-if $SKIP_DPF_SIM; then
-    warn "--skip-dpf-sim: not deploying the simulator. Hosts on a [dpf]-enabled"
-    warn "  site will park in dpuinit unless a real DPF operator (or a"
-    warn "  separately-deployed simulator) drives DPU.status.phase."
-elif [[ "$DPF_ENABLED" != "true" ]]; then
-    ok "DPF is not enabled in the nico-core config ([dpf] enabled = ${DPF_ENABLED:-absent}) — nothing to simulate, skipping"
+if [[ "$DPF_ENABLED" != "true" ]]; then
+    ok "DPF is not enabled in the nico-core config ([dpf] enabled = ${DPF_ENABLED:-absent}) — skipping DPF prerequisites and simulator"
 else
-    # GUARDRAIL: never beside a real operator — both would drive
-    # DPU.status.phase and fight. If the real DPF stack is deployed, this is
-    # not a simulation-only cluster: refuse loudly rather than risk it.
-    _REAL_DPF="$(kubectl get deploy -n "$DPF_NAMESPACE" -o name 2>/dev/null \
-        | grep -vE 'deployment.apps/dpf-sim-controller$' | grep -E 'dpf.*operator|operator.*dpf' || true)"
-    if [[ -n "$_REAL_DPF" ]]; then
-        die "the real DPF operator is deployed in ${DPF_NAMESPACE} (${_REAL_DPF#deployment.apps/}).
-       The DPF simulator must NOT run beside it — both drive DPU.status.phase.
-       To bring up the simulator, remove the real DPF operator first (this must
-       be a simulation-only cluster); to keep the real operator, re-run with
-       --skip-dpf-sim."
-    fi
-    command -v make >/dev/null 2>&1 || die "make is required for the simulator deploy (or pass --skip-dpf-sim)"
-    [[ -d "$DPF_SIM_DIR" ]] || die "simulator module not found at ${DPF_SIM_DIR} (or pass --skip-dpf-sim)"
-    if [[ -z "$DPF_SIM_IMAGE" ]]; then
-        [[ -n "${NICO_IMAGE_REGISTRY:-}" ]] \
-            || die "set DPF_SIM_IMAGE (or NICO_IMAGE_REGISTRY) for the dpf-sim-controller image, or pass --skip-dpf-sim"
-        DPF_SIM_IMAGE="${NICO_IMAGE_REGISTRY}/dpf-sim-controller:${DPF_SIM_IMAGE_TAG}"
-    fi
-
-    kubectl get ns "$DPF_NAMESPACE" >/dev/null 2>&1 || kubectl create ns "$DPF_NAMESPACE" >/dev/null
-    _DPF_PULL_ARGS=()
-    if [[ -n "${REGISTRY_PULL_SECRET:-}" ]]; then
-        kubectl -n "$DPF_NAMESPACE" create secret docker-registry dpf-sim-pull \
-            --docker-server="${DPF_SIM_IMAGE%%/*}" \
-            --docker-username="$REGISTRY_PULL_USERNAME" \
-            --docker-password="$REGISTRY_PULL_SECRET" \
-            --dry-run=client -o yaml | kubectl apply -f - >/dev/null
-        _DPF_PULL_ARGS=(PULL_SECRET=dpf-sim-pull)
-    fi
-    # `make deploy` = DPF CRDs (waits for Established) + RBAC + Deployment +
-    # rollout; everything idempotent. Keep the log for failure triage.
-    _DPF_LOG="$(mktemp)"
-    if ! make -C "$DPF_SIM_DIR" deploy IMG="$DPF_SIM_IMAGE" DPF_NAMESPACE="$DPF_NAMESPACE" ${_DPF_PULL_ARGS[@]+"${_DPF_PULL_ARGS[@]}"} >"$_DPF_LOG" 2>&1; then
-        tail -8 "$_DPF_LOG" >&2; rm -f "$_DPF_LOG"
-        die "simulator deploy failed (make -C ${DPF_SIM_DIR} deploy)"
-    fi
-    rm -f "$_DPF_LOG"
-    ok "dpf-sim-controller deployed: ${DPF_SIM_IMAGE} in ${DPF_NAMESPACE}"
-
-    # nico-api needs access to the DPF namespace for the DPF SDK (mirrors
-    # helm/charts/nico-api/templates/dpf-rbac.yaml on the setup-dpf-install
-    # branch, which is not on main yet — drop this once the chart ships it).
+    # -------------------------------------------------------------------------
+    # DPF-enabled INGESTION PREREQUISITES — applied whether or not the
+    # simulator is deployed (--skip-dpf-sim only skips the simulator itself).
+    # These gate machine INGESTION, not just the DPF walk: without them the
+    # last hosts never finish creating and ingestion stalls short of the
+    # target (learned the hard way — a --skip-dpf-sim run wedged at 2838/3000).
+    # -------------------------------------------------------------------------
+    # 1. nico-api's access to the DPF namespace for the DPF SDK (mirrors
+    #    helm/charts/nico-api/templates/dpf-rbac.yaml on the setup-dpf-install
+    #    branch, not on main yet — drop this once the chart ships it).
     kubectl apply -f - <<NICOAPIDPF >/dev/null
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
@@ -593,11 +567,11 @@ subjects:
 NICOAPIDPF
     ok "nico-api-dpf Role/RoleBinding applied in ${DPF_NAMESPACE}"
 
-    # Post-#3561 cores resolve DiscoverMachine callers by TCP source IP; every
-    # simulated machine shares the MAT pod IP, so without this flag all agent
-    # discovery fails ("machine_interface for discovery IP not found") and
-    # dpuinit parks at waitingfornetworkconfig. Only set + restart when it is
-    # not already true — re-runs must not bounce a healthy nico-api.
+    # 2. Post-#3561 cores resolve DiscoverMachine callers by TCP source IP;
+    #    every simulated machine shares the MAT pod IP, so without this flag
+    #    discovery-gated creation and agent self-discovery fail. Only set +
+    #    restart when not already true — re-runs must not bounce a healthy
+    #    nico-api.
     _INSECURE_NOW="$(kubectl get deploy nico-api -n "$NICO_SYSTEM_NS" \
         -o jsonpath='{.spec.template.spec.containers[0].env[?(@.name=="CARBIDE_API_ALLOW_INSECURE_DISCOVERY")].value}' 2>/dev/null || true)"
     if [[ "$_INSECURE_NOW" != "true" ]]; then
@@ -607,6 +581,57 @@ NICOAPIDPF
             || warn "nico-api rollout did not complete in time; continuing"
     fi
     ok "allow_insecure_discovery enabled on nico-api (test-env only; see #3561)"
+fi
+
+# -----------------------------------------------------------------------------
+# Simulator deployment — the part --skip-dpf-sim actually skips.
+# -----------------------------------------------------------------------------
+if $SKIP_DPF_SIM; then
+    warn "--skip-dpf-sim: prerequisites applied but the simulator is NOT deployed."
+    warn "  Ingestion completes; hosts then park in dpuinit until a DPF operator"
+    warn "  (or a separately-deployed simulator) drives DPU.status.phase."
+elif [[ "$DPF_ENABLED" != "true" ]]; then
+    : # non-DPF site: nothing to deploy (already reported above)
+else
+    # GUARDRAIL: never beside a real operator — both would drive
+    # DPU.status.phase and fight. If the real DPF stack is deployed, this is
+    # not a simulation-only cluster: refuse loudly rather than risk it.
+    _REAL_DPF="$(kubectl get deploy -n "$DPF_NAMESPACE" -o name 2>/dev/null \
+        | grep -vE 'deployment.apps/dpf-sim-controller$' | grep -E 'dpf.*operator|operator.*dpf' || true)"
+    if [[ -n "$_REAL_DPF" ]]; then
+        die "the real DPF operator is deployed in ${DPF_NAMESPACE} (${_REAL_DPF#deployment.apps/}).
+       The DPF simulator must NOT run beside it — both drive DPU.status.phase.
+       To bring up the simulator, remove the real DPF operator first (this must
+       be a simulation-only cluster); to keep the real operator, re-run with
+       --skip-dpf-sim."
+    fi
+    command -v make >/dev/null 2>&1 || die "make is required for the simulator deploy (or pass --skip-dpf-sim)"
+    [[ -d "$DPF_SIM_DIR" ]] || die "simulator module not found at ${DPF_SIM_DIR} (or pass --skip-dpf-sim)"
+    if [[ -z "$DPF_SIM_IMAGE" ]]; then
+        [[ -n "${NICO_IMAGE_REGISTRY:-}" ]] \
+            || die "set DPF_SIM_IMAGE (or NICO_IMAGE_REGISTRY) for the dpf-sim-controller image, or pass --skip-dpf-sim"
+        DPF_SIM_IMAGE="${NICO_IMAGE_REGISTRY}/dpf-sim-controller:${DPF_SIM_IMAGE_TAG}"
+    fi
+
+    kubectl get ns "$DPF_NAMESPACE" >/dev/null 2>&1 || kubectl create ns "$DPF_NAMESPACE" >/dev/null
+    _DPF_PULL_ARGS=()
+    if [[ -n "${REGISTRY_PULL_SECRET:-}" ]]; then
+        kubectl -n "$DPF_NAMESPACE" create secret docker-registry dpf-sim-pull \
+            --docker-server="${DPF_SIM_IMAGE%%/*}" \
+            --docker-username="$REGISTRY_PULL_USERNAME" \
+            --docker-password="$REGISTRY_PULL_SECRET" \
+            --dry-run=client -o yaml | kubectl apply -f - >/dev/null
+        _DPF_PULL_ARGS=(PULL_SECRET=dpf-sim-pull)
+    fi
+    # `make deploy` = DPF CRDs (waits for Established) + RBAC + Deployment +
+    # rollout; everything idempotent. Keep the log for failure triage.
+    _DPF_LOG="$(mktemp)"
+    if ! make -C "$DPF_SIM_DIR" deploy IMG="$DPF_SIM_IMAGE" DPF_NAMESPACE="$DPF_NAMESPACE" ${_DPF_PULL_ARGS[@]+"${_DPF_PULL_ARGS[@]}"} >"$_DPF_LOG" 2>&1; then
+        tail -8 "$_DPF_LOG" >&2; rm -f "$_DPF_LOG"
+        die "simulator deploy failed (make -C ${DPF_SIM_DIR} deploy)"
+    fi
+    rm -f "$_DPF_LOG"
+    ok "dpf-sim-controller deployed: ${DPF_SIM_IMAGE} in ${DPF_NAMESPACE}"
 fi
 
 # =============================================================================
@@ -626,14 +651,19 @@ elif [[ "$MAT_MODE" == "scale" ]]; then
         SCALE_RESERVE="$SCALE_RESERVE" \
         BMC_PROXY="${BMC_MOCK_FQDN}:${BMC_MOCK_PORT}" \
         KNOB_CONC="$SCALE_CONCURRENT_EXPLORATIONS" KNOB_EPR="$SCALE_EXPLORATIONS_PER_RUN" \
-        KNOB_MCPR="$SCALE_MACHINES_CREATED_PER_RUN" python3 - "$CM_JSON" <<'PY'
+        KNOB_MCPR="$SCALE_MACHINES_CREATED_PER_RUN" \
+        KNOB_SE_RUN_INTERVAL="${SCALE_RUN_INTERVAL:-}" \
+        KNOB_FW_CONC="${SCALE_FW_CONCURRENCY:-}" \
+        KNOB_FW_RUN_INTERVAL="${SCALE_FW_RUN_INTERVAL:-}" \
+        KNOB_STATE_CONC="${SCALE_STATE_MAX_CONCURRENCY:-}" \
+        python3 - "$CM_JSON" <<'PY'
 import json, os, sys
 path = sys.argv[1]
 cm = json.load(open(path))
 env = os.environ
 # lines managed by this script inside [site_explorer]
-drop = ("bmc_proxy", "override_target_host", "override_target_ip", "override_target_port",
-        "concurrent_explorations", "explorations_per_run", "machines_created_per_run")
+drop = ["bmc_proxy", "override_target_host", "override_target_ip", "override_target_port",
+        "concurrent_explorations", "explorations_per_run", "machines_created_per_run"]
 knobs = [
     # PROXY-DIRECT: the Redfish client injects "Forwarded: host=<BMC IP>"
     # whenever bmc_proxy is set; the mock's registry routes on it. One
@@ -648,6 +678,40 @@ knobs = [
     f'      explorations_per_run = {env["KNOB_EPR"]}',
     f'      machines_created_per_run = {env["KNOB_MCPR"]}',
 ]
+# Optional tuning override (issue #3738): the explore->create cycle period.
+# Only managed when explicitly set, so default runs keep the site's value.
+if env.get("KNOB_SE_RUN_INTERVAL"):
+    drop.append("run_interval")   # scoped to [site_explorer] by insertion point
+    knobs.append(f'      run_interval = "{env["KNOB_SE_RUN_INTERVAL"]}"')
+
+# Optional tuning overrides living OUTSIDE [site_explorer] (issue #3738).
+# When the target section already exists in the site config, its managed keys
+# are rewritten IN PLACE (scoped, like [site_explorer]); a section that is
+# absent is emitted in a sentinel-delimited tail block regenerated each run.
+# Duplicating an existing table would be a TOML parse error — dev6's template
+# ships both [firmware_global] and [machine_state_controller].
+TUNING_BEGIN = "# --- BEGIN scale tuning overrides (managed by setup-machine-a-tron.sh) ---"
+TUNING_END   = "# --- END scale tuning overrides ---"
+# Managed tuning keys are ALWAYS dropped from their sections in scale mode —
+# with no override env set they revert to the build's defaults, so one run's
+# override can never leak into the next (run independence for #3738). Set
+# them via the SCALE_* envs, not by editing these keys in the site config.
+MANAGED_TUNING = {
+    "[firmware_global]": ("concurrency_limit", "run_interval"),
+    "[machine_state_controller.controller]": ("max_concurrency",),
+}
+# section header -> (managed key names, replacement lines)
+tuning_secs = {}
+if env.get("KNOB_FW_CONC") or env.get("KNOB_FW_RUN_INTERVAL"):
+    keys, lines = [], []
+    if env.get("KNOB_FW_CONC"):
+        keys.append("concurrency_limit"); lines.append(f'concurrency_limit = {env["KNOB_FW_CONC"]}')
+    if env.get("KNOB_FW_RUN_INTERVAL"):
+        keys.append("run_interval"); lines.append(f'run_interval = "{env["KNOB_FW_RUN_INTERVAL"]}"')
+    tuning_secs["[firmware_global]"] = (tuple(keys), lines)
+if env.get("KNOB_STATE_CONC"):
+    tuning_secs["[machine_state_controller.controller]"] = (
+        ("max_concurrency",), [f'max_concurrency = {env["KNOB_STATE_CONC"]}'])
 networks = f'''
 # --- simulated networks for machine-a-tron scale testing (managed by
 # --- setup-machine-a-tron.sh --scale; safe to leave in place) ---
@@ -675,21 +739,57 @@ for k, v in cm["data"].items():
     if "[site_explorer]" not in v:
         continue
     out, in_lo = [], False
-    for ln in v.splitlines():
+    # Strip any previously-managed tuning block before re-rendering.
+    if TUNING_BEGIN in v:
+        pre, _, rest = v.partition(TUNING_BEGIN)
+        _, _, post = rest.partition(TUNING_END)
+        v_work = pre.rstrip("\n") + "\n" + post.lstrip("\n")
+    else:
+        v_work = v
+    # The sim lo-ip range may already be present — the site's values file can
+    # carry it (possibly as a MULTI-LINE ranges array). Only splice it into a
+    # SINGLE-LINE `ranges = [...]` when it is genuinely absent; otherwise leave
+    # the array untouched. The actual pool CAPACITY is guaranteed by the
+    # Phase 5 resource_pool DB widening regardless, so a no-op here is safe.
+    SIM_LO_PRESENT = "10.103.0.1" in v_work
+    in_sec = ""
+    seen_secs = set()
+    for ln in v_work.splitlines():
         s = ln.strip()
-        if any(t in ln for t in drop):
+        if s.startswith("["):
+            in_sec = s
+        # drop-lists are scoped per section, so a key with the same name in
+        # another section is never touched.
+        if in_sec == "[site_explorer]" and any(t in ln for t in drop) and not s.startswith("["):
             continue
+        if in_sec in MANAGED_TUNING and not s.startswith("["):
+            key = s.split("=", 1)[0].strip()
+            if key in MANAGED_TUNING[in_sec]:
+                continue   # managed key: replaced when overridden, reverted when not
         if s.startswith("[pools."):
             in_lo = (s == "[pools.lo-ip]")
-        if in_lo and s.startswith("ranges") and "10.103.0.1" not in ln:
+        if (in_lo and s.startswith("ranges") and not SIM_LO_PRESENT
+                and ln.rstrip().endswith("]")):
             r = ln.rstrip(); idx = r.rfind("]")
             ln = r[:idx] + SIM_LO + r[idx+1:]
         out.append(ln)
         if s == "[site_explorer]":
             out.extend(knobs)
-    new = "\n".join(out) + ("\n" if v.endswith("\n") else "")
+        if s in tuning_secs:
+            seen_secs.add(s)
+            out.extend(tuning_secs[s][1])
+    new = "\n".join(out) + ("\n" if v_work.endswith("\n") else "")
     if "[networks.simulated-oob]" not in new:
         new = new.rstrip("\n") + "\n" + networks
+    # Sections not present in the file are emitted in the sentinel tail.
+    # (A dotted subtable like [machine_state_controller.controller] is valid
+    # there even when its parent table exists elsewhere.)
+    tail = []
+    for sec, (_keys, lines) in tuning_secs.items():
+        if sec not in seen_secs:
+            tail.append(sec); tail.extend(lines)
+    if tail:
+        new = new.rstrip("\n") + "\n\n" + TUNING_BEGIN + "\n" + "\n".join(tail) + "\n" + TUNING_END + "\n"
     if new != v:
         cm["data"][k] = new
         changed = True
@@ -707,6 +807,8 @@ PY
             || warn "nico-api rollout did not complete in time; continuing"
         ok "scale networks: oob ${SCALE_OOB_PREFIX} (gw ${SCALE_OOB_GW}), admin ${SCALE_ADMIN_PREFIX} (gw ${SCALE_ADMIN_GW})"
         ok "site_explorer knobs: concurrent=${SCALE_CONCURRENT_EXPLORATIONS} per_run=${SCALE_EXPLORATIONS_PER_RUN} create/run=${SCALE_MACHINES_CREATED_PER_RUN}"
+        [[ -n "${SCALE_RUN_INTERVAL:-}${SCALE_FW_CONCURRENCY:-}${SCALE_FW_RUN_INTERVAL:-}${SCALE_STATE_MAX_CONCURRENCY:-}" ]] && \
+            ok "tuning overrides (#3738): se.run_interval=${SCALE_RUN_INTERVAL:-·} fw.concurrency=${SCALE_FW_CONCURRENCY:-·} fw.run_interval=${SCALE_FW_RUN_INTERVAL:-·} state.max_concurrency=${SCALE_STATE_MAX_CONCURRENCY:-·}"
     else
         ok "scale config already in place"
     fi
@@ -930,6 +1032,37 @@ import ipaddress, re, sys
 values_file, default_prefix, default_reserve = sys.argv[1], sys.argv[2], sys.argv[3]
 text = open(values_file).read()
 
+def groups_from_yaml(doc):
+    """Structural walk of a parsed values doc -> [{hosts,dpus,relay}]."""
+    out = []
+    for pod in (doc.get("pods") or {}).values():
+        if not isinstance(pod, dict):
+            continue
+        for grp in (pod.get("machines") or {}).values():
+            if not isinstance(grp, dict):
+                continue
+            hosts = int(grp.get("hostCount") or 0)
+            if hosts <= 0:
+                continue
+            out.append({
+                "hosts": hosts,
+                "dpus": int(grp.get("dpuPerHostCount") or 0),
+                "relay": str(grp.get("oobDhcpRelayAddress") or "").strip(),
+            })
+    return out
+
+yaml_groups = None
+try:
+    import yaml  # structural parse is authoritative when available
+    doc = yaml.safe_load(text)
+    if isinstance(doc, dict):
+        yaml_groups = groups_from_yaml(doc)
+except ImportError:
+    yaml_groups = None
+except Exception as e:                      # malformed values file
+    print(f"SKIP values file is not valid YAML: {e}")
+    sys.exit(0)
+
 # Dependency-free scan: walk the values file line by line and close off a
 # machine group whenever a line appears at or above the group's indentation.
 # Each group contributes hostCount*(1+dpuPerHostCount) BMC IPs to its relay.
@@ -957,6 +1090,8 @@ for raw in text.splitlines():
 if cur is not None:
     groups.append(cur)
 
+if yaml_groups is not None:
+    groups = yaml_groups            # structural parse wins
 groups = [g for g in groups if g["hosts"] > 0]
 if not groups:
     print("SKIP values file defines no pod groups with hostCount")
@@ -1001,12 +1136,18 @@ print("\n".join(lines))
 if problems:
     print("FAIL " + "; ".join(problems))
 MPCHK
-)" || true
+)"; _MP_RC=$?
         printf '%s\n' "$_MP_REPORT" | while IFS= read -r _l; do [[ -n "$_l" ]] && info "$_l"; done
+        # Fail closed: a validator that cannot run must not look like a pass.
+        if (( _MP_RC != 0 )); then
+            die "multipod sizing check failed to run (rc=${_MP_RC}); refusing to deploy unvalidated. Output: ${_MP_REPORT:-<none>}"
+        fi
         if [[ "$_MP_REPORT" == *FAIL* ]]; then
             die "multipod sizing: $(printf '%s' "$_MP_REPORT" | sed -n 's/^FAIL //p') — widen that segment's prefix, lower its hostCount, or give the pod its own relay"
         fi
-        [[ "$_MP_REPORT" == SKIP* ]] && warn "multipod: ${_MP_REPORT#SKIP }"
+        if [[ "$_MP_REPORT" == SKIP* ]]; then
+            die "multipod sizing could not be validated: ${_MP_REPORT#SKIP } — set HOST_COUNT/DPU_PER_HOST explicitly or fix the values file so demand can be computed"
+        fi
         ok "multipod sizing validated across all pod groups"
     elif (( HOST_COUNT > FIT )); then
         (( FIT < 1 )) && die "pools too small for even 1 host × ${DPU_PER_HOST} DPUs — widen the admin/OOB prefixes or lower DPU_PER_HOST"
@@ -1085,6 +1226,13 @@ cat > "$MERGED_VALUES" <<EOF
 image:
   repository: "${MAT_IMAGE_REPO}"
   tag: "${MAT_IMAGE_TAG}"
+EOF
+# MAT_MULTIPOD=1: the values file defines its own pods map (mat-0..mat-N with
+# per-pod host counts and relay addresses); injecting the single-pod default
+# here would deep-merge a phantom extra pod on top of it. HOST_COUNT/DPU env
+# still drive the sizing math above -- set them to the fleet TOTALS.
+if [[ "${MAT_MULTIPOD:-0}" != "1" ]]; then
+cat >> "$MERGED_VALUES" <<EOF
 pods:
   default:
     machines:
@@ -1094,6 +1242,7 @@ pods:
         oobDhcpRelayAddress: "${OOB_DHCP_RELAY}"
         adminDhcpRelayAddress: "${ADMIN_DHCP_RELAY}"
 EOF
+fi
 if [[ "$MAT_MODE" == "scale" ]]; then
     # Pin every mock BMC's password to the site root ("emulates a BMC already
     # rotated by an operator"). At scale, the rotation dance is fatally racy:
@@ -1191,17 +1340,50 @@ ok "cleared exploration lockouts + requested re-exploration"
 
 # machine target = one row per host + per DPU; wait scales with host count
 MACHINE_TARGET=$(( HOST_COUNT * (1 + DPU_PER_HOST) ))
-MACHINE_WAIT=$(( 420 + HOST_COUNT * 3 )); (( MACHINE_WAIT > 5400 )) && MACHINE_WAIT=5400
+# 3s/host with a 4h cap: at 4500 hosts (13.5k machines) init alone can run
+# ~1h before the first machine appears; the old 90-min cap expired mid-run.
+MACHINE_WAIT=$(( 420 + HOST_COUNT * 3 )); (( MACHINE_WAIT > 14400 )) && MACHINE_WAIT=14400
 info "waiting for explore → rotate → preingest → identify → create (target ${MACHINE_TARGET} machines, up to ${MACHINE_WAIT}s)..."
+
+# --- per-phase ingestion rate instrumentation (#3756) -----------------------
+# One CSV row per sample; counters are cumulative so post-processing derives
+# per-phase rates as deltas. `epoch` is wall-clock so rows from different runs
+# and the DB's own machines.created timestamps line up exactly. Effective knob
+# values are embedded as header comments so every CSV is self-describing.
+INGEST_RATE_CSV="${INGEST_RATE_CSV:-/tmp/mat-ingestion-rates-$(date +%Y%m%d-%H%M%S).csv}"
+{
+    echo "# setup-machine-a-tron ingestion rates  host_count=${HOST_COUNT} dpu_per_host=${DPU_PER_HOST} mode=${MAT_MODE}"
+    _KNOBS="$(kubectl get cm nico-api-site-config-files -n "$NICO_SYSTEM_NS" \
+        -o jsonpath='{.data.nico-api-site-config\.toml}' 2>/dev/null \
+        | grep -vE '^[[:space:]]*#' \
+        | grep -E 'run_interval|concurrent_explorations|explorations_per_run|machines_created_per_run|concurrency_limit|max_concurrency|max_concurrent_machine_updates' \
+        | sed 's/^[[:space:]]*//' | tr '\n' ';' )"
+    echo "# effective_knobs: ${_KNOBS}"
+    echo "epoch,dhcp_addresses,endpoints_ok,managed_hosts,machines,machines_ready"
+} > "$INGEST_RATE_CSV"
+info "per-phase rate samples → ${INGEST_RATE_CSV}"
+
 _end=$((SECONDS+MACHINE_WAIT)); MACHINES=0
 while (( SECONDS < _end )); do
-    MACHINES="$(psql_count "SELECT count(*) FROM machines;")"
-    (( MACHINES >= MACHINE_TARGET )) && break
-    # single round-trip for the progress line
+    # single round-trip for the progress line AND the CSV sample
     _prog="$(psql_q "SELECT
+        (SELECT count(*) FROM machine_interface_addresses) || '/' ||
         (SELECT count(*) FILTER (WHERE exploration_report->'LastExplorationError' = 'null'::jsonb) FROM explored_endpoints) || '/' ||
-        (SELECT count(*) FROM explored_managed_hosts);" || echo '?/?')"
-    info "  endpoints_ok=${_prog%%/*}/${IFACES}  managed_hosts=${_prog##*/}  machines=${MACHINES} ..."
+        (SELECT count(*) FROM explored_managed_hosts) || '/' ||
+        (SELECT count(*) FROM machines) || '/' ||
+        (SELECT count(*) FROM machines WHERE controller_state->>'state' = 'ready');" || echo '?/?/?/?/?')"
+    IFS=/ read -r _dhcp _eok _mh MACHINES _rdy <<< "$_prog"
+    MACHINES="${MACHINES:-0}"; [[ "$MACHINES" == "?" ]] && MACHINES=0
+    # Only record real samples: a failed query yields '?' placeholders, and
+    # writing those as rows corrupts the rate maths downstream (they parse as
+    # 0 and look like the fleet went backwards).
+    if [[ "$_prog" != *'?'* ]]; then
+        echo "$(date +%s),${_dhcp},${_eok},${_mh},${MACHINES},${_rdy}" >> "$INGEST_RATE_CSV"
+    else
+        warn "  progress query failed; sample skipped (not written to CSV)"
+    fi
+    (( MACHINES >= MACHINE_TARGET )) && break
+    info "  endpoints_ok=${_eok}/${IFACES}  managed_hosts=${_mh}  machines=${MACHINES} ..."
     # Re-clear any AvoidLockout that latched during the wait (e.g. an
     # exploration racing a mock reboot from preingestion's initial BMC reset).
     # Idempotent; scoped to latched endpoints only so successful reports keep
@@ -1223,6 +1405,26 @@ while (( SECONDS < _end )); do
 done
 ENDPOINTS="$(psql_count "SELECT count(*) FROM explored_endpoints;")"
 MHOSTS="$(psql_count "SELECT count(*) FROM explored_managed_hosts;")"
+# Per-phase rate summary (#3756): for each cumulative counter, the window is
+# first-movement → 90%-of-final; avg rate = delta/window. Sampling-based, so
+# rates are floors — exact curves come from ingestion-rate-report.sh, which
+# reads the DB's own timestamps.
+if [[ -s "$INGEST_RATE_CSV" ]]; then
+    awk -F, -v OFS=' ' '
+        /^#/ || /^epoch/ { next }
+        { for (i = 2; i <= 6; i++) { v[i] = $i + 0
+            if (v[i] > first_v[i] && first_t[i] == 0 && v[i] > 0) { if (base_seen[i]) { first_t[i] = $1; first_v[i] = v[i] } }
+            if (!base_seen[i]) { base_seen[i] = 1; base_v[i] = v[i]; if (v[i] > 0) { first_t[i] = $1; first_v[i] = v[i] } }
+            last_t[i] = $1; last_v[i] = v[i] } }
+        END {
+            split("dhcp_addresses endpoints_ok managed_hosts machines machines_ready", n, " ")
+            for (i = 2; i <= 6; i++) {
+                dt = last_t[i] - first_t[i]; dv = last_v[i] - first_v[i]
+                rate = (dt > 0) ? sprintf("%.1f", dv * 60 / dt) : "n/a"
+                printf "  %-16s %6d -> %-6d  %ss window  %s/min\n", n[i-1], first_v[i], last_v[i], dt, rate } }
+    ' "$INGEST_RATE_CSV" | while IFS= read -r l; do info "$l"; done
+    ok "rate samples: ${INGEST_RATE_CSV}"
+fi
 echo
 if (( MACHINES >= MACHINE_TARGET )); then
     ok "${GREEN}END TO END OK${NC} — endpoints=${ENDPOINTS}, managed_hosts=${MHOSTS}, machines=${MACHINES}/${MACHINE_TARGET}"
