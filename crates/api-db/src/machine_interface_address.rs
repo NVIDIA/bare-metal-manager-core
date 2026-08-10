@@ -32,8 +32,7 @@ use crate::db_read::DbReader;
 #[cfg(test)]
 mod test_find_by_address;
 
-/// Returned by allocation paths with `AddressSelectionStrategy::StaticAddress`
-/// when the target IP is already held by some other interface.
+/// Returned when an address is already held by an interface.
 #[derive(thiserror::Error, Debug)]
 #[error("address already in use: {0} by {1} in network segment {2} (interface: {3})")]
 pub struct AddressAlreadyInUseError(
@@ -77,6 +76,7 @@ pub async fn find_by_address(
     address: IpAddr,
 ) -> Result<Option<MachineInterfaceSearchResult>, DatabaseError> {
     let query = "SELECT mi.id, mi.machine_id, mi.switch_id, mi.interface_type,
+                mi.mac_address, mi.segment_id,
                 ns.name, ns.network_segment_type, mia.allocation_type
             FROM machine_interface_addresses mia
             INNER JOIN machine_interfaces mi ON mi.id = mia.interface_id
@@ -174,22 +174,50 @@ pub async fn delete_by_interface_and_address(
         .map_err(|e| DatabaseError::query(query, e))
 }
 
-/// Insert a new address for an interface with the given allocation type.
+/// `insert` assigns an unowned address to an interface.
+///
+/// `ON CONFLICT DO NOTHING` leaves the caller's transaction usable so we can
+/// identify the current owner. Repeating the same assignment for the same
+/// interface is idempotent; a different owner or allocation type returns
+/// [`AddressAlreadyInUseError`]. Allocation callers decide whether to choose
+/// another address; this function only attempts the requested address once.
 pub async fn insert(
     txn: &mut PgConnection,
     interface_id: MachineInterfaceId,
     address: IpAddr,
     allocation_type: AllocationType,
 ) -> Result<(), DatabaseError> {
-    let query = "INSERT INTO machine_interface_addresses (interface_id, address, allocation_type) VALUES ($1::uuid, $2::inet, $3)";
-    sqlx::query(query)
+    let query = "INSERT INTO machine_interface_addresses (interface_id, address, allocation_type)
+        VALUES ($1::uuid, $2::inet, $3)
+        ON CONFLICT (address) DO NOTHING
+        RETURNING interface_id";
+
+    let inserted: Option<MachineInterfaceId> = sqlx::query_scalar(query)
         .bind(interface_id)
         .bind(address)
         .bind(allocation_type)
-        .execute(txn)
+        .fetch_optional(&mut *txn)
         .await
-        .map(|_| ())
-        .map_err(|e| DatabaseError::query(query, e))
+        .map_err(|e| DatabaseError::query(query, e))?;
+    if inserted.is_some() {
+        return Ok(());
+    }
+
+    let Some(existing) = find_by_address(&mut *txn, address).await? else {
+        return Err(DatabaseError::internal(format!(
+            "address {address} was reported as in use but has no owner"
+        )));
+    };
+    if existing.id == interface_id && existing.allocation_type == allocation_type {
+        return Ok(());
+    }
+    Err(AddressAlreadyInUseError(
+        address,
+        existing.mac_address,
+        existing.segment_id,
+        existing.id,
+    )
+    .into())
 }
 
 /// Assign a static address to an interface. If the interface already
@@ -226,11 +254,9 @@ pub async fn assign_static(
     Ok(result)
 }
 
-/// Delete an address allocation of the given type. Returns the interfaces that
-/// owned the deleted addresses (normally one, empty if nothing matched) so
-/// callers can resync each one's hostname rather than guessing the owner. The
-/// delete removes every matching row, so all owners are returned — not just the
-/// first — since `(address, allocation_type)` is not unique on its own.
+/// Delete an address allocation of the given type. Returns at most one owning
+/// interface in a vector so callers can share the hostname-resync path with
+/// MAC-scoped deletion.
 pub async fn delete_by_address(
     txn: &mut PgConnection,
     address: IpAddr,
@@ -302,6 +328,8 @@ pub struct MachineInterfaceSearchResult {
     pub machine_id: Option<MachineId>,
     pub switch_id: Option<SwitchId>,
     pub interface_type: InterfaceType,
+    pub mac_address: MacAddress,
+    pub segment_id: NetworkSegmentId,
     pub name: String,
     pub network_segment_type: NetworkSegmentType,
     pub allocation_type: AllocationType,
@@ -309,7 +337,49 @@ pub struct MachineInterfaceSearchResult {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
+
     use super::*;
+
+    /// Creates an addressless interface for address-ownership tests.
+    async fn create_test_interface(
+        txn: &mut PgConnection,
+        segment_id: NetworkSegmentId,
+        mac_address: MacAddress,
+        hostname: &str,
+    ) -> Result<MachineInterfaceId, sqlx::Error> {
+        sqlx::query_scalar(
+            "INSERT INTO machine_interfaces
+                (segment_id, mac_address, primary_interface, hostname)
+             VALUES ($1, $2, false, $3)
+             RETURNING id",
+        )
+        .bind(segment_id)
+        .bind(mac_address)
+        .bind(hostname)
+        .fetch_one(txn)
+        .await
+    }
+
+    /// Races one address insert in its own transaction.
+    async fn insert_after_barrier(
+        pool: &sqlx::PgPool,
+        barrier: Arc<tokio::sync::Barrier>,
+        interface_id: MachineInterfaceId,
+        address: IpAddr,
+        allocation_type: AllocationType,
+    ) -> Result<(), DatabaseError> {
+        barrier.wait().await;
+        let mut txn = crate::Transaction::begin(pool).await?;
+
+        match insert(txn.as_pgconn(), interface_id, address, allocation_type).await {
+            Ok(()) => txn.commit().await,
+            Err(error) => {
+                txn.rollback().await?;
+                Err(error)
+            }
+        }
+    }
 
     /// Verifies the new SLAAC allocation type survives a database round trip.
     #[crate::sqlx_test]
@@ -347,6 +417,158 @@ mod tests {
         // Verify the persisted row preserved the new allocation type.
         assert_eq!(addresses.len(), 1);
         assert_eq!(addresses[0].allocation_type, AllocationType::Slaac);
+
+        txn.rollback().await?;
+        Ok(())
+    }
+
+    /// Verifies that concurrent inserts leave one owner and return a useful conflict.
+    #[crate::sqlx_test]
+    async fn concurrent_inserts_keep_one_address_owner(
+        pool: sqlx::PgPool,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let mut setup_txn = pool.begin().await?;
+        let segment_id: NetworkSegmentId = sqlx::query_scalar(
+            "INSERT INTO network_segments (name, version)
+             VALUES ('address-owner-race', 'V1-T0')
+             RETURNING id",
+        )
+        .fetch_one(&mut *setup_txn)
+        .await?;
+        let first_mac: MacAddress = "02:00:00:00:00:11".parse()?;
+        let second_mac: MacAddress = "02:00:00:00:00:12".parse()?;
+        let first_interface_id = create_test_interface(
+            &mut setup_txn,
+            segment_id,
+            first_mac,
+            "address-owner-race-first",
+        )
+        .await?;
+        let second_interface_id = create_test_interface(
+            &mut setup_txn,
+            segment_id,
+            second_mac,
+            "address-owner-race-second",
+        )
+        .await?;
+        setup_txn.commit().await?;
+
+        let address: IpAddr = "192.0.2.10".parse()?;
+        let barrier = Arc::new(tokio::sync::Barrier::new(2));
+        let (first_result, second_result) = tokio::join!(
+            insert_after_barrier(
+                &pool,
+                barrier.clone(),
+                first_interface_id,
+                address,
+                AllocationType::Static,
+            ),
+            insert_after_barrier(
+                &pool,
+                barrier,
+                second_interface_id,
+                address,
+                AllocationType::Static,
+            ),
+        );
+
+        let (owner_id, owner_mac, conflict) = match (first_result, second_result) {
+            (Ok(()), Err(error)) => (first_interface_id, first_mac, error),
+            (Err(error), Ok(())) => (second_interface_id, second_mac, error),
+            results => panic!("expected one address owner and one conflict, got {results:?}"),
+        };
+        match conflict {
+            DatabaseError::AddressAlreadyInUse(AddressAlreadyInUseError(
+                conflict_address,
+                conflict_mac,
+                conflict_segment_id,
+                conflict_interface_id,
+            )) => {
+                assert_eq!(conflict_address, address);
+                assert_eq!(conflict_mac, owner_mac);
+                assert_eq!(conflict_segment_id, segment_id);
+                assert_eq!(conflict_interface_id, owner_id);
+            }
+            error => panic!("expected an address-in-use error, got {error:?}"),
+        }
+
+        let owner_count: i64 = sqlx::query_scalar(
+            "SELECT count(*) FROM machine_interface_addresses WHERE address = $1::inet",
+        )
+        .bind(address)
+        .fetch_one(&pool)
+        .await?;
+        assert_eq!(owner_count, 1);
+
+        // Concurrent observations of the same SLAAC address for one interface
+        // are replays of the same ownership claim, so both callers succeed.
+        let slaac_address: IpAddr = "2001:db8::10".parse()?;
+        let barrier = Arc::new(tokio::sync::Barrier::new(2));
+        let (first_result, second_result) = tokio::join!(
+            insert_after_barrier(
+                &pool,
+                barrier.clone(),
+                first_interface_id,
+                slaac_address,
+                AllocationType::Slaac,
+            ),
+            insert_after_barrier(
+                &pool,
+                barrier,
+                first_interface_id,
+                slaac_address,
+                AllocationType::Slaac,
+            ),
+        );
+        first_result?;
+        second_result?;
+
+        let slaac_owner_count: i64 = sqlx::query_scalar(
+            "SELECT count(*) FROM machine_interface_addresses WHERE address = $1::inet",
+        )
+        .bind(slaac_address)
+        .fetch_one(&pool)
+        .await?;
+        assert_eq!(slaac_owner_count, 1);
+        Ok(())
+    }
+
+    /// Verifies that masked network values cannot bypass address ownership.
+    #[crate::sqlx_test]
+    async fn machine_interface_addresses_require_host_form(
+        pool: sqlx::PgPool,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let mut txn = pool.begin().await?;
+        let segment_id: NetworkSegmentId = sqlx::query_scalar(
+            "INSERT INTO network_segments (name, version)
+             VALUES ('host-addresses-only', 'V1-T0')
+             RETURNING id",
+        )
+        .fetch_one(&mut *txn)
+        .await?;
+        let interface_id = create_test_interface(
+            &mut txn,
+            segment_id,
+            "02:00:00:00:00:13".parse()?,
+            "host-addresses-only",
+        )
+        .await?;
+
+        let error = sqlx::query(
+            "INSERT INTO machine_interface_addresses (interface_id, address)
+             VALUES ($1, '192.0.2.20/24'::inet)",
+        )
+        .bind(interface_id)
+        .execute(&mut *txn)
+        .await
+        .expect_err("a machine-interface address with a network mask should be rejected");
+        match error {
+            sqlx::Error::Database(error) => assert_eq!(
+                error.constraint(),
+                Some("machine_interface_addresses_host_address_check"),
+            ),
+            error => panic!("expected a check-constraint error, got {error:?}"),
+        }
 
         txn.rollback().await?;
         Ok(())

@@ -1295,9 +1295,9 @@ async fn test_dhcp_v6_info_request_records_single_slaac_observation(
     Ok(())
 }
 
-// SLAAC observation is best-effort guarded against address ownership conflicts:
-// if the computed EUI-64 address is already held by another interface, reject
-// instead of creating a duplicate machine_interface_addresses row.
+// SLAAC observation uses the shared ownership boundary: if the computed EUI-64
+// address is already held by another interface, reject instead of creating a
+// duplicate machine_interface_addresses row.
 #[crate::sqlx_test]
 async fn test_dhcp_v6_info_request_rejects_slaac_address_owned_by_other_interface(
     pool: sqlx::PgPool,
@@ -1342,7 +1342,13 @@ async fn test_dhcp_v6_info_request_rejects_slaac_address_owned_by_other_interfac
         .await
         .expect_err("duplicate SLAAC ownership should reject");
     assert_eq!(status.code(), tonic::Code::FailedPrecondition);
-    assert!(status.message().contains("already allocated to interface"));
+    assert_eq!(
+        status.message(),
+        format!(
+            "address already in use: {duplicate_slaac} by {owner_mac} in network segment {} (interface: {owner_interface_id})",
+            env.admin_segment(),
+        )
+    );
 
     let mut txn = pool.begin().await?;
     let requester_interfaces =
