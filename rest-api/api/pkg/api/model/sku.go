@@ -34,8 +34,6 @@ type APISku struct {
 	Components *APISkuComponents `json:"components"`
 	// Created is the date and time the entity was created
 	Created *time.Time `json:"created"`
-	// Updated is the date and time the entity was last updated
-	Updated *time.Time `json:"updated"`
 }
 
 // APISkuCreateRequest is the POST /sku request body.
@@ -190,7 +188,6 @@ func NewAPISku(dbSku *cdbm.SKU) *APISku {
 		DeviceType:           dbSku.DeviceType,
 		AssociatedMachineIds: dbSku.AssociatedMachineIds,
 		Created:              &dbSku.Created,
-		Updated:              &dbSku.Updated,
 	}
 
 	// Map SKU Components if available

@@ -63,7 +63,6 @@ func TestNewAPISku(t *testing.T) {
 				DeviceType:           &deviceType,
 				AssociatedMachineIds: associatedMachineIds,
 				Created:              &createdTime,
-				Updated:              &updatedTime,
 			},
 		},
 		{
@@ -96,7 +95,6 @@ func TestNewAPISku(t *testing.T) {
 			assert.Equal(t, tt.want.DeviceType, got.DeviceType)
 			assert.Equal(t, tt.want.AssociatedMachineIds, got.AssociatedMachineIds)
 			assert.Equal(t, tt.want.Created, got.Created)
-			assert.Equal(t, tt.want.Updated, got.Updated)
 		})
 	}
 }
@@ -635,7 +633,6 @@ func TestNewAPISkuEdgeCases(t *testing.T) {
 		result := NewAPISku(dbSku)
 		assert.NotNil(t, result)
 		assert.True(t, result.Created.IsZero())
-		assert.True(t, result.Updated.IsZero())
 	})
 }
 
@@ -1026,8 +1023,7 @@ func TestAPISku_MarshalJSON(t *testing.T) {
 			"infinibandDevices":null,
 			"tpm":null
 		},
-		"created":null,
-		"updated":null
+		"created":null
 	}`, string(encoded))
 }
 
