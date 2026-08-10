@@ -331,6 +331,9 @@ impl StateControllerIO for MachineStateControllerIO {
                 DecommissioningState::VerifyingDhcpRelease { .. } => {
                     ("decommissioning", "verifyingdhcprelease")
                 }
+                DecommissioningState::DeletingManagedCredentials => {
+                    ("decommissioning", "deletingmanagedcredentials")
+                }
                 DecommissioningState::Decommissioned => ("decommissioning", "decommissioned"),
             },
             ManagedHostState::BootConfiguring {

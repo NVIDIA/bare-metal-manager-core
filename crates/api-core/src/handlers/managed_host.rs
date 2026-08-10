@@ -16,7 +16,6 @@
  */
 
 use ::rpc::forge as rpc;
-use carbide_secrets::credentials::CredentialKey;
 use carbide_uuid::machine::{MachineId, MachineInterfaceId};
 use model::bmc_suppression::BmcSuppressionSubsystem;
 use model::machine::machine_search_config::MachineSearchConfig;
@@ -162,68 +161,6 @@ pub(crate) async fn delete_decommissioned_managed_host(
     ) {
         return Err(CarbideError::FailedPrecondition(format!(
             "managed host {machine_id} must be in the terminal decommissioned state before deletion (current state: {})",
-            host.current_state()
-        ))
-        .into());
-    }
-    let dpus = db::machine::find_dpus_by_host_machine_id(&mut txn, &machine_id).await?;
-    txn.commit().await?;
-
-    let machines = std::iter::once(&host).chain(&dpus).collect::<Vec<_>>();
-
-    // Secret-store operations cannot participate in the database transaction. Do them first so a
-    // failure leaves the terminal machine rows available for a safe retry.
-    for machine in &machines {
-        if let Some(bmc_mac) = machine.status.bmc_info.mac {
-            crate::handlers::credential::delete_bmc_root_credentials_by_mac(api, bmc_mac).await?;
-        }
-        if machine.is_dpu() {
-            for credential_key in [
-                CredentialKey::DpuSsh {
-                    machine_id: machine.id,
-                },
-                CredentialKey::DpuHbn {
-                    machine_id: machine.id,
-                },
-            ] {
-                api.credential_manager
-                    .delete_credentials(&credential_key)
-                    .await
-                    .map_err(|error| {
-                        CarbideError::internal(format!(
-                            "error deleting credential associated with DPU {}: {error:?}",
-                            machine.id
-                        ))
-                    })?;
-            }
-        }
-    }
-
-    let mut txn = api.txn_begin().await?;
-
-    // Secret deletion released the validation transaction's row lock. Reacquire it and refresh
-    // the managed-host membership before beginning destructive database cleanup.
-    let host = db::machine::find_one(
-        &mut txn,
-        &machine_id,
-        MachineSearchConfig {
-            for_update: true,
-            ..Default::default()
-        },
-    )
-    .await?
-    .ok_or_else(|| CarbideError::NotFoundError {
-        kind: "managed host",
-        id: machine_id.to_string(),
-    })?;
-    if !matches!(
-        host.current_state(),
-        ManagedHostState::Decommissioning {
-            decommissioning_state: DecommissioningState::Decommissioned,
-        }
-    ) {
-        return Err(CarbideError::FailedPrecondition(format!(
-            "managed host {machine_id} must be in the terminal decommissioned before deletion (current state: {})",
             host.current_state()
         ))
         .into());

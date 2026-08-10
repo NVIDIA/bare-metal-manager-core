@@ -1389,6 +1389,8 @@ pub enum DecommissioningState {
     VerifyingDhcpRelease {
         verifying_state: VerifyingDhcpReleaseState,
     },
+    /// Managed per-device BMC and DPU credentials are being removed after factory reset.
+    DeletingManagedCredentials,
     Decommissioned,
 }
 
@@ -2618,6 +2620,9 @@ impl Display for DecommissioningState {
             DecommissioningState::DeconfiguringDpus { .. } => write!(f, "DeconfiguringDpus"),
             DecommissioningState::VerifyingDhcpRelease { .. } => {
                 write!(f, "VerifyingDhcpRelease")
+            }
+            DecommissioningState::DeletingManagedCredentials => {
+                write!(f, "DeletingManagedCredentials")
             }
             DecommissioningState::Decommissioned => write!(f, "Decommissioned"),
         }

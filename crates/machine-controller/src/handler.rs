@@ -1173,6 +1173,9 @@ impl MachineStateHandler {
                     )
                     .await
                 }
+                DecommissioningState::DeletingManagedCredentials => {
+                    decommissioning::handle_deleting_managed_credentials(mh_snapshot, ctx).await
+                }
                 DecommissioningState::Decommissioned => Ok(StateHandlerOutcome::do_nothing()),
             },
 

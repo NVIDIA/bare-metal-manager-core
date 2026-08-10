@@ -17,7 +17,7 @@
 
 use std::collections::{HashMap, HashSet};
 
-use carbide_secrets::credentials::CredentialKey;
+use carbide_secrets::credentials::{BmcCredentialType, CredentialKey, CredentialWriter};
 use carbide_uuid::machine::MachineId;
 use libredfish::model::task::TaskState;
 use libredfish::model::update_service::TransferProtocolType;
@@ -737,7 +737,7 @@ pub(super) async fn handle_verifying_dhcp_release(
             if all_dhcp_suppressions_acknowledged(bmc_mac_addresses(state)?, ctx).await? {
                 return Ok(StateHandlerOutcome::transition(
                     ManagedHostState::Decommissioning {
-                        decommissioning_state: DecommissioningState::Decommissioned,
+                        decommissioning_state: DecommissioningState::DeletingManagedCredentials,
                     },
                 ));
             }
@@ -746,4 +746,86 @@ pub(super) async fn handle_verifying_dhcp_release(
             ))
         }
     }
+}
+
+pub(super) async fn handle_deleting_managed_credentials(
+    state: &ManagedHostStateSnapshot,
+    ctx: &mut StateHandlerContext<'_, MachineStateHandlerContextObjects>,
+) -> Result<StateHandlerOutcome<ManagedHostState>, StateHandlerError> {
+    let mut rotation_cleanups = Vec::new();
+
+    for machine in std::iter::once(&state.host_snapshot).chain(&state.dpu_snapshots) {
+        let Some(bmc_mac_address) = machine.status.bmc_info.mac else {
+            return Err(StateHandlerError::MissingData {
+                object_id: machine.id.to_string(),
+                missing: "bmc_mac",
+            });
+        };
+
+        ctx.services
+            .credential_manager
+            .delete_credentials(&CredentialKey::BmcCredentials {
+                credential_type: BmcCredentialType::BmcRoot { bmc_mac_address },
+            })
+            .await
+            .map_err(|error| {
+                StateHandlerError::GenericError(eyre::eyre!(
+                    "failed to delete managed BMC credentials for {}: {error}",
+                    machine.id
+                ))
+            })?;
+
+        rotation_cleanups.push((
+            bmc_mac_address,
+            db::credential_rotation::CredentialRotationType::Bmc,
+        ));
+
+        if machine.is_dpu() {
+            for credential_key in [
+                CredentialKey::DpuSsh {
+                    machine_id: machine.id,
+                },
+                CredentialKey::DpuHbn {
+                    machine_id: machine.id,
+                },
+            ] {
+                ctx.services
+                    .credential_manager
+                    .delete_credentials(&credential_key)
+                    .await
+                    .map_err(|error| {
+                        StateHandlerError::GenericError(eyre::eyre!(
+                            "failed to delete managed credential for DPU {}: {error}",
+                            machine.id
+                        ))
+                    })?;
+            }
+            rotation_cleanups.push((
+                bmc_mac_address,
+                db::credential_rotation::CredentialRotationType::DpuUefi,
+            ));
+        } else {
+            rotation_cleanups.push((
+                bmc_mac_address,
+                db::credential_rotation::CredentialRotationType::HostUefi,
+            ));
+        }
+    }
+
+    let mut txn = ctx.services.db_pool.begin().await?;
+    for (bmc_mac_address, credential_type) in rotation_cleanups {
+        db::credential_rotation::delete_device_converged(
+            &mut txn,
+            bmc_mac_address,
+            credential_type,
+        )
+        .await?;
+    }
+
+    Ok(
+        StateHandlerOutcome::transition(ManagedHostState::Decommissioning {
+            decommissioning_state: DecommissioningState::Decommissioned,
+        })
+        .with_txn(txn),
+    )
 }
