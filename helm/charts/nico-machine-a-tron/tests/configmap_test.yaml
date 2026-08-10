@@ -97,6 +97,20 @@ tests:
           path: data["mat.toml"]
           pattern: "custom-api"
 
+  - it: should reject NMX-C with a full config override
+    set:
+      pods:
+        mat-0:
+          nmxc:
+            enabled: true
+      configFiles:
+        matConfigs:
+          mat-0: |
+            carbide_api_url = "https://custom-api:443"
+    asserts:
+      - failedTemplate:
+          errorMessage: "NMX-C simulation for pod mat-0 cannot use a configFiles.matConfigs override"
+
   - it: should create per-pod configmaps in multi-pod mode
     set:
       pods:

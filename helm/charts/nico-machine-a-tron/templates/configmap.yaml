@@ -18,6 +18,9 @@ Build ordered list of pod names for consistent MAC address indexing
 {{- range $podName, $podConfig := .Values.pods }}
 {{- if and $podConfig $podConfig.machines (gt (len $podConfig.machines) 0) }}
 {{- $nmxc := $podConfig.nmxc | default dict }}
+{{- if and $nmxc.enabled $root.Values.configFiles.matConfigs (index $root.Values.configFiles.matConfigs $podName) }}
+{{- fail (printf "NMX-C simulation for pod %s cannot use a configFiles.matConfigs override" $podName) }}
+{{- end }}
 {{- if $nmxc.enabled }}
 {{- $nmxcEnabled = true }}
 {{- end }}

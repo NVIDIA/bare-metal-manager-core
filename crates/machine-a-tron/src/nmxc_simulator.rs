@@ -189,8 +189,16 @@ impl NmxcSimulator {
                 },
                 gpu_uids: platform_gpus
                     .iter()
-                    .map(|gpu| parse_gpu_uid(&gpu.fabric_guid))
-                    .collect(),
+                    .map(|gpu| {
+                        parse_gpu_uid(&gpu.fabric_guid).map_err(|error| {
+                            eyre::eyre!(
+                                "invalid NMX-C GPU fabric GUID {:?} for host {}: {error}",
+                                gpu.fabric_guid,
+                                host_index + 1
+                            )
+                        })
+                    })
+                    .collect::<eyre::Result<Vec<_>>>()?,
             });
         }
 
@@ -367,15 +375,15 @@ impl NmxcSimulator {
     }
 }
 
-fn parse_gpu_uid(fabric_guid: &str) -> u64 {
+fn parse_gpu_uid(fabric_guid: &str) -> Result<u64, std::num::ParseIntError> {
     let value = fabric_guid.trim();
     if let Some(hex) = value
         .strip_prefix("0x")
         .or_else(|| value.strip_prefix("0X"))
     {
-        u64::from_str_radix(hex, 16).unwrap_or_default()
+        u64::from_str_radix(hex, 16)
     } else {
-        value.parse().unwrap_or_default()
+        value.parse()
     }
 }
 
@@ -1006,6 +1014,20 @@ mod tests {
             })
             .collect::<BTreeSet<_>>();
         assert_eq!(locations, BTreeSet::from([(0, 24, 1), (0, 24, 2)]));
+    }
+
+    #[test]
+    fn gpu_uid_parser_accepts_decimal_and_hexadecimal_values() {
+        for (input, expected) in [("42", 42), ("0x2a", 42), (" 0X2A ", 42)] {
+            assert_eq!(parse_gpu_uid(input).unwrap(), expected, "{input}");
+        }
+    }
+
+    #[test]
+    fn gpu_uid_parser_rejects_malformed_values() {
+        for input in ["", "0x", "not-a-guid"] {
+            assert!(parse_gpu_uid(input).is_err(), "{input}");
+        }
     }
 
     #[test]
