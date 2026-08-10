@@ -115,7 +115,7 @@ fn convert_vpcs_to_nice_table(vpcs: forgerpc::VpcList) -> Box<Table> {
 
     for vpc in vpcs.vpcs {
         let metadata = vpc.metadata.as_ref().unwrap_or(&default_metadata);
-        let config = vpc.config.clone().unwrap_or_default();
+        let config = vpc.config.unwrap_or_default();
         let virt_type = forgerpc::VpcVirtualizationType::try_from(
             config.network_virtualization_type.unwrap_or_default(),
         )
@@ -147,10 +147,11 @@ fn convert_vpcs_to_nice_table(vpcs: forgerpc::VpcList) -> Box<Table> {
     table.into()
 }
 
-pub fn convert_vpc_to_nice_format(vpc: &forgerpc::Vpc) -> CarbideCliResult<String> {
+pub(in crate::vpc) fn convert_vpc_to_nice_format(vpc: &forgerpc::Vpc) -> CarbideCliResult<String> {
     let width = 25;
     let mut lines = String::new();
-    let config = vpc.config.clone().unwrap_or_default();
+    let default_config = Default::default();
+    let config = vpc.config.as_ref().unwrap_or(&default_config);
     let allocated_vni = vpc
         .status
         .as_ref()
@@ -183,7 +184,11 @@ pub fn convert_vpc_to_nice_format(vpc: &forgerpc::Vpc) -> CarbideCliResult<Strin
         ("TENANT ORG", config.tenant_organization_id.as_str().into()),
         (
             "NETWORK SECURITY GROUP",
-            config.network_security_group_id.unwrap_or_default().into(),
+            config
+                .network_security_group_id
+                .as_deref()
+                .unwrap_or_default()
+                .into(),
         ),
         ("VERSION", vpc.version.as_str().into()),
         (
@@ -203,7 +208,11 @@ pub fn convert_vpc_to_nice_format(vpc: &forgerpc::Vpc) -> CarbideCliResult<Strin
         ),
         (
             "TENANT KEYSET",
-            config.tenant_keyset_id.unwrap_or_default().into(),
+            config
+                .tenant_keyset_id
+                .as_deref()
+                .unwrap_or_default()
+                .into(),
         ),
         ("VNI", format!("{allocated_vni}").into()),
         (
@@ -215,7 +224,11 @@ pub fn convert_vpc_to_nice_format(vpc: &forgerpc::Vpc) -> CarbideCliResult<Strin
         ),
         (
             "ROUTING PROFILE TYPE",
-            config.routing_profile_type.unwrap_or_default().into(),
+            config
+                .routing_profile_type
+                .as_deref()
+                .unwrap_or_default()
+                .into(),
         ),
         (
             "ROUTING PROFILE OVERRIDES",
