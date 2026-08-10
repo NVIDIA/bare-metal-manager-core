@@ -49,6 +49,48 @@ async fn explore_bluefield3_baseline() {
 }
 
 #[test]
+async fn explore_bluefield3_ignores_invalid_system_interface_mac() {
+    let h = test_support::dell_poweredge_r750_bluefield3_bmc(DpuSettings::default()).await;
+    h.state.injection.put(vec![bmc_mock::injection::Rule {
+        id: "invalid_system_interface_mac".into(),
+        selector: bmc_mock::injection::Selector::Path {
+            method: Some("GET".into()),
+            glob: "/redfish/v1/Systems/Bluefield/EthernetInterfaces/oob_net0".into(),
+        },
+        action: bmc_mock::injection::Action::JsonMerge(serde_json::json!({
+            "Id": "eth0",
+            "InterfaceEnabled": true,
+            "LinkStatus": "LinkDown",
+            "MACAddress": "00:00:11:e7:fe:80:00:00:00:00:00:00:02:00:00:03:00:18:00:01",
+        })),
+        remaining: None,
+    }]);
+
+    let report = nv_generate_exploration_report(h.service_root, &common::explorer_config())
+        .await
+        .unwrap();
+    let system = report.systems.first().expect("systems must be present");
+    let eth0 = system
+        .ethernet_interfaces
+        .iter()
+        .find(|interface| interface.id.as_deref() == Some("eth0"))
+        .expect("invalid interface must be preserved");
+    let oob = system
+        .ethernet_interfaces
+        .iter()
+        .find(|interface| interface.id.as_deref() == Some("oob_net0"))
+        .expect("OOB interface must be preserved");
+
+    assert_eq!(eth0.mac_address, None);
+    assert!(oob.mac_address.is_some(), "valid OOB MAC must be preserved");
+    assert!(system.base_mac.is_some(), "DPU base MAC must be preserved");
+    assert!(
+        report.dpu_pairing_serial_number().is_some(),
+        "DPU pairing serial number must be preserved"
+    );
+}
+
+#[test]
 async fn explore_bluefield3_without_system_eth_interfaces() {
     let settings = DpuSettings {
         exposes_oob_eth: false,

@@ -343,6 +343,7 @@ impl<B: Bmc> ExploredComputerSystem<B> {
         &self,
         hw_type: Option<hw::HwType>,
     ) -> Result<Vec<ModelEthernetInterface>, Error<B>> {
+        let is_bluefield = hw_type == Some(hw::HwType::Bluefield);
         let mut result = self.ethernet_interfaces.iter()
             .map(|iface| {
                 let mac_address = iface
@@ -353,15 +354,18 @@ impl<B: Bmc> ExploredComputerSystem<B> {
                     })
                     .transpose()
                     .or_else(|err| {
-                        if iface
-                            .interface_enabled().is_some_and(|is_enabled| !is_enabled)
+                        if is_bluefield
+                            || iface
+                                .interface_enabled()
+                                .is_some_and(|is_enabled| !is_enabled)
                         {
-                            // disabled interfaces sometimes populate the MAC address with junk,
-                            // ignore this error and create the interface with an empty mac address
-                            // in the exploration report
+                            // Some BlueField firmware and disabled interfaces can populate
+                            // MACAddress with junk. Keep the interface but omit its invalid MAC.
                             tracing::debug!(
-                                "could not parse MAC address for a disabled interface {} (link_status: {:#?}): {err}",
-                                iface.id(), iface.link_status()
+                                interface_id = %iface.id(),
+                                link_status = ?iface.link_status(),
+                                error = %err,
+                                "ignoring invalid system interface MAC address"
                             );
                             Ok(None)
                         } else {
@@ -386,7 +390,7 @@ impl<B: Bmc> ExploredComputerSystem<B> {
                 })
             }).collect::<Result<Vec<_>, _>>()?;
 
-        if hw_type.is_some_and(|v| v == hw::HwType::Bluefield)
+        if is_bluefield
             && !result.iter().any(|iface| {
                 iface
                     .id
