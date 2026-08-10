@@ -67,6 +67,10 @@ spec:
               containerPort: {{ $root.Values.machineATron.mockBmcSshPort }}
               protocol: TCP
             {{- end }}
+          {{- with $root.Values.startupProbe }}
+          startupProbe:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
           {{- with $root.Values.livenessProbe }}
           livenessProbe:
             {{- toYaml . | nindent 12 }}

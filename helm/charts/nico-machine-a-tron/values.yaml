@@ -99,10 +99,25 @@ envFrom:
   vaultClusterInfo:
     configMapName: vault-cluster-info
 
+# startupProbe gates the livenessProbe until MAT has bound its redfish port.
+# MAT binds the port only after registering all expected machines via the API,
+# which takes O(hosts) time. Without a startupProbe the kubelet kills the pod
+# mid-registration (exit 137) once livenessProbe failures exceed failureThreshold
+# (issue #4298). Scale the failureThreshold to cover your largest deployment:
+#   hosts=2300  → default (20 * 30s = 10 min)
+#   hosts=4500  → failureThreshold: 60  (30 min)
+#   hosts=13500 → failureThreshold: 480 (4 h, see machine-a-tron-scale.yaml)
+startupProbe:
+  tcpSocket:
+    port: redfish
+  periodSeconds: 30
+  failureThreshold: 20
+  successThreshold: 1
+  timeoutSeconds: 10
+
 livenessProbe:
   tcpSocket:
     port: redfish
-  initialDelaySeconds: 30
   periodSeconds: 30
   failureThreshold: 3
   successThreshold: 1
