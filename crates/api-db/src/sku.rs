@@ -397,7 +397,7 @@ pub async fn generate_sku_from_machine_at_version_0_or_1(
         let key = (gpu.name.clone(), gpu.total_memory.clone());
         gpu_components
             .entry(key)
-            .and_modify(|entry| entry.count += 1)
+            .and_modify(|entry| entry.count = entry.count.saturating_add(1))
             .or_insert(SkuComponentGpu {
                 vendor,
                 model: gpu.name.clone(),
@@ -410,11 +410,11 @@ pub async fn generate_sku_from_machine_at_version_0_or_1(
     let mut total_mem = 0u64;
     for mem in &hardware_info.memory_devices {
         if let Some(cap) = mem.size_mb {
-            total_mem += cap as u64 * mem.count as u64;
+            total_mem = total_mem.saturating_add((cap as u64).saturating_mul(mem.count as u64));
             let key = (mem.mem_type.clone().unwrap_or_default(), cap);
             mem_components
                 .entry(key.clone())
-                .and_modify(|entry| entry.count += mem.count)
+                .and_modify(|entry| entry.count = entry.count.saturating_add(mem.count))
                 .or_insert(SkuComponentMemory {
                     capacity_mb: key.1,
                     memory_type: key.0,
@@ -550,11 +550,11 @@ pub fn generate_base_sku_from_hardware(
     let mut total_mem = 0u64;
     for mem in &hardware_info.memory_devices {
         if let Some(cap) = mem.size_mb {
-            total_mem += cap as u64 * mem.count as u64;
+            total_mem = total_mem.saturating_add((cap as u64).saturating_mul(mem.count as u64));
             let key = (mem.mem_type.clone().unwrap_or_default(), cap);
             mem_components
                 .entry(key.clone())
-                .and_modify(|entry| entry.count += mem.count)
+                .and_modify(|entry| entry.count = entry.count.saturating_add(mem.count))
                 .or_insert(SkuComponentMemory {
                     capacity_mb: key.1,
                     memory_type: key.0,
