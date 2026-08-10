@@ -212,7 +212,8 @@ type APISkuComponents struct {
 	Storage []APISkuStorage `json:"storage"`
 	// Chassis describes chassis component
 	Chassis *APISkuChassis `json:"chassis"`
-	// EthernetDevices describes ethernet device components
+	// EthernetDevices describes read-only ethernet device components.
+	// REST mutation requests may omit it or provide an empty value.
 	EthernetDevices []APISkuEthernetDevice `json:"ethernetDevices"`
 	// InfinibandDevices describes infiniband device components
 	InfinibandDevices []APISkuInfinibandDevice `json:"infinibandDevices"`
@@ -220,9 +221,15 @@ type APISkuComponents struct {
 	Tpm *APISkuTpm `json:"tpm"`
 }
 
-// Validate checks every storage component.
+// Validate rejects unsupported component mutations and checks every storage component.
 func (c APISkuComponents) Validate() error {
-	return validation.Validate(c.Storage, validation.Each())
+	return validation.ValidateStruct(&c,
+		validation.Field(
+			&c.EthernetDevices,
+			validation.Length(0, 0).Error("must be empty because this field is read-only"),
+		),
+		validation.Field(&c.Storage, validation.Each()),
+	)
 }
 
 // APISkuCpu represents a CPU component in the SKU

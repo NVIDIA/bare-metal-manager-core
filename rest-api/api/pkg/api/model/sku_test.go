@@ -1066,6 +1066,48 @@ func TestAPISkuStorage_Validate(t *testing.T) {
 	}
 }
 
+func TestAPISkuComponents_Validate(t *testing.T) {
+	for _, test := range []struct {
+		name            string
+		ethernetDevices []APISkuEthernetDevice
+		wantErr         bool
+	}{
+		{
+			name: "accepts omitted ethernet devices",
+		},
+		{
+			name:            "accepts empty ethernet devices",
+			ethernetDevices: []APISkuEthernetDevice{},
+		},
+		{
+			name: "rejects non-empty ethernet devices",
+			ethernetDevices: []APISkuEthernetDevice{
+				{
+					Vendor:      "Mellanox Technologies",
+					Model:       "MT2892 Family [ConnectX-6 Dx]",
+					Count:       2,
+					IsConnected: true,
+				},
+			},
+			wantErr: true,
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			components := testAPISkuComponents()
+			components.EthernetDevices = test.ethernetDevices
+
+			err := components.Validate()
+			if test.wantErr {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), "ethernetDevices")
+				assert.Contains(t, err.Error(), "read-only")
+				return
+			}
+			assert.NoError(t, err)
+		})
+	}
+}
+
 func TestAPISkuRequests_UnmarshalJSON(t *testing.T) {
 	t.Run("create", func(t *testing.T) {
 		var request APISkuCreateRequest

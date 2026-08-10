@@ -25129,7 +25129,8 @@ components:
           description: Chassis component
         ethernetDevices:
           type: array
-          description: Ethernet device components
+          readOnly: true
+          description: Read-only Ethernet device components reported by Core. Omit this property from REST mutation requests; null and an empty array are accepted for compatibility, while a non-empty array is rejected with HTTP 400.
           items:
             $ref: '#/components/schemas/SkuEthernetDevice'
         infinibandDevices:

@@ -816,6 +816,26 @@ func TestCreateSkuHandler(t *testing.T) {
 		assert.Empty(t, fixture.requests)
 	})
 
+	t.Run("rejects non-empty read-only ethernet devices", func(t *testing.T) {
+		fixture := newSkuManagementFixture(t, []string{authz.ProviderAdminRole})
+		req := validSkuCreateRequest(fixture.siteID)
+		req.Components.EthernetDevices = []model.APISkuEthernetDevice{
+			{
+				Vendor:      "Mellanox Technologies",
+				Model:       "MT2892 Family [ConnectX-6 Dx]",
+				Count:       2,
+				IsConnected: true,
+			},
+		}
+
+		rec := fixture.request(t, http.MethodPost, "", req, fixture.createHandler.Handle)
+
+		require.Equal(t, http.StatusBadRequest, rec.Code, rec.Body.String())
+		assert.Contains(t, rec.Body.String(), "ethernetDevices")
+		assert.Contains(t, rec.Body.String(), "read-only")
+		assert.Empty(t, fixture.requests)
+	})
+
 	t.Run("rejects legacy storage mutation fields", func(t *testing.T) {
 		fixture := newSkuManagementFixture(t, []string{authz.ProviderAdminRole})
 
@@ -1085,6 +1105,28 @@ func TestUpdateSkuHandler(t *testing.T) {
 
 		assert.Equal(t, http.StatusBadRequest, rec.Code, rec.Body.String())
 		assert.Contains(t, rec.Body.String(), "minSizeMiB")
+		assert.Empty(t, fixture.requests)
+	})
+
+	t.Run("rejects non-empty read-only ethernet devices", func(t *testing.T) {
+		fixture := newSkuManagementFixture(t, []string{authz.ProviderAdminRole})
+		components := validSkuCreateRequest(fixture.siteID).Components
+		components.EthernetDevices = []model.APISkuEthernetDevice{
+			{
+				Vendor:      "Mellanox Technologies",
+				Model:       "MT2892 Family [ConnectX-6 Dx]",
+				Count:       2,
+				IsConnected: true,
+			},
+		}
+
+		rec := fixture.request(t, http.MethodPatch, "sku-1", model.APISkuUpdateRequest{
+			Components: components,
+		}, fixture.updateHandler.Handle)
+
+		require.Equal(t, http.StatusBadRequest, rec.Code, rec.Body.String())
+		assert.Contains(t, rec.Body.String(), "ethernetDevices")
+		assert.Contains(t, rec.Body.String(), "read-only")
 		assert.Empty(t, fixture.requests)
 	})
 
