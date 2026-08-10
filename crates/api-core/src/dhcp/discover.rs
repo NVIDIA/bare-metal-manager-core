@@ -274,6 +274,7 @@ async fn ensure_dhcp_address_for_family(
             db::machine_interface::lock_network_segments_exclusive(
                 &mut *txn,
                 std::slice::from_ref(&segment.id),
+                "ensure_dhcp_address_for_family",
             )
             .await?;
             db::machine_interface_address::delete_by_interface_family(

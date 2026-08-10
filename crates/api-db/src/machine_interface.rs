@@ -1742,9 +1742,10 @@ async fn create_fast_path(
                 .iter()
                 .any(|prefix| prefix.prefix.is_ipv6())
             {
-                lock_network_segment_exclusive(&mut fast_txn, segment).await?;
+                lock_network_segment_exclusive(&mut fast_txn, segment, "create_fast_path").await?;
             } else {
-                lock_network_segment_shared(&mut fast_txn, segment).await?;
+                lock_network_segment_shared(&mut fast_txn, segment, "create_fast_path_shared")
+                    .await?;
             }
 
             let segment_exhausted = match try_create_fast_path(
@@ -1891,7 +1892,7 @@ pub async fn create_slow_path(
 
     // If either requested addresses are auto-generated, we lock the entire table
     // by way of the inner_txn.
-    lock_network_segment_exclusive(&mut inner_txn, segment).await?;
+    lock_network_segment_exclusive(&mut inner_txn, segment, "create_slow_path").await?;
 
     // Collect SVI IPs so the allocator knows they're already reserved.
     let mut reserved_ips = vec![];
@@ -2271,7 +2272,11 @@ async fn lock_network_segment_shared(
     // Note: Must be a transaction since we're doing locks
     txn: &mut PgTransaction<'_>,
     segment: &NetworkSegment,
+    call_site: &'static str,
 ) -> DatabaseResult<()> {
+    // Issues its own query rather than funnelling through
+    // `lock_network_segments_exclusive`, so it records its own acquisition.
+    record_admin_lock_site(call_site);
     let query = "SELECT pg_advisory_xact_lock_shared(hashtextextended($1::text, 0))";
     sqlx::query_scalar(query)
         .bind(format!("network_segment.{}", segment.id))
@@ -2284,8 +2289,12 @@ async fn lock_network_segment_exclusive(
     // Note: Must be a transaction since we're doing locks
     txn: &mut PgTransaction<'_>,
     segment: &NetworkSegment,
+    call_site: &'static str,
 ) -> DatabaseResult<()> {
-    lock_network_segments_exclusive(txn.as_mut(), std::slice::from_ref(&segment.id)).await
+    // No `record_admin_lock_site` here: the delegate below records, and
+    // recording in both would count this call twice.
+    lock_network_segments_exclusive(txn.as_mut(), std::slice::from_ref(&segment.id), call_site)
+        .await
 }
 
 /// Advisory-lock every segment in `segment_ids`, in ascending id order --
@@ -2294,10 +2303,17 @@ async fn lock_network_segment_exclusive(
 /// ordering; every segment-lock helper funnels through it. Must run inside a
 /// transaction: the locks are `pg_advisory_xact_lock`-scoped and release on
 /// commit or rollback.
+///
+/// `call_site` names the caller for the [`record_admin_lock_site`] tally; it
+/// must be a `&'static str` label, conventionally the enclosing function name.
 pub async fn lock_network_segments_exclusive(
     txn: &mut PgConnection,
     segment_ids: &[NetworkSegmentId],
+    call_site: &'static str,
 ) -> DatabaseResult<()> {
+    // One increment per invocation, not per segment id, so the numbers stay
+    // comparable with the counts collected before this funnel was instrumented.
+    record_admin_lock_site(call_site);
     let mut ids = segment_ids.to_vec();
     ids.sort_unstable();
     ids.dedup();
@@ -2319,12 +2335,21 @@ pub async fn lock_network_segments_exclusive(
 /// the transaction so the whole transaction follows the allocator order.
 /// Later acquisitions of the same locks in the same transaction (reconcile's
 /// own pass) are no-ops.
-/// Per-call-site tally of admin-segment lock acquisitions (#4711).
+/// Per-call-site tally of network-segment advisory lock acquisitions (#4711).
 ///
 /// The first attempt at reducing this traffic optimized ONE of the five call
 /// sites on the assumption it dominated, and measured no reduction at all --
 /// the attribution had been inferred rather than measured. This records which
 /// site actually acquires the lock, so the next change can be aimed.
+///
+/// The second attempt instrumented only `lock_all_admin_segments` and logged
+/// nothing across a 4,500-host run that Postgres recorded as 787,922
+/// `pg_advisory_xact_lock` calls: the traffic came from the direct
+/// `lock_network_segment_{exclusive,shared}` callers, which bypassed the
+/// counter. Every segment-lock helper now records, so the tally covers all of
+/// them -- shared acquisitions included, under a `_shared`-suffixed label,
+/// since shared locks do not conflict with each other and should not be read
+/// as contention.
 static ADMIN_LOCK_SITES: std::sync::LazyLock<
     std::sync::Mutex<std::collections::HashMap<&'static str, u64>>,
 > = std::sync::LazyLock::new(|| std::sync::Mutex::new(std::collections::HashMap::new()));
@@ -2350,7 +2375,7 @@ pub(crate) fn record_admin_lock_site(call_site: &'static str) {
             target: "carbide::lock_profile",
             total_acquisitions = total,
             breakdown = %rendered,
-            "admin-segment lock acquisitions by call site"
+            "network-segment lock acquisitions by call site"
         );
     }
 }
@@ -2359,10 +2384,9 @@ pub async fn lock_all_admin_segments(
     txn: &mut PgConnection,
     call_site: &'static str,
 ) -> DatabaseResult<()> {
-    record_admin_lock_site(call_site);
     let segment_ids =
         db_network_segment::list_segment_ids(&mut *txn, Some(NetworkSegmentType::Admin)).await?;
-    lock_network_segments_exclusive(txn, &segment_ids).await
+    lock_network_segments_exclusive(txn, &segment_ids, call_site).await
 }
 
 static ADMIN_LOCK_ADMISSION: std::sync::OnceLock<std::sync::Arc<tokio::sync::Semaphore>> =
@@ -2408,7 +2432,7 @@ pub async fn allocate_svi_ip(
         });
 
     // Prevent other allocations from happening concurrently in this network segment
-    lock_network_segment_exclusive(txn, segment).await?;
+    lock_network_segment_exclusive(txn, segment, "allocate_svi_ip").await?;
 
     let mut addresses_allocator = IpAllocator::new(
         txn.as_mut(),
@@ -3479,13 +3503,12 @@ async fn load_and_lock_all_admin_segments(
     txn: &mut Transaction<'_>,
     call_site: &'static str,
 ) -> DatabaseResult<Vec<NetworkSegment>> {
-    record_admin_lock_site(call_site);
     let (segments, segment_ids) = load_all_admin_segments(txn).await?;
     if segment_ids.is_empty() {
         return Ok(segments);
     }
 
-    lock_network_segments_exclusive(txn.as_pgconn(), &segment_ids).await?;
+    lock_network_segments_exclusive(txn.as_pgconn(), &segment_ids, call_site).await?;
 
     Ok(segments)
 }
@@ -3821,9 +3844,11 @@ pub async fn allocate_address_for_family(
 ) -> DatabaseResult<Vec<IpAddr>> {
     let mut fast_txn = Transaction::begin_inner(txn).await?;
     if family == IpAddressFamily::Ipv6 {
-        lock_network_segment_exclusive(&mut fast_txn, segment).await?;
+        lock_network_segment_exclusive(&mut fast_txn, segment, "allocate_address_for_family")
+            .await?;
     } else {
-        lock_network_segment_shared(&mut fast_txn, segment).await?;
+        lock_network_segment_shared(&mut fast_txn, segment, "allocate_address_for_family_shared")
+            .await?;
     }
 
     let mut allocated_addresses = Vec::new();
