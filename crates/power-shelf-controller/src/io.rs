@@ -178,19 +178,15 @@ impl StateControllerIO for PowerShelfStateControllerIO {
                     model::power_shelf::PowerShelfDecommissioningState::SuppressingSiteExplorer => {
                         "suppressingsiteexplorer"
                     }
-                    model::power_shelf::PowerShelfDecommissioningState::VerifyingDhcpRelease {
-                        verifying_state,
-                    } => match verifying_state {
-                        model::power_shelf::PowerShelfVerifyingDhcpReleaseState::FactoryResetBmc => {
-                            "factoryresetbmc"
-                        }
-                        model::power_shelf::PowerShelfVerifyingDhcpReleaseState::SuppressingBmcDhcp => {
-                            "suppressingbmcdhcp"
-                        }
-                        model::power_shelf::PowerShelfVerifyingDhcpReleaseState::WaitingForBmcDhcpAcknowledgement => {
-                            "waitingforbmcdhcpacknowledgement"
-                        }
-                    },
+                    model::power_shelf::PowerShelfDecommissioningState::SuppressingBmcDhcp => {
+                        "suppressingbmcdhcp"
+                    }
+                    model::power_shelf::PowerShelfDecommissioningState::FactoryResetBmc => {
+                        "factoryresetbmc"
+                    }
+                    model::power_shelf::PowerShelfDecommissioningState::WaitingForBmcDhcpAcknowledgement => {
+                        "waitingforbmcdhcpacknowledgement"
+                    }
                     model::power_shelf::PowerShelfDecommissioningState::DeletingManagedCredentials => {
                         "deletingmanagedcredentials"
                     }

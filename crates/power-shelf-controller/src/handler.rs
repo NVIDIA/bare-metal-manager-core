@@ -19,8 +19,7 @@
 
 use carbide_uuid::power_shelf::PowerShelfId;
 use model::power_shelf::{
-    PowerShelf, PowerShelfControllerState, PowerShelfDecommissioningState,
-    derive_power_shelf_aggregate_health,
+    PowerShelf, PowerShelfControllerState, derive_power_shelf_aggregate_health,
 };
 use state_controller::state_handler::{
     StateHandler, StateHandlerContext, StateHandlerError, StateHandlerOutcome,
@@ -29,10 +28,7 @@ use tracing::instrument;
 
 use crate::configuring::handle_configuring;
 use crate::context::PowerShelfStateHandlerContextObjects;
-use crate::decommissioning::{
-    handle_deleting_managed_credentials, handle_suppressing_site_explorer,
-    handle_verifying_dhcp_release,
-};
+use crate::decommissioning::handle_decommissioning;
 use crate::deleting::handle_deleting;
 use crate::error_state::handle_error;
 use crate::fetching_data::handle_fetching_data;
@@ -97,20 +93,7 @@ impl PowerShelfStateHandler {
             }
             PowerShelfControllerState::Decommissioning {
                 decommissioning_state,
-            } => match decommissioning_state {
-                PowerShelfDecommissioningState::SuppressingSiteExplorer => {
-                    handle_suppressing_site_explorer(power_shelf_id, state, ctx).await
-                }
-                PowerShelfDecommissioningState::VerifyingDhcpRelease { verifying_state } => {
-                    handle_verifying_dhcp_release(verifying_state, state, ctx).await
-                }
-                PowerShelfDecommissioningState::DeletingManagedCredentials => {
-                    handle_deleting_managed_credentials(state, ctx).await
-                }
-                PowerShelfDecommissioningState::Decommissioned => {
-                    Ok(StateHandlerOutcome::do_nothing())
-                }
-            },
+            } => handle_decommissioning(power_shelf_id, state, decommissioning_state, ctx).await,
             PowerShelfControllerState::Deleting => {
                 handle_deleting(power_shelf_id, state, ctx).await
             }
