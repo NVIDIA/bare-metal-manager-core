@@ -158,13 +158,10 @@ impl StateControllerIO for SwitchStateControllerIO {
                 "decommissioning",
                 match decommissioning_state {
                     SwitchDecommissioningState::SuppressingSiteExplorer => {
-                        "suppressingsiteexplorer"
+                        "suppressing_site_explorer"
                     }
                     SwitchDecommissioningState::SuppressingNvosDhcp => "suppressing_nvos_dhcp",
                     SwitchDecommissioningState::FactoryResetNvos => "factory_reset_nvos",
-                    SwitchDecommissioningState::WaitingForNvosFactoryReset { .. } => {
-                        "waiting_for_nvos_factory_reset"
-                    }
                     SwitchDecommissioningState::WaitingForNvosDhcpAcknowledgement => {
                         "waiting_for_nvos_dhcp_acknowledgement"
                     }

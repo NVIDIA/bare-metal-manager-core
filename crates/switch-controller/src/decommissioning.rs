@@ -20,7 +20,6 @@
 use carbide_redfish::libredfish::RedfishAuth;
 use carbide_secrets::credentials::{BmcCredentialType, CredentialKey, CredentialWriter};
 use carbide_uuid::switch::SwitchId;
-use component_manager::nv_switch_manager::SwitchFactoryResetState;
 use libredfish::model::service_root::RedfishVendor;
 use mac_address::MacAddress;
 use model::bmc_suppression::{BmcSuppressionSubsystem, NewBmcSuppression};
@@ -106,9 +105,6 @@ pub(super) async fn handle_decommissioning(
         }
         SwitchDecommissioningState::FactoryResetNvos => {
             handle_factory_reset_nvos(switch_id, ctx).await
-        }
-        SwitchDecommissioningState::WaitingForNvosFactoryReset { job_id } => {
-            handle_waiting_for_nvos_factory_reset(switch_id, job_id, ctx).await
         }
         SwitchDecommissioningState::WaitingForNvosDhcpAcknowledgement => {
             handle_waiting_for_nvos_dhcp_acknowledgement(switch_id, ctx).await
@@ -197,49 +193,14 @@ async fn handle_factory_reset_nvos(
     )
     .await?;
     let tls_server_domain = endpoint.nvos_host_name.clone();
-    let job_id = component_manager
+    component_manager
         .nv_switch
         .batch_reset_switch_factory_default(&[endpoint], tls_server_domain.as_deref())
         .await
         .map_err(|error| external_error("failed to submit NVOS factory reset", error))?;
     Ok(StateHandlerOutcome::transition(decommissioning(
-        SwitchDecommissioningState::WaitingForNvosFactoryReset { job_id },
+        SwitchDecommissioningState::WaitingForNvosDhcpAcknowledgement,
     )))
-}
-
-async fn handle_waiting_for_nvos_factory_reset(
-    switch_id: &SwitchId,
-    job_id: &str,
-    ctx: &mut StateHandlerContext<'_, SwitchStateHandlerContextObjects>,
-) -> Result<StateHandlerOutcome<SwitchControllerState>, StateHandlerError> {
-    let component_manager = ctx.services.component_manager.clone().ok_or_else(|| {
-        StateHandlerError::InvalidState(format!(
-            "switch {switch_id} requires the RMS component-manager backend for decommissioning"
-        ))
-    })?;
-    let status = component_manager
-        .nv_switch
-        .get_switch_factory_reset_job_status(job_id)
-        .await
-        .map_err(|error| external_error("failed to read NVOS factory-reset job", error))?;
-    match status.state {
-        SwitchFactoryResetState::Pending => Ok(StateHandlerOutcome::wait(format!(
-            "waiting for NVOS factory-reset job {job_id}"
-        ))),
-        SwitchFactoryResetState::Completed => Ok(StateHandlerOutcome::transition(decommissioning(
-            SwitchDecommissioningState::WaitingForNvosDhcpAcknowledgement,
-        ))),
-        SwitchFactoryResetState::Failed => {
-            Err(StateHandlerError::ManualInterventionRequired(format!(
-                "NVOS factory-reset job {job_id} failed{}",
-                status
-                    .error
-                    .as_deref()
-                    .map(|error| format!(": {error}"))
-                    .unwrap_or_default()
-            )))
-        }
-    }
 }
 
 async fn handle_waiting_for_nvos_dhcp_acknowledgement(

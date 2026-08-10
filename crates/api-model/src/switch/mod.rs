@@ -370,11 +370,9 @@ pub enum SwitchDecommissioningState {
     /// NVOS DHCP is suppressed before the factory reset so post-reset discovers are ignored.
     SuppressingNvosDhcp,
     /// Submits the destructive RMS NVOS factory-reset job.
+    /// Completion is not polled: NVOS DHCP is already suppressed, so the job
+    /// cannot be observed reliably; progress continues via DHCP acknowledgement.
     FactoryResetNvos,
-    /// Waiting for the scheduled NVOS factory-reset job to finish.
-    WaitingForNvosFactoryReset {
-        job_id: String,
-    },
     /// Waiting for the pre-reset NVOS DHCP suppression to be acknowledged.
     WaitingForNvosDhcpAcknowledgement,
     /// BMC DHCP is suppressed before the BMC factory reset.
@@ -506,12 +504,6 @@ pub fn state_sla(state: &SwitchControllerState, state_version: &ConfigVersion) -
             ),
             SwitchDecommissioningState::FactoryResetNvos => StateSla::with_sla(
                 std::time::Duration::from_secs(slas::DECOMMISSIONING_FACTORY_RESET_NVOS),
-                time_in_state,
-            ),
-            SwitchDecommissioningState::WaitingForNvosFactoryReset { .. } => StateSla::with_sla(
-                std::time::Duration::from_secs(
-                    slas::DECOMMISSIONING_WAITING_FOR_NVOS_FACTORY_RESET,
-                ),
                 time_in_state,
             ),
             SwitchDecommissioningState::WaitingForNvosDhcpAcknowledgement => StateSla::with_sla(
@@ -670,17 +662,6 @@ mod tests {
                     decommissioning_state: SwitchDecommissioningState::FactoryResetNvos,
                 } => Yields(
                     r#"{"state":"decommissioning","decommissioning_state":{"state":"factoryresetnvos"}}"#
-                        .to_string(),
-                ),
-            }
-
-            "decommissioning: waiting for NVOS factory reset" {
-                SwitchControllerState::Decommissioning {
-                    decommissioning_state: SwitchDecommissioningState::WaitingForNvosFactoryReset {
-                        job_id: "reset-1".to_string(),
-                    },
-                } => Yields(
-                    r#"{"state":"decommissioning","decommissioning_state":{"state":"waitingfornvosfactoryreset","job_id":"reset-1"}}"#
                         .to_string(),
                 ),
             }
