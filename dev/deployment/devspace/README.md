@@ -101,7 +101,6 @@ DevSpace will:
 - build the REST API, workflow, site-manager, site-agent, database migration, certificate-manager, and MCP images from [`rest-api/docker/local`](../../../rest-api/docker/local)
 - deploy the Helm chart in [`helm/`](../../../helm) (including `nico-machine-a-tron`)
 - deploy the REST umbrella, site-agent, and MCP charts in [`helm/rest`](../../../helm/rest)
-- apply the local-only `machine-a-tron` Kubernetes objects from [`machine-a-tron.yaml`](machine-a-tron.yaml) with `kubectl`
 - inject the built image names and DevSpace-generated tags into both deployments at runtime
 - register a local REST site, configure its Temporal namespace, and confirm that the site agent establishes a Core gRPC connection
 
@@ -177,6 +176,7 @@ docker build -t "machine-a-tron:<devspace-generated-tag>" -f dev/deployment/devs
 ```
 
 DevSpace then deploys the Helm chart with:
+
 - the built `nico-api` image wired into `global.image.repository` and `global.image.tag`
 - the built `nico-bmc-proxy` image wired into the `nico-bmc-proxy` chart values
 - the built `machine-a-tron` image wired into the `nico-machine-a-tron` chart values
@@ -220,6 +220,9 @@ devspace deploy -n nico-system
 
 ## Files
 
+- [`prepare-ubuntu-host-for-dev.sh`](prepare-ubuntu-host-for-dev.sh)
+- [`setup-devspace-on-host.sh`](setup-devspace-on-host.sh)
+- [`reset-devspace-on-host.sh`](reset-devspace-on-host.sh)
 - [`bootstrap-prereqs.sh`](bootstrap-prereqs.sh)
 - [`reset-kind-cluster.sh`](reset-kind-cluster.sh)
 - [`setup-rest-integration.sh`](setup-rest-integration.sh)
