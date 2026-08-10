@@ -533,6 +533,25 @@ async fn create_vpc(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>
     .await?;
     assert_eq!(&updated_vpc.metadata.name, "yet another new name");
     assert_eq!(updated_vpc.version.version_nr(), 5);
+    assert_eq!(
+        updated_vpc.config.power_resource_group.as_deref(),
+        Some("power-group")
+    );
+
+    let updated_vpc = db::vpc::update(
+        &UpdateVpc {
+            id: no_org_vpc_id,
+            network_security_group_id: None,
+            routing_profile_overrides: None,
+            power_resource_group: Some(String::new()),
+            if_version_match: Some(updated_vpc.version),
+            metadata: updated_vpc.metadata.clone(),
+        },
+        &mut txn,
+    )
+    .await?;
+    assert_eq!(updated_vpc.config.power_resource_group.as_deref(), Some(""));
+    assert_eq!(updated_vpc.version.version_nr(), 6);
 
     let mut vpcs = db::vpc::find_by(
         txn.as_mut(),
@@ -541,7 +560,8 @@ async fn create_vpc(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>
     .await?;
     let first = vpcs.swap_remove(0);
     assert_eq!(&first.metadata.name, "yet another new name");
-    assert_eq!(first.version.version_nr(), 5);
+    assert_eq!(first.version.version_nr(), 6);
+    assert_eq!(first.config.power_resource_group.as_deref(), Some(""));
 
     let vpcs = db::vpc::find_by_with_lock(
         txn.as_mut(),

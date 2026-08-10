@@ -326,10 +326,37 @@ async fn test_update_instance_config(_: PgPoolOptions, options: PgConnectOptions
         .unwrap()
         .into_inner();
 
-    assert_config_equals(instance.config.as_ref().unwrap(), &updated_config_2);
+    let mut expected_config_2 = updated_config_2.clone();
+    expected_config_2.power_profile = Some("balanced".to_string());
+    assert_config_equals(instance.config.as_ref().unwrap(), &expected_config_2);
     assert_metadata_equals(instance.metadata.as_ref().unwrap(), &updated_metadata_2);
     let updated_config_version = instance.config_version.parse::<ConfigVersion>().unwrap();
     assert_eq!(updated_config_version.version_nr(), 3);
+
+    let mut clear_power_profile_config = expected_config_2.clone();
+    clear_power_profile_config.power_profile = Some(String::new());
+    let instance = env
+        .api
+        .update_instance_config(tonic::Request::new(
+            rpc::forge::InstanceConfigUpdateRequest {
+                instance_id: Some(tinstance.id),
+                if_version_match: Some(updated_config_version.version_string()),
+                config: Some(clear_power_profile_config),
+                metadata: Some(updated_metadata_2.clone()),
+            },
+        ))
+        .await
+        .unwrap()
+        .into_inner();
+    assert_eq!(instance.config.unwrap().power_profile, None);
+    assert_eq!(
+        instance
+            .config_version
+            .parse::<ConfigVersion>()
+            .unwrap()
+            .version_nr(),
+        4
+    );
 
     // Try to update a non-existing instance
     let unknown_instance = uuid::Uuid::new_v4();

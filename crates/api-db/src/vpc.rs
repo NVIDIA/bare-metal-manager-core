@@ -329,6 +329,8 @@ pub async fn update(value: &UpdateVpc, txn: &mut PgConnection) -> DatabaseResult
 
     // An omitted override preserves the current definition. A present message
     // replaces it so its unset properties inherit from the named base profile.
+    // An omitted power resource group also preserves the current value. Any
+    // present string replaces it exactly, including the empty string.
     // network_virtualization_type cannot be changed currently
     // TODO check number of changed rows
     let query = "UPDATE vpcs
