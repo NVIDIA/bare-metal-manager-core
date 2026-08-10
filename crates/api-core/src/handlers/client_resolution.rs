@@ -186,6 +186,7 @@ pub(super) async fn resolve_cloud_init_instructions(
                 instance_id: instance.id.to_string(),
                 cloud_name,
                 platform,
+                local_hostname: instance.metadata.name.clone(),
             }),
             api_url_override: None,
             pxe_url_override: None,

@@ -253,11 +253,14 @@ async fn meta_data(machine: Machine, state: State<AppState>) -> impl IntoRespons
             OutcomeReason::MetadataNotFound,
         ),
         Some(metadata) => {
-            let template_data = HashMap::from([
+            let mut template_data = HashMap::from([
                 ("instance_id".to_string(), metadata.instance_id),
                 ("cloud_name".to_string(), metadata.cloud_name),
                 ("platform".to_string(), metadata.platform),
             ]);
+            if !metadata.local_hostname.is_empty() {
+                template_data.insert("local-hostname".to_string(), metadata.local_hostname);
+            }
 
             emit(PxeBootOutcome {
                 endpoint: BootEndpoint::CloudInit,
@@ -863,6 +866,83 @@ mod tests {
             }
         }
     }
+
+    fn test_app_state_with_templates() -> AppState {
+        use axum_template::engine::Engine;
+        use metrics_exporter_prometheus::PrometheusBuilder;
+        use tera::Tera;
+
+        let template_glob =
+            concat!(env!("CARGO_MANIFEST_DIR"), "/../../pxe/templates/**/*");
+        let tera = Tera::new(template_glob).expect("failed to load pxe templates");
+        let mut state = test_app_state();
+        state.engine = Engine::from(tera);
+        state.prometheus_handle = PrometheusBuilder::new().build_recorder().handle();
+        state
+    }
+
+    /// When an instance has a name, meta-data includes local-hostname so
+    /// cloud-init sets the OS hostname via the NoCloud datasource.
+    #[tokio::test]
+    async fn meta_data_includes_local_hostname_when_instance_has_name() {
+        let response = meta_data(
+            Machine {
+                instructions: forge::CloudInitInstructions {
+                    metadata: Some(forge::CloudInitMetaData {
+                        instance_id: "test-instance-id".to_string(),
+                        cloud_name: "nvidia".to_string(),
+                        platform: "forge".to_string(),
+                        local_hostname: "my-node".to_string(),
+                    }),
+                    ..Default::default()
+                },
+            },
+            State(test_app_state_with_templates()),
+        )
+        .await
+        .into_response();
+
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let text = std::str::from_utf8(&body).unwrap();
+        assert!(
+            text.contains("local-hostname: my-node"),
+            "meta-data should contain local-hostname, got: {text}"
+        );
+    }
+
+    /// When an instance has no name, meta-data must not include local-hostname
+    /// so cloud-init falls back to its default hostname derivation.
+    #[tokio::test]
+    async fn meta_data_omits_local_hostname_when_instance_has_no_name() {
+        let response = meta_data(
+            Machine {
+                instructions: forge::CloudInitInstructions {
+                    metadata: Some(forge::CloudInitMetaData {
+                        instance_id: "test-instance-id".to_string(),
+                        cloud_name: "nvidia".to_string(),
+                        platform: "forge".to_string(),
+                        local_hostname: String::new(),
+                    }),
+                    ..Default::default()
+                },
+            },
+            State(test_app_state_with_templates()),
+        )
+        .await
+        .into_response();
+
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let text = std::str::from_utf8(&body).unwrap();
+        assert!(
+            !text.contains("local-hostname"),
+            "meta-data must not contain local-hostname when name is empty, got: {text}"
+        );
+    }
+
 
     /// A meta-data request with no metadata lands in the generic-error
     /// funnel, which serves the error template and moves the outcome
