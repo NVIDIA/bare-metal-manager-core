@@ -22,7 +22,7 @@ use tokio_util::sync::CancellationToken;
 
 /// Start a task that will wait for SIGINT or SIGTERM, and will cancel the given CancellationToken
 /// when either of them occur.
-pub fn start(join_set: &mut JoinSet<()>, cancel_token: CancellationToken) {
+pub(super) fn start(join_set: &mut JoinSet<()>, cancel_token: CancellationToken) {
     // Register the signals before returning
     let signal_future = shutdown_signal();
 
