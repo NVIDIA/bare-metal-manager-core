@@ -567,7 +567,9 @@ func (c *grpcClient) DecommissionSwitch(ctx context.Context, switchID string) er
 	ctx, cancel := context.WithTimeout(ctx, c.grpcTimeout)
 	defer cancel()
 
-	_, err := c.gclient.DecommissionSwitch(ctx, &corev1.SwitchId{Id: switchID})
+	_, err := c.gclient.DecommissionSwitch(ctx, &corev1.DecommissionSwitchRequest{
+		SwitchId: &corev1.SwitchId{Id: switchID},
+	})
 	if err != nil {
 		return fmt.Errorf("decommission switch %s: %w", switchID, err)
 	}

@@ -361,29 +361,30 @@ pub enum ReProvisioningState {
     WaitingForNMXCConfigure,
 }
 
-/// Progress through NVOS DHCP release verification.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(tag = "state", rename_all = "lowercase")]
-pub enum VerifyNvosDhcpReleaseState {
-    ForceRestarting,
-    WaitingForDhcpAcknowledgement,
-}
-
 /// Progress through the managed-switch decommissioning workflow.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "state", rename_all = "lowercase")]
 pub enum SwitchDecommissioningState {
-    Preparing,
-    /// The absence of a job ID means the destructive RMS operation has not been submitted yet.
-    /// Once accepted, the ID is persisted here so controller retries only poll the existing job.
-    FactoryResetNvos {
-        job_id: Option<String>,
+    /// Site Explorer is being suppressed before the destructive reset.
+    SuppressingSiteExplorer,
+    /// NVOS DHCP is suppressed before the factory reset so post-reset discovers are ignored.
+    SuppressingNvosDhcp,
+    /// Submits the destructive RMS NVOS factory-reset job.
+    FactoryResetNvos,
+    /// Waiting for the scheduled NVOS factory-reset job to finish.
+    WaitingForNvosFactoryReset {
+        job_id: String,
     },
-    VerifyNvosDhcpRelease {
-        verifying_state: VerifyNvosDhcpReleaseState,
-    },
+    /// Waiting for the pre-reset NVOS DHCP suppression to be acknowledged.
+    WaitingForNvosDhcpAcknowledgement,
+    /// BMC DHCP is suppressed before the BMC factory reset.
+    SuppressingBmcDhcp,
+    /// Issues the BMC factory reset.
     FactoryResetBmc,
-    VerifyDhcpRelease,
+    /// Waiting for the pre-reset BMC DHCP suppression to be acknowledged.
+    WaitingForBmcDhcpAcknowledgement,
+    /// Managed per-device BMC and NVOS credentials are being removed after factory reset.
+    DeletingManagedCredentials,
     Decommissioned,
 }
 
@@ -492,7 +493,53 @@ pub fn state_sla(state: &SwitchControllerState, state_version: &ConfigVersion) -
             time_in_state,
         ),
         SwitchControllerState::Ready => StateSla::no_sla(),
-        SwitchControllerState::Decommissioning { .. } => StateSla::no_sla(),
+        SwitchControllerState::Decommissioning {
+            decommissioning_state,
+        } => match decommissioning_state {
+            SwitchDecommissioningState::SuppressingSiteExplorer => StateSla::with_sla(
+                std::time::Duration::from_secs(slas::DECOMMISSIONING_SUPPRESSING_SITE_EXPLORER),
+                time_in_state,
+            ),
+            SwitchDecommissioningState::SuppressingNvosDhcp => StateSla::with_sla(
+                std::time::Duration::from_secs(slas::DECOMMISSIONING_SUPPRESSING_NVOS_DHCP),
+                time_in_state,
+            ),
+            SwitchDecommissioningState::FactoryResetNvos => StateSla::with_sla(
+                std::time::Duration::from_secs(slas::DECOMMISSIONING_FACTORY_RESET_NVOS),
+                time_in_state,
+            ),
+            SwitchDecommissioningState::WaitingForNvosFactoryReset { .. } => StateSla::with_sla(
+                std::time::Duration::from_secs(
+                    slas::DECOMMISSIONING_WAITING_FOR_NVOS_FACTORY_RESET,
+                ),
+                time_in_state,
+            ),
+            SwitchDecommissioningState::WaitingForNvosDhcpAcknowledgement => StateSla::with_sla(
+                std::time::Duration::from_secs(
+                    slas::DECOMMISSIONING_WAITING_FOR_NVOS_DHCP_ACKNOWLEDGEMENT,
+                ),
+                time_in_state,
+            ),
+            SwitchDecommissioningState::SuppressingBmcDhcp => StateSla::with_sla(
+                std::time::Duration::from_secs(slas::DECOMMISSIONING_SUPPRESSING_BMC_DHCP),
+                time_in_state,
+            ),
+            SwitchDecommissioningState::FactoryResetBmc => StateSla::with_sla(
+                std::time::Duration::from_secs(slas::DECOMMISSIONING_FACTORY_RESET_BMC),
+                time_in_state,
+            ),
+            SwitchDecommissioningState::WaitingForBmcDhcpAcknowledgement => StateSla::with_sla(
+                std::time::Duration::from_secs(
+                    slas::DECOMMISSIONING_WAITING_FOR_BMC_DHCP_ACKNOWLEDGEMENT,
+                ),
+                time_in_state,
+            ),
+            SwitchDecommissioningState::DeletingManagedCredentials => StateSla::with_sla(
+                std::time::Duration::from_secs(slas::DECOMMISSIONING_DELETING_MANAGED_CREDENTIALS),
+                time_in_state,
+            ),
+            SwitchDecommissioningState::Decommissioned => StateSla::no_sla(),
+        },
         SwitchControllerState::RotatingBmc { .. } => StateSla::with_sla(
             std::time::Duration::from_secs(slas::ROTATING_BMC),
             time_in_state,
@@ -600,33 +647,78 @@ mod tests {
                 SwitchControllerState::Ready => Yields(r#"{"state":"ready"}"#.to_string()),
             }
 
-            "decommissioning: preparing" {
+            "decommissioning: suppressing Site Explorer" {
                 SwitchControllerState::Decommissioning {
-                    decommissioning_state: SwitchDecommissioningState::Preparing,
+                    decommissioning_state: SwitchDecommissioningState::SuppressingSiteExplorer,
                 } => Yields(
-                    r#"{"state":"decommissioning","decommissioning_state":{"state":"preparing"}}"#
+                    r#"{"state":"decommissioning","decommissioning_state":{"state":"suppressingsiteexplorer"}}"#
                         .to_string(),
                 ),
             }
 
-            "decommissioning: accepted NVOS reset" {
+            "decommissioning: suppressing NVOS DHCP" {
                 SwitchControllerState::Decommissioning {
-                    decommissioning_state: SwitchDecommissioningState::FactoryResetNvos {
-                        job_id: Some("reset-1".to_string()),
+                    decommissioning_state: SwitchDecommissioningState::SuppressingNvosDhcp,
+                } => Yields(
+                    r#"{"state":"decommissioning","decommissioning_state":{"state":"suppressingnvosdhcp"}}"#
+                        .to_string(),
+                ),
+            }
+
+            "decommissioning: submit NVOS reset" {
+                SwitchControllerState::Decommissioning {
+                    decommissioning_state: SwitchDecommissioningState::FactoryResetNvos,
+                } => Yields(
+                    r#"{"state":"decommissioning","decommissioning_state":{"state":"factoryresetnvos"}}"#
+                        .to_string(),
+                ),
+            }
+
+            "decommissioning: waiting for NVOS factory reset" {
+                SwitchControllerState::Decommissioning {
+                    decommissioning_state: SwitchDecommissioningState::WaitingForNvosFactoryReset {
+                        job_id: "reset-1".to_string(),
                     },
                 } => Yields(
-                    r#"{"state":"decommissioning","decommissioning_state":{"state":"factoryresetnvos","job_id":"reset-1"}}"#
+                    r#"{"state":"decommissioning","decommissioning_state":{"state":"waitingfornvosfactoryreset","job_id":"reset-1"}}"#
                         .to_string(),
                 ),
             }
 
             "decommissioning: waiting for NVOS DHCP acknowledgement" {
                 SwitchControllerState::Decommissioning {
-                    decommissioning_state: SwitchDecommissioningState::VerifyNvosDhcpRelease {
-                        verifying_state: VerifyNvosDhcpReleaseState::WaitingForDhcpAcknowledgement,
-                    },
+                    decommissioning_state:
+                        SwitchDecommissioningState::WaitingForNvosDhcpAcknowledgement,
                 } => Yields(
-                    r#"{"state":"decommissioning","decommissioning_state":{"state":"verifynvosdhcprelease","verifying_state":{"state":"waitingfordhcpacknowledgement"}}}"#
+                    r#"{"state":"decommissioning","decommissioning_state":{"state":"waitingfornvosdhcpacknowledgement"}}"#
+                        .to_string(),
+                ),
+            }
+
+            "decommissioning: suppressing BMC DHCP" {
+                SwitchControllerState::Decommissioning {
+                    decommissioning_state: SwitchDecommissioningState::SuppressingBmcDhcp,
+                } => Yields(
+                    r#"{"state":"decommissioning","decommissioning_state":{"state":"suppressingbmcdhcp"}}"#
+                        .to_string(),
+                ),
+            }
+
+            "decommissioning: waiting for BMC DHCP acknowledgement" {
+                SwitchControllerState::Decommissioning {
+                    decommissioning_state:
+                        SwitchDecommissioningState::WaitingForBmcDhcpAcknowledgement,
+                } => Yields(
+                    r#"{"state":"decommissioning","decommissioning_state":{"state":"waitingforbmcdhcpacknowledgement"}}"#
+                        .to_string(),
+                ),
+            }
+
+            "decommissioning: deleting managed credentials" {
+                SwitchControllerState::Decommissioning {
+                    decommissioning_state: SwitchDecommissioningState::DeletingManagedCredentials,
+                } => Yields(
+                    r#"{"state":"decommissioning","decommissioning_state":{"state":"deletingmanagedcredentials"}}"#
                         .to_string(),
                 ),
             }

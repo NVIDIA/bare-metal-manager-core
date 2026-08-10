@@ -15,12 +15,19 @@
  * limitations under the License.
  */
 
+use rpc::forge::DecommissionSwitchRequest;
+
 use super::args::Args;
 use crate::errors::CarbideCliResult;
 use crate::rpc::ApiClient;
 
 pub(super) async fn decommission(api_client: &ApiClient, args: Args) -> CarbideCliResult<()> {
-    api_client.0.decommission_switch(args.switch_id).await?;
+    api_client
+        .0
+        .decommission_switch(DecommissionSwitchRequest {
+            switch_id: Some(args.switch_id),
+        })
+        .await?;
     println!("Started decommissioning managed switch {}.", args.switch_id);
     Ok(())
 }

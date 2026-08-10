@@ -587,9 +587,9 @@ type ForgeClient interface {
 	DeleteSwitch(ctx context.Context, in *SwitchDeletionRequest, opts ...grpc.CallOption) (*SwitchDeletionResult, error)
 	// Starts managed-switch decommissioning. The switch must be Ready and the
 	// Component Manager switch backend must be RMS.
-	DecommissionSwitch(ctx context.Context, in *SwitchId, opts ...grpc.CallOption) (*emptypb.Empty, error)
+	DecommissionSwitch(ctx context.Context, in *DecommissionSwitchRequest, opts ...grpc.CallOption) (*DecommissionSwitchResponse, error)
 	// Permanently removes a managed switch after decommissioning has completed.
-	DeleteDecommissionedSwitch(ctx context.Context, in *DeleteDecommissionedSwitchRequest, opts ...grpc.CallOption) (*emptypb.Empty, error)
+	DeleteDecommissionedSwitch(ctx context.Context, in *DeleteDecommissionedSwitchRequest, opts ...grpc.CallOption) (*DeleteDecommissionedSwitchResponse, error)
 	// Force deletes a Switch and optionally its associated interfaces from the database.
 	AdminForceDeleteSwitch(ctx context.Context, in *AdminForceDeleteSwitchRequest, opts ...grpc.CallOption) (*AdminForceDeleteSwitchResponse, error)
 	// InfiniBand Fabrics
@@ -1911,9 +1911,9 @@ func (c *forgeClient) DeleteSwitch(ctx context.Context, in *SwitchDeletionReques
 	return out, nil
 }
 
-func (c *forgeClient) DecommissionSwitch(ctx context.Context, in *SwitchId, opts ...grpc.CallOption) (*emptypb.Empty, error) {
+func (c *forgeClient) DecommissionSwitch(ctx context.Context, in *DecommissionSwitchRequest, opts ...grpc.CallOption) (*DecommissionSwitchResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(emptypb.Empty)
+	out := new(DecommissionSwitchResponse)
 	err := c.cc.Invoke(ctx, Forge_DecommissionSwitch_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
@@ -1921,9 +1921,9 @@ func (c *forgeClient) DecommissionSwitch(ctx context.Context, in *SwitchId, opts
 	return out, nil
 }
 
-func (c *forgeClient) DeleteDecommissionedSwitch(ctx context.Context, in *DeleteDecommissionedSwitchRequest, opts ...grpc.CallOption) (*emptypb.Empty, error) {
+func (c *forgeClient) DeleteDecommissionedSwitch(ctx context.Context, in *DeleteDecommissionedSwitchRequest, opts ...grpc.CallOption) (*DeleteDecommissionedSwitchResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(emptypb.Empty)
+	out := new(DeleteDecommissionedSwitchResponse)
 	err := c.cc.Invoke(ctx, Forge_DeleteDecommissionedSwitch_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
@@ -6222,9 +6222,9 @@ type ForgeServer interface {
 	DeleteSwitch(context.Context, *SwitchDeletionRequest) (*SwitchDeletionResult, error)
 	// Starts managed-switch decommissioning. The switch must be Ready and the
 	// Component Manager switch backend must be RMS.
-	DecommissionSwitch(context.Context, *SwitchId) (*emptypb.Empty, error)
+	DecommissionSwitch(context.Context, *DecommissionSwitchRequest) (*DecommissionSwitchResponse, error)
 	// Permanently removes a managed switch after decommissioning has completed.
-	DeleteDecommissionedSwitch(context.Context, *DeleteDecommissionedSwitchRequest) (*emptypb.Empty, error)
+	DeleteDecommissionedSwitch(context.Context, *DeleteDecommissionedSwitchRequest) (*DeleteDecommissionedSwitchResponse, error)
 	// Force deletes a Switch and optionally its associated interfaces from the database.
 	AdminForceDeleteSwitch(context.Context, *AdminForceDeleteSwitchRequest) (*AdminForceDeleteSwitchResponse, error)
 	// InfiniBand Fabrics
@@ -7156,10 +7156,10 @@ func (UnimplementedForgeServer) FindSwitchesByIds(context.Context, *SwitchesById
 func (UnimplementedForgeServer) DeleteSwitch(context.Context, *SwitchDeletionRequest) (*SwitchDeletionResult, error) {
 	return nil, status.Error(codes.Unimplemented, "method DeleteSwitch not implemented")
 }
-func (UnimplementedForgeServer) DecommissionSwitch(context.Context, *SwitchId) (*emptypb.Empty, error) {
+func (UnimplementedForgeServer) DecommissionSwitch(context.Context, *DecommissionSwitchRequest) (*DecommissionSwitchResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method DecommissionSwitch not implemented")
 }
-func (UnimplementedForgeServer) DeleteDecommissionedSwitch(context.Context, *DeleteDecommissionedSwitchRequest) (*emptypb.Empty, error) {
+func (UnimplementedForgeServer) DeleteDecommissionedSwitch(context.Context, *DeleteDecommissionedSwitchRequest) (*DeleteDecommissionedSwitchResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method DeleteDecommissionedSwitch not implemented")
 }
 func (UnimplementedForgeServer) AdminForceDeleteSwitch(context.Context, *AdminForceDeleteSwitchRequest) (*AdminForceDeleteSwitchResponse, error) {
@@ -9433,7 +9433,7 @@ func _Forge_DeleteSwitch_Handler(srv interface{}, ctx context.Context, dec func(
 }
 
 func _Forge_DecommissionSwitch_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(SwitchId)
+	in := new(DecommissionSwitchRequest)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
@@ -9445,7 +9445,7 @@ func _Forge_DecommissionSwitch_Handler(srv interface{}, ctx context.Context, dec
 		FullMethod: Forge_DecommissionSwitch_FullMethodName,
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(ForgeServer).DecommissionSwitch(ctx, req.(*SwitchId))
+		return srv.(ForgeServer).DecommissionSwitch(ctx, req.(*DecommissionSwitchRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }

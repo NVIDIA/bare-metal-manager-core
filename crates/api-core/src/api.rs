@@ -459,15 +459,15 @@ impl Forge for Api {
 
     async fn decommission_switch(
         &self,
-        request: Request<carbide_uuid::switch::SwitchId>,
-    ) -> Result<Response<()>, Status> {
+        request: Request<rpc::DecommissionSwitchRequest>,
+    ) -> Result<Response<rpc::DecommissionSwitchResponse>, Status> {
         crate::handlers::switch::decommission_switch(self, request).await
     }
 
     async fn delete_decommissioned_switch(
         &self,
         request: Request<rpc::DeleteDecommissionedSwitchRequest>,
-    ) -> Result<Response<()>, Status> {
+    ) -> Result<Response<rpc::DeleteDecommissionedSwitchResponse>, Status> {
         crate::handlers::switch::delete_decommissioned_switch(self, request).await
     }
 

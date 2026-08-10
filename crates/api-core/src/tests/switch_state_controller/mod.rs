@@ -36,8 +36,8 @@ use model::controller_outcome::PersistentStateHandlerOutcome;
 use model::switch::{
     ConfigureCertificateState, ConfiguringState, SwitchControllerState, SwitchDecommissioningState,
 };
-use rpc::forge::DeleteDecommissionedSwitchRequest;
 use rpc::forge::forge_server::Forge;
+use rpc::forge::{DecommissionSwitchRequest, DeleteDecommissionedSwitchRequest};
 use state_controller::config::IterationConfig;
 use state_controller::controller::StateController;
 use tokio_util::sync::CancellationToken;
@@ -101,7 +101,11 @@ async fn decommission_request_enters_rms_workflow(
         .await?;
     txn.commit().await?;
 
-    env.api.decommission_switch(Request::new(switch_id)).await?;
+    env.api
+        .decommission_switch(Request::new(DecommissionSwitchRequest {
+            switch_id: Some(switch_id),
+        }))
+        .await?;
 
     let mut connection = pool.acquire().await?;
     let switch = db_switch::find_by_id(&mut connection, &switch_id)
@@ -119,9 +123,12 @@ async fn decommission_request_enters_rms_workflow(
     assert!(matches!(
         switch.controller_state.value,
         SwitchControllerState::Decommissioning {
-            decommissioning_state: SwitchDecommissioningState::Preparing,
+            decommissioning_state: SwitchDecommissioningState::SuppressingSiteExplorer,
         }
     ));
+    let bmc_mac = switch
+        .bmc_mac_address
+        .expect("switch fixture should have a BMC MAC");
     drop(connection);
 
     env.run_switch_controller_iteration().await;
@@ -132,7 +139,39 @@ async fn decommission_request_enters_rms_workflow(
     assert!(matches!(
         switch.controller_state.value,
         SwitchControllerState::Decommissioning {
-            decommissioning_state: SwitchDecommissioningState::FactoryResetNvos { job_id: None },
+            decommissioning_state: SwitchDecommissioningState::SuppressingSiteExplorer,
+        }
+    ));
+    let suppression = db::bmc_suppression::find(
+        &mut *connection,
+        bmc_mac,
+        model::bmc_suppression::BmcSuppressionSubsystem::SiteExplorer,
+    )
+    .await?
+    .expect("Site Explorer suppression should be requested");
+    assert!(suppression.acknowledged_at.is_none());
+    drop(connection);
+
+    let mut txn = pool.begin().await?;
+    assert!(
+        db::bmc_suppression::acknowledge(
+            txn.as_mut(),
+            bmc_mac,
+            model::bmc_suppression::BmcSuppressionSubsystem::SiteExplorer,
+        )
+        .await?
+    );
+    txn.commit().await?;
+
+    env.run_switch_controller_iteration().await;
+    let mut connection = pool.acquire().await?;
+    let switch = db_switch::find_by_id(&mut connection, &switch_id)
+        .await?
+        .expect("switch should exist");
+    assert!(matches!(
+        switch.controller_state.value,
+        SwitchControllerState::Decommissioning {
+            decommissioning_state: SwitchDecommissioningState::SuppressingNvosDhcp,
         }
     ));
 

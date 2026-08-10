@@ -157,13 +157,25 @@ impl StateControllerIO for SwitchStateControllerIO {
             } => (
                 "decommissioning",
                 match decommissioning_state {
-                    SwitchDecommissioningState::Preparing => "preparing",
-                    SwitchDecommissioningState::FactoryResetNvos { .. } => "factory_reset_nvos",
-                    SwitchDecommissioningState::VerifyNvosDhcpRelease { .. } => {
-                        "verify_nvos_dhcp_release"
+                    SwitchDecommissioningState::SuppressingSiteExplorer => {
+                        "suppressingsiteexplorer"
                     }
+                    SwitchDecommissioningState::SuppressingNvosDhcp => "suppressing_nvos_dhcp",
+                    SwitchDecommissioningState::FactoryResetNvos => "factory_reset_nvos",
+                    SwitchDecommissioningState::WaitingForNvosFactoryReset { .. } => {
+                        "waiting_for_nvos_factory_reset"
+                    }
+                    SwitchDecommissioningState::WaitingForNvosDhcpAcknowledgement => {
+                        "waiting_for_nvos_dhcp_acknowledgement"
+                    }
+                    SwitchDecommissioningState::SuppressingBmcDhcp => "suppressing_bmc_dhcp",
                     SwitchDecommissioningState::FactoryResetBmc => "factory_reset_bmc",
-                    SwitchDecommissioningState::VerifyDhcpRelease => "verify_dhcp_release",
+                    SwitchDecommissioningState::WaitingForBmcDhcpAcknowledgement => {
+                        "waiting_for_bmc_dhcp_acknowledgement"
+                    }
+                    SwitchDecommissioningState::DeletingManagedCredentials => {
+                        "deleting_managed_credentials"
+                    }
                     SwitchDecommissioningState::Decommissioned => "decommissioned",
                 },
             ),

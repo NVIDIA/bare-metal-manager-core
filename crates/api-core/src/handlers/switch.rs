@@ -17,14 +17,11 @@
 
 use ::rpc::errors::RpcDataConversionError;
 use ::rpc::forge::{self as rpc, HealthReportEntry};
-use carbide_secrets::credentials::CredentialKey;
-use carbide_uuid::switch::SwitchId;
 use db::{ObjectColumnFilter, switch as db_switch};
 use health_report::HealthReportApplyMode;
 use model::bmc_suppression::BmcSuppressionSubsystem;
 use model::metadata::Metadata;
-use model::switch::{Switch, SwitchControllerState, SwitchDecommissioningState};
-use sqlx::PgConnection;
+use model::switch::{SwitchControllerState, SwitchDecommissioningState};
 use tonic::{Request, Response, Status};
 
 use crate::CarbideError;
@@ -253,10 +250,13 @@ pub(crate) async fn find_switch_state_histories(
 
 pub(crate) async fn decommission_switch(
     api: &Api,
-    request: Request<SwitchId>,
-) -> Result<Response<()>, Status> {
+    request: Request<rpc::DecommissionSwitchRequest>,
+) -> Result<Response<rpc::DecommissionSwitchResponse>, Status> {
     log_request_data(&request);
-    let switch_id = request.into_inner();
+    let switch_id = request
+        .into_inner()
+        .switch_id
+        .ok_or_else(|| CarbideError::InvalidArgument("switch_id is required".to_string()))?;
 
     let component_manager = api.component_manager.as_ref().ok_or_else(|| {
         CarbideError::FailedPrecondition(
@@ -272,22 +272,7 @@ pub(crate) async fn decommission_switch(
     }
 
     let mut txn = api.txn_begin().await?;
-    let exists = sqlx::query_scalar::<_, SwitchId>(
-        "SELECT id FROM switches WHERE id = $1 AND deleted IS NULL FOR UPDATE",
-    )
-    .bind(switch_id)
-    .fetch_optional(&mut **txn)
-    .await
-    .map_err(|error| CarbideError::internal(format!("failed to lock switch: {error}")))?;
-    if exists.is_none() {
-        return Err(CarbideError::NotFoundError {
-            kind: "switch",
-            id: switch_id.to_string(),
-        }
-        .into());
-    }
-
-    let switch = db_switch::find_by_id(&mut txn, &switch_id)
+    let switch = db::switch::find_by_id(&mut txn, &switch_id)
         .await?
         .ok_or_else(|| CarbideError::NotFoundError {
             kind: "switch",
@@ -295,55 +280,46 @@ pub(crate) async fn decommission_switch(
         })?;
     if !matches!(switch.controller_state.value, SwitchControllerState::Ready) {
         return Err(CarbideError::FailedPrecondition(format!(
-            "switch {switch_id} must be ready to be decommissioned (current state: {})",
+            "switch {switch_id} must be in the ready state to be decommissioned (current state: {})",
             serde_json::to_string(&switch.controller_state.value).unwrap_or_default()
         ))
         .into());
     }
 
-    let rack_id = switch.rack_id.as_ref().ok_or_else(|| {
-        CarbideError::FailedPrecondition(format!(
-            "switch {switch_id} must be associated with a rack before it can be decommissioned"
-        ))
-    })?;
-    let assigned_hosts = db::managed_host::find_assigned_hosts_in_rack(&mut txn, rack_id).await?;
-    if !assigned_hosts.is_empty() {
-        let assignments = assigned_hosts
-            .iter()
-            .map(|(machine_id, instance_id)| format!("{machine_id} ({instance_id})"))
-            .collect::<Vec<_>>()
-            .join(", ");
-        return Err(CarbideError::FailedPrecondition(format!(
-            "switch {switch_id} cannot be decommissioned while managed hosts in rack {rack_id} are assigned to instances: {assignments}"
-        ))
-        .into());
+    if let Some(rack_id) = switch.rack_id.as_ref() {
+        let assigned_hosts =
+            db::managed_host::find_assigned_hosts_in_rack(&mut txn, rack_id).await?;
+        if !assigned_hosts.is_empty() {
+            let assignments = assigned_hosts
+                .iter()
+                .map(|(machine_id, instance_id)| format!("{machine_id} ({instance_id})"))
+                .collect::<Vec<_>>()
+                .join(", ");
+            return Err(CarbideError::FailedPrecondition(format!(
+                "switch {switch_id} cannot be decommissioned while managed hosts in rack {rack_id} are assigned to instances: {assignments}"
+            ))
+            .into());
+        }
     }
 
     db_switch::set_decommission_requested(&mut txn, switch_id).await?;
     txn.commit().await?;
 
-    Ok(Response::new(()))
+    Ok(Response::new(rpc::DecommissionSwitchResponse {}))
 }
 
-async fn find_decommissioned_switch_for_update(
-    txn: &mut PgConnection,
-    switch_id: SwitchId,
-) -> Result<Switch, CarbideError> {
-    let exists = sqlx::query_scalar::<_, SwitchId>(
-        "SELECT id FROM switches WHERE id = $1 AND deleted IS NULL FOR UPDATE",
-    )
-    .bind(switch_id)
-    .fetch_optional(&mut *txn)
-    .await
-    .map_err(|error| CarbideError::internal(format!("failed to lock switch: {error}")))?;
-    if exists.is_none() {
-        return Err(CarbideError::NotFoundError {
-            kind: "switch",
-            id: switch_id.to_string(),
-        });
-    }
+pub(crate) async fn delete_decommissioned_switch(
+    api: &Api,
+    request: Request<rpc::DeleteDecommissionedSwitchRequest>,
+) -> Result<Response<rpc::DeleteDecommissionedSwitchResponse>, Status> {
+    log_request_data(&request);
+    let switch_id = request
+        .into_inner()
+        .switch_id
+        .ok_or_else(|| CarbideError::InvalidArgument("switch_id is required".to_string()))?;
 
-    let switch = db_switch::find_by_id(&mut *txn, &switch_id)
+    let mut txn = api.txn_begin().await?;
+    let switch = db_switch::find_by_id(&mut txn, &switch_id)
         .await?
         .ok_or_else(|| CarbideError::NotFoundError {
             kind: "switch",
@@ -356,79 +332,30 @@ async fn find_decommissioned_switch_for_update(
         }
     ) {
         return Err(CarbideError::FailedPrecondition(format!(
-            "switch {switch_id} must complete decommissioning before deletion (current state: {})",
+            "switch {switch_id} must be in the decommissioned state before deletion (current state: {})",
             serde_json::to_string(&switch.controller_state.value).unwrap_or_default()
-        )));
-    }
-
-    Ok(switch)
-}
-
-async fn switch_endpoint_macs(
-    txn: &mut PgConnection,
-    switch: &Switch,
-) -> Result<Vec<mac_address::MacAddress>, CarbideError> {
-    let bmc_mac_address = switch.bmc_mac_address.ok_or_else(|| {
-        CarbideError::FailedPrecondition(format!(
-            "switch {} must have a BMC MAC address before deletion",
-            switch.id
         ))
-    })?;
-    let expected_switch = db::expected_switch::find_by_bmc_mac_address(txn, bmc_mac_address)
-        .await?
-        .ok_or_else(|| CarbideError::NotFoundError {
-            kind: "expected switch",
-            id: bmc_mac_address.to_string(),
-        })?;
-    Ok(std::iter::once(bmc_mac_address)
-        .chain(expected_switch.nvos_mac_addresses)
-        .collect())
-}
-
-pub(crate) async fn delete_decommissioned_switch(
-    api: &Api,
-    request: Request<rpc::DeleteDecommissionedSwitchRequest>,
-) -> Result<Response<()>, Status> {
-    log_request_data(&request);
-    let switch_id = request
-        .into_inner()
-        .switch_id
-        .ok_or_else(|| CarbideError::InvalidArgument("switch_id is required".to_string()))?;
-
-    let mut txn = api.txn_begin().await?;
-    let switch = find_decommissioned_switch_for_update(&mut txn, switch_id).await?;
-    let endpoint_macs = switch_endpoint_macs(&mut txn, &switch).await?;
-    txn.commit().await?;
-
-    // Secret-store operations cannot participate in the database transaction. Do them first so a
-    // failure leaves the terminal switch row available for a safe retry.
-    let bmc_mac_address = endpoint_macs[0];
-    crate::handlers::credential::delete_bmc_root_credentials_by_mac(api, bmc_mac_address).await?;
-    api.credential_manager
-        .delete_credentials(&CredentialKey::SwitchNvosAdmin { bmc_mac_address })
-        .await
-        .map_err(|error| {
-            CarbideError::internal(format!(
-                "error deleting NVOS credential for switch {switch_id}: {error:?}"
-            ))
-        })?;
-
-    let mut txn = api.txn_begin().await?;
-    let switch = find_decommissioned_switch_for_update(&mut txn, switch_id).await?;
-    let endpoint_macs = switch_endpoint_macs(&mut txn, &switch).await?;
-
-    for mac_address in &endpoint_macs {
-        for interface in db::machine_interface::find_by_mac_address(&mut txn, *mac_address).await? {
-            db::machine_interface::delete(&interface.id, &mut txn).await?;
-        }
-        db::retained_boot_interface::take_by_mac(&mut txn, *mac_address, None).await?;
+        .into());
     }
-    db::bmc_suppression::delete_many(&mut txn, &endpoint_macs, BmcSuppressionSubsystem::Dhcp)
-        .await?;
+
+    let switch_endpoint_rows =
+        db_switch::find_switch_endpoints_by_ids(&mut txn, &[switch_id]).await?;
+    for row in &switch_endpoint_rows {
+        let macs: Vec<_> = std::iter::once(row.bmc_mac).chain(row.nvos_mac).collect();
+        for &mac in &macs {
+            for interface in db::machine_interface::find_by_mac_address(&mut txn, mac).await? {
+                db::machine_interface::delete(&interface.id, &mut txn).await?;
+            }
+            db::retained_boot_interface::take_by_mac(&mut txn, mac, None).await?;
+        }
+        db::bmc_suppression::delete_many(&mut txn, &macs, BmcSuppressionSubsystem::Dhcp).await?;
+        db::bmc_suppression::delete_many(&mut txn, &macs, BmcSuppressionSubsystem::SiteExplorer)
+            .await?;
+    }
     db_switch::final_delete(switch_id, &mut txn).await?;
     txn.commit().await?;
 
-    Ok(Response::new(()))
+    Ok(Response::new(rpc::DeleteDecommissionedSwitchResponse {}))
 }
 
 // TODO: block if switch is in use (firmware update, etc.)

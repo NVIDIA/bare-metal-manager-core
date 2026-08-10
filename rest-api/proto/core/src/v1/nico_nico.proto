@@ -122,9 +122,9 @@ service Forge {
   rpc DeleteSwitch(SwitchDeletionRequest) returns (SwitchDeletionResult);
   // Starts managed-switch decommissioning. The switch must be Ready and the
   // Component Manager switch backend must be RMS.
-  rpc DecommissionSwitch(common.SwitchId) returns (google.protobuf.Empty);
+  rpc DecommissionSwitch(DecommissionSwitchRequest) returns (DecommissionSwitchResponse);
   // Permanently removes a managed switch after decommissioning has completed.
-  rpc DeleteDecommissionedSwitch(DeleteDecommissionedSwitchRequest) returns (google.protobuf.Empty);
+  rpc DeleteDecommissionedSwitch(DeleteDecommissionedSwitchRequest) returns (DeleteDecommissionedSwitchResponse);
   // Force deletes a Switch and optionally its associated interfaces from the database.
   rpc AdminForceDeleteSwitch(AdminForceDeleteSwitchRequest) returns (AdminForceDeleteSwitchResponse);
 
@@ -2466,6 +2466,20 @@ message SwitchDeletionRequest {
 }
 
 message SwitchDeletionResult {
+}
+
+message DecommissionSwitchRequest {
+  common.SwitchId switch_id = 1;
+}
+
+message DecommissionSwitchResponse {
+}
+
+message DeleteDecommissionedSwitchRequest {
+  common.SwitchId switch_id = 1;
+}
+
+message DeleteDecommissionedSwitchResponse {
 }
 
 // The state that a object/resource had at a certain point in time
@@ -9269,10 +9283,6 @@ message SpxPartitionList {
 
 message SpxPartitionsByIdsRequest {
   repeated common.SpxPartitionId spx_partition_ids = 1;
-}
-
-message DeleteDecommissionedSwitchRequest {
-  common.SwitchId switch_id = 1;
 }
 
 // Force deletes a Switch and optionally its associated interfaces.

@@ -52,7 +52,7 @@ pub async fn handle_ready(
         db_switch::clear_decommission_requested(&mut txn, *switch_id).await?;
         return Ok(
             StateHandlerOutcome::transition(SwitchControllerState::Decommissioning {
-                decommissioning_state: SwitchDecommissioningState::Preparing,
+                decommissioning_state: SwitchDecommissioningState::SuppressingSiteExplorer,
             })
             .with_txn(txn),
         );
