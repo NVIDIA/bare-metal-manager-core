@@ -258,7 +258,7 @@ impl NvlPartitionMonitorMetrics {
     ///
     /// Exhaustive destructuring is intentional: adding a field to
     /// [`NvlPartitionMonitorMetrics`] or [`NmxcMetrics`] must force a merge decision here.
-    pub fn merge_from(&mut self, other: Self) {
+    pub(crate) fn merge_from(&mut self, other: Self) {
         let Self {
             nmxc:
                 NmxcMetrics {
