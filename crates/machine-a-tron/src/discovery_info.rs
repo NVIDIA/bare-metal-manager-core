@@ -985,7 +985,14 @@ mod tests {
                 .collect::<Vec<_>>(),
             [2, 1, 4, 3]
         );
-        assert_eq!(discovery.memory_device_groups.len(), 1);
+        assert_eq!(
+            discovery.memory_device_groups,
+            vec![MemoryDeviceGroup {
+                size_mb: Some(491520),
+                mem_type: Some("LPDDR5".into()),
+                count: 2,
+            }]
+        );
         assert!(discovery.tpm_description.is_some());
     }
 
