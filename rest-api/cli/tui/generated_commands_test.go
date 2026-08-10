@@ -83,7 +83,9 @@ func TestAllCommands_RegistersConciseAliases(t *testing.T) {
 		"measured-boot profile remove",
 		"site-explorer endpoint action",
 	} {
-		assert.Containsf(t, commands, name, "expected concise command %q", name)
+		t.Run(name, func(t *testing.T) {
+			assert.Containsf(t, commands, name, "expected concise command %q", name)
+		})
 	}
 }
 
