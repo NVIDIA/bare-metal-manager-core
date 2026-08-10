@@ -25026,7 +25026,7 @@ components:
         created:
           type: string
           format: date-time
-          description: ISO 8601 datetime when the SKU was created
+          description: ISO 8601 datetime when the SKU was created, using the Site-reported timestamp when available
           readOnly: true
     SkuCreateRequest:
       title: SkuCreateRequest

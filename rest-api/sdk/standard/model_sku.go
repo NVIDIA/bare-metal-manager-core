@@ -37,7 +37,7 @@ type Sku struct {
 	AssociatedMachineIds []string `json:"associatedMachineIds,omitempty"`
 	// Hardware components of this SKU
 	Components *SkuComponents `json:"components,omitempty"`
-	// ISO 8601 datetime when the SKU was created
+	// ISO 8601 datetime when the SKU was created, using the Site-reported timestamp when available
 	Created *time.Time `json:"created,omitempty"`
 }
 

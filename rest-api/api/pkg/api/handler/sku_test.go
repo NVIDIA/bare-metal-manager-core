@@ -11,6 +11,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/NVIDIA/infra-controller/rest-api/api/internal/config"
 	"github.com/NVIDIA/infra-controller/rest-api/api/pkg/api/handler/util/common"
@@ -36,6 +37,7 @@ import (
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
 // testSkuInitDB initializes a test database session (pattern from tenant_test.go)
@@ -714,6 +716,8 @@ func TestCreateSkuHandler(t *testing.T) {
 		assert.Equal(t, req.ID, response.ID)
 		assert.Equal(t, fixture.siteID, response.SiteID)
 		assert.Empty(t, response.AssociatedMachineIds)
+		require.NotNil(t, response.Created)
+		assert.True(t, existingSkuCreatedTime().Equal(*response.Created))
 
 		saved, err := cdbm.NewSkuDAO(fixture.createHandler.dbSession).Get(context.Background(), nil, req.ID)
 		require.NoError(t, err)
@@ -721,6 +725,8 @@ func TestCreateSkuHandler(t *testing.T) {
 		assert.Equal(t, response.Description, saved.Description)
 		assert.Equal(t, response.SchemaVersion, saved.SchemaVersion)
 		assert.Equal(t, response.DeviceType, saved.DeviceType)
+		assert.True(t, existingSkuCreatedTime().Round(time.Microsecond).Equal(saved.Created))
+		assert.False(t, response.Created.Equal(saved.Created))
 		require.NotNil(t, saved.Components)
 		require.NotNil(t, saved.Components.Chassis)
 		// The post-create Core response is authoritative, even when it differs
@@ -735,7 +741,9 @@ func TestCreateSkuHandler(t *testing.T) {
 		})
 		req := validSkuCreateRequest(fixture.siteID)
 
+		beforeCreate := time.Now().UTC()
 		rec := fixture.request(t, http.MethodPost, "", req, fixture.createHandler.Handle)
+		afterCreate := time.Now().UTC()
 		require.Equal(t, http.StatusCreated, rec.Code, rec.Body.String())
 		require.Len(t, fixture.requests, 2)
 		assert.Equal(t, corev1.Forge_CreateSku_FullMethodName, fixture.requests[0].FullMethod)
@@ -758,6 +766,8 @@ func TestCreateSkuHandler(t *testing.T) {
 		assert.Equal(t, *req.Description, saved.Description)
 		assert.Equal(t, model.CoreSkuSchemaVersion, saved.SchemaVersion)
 		assert.Equal(t, req.DeviceType, saved.DeviceType)
+		assert.False(t, saved.Created.Before(beforeCreate))
+		assert.False(t, saved.Created.After(afterCreate))
 		require.NotNil(t, saved.Components)
 		require.Len(t, saved.Components.Storage, 1)
 		assert.Equal(t, uint32(3_600_000), saved.Components.Storage[0].GetMinSizeMb())
@@ -904,15 +914,44 @@ func TestUpdateSkuHandler(t *testing.T) {
 		require.NotNil(t, response.DeviceType)
 		assert.Equal(t, deviceType, *response.DeviceType)
 		assert.Equal(t, uint32(4), response.SchemaVersion)
+		require.NotNil(t, response.Created)
+		assert.True(t, existingSkuCreatedTime().Equal(*response.Created))
 
 		saved, err := cdbm.NewSkuDAO(fixture.updateHandler.dbSession).Get(context.Background(), nil, "sku-1")
 		require.NoError(t, err)
 		require.NotNil(t, saved.DeviceType)
 		assert.Equal(t, deviceType, *saved.DeviceType)
 		assert.Equal(t, uint32(4), saved.SchemaVersion)
+		assert.True(t, existingSkuCreatedTime().Round(time.Microsecond).Equal(saved.Created))
+		assert.False(t, response.Created.Equal(saved.Created))
 		require.NotNil(t, saved.Components)
 		require.NotNil(t, saved.Components.Chassis)
 		assert.Equal(t, "existing chassis", saved.Components.Chassis.Model)
+	})
+
+	t.Run("preserves stored created timestamp when Core omits it", func(t *testing.T) {
+		existing := existingSkuProto()
+		existing.Created = nil
+		fixture := newSkuManagementFixtureWithOptions(t, []string{authz.ProviderAdminRole}, skuManagementFixtureOptions{
+			findResponse: &corev1.SkuList{Skus: []*corev1.Sku{existing}},
+		})
+		skuDAO := cdbm.NewSkuDAO(fixture.updateHandler.dbSession)
+		beforeUpdate, err := skuDAO.Get(context.Background(), nil, "sku-1")
+		require.NoError(t, err)
+		description := "updated description"
+
+		rec := fixture.request(t, http.MethodPatch, "sku-1", model.APISkuUpdateRequest{
+			Description: &description,
+		}, fixture.updateHandler.Handle)
+
+		require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+		var response model.APISku
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &response))
+		assert.Nil(t, response.Created)
+
+		afterUpdate, err := skuDAO.Get(context.Background(), nil, "sku-1")
+		require.NoError(t, err)
+		assert.True(t, beforeUpdate.Created.Equal(afterUpdate.Created))
 	})
 
 	t.Run("preserves projection when Core metadataupdate fails", func(t *testing.T) {
@@ -1430,6 +1469,7 @@ func existingSkuProto() *corev1.Sku {
 	return &corev1.Sku{
 		Id:            "sku-1",
 		Description:   &description,
+		Created:       timestamppb.New(existingSkuCreatedTime()),
 		SchemaVersion: 4,
 		DeviceType:    &deviceType,
 		Components: &corev1.SkuComponents{
@@ -1440,4 +1480,8 @@ func existingSkuProto() *corev1.Sku {
 			},
 		},
 	}
+}
+
+func existingSkuCreatedTime() time.Time {
+	return time.Date(2025, time.January, 2, 3, 4, 5, 678_901_234, time.UTC)
 }
