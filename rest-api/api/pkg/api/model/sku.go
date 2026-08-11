@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"time"
 
+	cutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
 	cdbm "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/model"
 	corev1 "github.com/NVIDIA/infra-controller/rest-api/proto/core/gen/v1"
 	validation "github.com/go-ozzo/ozzo-validation/v4"
@@ -34,8 +35,6 @@ type APISku struct {
 	Components *APISkuComponents `json:"components"`
 	// Created is the date and time the entity was created
 	Created *time.Time `json:"created"`
-	// Updated is the date and time the entity was last updated
-	Updated *time.Time `json:"updated"`
 }
 
 // APISkuCreateRequest is the POST /sku request body.
@@ -173,6 +172,7 @@ func NewAPISkuFromCreateRequest(req APISkuCreateRequest, skuID, siteID string) *
 		DeviceType:           req.DeviceType,
 		AssociatedMachineIds: []string{},
 		Components:           NewAPISkuComponents(req.Components.ToProto()),
+		Created:              cutil.GetPtr(time.Now().UTC()), // best guess in absence of data from Core
 	}
 }
 
@@ -190,7 +190,6 @@ func NewAPISku(dbSku *cdbm.SKU) *APISku {
 		DeviceType:           dbSku.DeviceType,
 		AssociatedMachineIds: dbSku.AssociatedMachineIds,
 		Created:              &dbSku.Created,
-		Updated:              &dbSku.Updated,
 	}
 
 	// Map SKU Components if available
@@ -212,7 +211,8 @@ type APISkuComponents struct {
 	Storage []APISkuStorage `json:"storage"`
 	// Chassis describes chassis component
 	Chassis *APISkuChassis `json:"chassis"`
-	// EthernetDevices describes ethernet device components
+	// EthernetDevices describes read-only ethernet device components.
+	// REST mutation requests may omit it or provide an empty value.
 	EthernetDevices []APISkuEthernetDevice `json:"ethernetDevices"`
 	// InfinibandDevices describes infiniband device components
 	InfinibandDevices []APISkuInfinibandDevice `json:"infinibandDevices"`
@@ -220,9 +220,15 @@ type APISkuComponents struct {
 	Tpm *APISkuTpm `json:"tpm"`
 }
 
-// Validate checks every storage component.
+// Validate rejects unsupported component mutations and checks every storage component.
 func (c APISkuComponents) Validate() error {
-	return validation.Validate(c.Storage, validation.Each())
+	return validation.ValidateStruct(&c,
+		validation.Field(
+			&c.EthernetDevices,
+			validation.Length(0, 0).Error("must be empty because this field is read-only"),
+		),
+		validation.Field(&c.Storage, validation.Each()),
+	)
 }
 
 // APISkuCpu represents a CPU component in the SKU

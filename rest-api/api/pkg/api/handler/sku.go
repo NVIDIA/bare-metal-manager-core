@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"net/http"
 	"reflect"
+	"time"
 
 	"github.com/NVIDIA/infra-controller/rest-api/api/internal/config"
 	"github.com/NVIDIA/infra-controller/rest-api/api/pkg/api/handler/util/common"
@@ -383,6 +384,10 @@ func (csh CreateSkuHandler) Handle(c echo.Context) error {
 	} else {
 		projected := &cdbm.SKU{}
 		projected.FromProto(skuToPersist, uuid.MustParse(siteID))
+		var created *time.Time
+		if !projected.Created.IsZero() {
+			created = &projected.Created
+		}
 		skuDAO := cdbm.NewSkuDAO(csh.dbSession)
 		err = cdb.WithTx(ctx, csh.dbSession, func(tx *cdb.Tx) error {
 			err := tx.TryAcquireAdvisoryLock(ctx, cdb.GetAdvisoryLockIDFromString(projected.ID), nil)
@@ -393,6 +398,7 @@ func (csh CreateSkuHandler) Handle(c echo.Context) error {
 			_, err = skuDAO.Create(ctx, tx, cdbm.SkuCreateInput{
 				SkuID:                projected.ID,
 				SiteID:               projected.SiteID,
+				Created:              created,
 				Description:          projected.Description,
 				SchemaVersion:        projected.SchemaVersion,
 				Components:           projected.Components,
@@ -569,7 +575,8 @@ func (ush UpdateSkuHandler) Handle(c echo.Context) error {
 				// are no associations in the authoritative projection.
 				associatedMachineIDs = []string{}
 			}
-			if existing.Description == projected.Description &&
+			createdMatches := projected.Created.IsZero() || existing.Created.Equal(projected.Created)
+			if createdMatches && existing.Description == projected.Description &&
 				existing.SchemaVersion == projected.SchemaVersion &&
 				existing.Components.Equal(components) &&
 				reflect.DeepEqual(existing.DeviceType, projected.DeviceType) &&
@@ -577,8 +584,13 @@ func (ush UpdateSkuHandler) Handle(c echo.Context) error {
 				return nil
 			}
 
+			var created *time.Time
+			if !createdMatches {
+				created = &projected.Created
+			}
 			_, err = skuDAO.Update(ctx, tx, cdbm.SkuUpdateInput{
 				SkuID:                projected.ID,
+				Created:              created,
 				Description:          &projected.Description,
 				SchemaVersion:        &projected.SchemaVersion,
 				Components:           components,
