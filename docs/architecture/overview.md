@@ -8,14 +8,12 @@ These control plane services have to be deployed to a Kubernetes cluster with a 
 ![NICo Architecture Diagram](../static/nico_arch_diagram.svg)
 
 The Kubernetes cluster needs to have a variety of services deployed:
+
 1. [The NICo control plane services](#nico-control-plane-services). These services are specific to NICo, and must be deployed together in order to allow NICo to manage the lifecycle of hosts.
-2. [Dependency services](#dependency-services). NICo requires "off-the-shelf" dependencies like Postgres, Vault and telemetry services deployed and accessible.
-3. [Optional services](#optional-services). A variety of services and tools within the deployment that interact with the NICo deployment, but are not required continuously for the control plane to operate.
+1. [Dependency services](#dependency-services). NICo requires "off-the-shelf" dependencies like Postgres, Vault and telemetry services deployed and accessible.
+1. [Optional services](#optional-services). A variety of services and tools within the deployment that interact with the NICo deployment, but are not required continuously for the control plane to operate.
 
 The following chapters look at each of these in more detail.
-
-{/* Source drawio file at ../static/site-controller.drawio */}
-![NICo site controller](../static/site-controller-overview.png)
 
 ## Managed Hosts
 
@@ -33,6 +31,7 @@ NICo deploys a set of binaries on these hosts during various points of their lif
 ### Scout
 
 [scout](https://github.com/NVIDIA/infra-controller/blob/main/crates/scout) is an agent that NICo runs on the host and DPU of managed hosts for a variety of tasks:
+
 - "Inventory" collection: Scout collects and transmits hardware properties of the host to [NICo core](#nico-core) which can not be determined through out-of-band tooling.
 - Execution of cleanup tasks whenever the bare metal instance using the host is released by a user
 - Execution of machine validation tests
@@ -43,6 +42,7 @@ NICo deploys a set of binaries on these hosts during various points of their lif
 [dpu-agent](https://github.com/NVIDIA/infra-controller/blob/main/crates/agent) is an agent that NICo runs exclusively on DPUS managed by NICo as a daemon.
 
 DPU agent performs the following tasks:
+
 - Configuring the DPU as required at any state during the hosts lifecycle. This process is described more in depth in [DPU configuration](../dpu-management/dpu_configuration.md).
 - Executing periodic health-checks on the DPU
 - Running the NICo metadata service (FMDS), which provides the users on the bare metal instance a HTTP based API to retrieve information about their running instance. Users can e.g. use FMDS to determine their Machine ID or certain Boot/OS information.
@@ -88,42 +88,44 @@ NICo core is the only component within NICo which interacts with the postgres da
 ### [gRPC](https://grpc.io) API handlers
 
 The API handlers accept gRPC requests from NICo users and internal system components. They provide users the ability to inspect the current state of the system, and modify the desired state of various components (e.g. create or reconfigure bare metal instances).
-  API handlers are all implemented within the trait/interface `rpc::nico::nico_server::NICo`. Various implementations delegate to the `handlers` subdirectory. For resources managed by NICo, API handlers do not directly change the actual state of the resources (e.g. the provisioning state of a host). Instead, they only change the required state (e.g. "provisioning required", "termination required", etc). The state changes will be performed by state machines (details below). The nico-core gRPC API supports
-[gRPC reflection](https://github.com/grpc/grpc/blob/master/doc/server-reflection.md) to provide a machine readable API
-description so clients can auto-generate code and RPC functions in the client.
+
+API handlers are all implemented within the trait/interface `rpc::nico::nico_server::NICo`. Various implementations delegate to the `handlers` subdirectory. For resources managed by NICo, API handlers do not directly change the actual state of the resources (e.g. the provisioning state of a host). Instead, they only change the required state (e.g. "provisioning required", "termination required", etc). The state changes will be performed by state machines (details below). The nico-core gRPC API supports [gRPC reflection](https://github.com/grpc/grpc/blob/master/doc/server-reflection.md) to provide a machine readable API description so clients can auto-generate code and RPC functions in the client.
 
 ### Debug Web UI
 
 NICo core provides a debug UI under the `/admin` endpoint. The debug UI allows to inspect the state of all resources managed by NICo via a variety of HTML pages. It e.g. allows to list details about all managed hosts and DPUs, or about the internal state of other components that are described within the NICo Core section.
 
-The Debug UI also provides access to various admin level tools. E.g. it
-- allows to change the power state of hosts, reset the BMC, and change boot orders
-- inspect the redfish tree of any BMC managed by NICo
-- allows admins to perform changes to a BMC (via HTTP POST) in a peer-reviewed and auditable fashion
-- inspect UFM responses
+The Debug UI also provides access to various admin level tools. For example, the Debug UI allows you to:
+
+- Change the power state of hosts, reset the BMC, and change boot orders
+- Inspect the redfish tree of any BMC managed by NICo
+- Perform changes to a BMC (via HTTP POST) in a peer-reviewed and auditable fashion
+- Inspect UFM responses
 
 ### State Machines
 
 NICo implements State Machines for all resources managed by NICo. The state machines are implemented as idempotent state handling functions calls, which are scheduled by the system.
 State handling for various resource types is implemented independently, e.g. the lifecycle of hosts is managed by different tasks and different code than the lifecycle of InfiniBand partitions.
 
-NICo implements state machines for
-- Managed Hosts (Hosts + DPUs)
-- Network Segments
-- InfiniBand Partitions
-- NVLink Logical Partitions
+NICo implements state machines for:
 
-Details about the NICo state handling implementation can be found [here](state_handling.md).
+- Managed hosts (hosts + DPUs)
+- Network segments
+- InfiniBand partitions
+- NVLink logical partitions
+
+Read more about the NICo [state handling implementation](state_handling.md).
 
 ### Site Explorer
 
 Site Explorer is a background module within the `nico-api` binary that continuously monitors the state of all BMCs detected on the underlay network. Its implementation lives in the separate `crates/site-explorer` crate to keep the `crates/api` crate smaller, but it is still started and run as part of NICo Core.
 
 The process acts as a "crawler". It continuously tries to perform Redfish requests against all IPs on the underlay network that were provided by NICo Core and records information that NICo needs to manage hosts later. The information collected by NICo includes:
-- Serial Numbers
-- Certain inventory data, e.g. the amount, type and serial numbers of DPUs
-- Power State
-- Configuration data, e.g. boot order, lockdown mode
+
+- Serial numbers
+- Certain inventory data, such as the amount, type and serial numbers of DPUs
+- Power state
+- Configuration data, such as boot order and lockdown mode
 - Firmware versions
 
 NICo users can inspect the data that Site Explorer discovers using the `FindExploredEndpoints` APIs as well as using the NICo Debug Web UI.
@@ -131,8 +133,9 @@ NICo users can inspect the data that Site Explorer discovers using the `FindExpl
 Site Explorer requires an "Expected Machines" manifest to be deployed. Expected Machines describes the set of Machines that is expected to be managed by the NICo instance - it encodes BMC MAC addresses, hardware default passwords and other details of these Machines. The manifest can be updated using a set of APIs, e.g. `ReplaceAllExpectedMachines`.
 
 Beyond the basic BMC data collection, Site Explorer also performs the following tasks:
+
 1. It matches hosts with associated DPUs based on the Redfish reports of both components - e.g. both the host and DPU need to reference the same DPU serial number.
-2. It kickstarts the ingestion process of the host once the host is in an "ingestable" state (all components are found and have up to date firmware versions).
+1. It kickstarts the ingestion process of the host once the host is in an "ingestable" state (all components are found and have up to date firmware versions).
 
 Site Explorer emits metrics with the prefix `nico_endpoint_exploration_` and `nico_site_explorer_`.
 
@@ -147,10 +150,12 @@ In some rare cases - e.g. with very old host or DPU BMCs - the host ingestion pr
 ### Machine Update Manager
 
 Machine Update Manager is a scheduler for Host and DPU firmware updates. It selects Machines with outdated software versions for automated updates.
-Machine update manager looks at various criteria to determine whether a Machine should get updated:
-- The current Machine state - e.g. whether its occupied by a tenant. Right now only Machines within the `Ready` state are selected for automated software updates
-- Whether the machine is healthy (no health alerts recorded on the machine)
-- How many machines are already updating, and the overall amount of healthy hosts in the machine. Machine Update Manager will never update all Machines at once, and won't schedule additional updates in case the temporary loss of Machines would move the site under the Machine health SLA.
+
+Machine Update Manager looks at various criteria to determine whether a Machine should get updated:
+
+- The current Machine state: for example, whether it is occupied by a tenant. Only Machines in the `Ready` state are selected for automated software updates.
+- Whether the Machine is healthy: no health alerts recorded on the Machine.
+- How many Machines are already updating, and the overall amount of healthy hosts in the Machine. Machine Update Manager never updates all Machines at once, and will not schedule additional updates in case the temporary loss of Machines would move the site under the Machine health SLA.
 
 Machine Update Manager does not perform the actual updates - it only performs scheduling/selection. The updates are instead applied within the ManagedHost state machine. This approach is chosen in order to assure that only a single component (managedhost state machine) is managing a hosts lifecycle at any point in time.
 
@@ -164,11 +169,12 @@ Host Power Manager is a component which orchestrates power actions against BMCs.
 
 InfiniBand fabric monitor is a periodic process within NICo that performs all interactions with the InfiniBand fabric using UFM APIs.
 
-In each run, IBFabricMonitor performs the following task:
-- It checks the health of the fabric manager (UFM) by performing API calls
-- It checks whether all security configurations for multitenancy are applied on UFM and emits alerts in case of inappropriate settings
-- It fetches the actually applied InfiniBand partitioning information for each InfiniBand port on each host managed by NICo and stores it in NICo. The data can be inspected in the `Machine::ib_status` field in the gRPC API.
-- If calls UFM APIs to bind ports (guids) to partitions (pkeys) according to the configuration of each host. This happens continuously based on comparing the expected InfiniBand configuration of a host (whether it is used by a tenant or not, and how the tenant configured the InfiniBand interfaces) with the actually applied configuration (determined in the last step).
+In each run, IBFabricMonitor performs the following tasks:
+
+- Checks the health of the fabric manager (UFM) by performing API calls
+- Checks whether all security configurations for multitenancy are applied on UFM and emits alerts in case of inappropriate settings
+- Fetches the actually applied InfiniBand partitioning information for each InfiniBand port on each host managed by NICo and stores it in NICo. The data can be inspected in the `Machine::ib_status` field in the gRPC API.
+- Calls UFM APIs to bind ports (guids) to partitions (pkeys) according to the configuration of each host. This happens continuously based on comparing the expected InfiniBand configuration of a host (whether it is used by a tenant or not, and how the tenant configured the InfiniBand interfaces) with the actually applied configuration (determined in the last step).
 
 InfiniBand Fabric Monitor is an optional component. It only needs to be enabled in the case NICo managed InfiniBand is required.
 
@@ -210,5 +216,4 @@ into regular operation mode. Thereafter the nico-dpu-agent starts as a daemon.
 Each DPU runs the nico-dpu-agent which connects via gRPC to the API service in NICo to get configuration
 instructions.
 
-The nico-dpu-agent also runs the NICo metadata service (FMDS), which provides the users on the bare metal instance a HTTP based API to retrieve information about their running instance.
-Users can e.g. use FMDS to determine their Machine ID or certain Boot/OS information.
+The nico-dpu-agent also runs the NICo metadata service (FMDS), which provides the users on the bare metal instance a HTTP based API to retrieve information about their running instance. For example, users can use FMDS to determine their Machine ID or certain Boot/OS information.
