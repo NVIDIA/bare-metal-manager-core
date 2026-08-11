@@ -4,12 +4,17 @@
 package common
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 
+	"github.com/labstack/echo/v4"
+	"github.com/rs/zerolog"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
@@ -23,6 +28,13 @@ import (
 	"github.com/NVIDIA/infra-controller/rest-api/common/pkg/grpcproxy"
 	cutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
 )
+
+// newProxyEchoContext returns a context for the helpers that render their own
+// response, along with the recorder holding what they wrote.
+func newProxyEchoContext() (echo.Context, *httptest.ResponseRecorder) {
+	recorder := httptest.NewRecorder()
+	return echo.New().NewContext(httptest.NewRequest(http.MethodPost, "/", nil), recorder), recorder
+}
 
 // startedProxyWorkflow captures what a proxy helper handed to Temporal.
 type startedProxyWorkflow struct {
@@ -160,6 +172,58 @@ func TestExecuteGRPCProxyClassifiesLostResults(t *testing.T) {
 			cause, ok := err.Data.(error)
 			require.True(t, ok, "Data is %T", err.Data)
 			assert.Contains(t, cause.Error(), tc.expectedCause)
+		})
+	}
+}
+
+// TestProxyFlowGRPCSeparatesDiagnosisFromResponseData keeps the diagnosis in
+// the log and out of the body: an error placed in the response serializes to an
+// empty object, which tells a client nothing and contradicts the null the
+// schema documents.
+func TestProxyFlowGRPCSeparatesDiagnosisFromResponseData(t *testing.T) {
+	cases := []struct {
+		name         string
+		getErr       error
+		expectedCode int
+		expectedLog  string
+	}{
+		{
+			// Flow's own rejection arrives with no separate cause, so the
+			// message is the only diagnosis there is.
+			name:         "flow rejects the request",
+			getErr:       errors.New("rack not found"),
+			expectedCode: http.StatusInternalServerError,
+			expectedLog:  "rack not found",
+		},
+		{
+			name:         "execution times out",
+			getErr:       tp.NewTimeoutError(temporalEnums.TIMEOUT_TYPE_START_TO_CLOSE, nil),
+			expectedCode: http.StatusGatewayTimeout,
+			expectedLog:  "execution timed out",
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			temporalClient, _ := newProxyClient(tc.getErr, nil)
+			echoCtx, recorder := newProxyEchoContext()
+			var logs bytes.Buffer
+
+			err := ProxyFlowGRPC(
+				context.Background(), echoCtx, zerolog.New(&logs), temporalClient,
+				"/v1.Flow/GetRackInfoByID",
+				&emptypb.Empty{}, nil,
+				"flow-grpc-rack-get-1", temporalEnums.WORKFLOW_ID_CONFLICT_POLICY_USE_EXISTING,
+			)
+
+			require.NoError(t, err)
+			assert.Equal(t, tc.expectedCode, recorder.Code)
+			assert.Contains(t, logs.String(), tc.expectedLog)
+
+			var body map[string]any
+			require.NoError(t, json.Unmarshal(recorder.Body.Bytes(), &body))
+			require.Contains(t, body, "data")
+			assert.Nil(t, body["data"], "data must be null, got %#v", body["data"])
 		})
 	}
 }

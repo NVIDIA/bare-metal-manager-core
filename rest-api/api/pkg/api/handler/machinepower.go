@@ -23,11 +23,7 @@ import (
 )
 
 func logAPIError(logger zerolog.Logger, apiErr *cutil.APIError, msg string) {
-	if apiErr.Data != nil {
-		logger.Error().Err(apiErr.Data).Msg(msg)
-		return
-	}
-	logger.Error().Err(apiErr).Msg(msg)
+	logger.Error().Err(apiErr.Diagnosis()).Msg(msg)
 }
 
 type MachinePowerControlHandler struct {
