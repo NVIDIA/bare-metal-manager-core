@@ -926,17 +926,15 @@ fn enumerate_hardware_inner(
 fn condense_rpc_memory_devices(devices: Vec<MemoryDevice>) -> Vec<MemoryDeviceGroup> {
     let mut groups: Vec<MemoryDeviceGroup> = Vec::new();
     for device in devices {
-        if let Some(group) = groups
-            .iter_mut()
-            .find(|g| g.size_mb == device.size_mb && g.mem_type == device.mem_type)
-        {
-            group.count += 1;
-        } else {
-            groups.push(MemoryDeviceGroup {
+        match groups.last_mut() {
+            Some(last) if last.size_mb == device.size_mb && last.mem_type == device.mem_type => {
+                last.count += 1;
+            }
+            _ => groups.push(MemoryDeviceGroup {
                 size_mb: device.size_mb,
                 mem_type: device.mem_type,
                 count: 1,
-            });
+            }),
         }
     }
     groups
@@ -1531,6 +1529,37 @@ mod tests {
                     dpu_info: Some(Default::default()),
                     ..Default::default()
                 } => Yields(()),
+            }
+        );
+    }
+
+    #[test]
+    fn condense_rpc_memory_devices_cases() {
+        value_scenarios!(
+            run = condense_rpc_memory_devices;
+
+            "empty input yields empty output" {
+                vec![] => vec![],
+            }
+
+            "identical consecutive devices are merged" {
+                vec![
+                    MemoryDevice { size_mb: Some(16384), mem_type: Some("DDR5".into()) },
+                    MemoryDevice { size_mb: Some(16384), mem_type: Some("DDR5".into()) },
+                    MemoryDevice { size_mb: Some(16384), mem_type: Some("DDR5".into()) },
+                ] => vec![MemoryDeviceGroup { size_mb: Some(16384), mem_type: Some("DDR5".into()), count: 3 }],
+            }
+
+            "non-consecutive identical devices are not merged" {
+                vec![
+                    MemoryDevice { size_mb: Some(16384), mem_type: Some("DDR5".into()) },
+                    MemoryDevice { size_mb: Some(32768), mem_type: Some("DDR4".into()) },
+                    MemoryDevice { size_mb: Some(16384), mem_type: Some("DDR5".into()) },
+                ] => vec![
+                    MemoryDeviceGroup { size_mb: Some(16384), mem_type: Some("DDR5".into()), count: 1 },
+                    MemoryDeviceGroup { size_mb: Some(32768), mem_type: Some("DDR4".into()), count: 1 },
+                    MemoryDeviceGroup { size_mb: Some(16384), mem_type: Some("DDR5".into()), count: 1 },
+                ],
             }
         );
     }

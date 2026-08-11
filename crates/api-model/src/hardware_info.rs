@@ -280,17 +280,15 @@ pub fn condense_memory_devices(
 ) -> Vec<MemoryDeviceGroup> {
     let mut groups: Vec<MemoryDeviceGroup> = Vec::new();
     for device in devices {
-        if let Some(group) = groups
-            .iter_mut()
-            .find(|g| g.size_mb == device.size_mb && g.mem_type == device.mem_type)
-        {
-            group.count += 1;
-        } else {
-            groups.push(MemoryDeviceGroup {
+        match groups.last_mut() {
+            Some(last) if last.size_mb == device.size_mb && last.mem_type == device.mem_type => {
+                last.count += 1;
+            }
+            _ => groups.push(MemoryDeviceGroup {
                 size_mb: device.size_mb,
                 mem_type: device.mem_type,
                 count: 1,
-            });
+            }),
         }
     }
     groups
@@ -311,13 +309,11 @@ where
     let raw = Vec::<MemoryDeviceGroup>::deserialize(deserializer)?;
     let mut merged: Vec<MemoryDeviceGroup> = Vec::new();
     for group in raw.into_iter().filter_map(|g| g.nonzero()) {
-        if let Some(existing) = merged
-            .iter_mut()
-            .find(|g| g.size_mb == group.size_mb && g.mem_type == group.mem_type)
-        {
-            existing.count += group.count;
-        } else {
-            merged.push(group);
+        match merged.last_mut() {
+            Some(last) if last.size_mb == group.size_mb && last.mem_type == group.mem_type => {
+                last.count += group.count;
+            }
+            _ => merged.push(group),
         }
     }
     Ok(merged)
@@ -1360,6 +1356,112 @@ mod tests {
                     size_mb: Some(32768),
                     mem_type: Some("DDR5".into()),
                     count: 5,
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn condense_memory_devices_preserves_non_consecutive_groups() {
+        let devices = vec![
+            MemoryDevice {
+                size_mb: Some(8192),
+                mem_type: Some("DDR4".into()),
+            },
+            MemoryDevice {
+                size_mb: Some(8192),
+                mem_type: Some("DDR4".into()),
+            },
+            MemoryDevice {
+                size_mb: Some(32768),
+                mem_type: Some("DDR5".into()),
+            },
+            MemoryDevice {
+                size_mb: Some(32768),
+                mem_type: Some("DDR5".into()),
+            },
+            MemoryDevice {
+                size_mb: Some(32768),
+                mem_type: Some("DDR5".into()),
+            },
+            MemoryDevice {
+                size_mb: Some(32768),
+                mem_type: Some("DDR5".into()),
+            },
+            MemoryDevice {
+                size_mb: Some(8192),
+                mem_type: Some("DDR4".into()),
+            },
+            MemoryDevice {
+                size_mb: Some(32768),
+                mem_type: Some("DDR5".into()),
+            },
+            MemoryDevice {
+                size_mb: Some(32768),
+                mem_type: Some("DDR5".into()),
+            },
+        ];
+        assert_eq!(
+            condense_memory_devices(devices),
+            vec![
+                MemoryDeviceGroup {
+                    size_mb: Some(8192),
+                    mem_type: Some("DDR4".into()),
+                    count: 2,
+                },
+                MemoryDeviceGroup {
+                    size_mb: Some(32768),
+                    mem_type: Some("DDR5".into()),
+                    count: 4,
+                },
+                MemoryDeviceGroup {
+                    size_mb: Some(8192),
+                    mem_type: Some("DDR4".into()),
+                    count: 1,
+                },
+                MemoryDeviceGroup {
+                    size_mb: Some(32768),
+                    mem_type: Some("DDR5".into()),
+                    count: 2,
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn deserialize_memory_devices_preserves_non_consecutive_groups() {
+        let json = r#"{
+            "machine_type": "x86_64",
+            "memory_devices": [
+                {"size_mb": 8192, "mem_type": "DDR4", "count": 2},
+                {"size_mb": 32768, "mem_type": "DDR5", "count": 4},
+                {"size_mb": 8192, "mem_type": "DDR4", "count": 1},
+                {"size_mb": 32768, "mem_type": "DDR5", "count": 2}
+            ]
+        }"#;
+        let info: HardwareInfo = serde_json::from_str(json).unwrap();
+        assert_eq!(
+            info.memory_devices,
+            vec![
+                MemoryDeviceGroup {
+                    size_mb: Some(8192),
+                    mem_type: Some("DDR4".into()),
+                    count: 2,
+                },
+                MemoryDeviceGroup {
+                    size_mb: Some(32768),
+                    mem_type: Some("DDR5".into()),
+                    count: 4,
+                },
+                MemoryDeviceGroup {
+                    size_mb: Some(8192),
+                    mem_type: Some("DDR4".into()),
+                    count: 1,
+                },
+                MemoryDeviceGroup {
+                    size_mb: Some(32768),
+                    mem_type: Some("DDR5".into()),
+                    count: 2,
                 },
             ]
         );
