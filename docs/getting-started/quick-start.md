@@ -340,7 +340,7 @@ You can combine common options as needed:
 | `--skip-core` | Skip the Phase 6 NICo Core Helm release. |
 | `--skip-flow` | Skip Phase 7h NICo Flow. Also set `flow.enabled=false` in `helm-prereqs/values.yaml` to omit Flow prerequisites. |
 | `--skip-rest` | Skip all Phase 7 NICo REST phases. |
-| `--with-observability` | Install the optional local metrics, logs, and traces stack before Phase 7. This also runs with `--skip-rest`; see [`helm-prereqs/observability/README.md`](../../helm-prereqs/observability/README.md) for standalone installation. |
+| `--with-observability` | Install the optional local metrics, logs, and traces stack before Phase 7. This also runs with `--skip-rest`; see [`helm-prereqs/observability/README.md`](https://github.com/NVIDIA/infra-controller/blob/main/helm-prereqs/observability/README.md) for standalone installation. |
 | `-y` | Accept setup prompts automatically. |
 
 The `setup.sh` script installs all prerequisites and NICo components in sequential phases:
