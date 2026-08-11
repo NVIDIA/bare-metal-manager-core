@@ -6334,8 +6334,8 @@ enum DpuMode {
 //   a configured address is treated as FIXED, no address is treated as RETAINED.
 // - BMC_IP_ALLOCATION_TYPE_DYNAMIC: a normal DHCP lease that may expire and change.
 // - BMC_IP_ALLOCATION_TYPE_FIXED: the operator-specified `bmc_ip_address` (static).
-// - BMC_IP_ALLOCATION_TYPE_RETAINED: an auto-allocated address pinned as Static
-//   (never expires).
+// - BMC_IP_ALLOCATION_TYPE_RETAINED: an auto-allocated DHCP address that stays
+//   static for the lifetime of its machine-interface record.
 //
 // On create, omission and `BMC_IP_ALLOCATION_TYPE_UNSPECIFIED` mean AUTO. On
 // single and batch update, omission preserves the effective Host BMC policy,

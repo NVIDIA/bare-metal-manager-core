@@ -62,7 +62,8 @@ Add a DPU OS interface with a fixed IP:
     --bmc-username admin --bmc-password mypassword --chassis-serial-number sample_serial-1 \
     --interfaces '[{\"mac_address\":\"02:00:00:00:20:01\",\"role\":\"dpu_os\",\"ip_allocation\":\"fixed\",\"fixed_ip\":\"192.0.2.10\"}]'
 
-Retain the BMC's auto-allocated DHCP address as a static one (never expires):
+Retain the BMC's auto-allocated DHCP address as static for the lifetime of its
+machine-interface record:
     $ nico-admin-cli expected-machine add --bmc-mac-address 00:11:22:33:44:55 \
     --bmc-username admin --bmc-password mypassword --chassis-serial-number sample_serial-1 \
     --bmc-ip-allocation retained
@@ -189,7 +190,7 @@ pub(crate) struct Args {
         long = "bmc-ip-allocation",
         value_name = "BMC_IP_ALLOCATION",
         value_enum,
-        help = "Per-host control over how this BMC's IP is assigned and retained. `auto` (default): infer from `--bmc-ip-address` -- a configured address is `fixed`, no address is `retained`; `dynamic`: a normal DHCP lease that may expire and change; `fixed`: the operator-specified `--bmc-ip-address` (static); `retained`: an auto-allocated address pinned as static (never expires). Unset defers to the server default (`auto`)."
+        help = "Per-host control over how this BMC's IP is assigned and retained. `auto` (default): infer from `--bmc-ip-address` -- a configured address is `fixed`, no address is `retained`; `dynamic`: a normal DHCP lease that may expire and change; `fixed`: the operator-specified `--bmc-ip-address` (static); `retained`: an auto-allocated DHCP address that stays static for the lifetime of its machine-interface record. Unset defers to the server default (`auto`)."
     )]
     bmc_ip_allocation: Option<BmcIpAllocationType>,
 
