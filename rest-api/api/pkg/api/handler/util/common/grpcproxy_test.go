@@ -5,6 +5,7 @@ package common
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"strings"
 	"testing"
@@ -13,8 +14,10 @@ import (
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 	temporalEnums "go.temporal.io/api/enums/v1"
+	"go.temporal.io/api/serviceerror"
 	tclient "go.temporal.io/sdk/client"
 	tmocks "go.temporal.io/sdk/mocks"
+	tp "go.temporal.io/sdk/temporal"
 	"google.golang.org/protobuf/types/known/emptypb"
 
 	"github.com/NVIDIA/infra-controller/rest-api/common/pkg/grpcproxy"
@@ -27,11 +30,17 @@ type startedProxyWorkflow struct {
 	workflowName string
 }
 
-// newTimingOutProxyClient returns a Temporal client whose workflow never
-// produces a result, so helpers take their timeout path.
+// newTimingOutProxyClient returns a Temporal client whose workflow hits its
+// execution timeout, so helpers take their timeout path.
 func newTimingOutProxyClient() (*tmocks.Client, *startedProxyWorkflow) {
+	return newProxyClient(tp.NewTimeoutError(temporalEnums.TIMEOUT_TYPE_START_TO_CLOSE, nil), nil)
+}
+
+// newProxyClient returns a Temporal client whose start fails with startErr, or,
+// when that is nil, whose workflow result is getErr.
+func newProxyClient(getErr, startErr error) (*tmocks.Client, *startedProxyWorkflow) {
 	workflowRun := &tmocks.WorkflowRun{}
-	workflowRun.On("Get", mock.Anything, mock.Anything).Return(context.DeadlineExceeded)
+	workflowRun.On("Get", mock.Anything, mock.Anything).Return(getErr)
 
 	started := &startedProxyWorkflow{}
 	temporalClient := &tmocks.Client{}
@@ -46,9 +55,113 @@ func newTimingOutProxyClient() (*tmocks.Client, *startedProxyWorkflow) {
 		mock.Anything,
 	).Run(func(args mock.Arguments) {
 		started.workflowName = args.Get(2).(string)
-	}).Return(workflowRun, nil)
+	}).Return(workflowRun, startErr)
 
 	return temporalClient, started
+}
+
+// assertNoTermination fails if the proxy tried to terminate the execution. It
+// matches on the method rather than an argument list so a call that passes
+// termination details cannot slip past.
+func assertNoTermination(t *testing.T, temporalClient *tmocks.Client) {
+	t.Helper()
+
+	for _, call := range temporalClient.Calls {
+		assert.NotEqual(t, "TerminateWorkflow", call.Method, "the proxy must leave the execution alone")
+	}
+}
+
+// TestExecuteGRPCProxyClassifiesLostResults separates the ways a caller ends up
+// without a result. They all answer 504, so only the internal cause tells an
+// operator whether the execution closed itself or is still running unobserved.
+//
+// Neither case terminates: the activity does not heartbeat, so termination
+// would discard the result without stopping the RPC it is blocked on, and for a
+// deterministic ID it would free the name for a retry to start a duplicate.
+func TestExecuteGRPCProxyClassifiesLostResults(t *testing.T) {
+	cases := []struct {
+		name          string
+		getErr        error
+		startErr      error
+		cancelCaller  bool
+		expectedCode  int
+		expectedMsg   string
+		expectedCause string
+	}{
+		{
+			name:          "temporal timeout while the caller is still waiting",
+			getErr:        tp.NewTimeoutError(temporalEnums.TIMEOUT_TYPE_START_TO_CLOSE, nil),
+			expectedCode:  http.StatusGatewayTimeout,
+			expectedMsg:   "Flow proxy request timed out",
+			expectedCause: "execution timed out",
+		},
+		{
+			name:          "caller stops waiting for the result",
+			getErr:        context.Canceled,
+			cancelCaller:  true,
+			expectedCode:  http.StatusGatewayTimeout,
+			expectedMsg:   "Flow proxy request timed out",
+			expectedCause: "caller stopped waiting",
+		},
+		{
+			name:          "caller stops waiting during the start",
+			startErr:      context.Canceled,
+			cancelCaller:  true,
+			expectedCode:  http.StatusGatewayTimeout,
+			expectedMsg:   "Flow proxy request timed out",
+			expectedCause: "caller stopped waiting",
+		},
+		{
+			// The SDK's own start deadline is far shorter than the caller's
+			// budget, so a slow frontend runs out of time while the caller is
+			// still waiting. The start may have landed all the same.
+			name:          "start exceeds the SDK deadline",
+			startErr:      serviceerror.NewDeadlineExceeded("context deadline exceeded"),
+			expectedCode:  http.StatusGatewayTimeout,
+			expectedMsg:   "Flow proxy request timed out",
+			expectedCause: "start deadline exceeded",
+		},
+		{
+			// The execution's own deadline is not the caller's, so it stays a
+			// workflow failure rather than being reported as a gateway timeout.
+			name:         "deadline exceeded from inside a live execution",
+			getErr:       context.DeadlineExceeded,
+			expectedCode: http.StatusInternalServerError,
+			expectedMsg:  context.DeadlineExceeded.Error(),
+		},
+		{
+			name:          "start fails while the caller is still waiting",
+			startErr:      errors.New("namespace not found"),
+			expectedCode:  http.StatusInternalServerError,
+			expectedMsg:   "Failed to execute Flow proxy workflow",
+			expectedCause: "namespace not found",
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			temporalClient, _ := newProxyClient(tc.getErr, tc.startErr)
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			if tc.cancelCaller {
+				cancel()
+			}
+
+			err := ExecuteFlowGRPC(ctx, temporalClient, "/v1.Flow/CreateOperationRun", &emptypb.Empty{}, nil, "flow-grpc-create-1", temporalEnums.WORKFLOW_ID_CONFLICT_POLICY_UNSPECIFIED, "")
+
+			require.NotNil(t, err)
+			assert.Equal(t, tc.expectedCode, err.Code)
+			assert.Equal(t, tc.expectedMsg, err.Message)
+			assertNoTermination(t, temporalClient)
+			if tc.expectedCause == "" {
+				return
+			}
+			require.NotNil(t, err.Data)
+			cause, ok := err.Data.(error)
+			require.True(t, ok, "Data is %T", err.Data)
+			assert.Contains(t, cause.Error(), tc.expectedCause)
+		})
+	}
 }
 
 func TestExecuteCoreGRPC(t *testing.T) {
