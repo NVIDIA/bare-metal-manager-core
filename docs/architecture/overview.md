@@ -1,6 +1,6 @@
 # Architecture
 
-This page discusses the high level architecture of a site running NVIDIA Infra Controller (NICo).
+This page discusses the high-level architecture of a site running NVIDIA Infra Controller (NICo).
 
 NICo orchestrates the lifecycle of ["Managed Hosts"](#managed-hosts) and other resources via a set of cooperating control plane services. These control plane services have to be deployed to a Kubernetes cluster with a size of at least 3 nodes (for high availability).
 
@@ -181,7 +181,7 @@ Its `NvlPartitionMonitor` reconciles NVLink logical partition desired state with
 
 ## Dependency services
 
-In addition to the NICo API server components there are other supporting services run within the K8s site controller nodes.
+In addition to the NICo API server components, several other supporting services run within the K8s site controller nodes.
 
 ### K8s Persistent Storage Objects
 
