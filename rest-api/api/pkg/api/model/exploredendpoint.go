@@ -467,7 +467,8 @@ func newAPIMachineBootInterfaceTarget(target *corev1.MachineBootInterfaceTarget)
 			InterfaceID: pair.GetInterfaceId(),
 		}
 	}
-	if mac := target.GetMacOnly(); mac != "" {
+	if _, ok := target.GetTarget().(*corev1.MachineBootInterfaceTarget_MacOnly); ok {
+		mac := target.GetMacOnly()
 		out.MacOnly = &mac
 	}
 	return out
@@ -533,14 +534,20 @@ func newAPIBootOrder(bo *corev1.BootOrder) *APIBootOrder {
 }
 
 func exploredNicModeFromProto(mode corev1.NicMode) string {
-	if mode == corev1.NicMode_NIC {
+	switch mode {
+	case corev1.NicMode_DPU:
+		return "Dpu"
+	case corev1.NicMode_NIC:
 		return "Nic"
+	default:
+		return "Unknown"
 	}
-	return "Dpu"
 }
 
 func exploredComputerSystemPowerStateFromProto(state corev1.ComputerSystemPowerState) string {
 	switch state {
+	case corev1.ComputerSystemPowerState_On:
+		return "On"
 	case corev1.ComputerSystemPowerState_Off:
 		return "Off"
 	case corev1.ComputerSystemPowerState_PoweringOff:
@@ -552,17 +559,19 @@ func exploredComputerSystemPowerStateFromProto(state corev1.ComputerSystemPowerS
 	case corev1.ComputerSystemPowerState_Unknown:
 		return "Unknown"
 	default:
-		return "On"
+		return "Unknown"
 	}
 }
 
 func exploredInternalLockdownStatusFromProto(status corev1.InternalLockdownStatus) string {
 	switch status {
+	case corev1.InternalLockdownStatus_ENABLED:
+		return "Enabled"
 	case corev1.InternalLockdownStatus_PARTIAL:
 		return "Partial"
 	case corev1.InternalLockdownStatus_DISABLED:
 		return "Disabled"
 	default:
-		return "Enabled"
+		return "Unknown"
 	}
 }

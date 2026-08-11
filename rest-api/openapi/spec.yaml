@@ -5240,7 +5240,6 @@ paths:
                           vendor: Supermicro
                           model: SYS-420GP-TNR
                       created: '2019-08-24T14:15:22Z'
-                      updated: '2019-08-24T14:15:22Z'
           headers:
             X-Pagination:
               schema:
@@ -5347,7 +5346,6 @@ paths:
                         vendor: Supermicro
                         model: SYS-420GP-TNR
                     created: '2019-08-24T14:15:22Z'
-                    updated: '2019-08-24T14:15:22Z'
         '400':
           $ref: '#/components/responses/ValidationError'
         '403':
@@ -15464,8 +15462,8 @@ components:
         powerState:
           type: string
           enum:
-            - On
-            - Off
+            - 'On'
+            - 'Off'
             - PoweringOff
             - PoweringOn
             - Paused
@@ -15484,6 +15482,7 @@ components:
           enum:
             - Dpu
             - Nic
+            - Unknown
             - null
     ExploredEthernetInterface:
       type: object
@@ -15759,6 +15758,7 @@ components:
             - Enabled
             - Partial
             - Disabled
+            - Unknown
         message:
           type: string
     BMCResetRequest:
@@ -25824,7 +25824,6 @@ components:
               vendor: Supermicro
               model: SYS-420GP-TNR
           created: '2019-08-24T14:15:22Z'
-          updated: '2019-08-24T14:15:22Z'
       properties:
         id:
           type: string
@@ -25862,12 +25861,7 @@ components:
         created:
           type: string
           format: date-time
-          description: ISO 8601 datetime when the SKU was created
-          readOnly: true
-        updated:
-          type: string
-          format: date-time
-          description: ISO 8601 datetime when the SKU was last updated
+          description: ISO 8601 datetime when the SKU was created, using the Site-reported timestamp when available
           readOnly: true
     SkuCreateRequest:
       title: SkuCreateRequest
@@ -25962,7 +25956,8 @@ components:
           description: Chassis component
         ethernetDevices:
           type: array
-          description: Ethernet device components
+          readOnly: true
+          description: Read-only Ethernet device components reported by Core. Omit this property from REST mutation requests; null and an empty array are accepted for compatibility, while a non-empty array is rejected with HTTP 400.
           items:
             $ref: '#/components/schemas/SkuEthernetDevice'
         infinibandDevices:

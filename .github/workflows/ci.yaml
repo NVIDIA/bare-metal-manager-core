@@ -70,8 +70,8 @@ jobs:
       - name: Test CI final-gate checker
         run: python3 -B .github/ci/test_check_ci_gate.py
 
-      - name: Test PR secret-scan range resolver
-        run: bash .github/ci/test-resolve-pr-scan-range.sh
+      - name: Test secret-scan range resolver
+        run: bash .github/ci/test-resolve-secret-scan-range.sh
 
       - name: Check Core CI final-gate inventory
         run: python3 -B .github/ci/check_ci_gate.py inventory --policy core .github/workflows/ci.yaml
@@ -1344,27 +1344,17 @@ jobs:
           persist-credentials: false
           fetch-depth: 0  # Full history for secret scanning
 
-      # The copy PR bot can create or rewrite its synthetic branch, so
-      # `github.event.before` can be all zeroes or name a commit that no longer
-      # exists. Resolve both ends from the current PR for every synthetic push.
+      # Pull requests and tags both need a verified base and head. Resolve those
+      # ranges in one place; ordinary branch pushes keep using the push event.
       - name: Compute TruffleHog scan range
         id: scan-range
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          if [[ "$GITHUB_REF" == refs/heads/pull-request/* ]]; then
-            bash .github/ci/resolve-pr-scan-range.sh >> "$GITHUB_OUTPUT"
+          if [[ "$GITHUB_REF" == refs/heads/pull-request/* || "$GITHUB_REF" == refs/tags/* ]]; then
+            bash .github/ci/resolve-secret-scan-range.sh >> "$GITHUB_OUTPUT"
           else
             BEFORE="${{ github.event.before }}"
-            if [[ "$GITHUB_REF" == refs/tags/* ]]; then
-              # Tag pushes also have an all-zeros before. Scope the scan to commits
-              # since the previous tag so we don't re-scan the entire history on
-              # every release.
-              PREV_TAG=$(git tag --sort=-version:refname | grep -v "^${GITHUB_REF_NAME}$" | head -1)
-              if [[ -n "$PREV_TAG" ]]; then
-                BEFORE=$(git merge-base "refs/tags/${PREV_TAG}" HEAD)
-              fi
-            fi
             echo "base=$BEFORE" >> "$GITHUB_OUTPUT"
           fi
 

@@ -167,3 +167,20 @@ func TestNewAPIExploredEndpoint_FromProto(t *testing.T) {
 func TestNewAPIExploredEndpoint_Nil(t *testing.T) {
 	assert.Nil(t, NewAPIExploredEndpoint(nil))
 }
+
+func TestNewAPIMachineBootInterfaceTarget_EmptyMacOnly(t *testing.T) {
+	target := &corev1.MachineBootInterfaceTarget{
+		Target: &corev1.MachineBootInterfaceTarget_MacOnly{MacOnly: ""},
+	}
+
+	got := newAPIMachineBootInterfaceTarget(target)
+	require.NotNil(t, got.MacOnly)
+	assert.Empty(t, *got.MacOnly)
+	assert.Nil(t, got.Pair)
+}
+
+func TestExploredEnumFromProto_UnknownValues(t *testing.T) {
+	assert.Equal(t, "Unknown", exploredNicModeFromProto(corev1.NicMode(99)))
+	assert.Equal(t, "Unknown", exploredComputerSystemPowerStateFromProto(corev1.ComputerSystemPowerState(99)))
+	assert.Equal(t, "Unknown", exploredInternalLockdownStatusFromProto(corev1.InternalLockdownStatus(99)))
+}
