@@ -278,6 +278,9 @@ exclude_services = ["Journal"]
 [collectors.logs.sse]
 initial_backoff = "1s"
 max_backoff = "30s"
+# Maximum number of concurrent Redfish GET requests used to fetch EventRecord
+# resources referenced by @odata.id in SSE notifications.
+event_record_fetch_concurrency = 4
 
 # required when
 # mode = "periodic"; must not be set when mode = "sse"

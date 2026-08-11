@@ -21,9 +21,10 @@ use std::time::Duration;
 
 use async_trait::async_trait;
 use futures::StreamExt;
-use nv_redfish::core::{Bmc, EntityTypeRef};
+use nv_redfish::core::{Bmc, EntityTypeRef, NavProperty};
 use nv_redfish::event_service::{Event, EventStreamPayload};
 use nv_redfish::resource::Health;
+use tokio::sync::Semaphore;
 
 use super::diagnostic::{
     DiagnosticPayload, make_diagnostic_record, nullable_ref, nullable_str, redfish_enum_string,
@@ -70,11 +71,16 @@ struct EventRecordResolutionFailed {
 pub struct SseLogCollectorConfig {
     /// Attach Redfish diagnostic payloads to emitted log records.
     pub include_diagnostics: bool,
+
+    /// Maximum number of concurrent Redfish GET requests used to fetch
+    /// referenced event records.
+    pub event_record_fetch_concurrency: usize,
 }
 
 pub struct SseLogCollector<B: Bmc> {
     bmc: Arc<B>,
     include_diagnostics: bool,
+    event_record_fetch_concurrency: usize,
 }
 
 #[async_trait]
@@ -89,21 +95,19 @@ impl<B: Bmc + 'static> StreamingCollector<B> for SseLogCollector<B> {
         Ok(Self {
             bmc,
             include_diagnostics: config.include_diagnostics,
+            event_record_fetch_concurrency: config.event_record_fetch_concurrency.max(1),
         })
     }
 
     async fn connect(&mut self) -> Result<StreamingConnectResult<'_>, HealthError> {
         let sse_stream = open_sse_stream(Arc::clone(&self.bmc)).await?;
 
-        let bmc = Arc::clone(&self.bmc);
-        let include_diagnostics = self.include_diagnostics;
-        let event_stream: EventStream<'_> = sse_stream
-            .then(move |result| {
-                let bmc = Arc::clone(&bmc);
-                async move { map_payload(result, bmc.as_ref(), include_diagnostics).await }
-            })
-            .flat_map(futures::stream::iter)
-            .boxed();
+        let event_stream = map_event_stream(
+            sse_stream,
+            Arc::clone(&self.bmc),
+            self.include_diagnostics,
+            self.event_record_fetch_concurrency,
+        );
 
         Ok(StreamingConnectResult::Connected(event_stream))
     }
@@ -111,6 +115,37 @@ impl<B: Bmc + 'static> StreamingCollector<B> for SseLogCollector<B> {
     fn collector_type(&self) -> &'static str {
         "sse_logs"
     }
+}
+
+fn map_event_stream<'a, B, S>(
+    sse_stream: S,
+    bmc: Arc<B>,
+    include_diagnostics: bool,
+    event_record_fetch_concurrency: usize,
+) -> EventStream<'a>
+where
+    B: Bmc + 'static,
+    S: futures::Stream<Item = Result<EventStreamPayload, HealthError>> + Send + 'a,
+{
+    let fetch_permits = Arc::new(Semaphore::new(event_record_fetch_concurrency));
+
+    sse_stream
+        .map(move |result| {
+            let bmc = Arc::clone(&bmc);
+            let fetch_permits = Arc::clone(&fetch_permits);
+            async move {
+                map_payload(
+                    result,
+                    bmc.as_ref(),
+                    include_diagnostics,
+                    fetch_permits.as_ref(),
+                )
+                .await
+            }
+        })
+        .buffered(event_record_fetch_concurrency)
+        .flat_map(futures::stream::iter)
+        .boxed()
 }
 
 fn health_to_severity(h: &Health) -> Option<&'static str> {
@@ -129,10 +164,18 @@ async fn map_payload<B: Bmc>(
     result: Result<EventStreamPayload, HealthError>,
     bmc: &B,
     include_diagnostics: bool,
+    fetch_permits: &Semaphore,
 ) -> Vec<Result<CollectorEvent, HealthError>> {
     match result {
         Ok(EventStreamPayload::Event(event)) => {
-            event_to_logs(&event, bmc, include_diagnostics).await
+            event_to_logs(
+                &event,
+                bmc,
+                include_diagnostics,
+                fetch_permits,
+                EVENT_RECORD_RESOLUTION_TIMEOUT,
+            )
+            .await
         }
         Ok(EventStreamPayload::MetricReport(_)) => Vec::new(),
         Err(e) => vec![Err(e)],
@@ -144,41 +187,45 @@ async fn event_to_logs<B: Bmc>(
     event: &Event,
     bmc: &B,
     include_diagnostics: bool,
-) -> Vec<Result<CollectorEvent, HealthError>> {
-    event_to_logs_with_timeout(
-        event,
-        bmc,
-        include_diagnostics,
-        EVENT_RECORD_RESOLUTION_TIMEOUT,
-    )
-    .await
-}
-
-async fn event_to_logs_with_timeout<B: Bmc>(
-    event: &Event,
-    bmc: &B,
-    include_diagnostics: bool,
+    fetch_permits: &Semaphore,
     resolution_timeout: Duration,
 ) -> Vec<Result<CollectorEvent, HealthError>> {
-    let mut logs = Vec::with_capacity(event.events.len());
     let deadline = tokio::time::Instant::now() + resolution_timeout;
 
-    for nav in &event.events {
-        if let Some(record) = resolve_event_record(nav, bmc, deadline).await {
-            logs.push(Ok(record_to_log(&record, include_diagnostics)));
-        }
-    }
-
-    logs
+    futures::future::join_all(
+        event
+            .events
+            .iter()
+            .map(|nav| resolve_event_record(nav, bmc, fetch_permits, deadline)),
+    )
+    .await
+    .into_iter()
+    .flatten()
+    .map(|record| Ok(record_to_log(&record, include_diagnostics)))
+    .collect()
 }
 
 async fn resolve_event_record<B: Bmc>(
     nav: &nv_redfish::core::NavProperty<nv_redfish::schema::event::EventRecord>,
     bmc: &B,
+    fetch_permits: &Semaphore,
     deadline: tokio::time::Instant,
 ) -> Option<Arc<nv_redfish::schema::event::EventRecord>> {
     let odata_id = nav.odata_id().to_string();
-    match tokio::time::timeout_at(deadline, nav.get(bmc)).await {
+    let get_record = async {
+        let _permit = match nav {
+            NavProperty::Expanded(_) => None,
+            NavProperty::Reference(_) => Some(
+                fetch_permits
+                    .acquire()
+                    .await
+                    .expect("event record fetch semaphore remains open"),
+            ),
+        };
+        nav.get(bmc).await
+    };
+
+    match tokio::time::timeout_at(deadline, get_record).await {
         Ok(Ok(record)) => Some(record),
         Ok(Err(error)) => {
             carbide_instrument::emit(EventRecordResolutionFailed {
@@ -308,12 +355,30 @@ mod tests {
     use axum::routing::get;
     use axum::{Json, Router};
     use bmc_mock::test_support::axum_http_client::AxumRouterHttpClient;
+    use futures::FutureExt;
     use nv_redfish::bmc_http::{BmcCredentials, CacheSettings, HttpBmc};
     use serde_json::{Value, json};
     use url::Url;
 
     use super::*;
     use crate::endpoint::test_support::{mac, test_endpoint};
+
+    async fn event_to_logs_with_timeout<B: Bmc>(
+        event: &Event,
+        bmc: &B,
+        include_diagnostics: bool,
+        resolution_timeout: Duration,
+    ) -> Vec<Result<CollectorEvent, HealthError>> {
+        let fetch_permits = Semaphore::new(event.events.len().max(1));
+        event_to_logs(
+            event,
+            bmc,
+            include_diagnostics,
+            &fetch_permits,
+            resolution_timeout,
+        )
+        .await
+    }
 
     #[tokio::test]
     async fn sse_event_preserves_oem_extensions() -> Result<(), HealthError> {
@@ -339,7 +404,8 @@ mod tests {
 
         let endpoint = test_endpoint(mac("00:11:22:33:44:55"));
 
-        let events = map_payload(Ok(payload), endpoint.bmc().as_ref(), false).await;
+        let fetch_permits = Semaphore::new(1);
+        let events = map_payload(Ok(payload), endpoint.bmc().as_ref(), false, &fetch_permits).await;
 
         let [Ok(CollectorEvent::Log(record))] = events.as_slice() else {
             panic!("expected one SSE log record");
@@ -488,6 +554,98 @@ mod tests {
     }
 
     #[tokio::test(start_paused = true)]
+    async fn hung_reference_does_not_drop_ready_sibling_record() {
+        let hung_path = "/redfish/v1/EventService/Events/records/hung";
+        let good_path = "/redfish/v1/EventService/Events/records/good";
+        let payload = c12_platform_record(good_path);
+        let router = Router::new()
+            .route(
+                hung_path,
+                get(|| async { std::future::pending::<Json<Value>>().await }),
+            )
+            .route(
+                good_path,
+                get(move || {
+                    let payload = payload.clone();
+                    async move { Json(payload) }
+                }),
+            );
+        let bmc = test_bmc(router);
+        let resolution_timeout = Duration::from_secs(1);
+        let started_at = tokio::time::Instant::now();
+
+        let logs = event_to_logs_with_timeout(
+            &referenced_event(&[hung_path, good_path]),
+            &bmc,
+            false,
+            resolution_timeout,
+        )
+        .await;
+
+        assert_eq!(tokio::time::Instant::now() - started_at, resolution_timeout);
+        assert_eq!(logs.len(), 1);
+        let event = logs[0].as_ref().expect("ready sibling should be emitted");
+        assert_eq!(
+            attribute(log_record(event), "oem.nvidia.error_id"),
+            Some("CPLD-PSEQ-FAULT")
+        );
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn event_record_fetch_concurrency_limits_get_requests() {
+        let first_path = "/redfish/v1/EventService/Events/records/hung";
+        let second_path = "/redfish/v1/EventService/Events/records/waiting";
+        let first_request_started = Arc::new(tokio::sync::Notify::new());
+        let second_request_started = Arc::new(tokio::sync::Notify::new());
+        let first_notification = Arc::clone(&first_request_started);
+        let second_notification = Arc::clone(&second_request_started);
+        let payload = c12_platform_record(second_path);
+        let router = Router::new()
+            .route(
+                first_path,
+                get(move || {
+                    let first_notification = Arc::clone(&first_notification);
+                    async move {
+                        first_notification.notify_one();
+                        std::future::pending::<Json<Value>>().await
+                    }
+                }),
+            )
+            .route(
+                second_path,
+                get(move || {
+                    let second_notification = Arc::clone(&second_notification);
+                    let payload = payload.clone();
+                    async move {
+                        second_notification.notify_one();
+                        Json(payload)
+                    }
+                }),
+            );
+        let bmc = test_bmc(router);
+        let event = referenced_event(&[first_path, second_path]);
+        let fetch_permits = Arc::new(Semaphore::new(1));
+        let task_permits = Arc::clone(&fetch_permits);
+
+        let task = tokio::spawn(async move {
+            event_to_logs(
+                &event,
+                &bmc,
+                false,
+                task_permits.as_ref(),
+                Duration::from_secs(1),
+            )
+            .await
+        });
+
+        first_request_started.notified().await;
+        assert_eq!(fetch_permits.available_permits(), 0);
+        assert!(second_request_started.notified().now_or_never().is_none());
+
+        task.await.expect("event resolution task should complete");
+    }
+
+    #[tokio::test(start_paused = true)]
     async fn referenced_event_record_batch_fetch_is_bounded() {
         let first_path = "/redfish/v1/EventService/Events/records/hung-1";
         let second_path = "/redfish/v1/EventService/Events/records/hung-2";
@@ -503,13 +661,65 @@ mod tests {
         let bmc = test_bmc(router);
         let started_at = tokio::time::Instant::now();
 
-        let logs = event_to_logs(&referenced_event(&[first_path, second_path]), &bmc, false).await;
+        let logs = event_to_logs_with_timeout(
+            &referenced_event(&[first_path, second_path]),
+            &bmc,
+            false,
+            EVENT_RECORD_RESOLUTION_TIMEOUT,
+        )
+        .await;
 
         assert!(logs.is_empty());
         assert_eq!(EVENT_RECORD_RESOLUTION_TIMEOUT, Duration::from_secs(10));
         assert_eq!(
             tokio::time::Instant::now() - started_at,
             EVENT_RECORD_RESOLUTION_TIMEOUT
+        );
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn slow_payload_does_not_block_sse_stream_polling() {
+        let hung_path = "/redfish/v1/EventService/Events/records/hung";
+        let good_path = "/redfish/v1/EventService/Events/records/good";
+        let good_request_started = Arc::new(tokio::sync::Notify::new());
+        let request_notification = Arc::clone(&good_request_started);
+        let payload = c12_platform_record(good_path);
+        let router = Router::new()
+            .route(
+                hung_path,
+                get(|| async { std::future::pending::<Json<Value>>().await }),
+            )
+            .route(
+                good_path,
+                get(move || {
+                    let request_notification = Arc::clone(&request_notification);
+                    let payload = payload.clone();
+                    async move {
+                        request_notification.notify_one();
+                        Json(payload)
+                    }
+                }),
+            );
+        let bmc = Arc::new(test_bmc(router));
+        let sse_stream = futures::stream::iter([
+            Ok(EventStreamPayload::Event(referenced_event(&[hung_path]))),
+            Ok(EventStreamPayload::Event(referenced_event(&[good_path]))),
+        ]);
+        let mut event_stream = map_event_stream(sse_stream, bmc, false, 2);
+        let next_event = tokio::spawn(async move { event_stream.next().await });
+
+        tokio::time::timeout(Duration::from_secs(1), good_request_started.notified())
+            .await
+            .expect("later SSE payload should be polled before the first payload times out");
+
+        let event = next_event
+            .await
+            .expect("event stream task should complete")
+            .expect("ready payload should emit an event")
+            .expect("ready payload should emit a log");
+        assert_eq!(
+            attribute(log_record(&event), "oem.nvidia.error_id"),
+            Some("CPLD-PSEQ-FAULT")
         );
     }
 

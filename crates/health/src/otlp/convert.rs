@@ -864,6 +864,8 @@ mod tests {
         let request = build_export_request(&[(test_context(), log)], false);
         let record = &request.resource_logs[0].scope_logs[0].log_records[0];
 
+        assert_eq!(record.severity_text, "Critical");
+        assert_eq!(record.severity_number, SeverityNumber::Fatal as i32);
         assert_eq!(
             record.body.as_ref().and_then(|body| body.value.as_ref()),
             Some(&any_value::Value::StringValue(String::new()))

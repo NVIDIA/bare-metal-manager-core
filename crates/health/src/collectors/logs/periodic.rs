@@ -408,12 +408,15 @@ impl<B: Bmc + 'static> LogsCollector<B> {
     }
 }
 
-fn redfish_severity_to_otel(severity: &str) -> (u8, String) {
-    match severity.to_lowercase().as_str() {
-        "critical" => (21, "FATAL".to_string()),
-        "warning" => (13, "WARN".to_string()),
-        "ok" => (9, "INFO".to_string()),
-        _ => (1, "TRACE".to_string()),
+fn redfish_severity_to_otel(severity: &str) -> &'static str {
+    if severity.eq_ignore_ascii_case("critical") {
+        "FATAL"
+    } else if severity.eq_ignore_ascii_case("warning") {
+        "WARN"
+    } else if severity.eq_ignore_ascii_case("ok") {
+        "INFO"
+    } else {
+        "TRACE"
     }
 }
 
@@ -430,8 +433,9 @@ fn entry_to_log(
         .and_then(redfish_enum_string);
     let severity = redfish_severity
         .as_deref()
-        .map(|severity| redfish_severity_to_otel(severity).1)
-        .unwrap_or_else(|| "INFO".to_string());
+        .map(redfish_severity_to_otel)
+        .unwrap_or("INFO")
+        .to_string();
 
     let diagnostic_data_type =
         nullable_ref(&entry.diagnostic_data_type).and_then(redfish_enum_string);
