@@ -40,7 +40,7 @@ use crate::status::{BmcStatus, DeviceKind, DeviceStatus, DeviceStatusConfig, End
 use crate::tui::HostDetails;
 use crate::{MachineConfig, saturating_add_duration_to_instant};
 
-pub struct DpuMachine {
+pub(super) struct DpuMachine {
     mat_id: Uuid,
     // The mat_id of the host that owns this DPU
     host_id: Uuid,
@@ -61,7 +61,7 @@ pub struct DpuMachine {
 }
 
 impl DpuMachine {
-    pub fn from_persisted(
+    pub(super) fn from_persisted(
         persisted_dpu_machine: PersistedDpuMachine,
         mat_host: Uuid,
         app_context: Arc<MachineATronContext>,
@@ -111,7 +111,7 @@ impl DpuMachine {
         }
     }
 
-    pub fn new(
+    pub(super) fn new(
         hw_type: HardwareType,
         mat_host: Uuid,
         dpu_index: u8,
@@ -172,7 +172,7 @@ impl DpuMachine {
     }
 
     #[instrument(skip_all, fields(mat_host_id = %self.host_id, dpu_index = self.dpu_index))]
-    pub fn start(mut self, paused: bool) -> DpuMachineHandle {
+    pub(super) fn start(mut self, paused: bool) -> DpuMachineHandle {
         self.paused = paused;
         let (message_tx, mut message_rx) = mpsc::unbounded_channel();
         let mat_id = self.mat_id;
@@ -316,7 +316,7 @@ impl DpuMachine {
         result
     }
 
-    pub fn dpu_info(&self) -> &DpuMachineInfo {
+    pub(super) fn dpu_info(&self) -> &DpuMachineInfo {
         &self.dpu_info
     }
 }

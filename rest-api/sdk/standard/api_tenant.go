@@ -40,6 +40,8 @@ GetCurrentTenant Retrieve Tenant for current Org
 
 Retrieve Tenant entity for current Org.
 
+`capabilities.targetedInstanceCreation` is a deprecated read-only aggregate: it is `true` when all Ready Tenant Account for this Tenant has TargetedInstanceCreation enabled in its configuration to preserve backwards compatibility. Configure the capability per Provider/per Site via PATCH `/tenant/account/{accountId}` using `siteCapabilities`. Disallowing at Provider or Site level would result in no value returned here.
+
 User must have authorization role with `TENANT_ADMIN` suffix.
 
 	@param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().

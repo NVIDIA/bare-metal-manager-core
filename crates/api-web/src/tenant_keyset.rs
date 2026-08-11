@@ -68,7 +68,7 @@ impl From<forgerpc::TenantKeyset> for KeysetDisplay {
 }
 
 /// List tenants
-pub async fn show_html(AxumState(state): AxumState<Arc<Api>>) -> Response {
+pub(super) async fn show_html(AxumState(state): AxumState<Arc<Api>>) -> Response {
     let out = match fetch_keysets(state).await {
         Ok(m) => m,
         Err(err) => {
@@ -83,7 +83,7 @@ pub async fn show_html(AxumState(state): AxumState<Arc<Api>>) -> Response {
     (StatusCode::OK, Html(tmpl.render().unwrap())).into_response()
 }
 
-pub async fn show_all_json(AxumState(state): AxumState<Arc<Api>>) -> Response {
+pub(super) async fn show_all_json(AxumState(state): AxumState<Arc<Api>>) -> Response {
     let out: forgerpc::TenantKeySetList = match fetch_keysets(state).await {
         Ok(ks) => ks,
         Err(err) => {
@@ -159,7 +159,7 @@ impl From<forgerpc::TenantKeyset> for TenantKeysetDetail {
 }
 
 /// View keyset
-pub async fn detail(
+pub(super) async fn detail(
     AxumState(state): AxumState<Arc<Api>>,
     AxumPath((organization_id, keyset_id)): AxumPath<(String, String)>,
 ) -> Response {

@@ -28,7 +28,6 @@ use carbide_uuid::instance_type::InstanceTypeId;
 use carbide_uuid::machine::MachineId;
 use carbide_uuid::network::NetworkSegmentId;
 use model::instance_type::InstanceTypeMachineCapabilityFilter;
-use model::machine::ManagedHostState;
 use model::machine::capabilities::MachineCapabilityType;
 use model::metadata::Metadata as DbMetadata;
 use model::test_support::ManagedHostConfig;
@@ -94,7 +93,6 @@ async fn create_test_env_with_overrides(pool: PgPool, overrides: TestEnvOverride
     }
     let runtime_config = Arc::new(runtime_config);
     let resource_pools = ResourcePoolBuilder::default()
-        .with_secondary_vtep_ip("172.30.0.0/24")
         .with_vlan_ids(1, 5)
         .with_vnis(10_001, 10_005)
         .build();
@@ -131,10 +129,7 @@ async fn create_test_env_with_overrides(pool: PgPool, overrides: TestEnvOverride
     let network_controller = harness.network_controller();
     let admin_segment = network_controller.create_admin_segment(&domain).await;
     let underlay_segment = network_controller.create_underlay_segment(&domain).await;
-    let site_explorer = harness.test_site_explorer(SiteExplorerConfig {
-        allocate_secondary_vtep_ip: true,
-        ..SiteExplorerConfig::default()
-    });
+    let site_explorer = harness.test_site_explorer(SiteExplorerConfig::default());
     let api = harness.api_arc();
 
     TestEnv {
@@ -181,7 +176,7 @@ async fn create_managed_host(env: &TestEnv) -> TestManagedHost {
         .await
         .0;
     mh.host.discover_primary_iface(env.admin_segment).await;
-    mh.advance_state(ManagedHostState::Ready).await;
+    mh.advance_to_converged_ready().await;
     TestManagedHost { id: mh.host.id }
 }
 

@@ -15,12 +15,12 @@
  * limitations under the License.
  */
 
-pub mod args;
-pub mod cmd;
+mod args;
+mod cmd;
 
 use std::path::Path;
 
-pub use args::Args;
+pub(super) use args::Args;
 
 use crate::cfg::run::Run;
 use crate::cfg::runtime::RuntimeContext;
@@ -28,7 +28,7 @@ use crate::errors::CarbideCliResult;
 use crate::expected_machines::common::ExpectedMachineJson;
 
 /// `expected-machine update <file>` deserializes `ExpectedMachineJson` and
-/// calls `patch_expected_machine`. An omitted or `null` `host_nics` field
+/// calls `patch_expected_machine`. An omitted or `null` `interfaces` field
 /// preserves the stored list, while a non-null array replaces it.
 impl Run for Args {
     async fn run(self, ctx: &mut RuntimeContext) -> CarbideCliResult<()> {
@@ -38,9 +38,9 @@ impl Run for Args {
 
         let dpu_policy = expected_machine.dpu_policy();
         let metadata = expected_machine.metadata.unwrap_or_default();
-        let host_nics = expected_machine
-            .host_nics
-            .map(|host_nics| serde_json::to_string(&host_nics))
+        let interfaces = expected_machine
+            .interfaces
+            .map(|interfaces| serde_json::to_string(&interfaces))
             .transpose()?;
 
         // Values present in the file replace the stored values. The patch
@@ -81,7 +81,7 @@ impl Run for Args {
                         disable_lockdown: hlp.disable_lockdown,
                     }
                 }),
-                host_nics,
+                interfaces,
             )
             .await?;
         Ok(())

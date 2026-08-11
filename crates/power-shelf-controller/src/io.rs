@@ -153,6 +153,7 @@ impl StateControllerIO for PowerShelfStateControllerIO {
             PowerShelfControllerState::FetchingData => ("fetching_data", ""),
             PowerShelfControllerState::Configuring => ("configuring", ""),
             PowerShelfControllerState::Ready => ("ready", ""),
+            PowerShelfControllerState::RotatingBmc { .. } => ("rotatingbmc", ""),
             PowerShelfControllerState::Maintenance { operation } => {
                 let op = match operation {
                     model::power_shelf::PowerShelfMaintenanceOperation::PowerOn => "power_on",

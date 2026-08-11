@@ -45,7 +45,11 @@ func (r ApiResetMachineBmcRequest) Execute() (*MessageResponse, *http.Response, 
 /*
 ResetMachineBmc Reset Machine BMC
 
-Reset BMC of a specific Machine.
+Reset the BMC of a specific Machine. When an Instance is attached to the
+Machine, `acknowledgeAttachedInstance` must be `true`.
+
+If `useIpmiTool` is `true`, the BMC reset request may be silently
+ignored while the BMC is in lockdown mode.
 
 For Infrastructure Providers: Org must have an Infrastructure Provider entity and own the Site that the Machine belongs to. User must have authorization role with `PROVIDER_ADMIN` suffix.
 

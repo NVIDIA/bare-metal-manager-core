@@ -51,6 +51,37 @@ func NewAPIRoutes(dbSession *cdb.Session, tc tClient.Client, tnc tClient.Namespa
 			Method:  http.MethodPost,
 			Handler: apiHandler.NewCreateUEFICredentialHandler(dbSession, scp),
 		},
+		// Measured-boot machine and profile trust approvals (Provider Admin).
+		{
+			Path:    apiPathPrefix + "/measured-boot/trusted-machine",
+			Method:  http.MethodPost,
+			Handler: apiHandler.NewCreateMeasuredBootTrustedMachineHandler(dbSession, scp),
+		},
+		{
+			Path:    apiPathPrefix + "/measured-boot/trusted-machine",
+			Method:  http.MethodGet,
+			Handler: apiHandler.NewGetAllMeasuredBootTrustedMachineHandler(dbSession, scp),
+		},
+		{
+			Path:    apiPathPrefix + "/measured-boot/trusted-machine/:id",
+			Method:  http.MethodDelete,
+			Handler: apiHandler.NewDeleteMeasuredBootTrustedMachineHandler(dbSession, scp),
+		},
+		{
+			Path:    apiPathPrefix + "/measured-boot/trusted-profile",
+			Method:  http.MethodPost,
+			Handler: apiHandler.NewCreateMeasuredBootTrustedProfileHandler(dbSession, scp),
+		},
+		{
+			Path:    apiPathPrefix + "/measured-boot/trusted-profile",
+			Method:  http.MethodGet,
+			Handler: apiHandler.NewGetAllMeasuredBootTrustedProfileHandler(dbSession, scp),
+		},
+		{
+			Path:    apiPathPrefix + "/measured-boot/trusted-profile/:id",
+			Method:  http.MethodDelete,
+			Handler: apiHandler.NewDeleteMeasuredBootTrustedProfileHandler(dbSession, scp),
+		},
 		// Site-wide credential rotation (Provider Admin); equivalent to the admin
 		// CLI `credential rotate` / `credential rotation-status` commands. POST
 		// stages a rotation and returns the new target version; GET reports
@@ -625,6 +656,21 @@ func NewAPIRoutes(dbSession *cdb.Session, tc tClient.Client, tnc tClient.Namespa
 			Method:  http.MethodPatch,
 			Handler: apiHandler.NewMachinePowerControlHandler(dbSession, scp, cfg),
 		},
+		{
+			Path:    apiPathPrefix + "/machine/:id/validation/run",
+			Method:  http.MethodPost,
+			Handler: apiHandler.NewCreateMachineValidationRunHandler(dbSession, scp, cfg),
+		},
+		{
+			Path:    apiPathPrefix + "/machine/:id/validation/run",
+			Method:  http.MethodGet,
+			Handler: apiHandler.NewGetAllMachineValidationRunHandler(dbSession, tc, scp, cfg),
+		},
+		{
+			Path:    apiPathPrefix + "/machine/:id/validation/result",
+			Method:  http.MethodGet,
+			Handler: apiHandler.NewGetMachineValidationResultsHandler(dbSession, tc, scp, cfg),
+		},
 
 		// Machine GPU Stats endpoint
 		{
@@ -950,6 +996,11 @@ func NewAPIRoutes(dbSession *cdb.Session, tc tClient.Client, tnc tClient.Namespa
 		// SKU endpoints
 		{
 			Path:    apiPathPrefix + "/sku",
+			Method:  http.MethodPost,
+			Handler: apiHandler.NewCreateSkuHandler(dbSession, scp),
+		},
+		{
+			Path:    apiPathPrefix + "/sku",
 			Method:  http.MethodGet,
 			Handler: apiHandler.NewGetAllSkuHandler(dbSession, tc, cfg),
 		},
@@ -957,6 +1008,16 @@ func NewAPIRoutes(dbSession *cdb.Session, tc tClient.Client, tnc tClient.Namespa
 			Path:    apiPathPrefix + "/sku/:id",
 			Method:  http.MethodGet,
 			Handler: apiHandler.NewGetSkuHandler(dbSession, tc, cfg),
+		},
+		{
+			Path:    apiPathPrefix + "/sku/:id",
+			Method:  http.MethodPatch,
+			Handler: apiHandler.NewUpdateSkuHandler(dbSession, scp),
+		},
+		{
+			Path:    apiPathPrefix + "/sku/:id",
+			Method:  http.MethodDelete,
+			Handler: apiHandler.NewDeleteSkuHandler(dbSession, scp),
 		},
 		// Task endpoints (Flow). /rack/task/* and /task/* share get/cancel
 		// handlers; list operations are exposed under /rack/{id}/task and

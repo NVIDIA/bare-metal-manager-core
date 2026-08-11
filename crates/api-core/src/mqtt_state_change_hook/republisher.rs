@@ -45,7 +45,7 @@ const REPUBLISH_WORK_KEY: &str = "managed_host_state_republisher::iteration";
 /// would otherwise risk overflowing (and dropping) the change-event queue;
 /// publishing directly keeps the two paths independent and lets
 /// `max_publishes_per_second` bound the burst.
-pub struct ManagedHostStateRepublisher<P: MqttPublisher> {
+pub(crate) struct ManagedHostStateRepublisher<P: MqttPublisher> {
     publisher: P,
     db_pool: sqlx::PgPool,
     work_lock_manager_handle: WorkLockManagerHandle,
@@ -57,13 +57,13 @@ pub struct ManagedHostStateRepublisher<P: MqttPublisher> {
 }
 
 /// Constructor parameters for [`ManagedHostStateRepublisher`].
-pub struct ManagedHostStateRepublisherParams {
-    pub db_pool: sqlx::PgPool,
-    pub work_lock_manager_handle: WorkLockManagerHandle,
-    pub topic_prefix: String,
-    pub publish_timeout: Duration,
-    pub config: PeriodicStateRepublishConfig,
-    pub host_health_config: HostHealthConfig,
+pub(crate) struct ManagedHostStateRepublisherParams {
+    pub(crate) db_pool: sqlx::PgPool,
+    pub(crate) work_lock_manager_handle: WorkLockManagerHandle,
+    pub(crate) topic_prefix: String,
+    pub(crate) publish_timeout: Duration,
+    pub(crate) config: PeriodicStateRepublishConfig,
+    pub(crate) host_health_config: HostHealthConfig,
 }
 
 impl<P: MqttPublisher> ManagedHostStateRepublisher<P> {
@@ -71,7 +71,7 @@ impl<P: MqttPublisher> ManagedHostStateRepublisher<P> {
     /// `carbide_dsx_event_bus_publish_count_total`. Its
     /// `component="managed_host_republish"` label keeps periodic sweeps
     /// distinct from change-driven publishes on dashboards.
-    pub fn new(publisher: P, params: ManagedHostStateRepublisherParams) -> Self {
+    pub(crate) fn new(publisher: P, params: ManagedHostStateRepublisherParams) -> Self {
         let metrics = MqttHookMetrics::without_queue_depth(PublishComponent::ManagedHostRepublish);
         Self {
             publisher,
@@ -87,7 +87,7 @@ impl<P: MqttPublisher> ManagedHostStateRepublisher<P> {
 
     /// Spawn the republisher's background sweep loop into `join_set` when
     /// enabled. A no-op when `config.enabled` is false.
-    pub fn start(
+    pub(crate) fn start(
         self,
         join_set: &mut JoinSet<()>,
         cancel_token: CancellationToken,

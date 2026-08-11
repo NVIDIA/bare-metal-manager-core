@@ -1734,7 +1734,7 @@ fn snapshot_to_instance(
         })
 }
 
-pub async fn force_delete_instance(
+pub(super) async fn force_delete_instance(
     instance_id: InstanceId,
     api: &Api,
     response: &mut AdminForceDeleteMachineResponse,
@@ -1831,7 +1831,7 @@ pub async fn force_delete_instance(
     Ok(())
 }
 
-pub async fn update_instance_nvlink_config(
+async fn update_instance_nvlink_config(
     mh_snapshot: &ManagedHostStateSnapshot,
     instance: &InstanceSnapshot,
     nvlcfg: &InstanceNvLinkConfig,
@@ -1871,7 +1871,7 @@ pub async fn update_instance_nvlink_config(
     Ok(())
 }
 
-pub async fn update_instance_spx_config(
+async fn update_instance_spx_config(
     mh_snapshot: &ManagedHostStateSnapshot,
     instance: &InstanceSnapshot,
     spxcfg: &mut InstanceSpxConfig,

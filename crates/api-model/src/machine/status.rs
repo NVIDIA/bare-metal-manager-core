@@ -22,6 +22,7 @@ use crate::machine::infiniband::MachineInfinibandStatusObservation;
 use crate::machine::nvlink::MachineNvLinkStatusObservation;
 use crate::machine::spx::MachineSpxStatusObservation;
 use crate::machine::{FailureDetails, MachineInterfaceSnapshot, MachineLastRebootRequested};
+use crate::machine_boot_interface::BootInterfaceStatusObservation;
 use crate::power_manager::PowerOptions;
 use crate::sku::SkuStatus;
 
@@ -31,6 +32,8 @@ use crate::sku::SkuStatus;
 #[derive(Debug, Clone)]
 pub struct MachineStatus {
     pub interfaces: Vec<MachineInterfaceSnapshot>,
+    /// Latest persisted convergence status for the desired boot interface.
+    pub boot_interface_status_observation: Option<BootInterfaceStatusObservation>,
     pub hardware_info: Option<HardwareInfo>,
     pub bmc_info: BmcInfo,
     pub last_reboot_time: Option<DateTime<Utc>>,

@@ -84,7 +84,7 @@ impl DhcpEntryDisplay {
 }
 
 /// DHCP allocations page
-pub async fn dhcp_html(AxumState(state): AxumState<Arc<Api>>) -> Response {
+pub(super) async fn dhcp_html(AxumState(state): AxumState<Arc<Api>>) -> Response {
     let interfaces = match fetch_interfaces(state).await {
         Ok(n) => n,
         Err(err) => {
@@ -110,7 +110,7 @@ pub async fn dhcp_html(AxumState(state): AxumState<Arc<Api>>) -> Response {
     (StatusCode::OK, Html(tmpl.render().unwrap())).into_response()
 }
 
-pub async fn dhcp_json(AxumState(state): AxumState<Arc<Api>>) -> Response {
+pub(super) async fn dhcp_json(AxumState(state): AxumState<Arc<Api>>) -> Response {
     let interfaces = match fetch_interfaces(state).await {
         Ok(n) => n,
         Err(err) => {
@@ -158,7 +158,7 @@ struct DnsRecordDisplay {
 }
 
 /// DNS records page
-pub async fn dns_html(AxumState(state): AxumState<Arc<Api>>) -> Response {
+pub(super) async fn dns_html(AxumState(state): AxumState<Arc<Api>>) -> Response {
     // Fetch domains.
     let domains = match db::dns::domain::find_by(
         &state.database_connection,
@@ -255,7 +255,7 @@ struct UnderlaySegmentDisplay {
 }
 
 /// Underlay Networks top-level.
-pub async fn underlay_html(AxumState(state): AxumState<Arc<Api>>) -> Response {
+pub(super) async fn underlay_html(AxumState(state): AxumState<Arc<Api>>) -> Response {
     let query = r#"
         SELECT ns.id as segment_id, ns.name as segment_name,
                ns.network_segment_type::text as segment_type,
@@ -349,7 +349,7 @@ struct UnderlayAddressDisplay {
 
 /// Underlay segment detail, which includes machine IPs
 /// allocated in a segment.
-pub async fn underlay_segment_html(
+pub(super) async fn underlay_segment_html(
     AxumState(state): AxumState<Arc<Api>>,
     AxumPath(segment_id): AxumPath<String>,
 ) -> Response {
@@ -475,7 +475,7 @@ struct OverlayVpcPrefixDisplay {
 }
 
 /// Overlay Networks -- lists VNIs and their prefixes.
-pub async fn overlay_html(AxumState(state): AxumState<Arc<Api>>) -> Response {
+pub(super) async fn overlay_html(AxumState(state): AxumState<Arc<Api>>) -> Response {
     // Fetch all VPCs.
     let rpc_vpcs = match fetch_vpcs(state.clone()).await {
         Ok(v) => v,
@@ -679,7 +679,7 @@ struct OverlaySegmentDisplay {
 
 /// Overlay prefix detail, which includes segments carved
 /// from a VPC prefix.
-pub async fn overlay_prefix_html(
+pub(super) async fn overlay_prefix_html(
     AxumState(state): AxumState<Arc<Api>>,
     AxumPath(vpc_prefix_id): AxumPath<String>,
 ) -> Response {
@@ -882,7 +882,7 @@ struct OverlayAddressDisplay {
 }
 
 /// Overlay segment detail (IPs allocated in a segment).
-pub async fn overlay_segment_html(
+pub(super) async fn overlay_segment_html(
     AxumState(state): AxumState<Arc<Api>>,
     AxumPath(segment_id): AxumPath<String>,
 ) -> Response {

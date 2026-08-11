@@ -25,9 +25,12 @@
 
 use carbide_test_support::Outcome::*;
 use carbide_test_support::scenarios;
+use carbide_uuid::power_shelf::PowerShelfId;
 use clap::{CommandFactory, Parser};
+use mac_address::MacAddress;
 
 use super::*;
+use crate::test_support::{parse_leaf, raw_value};
 
 // verify_cmd_structure runs a baseline clap debug_assert()
 // to do basic command configuration checking and validation,
@@ -52,12 +55,8 @@ fn verify_cmd_structure() {
 fn parse_show_identifier() {
     scenarios!(
         run = |argv| {
-            Cmd::try_parse_from(argv.iter().copied())
-                .map(|cmd| match cmd {
-                    Cmd::Show(args) => args.identifier,
-                    _ => panic!("expected Show variant"),
-                })
-                .map_err(drop)
+            let matches = parse_leaf::<Cmd>(argv, &["show"]).map_err(drop)?;
+            Ok::<_, ()>(raw_value(&matches, "identifier"))
         };
         "no identifier (all shelves)" {
             &["power-shelf", "show"][..] => Yields(None),
@@ -72,9 +71,7 @@ fn parse_show_identifier() {
 // `list` with no arguments routes to the `List` variant.
 #[test]
 fn parse_list() {
-    let cmd = Cmd::try_parse_from(["power-shelf", "list"]).expect("should parse list");
-
-    assert!(matches!(cmd, Cmd::List(_)));
+    parse_leaf::<Cmd>(&["power-shelf", "list"], &["list"]).expect("should parse list");
 }
 
 // `list` with all filter flags captures each one: the `--deleted only` filter,
@@ -83,16 +80,15 @@ fn parse_list() {
 fn parse_list_with_filters() {
     scenarios!(
         run = |argv| {
-            Cmd::try_parse_from(argv.iter().copied())
-                .map(|cmd| match cmd {
-                    Cmd::List(args) => (
-                        matches!(args.deleted, rpc::forge::DeletedFilter::Only),
-                        args.controller_state,
-                        args.bmc_mac.is_some(),
-                    ),
-                    _ => panic!("expected List variant"),
-                })
-                .map_err(drop)
+            let matches = parse_leaf::<Cmd>(argv, &["list"]).map_err(drop)?;
+            Ok::<_, ()>((
+                matches!(
+                    matches.get_one::<rpc::forge::DeletedFilter>("deleted"),
+                    Some(rpc::forge::DeletedFilter::Only)
+                ),
+                raw_value(&matches, "controller_state"),
+                matches.get_one::<MacAddress>("bmc_mac").is_some(),
+            ))
         };
         "deleted + controller-state + bmc-mac" {
             &[
@@ -150,13 +146,7 @@ fn invalid_invocations_are_rejected() {
 // Tests for the `power-shelf maintenance` subcommand, covering both
 // `power-on` and `power-off`. These tests:
 //   - parse a representative `power-shelf maintenance ...` invocation,
-//   - verify the matching `Args` variant and ID list,
-//   - convert the parsed `Args` to a gRPC `PowerShelfMaintenanceRequest`
-//     via `into_request()` and assert the operation enum on the wire.
-
-use carbide_uuid::power_shelf::PowerShelfId;
-
-use super::maintenance;
+//   - verify the matching action and ID list.
 
 /// Sample power-shelf id used in CLI parse tests. Must round-trip through
 /// `PowerShelfId::from_str`, which `clap` uses to coerce the `--power-shelf-id`
@@ -165,8 +155,16 @@ const SAMPLE_PS_ID_1: &str = "ps100htjtiaehv1n5vh67tbmqq4eabcjdng40f7jupsadbedhr
 const SAMPLE_PS_ID_2: &str = "ps100hsasb5dsh6e6ogogslpovne4rj82rp9jlf00qd7mcvmaadv85phk3g";
 
 fn parse_ps_id(id: &str) -> PowerShelfId {
-    use std::str::FromStr;
-    PowerShelfId::from_str(id).unwrap_or_else(|e| panic!("invalid sample power-shelf id {id}: {e}"))
+    id.parse()
+        .unwrap_or_else(|error| panic!("invalid sample power-shelf id {id}: {error}"))
+}
+
+fn power_shelf_ids(matches: &clap::ArgMatches) -> Vec<PowerShelfId> {
+    matches
+        .get_many::<PowerShelfId>("power_shelf_ids")
+        .expect("power shelf IDs are required")
+        .copied()
+        .collect()
 }
 
 /// `power-shelf maintenance power-on ...` parses to `Args::PowerOn`. Covers a
@@ -177,14 +175,12 @@ fn parse_ps_id(id: &str) -> PowerShelfId {
 fn parse_maintenance_power_on() {
     scenarios!(
         run = |argv| {
-            Cmd::try_parse_from(argv.iter().copied())
-                .map(|cmd| match cmd {
-                    Cmd::Maintenance(maintenance::Args::PowerOn(args)) => {
-                        (args.power_shelf_ids, args.reference)
-                    }
-                    other => panic!("expected Maintenance(PowerOn(_)), got: {other:?}"),
-                })
-                .map_err(drop)
+            let matches = parse_leaf::<Cmd>(argv, &["maintenance", "power-on"])
+                .map_err(drop)?;
+            Ok::<_, ()>((
+                power_shelf_ids(&matches),
+                raw_value(&matches, "reference"),
+            ))
         };
         "single id" {
             &[
@@ -244,14 +240,12 @@ fn parse_maintenance_power_on() {
 fn parse_maintenance_power_off() {
     scenarios!(
         run = |argv| {
-            Cmd::try_parse_from(argv.iter().copied())
-                .map(|cmd| match cmd {
-                    Cmd::Maintenance(maintenance::Args::PowerOff(args)) => {
-                        (args.power_shelf_ids, args.reference)
-                    }
-                    other => panic!("expected Maintenance(PowerOff(_)), got: {other:?}"),
-                })
-                .map_err(drop)
+            let matches = parse_leaf::<Cmd>(argv, &["maintenance", "power-off"])
+                .map_err(drop)?;
+            Ok::<_, ()>((
+                power_shelf_ids(&matches),
+                raw_value(&matches, "reference"),
+            ))
         };
         "two ids via repeated --power-shelf-id flags" {
             &[
@@ -283,41 +277,4 @@ fn parse_maintenance_power_off() {
             )),
         }
     );
-}
-
-/// `Args::PowerOn::into_request()` must produce a gRPC request with the
-/// `PowerOn` operation discriminant and the provided id list.
-#[test]
-fn power_on_into_request_uses_power_on_operation() {
-    let args = maintenance::Args::PowerOn(maintenance::args::MaintenancePowerArgs {
-        power_shelf_ids: vec![parse_ps_id(SAMPLE_PS_ID_1)],
-        reference: Some("ref-1".to_string()),
-    });
-    let req = args.into_request();
-    assert_eq!(
-        req.operation,
-        rpc::forge::PowerShelfMaintenanceOperation::PowerOn as i32,
-    );
-    assert_eq!(req.power_shelf_ids, vec![parse_ps_id(SAMPLE_PS_ID_1)]);
-    assert_eq!(req.reference.as_deref(), Some("ref-1"));
-}
-
-/// `Args::PowerOff::into_request()` must produce a gRPC request with the
-/// `PowerOff` operation discriminant.
-#[test]
-fn power_off_into_request_uses_power_off_operation() {
-    let args = maintenance::Args::PowerOff(maintenance::args::MaintenancePowerArgs {
-        power_shelf_ids: vec![parse_ps_id(SAMPLE_PS_ID_1), parse_ps_id(SAMPLE_PS_ID_2)],
-        reference: None,
-    });
-    let req = args.into_request();
-    assert_eq!(
-        req.operation,
-        rpc::forge::PowerShelfMaintenanceOperation::PowerOff as i32,
-    );
-    assert_eq!(
-        req.power_shelf_ids,
-        vec![parse_ps_id(SAMPLE_PS_ID_1), parse_ps_id(SAMPLE_PS_ID_2)],
-    );
-    assert!(req.reference.is_none());
 }

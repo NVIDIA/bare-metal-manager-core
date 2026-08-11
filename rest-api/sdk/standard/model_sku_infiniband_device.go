@@ -28,6 +28,8 @@ type SkuInfinibandDevice struct {
 	Model *string `json:"model,omitempty"`
 	// Number of infiniband devices present
 	Count *int32 `json:"count,omitempty"`
+	// Zero-based indexes of inactive devices
+	InactiveDevices []int32 `json:"inactiveDevices,omitempty"`
 }
 
 // NewSkuInfinibandDevice instantiates a new SkuInfinibandDevice object
@@ -143,6 +145,38 @@ func (o *SkuInfinibandDevice) SetCount(v int32) {
 	o.Count = &v
 }
 
+// GetInactiveDevices returns the InactiveDevices field value if set, zero value otherwise.
+func (o *SkuInfinibandDevice) GetInactiveDevices() []int32 {
+	if o == nil || IsNil(o.InactiveDevices) {
+		var ret []int32
+		return ret
+	}
+	return o.InactiveDevices
+}
+
+// GetInactiveDevicesOk returns a tuple with the InactiveDevices field value if set, nil otherwise
+// and a boolean to check if the value has been set.
+func (o *SkuInfinibandDevice) GetInactiveDevicesOk() ([]int32, bool) {
+	if o == nil || IsNil(o.InactiveDevices) {
+		return nil, false
+	}
+	return o.InactiveDevices, true
+}
+
+// HasInactiveDevices returns a boolean if a field has been set.
+func (o *SkuInfinibandDevice) HasInactiveDevices() bool {
+	if o != nil && !IsNil(o.InactiveDevices) {
+		return true
+	}
+
+	return false
+}
+
+// SetInactiveDevices gets a reference to the given []int32 and assigns it to the InactiveDevices field.
+func (o *SkuInfinibandDevice) SetInactiveDevices(v []int32) {
+	o.InactiveDevices = v
+}
+
 func (o SkuInfinibandDevice) MarshalJSON() ([]byte, error) {
 	toSerialize, err := o.ToMap()
 	if err != nil {
@@ -161,6 +195,9 @@ func (o SkuInfinibandDevice) ToMap() (map[string]interface{}, error) {
 	}
 	if !IsNil(o.Count) {
 		toSerialize["count"] = o.Count
+	}
+	if !IsNil(o.InactiveDevices) {
+		toSerialize["inactiveDevices"] = o.InactiveDevices
 	}
 	return toSerialize, nil
 }

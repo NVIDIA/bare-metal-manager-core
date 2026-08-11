@@ -536,6 +536,18 @@ func (ib *APIMachineInfiniBandInterface) FromProto(protoIB *corev1.InfinibandInt
 	}
 }
 
+// APIMachineLifecycleState is the data structure to capture API representation of Machine lifecycle state
+type APIMachineLifecycleState struct {
+	// Value is the current lifecycle state value
+	Value string `json:"value"`
+	// IsAboveSLA indicates if the machine has been in the state longer than the defined SLA
+	IsAboveSLA bool `json:"isAboveSLA"`
+	// Updated indicates when the state was updated to the latest value
+	Updated *time.Time `json:"updated"`
+	// SLASeconds is the defined SLA for the current state in seconds
+	SLASeconds int64 `json:"slaSeconds"`
+}
+
 // APIMachineMetadata is the data structure to capture API representation of a Machine's Metadata Info
 type APIMachineMetadata struct {
 	// DMIData is the DMI data of the machine
@@ -548,6 +560,8 @@ type APIMachineMetadata struct {
 	NetworkInterfaces []APIMachineNetworkInterface `json:"networkInterfaces,omitempty"`
 	// InfiniBandInterfaces is the list of InfiniBand interfaces of the machine
 	InfiniBandInterfaces []APIMachineInfiniBandInterface `json:"infinibandInterfaces,omitempty"`
+	// LifecycleState is the machine lifecycle state details
+	LifecycleState *APIMachineLifecycleState `json:"lifecycleState,omitempty"`
 }
 
 // NewAPIMachine accepts a DB layer Machine object and returns an API object
@@ -682,6 +696,22 @@ func NewAPIMachine(dbm *cdbm.Machine, dbmcs []cdbm.MachineCapability, dbmis []cd
 			}
 		}
 
+		// machine lifecycle state
+		apim.Metadata.LifecycleState = &APIMachineLifecycleState{
+			Value:      machine.State,
+			IsAboveSLA: machine.GetStateSla().GetTimeInStateAboveSla(),
+			SLASeconds: machine.GetStateSla().GetSla().GetSeconds(),
+		}
+		if events := machine.GetEvents(); len(events) > 0 {
+			for _, event := range events {
+				if event.GetVersion() == machine.GetStateVersion() {
+					if ts := event.GetTime(); ts != nil {
+						apim.Metadata.LifecycleState.Updated = new(ts.AsTime())
+					}
+					break
+				}
+			}
+		}
 	}
 
 	apim.Health = nil

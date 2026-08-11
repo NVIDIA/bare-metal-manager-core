@@ -28,6 +28,8 @@ type SkuEthernetDevice struct {
 	Model *string `json:"model,omitempty"`
 	// Number of ethernet devices present
 	Count *int32 `json:"count,omitempty"`
+	// Whether the ethernet device is connected
+	IsConnected *bool `json:"isConnected,omitempty"`
 }
 
 // NewSkuEthernetDevice instantiates a new SkuEthernetDevice object
@@ -143,6 +145,38 @@ func (o *SkuEthernetDevice) SetCount(v int32) {
 	o.Count = &v
 }
 
+// GetIsConnected returns the IsConnected field value if set, zero value otherwise.
+func (o *SkuEthernetDevice) GetIsConnected() bool {
+	if o == nil || IsNil(o.IsConnected) {
+		var ret bool
+		return ret
+	}
+	return *o.IsConnected
+}
+
+// GetIsConnectedOk returns a tuple with the IsConnected field value if set, nil otherwise
+// and a boolean to check if the value has been set.
+func (o *SkuEthernetDevice) GetIsConnectedOk() (*bool, bool) {
+	if o == nil || IsNil(o.IsConnected) {
+		return nil, false
+	}
+	return o.IsConnected, true
+}
+
+// HasIsConnected returns a boolean if a field has been set.
+func (o *SkuEthernetDevice) HasIsConnected() bool {
+	if o != nil && !IsNil(o.IsConnected) {
+		return true
+	}
+
+	return false
+}
+
+// SetIsConnected gets a reference to the given bool and assigns it to the IsConnected field.
+func (o *SkuEthernetDevice) SetIsConnected(v bool) {
+	o.IsConnected = &v
+}
+
 func (o SkuEthernetDevice) MarshalJSON() ([]byte, error) {
 	toSerialize, err := o.ToMap()
 	if err != nil {
@@ -161,6 +195,9 @@ func (o SkuEthernetDevice) ToMap() (map[string]interface{}, error) {
 	}
 	if !IsNil(o.Count) {
 		toSerialize["count"] = o.Count
+	}
+	if !IsNil(o.IsConnected) {
+		toSerialize["isConnected"] = o.IsConnected
 	}
 	return toSerialize, nil
 }

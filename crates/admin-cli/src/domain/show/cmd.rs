@@ -115,7 +115,7 @@ async fn show_domain_information(
     Ok(())
 }
 
-pub async fn handle_show(
+pub(crate) async fn handle_show(
     args: &Args,
     output_format: OutputFormat,
     api_client: &ApiClient,

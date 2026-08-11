@@ -153,6 +153,7 @@ func TestGetCurrentTenantHandler_Handle(t *testing.T) {
 	tnOrg1 := "test-tenant-org-1"
 	tnu1 := common.TestBuildUser(t, dbSession, uuid.NewString(), tnOrg1, tnRoles)
 	tn1 := common.TestBuildTenant(t, dbSession, "Test Tenant 1", tnOrg1, tnu1)
+	common.TestBuildTenantAccountWithTargetedInstanceCreation(t, dbSession, ip, &tn1.ID, tnOrg1, cdbm.TenantAccountStatusReady, tnu1)
 
 	tnOrg2 := "test-tenant-org-2"
 	tnu2 := common.TestBuildUser(t, dbSession, uuid.NewString(), tnOrg2, tnRoles)
@@ -176,13 +177,14 @@ func TestGetCurrentTenantHandler_Handle(t *testing.T) {
 		ta   *cdbm.TenantAccount
 	}
 	tests := []struct {
-		name                  string
-		fields                fields
-		args                  args
-		wantTenant            *cdbm.Tenant
-		wantTenantAccountSync bool
-		wantStatusCode        int
-		verifyChildSpanner    bool
+		name                         string
+		fields                       fields
+		args                         args
+		wantTenant                   *cdbm.Tenant
+		wantTargetedInstanceCreation *bool
+		wantTenantAccountSync        bool
+		wantStatusCode               int
+		verifyChildSpanner           bool
 	}{
 		{
 			name: "test get current Tenant success",
@@ -195,8 +197,9 @@ func TestGetCurrentTenantHandler_Handle(t *testing.T) {
 				org:  tnOrg1,
 				user: tnu1,
 			},
-			wantTenant:     tn1,
-			wantStatusCode: http.StatusOK,
+			wantTenant:                   tn1,
+			wantTargetedInstanceCreation: cutil.GetPtr(true),
+			wantStatusCode:               http.StatusOK,
 		},
 		{
 			name: "test get current Tenant success, auto-created when it does not exist",
@@ -262,6 +265,8 @@ func TestGetCurrentTenantHandler_Handle(t *testing.T) {
 			assert.NoError(t, err)
 
 			assert.NotEmpty(t, rtn.ID)
+			require.NotNil(t, rtn.Capabilities)
+			assert.Equal(t, tt.wantTargetedInstanceCreation, rtn.Capabilities.TargetedInstanceCreation)
 			if tt.wantTenant != nil {
 				assert.Equal(t, tt.wantTenant.ID.String(), rtn.ID)
 				assert.Equal(t, tt.wantTenant.Org, rtn.Org)

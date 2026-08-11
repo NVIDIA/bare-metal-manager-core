@@ -28,7 +28,7 @@ use crate::errors::CarbideCliResult;
 use crate::expected_machines::common::HostDpuPolicy;
 use crate::rpc::ApiClient;
 
-pub async fn show_expected_machines(
+pub(super) async fn show_expected_machines(
     expected_machine_query: &Args,
     api_client: &ApiClient,
     output_format: OutputFormat,

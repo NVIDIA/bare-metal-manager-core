@@ -87,7 +87,7 @@ func TestBatchCreateInstanceHandler_Handle(t *testing.T) {
 	// Tenant 1
 	tnu1 := testInstanceBuildUser(t, dbSession, "test-starfleet-id-2", tnOrg, tnOrgRoles)
 	tn1 := testInstanceBuildTenant(t, dbSession, "test-tenant-1", tnOrg, tnu1)
-	tn1 = testInstanceUpdateTenantCapability(t, dbSession, tn1)
+	_ = common.TestBuildTenantAccountWithTargetedInstanceCreation(t, dbSession, ip, &tn1.ID, tnOrg, cdbm.TenantAccountStatusReady, tnu1)
 
 	// Tenant-Site association
 	ts1 := testBuildTenantSiteAssociation(t, dbSession, tnOrg, tn1.ID, st1.ID, tnu1.ID)

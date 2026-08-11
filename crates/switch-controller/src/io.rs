@@ -152,6 +152,7 @@ impl StateControllerIO for SwitchStateControllerIO {
             SwitchControllerState::Validating { .. } => ("validating", ""),
             SwitchControllerState::BomValidating { .. } => ("bomvalidating", ""),
             SwitchControllerState::Ready => ("ready", ""),
+            SwitchControllerState::RotatingBmc { .. } => ("rotatingbmc", ""),
             SwitchControllerState::Maintenance {
                 operation,
                 configure_certificate,

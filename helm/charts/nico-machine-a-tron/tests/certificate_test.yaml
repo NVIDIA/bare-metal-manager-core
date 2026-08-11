@@ -8,7 +8,10 @@ tests:
           of: Certificate
       - equal:
           path: metadata.name
-          value: nico-machine-a-tron-certificate
+          value: nico-machine-a-tron-mat-0-certificate
+      - equal:
+          path: spec.secretName
+          value: nico-machine-a-tron-mat-0-tls
 
   - it: should use custom certificate settings
     set:
@@ -22,17 +25,13 @@ tests:
 
   - it: should create per-pod certificates in multi-pod mode
     set:
-      bmcServices:
-        enabled: true
       pods:
         mat-0:
-          cidr: "10.100.0.0/22"
           machines:
             compute:
               hwType: supermicro_gb300_nvl
               hostCount: 5
         mat-1:
-          cidr: "10.100.4.0/22"
           machines:
             compute:
               hwType: supermicro_gb300_nvl
@@ -40,3 +39,11 @@ tests:
     asserts:
       - hasDocuments:
           count: 2
+      - equal:
+          path: spec.secretName
+          value: nico-machine-a-tron-mat-0-tls
+        documentIndex: 0
+      - equal:
+          path: spec.secretName
+          value: nico-machine-a-tron-mat-1-tls
+        documentIndex: 1

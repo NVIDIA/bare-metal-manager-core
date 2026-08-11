@@ -27,6 +27,7 @@ use state_controller::state_handler::{
 use crate::context::SwitchStateHandlerContextObjects;
 use crate::nvos_password_rotation::needs_nvos_password_reconciliation;
 use crate::reprovisioning::first_reprovisioning_state;
+use crate::rotating_bmc::should_enter_bmc_rotation;
 
 /// Handles the Ready state for a switch.
 ///
@@ -107,6 +108,16 @@ pub async fn handle_ready(
             SwitchControllerState::Configuring {
                 config_state: ConfiguringState::RotateOsPassword,
             },
+        ));
+    }
+
+    // Lowest precedence: only converge the BMC credential once the switch is
+    // otherwise idle in Ready, so rotation never contends with NVOS
+    // reconfiguration, maintenance, or reprovisioning. The site-flag gate and
+    // the operator force-converge override live in `should_enter_bmc_rotation`.
+    if should_enter_bmc_rotation(ctx.services, state).await? {
+        return Ok(StateHandlerOutcome::transition(
+            SwitchControllerState::RotatingBmc { retry_count: 0 },
         ));
     }
 

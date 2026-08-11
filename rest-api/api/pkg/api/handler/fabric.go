@@ -67,7 +67,7 @@ func (gafh GetAllFabricHandler) Handle(c echo.Context) error {
 		return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to retrieve current user", nil)
 	}
 
-	provider, tenant, apiErr := common.IsProviderOrTenant(ctx, logger, gafh.dbSession, org, dbUser, true, false)
+	provider, tenant, apiErr := common.IsProviderOrTenant(ctx, logger, gafh.dbSession, org, dbUser, true, nil)
 	if apiErr != nil {
 		return c.JSON(apiErr.Code, apiErr)
 	}
@@ -237,7 +237,7 @@ func (gfh GetFabricHandler) Handle(c echo.Context) error {
 		return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to retrieve current user", nil)
 	}
 
-	provider, tenant, apiErr := common.IsProviderOrTenant(ctx, logger, gfh.dbSession, org, dbUser, true, false)
+	provider, tenant, apiErr := common.IsProviderOrTenant(ctx, logger, gfh.dbSession, org, dbUser, true, nil)
 	if apiErr != nil {
 		return c.JSON(apiErr.Code, apiErr)
 	}

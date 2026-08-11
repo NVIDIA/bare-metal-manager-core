@@ -193,7 +193,7 @@ async fn create_ready_host(
         .build()
         .await
         .0;
-    host.advance_state(ManagedHostState::Ready).await;
+    host.advance_to_converged_ready().await;
     host
 }
 

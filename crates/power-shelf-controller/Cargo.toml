@@ -25,7 +25,9 @@ repository.workspace = true
 [dependencies]
 carbide-api-db = { path = "../api-db", default-features = false }
 carbide-api-model = { path = "../api-model", default-features = false }
+carbide-credential-rotation = { path = "../credential-rotation", default-features = false }
 carbide-health-metrics = { path = "../health-metrics", default-features = false }
+carbide-redfish = { path = "../redfish", default-features = false }
 carbide-rack = { path = "../rack", default-features = false }
 carbide-secrets = { path = "../secrets", default-features = false }
 carbide-utils = { path = "../utils", default-features = false }

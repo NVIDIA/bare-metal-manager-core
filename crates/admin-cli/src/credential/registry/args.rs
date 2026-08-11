@@ -18,7 +18,7 @@
 use clap::Parser;
 
 #[derive(Parser, Debug, Clone)]
-pub enum Args {
+pub(crate) enum Args {
     #[clap(about = "Set credentials for a container registry")]
     Set(SetArgs),
 }
@@ -32,11 +32,11 @@ Set credentials for the NGC staging registry:
     --username '$oauthtoken' --password mypassword
 
 ")]
-pub struct SetArgs {
+pub(crate) struct SetArgs {
     #[clap(long, help = "Registry hostname (e.g. nvcr.io)")]
-    pub registry: String,
+    pub(super) registry: String,
     #[clap(long, help = "Registry username")]
-    pub username: String,
+    pub(super) username: String,
     #[clap(long, help = "Registry password or API key")]
-    pub password: String,
+    pub(super) password: String,
 }

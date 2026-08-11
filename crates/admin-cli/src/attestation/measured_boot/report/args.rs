@@ -49,7 +49,7 @@ use crate::cfg::measurement::parse_pcr_register_values;
 // subcommand, which itself contains other subcommands
 // for working with reports.
 #[derive(Parser, Debug, Dispatch)]
-pub enum CmdReport {
+pub(crate) enum CmdReport {
     #[clap(
         about = "Create a new report with a given config.",
         visible_alias = "c"
@@ -105,9 +105,9 @@ Create a measurement report for a machine with two PCR values:
     12345678-1234-5678-90ab-cdef01234567 0:abc123,7:def456
 
 ")]
-pub struct Create {
+pub(crate) struct Create {
     #[clap(help = "The machine ID of the machine to associate this report with.")]
-    pub machine_id: MachineId,
+    machine_id: MachineId,
 
     #[clap(
         required = true,
@@ -116,7 +116,7 @@ pub struct Create {
         help = "Comma-separated list of {pcr_register:value,...} to associate with this report."
     )]
     #[arg(value_parser = parse_pcr_register_values)]
-    pub values: Vec<PcrRegisterValue>,
+    values: Vec<PcrRegisterValue>,
 }
 
 /// Delete a profile by ID.
@@ -129,9 +129,9 @@ Delete a report by ID:
     12345678-1234-5678-90ab-cdef01234567
 
 ")]
-pub struct Delete {
+pub(crate) struct Delete {
     #[clap(help = "The report ID.")]
-    pub report_id: MeasurementReportId,
+    report_id: MeasurementReportId,
 }
 
 /// Promote is used to promote a report to a measurement bundle,
@@ -150,16 +150,16 @@ Promote a report using only specific PCR registers:
     12345678-1234-5678-90ab-cdef01234567 --pcr-registers 0,7,11-14
 
 ")]
-pub struct Promote {
+pub(crate) struct Promote {
     #[clap(help = "The report ID to promote.")]
-    pub report_id: MeasurementReportId,
+    pub(in crate::attestation::measured_boot) report_id: MeasurementReportId,
 
     #[clap(
         long,
         help = "Select a specific PCR range to use for the promoted bundle."
     )]
     #[arg(value_parser = parse_pcr_index_input)]
-    pub pcr_registers: Option<PcrSet>,
+    pub(in crate::attestation::measured_boot) pcr_registers: Option<PcrSet>,
 }
 
 /// Revoke is used to mark a report as a revoked measurement bundle,
@@ -178,16 +178,16 @@ Revoke using only specific PCR registers:
     12345678-1234-5678-90ab-cdef01234567 --pcr-registers 0,7,11-14
 
 ")]
-pub struct Revoke {
+pub(crate) struct Revoke {
     #[clap(help = "The report ID to revoke.")]
-    pub report_id: MeasurementReportId,
+    report_id: MeasurementReportId,
 
     #[clap(
         long,
         help = "Select a specific PCR range to use for the revoked bundle."
     )]
     #[arg(value_parser = parse_pcr_index_input)]
-    pub pcr_registers: Option<PcrSet>,
+    pcr_registers: Option<PcrSet>,
 }
 
 /// Show a report for an ID, reports for a machine, or all reports.
@@ -207,7 +207,7 @@ Show all reports for a machine:
     12345678-1234-5678-90ab-cdef01234567
 
 ")]
-pub enum ShowFor {
+pub(crate) enum ShowFor {
     #[clap(about = "Show a report ID.")]
     Id(ShowForId),
 
@@ -220,7 +220,7 @@ pub enum ShowFor {
 
 /// ShowForAll shows all reports.
 #[derive(Parser, Debug)]
-pub struct ShowForAll {}
+pub(crate) struct ShowForAll {}
 
 /// Show a report for the given ID.
 #[derive(Parser, Debug)]
@@ -232,9 +232,9 @@ Show one report by ID:
     12345678-1234-5678-90ab-cdef01234567
 
 ")]
-pub struct ShowForId {
+pub(crate) struct ShowForId {
     #[clap(help = "The report ID.")]
-    pub report_id: MeasurementReportId,
+    report_id: MeasurementReportId,
 }
 
 /// Show all reports for a machine.
@@ -247,9 +247,9 @@ Show all reports for a machine:
     12345678-1234-5678-90ab-cdef01234567
 
 ")]
-pub struct ShowForMachine {
+pub(crate) struct ShowForMachine {
     #[clap(help = "The profile name.")]
-    pub machine_id: String,
+    machine_id: String,
 }
 
 /// List provides a few ways to list things.
@@ -265,7 +265,7 @@ List all reports for a machine:
     12345678-1234-5678-90ab-cdef01234567
 
 ")]
-pub enum List {
+pub(crate) enum List {
     #[clap(about = "List all reports", visible_alias = "a")]
     All(ListAll),
 
@@ -285,7 +285,7 @@ List all reports:
     $ nico-admin-cli attestation measured-boot report list all
 
 ")]
-pub struct ListAll {}
+pub(crate) struct ListAll {}
 
 /// ListMachines will list all machines matching this report.
 #[derive(Parser, Debug)]
@@ -297,9 +297,9 @@ List all reports for a machine:
     12345678-1234-5678-90ab-cdef01234567
 
 ")]
-pub struct ListMachines {
+pub(crate) struct ListMachines {
     #[clap(help = "The machine ID.")]
-    pub machine_id: MachineId,
+    machine_id: MachineId,
 }
 
 /// Match is used for finding reports matching the provided PCR pairs.
@@ -311,7 +311,7 @@ Find reports matching a set of PCR register values:
     $ nico-admin-cli attestation measured-boot report match 0:abc123,7:def456
 
 ")]
-pub struct Match {
+pub(crate) struct Match {
     #[clap(
         required = true,
         use_value_delimiter = true,
@@ -319,7 +319,7 @@ pub struct Match {
         help = "Comma-separated list of {pcr_register:value,...} to match on."
     )]
     #[arg(value_parser = parse_pcr_register_values)]
-    pub values: Vec<PcrRegisterValue>,
+    values: Vec<PcrRegisterValue>,
 }
 
 impl From<Create> for CreateMeasurementReportRequest {

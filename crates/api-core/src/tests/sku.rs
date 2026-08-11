@@ -14,7 +14,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-pub mod tests {
+pub(in crate::tests) mod tests {
     use std::time::Duration;
 
     use carbide_uuid::machine::MachineId;
@@ -110,7 +110,7 @@ pub mod tests {
     //
     // ================================================================================
 
-    pub const FULL_SKU_DATA: &str = r#"
+    pub(in crate::tests) const FULL_SKU_DATA: &str = r#"
     {
         "id": "sku id",
         "description": "PowerEdge R760; 2xCPU; 8xGPU; 256 GiB",
@@ -237,7 +237,11 @@ pub mod tests {
   "schema_version": 5
 }"#;
 
-    pub async fn handle_inventory_update(pool: &sqlx::PgPool, env: &TestEnv, mh: &TestManagedHost) {
+    pub(in crate::tests) async fn handle_inventory_update(
+        pool: &sqlx::PgPool,
+        env: &TestEnv,
+        mh: &TestManagedHost,
+    ) {
         env.run_machine_state_controller_iteration_until_state_condition(
             &mh.host().id,
             3,
@@ -335,7 +339,7 @@ pub mod tests {
 
     /// Helper: Clear the SKU status/timestamp on a machine to allow re-matching
     /// Used in tests to reset the SKU matching state and test re-match behavior
-    pub async fn clear_sku_status(
+    pub(in crate::tests) async fn clear_sku_status(
         txn: &mut PgConnection,
         machine_id: &MachineId,
     ) -> Result<(), DatabaseError> {
@@ -404,7 +408,7 @@ pub mod tests {
     // ==================== Core SKU Validation Tests ====================
 
     #[crate::sqlx_test]
-    pub async fn test_sku_create(pool: sqlx::PgPool) -> Result<(), eyre::Error> {
+    pub(in crate::tests) async fn test_sku_create(pool: sqlx::PgPool) -> Result<(), eyre::Error> {
         let mut txn = pool.begin().await?;
         let rpc_sku: rpc::forge::Sku = serde_json::de::from_str(FULL_SKU_DATA)?;
         let expected_sku: Sku = rpc_sku.into();
@@ -437,7 +441,7 @@ pub mod tests {
     }
 
     #[crate::sqlx_test]
-    pub async fn test_sku_create_duplicate_id_returns_already_exists(
+    pub(in crate::tests) async fn test_sku_create_duplicate_id_returns_already_exists(
         pool: sqlx::PgPool,
     ) -> Result<(), eyre::Error> {
         use rpc::forge::SkuList;
@@ -468,7 +472,9 @@ pub mod tests {
     }
 
     #[crate::sqlx_test]
-    pub async fn test_sku_create_rejects_empty_id(pool: sqlx::PgPool) -> Result<(), eyre::Error> {
+    pub(in crate::tests) async fn test_sku_create_rejects_empty_id(
+        pool: sqlx::PgPool,
+    ) -> Result<(), eyre::Error> {
         let mut txn = pool.begin().await?;
         let rpc_sku: rpc::forge::Sku = serde_json::de::from_str(FULL_SKU_DATA)?;
         let mut sku: Sku = rpc_sku.into();
@@ -486,7 +492,7 @@ pub mod tests {
     }
 
     #[crate::sqlx_test]
-    pub async fn test_sku_delete(pool: sqlx::PgPool) -> Result<(), eyre::Error> {
+    pub(in crate::tests) async fn test_sku_delete(pool: sqlx::PgPool) -> Result<(), eyre::Error> {
         let mut txn = pool.begin().await?;
         let rpc_sku: rpc::forge::Sku = serde_json::de::from_str(FULL_SKU_DATA)?;
         let expected_sku: Sku = rpc_sku.into();
@@ -863,7 +869,7 @@ pub mod tests {
                     metadata: Metadata::new_with_default_name(),
                     sku_id: Some("no-sku".to_string()),
                     default_pause_ingestion_and_poweron: None,
-                    host_nics: vec![],
+                    interfaces: vec![],
                     rack_id: None,
                     dpf_enabled: Some(true),
                     bmc_ip_address: None,
@@ -959,7 +965,7 @@ pub mod tests {
                     metadata: Metadata::new_with_default_name(),
                     sku_id: Some("no-sku-missing".to_string()),
                     default_pause_ingestion_and_poweron: None,
-                    host_nics: vec![],
+                    interfaces: vec![],
                     rack_id: None,
                     dpf_enabled: Some(true),
                     bmc_ip_address: None,
@@ -1030,7 +1036,7 @@ pub mod tests {
                     metadata: Metadata::new_with_default_name(),
                     sku_id: Some("no-sku".to_string()),
                     default_pause_ingestion_and_poweron: None,
-                    host_nics: vec![],
+                    interfaces: vec![],
                     rack_id: None,
                     dpf_enabled: Some(true),
                     bmc_ip_address: None,
@@ -1118,7 +1124,7 @@ pub mod tests {
                     metadata: Metadata::new_with_default_name(),
                     sku_id: Some("non-existent-sku".to_string()),
                     default_pause_ingestion_and_poweron: None,
-                    host_nics: vec![],
+                    interfaces: vec![],
                     rack_id: None,
                     dpf_enabled: Some(true),
                     bmc_ip_address: None,
@@ -1563,7 +1569,7 @@ pub mod tests {
                     metadata: Metadata::new_with_default_name(),
                     sku_id: Some(mismatched_sku.id.clone()),
                     default_pause_ingestion_and_poweron: None,
-                    host_nics: vec![],
+                    interfaces: vec![],
                     rack_id: None,
                     dpf_enabled: Some(true),
                     bmc_ip_address: None,
@@ -1931,7 +1937,9 @@ pub mod tests {
     }
 
     #[crate::sqlx_test(fixtures("create_sku"))]
-    pub fn test_sku_metadata_update(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
+    pub(in crate::tests) fn test_sku_metadata_update(
+        pool: sqlx::PgPool,
+    ) -> Result<(), Box<dyn std::error::Error>> {
         let mut txn = pool.begin().await?;
 
         db::sku::update_metadata(
@@ -1954,7 +1962,7 @@ pub mod tests {
     }
 
     #[crate::sqlx_test(fixtures("create_sku"))]
-    pub fn test_sku_metadata_update_description(
+    pub(in crate::tests) fn test_sku_metadata_update_description(
         pool: sqlx::PgPool,
     ) -> Result<(), Box<dyn std::error::Error>> {
         let mut txn = pool.begin().await?;
@@ -2003,7 +2011,7 @@ pub mod tests {
     }
 
     #[crate::sqlx_test(fixtures("create_sku"))]
-    pub fn test_sku_metadata_update_device_type(
+    pub(in crate::tests) fn test_sku_metadata_update_device_type(
         pool: sqlx::PgPool,
     ) -> Result<(), Box<dyn std::error::Error>> {
         let mut txn = pool.begin().await?;
@@ -2028,7 +2036,7 @@ pub mod tests {
     }
 
     #[crate::sqlx_test(fixtures("create_sku"))]
-    pub fn test_sku_metadata_update_invalid(
+    pub(in crate::tests) fn test_sku_metadata_update_invalid(
         pool: sqlx::PgPool,
     ) -> Result<(), Box<dyn std::error::Error>> {
         let mut txn = pool.begin().await?;
@@ -2040,7 +2048,9 @@ pub mod tests {
     }
 
     #[crate::sqlx_test(fixtures("create_sku"))]
-    pub fn test_sku_replace(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
+    pub(in crate::tests) fn test_sku_replace(
+        pool: sqlx::PgPool,
+    ) -> Result<(), Box<dyn std::error::Error>> {
         let mut txn = pool.begin().await?;
         let sku_id = "sku1".to_string();
         let original_sku = db::sku::find(&mut txn, std::slice::from_ref(&sku_id))

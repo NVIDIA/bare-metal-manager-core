@@ -867,11 +867,11 @@ async fn test_update_instance_config_rejects_interface_anycast_prefix_outside_vp
             routing_profiles: HashMap::from([(
                 profile_type.to_string(),
                 FnnRoutingProfileConfig {
-                    internal: true,
-                    access_tier: 0,
-                    allowed_anycast_prefixes: vec![PrefixFilterPolicyEntry {
+                    internal: Some(true),
+                    access_tier: Some(0),
+                    allowed_anycast_prefixes: Some(vec![PrefixFilterPolicyEntry {
                         prefix: "192.0.2.0/24".parse().unwrap(),
-                    }],
+                    }]),
                     ..Default::default()
                 },
             )]),
@@ -989,6 +989,7 @@ async fn test_update_instance_config_vpc_prefix_no_network_update(
         id: None,
         prefix: String::new(),
         vpc_id: Some(vpc_id),
+        site_prefix_id: None,
         config: Some(rpc::forge::VpcPrefixConfig {
             prefix: ip_prefix.into(),
         }),
@@ -1146,6 +1147,7 @@ async fn create_fnn_vpc_prefix_fixture(
             id: None,
             prefix: String::new(),
             vpc_id: Some(vpc_id),
+            site_prefix_id: None,
             config: Some(rpc::forge::VpcPrefixConfig {
                 prefix: prefix.to_string(),
             }),
@@ -1865,6 +1867,7 @@ async fn test_update_instance_config_vpc_prefix_network_update(
         id: None,
         prefix: String::new(),
         vpc_id: Some(vpc_id),
+        site_prefix_id: None,
         config: Some(rpc::forge::VpcPrefixConfig {
             prefix: ip_prefix.into(),
         }),
@@ -2079,6 +2082,7 @@ async fn test_update_instance_config_vpc_prefix_network_update_post_instance_del
         id: None,
         prefix: String::new(),
         vpc_id: Some(vpc_id),
+        site_prefix_id: None,
         config: Some(rpc::forge::VpcPrefixConfig {
             prefix: ip_prefix.into(),
         }),
@@ -2241,6 +2245,7 @@ async fn test_update_instance_config_vpc_prefix_network_update_multidpu(
         id: None,
         prefix: String::new(),
         vpc_id: Some(vpc_id),
+        site_prefix_id: None,
         config: Some(rpc::forge::VpcPrefixConfig {
             prefix: ip_prefix.into(),
         }),
@@ -2415,6 +2420,7 @@ async fn test_update_instance_config_vpc_prefix_network_update_multidpu_differen
         id: None,
         prefix: String::new(),
         vpc_id: Some(vpc_id),
+        site_prefix_id: None,
         config: Some(rpc::forge::VpcPrefixConfig {
             prefix: ip_prefix.into(),
         }),
@@ -2440,6 +2446,7 @@ async fn test_update_instance_config_vpc_prefix_network_update_multidpu_differen
         id: None,
         prefix: String::new(),
         vpc_id: Some(vpc_id),
+        site_prefix_id: None,
         config: Some(rpc::forge::VpcPrefixConfig {
             prefix: ip_prefix1.into(),
         }),
@@ -2615,6 +2622,7 @@ async fn test_update_instance_config_vpc_prefix_network_update_different_prefix_
         id: None,
         prefix: String::new(),
         vpc_id: Some(vpc_id),
+        site_prefix_id: None,
         config: Some(rpc::forge::VpcPrefixConfig {
             prefix: ip_prefix.into(),
         }),
@@ -2822,6 +2830,7 @@ async fn test_update_instance_config_vpc_prefix_network_update_different_prefix_
         id: None,
         prefix: String::new(),
         vpc_id: Some(vpc_id),
+        site_prefix_id: None,
         config: Some(rpc::forge::VpcPrefixConfig {
             prefix: ip_prefix1.into(),
         }),

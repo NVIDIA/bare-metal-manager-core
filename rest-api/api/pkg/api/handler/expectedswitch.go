@@ -70,12 +70,6 @@ func (cesh CreateExpectedSwitchHandler) Handle(c echo.Context) error {
 		return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to retrieve current user", nil)
 	}
 
-	// ensure our user is a provider or tenant for the org
-	infrastructureProvider, tenant, apiError := common.IsProviderOrTenant(ctx, logger, cesh.dbSession, org, dbUser, false, true)
-	if apiError != nil {
-		return cutil.NewAPIErrorResponse(c, apiError.Code, apiError.Message, apiError.Data)
-	}
-
 	// Validate request
 	// Bind request data to API model
 	apiRequest := model.APIExpectedSwitchCreateRequest{}
@@ -100,6 +94,12 @@ func (cesh CreateExpectedSwitchHandler) Handle(c echo.Context) error {
 		}
 		logger.Error().Err(err).Msg("error retrieving Site from DB")
 		return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to retrieve Site specified in request data due to DB error", nil)
+	}
+
+	// Scope tenant privilege to the Site targeted by this request.
+	infrastructureProvider, tenant, apiError := common.IsProviderOrTenant(ctx, logger, cesh.dbSession, org, dbUser, false, &common.TenantPrivilegeScope{SiteID: &site.ID})
+	if apiError != nil {
+		return cutil.NewAPIErrorResponse(c, apiError.Code, apiError.Message, apiError.Data)
 	}
 
 	// Validate ProviderTenantSite relationship and site state
@@ -250,7 +250,7 @@ func NewGetAllExpectedSwitchHandler(dbSession *cdb.Session, cfg *config.Config) 
 
 // Handle godoc
 // @Summary Get all ExpectedSwitches
-// @Description Get all ExpectedSwitches
+// @Description Get all ExpectedSwitches. Provider callers may omit siteId to list across their Sites; Tenant callers must specify siteId.
 // @Tags ExpectedSwitch
 // @Accept json
 // @Produce json
@@ -274,18 +274,15 @@ func (gaesh GetAllExpectedSwitchHandler) Handle(c echo.Context) error {
 		return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to retrieve current user", nil)
 	}
 
-	// ensure our user is a provider for the org
-	infrastructureProvider, tenant, apiError := common.IsProviderOrTenant(ctx, logger, gaesh.dbSession, org, dbUser, true, true)
-	if apiError != nil {
-		return cutil.NewAPIErrorResponse(c, apiError.Code, apiError.Message, apiError.Data)
-	}
-
 	filterInput := cdbm.ExpectedSwitchFilterInput{}
 
 	// Get Site ID from query param if specified
 	siteIDStr := c.QueryParam("siteId")
+	var site *cdbm.Site
+	var err error
+	var privilegeScope *common.TenantPrivilegeScope
 	if siteIDStr != "" {
-		site, err := common.GetSiteFromIDString(ctx, nil, siteIDStr, gaesh.dbSession)
+		site, err = common.GetSiteFromIDString(ctx, nil, siteIDStr, gaesh.dbSession)
 		if err != nil {
 			if errors.Is(err, cdb.ErrDoesNotExist) {
 				return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, "Site specified in request data does not exist", nil)
@@ -293,7 +290,17 @@ func (gaesh GetAllExpectedSwitchHandler) Handle(c echo.Context) error {
 			logger.Error().Err(err).Msg("error retrieving Site from DB")
 			return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to retrieve Site specified in request data due to DB error", nil)
 		}
+		privilegeScope = &common.TenantPrivilegeScope{SiteID: &site.ID}
+	}
 
+	// A missing scope is the documented provider-wide list exemption above;
+	// tenant callers without siteId are rejected below.
+	infrastructureProvider, tenant, apiError := common.IsProviderOrTenant(ctx, logger, gaesh.dbSession, org, dbUser, true, privilegeScope)
+	if apiError != nil {
+		return cutil.NewAPIErrorResponse(c, apiError.Code, apiError.Message, apiError.Data)
+	}
+
+	if site != nil {
 		// Validate ProviderTenantSite relationship and site state
 		hasAccess, apiError := ValidateProviderOrTenantSiteAccess(ctx, logger, gaesh.dbSession, site, infrastructureProvider, tenant)
 		if apiError != nil {
@@ -305,8 +312,8 @@ func (gaesh GetAllExpectedSwitchHandler) Handle(c echo.Context) error {
 		}
 
 		filterInput.SiteIDs = []uuid.UUID{site.ID}
-	} else if tenant != nil {
-		// Tenants must specify a Site ID
+	} else if tenant != nil && infrastructureProvider == nil {
+		// Tenant-only callers must specify a Site ID.
 		return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, "Site ID must be specified in query when retrieving Expected Switches as a Tenant", nil)
 	} else {
 		// Get all Sites for the org's Infrastructure Provider
@@ -338,7 +345,7 @@ func (gaesh GetAllExpectedSwitchHandler) Handle(c echo.Context) error {
 
 	// Validate pagination request
 	pageRequest := pagination.PageRequest{}
-	err := c.Bind(&pageRequest)
+	err = c.Bind(&pageRequest)
 	if err != nil {
 		logger.Warn().Err(err).Msg("error binding pagination request data into API model")
 		return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, "Failed to parse request pagination data", nil)
@@ -431,12 +438,6 @@ func (gesh GetExpectedSwitchHandler) Handle(c echo.Context) error {
 		return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to retrieve current user", nil)
 	}
 
-	// ensure our user is a provider for the org
-	infrastructureProvider, tenant, apiError := common.IsProviderOrTenant(ctx, logger, gesh.dbSession, org, dbUser, true, true)
-	if apiError != nil {
-		return cutil.NewAPIErrorResponse(c, apiError.Code, apiError.Message, apiError.Data)
-	}
-
 	// Get Expected Switch ID from URL param
 	expectedSwitchIDStr := c.Param("id")
 	expectedSwitchID, err := uuid.Parse(expectedSwitchIDStr)
@@ -476,6 +477,12 @@ func (gesh GetExpectedSwitchHandler) Handle(c echo.Context) error {
 			logger.Error().Err(err).Msg("error retrieving Site from DB")
 			return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to retrieve Site details for Expected Switch due to DB error", nil)
 		}
+	}
+
+	// Scope tenant privilege to the Expected Switch's Site.
+	infrastructureProvider, tenant, apiError := common.IsProviderOrTenant(ctx, logger, gesh.dbSession, org, dbUser, true, &common.TenantPrivilegeScope{SiteID: &site.ID})
+	if apiError != nil {
+		return cutil.NewAPIErrorResponse(c, apiError.Code, apiError.Message, apiError.Data)
 	}
 
 	// Validate ProviderTenantSite relationship and site state
@@ -539,12 +546,6 @@ func (uesh UpdateExpectedSwitchHandler) Handle(c echo.Context) error {
 		return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to retrieve current user", nil)
 	}
 
-	// Ensure our user is a provider for the org
-	infrastructureProvider, tenant, apiError := common.IsProviderOrTenant(ctx, logger, uesh.dbSession, org, dbUser, false, true)
-	if apiError != nil {
-		return cutil.NewAPIErrorResponse(c, apiError.Code, apiError.Message, apiError.Data)
-	}
-
 	// Get Expected Switch ID from URL param
 	expectedSwitchID, err := uuid.Parse(c.Param("id"))
 	if err != nil {
@@ -596,6 +597,12 @@ func (uesh UpdateExpectedSwitchHandler) Handle(c echo.Context) error {
 		return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to retrieve Site details for Expected Switch", nil)
 	}
 
+	// Scope tenant privilege to the Expected Switch's Site.
+	infrastructureProvider, tenant, apiError := common.IsProviderOrTenant(ctx, logger, uesh.dbSession, org, dbUser, false, &common.TenantPrivilegeScope{SiteID: &site.ID})
+	if apiError != nil {
+		return cutil.NewAPIErrorResponse(c, apiError.Code, apiError.Message, apiError.Data)
+	}
+
 	// Validate ProviderTenantSite relationship and site state
 	hasAccess, apiError := ValidateProviderOrTenantSiteAccess(ctx, logger, uesh.dbSession, site, infrastructureProvider, tenant)
 	if apiError != nil {
@@ -604,6 +611,11 @@ func (uesh UpdateExpectedSwitchHandler) Handle(c echo.Context) error {
 
 	if !hasAccess {
 		return cutil.NewAPIErrorResponse(c, http.StatusForbidden, "Current org is not associated with the Site of the Expected Switch", nil)
+	}
+
+	if !bmcMacUnchanged(expectedSwitch.BmcMacAddress, apiRequest.BmcMacAddress) {
+		validationErrors := bmcMacImmutableValidationError()
+		return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, "Failed to validate Expected Switch update data", validationErrors)
 	}
 
 	// NVOS MACs identify the switch's management ports during discovery, so a
@@ -639,7 +651,6 @@ func (uesh UpdateExpectedSwitchHandler) Handle(c echo.Context) error {
 			tx,
 			cdbm.ExpectedSwitchUpdateInput{
 				ExpectedSwitchID:   expectedSwitch.ID,
-				BmcMacAddress:      apiRequest.BmcMacAddress,
 				BmcIpAddress:       apiRequest.BmcIpAddress,
 				SwitchSerialNumber: apiRequest.SwitchSerialNumber,
 				NvosMacAddresses:   apiRequest.NvosMacAddresses,
@@ -738,12 +749,6 @@ func (desh DeleteExpectedSwitchHandler) Handle(c echo.Context) error {
 		return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to retrieve current user", nil)
 	}
 
-	// Ensure our user is a provider for the org
-	infrastructureProvider, tenant, apiError := common.IsProviderOrTenant(ctx, logger, desh.dbSession, org, dbUser, false, true)
-	if apiError != nil {
-		return cutil.NewAPIErrorResponse(c, apiError.Code, apiError.Message, apiError.Data)
-	}
-
 	// Get Expected Switch ID from URL param
 	expectedSwitchID, err := uuid.Parse(c.Param("id"))
 	if err != nil {
@@ -769,6 +774,12 @@ func (desh DeleteExpectedSwitchHandler) Handle(c echo.Context) error {
 	if site == nil {
 		logger.Error().Msg("no Site relation found for Expected Switch")
 		return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to retrieve Site details for Expected Switch", nil)
+	}
+
+	// Scope tenant privilege to the Expected Switch's Site.
+	infrastructureProvider, tenant, apiError := common.IsProviderOrTenant(ctx, logger, desh.dbSession, org, dbUser, false, &common.TenantPrivilegeScope{SiteID: &site.ID})
+	if apiError != nil {
+		return cutil.NewAPIErrorResponse(c, apiError.Code, apiError.Message, apiError.Data)
 	}
 
 	// Validate ProviderTenantSite relationship and site state

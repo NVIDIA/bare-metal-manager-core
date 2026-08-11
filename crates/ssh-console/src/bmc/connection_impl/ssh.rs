@@ -47,7 +47,7 @@ static RUSSH_CLIENT_CONFIG: LazyLock<Arc<russh::client::Config>> =
     LazyLock::new(russh_client_config);
 
 /// Connect to a BMC one time, returning a [`Handle`]. Will not retry on connection errors.
-pub async fn spawn(
+pub(in crate::bmc) async fn spawn(
     connection_details: Arc<ConnectionDetails>,
     to_frontend_tx: broadcast::Sender<ToFrontendMessage>,
     metrics: Arc<BmcPoolMetrics>,
@@ -180,14 +180,14 @@ pub async fn spawn(
 }
 
 /// A handle to a BMC connection, which will shut down when dropped.
-pub struct Handle {
-    pub to_bmc_msg_tx: mpsc::Sender<ToBmcMessage>,
-    pub shutdown_tx: oneshot::Sender<()>,
-    pub join_handle: JoinHandle<Result<(), SpawnError>>,
+pub(in crate::bmc) struct Handle {
+    pub(in crate::bmc) to_bmc_msg_tx: mpsc::Sender<ToBmcMessage>,
+    pub(in crate::bmc) shutdown_tx: oneshot::Sender<()>,
+    pub(in crate::bmc) join_handle: JoinHandle<Result<(), SpawnError>>,
 }
 
 #[derive(thiserror::Error, Debug)]
-pub enum SpawnError {
+pub(in crate::bmc) enum SpawnError {
     #[error("error sending message from BMC to frontend: no active receivers")]
     SendingMsgToFrontend,
     #[error("error connecting to SSH BMC: {0}")]
@@ -201,7 +201,7 @@ pub enum SpawnError {
 }
 
 #[derive(thiserror::Error, Debug)]
-pub enum ClientCreationError {
+pub(in crate::bmc) enum ClientCreationError {
     #[error("error connecting to {addr}: {error}")]
     Connection {
         addr: SocketAddr,
@@ -233,7 +233,7 @@ pub enum ClientCreationError {
 }
 
 #[derive(thiserror::Error, Debug)]
-pub enum ConsoleActivateError {
+pub(in crate::bmc) enum ConsoleActivateError {
     #[error("error while {phase}: {error}")]
     Request {
         phase: &'static str,
@@ -700,13 +700,13 @@ fn test_ringbuf_contains() {
 }
 
 #[derive(Clone)]
-pub struct ConnectionDetails {
-    pub machine_id: MachineId,
-    pub addr: SocketAddr,
-    pub user: String,
-    pub password: String,
-    pub ssh_key_path: Option<PathBuf>,
-    pub bmc_vendor: SshBmcVendor,
+pub(in crate::bmc) struct ConnectionDetails {
+    pub(in crate::bmc) machine_id: MachineId,
+    pub(in crate::bmc) addr: SocketAddr,
+    pub(in crate::bmc) user: String,
+    pub(in crate::bmc) password: String,
+    pub(in crate::bmc) ssh_key_path: Option<PathBuf>,
+    pub(in crate::bmc) bmc_vendor: SshBmcVendor,
 }
 
 impl Debug for ConnectionDetails {

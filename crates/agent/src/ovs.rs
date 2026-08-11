@@ -25,7 +25,7 @@ use crate::instrumentation::OvsRestart;
 /// (https://www.dpdk.org/). By default it uses 100% of a CPU core to poll for new packets, never
 /// yielding. Here we set it to yield the CPU for up to 100us if it's been idle recently.
 /// 100us was recommended by NBU/HBN team.
-pub async fn set_vswitchd_yield() -> eyre::Result<()> {
+pub(super) async fn set_vswitchd_yield() -> eyre::Result<()> {
     let mut cmd = tokio::process::Command::new("/usr/bin/ovs-vsctl");
     // table: o
     // record: .
@@ -59,7 +59,7 @@ pub async fn set_vswitchd_yield() -> eyre::Result<()> {
 }
 
 /// Restart the OVS service (ovs-vswitchd) via systemctl.
-pub async fn restart_ovs() -> eyre::Result<()> {
+pub(super) async fn restart_ovs() -> eyre::Result<()> {
     let restart = tokio::time::timeout(
         Duration::from_secs(180),
         tokio::process::Command::new("systemctl")
@@ -81,6 +81,6 @@ pub async fn restart_ovs() -> eyre::Result<()> {
         );
     }
 
-    OvsRestart::Succeeded.emit();
+    carbide_instrument::emit(OvsRestart::Succeeded {});
     Ok(())
 }

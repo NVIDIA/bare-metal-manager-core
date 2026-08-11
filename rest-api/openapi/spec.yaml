@@ -31,7 +31,7 @@ tags:
       ### Service Account Mode
       Depending on the auth configuration used, the NICo REST API may be configured in Service Account mode. In this mode, API users can act as both Provider and Tenant as part of the same organization.
       If this is the case, the user must first retrieve the Service Account by making a call to the [Retrieve Service Account endpoint](#tag/Service-Account/operation/get-current-service-account).
-      For service accounts, the Tenant entity is initialized as a privileged Tenant with `targetedInstanceCreation` capability enabled.
+      For service accounts, the Tenant entity is initialized as a privileged Tenant when a Ready Tenant Account has `siteCapabilities` with `targetedInstanceCreation` enabled.
 
       ### Provider or Tenant Mode
       If NICo REST API is not configured in Service Account mode, the user should retrieve the Infrastructure Provider by making a call to the [Retrieve Infrastructure Provider endpoint](#tag/Infrastructure-Provider/operation/get-current-infrastructure-provider)
@@ -95,21 +95,26 @@ tags:
 
   - name: Service Account
     description: |-
-      When the API service is configured in Service Account mode, API users can act as both Provider and Tenant. For service accounts, the Tenant entity is initialized as a
-      privileged Tenant with `targetedInstanceCreation` capability enabled.
+      When the API service is configured in Service Account mode, API users can act as both Provider and Tenant. Privileged Tenant behavior (for example, creating Instances by Machine ID) is determined by `siteCapabilities` on a Ready Tenant Account, not by tenant-level configuration.
   - name: Infrastructure Provider
     description: |-
       Infrastructure Provider is the anchor entity for an organization that owns and manages Site resources.
   - name: Tenant
     description: |-
       Tenant is the anchor entity for an organization that consumes Network and Compute resources on a Site.
+
+      Deprecation history:
+
+      - `capabilities.targetedInstanceCreation` was deprecated in favor of `tenantAccount.siteCapabilities` and will be removed on October 1st, 2026 0:00 UTC. The value returned on GET `/tenant/current` is computed from Ready Tenant Account configuration; embedded `TenantSummary.capabilities` in nested resources always reports `false`.
   - name: Tenant Account
     description: |-
       Tenant Account connects a Tenant with an Infrastructure Provider. It represents/contains any information pertaining to their relationship.
 
+      Provider Admins configure TargetedInstanceCreation for a Tenant using the `siteCapabilities` attribute. An entry with empty or omitted `siteIds` configures the Tenant Account default; entries with `siteIds` configure Tenant Site overrides.
+
       Deprecation history:
 
-      - `accountNumber`, `subscriptionId`, and `subscriptionTier` attributes were deprecated and will be removed on July 9th, 2026 0:00 UTC. Please update your usage accordingly.
+      - `accountNumber`, `subscriptionId`, and `subscriptionTier` attributes were deprecated and will be removed on September 10th, 2026 0:00 UTC. Please update your usage accordingly.
   - name: Site
     description: |-
       Site is a datacenter that contains physical hardware and networking resources. All resources created by Provider or Tenant are directly or indirectly anchored to the Site object.
@@ -124,6 +129,12 @@ tags:
   - name: UEFI Credential
     description: |-
       UEFI Credential endpoints allow creating site-default host and DPU UEFI credentials for a Site
+  - name: Measured Boot Trusted Machine
+    description: |-
+      Measured Boot Trusted Machine endpoints manage automatic measurement promotion approvals for Machines at a Site
+  - name: Measured Boot Trusted Profile
+    description: |-
+      Measured Boot Trusted Profile endpoints manage automatic measurement promotion approvals for system profiles at a Site
   - name: Credential Rotation
     description: |-
       Credential Rotation endpoints stage a site-wide credential rotation and report per-Site or per-device convergence
@@ -174,7 +185,7 @@ tags:
     description: |-
       SKU (Stock Keeping Unit) defines one or more hardware configurations or Machine Bill of Materials (BOM).
 
-      SKUs are automatically derived from machine hardware characteristics and used to group similar machines. SKUs are read-only and managed by the system.
+      SKUs group similar machines by their hardware characteristics. Most SKUs are managed by the system, but Provider Admins can create, update, and delete SKUs for a Site.
   - name: InfiniBand Partition
     x-displayName: InfiniBand Partition
     description: |-
@@ -207,6 +218,9 @@ tags:
   - name: Machine
     description: |-
       Machine is a physical server that contains CPUs, GPUs, memory, storage, and networking hardware. Machines are the physical building blocks of a Site.
+  - name: Machine Validation
+    description: |-
+      Machine Validation is the mechanism through which a series of validation tests are executed against a Machine verify its integrity. The tests are run for each Machine on ingestion, they can also be run on-demand.
   - name: BMC Reset
     x-displayName: BMC Reset
     description: |-
@@ -329,6 +343,9 @@ tags:
 
       Instance:
       - `infrastructureProviderId` query parameter on the list Instances endpoint was deprecated and will be removed on October 10th, 2026 0:00 UTC. Instances will no longer be filtered by Infrastructure Provider; results are scoped to the org's Tenant. Use the `siteId` parameter to scope results to a specific Infrastructure Provider's Sites.
+
+      Tenant:
+      - `capabilities.targetedInstanceCreation` attribute was deprecated in favor of `tenantAccount.siteCapabilities` and will be removed on October 1st, 2026 0:00 UTC. Please use `tenantAccount.siteCapabilities` instead.
 
       Recent Deprecations:
 
@@ -453,12 +470,19 @@ paths:
                     created: '2019-08-24T14:15:22Z'
                     updated: '2019-08-24T14:15:22Z'
                     capabilities:
-                      targetedInstanceCreation: false
+                      targetedInstanceCreation: true
+                    deprecations:
+                      - attribute: capabilities.targetedInstanceCreation
+                        replacedBy: tenantAccount.siteCapabilities
+                        takeActionBy: '2026-10-01T00:00:00Z'
+                        notice: '''capabilities.targetedInstanceCreation'' is being deprecated in favor of ''tenantAccount.siteCapabilities''. Please take action prior to the specified date'
         '403':
           $ref: '#/components/responses/ForbiddenError'
       operationId: get-current-tenant
       description: |-
         Retrieve Tenant entity for current Org.
+
+        `capabilities.targetedInstanceCreation` is a deprecated read-only aggregate: it is `true` when all Ready Tenant Account for this Tenant has TargetedInstanceCreation enabled in its configuration to preserve backwards compatibility. Configure the capability per Provider/per Site via PATCH `/tenant/account/{accountId}` using `siteCapabilities`. Disallowing at Provider or Site level would result in no value returned here.
 
         User must have authorization role with `TENANT_ADMIN` suffix.
       parameters: []
@@ -720,6 +744,8 @@ paths:
                         message: 'Request received, pending Tenant acceptance'
                         created: '2019-08-24T14:15:22Z'
                         updated: '2019-08-24T14:15:22Z'
+                    siteCapabilities:
+                      - targetedInstanceCreation: true
                     created: '2019-08-24T14:15:22Z'
                     updated: '2019-08-24T14:15:22Z'
         '403':
@@ -788,6 +814,8 @@ paths:
                         message: 'Request received, pending Tenant acceptance'
                         created: '2019-08-24T14:15:22Z'
                         updated: '2019-08-24T14:15:22Z'
+                    siteCapabilities:
+                      - targetedInstanceCreation: true
                     created: '2019-08-24T14:15:22Z'
                     updated: '2019-08-24T14:15:22Z'
         '400':
@@ -799,18 +827,25 @@ paths:
       description: |-
         Update a Tenant Account.
 
-        Can be used to accept an invitation sent by an Infrastructure Provider.
+        Tenant Admins may accept an invitation sent by an Infrastructure Provider by supplying `tenantContactId`.
 
-        Org must have a Tenant entity whose ID matches the `tenantId` of the Tenant Account object. User must have authorization role with `TENANT_ADMIN` suffix. Can only update a Tenant Account that has `Invited` status.
+        Provider Admins may replace `siteCapabilities` to configure the Tenant Account default and overrides for specific Sites. When `siteCapabilities` is sent, it must be non-empty, include exactly one entry with empty or omitted `siteIds`, and must not repeat any `siteId` across entries. Requests containing both `tenantContactId` and `siteCapabilities` are rejected with 400.
+
+        Org must have a Tenant entity whose ID matches the `tenantId` of the Tenant Account object when accepting an invite. User must have authorization role with `TENANT_ADMIN` suffix to accept; `PROVIDER_ADMIN` suffix to update `siteCapabilities`. Tenant Admins can only update a Tenant Account that has `Invited` status.
       requestBody:
         content:
           application/json:
             schema:
               $ref: '#/components/schemas/TenantAccountUpdateRequest'
             examples:
-              example-1:
+              accept-invite:
                 value: {}
-        description: 'No parameters are required; an empty request body is sufficient.'
+              update-site-capabilities:
+                value:
+                  siteCapabilities:
+                    - siteIds: []
+                      targetedInstanceCreation: true
+        description: Tenant invite acceptance or Provider Admin site capability update.
     delete:
       summary: Delete Tenant Account
       operationId: delete-tenant-account
@@ -1206,18 +1241,20 @@ paths:
             schema:
               $ref: '#/components/schemas/BMCCredentialRequest'
       responses:
-        '202':
-          description: Machine power control request was accepted
+        '200':
+          description: BMC credential was created or updated
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/BMCCredential'
+        '400':
+          $ref: '#/components/responses/ValidationError'
         '403':
           $ref: '#/components/responses/ForbiddenError'
       operationId: create-or-update-bmc-credential
       description: |-
         Create or update a site-wide or per-BMC root credential. Equivalent
-        to `carbide-admin-cli credential add-bmc`.
+        to `nico-admin-cli credential add-bmc`.
 
         User must have authorization role with `PROVIDER_ADMIN` suffix.
   '/v2/org/{org}/nico/credential/uefi':
@@ -1261,6 +1298,261 @@ paths:
         if the selected site-default credential already exists.
 
         User must have authorization role with `PROVIDER_ADMIN` suffix.
+  '/v2/org/{org}/nico/measured-boot/trusted-machine':
+    parameters:
+      - schema:
+          type: string
+        name: org
+        in: path
+        required: true
+        description: Name of the Org
+    post:
+      summary: Create Measured Boot Trusted Machine Approval
+      tags:
+        - Measured Boot Trusted Machine
+      operationId: create-measured-boot-trusted-machine
+      description: |-
+        Approve a Machine, or all Machines using `*`, for automatic promotion of its next measured-boot report.
+
+        Org must have an Infrastructure Provider entity that owns the Site. User must have authorization role with `PROVIDER_ADMIN` suffix.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MeasuredBootTrustedMachineCreateRequest'
+      responses:
+        '201':
+          description: Measured Boot trusted Machine approval was created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MeasuredBootTrustedMachine'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '403':
+          $ref: '#/components/responses/ForbiddenError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+        '500':
+          $ref: '#/components/responses/GenericHttpError'
+    get:
+      summary: Retrieve All Measured Boot Trusted Machine Approvals
+      tags:
+        - Measured Boot Trusted Machine
+      operationId: get-all-measured-boot-trusted-machine
+      description: |-
+        Retrieve all measured-boot trusted Machine approvals for a Site.
+
+        Org must have an Infrastructure Provider entity that owns the Site. User must have authorization role with `PROVIDER_ADMIN` suffix.
+      parameters:
+        - schema:
+            type: string
+            format: uuid
+          name: siteId
+          in: query
+          required: true
+          description: ID of the Site
+      responses:
+        '200':
+          description: Measured Boot trusted Machine approvals
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/MeasuredBootTrustedMachine'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '403':
+          $ref: '#/components/responses/ForbiddenError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+        '500':
+          $ref: '#/components/responses/GenericHttpError'
+  '/v2/org/{org}/nico/measured-boot/trusted-machine/{id}':
+    parameters:
+      - schema:
+          type: string
+        name: org
+        in: path
+        required: true
+        description: Name of the Org
+      - schema:
+          type: string
+        name: id
+        in: path
+        required: true
+        description: Approval ID or Machine ID, as selected by the selector query parameter
+    delete:
+      summary: Delete Measured Boot Trusted Machine Approval
+      tags:
+        - Measured Boot Trusted Machine
+      operationId: delete-measured-boot-trusted-machine
+      description: |-
+        Delete a measured-boot trusted Machine approval by approval ID or Machine ID.
+
+        Org must have an Infrastructure Provider entity that owns the Site. User must have authorization role with `PROVIDER_ADMIN` suffix.
+      parameters:
+        - schema:
+            type: string
+            format: uuid
+          name: siteId
+          in: query
+          required: true
+          description: ID of the Site
+        - schema:
+            type: string
+            enum:
+              - ApprovalId
+              - MachineId
+          name: selector
+          in: query
+          required: true
+          description: Whether id identifies the approval or the Machine
+      responses:
+        '200':
+          description: Deleted measured-boot trusted Machine approval
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MeasuredBootTrustedMachine'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '403':
+          $ref: '#/components/responses/ForbiddenError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+        '500':
+          $ref: '#/components/responses/GenericHttpError'
+  '/v2/org/{org}/nico/measured-boot/trusted-profile':
+    parameters:
+      - schema:
+          type: string
+        name: org
+        in: path
+        required: true
+        description: Name of the Org
+    post:
+      summary: Create Measured Boot Trusted Profile Approval
+      tags:
+        - Measured Boot Trusted Profile
+      operationId: create-measured-boot-trusted-profile
+      description: |-
+        Approve a measured-boot system profile for automatic promotion of reports from matching Machines.
+
+        Org must have an Infrastructure Provider entity that owns the Site. User must have authorization role with `PROVIDER_ADMIN` suffix.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MeasuredBootTrustedProfileCreateRequest'
+      responses:
+        '201':
+          description: Measured Boot trusted Profile approval was created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MeasuredBootTrustedProfile'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '403':
+          $ref: '#/components/responses/ForbiddenError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+        '500':
+          $ref: '#/components/responses/GenericHttpError'
+    get:
+      summary: Retrieve All Measured Boot Trusted Profile Approvals
+      tags:
+        - Measured Boot Trusted Profile
+      operationId: get-all-measured-boot-trusted-profile
+      description: |-
+        Retrieve all measured-boot trusted Profile approvals for a Site.
+
+        Org must have an Infrastructure Provider entity that owns the Site. User must have authorization role with `PROVIDER_ADMIN` suffix.
+      parameters:
+        - schema:
+            type: string
+            format: uuid
+          name: siteId
+          in: query
+          required: true
+          description: ID of the Site
+      responses:
+        '200':
+          description: Measured Boot trusted Profile approvals
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/MeasuredBootTrustedProfile'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '403':
+          $ref: '#/components/responses/ForbiddenError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+        '500':
+          $ref: '#/components/responses/GenericHttpError'
+  '/v2/org/{org}/nico/measured-boot/trusted-profile/{id}':
+    parameters:
+      - schema:
+          type: string
+        name: org
+        in: path
+        required: true
+        description: Name of the Org
+      - schema:
+          type: string
+          format: uuid
+        name: id
+        in: path
+        required: true
+        description: Approval ID or Profile ID, as selected by the selector query parameter
+    delete:
+      summary: Delete Measured Boot Trusted Profile Approval
+      tags:
+        - Measured Boot Trusted Profile
+      operationId: delete-measured-boot-trusted-profile
+      description: |-
+        Delete a measured-boot trusted Profile approval by approval ID or Profile ID.
+
+        Org must have an Infrastructure Provider entity that owns the Site. User must have authorization role with `PROVIDER_ADMIN` suffix.
+      parameters:
+        - schema:
+            type: string
+            format: uuid
+          name: siteId
+          in: query
+          required: true
+          description: ID of the Site
+        - schema:
+            type: string
+            enum:
+              - ApprovalId
+              - ProfileId
+          name: selector
+          in: query
+          required: true
+          description: Whether id identifies the approval or the system profile
+      responses:
+        '200':
+          description: Deleted measured-boot trusted Profile approval
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MeasuredBootTrustedProfile'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '403':
+          $ref: '#/components/responses/ForbiddenError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+        '500':
+          $ref: '#/components/responses/GenericHttpError'
   '/v2/org/{org}/nico/credential/rotation':
     parameters:
       - schema:
@@ -3641,7 +3933,7 @@ paths:
 
         Org must have an Infrastructure Provider entity. User must have authorization role with `PROVIDER_ADMIN` or `PROVIDER_VIEWER` suffix.
 
-        Alternatively, Tenant Admins with `TargetedInstanceCreation` capability can also retrieve Expected Machines if they have an account with the Site's Infrastructure Provider (siteId query parameter is required for Tenants).
+        Alternatively, Tenant Admins may retrieve Expected Machines across Sites where `TargetedInstanceCreation` is effective. The siteId query parameter is optional and, when provided, further restricts results to that Site.
       parameters:
         - schema:
             type: string
@@ -4476,6 +4768,8 @@ paths:
         Infrastructure Provider must own the Expected Rack.
 
         Alternatively, Tenant Admins with `TargetedInstanceCreation` capability can also update Expected Racks if they have an account with the Site's Infrastructure Provider.
+
+        `rackId` is immutable: an update that changes it is rejected with `400` before any database mutation.
       requestBody:
         content:
           application/json:
@@ -4866,9 +5160,13 @@ paths:
                             memoryType: DDR5
                             count: 16
                         storage:
-                          - vendor: Samsung
-                            model: PM9A3
-                            capacityMb: 7680000
+                          - vendor: ''
+                            model: SAMSUNG MZ1L21T9HCLS-00A07
+                            capacityMb: 0
+                            minSizeMiB: 7680000
+                            maxSizeMiB: 7680000
+                            pciPatterns:
+                               - ^/devices/pci.*nvme0$
                             count: 4
                         chassis:
                           vendor: Supermicro
@@ -4881,6 +5179,32 @@ paths:
                 type: string
                 example: '{"pageNumber":1,"pageSize":20,"total":30,"orderBy": "CREATED_DESC"}'
               description: Pagination result in JSON format
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '403':
+          $ref: '#/components/responses/ForbiddenError'
+      tags:
+        - SKU
+    post:
+      summary: Create SKU
+      operationId: create-sku
+      description: |-
+        Create a SKU.
+
+        The Org must have an Infrastructure Provider that owns the Site. The user must have an authorization role with the `PROVIDER_ADMIN` suffix.
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SkuCreateRequest'
+        required: true
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Sku'
         '400':
           $ref: '#/components/responses/ValidationError'
         '403':
@@ -4943,15 +5267,68 @@ paths:
                           memoryType: DDR5
                           count: 16
                       storage:
-                        - vendor: Samsung
-                          model: PM9A3
-                          capacityMb: 7680000
-                          count: 4
+                          - vendor: ''
+                            model: SAMSUNG MZ1L21T9HCLS-00A07
+                            capacityMb: 0
+                            minSizeMiB: 7680000
+                            maxSizeMiB: 7680000
+                            pciPatterns:
+                               - ^/devices/pci.*nvme0$
+                            count: 4
                       chassis:
                         vendor: Supermicro
                         model: SYS-420GP-TNR
                     created: '2019-08-24T14:15:22Z'
                     updated: '2019-08-24T14:15:22Z'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '403':
+          $ref: '#/components/responses/ForbiddenError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+      tags:
+        - SKU
+    delete:
+      summary: Delete SKU
+      operationId: delete-sku
+      description: |-
+        Delete an unused SKU. The Site is determined from the saved SKU record.
+
+        The Org must have an Infrastructure Provider that owns the SKU's Site. The user must have an authorization role with the `PROVIDER_ADMIN` suffix.
+      responses:
+        '204':
+          description: No Content
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '403':
+          $ref: '#/components/responses/ForbiddenError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+      tags:
+        - SKU
+    patch:
+      summary: Update SKU
+      operationId: update-sku
+      description: |-
+        Update selected mutable fields on a SKU. The Site is determined from the saved SKU record.
+
+        Fields omitted from the request retain their current values. If a user updates the components field,
+        the schema version will be updated to the current version (5).
+
+        The Org must have an Infrastructure Provider that owns the SKU's Site. The user must have an authorization role with the `PROVIDER_ADMIN` suffix.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SkuUpdateRequest'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Sku'
         '400':
           $ref: '#/components/responses/ValidationError'
         '403':
@@ -8174,9 +8551,13 @@ paths:
           $ref: '#/components/responses/ForbiddenError'
       operationId: get-all-operating-system
       description: |-
-        List Operating Systems visible to the caller's Tenant.
+        List Operating Systems visible to the caller.
 
-        Org must have a Tenant entity. User must have authorization role with `TENANT_ADMIN` suffix. Only Operating Systems whose `tenantId` matches the caller's Tenant are returned.
+        User must have an authorization role with either the `PROVIDER_ADMIN` or `TENANT_ADMIN` suffix for the org.
+
+        - Provider admin: returns only Operating Systems owned by the org's Infrastructure Provider.
+        - Tenant admin: returns Operating Systems owned by the caller's Tenant, plus Provider-owned Operating Systems that are associated with at least one Site the Tenant can access.
+        - Dual-role (both Provider and Tenant): returns the union of the Tenant's and the Provider's Operating Systems.
       parameters:
         - schema:
             type: string
@@ -8304,13 +8685,12 @@ paths:
       description: |-
         Create an Operating System for the org.
 
-        Either `infrastructureProviderId` or `tenantId` must be provided in request data. Both cannot be provided at the same time.
+        Ownership is derived from the caller's role:
 
-        If `infrastructureProviderId` is provided in request data, then org must have an Infrastructure Provider entity and its ID should match the query parameter value. User must have authorization role with `PROVIDER_ADMIN` suffix.
+        - Tenant admin (`TENANT_ADMIN`): creates a Tenant-owned Operating System of any type (Image, iPXE, or Templated iPXE).
+        - Provider admin (`PROVIDER_ADMIN`): may only create Provider-owned Operating Systems of type `Templated iPXE`.
 
-        If `tenantId` is provided in request data, then org must have a Tenant entity and its ID should match the query parameter value. User must have authorization role with `TENANT_ADMIN` suffix.
-
-        Only Tenants are allowed to create Operating System for MVP.
+        The `tenantId` field in the request body is deprecated; if provided, it must match the org's Tenant.
       requestBody:
         content:
           application/json:
@@ -8508,6 +8888,8 @@ paths:
         If the Operating System has `infrastructureProviderId` set, then org must have an Infrastructure Provider entity and its ID should match the Operating System Infrastructure Provider ID. User must have authorization role with `PROVIDER_ADMIN` suffix.
 
         If the Operating System has `tenantId` set, then org must have a Tenant entity and its ID should match the Operating System Tenant ID. User must have authorization role with `TENANT_ADMIN` suffix.
+
+        A Tenant admin may also read a Provider-owned Operating System when it is associated with at least one Site the Tenant can access.
       parameters:
         - schema:
             type: string
@@ -8728,9 +9110,9 @@ paths:
           $ref: '#/components/responses/ForbiddenError'
       operationId: get-all-machine
       description: |
-        Get all Machines for Infrastructure Provider.
+        Get all Machines visible to the caller.
 
-        Org must have an Infrastructure Provider entity. User must have authorization role with `PROVIDER_ADMIN` suffix.
+        Infrastructure Provider callers receive Machines owned by their Provider. Tenant Admin callers receive Machines only from Sites where `TargetedInstanceCreation` is effective. The siteId query parameter is optional and further restricts either result set.
       parameters:
         - schema:
             type: string
@@ -9430,7 +9812,11 @@ paths:
           $ref: '#/components/responses/GenericHttpError'
       operationId: reset-machine-bmc
       description: |-
-        Reset BMC of a specific Machine.
+        Reset the BMC of a specific Machine. When an Instance is attached to the
+        Machine, `acknowledgeAttachedInstance` must be `true`.
+
+        If `useIpmiTool` is `true`, the BMC reset request may be silently
+        ignored while the BMC is in lockdown mode.
         
         For Infrastructure Providers: Org must have an Infrastructure Provider entity and own the Site that the Machine belongs to. User must have authorization role with `PROVIDER_ADMIN` suffix.
 
@@ -9480,7 +9866,11 @@ paths:
           $ref: '#/components/responses/GenericHttpError'
       operationId: reprovision-machine-dpu
       description: |-
-        Trigger DPU reprovisioning for a Machine. It may be necessary to create a `HostUpdateInProgress` health report for the Machine before DPU reprovisioning can be triggered.
+        Trigger DPU reprovisioning for a Machine. Before calling this operation,
+        create a Machine health report containing an alert whose ID is
+        `HostUpdateInProgress` and whose classifications include
+        `PreventAllocations`. When an Instance is attached to the Machine,
+        `acknowledgeAttachedInstance` must be `true`.
 
         For Infrastructure Providers: Org must have an Infrastructure Provider entity and own the Site that the Machine belongs to. User must have authorization role with `PROVIDER_ADMIN` suffix.
 
@@ -9632,7 +10022,7 @@ paths:
                   action: ForceRestart
       responses:
         '202':
-          description: Machine power control request was accepted
+          description: Machine power control request was accepted. The message is empty unless Core returns a power-manager warning.
           content:
             application/json:
               schema:
@@ -9640,7 +10030,7 @@ paths:
               examples:
                 example-1:
                   value:
-                    message: Power control accepted
+                    message: ''
         '400':
           $ref: '#/components/responses/ValidationError'
         '403':
@@ -9651,9 +10041,119 @@ paths:
           $ref: '#/components/responses/GenericHttpError'
       operationId: machine-power-control-machine
       description: |-
-        Execute power control actions for a specific Machine.
+        Execute power control actions for a specific Machine. When an Instance is
+        attached to the Machine, `acknowledgeAttachedInstance` must be `true`.
         
         Org must have an Infrastructure Provider entity and own the Site that the Machine belongs to. User must have authorization role with `PROVIDER_ADMIN` suffix.
+  '/v2/org/{org}/nico/machine/{machineId}/validation/run':
+    parameters:
+      - schema:
+          type: string
+        name: org
+        in: path
+        required: true
+        description: Name of the Org
+      - schema:
+          type: string
+        name: machineId
+        in: path
+        required: true
+        description: ID of the Machine
+    get:
+      summary: Retrieve Machine validation runs
+      tags:
+        - Machine Validation
+      responses:
+        '200':
+          description: Machine validation runs
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/MachineValidationRun'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '403':
+          $ref: '#/components/responses/ForbiddenError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+        '500':
+          $ref: '#/components/responses/GenericHttpError'
+      operationId: get-all-machine-validation-runs
+      description: |-
+        Retrieve validation runs for a specific Machine.
+
+        Org must have an Infrastructure Provider entity that owns the Machine. User must have authorization role with `PROVIDER_ADMIN` suffix.
+    post:
+      summary: Create an on-demand Machine validation run
+      tags:
+        - Machine Validation
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MachineValidationRunCreateRequest'
+      responses:
+        '202':
+          description: On-demand Machine validation request was accepted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MachineValidationRun'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '403':
+          $ref: '#/components/responses/ForbiddenError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+        '500':
+          $ref: '#/components/responses/GenericHttpError'
+      operationId: start-machine-validation
+      description: |-
+        Create an on-demand Machine validation run. The Machine must be in a state accepted by NICo Core.
+
+        Org must have an Infrastructure Provider entity and own the Site that the Machine belongs to. User must have authorization role with `PROVIDER_ADMIN` suffix.
+  '/v2/org/{org}/nico/machine/{machineId}/validation/result':
+    parameters:
+      - schema:
+          type: string
+        name: org
+        in: path
+        required: true
+        description: Name of the Org
+      - schema:
+          type: string
+        name: machineId
+        in: path
+        required: true
+        description: ID of the Machine
+    get:
+      summary: Retrieve Machine validation results
+      tags:
+        - Machine Validation
+      responses:
+        '200':
+          description: Machine validation results
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/MachineValidationResult'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '403':
+          $ref: '#/components/responses/ForbiddenError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+        '500':
+          $ref: '#/components/responses/GenericHttpError'
+      operationId: get-all-machine-validation-results
+      description: |-
+        Retrieve validation results for a specific Machine.
+
+        Org must have an Infrastructure Provider entity that owns the Machine. User must have authorization role with `PROVIDER_ADMIN` suffix.
   '/v2/org/{org}/nico/machine/{machineId}/status-history':
     parameters:
       - schema:
@@ -14286,6 +14786,138 @@ paths:
           $ref: '#/components/responses/GenericHttpError'
 components:
   schemas:
+    MeasuredBootTrustedMachineCreateRequest:
+      type: object
+      title: MeasuredBootTrustedMachineCreateRequest
+      description: Request to approve a Machine for automatic promotion of measured-boot reports.
+      required:
+        - siteId
+        - machineId
+        - approvalType
+      properties:
+        siteId:
+          type: string
+          format: uuid
+          description: ID of the Site where the approval applies.
+        machineId:
+          type: string
+          description: Machine UUID, or `*` to approve all Machines at the Site.
+        approvalType:
+          type: string
+          enum:
+            - Oneshot
+            - Persist
+          description: Whether the approval is consumed once or persists for future reports.
+        pcrRegisters:
+          type: string
+          description: Optional comma-separated PCR register selector. All registers are used when omitted.
+        comments:
+          type: string
+          description: Optional operator comments about the approval.
+    MeasuredBootTrustedMachine:
+      type: object
+      title: MeasuredBootTrustedMachine
+      description: A measured-boot trusted Machine approval.
+      required:
+        - approvalId
+        - machineId
+        - approvalType
+        - pcrRegisters
+        - comments
+        - created
+      properties:
+        approvalId:
+          type: string
+          format: uuid
+          description: Unique approval ID.
+        machineId:
+          type: string
+          description: Machine UUID, or `*` when the approval applies to all Machines.
+        approvalType:
+          type: string
+          enum:
+            - Oneshot
+            - Persist
+          description: Whether the approval is consumed once or persists for future reports.
+        pcrRegisters:
+          type: string
+          description: Optional comma-separated PCR register selector.
+        comments:
+          type: string
+          description: Optional operator comments about the approval.
+        created:
+          type:
+            - string
+            - 'null'
+          format: date-time
+          description: Time when the approval was created, or null when Core did not return a timestamp.
+    MeasuredBootTrustedProfileCreateRequest:
+      type: object
+      title: MeasuredBootTrustedProfileCreateRequest
+      description: Request to approve a system profile for automatic promotion of measured-boot reports.
+      required:
+        - siteId
+        - profileId
+        - approvalType
+      properties:
+        siteId:
+          type: string
+          format: uuid
+          description: ID of the Site where the approval applies.
+        profileId:
+          type: string
+          format: uuid
+          description: ID of the measured-boot system profile.
+        approvalType:
+          type: string
+          enum:
+            - Oneshot
+            - Persist
+          description: Whether the approval is consumed once or persists for future reports.
+        pcrRegisters:
+          type: string
+          description: Optional comma-separated PCR register selector. All registers are used when omitted.
+        comments:
+          type: string
+          description: Optional operator comments about the approval.
+    MeasuredBootTrustedProfile:
+      type: object
+      title: MeasuredBootTrustedProfile
+      description: A measured-boot trusted system profile approval.
+      required:
+        - approvalId
+        - profileId
+        - approvalType
+        - pcrRegisters
+        - comments
+        - created
+      properties:
+        approvalId:
+          type: string
+          format: uuid
+          description: Unique approval ID.
+        profileId:
+          type: string
+          format: uuid
+          description: ID of the measured-boot system profile.
+        approvalType:
+          type: string
+          enum:
+            - Oneshot
+            - Persist
+          description: Whether the approval is consumed once or persists for future reports.
+        pcrRegisters:
+          type: string
+          description: Optional comma-separated PCR register selector.
+        comments:
+          type: string
+          description: Optional operator comments about the approval.
+        created:
+          type:
+            - string
+            - 'null'
+          format: date-time
+          description: Time when the approval was created, or null when Core did not return a timestamp.
     BMCCredentialRequest:
       type: object
       title: BMCCredentialRequest
@@ -14601,7 +15233,7 @@ components:
         useIpmiTool:
           type: boolean
           default: false
-          description: Reset the BMC via ipmitool instead of Redfish.
+          description: Reset the BMC via ipmitool instead of Redfish. The request may be silently ignored while the BMC is in lockdown mode.
         acknowledgeAttachedInstance:
           type: boolean
           description: Acknowledges that an Instance is currently attached to the Machine and this action may disrupt Tenant workload on the Instance.
@@ -14616,7 +15248,7 @@ components:
       properties:
         mode:
           type: string
-          description: DPU reprovisioning mode.
+          description: Use `Set` to start reprovisioning, `Clear` to remove a pending request, or `Restart` to restart DPUs that already have a request. Restart accepts a host Machine ID only.
           enum:
             - Set
             - Clear
@@ -14624,13 +15256,14 @@ components:
         updateFirmware:
           type: boolean
           default: false
-          description: Whether to update firmware during reprovisioning.
+          deprecated: true
+          description: Deprecated compatibility field. Firmware is always verified and updated during reprovisioning.
         acknowledgeAttachedInstance:
           type: boolean
           description: Acknowledges that an Instance is currently attached to the Machine and this action may disrupt Tenant workload on the Instance.
       examples:
-        - mode: Restart
-          updateFirmware: true
+        - mode: Set
+          updateFirmware: false
     MachineHealthReportEntry:
       type: object
       title: MachineHealthReportEntry
@@ -14666,15 +15299,15 @@ components:
             - Merge
             - Replace
       examples:
-        - source: overrides.sre
+        - source: maintenance.dpu-reprovision
           triggeredBy: operator
           observedAt: '2026-06-24T12:00:00Z'
           mode: Merge
           alerts:
-            - id: dpu.reprovision.in.progress
+            - id: HostUpdateInProgress
               message: DPU reprovisioning in progress
               classifications:
-                - maintenance
+                - PreventAllocations
     MachineHealthReportEntryRequest:
       type: object
       title: MachineHealthReportEntryRequest
@@ -14703,13 +15336,13 @@ components:
             - Merge
             - Replace
       examples:
-        - source: overrides.sre
+        - source: maintenance.dpu-reprovision
           mode: Merge
           alerts:
-            - id: dpu.reprovision.in.progress
+            - id: HostUpdateInProgress
               message: DPU reprovisioning in progress
               classifications:
-                - maintenance
+                - PreventAllocations
     HostFirmwareArtifact:
       type: object
       title: HostFirmwareArtifact
@@ -15011,7 +15644,7 @@ components:
       properties:
         action:
           type: string
-          description: Power control action to apply.
+          description: Redfish power control action to apply to the Machine. ACPowercycle is not supported on Viking systems.
           enum:
             - On
             - GracefulShutdown
@@ -15025,6 +15658,191 @@ components:
       examples:
         - action: ForceRestart
           acknowledgeAttachedInstance: true
+    MachineValidationRunCreateRequest:
+      type: object
+      title: MachineValidationRunCreateRequest
+      description: Optional filters for an on-demand Machine validation run
+      examples:
+        - tags:
+            - dgxcloud
+          allowedTests:
+            - forge_DcgmFullLong
+          runUnverifiedTests: false
+          contexts:
+            - OnDemand
+      properties:
+        tags:
+          type: array
+          description: Tags used to select validation tests.
+          items:
+            type: string
+            minLength: 1
+        allowedTests:
+          type: array
+          description: Validation test names allowed for this run.
+          items:
+            type: string
+            minLength: 1
+        runUnverifiedTests:
+          type: boolean
+          description: Whether unverified validation tests may run.
+          default: false
+        contexts:
+          type: array
+          description: Contexts used to select validation tests.
+          items:
+            type: string
+            minLength: 1
+    MachineValidationRun:
+      type: object
+      title: MachineValidationRun
+      description: Machine validation run
+      examples:
+        - validationID: 20000000-0000-0000-0000-000000000001
+          machineID: fm100htes3rn1npvbtm5qd57dkilaag7ljugl1llmm7rfuq1ov50i0rpl30
+          startTime: '2026-08-03T20:00:00Z'
+          endTime: null
+          name: Test_fm100htes3rn1npvbtm5qd57dkilaag7ljugl1llmm7rfuq1ov50i0rpl30
+          context: OnDemand
+          status:
+            state: InProgress
+            total: 1
+            completed: 0
+          durationToCompleteSecs: 7200
+      required:
+        - validationID
+        - machineID
+        - startTime
+        - endTime
+        - name
+        - context
+        - status
+        - durationToCompleteSecs
+      properties:
+        validationID:
+          type: string
+          description: ID of the Machine validation run.
+        machineID:
+          type: string
+          description: ID of the validated Machine.
+        startTime:
+          type: string
+          format: date-time
+          description: Time the validation run started.
+        endTime:
+          type:
+            - string
+            - 'null'
+          format: date-time
+          description: Time the validation run completed, or null while it is active.
+        name:
+          type: string
+          description: Name of the validation run.
+        context:
+          type: string
+          description: Context in which the validation run was created.
+        status:
+          $ref: '#/components/schemas/MachineValidationStatus'
+        durationToCompleteSecs:
+          type: integer
+          description: Estimated maximum duration of the validation run in seconds. A value of zero can mean the estimate has not yet been calculated.
+    MachineValidationStatus:
+      type: object
+      title: MachineValidationStatus
+      description: Progress and outcome of a Machine validation run
+      examples:
+        - state: InProgress
+          total: 1
+          completed: 0
+      required:
+        - state
+        - total
+        - completed
+      properties:
+        state:
+          type: string
+          description: Current state or completed outcome of the validation run.
+          enum:
+            - Started
+            - InProgress
+            - Success
+            - Failed
+            - Skipped
+        total:
+          type: integer
+          description: Total number of validation tests in the run.
+        completed:
+          type: integer
+          description: Number of validation tests that have completed.
+    MachineValidationResult:
+      type: object
+      title: MachineValidationResult
+      description: Result of one test in a Machine validation run
+      examples:
+        - name: DcgmFullLong
+          description: Full DCGM diag test for 5 min
+          command: 'dcgmi '
+          args: ' diag -r 3'
+          stdOut: Diagnostic completed successfully
+          stdErr: ''
+          context: OnDemand
+          exitCode: 0
+          startTime: '2026-08-03T20:00:05Z'
+          endTime: '2026-08-03T20:05:05Z'
+          validationID: 20000000-0000-0000-0000-000000000001
+          testID: forge_DcgmFullLong
+      required:
+        - name
+        - description
+        - command
+        - args
+        - stdOut
+        - stdErr
+        - context
+        - exitCode
+        - startTime
+        - endTime
+        - validationID
+        - testID
+      properties:
+        name:
+          type: string
+          description: Name of the validation test.
+        description:
+          type: string
+          description: Description of the validation test.
+        command:
+          type: string
+          description: Command executed by the validation test.
+        args:
+          type: string
+          description: Arguments supplied to the validation command.
+        stdOut:
+          type: string
+          description: Standard output from the validation command.
+        stdErr:
+          type: string
+          description: Standard error from the validation command.
+        context:
+          type: string
+          description: Context in which the validation test ran.
+        exitCode:
+          type: integer
+          description: Exit code returned by the validation command.
+        startTime:
+          type: string
+          format: date-time
+          description: Time the validation test started.
+        endTime:
+          type: string
+          format: date-time
+          description: Time the validation test completed.
+        validationID:
+          type: string
+          description: ID of the Machine validation run.
+        testID:
+          type: string
+          description: ID of the validation test.
     InfrastructureProvider:
       description: Infrastructure providers own and manage datacenters
       type: object
@@ -15199,7 +16017,12 @@ components:
           created: '2019-08-24T14:15:22Z'
           updated: '2019-08-24T14:15:22Z'
           capabilities:
-            targetedInstanceCreation: false
+            targetedInstanceCreation: true
+          deprecations:
+            - attribute: capabilities.targetedInstanceCreation
+              replacedBy: tenantAccount.siteCapabilities
+              takeActionBy: '2026-10-01T00:00:00Z'
+              notice: '''capabilities.targetedInstanceCreation'' is being deprecated in favor of ''tenantAccount.siteCapabilities''. Please take action prior to the specified date'
       properties:
         id:
           type: string
@@ -15225,19 +16048,27 @@ components:
           description: Date/time when Tenant was last updated
         capabilities:
           $ref: '#/components/schemas/TenantCapabilities'
-          description: Features that are enabled/disabled for Tenant
+          description: Deprecated read-only aggregate of tenant-wide feature flags. Source of truth is Tenant Account `siteCapabilities`.
+        deprecations:
+          type: array
+          items:
+            $ref: '#/components/schemas/Deprecation'
+          description: Deprecation notices for Tenant fields
     TenantCapabilities:
       title: TenantCapabilities
       type: object
-      description: TenantCapabilities defines the set of features enabled for Tenant
+      description: |-
+        Deprecated tenant-wide capability summary. TargetedInstanceCreation is no longer stored on the Tenant entity; it is configured on Tenant Account `siteCapabilities` (and may be overridden per Site via Tenant Site configuration).
+
+        On GET `/tenant/current`, `targetedInstanceCreation` is present and `true` only when the Tenant has at least one Ready Tenant Account, every Ready Tenant Account has the capability enabled by default, and no Tenant Site explicitly disables it. Otherwise the property is omitted. Embedded `TenantSummary.capabilities` objects in nested resources also omit the property.
       examples:
-        - targetedInstanceCreation: false
+        - targetedInstanceCreation: true
       properties:
         targetedInstanceCreation:
           type: boolean
-          format: uuid
-          description: Indicates whether Tenant can create Instances by specifying Machine ID
+          deprecated: true
           readOnly: true
+          description: Deprecated in favor of TenantAccount.siteCapabilities. On GET `/tenant/current`, the property is present and true only when every Ready Tenant Account enables TargetedInstanceCreation and no Tenant Site explicitly disables it; otherwise it is omitted. It is also omitted from embedded TenantSummary objects.
     TenantStats:
       title: TenantStats
       type: object
@@ -15416,12 +16247,14 @@ components:
             created: '2019-08-24T14:15:22Z'
             updated: '2019-08-24T14:15:22Z'
           allocationCount: 0
-          status: Pending
+          status: Ready
           statusHistory:
-            - status: Pending
-              message: 'Request received, pending processing'
+            - status: Ready
+              message: 'Account ready, Tenant accepted invite'
               created: '2019-08-24T14:15:22Z'
               updated: '2019-08-24T14:15:22Z'
+          siteCapabilities:
+            - targetedInstanceCreation: true
           created: '2019-08-24T14:15:22Z'
           updated: '2019-08-24T14:15:22Z'
       properties:
@@ -15477,6 +16310,41 @@ components:
           description: 'Date/time when the Tenant Account was last updated'
           format: date-time
           readOnly: true
+        siteCapabilities:
+          type: array
+          description: |-
+            Provider-scoped TargetedInstanceCreation settings for this Tenant Account. Replaces the deprecated tenant-level capabilities.targetedInstanceCreation attribute.
+
+            When present on a Tenant Account response, the array always includes one entry with omitted `siteIds` derived from TenantAccount.config, followed by zero or more entries with `siteIds` for per-site overrides that differ from the account default.
+          minItems: 1
+          items:
+            $ref: '#/components/schemas/TenantAccountSiteCapability'
+    TenantAccountSiteCapability:
+      title: TenantAccountSiteCapability
+      type: object
+      description: |-
+        TargetedInstanceCreation capability for the Tenant Account default or an explicit Site list.
+
+        Update payloads must satisfy all of the following when siteCapabilities is sent on PATCH:
+        - the siteCapabilities array must contain at least one entry
+        - exactly one entry must omit siteIds or provide an empty siteIds array
+        - each siteId may appear at most once across all entries
+        - every provided siteId must be a valid Site UUID
+        - every provided siteId must identify a Site associated with the Tenant and owned by the Tenant Account's Infrastructure Provider; otherwise the server rejects the request with 400
+
+        PATCH uses replace semantics: previously configured per-site overrides whose siteId is omitted from the new payload are cleared.
+      required:
+        - targetedInstanceCreation
+      properties:
+        siteIds:
+          type: array
+          description: Sites to configure. An omitted or empty array identifies the Tenant Account default entry. Each value must be a valid Site UUID, may appear only once across all siteCapabilities entries in the same request, must be associated with the Tenant, and must be owned by the Tenant Account's Infrastructure Provider; otherwise the server rejects the request with 400.
+          items:
+            type: string
+            format: uuid
+        targetedInstanceCreation:
+          type: boolean
+          description: Whether TargetedInstanceCreation is enabled for the Tenant Account default or listed Sites. When true, Tenant Admins with a Ready Tenant Account on the Site's Infrastructure Provider may create Instances by Machine ID and perform related privileged actions on that Site.
     TenantAccountStatus:
       title: TenantAccountStatus
       type: string
@@ -15515,9 +16383,40 @@ components:
       description: |-
         Request data to update a TenantAccount.
 
-        No params needed, an empty request will suffice.
+        Provider Admins may replace `siteCapabilities` only.
+        Tenant Admins may accept an invite via `tenantContactId` only.
+        Requests containing both fields are rejected with 400.
+
+        When `siteCapabilities` is included, the replace payload must contain at least one entry, include exactly one entry with empty or omitted `siteIds`, and must not repeat any `siteId` across entries. Every provided `siteId` must be a valid UUID for a Site associated with the Tenant and owned by the Tenant Account's Infrastructure Provider; otherwise the server rejects the request with 400. Previously configured per-site overrides whose `siteId` is omitted from the replacement payload are cleared.
       examples:
-        - {}
+        - tenantContactId: 497f6eca-6276-4993-bfeb-53cbbbba6f08
+        - siteCapabilities:
+            - siteIds: []
+              targetedInstanceCreation: true
+            - siteIds:
+                - 3fa85f64-5717-4562-b3fc-2c963f66afa6
+              targetedInstanceCreation: false
+      properties:
+        tenantContactId:
+          type: string
+          format: uuid
+          description: Tenant Admin invite acceptance; must match the requesting user
+        siteCapabilities:
+          type: array
+          minItems: 1
+          description: |-
+            Provider Admin replace payload for TargetedInstanceCreation configuration. Required to be non-empty when sent.
+
+            PATCH uses replace semantics: previously configured per-site overrides whose siteId is omitted from the new payload are cleared.
+
+            Server validation rules:
+            - must contain at least one entry
+            - must contain exactly one entry with omitted or empty siteIds
+            - must not repeat any siteId across entries
+            - every provided siteId must be a valid Site UUID
+            - every provided siteId must identify a Site associated with the Tenant and owned by the Tenant Account's Infrastructure Provider; otherwise the server rejects the request with 400
+          items:
+            $ref: '#/components/schemas/TenantAccountSiteCapability'
     Site:
       title: Site
       type: object
@@ -16425,6 +17324,15 @@ components:
           minLength: 3
           maxLength: 64
           description: Routing profile type for the VPC. Populated when Site has Native Networking enabled and network virtualization type is `FNN`.
+        routingProfileOverrides:
+          oneOf:
+            - $ref: '#/components/schemas/VpcRoutingProfileOverrides'
+            - type: 'null'
+          description: Routing-profile properties set directly on the VPC. Unset properties inherit from the named routing profile.
+        effectiveRoutingProfile:
+          $ref: '#/components/schemas/VpcEffectiveRoutingProfile'
+          readOnly: true
+          description: Fully resolved routing profile last reported by Core for the VPC. This property is included only when the requesting Tenant has effective TargetedInstanceCreation permission for the VPC's Site.
         requestedVni:
           type:
             - integer
@@ -16478,6 +17386,119 @@ components:
           format: date-time
           readOnly: true
           description: Date/time when VPC was last updated
+    VpcRouteTarget:
+      title: VpcRouteTarget
+      type: object
+      description: BGP route target represented by an autonomous system number and VNI.
+      properties:
+        asn:
+          type: integer
+          format: int64
+          minimum: 0
+          maximum: 4294967295
+          description: Autonomous system number.
+        vni:
+          type: integer
+          format: int64
+          minimum: 0
+          maximum: 4294967295
+          description: Route-target VNI.
+    VpcRoutingProfileOverrides:
+      title: VpcRoutingProfileOverrides
+      type: object
+      description: Presence-aware routing-profile properties set directly on a VPC. Each present property replaces the corresponding named-profile value; omitted properties inherit from that profile.
+      properties:
+        routeTargetImports:
+          type:
+            - array
+            - 'null'
+          items:
+            $ref: '#/components/schemas/VpcRouteTarget'
+          description: Route targets imported into the VPC. An empty array overrides the named profile with no imports.
+        routeTargetsOnExports:
+          type:
+            - array
+            - 'null'
+          items:
+            $ref: '#/components/schemas/VpcRouteTarget'
+          description: Route targets attached to VPC exports. An empty array overrides the named profile with no export targets.
+        leakDefaultRouteFromUnderlay:
+          type:
+            - boolean
+            - 'null'
+          description: Whether the underlay default route is leaked into the VPC.
+        leakTenantHostRoutesToUnderlay:
+          type:
+            - boolean
+            - 'null'
+          description: Whether tenant host routes are leaked into the underlay.
+        tenantLeakCommunitiesAccepted:
+          type:
+            - boolean
+            - 'null'
+          description: Whether tenant-supplied route-leak communities are honored.
+        acceptedLeaksFromUnderlay:
+          type:
+            - array
+            - 'null'
+          items:
+            type: string
+            example: 192.0.2.0/24
+          description: IPv4 or IPv6 CIDR prefixes allowed to leak from the underlay. An empty array disables explicitly accepted leaks.
+        allowedAnycastPrefixes:
+          type:
+            - array
+            - 'null'
+          items:
+            type: string
+            example: 2001:db8::/64
+          description: IPv4 or IPv6 CIDR prefixes tenant hosts may announce as anycast routes. An empty array disables anycast announcements.
+    VpcEffectiveRoutingProfile:
+      title: VpcEffectiveRoutingProfile
+      type: object
+      description: Fully resolved routing profile computed by Core from the named profile and the VPC overrides.
+      properties:
+        routeTargetImports:
+          type: array
+          items:
+            $ref: '#/components/schemas/VpcRouteTarget'
+        routeTargetsOnExports:
+          type: array
+          items:
+            $ref: '#/components/schemas/VpcRouteTarget'
+        leakDefaultRouteFromUnderlay:
+          type: boolean
+        leakTenantHostRoutesToUnderlay:
+          type: boolean
+        tenantLeakCommunitiesAccepted:
+          type: boolean
+        acceptedLeaksFromUnderlay:
+          type: array
+          items:
+            type: string
+        allowedAnycastPrefixes:
+          type: array
+          items:
+            type: string
+        internal:
+          type: boolean
+          description: Operator-controlled internal-routing classification inherited from the named profile.
+        accessTier:
+          type: integer
+          format: int64
+          minimum: 0
+          maximum: 4294967295
+          description: Operator-controlled access tier inherited from the named profile.
+      required:
+        - routeTargetImports
+        - routeTargetsOnExports
+        - leakDefaultRouteFromUnderlay
+        - leakTenantHostRoutesToUnderlay
+        - tenantLeakCommunitiesAccepted
+        - acceptedLeaksFromUnderlay
+        - allowedAnycastPrefixes
+        - internal
+        - accessTier
     VpcStatus:
       title: VpcStatus
       type: string
@@ -16551,6 +17572,11 @@ components:
           minLength: 3
           maxLength: 64
           description: Specify routing profile for the VPC. Only supported when `networkVirtualizationType` is set to `FNN`, or when `networkVirtualizationType` is omitted and Site has Native Networking enabled. Requires Tenant to have elevated privilege. Current accepted values are `privileged-internal`, `internal`, and `external`.
+        routingProfileOverrides:
+          oneOf:
+            - $ref: '#/components/schemas/VpcRoutingProfileOverrides'
+            - type: 'null'
+          description: Routing-profile properties to overlay on the resolved named profile. Only supported for FNN VPCs and requires `TargetedInstanceCreation` to be effective for the Tenant at the VPC's Site. `routingProfile` may be omitted when the Site and Tenant configuration select a named profile.
         networkSecurityGroupId:
           type:
             - string
@@ -16606,6 +17632,11 @@ components:
             - 'null'
           format: uuid
           description: ID of the default NVLink Logical Partition that GPUs for all Instances in the VPC will attach to. Can only be updated if VPC currently has no active Instances
+        routingProfileOverrides:
+          oneOf:
+            - $ref: '#/components/schemas/VpcRoutingProfileOverrides'
+            - type: 'null'
+          description: Replaces the current inline routing-profile definition when present. Requires `TargetedInstanceCreation` to be effective for the Tenant at the VPC's Site. Omission or `null` preserves the current definition. An empty object restores inheritance for every property; a partial object replaces the previous definition and inherits its omitted properties from the named profile.
         labels:
           $ref: '#/components/schemas/Labels'
           description: 'Update labels of the VPC. Up to 10 key-value pairs can be specified. The labels will be replaced with the labels sent in the request. Any labels not included in the request will be removed. To retain existing labels, fetch them first and include them in this request.'
@@ -16717,7 +17748,13 @@ components:
         capabilities:
           $ref: '#/components/schemas/TenantCapabilities'
           readOnly: true
-          description: Features that are enabled/disabled for Tenant
+          description: 'Deprecated compatibility object. The targetedInstanceCreation property is omitted; use Tenant Account siteCapabilities for the authoritative configuration.'
+        deprecations:
+          type: array
+          items:
+            $ref: '#/components/schemas/Deprecation'
+          readOnly: true
+          description: Deprecation notices for Tenant fields
     VpcPeering:
       title: VpcPeering
       type: object
@@ -18066,13 +19103,15 @@ components:
           deprecated: true
         siteIds:
           type: array
+          minItems: 1
+          maxItems: 1
           items:
             type: string
             format: uuid
           description: >-
-            Target Sites for the Operating System. For image-based OS specify exactly one
-            Site (more than one is not supported). For Templated iPXE OS at least one Site
-            is required and the list is fixed at creation: it cannot be changed on update.
+            Target Site for the Operating System. For image-based and Templated iPXE
+            Operating Systems exactly one Site is required, even though this field is an
+            array. The list is fixed at creation and cannot be changed on update.
             Not applicable to raw iPXE OS.
         ipxeScript:
           type:
@@ -18171,7 +19210,7 @@ components:
           allowOverride: false
         - isActive: false
           deactivationNote: 'iPXE script is referencing a URL that is unreachable, needs to be researched'
-      description: 'Request data to update an Operating System. For image-based OS, mutable image attributes (image authentication, root filesystem, image disk) can be updated; imageUrl and imageSha identify the underlying image and are immutable after creation. Only iPXE attributes can be updated for iPXE-based OS'
+      description: 'Request data to update an Operating System. For image-based OS, mutable image attributes (image authentication, root filesystem, image disk) can be updated; imageUrl and imageSha identify the underlying image and are immutable after creation. Only iPXE attributes can be updated for iPXE-based OS. A Templated iPXE Operating System can only be updated when it is associated with exactly one Site.'
       properties:
         name:
           type:
@@ -22424,6 +23463,11 @@ components:
               numaNode: 1
               description: 'MT28908 Family [ConnectX-6]'
               slot: '0000:ca:00.0'
+          lifecycleState:
+            value: Ready
+            isAboveSLA: false
+            updated: '2026-01-15T12:00:00Z'
+            slaSeconds: 300
       properties:
         dmiData:
           $ref: '#/components/schemas/MachineDMIData'
@@ -22446,6 +23490,41 @@ components:
           items:
             $ref: '#/components/schemas/MachineInfiniBandInterface'
           description: 'List of InfiniBand interfaces of the machine'
+        lifecycleState:
+          oneOf:
+            - $ref: '#/components/schemas/MachineLifecycleState'
+            - type: 'null'
+          description: 'Lifecycle state details for the Machine'
+    MachineLifecycleState:
+      title: MachineLifecycleState
+      type: object
+      description: Describes the current Machine lifecycle state and its SLA status
+      required:
+        - value
+        - isAboveSLA
+        - slaSeconds
+      examples:
+        - value: Ready
+          isAboveSLA: false
+          updated: '2026-01-15T12:00:00Z'
+          slaSeconds: 300
+      properties:
+        value:
+          type: string
+          description: 'Current lifecycle state value of the Machine'
+        isAboveSLA:
+          type: boolean
+          description: 'Whether the Machine has been in the current state longer than the defined SLA'
+        updated:
+          type:
+            - string
+            - 'null'
+          description: 'Date/time when the lifecycle state was updated to the current value'
+          format: date-time
+        slaSeconds:
+          type: integer
+          format: int64
+          description: 'Defined SLA for the current lifecycle state in seconds'
     MachineBMCInfo:
       title: MachineBMCInfo
       type: object
@@ -23062,18 +24141,18 @@ components:
           type:
             - string
             - 'null'
-          maxLength: 20
+          maxLength: 16
           description: Username for accessing the Expected Machine's BMC
         defaultBmcPassword:
           type:
             - string
             - 'null'
-          maxLength: 50
+          maxLength: 20
           description: Password for accessing the Expected Machine's BMC
         chassisSerialNumber:
           type: string
           minLength: 1
-          maxLength: 100
+          maxLength: 32
           description: Serial number of the Expected Machine's chassis
         fallbackDPUSerialNumbers:
           type:
@@ -23197,20 +24276,20 @@ components:
           type:
             - string
             - 'null'
-          maxLength: 20
+          maxLength: 16
           description: Username for accessing the Expected Machine's BMC
         defaultBmcPassword:
           type:
             - string
             - 'null'
-          maxLength: 50
+          maxLength: 20
           description: Password for accessing the Expected Machine's BMC
         chassisSerialNumber:
           type:
             - string
             - 'null'
           minLength: 1
-          maxLength: 100
+          maxLength: 32
           description: Serial number of the Expected Machine's chassis
         fallbackDPUSerialNumbers:
           type:
@@ -23513,7 +24592,12 @@ components:
             - string
             - 'null'
           pattern: '^([0-9A-Fa-f]{2}[:-]){5}([0-9A-Fa-f]{2})$'
-          description: MAC address of the Expected Power Shelf's BMC (Baseboard Management Controller)
+          deprecated: true
+          description: |-
+            Immutable MAC address of the Expected Power Shelf's BMC (Baseboard Management Controller).
+            Omit this field when updating. A formatting-equivalent value is accepted for compatibility
+            and preserves the originally stored spelling, but changing the physical MAC address is rejected
+            with HTTP 400.
         defaultBmcUsername:
           type:
             - string
@@ -23756,6 +24840,8 @@ components:
 
         For single updates (PATCH /expected-rack/{id}), the `id` field is optional in the body and will be ignored if provided (the `id` from the URL path is used).
 
+        The `rackId` field is immutable on update — omit it or provide the existing value.
+
         Chassis identity and physical location information are conveyed via well-known label keys in `labels`:
         - `chassis.manufacturer`, `chassis.serial-number`, `chassis.model`
         - `location.region`, `location.datacenter`, `location.room`, `location.position`
@@ -23782,7 +24868,9 @@ components:
             - string
             - 'null'
           minLength: 1
-          description: Optional new operator-supplied rack identifier. If provided, must be non-empty and unique within the Site.
+          deprecated: true
+          description: |-
+            Operator-supplied rack identifier. Immutable on update: omit this field, send `null`, or provide the existing value as a compatibility no-op. A changed value is rejected because Core and Flow use rackId as the identity key for expected racks.
         rackProfileId:
           type:
             - string
@@ -24069,7 +25157,12 @@ components:
             - string
             - 'null'
           pattern: '^([0-9A-Fa-f]{2}[:-]){5}([0-9A-Fa-f]{2})$'
-          description: MAC address of the Expected Switch's BMC (Baseboard Management Controller)
+          deprecated: true
+          description: |-
+            Immutable MAC address of the Expected Switch's BMC (Baseboard Management Controller).
+            Omit this field when updating. A formatting-equivalent value is accepted for compatibility
+            and preserves the originally stored spelling, but changing the physical MAC address is rejected
+            with HTTP 400.
         defaultBmcUsername:
           type:
             - string
@@ -24166,6 +25259,8 @@ components:
       examples:
         - id: lenovo.sr650v2.cpu.1
           siteId: 60189e9c-7d12-438c-b9ca-6998d9c364b1
+          description: Lenovo SR650 V2 compute node
+          schemaVersion: 5
           deviceType: gpu
           associatedMachineIds:
             - fm100ht4v4mce2qstjnl8970nnj3ie6ecek4mtjn27pea4kre5gsa49jg0g
@@ -24204,6 +25299,15 @@ components:
           format: uuid
           description: ID of the Site this SKU belongs to
           readOnly: true
+        description:
+          type: string
+          description: Human-readable SKU description
+          readOnly: true
+        schemaVersion:
+          type: integer
+          format: uint32
+          description: Core SKU schema version when available
+          readOnly: true
         deviceType:
           type:
             - string
@@ -24229,6 +25333,69 @@ components:
           format: date-time
           description: ISO 8601 datetime when the SKU was last updated
           readOnly: true
+    SkuCreateRequest:
+      title: SkuCreateRequest
+      type: object
+      description: Request data to create a SKU on a Site's NICo Core service.
+      examples:
+        - siteId: 60189e9c-7d12-438c-b9ca-6998d9c364b1
+          id: dgx-h100
+          description: DGX H100 compute node
+          deviceType: gpu-server
+          components:
+            chassis:
+              vendor: NVIDIA
+              model: DGX H100
+              architecture: x86_64
+      properties:
+        siteId:
+          type: string
+          format: uuid
+          description: ID of the Site where the SKU will be created
+        id:
+          type: string
+          minLength: 1
+          description: Unique SKU identifier
+        description:
+          type: string
+          description: Human-readable SKU description
+        deviceType:
+          type:
+            - string
+            - 'null'
+          description: Optional device type identifier
+        components:
+          $ref: '#/components/schemas/SkuComponents'
+      required:
+        - siteId
+        - id
+        - components
+    SkuUpdateRequest:
+      title: SkuUpdateRequest
+      type: object
+      description: |-
+        Request data to update a SKU.
+        At least one of description, deviceType, or components must be provided.
+        The service preserves the schema version for metadata-only updates.
+        Component updates replace the SKU using the current schema version,
+        migrating legacy SKU schemas to the current format.
+      examples:
+        - description: DGX H100 compute node with InfiniBand
+          components:
+            infinibandDevices:
+              - vendor: Mellanox Technologies
+                model: MT2910 Family [ConnectX-7]
+                count: 4
+                inactiveDevices: []
+      properties:
+        description:
+          type: string
+          description: Replacement SKU description
+        deviceType:
+          type: string
+          description: Replacement device type identifier
+        components:
+          $ref: '#/components/schemas/SkuComponents'
     SkuComponents:
       title: SkuComponents
       type: object
@@ -24276,6 +25443,11 @@ components:
       title: SkuCpu
       type: object
       description: CPU component in a SKU
+      examples:
+        - vendor: ARM
+          model: Neoverse-V2
+          threadCount: 72
+          count: 2
       properties:
         vendor:
           type: string
@@ -24295,6 +25467,11 @@ components:
       title: SkuGpu
       type: object
       description: GPU component in a SKU
+      examples:
+        - vendor: NVIDIA
+          model: NVIDIA GB200
+          totalMemory: 189471 MiB
+          count: 4
       properties:
         vendor:
           type: string
@@ -24313,6 +25490,10 @@ components:
       title: SkuMemory
       type: object
       description: Memory component in a SKU
+      examples:
+        - capacityMb: 491520
+          memoryType: LPDDR5
+          count: 2
       properties:
         capacityMb:
           type: integer
@@ -24329,25 +25510,65 @@ components:
       title: SkuStorage
       type: object
       description: Storage component in a SKU
+      examples:
+        - vendor: ''
+          model: SAMSUNG MZ1L21T9HCLS-00A07
+          capacityMb: 0
+          count: 1
+          minSizeMiB: 1831420
+          maxSizeMiB: 1831420
+          pciPatterns:
+            - ^/devices/pci.*nvme0$
+        - vendor: ''
+          model: SAMSUNG MZTL63T8HFLT-00AW7
+          capacityMb: 0
+          count: 8
+          minSizeMiB: 3662840
+          maxSizeMiB: 3662840
+          pciPatterns:
+            - ^/devices/pci.*nvme[1-8]$
       properties:
         vendor:
           type: string
-          description: Vendor of the storage device
+          readOnly: true
+          description: Storage vendor used for schema version 4 matching. Read-only in REST mutation requests and preserved in responses for legacy SKUs. Schema version 5 does not use this field.
         model:
           type: string
-          description: Model of the storage device
+          description: Informational storage model. Starting with the 2.1 release, NICo does not use this field for storage matching or validation.
         capacityMb:
           type: integer
           format: uint32
-          description: Capacity in megabytes
+          readOnly: true
+          description: Storage capacity in megabytes used for schema version 4 matching. Read-only in REST mutation requests and preserved in responses for legacy SKUs. Schema version 5 uses minSizeMiB and maxSizeMiB instead.
         count:
           type: integer
           format: uint32
           description: Number of storage devices present
+        minSizeMiB:
+          type:
+            - integer
+            - 'null'
+          format: uint32
+          description: Inclusive minimum size in MiB for each storage device. Null or omission means no lower bound. Used for SKU schema version 5 and later.
+        maxSizeMiB:
+          type:
+            - integer
+            - 'null'
+          format: uint32
+          description: Inclusive maximum size in MiB for each storage device. Null or omission means no upper bound. Used for SKU schema version 5 and later.
+        pciPatterns:
+          type: array
+          description: Regular expressions matched against storage sysfs PCI paths. An empty or omitted list disables PCI location matching. Used for SKU schema version 5 and later.
+          items:
+            type: string
     SkuChassis:
       title: SkuChassis
       type: object
       description: Chassis component in a SKU
+      examples:
+        - vendor: NVIDIA
+          model: GB200 NVL
+          architecture: aarch64
       properties:
         vendor:
           type: string
@@ -24355,6 +25576,9 @@ components:
         model:
           type: string
           description: Model of the chassis
+        architecture:
+          type: string
+          description: Architecture of the chassis
     SkuEthernetDevice:
       title: SkuEthernetDevice
       type: object
@@ -24370,10 +25594,18 @@ components:
           type: integer
           format: uint32
           description: Number of ethernet devices present
+        isConnected:
+          type: boolean
+          description: Whether the ethernet device is connected
     SkuInfinibandDevice:
       title: SkuInfinibandDevice
       type: object
       description: Infiniband device component in a SKU
+      examples:
+        - vendor: Mellanox Technologies
+          model: MT2910 Family [ConnectX-7]
+          count: 4
+          inactiveDevices: []
       properties:
         vendor:
           type: string
@@ -24385,6 +25617,12 @@ components:
           type: integer
           format: uint32
           description: Number of infiniband devices present
+        inactiveDevices:
+          type: array
+          description: Zero-based indexes of inactive devices
+          items:
+            type: integer
+            format: uint32
     SkuTpm:
       title: SkuTpm
       type: object

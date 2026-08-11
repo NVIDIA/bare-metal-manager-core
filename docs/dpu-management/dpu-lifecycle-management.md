@@ -275,6 +275,30 @@ nico-admin-cli -a <api-url> dpu reprovision set \
 
 Firmware is always verified and updated during reprovisioning regardless of whether `--update-firmware` is passed. The `--update-firmware` flag is accepted but deprecated.
 
+REST callers must create the same health precondition before starting reprovisioning:
+
+```bash
+curl -X PUT "${BASE_URL}/v2/org/${ORG}/nico/machine/${MACHINE_ID}/health-report" \
+  -H "Authorization: Bearer ${TOKEN}" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "source": "maintenance.dpu-reprovision",
+    "mode": "Merge",
+    "alerts": [{
+      "id": "HostUpdateInProgress",
+      "message": "DPU reprovisioning in progress",
+      "classifications": ["PreventAllocations"]
+    }]
+  }'
+
+curl -X PATCH "${BASE_URL}/v2/org/${ORG}/nico/machine/${MACHINE_ID}/dpu/reprovision" \
+  -H "Authorization: Bearer ${TOKEN}" \
+  -H "Content-Type: application/json" \
+  -d '{"mode":"Set"}'
+```
+
+Use `Set` mode in the PATCH operation to start reprovisioning and `Clear` to remove a pending request. `Restart` mode accepts a host ID only, and restarts DPUs that already have a reprovisioning request. If an Instance is attached to the Machine, also pass `"acknowledgeAttachedInstance": true`. The REST `updateFirmware` field is accepted for compatibility, but firmware is always verified and updated during reprovisioning.
+
 ### Monitoring Reprovisioning Progress
 
 ```bash

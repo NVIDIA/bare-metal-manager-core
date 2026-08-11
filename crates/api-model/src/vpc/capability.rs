@@ -280,7 +280,8 @@ pub enum VpcCapabilityError {
     Ipv6Unsupported { vpc_type: VpcVirtualizationType },
 
     #[error(
-        "{vpc_type} VPCs do not support routing profiles; the `routing_profile_type` field is FNN-only"
+        "{vpc_type} VPCs do not support routing profiles; the `routing_profile_type` and \
+         `routing_profile_overrides` fields are FNN-only"
     )]
     RoutingProfilesUnsupported { vpc_type: VpcVirtualizationType },
 

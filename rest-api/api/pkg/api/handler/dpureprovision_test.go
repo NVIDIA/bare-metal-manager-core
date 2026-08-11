@@ -48,19 +48,12 @@ func TestReprovisionMachineDpuHandlerAllowsPrivilegedTenant(t *testing.T) {
 	tenantOrg := "test-tenant-org"
 	tenantUser := common.TestBuildUser(t, fixture.DBSession, "test-tenant-starfleet-id", tenantOrg, []string{authz.TenantAdminRole})
 	tenant := common.TestBuildTenant(t, fixture.DBSession, "test-tenant", tenantOrg, tenantUser)
-	tenant, err := cdbm.NewTenantDAO(fixture.DBSession).Update(ctx, nil, cdbm.TenantUpdateInput{
-		TenantID: tenant.ID,
-		Config: &cdbm.TenantConfig{
-			TargetedInstanceCreation: true,
-		},
-	})
-	require.NoError(t, err)
 
 	machine, err := cdbm.NewMachineDAO(fixture.DBSession).GetByID(ctx, nil, fixture.MachineID, []string{}, false)
 	require.NoError(t, err)
 	provider, err := cdbm.NewInfrastructureProviderDAO(fixture.DBSession).GetByID(ctx, nil, machine.InfrastructureProviderID, []string{})
 	require.NoError(t, err)
-	common.TestBuildTenantAccount(t, fixture.DBSession, provider, &tenant.ID, tenant.Org, cdbm.TenantAccountStatusReady, tenantUser)
+	common.TestBuildTenantAccountWithTargetedInstanceCreation(t, fixture.DBSession, provider, &tenant.ID, tenant.Org, cdbm.TenantAccountStatusReady, tenantUser)
 
 	fixture.Org = tenantOrg
 	fixture.User = tenantUser

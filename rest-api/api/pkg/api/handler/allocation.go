@@ -542,7 +542,7 @@ func (gaah GetAllAllocationHandler) Handle(c echo.Context) error {
 		return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, errStr, nil)
 	}
 
-	provider, tenant, apiError := common.IsProviderOrTenant(ctx, logger, gaah.dbSession, org, dbUser, true, false)
+	provider, tenant, apiError := common.IsProviderOrTenant(ctx, logger, gaah.dbSession, org, dbUser, true, nil)
 	if apiError != nil {
 		return cutil.NewAPIErrorResponse(c, apiError.Code, apiError.Message, apiError.Data)
 	}
@@ -860,7 +860,7 @@ func (gah GetAllocationHandler) Handle(c echo.Context) error {
 		return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, errStr, nil)
 	}
 
-	provider, tenant, apiError := common.IsProviderOrTenant(ctx, logger, gah.dbSession, org, dbUser, true, false)
+	provider, tenant, apiError := common.IsProviderOrTenant(ctx, logger, gah.dbSession, org, dbUser, true, nil)
 	if apiError != nil {
 		return cutil.NewAPIErrorResponse(c, apiError.Code, apiError.Message, apiError.Data)
 	}

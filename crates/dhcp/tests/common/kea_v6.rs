@@ -35,9 +35,9 @@ const KEA_SHUTDOWN_GRACE: Duration = Duration::from_secs(2);
 const KEA_SHUTDOWN_POLL: Duration = Duration::from_millis(50);
 const METRICS_READY_CONNECT_TIMEOUT: Duration = Duration::from_millis(100);
 /// DHCPv6 DNS servers configured through hook context.
-pub const HOOK_DNS_SERVERS_IPV6: [&str; 1] = ["2001:db8::53"];
+pub(super) const HOOK_DNS_SERVERS_IPV6: [&str; 1] = ["2001:db8::53"];
 /// DHCPv6 NTP servers configured through hook context.
-pub const HOOK_NTP_SERVERS_IPV6: [&str; 1] = ["2001:db8::123"];
+pub(super) const HOOK_NTP_SERVERS_IPV6: [&str; 1] = ["2001:db8::123"];
 
 // Real Kea children share process-global hook/logger/metrics state through the
 // loaded cdylib, so serialize them instead of running multiple daemons at once.
@@ -45,24 +45,24 @@ static KEA6_RUN_GATE: OnceLock<Kea6RunGate> = OnceLock::new();
 
 /// Kea expired-lease processing knobs used by tests that force quick reclamation.
 #[derive(Debug, Clone, Copy)]
-pub struct Kea6ExpiredLeasesProcessing {
-    pub reclaim_timer_wait_time: u16,
-    pub flush_reclaimed_timer_wait_time: u16,
-    pub hold_reclaimed_time: u32,
-    pub max_reclaim_leases: u32,
-    pub max_reclaim_time: u16,
-    pub unwarned_reclaim_cycles: u16,
+pub(crate) struct Kea6ExpiredLeasesProcessing {
+    pub(crate) reclaim_timer_wait_time: u16,
+    pub(crate) flush_reclaimed_timer_wait_time: u16,
+    pub(crate) hold_reclaimed_time: u32,
+    pub(crate) max_reclaim_leases: u32,
+    pub(crate) max_reclaim_time: u16,
+    pub(crate) unwarned_reclaim_cycles: u16,
 }
 
 /// Runtime configuration overrides for the DHCPv6 integration-test Kea process.
 #[derive(Debug, Clone, Copy)]
-pub struct Kea6Config {
-    pub preferred_lifetime: u32,
-    pub valid_lifetime: u32,
-    pub renew_timer: u32,
-    pub rebind_timer: u32,
-    pub mac_sources: Option<&'static [&'static str]>,
-    pub expired_leases_processing: Option<Kea6ExpiredLeasesProcessing>,
+pub(crate) struct Kea6Config {
+    pub(crate) preferred_lifetime: u32,
+    pub(crate) valid_lifetime: u32,
+    pub(crate) renew_timer: u32,
+    pub(crate) rebind_timer: u32,
+    pub(crate) mac_sources: Option<&'static [&'static str]>,
+    pub(crate) expired_leases_processing: Option<Kea6ExpiredLeasesProcessing>,
 }
 
 impl Default for Kea6Config {
@@ -132,7 +132,7 @@ impl Drop for Kea6RunPermit {
     }
 }
 
-pub struct Kea6 {
+pub(crate) struct Kea6 {
     temp_conf_file: PathBuf,
     dhcp_in_port: u16,
     dhcp_out_port: u16,
@@ -152,7 +152,7 @@ struct Kea6Ports {
 
 impl Kea6 {
     /// Reserve dynamic DHCPv6 ports, start Kea, and return a connected relay socket.
-    pub fn start(
+    pub(crate) fn start(
         api_server_url: &str,
         lease_file: Option<&Path>,
     ) -> Result<(Kea6, UdpSocket), eyre::Report> {
@@ -160,7 +160,7 @@ impl Kea6 {
     }
 
     /// Start Kea with launch-time overrides such as lifetimes, mac-sources, and expiry processing.
-    pub fn start_with_config(
+    pub(crate) fn start_with_config(
         api_server_url: &str,
         lease_file: Option<&Path>,
         config: Kea6Config,
@@ -411,7 +411,7 @@ impl Kea6 {
         }
     }
 
-    pub fn wait_for_log(&self, needle: &str, timeout: Duration) -> bool {
+    pub(crate) fn wait_for_log(&self, needle: &str, timeout: Duration) -> bool {
         let deadline = Instant::now() + timeout;
         loop {
             if self
@@ -430,12 +430,12 @@ impl Kea6 {
         }
     }
 
-    pub fn metrics_endpoint(&self) -> SocketAddr {
+    pub(crate) fn metrics_endpoint(&self) -> SocketAddr {
         self.metrics_endpoint
     }
 
     /// Restart the same Kea6 config and memfile, clearing process-local hook cache.
-    pub fn restart(&mut self) -> Result<(), eyre::Report> {
+    pub(crate) fn restart(&mut self) -> Result<(), eyre::Report> {
         let run_permit = self
             ._run_permit
             .take()

@@ -15,6 +15,7 @@
  * limitations under the License.
  */
 
+use std::borrow::Cow;
 use std::collections::{BTreeMap, HashMap};
 use std::fmt;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
@@ -46,6 +47,7 @@ use chrono::Duration;
 use db::host_naming::HostNamingStrategyKind;
 use duration_str::{deserialize_duration, deserialize_duration_chrono};
 use figment::Figment;
+use figment::providers::Serialized;
 use health_report::HealthAlertClassification;
 use ipnetwork::{IpNetwork, Ipv4Network};
 use itertools::Itertools;
@@ -62,8 +64,12 @@ use model::network_security_group::NetworkSecurityGroupRule;
 use model::network_segment::NetworkDefinition;
 use model::resource_pool::define::ResourcePoolDef;
 use model::tenant::identity_config::SigningAlgorithm;
+use model::vpc::VpcConfig;
+pub use model::vpc::{PrefixFilterPolicyEntry, RouteTargetConfig};
 use regex::Regex;
 use serde::{Deserialize, Deserializer, Serialize};
+
+use crate::CarbideError;
 
 pub(crate) const DEFAULT_DPU_NUM_OF_VFS: u32 = 16;
 pub(crate) const MAX_DPU_NUM_OF_VFS: u32 = 126;
@@ -148,6 +154,11 @@ pub struct CarbideConfig {
     )]
     pub database_pool_max_lifetime: std::time::Duration,
 
+    /// Bounds the number of API requests that may execute or wait for
+    /// execution. The limits are shared by gRPC and admin HTTP traffic.
+    #[serde(default)]
+    pub api_admission_control: ApiAdmissionControlConfig,
+
     /// InfiniBand fabric configuration, used by the IB
     /// fabric manager for partition and UFM management.
     pub ib_config: Option<IBFabricConfig>,
@@ -186,6 +197,12 @@ pub struct CarbideConfig {
     /// use within this site. Supports both IPv4 and IPv6 prefixes.
     #[serde(default)]
     pub site_fabric_prefixes: Vec<IpNetwork>,
+
+    /// Maximum number of tenant-managed SitePrefixes retained for one tenant
+    /// at this site. Prefixes awaiting removal still count against this limit
+    /// and keep their CIDR reserved.
+    #[serde(default = "default_max_site_prefixes_per_tenant")]
+    pub max_site_prefixes_per_tenant: u32,
 
     /// List of aggregate IPv4 prefixes (in CIDR notation) that contain prefixes assigned
     /// to tenants so that they themselves can announce to the DPU.  E.g., BYOIP
@@ -337,13 +354,21 @@ pub struct CarbideConfig {
     #[serde(default)]
     pub attestation_enabled: bool,
 
-    /// Site-wide enable for passive BMC credential rotation (REQ-2). When
+    /// Site-wide enable for passive BMC credential rotation. When
     /// `false` (the default), a Ready host never enters `RotatingBmc` on its own
     /// even if a device lags the staged site-wide target. This is the fleet
     /// kill-switch for rolling the feature out site-by-site; the operator
     /// force-converge escape hatch (`TriggerBmcCredentialRotation`) bypasses it.
     #[serde(default)]
     pub bmc_rotation_enabled: bool,
+
+    /// Site-wide enable for passive UEFI credential rotation. When
+    /// `false` (the default), a Ready host never enters `RotatingHostUefi` on its
+    /// own even if it lags the staged site-wide target. This is the fleet
+    /// kill-switch for rolling the feature out site-by-site; the operator
+    /// force-converge escape hatch (`TriggerUefiCredentialRotation`) bypasses it.
+    #[serde(default)]
+    pub uefi_rotation_enabled: bool,
 
     /// *** This mode is for testing purposes and is not widely supported right now ***
     /// Controls if machines allowed to be registered without TPM module,
@@ -567,7 +592,7 @@ pub struct CarbideConfig {
 
     /// VMaaS (VM-as-a-Service) configuration for using
     /// NICo with a VM system, including VF settings and
-    /// traffic-intercept bridging.
+    /// provisioning-time host-representor bridging.
     pub vmaas_config: Option<VmaasConfig>,
 
     /// Named Mellanox NIC firmware configuration profiles,
@@ -789,6 +814,123 @@ pub struct CarbideConfig {
     pub certificates: CertificatesConfig,
 }
 
+/// Global admission limits for business requests handled by nico-api.
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+pub struct ApiAdmissionControlConfig {
+    /// Whether admission control is active.
+    #[serde(default = "default_to_true")]
+    pub enabled: bool,
+
+    /// Maximum number of requests executing business handlers concurrently.
+    #[serde(default = "default_api_admission_max_work_in_flight")]
+    pub max_work_in_flight: usize,
+
+    /// Maximum number of requests waiting for an execution slot.
+    #[serde(default = "default_api_admission_max_pending")]
+    pub max_pending: usize,
+
+    /// Default maximum number of concurrently executing requests for one
+    /// authenticated client.
+    #[serde(default = "default_api_admission_max_work_in_flight_per_client")]
+    pub max_work_in_flight_per_client: usize,
+
+    /// Default hard pending-request bound for one authenticated client.
+    #[serde(default = "default_api_admission_max_pending_per_client")]
+    pub max_pending_per_client: usize,
+
+    /// Maximum time a pending request may wait for execution.
+    #[serde(
+        default = "default_api_admission_pending_timeout",
+        deserialize_with = "deserialize_duration",
+        serialize_with = "as_std_duration"
+    )]
+    pub pending_timeout: std::time::Duration,
+
+    /// How long empty client scheduling state remains cached.
+    #[serde(
+        default = "default_api_admission_client_idle_timeout",
+        deserialize_with = "deserialize_duration",
+        serialize_with = "as_std_duration"
+    )]
+    pub client_idle_timeout: std::time::Duration,
+
+    /// Capacity overrides keyed by exact SPIFFE service identifier.
+    #[serde(default)]
+    pub service_limits: BTreeMap<String, ApiAdmissionServiceLimitsConfig>,
+}
+
+/// Admission limits for one trusted internal service identity.
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+pub struct ApiAdmissionServiceLimitsConfig {
+    pub max_work_in_flight: usize,
+    pub max_pending: usize,
+    #[serde(
+        deserialize_with = "deserialize_duration",
+        serialize_with = "as_std_duration"
+    )]
+    pub pending_timeout: std::time::Duration,
+}
+
+impl Default for ApiAdmissionControlConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            max_work_in_flight: default_api_admission_max_work_in_flight(),
+            max_pending: default_api_admission_max_pending(),
+            max_work_in_flight_per_client: default_api_admission_max_work_in_flight_per_client(),
+            max_pending_per_client: default_api_admission_max_pending_per_client(),
+            pending_timeout: default_api_admission_pending_timeout(),
+            client_idle_timeout: default_api_admission_client_idle_timeout(),
+            service_limits: BTreeMap::new(),
+        }
+    }
+}
+
+impl ApiAdmissionControlConfig {
+    pub(crate) fn admission_limits(
+        &self,
+    ) -> eyre::Result<Option<crate::admission::AdmissionLimits>> {
+        if !self.enabled {
+            return Ok(None);
+        }
+
+        crate::admission::AdmissionLimits::new(
+            self.max_work_in_flight,
+            self.max_pending,
+            self.max_work_in_flight_per_client,
+            self.max_pending_per_client,
+            self.pending_timeout,
+            self.client_idle_timeout,
+        )
+        .map(Some)
+        .map_err(|error| eyre::eyre!("api_admission_control.{error}"))
+    }
+
+    /// Reject invalid bounds before the API listener starts.
+    pub fn validate(&self) -> eyre::Result<()> {
+        let Some(_limits) = self.admission_limits()? else {
+            return Ok(());
+        };
+        for (service_id, limits) in &self.service_limits {
+            eyre::ensure!(
+                !service_id.trim().is_empty(),
+                "api_admission_control.service_limits contains an empty service identifier"
+            );
+            crate::admission::ClientLimits::new(
+                limits.max_work_in_flight,
+                limits.max_pending,
+                limits.pending_timeout,
+                self.max_work_in_flight,
+                self.max_pending,
+            )
+            .map_err(|error| {
+                eyre::eyre!("api_admission_control.service_limits.{service_id}.{error}")
+            })?;
+        }
+        Ok(())
+    }
+}
+
 /// `[certificates]` config section: selects the backend that vends machine and
 /// service certificates, independently of where credentials are stored.
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
@@ -927,6 +1069,7 @@ impl CarbideConfig {
             dpf_enabled: self.dpf.enabled,
             spdm_enabled: self.spdm.enabled,
             bmc_rotation_enabled: self.bmc_rotation_enabled,
+            uefi_rotation_enabled: self.uefi_rotation_enabled,
 
             dpu_enable_secure_boot: self.dpu_config.dpu_enable_secure_boot,
             restart_ovs_on_use_admin_network_change: self
@@ -1447,20 +1590,42 @@ fn default_dpf_node_label_key() -> String {
 /// testing/dev purpose).
 /// There are following mandatory services:
 /// dpu-agent, fmds, dhcp-server, doca-hbn, dts and otel.
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize)]
 pub struct DpfMandatoryServicesConfig {
-    #[serde(default = "crate::dpf_services::default_dts_service")]
     pub dts: DpfServiceConfig,
-    #[serde(default = "crate::dpf_services::default_doca_hbn_service")]
     pub doca_hbn: DpfServiceConfig,
-    #[serde(default = "crate::dpf_services::default_dpu_agent_service")]
     pub dpu_agent: DpfServiceConfig,
-    #[serde(default = "crate::dpf_services::default_dhcp_server_service")]
     pub dhcp_server: DpfServiceConfig,
-    #[serde(default = "crate::dpf_services::default_fmds_service")]
     pub fmds: DpfServiceConfig,
-    #[serde(default = "crate::dpf_services::default_otelcol_service")]
     pub otel: DpfServiceConfig,
+}
+
+impl<'de> Deserialize<'de> for DpfMandatoryServicesConfig {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        // `#[serde(default)]` only handles an absent `services` field. For a present,
+        // partial table, start with every service default and overlay the supplied fields.
+        let configured = BTreeMap::<String, serde_json::Value>::deserialize(deserializer)?;
+        let mut services = Self::default();
+        for (name, configured) in configured {
+            let service = match name.as_str() {
+                "dts" => &mut services.dts,
+                "doca_hbn" => &mut services.doca_hbn,
+                "dpu_agent" => &mut services.dpu_agent,
+                "dhcp_server" => &mut services.dhcp_server,
+                "fmds" => &mut services.fmds,
+                "otel" => &mut services.otel,
+                _ => continue,
+            };
+            *service = Figment::from(Serialized::defaults(std::mem::take(service)))
+                .merge(Serialized::defaults(configured))
+                .extract()
+                .map_err(serde::de::Error::custom)?;
+        }
+        Ok(services)
+    }
 }
 
 impl Default for DpfMandatoryServicesConfig {
@@ -1550,6 +1715,10 @@ pub struct DpfServiceConfig {
     /// `imagePullSecrets` entry is emitted in the service's Helm values.
     #[serde(default)]
     pub docker_image_pull_secret: Option<String>,
+    /// Chart-native values deep-merged over NICo's generated template values.
+    /// Tables merge recursively. Scalars and arrays replace generated values.
+    #[serde(default)]
+    pub extra_helm_values: Option<serde_json::Map<String, serde_json::Value>>,
 }
 
 /// Per-deployment DPF configuration for named entries under `[dpf.deployments]`.
@@ -1930,17 +2099,6 @@ pub struct SpdmConfig {
     pub nras_config: Option<nras::Config>,
 }
 
-/// A BGP route target used in FNN VRF import/export policies.
-#[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
-pub struct RouteTargetConfig {
-    /// Autonomous System Number component of the route target.
-    #[serde(default)]
-    pub asn: u32,
-    /// Virtual Network Identifier component of the route target.
-    #[serde(default)]
-    pub vni: u32,
-}
-
 /// Fabric Nearest Neighbor (FNN) configuration for L3 VNI-based overlay networking.
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
 pub struct FnnConfig {
@@ -1970,35 +2128,37 @@ pub struct FnnConfig {
     pub use_vpc_vrf_loopback: bool,
 }
 
+/// A named routing-profile definition whose unset properties use effective
+/// defaults unless a VPC supplies an inline override.
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Default)]
 pub struct FnnRoutingProfileConfig {
     /// These are used for import policies to import routes
     /// that match these targets.
     #[serde(default)]
-    pub route_target_imports: Vec<RouteTargetConfig>,
+    pub route_target_imports: Option<Vec<RouteTargetConfig>>,
 
     /// These are used for tagging routes exported by the DPU
     #[serde(default)]
-    pub route_targets_on_exports: Vec<RouteTargetConfig>,
+    pub route_targets_on_exports: Option<Vec<RouteTargetConfig>>,
 
     /// Is this an internal or external tenant/VPC profile
     #[serde(default)]
-    pub internal: bool,
+    pub internal: Option<bool>,
 
     /// Should DPUs leak the default route from the
     /// underlay into the tenant VRF?
     #[serde(default)]
-    pub leak_default_route_from_underlay: bool,
+    pub leak_default_route_from_underlay: Option<bool>,
 
     /// Should DPUs leak the routes for the host IPs into
     /// into the underlay?
     #[serde(default)]
-    pub leak_tenant_host_routes_to_underlay: bool,
+    pub leak_tenant_host_routes_to_underlay: Option<bool>,
 
     /// Are route-leak communities sent by the host OS honored by the DPU for allowing
     /// routes advertised by the host OS to be leaked into the underlay?
     #[serde(default)]
-    pub tenant_leak_communities_accepted: bool,
+    pub tenant_leak_communities_accepted: Option<bool>,
 
     /// An explicit/granular list of prefixes that should
     /// be allowed to leak from the default VRF into the tenant
@@ -2007,12 +2167,12 @@ pub struct FnnRoutingProfileConfig {
     /// These are purely for routing purposes and will not have any
     /// impact on ACLs.
     #[serde(default)]
-    pub accepted_leaks_from_underlay: Vec<PrefixFilterPolicyEntry>,
+    pub accepted_leaks_from_underlay: Option<Vec<PrefixFilterPolicyEntry>>,
 
     /// Prefixes that tenant hosts are allowed to announce
     /// to the DPU as anycast routes.
     #[serde(default)]
-    pub allowed_anycast_prefixes: Vec<PrefixFilterPolicyEntry>,
+    pub allowed_anycast_prefixes: Option<Vec<PrefixFilterPolicyEntry>>,
 
     /// Currently controls which profiles a tenant can use
     /// when creating VPCs.  Lower value means broader access.
@@ -2024,17 +2184,83 @@ pub struct FnnRoutingProfileConfig {
     /// - A tenant with ADMIN could create ADMIN VPCs and INTERNAL VPCs.
     /// - A tenant with INTERNAL could only create INTERNAL VPCs.
     #[serde(default)]
-    pub access_tier: u32,
+    pub access_tier: Option<u32>,
+}
+
+impl FnnConfig {
+    /// Resolves the named routing profile and applies properties set on the VPC.
+    pub(crate) fn resolve_vpc_routing_profile(
+        &self,
+        vpc: &VpcConfig,
+    ) -> Result<Cow<'_, FnnRoutingProfileConfig>, CarbideError> {
+        let profile_type =
+            vpc.routing_profile_type
+                .as_ref()
+                .ok_or_else(|| CarbideError::Internal {
+                    message: "tenant routing profile type not found in VPC record".to_string(),
+                })?;
+        let base_profile =
+            self.routing_profiles
+                .get(profile_type)
+                .ok_or_else(|| CarbideError::NotFoundError {
+                    kind: "routing_profile_type",
+                    id: profile_type.to_string(),
+                })?;
+
+        // Apply properties explicitly set on the VPC over the named base profile.
+        let Some(overrides) = vpc.routing_profile_overrides.as_ref() else {
+            return Ok(Cow::Borrowed(base_profile));
+        };
+
+        Ok(Cow::Owned(FnnRoutingProfileConfig {
+            route_target_imports: overrides
+                .route_target_imports
+                .clone()
+                .or_else(|| base_profile.route_target_imports.clone()),
+            route_targets_on_exports: overrides
+                .route_targets_on_exports
+                .clone()
+                .or_else(|| base_profile.route_targets_on_exports.clone()),
+            // VPCs must inherit the base profile's allocation and access controls.
+            internal: base_profile.internal,
+            leak_default_route_from_underlay: overrides
+                .leak_default_route_from_underlay
+                .or(base_profile.leak_default_route_from_underlay),
+            leak_tenant_host_routes_to_underlay: overrides
+                .leak_tenant_host_routes_to_underlay
+                .or(base_profile.leak_tenant_host_routes_to_underlay),
+            tenant_leak_communities_accepted: overrides
+                .tenant_leak_communities_accepted
+                .or(base_profile.tenant_leak_communities_accepted),
+            accepted_leaks_from_underlay: overrides
+                .accepted_leaks_from_underlay
+                .clone()
+                .or_else(|| base_profile.accepted_leaks_from_underlay.clone()),
+            allowed_anycast_prefixes: overrides
+                .allowed_anycast_prefixes
+                .clone()
+                .or_else(|| base_profile.allowed_anycast_prefixes.clone()),
+            access_tier: base_profile.access_tier,
+        }))
+    }
 }
 
 impl From<&FnnRoutingProfileConfig> for rpc::forge::RoutingProfile {
     fn from(profile: &FnnRoutingProfileConfig) -> Self {
         Self {
-            tenant_leak_communities_accepted: profile.tenant_leak_communities_accepted,
-            leak_default_route_from_underlay: profile.leak_default_route_from_underlay,
-            leak_tenant_host_routes_to_underlay: profile.leak_tenant_host_routes_to_underlay,
+            tenant_leak_communities_accepted: profile
+                .tenant_leak_communities_accepted
+                .unwrap_or_default(),
+            leak_default_route_from_underlay: profile
+                .leak_default_route_from_underlay
+                .unwrap_or_default(),
+            leak_tenant_host_routes_to_underlay: profile
+                .leak_tenant_host_routes_to_underlay
+                .unwrap_or_default(),
             accepted_leaks_from_underlay: profile
                 .accepted_leaks_from_underlay
+                .as_deref()
+                .unwrap_or_default()
                 .iter()
                 .map(|entry| rpc::forge::PrefixFilterPolicyEntry {
                     prefix: entry.prefix.to_string(),
@@ -2042,6 +2268,8 @@ impl From<&FnnRoutingProfileConfig> for rpc::forge::RoutingProfile {
                 .collect(),
             allowed_anycast_prefixes: profile
                 .allowed_anycast_prefixes
+                .as_deref()
+                .unwrap_or_default()
                 .iter()
                 .map(|entry| rpc::forge::PrefixFilterPolicyEntry {
                     prefix: entry.prefix.to_string(),
@@ -2049,6 +2277,8 @@ impl From<&FnnRoutingProfileConfig> for rpc::forge::RoutingProfile {
                 .collect(),
             route_target_imports: profile
                 .route_target_imports
+                .as_deref()
+                .unwrap_or_default()
                 .iter()
                 .map(|route_target| rpc::common::RouteTarget {
                     asn: route_target.asn,
@@ -2057,6 +2287,8 @@ impl From<&FnnRoutingProfileConfig> for rpc::forge::RoutingProfile {
                 .collect(),
             route_targets_on_exports: profile
                 .route_targets_on_exports
+                .as_deref()
+                .unwrap_or_default()
                 .iter()
                 .map(|route_target| rpc::common::RouteTarget {
                     asn: route_target.asn,
@@ -2067,13 +2299,22 @@ impl From<&FnnRoutingProfileConfig> for rpc::forge::RoutingProfile {
     }
 }
 
-/// Entries used for prefix-list policies on the DPUS.
-/// Default behavior is max-len lte 32
-/// We can change that with additional fields on this struct
-/// if necessary in the future.
-#[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
-pub struct PrefixFilterPolicyEntry {
-    pub prefix: IpNetwork,
+impl From<&FnnRoutingProfileConfig> for rpc::forge::VpcEffectiveRoutingProfile {
+    fn from(profile: &FnnRoutingProfileConfig) -> Self {
+        let routing_profile = rpc::forge::RoutingProfile::from(profile);
+        Self {
+            route_target_imports: routing_profile.route_target_imports,
+            route_targets_on_exports: routing_profile.route_targets_on_exports,
+            leak_default_route_from_underlay: routing_profile.leak_default_route_from_underlay,
+            leak_tenant_host_routes_to_underlay: routing_profile
+                .leak_tenant_host_routes_to_underlay,
+            tenant_leak_communities_accepted: routing_profile.tenant_leak_communities_accepted,
+            accepted_leaks_from_underlay: routing_profile.accepted_leaks_from_underlay,
+            allowed_anycast_prefixes: routing_profile.allowed_anycast_prefixes,
+            internal: profile.internal.unwrap_or_default(),
+            access_tier: profile.access_tier.unwrap_or_default(),
+        }
+    }
 }
 
 /// FNN configuration specific to the admin network.
@@ -2612,6 +2853,33 @@ pub const fn default_database_pool_max_lifetime() -> std::time::Duration {
     std::time::Duration::from_secs(30 * 60)
 }
 
+const fn default_api_admission_max_work_in_flight() -> usize {
+    64
+}
+
+const fn default_api_admission_max_pending() -> usize {
+    1024
+}
+
+const fn default_api_admission_max_work_in_flight_per_client() -> usize {
+    8
+}
+
+const fn default_api_admission_max_pending_per_client() -> usize {
+    64
+}
+
+const fn default_api_admission_pending_timeout() -> std::time::Duration {
+    // This is intentionally half of the normal ten-second client timeout,
+    // leaving roughly half of the deadline for handler execution and response
+    // delivery. Keep the ratio fixed until scale data justifies another knob.
+    std::time::Duration::from_secs(5)
+}
+
+const fn default_api_admission_client_idle_timeout() -> std::time::Duration {
+    std::time::Duration::from_secs(5 * 60)
+}
+
 pub const fn default_bmc_session_lockout_threshold() -> u32 {
     3
 }
@@ -2909,6 +3177,10 @@ pub fn default_max_find_by_ids() -> u32 {
     100
 }
 
+pub fn default_max_site_prefixes_per_tenant() -> u32 {
+    8
+}
+
 pub fn default_max_network_security_group_size() -> u32 {
     200
 }
@@ -3055,6 +3327,7 @@ impl From<CarbideConfig> for rpc::forge::RuntimeConfig {
                 .into_iter()
                 .map(|x| x.to_string())
                 .collect(),
+            max_site_prefixes_per_tenant: value.max_site_prefixes_per_tenant,
             vpc_isolation_behavior: value.vpc_isolation_behavior.to_string(),
             networks: value
                 .networks
@@ -3357,57 +3630,18 @@ pub struct VmaasConfig {
     #[serde(default = "default_to_true")]
     pub allow_instance_vf: bool,
 
-    /// Configure the DPUs to create the reps specified.
-    /// when not provided, the DPU creates the reps for the 2 physical devices and 14 virtual devices
+    /// Select which representors from the configured VF population HBN is expected to use.
     pub hbn_reps: Option<String>,
 
-    /// Configure the DPUs to create the SF representors specified.
-    pub hbn_sfs: Option<String>,
-
-    /// Options to configure advanced routing and bridging.
-    pub bridging: Option<TrafficInterceptBridging>,
-
-    /// Prefixes expected to be publicly routable and used
-    /// by traffic-intercept users.
-    pub public_prefixes: Vec<Ipv4Network>,
-
-    /// Aggregate prefixes associated with secondary VTEPs. These are used only
-    /// for routing and filtering; IP allocation is provided by the secondary
-    /// VTEP resource pool.
-    #[serde(default)]
-    pub secondary_vtep_aggregate_prefixes: Vec<IpNetwork>,
-
-    /// Whether a secondary overlay is expected,
-    /// which will require secondary VTEP IPs to be allocated
-    /// to DPUs
-    #[serde(default = "default_to_true")]
-    pub secondary_overlay_support: bool,
+    /// Provisioning-time topology for bridges inserted between host representors and HBN.
+    pub bridging: Option<HostRepresentorBridgingConfig>,
 }
 
 #[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
-pub struct TrafficInterceptBridging {
-    /// Prefix to be used for internal routing between HBN and intercept bridges
-    /// within the DPU.
-    pub internal_bridge_routing_prefix: Ipv4Network,
-
-    /// The HBN/SFC bridge that intercept patch ports attach to during provisioning.
+pub struct HostRepresentorBridgingConfig {
+    /// The HBN/SFC bridge that host-representor patch ports attach to during provisioning.
     #[serde(default = "default_hbn_bridge")]
     pub hbn_bridge: String,
-
-    /// The name of the bridge that sits between VFs and br-hbn _**for VM-owned VFs**_.
-    /// This bridge will be assigned an address from <internal_bridge_routing_prefix>
-    /// so that we can route traffic to a /32 bound to it and used as a VTEP for
-    /// an additional GENEVE VPN.
-    #[serde(default = "default_vf_intercept_bridge_name")]
-    pub vf_intercept_bridge_name: String,
-
-    /// The <vf_intercept_bridge_name> side of the SF representor that connects the HBN pod to br-hbn.
-    /// This will be the side owned by the <vf_intercept_bridge_name> bridge _**for VM-owned VFs**_
-    #[serde(default = "default_vf_intercept_bridge_port")]
-    pub vf_intercept_bridge_port: String,
-
-    /// The SF used for internal routing of VF traffic.
-    pub vf_intercept_bridge_sf: String,
 
     /// The layout of host-owned representors that will have intermediary bridges.
     /// E.g., [{"pf0hpf" => {bridge: "br-host", patch_port: "brh"}}]
@@ -3430,7 +3664,7 @@ pub struct HostInterceptBridging {
     pub skip_create: bool,
 }
 
-impl TrafficInterceptBridging {
+impl HostRepresentorBridgingConfig {
     /// Formats host-owned representor bridge config for BlueField provisioning.
     pub fn host_representor_intercept_bridging_provisioning_config(&self) -> Option<String> {
         // Keep bf.cfg input stable and omit entries that should not be provisioned.
@@ -3453,14 +3687,6 @@ pub fn default_hbn_bridge() -> String {
     "br-hbn".to_string()
 }
 
-pub fn default_vf_intercept_bridge_name() -> String {
-    "br-dpu".to_string()
-}
-
-pub fn default_vf_intercept_bridge_port() -> String {
-    "patch-br-dpu-to-hbn".to_string()
-}
-
 #[cfg(test)]
 mod tests {
     use std::sync::Arc;
@@ -3480,11 +3706,205 @@ mod tests {
     use model::expected_machine::HostDpuPolicy;
     use model::network_segment::NetworkDefinitionSegmentType;
     use model::resource_pool;
+    use model::vpc::VpcRoutingProfileOverrides;
 
     use super::*;
     use crate::test_support::network_segment::FIXTURE_TENANT_ORG_ID;
 
     const TEST_DATA_DIR: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/src/cfg/test_data");
+
+    fn vpc_config(
+        routing_profile_type: Option<&str>,
+        routing_profile_overrides: Option<VpcRoutingProfileOverrides>,
+    ) -> VpcConfig {
+        VpcConfig {
+            tenant_organization_id: "test-tenant".to_string(),
+            tenant_keyset_id: None,
+            network_virtualization_type: VpcVirtualizationType::Fnn,
+            network_security_group_id: None,
+            default_nvlink_logical_partition_id: None,
+            vni: None,
+            routing_profile_type: routing_profile_type.map(str::to_string),
+            routing_profile_overrides,
+        }
+    }
+
+    /// Verifies existing routing-profile TOML values deserialize unchanged
+    /// after the fields become presence-aware.
+    #[test]
+    fn fnn_routing_profile_options_accept_existing_toml_syntax() {
+        let profile: FnnRoutingProfileConfig = Figment::new()
+            .merge(Toml::string(
+                r#"
+                    route_target_imports = [{ asn = 64512, vni = 10 }]
+                    route_targets_on_exports = []
+                    internal = true
+                    leak_default_route_from_underlay = false
+                    leak_tenant_host_routes_to_underlay = true
+                    tenant_leak_communities_accepted = false
+                    accepted_leaks_from_underlay = [{ prefix = "10.0.0.0/8" }]
+                    allowed_anycast_prefixes = []
+                    access_tier = 2
+                "#,
+            ))
+            .extract()
+            .expect("existing routing-profile syntax must remain valid");
+
+        assert_eq!(
+            profile,
+            FnnRoutingProfileConfig {
+                route_target_imports: Some(vec![RouteTargetConfig {
+                    asn: 64512,
+                    vni: 10,
+                }]),
+                route_targets_on_exports: Some(vec![]),
+                internal: Some(true),
+                leak_default_route_from_underlay: Some(false),
+                leak_tenant_host_routes_to_underlay: Some(true),
+                tenant_leak_communities_accepted: Some(false),
+                accepted_leaks_from_underlay: Some(vec![PrefixFilterPolicyEntry {
+                    prefix: "10.0.0.0/8".parse().expect("valid test prefix"),
+                }]),
+                allowed_anycast_prefixes: Some(vec![]),
+                access_tier: Some(2),
+            }
+        );
+    }
+
+    /// Verifies seed-time VPC TOML preserves unsupported inline overrides
+    /// so startup validation can reject them instead of silently ignoring them.
+    #[test]
+    fn vpc_definition_preserves_routing_profile_overrides_for_seed_validation() {
+        // Parse a seeded VPC with representative unsupported override values.
+        let config: InitialObjectsConfig = Figment::new()
+            .merge(Toml::string(
+                r#"
+                    [vpcs.inline-profile]
+                    organization_id = "inline-profile-test"
+                    network_virtualization_type = "fnn"
+                    routing_profile_type = "BASE"
+
+                    [vpcs.inline-profile.routing_profile_overrides]
+                    route_target_imports = []
+                    leak_default_route_from_underlay = false
+                    allowed_anycast_prefixes = [{ prefix = "192.0.2.0/24" }]
+                "#,
+            ))
+            .extract()
+            .expect("seed validation must receive configured routing-profile overrides");
+        let definition = config
+            .vpcs
+            .as_ref()
+            .expect("configured VPCs")
+            .get("inline-profile")
+            .expect("inline-profile VPC");
+
+        // Explicit empty and false values remain visible to startup validation.
+        assert_eq!(
+            definition,
+            &VpcDefinition {
+                organization_id: Some("inline-profile-test".to_string()),
+                network_virtualization_type: VpcVirtualizationType::Fnn,
+                routing_profile_type: Some("BASE".to_string()),
+                routing_profile_overrides: Some(VpcRoutingProfileOverrides {
+                    route_target_imports: Some(vec![]),
+                    leak_default_route_from_underlay: Some(false),
+                    allowed_anycast_prefixes: Some(vec![PrefixFilterPolicyEntry {
+                        prefix: "192.0.2.0/24".parse().expect("valid test prefix"),
+                    }]),
+                    ..Default::default()
+                }),
+                vni: None,
+            }
+        );
+    }
+
+    /// Verifies VPC properties override only present fields while `internal`
+    /// and `access_tier` remain owned by the base profile.
+    #[test]
+    fn vpc_routing_profile_overrides_are_presence_aware() {
+        // Build a complete base and an override containing explicit default values.
+        let inherited_export = RouteTargetConfig { asn: 1, vni: 2 };
+        let inherited_anycast = PrefixFilterPolicyEntry {
+            prefix: "192.0.2.0/24".parse().expect("valid test prefix"),
+        };
+        let base = FnnRoutingProfileConfig {
+            route_target_imports: Some(vec![RouteTargetConfig { asn: 3, vni: 4 }]),
+            route_targets_on_exports: Some(vec![inherited_export.clone()]),
+            internal: Some(true),
+            leak_default_route_from_underlay: Some(true),
+            leak_tenant_host_routes_to_underlay: Some(true),
+            tenant_leak_communities_accepted: Some(true),
+            accepted_leaks_from_underlay: Some(vec![PrefixFilterPolicyEntry {
+                prefix: "198.51.100.0/24".parse().expect("valid test prefix"),
+            }]),
+            allowed_anycast_prefixes: Some(vec![inherited_anycast.clone()]),
+            access_tier: Some(2),
+        };
+        let overrides = VpcRoutingProfileOverrides {
+            route_target_imports: Some(vec![]),
+            leak_default_route_from_underlay: Some(false),
+            tenant_leak_communities_accepted: Some(false),
+            accepted_leaks_from_underlay: Some(vec![]),
+            ..Default::default()
+        };
+        let fnn = FnnConfig {
+            admin_vpc: None,
+            common_internal_route_target: None,
+            additional_route_target_imports: vec![],
+            routing_profiles: HashMap::from([("BASE".to_string(), base)]),
+            use_vpc_vrf_loopback: false,
+        };
+        let vpc = vpc_config(Some("BASE"), Some(overrides));
+
+        // Explicit empty and false values override; absent values inherit.
+        assert_eq!(
+            fnn.resolve_vpc_routing_profile(&vpc).unwrap().as_ref(),
+            &FnnRoutingProfileConfig {
+                route_target_imports: Some(vec![]),
+                route_targets_on_exports: Some(vec![inherited_export]),
+                internal: Some(true),
+                leak_default_route_from_underlay: Some(false),
+                leak_tenant_host_routes_to_underlay: Some(true),
+                tenant_leak_communities_accepted: Some(false),
+                accepted_leaks_from_underlay: Some(vec![]),
+                allowed_anycast_prefixes: Some(vec![inherited_anycast]),
+                access_tier: Some(2),
+            }
+        );
+    }
+
+    #[test]
+    fn vpc_routing_profile_resolution_reports_consistent_errors() {
+        let fnn = FnnConfig {
+            admin_vpc: None,
+            common_internal_route_target: None,
+            additional_route_target_imports: vec![],
+            routing_profiles: HashMap::new(),
+            use_vpc_vrf_loopback: false,
+        };
+
+        check_values(
+            [
+                Check {
+                    scenario: "routing profile type absent from VPC",
+                    input: None,
+                    expect: "internal error: tenant routing profile type not found in VPC record"
+                        .to_string(),
+                },
+                Check {
+                    scenario: "named routing profile absent from FNN config",
+                    input: Some("MISSING"),
+                    expect: "routing_profile_type not found: MISSING".to_string(),
+                },
+            ],
+            |profile_type| {
+                fnn.resolve_vpc_routing_profile(&vpc_config(profile_type, None))
+                    .unwrap_err()
+                    .to_string()
+            },
+        );
+    }
 
     #[test]
     fn deny_prefixes_accept_both_address_families() {
@@ -3695,6 +4115,7 @@ mod tests {
             uefi_boot_wait: Duration::minutes(5),
             max_bios_config_retries: 3,
             polling_bios_setup_stuck_threshold: Duration::minutes(15),
+            boot_interface_observation_interval: Duration::hours(2),
         };
 
         let config_str = serde_json::to_string(&input).unwrap();
@@ -3715,6 +4136,7 @@ mod tests {
     fn deserialize_machine_controller_config() {
         let config = r#"{"dpu_wait_time": "20m","power_down_wait":"10s",
         "failure_retry_time":"1h30m", "dpu_up_threshold": "1w",
+        "boot_interface_observation_interval": "2h",
         "controller": {"iteration_time": "33s", "max_object_handling_time": "63s", "max_concurrency": 13}}"#;
         let config: MachineStateControllerConfig = serde_json::from_str(config).unwrap();
 
@@ -3741,6 +4163,7 @@ mod tests {
                 uefi_boot_wait: Duration::minutes(5),
                 max_bios_config_retries: 3,
                 polling_bios_setup_stuck_threshold: Duration::minutes(15),
+                boot_interface_observation_interval: Duration::hours(2),
             }
         );
     }
@@ -3764,8 +4187,21 @@ mod tests {
                 uefi_boot_wait: Duration::minutes(5),
                 max_bios_config_retries: 3,
                 polling_bios_setup_stuck_threshold: Duration::minutes(15),
+                boot_interface_observation_interval: Duration::minutes(10),
             }
         );
+    }
+
+    #[test]
+    fn reject_nonpositive_boot_interface_observation_intervals() {
+        for invalid_interval in ["0s", "-1s"] {
+            let config_json =
+                format!(r#"{{"boot_interface_observation_interval": "{invalid_interval}"}}"#);
+            assert!(
+                serde_json::from_str::<MachineStateControllerConfig>(&config_json).is_err(),
+                "boot_interface_observation_interval={invalid_interval} must be rejected",
+            );
+        }
     }
 
     #[test]
@@ -3866,6 +4302,93 @@ mod tests {
         let config = PeriodicStateRepublishConfig::default();
 
         assert!(config.enabled);
+    }
+
+    #[test]
+    fn api_admission_control_only_validates_bounds_when_enabled() {
+        type ZeroOut = fn(&mut ApiAdmissionControlConfig);
+        let cases: [(&str, ZeroOut); 6] = [
+            ("max_work_in_flight", |config| config.max_work_in_flight = 0),
+            ("max_pending", |config| config.max_pending = 0),
+            ("max_work_in_flight_per_client", |config| {
+                config.max_work_in_flight_per_client = 0
+            }),
+            ("max_pending_per_client", |config| {
+                config.max_pending_per_client = 0
+            }),
+            ("pending_timeout", |config| {
+                config.pending_timeout = std::time::Duration::ZERO
+            }),
+            ("client_idle_timeout", |config| {
+                config.client_idle_timeout = std::time::Duration::ZERO
+            }),
+        ];
+
+        let disabled = ApiAdmissionControlConfig {
+            enabled: false,
+            max_work_in_flight: 0,
+            max_pending: 0,
+            max_work_in_flight_per_client: 0,
+            max_pending_per_client: 0,
+            pending_timeout: std::time::Duration::ZERO,
+            client_idle_timeout: std::time::Duration::ZERO,
+            service_limits: BTreeMap::new(),
+        };
+        disabled
+            .validate()
+            .expect("disabled admission control ignores its bounds");
+
+        for (field, zero_out) in cases {
+            let mut config = ApiAdmissionControlConfig::default();
+            zero_out(&mut config);
+            let error = config
+                .validate()
+                .expect_err("zero admission values must be rejected");
+            assert!(
+                error.to_string().contains(field),
+                "error must name {field}, got: {error}"
+            );
+        }
+    }
+
+    fn assert_api_admission_semaphore_bound(
+        field: &str,
+        set_value: fn(&mut ApiAdmissionControlConfig, usize),
+    ) {
+        let mut config = ApiAdmissionControlConfig::default();
+        set_value(&mut config, tokio::sync::Semaphore::MAX_PERMITS);
+        config
+            .validate()
+            .expect("Tokio's semaphore maximum must be accepted");
+
+        set_value(&mut config, tokio::sync::Semaphore::MAX_PERMITS + 1);
+        let error = config
+            .validate()
+            .expect_err("values above Tokio's semaphore maximum must be rejected");
+        assert!(
+            error.to_string().contains(field),
+            "error must name {field}, got: {error}"
+        );
+        assert!(
+            error
+                .to_string()
+                .contains(&tokio::sync::Semaphore::MAX_PERMITS.to_string()),
+            "error must name the maximum, got: {error}"
+        );
+    }
+
+    #[test]
+    fn api_admission_control_validates_max_work_in_flight_upper_bound() {
+        assert_api_admission_semaphore_bound("max_work_in_flight", |config, value| {
+            config.max_work_in_flight = value;
+        });
+    }
+
+    #[test]
+    fn api_admission_control_validates_max_pending_upper_bound() {
+        assert_api_admission_semaphore_bound("max_pending", |config, value| {
+            config.max_pending = value;
+        });
     }
 
     #[test]
@@ -3994,6 +4517,19 @@ mod tests {
             config.database_pool_max_lifetime,
             std::time::Duration::from_secs(30 * 60)
         );
+        assert_eq!(
+            config.api_admission_control,
+            ApiAdmissionControlConfig {
+                enabled: true,
+                max_work_in_flight: 64,
+                max_pending: 1024,
+                max_work_in_flight_per_client: 8,
+                max_pending_per_client: 64,
+                pending_timeout: std::time::Duration::from_secs(5),
+                client_idle_timeout: std::time::Duration::from_secs(5 * 60),
+                service_limits: BTreeMap::new(),
+            }
+        );
         assert!(config.dhcp_servers.is_empty());
         assert!(!config.allow_insecure_discovery);
         assert!(config.route_servers.is_empty());
@@ -4039,6 +4575,10 @@ mod tests {
             IbPartitionStateControllerConfig::default()
         );
         assert_eq!(config.max_find_by_ids, default_max_find_by_ids());
+        assert_eq!(
+            config.max_site_prefixes_per_tenant,
+            default_max_site_prefixes_per_tenant()
+        );
         assert_eq!(config.dpu_network_monitor_pinger_type, None);
         assert_eq!(config.measured_boot_collector, {
             MeasuredBootMetricsCollectorConfig {
@@ -4158,7 +4698,6 @@ mod tests {
                 allow_changing_bmc_proxy: None,
                 reset_rate_limit: Duration::hours(1),
                 admin_segment_type_non_dpu: Arc::new(false.into()),
-                allocate_secondary_vtep_ip: false,
                 create_power_shelves: Arc::new(true.into()),
                 power_shelves_created_per_run: 1,
                 create_switches: Arc::new(true.into()),
@@ -4189,6 +4728,7 @@ mod tests {
                 uefi_boot_wait: Duration::minutes(5),
                 max_bios_config_retries: 3,
                 polling_bios_setup_stuck_threshold: Duration::minutes(15),
+                boot_interface_observation_interval: Duration::hours(2),
             }
         );
         assert_eq!(
@@ -4236,6 +4776,10 @@ mod tests {
             }
         );
         assert_eq!(config.max_find_by_ids, 50);
+        assert_eq!(
+            config.max_site_prefixes_per_tenant,
+            default_max_site_prefixes_per_tenant()
+        );
         assert_eq!(
             config.dpu_network_monitor_pinger_type,
             Some("OobNetBind".to_string())
@@ -4371,7 +4915,6 @@ mod tests {
                 allow_changing_bmc_proxy: None,
                 reset_rate_limit: Duration::hours(2),
                 admin_segment_type_non_dpu: Arc::new(false.into()),
-                allocate_secondary_vtep_ip: false,
                 create_power_shelves: Arc::new(true.into()),
                 power_shelves_created_per_run: 1,
                 create_switches: Arc::new(true.into()),
@@ -4430,6 +4973,7 @@ mod tests {
                 uefi_boot_wait: Duration::minutes(5),
                 max_bios_config_retries: 3,
                 polling_bios_setup_stuck_threshold: Duration::minutes(15),
+                boot_interface_observation_interval: Duration::minutes(10),
             }
         );
         assert_eq!(
@@ -4484,10 +5028,35 @@ mod tests {
         for (_, entry) in config.host_models.iter() {
             assert_eq!(entry.vendor, bmc_vendor::BMCVendor::Dell);
         }
+
+        assert_eq!(
+            config
+                .rack_profiles
+                .rack_profiles
+                .get("NVL72")
+                .and_then(|profile| profile.firmware_object.as_ref())
+                .map(|firmware_object| firmware_object.url.as_str()),
+            Some("https://firmware.example.invalid/sot/nvl72.json")
+        );
+
+        assert_eq!(
+            config
+                .rack_profiles
+                .rack_profiles
+                .get("NVL72")
+                .and_then(|profile| profile.firmware_object.as_ref())
+                .map(|firmware_object| firmware_object.fetch_timeout),
+            Some(std::time::Duration::from_secs(45))
+        );
+
         assert_eq!(config.firmware_global.max_uploads, 3);
         assert_eq!(config.firmware_global.run_interval, Duration::seconds(20));
         assert_eq!(config.firmware_global.max_concurrent_bfb_copies, 7);
         assert_eq!(config.max_find_by_ids, 75);
+        assert_eq!(
+            config.max_site_prefixes_per_tenant,
+            default_max_site_prefixes_per_tenant()
+        );
         assert_eq!(config.dpu_network_monitor_pinger_type, None);
         assert_eq!(
             config.measured_boot_collector,
@@ -4734,7 +5303,6 @@ mod tests {
                 allow_changing_bmc_proxy: None,
                 reset_rate_limit: Duration::hours(2),
                 admin_segment_type_non_dpu: Arc::new(false.into()),
-                allocate_secondary_vtep_ip: false,
                 create_power_shelves: Arc::new(true.into()),
                 power_shelves_created_per_run: 1,
                 create_switches: Arc::new(true.into()),
@@ -4793,6 +5361,7 @@ mod tests {
                 uefi_boot_wait: Duration::minutes(5),
                 max_bios_config_retries: 3,
                 polling_bios_setup_stuck_threshold: Duration::minutes(15),
+                boot_interface_observation_interval: Duration::hours(2),
             }
         );
         assert_eq!(
@@ -5416,6 +5985,7 @@ firmware_url = "https://firmware.example.com/fw-b.bin"
                 organization_id: Some(FIXTURE_TENANT_ORG_ID.to_string()),
                 network_virtualization_type: VpcVirtualizationType::Flat,
                 routing_profile_type: None,
+                routing_profile_overrides: None,
                 vni: None,
             }
         );
@@ -5552,6 +6122,87 @@ object_kind = "secret"
     }
 
     #[test]
+    fn empty_dpf_service_uses_its_defaults() {
+        let config = toml::from_str::<DpfConfig>("[services.dpu_agent]").unwrap();
+        let expected_agent = crate::dpf_services::default_dpu_agent_service();
+        let expected_fmds = crate::dpf_services::default_fmds_service();
+
+        assert_eq!(config.services.dpu_agent.name, expected_agent.name);
+        assert_eq!(
+            config.services.dpu_agent.helm_chart,
+            expected_agent.helm_chart
+        );
+        assert_eq!(config.services.fmds.name, expected_fmds.name);
+    }
+
+    #[test]
+    fn top_level_dpf_service_overlays_its_defaults() {
+        let config = toml::from_str::<DpfConfig>(
+            r#"
+[services.dpu_agent]
+helm_version = "configured-version"
+
+[services.dpu_agent.extra_helm_values.fmds]
+sign_proxy_url = "http://dsx-imds.dpf-operator-system.svc.cluster.local:8080"
+"#,
+        )
+        .unwrap();
+        let expected = crate::dpf_services::default_dpu_agent_service();
+
+        assert_eq!(config.services.dpu_agent.name, expected.name);
+        assert_eq!(
+            config.services.dpu_agent.docker_repo_url,
+            expected.docker_repo_url
+        );
+        assert_eq!(config.services.dpu_agent.helm_version, "configured-version");
+        assert_eq!(
+            config.services.dpu_agent.extra_helm_values.unwrap()["fmds"]["sign_proxy_url"],
+            "http://dsx-imds.dpf-operator-system.svc.cluster.local:8080"
+        );
+    }
+
+    #[test]
+    fn dpf_service_helm_values_require_a_table() {
+        for value in ["true", "[\"value\"]"] {
+            let config = format!("[services.dpu_agent]\nextra_helm_values = {value}\n");
+
+            assert!(toml::from_str::<DpfConfig>(&config).is_err(), "{value}");
+        }
+    }
+
+    #[test]
+    fn deployment_dpf_service_overlays_its_defaults() {
+        let config = toml::from_str::<DpfConfig>(
+            r#"
+[deployments.bf4_generic]
+flavor_name = "bf4-flavor"
+deployment_name = "bf4-deployment"
+node_label_key = "carbide.nvidia.com/bf4"
+
+[deployments.bf4_generic.services.dpu_agent]
+helm_version = "configured-version"
+
+[deployments.bf4_generic.services.dpu_agent.extra_helm_values.fmds]
+sign_proxy_url = "http://bf4-dsx-imds.dpf-operator-system.svc.cluster.local:8080"
+
+[deployments.bf4_generic.services.fmds]
+"#,
+        )
+        .unwrap();
+        let services = config.deployments.bf4_generic.unwrap().services.unwrap();
+        let expected_agent = crate::dpf_services::default_dpu_agent_service();
+        let expected_fmds = crate::dpf_services::default_fmds_service();
+
+        assert_eq!(services.dpu_agent.name, expected_agent.name);
+        assert_eq!(services.dpu_agent.helm_version, "configured-version");
+        assert_eq!(services.fmds.name, expected_fmds.name);
+        assert_eq!(
+            services.dpu_agent.extra_helm_values.unwrap()["fmds"]["sign_proxy_url"],
+            "http://bf4-dsx-imds.dpf-operator-system.svc.cluster.local:8080"
+        );
+    }
+
+    #[test]
     fn dpf_deployment_extra_services_are_configurable() {
         let config = toml::from_str::<DpfConfig>(
             r#"
@@ -5609,7 +6260,7 @@ docker_image_tag = "flow-controller-tag"
                 .get(&DpfExtraService::DocaXplane)
                 .unwrap()
                 .helm_version,
-            crate::dpf_services::DOCA_XPLANE_SERVICE_HELM_VERSION
+            crate::dpf_services::default_doca_xplane_service().helm_version
         );
     }
 
@@ -5626,7 +6277,6 @@ node_label_key = "carbide.nvidia.com/astra"
         .unwrap();
         let deployment = config.deployments.bf4_astra.as_ref().unwrap();
         let resolved = config.resolved_services_for(deployment);
-
         let dhcp_agent = resolved
             .extra
             .get(&DpfExtraService::DocaWeaveDhcpAgent)
@@ -5655,7 +6305,7 @@ node_label_key = "carbide.nvidia.com/astra"
         assert_eq!(xplane.name, carbide_dpf::types::DOCA_XPLANE_SERVICE_NAME);
         assert_eq!(
             xplane.helm_version,
-            crate::dpf_services::DOCA_XPLANE_SERVICE_HELM_VERSION
+            crate::dpf_services::default_doca_xplane_service().helm_version
         );
     }
 

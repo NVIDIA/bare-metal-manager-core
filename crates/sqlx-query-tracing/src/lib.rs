@@ -376,7 +376,7 @@ mod tests {
     }
 
     impl MutexWriter {
-        pub fn lines(&self) -> Vec<String> {
+        fn lines(&self) -> Vec<String> {
             let guard = self.writer.lock().unwrap();
             let data = std::str::from_utf8(&guard).unwrap();
             data.lines()

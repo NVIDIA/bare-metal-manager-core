@@ -28,6 +28,7 @@ use carbide_test_support::scenarios;
 use clap::{CommandFactory, Parser};
 
 use super::*;
+use crate::test_support::{parse_leaf, raw_value};
 
 // verify_cmd_structure runs a baseline clap debug_assert()
 // to do basic command configuration checking and validation,
@@ -51,35 +52,29 @@ fn verify_cmd_structure() {
 // the parsed fields match what was supplied.
 #[test]
 fn parse_create_routes_to_create() {
-    fn create_fields(
-        cmd: Cmd,
-    ) -> (
+    type CreateFields = (
         String,
         String,
         String,
         String,
         Option<String>,
         Option<String>,
-    ) {
-        match cmd {
-            Cmd::Create(args) => (
-                args.id,
-                args.url,
-                args.digest,
-                args.tenant_org_id,
-                args.name,
-                args.description,
-            ),
-            _ => panic!("expected Create variant"),
-        }
+    );
+
+    fn create_fields(argv: &[&str]) -> Result<CreateFields, ()> {
+        let matches = parse_leaf::<Cmd>(argv, &["create"]).map_err(drop)?;
+        Ok((
+            raw_value(&matches, "id").expect("ID is required"),
+            raw_value(&matches, "url").expect("URL is required"),
+            raw_value(&matches, "digest").expect("digest is required"),
+            raw_value(&matches, "tenant_org_id").expect("tenant organization ID is required"),
+            raw_value(&matches, "name"),
+            raw_value(&matches, "description"),
+        ))
     }
 
     scenarios!(
-        run = |argv| {
-            Cmd::try_parse_from(argv.iter().copied())
-                .map(create_fields)
-                .map_err(drop)
-        };
+        run = create_fields;
         "create with required args (long flags)" {
             &[
                 "os-image",
@@ -156,19 +151,16 @@ fn parse_create_routes_to_create() {
 // row routes to the Show variant and yields its optional filter fields.
 #[test]
 fn parse_show_routes_to_show() {
-    fn show_fields(cmd: Cmd) -> (Option<String>, Option<String>) {
-        match cmd {
-            Cmd::Show(args) => (args.id, args.tenant_org_id),
-            _ => panic!("expected Show variant"),
-        }
+    fn show_fields(argv: &[&str]) -> Result<(Option<String>, Option<String>), ()> {
+        let matches = parse_leaf::<Cmd>(argv, &["show"]).map_err(drop)?;
+        Ok((
+            raw_value(&matches, "id"),
+            raw_value(&matches, "tenant_org_id"),
+        ))
     }
 
     scenarios!(
-        run = |argv| {
-            Cmd::try_parse_from(argv.iter().copied())
-                .map(show_fields)
-                .map_err(drop)
-        };
+        run = show_fields;
         "show with no filters" {
             &["os-image", "show"][..] => Yields((None, None)),
         }
@@ -193,19 +185,16 @@ fn parse_show_routes_to_show() {
 // variant and yielding those fields.
 #[test]
 fn parse_delete_routes_to_delete() {
-    fn delete_fields(cmd: Cmd) -> (String, String) {
-        match cmd {
-            Cmd::Delete(args) => (args.id, args.tenant_org_id),
-            _ => panic!("expected Delete variant"),
-        }
+    fn delete_fields(argv: &[&str]) -> Result<(String, String), ()> {
+        let matches = parse_leaf::<Cmd>(argv, &["delete"]).map_err(drop)?;
+        Ok((
+            raw_value(&matches, "id").expect("ID is required"),
+            raw_value(&matches, "tenant_org_id").expect("tenant organization ID is required"),
+        ))
     }
 
     scenarios!(
-        run = |argv| {
-            Cmd::try_parse_from(argv.iter().copied())
-                .map(delete_fields)
-                .map_err(drop)
-        };
+        run = delete_fields;
         "delete with required args" {
             &[
                 "os-image",
@@ -226,19 +215,16 @@ fn parse_delete_routes_to_delete() {
 // Update variant and yielding those fields.
 #[test]
 fn parse_update_routes_to_update() {
-    fn update_fields(cmd: Cmd) -> (String, Option<String>) {
-        match cmd {
-            Cmd::Update(args) => (args.id, args.name),
-            _ => panic!("expected Update variant"),
-        }
+    fn update_fields(argv: &[&str]) -> Result<(String, Option<String>), ()> {
+        let matches = parse_leaf::<Cmd>(argv, &["update"]).map_err(drop)?;
+        Ok((
+            raw_value(&matches, "id").expect("ID is required"),
+            raw_value(&matches, "name"),
+        ))
     }
 
     scenarios!(
-        run = |argv| {
-            Cmd::try_parse_from(argv.iter().copied())
-                .map(update_fields)
-                .map_err(drop)
-        };
+        run = update_fields;
         "update with required id and a name" {
             &[
                 "os-image",

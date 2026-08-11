@@ -19,7 +19,7 @@
 /// It responds to DHCP_DISCOVERY messages with a DHCP_OFFER of 172.20.0.{x}/32, where x is the
 /// last byte of the MAC address sent in the DISCOVERY packet.
 ///
-/// Module only included if #cfg(test)
+/// Included for unit tests or when the `test-support` feature is enabled.
 use std::collections::HashMap;
 use std::convert::Infallible;
 use std::net::{Ipv4Addr, Ipv6Addr, SocketAddr, SocketAddrV4};
@@ -40,22 +40,19 @@ use prost::Message;
 use tokio::net::TcpListener;
 use tokio::task::JoinHandle;
 
+#[cfg(test)]
 use crate::machine::Machine;
 
-pub const ENDPOINT_DISCOVER_DHCP: &str = "/forge.Forge/DiscoverDhcp";
-pub const ENDPOINT_EXPIRE_DHCP_LEASE: &str = "/forge.Forge/ExpireDhcpLease";
+pub const ENDPOINT_DISCOVER_DHCP: &str = ::rpc::service_path!("DiscoverDhcp");
+pub const ENDPOINT_EXPIRE_DHCP_LEASE: &str = ::rpc::service_path!("ExpireDhcpLease");
 
 // Contents of the response
 pub const DHCP_RESPONSE_FQDN: &str = "december-nitrogen.forge.local";
 const DHCP_RESPONSE_ADDR_PREFIX: &str = "172.20.0";
 const DHCP_V6_RESPONSE_PREFIX: &str = "2001:db8::";
-pub const DHCP_V6_RESPONSE_NTP_SERVERS: [&str; 2] = ["2001:db8::124", "2001:db8::125"];
+const DHCP_V6_RESPONSE_NTP_SERVERS: [&str; 2] = ["2001:db8::124", "2001:db8::125"];
 
-pub fn base_dhcp_response(mac_address: MacAddress) -> rpc::DhcpRecord {
-    base_dhcp_response_for_family(mac_address, rpc::AddressFamily::V4)
-}
-
-pub fn base_dhcp_response_for_family(
+fn base_dhcp_response_for_family(
     mac_address: MacAddress,
     address_family: rpc::AddressFamily,
 ) -> rpc::DhcpRecord {
@@ -94,16 +91,7 @@ pub fn base_dhcp_response_for_family(
     }
 }
 
-// Encode a DhcpRecord to match gRPC HTTP/2 DATA frame that API server (via hyper) produces.
-pub fn dhcp_response(mac_address_str: &str) -> Vec<u8> {
-    dhcp_response_with_override(mac_address_str, None, None, rpc::AddressFamily::V4)
-}
-
-/// Same as `dhcp_response` but allows selected response fields to be overridden.
-///
-/// `Some("")` is meaningful for `address_override`: it simulates a Machine that
-/// has no address binding.
-pub fn dhcp_response_with_override(
+fn dhcp_response_with_override(
     mac_address_str: &str,
     address_override: Option<String>,
     fqdn_override: Option<String>,
@@ -234,8 +222,9 @@ fn address_to_offer_v6(mac: MacAddress) -> String {
     format!("{}{:x}", DHCP_V6_RESPONSE_PREFIX, mac.bytes()[5])
 }
 
-// Does this Machine the result we expected?
-pub fn matches_mock_response(machine: &Machine) -> bool {
+// Does this Machine match the result we expected?
+#[cfg(test)]
+pub(super) fn matches_mock_response(machine: &Machine) -> bool {
     machine.inner.fqdn == DHCP_RESPONSE_FQDN
         && machine.inner.address == address_to_offer(machine.discovery_info.mac_address)
 }
@@ -245,6 +234,7 @@ pub struct MockAPIServer {
     handle: JoinHandle<Result<(), hyper::Error>>,
     tx: Option<tokio::sync::oneshot::Sender<()>>,
     local_addr: String,
+    #[cfg(test)]
     inject_failure: Arc<Mutex<bool>>,
     discoveries: Arc<Mutex<Vec<rpc::DhcpDiscovery>>>,
     expired_leases: Arc<Mutex<Vec<rpc::ExpireDhcpLeaseRequest>>>,
@@ -276,8 +266,13 @@ impl MockAPIServer {
         // Gitlab CI (or some part of our config of it) does not support IPv6
         let addr = SocketAddr::V4(SocketAddrV4::from_str("127.0.0.1:0").unwrap());
 
+        #[cfg(test)]
         let inject_failure = Arc::new(Mutex::new(false));
-        let i2 = inject_failure.clone();
+        #[cfg(test)]
+        let failure_injector = Some(inject_failure.clone());
+        #[cfg(not(test))]
+        let failure_injector: Option<Arc<Mutex<bool>>> = None;
+        let i2 = failure_injector;
         let calls = Arc::new(Mutex::new(HashMap::new()));
         let c2 = calls.clone();
         let discoveries = Arc::new(Mutex::new(Vec::new()));
@@ -329,6 +324,7 @@ impl MockAPIServer {
             handle,
             local_addr: format!("http://{local_addr}"),
             tx: Some(tx),
+            #[cfg(test)]
             inject_failure,
             discoveries,
             expired_leases,
@@ -361,7 +357,8 @@ impl MockAPIServer {
         &self.local_addr
     }
 
-    pub fn set_inject_failure(&mut self, fail: bool) {
+    #[cfg(test)]
+    pub(super) fn set_inject_failure(&mut self, fail: bool) {
         *self.inject_failure.lock().unwrap() = fail;
     }
 
@@ -386,7 +383,7 @@ impl MockAPIServer {
     async fn handler(
         req: Request<Incoming>,
         calls: Arc<Mutex<HashMap<String, usize>>>,
-        fail: Arc<Mutex<bool>>,
+        fail: Option<Arc<Mutex<bool>>>,
         discoveries: Arc<Mutex<Vec<rpc::DhcpDiscovery>>>,
         expired_leases: Arc<Mutex<Vec<rpc::ExpireDhcpLeaseRequest>>>,
         address_overrides: Arc<Mutex<HashMap<String, String>>>,
@@ -402,7 +399,7 @@ impl MockAPIServer {
         match path {
             // Add the endpoints you need here
             ENDPOINT_DISCOVER_DHCP => {
-                let inject_failure = *fail.lock().unwrap();
+                let inject_failure = fail.as_ref().is_some_and(|fail| *fail.lock().unwrap());
                 if inject_failure {
                     Err(MockAPIServerError::MockAPIFetchMachineError)
                 } else {
@@ -426,10 +423,10 @@ impl MockAPIServer {
                     status: rpc::ExpireDhcpLeaseStatus::Released.into(),
                 })
             }
-            "/forge.Forge/Echo" => respond(rpc::EchoResponse {
+            path if path == ::rpc::service_path!("Echo") => respond(rpc::EchoResponse {
                 message: "dhcp_echo".into(),
             }),
-            "/forge.Forge/Version" => respond(rpc::BuildInfo::default()),
+            path if path == ::rpc::service_path!("Version") => respond(rpc::BuildInfo::default()),
             _ => panic!("DHCP -> API wrong uri: {}", req.uri().path()),
         }
     }

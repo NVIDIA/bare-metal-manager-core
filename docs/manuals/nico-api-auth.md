@@ -243,8 +243,7 @@ With this configuration, a client certificate with subject
 5. Be authorized according to whatever casbin policy rules match that
    principal
 
-You can see an example of a complete nico-api configuration file
-[here](https://github.com/NVIDIA/infra-controller/blob/main/crates/api-core/src/cfg/test_data/full_config.toml)
+You can see an example of a complete nico-api configuration file in [full_config.toml](https://github.com/NVIDIA/infra-controller/blob/main/crates/api-core/src/cfg/test_data/full_config.toml)
 
 ### Permissive mode
 
@@ -260,7 +259,7 @@ permissive_mode = true
 
 When permissive mode is active, nico-api logs messages like:
 
-```
+```text
 WARN The policy engine denied this request, but --auth-permissive-mode overrides it.
 ```
 

@@ -4,13 +4,13 @@
 ##
 ## DEPLOYMENT MODES:
 ##
-## 1. OVERRIDE MODE (Development) - bmcServices.enabled: false
+## 1. OVERRIDE MODE (Development)
 ##    - NICo Site-Explorer redirects ALL Redfish calls to machine-a-tron
 ##    - Simple setup, single pod
 ##    - INCOMPATIBLE with real hardware
 ##
-## 2. CLUSTERIP MODE (Large-Scale Testing) - bmcServices.enabled: true
-##    - Each simulated BMC gets dedicated ClusterIP service
+## 2. CONTROLLER MODE (Large-Scale Testing) - mat-k8s-controller.enabled: true
+##    - Controller dynamically creates ClusterIP Services per BMC
 ##    - Supports multi-pod deployments via `pods` configuration
 ##    - Compatible with real hardware
 ##
@@ -19,6 +19,9 @@
 ## =============================================================================
 
 global:
+  ## Namespace override (propagates to subcharts). Required when mat-k8s-controller is enabled.
+  ## Example: --set global.namespaceOverride=nico-system
+  namespaceOverride: ""
   certificate:
     duration: 720h0m0s
     renewBefore: 360h0m0s
@@ -42,12 +45,10 @@ image:
   tag: ""
   pullPolicy: IfNotPresent
 
-namespaceOverride: ""
-
-## Create namespace when namespaceOverride is set
+## Create namespace when global.namespaceOverride is set
 createNamespace: true
 
-automountServiceAccountToken: true
+automountServiceAccountToken: false
 
 ## Graceful shutdown timeout (seconds)
 terminationGracePeriodSeconds: 60
@@ -82,8 +83,6 @@ certificate:
   extraUris: []
 
 command:
-  - /bin/sh
-  - -c
   - /opt/machine-a-tron/bin/machine-a-tron
 
 env:
@@ -220,9 +219,8 @@ hwMacAddressRanges:
   ## Bits per allocated range (8 = 256 MACs per range allocation)
   rangeHostBits: 8
 
-##   - N ClusterIP BMC services (when bmcServices.enabled)
+##   - N ClusterIP BMC services (when mat-k8s-controller.enabled)
 ##
-## SCALE: Use /22 CIDR per pod = 1021 usable IPs = ~14 racks worth of BMCs
 ##
 ## BMC count per GB200 NVL72 rack: 71
 ##   - Compute trays: 18 × 3 = 54
@@ -239,10 +237,21 @@ hwMacAddressRanges:
 ## All other settings inherit from machineDefaults above.
 ##
 pods:
-  ## Single-pod configuration is used when bmcServices.enabled=false (by default)
-  ## For multi-pod deployments, add more entries below and enable bmcServices
-  default:
-    cidr: ""
+  ## Pod names become Kubernetes resource suffixes: nico-machine-a-tron-<podName>
+  ## Use consistent naming: mat-0 for single-pod, mat-0/mat-1/mat-2 for multi-pod
+  ## Names must be valid K8s label values (alphanumeric, -, _, ., max 63 chars)
+  mat-0:
+
+    # racks:
+    #   gb200:
+    #     type: wiwynn_gb200_nvl72
+    #     rack_profile_id: NVL72
+    #     ids:
+    #       - rack-001
+    #     dpu_reboot_delay: 20
+    #     host_reboot_delay: 10
+    #     oob_dhcp_relay_address: "192.168.192.1"
+    #     admin_dhcp_relay_address: "192.168.176.1"
 
     ## Machine groups for this pod
     machines:
@@ -254,58 +263,38 @@ pods:
         adminDhcpRelayAddress: "192.168.176.1"
 
 ## =============================================================================
-## Multi-Pod Example (bmcServices.enabled is required)
+## Multi-Pod Example (mat-k8s-controller.enabled is required)
 ## =============================================================================
 ## Uncomment and customize for large-scale deployments:
 ##
 #  mat-0:
-#    cidr: "10.100.0.0/22"    # 1021 IPs for ~14 racks
 #    machines:
 #      compute:
 #        hwType: wiwynn_gb200_nvl
 #        hostCount: 252       # 18 trays × 14 racks
 #        dpuPerHostCount: 2   # 2 BF3 per tray
-#        oobDhcpRelayAddress: "10.100.0.1"
+#        oobDhcpRelayAddress: "10.96.64.1"
 #        adminDhcpRelayAddress: "192.168.176.1"
 #      switches:
 #        hwType: nvidia_switch_nd5200_ld
 #        hostCount: 126       # 9 switches × 14 racks
-#        oobDhcpRelayAddress: "10.100.0.1"
+#        oobDhcpRelayAddress: "10.96.64.1"
 #        adminDhcpRelayAddress: "192.168.176.1"
 #      power:
 #        hwType: liteon_power_shelf
 #        hostCount: 112       # 8 shelves × 14 racks
-#        oobDhcpRelayAddress: "10.100.0.1"
+#        oobDhcpRelayAddress: "10.96.64.1"
 #        adminDhcpRelayAddress: "192.168.176.1"
 #
 #  mat-1:
-#    cidr: "10.100.4.0/22"    # Next /22 block
 #    machines:
 #      compute:
 #        hwType: wiwynn_gb200_nvl
 #        hostCount: 252
 #        dpuPerHostCount: 2
-#        oobDhcpRelayAddress: "10.100.4.1"
+#        oobDhcpRelayAddress: "10.96.64.1"
 #        adminDhcpRelayAddress: "192.168.176.1"
 #      # ... same pattern
-
-## =============================================================================
-## BMC Services Configuration
-## =============================================================================
-bmcServices:
-  enabled: false
-
-  ## External port for BMC services (matches real BMC HTTPS port)
-  servicePort: 443
-
-  ## ServiceCIDR reserves the IP range (Kubernetes 1.29+)
-  serviceCIDR:
-    create: true
-    ## Name for the ServiceCIDR (cluster-scoped)
-    name: ""
-    ## Combined CIDR covering all pods (auto-calculated if empty for single pod)
-    ## Set manually if pods have non-contiguous CIDRs
-    cidr: ""
 
 ## Persistence volume for machine state
 persistence:
@@ -344,13 +333,39 @@ configFiles:
   #     hw_type = "supermicro_gb300_nvl"
   #     host_count = 10
   #     dpu_per_host_count = 2
-  #     oob_dhcp_relay_address = "10.100.0.1"
+  #     oob_dhcp_relay_address = "10.96.64.1"
   #     admin_dhcp_relay_address = "192.168.176.1"
   #
   #     [machines.switches]
   #     hw_type = "nvidia_switch_nd5200_ld"
   #     host_count = 5
   #     dpu_per_host_count = 0
-  #     oob_dhcp_relay_address = "10.100.0.1"
+  #     oob_dhcp_relay_address = "10.96.64.1"
   #     admin_dhcp_relay_address = "192.168.176.1"
   matConfigs: {}
+
+## =============================================================================
+## Machine-a-tron Kubernetes Controller
+## =============================================================================
+## Discovers machine-a-tron pods and creates K8s Services for each mock BMC.
+## Enable for multi-pod deployments to dynamically manage BMC Services.
+##
+## Auto-discovered:
+##   - Finds bmc-mock Services via label: nvidia-infra-controller/mat-service=true
+##   - Polls /machines/status from each discovered instance
+##
+## for ClusterIP assignment. See README troubleshooting for ClusterIP conflicts.
+##
+mat-k8s-controller:
+  enabled: false
+  ## The controller deploys to the same namespace as nico-machine-a-tron.
+
+  image:
+    repository: mat-k8s-controller
+    tag: "0.1.0"
+    pullPolicy: IfNotPresent
+
+  config:
+    syncInterval: "30s"
+    insecureSkipVerify: false
+    logLevel: "info"

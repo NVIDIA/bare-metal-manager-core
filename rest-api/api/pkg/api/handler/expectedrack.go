@@ -70,12 +70,6 @@ func (cerh CreateExpectedRackHandler) Handle(c echo.Context) error {
 		return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to retrieve current user", nil)
 	}
 
-	// ensure our user is a provider or tenant for the org
-	infrastructureProvider, tenant, apiError := common.IsProviderOrTenant(ctx, logger, cerh.dbSession, org, dbUser, false, true)
-	if apiError != nil {
-		return cutil.NewAPIErrorResponse(c, apiError.Code, apiError.Message, apiError.Data)
-	}
-
 	// Validate request
 	// Bind request data to API model
 	apiRequest := model.APIExpectedRackCreateRequest{}
@@ -103,6 +97,12 @@ func (cerh CreateExpectedRackHandler) Handle(c echo.Context) error {
 		}
 		logger.Error().Err(err).Msg("error retrieving Site from DB")
 		return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to retrieve Site specified in request data due to DB error", nil)
+	}
+
+	// Scope tenant privilege to the Site targeted by this request.
+	infrastructureProvider, tenant, apiError := common.IsProviderOrTenant(ctx, logger, cerh.dbSession, org, dbUser, false, &common.TenantPrivilegeScope{SiteID: &site.ID})
+	if apiError != nil {
+		return cutil.NewAPIErrorResponse(c, apiError.Code, apiError.Message, apiError.Data)
 	}
 
 	// Validate ProviderTenantSite relationship and site state
@@ -222,7 +222,7 @@ func NewGetAllExpectedRackHandler(dbSession *cdb.Session, cfg *config.Config) Ge
 
 // Handle godoc
 // @Summary Get all ExpectedRacks
-// @Description Get all ExpectedRacks
+// @Description Get all ExpectedRacks. Provider callers may omit siteId to list across their Sites; Tenant callers must specify siteId.
 // @Tags ExpectedRack
 // @Accept json
 // @Produce json
@@ -246,18 +246,15 @@ func (gaerh GetAllExpectedRackHandler) Handle(c echo.Context) error {
 		return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to retrieve current user", nil)
 	}
 
-	// ensure our user is a provider for the org
-	infrastructureProvider, tenant, apiError := common.IsProviderOrTenant(ctx, logger, gaerh.dbSession, org, dbUser, true, true)
-	if apiError != nil {
-		return cutil.NewAPIErrorResponse(c, apiError.Code, apiError.Message, apiError.Data)
-	}
-
 	filterInput := cdbm.ExpectedRackFilterInput{}
 
 	// Get Site ID from query param if specified
 	siteIDStr := c.QueryParam("siteId")
+	var site *cdbm.Site
+	var err error
+	var privilegeScope *common.TenantPrivilegeScope
 	if siteIDStr != "" {
-		site, err := common.GetSiteFromIDString(ctx, nil, siteIDStr, gaerh.dbSession)
+		site, err = common.GetSiteFromIDString(ctx, nil, siteIDStr, gaerh.dbSession)
 		if err != nil {
 			if errors.Is(err, cdb.ErrDoesNotExist) {
 				return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, "Site specified in request data does not exist", nil)
@@ -265,7 +262,17 @@ func (gaerh GetAllExpectedRackHandler) Handle(c echo.Context) error {
 			logger.Error().Err(err).Msg("error retrieving Site from DB")
 			return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to retrieve Site specified in request data due to DB error", nil)
 		}
+		privilegeScope = &common.TenantPrivilegeScope{SiteID: &site.ID}
+	}
 
+	// A missing scope is the documented provider-wide list exemption above;
+	// tenant-only callers without siteId are rejected below.
+	infrastructureProvider, tenant, apiError := common.IsProviderOrTenant(ctx, logger, gaerh.dbSession, org, dbUser, true, privilegeScope)
+	if apiError != nil {
+		return cutil.NewAPIErrorResponse(c, apiError.Code, apiError.Message, apiError.Data)
+	}
+
+	if site != nil {
 		// Validate ProviderTenantSite relationship and site state
 		hasAccess, apiError := ValidateProviderOrTenantSiteAccess(ctx, logger, gaerh.dbSession, site, infrastructureProvider, tenant)
 		if apiError != nil {
@@ -310,7 +317,7 @@ func (gaerh GetAllExpectedRackHandler) Handle(c echo.Context) error {
 
 	// Validate pagination request
 	pageRequest := pagination.PageRequest{}
-	err := c.Bind(&pageRequest)
+	err = c.Bind(&pageRequest)
 	if err != nil {
 		logger.Warn().Err(err).Msg("error binding pagination request data into API model")
 		return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, "Failed to parse request pagination data", nil)
@@ -403,12 +410,6 @@ func (gerh GetExpectedRackHandler) Handle(c echo.Context) error {
 		return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to retrieve current user", nil)
 	}
 
-	// ensure our user is a provider for the org
-	infrastructureProvider, tenant, apiError := common.IsProviderOrTenant(ctx, logger, gerh.dbSession, org, dbUser, true, true)
-	if apiError != nil {
-		return cutil.NewAPIErrorResponse(c, apiError.Code, apiError.Message, apiError.Data)
-	}
-
 	// Get Expected Rack ID from URL param
 	expectedRackID, err := uuid.Parse(c.Param("id"))
 	if err != nil {
@@ -446,6 +447,12 @@ func (gerh GetExpectedRackHandler) Handle(c echo.Context) error {
 			logger.Error().Err(err).Msg("error retrieving Site from DB")
 			return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to retrieve Site details for Expected Rack due to DB error", nil)
 		}
+	}
+
+	// Scope tenant privilege to the Expected Rack's Site.
+	infrastructureProvider, tenant, apiError := common.IsProviderOrTenant(ctx, logger, gerh.dbSession, org, dbUser, true, &common.TenantPrivilegeScope{SiteID: &site.ID})
+	if apiError != nil {
+		return cutil.NewAPIErrorResponse(c, apiError.Code, apiError.Message, apiError.Data)
 	}
 
 	// Validate ProviderTenantSite relationship and site state
@@ -509,12 +516,6 @@ func (uerh UpdateExpectedRackHandler) Handle(c echo.Context) error {
 		return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to retrieve current user", nil)
 	}
 
-	// Ensure our user is a provider for the org
-	infrastructureProvider, tenant, apiError := common.IsProviderOrTenant(ctx, logger, uerh.dbSession, org, dbUser, false, true)
-	if apiError != nil {
-		return cutil.NewAPIErrorResponse(c, apiError.Code, apiError.Message, apiError.Data)
-	}
-
 	// Get Expected Rack ID from URL param
 	expectedRackID, err := uuid.Parse(c.Param("id"))
 	if err != nil {
@@ -565,6 +566,12 @@ func (uerh UpdateExpectedRackHandler) Handle(c echo.Context) error {
 		return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to retrieve Site details for Expected Rack", nil)
 	}
 
+	// Scope tenant privilege to the Expected Rack's Site.
+	infrastructureProvider, tenant, apiError := common.IsProviderOrTenant(ctx, logger, uerh.dbSession, org, dbUser, false, &common.TenantPrivilegeScope{SiteID: &site.ID})
+	if apiError != nil {
+		return cutil.NewAPIErrorResponse(c, apiError.Code, apiError.Message, apiError.Data)
+	}
+
 	// Validate ProviderTenantSite relationship and site state
 	hasAccess, apiError := ValidateProviderOrTenantSiteAccess(ctx, logger, uerh.dbSession, site, infrastructureProvider, tenant)
 	if apiError != nil {
@@ -575,27 +582,27 @@ func (uerh UpdateExpectedRackHandler) Handle(c echo.Context) error {
 		return cutil.NewAPIErrorResponse(c, http.StatusForbidden, "Current org is not associated with the Site of the Expected Rack", nil)
 	}
 
-	// If RackID is changing, ensure the new value is not already taken in this site
+	// RackID is immutable: Core and Flow identify expected racks by rackId, so
+	// PATCH may reassert the existing identity but cannot replace it. A rename
+	// would first mutate the Cloud record and only then fail in Core's lookup
+	// by the new rackId, so the mismatch is rejected here before any database
+	// write or workflow trigger. This mirrors the ExpectedMachine BMC MAC
+	// identity boundary.
 	if apiRequest.RackID != nil && *apiRequest.RackID != expectedRack.RackID {
-		_, count, err := erDAO.GetAll(ctx, nil, cdbm.ExpectedRackFilterInput{
-			SiteIDs: []uuid.UUID{expectedRack.SiteID},
-			RackIDs: []string{*apiRequest.RackID},
-		}, paginator.PageInput{Limit: cutil.GetPtr(1)}, nil)
-		if err != nil {
-			logger.Error().Err(err).Msg("error checking for duplicate Expected Rack")
-			return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to validate Expected Rack uniqueness due to DB error", nil)
-		}
-		if count > 0 {
-			return cutil.NewAPIErrorResponse(c, http.StatusConflict, "Expected Rack with specified RackID already exists for Site", validation.Errors{
-				"rackId": errors.New(*apiRequest.RackID),
-			})
-		}
+		logger.Warn().
+			Str("requestRackID", *apiRequest.RackID).
+			Str("currentRackID", expectedRack.RackID).
+			Msg("RackID cannot be changed after creation")
+		return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, "Failed to validate ExpectedRack update request data", validation.Errors{
+			"rackId": errors.New("RackID cannot be changed after creation"),
+		})
 	}
 
-	// Build update input from request, mapping flat API fields to DAO fields
+	// Build update input from request, mapping flat API fields to DAO fields.
+	// RackID is intentionally not passed through: it is immutable, so the DAO
+	// update path is structurally incapable of renaming an Expected Rack.
 	updateInput := cdbm.ExpectedRackUpdateInput{
 		ExpectedRackID: expectedRack.ID,
-		RackID:         apiRequest.RackID,
 		RackProfileID:  apiRequest.RackProfileID,
 		Name:           apiRequest.Name,
 		Description:    apiRequest.Description,
@@ -692,12 +699,6 @@ func (derh DeleteExpectedRackHandler) Handle(c echo.Context) error {
 		return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to retrieve current user", nil)
 	}
 
-	// Ensure our user is a provider for the org
-	infrastructureProvider, tenant, apiError := common.IsProviderOrTenant(ctx, logger, derh.dbSession, org, dbUser, false, true)
-	if apiError != nil {
-		return cutil.NewAPIErrorResponse(c, apiError.Code, apiError.Message, apiError.Data)
-	}
-
 	// Get Expected Rack ID from URL param
 	expectedRackID, err := uuid.Parse(c.Param("id"))
 	if err != nil {
@@ -722,6 +723,12 @@ func (derh DeleteExpectedRackHandler) Handle(c echo.Context) error {
 	if site == nil {
 		logger.Error().Msg("no Site relation found for Expected Rack")
 		return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to retrieve Site details for Expected Rack", nil)
+	}
+
+	// Scope tenant privilege to the Expected Rack's Site.
+	infrastructureProvider, tenant, apiError := common.IsProviderOrTenant(ctx, logger, derh.dbSession, org, dbUser, false, &common.TenantPrivilegeScope{SiteID: &site.ID})
+	if apiError != nil {
+		return cutil.NewAPIErrorResponse(c, apiError.Code, apiError.Message, apiError.Data)
 	}
 
 	// Validate ProviderTenantSite relationship and site state
@@ -820,12 +827,6 @@ func (raerh ReplaceAllExpectedRacksHandler) Handle(c echo.Context) error {
 		return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to retrieve current user", nil)
 	}
 
-	// Ensure our user is a provider or tenant for the org
-	infrastructureProvider, tenant, apiError := common.IsProviderOrTenant(ctx, logger, raerh.dbSession, org, dbUser, false, true)
-	if apiError != nil {
-		return cutil.NewAPIErrorResponse(c, apiError.Code, apiError.Message, apiError.Data)
-	}
-
 	// Validate request
 	apiRequest := model.APIReplaceAllExpectedRacksRequest{}
 	err := c.Bind(&apiRequest)
@@ -852,6 +853,12 @@ func (raerh ReplaceAllExpectedRacksHandler) Handle(c echo.Context) error {
 		}
 		logger.Error().Err(err).Msg("error retrieving Site from DB")
 		return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to retrieve Site specified in request data due to DB error", nil)
+	}
+
+	// Scope tenant privilege to the Site targeted by this request.
+	infrastructureProvider, tenant, apiError := common.IsProviderOrTenant(ctx, logger, raerh.dbSession, org, dbUser, false, &common.TenantPrivilegeScope{SiteID: &site.ID})
+	if apiError != nil {
+		return cutil.NewAPIErrorResponse(c, apiError.Code, apiError.Message, apiError.Data)
 	}
 
 	// Validate ProviderTenantSite relationship and site state
@@ -985,12 +992,6 @@ func (daerh DeleteAllExpectedRacksHandler) Handle(c echo.Context) error {
 		return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to retrieve current user", nil)
 	}
 
-	// Ensure our user is a provider or tenant for the org
-	infrastructureProvider, tenant, apiError := common.IsProviderOrTenant(ctx, logger, daerh.dbSession, org, dbUser, false, true)
-	if apiError != nil {
-		return cutil.NewAPIErrorResponse(c, apiError.Code, apiError.Message, apiError.Data)
-	}
-
 	// siteId query parameter is required to scope the delete operation
 	siteIDStr := c.QueryParam("siteId")
 	if siteIDStr == "" {
@@ -1011,6 +1012,12 @@ func (daerh DeleteAllExpectedRacksHandler) Handle(c echo.Context) error {
 		}
 		logger.Error().Err(err).Msg("error retrieving Site from DB")
 		return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to retrieve Site specified in query due to DB error", nil)
+	}
+
+	// Scope tenant privilege to the Site targeted by this request.
+	infrastructureProvider, tenant, apiError := common.IsProviderOrTenant(ctx, logger, daerh.dbSession, org, dbUser, false, &common.TenantPrivilegeScope{SiteID: &site.ID})
+	if apiError != nil {
+		return cutil.NewAPIErrorResponse(c, apiError.Code, apiError.Message, apiError.Data)
 	}
 
 	// Validate ProviderTenantSite relationship and site state

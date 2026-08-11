@@ -23,15 +23,20 @@ type Scope struct {
 	ID   uuid.UUID
 }
 
+// HasID reports whether the scope carries a resource identifier.
+func (s Scope) HasID() bool {
+	return s.ID != uuid.Nil
+}
+
 // Validate checks the scope type and identifier contract.
 func (s Scope) Validate() error {
 	switch s.Type {
 	case ScopeTypeSite:
-		if s.ID != uuid.Nil {
+		if s.HasID() {
 			return fmt.Errorf("site scope must not have an id")
 		}
 	case ScopeTypeRack:
-		if s.ID == uuid.Nil {
+		if !s.HasID() {
 			return fmt.Errorf("rack scope requires an id")
 		}
 	default:

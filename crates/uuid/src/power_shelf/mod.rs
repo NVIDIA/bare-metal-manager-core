@@ -41,6 +41,8 @@ pub type HardwareHash = [u8; 32];
 /// String so that we can implement the Copy trait.
 pub type HardwareIdBase32 = [u8; POWER_SHELF_ID_HARDWARE_ID_BASE32_LENGTH];
 
+static POWER_SHELF_ID_PREFIX: &str = "ps100";
+
 /// The `PowerShelfId` uniquely identifies a power shelf that is managed by the Forge system
 ///
 /// `PowerShelfId`s are derived from a hardware fingerprint, and are thereby
@@ -206,6 +208,10 @@ impl PowerShelfId {
             PowerShelfType::Host,
         )
     }
+
+    pub(crate) fn is_matching_prefix(s: &str) -> bool {
+        s.starts_with(POWER_SHELF_ID_PREFIX)
+    }
 }
 
 impl DbPrimaryUuid for PowerShelfId {
@@ -318,7 +324,7 @@ impl std::fmt::Display for PowerShelfId {
         // `ps` is for power-shelf
         // `1` is a version identifier
         // The next 2 bytes `00` are reserved
-        f.write_str("ps100")?;
+        f.write_str(POWER_SHELF_ID_PREFIX)?;
         // Write the power shelf type
         f.write_char(self.ty.id_char())?;
         // The next character determines how the PowerShelfId is derived (`PowerShelfIdSource`)
@@ -361,7 +367,7 @@ impl FromStr for PowerShelfId {
             return Err(PowerShelfIdParseError::Length(s.len()));
         }
         // Check for version 1 and 2 reserved bytes
-        if !s.starts_with("ps100") {
+        if !s.starts_with(POWER_SHELF_ID_PREFIX) {
             return Err(PowerShelfIdParseError::Prefix(s.to_string()));
         }
 
@@ -463,9 +469,9 @@ mod legacy_rpc {
     /// manually every time, while still interacting with peers that expect a `.common.PowerShelfId`
     /// to be serialized.
     #[derive(prost::Message)]
-    pub struct PowerShelfId {
+    pub(super) struct PowerShelfId {
         #[prost(string, tag = "1")]
-        pub id: String,
+        pub(super) id: String,
     }
 
     impl From<super::PowerShelfId> for PowerShelfId {

@@ -45,8 +45,8 @@ use crate::machine::json::MachineSnapshotPgJson;
 use crate::machine::network::{MachineNetworkStatusObservation, ManagedHostNetworkConfig};
 use crate::machine::topology::{DiscoveryData, MachineTopology, TopologyData};
 use crate::machine::{
-    Dpf, FailureCause, FailureDetails, FailureSource, HostProfile, Machine,
-    MachineInterfaceSnapshot, MachineLastRebootRequested, MachineLastRebootRequestedMode,
+    CURRENT_STATE_MODEL_VERSION, Dpf, FailureCause, FailureDetails, FailureSource, HostProfile,
+    Machine, MachineInterfaceSnapshot, MachineLastRebootRequested, MachineLastRebootRequestedMode,
     ManagedHostState, ManagedHostStateSnapshot, UpgradeDecision,
 };
 use crate::machine_interface::InterfaceType;
@@ -363,6 +363,7 @@ pub fn machine_snapshot_pg_json(machine_id: MachineId) -> MachineSnapshotPgJson 
     MachineSnapshotPgJson {
         machine_maintenance_requested: None,
         bmc_credential_rotation_requested: false,
+        uefi_credential_rotation_requested: false,
         id: machine_id,
         rack_id: Some("rack-bench-01".parse().expect("valid rack id")),
         created: fixture_time(0),
@@ -386,7 +387,6 @@ pub fn machine_snapshot_pg_json(machine_id: MachineId) -> MachineSnapshotPgJson 
         network_config: ManagedHostNetworkConfig {
             loopback_ip: Some(IpAddr::from([172, 20, 0, 42])),
             loopback_ip_v6: None,
-            secondary_overlay_vtep_ip: None,
             use_admin_network: Some(false),
             quarantine_state: None,
             use_admin_network_changed: None,
@@ -457,7 +457,7 @@ pub fn machine_snapshot_pg_json(machine_id: MachineId) -> MachineSnapshotPgJson 
         asn: Some(4_200_000_042),
         controller_state_outcome: None,
         current_machine_validation_id: None,
-        machine_state_model_version: 2,
+        machine_state_model_version: i32::from(CURRENT_STATE_MODEL_VERSION),
         instance_type_id: Some(uuid::Uuid::from_u128(0x4001).into()),
         interfaces,
         topology: vec![MachineTopology {
@@ -485,6 +485,9 @@ pub fn machine_snapshot_pg_json(machine_id: MachineId) -> MachineSnapshotPgJson 
         desired_boot_interface_mac: None,
         desired_boot_interface_id: None,
         desired_boot_interface_version: None,
+        boot_interface_verified_version: None,
+        boot_interface_observed_at: None,
+        boot_interface_observation_assumed: false,
         hw_sku_status: None,
         power_options: None,
         hw_sku_device_type: Some("compute".to_string()),

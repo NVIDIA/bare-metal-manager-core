@@ -30,7 +30,7 @@ use crate::errors::CarbideError;
 /// (even if that particular request doesn't actually persist the name, it's always at least logged)
 /// this is how we enforce that an actual human is doing this with their own certificates, rather than
 /// "something in the ether".  We do this so that we can always audit who did what to an env.
-pub fn external_user_name<T>(request: &Request<T>) -> Result<String, CarbideError> {
+fn external_user_name<T>(request: &Request<T>) -> Result<String, CarbideError> {
     if let Some(external_user_name) = request
         .extensions()
         .get::<auth::AuthContext>()

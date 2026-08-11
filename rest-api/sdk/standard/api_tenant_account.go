@@ -628,16 +628,16 @@ func (a *TenantAccountAPIService) GetTenantAccountExecute(r ApiGetTenantAccountR
 }
 
 type ApiUpdateTenantAccountRequest struct {
-	ctx        context.Context
-	ApiService *TenantAccountAPIService
-	org        string
-	accountId  string
-	body       *map[string]interface{}
+	ctx                        context.Context
+	ApiService                 *TenantAccountAPIService
+	org                        string
+	accountId                  string
+	tenantAccountUpdateRequest *TenantAccountUpdateRequest
 }
 
-// No parameters are required; an empty request body is sufficient.
-func (r ApiUpdateTenantAccountRequest) Body(body map[string]interface{}) ApiUpdateTenantAccountRequest {
-	r.body = &body
+// Tenant invite acceptance or Provider Admin site capability update.
+func (r ApiUpdateTenantAccountRequest) TenantAccountUpdateRequest(tenantAccountUpdateRequest TenantAccountUpdateRequest) ApiUpdateTenantAccountRequest {
+	r.tenantAccountUpdateRequest = &tenantAccountUpdateRequest
 	return r
 }
 
@@ -650,9 +650,11 @@ UpdateTenantAccount Update Tenant Account
 
 Update a Tenant Account.
 
-Can be used to accept an invitation sent by an Infrastructure Provider.
+Tenant Admins may accept an invitation sent by an Infrastructure Provider by supplying `tenantContactId`.
 
-Org must have a Tenant entity whose ID matches the `tenantId` of the Tenant Account object. User must have authorization role with `TENANT_ADMIN` suffix. Can only update a Tenant Account that has `Invited` status.
+Provider Admins may replace `siteCapabilities` to configure the Tenant Account default and overrides for specific Sites. When `siteCapabilities` is sent, it must be non-empty, include exactly one entry with empty or omitted `siteIds`, and must not repeat any `siteId` across entries. Requests containing both `tenantContactId` and `siteCapabilities` are rejected with 400.
+
+Org must have a Tenant entity whose ID matches the `tenantId` of the Tenant Account object when accepting an invite. User must have authorization role with `TENANT_ADMIN` suffix to accept; `PROVIDER_ADMIN` suffix to update `siteCapabilities`. Tenant Admins can only update a Tenant Account that has `Invited` status.
 
 	@param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
 	@param org Name of the Org
@@ -710,7 +712,7 @@ func (a *TenantAccountAPIService) UpdateTenantAccountExecute(r ApiUpdateTenantAc
 		localVarHeaderParams["Accept"] = localVarHTTPHeaderAccept
 	}
 	// body params
-	localVarPostBody = r.body
+	localVarPostBody = r.tenantAccountUpdateRequest
 	req, err := a.client.prepareRequest(r.ctx, localVarPath, localVarHTTPMethod, localVarPostBody, localVarHeaderParams, localVarQueryParams, localVarFormParams, formFiles)
 	if err != nil {
 		return localVarReturnValue, nil, err

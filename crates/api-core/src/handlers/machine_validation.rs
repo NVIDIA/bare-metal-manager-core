@@ -717,7 +717,7 @@ pub(crate) async fn on_demand_machine_validation(
                         .into_iter()
                         .map(|t| t.to_ascii_lowercase())
                         .collect();
-                    let validation_id = db::machine_validation::create_new_run(
+                    let validation = db::machine_validation::create_new_run(
                         &mut txn,
                         &machine_id,
                         MachineValidationContext::OnDemand,
@@ -729,6 +729,7 @@ pub(crate) async fn on_demand_machine_validation(
                         },
                     )
                     .await?;
+                    let validation_id = validation.id;
                     tracing::trace!(
                         machine_validation_id = %validation_id,
                         "Created on-demand machine validation run"
@@ -743,6 +744,7 @@ pub(crate) async fn on_demand_machine_validation(
                     Ok(tonic::Response::new(
                         rpc::MachineValidationOnDemandResponse {
                             validation_id: Some(validation_id),
+                            run: Some(validation.into()),
                         },
                     ))
                 }
@@ -1094,7 +1096,7 @@ pub(crate) async fn update_machine_validation_run(
     }))
 }
 
-pub async fn apply_config_on_startup(
+pub(crate) async fn apply_config_on_startup(
     api: &Api,
     config: &MachineValidationConfig,
 ) -> Result<(), CarbideError> {

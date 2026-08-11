@@ -28,7 +28,7 @@ use crate::errors::CarbideCliResult;
 use crate::rpc::ApiClient;
 use crate::{async_write, async_write_table_as_csv};
 
-pub async fn versions(
+pub(super) async fn versions(
     output_file: &mut Box<dyn tokio::io::AsyncWrite + Unpin>,
     output_format: OutputFormat,
     api_client: &ApiClient,
@@ -124,12 +124,12 @@ impl From<DpuVersions> for Row {
     }
 }
 
-pub fn generate_firmware_status_json(machines: Vec<Machine>) -> CarbideCliResult<String> {
+fn generate_firmware_status_json(machines: Vec<Machine>) -> CarbideCliResult<String> {
     let machines: Vec<DpuVersions> = machines.into_iter().map(DpuVersions::from).collect();
     Ok(serde_json::to_string_pretty(&machines)?)
 }
 
-pub fn generate_firmware_status_table(machines: Vec<Machine>) -> Box<Table> {
+fn generate_firmware_status_table(machines: Vec<Machine>) -> Box<Table> {
     let mut table = Table::new();
 
     let headers = vec![
@@ -146,7 +146,7 @@ pub fn generate_firmware_status_table(machines: Vec<Machine>) -> Box<Table> {
 }
 
 #[allow(deprecated)]
-pub async fn handle_dpu_versions(
+async fn handle_dpu_versions(
     output_file: &mut Box<dyn tokio::io::AsyncWrite + Unpin>,
     output_format: OutputFormat,
     api_client: &ApiClient,

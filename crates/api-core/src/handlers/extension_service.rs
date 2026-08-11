@@ -45,48 +45,55 @@ enum ExtensionServiceCredentialCleanupOperation {
     Delete,
 }
 
-/// A create or update stored a credential before its database transaction
-/// failed, and the follow-up cleanup could not delete it.
+/// A stored extension-service credential outlived the record it belonged to,
+/// and the follow-up cleanup could not delete it. Each variant is the API call
+/// that left it behind; only a delete removed a specific version, so only it
+/// holds one.
 #[derive(Event)]
 #[event(
-    event_name = "extension_service_credential_rollback_cleanup_failed",
+    event_name = "extension_service_credential_cleanup_failed",
     metric_name = "carbide_extension_service_credential_cleanup_failures_total",
     component = "nico-api",
-    log = warn,
     metric = counter,
-    message = "Failed to delete extension service credential after transaction failure",
-    describe = "Number of extension-service credential cleanup failures, by operation."
+    log = warn,
+    describe = "Number of extension-service credential cleanup failures, by operation.",
+    labels(operation: ExtensionServiceCredentialCleanupOperation),
 )]
-struct ExtensionServiceCredentialRollbackCleanupFailed {
-    #[label]
-    operation: ExtensionServiceCredentialCleanupOperation,
-    #[context]
-    extension_service_id: ExtensionServiceId,
-    #[context]
-    error: String,
-}
+enum ExtensionServiceCredentialCleanupFailed {
+    #[event(
+        labels(operation = Create),
+        message = "Failed to delete extension service credential after transaction failure"
+    )]
+    Create {
+        #[context]
+        extension_service_id: ExtensionServiceId,
+        #[context]
+        error: String,
+    },
 
-/// A version was deleted in the database, but its post-commit credential
-/// cleanup failed.
-#[derive(Event)]
-#[event(
-    event_name = "extension_service_credential_delete_cleanup_failed",
-    metric_name = "carbide_extension_service_credential_cleanup_failures_total",
-    component = "nico-api",
-    log = warn,
-    metric = counter,
-    message = "Failed to delete extension service credential",
-    describe = "Number of extension-service credential cleanup failures, by operation."
-)]
-struct ExtensionServiceCredentialDeleteCleanupFailed {
-    #[label]
-    operation: ExtensionServiceCredentialCleanupOperation,
-    #[context]
-    extension_service_id: ExtensionServiceId,
-    #[context]
-    version: ConfigVersion,
-    #[context]
-    error: String,
+    #[event(
+        labels(operation = Update),
+        message = "Failed to delete extension service credential after transaction failure"
+    )]
+    Update {
+        #[context]
+        extension_service_id: ExtensionServiceId,
+        #[context]
+        error: String,
+    },
+
+    #[event(
+        labels(operation = Delete),
+        message = "Failed to delete extension service credential"
+    )]
+    Delete {
+        #[context]
+        extension_service_id: ExtensionServiceId,
+        #[context]
+        version: ConfigVersion,
+        #[context]
+        error: String,
+    },
 }
 
 /// Creates a new extension service with an initial version.
@@ -198,8 +205,7 @@ pub(crate) async fn create(
                     delete_extension_service_credential(&api.credential_manager, credential_key)
                         .await
                 {
-                    emit(ExtensionServiceCredentialRollbackCleanupFailed {
-                        operation: ExtensionServiceCredentialCleanupOperation::Create,
+                    emit(ExtensionServiceCredentialCleanupFailed::Create {
                         extension_service_id: service_id,
                         error: delete_err.to_string(),
                     });
@@ -445,8 +451,7 @@ pub(crate) async fn update(
                         delete_extension_service_credential(&api.credential_manager, credential_key)
                             .await
                     {
-                        emit(ExtensionServiceCredentialRollbackCleanupFailed {
-                            operation: ExtensionServiceCredentialCleanupOperation::Update,
+                        emit(ExtensionServiceCredentialCleanupFailed::Update {
                             extension_service_id: service_id,
                             error: delete_err.to_string(),
                         });
@@ -580,8 +585,7 @@ pub(crate) async fn delete(
             if let Err(error) =
                 delete_extension_service_credential(&api.credential_manager, credential_key).await
             {
-                emit(ExtensionServiceCredentialDeleteCleanupFailed {
-                    operation: ExtensionServiceCredentialCleanupOperation::Delete,
+                emit(ExtensionServiceCredentialCleanupFailed::Delete {
                     extension_service_id: service_id,
                     version: *version,
                     error: error.to_string(),
@@ -1027,7 +1031,7 @@ fn detect_extension_service_spec_change(
 }
 
 /// Create a credential key for extension service registry credentials
-pub(crate) fn create_extension_service_credential_key(
+pub(super) fn create_extension_service_credential_key(
     service_id: &ExtensionServiceId,
     version: ConfigVersion,
 ) -> CredentialKey {
@@ -1091,7 +1095,7 @@ async fn delete_extension_service_credential(
 }
 
 /// Get the extension service credential from the vault using the credential key
-pub(crate) async fn get_extension_service_credential(
+pub(super) async fn get_extension_service_credential(
     credential_reader: &dyn carbide_secrets::credentials::CredentialReader,
     credential_key: CredentialKey,
 ) -> Result<rpc::DpuExtensionServiceCredential, CarbideError> {
@@ -1189,22 +1193,19 @@ mod tests {
                 let metrics = MetricsCapture::start();
                 let logs = capture_logs(|| match case {
                     CleanupFailureCase::Create => {
-                        emit(ExtensionServiceCredentialRollbackCleanupFailed {
-                            operation: ExtensionServiceCredentialCleanupOperation::Create,
+                        emit(ExtensionServiceCredentialCleanupFailed::Create {
                             extension_service_id,
                             error: "credential delete failed".to_string(),
                         });
                     }
                     CleanupFailureCase::Update => {
-                        emit(ExtensionServiceCredentialRollbackCleanupFailed {
-                            operation: ExtensionServiceCredentialCleanupOperation::Update,
+                        emit(ExtensionServiceCredentialCleanupFailed::Update {
                             extension_service_id,
                             error: "credential delete failed".to_string(),
                         });
                     }
                     CleanupFailureCase::Delete => {
-                        emit(ExtensionServiceCredentialDeleteCleanupFailed {
-                            operation: ExtensionServiceCredentialCleanupOperation::Delete,
+                        emit(ExtensionServiceCredentialCleanupFailed::Delete {
                             extension_service_id,
                             version,
                             error: "credential delete failed".to_string(),
@@ -1236,9 +1237,9 @@ mod tests {
             "create transaction cleanup fails" {
                 CleanupFailureCase::Create => CleanupFailureObservation {
                     level: tracing::Level::WARN,
-                    metadata_name: "extension_service_credential_rollback_cleanup_failed".to_string(),
+                    metadata_name: "extension_service_credential_cleanup_failed".to_string(),
                     message: "Failed to delete extension service credential after transaction failure".to_string(),
-                    event_name: Some("extension_service_credential_rollback_cleanup_failed".to_string()),
+                    event_name: Some("extension_service_credential_cleanup_failed".to_string()),
                     metric_name: Some(CLEANUP_FAILURE_METRIC.to_string()),
                     operation: Some("create".to_string()),
                     extension_service_id: Some(EXTENSION_SERVICE_ID.to_string()),
@@ -1250,9 +1251,9 @@ mod tests {
             "update transaction cleanup fails" {
                 CleanupFailureCase::Update => CleanupFailureObservation {
                     level: tracing::Level::WARN,
-                    metadata_name: "extension_service_credential_rollback_cleanup_failed".to_string(),
+                    metadata_name: "extension_service_credential_cleanup_failed".to_string(),
                     message: "Failed to delete extension service credential after transaction failure".to_string(),
-                    event_name: Some("extension_service_credential_rollback_cleanup_failed".to_string()),
+                    event_name: Some("extension_service_credential_cleanup_failed".to_string()),
                     metric_name: Some(CLEANUP_FAILURE_METRIC.to_string()),
                     operation: Some("update".to_string()),
                     extension_service_id: Some(EXTENSION_SERVICE_ID.to_string()),
@@ -1264,9 +1265,9 @@ mod tests {
             "post-commit delete cleanup fails" {
                 CleanupFailureCase::Delete => CleanupFailureObservation {
                     level: tracing::Level::WARN,
-                    metadata_name: "extension_service_credential_delete_cleanup_failed".to_string(),
+                    metadata_name: "extension_service_credential_cleanup_failed".to_string(),
                     message: "Failed to delete extension service credential".to_string(),
-                    event_name: Some("extension_service_credential_delete_cleanup_failed".to_string()),
+                    event_name: Some("extension_service_credential_cleanup_failed".to_string()),
                     metric_name: Some(CLEANUP_FAILURE_METRIC.to_string()),
                     operation: Some("delete".to_string()),
                     extension_service_id: Some(EXTENSION_SERVICE_ID.to_string()),

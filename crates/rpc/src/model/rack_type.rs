@@ -15,6 +15,7 @@
  * limitations under the License.
  */
 
+use carbide_uuid::rack::RackProfileId;
 use model::rack_type::{
     RackCapabilitiesSet, RackCapabilityCompute, RackCapabilityPowerShelf, RackCapabilitySwitch,
     RackHardwareClass, RackHardwareTopology, RackHardwareType, RackProductFamily, RackProfile,
@@ -213,6 +214,15 @@ impl From<&RackProfile> for rpc::forge::RackProfile {
     }
 }
 
+impl From<(&str, &RackProfile)> for rpc::forge::ConfiguredRackProfile {
+    fn from((rack_profile_id, profile): (&str, &RackProfile)) -> Self {
+        Self {
+            rack_profile_id: Some(RackProfileId::new(rack_profile_id)),
+            profile: Some(profile.into()),
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use carbide_test_support::Outcome::*;
@@ -395,6 +405,7 @@ mod tests {
     fn test_rack_profile_proto_conversion() {
         let profile = RackProfile {
             product_family: Some(RackProductFamily::Gb200),
+            firmware_object: None,
             rack_hardware_type: Some(RackHardwareType::from("dsx_gb200nvl_72x1")),
             rack_hardware_topology: Some(RackHardwareTopology::Gb200Nvl72r1C2g4Topology),
             rack_hardware_class: Some(RackHardwareClass::Prod),
@@ -478,5 +489,39 @@ mod tests {
             proto.rack_hardware_class,
             rpc::forge::RackHardwareClass::Unspecified as i32
         );
+    }
+
+    #[test]
+    fn test_configured_rack_profile_uses_rack_profile_conversion() {
+        let profile = RackProfile {
+            product_family: Some(RackProductFamily::Gb300),
+            firmware_object: None,
+            rack_hardware_type: Some(RackHardwareType::from("wiwynn_gb300_nvl72")),
+            rack_hardware_topology: Some(RackHardwareTopology::Gb300Nvl72r1C2g4Topology),
+            rack_hardware_class: Some(RackHardwareClass::Prod),
+            rack_capabilities: RackCapabilitiesSet {
+                compute: RackCapabilityCompute {
+                    count: 18,
+                    ..Default::default()
+                },
+                switch: RackCapabilitySwitch {
+                    count: 9,
+                    ..Default::default()
+                },
+                power_shelf: RackCapabilityPowerShelf {
+                    count: 8,
+                    ..Default::default()
+                },
+            },
+            attributes: Default::default(),
+        };
+
+        let configured: rpc::forge::ConfiguredRackProfile = ("NVL72_GB300", &profile).into();
+
+        assert_eq!(
+            configured.rack_profile_id,
+            Some(RackProfileId::new("NVL72_GB300"))
+        );
+        assert_eq!(configured.profile, Some((&profile).into()));
     }
 }

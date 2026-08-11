@@ -78,33 +78,32 @@ struct HostGroup {
 }
 
 #[derive(PartialEq, Eq)]
-pub struct ManagedHostRowDisplay {
-    pub machine_id: String,
-    pub state: String,
-    pub time_in_state: String,
-    pub time_in_state_above_sla: bool,
-    pub state_reason: String,
-    pub health_probe_alerts: Vec<health_report::HealthProbeAlert>,
-    pub health_sources: Vec<String>,
-    pub host_admin_ip: String,
-    pub host_admin_mac: String,
-    pub host_bmc_ip: String,
-    pub host_bmc_mac: String,
-    pub vendor: String,
-    pub model: String,
-    pub num_gpus: usize,
-    pub num_ib_ifs: usize,
-    pub host_memory: String,
-    pub is_link_ref: bool, // is maintenance_reference a URL?
-    pub maintenance_reference: String,
-    pub maintenance_start_time: String,
-    pub dpus: Vec<AttachedDpuRowDisplay>,
-    pub dpf_enabled: bool,
-    pub dpf_used_for_ingestion: bool,
+struct ManagedHostRowDisplay {
+    machine_id: String,
+    state: String,
+    time_in_state_above_sla: bool,
+    state_reason: String,
+    health_probe_alerts: Vec<health_report::HealthProbeAlert>,
+    health_sources: Vec<String>,
+    host_admin_ip: String,
+    host_admin_mac: String,
+    host_bmc_ip: String,
+    host_bmc_mac: String,
+    vendor: String,
+    model: String,
+    num_gpus: usize,
+    num_ib_ifs: usize,
+    host_memory: String,
+    is_link_ref: bool, // is maintenance_reference a URL?
+    maintenance_reference: String,
+    maintenance_start_time: String,
+    dpus: Vec<AttachedDpuRowDisplay>,
+    dpf_enabled: bool,
+    dpf_used_for_ingestion: bool,
 }
 
 impl ManagedHostRowDisplay {
-    pub(crate) fn from_snapshot(
+    fn from_snapshot(
         item: ManagedHostStateSnapshot,
         sla_config: &machine::slas::MachineSlaConfig,
     ) -> Self {
@@ -172,21 +171,12 @@ impl ManagedHostRowDisplay {
             .interfaces
             .into_iter()
             .find(|i| i.primary_interface)
-            .map(|i| {
-                (
-                    i.addresses
-                        .first()
-                        .map(|i| i.to_string())
-                        .unwrap_or_default(),
-                    i.mac_address.to_string(),
-                )
-            })
+            .map(|i| (i.addresses.iter().join(","), i.mac_address.to_string()))
             .unwrap_or_default();
 
         Self {
             machine_id: host_snapshot.id.to_string(),
             state: host_snapshot.state.value.to_string(),
-            time_in_state: host_snapshot.state.version.since_state_change_humanized(),
             time_in_state_above_sla: machine::state_sla(
                 &host_snapshot.id,
                 &host_snapshot.state.value,
@@ -240,7 +230,7 @@ impl From<model::machine::Machine> for AttachedDpuRowDisplay {
             .unwrap_or_default();
         let primary_iface = item.status.interfaces.iter().find(|i| i.primary_interface);
         let oob_ip = primary_iface
-            .and_then(|t| t.addresses.first().map(|a| a.to_string()))
+            .map(|interface| interface.addresses.iter().join(","))
             .unwrap_or_default();
         let oob_mac = primary_iface
             .map(|t| t.mac_address.to_string())
@@ -269,12 +259,12 @@ impl Ord for ManagedHostRowDisplay {
 }
 
 #[derive(PartialEq, Eq, PartialOrd, Ord)]
-pub struct AttachedDpuRowDisplay {
-    pub machine_id: String,
-    pub bmc_ip: String,
-    pub bmc_mac: String,
-    pub oob_ip: String,
-    pub oob_mac: String,
+struct AttachedDpuRowDisplay {
+    machine_id: String,
+    bmc_ip: String,
+    bmc_mac: String,
+    oob_ip: String,
+    oob_mac: String,
 }
 
 enum DpuProperty {
@@ -411,7 +401,7 @@ impl ManagedHostRowDisplay {
 }
 
 /// List managed hosts
-pub async fn show_html(
+pub(super) async fn show_html(
     state: AxumState<Arc<Api>>,
     Query(mut params): Query<HashMap<String, String>>,
 ) -> Response {
@@ -723,7 +713,7 @@ fn filter_expr(keys: &[GroupingKey], values: &[String]) -> String {
         .join("&")
 }
 
-pub async fn show_all_json(state: AxumState<Arc<Api>>) -> Response {
+pub(super) async fn show_all_json(state: AxumState<Arc<Api>>) -> Response {
     let mut managed_hosts = match fetch_managed_hosts_with_metadata(state, true).await {
         Ok(m) => m,
         Err(err) => {
@@ -828,7 +818,7 @@ impl ActiveFilters<'_> {
 }
 
 /// View managed host details. This has been replaced by the Machine details page
-pub async fn detail(
+pub(super) async fn detail(
     AxumState(_state): AxumState<Arc<Api>>,
     AxumPath(machine_id): AxumPath<String>,
 ) -> Response {
@@ -869,3 +859,147 @@ fn short_state(s: &str) -> &str {
 }
 
 impl super::Base for ManagedHostShow {}
+
+#[cfg(test)]
+mod tests {
+    use itertools::Itertools;
+    use model::machine::LoadSnapshotOptions;
+
+    use super::ManagedHostRowDisplay;
+    use crate::tests::env::TestEnv;
+
+    // Test the ManagedHostRowDisplay as a proxy for testing that the HTML has what we want in
+    // managed_host::show_html (parsing the HTML string is prohibitive)
+    #[crate::sqlx_test]
+    async fn test_managed_host_row_display(pool: sqlx::PgPool) -> eyre::Result<()> {
+        let env = TestEnv::new(pool).await;
+        let (mh, build_data) = env.create_ready_managed_host(2).await;
+        let hardware_info = mh.host.hardware_info();
+        let dpu_1 = mh.dpu(0);
+        let dpu_2 = mh.dpu(1);
+
+        // Get info from the test managed host so we know what to assert on in the
+        // ManagedHostRowDisplay.
+        let machine_id = mh.host.id;
+
+        let snapshots = db::managed_host::load_all(
+            &env.api().database_connection,
+            LoadSnapshotOptions {
+                include_history: false,
+                include_instance_data: false,
+                host_health_config: env.api().runtime_config.host_health,
+            },
+        )
+        .await?;
+
+        assert_eq!(
+            snapshots.len(),
+            1,
+            "Unexpected number of managed host snapshots"
+        );
+
+        let mut snapshot = snapshots.into_iter().next().unwrap();
+        assert_eq!(snapshot.host_snapshot.id, machine_id);
+
+        snapshot
+            .host_snapshot
+            .status
+            .interfaces
+            .iter_mut()
+            .find(|interface| interface.primary_interface)
+            .expect("host should have a primary interface")
+            .addresses
+            .push("2001:db8::10".parse().unwrap());
+        for (dpu, address) in snapshot
+            .dpu_snapshots
+            .iter_mut()
+            .zip(["2001:db8::20", "2001:db8::30"])
+        {
+            dpu.status
+                .interfaces
+                .iter_mut()
+                .find(|interface| interface.primary_interface)
+                .expect("DPU should have a primary interface")
+                .addresses
+                .push(address.parse().unwrap());
+        }
+
+        let host_admin_ips = snapshot
+            .host_snapshot
+            .status
+            .interfaces
+            .iter()
+            .find(|interface| interface.primary_interface)
+            .expect("host should have a primary interface")
+            .addresses
+            .iter()
+            .join(",");
+        let dpu_oob_ips: Vec<String> = snapshot
+            .dpu_snapshots
+            .iter()
+            .map(|dpu| {
+                dpu.status
+                    .interfaces
+                    .iter()
+                    .find(|interface| interface.primary_interface)
+                    .expect("DPU should have a primary interface")
+                    .addresses
+                    .iter()
+                    .join(",")
+            })
+            .collect();
+
+        let sla_config = model::machine::slas::MachineSlaConfig::new(
+            env.api()
+                .runtime_config
+                .machine_state_controller
+                .failure_retry_time,
+        );
+        let row = ManagedHostRowDisplay::from_snapshot(snapshot.clone(), &sla_config);
+
+        assert!(row.maintenance_start_time.is_empty());
+        assert!(row.maintenance_reference.is_empty());
+        assert_eq!(row.state, "Ready");
+        assert_eq!(row.num_ib_ifs, hardware_info.infiniband_interfaces.len());
+        assert_eq!(row.num_gpus, hardware_info.gpus.len(),);
+        assert!(!row.time_in_state_above_sla);
+        assert_eq!(row.host_bmc_ip, build_data.host_bmc_ip().to_string());
+        assert_eq!(row.host_bmc_mac, mh.host.bmc_mac.to_string());
+        assert_eq!(
+            row.vendor,
+            hardware_info.dmi_data.as_ref().unwrap().sys_vendor
+        );
+        assert_eq!(
+            row.model,
+            hardware_info.dmi_data.as_ref().unwrap().product_name
+        );
+        assert_eq!(row.machine_id, machine_id.to_string());
+        assert!(!row.health_sources.is_empty());
+        assert!(row.health_probe_alerts.is_empty());
+        assert_eq!(row.host_admin_ip, host_admin_ips);
+        assert_eq!(row.host_admin_mac, mh.host.primary_mac().to_string());
+        assert!(row.state_reason.is_empty());
+
+        assert_eq!(row.dpus.len(), 2);
+
+        assert_eq!(
+            row.dpus[0].machine_id,
+            snapshot.dpu_snapshots[0].id.to_string()
+        );
+        assert_eq!(row.dpus[0].bmc_ip, build_data.dpu_bmc_ip(0).to_string());
+        assert_eq!(row.dpus[0].bmc_mac, dpu_1.bmc_mac.to_string());
+        assert_eq!(row.dpus[0].oob_mac, dpu_1.oob_mac().to_string());
+        assert_eq!(row.dpus[0].oob_ip, dpu_oob_ips[0]);
+
+        assert_eq!(
+            row.dpus[1].machine_id,
+            snapshot.dpu_snapshots[1].id.to_string()
+        );
+        assert_eq!(row.dpus[1].bmc_ip, build_data.dpu_bmc_ip(1).to_string());
+        assert_eq!(row.dpus[1].bmc_mac, dpu_2.bmc_mac.to_string());
+        assert_eq!(row.dpus[1].oob_mac, dpu_2.oob_mac().to_string());
+        assert_eq!(row.dpus[1].oob_ip, dpu_oob_ips[1]);
+
+        Ok(())
+    }
+}

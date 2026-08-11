@@ -19,13 +19,13 @@
 //! Measured Boot attestation (`attestation/measured_boot`): subcommand dispatchers,
 //! args, and backing functions for `... attestation measured-boot` (alias `mb`).
 
-pub mod bundle;
-pub mod global;
-pub mod journal;
-pub mod machine;
-pub mod profile;
-pub mod report;
-pub mod site;
+pub(crate) mod bundle;
+mod global;
+pub(crate) mod journal;
+pub(crate) mod machine;
+pub(crate) mod profile;
+pub(crate) mod report;
+pub(crate) mod site;
 
 use carbide_uuid::machine::MachineId;
 use measured_boot::{ToTable, set_summary};
@@ -56,7 +56,7 @@ impl Dispatch for Cmd {
 }
 
 #[derive(Serialize)]
-pub struct MachineIdList(Vec<MachineId>);
+struct MachineIdList(Vec<MachineId>);
 
 impl ToTable for MachineIdList {
     fn into_table(self) -> eyre::Result<String> {

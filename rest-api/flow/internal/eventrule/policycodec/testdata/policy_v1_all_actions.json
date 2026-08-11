@@ -1,0 +1,44 @@
+{
+  "version": 1,
+  "dedupe": {
+    "version": 1,
+    "window": 300000000000
+  },
+  "actions": [
+    {
+      "version": 1,
+      "id": "submit",
+      "type": "submit_task",
+      "condition": {
+        "severities": ["critical"],
+        "componentTypes": ["COMPUTE"]
+      },
+      "spec": {
+        "operationType": "power_control",
+        "operationCode": "force_power_off",
+        "targetStrategy": "component",
+        "conflictStrategy": "queue",
+        "description": "power off"
+      }
+    },
+    {
+      "version": 1,
+      "id": "alert",
+      "type": "send_alert",
+      "condition": {},
+      "spec": {
+        "severity": "warning",
+        "message": "leak detected"
+      }
+    },
+    {
+      "version": 1,
+      "id": "noop",
+      "type": "noop",
+      "condition": {},
+      "spec": {
+        "reason": "audit only"
+      }
+    }
+  ]
+}

@@ -42,47 +42,47 @@ use std::sync::LazyLock;
 use regex::Regex;
 
 /// Everything the Configuration page template needs.
-pub(crate) struct ConfigPageView {
-    pub groups: Vec<ConfigGroupView>,
+pub(super) struct ConfigPageView {
+    pub(super) groups: Vec<ConfigGroupView>,
 }
 
-pub(crate) struct ConfigGroupView {
-    pub title: &'static str,
+pub(super) struct ConfigGroupView {
+    pub(super) title: &'static str,
     /// Stable identifier used for the tab's `data-tab` / `id` attributes.
-    pub slug: &'static str,
-    pub sections: Vec<ConfigSectionView>,
+    pub(super) slug: &'static str,
+    pub(super) sections: Vec<ConfigSectionView>,
 }
 
-pub(crate) struct ConfigSectionView {
-    pub title: String,
+pub(super) struct ConfigSectionView {
+    pub(super) title: String,
     /// Dotted TOML path prefix of this section ("" for top-level options).
-    pub path: String,
-    pub rows: Vec<ConfigRowView>,
+    pub(super) path: String,
+    pub(super) rows: Vec<ConfigRowView>,
 }
 
-pub(crate) struct ConfigRowView {
-    pub name: String,
+pub(super) struct ConfigRowView {
+    pub(super) name: String,
     /// Full dotted path, also used by the client-side filter.
-    pub path: String,
-    pub ty: String,
-    pub value: CellValue,
-    pub overridden: bool,
+    pub(super) path: String,
+    pub(super) ty: String,
+    pub(super) value: CellValue,
+    pub(super) overridden: bool,
     /// Source label ("nico-api-config.toml", env, ...) when overridden.
-    pub source: String,
-    pub default: CellValue,
+    pub(super) source: String,
+    pub(super) default: CellValue,
     /// Rendered by [`markdown_lite`]; the template inserts it with `|safe`.
-    pub description_html: String,
+    pub(super) description_html: String,
     /// The value shown is the live, runtime-adjustable value.
-    pub runtime: bool,
+    pub(super) runtime: bool,
     /// Lowercased haystack for the client-side filter: name, path, value,
     /// source, and description — deliberately not the type or the panel's
     /// "Type/Default/Path" labels, which would match on every row.
-    pub search: String,
+    pub(super) search: String,
 }
 
 /// A value or default cell. Rendering (and HTML escaping) is centralized in
 /// [`CellValue::to_html`] — the template inserts its output with `|safe`.
-pub(crate) enum CellValue {
+pub(super) enum CellValue {
     /// The option resolves to null/absent.
     Unset,
     /// The option is set to an empty string, list, or map.
@@ -103,7 +103,7 @@ pub(crate) enum CellValue {
 
 impl CellValue {
     /// The single place cell HTML is produced.
-    pub fn to_html(&self) -> String {
+    pub(super) fn to_html(&self) -> String {
         match self {
             CellValue::Unset => r#"<span class="config-unset">unset</span>"#.to_string(),
             CellValue::Empty => r#"<span class="config-unset">empty</span>"#.to_string(),
@@ -119,7 +119,7 @@ impl CellValue {
     }
 
     /// Used by the template to dim rows whose option isn't set.
-    pub fn is_unset(&self) -> bool {
+    pub(super) fn is_unset(&self) -> bool {
         matches!(self, CellValue::Unset)
     }
 
@@ -137,13 +137,13 @@ impl CellValue {
 /// Live values of the runtime-adjustable settings, folded into the catalog
 /// next to their config options and tagged "runtime". `None` values render
 /// as "unset".
-pub(crate) struct LiveSettings {
-    pub log_filter: String,
-    pub site_explorer_enabled: String,
-    pub create_machines: String,
-    pub bmc_proxy: Option<String>,
-    pub tracing_enabled: String,
-    pub dpu_agent_upgrade_policy: String,
+pub(super) struct LiveSettings {
+    pub(super) log_filter: String,
+    pub(super) site_explorer_enabled: String,
+    pub(super) create_machines: String,
+    pub(super) bmc_proxy: Option<String>,
+    pub(super) tracing_enabled: String,
+    pub(super) dpu_agent_upgrade_policy: String,
 }
 
 /// A dynamic setting joined into the catalog: attached to the config option
@@ -236,7 +236,7 @@ fn group_title(slug: &str) -> &'static str {
 /// Builds the page view from the reference doc, the redacted effective config
 /// (as JSON), the explicitly-set key paths with their source labels, and the
 /// live runtime-adjustable values.
-pub(crate) fn build_config_page(
+pub(super) fn build_config_page(
     reference_md: &str,
     effective: &serde_json::Value,
     explicit_paths: &BTreeMap<String, String>,

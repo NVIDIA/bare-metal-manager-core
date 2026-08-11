@@ -19,7 +19,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::sync::atomic::Ordering;
 
-pub use ::rpc::forge as rpc;
+use ::rpc::forge as rpc;
 use carbide_utils::none_if_empty::NoneIfEmpty;
 use carbide_uuid::machine::MachineIdSource;
 use carbide_uuid::nvlink::NvLinkDomainId;
@@ -103,6 +103,9 @@ pub(crate) async fn discover_machine(
         None
     };
 
+    // Admission permit BEFORE the transaction: waiters on the admin-segment
+    // advisory lock must queue in memory, not on open pool connections.
+    let _admin_admission = db::machine_interface::admin_lock_admission().await;
     let mut txn = api.txn_begin().await?;
 
     // Advisory-lock the admin segments before any machine-interface row
@@ -326,21 +329,6 @@ pub(crate) async fn discover_machine(
                 db::machine::allocate_loopback_ip_v6(&api.common_pools, &mut txn, &owner_id).await?
         {
             network_config.loopback_ip_v6 = Some(loopback_ip_v6);
-            network_config_changed = true;
-        }
-
-        if api
-            .runtime_config
-            .vmaas_config
-            .as_ref()
-            .map(|vc| vc.secondary_overlay_support)
-            .unwrap_or_default()
-            && network_config.secondary_overlay_vtep_ip.is_none()
-        {
-            let secondary_vtep_ip =
-                db::machine::allocate_secondary_vtep_ip(&api.common_pools, &mut txn, &owner_id)
-                    .await?;
-            network_config.secondary_overlay_vtep_ip = Some(secondary_vtep_ip);
             network_config_changed = true;
         }
 

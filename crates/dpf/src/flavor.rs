@@ -213,7 +213,7 @@ pub fn flavor_bf4(
             dpu_mode: Some(DpuFlavorDpuMode::ZeroTrust),
             dpu_resources: None,
             bfcfg_parameters: Some(bfcfg_parameters),
-            config_files: Some(get_config_files(proxy)?),
+            config_files: Some(get_config_files(proxy, DpuDeploymentType::Bf4Generic)?),
             containerd_config: None,
             grub: Some(bf4_grub_params()),
             host_network_interface_configs: None,
@@ -226,6 +226,8 @@ pub fn flavor_bf4(
             ew_nic_configurations: None,
             packages: None,
             systemd_services: None,
+            host_os_init: None,
+            scalable_functions: None,
         },
     })
 }
@@ -272,6 +274,8 @@ pub fn flavor_bf4_astra(
             }),
             system_reserved_resources: None,
             systemd_services: Some(vec![]),
+            host_os_init: None,
+            scalable_functions: None,
         },
     })
 }
@@ -444,7 +448,7 @@ pub fn default_flavor(
             dpu_mode: Some(DpuFlavorDpuMode::ZeroTrust),
             dpu_resources: None,
             bfcfg_parameters: Some(bfcfg_parameters),
-            config_files: Some(get_config_files(proxy)?),
+            config_files: Some(get_config_files(proxy, DpuDeploymentType::Bf3)?),
             containerd_config: None,
             grub: Some(get_default_grub()),
             host_network_interface_configs: None,
@@ -457,6 +461,8 @@ pub fn default_flavor(
             ew_nic_configurations: None,
             packages: None,
             systemd_services: None,
+            host_os_init: None,
+            scalable_functions: None,
         },
     })
 }
@@ -484,9 +490,23 @@ fn get_default_grub() -> DpuFlavorGrub {
 }
 
 /// Returns the base set of config files, plus an optional containerd proxy drop-in if `proxy` is set.
+///
+/// `deployment_type` selects the few settings that differ between the deployments sharing this
+/// base set (BF3 and BF4 generic); [`get_bf4_astra_config_files`] builds the BF4 Astra set.
 fn get_config_files(
     proxy: &Option<DpfProxyDetails>,
+    deployment_type: DpuDeploymentType,
 ) -> Result<Vec<DpuFlavorConfigFiles>, crate::error::DpfError> {
+    let mut mlnx_bf_conf = concat!(
+        "ALLOW_SHARED_RQ=\"no\"\n",
+        "IPSEC_FULL_OFFLOAD=\"no\"\n",
+        "ENABLE_ESWITCH_MULTIPORT=\"yes\"\n"
+    )
+    .to_string();
+    if matches!(deployment_type, DpuDeploymentType::Bf4Generic) {
+        mlnx_bf_conf.push_str("SNAP_DMA_SF=\"no\"\n");
+    }
+
     let mut config_files = vec![
         DpuFlavorConfigFiles {
             path: "/var/lib/hbn/etc/supervisor/conf.d/acltool.conf".to_string(),
@@ -534,14 +554,7 @@ fn get_config_files(
             path: "/etc/mellanox/mlnx-bf.conf".to_string(),
             operation: Some(DpuFlavorConfigFilesOperation::Override),
             permissions: Some("0644".to_string()),
-            raw: Some(
-                concat!(
-                    "ALLOW_SHARED_RQ=\"no\"\n",
-                    "IPSEC_FULL_OFFLOAD=\"no\"\n",
-                    "ENABLE_ESWITCH_MULTIPORT=\"yes\"\n"
-                )
-                .to_string(),
-            ),
+            raw: Some(mlnx_bf_conf),
             content_from: None,
             r#type: None,
         },
@@ -1213,7 +1226,7 @@ fn get_bf4_astra_nvconfig() -> DpuFlavorNvconfig {
     let parameters = vec![
         "PF_BAR2_ENABLE=0".to_string(),
         "PER_PF_NUM_SF=1".to_string(),
-        "PF_TOTAL_SF=20".to_string(),
+        "PF_TOTAL_SF=30".to_string(),
         "PF_SF_BAR_SIZE=14".to_string(),
         "NUM_PF_MSIX_VALID=0".to_string(),
         "PF_NUM_PF_MSIX_VALID=1".to_string(),
@@ -1578,11 +1591,11 @@ mod tests {
                 ) => true,
             }
 
-            "Astra nvconfig requests 20 total SFs and 46 VFs" {
+            "Astra nvconfig requests 30 total SFs and 46 VFs" {
                 (
                     nvconfig_parameters
                         .iter()
-                        .any(|parameter| parameter == "PF_TOTAL_SF=20")
+                        .any(|parameter| parameter == "PF_TOTAL_SF=30")
                         && nvconfig_parameters
                             .iter()
                             .any(|parameter| parameter == "NUM_OF_VFS=46")

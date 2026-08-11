@@ -32,7 +32,7 @@ use figment::Figment;
 /// label such as the providing file's name.
 ///
 /// Keys absent from the map fall back to their compiled-in defaults.
-pub fn explicit_value_paths(figment: &Figment) -> BTreeMap<String, String> {
+pub(super) fn explicit_value_paths(figment: &Figment) -> BTreeMap<String, String> {
     let mut paths = BTreeMap::new();
     let Ok(root) = figment.extract::<figment::value::Value>() else {
         return paths;

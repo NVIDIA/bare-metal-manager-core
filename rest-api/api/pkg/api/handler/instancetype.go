@@ -96,7 +96,7 @@ func (cith CreateInstanceTypeHandler) Handle(c echo.Context) error {
 	// Validate role, only Provider Admins are allowed to create Instance Types
 	ok = auth.ValidateUserRoles(dbUser, org, nil, auth.ProviderAdminRole)
 	if !ok {
-		logger.Warn().Msg("user does not have Tenant Admin role, access denied")
+		logger.Warn().Msg("user does not have Provider Admin role, access denied")
 		return cutil.NewAPIErrorResponse(c, http.StatusForbidden, "User does not have Provider Admin role with org", nil)
 	}
 
@@ -475,7 +475,7 @@ func (gaith GetAllInstanceTypeHandler) Handle(c echo.Context) error {
 		return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, errMsg, nil)
 	}
 
-	provider, tenant, apiErr := common.IsProviderOrTenant(ctx, logger, gaith.dbSession, org, dbUser, true, false)
+	provider, tenant, apiErr := common.IsProviderOrTenant(ctx, logger, gaith.dbSession, org, dbUser, true, nil)
 	if apiErr != nil {
 		return cutil.NewAPIErrorResponse(c, apiErr.Code, apiErr.Message, apiErr.Data)
 	}
@@ -764,7 +764,7 @@ func (gith GetInstanceTypeHandler) Handle(c echo.Context) error {
 		}
 	}
 
-	provider, tenant, apiErr := common.IsProviderOrTenant(ctx, logger, gith.dbSession, org, dbUser, true, false)
+	provider, tenant, apiErr := common.IsProviderOrTenant(ctx, logger, gith.dbSession, org, dbUser, true, nil)
 	if apiErr != nil {
 		return cutil.NewAPIErrorResponse(c, apiErr.Code, apiErr.Message, apiErr.Data)
 	}

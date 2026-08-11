@@ -18,12 +18,12 @@
 use carbide_uuid::dpu_remediations::RemediationId;
 use carbide_uuid::instance::InstanceId;
 use carbide_uuid::machine::{MachineId, MachineIdParseError};
+use carbide_uuid::site_prefix::SitePrefixId;
 use carbide_uuid::switch::{SwitchId, SwitchIdParseError};
-use rpc::forge::MachineType;
 use rpc::forge_tls_client::ForgeTlsClientError;
 
 #[derive(thiserror::Error, Debug)]
-pub enum CarbideCliError {
+pub(crate) enum CarbideCliError {
     #[error("unable to connect to carbide API: {0}")]
     ApiConnectFailed(#[from] ForgeTlsClientError),
 
@@ -72,9 +72,6 @@ pub enum CarbideCliError {
     #[error("error while handling csv: {0}")]
     CsvError(#[from] csv::Error),
 
-    #[error("unexpected machine type. expected {0:?} but found {1:?}")]
-    UnexpectedMachineType(MachineType, MachineType),
-
     #[error("machine with id {0} not found")]
     MachineNotFound(MachineId),
 
@@ -89,6 +86,9 @@ pub enum CarbideCliError {
 
     #[error("tenant with id {0} not found")]
     TenantNotFound(String),
+
+    #[error("no SitePrefix found with id {0}")]
+    SitePrefixNotFound(SitePrefixId),
 
     #[error("I/O error. does the file exist? {0}")]
     IOError(#[from] std::io::Error),
@@ -113,9 +113,6 @@ pub enum CarbideCliError {
     #[error("RPC data conversion error: {0}")]
     RpcDataConversionError(#[from] ::rpc::errors::RpcDataConversionError),
 
-    #[error("invalid routing profile type: {0}")]
-    InvalidRoutingProfileType(String),
-
     #[error(transparent)]
     EyreReport(eyre::Report),
 }
@@ -129,4 +126,4 @@ impl From<eyre::Report> for CarbideCliError {
     }
 }
 
-pub type CarbideCliResult<T> = Result<T, CarbideCliError>;
+pub(crate) type CarbideCliResult<T> = Result<T, CarbideCliError>;

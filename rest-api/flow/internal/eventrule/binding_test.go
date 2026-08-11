@@ -10,6 +10,11 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestScopeHasID(t *testing.T) {
+	require.False(t, Scope{Type: ScopeTypeSite}.HasID())
+	require.True(t, Scope{Type: ScopeTypeRack, ID: uuid.New()}.HasID())
+}
+
 func TestBindingValidateRequiresEventType(t *testing.T) {
 	binding := Binding{
 		ID:     uuid.New(),

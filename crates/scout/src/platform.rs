@@ -17,16 +17,14 @@
 
 use smbioslib::{SMBiosSystemInformation, table_load_from_device};
 
-pub(crate) fn is_host_from_product_names<'a>(
-    product_names: impl IntoIterator<Item = &'a str>,
-) -> bool {
+fn is_host_from_product_names<'a>(product_names: impl IntoIterator<Item = &'a str>) -> bool {
     !product_names
         .into_iter()
         .any(|name| name.to_ascii_lowercase().contains("bluefield"))
 }
 
 /// Returns `true` when scout is running on a managed host (as opposed to a DPU).
-pub(crate) fn is_host() -> bool {
+pub(super) fn is_host() -> bool {
     match table_load_from_device() {
         Ok(data) => {
             let product_names = data

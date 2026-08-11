@@ -238,7 +238,7 @@ func TestBuildSite(t *testing.T, dbSession *cdb.Session, ip *cdbm.Infrastructure
 }
 
 // TestBuildTenant build tenant
-func TestBuildTenant(t *testing.T, dbSession *cdb.Session, org string, orgDisplayName string, config *cdbm.TenantConfig, user *cdbm.User) *cdbm.Tenant {
+func TestBuildTenant(t *testing.T, dbSession *cdb.Session, orgDisplayName string, org string, config *cdbm.TenantConfig, user *cdbm.User) *cdbm.Tenant {
 	tenant := &cdbm.Tenant{
 		ID:             uuid.New(),
 		Name:           orgDisplayName,

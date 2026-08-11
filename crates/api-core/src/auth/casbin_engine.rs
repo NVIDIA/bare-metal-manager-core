@@ -22,7 +22,7 @@ use casbin::{CoreApi, DefaultModel, Enforcer, FileAdapter};
 
 use crate::auth::{Authorization, AuthorizationError, PolicyEngine, Predicate};
 
-pub enum ModelType {
+pub(super) enum ModelType {
     // Basic ACL with three arguments (subject, action, object)
     _BasicAcl,
 
@@ -31,12 +31,12 @@ pub enum ModelType {
     Rbac,
 }
 
-pub struct CasbinEngine {
+pub(super) struct CasbinEngine {
     inner: Enforcer,
 }
 
 impl CasbinEngine {
-    pub async fn new(
+    pub(super) async fn new(
         model_type: ModelType,
         policy_path: &Path,
     ) -> Result<Self, Box<dyn error::Error>> {

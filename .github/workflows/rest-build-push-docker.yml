@@ -298,9 +298,38 @@ jobs:
       NICO_TARGET_REGISTRY_TOKEN: ${{ secrets.NICO_TARGET_REGISTRY_TOKEN }}
       NICO_NGC_TOKEN: ${{ secrets.NICO_NGC_TOKEN }}
 
+  build-nico-mcp:
+    name: Build nico-mcp
+    uses: ./.github/workflows/rest-build-push-service.yml
+    with:
+      ngc_path: ${{ inputs.ngc_path }}
+      runner: ${{ inputs.runner }}
+      service_name: nico-mcp
+      binary_name: nico-mcp
+      binary_path: /app/nico-mcp
+      dockerfile: ./rest-api/docker/production/Dockerfile.nico-mcp
+      semantic_version: ${{ inputs.semantic_version }}
+      short_sha: ${{ inputs.short_sha }}
+      branch_sha_tag: ${{ inputs.branch_sha_tag }}
+      target_registry: ${{ inputs.target_registry }}
+      push_enabled: ${{ inputs.push_enabled }}
+      is_main_branch: ${{ inputs.is_main_branch }}
+      release_tag: ${{ inputs.release_tag }}
+      helm_version: ${{ inputs.helm_version }}
+    secrets:
+      NVCR_USERNAME: ${{ secrets.NVCR_USERNAME }}
+      NVCR_TOKEN: ${{ secrets.NVCR_TOKEN }}
+      NICO_TARGET_REGISTRY_USERNAME: ${{ secrets.NICO_TARGET_REGISTRY_USERNAME }}
+      NICO_TARGET_REGISTRY_TOKEN: ${{ secrets.NICO_TARGET_REGISTRY_TOKEN }}
+      NICO_NGC_TOKEN: ${{ secrets.NICO_NGC_TOKEN }}
+
+  # GitHub-hosted on purpose. This job only writes markdown to the step summary,
+  # but as the last thing in the run it was spending 75 seconds waiting for a
+  # self-hosted runner to do three seconds of work. The service builds above
+  # still use `inputs.runner`.
   build-summary:
     name: Build Summary
-    runs-on: ${{ inputs.runner }}
+    runs-on: ubuntu-latest
     needs:
       - build-nico-rest-api
       - build-nico-rest-db
@@ -311,7 +340,8 @@ jobs:
       - build-nico-flow
       - build-nico-psm
       - build-nico-nsm
-    if: always()
+      - build-nico-mcp
+    if: ${{ !cancelled() }}
     outputs:
       build_artifacts: ${{ steps.aggregate.outputs.artifacts }}
 
@@ -359,6 +389,7 @@ jobs:
           echo "7. \`nico-flow:${{ inputs.branch_sha_tag }}\` (amd64 + arm64)" >> $GITHUB_STEP_SUMMARY
           echo "8. \`nico-psm:${{ inputs.branch_sha_tag }}\` (amd64 + arm64)" >> $GITHUB_STEP_SUMMARY
           echo "9. \`nico-nsm:${{ inputs.branch_sha_tag }}\` (amd64 + arm64)" >> $GITHUB_STEP_SUMMARY
+          echo "10. \`nico-mcp:${{ inputs.branch_sha_tag }}\` (amd64 + arm64)" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           if [ "${{ inputs.push_enabled }}" = "true" ]; then
             echo "## Binary Artifacts Uploaded" >> $GITHUB_STEP_SUMMARY
@@ -375,6 +406,7 @@ jobs:
           echo "- nico-flow: \`${{ needs.build-nico-flow.result }}\`" >> $GITHUB_STEP_SUMMARY
           echo "- nico-psm: \`${{ needs.build-nico-psm.result }}\`" >> $GITHUB_STEP_SUMMARY
           echo "- nico-nsm: \`${{ needs.build-nico-nsm.result }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- nico-mcp: \`${{ needs.build-nico-mcp.result }}\`" >> $GITHUB_STEP_SUMMARY
 
       - name: Aggregate outputs
         id: aggregate
@@ -434,6 +466,12 @@ jobs:
               "image_ref": "${{ needs.build-nico-nsm.outputs.image_ref }}",
               "binary_resource": "${{ needs.build-nico-nsm.outputs.ngc_binary_resource }}",
               "image_resource": "${{ needs.build-nico-nsm.outputs.ngc_image_resource }}"
+            },
+            {
+              "service": "nico-mcp",
+              "image_ref": "${{ needs.build-nico-mcp.outputs.image_ref }}",
+              "binary_resource": "${{ needs.build-nico-mcp.outputs.ngc_binary_resource }}",
+              "image_resource": "${{ needs.build-nico-mcp.outputs.ngc_image_resource }}"
             }
           ]
           EOF

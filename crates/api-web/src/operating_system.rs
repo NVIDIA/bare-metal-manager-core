@@ -73,7 +73,7 @@ impl From<&forgerpc::OperatingSystem> for OsRowDisplay {
     }
 }
 
-pub async fn show_html(AxumState(state): AxumState<Arc<Api>>) -> Response {
+pub(super) async fn show_html(AxumState(state): AxumState<Arc<Api>>) -> Response {
     let oss = match fetch_operating_systems(state).await {
         Ok(v) => v,
         Err(err) => {
@@ -92,7 +92,7 @@ pub async fn show_html(AxumState(state): AxumState<Arc<Api>>) -> Response {
     (StatusCode::OK, Html(tmpl.render().unwrap())).into_response()
 }
 
-pub async fn show_all_json(AxumState(state): AxumState<Arc<Api>>) -> Response {
+pub(super) async fn show_all_json(AxumState(state): AxumState<Arc<Api>>) -> Response {
     let mut oss = match fetch_operating_systems(state).await {
         Ok(v) => v,
         Err(err) => {
@@ -229,7 +229,7 @@ impl From<forgerpc::OperatingSystem> for OsDetail {
     }
 }
 
-pub async fn detail(
+pub(super) async fn detail(
     AxumState(state): AxumState<Arc<Api>>,
     AxumPath(os_id): AxumPath<String>,
 ) -> Response {

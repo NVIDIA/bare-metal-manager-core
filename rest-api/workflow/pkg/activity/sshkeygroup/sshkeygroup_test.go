@@ -70,7 +70,7 @@ func TestManageSSHKeyGroup_SyncSSHKeyGroupViaSiteAgent(t *testing.T) {
 
 	tnu := util.TestBuildUser(t, dbSession, uuid.NewString(), []string{tnOrg}, tnRoles)
 
-	tn := util.TestBuildTenant(t, dbSession, tnOrg, "Test Tenant", nil, tnu)
+	tn := util.TestBuildTenant(t, dbSession, "Test Tenant", tnOrg, nil, tnu)
 	assert.NotNil(t, tn)
 
 	st1 := util.TestBuildSite(t, dbSession, ip, "test-site-1", cdbm.SiteStatusRegistered, nil, ipu)
@@ -606,7 +606,7 @@ func TestManageSSHKeyGroup_UpdateSSHKeyGroupStatusInDB(t *testing.T) {
 
 	tnu := util.TestBuildUser(t, dbSession, uuid.NewString(), []string{tnOrg}, tnRoles)
 
-	tn := util.TestBuildTenant(t, dbSession, tnOrg, "Test Tenant", nil, tnu)
+	tn := util.TestBuildTenant(t, dbSession, "Test Tenant", tnOrg, nil, tnu)
 	assert.NotNil(t, tn)
 
 	st1 := util.TestBuildSite(t, dbSession, ip, "test-site-1", cdbm.SiteStatusRegistered, nil, ipu)
@@ -855,7 +855,7 @@ func TestManageSSHKeyGroup_UpdateSSHKeyGroupsInDB(t *testing.T) {
 
 	tnu := util.TestBuildUser(t, dbSession, uuid.NewString(), []string{tnOrg}, tnRoles)
 
-	tn := util.TestBuildTenant(t, dbSession, tnOrg, "Test Tenant", nil, tnu)
+	tn := util.TestBuildTenant(t, dbSession, "Test Tenant", tnOrg, nil, tnu)
 
 	st := util.TestBuildSite(t, dbSession, ip, "test-site", cdbm.SiteStatusRegistered, nil, ipu)
 	st2 := util.TestBuildSite(t, dbSession, ip, "test-site2", cdbm.SiteStatusRegistered, nil, ipu)
@@ -1218,7 +1218,7 @@ func TestManageSSHKeyGroup_DeleteSSHKeyGroupViaSiteAgent(t *testing.T) {
 
 	tnu := util.TestBuildUser(t, dbSession, uuid.NewString(), []string{tnOrg}, tnRoles)
 
-	tn := util.TestBuildTenant(t, dbSession, tnOrg, "Test Tenant", nil, tnu)
+	tn := util.TestBuildTenant(t, dbSession, "Test Tenant", tnOrg, nil, tnu)
 	assert.NotNil(t, tn)
 
 	st1 := util.TestBuildSite(t, dbSession, ip, "test-site-1", cdbm.SiteStatusRegistered, nil, ipu)
@@ -1377,7 +1377,7 @@ func TestSSHKeyAssociationNoPaginator(t *testing.T) {
 	tnu := util.TestBuildUser(t, dbSession, uuid.NewString(), []string{tnOrg}, tnRoles)
 	assert.NotNil(t, tnu)
 
-	tn := util.TestBuildTenant(t, dbSession, tnOrg, "Test Tenant", nil, tnu)
+	tn := util.TestBuildTenant(t, dbSession, "Test Tenant", tnOrg, nil, tnu)
 	assert.NotNil(t, tn)
 
 	site := util.TestBuildSite(t, dbSession, ip, "test-site-1", cdbm.SiteStatusRegistered, nil, ipu)

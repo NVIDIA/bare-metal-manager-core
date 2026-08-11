@@ -20,7 +20,7 @@ use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 use tokio::time::Instant;
-pub mod ipmi;
+mod ipmi;
 pub mod ipmi_sim;
 pub mod libvirt;
 pub mod simulated;
@@ -37,6 +37,7 @@ pub mod mac_address_pool;
 mod machine_info;
 mod middleware_router;
 mod mock_machine_router;
+mod rack_info;
 mod redfish;
 pub mod test_support;
 pub mod tls;
@@ -44,6 +45,7 @@ pub mod tls;
 pub use bmc_state::{BmcEvent, BmcState};
 pub use combined_server::{CombinedServer, ListenerOrAddress};
 pub use combined_service::combined_router;
+pub use hw::rack::{RackElevation, RackUnit};
 pub use machine_info::{
     DpuFirmwareVersions, DpuMachineInfo, DpuSettings, HostMachineInfo, MachineInfo,
 };
@@ -51,11 +53,28 @@ pub use mock_machine_router::{
     BmcCommand, MachineRouterOptions, SetSystemPowerError, SetSystemPowerResult, machine_router,
     machine_router_with_injection_store,
 };
+pub use rack_info::RackInfo;
 pub use redfish::virtual_media::DeviceConfig as VirtualMediaDeviceConfig;
 
 pub const DUMMY_FACTORY_USERNAME: &str = "root";
 pub const DUMMY_FACTORY_PASSWORD: &str = "factory_password";
-pub const DUMMY_FACTORY_DPU_PASSWORD: &str = "0penBmc";
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, Eq, PartialEq)]
+pub enum RackType {
+    #[serde(rename = "wiwynn_gb200_nvl72")]
+    WiwynnGb200Nvl72,
+    #[serde(rename = "lenovo_gb300_nvl72")]
+    LenovoGb300Nvl72,
+}
+
+impl fmt::Display for RackType {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::WiwynnGb200Nvl72 => formatter.write_str("WIWYNN GB200 NVL72"),
+            Self::LenovoGb300Nvl72 => formatter.write_str("Lenovo GB300 NVL72"),
+        }
+    }
+}
 
 #[derive(Default, Debug, Clone, Copy, Serialize, Deserialize, Eq, PartialEq)]
 pub enum HardwareType {
@@ -80,6 +99,8 @@ pub enum HardwareType {
     DeltaPowerShelf,
     #[serde(rename = "nvidia_switch_nd5200_ld")]
     NvidiaSwitchNd5200Ld,
+    #[serde(rename = "nvidia_switch_n5700_ld")]
+    NvidiaSwitchN5700Ld,
     #[serde(rename = "nvidia_dgx_h100")]
     NvidiaDgxH100,
     #[serde(rename = "generic_ami")]
@@ -106,6 +127,7 @@ impl fmt::Display for HardwareType {
             Self::LiteOnPowerShelf => "Lite-On Power Shelf".fmt(f),
             Self::DeltaPowerShelf => "Delta Power Shelf".fmt(f),
             Self::NvidiaSwitchNd5200Ld => "NVIDIA Switch ND5200_LD".fmt(f),
+            Self::NvidiaSwitchN5700Ld => "NVIDIA Switch N5700_LD".fmt(f),
             Self::NvidiaDgxH100 => "NVIDIA DGX H100".fmt(f),
             Self::GenericAmi => "Generic AMI Server".fmt(f),
             Self::HpeProliantDl380aGen11 => "HPE ProLiant DL380a Gen11".fmt(f),
@@ -130,6 +152,7 @@ impl HardwareType {
             Self::LiteOnPowerShelf => Some(0),
             Self::DeltaPowerShelf => Some(0),
             Self::NvidiaSwitchNd5200Ld => Some(0),
+            Self::NvidiaSwitchN5700Ld => Some(0),
             Self::NvidiaDgxH100 => Some(1),
             Self::GenericAmi => None,
             Self::HpeProliantDl380aGen11 => None,
@@ -238,7 +261,7 @@ pub enum SystemPowerControl {
     Resume,
 }
 
-pub trait LogServices: Send + Sync {
+trait LogServices: Send + Sync {
     fn services(&self) -> Vec<&(dyn LogService + '_)>;
 
     fn find(&self, id: &str) -> Option<&(dyn LogService + '_)> {
@@ -249,7 +272,7 @@ pub trait LogServices: Send + Sync {
     }
 }
 
-pub trait LogService: Send + Sync {
+trait LogService: Send + Sync {
     fn id(&self) -> &str;
 
     fn entries(&self, collection: &redfish::Collection<'_>) -> Vec<serde_json::Value>;
@@ -259,4 +282,22 @@ pub trait LogService: Send + Sync {
 pub enum BootOptionKind {
     Disk,
     Network,
+}
+
+#[cfg(test)]
+mod hardware_type_tests {
+    use super::HardwareType;
+
+    #[test]
+    fn nvidia_switch_n5700_ld_serde_and_dpu_count() {
+        let hardware_type = HardwareType::NvidiaSwitchN5700Ld;
+        let serialized = serde_json::to_string(&hardware_type).expect("hardware type serializes");
+
+        assert_eq!(serialized, r#""nvidia_switch_n5700_ld""#);
+        assert_eq!(
+            serde_json::from_str::<HardwareType>(&serialized).expect("hardware type deserializes"),
+            hardware_type
+        );
+        assert_eq!(hardware_type.fixed_number_of_dpu(), Some(0));
+    }
 }

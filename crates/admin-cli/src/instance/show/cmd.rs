@@ -558,7 +558,7 @@ async fn show_instance_details(
     Ok(())
 }
 
-pub async fn handle_show(args: Args, ctx: &mut RuntimeContext) -> CarbideCliResult<()> {
+pub(crate) async fn handle_show(args: Args, ctx: &mut RuntimeContext) -> CarbideCliResult<()> {
     if args.id.is_empty() {
         let mut all_instances = ctx
             .api_client

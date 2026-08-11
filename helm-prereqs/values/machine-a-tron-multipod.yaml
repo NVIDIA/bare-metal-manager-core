@@ -1,34 +1,22 @@
-# machine-a-tron site values — MULTI-POD bmcServices mode
+# machine-a-tron site values — MULTI-POD Controller Mode
 #
-# Two machine-a-tron pods, each simulating 5 hosts x 2 DPUs (30 BMCs total),
-# each with a dedicated per-BMC ClusterIP Service range. Copy this file and
-# adjust CIDRs/counts for your site, then deploy with:
+# Multiple machine-a-tron pods with controller-managed ClusterIP Services.
+# Each pod simulates hosts + DPUs, and the mat-k8s-controller automatically
+# creates Services with BMC IP as ClusterIP.
 #
+# Deploy with:
 #   helm upgrade -i nico-machine-a-tron helm/charts/nico-machine-a-tron \
-#       -n nico-mat -f <your-copy>.yaml
+#       -n nico-system -f <your-copy>.yaml
 #
-# READ FIRST — requirements this mode adds on top of single-pod mode:
-#
-#  * Kubernetes 1.29+ for the ServiceCIDR object (beta 1.31+). On OLDER
-#    clusters set bmcServices.serviceCIDR.create=false and pick pod CIDRs
-#    INSIDE the apiserver's --service-cluster-ip-range.
-#
-#  * The machine-a-tron image must include the bmc-mock Host-header routing
-#    fallback (PR #3190). Do NOT set site_explorer.bmc_proxy in this mode —
-#    NICo dials each BMC's ClusterIP directly.
-#
-#  * MAC address pools are AUTO-GENERATED per pod by the Helm chart:
-#      - mac_address_pool:      02:00:PP:00:00:00 (PP = pod index)
-#      - hw_mac_address_ranges: 02:01:PP:00:00:00 (PP = pod index)
-#    No manual TOML overrides needed.
-#
-#  * One NICo network segment per pod CIDR: network_prefixes has a
-#    one-IPv4-prefix-per-segment constraint, so each pod CIDR needs its own
-#    cloned underlay segment with gateway = .1, num_reserved = 1.
-#
-#  * GB-class hosts (NvidiaGBx00 flow) require expected_machines rows with a
-#    WORKING BMC credential before exploration completes. machine-a-tron
-#    registers them when registerExpectedMachines=true.
+# Requirements:
+#  * oobDhcpRelayAddress must be within Kubernetes ServiceCIDR
+#    - vanilla k8s: 10.96.0.0/12
+#    - kind: 10.96.0.0/16
+#    - k3d: 10.43.0.0/16
+#  * NICo siteConfig needs:
+#    - allow_insecure_discovery = true
+#    - Network covering the BMC IP range
+#  * MAC address pools are AUTO-GENERATED per pod by the Helm chart
 
 certificate:
   uris:
@@ -55,39 +43,39 @@ machineATron:
   registerExpectedMachines: true
   useSingleBmcMock: true
 
-bmcServices:
+# Enable auto-generated MAC pools (prevents collisions in multi-pod)
+macAddressPool:
   enabled: true
-  servicePort: 443
-  serviceCIDR:
-    # Requires Kubernetes 1.29+. On older clusters leave false and carve the
-    # pod CIDRs from the cluster's existing service range.
-    create: false
+  basePrefix: "02:00"
+
+hwMacAddressRanges:
+  enabled: true
+  basePrefix: "02:01"
+
+# Controller mode - dynamically creates Services with BMC IP as ClusterIP
+mat-k8s-controller:
+  enabled: true
+  config:
+    insecureSkipVerify: true  # For self-signed certs
 
 pods:
+  default: null  # Disable default pod
   mat-0:
-    cidr: "10.233.58.0/23"
-    # Auto-generated MAC pools:
-    #   mac_address_pool:      02:00:00:00:00:00
-    #   hw_mac_address_ranges: 02:01:00:00:00:00
     machines:
       compute:
         hwType: wiwynn_gb200_nvl
-        hostCount: 5
+        hostCount: 100
         dpuPerHostCount: 2
-        oobDhcpRelayAddress: "10.233.58.1"
-        adminDhcpRelayAddress: "10.102.0.1"
+        oobDhcpRelayAddress: "10.96.64.1"  # All pods share same relay
+        adminDhcpRelayAddress: "192.168.176.1"
   mat-1:
-    cidr: "10.233.60.0/23"
-    # Auto-generated MAC pools:
-    #   mac_address_pool:      02:00:01:00:00:00
-    #   hw_mac_address_ranges: 02:01:01:00:00:00
     machines:
       compute:
         hwType: wiwynn_gb200_nvl
-        hostCount: 5
+        hostCount: 100
         dpuPerHostCount: 2
-        oobDhcpRelayAddress: "10.233.60.1"
-        adminDhcpRelayAddress: "10.102.0.1"
+        oobDhcpRelayAddress: "10.96.64.1"  # NICo assigns unique IPs
+        adminDhcpRelayAddress: "192.168.176.1"
 
 resources:
   limits:

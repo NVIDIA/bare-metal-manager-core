@@ -15,13 +15,13 @@
  * limitations under the License.
  */
 
-pub mod metrics;
+pub(crate) mod metrics;
 
 use std::panic::Location;
 use std::pin::Pin;
 use std::sync::{Arc, OnceLock};
 
-pub use ::rpc::forge as rpc;
+pub(crate) use ::rpc::forge as rpc;
 use ::rpc::forge::{RemoveSkuRequest, SkuIdList};
 use ::rpc::protos::dns::{
     CreateDomainRequest, DnsResourceRecordLookupRequest, DnsResourceRecordLookupResponse, Domain,
@@ -218,6 +218,34 @@ impl Forge for Api {
         request: Request<rpc::SitePrefixesByIdsRequest>,
     ) -> Result<Response<rpc::SitePrefixList>, Status> {
         crate::handlers::site_prefix::find_by_ids(self, request).await
+    }
+
+    async fn create_site_prefix(
+        &self,
+        request: Request<rpc::SitePrefixCreationRequest>,
+    ) -> Result<Response<rpc::SitePrefix>, Status> {
+        crate::handlers::site_prefix::create(self, request).await
+    }
+
+    async fn update_site_prefix(
+        &self,
+        request: Request<rpc::SitePrefixUpdateRequest>,
+    ) -> Result<Response<rpc::SitePrefix>, Status> {
+        crate::handlers::site_prefix::update(self, request).await
+    }
+
+    async fn delete_site_prefix(
+        &self,
+        request: Request<rpc::SitePrefixDeletionRequest>,
+    ) -> Result<Response<rpc::SitePrefixDeletionResult>, Status> {
+        crate::handlers::site_prefix::delete(self, request).await
+    }
+
+    async fn find_site_prefix_state_histories(
+        &self,
+        request: Request<rpc::SitePrefixStateHistoriesRequest>,
+    ) -> Result<Response<rpc::StateHistories>, Status> {
+        crate::handlers::site_prefix::find_state_histories(self, request).await
     }
 
     async fn create_vpc_prefix(
@@ -1325,6 +1353,13 @@ impl Forge for Api {
         crate::handlers::rack::get_rack_profile(self, request).await
     }
 
+    async fn list_rack_profiles(
+        &self,
+        request: Request<()>,
+    ) -> Result<Response<rpc::ListRackProfilesResponse>, Status> {
+        crate::handlers::rack::list_rack_profiles(self, request)
+    }
+
     /// Trigger DPU reprovisioning
     async fn trigger_dpu_reprovisioning(
         &self,
@@ -1352,6 +1387,14 @@ impl Forge for Api {
         request: Request<rpc::BmcCredentialRotationRequest>,
     ) -> Result<Response<()>, Status> {
         crate::handlers::bmc_credential_rotation::trigger_bmc_credential_rotation(self, request)
+            .await
+    }
+
+    async fn trigger_uefi_credential_rotation(
+        &self,
+        request: Request<rpc::UefiCredentialRotationRequest>,
+    ) -> Result<Response<()>, Status> {
+        crate::handlers::uefi_credential_rotation::trigger_uefi_credential_rotation(self, request)
             .await
     }
 
@@ -1592,6 +1635,13 @@ impl Forge for Api {
         request: Request<rpc::SetHostUefiPasswordRequest>,
     ) -> Result<Response<rpc::SetHostUefiPasswordResponse>, Status> {
         crate::handlers::uefi::set_host_uefi_password(self, request).await
+    }
+
+    async fn set_dpu_uefi_password(
+        &self,
+        request: Request<rpc::SetDpuUefiPasswordRequest>,
+    ) -> Result<Response<rpc::SetDpuUefiPasswordResponse>, Status> {
+        crate::handlers::uefi::set_dpu_uefi_password(self, request).await
     }
 
     async fn get_expected_machine(
@@ -3600,9 +3650,16 @@ pub(crate) fn truncate(mut s: String, len: usize) -> String {
 pub struct DefaultCredential {
     /// Human-friendly name for display in the admin UI
     /// (e.g. `"Host UEFI password"`).
-    pub display_name: &'static str,
+    _display_name: &'static str,
     /// The credential's key path, shown to operators for reference.
-    pub key: String,
+    _key: String,
+}
+
+#[cfg(test)]
+impl DefaultCredential {
+    pub(crate) fn key(&self) -> &str {
+        &self._key
+    }
 }
 
 /// Human-friendly label for a site-wide default credential key, for the admin UI.
@@ -3645,8 +3702,8 @@ impl Api {
                 Ok(Some(Credentials::UsernamePassword { password, .. }))
                     if !password.is_empty() => {}
                 Ok(_) => missing.push(DefaultCredential {
-                    display_name: default_credential_display_name(&key),
-                    key: key.to_key_str().into_owned(),
+                    _display_name: default_credential_display_name(&key),
+                    _key: key.to_key_str().into_owned(),
                 }),
                 Err(err) => {
                     // A backend error is distinct from a genuinely-unset credential;
@@ -3666,7 +3723,9 @@ impl Api {
     // https://github.com/rust-lang/rust/issues/110011 will be
     // implemented
     #[track_caller]
-    pub fn txn_begin(&self) -> impl Future<Output = Result<db::Transaction<'_>, DatabaseError>> {
+    pub(crate) fn txn_begin(
+        &self,
+    ) -> impl Future<Output = Result<db::Transaction<'_>, DatabaseError>> {
         let loc = Location::caller();
         db::Transaction::begin_with_location(&self.database_connection, loc)
     }
@@ -3675,7 +3734,7 @@ impl Api {
         self.database_connection.clone().into()
     }
 
-    pub fn pg_pool(&self) -> &sqlx::PgPool {
+    pub(crate) fn pg_pool(&self) -> &sqlx::PgPool {
         &self.database_connection
     }
 

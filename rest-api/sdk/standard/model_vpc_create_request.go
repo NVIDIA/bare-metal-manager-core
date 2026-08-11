@@ -36,6 +36,8 @@ type VpcCreateRequest struct {
 	NetworkVirtualizationType NullableString `json:"networkVirtualizationType,omitempty"`
 	// Specify routing profile for the VPC. Only supported when `networkVirtualizationType` is set to `FNN`, or when `networkVirtualizationType` is omitted and Site has Native Networking enabled. Requires Tenant to have elevated privilege. Current accepted values are `privileged-internal`, `internal`, and `external`.
 	RoutingProfile NullableString `json:"routingProfile,omitempty"`
+	// Routing-profile properties to overlay on the resolved named profile. Only supported for FNN VPCs and requires `TargetedInstanceCreation` to be effective for the Tenant at the VPC's Site. `routingProfile` may be omitted when the Site and Tenant configuration select a named profile.
+	RoutingProfileOverrides NullableVpcRoutingProfileOverrides `json:"routingProfileOverrides,omitempty"`
 	// ID of the Network Security Group to attach to the VPC
 	NetworkSecurityGroupId NullableString `json:"networkSecurityGroupId,omitempty"`
 	// Explicitly requested VNI for the VPC
@@ -276,6 +278,49 @@ func (o *VpcCreateRequest) UnsetRoutingProfile() {
 	o.RoutingProfile.Unset()
 }
 
+// GetRoutingProfileOverrides returns the RoutingProfileOverrides field value if set, zero value otherwise (both if not set or set to explicit null).
+func (o *VpcCreateRequest) GetRoutingProfileOverrides() VpcRoutingProfileOverrides {
+	if o == nil || IsNil(o.RoutingProfileOverrides.Get()) {
+		var ret VpcRoutingProfileOverrides
+		return ret
+	}
+	return *o.RoutingProfileOverrides.Get()
+}
+
+// GetRoutingProfileOverridesOk returns a tuple with the RoutingProfileOverrides field value if set, nil otherwise
+// and a boolean to check if the value has been set.
+// NOTE: If the value is an explicit nil, `nil, true` will be returned
+func (o *VpcCreateRequest) GetRoutingProfileOverridesOk() (*VpcRoutingProfileOverrides, bool) {
+	if o == nil {
+		return nil, false
+	}
+	return o.RoutingProfileOverrides.Get(), o.RoutingProfileOverrides.IsSet()
+}
+
+// HasRoutingProfileOverrides returns a boolean if a field has been set.
+func (o *VpcCreateRequest) HasRoutingProfileOverrides() bool {
+	if o != nil && o.RoutingProfileOverrides.IsSet() {
+		return true
+	}
+
+	return false
+}
+
+// SetRoutingProfileOverrides gets a reference to the given NullableVpcRoutingProfileOverrides and assigns it to the RoutingProfileOverrides field.
+func (o *VpcCreateRequest) SetRoutingProfileOverrides(v VpcRoutingProfileOverrides) {
+	o.RoutingProfileOverrides.Set(&v)
+}
+
+// SetRoutingProfileOverridesNil sets the value for RoutingProfileOverrides to be an explicit nil
+func (o *VpcCreateRequest) SetRoutingProfileOverridesNil() {
+	o.RoutingProfileOverrides.Set(nil)
+}
+
+// UnsetRoutingProfileOverrides ensures that no value is present for RoutingProfileOverrides, not even an explicit nil
+func (o *VpcCreateRequest) UnsetRoutingProfileOverrides() {
+	o.RoutingProfileOverrides.Unset()
+}
+
 // GetNetworkSecurityGroupId returns the NetworkSecurityGroupId field value if set, zero value otherwise (both if not set or set to explicit null).
 func (o *VpcCreateRequest) GetNetworkSecurityGroupId() string {
 	if o == nil || IsNil(o.NetworkSecurityGroupId.Get()) {
@@ -460,6 +505,9 @@ func (o VpcCreateRequest) ToMap() (map[string]interface{}, error) {
 	}
 	if o.RoutingProfile.IsSet() {
 		toSerialize["routingProfile"] = o.RoutingProfile.Get()
+	}
+	if o.RoutingProfileOverrides.IsSet() {
+		toSerialize["routingProfileOverrides"] = o.RoutingProfileOverrides.Get()
 	}
 	if o.NetworkSecurityGroupId.IsSet() {
 		toSerialize["networkSecurityGroupId"] = o.NetworkSecurityGroupId.Get()

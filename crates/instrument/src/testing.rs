@@ -249,6 +249,13 @@ impl MetricsCapture {
         self.counter_delta(&format!("{name}#sum"), labels)
     }
 
+    /// The named gauge's current value (with exactly these label pairs). A
+    /// gauge holds a level rather than accumulating, so this reads the value
+    /// as it stands rather than the movement since [`MetricsCapture::start`].
+    pub fn gauge_value(&self, name: &str, labels: &[(&str, &str)]) -> f64 {
+        snapshot(test_registry()).value(name, labels)
+    }
+
     /// The current registry contents in Prometheus text exposition format --
     /// handy for eyeballing exact rendered names and labels in a failing test.
     pub fn render(&self) -> String {
@@ -292,6 +299,12 @@ fn snapshot(registry: &prometheus::Registry) -> Snapshot {
                     values.insert(
                         (family.name().to_string(), labels),
                         metric.get_counter().value(),
+                    );
+                }
+                prometheus::proto::MetricType::GAUGE => {
+                    values.insert(
+                        (family.name().to_string(), labels),
+                        metric.get_gauge().value(),
                     );
                 }
                 prometheus::proto::MetricType::HISTOGRAM => {

@@ -1,6 +1,9 @@
 // SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 // SPDX-License-Identifier: Apache-2.0
 
+use std::collections::VecDeque;
+use std::sync::{Arc, Mutex};
+
 use model::component_manager::{
     ComputeTrayComponent, ConfigureSwitchCertificateState, FirmwareState, NvSwitchComponent,
     PowerAction, PowerShelfComponent,
@@ -13,8 +16,8 @@ use crate::compute_tray_manager::{
 use crate::error::ComponentManagerError;
 use crate::nv_switch_manager::{
     ConfigureSwitchCertificateJobStatus, NvSwitchManager, SwitchComponentResult, SwitchEndpoint,
-    SwitchFirmwareUpdateStatus, SwitchPasswordRotationState, SwitchPowerStateResult,
-    SwitchSlotAndTrayResult,
+    SwitchFactoryResetJobStatus, SwitchFirmwareUpdateStatus, SwitchPasswordRotationState,
+    SwitchPowerStateResult, SwitchSlotAndTrayResult,
 };
 use crate::power_shelf_manager::{
     PowerShelfComponentResult, PowerShelfEndpoint, PowerShelfFirmwareUpdateStatus,
@@ -30,6 +33,8 @@ pub struct MockNvSwitchManager {
     password_rotation_start_result: Option<MockPasswordRotationStartResult>,
     password_rotation_job_status_result: Option<MockPasswordRotationJobStatusResult>,
     expected_password_rotation_password: Option<String>,
+    factory_reset_job_status_responses: Option<Arc<Mutex<VecDeque<FactoryResetJobStatusResult>>>>,
+    factory_reset_job_status_calls: Arc<Mutex<Vec<String>>>,
 }
 
 impl MockNvSwitchManager {
@@ -93,7 +98,29 @@ impl MockNvSwitchManager {
         self.expected_password_rotation_password = Some(password.into());
         self
     }
+
+    /// Queues factory-reset job-status results in polling order.
+    pub fn with_factory_reset_job_status_responses(
+        mut self,
+        responses: impl IntoIterator<Item = FactoryResetJobStatusResult>,
+    ) -> Self {
+        self.factory_reset_job_status_responses =
+            Some(Arc::new(Mutex::new(responses.into_iter().collect())));
+
+        self
+    }
+
+    /// Returns the factory-reset parent job IDs requested by callers.
+    pub fn factory_reset_job_status_calls(&self) -> Vec<String> {
+        self.factory_reset_job_status_calls
+            .lock()
+            .expect("factory-reset job-status calls lock poisoned")
+            .clone()
+    }
 }
+
+/// Result returned by one configured factory-reset job-status poll.
+pub type FactoryResetJobStatusResult = Result<SwitchFactoryResetJobStatus, ComponentManagerError>;
 
 #[derive(Debug, Clone)]
 enum MockPasswordRotationStartResult {
@@ -217,6 +244,32 @@ impl NvSwitchManager for MockNvSwitchManager {
                 state: ConfigureSwitchCertificateState::Completed,
                 error: None,
             }))
+    }
+
+    async fn get_switch_factory_reset_job_status(
+        &self,
+        job_id: &str,
+    ) -> Result<SwitchFactoryResetJobStatus, ComponentManagerError> {
+        self.factory_reset_job_status_calls
+            .lock()
+            .expect("factory-reset job-status calls lock poisoned")
+            .push(job_id.to_string());
+
+        let Some(responses) = &self.factory_reset_job_status_responses else {
+            return Err(ComponentManagerError::Unsupported(
+                "mock switch factory-reset job status is disabled".to_string(),
+            ));
+        };
+
+        responses
+            .lock()
+            .expect("factory-reset job-status responses lock poisoned")
+            .pop_front()
+            .unwrap_or_else(|| {
+                Err(ComponentManagerError::Internal(
+                    "no mock switch factory-reset job-status response queued".to_string(),
+                ))
+            })
     }
 
     async fn ensure_password_rotation(

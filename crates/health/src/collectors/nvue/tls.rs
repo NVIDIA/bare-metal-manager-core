@@ -64,6 +64,6 @@ impl ServerCertVerifier for AcceptAnyCertVerifier {
 }
 
 /// Dangerous rustls verifier that accepts any server certificate without validation
-pub fn accept_any_cert_verifier() -> Arc<dyn ServerCertVerifier> {
+pub(super) fn accept_any_cert_verifier() -> Arc<dyn ServerCertVerifier> {
     Arc::new(AcceptAnyCertVerifier)
 }

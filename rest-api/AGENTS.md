@@ -142,6 +142,13 @@ make generate-sdk
 make publish-openapi
 ```
 
+`generate-sdk` uses a pinned openapi-generator, downloaded to `.tools/` and
+checksum-verified on first use, because the generated SDK is byte-for-byte
+dependent on the generator version. Do not install the generator separately to
+bypass the pin. Raising `OPENAPI_GENERATOR_VERSION` belongs in its own change
+alongside the regenerated `sdk/standard/`, since a new generator rewrites files
+no spec edit touched.
+
 ### Protobuf Code Generation
 
 ```bash
@@ -186,6 +193,9 @@ verification expectations.
   `api/pkg/api/model/`, and DB models in `db/pkg/db/model/`.
 - OpenAPI schema in `openapi/spec.yaml` must be updated whenever routes in the
   published API surface are added or modified.
+- Give every newly introduced OpenAPI object a realistic example backed by an
+  existing contract, configuration, or test fixture. Keep example IDs, enum
+  values, nullability, and timing semantics valid under OpenAPI lint.
 - When adding a request/response field to a resource that has both single-item
   and batch endpoints, update the full surface together: single create/update
   DTOs, batch create/update DTOs, handlers, DAO input structs, persistence,
@@ -220,6 +230,8 @@ verification expectations.
   implementation details.
 - API-layer enum-like request constants exposed through JSON use CapitalCase
   values, for example `SiteWideRoot` and `BMCRoot`.
+- When prose names exact API enum values, format the literals as code, for
+  example `Set`, `Clear`, and `Restart`, so they are distinct from verbs.
 - For disruptive machine operations, decide and encode the attached-Instance
   behavior explicitly. If an operation can power-cycle or otherwise disrupt a
   tenant workload, check `Machine.IsAssigned` (or the equivalent association)
@@ -236,6 +248,13 @@ verification expectations.
 When building or converting a REST endpoint that calls on-site NICo Core through
 the generic gRPC proxy, follow
 [`skills/rest-core-grpc-proxy/SKILL.md`](skills/rest-core-grpc-proxy/SKILL.md).
+
+### REST endpoints through the Flow gRPC proxy
+
+When building or converting a REST endpoint that calls on-site Flow through the
+generic gRPC proxy, follow
+[`skills/rest-flow-grpc-proxy/SKILL.md`](skills/rest-flow-grpc-proxy/SKILL.md).
+Callers supply the Temporal workflow ID and conflict policy (unlike CoreProxy).
 
 ### REST endpoint implementation patterns
 
@@ -255,6 +274,9 @@ main patterns:
 - Flow-backed inventory and task APIs use Flow request/response protobufs in the
   API model layer and keep target-shape helpers next to the model or handler
   that owns the REST shape. Use Rack, Tray, Task, and Task Rule as references.
+  Thin unary Flow pass-throughs should use `handler/util/common.ExecuteFlowGRPC`
+  rather than a bespoke Temporal workflow per method. Switching an existing
+  endpoint over spans releases; see the skill for the required order.
 - Curated REST endpoints that call NICo Core `forge.Forge` unary methods should
   use `handler/util/common.ExecuteCoreGRPC` with a typed protobuf request. Do
   not create a bespoke Temporal workflow for a simple unary Core call. BMC

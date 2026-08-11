@@ -36,7 +36,8 @@ mod logging;
 mod metrics;
 mod resources;
 mod run;
+mod shutdown_handler;
 
 pub use carbide_api_core::AdminUiRoutesBuilder;
 pub use command_line::{Command, Options};
-pub use run::run;
+pub use run::{ApiServerAddresses, run};

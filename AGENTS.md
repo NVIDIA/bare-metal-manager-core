@@ -25,7 +25,7 @@ bare-metal lifecycle to fast-track building next-generation AI Cloud offerings.
 
 ## Repository Structure
 
-```
+```text
 infra-controller/
 ├── crates/              # Rust crate implementations. To discover all crates
 │                        # and their purpose, run `ls crates/` or see the
@@ -54,7 +54,8 @@ infra-controller/
 
 ## Technology Stack
 
-### gRPC API and components:
+### gRPC API and components
+
 - **Language:** Rust (edition 2024, toolchain pinned in `rust-toolchain.toml`)
 - **Async runtime:** Tokio
 - **gRPC framework:** Tonic (with TLS via Rustls/aws_lc_rs)
@@ -65,6 +66,7 @@ infra-controller/
 - **API definitions:** Protocol Buffers (protobuf)
 
 ### REST API and components
+
 - **Language (REST API):** Golang 1.26.x
 
 ## Build, Test, and Lint Commands
@@ -169,6 +171,20 @@ verification expectations.
 See [`STYLE_GUIDE.md`](STYLE_GUIDE.md) for detailed Rust coding conventions.
 Make sure to review it to ensure changes meet the expected style of the codebase.
 
+Use the narrowest Rust visibility required by actual callers. Do not use `pub`
+to suppress dead-code warnings or widen production visibility solely for unit
+tests. Follow the [visibility guidance](STYLE_GUIDE.md#visibility).
+
+Name new Core database migrations with the fully populated
+`YYYYMMDDhhmmss_description.sql` format described in
+[`STYLE_GUIDE.md`](STYLE_GUIDE.md#database-migrations). The `migration-police`
+CI job checks only newly added migrations, so existing filenames remain accepted.
+
+### Documentation
+
+Give every fenced code block a language identifier. Use `bash` or `sh` for
+shell commands and `text` for command output or other unformatted examples.
+
 ### Operator documentation
 
 When documenting Helm-backed settings, identify chart values as defaults when
@@ -219,9 +235,112 @@ counters, unit-suffixed histograms) and `metric_name` is the exposed name,
 verbatim. Existing metric names never change. The full standard lives in
 [`docs/observability/instrumentation.md`](docs/observability/instrumentation.md).
 
+## Documentation review
+
+These are documentation checks, not style guidance. Apply every relevant
+check before requesting review.
+
+- **Interface contracts:** Document the complete contract, not just the name or happy path.
+
+  - For every documented command, flag, environment variable, config key, API field, mode, or state, verify the following from code, schema, or exercised output:
+    - exact spelling and case
+    - required or optional condition
+    - default
+    - accepted values, units, formats, and bounds
+    - mutual exclusions and interactions
+    - global versus subcommand position and required order
+    - omission or fallback behavior
+    - observable output, side effects, errors, and unsupported paths
+  - Exercise each changed CLI example at the PR revision on an authorized local
+    or test target and compare it with real `--help` output. Verify changed API,
+    configuration, environment-variable, and state contracts through schemas,
+    handlers, or exercised output appropriate to that interface.
+  - If any answer is unknown, stop and ask the owner; another documentation page
+    is not evidence.
+
+- **Generated interfaces:** Change the source, regenerate every output, and prove they stay in sync.
+
+  - Never edit a generated reference.
+  - For `nico-admin-cli`, change the Clap declarations under
+    `crates/admin-cli/src/`, verify the affected command with
+    `cargo run -q -p nico-admin-cli -- <command-path> --help`, then run
+    `cargo make gen-cli-docs` and `cargo make check-cli-docs`. See
+    `crates/admin-cli/AGENTS.md` for the generated and hand-authored boundaries.
+  - For REST, use `rest-api/openapi/spec.yaml` for the contract and inspect the
+    handler or model for conditional behavior the schema cannot express. When
+    the spec changes, run `make rest-api/lint-openapi`,
+    `make rest-api/generate-sdk`, `make rest-api/publish-openapi`, and
+    `make openapi-breaking`; do not edit `rest-api/sdk/standard/` or
+    `rest-api/docs/index.html`.
+
+- **Workflow parity:** Make the documentation match the workflow that actually runs.
+
+  - For setup documentation, `helm-prereqs/setup.sh` is the source of truth for
+    phases, skip flags, environment requirements, and component order. Run
+    `bash -n helm-prereqs/setup.sh` and cross-check `helm-prereqs/README.md` and
+    `docs/getting-started/quick-start.md`.
+  - For state-machine documentation, trace every success, skip, retry, poll,
+    restart, deletion, maintenance, and error transition to its enum and
+    handler. Narrative, Mermaid, and transition tables must contain the same
+    states and edges, including persisted resume state.
+
+- **Metric catalogue:** A metric is not documented until its HELP text, emitted series, and generated catalogue agree.
+
+  - Treat metric HELP text and `docs/observability/core_metrics.md` as generated
+    API documentation.
+  - Verify what causes the observation, its counter/gauge/histogram type, the
+    exact entity and condition measured, direction or protocol, and every label
+    dimension.
+  - New metrics need non-empty `describe` text and must be exercised by
+    `test_integration` so catalogue generation includes their exposed name,
+    type, and description. Do not patch the generated table.
+
+- **Cross-surface drift:** Change a fact everywhere it appears or make one page canonical and link to the canonical page from the others.
+
+  - Search every changed literal or behavior with
+    `rg -n --fixed-strings '<literal>' README.md crates/ rest-api/ docs/ book/ helm/ helm-prereqs/ deploy/`;
+    reconcile every conflicting hit or establish one canonical explanation and
+    link the others to it.
+  - New or moved public pages must be present in `docs/index.yml`, and moved or
+    removed public paths need redirects in `fern/docs.yml`.
+  - Using the CLI version pinned in `fern/fern.config.json`, run
+    `fern docs md check` and `fern check` from the repository root. Neither
+    command needs a Fern token, but without one, `fern check` skips the
+    published-state `missing-redirects` check.
+  - `docs/release-notes.md` owns current unified releases;
+    do not modify `rest-api/CHANGELOG.md`, as it is legacy history whose
+    published entry order must be preserved.
+
+- **Temporary claims and versions:** Tie temporary claims and pinned versions to a real support boundary.
+
+  - Search changed prose for `currently`, `today`, `for now`, `temporarily`, and
+    `draft`. Each match must name a release, deliberate support boundary, or
+    full tracking URL; a bare issue number or review-history note is
+    insufficient.
+  - Hard-code a tool or dependency version only when it is a tested minimum,
+    maximum, or pinned compatibility boundary; otherwise link the authoritative
+    release page.
+
+- **Rendered output:** Review each artifact in the renderer its readers actually use.
+
+  - Run `rumdl check --config docs/.rumdl.toml AGENTS.md` for this file, and pass
+    every other changed Markdown path as an additional argument. Fail on every
+    finding.
+  - For Fern-published pages, inspect the CI-created PR preview. A local
+    `fern docs dev` preview works without a Fern token, but does not apply the
+    global `nvidia` theme without one.
+  - If a hosted preview must be created manually, run
+    `preview_id='nico-docs-review'; fern generate --docs --preview --id "$preview_id"`,
+    then delete it after review with
+    `fern docs preview delete --id "$preview_id"`.
+  - Inspect generated `nico-admin-cli` pages in GitHub's renderer and OpenAPI
+    output with `make rest-api/preview-openapi`. Check navigation, anchors, wide
+    tables, Mermaid layout, and component rendering in the actual target; lint
+    success is not rendered verification.
+
 ## Further Reading
 
 - [`README.md`](README.md) — Project overview and getting started
 - [`STYLE_GUIDE.md`](STYLE_GUIDE.md) — Detailed Rust coding conventions
 - [`CONTRIBUTING.md`](CONTRIBUTING.md) — Contribution workflow and DCO process
-- [`book/src/README.md`](book/src/README.md) — Architecture and operational guides
+- [`docs/architecture/overview.md`](docs/architecture/overview.md) — Architecture overview

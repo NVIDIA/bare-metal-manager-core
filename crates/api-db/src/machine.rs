@@ -48,10 +48,10 @@ use model::machine::nvlink::MachineNvLinkStatusObservation;
 use model::machine::spx::MachineSpxStatusObservation;
 use model::machine::upgrade_policy::AgentUpgradePolicy;
 use model::machine::{
-    Dpf, DpuInfo, DpuInfoStatusObservation, DpuOsOperationalState, DpuRepresentorStatus,
-    FailureDetails, HostProfile, Machine, MachineInterfaceSnapshot, MachineLastRebootRequested,
-    MachineLastRebootRequestedMode, MachineMaintenanceOperation, MachineValidationContext,
-    ManagedHostState, ReprovisionRequest, UpgradeDecision,
+    CURRENT_STATE_MODEL_VERSION, Dpf, DpuInfo, DpuInfoStatusObservation, DpuOsOperationalState,
+    DpuRepresentorStatus, FailureDetails, HostProfile, Machine, MachineInterfaceSnapshot,
+    MachineLastRebootRequested, MachineLastRebootRequestedMode, MachineMaintenanceOperation,
+    MachineValidationContext, ManagedHostState, ReprovisionRequest, UpgradeDecision,
 };
 use model::machine_interface_address::MachineInterfaceAssociation;
 use model::metadata::Metadata;
@@ -134,7 +134,15 @@ pub async fn get_or_create(
         // Host and DPU machines are created in same `discover_machine` call. Update same
         // state in both machines.
         let state = ManagedHostState::Created;
-        let machine = create(txn, common_pools, stable_machine_id, state, None, 2).await?;
+        let machine = create(
+            txn,
+            common_pools,
+            stable_machine_id,
+            state,
+            None,
+            CURRENT_STATE_MODEL_VERSION,
+        )
+        .await?;
         crate::machine_interface::associate_interface_with_machine(
             &interface.id,
             MachineInterfaceAssociation::Machine(machine.id),
@@ -2481,51 +2489,6 @@ pub async fn allocate_vpc_dpu_loopback(
     }
 }
 
-/// Allocate a value from the secondary VTEP IP resource pool.
-pub async fn allocate_secondary_vtep_ip(
-    common_pools: &CommonPools,
-    txn: &mut PgConnection,
-    owner_id: &str,
-) -> Result<IpAddr, DatabaseError> {
-    match crate::resource_pool::allocate(
-        &common_pools.ethernet.pool_secondary_vtep_ip,
-        txn,
-        resource_pool::OwnerType::Machine,
-        owner_id,
-        None,
-    )
-    .await
-    {
-        Ok(val) => Ok(val),
-        Err(
-            error @ crate::resource_pool::ResourcePoolDatabaseError::ResourcePool(
-                resource_pool::ResourcePoolError::Empty,
-            ),
-        ) => {
-            crate::resource_pool::emit_allocation_failure(
-                common_pools.ethernet.pool_secondary_vtep_ip.value_type,
-                owner_id,
-                false,
-                "secondary-vtep-ip",
-                &error,
-            );
-            Err(DatabaseError::ResourceExhausted(
-                "pool secondary-vtep-ip".to_string(),
-            ))
-        }
-        Err(err) => {
-            crate::resource_pool::emit_allocation_failure(
-                common_pools.ethernet.pool_secondary_vtep_ip.value_type,
-                owner_id,
-                false,
-                "secondary-vtep-ip",
-                &err,
-            );
-            Err(err.into())
-        }
-    }
-}
-
 pub async fn find_by_validation_id(
     txn: &mut PgConnection,
     validation_id: &MachineValidationId,
@@ -2675,6 +2638,54 @@ pub async fn clear_bmc_credential_rotation_requested(
                 id: machine_id.to_string(),
             },
             e => DatabaseError::new("clear_bmc_credential_rotation_requested", e),
+        })?;
+    Ok(())
+}
+
+/// Record an operator "force-converge this UEFI credential now" request on the
+/// machine that owns the UEFI credential (a host machine for its host UEFI; a
+/// DPU machine for its DPU UEFI). The machine state controller consumes it on
+/// its next sweep. Mirrors [`set_bmc_credential_rotation_requested`].
+pub async fn set_uefi_credential_rotation_requested(
+    txn: &mut PgConnection,
+    machine_id: MachineId,
+) -> DatabaseResult<()> {
+    let query =
+        "UPDATE machines SET uefi_credential_rotation_requested = true WHERE id = $1 RETURNING id";
+    sqlx::query_as::<_, MachineId>(query)
+        .bind(machine_id)
+        .fetch_one(txn)
+        .await
+        .map_err(|e| match e {
+            // `RETURNING id` yields no row for an unknown machine; surface a
+            // clean not-found rather than a generic wrapped error.
+            sqlx::Error::RowNotFound => DatabaseError::NotFoundError {
+                kind: "machine",
+                id: machine_id.to_string(),
+            },
+            e => DatabaseError::new("set_uefi_credential_rotation_requested", e),
+        })?;
+    Ok(())
+}
+
+pub async fn clear_uefi_credential_rotation_requested(
+    txn: &mut PgConnection,
+    machine_id: MachineId,
+) -> DatabaseResult<()> {
+    let query =
+        "UPDATE machines SET uefi_credential_rotation_requested = false WHERE id = $1 RETURNING id";
+    sqlx::query_as::<_, MachineId>(query)
+        .bind(machine_id)
+        .fetch_one(txn)
+        .await
+        .map_err(|e| match e {
+            // `RETURNING id` yields no row for an unknown machine; surface a
+            // clean not-found rather than a generic wrapped error.
+            sqlx::Error::RowNotFound => DatabaseError::NotFoundError {
+                kind: "machine",
+                id: machine_id.to_string(),
+            },
+            e => DatabaseError::new("clear_uefi_credential_rotation_requested", e),
         })?;
     Ok(())
 }
@@ -3192,7 +3203,7 @@ mod test {
     use model::machine::topology::{DiscoveryData, TopologyData};
     use model::resource_pool::common::{
         CommonPools, DPA_VNI, EXTERNAL_VPC_VNI, EthernetPools, FNN_ASN, IbPools, LOOPBACK_IP,
-        LOOPBACK_IP_V6, SECONDARY_VTEP_IP, VLANID, VNI, VPC_DPU_LOOPBACK, VPC_VNI,
+        LOOPBACK_IP_V6, VLANID, VNI, VPC_DPU_LOOPBACK, VPC_VNI,
     };
     use model::resource_pool::define::{Range, ResourcePoolDef, ResourcePoolType};
     use model::resource_pool::{ResourcePool, ValueType};
@@ -3221,10 +3232,6 @@ mod test {
                 pool_fnn_asn: Arc::new(ResourcePool::new(FNN_ASN.to_string(), ValueType::Integer)),
                 pool_vpc_dpu_loopback_ip: Arc::new(ResourcePool::new(
                     VPC_DPU_LOOPBACK.to_string(),
-                    ValueType::Ipv4,
-                )),
-                pool_secondary_vtep_ip: Arc::new(ResourcePool::new(
-                    SECONDARY_VTEP_IP.to_string(),
                     ValueType::Ipv4,
                 )),
             },
@@ -3618,7 +3625,6 @@ mod test {
         // changes to fields it does know.
         let legacy_network_config = serde_json::json!({
             "loopback_ip": null,
-            "secondary_overlay_vtep_ip": null,
             "use_admin_network": false,
             "quarantine_state": null,
             "use_admin_network_changed": null
@@ -3642,7 +3648,6 @@ mod test {
         let current_network_config = serde_json::json!({
             "loopback_ip": null,
             "loopback_ip_v6": null,
-            "secondary_overlay_vtep_ip": null,
             "use_admin_network": false,
             "quarantine_state": null,
             "use_admin_network_changed": null

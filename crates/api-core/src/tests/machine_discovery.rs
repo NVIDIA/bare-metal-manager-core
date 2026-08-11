@@ -372,13 +372,6 @@ async fn test_discover_dpu_by_source_ip(
     .expect("DPU should exist");
     assert!(dpu_machine.network_config.loopback_ip.is_some());
     assert!(dpu_machine.network_config.loopback_ip_v6.is_some());
-    assert!(
-        dpu_machine
-            .network_config
-            .secondary_overlay_vtep_ip
-            .is_some()
-    );
-
     Ok(())
 }
 

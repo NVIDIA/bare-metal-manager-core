@@ -19,6 +19,8 @@ use std::collections::HashMap;
 use std::fmt;
 use std::str::FromStr;
 
+use carbide_utils::config::as_std_duration;
+use duration_str::deserialize_duration;
 use serde::de::Error as _;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
@@ -371,6 +373,33 @@ pub struct RackCapabilitiesSet {
 /*           RackProfile              */
 /* ********************************** */
 
+/// Optional source for a rack-wide SOT firmware-object document.
+///
+/// When present on a [`RackProfile`], rack ingestion fetches this document and
+/// uses it as the default firmware request for the profile's compute and switch
+/// inventory.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RackFirmwareObjectConfig {
+    /// URL from which rack ingestion fetches the SOT JSON document.
+    pub url: url::Url,
+
+    /// Maximum duration for the complete HTTP request.
+    ///
+    /// Configuration that omits this field uses 30 seconds.
+    #[serde(
+        default = "RackFirmwareObjectConfig::default_fetch_timeout",
+        deserialize_with = "deserialize_duration",
+        serialize_with = "as_std_duration"
+    )]
+    pub fetch_timeout: std::time::Duration,
+}
+
+impl RackFirmwareObjectConfig {
+    const fn default_fetch_timeout() -> std::time::Duration {
+        std::time::Duration::from_secs(30)
+    }
+}
+
 /// RackProfile describes the hardware identity and expected device
 /// capabilities for a class of rack. The profile is referenced by name
 /// (the map key in the config file) from expected racks and rack configs.
@@ -379,6 +408,13 @@ pub struct RackProfile {
     /// Product family used for product-level component behavior.
     #[serde(default)]
     pub product_family: Option<RackProductFamily>,
+
+    /// Default firmware-object source for ingestion.
+    ///
+    /// When absent, ingestion skips the automatic firmware update unless an
+    /// explicit maintenance request supplies a firmware object.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub firmware_object: Option<RackFirmwareObjectConfig>,
 
     #[serde(default)]
     pub rack_hardware_type: Option<RackHardwareType>,
@@ -582,6 +618,62 @@ count = 2
         assert_eq!(nvl36.rack_capabilities.compute.count, 9);
         assert_eq!(nvl36.rack_capabilities.switch.count, 9);
         assert_eq!(nvl36.rack_capabilities.power_shelf.count, 2);
+    }
+
+    #[test]
+    fn test_rack_profile_firmware_object_toml_deserialization() {
+        const CAPABILITIES: &str = r#"
+[Rack.rack_capabilities.compute]
+count = 0
+[Rack.rack_capabilities.switch]
+count = 0
+[Rack.rack_capabilities.power_shelf]
+count = 0
+"#;
+
+        let cases = [
+            (
+                "configured timeout",
+                r#"
+[Rack.firmware_object]
+url = "https://firmware.example.invalid/sot/rack.json"
+fetch_timeout = "45s"
+"#,
+                Some((
+                    "https://firmware.example.invalid/sot/rack.json",
+                    std::time::Duration::from_secs(45),
+                )),
+            ),
+            (
+                "default timeout",
+                r#"
+[Rack.firmware_object]
+url = "https://firmware.example.invalid/sot/rack.json"
+"#,
+                Some((
+                    "https://firmware.example.invalid/sot/rack.json",
+                    std::time::Duration::from_secs(30),
+                )),
+            ),
+            ("not configured", "[Rack]\n", None),
+        ];
+
+        for (name, input, expected) in cases {
+            let input = format!("{input}{CAPABILITIES}");
+            let config: RackProfileConfig =
+                toml::from_str(&input).unwrap_or_else(|error| panic!("{name}: {error}"));
+            let actual =
+                config
+                    .get("Rack")
+                    .unwrap()
+                    .firmware_object
+                    .as_ref()
+                    .map(|firmware_object| {
+                        (firmware_object.url.as_str(), firmware_object.fetch_timeout)
+                    });
+
+            assert_eq!(actual, expected, "{name}");
+        }
     }
 
     #[test]

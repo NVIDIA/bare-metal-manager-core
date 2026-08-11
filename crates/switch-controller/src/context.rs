@@ -17,7 +17,9 @@
 
 use std::sync::Arc;
 
+use carbide_credential_rotation::RotationGate;
 use carbide_health_metrics::PerObjectMetricsRegistry;
+use carbide_redfish::libredfish::RedfishClientPool;
 use carbide_secrets::credentials::CredentialManager;
 use component_manager::component_manager::ComponentManager;
 use sqlx::PgPool;
@@ -36,6 +38,17 @@ pub struct SwitchStateHandlerServices {
     pub switch_mtls_services: Vec<i32>,
     /// Shared registry backing the generic per-object health metrics.
     pub per_object_metrics_registry: Arc<PerObjectMetricsRegistry>,
+    /// Libredfish pool used to converge the switch BMC credential. The
+    /// same shared instance the machine-controller uses.
+    pub redfish_client_pool: Arc<dyn RedfishClientPool>,
+    /// Short-TTL cache of the site-wide BMC rotation aggregate, shared across
+    /// this replica's per-object ticks so the steady state costs one aggregate
+    /// query per TTL window rather than a per-device query every sweep.
+    pub bmc_rotation_gate: RotationGate,
+    /// Site-wide kill-switch for passive BMC credential rotation. When `false`,
+    /// a Ready switch never enters `RotatingBmc` on its own; the operator
+    /// force-converge escape hatch still works regardless.
+    pub bmc_rotation_enabled: bool,
 }
 
 impl StateHandlerContextObjects for SwitchStateHandlerContextObjects {

@@ -1,4 +1,4 @@
-# machine-a-tron Build & Deployment Guide
+# machine-a-tron Build & Deployment Guide <Badge intent="info">Upcoming</Badge>
 
 machine-a-tron is a bare-metal simulator for NICo testing. It hosts mock DPUs and
 servers via Redfish BMC, allowing end-to-end NICo flows without real hardware. This
@@ -318,55 +318,83 @@ matching `expected_machines` row exists (by BMC MAC) — otherwise it logs
 auto-registers these when `machineATron.registerExpectedMachines: true` (the
 default in the values file). DHCP discovery alone is **not** sufficient.
 
-## Multi-pod simulation with per-BMC ClusterIP services (bmcServices)
+## Multi-pod simulation with Controller Mode
 
-The chart can shard the simulated fleet across several machine-a-tron pods,
-each with a dedicated ClusterIP range where every simulated BMC gets its own
-Service (`pods.<name>.cidr` + `bmcServices.enabled: true`). NICo then dials
-each BMC IP directly — no `bmc_proxy`. A validated two-pod example lives at
-`helm-prereqs/values/machine-a-tron-multipod.yaml` (2 pods × 5
-`wiwynn_gb200_nvl` hosts × 2 DPUs → 30 machines, 15 per pod).
+The chart can shard the simulated fleet across several machine-a-tron pods.
+The `mat-k8s-controller` dynamically creates ClusterIP Services for each BMC,
+with ClusterIP = BMC IP assigned by NICo DHCP. NICo dials each BMC IP directly
+— no `bmc_proxy`. A validated example lives at
+`helm-prereqs/values/machine-a-tron-multipod.yaml`.
 
 Everything single-pod mode needs still applies (namespaces, CA copy, Vault
-seeds, SPIFFE URI). Multi-pod adds the following requirements, all hit in practice:
+seeds, SPIFFE URI). Multi-pod with controller adds the following requirements:
 
-1. **Kubernetes 1.29+** for the `ServiceCIDR` object. On older clusters set
-   `bmcServices.serviceCIDR.create: false` and pick pod CIDRs **inside** the
-   apiserver's `--service-cluster-ip-range` — a static `clusterIP` outside
-   that range is rejected ("the provided IP is not in the valid range").
-   Check the chosen sub-ranges are free of existing ClusterIPs first.
-1. **Image with the `Host`-header routing fallback (PR #3190).** Without a
-   `bmc_proxy` the Redfish client sends no `Forwarded` header; older bmc-mock
-   builds then 404 every request with `no router configured`. Leave
-   `site_explorer.bmc_proxy` unset in this mode.
+1. **`oobDhcpRelayAddress` must be within Kubernetes ServiceCIDR.** All pods
+   can share the same relay address — NICo assigns unique IPs from the network.
+   Default ServiceCIDR ranges:
+   - `10.96.0.0/12` - vanilla Kubernetes (kubeadm)
+   - `10.96.0.0/16` - kind
+   - `10.43.0.0/16` - k3d/K3s
+
+   Check with: `kubectl cluster-info dump | grep service-cluster-ip-range`
+
+1. **NICo siteConfig requirements:**
+
+   ```toml
+   allow_insecure_discovery = true
+
+   [networks.MAT-BMC-SERVICES]
+   type = "underlay"
+   prefix = "10.96.64.0/18"
+   gateway = "10.96.64.1"
+   mtu = 1500
+   ```
+
+1. **Leave `site_explorer.bmc_proxy` unset.** The Redfish client dials each
+   BMC's ClusterIP directly.
+
 1. **Disjoint MAC pools per pod.** The Helm chart **auto-generates** unique
    MAC address pools per pod based on pod index. The format is
    `02:00:PP:XX:XX:XX` where `PP` is the pod index (0x00, 0x01, etc.).
 
    Example with 3 pods:
-
    - Pod mat-0: `02:00:00:00:00:00` (base)
    - Pod mat-1: `02:00:01:00:00:00` (base)
    - Pod mat-2: `02:00:02:00:00:00` (base)
 
-   To override, set per-pod MAC pools in values:
+   Enable with `macAddressPool.enabled: true`.
 
-   ```yaml
-   pods:
-     mat-0:
-       macAddressPool:
-         base: "02:00:00:00:00:00"
-         hostBits: 20
-   ```
+   Example values:
 
-   Or disable auto-generation with `macAddressPool.enabled: false` and use
-   full TOML overrides via `configFiles.matConfigs.<pod>`.
+    ```yaml
+    pods:
+      default: null
+      mat-0:
+        machines:
+          compute:
+            hwType: wiwynn_gb200_nvl
+            hostCount: 100
+            dpuPerHostCount: 2
+            oobDhcpRelayAddress: "10.96.64.1"  # All pods share same relay
+            adminDhcpRelayAddress: "192.168.176.1"
+      mat-1:
+        machines:
+          compute:
+            hwType: wiwynn_gb200_nvl
+            hostCount: 100
+            dpuPerHostCount: 2
+            oobDhcpRelayAddress: "10.96.64.1"  # NICo assigns unique IPs
+            adminDhcpRelayAddress: "192.168.176.1"
 
-1. **One NICo network segment per pod CIDR.** `network_prefixes` allows one
-   IPv4 prefix per segment, so each pod CIDR needs its own cloned underlay
-   segment (same technique as the scale-mode segment fallback), gateway `.1`,
-   `num_reserved 1` — BMC Service IPs start at `.2`, matching the DHCP
-   allocator.
+    macAddressPool:
+      enabled: true
+
+    mat-k8s-controller:
+      enabled: true
+      config:
+        insecureSkipVerify: true  # For self-signed certs
+    ```
+
 1. **Hardware-type specifics.** Vendors libredfish does not recognize (e.g.
    `wiwynn_gb200_nvl` reports `WIWYNN`) resolve to `unknown`, so seed the
    host factory credential at

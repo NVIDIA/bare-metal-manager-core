@@ -22,11 +22,11 @@
 //! the response body, replace it wholesale, slow it down, or short-circuit
 //! it with a status code).
 //!
-//! At HTTP request time the middleware calls [`InjectionStore::pre_handle`]
+//! At HTTP request time the middleware calls `InjectionStore::pre_handle`
 //! before invoking the inner Redfish router; if that returns `Some(response)`
 //! the inner handler is skipped (`Status` short-circuit) or its execution is
 //! delayed (`Latency`). After the inner handler runs the middleware calls
-//! [`InjectionStore::post_handle`] to apply `Replace` / `JsonMerge` actions
+//! `InjectionStore::post_handle` to apply `Replace` / `JsonMerge` actions
 //! on the response body.
 //!
 //! Globbing follows the [`glob`] crate (filesystem-style):
@@ -54,10 +54,11 @@ pub use store::InjectionStore;
 use crate::BmcState;
 use crate::json::JsonExt;
 
-pub mod presets;
-pub mod store;
+#[cfg(test)]
+mod presets;
+mod store;
 
-pub fn add_routes(r: Router<BmcState>) -> Router<BmcState> {
+pub(super) fn add_routes(r: Router<BmcState>) -> Router<BmcState> {
     r.route(
         "/Injection/rules",
         get(list_rules)
@@ -107,7 +108,7 @@ fn rules_response(store: &InjectionStore) -> Response {
 
 #[derive(Clone, Debug, Hash, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(transparent)]
-pub struct RuleId(pub String);
+pub struct RuleId(String);
 
 impl From<&str> for RuleId {
     fn from(s: &str) -> Self {
@@ -174,11 +175,11 @@ mod duration_str_serde {
 
     use serde::{Deserializer, Serializer};
 
-    pub fn deserialize<'de, D: Deserializer<'de>>(d: D) -> Result<Duration, D::Error> {
+    pub(super) fn deserialize<'de, D: Deserializer<'de>>(d: D) -> Result<Duration, D::Error> {
         duration_str::deserialize_duration(d)
     }
 
-    pub fn serialize<S: Serializer>(d: &Duration, s: S) -> Result<S::Ok, S::Error> {
+    pub(super) fn serialize<S: Serializer>(d: &Duration, s: S) -> Result<S::Ok, S::Error> {
         s.serialize_str(&format!("{}ms", d.as_millis()))
     }
 }

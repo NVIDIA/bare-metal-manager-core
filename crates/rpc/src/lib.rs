@@ -28,6 +28,8 @@ use std::pin::Pin;
 use std::str::FromStr;
 
 use chrono::{DateTime, Utc};
+#[doc(hidden)]
+pub use const_format;
 use dns_record::DnsResourceRecordReply;
 use errors::RpcDataConversionError;
 use mac_address::{MacAddress, MacParseError};
@@ -37,6 +39,20 @@ use serde_json::{Value, json};
 use tokio_stream::Stream;
 
 use crate::forge_agent_control_response::LegacyAction;
+
+/// Returns the compile-time gRPC path for a Forge service method.
+#[macro_export]
+macro_rules! service_path {
+    ($method:literal) => {
+        $crate::const_format::concatcp!(
+            "/",
+            $crate::forge::forge_server::SERVICE_NAME,
+            "/",
+            $method
+        )
+    };
+}
+
 pub use crate::protos::common::{self, Uuid};
 pub use crate::protos::dns::{self};
 pub use crate::protos::forge::machine_credentials_update_request::CredentialPurpose;
@@ -1064,12 +1080,33 @@ impl clap::ValueEnum for forge::RouteServerSourceType {
 mod tests {
     use std::time::Duration;
 
+    use carbide_uuid::device::DeviceId;
     use carbide_uuid::machine::MachineId;
+    use carbide_uuid::switch::SwitchId;
 
     use self::forge::instance_operating_system_config::Variant;
     use self::forge::{InlineIpxe, InstanceOperatingSystemConfig};
     use super::*;
     use crate::protos::dns::{Domain, Metadata};
+
+    #[test]
+    fn reflection_descriptor_contains_all_rpc_services() {
+        let descriptor_set =
+            prost_types::FileDescriptorSet::decode(REFLECTION_API_SERVICE_DESCRIPTOR)
+                .expect("reflection descriptor set decodes");
+        let mut service_names = descriptor_set
+            .file
+            .iter()
+            .flat_map(|file| &file.service)
+            .filter_map(|service| service.name.as_deref())
+            .collect::<Vec<_>>();
+        service_names.sort_unstable();
+
+        assert_eq!(
+            service_names,
+            ["FmdsConfigService", "Forge", "NMX_Controller"]
+        );
+    }
 
     #[test]
     fn test_serialize_timestamp() {
@@ -1179,5 +1216,22 @@ mod tests {
         assert_eq!(decoded.address_family, Some(2));
         assert_eq!(decoded.message_kind, Some(2));
         assert_eq!(decoded.duid, Some(vec![0, 1, 0, 1, 0xaa, 0xbb]));
+    }
+
+    #[test]
+    fn bmc_rotation_request_round_trips_the_shared_device_id() {
+        let switch_id =
+            SwitchId::from_str("sw100nt038bg3qsho433vkg684heguv282qaggmrsh2ugn1qk096n2c6hcg")
+                .unwrap();
+        let request = forge::BmcCredentialRotationRequest {
+            mode: forge::bmc_credential_rotation_request::Mode::Clear as i32,
+            bmc_mac: None,
+            device_id: Some(DeviceId::Switch(switch_id)),
+        };
+
+        let decoded =
+            forge::BmcCredentialRotationRequest::decode(request.encode_to_vec().as_slice())
+                .unwrap();
+        assert_eq!(decoded.device_id, Some(DeviceId::Switch(switch_id)));
     }
 }

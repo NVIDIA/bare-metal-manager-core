@@ -11,6 +11,33 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestParseSeverity(t *testing.T) {
+	tests := map[string]struct {
+		value    string
+		expected Severity
+		wantErr  bool
+	}{
+		"unspecified": {expected: SeverityUnspecified},
+		"info":        {value: "info", expected: SeverityInfo},
+		"warning":     {value: "warning", expected: SeverityWarning},
+		"critical":    {value: "critical", expected: SeverityCritical},
+		"invalid":     {value: "urgent", wantErr: true},
+	}
+
+	for name, test := range tests {
+		t.Run(name, func(t *testing.T) {
+			actual, err := ParseSeverity(test.value)
+			if test.wantErr {
+				require.Error(t, err)
+				require.Equal(t, SeverityUnspecified, actual)
+				return
+			}
+			require.NoError(t, err)
+			require.Equal(t, test.expected, actual)
+		})
+	}
+}
+
 func TestEnvelopeValidatePayload(t *testing.T) {
 	tests := map[string]struct {
 		payload json.RawMessage

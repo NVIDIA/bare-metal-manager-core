@@ -34,46 +34,46 @@ use crate::util::metrics::assert_metrics;
 use crate::util::ssh_client::ConnectionConfig;
 use crate::{ADMIN_SSH_KEY_PATH, TENANT_SSH_KEY_PATH, TENANT_SSH_PUBKEY};
 
-pub mod ipmi_sim;
+pub(super) mod ipmi_sim;
 mod metrics;
-pub mod ssh_client;
-pub mod ssh_console_test_helper;
+pub(super) mod ssh_client;
+pub(super) mod ssh_console_test_helper;
 
-pub mod fixtures {
+mod fixtures {
     use std::path::PathBuf;
 
     use api_test_helper::utils::REPO_ROOT;
 
     lazy_static::lazy_static! {
-        pub static ref BMC_MOCK_CERTS_DIR: PathBuf = REPO_ROOT
+        pub(super) static ref BMC_MOCK_CERTS_DIR: PathBuf = REPO_ROOT
             .join("crates/bmc-mock")
             .canonicalize()
             .unwrap();
-        pub static ref LOCALHOST_CERTS_DIR: PathBuf = REPO_ROOT
+        pub(super) static ref LOCALHOST_CERTS_DIR: PathBuf = REPO_ROOT
             .join("dev/certs/localhost")
             .canonicalize()
             .unwrap();
-        pub static ref SSH_HOST_PUBKEY: PathBuf = REPO_ROOT
+        pub(super) static ref SSH_HOST_PUBKEY: PathBuf = REPO_ROOT
             .join("crates/ssh-console/tests/fixtures/ssh_host_ed25519_key.pub")
             .canonicalize()
             .unwrap();
-        pub static ref AUTHORIZED_KEYS_PATH: PathBuf = REPO_ROOT
+        pub(super) static ref AUTHORIZED_KEYS_PATH: PathBuf = REPO_ROOT
             .join("crates/ssh-console/tests/fixtures/authorized_keys")
             .canonicalize()
             .unwrap();
-        pub static ref SSH_HOST_KEY: PathBuf = REPO_ROOT
+        pub(super) static ref SSH_HOST_KEY: PathBuf = REPO_ROOT
             .join("crates/ssh-console/tests/fixtures/ssh_host_ed25519_key")
             .canonicalize()
             .unwrap();
-        pub static ref API_CA_CERT: PathBuf = REPO_ROOT
+        pub(super) static ref API_CA_CERT: PathBuf = REPO_ROOT
             .join("dev/certs/localhost/ca.crt")
             .canonicalize()
             .unwrap();
-        pub static ref API_CLIENT_CERT: PathBuf = REPO_ROOT
+        pub(super) static ref API_CLIENT_CERT: PathBuf = REPO_ROOT
             .join("dev/certs/localhost/client.crt")
             .canonicalize()
             .unwrap();
-        pub static ref API_CLIENT_KEY: PathBuf = REPO_ROOT
+        pub(super) static ref API_CLIENT_KEY: PathBuf = REPO_ROOT
             .join("dev/certs/localhost/client.key")
             .canonicalize()
             .unwrap();
@@ -83,7 +83,7 @@ pub mod fixtures {
 /// Runs a baseline test environment for comparing results for leagacy ssh-console and (soon) new
 /// ssh-console. Adds to api_test_helper's IntegrationTestEnvironment by running an ipmi_sim and a
 /// machine-a-tron environment with 2 machines. Also creates tenants/orgs/instances.
-pub async fn run_baseline_test_environment(
+pub(crate) async fn run_baseline_test_environment(
     machines: Vec<MockBmcType>,
 ) -> eyre::Result<Option<BaselineTestEnvironment>> {
     let mock_bmc_handles: Vec<(MockBmcHandle, MachineId, MockBmcType)> =
@@ -189,14 +189,14 @@ pub async fn run_baseline_test_environment(
 }
 
 #[derive(Debug, Clone, Copy)]
-pub enum MockBmcType {
+pub(crate) enum MockBmcType {
     Ssh,
     LenovoSr650Ssh,
     DpuSsh,
     Ipmi,
 }
 
-pub enum MockBmcHandle {
+enum MockBmcHandle {
     Ssh(MockSshServerHandle),
     Ipmi(Box<IpmiSimHandle>),
 }
@@ -210,14 +210,14 @@ impl HostnameQuerying for KnownHostname {
     }
 }
 
-pub struct BaselineTestEnvironment {
-    pub mock_api_server: MockApiServerHandle,
-    pub mock_hosts: Arc<Vec<MockHost>>,
+pub(crate) struct BaselineTestEnvironment {
+    pub(crate) mock_api_server: MockApiServerHandle,
+    pub(crate) mock_hosts: Arc<Vec<MockHost>>,
     _mock_bmc_handles: Vec<MockBmcHandle>,
 }
 
 impl BaselineTestEnvironment {
-    pub async fn run_baseline_assertions<MetricsFn>(
+    pub(crate) async fn run_baseline_assertions<MetricsFn>(
         &self,
         addr: SocketAddr,
         connection_name: &str,
@@ -340,7 +340,7 @@ impl BaselineTestEnvironment {
 }
 
 #[allow(clippy::enum_variant_names)]
-pub enum BaselineTestAssertion {
+pub(crate) enum BaselineTestAssertion {
     ConnectAsMachineId,
     ConnectAsInstanceId,
     FillLogsAsMachineId(usize),

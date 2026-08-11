@@ -52,6 +52,7 @@ pub(crate) async fn re_wrap_secrets(
 
     let result = crate::secrets::re_wrap_stale(
         &api.database_connection,
+        &api.work_lock_manager_handle,
         ctx.kms.as_ref(),
         &ctx.routing,
         batch_size,

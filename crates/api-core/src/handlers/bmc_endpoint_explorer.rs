@@ -28,7 +28,7 @@ use libredfish::RoleId;
 use mac_address::MacAddress;
 use model::expected_entity::ExpectedEntity;
 use model::machine::machine_search_config::MachineSearchConfig;
-use model::machine::{LoadSnapshotOptions, MachineInterfaceSnapshot};
+use model::machine::{LoadSnapshotOptions, MachineInterfaceSnapshot, ManagedHostState};
 use model::machine_boot_interface::{
     MachineBootInterface, MachineBootInterfaceTarget, canonical_redfish_boot_interface_id,
 };
@@ -39,7 +39,7 @@ use tonic::{Request, Response, Status};
 
 use crate::CarbideError;
 use crate::api::{Api, log_machine_id, log_request_data, log_request_data_redacted};
-use crate::handlers::utils::resolve_bmc_address;
+use crate::handlers::utils::{enqueue_boot_interface_reconciliation, resolve_bmc_address};
 
 /// Resolves the boot interface an admin Redfish action should target.
 ///
@@ -54,7 +54,7 @@ use crate::handlers::utils::resolve_bmc_address;
 /// `predicted_machine_interfaces` instead: the predicted NIC's MAC and
 /// recorded Redfish interface id form the same [`MachineBootInterface`] the
 /// real row will hold once the lease promotes it. The candidate is chosen by
-/// the shared `pick_boot_prediction` -- the declared `ExpectedHostNic.primary`
+/// the shared `pick_boot_prediction` -- the declared `ExpectedInterface.primary`
 /// (recorded on the prediction), else the sole non-underlay prediction. With
 /// several (e.g. a host whose report lists SuperNICs alongside the boot NIC) and
 /// none declared primary the boot NIC is unknowable; resolution refuses to guess
@@ -201,6 +201,21 @@ fn has_managed_boot_target(machine_id: &MachineId) -> bool {
     machine_type.is_host() || machine_type.is_predicted_host()
 }
 
+/// Parses the optional admin field after treating whitespace-only input as
+/// absent.
+fn parse_boot_interface_mac(value: Option<&str>) -> Result<Option<MacAddress>, CarbideError> {
+    value
+        .map(str::trim)
+        .none_if_empty()
+        .map(str::parse::<MacAddress>)
+        .transpose()
+        .map_err(|error| {
+            CarbideError::InvalidArgument(format!("invalid boot_interface_mac: {error}"))
+        })
+}
+
+/// Locks a managed host's desired generation so target resolution and the
+/// forced reapply cannot race another desired-state writer.
 async fn desired_boot_interface_target(
     txn: &mut PgConnection,
     machine_id: Option<MachineId>,
@@ -208,60 +223,75 @@ async fn desired_boot_interface_target(
     let Some(machine_id) = machine_id.filter(has_managed_boot_target) else {
         return Ok(None);
     };
-    Ok(db::machine_desired_boot_interface::get(txn, &machine_id)
+    Ok(db::machine_desired_boot_interface::lock(txn, &machine_id)
         .await?
         .map(|desired| desired.value))
 }
 
-/// Persists the target an operator Redfish action successfully applied.
-pub(crate) async fn persist_desired_boot_interface_target(
+/// Returns whether a confirmed host can start reconciliation immediately.
+///
+/// Predicted, assigned, and otherwise in-flight hosts keep the new generation
+/// pending. An unassigned `Ready` host is safe to wake only when no instance is
+/// attached.
+async fn boot_interface_reconciliation_eligible(
     txn: &mut PgConnection,
     machine_id: Option<MachineId>,
-    selected: Option<&BootInterfaceTarget>,
-) -> Result<(), CarbideError> {
-    let (Some(machine_id), Some(selected)) = (machine_id.filter(has_managed_boot_target), selected)
-    else {
-        return Ok(());
+) -> Result<bool, CarbideError> {
+    let Some(machine_id) = machine_id.filter(|id| id.machine_type().is_host()) else {
+        return Ok(false);
     };
-
-    let desired = MachineBootInterfaceTarget::from(selected);
-    db::machine_desired_boot_interface::set(txn, &machine_id, &desired).await?;
-
-    Ok(())
-}
-
-async fn persist_desired_boot_interface_after_redfish(
-    api: &Api,
-    machine_id: Option<MachineId>,
-    selected: Option<&BootInterfaceTarget>,
-) -> Result<(), CarbideError> {
-    if machine_id
-        .as_ref()
-        .is_none_or(|id| !has_managed_boot_target(id))
-        || selected.is_none()
-    {
-        return Ok(());
+    let machine = db::machine::find_one(&mut *txn, &machine_id, MachineSearchConfig::default())
+        .await?
+        .ok_or_else(|| CarbideError::NotFoundError {
+            kind: "machine",
+            id: machine_id.to_string(),
+        })?;
+    if !matches!(machine.current_state(), ManagedHostState::Ready) {
+        return Ok(false);
     }
 
-    let mut txn = api.txn_begin().await?;
-    persist_desired_boot_interface_target(&mut txn, machine_id, selected).await?;
-    txn.commit().await?;
-    Ok(())
+    Ok(db::instance::find_id_by_machine_id(txn, &machine_id)
+        .await?
+        .is_none())
+}
+
+/// Resolves a required declarative target when the endpoint's actual owner is
+/// a confirmed or predicted host.
+///
+/// Once owned, the endpoint cannot fall back to Site Explorer's explored
+/// default: missing machine data is an operator-visible error rather than a
+/// guess at a stale interface.
+fn managed_boot_interface_target(
+    machine_id: Option<MachineId>,
+    desired: Option<&MachineBootInterfaceTarget>,
+    candidates: Option<&BootInterfaceCandidates>,
+    entered_mac: Option<MacAddress>,
+) -> Result<Option<(MachineId, BootInterfaceTarget)>, CarbideError> {
+    let Some(machine_id) = machine_id.filter(has_managed_boot_target) else {
+        return Ok(None);
+    };
+    let target = resolve_admin_boot_interface_target(None, desired, candidates, entered_mac)
+        .ok_or_else(|| {
+            CarbideError::InvalidArgument(
+                "no boot interface available: enter a MAC or explore the host first".to_string(),
+            )
+        })?;
+    Ok(Some((machine_id, target)))
 }
 
 /// What a host machine offers boot-interface resolution to select from: its
 /// real `machine_interfaces` rows, and -- for the window before a NIC's first
 /// DHCP lease creates a real row -- its `predicted_machine_interfaces`.
-pub(crate) struct BootInterfaceCandidates {
+struct BootInterfaceCandidates {
     /// The machine's non-BMC `machine_interfaces` rows. When they offer a
     /// boot candidate (the machine-controller's own `pick_boot_interface`
     /// selection), it is the first fallback when no desired target is stored.
-    pub interfaces: Vec<MachineInterfaceSnapshot>,
+    interfaces: Vec<MachineInterfaceSnapshot>,
     /// The machine's predicted interfaces, consulted only when the rows
     /// offer no fallback candidate -- none exist yet (zero-DPU/NIC-mode
     /// machines awaiting their first lease), or none are selectable (e.g.
     /// only underlay-typed declared NICs).
-    pub predicted: Vec<PredictedMachineInterface>,
+    predicted: Vec<PredictedMachineInterface>,
 }
 
 /// Load what boot-interface resolution selects from, when the BMC endpoint
@@ -273,7 +303,7 @@ pub(crate) struct BootInterfaceCandidates {
 /// machine-controller path. A host machine always gets `Some`, though both
 /// lists can be empty (`find_by_machine_ids` filters BMC rows, so a host
 /// whose only discovered interface is its BMC offers no real candidates).
-pub(crate) async fn boot_interface_candidates(
+async fn boot_interface_candidates(
     txn: &mut PgConnection,
     machine_id: Option<MachineId>,
 ) -> Result<Option<BootInterfaceCandidates>, CarbideError> {
@@ -289,6 +319,26 @@ pub(crate) async fn boot_interface_candidates(
         interfaces,
         predicted,
     }))
+}
+
+/// Summarize boot-interface candidates for crate-local integration-style unit tests without
+/// exposing the production candidate type or its fields.
+#[cfg(test)]
+pub(crate) async fn summarize_boot_interface_candidates_for_test(
+    txn: &mut PgConnection,
+    machine_id: Option<MachineId>,
+) -> Result<Option<(bool, bool)>, CarbideError> {
+    Ok(boot_interface_candidates(txn, machine_id)
+        .await?
+        .map(|candidates| {
+            (
+                candidates
+                    .interfaces
+                    .iter()
+                    .any(|interface| interface.primary_interface),
+                candidates.predicted.is_empty(),
+            )
+        }))
 }
 
 pub(crate) async fn admin_bmc_reset(
@@ -525,6 +575,7 @@ pub(crate) async fn machine_setup(
 ) -> Result<Response<rpc::MachineSetupResponse>, Status> {
     log_request_data(&request);
     let req = request.into_inner();
+    let entered_mac = parse_boot_interface_mac(req.boot_interface_mac.as_deref())?;
 
     // Note: MachineSetupRequest uses a string for machine_id instead of a real MachineId, which is wrong.
     let machine_id = req
@@ -538,11 +589,8 @@ pub(crate) async fn machine_setup(
     let (bmc_endpoint_request, owning_machine_id) =
         validate_and_complete_bmc_endpoint_request(&mut txn, req.bmc_endpoint_request, machine_id)
             .await?;
-    let candidates = boot_interface_candidates(&mut txn, owning_machine_id).await?;
     let desired = desired_boot_interface_target(&mut txn, owning_machine_id).await?;
-
-    txn.commit().await?;
-
+    let candidates = boot_interface_candidates(&mut txn, owning_machine_id).await?;
     let endpoint_address = &bmc_endpoint_request.ip_address;
 
     tracing::info!(
@@ -550,17 +598,35 @@ pub(crate) async fn machine_setup(
         "Starting machine setup",
     );
 
+    // Unlike a boot-order-only request, machine setup still has useful BIOS
+    // work when the managed host has no resolvable boot target.
+    let managed_machine_id = owning_machine_id.filter(has_managed_boot_target);
+    let managed_target = managed_machine_id.zip(resolve_admin_boot_interface_target(
+        None,
+        desired.as_ref(),
+        candidates.as_ref(),
+        entered_mac,
+    ));
+    if let Some((machine_id, boot_interface)) = managed_target {
+        let reconciliation_eligible =
+            boot_interface_reconciliation_eligible(&mut txn, Some(machine_id)).await?;
+        let desired = MachineBootInterfaceTarget::from(&boot_interface);
+        db::machine_desired_boot_interface::force_set(&mut txn, &machine_id, &desired).await?;
+        txn.commit().await?;
+        enqueue_boot_interface_reconciliation(api, machine_id, reconciliation_eligible).await;
+
+        tracing::info!(
+            bmc_ip_address = %endpoint_address,
+            "Machine setup request succeeded",
+        );
+        return Ok(Response::new(rpc::MachineSetupResponse {}));
+    }
+
+    txn.commit().await?;
+
     let (bmc_addr, bmc_mac_address) = resolve_bmc_interface(api, &bmc_endpoint_request).await?;
     let machine_interface = MachineInterfaceSnapshot::mock_with_mac(bmc_mac_address);
 
-    let entered_mac = req
-        .boot_interface_mac
-        .as_deref()
-        .map(str::trim)
-        .none_if_empty()
-        .map(|m| m.parse::<MacAddress>())
-        .transpose()
-        .map_err(|e| CarbideError::InvalidArgument(format!("invalid boot_interface_mac: {e}")))?;
     let stored = db::explored_endpoints::find_by_ips(&api.database_connection, vec![bmc_addr.ip()])
         .await?
         .into_iter()
@@ -577,8 +643,6 @@ pub(crate) async fn machine_setup(
         .machine_setup(bmc_addr, &machine_interface, boot_interface.as_ref())
         .await
         .map_err(|e| CarbideError::internal(e.to_string()))?;
-    persist_desired_boot_interface_after_redfish(api, owning_machine_id, boot_interface.as_ref())
-        .await?;
 
     tracing::info!(
         bmc_ip_address = %endpoint_address,
@@ -594,6 +658,7 @@ pub(crate) async fn set_dpu_first_boot_order(
 ) -> Result<Response<rpc::SetDpuFirstBootOrderResponse>, Status> {
     log_request_data(&request);
     let req = request.into_inner();
+    let entered_mac = parse_boot_interface_mac(req.boot_interface_mac.as_deref())?;
 
     // Note: SetDpuFirstBootOrderRequest uses a string for machine_id instead of a real MachineId, which is wrong.
     let machine_id = req
@@ -607,11 +672,8 @@ pub(crate) async fn set_dpu_first_boot_order(
     let (bmc_endpoint_request, owning_machine_id) =
         validate_and_complete_bmc_endpoint_request(&mut txn, req.bmc_endpoint_request, machine_id)
             .await?;
-    let candidates = boot_interface_candidates(&mut txn, owning_machine_id).await?;
     let desired = desired_boot_interface_target(&mut txn, owning_machine_id).await?;
-
-    txn.commit().await?;
-
+    let candidates = boot_interface_candidates(&mut txn, owning_machine_id).await?;
     let endpoint_address = &bmc_endpoint_request.ip_address;
 
     tracing::info!(
@@ -619,14 +681,27 @@ pub(crate) async fn set_dpu_first_boot_order(
         "Setting DPU first in boot order",
     );
 
-    let entered_mac = req
-        .boot_interface_mac
-        .as_deref()
-        .map(str::trim)
-        .none_if_empty()
-        .map(|m| m.parse::<MacAddress>())
-        .transpose()
-        .map_err(|e| CarbideError::InvalidArgument(format!("invalid boot_interface_mac: {e}")))?;
+    if let Some((machine_id, boot_interface)) = managed_boot_interface_target(
+        owning_machine_id,
+        desired.as_ref(),
+        candidates.as_ref(),
+        entered_mac,
+    )? {
+        let reconciliation_eligible =
+            boot_interface_reconciliation_eligible(&mut txn, Some(machine_id)).await?;
+        let desired = MachineBootInterfaceTarget::from(&boot_interface);
+        db::machine_desired_boot_interface::force_set(&mut txn, &machine_id, &desired).await?;
+        txn.commit().await?;
+        enqueue_boot_interface_reconciliation(api, machine_id, reconciliation_eligible).await;
+
+        tracing::info!(
+            bmc_ip_address = %endpoint_address,
+            "Set DPU first in boot order request succeeded",
+        );
+        return Ok(Response::new(rpc::SetDpuFirstBootOrderResponse {}));
+    }
+
+    txn.commit().await?;
 
     let (bmc_addr, bmc_mac_address) = resolve_bmc_interface(api, &bmc_endpoint_request).await?;
     let machine_interface = MachineInterfaceSnapshot::mock_with_mac(bmc_mac_address);
@@ -652,8 +727,6 @@ pub(crate) async fn set_dpu_first_boot_order(
         .set_boot_order_dpu_first(bmc_addr, &machine_interface, &boot_interface)
         .await
         .map_err(|e| CarbideError::internal(e.to_string()))?;
-    persist_desired_boot_interface_after_redfish(api, owning_machine_id, Some(&boot_interface))
-        .await?;
 
     tracing::info!(
         bmc_ip_address = %endpoint_address,
@@ -1236,7 +1309,7 @@ async fn do_delete_bmc_user(
 /// * `txn`                  - Active database transaction
 /// * `bmc_endpoint_request` - Optional BmcEndpointRequest.  Can supply _only_ ip_address or all fields.
 /// * `machine_id`           - Optional machine ID that can be used to build a new BmcEndpointRequest.
-pub(crate) async fn validate_and_complete_bmc_endpoint_request(
+pub(super) async fn validate_and_complete_bmc_endpoint_request(
     txn: &mut PgConnection,
     bmc_endpoint_request: Option<rpc::BmcEndpointRequest>,
     machine_id: Option<MachineId>,

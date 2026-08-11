@@ -84,11 +84,6 @@ func (h ResetMachineBMCHandler) Handle(c echo.Context) error {
 		return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, "Failed to parse request data, potentially invalid structure", nil)
 	}
 
-	provider, tenant, apiError := common.IsProviderOrTenant(ctx, logger, h.dbSession, org, dbUser, false, true)
-	if apiError != nil {
-		return cutil.NewAPIErrorResponse(c, apiError.Code, apiError.Message, apiError.Data)
-	}
-
 	machine, err := cdbm.NewMachineDAO(h.dbSession).GetByID(ctx, nil, machineID, []string{cdbm.SiteRelationName}, false)
 	if err != nil {
 		if errors.Is(err, cdb.ErrDoesNotExist) {
@@ -96,6 +91,16 @@ func (h ResetMachineBMCHandler) Handle(c echo.Context) error {
 		}
 		logger.Error().Err(err).Msg("failed to retrieve Machine details from DB")
 		return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to retrieve Machine details, DB error", nil)
+	}
+
+	// Scope the Tenant TargetedInstanceCreation capability check to the target
+	// Machine's Provider and Site so privilege is verified where the operation
+	// lands, not against some unrelated Site the Tenant happens to be privileged on.
+	provider, tenant, apiError := common.IsProviderOrTenant(ctx, logger, h.dbSession, org, dbUser, false, &common.TenantPrivilegeScope{
+		SiteID: &machine.SiteID,
+	})
+	if apiError != nil {
+		return cutil.NewAPIErrorResponse(c, apiError.Code, apiError.Message, apiError.Data)
 	}
 
 	isAssociated := false

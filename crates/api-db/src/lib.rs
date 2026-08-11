@@ -22,6 +22,7 @@
 pub mod attestation;
 pub mod bmc_metadata;
 pub mod bmc_redfish_session;
+pub mod bmc_suppression;
 pub mod carbide_version;
 pub mod compute_allocation;
 pub mod credential_rotation;
@@ -378,6 +379,8 @@ pub enum DatabaseError {
     FindOneReturnedManyResultsError(uuid::Uuid),
     #[error("resource {0} is empty")]
     ResourceExhausted(String),
+    #[error("tenant SitePrefix quota reached: {used} of {limit} retained SitePrefixes are in use")]
+    TenantSitePrefixQuotaExceeded { used: u32, limit: u32 },
     #[error("invalid configuration: {0}")]
     InvalidConfiguration(#[from] ConfigValidationError),
     #[error("resource pool error: {0}")]
@@ -586,6 +589,9 @@ impl From<DatabaseError> for tonic::Status {
                 Status::not_found(format!("{kind} not found: {id}"))
             }
             DatabaseError::ResourceExhausted(kind) => Status::resource_exhausted(kind),
+            error @ DatabaseError::TenantSitePrefixQuotaExceeded { .. } => {
+                Status::resource_exhausted(error.to_string())
+            }
             error @ DatabaseError::RpcUuidConversionError(_) => {
                 Status::invalid_argument(error.to_string())
             }

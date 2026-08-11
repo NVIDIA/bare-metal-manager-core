@@ -1760,11 +1760,19 @@ fn warn_report_diff(report1: &EndpointExplorationReport, report2: &EndpointExplo
 
 #[cfg(test)]
 mod tests {
+    use std::net::TcpListener;
+
     use arc_swap::ArcSwap;
+    use bmc_mock::{CombinedServer, ListenerOrAddress};
     use carbide_instrument::Outcome;
     use carbide_instrument::testing::{CapturedLog, MetricsCapture, capture_logs};
-    use carbide_redfish::libredfish::test_support::{RedfishSim, RedfishSimBootInterfaceRef};
+    use carbide_redfish::libredfish::test_support::{
+        RedfishSim, RedfishSimAuthAttempt, RedfishSimBootInterfaceRef,
+    };
     use carbide_redfish::nv_redfish::NvRedfishClientPool;
+    use carbide_secrets::credentials::{
+        BmcCredentialType, CredentialKey, CredentialReader, CredentialWriter,
+    };
     use carbide_secrets::test_support::credentials::TestCredentialManager;
     use carbide_test_support::Outcome::*;
     use carbide_test_support::{Case, check_cases_async, value_scenarios};
@@ -1785,6 +1793,68 @@ mod tests {
             }),
             ..Default::default()
         }
+    }
+
+    #[tokio::test]
+    async fn default_nvredfish_mode_does_not_apply_lenovo_fallback_to_generic_ami() {
+        let (router, _state) = bmc_mock::test_support::
+            generic_ami_router_with_network_adapter_port_and_disabled_system_mac(
+                serde_json::json!({
+                "@odata.id": "/redfish/v1/Chassis/Self/NetworkAdapters/1/Ports/1",
+                "@odata.type": "#Port.v1_6_0.Port",
+                "Id": "1",
+                "Name": "Port 1",
+                "Oem": {
+                    "Lenovo": { "PhysicalPortMacAddress": "946DAE53CB9B" }
+                }
+                }),
+            );
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let bmc_ip_address = listener.local_addr().unwrap();
+        let _server = CombinedServer::run_router(
+            "nv-redfish-port-test",
+            router,
+            Some(ListenerOrAddress::Listener(listener)),
+            bmc_mock::tls::server_config(None::<&str>).unwrap(),
+        );
+
+        let mode = crate::config::SiteExplorerConfig::default_explore_mode();
+        assert_eq!(mode, SiteExplorerExploreMode::NvRedfish);
+        let proxy_address = Arc::new(ArcSwap::new(Arc::new(None)));
+        let explorer = BmcEndpointExplorer::new(
+            Arc::new(RedfishSim::default()),
+            Arc::new(NvRedfishClientPool::new(proxy_address)),
+            carbide_ipmi::test_support(),
+            Arc::new(TestCredentialManager::default()),
+            Arc::new(AtomicBool::new(false)),
+            mode,
+            None,
+        );
+
+        let report = explorer
+            .generate_exploration_report(
+                bmc_ip_address,
+                Credentials::new("root", "password"),
+                None,
+                None,
+            )
+            .await
+            .unwrap();
+
+        assert!(report.all_mac_addresses().is_empty());
+        assert!(
+            report.chassis[0].network_adapters[0]
+                .port_mac_addresses
+                .is_empty()
+        );
+        assert!(
+            report.systems[0]
+                .ethernet_interfaces
+                .iter()
+                .any(|interface| {
+                    interface.id.as_deref() == Some("disabled") && interface.mac_address.is_none()
+                })
+        );
     }
 
     #[test]
@@ -1903,6 +1973,240 @@ mod tests {
             explore_after_credential_bootstrap,
         )
         .await;
+    }
+
+    struct DpuGeneration {
+        product: &'static str,
+        username: &'static str,
+    }
+
+    struct ReingestionFixture {
+        sim: Arc<RedfishSim>,
+        credential_manager: Arc<TestCredentialManager>,
+        explorer: BmcEndpointExplorer,
+        bmc_ip_address: SocketAddr,
+        interface: MachineInterfaceSnapshot,
+        sitewide_credential_key: CredentialKey,
+        per_bmc_credential_key: CredentialKey,
+        auth_attempt_count: usize,
+        username: &'static str,
+    }
+
+    const DPU_FACTORY_PASSWORD: &str = "0penBmc";
+    const SITEWIDE_PASSWORD: &str = "sitewide-password";
+
+    async fn prepare_reingestion_fixture(
+        generation: DpuGeneration,
+    ) -> Result<ReingestionFixture, String> {
+        // Start with model-specific factory credentials and no MAC-specific credential record.
+        // This makes the first exploration follow the initial-ingestion path.
+        let sim = Arc::new(RedfishSim::default());
+        sim.set_service_root_product(Some(generation.product.to_string()));
+        sim.set_enforce_auth(true);
+        sim.seed_user(generation.username, DPU_FACTORY_PASSWORD);
+        // BF4 rotates both administrative accounts, so seed service to let ingestion finish.
+        sim.seed_user("service", "factory-service-password");
+
+        // Store the site-wide password in Vault so initial ingestion can install it
+        // on the DPU and create its MAC-specific credential record.
+        let credential_manager = Arc::new(TestCredentialManager::default());
+        let sitewide_credential_key = CredentialKey::BmcCredentials {
+            credential_type: BmcCredentialType::SiteWideRoot,
+        };
+        credential_manager
+            .set_credentials(
+                &sitewide_credential_key,
+                &Credentials::new("", SITEWIDE_PASSWORD),
+            )
+            .await
+            .expect("seed site-wide BMC credentials");
+
+        let proxy_address = Arc::new(ArcSwap::new(Arc::new(None)));
+        let explorer = BmcEndpointExplorer::new(
+            sim.clone(),
+            Arc::new(NvRedfishClientPool::new(proxy_address)),
+            carbide_ipmi::test_support(),
+            credential_manager.clone(),
+            Arc::new(AtomicBool::new(false)),
+            SiteExplorerExploreMode::LibRedfish,
+            None,
+        );
+        let bmc_ip_address: SocketAddr = "127.0.0.1:443".parse().expect("valid test BMC address");
+        let bmc_mac_address: MacAddress = "02:00:00:00:00:01".parse().expect("valid test BMC MAC");
+        let interface = MachineInterfaceSnapshot::mock_with_mac(bmc_mac_address);
+        let per_bmc_credential_key = get_bmc_root_credential_key(bmc_mac_address);
+
+        // Run initial ingestion to establish the state that exists before deletion.
+        // It must rotate the DPU password and record the site-wide credential by MAC address.
+        explorer
+            .explore_endpoint(bmc_ip_address, &interface, None, None, None)
+            .await
+            .map_err(|error| format!("initial ingestion failed: {error}"))?;
+        assert_eq!(
+            credential_manager
+                .get_credentials(&per_bmc_credential_key)
+                .await
+                .map_err(|error| error.to_string())?,
+            Some(Credentials::new(generation.username, SITEWIDE_PASSWORD)),
+            "initial ingestion must record the site-wide credential by MAC address"
+        );
+        assert_eq!(
+            sim.user_password(generation.username).as_deref(),
+            Some(SITEWIDE_PASSWORD),
+            "initial ingestion must rotate the hardware off its factory password"
+        );
+
+        // Record the current attempt count so later assertions inspect only re-ingestion.
+        let auth_attempt_count = sim.auth_attempts().len();
+        // Machine deletion is outside Site Explorer, but it removes this MAC-specific
+        // record. Delete only that record to reproduce the state passed to re-ingestion.
+        // Keep the global site-wide record because it survives deletion and enables fallback.
+        credential_manager
+            .delete_credentials(&per_bmc_credential_key)
+            .await
+            .expect("delete the MAC-specific credential record with the machine entry");
+
+        Ok(ReingestionFixture {
+            sim,
+            credential_manager,
+            explorer,
+            bmc_ip_address,
+            interface,
+            sitewide_credential_key,
+            per_bmc_credential_key,
+            auth_attempt_count,
+            username: generation.username,
+        })
+    }
+
+    async fn reingest_with_sitewide_password(
+        generation: DpuGeneration,
+    ) -> Result<Credentials, String> {
+        let fixture = prepare_reingestion_fixture(generation).await?;
+
+        // Keep the site-wide password on the DPU while its MAC-specific record is absent.
+        // This tests recovery through the site-wide credential after factory auth fails.
+        fixture
+            .explorer
+            .explore_endpoint(fixture.bmc_ip_address, &fixture.interface, None, None, None)
+            .await
+            .map_err(|error| format!("re-ingestion failed: {error}"))?;
+
+        let auth_attempts = fixture.sim.auth_attempts();
+        let auth_attempts = &auth_attempts[fixture.auth_attempt_count..];
+        assert_eq!(
+            auth_attempts.first(),
+            Some(&RedfishSimAuthAttempt {
+                credentials: Credentials::new(fixture.username, DPU_FACTORY_PASSWORD),
+                authorized: false,
+            }),
+            "factory-default credentials must be attempted and rejected first"
+        );
+        assert_eq!(
+            auth_attempts.get(1),
+            Some(&RedfishSimAuthAttempt {
+                credentials: Credentials::new(fixture.username, SITEWIDE_PASSWORD),
+                authorized: true,
+            }),
+            "site-wide credentials must authenticate after the factory default fails"
+        );
+
+        fixture
+            .credential_manager
+            .get_credentials(&fixture.per_bmc_credential_key)
+            .await
+            .map_err(|error| error.to_string())?
+            .ok_or_else(|| {
+                "re-ingestion did not restore the MAC-specific credential record".to_string()
+            })
+    }
+
+    // Authentication failures are throttled, so pause time to test fallback without waiting.
+    #[tokio::test(start_paused = true)]
+    async fn reingested_dpus_restore_missing_bmc_credentials_from_sitewide_password() {
+        // Ingestion emits the rotation metric, so hold its test lock to isolate metric counts.
+        let _metrics_window = MetricsCapture::start();
+        // BF3 uses root and BF4 uses admin, so run the same recovery check for both.
+        check_cases_async(
+            [
+                Case {
+                    scenario: "BlueField-3 restores the root credential",
+                    input: DpuGeneration {
+                        product: "BlueField-3 DPU",
+                        username: "root",
+                    },
+                    expect: Yields(Credentials::new("root", SITEWIDE_PASSWORD)),
+                },
+                Case {
+                    scenario: "BlueField-4 restores the admin credential",
+                    input: DpuGeneration {
+                        product: "BlueField-4 DPU",
+                        username: "admin",
+                    },
+                    expect: Yields(Credentials::new("admin", SITEWIDE_PASSWORD)),
+                },
+            ],
+            reingest_with_sitewide_password,
+        )
+        .await;
+    }
+
+    // Authentication failures are throttled, so pause time to test rejection without waiting.
+    #[tokio::test(start_paused = true)]
+    async fn reingested_dpu_rejects_stale_sitewide_password() {
+        let _metrics_window = MetricsCapture::start();
+        let fixture = prepare_reingestion_fixture(DpuGeneration {
+            product: "BlueField-4 DPU",
+            username: "admin",
+        })
+        .await
+        .expect("prepare a previously ingested DPU");
+
+        // Change the site-wide password in Vault without changing the DPU password.
+        // This tests that failure of primary and fallback authentication is a hard failure.
+        let stale_password = "stale-sitewide-password";
+        fixture
+            .credential_manager
+            .set_credentials(
+                &fixture.sitewide_credential_key,
+                &Credentials::new("", stale_password),
+            )
+            .await
+            .expect("replace the site-wide credential with a stale password");
+
+        let exploration = fixture
+            .explorer
+            .explore_endpoint(fixture.bmc_ip_address, &fixture.interface, None, None, None)
+            .await;
+        assert!(exploration.is_err(), "stale credentials must be rejected");
+
+        let auth_attempts = fixture.sim.auth_attempts();
+        let auth_attempts = &auth_attempts[fixture.auth_attempt_count..];
+        assert_eq!(
+            auth_attempts.first(),
+            Some(&RedfishSimAuthAttempt {
+                credentials: Credentials::new(fixture.username, DPU_FACTORY_PASSWORD),
+                authorized: false,
+            }),
+            "factory-default credentials must be attempted and rejected first"
+        );
+        assert_eq!(
+            auth_attempts.get(1),
+            Some(&RedfishSimAuthAttempt {
+                credentials: Credentials::new(fixture.username, stale_password),
+                authorized: false,
+            }),
+            "stale site-wide credentials must be attempted and rejected"
+        );
+        assert_eq!(
+            fixture
+                .credential_manager
+                .get_credentials(&fixture.per_bmc_credential_key)
+                .await
+                .expect("read the MAC-specific credential record after failed re-ingestion"),
+            None,
+            "hard failure must leave the MAC-specific credential record absent"
+        );
     }
 
     /// One emit per rotation attempt writes the INFO log line and moves

@@ -10,3 +10,8 @@ keywords:
   - mock
   - testing
   - development
+dependencies:
+  - name: mat-k8s-controller
+    version: "0.1.0"
+    condition: mat-k8s-controller.enabled
+    repository: ""

@@ -319,7 +319,7 @@ func (gaipbh GetAllIPBlockHandler) Handle(c echo.Context) error {
 		}
 	}
 
-	provider, tenant, apiError := common.IsProviderOrTenant(ctx, logger, gaipbh.dbSession, org, dbUser, true, false)
+	provider, tenant, apiError := common.IsProviderOrTenant(ctx, logger, gaipbh.dbSession, org, dbUser, true, nil)
 	if apiError != nil {
 		return cutil.NewAPIErrorResponse(c, apiError.Code, apiError.Message, apiError.Data)
 	}
@@ -790,7 +790,7 @@ func (gipbh GetIPBlockHandler) Handle(c echo.Context) error {
 		}
 	}
 
-	provider, tenant, apiError := common.IsProviderOrTenant(ctx, logger, gipbh.dbSession, org, dbUser, true, false)
+	provider, tenant, apiError := common.IsProviderOrTenant(ctx, logger, gipbh.dbSession, org, dbUser, true, nil)
 	if apiError != nil {
 		return cutil.NewAPIErrorResponse(c, apiError.Code, apiError.Message, apiError.Data)
 	}

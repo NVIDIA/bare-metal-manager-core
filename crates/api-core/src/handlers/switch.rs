@@ -43,7 +43,7 @@ fn switch_nvos_info_from_endpoint_row(
     })
 }
 
-pub async fn find_switch(
+pub(crate) async fn find_switch(
     api: &Api,
     request: Request<rpc::SwitchQuery>,
 ) -> Result<Response<rpc::SwitchList>, Status> {
@@ -125,7 +125,7 @@ pub async fn find_switch(
     Ok(Response::new(rpc::SwitchList { switches }))
 }
 
-pub async fn find_ids(
+pub(crate) async fn find_ids(
     api: &Api,
     request: Request<rpc::SwitchSearchFilter>,
 ) -> Result<Response<rpc::SwitchIdList>, Status> {
@@ -138,7 +138,7 @@ pub async fn find_ids(
     Ok(Response::new(rpc::SwitchIdList { ids: switch_ids }))
 }
 
-pub async fn find_by_ids(
+pub(crate) async fn find_by_ids(
     api: &Api,
     request: Request<rpc::SwitchesByIdsRequest>,
 ) -> Result<Response<rpc::SwitchList>, Status> {
@@ -201,7 +201,7 @@ pub async fn find_by_ids(
     Ok(Response::new(rpc::SwitchList { switches }))
 }
 
-pub async fn find_switch_state_histories(
+pub(crate) async fn find_switch_state_histories(
     api: &Api,
     request: Request<rpc::SwitchStateHistoriesRequest>,
 ) -> Result<Response<rpc::StateHistories>, Status> {
@@ -247,7 +247,7 @@ pub async fn find_switch_state_histories(
 }
 
 // TODO: block if switch is in use (firmware update, etc.)
-pub async fn delete_switch(
+pub(crate) async fn delete_switch(
     api: &Api,
     request: Request<rpc::SwitchDeletionRequest>,
 ) -> Result<Response<rpc::SwitchDeletionResult>, Status> {
@@ -302,7 +302,7 @@ pub async fn delete_switch(
 /// Force deletes a switch and optionally its associated interfaces from the database.
 /// Unlike `delete_switch` (soft delete), this immediately hard-deletes the switch
 /// while retaining its state history.
-pub async fn admin_force_delete_switch(
+pub(crate) async fn admin_force_delete_switch(
     api: &Api,
     request: Request<rpc::AdminForceDeleteSwitchRequest>,
 ) -> Result<Response<rpc::AdminForceDeleteSwitchResponse>, Status> {
@@ -407,7 +407,7 @@ pub(crate) async fn update_switch_metadata(
     Ok(tonic::Response::new(()))
 }
 
-pub async fn list_switch_health_reports(
+pub(crate) async fn list_switch_health_reports(
     api: &Api,
     request: Request<rpc::ListSwitchHealthReportsRequest>,
 ) -> Result<Response<rpc::ListHealthReportResponse>, Status> {
@@ -446,7 +446,7 @@ pub async fn list_switch_health_reports(
     }))
 }
 
-pub async fn insert_switch_health_report(
+pub(crate) async fn insert_switch_health_report(
     api: &Api,
     request: Request<rpc::InsertSwitchHealthReportRequest>,
 ) -> Result<Response<()>, Status> {
@@ -491,7 +491,7 @@ pub async fn insert_switch_health_report(
         report.observed_at = Some(chrono::Utc::now());
     }
     report.triggered_by = triggered_by;
-    report.update_in_alert_since(None);
+    report.update_in_alert_since(switch.health_reports.by_source(&report.source));
 
     match remove_switch_health_report_by_source(&switch, &mut txn, report.source.clone()).await {
         Ok(_) | Err(CarbideError::NotFoundError { .. }) => {}
@@ -505,7 +505,7 @@ pub async fn insert_switch_health_report(
     Ok(Response::new(()))
 }
 
-pub async fn remove_switch_health_report(
+pub(crate) async fn remove_switch_health_report(
     api: &Api,
     request: Request<rpc::RemoveSwitchHealthReportRequest>,
 ) -> Result<Response<()>, Status> {

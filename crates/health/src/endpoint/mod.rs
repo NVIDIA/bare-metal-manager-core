@@ -41,12 +41,12 @@ pub(crate) mod test_support {
     use super::*;
     use crate::bmc::{BmcClient, FixedCredentialProvider};
 
-    pub fn reqwest() -> ReqwestClient {
+    pub(crate) fn reqwest() -> ReqwestClient {
         ReqwestClient::with_params(ReqwestClientParams::new().accept_invalid_certs(true))
             .expect("reqwest client builds")
     }
 
-    pub fn endpoint_with_creds(
+    pub(crate) fn endpoint_with_creds(
         addr: BmcAddr,
         creds: BmcCredentials,
         metadata: Option<EndpointMetadata>,
@@ -54,7 +54,7 @@ pub(crate) mod test_support {
     ) -> BmcEndpoint {
         let provider = Arc::new(FixedCredentialProvider::new(creds));
         let bmc = Arc::new(
-            BmcClient::new(reqwest(), addr.clone(), provider, None, 10)
+            BmcClient::new(reqwest(), addr.clone(), provider, None, 10, None)
                 .expect("fixed-credential BmcClient construction is infallible"),
         );
         BmcEndpoint {
@@ -66,7 +66,7 @@ pub(crate) mod test_support {
         }
     }
 
-    pub fn test_endpoint(mac: MacAddress) -> BmcEndpoint {
+    pub(crate) fn test_endpoint(mac: MacAddress) -> BmcEndpoint {
         endpoint_with_creds(
             BmcAddr {
                 ip: "10.0.0.1".parse().unwrap(),
@@ -82,7 +82,7 @@ pub(crate) mod test_support {
         )
     }
 
-    pub fn mac(s: &str) -> MacAddress {
+    pub(crate) fn mac(s: &str) -> MacAddress {
         MacAddress::from_str(s).unwrap()
     }
 }

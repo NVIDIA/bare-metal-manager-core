@@ -769,6 +769,91 @@ async fn test_double_insert(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error
     Ok(())
 }
 
+/// A continuously-firing alert re-reported through `InsertMachineHealthReport`
+/// must keep the `in_alert_since` of its first occurrence, so operators can tell
+/// how long the condition has lasted. New alerts appearing in a later report
+/// still get a fresh timestamp.
+#[crate::sqlx_test]
+async fn test_insert_machine_health_report_retains_in_alert_since(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = create_env(pool).await;
+    let (host_machine_id, _) = create_managed_host(&env).await.into();
+
+    let insert = async |report: health_report::HealthReport| {
+        env.api
+            .insert_machine_health_report(Request::new(
+                rpc::forge::InsertMachineHealthReportRequest {
+                    machine_id: Some(host_machine_id),
+                    health_report_entry: Some(rpc::forge::HealthReportEntry {
+                        report: Some(report.into()),
+                        mode: HealthReportApplyMode::Merge as i32,
+                    }),
+                },
+            ))
+            .await
+            .unwrap();
+    };
+
+    // Alert fires for the first time.
+    let report = hr("bmc-sensors", vec![], vec![("Sensor", Some("Fan1"), "hot")]);
+    insert(report.clone()).await;
+
+    let first = load_health_via_find_machines_by_ids(&env, &host_machine_id)
+        .await
+        .unwrap();
+    let first_seen = first.alerts[0].in_alert_since.expect("in_alert_since set");
+
+    tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+
+    // Same alert still firing on the next poll: the original timestamp is kept.
+    insert(report.clone()).await;
+
+    let second = load_health_via_find_machines_by_ids(&env, &host_machine_id)
+        .await
+        .unwrap();
+    assert_eq!(second.alerts.len(), 1);
+    assert_eq!(
+        second.alerts[0].in_alert_since,
+        Some(first_seen),
+        "re-reported alert must retain its original in_alert_since"
+    );
+
+    tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+
+    // A second alert appears alongside the first: the pre-existing alert keeps
+    // its timestamp, the new one is stamped now.
+    let grown = hr(
+        "bmc-sensors",
+        vec![],
+        vec![
+            ("Sensor", Some("Fan1"), "hot"),
+            ("Sensor", Some("Fan2"), "hot"),
+        ],
+    );
+    insert(grown).await;
+
+    let third = load_health_via_find_machines_by_ids(&env, &host_machine_id)
+        .await
+        .unwrap();
+    let find = |target: &str| {
+        third
+            .alerts
+            .iter()
+            .find(|a| a.target.as_deref() == Some(target))
+            .unwrap_or_else(|| panic!("alert for {target} missing"))
+            .in_alert_since
+            .expect("in_alert_since set")
+    };
+    assert_eq!(find("Fan1"), first_seen, "existing alert keeps timestamp");
+    assert!(
+        find("Fan2") > first_seen,
+        "newly appearing alert is stamped with the current time"
+    );
+
+    Ok(())
+}
+
 #[crate::sqlx_test]
 async fn test_count_unhealthy_nonupgrading_host_machines(
     pool: sqlx::PgPool,

@@ -269,19 +269,19 @@ ranges or by interpreting the `health_ok` values provided by BMCs.
 
 Machine endpoints carry the inventory metadata needed to interpret hardware health in fleet context. This includes machine ID, primary Redfish system UUID, serial number, rack ID, rack placement, and NVLink domain UUID when present.
 
-Switch endpoints carry switch ID, serial number, and rack placement when present.
+Switch endpoints carry switch ID, serial number, rack placement, and NVLink domain UUID when present.
 
 **For local and test deployments**, you can configure explicit machine, switch, or power-shelf identity with `[[endpoint_sources.static_bmc_endpoints]]`. Note the following:
 
 - Static machine endpoints can include the same serial number, rack placement, and NVLink domain UUID metadata
-- Static switch endpoints can include serial number and rack placement metadata
+- Static switch endpoints can include serial number, rack placement, and NVLink domain UUID metadata
 - All static endpoints can provide `rack_id` and validated custom telemetry `labels`
 - The primary Redfish system UUID remains BMC-derived and cannot be overridden by a custom label
 
 The publishing sinks expose that inventory context using the conventions of the target backend:
 
-- `[sinks.prometheus]` adds _machine_ metadata as metric labels named `machine_id`, `system_uuid`, `serial_number`, `rack_id`, `machine_slot_number`, `machine_tray_index`, and `nvlink_domain_uuid` _Switch_ metadata labels are `switch_id`, `serial_number`, `rack_id`, `switch_slot_number`, and `switch_tray_index`. Static endpoint custom labels keep their configured names.
-- `[sinks.otlp]` adds _machine_ metadata as OTLP resource attributes named `machine.id`, `system.uuid`, `rack.id`, integer `machine.slot_number`, integer `machine.tray_index`, and `nvlink.domain.uuid`. _Switch_ metadata labels are `switch.id`, `rack.id`, integer `switch.slot_number`, and integer `switch.tray_index`. Static endpoint custom labels keep their configured names.
+- `[sinks.prometheus]` adds _machine_ metadata as metric labels named `machine_id`, `system_uuid`, `serial_number`, `rack_id`, `machine_slot_number`, `machine_tray_index`, and `nvlink_domain_uuid`. _Switch_ metadata labels are `switch_id`, `serial_number`, `rack_id`, `switch_slot_number`, `switch_tray_index`, and `nvlink_domain_uuid`. Static endpoint custom labels keep their configured names.
+- `[sinks.otlp]` adds the string resource attributes `collector.type` and either `bmc.endpoint` and `bmc.ip`, or `switch.endpoint` and `switch.ip` for host-side switch collection. Typed inventory adds the strings `component.type` and, when present, `rack.id`. _Machine_ metadata attributes are the strings `machine.id`, `system.uuid`, `machine.serial`, `driver.version`, and `nvlink.domain.uuid`, plus the integers `machine.slot_number` and `machine.tray_index`. _Switch_ metadata attributes are the strings `switch.id`, `switch.serial_number`, `switch.endpoint_role`, and `nvlink.domain.uuid`, the boolean `switch.is_primary`, and the integers `switch.slot_number` and `switch.tray_index`. Static endpoint custom labels are string resource attributes and keep their configured names.
 - `[sinks.health_report]`, `[sinks.rack_health_report]`, `[sinks.switch_health_report]`, and `[sinks.power_shelf_health_report]` use the same event context when submitting assessed health reports back to NICo API. The persisted `HealthReport` and `HealthProbeAlert` schemas remain the probe success/alert model described above.
 
 ### BMC inventory monitoring
@@ -302,20 +302,26 @@ In certain conditions the scraping process will place a health alert on the host
 
 ## Health report overrides
 
-Site administrators are able to update the health state of any NICo managed host via
-the API calls `InsertHealthReportOverride` and `RemoveHealthReportOverride`.
+Site administrators can inspect and update the health state of a NICo-managed host
+through these REST operations:
+
+- `GET /v2/org/{org}/nico/machine/{machineId}/health-report` lists all reports.
+- `PUT /v2/org/{org}/nico/machine/{machineId}/health-report` creates or updates an override.
+- `DELETE /v2/org/{org}/nico/machine/{machineId}/health-report/{source}` removes an override.
 
 The override API offers 2 different modes of operation:
-1. `merge` (default) - In this mode, any health probe alerts indicated in the override
-  will get merged with health probe alerts reported by builtin NICo tools in order
-  to derive the aggregate host health status. **This mode is meant to augment the internal health monitoring mechanism with additional sources of health data**
-1. `replace` - In this mode, the health probe alerts reported by builtin NICo
-  monitoring tools will be ignored. Only alerts that are passed as part of the
-  override will be taken into account. If the override list is empty, the system
-  will behave as if the Host would be fully healthy. **This mode is meant to bypass the internal health data in case the site operator desires a different behavior**
 
-The API allows to apply multiple `merge` overrides to a hosts health at the same time by using a different `HealthReport::source` identifier.
-This allows to integrate health information from multiple external systems and users which are not at risk of overriding each others data. E.g. health information from an external fleet health monitoring system and from SREs can be stored independently.
+`Merge` - In this mode, any health probe alerts indicated in the override
+will get merged with health probe alerts reported by built-in NICo tools in order
+to derive the aggregate host health status. **This mode is meant to augment the internal health monitoring mechanism with additional sources of health data**
+
+`Replace` - In this mode, the health probe alerts reported by built-in NICo
+monitoring tools will be ignored. Only alerts that are passed as part of the
+override will be taken into account. If the override list is empty, the system
+will behave as if the Host would be fully healthy. **This mode is meant to bypass the internal health data in case the site operator desires a different behavior**
+
+The API allows multiple `Merge` overrides on a host at the same time by using a different `source` identifier for each report.
+This allows you to integrate health information from multiple external systems and users which are not at risk of overriding each other's data. For example, health information from an external fleet health monitoring system and from SREs can be stored independently.
 
 If a ManagedHost's health is overridden, the remaining behavior is exactly the same
 as if the overridden Health report would have been directly derived from monitoring

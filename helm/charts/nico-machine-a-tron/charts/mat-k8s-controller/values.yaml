@@ -1,0 +1,70 @@
+## mat-k8s-controller - Kubernetes controller for machine-a-tron services
+##
+## This controller auto-discovers machine-a-tron pods via their bmc-mock Services
+## and creates/updates/deletes Kubernetes Services for each endpoint.
+
+## Enable/disable the controller
+enabled: false
+
+## Container image configuration.
+##
+## IMPORTANT: Production deployments must override these defaults.
+## The default repository has no registry prefix and will not resolve in real clusters.
+##
+## Example install/upgrade command:
+##   helm install nico-machine-a-tron ./helm/charts/nico-machine-a-tron \
+##     --set mat-k8s-controller.enabled=true \
+##     --set mat-k8s-controller.image.repository=<registry>/mat-k8s-controller \
+##     --set mat-k8s-controller.image.tag=<version>
+##
+## Or in values override file:
+##   mat-k8s-controller:
+##     enabled: true
+##     image:
+##       repository: nvcr.io/nvidia/infra-controller/mat-k8s-controller
+##       tag: "1.0.0"
+image:
+  repository: mat-k8s-controller
+  tag: "0.1.0"
+  pullPolicy: IfNotPresent
+
+## Resource limits
+resources:
+  limits:
+    cpu: 500m
+    memory: 512Mi
+  requests:
+    cpu: 100m
+    memory: 128Mi
+
+## Controller configuration
+config:
+  ## Label selector for discovering machine-a-tron Services
+  ## Default: nvidia-infra-controller/mat-service=true
+  discoverySelector: ""
+
+  ## Pod selector for created Services (routes traffic to mat pods)
+  ## Default: app.kubernetes.io/name=nico-machine-a-tron
+  targetSelector: ""
+
+  ## Reconciliation interval
+  syncInterval: "30s"
+
+  ## Skip TLS certificate verification
+  ## WARNING: Only enable for development with self-signed certificates
+  insecureSkipVerify: false
+
+  ## Log level (debug, info, warn, error)
+  logLevel: "info"
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+rbac:
+  create: true
+
+## Override names (useful when release name differs from chart name)
+nameOverride: ""
+fullnameOverride: ""

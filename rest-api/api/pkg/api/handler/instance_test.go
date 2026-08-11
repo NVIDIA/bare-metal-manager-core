@@ -236,21 +236,6 @@ func testInstanceBuildTenant(t *testing.T, dbSession *cdb.Session, name string, 
 
 	return tn
 }
-func testInstanceUpdateTenantCapability(t *testing.T, dbSession *cdb.Session, tn *cdbm.Tenant) *cdbm.Tenant {
-	tncfg := cdbm.TenantConfig{
-		TargetedInstanceCreation: true,
-	}
-
-	tnDAO := cdbm.NewTenantDAO(dbSession)
-	tn, err := tnDAO.Update(context.Background(), nil, cdbm.TenantUpdateInput{
-		TenantID: tn.ID,
-		Config:   &tncfg,
-	})
-	assert.Nil(t, err)
-
-	return tn
-}
-
 func testInstanceBuildUser(t *testing.T, dbSession *cdb.Session, starfleetID string, org string, roles []string) *cdbm.User {
 	uDAO := cdbm.NewUserDAO(dbSession)
 
@@ -792,7 +777,9 @@ func TestCreateInstanceHandler_Handle(t *testing.T) {
 	// Tenant 1
 	tnu1 := testInstanceBuildUser(t, dbSession, "test-starfleet-id-2", tnOrg, tnOrgRoles)
 	tn1 := testInstanceBuildTenant(t, dbSession, "test-tenant", tnOrg, tnu1)
-	tn1 = testInstanceUpdateTenantCapability(t, dbSession, tn1)
+	// Privilege is resolved site-scoped. TenantSite associations without an
+	// explicit override inherit tn1's Ready TenantAccount default.
+	_ = common.TestBuildTenantAccountWithTargetedInstanceCreation(t, dbSession, ip, &tn1.ID, tnOrg, cdbm.TenantAccountStatusReady, tnu1)
 
 	ts1 := testBuildTenantSiteAssociation(t, dbSession, tnOrg, tn1.ID, st1.ID, tnu1.ID)
 	assert.NotNil(t, ts1)
@@ -10631,6 +10618,20 @@ func TestBuildInstanceOsConfig_TemplatedIPXE(t *testing.T) {
 	osSynced := buildOS("tmpl-os-instance-os-synced")
 	testInstanceBuildOperatingSystemSiteAssociation(t, dbSession, site.ID, osSynced.ID)
 
+	providerOS := &cdbm.OperatingSystem{
+		ID:                       uuid.New(),
+		Name:                     "tmpl-os-instance-provider-os",
+		Org:                      ip.Org,
+		InfrastructureProviderID: &ip.ID,
+		Type:                     cdbm.OperatingSystemTypeTemplatedIPXE,
+		IsActive:                 true,
+		Status:                   cdbm.OperatingSystemStatusReady,
+		CreatedBy:                user.ID,
+	}
+	_, err := dbSession.DB.NewInsert().Model(providerOS).Exec(context.Background())
+	require.NoError(t, err)
+	testInstanceBuildOperatingSystemSiteAssociation(t, dbSession, site.ID, providerOS.ID)
+
 	t.Run("create", func(t *testing.T) {
 		ec := newTemplatedOsEchoContext(t)
 		h := CreateInstanceHandler{dbSession: dbSession, cfg: cfg}
@@ -10681,6 +10682,52 @@ func TestBuildInstanceOsConfig_TemplatedIPXE(t *testing.T) {
 		assert.Equal(t, osSynced.ID, *osID)
 		assertTemplatedOsConfig(t, osConfig, osSynced.ID)
 	})
+
+	providerCases := []struct {
+		name  string
+		build func() (*corev1.InstanceOperatingSystemConfig, *uuid.UUID, *cutil.APIError)
+	}{
+		{
+			name: "create allows provider-owned OS",
+			build: func() (*corev1.InstanceOperatingSystemConfig, *uuid.UUID, *cutil.APIError) {
+				h := CreateInstanceHandler{dbSession: dbSession, cfg: cfg}
+				req := &model.APIInstanceCreateRequest{
+					TenantID:          tenant.ID.String(),
+					OperatingSystemID: cutil.GetPtr(providerOS.ID.String()),
+				}
+				return h.buildInstanceCreateRequestOsConfig(newTemplatedOsEchoContext(t), &logger, req, site)
+			},
+		},
+		{
+			name: "update allows provider-owned OS",
+			build: func() (*corev1.InstanceOperatingSystemConfig, *uuid.UUID, *cutil.APIError) {
+				h := UpdateInstanceHandler{dbSession: dbSession, cfg: cfg}
+				instance := &cdbm.Instance{ID: uuid.New(), TenantID: tenant.ID, Tenant: tenant}
+				req := &model.APIInstanceUpdateRequest{OperatingSystemID: cutil.GetPtr(providerOS.ID.String())}
+				return h.buildInstanceUpdateRequestOsConfig(newTemplatedOsEchoContext(t), &logger, req, instance, site)
+			},
+		},
+		{
+			name: "batch create allows provider-owned OS",
+			build: func() (*corev1.InstanceOperatingSystemConfig, *uuid.UUID, *cutil.APIError) {
+				h := BatchCreateInstanceHandler{dbSession: dbSession, cfg: cfg}
+				req := &model.APIBatchInstanceCreateRequest{
+					TenantID:          tenant.ID.String(),
+					OperatingSystemID: cutil.GetPtr(providerOS.ID.String()),
+				}
+				return h.buildBatchInstanceCreateRequestOsConfig(newTemplatedOsEchoContext(t), &logger, req, site)
+			},
+		},
+	}
+	for _, tc := range providerCases {
+		t.Run(tc.name, func(t *testing.T) {
+			osConfig, osID, apiErr := tc.build()
+			require.Nil(t, apiErr)
+			require.NotNil(t, osID)
+			assert.Equal(t, providerOS.ID, *osID)
+			assertTemplatedOsConfig(t, osConfig, providerOS.ID)
+		})
+	}
 
 	// The following cases exercise the shared validator through the create path;
 	// the same validator gates the update and batch paths.

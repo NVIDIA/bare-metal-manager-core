@@ -56,6 +56,7 @@ pub struct MachineMetrics {
     /// - the Machine has not yet been target of an instance creation request
     /// - no health alerts which classification `PreventAllocations` to be set
     /// - the machine not to be in Maintenance Mode
+    /// - the desired boot-interface generation to have a matching observation
     pub is_usable_as_instance: bool,
     /// is the host's bios password set
     pub is_host_bios_password_set: bool,

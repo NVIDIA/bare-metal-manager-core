@@ -38,17 +38,12 @@ func TestTenantSQLDAO_GetByID(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	tncfg := &TenantConfig{
-		EnableSSHAccess: true,
-	}
-
 	tn := &Tenant{
 		ID:             uuid.New(),
 		Name:           "test",
 		DisplayName:    cutil.GetPtr("test"),
 		Org:            "test-org",
 		OrgDisplayName: cutil.GetPtr("Test Org"),
-		Config:         tncfg,
 		CreatedBy:      uuid.New(),
 	}
 
@@ -65,7 +60,6 @@ func TestTenantSQLDAO_GetByID(t *testing.T) {
 		fields             fields
 		args               args
 		want               *Tenant
-		wantConfig         *TenantConfig
 		wantErr            bool
 		wantErrVal         error
 		verifyChildSpanner bool
@@ -80,7 +74,6 @@ func TestTenantSQLDAO_GetByID(t *testing.T) {
 				id:  tn.ID,
 			},
 			want:               tn,
-			wantConfig:         tncfg,
 			wantErr:            false,
 			verifyChildSpanner: true,
 		},
@@ -118,9 +111,6 @@ func TestTenantSQLDAO_GetByID(t *testing.T) {
 			assert.Equal(t, *tt.want.DisplayName, *got.DisplayName)
 			assert.Equal(t, tt.want.Org, got.Org)
 			assert.Equal(t, *tt.want.OrgDisplayName, *got.OrgDisplayName)
-			if tt.wantConfig != nil {
-				assert.Equal(t, *tt.wantConfig, *got.Config)
-			}
 
 			if tt.verifyChildSpanner {
 				span := otrace.SpanFromContext(ctx)
@@ -249,18 +239,11 @@ func TestTenantSQLDAO_Create(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	defaultcfg := &TenantConfig{}
-
-	tncfg := &TenantConfig{
-		EnableSSHAccess: true,
-	}
-
 	tn := &Tenant{
 		Name:           "test",
 		DisplayName:    cutil.GetPtr("test"),
 		Org:            "test-org",
 		OrgDisplayName: cutil.GetPtr("Test Org"),
-		Config:         tncfg,
 		CreatedBy:      uuid.New(),
 	}
 
@@ -276,7 +259,7 @@ func TestTenantSQLDAO_Create(t *testing.T) {
 		verifyChildSpanner bool
 	}{
 		{
-			name: "create a Tenant with explicit config",
+			name: "create a Tenant",
 			fields: fields{
 				dbSession: dbSession,
 			},
@@ -287,39 +270,12 @@ func TestTenantSQLDAO_Create(t *testing.T) {
 					DisplayName:    tn.DisplayName,
 					Org:            tn.Org,
 					OrgDisplayName: tn.OrgDisplayName,
-					Config:         tncfg,
 					CreatedBy:      tn.CreatedBy,
 				},
 			},
 			want:               tn,
 			wantErr:            false,
 			verifyChildSpanner: true,
-		},
-		{
-			name: "create a Tenant with default config",
-			fields: fields{
-				dbSession: dbSession,
-			},
-			args: args{
-				ctx: context.Background(),
-				input: TenantCreateInput{
-					Name:           tn.Name,
-					DisplayName:    tn.DisplayName,
-					Org:            tn.Org,
-					OrgDisplayName: tn.OrgDisplayName,
-					Config:         defaultcfg,
-					CreatedBy:      tn.CreatedBy,
-				},
-			},
-			want: &Tenant{
-				Name:           tn.Name,
-				DisplayName:    tn.DisplayName,
-				Org:            tn.Org,
-				OrgDisplayName: tn.OrgDisplayName,
-				Config:         defaultcfg,
-				CreatedBy:      tn.CreatedBy,
-			},
-			wantErr: false,
 		},
 	}
 	for _, tt := range tests {
@@ -337,10 +293,6 @@ func TestTenantSQLDAO_Create(t *testing.T) {
 			assert.Equal(t, *tt.want.DisplayName, *got.DisplayName)
 			assert.Equal(t, tt.want.Org, got.Org)
 			assert.Equal(t, *tt.want.OrgDisplayName, *got.OrgDisplayName)
-			if tt.want.Config != nil {
-				assert.NotNil(t, got.Config, "Tenant Config was expected to be set")
-				assert.Equal(t, *tt.want.Config, *got.Config)
-			}
 			assert.Equal(t, tt.want.CreatedBy, got.CreatedBy)
 
 			if tt.verifyChildSpanner {
@@ -386,10 +338,6 @@ func TestTenantSQLDAO_Update(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	tncfg := &TenantConfig{
-		EnableSSHAccess: true,
-	}
-
 	// Updated Tenant
 	utn := &Tenant{
 		ID:             tn.ID,
@@ -397,7 +345,6 @@ func TestTenantSQLDAO_Update(t *testing.T) {
 		DisplayName:    cutil.GetPtr("Test 2"),
 		Org:            tn.Org,
 		OrgDisplayName: cutil.GetPtr("Test Org Updated"),
-		Config:         tncfg,
 		CreatedBy:      tn.CreatedBy,
 	}
 
@@ -424,7 +371,6 @@ func TestTenantSQLDAO_Update(t *testing.T) {
 					Name:           cutil.GetPtr(utn.Name),
 					DisplayName:    utn.DisplayName,
 					OrgDisplayName: utn.OrgDisplayName,
-					Config:         tncfg,
 				},
 			},
 			want:               utn,
@@ -447,7 +393,6 @@ func TestTenantSQLDAO_Update(t *testing.T) {
 			assert.Equal(t, *tt.want.DisplayName, *got.DisplayName)
 			assert.Equal(t, tt.want.Org, got.Org)
 			assert.Equal(t, *tt.want.OrgDisplayName, *got.OrgDisplayName)
-			assert.Equal(t, tt.want.Config, got.Config)
 			assert.NotEqual(t, tt.want.Updated.String(), got.Updated.String())
 
 			if tt.verifyChildSpanner {

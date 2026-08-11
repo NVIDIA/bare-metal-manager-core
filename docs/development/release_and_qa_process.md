@@ -119,9 +119,9 @@ At any point in time, exactly three minor releases are visible to users, each in
 
 | Tier | Which release | Bug fixes? | Notes |
 | ---- | ------------- | ---------- |-------|
-| **Current** | The newest GA minor (for example, `v2.2`) | Yes — normal bar | Recommended for production deployments. **No new feature work lands here** — new features land in `main` and ship in the next minor release. Small, low-risk improvements can occasionally be backported alongside bug fixes. |
-| **Maintenance** | One minor back (for example, `v2.1`) | Yes, but at a higher bar | Critical fixes and regressions only — not a destination for new feature work |
-| **End-of-Life (EOL)** | Two minors back (for example, `v2.0`) | No | Unsupported. No further releases will be cut on this branch |
+| **Current** | The newest GA minor (such as `v2.2`) | Yes — normal bar | Recommended for production deployments. **No new feature work lands here** — new features land in `main` and ship in the next minor release. Small, low-risk improvements can occasionally be backported alongside bug fixes. |
+| **Maintenance** | One minor back (such as `v2.1`) | Yes, but at a higher bar | Critical fixes and regressions only — not a destination for new feature work |
+| **End-of-Life (EOL)** | Two minors back (such as `v2.0`) | No | Unsupported. No further releases will be cut on this branch |
 
 <Tip title="Terminology">
 The middle tier is called **Maintenance** in this document. This is the more standardized industry term for "still supported, but on a higher bar for changes" (for example, Kubernetes and PostgreSQL community releases). In most ecosystems, *deprecated* implies "scheduled for removal," which is closer to what we mean by **EOL**.

@@ -38,27 +38,27 @@ Rotate the SuperNIC lockdown IKM with an audit note:
     $ nico-admin-cli credential rotate --type=lockdown-ikm --reason=\"quarterly rotation\"
 
 ")]
-pub struct Args {
+pub(crate) struct Args {
     #[clap(
         long = "type",
         require_equals(true),
         required(true),
         help = "Credential family to rotate"
     )]
-    pub credential_type: RotationCredentialKind,
+    credential_type: RotationCredentialKind,
 
     #[clap(
         long,
         require_equals(true),
         help = "Explicit rotate-to password. Omit to have the server auto-generate a strong one."
     )]
-    pub password: Option<String>,
+    password: Option<String>,
 
     #[clap(
         long,
         help = "Free-form note recorded with the rotation (must not contain secrets)"
     )]
-    pub reason: Option<String>,
+    reason: Option<String>,
 }
 
 impl TryFrom<Args> for forgerpc::RotateCredentialRequest {
@@ -73,5 +73,41 @@ impl TryFrom<Args> for forgerpc::RotateCredentialRequest {
             password,
             reason: args.reason,
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use rpc::forge::RotationCredentialType;
+
+    use super::*;
+
+    #[test]
+    fn rotate_maps_to_proto() {
+        let explicit = Args {
+            credential_type: RotationCredentialKind::DpuUefi,
+            password: Some("Str0ng-Explicit-Pw!".to_string()),
+            reason: Some("note".to_string()),
+        };
+        let request =
+            forgerpc::RotateCredentialRequest::try_from(explicit).expect("convert explicit");
+        assert_eq!(
+            request.credential_type,
+            RotationCredentialType::RotationDpuUefi as i32
+        );
+        assert_eq!(request.password, Some("Str0ng-Explicit-Pw!".to_string()));
+        assert_eq!(request.reason, Some("note".to_string()));
+
+        let auto = Args {
+            credential_type: RotationCredentialKind::Bmc,
+            password: None,
+            reason: None,
+        };
+        let request = forgerpc::RotateCredentialRequest::try_from(auto).expect("convert automatic");
+        assert_eq!(
+            request.credential_type,
+            RotationCredentialType::RotationBmc as i32
+        );
+        assert!(request.password.is_none());
     }
 }

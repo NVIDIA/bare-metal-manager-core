@@ -15,15 +15,17 @@
  * limitations under the License.
  */
 
-//! Packet-level counters for the DHCP server. The request and reply events
-//! are metric-only (`log = off`): their rates are the INFO-level signal,
-//! while the per-packet log lines stay reachable at DEBUG for forensics. A
-//! drop is the operational error, so its event also writes the ERROR line --
+//! Packet-level counters and logs for the DHCP server. Request and reply
+//! Events write INFO records with selected BOOTP header and socket details,
+//! while full packets (including their options) stay at DEBUG for forensics. A
+//! drop is the operational error, so its Event also writes the ERROR line --
 //! one declaration moves the counter and logs the reason together.
 //! Timestamp-file failures share a counter by operation while their paths,
 //! host interface, and errors remain log-only diagnostics.
 
-use carbide_instrument::{DynamicMessage, Event, LabelValue, MetricFamily};
+use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
+
+use carbide_instrument::{Event, LabelValue, MetricFamily};
 use dhcproto::v4::MessageType;
 
 use crate::errors::DhcpError;
@@ -33,7 +35,7 @@ use crate::errors::DhcpError;
 /// (lease-query extensions, unknown codes, a missing message-type option)
 /// counts as `other`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, LabelValue)]
-pub enum MessageTypeLabel {
+pub(super) enum MessageTypeLabel {
     Discover,
     Request,
     Offer,
@@ -66,7 +68,7 @@ impl From<MessageType> for MessageTypeLabel {
 /// `DhcpError` -- rate limiting, undersized packets, non-IPv4 sources, and
 /// send failures.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, LabelValue)]
-pub enum DropReason {
+pub(super) enum DropReason {
     RateLimited,
     TooShort,
     NotIpv4,
@@ -158,53 +160,142 @@ pub(crate) struct DhcpSocketSetupFailures {
     next_action: SocketSetupNextAction,
 }
 
+/// One socket-setup syscall failed. Each variant is the call that failed, and
+/// keeps the diagnostic that call already logged.
 #[derive(Event)]
 #[event(
     event_name = "dhcp_server_socket_setup_failed",
-    metric_family = DhcpSocketSetupFailures,
-    log = info,
-    message = dynamic
+    metric_family = DhcpSocketSetupFailures
 )]
-pub(crate) struct DhcpSocketSetupFailed {
-    #[label]
-    operation: SocketSetupOperation,
-    #[label]
-    next_action: SocketSetupNextAction,
-    #[context(value)]
-    retry: i64,
-    #[context]
-    error: String,
+pub(crate) enum DhcpSocketSetupFailed {
+    #[event(
+        labels(operation = SocketSetupOperation::Create),
+        log = info,
+        message = "Socket creation failed"
+    )]
+    Create {
+        #[label]
+        next_action: SocketSetupNextAction,
+        #[context(value)]
+        retry: i64,
+        #[context]
+        error: String,
+    },
+
+    #[event(
+        labels(operation = SocketSetupOperation::ReuseAddress),
+        log = info,
+        message = "Socket set option failed"
+    )]
+    ReuseAddress {
+        #[label]
+        next_action: SocketSetupNextAction,
+        #[context(value)]
+        retry: i64,
+        #[context]
+        error: String,
+    },
+
+    #[event(
+        labels(operation = SocketSetupOperation::SetNonblocking),
+        log = info,
+        message = "Socket set option failed"
+    )]
+    SetNonblocking {
+        #[label]
+        next_action: SocketSetupNextAction,
+        #[context(value)]
+        retry: i64,
+        #[context]
+        error: String,
+    },
+
+    #[event(
+        labels(operation = SocketSetupOperation::BindAddress),
+        log = info,
+        message = "Socket set option failed"
+    )]
+    BindAddress {
+        #[label]
+        next_action: SocketSetupNextAction,
+        #[context(value)]
+        retry: i64,
+        #[context]
+        error: String,
+    },
+
+    #[event(
+        labels(operation = SocketSetupOperation::SetBroadcast),
+        log = info,
+        message = "Socket set option failed"
+    )]
+    SetBroadcast {
+        #[label]
+        next_action: SocketSetupNextAction,
+        #[context(value)]
+        retry: i64,
+        #[context]
+        error: String,
+    },
+
+    #[event(
+        labels(operation = SocketSetupOperation::BindDevice),
+        log = info,
+        message = "Socket set option failed"
+    )]
+    BindDevice {
+        #[label]
+        next_action: SocketSetupNextAction,
+        #[context(value)]
+        retry: i64,
+        #[context]
+        error: String,
+    },
 }
 
 impl DhcpSocketSetupFailed {
+    /// Which call failed, with its retry count widened for the log field.
     pub(crate) fn new(
         operation: SocketSetupOperation,
         next_action: SocketSetupNextAction,
         retry: i32,
         error: String,
     ) -> Self {
-        Self {
-            operation,
-            next_action,
-            retry: i64::from(retry),
-            error,
+        let retry = i64::from(retry);
+        match operation {
+            SocketSetupOperation::Create => Self::Create {
+                next_action,
+                retry,
+                error,
+            },
+            SocketSetupOperation::ReuseAddress => Self::ReuseAddress {
+                next_action,
+                retry,
+                error,
+            },
+            SocketSetupOperation::SetNonblocking => Self::SetNonblocking {
+                next_action,
+                retry,
+                error,
+            },
+            SocketSetupOperation::BindAddress => Self::BindAddress {
+                next_action,
+                retry,
+                error,
+            },
+            SocketSetupOperation::SetBroadcast => Self::SetBroadcast {
+                next_action,
+                retry,
+                error,
+            },
+            SocketSetupOperation::BindDevice => Self::BindDevice {
+                next_action,
+                retry,
+                error,
+            },
         }
     }
 }
-
-impl DynamicMessage for DhcpSocketSetupFailed {
-    fn message(&self) -> &'static str {
-        match self.operation {
-            SocketSetupOperation::Create => "Socket creation failed",
-            SocketSetupOperation::ReuseAddress
-            | SocketSetupOperation::SetNonblocking
-            | SocketSetupOperation::BindAddress
-            | SocketSetupOperation::SetBroadcast
-            | SocketSetupOperation::BindDevice => "Socket set option failed",
-        }
-    }
-}
-
 #[derive(Event)]
 #[event(
     event_name = "dhcp_server_interface_bind_failed",
@@ -242,19 +333,40 @@ impl DhcpInterfaceBindFailed {
     }
 }
 
-/// A DHCP packet was decoded from the wire, whatever becomes of it next.
+/// A DHCP packet with a usable BOOTP header was decoded from the wire. Its
+/// selected header fields and source socket stay on the log line and never
+/// become metric labels; the option-rich full packet stays at DEBUG.
 #[derive(Event)]
 #[event(
     event_name = "dhcp_server_request_received",
     metric_name = "carbide_dhcp_requests_total",
     component = "nico-dhcp",
-    log = off,
+    log = info,
     metric = counter,
+    message = "Decoded DHCP packet",
     describe = "Number of DHCP packets received and decoded, by DHCP message type."
 )]
-pub struct DhcpRequestReceived {
+pub(super) struct DhcpRequestReceived {
     #[label]
-    pub message_type: MessageTypeLabel,
+    pub(super) message_type: MessageTypeLabel,
+    #[context(value)]
+    pub(super) bootp_op: i64,
+    #[context]
+    pub(super) source_address: SocketAddr,
+    #[context(value)]
+    pub(super) xid: i64,
+    #[context(value)]
+    pub(super) broadcast_flag: bool,
+    #[context]
+    pub(super) ciaddr: Ipv4Addr,
+    #[context]
+    pub(super) yiaddr: Ipv4Addr,
+    #[context]
+    pub(super) siaddr: Ipv4Addr,
+    #[context]
+    pub(super) giaddr: Ipv4Addr,
+    #[context(value)]
+    pub(super) chaddr: String,
 }
 
 /// A packet was dropped without a reply reaching the client -- anywhere from
@@ -270,129 +382,106 @@ pub struct DhcpRequestReceived {
     metric = counter,
     describe = "Number of DHCP packets dropped without a reply, by drop reason."
 )]
-pub struct DhcpPacketDropped {
+pub(super) struct DhcpPacketDropped {
     #[label]
-    pub reason: DropReason,
+    pub(super) reason: DropReason,
     /// The detail behind the drop (an error's Display text where one exists).
     /// Log-line-only by construction; never a metric label.
     #[context]
-    pub error: String,
+    pub(super) error: String,
 }
 
 /// A DHCP reply was sent, labelled by the reply's message type: an `offer` is
-/// a proposed lease, an `ack` a committed one, a `nak` a refusal.
+/// a proposed lease, an `ack` a committed one, a `nak` a refusal. Its selected
+/// BOOTP header fields and destination stay on the log line only; the
+/// option-rich full packet stays at DEBUG.
 #[derive(Event)]
 #[event(
     event_name = "dhcp_server_reply_sent",
     metric_name = "carbide_dhcp_replies_sent_total",
     component = "nico-dhcp",
-    log = off,
+    log = info,
     metric = counter,
+    message = "Sent DHCP reply",
     describe = "Number of DHCP replies sent, by reply message type."
 )]
-pub struct DhcpReplySent {
+pub(super) struct DhcpReplySent {
     #[label]
-    pub message_type: MessageTypeLabel,
+    pub(super) message_type: MessageTypeLabel,
+    #[context]
+    pub(super) destination_address: SocketAddrV4,
+    #[context(value)]
+    pub(super) xid: i64,
+    #[context(value)]
+    pub(super) broadcast_flag: bool,
+    #[context]
+    pub(super) ciaddr: Ipv4Addr,
+    #[context]
+    pub(super) yiaddr: Ipv4Addr,
+    #[context]
+    pub(super) siaddr: Ipv4Addr,
+    #[context]
+    pub(super) giaddr: Ipv4Addr,
+    #[context(value)]
+    pub(super) chaddr: String,
 }
 
-/// The startup write could not initialize the timestamp file. This server
-/// generation does not start after the failure.
+/// A DHCP timestamp-file operation failed. Each variant is one operation, and
+/// holds only what that path has -- only a write is per-interface, so only it
+/// has a `host_interface_id`.
 #[derive(Event)]
 #[event(
-    event_name = "dhcp_timestamp_file_initialization_failed",
+    event_name = "dhcp_timestamp_file_failed",
     metric_name = "carbide_dhcp_timestamp_file_failures_total",
     component = "nico-dhcp",
-    log = error,
     metric = counter,
-    message = "Failed to init DHCP timestamps file",
-    describe = "Number of DHCP timestamp file failures, by operation"
+    describe = "Number of DHCP timestamp file failures, by operation",
+    labels(operation: TimestampFileOperation),
 )]
-pub(crate) struct DhcpTimestampFileInitializationFailed {
-    #[label]
-    operation: TimestampFileOperation,
-    #[context]
-    dhcp_timestamps_path: String,
-    #[context]
-    error: String,
-}
-
-impl DhcpTimestampFileInitializationFailed {
-    pub(crate) fn new(dhcp_timestamps_path: String, error: String) -> Self {
-        Self {
-            operation: TimestampFileOperation::Initialize,
-            dhcp_timestamps_path,
-            error,
-        }
-    }
-}
-
-/// Updating the in-memory timestamp succeeded, but persisting the file failed.
-/// Packet processing continues because the timestamp write is best effort.
-#[derive(Event)]
-#[event(
-    event_name = "dhcp_timestamp_file_write_failed",
-    metric_name = "carbide_dhcp_timestamp_file_failures_total",
-    component = "nico-dhcp",
-    log = error,
-    metric = counter,
-    message = "Failed to write DHCP timestamps file",
-    describe = "Number of DHCP timestamp file failures, by operation"
-)]
-pub(crate) struct DhcpTimestampFileWriteFailed {
-    #[label]
-    operation: TimestampFileOperation,
-    #[context]
-    dhcp_timestamps_path: String,
-    #[context]
-    host_interface_id: String,
-    #[context]
-    error: String,
-}
-
-impl DhcpTimestampFileWriteFailed {
-    pub(crate) fn new(
+pub(crate) enum DhcpTimestampFileFailed {
+    /// The startup write could not initialize the file, so this server
+    /// generation does not start.
+    #[event(
+        labels(operation = Initialize),
+        log = error,
+        message = "Failed to init DHCP timestamps file"
+    )]
+    Initialization {
+        #[context]
         dhcp_timestamps_path: String,
-        host_interface_id: String,
+        #[context]
         error: String,
-    ) -> Self {
-        Self {
-            operation: TimestampFileOperation::Write,
-            dhcp_timestamps_path,
-            host_interface_id,
-            error,
-        }
-    }
-}
+    },
 
-/// The control RPC could not read the timestamp file. It still returns an
-/// empty list so callers keep treating an unreadable file as no requests yet.
-#[derive(Event)]
-#[event(
-    event_name = "dhcp_timestamp_file_read_failed",
-    metric_name = "carbide_dhcp_timestamp_file_failures_total",
-    component = "nico-dhcp",
-    log = warn,
-    metric = counter,
-    message = "Failed to read DHCP timestamps file",
-    describe = "Number of DHCP timestamp file failures, by operation"
-)]
-pub(crate) struct DhcpTimestampFileReadFailed {
-    #[label]
-    operation: TimestampFileOperation,
-    #[context]
-    dhcp_timestamps_path: String,
-    #[context]
-    error: String,
-}
+    /// The in-memory timestamp advanced but the file did not. Packet
+    /// processing continues because the write is best effort.
+    #[event(
+        labels(operation = Write),
+        log = error,
+        message = "Failed to write DHCP timestamps file"
+    )]
+    Write {
+        #[context]
+        dhcp_timestamps_path: String,
+        #[context]
+        host_interface_id: String,
+        #[context]
+        error: String,
+    },
 
-impl DhcpTimestampFileReadFailed {
-    pub(crate) fn new(dhcp_timestamps_path: String, error: String) -> Self {
-        Self {
-            operation: TimestampFileOperation::Read,
-            dhcp_timestamps_path,
-            error,
-        }
-    }
+    /// The control RPC could not read the file. It still returns an empty list
+    /// so callers keep treating an unreadable file as no requests yet.
+    #[event(
+        labels(operation = Read),
+        log = warn,
+        message = "Failed to read DHCP timestamps file"
+    )]
+    Read {
+        #[context]
+        dhcp_timestamps_path: String,
+        #[context]
+        error: String,
+    },
 }
 
 #[cfg(test)]
@@ -462,25 +551,27 @@ mod tests {
     }
 
     fn emit_timestamp_initialization_failure() {
-        emit(DhcpTimestampFileInitializationFailed::new(
-            "/var/support/forge-dhcp/logs/dhcp_timestamps.json.tmp".to_string(),
-            "permission denied".to_string(),
-        ));
+        emit(DhcpTimestampFileFailed::Initialization {
+            dhcp_timestamps_path: "/var/support/forge-dhcp/logs/dhcp_timestamps.json.tmp"
+                .to_string(),
+            error: "permission denied".to_string(),
+        });
     }
 
     fn emit_timestamp_write_failure() {
-        emit(DhcpTimestampFileWriteFailed::new(
-            "/var/support/forge-dhcp/logs/dhcp_timestamps.json.tmp".to_string(),
-            "60cef902-9779-4666-8362-c9bb4b37185f".to_string(),
-            "read-only file system".to_string(),
-        ));
+        emit(DhcpTimestampFileFailed::Write {
+            dhcp_timestamps_path: "/var/support/forge-dhcp/logs/dhcp_timestamps.json.tmp"
+                .to_string(),
+            host_interface_id: "60cef902-9779-4666-8362-c9bb4b37185f".to_string(),
+            error: "read-only file system".to_string(),
+        });
     }
 
     fn emit_timestamp_read_failure() {
-        emit(DhcpTimestampFileReadFailed::new(
-            "/var/support/forge-dhcp/logs/dhcp_timestamps.json".to_string(),
-            "file not found".to_string(),
-        ));
+        emit(DhcpTimestampFileFailed::Read {
+            dhcp_timestamps_path: "/var/support/forge-dhcp/logs/dhcp_timestamps.json".to_string(),
+            error: "file not found".to_string(),
+        });
     }
 
     fn observe_timestamp_file_failure(
@@ -821,7 +912,7 @@ mod tests {
                     expect: expected_timestamp_file_failure(
                         "initialize",
                         tracing::Level::ERROR,
-                        "dhcp_timestamp_file_initialization_failed",
+                        "dhcp_timestamp_file_failed",
                         "Failed to init DHCP timestamps file",
                         "/var/support/forge-dhcp/logs/dhcp_timestamps.json.tmp",
                         None,
@@ -836,7 +927,7 @@ mod tests {
                     expect: expected_timestamp_file_failure(
                         "write",
                         tracing::Level::ERROR,
-                        "dhcp_timestamp_file_write_failed",
+                        "dhcp_timestamp_file_failed",
                         "Failed to write DHCP timestamps file",
                         "/var/support/forge-dhcp/logs/dhcp_timestamps.json.tmp",
                         Some("60cef902-9779-4666-8362-c9bb4b37185f"),
@@ -851,7 +942,7 @@ mod tests {
                     expect: expected_timestamp_file_failure(
                         "read",
                         tracing::Level::WARN,
-                        "dhcp_timestamp_file_read_failed",
+                        "dhcp_timestamp_file_failed",
                         "Failed to read DHCP timestamps file",
                         "/var/support/forge-dhcp/logs/dhcp_timestamps.json",
                         None,
@@ -1040,13 +1131,11 @@ mod tests {
         );
     }
 
-    /// Every packet event moves exactly its counter, per label value. The
-    /// request and grant counters are silent (the counters are the INFO-level
-    /// signal, the packet logs stay DEBUG); a drop is the operational error,
-    /// so its event also writes the error line -- one declaration, both
-    /// signals.
+    /// Every packet Event moves exactly its counter and writes the matching
+    /// operational record: request and reply activity at INFO, and drops at
+    /// ERROR.
     #[test]
-    fn packet_events_count_per_label_and_drops_log_at_error() {
+    fn packet_events_count_per_label_and_log_at_their_operational_level() {
         let metrics = MetricsCapture::start();
         let logs = capture_logs(|| {
             // Labels deliberately unused by any other test in this binary:
@@ -1055,12 +1144,38 @@ mod tests {
             // with the end-to-end packet tests.
             emit(DhcpRequestReceived {
                 message_type: MessageTypeLabel::Release,
+                bootp_op: 1,
+                source_address: "192.0.2.10:68".parse().unwrap(),
+                xid: 0x0102_0304,
+                broadcast_flag: true,
+                ciaddr: Ipv4Addr::new(192, 0, 2, 20),
+                yiaddr: Ipv4Addr::new(192, 0, 2, 21),
+                siaddr: Ipv4Addr::new(192, 0, 2, 1),
+                giaddr: Ipv4Addr::new(192, 0, 2, 254),
+                chaddr: "00:11:22:33:44:55".to_string(),
             });
             emit(DhcpRequestReceived {
                 message_type: MessageTypeLabel::Release,
+                bootp_op: 1,
+                source_address: "192.0.2.10:68".parse().unwrap(),
+                xid: 0x0102_0304,
+                broadcast_flag: true,
+                ciaddr: Ipv4Addr::new(192, 0, 2, 20),
+                yiaddr: Ipv4Addr::new(192, 0, 2, 21),
+                siaddr: Ipv4Addr::new(192, 0, 2, 1),
+                giaddr: Ipv4Addr::new(192, 0, 2, 254),
+                chaddr: "00:11:22:33:44:55".to_string(),
             });
             emit(DhcpReplySent {
                 message_type: MessageTypeLabel::Nak,
+                destination_address: "192.0.2.10:68".parse().unwrap(),
+                xid: 0x0102_0304,
+                broadcast_flag: true,
+                ciaddr: Ipv4Addr::new(192, 0, 2, 20),
+                yiaddr: Ipv4Addr::new(192, 0, 2, 21),
+                siaddr: Ipv4Addr::new(192, 0, 2, 1),
+                giaddr: Ipv4Addr::new(192, 0, 2, 254),
+                chaddr: "00:11:22:33:44:55".to_string(),
             });
             emit(DhcpPacketDropped {
                 reason: DropReason::RateLimited,
@@ -1073,32 +1188,99 @@ mod tests {
             });
         });
 
-        let (drop_logs, other_logs): (Vec<_>, Vec<_>) = logs
+        assert_eq!(logs.len(), 5, "each packet Event writes one log record");
+        let request_logs: Vec<_> = logs
             .iter()
-            .partition(|entry| entry.message.contains("Dropped a DHCP packet"));
-        assert!(
-            other_logs.is_empty(),
-            "request/grant events are metric-only, got {other_logs:?}"
+            .filter(|entry| entry.metadata_name == "dhcp_server_request_received")
+            .collect();
+        let reply_logs: Vec<_> = logs
+            .iter()
+            .filter(|entry| entry.metadata_name == "dhcp_server_reply_sent")
+            .collect();
+        let drop_logs: Vec<_> = logs
+            .iter()
+            .filter(|entry| entry.metadata_name == "dhcp_server_packet_dropped")
+            .collect();
+
+        assert_eq!(request_logs.len(), 2, "each request writes one INFO line");
+        for entry in request_logs {
+            assert_eq!(entry.level, tracing::Level::INFO);
+            assert_eq!(entry.message, "Decoded DHCP packet");
+            assert_eq!(
+                entry.field("event_name"),
+                Some("dhcp_server_request_received")
+            );
+            assert_eq!(
+                entry.field("metric_name"),
+                Some("carbide_dhcp_requests_total")
+            );
+            assert_eq!(entry.field("message_type"), Some("release"));
+            assert_eq!(entry.field("bootp_op"), Some("1"));
+            assert_eq!(entry.field_kind("bootp_op"), Some(CapturedFieldKind::I64));
+            assert_eq!(entry.field("source_address"), Some("192.0.2.10:68"));
+            assert_eq!(entry.field("xid"), Some("16909060"));
+            assert_eq!(entry.field_kind("xid"), Some(CapturedFieldKind::I64));
+            assert_eq!(entry.field("broadcast_flag"), Some("true"));
+            assert_eq!(
+                entry.field_kind("broadcast_flag"),
+                Some(CapturedFieldKind::Bool)
+            );
+            assert_eq!(entry.field("ciaddr"), Some("192.0.2.20"));
+            assert_eq!(entry.field("yiaddr"), Some("192.0.2.21"));
+            assert_eq!(entry.field("siaddr"), Some("192.0.2.1"));
+            assert_eq!(entry.field("giaddr"), Some("192.0.2.254"));
+            assert_eq!(entry.field("chaddr"), Some("00:11:22:33:44:55"));
+            assert_eq!(entry.field_kind("chaddr"), Some(CapturedFieldKind::String));
+            assert_eq!(entry.field("received_packet"), None);
+        }
+
+        let [reply_log] = reply_logs.as_slice() else {
+            panic!("the reply Event should write one INFO line, got {reply_logs:?}");
+        };
+        assert_eq!(reply_log.level, tracing::Level::INFO);
+        assert_eq!(reply_log.message, "Sent DHCP reply");
+        assert_eq!(
+            reply_log.field("event_name"),
+            Some("dhcp_server_reply_sent")
         );
+        assert_eq!(
+            reply_log.field("metric_name"),
+            Some("carbide_dhcp_replies_sent_total")
+        );
+        assert_eq!(reply_log.field("message_type"), Some("nak"));
+        assert_eq!(
+            reply_log.field("destination_address"),
+            Some("192.0.2.10:68")
+        );
+        assert_eq!(reply_log.field("xid"), Some("16909060"));
+        assert_eq!(reply_log.field_kind("xid"), Some(CapturedFieldKind::I64));
+        assert_eq!(reply_log.field("broadcast_flag"), Some("true"));
+        assert_eq!(
+            reply_log.field_kind("broadcast_flag"),
+            Some(CapturedFieldKind::Bool)
+        );
+        assert_eq!(reply_log.field("ciaddr"), Some("192.0.2.20"));
+        assert_eq!(reply_log.field("yiaddr"), Some("192.0.2.21"));
+        assert_eq!(reply_log.field("siaddr"), Some("192.0.2.1"));
+        assert_eq!(reply_log.field("giaddr"), Some("192.0.2.254"));
+        assert_eq!(reply_log.field("chaddr"), Some("00:11:22:33:44:55"));
+        assert_eq!(
+            reply_log.field_kind("chaddr"),
+            Some(CapturedFieldKind::String)
+        );
+        assert_eq!(reply_log.field("sent_packet"), None);
+
         assert_eq!(drop_logs.len(), 2, "each drop writes one error line");
         assert!(
             drop_logs
                 .iter()
                 .all(|entry| entry.level == tracing::Level::ERROR)
         );
-        let field = |entry: &&carbide_instrument::testing::CapturedLog, name: &str| {
-            entry
-                .fields
-                .iter()
-                .find(|(key, _)| key == name)
-                .map(|(_, value)| value.clone())
-        };
-        assert_eq!(
-            field(&drop_logs[0], "reason").as_deref(),
-            Some("rate_limited")
-        );
+        assert_eq!(drop_logs[0].field("reason"), Some("rate_limited"));
         assert!(
-            field(&drop_logs[1], "error").is_some_and(|error| error.contains("api down")),
+            drop_logs[1]
+                .field("error")
+                .is_some_and(|error| error.contains("api down")),
             "the drop line carries the upstream error detail"
         );
         assert_eq!(

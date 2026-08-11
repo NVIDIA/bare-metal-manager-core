@@ -58,7 +58,7 @@ async fn get_or_create_vpc(api_client: &ApiClient) -> CarbideCliResult<Vpc> {
         let vpc = api_client.create_vpc(DEVENV_VPC_NAME, vpc_id).await?;
         println!(
             "Created VPC with ID: {}, name: {}",
-            vpc.id.unwrap(),
+            vpc.id.unwrap_or_default(),
             vpc.metadata
                 .as_ref()
                 .map(|x| x.name.as_str())
@@ -98,7 +98,7 @@ async fn handle_overlay_segment_creation(
 
             println!(
                 "Found network segment id: {}, name: {} for prefix: {}",
-                ns.id.unwrap(),
+                ns.id.unwrap_or_default(),
                 ns_name,
                 prefix_str,
             );
@@ -135,7 +135,7 @@ async fn handle_overlay_segment_creation(
 
         println!(
             "Created network segment id: {}, name: {} for prefix: {}",
-            ns.id.unwrap(),
+            ns.id.unwrap_or_default(),
             ns_name,
             prefix_str,
         );
@@ -187,7 +187,7 @@ async fn get_or_create_flat_vpc(api_client: &ApiClient) -> CarbideCliResult<Vpc>
         .await?;
     println!(
         "Created Flat VPC with ID: {}, name: {}",
-        vpc.id.unwrap(),
+        vpc.id.unwrap_or_default(),
         vpc.metadata
             .as_ref()
             .map(|x| x.name.as_str())
@@ -221,7 +221,7 @@ async fn handle_host_inband_segment_creation(
         if let Some(ns) = existing.network_segments.first() {
             println!(
                 "Found HostInband segment id: {}, name: {} for prefix: {}",
-                ns.id.unwrap(),
+                ns.id.unwrap_or_default(),
                 name,
                 prefix,
             );
@@ -242,7 +242,7 @@ async fn handle_host_inband_segment_creation(
 
         println!(
             "Created HostInband segment id: {}, name: {} for prefix: {}",
-            ns.id.unwrap(),
+            ns.id.unwrap_or_default(),
             name,
             prefix,
         );
@@ -260,6 +260,7 @@ async fn handle_overlay_vpc_prefix_creation(
         let query = VpcPrefixSearchQuery {
             vpc_id: vpc.id,
             tenant_prefix_id: None,
+            site_prefix_id: None,
             name: Some(vpc_prefix_name.clone()),
             prefix_match: Some(network.to_string()),
             prefix_match_type: Some(PrefixMatchType::PrefixExact as i32),
@@ -281,6 +282,7 @@ async fn handle_overlay_vpc_prefix_creation(
             id: Some(uuid::Uuid::new_v4().into()),
             prefix: String::new(),
             vpc_id: vpc.id,
+            site_prefix_id: None,
             config: Some(rpc::forge::VpcPrefixConfig {
                 prefix: network.to_string(),
             }),
@@ -299,14 +301,14 @@ async fn handle_overlay_vpc_prefix_creation(
             .unwrap_or("");
         println!(
             "Created Vpc prefix {}, name: {} for network {network}.",
-            vpc_prefix.id.unwrap(),
+            vpc_prefix.id.unwrap_or_default(),
             vpc_prefix_name
         );
     }
     Ok(())
 }
 
-pub async fn apply_devenv_config(
+pub(super) async fn apply_devenv_config(
     config: Args,
     api_client: &ApiClient,
 ) -> Result<(), CarbideCliError> {

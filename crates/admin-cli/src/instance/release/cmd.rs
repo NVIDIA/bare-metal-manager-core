@@ -23,7 +23,7 @@ use crate::cfg::runtime::RuntimeContext;
 use crate::errors::{CarbideCliError, CarbideCliResult};
 use crate::rpc::ApiClient;
 
-pub async fn release(
+pub(super) async fn release(
     api_client: &ApiClient,
     release_request: Args,
     ctx: &RuntimeContext,
@@ -43,13 +43,17 @@ pub async fn release(
                 .into(),
         ),
         (_, Some(machine_id), _) => {
-            let instances = api_client.0.find_instance_by_machine_id(machine_id).await?;
-            if instances.instances.is_empty() {
+            let instances = api_client
+                .0
+                .find_instance_by_machine_id(machine_id)
+                .await?
+                .instances;
+            let Some(instance_id) = instances.into_iter().next().and_then(|i| i.id) else {
                 return Err(CarbideCliError::GenericError(
                     "No instances assigned to that machine".to_string(),
                 ));
-            }
-            instance_ids.push(instances.instances[0].id.unwrap());
+            };
+            instance_ids.push(instance_id);
         }
         (_, _, Some(key)) => {
             let instances = api_client

@@ -151,7 +151,7 @@ impl From<forgerpc::MachineInterface> for InterfaceRowDisplay {
 }
 
 /// List machine interfaces
-pub async fn show_html(
+pub(super) async fn show_html(
     AxumState(state): AxumState<Arc<Api>>,
     Query(params): Query<PaginationParams>,
     uri: OriginalUri,
@@ -209,7 +209,7 @@ pub async fn show_html(
     (StatusCode::OK, Html(tmpl.render().unwrap())).into_response()
 }
 
-pub async fn show_all_json(AxumState(state): AxumState<Arc<Api>>) -> Response {
+pub(super) async fn show_all_json(AxumState(state): AxumState<Arc<Api>>) -> Response {
     let machine_interfaces = match fetch_machine_interfaces(state).await {
         Ok(n) => n,
         Err(err) => {
@@ -307,7 +307,7 @@ impl From<forgerpc::MachineInterface> for InterfaceDetail {
 }
 
 /// View machine interface details
-pub async fn detail(
+pub(super) async fn detail(
     AxumState(state): AxumState<Arc<Api>>,
     AxumPath(interface_id): AxumPath<String>,
 ) -> Response {

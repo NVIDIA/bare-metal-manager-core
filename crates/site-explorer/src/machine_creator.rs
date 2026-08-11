@@ -218,6 +218,9 @@ impl MachineCreator {
                 None
             };
 
+        // Admission permit BEFORE the transaction: waiters on the admin-segment
+        // advisory lock must queue in memory, not on open pool connections.
+        let _admin_admission = db::machine_interface::admin_lock_admission().await;
         let mut txn = Transaction::begin(pool).await?;
 
         // Advisory-lock the admin segments before any machine-interface row
@@ -571,13 +574,13 @@ impl MachineCreator {
             .await?;
 
         // Settle this host's single boot interface as we take ownership: the
-        // declared `ExpectedHostNic.primary` (if any) is the host's primary, and
+        // declared `ExpectedInterface.primary` (if any) is the host's primary, and
         // every other NIC is non-primary. Routing both the already-leased rows and
         // the freshly-minted predictions through the same declaration makes the
         // choice authoritative regardless of DHCP arrival order, and keeps exactly
         // one primary per machine -- so adopting several NICs that leased before
         // ingestion never trips the `one_primary_interface_per_machine` index.
-        // The host's primary (boot) interface is a declared `ExpectedHostNic.primary`
+        // The host's primary (boot) interface is a declared `ExpectedInterface.primary`
         // when set, otherwise the boot interface preserved across `--delete-interfaces`
         // in `retained_boot_interfaces`. The retained fallback lets a host with no
         // declared primary -- a DPU flipped to NIC mode is the common case -- re-ingest
@@ -1050,18 +1053,6 @@ impl MachineCreator {
             .await?;
         }
 
-        if self.config.allocate_secondary_vtep_ip
-            && network_config.secondary_overlay_vtep_ip.is_none()
-        {
-            let secondary_vtep_ip = db::machine::allocate_secondary_vtep_ip(
-                &self.common_pools,
-                txn,
-                &dpu_machine.id.to_string(),
-            )
-            .await?;
-            network_config.secondary_overlay_vtep_ip = Some(secondary_vtep_ip);
-        }
-
         // A stale version must fail the whole transaction so any addresses
         // allocated above return to their pools.
         if !db::machine::try_update_network_config(txn, &dpu_machine.id, version, &network_config)
@@ -1380,7 +1371,7 @@ fn host_mac_addresses_for_predicted_machine(
         [] => machine_data
             .filter(|_| !(report.is_dpu() || report.is_switch() || report.is_power_shelf()))
             .map(|data| {
-                data.host_nics
+                data.interfaces
                     .iter()
                     .filter(|interface| interface.role.is_host())
                     .map(|interface| interface.mac_address)
@@ -1391,7 +1382,7 @@ fn host_mac_addresses_for_predicted_machine(
             .inspect(|host_mac_addresses| {
                 tracing::info!(
                     host_nic_count = host_mac_addresses.len(),
-                    "System EthernetInterfaces missing from Redfish; using ExpectedMachine.host_nics for predicted machine interfaces"
+                    "System EthernetInterfaces missing from Redfish; using ExpectedMachine.interfaces for predicted machine interfaces"
                 );
             })
             .unwrap_or_default(),
@@ -1403,7 +1394,7 @@ mod tests {
     use std::str::FromStr;
 
     use carbide_test_support::{Check, check_values};
-    use model::expected_machine::{ExpectedHostNic, ExpectedInterfaceRole};
+    use model::expected_machine::{ExpectedInterface, ExpectedInterfaceRole};
     use model::site_explorer::{Chassis, ComputerSystem, EthernetInterface};
 
     use super::*;
@@ -1417,13 +1408,13 @@ mod tests {
         let dpu_bmc_mac = MacAddress::new([0x02, 0x00, 0x00, 0x00, 0x00, 0x03]);
         let host_bmc_mac = MacAddress::new([0x02, 0x00, 0x00, 0x00, 0x00, 0x04]);
         let redfish_mac = MacAddress::new([0x02, 0x00, 0x00, 0x00, 0x00, 0x05]);
-        let interface = |mac_address, role| ExpectedHostNic {
+        let interface = |mac_address, role| ExpectedInterface {
             mac_address,
             role,
             ..Default::default()
         };
-        let machine_data = |host_nics| ExpectedMachineData {
-            host_nics,
+        let machine_data = |interfaces| ExpectedMachineData {
+            interfaces,
             ..Default::default()
         };
         let all_roles = || {

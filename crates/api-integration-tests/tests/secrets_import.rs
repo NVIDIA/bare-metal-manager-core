@@ -20,6 +20,7 @@
 //! Requires: `vault` binary in PATH, `DATABASE_URL` env var set.
 
 use std::str::FromStr;
+use std::time::Duration;
 
 use bmc_vendor::DpuModel;
 use carbide_secrets::credentials::{
@@ -29,6 +30,7 @@ use carbide_secrets::credentials::{
 use carbide_secrets::{VaultConfig, create_vault_client};
 use sqlx::PgPool;
 use sqlx::postgres::PgConnectOptions;
+use tokio::task::JoinSet;
 
 /// make_test_key creates a deterministic 32-byte key from a seed byte.
 fn make_test_key(seed: u8) -> [u8; 32] {
@@ -249,9 +251,7 @@ async fn exercise_import(test_pool: &PgPool) -> eyre::Result<()> {
         vault_cacert: Some(vault.ca_cert.clone()),
         ..Default::default()
     };
-
-    let meter = opentelemetry::global::meter("secrets-import-test");
-    let vault_client = create_vault_client(&vault_config, meter)?;
+    let vault_client = create_vault_client(&vault_config)?;
 
     // --- Populate Vault with secrets ---
     let secrets = generate_test_secrets(100);
@@ -272,9 +272,17 @@ async fn exercise_import(test_pool: &PgPool) -> eyre::Result<()> {
     // --- Import into Postgres ---
     let encryption_key = make_test_key(42);
     let (routing, kms) = make_routing_and_kms(encryption_key);
+    let mut work_lock_tasks = JoinSet::new();
+    let work_lock_manager =
+        db::work_lock_manager::start(&mut work_lock_tasks, test_pool.clone(), Default::default())
+            .await?;
+    let work_lock = work_lock_manager
+        .try_acquire_lock("secrets-import-integration-test".to_string())
+        .await?;
 
-    let result = carbide_api_core::secrets::import_secrets(
+    let result = carbide_api_core::secrets::import_vault_secrets(
         test_pool,
+        &work_lock,
         &routing,
         kms.as_ref(),
         &vault_secrets,
@@ -282,9 +290,14 @@ async fn exercise_import(test_pool: &PgPool) -> eyre::Result<()> {
     )
     .await?;
 
-    assert_eq!(result.imported, secrets.len() as u64);
-    assert_eq!(result.skipped, 0);
-    eprintln!("Imported {} secrets into Postgres", result.imported);
+    assert_eq!(
+        result,
+        carbide_api_core::secrets::ImportResult::Completed {
+            imported: secrets.len() as u64,
+            skipped: 0,
+        }
+    );
+    eprintln!("Imported {} secrets into Postgres", secrets.len());
 
     // --- Verify all secrets are readable from Postgres ---
     let pg_mgr = carbide_api_core::secrets::PostgresCredentialManager::new(
@@ -303,9 +316,10 @@ async fn exercise_import(test_pool: &PgPool) -> eyre::Result<()> {
     }
     eprintln!("All {} secrets verified in Postgres", secrets.len());
 
-    // --- Re-import with MissingOnly — should be a noop ---
-    let result2 = carbide_api_core::secrets::import_secrets(
+    // --- The permanent marker makes any later import a no-op ---
+    let result2 = carbide_api_core::secrets::import_vault_secrets(
         test_pool,
+        &work_lock,
         &routing,
         kms.as_ref(),
         &vault_secrets,
@@ -313,22 +327,24 @@ async fn exercise_import(test_pool: &PgPool) -> eyre::Result<()> {
     )
     .await?;
 
-    assert_eq!(result2.imported, 0, "re-import should not import anything");
     assert_eq!(
-        result2.skipped,
-        secrets.len() as u64,
-        "re-import should skip all"
+        result2,
+        carbide_api_core::secrets::ImportResult::AlreadyComplete
     );
-    eprintln!("Re-import was a noop (skipped {})", result2.skipped);
+    eprintln!("Permanent marker prevented a second import");
 
     // --- Verify marker ---
-    carbide_api_core::secrets::mark_vault_import_complete(test_pool, &routing, kms.as_ref())
-        .await?;
     assert!(
         carbide_api_core::secrets::is_vault_import_complete(test_pool).await?,
         "import marker should be set"
     );
     eprintln!("Import marker verified");
+
+    work_lock.release().await?;
+    drop(work_lock_manager);
+    tokio::time::timeout(Duration::from_secs(3), work_lock_tasks.join_all())
+        .await
+        .expect("WorkLockManager did not shut down in a timely manner");
 
     Ok(())
 }

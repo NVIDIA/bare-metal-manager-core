@@ -109,7 +109,82 @@ test_selection_mode = "EnableAll"
 [oem_manager_profiles.Dell.PowerEdge_R760.powerefficiency]
 "ServerPwr.1.PSRapidOn" = "Disabled"
 
+# Qualified platform baselines, keyed by the rack_profile_id on an expected
+# rack. Each count is the minimum number of devices required to exit Created
+# (present) and Discovering (ready).
+#
+# Profile ids name the platform (NVL72 / NVL72_GB300), not a single OEM —
+# inventory references stay stable as vendors change. The vendor fields below
+# are the currently qualified defaults (e.g. Lenovo compute on GB300); they are
+# per-OEM facts, not properties of the topology. Figment merges site-config
+# over this file per-key, so a site with different hardware overrides only
+# rack_capabilities.<role>.vendor (or adds a new profile id for test / custom
+# racks) without forking the platform id. New production-supported platforms
+# land here through the normal qualification / PR process.
+[rack_profiles.NVL72]
+product_family = "gb200"
+rack_hardware_topology = "gb200_nvl72r1_c2g4_topology"
+
+[rack_profiles.NVL72.rack_capabilities.compute]
+vendor = "NVIDIA"
+count = 18
+
+[rack_profiles.NVL72.rack_capabilities.switch]
+vendor = "NVIDIA"
+count = 9
+
+[rack_profiles.NVL72.rack_capabilities.power_shelf]
+vendor = "LiteOn"
+count = 8
+
+[rack_profiles.NVL72_GB300]
+product_family = "gb300"
+rack_hardware_topology = "gb300_nvl72r1_c2g4_topology"
+
+[rack_profiles.NVL72_GB300.rack_capabilities.compute]
+vendor = "Lenovo"
+count = 18
+
+[rack_profiles.NVL72_GB300.rack_capabilities.switch]
+vendor = "NVIDIA"
+count = 9
+
+[rack_profiles.NVL72_GB300.rack_capabilities.power_shelf]
+vendor = "LiteOn"
+count = 6
+
 [observability.per_object_state_metrics]
 enabled = {{ .Values.service.perObjectStateMetrics.enabled }}
 listen_address = "[::]:{{ .Values.service.perObjectStateMetrics.port }}"
 object_types = {{ default list .Values.service.perObjectStateMetrics.objectTypes | toJson }}
+{{- if .Values.componentManager.enabled }}
+
+# Presence of this section enables the component manager; site-config can
+# override fields but cannot un-define the section once rendered. Independent
+# of rms.enabled — pair with RMS when backends are "rms".
+[component_manager]
+compute_tray_backend = {{ .Values.componentManager.computeTrayBackend | quote }}
+nv_switch_backend = {{ .Values.componentManager.nvSwitchBackend | quote }}
+power_shelf_backend = {{ .Values.componentManager.powerShelfBackend | quote }}
+
+nv_switch_use_state_controller = {{ .Values.componentManager.nvSwitchUseStateController }}
+power_shelf_use_state_controller = {{ .Values.componentManager.powerShelfUseStateController }}
+compute_tray_use_state_controller = {{ .Values.componentManager.computeTrayUseStateController }}
+{{- end }}
+{{- if .Values.rms.enabled }}
+
+# RMS (Rack Management Service) connectivity, used by the component manager
+# and rack controller for rack-level firmware upgrades and power sequencing.
+[rms]
+api_url = {{ .Values.rms.apiUrl | quote }}
+enforce_tls = {{ .Values.rms.enforceTls }}
+{{- with .Values.rms.rootCaPath }}
+root_ca_path = {{ . | quote }}
+{{- end }}
+{{- with .Values.rms.clientCert }}
+client_cert = {{ . | quote }}
+{{- end }}
+{{- with .Values.rms.clientKey }}
+client_key = {{ . | quote }}
+{{- end }}
+{{- end }}

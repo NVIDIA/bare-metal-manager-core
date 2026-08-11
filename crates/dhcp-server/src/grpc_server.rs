@@ -27,7 +27,12 @@ use carbide_uuid::machine::MachineInterfaceId;
 use tokio::sync::mpsc;
 use tonic::{Request, Response, Status};
 
-pub mod proto {
+mod proto {
+    #![allow(
+        unreachable_pub,
+        reason = "tonic_prost_build emits public items for this crate-internal protocol module"
+    )]
+
     tonic::include_proto!("dhcp_server_control");
 }
 
@@ -38,12 +43,12 @@ use proto::{
 };
 
 use crate::errors::DhcpError;
-use crate::metrics::DhcpTimestampFileReadFailed;
+use crate::metrics::DhcpTimestampFileFailed;
 
-// ── Public control channel types ─────────────────────────────────────────────
+// ── Control channel types ────────────────────────────────────────────────────
 
 /// Messages sent from the gRPC handlers to the main restart loop.
-pub enum ControlRequest {
+pub(super) enum ControlRequest {
     /// Write new config YAML and immediately restart the DHCP server.
     /// The restart loop skips the restart if the config is unchanged.
     UpdateAndReload {
@@ -217,10 +222,10 @@ impl DhcpServerControl for DhcpServerControlService {
     ) -> Result<Response<GetDhcpTimestampsResponse>, Status> {
         let mut ts = DhcpTimestamps::new(DhcpTimestampsFilePath::Hbn);
         if let Err(e) = ts.read() {
-            emit(DhcpTimestampFileReadFailed::new(
-                DhcpTimestampsFilePath::Hbn.path_str().to_string(),
-                e.to_string(),
-            ));
+            emit(DhcpTimestampFileFailed::Read {
+                dhcp_timestamps_path: DhcpTimestampsFilePath::Hbn.path_str().to_string(),
+                error: e.to_string(),
+            });
         }
         let entries = ts
             .into_iter()
@@ -236,7 +241,7 @@ impl DhcpServerControl for DhcpServerControlService {
 // ── Server entry point ────────────────────────────────────────────────────────
 
 /// Start the plain (no-TLS) gRPC control server and block until it exits.
-pub async fn run_grpc_server(addr: SocketAddr, ctrl_tx: mpsc::Sender<ControlRequest>) {
+pub(super) async fn run_grpc_server(addr: SocketAddr, ctrl_tx: mpsc::Sender<ControlRequest>) {
     let service = DhcpServerControlService { ctrl_tx };
     tracing::info!(listen_address = %addr, "gRPC config-reload server listening");
 

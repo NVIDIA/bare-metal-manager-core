@@ -60,6 +60,7 @@ dns-record = { path = "../dns-record" }
 carbide-uuid = { path = "../uuid" }
 
 chrono = { features = ["serde"], workspace = true }
+const_format = { workspace = true }
 eyre = { workspace = true }
 hyper = { workspace = true, features = ["full"] }
 hyper-rustls = { workspace = true, features = ["http2"] }
@@ -133,6 +134,7 @@ harness = false
 required-features = ["model"]
 
 [build-dependencies]
+carbide-proto-compiler = { path = "../proto-compiler" }
 tonic-prost-build = "0.14"
 tonic-client-wrapper = { path = "../tonic-client-wrapper" }
 

@@ -68,7 +68,10 @@ func (ercr *APIExpectedRackCreateRequest) Validate() error {
 type APIExpectedRackUpdateRequest struct {
 	// ID is required for batch updates (must be empty or match path value for single update).
 	ID *string `json:"id"`
-	// RackID is the optional new operator-supplied rack identifier
+	// RackID is the operator-supplied rack identifier. It is immutable on
+	// update: it may be omitted or set to the existing value, but a changed
+	// value is rejected by the handler before any database mutation because
+	// Core and Flow use rackId as the identity key.
 	RackID *string `json:"rackId"`
 	// RackProfileID is the optional new rack profile ID
 	RackProfileID *string `json:"rackProfileId"`

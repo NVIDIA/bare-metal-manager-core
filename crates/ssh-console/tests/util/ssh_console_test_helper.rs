@@ -31,14 +31,14 @@ use crate::util::fixtures::{
 };
 
 #[derive(Default)]
-pub struct ConfigOverrides {
-    pub reconnect_interval_base: Option<Duration>,
-    pub reconnect_interval_max: Option<Duration>,
-    pub successful_connection_minimum_duration: Option<Duration>,
-    pub force_deactivate_conflicting_ipmi_sol_sessions: Option<bool>,
+pub(crate) struct ConfigOverrides {
+    pub(crate) reconnect_interval_base: Option<Duration>,
+    pub(crate) reconnect_interval_max: Option<Duration>,
+    pub(crate) successful_connection_minimum_duration: Option<Duration>,
+    pub(crate) force_deactivate_conflicting_ipmi_sol_sessions: Option<bool>,
 }
 
-pub async fn spawn(
+pub(crate) async fn spawn(
     carbide_port: u16,
     config_overrides: Option<ConfigOverrides>,
 ) -> eyre::Result<NewSshConsoleHandle> {
@@ -115,14 +115,14 @@ pub async fn spawn(
     })
 }
 
-pub struct NewSshConsoleHandle {
-    pub addr: SocketAddr,
-    pub metrics_address: SocketAddr,
-    pub logs_dir: TempDir,
-    pub spawn_handle: ssh_console::SpawnHandle,
+pub(crate) struct NewSshConsoleHandle {
+    pub(crate) addr: SocketAddr,
+    pub(crate) metrics_address: SocketAddr,
+    pub(crate) logs_dir: TempDir,
+    pub(crate) spawn_handle: ssh_console::SpawnHandle,
 }
 
-pub async fn get_metrics(addr: SocketAddr) -> eyre::Result<String> {
+pub(crate) async fn get_metrics(addr: SocketAddr) -> eyre::Result<String> {
     use http_body_util::BodyExt;
     String::from_utf8_lossy(
         hyper_util::client::legacy::Builder::new(TokioExecutor::new())

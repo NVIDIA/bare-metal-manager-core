@@ -1,8 +1,12 @@
 ---
-tags: ["next", "deployment", "ntp", "security", "database"]
+tags: ["current", "database", "deployment", "dpu", "machine-identity", "multi-arch", "networking", "ntp", "rest-api", "security", "telemetry", "validation", "zero-dpu"]
 ---
 
-## NVIDIA Infra Controller v2.0 <Badge intent="launch">Next</Badge>
+## NVIDIA Infra Controller v2.0 <Badge intent="launch">Current</Badge>
+
+NICo v2.0 expands bare-metal lifecycle management with built-in NTP, broader hardware telemetry, multi-architecture support, and stronger security and operational controls.
+
+Before upgrading an existing deployment, review the REST API database migration requirements below.
 
 <Warning title="Upgrade note: REST database consolidation">
 The NICo REST API database has moved from a standalone PostgreSQL instance to the shared Zalando-managed `nico-pg-cluster`. A new `nico_rest` database and `nico-rest.nico` user are provisioned automatically (gated on `rest.enabled: true`). Database credentials are now synced by External Secrets Operator as the `nico-rest-pg-creds` secret in the `nico-rest` namespace, replacing the former `db-creds` secret.

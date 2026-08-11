@@ -324,7 +324,7 @@ func (ush UpdateSiteHandler) Handle(c echo.Context) error {
 		return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to retrieve current user", nil)
 	}
 
-	provider, tenant, apiErr := common.IsProviderOrTenant(ctx, logger, ush.dbSession, org, dbUser, false, false)
+	provider, tenant, apiErr := common.IsProviderOrTenant(ctx, logger, ush.dbSession, org, dbUser, false, nil)
 	if apiErr != nil {
 		return c.JSON(apiErr.Code, apiErr)
 	}
@@ -593,7 +593,7 @@ func (gsh GetSiteHandler) Handle(c echo.Context) error {
 		return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to retrieve current user", nil)
 	}
 
-	provider, tenant, apiErr := common.IsProviderOrTenant(ctx, logger, gsh.dbSession, org, dbUser, true, false)
+	provider, tenant, apiErr := common.IsProviderOrTenant(ctx, logger, gsh.dbSession, org, dbUser, true, nil)
 	if apiErr != nil {
 		return c.JSON(apiErr.Code, apiErr)
 	}
@@ -651,21 +651,12 @@ func (gsh GetSiteHandler) Handle(c echo.Context) error {
 		}
 
 		if !isAssociated {
-			// Check if Tenant is privileged
-			if tenant.Config != nil && tenant.Config.TargetedInstanceCreation {
-				taDAO := cdbm.NewTenantAccountDAO(gsh.dbSession)
-				tas, _, serr := taDAO.GetAll(ctx, nil, cdbm.TenantAccountFilterInput{
-					InfrastructureProviderID: &st.InfrastructureProviderID,
-					TenantIDs:                []uuid.UUID{tenant.ID},
-					Statuses:                 []string{cdbm.TenantAccountStatusReady},
-				}, cdbp.PageInput{Limit: cutil.GetPtr(cdbp.TotalLimit)}, nil)
-				if serr != nil {
-					logger.Error().Err(serr).Msg("error retrieving Tenant Accounts for privileged Tenant")
-					return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to retrieve Tenant Accounts to determine access to Site, DB error", nil)
-				}
-
-				isAssociated = len(tas) > 0
+			enabled, serr := common.TenantHasTargetedInstanceCreation(ctx, nil, gsh.dbSession, tenant, &common.TenantPrivilegeScope{SiteID: &st.ID})
+			if serr != nil {
+				logger.Error().Err(serr).Msg("error resolving TargetedInstanceCreation for Tenant/Site")
+				return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to resolve Tenant capability for Site, DB error", nil)
 			}
+			isAssociated = enabled
 		}
 	}
 
@@ -757,7 +748,7 @@ func (gash GetAllSiteHandler) Handle(c echo.Context) error {
 		return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, errMsg, nil)
 	}
 
-	provider, tenant, apiErr := common.IsProviderOrTenant(ctx, logger, gash.dbSession, org, dbUser, true, false)
+	provider, tenant, apiErr := common.IsProviderOrTenant(ctx, logger, gash.dbSession, org, dbUser, true, nil)
 	if apiErr != nil {
 		return c.JSON(apiErr.Code, apiErr)
 	}
@@ -887,34 +878,15 @@ func (gash GetAllSiteHandler) Handle(c echo.Context) error {
 			tsMap[ts.SiteID] = &ts
 		}
 
-		// If Tenant is privileged (has TargetedInstanceCreation capability),
-		// also retrieve all Sites from Providers they have a Tenant Account with
-		if tenant.Config != nil && tenant.Config.TargetedInstanceCreation {
-			taDAO := cdbm.NewTenantAccountDAO(gash.dbSession)
-			tas, _, serr := taDAO.GetAll(ctx, nil, cdbm.TenantAccountFilterInput{
-				TenantIDs: []uuid.UUID{tenant.ID},
-				Statuses:  []string{cdbm.TenantAccountStatusReady},
-			}, cdbp.PageInput{Limit: cutil.GetPtr(cdbp.TotalLimit)}, nil)
-			if serr != nil {
-				logger.Error().Err(serr).Msg("error retrieving Tenant Accounts for privileged Tenant")
-				return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to retrieve Tenant Accounts", nil)
-			}
-
-			if len(tas) > 0 {
-				providerIDs := make([]uuid.UUID, 0, len(tas))
-				for _, ta := range tas {
-					providerIDs = append(providerIDs, ta.InfrastructureProviderID)
-				}
-
-				providerSites, _, serr := stDAO.GetAll(ctx, nil, cdbm.SiteFilterInput{InfrastructureProviderIDs: providerIDs}, paginator.PageInput{Limit: cutil.GetPtr(cdbp.TotalLimit)}, nil)
-				if serr != nil {
-					logger.Error().Err(serr).Msg("error retrieving Sites for Providers from Tenant Accounts")
-					return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to retrieve Sites for one or more Providers", nil)
-				}
-				for _, site := range providerSites {
-					siteIDs.Add(site.ID)
-				}
-			}
+		// Add the Sites where the Tenant has effective TargetedInstanceCreation,
+		// honoring per-site TenantSite.config overrides.
+		privilegedSiteIDs, serr := common.GetPrivilegedAccessSiteIDsForTenant(ctx, nil, gash.dbSession, tenant)
+		if serr != nil {
+			logger.Error().Err(serr).Msg("error resolving privileged Site access for Tenant")
+			return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to resolve Tenant capability, DB error", nil)
+		}
+		for _, siteID := range privilegedSiteIDs {
+			siteIDs.Add(siteID)
 		}
 	}
 
@@ -1183,7 +1155,7 @@ func (gssdh GetSiteStatusDetailsHandler) Handle(c echo.Context) error {
 		return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to retrieve current user", nil)
 	}
 
-	provider, tenant, apiErr := common.IsProviderOrTenant(ctx, logger, gssdh.dbSession, org, dbUser, true, false)
+	provider, tenant, apiErr := common.IsProviderOrTenant(ctx, logger, gssdh.dbSession, org, dbUser, true, nil)
 	if apiErr != nil {
 		return c.JSON(apiErr.Code, apiErr)
 	}
@@ -1227,21 +1199,12 @@ func (gssdh GetSiteStatusDetailsHandler) Handle(c echo.Context) error {
 		}
 
 		if !isAssociated {
-			// Check if Tenant is privileged
-			if tenant.Config != nil && tenant.Config.TargetedInstanceCreation {
-				taDAO := cdbm.NewTenantAccountDAO(gssdh.dbSession)
-				tas, _, serr := taDAO.GetAll(ctx, nil, cdbm.TenantAccountFilterInput{
-					InfrastructureProviderID: &st.InfrastructureProviderID,
-					TenantIDs:                []uuid.UUID{tenant.ID},
-					Statuses:                 []string{cdbm.TenantAccountStatusReady},
-				}, cdbp.PageInput{Limit: cutil.GetPtr(cdbp.TotalLimit)}, nil)
-				if serr != nil {
-					logger.Error().Err(serr).Msg("error retrieving Tenant Accounts for privileged Tenant")
-					return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to retrieve Tenant Accounts to determine access to Site, DB error", nil)
-				}
-
-				isAssociated = len(tas) > 0
+			enabled, serr := common.TenantHasTargetedInstanceCreation(ctx, nil, gssdh.dbSession, tenant, &common.TenantPrivilegeScope{SiteID: &st.ID})
+			if serr != nil {
+				logger.Error().Err(serr).Msg("error resolving TargetedInstanceCreation for Tenant/Site")
+				return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to resolve Tenant capability for Site, DB error", nil)
 			}
+			isAssociated = enabled
 		}
 	}
 

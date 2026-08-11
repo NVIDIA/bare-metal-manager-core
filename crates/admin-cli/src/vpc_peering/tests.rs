@@ -25,9 +25,12 @@
 
 use carbide_test_support::Outcome::*;
 use carbide_test_support::scenarios;
+use carbide_uuid::vpc::VpcId;
+use carbide_uuid::vpc_peering::VpcPeeringId;
 use clap::{CommandFactory, Parser};
 
 use super::*;
+use crate::test_support::parse_leaf;
 
 const TEST_VPC_ID_1: &str = "00000000-0000-0000-0000-000000000001";
 const TEST_VPC_ID_2: &str = "00000000-0000-0000-0000-000000000002";
@@ -56,15 +59,23 @@ fn verify_cmd_structure() {
 fn parse_create() {
     scenarios!(
         run = |argv| {
-            Cmd::try_parse_from(argv.iter().copied())
-                .map(|cmd| match cmd {
-                    Cmd::Create(args) => (args.vpc1_id.to_string(), args.vpc2_id.to_string()),
-                    _ => panic!("expected Create variant"),
+            parse_leaf::<Cmd>(argv, &["create"])
+                .map(|matches| {
+                    (
+                        matches
+                            .get_one::<VpcId>("vpc1_id")
+                            .copied()
+                            .expect("first VPC ID is required"),
+                        matches
+                            .get_one::<VpcId>("vpc2_id")
+                            .copied()
+                            .expect("second VPC ID is required"),
+                    )
                 })
                 .map_err(drop)
         };
         "create with two VPC IDs" {
-            &["vpc-peering", "create", TEST_VPC_ID_1, TEST_VPC_ID_2][..] => Yields((TEST_VPC_ID_1.to_string(), TEST_VPC_ID_2.to_string())),
+            &["vpc-peering", "create", TEST_VPC_ID_1, TEST_VPC_ID_2][..] => Yields((TEST_VPC_ID_1.parse::<VpcId>().unwrap(), TEST_VPC_ID_2.parse::<VpcId>().unwrap())),
         }
     );
 }
@@ -75,10 +86,12 @@ fn parse_create() {
 fn parse_show() {
     scenarios!(
         run = |argv| {
-            Cmd::try_parse_from(argv.iter().copied())
-                .map(|cmd| match cmd {
-                    Cmd::Show(args) => (args.id.is_some(), args.vpc_id.is_some()),
-                    _ => panic!("expected Show variant"),
+            parse_leaf::<Cmd>(argv, &["show"])
+                .map(|matches| {
+                    (
+                        matches.get_one::<VpcPeeringId>("id").is_some(),
+                        matches.get_one::<VpcId>("vpc_id").is_some(),
+                    )
                 })
                 .map_err(drop)
         };
@@ -101,16 +114,16 @@ fn parse_show() {
 #[test]
 fn parse_delete() {
     scenarios!(
-        run = |argv| {
-            Cmd::try_parse_from(argv.iter().copied())
-                .map(|cmd| match cmd {
-                    Cmd::Delete(args) => args.id.to_string(),
-                    _ => panic!("expected Delete variant"),
-                })
-                .map_err(drop)
-        };
+        run = |argv| parse_leaf::<Cmd>(argv, &["delete"])
+            .map(|matches| {
+                matches
+                    .get_one::<VpcPeeringId>("id")
+                    .copied()
+                    .expect("peering ID is required")
+            })
+            .map_err(drop);
         "delete with --id" {
-            &["vpc-peering", "delete", "--id", TEST_PEERING_ID][..] => Yields(TEST_PEERING_ID.to_string()),
+            &["vpc-peering", "delete", "--id", TEST_PEERING_ID][..] => Yields(TEST_PEERING_ID.parse::<VpcPeeringId>().unwrap()),
         }
     );
 }

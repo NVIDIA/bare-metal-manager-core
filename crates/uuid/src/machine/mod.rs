@@ -150,9 +150,9 @@ mod legacy_rpc {
     /// manually every time, while still interacting with peers that expect a `.common.MachineId`
     /// to be serialized.
     #[derive(prost::Message)]
-    pub struct MachineId {
+    pub(super) struct MachineId {
         #[prost(string, tag = "1")]
-        pub id: String,
+        pub(super) id: String,
     }
 
     impl From<super::MachineId> for MachineId {
@@ -286,6 +286,10 @@ impl MachineId {
             [0; 32],
             MachineType::Host,
         )
+    }
+
+    pub(crate) fn is_matching_prefix(s: &str) -> bool {
+        s.starts_with(MACHINE_ID_PREFIX)
     }
 }
 

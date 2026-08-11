@@ -66,7 +66,7 @@ struct RedfishActionResultPersistenceFailed {
     error: String,
 }
 
-pub async fn redfish_browse(
+pub(crate) async fn redfish_browse(
     api: &crate::api::Api,
     request: tonic::Request<::rpc::forge::RedfishBrowseRequest>,
 ) -> Result<tonic::Response<::rpc::forge::RedfishBrowseResponse>, tonic::Status> {
@@ -124,7 +124,7 @@ pub async fn redfish_browse(
         headers,
     }))
 }
-pub async fn redfish_list_actions(
+pub(crate) async fn redfish_list_actions(
     api: &crate::api::Api,
     request: tonic::Request<::rpc::forge::RedfishListActionsRequest>,
 ) -> Result<tonic::Response<::rpc::forge::RedfishListActionsResponse>, tonic::Status> {
@@ -141,7 +141,7 @@ pub async fn redfish_list_actions(
     ))
 }
 
-pub async fn redfish_create_action(
+pub(crate) async fn redfish_create_action(
     api: &crate::api::Api,
     request: tonic::Request<::rpc::forge::RedfishCreateActionRequest>,
 ) -> Result<tonic::Response<::rpc::forge::RedfishCreateActionResponse>, tonic::Status> {
@@ -176,7 +176,7 @@ pub async fn redfish_create_action(
     ))
 }
 
-pub async fn redfish_approve_action(
+pub(crate) async fn redfish_approve_action(
     api: &crate::api::Api,
     request: tonic::Request<::rpc::forge::RedfishActionId>,
 ) -> Result<tonic::Response<::rpc::forge::RedfishApproveActionResponse>, tonic::Status> {
@@ -209,7 +209,7 @@ pub async fn redfish_approve_action(
     ))
 }
 
-pub async fn redfish_apply_action(
+pub(crate) async fn redfish_apply_action(
     api: &crate::api::Api,
     request: tonic::Request<::rpc::forge::RedfishActionId>,
 ) -> Result<tonic::Response<::rpc::forge::RedfishApplyActionResponse>, tonic::Status> {
@@ -481,7 +481,7 @@ fn redfish_action_uri(machine_ip: &str, target: &str) -> Result<Uri, CarbideErro
         .map_err(|error| CarbideError::internal(format!("invalid uri from machine_ip: {error}")))
 }
 
-pub(crate) async fn create_client(
+async fn create_client(
     uri: http::Uri,
     pool: &PgPool,
     credential_reader: &dyn CredentialReader,
@@ -552,7 +552,7 @@ pub(crate) async fn create_client(
     Ok((metadata, new_uri, headers, http_client))
 }
 
-pub async fn redfish_cancel_action(
+pub(crate) async fn redfish_cancel_action(
     api: &crate::api::Api,
     request: tonic::Request<::rpc::forge::RedfishActionId>,
 ) -> Result<tonic::Response<::rpc::forge::RedfishCancelActionResponse>, tonic::Status> {
@@ -572,7 +572,7 @@ pub async fn redfish_cancel_action(
 }
 
 #[derive(Serialize, Copy, Clone)]
-pub enum TestBehavior {
+enum TestBehavior {
     FailureAtClientCreation,
     FailureAtRequest,
     Success,
@@ -592,7 +592,7 @@ impl FromStr for TestBehavior {
 }
 
 impl TestBehavior {
-    pub fn into_client_creation_error(self) -> Option<CarbideError> {
+    fn into_client_creation_error(self) -> Option<CarbideError> {
         if let TestBehavior::FailureAtClientCreation = self {
             Some(CarbideError::internal(
                 "mock failure at client creation".to_owned(),
@@ -602,7 +602,7 @@ impl TestBehavior {
         }
     }
 
-    pub fn into_request_error(self) -> Option<RequestErrorInfo> {
+    fn into_request_error(self) -> Option<RequestErrorInfo> {
         if let TestBehavior::FailureAtRequest = self {
             Some(RequestErrorInfo {
                 status_code: Some(http::status::StatusCode::INTERNAL_SERVER_ERROR),
@@ -613,7 +613,7 @@ impl TestBehavior {
         }
     }
 
-    pub fn into_mock_success(self) -> Option<BMCResponse> {
+    fn into_mock_success(self) -> Option<BMCResponse> {
         if let TestBehavior::Success = self {
             Some(BMCResponse {
                 headers: Default::default(),
@@ -627,7 +627,7 @@ impl TestBehavior {
     }
 
     #[cfg(test)]
-    pub fn from_parameters_if_testing(parameters: &mut String) -> Option<TestBehavior> {
+    fn from_parameters_if_testing(parameters: &mut String) -> Option<TestBehavior> {
         let mut param_obj: serde_json::Map<String, serde_json::Value> =
             serde_json::from_str(parameters).expect("invalid parameters");
         if let Some(serde_json::Value::String(test_behavior)) =
@@ -642,16 +642,41 @@ impl TestBehavior {
     }
 
     #[cfg(not(test))]
-    pub fn from_parameters_if_testing(_parameters: &mut String) -> Option<TestBehavior> {
+    fn from_parameters_if_testing(_parameters: &mut String) -> Option<TestBehavior> {
         None
+    }
+}
+
+#[cfg(test)]
+pub(crate) mod test_behavior {
+    use super::TestBehavior;
+
+    pub(crate) fn success() -> serde_json::Value {
+        serde_json::to_value(TestBehavior::Success).expect("test behavior must serialize")
+    }
+
+    pub(crate) fn failure_at_request() -> serde_json::Value {
+        serde_json::to_value(TestBehavior::FailureAtRequest).expect("test behavior must serialize")
+    }
+
+    pub(crate) fn failure_at_client_creation() -> serde_json::Value {
+        serde_json::to_value(TestBehavior::FailureAtClientCreation)
+            .expect("test behavior must serialize")
+    }
+
+    pub(crate) fn request_failure_description() -> String {
+        TestBehavior::FailureAtRequest
+            .into_request_error()
+            .expect("request failure behavior must produce an error")
+            .description
     }
 }
 
 // Subset of the data we care about from the HTTP error, so that we can mock it (we can't build our
 // own reqwest error as its constructors are all private.)
-pub struct RequestErrorInfo {
-    pub status_code: Option<http::status::StatusCode>,
-    pub description: String,
+struct RequestErrorInfo {
+    status_code: Option<http::status::StatusCode>,
+    description: String,
 }
 
 impl From<reqwest_middleware::Error> for RequestErrorInfo {

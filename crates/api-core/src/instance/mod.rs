@@ -135,7 +135,7 @@ async fn validate_zero_dpu_auto_vpc(
 /// Validates that an operating system definition referenced by ID exists, is active,
 /// and has status READY.  Returns `Ok(())` when the OS variant is not
 /// `OperatingSystemId` (inline iPXE / OS image variants need no lookup).
-pub async fn validate_os_definition_usable(
+pub(crate) async fn validate_os_definition_usable(
     txn: impl sqlx::Executor<'_, Database = sqlx::Postgres>,
     os: &model::os::OperatingSystem,
 ) -> Result<(), CarbideError> {
@@ -166,24 +166,24 @@ pub async fn validate_os_definition_usable(
 
 /// User parameters for creating an instance
 #[derive(Debug)]
-pub struct InstanceAllocationRequest {
+pub(crate) struct InstanceAllocationRequest {
     /// The Machine on top of which we create an Instance
-    pub machine_id: MachineId,
+    pub(crate) machine_id: MachineId,
 
     /// The expected InstanceTypeId of the source
     /// machine for the instance.
-    pub instance_type_id: Option<InstanceTypeId>,
+    pub(crate) instance_type_id: Option<InstanceTypeId>,
 
     /// Desired ID for the new instance
-    pub instance_id: InstanceId,
+    pub(crate) instance_id: InstanceId,
 
     /// Desired configuration of the instance
-    pub config: InstanceConfig,
+    pub(crate) config: InstanceConfig,
 
-    pub metadata: Metadata,
+    pub(crate) metadata: Metadata,
 
     /// Allow allocation on unhealthy machines
-    pub allow_unhealthy_machine: bool,
+    pub(crate) allow_unhealthy_machine: bool,
 }
 
 impl TryFrom<rpc::InstanceAllocationRequest> for InstanceAllocationRequest {
@@ -1189,7 +1189,7 @@ async fn allocate_networks(
 }
 
 /// Allocates generated network resources for one instance network config.
-pub async fn allocate_network(
+pub(crate) async fn allocate_network(
     network_config: &mut InstanceNetworkConfig,
     tenant_organization_id: &TenantOrganizationId,
     txn: &mut PgConnection,
@@ -1204,7 +1204,7 @@ pub async fn allocate_network(
     .await
 }
 
-pub fn allocate_ib_port_guid(
+pub(crate) fn allocate_ib_port_guid(
     ib_config: &InstanceInfinibandConfig,
     machine: &Machine,
 ) -> CarbideResult<InstanceInfinibandConfig> {
@@ -1286,7 +1286,7 @@ pub fn allocate_ib_port_guid(
 }
 
 /// sort ib device by slot and add devices with the same name are added to hashmap
-pub fn sort_ib_by_slot(
+pub(crate) fn sort_ib_by_slot(
     ib_hw_info_vec: &[InfinibandInterface],
 ) -> HashMap<String, Vec<InfinibandInterface>> {
     let mut ib_hw_map = HashMap::new();
@@ -1312,7 +1312,7 @@ pub fn sort_ib_by_slot(
 
 /// Allocates an instance for a tenant
 /// This is a convenience wrapper around `batch_allocate_instances` for single instance allocation.
-pub async fn allocate_instance(
+pub(crate) async fn allocate_instance(
     api: &Api,
     request: InstanceAllocationRequest,
     host_health_config: HostHealthConfig,
@@ -1322,6 +1322,27 @@ pub async fn allocate_instance(
     results
         .pop()
         .ok_or_else(|| CarbideError::internal("instance allocation returned no result".to_string()))
+}
+
+fn not_allocatable_error(machine_id: MachineId, reason: NotAllocatableReason) -> CarbideError {
+    match reason {
+        NotAllocatableReason::InvalidState(state) => CarbideError::InvalidArgument(format!(
+            "could not create instance on machine {machine_id} given machine state {state:?}"
+        )),
+        NotAllocatableReason::PendingInstanceCreation => CarbideError::InvalidArgument(format!(
+            "could not create instance on machine {machine_id}. machine is already used by another instance creation request",
+        )),
+        NotAllocatableReason::PendingBootConfiguration => {
+            CarbideError::FailedPrecondition(format!(
+                "machine {machine_id} has a pending boot configuration; retry after it has been applied"
+            ))
+        }
+        NotAllocatableReason::NoDpuSnapshots => {
+            CarbideError::internal(format!("machine {machine_id} has no DPU. cannot allocate"))
+        }
+        NotAllocatableReason::MaintenanceMode => CarbideError::MaintenanceMode,
+        NotAllocatableReason::HealthAlert(_) => CarbideError::UnhealthyHost,
+    }
 }
 
 /// Allocates multiple instances in a single transaction.
@@ -1334,7 +1355,7 @@ pub async fn allocate_instance(
 /// 4. Network allocation + config validation (sequential)
 /// 5. Batch persist instances, process configs (IPs, IB GUIDs), batch update
 /// 6. Load final instances, assemble snapshots, commit
-pub async fn batch_allocate_instances(
+pub(crate) async fn batch_allocate_instances(
     api: &Api,
     mut requests: Vec<InstanceAllocationRequest>,
     host_health_config: HostHealthConfig,
@@ -1517,26 +1538,20 @@ pub async fn batch_allocate_instances(
             })?;
 
         if let Err(e) = mh_snapshot.is_usable_as_instance(request.allow_unhealthy_machine) {
-            tracing::error!(
-                %machine_id,
-                error = %e,
-                "Host can not be used as instance due to reason",
-            );
-            return Err(match e {
-                NotAllocatableReason::InvalidState(s) => CarbideError::InvalidArgument(format!(
-                    "could not create instance on machine {machine_id} given machine state {s:?}"
-                )),
-                NotAllocatableReason::PendingInstanceCreation => {
-                    CarbideError::InvalidArgument(format!(
-                        "could not create instance on machine {machine_id}. machine is already used by another instance creation request",
-                    ))
-                }
-                NotAllocatableReason::NoDpuSnapshots => CarbideError::internal(format!(
-                    "machine {machine_id} has no DPU. cannot allocate"
-                )),
-                NotAllocatableReason::MaintenanceMode => CarbideError::MaintenanceMode,
-                NotAllocatableReason::HealthAlert(_) => CarbideError::UnhealthyHost,
-            });
+            if matches!(&e, NotAllocatableReason::PendingBootConfiguration) {
+                tracing::info!(
+                    %machine_id,
+                    error = %e,
+                    "Host can not be used as instance due to reason",
+                );
+            } else {
+                tracing::error!(
+                    %machine_id,
+                    error = %e,
+                    "Host can not be used as instance due to reason",
+                );
+            }
+            return Err(not_allocatable_error(machine_id, e));
         }
 
         if mh_snapshot.host_snapshot.config.dpf.used_for_ingestion
@@ -2062,7 +2077,7 @@ pub async fn batch_allocate_instances(
 }
 
 /// Batch validate SPX partition ownership for multiple (partition_id, tenant_id) pairs
-pub async fn batch_validate_spx_partition_ownership(
+pub(crate) async fn batch_validate_spx_partition_ownership(
     txn: &mut PgConnection,
     validations: &[(SpxPartitionId, &TenantOrganizationId)],
 ) -> CarbideResult<()> {
@@ -2113,7 +2128,7 @@ pub async fn batch_validate_spx_partition_ownership(
 }
 
 /// Batch validate IB partition ownership for multiple (partition_id, tenant_id) pairs
-pub async fn batch_validate_ib_partition_ownership(
+pub(crate) async fn batch_validate_ib_partition_ownership(
     txn: &mut PgConnection,
     validations: &[(IBPartitionId, &TenantOrganizationId)],
 ) -> CarbideResult<()> {
@@ -2155,7 +2170,7 @@ pub async fn batch_validate_ib_partition_ownership(
 }
 
 /// Check whether the tenant of instance is consistent with the tenant of the ib partition
-pub async fn validate_ib_partition_ownership(
+pub(crate) async fn validate_ib_partition_ownership(
     txn: &mut PgConnection,
     instance_tenant: &TenantOrganizationId,
     ib_config: &InstanceInfinibandConfig,
@@ -2168,7 +2183,7 @@ pub async fn validate_ib_partition_ownership(
     batch_validate_ib_partition_ownership(txn, &validations).await
 }
 
-pub async fn validate_spx_partition_ownership(
+pub(crate) async fn validate_spx_partition_ownership(
     txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     instance_tenant: &TenantOrganizationId,
     spxcfg: &InstanceSpxConfig,
@@ -2198,7 +2213,9 @@ pub async fn validate_spx_partition_ownership(
 }
 
 /// sort spx device by slot and add devices with the same name are added to hashmap
-pub fn sort_spx_by_slot(spx_hw_info_vec: &[DpaInterface]) -> HashMap<String, Vec<DpaInterface>> {
+pub(crate) fn sort_spx_by_slot(
+    spx_hw_info_vec: &[DpaInterface],
+) -> HashMap<String, Vec<DpaInterface>> {
     let mut spx_hw_map = HashMap::new();
     let mut sorted_spx_hw_info_vec = spx_hw_info_vec.to_owned();
     sorted_spx_hw_info_vec.sort_by(|a, b| a.pci_name.cmp(&b.pci_name));
@@ -2219,7 +2236,7 @@ pub fn sort_spx_by_slot(spx_hw_info_vec: &[DpaInterface]) -> HashMap<String, Vec
 }
 
 /// Allocate SPX port MAC addresses
-pub fn allocate_spx_port_mac(
+pub(crate) fn allocate_spx_port_mac(
     spx_config: &InstanceSpxConfig,
     mh_snapshot: &ManagedHostStateSnapshot,
 ) -> CarbideResult<InstanceSpxConfig> {
@@ -2334,6 +2351,25 @@ mod tests {
                 build_requested_linknet_prefix(ip.parse().unwrap(), prefix_len).map_err(|_| ())
             },
         );
+    }
+
+    #[test]
+    fn pending_boot_configuration_has_a_safe_allocation_error() {
+        let machine_id = "fm100htes3rn1npvbtm5qd57dkilaag7ljugl1llmm7rfuq1ov50i0rpl30"
+            .parse()
+            .unwrap();
+
+        assert!(matches!(
+            not_allocatable_error(
+                machine_id,
+                NotAllocatableReason::PendingBootConfiguration,
+            ),
+            CarbideError::FailedPrecondition(message)
+                if message
+                    == format!(
+                        "machine {machine_id} has a pending boot configuration; retry after it has been applied"
+                    )
+        ));
     }
 }
 

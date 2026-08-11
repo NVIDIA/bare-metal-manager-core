@@ -199,6 +199,35 @@ async fn load_and_validate_history(
 mod tests {
     use super::*;
 
+    const RENAME_SITE_PREFIX_AUTHORITY_VERSION: i64 = 20260805083545;
+    const ASSOCIATE_VPC_PREFIX_SITE_PREFIX: &str =
+        include_str!("../../migrations/20260805131227_associate_vpc_prefix_site_prefix.sql");
+    const REMOVE_SECONDARY_VTEP_DATA: &str =
+        include_str!("../../migrations/20260804153414_remove_secondary_vtep_data.sql");
+    const VALIDATE_SECONDARY_VTEP_CONSTRAINT: &str =
+        include_str!("../../migrations/20260804171948_validate_secondary_vtep_constraint.sql");
+
+    #[test]
+    fn migration_versions_are_unique() {
+        let mut versions = HashSet::new();
+
+        for migration in std::iter::once(&MIGRATION_LAYOUT.legacy)
+            .chain(
+                MIGRATION_LAYOUT
+                    .epochs
+                    .iter()
+                    .flat_map(|epoch| [&epoch.squash, &epoch.post_squash]),
+            )
+            .flat_map(|migrator| migrator.iter())
+        {
+            assert!(
+                versions.insert(migration.version),
+                "duplicate migration version {}",
+                migration.version
+            );
+        }
+    }
+
     #[test]
     fn epochs_are_ordered_and_point_to_their_squash_migration() {
         let mut previous = None;
@@ -237,6 +266,416 @@ mod tests {
         assert_eq!(epoch.squash.iter().count(), 1);
         assert_eq!(epoch.post_squash.iter().count(), 1);
         assert!(epoch.post_squash.version_exists(squash_version - 1));
+    }
+
+    #[crate::sqlx_test]
+    async fn site_prefix_authority_migration_preserves_rows_and_schema_objects(pool: PgPool) {
+        sqlx::raw_sql("DROP SCHEMA public CASCADE; CREATE SCHEMA public")
+            .execute(&pool)
+            .await
+            .unwrap();
+
+        let current_epoch = MIGRATION_LAYOUT.epochs.last().unwrap();
+        assert!(
+            current_epoch
+                .post_squash
+                .version_exists(RENAME_SITE_PREFIX_AUTHORITY_VERSION),
+            "site prefix authority migration must belong to the current epoch"
+        );
+        current_epoch.squash.run(&pool).await.unwrap();
+
+        let pre_rename_migrations = current_epoch
+            .post_squash
+            .iter()
+            .filter(|migration| migration.version < RENAME_SITE_PREFIX_AUTHORITY_VERSION)
+            .cloned()
+            .collect();
+        Migrator::with_migrations(pre_rename_migrations)
+            .ignoring_missing()
+            .run(&pool)
+            .await
+            .unwrap();
+
+        let site_prefix_id = "626a8858-9896-4c14-9564-cb1f15e88b23";
+        sqlx::query(
+            r#"
+                INSERT INTO site_prefixes (
+                    id,
+                    prefix,
+                    authority,
+                    tenant_organization_id,
+                    routing_scope,
+                    lifecycle_state,
+                    name,
+                    description,
+                    labels,
+                    version
+                )
+                VALUES (
+                    $1::uuid,
+                    '203.0.113.0/24',
+                    'configured',
+                    NULL,
+                    'datacenter_only',
+                    'ready',
+                    'operator root',
+                    'preserve every field',
+                    '{"source":"migration-test"}',
+                    '1'
+                )
+            "#,
+        )
+        .bind(site_prefix_id)
+        .execute(&pool)
+        .await
+        .unwrap();
+        let row_before: serde_json::Value = sqlx::query_scalar(
+            "SELECT to_jsonb(site_prefixes) - 'authority' \
+             FROM site_prefixes WHERE id = $1::uuid",
+        )
+        .bind(site_prefix_id)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+
+        migrate(&pool).await.unwrap();
+
+        let row_after: serde_json::Value = sqlx::query_scalar(
+            "SELECT to_jsonb(site_prefixes) - 'authority' \
+             FROM site_prefixes WHERE id = $1::uuid",
+        )
+        .bind(site_prefix_id)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(row_after, row_before);
+
+        let authority: String =
+            sqlx::query_scalar("SELECT authority::text FROM site_prefixes WHERE id = $1::uuid")
+                .bind(site_prefix_id)
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        assert_eq!(authority, "operator_managed");
+
+        let authority_labels: Vec<String> = sqlx::query_scalar(
+            r#"
+                SELECT enum_value.enumlabel::text
+                FROM pg_enum enum_value
+                JOIN pg_type enum_type ON enum_type.oid = enum_value.enumtypid
+                JOIN pg_namespace namespace ON namespace.oid = enum_type.typnamespace
+                WHERE namespace.nspname = 'public'
+                  AND enum_type.typname = 'site_prefix_authority'
+                ORDER BY enum_value.enumsortorder
+            "#,
+        )
+        .fetch_all(&pool)
+        .await
+        .unwrap();
+        assert_eq!(
+            authority_labels,
+            vec!["operator_managed".to_string(), "tenant_managed".to_string()]
+        );
+
+        let (
+            operator_constraint_exists,
+            configured_constraint_exists,
+            operator_index_exists,
+            configured_index_exists,
+        ): (bool, bool, bool, bool) = sqlx::query_as(
+            r#"
+                SELECT
+                    EXISTS (
+                        SELECT 1
+                        FROM pg_constraint
+                        WHERE conrelid = 'site_prefixes'::regclass
+                          AND conname = 'site_prefixes_operator_managed_lifecycle_check'
+                    ),
+                    EXISTS (
+                        SELECT 1
+                        FROM pg_constraint
+                        WHERE conrelid = 'site_prefixes'::regclass
+                          AND conname = 'site_prefixes_configured_lifecycle_check'
+                    ),
+                    to_regclass('public.site_prefixes_operator_managed_prefix_key') IS NOT NULL,
+                    to_regclass('public.site_prefixes_configured_prefix_key') IS NOT NULL
+            "#,
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert!(operator_constraint_exists);
+        assert!(!configured_constraint_exists);
+        assert!(operator_index_exists);
+        assert!(!configured_index_exists);
+    }
+
+    #[crate::sqlx_test]
+    async fn vpc_prefix_site_prefix_migration_backfills_unique_operator_parents(pool: PgPool) {
+        // An ordinary sqlx_test begins with every migration applied. This regression needs the
+        // schema from immediately before this migration because the migration itself adds the
+        // column under test. Remove only its FK, index, and column before applying its exact SQL.
+        sqlx::raw_sql(
+            r#"
+                ALTER TABLE network_vpc_prefixes
+                    DROP CONSTRAINT network_vpc_prefixes_site_prefix_id_fkey;
+                DROP INDEX network_vpc_prefixes_site_prefix_id_idx;
+                DROP INDEX network_prefixes_vpc_prefix_id_idx;
+                ALTER TABLE network_vpc_prefixes
+                    DROP COLUMN site_prefix_id;
+            "#,
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        let vpc_id = "00000000-0000-0000-0000-000000003886";
+        sqlx::query(
+            r#"
+                INSERT INTO vpcs (id, name, version)
+                VALUES ($1::uuid, 'site-prefix migration VPC', 'V1-T0')
+            "#,
+        )
+        .bind(vpc_id)
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        let ready_parent_id = "00000000-0000-0000-0000-000000003901";
+        let deleting_parent_id = "00000000-0000-0000-0000-000000003902";
+        let broad_ambiguous_parent_id = "00000000-0000-0000-0000-000000003903";
+        let narrow_ambiguous_parent_id = "00000000-0000-0000-0000-000000003904";
+        sqlx::query(
+            r#"
+                INSERT INTO site_prefixes (
+                    id,
+                    prefix,
+                    authority,
+                    tenant_organization_id,
+                    routing_scope,
+                    lifecycle_state,
+                    name,
+                    version
+                )
+                VALUES
+                    ($1::uuid, 'fd00:3886:1::/48', 'operator_managed', NULL,
+                     'datacenter_only', 'ready', 'ready parent', 'V1-T0'),
+                    ($2::uuid, 'fd00:3886:2::/48', 'operator_managed', NULL,
+                     'datacenter_only', 'deleting', 'deleting parent', 'V1-T0'),
+                    ($3::uuid, 'fd00:3886:3::/48', 'operator_managed', NULL,
+                     'datacenter_only', 'ready', 'broad ambiguous parent', 'V1-T0'),
+                    ($4::uuid, 'fd00:3886:3:1000::/52', 'operator_managed', NULL,
+                     'datacenter_only', 'ready', 'narrow ambiguous parent', 'V1-T0')
+            "#,
+        )
+        .bind(ready_parent_id)
+        .bind(deleting_parent_id)
+        .bind(broad_ambiguous_parent_id)
+        .bind(narrow_ambiguous_parent_id)
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        let ready_child_id = "00000000-0000-0000-0000-000000003911";
+        let deleting_child_id = "00000000-0000-0000-0000-000000003912";
+        let ambiguous_child_id = "00000000-0000-0000-0000-000000003913";
+        let missing_child_id = "00000000-0000-0000-0000-000000003914";
+        sqlx::query(
+            r#"
+                INSERT INTO network_vpc_prefixes (id, prefix, name, vpc_id)
+                VALUES
+                    ($1::uuid, 'fd00:3886:1:1::/64', 'ready child', $5::uuid),
+                    ($2::uuid, 'fd00:3886:2:1::/64', 'deleting child', $5::uuid),
+                    ($3::uuid, 'fd00:3886:3:1234::/64', 'ambiguous child', $5::uuid),
+                    ($4::uuid, 'fd00:3886:4:1::/64', 'missing child', $5::uuid)
+            "#,
+        )
+        .bind(ready_child_id)
+        .bind(deleting_child_id)
+        .bind(ambiguous_child_id)
+        .bind(missing_child_id)
+        .bind(vpc_id)
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        sqlx::raw_sql(ASSOCIATE_VPC_PREFIX_SITE_PREFIX)
+            .execute(&pool)
+            .await
+            .unwrap();
+
+        let parent_by_child: HashMap<String, Option<String>> = sqlx::query_as(
+            r#"
+                SELECT id::text, site_prefix_id::text
+                FROM network_vpc_prefixes
+                WHERE vpc_id = $1::uuid
+            "#,
+        )
+        .bind(vpc_id)
+        .fetch_all(&pool)
+        .await
+        .unwrap()
+        .into_iter()
+        .collect();
+        assert_eq!(parent_by_child.len(), 4);
+        for (child_id, expected_parent_id) in [
+            (ready_child_id, Some(ready_parent_id)),
+            (deleting_child_id, Some(deleting_parent_id)),
+            (ambiguous_child_id, None),
+            (missing_child_id, None),
+        ] {
+            assert_eq!(
+                parent_by_child
+                    .get(child_id)
+                    .and_then(|parent_id| parent_id.as_deref()),
+                expected_parent_id,
+                "child: {child_id}",
+            );
+        }
+
+        let (constraint_is_valid, delete_action): (bool, String) = sqlx::query_as(
+            r#"
+                SELECT convalidated, confdeltype::text
+                FROM pg_constraint
+                WHERE conrelid = 'network_vpc_prefixes'::regclass
+                  AND conname = 'network_vpc_prefixes_site_prefix_id_fkey'
+            "#,
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert!(constraint_is_valid);
+        assert_eq!(delete_action, "r");
+
+        sqlx::query("DELETE FROM site_prefixes WHERE id = $1::uuid")
+            .bind(ready_parent_id)
+            .execute(&pool)
+            .await
+            .expect_err("the associated VPC prefix must restrict parent deletion");
+
+        let (site_prefix_index_exists, allocation_index_exists): (bool, bool) = sqlx::query_as(
+            r#"
+                SELECT
+                    to_regclass('public.network_vpc_prefixes_site_prefix_id_idx') IS NOT NULL,
+                    to_regclass('public.network_prefixes_vpc_prefix_id_idx') IS NOT NULL
+            "#,
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert!(site_prefix_index_exists);
+        assert!(allocation_index_exists);
+    }
+
+    #[crate::sqlx_test]
+    async fn secondary_vtep_migration_removes_persisted_data(pool: PgPool) {
+        sqlx::query(
+            "ALTER TABLE machines \
+             DROP CONSTRAINT machines_network_config_excludes_secondary_vtep_ip",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            r#"INSERT INTO machines (id, network_config, dpf)
+               VALUES (
+                   'fm100dsecondaryvtep',
+                   '{"loopback_ip":"192.0.2.1","secondary_overlay_vtep_ip":"198.51.100.1"}',
+                   '{"enabled":true,"used_for_ingestion":false}'
+               )"#,
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            r#"INSERT INTO resource_pool_def (name, definition)
+               VALUES
+                   ('secondary-vtep-ip', '{}'),
+                   ('retained-pool', '{}')"#,
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            r#"INSERT INTO resource_pool
+                   (name, value, allocated, state, value_type)
+               VALUES
+                   ('secondary-vtep-ip', '198.51.100.1', NOW(), '{"owner_id":"fm100dsecondaryvtep"}', 'ipv4'),
+                   ('secondary-vtep-ip', '198.51.100.2', NULL, '{}', 'ipv4'),
+                   ('retained-pool', '203.0.113.1', NULL, '{}', 'ipv4')"#,
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        sqlx::raw_sql(REMOVE_SECONDARY_VTEP_DATA)
+            .execute(&pool)
+            .await
+            .unwrap();
+        sqlx::raw_sql(VALIDATE_SECONDARY_VTEP_CONSTRAINT)
+            .execute(&pool)
+            .await
+            .unwrap();
+
+        let network_config: serde_json::Value = sqlx::query_scalar(
+            "SELECT network_config FROM machines WHERE id = 'fm100dsecondaryvtep'",
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(network_config["loopback_ip"], "192.0.2.1");
+        assert!(network_config.get("secondary_overlay_vtep_ip").is_none());
+
+        let obsolete_values: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM resource_pool WHERE name = 'secondary-vtep-ip'",
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        let obsolete_definitions: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM resource_pool_def WHERE name = 'secondary-vtep-ip'",
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(obsolete_values, 0);
+        assert_eq!(obsolete_definitions, 0);
+
+        let retained_values: i64 =
+            sqlx::query_scalar("SELECT COUNT(*) FROM resource_pool WHERE name = 'retained-pool'")
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        let retained_definitions: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM resource_pool_def WHERE name = 'retained-pool'",
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(retained_values, 1);
+        assert_eq!(retained_definitions, 1);
+
+        let constraint_is_valid: bool = sqlx::query_scalar(
+            "SELECT convalidated FROM pg_constraint \
+             WHERE conname = 'machines_network_config_excludes_secondary_vtep_ip' \
+               AND conrelid = 'machines'::regclass",
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert!(constraint_is_valid);
+        sqlx::query(
+            r#"UPDATE machines
+               SET network_config = jsonb_set(
+                   network_config,
+                   '{secondary_overlay_vtep_ip}',
+                   '"198.51.100.3"'
+               )
+               WHERE id = 'fm100dsecondaryvtep'"#,
+        )
+        .execute(&pool)
+        .await
+        .expect_err("the constraint must reject the removed field");
     }
 
     #[crate::sqlx_test]

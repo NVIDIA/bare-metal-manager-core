@@ -1,0 +1,43 @@
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-License-Identifier: Apache-2.0
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+use crate::RackType;
+use crate::hw::lenovo_gb300_nvl72_rack::LenovoGB300Nvl72Rack;
+use crate::hw::rack::RackElevation;
+use crate::hw::wiwynn_gb200_nvl72_rack::WiwynnGB200Nvl72Rack;
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct RackInfo {
+    pub rack_type: RackType,
+}
+
+impl RackInfo {
+    pub fn rack_elevation(&self) -> RackElevation {
+        match self.rack_type {
+            RackType::WiwynnGb200Nvl72 => self.wiwynn_gb200_nvl72_rack().rack_elevation(),
+            RackType::LenovoGb300Nvl72 => self.lenovo_gb300_nvl72_rack().rack_elevation(),
+        }
+    }
+
+    fn wiwynn_gb200_nvl72_rack(&self) -> WiwynnGB200Nvl72Rack {
+        WiwynnGB200Nvl72Rack
+    }
+
+    fn lenovo_gb300_nvl72_rack(&self) -> LenovoGB300Nvl72Rack {
+        LenovoGB300Nvl72Rack
+    }
+}

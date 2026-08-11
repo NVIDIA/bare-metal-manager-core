@@ -735,6 +735,7 @@ async fn test_delete_interface(pool: sqlx::PgPool) -> Result<(), Box<dyn std::er
     env.api
         .delete_interface(tonic::Request::new(rpc::forge::InterfaceDeleteQuery {
             id: Some(interface_id),
+            mac_address: None,
         }))
         .await
         .unwrap();
@@ -794,6 +795,7 @@ async fn test_delete_interface_with_machine(
         .api
         .delete_interface(tonic::Request::new(rpc::forge::InterfaceDeleteQuery {
             id: Some(interface.id),
+            mac_address: None,
         }))
         .await;
 
@@ -844,6 +846,7 @@ async fn test_delete_bmc_interface_with_machine(
         .api
         .delete_interface(tonic::Request::new(rpc::forge::InterfaceDeleteQuery {
             id: Some(bmc_interface.id),
+            mac_address: None,
         }))
         .await;
 
@@ -1338,6 +1341,341 @@ async fn test_static_create_is_noop_when_same_mac_already_owns_address(
         "re-create with same MAC should be a noop"
     );
     assert_eq!(again.mac_address, mac);
+
+    Ok(())
+}
+
+// Deleting by MAC address removes the interface, for the case where an operator has a
+// leftover interface record and only knows the BMC MAC (not the interface id).
+#[crate::sqlx_test]
+async fn test_delete_interface_by_mac_address(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = create_test_env(pool).await;
+    let mac = "FF:FF:FF:FF:FF:BB";
+
+    let dhcp_response = env
+        .api
+        .discover_dhcp(tonic::Request::new(rpc::forge::DhcpDiscovery {
+            mac_address: mac.to_string(),
+            relay_address: FIXTURE_DHCP_RELAY_ADDRESS.to_string(),
+            link_address: None,
+            vendor_string: None,
+            circuit_id: None,
+            remote_id: None,
+            desired_address: None,
+            address_family: None,
+            message_kind: None,
+            duid: None,
+        }))
+        .await
+        .unwrap()
+        .into_inner();
+    let interface_id = dhcp_response
+        .machine_interface_id
+        .expect("discover_dhcp must return an interface id");
+
+    env.api
+        .delete_interface(tonic::Request::new(rpc::forge::InterfaceDeleteQuery {
+            id: None,
+            mac_address: Some(mac.to_string()),
+        }))
+        .await
+        .unwrap();
+
+    let mut txn = env.pool.begin().await?;
+    assert!(
+        db::machine_interface::find_by_mac_address(txn.as_mut(), MacAddress::from_str(mac)?)
+            .await?
+            .is_empty(),
+        "the interface should be gone once delete by MAC succeeds"
+    );
+    let found = db::machine_interface::find_one(txn.as_mut(), interface_id).await;
+    assert!(matches!(
+        found,
+        Err(DatabaseError::FindOneReturnedNoResultsError(_))
+    ));
+    txn.commit().await?;
+
+    Ok(())
+}
+
+// An unknown MAC is reported as not found rather than silently succeeding.
+#[crate::sqlx_test]
+async fn test_delete_interface_by_unknown_mac_is_not_found(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = create_test_env(pool).await;
+
+    let status = env
+        .api
+        .delete_interface(tonic::Request::new(rpc::forge::InterfaceDeleteQuery {
+            id: None,
+            mac_address: Some("FF:FF:FF:FF:FF:CC".to_string()),
+        }))
+        .await
+        .expect_err("an unknown MAC should not succeed");
+    assert_eq!(status.code(), Code::NotFound);
+
+    Ok(())
+}
+
+// A leftover boot override must not block interface deletion: `machine_boot_override`
+// has a foreign key to `machine_interfaces` with no ON DELETE CASCADE, so the delete
+// fails with a FK violation unless the override is cleared first.
+#[crate::sqlx_test]
+async fn test_delete_interface_clears_boot_override(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = create_test_env(pool).await;
+    let mac = "FF:FF:FF:FF:FF:DD";
+
+    let dhcp_response = env
+        .api
+        .discover_dhcp(tonic::Request::new(rpc::forge::DhcpDiscovery {
+            mac_address: mac.to_string(),
+            relay_address: FIXTURE_DHCP_RELAY_ADDRESS.to_string(),
+            link_address: None,
+            vendor_string: None,
+            circuit_id: None,
+            remote_id: None,
+            desired_address: None,
+            address_family: None,
+            message_kind: None,
+            duid: None,
+        }))
+        .await
+        .unwrap()
+        .into_inner();
+    let interface_id = dhcp_response
+        .machine_interface_id
+        .expect("discover_dhcp must return an interface id");
+
+    let mut txn = env.pool.begin().await?;
+    db::machine_boot_override::create(
+        txn.as_mut(),
+        interface_id,
+        Some("custom-pxe-script".to_string()),
+        None,
+    )
+    .await?;
+    txn.commit().await?;
+
+    env.api
+        .delete_interface(tonic::Request::new(rpc::forge::InterfaceDeleteQuery {
+            id: Some(interface_id),
+            mac_address: None,
+        }))
+        .await
+        .expect("a leftover boot override must not block deletion");
+
+    let mut txn = env.pool.begin().await?;
+    assert!(
+        db::machine_boot_override::find_optional(txn.as_mut(), interface_id)
+            .await?
+            .is_none(),
+        "the boot override should be gone with its interface"
+    );
+    txn.commit().await?;
+
+    Ok(())
+}
+
+// A MAC is unique only per network segment, so the same MAC can legitimately exist on
+// several segments -- the exact shape of #3046, where a host returns to the site on a
+// different network prefix. Deleting by MAC must remove all of them.
+#[crate::sqlx_test]
+async fn test_delete_interface_by_mac_removes_every_segment(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = create_test_env(pool).await;
+    let mac = MacAddress::from_str("FF:FF:FF:FF:FE:01")?;
+
+    create_host_inband_network_segment(&env.api, None).await;
+
+    let mut txn = env.pool.begin().await?;
+    let admin_segment = db::network_segment::admin(&mut txn)
+        .await?
+        .into_iter()
+        .next()
+        .unwrap();
+    let host_inband_gateway = FIXTURE_HOST_INBAND_NETWORK_SEGMENT_GATEWAY.ip();
+    let inband_segment = db::network_segment::for_segment_type_all(
+        &mut txn,
+        std::slice::from_ref(&host_inband_gateway),
+        NetworkSegmentType::HostInband,
+    )
+    .await?
+    .into_iter()
+    .next()
+    .expect("the host-inband fixture segment should exist");
+    for segment in [&admin_segment, &inband_segment] {
+        db::machine_interface::create(
+            &mut txn,
+            std::slice::from_ref(segment),
+            &mac,
+            false,
+            AddressSelectionStrategy::NextAvailableIp,
+            None,
+        )
+        .await?;
+    }
+    txn.commit().await?;
+
+    let mut txn = env.pool.begin().await?;
+    assert_eq!(
+        db::machine_interface::find_by_mac_address(txn.as_mut(), mac)
+            .await?
+            .len(),
+        2,
+        "the same MAC should exist on both segments"
+    );
+    txn.commit().await?;
+
+    env.api
+        .delete_interface(tonic::Request::new(rpc::forge::InterfaceDeleteQuery {
+            id: None,
+            mac_address: Some(mac.to_string()),
+        }))
+        .await
+        .unwrap();
+
+    let mut txn = env.pool.begin().await?;
+    assert!(
+        db::machine_interface::find_by_mac_address(txn.as_mut(), mac)
+            .await?
+            .is_empty(),
+        "every interface carrying the MAC should be deleted"
+    );
+    txn.commit().await?;
+
+    Ok(())
+}
+
+// When a MAC matches one free interface and one still owned by a switch, the whole
+// request is refused and the free interface survives -- deletion is all-or-nothing.
+#[crate::sqlx_test]
+async fn test_delete_interface_by_mac_refuses_when_any_match_is_owned(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    use carbide_uuid::switch::SwitchId;
+    use model::switch::{NewSwitch, SwitchConfig};
+
+    let env = create_test_env(pool).await;
+    let mac = MacAddress::from_str("FF:FF:FF:FF:FE:02")?;
+
+    create_host_inband_network_segment(&env.api, None).await;
+
+    let mut txn = env.pool.begin().await?;
+    let admin_segment = db::network_segment::admin(&mut txn)
+        .await?
+        .into_iter()
+        .next()
+        .unwrap();
+    let host_inband_gateway = FIXTURE_HOST_INBAND_NETWORK_SEGMENT_GATEWAY.ip();
+    let inband_segment = db::network_segment::for_segment_type_all(
+        &mut txn,
+        std::slice::from_ref(&host_inband_gateway),
+        NetworkSegmentType::HostInband,
+    )
+    .await?
+    .into_iter()
+    .next()
+    .expect("the host-inband fixture segment should exist");
+
+    let free_interface = db::machine_interface::create(
+        &mut txn,
+        std::slice::from_ref(&admin_segment),
+        &mac,
+        false,
+        AddressSelectionStrategy::NextAvailableIp,
+        None,
+    )
+    .await?;
+    let owned_interface = db::machine_interface::create(
+        &mut txn,
+        std::slice::from_ref(&inband_segment),
+        &mac,
+        false,
+        AddressSelectionStrategy::NextAvailableIp,
+        None,
+    )
+    .await?;
+
+    let switch_id = SwitchId::from(uuid::Uuid::new_v4());
+    db::switch::create(
+        &mut txn,
+        &NewSwitch {
+            id: switch_id,
+            config: SwitchConfig {
+                name: "Test Switch".to_string(),
+                enable_nmxc: false,
+                fabric_manager_config: None,
+            },
+            bmc_mac_address: None,
+            metadata: None,
+            rack_id: None,
+            slot_number: Some(2),
+            tray_index: Some(1),
+        },
+    )
+    .await?;
+    db::machine_interface::associate_interface_with_machine(
+        &owned_interface.id,
+        MachineInterfaceAssociation::Switch(switch_id),
+        &mut txn,
+    )
+    .await?;
+    txn.commit().await?;
+
+    let status = env
+        .api
+        .delete_interface(tonic::Request::new(rpc::forge::InterfaceDeleteQuery {
+            id: None,
+            mac_address: Some(mac.to_string()),
+        }))
+        .await
+        .expect_err("a switch-owned match must refuse the whole request");
+    assert_eq!(status.code(), Code::InvalidArgument);
+
+    let mut txn = env.pool.begin().await?;
+    assert_eq!(
+        db::machine_interface::find_by_mac_address(txn.as_mut(), mac)
+            .await?
+            .len(),
+        2,
+        "nothing should be deleted when any match is refused"
+    );
+    assert!(
+        db::machine_interface::find_one(txn.as_mut(), free_interface.id)
+            .await
+            .is_ok(),
+        "the eligible interface must survive an all-or-nothing refusal"
+    );
+    txn.commit().await?;
+
+    Ok(())
+}
+
+// An unknown interface id reports not-found, matching the unknown-MAC arm. Previously
+// this fell through as an internal error.
+#[crate::sqlx_test]
+async fn test_delete_interface_by_unknown_id_is_not_found(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = create_test_env(pool).await;
+
+    let status = env
+        .api
+        .delete_interface(tonic::Request::new(rpc::forge::InterfaceDeleteQuery {
+            id: Some(carbide_uuid::machine::MachineInterfaceId::from(
+                uuid::Uuid::new_v4(),
+            )),
+            mac_address: None,
+        }))
+        .await
+        .expect_err("an unknown interface id should not succeed");
+    assert_eq!(status.code(), Code::NotFound);
 
     Ok(())
 }

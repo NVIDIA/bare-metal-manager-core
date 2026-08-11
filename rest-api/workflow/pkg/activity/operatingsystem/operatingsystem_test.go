@@ -531,9 +531,10 @@ func TestManageOsImage_UpdateOperatingSystemStatusInDB(t *testing.T) {
 
 // TestManageOsImage_UpdateOperatingSystemsInDB exercises the Operating System
 // inventory reconciliation performed for iPXE / Templated iPXE Operating Systems
-// pushed from nico-core: creation of provider-owned single-site records, skipping
-// of Templated iPXE records whose template is not available at the Site, and
-// deletion-by-absence of single-site records no longer reported by the Site.
+// pushed from nico-core: creation of provider- or tenant-owned single-site records
+// according to tenant_organization_id, skipping of Templated iPXE records whose
+// template is not available at the Site, and deletion-by-absence of single-site
+// records no longer reported by the Site.
 //
 // The suite uses a distinct Infrastructure Provider (and Site) per scenario so
 // the per-Site deletion reconciliation of one scenario cannot affect the records
@@ -924,7 +925,7 @@ func TestManageOsImage_UpdateOperatingSystemsInDB(t *testing.T) {
 
 		tnOrg := "tenant-create-org"
 		tnu := util.TestBuildUser(t, dbSession, uuid.NewString(), []string{tnOrg}, []string{"FORGE_TENANT_ADMIN"})
-		tn := util.TestBuildTenant(t, dbSession, tnOrg, "tenant-create", nil, tnu)
+		tn := util.TestBuildTenant(t, dbSession, "tenant-create", tnOrg, nil, tnu)
 
 		tmpl, err := templateDAO.Create(ctx, nil, cdbm.IpxeTemplateCreateInput{
 			ID: uuid.New(), Name: "tmpl-tenant-create", Template: "#!ipxe\n", Visibility: "Public",
@@ -968,7 +969,7 @@ func TestManageOsImage_UpdateOperatingSystemsInDB(t *testing.T) {
 
 		tnOrg := "tenant-flip-org"
 		tnu := util.TestBuildUser(t, dbSession, uuid.NewString(), []string{tnOrg}, []string{"FORGE_TENANT_ADMIN"})
-		tn := util.TestBuildTenant(t, dbSession, tnOrg, "tenant-flip", nil, tnu)
+		tn := util.TestBuildTenant(t, dbSession, "tenant-flip", tnOrg, nil, tnu)
 
 		tmpl, err := templateDAO.Create(ctx, nil, cdbm.IpxeTemplateCreateInput{
 			ID: uuid.New(), Name: "tmpl-flip", Template: "#!ipxe\n", Visibility: "Public",

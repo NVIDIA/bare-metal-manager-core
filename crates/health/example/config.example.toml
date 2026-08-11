@@ -49,7 +49,9 @@ port = 443
 mac = "11:22:33:44:55:66"
 username = "admin"
 password = "secret"
-switch = { id = "fsw100htjtiaehv1n5vh67tbmqq4eabcjdng40f7jupsadbedhruh6rag1l0", serial = "SN-SWITCH-BMC-001", endpoint_role = "bmc", slot_number = 7, tray_index = 3 }
+# Configure the same domain UUID on every static endpoint for the switch.
+# Invalid or nil values are omitted from telemetry.
+switch = { id = "fsw100htjtiaehv1n5vh67tbmqq4eabcjdng40f7jupsadbedhruh6rag1l0", serial = "SN-SWITCH-BMC-001", endpoint_role = "bmc", slot_number = 7, tray_index = 3, nvlink_domain_uuid = "9f4b45ec-705a-4af4-89f7-a112bc9c8f4e" }
 
 [[endpoint_sources.static_bmc_endpoints]]
 ip = "10.0.1.2"
@@ -60,7 +62,7 @@ password = "secret"
 # For static switch host endpoints, nmxc_enabled controls direct NMX-C
 # Subscribe eligibility after the endpoint_role="host" and is_primary=true
 # checks. If omitted, it defaults to is_primary.
-switch = { id = "fsw100htjtiaehv1n5vh67tbmqq4eabcjdng40f7jupsadbedhruh6rag1l0", serial = "SN-SWITCH-HOST-001", endpoint_role = "host", is_primary = true, nmxc_enabled = true, slot_number = 7, tray_index = 3 }
+switch = { id = "fsw100htjtiaehv1n5vh67tbmqq4eabcjdng40f7jupsadbedhruh6rag1l0", serial = "SN-SWITCH-HOST-001", endpoint_role = "host", is_primary = true, nmxc_enabled = true, slot_number = 7, tray_index = 3, nvlink_domain_uuid = "9f4b45ec-705a-4af4-89f7-a112bc9c8f4e" }
 
 [[endpoint_sources.static_bmc_endpoints]]
 ip = "10.0.2.1"
@@ -113,6 +115,13 @@ flush_interval = "2s"
 # attach them. OTLP exports parent logs normally and keeps diagnostics as
 # latest-wins per endpoint while the drain is backed up.
 include_diagnostics = false
+
+# Include per-alert detail on health report records for this target. Health
+# report records otherwise carry only alert and success counts. When enabled,
+# each record with alerts gains a `health_report.alerts` attribute holding a
+# JSON array of up to 64 alerts; a truncated record also carries
+# `health_report.alerts.dropped` with the number omitted.
+include_alert_details = false
 #
 # TLS-only target with an explicit CA bundle.
 # The reload interval is optional and defaults to five minutes.
@@ -121,6 +130,7 @@ include_diagnostics = false
 # batch_size = 1024
 # flush_interval = "5s"
 # include_diagnostics = true
+# include_alert_details = true
 #
 # [sinks.otlp.targets.tls]
 # ca_cert_path = "/var/run/secrets/central-otlp/ca.crt"
@@ -133,6 +143,7 @@ include_diagnostics = false
 # batch_size = 1024
 # flush_interval = "5s"
 # include_diagnostics = true
+# include_alert_details = true
 #
 # [sinks.otlp.targets.tls]
 # ca_cert_path = "/var/run/secrets/central-otlp/ca.crt"
@@ -190,6 +201,16 @@ max_jitter = "40ms"
 refresh_interval = "60m"
 discovery_concurrency = 1
 
+# Optional direct TCP checks for ports used by eligible enabled collectors.
+# Every check emits a metric; "unreachable" logs failures and "all" logs every result.
+# Checks bypass BMC proxies and do not verify TLS, authentication, or protocol readiness.
+# Results never create health reports or alerts.
+[collectors.reachability]
+enabled = true
+interval = "30s"
+timeout = "3s"
+log_mode = "unreachable"
+
 [collectors.sensors]
 sensor_fetch_interval = "1m"
 sensor_fetch_concurrency = 10
@@ -198,6 +219,15 @@ include_sensor_thresholds = true
 [collectors.metrics]
 fetch_interval = "2m"
 fetch_concurrency = 4
+
+# Redfish telemetry service: pre-aggregated metric reports, one GET per report
+# instead of one per resource. Published under the `hw_telemetry` series name so
+# it stays distinct from `hw_sensor` and `hw_metric`, which can cover the same
+# readings. Only platforms that implement TelemetryService produce anything here;
+# on the rest the collector is a cheap no-op. Disabled by default. Uncomment to
+# enable:
+# [collectors.telemetry]
+# fetch_interval = "1m"
 
 [collectors.firmware]
 firmware_refresh_interval = "30m"
@@ -403,3 +433,13 @@ leaking_tray_threshold = 2
 # Listener exposes /metrics (service), /telemetry (Prometheus sink hardware samples), /livez (health).
 endpoint = "0.0.0.0:9009"
 prefix = "carbide_hardware_health"
+
+# Disabled by default. When enabled, emits {prefix}_bmc_latency_ms for outbound
+# Redfish HTTP requests to BMCs.
+enable_bmc_latency_metrics = false
+
+# Defaults to ["all"]. Set a subset to control emitted labels. Allowed values:
+# "all", "http_response_status_code", "http_request_method", "http_path",
+# "server_address", "url_scheme", "bmc_vendor", "bmc_model", "entity_type",
+# "machine_id", "rack_id".
+bmc_latency_attributes = ["all"]

@@ -15,4 +15,4 @@
  * limitations under the License.
  */
 
-pub mod switch;
+pub(in crate::tests) mod switch;

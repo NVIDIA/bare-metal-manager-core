@@ -108,6 +108,12 @@ var (
 	}
 )
 
+// TenantAccountConfig holds provider-scoped configuration for a TenantAccount.
+// Fields must stay flat so jsonb partial merge works.
+type TenantAccountConfig struct {
+	TargetedInstanceCreation bool `json:"targetedInstanceCreation"`
+}
+
 // TenantAccount represents a tenant account - the relationship between a Tenant and an Infrastructure Provider
 type TenantAccount struct {
 	bun.BaseModel `bun:"table:tenant_account,alias:ta"`
@@ -125,6 +131,7 @@ type TenantAccount struct {
 	TenantContactID           *uuid.UUID              `bun:"tenant_contact_id,type:uuid"`
 	TenantContact             *User                   `bun:"rel:belongs-to,join:tenant_contact_id=id"`
 	Status                    string                  `bun:"status,notnull"`
+	Config                    TenantAccountConfig     `bun:"config,type:jsonb,notnull,default:'{}'::jsonb"`
 	Created                   time.Time               `bun:"created,nullzero,notnull,default:current_timestamp"`
 	Updated                   time.Time               `bun:"updated,nullzero,notnull,default:current_timestamp"`
 	Deleted                   *time.Time              `bun:"deleted,soft_delete"`
@@ -141,6 +148,7 @@ type TenantAccountCreateInput struct {
 	SubscriptionID            *string
 	SubscriptionTier          *string
 	Status                    string
+	Config                    *TenantAccountConfig
 	CreatedBy                 uuid.UUID
 }
 
@@ -152,6 +160,7 @@ type TenantAccountUpdateInput struct {
 	SubscriptionTier *string
 	TenantContactID  *uuid.UUID
 	Status           *string
+	Config           *TenantAccountConfig
 }
 
 // TenantAccountFilterInput filtering options for GetAll and GetCount method, including SearchQuery for filtering by account or tenant org
@@ -467,6 +476,9 @@ func (tasd TenantAccountSQLDAO) Create(ctx context.Context, tx *db.Tx, input Ten
 		Status:                    input.Status,
 		CreatedBy:                 input.CreatedBy,
 	}
+	if input.Config != nil {
+		ta.Config = *input.Config
+	}
 
 	_, err := db.GetIDB(tx, tasd.dbSession).NewInsert().Model(ta).Exec(ctx)
 	if err != nil {
@@ -530,6 +542,17 @@ func (tasd TenantAccountSQLDAO) Update(ctx context.Context, tx *db.Tx, input Ten
 		updatedFields = append(updatedFields, "updated")
 
 		_, err := db.GetIDB(tx, tasd.dbSession).NewUpdate().Model(ta).Column(updatedFields...).Where("id = ?", input.TenantAccountID.String()).Exec(ctx)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	if input.Config != nil {
+		_, err := db.GetIDB(tx, tasd.dbSession).NewUpdate().
+			Model(ta).
+			Set("config = config || ?::jsonb, updated = current_timestamp", input.Config).
+			Where("id = ?", input.TenantAccountID.String()).
+			Exec(ctx)
 		if err != nil {
 			return nil, err
 		}

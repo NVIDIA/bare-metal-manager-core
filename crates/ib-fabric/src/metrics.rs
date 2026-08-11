@@ -20,9 +20,7 @@ use std::fmt::Display;
 use std::time::Duration;
 
 use ::carbide_utils::metrics::SharedMetricsHolder;
-use carbide_instrument::{
-    DynamicLog, DynamicMessage, Event, LabelValue, LogAt, emit, initialize_counter_series,
-};
+use carbide_instrument::{Event, LabelValue, emit, initialize_counter_series};
 use model::ib_partition::PartitionKey;
 use opentelemetry::metrics::Meter;
 use opentelemetry::{KeyValue, StringValue};
@@ -32,70 +30,70 @@ use crate::errors::IbResult;
 
 /// Metrics that are gathered in one a single `IbFabricMonitor` run
 #[derive(Clone, Debug)]
-pub struct IbFabricMonitorMetrics {
+pub(super) struct IbFabricMonitorMetrics {
     /// When we started recording these metrics
-    pub recording_started_at: std::time::Instant,
+    pub(super) recording_started_at: std::time::Instant,
     /// The amount of fabrics that are monitored
-    pub num_fabrics: usize,
+    pub(super) num_fabrics: usize,
     /// Per fabric metrics
-    pub fabrics: HashMap<String, FabricMetrics>,
+    pub(super) fabrics: HashMap<String, FabricMetrics>,
     /// The amount of Machines where the IB status observation got updated
-    pub num_machine_ib_status_updates: usize,
+    pub(super) num_machine_ib_status_updates: usize,
     /// The amount of Machines with a certain port state
     /// Key: Tuple of total and active amount of IB ports on the Machines
     /// Value: Amount of Machines with that amount of total and active ports
-    pub num_machines_by_port_states: HashMap<(usize, usize), usize>,
+    pub(super) num_machines_by_port_states: HashMap<(usize, usize), usize>,
     /// The amount of Machines with a certain amount of associated partitions
     /// Key: The amount of associated partitions
     /// Value: Amount of Machines with that amount of associated partitions
-    pub num_machines_by_ports_with_partitions: HashMap<usize, usize>,
+    pub(super) num_machines_by_ports_with_partitions: HashMap<usize, usize>,
     /// The amount of machines where at least one port is not assigned to the
     /// expected pkey on UFM
-    pub num_machines_with_missing_pkeys: usize,
+    pub(super) num_machines_with_missing_pkeys: usize,
     /// The amount of machines where at least one port is assigned to an unexpected
     /// pkey on UFM
-    pub num_machines_with_unexpected_pkeys: usize,
+    pub(super) num_machines_with_unexpected_pkeys: usize,
     /// The amount of machines where at least one port is assigned to a pkey value
     /// that is not associated with any partition ID
-    pub num_machines_with_unknown_pkeys: usize,
+    pub(super) num_machines_with_unknown_pkeys: usize,
 }
 
 /// Metrics collected for a single fabric
 #[derive(Clone, Debug, Default, Serialize)]
-pub struct FabricMetrics {
+pub(super) struct FabricMetrics {
     /// The endpoint that we use to interact with the fabric
-    pub endpoints: Vec<String>,
+    pub(super) endpoints: Vec<String>,
     /// Error when trying to connect to the fabric
     ///
     /// TODO: Replace raw UFM errors with a bounded classification so distinct
     /// error strings do not create separate dimensions.
-    pub fabric_error: String,
+    pub(super) fabric_error: String,
     /// UFM version
-    pub ufm_version: String,
+    pub(super) ufm_version: String,
     /// The subnet_prefix of UFM
-    pub subnet_prefix: String,
+    pub(super) subnet_prefix: String,
     /// The m_key of UFM
-    pub m_key: String,
+    pub(super) m_key: String,
     /// The sm_key of UFM
-    pub sm_key: String,
+    pub(super) sm_key: String,
     /// The sa_key of UFM
-    pub sa_key: String,
+    pub(super) sa_key: String,
     /// The m_key_per_port of UFM
-    pub m_key_per_port: bool,
+    pub(super) m_key_per_port: bool,
     /// Default partition membership
-    pub default_partition_membership: Option<String>,
+    pub(super) default_partition_membership: Option<String>,
     /// The amount of partitions visible at UFM
-    pub num_partitions: Option<usize>,
+    pub(super) num_partitions: Option<usize>,
     /// The amount of ports visible at UFM - indexed by state
-    pub ports_by_state: Option<HashMap<String, usize>>,
+    pub(super) ports_by_state: Option<HashMap<String, usize>>,
     /// Whether the fabric not configured to protect tenants and infrastructure
-    pub insecure_fabric_configuration: bool,
+    pub(super) insecure_fabric_configuration: bool,
     /// Whether an insecure fabric configuration is allowed
-    pub allow_insecure_fabric_configuration: bool,
+    pub(super) allow_insecure_fabric_configuration: bool,
 }
 
 impl IbFabricMonitorMetrics {
-    pub fn new() -> Self {
+    pub(super) fn new() -> Self {
         Self {
             recording_started_at: std::time::Instant::now(),
             num_fabrics: 0,
@@ -110,36 +108,31 @@ impl IbFabricMonitorMetrics {
     }
 }
 
-/// Closes a monitor pass after the work lock is acquired. Every emission
-/// records the existing label-free latency histogram; failures also retain the
-/// historical `ERROR` diagnostic.
+/// One IB fabric monitor pass. Both cases sample the duration; only a failure
+/// logs.
 #[derive(Event)]
 #[event(
     event_name = "ib_monitor_iteration_finished",
     metric_name = "carbide_ib_monitor_iteration_latency_milliseconds",
     component = "ib-fabric-monitor",
-    log = dynamic,
     metric = histogram,
-    message = "IB fabric monitor run failed",
     describe = "The time it took to perform one IB fabric monitor iteration"
 )]
-pub(crate) struct IbMonitorIterationFinished {
-    #[observation]
-    pub latency: Duration,
-    /// An empty value keeps successful passes log-silent without skipping the
-    /// latency observation.
-    #[context]
-    pub error: String,
-}
+pub(crate) enum IbMonitorIterationFinished {
+    /// A clean pass: sampled, never logged.
+    #[event(log = off)]
+    Succeeded {
+        #[observation]
+        latency: Duration,
+    },
 
-impl DynamicLog for IbMonitorIterationFinished {
-    fn log_at(&self) -> LogAt {
-        if self.error.is_empty() {
-            LogAt::Off
-        } else {
-            LogAt::Level(tracing::Level::ERROR)
-        }
-    }
+    #[event(log = error, message = "IB fabric monitor run failed")]
+    Failed {
+        #[observation]
+        latency: Duration,
+        #[context]
+        error: String,
+    },
 }
 
 /// The best-effort step that failed while the monitor continued its pass.
@@ -296,54 +289,37 @@ impl IbMonitorMachineStatusObservationFailed {
     }
 }
 
-/// `IbMonitorPkeyReconciliationSkipped` counts a missing lookup that leaves
-/// one GUID-to-pkey change unapplied.
+/// A pkey reconciliation step was skipped. Each variant is the stage.
 #[derive(Event)]
 #[event(
     event_name = "ib_monitor_pkey_reconciliation_skipped",
     metric_name = "carbide_ib_monitor_partial_failures_total",
     component = "ib-fabric-monitor",
-    log = warn,
     metric = counter,
-    message = dynamic,
-    describe = "Number of IB fabric monitor partial failures, by failure stage."
+    describe = "Number of IB fabric monitor partial failures, by failure stage.",
+    labels(failure_stage: IbMonitorPkeyReconciliationFailureStage),
 )]
-pub(crate) struct IbMonitorPkeyReconciliationSkipped {
-    #[label]
-    failure_stage: IbMonitorPkeyReconciliationFailureStage,
-    #[context]
-    pkey: String,
+pub(crate) enum IbMonitorPkeyReconciliationSkipped {
+    #[event(
+        labels(failure_stage = IbMonitorPkeyReconciliationFailureStage::ResolvePartitionId),
+        log = warn,
+        message = "Missing pkey does not map to a Partition ID"
+    )]
+    NoPartitionIdForPkey {
+        #[context]
+        pkey: String,
+    },
+
+    #[event(
+        labels(failure_stage = IbMonitorPkeyReconciliationFailureStage::ResolvePartition),
+        log = warn,
+        message = "Missing pkey does not map to a Partition"
+    )]
+    PartitionMissing {
+        #[context]
+        pkey: String,
+    },
 }
-
-impl IbMonitorPkeyReconciliationSkipped {
-    pub(crate) fn missing_partition_id(pkey: String) -> Self {
-        Self {
-            failure_stage: IbMonitorPkeyReconciliationFailureStage::ResolvePartitionId,
-            pkey,
-        }
-    }
-
-    pub(crate) fn missing_partition(pkey: String) -> Self {
-        Self {
-            failure_stage: IbMonitorPkeyReconciliationFailureStage::ResolvePartition,
-            pkey,
-        }
-    }
-}
-
-impl DynamicMessage for IbMonitorPkeyReconciliationSkipped {
-    fn message(&self) -> &'static str {
-        match self.failure_stage {
-            IbMonitorPkeyReconciliationFailureStage::ResolvePartitionId => {
-                "Missing pkey does not map to a Partition ID"
-            }
-            IbMonitorPkeyReconciliationFailureStage::ResolvePartition => {
-                "Missing pkey does not map to a Partition"
-            }
-        }
-    }
-}
-
 /// Registers the observable instruments used by `IbFabricMonitor`.
 struct IbFabricMonitorInstruments;
 
@@ -644,27 +620,31 @@ impl IbFabricMonitorInstruments {
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, LabelValue)]
 #[allow(clippy::enum_variant_names)]
-pub enum UfmOperation {
+pub(super) enum UfmOperation {
     BindGuidToPkey,
     UnbindGuidFromPkey,
     // If you add anything here, adjust the values function below
 }
 
 impl UfmOperation {
-    pub fn values() -> impl Iterator<Item = Self> {
+    fn values() -> impl Iterator<Item = Self> {
         [Self::BindGuidToPkey, Self::UnbindGuidFromPkey].into_iter()
     }
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, LabelValue)]
-pub enum UfmOperationStatus {
+enum UfmOperationStatus {
     Ok,
     Error,
     // If you add anything here, adjust the values function below
 }
 
 impl UfmOperationStatus {
-    pub fn values() -> impl Iterator<Item = Self> {
+    /// The closed status vocabulary. `UfmGuidPkeyChangeFinished`'s variants now
+    /// enumerate the (operation, status) space directly, so this survives to
+    /// pin the vocabulary in tests.
+    #[cfg(test)]
+    fn values() -> impl Iterator<Item = Self> {
         [Self::Ok, Self::Error].into_iter()
     }
 }
@@ -673,7 +653,7 @@ impl UfmOperationStatus {
 /// label. Values come from `IbFabricMonitor`'s startup configuration, and the
 /// same finite set is used to initialize the counter series below.
 #[derive(Debug, Clone, PartialEq, Eq)]
-struct ConfiguredFabric(String);
+pub(crate) struct ConfiguredFabric(String);
 
 impl LabelValue for ConfiguredFabric {
     fn label_value(&self) -> StringValue {
@@ -681,35 +661,70 @@ impl LabelValue for ConfiguredFabric {
     }
 }
 
-/// One GUID/pkey bind or unbind finished at UFM. Every call updates the
-/// existing counter; successful calls stay quiet, while failures retain the
-/// historical `ERROR` record and its operation-specific message.
+/// One GUID/pkey bind or unbind at UFM. A successful change is counted and
+/// stays quiet; a failure keeps its `ERROR` record and the wording for the
+/// operation that failed. `fabric` rides along as data on every case.
 #[derive(Event)]
 #[event(
     event_name = "ib_ufm_guid_pkey_change_finished",
     metric_name = "carbide_ib_monitor_ufm_changes_applied_total",
     component = "ib-fabric-monitor",
-    log = dynamic,
     metric = counter,
-    message = dynamic,
-    describe = "Number of changes performed at UFM"
+    describe = "Number of changes performed at UFM",
+    labels(status: UfmOperationStatus, fabric: ConfiguredFabric, operation: UfmOperation),
 )]
-pub(crate) struct UfmGuidPkeyChangeFinished {
-    #[label]
-    fabric: ConfiguredFabric,
-    #[label]
-    operation: UfmOperation,
-    #[label]
-    status: UfmOperationStatus,
-    #[context]
-    guid: String,
-    #[context]
-    pkey: String,
-    #[context]
-    error: String,
+pub(crate) enum UfmGuidPkeyChangeFinished {
+    /// Counted, never logged.
+    #[event(labels(status = UfmOperationStatus::Ok), log = off)]
+    Succeeded {
+        #[label]
+        fabric: ConfiguredFabric,
+        #[label]
+        operation: UfmOperation,
+    },
+
+    #[event(
+        labels(
+            status = UfmOperationStatus::Error,
+            operation = UfmOperation::BindGuidToPkey
+        ),
+        log = error,
+        message = "Failed to bind GUID to pkey"
+    )]
+    BindFailed {
+        #[label]
+        fabric: ConfiguredFabric,
+        #[context]
+        guid: String,
+        #[context]
+        pkey: String,
+        #[context]
+        error: String,
+    },
+
+    #[event(
+        labels(
+            status = UfmOperationStatus::Error,
+            operation = UfmOperation::UnbindGuidFromPkey
+        ),
+        log = error,
+        message = "Failed to unbind GUID from pkey"
+    )]
+    UnbindFailed {
+        #[label]
+        fabric: ConfiguredFabric,
+        #[context]
+        guid: String,
+        #[context]
+        pkey: String,
+        #[context]
+        error: String,
+    },
 }
 
 impl UfmGuidPkeyChangeFinished {
+    /// Which case a UFM change landed in. A success has no GUID, pkey or error
+    /// to report, so those fields exist only on the failure cases.
     pub(crate) fn emit(
         fabric: &str,
         operation: UfmOperation,
@@ -717,38 +732,57 @@ impl UfmGuidPkeyChangeFinished {
         pkey: PartitionKey,
         result: &IbResult<()>,
     ) {
-        emit(Self {
-            fabric: ConfiguredFabric(fabric.to_string()),
-            operation,
-            status: if result.is_ok() {
-                UfmOperationStatus::Ok
-            } else {
-                UfmOperationStatus::Error
-            },
-            guid: guid.to_string(),
-            pkey: pkey.to_string(),
-            error: result
-                .as_ref()
-                .err()
-                .map(ToString::to_string)
-                .unwrap_or_default(),
-        });
+        let fabric = ConfiguredFabric(fabric.to_string());
+        let event = match result.as_ref().err() {
+            None => Self::Succeeded { fabric, operation },
+            Some(error) => {
+                let (guid, pkey, error) = (guid.to_string(), pkey.to_string(), error.to_string());
+                match operation {
+                    UfmOperation::BindGuidToPkey => Self::BindFailed {
+                        fabric,
+                        guid,
+                        pkey,
+                        error,
+                    },
+                    UfmOperation::UnbindGuidFromPkey => Self::UnbindFailed {
+                        fabric,
+                        guid,
+                        pkey,
+                        error,
+                    },
+                }
+            }
+        };
+        emit(event);
     }
 
     fn initialize_counter_series(fabric_ids: &[&str]) {
         for &fabric in fabric_ids {
             for operation in UfmOperation::values() {
-                for status in UfmOperationStatus::values() {
-                    // `initialize_counter_series` only reads labels. These
-                    // empty context values therefore never reach a log line.
-                    let event = Self {
-                        fabric: ConfiguredFabric(fabric.to_string()),
+                let fabric = ConfiguredFabric(fabric.to_string());
+                // `initialize_counter_series` only reads labels, so the failure
+                // cases' empty context values never reach a log line.
+                let cases = [
+                    Self::Succeeded {
+                        fabric: fabric.clone(),
                         operation,
-                        status,
-                        guid: String::new(),
-                        pkey: String::new(),
-                        error: String::new(),
-                    };
+                    },
+                    match operation {
+                        UfmOperation::BindGuidToPkey => Self::BindFailed {
+                            fabric,
+                            guid: String::new(),
+                            pkey: String::new(),
+                            error: String::new(),
+                        },
+                        UfmOperation::UnbindGuidFromPkey => Self::UnbindFailed {
+                            fabric,
+                            guid: String::new(),
+                            pkey: String::new(),
+                            error: String::new(),
+                        },
+                    },
+                ];
+                for event in cases {
                     let initialized = initialize_counter_series(&event);
                     debug_assert!(initialized, "UFM change Event must remain a counter");
                 }
@@ -757,32 +791,14 @@ impl UfmGuidPkeyChangeFinished {
     }
 }
 
-impl DynamicLog for UfmGuidPkeyChangeFinished {
-    fn log_at(&self) -> LogAt {
-        match self.status {
-            UfmOperationStatus::Ok => LogAt::Off,
-            UfmOperationStatus::Error => LogAt::Level(tracing::Level::ERROR),
-        }
-    }
-}
-
-impl DynamicMessage for UfmGuidPkeyChangeFinished {
-    fn message(&self) -> &'static str {
-        match self.operation {
-            UfmOperation::BindGuidToPkey => "Failed to bind GUID to pkey",
-            UfmOperation::UnbindGuidFromPkey => "Failed to unbind GUID from pkey",
-        }
-    }
-}
-
 /// Stores Metric data shared between the Fabric Monitor and the OpenTelemetry background task
-pub struct MetricHolder {
+pub(super) struct MetricHolder {
     _instruments: IbFabricMonitorInstruments,
     last_iteration_metrics: SharedMetricsHolder<IbFabricMonitorMetrics>,
 }
 
 impl MetricHolder {
-    pub fn new(meter: Meter, hold_period: Duration, fabric_ids: &[&str]) -> Self {
+    pub(super) fn new(meter: Meter, hold_period: Duration, fabric_ids: &[&str]) -> Self {
         let last_iteration_metrics = SharedMetricsHolder::with_hold_period(hold_period);
         let instruments = IbFabricMonitorInstruments::new(meter, last_iteration_metrics.clone());
         UfmGuidPkeyChangeFinished::initialize_counter_series(fabric_ids);
@@ -793,7 +809,7 @@ impl MetricHolder {
     }
 
     /// Updates the most recent metrics
-    pub fn update_metrics(&self, metrics: IbFabricMonitorMetrics) {
+    pub(super) fn update_metrics(&self, metrics: IbFabricMonitorMetrics) {
         self.last_iteration_metrics.update(metrics);
     }
 }
@@ -901,9 +917,13 @@ mod tests {
             |IterationCase { latency, error }| {
                 let metrics = MetricsCapture::start();
                 let logs = capture_logs(|| {
-                    emit(IbMonitorIterationFinished {
-                        latency,
-                        error: error.to_string(),
+                    emit(if error.is_empty() {
+                        IbMonitorIterationFinished::Succeeded { latency }
+                    } else {
+                        IbMonitorIterationFinished::Failed {
+                            latency,
+                            error: error.to_string(),
+                        }
                     });
                 });
                 let log = logs.first().map(|log| LogObservation {
@@ -1171,14 +1191,10 @@ mod tests {
                         ));
                     }
                     PartialFailureCase::ResolvePartitionId => {
-                        emit(IbMonitorPkeyReconciliationSkipped::missing_partition_id(
-                            PKEY.to_string(),
-                        ));
+                        emit(IbMonitorPkeyReconciliationSkipped::NoPartitionIdForPkey { pkey: PKEY.to_string() });
                     }
                     PartialFailureCase::ResolvePartition => {
-                        emit(IbMonitorPkeyReconciliationSkipped::missing_partition(
-                            PKEY.to_string(),
-                        ));
+                        emit(IbMonitorPkeyReconciliationSkipped::PartitionMissing { pkey: PKEY.to_string() });
                     }
                 });
                 let log = logs.first().expect("partial failure Event logged");
@@ -1207,9 +1223,8 @@ mod tests {
         const EXPOSED_METRIC: &str = "carbide_ib_monitor_iteration_latency_milliseconds";
 
         let metrics = MetricsCapture::start();
-        emit(IbMonitorIterationFinished {
+        emit(IbMonitorIterationFinished::Succeeded {
             latency: Duration::from_millis(125),
-            error: String::new(),
         });
 
         let encoded = metrics.render();

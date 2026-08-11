@@ -31,7 +31,7 @@ Show explored endpoint details:
     $ nico-admin-cli site-explorer get-report endpoint
 
 ")]
-pub enum Args {
+pub(crate) enum Args {
     #[clap(about = "Get everything in Json")]
     All,
     #[clap(about = "Get discovered host details.")]
@@ -58,29 +58,29 @@ Show only endpoints not yet paired to a managed host:
     $ nico-admin-cli site-explorer get-report endpoint --unpairedonly
 
 ")]
-pub struct EndpointInfo {
+pub(crate) struct EndpointInfo {
     #[clap(help = "BMC IP address of Endpoint.")]
-    pub address: Option<String>,
+    pub(crate) address: Option<String>,
 
     #[clap(
         short,
         long,
         help = "Filter based on vendor. Valid only for table view."
     )]
-    pub vendor: Option<String>,
+    pub(crate) vendor: Option<String>,
 
     #[clap(
         long,
         action,
         help = "By default shows all endpoints. If wants to see unpairedonly, choose this option."
     )]
-    pub unpairedonly: bool,
+    pub(crate) unpairedonly: bool,
 
     #[clap(long, action, help = "Show only endpoints which have error.")]
-    pub erroronly: bool,
+    pub(crate) erroronly: bool,
 
     #[clap(long, action, help = "Show only endpoints which have no error.")]
-    pub successonly: bool,
+    pub(crate) successonly: bool,
 }
 
 #[derive(Parser, Debug, PartialEq)]
@@ -97,14 +97,14 @@ Filter managed hosts by vendor:
     $ nico-admin-cli site-explorer get-report managed-host --vendor nvidia
 
 ")]
-pub struct ManagedHostInfo {
+pub(crate) struct ManagedHostInfo {
     #[clap(help = "BMC IP address of host or DPU")]
-    pub address: Option<String>,
+    pub(super) address: Option<String>,
 
     #[clap(
         short,
         long,
         help = "Filter based on vendor. Valid only for table view."
     )]
-    pub vendor: Option<String>,
+    pub(super) vendor: Option<String>,
 }

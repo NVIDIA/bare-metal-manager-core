@@ -31,7 +31,7 @@ use itertools::Itertools;
 use mac_address::MacAddress;
 use model::address_selection_strategy::AddressSelectionStrategy;
 use model::allocation_type::AllocationType;
-use model::expected_machine::{ExpectedHostNic, ExpectedInterfaceIpAllocation};
+use model::expected_machine::{ExpectedInterface, ExpectedInterfaceIpAllocation};
 use model::hardware_info::HardwareInfo;
 use model::machine::MachineInterfaceSnapshot;
 use model::machine_interface::InterfaceType;
@@ -484,6 +484,42 @@ pub async fn find_by_machine_ids(
     )
 }
 
+/// `find_by_machine_id_for_update` locks one host's non-BMC interface rows in
+/// ID order and returns their current snapshots.
+///
+/// Primary-interface writers call this after taking the network-segment
+/// advisory locks. The stable row order keeps concurrent interface mutations
+/// from acquiring the same set of row locks in different orders.
+pub async fn find_by_machine_id_for_update(
+    txn: &mut PgConnection,
+    machine_id: &MachineId,
+) -> Result<Vec<MachineInterfaceSnapshot>, DatabaseError> {
+    let query = r#"
+        SELECT id
+        FROM machine_interfaces
+        WHERE machine_id = $1
+          AND interface_type != 'Bmc'
+        ORDER BY id
+        FOR UPDATE
+    "#;
+    let interface_ids: Vec<MachineInterfaceId> = sqlx::query_scalar(query)
+        .bind(machine_id)
+        .fetch_all(&mut *txn)
+        .await
+        .map_err(|error| DatabaseError::query(query, error))?;
+    if interface_ids.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    let mut interfaces = find_by(
+        txn,
+        ObjectColumnFilter::List(IdColumn, interface_ids.as_slice()),
+    )
+    .await?;
+    interfaces.sort_by_key(|interface| interface.id);
+    Ok(interfaces)
+}
+
 /// Counts the machine interfaces bound to a given segment.
 ///
 /// Keep this predicate in sync with
@@ -528,7 +564,7 @@ pub async fn find_one(
 /// its segment and addresses independently of those settings.
 pub struct FindOrCreateMachineInterfaceOptions {
     /// ExpectedInterface declaration matched by the observed MAC address.
-    pub host_nic: Option<ExpectedHostNic>,
+    pub expected_interface: Option<ExpectedInterface>,
     /// Host-level primary-interface declaration supplied by the caller.
     ///
     /// `Some(true)` selects this Host interface, `Some(false)` records that
@@ -544,7 +580,7 @@ pub async fn find_or_create_machine_interface(
     machine_id: Option<MachineId>,
     mac_address: MacAddress,
     relays: &[IpAddr],
-    host_nic: Option<ExpectedHostNic>,
+    expected_interface: Option<ExpectedInterface>,
     is_primary: Option<bool>,
     retained_window: Option<chrono::Duration>,
 ) -> DatabaseResult<MachineInterfaceSnapshot> {
@@ -554,7 +590,7 @@ pub async fn find_or_create_machine_interface(
         mac_address,
         relays,
         FindOrCreateMachineInterfaceOptions {
-            host_nic,
+            expected_interface,
             is_primary,
             retained_window,
         },
@@ -593,7 +629,7 @@ async fn find_or_create_machine_interface_inner(
     address_family: Option<IpAddressFamily>,
 ) -> DatabaseResult<MachineInterfaceSnapshot> {
     let FindOrCreateMachineInterfaceOptions {
-        host_nic,
+        expected_interface,
         is_primary,
         retained_window,
     } = options;
@@ -613,7 +649,7 @@ async fn find_or_create_machine_interface_inner(
                 &mut *txn,
                 mac_address,
                 relays,
-                host_nic,
+                expected_interface,
                 retained_window,
                 address_family,
             )
@@ -652,14 +688,16 @@ pub async fn find_or_create_observed_machine_interface(
     machine_id: Option<MachineId>,
     mac_address: MacAddress,
     relays: &[IpAddr],
-    host_nic: Option<ExpectedHostNic>,
+    expected_interface: Option<ExpectedInterface>,
     is_primary: Option<bool>,
     retained_window: Option<chrono::Duration>,
 ) -> DatabaseResult<MachineInterfaceSnapshot> {
-    let expected_interface_type = host_nic.as_ref().map(|nic| nic.role.interface_type());
-    let expected_primary_interface = host_nic
+    let expected_interface_type = expected_interface
         .as_ref()
-        .and_then(|nic| nic.role.primary_interface_override());
+        .map(|interface| interface.role.interface_type());
+    let expected_primary_interface = expected_interface
+        .as_ref()
+        .and_then(|interface| interface.role.primary_interface_override());
     let interface_type = expected_interface_type.unwrap_or(InterfaceType::Data);
     let relaystr = relays
         .iter()
@@ -683,7 +721,8 @@ pub async fn find_or_create_observed_machine_interface(
                         "No existing machine_interface with mac address exists yet, creating observed row",
                     );
                     let network_segments =
-                        network_segments_for_dhcp_relays(txn, relays, host_nic.as_ref()).await?;
+                        network_segments_for_dhcp_relays(txn, relays, expected_interface.as_ref())
+                            .await?;
 
                     if network_segments.is_empty() {
                         return Err(DatabaseError::internal(format!(
@@ -726,7 +765,7 @@ pub async fn find_or_create_observed_machine_interface(
                         txn,
                         &mut existing_interface,
                         relays,
-                        host_nic.as_ref(),
+                        expected_interface.as_ref(),
                     )
                     .await?;
                     reconcile_unassociated_expected_interface_settings(
@@ -914,11 +953,12 @@ async fn apply_primary_declaration(
 pub async fn network_segments_for_dhcp_relays(
     txn: &mut PgConnection,
     relays: &[IpAddr],
-    host_nic: Option<&ExpectedHostNic>,
+    expected_interface: Option<&ExpectedInterface>,
 ) -> DatabaseResult<Vec<NetworkSegment>> {
     let selected_network_segment_type =
-        host_nic.and_then(ExpectedHostNic::resolved_network_segment_type);
-    let guarded_network_segment_type = host_nic.and_then(ExpectedHostNic::segment_type_guard);
+        expected_interface.and_then(ExpectedInterface::resolved_network_segment_type);
+    let guarded_network_segment_type =
+        expected_interface.and_then(ExpectedInterface::segment_type_guard);
     let network_segments = db_network_segment::for_relay_all(txn, relays).await?;
     let exact_segment_ids = exact_dhcpv6_link_address_segment_ids(&network_segments, relays);
     if !exact_segment_ids.is_empty() {
@@ -988,14 +1028,14 @@ pub async fn validate_existing_mac_and_create(
     txn: &mut PgConnection,
     mac_address: MacAddress,
     relays: &[IpAddr],
-    host_nic: Option<ExpectedHostNic>,
+    expected_interface: Option<ExpectedInterface>,
     retained_window: Option<chrono::Duration>,
 ) -> DatabaseResult<MachineInterfaceSnapshot> {
     validate_existing_mac_and_create_inner(
         txn,
         mac_address,
         relays,
-        host_nic,
+        expected_interface,
         retained_window,
         None,
     )
@@ -1009,14 +1049,16 @@ async fn validate_existing_mac_and_create_inner(
     txn: &mut PgConnection,
     mac_address: MacAddress,
     relays: &[IpAddr],
-    host_nic: Option<ExpectedHostNic>,
+    expected_interface: Option<ExpectedInterface>,
     retained_window: Option<chrono::Duration>,
     address_family: Option<IpAddressFamily>,
 ) -> DatabaseResult<MachineInterfaceSnapshot> {
-    let expected_interface_type = host_nic.as_ref().map(|nic| nic.role.interface_type());
-    let expected_primary_interface = host_nic
+    let expected_interface_type = expected_interface
         .as_ref()
-        .and_then(|nic| nic.role.primary_interface_override());
+        .map(|interface| interface.role.interface_type());
+    let expected_primary_interface = expected_interface
+        .as_ref()
+        .and_then(|interface| interface.role.primary_interface_override());
     let interface_type = expected_interface_type.unwrap_or(InterfaceType::Data);
     let mut interface_snapshot = find_by_mac_address(&mut *txn, mac_address).await?;
     match &interface_snapshot.len() {
@@ -1027,7 +1069,7 @@ async fn validate_existing_mac_and_create_inner(
             );
 
             let mut network_segments =
-                network_segments_for_dhcp_relays(txn, relays, host_nic.as_ref()).await?;
+                network_segments_for_dhcp_relays(txn, relays, expected_interface.as_ref()).await?;
 
             if !network_segments.is_empty() {
                 let exact_segment_ids =
@@ -1125,8 +1167,13 @@ async fn validate_existing_mac_and_create_inner(
             // not update the interface. Consider having reconcile_interface_segment
             // just return the interface, which would probably look a lot better.
             let mut existing_interface = interface_snapshot.remove(0);
-            reconcile_interface_segment(txn, &mut existing_interface, relays, host_nic.as_ref())
-                .await?;
+            reconcile_interface_segment(
+                txn,
+                &mut existing_interface,
+                relays,
+                expected_interface.as_ref(),
+            )
+            .await?;
             reconcile_unassociated_expected_interface_settings(
                 txn,
                 &mut existing_interface,
@@ -1217,7 +1264,7 @@ pub async fn preallocate_bmc_machine_interface(
 /// does not reclassify an already-associated interface.
 pub async fn preallocate_expected_machine_interface(
     txn: &mut PgConnection,
-    expected_interface: &ExpectedHostNic,
+    expected_interface: &ExpectedInterface,
     retained_window: Option<chrono::Duration>,
 ) -> DatabaseResult<()> {
     let static_ip = expected_interface
@@ -1250,7 +1297,7 @@ pub async fn preallocate_expected_machine_interface(
 /// become `Static`, matching the existing Host BMC behavior.
 pub async fn retain_expected_machine_interface_address(
     txn: &mut PgConnection,
-    expected_interface: &ExpectedHostNic,
+    expected_interface: &ExpectedInterface,
 ) -> DatabaseResult<()> {
     expected_interface
         .require_ip_allocation(ExpectedInterfaceIpAllocation::Retained)
@@ -2277,6 +2324,38 @@ pub async fn lock_all_admin_segments(txn: &mut PgConnection) -> DatabaseResult<(
     lock_network_segments_exclusive(txn, &segment_ids).await
 }
 
+static ADMIN_LOCK_ADMISSION: std::sync::OnceLock<std::sync::Arc<tokio::sync::Semaphore>> =
+    std::sync::OnceLock::new();
+
+/// Admission gate for the `lock_all_admin_segments` flows. The admin-segment
+/// advisory locks serialize those transactions anyway; without a gate, every
+/// waiter parks *inside* an open transaction, pinning a pool connection while
+/// blocked on the lock. At fleet-ingestion scale that queue grows past
+/// Postgres `max_connections` and the whole system wedges (registration,
+/// exploration, and the state controllers all starve; see the 4,500-host
+/// ingestion wedge). Acquire this permit BEFORE opening the transaction and
+/// hold it until commit/rollback, so excess waiters queue in memory instead
+/// of on connections. Permits: `ADMIN_LOCK_ADMISSION` env var, default 16.
+pub async fn admin_lock_admission() -> tokio::sync::OwnedSemaphorePermit {
+    let sem = ADMIN_LOCK_ADMISSION.get_or_init(|| {
+        // Clamp to a sane range: 0 would deadlock every gated flow, and a
+        // value at or above the pool size defeats the gate's purpose (the
+        // waiters it is meant to keep off connections would all be admitted).
+        const DEFAULT_PERMITS: usize = 16;
+        const MAX_PERMITS: usize = 256;
+        let permits = std::env::var("ADMIN_LOCK_ADMISSION")
+            .ok()
+            .and_then(|v| v.parse::<usize>().ok())
+            .map(|n| n.clamp(1, MAX_PERMITS))
+            .unwrap_or(DEFAULT_PERMITS);
+        std::sync::Arc::new(tokio::sync::Semaphore::new(permits))
+    });
+    sem.clone()
+        .acquire_owned()
+        .await
+        .expect("admin-lock admission semaphore is never closed")
+}
+
 pub async fn allocate_svi_ip(
     txn: &mut PgTransaction<'_>,
     segment: &NetworkSegment,
@@ -2575,7 +2654,7 @@ pub async fn move_predicted_machine_interface_to_machine(
         };
 
     // Land the declared boot interface as we promote: the prediction holds the
-    // host's declared `ExpectedHostNic.primary`, so a promoted interface is primary
+    // host's declared `ExpectedInterface.primary`, so a promoted interface is primary
     // exactly when it was declared. (An anonymous row found here keeps whatever
     // flag DHCP set, so reconcile it to the declaration.) Done before association
     // so a row reaches its machine already carrying the right flag.
@@ -3322,16 +3401,16 @@ async fn reconcile_interface_segment(
     txn: &mut PgConnection,
     existing_interface: &mut MachineInterfaceSnapshot,
     relays: &[IpAddr],
-    host_nic: Option<&ExpectedHostNic>,
+    expected_interface: Option<&ExpectedInterface>,
 ) -> DatabaseResult<()> {
     // An explicit typed declaration guards an existing row. Legacy `nic_type`
     // only narrowed initial DHCP selection, so it must not invalidate a row
     // that earlier versions already placed on a different segment type.
-    let relay_segments = if host_nic
-        .and_then(ExpectedHostNic::segment_type_guard)
+    let relay_segments = if expected_interface
+        .and_then(ExpectedInterface::segment_type_guard)
         .is_some()
     {
-        network_segments_for_dhcp_relays(txn, relays, host_nic).await?
+        network_segments_for_dhcp_relays(txn, relays, expected_interface).await?
     } else {
         db_network_segment::for_relay_all(txn, relays).await?
     };
@@ -3530,6 +3609,11 @@ pub async fn delete(
         "DELETE FROM machine_interfaces WHERE id=$1 RETURNING mac_address, boot_interface_id";
     crate::machine_interface_address::delete(txn, interface_id).await?;
     crate::dhcp_entry::delete(txn, interface_id).await?;
+    // `machine_boot_override` references this row with no ON DELETE CASCADE, so a
+    // leftover override otherwise fails the delete below with a foreign-key violation.
+    // The override is meaningless once its interface is gone, so drop it here for every
+    // caller rather than making each one remember.
+    crate::machine_boot_override::clear(txn, *interface_id).await?;
     let deleted: Option<(MacAddress, Option<String>)> = sqlx::query_as(query)
         .bind(*interface_id)
         .fetch_optional(&mut *txn)

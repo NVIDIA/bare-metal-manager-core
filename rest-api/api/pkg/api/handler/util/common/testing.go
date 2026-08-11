@@ -29,7 +29,7 @@ import (
 	"github.com/NVIDIA/infra-controller/rest-api/api/internal/config"
 	sc "github.com/NVIDIA/infra-controller/rest-api/api/pkg/client/site"
 	authz "github.com/NVIDIA/infra-controller/rest-api/auth/pkg/authorization"
-	"github.com/NVIDIA/infra-controller/rest-api/common/pkg/coreproxy"
+	"github.com/NVIDIA/infra-controller/rest-api/common/pkg/grpcproxy"
 	"github.com/NVIDIA/infra-controller/rest-api/common/pkg/otelecho"
 	cutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
 	cdb "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db"
@@ -201,7 +201,7 @@ type TestSetupProviderMachineHandlerFixture struct {
 	DBSession      *cdb.Session
 	SiteClientPool *sc.ClientPool
 	Config         *config.Config
-	ProxiedReq     *coreproxy.Request
+	ProxiedReq     *grpcproxy.Request
 }
 
 func NewTestSetupProviderMachineHandlerFixture(t *testing.T, response proto.Message) TestSetupProviderMachineHandlerFixture {
@@ -224,13 +224,13 @@ func NewTestSetupProviderMachineHandlerFixture(t *testing.T, response proto.Mess
 	it := TestBuildInstanceType(t, dbSession, "test-instance-type", cutil.GetPtr(site.ID), site, nil, user)
 	machine := TestBuildMachine(t, dbSession, ip, site, &it.ID, cutil.GetPtr("test-controller-machine-type"), cdbm.MachineStatusReady)
 
-	proxiedReq := &coreproxy.Request{}
+	proxiedReq := &grpcproxy.Request{}
 	wrun := &tmocks.WorkflowRun{}
 	wrun.On("Get", mock.Anything, mock.Anything).Run(func(args mock.Arguments) {
 		if response == nil {
 			return
 		}
-		out := args.Get(1).(*coreproxy.Response)
+		out := args.Get(1).(*grpcproxy.Response)
 		respJSON, err := protojson.Marshal(response)
 		require.NoError(t, err)
 		out.ResponseJSON = respJSON
@@ -241,8 +241,8 @@ func NewTestSetupProviderMachineHandlerFixture(t *testing.T, response proto.Mess
 		"ExecuteWorkflow",
 		mock.Anything,
 		mock.Anything,
-		coreproxy.WorkflowName,
-		mock.MatchedBy(func(req coreproxy.Request) bool {
+		grpcproxy.Core.WorkflowName,
+		mock.MatchedBy(func(req grpcproxy.Request) bool {
 			*proxiedReq = req
 			return true
 		}),
@@ -342,6 +342,28 @@ func TestBuildTenantAccount(t *testing.T, dbSession *cdb.Session, ip *cdbm.Infra
 		CreatedBy:                user.ID,
 	})
 	assert.Nil(t, err)
+
+	return ta
+}
+
+// TestBuildTenantAccountWithTargetedInstanceCreation creates a test TenantAccount
+// with the TargetedInstanceCreation capability enabled in its config. Privilege is
+// resolved from a Ready TenantAccount config (see TenantHasTargetedInstanceCreation),
+// so tests that exercise privileged Tenant paths must enable it on the account rather
+// than only on the legacy Tenant config.
+func TestBuildTenantAccountWithTargetedInstanceCreation(t *testing.T, dbSession *cdb.Session, ip *cdbm.InfrastructureProvider, tenantID *uuid.UUID, tenantOrg string, status string, user *cdbm.User) *cdbm.TenantAccount {
+	taDAO := cdbm.NewTenantAccountDAO(dbSession)
+
+	ta, err := taDAO.Create(context.Background(), nil, cdbm.TenantAccountCreateInput{
+		AccountNumber:            GenerateAccountNumber(),
+		TenantID:                 tenantID,
+		TenantOrg:                tenantOrg,
+		InfrastructureProviderID: ip.ID,
+		Status:                   status,
+		Config:                   &cdbm.TenantAccountConfig{TargetedInstanceCreation: true},
+		CreatedBy:                user.ID,
+	})
+	require.NoError(t, err)
 
 	return ta
 }

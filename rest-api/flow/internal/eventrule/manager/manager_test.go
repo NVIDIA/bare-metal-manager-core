@@ -145,8 +145,9 @@ func TestManagerEffectiveRulePrecedence(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, site.ID, rule.ID)
 
-	_, err = manager.GetEffective(context.Background(), "unknown.event", rackID)
-	require.ErrorIs(t, err, eventrule.ErrRuleNotFound)
+	rule, err = manager.GetEffective(context.Background(), "unknown.event", rackID)
+	require.NoError(t, err)
+	assert.Nil(t, rule)
 }
 
 func TestManagerRejectsMissingIDs(t *testing.T) {
@@ -192,6 +193,61 @@ func TestManagerRejectsMissingIDs(t *testing.T) {
 		manager.Unbind(context.Background(), uuid.Nil),
 		"event rule binding id is required",
 	)
+}
+
+func TestManagerRejectsBuiltInRuleMutations(t *testing.T) {
+	builtIn := testRule(uuid.New(), eventrule.RuleOriginBuiltIn, "test.event")
+	builtIns, err := registry.New(builtIn)
+	require.NoError(t, err)
+	manager, err := New(builtIns, newTestStore(), newTestBindingStore())
+	require.NoError(t, err)
+
+	tests := map[string]func(context.Context) error{
+		"update metadata": func(ctx context.Context) error {
+			return manager.UpdateMetadata(
+				ctx,
+				builtIn.ID,
+				eventrule.RuleMetadata{Name: "updated"},
+			)
+		},
+		"set dedupe": func(ctx context.Context) error {
+			return manager.SetDedupe(
+				ctx,
+				builtIn.ID,
+				&eventrule.Dedupe{Window: time.Minute},
+			)
+		},
+		"replace actions": func(ctx context.Context) error {
+			return manager.ReplaceActions(
+				ctx,
+				builtIn.ID,
+				[]eventrule.Action{
+					eventrule.NewAction("noop", eventrule.ActionCondition{}, eventrule.Noop{}),
+				},
+			)
+		},
+		"delete": func(ctx context.Context) error {
+			return manager.Delete(ctx, builtIn.ID)
+		},
+		"bind": func(ctx context.Context) error {
+			_, err := manager.Bind(
+				ctx,
+				builtIn.ID,
+				eventrule.Scope{Type: eventrule.ScopeTypeSite},
+			)
+			return err
+		},
+		"set enabled": func(ctx context.Context) error {
+			return manager.SetEnabled(ctx, builtIn.ID, false)
+		},
+	}
+
+	for name, mutate := range tests {
+		t.Run(name, func(t *testing.T) {
+			err := mutate(context.Background())
+			require.ErrorContains(t, err, "is a built-in and cannot be mutated")
+		})
+	}
 }
 
 type scopeKey struct {
@@ -240,13 +296,21 @@ func (s *testStore) UpdateMetadata(
 	id uuid.UUID,
 	metadata eventrule.RuleMetadata,
 ) error {
-	s.byID[id].Name = metadata.Name
-	s.byID[id].Description = metadata.Description
+	rule, err := s.ruleForMutation(id)
+	if err != nil {
+		return err
+	}
+	rule.Name = metadata.Name
+	rule.Description = metadata.Description
 	return nil
 }
 
 func (s *testStore) SetDedupe(_ context.Context, id uuid.UUID, dedupe *eventrule.Dedupe) error {
-	s.byID[id].Dedupe = dedupe
+	rule, err := s.ruleForMutation(id)
+	if err != nil {
+		return err
+	}
+	rule.Dedupe = dedupe
 	return nil
 }
 
@@ -255,18 +319,37 @@ func (s *testStore) ReplaceActions(
 	id uuid.UUID,
 	actions []eventrule.Action,
 ) error {
-	s.byID[id].Actions = actions
+	rule, err := s.ruleForMutation(id)
+	if err != nil {
+		return err
+	}
+	rule.Actions = actions
 	return nil
 }
 
 func (s *testStore) Delete(_ context.Context, id uuid.UUID) error {
+	if _, err := s.ruleForMutation(id); err != nil {
+		return err
+	}
 	delete(s.byID, id)
 	return nil
 }
 
 func (s *testStore) SetEnabled(_ context.Context, id uuid.UUID, enabled bool) error {
-	s.byID[id].Enabled = enabled
+	rule, err := s.ruleForMutation(id)
+	if err != nil {
+		return err
+	}
+	rule.Enabled = enabled
 	return nil
+}
+
+func (s *testStore) ruleForMutation(id uuid.UUID) (*eventrule.Rule, error) {
+	rule, ok := s.byID[id]
+	if !ok {
+		return nil, fmt.Errorf("%w: %s", eventrule.ErrRuleNotFound, id)
+	}
+	return rule, nil
 }
 
 type testBindingStore struct {

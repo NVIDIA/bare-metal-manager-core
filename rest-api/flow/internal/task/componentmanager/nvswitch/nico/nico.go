@@ -79,6 +79,8 @@ func Descriptor() cmcatalog.Descriptor {
 		},
 		RequiredProviders: []string{nicoprovider.ProviderName},
 		Capabilities: capability.CapabilitySet{
+			capability.CapabilityDecommissionControl,
+			capability.CapabilityDecommissionStatus,
 			capability.CapabilityFirmwareConsistencyCheck,
 			capability.CapabilityFirmwareControl,
 			capability.CapabilityFirmwareStatus,
@@ -559,6 +561,55 @@ func (m *Manager) GetFirmwareStatus(ctx context.Context, target common.Target) (
 // FirmwareUpdateStatus message does not carry a sub-component type field. Once Core
 // exposes that information, we should check that all 4 sub-components are present and
 // treat a missing sub-component as incomplete (not Completed).
+// Decommission initiates decommissioning of the target switches via NICo.
+func (m *Manager) Decommission(
+	ctx context.Context,
+	target common.Target,
+	_ operations.DecommissionTaskInfo,
+) error {
+	if err := target.Validate(); err != nil {
+		return fmt.Errorf("target is invalid: %w", err)
+	}
+
+	for _, switchID := range target.ComponentIDs {
+		if err := m.nicoClient.DecommissionSwitch(ctx, switchID); err != nil {
+			return fmt.Errorf("DecommissionSwitch failed for %s: %w", switchID, err)
+		}
+	}
+
+	log.Info().
+		Strs("switch_ids", target.ComponentIDs).
+		Msg("Decommission initiated for NVSwitch components")
+	return nil
+}
+
+// GetDecommissionStatus returns the current decommission state for each
+// target switch, keyed by switch ID.
+func (m *Manager) GetDecommissionStatus(
+	ctx context.Context,
+	target common.Target,
+) (map[string]string, error) {
+	if err := target.Validate(); err != nil {
+		return nil, fmt.Errorf("target is invalid: %w", err)
+	}
+
+	states, err := m.nicoClient.FindSwitchControllerStates(ctx, target.ComponentIDs)
+	if err != nil {
+		return nil, fmt.Errorf("FindSwitchControllerStates: %w", err)
+	}
+
+	// Ensure every requested component is present in the result.
+	result := make(map[string]string, len(target.ComponentIDs))
+	for _, id := range target.ComponentIDs {
+		if s, ok := states[id]; ok {
+			result[id] = s
+		} else {
+			result[id] = ""
+		}
+	}
+	return result, nil
+}
+
 func aggregateNICoStatuses(compID string, statuses []*corev1.FirmwareUpdateStatus) operations.FirmwareUpdateStatus {
 	if len(statuses) == 0 {
 		return operations.FirmwareUpdateStatus{

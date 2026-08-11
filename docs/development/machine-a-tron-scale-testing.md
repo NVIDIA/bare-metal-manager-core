@@ -1,27 +1,14 @@
 # Scaling NICo with machine-a-tron: 100 → 1000 → 4500 simulated hosts
 
-> **Status: DRAFT — early feedback wanted.** Stage 1 (100 hosts × 2 DPUs =
-> 300 BMCs → 264 machines) is complete on dev6. Stage 2 (1000 hosts) is
-> running as this is written. Stage 3 targets 4500 hosts × 2 DPUs = 13,500
-> BMC endpoints, in support of scaling NICo to ~4500 nodes.
->
-> **Rebased on #2764**: this work now sits on top of Alexander's ClusterIP
-> migration, which removes nginx/MetalLB from the chart entirely (per-BMC
-> ClusterIP Services + ServiceCIDR, multi-pod sharding via `pods.<name>.cidr`).
-> That migration supersedes issues 10, 12 and 13 below (kept for the record —
-> they document why the nginx/MetalLB path was abandoned) and independently
-> confirms the direction of the proxy-direct pivot. The scripts' scale mode
-> (`bmc_proxy` + client-injected Forwarded) remains valid with `bmcServices`
-> disabled and is what all stage results below were measured with.
->
-> Branch: `machine-a-tron-e2e-on-2764`. Everything below is reproducible
-> with two commands:
->
-> ```bash
-> export KUBECONFIG=/path/to/site/kubeconfig
-> helm-prereqs/cleanup-machine-a-tron.sh -y
-> MAT_MODE=scale HOST_COUNT=1000 helm-prereqs/setup-machine-a-tron.sh -y
-> ```
+> **Status:** Scale testing validated with up to 13,500 BMC endpoints.
+
+## Quick start
+
+```bash
+export KUBECONFIG=/path/to/site/kubeconfig
+helm-prereqs/cleanup-machine-a-tron.sh -y
+MAT_MODE=scale HOST_COUNT=1000 helm-prereqs/setup-machine-a-tron.sh -y
+```
 
 ## What this work delivers
 
@@ -30,39 +17,37 @@
    pull secret, CA/Vault secret refresh, the full BMC/UEFI credential chain,
    nico-core site-config changes, DHCP pool sizing with auto-fit, DB safety
    checks, helm deploy, and a verification loop that actively shepherds the
-   ingestion pipeline (details below on why that is necessary).
+   ingestion pipeline.
 1. **`helm-prereqs/cleanup-machine-a-tron.sh`** — the full inverse, so
-   from-scratch runs are reproducible (this caught several
-   "works-second-time-only" bugs).
+   from-scratch runs are reproducible.
 1. **`MAT_MODE=scale`** — a scale profile
-   (`helm-prereqs/values/machine-a-tron-scale.yaml`) using a **proxy-direct**
-   transport architecture (see next section), simulated network segments
-   sized for 13.5k endpoints, and raised site-explorer throughput knobs.
-1. A one-line RBAC fix in nico-api (`Machineatron` was missing the
-   `AddExpectedMachine` grant) plus chart fixes to the nginx/MetalLB mode.
+   (`helm-prereqs/values/machine-a-tron-scale.yaml`) using Controller Mode
+   with the `mat-k8s-controller` for dynamic per-BMC ClusterIP Services.
 
-## The architecture decision: proxy-direct
+## Architecture: Controller Mode
 
-The chart offers an nginx/MetalLB mode for large scale: one LoadBalancer
-Service per simulated BMC (cap 16,384), nginx terminating TLS and routing to
-the mock. We started there and hit four independent failure modes at just 300
-endpoints (§ issues 10–13). The pivotal realization:
+The `mat-k8s-controller` dynamically creates one ClusterIP Service per BMC:
+- Discovers machine-a-tron pods via `nvidia-infra-controller/mat-service=true` label
+- Polls `/machines/status` from each pod
+- Creates Services with ClusterIP = BMC IP (assigned by NICo DHCP)
+- Services route to correct pod via `nvidia-infra-controller/pod-name` selector
 
-**`site_explorer.bmc_proxy` alone already scales.** When it is set, the
-Redfish client itself injects `Forwarded: host=<original BMC IP>` (RFC 7239,
-`crates/redfish/src/libredfish/implementation.rs`), and the mock's shared
-registry (`use_single_bmc_mock = true`) routes each request to the right
-simulated BMC. One ClusterIP Service carries the whole fleet — no nginx, no
-MetalLB pool, no per-BMC Services, no `externalTrafficPolicy: Local`
-pitfalls.
+**Requirements:**
+- `oobDhcpRelayAddress` must be within Kubernetes ServiceCIDR
+- NICo siteConfig needs `allow_insecure_discovery = true` and a network
+  covering the BMC IP range
+- Leave `site_explorer.bmc_proxy` unset — NICo dials each BMC's ClusterIP directly
 
-The nginx/MetalLB mode remains the right choice when simulated BMCs must
-coexist with **real hardware** (each mock needs a real routable IP). For a
-simulation-only cluster it only adds moving parts. The chart fixes we made to
-that mode are kept for its real users.
+**Example NICo siteConfig:**
+```toml
+allow_insecure_discovery = true
 
-Result at 300 endpoints: exploration went from constant flapping
-(Unreachable/ConnectionRefused under load) to rock-stable 300/300.
+[networks.MAT-BMC-SERVICES]
+type = "underlay"
+prefix = "10.96.64.0/18"
+gateway = "10.96.64.1"
+mtu = 1500
+```
 
 ## Complete issue log
 
