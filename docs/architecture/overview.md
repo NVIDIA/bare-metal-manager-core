@@ -89,17 +89,17 @@ NICo core is the only component within NICo which interacts with the postgres da
 
 The API handlers accept gRPC requests from NICo users and internal system components. They provide users the ability to inspect the current state of the system, and modify the desired state of various components (e.g. create or reconfigure bare metal instances).
 
-API handlers are all implemented within the trait/interface `rpc::nico::nico_server::NICo`. Various implementations delegate to the `handlers` subdirectory. For resources managed by NICo, API handlers do not directly change the actual state of the resources (e.g. the provisioning state of a host). Instead, they only change the required state (e.g. "provisioning required", "termination required", etc). The state changes will be performed by state machines (details below). The nico-core gRPC API supports [gRPC reflection](https://github.com/grpc/grpc/blob/master/doc/server-reflection.md) to provide a machine readable API description so clients can auto-generate code and RPC functions in the client.
+API handlers are all implemented within the trait/interface `rpc::nico::nico_server::NICo`. Various implementations delegate to the `handlers` subdirectory. For resources managed by NICo, API handlers do not directly change the actual state of the resources (such as the provisioning state of a host). Instead, they only change the required state (for example, "provisioning required" or "termination required"). The state changes will be performed by state machines (details below). The nico-core gRPC API supports [gRPC reflection](https://github.com/grpc/grpc/blob/master/doc/server-reflection.md) to provide a machine-readable API description so clients can auto-generate code and RPC functions in the client.
 
 ### Debug Web UI
 
-NICo core provides a debug UI under the `/admin` endpoint. The debug UI allows to inspect the state of all resources managed by NICo via a variety of HTML pages. It e.g. allows to list details about all managed hosts and DPUs, or about the internal state of other components that are described within the NICo Core section.
+NICo core provides a debug UI under the `/admin` endpoint. The debug UI allows you to inspect the state of all resources managed by NICo via a variety of HTML pages. For example, you can list details about all managed hosts and DPUs, or about the internal state of other components that are described in [NICo Core](#nico-core).
 
-The Debug UI also provides access to various admin level tools. For example, the Debug UI allows you to:
+The Debug UI also provides access to various admin-level tools. For example, the Debug UI allows you to:
 
 - Change the power state of hosts, reset the BMC, and change boot orders
 - Inspect the redfish tree of any BMC managed by NICo
-- Perform changes to a BMC (via HTTP POST) in a peer-reviewed and auditable fashion
+- Perform changes to a BMC (via HTTP POST) in a peer-reviewed and auditable manner
 - Inspect UFM responses
 
 ### State Machines
@@ -135,7 +135,7 @@ Site Explorer requires an "Expected Machines" manifest to be deployed. Expected 
 Beyond the basic BMC data collection, Site Explorer also performs the following tasks:
 
 1. It matches hosts with associated DPUs based on the Redfish reports of both components - e.g. both the host and DPU need to reference the same DPU serial number.
-1. It kickstarts the ingestion process of the host once the host is in an "ingestable" state (all components are found and have up to date firmware versions).
+1. It kickstarts the ingestion process of the host once the host is in an "ingestable" state (all components are found and have up-to-date firmware versions).
 
 Site Explorer emits metrics with the prefix `nico_endpoint_exploration_` and `nico_site_explorer_`.
 
@@ -216,4 +216,4 @@ into regular operation mode. Thereafter the nico-dpu-agent starts as a daemon.
 Each DPU runs the nico-dpu-agent which connects via gRPC to the API service in NICo to get configuration
 instructions.
 
-The nico-dpu-agent also runs the NICo metadata service (FMDS), which provides the users on the bare metal instance a HTTP based API to retrieve information about their running instance. For example, users can use FMDS to determine their Machine ID or certain Boot/OS information.
+The nico-dpu-agent also runs the NICo metadata service (FMDS), which provides the users on the bare metal instance an HTTP-based API to retrieve information about their running instance. For example, users can use FMDS to determine their Machine ID or certain Boot/OS information.
