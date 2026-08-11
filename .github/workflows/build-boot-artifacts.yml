@@ -483,10 +483,10 @@ jobs:
 
           echo "Build completed!"
 
-      # Only main saves. Actions cache entries are ref-scoped, so concurrent pull
-      # requests starting cold each store their own byte-identical copy of this
-      # archive, crowding out main's sccache. They keep restoring main's copy
-      # through the restore-keys prefix above, so they lose nothing.
+      # Only main saves this cache. Pull requests restore main's copy through the
+      # restore-keys prefix above but cannot add one of their own: entries are
+      # ref-scoped, so concurrent pull requests starting cold each used to store
+      # a byte-identical duplicate, crowding out main's sccache.
       #
       # Saved on failure too: the packages mkosi downloaded are valid whether or
       # not the image build that followed succeeded.

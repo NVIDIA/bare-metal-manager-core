@@ -1002,12 +1002,11 @@ jobs:
       # a run that changes no dependencies hits the primary key and skips the
       # upload rather than rewriting an equivalent entry.
       #
-      # Only main saves. The restore-keys prefix above means a pull request whose
-      # Cargo.lock differs from main's takes a prefix match rather than an exact
-      # one, so cache-hit is false and the save fires, storing a large ref-scoped
-      # copy nothing else can read. Several were live at once, evicting the
-      # sccache objects the image builds read. Pull requests keep restoring
-      # main's entry through that same prefix, so they still start warm.
+      # Only main saves. A pull request whose Cargo.lock differs from main's
+      # matches the restore-keys prefix rather than the exact key, so cache-hit
+      # is false and the save would otherwise fire, storing a large ref-scoped
+      # copy nothing else can read. The main-only condition blocks that, and the
+      # prefix match still leaves the pull request warm.
       - name: Save sccache
         if: ${{ !cancelled() && github.ref == 'refs/heads/main' && steps.sccache.outputs.cache-hit != 'true' }}
         uses: actions/cache/save@v4
