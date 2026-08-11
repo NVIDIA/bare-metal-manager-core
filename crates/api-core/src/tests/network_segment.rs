@@ -27,8 +27,7 @@ use carbide_test_support::{Case, check_cases_async};
 use carbide_uuid::network::NetworkSegmentId;
 use carbide_uuid::vpc::VpcId;
 use common::network_segment::{
-    NetworkSegmentHelper, create_network_segment_with_api, get_segment_state, get_segments,
-    text_history,
+    NetworkSegmentHelper, create_network_segment_with_api, get_segment_state, text_history,
 };
 use db::ObjectColumnFilter;
 use db::network_segment::VpcColumn;
@@ -2294,18 +2293,23 @@ async fn attach_host_inband_segment_to_same_vpc_is_idempotent(
         .into_inner();
 
     assert_eq!(second.config.as_ref().unwrap().vpc_id, Some(vpc_id));
-    assert_eq!(
-        second
-            .status
-            .as_ref()
-            .and_then(|status| status.lifecycle.as_ref())
-            .map(|lifecycle| lifecycle.version.as_str()),
-        first
-            .status
-            .as_ref()
-            .and_then(|status| status.lifecycle.as_ref())
-            .map(|lifecycle| lifecycle.version.as_str())
-    );
+    let second_status = second
+        .status
+        .as_ref()
+        .expect("second status should be present");
+    let second_lifecycle = second_status
+        .lifecycle
+        .as_ref()
+        .expect("second lifecycle should be present");
+    let first_status = first
+        .status
+        .as_ref()
+        .expect("first status should be present");
+    let first_lifecycle = first_status
+        .lifecycle
+        .as_ref()
+        .expect("first lifecycle should be present");
+    assert_eq!(second_lifecycle.version, first_lifecycle.version);
 
     Ok(())
 }

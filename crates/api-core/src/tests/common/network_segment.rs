@@ -166,16 +166,6 @@ pub(in crate::tests) async fn get_segment_state(
     tenant_state_from_segment(&segment)
 }
 
-pub(in crate::tests) async fn get_segments(
-    api: &Api,
-    request: rpc::forge::NetworkSegmentsByIdsRequest,
-) -> rpc::forge::NetworkSegmentList {
-    api.find_network_segments_by_ids(Request::new(request))
-        .await
-        .unwrap()
-        .into_inner()
-}
-
 #[cfg(test)]
 pub(in crate::tests) async fn text_history(
     txn: &mut PgConnection,

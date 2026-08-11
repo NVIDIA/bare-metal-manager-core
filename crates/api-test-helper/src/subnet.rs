@@ -72,11 +72,18 @@ pub async fn wait_for_network_segment_state(
     );
     while start.elapsed() < MAX_WAIT {
         let response = grpcurl(addrs, "FindNetworkSegmentsByIds", Some(&data)).await?;
-        let resp: serde_json::Value = serde_json::from_str(&response)?;
-        latest_state = resp["networkSegments"][0]["status"]["tenantState"]
-            .as_str()
-            .unwrap()
-            .to_string();
+        let resp: serde_json::Value = serde_json::from_str(&response)?; 
+        latest_state = resp
+            .get("networkSegments")
+            .and_then(serde_json::Value::as_array)
+            .and_then(|segments| segments.first())
+            .and_then(|segment| segment.get("status"))
+            .and_then(|status| status.get("tenantState"))
+            .and_then(serde_json::Value::as_str)
+             .ok_or_else(|| eyre::eyre!(
+                "network segment response did not contain status.tenantState"
+            ))?
+            .to_owned();
         if latest_state.contains(target_state) {
             return Ok(());
         }
