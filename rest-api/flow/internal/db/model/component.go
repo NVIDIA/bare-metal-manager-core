@@ -22,12 +22,27 @@ import (
 type Component struct {
 	bun.BaseModel `bun:"table:component,alias:c"`
 
-	ID              uuid.UUID      `bun:"id,pk,type:uuid,default:gen_random_uuid()"`
-	Name            string         `bun:"name"`
-	Type            string         `bun:"type,type:varchar(16),default:'Compute'"`
-	Manufacturer    string         `bun:"manufacturer,notnull,unique:component_manufacturer_serial_idx"`
+	ID   uuid.UUID `bun:"id,pk,type:uuid,default:gen_random_uuid()"`
+	Name string    `bun:"name"`
+	Type string    `bun:"type,type:varchar(16),default:'Compute'"`
+	// IdentityKey is what the expected-inventory mirror matches a Core row
+	// against, made unique by component_identity_key_idx. It is empty (SQL
+	// NULL, which the partial index exempts) on components created by the
+	// ingestion gRPC paths, which have no Core row to mirror.
+	//
+	// The schema deliberately says nothing about what composes the value:
+	// changing the derivation has to stay a backfill rather than a reshaping
+	// of constraints. See identityKeyForSpec in the inventorysync package for
+	// the current derivation and the procedure a change requires.
+	IdentityKey string `bun:"identity_key,nullzero"`
+	// Manufacturer and SerialNumber are descriptive metadata, not identity, so
+	// a Core row with incomplete chassis labels is still mirrored. Empty
+	// string maps to SQL NULL via nullzero, and UNIQUE (manufacturer,
+	// serial_number) keeps protecting fully-labelled rows because Postgres
+	// treats NULLs as distinct.
+	Manufacturer    string         `bun:"manufacturer,nullzero,unique:component_manufacturer_serial_idx"`
 	Model           string         `bun:"model"`
-	SerialNumber    string         `bun:"serial_number,notnull,notnull,unique:component_manufacturer_serial_idx"`
+	SerialNumber    string         `bun:"serial_number,nullzero,unique:component_manufacturer_serial_idx"`
 	Description     map[string]any `bun:"description,type:jsonb,json_use_number"`
 	FirmwareVersion string         `bun:"firmware_version,nullzero"`
 	// RackID is uuid.Nil when the component has been ingested but is not yet
@@ -55,6 +70,12 @@ func (cd *Component) Create(ctx context.Context, idb bun.IDB) error {
 	return err
 }
 
+// Get looks the component up by ID, or by (manufacturer, serial_number) when
+// no ID is set. Both columns are nullable, so a component the
+// expected-inventory mirror stored without one of those labels is not
+// addressable this way and reports sql.ErrNoRows; look it up by ID or Host
+// BMC MAC instead. component_manufacturer_serial_idx still guarantees at most
+// one match whenever both values are supplied.
 func (cd *Component) Get(
 	ctx context.Context,
 	idb bun.IDB,

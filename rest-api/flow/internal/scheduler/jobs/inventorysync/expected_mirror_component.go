@@ -231,10 +231,18 @@ func pullExpectedPowerShelves(ctx context.Context, c nicoapi.Client) (rows []nic
 }
 
 // mirrorExpectedComponents reconciles Flow's component table for a single
-// component type against the supplied normalised specs. Matching key is
-// (manufacturer, serial_number), the same unique key Flow's ingestion path
-// already enforces; resurrect behaviour is symmetrical to the rack mirror so
-// transient Core absence doesn't cause UUID churn.
+// component type against the supplied normalised specs. Every Core row and
+// every Flow row is reduced to one identity (identityKeyForSpec /
+// identityKeyForComponent) and matched on that; the chassis labels are only
+// consulted for rows no identity matched, and only when no other spec claims
+// them, so the two indexes can never compete for one row. Resurrect behaviour
+// is symmetrical to the rack mirror so transient Core absence doesn't cause
+// UUID churn.
+//
+// A matched row keeps its UUID while manufacturer / serial are updated as
+// metadata, so a write can land on a (manufacturer, serial_number) pair some
+// other row already holds. Those writes are skipped rather than attempted;
+// see naturalKeySlotTaken.
 //
 // rackIDByExtID resolves a Core rack_id string (e.g. "a12") to the Flow rack
 // UUID. A spec whose RackExternalID can't be resolved is mirrored with a NULL
@@ -267,10 +275,49 @@ func mirrorExpectedComponents(
 		return result
 	}
 
-	flowBySerial := make(map[string]*model.Component, len(existing))
+	// flowByIdentityKey is the primary match index: one key per row, so nothing
+	// can disagree with it. Rows the mirror has never written an identity for
+	// fall back to the derivation, landing under the same key a Core spec
+	// produces, so they are adopted rather than duplicated. Two rows cannot
+	// collide here while the derivation reads the host BMC, since
+	// bmc.mac_address is a primary key.
+	//
+	// flowByNaturalKey backs the fallback for a spec whose identity matches
+	// nothing. A component whose identity legitimately changed (a replaced BMC
+	// board) or that never had one (ingestion-gRPC rows with no host BMC)
+	// would otherwise be re-inserted, and the insert would then be refused
+	// forever by the (manufacturer, serial_number) slot the old row — or its
+	// tombstone — still occupies. Adopting keeps the UUID and unsticks it.
+	//
+	// naturalKeyOwners covers soft-deleted rows too: component_manufacturer_serial_idx
+	// is a full unique constraint, so a tombstone still occupies its slot.
+	flowByIdentityKey := make(map[string]*model.Component, len(existing))
+	flowByNaturalKey := make(map[string]*model.Component, len(existing))
+	naturalKeyOwners := make(map[string]uuid.UUID, len(existing))
 	for i := range existing {
 		c := &existing[i]
-		flowBySerial[rackNaturalKey(c.Manufacturer, c.SerialNumber)] = c
+		if key := identityKeyForComponent(c); key != "" {
+			flowByIdentityKey[key] = c
+		}
+		if naturalKey := naturalKeyOrEmpty(c.Manufacturer, c.SerialNumber); naturalKey != "" {
+			flowByNaturalKey[naturalKey] = c
+			naturalKeyOwners[naturalKey] = c.ID
+		}
+	}
+
+	// Which Flow rows some spec claims by identity. Resolved up front because
+	// the natural-key fallback has to distinguish "this row is spoken for" from
+	// "this row is unmatched", and a single pass cannot know that until it has
+	// seen every spec. Without it the fallback could steal a row from a spec
+	// later in the slice — the ordering bug that made the previous
+	// serial-keyed matching unpredictable.
+	claimedByIdentity := make(map[uuid.UUID]struct{}, len(specs))
+	for _, s := range specs {
+		if key := identityKeyForSpec(s); key != "" {
+			if c, ok := flowByIdentityKey[key]; ok {
+				claimedByIdentity[c.ID] = struct{}{}
+			}
+		}
 	}
 
 	type plan struct {
@@ -282,25 +329,25 @@ func mirrorExpectedComponents(
 	}
 	var p plan
 
-	// seenKeys: every (manufacturer, serial) Core is still reporting this
-	// cycle, recorded BEFORE any validity / dedup skip. The delete phase
-	// treats a row whose key is absent from this set as "Core dropped it".
-	// plannedKeys: keys we've already queued an insert/update for, used to
-	// drop Core duplicates before they hit the (manufacturer, serial)
-	// unique index and roll back the whole type's transaction.
-	seenKeys := make(map[string]struct{}, len(specs))
-	plannedKeys := make(map[string]struct{}, len(specs))
+	// seenIdentityKeys: every identity Core is still reporting this cycle,
+	// recorded BEFORE any validity / dedup skip so the delete phase never
+	// drops a row Core still lists. plannedIdentityKeys: identities already
+	// queued, so a Core-side duplicate is dropped here instead of aborting the
+	// transaction on component_identity_key_idx.
+	// plannedNaturalKeys: (manufacturer, serial) pairs this cycle has already
+	// queued a write for. Identity no longer runs through that pair, but the
+	// mirror still writes it and component_manufacturer_serial_idx still
+	// guards it, so two writes planned in the same cycle have to be kept off
+	// the same slot.
+	seenIdentityKeys := make(map[string]struct{}, len(specs))
+	plannedIdentityKeys := make(map[string]struct{}, len(specs))
+	plannedNaturalKeys := make(map[string]struct{}, len(specs))
+	touchedIDs := make(map[uuid.UUID]struct{}, len(specs))
 
 	for _, s := range specs {
-		// Record the natural key as "still reported by Core" as early as
-		// possible. The key needs only (manufacturer, serial); a missing
-		// BMC MAC is a partial-row blip, not an absence, so it must not
-		// let the delete phase soft-delete a row Core is still listing.
-		keyDerivable := s.Manufacturer != "" && s.SerialNumber != ""
-		var key string
-		if keyDerivable {
-			key = rackNaturalKey(s.Manufacturer, s.SerialNumber)
-			seenKeys[key] = struct{}{}
+		key := identityKeyForSpec(s)
+		if key != "" {
+			seenIdentityKeys[key] = struct{}{}
 		}
 
 		if !specValid(s) {
@@ -309,23 +356,20 @@ func mirrorExpectedComponents(
 				Str("serial", s.SerialNumber).
 				Str("manufacturer", s.Manufacturer).
 				Str("bmc_mac", s.BMC.MACAddress).
-				Msg("Expected-inventory mirror: skipping Core expected component missing required identity (manufacturer / serial / BMC MAC); row preserved if its key is still reported")
+				Msg("Expected-inventory mirror: skipping Core expected component the mirror cannot derive an identity for; a component it could not match back to Core on a later cycle would be worse than the gap")
 			result.skippedNoIDOrKey++
 			continue
 		}
 
-		// specValid guarantees manufacturer and serial are set, so key is
-		// populated here. Drop Core duplicates: planning the same key twice
-		// would queue two INSERTs that collide on the unique index.
-		if _, planned := plannedKeys[key]; planned {
+		if _, planned := plannedIdentityKeys[key]; planned {
 			log.Warn().
 				Str("type", componentType).
-				Str("manufacturer", s.Manufacturer).
+				Str("identity_key", key).
 				Str("serial", s.SerialNumber).
-				Msg("Expected-inventory mirror: Core returned duplicate spec for this component; skipping the later occurrence to avoid a unique-constraint abort (Cloud REST is producing duplicates)")
+				Msg("Expected-inventory mirror: Core returned two expected components with the same identity; skipping the later occurrence (Core-side duplicate)")
 			continue
 		}
-		plannedKeys[key] = struct{}{}
+		plannedIdentityKeys[key] = struct{}{}
 
 		rackID, ok := resolveRackID(s, rackIDByExtID)
 		if !ok {
@@ -346,8 +390,50 @@ func mirrorExpectedComponents(
 		}
 
 		desired := componentFromSpec(s, rackID)
+		desired.IdentityKey = key
 
-		if cur, ok := flowBySerial[key]; ok {
+		cur, matched := flowByIdentityKey[key]
+		if !matched {
+			// Identity resolves to nothing, but the chassis labels point at a
+			// row no other spec claims: same component, new identity. Adopt it
+			// so the UUID survives and the write isn't blocked by the natural
+			// key it already holds. At most one candidate exists —
+			// component_manufacturer_serial_idx is unique.
+			if naturalKey := naturalKeyOrEmpty(desired.Manufacturer, desired.SerialNumber); naturalKey != "" {
+				if byNaturalKey, ok := flowByNaturalKey[naturalKey]; ok {
+					_, claimed := claimedByIdentity[byNaturalKey.ID]
+					_, touched := touchedIDs[byNaturalKey.ID]
+					if !claimed && !touched {
+						cur, matched = byNaturalKey, true
+					}
+				}
+			}
+		}
+
+		if matched {
+			// Identity matched, but manufacturer/serial are metadata the
+			// mirror also writes, and Core's pair may already belong to a
+			// different row. Attempting it would abort the whole type's
+			// transaction on component_manufacturer_serial_idx every cycle,
+			// so skip the write and leave both rows for an operator.
+			if naturalKeySlotTaken(naturalKeyOwners, plannedNaturalKeys, desired.Manufacturer, desired.SerialNumber, cur.ID) {
+				log.Warn().
+					Str("type", componentType).
+					Str("identity_key", key).
+					Str("manufacturer", desired.Manufacturer).
+					Str("serial", desired.SerialNumber).
+					Str("component_id", cur.ID.String()).
+					Msg("Expected-inventory mirror: Core's manufacturer/serial for this component is already held by a different Flow row; skipping this update to avoid a unique-constraint abort (operator must resolve the duplicate serial)")
+				result.skippedSerialTaken++
+				touchedIDs[cur.ID] = struct{}{}
+				continue
+			}
+			claimNaturalKeySlot(plannedNaturalKeys, desired.Manufacturer, desired.SerialNumber)
+
+			if cur.IdentityKey == "" {
+				result.adopted++
+			}
+
 			candidate := *cur
 			needUpdate := false
 			if candidate.DeletedAt != nil {
@@ -357,6 +443,7 @@ func mirrorExpectedComponents(
 				log.Info().
 					Str("type", componentType).
 					Str("serial", candidate.SerialNumber).
+					Str("bmc_mac", s.BMC.MACAddress).
 					Str("component_id", candidate.ID.String()).
 					Msg("Expected-inventory mirror: resurrecting soft-deleted component")
 			}
@@ -373,8 +460,24 @@ func mirrorExpectedComponents(
 				p.toUpdate = append(p.toUpdate, candidate)
 				p.toUpdateBMCs = append(p.toUpdateBMCs, bmcOps)
 			}
+			touchedIDs[candidate.ID] = struct{}{}
 			continue
 		}
+
+		// A new identity can still arrive carrying a (manufacturer, serial)
+		// some other row holds, or that another spec in this same cycle has
+		// already queued. Same reasoning as the update path above.
+		if naturalKeySlotTaken(naturalKeyOwners, plannedNaturalKeys, desired.Manufacturer, desired.SerialNumber, uuid.Nil) {
+			log.Warn().
+				Str("type", componentType).
+				Str("identity_key", key).
+				Str("manufacturer", desired.Manufacturer).
+				Str("serial", desired.SerialNumber).
+				Msg("Expected-inventory mirror: Core's manufacturer/serial is already held by a different Flow component; skipping this insert to avoid a unique-constraint abort (operator must resolve the duplicate serial)")
+			result.skippedSerialTaken++
+			continue
+		}
+		claimNaturalKeySlot(plannedNaturalKeys, desired.Manufacturer, desired.SerialNumber)
 
 		p.toInsert = append(p.toInsert, desired)
 		p.toInsertBMCs = append(p.toInsertBMCs, model.BMC{
@@ -384,6 +487,7 @@ func mirrorExpectedComponents(
 		})
 		log.Info().
 			Str("type", componentType).
+			Str("identity_key", key).
 			Str("serial", desired.SerialNumber).
 			Str("manufacturer", desired.Manufacturer).
 			Msg("Expected-inventory mirror: inserting new component from Core")
@@ -394,8 +498,13 @@ func mirrorExpectedComponents(
 		if c.DeletedAt != nil {
 			continue
 		}
-		if _, seen := seenKeys[rackNaturalKey(c.Manufacturer, c.SerialNumber)]; seen {
+		if _, touched := touchedIDs[c.ID]; touched {
 			continue
+		}
+		if key := identityKeyForComponent(c); key != "" {
+			if _, seen := seenIdentityKeys[key]; seen {
+				continue
+			}
 		}
 		p.toDelete = append(p.toDelete, *c)
 		log.Info().
@@ -438,7 +547,7 @@ func mirrorExpectedComponents(
 			p.toUpdate[i].UpdatedAt = now
 			if _, err := tx.NewUpdate().
 				Model(&p.toUpdate[i]).
-				Column("name", "model", "slot_id", "tray_index", "host_id", "rack_id", "deleted_at", "updated_at").
+				Column("name", "identity_key", "manufacturer", "serial_number", "model", "slot_id", "tray_index", "host_id", "rack_id", "deleted_at", "updated_at").
 				WhereAllWithDeleted().
 				Where("id = ?", p.toUpdate[i].ID).
 				Exec(ctx); err != nil {
@@ -478,11 +587,12 @@ func mirrorExpectedComponents(
 		log.Error().Err(err).Str("type", componentType).Msg("Expected-inventory mirror: component reconciliation transaction failed; mirror is no-op this cycle")
 		// Tx rolled back: every per-spec decision logged above represents
 		// intent, not committed state. Strip success-side counters so the
-		// summary log line reflects what actually landed. pulled and
-		// skippedNoIDOrKey survive: pulled is input size; skippedNoIDOrKey
-		// is decided before we ever opened the tx, so neither is
-		// invalidated by the rollback.
+		// summary log line reflects what actually landed. pulled and the
+		// skipped_* counters survive: pulled is input size and the skips are
+		// decided before we ever opened the tx, so neither is invalidated by
+		// the rollback.
 		result.resurrected = 0
+		result.adopted = 0
 		return result
 	}
 
@@ -492,11 +602,51 @@ func mirrorExpectedComponents(
 	return result
 }
 
-// specValid rejects rows missing fields the mirror needs to construct a row
-// that both inserts cleanly (Component.Manufacturer / SerialNumber are
-// NOT NULL and form a unique index) and reconciles BMC (MAC is BMC PK).
+// specValid rejects rows missing the Host BMC MAC. That MAC is the stable
+// 1:1 component identity (bmc PK guard). Manufacturer and serial_number are
+// optional mirror-managed metadata and may be NULL in the component table.
 func specValid(s expectedComponentSpec) bool {
-	return s.Manufacturer != "" && s.SerialNumber != "" && s.BMC.MACAddress != ""
+	return identityKeyForSpec(s) != ""
+}
+
+// identityKeyForSpec derives the value stored in component.identity_key for a
+// Core expected component, or "" when Core supplied nothing the mirror can
+// identify the row by. Today that is the host BMC MAC: it is 1:1 with a
+// component, it is the bmc table's primary key, and unlike the chassis labels
+// Core always reports it.
+//
+// This derivation is deliberately the only place the identity rule appears,
+// because it is expected to change — to a compound key, or to a Core-supplied
+// id — without reshaping the schema, the unique index, or the reconciliation
+// below.
+//
+// Changing it is not just an edit here. identity_key carries no marker of
+// which derivation produced it, so old and new values are indistinguishable
+// in the column, and during a rolling deploy two versions would write
+// different keys for the same component and collide on
+// component_identity_key_idx, aborting the cycle. A change therefore
+// ships in three steps: first a release whose matching accepts both the old
+// and the new value, then a migration that re-derives identity_key for every
+// row, then the switch to writing the new value (and a later release dropping
+// the compatibility branch).
+func identityKeyForSpec(s expectedComponentSpec) string {
+	return s.BMC.MACAddress
+}
+
+// identityKeyForComponent returns the identity a stored row answers to: the
+// persisted value once the mirror has written one, otherwise what the current
+// derivation makes of the row itself. The second case is how rows created
+// before identity_key existed — or by the ingestion gRPC paths — get adopted
+// instead of duplicated.
+//
+// It also constrains identityKeyForSpec: a derivation has to be computable
+// from a Flow row and not only from a Core spec, or adoption has nothing to
+// match on.
+func identityKeyForComponent(c *model.Component) string {
+	if c.IdentityKey != "" {
+		return c.IdentityKey
+	}
+	return hostBMCMac(c)
 }
 
 // resolveRackID translates Core's rack_id string into the Flow Rack.ID
@@ -524,9 +674,14 @@ func componentFromSpec(s expectedComponentSpec, rackID uuid.UUID) model.Componen
 	name := s.Name
 	if name == "" {
 		// Component.Name is part of the user-visible identity but the table
-		// doesn't enforce non-empty; matching Flow's lenient default keeps
-		// inserts safe when Core omits the name.
-		name = s.SerialNumber
+		// doesn't enforce non-empty. Prefer Core serial, then Host BMC MAC,
+		// so inserts stay labelled when Core omits the name.
+		switch {
+		case s.SerialNumber != "":
+			name = s.SerialNumber
+		default:
+			name = s.BMC.MACAddress
+		}
 	}
 	return model.Component{
 		Name:         name,
@@ -542,14 +697,19 @@ func componentFromSpec(s expectedComponentSpec, rackID uuid.UUID) model.Componen
 }
 
 // applyComponentChanges copies mirror-managed fields from desired into
-// existing. Identity (Manufacturer/SerialNumber/Type), runtime (ComponentID,
-// PowerState, FirmwareVersion), lifecycle (Status, IngestedAt) and audit
-// (CreatedAt, UpdatedAt) are intentionally not touched. Fields named in
-// spec.preserveFields are also skipped — those are the columns whose Core
-// labels were malformed and so should keep Flow's existing value rather
-// than be overwritten with the parseLabelInt fallback zero.
+// existing. Type stays immutable (per-type reconciliation scope). Runtime
+// (ComponentID, PowerState, FirmwareVersion), lifecycle (Status, IngestedAt)
+// and audit timestamps are intentionally not touched. Manufacturer and
+// serial_number are mirror-managed metadata now that Host BMC MAC owns
+// identity — Core may fill a missing manufacturer on a later cycle. Fields
+// named in spec.preserveFields are also skipped — those are the columns
+// whose Core labels were malformed and so should keep Flow's existing value
+// rather than be overwritten with the parseLabelInt fallback zero.
 func applyComponentChanges(existing, desired *model.Component, spec expectedComponentSpec) {
 	existing.Name = desired.Name
+	existing.IdentityKey = desired.IdentityKey
+	existing.Manufacturer = desired.Manufacturer
+	existing.SerialNumber = desired.SerialNumber
 	existing.Model = desired.Model
 	existing.RackID = desired.RackID
 	if !spec.preserveFields["slot_id"] {
@@ -575,6 +735,18 @@ func diffComponentFields(existing, desired *model.Component, spec expectedCompon
 	var diffs []fieldChange
 	if existing.Name != desired.Name {
 		diffs = append(diffs, fieldChange{"name", existing.Name, desired.Name})
+	}
+	// Changes only on the two paths the identity index cannot match: adopting
+	// a row that has no identity yet, and re-keying one whose identity moved
+	// (a replaced BMC board). An identity match by definition agrees already.
+	if existing.IdentityKey != desired.IdentityKey {
+		diffs = append(diffs, fieldChange{"identity_key", existing.IdentityKey, desired.IdentityKey})
+	}
+	if existing.Manufacturer != desired.Manufacturer {
+		diffs = append(diffs, fieldChange{"manufacturer", existing.Manufacturer, desired.Manufacturer})
+	}
+	if existing.SerialNumber != desired.SerialNumber {
+		diffs = append(diffs, fieldChange{"serial_number", existing.SerialNumber, desired.SerialNumber})
 	}
 	if existing.Model != desired.Model {
 		diffs = append(diffs, fieldChange{"model", existing.Model, desired.Model})
@@ -610,10 +782,10 @@ func logComponentChanges(componentType string, id uuid.UUID, serial string, diff
 }
 
 // bmcOps captures the set of writes the mirror plans against the BMC table
-// for one component. The deletes slice can be longer than one entry: a
-// well-formed component carries exactly one type='Host' BMC, but ingestion
-// bugs and data drift can leave several, and the mirror hard-deletes the
-// stale ones so Core's "exactly one host BMC" view is enforced.
+// for one component. The deletes slice is kept plural even though
+// bmc_one_host_per_component_idx now makes several type='Host' rows
+// impossible: the reconciliation also runs against rows written before that
+// index existed.
 type bmcOps struct {
 	insert  *model.BMC
 	update  *model.BMC
@@ -771,6 +943,23 @@ func equalOptionalString(a, b *string) bool {
 		return false
 	}
 	return *a == *b
+}
+
+// hostBMCMac returns the Host BMC MAC for a component, or "" when none is
+// attached. At most one can match: bmc_one_host_per_component_idx enforces
+// the 1:1. DPU / other BMC types are ignored so they cannot become the
+// expected-inventory identity.
+func hostBMCMac(c *model.Component) string {
+	if c == nil {
+		return ""
+	}
+	hostType := devicetypes.BMCTypeToString(devicetypes.BMCTypeHost)
+	for i := range c.BMCs {
+		if c.BMCs[i].Type == hostType {
+			return c.BMCs[i].MacAddress
+		}
+	}
+	return ""
 }
 
 // getAllComponentsByTypeIncludingDeleted loads every row of the given type,

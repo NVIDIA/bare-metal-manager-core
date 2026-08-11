@@ -21,16 +21,17 @@ import (
 // well-behaved (mostly updates, no surprises) or alarming (large delete
 // counts).
 type mirrorResult struct {
-	resource         string
-	pulled           int
-	inserted         int
-	updated          int
-	adopted          int
-	resurrected      int
-	softDeleted      int
-	legacyExempt     int
-	skippedNoIDOrKey int
-	skippedNameTaken int
+	resource           string
+	pulled             int
+	inserted           int
+	updated            int
+	adopted            int
+	resurrected        int
+	softDeleted        int
+	legacyExempt       int
+	skippedNoIDOrKey   int
+	skippedNameTaken   int
+	skippedSerialTaken int
 }
 
 func (r mirrorResult) log() {
@@ -45,6 +46,7 @@ func (r mirrorResult) log() {
 		Int("legacy_exempt", r.legacyExempt).
 		Int("skipped_invalid", r.skippedNoIDOrKey).
 		Int("skipped_name_taken", r.skippedNameTaken).
+		Int("skipped_serial_taken", r.skippedSerialTaken).
 		Msgf("Expected-inventory mirror: %s", r.resource)
 }
 
@@ -140,11 +142,76 @@ func loadRackIDByExternalID(ctx context.Context, idb bun.IDB) (map[string]uuid.U
 }
 
 // rackNaturalKey joins manufacturer and serial number with a NUL byte. NUL
-// can't appear inside either component, so this is collision-free without
-// having to escape. Used by both the rack and component mirrors to key
-// "is this row already known" maps off the shared (manufacturer, serial)
-// pair, so it lives here next to the orchestrator rather than in either
+// can't appear inside either value, so this is collision-free without having
+// to escape. Both mirrors key maps off the shared (manufacturer, serial) pair,
+// so it lives here next to the orchestrator rather than in either
 // type-specific file.
+//
+// The pair is no longer what either mirror identifies a row by — components
+// match on identity_key and racks on external_id. It survives as the
+// *_manufacturer_serial_idx unique constraint over descriptive labels, so what
+// these keys mostly track now is which rows own which slot of that index, plus
+// a fallback for specs whose identity resolves to nothing.
 func rackNaturalKey(manufacturer, serialNumber string) string {
 	return manufacturer + "\x00" + serialNumber
+}
+
+// naturalKeySlotTaken reports whether writing this (manufacturer, serial_number)
+// pair would land on a unique-index slot belonging to a different row: one
+// already in the table (owners, tombstones included), or one the current cycle
+// has already queued a write for (claimed). Both matter because a cycle plans
+// every write before it opens the transaction, so two planned writes can
+// collide with each other without either colliding with stored state.
+func naturalKeySlotTaken(owners map[string]uuid.UUID, claimed map[string]struct{}, manufacturer, serialNumber string, selfID uuid.UUID) bool {
+	naturalKey := naturalKeyOrEmpty(manufacturer, serialNumber)
+	if naturalKey == "" {
+		return false
+	}
+	if naturalKeyTakenByOther(owners, manufacturer, serialNumber, selfID) {
+		return true
+	}
+	_, planned := claimed[naturalKey]
+	return planned
+}
+
+// naturalKeyOrEmpty returns the (manufacturer, serial_number) index key, or ""
+// when either half is absent. Such a pair stores a SQL NULL, which Postgres
+// treats as distinct from every other value, so it occupies no slot and
+// identifies nothing.
+func naturalKeyOrEmpty(manufacturer, serialNumber string) string {
+	if manufacturer == "" || serialNumber == "" {
+		return ""
+	}
+	return rackNaturalKey(manufacturer, serialNumber)
+}
+
+// claimNaturalKeySlot records a pair the cycle has queued a write for. A pair with
+// an empty half is not recorded: it stores a SQL NULL, which Postgres treats
+// as distinct from every other value, so it occupies no slot.
+func claimNaturalKeySlot(claimed map[string]struct{}, manufacturer, serialNumber string) {
+	if naturalKey := naturalKeyOrEmpty(manufacturer, serialNumber); naturalKey != "" {
+		claimed[naturalKey] = struct{}{}
+	}
+}
+
+// naturalKeyTakenByOther reports whether some row other than selfID already
+// occupies the (manufacturer, serial_number) slot in the table's unique index.
+// Pass uuid.Nil as selfID for an INSERT. Callers that also have to account for
+// writes queued earlier in the same cycle want naturalKeySlotTaken instead.
+//
+// Both mirrors need this because they write the serial column: the component
+// mirror matches on identity_key and the rack mirror on external_id, so the row
+// they matched can legitimately carry a different serial from the one Core now
+// reports. Blindly writing Core's value would abort the whole reconciliation
+// transaction, and since the unique index covers soft-deleted rows, owners must
+// include tombstones.
+//
+// An empty manufacturer or serial occupies no slot at all — Postgres treats
+// NULLs as distinct — so those can never collide and return false.
+func naturalKeyTakenByOther(owners map[string]uuid.UUID, manufacturer, serialNumber string, selfID uuid.UUID) bool {
+	if manufacturer == "" || serialNumber == "" {
+		return false
+	}
+	owner, ok := owners[rackNaturalKey(manufacturer, serialNumber)]
+	return ok && owner != selfID
 }

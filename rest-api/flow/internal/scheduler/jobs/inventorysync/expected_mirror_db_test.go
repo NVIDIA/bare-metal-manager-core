@@ -166,6 +166,61 @@ func TestMirrorRacks_DuplicateChassisNoAbort(t *testing.T) {
 	assert.Equal(t, 1, n, "exactly one rack inserted; the duplicate is dropped, not a constraint abort")
 }
 
+// Racks with manufacturer but no serial, each with a distinct rack_id, must
+// all insert. Postgres treats NULL serials as distinct under
+// UNIQUE (manufacturer, serial_number), and matching is by external_id.
+func TestMirrorRacks_NullSerialDistinctByExternalID(t *testing.T) {
+	ctx, pool := mirrorTestPool(t)
+
+	core := make([]nicoapi.ExpectedRackDetail, 0, 4)
+	for _, id := range []string{"a12", "b07", "c03", "d09"} {
+		core = append(core, nicoapi.ExpectedRackDetail{
+			RackID: id,
+			Name:   "rack-" + id,
+			Labels: map[string]string{labelChassisManufacturer: "NVIDIA"},
+		})
+	}
+	mirrorExpectedRacks(ctx, pool, core)
+
+	n, err := pool.DB.NewSelect().Model((*model.Rack)(nil)).
+		Where("manufacturer = ?", "NVIDIA").
+		Where("serial_number IS NULL").
+		Count(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, 4, n, "four NULL-serial racks with distinct external_ids must all insert")
+}
+
+// A NULL-serial rack matched by external_id whose newly-reported serial is
+// already held by another rack (here a tombstone, which still occupies the
+// unique slot) must be skipped, not written: the write would abort the whole
+// rack transaction and take every other rack down with it, every cycle.
+func TestMirrorRacks_SerialTakenByTombstoneSkipsUpdate(t *testing.T) {
+	ctx, pool := mirrorTestPool(t)
+
+	holder := model.Rack{Name: "holder", Manufacturer: "NVIDIA", SerialNumber: "SN-CLASH"}
+	require.NoError(t, holder.Create(ctx, pool.DB))
+	require.NoError(t, holder.Delete(ctx, pool.DB))
+
+	target := model.Rack{Name: "rack-a12", Manufacturer: "NVIDIA", ExternalID: strPtr("a12")}
+	require.NoError(t, target.Create(ctx, pool.DB))
+	other := model.Rack{Name: "rack-b07", Manufacturer: "NVIDIA", ExternalID: strPtr("b07")}
+	require.NoError(t, other.Create(ctx, pool.DB))
+
+	mirrorExpectedRacks(ctx, pool, []nicoapi.ExpectedRackDetail{
+		coreRack("a12", "NVIDIA", "SN-CLASH"),
+		{RackID: "b07", Name: "rack-b07-renamed", Labels: map[string]string{labelChassisManufacturer: "NVIDIA"}},
+	})
+
+	gotTarget, err := (&model.Rack{ID: target.ID}).GetIncludingDeleted(ctx, pool.DB)
+	require.NoError(t, err)
+	assert.Empty(t, gotTarget.SerialNumber, "must not write a serial another rack already holds")
+	assert.Nil(t, gotTarget.DeletedAt, "a skipped update must not cascade into a soft-delete")
+
+	gotOther, err := (&model.Rack{ID: other.ID}).GetIncludingDeleted(ctx, pool.DB)
+	require.NoError(t, err)
+	assert.Equal(t, "rack-b07-renamed", gotOther.Name, "the colliding rack must not block unrelated racks in the same cycle")
+}
+
 // #8: an empty Core description must not wipe operator-set rack metadata.
 func TestMirrorRacks_EmptyDescriptionPreserved(t *testing.T) {
 	ctx, pool := mirrorTestPool(t)
@@ -362,8 +417,212 @@ func TestRunInventoryOne_DriftTablePreservedOnRPCFailure(t *testing.T) {
 	assert.Equal(t, 1, n, "drift table must not be wiped when an actual-sync RPC failed")
 }
 
-// #4: duplicate component specs must not abort the transaction on the
-// (manufacturer, serial) unique index.
+// A row the mirror has never written an identity_key for must be adopted via
+// the derivation rather than duplicated, and the adoption must persist so the
+// next cycle matches on the stored value.
+func TestMirrorComponents_AdoptsRowWithoutIdentityKey(t *testing.T) {
+	ctx, pool := mirrorTestPool(t)
+
+	legacy := model.Component{Type: compType(), Manufacturer: "Mfg", SerialNumber: "C-LEGACY"}
+	require.NoError(t, legacy.Create(ctx, pool.DB))
+	require.Empty(t, legacy.IdentityKey, "fixture must start unadopted")
+	hostBMC := model.BMC{
+		MacAddress:  "aa:bb:cc:dd:ee:60",
+		Type:        devicetypes.BMCTypeToString(devicetypes.BMCTypeHost),
+		ComponentID: legacy.ID,
+	}
+	_, err := pool.DB.NewInsert().Model(&hostBMC).Exec(ctx)
+	require.NoError(t, err)
+
+	spec := computeSpec("Mfg", "C-LEGACY", "aa:bb:cc:dd:ee:60")
+	mirrorExpectedComponents(ctx, pool, compType(), []expectedComponentSpec{spec}, map[string]uuid.UUID{})
+
+	got, err := (&model.Component{ID: legacy.ID}).GetIncludingDeleted(ctx, pool.DB)
+	require.NoError(t, err)
+	assert.Nil(t, got.DeletedAt, "adoption must not soft-delete the row it adopted")
+	assert.Equal(t, "aa:bb:cc:dd:ee:60", got.IdentityKey, "adoption must persist the derived identity")
+
+	n, err := pool.DB.NewSelect().Model((*model.Component)(nil)).Where("type = ?", compType()).Count(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, 1, n, "the unadopted row must be reused, not duplicated")
+}
+
+// A replaced BMC board changes the component's identity. Re-inserting would
+// be refused forever by the (manufacturer, serial) slot the old row still
+// occupies, so the fallback must adopt it and re-key it in place.
+func TestMirrorComponents_ReplacedBMCReKeysInPlace(t *testing.T) {
+	ctx, pool := mirrorTestPool(t)
+
+	c := model.Component{Type: compType(), Manufacturer: "Mfg", SerialNumber: "C-REKEY"}
+	require.NoError(t, c.Create(ctx, pool.DB))
+	oldBMC := model.BMC{
+		MacAddress:  "aa:bb:cc:dd:ee:80",
+		Type:        devicetypes.BMCTypeToString(devicetypes.BMCTypeHost),
+		ComponentID: c.ID,
+	}
+	_, err := pool.DB.NewInsert().Model(&oldBMC).Exec(ctx)
+	require.NoError(t, err)
+	mirrorExpectedComponents(ctx, pool, compType(),
+		[]expectedComponentSpec{computeSpec("Mfg", "C-REKEY", "aa:bb:cc:dd:ee:80")},
+		map[string]uuid.UUID{})
+
+	// Same chassis, new BMC board.
+	mirrorExpectedComponents(ctx, pool, compType(),
+		[]expectedComponentSpec{computeSpec("Mfg", "C-REKEY", "aa:bb:cc:dd:ee:81")},
+		map[string]uuid.UUID{})
+
+	got, err := (&model.Component{ID: c.ID}).GetIncludingDeleted(ctx, pool.DB)
+	require.NoError(t, err)
+	assert.Nil(t, got.DeletedAt, "re-keying must not soft-delete the component")
+	assert.Equal(t, "aa:bb:cc:dd:ee:81", got.IdentityKey, "identity must follow the new BMC")
+
+	n, err := pool.DB.NewSelect().Model((*model.Component)(nil)).Where("type = ?", compType()).Count(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, 1, n, "a BMC swap must not leave a second component behind")
+}
+
+// The natural-key fallback must never take a row another spec claims by
+// identity, whatever order the specs arrive in.
+func TestMirrorComponents_FallbackYieldsToIdentityClaim(t *testing.T) {
+	ctx, pool := mirrorTestPool(t)
+
+	// Held by identity aa:bb:cc:dd:ee:90, and also the only holder of
+	// (Mfg, C-CONTESTED).
+	held := model.Component{Type: compType(), Manufacturer: "Mfg", SerialNumber: "C-CONTESTED"}
+	require.NoError(t, held.Create(ctx, pool.DB))
+	hostBMC := model.BMC{
+		MacAddress:  "aa:bb:cc:dd:ee:90",
+		Type:        devicetypes.BMCTypeToString(devicetypes.BMCTypeHost),
+		ComponentID: held.ID,
+	}
+	_, err := pool.DB.NewInsert().Model(&hostBMC).Exec(ctx)
+	require.NoError(t, err)
+
+	// The contender is listed first, so a single-pass fallback would let it
+	// steal the row before the identity match is ever considered.
+	mirrorExpectedComponents(ctx, pool, compType(), []expectedComponentSpec{
+		computeSpec("Mfg", "C-CONTESTED", "aa:bb:cc:dd:ee:91"),
+		computeSpec("Mfg", "C-CONTESTED", "aa:bb:cc:dd:ee:90"),
+	}, map[string]uuid.UUID{})
+
+	got, err := (&model.Component{ID: held.ID}).GetIncludingDeleted(ctx, pool.DB)
+	require.NoError(t, err)
+	assert.Nil(t, got.DeletedAt)
+	assert.Equal(t, "aa:bb:cc:dd:ee:90", got.IdentityKey, "the identity claim must win over the label fallback")
+}
+
+// Identity is the host BMC MAC, so the same serial under two manufacturers is
+// two components. The previous serial-keyed dedup silently dropped the second.
+func TestMirrorComponents_SameSerialDifferentManufacturerBothInsert(t *testing.T) {
+	ctx, pool := mirrorTestPool(t)
+
+	mirrorExpectedComponents(ctx, pool, compType(), []expectedComponentSpec{
+		computeSpec("MfgA", "C-SHARED", "aa:bb:cc:dd:ee:61"),
+		computeSpec("MfgB", "C-SHARED", "aa:bb:cc:dd:ee:62"),
+	}, map[string]uuid.UUID{})
+
+	n, err := pool.DB.NewSelect().Model((*model.Component)(nil)).Where("serial_number = ?", "C-SHARED").Count(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, 2, n, "a shared serial under distinct manufacturers is two legitimate components")
+}
+
+// Same, for the klamath-style rows Core reports without a manufacturer label:
+// the pair stores a NULL, so it occupies no unique-index slot at all.
+func TestMirrorComponents_SameSerialNoManufacturerBothInsert(t *testing.T) {
+	ctx, pool := mirrorTestPool(t)
+
+	mirrorExpectedComponents(ctx, pool, compType(), []expectedComponentSpec{
+		computeSpec("", "C-UNLABELLED", "aa:bb:cc:dd:ee:63"),
+		computeSpec("", "C-UNLABELLED", "aa:bb:cc:dd:ee:64"),
+	}, map[string]uuid.UUID{})
+
+	n, err := pool.DB.NewSelect().Model((*model.Component)(nil)).Where("serial_number = ?", "C-UNLABELLED").Count(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, 2, n, "unlabelled rows sharing a serial must not collapse onto one key")
+}
+
+// The delete phase keys off identity, so a Flow row Core no longer reports is
+// soft-deleted even while some other component Core still reports happens to
+// carry the same serial. Keying deletes off serial kept such rows alive
+// forever.
+func TestMirrorComponents_SharedSerialDoesNotShieldAbsentComponent(t *testing.T) {
+	ctx, pool := mirrorTestPool(t)
+
+	gone := model.Component{Type: compType(), Manufacturer: "MfgA", SerialNumber: "C-TWIN"}
+	require.NoError(t, gone.Create(ctx, pool.DB))
+	hostBMC := model.BMC{
+		MacAddress:  "aa:bb:cc:dd:ee:65",
+		Type:        devicetypes.BMCTypeToString(devicetypes.BMCTypeHost),
+		ComponentID: gone.ID,
+	}
+	_, err := pool.DB.NewInsert().Model(&hostBMC).Exec(ctx)
+	require.NoError(t, err)
+
+	// Core reports a different component that shares the serial but not the
+	// identity of the row above.
+	mirrorExpectedComponents(ctx, pool, compType(), []expectedComponentSpec{
+		computeSpec("MfgB", "C-TWIN", "aa:bb:cc:dd:ee:66"),
+	}, map[string]uuid.UUID{})
+
+	got, err := (&model.Component{ID: gone.ID}).GetIncludingDeleted(ctx, pool.DB)
+	require.NoError(t, err)
+	assert.NotNil(t, got.DeletedAt, "a component Core stopped reporting must be soft-deleted regardless of who else holds its serial")
+}
+
+// identity_key is a denormalised copy of a value that is unique at its source,
+// so the index has to be global. Scoped by type it would admit one MAC under
+// two component types, which no valid inventory produces.
+func TestComponent_IdentityKeyUniqueAcrossTypes(t *testing.T) {
+	ctx, pool := mirrorTestPool(t)
+
+	first := model.Component{Type: compType(), Name: "c1", IdentityKey: "aa:bb:cc:dd:ee:a0"}
+	require.NoError(t, first.Create(ctx, pool.DB))
+
+	second := model.Component{
+		Type:        devicetypes.ComponentTypeToString(devicetypes.ComponentTypeNVSwitch),
+		Name:        "c2",
+		IdentityKey: "aa:bb:cc:dd:ee:a0",
+	}
+	require.Error(t, second.Create(ctx, pool.DB), "one identity must not appear under two component types")
+
+	// NULL is exempt, so the ingestion gRPC paths stay unconstrained.
+	for _, name := range []string{"no-identity-1", "no-identity-2"} {
+		c := model.Component{Type: compType(), Name: name}
+		require.NoError(t, c.Create(ctx, pool.DB), "rows without an identity must not collide")
+	}
+}
+
+// bmc_one_host_per_component_idx makes the 1:1 the identity derivation assumes
+// enforceable rather than conventional, so hostBMCMac can never have to pick
+// between candidates.
+func TestBMC_SecondHostBMCPerComponentRejected(t *testing.T) {
+	ctx, pool := mirrorTestPool(t)
+
+	c := model.Component{Type: compType(), Manufacturer: "Mfg", SerialNumber: "C-1TO1"}
+	require.NoError(t, c.Create(ctx, pool.DB))
+
+	hostType := devicetypes.BMCTypeToString(devicetypes.BMCTypeHost)
+	first := model.BMC{MacAddress: "aa:bb:cc:dd:ee:70", Type: hostType, ComponentID: c.ID}
+	_, err := pool.DB.NewInsert().Model(&first).Exec(ctx)
+	require.NoError(t, err)
+
+	second := model.BMC{MacAddress: "aa:bb:cc:dd:ee:71", Type: hostType, ComponentID: c.ID}
+	_, err = pool.DB.NewInsert().Model(&second).Exec(ctx)
+	require.Error(t, err, "a component must not be able to hold two host BMCs")
+
+	// A DPU BMC is outside the partial index and stays allowed.
+	dpu := model.BMC{
+		MacAddress:  "aa:bb:cc:dd:ee:72",
+		Type:        devicetypes.BMCTypeToString(devicetypes.BMCTypeDPU),
+		ComponentID: c.ID,
+	}
+	_, err = pool.DB.NewInsert().Model(&dpu).Exec(ctx)
+	require.NoError(t, err, "the index must only constrain host BMCs")
+}
+
+// #4: duplicate component specs must not abort the transaction. The two specs
+// carry distinct identities, so it is the (manufacturer, serial) pair they
+// share that has to be kept off one unique-index slot.
 func TestMirrorComponents_DuplicateSpecNoAbort(t *testing.T) {
 	ctx, pool := mirrorTestPool(t)
 
@@ -375,5 +634,104 @@ func TestMirrorComponents_DuplicateSpecNoAbort(t *testing.T) {
 
 	n, err := pool.DB.NewSelect().Model((*model.Component)(nil)).Where("serial_number = ?", "C-DUP").Count(ctx)
 	require.NoError(t, err)
-	assert.Equal(t, 1, n, "exactly one component inserted; the duplicate spec is dropped")
+	assert.Equal(t, 1, n, "exactly one component inserted; the duplicate serial is dropped")
+}
+
+// Missing manufacturer is allowed: identity_key carries the identity, so the
+// chassis labels are free to be incomplete.
+func TestMirrorComponents_MissingManufacturerInserts(t *testing.T) {
+	ctx, pool := mirrorTestPool(t)
+
+	spec := computeSpec("", "C-NO-MFR", "aa:bb:cc:dd:ee:30")
+	mirrorExpectedComponents(ctx, pool, compType(), []expectedComponentSpec{spec}, map[string]uuid.UUID{})
+
+	got, err := model.GetComponentByBMCMAC(ctx, pool.DB, "aa:bb:cc:dd:ee:30")
+	require.NoError(t, err)
+	assert.Empty(t, got.Manufacturer)
+	assert.Equal(t, "C-NO-MFR", got.SerialNumber)
+	require.Len(t, got.BMCs, 1)
+	assert.Equal(t, "aa:bb:cc:dd:ee:30", got.BMCs[0].MacAddress)
+}
+
+// Missing serial is allowed once identity comes from elsewhere. Several such
+// rows must not collapse: Postgres treats the NULL serials as distinct under
+// component_manufacturer_serial_idx.
+func TestMirrorComponents_NullSerialDistinctByHostBMCMac(t *testing.T) {
+	ctx, pool := mirrorTestPool(t)
+
+	specs := []expectedComponentSpec{
+		{Type: compType(), BMC: expectedBMCSpec{MACAddress: "aa:bb:cc:dd:ee:31"}},
+		{Type: compType(), BMC: expectedBMCSpec{MACAddress: "aa:bb:cc:dd:ee:32"}},
+		{Type: compType(), BMC: expectedBMCSpec{MACAddress: "aa:bb:cc:dd:ee:33"}},
+	}
+	mirrorExpectedComponents(ctx, pool, compType(), specs, map[string]uuid.UUID{})
+
+	n, err := pool.DB.NewSelect().Model((*model.Component)(nil)).
+		Where("type = ?", compType()).
+		Where("serial_number IS NULL").
+		Count(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, 3, n, "three NULL-serial components with distinct Host BMC MACs must all insert")
+}
+
+// Identity is independent of the chassis labels, so Core renaming a serial
+// updates the existing row in place instead of inserting a duplicate.
+func TestMirrorComponents_MatchByHostBMCMac(t *testing.T) {
+	ctx, pool := mirrorTestPool(t)
+
+	c := model.Component{Type: compType(), Manufacturer: "Mfg", SerialNumber: "C-OLD"}
+	require.NoError(t, c.Create(ctx, pool.DB))
+	hostBMC := model.BMC{
+		MacAddress:  "aa:bb:cc:dd:ee:40",
+		Type:        devicetypes.BMCTypeToString(devicetypes.BMCTypeHost),
+		ComponentID: c.ID,
+	}
+	_, err := pool.DB.NewInsert().Model(&hostBMC).Exec(ctx)
+	require.NoError(t, err)
+
+	spec := computeSpec("Mfg", "C-NEW", "aa:bb:cc:dd:ee:40")
+	mirrorExpectedComponents(ctx, pool, compType(), []expectedComponentSpec{spec}, map[string]uuid.UUID{})
+
+	got, err := (&model.Component{ID: c.ID}).GetIncludingDeleted(ctx, pool.DB)
+	require.NoError(t, err)
+	assert.Nil(t, got.DeletedAt)
+	assert.Equal(t, "C-NEW", got.SerialNumber, "Host BMC match must update serial metadata in place")
+
+	n, err := pool.DB.NewSelect().Model((*model.Component)(nil)).Where("type = ?", compType()).Count(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, 1, n, "must not insert a second component for the same Host BMC MAC")
+}
+
+// Identity and (manufacturer, serial) can disagree: identity matches one row
+// while Core's serial belongs to another. The write must be skipped so a
+// single conflicting component doesn't roll back the type's whole cycle.
+func TestMirrorComponents_SerialTakenByOtherComponentSkipsUpdate(t *testing.T) {
+	ctx, pool := mirrorTestPool(t)
+
+	holder := model.Component{Type: compType(), Manufacturer: "Mfg", SerialNumber: "C-CLASH"}
+	require.NoError(t, holder.Create(ctx, pool.DB))
+
+	target := model.Component{Type: compType(), Manufacturer: "Mfg", SerialNumber: "C-TARGET"}
+	require.NoError(t, target.Create(ctx, pool.DB))
+	hostBMC := model.BMC{
+		MacAddress:  "aa:bb:cc:dd:ee:50",
+		Type:        devicetypes.BMCTypeToString(devicetypes.BMCTypeHost),
+		ComponentID: target.ID,
+	}
+	_, err := pool.DB.NewInsert().Model(&hostBMC).Exec(ctx)
+	require.NoError(t, err)
+
+	mirrorExpectedComponents(ctx, pool, compType(), []expectedComponentSpec{
+		computeSpec("Mfg", "C-CLASH", "aa:bb:cc:dd:ee:50"),
+		computeSpec("Mfg", "C-FRESH", "aa:bb:cc:dd:ee:51"),
+	}, map[string]uuid.UUID{})
+
+	gotTarget, err := (&model.Component{ID: target.ID}).GetIncludingDeleted(ctx, pool.DB)
+	require.NoError(t, err)
+	assert.Equal(t, "C-TARGET", gotTarget.SerialNumber, "must not write a serial another component already holds")
+	assert.Nil(t, gotTarget.DeletedAt, "a skipped update must not cascade into a soft-delete")
+
+	n, err := pool.DB.NewSelect().Model((*model.Component)(nil)).Where("serial_number = ?", "C-FRESH").Count(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, 1, n, "the colliding component must not block unrelated components in the same cycle")
 }

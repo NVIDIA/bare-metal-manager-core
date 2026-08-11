@@ -121,17 +121,104 @@ func TestSpecValid(t *testing.T) {
 	}
 	assert.True(t, specValid(base), "complete spec should be valid")
 
-	for name, mutate := range map[string]func(*expectedComponentSpec){
-		"missing manufacturer": func(s *expectedComponentSpec) { s.Manufacturer = "" },
-		"missing serial":       func(s *expectedComponentSpec) { s.SerialNumber = "" },
-		"missing bmc mac":      func(s *expectedComponentSpec) { s.BMC.MACAddress = "" },
-	} {
-		t.Run(name, func(t *testing.T) {
-			s := base
-			mutate(&s)
-			assert.False(t, specValid(s))
-		})
-	}
+	t.Run("missing manufacturer is still valid (Host BMC MAC is the identity)", func(t *testing.T) {
+		s := base
+		s.Manufacturer = ""
+		assert.True(t, specValid(s))
+	})
+	t.Run("missing serial is still valid (Host BMC MAC is the identity)", func(t *testing.T) {
+		s := base
+		s.SerialNumber = ""
+		assert.True(t, specValid(s))
+	})
+	t.Run("missing bmc mac is invalid", func(t *testing.T) {
+		s := base
+		s.BMC.MACAddress = ""
+		assert.False(t, specValid(s))
+	})
+}
+
+func TestHostBMCMac(t *testing.T) {
+	hostType := devicetypes.BMCTypeToString(devicetypes.BMCTypeHost)
+	dpuType := devicetypes.BMCTypeToString(devicetypes.BMCTypeDPU)
+
+	t.Run("nil component", func(t *testing.T) {
+		assert.Empty(t, hostBMCMac(nil))
+	})
+	t.Run("no BMCs", func(t *testing.T) {
+		assert.Empty(t, hostBMCMac(&model.Component{}))
+	})
+	t.Run("dpu only is ignored", func(t *testing.T) {
+		c := &model.Component{BMCs: []model.BMC{{MacAddress: "aa:bb:cc:dd:ee:50", Type: dpuType}}}
+		assert.Empty(t, hostBMCMac(c))
+	})
+	t.Run("returns host MAC and ignores dpu", func(t *testing.T) {
+		c := &model.Component{BMCs: []model.BMC{
+			{MacAddress: "aa:bb:cc:dd:ee:50", Type: dpuType},
+			{MacAddress: "aa:bb:cc:dd:ee:01", Type: hostType},
+		}}
+		assert.Equal(t, "aa:bb:cc:dd:ee:01", hostBMCMac(c))
+	})
+}
+
+func TestIdentityKeyForSpec(t *testing.T) {
+	t.Run("derives from the host BMC MAC", func(t *testing.T) {
+		s := expectedComponentSpec{
+			Manufacturer: "Foxconn",
+			SerialNumber: "SN-1",
+			BMC:          expectedBMCSpec{MACAddress: "aa:bb:cc:dd:ee:ff"},
+		}
+		assert.Equal(t, "aa:bb:cc:dd:ee:ff", identityKeyForSpec(s))
+	})
+	t.Run("chassis labels do not contribute", func(t *testing.T) {
+		bare := expectedComponentSpec{BMC: expectedBMCSpec{MACAddress: "aa:bb:cc:dd:ee:ff"}}
+		labelled := expectedComponentSpec{
+			Manufacturer: "Foxconn",
+			SerialNumber: "SN-1",
+			Model:        "MGX",
+			BMC:          expectedBMCSpec{MACAddress: "aa:bb:cc:dd:ee:ff"},
+		}
+		assert.Equal(t, identityKeyForSpec(bare), identityKeyForSpec(labelled))
+	})
+	t.Run("no host BMC MAC yields no identity", func(t *testing.T) {
+		s := expectedComponentSpec{Manufacturer: "Foxconn", SerialNumber: "SN-1"}
+		assert.Empty(t, identityKeyForSpec(s))
+	})
+}
+
+func TestIdentityKeyForComponent(t *testing.T) {
+	hostType := devicetypes.BMCTypeToString(devicetypes.BMCTypeHost)
+
+	t.Run("persisted value wins over the derivation", func(t *testing.T) {
+		c := &model.Component{
+			IdentityKey: "stored",
+			BMCs:        []model.BMC{{MacAddress: "aa:bb:cc:dd:ee:01", Type: hostType}},
+		}
+		assert.Equal(t, "stored", identityKeyForComponent(c))
+	})
+	t.Run("falls back to the derivation so unadopted rows still match", func(t *testing.T) {
+		c := &model.Component{BMCs: []model.BMC{{MacAddress: "aa:bb:cc:dd:ee:01", Type: hostType}}}
+		assert.Equal(t, "aa:bb:cc:dd:ee:01", identityKeyForComponent(c))
+	})
+	t.Run("no identity at all", func(t *testing.T) {
+		assert.Empty(t, identityKeyForComponent(&model.Component{}))
+	})
+
+	// Adoption depends on both sides agreeing, so a derivation change that
+	// updates only identityKeyForSpec would silently duplicate every row.
+	t.Run("agrees with identityKeyForSpec for a row the mirror just created", func(t *testing.T) {
+		s := expectedComponentSpec{
+			Manufacturer: "Foxconn",
+			SerialNumber: "SN-1",
+			BMC:          expectedBMCSpec{MACAddress: "aa:bb:cc:dd:ee:02"},
+		}
+		stored := &model.Component{
+			Manufacturer: s.Manufacturer,
+			SerialNumber: s.SerialNumber,
+			BMCs:         []model.BMC{{MacAddress: s.BMC.MACAddress, Type: hostType}},
+		}
+		assert.Equal(t, identityKeyForSpec(s), identityKeyForComponent(stored))
+	})
 }
 
 func TestResolveRackID(t *testing.T) {
@@ -185,6 +272,17 @@ func TestComponentFromSpec_NameFallsBackToSerial(t *testing.T) {
 	assert.Equal(t, "SN-1", c.Name, "empty Core name should fall back to serial so notnull-checks downstream don't trip")
 }
 
+func TestComponentFromSpec_NameFallsBackToHostBMCMac(t *testing.T) {
+	s := expectedComponentSpec{
+		Type: "Compute",
+		BMC:  expectedBMCSpec{MACAddress: "aa:bb:cc:dd:ee:ff"},
+	}
+	c := componentFromSpec(s, uuid.Nil)
+	assert.Equal(t, "aa:bb:cc:dd:ee:ff", c.Name, "empty Core name and serial should fall back to Host BMC MAC")
+	assert.Empty(t, c.SerialNumber)
+	assert.Empty(t, c.Manufacturer)
+}
+
 func TestDiffComponentFields(t *testing.T) {
 	rackA := uuid.New()
 	rackB := uuid.New()
@@ -210,12 +308,14 @@ func TestDiffComponentFields(t *testing.T) {
 	})
 
 	for name, mutate := range map[string]func(*model.Component){
-		"name":       func(c *model.Component) { c.Name = "n2" },
-		"model":      func(c *model.Component) { c.Model = "m2" },
-		"slot_id":    func(c *model.Component) { c.SlotID = 9 },
-		"tray_index": func(c *model.Component) { c.TrayIndex = 9 },
-		"host_id":    func(c *model.Component) { c.HostID = 9 },
-		"rack_id":    func(c *model.Component) { c.RackID = rackB },
+		"name":          func(c *model.Component) { c.Name = "n2" },
+		"manufacturer":  func(c *model.Component) { c.Manufacturer = "other" },
+		"serial_number": func(c *model.Component) { c.SerialNumber = "SN-2" },
+		"model":         func(c *model.Component) { c.Model = "m2" },
+		"slot_id":       func(c *model.Component) { c.SlotID = 9 },
+		"tray_index":    func(c *model.Component) { c.TrayIndex = 9 },
+		"host_id":       func(c *model.Component) { c.HostID = 9 },
+		"rack_id":       func(c *model.Component) { c.RackID = rackB },
 	} {
 		t.Run("change in "+name+" is detected", func(t *testing.T) {
 			desired := base()
@@ -239,7 +339,7 @@ func TestDiffComponentFields(t *testing.T) {
 	})
 }
 
-func TestApplyComponentChanges_DoesNotTouchIdentityOrRuntimeFields(t *testing.T) {
+func TestApplyComponentChanges_UpdatesMetadataPreservesRuntime(t *testing.T) {
 	id := uuid.New()
 	rackA := uuid.New()
 	rackB := uuid.New()
@@ -248,26 +348,28 @@ func TestApplyComponentChanges_DoesNotTouchIdentityOrRuntimeFields(t *testing.T)
 		ID:           id,
 		Name:         "old",
 		Type:         "Compute",
-		Manufacturer: "Foxconn",
+		Manufacturer: "",
 		SerialNumber: "SN-1",
 		Model:        "old-model",
 		RackID:       rackA,
 		ComponentID:  &extID, // runtime-owned, must not be touched
 	}
 	desired := &model.Component{
-		Name:   "new",
-		Model:  "new-model",
-		RackID: rackB,
+		Name:         "new",
+		Manufacturer: "Foxconn",
+		SerialNumber: "SN-2",
+		Model:        "new-model",
+		RackID:       rackB,
 	}
 
 	applyComponentChanges(existing, desired, expectedComponentSpec{})
 
 	assert.Equal(t, "new", existing.Name)
+	assert.Equal(t, "Foxconn", existing.Manufacturer, "manufacturer is mirror-managed metadata once Host BMC owns identity")
+	assert.Equal(t, "SN-2", existing.SerialNumber, "serial is mirror-managed metadata once Host BMC owns identity")
 	assert.Equal(t, "new-model", existing.Model)
 	assert.Equal(t, rackB, existing.RackID)
-	assert.Equal(t, "Compute", existing.Type, "Type is identity; mirror must not touch")
-	assert.Equal(t, "Foxconn", existing.Manufacturer, "Manufacturer is identity")
-	assert.Equal(t, "SN-1", existing.SerialNumber, "SerialNumber is identity")
+	assert.Equal(t, "Compute", existing.Type, "Type scopes the reconciliation; mirror must not touch")
 	require.NotNil(t, existing.ComponentID)
 	assert.Equal(t, "runtime-id", *existing.ComponentID, "external_id is runtime-owned")
 }

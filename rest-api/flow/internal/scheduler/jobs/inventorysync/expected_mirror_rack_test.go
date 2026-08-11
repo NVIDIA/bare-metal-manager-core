@@ -24,6 +24,36 @@ func TestRackNaturalKeyIsCollisionFree(t *testing.T) {
 	assert.NotEqual(t, a, b, "manufacturer/serial collisions must be impossible")
 }
 
+func TestNaturalKeyTakenByOther(t *testing.T) {
+	self := uuid.New()
+	other := uuid.New()
+	owners := map[string]uuid.UUID{
+		rackNaturalKey("NVIDIA", "SN-1"): other,
+		rackNaturalKey("NVIDIA", "SN-2"): self,
+	}
+
+	tests := []struct {
+		name         string
+		manufacturer string
+		serial       string
+		selfID       uuid.UUID
+		want         bool
+	}{
+		{name: "held by another row", manufacturer: "NVIDIA", serial: "SN-1", selfID: self, want: true},
+		{name: "held by another row on insert", manufacturer: "NVIDIA", serial: "SN-1", selfID: uuid.Nil, want: true},
+		{name: "held by the row itself", manufacturer: "NVIDIA", serial: "SN-2", selfID: self, want: false},
+		{name: "unclaimed key", manufacturer: "NVIDIA", serial: "SN-9", selfID: self, want: false},
+		{name: "empty serial occupies no slot", manufacturer: "NVIDIA", serial: "", selfID: uuid.Nil, want: false},
+		{name: "empty manufacturer occupies no slot", manufacturer: "", serial: "SN-1", selfID: uuid.Nil, want: false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := naturalKeyTakenByOther(owners, tt.manufacturer, tt.serial, tt.selfID)
+			assert.Equal(t, tt.want, got)
+		})
+	}
+}
+
 func TestBuildRackFromCore(t *testing.T) {
 	tests := []struct {
 		name      string
@@ -85,14 +115,30 @@ func TestBuildRackFromCore(t *testing.T) {
 			wantOK: false,
 		},
 		{
-			name: "missing serial is unusable",
+			name: "missing serial without rack_id is unusable",
 			in: nicoapi.ExpectedRackDetail{
-				RackID: "c02",
 				Labels: map[string]string{
 					labelChassisManufacturer: "Foxconn",
 				},
 			},
 			wantOK: false,
+		},
+		{
+			name: "missing serial with rack_id is usable (external_id is the identity)",
+			in: nicoapi.ExpectedRackDetail{
+				RackID: "c02",
+				Labels: map[string]string{
+					labelChassisManufacturer: "NVIDIA",
+				},
+			},
+			wantOK: true,
+			assertRow: func(t *testing.T, r model.Rack) {
+				assert.Equal(t, "c02", r.Name)
+				assert.Equal(t, "NVIDIA", r.Manufacturer)
+				assert.Empty(t, r.SerialNumber)
+				require.NotNil(t, r.ExternalID)
+				assert.Equal(t, "c02", *r.ExternalID)
+			},
 		},
 		{
 			name: "no description/location labels leaves jsonb columns nil",
@@ -208,6 +254,24 @@ func TestRackUpdatedFromCore(t *testing.T) {
 		require.NotNil(t, got)
 		require.NotNil(t, got.ExternalID)
 		assert.Equal(t, "a12", *got.ExternalID)
+	})
+
+	t.Run("fills NULL serial when Core later reports one", func(t *testing.T) {
+		existing := base()
+		existing.SerialNumber = ""
+		fromCore := *base()
+		fromCore.SerialNumber = "SN-FILLED"
+		got := rackUpdatedFromCore(existing, &fromCore)
+		require.NotNil(t, got)
+		assert.Equal(t, "SN-FILLED", got.SerialNumber)
+	})
+
+	t.Run("does not clear an existing serial when Core omits it", func(t *testing.T) {
+		existing := base()
+		fromCore := *base()
+		fromCore.SerialNumber = ""
+		assert.Nil(t, rackUpdatedFromCore(existing, &fromCore))
+		assert.Equal(t, "SN-1", existing.SerialNumber)
 	})
 
 	t.Run("empty name in fromCore does not clobber existing name", func(t *testing.T) {
