@@ -920,13 +920,8 @@ impl EndpointExplorationReport {
                     .filter(|chassis| is_dpu_product_chassis_id(&chassis.id))
                     .find_map(chassis_model)
             })
-            .unwrap_or("")
-            .to_string();
-        match model.to_lowercase() {
-            value if value.contains("bluefield 2") => Some(DpuModel::BlueField2),
-            value if value.contains("bluefield 3") => Some(DpuModel::BlueField3),
-            _ => Some(DpuModel::Unknown),
-        }
+            .unwrap_or("");
+        Some(DpuModel::from(model))
     }
 
     pub fn create_temporary_dmi_data(
@@ -2561,6 +2556,38 @@ mod tests {
     use super::*;
     use crate::firmware::FirmwareComponent;
     use crate::machine::machine_id::from_hardware_info;
+
+    #[test]
+    fn identify_dpu_recognizes_bluefield_model_variants() {
+        value_scenarios!(
+            run = |(system_id, model)| {
+                let report = EndpointExplorationReport {
+                    systems: vec![ComputerSystem {
+                        id: system_id.to_string(),
+                        ..Default::default()
+                    }],
+                    chassis: vec![Chassis {
+                        id: "Card1".to_string(),
+                        model: Some(model.to_string()),
+                        ..Default::default()
+                    }],
+                    ..Default::default()
+                };
+                let identified = report.identify_dpu();
+                if let Some(dpu_model) = &identified {
+                    assert_eq!(report.model(), Some(dpu_model.to_string()));
+                }
+                identified
+            };
+            "BlueField model identification" {
+                ("Bluefield", "NVIDIA BlueField 2 DPU") => Some(DpuModel::BlueField2),
+                ("Bluefield", "NVIDIA BlueField 3 DPU") => Some(DpuModel::BlueField3),
+                ("Bluefield", "BlueField-3 DPU") => Some(DpuModel::BlueField3),
+                ("Bluefield", "unrecognized DPU") => Some(DpuModel::Unknown),
+                ("System", "BlueField-3 DPU") => None,
+            }
+        );
+    }
 
     #[test]
     fn all_mac_addresses_combines_system_and_adapter_inventory_without_duplicates() {
