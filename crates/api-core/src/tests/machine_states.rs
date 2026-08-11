@@ -24,7 +24,7 @@ use base64::prelude::*;
 use carbide_machine_controller::context::MachineStateHandlerContextObjects;
 use carbide_machine_controller::handler::{MachineStateHandlerBuilder, handler_host_power_control};
 use carbide_machine_controller::metrics::MachineMetrics;
-use carbide_redfish::libredfish::test_support::RedfishSimAction;
+use carbide_redfish::libredfish::test_support::{RedfishSimAction, RedfishSimPlatformAction};
 use carbide_site_explorer::MachineCreator;
 use carbide_site_explorer::config::SiteExplorerConfig;
 use carbide_utils::arch::CpuArchitecture;
@@ -71,7 +71,10 @@ use model::network_segment::NetworkSegmentType;
 use model::site_explorer::{EndpointExplorationReport, ExploredDpu, ExploredManagedHost};
 use model::test_support::{DpuConfig, ManagedHostConfig};
 use rpc::forge::forge_server::Forge;
-use rpc::forge::{HealthReportEntry, InsertMachineHealthReportRequest, TpmCaCert, TpmCaCertId};
+use rpc::forge::{
+    HealthReportEntry, InsertMachineHealthReportRequest, MachineDiscoveryInfo, TpmCaCert,
+    TpmCaCertId,
+};
 use rpc::forge_agent_control_response::{Action, LegacyAction};
 use rpc::machine_discovery::AttestKeyInfo;
 use rpc::{DiscoveryData, DiscoveryInfo};
@@ -80,7 +83,6 @@ use state_controller::state_handler::StateHandlerContext;
 use tonic::{Code, Request};
 
 use crate::cfg::file::DpuConfig as InitialDpuConfig;
-use crate::handlers::measured_boot::rpc_forge::MachineDiscoveryInfo;
 use crate::measured_boot::convert_vec;
 use crate::test_support::fixture_config::{
     DpuConfigExt as _, FixtureDefault as _, ManagedHostConfigExt as _,
@@ -2988,6 +2990,89 @@ async fn set_pending_boot_interface(
     pending
 }
 
+/// Makes a verified target eligible for periodic observation without changing
+/// its desired or verified generation.
+async fn backdate_boot_interface_observation(
+    env: &TestEnv,
+    managed_host: &TestManagedHost,
+) -> model::machine::Machine {
+    let mut txn = env.db_txn().await;
+    let host_before = managed_host.host().db_machine(&mut txn).await;
+    let desired_boot_interface = host_before
+        .config
+        .desired_boot_interface
+        .as_ref()
+        .expect("fixture should have a desired boot interface");
+    let verified_observation = host_before
+        .status
+        .boot_interface_status_observation
+        .as_ref()
+        .expect("fixture should have a verified boot interface");
+    assert_eq!(
+        verified_observation.config_version, desired_boot_interface.version,
+        "periodic observation requires an already-verified generation"
+    );
+
+    let backdate_update = sqlx::query(
+        "UPDATE machine_boot_interfaces \
+         SET observed_at = CURRENT_TIMESTAMP - INTERVAL '100 years' \
+         WHERE machine_id = $1 AND desired_version = verified_version",
+    )
+    .bind(host_before.id)
+    .execute(txn.as_mut())
+    .await
+    .expect("backdating the verified boot-interface observation should succeed");
+    assert_eq!(backdate_update.rows_affected(), 1);
+    let backdated_host = managed_host.host().db_machine(&mut txn).await;
+    txn.commit()
+        .await
+        .expect("backdated boot-interface observation should commit");
+    backdated_host
+}
+
+/// Verifies that periodic observation stayed on the read-only Redfish boundary.
+fn assert_read_only_boot_interface_observation(redfish_actions: &[RedfishSimAction]) {
+    assert!(
+        redfish_actions
+            .iter()
+            .any(|action| matches!(action, RedfishSimAction::IsBootOrderSetup { .. })),
+        "the controller should read the boot order: {redfish_actions:?}"
+    );
+    assert!(
+        redfish_actions.iter().all(|action| !matches!(
+            action,
+            RedfishSimAction::MachineSetup { .. }
+                | RedfishSimAction::SetBootOrderDpuFirst { .. }
+                | RedfishSimAction::Power(_)
+        )),
+        "periodic observation must not mutate Redfish: {redfish_actions:?}"
+    );
+}
+
+/// Verifies that periodic observation was skipped before any Redfish read or
+/// mutation reached the host or its platform.
+fn assert_no_boot_interface_observation(
+    redfish_actions: &[RedfishSimAction],
+    platform_actions: &[RedfishSimPlatformAction],
+) {
+    assert!(
+        redfish_actions.iter().all(|action| !matches!(
+            action,
+            RedfishSimAction::IsBootOrderSetup { .. }
+                | RedfishSimAction::MachineSetup { .. }
+                | RedfishSimAction::SetBootOrderDpuFirst { .. }
+                | RedfishSimAction::Power(_)
+        )),
+        "periodic observation must skip Redfish entirely: {redfish_actions:?}"
+    );
+    assert!(
+        platform_actions
+            .iter()
+            .all(|action| !matches!(action, RedfishSimPlatformAction::IsBiosSetup { .. })),
+        "periodic observation must not inspect host BIOS: {platform_actions:?}"
+    );
+}
+
 /// Replaces the fixture's DMI vendor so controller vendor branches can be
 /// exercised after ordinary ingestion has completed.
 async fn set_host_hardware_vendor(env: &TestEnv, mh: &TestManagedHost, vendor: &str) {
@@ -3522,6 +3607,331 @@ async fn test_ready_boot_config_skips_unlock_when_already_correct(pool: sqlx::Pg
                 | RedfishSimAction::Power(_)
         )),
         "the correct fast path must remain observation-only: {actions:?}"
+    );
+}
+
+/// A periodic observation of an unchanged target refreshes only its observation
+/// metadata. It does not create a new desired generation, enter convergence,
+/// or issue any Redfish mutation.
+#[crate::sqlx_test]
+async fn test_ready_periodic_boot_interface_observation_refreshes_verified_observation(
+    pool: sqlx::PgPool,
+) {
+    let env = create_zero_dpu_test_env(pool).await;
+    let managed_host = create_managed_host_with_config(&env, ManagedHostConfig::zero_dpu()).await;
+    let host_before = backdate_boot_interface_observation(&env, &managed_host).await;
+    let desired_before = host_before
+        .config
+        .desired_boot_interface
+        .as_ref()
+        .expect("fixture should have desired boot intent")
+        .clone();
+    let observed_at_before = host_before
+        .status
+        .boot_interface_status_observation
+        .as_ref()
+        .expect("fixture should have a verified boot interface")
+        .observed_at;
+    let expected_mac = desired_before.value.mac_address().to_string();
+
+    env.redfish_sim.set_is_bios_setup(true);
+    env.redfish_sim.set_is_boot_order_setup(true);
+    let redfish_checkpoint = env.redfish_sim.timepoint();
+
+    env.run_machine_state_controller_iteration().await;
+
+    let mut txn = env.db_txn().await;
+    let host_after = managed_host.host().db_machine(&mut txn).await;
+    assert_eq!(host_after.current_state(), &ManagedHostState::Ready);
+    assert_eq!(host_after.current_version(), host_before.current_version());
+    assert_eq!(host_after.version, host_before.version);
+    let desired_after = host_after
+        .config
+        .desired_boot_interface
+        .as_ref()
+        .expect("a successful observation must retain desired intent");
+    assert_eq!(desired_after.version, desired_before.version);
+    assert_eq!(desired_after.value, desired_before.value);
+    let refreshed_observation = host_after
+        .status
+        .boot_interface_status_observation
+        .as_ref()
+        .expect("the periodically observed target should remain verified");
+    assert_eq!(refreshed_observation.config_version, desired_before.version);
+    assert!(
+        refreshed_observation.observed_at > observed_at_before,
+        "a successful periodic read should refresh its observation timestamp"
+    );
+    assert!(!refreshed_observation.assumed);
+    drop(txn);
+
+    let redfish_actions = env
+        .redfish_sim
+        .actions_since(&redfish_checkpoint)
+        .all_hosts();
+    assert!(redfish_actions.iter().any(|action| matches!(
+        action,
+        RedfishSimAction::IsBootOrderSetup { boot_interface_mac }
+            if boot_interface_mac == &expected_mac
+    )));
+    assert_read_only_boot_interface_observation(&redfish_actions);
+
+    let redfish_client_count_after = env.redfish_sim.create_client_calls().len();
+    env.run_machine_state_controller_iteration().await;
+    assert_eq!(
+        env.redfish_sim.create_client_calls().len(),
+        redfish_client_count_after,
+        "a fresh observation should suppress another Redfish read"
+    );
+}
+
+/// A managed DPU can disappear from the host's Redfish boot view during a
+/// restart. Periodic observation skips Redfish until every DPU has a network
+/// observation from the current host state inside the freshness threshold.
+#[crate::sqlx_test]
+async fn test_ready_periodic_boot_interface_observation_waits_for_fresh_dpu_network_observations(
+    pool: sqlx::PgPool,
+) {
+    let env = create_test_env(pool).await;
+    let managed_host = create_managed_host_with_config(&env, ManagedHostConfig::default()).await;
+    backdate_boot_interface_observation(&env, &managed_host).await;
+    set_host_controller_state_stuck_in(&env, managed_host.host().id, &ManagedHostState::Ready, 0)
+        .await;
+
+    let mut txn = env.db_txn().await;
+    let snapshot_before = managed_host.snapshot(&mut txn).await;
+    assert!(!snapshot_before.dpu_snapshots.is_empty());
+    assert!(snapshot_before.dpu_snapshots.iter().all(|dpu_snapshot| {
+        dpu_snapshot
+            .network_status_observation
+            .as_ref()
+            .is_none_or(|dpu_network_observation| {
+                dpu_network_observation.observed_at
+                    < snapshot_before.host_snapshot.state.version.timestamp()
+            })
+    }));
+    let desired_before = snapshot_before
+        .host_snapshot
+        .config
+        .desired_boot_interface
+        .as_ref()
+        .expect("fixture should have desired boot intent")
+        .clone();
+    let observation_before = snapshot_before
+        .host_snapshot
+        .status
+        .boot_interface_status_observation
+        .clone();
+    drop(txn);
+
+    env.redfish_sim.set_is_bios_setup(true);
+    env.redfish_sim.set_is_boot_order_setup(false);
+    let platform_action_count_before = env.redfish_sim.platform_actions().len();
+    let redfish_checkpoint = env.redfish_sim.timepoint();
+
+    env.run_machine_state_controller_iteration().await;
+
+    let mut txn = env.db_txn().await;
+    let host_after = managed_host.host().db_machine(&mut txn).await;
+    assert_eq!(host_after.current_state(), &ManagedHostState::Ready);
+    let desired_after = host_after
+        .config
+        .desired_boot_interface
+        .as_ref()
+        .expect("skipped observation must retain desired boot intent");
+    assert_eq!(desired_after.version, desired_before.version);
+    assert_eq!(desired_after.value, desired_before.value);
+    assert_eq!(
+        host_after.status.boot_interface_status_observation,
+        observation_before
+    );
+    drop(txn);
+
+    let redfish_actions = env
+        .redfish_sim
+        .actions_since(&redfish_checkpoint)
+        .all_hosts();
+    assert_no_boot_interface_observation(
+        &redfish_actions,
+        &env.redfish_sim.platform_actions()[platform_action_count_before..],
+    );
+}
+
+/// A periodic mismatch opens a fresh generation for the exact same target.
+/// Ready records the drift as a new pending generation, then enters the
+/// existing convergence state on its next controller sweep.
+#[crate::sqlx_test]
+async fn test_ready_periodic_boot_interface_drift_reenters_convergence(pool: sqlx::PgPool) {
+    let env = create_zero_dpu_test_env(pool).await;
+    let managed_host = create_managed_host_with_config(&env, ManagedHostConfig::zero_dpu()).await;
+    let host_before = backdate_boot_interface_observation(&env, &managed_host).await;
+    let desired_before = host_before
+        .config
+        .desired_boot_interface
+        .as_ref()
+        .expect("fixture should have desired boot intent")
+        .clone();
+    let observation_before = host_before
+        .status
+        .boot_interface_status_observation
+        .as_ref()
+        .expect("fixture should have a verified boot interface")
+        .clone();
+
+    env.redfish_sim.set_is_bios_setup(true);
+    env.redfish_sim.set_is_boot_order_setup(false);
+    let redfish_checkpoint = env.redfish_sim.timepoint();
+
+    env.run_machine_state_controller_iteration().await;
+
+    let mut txn = env.db_txn().await;
+    let host_after = managed_host.host().db_machine(&mut txn).await;
+    assert_eq!(host_after.current_state(), &ManagedHostState::Ready);
+    assert_eq!(host_after.current_version(), host_before.current_version());
+    let pending_desired = host_after
+        .config
+        .desired_boot_interface
+        .as_ref()
+        .expect("drift should reopen desired boot intent")
+        .clone();
+    assert_ne!(pending_desired.version, desired_before.version);
+    assert_eq!(
+        pending_desired.value, desired_before.value,
+        "drift must preserve the exact operator-selected target"
+    );
+    assert_eq!(
+        host_after.status.boot_interface_status_observation.as_ref(),
+        Some(&observation_before),
+        "the last successful observation remains valid historical status"
+    );
+    assert_eq!(
+        host_after.pending_boot_interface_config_version(),
+        Some(pending_desired.version)
+    );
+    drop(txn);
+
+    let redfish_actions = env
+        .redfish_sim
+        .actions_since(&redfish_checkpoint)
+        .all_hosts();
+    assert_read_only_boot_interface_observation(&redfish_actions);
+
+    env.run_machine_state_controller_iteration().await;
+
+    let mut txn = env.db_txn().await;
+    let host_in_convergence = managed_host.host().db_machine(&mut txn).await;
+    assert_eq!(
+        host_in_convergence.current_state(),
+        &ManagedHostState::BootConfiguring {
+            desired_version: pending_desired.version,
+            desired_boot_interface: pending_desired.value,
+            post_lock_verification_retry_count: 0,
+            boot_config_state: ReadyBootConfigState::Prepare,
+        },
+        "the next Ready sweep should hand the pending target to existing convergence"
+    );
+}
+
+/// Assigned hosts record the same drift without entering a disruptive repair
+/// flow. The pending generation remains for Ready to converge after release.
+#[crate::sqlx_test]
+async fn test_assigned_periodic_boot_interface_drift_defers_convergence(pool: sqlx::PgPool) {
+    let (env, managed_host) = zero_dpu_host_with_instance(pool).await;
+    set_assigned_state(&env, &managed_host.host().id, InstanceState::Ready).await;
+    let host_before = backdate_boot_interface_observation(&env, &managed_host).await;
+    let desired_before = host_before
+        .config
+        .desired_boot_interface
+        .as_ref()
+        .expect("fixture should have desired boot intent")
+        .clone();
+
+    env.redfish_sim.set_is_bios_setup(true);
+    env.redfish_sim.set_is_boot_order_setup(false);
+    let redfish_checkpoint = env.redfish_sim.timepoint();
+
+    env.run_machine_state_controller_iteration().await;
+
+    let mut txn = env.db_txn().await;
+    let host_after = managed_host.host().db_machine(&mut txn).await;
+    assert_eq!(
+        host_after.current_state(),
+        &ManagedHostState::Assigned {
+            instance_state: InstanceState::Ready,
+        }
+    );
+    assert_eq!(host_after.current_version(), host_before.current_version());
+    let pending_desired = host_after
+        .config
+        .desired_boot_interface
+        .as_ref()
+        .expect("assigned drift should persist pending intent");
+    assert_eq!(
+        pending_desired.value, desired_before.value,
+        "assigned drift must preserve the exact operator-selected target"
+    );
+    assert_ne!(pending_desired.version, desired_before.version);
+    assert_eq!(
+        host_after.pending_boot_interface_config_version(),
+        Some(pending_desired.version)
+    );
+    drop(txn);
+
+    let redfish_actions = env
+        .redfish_sim
+        .actions_since(&redfish_checkpoint)
+        .all_hosts();
+    assert_read_only_boot_interface_observation(&redfish_actions);
+}
+
+/// Locked Supermicro reports a stale boot-order view until an unlock and
+/// reboot. Periodic observation must therefore leave both Ready and its
+/// verified status untouched instead of disrupting the host or publishing a
+/// false result.
+#[crate::sqlx_test]
+async fn test_locked_supermicro_periodic_boot_interface_observation_is_skipped(pool: sqlx::PgPool) {
+    let env = create_zero_dpu_test_env(pool).await;
+    let mut supermicro_host_config = ManagedHostConfig::zero_dpu();
+    supermicro_host_config.vendor = Some(bmc_vendor::BMCVendor::Supermicro);
+    let managed_host = create_managed_host_with_config(&env, supermicro_host_config).await;
+    set_host_hardware_vendor(&env, &managed_host, "Supermicro").await;
+    let host_before = backdate_boot_interface_observation(&env, &managed_host).await;
+    let desired_before = host_before
+        .config
+        .desired_boot_interface
+        .as_ref()
+        .expect("fixture should have desired boot intent")
+        .clone();
+    let observation_before = host_before.status.boot_interface_status_observation.clone();
+    let platform_action_count_before = env.redfish_sim.platform_actions().len();
+    let redfish_checkpoint = env.redfish_sim.timepoint();
+
+    env.run_machine_state_controller_iteration().await;
+
+    let mut txn = env.db_txn().await;
+    let host_after = managed_host.host().db_machine(&mut txn).await;
+    assert_eq!(host_after.current_state(), &ManagedHostState::Ready);
+    assert_eq!(host_after.current_version(), host_before.current_version());
+    let desired_after = host_after
+        .config
+        .desired_boot_interface
+        .as_ref()
+        .expect("skipped observation must retain desired boot intent");
+    assert_eq!(desired_after.version, desired_before.version);
+    assert_eq!(desired_after.value, desired_before.value);
+    assert_eq!(
+        host_after.status.boot_interface_status_observation,
+        observation_before
+    );
+    drop(txn);
+
+    let redfish_actions = env
+        .redfish_sim
+        .actions_since(&redfish_checkpoint)
+        .all_hosts();
+    assert_no_boot_interface_observation(
+        &redfish_actions,
+        &env.redfish_sim.platform_actions()[platform_action_count_before..],
     );
 }
 

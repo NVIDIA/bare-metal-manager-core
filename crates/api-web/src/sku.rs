@@ -85,7 +85,7 @@ impl From<forgerpc::Sku> for SkuRowDisplay {
 }
 
 /// List SKUs
-pub async fn show_html(AxumState(state): AxumState<Arc<Api>>) -> Response {
+pub(super) async fn show_html(AxumState(state): AxumState<Arc<Api>>) -> Response {
     let skus = match fetch_skus(state.clone()).await {
         Ok(n) => n,
         Err(err) => {
@@ -100,7 +100,7 @@ pub async fn show_html(AxumState(state): AxumState<Arc<Api>>) -> Response {
     (StatusCode::OK, Html(tmpl.render().unwrap())).into_response()
 }
 
-pub async fn show_all_json(AxumState(state): AxumState<Arc<Api>>) -> Response {
+pub(super) async fn show_all_json(AxumState(state): AxumState<Arc<Api>>) -> Response {
     let skus = match fetch_skus(state).await {
         Ok(n) => n,
         Err(err) => {
@@ -171,7 +171,7 @@ impl From<forgerpc::Sku> for SkuDetail {
 }
 
 /// View SKU details
-pub async fn detail(
+pub(super) async fn detail(
     AxumState(state): AxumState<Arc<Api>>,
     AxumPath(sku_id): AxumPath<String>,
 ) -> Response {

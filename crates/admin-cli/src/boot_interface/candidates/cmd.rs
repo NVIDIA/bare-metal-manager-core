@@ -214,7 +214,7 @@ impl From<forgerpc::GetMachineBootInterfacesResponse> for CandidatesReport {
     }
 }
 
-pub async fn handle_candidates(
+pub(super) async fn handle_candidates(
     args: Args,
     output_format: OutputFormat,
     api_client: &ApiClient,
@@ -450,6 +450,7 @@ mod tests {
                 mac_address: "aa:bb:cc:00:00:09".to_string(),
                 interface_id: None,
             }),
+            reconciliation: None,
         }
     }
 

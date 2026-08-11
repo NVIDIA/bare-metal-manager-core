@@ -15,7 +15,7 @@
  * limitations under the License.
  */
 
-//! Switch-controller BMC credential rotation (REQ-2).
+//! Switch-controller BMC credential rotation.
 //!
 //! The shared [`carbide_credential_rotation`] engine owns the password dance,
 //! backoff, and crash-safety; this module is the thin switch-controller adapter,
@@ -25,7 +25,7 @@
 //!
 //! - *Should we enter rotation?* [`should_enter_bmc_rotation`] honors an operator
 //!   force-converge request first (even when the site-wide flag is off), then the
-//!   passive gate (`bmc_rotation_enabled` && the cached [`BmcRotationGate`] says
+//!   passive gate (`bmc_rotation_enabled` && the cached [`RotationGate`] says
 //!   the BMC lags the staged target).
 //! - *Do one rotation tick.* [`handle_rotating_bmc`] converges the switch BMC via
 //!   [`rotate_bmc`], folds the outcome through the shared state-neutral
@@ -69,7 +69,7 @@ pub async fn should_enter_bmc_rotation(
     };
     services
         .bmc_rotation_gate
-        .bmc_rotation_needed(&services.db_pool, endpoint.device_mac)
+        .rotation_needed(&services.db_pool, endpoint.device_mac)
         .await
         .map_err(|e| StateHandlerError::GenericError(eyre::eyre!("bmc rotation gate query: {e}")))
 }

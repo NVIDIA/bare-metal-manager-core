@@ -255,6 +255,11 @@ pub struct StaticSwitchEndpoint {
     pub slot_number: Option<i32>,
     #[serde(alias = "compute_tray_index")]
     pub tray_index: Option<i32>,
+
+    /// Optional non-nil NVLink domain UUID associated with this switch.
+    /// Invalid or nil values are omitted from telemetry.
+    pub nvlink_domain_uuid: Option<String>,
+
     #[serde(default = "default_static_switch_endpoint_role")]
     pub endpoint_role: StaticSwitchEndpointRole,
     #[serde(default)]
@@ -366,7 +371,10 @@ impl StaticBmcEndpoint {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct SinksConfig {
-    /// Tracing sink: logs all collector events through `tracing`.
+    /// Tracing sink: logs collector events through `tracing`.
+    ///
+    /// Reachability metrics are excluded because the collector emits explicit
+    /// structured records according to its `log_mode`.
     pub tracing: Configurable<TracingSinkConfig>,
 
     /// Prometheus sink: stores metric events in Prometheus exporter format.
@@ -537,6 +545,14 @@ pub struct OtlpTargetConfig {
     /// up.
     #[serde(default)]
     pub include_diagnostics: bool,
+
+    /// Emit per-alert detail on health report log records sent to this target.
+    ///
+    /// Disabled by default because alert messages are free-form and a fully
+    /// degraded endpoint can produce many of them. When enabled, health report
+    /// records carry a `health_report.alerts` attribute holding a JSON array.
+    #[serde(default)]
+    pub include_alert_details: bool,
 }
 
 impl OtlpTargetConfig {
@@ -822,6 +838,10 @@ pub struct CollectorsConfig {
     /// Entity metrics collector configuration (if present, metrics collector is enabled)
     pub metrics: Configurable<MetricsCollectorConfig>,
 
+    /// Redfish telemetry service collector configuration (if present, telemetry
+    /// collector is enabled)
+    pub telemetry: Configurable<TelemetryCollectorConfig>,
+
     /// Firmware collector configuration (if present, firmware collector is enabled)
     pub firmware: Configurable<FirmwareCollectorConfig>,
 
@@ -842,6 +862,12 @@ pub struct CollectorsConfig {
 
     /// GPU inventory collector: compares OOB GPU count vs the assigned SKU.
     pub gpu_inventory: Configurable<GpuInventoryConfig>,
+
+    /// Direct TCP probes for ports used by enabled collectors.
+    ///
+    /// The probes report transport reachability only. They do not check TLS,
+    /// authentication, or collector protocol readiness.
+    pub reachability: Configurable<ReachabilityCollectorConfig>,
 }
 
 impl Default for CollectorsConfig {
@@ -850,6 +876,7 @@ impl Default for CollectorsConfig {
             discovery: DiscoveryConfig::default(),
             sensors: Configurable::Enabled(SensorCollectorConfig::default()),
             metrics: Configurable::Disabled,
+            telemetry: Configurable::Disabled,
             firmware: Configurable::Disabled,
             leak_detector: Configurable::Enabled(LeakDetectorCollectorConfig::default()),
             logs: Configurable::Disabled,
@@ -857,7 +884,79 @@ impl Default for CollectorsConfig {
             nmxc: Configurable::Disabled,
             nvue: Configurable::Disabled,
             gpu_inventory: Configurable::Disabled,
+            reachability: Configurable::Disabled,
         }
+    }
+}
+
+/// Controls structured log emission for TCP reachability probes.
+///
+/// Metrics are emitted for every completed probe regardless of this setting.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ReachabilityLogMode {
+    /// Emit a structured log for every successful and failed probe.
+    All,
+
+    /// Emit a structured log for every failed probe and suppress successful probes.
+    #[default]
+    Unreachable,
+}
+
+/// Global configuration for periodic TCP reachability probes.
+///
+/// The collector probes the BMC Redfish port when an enabled collector is
+/// eligible to use it, plus ports used by enabled eligible switch collectors.
+/// One global cadence applies to all targets; each collector's own configuration
+/// remains the source of truth for whether its target and port exist. Each
+/// completed probe is sent to configured metric sinks; configured log sinks
+/// receive policy-selected records.
+/// Results never create health reports. It is disabled by default.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct ReachabilityCollectorConfig {
+    /// Interval between probe cycles for each endpoint.
+    ///
+    /// Every selected target is probed once per cycle and emits a state metric.
+    #[serde(with = "humantime_serde")]
+    pub interval: Duration,
+
+    /// Timeout for one TCP connection attempt.
+    ///
+    /// This bounds the TCP handshake only; it does not cover TLS or any
+    /// collector-specific protocol exchange.
+    #[serde(with = "humantime_serde")]
+    pub timeout: Duration,
+
+    /// Selects which completed probes emit structured log records.
+    ///
+    /// This policy is stateless: `unreachable` emits every failed probe, including
+    /// repeated failures after service restart. Metrics remain continuous in all modes.
+    pub log_mode: ReachabilityLogMode,
+}
+
+impl Default for ReachabilityCollectorConfig {
+    fn default() -> Self {
+        Self {
+            interval: Duration::from_secs(30),
+            timeout: Duration::from_secs(3),
+            log_mode: ReachabilityLogMode::Unreachable,
+        }
+    }
+}
+
+impl ReachabilityCollectorConfig {
+    /// Validates the probe cadence and timeout.
+    pub(crate) fn validate(&self) -> Result<(), String> {
+        if self.interval.is_zero() {
+            return Err("[collectors.reachability].interval must be greater than 0".to_string());
+        }
+
+        if self.timeout.is_zero() {
+            return Err("[collectors.reachability].timeout must be greater than 0".to_string());
+        }
+
+        Ok(())
     }
 }
 
@@ -971,6 +1070,26 @@ impl Default for MetricsCollectorConfig {
         Self {
             fetch_interval: Duration::from_secs(120),
             fetch_concurrency: 4,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct TelemetryCollectorConfig {
+    /// Interval between metric report fetches.
+    ///
+    /// A report is one GET covering many readings, so this can run
+    /// tighter than the per-resource collectors without adding load
+    /// proportional to entity count.
+    #[serde(with = "humantime_serde")]
+    pub fetch_interval: Duration,
+}
+
+impl Default for TelemetryCollectorConfig {
+    fn default() -> Self {
+        Self {
+            fetch_interval: Duration::from_secs(60),
         }
     }
 }
@@ -1770,6 +1889,10 @@ impl Config {
             nmxc.validate()?;
         }
 
+        if let Configurable::Enabled(reachability) = &self.collectors.reachability {
+            reachability.validate()?;
+        }
+
         if let Configurable::Enabled(gpu_inventory) = &self.collectors.gpu_inventory {
             if !self.endpoint_sources.carbide_api.is_enabled() {
                 return Err(
@@ -1918,6 +2041,7 @@ mod tests {
             serial: Some("switch-serial".to_string()),
             slot_number: None,
             tray_index: None,
+            nvlink_domain_uuid: None,
             endpoint_role: StaticSwitchEndpointRole::Host,
             is_primary: false,
             nmxc_enabled: None,
@@ -1932,6 +2056,7 @@ mod tests {
             batch_size: 512,
             flush_interval: Duration::from_secs(2),
             include_diagnostics: false,
+            include_alert_details: false,
         }
     }
 
@@ -2062,8 +2187,19 @@ mod tests {
         assert!(config.collectors.logs.is_enabled());
         assert!(config.collectors.nvue.is_enabled());
         assert!(!config.collectors.nmxc.is_enabled());
+        assert!(config.collectors.reachability.is_enabled());
         assert!(!config.sinks.tracing.is_enabled());
         assert!(config.sinks.prometheus.is_enabled());
+
+        let reachability = config
+            .collectors
+            .reachability
+            .as_option()
+            .expect("example config enables reachability");
+
+        assert_eq!(reachability.interval, Duration::from_secs(30));
+        assert_eq!(reachability.timeout, Duration::from_secs(3));
+        assert_eq!(reachability.log_mode, ReachabilityLogMode::Unreachable);
 
         if let Configurable::Enabled(ref sensors) = config.collectors.sensors {
             assert_eq!(sensors.sensor_fetch_concurrency, 10);
@@ -2636,6 +2772,7 @@ endpoint = "https://central.example:4317"
 batch_size = 1024
 flush_interval = "5s"
 include_diagnostics = true
+include_alert_details = true
 
 [targets.tls]
 ca_cert_path = "/central/ca.crt"
@@ -2657,6 +2794,8 @@ reload_interval = "30s"
         assert_eq!(targets[1].batch_size, 1024);
         assert_eq!(targets[1].flush_interval, Duration::from_secs(5));
         assert!(targets[1].include_diagnostics);
+        assert!(!targets[0].include_alert_details);
+        assert!(targets[1].include_alert_details);
 
         let tls = targets[1]
             .tls
@@ -2892,6 +3031,7 @@ reload_interval = "30s"
                             batch_size: 512,
                             flush_interval: Duration::from_secs(2),
                             include_diagnostics: false,
+                            include_alert_details: false,
                             tls: None,
                         }],
                     }),
@@ -2929,6 +3069,7 @@ reload_interval = "30s"
                             batch_size: 512,
                             flush_interval: Duration::from_secs(2),
                             include_diagnostics: true,
+                            include_alert_details: false,
                             tls: None,
                         }],
                     }),
@@ -2946,6 +3087,7 @@ reload_interval = "30s"
                                 batch_size: 512,
                                 flush_interval: Duration::from_secs(2),
                                 include_diagnostics: false,
+                                include_alert_details: false,
                                 tls: None,
                             },
                             OtlpTargetConfig {
@@ -2953,6 +3095,7 @@ reload_interval = "30s"
                                 batch_size: 512,
                                 flush_interval: Duration::from_secs(2),
                                 include_diagnostics: true,
+                                include_alert_details: false,
                                 tls: None,
                             },
                         ],
@@ -2998,6 +3141,7 @@ reload_interval = "30s"
                             batch_size: 512,
                             flush_interval: Duration::from_secs(2),
                             include_diagnostics: false,
+                            include_alert_details: false,
                             tls: None,
                         }],
                     }),
@@ -3866,7 +4010,7 @@ ip = "10.0.1.2"
 mac = "11:22:33:44:55:77"
 username = "admin"
 password = "pass"
-switch = { id = "fsw100htjtiaehv1n5vh67tbmqq4eabcjdng40f7jupsadbedhruh6rag1l0", serial = "SN-SW-002", endpoint_role = "host", is_primary = false, nmxc_enabled = true, nmxt_enabled = true }
+switch = { id = "fsw100htjtiaehv1n5vh67tbmqq4eabcjdng40f7jupsadbedhruh6rag1l0", serial = "SN-SW-002", endpoint_role = "host", is_primary = false, nmxc_enabled = true, nmxt_enabled = true, nvlink_domain_uuid = "9f4b45ec-705a-4af4-89f7-a112bc9c8f4e" }
 "#;
 
         let config: Config = Figment::new()
@@ -3884,6 +4028,11 @@ switch = { id = "fsw100htjtiaehv1n5vh67tbmqq4eabcjdng40f7jupsadbedhruh6rag1l0", 
         assert!(!switch.is_primary);
         assert_eq!(switch.nmxc_enabled, Some(true));
         assert_eq!(switch.nmxt_enabled, Some(true));
+
+        assert_eq!(
+            switch.nvlink_domain_uuid.as_deref(),
+            Some("9f4b45ec-705a-4af4-89f7-a112bc9c8f4e")
+        );
     }
 
     #[test]
@@ -4429,5 +4578,26 @@ max_backoff = "45s"
         let defaults = SseLogConfig::default();
         assert_eq!(defaults.initial_backoff, Duration::from_secs(1));
         assert_eq!(defaults.max_backoff, Duration::from_secs(30));
+    }
+
+    #[test]
+    fn reachability_validation_rejects_non_positive_runtime_values() {
+        let mut config = ReachabilityCollectorConfig {
+            interval: Duration::ZERO,
+            ..ReachabilityCollectorConfig::default()
+        };
+
+        assert_eq!(
+            config.validate().expect_err("zero interval must fail"),
+            "[collectors.reachability].interval must be greater than 0"
+        );
+
+        config.interval = Duration::from_secs(1);
+        config.timeout = Duration::ZERO;
+
+        assert_eq!(
+            config.validate().expect_err("zero timeout must fail"),
+            "[collectors.reachability].timeout must be greater than 0"
+        );
     }
 }

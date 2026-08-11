@@ -15,13 +15,13 @@
  * limitations under the License.
  */
 
-//! End-to-end coverage for switch-controller BMC credential rotation (REQ-2):
+//! End-to-end coverage for switch-controller BMC credential rotation:
 //! with the site-wide flag enabled, a staged target drives a Ready switch
 //! through `SwitchControllerState::RotatingBmc` and back to Ready, converging
 //! the device and persisting the rotated per-device secret. Mirrors the
 //! machine-controller integration test `ready_host_converges_bmc_to_site_target`.
 
-use carbide_credential_rotation::BmcRotationGate;
+use carbide_credential_rotation::RotationGate;
 use carbide_secrets::credentials::{
     BmcCredentialType, CredentialKey, CredentialReader, CredentialWriter, Credentials,
 };
@@ -65,7 +65,7 @@ fn creds(username: &str, password: &str) -> Credentials {
 
 /// Services with the passive BMC-rotation gate toggled by `bmc_rotation_enabled`
 /// and no component manager, so a Ready switch is not diverted to NVOS
-/// reconciliation before reaching the BMC gate. A fresh [`BmcRotationGate`]
+/// reconciliation before reaching the BMC gate. A fresh [`RotationGate`]
 /// refreshes its cached aggregate live on first use each iteration.
 fn switch_services(
     env: &common::api_fixtures::TestEnv,
@@ -79,7 +79,7 @@ fn switch_services(
         switch_mtls_services: default_switch_mtls_services(),
         per_object_metrics_registry: env.per_object_metrics_registry(),
         redfish_client_pool: env.redfish_sim.clone(),
-        bmc_rotation_gate: BmcRotationGate::new(),
+        bmc_rotation_gate: RotationGate::new_for_family(CredentialRotationType::Bmc),
         bmc_rotation_enabled,
     }
 }

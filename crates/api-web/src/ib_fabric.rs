@@ -35,7 +35,7 @@ struct IbFabricShow {
 }
 
 /// List fabrics
-pub async fn show_html(AxumState(state): AxumState<Arc<Api>>) -> Response {
+pub(super) async fn show_html(AxumState(state): AxumState<Arc<Api>>) -> Response {
     let fabrics = match fetch_ib_fabric_ids(state.clone()).await {
         Ok(n) => n,
         Err(err) => {
@@ -52,7 +52,7 @@ pub async fn show_html(AxumState(state): AxumState<Arc<Api>>) -> Response {
     (StatusCode::OK, Html(tmpl.render().unwrap())).into_response()
 }
 
-pub async fn show_all_json(AxumState(state): AxumState<Arc<Api>>) -> Response {
+pub(super) async fn show_all_json(AxumState(state): AxumState<Arc<Api>>) -> Response {
     let fabrics = match fetch_ib_fabric_ids(state).await {
         Ok(n) => n,
         Err(err) => {
@@ -67,7 +67,7 @@ pub async fn show_all_json(AxumState(state): AxumState<Arc<Api>>) -> Response {
     (StatusCode::OK, Json(fabrics)).into_response()
 }
 
-pub async fn fetch_ib_fabric_ids(api: Arc<Api>) -> Result<Vec<String>, tonic::Status> {
+pub(super) async fn fetch_ib_fabric_ids(api: Arc<Api>) -> Result<Vec<String>, tonic::Status> {
     let request = tonic::Request::new(forgerpc::IbFabricSearchFilter::default());
 
     let ib_fabric_ids = api

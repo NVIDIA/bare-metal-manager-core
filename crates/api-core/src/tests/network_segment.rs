@@ -95,6 +95,7 @@ async fn create_stretchable_segment_for_svi_test_with_vpc_type(
             },
             network_security_group_id: None,
             routing_profile_type: None,
+            routing_profile_overrides: None,
             vni: None,
         },
         VpcStatus { vni: None },
@@ -528,7 +529,9 @@ async fn test_vlan_reallocate(db_pool: sqlx::PgPool) -> Result<(), eyre::Report>
 }
 
 #[crate::sqlx_test]
-pub async fn test_create_initial_networks(db_pool: sqlx::PgPool) -> Result<(), eyre::Report> {
+pub(in crate::tests) async fn test_create_initial_networks(
+    db_pool: sqlx::PgPool,
+) -> Result<(), eyre::Report> {
     let env =
         create_test_env_with_overrides(db_pool.clone(), TestEnvOverrides::no_network_segments())
             .await;
@@ -667,7 +670,7 @@ pub async fn test_create_initial_networks(db_pool: sqlx::PgPool) -> Result<(), e
 }
 
 #[crate::sqlx_test]
-pub async fn test_create_initial_vpc_and_attached_network(
+pub(in crate::tests) async fn test_create_initial_vpc_and_attached_network(
     db_pool: sqlx::PgPool,
 ) -> Result<(), eyre::Report> {
     let env =
@@ -679,6 +682,7 @@ pub async fn test_create_initial_vpc_and_attached_network(
             organization_id: Some(FIXTURE_TENANT_ORG_ID.to_string()),
             network_virtualization_type: VpcVirtualizationType::Flat,
             routing_profile_type: None,
+            routing_profile_overrides: None,
             vni: None,
         },
     )]);
@@ -880,6 +884,7 @@ async fn initial_vpc_allocation_failures_preserve_errors_and_emit(
                         organization_id: Some(FIXTURE_TENANT_ORG_ID.to_string()),
                         network_virtualization_type: VpcVirtualizationType::Flat,
                         routing_profile_type: None,
+                        routing_profile_overrides: None,
                         vni: failure.requested_vni(),
                     },
                 )]);
@@ -945,7 +950,7 @@ async fn initial_vpc_allocation_failures_preserve_errors_and_emit(
 }
 
 #[crate::sqlx_test]
-pub async fn test_create_initial_network_fails_for_missing_vpc_name(
+pub(in crate::tests) async fn test_create_initial_network_fails_for_missing_vpc_name(
     db_pool: sqlx::PgPool,
 ) -> Result<(), eyre::Report> {
     let env =

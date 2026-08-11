@@ -1,4 +1,4 @@
-# Machine Validation
+# Machine Validation <Badge intent="info">v2.0</Badge>
 
 Machine Validation is NVIDIA Infra Controller's in-band validation framework for
 checking a machine before it is made available to tenants. NICo uses Scout to run

@@ -42,7 +42,7 @@ pub enum HealthReportTarget {
     Switch,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct EventContext {
     pub endpoint_key: String,
     pub addr: BmcAddr,
@@ -122,10 +122,13 @@ impl EventContext {
             .and_then(|machine| machine.tray_index)
     }
 
-    /// Returns the NVLink domain UUID when the machine participates in one.
+    /// Returns the NVLink domain UUID associated with the endpoint, when known.
     pub fn nvlink_domain_uuid(&self) -> Option<NvLinkDomainId> {
-        self.machine_metadata()
-            .and_then(|machine| machine.nvlink_domain_uuid)
+        match &self.metadata {
+            Some(EndpointMetadata::Machine(machine)) => machine.nvlink_domain_uuid,
+            Some(EndpointMetadata::Switch(switch)) => switch.nvlink_domain_uuid,
+            _ => None,
+        }
     }
 
     pub fn switch_id(&self) -> Option<SwitchId> {
@@ -638,8 +641,8 @@ mod tests {
     }
 
     fn nvlink_domain_id() -> NvLinkDomainId {
-        NvLinkDomainId::from_str("00000000-0000-0000-0000-000000000000")
-            .expect("valid NVLink domain id")
+        NvLinkDomainId::from_str("9f4b45ec-705a-4af4-89f7-a112bc9c8f4e")
+            .expect("valid non-nil NVLink domain id")
     }
 
     fn addr() -> BmcAddr {
@@ -667,6 +670,7 @@ mod tests {
                 serial: "SW-001".to_string(),
                 slot_number: Some(9),
                 tray_index: Some(4),
+                nvlink_domain_uuid: Some(nvlink_domain_id()),
                 endpoint_role: SwitchEndpointRole::Host,
                 is_primary: true,
                 nmxc_enabled: true,
@@ -1167,7 +1171,7 @@ mod tests {
                     machine_id: None,
                     slot_number: None,
                     tray_index: None,
-                    nvlink_domain_uuid: None,
+                    nvlink_domain_uuid: Some(nvlink_domain_id().to_string()),
                     machine_serial: None,
                     driver_version: None,
                     component_type: Some("nvlink_switch"),

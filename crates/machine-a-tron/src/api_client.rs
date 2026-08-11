@@ -487,6 +487,7 @@ impl ApiClient {
                 network_virtualization_type: network_virtualization_type.map(|t| t as i32),
                 vni: None,
                 routing_profile_type: None,
+                routing_profile_overrides: None,
                 metadata: Some(rpc::forge::Metadata {
                     name: format!("vpc_{vpc_count}"),
                     description: "".to_string(),

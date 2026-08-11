@@ -72,7 +72,7 @@ fn unsupported_from_json_firmware_versions(target: &str) -> Status {
     ))
 }
 
-pub(crate) fn component_manager_error_to_status(err: ComponentManagerError) -> Status {
+pub(super) fn component_manager_error_to_status(err: ComponentManagerError) -> Status {
     match err {
         ComponentManagerError::Unavailable(msg) => Status::unavailable(msg),
         ComponentManagerError::NotFound(msg) => Status::not_found(msg),

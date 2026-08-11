@@ -376,6 +376,8 @@ func TestServiceCatalog(t *testing.T) {
 			capabilities: capability.CapabilitySet{
 				capability.CapabilityBringUpControl,
 				capability.CapabilityBringUpStatus,
+				capability.CapabilityDecommissionControl,
+				capability.CapabilityDecommissionStatus,
 				capability.CapabilityFirmwareControl,
 				capability.CapabilityFirmwareStatus,
 				capability.CapabilityInjectExpectation,
@@ -404,6 +406,8 @@ func TestServiceCatalog(t *testing.T) {
 			implementation:    nvswitchnico.ImplementationName,
 			requiredProviders: []string{nicoprovider.ProviderName},
 			capabilities: capability.CapabilitySet{
+				capability.CapabilityDecommissionControl,
+				capability.CapabilityDecommissionStatus,
 				capability.CapabilityFirmwareConsistencyCheck,
 				capability.CapabilityFirmwareControl,
 				capability.CapabilityFirmwareStatus,
@@ -418,6 +422,8 @@ func TestServiceCatalog(t *testing.T) {
 			implementation:    powershelfnico.ImplementationName,
 			requiredProviders: []string{nicoprovider.ProviderName},
 			capabilities: capability.CapabilitySet{
+				capability.CapabilityDecommissionControl,
+				capability.CapabilityDecommissionStatus,
 				capability.CapabilityFirmwareControl,
 				capability.CapabilityFirmwareStatus,
 				capability.CapabilityInjectExpectation,

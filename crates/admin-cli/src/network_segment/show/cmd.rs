@@ -41,7 +41,7 @@ fn format_free_ip_count(legacy_count: u32, count_v2: Option<u64>, saturated: boo
     }
 }
 
-pub async fn convert_network_to_nice_format(
+pub(in crate::network_segment) async fn convert_network_to_nice_format(
     segment: forgerpc::NetworkSegment,
     history: Option<Vec<forgerpc::StateHistoryRecord>>,
     api_client: &ApiClient,
@@ -56,7 +56,6 @@ pub async fn convert_network_to_nice_format(
 
     let state = segment
         .status
-        .and_then(|status| status.lifecycle)
         .map(|lifecycle| {
             serde_json::from_str::<NetworkState>(&lifecycle.state)
                 .map(|ns| ns.state)
@@ -301,7 +300,7 @@ async fn show_network_information(
     Ok(())
 }
 
-pub async fn handle_show(
+pub(crate) async fn handle_show(
     args: Args,
     output_format: OutputFormat,
     api_client: &ApiClient,

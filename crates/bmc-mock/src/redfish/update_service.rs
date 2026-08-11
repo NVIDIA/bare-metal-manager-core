@@ -27,7 +27,7 @@ use crate::json::{JsonExt, JsonPatch};
 use crate::redfish::Builder;
 use crate::{http, redfish};
 
-pub fn resource<'a>() -> redfish::Resource<'a> {
+pub(super) fn resource<'a>() -> redfish::Resource<'a> {
     redfish::Resource {
         odata_id: Cow::Borrowed("/redfish/v1/UpdateService"),
         odata_type: Cow::Borrowed("#UpdateService.v1_9_0.UpdateService"),
@@ -36,17 +36,17 @@ pub fn resource<'a>() -> redfish::Resource<'a> {
     }
 }
 
-pub fn builder(resource: &redfish::Resource) -> UpdateServiceBuilder {
+fn builder(resource: &redfish::Resource) -> UpdateServiceBuilder {
     UpdateServiceBuilder {
         value: resource.json_patch(),
     }
 }
 
-pub fn simple_update_target() -> String {
+fn simple_update_target() -> String {
     format!("{}/Actions/UpdateService.SimpleUpdate", resource().odata_id)
 }
 
-pub fn add_routes(r: Router<BmcState>) -> Router<BmcState> {
+pub(crate) fn add_routes(r: Router<BmcState>) -> Router<BmcState> {
     const FW_INVENTORY_ID: &str = "{fw_inventory_id}";
     r.route(&resource().odata_id, get(get_update_service))
         .route(&simple_update_target(), post(update_firmware_simple_update))
@@ -60,22 +60,22 @@ pub fn add_routes(r: Router<BmcState>) -> Router<BmcState> {
         )
 }
 
-pub struct UpdateServiceConfig {
-    pub firmware_inventory: Vec<redfish::software_inventory::SoftwareInventory>,
+pub(crate) struct UpdateServiceConfig {
+    pub(crate) firmware_inventory: Vec<redfish::software_inventory::SoftwareInventory>,
 }
 
-pub struct UpdateServiceState {
+pub(crate) struct UpdateServiceState {
     firmware_inventory: Vec<redfish::software_inventory::SoftwareInventory>,
 }
 
 impl UpdateServiceState {
-    pub fn from_config(config: UpdateServiceConfig) -> Self {
+    pub(crate) fn from_config(config: UpdateServiceConfig) -> Self {
         Self {
             firmware_inventory: config.firmware_inventory,
         }
     }
 
-    pub fn find_firmware_inventory(
+    pub(crate) fn find_firmware_inventory(
         &self,
         id: &str,
     ) -> Option<&redfish::software_inventory::SoftwareInventory> {
@@ -117,7 +117,7 @@ async fn get_firmware_inventory_resource(
         .unwrap_or_else(http::not_found)
 }
 
-pub struct UpdateServiceBuilder {
+struct UpdateServiceBuilder {
     value: serde_json::Value,
 }
 
@@ -130,11 +130,11 @@ impl Builder for UpdateServiceBuilder {
 }
 
 impl UpdateServiceBuilder {
-    pub fn build(self) -> serde_json::Value {
+    fn build(self) -> serde_json::Value {
         self.value
     }
 
-    pub fn firmware_inventory(self, v: &redfish::Collection<'_>) -> Self {
+    fn firmware_inventory(self, v: &redfish::Collection<'_>) -> Self {
         self.apply_patch(v.nav_property("FirmwareInventory"))
     }
 }

@@ -87,7 +87,7 @@ struct AttestationPcr {
 }
 
 /// View attestation results
-pub async fn show_attestation_results(
+pub(super) async fn show_attestation_results(
     AxumState(state): AxumState<Arc<Api>>,
     AxumPath(machine_id): AxumPath<String>,
 ) -> impl IntoResponse {
@@ -351,7 +351,9 @@ async fn get_latest_journal_for_machine_id(
     Ok(latest_journal)
 }
 
-pub async fn show_attestation_summary(AxumState(state): AxumState<Arc<Api>>) -> impl IntoResponse {
+pub(super) async fn show_attestation_summary(
+    AxumState(state): AxumState<Arc<Api>>,
+) -> impl IntoResponse {
     let request = tonic::Request::new(mbprotos::ListAttestationSummaryRequest {});
 
     let attestation_summary = match state.list_attestation_summary(request).await {
@@ -379,7 +381,7 @@ pub async fn show_attestation_summary(AxumState(state): AxumState<Arc<Api>>) -> 
     (StatusCode::OK, Html(attestation_summary.render().unwrap()))
 }
 
-pub async fn submit_report_promotion(
+pub(super) async fn submit_report_promotion(
     AxumState(state): AxumState<Arc<Api>>,
     Form(params): Form<HashMap<String, String>>,
 ) -> impl IntoResponse {

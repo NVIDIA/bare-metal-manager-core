@@ -15,7 +15,7 @@
  * limitations under the License.
  */
 
-pub mod tests {
+pub(in crate::tests) mod tests {
     use std::str::FromStr;
 
     use carbide_uuid::machine::MachineId;
@@ -937,7 +937,7 @@ pub mod tests {
         0x3f,
     ];
 
-    pub fn get_ext_rsa_pub() -> Public {
+    pub(in crate::tests) fn get_ext_rsa_pub() -> Public {
         use tss_esapi::attributes::ObjectAttributesBuilder;
         use tss_esapi::interface_types::algorithm::{PublicAlgorithm, RsaSchemeAlgorithm};
         use tss_esapi::interface_types::key_bits::RsaKeyBits;

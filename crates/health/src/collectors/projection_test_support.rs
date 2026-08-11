@@ -104,6 +104,122 @@ fn reference(path: &str) -> Value {
     json!({ "@odata.id": path })
 }
 
+const TELEMETRY_SERVICE: &str = "/redfish/v1/TelemetryService";
+
+/// A telemetry service publishing two reports: one healthy and one the
+/// NVIDIA OEM extension marks stale.
+fn insert_telemetry_service(resources: &mut HashMap<String, MockResponse>) {
+    const DEFINITIONS: &str = "/redfish/v1/TelemetryService/MetricDefinitions";
+    const REPORTS: &str = "/redfish/v1/TelemetryService/MetricReports";
+
+    let definition = |id: &str| format!("{DEFINITIONS}/{id}");
+    let report = |id: &str| format!("{REPORTS}/{id}");
+
+    insert_resource(
+        resources,
+        TELEMETRY_SERVICE,
+        "#TelemetryService.v1_3_1.TelemetryService",
+        "TelemetryService",
+        "Telemetry Service",
+        json!({
+            "ServiceEnabled": true,
+            "MetricDefinitions": reference(DEFINITIONS),
+            "MetricReports": reference(REPORTS)
+        }),
+    );
+
+    let definition_paths = [definition("TotalGPUPowerWatts"), definition("GPU0_Temp")];
+    let definition_members: Vec<_> = definition_paths.iter().map(String::as_str).collect();
+    insert(
+        resources,
+        DEFINITIONS,
+        collection(
+            DEFINITIONS,
+            "#MetricDefinitionCollection.MetricDefinitionCollection",
+            "Metric Definitions",
+            &definition_members,
+        ),
+    );
+    insert_resource(
+        resources,
+        &definition("TotalGPUPowerWatts"),
+        "#MetricDefinition.v1_3_3.MetricDefinition",
+        "TotalGPUPowerWatts",
+        "Total GPU power",
+        json!({ "MetricDataType": "Decimal", "Units": "W" }),
+    );
+    insert_resource(
+        resources,
+        &definition("GPU0_Temp"),
+        "#MetricDefinition.v1_3_3.MetricDefinition",
+        "GPU0_Temp",
+        "GPU temperature",
+        json!({ "MetricDataType": "Decimal", "Units": "Cel" }),
+    );
+
+    let report_paths = [report("PlatformEnvironmentMetrics"), report("StaleReport")];
+    let report_members: Vec<_> = report_paths.iter().map(String::as_str).collect();
+    insert(
+        resources,
+        REPORTS,
+        collection(
+            REPORTS,
+            "#MetricReportCollection.MetricReportCollection",
+            "Metric Reports",
+            &report_members,
+        ),
+    );
+    insert_resource(
+        resources,
+        &report("PlatformEnvironmentMetrics"),
+        "#MetricReport.v1_5_0.MetricReport",
+        "PlatformEnvironmentMetrics",
+        "Platform environment metrics",
+        json!({
+            "Timestamp": "2026-01-01T00:00:00Z",
+            "MetricValues": [
+                {
+                    "MetricId": "TotalGPUPowerWatts",
+                    "MetricValue": "612.5",
+                    "MetricProperty": "/redfish/v1/Chassis/CH0/Sensors/TotalPower"
+                },
+                {
+                    "MetricId": "GPU0_Temp",
+                    "MetricValue": "48",
+                    "MetricProperty": "/redfish/v1/Chassis/CH0/Sensors/GPU0_Temp"
+                },
+                // No definition declares a unit for this one.
+                { "MetricId": "FanPWM", "MetricValue": "30" },
+                // Discrete state, so there is no gauge to publish.
+                { "MetricId": "PowerState", "MetricValue": "Enabled" },
+                // No id to name a series after.
+                { "MetricValue": "1" }
+            ]
+        }),
+    );
+    insert_resource(
+        resources,
+        &report("StaleReport"),
+        "#MetricReport.v1_5_0.MetricReport",
+        "StaleReport",
+        "Stale report",
+        json!({
+            "MetricValues": [
+                {
+                    "MetricId": "TotalGPUPowerWatts",
+                    "MetricValue": "999.0"
+                }
+            ],
+            "Oem": {
+                "Nvidia": {
+                    "@odata.type": "#NvidiaMetricReport.v1_0_0.NvidiaMetricReport",
+                    "MetricValueStale": true
+                }
+            }
+        }),
+    );
+}
+
 fn mock_resources() -> HashMap<String, MockResponse> {
     const SYSTEM: &str = "/redfish/v1/Systems/SYS0";
     const PROCESSORS: &str = "/redfish/v1/Systems/SYS0/Processors";
@@ -132,9 +248,11 @@ fn mock_resources() -> HashMap<String, MockResponse> {
                 "Sessions": reference("/redfish/v1/SessionService/Sessions")
             },
             "Systems": reference("/redfish/v1/Systems"),
-            "Chassis": reference("/redfish/v1/Chassis")
+            "Chassis": reference("/redfish/v1/Chassis"),
+            "TelemetryService": reference(TELEMETRY_SERVICE)
         }),
     );
+    insert_telemetry_service(&mut resources);
     insert(
         &mut resources,
         "/redfish/v1/Systems",
@@ -160,6 +278,7 @@ fn mock_resources() -> HashMap<String, MockResponse> {
 
     let processor_paths = [
         processor("CPU0"),
+        processor("GPU0"),
         processor("CPU-sparse"),
         processor("CPU-empty"),
         processor("CPU-malformed"),
@@ -203,6 +322,47 @@ fn mock_resources() -> HashMap<String, MockResponse> {
             }
         }),
     );
+    // A GPU whose metrics carry the NVIDIA OEM extension, so the OEM
+    // projection is exercised alongside the standard one.
+    let gpu = processor("GPU0");
+    let gpu_metrics = format!("{gpu}/Metrics");
+    insert_resource(
+        &mut resources,
+        &gpu,
+        "#Processor.v1_20_0.Processor",
+        "GPU0",
+        "Graphics processor",
+        json!({
+            "ProcessorType": "GPU",
+            "Model": "NVIDIA GB100",
+            "Metrics": reference(&gpu_metrics)
+        }),
+    );
+    insert_resource(
+        &mut resources,
+        &gpu_metrics,
+        "#ProcessorMetrics.v1_6_1.ProcessorMetrics",
+        "Metrics",
+        "Graphics processor metrics",
+        json!({
+            "BandwidthPercent": 55.0,
+            "Oem": {
+                "Nvidia": {
+                    "@odata.type": "#NvidiaProcessorMetrics.v1_4_0.NvidiaGPUProcessorMetrics",
+                    "SMActivityPercent": 71.5,
+                    "SMUtilizationPercent": 64.0,
+                    "TensorCoreActivityPercent": 12.25,
+                    "PCIeTXBytes": 51108,
+                    "PCIeRXBytes": 45388,
+                    "NVLinkDataTxBandwidthGbps": 18.5,
+                    "SRAMECCErrorThresholdExceeded": false,
+                    "HardwareViolationThrottleDuration": "PT2S",
+                    "ThrottleReasons": ["SWPowerCap", "HWSlowdown"]
+                }
+            }
+        }),
+    );
+
     #[derive(Clone, Copy)]
     enum ProcessorMetricsResource {
         Missing,
@@ -247,7 +407,7 @@ fn mock_resources() -> HashMap<String, MockResponse> {
         }
     }
 
-    let memory_paths = [memory("DIMM0"), memory("DIMM-sparse")];
+    let memory_paths = [memory("DIMM0"), memory("DIMM-oem"), memory("DIMM-sparse")];
     let memory_members: Vec<_> = memory_paths.iter().map(String::as_str).collect();
     insert(
         &mut resources,
@@ -281,6 +441,43 @@ fn mock_resources() -> HashMap<String, MockResponse> {
         "Memory metrics",
         json!({ "BlockSizeBytes": 4096 }),
     );
+    // HBM reports row remapping through the NVIDIA OEM extension.
+    let oem_dimm = memory("DIMM-oem");
+    let oem_dimm_metrics = format!("{oem_dimm}/Metrics");
+    insert_resource(
+        &mut resources,
+        &oem_dimm,
+        "#Memory.v1_20_0.Memory",
+        "DIMM-oem",
+        "HBM memory",
+        json!({
+            "MemoryDeviceType": "HBM3",
+            "Model": "GB100 HBM",
+            "Metrics": reference(&oem_dimm_metrics)
+        }),
+    );
+    insert_resource(
+        &mut resources,
+        &oem_dimm_metrics,
+        "#MemoryMetrics.v1_7_0.MemoryMetrics",
+        "Metrics",
+        "HBM memory metrics",
+        json!({
+            "BlockSizeBytes": 8192,
+            "Oem": {
+                "Nvidia": {
+                    "@odata.type": "#NvidiaMemoryMetrics.v1_2_0.NvidiaMemoryMetrics",
+                    "RowRemapping": {
+                        "CorrectableRowRemappingCount": 3,
+                        "UncorrectableRowRemappingCount": 1,
+                        "MaxAvailabilityBankCount": 40,
+                        "NoAvailablityBankCount": 2
+                    }
+                }
+            }
+        }),
+    );
+
     let sparse_memory = memory("DIMM-sparse");
     insert_resource(
         &mut resources,
@@ -435,10 +632,12 @@ fn mock_resources() -> HashMap<String, MockResponse> {
 #[derive(Clone, Copy)]
 pub(in crate::collectors) enum TestEntity {
     Processor,
+    NvidiaGpuProcessor,
     SparseProcessor,
     ProcessorWithEmptyMetrics,
     ProcessorWithMalformedMetrics,
     Memory,
+    NvidiaOemMemory,
     SparseMemory,
     Drive,
     SparseDrive,
@@ -615,6 +814,11 @@ impl ProjectionFixture {
                     sensors,
                 }
             }
+            TestEntity::NvidiaGpuProcessor => DiscoveredEntity::Processor {
+                entity: self.processor("GPU0"),
+                system: self.system.clone(),
+                sensors: Vec::new(),
+            },
             TestEntity::SparseProcessor => DiscoveredEntity::Processor {
                 entity: self.processor("CPU-sparse"),
                 system: self.system.clone(),
@@ -632,6 +836,11 @@ impl ProjectionFixture {
             },
             TestEntity::Memory => DiscoveredEntity::Memory {
                 entity: self.memory("DIMM0"),
+                system: self.system.clone(),
+                sensors: Vec::new(),
+            },
+            TestEntity::NvidiaOemMemory => DiscoveredEntity::Memory {
+                entity: self.memory("DIMM-oem"),
                 system: self.system.clone(),
                 sensors: Vec::new(),
             },

@@ -23,7 +23,7 @@ use crate::component_manager::common;
 use crate::errors::CarbideCliError;
 use crate::rpc::ApiClient;
 
-pub async fn configure_switch_certificate(
+pub(super) async fn configure_switch_certificate(
     opts: Args,
     format: OutputFormat,
     api_client: &ApiClient,

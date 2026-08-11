@@ -20,6 +20,7 @@ applicable.
 | `database_pool_acquire_timeout` | `Duration` | `30s` | `server` | How long a caller may wait for a connection from the pool before the attempt fails (sqlx's own default); trips on a stalled database or a saturated pool alike. Must be greater than zero (startup rejects `0`). |
 | `database_pool_idle_timeout` | `Duration` | `10m` | `server` | Idle time after which the pool closes a connection, keeping the pool's own reaping well inside the Postgres server's 60-minute idle-session reaper. Must be greater than zero (startup rejects `0`). |
 | `database_pool_max_lifetime` | `Duration` | `30m` | `server` | Maximum age of a pooled connection before it is recycled, so the pool re-balances onto the current primary after a database failover. Must be greater than zero (startup rejects `0`). |
+| `api_admission_control` | `ApiAdmissionControlConfig` | *(see below)* | `server` | Fair per-client admission with global execution and pending-request limits for gRPC and admin HTTP business requests. |
 | `ib_config` | `Option<IBFabricConfig>` | — | `hardware` | InfiniBand fabric configuration (see [IBFabricConfig](#ibfabricconfig)). |
 | `asn` | `u32` | **required** | `networking` | Autonomous System Number, fixed per environment. Used by nico-dpu-agent for `frr.conf` BGP routing. |
 | `dhcp_servers` | `Vec<Ipv4Addr>` | `[]` | `networking` | DHCP server addresses announced to DPUs during network provisioning. |
@@ -28,6 +29,7 @@ applicable.
 | `enable_route_servers` | `bool` | `false` | `networking` | Enables route server injection into DPU FRR configs for L2VPN. |
 | `deny_prefixes` | `Vec<IpNetwork>` | `[]` | `networking` | IPv4 and IPv6 CIDR prefixes that tenant instances are blocked from reaching. FNN generates family-specific NVUE ACL policies; all non-FNN virtualizers apply the IPv4 prefixes only. |
 | `site_fabric_prefixes` | `Vec<IpNetwork>` | `[]` | `networking` | IP prefixes (v4/v6) assigned for tenant use within this site. |
+| `max_site_prefixes_per_tenant` | `u32` | `8` | `networking` | Maximum tenant-managed SitePrefixes retained for one tenant at this site. Prefixes awaiting removal still count against this limit and keep their CIDR reserved. |
 | `anycast_site_prefixes` | `Vec<Ipv4Network>` | `[]` | `networking` | Aggregate IPv4 prefixes containing tenant-announced prefixes (e.g., BYOIP). **Deprecated.** Use [`routing_profiles.allowed_anycast_prefixes`](#fnnroutingprofileconfig) instead. |
 | `common_tenant_host_asn` | `Option<u32>` | — | `networking` | ASN that tenants use to peer with the DPU. If unset, any ASN is accepted. |
 | `vpc_isolation_behavior` | `VpcIsolationBehaviorType` | `MutualIsolation` | `networking` | VPC isolation policy: `mutual_isolation` or `open`. |
@@ -52,17 +54,18 @@ applicable.
 | `vpc_peering_policy_on_existing` | `Option<VpcPeeringPolicy>` | — | `networking` | Policy for whether existing VPC peerings should be active. |
 | `attestation_enabled` | `bool` | `false` | `security` | Enables TPM-based machine attestation (adds `Measuring` state before `Ready`). |
 | `bmc_rotation_enabled` | `bool` | `false` | `security` | Site-wide kill-switch for passive BMC credential rotation. When `false` (default), a Ready host never auto-enters `RotatingBmc`; the force-converge escape hatch bypasses it. |
+| `uefi_rotation_enabled` | `bool` | `false` | `security` | Site-wide kill-switch for passive UEFI credential rotation (host and DPU). When `false` (default), a Ready host never auto-enters `RotatingHostUefi` nor drives its DPUs into `RotatingDpuUefi`; the per-machine force-converge escape hatch bypasses it. |
 | `tpm_required` | `bool` | `true` | `security` | Require TPM module for machine registration. **Testing only** when `false`. |
 | `machine_state_controller` | `MachineStateControllerConfig` | *(see below)* | `machines` | Machine state controller timing (see [MachineStateControllerConfig](#machinestatecontrollerconfig)). |
 | `network_segment_state_controller` | `NetworkSegmentStateControllerConfig` | *(see below)* | `networking` | Network segment state controller timing. |
 | `vpc_prefix_state_controller` | `VpcPrefixStateControllerConfig` | *(see below)* | `networking` | VPC prefix state controller timing. |
 | `ib_partition_state_controller` | `IbPartitionStateControllerConfig` | *(see below)* | `hardware` | IB partition state controller timing. |
 | `dpa_interface_state_controller` | `DpaInterfaceStateControllerConfig` | *(see below)* | `networking` | DPA interface state controller timing. |
-| `rack_state_controller` | `RackStateControllerConfig` | *(see below)* | `hardware` | Rack state controller timing. |
+| `rack_state_controller` | `RackStateControllerConfig` | *(see below)* | `hardware` | Rack state controller timing and optional firmware update during ingestion. |
 | `power_shelf_state_controller` | `PowerShelfStateControllerConfig` | *(see below)* | `hardware` | Power shelf state controller timing and optional rack firmware reprovisioning. |
 | `switch_state_controller` | `SwitchStateControllerConfig` | *(see below)* | `hardware` | Switch state controller timing. |
 | `spdm_state_controller` | `SpdmStateControllerConfig` | *(see below)* | `security` | SPDM state controller timing. |
-| `host_models` | `HashMap<String, Firmware>` | `{}` | `machines` | Maps host model identifiers to firmware definitions for BMC/UEFI/NIC upgrades. |
+| `host_models` | `HashMap<String, Firmware>` | `{}` | `machines` | Maps host model identifiers to firmware definitions. |
 | `firmware_global` | `FirmwareGlobal` | *(see below)* | `machines` | Global firmware update settings (see [FirmwareGlobal](#firmwareglobal)). |
 | `machine_updater` | `MachineUpdater` | *(see below)* | `machines` | Machine update policies (see [MachineUpdater](#machineupdater)). |
 | `max_find_by_ids` | `u32` | `100` | `server` | Max IDs accepted by `find_*_by_ids` APIs. |
@@ -103,7 +106,7 @@ applicable.
 | `compute_allocation_enforcement` | `ComputeAllocationEnforcement` | `WarnOnly` | `machines` | Controls enforcement of compute allocations on new instance requests. |
 | `supernic_firmware_profiles` | nested `HashMap` | `{}` | `machines` | SuperNIC firmware profiles keyed by `part_number` then `PSID`. |
 | `component_manager` | `Option<ComponentManagerConfig>` | — | `hardware` | Component manager for NvLink switches and power shelves. |
-| `vpcs` | `Option<HashMap<String, VpcDefinition>>` | — | `networking` | VPCs to create at startup. Use the `CreateVpc` gRPC to create them later instead. |
+| `vpcs` | `Option<HashMap<String, VpcDefinition>>` | — | `networking` | VPCs to create at startup (see [VpcDefinition](#vpcdefinition)). Use the `CreateVpc` gRPC to create them later instead. |
 | `allow_bmc_basic_auth_fallback` | `bool` | `false` | `security` | When `true`, `GetBmcCredentials` may return `UsernamePassword` credentials for BMCs whose Redfish ServiceRoot does not expose `SessionService`. When `false`, such BMCs surface a `NoSessionService` error and no basic-auth fallback is performed. |
 | `rack_validation_config` | `RackValidationConfig` | *(default)* | `hardware` | Rack-level validation: multi-node partition tests after firmware upgrade and maintenance to verify rack health (see [RackValidationConfig](#rackvalidationconfig)). |
 | `oem_manager_profiles` | `BiosProfileVendor` | `{}` | `machines` | Vendor-specific iDRAC/BMC manager attributes applied during machine setup, before BMC lockdown. Keyed by vendor → model → profile → attribute name; targets the manager OEM attributes endpoint (e.g. Dell `DellAttributes`), as opposed to `bios_profiles` which targets BIOS settings. Model names are normalized to lowercase with underscores (e.g. `"PowerEdge R760"` → `"poweredge_r760"`). |
@@ -180,6 +183,10 @@ power_shelf_backend = "rms"
 product_family = "gb200"
 rack_hardware_topology = "gb200_nvl72r1_c2g4_topology"
 
+[rack_profiles.NVL72.firmware_object]
+url = "https://firmware.example.com/objects/nvl72.json"
+fetch_timeout = "30s"
+
 [rack_profiles.NVL72.rack_capabilities.compute]
 vendor = "NVIDIA"
 
@@ -251,6 +258,55 @@ available for topology-specific flows.
 
 ## Sub-Structs
 
+### `ApiAdmissionControlConfig`
+
+Admission control places each authenticated client in its own bounded FIFO and
+schedules those clients fairly within the global execution and pending-request
+budgets. The default per-client limits apply to external users, SPIFFE machines,
+SPIFFE services without an override, and requests without a recognized client
+identity. An exact SPIFFE service override can give a trusted internal service a
+different share without allowing it to exceed either global bound.
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `enabled` | `bool` | `true` | Enable fair, bounded API admission. When `false`, admission is bypassed and the other fields in this section are not validated. |
+| `max_work_in_flight` | `usize` | `64` | Maximum business requests executing concurrently. When enabled, must be greater than zero and no greater than `tokio::sync::Semaphore::MAX_PERMITS`. |
+| `max_pending` | `usize` | `1024` | Maximum business requests waiting for execution. When enabled, must be greater than zero and no greater than `tokio::sync::Semaphore::MAX_PERMITS`. |
+| `max_work_in_flight_per_client` | `usize` | `8` | Default maximum business requests from one client that may execute concurrently. Must be greater than zero, no greater than `max_work_in_flight`, and representable as a `u32`. |
+| `max_pending_per_client` | `usize` | `64` | Default hard bound on pending business requests from one client. Must be greater than zero and no greater than `max_pending`. |
+| `pending_timeout` | `Duration` | `5s` | Default maximum time a client's pending request may wait for execution. Admission can reject earlier when its queue-delay estimate exceeds this value. Must be greater than zero. |
+| `client_idle_timeout` | `Duration` | `5m` | How long an empty, inactive client's scheduler state is cached before cleanup. Must be greater than zero. |
+| `service_limits` | `BTreeMap<String, ApiAdmissionServiceLimitsConfig>` | `{}` | Per-service overrides keyed by the exact SPIFFE service identifier described below. Unlisted services use the default per-client limits. |
+
+#### `ApiAdmissionServiceLimitsConfig`
+
+Every field is required for each service override; the nested structure has no
+field-level defaults.
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `max_work_in_flight` | `usize` | **required** | Maximum requests from this service that may execute concurrently. Must be greater than zero, no greater than the global `max_work_in_flight`, and representable as a `u32`. |
+| `max_pending` | `usize` | **required** | Hard bound on this service's pending requests. Must be greater than zero and no greater than the global `max_pending`. |
+| `pending_timeout` | `Duration` | **required** | Maximum time this service's pending request may wait for execution. Admission can reject earlier when its queue-delay estimate exceeds this value. Must be greater than zero. |
+
+The map key is the identifier extracted by removing one of
+`auth.trust.spiffe_service_base_paths` from the certificate's SPIFFE path. For
+example, a SPIFFE path `/forge-system/sa/scout` with base path
+`/forge-system/sa/` has service identifier `scout`:
+
+```toml
+[api_admission_control.service_limits.scout]
+max_work_in_flight = 16
+max_pending = 128
+pending_timeout = "5s"
+```
+
+Matching is exact and case-sensitive. Keys are not trimmed, expanded as
+prefixes, or interpreted as globs. Configure `scout`, not the full SPIFFE URI
+and not the rendered principal `spiffe-service-id/scout`. An override key must
+contain at least one non-whitespace character. Quote a TOML key when the
+extracted identifier contains characters such as `/` or `.`.
+
 ### `TlsConfig`
 
 | Field | Type | Default | Description |
@@ -294,6 +350,7 @@ available for topology-specific flows.
 | `allow_insecure` | `bool` | `false` | Skip TLS verification for NMX-C. |
 | `nmx_c_endpoint_port` | `Option<u16>` | — | TCP port for NMX-C endpoints derived from switch NVOS IP. Unset uses the production NMX-C port. |
 | `nmx_c_certificate_rotation` | `NmxCCertificateRotationConfig` | *(default)* | Optional expiry-driven rotation for NMX-C server certificates. |
+| `partition_monitor_max_concurrent_groups` | `NonZeroUsize` | `16` | Maximum number of NMX-C machine groups (chassis or rack) processed concurrently per monitor iteration. Bounds DB pool usage and gRPC fan-out. Must be ≥ 1. |
 
 ### `NmxCCertificateRotationConfig`
 
@@ -324,7 +381,6 @@ available for topology-specific flows.
 | `allow_changing_bmc_proxy` | `Option<bool>` | *(auto)* | Allow runtime changes to `bmc_proxy`. Auto-detected from initial config. |
 | `reset_rate_limit` | `Duration` | `1h` | Minimum time between SiteExplorer-initiated BMC resets. |
 | `admin_segment_type_non_dpu` | `bool` | `false` | Non-DPU hosts use `HostInband` admin segment type. |
-| `allocate_secondary_vtep_ip` | `bool` | `false` | Allocate secondary VTEP IP for GENEVE traffic intercept. |
 | `create_power_shelves` | `bool` | `true` | Auto-create Power Shelf state machines for explored shelves with a matching `expected_power_shelves` record. Shelves are discovered at their `expected_power_shelves` static IP even without a DHCP lease. |
 | `power_shelves_created_per_run` | `u64` | `1` | Max power shelves created per run. |
 | `create_switches` | `bool` | `true` | Auto-create Switch state machines for explored switches with a matching `expected_switches` record. |
@@ -381,7 +437,20 @@ Extends `StateControllerConfig` with:
 | `uefi_boot_wait` | `Duration` | `5m`    | Wait time for UEFI boot completion after host reboot. |
 | `max_bios_config_retries` | `u32` | `3` | Shared retry budget for automated host boot-configuration convergence across BIOS recovery and boot-order verification. |
 | `polling_bios_setup_stuck_threshold` | `Duration` | `15m` | Time in PollingBiosSetup with `is_bios_setup == false` before recovery escalation. |
+| `boot_interface_observation_interval` | `Duration` | `10m` | Positive time between successful Redfish observations of an already-verified boot interface. |
 | `controller` | `StateControllerConfig` | *(default)* | Common state controller timing (see [StateControllerConfig](#statecontrollerconfig)). |
+
+The Redfish observation is read-only. A successful match refreshes the last
+observation timestamp. A mismatch records a new pending generation for the same
+desired target: Ready enters the existing boot-configuration flow on its next
+controller sweep, while Assigned defers remediation until release. Failed reads
+and skipped observations preserve the last successful observation and retry on
+a later controller iteration.
+
+The controller skips periodic observation for locked Supermicro hosts because
+their reported boot-order view remains stale until lockdown is disabled and the
+host is rebooted. Profiles configured with `disable_lockdown = true` use the
+normal observation path.
 
 ### `NetworkSegmentStateControllerConfig`
 
@@ -442,22 +511,14 @@ Extends `StateControllerConfig` with:
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
 | `allow_instance_vf` | `bool` | `true` | Allow VFs on instance creation. |
-| `hbn_reps` | `Option<String>` | — | HBN representors created by DPUs. |
-| `hbn_sfs` | `Option<String>` | — | HBN SF representors created by DPUs. |
-| `bridging` | `Option<TrafficInterceptBridging>` | — | Advanced traffic-intercept routing and bridging options. |
-| `public_prefixes` | `Vec<Ipv4Network>` | **required** | Publicly routable IPv4 CIDR prefixes used by traffic-intercept users. |
-| `secondary_vtep_aggregate_prefixes` | `Vec<IpNetwork>` | `[]` | IPv4 or IPv6 aggregate prefixes used only for routing and filtering. IP allocation is provided by the secondary VTEP resource pool. |
-| `secondary_overlay_support` | `bool` | `true` | Whether secondary overlay VTEP IPs are expected for DPUs. |
+| `hbn_reps` | `Option<String>` | — | Select which representors from the configured VF population HBN is expected to use during DPU provisioning. When omitted, HBN uses its default representor selection. |
+| `bridging` | `Option<HostRepresentorBridgingConfig>` | — | Provisioning-time topology for bridges inserted between host representors and HBN. |
 
-### `TrafficInterceptBridging`
+### `HostRepresentorBridgingConfig`
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
-| `internal_bridge_routing_prefix` | `Ipv4Network` | **required** | Prefix used for internal routing between HBN and intercept bridges within the DPU. |
-| `hbn_bridge` | `String` | `"br-hbn"` | Bridge that intercept patch ports attach to during BlueField provisioning. |
-| `vf_intercept_bridge_name` | `String` | `"br-dpu"` | Bridge between VM-owned VFs and br-hbn. |
-| `vf_intercept_bridge_port` | `String` | `"patch-br-dpu-to-hbn"` | Patch port on the VF intercept bridge side. |
-| `vf_intercept_bridge_sf` | `String` | **required** | SF used for internal routing of VF traffic. |
+| `hbn_bridge` | `String` | `"br-hbn"` | HBN/SFC bridge that host-representor patch ports attach to during BlueField provisioning. |
 | `host_representor_intercept_bridging` | `HashMap<String, HostInterceptBridging>` | `{}` | Host-owned PF/VF representor bridge layout keyed by representor name. Non-skipped entries are sent to BlueField provisioning as `<representor>:<bridge>:<patch_port>`. |
 
 ### `HostInterceptBridging`
@@ -466,7 +527,7 @@ Extends `StateControllerConfig` with:
 |-------|------|---------|-------------|
 | `bridge` | `String` | **required** | Bridge that sits between the host PF/VF representor and br-hbn or br-sfc. |
 | `patch_port` | `String` | **required** | Patch port on this bridge that connects it toward HBN or SFC. |
-| `skip_create` | `bool` | `false` | When true, the entry is sent to DPU agents but omitted from provisioning-time bridge creation. |
+| `skip_create` | `bool` | `false` | When true, the entry is omitted from provisioning-time bridge creation. |
 
 ### `DpuConfig`
 
@@ -516,15 +577,29 @@ client-certificate authentication is not used.
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
-| `route_target_imports` | `Vec<RouteTargetConfig>` | `[]` | Route targets imported into DPU VRFs for VPC routes. |
-| `route_targets_on_exports` | `Vec<RouteTargetConfig>` | `[]` | Route targets added to routes exported by the DPU. |
-| `internal` | `bool` | `false` | Whether the profile uses internal VNI allocation. |
-| `leak_default_route_from_underlay` | `bool` | `false` | Leak the default route from the underlay/default VRF into tenant VRFs. |
-| `leak_tenant_host_routes_to_underlay` | `bool` | `false` | Leak tenant host routes into the underlay/default VRF. |
-| `tenant_leak_communities_accepted` | `bool` | `false` | Honor route-leak communities sent by the tenant host OS. |
-| `accepted_leaks_from_underlay` | `Vec<PrefixFilterPolicyEntry>` | `[]` | Specific underlay/default VRF prefixes allowed to leak into tenant VRFs. Routing only; does not affect ACLs. |
-| `allowed_anycast_prefixes` | `Vec<PrefixFilterPolicyEntry>` | `[]` | IPv4 or IPv6 prefixes that tenant hosts are allowed to announce to the DPU as anycast routes. |
-| `access_tier` | `u32` | `0` | Routing profile access tier. Lower values grant broader access. |
+| `route_target_imports` | `Option<Vec<RouteTargetConfig>>` | — (effective `[]`) | Route targets imported into DPU VRFs for VPC routes. |
+| `route_targets_on_exports` | `Option<Vec<RouteTargetConfig>>` | — (effective `[]`) | Route targets added to routes exported by the DPU. |
+| `internal` | `Option<bool>` | — (effective `false`) | Whether the profile uses internal VNI allocation. This property cannot be overridden on a VPC. |
+| `leak_default_route_from_underlay` | `Option<bool>` | — (effective `false`) | Leak the default route from the underlay/default VRF into tenant VRFs. |
+| `leak_tenant_host_routes_to_underlay` | `Option<bool>` | — (effective `false`) | Leak tenant host routes into the underlay/default VRF. |
+| `tenant_leak_communities_accepted` | `Option<bool>` | — (effective `false`) | Honor route-leak communities sent by the tenant host OS. |
+| `accepted_leaks_from_underlay` | `Option<Vec<PrefixFilterPolicyEntry>>` | — (effective `[]`) | Specific underlay/default VRF prefixes allowed to leak into tenant VRFs. Routing only; does not affect ACLs. |
+| `allowed_anycast_prefixes` | `Option<Vec<PrefixFilterPolicyEntry>>` | — (effective `[]`) | IPv4 or IPv6 prefixes that tenant hosts are allowed to announce to the DPU as anycast routes. |
+| `access_tier` | `Option<u32>` | — (effective `0`) | Routing profile access tier. Lower values grant broader access. This property cannot be overridden on a VPC. |
+
+Unset properties retain presence information so a VPC's inline
+`routing_profile_overrides` can inherit them. After the named profile and VPC
+override are combined, properties still unset use the effective defaults above.
+
+### `VpcDefinition`
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `organization_id` | `Option<String>` | — | Tenant organization that owns the seeded VPC. |
+| `network_virtualization_type` | `VpcVirtualizationType` | **required** | Data plane used by the VPC. |
+| `routing_profile_type` | `Option<String>` | — | Named FNN routing profile recorded on the seeded VPC. |
+| `routing_profile_overrides` | `Option<VpcRoutingProfileOverrides>` | — | Unsupported for seeded VPCs. Any configured value causes startup to fail; inline overrides are accepted only by VPC creation or update requests. |
+| `vni` | `Option<i32>` | — | Desired VNI; when absent, one is allocated. |
 
 ### `PrefixFilterPolicyEntry`
 
@@ -586,10 +661,21 @@ events, so consumers handle them identically.
 |-------|------|---------|-------------|
 | `enabled` | `bool` | `false` | Enable DPF Kubernetes deployment. |
 | `dpu_agent_bootstrap_ca` | `DpfDpuAgentBootstrapCa` | `legacy_download` | Bootstrap trust for the containerized DPU agent. Supports `legacy_download` and `mounted`, as described in the following examples. |
-| `services` | `Box<DpfMandatoryServicesConfig>` | built-in mandatory-service defaults | Helm chart, image, and pull-secret settings for the six mandatory DPF services. |
+| `services` | `Box<DpfMandatoryServicesConfig>` | built-in mandatory-service defaults | Helm chart, image, pull-secret, and `extra_helm_values` settings for the six mandatory DPF services. |
 | `docker_image_pull_secret` | `Option<String>` | — | Override for the Kubernetes `imagePullSecrets` entry used to pull mandatory-service images (applied to every mandatory service except `dts` and `doca_hbn`, which take a pull secret only from their per-service config). |
 | `proxy` | `Option<DpfProxyDetails>` | — | Proxy configuration for the DPU. When set, containerd on the DPU routes outbound HTTPS traffic through it. |
 | `deployments` | `DpfDeploymentsConfig` | *(default)* | Per-generation DPUDeployment configurations. BF3 is always present with defaults; BF4 variants are opt-in. BF4 Astra gets default Weave DHCP agent, Weave flow controller, and Xplane services; `extra_services` can replace any of those definitions. |
+
+Each entry under `[dpf.services]` accepts a chart-native `extra_helm_values` table. NICo
+deep-merges it over generated `DPUServiceTemplate` values. Nested scalars and arrays
+replace generated values. DPF applies NICo's deployment-specific
+`DPUServiceConfiguration` values after the template values.
+Top-level and per-deployment service fields both overlay the service's built-in defaults.
+
+```toml
+[dpf.services.dpu_agent.extra_helm_values.fmds]
+sign_proxy_url = "http://dsx-imds.dpf-operator-system.svc.cluster.local:8080"
+```
 
 Omitting `[dpf.dpu_agent_bootstrap_ca]` preserves the historical download URL.
 Use the following configuration to retain download mode while overriding the

@@ -40,19 +40,19 @@ impl std::fmt::Display for Mode {
 #[clap(name = env!("CARGO_BIN_NAME"))]
 pub(crate) struct Options {
     #[clap(long, default_value = "false", help = "Print version number and exit")]
-    pub version: bool,
+    pub(crate) version: bool,
 
     #[clap(long,
         value_enum,
         default_value_t=Mode::Service)]
-    pub mode: Mode,
+    pub(crate) mode: Mode,
 
     #[clap(
         short,
         long,
         help = "The machine interface ID to send to carbide-api. Most commands need this."
     )]
-    pub machine_interface_id: Option<uuid::Uuid>,
+    pub(crate) machine_interface_id: Option<uuid::Uuid>,
 
     #[clap(
         short,
@@ -61,28 +61,28 @@ pub(crate) struct Options {
         require_equals(true),
         default_value = "https://[::1]:1079"
     )]
-    pub api: String,
+    pub(crate) api: String,
 
     #[clap(
         long,
         help = "Full path of root CA in PEM format",
         default_value_t = tls_default::ROOT_CA.to_string(),
     )]
-    pub root_ca: String,
+    pub(crate) root_ca: String,
 
     #[clap(
     long,
     help = "Full path of client cert in PEM format",
     default_value_t = tls_default::CLIENT_CERT.to_string(),
     )]
-    pub client_cert: String,
+    pub(crate) client_cert: String,
 
     #[clap(
     long,
     help = "Full path of client key",
     default_value_t = tls_default::CLIENT_KEY.to_string(),
     )]
-    pub client_key: String,
+    pub(crate) client_key: String,
 
     // Combined with discovery_retries_max, the default of 60
     // seconds worth of discovery_retry_secs provides for 1
@@ -92,14 +92,14 @@ pub(crate) struct Options {
         help = "How often (sec) to retry machine registration after failure",
         default_value_t = 60u64
     )]
-    pub discovery_retry_secs: u64,
+    pub(crate) discovery_retry_secs: u64,
 
     #[clap(
         long,
         help = "How many times to reattempt discovery admist failure",
         default_value_t = 10080u32*52*10 // times per one week x 52 weeks x 10 years
     )]
-    pub discovery_retries_max: u32,
+    pub(crate) discovery_retries_max: u32,
 
     #[clap(
         long,
@@ -108,17 +108,17 @@ pub(crate) struct Options {
         // tpm0 would be a tpm without a resource manager - https://github.com/tpm2-software/tpm2-tools/issues/1338#issuecomment-469735226
         default_value_t = ("device:/dev/tpmrm0").to_string(),
     )]
-    pub tpm_path: String,
+    pub(crate) tpm_path: String,
 
     #[clap(
         long,
         help = "HTTP listen address for the metrics/health endpoint (e.g. 127.0.0.1:9091). \
                 When omitted the endpoint is not served and no metrics are collected."
     )]
-    pub metrics_listen_addr: Option<SocketAddr>,
+    pub(crate) metrics_listen_addr: Option<SocketAddr>,
 
     #[clap(subcommand)]
-    pub subcmd: Option<Command>,
+    pub(crate) subcmd: Option<Command>,
 }
 
 #[derive(Parser, Clone)]
@@ -142,38 +142,36 @@ pub(crate) enum Command {
 }
 
 #[derive(Parser, Clone)]
-pub struct AutoDetect {}
+pub(crate) struct AutoDetect {}
 
 #[derive(Parser, Clone)]
-pub struct Deprovision {}
+pub(crate) struct Deprovision {}
 #[derive(Parser, Clone)]
-pub struct Reset {}
+pub(crate) struct Reset {}
 #[derive(Parser, Clone)]
-pub struct Discovery {}
-#[derive(Parser, Clone)]
-pub struct Rebuild {}
+pub(crate) struct Discovery {}
 
 #[derive(Parser, Clone)]
-pub struct Logerror {
+pub(crate) struct Logerror {
     // This is a machine_INTERFACE_id, not a machine_id
     #[clap(short, long, require_equals(true))]
-    pub uuid: uuid::Uuid,
+    pub(crate) uuid: uuid::Uuid,
 }
 #[derive(Parser, Clone)]
-pub struct MachineValidation {
+pub(crate) struct MachineValidation {
     #[clap(short, long, require_equals(true))]
-    pub validataion_id: MachineValidationId,
-    pub context: String,
+    pub(crate) validataion_id: MachineValidationId,
+    pub(crate) context: String,
 }
 
 #[derive(Parser, Clone)]
-pub struct Mlx {
+pub(crate) struct Mlx {
     #[command(subcommand)]
-    pub action: MlxAction,
+    pub(crate) action: MlxAction,
 }
 
 #[derive(Subcommand, Clone)]
-pub enum MlxAction {
+pub(crate) enum MlxAction {
     #[clap(about = "Query local Mellanox device information.")]
     Device(MlxDevice),
     #[clap(about = "Mellanox lockdown operations.")]
@@ -181,19 +179,19 @@ pub enum MlxAction {
 }
 
 #[derive(Parser, Clone)]
-pub struct MlxDevice {
+pub(crate) struct MlxDevice {
     #[command(subcommand)]
-    pub action: DeviceAction,
+    pub(crate) action: DeviceAction,
 }
 
 #[derive(Parser, Clone)]
-pub struct MlxLockdown {
+pub(crate) struct MlxLockdown {
     #[command(subcommand)]
-    pub action: LockdownAction,
+    pub(crate) action: LockdownAction,
 }
 
 impl Options {
-    pub fn load() -> Self {
+    pub(crate) fn load() -> Self {
         Self::parse()
     }
 }

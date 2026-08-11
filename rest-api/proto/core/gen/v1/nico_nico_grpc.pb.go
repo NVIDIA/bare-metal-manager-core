@@ -47,6 +47,9 @@ const (
 	Forge_GetVpcPrefixes_FullMethodName                                     = "/forge.Forge/GetVpcPrefixes"
 	Forge_UpdateVpcPrefix_FullMethodName                                    = "/forge.Forge/UpdateVpcPrefix"
 	Forge_DeleteVpcPrefix_FullMethodName                                    = "/forge.Forge/DeleteVpcPrefix"
+	Forge_CreateSitePrefix_FullMethodName                                   = "/forge.Forge/CreateSitePrefix"
+	Forge_UpdateSitePrefix_FullMethodName                                   = "/forge.Forge/UpdateSitePrefix"
+	Forge_DeleteSitePrefix_FullMethodName                                   = "/forge.Forge/DeleteSitePrefix"
 	Forge_FindSitePrefixIds_FullMethodName                                  = "/forge.Forge/FindSitePrefixIds"
 	Forge_FindSitePrefixesByIds_FullMethodName                              = "/forge.Forge/FindSitePrefixesByIds"
 	Forge_CreateVpcPeering_FullMethodName                                   = "/forge.Forge/CreateVpcPeering"
@@ -134,6 +137,7 @@ const (
 	Forge_FindSwitchStateHistories_FullMethodName                           = "/forge.Forge/FindSwitchStateHistories"
 	Forge_FindNetworkSegmentStateHistories_FullMethodName                   = "/forge.Forge/FindNetworkSegmentStateHistories"
 	Forge_FindVpcPrefixStateHistories_FullMethodName                        = "/forge.Forge/FindVpcPrefixStateHistories"
+	Forge_FindSitePrefixStateHistories_FullMethodName                       = "/forge.Forge/FindSitePrefixStateHistories"
 	Forge_FindTenantOrganizationIds_FullMethodName                          = "/forge.Forge/FindTenantOrganizationIds"
 	Forge_FindTenantsByOrganizationIds_FullMethodName                       = "/forge.Forge/FindTenantsByOrganizationIds"
 	Forge_FindConnectedDevicesByDpuMachineIds_FullMethodName                = "/forge.Forge/FindConnectedDevicesByDpuMachineIds"
@@ -192,6 +196,7 @@ const (
 	Forge_TriggerHostReprovisioning_FullMethodName                          = "/forge.Forge/TriggerHostReprovisioning"
 	Forge_ListHostsWaitingForReprovisioning_FullMethodName                  = "/forge.Forge/ListHostsWaitingForReprovisioning"
 	Forge_TriggerBmcCredentialRotation_FullMethodName                       = "/forge.Forge/TriggerBmcCredentialRotation"
+	Forge_TriggerUefiCredentialRotation_FullMethodName                      = "/forge.Forge/TriggerUefiCredentialRotation"
 	Forge_MarkManualFirmwareUpgradeComplete_FullMethodName                  = "/forge.Forge/MarkManualFirmwareUpgradeComplete"
 	Forge_ReportScoutFirmwareUpgradeStatus_FullMethodName                   = "/forge.Forge/ReportScoutFirmwareUpgradeStatus"
 	Forge_GetDpuInfoList_FullMethodName                                     = "/forge.Forge/GetDpuInfoList"
@@ -215,6 +220,7 @@ const (
 	Forge_UpdateInstancePhoneHomeLastContact_FullMethodName                 = "/forge.Forge/UpdateInstancePhoneHomeLastContact"
 	Forge_SetHostUefiPassword_FullMethodName                                = "/forge.Forge/SetHostUefiPassword"
 	Forge_ClearHostUefiPassword_FullMethodName                              = "/forge.Forge/ClearHostUefiPassword"
+	Forge_SetDpuUefiPassword_FullMethodName                                 = "/forge.Forge/SetDpuUefiPassword"
 	Forge_AddExpectedMachine_FullMethodName                                 = "/forge.Forge/AddExpectedMachine"
 	Forge_DeleteExpectedMachine_FullMethodName                              = "/forge.Forge/DeleteExpectedMachine"
 	Forge_UpdateExpectedMachine_FullMethodName                              = "/forge.Forge/UpdateExpectedMachine"
@@ -394,6 +400,7 @@ const (
 	Forge_DeleteRack_FullMethodName                                         = "/forge.Forge/DeleteRack"
 	Forge_AdminForceDeleteRack_FullMethodName                               = "/forge.Forge/AdminForceDeleteRack"
 	Forge_GetRackProfile_FullMethodName                                     = "/forge.Forge/GetRackProfile"
+	Forge_ListRackProfiles_FullMethodName                                   = "/forge.Forge/ListRackProfiles"
 	Forge_CreateComputeAllocation_FullMethodName                            = "/forge.Forge/CreateComputeAllocation"
 	Forge_FindComputeAllocationIds_FullMethodName                           = "/forge.Forge/FindComputeAllocationIds"
 	Forge_FindComputeAllocationsByIds_FullMethodName                        = "/forge.Forge/FindComputeAllocationsByIds"
@@ -532,6 +539,9 @@ type ForgeClient interface {
 	UpdateVpcPrefix(ctx context.Context, in *VpcPrefixUpdateRequest, opts ...grpc.CallOption) (*VpcPrefix, error)
 	DeleteVpcPrefix(ctx context.Context, in *VpcPrefixDeletionRequest, opts ...grpc.CallOption) (*VpcPrefixDeletionResult, error)
 	// Site prefixes
+	CreateSitePrefix(ctx context.Context, in *SitePrefixCreationRequest, opts ...grpc.CallOption) (*SitePrefix, error)
+	UpdateSitePrefix(ctx context.Context, in *SitePrefixUpdateRequest, opts ...grpc.CallOption) (*SitePrefix, error)
+	DeleteSitePrefix(ctx context.Context, in *SitePrefixDeletionRequest, opts ...grpc.CallOption) (*SitePrefixDeletionResult, error)
 	FindSitePrefixIds(ctx context.Context, in *SitePrefixSearchFilter, opts ...grpc.CallOption) (*SitePrefixIdList, error)
 	FindSitePrefixesByIds(ctx context.Context, in *SitePrefixesByIdsRequest, opts ...grpc.CallOption) (*SitePrefixList, error)
 	// VPC peering
@@ -681,6 +691,7 @@ type ForgeClient interface {
 	FindSwitchStateHistories(ctx context.Context, in *SwitchStateHistoriesRequest, opts ...grpc.CallOption) (*StateHistories, error)
 	FindNetworkSegmentStateHistories(ctx context.Context, in *NetworkSegmentStateHistoriesRequest, opts ...grpc.CallOption) (*StateHistories, error)
 	FindVpcPrefixStateHistories(ctx context.Context, in *VpcPrefixStateHistoriesRequest, opts ...grpc.CallOption) (*StateHistories, error)
+	FindSitePrefixStateHistories(ctx context.Context, in *SitePrefixStateHistoriesRequest, opts ...grpc.CallOption) (*StateHistories, error)
 	FindTenantOrganizationIds(ctx context.Context, in *TenantSearchFilter, opts ...grpc.CallOption) (*TenantOrganizationIdList, error)
 	FindTenantsByOrganizationIds(ctx context.Context, in *TenantByOrganizationIdsRequest, opts ...grpc.CallOption) (*TenantList, error)
 	FindConnectedDevicesByDpuMachineIds(ctx context.Context, in *MachineIdList, opts ...grpc.CallOption) (*ConnectedDeviceList, error)
@@ -800,6 +811,16 @@ type ForgeClient interface {
 	// only withdraws a not-yet-consumed request -- it does not undo or reset any
 	// BMC credentials that a prior sweep already rotated.
 	TriggerBmcCredentialRotation(ctx context.Context, in *BmcCredentialRotationRequest, opts ...grpc.CallOption) (*emptypb.Empty, error)
+	// Operator "force-converge this UEFI credential now" escape hatch for a single
+	// host (DPU support follows). This is asynchronous: the handler only persists
+	// (Set) or removes (Clear) the machine's `uefi_credential_rotation_requested`
+	// flag and returns; it performs no rotation itself. A later machine-controller
+	// sweep observes a set flag and rotates the UEFI password (a BIOS job plus a
+	// host power-cycle), bypassing the passive site-wide gate and the device's
+	// backoff quarantine, then clears the flag once it converges. Clear only
+	// withdraws a not-yet-consumed request -- it does not undo or reset any UEFI
+	// credential that a prior sweep already rotated.
+	TriggerUefiCredentialRotation(ctx context.Context, in *UefiCredentialRotationRequest, opts ...grpc.CallOption) (*emptypb.Empty, error)
 	// TODO: Remove when manual upgrade feature is removed
 	// Mark host as having completed manual firmware upgrade
 	MarkManualFirmwareUpgradeComplete(ctx context.Context, in *MachineId, opts ...grpc.CallOption) (*emptypb.Empty, error)
@@ -843,6 +864,10 @@ type ForgeClient interface {
 	// Set Host UEFI password
 	SetHostUefiPassword(ctx context.Context, in *SetHostUefiPasswordRequest, opts ...grpc.CallOption) (*SetHostUefiPasswordResponse, error)
 	ClearHostUefiPassword(ctx context.Context, in *ClearHostUefiPasswordRequest, opts ...grpc.CallOption) (*ClearHostUefiPasswordResponse, error)
+	// Set a DPU's UEFI password directly on the device (the DPU equivalent of
+	// SetHostUefiPassword): stage the site-wide DPU UEFI credential through the
+	// DPU's Redfish BIOS settings and restart the DPU to commit it.
+	SetDpuUefiPassword(ctx context.Context, in *SetDpuUefiPasswordRequest, opts ...grpc.CallOption) (*SetDpuUefiPasswordResponse, error)
 	// Expected Machine Management
 	// Add expected machine
 	AddExpectedMachine(ctx context.Context, in *ExpectedMachine, opts ...grpc.CallOption) (*emptypb.Empty, error)
@@ -1123,6 +1148,9 @@ type ForgeClient interface {
 	// Force deletes a Rack from the database.
 	AdminForceDeleteRack(ctx context.Context, in *AdminForceDeleteRackRequest, opts ...grpc.CallOption) (*AdminForceDeleteRackResponse, error)
 	GetRackProfile(ctx context.Context, in *GetRackProfileRequest, opts ...grpc.CallOption) (*GetRackProfileResponse, error)
+	// Lists the rack profiles from the effective runtime configuration.
+	// Rack profiles are configuration, not persisted rack resources.
+	ListRackProfiles(ctx context.Context, in *emptypb.Empty, opts ...grpc.CallOption) (*ListRackProfilesResponse, error)
 	// Compute Allocations
 	CreateComputeAllocation(ctx context.Context, in *CreateComputeAllocationRequest, opts ...grpc.CallOption) (*CreateComputeAllocationResponse, error)
 	FindComputeAllocationIds(ctx context.Context, in *FindComputeAllocationIdsRequest, opts ...grpc.CallOption) (*FindComputeAllocationIdsResponse, error)
@@ -1560,6 +1588,36 @@ func (c *forgeClient) DeleteVpcPrefix(ctx context.Context, in *VpcPrefixDeletion
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(VpcPrefixDeletionResult)
 	err := c.cc.Invoke(ctx, Forge_DeleteVpcPrefix_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *forgeClient) CreateSitePrefix(ctx context.Context, in *SitePrefixCreationRequest, opts ...grpc.CallOption) (*SitePrefix, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(SitePrefix)
+	err := c.cc.Invoke(ctx, Forge_CreateSitePrefix_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *forgeClient) UpdateSitePrefix(ctx context.Context, in *SitePrefixUpdateRequest, opts ...grpc.CallOption) (*SitePrefix, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(SitePrefix)
+	err := c.cc.Invoke(ctx, Forge_UpdateSitePrefix_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *forgeClient) DeleteSitePrefix(ctx context.Context, in *SitePrefixDeletionRequest, opts ...grpc.CallOption) (*SitePrefixDeletionResult, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(SitePrefixDeletionResult)
+	err := c.cc.Invoke(ctx, Forge_DeleteSitePrefix_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -2439,6 +2497,16 @@ func (c *forgeClient) FindVpcPrefixStateHistories(ctx context.Context, in *VpcPr
 	return out, nil
 }
 
+func (c *forgeClient) FindSitePrefixStateHistories(ctx context.Context, in *SitePrefixStateHistoriesRequest, opts ...grpc.CallOption) (*StateHistories, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(StateHistories)
+	err := c.cc.Invoke(ctx, Forge_FindSitePrefixStateHistories_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *forgeClient) FindTenantOrganizationIds(ctx context.Context, in *TenantSearchFilter, opts ...grpc.CallOption) (*TenantOrganizationIdList, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(TenantOrganizationIdList)
@@ -3019,6 +3087,16 @@ func (c *forgeClient) TriggerBmcCredentialRotation(ctx context.Context, in *BmcC
 	return out, nil
 }
 
+func (c *forgeClient) TriggerUefiCredentialRotation(ctx context.Context, in *UefiCredentialRotationRequest, opts ...grpc.CallOption) (*emptypb.Empty, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(emptypb.Empty)
+	err := c.cc.Invoke(ctx, Forge_TriggerUefiCredentialRotation_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *forgeClient) MarkManualFirmwareUpgradeComplete(ctx context.Context, in *MachineId, opts ...grpc.CallOption) (*emptypb.Empty, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(emptypb.Empty)
@@ -3243,6 +3321,16 @@ func (c *forgeClient) ClearHostUefiPassword(ctx context.Context, in *ClearHostUe
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(ClearHostUefiPasswordResponse)
 	err := c.cc.Invoke(ctx, Forge_ClearHostUefiPassword_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *forgeClient) SetDpuUefiPassword(ctx context.Context, in *SetDpuUefiPasswordRequest, opts ...grpc.CallOption) (*SetDpuUefiPasswordResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(SetDpuUefiPasswordResponse)
+	err := c.cc.Invoke(ctx, Forge_SetDpuUefiPassword_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -5039,6 +5127,16 @@ func (c *forgeClient) GetRackProfile(ctx context.Context, in *GetRackProfileRequ
 	return out, nil
 }
 
+func (c *forgeClient) ListRackProfiles(ctx context.Context, in *emptypb.Empty, opts ...grpc.CallOption) (*ListRackProfilesResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ListRackProfilesResponse)
+	err := c.cc.Invoke(ctx, Forge_ListRackProfiles_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *forgeClient) CreateComputeAllocation(ctx context.Context, in *CreateComputeAllocationRequest, opts ...grpc.CallOption) (*CreateComputeAllocationResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(CreateComputeAllocationResponse)
@@ -6051,6 +6149,9 @@ type ForgeServer interface {
 	UpdateVpcPrefix(context.Context, *VpcPrefixUpdateRequest) (*VpcPrefix, error)
 	DeleteVpcPrefix(context.Context, *VpcPrefixDeletionRequest) (*VpcPrefixDeletionResult, error)
 	// Site prefixes
+	CreateSitePrefix(context.Context, *SitePrefixCreationRequest) (*SitePrefix, error)
+	UpdateSitePrefix(context.Context, *SitePrefixUpdateRequest) (*SitePrefix, error)
+	DeleteSitePrefix(context.Context, *SitePrefixDeletionRequest) (*SitePrefixDeletionResult, error)
 	FindSitePrefixIds(context.Context, *SitePrefixSearchFilter) (*SitePrefixIdList, error)
 	FindSitePrefixesByIds(context.Context, *SitePrefixesByIdsRequest) (*SitePrefixList, error)
 	// VPC peering
@@ -6200,6 +6301,7 @@ type ForgeServer interface {
 	FindSwitchStateHistories(context.Context, *SwitchStateHistoriesRequest) (*StateHistories, error)
 	FindNetworkSegmentStateHistories(context.Context, *NetworkSegmentStateHistoriesRequest) (*StateHistories, error)
 	FindVpcPrefixStateHistories(context.Context, *VpcPrefixStateHistoriesRequest) (*StateHistories, error)
+	FindSitePrefixStateHistories(context.Context, *SitePrefixStateHistoriesRequest) (*StateHistories, error)
 	FindTenantOrganizationIds(context.Context, *TenantSearchFilter) (*TenantOrganizationIdList, error)
 	FindTenantsByOrganizationIds(context.Context, *TenantByOrganizationIdsRequest) (*TenantList, error)
 	FindConnectedDevicesByDpuMachineIds(context.Context, *MachineIdList) (*ConnectedDeviceList, error)
@@ -6319,6 +6421,16 @@ type ForgeServer interface {
 	// only withdraws a not-yet-consumed request -- it does not undo or reset any
 	// BMC credentials that a prior sweep already rotated.
 	TriggerBmcCredentialRotation(context.Context, *BmcCredentialRotationRequest) (*emptypb.Empty, error)
+	// Operator "force-converge this UEFI credential now" escape hatch for a single
+	// host (DPU support follows). This is asynchronous: the handler only persists
+	// (Set) or removes (Clear) the machine's `uefi_credential_rotation_requested`
+	// flag and returns; it performs no rotation itself. A later machine-controller
+	// sweep observes a set flag and rotates the UEFI password (a BIOS job plus a
+	// host power-cycle), bypassing the passive site-wide gate and the device's
+	// backoff quarantine, then clears the flag once it converges. Clear only
+	// withdraws a not-yet-consumed request -- it does not undo or reset any UEFI
+	// credential that a prior sweep already rotated.
+	TriggerUefiCredentialRotation(context.Context, *UefiCredentialRotationRequest) (*emptypb.Empty, error)
 	// TODO: Remove when manual upgrade feature is removed
 	// Mark host as having completed manual firmware upgrade
 	MarkManualFirmwareUpgradeComplete(context.Context, *MachineId) (*emptypb.Empty, error)
@@ -6362,6 +6474,10 @@ type ForgeServer interface {
 	// Set Host UEFI password
 	SetHostUefiPassword(context.Context, *SetHostUefiPasswordRequest) (*SetHostUefiPasswordResponse, error)
 	ClearHostUefiPassword(context.Context, *ClearHostUefiPasswordRequest) (*ClearHostUefiPasswordResponse, error)
+	// Set a DPU's UEFI password directly on the device (the DPU equivalent of
+	// SetHostUefiPassword): stage the site-wide DPU UEFI credential through the
+	// DPU's Redfish BIOS settings and restart the DPU to commit it.
+	SetDpuUefiPassword(context.Context, *SetDpuUefiPasswordRequest) (*SetDpuUefiPasswordResponse, error)
 	// Expected Machine Management
 	// Add expected machine
 	AddExpectedMachine(context.Context, *ExpectedMachine) (*emptypb.Empty, error)
@@ -6642,6 +6758,9 @@ type ForgeServer interface {
 	// Force deletes a Rack from the database.
 	AdminForceDeleteRack(context.Context, *AdminForceDeleteRackRequest) (*AdminForceDeleteRackResponse, error)
 	GetRackProfile(context.Context, *GetRackProfileRequest) (*GetRackProfileResponse, error)
+	// Lists the rack profiles from the effective runtime configuration.
+	// Rack profiles are configuration, not persisted rack resources.
+	ListRackProfiles(context.Context, *emptypb.Empty) (*ListRackProfilesResponse, error)
 	// Compute Allocations
 	CreateComputeAllocation(context.Context, *CreateComputeAllocationRequest) (*CreateComputeAllocationResponse, error)
 	FindComputeAllocationIds(context.Context, *FindComputeAllocationIdsRequest) (*FindComputeAllocationIdsResponse, error)
@@ -6912,6 +7031,15 @@ func (UnimplementedForgeServer) UpdateVpcPrefix(context.Context, *VpcPrefixUpdat
 func (UnimplementedForgeServer) DeleteVpcPrefix(context.Context, *VpcPrefixDeletionRequest) (*VpcPrefixDeletionResult, error) {
 	return nil, status.Error(codes.Unimplemented, "method DeleteVpcPrefix not implemented")
 }
+func (UnimplementedForgeServer) CreateSitePrefix(context.Context, *SitePrefixCreationRequest) (*SitePrefix, error) {
+	return nil, status.Error(codes.Unimplemented, "method CreateSitePrefix not implemented")
+}
+func (UnimplementedForgeServer) UpdateSitePrefix(context.Context, *SitePrefixUpdateRequest) (*SitePrefix, error) {
+	return nil, status.Error(codes.Unimplemented, "method UpdateSitePrefix not implemented")
+}
+func (UnimplementedForgeServer) DeleteSitePrefix(context.Context, *SitePrefixDeletionRequest) (*SitePrefixDeletionResult, error) {
+	return nil, status.Error(codes.Unimplemented, "method DeleteSitePrefix not implemented")
+}
 func (UnimplementedForgeServer) FindSitePrefixIds(context.Context, *SitePrefixSearchFilter) (*SitePrefixIdList, error) {
 	return nil, status.Error(codes.Unimplemented, "method FindSitePrefixIds not implemented")
 }
@@ -7173,6 +7301,9 @@ func (UnimplementedForgeServer) FindNetworkSegmentStateHistories(context.Context
 func (UnimplementedForgeServer) FindVpcPrefixStateHistories(context.Context, *VpcPrefixStateHistoriesRequest) (*StateHistories, error) {
 	return nil, status.Error(codes.Unimplemented, "method FindVpcPrefixStateHistories not implemented")
 }
+func (UnimplementedForgeServer) FindSitePrefixStateHistories(context.Context, *SitePrefixStateHistoriesRequest) (*StateHistories, error) {
+	return nil, status.Error(codes.Unimplemented, "method FindSitePrefixStateHistories not implemented")
+}
 func (UnimplementedForgeServer) FindTenantOrganizationIds(context.Context, *TenantSearchFilter) (*TenantOrganizationIdList, error) {
 	return nil, status.Error(codes.Unimplemented, "method FindTenantOrganizationIds not implemented")
 }
@@ -7347,6 +7478,9 @@ func (UnimplementedForgeServer) ListHostsWaitingForReprovisioning(context.Contex
 func (UnimplementedForgeServer) TriggerBmcCredentialRotation(context.Context, *BmcCredentialRotationRequest) (*emptypb.Empty, error) {
 	return nil, status.Error(codes.Unimplemented, "method TriggerBmcCredentialRotation not implemented")
 }
+func (UnimplementedForgeServer) TriggerUefiCredentialRotation(context.Context, *UefiCredentialRotationRequest) (*emptypb.Empty, error) {
+	return nil, status.Error(codes.Unimplemented, "method TriggerUefiCredentialRotation not implemented")
+}
 func (UnimplementedForgeServer) MarkManualFirmwareUpgradeComplete(context.Context, *MachineId) (*emptypb.Empty, error) {
 	return nil, status.Error(codes.Unimplemented, "method MarkManualFirmwareUpgradeComplete not implemented")
 }
@@ -7415,6 +7549,9 @@ func (UnimplementedForgeServer) SetHostUefiPassword(context.Context, *SetHostUef
 }
 func (UnimplementedForgeServer) ClearHostUefiPassword(context.Context, *ClearHostUefiPasswordRequest) (*ClearHostUefiPasswordResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method ClearHostUefiPassword not implemented")
+}
+func (UnimplementedForgeServer) SetDpuUefiPassword(context.Context, *SetDpuUefiPasswordRequest) (*SetDpuUefiPasswordResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method SetDpuUefiPassword not implemented")
 }
 func (UnimplementedForgeServer) AddExpectedMachine(context.Context, *ExpectedMachine) (*emptypb.Empty, error) {
 	return nil, status.Error(codes.Unimplemented, "method AddExpectedMachine not implemented")
@@ -7952,6 +8089,9 @@ func (UnimplementedForgeServer) AdminForceDeleteRack(context.Context, *AdminForc
 }
 func (UnimplementedForgeServer) GetRackProfile(context.Context, *GetRackProfileRequest) (*GetRackProfileResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method GetRackProfile not implemented")
+}
+func (UnimplementedForgeServer) ListRackProfiles(context.Context, *emptypb.Empty) (*ListRackProfilesResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method ListRackProfiles not implemented")
 }
 func (UnimplementedForgeServer) CreateComputeAllocation(context.Context, *CreateComputeAllocationRequest) (*CreateComputeAllocationResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method CreateComputeAllocation not implemented")
@@ -8692,6 +8832,60 @@ func _Forge_DeleteVpcPrefix_Handler(srv interface{}, ctx context.Context, dec fu
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(ForgeServer).DeleteVpcPrefix(ctx, req.(*VpcPrefixDeletionRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _Forge_CreateSitePrefix_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(SitePrefixCreationRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ForgeServer).CreateSitePrefix(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Forge_CreateSitePrefix_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ForgeServer).CreateSitePrefix(ctx, req.(*SitePrefixCreationRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _Forge_UpdateSitePrefix_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(SitePrefixUpdateRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ForgeServer).UpdateSitePrefix(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Forge_UpdateSitePrefix_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ForgeServer).UpdateSitePrefix(ctx, req.(*SitePrefixUpdateRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _Forge_DeleteSitePrefix_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(SitePrefixDeletionRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ForgeServer).DeleteSitePrefix(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Forge_DeleteSitePrefix_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ForgeServer).DeleteSitePrefix(ctx, req.(*SitePrefixDeletionRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -10262,6 +10456,24 @@ func _Forge_FindVpcPrefixStateHistories_Handler(srv interface{}, ctx context.Con
 	return interceptor(ctx, in, info, handler)
 }
 
+func _Forge_FindSitePrefixStateHistories_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(SitePrefixStateHistoriesRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ForgeServer).FindSitePrefixStateHistories(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Forge_FindSitePrefixStateHistories_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ForgeServer).FindSitePrefixStateHistories(ctx, req.(*SitePrefixStateHistoriesRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _Forge_FindTenantOrganizationIds_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(TenantSearchFilter)
 	if err := dec(in); err != nil {
@@ -11306,6 +11518,24 @@ func _Forge_TriggerBmcCredentialRotation_Handler(srv interface{}, ctx context.Co
 	return interceptor(ctx, in, info, handler)
 }
 
+func _Forge_TriggerUefiCredentialRotation_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(UefiCredentialRotationRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ForgeServer).TriggerUefiCredentialRotation(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Forge_TriggerUefiCredentialRotation_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ForgeServer).TriggerUefiCredentialRotation(ctx, req.(*UefiCredentialRotationRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _Forge_MarkManualFirmwareUpgradeComplete_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(MachineId)
 	if err := dec(in); err != nil {
@@ -11716,6 +11946,24 @@ func _Forge_ClearHostUefiPassword_Handler(srv interface{}, ctx context.Context, 
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(ForgeServer).ClearHostUefiPassword(ctx, req.(*ClearHostUefiPasswordRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _Forge_SetDpuUefiPassword_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(SetDpuUefiPasswordRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ForgeServer).SetDpuUefiPassword(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Forge_SetDpuUefiPassword_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ForgeServer).SetDpuUefiPassword(ctx, req.(*SetDpuUefiPasswordRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -14942,6 +15190,24 @@ func _Forge_GetRackProfile_Handler(srv interface{}, ctx context.Context, dec fun
 	return interceptor(ctx, in, info, handler)
 }
 
+func _Forge_ListRackProfiles_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(emptypb.Empty)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ForgeServer).ListRackProfiles(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Forge_ListRackProfiles_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ForgeServer).ListRackProfiles(ctx, req.(*emptypb.Empty))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _Forge_CreateComputeAllocation_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(CreateComputeAllocationRequest)
 	if err := dec(in); err != nil {
@@ -16781,6 +17047,18 @@ var Forge_ServiceDesc = grpc.ServiceDesc{
 			Handler:    _Forge_DeleteVpcPrefix_Handler,
 		},
 		{
+			MethodName: "CreateSitePrefix",
+			Handler:    _Forge_CreateSitePrefix_Handler,
+		},
+		{
+			MethodName: "UpdateSitePrefix",
+			Handler:    _Forge_UpdateSitePrefix_Handler,
+		},
+		{
+			MethodName: "DeleteSitePrefix",
+			Handler:    _Forge_DeleteSitePrefix_Handler,
+		},
+		{
 			MethodName: "FindSitePrefixIds",
 			Handler:    _Forge_FindSitePrefixIds_Handler,
 		},
@@ -17129,6 +17407,10 @@ var Forge_ServiceDesc = grpc.ServiceDesc{
 			Handler:    _Forge_FindVpcPrefixStateHistories_Handler,
 		},
 		{
+			MethodName: "FindSitePrefixStateHistories",
+			Handler:    _Forge_FindSitePrefixStateHistories_Handler,
+		},
+		{
 			MethodName: "FindTenantOrganizationIds",
 			Handler:    _Forge_FindTenantOrganizationIds_Handler,
 		},
@@ -17361,6 +17643,10 @@ var Forge_ServiceDesc = grpc.ServiceDesc{
 			Handler:    _Forge_TriggerBmcCredentialRotation_Handler,
 		},
 		{
+			MethodName: "TriggerUefiCredentialRotation",
+			Handler:    _Forge_TriggerUefiCredentialRotation_Handler,
+		},
+		{
 			MethodName: "MarkManualFirmwareUpgradeComplete",
 			Handler:    _Forge_MarkManualFirmwareUpgradeComplete_Handler,
 		},
@@ -17451,6 +17737,10 @@ var Forge_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "ClearHostUefiPassword",
 			Handler:    _Forge_ClearHostUefiPassword_Handler,
+		},
+		{
+			MethodName: "SetDpuUefiPassword",
+			Handler:    _Forge_SetDpuUefiPassword_Handler,
 		},
 		{
 			MethodName: "AddExpectedMachine",
@@ -18167,6 +18457,10 @@ var Forge_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "GetRackProfile",
 			Handler:    _Forge_GetRackProfile_Handler,
+		},
+		{
+			MethodName: "ListRackProfiles",
+			Handler:    _Forge_ListRackProfiles_Handler,
 		},
 		{
 			MethodName: "CreateComputeAllocation",

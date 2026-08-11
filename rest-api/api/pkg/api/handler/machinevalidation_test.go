@@ -798,6 +798,11 @@ func TestGetMachineValidationResultsHandler(t *testing.T) {
 
 	site := testMachineBuildSite(t, dbSession, ip, "test-site-1", cdbm.SiteStatusRegistered)
 	assert.NotNil(t, site)
+	machine := testMachineBuildMachine(t, dbSession, ip.ID, site.ID, nil, nil, false, false, cdbm.MachineStatusReady)
+
+	otherIP := testMachineBuildInfrastructureProvider(t, dbSession, "test-ip-org-2", "infra-provider-2")
+	otherSite := testMachineBuildSite(t, dbSession, otherIP, "test-site-2", cdbm.SiteStatusRegistered)
+	otherMachine := testMachineBuildMachine(t, dbSession, otherIP.ID, otherSite.ID, nil, nil, false, false, cdbm.MachineStatusReady)
 
 	cfg := common.GetTestConfig()
 	tempClient := &tmocks.Client{}
@@ -853,14 +858,19 @@ func TestGetMachineValidationResultsHandler(t *testing.T) {
 	tests := []struct {
 		name           string
 		reqOrgName     string
+		machineID      string
+		siteID         string
+		legacyRoute    bool
 		user           *cdbm.User
 		expectedErr    bool
 		expectedStatus int
 		scpClient      *tmocks.Client
+		emptyResponse  bool
 	}{
 		{
 			name:           "error when user not found in request context",
 			reqOrgName:     ipOrg1,
+			machineID:      machine.ID,
 			user:           nil,
 			expectedErr:    true,
 			expectedStatus: http.StatusInternalServerError,
@@ -869,30 +879,100 @@ func TestGetMachineValidationResultsHandler(t *testing.T) {
 		{
 			name:           "error when user not found in org",
 			reqOrgName:     "SomeOrg",
+			machineID:      machine.ID,
 			user:           pvu,
 			expectedErr:    true,
 			expectedStatus: http.StatusForbidden,
 			scpClient:      scpClient,
 		},
 		{
+			name:           "error when machine is not found",
+			reqOrgName:     ipOrg1,
+			machineID:      uuid.NewString(),
+			user:           pvu,
+			expectedErr:    true,
+			expectedStatus: http.StatusNotFound,
+			scpClient:      scpClient,
+		},
+		{
+			name:           "error when machine belongs to another provider",
+			reqOrgName:     ipOrg1,
+			machineID:      otherMachine.ID,
+			user:           pvu,
+			expectedErr:    true,
+			expectedStatus: http.StatusNotFound,
+			scpClient:      scpClient,
+		},
+		{
+			name:           "error when legacy site belongs to another provider",
+			reqOrgName:     ipOrg1,
+			machineID:      uuid.NewString(),
+			siteID:         otherSite.ID.String(),
+			legacyRoute:    true,
+			user:           pvu,
+			expectedErr:    true,
+			expectedStatus: http.StatusBadRequest,
+			scpClient:      scpClient,
+		},
+		{
 			name:           "error when workflow times out",
 			reqOrgName:     ipOrg1,
+			machineID:      machine.ID,
 			user:           pvu,
 			expectedErr:    true,
 			expectedStatus: http.StatusInternalServerError,
 			scpClient:      scpClientWithTimeout,
 		},
 		{
-			name:           "no error",
+			name:           "no error for machine route",
 			reqOrgName:     ipOrg1,
+			machineID:      machine.ID,
 			user:           pvu,
 			expectedErr:    false,
 			expectedStatus: http.StatusOK,
 			scpClient:      scpClient,
 		},
+		{
+			name:           "no error for legacy route without central machine record",
+			reqOrgName:     ipOrg1,
+			machineID:      uuid.NewString(),
+			siteID:         site.ID.String(),
+			legacyRoute:    true,
+			user:           pvu,
+			expectedErr:    false,
+			expectedStatus: http.StatusOK,
+			scpClient:      scpClient,
+		},
+		{
+			name:           "empty response is an array for machine route",
+			reqOrgName:     ipOrg1,
+			machineID:      machine.ID,
+			user:           pvu,
+			expectedErr:    false,
+			expectedStatus: http.StatusOK,
+			scpClient:      scpClient,
+			emptyResponse:  true,
+		},
+		{
+			name:           "empty response is an array for legacy route",
+			reqOrgName:     ipOrg1,
+			machineID:      uuid.NewString(),
+			siteID:         site.ID.String(),
+			legacyRoute:    true,
+			user:           pvu,
+			expectedErr:    false,
+			expectedStatus: http.StatusOK,
+			scpClient:      scpClient,
+			emptyResponse:  true,
+		},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
+			if tc.emptyResponse {
+				previousResponse := workflowResponse
+				workflowResponse = nil
+				defer func() { workflowResponse = previousResponse }()
+			}
 			assert.NotEqual(t, tc.name, "")
 			// init temporal client
 			scp.IDClientMap[site.ID.String()] = tc.scpClient
@@ -903,8 +983,13 @@ func TestGetMachineValidationResultsHandler(t *testing.T) {
 			rec := httptest.NewRecorder()
 
 			ec := e.NewContext(req, rec)
-			ec.SetParamNames("orgName", "siteID", "machineID")
-			ec.SetParamValues(tc.reqOrgName, site.ID.String(), uuid.NewString())
+			if tc.legacyRoute {
+				ec.SetParamNames("orgName", "siteID", "machineID")
+				ec.SetParamValues(tc.reqOrgName, tc.siteID, tc.machineID)
+			} else {
+				ec.SetParamNames("orgName", "id")
+				ec.SetParamValues(tc.reqOrgName, tc.machineID)
+			}
 			if tc.user != nil {
 				ec.Set("user", tc.user)
 			}
@@ -924,6 +1009,9 @@ func TestGetMachineValidationResultsHandler(t *testing.T) {
 			assert.Equal(t, tc.expectedErr, rec.Code != http.StatusOK)
 			assert.Equal(t, tc.expectedStatus, rec.Code)
 			if !tc.expectedErr {
+				if tc.emptyResponse {
+					assert.JSONEq(t, "[]", rec.Body.String())
+				}
 				var apiResponse []*model.APIMachineValidationResult
 				err := json.Unmarshal(rec.Body.Bytes(), &apiResponse)
 				assert.Nil(t, err)
@@ -955,6 +1043,11 @@ func TestGetAllMachineValidationRunHandler(t *testing.T) {
 
 	site := testMachineBuildSite(t, dbSession, ip, "test-site-1", cdbm.SiteStatusRegistered)
 	assert.NotNil(t, site)
+	machine := testMachineBuildMachine(t, dbSession, ip.ID, site.ID, nil, nil, false, false, cdbm.MachineStatusReady)
+
+	otherIP := testMachineBuildInfrastructureProvider(t, dbSession, "test-ip-org-2", "infra-provider-2")
+	otherSite := testMachineBuildSite(t, dbSession, otherIP, "test-site-2", cdbm.SiteStatusRegistered)
+	otherMachine := testMachineBuildMachine(t, dbSession, otherIP.ID, otherSite.ID, nil, nil, false, false, cdbm.MachineStatusReady)
 
 	cfg := common.GetTestConfig()
 	tempClient := &tmocks.Client{}
@@ -1010,14 +1103,19 @@ func TestGetAllMachineValidationRunHandler(t *testing.T) {
 	tests := []struct {
 		name           string
 		reqOrgName     string
+		machineID      string
+		siteID         string
+		legacyRoute    bool
 		user           *cdbm.User
 		expectedErr    bool
 		expectedStatus int
 		scpClient      *tmocks.Client
+		emptyResponse  bool
 	}{
 		{
 			name:           "error when user not found in request context",
 			reqOrgName:     ipOrg1,
+			machineID:      machine.ID,
 			user:           nil,
 			expectedErr:    true,
 			expectedStatus: http.StatusInternalServerError,
@@ -1026,30 +1124,100 @@ func TestGetAllMachineValidationRunHandler(t *testing.T) {
 		{
 			name:           "error when user not found in org",
 			reqOrgName:     "SomeOrg",
+			machineID:      machine.ID,
 			user:           pvu,
 			expectedErr:    true,
 			expectedStatus: http.StatusForbidden,
 			scpClient:      scpClient,
 		},
 		{
+			name:           "error when machine is not found",
+			reqOrgName:     ipOrg1,
+			machineID:      uuid.NewString(),
+			user:           pvu,
+			expectedErr:    true,
+			expectedStatus: http.StatusNotFound,
+			scpClient:      scpClient,
+		},
+		{
+			name:           "error when machine belongs to another provider",
+			reqOrgName:     ipOrg1,
+			machineID:      otherMachine.ID,
+			user:           pvu,
+			expectedErr:    true,
+			expectedStatus: http.StatusNotFound,
+			scpClient:      scpClient,
+		},
+		{
+			name:           "error when legacy site belongs to another provider",
+			reqOrgName:     ipOrg1,
+			machineID:      uuid.NewString(),
+			siteID:         otherSite.ID.String(),
+			legacyRoute:    true,
+			user:           pvu,
+			expectedErr:    true,
+			expectedStatus: http.StatusBadRequest,
+			scpClient:      scpClient,
+		},
+		{
 			name:           "error when workflow times out",
 			reqOrgName:     ipOrg1,
+			machineID:      machine.ID,
 			user:           pvu,
 			expectedErr:    true,
 			expectedStatus: http.StatusInternalServerError,
 			scpClient:      scpClientWithTimeout,
 		},
 		{
-			name:           "no error",
+			name:           "no error for machine route",
 			reqOrgName:     ipOrg1,
+			machineID:      machine.ID,
 			user:           pvu,
 			expectedErr:    false,
 			expectedStatus: http.StatusOK,
 			scpClient:      scpClient,
 		},
+		{
+			name:           "no error for legacy route without central machine record",
+			reqOrgName:     ipOrg1,
+			machineID:      uuid.NewString(),
+			siteID:         site.ID.String(),
+			legacyRoute:    true,
+			user:           pvu,
+			expectedErr:    false,
+			expectedStatus: http.StatusOK,
+			scpClient:      scpClient,
+		},
+		{
+			name:           "empty response is an array for machine route",
+			reqOrgName:     ipOrg1,
+			machineID:      machine.ID,
+			user:           pvu,
+			expectedErr:    false,
+			expectedStatus: http.StatusOK,
+			scpClient:      scpClient,
+			emptyResponse:  true,
+		},
+		{
+			name:           "empty response is an array for legacy route",
+			reqOrgName:     ipOrg1,
+			machineID:      uuid.NewString(),
+			siteID:         site.ID.String(),
+			legacyRoute:    true,
+			user:           pvu,
+			expectedErr:    false,
+			expectedStatus: http.StatusOK,
+			scpClient:      scpClient,
+			emptyResponse:  true,
+		},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
+			if tc.emptyResponse {
+				previousResponse := workflowResponse
+				workflowResponse = nil
+				defer func() { workflowResponse = previousResponse }()
+			}
 			assert.NotEqual(t, tc.name, "")
 			// init temporal client
 			scp.IDClientMap[site.ID.String()] = tc.scpClient
@@ -1060,8 +1228,13 @@ func TestGetAllMachineValidationRunHandler(t *testing.T) {
 			rec := httptest.NewRecorder()
 
 			ec := e.NewContext(req, rec)
-			ec.SetParamNames("orgName", "siteID", "machineID")
-			ec.SetParamValues(tc.reqOrgName, site.ID.String(), uuid.NewString())
+			if tc.legacyRoute {
+				ec.SetParamNames("orgName", "siteID", "machineID")
+				ec.SetParamValues(tc.reqOrgName, tc.siteID, tc.machineID)
+			} else {
+				ec.SetParamNames("orgName", "id")
+				ec.SetParamValues(tc.reqOrgName, tc.machineID)
+			}
 			if tc.user != nil {
 				ec.Set("user", tc.user)
 			}
@@ -1081,6 +1254,9 @@ func TestGetAllMachineValidationRunHandler(t *testing.T) {
 			assert.Equal(t, tc.expectedErr, rec.Code != http.StatusOK)
 			assert.Equal(t, tc.expectedStatus, rec.Code)
 			if !tc.expectedErr {
+				if tc.emptyResponse {
+					assert.JSONEq(t, "[]", rec.Body.String())
+				}
 				var apiResponse []*model.APIMachineValidationRun
 				err := json.Unmarshal(rec.Body.Bytes(), &apiResponse)
 				assert.Nil(t, err)

@@ -91,7 +91,7 @@ pub type NoAuthorization = ();
 impl Authorization for NoAuthorization {}
 
 // Various properties of a user gleaned from the presented certificate
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct ExternalUserInfo {
     // Organization of the user, currently unused except for reporting
     pub org: Option<String>,
@@ -696,7 +696,7 @@ mod tests {
 
         let logs = capture_logs(|| {
             let request = Request::builder()
-                .uri("/forge.Forge/Anything")
+                .uri(rpc::service_path!("Anything"))
                 .body(String::new())
                 .expect("request");
             let _response_future = service.call(request);
@@ -743,7 +743,7 @@ mod tests {
 
         capture_logs(|| {
             let mut request = Request::builder()
-                .uri("/forge.Forge/Anything")
+                .uri(rpc::service_path!("Anything"))
                 .body(String::new())
                 .expect("request");
             request
@@ -779,7 +779,7 @@ mod tests {
 
         let logs = capture_logs(|| {
             let mut request = Request::builder()
-                .uri("/forge.Forge/Anything")
+                .uri(rpc::service_path!("Anything"))
                 .body(String::new())
                 .expect("request");
             request

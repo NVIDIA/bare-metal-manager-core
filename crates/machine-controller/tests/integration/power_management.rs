@@ -18,10 +18,16 @@
 use std::sync::Arc;
 
 use carbide_redfish::libredfish::RedfishClientPool as _;
+use carbide_redfish::libredfish::test_support::RedfishSimAction;
 use carbide_test_harness::prelude::*;
-use carbide_test_harness::test_support::fixture_config::FixtureDefault as _;
+use carbide_test_harness::test_support::fixture_config::{
+    FixtureDefault as _, ManagedHostConfigExt as _,
+};
 use carbide_utils::redfish::BmcAccessInfo;
-use model::machine::{MachineMaintenanceOperation, ManagedHostState};
+use model::machine::{
+    DpuInitState, DpuInitStates, MachineMaintenanceOperation, ManagedHostState,
+    PerformPowerOperation,
+};
 use model::power_manager::PowerState;
 use model::test_support::ManagedHostConfig;
 use rpc::forge::{
@@ -55,6 +61,14 @@ impl TestContext {
     }
 
     async fn from_env(env: Env) -> Self {
+        Self::from_env_with_config(env, ManagedHostConfig::default()).await
+    }
+
+    /// Builds the fixture with an explicit hardware layout.
+    ///
+    /// Power-cycle coverage uses this to exercise one host with multiple DPUs
+    /// without changing the default fixture used by the rest of this module.
+    async fn from_env_with_config(env: Env, config: ManagedHostConfig) -> Self {
         let domain = env.test_harness.test_domain().await;
         let network_controller = env.test_harness.network_controller();
         let underlay_segment = network_controller.create_underlay_segment(&domain).await;
@@ -63,7 +77,7 @@ impl TestContext {
         let mh = env
             .test_harness
             .managed_host_builder(&site_explorer, underlay_segment)
-            .with_config(ManagedHostConfig::default())
+            .with_config(config)
             .build()
             .await
             .0;
@@ -127,6 +141,123 @@ impl TestManagedHostPowerExt for TestManagedHost {
             .await
             .expect("database transaction should commit");
     }
+}
+
+#[sqlx_test]
+async fn dpu_init_power_cycle_waits_for_observed_host_power_off(
+    pool: PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let TestContext { mut env, mh } = TestContext::from_env_with_config(
+        Env::builder(pool).build().await,
+        ManagedHostConfig::default().with_dpu_count(2),
+    )
+    .await;
+    let dpu_init_state = |dpu_state: DpuInitState| ManagedHostState::DPUInit {
+        dpu_states: DpuInitStates {
+            states: mh
+                .dpus
+                .iter()
+                .map(|dpu| (dpu.id, dpu_state.clone()))
+                .collect(),
+        },
+    };
+    let powering_off = dpu_init_state(DpuInitState::WaitingForPlatformPowercycle {
+        substate: PerformPowerOperation::Off,
+    });
+    let waiting_for_power_off = dpu_init_state(DpuInitState::WaitingForPlatformPowerOff);
+    let powering_on = dpu_init_state(DpuInitState::WaitingForPlatformPowercycle {
+        substate: PerformPowerOperation::On,
+    });
+    let configuring = dpu_init_state(DpuInitState::WaitingForPlatformConfiguration);
+    mh.advance_state(powering_off).await;
+
+    let bmc_access_info = mh.bmc_access_info().await;
+    let redfish_client = env.redfish_sim.client_by_info(&bmc_access_info).await?;
+    assert_eq!(
+        redfish_client.get_power_state().await?,
+        libredfish::PowerState::On,
+    );
+
+    // Keep the power-off observation in its own persisted phase. A delayed BMC
+    // can then report stale `On` without letting the controller skip ahead.
+    let redfish_timepoint = env.redfish_sim.timepoint();
+    env.run_single_iteration().await;
+
+    assert_eq!(
+        mh.host.machine().await.current_state(),
+        &waiting_for_power_off,
+    );
+    assert_eq!(
+        env.redfish_sim
+            .actions_since(&redfish_timepoint)
+            .for_host(&bmc_access_info.host),
+        vec![RedfishSimAction::Power(
+            libredfish::SystemPowerControl::ForceOff,
+        )],
+    );
+
+    redfish_client
+        .power(libredfish::SystemPowerControl::On)
+        .await?;
+    let redfish_timepoint = env.redfish_sim.timepoint();
+    env.run_single_iteration().await;
+
+    assert_eq!(
+        mh.host.machine().await.current_state(),
+        &waiting_for_power_off,
+    );
+    assert!(
+        env.redfish_sim
+            .actions_since(&redfish_timepoint)
+            .for_host(&bmc_access_info.host)
+            .is_empty(),
+    );
+
+    // Once `Off` is observed, persist the power-on phase before issuing `On`.
+    redfish_client
+        .power(libredfish::SystemPowerControl::ForceOff)
+        .await?;
+    let redfish_timepoint = env.redfish_sim.timepoint();
+    env.run_single_iteration().await;
+
+    assert_eq!(mh.host.machine().await.current_state(), &powering_on);
+    assert!(
+        env.redfish_sim
+            .actions_since(&redfish_timepoint)
+            .for_host(&bmc_access_info.host)
+            .is_empty(),
+    );
+
+    let redfish_timepoint = env.redfish_sim.timepoint();
+    env.run_single_iteration().await;
+
+    assert_eq!(mh.host.machine().await.current_state(), &configuring);
+    assert_eq!(
+        env.redfish_sim
+            .actions_since(&redfish_timepoint)
+            .for_host(&bmc_access_info.host),
+        vec![RedfishSimAction::Power(libredfish::SystemPowerControl::On)],
+    );
+    assert_eq!(
+        redfish_client.get_power_state().await?,
+        libredfish::PowerState::On,
+    );
+
+    // If the process exits after `On` succeeds but before the transition is
+    // committed, the persisted power-on phase must still resume cleanly.
+    mh.advance_state(powering_on).await;
+    let redfish_timepoint = env.redfish_sim.timepoint();
+    env.run_single_iteration().await;
+
+    assert_eq!(mh.host.machine().await.current_state(), &configuring);
+    assert!(
+        env.redfish_sim
+            .actions_since(&redfish_timepoint)
+            .for_host(&bmc_access_info.host)
+            .is_empty(),
+    );
+
+    Ok(())
 }
 
 #[sqlx_test]

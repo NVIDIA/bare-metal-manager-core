@@ -89,14 +89,13 @@ impl Env {
     }
 }
 
-fn machine_creator_config(allocate_secondary_vtep_ip: bool) -> SiteExplorerConfig {
+fn machine_creator_config() -> SiteExplorerConfig {
     SiteExplorerConfig {
         enabled: Arc::new(true.into()),
         explorations_per_run: 2,
         concurrent_explorations: 1,
         run_interval: Duration::from_secs(1),
         create_machines: Arc::new(true.into()),
-        allocate_secondary_vtep_ip,
         create_power_shelves: Arc::new(true.into()),
         power_shelves_created_per_run: 1,
         create_switches: Arc::new(true.into()),
@@ -159,7 +158,7 @@ fn machine_creator_with_rms(env: &Env, rms_sim: &RmsSim) -> MachineCreator {
 
     MachineCreator::new(
         env.pool.clone(),
-        machine_creator_config(false),
+        machine_creator_config(),
         env.api().common_pools().clone(),
         Arc::new(rack_profiles),
         rms_sim.as_rms_client(),
@@ -478,7 +477,7 @@ async fn test_machine_creator_creates_managed_host(
     pool: PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let env = Env::new(pool).await;
-    let creator = machine_creator(&env, machine_creator_config(false));
+    let creator = machine_creator(&env, machine_creator_config());
 
     // Use a known DPU serial so we can assert on the generated MachineId.
     let dpu_serial = "MT2328XZ185R".to_string();
@@ -630,7 +629,6 @@ async fn test_machine_creator_creates_multi_dpu_managed_host(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let resource_pools = ResourcePoolBuilder::default()
         .with_loopback_ip_v6("2001:db8::/125")
-        .with_secondary_vtep_ip("172.21.0.0/29")
         .build();
     let test_harness = TestHarness::builder(pool.clone())
         .with_resource_pools(resource_pools)
@@ -645,7 +643,7 @@ async fn test_machine_creator_creates_multi_dpu_managed_host(
         underlay_segment,
         test_harness,
     };
-    let creator = machine_creator(&env, machine_creator_config(true));
+    let creator = machine_creator(&env, machine_creator_config());
 
     const NUM_DPUS: usize = 2;
     let mut txn = env.pool.begin().await?;
@@ -661,15 +659,6 @@ async fn test_machine_creator_creates_multi_dpu_managed_host(
     )
     .await?;
 
-    let initial_secondary_vtep_pool_stats = db::resource_pool::stats(
-        &mut *txn,
-        env.api()
-            .common_pools()
-            .ethernet
-            .pool_secondary_vtep_ip
-            .name(),
-    )
-    .await?;
     txn.commit().await?;
 
     let mut oob_interfaces = Vec::new();
@@ -748,12 +737,6 @@ async fn test_machine_creator_creates_multi_dpu_managed_host(
 
         let expected_loopback_ip = dpu_machine.network_config.loopback_ip.unwrap().to_string();
         assert!(dpu_machine.network_config.loopback_ip_v6.is_some());
-        let expected_secondary_overlay_vtep_ip = dpu_machine
-            .network_config
-            .secondary_overlay_vtep_ip
-            .unwrap()
-            .to_string();
-
         let network_config_response = env
             .api()
             .get_managed_host_network_config(Request::new(
@@ -770,15 +753,6 @@ async fn test_machine_creator_creates_multi_dpu_managed_host(
                 .managed_host_config
                 .unwrap()
                 .loopback_ip
-        );
-
-        assert_eq!(
-            expected_secondary_overlay_vtep_ip,
-            network_config_response
-                .traffic_intercept_config
-                .unwrap()
-                .additional_overlay_vtep_ip
-                .unwrap()
         );
 
         if host_machine.is_none() {
@@ -808,32 +782,6 @@ async fn test_machine_creator_creates_multi_dpu_managed_host(
             used: expected_loopback_count,
             free: initial_loopback_v6_pool_stats.free - expected_loopback_count,
             auto_assign_free: initial_loopback_v6_pool_stats.free - expected_loopback_count,
-            auto_assign_used: expected_loopback_count,
-            non_auto_assign_free: 0,
-            non_auto_assign_used: 0
-        }
-    );
-    txn.commit().await?;
-
-    // And make sure resource pool stats agree with how many
-    // secondary vteps should have been assigned.
-    let expected_secondary_vtep_count = NUM_DPUS;
-    let mut txn = env.pool.begin().await?;
-    assert_eq!(
-        db::resource_pool::stats(
-            &mut *txn,
-            env.api()
-                .common_pools()
-                .ethernet
-                .pool_secondary_vtep_ip
-                .name()
-        )
-        .await?,
-        ResourcePoolStats {
-            used: expected_loopback_count,
-            free: initial_secondary_vtep_pool_stats.free - expected_secondary_vtep_count,
-            auto_assign_free: initial_secondary_vtep_pool_stats.free
-                - expected_secondary_vtep_count,
             auto_assign_used: expected_loopback_count,
             non_auto_assign_free: 0,
             non_auto_assign_used: 0
@@ -919,7 +867,7 @@ async fn test_mi_attach_dpu_if_mi_exists_during_machine_creation(
     pool: PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let env = Env::new(pool).await;
-    let creator = machine_creator(&env, machine_creator_config(false));
+    let creator = machine_creator(&env, machine_creator_config());
 
     let mock_host = ManagedHostConfig::default();
     let mock_dpu = mock_host.dpus.first().unwrap();
@@ -965,7 +913,7 @@ async fn test_mi_attach_dpu_if_mi_created_after_machine_creation(
     pool: PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let env = Env::new(pool).await;
-    let creator = machine_creator(&env, machine_creator_config(false));
+    let creator = machine_creator(&env, machine_creator_config());
     let mock_host = ManagedHostConfig::default();
     let mock_dpu = mock_host.dpus.first().unwrap();
     let mut fixture = explored_host_fixture(&env, &mock_host).await;
@@ -1044,7 +992,7 @@ async fn test_all_dpu_interfaces_attach_if_created_after_multi_dpu_machine_creat
     const NUM_DPUS: usize = 2;
 
     let env = Env::new(pool).await;
-    let creator = machine_creator(&env, machine_creator_config(false));
+    let creator = machine_creator(&env, machine_creator_config());
     let mock_host = ManagedHostConfig::default().with_dpu_count(NUM_DPUS);
     let mut fixture = explored_host_fixture(&env, &mock_host).await;
 
@@ -1101,7 +1049,7 @@ async fn test_machine_creator_rejects_partial_dpu_machine_set(
     const NUM_DPUS: usize = 2;
 
     let env = Env::new(pool).await;
-    let creator = machine_creator(&env, machine_creator_config(false));
+    let creator = machine_creator(&env, machine_creator_config());
     let mock_host = ManagedHostConfig::default().with_dpu_count(NUM_DPUS);
     let mut fixture = explored_host_fixture(&env, &mock_host).await;
 
@@ -1153,7 +1101,7 @@ async fn test_machine_creator_creates_managed_host_with_dpf_disabled(
     pool: PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let env = Env::new(pool).await;
-    let creator = machine_creator(&env, machine_creator_config(false));
+    let creator = machine_creator(&env, machine_creator_config());
 
     let mock_dpu = DpuConfig::with_serial("MT2328XZ185R".to_string());
     let mock_host = ManagedHostConfig {
@@ -1205,7 +1153,7 @@ async fn test_machine_creator_creates_managed_host_with_dpf_enabled(
     pool: PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let env = Env::new(pool).await;
-    let creator = machine_creator(&env, machine_creator_config(false));
+    let creator = machine_creator(&env, machine_creator_config());
 
     let mock_dpu = DpuConfig::with_serial("MT2328XZ185R".to_string());
     let mock_host = ManagedHostConfig {
@@ -1253,7 +1201,7 @@ async fn test_machine_creator_rejects_unexpected_host(
     pool: PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let env = Env::new(pool).await;
-    let creator = machine_creator(&env, machine_creator_config(false));
+    let creator = machine_creator(&env, machine_creator_config());
 
     let mock_host = ManagedHostConfig::default();
     let mut fixture = explored_host_fixture(&env, &mock_host).await;

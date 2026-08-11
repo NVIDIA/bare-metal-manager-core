@@ -83,11 +83,16 @@ _SOURCED=false
 # setup.sh has consumed its own args, so this block is a no-op there.
 # ---------------------------------------------------------------------------
 if ! ${_SOURCED}; then
+    # DPF is on by default; derive INSTALL_DPF from env, then let flags override.
+    INSTALL_DPF="${INSTALL_DPF:-${NICO_INSTALL_DPF:-true}}"
+    [[ "${NICO_SKIP_DPF:-false}" == "true" ]] && INSTALL_DPF=false
     while [[ $# -gt 0 ]]; do
         case "$1" in
             --skip-core)      SKIP_CORE=true ;;
             --skip-rest)      SKIP_REST=true ;;
             --skip-flow)      SKIP_FLOW=true ;;
+            --skip-dpf)       INSTALL_DPF=false ;;
+            --install-dpf)    INSTALL_DPF=true ;;
             -y|--yes)         AUTO_YES=true ;;
             --core-values)    CORE_VALUES="$2"; shift ;;
             --metallb-config) METALLB_CONFIG="$2"; shift ;;
@@ -464,6 +469,57 @@ if [[ -n "${KUBECONFIG:-}" && ! -f "${KUBECONFIG}" ]]; then
     ERRORS+=("KUBECONFIG='${KUBECONFIG}' does not exist — check the path to your cluster kubeconfig")
 fi
 
+# DPF requirements. DPF installs by default; these apply unless --skip-dpf
+# (NICO_SKIP_DPF=true / NICO_INSTALL_DPF=false), which clears INSTALL_DPF.
+if [[ "${INSTALL_DPF:-true}" == "true" ]]; then
+    command -v git &>/dev/null || \
+        ERRORS+=("DPF requires 'git' to clone doca-platform — install it, or pass --skip-dpf")
+    command -v envsubst &>/dev/null || \
+        ERRORS+=("DPF requires 'envsubst' (gettext) to render DPF manifests — install it, or pass --skip-dpf")
+    [[ -z "${NICO_DPF_DPU_INTERFACE:-}" ]] && \
+        ERRORS+=("NICO_DPF_DPU_INTERFACE is not set    (controller interface for the DPU cluster keepalived VIP; required unless --skip-dpf)")
+    [[ -z "${NICO_DPF_DPU_CLUSTER_VIP:-}" ]] && \
+        ERRORS+=("NICO_DPF_DPU_CLUSTER_VIP is not set    (VIP the DPUs use to reach their control plane; required unless --skip-dpf)")
+    [[ -z "${NICO_DPF_BMC_ROOT_PASSWORD:-}" ]] && \
+        WARNINGS+=("NICO_DPF_BMC_ROOT_PASSWORD is not set  (site-wide BMC root password; setup.sh will skip automated credential seeding — set it manually via nico-admin-cli after deploy before DPU provisioning will work)")
+    if [[ -z "${NICO_DPF_NGC_API_KEY:-${REGISTRY_PULL_SECRET:-}}" ]]; then
+        WARNINGS+=("NICO_DPF_NGC_API_KEY / REGISTRY_PULL_SECRET not set — the DPF operator + public DOCA images still pull anonymously, but the Argo repo secrets are skipped, so the private NICo DPUService charts (carbide) won't authenticate unless you mirror/build them into your own registry")
+    fi
+    if [[ "${NICO_MANAGE_DEFAULT_STORAGE_CLASS:-true}" == "false" ]]; then
+        WARNINGS+=("DPF (default) with NICO_MANAGE_DEFAULT_STORAGE_CLASS=false — Kamaji's etcd PVCs use the local-path StorageClass; ensure a usable StorageClass exists")
+    fi
+    # Validate the site config actually enables [dpf] *before* setup.sh installs
+    # the whole DPF prereq stack. Without this, a --core-values file with a
+    # missing/commented [dpf] block passes preflight and aborts only in phase 6,
+    # after argo-cd, kamaji, NFD, the operator and its CRs are already installed,
+    # leaving a half-provisioned cluster. This mirrors the setup.sh two-phase
+    # guard, but it is a pure function of the static file so it can run up front.
+    if [[ "${SKIP_CORE:-false}" != "true" && -f "${_CORE_VALUES_CFG}" ]]; then
+        # Reproduce setup.sh's DPF-ON rendering: the default file ships the [dpf]
+        # block '#dpf# '-commented (uncomment it); a --core-values file is
+        # expected to carry a live [dpf] block already.
+        if [[ -n "${CORE_VALUES:-}" ]]; then
+            _dpf_on_src="$(cat "${_CORE_VALUES_CFG}")"
+        else
+            _dpf_on_src="$(sed -E 's/^([[:space:]]*)#dpf# ?/\1/' "${_CORE_VALUES_CFG}")"
+        fi
+        _dpf_enabled_val="$(printf '%s\n' "${_dpf_on_src}" | awk '
+            /^[[:space:]]*\[[^]]+\][[:space:]]*$/ { indpf = ($0 ~ /^[[:space:]]*\[dpf\][[:space:]]*$/) ? 1 : 0 }
+            indpf==1 && /^[[:space:]]*enabled[[:space:]]*=/ {
+                # Anchor to the FIRST "=" so a trailing comment (e.g. "# default=true")
+                # is not misread as the value — matches setup.sh _dpf_site_enabled.
+                v=$0; sub(/^[^=]*=[[:space:]]*/,"",v); sub(/[[:space:]].*/,"",v); print v; exit
+            }')"
+        if [[ "${_dpf_enabled_val}" != "true" ]]; then
+            if [[ -n "${CORE_VALUES:-}" ]]; then
+                ERRORS+=("${_CORE_VALUES_LABEL}: DPF is enabled (the default) but the site config has no '[dpf]' table with 'enabled = true' on its own line — add one (enabled = true, docker_image_pull_secret = \"nico-pull-secret\"; see docs/manuals/dpf.md §3.5), or pass --skip-dpf")
+            else
+                ERRORS+=("${_CORE_VALUES_LABEL}: the default [dpf] block (normally '#dpf# '-commented) is missing or malformed — restore helm-prereqs/values/nico-core.yaml, or pass --skip-dpf")
+            fi
+        fi
+    fi
+fi
+
 # ---------------------------------------------------------------------------
 # 2. Required tools
 # ---------------------------------------------------------------------------
@@ -615,6 +671,15 @@ _ip_in_block() {
         return 2
     fi
 }
+
+# DPF DPU-cluster keepalived VIP must be a valid IPv4. It is NOT a MetalLB pool
+# VIP (keepalived advertises it on the control-plane interface), so it is only
+# format-checked here — consistent with how every other VIP is validated. The
+# empty case is already an error above (near the DPF required-var block).
+if [[ "${INSTALL_DPF:-true}" == "true" && -n "${NICO_DPF_DPU_CLUSTER_VIP:-}" ]] \
+   && ! _is_ipv4 "${NICO_DPF_DPU_CLUSTER_VIP}"; then
+    ERRORS+=("NICO_DPF_DPU_CLUSTER_VIP='${NICO_DPF_DPU_CLUSTER_VIP}' is not a valid IPv4 address")
+fi
 
 if [[ "${SKIP_CORE:-false}" != "true" && -f "${_CORE_VALUES_CFG}" ]]; then
     # Collect the MetalLB pool blocks (CIDRs + ranges) from the rendered config.

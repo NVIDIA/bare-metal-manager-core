@@ -15,14 +15,14 @@
  * limitations under the License.
  */
 
-//! Machine-controller BMC credential rotation (REQ-2).
+//! Machine-controller BMC credential rotation.
 //!
 //! The shared [`carbide_credential_rotation`] engine owns the actual password
 //! dance, backoff, and crash-safety; this module is the thin machine-controller
 //! adapter. It answers two questions for the state machine:
 //!
 //! - *Should we enter rotation?* [`bmc_rotation_needed`] asks the cached
-//!   [`BmcRotationGate`] whether the host BMC or any of its DPU BMCs lags the
+//!   [`RotationGate`] whether the host BMC or any of its DPU BMCs lags the
 //!   staged site-wide target. The gate keeps the steady state at one cheap
 //!   aggregate query per TTL window (see the engine crate docs).
 //! - *Do one rotation tick.* [`rotate_managed_host_bmcs`] converges the host BMC
@@ -35,10 +35,7 @@
 //! under live tenancy (`Assigned/RotatingBmc`).
 
 use carbide_credential_rotation::{BmcEndpoint, BmcRotationTick, RotateOutcome, rotate_bmc};
-use carbide_secrets::credentials::{BmcCredentialType, CredentialKey, Credentials};
 use carbide_uuid::machine::MachineId;
-use libredfish::model::service_root::RedfishVendor;
-use mac_address::MacAddress;
 use model::machine::{Machine, ManagedHostStateSnapshot};
 use sqlx::PgTransaction;
 use state_controller::state_handler::StateHandlerError;
@@ -66,7 +63,7 @@ pub(crate) async fn bmc_rotation_needed(
     for endpoint in managed_host_bmc_endpoints(mh) {
         let needed = services
             .bmc_rotation_gate
-            .bmc_rotation_needed(&services.db_pool, endpoint.device_mac)
+            .rotation_needed(&services.db_pool, endpoint.device_mac)
             .await
             .map_err(|e| {
                 StateHandlerError::GenericError(eyre::eyre!("bmc rotation gate query: {e}"))
@@ -197,8 +194,11 @@ async fn rotate_endpoint(
     endpoint: BmcEndpoint,
     force: bool,
 ) -> BmcRotationTick {
-    let vendor = resolve_dispatch_vendor(services, &endpoint).await;
-    let target = endpoint.into_target(vendor);
+    // The precise `RedfishVendor` is not persisted for a machine BMC (the stored
+    // hardware vendor is DMI-derived and too coarse), so defer resolution to the
+    // engine's probe, which runs inside the same quarantine-on-failure envelope
+    // as the rotation and reuses its credential candidates.
+    let target = endpoint.into_target_probing_vendor();
     match rotate_bmc(
         &services.db_pool,
         services.credential_manager.as_ref(),
@@ -232,67 +232,11 @@ async fn rotate_endpoint(
     }
 }
 
-/// Resolve the precise dispatch vendor `set_bmc_root_password` branches on by
-/// probing at rotation time.
-///
-/// The stored hardware `BMCVendor` is deliberately not used: it is derived from
-/// DMI `sys_vendor` and is too coarse (every NVIDIA `RedfishVendor` -- DPU,
-/// GBx00, GH200, ... -- collapses to `BMCVendor::Nvidia`), and the precise
-/// `RedfishVendor` is not persisted anywhere. Probing is exactly what the switch
-/// and power-shelf controllers do and what the engine's `BmcRotationTarget`
-/// contract expects. A probe failure falls back to `RedfishVendor::Unknown`,
-/// which the engine surfaces as a device-level error and quarantines with
-/// backoff -- so an unreachable BMC backs off rather than hot-looping the
-/// controller through Ready -> RotatingBmc -> Ready every sweep.
-async fn resolve_dispatch_vendor(
-    services: &MachineStateHandlerServices,
-    endpoint: &BmcEndpoint,
-) -> RedfishVendor {
-    let Some(credentials) = per_device_bmc_credentials(services, endpoint.device_mac).await else {
-        return RedfishVendor::Unknown;
-    };
-    match services
-        .redfish_client_pool
-        .probe_bmc_vendor(&endpoint.host, endpoint.port, credentials)
-        .await
-    {
-        Ok(vendor) => vendor,
-        Err(e) => {
-            tracing::warn!(
-                mac = %endpoint.device_mac,
-                error = %e,
-                "BMC vendor probe failed; rotation engine will quarantine the device"
-            );
-            RedfishVendor::Unknown
-        }
-    }
-}
-
-/// Read the current per-device BMC root secret, used only to satisfy the vendor
-/// probe's Chassis-fallback authentication. The engine re-reads it under its own
-/// crash-safe path; a missing secret here just yields an `Unknown` vendor.
-async fn per_device_bmc_credentials(
-    services: &MachineStateHandlerServices,
-    mac: MacAddress,
-) -> Option<Credentials> {
-    let key = CredentialKey::BmcCredentials {
-        credential_type: BmcCredentialType::BmcRoot {
-            bmc_mac_address: mac,
-        },
-    };
-    match services.credential_manager.get_credentials(&key).await {
-        Ok(credentials) => credentials,
-        Err(e) => {
-            tracing::warn!(%mac, error = %e, "failed reading per-device BMC secret for vendor probe");
-            None
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use std::net::IpAddr;
 
+    use mac_address::MacAddress;
     use model::test_support::machine_snapshot::managed_host_state_snapshot;
 
     use super::*;

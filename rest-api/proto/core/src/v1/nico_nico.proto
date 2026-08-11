@@ -71,6 +71,9 @@ service Forge {
   rpc DeleteVpcPrefix(VpcPrefixDeletionRequest) returns (VpcPrefixDeletionResult);
 
   // Site prefixes
+  rpc CreateSitePrefix(SitePrefixCreationRequest) returns (SitePrefix);
+  rpc UpdateSitePrefix(SitePrefixUpdateRequest) returns (SitePrefix);
+  rpc DeleteSitePrefix(SitePrefixDeletionRequest) returns (SitePrefixDeletionResult);
   rpc FindSitePrefixIds(SitePrefixSearchFilter) returns (SitePrefixIdList);
   rpc FindSitePrefixesByIds(SitePrefixesByIdsRequest) returns (SitePrefixList);
 
@@ -243,6 +246,7 @@ service Forge {
   rpc FindSwitchStateHistories(SwitchStateHistoriesRequest) returns (StateHistories);
   rpc FindNetworkSegmentStateHistories(NetworkSegmentStateHistoriesRequest) returns (StateHistories);
   rpc FindVpcPrefixStateHistories(VpcPrefixStateHistoriesRequest) returns (StateHistories);
+  rpc FindSitePrefixStateHistories(SitePrefixStateHistoriesRequest) returns (StateHistories);
   rpc FindTenantOrganizationIds(TenantSearchFilter) returns (TenantOrganizationIdList);
   rpc FindTenantsByOrganizationIds(TenantByOrganizationIdsRequest) returns (TenantList);
   rpc FindConnectedDevicesByDpuMachineIds(common.MachineIdList) returns (ConnectedDeviceList);
@@ -385,6 +389,16 @@ service Forge {
   // only withdraws a not-yet-consumed request -- it does not undo or reset any
   // BMC credentials that a prior sweep already rotated.
   rpc TriggerBmcCredentialRotation(BmcCredentialRotationRequest) returns (google.protobuf.Empty);
+  // Operator "force-converge this UEFI credential now" escape hatch for a single
+  // host (DPU support follows). This is asynchronous: the handler only persists
+  // (Set) or removes (Clear) the machine's `uefi_credential_rotation_requested`
+  // flag and returns; it performs no rotation itself. A later machine-controller
+  // sweep observes a set flag and rotates the UEFI password (a BIOS job plus a
+  // host power-cycle), bypassing the passive site-wide gate and the device's
+  // backoff quarantine, then clears the flag once it converges. Clear only
+  // withdraws a not-yet-consumed request -- it does not undo or reset any UEFI
+  // credential that a prior sweep already rotated.
+  rpc TriggerUefiCredentialRotation(UefiCredentialRotationRequest) returns (google.protobuf.Empty);
   // TODO: Remove when manual upgrade feature is removed
   // Mark host as having completed manual firmware upgrade
   rpc MarkManualFirmwareUpgradeComplete(common.MachineId) returns (google.protobuf.Empty);
@@ -443,6 +457,11 @@ service Forge {
   // Set Host UEFI password
   rpc SetHostUefiPassword(SetHostUefiPasswordRequest) returns (SetHostUefiPasswordResponse);
   rpc ClearHostUefiPassword(ClearHostUefiPasswordRequest) returns (ClearHostUefiPasswordResponse);
+
+  // Set a DPU's UEFI password directly on the device (the DPU equivalent of
+  // SetHostUefiPassword): stage the site-wide DPU UEFI credential through the
+  // DPU's Redfish BIOS settings and restart the DPU to commit it.
+  rpc SetDpuUefiPassword(SetDpuUefiPasswordRequest) returns (SetDpuUefiPasswordResponse);
 
   // Expected Machine Management
   // Add expected machine
@@ -785,6 +804,9 @@ service Forge {
   // Force deletes a Rack from the database.
   rpc AdminForceDeleteRack(AdminForceDeleteRackRequest) returns (AdminForceDeleteRackResponse);
   rpc GetRackProfile(GetRackProfileRequest) returns (GetRackProfileResponse);
+  // Lists the rack profiles from the effective runtime configuration.
+  // Rack profiles are configuration, not persisted rack resources.
+  rpc ListRackProfiles(google.protobuf.Empty) returns (ListRackProfilesResponse);
 
   //
   // Compute Allocations
@@ -1553,6 +1575,7 @@ message RuntimeConfig {
   string compile_time_helm_version = 51;
   string compile_time_docker_version = 52;
   bool restart_ovs_on_use_admin_network_change = 53;
+  uint32 max_site_prefixes_per_tenant = 54;
 }
 
 message EchoRequest {
@@ -1624,6 +1647,40 @@ message TenantSearchQuery {
   optional string tenantOrganizationId = 1; // protolint:disable:this FIELD_NAMES_LOWER_SNAKE_CASE
 }
 
+// A presence-aware list of prefix-filter entries.
+message PrefixFilterPolicyEntries {
+  repeated PrefixFilterPolicyEntry values = 1;
+}
+
+// Routing-profile properties set directly on a VPC. Present properties
+// override its named routing profile; omitted properties inherit from it.
+// `internal` and `access_tier` are intentionally not exposed because allocation
+// and access controls must always come from the named base profile.
+message VpcRoutingProfileOverrides {
+  optional common.RouteTargets route_target_imports = 1;
+  optional common.RouteTargets route_targets_on_exports = 2;
+  optional bool leak_default_route_from_underlay = 3;
+  optional bool leak_tenant_host_routes_to_underlay = 4;
+  optional bool tenant_leak_communities_accepted = 5;
+  optional PrefixFilterPolicyEntries accepted_leaks_from_underlay = 6;
+  optional PrefixFilterPolicyEntries allowed_anycast_prefixes = 7;
+}
+
+// The fully resolved routing profile currently applied to an FNN VPC.
+// Unlike VpcRoutingProfileOverrides, this includes the protected properties
+// inherited from the named base profile and has no presence-aware fields.
+message VpcEffectiveRoutingProfile {
+  repeated common.RouteTarget route_target_imports = 1;
+  repeated common.RouteTarget route_targets_on_exports = 2;
+  bool leak_default_route_from_underlay = 3;
+  bool leak_tenant_host_routes_to_underlay = 4;
+  bool tenant_leak_communities_accepted = 5;
+  repeated PrefixFilterPolicyEntry accepted_leaks_from_underlay = 6;
+  repeated PrefixFilterPolicyEntry allowed_anycast_prefixes = 7;
+  bool internal = 8;
+  uint32 access_tier = 9;
+}
+
 message VpcConfig {
   string tenant_organization_id = 1;
   optional string tenant_keyset_id = 2;
@@ -1633,6 +1690,7 @@ message VpcConfig {
   // Desired VNI for this VPC. Only populated when explicitly requested during creation.
   optional uint32 vni = 6;
   optional string routing_profile_type = 7;
+  optional VpcRoutingProfileOverrides routing_profile_overrides = 8;
 }
 
 message VpcStatus {
@@ -1640,6 +1698,10 @@ message VpcStatus {
   // explicitly requested, we'd expect this to match config.vni.
   // If not explicitly requested, we'd expect config.vni to be unset.
   optional uint32 vni = 1;
+  // Computed from the API server's current named profile and the persisted
+  // VPC overrides. This value is not persisted and may change when the API
+  // server configuration changes.
+  optional VpcEffectiveRoutingProfile effective_routing_profile = 2;
 }
 
 message Vpc {
@@ -1728,6 +1790,10 @@ message VpcCreationRequest {
   // For example, an internal tenant can request internal or external VPCs,
   // but an external tenant can only request external VPCs.
   optional string routing_profile_type = 17;
+
+  // Properties to overlay on the selected named routing profile. Properties
+  // left unset inherit from the base profile.
+  optional VpcRoutingProfileOverrides routing_profile_overrides = 18;
 }
 
 enum VpcVirtualizationType {
@@ -1776,6 +1842,12 @@ message VpcUpdateRequest {
   // The ID of the default NVLink Logical Partition for a VPC. This is the
   // NVLink Logical Partition that will be used by default for all instances in the VPC.
   optional common.NVLinkLogicalPartitionId default_nvlink_logical_partition_id = 18;
+
+  // Replaces the current inline routing-profile definition when present.
+  // Properties left unset inherit from the named base profile rather than the
+  // previous inline definition. Omit this field to preserve the current
+  // definition; send an empty message to restore inheritance for every property.
+  optional VpcRoutingProfileOverrides routing_profile_overrides = 19;
 }
 
 message VpcUpdateResult {
@@ -1837,6 +1909,8 @@ message VpcPrefix {
   VpcPrefixConfig config = 8;
   VpcPrefixStatus status = 9;
   Metadata metadata = 10;
+  // The SitePrefix that contains this VPC prefix.
+  common.SitePrefixId site_prefix_id = 11;
 }
 
 message VpcPrefixConfig {
@@ -1864,6 +1938,8 @@ message VpcPrefixCreationRequest {
   reserved 5; // tenant_prefix_id
   VpcPrefixConfig config = 6;
   Metadata metadata = 7;
+  // Optional for compatibility with callers that predate SitePrefix identity.
+  common.SitePrefixId site_prefix_id = 8;
 }
 
 message VpcPrefixSearchQuery {
@@ -1878,6 +1954,7 @@ message VpcPrefixSearchQuery {
   optional PrefixMatchType prefix_match_type = 5;
   // Controls whether soft-deleted VPC prefixes are included. Defaults to EXCLUDE.
   DeletedFilter deleted = 6;
+  optional common.SitePrefixId site_prefix_id = 7;
 }
 
 message VpcPrefixGetRequest {
@@ -2360,6 +2437,9 @@ message Switch {
 
   // NVOS host endpoint
   SwitchNvosInfo nvos_info = 15;
+
+  // NVLink domain UUID
+  common.NVLinkDomainId nvlink_domain_uuid = 16;
 }
 
 message SwitchList {
@@ -3614,8 +3694,19 @@ message MachineList {
   repeated Machine machines = 1;
 }
 
+// Selects the interface(s) to delete. Exactly one of `id` or `mac_address` must be set.
+// Deleting by MAC exists for cleaning up a leftover interface when the operator has the
+// MAC but not the interface id -- e.g. a replacement host whose ingestion is blocked by
+// a stale interface record, where the MAC is read off the chassis or expected machines.
 message InterfaceDeleteQuery {
   common.MachineInterfaceId id = 1;
+
+  // Delete every interface whose own MAC address matches this value; it is not filtered
+  // by interface type (for a BMC interface this is the BMC MAC). A MAC is unique only
+  // per network segment, so this may match more than one interface -- they are all
+  // validated before any is deleted, so a match that still belongs to a live machine,
+  // DPU, switch or power shelf refuses the whole request.
+  optional string mac_address = 2;
 }
 
 message InterfaceSearchQuery {
@@ -4531,9 +4622,8 @@ message ManagedHostNetworkConfigResponse {
   // Extension services that should be deployed on this DPU
   repeated ManagedHostDpuExtensionServiceConfig dpu_extension_services = 112;
 
-  // All config related to traffic interception on
-  // the DPU: intermediate bridging, additional VTEPs, etc.
-  optional TrafficInterceptConfig traffic_intercept_config = 113;
+  reserved 113;
+  reserved "traffic_intercept_config";
 
   // Route imports and tagging details for exports
   // used by FNN configs.
@@ -4574,55 +4664,6 @@ message ManagedHostNetworkConfigResponse {
   // restart openvswitch-switch if this is set. Other actions could also
   // be added based on this tracking variable.
   optional bool use_admin_network_changed = 120;
-}
-
-message TrafficInterceptConfig {
-  // Optional IP to be used for a VTEP for an additional
-  // overlay network.  Initial use-case is catalyst VMaaS's
-  // GENEVE overlay.
-  optional string additional_overlay_vtep_ip = 1;
-
-  // Internal DPU bridging config VMaaS support
-  optional TrafficInterceptBridging bridging = 2;
-
-  // Prefixes expected to be publicly routable and used
-  // by VMaaS for internet gateways.
-  repeated string public_prefixes            = 3;
-
-  // IPv4 or IPv6 aggregate prefixes associated with secondary
-  // VTEPs. These are used only for routing and filtering, not for
-  // allocating IPs. IP allocation is provided by the secondary VTEP
-  // resource pool.
-  repeated string secondary_vtep_aggregate_prefixes = 4;
-}
-
-message TrafficInterceptBridging {
-  reserved 2, 4;
-  reserved "host_intercept_bridge_name", "host_intercept_bridge_port";
-
-  // Prefix to be used for assigning gateway IPs
-  // to bridges used for VMaaS routing within the DPU.
-  string internal_bridge_routing_prefix  = 1;
-
-  // Name of the bridge acting as the gateway for packets
-  // leaving VMaaS pods and destined for the outside.
-  // (E.g., internet or pods on other hosts)
-  string vf_intercept_bridge_name        = 3;
-
-  // Name of the patch-port on the intercept bridge side
-  // of the vf_intercept_bridge that connects to the HBN pod
-  // via br-hbn.
-  string vf_intercept_bridge_port        = 5;
-
-  // Name of SF used for routing VMaaS VF traffic into
-  // the HBN pod.
-  string vf_intercept_bridge_sf          = 6;
-
-  // Host-owned PF/VF representor bridging layout keyed by representor name.
-  map<string, HostRepresentorInterceptBridging> host_representor_intercept_bridging = 7;
-
-  // Bridge that intercept patch ports attach to during provisioning.
-  string hbn_bridge = 8;
 }
 
 message ManagedHostDpuExtensionServiceConfig {
@@ -5294,23 +5335,12 @@ enum BootstrapCaSource {
 message CloudInitDiscoveryInstructions {
   MachineInterface machine_interface = 1;
   PxeDomain domain = 2;
+  // Selects which representors from the configured VF population HBN is expected to use.
   optional string hbn_reps = 3;
-  optional string hbn_sfs = 4;
-  optional string vf_intercept_bridge_name = 5;
 
-  reserved 6;
-  reserved "host_intercept_bridge_name";
-
-  // The <vf_intercept_bridge_name> side of the SF representor that connects the HBN pod to br-hbn.
-  // This will be the side owned by the <vf_intercept_bridge_name> bridge
-  optional string vf_intercept_bridge_port   = 7;
-
-  reserved 8;
-  reserved "host_intercept_bridge_port";
-
-  // The representor that will plug into the HBN container to connect it to br-hbn
-  // to open connectivity between all the VFs.
-  optional string vf_intercept_bridge_sf = 9;
+  reserved 4, 5, 6, 7, 8, 9;
+  reserved "hbn_sfs", "vf_intercept_bridge_name", "host_intercept_bridge_name",
+           "vf_intercept_bridge_port", "host_intercept_bridge_port", "vf_intercept_bridge_sf";
 
   // Number of VFs to configure per DPU PF during BlueField provisioning.
   // If absent, nico-pxe uses the legacy default of 16 for rolling upgrades.
@@ -5899,16 +5929,38 @@ message BmcCredentialRotationRequest {
   }
   Mode mode = 1;
 
-  // ID of the device that owns the target BMC. Machine and switch IDs are
-  // supported. Power shelf IDs are valid DeviceIds and are accepted for forward
-  // compatibility, but power shelf BMC rotation is not yet supported.
+  // ID of the device that owns the target BMC: a machine (host or DPU BMC), a
+  // switch (switch BMC), or a power shelf (its PMC). Each such device has
+  // exactly one BMC, so any one id uniquely names the device.
   common.DeviceId device_id = 3;
 
-  // MAC of the BMC to target, resolved server-side to its owning machine or
-  // switch. May be given alone, or alongside a `device_id` as a cross-check
-  // (they must identify the same device). At least one of `device_id` /
-  // `bmc_mac` must be set (enforced server-side).
+  // MAC of the BMC to target, resolved server-side to its owning machine,
+  // switch, or power shelf. May be given alone, or alongside a `device_id` as a
+  // cross-check (they must identify the same device). At least one of
+  // `device_id` / `bmc_mac` must be set (enforced server-side).
   optional string bmc_mac = 4;
+}
+
+message UefiCredentialRotationRequest {
+  enum Mode {
+    // Explicit zero value so an omitted `mode` decodes here and is rejected,
+    // rather than silently defaulting to a real action (see the handler).
+    Unspecified = 0;
+    Set = 1;
+    Clear = 2;
+  }
+  Mode mode = 1;
+  // The machine (a host; a DPU once DPU UEFI rotation ships) that owns the
+  // target UEFI credential. A machine has exactly one UEFI credential, so its id
+  // uniquely names the target. Unlike a BMC, a UEFI credential only ever belongs
+  // to a machine (never a switch or power shelf), so this is a plain optional
+  // field rather than a device-kind oneof.
+  optional common.MachineId machine_id = 2;
+  // MAC of the machine's BMC (which keys the UEFI rotation bookkeeping),
+  // resolved server-side to its owning machine. May be given alone, or alongside
+  // `machine_id` as a cross-check (they must identify the same machine). At
+  // least one of `machine_id` / `bmc_mac` must be set (enforced server-side).
+  optional string bmc_mac = 3;
 }
 
 message HostReprovisioningListRequest {
@@ -6122,6 +6174,19 @@ message ClearHostUefiPasswordRequest {
 
 message ClearHostUefiPasswordResponse {
   optional string job_id = 1;
+}
+
+message SetDpuUefiPasswordRequest {
+  // The DPU machine to set the UEFI password on.
+  common.MachineId dpu_id = 1;
+  // UUID, IP address, hostname or MAC address resolving to the DPU machine
+  // (preferred over dpu_id).
+  optional string machine_query = 2;
+}
+
+message SetDpuUefiPasswordResponse {
+  // A DPU stages the change through Redfish BIOS settings and schedules no job,
+  // so there is nothing to poll and no job id is returned.
 }
 
 enum OsImageStatus {
@@ -6579,6 +6644,7 @@ message MachineValidationOnDemandRequest {
 
 message MachineValidationOnDemandResponse {
   common.MachineValidationId validation_id = 1;
+  MachineValidationRun run = 2;
 }
 
 message FirmwareUpgradeActivity {
@@ -7922,6 +7988,15 @@ message GetRackProfileResponse {
   RackProfile profile = 3;
 }
 
+message ConfiguredRackProfile {
+  common.RackProfileId rack_profile_id = 1;
+  RackProfile profile = 2;
+}
+
+message ListRackProfilesResponse {
+  repeated ConfiguredRackProfile rack_profiles = 1;
+}
+
 // put some sample rack manager commands in for now
 enum RackManagerForgeCmd {
   InventoryGet = 0;
@@ -8052,10 +8127,14 @@ message NmxcBrowseRequest {
   reserved 1;
   reserved "path";
   // Chassis serial used to resolve the NMX-C gRPC endpoint URL from `nvlink_nmxc_endpoints`.
+  // Mutually exclusive with `rack_id`; at least one of `chassis_serial` or `rack_id` must be set.
   string chassis_serial = 2;
   NmxcBrowseOperation operation = 3;
   // Required when `operation` is `NMXC_BROWSE_OPERATION_GPU_INFO`; ignored for `NMXC_BROWSE_OPERATION_GPU_INFO_LIST`.
   uint64 gpu_uid = 4;
+  // Rack identifier; used to resolve the NMX-C endpoint from the rack's ready control-plane switch
+  // NVOS IP. Mutually exclusive with `chassis_serial`; at least one of `rack_id` or `chassis_serial` must be set.
+  optional common.RackId rack_id = 5;
 }
 
 message NmxcBrowseResponse {
@@ -8427,13 +8506,21 @@ message RemediationApplicationStatus {
 message SetPrimaryDpuRequest {
   common.MachineId host_machine_id = 1;
   common.MachineId dpu_machine_id = 2;
-  bool reboot=3;
+  // Deprecated compatibility alias for `force_reconcile`.
+  bool reboot = 3 [deprecated = true];
+  // Request another controller reconciliation even when the selected DPU is
+  // already the desired boot interface.
+  bool force_reconcile = 4;
 }
 
 message SetPrimaryInterfaceRequest {
   common.MachineId host_machine_id = 1;
   common.MachineInterfaceId interface_id = 2;
-  bool reboot = 3;
+  // Deprecated compatibility alias for `force_reconcile`.
+  bool reboot = 3 [deprecated = true];
+  // Request another controller reconciliation even when the selected
+  // interface is already the desired boot interface.
+  bool force_reconcile = 4;
 }
 
 // DPU Extension Service Types and Messages
@@ -9381,11 +9468,6 @@ message UpdateOperatingSystemIpxeTemplateArtifactRequest {
   repeated IpxeTemplateArtifactUpdateRequest updates = 2;
 }
 
-message HostRepresentorInterceptBridging {
-  string bridge     = 1;
-  string patch_port = 2;
-}
-
 message ReWrapSecretsRequest {
   // Rows scanned per batch during the re-wrap walk.
   // Unset: the server picks a sensible default (100).
@@ -9473,6 +9555,51 @@ message RetainedBootInterface {
 }
 
 message GetMachineBootInterfacesResponse {
+  // The desired boot-interface generation, its latest persisted observation,
+  // and any machine-controller work currently reconciling it.
+  message Reconciliation {
+    // Whether the desired generation is waiting for, undergoing, or has
+    // completed machine-controller reconciliation.
+    enum State {
+      // The server did not provide a usable reconciliation state.
+      Unspecified = 0;
+      // The desired generation has no matching observation and is not currently
+      // being reconciled. This includes work deferred while a host is assigned.
+      Pending = 1;
+      // Machine-controller is actively reconciling the desired generation.
+      Converging = 2;
+      // The desired generation has a matching verification or compatibility
+      // baseline.
+      Converged = 3;
+      // Reconciliation of the desired generation reached a terminal failure.
+      Failed = 4;
+    }
+
+    // Boot-interface target for the current desired generation.
+    MachineBootInterface desired_boot_interface = 1;
+    // Opaque configuration version of the current desired generation.
+    string desired_version = 2;
+    // Desired generation covered by the latest persisted observation. It may
+    // differ from `desired_version` after a new operator request.
+    optional string verified_version = 3;
+    // Time the latest persisted observation or compatibility baseline was
+    // recorded. Absent when no generation has been observed.
+    google.protobuf.Timestamp observed_at = 4;
+    // True when the latest observation is a rollout compatibility baseline
+    // rather than a Redfish verification.
+    bool is_compatibility_baseline = 5;
+    // Reconciliation state derived for the current desired generation.
+    State reconciliation_state = 6;
+    // Current managed-host state, including the BootConfiguring phase when
+    // reconciliation is active.
+    string machine_state = 7;
+    // Desired generation captured by an active BootConfiguring pass. This can
+    // differ from `desired_version` while older in-flight work finishes safely.
+    optional string reconciling_version = 8;
+    // Persisted terminal boot-reconciliation failure, when one exists.
+    optional string failure = 9;
+  }
+
   common.MachineId machine_id = 1;
 
   // Boot interfaces from the four stores.
@@ -9507,6 +9634,10 @@ message GetMachineBootInterfacesResponse {
   // non-underlay prediction. Absent when there are no predictions or when the
   // pick refuses to guess among several undeclared NICs.
   MachineBootInterface predicted_boot_interface = 10;
+
+  // Desired-state reconciliation details. Absent before a machine has a
+  // persisted desired boot interface.
+  Reconciliation reconciliation = 11;
 }
 
 message GetContainerRegistryCredentialRequest {
@@ -9526,8 +9657,11 @@ message SetContainerRegistryCredentialRequest {
 
 // Identifies the lifecycle authority responsible for a site prefix.
 enum SitePrefixAuthority {
+  option allow_alias = true;
+
   SITE_PREFIX_AUTHORITY_UNSPECIFIED = 0;
-  SITE_PREFIX_AUTHORITY_CONFIGURED = 1;
+  SITE_PREFIX_AUTHORITY_OPERATOR_MANAGED = 1;
+  SITE_PREFIX_AUTHORITY_CONFIGURED = 1 [deprecated = true];
   SITE_PREFIX_AUTHORITY_TENANT_MANAGED = 2;
 }
 
@@ -9568,6 +9702,52 @@ message SitePrefixConfig {
 message SitePrefixStatus {
   SitePrefixAuthority authority = 1;
   SitePrefixLifecycleState lifecycle_state = 2;
+  // Tenant-wide point-in-time use for the owning tenant. Present only for
+  // tenant-managed SitePrefixes and repeated on each returned resource;
+  // mutation admission remains authoritative.
+  optional SitePrefixQuotaUsage quota = 3;
+}
+
+message SitePrefixQuotaUsage {
+  uint32 used = 1;
+  uint32 limit = 2;
+}
+
+// Core derives TenantManaged, DatacenterOnly, and Provisioning. They are
+// intentionally absent from this request. The caller ID, tenant, prefix, and
+// derived routing scope define an idempotent create. A matching retry returns
+// the current stored resource without reapplying metadata; use UpdateSitePrefix
+// to change metadata.
+message SitePrefixCreationRequest {
+  common.SitePrefixId id = 1;
+  string tenant_organization_id = 2;
+  string prefix = 3;
+  Metadata metadata = 4;
+}
+
+message SitePrefixUpdateRequest {
+  common.SitePrefixId id = 1;
+  string tenant_organization_id = 2;
+  // Required. This replaces metadata only; immutable prefix configuration is
+  // intentionally absent from the update request.
+  Metadata metadata = 3;
+  optional string if_version_match = 4;
+}
+
+// Records retirement intent. DeleteSitePrefix moves the retained row to
+// Deleting; it does not release the CIDR or tenant quota slot. Final removal
+// occurs only after child and dataplane drain.
+message SitePrefixDeletionRequest {
+  common.SitePrefixId id = 1;
+  string tenant_organization_id = 2;
+}
+
+message SitePrefixDeletionResult {
+  SitePrefix site_prefix = 1;
+}
+
+message SitePrefixStateHistoriesRequest {
+  repeated common.SitePrefixId site_prefix_ids = 1;
 }
 
 // All fields are optional. An empty filter returns the complete inventory.

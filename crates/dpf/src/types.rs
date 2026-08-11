@@ -20,6 +20,7 @@
 use std::collections::BTreeMap;
 use std::net::IpAddr;
 
+use k8s_openapi::apimachinery::pkg::util::intstr::IntOrString;
 use serde::{Deserialize, Serialize};
 
 use crate::crds::dpus_generated::DpuStatusPhase;
@@ -108,16 +109,19 @@ pub struct DpfProxyDetails {
     pub no_proxy: Vec<String>,
 }
 
-/// A DPU CR whose installed BFB or `spec.dpuFlavor` does not match the
-/// expected one. Returned by [`crate::DpfSdk::find_outdated_dpus_dpf`]; the
-/// labels map is the DPU CR's `metadata.labels` so callers can map back to
-/// their own identifiers.
+/// A DPU CR whose installed BFB, BlueFieldSoftware, or `spec.dpuFlavor` does
+/// not match the expected one. Returned by
+/// [`crate::DpfSdk::find_outdated_dpus_dpf`]; the labels map is the DPU CR's
+/// `metadata.labels` so callers can map back to their own identifiers.
 #[derive(Debug, Clone)]
 pub struct DpuMismatch {
     pub dpu_cr_name: String,
     pub dpu_labels: std::collections::BTreeMap<String, String>,
-    /// Expected BFB filename (e.g. `<namespace>-bf-bundle-<sha256>.bfb`).
-    pub target_bfb: String,
+    /// Expected provisioning source, for traceability only. For a BFB-based
+    /// deployment this is the expected BFB filename (e.g.
+    /// `<namespace>-bf-bundle-<sha256>.bfb`); for a BlueFieldSoftware-based one
+    /// it is the expected BlueFieldSoftware CR name.
+    pub target_source: String,
 }
 
 /// Service type for configPorts (DPUServiceConfiguration).
@@ -186,6 +190,8 @@ pub struct ServiceDefinition {
     pub service_chain_switches: Vec<ServiceChainSwitch>,
     /// Optional annotations for the service DaemonSet (e.g. Multus CNI networks).
     pub service_daemon_set_annotations: Option<std::collections::BTreeMap<String, String>>,
+    /// Optional extended resources requested by the service DaemonSet.
+    pub service_daemon_set_resources: Option<BTreeMap<String, IntOrString>>,
     /// Optional service Network Attachment Definition specification
     pub service_nad: Option<ServiceNAD>,
 }
@@ -252,15 +258,6 @@ impl ServiceDefinition {
             ..Default::default()
         }
     }
-}
-
-#[derive(Debug, Clone, Default)]
-pub struct DpuFlavorBridgeDefinition {
-    pub vf_intercept_bridge_name: String,
-    pub vf_intercept_bridge_port: String,
-    pub host_intercept_bridge_name: String,
-    pub host_intercept_bridge_port: String,
-    pub vf_intercept_bridge_sf: String,
 }
 
 /// Deployment type of a DPU — used to route devices to the correct
@@ -374,6 +371,7 @@ impl From<DpuStatusPhase> for DpuPhase {
                 Self::Provisioning("PerformArmForceRestart".into())
             }
             DpuStatusPhase::UpdateFirmware => Self::Provisioning("UpdateFirmware".into()),
+            DpuStatusPhase::HostOsInitRelease => Self::Provisioning("HostOsInitRelease".into()),
         }
     }
 }

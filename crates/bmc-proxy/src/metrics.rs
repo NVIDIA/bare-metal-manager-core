@@ -23,13 +23,13 @@ use std::io;
 use std::net::SocketAddr;
 use std::time::Duration;
 
-use carbide_instrument::{DynamicLog, DynamicMessage, Event, LabelValue, LogAt, MetricFamily};
+use carbide_instrument::{Event, LabelValue, MetricFamily};
 use http::Method;
 use metrics_endpoint::{MetricsEndpointConfig, MetricsSetup};
 use tokio::task::JoinSet;
 use tokio_util::sync::CancellationToken;
 
-pub async fn start(
+pub(crate) async fn start(
     address: SocketAddr,
     metrics_setup: MetricsSetup,
     cancellation_token: CancellationToken,
@@ -189,68 +189,38 @@ impl PrincipalAllowListDenied {
 }
 
 /// An authorization layer could not run because authentication middleware did
-/// not attach an `AuthContext`. This is a wiring error, not a policy denial,
-/// so it is counted separately from a normal 403. `authorization_layer` names
-/// the layer that could not evaluate, and picks the level and diagnostic each
-/// one already had: the request ACL treats it as a bug and logs `ERROR`, while
-/// the outer allow-list keeps its `WARN`. Either way the request is a 500.
+/// not attach an `AuthContext`. A wiring error, not a policy denial, so it is
+/// counted apart from a normal 403. Each variant keeps the level its layer had.
 #[derive(Event)]
 #[event(
     event_name = "bmc_proxy_auth_context_missing",
     metric_name = "carbide_bmc_proxy_authorization_errors_total",
     component = "nico-bmc-proxy",
-    log = dynamic,
     metric = counter,
-    message = dynamic,
-    describe = "Number of BMC proxy authorization errors caused by missing authentication context, by authorization layer and HTTP method"
+    describe = "Number of BMC proxy authorization errors caused by missing authentication context, by authorization layer and HTTP method",
+    labels(authorization_layer: AuthorizationLayer, method: MethodLabel),
 )]
-pub(crate) struct AuthContextMissing {
-    #[label]
-    authorization_layer: AuthorizationLayer,
-    #[label(name = "method")]
-    method_label: MethodLabel,
+pub(crate) enum AuthContextMissing {
+    #[event(
+        labels(authorization_layer = AuthorizationLayer::RequestAcl),
+        log = error,
+        message = "BUG: No AuthContext middleware found, all requests will be denied"
+    )]
+    RequestAcl {
+        #[label(name = "method")]
+        method_label: MethodLabel,
+    },
+
+    #[event(
+        labels(authorization_layer = AuthorizationLayer::PrincipalAllowList),
+        log = warn,
+        message = "authorize_proxy_request found a request with no AuthContext in its extensions"
+    )]
+    PrincipalAllowList {
+        #[label(name = "method")]
+        method_label: MethodLabel,
+    },
 }
-
-impl AuthContextMissing {
-    /// The per-principal ACL could not evaluate the request.
-    pub(crate) fn request_acl(method: &Method) -> Self {
-        Self {
-            authorization_layer: AuthorizationLayer::RequestAcl,
-            method_label: method.into(),
-        }
-    }
-
-    /// The outer principal allow-list could not evaluate the request.
-    pub(crate) fn principal_allow_list(method: &Method) -> Self {
-        Self {
-            authorization_layer: AuthorizationLayer::PrincipalAllowList,
-            method_label: method.into(),
-        }
-    }
-}
-
-impl DynamicLog for AuthContextMissing {
-    fn log_at(&self) -> LogAt {
-        match self.authorization_layer {
-            AuthorizationLayer::RequestAcl => LogAt::Level(tracing::Level::ERROR),
-            AuthorizationLayer::PrincipalAllowList => LogAt::Level(tracing::Level::WARN),
-        }
-    }
-}
-
-impl DynamicMessage for AuthContextMissing {
-    fn message(&self) -> &'static str {
-        match self.authorization_layer {
-            AuthorizationLayer::RequestAcl => {
-                "BUG: No AuthContext middleware found, all requests will be denied"
-            }
-            AuthorizationLayer::PrincipalAllowList => {
-                "authorize_proxy_request found a request with no AuthContext in its extensions"
-            }
-        }
-    }
-}
-
 /// How the BMC answered a proxied request, as a bounded metric label: the
 /// response's HTTP status class, or `error` when the forward produced no
 /// response at all (a connect failure, timeout, or TLS failure on the
@@ -280,7 +250,7 @@ impl From<reqwest::StatusCode> for UpstreamStatus {
 impl UpstreamStatus {
     /// The class of a completed forward: the response's status class, or
     /// `Error` when the request never produced a response.
-    pub(crate) fn from_result(result: &Result<reqwest::Response, reqwest::Error>) -> Self {
+    pub(crate) fn from_result<E>(result: &Result<reqwest::Response, E>) -> Self {
         match result {
             Ok(response) => response.status().into(),
             Err(_) => Self::Error,
@@ -306,11 +276,11 @@ impl UpstreamStatus {
 )]
 pub(crate) struct UpstreamRequestCompleted {
     #[label]
-    pub method: MethodLabel,
+    pub(crate) method: MethodLabel,
     #[label]
-    pub status: UpstreamStatus,
+    pub(crate) status: UpstreamStatus,
     #[observation]
-    pub took: Duration,
+    pub(crate) took: Duration,
 }
 
 #[cfg(test)]
@@ -375,11 +345,15 @@ mod tests {
     }
 
     fn emit_request_acl_auth_context_missing() {
-        emit(AuthContextMissing::request_acl(&Method::DELETE));
+        emit(AuthContextMissing::RequestAcl {
+            method_label: (&Method::DELETE).into(),
+        });
     }
 
     fn emit_principal_allow_list_auth_context_missing() {
-        emit(AuthContextMissing::principal_allow_list(&Method::OPTIONS));
+        emit(AuthContextMissing::PrincipalAllowList {
+            method_label: (&Method::OPTIONS).into(),
+        });
     }
 
     fn observe_authorization_event(
@@ -591,14 +565,16 @@ mod tests {
                 .expect("response builds"),
         );
         assert_eq!(
-            UpstreamStatus::from_result(&Ok(response)),
+            UpstreamStatus::from_result::<reqwest_middleware::Error>(&Ok(response)),
             UpstreamStatus::Http5xx
         );
 
-        let error = reqwest::Client::new()
-            .get("http://")
-            .build()
-            .expect_err("an empty host cannot build a request");
+        let error = reqwest_middleware::Error::from(
+            reqwest::Client::new()
+                .get("http://")
+                .build()
+                .expect_err("an empty host cannot build a request"),
+        );
         assert_eq!(
             UpstreamStatus::from_result(&Err(error)),
             UpstreamStatus::Error

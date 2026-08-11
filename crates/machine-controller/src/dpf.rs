@@ -635,7 +635,7 @@ impl DpfOperations for DpfSdkOps {
             };
             out.push(OutdatedDpfDpu {
                 dpu_machine_id,
-                target_bfb: m.target_bfb,
+                target_source: m.target_source,
             });
         }
         Ok(out)

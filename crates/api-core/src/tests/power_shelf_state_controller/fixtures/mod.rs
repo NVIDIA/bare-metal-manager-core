@@ -15,4 +15,4 @@
  * limitations under the License.
  */
 
-pub mod power_shelf;
+pub(in crate::tests) mod power_shelf;

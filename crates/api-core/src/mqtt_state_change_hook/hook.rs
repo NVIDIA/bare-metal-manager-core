@@ -40,7 +40,7 @@ use crate::mqtt_state_change_hook::message::ManagedHostStateMessage;
 ///
 /// This hook maintains an internal queue and processes events in a background task.
 /// If the queue is full, events are dropped and a warning is logged.
-pub struct MqttStateChangeHook {
+pub(crate) struct MqttStateChangeHook {
     sender: mpsc::Sender<QueuedMessage>,
     publish_timeout: Duration,
     topic_prefix: String,
@@ -52,7 +52,7 @@ impl MqttStateChangeHook {
     /// publisher task. Publish outcomes feed
     /// `carbide_dsx_event_bus_publish_count_total`; queue occupancy remains in
     /// `carbide_dsx_event_bus_queue_depth`.
-    pub fn new<P: MqttPublisher>(
+    pub(crate) fn new<P: MqttPublisher>(
         client: P,
         join_set: &mut JoinSet<()>,
         publish_timeout: Duration,

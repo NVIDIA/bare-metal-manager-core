@@ -27,17 +27,17 @@ use crate::containerd::container::ContainerSummary;
 use crate::instrumentation::InventoryReport;
 
 #[derive(Debug, Clone)]
-pub struct MachineInventoryUpdaterConfig {
-    pub dpu_agent_version: String,
+pub(super) struct MachineInventoryUpdaterConfig {
+    pub(super) dpu_agent_version: String,
     /// How often to update the inventory
-    pub update_inventory_interval: Duration,
-    pub machine_id: MachineId,
-    pub forge_api: String,
-    pub forge_client_config: Arc<ForgeClientConfig>,
-    pub agent_platform_type: AgentPlatformType,
+    pub(super) update_inventory_interval: Duration,
+    pub(super) machine_id: MachineId,
+    pub(super) forge_api: String,
+    pub(super) forge_client_config: Arc<ForgeClientConfig>,
+    pub(super) agent_platform_type: AgentPlatformType,
 }
 
-pub async fn single_run(config: &MachineInventoryUpdaterConfig) -> eyre::Result<()> {
+pub(super) async fn single_run(config: &MachineInventoryUpdaterConfig) -> eyre::Result<()> {
     // Measure the whole iteration: the container and image lookups below can
     // fail with `?` before the report RPC, and those failures must count too.
     let result: eyre::Result<()> = async {

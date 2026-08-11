@@ -119,10 +119,13 @@ use crate::{MeasuringOutcome, get_measuring_prerequisites, handle_measuring_stat
 
 pub mod attestation;
 mod bios_config;
+mod boot_interface_observation;
 mod dpf;
+mod dpu_uefi_rotation;
 mod firmware_artifact;
 mod helpers;
 mod host_boot_config;
+mod host_uefi_rotation;
 mod machine_validation;
 mod maintenance;
 mod power;
@@ -1085,7 +1088,41 @@ impl MachineStateHandler {
                     ));
                 }
 
-                Ok(StateHandlerOutcome::do_nothing())
+                // Same lowest-precedence idle-only rule as BMC rotation: converge
+                // the host UEFI password only from an otherwise-idle Ready host.
+                // The reboot the apply requires is acceptable for a pool host and
+                // is gated by the site flag / force-converge override in
+                // `host_uefi_rotation::should_enter_host_uefi_rotation`.
+                if host_uefi_rotation::should_enter_host_uefi_rotation(ctx.services, mh_snapshot)
+                    .await?
+                {
+                    return Ok(StateHandlerOutcome::transition(
+                        ManagedHostState::RotatingHostUefi {
+                            uefi_setup_info: UefiSetupInfo {
+                                uefi_password_jid: None,
+                                uefi_setup_state: UefiSetupState::UnlockHost,
+                            },
+                        },
+                    ));
+                }
+
+                // Same lowest-precedence idle-only rule again, for each DPU's
+                // UEFI password. A DPU change stages a Bios/Settings write and
+                // commits it with a DPU restart, so it gets its own state keyed
+                // to one DPU; the guard selects the next lagging or
+                // force-requested DPU and the next sweep re-selects any others.
+                if let Some(dpu_machine_id) =
+                    dpu_uefi_rotation::select_dpu_for_uefi_rotation(ctx.services, mh_snapshot)
+                        .await?
+                {
+                    return Ok(StateHandlerOutcome::transition(
+                        ManagedHostState::RotatingDpuUefi { dpu_machine_id },
+                    ));
+                }
+
+                // Periodic BMC observation is deliberately Ready's final work,
+                // so it cannot preempt lifecycle or operator-requested actions.
+                boot_interface_observation::observe_verified_boot_interface(ctx, mh_snapshot).await
             }
 
             ManagedHostState::BootConfiguring {
@@ -1136,6 +1173,15 @@ impl MachineStateHandler {
                         ManagedHostState::RotatingBmc { retry_count },
                     )),
                 }
+            }
+
+            ManagedHostState::RotatingHostUefi { uefi_setup_info } => {
+                host_uefi_rotation::handle_rotating_host_uefi(ctx, mh_snapshot, uefi_setup_info)
+                    .await
+            }
+
+            ManagedHostState::RotatingDpuUefi { dpu_machine_id } => {
+                dpu_uefi_rotation::handle_rotating_dpu_uefi(ctx, mh_snapshot, *dpu_machine_id).await
             }
 
             ManagedHostState::Assigned { instance_state: _ } => {
@@ -2370,6 +2416,7 @@ pub async fn check_restart_in_logs(
             "The server is restarted by chassis control command.", // Lenovo
             "DPU Warm Reset",                                      // Bluefield
             "BMC IP Address Deleted",                              // Bluefield
+            "The property ResetType was assigned the value 'ForceWarmReboot' due to modification by the service.", // GB200
         ]);
 
         // Generic reset keywords
@@ -4357,12 +4404,13 @@ impl DpuMachineStateHandler {
 
                 handler_host_power_control(state, ctx, SystemPowerControl::ForceOff).await?;
 
-                let next_state = DpuInitState::WaitingForPlatformPowercycle {
-                    substate: PerformPowerOperation::On,
-                }
-                .next_state_with_all_dpus_updated(&state.managed_state)?;
+                let next_state = DpuInitState::WaitingForPlatformPowerOff
+                    .next_state_with_all_dpus_updated(&state.managed_state)?;
 
                 Ok(StateHandlerOutcome::transition(next_state))
+            }
+            DpuInitState::WaitingForPlatformPowerOff => {
+                self.handle_waiting_for_platform_power_off(state, ctx).await
             }
             DpuInitState::WaitingForPlatformPowercycle {
                 substate: PerformPowerOperation::On,
@@ -5005,6 +5053,32 @@ impl DpuMachineStateHandler {
 
         Ok(StateHandlerOutcome::transition(next_state))
     }
+
+    /// Waits for the one host-wide `ForceOff` to become visible through Redfish.
+    ///
+    /// Normal dispatch calls this before walking individual DPUs so a
+    /// multi-DPU host performs one BMC read per controller iteration.
+    async fn handle_waiting_for_platform_power_off(
+        &self,
+        state: &ManagedHostStateSnapshot,
+        ctx: &mut StateHandlerContext<'_, MachineStateHandlerContextObjects>,
+    ) -> Result<StateHandlerOutcome<ManagedHostState>, StateHandlerError> {
+        // Redfish power actions are asynchronous. Persist this wait before
+        // trusting a new reading so stale `On` cannot skip the power cycle.
+        if !is_host_powered_off(state, ctx).await? {
+            return Ok(StateHandlerOutcome::wait(format!(
+                "Waiting for host {} to power off before powering it on",
+                state.host_snapshot.id,
+            )));
+        }
+
+        let next_state = DpuInitState::WaitingForPlatformPowercycle {
+            substate: PerformPowerOperation::On,
+        }
+        .next_state_with_all_dpus_updated(&state.managed_state)?;
+
+        Ok(StateHandlerOutcome::transition(next_state))
+    }
 }
 
 #[async_trait::async_trait]
@@ -5028,6 +5102,16 @@ impl StateHandler for DpuMachineStateHandler {
             };
             Ok(StateHandlerOutcome::transition(next_state))
         } else {
+            if let ManagedHostState::DPUInit { dpu_states } = &state.managed_state
+                && !dpu_states.states.is_empty()
+                && dpu_states
+                    .states
+                    .values()
+                    .all(|state| matches!(state, DpuInitState::WaitingForPlatformPowerOff))
+            {
+                return self.handle_waiting_for_platform_power_off(state, ctx).await;
+            }
+
             for dpu_snapshot in &state.dpu_snapshots {
                 state_handler_outcome = self.handle_dpuinit_state(state, dpu_snapshot, ctx).await?;
 
@@ -6679,7 +6763,7 @@ async fn handle_host_uefi_setup(
 
     match uefi_setup_info.uefi_setup_state.clone() {
         UefiSetupState::UnlockHost => {
-            if state.host_snapshot.bmc_vendor().is_dell() {
+            if state.host_snapshot.needs_bmc_unlock_for_uefi_setup() {
                 redfish_client
                     .lockdown_bmc(libredfish::EnabledDisabled::Disabled)
                     .await
@@ -6754,9 +6838,9 @@ async fn handle_host_uefi_setup(
             }
         }
         UefiSetupState::WaitForPasswordJobScheduled => {
-            if let Some(job_id) = uefi_setup_info.uefi_password_jid.clone() {
+            if let Some(job_id) = uefi_setup_info.uefi_password_jid.as_ref() {
                 let job_state = redfish_client
-                    .get_job_state(&job_id)
+                    .get_job_state(job_id)
                     .await
                     .map_err(|e| redfish_error("get_job_state", e))?;
 
@@ -6793,14 +6877,14 @@ async fn handle_host_uefi_setup(
             ))
         }
         UefiSetupState::WaitForPasswordJobCompletion => {
-            if let Some(job_id) = uefi_setup_info.uefi_password_jid.clone() {
+            if let Some(job_id) = uefi_setup_info.uefi_password_jid.as_ref() {
                 let redfish_client = ctx
                     .services
                     .create_redfish_client_from_machine(&state.host_snapshot)
                     .await?;
 
                 let job_state = redfish_client
-                    .get_job_state(&job_id)
+                    .get_job_state(job_id)
                     .await
                     .map_err(|e| redfish_error("get_job_state", e))?;
 
@@ -7543,8 +7627,17 @@ impl StateHandler for InstanceStateHandler {
                     // Wait for instance network config to be applied
                     // Reboot host and moved to Ready.
 
-                    // TODO GK if delete_requested skip this whole step,
-                    // reboot and jump to BootingWithDiscoveryImage
+                    // A released instance no longer needs its tenant network config to converge.
+                    // Waiting here can deadlock deletion when the DPU agents are unavailable (or
+                    // when a simulator restarts) because the observations we are waiting for will
+                    // never arrive. Continue through the normal deletion reboot path instead.
+                    if instance.deleted.is_some() {
+                        return Ok(StateHandlerOutcome::transition(
+                            ManagedHostState::Assigned {
+                                instance_state: InstanceState::WaitingForRebootToReady,
+                            },
+                        ));
+                    }
 
                     // Check DPU network config has been applied
                     if !mh_snapshot.managed_host_network_config_version_synced() {
@@ -7918,9 +8011,15 @@ impl StateHandler for InstanceStateHandler {
 
                         Ok(StateHandlerOutcome::transition(next_state).with_txn(txn))
                     } else if let Some(txn) = txn_opt {
+                        // Commit extension cleanup before the observer performs
+                        // Redfish I/O in a separate attempt.
                         Ok(StateHandlerOutcome::do_nothing().with_txn(txn))
                     } else {
-                        Ok(StateHandlerOutcome::do_nothing())
+                        boot_interface_observation::observe_verified_boot_interface(
+                            ctx,
+                            mh_snapshot,
+                        )
+                        .await
                     }
                 }
                 InstanceState::HostPlatformConfiguration {
@@ -11825,12 +11924,38 @@ async fn restart_dpu(
             });
     }
 
+    let power_state = host_power_state(dpu_redfish_client.as_ref()).await?;
+    let power_action = dpu_restart_power_action(power_state)?;
+    if power_action == SystemPowerControl::On {
+        tracing::warn!(
+            machine_id = %machine.id,
+            %power_state,
+            "DPU is powered off; powering it on instead of restarting it"
+        );
+    }
+
     dpu_redfish_client
-        .power(SystemPowerControl::ForceRestart)
+        .power(power_action)
         .await
         .map_err(|error| redfish_error("reboot dpu", error))?;
 
     Ok(())
+}
+
+fn dpu_restart_power_action(
+    power_state: libredfish::PowerState,
+) -> Result<SystemPowerControl, StateHandlerError> {
+    match power_state {
+        libredfish::PowerState::Off => Ok(SystemPowerControl::On),
+        libredfish::PowerState::On => Ok(SystemPowerControl::ForceRestart),
+        libredfish::PowerState::PoweringOff
+        | libredfish::PowerState::PoweringOn
+        | libredfish::PowerState::Paused
+        | libredfish::PowerState::Reset
+        | libredfish::PowerState::Unknown => Err(StateHandlerError::GenericError(eyre!(
+            "cannot restart DPU while its power state is {power_state}; retrying"
+        ))),
+    }
 }
 
 /// Returns true if this machine needs IPMI restart to avoid killing its DPUs.
@@ -13175,6 +13300,7 @@ mod tests {
     use std::str::FromStr;
 
     use carbide_instrument::testing::{MetricsCapture, capture_logs};
+    use carbide_test_support::{Check, check_values};
     use model::firmware::FirmwareComponent;
     use model::site_explorer::{
         EndpointExplorationReport, EndpointType, Inventory, PreingestionState, Service,
@@ -13182,6 +13308,50 @@ mod tests {
     use regex::Regex;
 
     use super::*;
+
+    #[test]
+    fn dpu_restart_requires_a_stable_power_state() {
+        check_values(
+            [
+                Check {
+                    scenario: "powered-off DPU is powered on",
+                    input: libredfish::PowerState::Off,
+                    expect: Ok(SystemPowerControl::On),
+                },
+                Check {
+                    scenario: "powered-on DPU is restarted",
+                    input: libredfish::PowerState::On,
+                    expect: Ok(SystemPowerControl::ForceRestart),
+                },
+                Check {
+                    scenario: "DPU that is powering off is retried",
+                    input: libredfish::PowerState::PoweringOff,
+                    expect: Err(()),
+                },
+                Check {
+                    scenario: "DPU that is powering on is retried",
+                    input: libredfish::PowerState::PoweringOn,
+                    expect: Err(()),
+                },
+                Check {
+                    scenario: "paused DPU is retried",
+                    input: libredfish::PowerState::Paused,
+                    expect: Err(()),
+                },
+                Check {
+                    scenario: "resetting DPU is retried",
+                    input: libredfish::PowerState::Reset,
+                    expect: Err(()),
+                },
+                Check {
+                    scenario: "DPU with unknown power state is retried",
+                    input: libredfish::PowerState::Unknown,
+                    expect: Err(()),
+                },
+            ],
+            |power_state| dpu_restart_power_action(power_state).map_err(|_| ()),
+        );
+    }
 
     #[test]
     fn terminal_ready_boot_config_failure_is_deferred_until_lockdown_restoration() {

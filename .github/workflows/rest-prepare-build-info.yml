@@ -68,8 +68,10 @@ jobs:
         uses: actions/checkout@v4
         with:
           persist-credentials: false
+          # Full depth so `git describe --tags` below can reach the last tag.
+          # Submodules are not checked out: this job reads nothing outside the
+          # git metadata of the superproject.
           fetch-depth: 0
-          submodules: recursive
 
       - name: Generate version and build information
         id: generate-version

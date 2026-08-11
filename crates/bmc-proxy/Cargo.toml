@@ -38,6 +38,7 @@ carbide-tls = { path = "../tls" }
 logfmt = { path = "../logfmt" }
 metrics-endpoint = { path = "../metrics-endpoint" }
 carbide-utils = { path = "../utils" }
+trace-propagation = { path = "../trace-propagation" }
 libc = { workspace = true }
 # DO NOT PUT DEPENDENCIES OTHER THAN LOCAL DEPS HERE, THEY SHOULD ALL HAVE 'path =' IN THEM.
 
@@ -74,6 +75,8 @@ reqwest = { workspace = true, default-features = false, features = [
   "rustls",
   "stream",
 ] }
+reqwest-middleware = { workspace = true }
+reqwest-tracing = { workspace = true }
 rustls-pemfile = { workspace = true }
 rustls-pki-types = { workspace = true }
 thiserror = { workspace = true }

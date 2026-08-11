@@ -29,6 +29,7 @@ use model::controller_outcome::PersistentStateHandlerOutcome;
 use serde::{self, Deserialize, Serialize};
 use sqlx::postgres::PgRow;
 use sqlx::{FromRow, PgConnection, Row};
+use tokio::sync::Semaphore;
 use tokio::task::JoinSet;
 use tokio_util::sync::CancellationToken;
 
@@ -395,27 +396,21 @@ async fn test_queue_objects(pool: sqlx::PgPool) -> sqlx::Result<()> {
 struct TestStateControllerIO {}
 
 #[derive(Debug, Clone)]
-pub struct TestObject {
-    pub id: String,
-    pub controller_state: Versioned<TestObjectControllerState>,
-    #[allow(dead_code)]
-    pub controller_state_outcome: Option<PersistentStateHandlerOutcome>,
+struct TestObject {
+    id: String,
+    controller_state: Versioned<TestObjectControllerState>,
 }
 
 impl<'r> FromRow<'r, PgRow> for TestObject {
     fn from_row(row: &'r PgRow) -> Result<Self, sqlx::Error> {
         let controller_state: sqlx::types::Json<TestObjectControllerState> =
             row.try_get("controller_state")?;
-        let state_outcome: Option<sqlx::types::Json<PersistentStateHandlerOutcome>> =
-            row.try_get("controller_state_outcome")?;
-
         Ok(TestObject {
             id: row.try_get("id")?,
             controller_state: Versioned::new(
                 controller_state.0,
                 row.try_get("controller_state_version")?,
             ),
-            controller_state_outcome: state_outcome.map(|x| x.0),
         })
     }
 }
@@ -423,13 +418,13 @@ impl<'r> FromRow<'r, PgRow> for TestObject {
 /// State of a IB subnet as tracked by the controller
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "state", rename_all = "lowercase")]
-pub enum TestObjectControllerState {
+enum TestObjectControllerState {
     A,
     B,
     C,
 }
 
-pub struct TestStateControllerContextObjects {}
+struct TestStateControllerContextObjects {}
 
 impl StateHandlerContextObjects for TestStateControllerContextObjects {
     type Services = ();
@@ -743,11 +738,245 @@ async fn test_state_controller_handle_set_wait_all_propagates_panic(
 }
 
 #[derive(Debug, Default, Clone)]
-pub struct TestConcurrencyStateHandler {
+struct TestConcurrencyStateHandler {
     /// The total count for the handler
-    pub count: Arc<AtomicUsize>,
+    count: Arc<AtomicUsize>,
     /// We count for every object ID how often the handler was called
-    pub counts_per_id: Arc<Mutex<HashMap<String, usize>>>,
+    counts_per_id: Arc<Mutex<HashMap<String, usize>>>,
+}
+
+#[derive(Debug)]
+struct DrainingStateHandler {
+    started: Arc<Semaphore>,
+    release: Arc<Semaphore>,
+    completed: Arc<AtomicUsize>,
+}
+
+#[derive(Debug)]
+struct TimeoutDuringDrainStateHandler {
+    started: Arc<Semaphore>,
+}
+
+#[async_trait::async_trait]
+impl StateHandler for TimeoutDuringDrainStateHandler {
+    type ObjectId = String;
+    type State = TestObject;
+    type ControllerState = TestObjectControllerState;
+    type ContextObjects = TestStateControllerContextObjects;
+
+    async fn handle_object_state(
+        &self,
+        _object_id: &String,
+        _state: &mut TestObject,
+        _controller_state: &Self::ControllerState,
+        _ctx: &mut StateHandlerContext<Self::ContextObjects>,
+    ) -> Result<StateHandlerOutcome<Self::ControllerState>, StateHandlerError> {
+        self.started.add_permits(1);
+        std::future::pending().await
+    }
+}
+
+#[async_trait::async_trait]
+impl StateHandler for DrainingStateHandler {
+    type ObjectId = String;
+    type State = TestObject;
+    type ControllerState = TestObjectControllerState;
+    type ContextObjects = TestStateControllerContextObjects;
+
+    async fn handle_object_state(
+        &self,
+        object_id: &String,
+        _state: &mut TestObject,
+        _controller_state: &Self::ControllerState,
+        _ctx: &mut StateHandlerContext<Self::ContextObjects>,
+    ) -> Result<StateHandlerOutcome<Self::ControllerState>, StateHandlerError> {
+        self.started.add_permits(1);
+        self.release
+            .acquire()
+            .await
+            .expect("Release semaphore should remain open")
+            .forget();
+        self.completed.fetch_add(1, Ordering::SeqCst);
+
+        if object_id == "transition" {
+            Ok(StateHandlerOutcome::transition(
+                TestObjectControllerState::B,
+            ))
+        } else {
+            Ok(StateHandlerOutcome::do_nothing())
+        }
+    }
+}
+
+#[carbide_macros::sqlx_test]
+async fn test_state_controller_drains_claimed_work_on_shutdown(
+    pool: sqlx::PgPool,
+) -> eyre::Result<()> {
+    create_test_state_controller_tables(&pool).await;
+    let mut join_set = JoinSet::new();
+    let cancel_token = CancellationToken::new();
+    let work_lock_manager_handle =
+        db::work_lock_manager::start(&mut join_set, pool.clone(), Default::default()).await?;
+
+    let mut txn = pool.begin().await?;
+    create_test_object("stationary".to_string(), &mut txn).await;
+    create_test_object("transition".to_string(), &mut txn).await;
+    txn.commit().await?;
+
+    let started = Arc::new(Semaphore::new(0));
+    let release = Arc::new(Semaphore::new(0));
+    let completed = Arc::new(AtomicUsize::new(0));
+    let processor_id = uuid::Uuid::new_v4().to_string();
+    let handler = Arc::new(DrainingStateHandler {
+        started: started.clone(),
+        release: release.clone(),
+        completed: completed.clone(),
+    });
+
+    StateController::<TestStateControllerIO>::builder()
+        .iteration_config(IterationConfig {
+            iteration_time: Duration::from_secs(60),
+            processor_dispatch_interval: Duration::from_millis(10),
+            max_object_handling_time: Duration::from_secs(5),
+            max_concurrency: 2,
+            ..Default::default()
+        })
+        .database(pool.clone(), work_lock_manager_handle.clone())
+        .processor_id(processor_id.clone())
+        .services(Arc::new(()))
+        .state_handler(handler)
+        .build_and_spawn(&mut join_set, cancel_token.clone())?;
+    drop(work_lock_manager_handle);
+
+    tokio::time::timeout(Duration::from_secs(5), started.acquire_many(2))
+        .await
+        .expect("State handlers did not start")?
+        .forget();
+
+    let mut txn = pool.begin().await?;
+    let mut queued = controller::db::fetch_queued_objects(
+        &mut txn,
+        TestStateControllerIO::DB_QUEUED_OBJECTS_TABLE_NAME,
+    )
+    .await?;
+    txn.commit().await?;
+    queued.sort_by(|a, b| a.object_id.cmp(&b.object_id));
+    assert_eq!(queued.len(), 2);
+    assert!(
+        queued
+            .iter()
+            .all(|object| object.processed_by.as_deref() == Some(processor_id.as_str()))
+    );
+
+    // Queue another object while the processor is at capacity. Cancellation
+    // must prevent it from claiming this work after the two running handlers
+    // complete.
+    let mut txn = pool.begin().await?;
+    create_test_object("pending".to_string(), &mut txn).await;
+    txn.commit().await?;
+    Enqueuer::<TestStateControllerIO>::new(pool.clone())
+        .enqueue_object(&"pending".to_string())
+        .await?;
+
+    cancel_token.cancel();
+    let mut shutdown = tokio::spawn(async move { join_set.join_all().await });
+    assert!(
+        tokio::time::timeout(Duration::from_millis(100), &mut shutdown)
+            .await
+            .is_err(),
+        "Controller shut down before claimed work completed"
+    );
+
+    release.add_permits(2);
+    tokio::time::timeout(Duration::from_secs(5), shutdown)
+        .await
+        .expect("Controller did not finish draining")
+        .expect("Controller task panicked");
+    assert_eq!(completed.load(Ordering::SeqCst), 2);
+
+    let mut txn = pool.begin().await?;
+    let mut queued = controller::db::fetch_queued_objects(
+        &mut txn,
+        TestStateControllerIO::DB_QUEUED_OBJECTS_TABLE_NAME,
+    )
+    .await?;
+    let transition_state: sqlx::types::Json<TestObjectControllerState> =
+        sqlx::query_scalar("SELECT controller_state FROM test_objects WHERE id = 'transition'")
+            .fetch_one(&mut *txn)
+            .await?;
+    txn.commit().await?;
+    queued.sort_by(|a, b| a.object_id.cmp(&b.object_id));
+
+    assert_eq!(
+        queued,
+        vec![
+            QueuedObject {
+                object_id: "pending".to_string(),
+                processed_by: None,
+            },
+            QueuedObject {
+                object_id: "transition".to_string(),
+                processed_by: None,
+            },
+        ]
+    );
+    assert_eq!(transition_state.0, TestObjectControllerState::B);
+
+    Ok(())
+}
+
+#[carbide_macros::sqlx_test]
+async fn test_state_controller_handler_timeout_bounds_shutdown_drain(
+    pool: sqlx::PgPool,
+) -> eyre::Result<()> {
+    create_test_state_controller_tables(&pool).await;
+    let mut join_set = JoinSet::new();
+    let cancel_token = CancellationToken::new();
+    let work_lock_manager_handle =
+        db::work_lock_manager::start(&mut join_set, pool.clone(), Default::default()).await?;
+
+    let mut txn = pool.begin().await?;
+    create_test_object("timeout".to_string(), &mut txn).await;
+    txn.commit().await?;
+
+    let started = Arc::new(Semaphore::new(0));
+    StateController::<TestStateControllerIO>::builder()
+        .iteration_config(IterationConfig {
+            iteration_time: Duration::from_secs(60),
+            processor_dispatch_interval: Duration::from_millis(10),
+            max_object_handling_time: Duration::from_millis(100),
+            max_concurrency: 1,
+            ..Default::default()
+        })
+        .database(pool.clone(), work_lock_manager_handle.clone())
+        .processor_id(uuid::Uuid::new_v4().to_string())
+        .services(Arc::new(()))
+        .state_handler(Arc::new(TimeoutDuringDrainStateHandler {
+            started: started.clone(),
+        }))
+        .build_and_spawn(&mut join_set, cancel_token.clone())?;
+    drop(work_lock_manager_handle);
+
+    tokio::time::timeout(Duration::from_secs(5), started.acquire())
+        .await
+        .expect("State handler did not start")?
+        .forget();
+    cancel_token.cancel();
+
+    tokio::time::timeout(Duration::from_secs(5), join_set.join_all())
+        .await
+        .expect("Handler timeout did not bound shutdown drain");
+
+    let mut txn = pool.begin().await?;
+    let queued = controller::db::fetch_queued_objects(
+        &mut txn,
+        TestStateControllerIO::DB_QUEUED_OBJECTS_TABLE_NAME,
+    )
+    .await?;
+    txn.commit().await?;
+    assert!(queued.is_empty());
+
+    Ok(())
 }
 
 #[async_trait::async_trait]
@@ -849,7 +1078,7 @@ async fn test_multiple_state_controllers_schedule_object_only_once(
 
 /// A state handler that transitions from A -> B -> C
 #[derive(Debug, Default, Clone)]
-pub struct TestTransitionStateHandler;
+struct TestTransitionStateHandler;
 
 #[async_trait::async_trait]
 impl StateHandler for TestTransitionStateHandler {
@@ -879,7 +1108,7 @@ impl StateHandler for TestTransitionStateHandler {
 
 /// A state handler that transitions from A -> B -> A
 #[derive(Debug, Default, Clone)]
-pub struct CyclicTransitionStateHandler;
+struct CyclicTransitionStateHandler;
 
 #[async_trait::async_trait]
 impl StateHandler for CyclicTransitionStateHandler {
@@ -979,7 +1208,7 @@ struct CapturedStateChange {
 }
 
 /// A hook that sends events through a channel for deterministic test verification
-pub struct ChannelHook {
+struct ChannelHook {
     sender: tokio::sync::mpsc::UnboundedSender<CapturedStateChange>,
 }
 
@@ -1134,8 +1363,8 @@ async fn test_state_controller_manual_enqueuing(pool: sqlx::PgPool) -> eyre::Res
 /// A state handler that fails with `ManualInterventionRequired` on its first
 /// invocation, a transient error on its second, and succeeds afterwards.
 #[derive(Debug, Default, Clone)]
-pub struct TestManualInterventionStateHandler {
-    pub calls: Arc<AtomicUsize>,
+struct TestManualInterventionStateHandler {
+    calls: Arc<AtomicUsize>,
 }
 
 #[async_trait::async_trait]
@@ -1509,8 +1738,8 @@ async fn test_per_object_state_metrics_sla_and_state_based_intervention(
 /// A state handler that reports the object as deleted on its second
 /// invocation.
 #[derive(Debug, Default, Clone)]
-pub struct TestDeletionStateHandler {
-    pub calls: Arc<AtomicUsize>,
+struct TestDeletionStateHandler {
+    calls: Arc<AtomicUsize>,
 }
 
 #[async_trait::async_trait]
@@ -1572,9 +1801,9 @@ async fn test_per_object_state_metrics_cleared_on_deletion(pool: sqlx::PgPool) -
 /// object's controller-state version out from under the processor and then
 /// returns a transition, which must lose the optimistic version check.
 #[derive(Debug, Clone)]
-pub struct TestLockLossStateHandler {
-    pub pool: sqlx::PgPool,
-    pub calls: Arc<AtomicUsize>,
+struct TestLockLossStateHandler {
+    pool: sqlx::PgPool,
+    calls: Arc<AtomicUsize>,
 }
 
 #[async_trait::async_trait]

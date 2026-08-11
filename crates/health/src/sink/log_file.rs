@@ -281,7 +281,7 @@ mod tests {
     use mac_address::MacAddress;
 
     use super::*;
-    use crate::endpoint::{BmcAddr, EndpointMetadata, MachineData};
+    use crate::endpoint::{BmcAddr, EndpointMetadata, MachineData, SwitchData, SwitchEndpointRole};
     use crate::sink::DiagnosticLogRecord;
 
     /// Builds a base log context without endpoint metadata.
@@ -509,6 +509,61 @@ mod tests {
             parsed["nvlink_domain_uuid"],
             "00000000-0000-0000-0000-000000000000"
         );
+    }
+
+    #[test]
+    fn test_writes_switch_nvlink_domain_uuid_as_jsonl_field() {
+        let dir = tempfile::tempdir().expect("tempdir");
+
+        let config = LogFileSinkConfig {
+            include_diagnostics: false,
+            output_dir: dir.path().to_string_lossy().into_owned(),
+            max_file_size: 1024 * 1024,
+            max_backups: 2,
+        };
+
+        let sink = LogFileSink::new(&config).expect("sink");
+
+        let nvlink_domain_uuid = NvLinkDomainId::from_str("9f4b45ec-705a-4af4-89f7-a112bc9c8f4e")
+            .expect("valid NVLink domain UUID");
+
+        let mut ctx = test_context();
+
+        ctx.metadata = Some(EndpointMetadata::Switch(SwitchData {
+            id: None,
+            serial: "SN-SWITCH-001".to_string(),
+            slot_number: Some(7),
+            tray_index: Some(3),
+            nvlink_domain_uuid: Some(nvlink_domain_uuid),
+            endpoint_role: SwitchEndpointRole::Host,
+            is_primary: true,
+            nmxc_enabled: true,
+            nmxt_enabled: true,
+        }));
+
+        let event = CollectorEvent::Log(
+            LogRecord {
+                body: "switch event".to_string(),
+                severity: "WARN".to_string(),
+                attributes: Vec::new(),
+                diagnostic_record: None,
+            }
+            .into(),
+        );
+
+        sink.handle_event(&ctx, &event);
+
+        let log_path = dir.path().join("health_logs.jsonl");
+        let contents = fs::read_to_string(log_path).expect("read log");
+        let line = contents.lines().next().expect("one JSONL record");
+        let parsed: serde_json::Value = serde_json::from_str(line).expect("valid json");
+
+        assert_eq!(
+            parsed["nvlink_domain_uuid"],
+            "9f4b45ec-705a-4af4-89f7-a112bc9c8f4e"
+        );
+
+        assert_eq!(parsed["component_type"], "nvlink_switch");
     }
 
     #[test]

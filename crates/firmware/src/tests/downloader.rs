@@ -442,19 +442,16 @@ fn download_outcome_labels_render_snake_case() {
 fn download_finished_records_duration_and_owns_the_completion_line() {
     let metrics = MetricsCapture::start();
     let logs = capture_logs(|| {
-        emit(DownloadFinished {
-            outcome: DownloadOutcome::Ok,
+        emit(DownloadFinished::Ok {
             took: Duration::from_secs(30),
             url: "https://firmware.example/bmc.fwpkg".to_string(),
             filename: "/firmware/bmc.fwpkg".to_string(),
-            error: String::new(),
         });
         // Failure labels deliberately disjoint from the labels the
         // end-to-end download tests in this binary reach (`ok`, `checksum`,
         // `fetch`): the capture mutex serializes only capture-holding tests,
         // so a label a capture-less test can move would race these deltas.
-        emit(DownloadFinished {
-            outcome: DownloadOutcome::Status,
+        emit(DownloadFinished::Status {
             took: Duration::from_secs(2),
             url: "https://firmware.example/bmc.fwpkg".to_string(),
             filename: "/firmware/bmc.fwpkg".to_string(),
@@ -462,15 +459,13 @@ fn download_finished_records_duration_and_owns_the_completion_line() {
                     https://firmware.example/bmc.fwpkg: 404 Not Found"
                 .to_string(),
         });
-        emit(DownloadFinished {
-            outcome: DownloadOutcome::Transfer,
+        emit(DownloadFinished::Transfer {
             took: Duration::from_secs(3),
             url: "https://firmware.example/uefi.fwpkg".to_string(),
             filename: "/firmware/uefi.fwpkg".to_string(),
             error: "connection reset by peer".to_string(),
         });
-        emit(DownloadFinished {
-            outcome: DownloadOutcome::Io,
+        emit(DownloadFinished::Io {
             took: Duration::from_secs(4),
             url: "https://firmware.example/cec.fwpkg".to_string(),
             filename: "/firmware/cec.fwpkg".to_string(),

@@ -17,7 +17,7 @@ import (
 	"github.com/NVIDIA/infra-controller/rest-api/api/pkg/api/model"
 	sc "github.com/NVIDIA/infra-controller/rest-api/api/pkg/client/site"
 	authz "github.com/NVIDIA/infra-controller/rest-api/auth/pkg/authorization"
-	"github.com/NVIDIA/infra-controller/rest-api/common/pkg/coreproxy"
+	"github.com/NVIDIA/infra-controller/rest-api/common/pkg/grpcproxy"
 	"github.com/NVIDIA/infra-controller/rest-api/common/pkg/otelecho"
 	cutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
 	cdb "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db"
@@ -48,7 +48,10 @@ type templatedProxyFixture struct {
 
 	ipOrg string
 	tnOrg string
+	ipu   *cdbm.User
 	tnu   *cdbm.User
+	ip    *cdbm.InfrastructureProvider
+	tn    *cdbm.Tenant
 	site  *cdbm.Site
 	tmpl  *cdbm.IpxeTemplate
 }
@@ -66,7 +69,6 @@ func buildTemplatedProxyFixture(t *testing.T) *templatedProxyFixture {
 	tnOrg := "tmpl-proxy-tn-org"
 
 	ipu := testMachineBuildUser(t, dbSession, uuid.NewString(), []string{ipOrg}, []string{authz.ProviderAdminRole})
-	_ = ipu
 	tnu := testMachineBuildUser(t, dbSession, uuid.NewString(), []string{tnOrg}, []string{authz.TenantAdminRole})
 
 	ip := testMachineBuildInfrastructureProvider(t, dbSession, ipOrg, "tmpl-proxy-provider")
@@ -103,7 +105,10 @@ func buildTemplatedProxyFixture(t *testing.T) *templatedProxyFixture {
 		tracer:    tracer,
 		ipOrg:     ipOrg,
 		tnOrg:     tnOrg,
+		ipu:       ipu,
 		tnu:       tnu,
+		ip:        ip,
+		tn:        tenant,
 		site:      site,
 		tmpl:      tmpl,
 	}
@@ -112,7 +117,7 @@ func buildTemplatedProxyFixture(t *testing.T) *templatedProxyFixture {
 type proxySiteClient struct {
 	client   *tmocks.Client
 	workflow *tmocks.WorkflowRun
-	captured coreproxy.Request
+	captured grpcproxy.Request
 }
 
 func newProxySiteClient(t *testing.T, wantMethod string, getErr, executeErr error) *proxySiteClient {
@@ -126,8 +131,8 @@ func newProxySiteClient(t *testing.T, wantMethod string, getErr, executeErr erro
 		"ExecuteWorkflow",
 		mock.Anything,
 		mock.Anything,
-		coreproxy.WorkflowName,
-		mock.MatchedBy(func(req coreproxy.Request) bool {
+		grpcproxy.Core.WorkflowName,
+		mock.MatchedBy(func(req grpcproxy.Request) bool {
 			if req.FullMethod != wantMethod {
 				return false
 			}
@@ -147,6 +152,10 @@ func (f *templatedProxyFixture) bindProxyClient(psc *proxySiteClient) {
 }
 
 func (f *templatedProxyFixture) newEchoContext(method, body string, params map[string]string) (echo.Context, *httptest.ResponseRecorder) {
+	return f.newEchoContextForUser(method, body, params, f.tnu)
+}
+
+func (f *templatedProxyFixture) newEchoContextForUser(method, body string, params map[string]string, user *cdbm.User) (echo.Context, *httptest.ResponseRecorder) {
 	e := echo.New()
 	req := httptest.NewRequest(method, "/", strings.NewReader(body))
 	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
@@ -160,7 +169,7 @@ func (f *templatedProxyFixture) newEchoContext(method, body string, params map[s
 	}
 	ec.SetParamNames(names...)
 	ec.SetParamValues(values...)
-	ec.Set("user", f.tnu)
+	ec.Set("user", user)
 	reqCtx := context.WithValue(f.ctx, otelecho.TracerKey, f.tracer)
 	ec.SetRequest(ec.Request().WithContext(reqCtx))
 	return ec, rec
@@ -222,7 +231,7 @@ func (f *templatedProxyFixture) osStatus(t *testing.T, osID uuid.UUID) string {
 // TestOperatingSystemHandler_TemplatedIPXE_Proxy exercises the full create /
 // update / delete lifecycle of a Templated iPXE Operating System, which is
 // synchronized to its associated Sites through the generic NICo Core gRPC proxy
-// (coreproxy.WorkflowName) rather than the dedicated OsImage workflows used by
+// (grpcproxy.Core.WorkflowName) rather than the dedicated OsImage workflows used by
 // Image based Operating Systems.
 func TestOperatingSystemHandler_TemplatedIPXE_Proxy(t *testing.T) {
 	f := buildTemplatedProxyFixture(t)
@@ -326,6 +335,98 @@ func TestOperatingSystemHandler_TemplatedIPXE_Proxy(t *testing.T) {
 		_, gerr := osDAO.GetByID(f.ctx, nil, parsedID, nil)
 		assert.ErrorIs(t, gerr, cdb.ErrDoesNotExist, "OS should be soft-deleted once every site is cleaned up")
 	})
+}
+
+func TestOperatingSystemHandler_TemplatedIPXE_ProviderCreateOmitsTenantOrganizationID(t *testing.T) {
+	f := buildTemplatedProxyFixture(t)
+	psc := newProxySiteClient(t, createOperatingSystemMethod, nil, nil)
+	f.bindProxyClient(psc)
+
+	createReq := model.APIOperatingSystemCreateRequest{
+		Name:           "tmpl-proxy-provider-os",
+		Description:    cutil.GetPtr("provider-owned templated OS"),
+		IpxeTemplateId: cutil.GetPtr(f.tmpl.ID.String()),
+		SiteIDs:        []string{f.site.ID.String()},
+	}
+	body, err := json.Marshal(createReq)
+	require.NoError(t, err)
+
+	ec, rec := f.newEchoContextForUser(
+		http.MethodPost,
+		string(body),
+		map[string]string{"orgName": f.ipOrg},
+		f.ipu,
+	)
+	h := CreateOperatingSystemHandler{dbSession: f.dbSession, tc: f.tc, scp: f.scp, cfg: f.cfg}
+	require.NoError(t, h.Handle(ec))
+	require.Equal(t, http.StatusCreated, rec.Code, "body: %s", rec.Body.String())
+
+	psc.client.AssertExpectations(t)
+	psc.workflow.AssertExpectations(t)
+	var coreReq corev1.CreateOperatingSystemRequest
+	require.NoError(t, protojson.Unmarshal(psc.captured.RequestJSON, &coreReq))
+	assert.Equal(t, "tmpl-proxy-provider-os", coreReq.Name)
+	assert.Nil(t, coreReq.TenantOrganizationId, "provider-owned OS must omit tenant_organization_id")
+
+	var rsp model.APIOperatingSystem
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &rsp))
+	osID, err := uuid.Parse(rsp.ID)
+	require.NoError(t, err)
+	osDAO := cdbm.NewOperatingSystemDAO(f.dbSession)
+	persisted, err := osDAO.GetByID(f.ctx, nil, osID, nil)
+	require.NoError(t, err)
+	require.NotNil(t, persisted.InfrastructureProviderID)
+	assert.Equal(t, f.site.InfrastructureProviderID, *persisted.InfrastructureProviderID)
+	assert.Nil(t, persisted.TenantID)
+}
+
+func TestOperatingSystemHandler_TemplatedIPXE_UpdateRejectsMultipleSites(t *testing.T) {
+	f := buildTemplatedProxyFixture(t)
+
+	secondSite := testMachineBuildSite(t, f.dbSession, f.ip, "tmpl-proxy-second-site", cdbm.SiteStatusRegistered)
+	testBuildTenantSiteAssociation(t, f.dbSession, f.tnOrg, f.tn.ID, secondSite.ID, f.tnu.ID)
+	itsaDAO := cdbm.NewIpxeTemplateSiteAssociationDAO(f.dbSession)
+	_, err := itsaDAO.Create(f.ctx, nil, cdbm.IpxeTemplateSiteAssociationCreateInput{
+		IpxeTemplateID: f.tmpl.ID,
+		SiteID:         secondSite.ID,
+	})
+	require.NoError(t, err)
+
+	originalDescription := "multi-site templated OS"
+	osDAO := cdbm.NewOperatingSystemDAO(f.dbSession)
+	os, err := osDAO.Create(f.ctx, nil, cdbm.OperatingSystemCreateInput{
+		Name:           "tmpl-proxy-multi-site-os",
+		Description:    &originalDescription,
+		Org:            f.tnOrg,
+		TenantID:       &f.tn.ID,
+		OsType:         cdbm.OperatingSystemTypeTemplatedIPXE,
+		IpxeTemplateId: cutil.GetPtr(f.tmpl.ID.String()),
+		Status:         cdbm.OperatingSystemStatusReady,
+		CreatedBy:      f.tnu.ID,
+	})
+	require.NoError(t, err)
+	common.TestBuildOperatingSystemSiteAssociation(t, f.dbSession, os.ID, f.site.ID, cutil.GetPtr("site-1"), cdbm.OperatingSystemSiteAssociationStatusSynced, f.tnu)
+	common.TestBuildOperatingSystemSiteAssociation(t, f.dbSession, os.ID, secondSite.ID, cutil.GetPtr("site-2"), cdbm.OperatingSystemSiteAssociationStatusSynced, f.tnu)
+
+	updateReq := model.APIOperatingSystemUpdateRequest{
+		Description: cutil.GetPtr("must not be persisted"),
+	}
+	body, err := json.Marshal(updateReq)
+	require.NoError(t, err)
+	ec, rec := f.newEchoContext(
+		http.MethodPatch,
+		string(body),
+		map[string]string{"orgName": f.tnOrg, "id": os.ID.String()},
+	)
+
+	h := UpdateOperatingSystemHandler{dbSession: f.dbSession, tc: f.tc, scp: f.scp, cfg: f.cfg}
+	require.NoError(t, h.Handle(ec))
+	require.Equal(t, http.StatusBadRequest, rec.Code, "body: %s", rec.Body.String())
+
+	persisted, err := osDAO.GetByID(f.ctx, nil, os.ID, nil)
+	require.NoError(t, err)
+	require.NotNil(t, persisted.Description)
+	assert.Equal(t, originalDescription, *persisted.Description)
 }
 
 func TestOperatingSystemHandler_TemplatedIPXE_ProxyCreateExecuteError(t *testing.T) {

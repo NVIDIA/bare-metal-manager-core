@@ -15,6 +15,6 @@
  * limitations under the License.
  */
 
-pub mod machine;
-pub mod machine_architecture;
-pub mod machine_interface;
+mod machine;
+pub(super) mod machine_architecture;
+mod machine_interface;

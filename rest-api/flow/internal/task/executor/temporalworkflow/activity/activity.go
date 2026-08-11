@@ -28,6 +28,8 @@ const (
 	NameBringUpControl            = "BringUpControl"
 	NameGetBringUpStatus          = "GetBringUpStatus"
 	NameVerifyFirmwareConsistency = "VerifyFirmwareConsistency"
+	NameDecommissionControl       = "DecommissionControl"
+	NameGetDecommissionStatus     = "GetDecommissionStatus"
 )
 
 // InjectExpectation is a Temporal activity that registers expected component
@@ -185,6 +187,49 @@ func (a *Activities) GetBringUpStatus(
 	}
 
 	return &GetBringUpStatusResult{States: states}, nil
+}
+
+// DecommissionControl initiates decommission of the target components via
+// the appropriate component manager. Returns immediately after the request
+// is accepted; callers should poll GetDecommissionStatus for completion.
+func (a *Activities) DecommissionControl(
+	ctx context.Context,
+	target common.Target,
+	info operations.DecommissionTaskInfo,
+) error {
+	decommissioner, err := requireDecommissioner(a.registry, target)
+	if err != nil {
+		return err
+	}
+
+	return decommissioner.Decommission(ctx, target, info)
+}
+
+// GetDecommissionStatusResult is the result of the GetDecommissionStatus activity.
+type GetDecommissionStatusResult struct {
+	// States maps each component ID to its current raw decommission state
+	// string as returned by the component manager (e.g. "Decommissioning/...",
+	// "Decommissioned", "Failed/...").
+	States map[string]string
+}
+
+// GetDecommissionStatus returns the decommission state for target components.
+// This activity is designed to be called repeatedly in a polling loop.
+func (a *Activities) GetDecommissionStatus(
+	ctx context.Context,
+	target common.Target,
+) (*GetDecommissionStatusResult, error) {
+	reader, err := requireDecommissionStatusReader(a.registry, target)
+	if err != nil {
+		return nil, err
+	}
+
+	states, err := reader.GetDecommissionStatus(ctx, target)
+	if err != nil {
+		return nil, err
+	}
+
+	return &GetDecommissionStatusResult{States: states}, nil
 }
 
 // VerifyFirmwareConsistency checks that all target components report the

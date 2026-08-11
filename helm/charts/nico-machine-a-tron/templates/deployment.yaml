@@ -9,9 +9,9 @@
 
 {{- range $podName, $podConfig := .Values.pods }}
 {{/*
-Skip pods without machines (or empty machines)
+Skip unconfigured pods
 */}}
-{{- if not (and $podConfig.machines (gt (len $podConfig.machines) 0)) }}
+{{- if not (and $podConfig (or (gt (len ($podConfig.machines | default dict)) 0) (gt (len ($podConfig.racks | default dict)) 0))) }}
 {{- continue }}
 {{- end }}
 
@@ -40,6 +40,10 @@ spec:
       annotations:
         checksum/config: {{ include (print $root.Template.BasePath "/configmap.yaml") $root | sha256sum }}
     spec:
+      # Controller mode creates one Service per BMC (thousands); the default
+      # service-link env injection then breaks exec in ALL new namespace pods
+      # with E2BIG ("argument list too long").
+      enableServiceLinks: false
       serviceAccountName: {{ include "nico-machine-a-tron.name" $root }}
       automountServiceAccountToken: {{ $root.Values.automountServiceAccountToken }}
       {{- with $root.Values.global.imagePullSecrets }}

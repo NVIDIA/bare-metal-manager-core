@@ -6,6 +6,7 @@ package vpc
 import (
 	"context"
 	"errors"
+	"reflect"
 	"slices"
 	"time"
 
@@ -172,12 +173,17 @@ func (mv ManageVpc) UpdateVpcsInDB(ctx context.Context, siteID uuid.UUID, vpcInv
 
 		controllerActiveVni := reportedVpc.ActiveVni
 		reportedRoutingProfile := reportedVpc.RoutingProfile
+		reportedRoutingProfileOverrides := reportedVpc.RoutingProfileOverrides
+		reportedEffectiveRoutingProfile := reportedVpc.EffectiveRoutingProfile
 		reportedNSGID := reportedVpc.NetworkSecurityGroupID
 
 		needsUpdate := isMissingOnSite != nil ||
 			controllerVpcID != nil ||
 			networkVirtualizationType != nil ||
 			!util.PtrsEqual(vpc.RoutingProfile, reportedRoutingProfile) ||
+			!reflect.DeepEqual(vpc.RoutingProfileOverrides, reportedRoutingProfileOverrides) ||
+			!reflect.DeepEqual(vpc.EffectiveRoutingProfile, reportedEffectiveRoutingProfile) ||
+			!util.PtrsEqual(vpc.NetworkSecurityGroupID, reportedNSGID) ||
 			!vpc.NetworkSecurityGroupPropagationDetails.Equal(sitePropagationStatus) ||
 			// Changing VNI isn't allowed after creation, and it should never go back to nil - that would be a bug.
 			// We should assume status _could start_ as null and then update to the active VPC VNI.
@@ -185,6 +191,18 @@ func (mv ManageVpc) UpdateVpcsInDB(ctx context.Context, siteID uuid.UUID, vpcInv
 			(controllerActiveVni != nil && !util.PtrsEqual(vpc.ActiveVni, controllerActiveVni))
 
 		if needsUpdate {
+			// A nil Update field is ignored, so explicitly clear a stale NSG association.
+			if vpc.NetworkSecurityGroupID != nil && reportedNSGID == nil {
+				vpc, err = vpcDAO.Clear(ctx, nil, cdbm.VpcClearInput{
+					VpcID:                  vpc.ID,
+					NetworkSecurityGroupID: true,
+				})
+				if err != nil {
+					slogger.Error().Err(err).Msg("failed to clear NetworkSecurityGroupID for VPC in DB")
+					continue
+				}
+			}
+
 			// If the VPC in the DB has propagation details but the site reported no propagation details
 			// then we should clear it in the DB.  Passing along the nil to the Update call would
 			// just ignore the field.
@@ -199,6 +217,8 @@ func (mv ManageVpc) UpdateVpcsInDB(ctx context.Context, siteID uuid.UUID, vpcInv
 				}
 			}
 
+			// Controller omission clears cached routing-profile state. Update treats nil
+			// as leave-unchanged, so explicitly clear each stale field first.
 			if vpc.RoutingProfile != nil && reportedRoutingProfile == nil {
 				vpc, err = vpcDAO.Clear(ctx, nil, cdbm.VpcClearInput{
 					VpcID:          vpc.ID,
@@ -210,8 +230,41 @@ func (mv ManageVpc) UpdateVpcsInDB(ctx context.Context, siteID uuid.UUID, vpcInv
 				}
 			}
 
-			// Save controller VPC ID
-			_, serr := vpcDAO.Update(ctx, nil, cdbm.VpcUpdateInput{VpcID: vpc.ID, NetworkSecurityGroupID: reportedNSGID, NetworkSecurityGroupPropagationDetails: sitePropagationStatus, NetworkVirtualizationType: networkVirtualizationType, RoutingProfile: reportedRoutingProfile, ControllerVpcID: controllerVpcID, IsMissingOnSite: isMissingOnSite, ActiveVni: controllerActiveVni})
+			if vpc.RoutingProfileOverrides != nil && reportedRoutingProfileOverrides == nil {
+				vpc, err = vpcDAO.Clear(ctx, nil, cdbm.VpcClearInput{
+					VpcID:                   vpc.ID,
+					RoutingProfileOverrides: true,
+				})
+				if err != nil {
+					slogger.Error().Err(err).Msg("failed to clear RoutingProfileOverrides for VPC in DB")
+					continue
+				}
+			}
+
+			if vpc.EffectiveRoutingProfile != nil && reportedEffectiveRoutingProfile == nil {
+				vpc, err = vpcDAO.Clear(ctx, nil, cdbm.VpcClearInput{
+					VpcID:                   vpc.ID,
+					EffectiveRoutingProfile: true,
+				})
+				if err != nil {
+					slogger.Error().Err(err).Msg("failed to clear EffectiveRoutingProfile for VPC in DB")
+					continue
+				}
+			}
+
+			// Persist remaining non-nil controller-reported differences after explicit clears.
+			_, serr := vpcDAO.Update(ctx, nil, cdbm.VpcUpdateInput{
+				VpcID:                                  vpc.ID,
+				NetworkSecurityGroupID:                 reportedNSGID,
+				NetworkSecurityGroupPropagationDetails: sitePropagationStatus,
+				NetworkVirtualizationType:              networkVirtualizationType,
+				RoutingProfile:                         reportedRoutingProfile,
+				RoutingProfileOverrides:                reportedRoutingProfileOverrides,
+				EffectiveRoutingProfile:                reportedEffectiveRoutingProfile,
+				ControllerVpcID:                        controllerVpcID,
+				IsMissingOnSite:                        isMissingOnSite,
+				ActiveVni:                              controllerActiveVni,
+			})
 			if serr != nil {
 				slogger.Error().Err(serr).Msg("failed to update missing on Site flag/controller VPC ID in DB")
 				continue

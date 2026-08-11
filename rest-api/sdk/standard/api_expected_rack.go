@@ -943,6 +943,8 @@ Infrastructure Provider must own the Expected Rack.
 
 Alternatively, Tenant Admins with `TargetedInstanceCreation` capability can also update Expected Racks if they have an account with the Site's Infrastructure Provider.
 
+`rackId` is immutable: an update that changes it is rejected with `400` before any database mutation.
+
 	@param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
 	@param org Name of the Org
 	@param id ID of the Expected Rack

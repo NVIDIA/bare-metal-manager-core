@@ -484,6 +484,42 @@ pub async fn find_by_machine_ids(
     )
 }
 
+/// `find_by_machine_id_for_update` locks one host's non-BMC interface rows in
+/// ID order and returns their current snapshots.
+///
+/// Primary-interface writers call this after taking the network-segment
+/// advisory locks. The stable row order keeps concurrent interface mutations
+/// from acquiring the same set of row locks in different orders.
+pub async fn find_by_machine_id_for_update(
+    txn: &mut PgConnection,
+    machine_id: &MachineId,
+) -> Result<Vec<MachineInterfaceSnapshot>, DatabaseError> {
+    let query = r#"
+        SELECT id
+        FROM machine_interfaces
+        WHERE machine_id = $1
+          AND interface_type != 'Bmc'
+        ORDER BY id
+        FOR UPDATE
+    "#;
+    let interface_ids: Vec<MachineInterfaceId> = sqlx::query_scalar(query)
+        .bind(machine_id)
+        .fetch_all(&mut *txn)
+        .await
+        .map_err(|error| DatabaseError::query(query, error))?;
+    if interface_ids.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    let mut interfaces = find_by(
+        txn,
+        ObjectColumnFilter::List(IdColumn, interface_ids.as_slice()),
+    )
+    .await?;
+    interfaces.sort_by_key(|interface| interface.id);
+    Ok(interfaces)
+}
+
 /// Counts the machine interfaces bound to a given segment.
 ///
 /// Keep this predicate in sync with
@@ -2288,6 +2324,38 @@ pub async fn lock_all_admin_segments(txn: &mut PgConnection) -> DatabaseResult<(
     lock_network_segments_exclusive(txn, &segment_ids).await
 }
 
+static ADMIN_LOCK_ADMISSION: std::sync::OnceLock<std::sync::Arc<tokio::sync::Semaphore>> =
+    std::sync::OnceLock::new();
+
+/// Admission gate for the `lock_all_admin_segments` flows. The admin-segment
+/// advisory locks serialize those transactions anyway; without a gate, every
+/// waiter parks *inside* an open transaction, pinning a pool connection while
+/// blocked on the lock. At fleet-ingestion scale that queue grows past
+/// Postgres `max_connections` and the whole system wedges (registration,
+/// exploration, and the state controllers all starve; see the 4,500-host
+/// ingestion wedge). Acquire this permit BEFORE opening the transaction and
+/// hold it until commit/rollback, so excess waiters queue in memory instead
+/// of on connections. Permits: `ADMIN_LOCK_ADMISSION` env var, default 16.
+pub async fn admin_lock_admission() -> tokio::sync::OwnedSemaphorePermit {
+    let sem = ADMIN_LOCK_ADMISSION.get_or_init(|| {
+        // Clamp to a sane range: 0 would deadlock every gated flow, and a
+        // value at or above the pool size defeats the gate's purpose (the
+        // waiters it is meant to keep off connections would all be admitted).
+        const DEFAULT_PERMITS: usize = 16;
+        const MAX_PERMITS: usize = 256;
+        let permits = std::env::var("ADMIN_LOCK_ADMISSION")
+            .ok()
+            .and_then(|v| v.parse::<usize>().ok())
+            .map(|n| n.clamp(1, MAX_PERMITS))
+            .unwrap_or(DEFAULT_PERMITS);
+        std::sync::Arc::new(tokio::sync::Semaphore::new(permits))
+    });
+    sem.clone()
+        .acquire_owned()
+        .await
+        .expect("admin-lock admission semaphore is never closed")
+}
+
 pub async fn allocate_svi_ip(
     txn: &mut PgTransaction<'_>,
     segment: &NetworkSegment,
@@ -3541,6 +3609,11 @@ pub async fn delete(
         "DELETE FROM machine_interfaces WHERE id=$1 RETURNING mac_address, boot_interface_id";
     crate::machine_interface_address::delete(txn, interface_id).await?;
     crate::dhcp_entry::delete(txn, interface_id).await?;
+    // `machine_boot_override` references this row with no ON DELETE CASCADE, so a
+    // leftover override otherwise fails the delete below with a foreign-key violation.
+    // The override is meaningless once its interface is gone, so drop it here for every
+    // caller rather than making each one remember.
+    crate::machine_boot_override::clear(txn, *interface_id).await?;
     let deleted: Option<(MacAddress, Option<String>)> = sqlx::query_as(query)
         .bind(*interface_id)
         .fetch_optional(&mut *txn)

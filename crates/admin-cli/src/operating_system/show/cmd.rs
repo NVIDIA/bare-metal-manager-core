@@ -26,15 +26,17 @@ use crate::errors::{CarbideCliError, CarbideCliResult};
 use crate::operating_system::common::{SerializableOs, str_to_os_id};
 use crate::rpc::ApiClient;
 
-pub async fn handle_show(
+pub(super) async fn handle_show(
     opts: Args,
     format: OutputFormat,
     api_client: &ApiClient,
 ) -> CarbideCliResult<()> {
-    if opts.id.as_deref().unwrap_or("").is_empty() {
-        list_all(opts, format, api_client).await
+    if let Some(id) = opts.id.as_ref()
+        && !id.is_empty()
+    {
+        show_one(id, format, api_client).await
     } else {
-        show_one(opts.id.as_deref().unwrap(), format, api_client).await
+        list_all(opts, format, api_client).await
     }
 }
 

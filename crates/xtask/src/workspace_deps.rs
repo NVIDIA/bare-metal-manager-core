@@ -26,7 +26,7 @@ use walkdir::WalkDir;
 
 static REPO_ROOT: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../.."); // crates/xtask/../..
 
-pub fn check(fix: bool) -> eyre::Result<CheckOutcome> {
+pub(super) fn check(fix: bool) -> eyre::Result<CheckOutcome> {
     let repo_root = PathBuf::from(REPO_ROOT).canonicalize()?;
     let mut workspace = Workspace::load(repo_root).context("error reading cargo.toml files")?;
 
@@ -42,13 +42,13 @@ pub fn check(fix: bool) -> eyre::Result<CheckOutcome> {
     }
 }
 
-pub enum CheckOutcome {
+pub(super) enum CheckOutcome {
     Success { fixed: Vec<(PathBuf, String)> },
     Failure { diffs: Vec<(PathBuf, String)> },
 }
 
 impl CheckOutcome {
-    pub fn report_and_exit(self) -> ! {
+    pub(super) fn report_and_exit(self) -> ! {
         match self {
             CheckOutcome::Success { fixed } if fixed.is_empty() => {
                 // All good, no fixes needed

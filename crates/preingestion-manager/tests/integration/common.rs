@@ -26,7 +26,7 @@ use model::site_explorer::{
 };
 use sqlx::PgConnection;
 
-pub async fn insert_endpoint_version(
+pub(super) async fn insert_endpoint_version(
     txn: &mut PgConnection,
     addr: &str,
     bmc_version: &str,

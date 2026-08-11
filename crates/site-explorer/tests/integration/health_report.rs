@@ -41,14 +41,12 @@ fn site_explorer_config() -> SiteExplorerConfig {
         concurrent_explorations: 1,
         run_interval: Duration::from_secs(1),
         create_machines: Arc::new(true.into()),
-        allocate_secondary_vtep_ip: false,
         ..Default::default()
     }
 }
 
 fn health_site_explorer_config() -> SiteExplorerConfig {
     SiteExplorerConfig {
-        allocate_secondary_vtep_ip: true,
         create_power_shelves: Arc::new(true.into()),
         power_shelves_created_per_run: 1,
         create_switches: Arc::new(true.into()),
@@ -102,11 +100,7 @@ async fn find_machine(
 #[sqlx_test]
 async fn test_site_explorer_health_report(pool: PgPool) -> Result<(), Box<dyn std::error::Error>> {
     let test_harness = TestHarness::builder(pool.clone())
-        .with_resource_pools(
-            ResourcePoolBuilder::default()
-                .with_secondary_vtep_ip("172.30.0.0/24")
-                .build(),
-        )
+        .with_resource_pools(ResourcePoolBuilder::default().build())
         .build()
         .await;
     let domain = test_harness.test_domain().await;

@@ -19,6 +19,7 @@ use carbide_uuid::rack::RackId;
 use color_eyre::Result;
 use prettytable::{Table, row};
 use rpc::admin_cli::OutputFormat;
+use rpc::errors::RpcDataConversionError;
 use rpc::forge::{MachineSearchConfig, PowerShelfSearchFilter, Rack, SwitchSearchFilter};
 use serde::Serialize;
 
@@ -103,7 +104,11 @@ async fn get_nvlink_switches(api_client: &ApiClient, rack_id: &RackId) -> Result
 async fn get_rack_outputs(api_client: &ApiClient, racks: &Vec<Rack>) -> Result<Vec<RackOutput>> {
     let mut outputs: Vec<RackOutput> = Vec::new();
     for rack in racks {
-        let rack_id = rack.id.as_ref().unwrap().clone();
+        let rack_id = rack
+            .id
+            .as_ref()
+            .ok_or(RpcDataConversionError::MissingArgument("rack.id"))?
+            .clone();
         let compute_trays = get_compute_trays(api_client, &rack_id).await?;
         let power_shelves = get_power_shelves(api_client, &rack_id).await?;
         let nvlink_switches = get_nvlink_switches(api_client, &rack_id).await?;
@@ -116,7 +121,11 @@ async fn get_rack_outputs(api_client: &ApiClient, racks: &Vec<Rack>) -> Result<V
     Ok(outputs)
 }
 
-pub async fn show_rack(api_client: &ApiClient, args: Args, config: &RuntimeConfig) -> Result<()> {
+pub(super) async fn show_rack(
+    api_client: &ApiClient,
+    args: Args,
+    config: &RuntimeConfig,
+) -> Result<()> {
     let format = config.format;
     match args.rack {
         Some(rack_id) => {

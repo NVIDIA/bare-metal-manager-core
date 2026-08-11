@@ -8,7 +8,8 @@ How NICo component tracing works, what it covers, how to turn it on and off and 
 
 - **nico-api** (the `carbide-api` binary) is NICo's primary tracing source and the subject of this
   document. **nico-dns** also emits traces, but with a separate simpler always-on setup.
-  No other NICo component emits traces.
+  **nico-bmc-proxy** emits traces for each proxied BMC request when configured (see
+  [nico-bmc-proxy tracing](#16-nico-bmc-proxy-tracing)).
 - **nico-api traces are off by default**; two things must both be true before any spans are emitted:
   - An OTLP endpoint is configured at startup, either in the nico-api config TOML:
 
@@ -35,7 +36,7 @@ How NICo component tracing works, what it covers, how to turn it on and off and 
 - nico-api **propagates W3C trace context** at its network boundaries: it reads `traceparent`/
   `tracestate` from inbound REST and gRPC requests and continues that trace, injecting the same
   headers into its outbound requests. Propagation links traces across services, but does not by itself
-  enable recording (see [1.6](#16-w3c-trace-context-propagation)).
+  enable recording (see [W3C trace-context propagation](#17-w3c-trace-context-propagation)).
 
 ---
 
@@ -43,13 +44,16 @@ How NICo component tracing works, what it covers, how to turn it on and off and 
 
 ### 1.1 Which components emit traces
 
-Two binaries build an OTLP span exporter:
+The following binaries build an OTLP span exporter:
 
 - **nico-api** (`crates/api-core/src/logging/setup.rs`) - the rich, control-plane tracing this
   document is mostly about, off by default behind endpoint plus enabled-flag configuration
 - **nico-dns** (`crates/dns/src/main.rs`) - a separate, much simpler **always-on** setup.
+- **nico-bmc-proxy** (`crates/bmc-proxy/src/setup.rs`) - one span per proxied BMC request, off by
+  default behind endpoint plus `[tracing] enabled` (see
+  [nico-bmc-proxy tracing](#16-nico-bmc-proxy-tracing)).
 
-The other binaries (nico-pxe, nico-dhcp, nico-bmc-proxy, nico-hardware-health, nico-ssh-console-rs, and
+The other binaries (nico-pxe, nico-dhcp, nico-hardware-health, nico-ssh-console-rs, and
 nico-dsx-exchange-consumer) carry the OpenTelemetry crates in the workspace but do not build a span
 exporter, so they do not emit traces.
 
@@ -89,7 +93,8 @@ nico-api uses a custom `CarbideSpanSampler`:
 - **In-process child spans inherit the root's decision**, so once a trace is sampled the whole call tree beneath
   it is captured - **except tokio spans, which are always dropped** (they leak and would exhaust memory).
 - For a span parented to a **remote** (ingress-extracted) trace, the decision stays local: an inbound `sampled`
-  flag does not override `tracing_enabled` (see [1.6](#16-w3c-trace-context-propagation)).
+  flag does not override `tracing_enabled` (see
+  [W3C trace-context propagation](#17-w3c-trace-context-propagation)).
 - The exporter resource is `service.name = carbide-api`; the tracer is named `carbide`.
 
 ### 1.4 How traces leave nico-api
@@ -116,7 +121,51 @@ nico-api's:
 - **Resource / output:** `service.name = carbide-dns`; logs are JSON on stdout (not logfmt).
 - **Same transport constraints:** OTLP/gRPC, plaintext (`with_tonic`, no `tls` feature)
 
-### 1.6 W3C trace-context propagation
+### 1.6 nico-bmc-proxy tracing
+
+nico-bmc-proxy traces each proxied Redfish request through the BMC credential proxy
+(`crates/bmc-proxy/src/bmc_proxy.rs`). It follows the same W3C propagation model as nico-api
+(issue [#2438](https://github.com/NVIDIA/infra-controller/issues/2438)) so a call from nico-api or
+DPS stays one trace across the proxy hop (issue
+[#2355](https://github.com/NVIDIA/infra-controller/issues/2355)).
+
+- **Off by default.** Spans are exported only when an OTLP endpoint is configured **and**
+  `[tracing] enabled = true` (or the process is started with `--debug`). There is no runtime
+  toggle on this binary.
+- **Endpoint.** Set the standard `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT`, or
+  `OTEL_EXPORTER_OTLP_ENDPOINT` to cover every signal at once; the trace-specific variable wins when
+  both are set. `[tracing] otlp_endpoint` in the proxy TOML is the fallback for when neither variable
+  is set. The remaining standard OTLP transport settings (`OTEL_EXPORTER_OTLP_TIMEOUT`,
+  `OTEL_EXPORTER_OTLP_COMPRESSION`, `OTEL_EXPORTER_OTLP_HEADERS`, ...) are read by the exporter
+  itself and apply as well. A malformed endpoint is rejected when the
+  exporter is built; the proxy logs a warning and serves BMC traffic without tracing rather than
+  refusing to start.
+- **Ingress.** Each proxied request opens a `bmc_proxy_request` span and adopts any inbound
+  `traceparent`/`tracestate` via `trace_propagation::set_span_parent_from_headers`.
+- **Egress to BMC.** Upstream Redfish calls use a `reqwest-tracing` client so the active proxy
+  span's W3C context is injected on the BMC leg. The inbound headers are dropped before the upstream
+  request is assembled — `trace_propagation::is_propagated_header` asks the configured propagator
+  which headers are its own — so the BMC parents under the proxy's span rather than the caller's.
+- **Egress to nico-api (gRPC).** Credential lookup uses the shared `ForgeApiClient`, which already
+  wraps the transport with `TraceInjectService`.
+- **Resource / tracer:** `service.name = nico-bmc-proxy`, tracer name `nico-bmc-proxy`.
+- **Span fields:** HTTP method and request path, the status the proxy answered its caller with (not
+  the BMC's — a request the proxy rejects never reaches one), and BMC target IP (span attribute, not
+  a Prometheus label). Only a 5xx sets the span status to error; a 4xx is the caller's error.
+
+Example config:
+
+```toml
+[tracing]
+enabled = true
+otlp_endpoint = "http://otel-collector.observability.svc.cluster.local:4317"
+```
+
+Point this at the same collector nico-api uses: spans only join into one trace if every
+hop's exporter reaches the same backend. The components stay distinguishable by their
+`service.name`.
+
+### 1.7 W3C trace-context propagation
 
 nico-api accepts and produces **W3C Trace Context** headers (`traceparent` and `tracestate`) at its
 network boundaries, so a request already traced by another service stays one trace as it passes
@@ -145,7 +194,7 @@ through nico-api. The standard `TraceContextPropagator` is installed once at sta
     this hop. **This is a known limitation.**
 - **Scope.** Trace context only (`traceparent` or `tracestate`).
 
-### 1.7 Adding a new network client
+### 1.8 Adding a new network client
 
 Propagation is automatic on ingress but opt-in on egress. Keep the following in mind when adding code:
 

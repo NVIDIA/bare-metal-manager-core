@@ -22,7 +22,7 @@ use crate::dpf::common::DpfQuery;
 use crate::errors::{CarbideCliError, CarbideCliResult};
 use crate::rpc::ApiClient;
 
-pub async fn show(
+pub(super) async fn show(
     query: &DpfQuery,
     _format: OutputFormat,
     page_size: usize,

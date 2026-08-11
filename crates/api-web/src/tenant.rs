@@ -53,7 +53,7 @@ impl From<forgerpc::Tenant> for TenantDisplay {
 }
 
 /// List tenants
-pub async fn show_html(AxumState(state): AxumState<Arc<Api>>) -> Response {
+pub(super) async fn show_html(AxumState(state): AxumState<Arc<Api>>) -> Response {
     let out = match fetch_tenants(state).await {
         Ok(m) => m,
         Err(err) => {
@@ -68,7 +68,7 @@ pub async fn show_html(AxumState(state): AxumState<Arc<Api>>) -> Response {
     (StatusCode::OK, Html(tmpl.render().unwrap())).into_response()
 }
 
-pub async fn show_all_json(AxumState(state): AxumState<Arc<Api>>) -> Response {
+pub(super) async fn show_all_json(AxumState(state): AxumState<Arc<Api>>) -> Response {
     let out: forgerpc::TenantList = match fetch_tenants(state).await {
         Ok(m) => m,
         Err(err) => {
@@ -135,7 +135,7 @@ impl From<forgerpc::Tenant> for TenantDetail {
 }
 
 /// View tenant
-pub async fn detail(
+pub(super) async fn detail(
     AxumState(state): AxumState<Arc<Api>>,
     AxumPath(organization_id): AxumPath<String>,
 ) -> Response {

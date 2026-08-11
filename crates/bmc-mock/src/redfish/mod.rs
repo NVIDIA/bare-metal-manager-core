@@ -15,45 +15,46 @@
  * limitations under the License.
  */
 
-pub mod account_service;
-pub mod assembly;
-pub mod bios;
-pub mod boot_option;
-pub mod chassis;
-pub mod collection;
-pub mod computer_system;
-pub mod ethernet_interface;
-pub mod host_interface;
-pub mod leak_detector;
-pub mod log_service;
-pub mod manager;
-pub mod manager_network_protocol;
-pub mod network_adapter;
-pub mod network_device_function;
-pub mod oem;
-pub mod pcie_device;
-pub mod power_subsystem;
-pub mod power_supply;
-pub mod processor;
-pub mod resource;
-pub mod secure_boot;
-pub mod sensor;
-pub mod serial_console;
-pub mod serial_interface;
-pub mod service_root;
-pub mod session_service;
-pub mod software_inventory;
-pub mod storage;
-pub mod task_service;
-pub mod telemetry_service;
-pub mod thermal_subsystem;
-pub mod update_service;
-pub mod virtual_media;
+pub(crate) mod account_service;
+pub(crate) mod assembly;
+pub(crate) mod bios;
+pub(crate) mod boot_option;
+pub(crate) mod chassis;
+mod collection;
+pub(crate) mod computer_system;
+pub(crate) mod ethernet_interface;
+pub(crate) mod host_interface;
+pub(crate) mod leak_detector;
+pub(crate) mod log_service;
+pub(crate) mod manager;
+mod manager_network_protocol;
+pub(crate) mod memory;
+pub(crate) mod network_adapter;
+pub(crate) mod network_device_function;
+pub(crate) mod oem;
+pub(crate) mod pcie_device;
+mod power_subsystem;
+pub(crate) mod power_supply;
+pub(crate) mod processor;
+pub(crate) mod resource;
+mod secure_boot;
+pub(crate) mod sensor;
+pub(crate) mod serial_console;
+pub(crate) mod serial_interface;
+pub(crate) mod service_root;
+pub(crate) mod session_service;
+pub(crate) mod software_inventory;
+mod storage;
+pub(crate) mod task_service;
+pub(crate) mod telemetry_service;
+mod thermal_subsystem;
+pub(crate) mod update_service;
+pub(crate) mod virtual_media;
 
-pub mod expander_router;
+pub(crate) mod expander_router;
 
-pub use collection::Collection;
-pub use resource::Resource;
+pub(super) use collection::Collection;
+use resource::Resource;
 
 trait Builder {
     fn maybe_with<T, V>(self, f: fn(Self, &V) -> Self, v: &Option<T>) -> Self

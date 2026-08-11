@@ -26,14 +26,14 @@ use carbide_test_harness::prelude::*;
 /// Keep this shared env to the setup common to most site-explorer tests.
 /// Tests that need extra domains, segments, or other one-off objects should
 /// create those objects locally instead of adding fields here.
-pub struct Env {
-    pub pool: PgPool,
-    pub underlay_segment: TestNetworkSegment,
-    pub test_harness: TestHarness,
+pub(super) struct Env {
+    pub(super) pool: PgPool,
+    pub(super) underlay_segment: TestNetworkSegment,
+    pub(super) test_harness: TestHarness,
 }
 
 impl Env {
-    pub async fn new(pool: PgPool) -> Self {
+    pub(super) async fn new(pool: PgPool) -> Self {
         let test_harness = TestHarness::builder(pool.clone()).build().await;
         let domain = test_harness.test_domain().await;
         let nc = test_harness.network_controller();
@@ -45,16 +45,19 @@ impl Env {
         }
     }
 
-    pub fn api(&self) -> &Api {
+    pub(super) fn api(&self) -> &Api {
         self.test_harness.api()
     }
 
-    pub fn test_site_explorer(&self, explorer_config: SiteExplorerConfig) -> TestSiteExplorer {
+    pub(super) fn test_site_explorer(
+        &self,
+        explorer_config: SiteExplorerConfig,
+    ) -> TestSiteExplorer {
         test_site_explorer(&self.test_harness, explorer_config)
     }
 }
 
-pub fn test_site_explorer(
+pub(super) fn test_site_explorer(
     test_harness: &TestHarness,
     explorer_config: SiteExplorerConfig,
 ) -> TestSiteExplorer {

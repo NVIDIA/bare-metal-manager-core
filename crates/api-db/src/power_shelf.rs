@@ -124,6 +124,7 @@ pub async fn create(
         status: None,
         deleted: None,
         bmc_mac_address: new_power_shelf.bmc_mac_address,
+        bmc_credential_rotation_requested: false,
         bmc_info: None,
         controller_state: Versioned {
             value: state,
@@ -348,6 +349,52 @@ pub async fn clear_power_shelf_maintenance_requested(
         .fetch_optional(txn)
         .await
         .map_err(|e| DatabaseError::new("clear_power_shelf_maintenance_requested", e))?;
+    Ok(())
+}
+
+/// Record an operator force-converge request against a power shelf's BMC (PMC)
+///. The power-shelf state controller consumes it on its next sweep.
+/// Mirrors [`crate::switch::set_bmc_credential_rotation_requested`].
+pub async fn set_bmc_credential_rotation_requested(
+    txn: &mut PgConnection,
+    power_shelf_id: PowerShelfId,
+) -> DatabaseResult<()> {
+    let query = "UPDATE power_shelves SET bmc_credential_rotation_requested = true WHERE id = $1 RETURNING id";
+    sqlx::query_scalar::<_, PowerShelfId>(query)
+        .bind(power_shelf_id)
+        .fetch_one(txn)
+        .await
+        .map_err(|e| match e {
+            // `RETURNING id` yields no row for an unknown power shelf; surface a
+            // clean not-found rather than a generic wrapped error.
+            sqlx::Error::RowNotFound => DatabaseError::NotFoundError {
+                kind: "power_shelf",
+                id: power_shelf_id.to_string(),
+            },
+            e => DatabaseError::new("power_shelf::set_bmc_credential_rotation_requested", e),
+        })?;
+    Ok(())
+}
+
+/// Clear a power shelf's force-converge request, committed with the
+/// return to `Ready` once a forced tick settles. Mirrors
+/// [`crate::switch::clear_bmc_credential_rotation_requested`].
+pub async fn clear_bmc_credential_rotation_requested(
+    txn: &mut PgConnection,
+    power_shelf_id: PowerShelfId,
+) -> DatabaseResult<()> {
+    let query = "UPDATE power_shelves SET bmc_credential_rotation_requested = false WHERE id = $1 RETURNING id";
+    sqlx::query_scalar::<_, PowerShelfId>(query)
+        .bind(power_shelf_id)
+        .fetch_one(txn)
+        .await
+        .map_err(|e| match e {
+            sqlx::Error::RowNotFound => DatabaseError::NotFoundError {
+                kind: "power_shelf",
+                id: power_shelf_id.to_string(),
+            },
+            e => DatabaseError::new("power_shelf::clear_bmc_credential_rotation_requested", e),
+        })?;
     Ok(())
 }
 

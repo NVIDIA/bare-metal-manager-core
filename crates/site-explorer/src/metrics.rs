@@ -21,7 +21,7 @@ use std::net::IpAddr;
 use std::time::{Duration, Instant};
 
 use ::carbide_utils::metrics::SharedMetricsHolder;
-use carbide_instrument::{DynamicLog, DynamicMessage, Event, LabelValue, LogAt};
+use carbide_instrument::{Event, LabelValue};
 use carbide_metrics_utils::OtelView;
 use carbide_uuid::machine::MachineType;
 use model::site_explorer::{EndpointExplorationError, MachineExpectation};
@@ -355,38 +355,31 @@ pub fn site_explorer_latency_histogram_view(
     )
 }
 
-/// `SiteExplorerIterationFinished` closes one Site Explorer attempt. Every
-/// emission records its duration in the existing label-free histogram; a
-/// non-empty `error` also retains the `ERROR` record.
+/// One Site Explorer pass. Both cases sample the duration; only a failure logs
+/// -- successes and lock-acquisition skips both stay quiet.
 #[derive(Event)]
 #[event(
     event_name = "site_explorer_iteration_finished",
     metric_name = "carbide_site_explorer_iteration_latency_milliseconds",
     component = "site-explorer",
-    log = dynamic,
     metric = histogram,
-    message = "SiteExplorer run failed",
     describe = "The time it took to perform one site explorer iteration"
 )]
-pub(crate) struct SiteExplorerIterationFinished {
-    #[observation]
-    pub latency: Duration,
-    /// `error` carries a failed result's `Debug` rendering when
-    /// `SiteExplorerIterationFinished` owns the diagnostic record. An empty
-    /// value turns off logging without skipping latency; successes and
-    /// lock-acquisition failures both use it.
-    #[context]
-    pub error: String,
-}
+pub(crate) enum SiteExplorerIterationFinished {
+    /// A clean pass: sampled, never logged.
+    #[event(log = off)]
+    Succeeded {
+        #[observation]
+        latency: Duration,
+    },
 
-impl DynamicLog for SiteExplorerIterationFinished {
-    fn log_at(&self) -> LogAt {
-        if self.error.is_empty() {
-            LogAt::Off
-        } else {
-            LogAt::Level(tracing::Level::ERROR)
-        }
-    }
+    #[event(log = error, message = "SiteExplorer run failed")]
+    Failed {
+        #[observation]
+        latency: Duration,
+        #[context]
+        error: String,
+    },
 }
 
 /// The step that left a machine's RMS location data incomplete.
@@ -459,54 +452,38 @@ impl SiteExplorerMachineSlotTrayResponseMissing {
     }
 }
 
-/// `SiteExplorerMachineSlotTrayValueInvalid` counts the one RMS location field
-/// that could not fit in the database while preserving the other field.
+/// RMS returned a slot or tray value Site Explorer cannot use. Each variant is
+/// the field that was out of range.
 #[derive(Event)]
 #[event(
     event_name = "site_explorer_machine_slot_tray_value_invalid",
     metric_name = "carbide_site_explorer_machine_slot_tray_enrichment_failures_total",
     component = "site-explorer",
-    log = warn,
     metric = counter,
-    message = dynamic,
-    describe = "Number of Site Explorer machine slot and tray enrichment failures, by failure stage."
+    describe = "Number of Site Explorer machine slot and tray enrichment failures, by failure stage.",
+    labels(failure_stage: SiteExplorerMachineSlotTrayValueFailureStage),
 )]
-pub(crate) struct SiteExplorerMachineSlotTrayValueInvalid {
-    #[label]
-    failure_stage: SiteExplorerMachineSlotTrayValueFailureStage,
-    #[context]
-    value: u32,
+pub(crate) enum SiteExplorerMachineSlotTrayValueInvalid {
+    #[event(
+        labels(failure_stage = SiteExplorerMachineSlotTrayValueFailureStage::SlotNumberOutOfRange),
+        log = warn,
+        message = "RMS returned slot_number outside the supported range, slot_number will be unset"
+    )]
+    SlotNumber {
+        #[context]
+        value: u32,
+    },
+
+    #[event(
+        labels(failure_stage = SiteExplorerMachineSlotTrayValueFailureStage::TrayIndexOutOfRange),
+        log = warn,
+        message = "RMS returned tray_index outside the supported range, tray_index will be unset"
+    )]
+    TrayIndex {
+        #[context]
+        value: u32,
+    },
 }
-
-impl SiteExplorerMachineSlotTrayValueInvalid {
-    pub(crate) fn slot_number(value: u32) -> Self {
-        Self {
-            failure_stage: SiteExplorerMachineSlotTrayValueFailureStage::SlotNumberOutOfRange,
-            value,
-        }
-    }
-
-    pub(crate) fn tray_index(value: u32) -> Self {
-        Self {
-            failure_stage: SiteExplorerMachineSlotTrayValueFailureStage::TrayIndexOutOfRange,
-            value,
-        }
-    }
-}
-
-impl DynamicMessage for SiteExplorerMachineSlotTrayValueInvalid {
-    fn message(&self) -> &'static str {
-        match self.failure_stage {
-            SiteExplorerMachineSlotTrayValueFailureStage::SlotNumberOutOfRange => {
-                "RMS returned slot_number outside the supported range, slot_number will be unset"
-            }
-            SiteExplorerMachineSlotTrayValueFailureStage::TrayIndexOutOfRange => {
-                "RMS returned tray_index outside the supported range, tray_index will be unset"
-            }
-        }
-    }
-}
-
 /// `SiteExplorerMachineSlotTrayPersistenceFailed` records a database update
 /// failure after the best-effort RMS lookup.
 #[derive(Event)]
@@ -562,49 +539,46 @@ pub(crate) enum BmcResetStatus {
     Failed,
 }
 
-/// One Site Explorer BMC reset attempt finished. The cumulative counter tracks
-/// every terminal attempt by method and status, while `bmc_reset_count` keeps
-/// its existing latest-run success-only semantics.
+/// One Site Explorer BMC reset attempt. Each variant is the result, and keeps
+/// the level and wording that result already had.
 #[derive(Event)]
 #[event(
     event_name = "site_explorer_bmc_reset_finished",
     metric_name = "carbide_site_explorer_bmc_reset_attempts_total",
     component = "site-explorer",
-    log = dynamic,
     metric = counter,
-    message = dynamic,
-    describe = "Number of Site Explorer BMC reset attempts, by method and status."
+    describe = "Number of Site Explorer BMC reset attempts, by method and status.",
+    labels(status: BmcResetStatus, method: BmcResetMethod),
 )]
-pub(crate) struct BmcResetFinished {
-    #[label]
-    pub method: BmcResetMethod,
-    #[label]
-    pub status: BmcResetStatus,
-    #[context]
-    pub address: IpAddr,
-    /// The reset failure; empty when the physical reset succeeded.
-    #[context]
-    pub error: String,
-}
+pub(crate) enum BmcResetFinished {
+    #[event(
+        labels(status = BmcResetStatus::Succeeded),
+        log = info,
+        message = "Site Explorer reset BMC"
+    )]
+    Succeeded {
+        #[label]
+        method: BmcResetMethod,
+        #[context]
+        address: IpAddr,
+        #[context]
+        error: String,
+    },
 
-impl DynamicLog for BmcResetFinished {
-    fn log_at(&self) -> LogAt {
-        match self.status {
-            BmcResetStatus::Succeeded => LogAt::Level(tracing::Level::INFO),
-            BmcResetStatus::Failed => LogAt::Level(tracing::Level::ERROR),
-        }
-    }
+    #[event(
+        labels(status = BmcResetStatus::Failed),
+        log = error,
+        message = "Site Explorer failed to reset BMC"
+    )]
+    Failed {
+        #[label]
+        method: BmcResetMethod,
+        #[context]
+        address: IpAddr,
+        #[context]
+        error: String,
+    },
 }
-
-impl DynamicMessage for BmcResetFinished {
-    fn message(&self) -> &'static str {
-        match self.status {
-            BmcResetStatus::Succeeded => "Site Explorer reset BMC",
-            BmcResetStatus::Failed => "Site Explorer failed to reset BMC",
-        }
-    }
-}
-
 /// A physical BMC reset succeeded, but its rate-limit timestamp could not be
 /// persisted. This is a separate Event because the bookkeeping failure must
 /// not turn the completed reset into a failed attempt.
@@ -620,25 +594,25 @@ impl DynamicMessage for BmcResetFinished {
 )]
 pub(crate) struct BmcResetTimestampPersistenceFailed {
     #[label]
-    pub method: BmcResetMethod,
+    pub(crate) method: BmcResetMethod,
     #[context]
-    pub bmc_ip_address: IpAddr,
+    pub(crate) bmc_ip_address: IpAddr,
     #[context]
-    pub error: String,
+    pub(crate) error: String,
 }
 
 /// Instruments that are used by the Site Explorer
-pub struct SiteExplorerInstruments {
-    pub endpoint_exploration_duration: Histogram<f64>,
-    pub endpoint_exploration_step_latency: Histogram<f64>,
-    pub site_explorer_phase_latency: Histogram<f64>,
-    pub site_explorer_create_machines_latency: Histogram<f64>,
-    pub site_explorer_create_power_shelves_latency: Histogram<f64>,
-    pub site_explorer_create_switches_latency: Histogram<f64>,
+struct SiteExplorerInstruments {
+    endpoint_exploration_duration: Histogram<f64>,
+    endpoint_exploration_step_latency: Histogram<f64>,
+    site_explorer_phase_latency: Histogram<f64>,
+    site_explorer_create_machines_latency: Histogram<f64>,
+    site_explorer_create_power_shelves_latency: Histogram<f64>,
+    site_explorer_create_switches_latency: Histogram<f64>,
 }
 
 impl SiteExplorerInstruments {
-    pub fn new(
+    fn new(
         meter: Meter,
         shared_metrics: SharedMetricsHolder<SiteExplorationMetrics>,
         config: &SiteExplorerConfig,
@@ -1126,7 +1100,7 @@ impl SiteExplorerInstruments {
     /// Emits the latency metrics that are captured during a single site explorer
     /// iteration. Those are emitted immediately as histograms, whereas the
     /// amount of objects in states is emitted as gauges.
-    pub fn emit_latency_metrics(&self, metrics: &SiteExplorationMetrics) {
+    fn emit_latency_metrics(&self, metrics: &SiteExplorationMetrics) {
         if let Some(latency) = metrics.create_machines_latency {
             self.site_explorer_create_machines_latency
                 .record(1000.0 * latency.as_secs_f64(), &[]);
@@ -1167,7 +1141,7 @@ impl SiteExplorerInstruments {
 ///
 /// Since we want to keep the amount of dimensions in metrics down, only the top
 /// level error information is copied and details are omitted.
-pub fn exploration_error_to_metric_label(error: &EndpointExplorationError) -> String {
+pub(super) fn exploration_error_to_metric_label(error: &EndpointExplorationError) -> String {
     match error {
         EndpointExplorationError::ConnectionRefused { .. } => "connection_refused",
         EndpointExplorationError::ConnectionTimeout { .. } => "connection_timeout",
@@ -1198,13 +1172,13 @@ pub fn exploration_error_to_metric_label(error: &EndpointExplorationError) -> St
 }
 
 /// Stores Metric data shared between SiteExplorer and the OpenTelemetry background task
-pub struct MetricHolder {
+pub(super) struct MetricHolder {
     instruments: SiteExplorerInstruments,
     last_iteration_metrics: SharedMetricsHolder<SiteExplorationMetrics>,
 }
 
 impl MetricHolder {
-    pub fn new(
+    pub(super) fn new(
         meter: Meter,
         hold_period: std::time::Duration,
         config: &SiteExplorerConfig,
@@ -1219,7 +1193,7 @@ impl MetricHolder {
     }
 
     /// Updates the most recent metrics
-    pub fn update_metrics(&self, mut metrics: SiteExplorationMetrics) {
+    pub(super) fn update_metrics(&self, mut metrics: SiteExplorationMetrics) {
         // Emit the last recent latency metrics
         self.instruments.emit_latency_metrics(&metrics);
         // We don't need to store the latency metrics anymore
@@ -1447,14 +1421,10 @@ mod tests {
                         emit(SiteExplorerMachineSlotTrayResponseMissing::new());
                     }
                     SlotTrayFailureCase::SlotNumberOutOfRange => {
-                        emit(SiteExplorerMachineSlotTrayValueInvalid::slot_number(
-                            OUT_OF_RANGE,
-                        ));
+                        emit(SiteExplorerMachineSlotTrayValueInvalid::SlotNumber { value: OUT_OF_RANGE });
                     }
                     SlotTrayFailureCase::TrayIndexOutOfRange => {
-                        emit(SiteExplorerMachineSlotTrayValueInvalid::tray_index(
-                            OUT_OF_RANGE,
-                        ));
+                        emit(SiteExplorerMachineSlotTrayValueInvalid::TrayIndex { value: OUT_OF_RANGE });
                     }
                     SlotTrayFailureCase::DatabaseUpdate => {
                         emit(SiteExplorerMachineSlotTrayPersistenceFailed::new(
@@ -1552,9 +1522,13 @@ mod tests {
             |IterationCase { latency, error }| {
                 let metrics = MetricsCapture::start();
                 let logs = capture_logs(|| {
-                    emit(SiteExplorerIterationFinished {
-                        latency,
-                        error: error.to_string(),
+                    emit(if error.is_empty() {
+                        SiteExplorerIterationFinished::Succeeded { latency }
+                    } else {
+                        SiteExplorerIterationFinished::Failed {
+                            latency,
+                            error: error.to_string(),
+                        }
                     });
                 });
                 let log = logs.first().map(|log| LogObservation {
@@ -1584,9 +1558,8 @@ mod tests {
         const EXPOSED_METRIC: &str = "carbide_site_explorer_iteration_latency_milliseconds";
 
         let metrics = MetricsCapture::start();
-        emit(SiteExplorerIterationFinished {
+        emit(SiteExplorerIterationFinished::Succeeded {
             latency: Duration::from_millis(125),
-            error: String::new(),
         });
 
         let encoded = metrics.render();

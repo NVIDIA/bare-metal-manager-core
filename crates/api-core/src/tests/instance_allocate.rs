@@ -230,11 +230,11 @@ async fn test_allocate_instance_rejects_interface_anycast_prefix_outside_vpc_pro
             routing_profiles: HashMap::from([(
                 profile_type.to_string(),
                 FnnRoutingProfileConfig {
-                    internal: true,
-                    access_tier: 0,
-                    allowed_anycast_prefixes: vec![PrefixFilterPolicyEntry {
+                    internal: Some(true),
+                    access_tier: Some(0),
+                    allowed_anycast_prefixes: Some(vec![PrefixFilterPolicyEntry {
                         prefix: "192.0.2.0/24".parse().unwrap(),
-                    }],
+                    }]),
                     ..Default::default()
                 },
             )]),

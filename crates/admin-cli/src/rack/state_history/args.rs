@@ -26,7 +26,7 @@ Show state history for a rack:
     $ nico-admin-cli rack state-history ipp6-b03-gb-nvl-124-mini2
 
 ")]
-pub struct Args {
+pub(crate) struct Args {
     #[clap(help = "Rack ID to show state history for")]
-    pub rack_id: RackId,
+    pub(super) rack_id: RackId,
 }

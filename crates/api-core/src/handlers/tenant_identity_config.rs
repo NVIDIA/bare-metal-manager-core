@@ -66,11 +66,12 @@ async fn tenant_identity_with_decrypted_token_delegation(
     )
     .await
     .inspect_err(|e| {
-        carbide_instrument::emit(MachineIdentityStoredSecretDecryptionFailed::from_status(
-            StoredMachineIdentitySecretKind::TokenDelegationAuth,
-            cfg.organization_id.as_str(),
-            e,
-        ));
+        carbide_instrument::emit(
+            MachineIdentityStoredSecretDecryptionFailed::TokenDelegationAuth {
+                organization_id: cfg.organization_id.to_string(),
+                error: e.message().to_string(),
+            },
+        );
     })?;
     Ok(TenantIdentityConfigDecrypted {
         row: cfg,

@@ -34,7 +34,7 @@ use crate::config::Config;
 use crate::shutdown_handle::ShutdownHandle;
 use crate::tcp_listener;
 
-pub async fn spawn(
+pub(crate) async fn spawn(
     config: Arc<Config>,
     metrics_state: Arc<MetricsState>,
 ) -> Result<MetricsHandle, SpawnError> {
@@ -93,6 +93,7 @@ pub async fn spawn(
 }
 
 #[derive(thiserror::Error, Debug)]
+// Kept public because `crate::SpawnError` exposes it as a payload.
 pub enum SpawnError {
     #[error("error listening on metrics address: {0}")]
     Listen(std::io::Error),
@@ -125,14 +126,14 @@ fn serve_metrics(
     Ok(response.expect("BUG: Response::builder error"))
 }
 
-pub struct MetricsHandle {
+pub(crate) struct MetricsHandle {
     metrics_address: std::net::SocketAddr,
     shutdown_tx: oneshot::Sender<()>,
     join_handle: JoinHandle<()>,
 }
 
 impl MetricsHandle {
-    pub fn metrics_address(&self) -> std::net::SocketAddr {
+    pub(crate) fn metrics_address(&self) -> std::net::SocketAddr {
         self.metrics_address
     }
 }
@@ -143,9 +144,9 @@ impl ShutdownHandle<()> for MetricsHandle {
     }
 }
 
-pub struct MetricsState {
-    pub meter: Meter,
-    pub registry: prometheus::Registry,
+pub(crate) struct MetricsState {
+    pub(crate) meter: Meter,
+    pub(crate) registry: prometheus::Registry,
     _meter_provider: SdkMeterProvider,
 }
 
@@ -158,7 +159,7 @@ impl Default for MetricsState {
 impl MetricsState {
     /// `MetricsState::new` creates ssh-console's registry and installs the
     /// same provider globally for generated Forge-client RED metrics.
-    pub fn new() -> Self {
+    pub(crate) fn new() -> Self {
         let registry = prometheus::Registry::new();
         let exporter = opentelemetry_prometheus::exporter()
             .with_registry(registry.clone())

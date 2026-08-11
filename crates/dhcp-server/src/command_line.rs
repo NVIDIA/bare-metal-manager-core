@@ -21,81 +21,81 @@ use clap::{Parser, ValueEnum};
 #[derive(Parser, Debug, Clone)]
 #[clap(name = "forge-dhcp-server")]
 #[clap(author = "Slack channel #swngc-forge-dev")]
-pub struct Args {
+pub(super) struct Args {
     #[arg(long, help = "Interface name where to bind this server.")]
-    pub interfaces: Vec<String>,
+    pub(super) interfaces: Vec<String>,
 
     #[arg(
         long,
         help = "UDP address where the DHCP server listens.",
         default_value = "0.0.0.0:67"
     )]
-    pub listen_addr: SocketAddrV4,
+    pub(super) listen_addr: SocketAddrV4,
 
     #[arg(
         long,
         help = "UDP destination port for responses to DHCP relays.",
         default_value_t = 67
     )]
-    pub relay_response_port: u16,
+    pub(super) relay_response_port: u16,
 
     #[arg(
         long,
         help = "DHCP Config file path.",
         default_value = "/var/support/forge-dhcp/conf/dhcp.yaml"
     )]
-    pub dhcp_config: String,
+    pub(super) dhcp_config: String,
 
     #[arg(
         long,
         help = "DPU Agent provided input file path for IP selection. Defaults to \
                 /var/support/forge-dhcp/conf/host.yaml when --grpc-listen-addr is set."
     )]
-    pub host_config: Option<String>,
+    pub(super) host_config: Option<String>,
 
     #[arg(long, help = "Root CA certificate used to connect to the Carbide API.")]
-    pub forge_root_ca_path: Option<String>,
+    pub(super) forge_root_ca_path: Option<String>,
 
     #[arg(
         long,
         requires = "client_key_path",
         help = "Client certificate used to connect to the Carbide API."
     )]
-    pub client_cert_path: Option<String>,
+    pub(super) client_cert_path: Option<String>,
 
     #[arg(
         long,
         requires = "client_cert_path",
         help = "Client private key used to connect to the Carbide API."
     )]
-    pub client_key_path: Option<String>,
+    pub(super) client_key_path: Option<String>,
 
     #[arg(short, long, value_enum, default_value_t=ServerMode::Dpu)]
-    pub mode: ServerMode,
+    pub(super) mode: ServerMode,
 
     #[arg(
         long,
         help = "gRPC server listen address for config hot-reload (e.g. 0.0.0.0:50051). \
                 When omitted the gRPC server is not started and config reload is disabled."
     )]
-    pub grpc_listen_addr: Option<String>,
+    pub(super) grpc_listen_addr: Option<String>,
 
     #[arg(
         long,
         help = "HTTP listen address for the metrics/health endpoint (e.g. 0.0.0.0:9090). \
                 When omitted the endpoint is not served; metrics are still collected."
     )]
-    pub metrics_listen_addr: Option<String>,
+    pub(super) metrics_listen_addr: Option<String>,
 }
 
 #[derive(ValueEnum, Clone, Debug)]
-pub enum ServerMode {
+pub(super) enum ServerMode {
     Dpu,
     Controller,
 }
 
 impl Args {
-    pub fn load() -> Self {
+    pub(super) fn load() -> Self {
         Self::parse()
     }
 }

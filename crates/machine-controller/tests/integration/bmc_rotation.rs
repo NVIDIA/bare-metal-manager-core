@@ -15,7 +15,7 @@
  * limitations under the License.
  */
 
-//! End-to-end coverage for machine-controller BMC credential rotation (REQ-2):
+//! End-to-end coverage for machine-controller BMC credential rotation:
 //! a staged site-wide target drives a Ready host through
 //! `ManagedHostState::RotatingBmc` and back to Ready, converging the device and
 //! persisting the rotated per-device secret.

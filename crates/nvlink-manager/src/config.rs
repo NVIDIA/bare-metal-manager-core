@@ -54,11 +54,22 @@ pub struct NvLinkConfig {
     /// Optional expiry-driven rotation for NMX-C server certificates.
     #[serde(default)]
     pub nmx_c_certificate_rotation: NmxCCertificateRotationConfig,
+
+    /// Maximum number of NMX-C machine groups (chassis or rack) processed concurrently
+    /// during a partition monitor iteration. Bounds DB pool usage and gRPC fan-out.
+    /// Defaults to 16. Must be non-zero; deserialization rejects 0.
+    #[serde(default = "NvLinkConfig::default_partition_monitor_max_concurrent_groups")]
+    pub partition_monitor_max_concurrent_groups: std::num::NonZeroUsize,
 }
 
 impl NvLinkConfig {
     pub const fn default_monitor_run_interval() -> std::time::Duration {
         std::time::Duration::from_secs(60)
+    }
+
+    pub const fn default_partition_monitor_max_concurrent_groups() -> std::num::NonZeroUsize {
+        // SAFETY: 16 is non-zero.
+        unsafe { std::num::NonZeroUsize::new_unchecked(16) }
     }
 }
 
@@ -131,6 +142,8 @@ impl Default for NvLinkConfig {
             nmx_c_endpoint_port: None,
             allow_insecure: false,
             nmx_c_certificate_rotation: NmxCCertificateRotationConfig::default(),
+            partition_monitor_max_concurrent_groups:
+                Self::default_partition_monitor_max_concurrent_groups(),
         }
     }
 }
@@ -157,6 +170,8 @@ mod test {
                 nmx_c_endpoint_port: None,
                 allow_insecure: true,
                 nmx_c_certificate_rotation: NmxCCertificateRotationConfig::default(),
+                partition_monitor_max_concurrent_groups:
+                    NvLinkConfig::default_partition_monitor_max_concurrent_groups(),
             }
         );
     }
@@ -170,6 +185,14 @@ mod test {
             config.rotate_before_expiry,
             std::time::Duration::from_secs(2 * 7 * 24 * 60 * 60)
         );
+    }
+
+    #[test]
+    fn deserialize_zero_concurrent_groups_is_rejected() {
+        let err = serde_json::from_str::<NvLinkConfig>(
+            r#"{"allow_insecure":false,"partition_monitor_max_concurrent_groups":0}"#,
+        );
+        assert!(err.is_err(), "zero must be rejected by NonZeroUsize");
     }
 
     #[test]

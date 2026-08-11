@@ -25,10 +25,13 @@
 
 use carbide_test_support::Outcome::*;
 use carbide_test_support::scenarios;
-use clap::{CommandFactory, Parser};
+use carbide_uuid::dpa_interface::DpaInterfaceId;
+use carbide_uuid::machine::MachineId;
+use clap::CommandFactory;
 use rpc::forge::DpaInterfaceType;
 
 use super::*;
+use crate::test_support::{parse_leaf, raw_value};
 
 // verify_cmd_structure runs a baseline clap debug_assert()
 // to do basic command configuration checking and validation,
@@ -53,11 +56,8 @@ fn verify_cmd_structure() {
 fn parse_show() {
     scenarios!(
         run = |argv| {
-            Cmd::try_parse_from(argv.iter().copied())
-                .map(|cmd| match cmd {
-                    Cmd::Show(args) => args.id.is_none(),
-                    other => panic!("expected Show, got {other:?}"),
-                })
+            parse_leaf::<Cmd>(argv, &["show"])
+                .map(|matches| matches.get_one::<DpaInterfaceId>("id").is_none())
                 .map_err(drop)
         };
         "show with no arguments leaves id unset" {
@@ -72,16 +72,21 @@ fn parse_show() {
 fn parse_ensure() {
     scenarios!(
         run = |argv| {
-            Cmd::try_parse_from(argv.iter().copied())
-                .map(|cmd| match cmd {
-                    Cmd::Ensure(args) => (
-                        args.machine_id.to_string(),
-                        args.mac_addr,
-                        args.device_type,
-                        args.pci_name,
-                        args.interface_type,
-                    ),
-                    other => panic!("expected Ensure, got {other:?}"),
+            parse_leaf::<Cmd>(argv, &["ensure"])
+                .map(|matches| {
+                    (
+                        matches
+                            .get_one::<MachineId>("machine_id")
+                            .expect("machine_id is required")
+                            .to_string(),
+                        raw_value(&matches, "mac_addr").expect("mac_addr is required"),
+                        raw_value(&matches, "device_type").expect("device_type is required"),
+                        raw_value(&matches, "pci_name").expect("pci_name is required"),
+                        matches
+                            .get_one::<DpaInterfaceType>("interface_type")
+                            .copied()
+                            .expect("interface_type is required"),
+                    )
                 })
                 .map_err(drop)
         };

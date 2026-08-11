@@ -21,8 +21,10 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use arc_swap::ArcSwapOption;
+use carbide_uuid::nvlink::NvLinkDomainId;
 use prometheus::{Histogram, HistogramOpts};
 
+use super::reachability::ReachabilitySpec;
 use crate::HealthError;
 use crate::api_client::ApiClientWrapper;
 use crate::bmc::BmcClient;
@@ -33,7 +35,8 @@ use crate::config::{
     LogsCollectorConfig as LogsCollectorOptions, MetricsCollectorConfig as MetricsCollectorOptions,
     MtlsProfileConfig, NmxcCollectorConfig as NmxcCollectorOptions,
     NmxtCollectorConfig as NmxtCollectorOptions, NvueCollectorConfig as NvueCollectorOptions,
-    SensorCollectorConfig as SensorCollectorOptions,
+    ReachabilityCollectorConfig, SensorCollectorConfig as SensorCollectorOptions,
+    TelemetryCollectorConfig as TelemetryCollectorOptions,
 };
 use crate::limiter::RateLimiter;
 use crate::metrics::{MetricsManager, operation_duration_buckets_seconds};
@@ -44,6 +47,7 @@ pub(super) enum CollectorKind {
     Discovery,
     Sensor,
     Metrics,
+    Telemetry,
     Logs,
     Firmware,
     LeakDetector,
@@ -52,13 +56,15 @@ pub(super) enum CollectorKind {
     NvueRest,
     NvueGnmi,
     GpuInventory,
+    Reachability,
 }
 
 impl CollectorKind {
-    pub(super) const ALL: [CollectorKind; 11] = [
+    pub(super) const ALL: [CollectorKind; 12] = [
         CollectorKind::Discovery,
         CollectorKind::Sensor,
         CollectorKind::Metrics,
+        CollectorKind::Telemetry,
         CollectorKind::Logs,
         CollectorKind::Firmware,
         CollectorKind::LeakDetector,
@@ -74,6 +80,7 @@ pub(super) struct CollectorState {
     discovery: HashMap<Cow<'static, str>, Collector>,
     sensors: HashMap<Cow<'static, str>, Collector>,
     metrics: HashMap<Cow<'static, str>, Collector>,
+    telemetry: HashMap<Cow<'static, str>, Collector>,
     firmware: HashMap<Cow<'static, str>, Collector>,
     leak_detector: HashMap<Cow<'static, str>, Collector>,
     logs: HashMap<Cow<'static, str>, Collector>,
@@ -82,7 +89,10 @@ pub(super) struct CollectorState {
     nvue_rest: HashMap<Cow<'static, str>, Collector>,
     nvue_gnmi: HashMap<Cow<'static, str>, Collector>,
     gpu_inventory: HashMap<Cow<'static, str>, Collector>,
+    reachability: HashMap<Cow<'static, str>, Collector>,
     inventories: HashMap<Cow<'static, str>, SharedInventory<BmcClient>>,
+    switch_domain_uuids: HashMap<Cow<'static, str>, Option<NvLinkDomainId>>,
+    pub(super) reachability_specs: HashMap<Cow<'static, str>, ReachabilitySpec>,
 }
 
 impl CollectorState {
@@ -91,6 +101,7 @@ impl CollectorState {
             discovery: HashMap::new(),
             sensors: HashMap::new(),
             metrics: HashMap::new(),
+            telemetry: HashMap::new(),
             firmware: HashMap::new(),
             leak_detector: HashMap::new(),
             logs: HashMap::new(),
@@ -99,7 +110,10 @@ impl CollectorState {
             nvue_rest: HashMap::new(),
             nvue_gnmi: HashMap::new(),
             gpu_inventory: HashMap::new(),
+            reachability: HashMap::new(),
             inventories: HashMap::new(),
+            switch_domain_uuids: HashMap::new(),
+            reachability_specs: HashMap::new(),
         }
     }
 
@@ -108,6 +122,7 @@ impl CollectorState {
             CollectorKind::Discovery => &self.discovery,
             CollectorKind::Sensor => &self.sensors,
             CollectorKind::Metrics => &self.metrics,
+            CollectorKind::Telemetry => &self.telemetry,
             CollectorKind::Logs => &self.logs,
             CollectorKind::Firmware => &self.firmware,
             CollectorKind::LeakDetector => &self.leak_detector,
@@ -116,6 +131,7 @@ impl CollectorState {
             CollectorKind::NvueRest => &self.nvue_rest,
             CollectorKind::NvueGnmi => &self.nvue_gnmi,
             CollectorKind::GpuInventory => &self.gpu_inventory,
+            CollectorKind::Reachability => &self.reachability,
         }
     }
 
@@ -127,6 +143,7 @@ impl CollectorState {
             CollectorKind::Discovery => &mut self.discovery,
             CollectorKind::Sensor => &mut self.sensors,
             CollectorKind::Metrics => &mut self.metrics,
+            CollectorKind::Telemetry => &mut self.telemetry,
             CollectorKind::Logs => &mut self.logs,
             CollectorKind::Firmware => &mut self.firmware,
             CollectorKind::LeakDetector => &mut self.leak_detector,
@@ -135,6 +152,7 @@ impl CollectorState {
             CollectorKind::NvueRest => &mut self.nvue_rest,
             CollectorKind::NvueGnmi => &mut self.nvue_gnmi,
             CollectorKind::GpuInventory => &mut self.gpu_inventory,
+            CollectorKind::Reachability => &mut self.reachability,
         }
     }
 
@@ -151,6 +169,38 @@ impl CollectorState {
     /// Drop the shared inventory handle for a removed endpoint.
     pub(super) fn remove_inventory(&mut self, key: &str) {
         self.inventories.remove(key);
+    }
+
+    /// Records the latest switch domain and reports whether it changed.
+    ///
+    /// The first observation establishes a baseline without forcing a restart.
+    /// Later transitions between absent and present values, or between two UUIDs,
+    /// require a restart because running collectors retain their startup metadata.
+    pub(super) fn observe_switch_domain(
+        &mut self,
+        key: &str,
+        domain_uuid: Option<NvLinkDomainId>,
+    ) -> bool {
+        match self.switch_domain_uuids.get_mut(key) {
+            Some(previous) if *previous != domain_uuid => {
+                *previous = domain_uuid;
+                true
+            }
+            Some(_) => false,
+            None => {
+                self.switch_domain_uuids
+                    .insert(Cow::Owned(key.to_string()), domain_uuid);
+                false
+            }
+        }
+    }
+
+    pub(super) fn retain_switch_domains(
+        &mut self,
+        active_switch_endpoints: &HashSet<Cow<'static, str>>,
+    ) {
+        self.switch_domain_uuids
+            .retain(|key, _| active_switch_endpoints.contains(key));
     }
 
     pub(super) fn contains(&self, kind: CollectorKind, key: &str) -> bool {
@@ -178,6 +228,7 @@ impl CollectorState {
             .keys()
             .chain(self.sensors.keys())
             .chain(self.metrics.keys())
+            .chain(self.telemetry.keys())
             .chain(self.logs.keys())
             .chain(self.firmware.keys())
             .chain(self.leak_detector.keys())
@@ -215,6 +266,7 @@ pub struct DiscoveryLoopContext {
     pub(crate) discovery_config: DiscoveryConfig,
     pub(crate) sensors_config: Configurable<SensorCollectorOptions>,
     pub(crate) metrics_config: Configurable<MetricsCollectorOptions>,
+    pub(crate) telemetry_config: Configurable<TelemetryCollectorOptions>,
     pub(crate) logs_config: Configurable<LogsCollectorOptions>,
     pub(crate) firmware_config: Configurable<FirmwareCollectorOptions>,
     pub(crate) leak_detector_config: Configurable<LeakDetectorCollectorOptions>,
@@ -226,6 +278,12 @@ pub struct DiscoveryLoopContext {
 
     /// Whether any enabled sink consumes `CollectorEvent::Log` payloads.
     pub(crate) log_event_sink_enabled: bool,
+
+    /// Active reachability configuration.
+    ///
+    /// This is absent when the collector is disabled or no metric or log sink
+    /// can consume its observations.
+    pub(super) reachability_config: Option<ReachabilityCollectorConfig>,
     pub(crate) gpu_inventory_config: Configurable<GpuInventoryConfig>,
     pub(crate) api_client: Option<Arc<ApiClientWrapper>>,
     pub(crate) log_downgrade_registry: Arc<LogDowngradeRegistry>,
@@ -282,6 +340,13 @@ impl DiscoveryLoopContext {
                 .map(|reload_interval| MtlsHttpClientProvider::new(tls_config, reload_interval))
         });
 
+        let reachability_config =
+            if config.sinks.prometheus.is_enabled() || config.sinks.includes_log_events() {
+                config.collectors.reachability.as_option().cloned()
+            } else {
+                None
+            };
+
         Ok(Self {
             collectors: CollectorState::new(),
             discovery_iteration_histogram,
@@ -291,6 +356,7 @@ impl DiscoveryLoopContext {
             discovery_config: config.collectors.discovery.clone(),
             sensors_config: config.collectors.sensors.clone(),
             metrics_config: config.collectors.metrics.clone(),
+            telemetry_config: config.collectors.telemetry.clone(),
             logs_config: config.collectors.logs.clone(),
             firmware_config: config.collectors.firmware.clone(),
             leak_detector_config: config.collectors.leak_detector.clone(),
@@ -300,6 +366,7 @@ impl DiscoveryLoopContext {
             tls_config,
             tls_http_client_provider,
             log_event_sink_enabled: config.sinks.includes_log_events(),
+            reachability_config,
             gpu_inventory_config: config.collectors.gpu_inventory.clone(),
             api_client: match &config.endpoint_sources.carbide_api {
                 Configurable::Enabled(source_cfg) => Some(Arc::new(ApiClientWrapper::new(

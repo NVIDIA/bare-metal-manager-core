@@ -113,7 +113,33 @@ fn deprecated_deny_prefixes_for_agent(
     }
 }
 
-pub(crate) async fn get_managed_host_network_config_inner(
+/// `preferred_physical_ip` chooses a stable address for the fallback tenant
+/// hostname. IPv4 remains the familiar name for a dual-stack interface, while
+/// choosing the lowest address within each family keeps the result independent
+/// of `HashMap` iteration order.
+fn preferred_physical_ip(ip_addresses: impl IntoIterator<Item = IpAddr>) -> Option<IpAddr> {
+    ip_addresses
+        .into_iter()
+        .min_by_key(|ip_address| (!ip_address.is_ipv4(), *ip_address))
+}
+
+/// `tenant_interface_fqdn` keeps the tenant's hostname intact when one was
+/// provided. Otherwise, the physical address becomes a valid DNS label through
+/// the same formatter used by IP-based host naming.
+fn tenant_interface_fqdn(
+    tenant_hostname: Option<&str>,
+    physical_ip: &IpAddr,
+    domain: &str,
+) -> Result<String, DatabaseError> {
+    let hostname = match tenant_hostname {
+        Some(hostname) => hostname.to_string(),
+        None => db::host_naming::address_to_hostname(physical_ip)?,
+    };
+
+    Ok(format!("{hostname}.{domain}"))
+}
+
+async fn get_managed_host_network_config_inner(
     api: &Api,
     dpu_machine_id: MachineId,
 ) -> Result<rpc::ManagedHostNetworkConfigResponse, tonic::Status> {
@@ -169,23 +195,6 @@ pub(crate) async fn get_managed_host_network_config_inner(
             ))
             .into());
         }
-    };
-
-    if api
-        .runtime_config
-        .vmaas_config
-        .as_ref()
-        .map(|vc| vc.secondary_overlay_support)
-        .unwrap_or_default()
-        && dpu_snapshot
-            .network_config
-            .secondary_overlay_vtep_ip
-            .is_none()
-    {
-        return Err(CarbideError::FailedPrecondition(format!(
-            "DPU {dpu_machine_id} needs discovery. does not have a secondary VTEP IP yet"
-        ))
-        .into());
     };
 
     // its ok if there is no locator here.  if there isn't one, then only the primary dpu is allowed to be configred (checked below)
@@ -357,7 +366,6 @@ pub(crate) async fn get_managed_host_network_config_inner(
 
             let mut tenant_interfaces = Vec::with_capacity(interfaces.len());
 
-            //Get Physical interface
             let physical_iface = interfaces.iter().find(|x| {
                 rpc::InterfaceFunctionType::from(x.function_id.function_type())
                     == rpc::InterfaceFunctionType::Physical
@@ -370,15 +378,13 @@ pub(crate) async fn get_managed_host_network_config_inner(
                 .into());
             };
 
-            //Get Physical IP
-            let physical_ip: IpAddr = match physical_iface.ip_addrs.iter().next() {
-                Some((_, ip_addr)) => *ip_addr,
-                None => {
-                    return Err(CarbideError::internal(String::from(
-                        "Physical IP address not found",
-                    ))
-                    .into())
-                }
+            let Some(physical_ip) =
+                preferred_physical_ip(physical_iface.ip_addrs.values().copied())
+            else {
+                return Err(CarbideError::internal(String::from(
+                    "physical IP address not found",
+                ))
+                .into());
             };
 
             // All interfaces have the segment id allocated. It is already validated during
@@ -466,16 +472,11 @@ pub(crate) async fn get_managed_host_network_config_inner(
                         .clone(),
                     None => "unknowndomain".to_string(),
                 };
-                let fqdn = if let Some(hostname) = &instance.config.tenant.hostname {
-                    format!("{hostname}.{domain}")
-                } else {
-                    let dashed_ip = physical_ip
-                        .to_string()
-                        .split('.')
-                        .collect::<Vec<_>>()
-                        .join("-");
-                    format!("{dashed_ip}.{domain}")
-                };
+                let fqdn = tenant_interface_fqdn(
+                    instance.config.tenant.hostname.as_deref(),
+                    &physical_ip,
+                    &domain,
+                )?;
 
                 let tenant_interface = ethernet_virtualization::tenant_network(
                     &mut txn,
@@ -760,40 +761,6 @@ pub(crate) async fn get_managed_host_network_config_inner(
                 })
         }),
         routing_profile: deprecated_routing_profile,
-        traffic_intercept_config: api.runtime_config.vmaas_config.as_ref().map(|c| {
-            rpc::TrafficInterceptConfig {
-                bridging: c.bridging.as_ref().map(|b| rpc::TrafficInterceptBridging {
-                    internal_bridge_routing_prefix: b.internal_bridge_routing_prefix.to_string(),
-                    hbn_bridge: b.hbn_bridge.clone(),
-                    vf_intercept_bridge_name: b.vf_intercept_bridge_name.clone(),
-                    vf_intercept_bridge_port: b.vf_intercept_bridge_port.clone(),
-                    vf_intercept_bridge_sf: b.vf_intercept_bridge_sf.clone(),
-                    host_representor_intercept_bridging: b
-                        .host_representor_intercept_bridging
-                        .iter()
-                        .map(|(representor, bridge)| {
-                            (
-                                representor.clone(),
-                                rpc::HostRepresentorInterceptBridging {
-                                    bridge: bridge.bridge.clone(),
-                                    patch_port: bridge.patch_port.clone(),
-                                },
-                            )
-                        })
-                        .collect(),
-                }),
-                public_prefixes: c.public_prefixes.iter().map(|p| p.to_string()).collect(),
-                secondary_vtep_aggregate_prefixes: c
-                    .secondary_vtep_aggregate_prefixes
-                    .iter()
-                    .map(|p| p.to_string())
-                    .collect(),
-                additional_overlay_vtep_ip: dpu_snapshot
-                    .network_config
-                    .secondary_overlay_vtep_ip
-                    .map(|i| i.to_string()),
-            }
-        }),
 
         additional_route_target_imports: api
             .runtime_config
@@ -1480,7 +1447,7 @@ pub(crate) async fn list_dpu_waiting_for_reprovisioning(
 }
 
 /// Get the configured BGP password.
-pub(crate) async fn get_bgp_password(
+async fn get_bgp_password(
     credential_reader: &dyn carbide_secrets::credentials::CredentialReader,
     credential_key: carbide_secrets::credentials::CredentialKey,
 ) -> Result<String, CarbideError> {
@@ -1564,6 +1531,78 @@ mod deny_prefix_tests {
 }
 
 #[cfg(test)]
+mod tenant_fqdn_tests {
+    use carbide_test_support::Outcome::Yields;
+    use carbide_test_support::{scenarios, value_scenarios};
+
+    use super::*;
+
+    #[test]
+    fn physical_ip_selection_is_stable_and_prefers_ipv4() {
+        let ipv4_low: IpAddr = "192.0.2.10".parse().unwrap();
+        let ipv4_high: IpAddr = "192.0.2.20".parse().unwrap();
+        let ipv6_low: IpAddr = "2001:db8::10".parse().unwrap();
+        let ipv6_high: IpAddr = "2001:db8::20".parse().unwrap();
+
+        value_scenarios!(
+            run = preferred_physical_ip;
+            "no physical address" {
+                vec![] => None,
+            }
+
+            "one address family" {
+                vec![ipv4_high, ipv4_low] => Some(ipv4_low),
+                vec![ipv6_high, ipv6_low] => Some(ipv6_low),
+            }
+
+            "dual-stack address order" {
+                vec![ipv6_low, ipv4_high, ipv6_high, ipv4_low] => Some(ipv4_low),
+                vec![ipv4_low, ipv6_high, ipv4_high, ipv6_low] => Some(ipv4_low),
+            }
+        );
+    }
+
+    #[test]
+    fn tenant_fqdn_uses_the_configured_name_or_physical_address() {
+        struct FqdnCase {
+            tenant_hostname: Option<&'static str>,
+            physical_ip: IpAddr,
+        }
+
+        let ipv4: IpAddr = "192.0.2.10".parse().unwrap();
+        let ipv6: IpAddr = "2001:db8::10".parse().unwrap();
+
+        scenarios!(
+            run = |FqdnCase {
+                tenant_hostname,
+                physical_ip,
+            }| tenant_interface_fqdn(tenant_hostname, &physical_ip, "tenant.example").map_err(drop);
+            "tenant-supplied hostname" {
+                FqdnCase {
+                    tenant_hostname: Some("customer-host"),
+                    physical_ip: ipv6,
+                } => Yields("customer-host.tenant.example".to_string()),
+            }
+
+            "address-derived hostname" {
+                FqdnCase {
+                    tenant_hostname: None,
+                    physical_ip: ipv4,
+                } => Yields("192-0-2-10.tenant.example".to_string()),
+                FqdnCase {
+                    tenant_hostname: None,
+                    physical_ip: ipv6,
+                } => Yields(concat!(
+                    "2001-0db8-0000-0000-0000-0000-0000-0010",
+                    ".tenant.example"
+                )
+                .to_string()),
+            }
+        );
+    }
+}
+
+#[cfg(test)]
 mod consolidated_network_config_tests {
     use std::net::{Ipv4Addr, Ipv6Addr};
 
@@ -1616,8 +1655,8 @@ mod consolidated_network_config_tests {
     }
 
     // Host-layer fields that aren't part of the consolidated proto shape
-    // (loopback_ip on the host, secondary_overlay_vtep_ip, use_admin_network)
-    // do NOT leak into the response -- the consolidator deliberately picks
+    // (loopback_ip on the host and use_admin_network) do NOT leak into the
+    // response -- the consolidator deliberately picks
     // only quarantine_state from the host layer. Catches accidental changes
     // to that contract.
     #[test]
@@ -1628,7 +1667,6 @@ mod consolidated_network_config_tests {
             // (passed separately) is what matters.
             loopback_ip: Some(IpAddr::V4(Ipv4Addr::new(192, 0, 2, 99))),
             loopback_ip_v6: None,
-            secondary_overlay_vtep_ip: Some(IpAddr::V4(Ipv4Addr::new(192, 0, 2, 100))),
             // The host-level use_admin_network is reported in a separate
             // top-level response field, not in this consolidated struct.
             use_admin_network: Some(false),

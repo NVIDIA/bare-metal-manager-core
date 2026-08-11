@@ -25,12 +25,22 @@ WORKDIR ./carbide
 COPY . ./
 
 # --mount=type=cache persists the sccache directory across builds. Requires BuildKit (default in Docker 23+).
+# On CI the BuildKit state is discarded per job, so prefer the shared Actions
+# cache backend when the workflow supplies credentials.
+# dev/docker/sccache-cache.sh picks between the two and reports on whether the
+# choice worked.
 RUN --mount=type=cache,id=sccache-x86_64,target=/sccache \
+    --mount=type=secret,id=actions_results_url \
+    --mount=type=secret,id=actions_runtime_token \
+    --mount=type=secret,id=sccache_gha_rw_mode \
   cd /carbide && \
   export SCCACHE_DIR=/sccache && \
   export RUSTC_WRAPPER=sccache && \
   export CARGO_PROFILE_RELEASE_DEBUG=true && \
-  cargo build --release -p nico-admin-cli
+  . /carbide/dev/docker/sccache-cache.sh && \
+  sccache_setup && \
+  cargo build --release -p nico-admin-cli && \
+  sccache_report
 
 FROM debian:12-slim
 ARG CI_COMMIT_SHORT_SHA

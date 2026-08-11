@@ -25,11 +25,11 @@ use serde_json::json;
 
 use crate::{BootOptionKind, Callbacks, hw, redfish};
 
-pub struct DgxVrNvl<'a> {
-    pub system_0_serial_number: Cow<'a, str>,
-    pub chassis_0_serial_number: Cow<'a, str>,
-    pub dpu: hw::bluefield4::Bluefield4<'a>,
-    pub bmc_mac_address_eth0: MacAddress,
+pub(crate) struct DgxVrNvl<'a> {
+    pub(crate) system_0_serial_number: Cow<'a, str>,
+    pub(crate) chassis_0_serial_number: Cow<'a, str>,
+    pub(crate) dpu: hw::bluefield4::Bluefield4<'a>,
+    pub(crate) bmc_mac_address_eth0: MacAddress,
 }
 
 impl DgxVrNvl<'_> {
@@ -37,7 +37,7 @@ impl DgxVrNvl<'_> {
     const BLUEFIELD_NIC_ID: &'static str = "BlueField_NIC_0";
     const BLUEFIELD_PCIE_DEVICE_ID: &'static str = "BlueField_0";
 
-    pub fn manager_config(&self) -> redfish::manager::Config {
+    pub(crate) fn manager_config(&self) -> redfish::manager::Config {
         let bmc_manager_id = "BMC_0";
         let bmc_eth_builder = |eth| {
             redfish::ethernet_interface::builder(&redfish::ethernet_interface::manager_resource(
@@ -62,7 +62,10 @@ impl DgxVrNvl<'_> {
         }
     }
 
-    pub fn system_config(&self, callbacks: Arc<dyn Callbacks>) -> redfish::computer_system::Config {
+    pub(crate) fn system_config(
+        &self,
+        callbacks: Arc<dyn Callbacks>,
+    ) -> redfish::computer_system::Config {
         let system_id = "System_0";
         let boot_options = std::iter::once(
             redfish::boot_option::builder(
@@ -119,6 +122,7 @@ impl DgxVrNvl<'_> {
                     serial_number: None,
                     storage: None,
                     processors: None,
+                    memory: None,
                 },
                 redfish::computer_system::SingleSystemConfig {
                     base_bios: Some(base_bios(system_id)),
@@ -138,12 +142,13 @@ impl DgxVrNvl<'_> {
                     serial_number: Some(self.system_0_serial_number.to_string().into()),
                     storage: None,
                     processors: None,
+                    memory: None,
                 },
             ],
         }
     }
 
-    pub fn chassis_config(&self) -> redfish::chassis::ChassisConfig {
+    pub(crate) fn chassis_config(&self) -> redfish::chassis::ChassisConfig {
         redfish::chassis::ChassisConfig {
             chassis: vec![
                 redfish::chassis::SingleChassisConfig {
@@ -230,7 +235,7 @@ impl DgxVrNvl<'_> {
         .build()
     }
 
-    pub fn update_service_config(&self) -> redfish::update_service::UpdateServiceConfig {
+    pub(crate) fn update_service_config(&self) -> redfish::update_service::UpdateServiceConfig {
         redfish::update_service::UpdateServiceConfig {
             firmware_inventory: vec![],
         }

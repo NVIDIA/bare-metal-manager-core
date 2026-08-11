@@ -50,6 +50,10 @@ spec:
           spec:
             description: BlueFieldSpec defines the desired state of BlueFieldSoftware.
             properties:
+              forceFwUpdate:
+                default: false
+                description: ForceFwUpdate points to the force firmware update flag.
+                type: boolean
               nicFw:
                 description: |-
                   NicFw points to the NIC firmware binary used for E/W NIC firmware updates.
@@ -176,15 +180,23 @@ spec:
               versions:
                 description: Versions tracks the versions of the components
                 properties:
-                  astraNicFwVersion:
+                  bfNicFwVersion:
                     type: string
                   bmcErotVersion:
                     type: string
                   bmcVersion:
                     type: string
+                  doca:
+                    description: DOCA is the formatted, user-facing DOCA version derived
+                      from the OS ISO.
+                    type: string
+                  ewNicFwVersion:
+                    type: string
                   fwBundleVersion:
                     type: string
                   osISOVersion:
+                    description: OSISOVersion is the raw DOCA version for the OS ISO,
+                      taken from the ISO filename
                     type: string
                   sbiosVersion:
                     type: string

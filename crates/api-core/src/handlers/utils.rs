@@ -23,7 +23,7 @@ use carbide_uuid::machine::MachineId;
 use tokio::net::lookup_host;
 
 use crate::CarbideError;
-use crate::api::log_machine_id;
+use crate::api::{Api, log_machine_id};
 
 const DEFAULT_BMC_HTTPS_PORT: u16 = 443;
 
@@ -32,7 +32,7 @@ const DEFAULT_BMC_HTTPS_PORT: u16 = 443;
 /// Bare IP literals are handled before hostname resolution so an IPv6 address's
 /// colons are never mistaken for a host/port separator. An explicit port on an
 /// IPv6 literal must use the standard `[address]:port` socket syntax.
-pub(crate) async fn resolve_bmc_address(address: &str) -> Result<SocketAddr, tonic::Status> {
+pub(super) async fn resolve_bmc_address(address: &str) -> Result<SocketAddr, tonic::Status> {
     if let Some(address) = parse_numeric_bmc_address(address) {
         return Ok(address);
     }
@@ -86,7 +86,9 @@ fn invalid_bmc_address(address: &str, reason: impl std::fmt::Display) -> Carbide
 
 /// Converts a MachineID from RPC format to Model format
 /// and logs the MachineID as MachineID for the current request.
-pub fn convert_and_log_machine_id(id: Option<&MachineId>) -> Result<MachineId, CarbideError> {
+pub(super) fn convert_and_log_machine_id(
+    id: Option<&MachineId>,
+) -> Result<MachineId, CarbideError> {
     let machine_id = match id {
         Some(id) => *id,
         None => {
@@ -98,19 +100,20 @@ pub fn convert_and_log_machine_id(id: Option<&MachineId>) -> Result<MachineId, C
     Ok(machine_id)
 }
 
-/// The agent-reported event whose processing tried to wake the machine's
-/// state handler.
+/// The recorded change whose processing tried to wake the machine's state
+/// handler.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, carbide_instrument::LabelValue)]
-pub(crate) enum WakeupTrigger {
+pub(super) enum WakeupTrigger {
     RebootCompleted,
     CleanupCompleted,
     ScoutFirmwareUpgradeStatus,
     DpuNetworkStatus,
+    BootInterfaceIntent,
 }
 
-/// An agent report was recorded but the machine's state handler could not be
-/// woken: the machine sits idle until the next periodic enqueue, so the rate
-/// of these is a leading "machine stuck" signal.
+/// A change was recorded but the machine's state handler could not be woken:
+/// the machine sits idle until the next periodic enqueue, so the rate of these
+/// is a leading "machine stuck" signal.
 #[derive(carbide_instrument::Event)]
 #[event(
     event_name = "state_handler_wakeup_failed",
@@ -120,15 +123,42 @@ pub(crate) enum WakeupTrigger {
     metric = counter,
     message = "Failed to wake up state handler for machine",
     describe = "Number of times a machine's state handler could not be woken after an \
-                agent-reported event"
+                observed or desired state change"
 )]
-pub(crate) struct StateHandlerWakeupFailed {
+pub(super) struct StateHandlerWakeupFailed {
     #[label]
-    pub(crate) trigger: WakeupTrigger,
+    pub(super) trigger: WakeupTrigger,
     #[context]
-    pub(crate) machine_id: MachineId,
+    pub(super) machine_id: MachineId,
     #[context]
-    pub(crate) err: String,
+    pub(super) err: String,
+}
+
+/// Enqueues a machine after its desired boot interface changes.
+///
+/// The database remains the durable source if the enqueue fails: the periodic
+/// state-controller scan will try again, while this helper records the delay
+/// without failing an otherwise successful API request.
+pub(super) async fn enqueue_boot_interface_reconciliation(
+    api: &Api,
+    machine_id: MachineId,
+    eligible: bool,
+) {
+    if !eligible {
+        return;
+    }
+
+    if let Err(err) = api
+        .machine_state_handler_enqueuer
+        .enqueue_object(&machine_id)
+        .await
+    {
+        carbide_instrument::emit(StateHandlerWakeupFailed {
+            trigger: WakeupTrigger::BootInterfaceIntent,
+            machine_id,
+            err: err.to_string(),
+        });
+    }
 }
 
 #[cfg(test)]
@@ -226,6 +256,7 @@ mod tests {
                 WakeupTrigger::CleanupCompleted,
                 WakeupTrigger::ScoutFirmwareUpgradeStatus,
                 WakeupTrigger::DpuNetworkStatus,
+                WakeupTrigger::BootInterfaceIntent,
             ] {
                 carbide_instrument::emit(StateHandlerWakeupFailed {
                     trigger,
@@ -235,7 +266,7 @@ mod tests {
             }
         });
 
-        assert_eq!(logs.len(), 4);
+        assert_eq!(logs.len(), 5);
         for log in &logs {
             assert_eq!(log.level, tracing::Level::WARN);
             assert_eq!(log.message, "Failed to wake up state handler for machine");
@@ -258,6 +289,7 @@ mod tests {
             "cleanup_completed",
             "scout_firmware_upgrade_status",
             "dpu_network_status",
+            "boot_interface_intent",
         ] {
             assert_eq!(
                 metrics.counter_delta(

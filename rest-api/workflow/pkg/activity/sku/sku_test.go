@@ -40,8 +40,9 @@ func TestManageSku_Reconcile_CreateUpdateDelete(t *testing.T) {
 
 	// 1) Create: inventory contains one sku not in DB
 	id1 := "sku-1"
+	description1 := "Initial SKU description"
 	inv1 := &corev1.SkuInventory{
-		Skus: []*corev1.Sku{{Id: id1, Components: &corev1.SkuComponents{}}},
+		Skus: []*corev1.Sku{{Id: id1, Description: &description1, SchemaVersion: 4, Components: &corev1.SkuComponents{}}},
 	}
 	assert.NoError(t, ms.UpdateSkusInDB(ctx, site.ID, inv1))
 
@@ -50,17 +51,27 @@ func TestManageSku_Reconcile_CreateUpdateDelete(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Equal(t, 1, total)
 	assert.Equal(t, id1, skus[0].ID)
+	assert.Equal(t, description1, skus[0].Description)
+	assert.Equal(t, uint32(4), skus[0].SchemaVersion)
 	if skus[0].Components == nil {
 		t.Fatalf("expected SkuData to be set")
 	}
 
 	// 2) Update: same id, ensure still one record
-	inv2 := &corev1.SkuInventory{Skus: []*corev1.Sku{{Id: id1, Components: &corev1.SkuComponents{}}}}
+	description2 := "Updated SKU description"
+	inv2 := &corev1.SkuInventory{Skus: []*corev1.Sku{{
+		Id:            id1,
+		Description:   &description2,
+		SchemaVersion: 5,
+		Components:    &corev1.SkuComponents{},
+	}}}
 	assert.NoError(t, ms.UpdateSkusInDB(ctx, site.ID, inv2))
 
-	_, total, err = ssd.GetAll(ctx, nil, cdbm.SkuFilterInput{SiteIDs: []uuid.UUID{site.ID}}, cdbp.PageInput{Limit: cutil.GetPtr(100)})
+	skus, total, err = ssd.GetAll(ctx, nil, cdbm.SkuFilterInput{SiteIDs: []uuid.UUID{site.ID}}, cdbp.PageInput{Limit: cutil.GetPtr(100)})
 	assert.NoError(t, err)
 	assert.Equal(t, 1, total)
+	assert.Equal(t, description2, skus[0].Description)
+	assert.Equal(t, uint32(5), skus[0].SchemaVersion)
 
 	// 3) Delete: send empty inventory, final page implied
 	inv3 := &corev1.SkuInventory{Skus: []*corev1.Sku{}}

@@ -52,6 +52,8 @@ use tokio_rustls::rustls::{RootCertStore, ServerConfig};
 use tokio_rustls::{TlsAcceptor, rustls};
 use tokio_util::sync::CancellationToken;
 use tower_http::add_extension::AddExtensionLayer;
+use trace_propagation::{is_propagated_header, set_span_parent_from_headers};
+use tracing::Instrument;
 
 use crate::config::{AuthConfig, TlsConfig};
 use crate::metrics::{
@@ -63,7 +65,7 @@ const TLS_REFRESH_INTERVAL: Duration = Duration::from_secs(5 * 60);
 const MAX_BODY_SIZE: usize = 8 * 1024 * 1024; // 8MiB body size limit (matches nginx ingress controller defaults)
 
 #[derive(thiserror::Error, Debug)]
-pub enum BmcProxyError {
+pub(crate) enum BmcProxyError {
     #[error("error resolving BMC information through carbide API: {0}")]
     Api(String),
     #[error("invalid configuration: {0}")]
@@ -78,8 +80,8 @@ pub enum BmcProxyError {
     TlsConfig(String),
 }
 
-pub struct BmcProxyParams {
-    pub config: Arc<crate::Config>,
+pub(crate) struct BmcProxyParams {
+    pub(crate) config: Arc<crate::Config>,
 }
 
 #[derive(Clone)]
@@ -92,7 +94,7 @@ struct BmcProxyState {
 }
 
 type CredentialCache = Arc<Mutex<HashMap<IpAddr, BmcCredentials>>>;
-type HttpClientCache = Arc<Mutex<HashMap<IpAddr, reqwest::Client>>>;
+type HttpClientCache = Arc<Mutex<HashMap<IpAddr, reqwest_middleware::ClientWithMiddleware>>>;
 type LookupToIpCache = Arc<Mutex<HashMap<LookupBy, IpAddr>>>;
 
 #[derive(Copy, Clone, PartialEq, Eq, Debug)]
@@ -113,7 +115,9 @@ enum ForwardedHeaderParseError {
 impl BmcProxyState {
     fn allows(&self, request: &Request<Body>) -> bool {
         let Some(auth_context) = request.extensions().get::<AuthContext<()>>() else {
-            emit(AuthContextMissing::request_acl(request.method()));
+            emit(AuthContextMissing::RequestAcl {
+                method_label: request.method().into(),
+            });
             return false;
         };
 
@@ -137,7 +141,7 @@ impl BmcProxyState {
     }
 }
 
-pub async fn start(
+pub(crate) async fn start(
     params: BmcProxyParams,
     cancel_token: CancellationToken,
     join_set: &mut JoinSet<()>,
@@ -423,7 +427,7 @@ impl BmcProxy {
                 .expect("could not spawn task to handle HTTP connection");
         }
 
-        tracing::info!("carbide-bmc-proxy shutting down");
+        tracing::info!("nico-bmc-proxy shutting down");
     }
 }
 
@@ -540,7 +544,7 @@ fn get_tls_acceptor(tls_config: &TlsConfig) -> Result<RefreshableTlsAcceptor, Bm
     })
 }
 
-pub fn cert_description_layer<AZ: Authorization>(
+fn cert_description_layer<AZ: Authorization>(
     auth_config: &AuthConfig,
 ) -> Result<CertDescriptionMiddleware<AZ>, BmcProxyError> {
     tracing::info!(trust_config = ?auth_config.trust, "TrustConfig rendered from config");
@@ -571,6 +575,50 @@ async fn root_url() -> &'static str {
 
 async fn proxy_request(
     State(state): State<BmcProxyState>,
+    request: Request<Body>,
+) -> Result<Response<Body>, Response<Body>> {
+    let request_span = bmc_proxy_request_span(&request);
+
+    let result = proxy_request_inner(state, request)
+        .instrument(request_span.clone())
+        .await;
+    let status = match &result {
+        Ok(response) | Err(response) => response.status(),
+    };
+    request_span.record("http.response.status_code", status.as_u16());
+    request_span.record("otel.status_code", span_status(status));
+    result
+}
+
+fn bmc_proxy_request_span<B>(request: &Request<B>) -> tracing::Span {
+    let request_span = tracing::info_span!(
+        parent: None,
+        "bmc_proxy_request",
+        http.request.method = %request.method(),
+        url.path = %request.uri().path(),
+        http.response.status_code = tracing::field::Empty,
+        otel.status_code = tracing::field::Empty,
+        bmc.ip_address = tracing::field::Empty,
+        logfmt.suppress = true,
+    );
+    set_span_parent_from_headers(&request_span, request.headers());
+    request_span
+}
+
+/// The OpenTelemetry status for a proxied request that answered with `status`.
+///
+/// Only a 5xx marks the span failed: a rejected or malformed request is the caller's error, and
+/// counting it against the proxy would bury the hops that actually broke.
+fn span_status(status: StatusCode) -> &'static str {
+    if status.is_server_error() {
+        "error"
+    } else {
+        "ok"
+    }
+}
+
+async fn proxy_request_inner(
+    state: BmcProxyState,
     request: Request<Body>,
 ) -> Result<Response<Body>, Response<Body>> {
     if !state.allows(&request) {
@@ -610,6 +658,8 @@ async fn proxy_request(
             ));
         }
     };
+
+    tracing::Span::current().record("bmc.ip_address", target_ip.to_string());
 
     let path_and_query = parts
         .uri
@@ -765,7 +815,9 @@ fn authorize_principal_allow_list(
         .extensions()
         .get::<AuthContext<()>>()
         .ok_or_else(|| {
-            emit(AuthContextMissing::principal_allow_list(request.method()));
+            emit(AuthContextMissing::PrincipalAllowList {
+                method_label: request.method().into(),
+            });
             StatusCode::INTERNAL_SERVER_ERROR
         })?;
 
@@ -816,6 +868,9 @@ fn build_response(
 fn copy_request_headers(source: &HeaderMap, dest: &mut HeaderMap) {
     for (name, value) in source {
         if is_hop_by_hop_header(name.as_str())
+            // Trace context describes the caller's hop; the upstream client's tracing middleware
+            // re-injects the proxy's own hop on egress.
+            || is_propagated_header(name.as_str())
             || *name == axum::http::header::HOST
             || *name == axum::http::header::AUTHORIZATION
             || name.as_str().eq_ignore_ascii_case("forwarded")
@@ -922,10 +977,10 @@ impl From<(StatusCode, &'static str)> for ProxyError {
 }
 
 struct BmcClientInfo {
-    pub http_client: reqwest::Client,
-    pub header_map: HeaderMap,
-    pub credentials: BmcCredentials,
-    pub base_upstream_uri: Uri,
+    http_client: reqwest_middleware::ClientWithMiddleware,
+    header_map: HeaderMap,
+    credentials: BmcCredentials,
+    base_upstream_uri: Uri,
 }
 
 #[derive(Clone, PartialEq, Eq)]
@@ -937,8 +992,8 @@ enum BmcCredentials {
 impl BmcCredentials {
     fn apply_to_request(
         self,
-        request: reqwest::RequestBuilder,
-    ) -> Result<reqwest::RequestBuilder, http::header::InvalidHeaderValue> {
+        request: reqwest_middleware::RequestBuilder,
+    ) -> Result<reqwest_middleware::RequestBuilder, http::header::InvalidHeaderValue> {
         match self {
             Self::UsernamePassword { username, password } => {
                 Ok(request.basic_auth(username, Some(password)))
@@ -1081,8 +1136,8 @@ async fn get_bmc_credentials(
     Ok(credentials)
 }
 
-fn build_http_client() -> Result<reqwest::Client, BmcProxyError> {
-    reqwest::Client::builder()
+fn build_http_client() -> Result<reqwest_middleware::ClientWithMiddleware, BmcProxyError> {
+    let client = reqwest::Client::builder()
         .danger_accept_invalid_certs(true)
         .redirect(reqwest::redirect::Policy::limited(5))
         .connect_timeout(std::time::Duration::from_secs(5)) // Limit connections to 5 seconds
@@ -1092,13 +1147,16 @@ fn build_http_client() -> Result<reqwest::Client, BmcProxyError> {
         .map_err(|err| {
             tracing::error!(error = %err, "build_http_client");
             BmcProxyError::InternalProxying(format!("Http building failed: {err}"))
-        })
+        })?;
+    Ok(reqwest_middleware::ClientBuilder::new(client)
+        .with(reqwest_tracing::TracingMiddleware::default())
+        .build())
 }
 
 async fn get_http_client(
     ip: IpAddr,
     client_cache: &HttpClientCache,
-) -> Result<reqwest::Client, BmcProxyError> {
+) -> Result<reqwest_middleware::ClientWithMiddleware, BmcProxyError> {
     let mut client_cache = client_cache.lock().await;
     if let Some(client) = client_cache.get(&ip) {
         tracing::debug!(bmc_ip_address = %ip, "Using cached BMC HTTP client");
@@ -1149,10 +1207,10 @@ mod tests {
     use super::{
         BmcCredentials, BmcProxyState, ConnectionFailReason, CredentialCache, ForwardedTarget,
         TcpAcceptFailed, TlsCertificateReloadFailed, TlsConnectionFailed,
-        authorize_principal_allow_list, build_authority, build_response, copy_request_headers,
-        create_client, evict_cached_credentials, forwarded_header_value, get_http_client,
-        ip_for_forwarded_target, is_hop_by_hop_header, method_supports_body,
-        parse_forwarded_host_value, request_principal_ids,
+        authorize_principal_allow_list, bmc_proxy_request_span, build_authority, build_response,
+        copy_request_headers, create_client, evict_cached_credentials, forwarded_header_value,
+        get_http_client, ip_for_forwarded_target, is_hop_by_hop_header, method_supports_body,
+        parse_forwarded_host_value, request_principal_ids, span_status,
     };
     use crate::metrics::MethodLabel;
 
@@ -1216,6 +1274,8 @@ mod tests {
         ContentLength,
         Connection,
         Upgrade,
+        TraceParent,
+        TraceState,
     }
 
     #[derive(Clone, Copy)]
@@ -1442,10 +1502,26 @@ mod tests {
                 axum::http::header::UPGRADE,
                 HeaderValue::from_static("websocket"),
             ),
+            HeaderCopyCase::TraceParent => (
+                HeaderName::from_static("traceparent"),
+                HeaderValue::from_static("00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01"),
+            ),
+            HeaderCopyCase::TraceState => (
+                HeaderName::from_static("tracestate"),
+                HeaderValue::from_static("vendor=value"),
+            ),
         }
     }
 
     fn copied_header_names(case: HeaderCopyCase) -> Vec<String> {
+        // Trace-header filtering asks the global propagator which headers are its own, so the
+        // propagator `setup_logging` installs at startup has to be in place for the trace cases to
+        // mean anything. Installing it here rather than relying on another test having run keeps
+        // this independent of test ordering.
+        opentelemetry::global::set_text_map_propagator(
+            opentelemetry_sdk::propagation::TraceContextPropagator::new(),
+        );
+
         let (name, value) = header_for_copy_case(case);
         let mut source = HeaderMap::new();
         source.insert(name, value);
@@ -1735,6 +1811,107 @@ mod tests {
             "upgrade filtered" {
                 HeaderCopyCase::Upgrade => vec![],
             }
+
+            "traceparent filtered" {
+                HeaderCopyCase::TraceParent => vec![],
+            }
+
+            "tracestate filtered" {
+                HeaderCopyCase::TraceState => vec![],
+            }
+        );
+    }
+
+    #[test]
+    fn proxy_request_span_continues_inbound_trace_on_upstream_inject() {
+        use opentelemetry::trace::{SpanId, TraceContextExt, TraceId, TracerProvider};
+        use opentelemetry_sdk::propagation::TraceContextPropagator;
+        use opentelemetry_sdk::trace::{InMemorySpanExporter, Sampler, SdkTracerProvider};
+        use trace_propagation::{extract_context, inject_current_context};
+        use tracing_subscriber::layer::SubscriberExt;
+
+        opentelemetry::global::set_text_map_propagator(TraceContextPropagator::new());
+
+        let exporter = InMemorySpanExporter::default();
+        let provider = SdkTracerProvider::builder()
+            .with_sampler(Sampler::AlwaysOn)
+            .with_simple_exporter(exporter.clone())
+            .build();
+        let tracer = provider.tracer("nico-bmc-proxy-test");
+        let subscriber =
+            tracing_subscriber::registry().with(tracing_opentelemetry::layer().with_tracer(tracer));
+
+        let inbound_trace = 0x42u128;
+        let inbound_span = 0x55u64;
+        let mut inbound_headers = http::HeaderMap::new();
+        inbound_headers.insert(
+            "traceparent",
+            format!("00-{:032x}-{:016x}-01", inbound_trace, inbound_span)
+                .parse()
+                .unwrap(),
+        );
+
+        let mut egress_headers = http::HeaderMap::new();
+        tracing::subscriber::with_default(subscriber, || {
+            let request = Request::builder()
+                .uri("/redfish/v1/Systems")
+                .header("traceparent", inbound_headers["traceparent"].clone())
+                .body(())
+                .unwrap();
+            let request_span = bmc_proxy_request_span(&request);
+            let _entered = request_span.enter();
+            inject_current_context(&mut egress_headers);
+        });
+
+        let egress_context = extract_context(&egress_headers);
+        assert_eq!(
+            egress_context.span().span_context().trace_id(),
+            TraceId::from(inbound_trace),
+        );
+        assert_ne!(
+            egress_context.span().span_context().span_id(),
+            SpanId::from(inbound_span),
+        );
+
+        let spans = exporter.get_finished_spans().expect("finished spans");
+        let request = spans
+            .iter()
+            .find(|span| span.name == "bmc_proxy_request")
+            .expect("request span exported");
+        assert_eq!(
+            request.span_context.trace_id(),
+            TraceId::from(inbound_trace)
+        );
+        assert_eq!(request.parent_span_id, SpanId::from(inbound_span));
+    }
+
+    #[test]
+    fn proxy_request_span_reports_only_server_errors_as_failed() {
+        value_scenarios!(
+            run = span_status;
+            "success" {
+                StatusCode::OK => "ok",
+            }
+
+            "redirect" {
+                StatusCode::TEMPORARY_REDIRECT => "ok",
+            }
+
+            "rejected by the allow list" {
+                StatusCode::FORBIDDEN => "ok",
+            }
+
+            "malformed request" {
+                StatusCode::BAD_REQUEST => "ok",
+            }
+
+            "upstream unreachable" {
+                StatusCode::BAD_GATEWAY => "error",
+            }
+
+            "proxy failure" {
+                StatusCode::INTERNAL_SERVER_ERROR => "error",
+            }
         );
     }
 
@@ -1980,7 +2157,8 @@ mod tests {
 
     #[test]
     fn bmc_username_password_credentials_use_basic_auth() {
-        let request = reqwest::Client::new().get("https://example.com/redfish/v1");
+        let client = reqwest_middleware::ClientBuilder::new(reqwest::Client::new()).build();
+        let request = client.get("https://example.com/redfish/v1");
         let request = BmcCredentials::UsernamePassword {
             username: "admin".to_string(),
             password: "secret".to_string(),
@@ -1999,7 +2177,8 @@ mod tests {
 
     #[test]
     fn bmc_session_token_credentials_use_redfish_token_header() {
-        let request = reqwest::Client::new().get("https://example.com/redfish/v1");
+        let client = reqwest_middleware::ClientBuilder::new(reqwest::Client::new()).build();
+        let request = client.get("https://example.com/redfish/v1");
         let request = BmcCredentials::SessionToken {
             token: "token-123".to_string(),
         }

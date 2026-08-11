@@ -30,13 +30,13 @@ use crate::config::{DhcpType, MachineATronConfig};
 use crate::dhcp_wrapper_udp::UdpDhcpClient;
 pub use crate::dhcp_wrapper_udp::UdpDhcpService;
 
-pub type DhcpRelayResult<T> = Result<T, DhcpRelayError>;
+pub(super) type DhcpRelayResult<T> = Result<T, DhcpRelayError>;
 
 #[derive(Debug)]
-pub struct DhcpRequestInfo {
-    pub mac_address: MacAddress,
-    pub relay_address: Ipv4Addr,
-    pub vendor_class: Option<&'static str>,
+pub(super) struct DhcpRequestInfo {
+    pub(super) mac_address: MacAddress,
+    pub(super) relay_address: Ipv4Addr,
+    pub(super) vendor_class: Option<&'static str>,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -90,6 +90,7 @@ fn vendor_class_for(machine: DhcpMachine, requester: DhcpRequester) -> Option<&'
                 | HardwareType::LiteOnPowerShelf
                 | HardwareType::DeltaPowerShelf
                 | HardwareType::NvidiaSwitchNd5200Ld
+                | HardwareType::NvidiaSwitchN5700Ld
                 | HardwareType::NvidiaDgxH100
                 | HardwareType::GenericAmi
                 | HardwareType::GenericSupermicro,
@@ -108,6 +109,7 @@ fn vendor_class_for(machine: DhcpMachine, requester: DhcpRequester) -> Option<&'
                 | HardwareType::LiteOnPowerShelf
                 | HardwareType::DeltaPowerShelf
                 | HardwareType::NvidiaSwitchNd5200Ld
+                | HardwareType::NvidiaSwitchN5700Ld
                 | HardwareType::NvidiaDgxH100
                 | HardwareType::GenericAmi
                 | HardwareType::HpeProliantDl380aGen11
@@ -119,9 +121,9 @@ fn vendor_class_for(machine: DhcpMachine, requester: DhcpRequester) -> Option<&'
 }
 
 #[derive(Clone, Debug)]
-pub struct DhcpResponseInfo {
-    pub interface_id: Option<MachineInterfaceId>,
-    pub ip_address: Ipv4Addr,
+pub(super) struct DhcpResponseInfo {
+    pub(super) interface_id: Option<MachineInterfaceId>,
+    pub(super) ip_address: Ipv4Addr,
 }
 
 #[derive(Clone, Debug)]
@@ -149,7 +151,7 @@ impl DhcpClient {
         }
     }
 
-    pub async fn request_ip(
+    pub(super) async fn request_ip(
         &self,
         request_info: DhcpRequestInfo,
     ) -> DhcpRelayResult<DhcpResponseInfo> {
@@ -210,7 +212,7 @@ async fn request_ip_from_api(
 }
 
 #[derive(thiserror::Error, Debug)]
-pub enum DhcpRelayError {
+pub(super) enum DhcpRelayError {
     #[error("client API error: {0}")]
     ClientApiError(#[from] ClientApiError),
     #[error("invalid DHCP record: {0}")]
@@ -249,20 +251,20 @@ impl From<tonic::Status> for DhcpRelayError {
 /// a steady (booted) state (and have a ManagedHostNetworkConfig.)
 #[derive(Debug, Clone)]
 #[allow(clippy::enum_variant_names)] // Dumb lint. "End" is a semantically important suffix here.
-pub enum DpuDhcpRelay {
+pub(super) enum DpuDhcpRelay {
     HostEnd(mpsc::UnboundedSender<DhcpRelayReply>),
     DpuEnd(DpuDhcpRelayServer),
 }
 
-pub type DhcpRelayReply = oneshot::Sender<DhcpRelayResult<DhcpResponseInfo>>;
+pub(super) type DhcpRelayReply = oneshot::Sender<DhcpRelayResult<DhcpResponseInfo>>;
 
 #[derive(Debug, Clone)]
-pub struct DpuDhcpRelayServer {
+pub(super) struct DpuDhcpRelayServer {
     request_rx: Arc<RwLock<mpsc::UnboundedReceiver<DhcpRelayReply>>>,
 }
 
 impl DpuDhcpRelayServer {
-    pub fn new(reply_rx: mpsc::UnboundedReceiver<DhcpRelayReply>) -> Self {
+    pub(super) fn new(reply_rx: mpsc::UnboundedReceiver<DhcpRelayReply>) -> Self {
         Self {
             request_rx: Arc::new(RwLock::new(reply_rx)),
         }
@@ -277,7 +279,10 @@ impl DpuDhcpRelayServer {
     ///
     /// The caller, [`MachineStateMachine`], stores the stop handle in the MachineUp state, so it is
     /// implicitly dropped (and this task stopped) when the mock DPU is rebooted.
-    pub fn spawn(&self, network_config: ManagedHostNetworkConfigResponse) -> oneshot::Sender<()> {
+    pub(super) fn spawn(
+        &self,
+        network_config: ManagedHostNetworkConfigResponse,
+    ) -> oneshot::Sender<()> {
         let (stop_tx, mut stop_rx) = oneshot::channel::<()>();
         let request_rx = self.request_rx.clone();
         tokio::spawn(async move {
@@ -387,6 +392,22 @@ mod tests {
                     scenario: "host system PXE client",
                     input: (
                         DhcpMachine::Host(HardwareType::GenericAmi),
+                        DhcpRequester::System,
+                    ),
+                    expect: Some("PXEClient:Arch:00007:UNDI:003000"),
+                },
+                Check {
+                    scenario: "N5700_LD BMC has no verified vendor class",
+                    input: (
+                        DhcpMachine::Host(HardwareType::NvidiaSwitchN5700Ld),
+                        DhcpRequester::Bmc,
+                    ),
+                    expect: None,
+                },
+                Check {
+                    scenario: "N5700_LD NVOS PXE client",
+                    input: (
+                        DhcpMachine::Host(HardwareType::NvidiaSwitchN5700Ld),
                         DhcpRequester::System,
                     ),
                     expect: Some("PXEClient:Arch:00007:UNDI:003000"),
