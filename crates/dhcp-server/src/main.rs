@@ -55,7 +55,7 @@ use tracing_subscriber::prelude::*;
 
 use crate::util::get_socket;
 
-pub struct Server {
+struct Server {
     socket: Arc<UdpSocket>,
 }
 
@@ -560,7 +560,7 @@ fn get_mode(args_mode: &ServerMode) -> Box<dyn DhcpMode> {
 }
 
 #[derive(Debug, Clone)]
-pub struct Config {
+struct Config {
     dhcp_config: DhcpConfig,
     host_config: Option<HostConfig>, // Valid only for Dpu mode.
     relay_response_port: u16,
@@ -719,7 +719,7 @@ mod test {
         SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::new(192, 0, 2, 10), 68));
 
     #[derive(Debug)]
-    pub struct TestArm {}
+    struct TestArm {}
 
     #[async_trait]
     impl DhcpMode for TestArm {
@@ -739,10 +739,10 @@ mod test {
     }
 
     #[derive(Debug)]
-    pub struct Test {}
+    struct Test {}
 
     impl Test {
-        pub fn dhcp_record() -> Result<DhcpRecord, DhcpError> {
+        fn dhcp_record() -> Result<DhcpRecord, DhcpError> {
             Ok(DhcpRecord {
                 machine_id: Some(
                     "fm100dsbiu5ckus880v8407u0mkcensa39cule26im5gnpvmuufckacguc0"
@@ -1495,7 +1495,7 @@ mod test {
         // The reply type the send path counts lease grants under matches the
         // encoded reply.
         assert_eq!(
-            encoded_packet.message_type,
+            encoded_packet.message_type(),
             crate::metrics::MessageTypeLabel::Ack
         );
 
@@ -1529,7 +1529,7 @@ mod test {
 
         // The nak_packet branch reports the refusal, not the request's type.
         assert_eq!(
-            encoded_packet.message_type,
+            encoded_packet.message_type(),
             crate::metrics::MessageTypeLabel::Nak
         );
 
