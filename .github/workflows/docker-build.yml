@@ -177,7 +177,13 @@ jobs:
           tags: ${{ steps.tag_list.outputs.tags }}
           build-args: ${{ steps.parse-args.outputs.build_args }}
           cache-from: type=gha
-          cache-to: ${{ inputs.push && 'type=gha,mode=max' || '' }}
+          # Nothing on this branch exports. Actions cache entries are ref-scoped,
+          # so every cherry-pick pull request and every release tag wrote its own
+          # mode=max copy into a 150 GB pool shared with main, evicting the
+          # sccache objects the Rust builds read. A release branch may read the
+          # default branch's entries, so cache-from above still starts these
+          # builds warm.
+          cache-to: ''
 
       # Scan the image the build step just loaded into the daemon — no rebuild.
       # Only runs when the image is actually loaded (load=true and not pushing,
