@@ -1,5 +1,5 @@
 version: v2beta1
-name: ncx-infra-controller-core
+name: infra-controller
 
 vars:
   LOCAL_DEV_NAMESPACE:
