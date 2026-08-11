@@ -230,8 +230,9 @@ site_ready=false
 machines_ready=false
 machine_count=0
 fresh_cycle=false
-# A clean cluster may need a second three-minute inventory cycle after Core discovers machines.
-for attempt in {1..90}; do
+# Site registration and the first four-minute inventory cycle can take around ten
+# minutes on a clean cluster. Allow fifteen minutes while retaining the full check.
+for attempt in {1..180}; do
   site_ready=false
   machines_ready=false
   machine_count=0
@@ -288,7 +289,7 @@ for attempt in {1..90}; do
       "${site_id}" "${expected_host_count}"
     break
   fi
-  if [[ "${attempt}" == "90" ]]; then
+  if [[ "${attempt}" == "180" ]]; then
     printf 'REST integration verification failed: site_ready=%s machines_ready=%s rest_machines=%s expected_hosts=%s fresh_cycle=%s\n' \
       "${site_ready}" "${machines_ready}" "${machine_count}" \
       "${expected_host_count}" "${fresh_cycle}" >&2
