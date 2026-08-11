@@ -128,7 +128,7 @@ func TestGetAllExploredEndpointHandler_Handle(t *testing.T) {
 			name:         "rejects invalid pagination",
 			roles:        []string{authz.ProviderAdminRole},
 			injectSiteID: true,
-			extraQuery:   "pageNumber=0",
+			extraQuery:   "pageNumber=-1",
 			wantStatus:   http.StatusBadRequest,
 		},
 		{
