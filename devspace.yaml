@@ -32,6 +32,7 @@ vars:
   LOCAL_DEV_DSX_GATEWAY_FORWARD_PORT:
     source: env
     default: "18080"
+  LOCAL_DEV_DSX_GATEWAY_PROFILE: "0"
 
 pipelines:
   purge: |-
@@ -300,6 +301,9 @@ hooks:
 profiles:
   - name: dsx-exchange
     patches:
+      - op: replace
+        path: vars.LOCAL_DEV_DSX_GATEWAY_PROFILE
+        value: "1"
       - op: add
         path: images.nico-mcp
         value:
@@ -354,6 +358,11 @@ profiles:
               - dev/deployment/devspace/dsx-agent-gateway-common.yaml
               - dev/deployment/devspace/dsx-agent-gateway-hub.yaml
             values:
+              auth:
+                jwt:
+                  providers:
+                    nico-dev:
+                      issuer: http://localhost:${LOCAL_DEV_KEYCLOAK_FORWARD_PORT}/realms/nico-dev
               bridge:
                 image:
                   repository: ${runtime.images.dsx-agentgateway-bridge.image}
@@ -371,6 +380,11 @@ profiles:
               - dev/deployment/devspace/dsx-agent-gateway-common.yaml
               - dev/deployment/devspace/dsx-agent-gateway-leaf.yaml
             values:
+              auth:
+                jwt:
+                  providers:
+                    nico-dev:
+                      issuer: http://localhost:${LOCAL_DEV_KEYCLOAK_FORWARD_PORT}/realms/nico-dev
               bridge:
                 image:
                   repository: ${runtime.images.dsx-agentgateway-bridge.image}
@@ -409,7 +423,7 @@ profiles:
           LOCAL_DEV_REST_API_FORWARD_PORT=${LOCAL_DEV_REST_API_FORWARD_PORT} \
           LOCAL_DEV_KEYCLOAK_FORWARD_PORT=${LOCAL_DEV_KEYCLOAK_FORWARD_PORT} \
           LOCAL_DEV_DSX_GATEWAY_FORWARD_PORT=${LOCAL_DEV_DSX_GATEWAY_FORWARD_PORT} \
-          LOCAL_DEV_DSX_GATEWAY_ENABLED=1 \
+          LOCAL_DEV_DSX_GATEWAY_ENABLED=${LOCAL_DEV_DSX_GATEWAY_PROFILE} \
             dev/deployment/devspace/setup-rest-integration.sh
       - op: add
         path: deployments.dsx-exchange
@@ -459,6 +473,16 @@ profiles:
           dsxExchangeEventBusConfig: '{enabled=true,mqtt_endpoint="dsx-exchange",mqtt_broker_port=1883,auth={auth_mode="none"},periodic_state_republish={interval="10s"}}'
   - name: core-only
     patches:
+      - op: add
+        path: hooks
+        value:
+          name: reject-dsx-gateway-with-core-only
+          events: ["before:build", "before:deploy"]
+          command: |-
+            if [ "${LOCAL_DEV_DSX_GATEWAY_PROFILE}" = "1" ]; then
+              echo "the dsx-exchange and core-only profiles cannot be combined" >&2
+              exit 1
+            fi
       - op: remove
         path: images.nico-rest-api
       - op: remove

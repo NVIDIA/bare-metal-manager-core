@@ -9,7 +9,7 @@ AGENTGATEWAY_VERSION="v1.4.1"
 
 GATEWAY_API_MANIFEST="$("${SCRIPT_DIR}/prepare-dsx-exchange.sh" --gateway-api-manifest)"
 
-kubectl apply --server-side --force-conflicts -f "${GATEWAY_API_MANIFEST}" >/dev/null
+kubectl apply --server-side -f "${GATEWAY_API_MANIFEST}" >/dev/null
 kubectl wait --for=condition=Established --timeout=120s \
   crd/gateways.gateway.networking.k8s.io >/dev/null
 

@@ -278,7 +278,7 @@ if [[ "${DSX_GATEWAY_ENABLED}" == "1" ]]; then
     --data '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"nico-devspace","version":"1"}}}' \
     "http://localhost:${DSX_GATEWAY_FORWARD_PORT}/mcp"
 
-  mcp_session_id="$(awk 'BEGIN { IGNORECASE=1 } /^mcp-session-id:/ {
+  mcp_session_id="$(awk 'tolower($0) ~ /^mcp-session-id:/ {
     sub(/^[^:]*:[[:space:]]*/, ""); sub(/\r$/, ""); print; exit
   }' "${WORK_DIR}/dsx-gateway-initialize.headers")"
   session_header=()

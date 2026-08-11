@@ -31,6 +31,50 @@ require_bin helm
 require_bin curl
 require_bin shasum
 
+validate_checkout() {
+  local require_complete="$1"
+  local status_line allowed matched
+  local expected_count=0
+  local actual_count=0
+  local -a allowed_status=()
+
+  while read -r name version; do
+    allowed_status+=("!! deploy/dsx-agent-gateway/charts/${name}-${version}.tgz")
+    ((expected_count += 1))
+  done < <(awk '
+    $1 == "-" && $2 == "name:" { name = $3 }
+    $1 == "version:" && name != "" { print name, $2; name = "" }
+  ' "${DSX_GATEWAY_CHART}/Chart.lock")
+
+  if [[ "${expected_count}" -eq 0 ]]; then
+    printf 'DSX Agent Gateway Chart.lock contains no dependencies\n' >&2
+    exit 1
+  fi
+
+  while IFS= read -r status_line; do
+    [[ -n "${status_line}" ]] || continue
+    matched=0
+    for allowed in "${allowed_status[@]}"; do
+      if [[ "${status_line}" == "${allowed}" ]]; then
+        matched=1
+        ((actual_count += 1))
+        break
+      fi
+    done
+    if [[ "${matched}" -eq 0 ]]; then
+      printf 'refusing to use modified DSX Exchange checkout: %s\n' \
+        "${DSX_EXCHANGE_DIR}" >&2
+      exit 1
+    fi
+  done < <(git -C "${DSX_EXCHANGE_DIR}" status \
+    --porcelain --ignored --untracked-files=all)
+
+  if [[ "${require_complete}" == "1" && "${actual_count}" -ne "${expected_count}" ]]; then
+    printf 'DSX Agent Gateway dependencies do not match Chart.lock\n' >&2
+    exit 1
+  fi
+}
+
 mkdir -p "${REPO_ROOT}/.devspace"
 
 if [[ ! -d "${DSX_EXCHANGE_DIR}/.git" ]]; then
@@ -50,12 +94,7 @@ if [[ "${actual_commit}" != "${DSX_EXCHANGE_COMMIT}" ]]; then
   exit 1
 fi
 
-if ! git -C "${DSX_EXCHANGE_DIR}" diff --quiet --ignore-submodules -- || \
-  ! git -C "${DSX_EXCHANGE_DIR}" diff --cached --quiet --ignore-submodules --; then
-  printf 'refusing to use modified DSX Exchange checkout: %s\n' \
-    "${DSX_EXCHANGE_DIR}" >&2
-  exit 1
-fi
+validate_checkout 0
 
 mkdir -p "${HELM_REPOSITORY_CACHE}"
 helm repo add valkey https://valkey-io.github.io/valkey-helm \
@@ -65,6 +104,7 @@ helm repo add valkey https://valkey-io.github.io/valkey-helm \
 helm dependency build "${DSX_GATEWAY_CHART}" \
   --repository-config "${HELM_REPOSITORY_CONFIG}" \
   --repository-cache "${HELM_REPOSITORY_CACHE}" >/dev/null
+validate_checkout 1
 
 if [[ ! -f "${GATEWAY_API_MANIFEST}" ]]; then
   gateway_api_download="${GATEWAY_API_MANIFEST}.download"

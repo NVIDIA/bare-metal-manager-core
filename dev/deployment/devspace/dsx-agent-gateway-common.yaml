@@ -14,7 +14,6 @@ auth:
   jwt:
     providers:
       nico-dev:
-        issuer: http://localhost:18082/realms/nico-dev
         audiences:
           - nico-api
         jwksUrl: http://keycloak.nico-rest.svc.cluster.local:8082/realms/nico-dev/protocol/openid-connect/certs
