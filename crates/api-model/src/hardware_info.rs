@@ -282,7 +282,7 @@ pub fn condense_memory_devices(
     for device in devices {
         match groups.last_mut() {
             Some(last) if last.size_mb == device.size_mb && last.mem_type == device.mem_type => {
-                last.count += 1;
+                last.count = last.count.saturating_add(1);
             }
             _ => groups.push(MemoryDeviceGroup {
                 size_mb: device.size_mb,
@@ -311,7 +311,7 @@ where
     for group in raw.into_iter().filter_map(|g| g.nonzero()) {
         match merged.last_mut() {
             Some(last) if last.size_mb == group.size_mb && last.mem_type == group.mem_type => {
-                last.count += group.count;
+                last.count = last.count.saturating_add(group.count);
             }
             _ => merged.push(group),
         }
@@ -1425,6 +1425,31 @@ mod tests {
                     count: 2,
                 },
             ]
+        );
+    }
+
+    #[test]
+    fn deserialize_memory_devices_count_saturates_at_u32_max() {
+        // Two consecutive identical groups whose counts sum past u32::MAX.
+        // The merge must saturate rather than overflow.
+        let json = format!(
+            r#"{{
+                "machine_type": "x86_64",
+                "memory_devices": [
+                    {{"size_mb": 8192, "mem_type": "DDR4", "count": {}}},
+                    {{"size_mb": 8192, "mem_type": "DDR4", "count": 1}}
+                ]
+            }}"#,
+            u32::MAX
+        );
+        let info: HardwareInfo = serde_json::from_str(&json).unwrap();
+        assert_eq!(
+            info.memory_devices,
+            vec![MemoryDeviceGroup {
+                size_mb: Some(8192),
+                mem_type: Some("DDR4".into()),
+                count: u32::MAX,
+            }]
         );
     }
 

@@ -928,7 +928,7 @@ fn condense_rpc_memory_devices(devices: Vec<MemoryDevice>) -> Vec<MemoryDeviceGr
     for device in devices {
         match groups.last_mut() {
             Some(last) if last.size_mb == device.size_mb && last.mem_type == device.mem_type => {
-                last.count += 1;
+                last.count = last.count.saturating_add(1);
             }
             _ => groups.push(MemoryDeviceGroup {
                 size_mb: device.size_mb,
