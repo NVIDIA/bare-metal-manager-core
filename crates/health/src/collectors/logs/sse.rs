@@ -30,7 +30,7 @@ use super::diagnostic::{
 };
 use super::redfish::{
     RedfishLogFields, add_redfish_analyzer_attributes, normalize_redfish_severity, nvidia_error_id,
-    redfish_log_type,
+    redfish_event_type_string, redfish_log_type,
 };
 use crate::HealthError;
 use crate::collectors::runtime::{
@@ -229,13 +229,10 @@ fn record_to_log(
         .as_ref()
         .map(|log_entry_ref| log_entry_ref.odata_id().to_string());
 
-    let mut attributes = vec![
-        (Cow::Borrowed("message_id"), record.message_id.clone()),
-        (
-            Cow::Borrowed("event_type"),
-            format!("{:?}", record.event_type),
-        ),
-    ];
+    let mut attributes = vec![(Cow::Borrowed("message_id"), record.message_id.clone())];
+    if let Some(event_type) = redfish_event_type_string(Some(&record.event_type)) {
+        attributes.push((Cow::Borrowed("event_type"), event_type));
+    }
     add_redfish_analyzer_attributes(
         &mut attributes,
         log_type,
@@ -403,6 +400,11 @@ mod tests {
             attribute(record, "redfish.event.type"),
             Some("redfish_event")
         );
+        assert_eq!(
+            attribute(record, "redfish.event.severity"),
+            Some("Critical")
+        );
+        assert_eq!(attribute(record, "event_type"), Some("Alert"));
     }
 
     #[tokio::test]
@@ -449,19 +451,16 @@ mod tests {
                 get(|| async { std::future::pending::<Json<Value>>().await }),
             );
         let bmc = test_bmc(router);
-        let resolution_timeout = Duration::from_secs(10);
         let started_at = tokio::time::Instant::now();
 
-        let logs = event_to_logs_with_timeout(
-            &referenced_event(&[first_path, second_path]),
-            &bmc,
-            false,
-            resolution_timeout,
-        )
-        .await;
+        let logs = event_to_logs(&referenced_event(&[first_path, second_path]), &bmc, false).await;
 
         assert!(logs.is_empty());
-        assert_eq!(tokio::time::Instant::now() - started_at, resolution_timeout);
+        assert_eq!(EVENT_RECORD_RESOLUTION_TIMEOUT, Duration::from_secs(10));
+        assert_eq!(
+            tokio::time::Instant::now() - started_at,
+            EVENT_RECORD_RESOLUTION_TIMEOUT
+        );
     }
 
     #[test]

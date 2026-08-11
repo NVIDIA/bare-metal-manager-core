@@ -30,7 +30,8 @@ use super::diagnostic::{
     DiagnosticPayload, make_diagnostic_record, nullable_ref, nullable_str, redfish_enum_string,
 };
 use super::redfish::{
-    RedfishLogFields, add_redfish_analyzer_attributes, nvidia_error_id, redfish_log_type,
+    RedfishLogFields, add_redfish_analyzer_attributes, nvidia_error_id, redfish_event_type_string,
+    redfish_log_type,
 };
 use crate::HealthError;
 use crate::collectors::{IterationResult, PeriodicCollector};
@@ -478,7 +479,7 @@ fn entry_to_log(
             serde_json::to_string(args).unwrap_or_default(),
         ));
     }
-    if let Some(event_type) = entry.event_type.as_ref().and_then(redfish_enum_string) {
+    if let Some(event_type) = redfish_event_type_string(entry.event_type.as_ref()) {
         attributes.push((Cow::Borrowed("event_type"), event_type));
     }
     if let Some(event_id) = &entry.event_id {
@@ -549,7 +550,9 @@ mod tests {
     #[derive(Debug, PartialEq)]
     struct ObservedLog {
         body: String,
+        log_type: Option<String>,
         event_type: Option<String>,
+        redfish_severity: Option<String>,
         error_id: Option<String>,
         diagnostic_data: Option<String>,
     }
@@ -572,7 +575,9 @@ mod tests {
 
         ObservedLog {
             body: record.body.clone(),
-            event_type: attribute(&record, "redfish.event.type"),
+            log_type: attribute(&record, "redfish.event.type"),
+            event_type: attribute(&record, "event_type"),
+            redfish_severity: attribute(&record, "redfish.event.severity"),
             error_id: attribute(&record, "oem.nvidia.error_id"),
             diagnostic_data: record
                 .diagnostic_record
@@ -606,7 +611,9 @@ mod tests {
                     }),
                     expect: ObservedLog {
                         body: String::new(),
-                        event_type: Some("redfish_event".to_string()),
+                        log_type: Some("redfish_event".to_string()),
+                        event_type: Some("Alert".to_string()),
+                        redfish_severity: Some("Critical".to_string()),
                         error_id: Some("CPLD-PSEQ-FAULT".to_string()),
                         diagnostic_data: None,
                     },
@@ -624,7 +631,9 @@ mod tests {
                     }),
                     expect: ObservedLog {
                         body: "GPU reported Xid 79".to_string(),
-                        event_type: Some("xid".to_string()),
+                        log_type: Some("xid".to_string()),
+                        event_type: None,
+                        redfish_severity: Some("Warning".to_string()),
                         error_id: None,
                         diagnostic_data: None,
                     },
@@ -645,7 +654,9 @@ mod tests {
                     }),
                     expect: ObservedLog {
                         body: "PCIe error".to_string(),
-                        event_type: Some("cper".to_string()),
+                        log_type: Some("cper".to_string()),
+                        event_type: None,
+                        redfish_severity: Some("Critical".to_string()),
                         error_id: None,
                         diagnostic_data: Some("base64-cper-payload".to_string()),
                     },

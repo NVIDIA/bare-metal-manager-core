@@ -19,8 +19,10 @@
 
 use std::borrow::Cow;
 
+use nv_redfish::schema::event::EventType;
 use nv_redfish::schema::resource::Oem;
 
+use super::diagnostic::redfish_enum_string;
 use crate::metrics::MetricLabel;
 
 const NVIDIA_ERROR_ID_ATTR: &str = "oem.nvidia.error_id";
@@ -76,6 +78,12 @@ pub(super) fn nvidia_error_id(oem: Option<&Oem>) -> Option<&str> {
             .pointer("/Nvidia/ErrorId")
             .and_then(serde_json::Value::as_str)
     })
+}
+
+pub(super) fn redfish_event_type_string(event_type: Option<&EventType>) -> Option<String> {
+    event_type
+        .filter(|event_type| !matches!(event_type, EventType::UnsupportedValue))
+        .and_then(redfish_enum_string)
 }
 
 pub(super) fn add_redfish_analyzer_attributes(
@@ -305,5 +313,29 @@ mod tests {
 
         assert_eq!(nvidia_error_id(Some(&oem)), Some("CPLD-PSEQ-FAULT"));
         assert_eq!(nvidia_error_id(None), None);
+    }
+
+    #[test]
+    fn event_type_uses_redfish_wire_spelling() {
+        check_values(
+            [
+                Check {
+                    scenario: "known event type",
+                    input: Some(EventType::Alert),
+                    expect: Some("Alert".to_string()),
+                },
+                Check {
+                    scenario: "unsupported event type",
+                    input: Some(EventType::UnsupportedValue),
+                    expect: None,
+                },
+                Check {
+                    scenario: "missing event type",
+                    input: None,
+                    expect: None,
+                },
+            ],
+            |event_type| redfish_event_type_string(event_type.as_ref()),
+        );
     }
 }
