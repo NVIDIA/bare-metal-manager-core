@@ -73,6 +73,9 @@ jobs:
       - name: Check Publish Fern Docs token permissions
         run: bash .github/ci/check-publish-fern-docs-permissions.sh
 
+      - name: Check Image Scan token permissions
+        run: bash .github/ci/check-image-scan-ci-permissions.sh
+
       - name: Check Core CI concurrency policy
         run: bash scripts/check-ci-concurrency.sh core
 
