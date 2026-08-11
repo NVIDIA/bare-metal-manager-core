@@ -27,6 +27,7 @@ NICo requires a Kubernetes cluster with at least three schedulable nodes (Ready,
 | OS | Ubuntu 24.04.1 LTS |
 
 The cluster must have:
+
 - `net.bridge.bridge-nf-call-iptables=1` and `net.ipv4.ip_forward=1` on every node.
 - DNS resolution working (`kubernetes.default.svc.cluster.local` resolves on every node).
 - Network connectivity to your container registry.
@@ -45,7 +46,7 @@ If your site controller nodes are equipped with Bluefield-3 DPUs, they must be f
 
 - Configure the Bluefield-3 device in DPU mode (operating mode).
 - Ensure the DPU ARM OS is booted and reachable via its management interface.
-- Verify that the DPU can connect to the outside world (curl -I https://www.google.com)
+- Verify that the DPU can connect to the outside world (curl -I [https://www.google.com](https://www.google.com))
 
 Refer to the NVIDIA DOCA documentation and the BlueField Firmware Bundle download archive for firmware flashing instructions and supported firmware versions:
 
@@ -128,6 +129,7 @@ siteName: "mysite"   # ← replace "TMP_SITE" with your site name (e.g. "example
 This value is injected into every postgres pod as the `TMP_SITE` environment variable. It must match the `sitename` in the NICo Core `siteConfig` block below.
 
 To tune PostgreSQL resources for your node capacity (the defaults are conservative for dev), edit the following values:
+
 ```yaml
 postgresql:
   instances: 3
@@ -338,6 +340,7 @@ You can combine common options as needed:
 | `--skip-core` | Skip the Phase 6 NICo Core Helm release. |
 | `--skip-flow` | Skip Phase 7h NICo Flow. Also set `flow.enabled=false` in `helm-prereqs/values.yaml` to omit Flow prerequisites. |
 | `--skip-rest` | Skip all Phase 7 NICo REST phases. |
+| `--with-observability` | Install the optional local metrics, logs, and traces stack before Phase 7. This also runs with `--skip-rest`; see [`helm-prereqs/observability/README.md`](../../helm-prereqs/observability/README.md) for standalone installation. |
 | `-y` | Accept setup prompts automatically. |
 
 The `setup.sh` script installs all prerequisites and NICo components in sequential phases:
@@ -496,6 +499,7 @@ auth:
 #### 5. Bootstrap the Org (Required One-Time Call)
 
 This `GET` endpoint lazily initializes the org on first call as follows:
+
 1. Checks if service account is enabled in the auth config
 2. Creates an **InfrastructureProvider** for the org if one doesn't exist
 3. Creates a **Tenant** with targeted instance creation enabled if one doesn't exist
