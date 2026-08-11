@@ -31,6 +31,20 @@ vars:
     default: "18082"
 
 pipelines:
+  build: |-
+    run_dependencies --all --pipeline build
+    build_local_images
+  dev: |-
+    run_dependencies --all
+    ensure_pull_secrets --all
+    build_local_images
+    create_deployments --all
+    start_dev --all
+  deploy: |-
+    run_dependencies --all
+    ensure_pull_secrets --all
+    build_local_images
+    create_deployments --all
   purge: |-
     CONTEXT=$(kubectl config current-context 2>/dev/null || echo "")
     case "$CONTEXT" in
@@ -42,7 +56,22 @@ pipelines:
         ;;
     esac
 
+functions:
+  build_local_images: |-
+    build_images core-artifacts nico-rest-api nico-rest-workflow \
+      nico-rest-site-manager nico-rest-site-agent nico-rest-db \
+      nico-rest-cert-manager nico-mcp
+    build_images nico-api nico-bmc-proxy machine-a-tron
+
 images:
+  core-artifacts:
+    image: nico-devspace-core-artifacts
+    tags:
+      - latest
+    dockerfile: dev/deployment/devspace/Dockerfile.core-artifacts
+    context: .
+    buildKit: {}
+    skipPush: true
   nico-api:
     image: nico-api
     custom:
@@ -57,7 +86,10 @@ images:
         - crates
         - include
         - dev/docker/Dockerfile.build-container-x86_64
+        - dev/deployment/devspace/Dockerfile.core-artifacts
+        - dev/deployment/devspace/Dockerfile.core-artifacts.dockerignore
         - dev/deployment/devspace/Dockerfile.api
+        - dev/deployment/devspace/Dockerfile.api.dockerignore
         - pxe/templates
         - pxe/static/blobs/internal/aarch64/secure-boot-pk.pem
   nico-bmc-proxy:
@@ -73,7 +105,10 @@ images:
         - .cargo
         - crates
         - dev/docker/Dockerfile.build-container-x86_64
+        - dev/deployment/devspace/Dockerfile.core-artifacts
+        - dev/deployment/devspace/Dockerfile.core-artifacts.dockerignore
         - dev/deployment/devspace/Dockerfile.bmc-proxy
+        - dev/deployment/devspace/Dockerfile.bmc-proxy.dockerignore
   machine-a-tron:
     image: machine-a-tron
     custom:
@@ -88,7 +123,10 @@ images:
         - crates
         - include
         - dev/docker/Dockerfile.build-container-x86_64
+        - dev/deployment/devspace/Dockerfile.core-artifacts
+        - dev/deployment/devspace/Dockerfile.core-artifacts.dockerignore
         - dev/deployment/devspace/Dockerfile.machine-a-tron
+        - dev/deployment/devspace/Dockerfile.machine-a-tron.dockerignore
   nico-rest-api:
     image: localhost:5000/nico-rest-api
     tags:
