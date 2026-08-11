@@ -147,6 +147,12 @@ certificate:
 migrationJob:
   sslMode: require
 
+## Grace period for nico-api to stop claiming state-controller work and drain
+## handlers already in flight. Keep this greater than the largest configured
+## controller.max_object_handling_time; 240 seconds covers the default 3 minutes
+## with additional time for queue finalization.
+terminationGracePeriodSeconds: 240
+
 ## Container command (override to customise startup).
 ## Picks /opt/nico/nico-api if present (renamed image), else /opt/carbide/carbide-api
 ## (current image). Configmaps are mounted at both /etc/nico and /etc/forge paths

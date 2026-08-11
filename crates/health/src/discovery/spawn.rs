@@ -30,7 +30,7 @@ use crate::collectors::{
     MetricsCollector, MetricsCollectorConfig, NmxcCollector, NmxcCollectorConfig, NmxtCollector,
     NmxtCollectorConfig, NvueRestCollector, NvueRestCollectorConfig, SensorCollector,
     SensorCollectorConfig, SseLogCollector, SseLogCollectorConfig, StreamingCollectorStartContext,
-    spawn_gnmi_collector,
+    TelemetryCollector, TelemetryCollectorConfig, spawn_gnmi_collector,
 };
 use crate::config::{Configurable, LogCollectionMode, PeriodicLogConfig};
 use crate::endpoint::{BmcEndpoint, EndpointMetadata, SwitchEndpointRole};
@@ -52,6 +52,99 @@ pub(super) fn switch_supports_nmxc_subscription(endpoint: &BmcEndpoint) -> bool 
             && switch.is_primary
             && switch.nmxc_enabled
     })
+}
+
+/// Transport services eligible to start for one endpoint.
+///
+/// Reachability uses this plan so it probes only services selected by the
+/// same collector configuration, endpoint-role, capability, and sink gates.
+/// A `true` field permits a collector start attempt; it does not mean that the
+/// collector started successfully or completed a protocol exchange.
+#[derive(Clone, Copy, Default)]
+pub(super) struct CollectorEligibility {
+    /// At least one eligible collector uses the discovered BMC Redfish socket.
+    pub(super) redfish: bool,
+
+    /// The endpoint is eligible for direct NMX-T collection.
+    pub(super) nmxt: bool,
+
+    /// The endpoint is eligible for direct NMX-C Subscribe collection.
+    pub(super) nmxc: bool,
+
+    /// The endpoint is eligible for direct NVUE REST collection.
+    pub(super) nvue_rest: bool,
+
+    /// The endpoint is eligible for direct NVUE gNMI collection.
+    pub(super) nvue_gnmi: bool,
+}
+
+/// Computes transport eligibility using collector spawn gates.
+///
+/// `data_sink_present` must describe the same optional sink passed to the spawn
+/// path. SSE and NMX-C collectors require that sink, while periodic Redfish
+/// collectors may still run without one. Non-host endpoints collapse all
+/// Redfish-backed collectors into one BMC transport; switch-host endpoints use
+/// only their direct NVUE, gNMI, NMX-T, and NMX-C transports.
+pub(super) fn collector_eligibility(
+    ctx: &DiscoveryLoopContext,
+    endpoint: &BmcEndpoint,
+    data_sink_present: bool,
+) -> CollectorEligibility {
+    let switch_host = endpoint
+        .switch_data()
+        .is_some_and(|switch| matches!(switch.endpoint_role, SwitchEndpointRole::Host));
+
+    if !switch_host {
+        // Periodic logs perform Redfish requests without a sink. SSE requires
+        // a sink, while Auto remains periodic-eligible after a downgrade.
+        let logs = ctx
+            .logs_config
+            .as_option()
+            .is_some_and(|config| match config.mode {
+                LogCollectionMode::Periodic => true,
+                LogCollectionMode::Sse => data_sink_present,
+                LogCollectionMode::Auto => {
+                    data_sink_present || ctx.log_downgrade_registry.is_downgraded(&endpoint.key())
+                }
+            });
+
+        let gpu_inventory = ctx.gpu_inventory_config.is_enabled()
+            && ctx.api_client.is_some()
+            && matches!(endpoint.metadata, Some(EndpointMetadata::Machine(_)));
+
+        // Generic collectors share the discovered BMC socket, so one target
+        // represents every enabled Redfish-backed collector on this endpoint.
+        return CollectorEligibility {
+            redfish: ctx.sensors_config.is_enabled()
+                || ctx.metrics_config.is_enabled()
+                || ctx.telemetry_config.is_enabled()
+                || logs
+                || ctx.firmware_config.is_enabled()
+                || ctx.leak_detector_config.is_enabled()
+                || gpu_inventory,
+            ..Default::default()
+        };
+    }
+
+    let nvue = ctx.nvue_config.as_option();
+
+    // NMX-C emits log events, so spawning requires both a
+    // log-capable configured sink and the constructed sink pipeline.
+    let nmxc = ctx.nmxc_config.is_enabled()
+        && switch_supports_nmxc_subscription(endpoint)
+        && ctx.log_event_sink_enabled
+        && data_sink_present;
+
+    CollectorEligibility {
+        redfish: false,
+        nmxt: ctx.nmxt_config.is_enabled()
+            && endpoint
+                .switch_data()
+                .is_some_and(|switch| switch.nmxt_enabled),
+        nmxc,
+        nvue_rest: nvue.is_some_and(|config| config.rest.is_enabled()),
+        nvue_gnmi: nvue.is_some_and(|config| config.gnmi.is_enabled()),
+    }
 }
 
 pub(super) fn spawn_collectors_for_endpoint(
@@ -211,6 +304,45 @@ fn spawn_generic_redfish_collectors(
                     ?error,
                     endpoint = ?endpoint.addr,
                     "Could not start entity metrics collector"
+                );
+            }
+        }
+    }
+
+    if let Configurable::Enabled(telemetry_cfg) = &ctx.telemetry_config
+        && !ctx.collectors.contains(CollectorKind::Telemetry, &key)
+    {
+        let collector_registry = Arc::new(
+            ctx.metrics_manager
+                .create_collector_registry(format!("telemetry_collector_{key}"), metrics_prefix)?,
+        );
+        match Collector::start::<TelemetryCollector<BmcClient>>(
+            endpoint_arc.clone(),
+            bmc.clone(),
+            TelemetryCollectorConfig {
+                data_sink: data_sink.clone(),
+            },
+            CollectorStartContext {
+                limiter: ctx.limiter.clone(),
+                iteration_interval: telemetry_cfg.fetch_interval,
+                collector_registry,
+                metrics_manager: ctx.metrics_manager.clone(),
+            },
+        ) {
+            Ok(monitor) => {
+                ctx.collectors
+                    .insert(CollectorKind::Telemetry, key.clone().into(), monitor);
+                tracing::info!(
+                    endpoint_key = %key,
+                    telemetry_collector_count = ctx.collectors.len(CollectorKind::Telemetry),
+                    "Started telemetry service collection for BMC endpoint"
+                );
+            }
+            Err(error) => {
+                tracing::error!(
+                    ?error,
+                    endpoint = ?endpoint.addr,
+                    "Could not start telemetry collector"
                 );
             }
         }
@@ -492,10 +624,9 @@ fn spawn_switch_host_collectors(
     let key = endpoint.key();
     let endpoint_arc = endpoint.clone();
     let bmc = endpoint.bmc().clone();
+    let eligibility = collector_eligibility(ctx, endpoint, data_sink.is_some());
 
-    if endpoint
-        .switch_data()
-        .is_some_and(|switch| switch.nmxt_enabled)
+    if eligibility.nmxt
         && let Configurable::Enabled(nmxt_cfg) = &ctx.nmxt_config
         && !ctx.collectors.contains(CollectorKind::Nmxt, &key)
     {
@@ -596,7 +727,8 @@ fn spawn_switch_host_collectors(
         }
     }
 
-    if let Configurable::Enabled(nvue_cfg) = &ctx.nvue_config
+    if eligibility.nvue_rest
+        && let Configurable::Enabled(nvue_cfg) = &ctx.nvue_config
         && let Configurable::Enabled(rest_cfg) = &nvue_cfg.rest
         && !ctx.collectors.contains(CollectorKind::NvueRest, &key)
     {
@@ -641,10 +773,10 @@ fn spawn_switch_host_collectors(
         }
     }
 
-    if let Configurable::Enabled(nvue_cfg) = &ctx.nvue_config
+    if eligibility.nvue_gnmi
+        && let Configurable::Enabled(nvue_cfg) = &ctx.nvue_config
         && let Configurable::Enabled(gnmi_cfg) = &nvue_cfg.gnmi
         && !ctx.collectors.contains(CollectorKind::NvueGnmi, &key)
-        && matches!(endpoint.metadata, Some(EndpointMetadata::Switch(_)))
     {
         let collector_registry = Arc::new(
             ctx.metrics_manager

@@ -186,11 +186,17 @@ spec:
                     type: string
                   bmcVersion:
                     type: string
+                  doca:
+                    description: DOCA is the formatted, user-facing DOCA version derived
+                      from the OS ISO.
+                    type: string
                   ewNicFwVersion:
                     type: string
                   fwBundleVersion:
                     type: string
                   osISOVersion:
+                    description: OSISOVersion is the raw DOCA version for the OS ISO,
+                      taken from the ISO filename
                     type: string
                   sbiosVersion:
                     type: string

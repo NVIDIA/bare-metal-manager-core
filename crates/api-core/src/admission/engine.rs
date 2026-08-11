@@ -125,7 +125,7 @@ pub(super) enum ClientKeyRef<'a> {
 }
 
 impl ClientKeyRef<'_> {
-    pub fn to_client_key(self) -> ClientKey {
+    fn to_client_key(self) -> ClientKey {
         match self {
             ClientKeyRef::Default => ClientKey::Default,
             ClientKeyRef::ExternalUser(u) => ClientKey::ExternalUser(u.to_owned()),

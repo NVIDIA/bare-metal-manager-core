@@ -27,8 +27,11 @@ repository.workspace = true
 prost-build = { workspace = true }
 prost-reflect = { workspace = true }
 prost-types = { workspace = true }
+quote = { workspace = true }
+syn = { workspace = true, features = ["full", "parsing"] }
 tempfile = { workspace = true }
 thiserror = { workspace = true }
+tonic-prost-build = { workspace = true }
 
 [dev-dependencies]
 prost = { workspace = true }

@@ -28,6 +28,7 @@ use super::cleanup::{
 };
 use super::context::{CollectorKind, DiscoveryLoopContext};
 use super::identity::ensure_primary_system_uuid;
+use super::reachability::reconcile_reachability_collectors;
 use super::spawn::{spawn_collectors_for_endpoint, switch_supports_nmxc_subscription};
 use crate::HealthError;
 use crate::config::Configurable;
@@ -114,15 +115,20 @@ pub async fn run_discovery_iteration(
     // unregister the replacement's metrics.
     stop_stale_switch_collectors(ctx, &sharded_endpoints).await;
 
+    let active_endpoints = active_keys(&sharded_endpoints);
+    stop_removed_bmc_collectors(ctx, &active_endpoints).await;
+
     for endpoint in &sharded_endpoints {
         spawn_collectors_for_endpoint(ctx, endpoint, data_sink.clone(), metrics_prefix)?;
     }
 
+    reconcile_reachability_collectors(ctx, &sharded_endpoints, data_sink.clone(), metrics_prefix)
+        .await?;
+
     if matches!(&ctx.nmxc_config, Configurable::Enabled(_)) {
         // Endpoints can remain active while Carbide API changes primary or
         // NMX-C desired-state flags. Reconcile existing streams against the
-        // same target policy used for spawn before generic removed-endpoint
-        // cleanup runs.
+        // same target policy used for spawn.
         let nmxc_eligible_endpoints = nmxc_subscription_keys(&sharded_endpoints);
         stop_ineligible_nmxc_collectors(ctx, &nmxc_eligible_endpoints);
     } else {
@@ -130,9 +136,6 @@ pub async fn run_discovery_iteration(
         // remains eligible even though the endpoint keys may still be active.
         stop_ineligible_nmxc_collectors(ctx, &HashSet::new());
     }
-
-    let active_endpoints = active_keys(&sharded_endpoints);
-    stop_removed_bmc_collectors(ctx, &active_endpoints);
 
     let iteration_duration = iteration_start.elapsed();
     ctx.discovery_iteration_histogram
@@ -154,10 +157,14 @@ mod tests {
     use mac_address::MacAddress;
 
     use super::*;
+    use crate::config::{Config, Configurable, NmxtCollectorConfig, ReachabilityCollectorConfig};
     use crate::endpoint::test_support::endpoint_with_creds;
     use crate::endpoint::{
-        BmcAddr, BmcCredentials, EndpointMetadata, SwitchData, SwitchEndpointRole,
+        BmcAddr, BmcCredentials, EndpointMetadata, StaticEndpointSource, SwitchData,
+        SwitchEndpointRole,
     };
+    use crate::limiter::NoopLimiter;
+    use crate::metrics::MetricsManager;
 
     /// Builds a generic endpoint fixture for discovery iteration tests.
     fn endpoint(mac: MacAddress, switch: bool, rack_id: Option<RackId>) -> Arc<BmcEndpoint> {
@@ -293,5 +300,144 @@ mod tests {
         ]);
 
         assert_eq!(keys, HashSet::from([expected_key]));
+    }
+
+    #[tokio::test]
+    async fn reachability_does_not_change_duplicate_endpoint_spawning() {
+        let mac = MacAddress::from_str("00:00:00:00:00:21").unwrap();
+        let first = switch_endpoint(mac, false, false);
+        let mut duplicate = first.as_ref().clone();
+
+        let Some(EndpointMetadata::Switch(switch)) = duplicate.metadata.as_mut() else {
+            panic!("test endpoint should contain switch metadata");
+        };
+
+        switch.nmxt_enabled = true;
+
+        let source: Arc<dyn EndpointSource> = Arc::new(StaticEndpointSource::new(vec![
+            first.as_ref().clone(),
+            duplicate,
+        ]));
+
+        let mut config = Config::default();
+        config.endpoint_sources.carbide_api = Configurable::Disabled;
+        config.collectors.sensors = Configurable::Disabled;
+        config.collectors.leak_detector = Configurable::Disabled;
+        config.collectors.nmxt = Configurable::Enabled(NmxtCollectorConfig::default());
+        config.collectors.reachability =
+            Configurable::Enabled(ReachabilityCollectorConfig::default());
+
+        let metrics_manager = Arc::new(
+            MetricsManager::new("duplicate_keys_with_reachability")
+                .expect("metrics manager should start"),
+        );
+
+        let mut ctx =
+            DiscoveryLoopContext::new(Arc::new(NoopLimiter), metrics_manager, Arc::new(config))
+                .expect("discovery context should start");
+
+        let stats = run_discovery_iteration(
+            source,
+            &ShardManager {
+                shard: 0,
+                shards_count: 1,
+            },
+            &mut ctx,
+            None,
+            "test",
+        )
+        .await
+        .expect("discovery iteration should succeed");
+
+        assert_eq!(stats.discovered_endpoints, 2);
+        assert_eq!(stats.sharded_endpoints, 2);
+        assert!(ctx.collectors.contains(CollectorKind::Nmxt, &first.key()));
+
+        let collector = ctx
+            .collectors
+            .map_mut(CollectorKind::Nmxt)
+            .remove(first.key().as_str())
+            .expect("NMX-T collector should have started");
+
+        collector.stop().await;
+    }
+
+    #[tokio::test]
+    async fn discovery_iteration_waits_for_removed_nmxc_shutdown_before_spawn_error() {
+        let active_endpoint = endpoint(
+            MacAddress::from_str("00:00:00:00:00:31").unwrap(),
+            false,
+            None,
+        );
+
+        let source: Arc<dyn EndpointSource> = Arc::new(StaticEndpointSource::new(vec![
+            active_endpoint.as_ref().clone(),
+        ]));
+
+        let metrics_manager = Arc::new(
+            MetricsManager::new("removed_nmxc_shutdown").expect("metrics manager should start"),
+        );
+
+        let _conflicting_registry = metrics_manager
+            .create_collector_registry(
+                format!("entity_discovery_collector_{}", active_endpoint.key()),
+                "test",
+            )
+            .expect("conflicting registry should start");
+
+        let mut ctx = DiscoveryLoopContext::new(
+            Arc::new(NoopLimiter),
+            metrics_manager,
+            Arc::new(Config::default()),
+        )
+        .expect("discovery context should start");
+
+        let cancelled = Arc::new(tokio::sync::Notify::new());
+        let release = Arc::new(tokio::sync::Notify::new());
+        let collector_cancelled = Arc::clone(&cancelled);
+        let collector_release = Arc::clone(&release);
+
+        ctx.collectors.insert(
+            CollectorKind::Nmxc,
+            Cow::Borrowed("removed-switch"),
+            crate::collectors::Collector::spawn_task(move |cancel| async move {
+                cancel.cancelled().await;
+                collector_cancelled.notify_one();
+                collector_release.notified().await;
+            }),
+        );
+
+        let iteration = tokio::spawn(async move {
+            run_discovery_iteration(
+                source,
+                &ShardManager {
+                    shard: 0,
+                    shards_count: 1,
+                },
+                &mut ctx,
+                None,
+                "test",
+            )
+            .await
+        });
+
+        tokio::time::timeout(std::time::Duration::from_secs(1), cancelled.notified())
+            .await
+            .expect("removed collector should be cancelled");
+
+        assert!(!iteration.is_finished());
+
+        release.notify_one();
+
+        let error = tokio::time::timeout(std::time::Duration::from_secs(1), iteration)
+            .await
+            .expect("discovery iteration should finish after collector shutdown")
+            .expect("discovery task should not panic")
+            .expect_err("collector registry conflict should fail spawning");
+
+        assert!(matches!(
+            error,
+            HealthError::PrometheusError(prometheus::Error::AlreadyReg)
+        ));
     }
 }

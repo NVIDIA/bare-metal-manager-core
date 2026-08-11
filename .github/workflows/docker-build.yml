@@ -76,7 +76,7 @@ on:
         default: ''
         type: string
       scan:
-        description: 'Run a Grype vulnerability scan on main after the built image has been pushed.'
+        description: "Have main's pushed image scanned for vulnerabilities. Records a scan target; image-scan.yml scans it after this workflow finishes. Requires push."
         required: false
         default: false
         type: boolean
@@ -269,11 +269,13 @@ jobs:
 
       # Loading means exporting the whole image to the daemon, so it is only
       # worth doing when a later step reads it back: the deferred push on
-      # mirrors, or the main-branch Grype scan, which inspects the local
-      # daemon. A pull request runs neither, yet the 8 GB boot-artifacts
-      # carrier still spent a measured 5m20s on the export before every step
-      # that could have used it was skipped. Decided once here so the build and
-      # the summary cannot disagree about what happened.
+      # mirrors. A pull request never does, yet the 8 GB boot-artifacts carrier
+      # still spent a measured 5m20s on the export before every step that could
+      # have used it was skipped. Decided once here so the build and the summary
+      # cannot disagree about what happened.
+      #
+      # The scan clause is inert now the scan reads the registry, but is the only
+      # clause consulting inputs.load.
       - name: Decide whether to load the image locally
         id: loadgate
         env:
@@ -344,43 +346,34 @@ jobs:
       # Scan only the image pushed by the main branch build. This avoids a
       # vulnerability scan on every pull request while retaining the mainline
       # security signal.
-      - name: Compute Grype scan key
-        id: scankey
-        if: ${{ inputs.scan && github.ref == 'refs/heads/main' && steps.build.outcome == 'success' }}
+      #
+      # image-scan.yml does the scanning once this workflow has finished, so it
+      # no longer holds a build job open. Requires push: a later scan can only
+      # fetch an image that reached the registry.
+      - name: Record the pushed image as a scan target
+        id: scantarget
+        if: ${{ inputs.scan && inputs.push && github.ref == 'refs/heads/main' && steps.build.outcome == 'success' }}
         env:
           IMAGE_NAME: ${{ inputs.image_name }}
-        run: |
-          key="$(basename -- "$IMAGE_NAME")"
-          printf 'key=%s\n' "$key" >> "$GITHUB_OUTPUT"
-
-      # security-container-scan inspects the local Docker daemon and never pulls
-      # for itself. On this repo main pushes straight from buildx and loads
-      # nothing, so the scan's precheck reported "local docker image not found"
-      # and both the SBOM and Grype steps recorded outcome=skipped -- invisible,
-      # because continue-on-error and fail-build=false turn that into a green
-      # check. Fetching the image we just pushed is what makes the mainline scan
-      # actually scan. A warning rather than a failure: this must not be able to
-      # break publishing, but it must stop being silent.
-      - name: Fetch pushed image for the scan
-        if: ${{ inputs.scan && github.ref == 'refs/heads/main' && steps.build.outcome == 'success' && steps.loadgate.outputs.load != 'true' }}
-        env:
           IMAGE: ${{ steps.tag_list.outputs.primary }}
+          RUNNER_LABEL: ${{ inputs.runner }}
         run: |
-          if ! docker pull "${IMAGE}"; then
-            echo "::warning::could not pull ${IMAGE}; the Grype scan will find no local image and skip"
-          fi
+          set -euo pipefail
+          key="$(basename -- "${IMAGE_NAME}")"
+          printf 'key=%s\n' "${key}" >> "$GITHUB_OUTPUT"
+          # The runner label travels with the target: a single-platform manifest
+          # can only be pulled by the architecture that built it.
+          jq -n --arg key "${key}" --arg image "${IMAGE}" --arg runner "${RUNNER_LABEL}" \
+            '{key: $key, image: $image, runner: $runner}' | tee scan-target.json
 
-      - name: Grype vulnerability scan
-        if: ${{ inputs.scan && github.ref == 'refs/heads/main' && steps.build.outcome == 'success' }}
-        continue-on-error: true
-        uses: NVIDIA/dsx-github-actions/.github/actions/security-container-scan@aa4e470cc53f3886545c7d72a984eb81f1d203e2 # v1.16.2
+      - name: Upload the scan target
+        if: ${{ inputs.scan && inputs.push && github.ref == 'refs/heads/main' && steps.build.outcome == 'success' }}
+        uses: actions/upload-artifact@v4
         with:
-          image: ${{ inputs.image_name }}:${{ inputs.image_tag }}
-          fail-on: critical
-          fail-build: 'false'
-          write-summary: 'false'
-          artifact-name: grype-${{ steps.scankey.outputs.key }}-${{ github.run_id }}-${{ github.run_attempt }}
-          sbom-artifact-name: sbom-${{ steps.scankey.outputs.key }}-${{ github.run_id }}-${{ github.run_attempt }}
+          name: scan-target-${{ steps.scantarget.outputs.key }}
+          path: scan-target.json
+          # Consumed by image-scan.yml minutes later, never wanted again.
+          retention-days: 1
 
       - name: Display build summary
         run: |

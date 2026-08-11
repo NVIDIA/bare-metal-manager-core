@@ -19,10 +19,20 @@ use std::borrow::Cow;
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 
+#[cfg(not(feature = "bench-hooks"))]
+pub(crate) trait RedfishEventMapper: Send + Sync {
+    fn queue_key(&self, bmc_id: &str, attributes: &[(Cow<'static, str>, String)]) -> String;
+}
+
+#[cfg(feature = "bench-hooks")]
 pub trait RedfishEventMapper: Send + Sync {
     fn queue_key(&self, bmc_id: &str, attributes: &[(Cow<'static, str>, String)]) -> String;
 }
 
+#[cfg(not(feature = "bench-hooks"))]
+pub(crate) struct OpenBmcEventMapper;
+
+#[cfg(feature = "bench-hooks")]
 pub struct OpenBmcEventMapper;
 
 impl OpenBmcEventMapper {

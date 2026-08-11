@@ -123,6 +123,8 @@ struct RedfishSimState {
     system_id: Option<String>,
     /// Physical-port MAC addresses exposed through the adapter Ports collection.
     network_adapter_port_mac_addresses: Vec<MacAddress>,
+    /// Chassis linked from the simulated ComputerSystem.
+    system_chassis_ids: Vec<String>,
 }
 
 /// Build the `HTTPErrorCode` a real BMC would return for a rejected request, so
@@ -449,6 +451,10 @@ impl RedfishSim {
             .lock()
             .unwrap()
             .network_adapter_port_mac_addresses = mac_addresses;
+    }
+
+    pub fn set_system_chassis_ids(&self, chassis_ids: Vec<String>) {
+        self.state.lock().unwrap().system_chassis_ids = chassis_ids;
     }
 
     /// Seed a credential into the sim's credential store -- the same store
@@ -1203,8 +1209,24 @@ impl Redfish for RedfishSimClient {
                 .system_id
                 .clone()
                 .unwrap_or_else(|| "Bluefield".to_string());
+            let chassis = self
+                .state
+                .lock()
+                .unwrap()
+                .system_chassis_ids
+                .iter()
+                .map(|id| ODataId {
+                    odata_id: format!("/redfish/v1/Chassis/{id}"),
+                })
+                .collect::<Vec<_>>();
             Ok(libredfish::model::ComputerSystem {
                 id,
+                links: (!chassis.is_empty()).then_some(
+                    libredfish::model::system::ComputerSystemLinks {
+                        chassis: Some(chassis),
+                        managed_by: None,
+                    },
+                ),
                 boot_progress: Some(libredfish::model::BootProgress {
                     last_state: Some(libredfish::model::BootProgressTypes::OSRunning),
                     last_state_time: Some(Utc::now().to_string()),

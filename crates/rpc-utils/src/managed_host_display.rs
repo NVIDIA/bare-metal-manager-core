@@ -160,7 +160,12 @@ impl From<Machine> for ManagedHostOutput {
     fn from(machine: Machine) -> ManagedHostOutput {
         let primary_interface = machine.interfaces.iter().find(|x| x.primary_interface);
         let (host_admin_ip, host_admin_mac) = primary_interface
-            .map(|x| (x.address.first().cloned(), Some(x.mac_address.clone())))
+            .map(|x| {
+                (
+                    x.address.join(",").none_if_empty(),
+                    Some(x.mac_address.clone()),
+                )
+            })
             .unwrap_or((None, None));
 
         let BmcInfoDisplay {
@@ -690,6 +695,27 @@ mod tests {
                 None => None,
                 Some(Timestamp::from(UNIX_EPOCH)) => Some("1970-01-01 00:00:00 UTC".to_string()),
                 Some(Timestamp::from(UNIX_EPOCH + Duration::from_secs(1_700_000_000))) => Some("2023-11-14 22:13:20 UTC".to_string()),
+            }
+        );
+    }
+
+    #[test]
+    fn managed_host_output_preserves_all_primary_interface_addresses() {
+        value_scenarios!(
+            run = |addresses| ManagedHostOutput::from(Machine {
+                interfaces: vec![rpc::MachineInterface {
+                    primary_interface: true,
+                    address: addresses,
+                    ..Default::default()
+                }],
+                ..Default::default()
+            })
+            .host_admin_ip;
+            "primary interface address lists" {
+                Vec::<String>::new() => None,
+                vec!["192.0.2.10".to_string()] => Some("192.0.2.10".to_string()),
+                vec!["192.0.2.10".to_string(), "2001:db8::10".to_string()]
+                    => Some("192.0.2.10,2001:db8::10".to_string()),
             }
         );
     }

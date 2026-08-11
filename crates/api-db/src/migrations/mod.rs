@@ -200,6 +200,8 @@ mod tests {
     use super::*;
 
     const RENAME_SITE_PREFIX_AUTHORITY_VERSION: i64 = 20260805083545;
+    const ASSOCIATE_VPC_PREFIX_SITE_PREFIX: &str =
+        include_str!("../../migrations/20260805131227_associate_vpc_prefix_site_prefix.sql");
     const REMOVE_SECONDARY_VTEP_DATA: &str =
         include_str!("../../migrations/20260804153414_remove_secondary_vtep_data.sql");
     const VALIDATE_SECONDARY_VTEP_CONSTRAINT: &str =
@@ -406,6 +408,163 @@ mod tests {
         assert!(!configured_constraint_exists);
         assert!(operator_index_exists);
         assert!(!configured_index_exists);
+    }
+
+    #[crate::sqlx_test]
+    async fn vpc_prefix_site_prefix_migration_backfills_unique_operator_parents(pool: PgPool) {
+        // An ordinary sqlx_test begins with every migration applied. This regression needs the
+        // schema from immediately before this migration because the migration itself adds the
+        // column under test. Remove only its FK, index, and column before applying its exact SQL.
+        sqlx::raw_sql(
+            r#"
+                ALTER TABLE network_vpc_prefixes
+                    DROP CONSTRAINT network_vpc_prefixes_site_prefix_id_fkey;
+                DROP INDEX network_vpc_prefixes_site_prefix_id_idx;
+                DROP INDEX network_prefixes_vpc_prefix_id_idx;
+                ALTER TABLE network_vpc_prefixes
+                    DROP COLUMN site_prefix_id;
+            "#,
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        let vpc_id = "00000000-0000-0000-0000-000000003886";
+        sqlx::query(
+            r#"
+                INSERT INTO vpcs (id, name, version)
+                VALUES ($1::uuid, 'site-prefix migration VPC', 'V1-T0')
+            "#,
+        )
+        .bind(vpc_id)
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        let ready_parent_id = "00000000-0000-0000-0000-000000003901";
+        let deleting_parent_id = "00000000-0000-0000-0000-000000003902";
+        let broad_ambiguous_parent_id = "00000000-0000-0000-0000-000000003903";
+        let narrow_ambiguous_parent_id = "00000000-0000-0000-0000-000000003904";
+        sqlx::query(
+            r#"
+                INSERT INTO site_prefixes (
+                    id,
+                    prefix,
+                    authority,
+                    tenant_organization_id,
+                    routing_scope,
+                    lifecycle_state,
+                    name,
+                    version
+                )
+                VALUES
+                    ($1::uuid, 'fd00:3886:1::/48', 'operator_managed', NULL,
+                     'datacenter_only', 'ready', 'ready parent', 'V1-T0'),
+                    ($2::uuid, 'fd00:3886:2::/48', 'operator_managed', NULL,
+                     'datacenter_only', 'deleting', 'deleting parent', 'V1-T0'),
+                    ($3::uuid, 'fd00:3886:3::/48', 'operator_managed', NULL,
+                     'datacenter_only', 'ready', 'broad ambiguous parent', 'V1-T0'),
+                    ($4::uuid, 'fd00:3886:3:1000::/52', 'operator_managed', NULL,
+                     'datacenter_only', 'ready', 'narrow ambiguous parent', 'V1-T0')
+            "#,
+        )
+        .bind(ready_parent_id)
+        .bind(deleting_parent_id)
+        .bind(broad_ambiguous_parent_id)
+        .bind(narrow_ambiguous_parent_id)
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        let ready_child_id = "00000000-0000-0000-0000-000000003911";
+        let deleting_child_id = "00000000-0000-0000-0000-000000003912";
+        let ambiguous_child_id = "00000000-0000-0000-0000-000000003913";
+        let missing_child_id = "00000000-0000-0000-0000-000000003914";
+        sqlx::query(
+            r#"
+                INSERT INTO network_vpc_prefixes (id, prefix, name, vpc_id)
+                VALUES
+                    ($1::uuid, 'fd00:3886:1:1::/64', 'ready child', $5::uuid),
+                    ($2::uuid, 'fd00:3886:2:1::/64', 'deleting child', $5::uuid),
+                    ($3::uuid, 'fd00:3886:3:1234::/64', 'ambiguous child', $5::uuid),
+                    ($4::uuid, 'fd00:3886:4:1::/64', 'missing child', $5::uuid)
+            "#,
+        )
+        .bind(ready_child_id)
+        .bind(deleting_child_id)
+        .bind(ambiguous_child_id)
+        .bind(missing_child_id)
+        .bind(vpc_id)
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        sqlx::raw_sql(ASSOCIATE_VPC_PREFIX_SITE_PREFIX)
+            .execute(&pool)
+            .await
+            .unwrap();
+
+        let parent_by_child: HashMap<String, Option<String>> = sqlx::query_as(
+            r#"
+                SELECT id::text, site_prefix_id::text
+                FROM network_vpc_prefixes
+                WHERE vpc_id = $1::uuid
+            "#,
+        )
+        .bind(vpc_id)
+        .fetch_all(&pool)
+        .await
+        .unwrap()
+        .into_iter()
+        .collect();
+        assert_eq!(parent_by_child.len(), 4);
+        for (child_id, expected_parent_id) in [
+            (ready_child_id, Some(ready_parent_id)),
+            (deleting_child_id, Some(deleting_parent_id)),
+            (ambiguous_child_id, None),
+            (missing_child_id, None),
+        ] {
+            assert_eq!(
+                parent_by_child
+                    .get(child_id)
+                    .and_then(|parent_id| parent_id.as_deref()),
+                expected_parent_id,
+                "child: {child_id}",
+            );
+        }
+
+        let (constraint_is_valid, delete_action): (bool, String) = sqlx::query_as(
+            r#"
+                SELECT convalidated, confdeltype::text
+                FROM pg_constraint
+                WHERE conrelid = 'network_vpc_prefixes'::regclass
+                  AND conname = 'network_vpc_prefixes_site_prefix_id_fkey'
+            "#,
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert!(constraint_is_valid);
+        assert_eq!(delete_action, "r");
+
+        sqlx::query("DELETE FROM site_prefixes WHERE id = $1::uuid")
+            .bind(ready_parent_id)
+            .execute(&pool)
+            .await
+            .expect_err("the associated VPC prefix must restrict parent deletion");
+
+        let (site_prefix_index_exists, allocation_index_exists): (bool, bool) = sqlx::query_as(
+            r#"
+                SELECT
+                    to_regclass('public.network_vpc_prefixes_site_prefix_id_idx') IS NOT NULL,
+                    to_regclass('public.network_prefixes_vpc_prefix_id_idx') IS NOT NULL
+            "#,
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert!(site_prefix_index_exists);
+        assert!(allocation_index_exists);
     }
 
     #[crate::sqlx_test]

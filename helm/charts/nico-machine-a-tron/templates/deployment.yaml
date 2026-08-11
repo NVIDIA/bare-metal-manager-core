@@ -9,9 +9,9 @@
 
 {{- range $podName, $podConfig := .Values.pods }}
 {{/*
-Skip pods without machines (or empty machines)
+Skip unconfigured pods
 */}}
-{{- if not (and $podConfig $podConfig.machines (gt (len $podConfig.machines) 0)) }}
+{{- if not (and $podConfig (or (gt (len ($podConfig.machines | default dict)) 0) (gt (len ($podConfig.racks | default dict)) 0))) }}
 {{- continue }}
 {{- end }}
 

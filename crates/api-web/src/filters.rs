@@ -20,6 +20,11 @@
  * Askama makes all these functions accessible as template filters.
  */
 
+#![allow(
+    unreachable_pub,
+    reason = "askama::filter_fn emits public helper items inside this template-filter module"
+)]
+
 use std::collections::BTreeSet;
 use std::fmt::{Display, Write};
 use std::str::FromStr;

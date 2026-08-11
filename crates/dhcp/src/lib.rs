@@ -35,12 +35,32 @@ use rpc::forge_tls_client::ForgeClientConfig;
 use tokio::runtime::{Builder, Runtime};
 
 mod cache;
+#[allow(
+    unreachable_pub,
+    reason = "cbindgen exposes this module's public items through the Kea C++ ABI"
+)]
 mod discovery;
+#[allow(
+    unreachable_pub,
+    reason = "cbindgen exposes this module's public items through the Kea C++ ABI"
+)]
 mod discovery_v6;
 mod kea;
 mod kea_logger;
+#[allow(
+    unreachable_pub,
+    reason = "cbindgen exposes this module's public items through the Kea C++ ABI"
+)]
 mod lease_expiration;
+#[allow(
+    unreachable_pub,
+    reason = "cbindgen exposes this module's public items through the Kea C++ ABI"
+)]
 mod machine;
+#[allow(
+    unreachable_pub,
+    reason = "cbindgen exposes this module's public items through the Kea C++ ABI"
+)]
 mod machine_v6;
 mod metrics;
 #[cfg(any(test, feature = "test-support"))]
