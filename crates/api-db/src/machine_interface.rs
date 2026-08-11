@@ -2328,13 +2328,6 @@ pub async fn lock_network_segments_exclusive(
     Ok(())
 }
 
-/// Advisory-lock every admin segment, in ascending id order. Transactions
-/// that touch machine-interface rows before their segment locks -- the flows
-/// that end in `reconcile_admin_addresses_for_host`, and machine teardown,
-/// which deletes interface rows wholesale -- call this right after opening
-/// the transaction so the whole transaction follows the allocator order.
-/// Later acquisitions of the same locks in the same transaction (reconcile's
-/// own pass) are no-ops.
 /// Per-call-site tally of network-segment advisory lock acquisitions (#4711).
 ///
 /// The first attempt at reducing this traffic optimized ONE of the five call
@@ -2349,37 +2342,92 @@ pub async fn lock_network_segments_exclusive(
 /// counter. Every segment-lock helper now records, so the tally covers all of
 /// them -- shared acquisitions included, under a `_shared`-suffixed label,
 /// since shared locks do not conflict with each other and should not be read
-/// as contention.
-static ADMIN_LOCK_SITES: std::sync::LazyLock<
-    std::sync::Mutex<std::collections::HashMap<&'static str, u64>>,
-> = std::sync::LazyLock::new(|| std::sync::Mutex::new(std::collections::HashMap::new()));
-
-/// Count one acquisition and, every 2,000, log the running per-site breakdown.
-/// Logged at INFO deliberately: the previous diagnostic used `debug!` while
-/// RUST_LOG=info, so it produced nothing and the run had to be repeated.
-pub(crate) fn record_admin_lock_site(call_site: &'static str) {
-    let Ok(mut sites) = ADMIN_LOCK_SITES.lock() else {
-        return;
-    };
-    *sites.entry(call_site).or_insert(0) += 1;
-    let total: u64 = sites.values().sum();
-    if total.is_multiple_of(2000) {
-        let mut breakdown: Vec<_> = sites.iter().map(|(k, v)| (*k, *v)).collect();
-        breakdown.sort_by(|a, b| b.1.cmp(&a.1));
-        let rendered = breakdown
-            .iter()
-            .map(|(site, n)| format!("{site}={n}"))
-            .collect::<Vec<_>>()
-            .join(" ");
-        tracing::info!(
-            target: "carbide::lock_profile",
-            total_acquisitions = total,
-            breakdown = %rendered,
-            "network-segment lock acquisitions by call site"
-        );
-    }
+/// as contention. `machine_discovery_host` is the one exception: it kept its
+/// name when it moved to `lock_all_admin_segments_shared` so its counts stay
+/// comparable with the runs recorded before the move. Read it as shared.
+///
+/// The third attempt emitted nothing either, across four deployed images, for
+/// two reasons that are both fixed below: the tally gave up forever if the
+/// mutex was ever poisoned, and it only logged when the running total hit an
+/// exact multiple of 2,000 -- a per-process total that a restart, or any
+/// concurrent increment landing between the check and the next one, walks
+/// straight past. The trigger is now purely time-based, so the breakdown
+/// appears as long as *any* acquisition happens at all.
+struct AdminLockSites {
+    /// Acquisitions per `call_site` label since process start.
+    counts: std::collections::HashMap<&'static str, u64>,
+    /// When the breakdown was last emitted; `None` until the first emission,
+    /// so the very first acquisition logs immediately and proves the counter
+    /// is alive rather than leaving an ambiguous silent window.
+    last_emit: Option<std::time::Instant>,
 }
 
+static ADMIN_LOCK_SITES: std::sync::LazyLock<std::sync::Mutex<AdminLockSites>> =
+    std::sync::LazyLock::new(|| {
+        std::sync::Mutex::new(AdminLockSites {
+            counts: std::collections::HashMap::new(),
+            last_emit: None,
+        })
+    });
+
+/// Minimum wall-clock interval between breakdown emissions. Time-based rather
+/// than count-based so a low-traffic process still reports, and a high-traffic
+/// one cannot flood: at most one line per interval, whatever the rate.
+const LOCK_PROFILE_EMIT_INTERVAL: std::time::Duration = std::time::Duration::from_secs(30);
+
+/// Count one acquisition and, at most once every [`LOCK_PROFILE_EMIT_INTERVAL`],
+/// log the running per-site breakdown.
+///
+/// Logged at INFO deliberately: an earlier diagnostic used `debug!` while
+/// RUST_LOG=info, so it produced nothing and the run had to be repeated.
+pub(crate) fn record_admin_lock_site(call_site: &'static str) {
+    // Recover from poisoning instead of returning: a panic anywhere else while
+    // this mutex was held would otherwise silence the tally for the remaining
+    // life of the process, which is indistinguishable from "the code never
+    // ran" -- the exact ambiguity that cost four deployed images.
+    let mut sites = ADMIN_LOCK_SITES
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    *sites.counts.entry(call_site).or_insert(0) += 1;
+
+    let now = std::time::Instant::now();
+    if !sites
+        .last_emit
+        .is_none_or(|last| now.duration_since(last) >= LOCK_PROFILE_EMIT_INTERVAL)
+    {
+        return;
+    }
+    sites.last_emit = Some(now);
+    emit_admin_lock_breakdown(&sites.counts);
+}
+
+/// Render the tally: the total, plus every call site, busiest first.
+fn emit_admin_lock_breakdown(counts: &std::collections::HashMap<&'static str, u64>) {
+    let total: u64 = counts.values().sum();
+    let mut breakdown: Vec<(&'static str, u64)> = counts.iter().map(|(k, v)| (*k, *v)).collect();
+    // Descending by count, then by label so equal counts render stably and
+    // successive lines can be diffed against each other.
+    breakdown.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(b.0)));
+    let rendered = breakdown
+        .iter()
+        .map(|(site, n)| format!("{site}={n}"))
+        .collect::<Vec<_>>()
+        .join(" ");
+    tracing::info!(
+        target: "carbide::lock_profile",
+        total_acquisitions = total,
+        breakdown = %rendered,
+        "network-segment lock acquisitions by call site"
+    );
+}
+
+/// Advisory-lock every admin segment exclusively, in ascending id order.
+/// Transactions that touch machine-interface rows before their segment locks
+/// -- the flows that end in `reconcile_admin_addresses_for_host`, and machine
+/// teardown, which deletes interface rows wholesale -- call this right after
+/// opening the transaction so the whole transaction follows the allocator
+/// order. Later acquisitions of the same locks in the same transaction
+/// (reconcile's own pass) are no-ops.
 pub async fn lock_all_admin_segments(
     txn: &mut PgConnection,
     call_site: &'static str,
@@ -2387,6 +2435,52 @@ pub async fn lock_all_admin_segments(
     let segment_ids =
         db_network_segment::list_segment_ids(&mut *txn, Some(NetworkSegmentType::Admin)).await?;
     lock_network_segments_exclusive(txn, &segment_ids, call_site).await
+}
+
+/// Shared-mode counterpart of [`lock_all_admin_segments`], for transactions
+/// that must be excluded from the writers but not from each other.
+///
+/// Measured (#4711): during a 4,500-host run, sampling `pg_locks` joined to
+/// `pg_stat_activity` found 101 exclusive holders against 4 shared, with
+/// `network_segment.admin` the hottest key; exclusive acquisitions averaged
+/// 14-155 ms against 0.41 ms for shared. A shared lock still conflicts with an
+/// exclusive one, so callers of this function remain mutually excluded from
+/// every `lock_all_admin_segments` / `lock_network_segments_exclusive`
+/// transaction -- creation, deletion, DPU discovery, reconcile. Only
+/// shared-versus-shared runs concurrently.
+///
+/// # Upgrade hazard -- read before calling
+///
+/// PostgreSQL advisory locks do **not** upgrade. A transaction that takes a
+/// shared lock on a key and later asks for the exclusive lock on that same key
+/// can deadlock against another transaction doing the same thing. A caller may
+/// therefore use this **only** if it provably never acquires a segment lock
+/// again for the rest of its transaction -- no `lock_network_segment_*`, no
+/// `lock_all_admin_segments`, and nothing that reaches them (interface
+/// creation, address allocation, `reconcile_admin_addresses_for_host`).
+pub async fn lock_all_admin_segments_shared(
+    txn: &mut PgConnection,
+    call_site: &'static str,
+) -> DatabaseResult<()> {
+    let mut segment_ids =
+        db_network_segment::list_segment_ids(&mut *txn, Some(NetworkSegmentType::Admin)).await?;
+    // One increment per invocation, matching the exclusive funnel, so the two
+    // are directly comparable.
+    record_admin_lock_site(call_site);
+    // Same ascending order and dedup as the exclusive path: mode does not
+    // change the deadlock-avoidance rule, since shared and exclusive waiters
+    // queue on the same keys.
+    segment_ids.sort_unstable();
+    segment_ids.dedup();
+    for id in segment_ids {
+        let query = "SELECT pg_advisory_xact_lock_shared(hashtextextended($1::text, 0))";
+        sqlx::query_scalar::<_, ()>(query)
+            .bind(format!("network_segment.{id}"))
+            .fetch_one(&mut *txn)
+            .await
+            .map_err(|e| DatabaseError::query(query, e))?;
+    }
+    Ok(())
 }
 
 static ADMIN_LOCK_ADMISSION: std::sync::OnceLock<std::sync::Arc<tokio::sync::Semaphore>> =

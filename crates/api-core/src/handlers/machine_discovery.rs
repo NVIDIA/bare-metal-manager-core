@@ -177,25 +177,43 @@ pub(crate) async fn discover_machine(
 
     let mut txn = api.txn_begin().await?;
 
-    // Advisory-lock the admin segments before any machine-interface row
-    // writes in this transaction (`associate_interface_with_dpu_machine`,
-    // the proactive host-interface create, `set_primary_interface`), so the
-    // whole transaction holds locks in the allocator order (segment advisory
-    // lock first, then interface rows) all the way to the reconcile pass --
-    // which re-acquires the same locks as a no-op.
+    // Advisory-lock the admin segments before any machine-interface row work
+    // in this transaction, so the whole transaction holds locks in the
+    // allocator order (segment advisory lock first, then interface rows).
     //
-    // The call site is labelled by branch (#4711 attribution): every one of
-    // those interface writes, and the reconcile pass, is gated behind
-    // `if hardware_info.is_dpu()` below, so the `_host` tally is the part of
-    // this traffic that a future change could plausibly stop taking. It is
-    // NOT free to drop today -- see the note on `unlocked_discovery_rejection`
-    // about the host/DPU row-lock ordering these locks currently serialize.
-    let lock_site = if hardware_info.is_dpu() {
-        "machine_discovery_dpu"
+    // LOAD-BEARING (#4711), read before changing the branch below.
+    //
+    // The DPU branch takes the locks EXCLUSIVELY: it writes interface rows
+    // (`associate_interface_with_dpu_machine`, the proactive host-interface
+    // create, `set_primary_interface`) and ends in
+    // `reconcile_admin_addresses_for_host`, which re-acquires the same locks
+    // exclusively -- as a no-op only because this transaction already holds
+    // them in that mode.
+    //
+    // The host branch takes them SHARED. Every segment-lock-reachable call in
+    // this handler is gated behind `if hardware_info.is_dpu()`; the host path
+    // only reads interfaces (`find_one`,
+    // `find_{optional_for_update,for_update_if_matches_instance}_by_ip`) and
+    // writes `machines`, `machine_topologies`, and attestation rows, none of
+    // which touch a segment lock. Shared still conflicts with exclusive, so a
+    // host discovery remains mutually excluded from DPU discovery, machine
+    // creation, deletion, and reconcile; only host-versus-host becomes
+    // concurrent. That is the whole win: shared acquisitions measured 0.41 ms
+    // against 14-155 ms for exclusive on the hottest key.
+    //
+    // DANGER: PostgreSQL advisory locks do NOT upgrade. Adding any call that
+    // reaches a segment lock -- interface create, address allocation,
+    // `reconcile_admin_addresses_for_host` -- to the host path would make this
+    // transaction take S and then ask for X on the same key, which deadlocks
+    // against another transaction doing the same. Such a call must either move
+    // behind `is_dpu()` or force this branch back to
+    // `lock_all_admin_segments`.
+    if hardware_info.is_dpu() {
+        db::machine_interface::lock_all_admin_segments(&mut txn, "machine_discovery_dpu").await?;
     } else {
-        "machine_discovery_host"
-    };
-    db::machine_interface::lock_all_admin_segments(&mut txn, lock_site).await?;
+        db::machine_interface::lock_all_admin_segments_shared(&mut txn, "machine_discovery_host")
+            .await?;
+    }
 
     tracing::debug!(
         remote_ip_address = ?remote_ip,
