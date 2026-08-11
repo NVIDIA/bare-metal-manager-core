@@ -656,6 +656,21 @@ func NewAPIRoutes(dbSession *cdb.Session, tc tClient.Client, tnc tClient.Namespa
 			Method:  http.MethodPatch,
 			Handler: apiHandler.NewMachinePowerControlHandler(dbSession, scp, cfg),
 		},
+		{
+			Path:    apiPathPrefix + "/machine/:id/validation/run",
+			Method:  http.MethodPost,
+			Handler: apiHandler.NewCreateMachineValidationRunHandler(dbSession, scp, cfg),
+		},
+		{
+			Path:    apiPathPrefix + "/machine/:id/validation/run",
+			Method:  http.MethodGet,
+			Handler: apiHandler.NewGetAllMachineValidationRunHandler(dbSession, tc, scp, cfg),
+		},
+		{
+			Path:    apiPathPrefix + "/machine/:id/validation/result",
+			Method:  http.MethodGet,
+			Handler: apiHandler.NewGetMachineValidationResultsHandler(dbSession, tc, scp, cfg),
+		},
 
 		// Machine GPU Stats endpoint
 		{

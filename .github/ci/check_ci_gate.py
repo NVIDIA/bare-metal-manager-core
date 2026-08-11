@@ -2,14 +2,14 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
-"""Keep every Core CI job accounted for by the final required check.
+"""Keep every CI job accounted for by its final required check.
 
 GitHub Actions makes `needs` a static list: it waits for the jobs named there,
-but adding a new top-level job does not update `core-ci-pass` or warn us that
-the job was omitted. The `inventory` command reads the small part of the
-workflow used by the gate and requires every job to be gated or explicitly
-exempted. It also protects the gate's `if: always()` condition so a failed
-dependency cannot skip the required check.
+but adding a new top-level job does not update a final gate or warn us that the
+job was omitted. The `inventory` command reads the small part of the workflow
+used by the selected gate policy and requires every job to be gated or
+explicitly exempted. It also protects the gate's `if: always()` condition so a
+failed dependency cannot skip the required check.
 
 The `results` command evaluates `${{ toJson(needs) }}` from `NEEDS_JSON`.
 `success` and `skipped` pass because conditional jobs legitimately omit work.
@@ -26,27 +26,15 @@ import os
 import re
 import sys
 from collections import Counter
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
 
-GATE_JOB = "core-ci-pass"
-EXEMPT_JOBS = {
-    "build-summary": (
-        "This reporting-only job writes the Actions summary and does not validate "
-        "build output."
-    ),
-    "notify-build-status": (
-        "This administrative job reports the completed build to Slack on protected refs."
-    ),
-    GATE_JOB: "A job cannot depend on itself.",
-}
-
-# We only need the root job IDs plus `core-ci-pass.if` and
-# `core-ci-pass.needs`. Keep this grammar deliberately narrow and reject
-# unfamiliar formatting: silently skipping a line could let a job escape the
-# required check.
+# We only need the root job IDs plus the selected gate's `if` and `needs`
+# fields. Keep this grammar deliberately narrow and reject unfamiliar
+# formatting: silently skipping a line could let a job escape the required
+# check.
 JOB_KEY = re.compile(r"^  (?P<job>[A-Za-z_][A-Za-z0-9_-]*):(?:\s*#.*)?$")
 NEEDS_ITEM = re.compile(r"^      - (?P<job>[A-Za-z_][A-Za-z0-9_-]*)(?:\s*#.*)?$")
 GATE_IF = re.compile(r"^    if:\s*(?P<condition>.*)$")
@@ -55,6 +43,48 @@ PASSING_RESULTS = frozenset({"success", "skipped"})
 
 class WorkflowFormatError(ValueError):
     """The workflow does not use the job layout this checker can verify."""
+
+
+@dataclass(frozen=True)
+class GatePolicy:
+    """Name one final gate and every job intentionally outside it.
+
+    `display_name` identifies the lane in human-readable output. `gate_job`
+    is the top-level job that branch protection requires. Each exemption maps
+    a job ID to the reviewed reason it cannot or should not gate that lane.
+    """
+
+    display_name: str
+    gate_job: str
+    exemptions: Mapping[str, str]
+
+
+CORE_POLICY = GatePolicy(
+    display_name="Core CI",
+    gate_job="core-ci-pass",
+    exemptions={
+        "build-summary": (
+            "This reporting-only job writes the Actions summary and does not "
+            "validate build output."
+        ),
+        "notify-build-status": (
+            "This administrative job reports the completed build to Slack on "
+            "protected refs."
+        ),
+        "core-ci-pass": "A job cannot depend on itself.",
+    },
+)
+
+REST_POLICY = GatePolicy(
+    display_name="REST CI",
+    gate_job="rest-ci-pass",
+    exemptions={"rest-ci-pass": "A job cannot depend on itself."},
+)
+
+POLICIES: Mapping[str, GatePolicy] = {
+    "core": CORE_POLICY,
+    "rest": REST_POLICY,
+}
 
 
 @dataclass(frozen=True)
@@ -118,15 +148,18 @@ def _find_jobs(lines: list[str]) -> tuple[list[str], dict[str, int]]:
 
 
 def _parse_gate(
-    lines: list[str], jobs: list[str], positions: Mapping[str, int]
+    lines: list[str],
+    jobs: list[str],
+    positions: Mapping[str, int],
+    gate_job: str,
 ) -> list[str]:
     """Protect the gate condition and read its complete block-style `needs` list."""
 
-    gate_start = positions.get(GATE_JOB)
+    gate_start = positions.get(gate_job)
     if gate_start is None:
-        raise WorkflowFormatError(f"the workflow does not define `{GATE_JOB}`")
+        raise WorkflowFormatError(f"the workflow does not define `{gate_job}`")
 
-    gate_index = jobs.index(GATE_JOB)
+    gate_index = jobs.index(gate_job)
     gate_end = (
         positions[jobs[gate_index + 1]] if gate_index + 1 < len(jobs) else len(lines)
     )
@@ -138,12 +171,12 @@ def _parse_gate(
     ]
     if len(gate_conditions) != 1:
         raise WorkflowFormatError(
-            f"expected one gate-level `if` on `{GATE_JOB}`, "
+            f"expected one gate-level `if` on `{gate_job}`, "
             f"found {len(gate_conditions)}"
         )
     if gate_conditions[0] != "always()":
         raise WorkflowFormatError(
-            f"`{GATE_JOB}.if` must be `always()`, found {gate_conditions[0]!r}"
+            f"`{gate_job}.if` must be `always()`, found {gate_conditions[0]!r}"
         )
 
     needs_lines = [
@@ -153,7 +186,8 @@ def _parse_gate(
     ]
     if len(needs_lines) != 1:
         raise WorkflowFormatError(
-            f"expected one block-style `needs` list on `{GATE_JOB}`, found {len(needs_lines)}"
+            f"expected one block-style `needs` list on `{gate_job}`, "
+            f"found {len(needs_lines)}"
         )
 
     needs: list[str] = []
@@ -164,7 +198,7 @@ def _parse_gate(
         indentation = _leading_spaces(line)
         if indentation == 4 and line.startswith("    - "):
             raise WorkflowFormatError(
-                f"line {index + 1} must indent `{GATE_JOB}.needs` items "
+                f"line {index + 1} must indent `{gate_job}.needs` items "
                 f"by six spaces: {line!r}"
             )
         if indentation <= 4:
@@ -173,22 +207,23 @@ def _parse_gate(
         match = NEEDS_ITEM.fullmatch(line)
         if match is None:
             raise WorkflowFormatError(
-                f"line {index + 1} is not a supported `{GATE_JOB}.needs` item: {line!r}"
+                f"line {index + 1} is not a supported `{gate_job}.needs` item: "
+                f"{line!r}"
             )
         needs.append(match.group("job"))
 
     if not needs:
-        raise WorkflowFormatError(f"`{GATE_JOB}.needs` contains no jobs")
+        raise WorkflowFormatError(f"`{gate_job}.needs` contains no jobs")
 
     return needs
 
 
-def parse_workflow(workflow_text: str) -> WorkflowInventory:
+def parse_workflow(workflow_text: str, gate_job: str) -> WorkflowInventory:
     """Parse the small part of a GitHub Actions workflow the gate relies on."""
 
     lines = workflow_text.splitlines()
     jobs, positions = _find_jobs(lines)
-    gate_needs = _parse_gate(lines, jobs, positions)
+    gate_needs = _parse_gate(lines, jobs, positions, gate_job)
     return WorkflowInventory(jobs=tuple(jobs), gate_needs=tuple(gate_needs))
 
 
@@ -240,17 +275,15 @@ def _inventory_errors(
     return errors
 
 
-def inventory_errors(
-    workflow_text: str, exemptions: Mapping[str, str] = EXEMPT_JOBS
-) -> list[str]:
+def inventory_errors(workflow_text: str, policy: GatePolicy) -> list[str]:
     """Parse the workflow and explain every invalid gate classification."""
 
     try:
-        inventory = parse_workflow(workflow_text)
+        inventory = parse_workflow(workflow_text, policy.gate_job)
     except WorkflowFormatError as error:
         return [str(error)]
 
-    return _inventory_errors(inventory, exemptions)
+    return _inventory_errors(inventory, policy.exemptions)
 
 
 def result_errors(needs_context: Mapping[str, object]) -> list[str]:
@@ -287,7 +320,7 @@ def _print_annotations(errors: list[str]) -> None:
         print(f"::error::{error}")
 
 
-def _check_inventory(workflow_path: Path) -> int:
+def _check_inventory(workflow_path: Path, policy: GatePolicy) -> int:
     """Check one workflow file and report inventory errors as annotations.
 
     Returns zero only when the file is readable, uses the supported layout,
@@ -301,19 +334,20 @@ def _check_inventory(workflow_path: Path) -> int:
         return 1
 
     try:
-        inventory = parse_workflow(workflow_text)
+        inventory = parse_workflow(workflow_text, policy.gate_job)
     except WorkflowFormatError as error:
         _print_annotations([str(error)])
         return 1
 
-    errors = _inventory_errors(inventory, EXEMPT_JOBS)
+    errors = _inventory_errors(inventory, policy.exemptions)
     if errors:
         _print_annotations(errors)
         return 1
 
     print(
-        f"Core CI gate accounts for {len(inventory.jobs)} top-level jobs "
-        f"({len(inventory.gate_needs)} gated, {len(EXEMPT_JOBS)} exempt)."
+        f"{policy.display_name} gate accounts for {len(inventory.jobs)} "
+        f"top-level jobs ({len(inventory.gate_needs)} gated, "
+        f"{len(policy.exemptions)} exempt)."
     )
     return 0
 
@@ -352,28 +386,34 @@ def _check_results() -> int:
     return 0
 
 
-def _parse_args() -> argparse.Namespace:
+def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     """Parse the selected check and its command-specific arguments."""
 
     parser = argparse.ArgumentParser(
-        description="Check the Core CI final gate inventory and job results."
+        description="Check a CI final gate's job inventory and results."
     )
     commands = parser.add_subparsers(dest="command", required=True)
 
     inventory = commands.add_parser(
         "inventory", help="verify that every top-level job is gated or exempt"
     )
+    inventory.add_argument(
+        "--policy",
+        choices=tuple(POLICIES),
+        required=True,
+        help="select the workflow's reviewed gate policy",
+    )
     inventory.add_argument("workflow", type=Path)
     commands.add_parser("results", help="evaluate the job results in `NEEDS_JSON`")
-    return parser.parse_args()
+    return parser.parse_args(argv)
 
 
-def main() -> int:
+def main(argv: Sequence[str] | None = None) -> int:
     """Run the requested gate check."""
 
-    args = _parse_args()
+    args = _parse_args(argv)
     if args.command == "inventory":
-        return _check_inventory(args.workflow)
+        return _check_inventory(args.workflow, POLICIES[args.policy])
     return _check_results()
 
 

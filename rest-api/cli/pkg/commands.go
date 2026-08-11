@@ -508,7 +508,7 @@ func extractResourceSuffix(opID string) string {
 	prefixes := []string{
 		"batch-create-", "batch-update-",
 		"get-all-", "get-current-",
-		"create-", "update-", "delete-", "get-",
+		"create-", "update-", "delete-", "get-", "start-",
 	}
 	for _, p := range prefixes {
 		if strings.HasPrefix(opID, p) {
@@ -1289,6 +1289,7 @@ func operationAction(opID string) string {
 		{prefix: "update-", action: "update"},
 		{prefix: "delete-", action: "delete"},
 		{prefix: "get-", bare: "get"},
+		{prefix: "start-", action: "start"},
 	}
 
 	for _, p := range patterns {

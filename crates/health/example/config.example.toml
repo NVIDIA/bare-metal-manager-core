@@ -201,6 +201,16 @@ max_jitter = "40ms"
 refresh_interval = "60m"
 discovery_concurrency = 1
 
+# Optional direct TCP checks for ports used by eligible enabled collectors.
+# Every check emits a metric; "unreachable" logs failures and "all" logs every result.
+# Checks bypass BMC proxies and do not verify TLS, authentication, or protocol readiness.
+# Results never create health reports or alerts.
+[collectors.reachability]
+enabled = true
+interval = "30s"
+timeout = "3s"
+log_mode = "unreachable"
+
 [collectors.sensors]
 sensor_fetch_interval = "1m"
 sensor_fetch_concurrency = 10

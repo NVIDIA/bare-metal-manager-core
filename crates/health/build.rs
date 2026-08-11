@@ -24,18 +24,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     println!("cargo:rerun-if-changed=proto/");
 
-    // vendored from opentelemetry-proto v1.5.0
-    tonic_prost_build::configure()
-        .build_server(false)
-        .build_client(true)
-        .compile_protos(
-            &[
-                proto_dir.join("opentelemetry/proto/collector/logs/v1/logs_service.proto"),
-                proto_dir.join("opentelemetry/proto/collector/metrics/v1/metrics_service.proto"),
-            ],
-            std::slice::from_ref(&proto_dir),
-        )?;
-
     // vendored from openconfig/gnmi v0.11.0
     // gnmi_ext compiled separately so gnmi.proto can extern_path it and reuse the types
     tonic_prost_build::configure()

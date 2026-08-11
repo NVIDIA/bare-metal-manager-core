@@ -2,18 +2,27 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
-"""Tests for the Core CI final-gate inventory and result checks."""
+"""Tests for the shared CI final-gate inventory and result checks."""
 
 from __future__ import annotations
 
 import contextlib
 import io
 import os
+import tempfile
 import textwrap
 import unittest
+from dataclasses import replace
+from pathlib import Path
 from unittest import mock
 
-from check_core_ci_gate import _check_results, inventory_errors, result_errors
+from check_ci_gate import (
+    CORE_POLICY,
+    REST_POLICY,
+    inventory_errors,
+    main,
+    result_errors,
+)
 
 
 COMPLETE_WORKFLOW = textwrap.dedent(
@@ -40,11 +49,43 @@ COMPLETE_WORKFLOW = textwrap.dedent(
     """
 )
 
-EXEMPTIONS = {
-    "build-summary": "Reports the completed build.",
-    "notify-build-status": "Sends the administrative notification.",
-    "core-ci-pass": "A job cannot depend on itself.",
-}
+REST_WORKFLOW = textwrap.dedent(
+    """\
+    name: REST fixture
+
+    jobs:
+      changes:
+        runs-on: ubuntu-latest
+      prepare:
+        runs-on: ubuntu-latest
+      lint-and-test:
+        runs-on: ubuntu-latest
+      build-binaries:
+        runs-on: ubuntu-latest
+      security-secret-scan:
+        runs-on: ubuntu-latest
+      build-and-push:
+        runs-on: ubuntu-latest
+      build-and-push-pr:
+        runs-on: ubuntu-latest
+      helm:
+        runs-on: ubuntu-latest
+      rest-ci-pass:
+        runs-on: ubuntu-latest
+        if: always()
+        needs:
+          - changes
+          - prepare
+          - lint-and-test
+          - build-binaries
+          - security-secret-scan
+          - build-and-push
+          - build-and-push-pr
+          - helm
+        steps:
+          - run: true
+    """
+)
 
 
 class InventoryTests(unittest.TestCase):
@@ -55,19 +96,25 @@ class InventoryTests(unittest.TestCase):
             {
                 "name": "complete inventory",
                 "workflow": COMPLETE_WORKFLOW,
-                "exemptions": EXEMPTIONS,
+                "policy": CORE_POLICY,
                 "expected": [],
             },
             {
                 "name": "missing gate dependency",
                 "workflow": COMPLETE_WORKFLOW.replace("      - build\n", ""),
-                "exemptions": EXEMPTIONS,
+                "policy": CORE_POLICY,
                 "expected": ["top-level jobs are not gated or exempt: build"],
             },
             {
                 "name": "unknown exemption",
                 "workflow": COMPLETE_WORKFLOW,
-                "exemptions": {**EXEMPTIONS, "retired-job": "No longer used."},
+                "policy": replace(
+                    CORE_POLICY,
+                    exemptions={
+                        **CORE_POLICY.exemptions,
+                        "retired-job": "No longer used.",
+                    },
+                ),
                 "expected": ["exemptions are not top-level jobs: retired-job"],
             },
             {
@@ -75,7 +122,7 @@ class InventoryTests(unittest.TestCase):
                 "workflow": COMPLETE_WORKFLOW.replace(
                     "      - build\n", "      - build\n      - retired-job\n"
                 ),
-                "exemptions": EXEMPTIONS,
+                "policy": CORE_POLICY,
                 "expected": [
                     "gate dependencies are not top-level jobs: retired-job"
                 ],
@@ -83,7 +130,13 @@ class InventoryTests(unittest.TestCase):
             {
                 "name": "duplicate classification",
                 "workflow": COMPLETE_WORKFLOW,
-                "exemptions": {**EXEMPTIONS, "build": "Fixture duplicate."},
+                "policy": replace(
+                    CORE_POLICY,
+                    exemptions={
+                        **CORE_POLICY.exemptions,
+                        "build": "Fixture duplicate.",
+                    },
+                ),
                 "expected": ["jobs cannot be both gated and exempt: build"],
             },
             {
@@ -91,13 +144,16 @@ class InventoryTests(unittest.TestCase):
                 "workflow": COMPLETE_WORKFLOW.replace(
                     "      - build\n", "      - build\n      - build\n"
                 ),
-                "exemptions": EXEMPTIONS,
+                "policy": CORE_POLICY,
                 "expected": ["gate dependencies are listed more than once: build"],
             },
             {
                 "name": "empty exemption reason",
                 "workflow": COMPLETE_WORKFLOW,
-                "exemptions": {**EXEMPTIONS, "build-summary": ""},
+                "policy": replace(
+                    CORE_POLICY,
+                    exemptions={**CORE_POLICY.exemptions, "build-summary": ""},
+                ),
                 "expected": ["exemptions need a reason: build-summary"],
             },
         )
@@ -105,7 +161,36 @@ class InventoryTests(unittest.TestCase):
         for case in cases:
             with self.subTest(case["name"]):
                 self.assertEqual(
-                    inventory_errors(case["workflow"], case["exemptions"]),
+                    inventory_errors(case["workflow"], case["policy"]),
+                    case["expected"],
+                )
+
+    def test_lane_policies(self) -> None:
+        cases = (
+            {
+                "name": "REST policy",
+                "workflow": REST_WORKFLOW,
+                "policy": REST_POLICY,
+                "expected": [],
+            },
+            {
+                "name": "missing REST dependency",
+                "workflow": REST_WORKFLOW.replace("      - helm\n", ""),
+                "policy": REST_POLICY,
+                "expected": ["top-level jobs are not gated or exempt: helm"],
+            },
+            {
+                "name": "wrong policy",
+                "workflow": REST_WORKFLOW,
+                "policy": CORE_POLICY,
+                "expected": ["the workflow does not define `core-ci-pass`"],
+            },
+        )
+
+        for case in cases:
+            with self.subTest(case["name"]):
+                self.assertEqual(
+                    inventory_errors(case["workflow"], case["policy"]),
                     case["expected"],
                 )
 
@@ -199,7 +284,64 @@ class InventoryTests(unittest.TestCase):
 
         for case in cases:
             with self.subTest(case["name"]):
-                self.assertEqual(inventory_errors(case["workflow"]), [case["expected"]])
+                self.assertEqual(
+                    inventory_errors(case["workflow"], CORE_POLICY),
+                    [case["expected"]],
+                )
+
+
+class CommandTests(unittest.TestCase):
+    """Verify policy selection and workflow-file handling at the CLI boundary."""
+
+    def test_inventory_command_accepts_each_policy(self) -> None:
+        cases = (
+            {
+                "name": "Core policy",
+                "policy": "core",
+                "workflow": COMPLETE_WORKFLOW,
+                "expected": "Core CI gate accounts for 5",
+            },
+            {
+                "name": "REST policy",
+                "policy": "rest",
+                "workflow": REST_WORKFLOW,
+                "expected": "REST CI gate accounts for 9",
+            },
+        )
+
+        for case in cases:
+            with self.subTest(case["name"]):
+                with tempfile.TemporaryDirectory() as directory:
+                    workflow_path = Path(directory) / "workflow.yml"
+                    workflow_path.write_text(case["workflow"], encoding="utf-8")
+                    output = io.StringIO()
+                    with contextlib.redirect_stdout(output):
+                        return_code = main(
+                            [
+                                "inventory",
+                                "--policy",
+                                case["policy"],
+                                str(workflow_path),
+                            ]
+                        )
+
+                self.assertEqual(return_code, 0)
+                self.assertIn(case["expected"], output.getvalue())
+
+    def test_inventory_command_rejects_unknown_policy(self) -> None:
+        with contextlib.redirect_stderr(io.StringIO()):
+            with self.assertRaisesRegex(SystemExit, "2"):
+                main(["inventory", "--policy", "unknown", "workflow.yml"])
+
+    def test_inventory_command_rejects_unreadable_workflow(self) -> None:
+        output = io.StringIO()
+        with contextlib.redirect_stdout(output):
+            return_code = main(
+                ["inventory", "--policy", "core", "/missing/workflow.yml"]
+            )
+
+        self.assertEqual(return_code, 1)
+        self.assertIn("::error::could not read", output.getvalue())
 
 
 class ResultTests(unittest.TestCase):
@@ -248,7 +390,7 @@ class ResultTests(unittest.TestCase):
         output = io.StringIO()
         with mock.patch.dict(os.environ, {"NEEDS_JSON": needs_json}):
             with contextlib.redirect_stdout(output):
-                return_code = _check_results()
+                return_code = main(["results"])
 
         self.assertEqual(return_code, 0)
         self.assertNotIn("::error::", output.getvalue())
@@ -302,7 +444,7 @@ class ResultTests(unittest.TestCase):
                 output = io.StringIO()
                 with mock.patch.dict(os.environ, {"NEEDS_JSON": case["needs_json"]}):
                     with contextlib.redirect_stdout(output):
-                        return_code = _check_results()
+                        return_code = main(["results"])
 
                 self.assertEqual(return_code, 1)
                 self.assertIn(case["expected"], output.getvalue())
@@ -311,7 +453,7 @@ class ResultTests(unittest.TestCase):
         output = io.StringIO()
         with mock.patch.dict(os.environ, {}, clear=True):
             with contextlib.redirect_stdout(output):
-                return_code = _check_results()
+                return_code = main(["results"])
 
         self.assertEqual(return_code, 1)
         self.assertIn("::error::`NEEDS_JSON` is not set", output.getvalue())
