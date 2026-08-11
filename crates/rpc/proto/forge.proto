@@ -6627,6 +6627,7 @@ message MachineValidationOnDemandRequest {
 
 message MachineValidationOnDemandResponse {
   common.MachineValidationId validation_id = 1;
+  MachineValidationRun run = 2;
 }
 
 message FirmwareUpgradeActivity {

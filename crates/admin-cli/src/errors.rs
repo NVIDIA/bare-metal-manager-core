@@ -18,6 +18,7 @@
 use carbide_uuid::dpu_remediations::RemediationId;
 use carbide_uuid::instance::InstanceId;
 use carbide_uuid::machine::{MachineId, MachineIdParseError};
+use carbide_uuid::site_prefix::SitePrefixId;
 use carbide_uuid::switch::{SwitchId, SwitchIdParseError};
 use rpc::forge_tls_client::ForgeTlsClientError;
 
@@ -85,6 +86,9 @@ pub(crate) enum CarbideCliError {
 
     #[error("tenant with id {0} not found")]
     TenantNotFound(String),
+
+    #[error("no SitePrefix found with id {0}")]
+    SitePrefixNotFound(SitePrefixId),
 
     #[error("I/O error. does the file exist? {0}")]
     IOError(#[from] std::io::Error),

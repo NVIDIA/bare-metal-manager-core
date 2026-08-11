@@ -418,12 +418,20 @@ impl<B: Bmc + 'static> LogsCollector<B> {
                     })
                     .flatten();
 
-                let mut attributes = Vec::with_capacity(3);
+                let mut attributes = Vec::with_capacity(4);
+
                 if let Some(machine_id) = &machine_id {
                     attributes.push((Cow::Borrowed("machine_id"), machine_id.clone()));
                 }
                 attributes.push((Cow::Borrowed("entry_id"), entry.base.id.clone()));
                 attributes.push((Cow::Borrowed("service_id"), service_id.clone()));
+
+                if let Some(oem) = &entry.base.base.oem {
+                    attributes.push((
+                        Cow::Borrowed("redfish.oem"),
+                        oem.additional_properties.to_string(),
+                    ));
+                }
 
                 let log_event = CollectorEvent::Log(
                     LogRecord {

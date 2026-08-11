@@ -7,7 +7,7 @@ Build ordered list of pod names for consistent MAC address indexing
 */}}
 {{- $podList := list }}
 {{- range $podName, $podConfig := .Values.pods }}
-{{- if and $podConfig $podConfig.machines (gt (len $podConfig.machines) 0) }}
+{{- if and $podConfig (or (gt (len ($podConfig.machines | default dict)) 0) (gt (len ($podConfig.racks | default dict)) 0)) }}
 {{- $podList = append $podList $podName }}
 {{- end }}
 {{- end }}
@@ -36,9 +36,9 @@ Build ordered list of pod names for consistent MAC address indexing
 
 {{- range $podName, $podConfig := .Values.pods }}
 {{/*
-Skip pods without machines
+Skip unconfigured pods
 */}}
-{{- if not (and $podConfig $podConfig.machines (gt (len $podConfig.machines) 0)) }}
+{{- if not (and $podConfig (or (gt (len ($podConfig.machines | default dict)) 0) (gt (len ($podConfig.racks | default dict)) 0))) }}
 {{- continue }}
 {{- end }}
 
@@ -148,7 +148,22 @@ data:
     {{- end }}
     {{- end }}
 
-    {{- range $sectionName, $section := $podConfig.machines }}
+    {{- $racks := $podConfig.racks | default dict }}
+    {{- $machines := $podConfig.machines | default dict }}
+
+    {{- range $sectionName, $section := $racks }}
+
+    [racks.{{ $sectionName }}]
+    type = {{ $section.type | quote }}
+    rack_profile_id = {{ $section.rack_profile_id | quote }}
+    ids = {{ $section.ids | toJson }}
+    dpu_reboot_delay = {{ $section.dpu_reboot_delay | default $defaults.dpuRebootDelay | int }}
+    host_reboot_delay = {{ $section.host_reboot_delay | default $defaults.hostRebootDelay | int }}
+    oob_dhcp_relay_address = {{ $section.oob_dhcp_relay_address | quote }}
+    admin_dhcp_relay_address = {{ $section.admin_dhcp_relay_address | quote }}
+    {{- end }}
+
+    {{- range $sectionName, $section := $machines }}
     {{- if $section }}
 
     [machines.{{ $sectionName }}]
@@ -173,6 +188,10 @@ data:
     {{- end }}
     dpus_in_nic_mode = {{ $section.dpusInNicMode | default $defaults.dpusInNicMode | default false }}
     {{- end }}
+    {{- end }}
+
+    {{- if and (gt (len $racks) 0) (eq (len $machines) 0) }}
+    [machines]
     {{- end }}
     {{- end }}
 {{- end }}

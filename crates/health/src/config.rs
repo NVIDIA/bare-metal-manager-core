@@ -371,7 +371,10 @@ impl StaticBmcEndpoint {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct SinksConfig {
-    /// Tracing sink: logs all collector events through `tracing`.
+    /// Tracing sink: logs collector events through `tracing`.
+    ///
+    /// Reachability metrics are excluded because the collector emits explicit
+    /// structured records according to its `log_mode`.
     pub tracing: Configurable<TracingSinkConfig>,
 
     /// Prometheus sink: stores metric events in Prometheus exporter format.
@@ -859,6 +862,12 @@ pub struct CollectorsConfig {
 
     /// GPU inventory collector: compares OOB GPU count vs the assigned SKU.
     pub gpu_inventory: Configurable<GpuInventoryConfig>,
+
+    /// Direct TCP probes for ports used by enabled collectors.
+    ///
+    /// The probes report transport reachability only. They do not check TLS,
+    /// authentication, or collector protocol readiness.
+    pub reachability: Configurable<ReachabilityCollectorConfig>,
 }
 
 impl Default for CollectorsConfig {
@@ -875,7 +884,79 @@ impl Default for CollectorsConfig {
             nmxc: Configurable::Disabled,
             nvue: Configurable::Disabled,
             gpu_inventory: Configurable::Disabled,
+            reachability: Configurable::Disabled,
         }
+    }
+}
+
+/// Controls structured log emission for TCP reachability probes.
+///
+/// Metrics are emitted for every completed probe regardless of this setting.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ReachabilityLogMode {
+    /// Emit a structured log for every successful and failed probe.
+    All,
+
+    /// Emit a structured log for every failed probe and suppress successful probes.
+    #[default]
+    Unreachable,
+}
+
+/// Global configuration for periodic TCP reachability probes.
+///
+/// The collector probes the BMC Redfish port when an enabled collector is
+/// eligible to use it, plus ports used by enabled eligible switch collectors.
+/// One global cadence applies to all targets; each collector's own configuration
+/// remains the source of truth for whether its target and port exist. Each
+/// completed probe is sent to configured metric sinks; configured log sinks
+/// receive policy-selected records.
+/// Results never create health reports. It is disabled by default.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct ReachabilityCollectorConfig {
+    /// Interval between probe cycles for each endpoint.
+    ///
+    /// Every selected target is probed once per cycle and emits a state metric.
+    #[serde(with = "humantime_serde")]
+    pub interval: Duration,
+
+    /// Timeout for one TCP connection attempt.
+    ///
+    /// This bounds the TCP handshake only; it does not cover TLS or any
+    /// collector-specific protocol exchange.
+    #[serde(with = "humantime_serde")]
+    pub timeout: Duration,
+
+    /// Selects which completed probes emit structured log records.
+    ///
+    /// This policy is stateless: `unreachable` emits every failed probe, including
+    /// repeated failures after service restart. Metrics remain continuous in all modes.
+    pub log_mode: ReachabilityLogMode,
+}
+
+impl Default for ReachabilityCollectorConfig {
+    fn default() -> Self {
+        Self {
+            interval: Duration::from_secs(30),
+            timeout: Duration::from_secs(3),
+            log_mode: ReachabilityLogMode::Unreachable,
+        }
+    }
+}
+
+impl ReachabilityCollectorConfig {
+    /// Validates the probe cadence and timeout.
+    pub(crate) fn validate(&self) -> Result<(), String> {
+        if self.interval.is_zero() {
+            return Err("[collectors.reachability].interval must be greater than 0".to_string());
+        }
+
+        if self.timeout.is_zero() {
+            return Err("[collectors.reachability].timeout must be greater than 0".to_string());
+        }
+
+        Ok(())
     }
 }
 
@@ -1808,6 +1889,10 @@ impl Config {
             nmxc.validate()?;
         }
 
+        if let Configurable::Enabled(reachability) = &self.collectors.reachability {
+            reachability.validate()?;
+        }
+
         if let Configurable::Enabled(gpu_inventory) = &self.collectors.gpu_inventory {
             if !self.endpoint_sources.carbide_api.is_enabled() {
                 return Err(
@@ -2102,8 +2187,19 @@ mod tests {
         assert!(config.collectors.logs.is_enabled());
         assert!(config.collectors.nvue.is_enabled());
         assert!(!config.collectors.nmxc.is_enabled());
+        assert!(config.collectors.reachability.is_enabled());
         assert!(!config.sinks.tracing.is_enabled());
         assert!(config.sinks.prometheus.is_enabled());
+
+        let reachability = config
+            .collectors
+            .reachability
+            .as_option()
+            .expect("example config enables reachability");
+
+        assert_eq!(reachability.interval, Duration::from_secs(30));
+        assert_eq!(reachability.timeout, Duration::from_secs(3));
+        assert_eq!(reachability.log_mode, ReachabilityLogMode::Unreachable);
 
         if let Configurable::Enabled(ref sensors) = config.collectors.sensors {
             assert_eq!(sensors.sensor_fetch_concurrency, 10);
@@ -4482,5 +4578,26 @@ max_backoff = "45s"
         let defaults = SseLogConfig::default();
         assert_eq!(defaults.initial_backoff, Duration::from_secs(1));
         assert_eq!(defaults.max_backoff, Duration::from_secs(30));
+    }
+
+    #[test]
+    fn reachability_validation_rejects_non_positive_runtime_values() {
+        let mut config = ReachabilityCollectorConfig {
+            interval: Duration::ZERO,
+            ..ReachabilityCollectorConfig::default()
+        };
+
+        assert_eq!(
+            config.validate().expect_err("zero interval must fail"),
+            "[collectors.reachability].interval must be greater than 0"
+        );
+
+        config.interval = Duration::from_secs(1);
+        config.timeout = Duration::ZERO;
+
+        assert_eq!(
+            config.validate().expect_err("zero timeout must fail"),
+            "[collectors.reachability].timeout must be greater than 0"
+        );
     }
 }

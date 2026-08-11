@@ -201,7 +201,7 @@ pub async fn create_new_run(
     machine_id: &MachineId,
     context: MachineValidationContext,
     filter: MachineValidationFilter,
-) -> Result<MachineValidationId, DatabaseError> {
+) -> Result<MachineValidation, DatabaseError> {
     let id = MachineValidationId::from(uuid::Uuid::new_v4());
     let query = "
         INSERT INTO machine_validation (
@@ -215,13 +215,14 @@ pub async fn create_new_run(
             state
         )
         VALUES ($1, $2, $3, $4, $5, NULL, $6, $7)
-        ON CONFLICT DO NOTHING";
+        ON CONFLICT DO NOTHING
+        RETURNING *";
     // TODO fetch total number of test and repopulate the status
     let status = MachineValidationStatus {
         state: MachineValidationState::Started,
         ..MachineValidationStatus::default()
     };
-    let _ = sqlx::query(query)
+    let validation = sqlx::query_as::<_, MachineValidation>(query)
         .bind(id)
         .bind(format!("Test_{machine_id}"))
         .bind(machine_id)
@@ -229,7 +230,7 @@ pub async fn create_new_run(
         .bind(context.as_ref())
         .bind(format!("Running validation on {machine_id}"))
         .bind(status.state.to_string())
-        .execute(&mut *txn)
+        .fetch_one(&mut *txn)
         .await
         .map_err(|e| DatabaseError::query(query, e))?;
 
@@ -242,7 +243,7 @@ pub async fn create_new_run(
     crate::machine::update_machine_validation_health_report(txn, machine_id, &health_report)
         .await?;
 
-    Ok(id)
+    Ok(validation)
 }
 
 pub async fn find<DB>(

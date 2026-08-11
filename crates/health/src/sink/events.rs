@@ -42,7 +42,7 @@ pub enum HealthReportTarget {
     Switch,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct EventContext {
     pub endpoint_key: String,
     pub addr: BmcAddr,

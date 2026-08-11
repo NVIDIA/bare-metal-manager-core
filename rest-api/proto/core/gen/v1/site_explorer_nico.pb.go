@@ -1976,14 +1976,16 @@ func (x *Chassis) GetSerialNumber() string {
 
 // `NetworkAdapter` definition. Matches redfish definition
 type NetworkAdapter struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Id            string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
-	Manufacturer  *string                `protobuf:"bytes,2,opt,name=manufacturer,proto3,oneof" json:"manufacturer,omitempty"`
-	Model         *string                `protobuf:"bytes,3,opt,name=model,proto3,oneof" json:"model,omitempty"`
-	PartNumber    *string                `protobuf:"bytes,4,opt,name=part_number,json=partNumber,proto3,oneof" json:"part_number,omitempty"`
-	SerialNumber  *string                `protobuf:"bytes,5,opt,name=serial_number,json=serialNumber,proto3,oneof" json:"serial_number,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	state        protoimpl.MessageState `protogen:"open.v1"`
+	Id           string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	Manufacturer *string                `protobuf:"bytes,2,opt,name=manufacturer,proto3,oneof" json:"manufacturer,omitempty"`
+	Model        *string                `protobuf:"bytes,3,opt,name=model,proto3,oneof" json:"model,omitempty"`
+	PartNumber   *string                `protobuf:"bytes,4,opt,name=part_number,json=partNumber,proto3,oneof" json:"part_number,omitempty"`
+	SerialNumber *string                `protobuf:"bytes,5,opt,name=serial_number,json=serialNumber,proto3,oneof" json:"serial_number,omitempty"`
+	// MAC addresses reported by Ports contained by this adapter.
+	PortMacAddresses []string `protobuf:"bytes,6,rep,name=port_mac_addresses,json=portMacAddresses,proto3" json:"port_mac_addresses,omitempty"`
+	unknownFields    protoimpl.UnknownFields
+	sizeCache        protoimpl.SizeCache
 }
 
 func (x *NetworkAdapter) Reset() {
@@ -2049,6 +2051,13 @@ func (x *NetworkAdapter) GetSerialNumber() string {
 		return *x.SerialNumber
 	}
 	return ""
+}
+
+func (x *NetworkAdapter) GetPortMacAddresses() []string {
+	if x != nil {
+		return x.PortMacAddresses
+	}
+	return nil
 }
 
 // `Service` definition. Matches redfish definition `UpdateService`
@@ -2995,14 +3004,15 @@ const file_site_explorer_nico_proto_rawDesc = "" +
 	"\r_manufacturerB\b\n" +
 	"\x06_modelB\x0e\n" +
 	"\f_part_numberB\x10\n" +
-	"\x0e_serial_number\"\xf1\x01\n" +
+	"\x0e_serial_number\"\x9f\x02\n" +
 	"\x0eNetworkAdapter\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12'\n" +
 	"\fmanufacturer\x18\x02 \x01(\tH\x00R\fmanufacturer\x88\x01\x01\x12\x19\n" +
 	"\x05model\x18\x03 \x01(\tH\x01R\x05model\x88\x01\x01\x12$\n" +
 	"\vpart_number\x18\x04 \x01(\tH\x02R\n" +
 	"partNumber\x88\x01\x01\x12(\n" +
-	"\rserial_number\x18\x05 \x01(\tH\x03R\fserialNumber\x88\x01\x01B\x0f\n" +
+	"\rserial_number\x18\x05 \x01(\tH\x03R\fserialNumber\x88\x01\x01\x12,\n" +
+	"\x12port_mac_addresses\x18\x06 \x03(\tR\x10portMacAddressesB\x0f\n" +
 	"\r_manufacturerB\b\n" +
 	"\x06_modelB\x0e\n" +
 	"\f_part_numberB\x10\n" +

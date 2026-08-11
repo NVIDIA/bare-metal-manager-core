@@ -196,8 +196,6 @@ impl<IO: StateControllerIO> Builder<IO> {
             pending_clears: Default::default(),
         };
 
-        let (task_sender, task_receiver) = tokio::sync::mpsc::unbounded_channel();
-
         let processor_metric_emitter =
             meter.map(|meter| ProcessorMetricsEmitter::new(&controller_name, &meter));
 
@@ -212,11 +210,9 @@ impl<IO: StateControllerIO> Builder<IO> {
             metric_holder,
             per_object_state: per_object_state_metrics,
             state_change_emitter: self.state_change_emitter,
-            in_flight: HashSet::new(),
+            object_tasks: JoinSet::new(),
             completed_objects: HashSet::new(),
             requeue_objects: HashSet::new(),
-            task_sender,
-            task_receiver,
             object_metrics: Default::default(),
             last_log_time: std::time::Instant::now(),
             stats_since_last_log: Default::default(),

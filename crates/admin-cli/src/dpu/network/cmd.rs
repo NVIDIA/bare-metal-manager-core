@@ -14,7 +14,6 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-
 use std::collections::HashMap;
 
 use ::rpc::admin_cli::OutputFormat;
@@ -247,10 +246,8 @@ pub(crate) async fn show_dpu_status(
             };
             let observed_at = st
                 .observed_at
-                .map(|o| {
-                    let dt: chrono::DateTime<chrono::Utc> = o.try_into().unwrap();
-                    dt.format("%Y-%m-%d %H:%M:%S.%3f").to_string()
-                })
+                .and_then(|ts| chrono::DateTime::<chrono::Utc>::try_from(ts).ok())
+                .map(|dt| dt.format("%Y-%m-%d %H:%M:%S.%3f").to_string())
                 .unwrap_or_default();
             let mut probe_alerts = String::new();
             if let Some(health) = &dpu.health {
@@ -267,7 +264,9 @@ pub(crate) async fn show_dpu_status(
             }
             table.add_row(row![
                 observed_at,
-                st.dpu_machine_id.unwrap(),
+                st.dpu_machine_id
+                    .map(|id| id.to_string())
+                    .unwrap_or_default(),
                 st.network_config_version.unwrap_or_default(),
                 dpu.health
                     .as_ref()

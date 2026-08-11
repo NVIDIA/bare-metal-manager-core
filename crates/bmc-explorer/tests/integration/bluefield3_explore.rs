@@ -16,7 +16,7 @@
  */
 use bmc_explorer::nv_generate_exploration_report;
 use bmc_mock::{DpuSettings, test_support};
-use model::site_explorer::EndpointType;
+use model::site_explorer::{BlueFieldOperatingMode, EndpointType};
 use tokio::test;
 
 use crate::common;
@@ -45,6 +45,67 @@ async fn explore_bluefield3_baseline() {
             .as_ref()
             .is_some_and(|status| !status.diffs.is_empty() || status.is_done),
         "machine setup status must be present and structurally valid"
+    );
+}
+
+#[test]
+async fn explore_bluefield3_ignores_invalid_system_interface_mac() {
+    let h = test_support::dell_poweredge_r750_bluefield3_bmc(DpuSettings::default()).await;
+    h.state.injection.put(vec![bmc_mock::injection::Rule {
+        id: "invalid_system_interface_mac".into(),
+        selector: bmc_mock::injection::Selector::Path {
+            method: Some("GET".into()),
+            glob: "/redfish/v1/Systems/Bluefield/EthernetInterfaces/oob_net0".into(),
+        },
+        action: bmc_mock::injection::Action::JsonMerge(serde_json::json!({
+            "Id": "eth0",
+            "InterfaceEnabled": true,
+            "LinkStatus": "LinkDown",
+            "MACAddress": "00:00:11:e7:fe:80:00:00:00:00:00:00:02:00:00:03:00:18:00:01",
+        })),
+        remaining: None,
+    }]);
+
+    let report = nv_generate_exploration_report(h.service_root, &common::explorer_config())
+        .await
+        .unwrap();
+    let system = report.systems.first().expect("systems must be present");
+    let eth0 = system
+        .ethernet_interfaces
+        .iter()
+        .find(|interface| interface.id.as_deref() == Some("eth0"))
+        .expect("invalid interface must be preserved");
+    let oob = system
+        .ethernet_interfaces
+        .iter()
+        .find(|interface| interface.id.as_deref() == Some("oob_net0"))
+        .expect("OOB interface must be preserved");
+
+    assert_eq!(eth0.mac_address, None);
+    assert!(oob.mac_address.is_some(), "valid OOB MAC must be preserved");
+    assert!(system.base_mac.is_some(), "DPU base MAC must be preserved");
+    assert!(
+        report.dpu_pairing_serial_number().is_some(),
+        "DPU pairing serial number must be preserved"
+    );
+}
+
+#[test]
+async fn explore_bluefield3_preserves_oem_mode_and_base_mac() {
+    let settings = DpuSettings {
+        nic_mode: true,
+        ..Default::default()
+    };
+    let h = test_support::dell_poweredge_r750_bluefield3_bmc(settings).await;
+    let report = nv_generate_exploration_report(h.service_root, &common::explorer_config())
+        .await
+        .unwrap();
+    let system = report.systems.first().expect("systems must be present");
+
+    assert!(system.base_mac.is_some());
+    assert_eq!(
+        system.attributes.nic_mode,
+        Some(BlueFieldOperatingMode::Nic)
     );
 }
 

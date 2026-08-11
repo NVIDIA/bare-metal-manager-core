@@ -193,6 +193,9 @@ verification expectations.
   `api/pkg/api/model/`, and DB models in `db/pkg/db/model/`.
 - OpenAPI schema in `openapi/spec.yaml` must be updated whenever routes in the
   published API surface are added or modified.
+- Give every newly introduced OpenAPI object a realistic example backed by an
+  existing contract, configuration, or test fixture. Keep example IDs, enum
+  values, nullability, and timing semantics valid under OpenAPI lint.
 - When adding a request/response field to a resource that has both single-item
   and batch endpoints, update the full surface together: single create/update
   DTOs, batch create/update DTOs, handlers, DAO input structs, persistence,
