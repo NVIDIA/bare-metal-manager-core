@@ -6,6 +6,7 @@ package handler
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -194,6 +195,52 @@ func TestGetAllExploredEndpointHandler_Handle(t *testing.T) {
 			}
 		})
 	}
+
+	t.Run("success returns every Core ID across multiple pages", func(t *testing.T) {
+		fixture := newGetAllExploredEndpointHandlerFixture(t, []string{authz.ProviderAdminRole})
+		allIDs := []string{"10.0.0.5", "10.0.0.2", "10.0.0.4", "10.0.0.1", "10.0.0.3"}
+		wantPages := [][]string{
+			{"10.0.0.1", "10.0.0.2"},
+			{"10.0.0.3", "10.0.0.4"},
+			{"10.0.0.5"},
+		}
+
+		var gotAll []string
+		for pageIndex, wantPage := range wantPages {
+			fixture.expectProxyResponse(t, &corev1.ExploredEndpointIdList{EndpointIds: allIDs})
+			endpoints := make([]*corev1.ExploredEndpoint, 0, len(wantPage))
+			for _, address := range wantPage {
+				endpoints = append(endpoints, &corev1.ExploredEndpoint{Address: address})
+			}
+			fixture.expectProxyResponse(t, &corev1.ExploredEndpointList{Endpoints: endpoints})
+
+			rec := fixture.request(t, fmt.Sprintf("/?siteId=%s&pageNumber=%d&pageSize=2", fixture.siteID, pageIndex+1))
+			require.Equal(t, http.StatusOK, rec.Code)
+			require.Len(t, fixture.proxiedReqs, (pageIndex+1)*2)
+			var response []*model.APIExploredEndpoint
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &response))
+			gotPage := make([]string, 0, len(response))
+			for _, endpoint := range response {
+				gotPage = append(gotPage, endpoint.Address)
+			}
+			assert.Equal(t, wantPage, gotPage)
+			gotAll = append(gotAll, gotPage...)
+			var pageResponse pagination.PageResponse
+			require.NoError(t, json.Unmarshal([]byte(rec.Header().Get(pagination.ResponseHeaderName)), &pageResponse))
+			assert.Equal(t, len(allIDs), pageResponse.Total)
+
+			idRequestIndex := pageIndex * 2
+			byIDRequestIndex := idRequestIndex + 1
+			assert.Equal(t, corev1.Forge_FindExploredEndpointIds_FullMethodName, fixture.proxiedReqs[idRequestIndex].FullMethod)
+			assert.Equal(t, corev1.Forge_FindExploredEndpointsByIds_FullMethodName, fixture.proxiedReqs[byIDRequestIndex].FullMethod)
+			var byIDs corev1.ExploredEndpointsByIdsRequest
+			require.NoError(t, protojson.Unmarshal(fixture.proxiedReqs[byIDRequestIndex].RequestJSON, &byIDs))
+			assert.Equal(t, wantPage, byIDs.GetEndpointIds())
+		}
+
+		assert.Equal(t, []string{"10.0.0.1", "10.0.0.2", "10.0.0.3", "10.0.0.4", "10.0.0.5"}, gotAll)
+		assert.Len(t, fixture.proxiedReqs, len(wantPages)*2)
+	})
 }
 
 type getAllExploredEndpointHandlerFixture struct {
