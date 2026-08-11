@@ -155,7 +155,13 @@ jobs:
             CARBIDE_BUILD_HELM_VERSION=${{ inputs.helm_version }}
           tags: ${{ steps.docker-tags.outputs.arch_tag }}
           cache-from: type=gha,scope=${{ inputs.service_name }}-${{ matrix.arch }}
-          cache-to: type=gha,mode=max,scope=${{ inputs.service_name }}-${{ matrix.arch }}
+          # Nothing on this branch exports. Actions cache entries are ref-scoped,
+          # so every cherry-pick pull request and every release tag wrote its own
+          # mode=max copy of ten services on two architectures into a 150 GB pool
+          # shared with main, evicting the sccache objects the Rust builds read.
+          # A release branch may read the default branch's entries, so cache-from
+          # above still starts these builds warm.
+          cache-to: ''
           labels: |
             org.opencontainers.image.title=${{ inputs.service_name }}
             org.opencontainers.image.version=${{ inputs.semantic_version }}
