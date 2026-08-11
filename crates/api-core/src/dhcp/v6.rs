@@ -80,6 +80,13 @@ pub(super) async fn observe_slaac_address(
         return Ok(());
     };
 
+    // TODO(chet): Serialize same-interface IPv6 selection and replacement
+    // across SLAAC observation, static assignment, and stateful DHCPv6. The
+    // `unique_address_family_on_interface` index keeps us from storing two IPv6
+    // rows for one interface, but it does not decide which concurrent writer
+    // should win. The losing writer currently returns a database error and
+    // aborts its DHCP transaction.
+    //
     // A stateful/static IPv6 address already owns this interface family.
     if db::machine_interface_address::has_address_for_family(
         &mut *txn,
@@ -95,8 +102,8 @@ pub(super) async fn observe_slaac_address(
     if let Some(address) = slaac_gua_from_eui64(prefix, mac) {
         let address = IpAddr::V6(address);
 
-        // The shared insert is the ownership boundary for both visible and
-        // concurrent owners.
+        // The shared insert enforces global ownership of this exact address,
+        // including concurrent claims from another interface.
         db::machine_interface_address::insert(
             &mut *txn,
             interface_id,
