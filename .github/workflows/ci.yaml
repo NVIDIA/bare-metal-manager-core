@@ -48,6 +48,9 @@ jobs:
           persist-credentials: false
           fetch-depth: 0
 
+      - name: Test PR secret-scan range resolver
+        run: bash .github/ci/test-resolve-pr-scan-range.sh
+
       - name: Detect non-rest changes
         id: non-rest-changes
         if: startsWith(github.ref, 'refs/heads/pull-request/')
@@ -1193,39 +1196,35 @@ jobs:
           persist-credentials: false
           fetch-depth: 0  # Full history for secret scanning
 
-      # On a PR's first push, github.event.before is all zeros because the branch
-      # is new. Without an explicit base, TruffleHog scans the entire repo history
-      # instead of just the commits on this PR. We look up the PR's actual target
-      # branch and compute the merge base so the scan is scoped to this PR only.
-      - name: Compute TruffleHog scan base
-        id: scan-base
+      # The copy PR bot can create or rewrite its synthetic branch, so
+      # `github.event.before` can be all zeroes or name a commit that no longer
+      # exists. Resolve both ends from the current PR for every synthetic push.
+      - name: Compute TruffleHog scan range
+        id: scan-range
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          BEFORE="${{ github.event.before }}"
-          if [[ ("$BEFORE" == "0000000000000000000000000000000000000000" || -z "$BEFORE") && "$GITHUB_REF" == refs/heads/pull-request/* ]]; then
-            PR_NUM="${GITHUB_REF_NAME##pull-request/}"
-            BASE_BRANCH=$(curl -fsSL \
-              -H "Authorization: Bearer $GH_TOKEN" \
-              -H "Accept: application/vnd.github+json" \
-              "https://api.github.com/repos/${{ github.repository }}/pulls/${PR_NUM}" \
-              | jq -r '.base.ref')
-            BEFORE=$(git merge-base "origin/${BASE_BRANCH}" HEAD)
-          elif [[ "$GITHUB_REF" == refs/tags/* ]]; then
-            # Tag pushes also have an all-zeros before. Scope the scan to commits
-            # since the previous tag so we don't re-scan the entire history on
-            # every release.
-            PREV_TAG=$(git tag --sort=-version:refname | grep -v "^${GITHUB_REF_NAME}$" | head -1)
-            if [[ -n "$PREV_TAG" ]]; then
-              BEFORE=$(git merge-base "refs/tags/${PREV_TAG}" HEAD)
+          if [[ "$GITHUB_REF" == refs/heads/pull-request/* ]]; then
+            bash .github/ci/resolve-pr-scan-range.sh >> "$GITHUB_OUTPUT"
+          else
+            BEFORE="${{ github.event.before }}"
+            if [[ "$GITHUB_REF" == refs/tags/* ]]; then
+              # Tag pushes also have an all-zeros before. Scope the scan to commits
+              # since the previous tag so we don't re-scan the entire history on
+              # every release.
+              PREV_TAG=$(git tag --sort=-version:refname | grep -v "^${GITHUB_REF_NAME}$" | head -1)
+              if [[ -n "$PREV_TAG" ]]; then
+                BEFORE=$(git merge-base "refs/tags/${PREV_TAG}" HEAD)
+              fi
             fi
+            echo "base=$BEFORE" >> "$GITHUB_OUTPUT"
           fi
-          echo "base=$BEFORE" >> "$GITHUB_OUTPUT"
 
       - name: Run TruffleHog Scan
         uses: NVIDIA/dsx-github-actions/.github/actions/trufflehog-scan@9a9ce3a7770a8b53d2726afa920be3276bc3ddd7
         with:
-          base: ${{ steps.scan-base.outputs.base }}
+          base: ${{ steps.scan-range.outputs.base }}
+          head: ${{ steps.scan-range.outputs.head }}
           extra-args: '--results=verified,unknown --only-verified'
           post-pr-comment: 'false'
           fail-on-findings: 'true'

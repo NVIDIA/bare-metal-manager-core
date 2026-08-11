@@ -795,8 +795,8 @@ pub async fn delete_many(
     Ok(())
 }
 
-/// Search the exploration report for any explored endpoint with a manager or system interface
-/// matching the given MAC address.
+/// `find_by_mac_address` searches the System, Manager, and adapter Port MAC
+/// inventory persisted in an exploration report.
 ///
 /// NOTE: This function's query is designed to exactly match with the GIN index
 /// explored_endpoints_mac_addresses_idx, to avoid a full scan of all endpoint reports. Do NOT
@@ -811,6 +811,8 @@ pub async fn find_by_mac_address(
                 jsonb_path_query_array(exploration_report, '$.Systems[*].EthernetInterfaces[*].MACAddress')
                 ||
                 jsonb_path_query_array(exploration_report, '$.Managers[*].EthernetInterfaces[*].MACAddress')
+                ||
+                jsonb_path_query_array(exploration_report, '$.Chassis[*].NetworkAdapters[*].PortMacAddresses[*]')
             ) @> to_jsonb(ARRAY[$1]);
         "#;
     sqlx::query_as::<_, DbExploredEndpoint>(query)
@@ -924,7 +926,9 @@ pub async fn set_pause_ingestion_and_poweron(
 }
 
 #[cfg(test)]
-mod count_preingest_tests {
+mod tests {
+    use model::site_explorer::{Chassis, NetworkAdapter};
+
     use super::*;
 
     /// An `UpgradeFirmwareWait` state — the one the "installing" predicate keys
@@ -1007,5 +1011,30 @@ mod count_preingest_tests {
         assert_eq!(rows.len(), 2, "two endpoints are installing firmware");
         assert_eq!(count, 2, "count agrees with the row count");
         assert_eq!(count, rows.len() as i64);
+    }
+
+    #[crate::sqlx_test]
+    async fn find_by_mac_address_includes_adapter_ports(pool: sqlx::PgPool) {
+        let mut txn = pool.begin().await.unwrap();
+        let mac_address = "94:6d:ae:53:cb:9b".parse().unwrap();
+        let address = "10.0.2.1".parse().unwrap();
+        let report = EndpointExplorationReport {
+            chassis: vec![Chassis {
+                id: "Self".to_string(),
+                network_adapters: vec![NetworkAdapter {
+                    id: "1".to_string(),
+                    port_mac_addresses: vec![mac_address],
+                    ..Default::default()
+                }],
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+
+        insert(address, &report, false, &mut txn).await.unwrap();
+
+        let endpoints = find_by_mac_address(&mut *txn, mac_address).await.unwrap();
+        assert_eq!(endpoints.len(), 1);
+        assert_eq!(endpoints[0].address, address);
     }
 }

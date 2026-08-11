@@ -22,6 +22,7 @@ use mac_address::MacAddress;
 use nv_redfish::bmc_http::{BmcCredentials, CacheSettings, HttpBmc};
 use url::Url;
 
+use crate::injection::{Action, Rule, RuleId, Selector};
 use crate::mac_address_pool::{
     Config as MacAddressConfig, MacAddressPool, PoolConfig as MacAddressPoolConfig,
     RangesConfig as MacAddressRangesConfig,
@@ -319,6 +320,149 @@ pub async fn generic_ami_bmc() -> TestBmcHandle {
         MachineRouterOptions::default(),
     ))
     .await
+}
+
+const TEST_ADAPTERS: &str = "/redfish/v1/Chassis/Self/NetworkAdapters";
+const TEST_ADAPTER: &str = "/redfish/v1/Chassis/Self/NetworkAdapters/1";
+const TEST_PORTS: &str = "/redfish/v1/Chassis/Self/NetworkAdapters/1/Ports";
+const TEST_SYSTEM_INTERFACES: &str = "/redfish/v1/Systems/Self/EthernetInterfaces";
+const TEST_DISABLED_INTERFACE: &str = "/redfish/v1/Systems/Self/EthernetInterfaces/disabled";
+
+/// Builds a generic host router with supplemental network adapter ports.
+pub fn generic_ami_router_with_network_adapter_ports(
+    ports: Vec<serde_json::Value>,
+) -> (axum::Router, BmcState) {
+    let (router, state) = machine_router(
+        &host_info(HardwareType::GenericAmi),
+        Arc::new(NoopCallbacks),
+        "test-host-id".to_string(),
+        false,
+        MachineRouterOptions::default(),
+    );
+    state.injection.put(vec![Rule {
+        id: RuleId::from("network-adapters-link"),
+        selector: Selector::Path {
+            method: Some("GET".to_string()),
+            glob: "/redfish/v1/Chassis/Self".to_string(),
+        },
+        action: Action::JsonMerge(serde_json::json!({
+            "NetworkAdapters": { "@odata.id": TEST_ADAPTERS }
+        })),
+        remaining: None,
+    }]);
+
+    let port_ids = ports
+        .iter()
+        .enumerate()
+        .map(|(index, _)| format!("{TEST_PORTS}/{}", index + 1))
+        .collect::<Vec<_>>();
+    let collection_port_ids = port_ids.clone();
+    let mut router = router
+        .route(
+            TEST_ADAPTERS,
+            axum::routing::get(|| async {
+                axum::Json(serde_json::json!({
+                    "@odata.id": TEST_ADAPTERS,
+                    "@odata.type": "#NetworkAdapterCollection.NetworkAdapterCollection",
+                    "Name": "Network Adapter Collection",
+                    "Members": [{ "@odata.id": TEST_ADAPTER }]
+                }))
+            }),
+        )
+        .route(
+            TEST_ADAPTER,
+            axum::routing::get(|| async {
+                axum::Json(serde_json::json!({
+                    "@odata.id": TEST_ADAPTER,
+                    "@odata.type": "#NetworkAdapter.v1_7_0.NetworkAdapter",
+                    "Id": "1",
+                    "Name": "Network Adapter",
+                    "Ports": { "@odata.id": TEST_PORTS }
+                }))
+            }),
+        )
+        .route(
+            TEST_PORTS,
+            axum::routing::get(move || {
+                let port_ids = collection_port_ids.clone();
+                async move {
+                    axum::Json(serde_json::json!({
+                        "@odata.id": TEST_PORTS,
+                        "@odata.type": "#PortCollection.PortCollection",
+                        "Name": "Port Collection",
+                        "Members": port_ids
+                            .into_iter()
+                            .map(|id| serde_json::json!({ "@odata.id": id }))
+                            .collect::<Vec<_>>()
+                    }))
+                }
+            }),
+        );
+    for (port_id, port) in port_ids.into_iter().zip(ports) {
+        let port = Arc::new(port);
+        router = router.route(
+            &port_id,
+            axum::routing::get(move || {
+                let port = Arc::clone(&port);
+                async move { axum::Json((*port).clone()) }
+            }),
+        );
+    }
+
+    (router, state)
+}
+
+/// Builds a generic host router with one supplemental network adapter port.
+pub fn generic_ami_router_with_network_adapter_port(
+    port: serde_json::Value,
+) -> (axum::Router, BmcState) {
+    generic_ami_router_with_network_adapter_ports(vec![port])
+}
+
+/// Adds a disabled System EthernetInterface containing an invalid MAC to the
+/// adapter-port test router.
+pub fn generic_ami_router_with_network_adapter_port_and_disabled_system_mac(
+    port: serde_json::Value,
+) -> (axum::Router, BmcState) {
+    let (router, state) = generic_ami_router_with_network_adapter_port(port);
+    state.injection.upsert(Rule {
+        id: RuleId::from("disabled-system-interface"),
+        selector: Selector::Path {
+            method: Some("GET".to_string()),
+            glob: TEST_SYSTEM_INTERFACES.to_string(),
+        },
+        action: Action::Replace(serde_json::json!({
+            "@odata.id": TEST_SYSTEM_INTERFACES,
+            "@odata.type": "#EthernetInterfaceCollection.EthernetInterfaceCollection",
+            "Name": "Ethernet Interface Collection",
+            "Members": [{ "@odata.id": TEST_DISABLED_INTERFACE }]
+        })),
+        remaining: None,
+    });
+    let router = router.route(
+        TEST_DISABLED_INTERFACE,
+        axum::routing::get(|| async {
+            axum::Json(serde_json::json!({
+                "@odata.id": TEST_DISABLED_INTERFACE,
+                "@odata.type": "#EthernetInterface.v1_12_0.EthernetInterface",
+                "Id": "disabled",
+                "Name": "Disabled Ethernet Interface",
+                "InterfaceEnabled": false,
+                "MACAddress": "not-a-mac"
+            }))
+        }),
+    );
+    (router, state)
+}
+
+pub async fn generic_ami_bmc_with_network_adapter_port(port: serde_json::Value) -> TestBmcHandle {
+    test_bmc(generic_ami_router_with_network_adapter_port(port)).await
+}
+
+pub async fn generic_ami_bmc_with_network_adapter_ports(
+    ports: Vec<serde_json::Value>,
+) -> TestBmcHandle {
+    test_bmc(generic_ami_router_with_network_adapter_ports(ports)).await
 }
 
 #[cfg(test)]
