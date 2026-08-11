@@ -7,6 +7,7 @@ import (
 	"context"
 	"fmt"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 
@@ -1100,7 +1101,9 @@ func TestManageVpc_CreateOrUpdateVpcFromSite_SkipsIncompleteOwnership(t *testing
 	tests := []struct {
 		name          string
 		controllerVpc *corev1.Vpc
-		wantVpc       bool
+		wantVpc      bool
+		wantName     string
+		wantNamePref string
 	}{
 		{
 			name: "unknown tenant organization",
@@ -1145,20 +1148,24 @@ func TestManageVpc_CreateOrUpdateVpcFromSite_SkipsIncompleteOwnership(t *testing
 			},
 		},
 		{
-			name: "active VPC name conflict is rejected",
+			name: "renames VPC when active name already exists",
 			controllerVpc: &corev1.Vpc{
 				Id:       &corev1.VpcId{Value: uuid.NewString()},
 				Config:   &corev1.VpcConfig{TenantOrganizationId: authorizedTenantOrg},
 				Metadata: &corev1.Metadata{Name: existingVpc.Name},
 			},
+			wantVpc:      true,
+			wantNamePref: existingVpc.Name + "-recovered-",
 		},
 		{
-			name: "empty VPC name is rejected",
+			name: "assigns recovered name when metadata name is empty",
 			controllerVpc: &corev1.Vpc{
 				Id:       &corev1.VpcId{Value: uuid.NewString()},
 				Config:   &corev1.VpcConfig{TenantOrganizationId: authorizedTenantOrg},
 				Metadata: &corev1.Metadata{Name: ""},
 			},
+			wantVpc:      true,
+			wantNamePref: "recovered-",
 		},
 		{
 			name: "empty tenant organization is rejected",
@@ -1175,7 +1182,8 @@ func TestManageVpc_CreateOrUpdateVpcFromSite_SkipsIncompleteOwnership(t *testing
 				Config:   &corev1.VpcConfig{TenantOrganizationId: authorizedTenantOrg},
 				Metadata: &corev1.Metadata{Name: "unallocated-tenant-vpc"},
 			},
-			wantVpc: true,
+			wantVpc:  true,
+			wantName: "unallocated-tenant-vpc",
 		},
 	}
 
@@ -1191,6 +1199,13 @@ func TestManageVpc_CreateOrUpdateVpcFromSite_SkipsIncompleteOwnership(t *testing
 				require.NotNil(t, vpc)
 				assert.Equal(t, cdbm.VpcStatusReady, vpc.Status)
 				assert.Equal(t, authorizedTenant.ID, vpc.TenantID)
+				if tt.wantName != "" {
+					assert.Equal(t, tt.wantName, vpc.Name)
+				}
+				if tt.wantNamePref != "" {
+					assert.True(t, strings.HasPrefix(vpc.Name, tt.wantNamePref), "name %q should have prefix %q", vpc.Name, tt.wantNamePref)
+					assert.Len(t, strings.TrimPrefix(vpc.Name, tt.wantNamePref), 8)
+				}
 				return
 			}
 			assert.Nil(t, vpc)

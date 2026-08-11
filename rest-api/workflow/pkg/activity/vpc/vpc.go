@@ -420,29 +420,28 @@ func (mv ManageVpc) UpdateVpcsInDB(ctx context.Context, siteID uuid.UUID, vpcInv
 func (mv ManageVpc) createOrUpdateVpcFromSite(
 	ctx context.Context,
 	site *cdbm.Site,
-	siteInventoryVpc *corev1.Vpc,
+	controllerVpc *corev1.Vpc,
 	propagationDetails *cdbm.NetworkSecurityGroupPropagationDetails,
 ) *cdbm.Vpc {
 	logger := log.With().
 		Str("Activity", "UpdateVpcsInDB").
 		Str("Site ID", site.ID.String()).
-		Str("VPC Controller ID", siteInventoryVpc.GetId().GetValue()).
+		Str("VPC Controller ID", controllerVpc.GetId().GetValue()).
 		Logger()
 
-	vpcID, err := uuid.Parse(siteInventoryVpc.GetId().GetValue())
+	vpcID, err := uuid.Parse(controllerVpc.GetId().GetValue())
 	if err != nil {
-		logger.Warn().Err(err).Msg("skipping VPC from Site: controller VPC ID is not a valid UUID")
+		logger.Warn().Msg(fmt.Sprintf("unable to create VPC found on Site: failed to parse VPC Controller ID, not a valid UUID %s", controllerVpc.GetId().GetValue()))
 		return nil
 	}
 
-	fromSite := new(cdbm.Vpc)
-	fromSite.FromProto(siteInventoryVpc)
-	if fromSite.Name == "" {
-		logger.Warn().Msg("skipping VPC from Site: VPC metadata does not contain a name")
-		return nil
+	reportedVpc := new(cdbm.Vpc)
+	reportedVpc.FromProto(controllerVpc)
+	if reportedVpc.Name == "" {
+		reportedVpc.Name = fmt.Sprintf("recovered-%s", vpcID.String()[:8])
 	}
-	if fromSite.Org == "" {
-		logger.Warn().Msg("skipping VPC from Site: VPC does not report a tenant organization")
+	if reportedVpc.Org == "" {
+		logger.Warn().Msg(fmt.Sprintf("unable to create VPC found on Site: VPC does not report a tenant organization %s", reportedVpc.Org))
 		return nil
 	}
 
@@ -455,7 +454,7 @@ func (mv ManageVpc) createOrUpdateVpcFromSite(
 			VpcIDs: []uuid.UUID{vpcID}, SiteIDs: []uuid.UUID{site.ID}, IncludeDeleted: true,
 		}, cdbp.PageInput{Limit: cwutil.GetPtr(cdbp.TotalLimit)}, nil)
 		if reloadErr != nil {
-			return nil, fmt.Errorf("reload VPC by inventory ID: %w", reloadErr)
+			return nil, fmt.Errorf("unable to create VPC found on Site: failed to retrieve VPC by controller ID, DB error: %w", reloadErr)
 		}
 
 		if len(matches) > 0 {
@@ -463,79 +462,73 @@ func (mv ManageVpc) createOrUpdateVpcFromSite(
 			if existingVpc.Deleted == nil {
 				return existingVpc, nil
 			}
-			if existingVpc.Org != fromSite.Org {
-				logger.Warn().Msg("skipping VPC from Site: soft-deleted VPC tenant organization differs from Site inventory")
-				return nil, nil
-			}
-			// Bun soft-delete requires the deleted timestamp to already be in the past.
-			if !time.Now().After(*existingVpc.Deleted) {
-				logger.Warn().Msg("skipping VPC from Site: soft-delete marker is not in the past")
+			if existingVpc.Org != reportedVpc.Org {
+				logger.Warn().Msg(fmt.Sprintf("unable to create VPC found on Site: tenant organization differs in REST cache and Site record %s", reportedVpc.Org))
 				return nil, nil
 			}
 			// Undelete only; UpdateVpcsInDB applies Site-reported field updates.
 			restored, clearErr := vpcDAO.Clear(ctx, tx, cdbm.VpcClearInput{VpcID: existingVpc.ID, Deleted: true})
 			if clearErr != nil {
-				return nil, fmt.Errorf("clear soft-deleted VPC: %w", clearErr)
+				return nil, fmt.Errorf("unable to create VPC found on Site: failed to clear soft-delete timestamp for VPC, DB error: %w", clearErr)
 			}
 			return restored, nil
 		}
 
 		tenants, _, tenantErr := cdbm.NewTenantDAO(mv.dbSession).GetAll(
-			ctx, tx, cdbm.TenantFilterInput{Orgs: []string{fromSite.Org}}, cdbp.PageInput{Limit: cwutil.GetPtr(cdbp.TotalLimit)}, nil,
+			ctx, tx, cdbm.TenantFilterInput{Orgs: []string{reportedVpc.Org}}, cdbp.PageInput{Limit: cwutil.GetPtr(cdbp.TotalLimit)}, nil,
 		)
 		if tenantErr != nil {
-			return nil, fmt.Errorf("get VPC tenant by organization: %w", tenantErr)
+			return nil, fmt.Errorf("unable to create VPC found on Site: failed to retrieve Tenant by organization, DB error: %w", tenantErr)
 		}
 		if len(tenants) == 0 {
-			logger.Warn().Msg("skipping VPC from Site: tenant organization does not have a REST Tenant")
+			logger.Warn().Msgf("unable to create VPC found on Site: no Tenants were found for org: %s", reportedVpc.Org)
 			return nil, nil
 		}
 		tenant := &tenants[0]
 
-		nsgID := fromSite.NetworkSecurityGroupID
-		nvLinkID := fromSite.NVLinkLogicalPartitionID
+		nsgID := reportedVpc.NetworkSecurityGroupID
+		nvLinkID := reportedVpc.NVLinkLogicalPartitionID
 
 		// Skip when referenced NSG/NVLink is missing or not owned by this tenant/site.
 		if nsgID != nil {
 			_, nsgErr := cdbm.NewNetworkSecurityGroupDAO(mv.dbSession).GetByID(ctx, tx, *nsgID, nil)
 			if errors.Is(nsgErr, cdb.ErrDoesNotExist) {
-				logger.Warn().Msg("skipping VPC from Site: referenced Network Security Group does not exist in REST")
+				logger.Warn().Msgf("unable to create VPC found on Site: no Network Security Group was found for ID: %s", *nsgID)
 				return nil, nil
 			}
 			if nsgErr != nil {
-				return nil, fmt.Errorf("get inventory VPC Network Security Group: %w", nsgErr)
+				return nil, fmt.Errorf("unable to create VPC found on Site: failed to retrieve Network Security Group by ID: %s, DB error: %w", *nsgID, nsgErr)
 			}
 		}
 
 		if nvLinkID != nil {
 			nvLink, nvLinkErr := cdbm.NewNVLinkLogicalPartitionDAO(mv.dbSession).GetByID(ctx, tx, *nvLinkID, nil)
 			if errors.Is(nvLinkErr, cdb.ErrDoesNotExist) {
-				logger.Warn().Msg("skipping VPC from Site: referenced NVLink Logical Partition does not exist in REST")
+				logger.Warn().Msgf("unable to create VPC found on Site: no NVLink Logical Partition was found for ID: %s", *nvLinkID)
 				return nil, nil
 			}
 			if nvLinkErr != nil {
-				return nil, fmt.Errorf("get inventory VPC NVLink Logical Partition: %w", nvLinkErr)
+				return nil, fmt.Errorf("unable to create VPC found on Site: failed to retrieve NVLink Logical Partition by ID: %s, DB error: %w", *nvLinkID, nvLinkErr)
 			}
 			if nvLink.SiteID != site.ID || nvLink.TenantID != tenant.ID {
-				logger.Warn().Msg("skipping VPC from Site: referenced NVLink Logical Partition belongs to a different Tenant or Site")
+				logger.Warn().Msgf("unable to create VPC found on Site: NVLink Logical Partition differs in REST cache and Site record for Tenant or Site %s", *nvLinkID)
 				return nil, nil
 			}
 			if nvLink.Status != cdbm.NVLinkLogicalPartitionStatusReady {
-				logger.Warn().Msg("skipping VPC from Site: referenced NVLink Logical Partition is not Ready")
+				logger.Warn().Msgf("unable to create VPC found on Site: NVLink Logical Partition is not Ready for ID: %s", *nvLinkID)
 				return nil, nil
 			}
 		}
 
-		// Reject inventoring a VPC whose name is already taken by another active row.
+		// If an active VPC already uses this name for the Tenant/Site, append a recovered suffix.
 		nameConflictVpcs, _, nameErr := vpcDAO.GetAll(ctx, tx, cdbm.VpcFilterInput{
-			Name: &fromSite.Name, TenantIDs: []uuid.UUID{tenant.ID}, SiteIDs: []uuid.UUID{site.ID},
+			Name: &reportedVpc.Name, TenantIDs: []uuid.UUID{tenant.ID}, SiteIDs: []uuid.UUID{site.ID},
 		}, cdbp.PageInput{Limit: cwutil.GetPtr(cdbp.TotalLimit)}, nil)
 		if nameErr != nil {
-			return nil, fmt.Errorf("check inventory VPC name conflict: %w", nameErr)
+			return nil, fmt.Errorf("unable to create VPC found on Site: failed to retrieve VPC by name, DB error: %w", nameErr)
 		}
 		if len(nameConflictVpcs) > 0 {
-			logger.Warn().Msg("skipping VPC from Site: an active VPC with the same name already exists for the Tenant and Site")
-			return nil, nil
+			reportedVpc.Name = fmt.Sprintf("%s-recovered-%s", reportedVpc.Name, vpcID.String()[:8])
 		}
 
 		readyMsg := "VPC was found on Site, Ready for use"
@@ -543,38 +536,38 @@ func (mv ManageVpc) createOrUpdateVpcFromSite(
 		createdBy.ID = site.ID
 		created, createErr := vpcDAO.Create(ctx, tx, cdbm.VpcCreateInput{
 			ID:                                     &vpcID,
-			Name:                                   fromSite.Name,
-			Description:                            fromSite.Description,
-			Org:                                    fromSite.Org,
+			Name:                                   reportedVpc.Name,
+			Description:                            reportedVpc.Description,
+			Org:                                    reportedVpc.Org,
 			InfrastructureProviderID:               site.InfrastructureProviderID,
 			TenantID:                               tenant.ID,
 			SiteID:                                 site.ID,
 			NVLinkLogicalPartitionID:               nvLinkID,
-			NetworkVirtualizationType:              fromSite.NetworkVirtualizationType,
-			RoutingProfile:                         fromSite.RoutingProfile,
-			RoutingProfileOverrides:                fromSite.RoutingProfileOverrides,
-			EffectiveRoutingProfile:                fromSite.EffectiveRoutingProfile,
+			NetworkVirtualizationType:              reportedVpc.NetworkVirtualizationType,
+			RoutingProfile:                         reportedVpc.RoutingProfile,
+			RoutingProfileOverrides:                reportedVpc.RoutingProfileOverrides,
+			EffectiveRoutingProfile:                reportedVpc.EffectiveRoutingProfile,
 			ControllerVpcID:                        &vpcID,
-			ActiveVni:                              fromSite.ActiveVni,
+			ActiveVni:                              reportedVpc.ActiveVni,
 			NetworkSecurityGroupID:                 nsgID,
 			NetworkSecurityGroupPropagationDetails: propagationDetails,
-			Labels:                                 fromSite.Labels,
+			Labels:                                 reportedVpc.Labels,
 			Status:                                 cdbm.VpcStatusReady,
 			CreatedBy:                              createdBy,
-			Vni:                                    fromSite.Vni,
+			Vni:                                    reportedVpc.Vni,
 		})
 		if createErr != nil {
-			return nil, fmt.Errorf("create VPC from Site: %w", createErr)
+			return nil, fmt.Errorf("unable to create VPC found on Site: failed to create VPC, DB error: %w", createErr)
 		}
 		if _, statusErr := cdbm.NewStatusDetailDAO(mv.dbSession).Create(ctx, tx, cdbm.StatusDetailCreateInput{
 			EntityID: created.ID.String(), Status: cdbm.VpcStatusReady, Message: &readyMsg,
 		}); statusErr != nil {
-			return nil, fmt.Errorf("create inventory VPC status detail: %w", statusErr)
+			return nil, fmt.Errorf("unable to create VPC found on Site: failed to create Status Detail, DB error: %w", statusErr)
 		}
 		return created, nil
 	})
 	if err != nil {
-		logger.Warn().Err(err).Msg("failed to create or update VPC from Site")
+		logger.Warn().Err(err).Msg(err.Error())
 		return nil
 	}
 	return vpc

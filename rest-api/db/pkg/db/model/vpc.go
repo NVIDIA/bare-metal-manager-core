@@ -1124,18 +1124,9 @@ func (vsd VpcSQLDAO) Clear(ctx context.Context, tx *db.Tx, input VpcClearInput) 
 		if input.Deleted {
 			query = query.WhereAllWithDeleted()
 		}
-		result, err := query.Exec(ctx)
+		_, err := query.Exec(ctx)
 		if err != nil {
 			return nil, err
-		}
-		if input.Deleted {
-			rowsAffected, rowsErr := result.RowsAffected()
-			if rowsErr != nil {
-				return nil, rowsErr
-			}
-			if rowsAffected == 0 {
-				return nil, db.ErrDoesNotExist
-			}
 		}
 	}
 
