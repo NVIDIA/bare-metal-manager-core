@@ -53,7 +53,7 @@ pub(crate) async fn start_updates(
         } else {
             start
                 .checked_add_signed(chrono::TimeDelta::days(1))
-                .ok_or_else(|| eyre::eyre!("Invalid date: {start}"))?
+                .ok_or_else(|| eyre::eyre!("invalid date: {start}"))?
         };
         (Some(start), Some(end))
     };
