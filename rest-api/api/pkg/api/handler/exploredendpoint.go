@@ -20,6 +20,12 @@ import (
 	corev1 "github.com/NVIDIA/infra-controller/rest-api/proto/core/gen/v1"
 )
 
+const (
+	exploredEndpointOrderByFieldID = "id"
+	exploredEndpointOrderByIDAsc   = "ID_ASC"
+	exploredEndpointOrderByIDDesc  = "ID_DESC"
+)
+
 // GetAllExploredEndpointHandler lists explored endpoints for a Site via Core.
 type GetAllExploredEndpointHandler struct {
 	dbSession  *cdb.Session
@@ -40,7 +46,7 @@ func NewGetAllExploredEndpointHandler(dbSession *cdb.Session, scp *sc.ClientPool
 
 // Handle godoc
 // @Summary Retrieve all Explored Endpoints
-// @Description Retrieve explored endpoints discovered by Site Explorer for a Site, ordered by ascending endpoint ID.
+// @Description Retrieve explored endpoints discovered by Site Explorer for a Site, ordered by endpoint ID.
 // @Tags site-explorer
 // @Accept json
 // @Produce json
@@ -49,6 +55,7 @@ func NewGetAllExploredEndpointHandler(dbSession *cdb.Session, scp *sc.ClientPool
 // @Param siteId query string true "ID of Site"
 // @Param pageNumber query integer false "Page number of results returned"
 // @Param pageSize query integer false "Number of results per page"
+// @Param orderBy query string false "Endpoint ID ordering" Enums(ID_ASC, ID_DESC) default(ID_ASC)
 // @Success 200 {array} model.APIExploredEndpoint
 // @Router /v2/org/{org}/nico/site-explorer/endpoint [get]
 func (h GetAllExploredEndpointHandler) Handle(c echo.Context) error {
@@ -73,7 +80,10 @@ func (h GetAllExploredEndpointHandler) Handle(c echo.Context) error {
 		logger.Warn().Err(err).Msg("error binding pagination request data into API model")
 		return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, "Failed to parse request pagination data", nil)
 	}
-	if err := pageRequest.Validate(nil); err != nil {
+	if pageRequest.OrderByStr == nil {
+		pageRequest.OrderByStr = cutil.GetPtr(exploredEndpointOrderByIDAsc)
+	}
+	if err := pageRequest.Validate([]string{exploredEndpointOrderByFieldID}); err != nil {
 		logger.Warn().Err(err).Msg("error validating pagination request data")
 		return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, "Failed to validate pagination request data", err)
 	}
@@ -106,7 +116,11 @@ func (h GetAllExploredEndpointHandler) Handle(c echo.Context) error {
 	}
 
 	allIDs := append([]string(nil), ids.GetEndpointIds()...)
-	sort.Strings(allIDs)
+	if *pageRequest.OrderByStr == exploredEndpointOrderByIDDesc {
+		sort.Sort(sort.Reverse(sort.StringSlice(allIDs)))
+	} else {
+		sort.Strings(allIDs)
+	}
 	total := len(allIDs)
 
 	start := *pageRequest.Offset
@@ -134,8 +148,14 @@ func (h GetAllExploredEndpointHandler) Handle(c echo.Context) error {
 			logAPIError(logger, apiErr, "failed to find explored endpoints by IDs")
 			return cutil.NewAPIErrorResponse(c, apiErr.Code, apiErr.Message, nil)
 		}
-		for _, ep := range endpointList.GetEndpoints() {
-			apiEndpoints = append(apiEndpoints, model.NewAPIExploredEndpoint(ep))
+		endpointsByID := make(map[string]*corev1.ExploredEndpoint, len(endpointList.GetEndpoints()))
+		for _, endpoint := range endpointList.GetEndpoints() {
+			endpointsByID[endpoint.GetAddress()] = endpoint
+		}
+		for _, endpointID := range pageIDs {
+			if endpoint, ok := endpointsByID[endpointID]; ok {
+				apiEndpoints = append(apiEndpoints, model.NewAPIExploredEndpoint(endpoint))
+			}
 		}
 	}
 

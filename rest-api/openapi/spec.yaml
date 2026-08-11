@@ -1677,6 +1677,16 @@ paths:
           in: query
           required: false
           description: Number of results per page
+        - schema:
+            type: string
+            enum:
+              - ID_ASC
+              - ID_DESC
+            default: ID_ASC
+          name: orderBy
+          in: query
+          required: false
+          description: Order results by endpoint ID
       responses:
         '200':
           description: Explored endpoints for the Site
@@ -1690,7 +1700,7 @@ paths:
             X-Pagination:
               schema:
                 type: string
-                example: '{"pageNumber":1,"pageSize":20,"total":30,"orderBy":null}'
+                example: '{"pageNumber":1,"pageSize":20,"total":30,"orderBy":"ID_ASC"}'
               description: Pagination result in JSON format
         '400':
           $ref: '#/components/responses/GenericHttpError'
@@ -1706,7 +1716,7 @@ paths:
           $ref: '#/components/responses/GenericHttpError'
       operationId: get-all-site-explorer-endpoint
       description: |-
-        Retrieve explored endpoints discovered by Site Explorer for a Site. Results are ordered by ascending endpoint ID.
+        Retrieve explored endpoints discovered by Site Explorer for a Site. Use `ID_ASC` or `ID_DESC` to order by endpoint ID; the default is `ID_ASC`.
 
         The response is paged over Core `FindExploredEndpointIds` followed by
         `FindExploredEndpointsByIds`. Pagination metadata is returned in the

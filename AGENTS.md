@@ -71,15 +71,13 @@ infra-controller/
 
 ## Build, Test, and Lint Commands
 
-### Pull-request verification order
+### REST API contract conventions
 
-Before manual or simulator verification of a pull request, fetch the latest
-remote branch and review comments, implement and locally verify all required
-updates, push commits with both DCO sign-offs and cryptographic signatures,
-verify both requirements for every commit in the complete pull-request range,
-and confirm that the pull request's remote head matches the verified head
-commit. Manual and DevSpace evidence collected before the confirmed push and
-range verification is stale and must not be used as final-head verification.
+- Do not use `omitempty` on REST API response fields. Clients must be able to
+  distinguish an empty value from a field unsupported by the API version.
+- Paginated operations must implement deterministic ordering before pagination
+  and document every supported `orderBy` value and its default in OpenAPI. Do
+  not rely on an upstream API or database's implicit result order.
 
 All task automation uses `cargo-make`. Install it with:
 

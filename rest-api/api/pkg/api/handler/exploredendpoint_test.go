@@ -45,6 +45,7 @@ func TestGetAllExploredEndpointHandler_Handle(t *testing.T) {
 		wantStatus         int
 		wantCount          int
 		wantTotal          int
+		wantOrderBy        string
 		wantAddresses      []string
 		wantProxyCalls     int
 	}{
@@ -65,6 +66,7 @@ func TestGetAllExploredEndpointHandler_Handle(t *testing.T) {
 			wantStatus:         http.StatusOK,
 			wantCount:          2,
 			wantTotal:          2,
+			wantOrderBy:        exploredEndpointOrderByIDAsc,
 			wantAddresses:      []string{"10.0.0.1", "10.0.0.2"},
 			wantProxyCalls:     2,
 		},
@@ -84,6 +86,7 @@ func TestGetAllExploredEndpointHandler_Handle(t *testing.T) {
 			wantStatus:         http.StatusOK,
 			wantCount:          1,
 			wantTotal:          3,
+			wantOrderBy:        exploredEndpointOrderByIDAsc,
 			wantAddresses:      []string{"10.0.0.2"},
 			wantProxyCalls:     2,
 		},
@@ -95,6 +98,7 @@ func TestGetAllExploredEndpointHandler_Handle(t *testing.T) {
 			wantStatus:     http.StatusOK,
 			wantCount:      0,
 			wantTotal:      0,
+			wantOrderBy:    exploredEndpointOrderByIDAsc,
 			wantProxyCalls: 1,
 		},
 		{
@@ -106,7 +110,29 @@ func TestGetAllExploredEndpointHandler_Handle(t *testing.T) {
 			wantStatus:     http.StatusOK,
 			wantCount:      0,
 			wantTotal:      1,
+			wantOrderBy:    exploredEndpointOrderByIDAsc,
 			wantProxyCalls: 1,
+		},
+		{
+			name:         "success orders endpoint IDs descending",
+			roles:        []string{authz.ProviderAdminRole},
+			injectSiteID: true,
+			extraQuery:   "orderBy=ID_DESC&pageSize=2",
+			ids:          &corev1.ExploredEndpointIdList{EndpointIds: []string{"10.0.0.2", "10.0.0.1", "10.0.0.3"}},
+			endpoints: &corev1.ExploredEndpointList{
+				Endpoints: []*corev1.ExploredEndpoint{
+					{Address: "10.0.0.2", ReportVersion: "2"},
+					{Address: "10.0.0.3", ReportVersion: "3"},
+				},
+			},
+			expectFindByIDs:    true,
+			expectFindByIDVals: []string{"10.0.0.3", "10.0.0.2"},
+			wantStatus:         http.StatusOK,
+			wantCount:          2,
+			wantTotal:          3,
+			wantOrderBy:        exploredEndpointOrderByIDDesc,
+			wantAddresses:      []string{"10.0.0.3", "10.0.0.2"},
+			wantProxyCalls:     2,
 		},
 		{
 			name:         "rejects non provider admin",
@@ -137,6 +163,13 @@ func TestGetAllExploredEndpointHandler_Handle(t *testing.T) {
 			roles:        []string{authz.ProviderAdminRole},
 			injectSiteID: true,
 			extraQuery:   "foo=bar",
+			wantStatus:   http.StatusBadRequest,
+		},
+		{
+			name:         "rejects unsupported ordering",
+			roles:        []string{authz.ProviderAdminRole},
+			injectSiteID: true,
+			extraQuery:   "orderBy=NAME_ASC",
 			wantStatus:   http.StatusBadRequest,
 		},
 	}
@@ -182,6 +215,7 @@ func TestGetAllExploredEndpointHandler_Handle(t *testing.T) {
 			var pageResp pagination.PageResponse
 			require.NoError(t, json.Unmarshal([]byte(ph), &pageResp))
 			assert.Equal(t, tt.wantTotal, pageResp.Total)
+			assert.Equal(t, tt.wantOrderBy, *pageResp.OrderBy)
 
 			if tt.expectFindByIDs {
 				require.Len(t, fixture.proxiedReqs, 2)

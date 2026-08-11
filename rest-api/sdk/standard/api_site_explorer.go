@@ -218,6 +218,7 @@ type ApiGetAllSiteExplorerEndpointRequest struct {
 	org        string
 	pageNumber *int32
 	pageSize   *int32
+	orderBy    *string
 }
 
 // ID of the Site
@@ -238,6 +239,12 @@ func (r ApiGetAllSiteExplorerEndpointRequest) PageSize(pageSize int32) ApiGetAll
 	return r
 }
 
+// Order results by endpoint ID
+func (r ApiGetAllSiteExplorerEndpointRequest) OrderBy(orderBy string) ApiGetAllSiteExplorerEndpointRequest {
+	r.orderBy = &orderBy
+	return r
+}
+
 func (r ApiGetAllSiteExplorerEndpointRequest) Execute() ([]ExploredEndpoint, *http.Response, error) {
 	return r.ApiService.GetAllSiteExplorerEndpointExecute(r)
 }
@@ -245,7 +252,7 @@ func (r ApiGetAllSiteExplorerEndpointRequest) Execute() ([]ExploredEndpoint, *ht
 /*
 GetAllSiteExplorerEndpoint Retrieve all Explored Endpoints
 
-Retrieve explored endpoints discovered by Site Explorer for a Site. Results are ordered by ascending endpoint ID.
+Retrieve explored endpoints discovered by Site Explorer for a Site. Use `ID_ASC` or `ID_DESC` to order by endpoint ID; the default is `ID_ASC`.
 
 The response is paged over Core `FindExploredEndpointIds` followed by
 `FindExploredEndpointsByIds`. Pagination metadata is returned in the
@@ -297,6 +304,13 @@ func (a *SiteExplorerAPIService) GetAllSiteExplorerEndpointExecute(r ApiGetAllSi
 	}
 	if r.pageSize != nil {
 		parameterAddToHeaderOrQuery(localVarQueryParams, "pageSize", r.pageSize, "form", "")
+	}
+	if r.orderBy != nil {
+		parameterAddToHeaderOrQuery(localVarQueryParams, "orderBy", r.orderBy, "form", "")
+	} else {
+		var defaultValue string = "ID_ASC"
+		parameterAddToHeaderOrQuery(localVarQueryParams, "orderBy", defaultValue, "form", "")
+		r.orderBy = &defaultValue
 	}
 	// to determine the Content-Type header
 	localVarHTTPContentTypes := []string{}
