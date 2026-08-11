@@ -2626,6 +2626,13 @@ message NetworkSegmentConfig {
   NetworkSegmentType segment_type = 4;
 
   repeated NetworkPrefix prefixes = 5;
+
+  // Allows NICo to infer modified EUI-64 SLAAC addresses for clients making
+  // stateless DHCPv6 requests and add them to interface address state. False by
+  // default. Inference also requires dynamic allocation, exactly one IPv6 /64,
+  // and an interface without an existing IPv6 address. Set this only when
+  // clients derive SLAAC addresses from their MAC addresses using modified EUI-64.
+  bool infer_slaac_eui64_addresses = 6;
 }
 
 message NetworkSegmentStatus {
@@ -2695,6 +2702,13 @@ message NetworkSegmentCreationRequest {
   // a random ID.
   // The Network Segment ID must be unique within the Forge site.
   optional common.NetworkSegmentId id = 8;
+
+  // Allows NICo to infer modified EUI-64 SLAAC addresses for clients making
+  // stateless DHCPv6 requests and add them to interface address state. False by
+  // default. Inference also requires dynamic allocation, exactly one IPv6 /64,
+  // and an interface without an existing IPv6 address. Set this only when
+  // clients derive SLAAC addresses from their MAC addresses using modified EUI-64.
+  bool infer_slaac_eui64_addresses = 9;
 }
 
 message NetworkSegmentDeletionRequest {

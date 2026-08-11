@@ -103,6 +103,17 @@ pub struct NetworkDefinition {
     /// behavior of Carbide + carbide-dhcp.
     #[serde(default)]
     pub allocation_strategy: AllocationStrategy,
+    /// Allows NICo to infer modified EUI-64 SLAAC addresses for clients making
+    /// stateless DHCPv6 requests and add them to interface address state.
+    /// Inference also requires dynamic allocation, exactly one IPv6 `/64`, and
+    /// an interface without an existing IPv6 address.
+    ///
+    /// This defaults to `false`. Set it only when clients on this segment
+    /// derive SLAAC addresses from their MAC addresses using modified EUI-64.
+    /// The value is applied when the segment is first seeded; later config
+    /// edits do not update the stored segment.
+    #[serde(default)]
+    pub infer_slaac_eui64_addresses: bool,
     /// Set to the name of a VPC to attach this network segment to a VPC on creation. Will fail if
     /// the VPC is not defined. You probably want to add a vpc with a corresponding name to the
     /// config via `[vpcs.<name>]` for this to work when data is initially being seeded.
@@ -184,6 +195,11 @@ pub struct NetworkSegmentConfig {
     pub mtu: i32,
     pub segment_type: NetworkSegmentType,
     pub allocation_strategy: AllocationStrategy,
+    /// Whether NICo may infer modified EUI-64 SLAAC addresses for clients
+    /// making stateless DHCPv6 requests and add them to interface address
+    /// state. Inference also requires dynamic allocation, exactly one IPv6
+    /// `/64`, and an interface without an IPv6 address.
+    pub infer_slaac_eui64_addresses: bool,
     pub vpc_id: Option<VpcId>,
 }
 
@@ -223,19 +239,22 @@ impl NetworkSegment {
         self.deleted.is_some()
     }
 
-    /// Returns the segment's SLAAC-eligible IPv6 /64 prefix, if any.
+    /// Returns the IPv6 `/64` prefix NICo may use to infer a modified EUI-64
+    /// SLAAC address for this segment.
     ///
     /// This is a segment-only predicate: relay context, requested addresses, and
     /// client identity must not influence it. Per-interface address ownership is
     /// checked at the DHCP call site.
-    pub fn slaac_eligible(&self) -> Option<&IpNetwork> {
-        if self.config.allocation_strategy == AllocationStrategy::Reserved {
+    pub fn slaac_eui64_inference_prefix(&self) -> Option<&IpNetwork> {
+        if !self.config.infer_slaac_eui64_addresses
+            || self.config.allocation_strategy == AllocationStrategy::Reserved
+        {
             return None;
         }
 
         // The DB currently enforces one prefix per family per segment; keep this
-        // defensive guard so non-DB callers or future schema changes cannot persist
-        // SLAAC when v6 prefix selection is ambiguous.
+        // defensive guard so non-DB callers or future schema changes cannot infer
+        // an address when v6 prefix selection is ambiguous.
         let mut v6_prefixes = self
             .prefixes
             .iter()
@@ -301,6 +320,7 @@ pub struct NewNetworkSegment {
     pub segment_type: NetworkSegmentType,
     pub can_stretch: Option<bool>,
     pub allocation_strategy: AllocationStrategy,
+    pub infer_slaac_eui64_addresses: bool,
 }
 
 impl FromStr for NetworkSegmentType {
@@ -361,6 +381,7 @@ impl<'r> FromRow<'r, PgRow> for NetworkSegment {
                 mtu: row.try_get("mtu")?,
                 segment_type: row.try_get("network_segment_type")?,
                 allocation_strategy: row.try_get("allocation_strategy").unwrap_or_default(),
+                infer_slaac_eui64_addresses: row.try_get("infer_slaac_eui64_addresses")?,
                 vpc_id: row.try_get("vpc_id")?,
             },
             status: NetworkSegmentStatus {
@@ -461,6 +482,7 @@ impl NewNetworkSegment {
             segment_type: value.segment_type.into(),
             can_stretch: None,
             allocation_strategy: value.allocation_strategy,
+            infer_slaac_eui64_addresses: value.infer_slaac_eui64_addresses,
         })
     }
 }
@@ -487,7 +509,11 @@ mod tests {
     }
 
     /// Builds a minimal network segment fixture for segment-level predicate tests.
-    fn test_segment(allocation_strategy: AllocationStrategy, prefixes: &[&str]) -> NetworkSegment {
+    fn test_segment(
+        infer_slaac_eui64_addresses: bool,
+        allocation_strategy: AllocationStrategy,
+        prefixes: &[&str],
+    ) -> NetworkSegment {
         let segment_id = NetworkSegmentId::new();
         let now = Utc::now();
 
@@ -500,6 +526,7 @@ mod tests {
                 mtu: 1500,
                 segment_type: NetworkSegmentType::Admin,
                 allocation_strategy,
+                infer_slaac_eui64_addresses,
                 vpc_id: None,
             },
             status: NetworkSegmentStatus {
@@ -535,33 +562,38 @@ mod tests {
     }
 
     #[test]
-    fn slaac_eligible_returns_only_the_single_dynamic_v6_64_prefix() {
-        // Exercise the segment-only SLAAC chokepoint across the prefix and
-        // allocation-strategy cases the DHCP handler must not reimplement.
+    fn slaac_eui64_inference_requires_opt_in_and_one_dynamic_v6_64_prefix() {
+        // `slaac_eui64_inference_prefix` is the segment-level gate for inferring
+        // an address. Keep the opt-in beside the prefix and allocation checks so
+        // the DHCP handler cannot accidentally bypass one of them.
         value_scenarios!(
-            run = |segment: NetworkSegment| segment.slaac_eligible().copied();
-            "dynamic segment with one v6 /64" {
-                test_segment(AllocationStrategy::Dynamic, &["2001:db8::/64"]) => Some("2001:db8::/64".parse().unwrap()),
+            run = |segment: NetworkSegment| segment.slaac_eui64_inference_prefix().copied();
+            "opted-in dynamic segment with one v6 /64" {
+                test_segment(true, AllocationStrategy::Dynamic, &["2001:db8::/64"]) => Some("2001:db8::/64".parse().unwrap()),
             }
 
-            "dynamic dual-stack segment with one v6 /64" {
-                test_segment(AllocationStrategy::Dynamic, &["192.0.2.0/24", "2001:db8::/64"]) => Some("2001:db8::/64".parse().unwrap()),
+            "opted-in dynamic dual-stack segment with one v6 /64" {
+                test_segment(true, AllocationStrategy::Dynamic, &["192.0.2.0/24", "2001:db8::/64"]) => Some("2001:db8::/64".parse().unwrap()),
             }
 
-            "reserved segment with one v6 /64" {
-                test_segment(AllocationStrategy::Reserved, &["2001:db8::/64"]) => None,
+            "default-off dynamic segment with one v6 /64" {
+                test_segment(false, AllocationStrategy::Dynamic, &["2001:db8::/64"]) => None,
             }
 
-            "dynamic segment with no v6 prefix" {
-                test_segment(AllocationStrategy::Dynamic, &["192.0.2.0/24"]) => None,
+            "opted-in reserved segment with one v6 /64" {
+                test_segment(true, AllocationStrategy::Reserved, &["2001:db8::/64"]) => None,
             }
 
-            "dynamic segment with non-64 v6 prefix" {
-                test_segment(AllocationStrategy::Dynamic, &["2001:db8::/80"]) => None,
+            "opted-in dynamic segment with no v6 prefix" {
+                test_segment(true, AllocationStrategy::Dynamic, &["192.0.2.0/24"]) => None,
             }
 
-            "dynamic segment with ambiguous v6 prefixes" {
-                test_segment(AllocationStrategy::Dynamic, &["2001:db8::/64", "2001:db8:1::/80"]) => None,
+            "opted-in dynamic segment with non-64 v6 prefix" {
+                test_segment(true, AllocationStrategy::Dynamic, &["2001:db8::/80"]) => None,
+            }
+
+            "opted-in dynamic segment with ambiguous v6 prefixes" {
+                test_segment(true, AllocationStrategy::Dynamic, &["2001:db8::/64", "2001:db8:1::/80"]) => None,
             }
         );
     }
@@ -786,6 +818,7 @@ mod tests {
             mtu: 1500,
             reserve_first: 5,
             allocation_strategy: AllocationStrategy::Dynamic,
+            infer_slaac_eui64_addresses: false,
             vpc_name: None,
         }
     }
@@ -875,6 +908,31 @@ mod tests {
     }
 
     #[test]
+    fn build_from_network_definition_keeps_slaac_inference_setting() {
+        value_scenarios!(
+            run = |infer_slaac_eui64_addresses| {
+                let mut definition = definition("2001:db8::/64", None, None);
+                definition.infer_slaac_eui64_addresses = infer_slaac_eui64_addresses;
+
+                NewNetworkSegment::build_from(
+                    "test-segment",
+                    uuid::Uuid::new_v4().into(),
+                    &definition,
+                )
+                .unwrap()
+                .infer_slaac_eui64_addresses
+            };
+            "inference disabled" {
+                false => false,
+            }
+
+            "inference enabled" {
+                true => true,
+            }
+        );
+    }
+
+    #[test]
     fn allocation_strategy_round_trips_through_json() {
         scenarios!(
             run = |s| serde_json::to_string(&s).map_err(drop);
@@ -923,6 +981,7 @@ mod tests {
             mtu,
             reserve_first: 0,
             allocation_strategy: AllocationStrategy::default(),
+            infer_slaac_eui64_addresses: false,
             vpc_name: None,
         }
     }

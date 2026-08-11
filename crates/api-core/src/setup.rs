@@ -1936,6 +1936,7 @@ mod tests {
             mtu,
             reserve_first: 0,
             allocation_strategy: Default::default(),
+            infer_slaac_eui64_addresses: false,
             vpc_name: None,
         }
     }

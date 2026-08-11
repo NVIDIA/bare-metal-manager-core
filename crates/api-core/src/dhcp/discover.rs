@@ -247,9 +247,10 @@ async fn options_only_dhcpv6_record_from_interface(
 
 /// Ensure a stateful DHCP allocation exists for the requested family.
 ///
-/// DHCPv6 stateful allocations are authoritative over prior SLAAC observations:
+/// DHCPv6 stateful allocations are authoritative over prior inferred SLAAC
+/// addresses:
 /// both are IPv6 rows on the same interface, so the existing unique family index
-/// requires replacing an observed SLAAC row before allocating the DHCP lease.
+/// requires replacing the inferred row before allocating the DHCP lease.
 async fn ensure_dhcp_address_for_family(
     txn: &mut PgConnection,
     machine_interface: &MachineInterfaceSnapshot,
@@ -820,7 +821,8 @@ pub(crate) async fn discover_dhcp(
     }
 
     if is_v6_observation {
-        v6::observe_slaac_address(&mut txn, machine_interface.id, &segment, &parsed_mac).await?;
+        v6::infer_slaac_eui64_address(&mut txn, machine_interface.id, &segment, &parsed_mac)
+            .await?;
     } else {
         ensure_dhcp_address_for_family(
             &mut txn,

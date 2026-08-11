@@ -763,6 +763,7 @@ mod tests {
                         mtu: 1500,
                         segment_type: NetworkSegmentType::Tenant,
                         allocation_strategy: Default::default(),
+                        infer_slaac_eui64_addresses: false,
                     },
                     status: NetworkSegmentStatus {
                         controller_state: Versioned {
@@ -1163,6 +1164,7 @@ mod segment_has_allocations_tests {
                 segment_type: NetworkSegmentType::Underlay,
                 can_stretch: Some(false),
                 allocation_strategy: AllocationStrategy::Reserved,
+                infer_slaac_eui64_addresses: false,
             },
             txn.deref_mut(),
             NetworkSegmentControllerState::Ready,
@@ -1241,6 +1243,7 @@ mod segment_has_allocations_tests {
                 segment_type: NetworkSegmentType::Underlay,
                 can_stretch: Some(false),
                 allocation_strategy: AllocationStrategy::Reserved,
+                infer_slaac_eui64_addresses: false,
             },
             txn.deref_mut(),
             NetworkSegmentControllerState::Ready,

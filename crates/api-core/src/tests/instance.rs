@@ -3128,6 +3128,7 @@ async fn test_auto_vpc_prefix_selection_retries_concurrent_network_prefix_insert
             segment_type: NetworkSegmentType::Tenant,
             can_stretch: Some(false),
             allocation_strategy: Default::default(),
+            infer_slaac_eui64_addresses: false,
         },
         blocker.as_mut(),
         NetworkSegmentControllerState::Ready,

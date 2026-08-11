@@ -258,6 +258,7 @@ pub(crate) async fn create_network_segment(
         subdomain_id,
         vpc_id,
         segment_type: segment_type as _,
+        infer_slaac_eui64_addresses: false,
     };
 
     let segment = api
