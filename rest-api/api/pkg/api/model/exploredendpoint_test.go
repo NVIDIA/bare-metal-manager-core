@@ -4,6 +4,7 @@
 package model
 
 import (
+	"encoding/json"
 	"testing"
 	"time"
 
@@ -168,19 +169,38 @@ func TestNewAPIExploredEndpoint_Nil(t *testing.T) {
 	assert.Nil(t, NewAPIExploredEndpoint(nil))
 }
 
-func TestNewAPIMachineBootInterfaceTarget_EmptyMacOnly(t *testing.T) {
+func TestAPIMachineBootInterfaceTarget_FromProto(t *testing.T) {
 	target := &corev1.MachineBootInterfaceTarget{
 		Target: &corev1.MachineBootInterfaceTarget_MacOnly{MacOnly: ""},
 	}
 
-	got := newAPIMachineBootInterfaceTarget(target)
+	got := &APIMachineBootInterfaceTarget{}
+	got.FromProto(target)
 	require.NotNil(t, got.MacOnly)
 	assert.Empty(t, *got.MacOnly)
 	assert.Nil(t, got.Pair)
 }
 
-func TestExploredEnumFromProto_UnknownValues(t *testing.T) {
-	assert.Equal(t, "Unknown", exploredNicModeFromProto(corev1.NicMode(99)))
-	assert.Equal(t, "Unknown", exploredComputerSystemPowerStateFromProto(corev1.ComputerSystemPowerState(99)))
-	assert.Equal(t, "Unknown", exploredInternalLockdownStatusFromProto(corev1.InternalLockdownStatus(99)))
+func TestExploredEnum_FromProto(t *testing.T) {
+	var nicMode APIExploredNicMode
+	nicMode.FromProto(corev1.NicMode(99))
+	assert.Equal(t, APIExploredNicMode("Unknown"), nicMode)
+
+	var powerState APIExploredComputerSystemPowerState
+	powerState.FromProto(corev1.ComputerSystemPowerState(99))
+	assert.Equal(t, APIExploredComputerSystemPowerState("Unknown"), powerState)
+
+	var lockdownStatus APIExploredInternalLockdownStatus
+	lockdownStatus.FromProto(corev1.InternalLockdownStatus(99))
+	assert.Equal(t, APIExploredInternalLockdownStatus("Unknown"), lockdownStatus)
+}
+
+func TestAPIExploredEndpoint_ResponseFieldsAreNotOmitted(t *testing.T) {
+	data, err := json.Marshal(APIExploredEndpoint{})
+	require.NoError(t, err)
+	assert.JSONEq(t, `{
+		"address":"", "report":null, "reportVersion":"", "explorationRequested":false,
+		"preingestionState":"", "lastRedfishBmcReset":"", "lastIpmitoolBmcReset":"",
+		"lastRedfishReboot":"", "lastRedfishPowercycle":"", "pauseRemediation":false
+	}`, string(data))
 }

@@ -29,7 +29,7 @@ func (r *APIExploredEndpointGetAllRequest) Validate() error {
 // APIExploredEndpoint is a Site Explorer explored endpoint.
 type APIExploredEndpoint struct {
 	Address               string                        `json:"address"`
-	Report                *APIEndpointExplorationReport `json:"report,omitempty"`
+	Report                *APIEndpointExplorationReport `json:"report"`
 	ReportVersion         string                        `json:"reportVersion"`
 	ExplorationRequested  bool                          `json:"explorationRequested"`
 	PreingestionState     string                        `json:"preingestionState"`
@@ -43,105 +43,114 @@ type APIExploredEndpoint struct {
 // APIEndpointExplorationReport is data gathered about an endpoint during site exploration.
 type APIEndpointExplorationReport struct {
 	EndpointType               string                      `json:"endpointType"`
-	LastExplorationError       *string                     `json:"lastExplorationError,omitempty"`
-	MachineID                  *string                     `json:"machineId,omitempty"`
-	LastExplorationLatency     *string                     `json:"lastExplorationLatency,omitempty"`
-	Vendor                     *string                     `json:"vendor,omitempty"`
-	Managers                   []APIExploredManager        `json:"managers,omitempty"`
-	Systems                    []APIExploredComputerSystem `json:"systems,omitempty"`
-	Chassis                    []APIExploredChassis        `json:"chassis,omitempty"`
-	Service                    []APIExploredService        `json:"service,omitempty"`
-	MachineSetupStatus         *APIMachineSetupStatus      `json:"machineSetupStatus,omitempty"`
-	SecureBootStatus           *APISecureBootStatus        `json:"secureBootStatus,omitempty"`
-	LockdownStatus             *APILockdownStatus          `json:"lockdownStatus,omitempty"`
-	FirmwareVersions           map[string]string           `json:"firmwareVersions,omitempty"`
-	LastExplorationErrorSchema *APIOperatorErrorSchema     `json:"lastExplorationErrorSchema,omitempty"`
+	LastExplorationError       *string                     `json:"lastExplorationError"`
+	MachineID                  *string                     `json:"machineId"`
+	LastExplorationLatency     *string                     `json:"lastExplorationLatency"`
+	Vendor                     *string                     `json:"vendor"`
+	Managers                   []APIExploredManager        `json:"managers"`
+	Systems                    []APIExploredComputerSystem `json:"systems"`
+	Chassis                    []APIExploredChassis        `json:"chassis"`
+	Service                    []APIExploredService        `json:"service"`
+	MachineSetupStatus         *APIMachineSetupStatus      `json:"machineSetupStatus"`
+	SecureBootStatus           *APISecureBootStatus        `json:"secureBootStatus"`
+	LockdownStatus             *APILockdownStatus          `json:"lockdownStatus"`
+	FirmwareVersions           map[string]string           `json:"firmwareVersions"`
+	LastExplorationErrorSchema *APIOperatorErrorSchema     `json:"lastExplorationErrorSchema"`
 }
 
 // APIOperatorErrorSchema is a structured exploration error for operator tooling.
 type APIOperatorErrorSchema struct {
 	ErrorCode  string  `json:"errorCode"`
-	Mitigation *string `json:"mitigation,omitempty"`
+	Mitigation *string `json:"mitigation"`
 	Text       string  `json:"text"`
 }
 
 // APIExploredManager is a Redfish Manager from an exploration report.
 type APIExploredManager struct {
 	ID                 string                         `json:"id"`
-	EthernetInterfaces []APIExploredEthernetInterface `json:"ethernetInterfaces,omitempty"`
+	EthernetInterfaces []APIExploredEthernetInterface `json:"ethernetInterfaces"`
 }
 
 // APIExploredComputerSystem is a Redfish ComputerSystem from an exploration report.
 type APIExploredComputerSystem struct {
-	ID                 string                         `json:"id"`
-	Manufacturer       *string                        `json:"manufacturer,omitempty"`
-	Model              *string                        `json:"model,omitempty"`
-	SerialNumber       *string                        `json:"serialNumber,omitempty"`
-	Attributes         *APIComputerSystemAttributes   `json:"attributes,omitempty"`
-	EthernetInterfaces []APIExploredEthernetInterface `json:"ethernetInterfaces,omitempty"`
-	PCIeDevices        []APIExploredPCIeDevice        `json:"pcieDevices,omitempty"`
-	PowerState         string                         `json:"powerState"`
-	BootOrder          *APIBootOrder                  `json:"bootOrder,omitempty"`
+	ID                 string                              `json:"id"`
+	Manufacturer       *string                             `json:"manufacturer"`
+	Model              *string                             `json:"model"`
+	SerialNumber       *string                             `json:"serialNumber"`
+	Attributes         *APIComputerSystemAttributes        `json:"attributes"`
+	EthernetInterfaces []APIExploredEthernetInterface      `json:"ethernetInterfaces"`
+	PCIeDevices        []APIExploredPCIeDevice             `json:"pcieDevices"`
+	PowerState         APIExploredComputerSystemPowerState `json:"powerState"`
+	BootOrder          *APIBootOrder                       `json:"bootOrder"`
 }
 
 // APIComputerSystemAttributes holds ComputerSystem attributes from Redfish.
 type APIComputerSystemAttributes struct {
-	NicMode *string `json:"nicMode,omitempty"`
+	NicMode *APIExploredNicMode `json:"nicMode"`
 }
+
+// APIExploredNicMode is the normalized REST representation of Core's NIC mode.
+type APIExploredNicMode string
+
+// APIExploredComputerSystemPowerState is the normalized REST representation of Core's power state.
+type APIExploredComputerSystemPowerState string
+
+// APIExploredInternalLockdownStatus is the normalized REST representation of Core's lockdown status.
+type APIExploredInternalLockdownStatus string
 
 // APIExploredEthernetInterface is a Redfish EthernetInterface from an exploration report.
 type APIExploredEthernetInterface struct {
-	ID               *string `json:"id,omitempty"`
-	Description      *string `json:"description,omitempty"`
-	InterfaceEnabled *bool   `json:"interfaceEnabled,omitempty"`
-	MacAddress       *string `json:"macAddress,omitempty"`
-	LinkStatus       *string `json:"linkStatus,omitempty"`
+	ID               *string `json:"id"`
+	Description      *string `json:"description"`
+	InterfaceEnabled *bool   `json:"interfaceEnabled"`
+	MacAddress       *string `json:"macAddress"`
+	LinkStatus       *string `json:"linkStatus"`
 }
 
 // APIExploredChassis is a Redfish Chassis from an exploration report.
 type APIExploredChassis struct {
 	ID              string                      `json:"id"`
-	NetworkAdapters []APIExploredNetworkAdapter `json:"networkAdapters,omitempty"`
-	Manufacturer    *string                     `json:"manufacturer,omitempty"`
-	Model           *string                     `json:"model,omitempty"`
-	PartNumber      *string                     `json:"partNumber,omitempty"`
-	SerialNumber    *string                     `json:"serialNumber,omitempty"`
+	NetworkAdapters []APIExploredNetworkAdapter `json:"networkAdapters"`
+	Manufacturer    *string                     `json:"manufacturer"`
+	Model           *string                     `json:"model"`
+	PartNumber      *string                     `json:"partNumber"`
+	SerialNumber    *string                     `json:"serialNumber"`
 }
 
 // APIExploredNetworkAdapter is a Redfish NetworkAdapter from an exploration report.
 type APIExploredNetworkAdapter struct {
 	ID           string  `json:"id"`
-	Manufacturer *string `json:"manufacturer,omitempty"`
-	Model        *string `json:"model,omitempty"`
-	PartNumber   *string `json:"partNumber,omitempty"`
-	SerialNumber *string `json:"serialNumber,omitempty"`
+	Manufacturer *string `json:"manufacturer"`
+	Model        *string `json:"model"`
+	PartNumber   *string `json:"partNumber"`
+	SerialNumber *string `json:"serialNumber"`
 }
 
 // APIExploredService is a Redfish UpdateService from an exploration report.
 type APIExploredService struct {
 	ID          string                 `json:"id"`
-	Inventories []APIExploredInventory `json:"inventories,omitempty"`
+	Inventories []APIExploredInventory `json:"inventories"`
 }
 
 // APIExploredInventory is firmware inventory from a Redfish UpdateService.
 type APIExploredInventory struct {
 	ID          string  `json:"id"`
-	Description *string `json:"description,omitempty"`
-	Version     *string `json:"version,omitempty"`
-	ReleaseDate *string `json:"releaseDate,omitempty"`
+	Description *string `json:"description"`
+	Version     *string `json:"version"`
+	ReleaseDate *string `json:"releaseDate"`
 }
 
 // APIMachineSetupStatus is the result of a Redfish machine-setup check.
 type APIMachineSetupStatus struct {
 	IsDone                 bool                           `json:"isDone"`
-	Diffs                  []APIMachineSetupDiff          `json:"diffs,omitempty"`
-	EvaluatedBootInterface *APIMachineBootInterfaceTarget `json:"evaluatedBootInterface,omitempty"`
+	Diffs                  []APIMachineSetupDiff          `json:"diffs"`
+	EvaluatedBootInterface *APIMachineBootInterfaceTarget `json:"evaluatedBootInterface"`
 }
 
 // APIMachineBootInterfaceTarget is the boot-interface target assessed during exploration.
 type APIMachineBootInterfaceTarget struct {
-	Pair    *APIMachineBootInterfacePair `json:"pair,omitempty"`
-	MacOnly *string                      `json:"macOnly,omitempty"`
+	Pair    *APIMachineBootInterfacePair `json:"pair"`
+	MacOnly *string                      `json:"macOnly"`
 }
 
 // APIMachineBootInterfacePair is a MAC and Redfish EthernetInterface.Id pair.
@@ -159,35 +168,35 @@ type APIMachineSetupDiff struct {
 
 // APIExploredPCIeDevice is a Redfish PCIe device from an exploration report.
 type APIExploredPCIeDevice struct {
-	Description     *string          `json:"description,omitempty"`
-	FirmwareVersion *string          `json:"firmwareVersion,omitempty"`
-	GpuVendor       *string          `json:"gpuVendor,omitempty"`
-	ID              *string          `json:"id,omitempty"`
-	Manufacturer    *string          `json:"manufacturer,omitempty"`
-	Name            *string          `json:"name,omitempty"`
-	PartNumber      *string          `json:"partNumber,omitempty"`
-	SerialNumber    *string          `json:"serialNumber,omitempty"`
-	Status          *APISystemStatus `json:"status,omitempty"`
+	Description     *string          `json:"description"`
+	FirmwareVersion *string          `json:"firmwareVersion"`
+	GpuVendor       *string          `json:"gpuVendor"`
+	ID              *string          `json:"id"`
+	Manufacturer    *string          `json:"manufacturer"`
+	Name            *string          `json:"name"`
+	PartNumber      *string          `json:"partNumber"`
+	SerialNumber    *string          `json:"serialNumber"`
+	Status          *APISystemStatus `json:"status"`
 }
 
 // APISystemStatus is Redfish health/state status.
 type APISystemStatus struct {
-	Health       *string `json:"health,omitempty"`
-	HealthRollup *string `json:"healthRollup,omitempty"`
+	Health       *string `json:"health"`
+	HealthRollup *string `json:"healthRollup"`
 	State        string  `json:"state"`
 }
 
 // APIBootOrder is a Redfish boot order list.
 type APIBootOrder struct {
-	BootOrder []APIBootOption `json:"bootOrder,omitempty"`
+	BootOrder []APIBootOption `json:"bootOrder"`
 }
 
 // APIBootOption is one Redfish boot option.
 type APIBootOption struct {
 	DisplayName       string  `json:"displayName"`
 	ID                string  `json:"id"`
-	BootOptionEnabled *bool   `json:"bootOptionEnabled,omitempty"`
-	UefiDevicePath    *string `json:"uefiDevicePath,omitempty"`
+	BootOptionEnabled *bool   `json:"bootOptionEnabled"`
+	UefiDevicePath    *string `json:"uefiDevicePath"`
 }
 
 // APISecureBootStatus is Redfish secure-boot status.
@@ -197,8 +206,8 @@ type APISecureBootStatus struct {
 
 // APILockdownStatus is Redfish lockdown status.
 type APILockdownStatus struct {
-	Status  string `json:"status"`
-	Message string `json:"message"`
+	Status  APIExploredInternalLockdownStatus `json:"status"`
+	Message string                            `json:"message"`
 }
 
 // NewAPIExploredEndpoint creates an API model from a Core ExploredEndpoint.
@@ -283,10 +292,8 @@ func newAPIEndpointExplorationReport(report *corev1.EndpointExplorationReport) *
 		out.SecureBootStatus = &APISecureBootStatus{IsEnabled: sbs.GetIsEnabled()}
 	}
 	if ls := report.GetLockdownStatus(); ls != nil {
-		out.LockdownStatus = &APILockdownStatus{
-			Status:  exploredInternalLockdownStatusFromProto(ls.GetStatus()),
-			Message: ls.GetMessage(),
-		}
+		out.LockdownStatus = &APILockdownStatus{Message: ls.GetMessage()}
+		out.LockdownStatus.Status.FromProto(ls.GetStatus())
 	}
 	if len(report.GetFirmwareVersions()) > 0 {
 		out.FirmwareVersions = make(map[string]string, len(report.GetFirmwareVersions()))
@@ -319,9 +326,9 @@ func newAPIExploredManager(m *corev1.Manager) APIExploredManager {
 
 func newAPIExploredComputerSystem(s *corev1.ComputerSystem) APIExploredComputerSystem {
 	out := APIExploredComputerSystem{
-		ID:         s.GetId(),
-		PowerState: exploredComputerSystemPowerStateFromProto(s.GetPowerState()),
+		ID: s.GetId(),
 	}
+	out.PowerState.FromProto(s.GetPowerState())
 	if s.Manufacturer != nil {
 		out.Manufacturer = s.Manufacturer
 	}
@@ -334,7 +341,8 @@ func newAPIExploredComputerSystem(s *corev1.ComputerSystem) APIExploredComputerS
 	if attrs := s.GetAttributes(); attrs != nil {
 		out.Attributes = &APIComputerSystemAttributes{}
 		if attrs.NicMode != nil {
-			mode := exploredNicModeFromProto(*attrs.NicMode)
+			mode := APIExploredNicMode("")
+			mode.FromProto(*attrs.NicMode)
 			out.Attributes.NicMode = &mode
 		}
 	}
@@ -454,24 +462,28 @@ func newAPIMachineSetupStatus(mss *corev1.MachineSetupStatus) *APIMachineSetupSt
 		}
 	}
 	if target := mss.GetEvaluatedBootInterface(); target != nil {
-		out.EvaluatedBootInterface = newAPIMachineBootInterfaceTarget(target)
+		out.EvaluatedBootInterface = &APIMachineBootInterfaceTarget{}
+		out.EvaluatedBootInterface.FromProto(target)
 	}
 	return out
 }
 
-func newAPIMachineBootInterfaceTarget(target *corev1.MachineBootInterfaceTarget) *APIMachineBootInterfaceTarget {
-	out := &APIMachineBootInterfaceTarget{}
+// FromProto converts a Core machine boot-interface target.
+func (r *APIMachineBootInterfaceTarget) FromProto(target *corev1.MachineBootInterfaceTarget) {
+	if target == nil {
+		return
+	}
+	*r = APIMachineBootInterfaceTarget{}
 	if pair := target.GetPair(); pair != nil {
-		out.Pair = &APIMachineBootInterfacePair{
+		r.Pair = &APIMachineBootInterfacePair{
 			MacAddress:  pair.GetMacAddress(),
 			InterfaceID: pair.GetInterfaceId(),
 		}
 	}
 	if _, ok := target.GetTarget().(*corev1.MachineBootInterfaceTarget_MacOnly); ok {
 		mac := target.GetMacOnly()
-		out.MacOnly = &mac
+		r.MacOnly = &mac
 	}
-	return out
 }
 
 func newAPIExploredPCIeDevice(d *corev1.PCIeDevice) APIExploredPCIeDevice {
@@ -533,45 +545,48 @@ func newAPIBootOrder(bo *corev1.BootOrder) *APIBootOrder {
 	return out
 }
 
-func exploredNicModeFromProto(mode corev1.NicMode) string {
+// FromProto converts a Core NIC mode, preserving unknown values as Unknown.
+func (r *APIExploredNicMode) FromProto(mode corev1.NicMode) {
 	switch mode {
 	case corev1.NicMode_DPU:
-		return "Dpu"
+		*r = "Dpu"
 	case corev1.NicMode_NIC:
-		return "Nic"
+		*r = "Nic"
 	default:
-		return "Unknown"
+		*r = "Unknown"
 	}
 }
 
-func exploredComputerSystemPowerStateFromProto(state corev1.ComputerSystemPowerState) string {
+// FromProto converts a Core computer-system power state, preserving unknown values as Unknown.
+func (r *APIExploredComputerSystemPowerState) FromProto(state corev1.ComputerSystemPowerState) {
 	switch state {
 	case corev1.ComputerSystemPowerState_On:
-		return "On"
+		*r = "On"
 	case corev1.ComputerSystemPowerState_Off:
-		return "Off"
+		*r = "Off"
 	case corev1.ComputerSystemPowerState_PoweringOff:
-		return "PoweringOff"
+		*r = "PoweringOff"
 	case corev1.ComputerSystemPowerState_PoweringOn:
-		return "PoweringOn"
+		*r = "PoweringOn"
 	case corev1.ComputerSystemPowerState_Paused:
-		return "Paused"
+		*r = "Paused"
 	case corev1.ComputerSystemPowerState_Unknown:
-		return "Unknown"
+		*r = "Unknown"
 	default:
-		return "Unknown"
+		*r = "Unknown"
 	}
 }
 
-func exploredInternalLockdownStatusFromProto(status corev1.InternalLockdownStatus) string {
+// FromProto converts a Core lockdown status, preserving unknown values as Unknown.
+func (r *APIExploredInternalLockdownStatus) FromProto(status corev1.InternalLockdownStatus) {
 	switch status {
 	case corev1.InternalLockdownStatus_ENABLED:
-		return "Enabled"
+		*r = "Enabled"
 	case corev1.InternalLockdownStatus_PARTIAL:
-		return "Partial"
+		*r = "Partial"
 	case corev1.InternalLockdownStatus_DISABLED:
-		return "Disabled"
+		*r = "Disabled"
 	default:
-		return "Unknown"
+		*r = "Unknown"
 	}
 }

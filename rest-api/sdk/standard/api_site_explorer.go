@@ -245,7 +245,7 @@ func (r ApiGetAllSiteExplorerEndpointRequest) Execute() ([]ExploredEndpoint, *ht
 /*
 GetAllSiteExplorerEndpoint Retrieve all Explored Endpoints
 
-Retrieve explored endpoints discovered by Site Explorer for a Site.
+Retrieve explored endpoints discovered by Site Explorer for a Site. Results are ordered by ascending endpoint ID.
 
 The response is paged over Core `FindExploredEndpointIds` followed by
 `FindExploredEndpointsByIds`. Pagination metadata is returned in the

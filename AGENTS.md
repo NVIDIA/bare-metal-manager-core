@@ -71,6 +71,14 @@ infra-controller/
 
 ## Build, Test, and Lint Commands
 
+### Pull-request verification order
+
+Before manual or simulator verification of a pull request, fetch the latest
+remote branch and review comments, implement and locally verify all required
+updates, push the signed commit, and confirm the pull request's remote head is
+that exact commit. Manual and DevSpace evidence collected before the confirmed
+push is stale and must not be used as final-head verification.
+
 All task automation uses `cargo-make`. Install it with:
 
 ```bash

@@ -6,6 +6,7 @@ package handler
 import (
 	"encoding/json"
 	"net/http"
+	"sort"
 
 	"github.com/labstack/echo/v4"
 
@@ -39,7 +40,7 @@ func NewGetAllExploredEndpointHandler(dbSession *cdb.Session, scp *sc.ClientPool
 
 // Handle godoc
 // @Summary Retrieve all Explored Endpoints
-// @Description Retrieve explored endpoints discovered by Site Explorer for a Site.
+// @Description Retrieve explored endpoints discovered by Site Explorer for a Site, ordered by ascending endpoint ID.
 // @Tags site-explorer
 // @Accept json
 // @Produce json
@@ -100,11 +101,12 @@ func (h GetAllExploredEndpointHandler) Handle(c echo.Context) error {
 		siteID,
 	)
 	if apiErr != nil {
-		logAPIError(logger, apiErr, "failed to find explored endpoint IDs")
+		logAPIError(logger, apiErr, "failed to retrieve explored endpoint IDs from Site")
 		return cutil.NewAPIErrorResponse(c, apiErr.Code, apiErr.Message, nil)
 	}
 
-	allIDs := ids.GetEndpointIds()
+	allIDs := append([]string(nil), ids.GetEndpointIds()...)
+	sort.Strings(allIDs)
 	total := len(allIDs)
 
 	start := *pageRequest.Offset

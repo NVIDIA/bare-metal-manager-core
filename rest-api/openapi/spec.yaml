@@ -1706,7 +1706,7 @@ paths:
           $ref: '#/components/responses/GenericHttpError'
       operationId: get-all-site-explorer-endpoint
       description: |-
-        Retrieve explored endpoints discovered by Site Explorer for a Site.
+        Retrieve explored endpoints discovered by Site Explorer for a Site. Results are ordered by ascending endpoint ID.
 
         The response is paged over Core `FindExploredEndpointIds` followed by
         `FindExploredEndpointsByIds`. Pagination metadata is returned in the

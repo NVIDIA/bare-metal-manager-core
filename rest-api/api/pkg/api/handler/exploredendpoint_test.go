@@ -52,7 +52,7 @@ func TestGetAllExploredEndpointHandler_Handle(t *testing.T) {
 			roles:        []string{authz.ProviderAdminRole},
 			injectSiteID: true,
 			extraQuery:   "",
-			ids:          &corev1.ExploredEndpointIdList{EndpointIds: []string{"10.0.0.1", "10.0.0.2"}},
+			ids:          &corev1.ExploredEndpointIdList{EndpointIds: []string{"10.0.0.2", "10.0.0.1"}},
 			endpoints: &corev1.ExploredEndpointList{
 				Endpoints: []*corev1.ExploredEndpoint{
 					{Address: "10.0.0.1", ReportVersion: "1"},
