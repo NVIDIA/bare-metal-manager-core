@@ -744,8 +744,8 @@ jobs:
       # any new commit invalidates the builder layer and the expensive cargo
       # step can never be restored. Exporting it anyway measured 7m32s on a main
       # run and bought two cached layers, while its multi-GB blobs were the bulk
-      # of what pushed the 50 GB Actions quota to its ceiling and evicted the
-      # sccache entries. sccache is what carries reuse across commits here.
+      # of what filled up the Actions quota and evicted the sccache
+      # entries.
       cache: false
       build_args: ${{ needs.prepare.outputs.release_build_args }}
       image_name: ${{ needs.prepare.outputs.image_registry }}/nvmetal-carbide
@@ -857,8 +857,8 @@ jobs:
       # Dockerfile does `COPY . .` before the cargo build, so any new commit
       # invalidates the builder layer and nothing expensive can ever be
       # restored. `mode=max` still exported the whole builder stage on every
-      # main commit, pushing `388 MB` blobs into the `50 GB` Actions cache
-      # pool that sccache depends on.
+      # main commit, pushing multi-hundred-MB blobs into the Actions cache pool
+      # that sccache depends on.
       cache: false
       build_args: >-
         ${{ format('{{"VERSION":"{0}","CI_COMMIT_SHORT_SHA":"{1}"}}',
@@ -1002,13 +1002,12 @@ jobs:
       # a run that changes no dependencies hits the primary key and skips the
       # upload rather than rewriting an equivalent entry.
       #
-      # Only main saves. This entry is ~5 GB, and the restore-keys prefix above
-      # means any pull request whose Cargo.lock differs from main's takes a
-      # prefix match rather than an exact one, so cache-hit is false and the
-      # save fires, storing a ref-scoped 5 GB copy nothing else can read. Three
-      # such copies were live at once, 15 GB of a 50 GB pool, which evicted the
-      # sccache objects the image builds read down to 3.5 GB. Pull requests keep
-      # restoring main's entry through that same prefix, so they still start warm.
+      # Only main saves. The restore-keys prefix above means a pull request whose
+      # Cargo.lock differs from main's takes a prefix match rather than an exact
+      # one, so cache-hit is false and the save fires, storing a large ref-scoped
+      # copy nothing else can read. Several were live at once, evicting the
+      # sccache objects the image builds read. Pull requests keep restoring
+      # main's entry through that same prefix, so they still start warm.
       - name: Save sccache
         if: ${{ !cancelled() && github.ref == 'refs/heads/main' && steps.sccache.outputs.cache-hit != 'true' }}
         uses: actions/cache/save@v4
@@ -1259,9 +1258,9 @@ jobs:
       target_prebuild_login: ${{ needs.prepare.outputs.bases_rebuilt == 'true' && needs.prepare.outputs.publish_images == 'true' }}
       dockerfile_path: dev/docker/Dockerfile.release-artifacts-x86_64
       # No RUN steps, so there are no expensive layers worth reusing. The
-      # multi-GB blob COPY layer would also take a large bite out of the 50 GB
-      # per-repo Actions cache quota now shared with the layer and sccache
-      # caches the rest of the pipeline depends on.
+      # multi-GB blob COPY layer would also take a large bite out of the per-repo
+      # Actions cache quota shared with the layer and sccache caches the rest of
+      # the pipeline depends on.
       cache: false
       image_name: ${{ needs.prepare.outputs.image_registry }}/boot-artifacts-x86_64
       image_tag: ${{ needs.prepare.outputs.version }}
@@ -1299,9 +1298,9 @@ jobs:
       target_prebuild_login: ${{ needs.prepare.outputs.bases_rebuilt == 'true' && needs.prepare.outputs.publish_images == 'true' }}
       dockerfile_path: dev/docker/Dockerfile.release-artifacts-aarch64
       # No RUN steps, so there are no expensive layers worth reusing. The
-      # multi-GB blob COPY layer would also take a large bite out of the 50 GB
-      # per-repo Actions cache quota now shared with the layer and sccache
-      # caches the rest of the pipeline depends on.
+      # multi-GB blob COPY layer would also take a large bite out of the per-repo
+      # Actions cache quota shared with the layer and sccache caches the rest of
+      # the pipeline depends on.
       cache: false
       image_name: ${{ needs.prepare.outputs.image_registry }}/boot-artifacts-aarch64
       image_tag: ${{ needs.prepare.outputs.version }}
