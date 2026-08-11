@@ -1557,10 +1557,11 @@ jobs:
           persist-credentials: false
           fetch-depth: 0
 
-      - name: Check new migration timestamps
+      - name: Check migration policy
         run: |
           git fetch --no-tags origin main:refs/remotes/origin/main
           bash scripts/check-migration-filenames.sh --base origin/main
+          bash scripts/check-migration-immutability.sh --base origin/main
 
   proto-breaking-changes:
     name: Proto Breaking Changes Check
