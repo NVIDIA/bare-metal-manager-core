@@ -1356,6 +1356,7 @@ jobs:
           else
             BEFORE="${{ github.event.before }}"
             echo "base=$BEFORE" >> "$GITHUB_OUTPUT"
+            echo "head=$GITHUB_SHA" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Run TruffleHog Scan
