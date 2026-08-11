@@ -17,7 +17,7 @@ This guide covers the cloud-hosted topology — deploying the REST control plane
 
 All manifests live under `deploy/kustomize/` with the following structure:
 
-```
+```text
 deploy/kustomize/
 ├── base/                 # Reusable base manifests (not applied directly)
 │   ├── api/              # nico-rest-api
@@ -64,7 +64,7 @@ deploy/kustomize/
 
 ## Order of Operations
 
-```
+```text
 1.  Create namespaces
 2.  Create CA signing secret            ← prerequisite for nico-rest-cert-manager
 3.  Deploy PostgreSQL
@@ -91,6 +91,7 @@ kubectl apply -f deploy/kustomize/base/temporal-helm/namespace.yaml
 ```
 
 **Files:**
+
 - `deploy/kustomize/base/postgres/namespace.yaml` — creates `postgres` namespace
 - `deploy/kustomize/base/temporal-helm/namespace.yaml` — creates `temporal` namespace
 
@@ -108,7 +109,7 @@ The CA certificate is the trust anchor for the entire deployment. Every TLS cert
 
 ### Required secret shape
 
-```
+```text
 Secret name: ca-signing-secret  (type: kubernetes.io/tls)
 Namespaces:  `nico-rest`  and  `cert-manager`
 Keys:
@@ -329,7 +330,7 @@ The `common/` base provides all shared secrets and cert-manager `Certificate` re
 
 This cert-manager `Certificate` is issued by `nico-rest-ca-issuer` and stored in the secret `temporal-client-cloud-certs`. It covers the following DNS names, allowing the API and both workers to authenticate to Temporal as the same logical client identity:
 
-```
+```text
 temporal-client, nico-rest-api, cloud-worker, site-worker
 ```
 
@@ -725,9 +726,11 @@ The site agent bootstrap flow is:
 ### SPIFFE gRPC certificate
 
 The `certificate.yaml` resource issues a cert-manager `Certificate` with SPIFFE URI:
-```
+
+```text
 spiffe://nico.local/nico-rest/sa/nico-rest-site-agent
 ```
+
 This is the client identity the site agent presents when connecting to the NICo core gRPC API.
 
 ### Configuring a site for bootstrap
@@ -795,22 +798,26 @@ make docker-build IMAGE_REGISTRY=my-registry.example.com/nico IMAGE_TAG=v1.0.0
 ### Authenticate and push
 
 **AWS ECR:**
+
 ```bash
 aws ecr get-login-password --region us-east-1 \
   | docker login --username AWS --password-stdin 123456789.dkr.ecr.us-east-1.amazonaws.com
 ```
 
 **Google Artifact Registry:**
+
 ```bash
 gcloud auth configure-docker
 ```
 
 **Azure Container Registry:**
+
 ```bash
 az acr login --name myregistry
 ```
 
 **Push after building:**
+
 ```bash
 REGISTRY=my-registry.example.com/nico
 TAG=v1.0.0

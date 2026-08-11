@@ -40,7 +40,7 @@ For the optional site-local monitoring stack (metrics + logs + traces: Prometheu
 
 ## Directory structure
 
-```
+```text
 helm-prereqs/
 ├── setup.sh                    # Main deployment script - runs all phases sequentially
 ├── preflight.sh                # Pre-flight validation (also run automatically by setup.sh)
@@ -435,7 +435,7 @@ handful of legacy hostnames in the `.forge` zone:
 | `otel-receiver.forge` | 443 | otel-collector sidecars — gRPC/TLS | otel receiver VIP |
 | `socks.forge` | 1888 | DPU extension services (hardcoded in agent binary) | socks VIP |
 
-Per the [dual-deployment-compat POR](../docs/internal/POR-dual-deployment-compat.md),
+Per the dual-deployment compatibility plan,
 these names stay hardcoded in the binary for now. The deployment is responsible
 for resolving them. Two ways to do that:
 
@@ -487,7 +487,7 @@ If you're migrating from an existing forged-kustomize site and want the
 DPUs already in the field (which have certs in the `forge.local` trust
 domain) to keep authenticating, also override
 `global.spiffe.trustDomain` to `forge.local` in your values. See the
-[dual-deployment-compat POR](../docs/internal/POR-dual-deployment-compat.md)
+dual-deployment compatibility plan
 for the in-place upgrade caveats.
 
 ## Health check
