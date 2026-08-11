@@ -302,7 +302,7 @@ if [[ "${DSX_GATEWAY_ENABLED}" == "1" ]]; then
   if ! jq -e '
     .result.tools as $tools |
     ($tools | type == "array" and length > 1) and
-    any($tools[]; .name | endswith("_dsx_bridge_list_shards")) and
+    any($tools[]; .name == "dsx_bridge_list_shards") and
     any($tools[]; .inputSchema.properties.shard_id != null)
   ' <<<"${tools_list_json}" >/dev/null; then
     printf 'DSX Agent Gateway did not return the bridge shard tool and routed NICo MCP tools\n' >&2
