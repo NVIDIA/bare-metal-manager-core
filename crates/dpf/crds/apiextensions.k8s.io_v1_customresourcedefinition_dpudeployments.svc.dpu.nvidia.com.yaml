@@ -377,6 +377,14 @@ spec:
                         - key
                         type: object
                     type: object
+                    x-kubernetes-validations:
+                    - message: exactly one of taint, noEffect=true, drain=true, non-empty
+                        customLabel, non-empty customAction, hold=true must be set
+                      rule: '(has(self.taint) ? 1 : 0) + ((has(self.noEffect) && self.noEffect)
+                        ? 1 : 0) + ((has(self.customLabel) && size(self.customLabel)
+                        > 0) ? 1 : 0) + ((has(self.drain) && self.drain) ? 1 : 0)
+                        + ((has(self.customAction) && size(self.customAction) > 0)
+                        ? 1 : 0) + ((has(self.hold) && self.hold) ? 1 : 0) == 1'
                   secureBoot:
                     description: SecureBoot specifies whether UEFI Secure Boot should
                       be enabled.

@@ -43,6 +43,7 @@ use crate::crds::dpudevices_generated::{DPUDevice, DpuDeviceSpec};
 use crate::crds::dpunodes_generated::{
     DPUNode, DpuNodeDpus, DpuNodeNodeRebootMethod, DpuNodeNodeRebootMethodExternal, DpuNodeSpec,
 };
+use crate::crds::dpus_generated::DPU;
 use crate::crds::dpuserviceconfigurations_generated::{
     DPUServiceConfiguration, DpuServiceConfigurationInterfaces,
     DpuServiceConfigurationServiceConfiguration,
@@ -1637,28 +1638,34 @@ impl<R: DpuRepository, L> DpfSdk<R, L> {
 }
 
 impl<R: DpuDeploymentRepository + DpuRepository, L> DpfSdk<R, L> {
-    /// Find DPUs whose installed BFB or `spec.dpuFlavor` no longer matches
-    /// the values declared on the DPUDeployment that owns them.
+    /// Find DPUs whose installed BFB, BlueFieldSoftware, or `spec.dpuFlavor` no
+    /// longer matches the values declared on the DPUDeployment that owns them.
     ///
     /// Each DPU is expected to carry the
     /// `svc.dpu.nvidia.com/owned-by-dpudeployment` label (set by the DPF
     /// operator) whose value is `<namespace>_<deployment_name>`. We use that
-    /// label to look up the owning DPUDeployment and read `spec.dpus.bfb`
-    /// (BFB CR name) and `spec.dpus.flavor` from it for the comparison.
+    /// label to look up the owning DPUDeployment and read `spec.dpus.flavor`
+    /// plus whichever provisioning source it declares — `spec.dpus.bfb` (BFB CR
+    /// name) or `spec.dpus.blueFieldSoftware` (BlueFieldSoftware CR name) — for
+    /// the comparison.
     ///
     /// Reading from the deployment — rather than from carbide config —
     /// keeps the comparison correct when multiple DPUDeployments coexist,
-    /// each pinning their DPUs to a different BFB or flavor.
+    /// each pinning their DPUs to a different image or flavor.
     ///
     /// The DPF operator stores the downloaded BFB on disk as
     /// `/bfb/<namespace>-<bfb_cr_name>.bfb` and reflects that path in
     /// `DPU.status.bfbFile`, so the expected filename is just
-    /// `<namespace>-<spec.dpus.bfb>.bfb`.
+    /// `<namespace>-<spec.dpus.bfb>.bfb`. BlueFieldSoftware has no equivalent
+    /// installed-version field in `DPU.status`, so it is compared against
+    /// `DPU.spec.blueFieldSoftware`.
     ///
     /// DPUs are skipped (not flagged) when:
-    /// - the owned-by label is missing or points to an unknown deployment, or
+    /// - the owned-by label is missing or points to an unknown deployment,
     /// - the owning DPUDeployment is not currently reconciled
-    ///   (`DPUSetsReconciled=True` with matching `observedGeneration`),
+    ///   (`DPUSetsReconciled=True` with matching `observedGeneration`), or
+    /// - the owning DPUDeployment declares neither or both provisioning
+    ///   sources, which the DPU CRD forbids,
     ///
     /// to avoid acting on a partially-reconciled or mislabeled cluster.
     ///
@@ -1714,48 +1721,74 @@ impl<R: DpuDeploymentRepository + DpuRepository, L> DpfSdk<R, L> {
                     return None;
                 };
 
-                let expected_flavor = deployment.spec.dpus.flavor.clone().unwrap_or_default();
-                let flavor_matches = dpu.spec.dpu_flavor == expected_flavor;
-
-                // BF4-class deployments provision from a BlueFieldSoftware CR
-                // (`spec.dpus.bfb` is unset) rather than a BFB. We have no
-                // BFB filename to compare against in that case, so only the
-                // flavor is checked to avoid falsely flagging every BF4 DPU as
-                // outdated.
-                // TODO: compare the installed BlueFieldSoftware version once the
-                // DPU status exposes it, so BF4 software changes trigger reprovisioning.
-                let Some(expected_bfb_cr_name) = deployment.spec.dpus.bfb.clone() else {
-                    if flavor_matches {
-                        return None;
-                    }
-                    return Some(DpuMismatch {
-                        dpu_cr_name: cr_name,
-                        dpu_labels: dpu.metadata.labels.clone().unwrap_or_default(),
-                        target_bfb: String::new(),
-                    });
-                };
-
-                let expected_filename = format!("{}-{}.bfb", self.namespace, expected_bfb_cr_name);
-
-                let current_basename = dpu
-                    .status
-                    .as_ref()
-                    .and_then(|s| s.bfb_file.as_deref())
-                    .map(bfb_file_basename);
-                let bfb_matches = current_basename == Some(expected_filename.as_str());
-                if bfb_matches && flavor_matches {
-                    return None;
-                }
-                Some(DpuMismatch {
-                    dpu_cr_name: cr_name,
-                    dpu_labels: dpu.metadata.labels.clone().unwrap_or_default(),
-                    target_bfb: expected_filename,
-                })
+                dpu_mismatch(&self.namespace, &dpu, deployment)
             })
             .collect();
 
         Ok(mismatches)
     }
+}
+
+/// Compare one DPU against the DPUDeployment that owns it.
+///
+/// Returns `None` when the DPU already matches the deployment (so a
+/// reprovision would be pointless) and `Some` describing the drift when it does
+/// not. Also returns `None` when the deployment is malformed, so a bad
+/// deployment never triggers a fleet-wide reprovision.
+///
+/// Split out of [`DpfSdk::find_outdated_dpus_dpf`] so the comparison can be
+/// exercised directly, without standing up repository mocks for a namespace
+/// scan.
+fn dpu_mismatch(namespace: &str, dpu: &DPU, deployment: &DPUDeployment) -> Option<DpuMismatch> {
+    let cr_name = dpu.metadata.name.clone()?;
+    let expected_flavor = deployment.spec.dpus.flavor.clone().unwrap_or_default();
+    let flavor_matches = dpu.spec.dpu_flavor == expected_flavor;
+
+    // A DPUDeployment provisions from either a BFB or a BlueFieldSoftware CR;
+    // the DPU CRD enforces that exactly one is set. BFB staleness is read from
+    // `status.bfbFile`, the image actually installed. BlueFieldSoftware has no
+    // installed-version field in status, so it is compared against `spec`
+    // instead: the DPUSet strategy is OnDelete, so an existing DPU keeps the
+    // spec it was created with, and a spec mismatch means it predates the
+    // current deployment.
+    let (source_matches, target_source) = match (
+        deployment.spec.dpus.bfb.as_deref(),
+        deployment.spec.dpus.blue_field_software.as_deref(),
+    ) {
+        (Some(expected_bfb_cr_name), None) => {
+            let expected_filename = format!("{namespace}-{expected_bfb_cr_name}.bfb");
+            let current_basename = dpu
+                .status
+                .as_ref()
+                .and_then(|s| s.bfb_file.as_deref())
+                .map(bfb_file_basename);
+            let matches = current_basename == Some(expected_filename.as_str());
+            (matches, expected_filename)
+        }
+        (None, Some(expected_software)) => {
+            let matches = dpu.spec.blue_field_software.as_deref() == Some(expected_software);
+            (matches, expected_software.to_string())
+        }
+        // Neither or both set violates the DPU CRD's
+        // `has(self.bfb) != has(self.blueFieldSoftware)` rule. Skip rather than
+        // reprovision every DPU off a malformed deployment.
+        _ => {
+            tracing::warn!(
+                dpu_name = %cr_name,
+                "Owning DPUDeployment sets neither or both of bfb and blueFieldSoftware; skipping"
+            );
+            return None;
+        }
+    };
+
+    if source_matches && flavor_matches {
+        return None;
+    }
+    Some(DpuMismatch {
+        dpu_cr_name: cr_name,
+        dpu_labels: dpu.metadata.labels.clone().unwrap_or_default(),
+        target_source,
+    })
 }
 
 /// Extract the trailing filename from a `DPU.status.bfbFile` path
@@ -3926,5 +3959,144 @@ mod tests {
             run,
         )
         .await;
+    }
+
+    const TEST_FLAVOR: &str = "test-flavor";
+
+    fn deployment_with(source: DpuProvisioningSource, flavor: &str) -> DPUDeployment {
+        build_deployment(
+            &[],
+            "test-deployment",
+            &source,
+            flavor,
+            TEST_NAMESPACE,
+            &[],
+            BTreeMap::new(),
+            DpuDeploymentType::Bf3,
+        )
+    }
+
+    /// Build a DPU through serde so the literal only names the fields each test
+    /// cares about; every other CRD field defaults, and adding one upstream does
+    /// not churn these tests.
+    fn dpu_with(
+        bfb: Option<&str>,
+        blue_field_software: Option<&str>,
+        flavor: &str,
+        installed_bfb_file: Option<&str>,
+    ) -> DPU {
+        let spec = serde_json::json!({
+            "bfb": bfb,
+            "blueFieldSoftware": blue_field_software,
+            "dpuDeviceName": "device-001",
+            "dpuFlavor": flavor,
+            "dpuNodeName": "node-host-001",
+            "nodeEffect": {},
+            "serialNumber": "SN123",
+        });
+        let status = serde_json::json!({
+            "phase": "Ready",
+            "bfbFile": installed_bfb_file,
+        });
+
+        DPU {
+            metadata: kube::core::ObjectMeta {
+                name: Some("node-host-001-device-001".to_string()),
+                namespace: Some(TEST_NAMESPACE.to_string()),
+                ..Default::default()
+            },
+            spec: serde_json::from_value(spec).expect("valid DpuSpec"),
+            status: Some(serde_json::from_value(status).expect("valid DpuStatus")),
+        }
+    }
+
+    #[test]
+    fn bfb_dpu_matching_its_deployment_is_not_outdated() {
+        let deployment = deployment_with(
+            DpuProvisioningSource::Bfb("bf-bundle-abc".to_string()),
+            TEST_FLAVOR,
+        );
+        let dpu = dpu_with(
+            Some("bf-bundle-abc"),
+            None,
+            TEST_FLAVOR,
+            Some("/bfb/test-namespace-bf-bundle-abc.bfb"),
+        );
+
+        assert!(dpu_mismatch(TEST_NAMESPACE, &dpu, &deployment).is_none());
+    }
+
+    #[test]
+    fn bfb_dpu_running_an_older_image_is_outdated() {
+        let deployment = deployment_with(
+            DpuProvisioningSource::Bfb("bf-bundle-new".to_string()),
+            TEST_FLAVOR,
+        );
+        let dpu = dpu_with(
+            Some("bf-bundle-old"),
+            None,
+            TEST_FLAVOR,
+            Some("/bfb/test-namespace-bf-bundle-old.bfb"),
+        );
+
+        let mismatch = dpu_mismatch(TEST_NAMESPACE, &dpu, &deployment).expect("outdated");
+        assert_eq!(mismatch.target_source, "test-namespace-bf-bundle-new.bfb");
+    }
+
+    #[test]
+    fn blue_field_software_dpu_matching_its_deployment_is_not_outdated() {
+        let deployment = deployment_with(
+            DpuProvisioningSource::BlueFieldSoftware("bf-software-abc".to_string()),
+            TEST_FLAVOR,
+        );
+        let dpu = dpu_with(None, Some("bf-software-abc"), TEST_FLAVOR, None);
+
+        assert!(dpu_mismatch(TEST_NAMESPACE, &dpu, &deployment).is_none());
+    }
+
+    /// A BlueFieldSoftware change used to be invisible: with no BFB to compare,
+    /// only the flavor was checked, so a BF4 DPU pinned to superseded software
+    /// was reported as up to date and never reprovisioned.
+    #[test]
+    fn blue_field_software_change_marks_dpu_outdated() {
+        let deployment = deployment_with(
+            DpuProvisioningSource::BlueFieldSoftware("bf-software-new".to_string()),
+            TEST_FLAVOR,
+        );
+        let dpu = dpu_with(None, Some("bf-software-old"), TEST_FLAVOR, None);
+
+        let mismatch = dpu_mismatch(TEST_NAMESPACE, &dpu, &deployment).expect("outdated");
+        assert_eq!(mismatch.target_source, "bf-software-new");
+    }
+
+    #[test]
+    fn flavor_change_marks_blue_field_software_dpu_outdated() {
+        let deployment = deployment_with(
+            DpuProvisioningSource::BlueFieldSoftware("bf-software-abc".to_string()),
+            "new-flavor",
+        );
+        let dpu = dpu_with(None, Some("bf-software-abc"), TEST_FLAVOR, None);
+
+        let mismatch = dpu_mismatch(TEST_NAMESPACE, &dpu, &deployment).expect("outdated");
+        assert_eq!(mismatch.target_source, "bf-software-abc");
+    }
+
+    /// The DPU CRD requires exactly one provisioning source. A deployment that
+    /// satisfies neither side of that rule must not reprovision the fleet.
+    #[test]
+    fn deployment_with_both_or_neither_source_is_skipped() {
+        let dpu = dpu_with(Some("bf-bundle-abc"), None, TEST_FLAVOR, None);
+
+        let mut both = deployment_with(
+            DpuProvisioningSource::Bfb("bf-bundle-abc".to_string()),
+            TEST_FLAVOR,
+        );
+        both.spec.dpus.blue_field_software = Some("bf-software-abc".to_string());
+        assert!(dpu_mismatch(TEST_NAMESPACE, &dpu, &both).is_none());
+
+        let mut neither = both;
+        neither.spec.dpus.bfb = None;
+        neither.spec.dpus.blue_field_software = None;
+        assert!(dpu_mismatch(TEST_NAMESPACE, &dpu, &neither).is_none());
     }
 }

@@ -1768,9 +1768,9 @@ async fn create_fast_path(
                     // Another simultaneous create got the same FQDN, try again.
                     false
                 }
-                Err(DatabaseError::TryAgain) => {
-                    // All the IP's in the batch we grabbed from the database got taken by other
-                    // concurrent calls to create_fast_path. Try again.
+                Err(DatabaseError::TryAgain | DatabaseError::AddressAlreadyInUse(_)) => {
+                    // The candidates we read were claimed before this attempt
+                    // could insert them. Roll back and select another batch.
                     false
                 }
                 Err(DatabaseError::ResourceExhausted(_)) if segments_idx < segments.len() - 1 => {
@@ -2169,7 +2169,8 @@ async fn create_inner(
     .await?;
 
     for address in allocated_addresses {
-        insert_machine_interface_address(txn, &interface_id, address, allocation_type).await?;
+        crate::machine_interface_address::insert(txn, interface_id, *address, allocation_type)
+            .await?;
     }
 
     Ok(interface_id)
@@ -2408,6 +2409,8 @@ pub async fn find_optional_for_update_by_ip(
     match interface_ids.as_slice() {
         [] => Ok(None),
         [(interface_id,)] => find_one(txn, *interface_id).await.map(Some),
+        // The address uniqueness constraint makes this unreachable on a valid schema. Keep the
+        // guard so discovery fails closed if database invariants are bypassed.
         _ => Err(DatabaseError::internal(format!(
             "multiple machine interfaces map to discovery IP {remote_ip}"
         ))),
@@ -2502,28 +2505,6 @@ async fn insert_machine_interface(
         })?;
 
     Ok(interface_id)
-}
-
-/// insert_machine_interface_address inserts a new machine interface
-/// address entry into the database. In the case of machine interfaces,
-/// this explicitly takes an `IpAddr`, since machine interfaces are
-/// always going to be a /32. It is up to the caller to ensure a possible
-/// IpNetwork returned from the IpAllocator is of the correct size.
-async fn insert_machine_interface_address(
-    txn: &mut PgConnection,
-    interface_id: &MachineInterfaceId,
-    address: &IpAddr,
-    allocation_type: model::allocation_type::AllocationType,
-) -> DatabaseResult<()> {
-    let query = "INSERT INTO machine_interface_addresses (interface_id, address, allocation_type) VALUES ($1::uuid, $2::inet, $3)";
-    sqlx::query(query)
-        .bind(interface_id)
-        .bind(address)
-        .bind(allocation_type)
-        .execute(txn)
-        .await
-        .map_err(|e| DatabaseError::query(query, e))?;
-    Ok(())
 }
 
 async fn find_by<'a, C: ColumnInfo<'a, TableType = MachineInterfaceSnapshot>>(
@@ -3542,10 +3523,10 @@ pub async fn allocate_address_for_family(
         allocated_addresses =
             allocate_v6_addresses_via_ip_allocator(&mut fast_txn, &ipv6_segment).await?;
         for address in &allocated_addresses {
-            insert_machine_interface_address(
+            crate::machine_interface_address::insert(
                 fast_txn.as_pgconn(),
-                &interface_id,
-                address,
+                interface_id,
+                *address,
                 AllocationType::Dhcp,
             )
             .await?;
@@ -3558,10 +3539,10 @@ pub async fn allocate_address_for_family(
         {
             let address = allocate_next_ip_with_retry(&mut fast_txn, segment, prefix).await?;
             allocated_addresses.push(address);
-            insert_machine_interface_address(
+            crate::machine_interface_address::insert(
                 fast_txn.as_pgconn(),
-                &interface_id,
-                &address,
+                interface_id,
+                address,
                 AllocationType::Dhcp,
             )
             .await?;

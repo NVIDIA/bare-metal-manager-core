@@ -18,11 +18,12 @@
 use std::collections::HashMap;
 use std::time::SystemTime;
 
+use opentelemetry::{Key, Value};
 use serde::Serialize;
 
 use super::collector_logs::ExportLogsServiceRequest;
 use super::collector_metrics::ExportMetricsServiceRequest;
-use super::common::{AnyValue, KeyValue, any_value};
+use super::common::{AnyValue, KeyValue};
 use super::logs::{LogRecord as OtlpLogRecord, ResourceLogs, ScopeLogs, SeverityNumber};
 use super::metrics::{
     Gauge as OtlpGauge, Metric as OtlpMetric, NumberDataPoint, ResourceMetrics, ScopeMetrics,
@@ -52,32 +53,6 @@ fn severity_text_to_number(severity: &str) -> i32 {
     }
 }
 
-fn string_value(s: String) -> Option<AnyValue> {
-    Some(AnyValue {
-        value: Some(any_value::Value::StringValue(s)),
-    })
-}
-
-fn int_value(value: i64) -> Option<AnyValue> {
-    Some(AnyValue {
-        value: Some(any_value::Value::IntValue(value)),
-    })
-}
-
-fn kv(key: &str, val: String) -> KeyValue {
-    KeyValue {
-        key: key.to_string(),
-        value: string_value(val),
-    }
-}
-
-fn int_kv(key: &str, value: i64) -> KeyValue {
-    KeyValue {
-        key: key.to_string(),
-        value: int_value(value),
-    }
-}
-
 fn resource_group_key(context: &EventContext) -> String {
     format!("{}|{}", context.endpoint_key, context.collector_type)
 }
@@ -86,74 +61,72 @@ fn resource_attributes(context: &EventContext) -> Vec<KeyValue> {
     let mut attrs = Vec::new();
     match context.switch_endpoint_role() {
         Some(SwitchEndpointRole::Host) => {
-            attrs.push(kv("switch.endpoint", context.endpoint_key.clone()));
-            attrs.push(kv("switch.ip", context.addr.ip.to_string()));
+            attrs.push(KeyValue::new(
+                "switch.endpoint",
+                context.endpoint_key.clone(),
+            ));
+            attrs.push(KeyValue::new("switch.ip", context.addr.ip.to_string()));
         }
         _ => {
-            attrs.push(kv("bmc.endpoint", context.endpoint_key.clone()));
-            attrs.push(kv("bmc.ip", context.addr.ip.to_string()));
+            attrs.push(KeyValue::new("bmc.endpoint", context.endpoint_key.clone()));
+            attrs.push(KeyValue::new("bmc.ip", context.addr.ip.to_string()));
         }
     }
-    attrs.push(kv("collector.type", context.collector_type.to_string()));
+    attrs.push(KeyValue::new("collector.type", context.collector_type));
     if let Some(machine_id) = context.machine_id() {
-        attrs.push(kv("machine.id", machine_id.to_string()));
+        attrs.push(KeyValue::new("machine.id", machine_id.to_string()));
     }
     if let Some(system_uuid) = context.system_uuid() {
-        attrs.push(kv("system.uuid", system_uuid.to_string()));
+        attrs.push(KeyValue::new("system.uuid", system_uuid.to_string()));
     }
     if let Some(machine_serial) = context.machine_serial() {
-        attrs.push(kv("machine.serial", machine_serial.to_string()));
+        attrs.push(KeyValue::new("machine.serial", machine_serial.to_string()));
     }
     if let Some(driver_version) = context.driver_version() {
-        attrs.push(kv("driver.version", driver_version.to_string()));
+        attrs.push(KeyValue::new("driver.version", driver_version.to_string()));
     }
     if let Some(component_type) = context.component_type() {
-        attrs.push(kv("component.type", component_type.to_string()));
+        attrs.push(KeyValue::new("component.type", component_type.to_string()));
     }
     if let Some(switch_id) = context.switch_id() {
-        attrs.push(kv("switch.id", switch_id.to_string()));
+        attrs.push(KeyValue::new("switch.id", switch_id.to_string()));
     }
     if let Some(serial) = context.switch_serial() {
-        attrs.push(kv("switch.serial_number", serial.to_string()));
+        attrs.push(KeyValue::new("switch.serial_number", serial.to_string()));
     }
     if let Some(role) = context.switch_endpoint_role() {
         let endpoint_role = match role {
             SwitchEndpointRole::Bmc => "bmc",
             SwitchEndpointRole::Host => "host",
         };
-        attrs.push(kv("switch.endpoint_role", endpoint_role.to_string()));
+        attrs.push(KeyValue::new("switch.endpoint_role", endpoint_role));
     }
     if let Some(is_primary) = context.switch_is_primary() {
-        attrs.push(KeyValue {
-            key: "switch.is_primary".to_string(),
-            value: Some(AnyValue {
-                value: Some(any_value::Value::BoolValue(is_primary)),
-            }),
-        });
+        attrs.push(KeyValue::new("switch.is_primary", is_primary));
     }
     if let Some(rack_id) = context.rack_id() {
-        attrs.push(kv("rack.id", rack_id.to_string()));
+        attrs.push(KeyValue::new("rack.id", rack_id.to_string()));
     }
     if let Some(slot) = context.slot_number() {
-        attrs.push(int_kv("machine.slot_number", i64::from(slot)));
+        attrs.push(KeyValue::new("machine.slot_number", i64::from(slot)));
     }
     if let Some(tray) = context.tray_index() {
-        attrs.push(int_kv("machine.tray_index", i64::from(tray)));
+        attrs.push(KeyValue::new("machine.tray_index", i64::from(tray)));
     }
     if let Some(domain) = context.nvlink_domain_uuid() {
-        attrs.push(kv("nvlink.domain.uuid", domain.to_string()));
+        attrs.push(KeyValue::new("nvlink.domain.uuid", domain.to_string()));
     }
     if let Some(slot) = context.switch_slot_number() {
-        attrs.push(int_kv("switch.slot_number", i64::from(slot)));
+        attrs.push(KeyValue::new("switch.slot_number", i64::from(slot)));
     }
     if let Some(tray) = context.switch_tray_index() {
-        attrs.push(int_kv("switch.tray_index", i64::from(tray)));
+        attrs.push(KeyValue::new("switch.tray_index", i64::from(tray)));
     }
     attrs.extend(
         context
             .labels()
             .iter()
-            .map(|(name, value)| kv(name, value.clone())),
+            .map(|(name, value)| KeyValue::new(name.to_owned(), value.clone())),
     );
     attrs
 }
@@ -162,7 +135,7 @@ fn convert_log(log: &crate::sink::LogRecord, observed_nanos: u64) -> OtlpLogReco
     let attributes = log
         .attributes
         .iter()
-        .map(|(k, v)| kv(k, v.clone()))
+        .map(|(k, v)| KeyValue::new(k.to_string(), v.clone()))
         .collect();
 
     OtlpLogRecord {
@@ -170,7 +143,7 @@ fn convert_log(log: &crate::sink::LogRecord, observed_nanos: u64) -> OtlpLogReco
         observed_time_unix_nano: observed_nanos,
         severity_number: severity_text_to_number(&log.severity),
         severity_text: log.severity.clone(),
-        body: string_value(log.body.clone()),
+        body: Some(log.body.clone().into_any_value()),
         attributes,
         ..Default::default()
     }
@@ -224,11 +197,11 @@ fn alert_detail_attributes(alerts: &[HealthReportAlert]) -> Vec<KeyValue> {
         }
     };
 
-    let mut attributes = vec![kv("health_report.alerts", json)];
+    let mut attributes = vec![KeyValue::new("health_report.alerts", json)];
     let dropped = alerts.len().saturating_sub(MAX_SERIALIZED_ALERTS);
 
     if dropped > 0 {
-        attributes.push(int_kv(
+        attributes.push(KeyValue::new(
             "health_report.alerts.dropped",
             i64::try_from(dropped).unwrap_or(i64::MAX),
         ));
@@ -257,7 +230,7 @@ fn convert_event(
                 "WARN"
             };
 
-            let mut attributes = vec![kv("event.type", "health_report".to_string())];
+            let mut attributes = vec![KeyValue::new("event.type", "health_report".to_string())];
 
             if include_alert_details && !report.alerts.is_empty() {
                 attributes.extend(alert_detail_attributes(&report.alerts));
@@ -268,7 +241,7 @@ fn convert_event(
                 observed_time_unix_nano: observed_nanos,
                 severity_number: severity_text_to_number(severity),
                 severity_text: severity.to_string(),
-                body: string_value(body),
+                body: Some(body.into_any_value()),
                 attributes,
                 ..Default::default()
             })
@@ -280,8 +253,8 @@ fn convert_event(
                 observed_time_unix_nano: observed_nanos,
                 severity_number: SeverityNumber::Info as i32,
                 severity_text: "INFO".to_string(),
-                body: string_value(body),
-                attributes: vec![kv("event.type", "firmware".to_string())],
+                body: Some(body.into_any_value()),
+                attributes: vec![KeyValue::new("event.type", "firmware".to_string())],
                 ..Default::default()
             })
         }
@@ -324,6 +297,7 @@ pub fn build_export_request(
             resource: Some(Resource {
                 attributes: attrs,
                 dropped_attributes_count: 0,
+                entity_refs: vec![],
             }),
             scope_logs: vec![ScopeLogs {
                 scope: None,
@@ -360,7 +334,7 @@ pub fn build_metrics_export_request(
         let attributes: Vec<KeyValue> = sample
             .labels
             .iter()
-            .map(|(k, v)| kv(k, v.clone()))
+            .map(|(k, v)| KeyValue::new(k.to_string(), v.clone()))
             .collect();
 
         let data_point = NumberDataPoint {
@@ -398,6 +372,7 @@ pub fn build_metrics_export_request(
             resource: Some(Resource {
                 attributes: attrs,
                 dropped_attributes_count: 0,
+                entity_refs: vec![],
             }),
             scope_metrics: vec![ScopeMetrics {
                 scope: None,
@@ -411,6 +386,43 @@ pub fn build_metrics_export_request(
     ExportMetricsServiceRequest { resource_metrics }
 }
 
+/// Convenience trait to make opentelemetry-proto's AnyValue easier to work with
+///
+/// opentelemetry-proto's [`AnyValue`] implements `From` from [`opentelemetry::Value`], but it's
+/// opentelemetry::Value tself that has multiple convenient `From` impls for things like String,
+/// u32, etc. So convert first through [`opentelemetry::Value`], then into opentelemetry_proto's
+/// [`AnyValue`].
+trait IntoAnyValue {
+    fn into_any_value(self) -> AnyValue;
+}
+
+impl<T> IntoAnyValue for T
+where
+    T: Into<Value>,
+{
+    fn into_any_value(self) -> AnyValue {
+        AnyValue::from(self.into())
+    }
+}
+
+/// Convenience trait: A `new` function for opentelemetry_proto's [`KeyValue`], leveraging
+/// [`opentelemetry::Key`] and [`opentelemetry::Value`]'s existing `From` implementations to make
+/// constructing KeyValues easier.
+/// convert to an opentelemetry_proto [`AnyValue`]
+trait NewFromKeyAndValue {
+    fn new(key: impl Into<Key>, value: impl Into<Value>) -> Self;
+}
+
+impl NewFromKeyAndValue for KeyValue {
+    fn new(key: impl Into<Key>, value: impl Into<Value>) -> Self {
+        KeyValue {
+            key: key.into().to_string(),
+            value: Some(AnyValue::from(value.into())),
+            key_strindex: 0,
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::borrow::Cow;
@@ -422,6 +434,7 @@ mod tests {
     use carbide_uuid::rack::RackId;
     use carbide_uuid::switch::{SwitchId, SwitchIdSource, SwitchType};
     use mac_address::MacAddress;
+    use opentelemetry_proto::tonic::common::v1::any_value;
 
     use super::*;
     use crate::endpoint::{
@@ -890,10 +903,7 @@ mod tests {
         let records = &request.resource_logs[0].scope_logs[0].log_records;
         let record = &records[0];
 
-        assert_eq!(
-            record.body.as_ref().and_then(|body| body.value.as_ref()),
-            Some(&any_value::Value::StringValue(body.to_string()))
-        );
+        assert_eq!(record.body, Some(body.into_any_value()));
         assert_eq!(
             attr_value(&record.attributes, "redfish.diagnostic_data.type"),
             Some("cper")
@@ -995,10 +1005,8 @@ mod tests {
         assert_eq!(record.severity_text, "WARN");
         assert_eq!(record.severity_number, SeverityNumber::Warn as i32);
         assert_eq!(
-            record.body.as_ref().and_then(|body| body.value.as_ref()),
-            Some(&any_value::Value::StringValue(
-                "health report: 2 alerts, 0 ok (source: BmcSensors)".to_string()
-            ))
+            record.body,
+            Some("health report: 2 alerts, 0 ok (source: BmcSensors)".into_any_value())
         );
         assert_eq!(
             attr_value(&record.attributes, "event.type"),

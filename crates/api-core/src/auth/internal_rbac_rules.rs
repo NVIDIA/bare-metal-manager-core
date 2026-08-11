@@ -110,7 +110,10 @@ impl InternalRBACRules {
             "FindNetworkSegmentStateHistories",
             vec![ForgeAdminCLI, Machineatron, SiteAgent],
         );
-        x.perm("CreateNetworkSegment", vec![Machineatron, SiteAgent]);
+        x.perm(
+            "CreateNetworkSegment",
+            vec![ForgeAdminCLI, Machineatron, SiteAgent],
+        );
         x.perm("AttachNetworkSegmentToVpc", vec![ForgeAdminCLI]);
         x.perm(
             "DeleteNetworkSegment",
@@ -528,7 +531,7 @@ impl InternalRBACRules {
         x.perm("DisableSecureBoot", vec![ForgeAdminCLI]);
         x.perm("MachineSetup", vec![ForgeAdminCLI]);
         x.perm("SetDpuFirstBootOrder", vec![ForgeAdminCLI]);
-        x.perm("OnDemandMachineValidation", vec![ForgeAdminCLI]);
+        x.perm("OnDemandMachineValidation", vec![ForgeAdminCLI, SiteAgent]);
         x.perm("OnDemandRackMaintenance", vec![ForgeAdminCLI]);
         x.perm("TpmAddCaCert", vec![ForgeAdminCLI, SiteAgent]);
         x.perm("TpmShowCaCerts", vec![ForgeAdminCLI, SiteAgent]);
@@ -1084,6 +1087,18 @@ mod rbac_rule_tests {
     }
 
     #[test]
+    fn admin_cli_can_create_network_segments() {
+        assert!(InternalRBACRules::allowed_from_static(
+            "CreateNetworkSegment",
+            &[Principal::ExternalUser(ExternalUserInfo::new(
+                None,
+                "nico-admin-cli".to_string(),
+                None,
+            ))],
+        ));
+    }
+
+    #[test]
     fn rbac_rule_tests() -> Result<(), eyre::Report> {
         assert!(InternalRBACRules::allowed_from_static(
             "Version",
@@ -1167,6 +1182,12 @@ mod rbac_rule_tests {
             );
         }
 
+        assert!(InternalRBACRules::allowed_from_static(
+            "OnDemandMachineValidation",
+            &[Principal::SpiffeServiceIdentifier(
+                "elektra-site-agent".to_string()
+            )]
+        ));
         assert!(InternalRBACRules::allowed_from_static(
             "FindNetworkSegmentsByIds",
             &[

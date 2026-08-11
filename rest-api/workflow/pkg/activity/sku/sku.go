@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"reflect"
+	"time"
 
 	cdb "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db"
 	cdbm "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/model"
@@ -102,10 +103,15 @@ func (ms ManageSku) UpdateSkusInDB(ctx context.Context, siteID uuid.UUID, skuInv
 		// Create a new SKU if it doesn't already exist in DB
 		cur, found := existingByID[reportedSku.Id]
 		if !found {
+			var created *time.Time
+			if !reported.Created.IsZero() {
+				created = &reported.Created
+			}
 			// Create new SKU with SiteID
 			sku := cdbm.SkuCreateInput{
 				SkuID:                reported.ID,
 				SiteID:               reported.SiteID,
+				Created:              created,
 				Description:          reported.Description,
 				SchemaVersion:        reported.SchemaVersion,
 				DeviceType:           reported.DeviceType,
@@ -120,7 +126,8 @@ func (ms ManageSku) UpdateSkusInDB(ctx context.Context, siteID uuid.UUID, skuInv
 		}
 
 		// Update existing SKU data in DB
-		if cur.Description != reported.Description || cur.SchemaVersion != reported.SchemaVersion ||
+		createdChanged := !reported.Created.IsZero() && !cur.Created.Equal(reported.Created)
+		if createdChanged || cur.Description != reported.Description || cur.SchemaVersion != reported.SchemaVersion ||
 			!cur.Components.Equal(reported.Components) || cur.DeviceType != reported.DeviceType ||
 			!reflect.DeepEqual(cur.AssociatedMachineIds, reported.AssociatedMachineIds) {
 			// nil AssociatedMachineIds in nico can mean we need to clear out existing AssociatedMachineIds in DB
@@ -136,8 +143,13 @@ func (ms ManageSku) UpdateSkusInDB(ctx context.Context, siteID uuid.UUID, skuInv
 			if cur.Components != nil && components == nil {
 				components = &cdbm.SkuComponents{SkuComponents: &corev1.SkuComponents{}}
 			}
+			var created *time.Time
+			if createdChanged {
+				created = &reported.Created
+			}
 			sku := cdbm.SkuUpdateInput{
 				SkuID:                reported.ID,
+				Created:              created,
 				Description:          &reported.Description,
 				SchemaVersion:        &reported.SchemaVersion,
 				Components:           components,

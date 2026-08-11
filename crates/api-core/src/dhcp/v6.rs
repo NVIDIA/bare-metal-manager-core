@@ -95,26 +95,8 @@ pub(super) async fn observe_slaac_address(
     if let Some(address) = slaac_gua_from_eui64(prefix, mac) {
         let address = IpAddr::V6(address);
 
-        // TODO: This is a best-effort ownership check, not a complete
-        // concurrency boundary. Static assignment and preallocation do not yet
-        // share a segment lock with SLAAC observation, so they can still race
-        // between this read and insert. A future PR should route DHCP, SLAAC,
-        // and static address writes through one DB helper that locks the owning
-        // segment, checks global address ownership, applies the replacement
-        // policy, and writes the row.
-        if let Some(existing) =
-            db::machine_interface_address::find_by_address(&mut *txn, address).await?
-        {
-            if existing.id == interface_id {
-                return Ok(());
-            }
-
-            return Err(CarbideError::FailedPrecondition(format!(
-                "SLAAC address {address} is already allocated to interface {} on segment {}; refusing duplicate observation for interface {interface_id}",
-                existing.id, existing.name,
-            )));
-        }
-
+        // The shared insert is the ownership boundary for both visible and
+        // concurrent owners.
         db::machine_interface_address::insert(
             &mut *txn,
             interface_id,

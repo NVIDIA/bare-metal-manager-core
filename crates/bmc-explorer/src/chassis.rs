@@ -92,6 +92,23 @@ impl<B: Bmc> ExploredChassisCollection<B> {
         self.members.iter().map(|v| v.to_model()).collect()
     }
 
+    /// `fetch_network_adapter_ports` reads supplemental adapter `Port`
+    /// inventory only from chassis explicitly linked to the selected
+    /// `ComputerSystem`.
+    ///
+    /// A BMC can expose its own chassis and other enclosures beside the host.
+    /// Following `Links.Chassis` keeps their adapter MACs out of host inventory.
+    pub(crate) async fn fetch_network_adapter_ports(&mut self, linked_chassis_ids: &[ODataId]) {
+        for chassis in &mut self.members {
+            if linked_chassis_ids
+                .iter()
+                .any(|chassis_id| chassis_id == chassis.chassis.odata_id())
+            {
+                chassis.network_adapters.fetch_ports().await;
+            }
+        }
+    }
+
     pub(crate) fn is_liteon_powershelf(&self) -> bool {
         self.members.iter().any(|m| {
             m.chassis.id().into_inner() == "powershelf"

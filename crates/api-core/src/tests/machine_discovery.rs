@@ -881,31 +881,20 @@ async fn test_insecure_discovery_requires_interface_id(
 }
 
 #[crate::sqlx_test]
-async fn test_discovery_ip_lookup_rejects_missing_and_ambiguous_mappings(
+async fn test_discovery_ip_lookup_rejects_missing_mapping(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let env = create_test_env(pool).await;
-    let first_interface_id =
-        common::api_fixtures::dpu::dpu_discover_dhcp(&env, "02:00:00:00:10:01").await;
-    let second_interface_id =
-        common::api_fixtures::dpu::dpu_discover_dhcp(&env, "02:00:00:00:10:02").await;
-
     let mut txn = env.pool.begin().await?;
-    let missing =
-        db::machine_interface::find_for_update_by_ip(&mut txn, "203.0.113.253".parse().unwrap())
-            .await;
-    assert!(missing.is_err());
-
-    let first_interface = db::machine_interface::find_one(&mut *txn, first_interface_id).await?;
-    let first_address = first_interface.addresses[0];
-    sqlx::query("UPDATE machine_interface_addresses SET address = $1 WHERE interface_id = $2")
-        .bind(first_address)
-        .bind(second_interface_id)
-        .execute(&mut *txn)
-        .await?;
-
-    let ambiguous = db::machine_interface::find_for_update_by_ip(&mut txn, first_address).await;
-    assert!(ambiguous.is_err());
+    let missing_address = "203.0.113.253".parse().unwrap();
+    let missing = db::machine_interface::find_for_update_by_ip(&mut txn, missing_address).await;
+    assert!(matches!(
+        missing,
+        Err(db::DatabaseError::NotFoundError {
+            kind: "machine_interface for discovery IP",
+            id,
+        }) if id == missing_address.to_string()
+    ));
     Ok(())
 }
 

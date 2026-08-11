@@ -58,7 +58,7 @@ func TestNewAPIRoutes(t *testing.T) {
 		"expected-rack":             7,
 		"expected-switch":           5,
 		"instance-type":             5,
-		"machine":                   12,
+		"machine":                   15,
 		"allocation":                6,
 		"subnet":                    5,
 		"machine-instance-type":     3,
@@ -138,6 +138,13 @@ func TestNewAPIRoutes(t *testing.T) {
 			assertRouteExists(t, got, http.MethodPut, machineAdminPath+"/health-report")
 			assertRouteExists(t, got, http.MethodDelete, machineAdminPath+"/health-report/:source")
 			assertRouteExists(t, got, http.MethodPatch, machineAdminPath+"/power")
+			assertRouteExists(t, got, http.MethodPost, machineAdminPath+"/validation/run")
+			assertRouteExists(t, got, http.MethodGet, machineAdminPath+"/validation/run")
+			assertRouteExists(t, got, http.MethodGet, machineAdminPath+"/validation/result")
+
+			siteMachineValidationPath := "/org/:orgName/" + cfg.GetAPIName() + "/site/:siteID/machine-validation/machine/:machineID"
+			assertRouteExists(t, got, http.MethodGet, siteMachineValidationPath+"/runs")
+			assertRouteExists(t, got, http.MethodGet, siteMachineValidationPath+"/results")
 
 			expectedMachineBatchPath := "/org/:orgName/" + cfg.GetAPIName() + "/expected-machine/batch"
 			assertRouteExists(t, got, http.MethodPost, expectedMachineBatchPath)

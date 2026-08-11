@@ -458,12 +458,18 @@ fn entry_to_log(
         })
         .flatten();
 
-    let mut attributes = Vec::with_capacity(13);
+    let mut attributes = Vec::with_capacity(14);
     if let Some(machine_id) = machine_id {
         attributes.push((Cow::Borrowed("machine_id"), machine_id.to_string()));
     }
     attributes.push((Cow::Borrowed("entry_id"), entry.base.id.clone()));
     attributes.push((Cow::Borrowed("service_id"), service_id.to_string()));
+    if let Some(oem) = &entry.base.base.oem {
+        attributes.push((
+            Cow::Borrowed("redfish.oem"),
+            oem.additional_properties.to_string(),
+        ));
+    }
     add_redfish_analyzer_attributes(
         &mut attributes,
         log_type,
@@ -553,6 +559,7 @@ mod tests {
         log_type: Option<String>,
         event_type: Option<String>,
         redfish_severity: Option<String>,
+        redfish_oem: Option<String>,
         error_id: Option<String>,
         diagnostic_data: Option<String>,
     }
@@ -578,6 +585,7 @@ mod tests {
             log_type: attribute(&record, "redfish.event.type"),
             event_type: attribute(&record, "event_type"),
             redfish_severity: attribute(&record, "redfish.event.severity"),
+            redfish_oem: attribute(&record, "redfish.oem"),
             error_id: attribute(&record, "oem.nvidia.error_id"),
             diagnostic_data: record
                 .diagnostic_record
@@ -614,6 +622,9 @@ mod tests {
                         log_type: Some("redfish_event".to_string()),
                         event_type: Some("Alert".to_string()),
                         redfish_severity: Some("Critical".to_string()),
+                        redfish_oem: Some(
+                            r#"{"Nvidia":{"ErrorId":"CPLD-PSEQ-FAULT"}}"#.to_string(),
+                        ),
                         error_id: Some("CPLD-PSEQ-FAULT".to_string()),
                         diagnostic_data: None,
                     },
@@ -634,6 +645,7 @@ mod tests {
                         log_type: Some("xid".to_string()),
                         event_type: None,
                         redfish_severity: Some("Warning".to_string()),
+                        redfish_oem: None,
                         error_id: None,
                         diagnostic_data: None,
                     },
@@ -657,6 +669,7 @@ mod tests {
                         log_type: Some("cper".to_string()),
                         event_type: None,
                         redfish_severity: Some("Critical".to_string()),
+                        redfish_oem: None,
                         error_id: None,
                         diagnostic_data: Some("base64-cper-payload".to_string()),
                     },

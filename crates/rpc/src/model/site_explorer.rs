@@ -290,6 +290,11 @@ impl From<NetworkAdapter> for rpc::site_explorer::NetworkAdapter {
             model: adapter.model,
             part_number: adapter.part_number,
             serial_number: adapter.serial_number,
+            port_mac_addresses: adapter
+                .port_mac_addresses
+                .into_iter()
+                .map(|mac_address| mac_address.to_string())
+                .collect(),
         }
     }
 }
@@ -1155,12 +1160,14 @@ mod tests {
                     model: Some("ConnectX-7".to_string()),
                     part_number: Some("ADAPTER-PN".to_string()),
                     serial_number: Some("ADAPTER-SERIAL".to_string()),
+                    port_mac_addresses: vec!["94:6d:ae:53:cb:9b".parse().unwrap()],
                 } => rpc::site_explorer::NetworkAdapter {
                     id: "adapter-1".to_string(),
                     manufacturer: Some("NVIDIA".to_string()),
                     model: Some("ConnectX-7".to_string()),
                     part_number: Some("ADAPTER-PN".to_string()),
                     serial_number: Some("ADAPTER-SERIAL".to_string()),
+                    port_mac_addresses: vec!["94:6D:AE:53:CB:9B".to_string()],
                 },
             }
         );
@@ -1349,6 +1356,7 @@ mod tests {
                     model: Some("ConnectX-7".to_string()),
                     part_number: Some("ADAPTER-PN".to_string()),
                     serial_number: Some("ADAPTER-SERIAL".to_string()),
+                    port_mac_addresses: Vec::new(),
                 }],
                 ..Default::default()
             }],

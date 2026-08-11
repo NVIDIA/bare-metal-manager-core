@@ -127,3 +127,22 @@ tests:
           value: nico-machine-a-tron-mat-1-tls
         documentIndex: 1
         template: deployment.yaml
+
+  - it: should deploy a rack-only pod
+    set:
+      pods:
+        mat-0: null
+        rack-sim:
+          racks:
+            gb200:
+              type: wiwynn_gb200_nvl72
+              rack_profile_id: NVL72
+              ids:
+                - rack-001
+              oob_dhcp_relay_address: 10.96.64.1
+              admin_dhcp_relay_address: 192.168.176.1
+    asserts:
+      - equal:
+          path: metadata.name
+          value: nico-machine-a-tron-rack-sim
+        template: deployment.yaml

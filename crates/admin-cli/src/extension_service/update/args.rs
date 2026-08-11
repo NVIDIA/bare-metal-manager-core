@@ -17,6 +17,7 @@
 
 use ::rpc::forge::dpu_extension_service_credential::Type;
 use clap::Parser;
+use rpc::errors::RpcDataConversionError;
 
 use crate::errors::{CarbideCliError, CarbideCliResult};
 
@@ -105,10 +106,16 @@ impl TryFrom<Args> for ::rpc::forge::UpdateDpuExtensionServiceRequest {
                 }
 
                 Some(::rpc::forge::DpuExtensionServiceCredential {
-                    registry_url: args.registry_url.unwrap(),
+                    registry_url: args
+                        .registry_url
+                        .ok_or(RpcDataConversionError::MissingArgument("registry_url"))?,
                     r#type: Some(Type::UsernamePassword(rpc::forge::UsernamePassword {
-                        username: args.username.unwrap(),
-                        password: args.password.unwrap(),
+                        username: args
+                            .username
+                            .ok_or(RpcDataConversionError::MissingArgument("username"))?,
+                        password: args
+                            .password
+                            .ok_or(RpcDataConversionError::MissingArgument("password"))?,
                     })),
                 })
             } else {

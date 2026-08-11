@@ -117,7 +117,7 @@ pub async fn nv_generate_exploration_report<B: Bmc>(
     config: &Config<'_, B>,
 ) -> Result<EndpointExplorationReport, Error<B>> {
     let chassis_explore_config = build_chassis_explore_config(&root);
-    let explored_chassis =
+    let mut explored_chassis =
         ExploredChassisCollection::explore(&root, &chassis_explore_config).await?;
     let explored_inventories = ExploredInventories::explore(&root).await?;
 
@@ -171,6 +171,16 @@ pub async fn nv_generate_exploration_report<B: Bmc>(
     let explored_system = ExploredComputerSystem::explore(system, &system_explore_config).await?;
 
     let hw_type = hw_type(&root, &explored_system, &explored_chassis);
+    let linked_chassis_ids = explored_system.linked_chassis_ids();
+    if should_use_network_adapter_port_fallback(
+        hw_type,
+        explored_system.has_usable_ethernet_mac_address(),
+        &linked_chassis_ids,
+    ) {
+        explored_chassis
+            .fetch_network_adapter_ports(&linked_chassis_ids)
+            .await;
+    }
     let is_mgx_c2 = explored_chassis.is_mgx_c2();
     let manager_explore_config = hw_type
         .map(|hw_type| match hw_type {
@@ -305,6 +315,20 @@ pub async fn nv_generate_exploration_report<B: Bmc>(
         revision_id: None,
         remediation_error: None,
     })
+}
+
+/// `should_use_network_adapter_port_fallback` limits supplemental host MAC
+/// discovery to platforms where we have verified the Redfish relationship.
+///
+/// Lenovo XCC can omit usable `EthernetInterfaces` while exposing host MAC
+/// addresses through adapter `Ports` on the linked chassis. Keep this policy
+/// narrow: a chassis `Port` is not necessarily a host or PXE interface.
+fn should_use_network_adapter_port_fallback(
+    hw_type: Option<hw::HwType>,
+    has_system_mac_address: bool,
+    linked_chassis_ids: &[nv_redfish::core::ODataId],
+) -> bool {
+    hw_type == Some(hw::HwType::Lenovo) && !has_system_mac_address && !linked_chassis_ids.is_empty()
 }
 
 /// Builds an exploration report for a Delta power shelf.
@@ -1150,7 +1174,11 @@ fn compare_boot_options<B: Bmc>(
 
 #[cfg(test)]
 mod tests {
-    use super::{Product, is_bf4_product};
+    use carbide_test_support::value_scenarios;
+    use nv_redfish::core::ODataId;
+
+    use super::hw::HwType;
+    use super::{Product, is_bf4_product, should_use_network_adapter_port_fallback};
 
     #[test]
     fn is_bf4_product_matches_bf4_service_root_products() {
@@ -1158,5 +1186,37 @@ mod tests {
         assert!(is_bf4_product(Some(Product::new("BlueField-4"))));
         assert!(!is_bf4_product(Some(Product::new("BlueField-3 DPU"))));
         assert!(!is_bf4_product(None));
+    }
+
+    #[test]
+    fn lenovo_network_adapter_port_fallback_is_narrow() {
+        value_scenarios!(run = |(hw_type, has_system_mac_address, has_linked_chassis)| {
+            let linked_chassis_ids = has_linked_chassis
+                .then(|| ODataId::from("/redfish/v1/Chassis/Self".to_string()))
+                .into_iter()
+                .collect::<Vec<_>>();
+
+            should_use_network_adapter_port_fallback(
+                hw_type,
+                has_system_mac_address,
+                &linked_chassis_ids,
+            )
+        };
+            "Lenovo XCC without a System MAC and with a chassis link" {
+                (Some(HwType::Lenovo), false, true) => true,
+            }
+            "non-Lenovo host" {
+                (Some(HwType::Ami), false, true) => false,
+            }
+            "Lenovo AMI host" {
+                (Some(HwType::LenovoAmi), false, true) => false,
+            }
+            "Lenovo XCC with a System MAC" {
+                (Some(HwType::Lenovo), true, true) => false,
+            }
+            "Lenovo XCC without a linked chassis" {
+                (Some(HwType::Lenovo), false, false) => false,
+            }
+        );
     }
 }

@@ -218,6 +218,9 @@ tags:
   - name: Machine
     description: |-
       Machine is a physical server that contains CPUs, GPUs, memory, storage, and networking hardware. Machines are the physical building blocks of a Site.
+  - name: Machine Validation
+    description: |-
+      Machine Validation is the mechanism through which a series of validation tests are executed against a Machine verify its integrity. The tests are run for each Machine on ingestion, they can also be run on-demand.
   - name: BMC Reset
     x-displayName: BMC Reset
     description: |-
@@ -5169,7 +5172,6 @@ paths:
                           vendor: Supermicro
                           model: SYS-420GP-TNR
                       created: '2019-08-24T14:15:22Z'
-                      updated: '2019-08-24T14:15:22Z'
           headers:
             X-Pagination:
               schema:
@@ -5276,7 +5278,6 @@ paths:
                         vendor: Supermicro
                         model: SYS-420GP-TNR
                     created: '2019-08-24T14:15:22Z'
-                    updated: '2019-08-24T14:15:22Z'
         '400':
           $ref: '#/components/responses/ValidationError'
         '403':
@@ -10042,6 +10043,115 @@ paths:
         attached to the Machine, `acknowledgeAttachedInstance` must be `true`.
         
         Org must have an Infrastructure Provider entity and own the Site that the Machine belongs to. User must have authorization role with `PROVIDER_ADMIN` suffix.
+  '/v2/org/{org}/nico/machine/{machineId}/validation/run':
+    parameters:
+      - schema:
+          type: string
+        name: org
+        in: path
+        required: true
+        description: Name of the Org
+      - schema:
+          type: string
+        name: machineId
+        in: path
+        required: true
+        description: ID of the Machine
+    get:
+      summary: Retrieve Machine validation runs
+      tags:
+        - Machine Validation
+      responses:
+        '200':
+          description: Machine validation runs
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/MachineValidationRun'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '403':
+          $ref: '#/components/responses/ForbiddenError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+        '500':
+          $ref: '#/components/responses/GenericHttpError'
+      operationId: get-all-machine-validation-runs
+      description: |-
+        Retrieve validation runs for a specific Machine.
+
+        Org must have an Infrastructure Provider entity that owns the Machine. User must have authorization role with `PROVIDER_ADMIN` suffix.
+    post:
+      summary: Create an on-demand Machine validation run
+      tags:
+        - Machine Validation
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MachineValidationRunCreateRequest'
+      responses:
+        '202':
+          description: On-demand Machine validation request was accepted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MachineValidationRun'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '403':
+          $ref: '#/components/responses/ForbiddenError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+        '500':
+          $ref: '#/components/responses/GenericHttpError'
+      operationId: start-machine-validation
+      description: |-
+        Create an on-demand Machine validation run. The Machine must be in a state accepted by NICo Core.
+
+        Org must have an Infrastructure Provider entity and own the Site that the Machine belongs to. User must have authorization role with `PROVIDER_ADMIN` suffix.
+  '/v2/org/{org}/nico/machine/{machineId}/validation/result':
+    parameters:
+      - schema:
+          type: string
+        name: org
+        in: path
+        required: true
+        description: Name of the Org
+      - schema:
+          type: string
+        name: machineId
+        in: path
+        required: true
+        description: ID of the Machine
+    get:
+      summary: Retrieve Machine validation results
+      tags:
+        - Machine Validation
+      responses:
+        '200':
+          description: Machine validation results
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/MachineValidationResult'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '403':
+          $ref: '#/components/responses/ForbiddenError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+        '500':
+          $ref: '#/components/responses/GenericHttpError'
+      operationId: get-all-machine-validation-results
+      description: |-
+        Retrieve validation results for a specific Machine.
+
+        Org must have an Infrastructure Provider entity that owns the Machine. User must have authorization role with `PROVIDER_ADMIN` suffix.
   '/v2/org/{org}/nico/machine/{machineId}/status-history':
     parameters:
       - schema:
@@ -15546,6 +15656,191 @@ components:
       examples:
         - action: ForceRestart
           acknowledgeAttachedInstance: true
+    MachineValidationRunCreateRequest:
+      type: object
+      title: MachineValidationRunCreateRequest
+      description: Optional filters for an on-demand Machine validation run
+      examples:
+        - tags:
+            - dgxcloud
+          allowedTests:
+            - forge_DcgmFullLong
+          runUnverifiedTests: false
+          contexts:
+            - OnDemand
+      properties:
+        tags:
+          type: array
+          description: Tags used to select validation tests.
+          items:
+            type: string
+            minLength: 1
+        allowedTests:
+          type: array
+          description: Validation test names allowed for this run.
+          items:
+            type: string
+            minLength: 1
+        runUnverifiedTests:
+          type: boolean
+          description: Whether unverified validation tests may run.
+          default: false
+        contexts:
+          type: array
+          description: Contexts used to select validation tests.
+          items:
+            type: string
+            minLength: 1
+    MachineValidationRun:
+      type: object
+      title: MachineValidationRun
+      description: Machine validation run
+      examples:
+        - validationID: 20000000-0000-0000-0000-000000000001
+          machineID: fm100htes3rn1npvbtm5qd57dkilaag7ljugl1llmm7rfuq1ov50i0rpl30
+          startTime: '2026-08-03T20:00:00Z'
+          endTime: null
+          name: Test_fm100htes3rn1npvbtm5qd57dkilaag7ljugl1llmm7rfuq1ov50i0rpl30
+          context: OnDemand
+          status:
+            state: InProgress
+            total: 1
+            completed: 0
+          durationToCompleteSecs: 7200
+      required:
+        - validationID
+        - machineID
+        - startTime
+        - endTime
+        - name
+        - context
+        - status
+        - durationToCompleteSecs
+      properties:
+        validationID:
+          type: string
+          description: ID of the Machine validation run.
+        machineID:
+          type: string
+          description: ID of the validated Machine.
+        startTime:
+          type: string
+          format: date-time
+          description: Time the validation run started.
+        endTime:
+          type:
+            - string
+            - 'null'
+          format: date-time
+          description: Time the validation run completed, or null while it is active.
+        name:
+          type: string
+          description: Name of the validation run.
+        context:
+          type: string
+          description: Context in which the validation run was created.
+        status:
+          $ref: '#/components/schemas/MachineValidationStatus'
+        durationToCompleteSecs:
+          type: integer
+          description: Estimated maximum duration of the validation run in seconds. A value of zero can mean the estimate has not yet been calculated.
+    MachineValidationStatus:
+      type: object
+      title: MachineValidationStatus
+      description: Progress and outcome of a Machine validation run
+      examples:
+        - state: InProgress
+          total: 1
+          completed: 0
+      required:
+        - state
+        - total
+        - completed
+      properties:
+        state:
+          type: string
+          description: Current state or completed outcome of the validation run.
+          enum:
+            - Started
+            - InProgress
+            - Success
+            - Failed
+            - Skipped
+        total:
+          type: integer
+          description: Total number of validation tests in the run.
+        completed:
+          type: integer
+          description: Number of validation tests that have completed.
+    MachineValidationResult:
+      type: object
+      title: MachineValidationResult
+      description: Result of one test in a Machine validation run
+      examples:
+        - name: DcgmFullLong
+          description: Full DCGM diag test for 5 min
+          command: 'dcgmi '
+          args: ' diag -r 3'
+          stdOut: Diagnostic completed successfully
+          stdErr: ''
+          context: OnDemand
+          exitCode: 0
+          startTime: '2026-08-03T20:00:05Z'
+          endTime: '2026-08-03T20:05:05Z'
+          validationID: 20000000-0000-0000-0000-000000000001
+          testID: forge_DcgmFullLong
+      required:
+        - name
+        - description
+        - command
+        - args
+        - stdOut
+        - stdErr
+        - context
+        - exitCode
+        - startTime
+        - endTime
+        - validationID
+        - testID
+      properties:
+        name:
+          type: string
+          description: Name of the validation test.
+        description:
+          type: string
+          description: Description of the validation test.
+        command:
+          type: string
+          description: Command executed by the validation test.
+        args:
+          type: string
+          description: Arguments supplied to the validation command.
+        stdOut:
+          type: string
+          description: Standard output from the validation command.
+        stdErr:
+          type: string
+          description: Standard error from the validation command.
+        context:
+          type: string
+          description: Context in which the validation test ran.
+        exitCode:
+          type: integer
+          description: Exit code returned by the validation command.
+        startTime:
+          type: string
+          format: date-time
+          description: Time the validation test started.
+        endTime:
+          type: string
+          format: date-time
+          description: Time the validation test completed.
+        validationID:
+          type: string
+          description: ID of the Machine validation run.
+        testID:
+          type: string
+          description: ID of the validation test.
     InfrastructureProvider:
       description: Infrastructure providers own and manage datacenters
       type: object
@@ -24991,7 +25286,6 @@ components:
               vendor: Supermicro
               model: SYS-420GP-TNR
           created: '2019-08-24T14:15:22Z'
-          updated: '2019-08-24T14:15:22Z'
       properties:
         id:
           type: string
@@ -25029,12 +25323,7 @@ components:
         created:
           type: string
           format: date-time
-          description: ISO 8601 datetime when the SKU was created
-          readOnly: true
-        updated:
-          type: string
-          format: date-time
-          description: ISO 8601 datetime when the SKU was last updated
+          description: ISO 8601 datetime when the SKU was created, using the Site-reported timestamp when available
           readOnly: true
     SkuCreateRequest:
       title: SkuCreateRequest
@@ -25129,7 +25418,8 @@ components:
           description: Chassis component
         ethernetDevices:
           type: array
-          description: Ethernet device components
+          readOnly: true
+          description: Read-only Ethernet device components reported by Core. Omit this property from REST mutation requests; null and an empty array are accepted for compatibility, while a non-empty array is rejected with HTTP 400.
           items:
             $ref: '#/components/schemas/SkuEthernetDevice'
         infinibandDevices:
