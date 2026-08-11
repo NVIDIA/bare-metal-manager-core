@@ -15,8 +15,6 @@
  * limitations under the License.
  */
 
-#![allow(deprecated)]
-
 use std::collections::HashMap;
 use std::fmt::Display;
 use std::str::FromStr;
@@ -1115,7 +1113,11 @@ async fn test_segment_prefix_in_unconfigured_address_space(
             }
         }
         Ok(segment) => {
-            let prefixes = segment.prefixes.iter().map(|p| p.prefix.as_str());
+            let config = segment
+                .config
+                .as_ref()
+                .expect("created network segment should include config");
+            let prefixes = config.prefixes.iter().map(|p| p.prefix.as_str());
             let prefixes = itertools::join(prefixes, ", ");
             Err(eyre::format_err!(
                 "the API did not reject our request to create a segment using \
@@ -1781,10 +1783,18 @@ async fn test_create_network_segment_with_ipv6_prefix(
         .await?
         .into_inner();
 
-    assert_eq!(response.name, "IPV6_SEGMENT");
-    assert_eq!(response.prefixes.len(), 1);
-    assert_eq!(response.prefixes[0].prefix, "2001:db8::/64");
-    assert!(response.prefixes[0].gateway.is_none());
+    let metadata = response
+        .metadata
+        .as_ref()
+        .expect("created network segment should include metadata");
+    let config = response
+        .config
+        .as_ref()
+        .expect("created network segment should include config");
+    assert_eq!(metadata.name, "IPV6_SEGMENT");
+    assert_eq!(config.prefixes.len(), 1);
+    assert_eq!(config.prefixes[0].prefix, "2001:db8::/64");
+    assert!(config.prefixes[0].gateway.is_none());
 
     Ok(())
 }
@@ -1858,15 +1868,19 @@ async fn test_create_dual_stack_tenant_segment(pool: sqlx::PgPool) -> Result<(),
         .await?
         .into_inner();
 
-    assert_eq!(response.name, "DUAL_STACK_SEGMENT");
-    assert_eq!(response.prefixes.len(), 2);
+    let metadata = response
+        .metadata
+        .as_ref()
+        .expect("created network segment should include metadata");
+    let config = response
+        .config
+        .as_ref()
+        .expect("created network segment should include config");
+    assert_eq!(metadata.name, "DUAL_STACK_SEGMENT");
+    assert_eq!(config.prefixes.len(), 2);
 
     // Verify both prefixes are present (order may vary)
-    let prefix_strs: Vec<&str> = response
-        .prefixes
-        .iter()
-        .map(|p| p.prefix.as_str())
-        .collect();
+    let prefix_strs: Vec<&str> = config.prefixes.iter().map(|p| p.prefix.as_str()).collect();
     assert!(prefix_strs.contains(&"192.0.2.0/24"), "IPv4 prefix missing");
     assert!(
         prefix_strs.contains(&"2001:db8::/64"),
@@ -2113,9 +2127,12 @@ async fn flat_vpc_accepts_host_inband_segment(
 
     // Accepting the request is only half of it -- check the segment came back attached to
     // the flat VPC, with the type we asked for.
-    assert_eq!(created.vpc_id, vpc.id);
+    let config = created
+        .config
+        .expect("created network segment should include config");
+    assert_eq!(config.vpc_id, vpc.id);
     assert_eq!(
-        created.segment_type,
+        config.segment_type,
         rpc::forge::NetworkSegmentType::HostInband as i32
     );
 

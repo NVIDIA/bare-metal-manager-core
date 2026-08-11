@@ -73,7 +73,7 @@ pub async fn wait_for_network_segment_state(
     while start.elapsed() < MAX_WAIT {
         let response = grpcurl(addrs, "FindNetworkSegmentsByIds", Some(&data)).await?;
         let resp: serde_json::Value = serde_json::from_str(&response)?;
-        latest_state = resp["networkSegments"][0]["state"]
+        latest_state = resp["networkSegments"][0]["status"]["tenantState"]
             .as_str()
             .unwrap()
             .to_string();

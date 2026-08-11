@@ -56,6 +56,7 @@ pub(in crate::network_segment) async fn convert_network_to_nice_format(
 
     let state = segment
         .status
+        .and_then(|status| status.lifecycle)
         .map(|lifecycle| {
             serde_json::from_str::<NetworkState>(&lifecycle.state)
                 .map(|ns| ns.state)
@@ -287,11 +288,10 @@ async fn show_network_information(
         return Err(CarbideCliError::SegmentNotFound);
     };
 
-    let history = api_client.get_segment_state_history(segment_id).await?;
-
     if json {
         println!("{}", serde_json::to_string_pretty(&segment)?);
     } else {
+        let history = api_client.get_segment_state_history(segment_id).await?;
         println!(
             "{}",
             convert_network_to_nice_format(segment, Some(history), api_client).await?
