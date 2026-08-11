@@ -15,33 +15,30 @@ func TestVpcUpdateRequestPowerResourceGroupJSON(t *testing.T) {
 	tests := []struct {
 		name    string
 		payload string
-		check   func(*testing.T, *corev1.VpcUpdateRequest)
+		want    *string
 	}{
 		{
-			name:    "legacy set",
-			payload: `{"powerResourceGroup":"legacy-group"}`,
-			check: func(t *testing.T, request *corev1.VpcUpdateRequest) {
-				update, ok := request.PowerResourceGroupUpdate.(*corev1.VpcUpdateRequest_SetPowerResourceGroup)
-				require.True(t, ok)
-				require.Equal(t, "legacy-group", update.SetPowerResourceGroup)
-			},
+			name:    "set camel case",
+			payload: `{"powerResourceGroup":"power-group"}`,
+			want:    stringPtr("power-group"),
 		},
 		{
-			name:    "new set",
-			payload: `{"set_power_resource_group":"new-group"}`,
-			check: func(t *testing.T, request *corev1.VpcUpdateRequest) {
-				update, ok := request.PowerResourceGroupUpdate.(*corev1.VpcUpdateRequest_SetPowerResourceGroup)
-				require.True(t, ok)
-				require.Equal(t, "new-group", update.SetPowerResourceGroup)
-			},
+			name:    "set snake case",
+			payload: `{"power_resource_group":"power-group"}`,
+			want:    stringPtr("power-group"),
 		},
 		{
 			name:    "clear",
-			payload: `{"clearPowerResourceGroup":{}}`,
-			check: func(t *testing.T, request *corev1.VpcUpdateRequest) {
-				_, ok := request.PowerResourceGroupUpdate.(*corev1.VpcUpdateRequest_ClearPowerResourceGroup)
-				require.True(t, ok)
-			},
+			payload: `{"powerResourceGroup":""}`,
+			want:    stringPtr(""),
+		},
+		{
+			name:    "omitted",
+			payload: `{}`,
+		},
+		{
+			name:    "null",
+			payload: `{"powerResourceGroup":null}`,
 		},
 	}
 
@@ -49,7 +46,11 @@ func TestVpcUpdateRequestPowerResourceGroupJSON(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			request := &corev1.VpcUpdateRequest{}
 			require.NoError(t, protojson.Unmarshal([]byte(test.payload), request))
-			test.check(t, request)
+			require.Equal(t, test.want, request.PowerResourceGroup)
 		})
 	}
+}
+
+func stringPtr(value string) *string {
+	return &value
 }

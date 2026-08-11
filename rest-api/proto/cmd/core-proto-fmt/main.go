@@ -277,19 +277,10 @@ func normalizeNICo(content string) string {
 	content = nicoRemoveDomainTypes(content)
 	content = nicoUpdatePxeDomain(content)
 	content = nicoPreserveVpcNameFields(content)
-	content = nicoPreserveVpcPowerResourceGroupJSONName(content)
 	content = nicoExpandExpectedObject(content, "ExpectedPowerShelf", additionalPowerShelfAttributes)
 	content = nicoExpandExpectedObject(content, "ExpectedSwitch", additionalExpectedSwitchAttributes)
 	content = nicoExpandExpectedObject(content, "ExpectedMachine", additionalExpectedMachineAttributes)
 	return content
-}
-
-func nicoPreserveVpcPowerResourceGroupJSONName(content string) string {
-	re := regexp.MustCompile(`string set_power_resource_group = 20(?: \[[^]]+\])?;`)
-	return re.ReplaceAllString(
-		content,
-		`string set_power_resource_group = 20 [json_name = "powerResourceGroup"];`,
-	)
 }
 
 func nicoRenameMachineInventory(content string) string {

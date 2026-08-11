@@ -387,7 +387,7 @@ async fn create_vpc(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>
                 network_security_group_id: None,
                 default_nvlink_logical_partition_id: None,
                 routing_profile_overrides: None,
-                power_resource_group_update: None,
+                power_resource_group: None,
             }))
             .await;
 

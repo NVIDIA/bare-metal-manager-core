@@ -296,29 +296,13 @@ impl TryFrom<rpc::forge::VpcUpdateRequest> for UpdateVpc {
             RpcDataConversionError::InvalidArgument(format!("VPC metadata is not valid: {e}"))
         })?;
 
-        let power_resource_group = match value.power_resource_group_update {
-            Some(
-                rpc::forge::vpc_update_request::PowerResourceGroupUpdate::SetPowerResourceGroup(
-                    resource_group,
-                ),
-            ) if resource_group.is_empty() => {
-                return Err(RpcDataConversionError::InvalidArgument(
-                    "power_resource_group must not be empty when setting the association"
-                        .to_string(),
-                ));
+        let power_resource_group = value.power_resource_group.map(|resource_group| {
+            if resource_group.is_empty() {
+                PowerResourceGroupUpdate::Clear
+            } else {
+                PowerResourceGroupUpdate::Set(resource_group)
             }
-            Some(
-                rpc::forge::vpc_update_request::PowerResourceGroupUpdate::SetPowerResourceGroup(
-                    resource_group,
-                ),
-            ) => Some(PowerResourceGroupUpdate::Set(resource_group)),
-            Some(
-                rpc::forge::vpc_update_request::PowerResourceGroupUpdate::ClearPowerResourceGroup(
-                    (),
-                ),
-            ) => Some(PowerResourceGroupUpdate::Clear),
-            None => None,
-        };
+        });
 
         Ok(UpdateVpc {
             id: value
@@ -463,11 +447,7 @@ mod tests {
         assert_eq!(status.vni, rpc_vpc.deprecated_vni);
     }
 
-    fn vpc_update_request(
-        power_resource_group_update: Option<
-            rpc::forge::vpc_update_request::PowerResourceGroupUpdate,
-        >,
-    ) -> rpc::forge::VpcUpdateRequest {
+    fn vpc_update_request(power_resource_group: Option<&str>) -> rpc::forge::VpcUpdateRequest {
         rpc::forge::VpcUpdateRequest {
             id: Some(VpcId::from(uuid::Uuid::new_v4())),
             if_version_match: None,
@@ -475,27 +455,21 @@ mod tests {
             network_security_group_id: None,
             default_nvlink_logical_partition_id: None,
             routing_profile_overrides: None,
-            power_resource_group_update,
+            power_resource_group: power_resource_group.map(str::to_string),
         }
     }
 
     #[test]
-    fn vpc_update_power_resource_group_operations_are_distinct() {
-        use rpc::forge::vpc_update_request::PowerResourceGroupUpdate as RpcUpdate;
-
-        let set = UpdateVpc::try_from(vpc_update_request(Some(RpcUpdate::SetPowerResourceGroup(
-            "power-group".to_string(),
-        ))))
-        .expect("non-empty resource group should be accepted");
+    fn vpc_update_power_resource_group_semantics() {
+        let set = UpdateVpc::try_from(vpc_update_request(Some("power-group")))
+            .expect("non-empty resource group should be accepted");
         assert_eq!(
             set.power_resource_group,
             Some(PowerResourceGroupUpdate::Set("power-group".to_string()))
         );
 
-        let clear = UpdateVpc::try_from(vpc_update_request(Some(
-            RpcUpdate::ClearPowerResourceGroup(()),
-        )))
-        .expect("clear operation should be accepted");
+        let clear = UpdateVpc::try_from(vpc_update_request(Some("")))
+            .expect("empty resource group should clear the association");
         assert_eq!(
             clear.power_resource_group,
             Some(PowerResourceGroupUpdate::Clear)
@@ -504,18 +478,6 @@ mod tests {
         let omitted = UpdateVpc::try_from(vpc_update_request(None))
             .expect("omitted operation should be accepted");
         assert_eq!(omitted.power_resource_group, None);
-    }
-
-    #[test]
-    fn vpc_update_rejects_empty_power_resource_group() {
-        use rpc::forge::vpc_update_request::PowerResourceGroupUpdate as RpcUpdate;
-
-        let error = UpdateVpc::try_from(vpc_update_request(Some(
-            RpcUpdate::SetPowerResourceGroup(String::new()),
-        )))
-        .expect_err("empty resource group must be rejected");
-
-        assert!(matches!(error, RpcDataConversionError::InvalidArgument(_)));
     }
 
     // `VpcSearchFilter::from` is a total conversion, so we project its output to
