@@ -16,7 +16,7 @@
  */
 use bmc_explorer::nv_generate_exploration_report;
 use bmc_mock::{DpuSettings, test_support};
-use model::site_explorer::EndpointType;
+use model::site_explorer::{BlueFieldOperatingMode, EndpointType};
 use tokio::test;
 
 use crate::common;
@@ -45,6 +45,25 @@ async fn explore_bluefield3_baseline() {
             .as_ref()
             .is_some_and(|status| !status.diffs.is_empty() || status.is_done),
         "machine setup status must be present and structurally valid"
+    );
+}
+
+#[test]
+async fn explore_bluefield3_preserves_oem_mode_and_base_mac() {
+    let settings = DpuSettings {
+        nic_mode: true,
+        ..Default::default()
+    };
+    let h = test_support::dell_poweredge_r750_bluefield3_bmc(settings).await;
+    let report = nv_generate_exploration_report(h.service_root, &common::explorer_config())
+        .await
+        .unwrap();
+    let system = report.systems.first().expect("systems must be present");
+
+    assert!(system.base_mac.is_some());
+    assert_eq!(
+        system.attributes.nic_mode,
+        Some(BlueFieldOperatingMode::Nic)
     );
 }
 

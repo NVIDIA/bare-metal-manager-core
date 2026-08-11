@@ -19,6 +19,7 @@ use mac_address::MacAddress;
 use model::site_explorer::NetworkAdapter as ModelNetworkAdapter;
 use nv_redfish::chassis::{Chassis, NetworkAdapter};
 use nv_redfish::network_device_function::NetworkDeviceFunction;
+use nv_redfish::port::Port;
 use nv_redfish::{Bmc, Resource};
 
 use crate::Error;
@@ -67,11 +68,23 @@ impl<B: Bmc> ExploredNetworkAdapterCollection<B> {
     pub fn members(&self) -> &[ExploredNetworkAdapter<B>] {
         &self.members
     }
+
+    /// `fetch_ports` fetches `Port` resources for every adapter in this
+    /// collection.
+    ///
+    /// Port inventory is supplemental, so an error reading one adapter or Port
+    /// is logged without failing BMC exploration.
+    pub(crate) async fn fetch_ports(&mut self) {
+        for adapter in &mut self.members {
+            adapter.fetch_ports().await;
+        }
+    }
 }
 
 pub struct ExploredNetworkAdapter<B: Bmc> {
     pub adapter: NetworkAdapter<B>,
     pub functions: Option<Vec<NetworkDeviceFunction<B>>>,
+    ports: Vec<Port<B>>,
 }
 
 impl<B: Bmc> ExploredNetworkAdapter<B> {
@@ -91,7 +104,43 @@ impl<B: Bmc> ExploredNetworkAdapter<B> {
         } else {
             None
         };
-        Ok(Self { adapter, functions })
+        Ok(Self {
+            adapter,
+            functions,
+            ports: Vec::new(),
+        })
+    }
+
+    /// `fetch_ports` keeps every `Port` this adapter can read.
+    ///
+    /// `member_links()` lets us fetch members independently. Using `members()`
+    /// here would let one stale link discard otherwise usable sibling ports.
+    async fn fetch_ports(&mut self) {
+        let ports = match self.adapter.ports().await {
+            Ok(Some(ports)) => ports,
+            Ok(None) => return,
+            Err(error) => {
+                tracing::warn!(
+                    adapter_id = %self.adapter.id(),
+                    error = %error,
+                    "Failed to fetch network adapter Ports"
+                );
+                return;
+            }
+        };
+
+        for port_link in ports.member_links() {
+            let port_id = port_link.odata_id().clone();
+            match port_link.upgrade::<Port<B>>().await {
+                Ok(port) => self.ports.push(port),
+                Err(error) => tracing::warn!(
+                    adapter_id = %self.adapter.id(),
+                    %port_id,
+                    error = %error,
+                    "Failed to fetch network adapter Port"
+                ),
+            }
+        }
     }
 
     pub fn find_by_mac(&self, mac: MacAddress) -> Option<&NetworkDeviceFunction<B>> {
@@ -116,6 +165,72 @@ impl<B: Bmc> ExploredNetworkAdapter<B> {
                     .unwrap_or("")
                     .to_owned(),
             ),
+            port_mac_addresses: self.port_mac_addresses(),
+        }
+    }
+
+    /// `port_mac_addresses` returns MAC addresses reported by this adapter's
+    /// fetched `Port` resources.
+    ///
+    /// Standard `AssociatedMACAddresses` takes precedence for each `Port`.
+    /// Some Lenovo XCC firmware reports only OEM `PhysicalPortMacAddress`, so
+    /// that value is considered when the standard list contains no usable MAC.
+    /// Malformed values are logged and skipped; duplicates retain their
+    /// first-seen order.
+    fn port_mac_addresses(&self) -> Vec<MacAddress> {
+        let mut result = Vec::new();
+        for port in &self.ports {
+            let mut port_mac_addresses = port
+                .associated_mac_addresses()
+                .iter()
+                .filter_map(|address| self.parse_port_mac_address(port, address.as_str()))
+                .collect::<Vec<_>>();
+
+            if port_mac_addresses.is_empty() {
+                let oem_address = match port.oem_lenovo() {
+                    Ok(Some(lenovo)) => lenovo
+                        .physical_port_mac_address()
+                        .map(|address| address.as_str().to_owned()),
+                    Ok(None) => None,
+                    Err(error) => {
+                        tracing::warn!(
+                            adapter_id = %self.adapter.id(),
+                            port_id = %port.id(),
+                            error = %error,
+                            "Failed to parse Lenovo network adapter Port data"
+                        );
+                        continue;
+                    }
+                };
+                port_mac_addresses.extend(
+                    oem_address
+                        .as_deref()
+                        .and_then(|address| self.parse_port_mac_address(port, address)),
+                );
+            }
+
+            for mac_address in port_mac_addresses {
+                if !result.contains(&mac_address) {
+                    result.push(mac_address);
+                }
+            }
+        }
+        result
+    }
+
+    fn parse_port_mac_address(&self, port: &Port<B>, address: &str) -> Option<MacAddress> {
+        match address.parse() {
+            Ok(mac_address) => Some(mac_address),
+            Err(error) => {
+                tracing::warn!(
+                    adapter_id = %self.adapter.id(),
+                    port_id = %port.id(),
+                    mac_address = %address,
+                    error = %error,
+                    "Failed to parse network adapter Port MAC address"
+                );
+                None
+            }
         }
     }
 }

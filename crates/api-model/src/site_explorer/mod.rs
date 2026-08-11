@@ -155,7 +155,13 @@ impl EndpointExplorationReport {
             .iter()
             .flat_map(|s| s.ethernet_interfaces.as_slice())
             .filter_map(|e| e.mac_address)
-            .dedup()
+            .chain(
+                self.chassis
+                    .iter()
+                    .flat_map(|chassis| &chassis.network_adapters)
+                    .flat_map(|adapter| adapter.port_mac_addresses.iter().copied()),
+            )
+            .unique()
             .collect()
     }
 
@@ -1629,6 +1635,14 @@ pub struct NetworkAdapter {
     pub part_number: Option<String>,
     #[serde(rename = "SerialNumber")]
     pub serial_number: Option<String>,
+    /// MAC addresses reported by the `Port` resources contained by this
+    /// adapter.
+    ///
+    /// These remain attached to the adapter that reported them so callers can
+    /// use them as supplemental inventory when `ComputerSystem.EthernetInterfaces`
+    /// does not expose usable MAC addresses.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub port_mac_addresses: Vec<MacAddress>,
 }
 
 /// `SecureBootStatus` definition.
@@ -2547,6 +2561,37 @@ mod tests {
     use super::*;
     use crate::firmware::FirmwareComponent;
     use crate::machine::machine_id::from_hardware_info;
+
+    #[test]
+    fn all_mac_addresses_combines_system_and_adapter_inventory_without_duplicates() {
+        let system_mac = "02:aa:bb:cc:dd:01".parse().unwrap();
+        let adapter_mac = "94:6d:ae:53:cb:9b".parse().unwrap();
+        let report = EndpointExplorationReport {
+            systems: vec![ComputerSystem {
+                ethernet_interfaces: vec![
+                    EthernetInterface {
+                        mac_address: Some(system_mac),
+                        ..Default::default()
+                    },
+                    EthernetInterface {
+                        mac_address: Some(adapter_mac),
+                        ..Default::default()
+                    },
+                ],
+                ..Default::default()
+            }],
+            chassis: vec![Chassis {
+                network_adapters: vec![NetworkAdapter {
+                    port_mac_addresses: vec![system_mac, adapter_mac],
+                    ..Default::default()
+                }],
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+
+        assert_eq!(report.all_mac_addresses(), vec![system_mac, adapter_mac]);
+    }
 
     #[test]
     fn bluefield_operating_mode_preserves_legacy_serialized_values() {
