@@ -52,6 +52,16 @@ fn nmxc_subscription_keys(sharded_endpoints: &[Arc<BmcEndpoint>]) -> HashSet<Cow
         .collect()
 }
 
+/// Runs one endpoint discovery pass and reconciles collectors for this shard.
+///
+/// Collector spawning is attempted for every endpoint. Each failure is logged
+/// and returned in processing order after reachability reconciliation. Spawn
+/// failures take precedence if reachability reconciliation also fails; the
+/// reachability failure is logged separately.
+///
+/// # Errors
+///
+/// Returns endpoint discovery, collector spawning, or reachability errors.
 pub async fn run_discovery_iteration(
     endpoint_source: Arc<dyn EndpointSource>,
     shard_manager: &ShardManager,
@@ -118,12 +128,46 @@ pub async fn run_discovery_iteration(
     let active_endpoints = active_keys(&sharded_endpoints);
     stop_removed_bmc_collectors(ctx, &active_endpoints).await;
 
+    // One endpoint's failure must not prevent independent endpoint collectors
+    // from starting. Preserve every failure for diagnostics and retry policy.
+    let mut spawn_errors = Vec::new();
+
     for endpoint in &sharded_endpoints {
-        spawn_collectors_for_endpoint(ctx, endpoint, data_sink.clone(), metrics_prefix)?;
+        if let Err(error) =
+            spawn_collectors_for_endpoint(ctx, endpoint, data_sink.clone(), metrics_prefix)
+        {
+            let endpoint_key = endpoint.key();
+
+            tracing::error!(
+                ?error,
+                %endpoint_key,
+                "Could not spawn collectors for endpoint"
+            );
+
+            spawn_errors.push((endpoint_key, error));
+        }
     }
 
-    reconcile_reachability_collectors(ctx, &sharded_endpoints, data_sink.clone(), metrics_prefix)
-        .await?;
+    // Reachability owns its cleanup lifecycle, so reconcile it even when
+    // ordinary collectors cannot start. Their aggregate takes precedence over
+    // a reachability error, which is logged separately below.
+    let reachability_result = reconcile_reachability_collectors(
+        ctx,
+        &sharded_endpoints,
+        data_sink.clone(),
+        metrics_prefix,
+    )
+    .await;
+
+    if !spawn_errors.is_empty() {
+        if let Err(error) = reachability_result {
+            tracing::error!(?error, "Could not reconcile TCP reachability collectors");
+        }
+
+        return Err(HealthError::CollectorSpawnErrors(spawn_errors));
+    }
+
+    reachability_result?;
 
     if matches!(&ctx.nmxc_config, Configurable::Enabled(_)) {
         // Endpoints can remain active while Carbide API changes primary or
@@ -153,6 +197,7 @@ mod tests {
     use std::net::{IpAddr, Ipv4Addr};
     use std::str::FromStr;
 
+    use carbide_instrument::testing::capture_logs_async;
     use carbide_uuid::rack::RackId;
     use mac_address::MacAddress;
 
@@ -165,6 +210,7 @@ mod tests {
     };
     use crate::limiter::NoopLimiter;
     use crate::metrics::MetricsManager;
+    use crate::sink::PrometheusSink;
 
     /// Builds a generic endpoint fixture for discovery iteration tests.
     fn endpoint(mac: MacAddress, switch: bool, rack_id: Option<RackId>) -> Arc<BmcEndpoint> {
@@ -363,15 +409,29 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn discovery_iteration_waits_for_removed_nmxc_shutdown_before_spawn_error() {
+    async fn discovery_iteration_attempts_all_spawns_and_reconciles_before_spawn_errors() {
         let active_endpoint = endpoint(
             MacAddress::from_str("00:00:00:00:00:31").unwrap(),
             false,
             None,
         );
 
+        let later_endpoint = endpoint(
+            MacAddress::from_str("00:00:00:00:00:32").unwrap(),
+            false,
+            None,
+        );
+
+        let second_conflicting_endpoint = endpoint(
+            MacAddress::from_str("00:00:00:00:00:33").unwrap(),
+            false,
+            None,
+        );
+
         let source: Arc<dyn EndpointSource> = Arc::new(StaticEndpointSource::new(vec![
             active_endpoint.as_ref().clone(),
+            later_endpoint.as_ref().clone(),
+            second_conflicting_endpoint.as_ref().clone(),
         ]));
 
         let metrics_manager = Arc::new(
@@ -385,12 +445,35 @@ mod tests {
             )
             .expect("conflicting registry should start");
 
-        let mut ctx = DiscoveryLoopContext::new(
-            Arc::new(NoopLimiter),
-            metrics_manager,
-            Arc::new(Config::default()),
-        )
-        .expect("discovery context should start");
+        let _second_conflicting_registry = metrics_manager
+            .create_collector_registry(
+                format!(
+                    "entity_discovery_collector_{}",
+                    second_conflicting_endpoint.key()
+                ),
+                "test",
+            )
+            .expect("second conflicting registry should start");
+
+        let _reachability_conflicting_registry = metrics_manager
+            .create_collector_registry(
+                format!("reachability_collector_{}", active_endpoint.key()),
+                "test",
+            )
+            .expect("conflicting reachability registry should start");
+
+        let mut config = Config::default();
+        config.collectors.reachability =
+            Configurable::Enabled(ReachabilityCollectorConfig::default());
+
+        let sink: Arc<dyn DataSink> = Arc::new(
+            PrometheusSink::new(metrics_manager.clone(), "test")
+                .expect("Prometheus sink should start"),
+        );
+
+        let mut ctx =
+            DiscoveryLoopContext::new(Arc::new(NoopLimiter), metrics_manager, Arc::new(config))
+                .expect("discovery context should start");
 
         let cancelled = Arc::new(tokio::sync::Notify::new());
         let release = Arc::new(tokio::sync::Notify::new());
@@ -407,18 +490,22 @@ mod tests {
             }),
         );
 
+        let iteration_sink = sink.clone();
+
         let iteration = tokio::spawn(async move {
-            run_discovery_iteration(
+            let (result, logs) = capture_logs_async(run_discovery_iteration(
                 source,
                 &ShardManager {
                     shard: 0,
                     shards_count: 1,
                 },
                 &mut ctx,
-                None,
+                Some(iteration_sink),
                 "test",
-            )
-            .await
+            ))
+            .await;
+
+            (result, ctx, logs)
         });
 
         tokio::time::timeout(std::time::Duration::from_secs(1), cancelled.notified())
@@ -429,15 +516,51 @@ mod tests {
 
         release.notify_one();
 
-        let error = tokio::time::timeout(std::time::Duration::from_secs(1), iteration)
-            .await
-            .expect("discovery iteration should finish after collector shutdown")
-            .expect("discovery task should not panic")
-            .expect_err("collector registry conflict should fail spawning");
+        let (result, mut ctx, logs) =
+            tokio::time::timeout(std::time::Duration::from_secs(1), iteration)
+                .await
+                .expect("discovery iteration should finish after collector shutdown")
+                .expect("discovery task should not panic");
+
+        let error = result.expect_err("collector registry conflict should fail spawning");
+
+        let HealthError::CollectorSpawnErrors(spawn_errors) = error else {
+            panic!("expected aggregate collector spawn error");
+        };
+
+        let [(first_key, first_error), (second_key, second_error)] = spawn_errors.as_slice() else {
+            panic!("expected both endpoint spawn errors");
+        };
+
+        assert_eq!(first_key, &active_endpoint.key());
 
         assert!(matches!(
-            error,
+            first_error,
             HealthError::PrometheusError(prometheus::Error::AlreadyReg)
         ));
+
+        assert_eq!(second_key, &second_conflicting_endpoint.key());
+
+        assert!(matches!(
+            second_error,
+            HealthError::PrometheusError(prometheus::Error::AlreadyReg)
+        ));
+
+        assert!(
+            ctx.collectors
+                .contains(CollectorKind::Discovery, &later_endpoint.key()),
+            "the later endpoint must still be spawned after the first endpoint fails",
+        );
+
+        assert!(logs.iter().any(|log| {
+            log.message == "Could not reconcile TCP reachability collectors"
+                && log
+                    .field("error")
+                    .is_some_and(|error| error.contains("AlreadyReg"))
+        }));
+
+        reconcile_reachability_collectors(&mut ctx, &[], Some(sink), "test")
+            .await
+            .expect("reachability cleanup should succeed");
     }
 }
