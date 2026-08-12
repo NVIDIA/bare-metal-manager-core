@@ -306,7 +306,7 @@ validate_host_config() {
   if [[ -e /etc/containerd/config.toml ]]; then
     local configured_root
     configured_root="$(sed -nE \
-      's|^[[:space:]]*root[[:space:]]*=[[:space:]]*"([^"]+)".*$|\1|p' \
+      's|^root[[:space:]]*=[[:space:]]*"([^"]+)".*$|\1|p' \
       /etc/containerd/config.toml)"
     if [[ "${configured_root}" == "${DOCKER_ROOT}/containerd" ]]; then
       CONTAINERD_ROOT_IS_SETUP=1
@@ -351,7 +351,8 @@ print_plan() {
 [reset-devspace-on-host] Reset plan for $(hostname -f 2>/dev/null || hostname):
   user:             ${DEV_USER}
   cluster:          kind-${CLUSTER_NAME}
-  Docker data:      ${DOCKER_ROOT} (contents are cleared; path is preserved)
+  Docker data:      ${DOCKER_ROOT} (ALL images, containers, and volumes are
+                    deleted, including any unrelated to NICo; path is preserved)
   checkout:         $(
     if [[ "${KEEP_CHECKOUT}" == "1" ]]; then
       printf 'preserved'
@@ -369,7 +370,7 @@ print_plan() {
   user tools/state: ~/.local DevSpace tools, kube/Helm/DevSpace/Docker caches,
                     REST integration temp files, and shell environment block
   Docker packages:  preserved
-  Docker data path: preserved after its contents are cleared
+  Docker data path: preserved after all Docker data is deleted
 EOF
 }
 
@@ -388,7 +389,7 @@ clear_docker_data() {
   systemctl stop docker.service docker.socket containerd.service \
     >/dev/null 2>&1 || true
 
-  log "Removing setup-owned Docker data from ${DOCKER_ROOT}"
+  log "Removing ALL Docker images, containers, and volumes from ${DOCKER_ROOT}"
   rm -rf -- \
     "${DOCKER_ROOT}/buildkit" \
     "${DOCKER_ROOT}/containerd" \
@@ -434,7 +435,7 @@ restore_host_config() {
     local config_tmp
     config_tmp="$(mktemp)"
     sed -E \
-      's|^[[:space:]]*root[[:space:]]*=.*$|root = "/var/lib/containerd"|' \
+      's|^root[[:space:]]*=.*$|root = "/var/lib/containerd"|' \
       /etc/containerd/config.toml >"${config_tmp}"
     install -m 0644 "${config_tmp}" /etc/containerd/config.toml
     rm -f "${config_tmp}"
@@ -525,13 +526,16 @@ remove_user_state() {
 
   if [[ -d "${USER_HOME}/.kube" ]]; then
     local remaining_contexts
-    remaining_contexts="$(
-      run_as_user kubectl config get-contexts -o name 2>/dev/null || true
-    )"
-    if [[ -z "${remaining_contexts}" ]]; then
-      rm -rf -- "${USER_HOME}/.kube"
+    if remaining_contexts="$(
+      run_as_user kubectl config get-contexts -o name 2>/dev/null
+    )"; then
+      if [[ -z "${remaining_contexts}" ]]; then
+        rm -rf -- "${USER_HOME}/.kube"
+      else
+        log "Preserving ~/.kube because unrelated contexts remain"
+      fi
     else
-      log "Preserving ~/.kube because unrelated contexts remain"
+      log "Preserving ~/.kube because Kubernetes contexts could not be enumerated"
     fi
   fi
 

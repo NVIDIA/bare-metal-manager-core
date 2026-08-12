@@ -453,7 +453,14 @@ install_grpcurl() {
 }
 
 install_vault() {
-  if command -v vault >/dev/null 2>&1; then
+  local vault_path installed_version
+  vault_path="$(command -v vault 2>/dev/null || true)"
+  installed_version="$(
+    dpkg-query -W -f='${Version}' vault 2>/dev/null || true
+  )"
+  if [[ -n "${vault_path}" && \
+    "$(readlink -f "${vault_path}")" == "/usr/bin/vault" && \
+    "${installed_version}" == "${VAULT_VERSION}" ]]; then
     log "Reusing installed Vault"
     return
   fi
@@ -466,11 +473,21 @@ Types: deb
 URIs: https://apt.releases.hashicorp.com
 Suites: ${VERSION_CODENAME}
 Components: main
-Signed-By: /usr/share/keyrings/hashicorp-archive-keyring.gpg
+  Signed-By: /usr/share/keyrings/hashicorp-archive-keyring.gpg
 EOF
   apt-get update
-  DEBIAN_FRONTEND=noninteractive apt-get install -y "vault=${VAULT_VERSION}"
+  DEBIAN_FRONTEND=noninteractive apt-get install -y \
+    --allow-change-held-packages "vault=${VAULT_VERSION}"
   apt-mark hold vault >/dev/null
+
+  vault_path="$(command -v vault 2>/dev/null || true)"
+  installed_version="$(
+    dpkg-query -W -f='${Version}' vault 2>/dev/null || true
+  )"
+  [[ -n "${vault_path}" && \
+    "$(readlink -f "${vault_path}")" == "/usr/bin/vault" && \
+    "${installed_version}" == "${VAULT_VERSION}" ]] || \
+    die "Vault ${VAULT_VERSION} was installed but is not the active executable"
 }
 
 configure_kea_apparmor() {
@@ -631,8 +648,24 @@ start_core_postgres() {
     return
   fi
 
+  local container_exists=0 port_bindings=""
   if run_as_user docker container inspect "${CORE_POSTGRES_CONTAINER}" \
     >/dev/null 2>&1; then
+    container_exists=1
+    port_bindings="$(run_as_user docker container inspect \
+      --format '{{json .HostConfig.PortBindings}}' \
+      "${CORE_POSTGRES_CONTAINER}" 2>/dev/null || true)"
+    if ! jq -e '
+      .["5432/tcp"] | type == "array" and length == 1 and
+      all(.[]; .HostIp == "127.0.0.1" and .HostPort == "5432")
+    ' <<<"${port_bindings}" >/dev/null 2>&1; then
+      log "Recreating ${CORE_POSTGRES_CONTAINER} with a loopback-only port binding"
+      run_as_user docker rm -f "${CORE_POSTGRES_CONTAINER}" >/dev/null
+      container_exists=0
+    fi
+  fi
+
+  if [[ "${container_exists}" == "1" ]]; then
     log "Starting existing ${CORE_POSTGRES_CONTAINER}"
     run_as_user docker start "${CORE_POSTGRES_CONTAINER}" >/dev/null
   else

@@ -127,7 +127,7 @@ done
 
 if [[ "${EUID}" -ne 0 ]]; then
   if [[ -z "${DEV_USER}" ]]; then
-    DEV_USER="${USER}"
+    DEV_USER="${USER:-$(id -un)}"
   fi
   sudo_args=(
     bash "$0"
@@ -186,6 +186,11 @@ fi
 # shellcheck source=/dev/null
 source /etc/os-release
 [[ "${ID:-}" == "ubuntu" ]] || die "this bootstrap currently supports Ubuntu only"
+[[ -n "${VERSION_CODENAME:-}" ]] || \
+  die "cannot determine the Ubuntu release codename"
+[[ -n "${VERSION_ID:-}" ]] || die "cannot determine the Ubuntu release version"
+dpkg --compare-versions "${VERSION_ID}" ge "22.04" || \
+  die "unsupported Ubuntu release: ${VERSION_ID}; 22.04 or later is required"
 
 run_as_user() {
   runuser -u "${DEV_USER}" -- env \
@@ -290,10 +295,10 @@ configure_docker() {
   fi
   local containerd_tmp
   containerd_tmp="$(mktemp)"
-  if grep -Eq '^[[:space:]]*root[[:space:]]*=' \
+  if grep -Eq '^root[[:space:]]*=' \
     /etc/containerd/config.toml; then
     sed -E \
-      "s|^[[:space:]]*root[[:space:]]*=.*$|root = \"${DOCKER_ROOT}/containerd\"|" \
+      "s|^root[[:space:]]*=.*$|root = \"${DOCKER_ROOT}/containerd\"|" \
       /etc/containerd/config.toml >"${containerd_tmp}"
   else
     {
@@ -394,7 +399,7 @@ install_cli_tools() (
 )
 
 configure_user_shell() {
-  local login_shell marker end_marker rc_file
+  local login_shell marker end_marker rc_file candidate
   login_shell="$(getent passwd "${DEV_USER}" | cut -d: -f7)"
   marker="# NICo DevSpace VM bootstrap"
   end_marker="# end NICo DevSpace VM bootstrap"
@@ -414,6 +419,12 @@ configure_user_shell() {
       ;;
     *)
       rc_file="${USER_HOME}/.profile"
+      for candidate in .bash_profile .bash_login .profile; do
+        if [[ -f "${USER_HOME}/${candidate}" ]]; then
+          rc_file="${USER_HOME}/${candidate}"
+          break
+        fi
+      done
       if [[ ! -f "${rc_file}" ]] || ! grep -Fq "${marker}" "${rc_file}"; then
         {
           printf '\n%s\n' "${marker}"

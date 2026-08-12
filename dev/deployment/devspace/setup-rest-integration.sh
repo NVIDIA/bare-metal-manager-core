@@ -15,6 +15,8 @@ MACHINE_A_TRON_BMC_SERVICE="${MACHINE_A_TRON_DEPLOYMENT}-bmc-mock"
 API_FORWARD_PORT="${LOCAL_DEV_REST_API_FORWARD_PORT:-18388}"
 KEYCLOAK_FORWARD_PORT="${LOCAL_DEV_KEYCLOAK_FORWARD_PORT:-18082}"
 WORK_DIR="${LOCAL_DEV_REST_WORK_DIR:-${HOME}/Developer/_agent-tmp/devspace-rest}"
+verify_attempts=180
+verify_sleep_seconds=5
 
 api_forward_pid=""
 keycloak_forward_pid=""
@@ -61,26 +63,26 @@ fi
 # authorization rules for SetDynamicConfig. The literal address also works on
 # AMD64.
 machine_a_tron_bmc_proxy="${machine_a_tron_bmc_ip}:1266"
-site_config_patch="$(kubectl get configmap "${CORE_SITE_CONFIG_MAP}" \
+if ! site_config_patch="$(kubectl get configmap "${CORE_SITE_CONFIG_MAP}" \
   -n "${CORE_NAMESPACE}" -o json | jq -c --arg proxy "${machine_a_tron_bmc_proxy}" '
-    .data as $data |
-    {data: {
-      "carbide-api-site-config.toml": (
-        $data["carbide-api-site-config.toml"] |
-        gsub("bmc_proxy = \"[^\"]*\""; "bmc_proxy = \"" + $proxy + "\"")
-      ),
-      "nico-api-site-config.toml": (
-        $data["nico-api-site-config.toml"] |
-        gsub("bmc_proxy = \"[^\"]*\""; "bmc_proxy = \"" + $proxy + "\"")
-      )
-    }}
-  ')"
+    {data: (
+      (.data // {}) |
+      with_entries(select(
+        .value | type == "string" and
+        test("(?m)^[[:space:]]*bmc_proxy[[:space:]]*=")
+      )) |
+      map_values(gsub(
+        "(?m)^[[:space:]]*bmc_proxy[[:space:]]*=[[:space:]]*\"[^\"]*\"";
+        "bmc_proxy = \"" + $proxy + "\""
+      ))
+    )}
+  ')"; then
+  printf 'Core site ConfigMap does not contain a writable bmc_proxy setting\n' >&2
+  exit 1
+fi
 if ! jq -e --arg proxy "bmc_proxy = \"${machine_a_tron_bmc_proxy}\"" '
-  .data["carbide-api-site-config.toml"] | contains($proxy)
-' <<<"${site_config_patch}" >/dev/null || \
-  ! jq -e --arg proxy "bmc_proxy = \"${machine_a_tron_bmc_proxy}\"" '
-    .data["nico-api-site-config.toml"] | contains($proxy)
-  ' <<<"${site_config_patch}" >/dev/null; then
+  (.data | length) > 0 and all(.data[]; contains($proxy))
+' <<<"${site_config_patch}" >/dev/null; then
   printf 'Core site ConfigMap does not contain a bmc_proxy setting\n' >&2
   exit 1
 fi
@@ -89,16 +91,24 @@ kubectl patch configmap "${CORE_SITE_CONFIG_MAP}" -n "${CORE_NAMESPACE}" \
 kubectl rollout restart deployment/nico-api -n "${CORE_NAMESPACE}" >/dev/null
 kubectl rollout status deployment/nico-api -n "${CORE_NAMESPACE}" --timeout=300s >/dev/null
 
-machine_status="$(kubectl exec deployment/nico-api -n "${CORE_NAMESPACE}" -- \
-  curl --fail --insecure --silent --max-time 5 \
-  "https://${machine_a_tron_bmc_ip}:1266/machines/status" 2>/dev/null || true)"
-expected_host_count="$(jq -r \
-  'if (.machines | type) == "array" then .machines | length else 0 end' \
-  <<<"${machine_status}" 2>/dev/null || printf '0')"
-if [[ "${expected_host_count}" == "0" ]]; then
-  printf 'machine-a-tron did not report any expected hosts\n' >&2
-  exit 1
-fi
+expected_host_count=0
+for ((attempt = 1; attempt <= verify_attempts; attempt++)); do
+  machine_status="$(kubectl exec deployment/nico-api -n "${CORE_NAMESPACE}" -- \
+    curl --fail --insecure --silent --max-time 5 \
+    "https://${machine_a_tron_bmc_ip}:1266/machines/status" 2>/dev/null || true)"
+  expected_host_count="$(jq -r \
+    'if (.machines | type) == "array" then .machines | length else 0 end' \
+    <<<"${machine_status}" 2>/dev/null || printf '0')"
+  if [[ "${expected_host_count}" != "0" ]]; then
+    break
+  fi
+  if [[ "${attempt}" == "${verify_attempts}" ]]; then
+    printf 'machine-a-tron at %s did not report any expected hosts after %s attempts\n' \
+      "${machine_a_tron_bmc_ip}:1266" "${verify_attempts}" >&2
+    exit 1
+  fi
+  sleep "${verify_sleep_seconds}"
+done
 
 # Clear any lockout-protection errors cached while Core was still using the
 # hostname, then refresh the report. Refresh alone persists an AvoidLockout
@@ -232,7 +242,7 @@ machine_count=0
 fresh_cycle=false
 # Site registration and the first four-minute inventory cycle can take around ten
 # minutes on a clean cluster. Allow fifteen minutes while retaining the full check.
-for attempt in {1..180}; do
+for ((attempt = 1; attempt <= verify_attempts; attempt++)); do
   site_ready=false
   machines_ready=false
   machine_count=0
@@ -289,13 +299,13 @@ for attempt in {1..180}; do
       "${site_id}" "${expected_host_count}"
     break
   fi
-  if [[ "${attempt}" == "180" ]]; then
+  if [[ "${attempt}" == "${verify_attempts}" ]]; then
     printf 'REST integration verification failed: site_ready=%s machines_ready=%s rest_machines=%s expected_hosts=%s fresh_cycle=%s\n' \
       "${site_ready}" "${machines_ready}" "${machine_count}" \
       "${expected_host_count}" "${fresh_cycle}" >&2
     exit 1
   fi
-  sleep 5
+  sleep "${verify_sleep_seconds}"
 done
 
 printf 'REST integration setup complete\n'
