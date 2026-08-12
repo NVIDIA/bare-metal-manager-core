@@ -507,6 +507,7 @@ impl PowerShelfHandle {
             power_state: state.power_state.to_string(),
             machine_ip: None,
             nvos_ip: None,
+            infiniband_ports: None,
             bmc: BmcStatus {
                 ip: state.bmc_ip.map(|ip| ip.to_string()),
                 redfish: EndpointStatus::redfish(config),
