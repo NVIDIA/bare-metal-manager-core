@@ -3670,13 +3670,15 @@ where
     // though in the case of machine interfaces, its probably
     // always going to just be a /32.
     //
-    // used_ips returns the used (or allocated) IPs for machine
-    // interfaces in a given network segment.
+    // used_ips returns globally owned machine-interface addresses contained by
+    // this segment's prefixes. Filtering by the owning interface's segment
+    // would miss a static assignment that predates its containing managed
+    // prefix.
     //
-    // More specifically, this is intended to specifically
-    // target the `address` column of the `machine_interface_addresses`
-    // table, in which a single /32 is stored (although, as an
-    // `inet`, it could techincally also have a prefix length).
+    // More specifically, this targets the `address` column of the
+    // `machine_interface_addresses` table, where
+    // `machine_interface_addresses_host_address_check` permits only /32 or
+    // /128 host addresses.
     async fn used_ips(&self, txn: &mut DB) -> Result<Vec<IpAddr>, DatabaseError> {
         // IpAddrContainer is a small private struct used
         // for binding the result of the subsequent SQL
@@ -3687,11 +3689,16 @@ where
             address: IpAddr,
         }
 
+        // Machine-interface addresses are normalized to host addresses, so
+        // these inclusive prefix bounds are the same as subnet containment and
+        // can use the btree index behind `machine_interface_addresses_address_key`.
         let query = "
-SELECT address FROM machine_interface_addresses
-INNER JOIN machine_interfaces ON machine_interfaces.id = machine_interface_addresses.interface_id
-INNER JOIN network_segments ON machine_interfaces.segment_id = network_segments.id
-WHERE network_segments.id = $1::uuid";
+SELECT mia.address
+FROM network_prefixes np
+JOIN machine_interface_addresses mia
+  ON mia.address BETWEEN host(network(np.prefix))::inet
+                     AND host(broadcast(np.prefix))::inet
+WHERE np.segment_id = $1::uuid";
 
         let containers: Vec<IpAddrContainer> = sqlx::query_as(query)
             .bind(self.segment_id)
