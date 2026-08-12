@@ -192,7 +192,7 @@ jobs:
       - name: Grype vulnerability scan
         if: matrix.arch == 'amd64' && github.ref == 'refs/heads/main'
         continue-on-error: true
-        uses: NVIDIA/dsx-github-actions/.github/actions/security-container-scan@aa4e470cc53f3886545c7d72a984eb81f1d203e2 # v1.16.2
+        uses: dsx-ai-factory/dsx-github-actions/.github/actions/security-container-scan@aa4e470cc53f3886545c7d72a984eb81f1d203e2 # v1.16.2
         with:
           image: ${{ steps.docker-tags.outputs.arch_tag }}
           fail-on: critical
@@ -237,7 +237,7 @@ jobs:
 
       - name: Upload binary artifact with semantic version
         if: inputs.push_enabled == true && inputs.ngc_path != ''
-        uses: NVIDIA/dsx-github-actions/.github/actions/resource-push-ngc@ae74448cafa69f20fe0011c5351c2a864a8f632d
+        uses: dsx-ai-factory/dsx-github-actions/.github/actions/resource-push-ngc@ae74448cafa69f20fe0011c5351c2a864a8f632d
         with:
           name: ${{ inputs.service_name }}-binary-${{ matrix.arch }}
           display-name: ${{ inputs.service_name }}-binary-${{ matrix.arch }}
@@ -249,7 +249,7 @@ jobs:
 
       - name: Upload binary artifact with latest tag
         if: inputs.is_main_branch == 'true' && inputs.push_enabled == true && inputs.ngc_path != ''
-        uses: NVIDIA/dsx-github-actions/.github/actions/resource-push-ngc@ae74448cafa69f20fe0011c5351c2a864a8f632d
+        uses: dsx-ai-factory/dsx-github-actions/.github/actions/resource-push-ngc@ae74448cafa69f20fe0011c5351c2a864a8f632d
         with:
           name: ${{ inputs.service_name }}-binary-${{ matrix.arch }}
           display-name: ${{ inputs.service_name }}-binary-${{ matrix.arch }}
@@ -335,7 +335,7 @@ jobs:
 
       - name: Upload Docker image artifact with semantic version
         if: inputs.ngc_path != ''
-        uses: NVIDIA/dsx-github-actions/.github/actions/resource-push-ngc@ae74448cafa69f20fe0011c5351c2a864a8f632d
+        uses: dsx-ai-factory/dsx-github-actions/.github/actions/resource-push-ngc@ae74448cafa69f20fe0011c5351c2a864a8f632d
         with:
           name: ${{ inputs.service_name }}-image
           display-name: ${{ inputs.service_name }}-image
@@ -347,7 +347,7 @@ jobs:
 
       - name: Upload Docker image artifact with latest tag
         if: inputs.is_main_branch == 'true' && inputs.ngc_path != ''
-        uses: NVIDIA/dsx-github-actions/.github/actions/resource-push-ngc@ae74448cafa69f20fe0011c5351c2a864a8f632d
+        uses: dsx-ai-factory/dsx-github-actions/.github/actions/resource-push-ngc@ae74448cafa69f20fe0011c5351c2a864a8f632d
         with:
           name: ${{ inputs.service_name }}-image
           display-name: ${{ inputs.service_name }}-image
