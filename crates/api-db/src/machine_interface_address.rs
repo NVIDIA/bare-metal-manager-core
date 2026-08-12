@@ -179,8 +179,10 @@ pub async fn delete_by_interface_and_address(
 /// `ON CONFLICT DO NOTHING` leaves the caller's transaction usable so we can
 /// identify the current owner. Repeating the same assignment for the same
 /// interface is idempotent; a different owner or allocation type returns
-/// [`AddressAlreadyInUseError`]. Allocation callers decide whether to choose
-/// another address; this function only attempts the requested address once.
+/// [`AddressAlreadyInUseError`]. An interface that already has another address
+/// in the same family returns [`DatabaseError::FailedPrecondition`]. Allocation
+/// callers decide whether to choose another address; this function only
+/// attempts the requested address once.
 pub async fn insert(
     txn: &mut PgConnection,
     interface_id: MachineInterfaceId,
@@ -189,7 +191,7 @@ pub async fn insert(
 ) -> Result<(), DatabaseError> {
     let query = "INSERT INTO machine_interface_addresses (interface_id, address, allocation_type)
         VALUES ($1::uuid, $2::inet, $3)
-        ON CONFLICT (address) DO NOTHING
+        ON CONFLICT DO NOTHING
         RETURNING interface_id";
 
     let inserted: Option<MachineInterfaceId> = sqlx::query_scalar(query)
@@ -204,6 +206,16 @@ pub async fn insert(
     }
 
     let Some(existing) = find_by_address(&mut *txn, address).await? else {
+        if let Some(existing) = find_for_interface(&mut *txn, interface_id)
+            .await?
+            .into_iter()
+            .find(|existing| existing.address.is_address_family(address.address_family()))
+        {
+            return Err(DatabaseError::FailedPrecondition(format!(
+                "interface {interface_id} already has address {} in the same family as {address}",
+                existing.address,
+            )));
+        }
         return Err(DatabaseError::internal(format!(
             "address {address} was reported as in use but has no owner"
         )));
@@ -422,7 +434,7 @@ mod tests {
         Ok(())
     }
 
-    /// Verifies that concurrent inserts leave one owner and return a useful conflict.
+    /// Verifies that concurrent inserts leave one owner and conflicts stay actionable.
     #[crate::sqlx_test]
     async fn concurrent_inserts_keep_one_address_owner(
         pool: sqlx::PgPool,
@@ -530,6 +542,27 @@ mod tests {
         .fetch_one(&pool)
         .await?;
         assert_eq!(slaac_owner_count, 1);
+
+        let mut txn = crate::Transaction::begin(&pool).await?;
+        let other_slaac_address: IpAddr = "2001:db8::11".parse()?;
+        let error = insert(
+            txn.as_pgconn(),
+            first_interface_id,
+            other_slaac_address,
+            AllocationType::Slaac,
+        )
+        .await
+        .expect_err("a second IPv6 address on the same interface should be rejected");
+        match error {
+            DatabaseError::FailedPrecondition(message) => assert_eq!(
+                message,
+                format!(
+                    "interface {first_interface_id} already has address {slaac_address} in the same family as {other_slaac_address}"
+                ),
+            ),
+            error => panic!("expected a failed-precondition error, got {error:?}"),
+        }
+        txn.rollback().await?;
         Ok(())
     }
 
