@@ -202,6 +202,7 @@ async fn test_machine_interface_create_with_ipv6_prefix(
         id: uuid::Uuid::new_v4().into(),
         can_stretch: None,
         allocation_strategy: AllocationStrategy::Dynamic,
+        infer_slaac_eui64_addresses: false,
     };
     let network_segment =
         db::network_segment::persist(new_ns, &mut txn, NetworkSegmentControllerState::Ready)
@@ -391,6 +392,7 @@ async fn test_machine_interface_create_dual_stack(
         id: uuid::Uuid::new_v4().into(),
         can_stretch: None,
         allocation_strategy: AllocationStrategy::Dynamic,
+        infer_slaac_eui64_addresses: false,
     };
     let network_segment =
         db::network_segment::persist(new_ns, &mut txn, NetworkSegmentControllerState::Ready)
@@ -500,6 +502,7 @@ async fn test_machine_interface_ipv6_allocation_shift_widths(
                 id: uuid::Uuid::new_v4().into(),
                 can_stretch: None,
                 allocation_strategy: AllocationStrategy::Dynamic,
+                infer_slaac_eui64_addresses: false,
             },
             &mut txn,
             NetworkSegmentControllerState::Ready,
@@ -571,6 +574,7 @@ async fn test_machine_interface_ipv6_exhausted_segment_falls_through(
             id: uuid::Uuid::new_v4().into(),
             can_stretch: None,
             allocation_strategy: AllocationStrategy::Dynamic,
+            infer_slaac_eui64_addresses: false,
         },
         &mut txn,
         NetworkSegmentControllerState::Ready,
@@ -594,6 +598,7 @@ async fn test_machine_interface_ipv6_exhausted_segment_falls_through(
             id: uuid::Uuid::new_v4().into(),
             can_stretch: None,
             allocation_strategy: AllocationStrategy::Dynamic,
+            infer_slaac_eui64_addresses: false,
         },
         &mut txn,
         NetworkSegmentControllerState::Ready,
@@ -667,6 +672,7 @@ async fn test_allocate_address_for_family_dual_stack_round_trip(
             id: uuid::Uuid::new_v4().into(),
             can_stretch: None,
             allocation_strategy: AllocationStrategy::Dynamic,
+            infer_slaac_eui64_addresses: false,
         },
         &mut txn,
         NetworkSegmentControllerState::Ready,

@@ -6121,6 +6121,7 @@ firmware_url = "https://firmware.example.com/fw-b.bin"
                 mtu: 9000,
                 reserve_first: 5,
                 allocation_strategy: Default::default(),
+                infer_slaac_eui64_addresses: true,
                 vpc_name: None,
             }
         );
@@ -6136,6 +6137,7 @@ firmware_url = "https://firmware.example.com/fw-b.bin"
                 mtu: 1500,
                 reserve_first: 5,
                 allocation_strategy: Default::default(),
+                infer_slaac_eui64_addresses: false,
                 vpc_name: None,
             }
         );
@@ -6151,6 +6153,7 @@ firmware_url = "https://firmware.example.com/fw-b.bin"
                 mtu: 1500,
                 reserve_first: 1,
                 allocation_strategy: Default::default(),
+                infer_slaac_eui64_addresses: false,
                 vpc_name: Some("zero-dpu-vpc".to_string()),
             }
         );
