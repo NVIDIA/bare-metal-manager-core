@@ -1101,9 +1101,10 @@ func TestManageVpc_CreateOrUpdateVpcFromSite_SkipsIncompleteOwnership(t *testing
 	tests := []struct {
 		name          string
 		controllerVpc *corev1.Vpc
-		wantVpc      bool
-		wantName     string
-		wantNamePref string
+		wantVpc       bool
+		wantName      string
+		wantNamePref  string
+		wantNVLinkID  *uuid.UUID
 	}{
 		{
 			name: "unknown tenant organization",
@@ -1135,7 +1136,7 @@ func TestManageVpc_CreateOrUpdateVpcFromSite_SkipsIncompleteOwnership(t *testing
 			},
 		},
 		{
-			name: "non-Ready inventory NVLink Logical Partition is rejected",
+			name: "creates VPC with non-Ready inventory NVLink Logical Partition",
 			controllerVpc: &corev1.Vpc{
 				Id: &corev1.VpcId{Value: uuid.NewString()},
 				Config: &corev1.VpcConfig{
@@ -1146,6 +1147,9 @@ func TestManageVpc_CreateOrUpdateVpcFromSite_SkipsIncompleteOwnership(t *testing
 				},
 				Metadata: &corev1.Metadata{Name: "non-ready-nvlink-vpc"},
 			},
+			wantVpc:      true,
+			wantName:     "non-ready-nvlink-vpc",
+			wantNVLinkID: &nonReadyNVLink.ID,
 		},
 		{
 			name: "renames VPC when active name already exists",
@@ -1205,6 +1209,10 @@ func TestManageVpc_CreateOrUpdateVpcFromSite_SkipsIncompleteOwnership(t *testing
 				if tt.wantNamePref != "" {
 					assert.True(t, strings.HasPrefix(vpc.Name, tt.wantNamePref), "name %q should have prefix %q", vpc.Name, tt.wantNamePref)
 					assert.Len(t, strings.TrimPrefix(vpc.Name, tt.wantNamePref), 8)
+				}
+				if tt.wantNVLinkID != nil {
+					require.NotNil(t, vpc.NVLinkLogicalPartitionID)
+					assert.Equal(t, *tt.wantNVLinkID, *vpc.NVLinkLogicalPartitionID)
 				}
 				return
 			}

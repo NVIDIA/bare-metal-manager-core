@@ -441,7 +441,7 @@ func (mv ManageVpc) createOrUpdateVpcFromSite(
 		reportedVpc.Name = fmt.Sprintf("recovered-%s", vpcID.String()[:8])
 	}
 	if reportedVpc.Org == "" {
-		logger.Warn().Msg(fmt.Sprintf("unable to create VPC found on Site: VPC does not report a tenant organization %s", reportedVpc.Org))
+		logger.Warn().Msg("unable to create VPC found on Site: VPC on Site is reporting empty Tenant organization ID")
 		return nil
 	}
 
@@ -487,11 +487,11 @@ func (mv ManageVpc) createOrUpdateVpcFromSite(
 		tenant := &tenants[0]
 
 		nsgID := reportedVpc.NetworkSecurityGroupID
-		nvLinkID := reportedVpc.NVLinkLogicalPartitionID
+		nvllpID := reportedVpc.NVLinkLogicalPartitionID
 
 		// Skip when referenced NSG/NVLink is missing or not owned by this tenant/site.
 		if nsgID != nil {
-			_, nsgErr := cdbm.NewNetworkSecurityGroupDAO(mv.dbSession).GetByID(ctx, tx, *nsgID, nil)
+			nsg, nsgErr := cdbm.NewNetworkSecurityGroupDAO(mv.dbSession).GetByID(ctx, tx, *nsgID, nil)
 			if errors.Is(nsgErr, cdb.ErrDoesNotExist) {
 				logger.Warn().Msgf("unable to create VPC found on Site: no Network Security Group was found for ID: %s", *nsgID)
 				return nil, nil
@@ -499,23 +499,23 @@ func (mv ManageVpc) createOrUpdateVpcFromSite(
 			if nsgErr != nil {
 				return nil, fmt.Errorf("unable to create VPC found on Site: failed to retrieve Network Security Group by ID: %s, DB error: %w", *nsgID, nsgErr)
 			}
+			if nsg.TenantID != tenant.ID {
+				logger.Warn().Msgf("unable to create VPC found on Site: Network Security Group differs in REST cache and Site record for Tenant %s", *nsgID)
+				return nil, nil
+			}
 		}
 
-		if nvLinkID != nil {
-			nvLink, nvLinkErr := cdbm.NewNVLinkLogicalPartitionDAO(mv.dbSession).GetByID(ctx, tx, *nvLinkID, nil)
+		if nvllpID != nil {
+			nvllp, nvLinkErr := cdbm.NewNVLinkLogicalPartitionDAO(mv.dbSession).GetByID(ctx, tx, *nvllpID, nil)
 			if errors.Is(nvLinkErr, cdb.ErrDoesNotExist) {
-				logger.Warn().Msgf("unable to create VPC found on Site: no NVLink Logical Partition was found for ID: %s", *nvLinkID)
+				logger.Warn().Msgf("unable to create VPC found on Site: no NVLink Logical Partition was found for ID: %s", *nvllpID)
 				return nil, nil
 			}
 			if nvLinkErr != nil {
-				return nil, fmt.Errorf("unable to create VPC found on Site: failed to retrieve NVLink Logical Partition by ID: %s, DB error: %w", *nvLinkID, nvLinkErr)
+				return nil, fmt.Errorf("unable to create VPC found on Site: failed to retrieve NVLink Logical Partition by ID: %s, DB error: %w", *nvllpID, nvLinkErr)
 			}
-			if nvLink.SiteID != site.ID || nvLink.TenantID != tenant.ID {
-				logger.Warn().Msgf("unable to create VPC found on Site: NVLink Logical Partition differs in REST cache and Site record for Tenant or Site %s", *nvLinkID)
-				return nil, nil
-			}
-			if nvLink.Status != cdbm.NVLinkLogicalPartitionStatusReady {
-				logger.Warn().Msgf("unable to create VPC found on Site: NVLink Logical Partition is not Ready for ID: %s", *nvLinkID)
+			if nvllp.TenantID != tenant.ID {
+				logger.Warn().Msgf("unable to create VPC found on Site: NVLink Logical Partition differs in REST cache and Site record for Tenant %s", *nvllpID)
 				return nil, nil
 			}
 		}
@@ -542,7 +542,7 @@ func (mv ManageVpc) createOrUpdateVpcFromSite(
 			InfrastructureProviderID:               site.InfrastructureProviderID,
 			TenantID:                               tenant.ID,
 			SiteID:                                 site.ID,
-			NVLinkLogicalPartitionID:               nvLinkID,
+			NVLinkLogicalPartitionID:               nvllpID,
 			NetworkVirtualizationType:              reportedVpc.NetworkVirtualizationType,
 			RoutingProfile:                         reportedVpc.RoutingProfile,
 			RoutingProfileOverrides:                reportedVpc.RoutingProfileOverrides,
