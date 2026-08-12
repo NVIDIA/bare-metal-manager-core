@@ -153,7 +153,6 @@ the make commands will now have the `nico-` prefix.
 </Warning>
 
 ### Features
-
 - **Rename carbide/forge to NVIDIA Infrastructure Controller (NICo)** ([#432](https://github.com/NVIDIA/infra-controller/rest-api/pull/432))
   Comprehensive rebranding of the project from Carbide/Forge to NVIDIA Infrastructure Controller (NICo). All API path segments, CLI binary names, Helm chart names, configuration keys, and documentation are updated. The OpenAPI schema now uses the NICo naming throughout — see the updated [API reference](https://docs.nvidia.com/infra-controller/rest-api-reference/getting-started).
 
