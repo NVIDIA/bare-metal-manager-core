@@ -310,7 +310,7 @@ fn wiwynn_gb200(host: &HostMachineInfo) -> DiscoveryInfo {
                 Some("MT43244 BlueField-3 integrated ConnectX-7 network controller"),
             ),
         ],
-        infiniband_interfaces: gb200_infiniband_interfaces(),
+        infiniband_interfaces: gb200_infiniband_interfaces(host),
         cpu_info: vec![CpuInfo {
             model: "Neoverse-V2".into(),
             vendor: "ARM".into(),
@@ -495,7 +495,7 @@ fn nvidia_dgx_h100(host: &HostMachineInfo) -> DiscoveryInfo {
                 0,
             ),
         ],
-        infiniband_interfaces: dgx_h100_infiniband_interfaces(),
+        infiniband_interfaces: dgx_h100_infiniband_interfaces(host),
         cpu_info: vec![CpuInfo {
             model: "Intel(R) Xeon(R) Platinum 8480CL".into(),
             vendor: "GenuineIntel".into(),
@@ -722,7 +722,16 @@ fn gb200_gpus() -> Vec<Gpu> {
         .collect()
 }
 
-fn gb200_infiniband_interfaces() -> Vec<InfinibandInterface> {
+fn infiniband_guid(host: &HostMachineInfo, interface_index: usize) -> String {
+    let interface_index = u16::try_from(interface_index)
+        .expect("machine-a-tron hardware models have fewer than 65536 InfiniBand interfaces");
+    let [b0, b1, b2, b3, b4, b5] = host.hw_mac_addr_pool.base().bytes();
+    let [b6, b7] = interface_index.to_be_bytes();
+    let guid = u64::from_be_bytes([b0, b1, b2, b3, b4, b5, b6, b7]);
+    format!("{guid:016x}")
+}
+
+fn gb200_infiniband_interfaces(host: &HostMachineInfo) -> Vec<InfinibandInterface> {
     [(0x0000, 0), (0x0002, 0), (0x0010, 1), (0x0012, 1)]
         .into_iter()
         .enumerate()
@@ -743,7 +752,7 @@ fn gb200_infiniband_interfaces() -> Vec<InfinibandInterface> {
                     description: Some("MT2910 Family [ConnectX-7]".into()),
                     slot: Some(format!("{domain}:03:00.0")),
                 }),
-                guid: format!("7c8c09000000000{}", index % 2),
+                guid: infiniband_guid(host, index),
             }
         })
         .collect()
@@ -822,7 +831,7 @@ fn cx8_network_interface(
     )
 }
 
-fn dgx_h100_infiniband_interfaces() -> Vec<InfinibandInterface> {
+fn dgx_h100_infiniband_interfaces(host: &HostMachineInfo) -> Vec<InfinibandInterface> {
     [
         (0x15, 0),
         (0x3d, 0),
@@ -851,7 +860,7 @@ fn dgx_h100_infiniband_interfaces() -> Vec<InfinibandInterface> {
                 description: Some("MT2910 Family [ConnectX-7]".into()),
                 slot: Some(format!("0000:{:02x}:00.0", bus + 3)),
             }),
-            guid: format!("94dae0000000000{index}"),
+            guid: infiniband_guid(host, index),
         }
     })
     .collect()
