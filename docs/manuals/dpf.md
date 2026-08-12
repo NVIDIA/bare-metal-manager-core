@@ -13,9 +13,9 @@ agnostic to the specific cluster implementation (kubeadm, k3s, RKE2, managed clo
 conformant cluster that satisfies the DPF prerequisites is acceptable.
 
 This guide is **not a replacement** for the official DPF documentation. The
-authoritative source for installing and configuring DPF is the [upstream guide](https://docs.nvidia.com/networking/display/dpf25101).
+authoritative source for installing and configuring DPF is the [upstream guide](https://docs.nvidia.com/networking/display/dpf26041).
 
-NICo is designed to follow the Zero-Trust use case detailed in the DPF documentation: [DPF Zero-Trust Mode - HBN Usecase](https://docs.nvidia.com/networking/display/dpf25101/hbn-in-dpf-zero-trust).
+NICo is designed to follow the Zero-Trust use case detailed in the DPF documentation: [DPF Zero-Trust Mode - HBN Usecase](https://docs.nvidia.com/networking/display/dpf26041/hbn-in-dpf-zero-trust).
 
 You should follow that guide as the base. The instructions below only describe
 the **deltas, additions, and tweaks** that need to be applied on top of the
@@ -78,13 +78,18 @@ The following table maps the sections on this page to what the run does:
 
 ### BMC root precondition (why the enablement is two-phase)
 
-carbide-api's DPF SDK init **hard-requires** the site-wide BMC root credential
-(the shared BMC password DPF uses to reach the DPUs' host BMCs over Redfish). If
-it is not set, carbide-api fails to start with
-`Failed to initialize DPF SDK: ... Site wide BMC root credentials not set`.
+carbide-api's DPF SDK init requires the site-wide BMC root credential
+(the shared BMC password DPF uses to reach the DPUs' host BMCs over Redfish).
 That credential can only be set through a **running** carbide-api (the
 `SetBmcRootPassword` RPC / `nico-admin-cli credential add-bmc`), so DPF cannot be
 enabled on the very first Core deploy — hence the two-phase flow.
+
+When a BMC password refresh interval is configured (the default in `setup.sh`),
+carbide-api starts successfully whether or not the credential is present. While it
+is missing, it logs a warning and defers writing `bmc-shared-password`; the Secret
+is written on the next refresh tick after the credential is set, with no restart
+required. Without a refresh interval, a missing credential is fatal to startup and
+must be seeded before carbide-api first runs (see §3.6).
 
 setup.sh handles this automatically (DPF is the default): it issues a short-lived
 admin client cert from the `nicoca` PKI (see
@@ -102,7 +107,7 @@ The DPF operator, Kamaji `DPUCluster`, and carbide-api all come up, but `DPFOper
 
 ## 1. Prerequisites
 
-The official DPF guide lists a set of [cluster-level prerequisites](https://docs.nvidia.com/networking/display/dpf25101/helm-prerequisites) (Argo CD, cert-manager, Kamaji etc.). Follow that guide for those components.
+The official DPF guide lists a set of [cluster-level prerequisites](https://docs.nvidia.com/networking/display/dpf26041/helm-prerequisites) (Argo CD, cert-manager, Kamaji etc.). Follow that guide for those components.
 
 NICo reuses several of those same components (notably Argo CD and cert-manager). If they are already installed for NICo, **do not reinstall them** — only configure the missing pieces and adapt the existing installations so DPF can use them. The subsections below cover the prerequisite configuration that is specific to a NICo + DPF deployment.
 
@@ -118,7 +123,7 @@ kubectl get namespace dpf-operator-system &>/dev/null \
 
 ### 1.2. Image pull and helm repository credentials
 
-Access to the DPF staging Helm chart and related container images requires authentication through NVIDIA NGC. Both the DPF operator and the workloads it deploys will need credentials for pulling Helm charts and container images from private registries. Refer to the [Using Private Registries](https://docs.nvidia.com/networking/display/dpf25101/using-private-registries) section of the DPF documentation for detailed instructions.
+Access to the DPF staging Helm chart and related container images requires authentication through NVIDIA NGC. Both the DPF operator and the workloads it deploys will need credentials for pulling Helm charts and container images from private registries. Refer to the [Using Private Registries](https://docs.nvidia.com/networking/display/dpf26041/using-private-registries) section of the DPF documentation for detailed instructions.
 
 #### 1.2.a. `hbn-user-password` Secret
 
@@ -360,7 +365,7 @@ Without this binding cert-manager's controller cannot reference the policy and
 
 ## 2. DPF Installation
 
-Follow the [upstream DPF installation guide](https://docs.nvidia.com/networking/display/dpf25101) for the actual install procedure.
+Follow the [upstream DPF installation guide](https://docs.nvidia.com/networking/display/dpf26041) for the actual install procedure.
 
 When installing the DPF operator chart, two parameter overrides are required
 for a NICo-integrated deployment. The example command below illustrates how to
