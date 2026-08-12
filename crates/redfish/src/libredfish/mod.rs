@@ -409,21 +409,27 @@ pub trait RedfishClientPool: Send + Sync + 'static {
                     .map_err(|err| redact_password(err, curr_password.as_str()))
                     .map_err(RedfishClientCreationError::RedfishError)?;
             }
-            // Vikings and Lenovo GB300s (both still detected as AMI here).
-            // Resolve the admin account by username, and fall back to the conventional
-            // id "2" only when reads are blocked by `PasswordChangeRequired` (Viking factory state).
+            // AMI-based BMCs, including Vikings and Lenovo GB300s.
+            // Resolve the admin account by username. If reads are blocked by
+            // `PasswordChangeRequired`, use its account URI or fall back to id "2".
             // Any other error propagates.
             //
             // https://docs.nvidia.com/dgx/dgxh100-user-guide/redfish-api-supp.html
-            RedfishVendor::AMI | RedfishVendor::LenovoGB300 => {
+            RedfishVendor::AMI | RedfishVendor::LenovoAMI | RedfishVendor::LenovoGB300 => {
                 match client
                     .change_password(curr_user.as_str(), new_password.as_str())
                     .await
                 {
                     Ok(()) => {}
-                    Err(libredfish::RedfishError::PasswordChangeRequired) => {
+                    Err(libredfish::RedfishError::PasswordChangeRequired { account_uri }) => {
+                        // For example: /redfish/v1/AccountService/Accounts/4
+                        let account_id = account_uri
+                            .as_deref()
+                            .and_then(|uri| uri.rsplit_once('/').map(|(_, id)| id))
+                            .filter(|id| !id.is_empty())
+                            .unwrap_or("2");
                         client
-                            .change_password_by_id("2", new_password.as_str())
+                            .change_password_by_id(account_id, new_password.as_str())
                             .await
                             .map_err(|err| redact_password(err, new_password.as_str()))
                             .map_err(|err| redact_password(err, curr_password.as_str()))
@@ -437,10 +443,7 @@ pub trait RedfishClientPool: Send + Sync + 'static {
                     }
                 }
             }
-            RedfishVendor::LenovoAMI
-            | RedfishVendor::Supermicro
-            | RedfishVendor::Dell
-            | RedfishVendor::Hpe => {
+            RedfishVendor::Supermicro | RedfishVendor::Dell | RedfishVendor::Hpe => {
                 client
                     .change_password(curr_user.as_str(), new_password.as_str())
                     .await
@@ -727,7 +730,7 @@ pub fn redact_passwords(
         | RfError::NoHeader
         | RfError::Lockdown
         | RfError::MissingVendor
-        | RfError::PasswordChangeRequired
+        | RfError::PasswordChangeRequired { .. }
         | RfError::FileError(_)
         | RfError::UserNotFound(_)
         | RfError::NotSupported(_)
