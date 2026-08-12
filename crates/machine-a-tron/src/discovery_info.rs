@@ -722,20 +722,15 @@ fn gb200_gpus() -> Vec<Gpu> {
         .collect()
 }
 
-fn infiniband_guid(host: &HostMachineInfo, interface_index: usize) -> String {
-    let interface_index = u16::try_from(interface_index)
-        .expect("machine-a-tron hardware models have fewer than 65536 InfiniBand interfaces");
-    let [b0, b1, b2, b3, b4, b5] = host.hw_mac_addr_pool.base().bytes();
-    let [b6, b7] = interface_index.to_be_bytes();
-    let guid = u64::from_be_bytes([b0, b1, b2, b3, b4, b5, b6, b7]);
-    format!("{guid:016x}")
-}
-
 fn gb200_infiniband_interfaces(host: &HostMachineInfo) -> Vec<InfinibandInterface> {
+    let guids: [String; 4] = host
+        .infiniband_port_guids()
+        .try_into()
+        .expect("GB200 has four InfiniBand interfaces");
     [(0x0000, 0), (0x0002, 0), (0x0010, 1), (0x0012, 1)]
         .into_iter()
-        .enumerate()
-        .map(|(index, (domain, numa_node))| {
+        .zip(guids)
+        .map(|((domain, numa_node), guid)| {
             let device_name = if domain == 0 {
                 "ibp3s0".to_string()
             } else {
@@ -752,7 +747,7 @@ fn gb200_infiniband_interfaces(host: &HostMachineInfo) -> Vec<InfinibandInterfac
                     description: Some("MT2910 Family [ConnectX-7]".into()),
                     slot: Some(format!("{domain}:03:00.0")),
                 }),
-                guid: infiniband_guid(host, index),
+                guid,
             }
         })
         .collect()
@@ -832,6 +827,10 @@ fn cx8_network_interface(
 }
 
 fn dgx_h100_infiniband_interfaces(host: &HostMachineInfo) -> Vec<InfinibandInterface> {
+    let guids: [String; 8] = host
+        .infiniband_port_guids()
+        .try_into()
+        .expect("DGX H100 has eight InfiniBand interfaces");
     [
         (0x15, 0),
         (0x3d, 0),
@@ -843,8 +842,8 @@ fn dgx_h100_infiniband_interfaces(host: &HostMachineInfo) -> Vec<InfinibandInter
         (0xd9, 1),
     ]
     .into_iter()
-    .enumerate()
-    .map(|(index, (bus, numa_node))| {
+    .zip(guids)
+    .map(|((bus, numa_node), guid)| {
         let device_name = format!("ibp{bus}s0");
         InfinibandInterface {
             pci_properties: Some(PciDeviceProperties {
@@ -860,7 +859,7 @@ fn dgx_h100_infiniband_interfaces(host: &HostMachineInfo) -> Vec<InfinibandInter
                 description: Some("MT2910 Family [ConnectX-7]".into()),
                 slot: Some(format!("0000:{:02x}:00.0", bus + 3)),
             }),
-            guid: infiniband_guid(host, index),
+            guid,
         }
     })
     .collect()

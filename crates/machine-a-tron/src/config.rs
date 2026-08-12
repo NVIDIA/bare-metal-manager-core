@@ -473,7 +473,9 @@ pub struct MachineATronConfig {
     /// Pool to allocate ranges of HW MAC addresses for the machines.
     /// Ranges are needed for deterministic and unique addresses but
     /// that do not participate in any associations (allocated using
-    /// just "next_mac()" manner).
+    /// just "next_mac()" manner). The normalized base also identifies
+    /// the inventory exposed by `/machines/status`, so deployments whose
+    /// inventories are aggregated must use non-overlapping ranges.
     #[serde(default)]
     pub hw_mac_address_ranges: Option<MacAddressRangesConfig>,
 }
