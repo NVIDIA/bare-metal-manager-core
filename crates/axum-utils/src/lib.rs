@@ -15,20 +15,8 @@
  * limitations under the License.
  */
 
-use axum::http::StatusCode;
-use axum::response::{IntoResponse, Response};
-use serde_json::json;
+//! Reusable middleware and routing utilities for Axum-based simulators.
 
-use crate::json::JsonExt;
-
-pub(crate) fn not_found() -> Response {
-    json!("").into_response(StatusCode::NOT_FOUND)
-}
-
-pub(crate) fn bad_request(message: &str) -> Response {
-    json!({ "error": message }).into_response(StatusCode::BAD_REQUEST)
-}
-
-pub(crate) fn ok_no_content() -> Response {
-    StatusCode::NO_CONTENT.into_response()
-}
+pub mod authority_router;
+pub mod injection;
+pub mod router;
