@@ -253,7 +253,7 @@ machineATron:
 | `0` | Use dynamic port (required for K8s controller mode) |
 | `1-65535` | Use specified port |
 
-When using K8s controller mode (`use_single_bmc_mock: true`), set
+When using K8s controller mode (`machineATron.useSingleBmcMock: true`), set
 `ipmiReachablePort: 0` so each IPMI simulator gets a unique dynamic port that
 the `mat-k8s-controller` can map to individual Services.
 

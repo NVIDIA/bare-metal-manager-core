@@ -82,13 +82,12 @@ Created Services have:
 - `nvidia-infra-controller/mat-api-state`
 - `nvidia-infra-controller/mat-power-state`
 - `nvidia-infra-controller/mat-hardware-type`
-- `nvidia-infra-controller/mat-ipmi-listen-port` (when IPMI enabled)
+- `nvidia-infra-controller/mat-ipmi-listen-port` (when `bmc.ipmi` reported in status)
 
 **Ports:**
 
 - `redfish` (TCP) - Always present for Redfish API access
 - `ipmi` (UDP) - Present only when machine-a-tron reports `bmc.ipmi` in status
-  (requires `enableIpmiSimulation: true` in Helm values)
 
 ## Development
 
