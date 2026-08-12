@@ -31,7 +31,7 @@ use super::metrics::{
 };
 use super::resource::Resource;
 use crate::endpoint::SwitchEndpointRole;
-use crate::sink::{CollectorEvent, EventContext, HealthReportAlert, MetricSample};
+use crate::sink::{CollectorEvent, EventContext, HealthReportAlert, LogSeverity, MetricSample};
 
 /// Maximum alerts serialized into the `health_report.alerts` attribute.
 ///
@@ -41,15 +41,15 @@ use crate::sink::{CollectorEvent, EventContext, HealthReportAlert, MetricSample}
 /// keeps one degraded endpoint from taking unrelated records down with it.
 const MAX_SERIALIZED_ALERTS: usize = 64;
 
-fn severity_text_to_number(severity: &str) -> i32 {
-    match severity.to_uppercase().as_str() {
-        "TRACE" => SeverityNumber::Trace as i32,
-        "DEBUG" => SeverityNumber::Debug as i32,
-        "INFO" | "INFORMATIONAL" | "OK" => SeverityNumber::Info as i32,
-        "WARN" | "WARNING" => SeverityNumber::Warn as i32,
-        "ERROR" | "ERR" => SeverityNumber::Error as i32,
-        "FATAL" | "CRITICAL" => SeverityNumber::Fatal as i32,
-        _ => SeverityNumber::Unspecified as i32,
+fn severity_number(severity: LogSeverity) -> i32 {
+    match severity {
+        LogSeverity::Unspecified => SeverityNumber::Unspecified as i32,
+        LogSeverity::Trace => SeverityNumber::Trace as i32,
+        LogSeverity::Debug => SeverityNumber::Debug as i32,
+        LogSeverity::Info => SeverityNumber::Info as i32,
+        LogSeverity::Warn => SeverityNumber::Warn as i32,
+        LogSeverity::Error => SeverityNumber::Error as i32,
+        LogSeverity::Fatal => SeverityNumber::Fatal as i32,
     }
 }
 
@@ -141,8 +141,8 @@ fn convert_log(log: &crate::sink::LogRecord, observed_nanos: u64) -> OtlpLogReco
     OtlpLogRecord {
         time_unix_nano: observed_nanos,
         observed_time_unix_nano: observed_nanos,
-        severity_number: severity_text_to_number(&log.severity),
-        severity_text: log.severity.clone(),
+        severity_number: severity_number(log.severity),
+        severity_text: log.severity.as_str().to_string(),
         body: Some(log.body.clone().into_any_value()),
         attributes,
         ..Default::default()
@@ -225,9 +225,9 @@ fn convert_event(
                 report.source,
             );
             let severity = if report.alerts.is_empty() {
-                "INFO"
+                LogSeverity::Info
             } else {
-                "WARN"
+                LogSeverity::Warn
             };
 
             let mut attributes = vec![KeyValue::new("event.type", "health_report".to_string())];
@@ -239,8 +239,8 @@ fn convert_event(
             Some(OtlpLogRecord {
                 time_unix_nano: observed_nanos,
                 observed_time_unix_nano: observed_nanos,
-                severity_number: severity_text_to_number(severity),
-                severity_text: severity.to_string(),
+                severity_number: severity_number(severity),
+                severity_text: severity.as_str().to_string(),
                 body: Some(body.into_any_value()),
                 attributes,
                 ..Default::default()
@@ -251,8 +251,8 @@ fn convert_event(
             Some(OtlpLogRecord {
                 time_unix_nano: observed_nanos,
                 observed_time_unix_nano: observed_nanos,
-                severity_number: SeverityNumber::Info as i32,
-                severity_text: "INFO".to_string(),
+                severity_number: severity_number(LogSeverity::Info),
+                severity_text: LogSeverity::Info.as_str().to_string(),
                 body: Some(body.into_any_value()),
                 attributes: vec![KeyValue::new("event.type", "firmware".to_string())],
                 ..Default::default()
@@ -715,7 +715,7 @@ mod tests {
         };
         let event = CollectorEvent::Log(Box::new(LogRecord {
             body: "switch BMC event".to_string(),
-            severity: "INFO".to_string(),
+            severity: LogSeverity::Info,
             attributes: Vec::new(),
             diagnostic_record: None,
         }));
@@ -778,7 +778,7 @@ mod tests {
         };
         let event = CollectorEvent::Log(Box::new(LogRecord {
             body: "switch BMC event".to_string(),
-            severity: "INFO".to_string(),
+            severity: LogSeverity::Info,
             attributes: Vec::new(),
             diagnostic_record: None,
         }));
@@ -838,7 +838,7 @@ mod tests {
         let ctx = test_context();
         let log = CollectorEvent::Log(Box::new(LogRecord {
             body: "something happened".to_string(),
-            severity: "WARNING".to_string(),
+            severity: LogSeverity::Warn,
             attributes: vec![(Cow::Borrowed("entry_id"), "42".to_string())],
             diagnostic_record: None,
         }));
@@ -848,15 +848,15 @@ mod tests {
 
         let records = &request.resource_logs[0].scope_logs[0].log_records;
         assert_eq!(records.len(), 1);
-        assert_eq!(records[0].severity_text, "WARNING");
+        assert_eq!(records[0].severity_text, "WARN");
         assert_eq!(records[0].severity_number, SeverityNumber::Warn as i32);
     }
 
     #[test]
-    fn empty_log_body_is_exported_as_empty_string() {
+    fn unspecified_log_severity_remains_unspecified_in_otlp() {
         let log = CollectorEvent::Log(Box::new(LogRecord {
-            body: String::new(),
-            severity: "Critical".to_string(),
+            body: "severity unavailable".to_string(),
+            severity: LogSeverity::Unspecified,
             attributes: Vec::new(),
             diagnostic_record: None,
         }));
@@ -864,7 +864,23 @@ mod tests {
         let request = build_export_request(&[(test_context(), log)], false);
         let record = &request.resource_logs[0].scope_logs[0].log_records[0];
 
-        assert_eq!(record.severity_text, "Critical");
+        assert_eq!(record.severity_text, "UNSPECIFIED");
+        assert_eq!(record.severity_number, SeverityNumber::Unspecified as i32);
+    }
+
+    #[test]
+    fn empty_log_body_is_exported_as_empty_string() {
+        let log = CollectorEvent::Log(Box::new(LogRecord {
+            body: String::new(),
+            severity: LogSeverity::Fatal,
+            attributes: Vec::new(),
+            diagnostic_record: None,
+        }));
+
+        let request = build_export_request(&[(test_context(), log)], false);
+        let record = &request.resource_logs[0].scope_logs[0].log_records[0];
+
+        assert_eq!(record.severity_text, "FATAL");
         assert_eq!(record.severity_number, SeverityNumber::Fatal as i32);
         assert_eq!(
             record.body.as_ref().and_then(|body| body.value.as_ref()),
@@ -886,7 +902,7 @@ mod tests {
 
         let log = CollectorEvent::Log(Box::new(LogRecord {
             body: body.to_string(),
-            severity: "WARN".to_string(),
+            severity: LogSeverity::Warn,
             attributes: vec![
                 (
                     Cow::Borrowed("redfish.diagnostic_data.type"),
@@ -1115,7 +1131,7 @@ mod tests {
                 ctx,
                 CollectorEvent::Log(Box::new(LogRecord {
                     body: "x".to_string(),
-                    severity: "INFO".to_string(),
+                    severity: LogSeverity::Info,
                     attributes: vec![],
                     diagnostic_record: None,
                 })),

@@ -129,7 +129,7 @@ impl<'a> JsonLogRecord<'a> {
             component_type: context.component_type(),
             nvlink_domain_uuid: context.nvlink_domain_uuid().map(|id| id.to_string()),
             labels: context.labels(),
-            severity: &record.severity,
+            severity: record.severity.as_str(),
             body: &record.body,
             attributes: record
                 .attributes
@@ -282,7 +282,7 @@ mod tests {
 
     use super::*;
     use crate::endpoint::{BmcAddr, EndpointMetadata, MachineData, SwitchData, SwitchEndpointRole};
-    use crate::sink::DiagnosticLogRecord;
+    use crate::sink::{DiagnosticLogRecord, LogSeverity};
 
     /// Builds a base log context without endpoint metadata.
     fn test_context() -> EventContext {
@@ -359,7 +359,7 @@ mod tests {
         let event = CollectorEvent::Log(
             LogRecord {
                 body: "something happened".to_string(),
-                severity: "INFO".to_string(),
+                severity: LogSeverity::Info,
                 attributes: vec![(Cow::Borrowed("entry_id"), "42".to_string())],
                 diagnostic_record: None,
             }
@@ -394,7 +394,7 @@ mod tests {
         let event = CollectorEvent::Log(
             LogRecord {
                 body: "parent log".to_string(),
-                severity: "INFO".to_string(),
+                severity: LogSeverity::Info,
                 attributes: vec![(Cow::Borrowed("entry_id"), "42".to_string())],
                 diagnostic_record: Some(DiagnosticLogRecord {
                     body: "opaque-cper".to_string(),
@@ -444,7 +444,7 @@ mod tests {
         let event = CollectorEvent::Log(
             LogRecord {
                 body: "parent log".to_string(),
-                severity: "INFO".to_string(),
+                severity: LogSeverity::Info,
                 attributes: Vec::new(),
                 diagnostic_record: Some(DiagnosticLogRecord {
                     body: "opaque-cper".to_string(),
@@ -480,7 +480,7 @@ mod tests {
         let event = CollectorEvent::Log(
             LogRecord {
                 body: "xid event".to_string(),
-                severity: "WARN".to_string(),
+                severity: LogSeverity::Warn,
                 attributes: Vec::new(),
                 diagnostic_record: None,
             }
@@ -544,7 +544,7 @@ mod tests {
         let event = CollectorEvent::Log(
             LogRecord {
                 body: "switch event".to_string(),
-                severity: "WARN".to_string(),
+                severity: LogSeverity::Warn,
                 attributes: Vec::new(),
                 diagnostic_record: None,
             }
@@ -583,7 +583,7 @@ mod tests {
             let event = CollectorEvent::Log(
                 LogRecord {
                     body: format!("log entry {i}"),
-                    severity: "INFO".to_string(),
+                    severity: LogSeverity::Info,
                     attributes: Vec::new(),
                     diagnostic_record: None,
                 }
@@ -615,7 +615,7 @@ mod tests {
             let event = CollectorEvent::Log(
                 LogRecord {
                     body: format!("entry {i}"),
-                    severity: "WARN".to_string(),
+                    severity: LogSeverity::Warn,
                     attributes: Vec::new(),
                     diagnostic_record: None,
                 }

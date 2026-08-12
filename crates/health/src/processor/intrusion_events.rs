@@ -21,7 +21,7 @@ use std::sync::Arc;
 use super::{CollectorEvent, EventContext, EventProcessor};
 use crate::sink::{
     Classification, HealthReport, HealthReportAlert, HealthReportSuccess, HealthReportTarget,
-    LogRecord, Probe, ReportSource,
+    LogRecord, LogSeverity, Probe, ReportSource,
 };
 
 const HOST_BMC_TARGET: &str = "HostBMC";
@@ -57,8 +57,6 @@ impl BmcIntrusionEventProcessor {
     fn intrusion_event_state(record: &LogRecord) -> Option<IntrusionEventState> {
         let mut text = record.body.clone();
         text.push(' ');
-        text.push_str(&record.severity);
-        text.push(' ');
         for arg in Self::message_args(record) {
             text.push_str(&arg);
             text.push(' ');
@@ -74,7 +72,15 @@ impl BmcIntrusionEventProcessor {
             return None;
         }
 
-        if text.contains("physical chassis intrusion alert")
+        // Typed severity and state words in the payload are both signals. Some
+        // BMCs omit Severity while describing the transition in Message.
+        let severe = matches!(
+            record.severity,
+            LogSeverity::Warn | LogSeverity::Error | LogSeverity::Fatal
+        );
+
+        if severe
+            || text.contains("physical chassis intrusion alert")
             || text.contains("trigger")
             || text.contains("triggered")
             || text.contains("assert")
@@ -164,7 +170,7 @@ mod tests {
     #[derive(Clone, Copy)]
     struct IntrusionLogCase {
         body: &'static str,
-        severity: &'static str,
+        severity: LogSeverity,
         message_args: Option<&'static str>,
     }
 
@@ -193,7 +199,7 @@ mod tests {
         }
     }
 
-    fn log(body: &str, severity: &str, message_args: Option<&str>) -> CollectorEvent {
+    fn log(body: &str, severity: LogSeverity, message_args: Option<&str>) -> CollectorEvent {
         let mut attributes = Vec::new();
         if let Some(message_args) = message_args {
             attributes.push((Cow::Borrowed("message_args"), message_args.to_string()));
@@ -201,7 +207,7 @@ mod tests {
 
         CollectorEvent::Log(Box::new(LogRecord {
             body: body.to_string(),
-            severity: severity.to_string(),
+            severity,
             attributes,
             diagnostic_record: None,
         }))
@@ -254,7 +260,7 @@ mod tests {
             "physical chassis intrusion log body" {
                 IntrusionLogCase {
                     body: "Physical Chassis Intrusion Alert",
-                    severity: "Critical",
+                    severity: LogSeverity::Fatal,
                     message_args: None,
                 } => IntrusionReportSummary {
                     alert_count: 1,
@@ -272,7 +278,7 @@ mod tests {
             "intrusion message args" {
                 IntrusionLogCase {
                     body: "",
-                    severity: "Warning",
+                    severity: LogSeverity::Warn,
                     message_args: Some(r#"["Physical Chassis Intrusion Alert"]"#),
                 } => IntrusionReportSummary {
                     alert_count: 1,
@@ -290,7 +296,7 @@ mod tests {
             "normal to critical intrusion event" {
                 IntrusionLogCase {
                     body: "Physical Chassis Intrusion changed from Normal to Critical",
-                    severity: "Critical",
+                    severity: LogSeverity::Unspecified,
                     message_args: None,
                 } => IntrusionReportSummary {
                     alert_count: 1,
@@ -308,7 +314,7 @@ mod tests {
             "cleared intrusion event" {
                 IntrusionLogCase {
                     body: "Physical Chassis Intrusion cleared",
-                    severity: "OK",
+                    severity: LogSeverity::Info,
                     message_args: None,
                 } => IntrusionReportSummary {
                     alert_count: 0,
@@ -323,7 +329,7 @@ mod tests {
             "reset intrusion event" {
                 IntrusionLogCase {
                     body: "Reset Intrusion",
-                    severity: "OK",
+                    severity: LogSeverity::Info,
                     message_args: None,
                 } => IntrusionReportSummary {
                     alert_count: 0,
@@ -342,7 +348,7 @@ mod tests {
         let processor = BmcIntrusionEventProcessor::new();
         let emitted = processor.process_event(
             &context(),
-            &log("CPU temperature threshold warning", "Warning", None),
+            &log("CPU temperature threshold warning", LogSeverity::Warn, None),
         );
 
         assert!(emitted.is_empty());

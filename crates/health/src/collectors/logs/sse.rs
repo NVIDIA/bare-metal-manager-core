@@ -23,15 +23,14 @@ use async_trait::async_trait;
 use futures::StreamExt;
 use nv_redfish::core::{Bmc, EntityTypeRef, NavProperty};
 use nv_redfish::event_service::{Event, EventStreamPayload};
-use nv_redfish::resource::Health;
 use tokio::sync::Semaphore;
 
 use super::diagnostic::{
     DiagnosticPayload, make_diagnostic_record, nullable_ref, nullable_str, redfish_enum_string,
 };
 use super::redfish::{
-    RedfishLogFields, add_redfish_analyzer_attributes, normalize_redfish_severity, nvidia_error_id,
-    redfish_event_type_string, redfish_log_type,
+    RedfishLogFields, RedfishSeverity, add_redfish_analyzer_attributes, event_diagnostic_is_cper,
+    nvidia_error_id, redfish_event_type_string, redfish_log_type,
 };
 use crate::HealthError;
 use crate::collectors::runtime::{
@@ -148,18 +147,6 @@ where
         .boxed()
 }
 
-fn health_to_severity(h: &Health) -> Option<&'static str> {
-    match h {
-        Health::Ok => Some("OK"),
-        Health::Warning => Some("Warning"),
-        Health::Critical => Some("Critical"),
-        // UnsupportedValue means the BMC sent a value the Health enum couldn't
-        // parse (e.g. wrong capitalisation like "CRITICAL" instead of "Critical").
-        // Return None so the caller can fall back to the raw Severity string.
-        _ => None,
-    }
-}
-
 async fn map_payload<B: Bmc>(
     result: Result<EventStreamPayload, HealthError>,
     bmc: &B,
@@ -255,19 +242,19 @@ fn record_to_log(
     let redfish_fields = RedfishLogFields {
         message: record.message.as_deref(),
         message_args: record.message_args.as_deref(),
-        diagnostic_data_type: diagnostic_data_type.as_deref(),
-        has_cper: record.cper.is_some(),
+        has_cper: record.cper.is_some()
+            || nullable_ref(&record.diagnostic_data_type).is_some_and(event_diagnostic_is_cper),
     };
     let log_type = redfish_log_type(redfish_fields);
     let body = record.message.as_deref().unwrap_or_default().to_string();
 
+    // Fallback for a missing or unreadable Severity
     let severity = record
         .message_severity
         .as_ref()
-        .and_then(health_to_severity)
-        .or_else(|| record.severity.as_deref().map(normalize_redfish_severity))
-        .unwrap_or("Unknown")
-        .to_string();
+        .and_then(RedfishSeverity::from_health)
+        .or_else(|| record.severity.as_deref().map(RedfishSeverity::from_raw))
+        .unwrap_or(RedfishSeverity::Unknown);
 
     // Reuse the same Redfish log-entry reference for the parent log attribute
     // and the diagnostic correlation attribute.
@@ -283,7 +270,7 @@ fn record_to_log(
     add_redfish_analyzer_attributes(
         &mut attributes,
         log_type,
-        Some(severity.as_str()),
+        severity,
         nvidia_error_id(record.base.base.oem.as_ref()),
     );
     if let Some(event_id) = &record.event_id {
@@ -298,12 +285,15 @@ fn record_to_log(
             serde_json::to_string(args).unwrap_or_default(),
         ));
     }
-    if let Some(sev) = record
+    if let Some(message_severity) = record
         .message_severity
         .as_ref()
-        .and_then(health_to_severity)
+        .and_then(RedfishSeverity::from_health)
     {
-        attributes.push((Cow::Borrowed("message_severity"), sev.to_string()));
+        attributes.push((
+            Cow::Borrowed("message_severity"),
+            message_severity.as_str().to_string(),
+        ));
     }
     if let Some(origin) = &record.origin_of_condition {
         attributes.push((
@@ -344,7 +334,7 @@ fn record_to_log(
 
     CollectorEvent::Log(Box::new(LogRecord {
         body,
-        severity,
+        severity: severity.into(),
         attributes,
         diagnostic_record,
     }))
@@ -362,6 +352,7 @@ mod tests {
 
     use super::*;
     use crate::endpoint::test_support::{mac, test_endpoint};
+    use crate::sink::LogSeverity;
 
     async fn event_to_logs_with_timeout<B: Bmc>(
         event: &Event,
@@ -758,88 +749,61 @@ mod tests {
         assert_eq!(body["diagnostic_data"], "base64-cper-payload");
     }
 
-    #[test]
-    fn health_to_severity_known_variants() {
-        assert_eq!(health_to_severity(&Health::Critical), Some("Critical"));
-        assert_eq!(health_to_severity(&Health::Warning), Some("Warning"));
-        assert_eq!(health_to_severity(&Health::Ok), Some("OK"));
-    }
-
-    #[test]
-    fn health_to_severity_unsupported_returns_none() {
-        // UnsupportedValue fires when the BMC sends an unexpected case variant
-        // (e.g. "CRITICAL" instead of "Critical"). Returning None lets the caller
-        // fall back to the raw Severity string.
-        assert_eq!(health_to_severity(&Health::UnsupportedValue), None);
-    }
-
-    #[test]
-    fn normalize_severity_case_insensitive() {
-        let cases = [
-            ("Critical", "Critical"),
-            ("CRITICAL", "Critical"),
-            ("critical", "Critical"),
-            ("Warning", "Warning"),
-            ("WARNING", "Warning"),
-            ("warning", "Warning"),
-            ("OK", "OK"),
-            ("Ok", "OK"),
-            ("ok", "OK"),
-            ("unknown_value", "Unknown"),
-            ("", "Unknown"),
-        ];
-        for (input, expected) in cases {
-            assert_eq!(
-                normalize_redfish_severity(input),
-                expected,
-                "normalize_severity({input:?})"
-            );
+    fn severity_record(
+        message_severity: Option<&str>,
+        severity: Option<&str>,
+    ) -> nv_redfish::schema::event::EventRecord {
+        let mut value = json!({
+            "@odata.id": "/redfish/v1/EventService/Events/records/1",
+            "MemberId": "0",
+            "EventType": "Alert",
+            "MessageId": "Example.1.0.Event",
+        });
+        if let Some(message_severity) = message_severity {
+            value["MessageSeverity"] = json!(message_severity);
         }
+        if let Some(severity) = severity {
+            value["Severity"] = json!(severity);
+        }
+        serde_json::from_value(value).expect("valid event record")
     }
 
-    /// Verifies the full severity resolution chain:
-    /// - Known Health variant → its canonical string
-    /// - UnsupportedValue → falls back to raw severity string (normalized)
-    /// - UnsupportedValue with no raw severity → "Unknown"
+    /// Exercises the severity chain through `record_to_log`: the schema field
+    /// wins, a value the schema could not parse falls back to the raw
+    /// `Severity` string, and `message_severity` is emitted only when the
+    /// schema field parsed.
     #[test]
     fn severity_resolution_chain() {
-        // Known Health::Critical wins over anything in raw severity.
+        let event = record_to_log(&severity_record(Some("Critical"), Some("WARNING")), false);
+        let record = log_record(&event);
+        assert_eq!(record.severity, LogSeverity::Fatal);
         assert_eq!(
-            health_to_severity(&Health::Critical)
-                .or_else(|| Some(normalize_redfish_severity("WARNING"))),
-            Some("Critical"),
-            "known Health should win"
+            attribute(record, "redfish.event.severity"),
+            Some("Critical")
         );
+        assert_eq!(attribute(record, "message_severity"), Some("Critical"));
 
-        // UnsupportedValue falls back to normalized raw severity.
-        let fallback = health_to_severity(&Health::UnsupportedValue)
-            .or_else(|| Some(normalize_redfish_severity("CRITICAL")));
+        // "CRITICAL" is outside the schema, so MessageSeverity lands on
+        // UnsupportedValue and the raw Severity string carries the value.
+        let event = record_to_log(&severity_record(Some("CRITICAL"), Some("Critical")), false);
+        let record = log_record(&event);
+        assert_eq!(record.severity, LogSeverity::Fatal);
         assert_eq!(
-            fallback,
-            Some("Critical"),
-            "UnsupportedValue should fall back to raw"
+            attribute(record, "redfish.event.severity"),
+            Some("Critical")
         );
+        assert_eq!(attribute(record, "message_severity"), None);
 
-        // UnsupportedValue with no raw severity produces None from the chain.
-        let no_raw: Option<&str> = health_to_severity(&Health::UnsupportedValue).or(None);
-        assert!(
-            no_raw.is_none(),
-            "UnsupportedValue with no raw should be None"
-        );
-    }
+        let event = record_to_log(&severity_record(None, None), false);
+        let record = log_record(&event);
+        assert_eq!(record.severity, LogSeverity::Unspecified);
+        assert_eq!(attribute(record, "redfish.event.severity"), Some("Unknown"));
+        assert_eq!(attribute(record, "message_severity"), None);
 
-    /// Verifies that message_severity attribute is omitted for UnsupportedValue.
-    #[test]
-    fn health_to_severity_omits_attribute_for_unsupported() {
-        // health_to_severity returns None for UnsupportedValue, so the caller
-        // skips pushing the message_severity OTLP attribute.
-        assert!(
-            health_to_severity(&Health::UnsupportedValue).is_none(),
-            "UnsupportedValue must return None so the attribute is not emitted"
-        );
-        // All known variants return Some so the attribute IS emitted.
-        assert!(health_to_severity(&Health::Critical).is_some());
-        assert!(health_to_severity(&Health::Warning).is_some());
-        assert!(health_to_severity(&Health::Ok).is_some());
+        let event = record_to_log(&severity_record(Some("Meltdown"), None), false);
+        let record = log_record(&event);
+        assert_eq!(record.severity, LogSeverity::Unspecified);
+        assert_eq!(attribute(record, "redfish.event.severity"), Some("Unknown"));
+        assert_eq!(attribute(record, "message_severity"), None);
     }
 }

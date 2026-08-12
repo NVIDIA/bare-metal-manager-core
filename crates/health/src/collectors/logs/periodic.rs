@@ -30,8 +30,8 @@ use super::diagnostic::{
     DiagnosticPayload, make_diagnostic_record, nullable_ref, nullable_str, redfish_enum_string,
 };
 use super::redfish::{
-    RedfishLogFields, add_redfish_analyzer_attributes, nvidia_error_id, redfish_event_type_string,
-    redfish_log_type,
+    RedfishLogFields, RedfishSeverity, add_redfish_analyzer_attributes,
+    log_entry_diagnostic_is_cper, nvidia_error_id, redfish_event_type_string, redfish_log_type,
 };
 use crate::HealthError;
 use crate::collectors::{IterationResult, PeriodicCollector};
@@ -408,18 +408,6 @@ impl<B: Bmc + 'static> LogsCollector<B> {
     }
 }
 
-fn redfish_severity_to_otel(severity: &str) -> &'static str {
-    if severity.eq_ignore_ascii_case("critical") {
-        "FATAL"
-    } else if severity.eq_ignore_ascii_case("warning") {
-        "WARN"
-    } else if severity.eq_ignore_ascii_case("ok") {
-        "INFO"
-    } else {
-        "TRACE"
-    }
-}
-
 fn entry_to_log(
     entry: &nv_redfish::schema::log_entry::LogEntry,
     machine_id: Option<&str>,
@@ -430,20 +418,18 @@ fn entry_to_log(
         .severity
         .as_ref()
         .and_then(Option::as_ref)
-        .and_then(redfish_enum_string);
-    let severity = redfish_severity
-        .as_deref()
-        .map(redfish_severity_to_otel)
-        .unwrap_or("INFO")
-        .to_string();
+        .map(RedfishSeverity::from_event_severity);
+    // Omitted, null, and unsupported Redfish severities do
+    // not imply a severity level.
+    let severity = redfish_severity.unwrap_or(RedfishSeverity::Unknown).into();
 
     let diagnostic_data_type =
         nullable_ref(&entry.diagnostic_data_type).and_then(redfish_enum_string);
     let log_type = redfish_log_type(RedfishLogFields {
         message: nullable_str(&entry.message),
         message_args: entry.message_args.as_deref(),
-        diagnostic_data_type: diagnostic_data_type.as_deref(),
-        has_cper: entry.cper.is_some(),
+        has_cper: entry.cper.is_some()
+            || nullable_ref(&entry.diagnostic_data_type).is_some_and(log_entry_diagnostic_is_cper),
     });
 
     let diagnostic_record = include_diagnostics
@@ -477,7 +463,7 @@ fn entry_to_log(
     add_redfish_analyzer_attributes(
         &mut attributes,
         log_type,
-        redfish_severity.as_deref(),
+        redfish_severity.unwrap_or(RedfishSeverity::Unknown),
         nvidia_error_id(entry.base.base.oem.as_ref()),
     );
     if let Some(message_id) = &entry.message_id {
@@ -550,6 +536,7 @@ mod tests {
     use serde_json::{Value, json};
 
     use super::*;
+    use crate::sink::LogSeverity;
 
     const JOURNAL_BMC: &str = "/redfish/v1/Managers/BMC_0/LogServices/Journal";
     const JOURNAL_HGX: &str = "/redfish/v1/Managers/HGX_BMC_0/LogServices/Journal";
@@ -596,6 +583,69 @@ mod tests {
                 .as_ref()
                 .map(|diagnostic| diagnostic.body.clone()),
         }
+    }
+
+    fn observe_log_severity(severity: Option<Option<&str>>) -> (LogSeverity, Option<String>) {
+        let mut value = json!({
+            "@odata.id": "/redfish/v1/Systems/System_0/LogServices/EventLog/Entries/1",
+            "Id": "1",
+            "Name": "Platform event",
+            "EntryType": "Event",
+            "Message": "Platform event"
+        });
+        if let Some(severity) = severity {
+            value["Severity"] = severity.map_or(Value::Null, |severity| json!(severity));
+        }
+
+        let entry: nv_redfish::schema::log_entry::LogEntry =
+            serde_json::from_value(value).expect("valid Redfish log entry");
+        let CollectorEvent::Log(record) = entry_to_log(&entry, None, EVENTLOG, false) else {
+            panic!("expected log event");
+        };
+
+        (
+            record.severity,
+            attribute(&record, "redfish.event.severity"),
+        )
+    }
+
+    #[test]
+    fn periodic_severity_matches_sse() {
+        check_values(
+            [
+                Check {
+                    scenario: "critical severity",
+                    input: Some(Some("Critical")),
+                    expect: (LogSeverity::Fatal, Some("Critical".to_string())),
+                },
+                Check {
+                    scenario: "warning severity",
+                    input: Some(Some("Warning")),
+                    expect: (LogSeverity::Warn, Some("Warning".to_string())),
+                },
+                Check {
+                    scenario: "OK severity",
+                    input: Some(Some("OK")),
+                    expect: (LogSeverity::Info, Some("OK".to_string())),
+                },
+                Check {
+                    scenario: "omitted severity",
+                    input: None,
+                    expect: (LogSeverity::Unspecified, Some("Unknown".to_string())),
+                },
+                Check {
+                    scenario: "null severity",
+                    input: Some(None),
+                    expect: (LogSeverity::Unspecified, Some("Unknown".to_string())),
+                },
+                Check {
+                    scenario: "unsupported severity",
+                    input: Some(Some("Meltdown")),
+                    expect: (LogSeverity::Unspecified, Some("Unknown".to_string())),
+                },
+            ],
+            observe_log_severity,
+        );
     }
 
     #[test]

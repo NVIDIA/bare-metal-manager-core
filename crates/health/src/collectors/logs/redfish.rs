@@ -19,11 +19,14 @@
 
 use std::borrow::Cow;
 
-use nv_redfish::schema::event::EventType;
+use nv_redfish::resource::Health;
+use nv_redfish::schema::event::{DiagnosticDataTypes as EventDiagnosticDataTypes, EventType};
+use nv_redfish::schema::log_entry::{EventSeverity, LogDiagnosticDataTypes};
 use nv_redfish::schema::resource::Oem;
 
 use super::diagnostic::redfish_enum_string;
 use crate::metrics::MetricLabel;
+use crate::sink::LogSeverity;
 
 const NVIDIA_ERROR_ID_ATTR: &str = "oem.nvidia.error_id";
 const REDFISH_EVENT_TYPE_ATTR: &str = "redfish.event.type";
@@ -50,12 +53,13 @@ impl RedfishLogType {
 pub(super) struct RedfishLogFields<'a> {
     pub message: Option<&'a str>,
     pub message_args: Option<&'a [String]>,
-    pub diagnostic_data_type: Option<&'a str>,
+    /// Set by [`event_diagnostic_is_cper`] or [`log_entry_diagnostic_is_cper`],
+    /// or by the presence of the `CPER` object.
     pub has_cper: bool,
 }
 
 pub(super) fn redfish_log_type(fields: RedfishLogFields<'_>) -> RedfishLogType {
-    if has_cper_evidence(fields) {
+    if fields.has_cper {
         return RedfishLogType::Cper;
     }
 
@@ -86,10 +90,70 @@ pub(super) fn redfish_event_type_string(event_type: Option<&EventType>) -> Optio
         .and_then(redfish_enum_string)
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum RedfishSeverity {
+    Ok,
+    Warning,
+    Critical,
+    Unknown,
+}
+
+impl RedfishSeverity {
+    pub(super) fn from_health(health: &Health) -> Option<Self> {
+        match health {
+            Health::Ok => Some(Self::Ok),
+            Health::Warning => Some(Self::Warning),
+            Health::Critical => Some(Self::Critical),
+            _ => None,
+        }
+    }
+
+    pub(super) fn from_event_severity(severity: &EventSeverity) -> Self {
+        match severity {
+            EventSeverity::Ok => Self::Ok,
+            EventSeverity::Warning => Self::Warning,
+            EventSeverity::Critical => Self::Critical,
+            _ => Self::Unknown,
+        }
+    }
+
+    pub(super) fn from_raw(severity: &str) -> Self {
+        if severity.eq_ignore_ascii_case("Critical") {
+            Self::Critical
+        } else if severity.eq_ignore_ascii_case("Warning") {
+            Self::Warning
+        } else if severity.eq_ignore_ascii_case("OK") {
+            Self::Ok
+        } else {
+            Self::Unknown
+        }
+    }
+
+    pub(super) fn as_str(self) -> &'static str {
+        match self {
+            Self::Ok => "OK",
+            Self::Warning => "Warning",
+            Self::Critical => "Critical",
+            Self::Unknown => "Unknown",
+        }
+    }
+}
+
+impl From<RedfishSeverity> for LogSeverity {
+    fn from(severity: RedfishSeverity) -> Self {
+        match severity {
+            RedfishSeverity::Critical => Self::Fatal,
+            RedfishSeverity::Warning => Self::Warn,
+            RedfishSeverity::Ok => Self::Info,
+            RedfishSeverity::Unknown => Self::Unspecified,
+        }
+    }
+}
+
 pub(super) fn add_redfish_analyzer_attributes(
     attributes: &mut Vec<MetricLabel>,
     log_type: RedfishLogType,
-    severity: Option<&str>,
+    severity: RedfishSeverity,
     error_id: Option<&str>,
 ) {
     attributes.push((
@@ -98,34 +162,29 @@ pub(super) fn add_redfish_analyzer_attributes(
     ));
     attributes.push((
         Cow::Borrowed(REDFISH_EVENT_SEVERITY_ATTR),
-        normalize_redfish_severity(severity.unwrap_or_default()).to_string(),
+        severity.as_str().to_string(),
     ));
     if let Some(error_id) = error_id {
         attributes.push((Cow::Borrowed(NVIDIA_ERROR_ID_ATTR), error_id.to_string()));
     }
 }
 
-pub(super) fn normalize_redfish_severity(s: &str) -> &'static str {
-    if s.eq_ignore_ascii_case("Critical") {
-        "Critical"
-    } else if s.eq_ignore_ascii_case("Warning") {
-        "Warning"
-    } else if s.eq_ignore_ascii_case("OK") {
-        "OK"
-    } else {
-        "Unknown"
-    }
+/// True when `DiagnosticDataType` says the payload is a UEFI CPER record.
+///
+/// Event records and log entries carry the same two values in two generated
+/// enums, so each schema gets its own predicate.
+pub(super) fn event_diagnostic_is_cper(diagnostic_data_type: &EventDiagnosticDataTypes) -> bool {
+    matches!(
+        diagnostic_data_type,
+        EventDiagnosticDataTypes::Cper | EventDiagnosticDataTypes::CperSection
+    )
 }
 
-fn has_cper_evidence(fields: RedfishLogFields<'_>) -> bool {
-    fields.has_cper
-        || fields
-            .diagnostic_data_type
-            .is_some_and(is_cper_diagnostic_data_type)
-}
-
-fn is_cper_diagnostic_data_type(value: &str) -> bool {
-    value.eq_ignore_ascii_case("CPER") || value.eq_ignore_ascii_case("CPERSection")
+pub(super) fn log_entry_diagnostic_is_cper(diagnostic_data_type: &LogDiagnosticDataTypes) -> bool {
+    matches!(
+        diagnostic_data_type,
+        LogDiagnosticDataTypes::Cper | LogDiagnosticDataTypes::CperSection
+    )
 }
 
 fn contains_xid_token(value: &str) -> bool {
@@ -159,7 +218,6 @@ mod tests {
     struct TestFields {
         message: Option<&'static str>,
         message_args: &'static [&'static str],
-        diagnostic_data_type: Option<&'static str>,
         has_cper: bool,
     }
 
@@ -168,7 +226,6 @@ mod tests {
             Self {
                 message: Some(message),
                 message_args: &[],
-                diagnostic_data_type: None,
                 has_cper: false,
             }
         }
@@ -183,7 +240,6 @@ mod tests {
         run(RedfishLogFields {
             message: input.message,
             message_args: Some(&message_args),
-            diagnostic_data_type: input.diagnostic_data_type,
             has_cper: input.has_cper,
         })
     }
@@ -211,7 +267,6 @@ mod tests {
                     input: TestFields {
                         message: Some("GPU fault"),
                         message_args: &["GPU0", "Xid 79"],
-                        diagnostic_data_type: None,
                         has_cper: false,
                     },
                     expect: RedfishLogType::Xid,
@@ -222,31 +277,10 @@ mod tests {
                     expect: RedfishLogType::RedfishEvent,
                 },
                 Check {
-                    scenario: "cper diagnostic type",
-                    input: TestFields {
-                        message: Some("PCIe CPER event"),
-                        message_args: &["XID 94"],
-                        diagnostic_data_type: Some("CPER"),
-                        has_cper: false,
-                    },
-                    expect: RedfishLogType::Cper,
-                },
-                Check {
-                    scenario: "cper section diagnostic type",
-                    input: TestFields {
-                        message: Some("PCIe CPER section"),
-                        message_args: &[],
-                        diagnostic_data_type: Some("CPERSection"),
-                        has_cper: false,
-                    },
-                    expect: RedfishLogType::Cper,
-                },
-                Check {
-                    scenario: "cper object takes precedence over xid",
+                    scenario: "cper takes precedence over xid",
                     input: TestFields {
                         message: Some("GPU XID 94"),
                         message_args: &[],
-                        diagnostic_data_type: None,
                         has_cper: true,
                     },
                     expect: RedfishLogType::Cper,
@@ -257,25 +291,80 @@ mod tests {
     }
 
     #[test]
+    fn cper_diagnostic_data_types_are_recognised() {
+        check_values(
+            [
+                Check {
+                    scenario: "event record cper",
+                    input: EventDiagnosticDataTypes::Cper,
+                    expect: true,
+                },
+                Check {
+                    scenario: "event record cper section",
+                    input: EventDiagnosticDataTypes::CperSection,
+                    expect: true,
+                },
+                Check {
+                    scenario: "event record oem",
+                    input: EventDiagnosticDataTypes::Oem,
+                    expect: false,
+                },
+                Check {
+                    scenario: "event record unsupported",
+                    input: EventDiagnosticDataTypes::UnsupportedValue,
+                    expect: false,
+                },
+            ],
+            |diagnostic_data_type| event_diagnostic_is_cper(&diagnostic_data_type),
+        );
+
+        check_values(
+            [
+                Check {
+                    scenario: "log entry cper",
+                    input: LogDiagnosticDataTypes::Cper,
+                    expect: true,
+                },
+                Check {
+                    scenario: "log entry cper section",
+                    input: LogDiagnosticDataTypes::CperSection,
+                    expect: true,
+                },
+                Check {
+                    scenario: "log entry oem",
+                    input: LogDiagnosticDataTypes::Oem,
+                    expect: false,
+                },
+                Check {
+                    scenario: "log entry unsupported",
+                    input: LogDiagnosticDataTypes::UnsupportedValue,
+                    expect: false,
+                },
+            ],
+            |diagnostic_data_type| log_entry_diagnostic_is_cper(&diagnostic_data_type),
+        );
+    }
+
+    #[test]
     fn analyzer_attributes_include_type_severity_and_error_id() {
         let mut attributes = Vec::new();
 
         add_redfish_analyzer_attributes(
             &mut attributes,
             RedfishLogType::RedfishEvent,
-            None,
+            RedfishSeverity::Unknown,
             Some("CPLD-PSEQ-FAULT"),
         );
         add_redfish_analyzer_attributes(
             &mut attributes,
             RedfishLogType::Xid,
-            Some("warning"),
+            RedfishSeverity::Warning,
             None,
         );
         add_redfish_analyzer_attributes(
             &mut attributes,
             RedfishLogType::Cper,
-            Some("CRITICAL"),
+            RedfishSeverity::Critical,
             None,
         );
 
@@ -336,6 +425,131 @@ mod tests {
                 },
             ],
             |event_type| redfish_event_type_string(event_type.as_ref()),
+        );
+    }
+
+    #[test]
+    fn severity_decodes_from_both_schema_enums() {
+        check_values(
+            [
+                Check {
+                    scenario: "event record ok",
+                    input: Health::Ok,
+                    expect: Some(RedfishSeverity::Ok),
+                },
+                Check {
+                    scenario: "event record warning",
+                    input: Health::Warning,
+                    expect: Some(RedfishSeverity::Warning),
+                },
+                Check {
+                    scenario: "event record critical",
+                    input: Health::Critical,
+                    expect: Some(RedfishSeverity::Critical),
+                },
+                // None so the caller falls back to the raw Severity string.
+                Check {
+                    scenario: "event record unsupported",
+                    input: Health::UnsupportedValue,
+                    expect: None,
+                },
+            ],
+            |health| RedfishSeverity::from_health(&health),
+        );
+
+        check_values(
+            [
+                Check {
+                    scenario: "log entry ok",
+                    input: EventSeverity::Ok,
+                    expect: RedfishSeverity::Ok,
+                },
+                Check {
+                    scenario: "log entry warning",
+                    input: EventSeverity::Warning,
+                    expect: RedfishSeverity::Warning,
+                },
+                Check {
+                    scenario: "log entry critical",
+                    input: EventSeverity::Critical,
+                    expect: RedfishSeverity::Critical,
+                },
+                // Log entries carry no raw severity string to fall back to.
+                Check {
+                    scenario: "log entry unsupported",
+                    input: EventSeverity::UnsupportedValue,
+                    expect: RedfishSeverity::Unknown,
+                },
+            ],
+            |severity| RedfishSeverity::from_event_severity(&severity),
+        );
+    }
+
+    #[test]
+    fn raw_severity_tolerates_bmc_capitalisation() {
+        check_values(
+            [
+                Check {
+                    scenario: "canonical",
+                    input: "Critical",
+                    expect: RedfishSeverity::Critical,
+                },
+                Check {
+                    scenario: "shouted",
+                    input: "CRITICAL",
+                    expect: RedfishSeverity::Critical,
+                },
+                Check {
+                    scenario: "lowercase",
+                    input: "warning",
+                    expect: RedfishSeverity::Warning,
+                },
+                Check {
+                    scenario: "mixed case",
+                    input: "Ok",
+                    expect: RedfishSeverity::Ok,
+                },
+                Check {
+                    scenario: "unrecognised",
+                    input: "meltdown",
+                    expect: RedfishSeverity::Unknown,
+                },
+                Check {
+                    scenario: "empty",
+                    input: "",
+                    expect: RedfishSeverity::Unknown,
+                },
+            ],
+            RedfishSeverity::from_raw,
+        );
+    }
+
+    #[test]
+    fn severity_renders_redfish_and_otel_spellings() {
+        check_values(
+            [
+                Check {
+                    scenario: "ok",
+                    input: RedfishSeverity::Ok,
+                    expect: ("OK", "INFO"),
+                },
+                Check {
+                    scenario: "warning",
+                    input: RedfishSeverity::Warning,
+                    expect: ("Warning", "WARN"),
+                },
+                Check {
+                    scenario: "critical",
+                    input: RedfishSeverity::Critical,
+                    expect: ("Critical", "FATAL"),
+                },
+                Check {
+                    scenario: "unknown",
+                    input: RedfishSeverity::Unknown,
+                    expect: ("Unknown", "UNSPECIFIED"),
+                },
+            ],
+            |severity| (severity.as_str(), LogSeverity::from(severity).as_str()),
         );
     }
 }

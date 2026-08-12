@@ -152,7 +152,7 @@ mod tests {
 
     use super::*;
     use crate::endpoint::test_support::{mac, test_endpoint};
-    use crate::sink::LogRecord;
+    use crate::sink::{LogRecord, LogSeverity};
 
     #[test]
     fn log_events_preserve_attributes_without_diagnostics() {
@@ -165,7 +165,7 @@ mod tests {
 
         let event = CollectorEvent::Log(Box::new(LogRecord {
             body: "nvue_rest: collected system reboot reason".to_string(),
-            severity: "INFO".to_string(),
+            severity: LogSeverity::Info,
             attributes: vec![
                 (Cow::Borrowed("gentime"), "2026-07-05 12:34:56".to_string()),
                 (Cow::Borrowed("user"), "admin".to_string()),
@@ -212,7 +212,7 @@ mod tests {
 
         let log = CollectorEvent::Log(Box::new(LogRecord {
             body: "TCP port is reachable".to_string(),
-            severity: "INFO".to_string(),
+            severity: LogSeverity::Info,
             attributes: vec![],
             diagnostic_record: None,
         }));
