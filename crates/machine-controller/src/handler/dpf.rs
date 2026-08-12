@@ -192,6 +192,8 @@ async fn create_and_register_dpudevices_and_dpunode(
             missing: "primary_dpu",
         })?;
 
+    let astra_nics = host_has_astra_nics(state, ctx).await?;
+
     for dpu in &state.dpu_snapshots {
         let serial_number = dpu
             .status
@@ -220,8 +222,6 @@ async fn create_and_register_dpudevices_and_dpunode(
             .await
             .map_err(dpf_error)?;
     }
-
-    let astra_nics = host_has_astra_nics(state, ctx).await?;
 
     let primary_dpu = state
         .dpu_snapshots

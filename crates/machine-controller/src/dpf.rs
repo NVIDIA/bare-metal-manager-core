@@ -86,7 +86,7 @@ pub trait DpfOperations: Send + Sync + std::fmt::Debug {
     /// Mark DPU node as rebooted (clear the external reboot required annotation).
     async fn reboot_complete(&self, node_name: &str) -> Result<(), DpfError>;
 
-    /// Resolve the deployment type of a DPU based on its hardware (BF3 vs BF4).
+    /// Resolve the deployment type of a DPU based on its hardware (BF3 vs BF4Generic vs BF4Astra).
     /// Returns `Err` when the part number is absent or does not match any known
     /// generation, so unrecognized hardware never silently routes to a wrong
     /// deployment.
