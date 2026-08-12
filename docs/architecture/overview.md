@@ -23,7 +23,7 @@ The managed host consists of various internal components that are all part of th
 - The actual x86 or ARM host, with an arbitrary amount of GPUs
 - Zero or more DPUs (of type BlueField-2 or BlueField-3) plugged into the host
 - The BMC that is used to manage the host
-- The BMC that is used to manage the DPU
+- The BMC that is used to manage the DPU (if present)
 
 NICo deploys a set of binaries on these hosts during various points of their lifecycle, defined in the subsections that follow.
 
@@ -32,7 +32,7 @@ NICo deploys a set of binaries on these hosts during various points of their lif
 [scout](https://github.com/NVIDIA/infra-controller/blob/main/crates/scout) is an agent that NICo runs on the host and DPU of managed hosts for a variety of tasks:
 
 - "Inventory" collection: Scout collects and transmits hardware properties of the host to [NICo core](#nico-core) which can not be determined through out-of-band tooling.
-- Execution of cleanup tasks whenever the bare metal instance using the host is released by a user
+- Execution of cleanup tasks whenever the bare-metal instance using the host is released by a user
 - Execution of machine validation tests
 - Periodic Health checks
 
@@ -44,9 +44,9 @@ DPU agent performs the following tasks:
 
 - Configuring the DPU as required at any state during the host’s lifecycle. This process is described more in depth in [DPU configuration](../dpu-management/dpu_configuration.md).
 - Executing periodic health-checks on the DPU
-- Running the NICo metadata service (FMDS), which provides the users on the bare metal instance a HTTP based API to retrieve information about their running instance. Users can e.g. use FMDS to determine their Machine ID or certain Boot/OS information.
+- Running the NICo metadata service (FMDS), which provides the users on the bare-metal instance a HTTP-based API to retrieve information about their running instance. Users can e.g. use FMDS to determine their Machine ID or certain boot/OS information.
 - Enabling auto-updates of the dpu-agent itself
-- Deploying hotfixes for the DPU OS. These hotfixes reduce the need to perform a full DPU OS reinstallation, and thereby avoid bare metal instances becoming unavailable for their users due to OS updates.
+- Deploying hotfixes for the DPU OS. These hotfixes reduce the need to perform a full DPU OS reinstallation, and thereby avoid bare-metal instances becoming unavailable for their users due to OS updates.
 
 ### DHCP Server
 
@@ -56,32 +56,32 @@ NICo runs a [custom DHCP server](https://github.com/NVIDIA/infra-controller/blob
 
 The NICo control plane consists of a number of services which work together to orchestrate the lifecycle of a managed host:
 
-- [nico-core](https://github.com/NVIDIA/infra-controller/blob/main/crates/api): The NICo core service is the entrypoint into the control plane. It provides a [gRPC](https://grpc.io) API that all other components as well as users (site providers/tenants/site administrators) interact with, as well as implements the lifecycle management of all NICo managed resources (VPCs, prefixes, InfiniBand and NVLink partitions and bare metal instances). The [NICo Core](#nico_core_architecture) section describes it further in detail.
-- [nico-dhcp (DHCP)](https://github.com/NVIDIA/infra-controller/blob/main/crates/dhcp): The DHCP server responds to DHCP requests for all devices on underlay networks. This includes Host BMCs, DPU BMCs and DPU OOB addresses. nico-dhcp can be thought of as a stateless proxy: It does not actually perform any IP address management - it just converts DHCP requests into gRPC format and forwards the gRPC based DHCP requests to nico core.
+- [nico-core](https://github.com/NVIDIA/infra-controller/blob/main/crates/api): The NICo core service is the entrypoint into the control plane. It provides a [gRPC](https://grpc.io) API that all other components as well as users (site providers/tenants/site administrators) interact with, as well as implements the lifecycle management of all NICo-managed resources (VPCs, prefixes, InfiniBand and NVLink partitions and bare-metal instances). The [NICo Core](#nico_core_architecture) section describes it further in detail.
+- [nico-dhcp (DHCP)](https://github.com/NVIDIA/infra-controller/blob/main/crates/dhcp): The DHCP server responds to DHCP requests for all devices on underlay networks. This includes Host BMCs, DPU BMCs and DPU OOB addresses. nico-dhcp can be thought of as a stateless proxy: It does not actually perform any IP address management - it just converts DHCP requests into gRPC format and forwards the gRPC-based DHCP requests to nico core.
 - [nico-pxe (iPXE)](https://github.com/NVIDIA/infra-controller/blob/main/crates/pxe): The PXE server provides boot artifacts like iPXE scripts, iPXE user-data and OS images to managed hosts at boot time over HTTP. It determines which OS data to provide for a specific host by requesting the respective data from nico core - therefore the PXE server is also stateless.
 
   Managed hosts are configured to always boot from PXE. If a local bootable device is found, the host will boot it. Hosts can also be configured to always boot from a particular image for stateless configurations.
 
-- [nico-hw-health (Hardware health)](https://github.com/NVIDIA/infra-controller/blob/main/crates/health): This service scrapes all host and DPU BMCs known by NICo for system health information. It extracts measurements like fan speeds, temperatures and leak indicators. These measurements are emitted as Prometheus metrics on a `/metrics` endpoint on port 9009. In addition to that, the service calls the nico-core API `RecordHardwareHealthReport` to set health alerts based on issues identified within the metrics. These alerts are merged within nico-core into the aggregated-host-health - which is emitted in overall health metrics and used to decide whether hosts are usable as bare metal instances for tenants.
-- [ssh-console](https://github.com/NVIDIA/infra-controller/blob/main/crates/ssh-console): The SSH console provides bare metal-tenants and site-administrators virtual serial console access to hosts managed by NICo. The ssh-console service also sends the output of each hosts serial console to the logging system (Loki), from where it can be queried using Grafana and logcli. In order to provide this functionality, the ssh-console service *continuously* connects to all host BMCs. The ssh-console service only forwards logs to users ("bare metal tenants") if they connect to the service and get authenticated.
+- [nico-hw-health (Hardware health)](https://github.com/NVIDIA/infra-controller/blob/main/crates/health): This service scrapes all host and DPU BMCs known by NICo for system health information. It extracts measurements like fan speeds, temperatures and leak indicators. These measurements are emitted as Prometheus metrics on a `/metrics` endpoint on port 9009. In addition to that, the service calls the nico-core API `RecordHardwareHealthReport` to set health alerts based on issues identified within the metrics. These alerts are merged within nico-core into the aggregated-host-health - which is emitted in overall health metrics and used to decide whether hosts are usable as bare-metal instances for tenants.
+- [ssh-console](https://github.com/NVIDIA/infra-controller/blob/main/crates/ssh-console): The SSH console provides bare-metal tenants and site administrators virtual serial console access to hosts managed by NICo. The ssh-console service also sends the output of each host's serial console to the logging system (Loki), from where it can be queried using Grafana and logcli. In order to provide this functionality, the ssh-console service *continuously* connects to all host BMCs. The ssh-console service only forwards logs to users ("bare-metal tenants") if they connect to the service and get authenticated.
 - [nico-dns (DNS)](https://github.com/NVIDIA/infra-controller/blob/main/crates/dns): Domain name service (DNS) functionality is handled by two services. The `nico-dns` service handles DNS queries from the site controller and managed nodes and is authoritative for delegated zones.
 
 ## <a name="nico_core_architecture"></a> NICo Core
 
-NICo core is the binary which provides the most essential services within the NICo control plane. It provides a [gRPC](https://grpc.io) API that all other components as well as users (site providers/tenants/site administrators) interact with, as well as implements the lifecycle management of all NICo managed resources (VPCs, prefixes, InfiniBand and NVLink partitions and bare metal instances).
+NICo core is the binary which provides the most essential services within the NICo control plane. It provides a [gRPC](https://grpc.io) API that all other components as well as users (site providers/tenants/site administrators) interact with, as well as implements the lifecycle management of all NICo-managed resources (VPCs, prefixes, InfiniBand and NVLink partitions and bare-metal instances).
 
 NICo core can be considered as a "collection of independent components that are deployed within the same binary". These components are shown in the following diagram, and are described further below.
 
 NICo core is the only component within NICo which interacts with the PostgreSQL database. This simplifies the rollout of database migrations throughout the product lifecycle.
 
 {/* Source drawio file at ../static/nico-core.drawio */}
-![NICo site controller](../static/nico-core.png)
+![NICo core](../static/nico-core.png)
 
 ## NICo Core Components
 
 ### [gRPC](https://grpc.io) API handlers
 
-The API handlers accept gRPC requests from NICo users and internal system components. They provide users the ability to inspect the current state of the system, and modify the desired state of various components (e.g. create or reconfigure bare metal instances).
+The API handlers accept gRPC requests from NICo users and internal system components. They provide users the ability to inspect the current state of the system, and modify the desired state of various components (such as creating or reconfiguring bare-metal instances).
 
 API handlers are all implemented within the trait/interface `rpc::nico::nico_server::NICo`. Various implementations delegate to the `handlers` subdirectory. For resources managed by NICo, API handlers do not directly change the actual state of the resources (such as the provisioning state of a host). Instead, they only change the required state (for example, "provisioning required" or "termination required"). The state changes will be performed by state machines (details below). The nico-core gRPC API supports [gRPC reflection](https://github.com/grpc/grpc/blob/master/doc/server-reflection.md) to provide a machine-readable API description so clients can auto-generate code and RPC functions in the client.
 
@@ -169,7 +169,7 @@ In each run, IBFabricMonitor performs the following tasks:
 - Fetches the actually applied InfiniBand partitioning information for each InfiniBand port on each host managed by NICo and stores it in NICo. The data can be inspected in the `Machine::ib_status` field in the gRPC API.
 - Calls UFM APIs to bind ports (guids) to partitions (pkeys) according to the configuration of each host. This happens continuously based on comparing the expected InfiniBand configuration of a host (whether it is used by a tenant or not, and how the tenant configured the InfiniBand interfaces) with the actually applied configuration (determined in the last step).
 
-InfiniBand Fabric Monitor is an optional component. It only needs to be enabled in the case NICo managed InfiniBand is required.
+InfiniBand Fabric Monitor is an optional component. It only needs to be enabled in the case NICo-managed InfiniBand is required.
 
 IB Fabric Monitor emits metrics with prefix `nico_ib_monitor_`.
 
@@ -197,4 +197,4 @@ The point of having a site controller is to administer a site that has been popu
 
 Each DPU runs the nico-dpu-agent which connects via gRPC to the API service in NICo to get configuration instructions.
 
-The nico-dpu-agent also runs the NICo metadata service (FMDS), which provides the users on the bare metal instance an HTTP-based API to retrieve information about their running instance. For example, users can use FMDS to determine their Machine ID or certain Boot/OS information.
+The nico-dpu-agent also runs the NICo metadata service (FMDS), which provides the users on the bare-metal instance an HTTP-based API to retrieve information about their running instance. For example, users can use FMDS to determine their Machine ID or certain boot/OS information.
