@@ -389,7 +389,7 @@ pub async fn run_service(config: Config) -> Result<(), HealthError> {
     let active_endpoints_gauge = Gauge::new(
         format!(
             "{metrics_prefix}_active_endpoints",
-            metrics_prefix = &config.metrics.prefix
+            metrics_prefix = config.metrics.prefix
         ),
         "Number of active endpoints",
     )?;
@@ -399,7 +399,7 @@ pub async fn run_service(config: Config) -> Result<(), HealthError> {
         Opts::new(
             format!(
                 "{metrics_prefix}_discovery_endpoints",
-                metrics_prefix = &config.metrics.prefix
+                metrics_prefix = config.metrics.prefix
             ),
             "Number of endpoints at each discovery stage",
         ),

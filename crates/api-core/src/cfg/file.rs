@@ -5197,11 +5197,11 @@ mod tests {
             }
         );
         assert_eq!(config.dpu_config.dpu_models.len(), 2);
-        for (_, entry) in config.dpu_config.dpu_models.iter() {
+        for entry in config.dpu_config.dpu_models.values() {
             assert_eq!(entry.vendor, bmc_vendor::BMCVendor::Nvidia);
         }
         assert_eq!(config.host_models.len(), 2);
-        for (_, entry) in config.host_models.iter() {
+        for entry in config.host_models.values() {
             assert_eq!(entry.vendor, bmc_vendor::BMCVendor::Dell);
         }
 
