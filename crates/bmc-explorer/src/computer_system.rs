@@ -344,13 +344,16 @@ impl<B: Bmc> ExploredComputerSystem<B> {
         hw_type: Option<hw::HwType>,
     ) -> Result<Vec<ModelEthernetInterface>, Error<B>> {
         let is_bluefield = hw_type == Some(hw::HwType::Bluefield);
-        let mut result = self.ethernet_interfaces.iter()
+        let mut result = self
+            .ethernet_interfaces
+            .iter()
             .map(|iface| {
                 let mac_address = iface
                     .mac_address()
                     .map(|addr| {
-                        deserialize_input_mac_to_address(addr.as_str())
-                            .map_err(|e| Error::InvalidValue(format!("MAC address not valid: {addr} (err: {e})")))
+                        deserialize_input_mac_to_address(addr.as_str()).map_err(|e| {
+                            Error::InvalidValue(format!("MAC address not valid: {addr} (err: {e})"))
+                        })
                     })
                     .transpose()
                     .or_else(|err| {
@@ -388,7 +391,8 @@ impl<B: Bmc> ExploredComputerSystem<B> {
                     link_status: iface.link_status().map(|s| format!("{s:?}")),
                     uefi_device_path,
                 })
-            }).collect::<Result<Vec<_>, _>>()?;
+            })
+            .collect::<Result<Vec<_>, _>>()?;
 
         if is_bluefield
             && !result.iter().any(|iface| {

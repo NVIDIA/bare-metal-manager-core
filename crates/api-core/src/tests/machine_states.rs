@@ -57,13 +57,12 @@ use model::hardware_info::TpmEkCertificate;
 use model::machine::health_override::HARDWARE_HEALTH_OVERRIDE_PREFIX;
 use model::machine::machine_search_config::MachineSearchConfig;
 use model::machine::{
-    BiosConfigInfo, BiosConfigState, CleanupContext,
-    CleanupState, CreateBossVolumeContext, CreateBossVolumeState, DpuDiscoveringState,
-    DpuInitState, DpuReprovisionStates, FailureCause, FailureDetails, FailureSource,
-    HostPlatformConfigurationState, InstallDpuOsState, InstanceState, LockdownMode, MachineState,
-    MachineValidatingState, ManagedHostState, MeasuringState, PowerState, SecureEraseBossState,
-    SetBootOrderInfo,
-    SetBootOrderState, SetSecureBootState, SpdmMeasuringState, StateMachineArea, ValidationState,
+    BiosConfigInfo, BiosConfigState, CleanupContext, CleanupState, CreateBossVolumeContext,
+    CreateBossVolumeState, DpuDiscoveringState, DpuInitState, DpuReprovisionStates, FailureCause,
+    FailureDetails, FailureSource, HostPlatformConfigurationState, InstallDpuOsState,
+    InstanceState, LockdownMode, MachineState, MachineValidatingState, ManagedHostState,
+    MeasuringState, PowerState, SecureEraseBossState, SetBootOrderInfo, SetBootOrderState,
+    SetSecureBootState, SpdmMeasuringState, StateMachineArea, ValidationState,
 };
 use model::machine_validation::MachineValidationState;
 use model::network_segment::NetworkSegmentType;
