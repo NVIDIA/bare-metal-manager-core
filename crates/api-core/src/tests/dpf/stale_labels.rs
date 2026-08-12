@@ -49,7 +49,7 @@ fn provisioning_mock_with_labels_valid(labels_valid: Arc<AtomicBool>) -> MockDpf
     mock.expect_get_dpu_phase()
         .returning(|_, _| Ok(DpuPhase::Ready));
     mock.expect_deployment_type_for_dpu()
-        .returning(|_| Ok(DpuDeploymentType::Bf3));
+        .returning(|_, _| Ok(DpuDeploymentType::Bf3));
     mock.expect_verify_node_labels()
         .returning(move |_, _| Ok(labels_valid.load(Ordering::SeqCst)));
     mock

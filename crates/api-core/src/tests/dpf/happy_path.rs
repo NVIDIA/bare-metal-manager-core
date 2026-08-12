@@ -47,7 +47,7 @@ fn default_mock(deployment_type: DpuDeploymentType) -> MockDpfOperations {
     mock.expect_get_dpu_phase()
         .returning(|_, _| Ok(DpuPhase::Ready));
     mock.expect_deployment_type_for_dpu()
-        .returning(move |_| Ok(deployment_type));
+        .returning(move |_, _| Ok(deployment_type));
     mock.expect_verify_node_labels().returning(|_, _| Ok(true));
     mock
 }

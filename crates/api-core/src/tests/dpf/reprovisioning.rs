@@ -80,7 +80,7 @@ fn provisioning_mock_with_dpu_count(
     mock.expect_release_maintenance_hold().returning(|_| Ok(()));
     mock.expect_is_reboot_required().returning(|_| Ok(false));
     mock.expect_deployment_type_for_dpu()
-        .returning(|_| Ok(DpuDeploymentType::Bf3));
+        .returning(|_, _| Ok(DpuDeploymentType::Bf3));
     mock.expect_verify_node_labels().returning(|_, _| Ok(true));
     mock.expect_snapshot_host()
         .returning(move |_| Ok(snapshot_with_crs_present(dpu_count)));
@@ -363,7 +363,7 @@ fn capturing_mock(
     mock.expect_release_maintenance_hold().returning(|_| Ok(()));
     mock.expect_is_reboot_required().returning(|_| Ok(false));
     mock.expect_deployment_type_for_dpu()
-        .returning(|_| Ok(DpuDeploymentType::Bf3));
+        .returning(|_, _| Ok(DpuDeploymentType::Bf3));
     mock.expect_verify_node_labels().returning(|_, _| Ok(true));
     mock.expect_snapshot_host()
         .returning(move |_| Ok(snapshot_with_crs_present(dpu_count)));

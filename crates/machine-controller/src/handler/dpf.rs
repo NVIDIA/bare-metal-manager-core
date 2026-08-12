@@ -25,6 +25,7 @@ use std::net::IpAddr;
 use carbide_dpf::{DpfError, DpuPhase, dpu_node_cr_name};
 use carbide_uuid::machine::MachineId;
 use libredfish::SystemPowerControl;
+use model::dpa_interface::DpaSearchConfig;
 use model::machine::{
     DpfState, DpuInitState, FailureCause, FailureDetails, FailureSource, InstanceState, Machine,
     ManagedHostState, ManagedHostStateSnapshot, PerformPowerOperation, ReprovisionState,
@@ -177,6 +178,7 @@ fn waiting_for_ready_exit_state(
 async fn create_and_register_dpudevices_and_dpunode(
     state: &ManagedHostStateSnapshot,
     dpf_sdk: &dyn DpfOperations,
+    ctx: &mut StateHandlerContext<'_, MachineStateHandlerContextObjects>,
 ) -> Result<(), StateHandlerError> {
     let primary_dpu_id = state
         .host_snapshot
@@ -219,6 +221,8 @@ async fn create_and_register_dpudevices_and_dpunode(
             .map_err(dpf_error)?;
     }
 
+    let astra_nics = host_has_astra_nics(state, ctx).await?;
+
     let primary_dpu = state
         .dpu_snapshots
         .iter()
@@ -228,7 +232,7 @@ async fn create_and_register_dpudevices_and_dpunode(
             missing: "primary_dpu_snapshot",
         })?;
     let deployment_type = dpf_sdk
-        .deployment_type_for_dpu(primary_dpu)
+        .deployment_type_for_dpu(primary_dpu, astra_nics)
         .map_err(dpf_error)?;
 
     let device_ids: Vec<String> = state
@@ -296,8 +300,9 @@ fn dpf_cr_creation_failed(
 async fn handle_dpf_provisioning(
     state: &ManagedHostStateSnapshot,
     dpf_sdk: &dyn DpfOperations,
+    ctx: &mut StateHandlerContext<'_, MachineStateHandlerContextObjects>,
 ) -> Result<StateHandlerOutcome<ManagedHostState>, StateHandlerError> {
-    if let Err(err) = create_and_register_dpudevices_and_dpunode(state, dpf_sdk).await {
+    if let Err(err) = create_and_register_dpudevices_and_dpunode(state, dpf_sdk, ctx).await {
         return Ok(dpf_cr_creation_failed(state, &err));
     }
 
@@ -553,7 +558,7 @@ async fn handle_dpf_reprovisioning(
             machine_id = %state.host_snapshot.id,
             "DPUDevice/DPUNode CRs do not exist, creating them before reprovisioning"
         );
-        if let Err(err) = create_and_register_dpudevices_and_dpunode(state, dpf_sdk).await {
+        if let Err(err) = create_and_register_dpudevices_and_dpunode(state, dpf_sdk, ctx).await {
             return Ok(dpf_cr_creation_failed(state, &err));
         }
         let next = transition_all_dpus_to_dpf_state(
@@ -581,6 +586,27 @@ async fn handle_dpf_reprovisioning(
     Ok(StateHandlerOutcome::transition(next))
 }
 
+/// Return whether the host has any Astra NICs registered.
+async fn host_has_astra_nics(
+    state: &ManagedHostStateSnapshot,
+    ctx: &mut StateHandlerContext<'_, MachineStateHandlerContextObjects>,
+) -> Result<bool, StateHandlerError> {
+    let search_config = DpaSearchConfig {
+        only_svpc: false,
+        only_astra: true,
+    };
+
+    let mut txn = ctx.services.db_pool.begin().await?;
+
+    let dpa_interfaces =
+        db::dpa_interface::find_by_machine_id(txn.as_mut(), state.host_snapshot.id, search_config)
+            .await?;
+
+    txn.commit().await?;
+
+    Ok(!dpa_interfaces.is_empty())
+}
+
 /// Handle DPF state transitions.
 ///
 /// Provisioning registers all DPUs at once and moves them to WaitingForReady
@@ -596,8 +622,11 @@ pub(super) async fn handle_dpf_state(
     power_down_wait: chrono::Duration,
 ) -> Result<StateHandlerOutcome<ManagedHostState>, StateHandlerError> {
     let node_name = dpu_node_cr_name(&dpf_id(&state.host_snapshot)?);
+
+    let astra_nics = host_has_astra_nics(state, ctx).await?;
+
     let deployment_type = dpf_sdk
-        .deployment_type_for_dpu(dpu_snapshot)
+        .deployment_type_for_dpu(dpu_snapshot, astra_nics)
         .map_err(dpf_error)?;
     if !dpf_sdk
         .verify_node_labels(&node_name, deployment_type)
@@ -627,7 +656,7 @@ pub(super) async fn handle_dpf_state(
     }
 
     match dpf_state {
-        DpfState::Provisioning => handle_dpf_provisioning(state, dpf_sdk).await,
+        DpfState::Provisioning => handle_dpf_provisioning(state, dpf_sdk, ctx).await,
         DpfState::WaitingForReady { phase_detail } => {
             handle_dpf_waiting_for_ready(state, dpu_snapshot, phase_detail, ctx, dpf_sdk).await
         }
