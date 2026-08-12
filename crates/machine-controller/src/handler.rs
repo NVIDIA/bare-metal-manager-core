@@ -1205,12 +1205,18 @@ impl MachineStateHandler {
                                 .await
                                 .map_err(|e| redfish_error("get_boss_controller", e))?
                         {
+                            let secure_erase_boss_state = match cleanup_context {
+                                CleanupContext::Deprovision => SecureEraseBossState::UnlockHost,
+                                CleanupContext::InitialDiscovery => {
+                                    SecureEraseBossState::SecureEraseBoss
+                                }
+                            };
                             let next_state = waiting_for_cleanup_state(
                                 CleanupState::SecureEraseBoss {
                                     secure_erase_boss_context: SecureEraseBossContext {
                                         boss_controller_id,
                                         secure_erase_jid: None,
-                                        secure_erase_boss_state: SecureEraseBossState::UnlockHost,
+                                        secure_erase_boss_state,
                                         iteration: Some(0),
                                     },
                                 },
@@ -1237,10 +1243,12 @@ impl MachineStateHandler {
 
                         match secure_erase_boss_context.secure_erase_boss_state {
                             SecureEraseBossState::UnlockHost => {
-                                redfish_client
-                                    .set_idrac_lockdown(EnabledDisabled::Disabled)
-                                    .await
-                                    .map_err(|e| redfish_error("set_idrac_lockdown", e))?;
+                                if matches!(cleanup_context, CleanupContext::Deprovision) {
+                                    redfish_client
+                                        .set_idrac_lockdown(EnabledDisabled::Disabled)
+                                        .await
+                                        .map_err(|e| redfish_error("set_idrac_lockdown", e))?;
+                                }
 
                                 let next_state = waiting_for_cleanup_state(
                                     CleanupState::SecureEraseBoss {
@@ -1420,10 +1428,12 @@ impl MachineStateHandler {
                                 .await
                             }
                             CreateBossVolumeState::LockHost => {
-                                redfish_client
-                                    .set_idrac_lockdown(EnabledDisabled::Enabled)
-                                    .await
-                                    .map_err(|e| redfish_error("set_idrac_lockdown", e))?;
+                                if matches!(cleanup_context, CleanupContext::Deprovision) {
+                                    redfish_client
+                                        .set_idrac_lockdown(EnabledDisabled::Enabled)
+                                        .await
+                                        .map_err(|e| redfish_error("set_idrac_lockdown", e))?;
+                                }
 
                                 let next_state = post_cleanup_state(*cleanup_context);
 
@@ -11680,24 +11690,30 @@ async fn wait_for_boss_controller_job_to_complete(
         // The job has completed; transition to next step in host cleanup
         libredfish::JobState::Completed => {
             // healthy path
-            let cleanup_state = match secure_erase_boss_controller {
+            let next_state = match (secure_erase_boss_controller, cleanup_context) {
                 // now that we have finished doing a secure erase of the BOSS controller
                 // we can do a standard secure erase of the remaining drives through the /usr/sbin/nvme tool
-                true => CleanupState::HostCleanup {
-                    boss_controller_id: Some(boss_controller_id),
-                },
-                // now that we have recreated the R1 volume on top of the BOSS controller, we can lock the host back down again.
-                false => CleanupState::CreateBossVolume {
-                    create_boss_volume_context: CreateBossVolumeContext {
-                        boss_controller_id,
-                        create_boss_volume_jid: None,
-                        create_boss_volume_state: CreateBossVolumeState::LockHost,
-                        iteration: Some(iterations),
+                (true, _) => waiting_for_cleanup_state(
+                    CleanupState::HostCleanup {
+                        boss_controller_id: Some(boss_controller_id),
                     },
-                },
+                    cleanup_context,
+                ),
+                // now that we have recreated the R1 volume on top of the BOSS controller, we can lock the host back down again.
+                (false, CleanupContext::Deprovision) => waiting_for_cleanup_state(
+                    CleanupState::CreateBossVolume {
+                        create_boss_volume_context: CreateBossVolumeContext {
+                            boss_controller_id,
+                            create_boss_volume_jid: None,
+                            create_boss_volume_state: CreateBossVolumeState::LockHost,
+                            iteration: Some(iterations),
+                        },
+                    },
+                    cleanup_context,
+                ),
+                (false, CleanupContext::InitialDiscovery) => post_cleanup_state(cleanup_context),
             };
 
-            let next_state = waiting_for_cleanup_state(cleanup_state, cleanup_context);
             Ok(StateHandlerOutcome::transition(next_state))
         }
         // The job has failed; handle error

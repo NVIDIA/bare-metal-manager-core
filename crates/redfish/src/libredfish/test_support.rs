@@ -58,6 +58,7 @@ struct RedfishSimState {
     machine_setup_bios_job_id: Option<String>,
     is_bios_setup: Option<bool>,
     default_lockdown: Option<EnabledDisabled>,
+    boss_controller_id: Option<String>,
     /// Override whether `lockdown_bmc` changes the observed state. `None`
     /// preserves the normal successful behavior; `Some(false)` models a BMC
     /// accepting the write without applying the requested policy.
@@ -284,6 +285,10 @@ impl RedfishSim {
 
     pub fn set_job_state_sequence(&self, states: Vec<JobState>) {
         self.state.lock().unwrap().job_state_sequence = VecDeque::from(states);
+    }
+
+    pub fn set_boss_controller_id(&self, boss_controller_id: Option<String>) {
+        self.state.lock().unwrap().boss_controller_id = boss_controller_id;
     }
 
     pub fn set_is_bios_setup(&self, ready: bool) {
@@ -1880,7 +1885,7 @@ impl Redfish for RedfishSimClient {
     fn get_boss_controller<'a>(
         &'a self,
     ) -> libredfish::RedfishFuture<'a, Result<Option<String>, RedfishError>> {
-        Box::pin(async move { Ok(None) })
+        Box::pin(async move { Ok(self.state.lock().unwrap().boss_controller_id.clone()) })
     }
 
     fn decommission_storage_controller<'a>(

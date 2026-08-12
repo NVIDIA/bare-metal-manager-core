@@ -58,12 +58,12 @@ use model::machine::health_override::HARDWARE_HEALTH_OVERRIDE_PREFIX;
 use model::machine::machine_search_config::MachineSearchConfig;
 use model::machine::{
     BiosConfigInfo, BiosConfigState, BomValidating, BomValidatingContext, CleanupContext,
-    CleanupState, DpuDiscoveringState, DpuInitState, DpuReprovisionStates, FailureCause,
-    FailureDetails, FailureSource, HostPlatformConfigurationState, InstallDpuOsState,
-    InstanceState, LockdownMode, MachineState, MachineValidatingState, MachineValidationContext,
-    ManagedHostState, MeasuringState, PowerState, ReadyBootConfigState,
-    ReadyBootConfigTerminalFailure, SetBootOrderInfo, SetBootOrderState, SetSecureBootState,
-    SpdmMeasuringState, StateMachineArea, ValidationState,
+    CleanupState, CreateBossVolumeContext, CreateBossVolumeState, DpuDiscoveringState,
+    DpuInitState, DpuReprovisionStates, FailureCause, FailureDetails, FailureSource,
+    HostPlatformConfigurationState, InstallDpuOsState, InstanceState, LockdownMode, MachineState,
+    MachineValidatingState, MachineValidationContext, ManagedHostState, MeasuringState, PowerState,
+    ReadyBootConfigState, ReadyBootConfigTerminalFailure, SecureEraseBossState, SetBootOrderInfo,
+    SetBootOrderState, SetSecureBootState, SpdmMeasuringState, StateMachineArea, ValidationState,
 };
 use model::machine_boot_interface::MachineBootInterfaceTarget;
 use model::machine_validation::MachineValidationState;
@@ -1042,6 +1042,80 @@ async fn test_nvme_clean_failed_state_host(pool: sqlx::PgPool) {
     assert!(matches!(
         host.current_state(),
         ManagedHostState::WaitingForCleanup { .. }
+    ));
+}
+
+#[crate::sqlx_test]
+async fn test_dell_boss_initial_discovery_skips_lockdown_states(pool: sqlx::PgPool) {
+    let env = create_test_env(pool).await;
+    let mh = create_managed_host(&env).await;
+    env.redfish_sim
+        .set_boss_controller_id(Some("RAID.Slot.1".to_string()));
+
+    let mut txn = env.db_txn().await;
+    let host = mh.host().db_machine(&mut txn).await;
+    db::machine::advance(
+        &host,
+        &mut txn,
+        &ManagedHostState::WaitingForCleanup {
+            cleanup_state: CleanupState::Init,
+            cleanup_context: CleanupContext::InitialDiscovery,
+        },
+        None,
+    )
+    .await
+    .unwrap();
+    txn.commit().await.unwrap();
+
+    env.run_machine_state_controller_iteration().await;
+
+    let mut txn = env.db_txn().await;
+    let host = mh.host().db_machine(&mut txn).await;
+    assert!(matches!(
+        host.current_state(),
+        ManagedHostState::WaitingForCleanup {
+            cleanup_state: CleanupState::SecureEraseBoss {
+                secure_erase_boss_context,
+            },
+            cleanup_context: CleanupContext::InitialDiscovery,
+        } if secure_erase_boss_context.boss_controller_id == "RAID.Slot.1"
+            && secure_erase_boss_context.secure_erase_jid.is_none()
+            && secure_erase_boss_context.secure_erase_boss_state
+                == SecureEraseBossState::SecureEraseBoss
+            && secure_erase_boss_context.iteration == Some(0)
+    ));
+
+    db::machine::advance(
+        &host,
+        &mut txn,
+        &ManagedHostState::WaitingForCleanup {
+            cleanup_state: CleanupState::CreateBossVolume {
+                create_boss_volume_context: CreateBossVolumeContext {
+                    boss_controller_id: "RAID.Slot.1".to_string(),
+                    create_boss_volume_jid: Some("boss-job-1".to_string()),
+                    create_boss_volume_state: CreateBossVolumeState::WaitForJobCompletion,
+                    iteration: Some(0),
+                },
+            },
+            cleanup_context: CleanupContext::InitialDiscovery,
+        },
+        None,
+    )
+    .await
+    .unwrap();
+    txn.commit().await.unwrap();
+
+    env.redfish_sim
+        .set_job_state_sequence(vec![libredfish::JobState::Completed]);
+    env.run_machine_state_controller_iteration().await;
+
+    let mut txn = env.db_txn().await;
+    let host = mh.host().db_machine(&mut txn).await;
+    assert!(matches!(
+        host.current_state(),
+        ManagedHostState::HostInit {
+            machine_state: MachineState::WaitingForDiscovery,
+        }
     ));
 }
 
