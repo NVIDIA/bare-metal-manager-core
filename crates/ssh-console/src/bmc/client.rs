@@ -16,7 +16,6 @@
  */
 use std::io;
 use std::net::SocketAddr;
-
 use std::sync::{Arc, RwLock};
 use std::time::{Duration, Instant};
 
