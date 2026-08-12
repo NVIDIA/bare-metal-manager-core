@@ -227,6 +227,7 @@ pub(super) async fn resolve_cloud_init_instructions(
                     instance_id: machine_id.to_string(),
                     cloud_name,
                     platform,
+                    local_hostname: String::new(),
                 });
 
             // For interfaces on the static-assignments segment, include

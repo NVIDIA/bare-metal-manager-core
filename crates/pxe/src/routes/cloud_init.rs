@@ -259,7 +259,7 @@ async fn meta_data(machine: Machine, state: State<AppState>) -> impl IntoRespons
                 ("platform".to_string(), metadata.platform),
             ]);
             if !metadata.local_hostname.is_empty() {
-                template_data.insert("local-hostname".to_string(), metadata.local_hostname);
+                template_data.insert("local_hostname".to_string(), metadata.local_hostname);
             }
 
             emit(PxeBootOutcome {
@@ -942,7 +942,6 @@ mod tests {
             "meta-data must not contain local-hostname when name is empty, got: {text}"
         );
     }
-
 
     /// A meta-data request with no metadata lands in the generic-error
     /// funnel, which serves the error template and moves the outcome

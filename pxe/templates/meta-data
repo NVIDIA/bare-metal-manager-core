@@ -1,3 +1,5 @@
 cloud-name: {{ cloud_name }}
 platform: {{ platform }}
 instance-id: {{ instance_id }}
+{% if local_hostname %}local-hostname: {{ local_hostname }}
+{% endif %}
