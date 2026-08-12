@@ -113,8 +113,8 @@ impl MachineFsm {
 
     fn fsm_bmc_init(self, event: Event, power_on: bool, bmc_only: bool) -> (Self, Vec<Action>) {
         match event {
-            Event::DhcpComplete(DhcpType::Bmc) => (
-                if bmc_only {
+            Event::DhcpComplete(DhcpType::Bmc) => {
+                let next_state = if bmc_only {
                     if power_on {
                         Self::BmcOnlyMachineUp
                     } else {
@@ -124,9 +124,14 @@ impl MachineFsm {
                     Self::Init
                 } else {
                     Self::MachineDown
-                },
-                vec![Action::SetupBmc],
-            ),
+                };
+                let actions = if power_on && !bmc_only {
+                    vec![Action::SetupBmc, Action::SetTimer(Timer::MachineOn)]
+                } else {
+                    vec![Action::SetupBmc]
+                };
+                (next_state, actions)
+            }
             Event::PowerOn => (
                 Self::BmcInit {
                     bmc_only,
@@ -449,5 +454,40 @@ impl DpuAgentFsm {
             Event::MachineNotFound => (Self::FailedAndWaitForReboot, vec![]),
             _ => (self, vec![]),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn powered_on_machine_resumes_boot_after_bmc_dhcp() {
+        let (fsm, _) = MachineFsm::init(true, false);
+        let (fsm, actions) = fsm.event(Event::DhcpComplete(DhcpType::Bmc));
+
+        assert!(matches!(fsm, MachineFsm::Init));
+        assert!(matches!(
+            actions.as_slice(),
+            [Action::SetupBmc, Action::SetTimer(Timer::MachineOn)]
+        ));
+    }
+
+    #[test]
+    fn powered_off_machine_does_not_start_boot_after_bmc_dhcp() {
+        let (fsm, _) = MachineFsm::init(false, false);
+        let (fsm, actions) = fsm.event(Event::DhcpComplete(DhcpType::Bmc));
+
+        assert!(matches!(fsm, MachineFsm::MachineDown));
+        assert!(matches!(actions.as_slice(), [Action::SetupBmc]));
+    }
+
+    #[test]
+    fn bmc_only_machine_does_not_start_boot_after_bmc_dhcp() {
+        let (fsm, _) = MachineFsm::init(true, true);
+        let (fsm, actions) = fsm.event(Event::DhcpComplete(DhcpType::Bmc));
+
+        assert!(matches!(fsm, MachineFsm::BmcOnlyMachineUp));
+        assert!(matches!(actions.as_slice(), [Action::SetupBmc]));
     }
 }
