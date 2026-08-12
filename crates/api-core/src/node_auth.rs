@@ -72,8 +72,8 @@ enum RejectReason {
     NoChain,
     #[error("x5c chain did not verify against the trusted roots: {0}")]
     Chain(rustls::Error),
-    #[error("leaf certificate is not an EC (P-256) certificate")]
-    NotEcCertificate,
+    #[error("leaf certificate could not be parsed as X.509")]
+    LeafCertificateParse,
     #[error("signature/claims validation failed: {0}")]
     Claims(jsonwebtoken::errors::Error),
     #[error("token lifetime exceeds the allowed maximum")]
@@ -86,8 +86,9 @@ enum RejectReason {
     Clock,
 }
 
-/// Registered claims checked on node tokens. `iat` is required so the bounded
-/// lifetime check (`exp - iat`) cannot be dodged by omitting it.
+/// Registered claims checked on node tokens. `iat` is required during
+/// deserialization so the bounded-lifetime check cannot be dodged by omitting
+/// it.
 #[derive(Debug, Deserialize)]
 struct NodeClaims {
     sub: String,
@@ -121,7 +122,10 @@ impl NodeJwtValidator {
 
         let mut validation = Validation::new(Algorithm::ES256);
         validation.set_audience(&[&cfg.audience]);
-        validation.set_required_spec_claims(&["exp", "sub", "aud", "iat"]);
+        // `jsonwebtoken` validates these registered claims. `iat` is required
+        // by `NodeClaims` and checked explicitly below because the library does
+        // not validate it.
+        validation.set_required_spec_claims(&["exp", "sub", "aud"]);
 
         Ok(Self {
             root_cafile_path: root_cafile_path.to_string(),
@@ -245,29 +249,32 @@ impl NodeJwtValidator {
             .map_err(RejectReason::Chain)?;
 
         // 2. The token must be signed by the verified leaf's key.
-        let (_, x509) =
-            X509Certificate::from_der(leaf.as_ref()).map_err(|_| RejectReason::NotEcCertificate)?;
+        let (_, x509) = X509Certificate::from_der(leaf.as_ref())
+            .map_err(|_| RejectReason::LeafCertificateParse)?;
         let decoding_key = DecodingKey::from_ec_der(&x509.public_key().subject_public_key.data);
         let claims = decode::<NodeClaims>(token, &decoding_key, &self.validation)
             .map_err(RejectReason::Claims)?
             .claims;
 
-        // 3. Bounded lifetime: the client controls `exp`, so cap how far in
-        //    the future it may reach. `jsonwebtoken` already rejected expired
-        //    tokens above.
+        // 3. Bounded lifetime: the client controls `iat` and `exp`, so reject
+        //    invalid ordering and cap how far in the future `exp` may reach.
+        //    `jsonwebtoken` already rejected expired tokens above.
         let now = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .map_err(|_| RejectReason::Clock)?
             .as_secs();
         // The wall-clock arm gets the same skew tolerance `jsonwebtoken` already
         // applies to `exp`, taken from the same field so the two cannot drift
-        // apart. Without it, `max_token_ttl_sec` set to exactly the client's
+        // apart. It also bounds an `iat` that is slightly ahead of the API's
+        // clock. Without it, `max_token_ttl_sec` set to exactly the client's
         // lifetime -- the smallest value startup accepts -- rejects every token
         // the moment the API's clock sits a second behind the node's, which is
         // ordinary between hosts. The `exp - iat` arm is unaffected: it compares
         // two claims from one clock, so skew cannot reach it.
         let skew = self.validation.leeway;
-        if claims.exp.saturating_sub(claims.iat) > self.max_token_ttl_sec
+        if claims.iat > claims.exp
+            || claims.iat > now + skew
+            || claims.exp - claims.iat > self.max_token_ttl_sec
             || claims.exp > now + self.max_token_ttl_sec + skew
         {
             return Err(RejectReason::Lifetime);
@@ -299,6 +306,8 @@ impl BearerTokenAuthenticator for NodeJwtValidator {
 
 #[cfg(test)]
 mod tests {
+    use base64::Engine as _;
+    use carbide_test_support::{Check, check_values};
     use rpc::node_jwt::NodeJwtMinter;
 
     use super::*;
@@ -363,6 +372,40 @@ mod tests {
             write_temp(dir, "key.pem", &pki.key_pem),
         );
         minter.current().expect("token minted")
+    }
+
+    fn header_with_certificate_chain(pki: &TestPki, algorithm: Algorithm) -> jsonwebtoken::Header {
+        let certs = rustls_pemfile::certs(&mut std::io::Cursor::new(&pki.cert_pem))
+            .collect::<Result<Vec<_>, _>>()
+            .expect("test certificate parses");
+        let mut header = jsonwebtoken::Header::new(algorithm);
+        header.x5c = Some(
+            certs
+                .iter()
+                .map(|certificate| {
+                    base64::engine::general_purpose::STANDARD.encode(certificate.as_ref())
+                })
+                .collect(),
+        );
+        header
+    }
+
+    fn leaf_signed_token(pki: &TestPki, claims: serde_json::Value) -> String {
+        let encoding_key = jsonwebtoken::EncodingKey::from_ec_pem(pki.key_pem.as_bytes())
+            .expect("test leaf key parses");
+        jsonwebtoken::encode(
+            &header_with_certificate_chain(pki, Algorithm::ES256),
+            &claims,
+            &encoding_key,
+        )
+        .expect("test token encodes")
+    }
+
+    fn unix_now() -> u64 {
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("system clock is after UNIX epoch")
+            .as_secs()
     }
 
     /// `[node_auth] audience` is configurable, so a site that changes it must
@@ -507,6 +550,108 @@ mod tests {
         )
         .expect("token");
         assert!(validator.spiffe_id_from_bearer(&no_chain).is_none());
+    }
+
+    /// Both the identity cross-check and algorithm pin are independent of the
+    /// x5c-chain verification. Keep explicit coverage so an otherwise-valid
+    /// certificate cannot accidentally make either attacker-controlled header
+    /// or claim authoritative.
+    #[test]
+    fn certificate_backed_tokens_reject_subject_mismatch_and_other_algorithms() {
+        #[derive(Debug, Eq, PartialEq)]
+        enum Rejection {
+            Algorithm,
+            SubjectMismatch,
+        }
+
+        let dir = tempfile::tempdir().expect("tempdir");
+        let pki = test_pki(MACHINE_PATH);
+        let validator = validator_for(&dir, &pki.ca_pem);
+        let now = unix_now();
+        let valid_times = serde_json::json!({
+            "aud": "nico-api", "iat": now, "exp": now + 60,
+        });
+        let subject_mismatch = leaf_signed_token(
+            &pki,
+            serde_json::json!({
+                "sub": format!("spiffe://{TRUST_DOMAIN}/forge-system/machine/other"),
+                "aud": valid_times["aud"],
+                "iat": valid_times["iat"],
+                "exp": valid_times["exp"],
+            }),
+        );
+        let other_algorithm = jsonwebtoken::encode(
+            &header_with_certificate_chain(&pki, Algorithm::HS256),
+            &serde_json::json!({
+                "sub": format!("spiffe://{TRUST_DOMAIN}{MACHINE_PATH}"),
+                "aud": valid_times["aud"],
+                "iat": valid_times["iat"],
+                "exp": valid_times["exp"],
+            }),
+            &jsonwebtoken::EncodingKey::from_secret(b"test signing key"),
+        )
+        .expect("test token encodes");
+
+        check_values(
+            [
+                Check {
+                    scenario: "subject does not match the certificate's SPIFFE URI",
+                    input: subject_mismatch,
+                    expect: Rejection::SubjectMismatch,
+                },
+                Check {
+                    scenario: "a non-ES256 signature still carries a valid certificate chain",
+                    input: other_algorithm,
+                    expect: Rejection::Algorithm,
+                },
+            ],
+            |token| match validator.validate(&token) {
+                Err(RejectReason::Algorithm(_)) => Rejection::Algorithm,
+                Err(RejectReason::SubjectMismatch) => Rejection::SubjectMismatch,
+                result => panic!("unexpected node-token validation result: {result:?}"),
+            },
+        );
+    }
+
+    #[test]
+    fn future_or_reversed_issue_times_are_rejected() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let pki = test_pki(MACHINE_PATH);
+        let validator = validator_for(&dir, &pki.ca_pem);
+        let now = unix_now();
+        let subject = format!("spiffe://{TRUST_DOMAIN}{MACHINE_PATH}");
+
+        check_values(
+            [
+                Check {
+                    scenario: "issue time is beyond the allowed clock skew",
+                    input: leaf_signed_token(
+                        &pki,
+                        serde_json::json!({
+                            "sub": subject,
+                            "aud": "nico-api",
+                            "iat": now + 120,
+                            "exp": now + 180,
+                        }),
+                    ),
+                    expect: true,
+                },
+                Check {
+                    scenario: "issue time is after expiration",
+                    input: leaf_signed_token(
+                        &pki,
+                        serde_json::json!({
+                            "sub": format!("spiffe://{TRUST_DOMAIN}{MACHINE_PATH}"),
+                            "aud": "nico-api",
+                            "iat": now + 240,
+                            "exp": now + 180,
+                        }),
+                    ),
+                    expect: true,
+                },
+            ],
+            |token| matches!(validator.validate(&token), Err(RejectReason::Lifetime)),
+        );
     }
 
     #[test]

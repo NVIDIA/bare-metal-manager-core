@@ -145,8 +145,11 @@ GetNodeToken                      mints as above           (identical
     uses for client certs** (`[tls] root_cafile_path`) — path building,
     validity window, client-auth EKU;
   - the JWT signature verifies with the *verified leaf's* public key;
-  - claims: `exp`/`iat`/`aud` enforced, and lifetime bounded by
-    `max_token_ttl_sec` (default 900 s) so a client can't stretch `exp`;
+  - claims: `exp` and `aud` are validated by `jsonwebtoken`; `iat` is
+    required when `NodeClaims` deserializes and is independently checked to be
+    no later than `exp` or the API's clock-skew allowance. The validator also
+    bounds both `exp - iat` and how far `exp` may reach into the future by
+    `max_token_ttl_sec` (default 900 s), so a client can't stretch `exp`;
   - the leaf passes SPIFFE validation (leaf-only, single URI SAN), and `sub`
     must equal that SAN — identity comes from the verified cert, never from
     the claim.
@@ -213,19 +216,38 @@ max_token_ttl_sec = 900  # upper bound on client-chosen lifetimes (cap 86400)
                          # a change — see "Disabling node-auth" below.
 ```
 
-When `enabled = true`, startup requires a TLS listener (bearer tokens are
-never accepted over plaintext) and a readable `[tls] root_cafile_path`;
-missing prerequisites fail startup rather than silently degrading. The whole
-preflight runs *before* DPF resource creation, so a misconfiguration can't
-mutate cluster state on its way to failing.
+All `[node_auth]` values are read at API startup; changing any of them requires
+an API restart. The defaults and validation contract is:
+
+| Setting | Default and accepted values | Startup behavior |
+| --- | --- | --- |
+| `enabled` | `false` or `true`. | `false` installs no bearer validator. `true` requires a TLS listener and readable `[tls] root_cafile_path`; the API refuses startup rather than accepting bearer tokens over plaintext. |
+| `audience` | `"nico-api"`; any non-blank string after surrounding whitespace is trimmed on TOML load. | When `enabled = true`, an empty or whitespace-only value is rejected. A padded value is normalized, not preserved. When `enabled = false`, the value is inactive and is not otherwise validated. |
+| `max_token_ttl_sec` | `900` seconds; with bearer auth enabled, an integer from `300` (the node's fixed minted lifetime) through `86400`, inclusive. | `0`, `1`–`299`, and values greater than `86400` fail startup when `enabled = true`. When bearer auth is disabled, this inactive value is not otherwise validated. |
+| `mtls_enabled` | `true` or `false`; it controls only machine mTLS identities. | Setting both `enabled` and `mtls_enabled` to `false` always fails startup because no node credential would remain. Service and admin client certificates are unaffected. |
+| `fmds_use_node_tokens` | Unset; then follows `enabled`. An explicit boolean is a rollout override. | `true` with `enabled = false` always fails startup, because that deployment would make fmds present tokens to an API that rejects them. |
+
+The entire preflight runs *before* DPF resource creation, so a
+misconfiguration cannot mutate cluster state on its way to failing.
 
 `audience` is the one value that must be set on **both** ends: the API
 validates `aud` against it, and each node stamps it. Nodes take it from their
-own config — scout via `--node-auth-audience`, the agent via `[forge-system]
-node-auth-audience` (or the `--node-auth-audience` flag, which is how DPF
-deploys it, since containerized agents run with no config file and the API
-templates the value from its own `[node_auth] audience`). A site that changes
-one end and not the other has every token rejected.
+own configuration, using this precedence and fallback behavior:
+
+| Node | Sources, in descending precedence | Fallback |
+| --- | --- | --- |
+| DPU-agent | `--node-auth-audience` overrides `[forge-system] node-auth-audience`. DPF supplies the flag from the API-owned `[node_auth] audience`; containerized agents do not need a config file for this value. | The agent config and an omitted flag both default to `"nico-api"`. |
+| Scout | `--node-auth-audience`; Scout has no TOML source for this value. | The flag defaults to `"nico-api"`. |
+
+Both command-line parsers trim surrounding whitespace and reject an empty or
+whitespace-only value. The agent's TOML field is trimmed on load and then
+validated after its command-line override is applied; a whitespace-only TOML
+value therefore fails startup unless a valid flag overrides it. The DPF chart
+also trims the API-provided value and omits a blank flag, leaving the agent's
+default in place. With bearer auth enabled, the API itself rejects that blank
+source before it can render a deployment. If the resolved node value differs
+from the API value, every bearer token is rejected; with the default
+`mtls_enabled = true`, mTLS keeps the node authenticated during that mismatch.
 
 **There is no overlap period, so rotation cannot be seamless.**
 `Validation::set_audience` is given exactly one value, so the API accepts a
@@ -350,7 +372,7 @@ taking the whole CA with it — needs revocation checking we do not do yet.
 | Asymmetric signing, no `alg` confusion | ES256 only; both the header check and `Validation` pin the algorithm, so `none`/HS256 substitution is rejected. |
 | Identity never comes from claims | The principal derives from the **chain-verified certificate's SPIFFE SAN**; `sub` is only cross-checked against it. A forged `sub` buys nothing. |
 | Short-lived tokens | Clients mint 300 s tokens; the server enforces `exp - iat` and `exp - now` ≤ `max_token_ttl_sec` (default 900 s, hard cap 86400), so a client cannot stretch `exp`. |
-| `exp` / `iat` / `aud` enforced | Required claims; validated by `jsonwebtoken` plus the bounded-lifetime check. |
+| `exp` / `iat` / `aud` enforced | `jsonwebtoken` validates `exp` and `aud`; `NodeClaims` requires `iat`, and the validator rejects an `iat` after `exp` or more than its clock-skew allowance in the future. It also bounds `exp - iat` and `exp - now`. |
 | Chain validation, not pinning | `x5c` verified with rustls `WebPkiClientVerifier` (path building, validity window, client-auth EKU) against the same roots as the TLS listener. |
 | SPIFFE leaf constraints | `carbide_authn::validate_x509_certificate` re-checks leaf-ness, key usage, and the single-URI-SAN rule — same code path as mTLS certs. |
 | No bearer tokens over plaintext | Enforced at both ends. Server: startup refuses `enabled = true` on a non-TLS listener, the middleware only installs the validator when the listener is TLS-terminated, and a failed acceptor rebuild keeps the previous acceptor rather than falling back to cleartext. Client: `with_token_provider` implies `require_tls_enforcement`, and building a token client against a non-HTTPS URL is an error. |
@@ -380,13 +402,44 @@ The machine cert/key live at `/opt/forge` on the DPU, a hostPath directory
 several NICo pods mount. Rather than share the key with each of them, the
 dpu-agent is the only holder and hands out finished tokens.
 
+### `AgentLocal/GetNodeToken` contract
+
+`GetNodeTokenRequest` has no fields: callers neither send a current token nor
+an identity for the agent to inspect. Authorization is the local socket mount
+and its mode, not a request field. On success, `GetNodeTokenResponse.token` is
+an ES256 JWT for the agent's machine identity and `expires_at` is its UNIX-time
+expiration in seconds. Callers must treat `expires_at` as the only freshness
+signal; the same token string may be returned repeatedly.
+
+The agent returns a cached token only when it had more than 60 seconds left at
+the agent's cache check. Otherwise it reads the current certificate and key and
+mints a replacement with the normal 300-second lifetime. This is not a
+single-flight operation: concurrent cache misses can mint more than one valid
+token, and callers must not infer ordering or uniqueness from the response.
+
+| Cache and credential state | Result | State after the call |
+| --- | --- | --- |
+| Cached token has more than 60 seconds remaining | `OK` with that cached token and its original `expires_at`. | Cache is unchanged. |
+| Cache is absent or has 60 seconds or less remaining, and minting succeeds | `OK` with a replacement token and its new `expires_at`. | The replacement becomes the cached token. |
+| Cache is absent or too close to expiry, and the certificate/key cannot be read, parsed, or matched | `UNAVAILABLE`: `no node token available yet; machine certificate not present or unreadable`. | No usable token is returned; a stale cache entry, if any, is not served. |
+
+The method defines no application deadline and performs no server-side retry.
+Raw gRPC callers choose their own deadline and retry policy. The bundled
+`SocketTokenSource` bounds each connect-plus-RPC attempt to five seconds,
+retries failures every five seconds in one background loop, refreshes at 60
+seconds remaining, and stops serving its own cache at 30 seconds remaining;
+its request path never waits for the RPC. Apart from transport failures, the
+only status returned by this handler is `UNAVAILABLE` for a token that cannot
+be minted. Concurrent requests are safe but may independently mint on a cache
+miss as described above.
+
 - **The socket.** The agent serves `AgentLocal/GetNodeToken` on a unix socket
   at `/opt/forge/run/agent.sock`, mode 0600 — a dedicated `run/` subdirectory
   so a consumer can be given the socket without the credentials beside it. The
   mount is read-only: connecting does not write to the filesystem, and Linux
   exempts socket inodes from the read-only-mount check, so `connect(2)`
   succeeds. Access is gated by the socket's 0600 mode. `bind` creates
-  the socket at umask permissions and the 0600 chmod only lands afterwards, so
+  the socket at umask permissions and the 0600 chmod only lands afterward, so
   the directory — not the socket — is what closes that window; the agent
   therefore requires the socket's parent to be dedicated, creating it `0700` or
   refusing a directory that holds anything else. (Without that rule,

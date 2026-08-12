@@ -78,7 +78,7 @@ impl AgentLocal for AgentLocalService {
 ///
 /// The directory has to be unreachable to other users *before* `bind`: `bind`
 /// creates the socket with umask-derived permissions — typically
-/// world-connectable — and the 0600 chmod only lands afterwards. The listener
+/// world-connectable — and the 0600 chmod only lands afterward. The listener
 /// is already bound in that window, so a connection from any local user would
 /// queue in the backlog and be served a full machine identity the moment
 /// accepting starts. An unreachable parent closes the window; the socket's own
@@ -305,7 +305,7 @@ mod tests {
             async move { serve(NodeJwtMinter::new(cert_path, key_path), &socket_str).await }
         });
         // Wait for the mode, not merely for the socket to appear: `bind`
-        // creates it at umask permissions and the chmod lands afterwards, so
+        // creates it at umask permissions and the chmod lands afterward, so
         // sampling on existence alone would read the pre-chmod mode whenever
         // the poll happened to fall inside that window — a flake that looks
         // like a real permissions regression.
