@@ -885,9 +885,7 @@ impl Redfish for RedfishSimClient {
                 });
             }
             if state.password_change_required {
-                return Err(RedfishError::PasswordChangeRequired {
-                    account_uri: None,
-                });
+                return Err(RedfishError::PasswordChangeRequired { account_uri: None });
             }
             self.authorize(&mut state, "AccountService/Accounts")?;
             if !state.users.contains_key(&s_user) {
