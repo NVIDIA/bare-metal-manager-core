@@ -143,6 +143,8 @@ certificate:
   extraDnsNames:
     - carbide-api.forge
   extraUris: []
+  # Dev/sim only: IP SANs for direct-IP TLS (e.g. API VIP). Leave empty in production.
+  ipAddresses: []
 
 migrationJob:
   sslMode: require
