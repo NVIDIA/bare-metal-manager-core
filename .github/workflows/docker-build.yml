@@ -200,7 +200,7 @@ jobs:
       - name: Grype vulnerability scan
         if: ${{ inputs.scan && inputs.load && !inputs.push && steps.build.outcome == 'success' }}
         continue-on-error: true
-        uses: NVIDIA/dsx-github-actions/.github/actions/security-container-scan@739847ddf00fda38916504ef84e1f504eac3158f
+        uses: dsx-ai-factory/dsx-github-actions/.github/actions/security-container-scan@739847ddf00fda38916504ef84e1f504eac3158f
         with:
           image: ${{ inputs.image_name }}:${{ inputs.image_tag }}
           fail-on: critical
