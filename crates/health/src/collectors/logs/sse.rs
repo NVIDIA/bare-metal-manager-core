@@ -40,6 +40,8 @@ use crate::endpoint::BmcEndpoint;
 use crate::sink::{CollectorEvent, LogRecord};
 
 const EVENT_RECORD_RESOLUTION_TIMEOUT: Duration = Duration::from_secs(10);
+const EVENT_RECORD_RETRY_INITIAL_BACKOFF: Duration = Duration::from_millis(100);
+const EVENT_RECORD_RETRY_MAX_BACKOFF: Duration = Duration::from_secs(1);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, carbide_instrument::LabelValue)]
 enum EventRecordResolutionFailure {
@@ -199,36 +201,55 @@ async fn resolve_event_record<B: Bmc>(
     deadline: tokio::time::Instant,
 ) -> Option<Arc<nv_redfish::schema::event::EventRecord>> {
     let odata_id = nav.odata_id().to_string();
-    let get_record = async {
-        let _permit = match nav {
-            NavProperty::Expanded(_) => None,
-            NavProperty::Reference(_) => Some(
-                fetch_permits
-                    .acquire()
-                    .await
-                    .expect("event record fetch semaphore remains open"),
-            ),
-        };
-        nav.get(bmc).await
-    };
+    let is_reference = matches!(nav, NavProperty::Reference(_));
+    let mut retry_backoff = EVENT_RECORD_RETRY_INITIAL_BACKOFF;
 
-    match tokio::time::timeout_at(deadline, get_record).await {
-        Ok(Ok(record)) => Some(record),
-        Ok(Err(error)) => {
-            carbide_instrument::emit(EventRecordResolutionFailed {
-                reason: EventRecordResolutionFailure::Fetch,
-                odata_id,
-                error: error.to_string(),
-            });
-            None
-        }
-        Err(error) => {
-            carbide_instrument::emit(EventRecordResolutionFailed {
-                reason: EventRecordResolutionFailure::Timeout,
-                odata_id,
-                error: error.to_string(),
-            });
-            None
+    loop {
+        let get_record = async {
+            let _permit = if is_reference {
+                Some(
+                    fetch_permits
+                        .acquire()
+                        .await
+                        .expect("event record fetch semaphore remains open"),
+                )
+            } else {
+                None
+            };
+            nav.get(bmc).await
+        };
+
+        match tokio::time::timeout_at(deadline, get_record).await {
+            Ok(Ok(record)) => return Some(record),
+            Ok(Err(error)) if is_reference => {
+                let retry_at = (tokio::time::Instant::now() + retry_backoff).min(deadline);
+                tokio::time::sleep_until(retry_at).await;
+                if retry_at == deadline {
+                    carbide_instrument::emit(EventRecordResolutionFailed {
+                        reason: EventRecordResolutionFailure::Fetch,
+                        odata_id,
+                        error: error.to_string(),
+                    });
+                    return None;
+                }
+                retry_backoff = (retry_backoff * 2).min(EVENT_RECORD_RETRY_MAX_BACKOFF);
+            }
+            Ok(Err(error)) => {
+                carbide_instrument::emit(EventRecordResolutionFailed {
+                    reason: EventRecordResolutionFailure::Fetch,
+                    odata_id,
+                    error: error.to_string(),
+                });
+                return None;
+            }
+            Err(error) => {
+                carbide_instrument::emit(EventRecordResolutionFailed {
+                    reason: EventRecordResolutionFailure::Timeout,
+                    odata_id,
+                    error: error.to_string(),
+                });
+                return None;
+            }
         }
     }
 }
@@ -342,6 +363,10 @@ fn record_to_log(
 
 #[cfg(test)]
 mod tests {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    use axum::http::StatusCode;
+    use axum::response::IntoResponse;
     use axum::routing::get;
     use axum::{Json, Router};
     use bmc_mock::test_support::axum_http_client::AxumRouterHttpClient;
@@ -512,6 +537,47 @@ mod tests {
             Some("Critical")
         );
         assert_eq!(attribute(record, "event_type"), Some("Alert"));
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn referenced_event_record_is_retried_until_available() {
+        let path = "/redfish/v1/EventService/Events/records/delayed";
+        let payload = c12_platform_record(path);
+        let request_count = Arc::new(AtomicUsize::new(0));
+        let handler_request_count = Arc::clone(&request_count);
+        let router = Router::new().route(
+            path,
+            get(move || {
+                let payload = payload.clone();
+                let request_count = Arc::clone(&handler_request_count);
+                async move {
+                    if request_count.fetch_add(1, Ordering::SeqCst) == 0 {
+                        StatusCode::NOT_FOUND.into_response()
+                    } else {
+                        Json(payload).into_response()
+                    }
+                }
+            }),
+        );
+        let bmc = test_bmc(router);
+
+        let logs = event_to_logs_with_timeout(
+            &referenced_event(&[path]),
+            &bmc,
+            false,
+            Duration::from_secs(1),
+        )
+        .await;
+
+        assert_eq!(request_count.load(Ordering::SeqCst), 2);
+        assert_eq!(logs.len(), 1);
+        let event = logs[0]
+            .as_ref()
+            .expect("record should be emitted after retry");
+        assert_eq!(
+            attribute(log_record(event), "oem.nvidia.error_id"),
+            Some("CPLD-PSEQ-FAULT")
+        );
     }
 
     #[tokio::test]
