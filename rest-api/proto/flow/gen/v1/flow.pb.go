@@ -5562,18 +5562,18 @@ func (x *BringUpRackRequest) GetOverrideReadinessCheck() bool {
 // NOTE: This struct was added manually. Run `buf generate` from
 // rest-api/proto/flow/ to replace it with the canonical generated version.
 type DecommissionRackRequest struct {
-	state        protoimpl.MessageState `protogen:"open.v1"`
-	TargetSpec   *OperationTargetSpec   `protobuf:"bytes,1,opt,name=target_spec,json=targetSpec,proto3" json:"target_spec,omitempty"`
-	Description  string                 `protobuf:"bytes,2,opt,name=description,proto3" json:"description,omitempty"`
-	QueueOptions *QueueOptions          `protobuf:"bytes,3,opt,name=queue_options,json=queueOptions,proto3,oneof" json:"queue_options,omitempty"`
-	RuleId       *UUID                  `protobuf:"bytes,4,opt,name=rule_id,json=ruleId,proto3,oneof" json:"rule_id,omitempty"`
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	TargetSpec    *OperationTargetSpec   `protobuf:"bytes,1,opt,name=target_spec,json=targetSpec,proto3" json:"target_spec,omitempty"`
+	Description   string                 `protobuf:"bytes,2,opt,name=description,proto3" json:"description,omitempty"`
+	QueueOptions  *QueueOptions          `protobuf:"bytes,3,opt,name=queue_options,json=queueOptions,proto3,oneof" json:"queue_options,omitempty"`
+	RuleId        *UUID                  `protobuf:"bytes,4,opt,name=rule_id,json=ruleId,proto3,oneof" json:"rule_id,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
 func (x *DecommissionRackRequest) Reset()         { *x = DecommissionRackRequest{} }
-func (x *DecommissionRackRequest) String() string  { return protoimpl.X.MessageStringOf(x) }
-func (*DecommissionRackRequest) ProtoMessage()     {}
+func (x *DecommissionRackRequest) String() string { return protoimpl.X.MessageStringOf(x) }
+func (*DecommissionRackRequest) ProtoMessage()    {}
 
 func (x *DecommissionRackRequest) ProtoReflect() protoreflect.Message {
 	// TODO: replaced by buf generate — uses placeholder slot until then.
