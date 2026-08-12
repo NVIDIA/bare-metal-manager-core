@@ -18,6 +18,8 @@ REPO_DIR=""
 SKIP_CORE_POSTGRES=0
 
 PROTO_VERSION="25.7"
+PROTO_SHA256_X86_64="877408bab02767938d1e5555f11c39dfe05e96f2a9571bc59dd2639f33d9954e"
+PROTO_SHA256_AARCH_64="58135d20be2831d9ca5a39675f4499f9cbad8b44f9c3d814287c0b543155a812"
 GRPCURL_VERSION="1.8.7"
 VAULT_VERSION="1.21.4-1"
 CORE_POSTGRES_IMAGE="postgres:14.5-alpine"
@@ -103,7 +105,7 @@ done
 
 if [[ "${EUID}" -ne 0 ]]; then
   if [[ -z "${DEV_USER}" ]]; then
-    DEV_USER="${USER}"
+    DEV_USER="$(id -un)"
   fi
   sudo_args=(bash "$0" --user "${DEV_USER}")
   if [[ -n "${REPO_DIR}" ]]; then
@@ -402,11 +404,19 @@ install_protoc() {
   fi
 
   log "Installing protoc ${PROTO_VERSION} for ${PROTO_ARCH}"
-  local work_dir archive url
+  local work_dir archive url expected actual
   work_dir="$(mktemp -d)"
   archive="protoc-${PROTO_VERSION}-linux-${PROTO_ARCH}.zip"
   url="https://github.com/protocolbuffers/protobuf/releases/download/v${PROTO_VERSION}/${archive}"
+  case "${PROTO_ARCH}" in
+    x86_64) expected="${PROTO_SHA256_X86_64}" ;;
+    aarch_64) expected="${PROTO_SHA256_AARCH_64}" ;;
+    *) die "no pinned protoc checksum for ${PROTO_ARCH}" ;;
+  esac
   curl -fsSL "${url}" -o "${work_dir}/${archive}"
+  actual="$(sha256sum "${work_dir}/${archive}" | awk '{print $1}')"
+  [[ "${actual}" == "${expected}" ]] || \
+    die "protoc archive checksum failed for ${archive}"
   rm -rf -- /usr/local/protobuf
   mkdir -p /usr/local/protobuf
   unzip -q "${work_dir}/${archive}" -d /usr/local/protobuf
@@ -414,17 +424,29 @@ install_protoc() {
 }
 
 install_grpcurl() {
+  local current=""
   if command -v grpcurl >/dev/null 2>&1; then
-    log "Reusing installed grpcurl"
+    current="$(grpcurl --version 2>/dev/null | awk '{sub(/^v/, "", $2); print $2}' || true)"
+  fi
+  if [[ "${current}" == "${GRPCURL_VERSION}" ]]; then
+    log "Reusing grpcurl ${GRPCURL_VERSION}"
     return
   fi
 
   log "Installing grpcurl ${GRPCURL_VERSION} for ${GRPCURL_ARCH}"
-  local work_dir archive url
+  local work_dir archive url checksum_url expected actual
   work_dir="$(mktemp -d)"
   archive="grpcurl_${GRPCURL_VERSION}_linux_${GRPCURL_ARCH}.tar.gz"
   url="https://github.com/fullstorydev/grpcurl/releases/download/v${GRPCURL_VERSION}/${archive}"
+  checksum_url="https://github.com/fullstorydev/grpcurl/releases/download/v${GRPCURL_VERSION}/grpcurl_${GRPCURL_VERSION}_checksums.txt"
   curl -fsSL "${url}" -o "${work_dir}/${archive}"
+  expected="$(curl -fsSL "${checksum_url}" | awk -v archive="${archive}" \
+    '$2 == archive {print $1; exit}')"
+  [[ "${expected}" =~ ^[[:xdigit:]]{64}$ ]] || \
+    die "could not retrieve the checksum for ${archive}"
+  actual="$(sha256sum "${work_dir}/${archive}" | awk '{print $1}')"
+  [[ "${actual}" == "${expected}" ]] || \
+    die "grpcurl archive checksum failed for ${archive}"
   tar -xzf "${work_dir}/${archive}" -C "${work_dir}" grpcurl
   install -m 0755 "${work_dir}/grpcurl" /usr/local/bin/grpcurl
   rm -rf -- "${work_dir}"
@@ -511,10 +533,11 @@ update_shell_file() {
   local shell_kind="$2"
   local begin="# >>> NICo prepare-ubuntu-host-for-dev >>>"
   local end="# <<< NICo prepare-ubuntu-host-for-dev <<<"
-  local work_file
+  local work_file mode="0644"
   work_file="$(mktemp)"
 
   if [[ -e "${rc_file}" ]]; then
+    mode="$(stat -c '%a' "${rc_file}")"
     sed "/^${begin}$/,/^${end}$/d" "${rc_file}" >"${work_file}"
   fi
 
@@ -564,33 +587,43 @@ update_shell_file() {
     printf '%s\n' "${end}"
   } >>"${work_file}"
 
-  install -o "${DEV_USER}" -g "${USER_GROUP}" -m 0644 \
+  install -o "${DEV_USER}" -g "${USER_GROUP}" -m "${mode}" \
     "${work_file}" "${rc_file}"
   rm -f "${work_file}"
 }
 
 configure_shell() {
-  local login_shell
+  local login_shell rc_file candidate
   login_shell="$(getent passwd "${DEV_USER}" | cut -d: -f7)"
   case "${login_shell}" in
     *csh) update_shell_file "${USER_HOME}/.cshrc" csh ;;
-    *) update_shell_file "${USER_HOME}/.profile" sh ;;
+    *)
+      rc_file="${USER_HOME}/.profile"
+      for candidate in .bash_profile .bash_login .profile; do
+        if [[ -e "${USER_HOME}/${candidate}" ]]; then
+          rc_file="${USER_HOME}/${candidate}"
+          break
+        fi
+      done
+      update_shell_file "${rc_file}" sh
+      ;;
   esac
 }
 
 pull_postgres_images() {
   log "Caching PostgreSQL images used by both test suites"
-  local attempt
-  for attempt in {1..6}; do
-    if run_as_user docker pull "${CORE_POSTGRES_IMAGE}"; then
-      break
-    fi
-    if [[ "${attempt}" == "6" ]]; then
-      die "could not pull ${CORE_POSTGRES_IMAGE}"
-    fi
-    sleep $((attempt * 10))
+  local image attempt
+  for image in "${CORE_POSTGRES_IMAGE}" "${REST_POSTGRES_IMAGE}"; do
+    for attempt in {1..6}; do
+      if run_as_user docker pull "${image}"; then
+        break
+      fi
+      if [[ "${attempt}" == "6" ]]; then
+        die "could not pull ${image}"
+      fi
+      sleep $((attempt * 10))
+    done
   done
-  run_as_user docker tag "${CORE_POSTGRES_IMAGE}" "${REST_POSTGRES_IMAGE}"
 }
 
 start_core_postgres() {
@@ -607,7 +640,7 @@ start_core_postgres() {
     run_as_user docker run -d \
       --restart unless-stopped \
       --name "${CORE_POSTGRES_CONTAINER}" \
-      -p 5432:5432 \
+      -p 127.0.0.1:5432:5432 \
       -e POSTGRES_USER=postgres \
       -e POSTGRES_PASSWORD=admin \
       -e POSTGRES_DB=forgetest \
@@ -691,7 +724,6 @@ main() {
   start_core_postgres
   fetch_dependencies
   verify_setup
-  printf 'Ubuntu Builder for %s\n' "${MACHINE_ARCH}" >/.it
   show_summary
 }
 

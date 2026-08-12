@@ -80,19 +80,19 @@ Options:
   --keep-host-config   Preserve Docker storage/TLS config and docker membership.
   -h, --help           Show this help.
 
-For pbreton02, copy this script outside the checkout and first inspect the plan:
+Copy this script outside the checkout and first inspect the plan:
 
   bash /tmp/reset-devspace-on-host.sh \
-    --user pbreton \
-    --repo-dir /home/pbreton/ncx-infra-controller-core
+    --user devuser \
+    --repo-dir /home/devuser/infra-controller
 
 Then apply it:
 
   bash /tmp/reset-devspace-on-host.sh \
     --apply \
-    --confirm-host pbreton02.nvidia.com \
-    --user pbreton \
-    --repo-dir /home/pbreton/ncx-infra-controller-core \
+    --confirm-host host.example.com \
+    --user devuser \
+    --repo-dir /home/devuser/infra-controller \
     --force-dirty-checkout
 EOF
 }
@@ -409,6 +409,7 @@ restore_host_config() {
   if [[ "${KEEP_HOST_CONFIG}" == "1" ]]; then
     log "Restarting Docker with preserved host configuration"
     systemctl start containerd.service docker.service
+    wait_for_docker
     return
   fi
 
@@ -445,23 +446,78 @@ restore_host_config() {
 
   systemctl daemon-reload
   systemctl enable --now containerd.service docker.service
+  wait_for_docker
 }
 
 remove_shell_block() {
-  local rc_file rc_tmp
-  for rc_file in "${USER_HOME}/.cshrc" "${USER_HOME}/.profile"; do
+  local rc_file rc_tmp has_end mode
+  local marker="# NICo DevSpace VM bootstrap"
+  local end_marker="# end NICo DevSpace VM bootstrap"
+  for rc_file in \
+    "${USER_HOME}/.cshrc" \
+    "${USER_HOME}/.bash_profile" \
+    "${USER_HOME}/.bash_login" \
+    "${USER_HOME}/.profile"; do
     [[ -e "${rc_file}" ]] || continue
 
     rc_tmp="$(mktemp)"
-    sed '/^# NICo DevSpace VM bootstrap$/,+2d' "${rc_file}" >"${rc_tmp}"
+    mode="$(stat -c '%a' "${rc_file}")"
+    has_end="$(awk -v marker="${marker}" -v end_marker="${end_marker}" '
+      $0 == marker { saw_marker = 1; next }
+      saw_marker && $0 == end_marker { print 1; exit }
+    ' "${rc_file}")"
+    has_end="${has_end:-0}"
+    awk -v marker="${marker}" -v end_marker="${end_marker}" \
+      -v has_end="${has_end}" '
+      function flush_blanks() {
+        printf "%s", blanks
+        blanks = ""
+      }
+      in_block {
+        if ((has_end && $0 == end_marker) || (!has_end && ++legacy_lines == 2)) {
+          in_block = 0
+        }
+        next
+      }
+      $0 == marker {
+        blanks = ""
+        in_block = 1
+        legacy_lines = 0
+        next
+      }
+      $0 == "" {
+        blanks = blanks $0 ORS
+        next
+      }
+      {
+        flush_blanks()
+        print
+      }
+      END {
+        if (!in_block) {
+          flush_blanks()
+        }
+      }
+    ' "${rc_file}" >"${rc_tmp}"
     if [[ -n "$(tr -d '[:space:]' <"${rc_tmp}")" ]]; then
-      install -o "${DEV_USER}" -g "${USER_GROUP}" -m 0644 \
+      install -o "${DEV_USER}" -g "${USER_GROUP}" -m "${mode}" \
         "${rc_tmp}" "${rc_file}"
     else
       rm -f -- "${rc_file}"
     fi
     rm -f "${rc_tmp}"
   done
+}
+
+wait_for_docker() {
+  local _attempt
+  for _attempt in {1..30}; do
+    if docker info >/dev/null 2>&1; then
+      return
+    fi
+    sleep 1
+  done
+  die "Docker did not become ready"
 }
 
 remove_user_state() {

@@ -75,7 +75,7 @@ Options:
 Run this script as the intended developer or with --user:
 
   dev/deployment/devspace/setup-devspace-on-host.sh
-  sudo dev/deployment/devspace/setup-devspace-on-host.sh --user pbreton
+  sudo dev/deployment/devspace/setup-devspace-on-host.sh --user devuser
 EOF
 }
 
@@ -341,13 +341,14 @@ verify_checksum_file() {
   [[ "${actual}" == "${expected}" ]] || die "checksum failed for ${artifact}"
 }
 
-install_cli_tools() {
+install_cli_tools() (
   log "Installing pinned DevSpace, kind, kubectl, and Helm binaries"
   local install_dir="${USER_HOME}/.local/bin"
   local work_dir
   local devspace_binary="devspace-linux-${DOWNLOAD_ARCH}"
   local kind_binary="kind-linux-${DOWNLOAD_ARCH}"
   work_dir="$(mktemp -d)"
+  trap 'rm -rf -- "${work_dir}"' EXIT
   install -o "${DEV_USER}" -g "${USER_GROUP}" -m 0755 -d "${install_dir}"
 
   pushd "${work_dir}" >/dev/null
@@ -385,18 +386,18 @@ install_cli_tools() {
     "linux-${DOWNLOAD_ARCH}/helm" "${install_dir}/helm"
 
   popd >/dev/null
-  rm -rf "${work_dir}"
 
   run_as_user devspace version
   run_as_user kind version
   run_as_user kubectl version --client
   run_as_user helm version --short
-}
+)
 
 configure_user_shell() {
-  local login_shell marker rc_file
+  local login_shell marker end_marker rc_file
   login_shell="$(getent passwd "${DEV_USER}" | cut -d: -f7)"
   marker="# NICo DevSpace VM bootstrap"
+  end_marker="# end NICo DevSpace VM bootstrap"
 
   case "${login_shell}" in
     *csh)
@@ -407,6 +408,7 @@ configure_user_shell() {
           # shellcheck disable=SC2016 # Keep expansion in the user's shell.
           printf 'setenv PATH "$HOME/.local/bin:$PATH"\n'
           printf 'setenv GODEBUG tlsmlkem=0\n'
+          printf '%s\n' "${end_marker}"
         } >>"${rc_file}"
       fi
       ;;
@@ -418,6 +420,7 @@ configure_user_shell() {
           # shellcheck disable=SC2016 # Keep expansion in the user's shell.
           printf 'export PATH="$HOME/.local/bin:$PATH"\n'
           printf 'export GODEBUG=tlsmlkem=0\n'
+          printf '%s\n' "${end_marker}"
         } >>"${rc_file}"
       fi
       ;;
@@ -528,6 +531,8 @@ cache_postgres_wait_image() {
     die "bootstrap did not load the expected ${source_image} image"
   fi
 
+  # REST migration manifests require 14.4; alias the preloaded 14.5 image so
+  # local setup does not need to pull a second PostgreSQL image into kind.
   log "Caching ${source_image} as the REST migration wait image"
   run_as_user docker exec "${node}" ctr -n k8s.io images tag \
     "${source_image}" "${wait_image}"
