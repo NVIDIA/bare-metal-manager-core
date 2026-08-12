@@ -64,6 +64,15 @@ jobs:
       - name: Check Stale PRs token permissions
         run: bash .github/ci/check-stale-ci-permissions.sh
 
+      - name: Check Fern docs (check) token permissions
+        run: bash .github/ci/check-fern-docs-ci-permissions.sh
+
+      - name: "Check Preview Fern Docs: Build token permissions"
+        run: bash .github/ci/check-fern-docs-preview-build-permissions.sh
+
+      - name: Check Publish Fern Docs token permissions
+        run: bash .github/ci/check-publish-fern-docs-permissions.sh
+
       - name: Check Core CI concurrency policy
         run: bash scripts/check-ci-concurrency.sh core
 
