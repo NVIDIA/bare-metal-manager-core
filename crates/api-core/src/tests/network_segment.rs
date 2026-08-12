@@ -721,6 +721,7 @@ fn initial_underlay_definition(prefix: &str, gateway: &str) -> NetworkDefinition
         mtu: 1500,
         reserve_first: 5,
         allocation_strategy: Default::default(),
+        infer_slaac_eui64_addresses: false,
         vpc_name: None,
     }
 }
