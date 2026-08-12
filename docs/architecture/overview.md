@@ -50,7 +50,7 @@ DPU agent performs the following tasks:
 
 ### DHCP Server
 
-NICo runs a [custom DHCP server](https://github.com/NVIDIA/infra-controller/blob/main/crates/dhcp-server) on the DPU, which handles all DHCP requests of the actual host. This means DHCP requests on the hosts primary networking interfaces will never leave the DPU and show up on the underlay network - which provides enhanced security and reliability. The DHCP server is configured by dpu-agent.
+NICo runs a [custom DHCP server](https://github.com/NVIDIA/infra-controller/blob/main/crates/dhcp-server) on the DPU, which handles all DHCP requests of the actual host. This means DHCP requests on the hosts primary networking interfaces will never leave the DPU and show up on the underlay network, which provides enhanced security and reliability. The DHCP server is configured by dpu-agent.
 
 ## NICo Control plane services
 
