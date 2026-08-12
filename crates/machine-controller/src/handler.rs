@@ -8852,15 +8852,36 @@ async fn handle_instance_network_config_update_request(
 
                 let addresses = resources_to_be_released
                     .iter()
-                    .flat_map(|x| x.ip_addrs.values().copied().collect_vec())
-                    .collect_vec();
+                    .flat_map(|interface| {
+                        interface
+                            .ip_addrs
+                            .values()
+                            .map(move |address| (interface.network_segment_id, *address))
+                    })
+                    .map(|(segment_id, address)| {
+                        Ok((
+                            segment_id.ok_or_else(|| {
+                                StateHandlerError::GenericError(eyre::eyre!(
+                                    "instance {} has allocated addresses without a network segment",
+                                    instance.id,
+                                ))
+                            })?,
+                            address,
+                        ))
+                    })
+                    .collect::<Result<Vec<_>, StateHandlerError>>()?;
 
                 tracing::info!(
-                    "Releasing network resources for instance {}: addresses: {:?}",
-                    instance.id,
-                    addresses,
+                    instance_id = %instance.id,
+                    addresses = ?addresses,
+                    "releasing network resources",
                 );
-                db::instance_address::delete_addresses(&mut txn, &addresses).await?;
+                db::instance_address::delete_addresses_for_instance(
+                    &mut txn,
+                    instance.id,
+                    &addresses,
+                )
+                .await?;
                 release_network_segments_with_vpc_prefix(&resources_to_be_released, &mut txn)
                     .await?;
                 release_vpc_dpu_loopback_for_vpcs(

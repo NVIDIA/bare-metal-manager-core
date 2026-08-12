@@ -204,10 +204,7 @@ async fn by_ip(api: &Api, ip: &str) -> (Vec<rpc::IpAddressMatch>, Vec<CarbideErr
     let mut errs = vec![];
     for res in results {
         match res {
-            // found
-            Ok(Some(s)) => out.push(s),
-            // not found
-            Ok(None) => {}
+            Ok(matches) => out.extend(matches),
             Err(err) => errs.push(err),
         }
     }
@@ -220,7 +217,7 @@ async fn search(
     finder: Finder,
     api: &Api,
     ip: &str,
-) -> Result<Option<rpc::IpAddressMatch>, CarbideError> {
+) -> Result<Vec<rpc::IpAddressMatch>, CarbideError> {
     let addr: IpAddr = ip.parse()?;
 
     let db = &api.database_connection;
@@ -244,7 +241,7 @@ async fn search(
         ResourcePools => {
             let mut vec_out = db::resource_pool::find_value(db, ip).await?;
             let entry = match vec_out.len() {
-                0 => return Ok(None),
+                0 => return Ok(Vec::new()),
                 1 => vec_out.remove(0),
                 _ => {
                     tracing::warn!(
@@ -279,19 +276,18 @@ async fn search(
 
         // Look in instance_addresses
         InstanceAddresses => {
-            let instance_address = db::instance_address::find_by_address(db, addr).await?;
-
-            instance_address.map(|e| {
-                let message = format!(
-                    "{ip} belongs to instance {} on segment {}",
-                    e.instance_id, e.segment_id
-                );
-                rpc::IpAddressMatch {
+            return Ok(db::instance_address::find_all_by_address(db, addr)
+                .await?
+                .into_iter()
+                .map(|address| rpc::IpAddressMatch {
                     ip_type: rpc::IpType::InstanceAddress as i32,
-                    owner_id: Some(e.instance_id.to_string()),
-                    message,
-                }
-            })
+                    owner_id: Some(address.instance_id.to_string()),
+                    message: format!(
+                        "{ip} belongs to instance {} in VPC {} on segment {}",
+                        address.instance_id, address.vpc_id, address.segment_id,
+                    ),
+                })
+                .collect());
         }
 
         // machine_interface_addresses: classify operator/static BMC as StaticBmcIp while
@@ -398,22 +394,22 @@ async fn search(
             let host_prefix = addr.address_family().interface_prefix_len();
             let out =
                 db::network_prefix::containing_prefix(db, &format!("{ip}/{host_prefix}")).await?;
-            out.first().map(|prefix| {
-                let message = format!(
-                    "{ip} is in prefix {} of segment {}, gateway {}",
-                    prefix.prefix,
-                    prefix.segment_id,
-                    prefix
-                        .gateway
-                        .map(|g| g.to_string())
-                        .unwrap_or("(no gateway)".to_string()),
-                );
-                rpc::IpAddressMatch {
+            return Ok(out
+                .into_iter()
+                .map(|prefix| rpc::IpAddressMatch {
                     ip_type: rpc::IpType::NetworkSegment as i32,
                     owner_id: Some(prefix.segment_id.to_string()),
-                    message,
-                }
-            })
+                    message: format!(
+                        "{ip} is in prefix {} of segment {}, gateway {}",
+                        prefix.prefix,
+                        prefix.segment_id,
+                        prefix
+                            .gateway
+                            .map(|gateway| gateway.to_string())
+                            .unwrap_or("(no gateway)".to_string()),
+                    ),
+                })
+                .collect());
         }
 
         // Search the RouteServers table to see if it's a "config"
@@ -445,7 +441,7 @@ async fn search(
         }
     };
 
-    Ok(match_result)
+    Ok(match_result.into_iter().collect())
 }
 
 async fn by_uuid(api: &Api, u: &rpc_common::Uuid) -> Result<Option<rpc::UuidType>, CarbideError> {
