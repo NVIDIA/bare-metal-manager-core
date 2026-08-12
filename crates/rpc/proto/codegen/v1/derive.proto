@@ -14,23 +14,21 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-use std::path::PathBuf;
 
-use carbide_proto_compiler::{CompilerConfig, TonicBuilderCodegenExt, compile};
+syntax = "proto3";
 
-fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let out_dir = PathBuf::from(std::env::var_os("OUT_DIR").unwrap());
-    let schema = compile(&CompilerConfig {
-        proto_files: vec![PathBuf::from("../rpc/proto/scout_firmware_upgrade.proto")],
-        include_paths: vec![PathBuf::from("../rpc/proto")],
-        protoc_args: Vec::new(),
-    })?;
-    let codegen = schema.collect_codegen()?;
+package carbide.codegen.v1;
 
-    tonic_prost_build::configure()
-        .out_dir(out_dir)
-        .apply_codegen(&codegen)
-        .compile_fds(schema.file_descriptor_set)?;
+import "google/protobuf/descriptor.proto";
 
-    Ok(())
+extend google.protobuf.MessageOptions {
+  // Rust derives applied to this message and all declarations nested within it.
+  // Nested derive options are additive and must not repeat inherited derives.
+  repeated string message_derive = 51100;
+}
+
+extend google.protobuf.EnumOptions {
+  // Rust derives applied to this enum in addition to derives inherited from an
+  // enclosing message.
+  repeated string enum_derive = 51101;
 }

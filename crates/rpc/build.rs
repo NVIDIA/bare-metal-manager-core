@@ -17,7 +17,9 @@
 use std::fs;
 use std::path::PathBuf;
 
-use carbide_proto_compiler::{CompilerConfig, ExternPaths, TonicBuilderExternPaths, compile, syn};
+use carbide_proto_compiler::{
+    CompilerConfig, ExternPaths, TonicBuilderCodegenExt, TonicBuilderExternPathsExt, compile, syn,
+};
 use tonic_client_wrapper::codegen;
 
 const PROTO_FILES: &[&str] = &[
@@ -54,6 +56,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Preserve protoc's exact bytes for reflection, including any custom
     // annotation values. No sanitization or prost_types re-encoding occurs.
     fs::write(&reflection, &schema.raw_descriptor_set)?;
+
+    let codegen = schema.collect_codegen()?;
 
     let extern_paths = ExternPaths::new(
         [
@@ -205,6 +209,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         "#[cfg_attr(feature = \"test-support\", derive(carbide_prost_builder::Builder))]";
 
     let prost_builder = tonic_prost_build::configure()
+        .apply_codegen(&codegen)
         .type_attribute(
             ".google.protobuf.Timestamp",
             "#[derive(serde::Serialize, serde::Deserialize)]",
@@ -222,16 +227,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             "#[cfg_attr(feature = \"cli\", derive(clap::ValueEnum))]",
         )
         .type_attribute(
-            ".forge.DpuMode",
-            "#[derive(serde::Serialize, serde::Deserialize)]",
-        )
-        .type_attribute(
             ".forge.BmcIpAllocationType",
             "#[cfg_attr(feature = \"cli\", derive(clap::ValueEnum))]",
-        )
-        .type_attribute(
-            ".forge.BmcIpAllocationType",
-            "#[derive(serde::Serialize, serde::Deserialize)]",
         )
         .extern_path(".google.protobuf.Duration", "crate::Duration")
         .extern_path(".google.protobuf.Timestamp", "crate::Timestamp")
@@ -250,533 +247,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             ".mlx_device",
             "#[derive(serde::Deserialize, serde::Serialize)]",
         )
-        .type_attribute(
-            "forge.AdminForceDeleteMachineRequest",
-            "#[derive(serde::Serialize)]",
-        )
-        .type_attribute(
-            "forge.AdminForceDeleteMachineResponse",
-            "#[derive(serde::Serialize)]",
-        )
-        .type_attribute("forge.ClientSecretBasic", "#[derive(serde::Serialize, serde::Deserialize)]")
         .type_attribute(".dns", "#[derive(serde::Serialize)]")
-        .type_attribute("forge.FabricManagerConfig", "#[derive(serde::Serialize)]")
-        .type_attribute("forge.FabricManagerStatus", "#[derive(serde::Serialize)]")
-        .type_attribute("forge.FlatInterfaceConfig", "#[derive(serde::Serialize)]")
-        .type_attribute("forge.FlatInterfaceIpv6Config", "#[derive(serde::Serialize)]")
-        .type_attribute("forge.FlatInterfaceRoutingProfile", "#[derive(serde::Serialize)]")
-        .type_attribute("forge.InstanceInterfaceIpv6Config", "#[derive(serde::Serialize, serde::Deserialize)]")
-        .type_attribute(
-            "forge.InstanceInterfaceRoutingProfile",
-            "#[derive(serde::Serialize)]",
-        )
-        .type_attribute(
-            "forge.InstanceInterfaceConfig",
-            "#[derive(serde::Serialize)]",
-        )
-        .type_attribute(
-            "forge.InstanceInterfaceConfig.network_details",
-            "#[derive(serde::Serialize)]",
-        )
-        .type_attribute(
-            "forge.InstanceInterfaceVpcSelection",
-            "#[derive(serde::Serialize)]",
-        )
-        .type_attribute(
-            "forge.InstanceIBInterfaceConfig",
-            "#[derive(serde::Deserialize, serde::Serialize)]",
-        )
-        .type_attribute("forge.InstanceUpdateStatus", "#[derive(serde::Serialize)]")
-        .type_attribute("forge.InstanceNetworkConfig", "#[derive(serde::Serialize)]")
-        .type_attribute(
-            "forge.InstanceInfinibandConfig",
-            "#[derive(serde::Deserialize, serde::Serialize)]",
-        )
-        .type_attribute(
-            "forge.InstanceSpxConfig",
-            "#[derive(serde::Deserialize, serde::Serialize)]",
-        )
-        .type_attribute(
-            "forge.InstanceSpxAttachment",
-            "#[derive(serde::Deserialize, serde::Serialize)]",
-        )
-        .type_attribute("forge.InstanceStorageConfig", "#[derive(serde::Serialize)]")
-        .type_attribute(
-            "forge.IpxeTemplateParameter",
-            "#[derive(serde::Deserialize, serde::Serialize)]",
-        )
-        .type_attribute(
-            "forge.IpxeTemplateArtifact",
-            "#[derive(serde::Deserialize, serde::Serialize)]",
-        )
-        .type_attribute(
-            "forge.IpxeTemplate",
-            "#[derive(serde::Deserialize, serde::Serialize)]",
-        )
-        .type_attribute(
-            "forge.IpxeTemplateArtifactCacheStrategy",
-            "#[derive(serde::Deserialize, serde::Serialize)]",
-        )
-        .type_attribute("forge.TenantConfig", "#[derive(serde::Serialize)]")
-        .type_attribute("forge.InstanceConfig", "#[derive(serde::Serialize)]")
-        .type_attribute("forge.InstanceDpuExtensionServicesConfig", "#[derive(serde::Serialize)]")
-        .type_attribute("forge.InstanceDpuExtensionServiceConfig", "#[derive(serde::Serialize)]")
-        .type_attribute("forge.ManagedHostDpuExtensionServiceConfig", "#[derive(serde::Serialize)]")
-        .type_attribute("forge.DpuExtensionService", "#[derive(serde::Serialize, serde::Deserialize)]")
-        .type_attribute("forge.DpuExtensionServiceVersionInfo", "#[derive(serde::Serialize, serde::Deserialize)]")
-        .type_attribute("forge.DpuExtensionServiceType", "#[derive(serde::Serialize, serde::Deserialize)]")
-        .type_attribute("forge.DpuExtensionServiceIdList", "#[derive(serde::Serialize, serde::Deserialize)]")
-        .type_attribute("forge.DpuExtensionServiceCredential", "#[derive(serde::Serialize, serde::Deserialize)]")
-        .type_attribute("forge.DpuExtensionServiceCredential.type", "#[derive(serde::Serialize, serde::Deserialize)]")
-        .type_attribute("forge.UsernamePassword", "#[derive(serde::Serialize, serde::Deserialize)]")
-        .type_attribute("forge.DpuExtensionServiceStatusObservation", "#[derive(serde::Serialize, serde::Deserialize)]")
-        .type_attribute("forge.DpuExtensionServiceComponent", "#[derive(serde::Serialize, serde::Deserialize)]")
-        .type_attribute("forge.DpuExtensionServiceStatus", "#[derive(serde::Serialize, serde::Deserialize)]")
-        .type_attribute("forge.DpuExtensionServiceObservability", "#[derive(serde::Serialize, serde::Deserialize)]")
-        .type_attribute("forge.DpuExtensionServiceObservabilityConfigPrometheus", "#[derive(serde::Serialize, serde::Deserialize)]")
-        .type_attribute("forge.DpuExtensionServiceObservabilityConfigLogging", "#[derive(serde::Serialize, serde::Deserialize)]")
-        .type_attribute("forge.DpuExtensionServiceObservabilityConfig.config", "#[derive(serde::Serialize, serde::Deserialize)]")
-        .type_attribute("forge.DpuExtensionServiceObservabilityConfig", "#[derive(serde::Serialize, serde::Deserialize)]")
-        .type_attribute("forge.DpuExtensionServiceObservability.configs", "#[derive(serde::Serialize, serde::Deserialize)]")
-        .type_attribute("forge.InstanceSpxStatus", "#[derive(serde::Serialize)]")
-        .type_attribute("forge.InstanceSpxAttachmentStatus", "#[derive(serde::Serialize)]")
-        .type_attribute("forge.InstanceNVLinkConfig", "#[derive(serde::Deserialize, serde::Serialize)]")
-        .type_attribute("forge.InstanceNVLinkGpuConfig", "#[derive(serde::Deserialize, serde::Serialize)]")
-        .type_attribute("forge.InstanceNVLinkStatus", "#[derive(serde::Serialize)]")
-        .type_attribute("forge.InstanceNVLinkGpuStatus", "#[derive(serde::Serialize)]")
-        .type_attribute("forge.NVLinkPartition", "#[derive(serde::Serialize)]")
-        .type_attribute("forge.NVLinkPartitionList", "#[derive(serde::Serialize)]")
-        .type_attribute("forge.NVLinkPartitionConfig", "#[derive(serde::Serialize)]")
-        .type_attribute("forge.NVLinkPartitionStatus", "#[derive(serde::Serialize)]")
-        .type_attribute("forge.NVLinkPartitionGpuStatus", "#[derive(serde::Serialize)]")
-        .type_attribute("forge.NVLinkLogicalPartition", "#[derive(serde::Serialize)]")
-        .type_attribute("forge.NVLinkLogicalPartitionList", "#[derive(serde::Serialize)]")
-        .type_attribute("forge.NVLinkLogicalPartitionConfig", "#[derive(serde::Serialize)]")
-        .type_attribute("forge.NVLinkLogicalPartitionStatus", "#[derive(serde::Serialize)]")
-        .type_attribute("forge.NVLinkLogicalPartitionGpuStatus", "#[derive(serde::Serialize)]")
-        .type_attribute("forge.MachineNVLinkGpuStatusObservation", "#[derive(serde::Serialize)]")
-        .type_attribute("forge.MachineNVLinkStatusObservation", "#[derive(serde::Serialize)]")
-        .type_attribute("common.NVLinkDomainId", "#[derive(serde::Serialize)]")
-        .type_attribute("forge.NvlinkNmxcEndpoint", "#[derive(serde::Serialize, serde::Deserialize)]")
-        .type_attribute("forge.NvlinkNmxcEndpointList", "#[derive(serde::Serialize, serde::Deserialize)]")
-        .type_attribute(
-            "forge.DeleteNvlinkNmxcEndpointRequest",
-            "#[derive(serde::Serialize, serde::Deserialize)]",
-        )
-        .type_attribute("common.NVLinkLogicalPartitionId", "#[derive(serde::Serialize)]")
-        .type_attribute("common.NVLinkPartitionId", "#[derive(serde::Serialize)]")
-        .type_attribute("forge.MachineNVLinkInfo", "#[derive(serde::Serialize)]")
-        .type_attribute("forge.NVLinkGpu", "#[derive(serde::Serialize)]")
-        .type_attribute("forge.MachineSpxStatusObservation", "#[derive(serde::Serialize)]")
-        .type_attribute("forge.MachineSpxAttachmentStatusObservation", "#[derive(serde::Serialize)]")
-        .type_attribute(
-            "forge.InstanceInterfaceStatus",
-            "#[derive(serde::Serialize)]",
-        )
-        .type_attribute(
-            "forge.InstanceInterfaceResolvedVpcPrefixes",
-            "#[derive(serde::Serialize)]",
-        )
-        .type_attribute(
-            "forge.InstanceIBInterfaceStatus",
-            "#[derive(serde::Serialize)]",
-        )
-        .type_attribute("forge.InstanceNetworkStatus", "#[derive(serde::Serialize)]")
-        .type_attribute(
-            "forge.InstanceInfinibandStatus",
-            "#[derive(serde::Serialize)]",
-        )
-        .type_attribute("forge.InstanceStorageStatus", "#[derive(serde::Serialize)]")
-        .type_attribute("forge.InstanceDpuExtensionServicesStatus", "#[derive(serde::Serialize)]")
-        .type_attribute("forge.InstanceDpuExtensionServiceStatus", "#[derive(serde::Serialize)]")
-        .type_attribute("forge.InstanceTenantStatus", "#[derive(serde::Serialize)]")
-        .type_attribute("forge.InstanceStatus", "#[derive(serde::Serialize)]")
-        .type_attribute("forge.Instance", "#[derive(serde::Serialize)]")
-        .type_attribute(
-            "forge.Metadata",
-            "#[derive(serde::Serialize, serde::Deserialize, Eq)]",
-        )
-        .type_attribute(
-            "forge.Label",
-            "#[derive(serde::Serialize, serde::Deserialize)]",
-        )
-        .type_attribute(
-            "forge.LifecycleStatus",
-            "#[derive(serde::Serialize)]",
-        )
-        .type_attribute(
-            "forge.InstancePhoneHomeLastContactRequest",
-            "#[derive(serde::Serialize)]",
-        )
-        .type_attribute(
-            "forge.InstancePhoneHomeLastContactResponse",
-            "#[derive(serde::Serialize)]",
-        )
-        .type_attribute("forge.InstanceList", "#[derive(serde::Serialize)]")
-        .type_attribute("forge.Machine", "#[derive(serde::Serialize)]")
-        .type_attribute("forge.MachineConfig", "#[derive(serde::Serialize)]")
-        .type_attribute("forge.MachineStatus", "#[derive(serde::Serialize)]")
-        .type_attribute(
-            "forge.MachineCapabilitiesSet",
-            "#[derive(serde::Serialize)]",
-        )
-        .type_attribute(
-            "forge.MachineCapabilityAttributesCpu",
-            "#[derive(serde::Serialize)]",
-        )
-        .type_attribute(
-            "forge.MachineCapabilityAttributesGpu",
-            "#[derive(serde::Serialize)]",
-        )
-        .type_attribute(
-            "forge.MachineCapabilityAttributesMemory",
-            "#[derive(serde::Serialize)]",
-        )
-        .type_attribute(
-            "forge.MachineCapabilityAttributesStorage",
-            "#[derive(serde::Serialize)]",
-        )
-        .type_attribute(
-            "forge.MachineCapabilityAttributesNetwork",
-            "#[derive(serde::Serialize)]",
-        )
-        .type_attribute(
-            "forge.MachineCapabilityAttributesInfiniband",
-            "#[derive(serde::Serialize)]",
-        )
-        .type_attribute(
-            "forge.MachineCapabilityAttributesDpu",
-            "#[derive(serde::Serialize)]",
-        )
-        .type_attribute("forge.MachineList", "#[derive(serde::Serialize)]")
-        .type_attribute("forge.MachineEvent", "#[derive(serde::Serialize)]")
-        .type_attribute("forge.MachineInterface", "#[derive(serde::Serialize)]")
-        .type_attribute(
-            "forge.InfinibandStatusObservation",
-            "#[derive(serde::Serialize)]",
-        )
-        .type_attribute("forge.MachineIbInterface", "#[derive(serde::Serialize)]")
-        .type_attribute("forge.MachineState", "#[derive(serde::Serialize)]")
-        .type_attribute("forge.MachineArchitecture", "#[derive(serde::Serialize)]")
-        .type_attribute("forge.MachineInventory", "#[derive(serde::Serialize)]")
-        .type_attribute(
-            "forge.MachineInventorySoftwareComponent",
-            "#[derive(serde::Serialize)]",
-        )
-        .type_attribute("forge.HealthReportEntry", "#[derive(serde::Serialize)]")
-        .type_attribute("forge.HealthSourceOrigin", "#[derive(serde::Deserialize, serde::Serialize)]")
-        .type_attribute(
-            "forge.ManagedHostNetworkConfig",
-            "#[derive(serde::Serialize)]",
-        )
-        .type_attribute(
-            "forge.ManagedHostNetworkConfigResponse",
-            "#[derive(serde::Serialize)]",
-        )
-        .type_attribute(
-            "forge.MachineBootInterface",
-            "#[derive(serde::Serialize)]",
-        )
-        .type_attribute(
-            "forge.GetMachineBootInterfacesResponse",
-            "#[derive(serde::Serialize)]",
-        )
-        .type_attribute(
-            "forge.GetMachineBootInterfacesResponse.Reconciliation",
-            "#[derive(serde::Serialize)]",
-        )
-        .type_attribute(
-            "forge.MachineInterfaceBootInterface",
-            "#[derive(serde::Serialize)]",
-        )
-        .type_attribute(
-            "forge.PredictedBootInterface",
-            "#[derive(serde::Serialize)]",
-        )
-        .type_attribute(
-            "forge.ExploredBootInterface",
-            "#[derive(serde::Serialize)]",
-        )
-        .type_attribute(
-            "forge.RetainedBootInterface",
-            "#[derive(serde::Serialize)]",
-        )
-        .type_attribute(
-            "forge.RoutingProfile",
-            "#[derive(serde::Serialize)]",
-        )
-        .type_attribute(
-            "forge.PrefixFilterPolicyEntry",
-            "#[derive(serde::Serialize)]",
-        )
-        .type_attribute("forge.AstraConfig", "#[derive(serde::Serialize)]")
-        .type_attribute("forge.AstraAttachment", "#[derive(serde::Serialize)]")
-        .type_attribute("forge.AstraConfigStatus", "#[derive(serde::Serialize)]")
-        .type_attribute("forge.AstraAttachmentStatus", "#[derive(serde::Serialize)]")
-        .type_attribute("forge.AstraStatus", "#[derive(serde::Serialize)]")
-        .type_attribute("forge.AstraPhase", "#[derive(serde::Serialize)]")
-        .type_attribute("forge.NetworkPrefix", "#[derive(serde::Serialize)]")
-        .type_attribute("forge.NetworkPrefixEvent", "#[derive(serde::Serialize)]")
-        .type_attribute("forge.NetworkSegmentConfig", "#[derive(serde::Serialize)]")
-        .type_attribute("forge.NetworkSegmentStatus", "#[derive(serde::Serialize)]")
-        .type_attribute("forge.NetworkSegment", "#[derive(serde::Serialize)]")
-        .type_attribute(
-            "forge.AttachNetworkSegmentToVpcRequest",
-            "#[derive(serde::Serialize)]",
-        )
-        .type_attribute("forge.IBPartitionConfig", "#[derive(serde::Serialize)]")
-        .type_attribute("forge.SpxPartitionConfig", "#[derive(serde::Serialize)]")
-        .type_attribute("forge.IBPartitionStatus", "#[derive(serde::Serialize)]")
-        .type_attribute("forge.IBPartition", "#[derive(serde::Serialize)]")
-        .type_attribute("forge.IBPartitionIdList", "#[derive(serde::Serialize)]")
-        .type_attribute("forge.IBPartitionList", "#[derive(serde::Serialize)]")
-        .type_attribute("forge.SpxPartitionList", "#[derive(serde::Serialize)]")
-        .type_attribute("forge.SpxPartition", "#[derive(serde::Serialize)]")
-        .type_attribute("forge.SpxPartitionIdList", "#[derive(serde::Serialize)]")
-        .type_attribute("forge.PowerOptionResponse",
-                        "#[derive(serde::Deserialize, serde::Serialize)]")
-        .type_attribute("forge.PowerOptions",
-                        "#[derive(serde::Deserialize, serde::Serialize)]")
-        .type_attribute(
-            "forge.InlineIpxe",
-            "#[derive(serde::Deserialize, serde::Serialize)]",
-        )
-        .type_attribute("forge.NetworkSegmentList", "#[derive(serde::Serialize)]")
-        .type_attribute(
-            "forge.InstanceOperatingSystemConfig",
-            "#[derive(serde::Deserialize, serde::Serialize)]",
-        )
-        .type_attribute(
-            "forge.InstanceOperatingSystemConfig.variant",
-            "#[derive(serde::Deserialize, serde::Serialize)]",
-        )
-        .type_attribute(
-            "forge.OperatingSystem",
-            "#[derive(serde::Serialize, serde::Deserialize)]",
-        )
-        .type_attribute(
-            "forge.OperatingSystemList",
-            "#[derive(serde::Serialize, serde::Deserialize)]",
-        )
-        .type_attribute(
-            "forge.OperatingSystemType",
-            "#[derive(serde::Serialize, serde::Deserialize)]",
-        )
-        .type_attribute("forge.InterfaceList", "#[derive(serde::Serialize)]")
-        .type_attribute(
-            "forge.NetworkSegmentStateHistory",
-            "#[derive(serde::Serialize)]",
-        )
-        .type_attribute(
-            "forge.RackStateHistory",
-            "#[derive(serde::Serialize)]",
-        )
-        .type_attribute("forge.Tenant", "#[derive(serde::Serialize)]")
-        .type_attribute("forge.TenantContent", "#[derive(serde::Serialize)]")
-        .type_attribute("forge.TenantList", "#[derive(serde::Serialize)]")
-        .type_attribute("forge.TenantKeyset", "#[derive(serde::Serialize)]")
-        .type_attribute("forge.TenantKeysetContent", "#[derive(serde::Serialize)]")
-        .type_attribute("forge.TenantKeysetList", "#[derive(serde::Serialize)]")
-        .type_attribute(
-            "forge.TenantKeysetIdentifier",
-            "#[derive(serde::Serialize)]",
-        )
-        .type_attribute("forge.TenantPublicKey", "#[derive(serde::Serialize)]")
-        .type_attribute("forge.TenantKeySetList", "#[derive(serde::Serialize)]")
-        .type_attribute("forge.VpcResourceState", "#[derive(serde::Serialize)]")
-        .type_attribute("forge.MachineBootOverride", "#[derive(serde::Serialize)]")
-        .type_attribute("forge.ConnectedDevice", "#[derive(serde::Serialize)]")
-        .type_attribute("forge.NetworkDevice", "#[derive(serde::Serialize)]")
-        .type_attribute("forge.NetworkTopologyData", "#[derive(serde::Serialize)]")
-        .type_attribute(
-            "forge.InstanceInterfaceStatusObservation",
-            "#[derive(serde::Serialize)]",
-        )
-        .type_attribute("forge.FabricInterfaceData", "#[derive(serde::Serialize)]")
-        .type_attribute("forge.LinkData", "#[derive(serde::Serialize)]")
-        .type_attribute("forge.DpuNetworkStatus", "#[derive(serde::Serialize)]")
-        .type_attribute("forge.LastDhcpRequest", "#[derive(serde::Serialize)]")
-        .type_attribute("forge.ResourcePool", "#[derive(serde::Serialize)]")
-        .type_attribute("forge.DpaInterface", "#[derive(serde::Serialize)]")
-        .type_attribute("forge.DpaInterfaceList", "#[derive(serde::Serialize)]")
-        .type_attribute("forge.Vpc", "#[derive(serde::Serialize)]")
-        .type_attribute("forge.VpcConfig", "#[derive(serde::Serialize)]")
-        .type_attribute(
-            "forge.VpcRoutingProfileOverrides",
-            "#[derive(serde::Serialize)]",
-        )
-        .type_attribute(
-            "forge.VpcEffectiveRoutingProfile",
-            "#[derive(serde::Serialize)]",
-        )
-        .type_attribute("common.RouteTargets", "#[derive(serde::Serialize)]")
-        .type_attribute(
-            "forge.PrefixFilterPolicyEntries",
-            "#[derive(serde::Serialize)]",
-        )
-        .type_attribute("forge.VpcStatus", "#[derive(serde::Serialize)]")
-        .type_attribute("forge.VpcList", "#[derive(serde::Serialize)]")
-        .type_attribute(
-            "forge.StorageClusterAttributes",
-            "#[derive(serde::Serialize)]",
-        )
-        .type_attribute("forge.VpcPrefix", "#[derive(serde::Serialize)]")
-        .type_attribute(
-            "forge.VpcPrefixStateHistoriesRequest",
-            "#[derive(serde::Serialize)]",
-        )
-        .type_attribute(
-            "forge.VpcPrefixConfig",
-            "#[derive(serde::Serialize)]",
-        )
-        .type_attribute(
-            "forge.VpcPrefixStatus",
-            "#[derive(serde::Serialize)]",
-        )
-        .type_attribute("forge.SitePrefix", "#[derive(serde::Serialize)]")
-        .type_attribute("forge.SitePrefixConfig", "#[derive(serde::Serialize)]")
-        .type_attribute("forge.SitePrefixStatus", "#[derive(serde::Serialize)]")
-        .type_attribute(
-            "forge.SitePrefixQuotaUsage",
-            "#[derive(serde::Serialize)]",
-        )
-        .type_attribute("forge.SitePrefixAuthority", "#[derive(serde::Serialize)]")
-        .type_attribute(
-            "forge.SitePrefixRoutingScope",
-            "#[derive(serde::Serialize)]",
-        )
-        .type_attribute(
-            "forge.SitePrefixLifecycleState",
-            "#[derive(serde::Serialize)]",
-        )
-        .type_attribute("forge.SitePrefixIdList", "#[derive(serde::Serialize)]")
-        .type_attribute("forge.SitePrefixList", "#[derive(serde::Serialize)]")
-        .type_attribute("forge.VpcPeering", "#[derive(serde::Serialize)]")
-        .type_attribute("forge.VpcPeeringList", "#[derive(serde::Serialize)]")
-        .type_attribute(
-            "forge.StateHistoryRecord",
-            "#[derive(serde::Serialize)]",
-        )
-        .type_attribute("forge.StorageCluster", "#[derive(serde::Serialize)]")
-        .type_attribute("forge.StoragePoolAttributes", "#[derive(serde::Serialize)]")
-        .type_attribute("forge.StoragePool", "#[derive(serde::Serialize)]")
-        .type_attribute("forge.StorageVolumeStatus", "#[derive(serde::Serialize)]")
-        .type_attribute(
-            "forge.StorageVolumeAttributes",
-            "#[derive(serde::Serialize)]",
-        )
-        .type_attribute("forge.StorageVolume", "#[derive(serde::Serialize)]")
-        .type_attribute("forge.Switch", "#[derive(serde::Serialize)]")
-        .type_attribute("forge.SwitchConfig", "#[derive(serde::Serialize)]")
-        .type_attribute("forge.SwitchList", "#[derive(serde::Serialize)]")
-        .type_attribute("forge.SwitchStatus", "#[derive(serde::Serialize)]")
-        .type_attribute(
-            "forge.DeleteStoragePoolRequest",
-            "#[derive(serde::Serialize)]",
-        )
-        .type_attribute(
-            "forge.ListStoragePoolRequest",
-            "#[derive(serde::Serialize)]",
-        )
-        .type_attribute(
-            "forge.ListStoragePoolResponse",
-            "#[derive(serde::Serialize)]",
-        )
-        .type_attribute(
-            "forge.DeleteStorageVolumeRequest",
-            "#[derive(serde::Serialize)]",
-        )
-        .type_attribute(
-            "forge.ListStorageVolumeRequest",
-            "#[derive(serde::Serialize)]",
-        )
-        .type_attribute(
-            "forge.ListStorageVolumeResponse",
-            "#[derive(serde::Serialize)]",
-        )
-        .type_attribute("forge.OsImageAttributes", "#[derive(serde::Serialize)]")
-        .type_attribute("forge.OsImage", "#[derive(serde::Serialize)]")
-        .type_attribute("forge.ListOsImageRequest", "#[derive(serde::Serialize)]")
-        .type_attribute("forge.ListOsImageResponse", "#[derive(serde::Serialize)]")
-        .type_attribute("DeleteOsImageRequest", "#[derive(serde::Serialize)]")
-        .type_attribute(
-            "forge.MachineDiscoveryInfo",
-            "#[derive(serde::Deserialize, serde::Serialize)]",
-        )
-        .type_attribute(
-            "common.UUID",
-            "#[derive(Ord, PartialOrd, serde::Deserialize, serde::Serialize)]",
-        )
-        .type_attribute(
-            "forge.MachineDiscoveryInfo.discovery_data",
-            "#[derive(serde::Deserialize, serde::Serialize)]",
-        )
-        .type_attribute(
-            "forge.DhcpDiscovery",
-            "#[derive(serde::Deserialize, serde::Serialize)]",
-        )
         .type_attribute("forge.DhcpDiscovery", derive_prost_builder)
-        .type_attribute(
-            "forge.UserRoles",
-            "#[derive(serde::Deserialize, serde::Serialize)]",
-        )
-        .type_attribute(
-            "forge.BMCRequestType",
-            "#[derive(serde::Serialize, serde::Deserialize)]",
-        )
-        .type_attribute(
-            "forge.BmcInfo",
-            "#[derive(serde::Serialize, serde::Deserialize)]",
-        )
-        .type_attribute(
-            "forge.bmc_meta_data_update_request.DataItem",
-            "#[derive(serde::Deserialize, serde::Serialize)]",
-        )
-        .type_attribute(
-            "DataItem",
-            "#[derive(serde::Deserialize, serde::Serialize)]",
-        )
-        .type_attribute(
-            "bmc_meta_data_update_request",
-            "#[derive(serde::Deserialize, serde::Serialize)]",
-        )
-        .type_attribute(
-            "BMCMetaDataUpdateRequest",
-            "#[derive(serde::Deserialize, serde::Serialize)]",
-        )
-        .type_attribute(
-            "ControllerStateReason",
-            "#[derive(serde::Deserialize, serde::Serialize)]",
-        )
-        .type_attribute("ControllerStateSourceReference", "#[derive(serde::Deserialize, serde::Serialize)]")
-        .type_attribute(
-            "RuntimeConfig",
-            "#[derive(serde::Deserialize, serde::Serialize)]",
-        )
-        .type_attribute("StateSla", "#[derive(serde::Serialize)]")
-        .type_attribute(
-            "BuildInfo",
-            "#[derive(serde::Deserialize, serde::Serialize)]",
-        )
-        .type_attribute("MachineValidationResultList", "#[derive(serde::Serialize)]")
-        .type_attribute("MachineValidationResult", "#[derive(serde::Serialize)]")
-        .type_attribute("MachineValidationRunList", "#[derive(serde::Serialize)]")
-        .type_attribute("MachineValidationRun", "#[derive(serde::Serialize)]")
-        .type_attribute(
-            "MachineValidationRunItemList",
-            "#[derive(serde::Serialize)]",
-        )
-        .type_attribute(
-            "MachineValidationRunItemIdList",
-            "#[derive(serde::Serialize)]",
-        )
-        .type_attribute("MachineValidationRunItem", "#[derive(serde::Serialize)]")
-        .type_attribute(
-            "MachineValidationAttempt",
-            "#[derive(serde::Serialize)]",
-        )
-        .type_attribute("ExpectedHostNic", "#[derive(serde::Serialize)]")
-        .type_attribute("ExpectedHostNic", "#[derive(serde::Deserialize)]")
         .field_attribute(
             "ExpectedHostNic.role",
             "#[serde(default, skip_serializing_if = \"Option::is_none\", deserialize_with = \"ExpectedInterfaceRole::deserialize_optional\", serialize_with = \"ExpectedInterfaceRole::serialize_optional\")]",
@@ -785,8 +257,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             "ExpectedHostNic.ip_allocation",
             "#[serde(default, skip_serializing_if = \"Option::is_none\", deserialize_with = \"ExpectedInterfaceIpAllocation::deserialize_optional\", serialize_with = \"ExpectedInterfaceIpAllocation::serialize_optional\")]",
         )
-        .type_attribute("HostLifecycleProfile", "#[derive(serde::Serialize, serde::Deserialize)]")
-        .type_attribute("ExpectedMachine", "#[derive(serde::Serialize)]")
         // `ExpectedMachine` is serialize-only here. If it gains `Deserialize`,
         // this rename also needs `alias = "host_nics"` for older payloads.
         .field_attribute(
@@ -796,106 +266,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .field_attribute(
             "ExpectedMachine.replace_host_nics",
             "#[serde(skip_serializing)]",
-        )
-        .type_attribute("ExpectedPowerShelf", "#[derive(serde::Serialize)]")
-        .type_attribute("ExpectedSwitch", "#[derive(serde::Serialize)]")
-        .type_attribute("ExpectedRack", "#[derive(serde::Serialize)]")
-        .type_attribute("ExpectedMachineList", "#[derive(serde::Serialize)]")
-        .type_attribute("ExpectedPowerShelfList", "#[derive(serde::Serialize)]")
-        .type_attribute("ExpectedSwitchList", "#[derive(serde::Serialize)]")
-        .type_attribute("ExpectedRackList", "#[derive(serde::Serialize)]")
-        .type_attribute(
-            "TpmCaCertDetail",
-            "#[derive(serde::Deserialize, serde::Serialize)]",
-        )
-        .type_attribute(
-            "DpfMachineState",
-            "#[derive(serde::Deserialize, serde::Serialize)]",
-        )
-        .type_attribute(
-            "TpmCaCertDetailCollection",
-            "#[derive(serde::Deserialize, serde::Serialize)]",
-        )
-        .type_attribute(
-            "TpmEkCertStatus",
-            "#[derive(serde::Deserialize, serde::Serialize)]",
-        )
-        .type_attribute(
-            "TpmEkCertStatusCollection",
-            "#[derive(serde::Deserialize, serde::Serialize)]",
-        )
-        .type_attribute(
-            "TpmCaAddedCaStatus",
-            "#[derive(serde::Deserialize, serde::Serialize)]",
-        )
-        .type_attribute(
-            "TpmCaCertId",
-            "#[derive(serde::Deserialize, serde::Serialize)]",
-        )
-        .type_attribute("MachineValidationState", "#[derive(serde::Serialize)]")
-        .type_attribute("MachineValidationCompleted", "#[derive(serde::Serialize)]")
-        .type_attribute("MachineValidationInProgress", "#[derive(serde::Serialize)]")
-        .type_attribute("MachineValidationStarted", "#[derive(serde::Serialize)]")
-        .type_attribute("MachineValidationStatus", "#[derive(serde::Serialize)]")
-        .type_attribute(
-            "MachineValidationExternalConfig",
-            "#[derive(serde::Serialize)]",
-        )
-        .type_attribute(
-            "MachineValidationTestUpdateRequest",
-            "#[derive(serde::Deserialize, serde::Serialize)]",
-        )
-        .type_attribute(
-            "MachineValidationTestAddRequest",
-            "#[derive(serde::Deserialize, serde::Serialize)]",
-        )
-        .type_attribute(
-            "MachineValidationTest",
-            "#[derive(serde::Deserialize, serde::Serialize)]",
-        )
-        .type_attribute(
-            "MachineValidationTestsGetRequest",
-            "#[derive(serde::Deserialize, serde::Serialize)]",
-        )
-        .type_attribute(
-            "MachineValidationTestUpdateRequest.Payload",
-            "#[derive(serde::Deserialize, serde::Serialize)]",
-        )
-        .type_attribute(
-            "forge.RedfishBrowseResponse",
-            "#[derive(serde::Deserialize, serde::Serialize)]",
-        )
-        .type_attribute(
-            "forge.NetworkSecurityGroup",
-            "#[derive(serde::Deserialize,serde::Serialize)]",
-        )
-        .type_attribute(
-            "forge.NetworkSecurityGroupStatus",
-            "#[derive(serde::Deserialize, serde::Serialize)]",
-        )
-        .type_attribute(
-            "forge.NetworkSecurityGroupSource",
-            "#[derive(serde::Deserialize,serde::Serialize)]",
-        )
-        .type_attribute(
-            "forge.NetworkSecurityGroupRuleDirection",
-            "#[derive(serde::Deserialize,serde::Serialize)]",
-        )
-        .type_attribute(
-            "forge.NetworkSecurityGroupRuleProtocol",
-            "#[derive(serde::Deserialize,serde::Serialize)]",
-        )
-        .type_attribute(
-            "forge.NetworkSecurityGroupRuleAction",
-            "#[derive(serde::Deserialize, serde::Serialize)]",
-        )
-        .type_attribute(
-            "forge.NetworkSecurityGroupAttributes",
-            "#[derive(serde::Deserialize,serde::Serialize)]",
-        )
-        .type_attribute(
-            "forge.NetworkSecurityGroupRuleAttributes",
-            "#[derive(serde::Deserialize,serde::Serialize)]",
         )
         .field_attribute(
             "forge.NetworkSecurityGroupRuleAttributes.direction",
@@ -911,135 +281,21 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         )
         .type_attribute(
             "forge.NetworkSecurityGroupRuleAttributes.source_net",
-            "#[derive(serde::Deserialize,serde::Serialize)]",
-        )
-        .type_attribute(
-            "forge.NetworkSecurityGroupRuleAttributes.source_net",
             "#[serde(rename_all=\"snake_case\")]",
-        )
-        .type_attribute(
-            "forge.NetworkSecurityGroupRuleAttributes.destination_net",
-            "#[derive(serde::Deserialize,serde::Serialize)]",
         )
         .type_attribute(
             "forge.NetworkSecurityGroupRuleAttributes.destination_net",
             "#[serde(rename_all=\"snake_case\")]",
         )
-        .type_attribute(
-            "forge.InstanceNetworkRestrictions",
-            "#[derive(serde::Deserialize, serde::Serialize)]",
-        )
-        .type_attribute(
-            "forge.FlatInterfaceNetworkSecurityGroupConfig",
-            "#[derive(serde::Deserialize, serde::Serialize)]",
-        )
-        .type_attribute(
-            "forge.ResolvedNetworkSecurityGroupRule",
-            "#[derive(serde::Deserialize, serde::Serialize)]",
-        )
-        .type_attribute(
-            "forge.NetworkSecurityGroupAttachments",
-            "#[derive(serde::Deserialize, serde::Serialize)]",
-        )
-        .type_attribute(
-            "forge.NetworkSecurityGroupPropagationObjectStatus",
-            "#[derive(serde::Deserialize, serde::Serialize)]",
-        )
-        .type_attribute("Sku", "#[derive(serde::Serialize, serde::Deserialize)]")
         .field_attribute("Sku.schema_version", "#[serde(default)]")
         .field_attribute("Sku.associated_machine_ids", "#[serde(default)]")
-        .type_attribute("SkuList", "#[derive(serde::Serialize, serde::Deserialize)]")
-        .type_attribute(
-            "SkuComponents",
-            "#[derive(serde::Serialize, serde::Deserialize)]",
-        )
-        .type_attribute(
-            "SkuComponentChassis",
-            "#[derive(serde::Serialize, serde::Deserialize)]",
-        )
-        .type_attribute(
-            "SkuComponentCpu",
-            "#[derive(serde::Serialize, serde::Deserialize)]",
-        )
-        .type_attribute(
-            "common.SwitchId",
-            "#[derive(serde::Deserialize,serde::Serialize)]",
-        )
-        .type_attribute(
-            "SkuComponentGpu",
-            "#[derive(serde::Serialize, serde::Deserialize)]",
-        )
-        .type_attribute(
-            "SkuComponentMemory",
-            "#[derive(serde::Serialize, serde::Deserialize)]",
-        )
-        .type_attribute(
-            "SkuComponentInfinibandDevices",
-            "#[derive(serde::Serialize, serde::Deserialize)]",
-        )
-        .type_attribute(
-            "SkuComponentEthernetDevices",
-            "#[derive(serde::Serialize, serde::Deserialize)]",
-        )
-        .type_attribute(
-            "SkuComponentStorage",
-            "#[derive(serde::Serialize, serde::Deserialize)]",
-        )
         .field_attribute("SkuComponentStorage.vendor", "#[serde(default)]")
         .field_attribute("SkuComponentStorage.capacity_mb", "#[serde(default)]")
         .field_attribute("SkuComponentStorage.min_size_mb", "#[serde(default)]")
         .field_attribute("SkuComponentStorage.max_size_mb", "#[serde(default)]")
         .field_attribute("SkuComponentStorage.pci_patterns", "#[serde(default)]")
-        .type_attribute(
-            "SkuComponentTpm",
-            "#[derive(serde::Serialize, serde::Deserialize)]",
-        )
-        .type_attribute("SkuId", "#[derive(serde::Serialize, serde::Deserialize)]")
-        .type_attribute(
-            "SkuStatus",
-            "#[derive(serde::Serialize, serde::Deserialize)]",
-        )
-        .type_attribute("common.RackHardwareType", "#[derive(serde::Serialize)]")
-        .type_attribute("forge.RackCapabilitiesSet", "#[derive(serde::Serialize)]")
-        .type_attribute("forge.RackCapabilityCompute", "#[derive(serde::Serialize)]")
-        .type_attribute("forge.RackCapabilitySwitch", "#[derive(serde::Serialize)]")
-        .type_attribute("forge.RackCapabilityPowerShelf", "#[derive(serde::Serialize)]")
-        .type_attribute("forge.RackProfile", "#[derive(serde::Serialize)]")
-        .type_attribute("forge.GetRackProfileResponse", "#[derive(serde::Serialize)]")
-        .type_attribute("forge.ConfiguredRackProfile", "#[derive(serde::Serialize)]")
-        .type_attribute("forge.ListRackProfilesResponse", "#[derive(serde::Serialize)]")
-        .type_attribute(
-            "forge.MachineHardwareInfoGpu",
-            "#[derive(serde::Deserialize, serde::Serialize)]",
-        )
-        .type_attribute(
-            "forge.ManagedHostQuarantineState",
-            "#[derive(serde::Deserialize, serde::Serialize)]",
-        )
-        .type_attribute(
-            "forge.ManagedHostQuarantineMode",
-            "#[derive(serde::Deserialize, serde::Serialize)]",
-        )
-        .type_attribute("forge.AppliedRemediationIdList", "#[derive(serde::Deserialize, serde::Serialize)]")
-        .type_attribute("forge.AppliedRemediationId", "#[derive(serde::Deserialize, serde::Serialize)]")
-        .type_attribute("forge.AppliedRemediationList", "#[derive(serde::Deserialize, serde::Serialize)]")
-        .type_attribute("forge.AppliedRemediation", "#[derive(serde::Deserialize, serde::Serialize)]")
-        .type_attribute("forge.RemediationList", "#[derive(serde::Deserialize, serde::Serialize)]")
-        .type_attribute("forge.Remediation", "#[derive(serde::Deserialize, serde::Serialize)]")
         .field_attribute("machine_discovery.BlockDevice.device_type", "#[serde(default)]")
         .field_attribute("machine_discovery.NvmeDevice.serial", "#[serde(default)]")
-        .type_attribute(
-            "forge.InstanceTypeAttributes",
-            "#[derive(serde::Deserialize,serde::Serialize)]",
-        )
-        .type_attribute(
-            "forge.InstanceType",
-            "#[derive(serde::Deserialize,serde::Serialize)]",
-        )
-        .type_attribute(
-            "forge.InstanceTypeAllocationStats",
-            "#[derive(serde::Deserialize,serde::Serialize)]",
-        )
         .field_attribute(
             "forge.InstanceTypeMachineCapabilityFilterAttributes.capability_type",
             "#[serde(deserialize_with = \"MachineCapabilityType::from_string\", serialize_with = \"MachineCapabilityType::serialize_from_enum_i32\")]",
@@ -1048,47 +304,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             "forge.InstanceTypeMachineCapabilityFilterAttributes.device_type",
             "#[serde(deserialize_with = \"MachineCapabilityDeviceType::from_string\", serialize_with = \"MachineCapabilityDeviceType::serialize_from_enum_i32\")]",
         )
-        .type_attribute(
-            "forge.InstanceTypeMachineCapabilityFilterAttributes",
-            "#[derive(serde::Deserialize,serde::Serialize)]",
-        )
-        .type_attribute(
-            "forge.Rack",
-            "#[derive(serde::Serialize)]",
-        )
-        .type_attribute(
-            "forge.RackConfig",
-            "#[derive(serde::Deserialize,serde::Serialize)]",
-        )
-        .type_attribute(
-            "forge.RackList",
-            "#[derive(serde::Serialize)]",
-        )
-        .type_attribute(
-            "forge.RackStatus",
-            "#[derive(serde::Serialize)]",
-        )
-        .type_attribute("forge.PowerShelf", "#[derive(serde::Serialize)]")
-        .type_attribute("forge.PowerShelfConfig", "#[derive(serde::Serialize)]")
-        .type_attribute("forge.PowerShelfList", "#[derive(serde::Serialize)]")
-        .type_attribute("forge.PowerShelfStatus", "#[derive(serde::Serialize)]")
-        .type_attribute(
-            "common.Uint32List",
-            "#[derive(serde::Deserialize,serde::Serialize)]",
-        )
-        .type_attribute("forge.NVLPartitionConfig", "#[derive(serde::Serialize)]")
-        .type_attribute("forge.NVLPartitionStatus", "#[derive(serde::Serialize)]")
-        .type_attribute("forge.NVLPartition", "#[derive(serde::Serialize)]")
-        .type_attribute("forge.NVLPartitionList", "#[derive(serde::Serialize)]")
-        .type_attribute("forge.NVLLogicalPartitionConfig", "#[derive(serde::Serialize)]")
-        .type_attribute("forge.NVLLogicalPartitionStatus", "#[derive(serde::Serialize)]")
-        .type_attribute("forge.NVLLogicalPartition", "#[derive(serde::Serialize)]")
-        .type_attribute("forge.NVLLogicalPartitionList", "#[derive(serde::Serialize)]")
 
-        .type_attribute(
-            "common.PowerShelfId",
-            "#[derive(serde::Deserialize,serde::Serialize)]",
-        )
         .type_attribute(
             ".rack_manager",
             "#[derive(serde::Deserialize, serde::Serialize)]",
@@ -1096,10 +312,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .type_attribute(
             ".nmx_c",
             "#[derive(serde::Deserialize, serde::Serialize)]",
-        )
-        .type_attribute(
-            "common.RouteTarget",
-            "#[derive(serde::Deserialize,serde::Serialize)]",
         )
         .type_attribute(
             "common.MachineId",
@@ -1113,68 +325,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             "common.SwitchId",
             "#[derive(Ord, PartialOrd)]",
         )
-        .type_attribute(
-            "common.RemediationId",
-            "#[derive(serde::Serialize, serde::Deserialize, Ord, PartialOrd)]",
-        )
-        .type_attribute("common.StringList", "#[derive(serde::Serialize)]")
-        .type_attribute(
-            "forge.InstanceAllocationRequest",
-            "#[derive(serde::Serialize)]",
-        )
-        .type_attribute(
-            "forge.RouteServerEntries",
-            "#[derive(serde::Serialize)]",
-        )
-        .type_attribute(
-            "forge.RouteServer",
-            "#[derive(serde::Serialize)]",
-        )
-        .type_attribute(
-            "forge.ComputeAllocation",
-            "#[derive(serde::Serialize)]",
-        )
-        .type_attribute(
-            "forge.ComputeAllocationAttributes",
-            "#[derive(serde::Serialize)]",
-        )
-        .type_attribute(
-            "forge.GetBmcCredentialsRequest",
-            "#[derive(serde::Serialize)]",
-        )
-        .type_attribute(
-            "forge.GetSwitchNvosCredentialsRequest",
-            "#[derive(serde::Serialize)]",
-        )
-        .type_attribute("forge.SwitchNvosInfo", "#[derive(serde::Serialize)]")
-        .type_attribute(
-            "forge.PlacementInRack",
-            "#[derive(serde::Serialize)]",
-        )
-        .type_attribute(
-            "forge.SpdmGetAttestationMachineResponse",
-            "#[derive(serde::Serialize)]",
-        )
-        .type_attribute(
-            "forge.SpdmListAttestationMachinesResponse",
-            "#[derive(serde::Serialize)]",
-        )
-        .type_attribute(
-            "forge.SpdmMachineAttestationStatus",
-            "#[derive(serde::Serialize)]",
-        )
-        .type_attribute(
-            "forge.SpdmAttestationDetails",
-            "#[derive(serde::Serialize)]",
-        )
-        .type_attribute(
-            "scout_firmware_upgrade.ScoutFirmwareUpgradeTask",
-            "#[derive(serde::Serialize, serde::Deserialize)]",
-        )
-        .type_attribute(
-            "scout_firmware_upgrade.FileArtifact",
-            "#[derive(serde::Serialize, serde::Deserialize)]",
-        )
         .type_attribute("forge.VpcCreationRequest", derive_prost_builder)
         .type_attribute("forge.VpcUpdateRequest", derive_prost_builder)
         .type_attribute("forge.VpcDeletionRequest", derive_prost_builder)
@@ -1185,34 +335,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .type_attribute("forge.CreateComputeAllocationRequest", derive_prost_builder)
         .type_attribute("forge.UpdateComputeAllocationRequest", derive_prost_builder)
         .type_attribute("forge.DeleteComputeAllocationRequest", derive_prost_builder)
-        .type_attribute(
-            "forge.InstanceNetworkAutoConfig",
-            "#[derive(serde::Serialize)]",
-        )
-        .type_attribute(
-            "forge.RotationCredentialType",
-            "#[derive(serde::Serialize, serde::Deserialize)]",
-        )
-        .type_attribute(
-            "forge.RotateCredentialResult",
-            "#[derive(serde::Serialize, serde::Deserialize)]",
-        )
-        .type_attribute(
-            "forge.CredentialRotationStatusResult",
-            "#[derive(serde::Serialize, serde::Deserialize)]",
-        )
-        .type_attribute(
-            "forge.DeviceCredentialRotationStatus",
-            "#[derive(serde::Serialize, serde::Deserialize)]",
-        )
-        .type_attribute(
-            "forge.GetContainerRegistryCredentialRequest",
-            "#[derive(serde::Serialize, serde::Deserialize)]",
-        )
-        .type_attribute(
-            "forge.GetContainerRegistryCredentialResponse",
-            "#[derive(serde::Serialize, serde::Deserialize)]",
-        )
         .type_attribute(
             ".forge.NetworkSegmentType",
             "#[cfg_attr(feature = \"cli\", derive(clap::ValueEnum))]",
