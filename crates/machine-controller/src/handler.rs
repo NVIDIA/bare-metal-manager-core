@@ -26,6 +26,7 @@ use std::sync::{Arc, Mutex};
 use attestation::{
     handle_spdm_attestation_failed_recovery, handle_spdm_poll_state, handle_spdm_trigger_state,
 };
+use carbide_credential_rotation::site_explorer_pause::{self, GateDecision};
 use carbide_credential_rotation::{RotationStep, advance};
 use carbide_firmware::{FirmwareConfig, FirmwareConfigSnapshot, FirmwareDownloader};
 use carbide_redfish::boot_interface::BootInterfaceTarget;
@@ -1156,6 +1157,24 @@ impl MachineStateHandler {
             }
 
             ManagedHostState::RotatingBmc { retry_count } => {
+                // Hold site-explorer off every BMC of this managed host and wait
+                // until it has acknowledged, before changing any credential. This
+                // closes the window in which a probe could hit new-hardware /
+                // old-Vault and persist the sticky `AvoidLockout` latch.
+                let bmc_macs: Vec<_> = rotation::managed_host_bmc_endpoints(mh_snapshot)
+                    .map(|e| e.device_mac)
+                    .collect();
+                if matches!(
+                    site_explorer_pause::gate_before_rotation(&ctx.services.db_pool, &bmc_macs)
+                        .await?,
+                    GateDecision::Wait
+                ) {
+                    return Ok(StateHandlerOutcome::wait(
+                        "waiting for site-explorer to acknowledge the BMC rotation suppression"
+                            .to_string(),
+                    ));
+                }
+
                 // One tick converges every BMC that needs work: force-requested
                 // devices (bypassing backoff) and, when site-wide rotation is
                 // enabled, any lagging host or DPU BMC -- handled together.
@@ -1171,13 +1190,16 @@ impl MachineStateHandler {
                         // attempt cleanly running, so we leave the flag set and let
                         // the entry guard re-attempt on a later sweep rather than
                         // silently drop the operator's request.
-                        let mut txn = None;
+                        // Resume site-explorer atomically with the return to Ready,
+                        // so its skip window ends exactly when the rotation does; a
+                        // settled tick also clears the one-shot force flag in the same
+                        // transaction.
+                        let mut txn = ctx.services.db_pool.begin().await?;
                         if matches!(step, RotationStep::Settled) {
-                            txn = rotation::clear_forced_bmc_requests(ctx.services, mh_snapshot)
-                                .await?;
+                            rotation::clear_forced_bmc_requests(&mut txn, mh_snapshot).await?;
                         }
-                        Ok(StateHandlerOutcome::transition(ManagedHostState::Ready)
-                            .with_txn_opt(txn))
+                        site_explorer_pause::resume_after_rotation(&mut txn, &bmc_macs).await?;
+                        Ok(StateHandlerOutcome::transition(ManagedHostState::Ready).with_txn(txn))
                     }
                     RotationStep::Retry { retry_count } => Ok(StateHandlerOutcome::transition(
                         ManagedHostState::RotatingBmc { retry_count },

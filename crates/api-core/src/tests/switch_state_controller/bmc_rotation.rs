@@ -32,6 +32,7 @@ use db::credential_rotation::{
 };
 use db::switch as db_switch;
 use mac_address::MacAddress;
+use model::bmc_suppression::BmcSuppressionSubsystem;
 use model::switch::{Switch, SwitchControllerState};
 
 use super::fixtures::switch::transition_switch_controller_state;
@@ -41,6 +42,25 @@ use crate::tests::common::api_fixtures::create_test_env;
 type TestResult<T = ()> = Result<T, Box<dyn std::error::Error>>;
 
 const BMC: CredentialRotationType = CredentialRotationType::Bmc;
+const SITE_EXPLORER: BmcSuppressionSubsystem = BmcSuppressionSubsystem::SiteExplorer;
+
+/// Stand in for site-explorer acknowledging every pending BMC suppression -- the
+/// barrier the rotation gate waits on before changing a credential. This test
+/// drives only the switch controller, so it plays the site-explorer ack pass
+/// itself.
+async fn ack_all_site_explorer_suppressions(pool: &sqlx::PgPool) {
+    let mut conn = pool.acquire().await.expect("acquire connection");
+    let macs: Vec<MacAddress> =
+        db::bmc_suppression::find_all_by_subsystem(&mut *conn, SITE_EXPLORER)
+            .await
+            .expect("read suppressions")
+            .into_iter()
+            .map(|s| s.bmc_mac_address)
+            .collect();
+    db::bmc_suppression::acknowledge_unacknowledged(&mut conn, &macs, SITE_EXPLORER)
+        .await
+        .expect("acknowledge suppressions");
+}
 
 fn per_device_key(mac: MacAddress) -> CredentialKey {
     CredentialKey::BmcCredentials {
@@ -168,7 +188,30 @@ async fn ready_switch_converges_bmc_to_site_target(pool: sqlx::PgPool) -> TestRe
         switch.controller_state.value,
     );
 
-    // Iteration 2: the rotation converges the device and returns to Ready.
+    // Iteration 2: the gate records a site-explorer suppression for the switch
+    // BMC and waits for its acknowledgement before touching the credential, so
+    // the switch stays in RotatingBmc and nothing is rotated yet.
+    run_switch_controller_with_services(
+        pool.clone(),
+        env.api.work_lock_manager_handle.clone(),
+        switch_services(&env, &pool, true),
+    )
+    .await;
+    let switch = load_switch(&pool, &switch_id).await?;
+    assert!(
+        matches!(
+            switch.controller_state.value,
+            SwitchControllerState::RotatingBmc { .. }
+        ),
+        "rotation must wait in RotatingBmc until site-explorer acknowledges, got {:?}",
+        switch.controller_state.value,
+    );
+
+    // Site-explorer acknowledges the suppression (its skip barrier).
+    ack_all_site_explorer_suppressions(&pool).await;
+
+    // Iteration 3: with the barrier satisfied, the rotation converges the device
+    // and returns to Ready.
     run_switch_controller_with_services(
         pool.clone(),
         env.api.work_lock_manager_handle.clone(),

@@ -101,6 +101,8 @@ use model::power_shelf::PowerShelf;
 use model::switch::Switch;
 use sqlx::PgPool;
 
+pub mod site_explorer_pause;
+
 /// All work in this crate is the `bmc` credential family.
 const BMC: CredentialRotationType = CredentialRotationType::Bmc;
 

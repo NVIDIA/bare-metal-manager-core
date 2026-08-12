@@ -37,7 +37,7 @@
 use carbide_credential_rotation::{BmcEndpoint, BmcRotationTick, RotateOutcome, rotate_bmc};
 use carbide_uuid::machine::MachineId;
 use model::machine::{Machine, ManagedHostStateSnapshot};
-use sqlx::PgTransaction;
+use sqlx::PgConnection;
 use state_controller::state_handler::StateHandlerError;
 
 use crate::context::MachineStateHandlerServices;
@@ -45,7 +45,12 @@ use crate::context::MachineStateHandlerServices;
 /// The host BMC followed by each DPU BMC that exposes both a MAC and an IP. A
 /// device missing either cannot be keyed or reached, so it is skipped (the
 /// entry guard likewise never selects it).
-fn managed_host_bmc_endpoints(
+///
+/// This is also the set site-explorer is paused on for the duration of a
+/// rotation and resumed on when it ends -- a superset of the devices any single
+/// tick actually rotates, so a force flag that appears mid-rotation is already
+/// covered and the resume set always matches what was suppressed.
+pub(crate) fn managed_host_bmc_endpoints(
     mh: &ManagedHostStateSnapshot,
 ) -> impl Iterator<Item = BmcEndpoint> + '_ {
     std::iter::once(&mh.host_snapshot)
@@ -161,28 +166,22 @@ fn forced_bmc_machine_ids(mh: &ManagedHostStateSnapshot) -> impl Iterator<Item =
 }
 
 /// Clear the one-shot force-converge flag on exactly the machines that carried a
-/// pending request *in this snapshot*, returning the transaction to commit with
-/// the state transition. Returns `None` when nothing was forced, so the common
-/// passive path performs no write.
+/// pending request *in this snapshot*, writing into the caller's transaction so
+/// the clear commits atomically with the state transition.
 ///
 /// Only the observed-forced machines are cleared -- never the whole managed host
 /// -- so a request that lands mid-tick (after this snapshot was read, hence not
 /// acted on this tick) survives for the next sweep instead of being silently
-/// dropped. Call this only on a settled tick, where the forced attempt genuinely
-/// fired.
+/// dropped. When nothing was forced this is a no-op. Call this only on a settled
+/// tick, where the forced attempt genuinely fired.
 pub(crate) async fn clear_forced_bmc_requests(
-    services: &MachineStateHandlerServices,
+    txn: &mut PgConnection,
     mh: &ManagedHostStateSnapshot,
-) -> Result<Option<PgTransaction<'static>>, StateHandlerError> {
-    let mut forced_machine_ids = forced_bmc_machine_ids(mh).peekable();
-    if forced_machine_ids.peek().is_none() {
-        return Ok(None);
+) -> Result<(), StateHandlerError> {
+    for machine_id in forced_bmc_machine_ids(mh) {
+        db::machine::clear_bmc_credential_rotation_requested(&mut *txn, machine_id).await?;
     }
-    let mut txn = services.db_pool.begin().await?;
-    for machine_id in forced_machine_ids {
-        db::machine::clear_bmc_credential_rotation_requested(&mut txn, machine_id).await?;
-    }
-    Ok(Some(txn))
+    Ok(())
 }
 
 /// Rotate a single BMC endpoint toward the staged target. `force` bypasses the

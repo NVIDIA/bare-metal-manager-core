@@ -34,12 +34,32 @@ use db::credential_rotation::{
     record_device_converged, set_next_target_version,
 };
 use mac_address::MacAddress;
+use model::bmc_suppression::{BmcSuppressionSubsystem, NewBmcSuppression};
 use model::machine::ManagedHostState;
 use model::test_support::ManagedHostConfig;
 
 use crate::env::Env;
 
 const BMC: CredentialRotationType = CredentialRotationType::Bmc;
+const SITE_EXPLORER: BmcSuppressionSubsystem = BmcSuppressionSubsystem::SiteExplorer;
+
+/// Stand in for site-explorer acknowledging every pending BMC suppression -- the
+/// barrier the rotation gate waits on before changing a credential. The
+/// integration harness drives only the machine controller, so a test plays the
+/// site-explorer ack pass itself.
+async fn ack_all_site_explorer_suppressions(pool: &PgPool) {
+    let mut conn = pool.acquire().await.expect("acquire connection");
+    let macs: Vec<MacAddress> =
+        db::bmc_suppression::find_all_by_subsystem(&mut *conn, SITE_EXPLORER)
+            .await
+            .expect("read suppressions")
+            .into_iter()
+            .map(|s| s.bmc_mac_address)
+            .collect();
+    db::bmc_suppression::acknowledge_unacknowledged(&mut conn, &macs, SITE_EXPLORER)
+        .await
+        .expect("acknowledge suppressions");
+}
 
 fn per_device_key(mac: MacAddress) -> CredentialKey {
     CredentialKey::BmcCredentials {
@@ -147,12 +167,49 @@ async fn ready_host_converges_bmc_to_site_target(
         mh.host.machine().await.state.value,
     );
 
-    // Iteration 2: the rotation converges the device and returns to Ready.
+    // Iteration 2: the gate records a site-explorer suppression for the host BMC
+    // and waits for its acknowledgement before touching the credential, so the
+    // host stays in RotatingBmc and nothing is rotated yet.
+    env.run_single_iteration().await;
+    assert!(
+        matches!(
+            mh.host.machine().await.state.value,
+            ManagedHostState::RotatingBmc { .. }
+        ),
+        "rotation must wait in RotatingBmc until site-explorer acknowledges, got {:?}",
+        mh.host.machine().await.state.value,
+    );
+    assert!(
+        db::bmc_suppression::is_suppressed(&pool, host_mac, SITE_EXPLORER).await?,
+        "the gate should record a site-explorer suppression for the host BMC"
+    );
+    {
+        let mut conn = pool.acquire().await?;
+        let status = device_rotation_status(&mut conn, BMC, host_mac)
+            .await?
+            .expect("device rotation row should exist");
+        assert!(
+            !status.converged,
+            "the credential must not change before site-explorer acknowledges"
+        );
+    }
+
+    // Site-explorer acknowledges the suppression (its skip barrier).
+    ack_all_site_explorer_suppressions(&pool).await;
+
+    // Iteration 3: with the barrier satisfied, the rotation converges the device
+    // and returns to Ready.
     env.run_single_iteration().await;
     assert!(
         matches!(mh.host.machine().await.state.value, ManagedHostState::Ready),
         "expected Ready once rotation settles, got {:?}",
         mh.host.machine().await.state.value,
+    );
+
+    // The rotation suppression is deleted on the return to Ready.
+    assert!(
+        !db::bmc_suppression::is_suppressed(&pool, host_mac, SITE_EXPLORER).await?,
+        "resume must delete the rotation suppression on return to Ready"
     );
 
     // The device is converged at the target, and the per-device secret is the
@@ -336,7 +393,20 @@ async fn force_request_converges_quarantined_bmc_when_disabled(
         mh.host.machine().await.state.value,
     );
 
-    // Iteration 2: the forced tick bypasses backoff, converges the device, and
+    // Iteration 2: even a forced rotation first gates on site-explorer, so it
+    // waits in RotatingBmc until the suppression is acknowledged.
+    env.run_single_iteration().await;
+    assert!(
+        matches!(
+            mh.host.machine().await.state.value,
+            ManagedHostState::RotatingBmc { .. }
+        ),
+        "a forced rotation must still wait for site-explorer acknowledgement, got {:?}",
+        mh.host.machine().await.state.value,
+    );
+    ack_all_site_explorer_suppressions(&pool).await;
+
+    // Iteration 3: the forced tick bypasses backoff, converges the device, and
     // returns to Ready.
     env.run_single_iteration().await;
     assert!(
@@ -365,6 +435,90 @@ async fn force_request_converges_quarantined_bmc_when_disabled(
         .expect("reading the per-device secret should succeed")
         .expect("per-device secret should still be set");
     assert_eq!(persisted, creds("root", "new"));
+
+    Ok(())
+}
+
+/// An operator's decommission suppression on the host BMC must survive a
+/// rotation: the gate preserves it (never overwrites its reason) and the resume
+/// deletes only the rotation-reason row, so the operator suppression remains.
+#[sqlx_test]
+async fn rotation_preserves_an_operator_suppression(
+    pool: PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let cm = Arc::new(TestCredentialManager::default());
+    let mut env = Env::builder(pool.clone())
+        .with_credential_manager(cm.clone())
+        .configure_runtime(|c| c.bmc_rotation_enabled = true)
+        .build()
+        .await;
+
+    let domain = env.test_harness.test_domain().await;
+    let network_controller = env.test_harness.network_controller();
+    let underlay_segment = network_controller.create_underlay_segment(&domain).await;
+    network_controller.create_admin_segment(&domain).await;
+    let site_explorer = env.test_harness.default_test_site_explorer();
+    let mh = env
+        .test_harness
+        .managed_host_builder(&site_explorer, underlay_segment)
+        .with_config(ManagedHostConfig::default())
+        .build()
+        .await
+        .0;
+    mh.advance_to_converged_ready().await;
+
+    let host_mac = mh
+        .host
+        .machine()
+        .await
+        .status
+        .bmc_info
+        .mac
+        .expect("fixture host should have a BMC MAC");
+    env.redfish_sim.seed_user("root", "old");
+    stage_lagging_bmc(&pool, &cm, host_mac).await?;
+
+    // An operator has independently suppressed this BMC for decommissioning.
+    {
+        let mut conn = pool.acquire().await?;
+        db::bmc_suppression::upsert(
+            &mut conn,
+            &NewBmcSuppression {
+                bmc_mac_address: host_mac,
+                subsystem: SITE_EXPLORER,
+                reason: "decommissioning".to_string(),
+            },
+        )
+        .await?;
+    }
+
+    // Drive the gated rotation to completion.
+    env.run_single_iteration().await; // Ready -> RotatingBmc
+    env.run_single_iteration().await; // gate records the suppression and waits
+    ack_all_site_explorer_suppressions(&pool).await;
+    env.run_single_iteration().await; // barrier satisfied -> rotate -> Ready
+    assert!(
+        matches!(mh.host.machine().await.state.value, ManagedHostState::Ready),
+        "the rotation should settle back to Ready, got {:?}",
+        mh.host.machine().await.state.value,
+    );
+
+    // The device rotated, yet the operator's suppression survives with its
+    // reason intact -- the resume only removed rotation-owned rows.
+    {
+        let mut conn = pool.acquire().await?;
+        let status = device_rotation_status(&mut conn, BMC, host_mac)
+            .await?
+            .expect("device rotation row should exist");
+        assert!(status.converged, "device should have rotated");
+    }
+    let operator = db::bmc_suppression::find(&pool, host_mac, SITE_EXPLORER)
+        .await?
+        .expect("operator suppression must survive the rotation");
+    assert_eq!(
+        operator.reason, "decommissioning",
+        "the operator's suppression reason must be preserved"
+    );
 
     Ok(())
 }

@@ -43,6 +43,7 @@ use db::credential_rotation::{
 use db::power_shelf as db_power_shelf;
 use mac_address::MacAddress;
 use model::allocation_type::AllocationType;
+use model::bmc_suppression::BmcSuppressionSubsystem;
 use model::power_shelf::{PowerShelf, PowerShelfControllerState};
 use state_controller::config::IterationConfig;
 use state_controller::controller::StateController;
@@ -55,6 +56,25 @@ use crate::tests::common::api_fixtures::{TestEnv, create_test_env};
 type TestResult<T = ()> = Result<T, Box<dyn std::error::Error>>;
 
 const BMC: CredentialRotationType = CredentialRotationType::Bmc;
+const SITE_EXPLORER: BmcSuppressionSubsystem = BmcSuppressionSubsystem::SiteExplorer;
+
+/// Stand in for site-explorer acknowledging every pending BMC suppression -- the
+/// barrier the rotation gate waits on before changing a credential. This test
+/// drives only the power-shelf controller, so it plays the site-explorer ack
+/// pass itself.
+async fn ack_all_site_explorer_suppressions(pool: &sqlx::PgPool) {
+    let mut conn = pool.acquire().await.expect("acquire connection");
+    let macs: Vec<MacAddress> =
+        db::bmc_suppression::find_all_by_subsystem(&mut *conn, SITE_EXPLORER)
+            .await
+            .expect("read suppressions")
+            .into_iter()
+            .map(|s| s.bmc_mac_address)
+            .collect();
+    db::bmc_suppression::acknowledge_unacknowledged(&mut conn, &macs, SITE_EXPLORER)
+        .await
+        .expect("acknowledge suppressions");
+}
 
 fn per_device_key(mac: MacAddress) -> CredentialKey {
     CredentialKey::BmcCredentials {
@@ -293,7 +313,30 @@ async fn ready_power_shelf_converges_pmc_to_site_target(pool: sqlx::PgPool) -> T
         power_shelf.controller_state.value,
     );
 
-    // Iteration 2: the rotation converges the device and returns to Ready.
+    // Iteration 2: the gate records a site-explorer suppression for the PMC and
+    // waits for its acknowledgement before touching the credential, so the shelf
+    // stays in RotatingBmc and nothing is rotated yet.
+    run_power_shelf_controller_with_services(
+        pool.clone(),
+        env.api.work_lock_manager_handle.clone(),
+        power_shelf_services(&env, &pool, true),
+    )
+    .await;
+    let power_shelf = load_power_shelf(&pool, &power_shelf_id).await?;
+    assert!(
+        matches!(
+            power_shelf.controller_state.value,
+            PowerShelfControllerState::RotatingBmc { .. }
+        ),
+        "rotation must wait in RotatingBmc until site-explorer acknowledges, got {:?}",
+        power_shelf.controller_state.value,
+    );
+
+    // Site-explorer acknowledges the suppression (its skip barrier).
+    ack_all_site_explorer_suppressions(&pool).await;
+
+    // Iteration 3: with the barrier satisfied, the rotation converges the device
+    // and returns to Ready.
     run_power_shelf_controller_with_services(
         pool.clone(),
         env.api.work_lock_manager_handle.clone(),
@@ -408,7 +451,27 @@ async fn failing_pmc_rotation_returns_to_ready_and_quarantines(pool: sqlx::PgPoo
         power_shelf.controller_state.value,
     );
 
-    // Iteration 2: the rotation attempt fails; the engine quarantines the device
+    // Iteration 2: the gate records a site-explorer suppression and waits for its
+    // acknowledgement, so the shelf stays in RotatingBmc before any rotation is
+    // attempted.
+    run_power_shelf_controller_with_services(
+        pool.clone(),
+        env.api.work_lock_manager_handle.clone(),
+        power_shelf_services(&env, &pool, true),
+    )
+    .await;
+    let power_shelf = load_power_shelf(&pool, &power_shelf_id).await?;
+    assert!(
+        matches!(
+            power_shelf.controller_state.value,
+            PowerShelfControllerState::RotatingBmc { .. }
+        ),
+        "rotation must wait in RotatingBmc until site-explorer acknowledges, got {:?}",
+        power_shelf.controller_state.value,
+    );
+    ack_all_site_explorer_suppressions(&pool).await;
+
+    // Iteration 3: the rotation attempt fails; the engine quarantines the device
     // and the handler settles back to Ready (RotatingBmc is not terminal).
     run_power_shelf_controller_with_services(
         pool.clone(),
@@ -569,7 +632,26 @@ async fn force_request_converges_quarantined_pmc_when_disabled(pool: sqlx::PgPoo
         power_shelf.controller_state.value,
     );
 
-    // Iteration 2: the forced tick bypasses backoff, converges the device, and
+    // Iteration 2: even a forced rotation first gates on site-explorer, so it
+    // waits in RotatingBmc until the suppression is acknowledged.
+    run_power_shelf_controller_with_services(
+        pool.clone(),
+        env.api.work_lock_manager_handle.clone(),
+        power_shelf_services(&env, &pool, false),
+    )
+    .await;
+    let power_shelf = load_power_shelf(&pool, &power_shelf_id).await?;
+    assert!(
+        matches!(
+            power_shelf.controller_state.value,
+            PowerShelfControllerState::RotatingBmc { .. }
+        ),
+        "a forced rotation must still wait for site-explorer acknowledgement, got {:?}",
+        power_shelf.controller_state.value,
+    );
+    ack_all_site_explorer_suppressions(&pool).await;
+
+    // Iteration 3: the forced tick bypasses backoff, converges the device, and
     // returns to Ready.
     run_power_shelf_controller_with_services(
         pool.clone(),
