@@ -217,7 +217,7 @@ inventory_started_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 
 machine_status="$(kubectl exec deployment/nico-api -n "${CORE_NAMESPACE}" -- \
   curl --fail --insecure --silent --max-time 5 \
-  "https://${MACHINE_A_TRON_BMC_SERVICE}:1266/machines/status" 2>/dev/null || true)"
+  "https://${machine_a_tron_bmc_ip}:1266/machines/status" 2>/dev/null || true)"
 expected_host_count="$(jq -r \
   'if (.machines | type) == "array" then .machines | length else 0 end' \
   <<<"${machine_status}" 2>/dev/null || printf '0')"
