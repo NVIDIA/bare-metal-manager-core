@@ -14,18 +14,83 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-use std::collections::HashMap;
 use std::net::IpAddr;
 
 use carbide_uuid::network::{NetworkPrefixId, NetworkSegmentId};
 use carbide_uuid::vpc::{VpcId, VpcPrefixId};
 use ipnetwork::IpNetwork;
-use itertools::Itertools;
 use model::network_prefix::{NetworkPrefix, NewNetworkPrefix};
 use sqlx::PgConnection;
 
 use super::DatabaseError;
 use crate::db_read::DbReader;
+
+fn ip_to_u128(ip: IpAddr) -> u128 {
+    match ip {
+        IpAddr::V4(ip) => u128::from(u32::from(ip)),
+        IpAddr::V6(ip) => u128::from(ip),
+    }
+}
+
+/// Converts overlapping address ranges into inclusive child-prefix indexes.
+///
+/// Broad and narrow ranges both occupy every generated child prefix they
+/// touch. The result is sorted but intentionally not merged so the allocator
+/// can scan it directly and capacity reporting can union it without expanding
+/// large IPv6 ranges one /127 at a time.
+pub fn occupied_prefix_intervals(
+    parent: IpNetwork,
+    child_prefix_length: u8,
+    occupied_prefixes: impl IntoIterator<Item = IpNetwork>,
+) -> Vec<(u128, u128)> {
+    let max_bits = if parent.is_ipv4() { 32u32 } else { 128u32 };
+    debug_assert!(u32::from(child_prefix_length) <= max_bits);
+    let child_size = 1u128 << (max_bits - u32::from(child_prefix_length));
+    let parent_start = ip_to_u128(parent.network());
+    let parent_end = ip_to_u128(parent.broadcast());
+    let is_ipv6 = parent.is_ipv6();
+
+    let mut intervals: Vec<(u128, u128)> = occupied_prefixes
+        .into_iter()
+        .filter(|prefix| prefix.is_ipv6() == is_ipv6)
+        .filter_map(|prefix| {
+            let occupied_start = ip_to_u128(prefix.network()).max(parent_start);
+            let occupied_end = ip_to_u128(prefix.broadcast()).min(parent_end);
+            (occupied_start <= occupied_end).then_some((
+                (occupied_start - parent_start) / child_size,
+                (occupied_end - parent_start) / child_size,
+            ))
+        })
+        .collect();
+    intervals.sort_unstable();
+    intervals
+}
+
+/// Counts the union of child-prefix indexes occupied by persisted ranges.
+pub fn occupied_prefix_count(
+    parent: IpNetwork,
+    child_prefix_length: u8,
+    occupied_prefixes: impl IntoIterator<Item = IpNetwork>,
+) -> u128 {
+    let intervals = occupied_prefix_intervals(parent, child_prefix_length, occupied_prefixes);
+    let Some(&(first_start, first_end)) = intervals.first() else {
+        return 0;
+    };
+
+    let mut occupied = 0u128;
+    let mut current_start = first_start;
+    let mut current_end = first_end;
+    for &(start, end) in &intervals[1..] {
+        if start <= current_end.saturating_add(1) {
+            current_end = current_end.max(end);
+            continue;
+        }
+        occupied += current_end - current_start + 1;
+        current_start = start;
+        current_end = end;
+    }
+    occupied + current_end - current_start + 1
+}
 
 #[derive(Clone, Copy)]
 pub struct SegmentIdColumn;
@@ -53,35 +118,29 @@ pub async fn containing_prefix(
     Ok(container)
 }
 
-/// Fetch the prefixes that matches and categories them as a Hashmap.
-pub async fn containing_prefixes(
-    txn: &mut PgConnection,
-    prefixes: &[IpNetwork],
-) -> Result<HashMap<IpNetwork, Vec<NetworkPrefix>>, DatabaseError> {
-    let query = "select * from network_prefixes where prefix <<= ANY($1)";
-    let container: Vec<NetworkPrefix> = sqlx::query_as(query)
-        .bind(prefixes)
+/// Fetch network prefixes that occupy address space for allocation from one VPC prefix.
+///
+/// Prefixes explicitly associated with another VPC prefix do not consume this
+/// parent's capacity. Unparented prefixes remain global occupancy until the
+/// global NetworkPrefix exclusion constraint is relaxed by #3892; otherwise
+/// allocation could repeatedly select a prefix that persistence must reject.
+pub async fn find_allocation_occupancy(
+    txn: impl DbReader<'_>,
+    vpc_prefix_id: VpcPrefixId,
+    vpc_prefix: IpNetwork,
+) -> Result<Vec<NetworkPrefix>, DatabaseError> {
+    let query = r#"
+        SELECT np.*
+        FROM network_prefixes np
+        WHERE np.prefix && $1::cidr
+          AND (np.vpc_prefix_id = $2 OR np.vpc_prefix_id IS NULL)
+    "#;
+    sqlx::query_as(query)
+        .bind(vpc_prefix)
+        .bind(vpc_prefix_id)
         .fetch_all(txn)
         .await
-        .map_err(|e| DatabaseError::query(query, e))?;
-
-    let value = prefixes
-        .iter()
-        .map(|x| {
-            let prefixes = container
-                .iter()
-                .filter(|a| {
-                    a.vpc_prefix
-                        .map(|prefix| x.contains(prefix.network()))
-                        .unwrap_or_default()
-                })
-                .cloned()
-                .collect_vec();
-            (*x, prefixes)
-        })
-        .collect::<HashMap<IpNetwork, Vec<NetworkPrefix>>>();
-
-    Ok(value)
+        .map_err(|error| DatabaseError::query(query, error))
 }
 
 // Search for specific prefix
@@ -112,6 +171,34 @@ pub async fn find_by<'a, C: super::ColumnInfo<'a, TableType = NetworkPrefix>>(
         .fetch_all(txn)
         .await
         .map_err(|e| DatabaseError::query(query.sql(), e))
+}
+
+/// Return the persisted prefixes for configured network definitions.
+///
+/// `network_def.segment_id` is the durable link between a config declaration
+/// and the segment it originally created or unambiguously backfilled. Looking
+/// up prefixes through that link preserves the existing config-drift contract:
+/// a changed declaration does not make startup act on a CIDR that was never
+/// persisted.
+pub async fn find_persisted_for_network_definitions(
+    txn: impl DbReader<'_>,
+    network_definition_names: &[String],
+) -> Result<Vec<IpNetwork>, DatabaseError> {
+    if network_definition_names.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    let query = "SELECT np.prefix
+                 FROM network_prefixes np
+                 INNER JOIN network_def nd ON nd.segment_id = np.segment_id
+                 INNER JOIN network_segments ns ON ns.id = nd.segment_id
+                 WHERE nd.name = ANY($1)
+                   AND ns.deleted IS NULL";
+    sqlx::query_scalar(query)
+        .bind(network_definition_names)
+        .fetch_all(txn)
+        .await
+        .map_err(|error| DatabaseError::query(query, error))
 }
 
 // Return a list of network segment prefixes that are associated with this
@@ -251,4 +338,118 @@ pub async fn set_svi_ip(
         .map_err(|e| DatabaseError::query(query, e))?;
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use config_version::ConfigVersion;
+
+    use super::*;
+
+    #[crate::sqlx_test]
+    async fn allocation_occupancy_uses_exact_parent_and_global_unparented_prefixes(
+        pool: sqlx::PgPool,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let target_vpc_id = VpcId::new();
+        let other_vpc_id = VpcId::new();
+        let target_parent_id = VpcPrefixId::new();
+        let sibling_parent_id = VpcPrefixId::new();
+        let parent: IpNetwork = "10.70.0.0/24".parse()?;
+        let version = ConfigVersion::initial();
+        let mut txn = pool.begin().await?;
+
+        for (vpc_id, name) in [(target_vpc_id, "target VPC"), (other_vpc_id, "other VPC")] {
+            sqlx::query("INSERT INTO vpcs (id, name, version) VALUES ($1, $2, $3)")
+                .bind(vpc_id)
+                .bind(name)
+                .bind(version)
+                .execute(&mut *txn)
+                .await?;
+        }
+
+        // Global VpcPrefix overlap is relaxed by a later task. Reconstruct
+        // that future state in this isolated test database so this query's
+        // exact-parent behavior is protected now.
+        sqlx::query(
+            "ALTER TABLE network_vpc_prefixes DROP CONSTRAINT network_vpc_prefixes_globally_unique",
+        )
+        .execute(&mut *txn)
+        .await?;
+        for (vpc_prefix_id, name) in [
+            (target_parent_id, "target parent"),
+            (sibling_parent_id, "sibling parent"),
+        ] {
+            sqlx::query(
+                "INSERT INTO network_vpc_prefixes (id, prefix, name, vpc_id) VALUES ($1, $2, $3, $4)",
+            )
+            .bind(vpc_prefix_id)
+            .bind(parent)
+            .bind(name)
+            .bind(target_vpc_id)
+            .execute(&mut *txn)
+            .await?;
+        }
+
+        let cases = [
+            (
+                "10.70.0.0/31",
+                Some(target_vpc_id),
+                Some((target_parent_id, parent)),
+                true,
+            ),
+            (
+                "10.70.0.2/31",
+                Some(target_vpc_id),
+                Some((sibling_parent_id, parent)),
+                false,
+            ),
+            ("10.70.0.4/31", Some(target_vpc_id), None, true),
+            ("10.70.0.6/31", Some(other_vpc_id), None, true),
+            ("10.70.0.8/31", None, None, true),
+        ];
+        let mut expected = Vec::new();
+        for (prefix, vpc_id, parent_association, is_expected) in cases {
+            let segment_id = NetworkSegmentId::new();
+            sqlx::query(
+                "INSERT INTO network_segments (id, name, vpc_id, version) VALUES ($1, $2, $3, $4)",
+            )
+            .bind(segment_id)
+            .bind(prefix)
+            .bind(vpc_id)
+            .bind(version)
+            .execute(&mut *txn)
+            .await?;
+            let network_prefix: NetworkPrefix = sqlx::query_as(
+                r#"
+                    INSERT INTO network_prefixes (
+                        segment_id,
+                        prefix,
+                        vpc_prefix_id,
+                        vpc_prefix
+                    )
+                    VALUES ($1, $2, $3, $4)
+                    RETURNING *
+                "#,
+            )
+            .bind(segment_id)
+            .bind(prefix.parse::<IpNetwork>()?)
+            .bind(parent_association.map(|(id, _)| id))
+            .bind(parent_association.map(|(_, prefix)| prefix))
+            .fetch_one(&mut *txn)
+            .await?;
+            if is_expected {
+                expected.push(network_prefix.id);
+            }
+        }
+
+        let occupancy = find_allocation_occupancy(&mut *txn, target_parent_id, parent).await?;
+        let mut actual: Vec<NetworkPrefixId> =
+            occupancy.into_iter().map(|prefix| prefix.id).collect();
+        actual.sort();
+        expected.sort();
+        assert_eq!(actual, expected);
+
+        txn.rollback().await?;
+        Ok(())
+    }
 }

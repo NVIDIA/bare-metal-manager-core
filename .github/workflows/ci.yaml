@@ -26,6 +26,9 @@ on:
       - "v[0-9][0-9][0-9][0-9].[0-9][0-9].[0-9][0-9]*"
       - "v[0-9].[0-9].[0-9]-rc[0-9]*"
 
+permissions:
+  contents: read
+
 concurrency:
   group: ${{ github.event_name == 'push' && github.run_attempt == '1' && startsWith(github.ref, 'refs/heads/pull-request/') && format('core-pr-{0}', github.ref_name) || format('core-run-{0}-{1}', github.run_id, github.run_attempt) }}
   cancel-in-progress: ${{ github.event_name == 'push' && github.run_attempt == '1' && startsWith(github.ref, 'refs/heads/pull-request/') }}
@@ -52,8 +55,26 @@ jobs:
           persist-credentials: false
           fetch-depth: 0
 
+      - name: Test CI token permission checker
+        run: bash .github/ci/check-ci-permissions.sh --self-test
+
+      - name: Check Core CI token permissions
+        run: bash .github/ci/check-core-ci-permissions.sh
+
+      - name: Check Stale PRs token permissions
+        run: bash .github/ci/check-stale-ci-permissions.sh
+
       - name: Check Core CI concurrency policy
         run: bash scripts/check-ci-concurrency.sh core
+
+      - name: Test CI final-gate checker
+        run: python3 -B .github/ci/test_check_ci_gate.py
+
+      - name: Test secret-scan range resolver
+        run: bash .github/ci/test-resolve-secret-scan-range.sh
+
+      - name: Check Core CI final-gate inventory
+        run: python3 -B .github/ci/check_ci_gate.py inventory --policy core .github/workflows/ci.yaml
 
       - name: Detect non-rest changes
         id: non-rest-changes
@@ -150,6 +171,14 @@ jobs:
           persist-credentials: false
           fetch-depth: 0
           fetch-tags: true
+
+      - name: Set up Python for CI helpers
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+
+      - name: Check boot output contracts
+        run: python3 -m unittest discover -s .github/ci -p 'test_validate_boot_outputs.py'
 
       - name: Detect build-container-x86_64 changes
         id: build-container-changes
@@ -685,10 +714,13 @@ jobs:
   # ============================================================================
   # BUILD STAGE - Release Container
   # ============================================================================
-  # Deliberately does NOT depend on lint-police. The container build consumes
-  # nothing lint-police produces, and gating on it serialized ~11m of linting in
-  # front of a ~29m build. Lint failures still block the merge independently via
-  # core-ci-pass, so the gate is preserved while the two now run in parallel.
+  # Deliberately does NOT depend on `lint-police` or
+  # `check-rest-core-proto-sync`. The container build does not consume
+  # anything either job produces, and gating on them serialized `~11m` of
+  # linting (on proto-touching changes, `~5m` of proto-sync checking plus
+  # queueing) in front of a `~29m` build. Their failures still block the
+  # merge independently via `core-ci-pass`, so the gate is preserved while
+  # the jobs run in parallel.
   build-release-container-x86_64:
     if: >-
       ${{
@@ -697,13 +729,11 @@ jobs:
         && needs.prepare.result == 'success'
         && contains('success,skipped', needs.build-container-x86_64.result)
         && contains('success,skipped', needs.build-runtime-container-x86_64.result)
-        && contains('success,skipped', needs.check-rest-core-proto-sync.result)
       }}
     needs:
       - prepare
       - build-container-x86_64
       - build-runtime-container-x86_64
-      - check-rest-core-proto-sync
     uses: ./.github/workflows/docker-build.yml
     with:
       source_registry_host: ${{ needs.prepare.outputs.source_registry_host }}
@@ -714,8 +744,8 @@ jobs:
       # any new commit invalidates the builder layer and the expensive cargo
       # step can never be restored. Exporting it anyway measured 7m32s on a main
       # run and bought two cached layers, while its multi-GB blobs were the bulk
-      # of what pushed the 50 GB Actions quota to its ceiling and evicted the
-      # sccache entries. sccache is what carries reuse across commits here.
+      # of what filled up the Actions quota and evicted the sccache
+      # entries.
       cache: false
       build_args: ${{ needs.prepare.outputs.release_build_args }}
       image_name: ${{ needs.prepare.outputs.image_registry }}/nvmetal-carbide
@@ -738,13 +768,11 @@ jobs:
         && needs.prepare.result == 'success'
         && contains('success,skipped', needs.build-container-aarch64.result)
         && contains('success,skipped', needs.build-runtime-container-aarch64.result)
-        && contains('success,skipped', needs.check-rest-core-proto-sync.result)
       }}
     needs:
       - prepare
       - build-container-aarch64
       - build-runtime-container-aarch64
-      - check-rest-core-proto-sync
     uses: ./.github/workflows/docker-build.yml
     with:
       source_registry_host: ${{ needs.prepare.outputs.source_registry_host }}
@@ -825,6 +853,13 @@ jobs:
     with:
       dockerfile_path: crates/machine-a-tron/Dockerfile
       context_path: .
+      # No layer cache, same reasoning as the release containers above: the
+      # Dockerfile does `COPY . .` before the cargo build, so any new commit
+      # invalidates the builder layer and nothing expensive can ever be
+      # restored. `mode=max` still exported the whole builder stage on every
+      # main commit, pushing multi-hundred-MB blobs into the Actions cache pool
+      # that sccache depends on.
+      cache: false
       build_args: >-
         ${{ format('{{"VERSION":"{0}","CI_COMMIT_SHORT_SHA":"{1}"}}',
           needs.prepare.outputs.version,
@@ -867,6 +902,9 @@ jobs:
       timeout_minutes: 30
     secrets: inherit
 
+  # Like the release-container builds above, deliberately not gated on
+  # `check-rest-core-proto-sync`: the tests do not read anything it produces,
+  # and `core-ci-pass` still fails the merge when the protos are out of sync.
   test-release-container-services:
     if: >-
       ${{
@@ -875,13 +913,11 @@ jobs:
         && needs.prepare.result == 'success'
         && contains('success,skipped', needs.build-container-x86_64.result)
         && contains('success,skipped', needs.build-runtime-container-x86_64.result)
-        && contains('success,skipped', needs.check-rest-core-proto-sync.result)
       }}
     needs:
       - prepare
       - build-container-x86_64
       - build-runtime-container-x86_64
-      - check-rest-core-proto-sync
     runs-on: linux-amd64-cpu16
     steps:
       - name: Checkout code
@@ -965,8 +1001,14 @@ jobs:
       # eight minutes spent before the first test starts. Cargo.lock keys it, so
       # a run that changes no dependencies hits the primary key and skips the
       # upload rather than rewriting an equivalent entry.
+      #
+      # Only main saves. A pull request whose Cargo.lock differs from main's
+      # matches the restore-keys prefix rather than the exact key, so cache-hit
+      # is false and the save would otherwise fire, storing a large ref-scoped
+      # copy nothing else can read. The main-only condition blocks that, and the
+      # prefix match still leaves the pull request warm.
       - name: Save sccache
-        if: ${{ !cancelled() && steps.sccache.outputs.cache-hit != 'true' }}
+        if: ${{ !cancelled() && github.ref == 'refs/heads/main' && steps.sccache.outputs.cache-hit != 'true' }}
         uses: actions/cache/save@v4
         with:
           path: .sccache
@@ -1112,6 +1154,40 @@ jobs:
       extras_container: ${{ needs.prepare.outputs.extras_container_ref }}
     secrets: inherit
 
+  # The aarch64 ephemeral (mkosi) build consumes exactly one file from the
+  # boot stage: the packaged forge-scout `.deb` (pxe `copy-forge-scout-aarch64`).
+  # Waiting on the full bfb job serialized `~18m` of BFB assembly in front of
+  # a `~14m` mkosi build for that one file, which was the longest chain in
+  # the run. This job packages the deb on its own so the mkosi build starts
+  # as soon as it exists, while bfb keeps feeding the release-artifacts
+  # carrier in parallel.
+  # bfb still compiles scout itself: its apt repo ships the deb inside the
+  # boot image.
+  build-package-scout-aarch64:
+    needs:
+      - prepare
+      - build-artifacts-container-aarch64
+    if: ${{ !cancelled() && github.event_name != 'schedule' && needs.prepare.result == 'success' && contains('success,skipped', needs.build-artifacts-container-aarch64.result) }}
+    uses: ./.github/workflows/build-boot-artifacts.yml
+    with:
+      target_login: ${{ needs.prepare.outputs.publish_images == 'true' }}
+      arch: aarch64
+      build_type: package
+      cargo_make_task: package-scout-aarch64-ci
+      build_container: ${{ needs.prepare.outputs.build_artifacts_container_aarch64_ref }}
+      runner: linux-arm64-cpu16
+      version: ${{ needs.prepare.outputs.version }}
+      use_container: true
+      # Not for injection (`inject_extras` stays false, so the extras are
+      # never pulled or extracted). The extras host is what the workflow logs
+      # into for read-only pulls, and prepare pins this ref to the source
+      # registry. On mirrors with a non-NVCR source registry, omitting it
+      # logs into the `nvcr.io` fallback while the build container lives on
+      # the source host, and non-publishing runs never do the target login
+      # that could paper over that.
+      extras_container: ${{ needs.prepare.outputs.extras_container_ref }}
+    secrets: inherit
+
   # ============================================================================
   # BUILD STAGE - Ephemeral Images
   # ============================================================================
@@ -1140,9 +1216,12 @@ jobs:
   build-boot-artifacts-ephemeral-image-arm-host:
     needs:
       - prepare
-      - build-boot-artifacts-bfb
-    # Run only if boot artifacts succeeded (we need those artifacts); skip if cancelled
-    if: ${{ !cancelled() && github.event_name != 'schedule' && needs.prepare.result == 'success' && needs.build-boot-artifacts-bfb.result == 'success' }}
+      - build-package-scout-aarch64
+    # Depends on the scout package, not the full bfb build: the forge-scout
+    # `.deb` is the only boot-stage input the mkosi build reads. The
+    # release-artifacts carrier downstream still requires bfb to have
+    # succeeded, so a bfb failure fails the run exactly as before.
+    if: ${{ !cancelled() && github.event_name != 'schedule' && needs.prepare.result == 'success' && needs.build-package-scout-aarch64.result == 'success' }}
     uses: ./.github/workflows/build-boot-artifacts.yml
     with:
       target_login: ${{ needs.prepare.outputs.publish_images == 'true' }}
@@ -1155,6 +1234,10 @@ jobs:
       sa_enablement: true
       inject_extras: true
       extras_container: ${{ needs.prepare.outputs.extras_container_ref }}
+      # Fetch just the deb archive instead of the `5.4 GB` boot artifact, a
+      # measured `2m06s`-`2m36s` download for one consumed file. The boot
+      # blobs the carrier image needs still travel in bfb's own artifact.
+      prereq_artifact: package-artifacts-aarch64-${{ github.run_id }}
     secrets: inherit
 
   # ============================================================================
@@ -1174,9 +1257,9 @@ jobs:
       target_prebuild_login: ${{ needs.prepare.outputs.bases_rebuilt == 'true' && needs.prepare.outputs.publish_images == 'true' }}
       dockerfile_path: dev/docker/Dockerfile.release-artifacts-x86_64
       # No RUN steps, so there are no expensive layers worth reusing. The
-      # multi-GB blob COPY layer would also take a large bite out of the 50 GB
-      # per-repo Actions cache quota now shared with the layer and sccache
-      # caches the rest of the pipeline depends on.
+      # multi-GB blob COPY layer would also take a large bite out of the per-repo
+      # Actions cache quota shared with the layer and sccache caches the rest of
+      # the pipeline depends on.
       cache: false
       image_name: ${{ needs.prepare.outputs.image_registry }}/boot-artifacts-x86_64
       image_tag: ${{ needs.prepare.outputs.version }}
@@ -1214,9 +1297,9 @@ jobs:
       target_prebuild_login: ${{ needs.prepare.outputs.bases_rebuilt == 'true' && needs.prepare.outputs.publish_images == 'true' }}
       dockerfile_path: dev/docker/Dockerfile.release-artifacts-aarch64
       # No RUN steps, so there are no expensive layers worth reusing. The
-      # multi-GB blob COPY layer would also take a large bite out of the 50 GB
-      # per-repo Actions cache quota now shared with the layer and sccache
-      # caches the rest of the pipeline depends on.
+      # multi-GB blob COPY layer would also take a large bite out of the per-repo
+      # Actions cache quota shared with the layer and sccache caches the rest of
+      # the pipeline depends on.
       cache: false
       image_name: ${{ needs.prepare.outputs.image_registry }}/boot-artifacts-aarch64
       image_tag: ${{ needs.prepare.outputs.version }}
@@ -1250,10 +1333,8 @@ jobs:
     needs: prepare
     runs-on: linux-amd64-cpu4
     timeout-minutes: 30
-    permissions:
-      actions: read
-      contents: read
-      pull-requests: write
+    # PR comments are disabled below and this scan does not upload SARIF, so
+    # TruffleHog inherits the read-only workflow permission.
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -1261,9 +1342,26 @@ jobs:
           persist-credentials: false
           fetch-depth: 0  # Full history for secret scanning
 
+      # Pull requests and tags both need a verified base and head. Resolve those
+      # ranges in one place; ordinary branch pushes keep using the push event.
+      - name: Compute TruffleHog scan range
+        id: scan-range
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if [[ "$GITHUB_REF" == refs/heads/pull-request/* || "$GITHUB_REF" == refs/tags/* ]]; then
+            bash .github/ci/resolve-secret-scan-range.sh >> "$GITHUB_OUTPUT"
+          else
+            BEFORE="${{ github.event.before }}"
+            echo "base=$BEFORE" >> "$GITHUB_OUTPUT"
+            echo "head=$GITHUB_SHA" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Run TruffleHog Scan
         uses: NVIDIA/dsx-github-actions/.github/actions/trufflehog-scan@9a9ce3a7770a8b53d2726afa920be3276bc3ddd7
         with:
+          base: ${{ steps.scan-range.outputs.base }}
+          head: ${{ steps.scan-range.outputs.head }}
           extra-args: '--results=verified,unknown --only-verified'
           post-pr-comment: 'false'
           fail-on-findings: 'true'
@@ -1276,12 +1374,11 @@ jobs:
     # default, so the one run in twenty that wedges holds a runner for six hours
     # and leaves the workflow open long after every other job has finished.
     timeout-minutes: 20
+    # `upload-sarif` and `post-pr-comment` are both false below, so CodeQL only
+    # needs to read the workflow metadata and source it analyzes.
     permissions:
       actions: read
       contents: read
-      security-events: write
-      packages: read
-      pull-requests: write
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -1438,8 +1535,6 @@ jobs:
         run: protolint lint -config_path=.protolint.yaml crates/rpc/proto/
 
   migration-police:
-    permissions:
-      contents: read
     needs:
       - changes
     if: ${{ contains(github.ref, 'pull-request/') }}
@@ -1451,13 +1546,17 @@ jobs:
           persist-credentials: false
           fetch-depth: 0
 
-      - name: Check new migration timestamps
+      - name: Check migration policy
         run: |
           git fetch --no-tags origin main:refs/remotes/origin/main
           bash scripts/check-migration-filenames.sh --base origin/main
+          bash scripts/check-migration-immutability.sh --base origin/main
 
   proto-breaking-changes:
     name: Proto Breaking Changes Check
+    needs:
+      - changes
+    if: ${{ needs.changes.outputs.run_core_ci == 'true' }}
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
@@ -1489,8 +1588,6 @@ jobs:
 
   check-rest-core-proto-sync:
     name: Check REST Core Proto Sync
-    permissions:
-      contents: read
     needs:
       - prepare
     if: ${{ needs.prepare.outputs.core_rpc_proto_files_changed == 'true' }}
@@ -1517,6 +1614,11 @@ jobs:
           "make sync-protobuf (from the repository root)"
 
   lint-police:
+    # Merge validation uses the PR API to resolve `.base.ref`, then fetches
+    # that branch before creating the local merge result. It never edits the PR.
+    permissions:
+      contents: read
+      pull-requests: read
     needs:
       - prepare
       - build-container-x86_64
@@ -1535,16 +1637,28 @@ jobs:
           persist-credentials: false
 
       - name: Build pull request merge result
+        shell: bash
         env:
           GITHUB_TOKEN: ${{ github.token }}
         run: |
+          set -o pipefail
           git config --global --add safe.directory "$GITHUB_WORKSPACE"
           PR_NUMBER="${GITHUB_REF_NAME##pull-request/}"
-          TARGET=$(curl -sf \
-            -H "Authorization: Bearer $GITHUB_TOKEN" \
-            -H "Accept: application/vnd.github+json" \
-            "https://api.github.com/repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER" \
-            | jq -r '.base.ref')
+          if ! TARGET="$(
+            curl -sf \
+              -H "Authorization: Bearer $GITHUB_TOKEN" \
+              -H "Accept: application/vnd.github+json" \
+              "https://api.github.com/repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER" \
+              | jq -r '.base.ref'
+          )"; then
+            echo "Could not query the base ref for PR ${PR_NUMBER}." >&2
+            echo "Confirm the lint-police job still declares 'pull-requests: read'." >&2
+            exit 1
+          fi
+          if [[ -z "${TARGET}" || "${TARGET}" == "null" ]]; then
+            echo "Could not resolve the base ref for PR ${PR_NUMBER}." >&2
+            exit 1
+          fi
           git fetch --no-tags origin "${TARGET}:refs/remotes/origin/${TARGET}"
           git -c user.name="CI merge validation" \
             -c user.email=ci@example.invalid \
@@ -1985,6 +2099,7 @@ jobs:
       - test-release-container-services
       - build-boot-artifacts-x86
       - build-boot-artifacts-bfb
+      - build-package-scout-aarch64
       - build-boot-artifacts-ephemeral-image-x86-host
       - build-boot-artifacts-ephemeral-image-arm-host
       - build-forge-cli-x86_64
@@ -2091,6 +2206,7 @@ jobs:
       - test-release-container-services
       - build-boot-artifacts-x86
       - build-boot-artifacts-bfb
+      - build-package-scout-aarch64
       - build-boot-artifacts-ephemeral-image-x86-host
       - build-boot-artifacts-ephemeral-image-arm-host
       - build-forge-cli-x86_64
@@ -2128,61 +2244,101 @@ jobs:
       slack-bot-token: ${{ secrets.CDS_SLACK_BOT_OAUTH_TOKEN }}
 
   # ============================================================================
-  # AGGREGATOR — single required check for branch protection
+  # FINAL CORE CI GATE
   # ============================================================================
-  # Fails iff any required job listed in `needs` is `failure` or `cancelled`.
+  # Passes only when every required job reports `success` or `skipped`.
   # `skipped` counts as pass — that's how rest-only PRs unblock when the
   # `changes` gate intentionally skips the core pipeline.
-  # Every stage of each gated release chain is listed so an upstream failure
-  # cannot be hidden when its downstream jobs become SKIPPED.
-  # `changes` + `prepare` are also included so a gate or prepare failure doesn't
-  # silently pass.
-  # Branch protection ruleset should require ONLY this aggregator + rest-ci-pass.
+  # Any other result, plus missing or malformed data, fails closed.
+  # Every job that can determine Core CI health is listed so an upstream
+  # failure cannot be hidden when its downstream jobs become `skipped`.
+  # Reporting-only jobs are explicitly exempted, and the checker in `changes`
+  # rejects every job that is neither gated nor exempted.
+  # The checker also protects `if: always()` so a failed dependency cannot skip
+  # this required check.
+  # Branch protection should require only this gate and `rest-ci-pass`.
   core-ci-pass:
     name: core-ci-pass
     runs-on: ubuntu-latest
     if: always()
     needs:
+      # Detection and preparation
       - changes
       - prepare
-      # x86_64 release-container chain
+
+      # Build, runtime, and artifact base images
       - build-container-x86_64
-      - build-runtime-container-x86_64
-      - build-release-container-x86_64
-      # aarch64 release-container chain
       - build-container-aarch64
+      - build-runtime-container-x86_64
       - build-runtime-container-aarch64
-      - build-release-container-aarch64
-      - test-release-container-services
-      # x86_64 release-artifact chain
       - build-artifacts-container-x86_64
-      - build-boot-artifacts-x86
-      - build-boot-artifacts-ephemeral-image-x86-host
-      - build-release-artifacts-x86-host
-      # aarch64 release-artifact chain
       - build-artifacts-container-aarch64
-      - build-boot-artifacts-bfb
-      - build-boot-artifacts-ephemeral-image-arm-host
-      - build-release-artifacts-arm-host
-      - security-secret-scan
-      - lint-police
-      - migration-police
-      - check-rest-core-proto-sync
+
+      # Release containers and service builds
+      - build-release-container-x86_64
+      - build-release-container-aarch64
+      - merge-manifests-nvmetal-carbide
       - build-machine-a-tron
       - build-mat-k8s-controller
+      - test-release-container-services
+
+      # CLI images
+      - build-forge-cli-x86_64
+      - build-forge-cli-aarch64
+      - merge-manifests-forge-cli
+
+      # Boot and release artifacts
+      - build-boot-artifacts-x86
+      - build-boot-artifacts-bfb
+      - build-package-scout-aarch64
+      - build-boot-artifacts-ephemeral-image-x86-host
+      - build-boot-artifacts-ephemeral-image-arm-host
+      - build-release-artifacts-x86-host
+      - build-release-artifacts-arm-host
+
+      # Security checks
+      - security-secret-scan
+      - security-codeql-scan
+
+      # Machine validation images
+      - build-release-machine-validation-runner
+      - build-release-machine-validation-artifacts-x86-host
+      - build-release-machine-validation-artifacts-arm-host
+      - merge-manifests-machine-validation
+
+      # Source and repository policy checks
+      - proto-police
+      - lint-police
+      - migration-police
+      - proto-breaking-changes
+      - check-rest-core-proto-sync
+
+      # Core Helm charts
+      - build-validate-helm-chart
+      - build-push-helm-chart
+      - build-validate-helm-prereqs-chart
+      - build-push-helm-prereqs-chart
+
+      # BlueField binaries, images, and charts
+      - build-bluefield-binaries
+      - build-bluefield-otelcol-contrib
+      - build-bluefield-transceiver-exporter
+      - download-mft-aarch64
+      - build-bluefield-forge-dpu-agent
+      - build-bluefield-forge-dhcp-server
+      - build-bluefield-carbide-fmds
+      - build-validate-bluefield-helm-charts
+      - build-push-bluefield-helm-charts
+
+      # Post-build publication
+      - promote-to-be-scanned-image
     steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
       - name: Decide pass/fail
         env:
           NEEDS_JSON: ${{ toJson(needs) }}
-        run: |
-          set -euo pipefail
-          echo "$NEEDS_JSON" | jq -r 'to_entries[] | "\(.key): \(.value.result)"'
-          if echo "$NEEDS_JSON" | jq -e '
-            to_entries
-            | map(select(.value.result == "failure" or .value.result == "cancelled"))
-            | length > 0
-          ' >/dev/null; then
-            echo "::error::One or more required jobs failed or were cancelled"
-            exit 1
-          fi
-          echo "All required jobs OK (success or skipped)"
+        run: python3 -B .github/ci/check_ci_gate.py results

@@ -121,7 +121,8 @@ impl TestApiBuilder {
         }
     }
 
-    pub fn with_eth_data(self, eth_data: EthVirtData) -> Self {
+    #[cfg(test)]
+    pub(crate) fn with_eth_data(self, eth_data: EthVirtData) -> Self {
         Self {
             eth_data: Some(eth_data),
             ..self

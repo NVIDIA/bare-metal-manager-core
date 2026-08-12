@@ -63,12 +63,15 @@ pub const DUMMY_FACTORY_PASSWORD: &str = "factory_password";
 pub enum RackType {
     #[serde(rename = "wiwynn_gb200_nvl72")]
     WiwynnGb200Nvl72,
+    #[serde(rename = "lenovo_gb300_nvl72")]
+    LenovoGb300Nvl72,
 }
 
 impl fmt::Display for RackType {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::WiwynnGb200Nvl72 => formatter.write_str("WIWYNN GB200 NVL72"),
+            Self::LenovoGb300Nvl72 => formatter.write_str("Lenovo GB300 NVL72"),
         }
     }
 }

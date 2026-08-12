@@ -16,6 +16,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/uptrace/bun"
 	"google.golang.org/protobuf/encoding/protojson"
+	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
 const (
@@ -91,15 +92,17 @@ type SKU struct {
 
 // ToProto converts the REST database projection into its Core SKU representation.
 //
-// The Core-level Created timestamp is omitted because the REST projection does
-// not store it. SiteID is also omitted because it is not carried by the Core SKU
-// message; callers supply it separately to FromProto.
+// SiteID is omitted because it is not carried by the Core SKU message; callers
+// supply it separately to FromProto.
 func (sk *SKU) ToProto() *corev1.Sku {
 	proto := &corev1.Sku{
 		Id:            sk.ID,
 		Description:   &sk.Description,
 		SchemaVersion: sk.SchemaVersion,
 		DeviceType:    sk.DeviceType,
+	}
+	if !sk.Created.IsZero() {
+		proto.Created = timestamppb.New(sk.Created)
 	}
 	if sk.Components != nil {
 		proto.Components = sk.Components.SkuComponents
@@ -124,6 +127,9 @@ func (sk *SKU) ToProto() *corev1.Sku {
 //     non-empty IDs at the activity layer).
 //   - `Description` uses the protobuf default when absent, so a nil Core
 //     description clears any stale REST projection value.
+//   - `Created` is normalized to REST DB precision when Core supplies a valid
+//     timestamp and is zero otherwise so create and update callers can apply
+//     their respective fallback semantics.
 //   - `Components` mirrors the proto: stays nil when `proto.Components`
 //     is nil, otherwise wraps it, so the activity layer can distinguish
 //     "not provided" from "explicitly set".
@@ -140,6 +146,10 @@ func (sk *SKU) FromProto(proto *corev1.Sku, siteID uuid.UUID) {
 	sk.Description = proto.GetDescription()
 	sk.SchemaVersion = proto.SchemaVersion
 	sk.DeviceType = proto.DeviceType
+	sk.Created = time.Time{}
+	if proto.Created != nil && proto.Created.IsValid() {
+		sk.Created = proto.Created.AsTime().UTC().Round(time.Microsecond)
+	}
 	if proto.Components != nil {
 		sk.Components = &SkuComponents{SkuComponents: proto.Components}
 	} else {
@@ -167,6 +177,7 @@ type SkuCreateInput struct {
 	Components           *SkuComponents
 	DeviceType           *string
 	AssociatedMachineIds []string
+	Created              *time.Time
 }
 
 // SkuUpdateInput input parameters for Update method
@@ -177,6 +188,7 @@ type SkuUpdateInput struct {
 	Components           *SkuComponents
 	DeviceType           *string
 	AssociatedMachineIds []string
+	Created              *time.Time
 }
 
 // SkuFilterInput input parameters for Filter method
@@ -193,8 +205,11 @@ var _ bun.BeforeAppendModelHook = (*SKU)(nil)
 func (s *SKU) BeforeAppendModel(ctx context.Context, query bun.Query) error {
 	switch query.(type) {
 	case *bun.InsertQuery:
-		s.Created = db.GetCurTime()
-		s.Updated = db.GetCurTime()
+		now := db.GetCurTime()
+		if s.Created.IsZero() {
+			s.Created = now
+		}
+		s.Updated = now
 	case *bun.UpdateQuery:
 		s.Updated = db.GetCurTime()
 	}
@@ -247,6 +262,9 @@ func (ssd SkuSQLDAO) Create(ctx context.Context, tx *db.Tx, input SkuCreateInput
 		DeviceType:           input.DeviceType,
 		Components:           input.Components,
 		AssociatedMachineIds: input.AssociatedMachineIds,
+	}
+	if input.Created != nil && !input.Created.IsZero() {
+		sk.Created = input.Created.UTC().Round(time.Microsecond)
 	}
 
 	_, err := db.GetIDB(tx, ssd.dbSession).NewInsert().Model(sk).Exec(ctx)
@@ -361,6 +379,10 @@ func (ssd SkuSQLDAO) Update(ctx context.Context, tx *db.Tx, input SkuUpdateInput
 
 	sk := &SKU{ID: input.SkuID}
 	updatedFields := []string{}
+	if input.Created != nil && !input.Created.IsZero() {
+		sk.Created = input.Created.UTC().Round(time.Microsecond)
+		updatedFields = append(updatedFields, "created")
+	}
 
 	if input.Description != nil {
 		sk.Description = *input.Description

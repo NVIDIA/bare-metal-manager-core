@@ -160,6 +160,7 @@ var commandPathAliases = map[string][]string{
 	"create-or-update-machine-health-report":            {"health-report", "update"},
 	"create-or-update-tenant-identity-config":           {"tenant-identity", "update"},
 	"create-or-update-tenant-identity-token-delegation": {"tenant-identity", "token-delegation", "update"},
+	"create-site-explorer-endpoint-action":              {"site-explorer", "create"},
 	"delete-all-expected-rack":                          {"expected-rack", "delete-all"},
 	"delete-tenant-identity-token-delegation":           {"tenant-identity", "token-delegation", "delete"},
 	"firmware-update-rack":                              {"rack", "firmware"},
@@ -508,7 +509,7 @@ func extractResourceSuffix(opID string) string {
 	prefixes := []string{
 		"batch-create-", "batch-update-",
 		"get-all-", "get-current-",
-		"create-", "update-", "delete-", "get-",
+		"create-", "update-", "delete-", "get-", "start-",
 	}
 	for _, p := range prefixes {
 		if strings.HasPrefix(opID, p) {
@@ -1289,6 +1290,7 @@ func operationAction(opID string) string {
 		{prefix: "update-", action: "update"},
 		{prefix: "delete-", action: "delete"},
 		{prefix: "get-", bare: "get"},
+		{prefix: "start-", action: "start"},
 	}
 
 	for _, p := range patterns {

@@ -173,11 +173,23 @@ nico-machine-a-tron:
   enabled: true
   machineATron:
     nicoApiUrl: https://nico-api.nico-system.svc.cluster.local:1079
+  persistence:
+    enabled: true
   certificate:
     uris:
       - spiffe://nico.local/nico-system/sa/machine-a-tron
   pods:
     mat-0:
+      racks:
+        gb200:
+          type: wiwynn_gb200_nvl72
+          rack_profile_id: NVL72
+          ids:
+            - rack-001
+          dpu_reboot_delay: 20
+          host_reboot_delay: 10
+          oob_dhcp_relay_address: 192.168.192.1
+          admin_dhcp_relay_address: 192.168.176.1
       machines:
         rack-machines:
           hwType: wiwynn_gb200_nvl

@@ -15,6 +15,7 @@
  * limitations under the License.
  */
 
+use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
 use std::time::Duration;
@@ -50,12 +51,36 @@ pub(super) struct PeriodicConfigFetcher {
 pub(super) struct PeriodicConfigFetcherReader {
     state: Arc<PeriodicFetcherState>,
 }
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(super) struct PublicAddresses {
+    pub(super) ipv4: Option<Ipv4Addr>,
+    pub(super) ipv6: Option<Ipv6Addr>,
+}
+
+impl PublicAddresses {
+    /// Preserves FMDS's empty-string contract when no IPv4 address is assigned.
+    pub(super) fn ipv4_string(self) -> String {
+        self.ipv4
+            .map(|address| address.to_string())
+            .unwrap_or_default()
+    }
+
+    /// Preserves FMDS's empty-string contract when no IPv6 address is assigned.
+    pub(super) fn ipv6_string(self) -> String {
+        self.ipv6
+            .map(|address| address.to_string())
+            .unwrap_or_default()
+    }
+}
+
 /// The instance metadata - as fetched from the
 /// Forge Site Controller
 #[derive(Clone, Debug)]
 pub(super) struct InstanceMetadata {
-    pub(super) address: String,
+    pub(super) public_addresses: PublicAddresses,
     pub(super) hostname: String,
+    pub(super) instance_name: Option<String>,
     pub(super) sitename: Option<String>,
     pub(super) instance_id: Option<InstanceId>,
     pub(super) machine_id: Option<MachineId>,
@@ -254,6 +279,44 @@ async fn fetch(
     get_periodic_dpu_config(&mut client, dpu_machine_id).await
 }
 
+/// Picks the lowest address in each family across physical interfaces because HostInband status
+/// is built from maps and does not have a stable interface or address order.
+fn select_public_addresses(
+    interfaces: &[rpc::InstanceInterfaceStatus],
+) -> Result<PublicAddresses, eyre::Error> {
+    let mut public_addresses = PublicAddresses::default();
+
+    let addresses = interfaces
+        .iter()
+        .filter(|interface| interface.virtual_function_id.is_none())
+        .flat_map(|interface| &interface.addresses);
+
+    for value in addresses {
+        let address = value
+            .parse::<IpAddr>()
+            .wrap_err_with(|| format!("invalid physical interface address `{value}`"))?;
+
+        match address {
+            IpAddr::V4(address) => {
+                public_addresses.ipv4 = Some(
+                    public_addresses
+                        .ipv4
+                        .map_or(address, |current| current.min(address)),
+                );
+            }
+            IpAddr::V6(address) => {
+                public_addresses.ipv6 = Some(
+                    public_addresses
+                        .ipv6
+                        .map_or(address, |current| current.min(address)),
+                );
+            }
+        }
+    }
+
+    Ok(public_addresses)
+}
+
 fn instance_metadata_from_instance(
     instance: Option<Instance>,
     sitename: Option<String>,
@@ -272,17 +335,18 @@ fn instance_metadata_from_instance(
 
     let instance_id = instance.id;
 
-    let pf_address = instance
+    let instance_name = instance
+        .metadata
+        .as_ref()
+        .map(|metadata| metadata.name.clone())
+        .filter(|name| !name.is_empty());
+
+    let public_addresses = instance
         .status
         .as_ref()
         .and_then(|status| status.network.as_ref())
-        .and_then(|network| {
-            network
-                .interfaces
-                .iter()
-                .find(|interface| interface.virtual_function_id.is_none()) // We only want an IP address of a physical function
-                .and_then(|interface| interface.addresses.first().cloned())
-        })
+        .map(|network| select_public_addresses(&network.interfaces))
+        .transpose()?
         .unwrap_or_default();
 
     let user_data = instance
@@ -301,8 +365,9 @@ fn instance_metadata_from_instance(
     };
 
     Ok(Some(InstanceMetadata {
-        address: pf_address,
+        public_addresses,
         hostname,
+        instance_name,
         sitename,
         instance_id,
         machine_id,
@@ -369,4 +434,79 @@ fn extract_instance_ib_config(instance: &Instance) -> Result<Vec<IBDeviceConfig>
     }
 
     Ok(devices)
+}
+
+#[cfg(test)]
+mod tests {
+    use carbide_test_support::Outcome::{Fails, Yields};
+    use carbide_test_support::scenarios;
+
+    use super::*;
+
+    #[test]
+    fn public_address_selection_is_family_specific_and_stable() {
+        let ipv4_low: Ipv4Addr = "192.0.2.10".parse().unwrap();
+        let ipv6_low: Ipv6Addr = "2001:db8::10".parse().unwrap();
+
+        scenarios!(
+            run = |interfaces: Vec<(Option<u32>, Vec<&str>)>| {
+                let interfaces = interfaces
+                    .into_iter()
+                    .map(|(virtual_function_id, addresses)| rpc::InstanceInterfaceStatus {
+                        virtual_function_id,
+                        addresses: addresses.into_iter().map(str::to_owned).collect(),
+                        ..Default::default()
+                    })
+                    .collect::<Vec<_>>();
+                select_public_addresses(&interfaces).map_err(drop)
+            };
+            "no addresses" {
+                vec![] => Yields(PublicAddresses::default()),
+            }
+
+            "one address family" {
+                vec![(None, vec!["192.0.2.20", "192.0.2.10"])] => Yields(PublicAddresses {
+                    ipv4: Some(ipv4_low),
+                    ipv6: None,
+                }),
+                vec![(None, vec!["2001:db8::20", "2001:db8::10"])] => Yields(PublicAddresses {
+                    ipv4: None,
+                    ipv6: Some(ipv6_low),
+                }),
+            }
+
+            "dual-stack address order" {
+                vec![(None, vec!["2001:db8::10", "192.0.2.20", "2001:db8::20", "192.0.2.10"])] => Yields(PublicAddresses {
+                    ipv4: Some(ipv4_low),
+                    ipv6: Some(ipv6_low),
+                }),
+                vec![(None, vec!["192.0.2.10", "2001:db8::20", "192.0.2.20", "2001:db8::10"])] => Yields(PublicAddresses {
+                    ipv4: Some(ipv4_low),
+                    ipv6: Some(ipv6_low),
+                }),
+            }
+
+            "dual-stack physical interface order" {
+                vec![
+                    (None, vec!["192.0.2.20", "192.0.2.10"]),
+                    (None, vec!["2001:db8::20", "2001:db8::10"]),
+                ] => Yields(PublicAddresses {
+                    ipv4: Some(ipv4_low),
+                    ipv6: Some(ipv6_low),
+                }),
+                vec![
+                    (None, vec!["2001:db8::10"]),
+                    (Some(0), vec!["192.0.2.1"]),
+                    (None, vec!["192.0.2.10"]),
+                ] => Yields(PublicAddresses {
+                    ipv4: Some(ipv4_low),
+                    ipv6: Some(ipv6_low),
+                }),
+            }
+
+            "invalid address" {
+                vec![(None, vec!["not-an-address"])] => Fails,
+            }
+        );
+    }
 }

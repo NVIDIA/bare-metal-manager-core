@@ -140,8 +140,10 @@ impl FmdsGrpcClient {
             .unwrap_or_default();
 
         let update = FmdsConfigUpdate {
-            address: metadata.address.clone(),
+            address: metadata.public_addresses.ipv4_string(),
+            address_ipv6: metadata.public_addresses.ipv6_string(),
             hostname: metadata.hostname.clone(),
+            instance_name: metadata.instance_name.clone(),
             sitename: metadata.sitename.clone(),
             instance_id: metadata.instance_id,
             machine_id: metadata.machine_id,

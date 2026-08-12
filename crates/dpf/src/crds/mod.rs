@@ -15,4 +15,9 @@
  * limitations under the License.
  */
 
+#![allow(
+    unreachable_pub,
+    reason = "kopium emits public re-exports inside private generated prelude modules"
+)]
+
 include!(concat!(env!("OUT_DIR"), "/crds/mod.rs"));

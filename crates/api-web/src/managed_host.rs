@@ -171,15 +171,7 @@ impl ManagedHostRowDisplay {
             .interfaces
             .into_iter()
             .find(|i| i.primary_interface)
-            .map(|i| {
-                (
-                    i.addresses
-                        .first()
-                        .map(|i| i.to_string())
-                        .unwrap_or_default(),
-                    i.mac_address.to_string(),
-                )
-            })
+            .map(|i| (i.addresses.iter().join(","), i.mac_address.to_string()))
             .unwrap_or_default();
 
         Self {
@@ -238,7 +230,7 @@ impl From<model::machine::Machine> for AttachedDpuRowDisplay {
             .unwrap_or_default();
         let primary_iface = item.status.interfaces.iter().find(|i| i.primary_interface);
         let oob_ip = primary_iface
-            .and_then(|t| t.addresses.first().map(|a| a.to_string()))
+            .map(|interface| interface.addresses.iter().join(","))
             .unwrap_or_default();
         let oob_mac = primary_iface
             .map(|t| t.mac_address.to_string())
@@ -870,6 +862,7 @@ impl super::Base for ManagedHostShow {}
 
 #[cfg(test)]
 mod tests {
+    use itertools::Itertools;
     use model::machine::LoadSnapshotOptions;
 
     use super::ManagedHostRowDisplay;
@@ -905,8 +898,56 @@ mod tests {
             "Unexpected number of managed host snapshots"
         );
 
-        let snapshot = snapshots.into_iter().next().unwrap();
+        let mut snapshot = snapshots.into_iter().next().unwrap();
         assert_eq!(snapshot.host_snapshot.id, machine_id);
+
+        snapshot
+            .host_snapshot
+            .status
+            .interfaces
+            .iter_mut()
+            .find(|interface| interface.primary_interface)
+            .expect("host should have a primary interface")
+            .addresses
+            .push("2001:db8::10".parse().unwrap());
+        for (dpu, address) in snapshot
+            .dpu_snapshots
+            .iter_mut()
+            .zip(["2001:db8::20", "2001:db8::30"])
+        {
+            dpu.status
+                .interfaces
+                .iter_mut()
+                .find(|interface| interface.primary_interface)
+                .expect("DPU should have a primary interface")
+                .addresses
+                .push(address.parse().unwrap());
+        }
+
+        let host_admin_ips = snapshot
+            .host_snapshot
+            .status
+            .interfaces
+            .iter()
+            .find(|interface| interface.primary_interface)
+            .expect("host should have a primary interface")
+            .addresses
+            .iter()
+            .join(",");
+        let dpu_oob_ips: Vec<String> = snapshot
+            .dpu_snapshots
+            .iter()
+            .map(|dpu| {
+                dpu.status
+                    .interfaces
+                    .iter()
+                    .find(|interface| interface.primary_interface)
+                    .expect("DPU should have a primary interface")
+                    .addresses
+                    .iter()
+                    .join(",")
+            })
+            .collect();
 
         let sla_config = model::machine::slas::MachineSlaConfig::new(
             env.api()
@@ -935,7 +976,7 @@ mod tests {
         assert_eq!(row.machine_id, machine_id.to_string());
         assert!(!row.health_sources.is_empty());
         assert!(row.health_probe_alerts.is_empty());
-        assert!(!row.host_admin_ip.is_empty());
+        assert_eq!(row.host_admin_ip, host_admin_ips);
         assert_eq!(row.host_admin_mac, mh.host.primary_mac().to_string());
         assert!(row.state_reason.is_empty());
 
@@ -948,7 +989,7 @@ mod tests {
         assert_eq!(row.dpus[0].bmc_ip, build_data.dpu_bmc_ip(0).to_string());
         assert_eq!(row.dpus[0].bmc_mac, dpu_1.bmc_mac.to_string());
         assert_eq!(row.dpus[0].oob_mac, dpu_1.oob_mac().to_string());
-        assert!(!row.dpus[0].oob_ip.is_empty(), "dpu should show an oob ip");
+        assert_eq!(row.dpus[0].oob_ip, dpu_oob_ips[0]);
 
         assert_eq!(
             row.dpus[1].machine_id,
@@ -957,7 +998,7 @@ mod tests {
         assert_eq!(row.dpus[1].bmc_ip, build_data.dpu_bmc_ip(1).to_string());
         assert_eq!(row.dpus[1].bmc_mac, dpu_2.bmc_mac.to_string());
         assert_eq!(row.dpus[1].oob_mac, dpu_2.oob_mac().to_string());
-        assert!(!row.dpus[1].oob_ip.is_empty(), "dpu should show an oob ip");
+        assert_eq!(row.dpus[1].oob_ip, dpu_oob_ips[1]);
 
         Ok(())
     }

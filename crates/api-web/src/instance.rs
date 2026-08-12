@@ -454,7 +454,7 @@ impl From<forgerpc::Instance> for InstanceDetail {
 }
 
 async fn get_network_segments_map_for_instance(
-    state: Arc<Api>,
+    state: &Api,
     if_configs: &[forgerpc::InstanceInterfaceConfig],
 ) -> Result<HashMap<NetworkSegmentId, NetworkSegment>, tonic::Status> {
     let network_segment_ids: Vec<NetworkSegmentId> = if_configs
@@ -483,14 +483,9 @@ async fn get_network_segments_map_for_instance(
 }
 
 async fn get_vpc_map_for_instance(
-    state: Arc<Api>,
-    network_segments_map: &HashMap<NetworkSegmentId, NetworkSegment>,
+    state: &Api,
+    vpc_ids: Vec<VpcId>,
 ) -> Result<HashMap<VpcId, forgerpc::Vpc>, tonic::Status> {
-    let vpc_ids: Vec<VpcId> = network_segments_map
-        .values()
-        .filter_map(|ns| ns.config.as_ref().and_then(|c| c.vpc_id))
-        .collect();
-
     let vpc_req = tonic::Request::new(forgerpc::VpcsByIdsRequest { vpc_ids });
 
     let vpcs = state.find_vpcs_by_ids(vpc_req).await?.into_inner().vpcs;
@@ -504,16 +499,17 @@ async fn get_vpc_map_for_instance(
 }
 
 async fn get_interfaces_for_instance_detail(
-    state: Arc<Api>,
+    state: &Api,
     instance: &forgerpc::Instance,
 ) -> Result<Vec<InstanceInterface>, tonic::Status> {
-    let mut interfaces = Vec::new();
-    let if_configs = instance
+    let network_config = instance
         .config
         .as_ref()
-        .and_then(|config| config.network.as_ref())
+        .and_then(|config| config.network.as_ref());
+    let if_configs = network_config
         .map(|config| config.interfaces.as_slice())
         .unwrap_or_default();
+    let is_auto_network = network_config.is_some_and(|config| config.auto_config.is_some());
     let if_status = instance
         .status
         .as_ref()
@@ -521,55 +517,90 @@ async fn get_interfaces_for_instance_detail(
         .map(|status| status.interfaces.as_slice())
         .unwrap_or_default();
 
-    if if_configs.len() != if_status.len() {
-        return Ok(interfaces);
+    if !is_auto_network && if_configs.len() != if_status.len() {
+        return Ok(Vec::new());
     }
 
-    let network_segments_map =
-        get_network_segments_map_for_instance(state.clone(), if_configs).await?;
+    let network_segments_map = if is_auto_network {
+        HashMap::new()
+    } else {
+        get_network_segments_map_for_instance(state, if_configs).await?
+    };
 
-    let vpc_map = get_vpc_map_for_instance(state, &network_segments_map).await?;
+    let vpc_ids = if is_auto_network {
+        if_status
+            .iter()
+            .filter_map(|status| status.vpc_id)
+            .collect()
+    } else {
+        network_segments_map
+            .values()
+            .filter_map(|segment| segment.config.as_ref().and_then(|config| config.vpc_id))
+            .collect()
+    };
 
-    for (i, interface) in if_configs.iter().enumerate() {
-        let mut vpc_id = "".to_string();
-        let mut vpc_name = "".to_string();
+    let vpc_map = get_vpc_map_for_instance(state, vpc_ids).await?;
 
-        if let Some(ns_id) = interface.network_segment_id
-            && let Some(ns) = network_segments_map.get(&ns_id)
-            && let Some(vpc_id_val) = ns.config.as_ref().and_then(|c| c.vpc_id)
-            && let Some(vpc) = vpc_map.get(&vpc_id_val)
-        {
-            vpc_id = vpc.id.map(|id| id.to_string()).unwrap_or_default();
-            vpc_name = vpc
-                .metadata
-                .as_ref()
-                .map(|x| x.name.as_str())
-                .unwrap_or("<no name>")
-                .to_string();
-        }
+    let interfaces = if_status
+        .iter()
+        .enumerate()
+        .map(|(index, status)| {
+            let interface = if_configs.get(index);
+            let function_type = match interface {
+                Some(interface) => {
+                    forgerpc::InterfaceFunctionType::try_from(interface.function_type)
+                        .ok()
+                        .map(|interface_type| format!("{interface_type:?}"))
+                        .unwrap_or_else(|| "INVALID".to_string())
+                }
+                None => match status.virtual_function_id {
+                    Some(_) => format!("{:?}", forgerpc::InterfaceFunctionType::Virtual),
+                    None => format!("{:?}", forgerpc::InterfaceFunctionType::Physical),
+                },
+            };
+            let vpc_id = if is_auto_network {
+                status.vpc_id
+            } else {
+                interface
+                    .and_then(|interface| interface.network_segment_id)
+                    .and_then(|network_segment_id| network_segments_map.get(&network_segment_id))
+                    .and_then(|segment| segment.config.as_ref())
+                    .and_then(|config| config.vpc_id)
+            };
+            let vpc = vpc_id.and_then(|vpc_id| vpc_map.get(&vpc_id));
+            let mac_address = status
+                .mac_address
+                .clone()
+                .unwrap_or("<unknown>".to_string());
+            InstanceInterface {
+                function_type,
+                vf_id: status
+                    .virtual_function_id
+                    .map(|id| id.to_string())
+                    .unwrap_or_default(),
+                segment_id: interface
+                    .map(|interface| interface.network_segment_id.unwrap_or_default().to_string())
+                    .unwrap_or_default(),
+                mac_address,
+                addresses: status.addresses.join(", "),
+                gateways: status.gateways.join(", "),
+                vpc_id: vpc
+                    .and_then(|vpc| vpc.id)
+                    .map(|id| id.to_string())
+                    .unwrap_or_default(),
+                vpc_name: vpc
+                    .map(|vpc| {
+                        vpc.metadata
+                            .as_ref()
+                            .map(|metadata| metadata.name.as_str())
+                            .unwrap_or("<no name>")
+                    })
+                    .unwrap_or_default()
+                    .to_string(),
+            }
+        })
+        .collect();
 
-        let status = &if_status[i];
-        let mac_address = status
-            .mac_address
-            .clone()
-            .unwrap_or("<unknown>".to_string());
-        interfaces.push(InstanceInterface {
-            function_type: forgerpc::InterfaceFunctionType::try_from(interface.function_type)
-                .ok()
-                .map(|ty| format!("{ty:?}"))
-                .unwrap_or_else(|| "INVALID".to_string()),
-            vf_id: status
-                .virtual_function_id
-                .map(|id| id.to_string())
-                .unwrap_or_default(),
-            segment_id: interface.network_segment_id.unwrap_or_default().to_string(),
-            mac_address,
-            addresses: status.addresses.clone().join(", "),
-            gateways: status.gateways.clone().join(", "),
-            vpc_id,
-            vpc_name,
-        });
-    }
     Ok(interfaces)
 }
 
@@ -629,7 +660,7 @@ pub(super) async fn detail(
         return (StatusCode::OK, Json(instance)).into_response();
     }
 
-    let instance_detail_interfaces = get_interfaces_for_instance_detail(state.clone(), &instance)
+    let instance_detail_interfaces = get_interfaces_for_instance_detail(&state, &instance)
         .await
         .unwrap_or_else(|_| Vec::new());
     let mut instance_detail: InstanceDetail = instance.into();
@@ -639,3 +670,92 @@ pub(super) async fn detail(
 
 impl super::Base for InstanceShow {}
 impl super::Base for InstanceDetail {}
+
+#[cfg(test)]
+mod tests {
+    use carbide_test_harness::TestHarness;
+
+    use super::*;
+
+    #[crate::sqlx_test]
+    async fn auto_network_instance_detail_uses_status_interfaces(
+        pool: sqlx::PgPool,
+    ) -> eyre::Result<()> {
+        let test_harness = TestHarness::builder(pool).build().await;
+        let vpc_id = test_harness
+            .network_controller()
+            .create_vpc("auto network instance detail")
+            .await;
+        let instance = forgerpc::Instance {
+            config: Some(forgerpc::InstanceConfig {
+                network: Some(forgerpc::InstanceNetworkConfig {
+                    interfaces: Vec::new(),
+                    auto_config: Some(forgerpc::InstanceNetworkAutoConfig {
+                        vpc_id: Some(vpc_id),
+                    }),
+                    ..Default::default()
+                }),
+                ..Default::default()
+            }),
+            status: Some(forgerpc::InstanceStatus {
+                network: Some(forgerpc::InstanceNetworkStatus {
+                    interfaces: vec![
+                        forgerpc::InstanceInterfaceStatus {
+                            mac_address: Some("02:00:00:00:00:01".to_string()),
+                            addresses: vec!["192.0.2.10".to_string(), "2001:db8::10".to_string()],
+                            gateways: vec![
+                                "192.0.2.1/24".to_string(),
+                                "2001:db8::1/64".to_string(),
+                            ],
+                            vpc_id: Some(vpc_id),
+                            ..Default::default()
+                        },
+                        forgerpc::InstanceInterfaceStatus {
+                            virtual_function_id: Some(7),
+                            mac_address: Some("02:00:00:00:00:02".to_string()),
+                            addresses: vec!["2001:db8::20".to_string()],
+                            gateways: vec!["2001:db8::1/64".to_string()],
+                            vpc_id: Some(vpc_id),
+                            ..Default::default()
+                        },
+                    ],
+                    ..Default::default()
+                }),
+                ..Default::default()
+            }),
+            ..Default::default()
+        };
+
+        let interfaces = get_interfaces_for_instance_detail(test_harness.api(), &instance).await?;
+
+        assert_eq!(interfaces.len(), 2);
+        let physical_interface = &interfaces[0];
+        assert_eq!(physical_interface.function_type, "Physical");
+        assert!(physical_interface.segment_id.is_empty());
+        assert_eq!(physical_interface.mac_address, "02:00:00:00:00:01");
+        assert_eq!(physical_interface.addresses, "192.0.2.10, 2001:db8::10");
+        assert_eq!(physical_interface.gateways, "192.0.2.1/24, 2001:db8::1/64");
+        assert_eq!(physical_interface.vpc_id, vpc_id.to_string());
+        assert_eq!(physical_interface.vpc_name, "auto network instance detail");
+
+        let virtual_interface = &interfaces[1];
+        assert_eq!(virtual_interface.function_type, "Virtual");
+        assert_eq!(virtual_interface.vf_id, "7");
+        assert!(virtual_interface.segment_id.is_empty());
+        assert_eq!(virtual_interface.mac_address, "02:00:00:00:00:02");
+        assert_eq!(virtual_interface.addresses, "2001:db8::20");
+        assert_eq!(virtual_interface.gateways, "2001:db8::1/64");
+        assert_eq!(virtual_interface.vpc_id, vpc_id.to_string());
+        assert_eq!(virtual_interface.vpc_name, "auto network instance detail");
+
+        let mut detail: InstanceDetail = instance.into();
+        detail.interfaces = interfaces;
+        let html = detail.render()?;
+        assert!(html.contains("192.0.2.10, 2001:db8::10"));
+        assert!(html.contains("2001:db8::20"));
+        assert!(html.contains(&format!("/admin/vpc/{vpc_id}")));
+        assert!(!html.contains("href=\"/admin/network-segment/\""));
+
+        Ok(())
+    }
+}

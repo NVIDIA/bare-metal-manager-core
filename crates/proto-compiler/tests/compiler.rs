@@ -17,9 +17,10 @@
 
 use std::path::Path;
 
-use carbide_proto_compiler::{CompilerConfig, Error, Schema, compile};
+use carbide_proto_compiler::{CompilerConfig, Error, Schema, TonicBuilderCodegenExt, compile, syn};
 use prost::Message as _;
 use prost_reflect::{DescriptorPool, DynamicMessage, Kind};
+use syn::{Attribute, Item};
 
 const FIXTURE_PACKAGE: &str = "carbide.proto.compiler.fixture";
 const OPTION_NAME: &str = "carbide.proto.compiler.fixture.method_annotation";
@@ -31,6 +32,86 @@ fn compile_fixture(name: &str) -> Result<Schema, Error> {
         include_paths: vec![fixtures],
         protoc_args: Vec::new(),
     })
+}
+
+fn compile_codegen_fixtures(names: &[&str]) -> Result<Schema, Error> {
+    let fixtures = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures");
+    let annotations = Path::new(env!("CARGO_MANIFEST_DIR")).join("../rpc/proto");
+    compile(&CompilerConfig {
+        proto_files: names.iter().map(|name| fixtures.join(name)).collect(),
+        include_paths: vec![fixtures, annotations],
+        protoc_args: Vec::new(),
+    })
+}
+
+fn generate_with_codegen(schema: Schema) -> tempfile::TempDir {
+    let codegen = schema.collect_codegen().expect("codegen options are valid");
+    let output = tempfile::tempdir().expect("temporary output directory is created");
+    tonic_prost_build::configure()
+        .out_dir(output.path())
+        .apply_codegen(&codegen)
+        .compile_fds(schema.file_descriptor_set)
+        .expect("fixture Rust code is generated");
+    output
+}
+
+fn parse_generated(output: &Path, package: &str) -> syn::File {
+    let generated = std::fs::read_to_string(output.join(format!("{package}.rs")))
+        .expect("generated package exists");
+    syn::parse_file(&generated).expect("generated package is valid Rust syntax")
+}
+
+fn top_level_attrs<'a>(file: &'a syn::File, name: &str) -> &'a [Attribute] {
+    file.items
+        .iter()
+        .find_map(|item| match item {
+            Item::Struct(item) if item.ident == name => Some(item.attrs.as_slice()),
+            Item::Enum(item) if item.ident == name => Some(item.attrs.as_slice()),
+            _ => None,
+        })
+        .unwrap_or_else(|| panic!("generated item `{name}` exists"))
+}
+
+fn nested_item_attrs<'a>(file: &'a syn::File, module: &str, name: &str) -> &'a [Attribute] {
+    let items = file
+        .items
+        .iter()
+        .find_map(|item| match item {
+            Item::Mod(item) if item.ident == module => {
+                item.content.as_ref().map(|(_, items)| items.as_slice())
+            }
+            _ => None,
+        })
+        .unwrap_or_else(|| panic!("generated module `{module}` exists"));
+    items
+        .iter()
+        .find_map(|item| match item {
+            Item::Struct(item) if item.ident == name => Some(item.attrs.as_slice()),
+            Item::Enum(item) if item.ident == name => Some(item.attrs.as_slice()),
+            _ => None,
+        })
+        .unwrap_or_else(|| panic!("generated enum `{module}::{name}` exists"))
+}
+
+fn has_derive(attrs: &[Attribute], expected: &str) -> bool {
+    attrs
+        .iter()
+        .filter(|attribute| attribute.path().is_ident("derive"))
+        .flat_map(|attribute| {
+            attribute
+                .parse_args_with(
+                    syn::punctuated::Punctuated::<syn::Path, syn::Token![,]>::parse_terminated,
+                )
+                .expect("generated derive attribute is valid")
+        })
+        .any(|path| {
+            path.segments
+                .iter()
+                .map(|segment| segment.ident.to_string())
+                .collect::<Vec<_>>()
+                .join("::")
+                == expected
+        })
 }
 
 fn annotation(pool: &DescriptorPool) -> DynamicMessage {
@@ -208,4 +289,99 @@ fn prost_reencoding_drops_custom_option_values() {
 fn malformed_protobuf_returns_typed_compilation_error() {
     let error = compile_fixture("malformed.proto").expect_err("malformed fixture must fail");
     assert!(matches!(error, Error::CompileProtobuf { .. }));
+}
+
+#[test]
+fn applies_annotated_derives_to_messages_enums_and_nested_types_only() {
+    let schema = compile_codegen_fixtures(&["derives.proto"]).expect("derive fixture compiles");
+    let output = generate_with_codegen(schema);
+    let generated = parse_generated(output.path(), "carbide.proto.compiler.fixture.derives");
+
+    for attrs in [
+        top_level_attrs(&generated, "AnnotatedMessage"),
+        top_level_attrs(&generated, "AnnotatedEnum"),
+        nested_item_attrs(&generated, "annotated_message", "Payload"),
+    ] {
+        assert!(has_derive(attrs, "serde::Serialize"));
+        assert!(has_derive(attrs, "serde::Deserialize"));
+    }
+
+    for attrs in [
+        top_level_attrs(&generated, "UnannotatedMessage"),
+        top_level_attrs(&generated, "UnannotatedEnum"),
+        nested_item_attrs(&generated, "unannotated_message", "Payload"),
+    ] {
+        assert!(!has_derive(attrs, "serde::Serialize"));
+        assert!(!has_derive(attrs, "serde::Deserialize"));
+    }
+
+    assert!(has_derive(
+        top_level_attrs(&generated, "AnnotatedParentOnly"),
+        "serde::Serialize"
+    ));
+    for attrs in [
+        nested_item_attrs(&generated, "annotated_parent_only", "NestedMessage"),
+        nested_item_attrs(&generated, "annotated_parent_only", "NestedEnum"),
+        nested_item_attrs(&generated, "annotated_parent_only", "Payload"),
+    ] {
+        assert!(has_derive(attrs, "serde::Serialize"));
+    }
+}
+
+#[test]
+fn fully_qualified_matcher_does_not_match_suffix_compatible_type() {
+    let schema = compile_codegen_fixtures(&["derives.proto", "derive_suffix.proto"])
+        .expect("derive fixtures compile");
+    let output = generate_with_codegen(schema);
+    let annotated = parse_generated(output.path(), "carbide.proto.compiler.fixture.derives");
+    let suffix_compatible = parse_generated(
+        output.path(),
+        "prefix.carbide.proto.compiler.fixture.derives",
+    );
+
+    assert!(has_derive(
+        top_level_attrs(&annotated, "AnnotatedMessage"),
+        "serde::Serialize"
+    ));
+    assert!(!has_derive(
+        top_level_attrs(&suffix_compatible, "AnnotatedMessage"),
+        "serde::Serialize"
+    ));
+}
+
+#[test]
+fn missing_codegen_extension_is_reported() {
+    let schema = compile_fixture("schema.proto").expect("fixture schema compiles");
+    assert!(matches!(
+        schema.collect_codegen(),
+        Err(Error::MissingCodegenExtension(
+            "carbide.codegen.v1.message_derive"
+        ))
+    ));
+}
+
+#[test]
+fn invalid_codegen_extension_shape_is_reported() {
+    let schema = compile_codegen_fixtures(&["invalid_codegen_extension.proto"])
+        .expect("invalid extension shape is valid protobuf");
+    assert!(matches!(
+        schema.collect_codegen(),
+        Err(Error::InvalidCodegenExtension(name))
+            if name == "carbide.codegen.v1.message_derive"
+    ));
+}
+
+#[test]
+fn invalid_rust_derive_is_reported_with_its_protobuf_type() {
+    let schema = compile_codegen_fixtures(&["invalid_derive.proto"])
+        .expect("invalid Rust derive is valid protobuf");
+    assert!(matches!(
+        schema.collect_codegen(),
+        Err(Error::InvalidRustDerive {
+            protobuf_type,
+            derive,
+            ..
+        }) if protobuf_type == "carbide.proto.compiler.fixture.invalid.InvalidMessage"
+            && derive == "serde::Serialize +"
+    ));
 }

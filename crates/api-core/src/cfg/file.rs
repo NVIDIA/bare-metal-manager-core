@@ -71,8 +71,22 @@ use serde::{Deserialize, Deserializer, Serialize};
 
 use crate::CarbideError;
 
-pub(crate) const DEFAULT_DPU_NUM_OF_VFS: u32 = 16;
+pub(crate) const DEFAULT_DPU_NUM_OF_VFS: u32 = carbide_dpf::DEFAULT_DPU_NUM_OF_VFS;
 pub(crate) const MAX_DPU_NUM_OF_VFS: u32 = 126;
+
+// Deployment selectors must never reuse labels whose values NICo supplies independently.
+// The shared marker would make every deployment select every DPUNode, while the contextual
+// host-BMC label is overwritten with an address during registration and would match none.
+const RESERVED_DPF_DEPLOYMENT_NODE_LABELS: [(&str, &str); 2] = [
+    (
+        carbide_dpf::DPU_ENABLED_NODE_LABEL,
+        "the shared DPF-enabled node marker",
+    ),
+    (
+        carbide_machine_controller::dpf::HOST_BMC_IP_LABEL,
+        "the per-node host BMC address",
+    ),
+];
 
 /// Parses an optional duration ("30d", "12h", ...; absent = `None`) into
 /// `Option<chrono::Duration>`. Hand-rolled because `duration_str` deprecated
@@ -1494,11 +1508,25 @@ fn default_dpf_bootstrap_ca_key() -> String {
     "ca.crt".to_string()
 }
 
-#[derive(Clone, Debug, Serialize, Default, Deserialize)]
+/// Supplies Serde's legacy PF_TOTAL_SF default when the operator omits the reserve.
+fn default_dpf_pf_total_sf_reserved() -> u32 {
+    carbide_dpf::DEFAULT_PF_TOTAL_SF_RESERVED
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct DpfConfig {
     /// Enables DPF deployment.
     #[serde(default)]
     pub enabled: bool,
+    /// Opts the DPF namespace into deployment-scoped DPUServiceInterfaces.
+    /// Changing modes requires operators to remove old-mode NICo resources and
+    /// re-ingest DPUs; NICo neither detects nor deletes those resources.
+    #[serde(default)]
+    pub deployment_scoped_service_interfaces: bool,
+    /// SF capacity reserved beyond configured NICo-managed service endpoints.
+    /// Without intercept bridging, this remains the complete legacy `PF_TOTAL_SF` value.
+    #[serde(default = "default_dpf_pf_total_sf_reserved")]
+    pub pf_total_sf_reserved: u32,
     /// Optional override for the Kubernetes `imagePullSecrets` entry used to pull the
     /// docker images of the mandatory services. When set, it is applied to every
     /// mandatory service except `dts` and `doca_hbn`, which take a pull secret only
@@ -1522,7 +1550,36 @@ pub struct DpfConfig {
     pub deployments: DpfDeploymentsConfig,
 }
 
+impl Default for DpfConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            deployment_scoped_service_interfaces: false,
+            pf_total_sf_reserved: default_dpf_pf_total_sf_reserved(),
+            docker_image_pull_secret: None,
+            dpu_agent_bootstrap_ca: DpfDpuAgentBootstrapCa::default(),
+            services: Box::default(),
+            proxy: None,
+            deployments: DpfDeploymentsConfig::default(),
+        }
+    }
+}
+
 impl DpfConfig {
+    /// Rejects Astra unless deployment-scoped ServiceInterfaces are enabled.
+    ///
+    /// Astra is supported only by the BF4+CX9 deployment class and has a
+    /// different interface inventory. Legacy global ServiceInterfaces cannot
+    /// safely distinguish it from BF3 or generic BF4 nodes.
+    pub(crate) fn validate_service_interface_scoping(&self) -> eyre::Result<()> {
+        eyre::ensure!(
+            self.deployments.bf4_astra.is_none() || self.deployment_scoped_service_interfaces,
+            "dpf.deployments.bf4_astra requires \
+             dpf.deployment_scoped_service_interfaces=true"
+        );
+        Ok(())
+    }
+
     /// Returns the top-level mandatory services with the optional
     /// [`Self::docker_image_pull_secret`] override applied. The override affects every
     /// mandatory service except `dts` and `doca_hbn`, which take a pull secret only
@@ -1798,7 +1855,8 @@ pub struct DpfBlueFieldSoftwareConfig {
 }
 
 /// Named DPUDeployment configurations under `[dpf.deployments]`.
-/// Each entry creates its own BFB, DPUFlavor, and DPUDeployment CR at startup.
+/// Each entry creates its own provisioning source, DPUFlavor, and DPUDeployment
+/// CR at startup.
 #[derive(Clone, Debug, Default, Serialize)]
 pub struct DpfDeploymentsConfig {
     /// BF3 deployment. Present by default with sensible values; override individual
@@ -1877,9 +1935,8 @@ impl DpfDeploymentsConfig {
         v
     }
 
-    /// Validates that no two active deployments share a `deployment_name`,
-    /// `flavor_name`, or `node_label_key`. Returns an error listing every
-    /// conflict so the operator can fix them all in one pass.
+    /// Validates that identifiers are unique and deployment label keys are not reserved.
+    /// Returns every conflict so the operator can fix them all in one pass.
     pub fn validate_unique_identifiers(&self) -> eyre::Result<()> {
         let deployments = self.all();
         let mut errors: Vec<String> = Vec::new();
@@ -1912,11 +1969,24 @@ impl DpfDeploymentsConfig {
             }
         }
 
+        // This is intentionally a local configuration check. Querying current DPUNode labels
+        // cannot establish safety: these keys have fixed NICo semantics before any node exists.
+        for (deployment, label_key) in &label_vals {
+            if let Some((_, purpose)) = RESERVED_DPF_DEPLOYMENT_NODE_LABELS
+                .iter()
+                .find(|(reserved, _)| label_key == reserved)
+            {
+                errors.push(format!(
+                    "node_label_key {label_key:?} for deployment {deployment:?} is reserved for {purpose}"
+                ));
+            }
+        }
+
         if errors.is_empty() {
             Ok(())
         } else {
             Err(eyre::eyre!(
-                "DPF deployment configuration has conflicting identifiers:\n  - {}",
+                "DPF deployment configuration has invalid identifiers:\n  - {}",
                 errors.join("\n  - ")
             ))
         }
@@ -3662,6 +3732,22 @@ pub struct HostInterceptBridging {
     /// By default, we expect to create these bridges.
     #[serde(default)]
     pub skip_create: bool,
+
+    /// Typed PF/VF identity used only when DPF is enabled.
+    pub dpf_interface: Option<DpfInterfaceIdentity>,
+}
+
+/// Typed DPF identity for a configured host PF or VF.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
+pub struct DpfInterfaceIdentity {
+    /// DPF controller number that owns the selected PF or VF.
+    pub controller_id: u8,
+
+    /// Physical-function identifier on the selected controller.
+    pub pf_id: u8,
+
+    /// Virtual-function identifier. Omission selects the PF itself.
+    pub vf_id: Option<u8>,
 }
 
 impl HostRepresentorBridgingConfig {
@@ -3695,8 +3781,8 @@ mod tests {
     use carbide_authn::config::CertComponent;
     use carbide_network::virtualization::VpcVirtualizationType;
     use carbide_site_explorer::config::SiteExplorerExploreMode;
-    use carbide_test_support::Outcome::Yields;
-    use carbide_test_support::{Check, check_values, scenarios};
+    use carbide_test_support::Outcome::{Fails, Yields};
+    use carbide_test_support::{Check, check_values, scenarios, value_scenarios};
     use chrono::Datelike;
     use figment::Figment;
     use figment::providers::{Env, Format, Toml};
@@ -3712,6 +3798,96 @@ mod tests {
     use crate::test_support::network_segment::FIXTURE_TENANT_ORG_ID;
 
     const TEST_DATA_DIR: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/src/cfg/test_data");
+
+    /// Verifies legacy entries remain valid while typed DPF identities require and preserve their
+    /// complete controller, PF, and optional VF selection.
+    #[test]
+    fn host_intercept_bridging_deserializes_optional_dpf_identity() {
+        scenarios!(
+            run = |config: &str| {
+                toml::from_str::<HostInterceptBridging>(config)
+                    .map(|bridging| bridging.dpf_interface)
+                    .map_err(drop)
+            };
+            "legacy compatibility" {
+                // Existing pre-DPF entries do not need typed identity.
+                "bridge = 'br-host'\npatch_port = 'p-host'" => Yields(None),
+            }
+
+            "PF identity" {
+                // Omitting vf_id selects the complete configured PF identity.
+                "bridge = 'br-host'\npatch_port = 'p-host'\ndpf_interface = { controller_id = 2, pf_id = 3 }" => Yields(Some(DpfInterfaceIdentity {
+                    controller_id: 2,
+                    pf_id: 3,
+                    vf_id: None,
+                })),
+            }
+
+            "VF identity" {
+                // Including vf_id preserves that VF under the complete configured PF identity.
+                "bridge = 'br-host'\npatch_port = 'p-host'\ndpf_interface = { controller_id = 2, pf_id = 3, vf_id = 4 }" => Yields(Some(DpfInterfaceIdentity {
+                    controller_id: 2,
+                    pf_id: 3,
+                    vf_id: Some(4),
+                })),
+            }
+
+            "missing controller identity" {
+                // A PF number without its controller cannot select DPF hardware unambiguously.
+                "bridge = 'br-host'\npatch_port = 'p-host'\ndpf_interface = { pf_id = 3 }" => Fails,
+            }
+
+            "missing PF identity" {
+                // A controller without its PF cannot select the required parent interface.
+                "bridge = 'br-host'\npatch_port = 'p-host'\ndpf_interface = { controller_id = 2 }" => Fails,
+            }
+        );
+    }
+
+    /// Verifies typed DPF identity cannot alter the legacy sorted `bf.cfg` value.
+    #[test]
+    fn dpf_identity_does_not_change_legacy_bridging_provisioning_config() {
+        // Build equivalent legacy entries with and without a typed DPF identity.
+        let make_config = |dpf_interface| HostRepresentorBridgingConfig {
+            hbn_bridge: default_hbn_bridge(),
+            host_representor_intercept_bridging: HashMap::from([
+                (
+                    "pf0vf1".to_string(),
+                    HostInterceptBridging {
+                        bridge: "br-vf1".to_string(),
+                        patch_port: "p-vf1".to_string(),
+                        skip_create: false,
+                        dpf_interface,
+                    },
+                ),
+                (
+                    "pf0vf0".to_string(),
+                    HostInterceptBridging {
+                        bridge: "br-vf0".to_string(),
+                        patch_port: "p-vf0".to_string(),
+                        skip_create: false,
+                        dpf_interface,
+                    },
+                ),
+            ]),
+        };
+        let typed_identity = Some(DpfInterfaceIdentity {
+            controller_id: 1,
+            pf_id: 0,
+            vf_id: Some(3),
+        });
+
+        // Both variants must render the exact historical ordering and wire format.
+        let expected = Some("pf0vf0:br-vf0:p-vf0,pf0vf1:br-vf1:p-vf1".to_string());
+        assert_eq!(
+            make_config(None).host_representor_intercept_bridging_provisioning_config(),
+            expected
+        );
+        assert_eq!(
+            make_config(typed_identity).host_representor_intercept_bridging_provisioning_config(),
+            expected
+        );
+    }
 
     fn vpc_config(
         routing_profile_type: Option<&str>,
@@ -6121,6 +6297,72 @@ object_kind = "secret"
         assert!(error.to_string().contains("unknown field `object_kind`"));
     }
 
+    /// Verifies deployment scoping is opt-in and is mandatory for BF4+CX9 Astra.
+    #[test]
+    fn dpf_service_interface_scoping_gates_astra() {
+        // Serde omission must preserve the legacy namespace-wide mode.
+        assert!(
+            !toml::from_str::<DpfConfig>("")
+                .unwrap()
+                .deployment_scoped_service_interfaces
+        );
+
+        value_scenarios!(
+            run = |(deployment_scoped_service_interfaces, has_astra)| {
+                let mut config = DpfConfig {
+                    deployment_scoped_service_interfaces,
+                    ..Default::default()
+                };
+                config.deployments.bf4_astra = has_astra.then(DpfDeploymentConfig::default);
+                config.validate_service_interface_scoping().is_ok()
+            };
+            "legacy default" {
+                // Omission preserves existing global ServiceInterfaces without a scoping migration.
+                (false, false) => true,
+            }
+
+            "explicit scoped mode" {
+                // Operators opt into the migration independently of Astra enablement.
+                (true, false) => true,
+            }
+
+            "unsafe Astra mode" {
+                // Astra's distinct inventory cannot be represented by legacy global resources.
+                (false, true) => false,
+            }
+
+            "scoped Astra mode" {
+                // The BF4+CX9 deployment is valid only after opting into isolated resources.
+                (true, true) => true,
+            }
+        );
+    }
+
+    /// Verifies the reserved SF setting preserves the legacy pool by default while allowing an
+    /// operator to reserve additional platform-specific capacity.
+    #[test]
+    fn dpf_pf_total_sf_reserved_defaults_and_deserializes() {
+        // Exercise omission and an explicit override through the operator-facing TOML contract.
+        value_scenarios!(
+            run = |input| toml::from_str::<DpfConfig>(input).unwrap().pf_total_sf_reserved;
+            "omitted reserve" {
+                // Omission must retain the existing PF_TOTAL_SF value for inventory-free sites.
+                "" => carbide_dpf::DEFAULT_PF_TOTAL_SF_RESERVED,
+            }
+
+            "explicit reserve" {
+                // Operators may size headroom for their DPF and firmware consumers.
+                "pf_total_sf_reserved = 47" => 47,
+            }
+        );
+
+        // Programmatic defaults must match deserialization defaults used by production config.
+        assert_eq!(
+            DpfConfig::default().pf_total_sf_reserved,
+            carbide_dpf::DEFAULT_PF_TOTAL_SF_RESERVED
+        );
+    }
+
     #[test]
     fn empty_dpf_service_uses_its_defaults() {
         let config = toml::from_str::<DpfConfig>("[services.dpu_agent]").unwrap();
@@ -6260,7 +6502,7 @@ docker_image_tag = "flow-controller-tag"
                 .get(&DpfExtraService::DocaXplane)
                 .unwrap()
                 .helm_version,
-            crate::dpf_services::DOCA_XPLANE_SERVICE_HELM_VERSION
+            crate::dpf_services::default_doca_xplane_service().helm_version
         );
     }
 
@@ -6277,7 +6519,6 @@ node_label_key = "carbide.nvidia.com/astra"
         .unwrap();
         let deployment = config.deployments.bf4_astra.as_ref().unwrap();
         let resolved = config.resolved_services_for(deployment);
-
         let dhcp_agent = resolved
             .extra
             .get(&DpfExtraService::DocaWeaveDhcpAgent)
@@ -6306,7 +6547,7 @@ node_label_key = "carbide.nvidia.com/astra"
         assert_eq!(xplane.name, carbide_dpf::types::DOCA_XPLANE_SERVICE_NAME);
         assert_eq!(
             xplane.helm_version,
-            crate::dpf_services::DOCA_XPLANE_SERVICE_HELM_VERSION
+            crate::dpf_services::default_doca_xplane_service().helm_version
         );
     }
 
@@ -6818,6 +7059,51 @@ node_label_key = "carbide.nvidia.com/astra"
             services: None,
             extra_services: BTreeMap::new(),
         }
+    }
+
+    /// Verifies deployment selectors remain distinct from each other and NICo-owned labels.
+    #[test]
+    fn validate_dpf_deployment_node_label_keys() {
+        // Build the smallest two-deployment configuration needed to exercise selector overlap.
+        let deployments = |bf3_label: &str, bf4_label: &str| {
+            let bf3 = DpfDeploymentConfig {
+                node_label_key: bf3_label.to_string(),
+                ..Default::default()
+            };
+            let bf4 = DpfDeploymentConfig {
+                node_label_key: bf4_label.to_string(),
+                ..bf4_config(None, None)
+            };
+            DpfDeploymentsConfig {
+                bf3,
+                bf4_generic: Some(bf4),
+                bf4_astra: None,
+            }
+        };
+
+        value_scenarios!(
+            run = |(bf3_label, bf4_label)| deployments(bf3_label, bf4_label)
+                .validate_unique_identifiers()
+                .is_ok();
+            "distinct deployment labels" {
+                ("carbide.nvidia.com/bf3", "carbide.nvidia.com/bf4") => true,
+            }
+
+            "duplicate deployment labels" {
+                ("carbide.nvidia.com/dpu", "carbide.nvidia.com/dpu") => false,
+            }
+
+            "shared DPF marker" {
+                (carbide_dpf::DPU_ENABLED_NODE_LABEL, "carbide.nvidia.com/bf4") => false,
+            }
+
+            "contextual host BMC label" {
+                (
+                    "carbide.nvidia.com/bf4",
+                    carbide_machine_controller::dpf::HOST_BMC_IP_LABEL,
+                ) => false,
+            }
+        );
     }
 
     #[test]

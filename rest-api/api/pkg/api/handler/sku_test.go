@@ -11,13 +11,14 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/NVIDIA/infra-controller/rest-api/api/internal/config"
 	"github.com/NVIDIA/infra-controller/rest-api/api/pkg/api/handler/util/common"
 	"github.com/NVIDIA/infra-controller/rest-api/api/pkg/api/model"
 	sc "github.com/NVIDIA/infra-controller/rest-api/api/pkg/client/site"
 	authz "github.com/NVIDIA/infra-controller/rest-api/auth/pkg/authorization"
-	"github.com/NVIDIA/infra-controller/rest-api/common/pkg/coreproxy"
+	"github.com/NVIDIA/infra-controller/rest-api/common/pkg/grpcproxy"
 	cutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
 	cdb "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db"
 	cdbm "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/model"
@@ -36,6 +37,7 @@ import (
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
 // testSkuInitDB initializes a test database session (pattern from tenant_test.go)
@@ -714,6 +716,8 @@ func TestCreateSkuHandler(t *testing.T) {
 		assert.Equal(t, req.ID, response.ID)
 		assert.Equal(t, fixture.siteID, response.SiteID)
 		assert.Empty(t, response.AssociatedMachineIds)
+		require.NotNil(t, response.Created)
+		assert.True(t, existingSkuCreatedTime().Equal(*response.Created))
 
 		saved, err := cdbm.NewSkuDAO(fixture.createHandler.dbSession).Get(context.Background(), nil, req.ID)
 		require.NoError(t, err)
@@ -721,6 +725,8 @@ func TestCreateSkuHandler(t *testing.T) {
 		assert.Equal(t, response.Description, saved.Description)
 		assert.Equal(t, response.SchemaVersion, saved.SchemaVersion)
 		assert.Equal(t, response.DeviceType, saved.DeviceType)
+		assert.True(t, existingSkuCreatedTime().Round(time.Microsecond).Equal(saved.Created))
+		assert.False(t, response.Created.Equal(saved.Created))
 		require.NotNil(t, saved.Components)
 		require.NotNil(t, saved.Components.Chassis)
 		// The post-create Core response is authoritative, even when it differs
@@ -735,7 +741,9 @@ func TestCreateSkuHandler(t *testing.T) {
 		})
 		req := validSkuCreateRequest(fixture.siteID)
 
+		beforeCreate := time.Now().UTC()
 		rec := fixture.request(t, http.MethodPost, "", req, fixture.createHandler.Handle)
+		afterCreate := time.Now().UTC()
 		require.Equal(t, http.StatusCreated, rec.Code, rec.Body.String())
 		require.Len(t, fixture.requests, 2)
 		assert.Equal(t, corev1.Forge_CreateSku_FullMethodName, fixture.requests[0].FullMethod)
@@ -750,7 +758,7 @@ func TestCreateSkuHandler(t *testing.T) {
 		assert.Equal(t, req.DeviceType, response.DeviceType)
 		assert.Equal(t, model.NewAPISkuComponents(req.Components.ToProto()), response.Components)
 		assert.Empty(t, response.AssociatedMachineIds)
-		assert.Nil(t, response.Created)
+		assert.True(t, response.Created.After(beforeCreate))
 
 		saved, err := cdbm.NewSkuDAO(fixture.createHandler.dbSession).Get(context.Background(), nil, req.ID)
 		require.NoError(t, err)
@@ -758,6 +766,8 @@ func TestCreateSkuHandler(t *testing.T) {
 		assert.Equal(t, *req.Description, saved.Description)
 		assert.Equal(t, model.CoreSkuSchemaVersion, saved.SchemaVersion)
 		assert.Equal(t, req.DeviceType, saved.DeviceType)
+		assert.False(t, saved.Created.Before(beforeCreate))
+		assert.False(t, saved.Created.After(afterCreate))
 		require.NotNil(t, saved.Components)
 		require.Len(t, saved.Components.Storage, 1)
 		assert.Equal(t, uint32(3_600_000), saved.Components.Storage[0].GetMinSizeMb())
@@ -813,6 +823,26 @@ func TestCreateSkuHandler(t *testing.T) {
 
 		require.Equal(t, http.StatusBadRequest, rec.Code, rec.Body.String())
 		assert.Contains(t, rec.Body.String(), "siteId")
+		assert.Empty(t, fixture.requests)
+	})
+
+	t.Run("rejects non-empty read-only ethernet devices", func(t *testing.T) {
+		fixture := newSkuManagementFixture(t, []string{authz.ProviderAdminRole})
+		req := validSkuCreateRequest(fixture.siteID)
+		req.Components.EthernetDevices = []model.APISkuEthernetDevice{
+			{
+				Vendor:      "Mellanox Technologies",
+				Model:       "MT2892 Family [ConnectX-6 Dx]",
+				Count:       2,
+				IsConnected: true,
+			},
+		}
+
+		rec := fixture.request(t, http.MethodPost, "", req, fixture.createHandler.Handle)
+
+		require.Equal(t, http.StatusBadRequest, rec.Code, rec.Body.String())
+		assert.Contains(t, rec.Body.String(), "ethernetDevices")
+		assert.Contains(t, rec.Body.String(), "read-only")
 		assert.Empty(t, fixture.requests)
 	})
 
@@ -884,15 +914,44 @@ func TestUpdateSkuHandler(t *testing.T) {
 		require.NotNil(t, response.DeviceType)
 		assert.Equal(t, deviceType, *response.DeviceType)
 		assert.Equal(t, uint32(4), response.SchemaVersion)
+		require.NotNil(t, response.Created)
+		assert.True(t, existingSkuCreatedTime().Equal(*response.Created))
 
 		saved, err := cdbm.NewSkuDAO(fixture.updateHandler.dbSession).Get(context.Background(), nil, "sku-1")
 		require.NoError(t, err)
 		require.NotNil(t, saved.DeviceType)
 		assert.Equal(t, deviceType, *saved.DeviceType)
 		assert.Equal(t, uint32(4), saved.SchemaVersion)
+		assert.True(t, existingSkuCreatedTime().Round(time.Microsecond).Equal(saved.Created))
+		assert.False(t, response.Created.Equal(saved.Created))
 		require.NotNil(t, saved.Components)
 		require.NotNil(t, saved.Components.Chassis)
 		assert.Equal(t, "existing chassis", saved.Components.Chassis.Model)
+	})
+
+	t.Run("preserves stored created timestamp when Core omits it", func(t *testing.T) {
+		existing := existingSkuProto()
+		existing.Created = nil
+		fixture := newSkuManagementFixtureWithOptions(t, []string{authz.ProviderAdminRole}, skuManagementFixtureOptions{
+			findResponse: &corev1.SkuList{Skus: []*corev1.Sku{existing}},
+		})
+		skuDAO := cdbm.NewSkuDAO(fixture.updateHandler.dbSession)
+		beforeUpdate, err := skuDAO.Get(context.Background(), nil, "sku-1")
+		require.NoError(t, err)
+		description := "updated description"
+
+		rec := fixture.request(t, http.MethodPatch, "sku-1", model.APISkuUpdateRequest{
+			Description: &description,
+		}, fixture.updateHandler.Handle)
+
+		require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+		var response model.APISku
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &response))
+		assert.Nil(t, response.Created)
+
+		afterUpdate, err := skuDAO.Get(context.Background(), nil, "sku-1")
+		require.NoError(t, err)
+		assert.True(t, beforeUpdate.Created.Equal(afterUpdate.Created))
 	})
 
 	t.Run("preserves projection when Core metadataupdate fails", func(t *testing.T) {
@@ -1088,6 +1147,28 @@ func TestUpdateSkuHandler(t *testing.T) {
 		assert.Empty(t, fixture.requests)
 	})
 
+	t.Run("rejects non-empty read-only ethernet devices", func(t *testing.T) {
+		fixture := newSkuManagementFixture(t, []string{authz.ProviderAdminRole})
+		components := validSkuCreateRequest(fixture.siteID).Components
+		components.EthernetDevices = []model.APISkuEthernetDevice{
+			{
+				Vendor:      "Mellanox Technologies",
+				Model:       "MT2892 Family [ConnectX-6 Dx]",
+				Count:       2,
+				IsConnected: true,
+			},
+		}
+
+		rec := fixture.request(t, http.MethodPatch, "sku-1", model.APISkuUpdateRequest{
+			Components: components,
+		}, fixture.updateHandler.Handle)
+
+		require.Equal(t, http.StatusBadRequest, rec.Code, rec.Body.String())
+		assert.Contains(t, rec.Body.String(), "ethernetDevices")
+		assert.Contains(t, rec.Body.String(), "read-only")
+		assert.Empty(t, fixture.requests)
+	})
+
 	t.Run("returns Core not found without completing update", func(t *testing.T) {
 		fixture := newSkuManagementFixtureWithOptions(t, []string{authz.ProviderAdminRole}, skuManagementFixtureOptions{
 			findResponse: &corev1.SkuList{},
@@ -1206,7 +1287,7 @@ type skuManagementFixture struct {
 	createHandler CreateSkuHandler
 	updateHandler UpdateSkuHandler
 	deleteHandler DeleteSkuHandler
-	requests      []coreproxy.Request
+	requests      []grpcproxy.Request
 }
 
 type skuManagementFixtureOptions struct {
@@ -1308,10 +1389,10 @@ func (f *skuManagementFixture) addWorkflowError(client *tmocks.Client, method st
 		"ExecuteWorkflow",
 		mock.Anything,
 		mock.Anything,
-		coreproxy.WorkflowName,
-		mock.MatchedBy(func(req coreproxy.Request) bool { return req.FullMethod == method }),
+		grpcproxy.Core.WorkflowName,
+		mock.MatchedBy(func(req grpcproxy.Request) bool { return req.FullMethod == method }),
 	).Run(func(args mock.Arguments) {
-		f.requests = append(f.requests, args.Get(3).(coreproxy.Request))
+		f.requests = append(f.requests, args.Get(3).(grpcproxy.Request))
 	}).Return(run, nil).Maybe()
 }
 
@@ -1325,7 +1406,7 @@ func (f *skuManagementFixture) addWorkflow(t *testing.T, client *tmocks.Client, 
 		require.NoError(t, err)
 	}
 	run.On("Get", mock.Anything, mock.Anything).Run(func(args mock.Arguments) {
-		out, ok := args.Get(1).(*coreproxy.Response)
+		out, ok := args.Get(1).(*grpcproxy.Response)
 		require.True(t, ok)
 		out.ResponseJSON = responseJSON
 		for _, callback := range afterGet {
@@ -1336,10 +1417,10 @@ func (f *skuManagementFixture) addWorkflow(t *testing.T, client *tmocks.Client, 
 		"ExecuteWorkflow",
 		mock.Anything,
 		mock.Anything,
-		coreproxy.WorkflowName,
-		mock.MatchedBy(func(req coreproxy.Request) bool { return req.FullMethod == method }),
+		grpcproxy.Core.WorkflowName,
+		mock.MatchedBy(func(req grpcproxy.Request) bool { return req.FullMethod == method }),
 	).Run(func(args mock.Arguments) {
-		f.requests = append(f.requests, args.Get(3).(coreproxy.Request))
+		f.requests = append(f.requests, args.Get(3).(grpcproxy.Request))
 	}).Return(run, nil).Maybe()
 }
 
@@ -1388,6 +1469,7 @@ func existingSkuProto() *corev1.Sku {
 	return &corev1.Sku{
 		Id:            "sku-1",
 		Description:   &description,
+		Created:       timestamppb.New(existingSkuCreatedTime()),
 		SchemaVersion: 4,
 		DeviceType:    &deviceType,
 		Components: &corev1.SkuComponents{
@@ -1398,4 +1480,8 @@ func existingSkuProto() *corev1.Sku {
 			},
 		},
 	}
+}
+
+func existingSkuCreatedTime() time.Time {
+	return time.Date(2025, time.January, 2, 3, 4, 5, 678_901_234, time.UTC)
 }

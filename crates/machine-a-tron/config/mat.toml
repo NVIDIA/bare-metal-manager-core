@@ -78,13 +78,13 @@ enable_ipmi_simulation = false
 # host_bmc_password = "vault-password"
 # dpu_bmc_password = "vault-password"
 
-# Selecting the concrete WIWYNN GB200 rack supplies its 18 WIWYNN compute
-# trays, 9 NVIDIA ND5200 switch trays, and 8 LiteOn power shelves. The rack
-# profile tells NICo core how to manage the simulated rack.
+# A rack type creates all of its devices automatically:
+# - wiwynn_gb200_nvl72: 18 compute trays, 9 ND5200 switches, 8 power shelves
+# - lenovo_gb300_nvl72: 18 compute trays, 9 N5700 switches, 6 power shelves
 #
 # [racks.default]
-# type = "wiwynn_gb200_nvl72"
-# rack_profile_id = "NVL72"
+# type = "lenovo_gb300_nvl72"
+# rack_profile_id = "NVL72_GB300"
 # ids = ["rack-001", "rack-002"]
 # dpu_reboot_delay = 20
 # host_reboot_delay = 10

@@ -43,7 +43,7 @@ pub(super) async fn handle_health_report(
             )?;
 
             if options.print_only {
-                println!("{}", serde_json::to_string_pretty(&report).unwrap());
+                println!("{}", serde_json::to_string_pretty(&report)?);
                 return Ok(());
             }
 

@@ -28,6 +28,7 @@ static KEEP_RPCS: &[&str] = &[
 ];
 
 static RPC_CRATE_DIR: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../rpc");
+static RPC_PROTO_DIR: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../rpc/proto");
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     carbide_version::build();
@@ -57,7 +58,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 "proto/machine_discovery.proto",
                 "proto/site_explorer.proto",
             ],
-            &["proto"],
+            &["proto", RPC_PROTO_DIR],
         )?;
 
     Ok(())

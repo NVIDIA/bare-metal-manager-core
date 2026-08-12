@@ -20,12 +20,16 @@ mod on_change_processor;
 mod sample_processor;
 pub(in crate::collectors) mod subscriber;
 
-// prost generates ExtensionId::EidUnset / EidExperimental from gnmi_ext.proto,
-// where the proto convention prefixes every value with the enum abbreviation.
-// clippy flags the shared "Eid" prefix but we can't control generated code.
-#[allow(clippy::enum_variant_names)]
 mod proto {
-    #[allow(clippy::enum_variant_names)]
+    // prost generates ExtensionId::EidUnset / EidExperimental from gnmi_ext.proto,
+    // where the proto convention prefixes every value with the enum abbreviation.
+    // clippy flags the shared "Eid" prefix but we can't control generated code.
+    #![allow(clippy::enum_variant_names)]
+    #![allow(
+        unreachable_pub,
+        reason = "tonic_prost_build emits public items for this crate-internal protocol module"
+    )]
+
     mod gnmi_ext {
         tonic::include_proto!("gnmi_ext");
     }

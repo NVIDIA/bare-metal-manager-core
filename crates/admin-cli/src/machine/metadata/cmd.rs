@@ -19,6 +19,7 @@ use ::rpc::admin_cli::OutputFormat;
 use carbide_uuid::machine::MachineId;
 use mac_address::MacAddress;
 use rpc::Machine;
+use rpc::errors::RpcDataConversionError;
 
 use super::args::{
     Args, MachineMetadataCommandAddLabel, MachineMetadataCommandFromExpectedMachine,
@@ -90,7 +91,13 @@ async fn metadata_set(
     let machine = fetch_machine(api_client, cmd.machine).await?;
     let metadata = crate::metadata::apply_set(machine.metadata, cmd.name, cmd.description)?;
     api_client
-        .update_machine_metadata(machine.id.unwrap(), metadata, machine.version)
+        .update_machine_metadata(
+            machine
+                .id
+                .ok_or(RpcDataConversionError::MissingArgument("machine.id"))?,
+            metadata,
+            machine.version,
+        )
         .await
 }
 
@@ -101,7 +108,13 @@ async fn metadata_add_label(
     let machine = fetch_machine(api_client, cmd.machine).await?;
     let metadata = crate::metadata::apply_add_label(machine.metadata, cmd.key, cmd.value)?;
     api_client
-        .update_machine_metadata(machine.id.unwrap(), metadata, machine.version)
+        .update_machine_metadata(
+            machine
+                .id
+                .ok_or(RpcDataConversionError::MissingArgument("machine.id"))?,
+            metadata,
+            machine.version,
+        )
         .await
 }
 
@@ -112,7 +125,13 @@ async fn metadata_remove_labels(
     let machine = fetch_machine(api_client, cmd.machine).await?;
     let metadata = crate::metadata::apply_remove_labels(machine.metadata, cmd.keys)?;
     api_client
-        .update_machine_metadata(machine.id.unwrap(), metadata, machine.version)
+        .update_machine_metadata(
+            machine
+                .id
+                .ok_or(RpcDataConversionError::MissingArgument("machine.id"))?,
+            metadata,
+            machine.version,
+        )
         .await?;
     Ok(())
 }
@@ -213,7 +232,13 @@ async fn metadata_from_expected_machine(
     }
 
     api_client
-        .update_machine_metadata(machine.id.unwrap(), metadata, machine.version)
+        .update_machine_metadata(
+            machine
+                .id
+                .ok_or(RpcDataConversionError::MissingArgument("machine.id"))?,
+            metadata,
+            machine.version,
+        )
         .await?;
     Ok(())
 }

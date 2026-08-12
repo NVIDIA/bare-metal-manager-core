@@ -3046,6 +3046,29 @@ async fn test_vpc_prefix_handling(pool: PgPool) {
         .await
         .unwrap_err();
     assert!(matches!(error, crate::CarbideError::ResourceExhausted(_)));
+    txn.commit().await.unwrap();
+
+    // An IPv4 /31 VPC prefix is itself one usable /31 linknet.
+    let single_linknet = IpNetwork::V4(Ipv4Network::new(Ipv4Addr::new(10, 217, 6, 4), 31).unwrap());
+    let single_linknet_prefix_id = create_tenant_overlay_prefix_with_prefix(
+        &env,
+        vpc_id,
+        "single-linknet vpc prefix",
+        single_linknet,
+    )
+    .await;
+    let allocator =
+        PrefixAllocator::new(single_linknet_prefix_id, single_linknet, None, 31).unwrap();
+    let mut txn = env.db_txn().await;
+    let (_, allocated_prefix) = allocate_test_network_segment(&allocator, &mut txn, vpc_id, None)
+        .await
+        .unwrap();
+    assert_eq!(allocated_prefix, single_linknet);
+    assert!(matches!(
+        allocator.next_free_prefix(&mut txn).await.unwrap_err(),
+        crate::CarbideError::ResourceExhausted(_)
+    ));
+    txn.commit().await.unwrap();
 }
 
 /// Verifies automatic selection remains deterministic and tenant-scoped across
@@ -3979,6 +4002,7 @@ async fn create_tenant_overlay_prefix_with_prefix(
     let vpc_prefix_id = db::vpc_prefix::persist(
         model::vpc_prefix::NewVpcPrefix {
             id: uuid::Uuid::new_v4().into(),
+            site_prefix_id: None,
             vpc_id,
             config: VpcPrefixConfig { prefix },
             metadata: Metadata {
@@ -4549,6 +4573,7 @@ async fn test_network_details_migration(
             id: None,
             prefix: String::new(),
             vpc_id: Some(vpc_id),
+            site_prefix_id: None,
             config: Some(rpc::forge::VpcPrefixConfig {
                 prefix: ip_prefix.into(),
             }),
@@ -5066,6 +5091,7 @@ async fn test_update_instance_config_vpc_prefix_network_update_delete_vf(
         id: None,
         prefix: String::new(),
         vpc_id: Some(vpc_id),
+        site_prefix_id: None,
         config: Some(rpc::forge::VpcPrefixConfig {
             prefix: ip_prefix.into(),
         }),
@@ -5486,6 +5512,7 @@ async fn test_update_instance_config_vpc_prefix_network_update_state_machine(
         id: None,
         prefix: String::new(),
         vpc_id: Some(vpc_id),
+        site_prefix_id: None,
         config: Some(rpc::forge::VpcPrefixConfig {
             prefix: ip_prefix.into(),
         }),
@@ -7259,6 +7286,190 @@ async fn test_instance_without_vf_when_vf_disabled(_: PgPoolOptions, options: Pg
         .await;
 
     assert!(instance_result.is_ok());
+}
+
+/// Verifies sparse DPF topology membership gates both allocation and network replacement.
+#[crate::sqlx_test]
+async fn test_dpf_topology_rejects_unselected_vf_on_create_and_update(
+    _: PgPoolOptions,
+    options: PgConnectOptions,
+) {
+    let pool = PgPoolOptions::new().connect_with(options).await.unwrap();
+    let config = crate::test_support::default_config::with_dpf_intercept_topology(&[7]);
+    let env = create_test_env_with_overrides(pool, TestEnvOverrides::with_config(config)).await;
+    let managed_host = create_managed_host(&env).await;
+    let segment_ids = env.create_vpc_and_tenant_segments(2).await;
+
+    // VF0 is structurally valid and globally enabled, but the replacement topology selects VF7.
+    let mut network_with_unselected_vf =
+        single_interface_network_config_with_vfs(segment_ids.clone());
+    network_with_unselected_vf.interfaces[1].virtual_function_id = Some(0);
+    let create_error = env
+        .api
+        .allocate_instance(
+            InstanceAllocationRequest::builder(false)
+                .machine_id(managed_host.id)
+                .config(
+                    InstanceConfig::default_tenant_and_os()
+                        .network(network_with_unselected_vf.clone()),
+                )
+                .tonic_request(),
+        )
+        .await
+        .expect_err("an unselected topology VF must not be allocated");
+    assert!(create_error.message().contains(
+        "virtual function VF0 is not selected by the configured DPF intercept-bridging topology"
+    ));
+
+    // A PF-only instance remains valid; once ready, adding the same unselected VF must fail at
+    // the network-update gate and leave no staged replacement request.
+    let instance = managed_host
+        .instance_builer(&env)
+        .single_interface_network_config(segment_ids[0])
+        .build()
+        .await;
+    let update_error = env
+        .api
+        .update_instance_config(tonic::Request::new(
+            rpc::forge::InstanceConfigUpdateRequest {
+                instance_id: instance.rpc_instance().await.rpc_id(),
+                if_version_match: None,
+                config: Some(rpc::InstanceConfig {
+                    tenant: Some(default_tenant_config()),
+                    os: Some(default_os_config()),
+                    network: Some(network_with_unselected_vf),
+                    infiniband: None,
+                    network_security_group_id: None,
+                    dpu_extension_services: None,
+                    nvlink: None,
+                    spxconfig: None,
+                }),
+                metadata: Some(rpc::forge::Metadata {
+                    name: "topology-update".to_string(),
+                    description: String::new(),
+                    labels: vec![],
+                }),
+            },
+        ))
+        .await
+        .expect_err("an unselected topology VF must not be staged");
+    assert!(update_error.message().contains(
+        "virtual function VF0 is not selected by the configured DPF intercept-bridging topology"
+    ));
+
+    let mut txn = env.db_txn().await;
+    assert!(
+        instance
+            .db_instance(&mut txn)
+            .await
+            .update_network_config_request
+            .is_none()
+    );
+    txn.rollback().await.unwrap();
+}
+
+/// Verifies raw protobuf VF identities cannot alias selected topology VFs during conversion.
+#[crate::sqlx_test]
+async fn test_public_instance_endpoints_reject_out_of_range_wire_vfs(
+    _: PgPoolOptions,
+    options: PgConnectOptions,
+) {
+    let pool = PgPoolOptions::new().connect_with(options).await.unwrap();
+    // Include the truncation targets for 256 (VF0) and 263 (VF7). Without wire-range validation,
+    // both malformed values would pass exact topology membership after a lossy u32-to-u8 cast.
+    let config = crate::test_support::default_config::with_dpf_intercept_topology(&[0, 7, 15]);
+    let env = create_test_env_with_overrides(pool, TestEnvOverrides::with_config(config)).await;
+    let create_host = create_managed_host(&env).await;
+    let update_host = create_managed_host(&env).await;
+    let segment_ids = env.create_vpc_and_tenant_segments(2).await;
+    let update_instance = update_host
+        .instance_builer(&env)
+        .single_interface_network_config(segment_ids[0])
+        .build()
+        .await;
+    let update_instance_id = update_instance.rpc_instance().await.rpc_id();
+
+    // Build the protobuf directly so values wider than the model's u8 cannot be normalized by
+    // test helpers before they reach the public handlers.
+    let config_with_wire_vf = |wire_vf_id| {
+        let mut network = single_interface_network_config_with_vfs(segment_ids.clone());
+        network.interfaces[1].virtual_function_id = Some(wire_vf_id);
+        rpc::InstanceConfig {
+            tenant: Some(default_tenant_config()),
+            os: Some(default_os_config()),
+            network: Some(network),
+            infiniband: None,
+            network_security_group_id: None,
+            dpu_extension_services: None,
+            nvlink: None,
+            spxconfig: None,
+        }
+    };
+    let metadata = |operation: &str, wire_vf_id| rpc::forge::Metadata {
+        name: format!("{operation}-vf{wire_vf_id}"),
+        description: String::new(),
+        labels: vec![],
+    };
+
+    for wire_vf_id in [16, 256, 263] {
+        let create_error = env
+            .api
+            .allocate_instance(Request::new(rpc::forge::InstanceAllocationRequest {
+                machine_id: Some(create_host.id),
+                config: Some(config_with_wire_vf(wire_vf_id)),
+                instance_id: None,
+                instance_type_id: None,
+                metadata: Some(metadata("create", wire_vf_id)),
+                allow_unhealthy_machine: false,
+            }))
+            .await
+            .expect_err("out-of-range wire VF must be rejected during instance creation");
+        assert_eq!(create_error.code(), tonic::Code::InvalidArgument);
+        assert!(
+            create_error
+                .message()
+                .contains(&format!("virtual function ID of value {wire_vf_id}"))
+        );
+
+        let update_error = env
+            .api
+            .update_instance_config(Request::new(rpc::forge::InstanceConfigUpdateRequest {
+                instance_id: update_instance_id,
+                if_version_match: None,
+                config: Some(config_with_wire_vf(wire_vf_id)),
+                metadata: Some(metadata("update", wire_vf_id)),
+            }))
+            .await
+            .expect_err("out-of-range wire VF must be rejected during instance update");
+        assert_eq!(update_error.code(), tonic::Code::InvalidArgument);
+        assert!(
+            update_error
+                .message()
+                .contains(&format!("virtual function ID of value {wire_vf_id}"))
+        );
+    }
+
+    // VF15 is the inclusive boundary and must pass the same public create and update paths.
+    env.api
+        .allocate_instance(Request::new(rpc::forge::InstanceAllocationRequest {
+            machine_id: Some(create_host.id),
+            config: Some(config_with_wire_vf(15)),
+            instance_id: None,
+            instance_type_id: None,
+            metadata: Some(metadata("create", 15)),
+            allow_unhealthy_machine: false,
+        }))
+        .await
+        .expect("VF15 must remain valid during instance creation");
+    env.api
+        .update_instance_config(Request::new(rpc::forge::InstanceConfigUpdateRequest {
+            instance_id: update_instance_id,
+            if_version_match: None,
+            config: Some(config_with_wire_vf(15)),
+            metadata: Some(metadata("update", 15)),
+        }))
+        .await
+        .expect("VF15 must remain valid during instance update");
 }
 
 fn create_dpu_extension_service_data(name: &str) -> String {

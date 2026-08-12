@@ -72,7 +72,8 @@ Change the per-host DPU policy:
     $ nico-admin-cli expected-machine patch --bmc-mac-address 00:11:22:33:44:55 \
     --dpu-policy ignore
 
-Retain the BMC's auto-allocated DHCP address as a static one (never expires):
+Retain the BMC's auto-allocated DHCP address as static for the lifetime of its
+machine-interface record:
     $ nico-admin-cli expected-machine patch --bmc-mac-address 00:11:22:33:44:55 \
     --bmc-ip-allocation retained
 
@@ -209,7 +210,7 @@ pub(crate) struct Args {
         value_name = "BMC_IP_ALLOCATION",
         value_enum,
         group = "group",
-        help = "Per-host control over how this BMC's IP is assigned and retained. `auto` (default): infer from `--bmc-ip-address` -- a configured address is `fixed`, no address is `retained`; `dynamic`: a normal DHCP lease that may expire and change; `fixed`: the operator-specified `--bmc-ip-address` (static); `retained`: an auto-allocated address pinned as static (never expires). Unset preserves the existing per-host value."
+        help = "Per-host control over how this BMC's IP is assigned and retained. `auto` (default): infer from `--bmc-ip-address` -- a configured address is `fixed`, no address is `retained`; `dynamic`: a normal DHCP lease that may expire and change; `fixed`: the operator-specified `--bmc-ip-address` (static); `retained`: an auto-allocated DHCP address that stays static for the lifetime of its machine-interface record. Unset preserves the existing per-host value."
     )]
     pub(super) bmc_ip_allocation: Option<BmcIpAllocationType>,
 
