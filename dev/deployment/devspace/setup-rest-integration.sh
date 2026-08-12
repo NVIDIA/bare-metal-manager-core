@@ -296,8 +296,7 @@ if [[ "${DSX_GATEWAY_ENABLED}" == "1" ]]; then
   if ! jq -e '
     .result.tools as $tools |
     ($tools | type == "array" and length > 0) and
-    any($tools[]; .name != null) and
-    all($tools[]; .name != "dsx_bridge_list_shards" and
+    all($tools[]; (.name | type == "string" and startswith("nico_")) and
       .inputSchema.properties.shard_id == null)
   ' <<<"${tools_list_json}" >/dev/null; then
     printf 'DSX Agent Gateway did not return direct NICo MCP tools without shard routing\n' >&2
