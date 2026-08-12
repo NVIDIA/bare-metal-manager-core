@@ -71,6 +71,14 @@ infra-controller/
 
 ## Build, Test, and Lint Commands
 
+### REST API contract conventions
+
+- Do not use `omitempty` on REST API response fields. Clients must be able to
+  distinguish an empty value from a field unsupported by the API version.
+- Paginated operations must implement deterministic ordering before pagination
+  and document every supported `orderBy` value and its default in OpenAPI. Do
+  not rely on an upstream API or database's implicit result order.
+
 All task automation uses `cargo-make`. Install it with:
 
 ```bash

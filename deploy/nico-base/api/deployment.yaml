@@ -33,6 +33,9 @@ spec:
       annotations:
         kubectl.kubernetes.io/default-container: nico-api
     spec:
+      # Allow state-controller handlers already in flight to finish. Keep this
+      # greater than controller.max_object_handling_time (3 minutes by default).
+      terminationGracePeriodSeconds: 240
       serviceAccountName: nico-api
       containers:
         - name: nico-api
@@ -47,7 +50,7 @@ spec:
             - /bin/sh
             - -c
             # if you change this command, keep it in sync (as appropriate) with the overlay in local-dev for the local workflow
-            - /opt/carbide/carbide-api run --config-path /etc/forge/carbide-api/carbide-api-config.toml --site-config-path /etc/forge/carbide-api/site/carbide-api-site-config.toml
+            - exec /opt/carbide/carbide-api run --config-path /etc/forge/carbide-api/carbide-api-config.toml --site-config-path /etc/forge/carbide-api/site/carbide-api-site-config.toml
           env:
             - name: VAULT_ROLE_ID
               valueFrom:

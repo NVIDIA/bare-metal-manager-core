@@ -2082,6 +2082,8 @@ dependencies = [
  "mac_address",
  "metrics-endpoint",
  "nv-redfish",
+ "opentelemetry 0.32.0",
+ "opentelemetry-proto",
  "prometheus",
  "prost",
  "prost-types",
@@ -2463,6 +2465,7 @@ dependencies = [
  "carbide-instrument",
  "carbide-ipmi",
  "carbide-measured-boot",
+ "carbide-proto-compiler",
  "carbide-redfish",
  "carbide-secrets",
  "carbide-state-controller-common",
@@ -2651,6 +2654,7 @@ dependencies = [
  "config-version",
  "duration-str",
  "eyre",
+ "futures",
  "hex",
  "http",
  "libnmxc",
@@ -3802,6 +3806,7 @@ dependencies = [
  "prost",
  "prost-types",
  "serde",
+ "serde_json",
  "sqlx",
  "thiserror 2.0.18",
  "tokio",
@@ -6865,7 +6870,7 @@ dependencies = [
 [[package]]
 name = "libredfish"
 version = "0.0.0"
-source = "git+https://github.com/NVIDIA/libredfish.git?tag=v0.46.3#b199e7bebeb8238fe1440f110d06affba5b6b799"
+source = "git+https://github.com/NVIDIA/libredfish.git?tag=v0.46.5#c79aa49ea21a8e3e161eb9f6154f331162b79b2d"
 dependencies = [
  "chrono",
  "clap",
@@ -7816,9 +7821,9 @@ dependencies = [
 
 [[package]]
 name = "nv-redfish"
-version = "0.14.1"
+version = "0.14.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "30ebec199a41aa356229f9474566dd259b5342ee0ffa03693cb71e71b8efae15"
+checksum = "42762fc262b81359c6f05cb8b6bdd7d42d9fee3210a1680885b2376a9f9911ec"
 dependencies = [
  "futures-core",
  "futures-util",
@@ -7833,9 +7838,9 @@ dependencies = [
 
 [[package]]
 name = "nv-redfish-bmc-http"
-version = "0.14.1"
+version = "0.14.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1312af6ba88347e7baf899dcbc4028a4fe90f1e0a0cbf9642437cc93e1f8e39e"
+checksum = "bed037619507a81fe1b241e04414f9562a8da41b6774c13df55a9330644117af"
 dependencies = [
  "bytes",
  "futures-core",
@@ -7858,9 +7863,9 @@ dependencies = [
 
 [[package]]
 name = "nv-redfish-core"
-version = "0.14.1"
+version = "0.14.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c8490d57e2e32eea59b06602a9f509b135bab373fd89f567079c3c42a353ecb3"
+checksum = "566a75a8c7d75b0d8e24289e2d8c9792ed102ede29ab7a4996510c90b21a3fce"
 dependencies = [
  "futures-core",
  "futures-io",
@@ -7873,9 +7878,9 @@ dependencies = [
 
 [[package]]
 name = "nv-redfish-csdl-compiler"
-version = "0.14.1"
+version = "0.14.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1d4908c4aa3667e616b31a519d7bc4956c1347c506818e3e3659e87f4db841bc"
+checksum = "5838f179f001a8250aa08ae69abac660e8d29f2dd8041fa5806579b64b1b734c"
 dependencies = [
  "clap",
  "clap_derive",
@@ -7891,9 +7896,9 @@ dependencies = [
 
 [[package]]
 name = "nv-redfish-dispatcher"
-version = "0.14.1"
+version = "0.14.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "83fc269d07729c6dcd15554acd0df6771b591916f8edd0e80df6838148b4fa12"
+checksum = "14522a81dc4de549fcc88b755ed5505d5f5e26ed65a04c7ebec684191ae609ae"
 dependencies = [
  "futures-core",
  "futures-util",
@@ -7901,9 +7906,9 @@ dependencies = [
 
 [[package]]
 name = "nv-redfish-schema"
-version = "0.14.1"
+version = "0.14.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "02475039687858405479c5a1773d58d54256bd59be139eec5350072c1f452733"
+checksum = "eccdaff625f93aa51bd52880bbabdfd43323f75224238a4a85f5f9eefdbf2b78"
 dependencies = [
  "glob",
 ]
@@ -7919,6 +7924,7 @@ dependencies = [
  "serde_json",
  "serde_yaml",
  "thiserror 2.0.18",
+ "tokio",
 ]
 
 [[package]]

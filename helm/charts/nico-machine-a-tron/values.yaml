@@ -136,6 +136,10 @@ machineATron:
   configureBmcProxyHost: ""
   persistDir: "/tmp/machine-a-tron-data"
   cleanupOnQuit: false
+  enableIpmiSimulation: false
+  # IPMI port advertised through Redfish. Unset uses default 623
+  # Set to 0 for dynamic port (required for mat-k8s-controller)
+  # ipmiReachablePort: 0
   registerExpectedMachines: true
   hostBmcPassword: ""
   dpuBmcPassword: ""
@@ -241,6 +245,17 @@ pods:
   ## Use consistent naming: mat-0 for single-pod, mat-0/mat-1/mat-2 for multi-pod
   ## Names must be valid K8s label values (alphanumeric, -, _, ., max 63 chars)
   mat-0:
+
+    # racks:
+    #   gb200:
+    #     type: wiwynn_gb200_nvl72
+    #     rack_profile_id: NVL72
+    #     ids:
+    #       - rack-001
+    #     dpu_reboot_delay: 20
+    #     host_reboot_delay: 10
+    #     oob_dhcp_relay_address: "192.168.192.1"
+    #     admin_dhcp_relay_address: "192.168.176.1"
 
     ## Machine groups for this pod
     machines:

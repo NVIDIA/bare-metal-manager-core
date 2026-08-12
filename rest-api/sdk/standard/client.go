@@ -91,6 +91,8 @@ type APIClient struct {
 
 	MachineAPI *MachineAPIService
 
+	MachineValidationAPI *MachineValidationAPIService
+
 	MeasuredBootTrustedMachineAPI *MeasuredBootTrustedMachineAPIService
 
 	MeasuredBootTrustedProfileAPI *MeasuredBootTrustedProfileAPIService
@@ -180,6 +182,7 @@ func NewAPIClient(cfg *Configuration) *APIClient {
 	c.InstanceAPI = (*InstanceAPIService)(&c.common)
 	c.InstanceTypeAPI = (*InstanceTypeAPIService)(&c.common)
 	c.MachineAPI = (*MachineAPIService)(&c.common)
+	c.MachineValidationAPI = (*MachineValidationAPIService)(&c.common)
 	c.MeasuredBootTrustedMachineAPI = (*MeasuredBootTrustedMachineAPIService)(&c.common)
 	c.MeasuredBootTrustedProfileAPI = (*MeasuredBootTrustedProfileAPIService)(&c.common)
 	c.MetadataAPI = (*MetadataAPIService)(&c.common)

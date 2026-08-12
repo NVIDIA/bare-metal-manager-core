@@ -149,6 +149,22 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
     let bmc_mock_port = app_config.bmc_mock_port;
     let tui_enabled = app_config.tui_enabled;
+    let hw_mac_address_ranges = app_config
+        .hw_mac_address_ranges
+        .as_ref()
+        .map(|config| {
+            MacAddressRangesConfig::new(config.base, config.host_bits, config.range_host_bits)
+        })
+        .unwrap_or_else(|| {
+            MacAddressRangesConfig::new(MacAddress::new([6, 0, 0, 0, 0, 0]), 32, 8)
+        })?;
+    let inventory_id = format!(
+        "mat-{}",
+        hw_mac_address_ranges
+            .base()
+            .to_string()
+            .to_ascii_lowercase()
+    );
 
     let mac_address_pool = MacAddressPool::new(MacAddressConfig {
         pool: Some(
@@ -160,21 +176,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
                     MacAddressPoolConfig::new(MacAddress::new([2, 0, 0, 0, 0, 0]), 24)
                 })?,
         ),
-        ranges: Some(
-            app_config
-                .hw_mac_address_ranges
-                .as_ref()
-                .map(|config| {
-                    MacAddressRangesConfig::new(
-                        config.base,
-                        config.host_bits,
-                        config.range_host_bits,
-                    )
-                })
-                .unwrap_or_else(|| {
-                    MacAddressRangesConfig::new(MacAddress::new([6, 0, 0, 0, 0, 0]), 32, 8)
-                })?,
-        ),
+        ranges: Some(hw_mac_address_ranges),
     });
 
     let bmc_mock_certs_dir = app_config.bmc_mock_certs_dir.clone();
@@ -217,8 +219,11 @@ async fn main() -> Result<(), Box<dyn Error>> {
     // Launch the control UI after the machines are created so it can report their handles. In
     // combined-BMC mode it shares the combined BMC listener. In per-IP mode it listens on the
     // loopback address at the same port, independently of the per-machine BMC listeners.
-    let control_state =
-        ControlState::new(simulators.clone(), DeviceStatusConfig::new(bmc_mock_port));
+    let control_state = ControlState::new(
+        simulators.clone(),
+        DeviceStatusConfig::new(bmc_mock_port),
+        inventory_id,
+    );
     let certs_dir = app_context
         .bmc_mock_certs_dir
         .as_ref()

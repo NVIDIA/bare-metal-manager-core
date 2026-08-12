@@ -350,6 +350,7 @@ extracted identifier contains characters such as `/` or `.`.
 | `allow_insecure` | `bool` | `false` | Skip TLS verification for NMX-C. |
 | `nmx_c_endpoint_port` | `Option<u16>` | — | TCP port for NMX-C endpoints derived from switch NVOS IP. Unset uses the production NMX-C port. |
 | `nmx_c_certificate_rotation` | `NmxCCertificateRotationConfig` | *(default)* | Optional expiry-driven rotation for NMX-C server certificates. |
+| `partition_monitor_max_concurrent_groups` | `NonZeroUsize` | `16` | Maximum number of NMX-C machine groups (chassis or rack) processed concurrently per monitor iteration. Bounds DB pool usage and gRPC fan-out. Must be ≥ 1. |
 
 ### `NmxCCertificateRotationConfig`
 
@@ -509,16 +510,16 @@ Extends `StateControllerConfig` with:
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
-| `allow_instance_vf` | `bool` | `true` | Allow VFs on instance creation. |
+| `allow_instance_vf` | `bool` | `true` | Global instance-VF admission switch for creation and network updates. `false` rejects every VF. With DPF intercept topology, `true` additionally requires every requested VF ID to be explicitly selected by that topology. Without DPF intercept topology, the historical boolean-only admission behavior is preserved. |
 | `hbn_reps` | `Option<String>` | — | Select which representors from the configured VF population HBN is expected to use during DPU provisioning. When omitted, HBN uses its default representor selection. |
-| `bridging` | `Option<HostRepresentorBridgingConfig>` | — | Provisioning-time topology for bridges inserted between host representors and HBN. |
+| `bridging` | `Option<HostRepresentorBridgingConfig>` | — | Provisioning-time topology for bridges inserted between host representors and HBN or DPF's `br-sfc`. Under DPF, a present `vmaas_config` makes this map the complete configurable PF/VF inventory and requires exactly one PF entry. |
 
 ### `HostRepresentorBridgingConfig`
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
 | `hbn_bridge` | `String` | `"br-hbn"` | HBN/SFC bridge that host-representor patch ports attach to during BlueField provisioning. |
-| `host_representor_intercept_bridging` | `HashMap<String, HostInterceptBridging>` | `{}` | Host-owned PF/VF representor bridge layout keyed by representor name. Non-skipped entries are sent to BlueField provisioning as `<representor>:<bridge>:<patch_port>`. |
+| `host_representor_intercept_bridging` | `HashMap<String, HostInterceptBridging>` | `{}` | Host-owned PF/VF representor bridge layout keyed by the legacy representor name. Non-skipped entries are sent to pre-DPF BlueField provisioning as `<representor>:<bridge>:<patch_port>`. When DPF is enabled, this map replaces the static PF/VF inventory; an absent map, empty map, or VF-only map is rejected because FMDS requires the selected PF. |
 
 ### `HostInterceptBridging`
 
@@ -527,6 +528,27 @@ Extends `StateControllerConfig` with:
 | `bridge` | `String` | **required** | Bridge that sits between the host PF/VF representor and br-hbn or br-sfc. |
 | `patch_port` | `String` | **required** | Patch port on this bridge that connects it toward HBN or SFC. |
 | `skip_create` | `bool` | `false` | When true, the entry is omitted from provisioning-time bridge creation. |
+| `dpf_interface` | `Option<DpfInterfaceIdentity>` | — | Typed DPF PF/VF selection. Optional and ignored by pre-DPF provisioning, but required for every map entry when DPF is enabled. The surrounding legacy map key is never parsed as DPF identity. |
+
+When DPF is enabled, `skip_create=true` is rejected. `bridge` is a Linux netdev name and must contain 1–15 lowercase ASCII letters, digits, or hyphens and start with a letter. `patch_port` is an OVS patch-interface name rather than a Linux netdev: it must be non-empty, start with a lowercase ASCII letter, and contain only lowercase ASCII letters, digits, hyphens, or underscores. NICo does not apply the Linux 15-character limit to patch ports. Both names must be unique across the rendered OVS topology. DPF requires exactly one configured PF and also rejects duplicate identities, generated-name collisions, BF3 raw-representor collisions, configurations spanning more than one selected controller/PF parent, hardware VF counts above 126, and VFs whose `vf_id` is greater than 15 or greater than or equal to `dpu_config.num_of_vfs`. PF selection is independent of that VF count.
+
+Pre-DPF configurations retain their existing behavior: `dpf_interface` may be
+omitted, `skip_create=true` remains valid, `hbn_bridge` still defaults to
+`br-hbn`, and the sorted provisioning value remains exactly
+`<representor>:<bridge>:<patch_port>`. DPF ignores `hbn_reps`, derives
+`br-sfc` internally, and uses the typed identity rather than the map key.
+
+With a configured DPF intercept inventory, the topology is exclusively the complete VMaaS-managed PF/VF inventory. NICo retains the fixed `p0` and `p1` physical interfaces and assigns both to HBN. Every configured PF or VF becomes a Patch interface between `br-sfc` and its configured intermediate bridge and is assigned to HBN and DHCP; only the selected PF is also assigned to FMDS. The selected hardware PF is exposed inside HBN as `pf0hpf_if`, and VF identity `vf_id` as `pf0vf{vf_id}_if`, regardless of the configured controller and PF identifiers. DHCP exposes them as `d_pf0hpf_if` and `d_pf0vf{vf_id}_if`; FMDS exposes the selected PF as `f_pf0hpf_if`. For `P` configured PFs and `V` configured VFs, NICo manages `2 + P + V` HBN endpoints, `P + V` DHCP endpoints, and `P` FMDS endpoints, for `2 + 3P + 2V` total SF-backed service endpoints. The one-selected-PF contract requires `P = 1`; together with the VF15 bound, it permits at most 19 generated HBN interfaces. The generated HBN inventory may not exceed 32 interfaces. With `allow_instance_vf=true`, instance creation and network updates admit only the explicitly configured VF IDs; a PF-only topology therefore admits no instance VFs.
+
+Without configured DPF intercept topology, NICo deliberately preserves the established static VF0–VF13 inventory, its VF0–VF7 DHCP subset, and historical instance admission behavior. In this mode, `pf_total_sf_reserved` is the complete `PF_TOTAL_SF`; it defaults to `30`, and explicit operator overrides remain supported. Reconciling the inventory, DHCP, or admission surfaces would change existing ServiceInterfaces and the hashed DPUFlavor, so it is deferred to a separately planned cleanup and DPU re-ingestion migration.
+
+### `DpfInterfaceIdentity`
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `controller_id` | `u8` | **required** | DPF controller number (`0..=255`) containing the selected PF or VF. |
+| `pf_id` | `u8` | **required** | PF identifier (`0..=255`) on the selected controller. |
+| `vf_id` | `Option<u8>` | — | VF identifier. Omission selects the PF. Under DPF intercept topology, presence selects that VMaaS VF and requires both `vf_id <= 15` and `vf_id < dpu_config.num_of_vfs`; pre-DPF provisioning ignores this typed field. |
 
 ### `DpuConfig`
 
@@ -538,7 +560,7 @@ Extends `StateControllerConfig` with:
 | `dpu_models` | `HashMap<String, Firmware>` | *(BF2+BF3 defaults)* | DPU model firmware definitions. |
 | `dpu_nic_firmware_update_versions` | `Vec<String>` | *(BF2+BF3 NIC versions)* | DPU NIC firmware version strings. |
 | `dpu_enable_secure_boot` | `bool` | `false` | Enable secure boot flow for DPU provisioning via Redfish. |
-| `num_of_vfs` | `u32` | `16` | Number of VFs configured per DPU PF during BlueField provisioning. Max `126`. |
+| `num_of_vfs` | `u32` | `16` | Number of hardware VFs configured per DPU PF during BlueField provisioning. Max `126`. Under DPF, changing this value changes the immutable BF3/generic-BF4 flavor and requires a carbide-api restart and DPU reprovisioning. Reducing it below the static inventory's previous effective VF count also removes desired VF ServiceInterfaces; because NICo does not prune them, operators must stop NICo, remove the omitted NICo ServiceInterfaces, re-ingest the DPUs, and restart. Configured intercept inventories remain valid only while every selected `vf_id` is both lower than this value and no greater than 15. |
 | `restart_ovs_on_use_admin_network_change` | `bool` | `false` | Restart OVS on DPU-OS agents when host `use_admin_network` changes. Containerized agents skip the local service restart and still ACK the network config. |
 
 To use `embedded`, build a site-specific BFB with an explicit
@@ -659,17 +681,19 @@ events, so consumers handle them identically.
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
 | `enabled` | `bool` | `false` | Enable DPF Kubernetes deployment. |
+| `deployment_scoped_service_interfaces` | `bool` | `false` | Opt the complete DPF namespace into deployment-scoped `-bf3`, `-bf4`, and `-astra` DPUServiceInterfaces. Each resource selects Nodes in the remote DPU cluster through DPF's propagated `svc.dpu.nvidia.com/owned-by-dpudeployment=<namespace>_<deployment_name>` ownership label; management-cluster DPUNode deployment labels are not used for this selector. Enabling or disabling is a planned migration: stop NICo, remove old-mode NICo ServiceInterfaces in both transition directions, perform DPU re-ingestion, and restart. NICo neither detects nor deletes old-mode resources; skipping cleanup can leave competing interface generations active. Astra requires this setting. |
+| `pf_total_sf_reserved` | `u32` | `30` | SF capacity reserved beyond the NICo-managed HBN, DHCP, and FMDS endpoints when an intercept-bridging inventory is configured. NICo sets `PF_TOTAL_SF` to the effective inventory's endpoint count plus this value for BF3 and generic BF4. Without configured intercept bridging, this value is the complete `PF_TOTAL_SF`, preserving the legacy default of `30`; BF4 Astra retains its fixed flavor and ignores this setting. Changing this value changes the BF3/generic-BF4 flavor. Every intercept-inventory change requires controlled ServiceInterface cleanup and DPU re-ingestion, even when the serialized flavor and its hash remain unchanged. Operators must select a value compatible with their platform's SF and BAR capacity. With configured intercept bridging, startup rejects configurations whose managed endpoint count plus reserve exceeds `u32::MAX`. |
 | `dpu_agent_bootstrap_ca` | `DpfDpuAgentBootstrapCa` | `legacy_download` | Bootstrap trust for the containerized DPU agent. Supports `legacy_download` and `mounted`, as described in the following examples. |
 | `services` | `Box<DpfMandatoryServicesConfig>` | built-in mandatory-service defaults | Helm chart, image, pull-secret, and `extra_helm_values` settings for the six mandatory DPF services. |
 | `docker_image_pull_secret` | `Option<String>` | — | Override for the Kubernetes `imagePullSecrets` entry used to pull mandatory-service images (applied to every mandatory service except `dts` and `doca_hbn`, which take a pull secret only from their per-service config). |
 | `proxy` | `Option<DpfProxyDetails>` | — | Proxy configuration for the DPU. When set, containerd on the DPU routes outbound HTTPS traffic through it. |
 | `deployments` | `DpfDeploymentsConfig` | *(default)* | Per-generation DPUDeployment configurations. BF3 is always present with defaults; BF4 variants are opt-in. BF4 Astra gets default Weave DHCP agent, Weave flow controller, and Xplane services; `extra_services` can replace any of those definitions. |
 
-Each entry under `[dpf.services]` accepts a chart-native `extra_helm_values` table. NICo
-deep-merges it over generated `DPUServiceTemplate` values. Nested scalars and arrays
-replace generated values. DPF applies NICo's deployment-specific
-`DPUServiceConfiguration` values after the template values.
-Top-level and per-deployment service fields both overlay the service's built-in defaults.
+Every active DPF deployment must use distinct `deployment_name`, `flavor_name`, and `node_label_key` values. A deployment `node_label_key` must not be `feature.node.kubernetes.io/dpu-enabled`, which marks every DPF-managed node, or `carbide.nvidia.com/host-bmc-ip`, whose per-node contextual value is the host BMC address. These checks use the local configuration and do not query or modify cluster resources.
+
+Each entry under `[dpf.services]` accepts a chart-native `extra_helm_values` table. NICo deep-merges it over generated `DPUServiceTemplate` values. Nested scalars and arrays replace generated values. DPF applies NICo's deployment-specific `DPUServiceConfiguration` values after the template values. Top-level and per-deployment service fields both overlay the service's built-in defaults.
+
+The topology-derived `[dpf.services.doca_hbn.extra_helm_values.resources]` value `nvidia.com/bf_sf` is reserved: NICo restores the effective HBN interface count after applying operator overrides so the SF request, interface assignment, and startup configuration cannot diverge.
 
 ```toml
 [dpf.services.dpu_agent.extra_helm_values.fmds]

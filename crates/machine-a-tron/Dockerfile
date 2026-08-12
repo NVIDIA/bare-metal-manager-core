@@ -1,21 +1,31 @@
 # syntax=docker/dockerfile:1.7
+
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
 #
-# Cross-compilation: the BUILDER always runs NATIVE on the build host
-# ($BUILDPLATFORM) and cross-compiles to x86_64-unknown-linux-gnu. This is not
-# a Mac convenience: building the amd64 stage the naive way on an Apple
-# Silicon host runs rustc under QEMU emulation, and QEMU SEGFAULTs assembling
-# aws-lc-sys's hand-written x86-64 assembly (s2n-bignum) — even though the
-# resulting binary runs fine on real x86_64. On an x86_64 build host the
-# builder is simply native and the "cross" compile is a no-op.
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
 #
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 # Build from the repo root:
 #
-#   docker buildx build \
-#     --platform linux/amd64 \
+#   docker buildx build --platform linux/amd64 \
 #     -f crates/machine-a-tron/Dockerfile \
-#     --build-arg VERSION=0.1.0 \
-#     -t machine-a-tron:latest \
-#     .
+#     --build-arg VERSION=0.1.0 -t machine-a-tron:latest .
+#
+# NOTE: Cross-compilation architecture
+# The BUILDER stage always runs NATIVE on the build host ($BUILDPLATFORM) and
+# cross-compiles to x86_64-unknown-linux-gnu. This avoids QEMU emulation when
+# building on Apple Silicon hosts, which would otherwise SEGFAULT while
+# assembling aws-lc-sys's hand-written x86-64 assembly code.
 #
 ARG RUST_VERSION=1.96.0
 
@@ -74,10 +84,12 @@ LABEL org.opencontainers.image.vendor="NVIDIA"
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
+    ipmitool \
     iproute2 \
     iputils-ping \
     libssl3 \
     libudev1 \
+    openipmi \
     && rm -rf /var/lib/apt/lists/*
 
 RUN mkdir -p /opt/machine-a-tron/bin /tmp/machine-a-tron-data

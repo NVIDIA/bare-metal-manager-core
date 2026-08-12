@@ -204,6 +204,13 @@ fn event_to_logs<B: Bmc>(
                 attributes.push((Cow::Borrowed("resolution"), resolution.clone()));
             }
 
+            if let Some(oem) = &record.base.base.oem {
+                attributes.push((
+                    Cow::Borrowed("redfish.oem"),
+                    oem.additional_properties.to_string(),
+                ));
+            }
+
             let diagnostic_record = if include_diagnostics {
                 make_diagnostic_record(DiagnosticPayload {
                     diagnostic_data: nullable_str(&record.diagnostic_data),
@@ -234,6 +241,50 @@ fn event_to_logs<B: Bmc>(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::endpoint::test_support::{mac, test_endpoint};
+
+    #[test]
+    fn sse_event_preserves_oem_extensions() -> Result<(), HealthError> {
+        let payload = serde_json::from_value(serde_json::json!({
+            "@odata.id": "/redfish/v1/EventService/SSE#/Event1",
+            "@odata.type": "#Event.v1_0_0.Event",
+            "Id": "1",
+            "Name": "Event Array",
+            "Events": [
+                {
+                    "@odata.id": "/redfish/v1/EventService/SSE#/Events/1",
+                    "MemberId": "1",
+                    "EventType": "Alert",
+                    "MessageId": "Example.1.0.Event",
+                    "Oem": {
+                        "Nvidia": {
+                            "ErrorId": "example-error-id"
+                        }
+                    }
+                }
+            ]
+        }))?;
+
+        let endpoint = test_endpoint(mac("00:11:22:33:44:55"));
+
+        let events = map_payload(Ok(payload), endpoint.bmc().as_ref(), false);
+
+        let [Ok(CollectorEvent::Log(record))] = events.as_slice() else {
+            panic!("expected one SSE log record");
+        };
+
+        let oem = record
+            .attributes
+            .iter()
+            .find_map(|(key, value)| (key.as_ref() == "redfish.oem").then_some(value));
+
+        assert_eq!(
+            oem.map(String::as_str),
+            Some(r#"{"Nvidia":{"ErrorId":"example-error-id"}}"#)
+        );
+
+        Ok(())
+    }
 
     #[test]
     fn health_to_severity_known_variants() {

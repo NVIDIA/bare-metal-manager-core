@@ -623,7 +623,7 @@ pub(in crate::tests) async fn test_create_initial_networks(
     let initial_domain_id = admin
         .config
         .subdomain_id
-        .expect("config-seeded network should use the forward domain");
+        .expect("configured initial network should use the forward domain");
 
     let underlay = db::network_segment::find_by_name(&mut txn, "DEV1-C09-IPMI-01").await?;
     assert_eq!(underlay.config.mtu, 1500);
@@ -699,6 +699,142 @@ pub(in crate::tests) async fn test_create_initial_networks(
     assert_eq!(added.config.subdomain_id, Some(initial_domain_id));
     txn.commit().await?;
 
+    Ok(())
+}
+
+/// Builds the smallest configured underlay needed by startup reconciliation
+/// tests. Callers choose only the CIDR and gateway that distinguish each case.
+fn initial_underlay_definition(prefix: &str, gateway: &str) -> NetworkDefinition {
+    NetworkDefinition {
+        segment_type: NetworkDefinitionSegmentType::Underlay,
+        prefix: prefix.parse().unwrap(),
+        prefix_v6: None,
+        gateway: gateway.parse().unwrap(),
+        dhcpv6_link_address: None,
+        mtu: 1500,
+        reserve_first: 5,
+        allocation_strategy: Default::default(),
+        vpc_name: None,
+    }
+}
+
+/// Persists an initial segment and its durable `network_def` link without
+/// creating DNS. This leaves startup as the only path that can repair the
+/// missing reverse zone.
+async fn persist_initial_network_without_reverse_zone(
+    pool: &sqlx::PgPool,
+    name: &str,
+    definition: &NetworkDefinition,
+) -> Result<NetworkSegment, Box<dyn std::error::Error>> {
+    let mut txn = pool.begin().await?;
+    let domains = db::dns::domain::find_by_name(txn.as_mut(), "dwrt1.com").await?;
+    let [domain] = domains.as_slice() else {
+        panic!("test fixture should have exactly one forward domain");
+    };
+    let mut segment = NewNetworkSegment::build_from(name, domain.id, definition)?;
+    segment.can_stretch = Some(true);
+    let segment =
+        db::network_segment::persist(segment, txn.as_mut(), NetworkSegmentControllerState::Ready)
+            .await?;
+    db::network_segment::insert_network_def(txn.as_mut(), name, segment.id, definition).await?;
+    txn.commit().await?;
+    Ok(segment)
+}
+
+#[crate::sqlx_test]
+async fn test_initial_network_reverse_zones_follow_persisted_config_drift(
+    db_pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    // The stored `network_def.segment_id` identifies the segment startup must
+    // repair. A changed config CIDR must not create a zone for data that was
+    // never persisted.
+    let env =
+        create_test_env_with_overrides(db_pool.clone(), TestEnvOverrides::no_network_segments())
+            .await;
+    let original = initial_underlay_definition("10.44.0.0/16", "10.44.0.1");
+    let drifted = initial_underlay_definition("10.55.0.0/16", "10.55.0.1");
+    let original_segment =
+        persist_initial_network_without_reverse_zone(&db_pool, "drifted-underlay", &original)
+            .await?;
+
+    crate::db_init::create_initial_networks(
+        &env.api,
+        &env.pool,
+        &HashMap::from([("drifted-underlay".to_string(), drifted.clone())]),
+    )
+    .await?;
+
+    let mut txn = db_pool.begin().await?;
+    let segment = db::network_segment::find_by_name(&mut txn, "drifted-underlay").await?;
+    assert_eq!(segment.id, original_segment.id);
+    assert_eq!(segment.prefixes.len(), 1);
+    assert_eq!(segment.prefixes[0].prefix, original.prefix);
+    assert_eq!(
+        db::network_segment::stored_def(txn.as_mut(), "drifted-underlay").await?,
+        Some(original.clone()),
+        "config drift must not replace the stored declaration",
+    );
+
+    let original_zone = db::dns::cidr_to_reverse_zone(original.prefix).unwrap();
+    let original_domains =
+        db::dns::domain::find_reverse_zone_by_normalized_name(txn.as_mut(), &original_zone).await?;
+    assert_eq!(
+        original_domains.len(),
+        1,
+        "startup should create the zone for the persisted prefix",
+    );
+
+    let drifted_zone = db::dns::cidr_to_reverse_zone(drifted.prefix).unwrap();
+    assert!(
+        db::dns::domain::find_reverse_zone_by_normalized_name(txn.as_mut(), &drifted_zone)
+            .await?
+            .is_empty(),
+        "startup must not create an orphan zone for an unapplied declaration",
+    );
+    txn.commit().await?;
+    Ok(())
+}
+
+#[crate::sqlx_test]
+async fn test_initial_network_restart_does_not_restore_deleted_static_assignment_zones(
+    db_pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    // The static-assignments row may remain during soft-delete drainage, but
+    // restart must not recreate the reverse zones removed with that segment.
+    let env =
+        create_test_env_with_overrides(db_pool.clone(), TestEnvOverrides::no_network_segments())
+            .await;
+    let networks = HashMap::new();
+    crate::db_init::create_initial_networks(&env.api, &env.pool, &networks).await?;
+
+    let mut txn = db_pool.begin().await?;
+    let static_assignments = db::network_segment::static_assignments(txn.as_mut()).await?;
+    let reverse_zones = static_assignments
+        .prefixes
+        .iter()
+        .map(|prefix| db::dns::cidr_to_reverse_zone(prefix.prefix).unwrap())
+        .collect::<Vec<_>>();
+    txn.commit().await?;
+
+    env.api
+        .delete_network_segment(Request::new(rpc::forge::NetworkSegmentDeletionRequest {
+            id: Some(static_assignments.id),
+        }))
+        .await?;
+    crate::db_init::create_initial_networks(&env.api, &env.pool, &networks).await?;
+
+    let mut txn = db_pool.begin().await?;
+    let static_assignments = db::network_segment::static_assignments(txn.as_mut()).await?;
+    assert!(static_assignments.is_marked_as_deleted());
+    for reverse_zone in reverse_zones {
+        assert!(
+            db::dns::domain::find_reverse_zone_by_normalized_name(txn.as_mut(), &reverse_zone,)
+                .await?
+                .is_empty(),
+            "startup must not restore reverse zones for a soft-deleted static-assignments segment",
+        );
+    }
+    txn.commit().await?;
     Ok(())
 }
 

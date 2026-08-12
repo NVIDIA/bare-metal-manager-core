@@ -243,6 +243,72 @@ impl NvlPartitionMonitorMetrics {
             },
         }
     }
+
+    /// Accumulates per-group metrics collected during concurrent group processing into `self`.
+    ///
+    /// Fields that are counters or collections are summed/extended. Single-valued NMX-C metadata
+    /// (endpoint, version, connect_error) use last-non-empty-wins, matching the previous
+    /// sequential behaviour where the last processed group determined those values. Health maps
+    /// are keyed by `(domain_uuid, state)` so entries from different groups have distinct keys
+    /// and can be merged with `extend`.
+    ///
+    /// Fields managed by the caller (`recording_started_at`, `num_logical_partitions`,
+    /// `num_physical_partitions`, `num_completed_operations`, `num_nmx_c_unreachable_chassis`)
+    /// are not touched here.
+    ///
+    /// Exhaustive destructuring is intentional: adding a field to
+    /// [`NvlPartitionMonitorMetrics`] or [`NmxcMetrics`] must force a merge decision here.
+    pub(crate) fn merge_from(&mut self, other: Self) {
+        let Self {
+            nmxc:
+                NmxcMetrics {
+                    endpoint,
+                    connect_error,
+                    version,
+                    partition_health,
+                    gpu_health,
+                    compute_node_health,
+                },
+            num_machines_scanned,
+            num_instances_scanned,
+            num_gpus_scanned,
+            num_machine_nvl_status_updates,
+            num_nvlink_info_mismatches,
+            num_stale_partitions_deleted,
+            applied_changes,
+            nvlink_config_apply_durations_ms,
+            // Caller-owned — intentionally not merged.
+            recording_started_at: _,
+            num_logical_partitions: _,
+            num_physical_partitions: _,
+            num_completed_operations: _,
+            num_nmx_c_unreachable_chassis: _,
+        } = other;
+
+        if !endpoint.is_empty() {
+            self.nmxc.endpoint = endpoint;
+        }
+        if !version.is_empty() {
+            self.nmxc.version = version;
+        }
+        if !connect_error.is_empty() {
+            self.nmxc.connect_error = connect_error;
+        }
+        self.nmxc.partition_health.extend(partition_health);
+        self.nmxc.gpu_health.extend(gpu_health);
+        self.nmxc.compute_node_health.extend(compute_node_health);
+        self.num_machines_scanned += num_machines_scanned;
+        self.num_instances_scanned += num_instances_scanned;
+        self.num_gpus_scanned += num_gpus_scanned;
+        self.num_machine_nvl_status_updates += num_machine_nvl_status_updates;
+        self.num_nvlink_info_mismatches += num_nvlink_info_mismatches;
+        self.num_stale_partitions_deleted += num_stale_partitions_deleted;
+        for (k, v) in applied_changes {
+            *self.applied_changes.entry(k).or_default() += v;
+        }
+        self.nvlink_config_apply_durations_ms
+            .extend(nvlink_config_apply_durations_ms);
+    }
 }
 
 impl Display for NvlPartitionMonitorMetrics {
@@ -657,6 +723,135 @@ mod tests {
     use carbide_test_support::{Check, check_values};
 
     use super::*;
+
+    #[test]
+    fn merge_from_sums_group_fields_and_preserves_caller_owned() {
+        let applied_create = AppliedChange {
+            operation: NmxcMetricOperation::Create,
+            status: NmxcMetricOperationStatus::Completed,
+        };
+        let applied_remove = AppliedChange {
+            operation: NmxcMetricOperation::Remove,
+            status: NmxcMetricOperationStatus::Failed,
+        };
+
+        let mut base = NvlPartitionMonitorMetrics::new();
+        base.recording_started_at = std::time::Instant::now();
+        let started_at = base.recording_started_at;
+        base.num_logical_partitions = 4;
+        base.num_physical_partitions = 2;
+        base.num_completed_operations = 7;
+        base.num_nmx_c_unreachable_chassis
+            .insert(ChassisNmxCUnreachableReason::NoEndpoint, 1);
+        base.num_machines_scanned = 1;
+        base.num_instances_scanned = 2;
+        base.num_gpus_scanned = 3;
+        base.num_machine_nvl_status_updates = 1;
+        base.num_nvlink_info_mismatches = 1;
+        base.num_stale_partitions_deleted = 1;
+        base.applied_changes.insert(applied_create.clone(), 2);
+        base.nvlink_config_apply_durations_ms.push(10.0);
+        base.nmxc.endpoint = "https://first.example:9370".to_string();
+        base.nmxc.version = "first=1".to_string();
+        base.nmxc.connect_error = "first-error".to_string();
+        base.nmxc
+            .partition_health
+            .insert(("domain-a".to_string(), "healthy"), 1);
+        base.nmxc
+            .gpu_health
+            .insert(("domain-a".to_string(), "healthy"), 2);
+        base.nmxc
+            .compute_node_health
+            .insert(("domain-a".to_string(), "healthy"), 3);
+
+        let mut other = NvlPartitionMonitorMetrics::new();
+        other.num_logical_partitions = 99;
+        other.num_physical_partitions = 99;
+        other.num_completed_operations = 99;
+        other
+            .num_nmx_c_unreachable_chassis
+            .insert(ChassisNmxCUnreachableReason::HelloFailed, 5);
+        other.num_machines_scanned = 10;
+        other.num_instances_scanned = 20;
+        other.num_gpus_scanned = 30;
+        other.num_machine_nvl_status_updates = 4;
+        other.num_nvlink_info_mismatches = 5;
+        other.num_stale_partitions_deleted = 6;
+        other.applied_changes.insert(applied_create.clone(), 3);
+        other.applied_changes.insert(applied_remove.clone(), 1);
+        other.nvlink_config_apply_durations_ms.push(20.0);
+        other.nmxc.endpoint = "https://second.example:9370".to_string();
+        other.nmxc.version = "second=2".to_string();
+        other.nmxc.connect_error = "second-error".to_string();
+        other
+            .nmxc
+            .partition_health
+            .insert(("domain-b".to_string(), "healthy"), 4);
+        other
+            .nmxc
+            .gpu_health
+            .insert(("domain-b".to_string(), "healthy"), 5);
+        other
+            .nmxc
+            .compute_node_health
+            .insert(("domain-b".to_string(), "healthy"), 6);
+
+        base.merge_from(other);
+
+        assert_eq!(base.num_machines_scanned, 11);
+        assert_eq!(base.num_instances_scanned, 22);
+        assert_eq!(base.num_gpus_scanned, 33);
+        assert_eq!(base.num_machine_nvl_status_updates, 5);
+        assert_eq!(base.num_nvlink_info_mismatches, 6);
+        assert_eq!(base.num_stale_partitions_deleted, 7);
+        assert_eq!(base.applied_changes[&applied_create], 5);
+        assert_eq!(base.applied_changes[&applied_remove], 1);
+        assert_eq!(base.nvlink_config_apply_durations_ms, vec![10.0, 20.0]);
+        assert_eq!(base.nmxc.endpoint, "https://second.example:9370");
+        assert_eq!(base.nmxc.version, "second=2");
+        assert_eq!(base.nmxc.connect_error, "second-error");
+        assert_eq!(
+            base.nmxc.partition_health,
+            HashMap::from([
+                (("domain-a".to_string(), "healthy"), 1),
+                (("domain-b".to_string(), "healthy"), 4),
+            ])
+        );
+        assert_eq!(
+            base.nmxc.gpu_health,
+            HashMap::from([
+                (("domain-a".to_string(), "healthy"), 2),
+                (("domain-b".to_string(), "healthy"), 5),
+            ])
+        );
+        assert_eq!(
+            base.nmxc.compute_node_health,
+            HashMap::from([
+                (("domain-a".to_string(), "healthy"), 3),
+                (("domain-b".to_string(), "healthy"), 6),
+            ])
+        );
+
+        // Caller-owned fields must not change during merge.
+        assert_eq!(base.recording_started_at, started_at);
+        assert_eq!(base.num_logical_partitions, 4);
+        assert_eq!(base.num_physical_partitions, 2);
+        assert_eq!(base.num_completed_operations, 7);
+        assert_eq!(
+            base.num_nmx_c_unreachable_chassis,
+            HashMap::from([(ChassisNmxCUnreachableReason::NoEndpoint, 1)])
+        );
+
+        // Empty metadata from `other` must not overwrite existing values.
+        let mut keep = NvlPartitionMonitorMetrics::new();
+        keep.nmxc.endpoint = "https://keep.example:9370".to_string();
+        keep.nmxc.version = "keep=1".to_string();
+        keep.nmxc.connect_error = "keep-error".to_string();
+        keep.merge_from(NvlPartitionMonitorMetrics::new());
+        assert_eq!(keep.nmxc.endpoint, "https://keep.example:9370");
+        assert_eq!(keep.nmxc.version, "keep=1");
+        assert_eq!(keep.nmxc.connect_error, "keep-error");
+    }
 
     #[test]
     fn partition_monitor_iteration_records_latency_and_warns_only_on_failure() {

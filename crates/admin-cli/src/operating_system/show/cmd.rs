@@ -31,10 +31,12 @@ pub(super) async fn handle_show(
     format: OutputFormat,
     api_client: &ApiClient,
 ) -> CarbideCliResult<()> {
-    if opts.id.as_deref().unwrap_or("").is_empty() {
-        list_all(opts, format, api_client).await
+    if let Some(id) = opts.id.as_ref()
+        && !id.is_empty()
+    {
+        show_one(id, format, api_client).await
     } else {
-        show_one(opts.id.as_deref().unwrap(), format, api_client).await
+        list_all(opts, format, api_client).await
     }
 }
 

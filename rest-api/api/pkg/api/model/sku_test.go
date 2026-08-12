@@ -63,7 +63,6 @@ func TestNewAPISku(t *testing.T) {
 				DeviceType:           &deviceType,
 				AssociatedMachineIds: associatedMachineIds,
 				Created:              &createdTime,
-				Updated:              &updatedTime,
 			},
 		},
 		{
@@ -96,7 +95,6 @@ func TestNewAPISku(t *testing.T) {
 			assert.Equal(t, tt.want.DeviceType, got.DeviceType)
 			assert.Equal(t, tt.want.AssociatedMachineIds, got.AssociatedMachineIds)
 			assert.Equal(t, tt.want.Created, got.Created)
-			assert.Equal(t, tt.want.Updated, got.Updated)
 		})
 	}
 }
@@ -635,7 +633,6 @@ func TestNewAPISkuEdgeCases(t *testing.T) {
 		result := NewAPISku(dbSku)
 		assert.NotNil(t, result)
 		assert.True(t, result.Created.IsZero())
-		assert.True(t, result.Updated.IsZero())
 	})
 }
 
@@ -1026,8 +1023,7 @@ func TestAPISku_MarshalJSON(t *testing.T) {
 			"infinibandDevices":null,
 			"tpm":null
 		},
-		"created":null,
-		"updated":null
+		"created":null
 	}`, string(encoded))
 }
 
@@ -1062,6 +1058,48 @@ func TestAPISkuStorage_Validate(t *testing.T) {
 			err = storage.Validate()
 			require.Error(t, err)
 			assert.Contains(t, err.Error(), "read-only")
+		})
+	}
+}
+
+func TestAPISkuComponents_Validate(t *testing.T) {
+	for _, test := range []struct {
+		name            string
+		ethernetDevices []APISkuEthernetDevice
+		wantErr         bool
+	}{
+		{
+			name: "accepts omitted ethernet devices",
+		},
+		{
+			name:            "accepts empty ethernet devices",
+			ethernetDevices: []APISkuEthernetDevice{},
+		},
+		{
+			name: "rejects non-empty ethernet devices",
+			ethernetDevices: []APISkuEthernetDevice{
+				{
+					Vendor:      "Mellanox Technologies",
+					Model:       "MT2892 Family [ConnectX-6 Dx]",
+					Count:       2,
+					IsConnected: true,
+				},
+			},
+			wantErr: true,
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			components := testAPISkuComponents()
+			components.EthernetDevices = test.ethernetDevices
+
+			err := components.Validate()
+			if test.wantErr {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), "ethernetDevices")
+				assert.Contains(t, err.Error(), "read-only")
+				return
+			}
+			assert.NoError(t, err)
 		})
 	}
 }

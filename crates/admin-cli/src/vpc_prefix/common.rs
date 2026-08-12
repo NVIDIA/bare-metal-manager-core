@@ -160,7 +160,7 @@ impl<T> From<Vec<T>> for Quantity<T> {
         let mut items = value;
         match items.len() {
             0 => Quantity::Zero,
-            1 => Quantity::One(items.pop().unwrap()),
+            1 => Quantity::One(items.pop().expect("len()==1 should have an item")),
             _ => Quantity::Many(items),
         }
     }

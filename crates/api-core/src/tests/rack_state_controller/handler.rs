@@ -3549,7 +3549,9 @@ async fn assert_configure_nmx_cluster_v2_results(
         .ok_or_else(|| eyre::eyre!("configure request should include desired fabric config"))?;
 
     assert_eq!(desired.topology_type, topology_type);
+    assert!(desired.extra_static_configs.is_empty());
     assert_eq!(configure_request.primary_switch_node_id, None);
+    assert_eq!(configure_request.domain, None);
 
     let configure_nodes = &configure_request
         .nodes
@@ -3565,10 +3567,14 @@ async fn assert_configure_nmx_cluster_v2_results(
             .any(|node| node.node_id == switch_id.to_string())
     }));
 
-    assert_eq!(
-        env.rms_sim.submitted_get_job_status_requests().await.len(),
-        1
-    );
+    let job_status_requests = env.rms_sim.submitted_get_job_status_requests().await;
+
+    let [job_status_request] = job_status_requests.as_slice() else {
+        return Err(eyre::eyre!("expected exactly one job status request").into());
+    };
+
+    assert_eq!(job_status_request.job_id, "configure-scale-up-fabric-job");
+    assert!(!job_status_request.include_child_job_states);
 
     let status_requests = env
         .rms_sim
@@ -3578,6 +3584,8 @@ async fn assert_configure_nmx_cluster_v2_results(
     let [status_request] = status_requests.as_slice() else {
         return Err(eyre::eyre!("expected exactly one fabric status request").into());
     };
+
+    assert_eq!(status_request.domain, None);
 
     let status_nodes = &status_request
         .nodes
@@ -3723,6 +3731,106 @@ async fn test_configure_nmx_cluster_v2_delegates_primary_setup_and_persists_obse
         &topology_type,
     )
     .await
+}
+
+#[crate::sqlx_test]
+async fn test_configure_nmx_cluster_v2_completed_job_with_unknown_profile_stops_flow(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let mut config = config_with_nmx_cluster_profile();
+    config.rms.scale_up_fabric_manager_api_version = ScaleUpFabricManagerApiVersion::V2;
+
+    let env = create_test_env_with_overrides(
+        pool.clone(),
+        TestEnvOverrides {
+            config: Some(config),
+            ..Default::default()
+        },
+    )
+    .await;
+
+    let rack_id = new_rack_id();
+    let missing_profile_id = RackProfileId::new("RemovedNmxCluster");
+    let mut txn = pool.acquire().await?;
+
+    db_rack::create(
+        &mut txn,
+        &rack_id,
+        Some(&missing_profile_id),
+        &RackConfig::default(),
+        None,
+    )
+    .await?;
+
+    drop(txn);
+
+    attach_switches_with_nvos_credentials(&env, &rack_id, 2).await?;
+
+    env.rms_sim
+        .queue_get_job_status_response(Ok(rms::GetJobStatusResponse {
+            job_states: vec![rms::JobStatus {
+                job_id: "configure-scale-up-fabric-job".to_string(),
+                execution_state: rms::JobExecutionState::Completed as i32,
+                state_description: "completed".to_string(),
+                ..Default::default()
+            }],
+        }))
+        .await;
+
+    let mut rack = get_db_rack(env.db_reader().as_mut(), &rack_id).await;
+    let handler_instance = RackStateHandler::default();
+
+    let mut services = env.rack_state_handler_services();
+    services.rms_client = None;
+    let mut metrics = RackMetrics::default();
+    let mut db_writes = DbWriteBatch::default();
+
+    let mut ctx = StateHandlerContext::<RackStateHandlerContextObjects> {
+        services: &mut services,
+        metrics: &mut metrics,
+        pending_db_writes: &mut db_writes,
+    };
+
+    let job_wait = RackState::Maintenance {
+        maintenance_state: RackMaintenanceState::ConfigureNmxCluster {
+            configure_nmx_cluster: ConfigureNmxClusterState::WaitForScaleUpFabricManagerJob {
+                job_id: "configure-scale-up-fabric-job".to_string(),
+            },
+        },
+    };
+
+    let outcome = handler_instance
+        .handle_object_state(&rack_id, &mut rack, &job_wait, &mut ctx)
+        .await?;
+
+    match outcome {
+        StateHandlerOutcome::Transition { next_state, .. } => match next_state {
+            RackState::Error { cause } => {
+                assert!(cause.contains("rack profile is missing or unknown"));
+            }
+            other => panic!("Expected Error state, got {other:?}"),
+        },
+        other => panic!(
+            "Expected Transition, got {:?}",
+            std::mem::discriminant(&other)
+        ),
+    }
+
+    assert!(
+        env.rms_sim
+            .submitted_get_scale_up_fabric_status_requests()
+            .await
+            .is_empty()
+    );
+
+    assert!(
+        env.rms_sim
+            .submitted_batch_get_scale_up_fabric_service_status_requests()
+            .await
+            .is_empty()
+    );
+
+    Ok(())
 }
 
 /// test_configure_nmx_cluster_transitions_to_completed verifies that

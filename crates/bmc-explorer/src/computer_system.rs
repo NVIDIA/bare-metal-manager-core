@@ -116,6 +116,30 @@ impl<B: Bmc> ExploredComputerSystem<B> {
         })
     }
 
+    /// Chassis explicitly associated with this ComputerSystem by Redfish.
+    pub(crate) fn linked_chassis_ids(&self) -> Vec<nv_redfish::core::ODataId> {
+        self.system
+            .raw()
+            .links
+            .as_ref()
+            .and_then(|links| links.chassis.as_ref())
+            .into_iter()
+            .flatten()
+            .map(|chassis| chassis.id().clone())
+            .collect()
+    }
+
+    /// Whether the System EthernetInterfaces collection contains a usable MAC.
+    pub(crate) fn has_usable_ethernet_mac_address(&self) -> bool {
+        self.ethernet_interfaces.iter().any(|interface| {
+            let mac_address = interface.mac_address();
+            is_usable_ethernet_mac_address(
+                interface.interface_enabled(),
+                mac_address.as_ref().map(|mac_address| mac_address.as_str()),
+            )
+        })
+    }
+
     async fn fetch_bios(
         system: &ComputerSystem<B>,
         config: &Config<'_, B>,
@@ -378,6 +402,7 @@ impl<B: Bmc> ExploredComputerSystem<B> {
         &self,
         hw_type: Option<hw::HwType>,
     ) -> Result<Vec<ModelEthernetInterface>, Error<B>> {
+        let is_bluefield = hw_type == Some(hw::HwType::Bluefield);
         let mut result = self
             .ethernet_interfaces
             .iter()
@@ -391,18 +416,18 @@ impl<B: Bmc> ExploredComputerSystem<B> {
                     })
                     .transpose()
                     .or_else(|err| {
-                        if iface
-                            .interface_enabled()
-                            .is_some_and(|is_enabled| !is_enabled)
+                        if is_bluefield
+                            || iface
+                                .interface_enabled()
+                                .is_some_and(|is_enabled| !is_enabled)
                         {
-                            // disabled interfaces sometimes populate the MAC address with junk,
-                            // ignore this error and create the interface with an empty mac address
-                            // in the exploration report
+                            // Some BlueField firmware and disabled interfaces can populate
+                            // MACAddress with junk. Keep the interface but omit its invalid MAC.
                             tracing::debug!(
                                 interface_id = %iface.id(),
                                 link_status = ?iface.link_status(),
                                 error = %err,
-                                "could not parse MAC address for a disabled interface"
+                                "ignoring invalid system interface MAC address"
                             );
                             Ok(None)
                         } else {
@@ -428,7 +453,7 @@ impl<B: Bmc> ExploredComputerSystem<B> {
             })
             .collect::<Result<Vec<_>, _>>()?;
 
-        if hw_type.is_some_and(|v| v == hw::HwType::Bluefield)
+        if is_bluefield
             && !result.iter().any(|iface| {
                 iface
                     .id
@@ -566,6 +591,15 @@ impl<B: Bmc> ExploredComputerSystem<B> {
     }
 }
 
+fn is_usable_ethernet_mac_address(
+    interface_enabled: Option<bool>,
+    mac_address: Option<&str>,
+) -> bool {
+    interface_enabled.is_none_or(identity)
+        && mac_address
+            .is_some_and(|mac_address| deserialize_input_mac_to_address(mac_address).is_ok())
+}
+
 fn is_uefi_tree_child(
     parent: EthUefiDevicePath<&str>,
     child: BootOptionUefiDevicePath<&str>,
@@ -656,4 +690,34 @@ fn pcie_device_to_model<B: Bmc>(
                 .unwrap_or("".into()),
         }),
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use carbide_test_support::value_scenarios;
+
+    use super::is_usable_ethernet_mac_address;
+
+    #[test]
+    fn usable_ethernet_mac_address_cases() {
+        value_scenarios!(run = |(interface_enabled, mac_address)| {
+            is_usable_ethernet_mac_address(interface_enabled, mac_address)
+        };
+            "enabled interface with a valid MAC" {
+                (Some(true), Some("94:6d:ae:53:cb:9b")) => true,
+            }
+            "interface without an enabled state and with a valid MAC" {
+                (None, Some("94:6d:ae:53:cb:9b")) => true,
+            }
+            "disabled interface with a placeholder MAC" {
+                (Some(false), Some("00:00:00:00:00:00")) => false,
+            }
+            "enabled interface with an invalid MAC" {
+                (Some(true), Some("not-a-mac")) => false,
+            }
+            "enabled interface without a MAC" {
+                (Some(true), None) => false,
+            }
+        );
+    }
 }
