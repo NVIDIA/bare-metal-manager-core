@@ -78,6 +78,8 @@ struct RedfishSimState {
     /// change-on-first-use has been done -- the case the `AMI`/`LenovoGB300`
     /// rotation path handles by retrying `change_password_by_id("2")`.
     password_change_required: bool,
+    /// Optional account URI returned with [`RedfishError::PasswordChangeRequired`].
+    password_change_required_account_uri: Option<String>,
     /// When set, overrides the `Vendor` field returned by `get_service_root`.
     /// Tests set it to an unrecognized value to force `probe_bmc_vendor` down
     /// the Chassis `Manufacturer` fallback path.
@@ -384,8 +386,14 @@ impl RedfishSim {
     /// [`RedfishError::PasswordChangeRequired`], modeling a factory BMC that
     /// blocks it until change-on-first-use. `change_password_by_id` still
     /// succeeds, so this exercises the `AMI`/`LenovoGB300` rotation fallback.
-    pub fn set_password_change_required(&self, required: bool) {
-        self.state.lock().unwrap().password_change_required = required;
+    pub fn set_password_change_required(&self, required: bool, account_uri: Option<&str>) {
+        let mut state = self.state.lock().unwrap();
+        state.password_change_required = required;
+        state.password_change_required_account_uri = if required {
+            account_uri.map(str::to_string)
+        } else {
+            None
+        };
     }
 
     /// Enable opt-in authentication enforcement (see [`RedfishSimState::enforce_auth`]):
@@ -885,7 +893,9 @@ impl Redfish for RedfishSimClient {
                 });
             }
             if state.password_change_required {
-                return Err(RedfishError::PasswordChangeRequired { account_uri: None });
+                return Err(RedfishError::PasswordChangeRequired {
+                    account_uri: state.password_change_required_account_uri.clone(),
+                });
             }
             self.authorize(&mut state, "AccountService/Accounts")?;
             if !state.users.contains_key(&s_user) {
