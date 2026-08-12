@@ -23,8 +23,9 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use carbide_dpf::types::{DpuServiceVersion, HostDpfSnapshot, ServiceTemplateVersion};
 use carbide_dpf::{
-    BmcPasswordProvider, DpfError, DpfSdk, DpuDeploymentType, DpuDeviceInfo, DpuNodeInfo, DpuPhase,
-    DpuWatcher, KubeRepository, ResourceLabeler, node_id_from_dpu_node_cr_name,
+    BmcPasswordProvider, DPU_ENABLED_NODE_LABEL, DpfError, DpfSdk, DpuDeploymentType,
+    DpuDeviceInfo, DpuNodeInfo, DpuPhase, DpuWatcher, KubeRepository, ResourceLabeler,
+    node_id_from_dpu_node_cr_name,
 };
 use carbide_uuid::machine::MachineId;
 use model::dpu_machine_update::OutdatedDpfDpu;
@@ -43,6 +44,9 @@ const DPU_MACHINE_ID_LABEL: &str = "carbide.nvidia.com/dpu-machine-id";
 /// Label key used by [`CarbideDPFLabeler`] to mark a DPU device as
 /// carbide-controlled. Propagates to the DPU CR.
 const CONTROLLED_DEVICE_LABEL: &str = "carbide.nvidia.com/controlled.device";
+
+/// Label populated with the host BMC address on both DPUDevice and DPUNode resources.
+pub const HOST_BMC_IP_LABEL: &str = "carbide.nvidia.com/host-bmc-ip";
 
 /// Trait for DPF SDK operations used by Carbide.
 ///
@@ -212,10 +216,7 @@ impl ResourceLabeler for CarbideDPFLabeler {
     fn device_labels(&self, info: &DpuDeviceInfo) -> BTreeMap<String, String> {
         BTreeMap::from([
             (CONTROLLED_DEVICE_LABEL.to_string(), "true".to_string()),
-            (
-                "carbide.nvidia.com/host-bmc-ip".to_string(),
-                info.host_bmc_ip.to_string(),
-            ),
+            (HOST_BMC_IP_LABEL.to_string(), info.host_bmc_ip.to_string()),
             (
                 "carbide.nvidia.com/is-primary-dpu".to_string(),
                 info.is_primary.to_string(),
@@ -230,10 +231,7 @@ impl ResourceLabeler for CarbideDPFLabeler {
     fn node_labels(&self) -> BTreeMap<String, String> {
         BTreeMap::from([
             (self.node_label_key.clone(), "true".to_string()),
-            (
-                "feature.node.kubernetes.io/dpu-enabled".to_string(),
-                "true".to_string(),
-            ),
+            (DPU_ENABLED_NODE_LABEL.to_string(), "true".to_string()),
         ])
     }
 
@@ -252,10 +250,7 @@ impl ResourceLabeler for CarbideDPFLabeler {
     }
 
     fn node_context_labels(&self, info: &DpuNodeInfo) -> BTreeMap<String, String> {
-        BTreeMap::from([(
-            "carbide.nvidia.com/host-bmc-ip".to_string(),
-            info.host_bmc_ip.to_string(),
-        )])
+        BTreeMap::from([(HOST_BMC_IP_LABEL.to_string(), info.host_bmc_ip.to_string())])
     }
 
     fn dpu_label_selector(&self) -> Option<String> {
