@@ -190,6 +190,66 @@ func TestMirrorRacks_NullSerialDistinctByExternalID(t *testing.T) {
 	assert.Equal(t, 4, n, "four NULL-serial racks with distinct external_ids must all insert")
 }
 
+// Chassis labels are metadata, not identity, so a Core site that has labelled
+// neither is still mirrored rather than skipped. Both racks store NULL for
+// both columns and stay distinct on external_id.
+func TestMirrorRacks_NoChassisLabelsStillMirrored(t *testing.T) {
+	ctx, pool := mirrorTestPool(t)
+
+	mirrorExpectedRacks(ctx, pool, []nicoapi.ExpectedRackDetail{
+		{RackID: "a12", Name: "rack-a12"},
+		{RackID: "b07", Name: "rack-b07"},
+	})
+
+	n, err := pool.DB.NewSelect().Model((*model.Rack)(nil)).
+		Where("manufacturer IS NULL").
+		Where("serial_number IS NULL").
+		Count(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, 2, n, "racks with no chassis labels must mirror, distinguished by external_id")
+}
+
+// A Core row with no rack_id has no identity the mirror could match it back to
+// on a later cycle, so it is skipped even when both chassis labels are present.
+func TestMirrorRacks_NoRackIDSkipped(t *testing.T) {
+	ctx, pool := mirrorTestPool(t)
+
+	result := mirrorExpectedRacks(ctx, pool, []nicoapi.ExpectedRackDetail{
+		{Name: "orphan", Labels: map[string]string{
+			labelChassisManufacturer: "NVIDIA",
+			labelChassisSerialNumber: "SN-ORPHAN",
+		}},
+	})
+
+	assert.Equal(t, 1, result.skippedNoIDOrKey)
+	n, err := pool.DB.NewSelect().Model((*model.Rack)(nil)).Count(ctx)
+	require.NoError(t, err)
+	assert.Zero(t, n, "a rack with no rack_id must not be inserted")
+}
+
+// A site that labels its chassis after the rack was first mirrored gets both
+// labels backfilled in place, keeping the UUID.
+func TestMirrorRacks_ChassisLabelsBackfilled(t *testing.T) {
+	ctx, pool := mirrorTestPool(t)
+
+	mirrorExpectedRacks(ctx, pool, []nicoapi.ExpectedRackDetail{
+		{RackID: "a12", Name: "rack-a12"},
+	})
+	var before model.Rack
+	require.NoError(t, pool.DB.NewSelect().Model(&before).Where("external_id = ?", "a12").Scan(ctx))
+	require.Empty(t, before.Manufacturer)
+	require.Empty(t, before.SerialNumber)
+
+	mirrorExpectedRacks(ctx, pool, []nicoapi.ExpectedRackDetail{
+		coreRack("a12", "NVIDIA", "SN-A12"),
+	})
+
+	after, err := (&model.Rack{ID: before.ID}).Get(ctx, pool.DB, false)
+	require.NoError(t, err)
+	assert.Equal(t, "NVIDIA", after.Manufacturer, "backfill must keep the UUID and fill both labels")
+	assert.Equal(t, "SN-A12", after.SerialNumber)
+}
+
 // A NULL-serial rack matched by external_id whose newly-reported serial is
 // already held by another rack (here a tombstone, which still occupies the
 // unique slot) must be skipped, not written: the write would abort the whole

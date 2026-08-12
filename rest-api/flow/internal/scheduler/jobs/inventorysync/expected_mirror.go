@@ -141,17 +141,12 @@ func loadRackIDByExternalID(ctx context.Context, idb bun.IDB) (map[string]uuid.U
 	return out, nil
 }
 
-// rackNaturalKey joins manufacturer and serial number with a NUL byte. NUL
-// can't appear inside either value, so this is collision-free without having
-// to escape. Both mirrors key maps off the shared (manufacturer, serial) pair,
-// so it lives here next to the orchestrator rather than in either
-// type-specific file.
+// rackNaturalKey joins manufacturer and serial number with a NUL byte, which
+// cannot appear inside either value, so no escaping is needed.
 //
-// The pair is no longer what either mirror identifies a row by — components
-// match on identity_key and racks on external_id. It survives as the
-// *_manufacturer_serial_idx unique constraint over descriptive labels, so what
-// these keys mostly track now is which rows own which slot of that index, plus
-// a fallback for specs whose identity resolves to nothing.
+// The pair identifies nothing now — components match on identity_key and racks
+// on external_id. It survives as the *_manufacturer_serial_idx unique
+// constraint, so these keys track which row owns which slot of that index.
 func rackNaturalKey(manufacturer, serialNumber string) string {
 	return manufacturer + "\x00" + serialNumber
 }
@@ -159,9 +154,8 @@ func rackNaturalKey(manufacturer, serialNumber string) string {
 // naturalKeySlotTaken reports whether writing this (manufacturer, serial_number)
 // pair would land on a unique-index slot belonging to a different row: one
 // already in the table (owners, tombstones included), or one the current cycle
-// has already queued a write for (claimed). Both matter because a cycle plans
-// every write before it opens the transaction, so two planned writes can
-// collide with each other without either colliding with stored state.
+// has already queued (claimed). A cycle plans every write before opening the
+// transaction, so two planned writes can collide with each other alone.
 func naturalKeySlotTaken(owners map[string]uuid.UUID, claimed map[string]struct{}, manufacturer, serialNumber string, selfID uuid.UUID) bool {
 	naturalKey := naturalKeyOrEmpty(manufacturer, serialNumber)
 	if naturalKey == "" {
@@ -185,9 +179,8 @@ func naturalKeyOrEmpty(manufacturer, serialNumber string) string {
 	return rackNaturalKey(manufacturer, serialNumber)
 }
 
-// claimNaturalKeySlot records a pair the cycle has queued a write for. A pair with
-// an empty half is not recorded: it stores a SQL NULL, which Postgres treats
-// as distinct from every other value, so it occupies no slot.
+// claimNaturalKeySlot records a pair the cycle has queued a write for. A pair
+// with an empty half occupies no slot, so it is not recorded.
 func claimNaturalKeySlot(claimed map[string]struct{}, manufacturer, serialNumber string) {
 	if naturalKey := naturalKeyOrEmpty(manufacturer, serialNumber); naturalKey != "" {
 		claimed[naturalKey] = struct{}{}
@@ -199,15 +192,12 @@ func claimNaturalKeySlot(claimed map[string]struct{}, manufacturer, serialNumber
 // Pass uuid.Nil as selfID for an INSERT. Callers that also have to account for
 // writes queued earlier in the same cycle want naturalKeySlotTaken instead.
 //
-// Both mirrors need this because they write the serial column: the component
-// mirror matches on identity_key and the rack mirror on external_id, so the row
-// they matched can legitimately carry a different serial from the one Core now
-// reports. Blindly writing Core's value would abort the whole reconciliation
-// transaction, and since the unique index covers soft-deleted rows, owners must
-// include tombstones.
+// Both mirrors need this because neither matches on the serial any more, so the
+// row they did match can carry a different serial from the one Core reports.
+// Writing it blindly would abort the whole reconciliation transaction. The
+// unique index covers soft-deleted rows, so owners must include tombstones.
 //
-// An empty manufacturer or serial occupies no slot at all — Postgres treats
-// NULLs as distinct — so those can never collide and return false.
+// A pair with an empty half occupies no slot and never collides.
 func naturalKeyTakenByOther(owners map[string]uuid.UUID, manufacturer, serialNumber string, selfID uuid.UUID) bool {
 	if manufacturer == "" || serialNumber == "" {
 		return false

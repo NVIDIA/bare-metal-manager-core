@@ -57,18 +57,19 @@ func pullExpectedRacks(
 // expected_racks view. The algorithm is, in order:
 //
 //  1. Index every Flow rack — including soft-deleted ones — by external_id
-//     (mirror-owned) and by (manufacturer, serial_number) when serial is
-//     present (the natural key shared with Core). NULL-serial racks match
-//     only via external_id. Including soft-deleted rows is what makes
-//     resurrection work: a rack that briefly disappeared from Core and came
-//     back keeps its UUID, and a re-insert would otherwise collide on the
-//     unique indexes the soft-deleted row still occupies.
+//     (the identity, mirror-owned) and by (manufacturer, serial_number) when
+//     both labels are present. Incompletely-labelled racks match only via
+//     external_id. Including soft-deleted rows is what makes resurrection
+//     work: a rack that briefly left Core keeps its UUID, and a re-insert
+//     would collide on the indexes the soft-deleted row still occupies.
 //
 //  2. For each Core row, find the matching Flow row preferring external_id
 //     and falling back to (manufacturer, serial_number) to adopt rows that
 //     predate the mirror. New rows are inserted. A matched row that's
 //     currently soft-deleted is resurrected by clearing deleted_at;
-//     mirror-managed fields are updated alongside on real deltas.
+//     mirror-managed fields are updated alongside on real deltas. A Core row
+//     can carry a chassis pair another row already holds; those writes are
+//     skipped rather than attempted (naturalKeyTakenByOther).
 //
 //  3. Live Flow rows whose external_id is set but no longer appear in Core
 //     are soft-deleted (including the case where Core returned zero racks —
@@ -103,15 +104,12 @@ func mirrorExpectedRacks(
 		if r.ExternalID != nil && *r.ExternalID != "" {
 			flowByExtID[*r.ExternalID] = r
 		}
-		if r.Manufacturer != "" && r.SerialNumber != "" {
-			naturalKeyOwners[rackNaturalKey(r.Manufacturer, r.SerialNumber)] = r.ID
-		}
-		// Only index serial-bearing rows. Empty/NULL serials are not a
-		// natural key — matching those goes exclusively through external_id
-		// so klamath-style manufacturer=NVIDIA / serial=NULL racks do not
-		// collapse onto one map entry.
-		if r.SerialNumber != "" {
-			flowBySerial[rackNaturalKey(r.Manufacturer, r.SerialNumber)] = r
+		// Only index fully-labelled rows. Racks sharing a manufacturer with
+		// no serial must not collapse onto one entry; they match on
+		// external_id alone.
+		if naturalKey := naturalKeyOrEmpty(r.Manufacturer, r.SerialNumber); naturalKey != "" {
+			flowBySerial[naturalKey] = r
+			naturalKeyOwners[naturalKey] = r.ID
 		}
 	}
 
@@ -149,10 +147,8 @@ func mirrorExpectedRacks(
 	// touchedIDs: Flow rack UUIDs the match path adopted / updated this
 	// cycle; the delete phase skips them so a rack_id rename (update to the
 	// new external_id) isn't immediately undone by a soft-delete keyed off
-	// the stale in-memory external_id. plannedSerial: natural keys already
-	// queued for serial-bearing racks. plannedExtID: external_ids already
-	// queued so duplicate Core rack_ids (or multiple NULL-serial racks
-	// sharing a manufacturer) cannot collide.
+	// the stale in-memory external_id. plannedSerial and plannedExtID keep
+	// writes queued in one cycle off a single slot in their unique indexes.
 	seenExtID := make(map[string]struct{}, len(coreRacks))
 	touchedIDs := make(map[uuid.UUID]struct{}, len(coreRacks))
 	plannedSerial := make(map[string]struct{}, len(coreRacks))
@@ -166,41 +162,28 @@ func mirrorExpectedRacks(
 
 		built, ok := buildRackFromCore(cr)
 		if !ok {
-			// Required identity missing: need manufacturer, plus either a
-			// chassis serial or a Core rack_id (external_id). Skip the
-			// write, but the rack_id is already in seenExtID so we don't
-			// soft-delete an existing Flow rack over a transient label gap.
+			// No rack_id, so nothing the mirror could match this row back to
+			// on a later cycle.
 			log.Warn().
-				Str("rack_id", cr.RackID).
 				Str("name", cr.Name).
-				Msg("Expected-inventory mirror: skipping Core expected rack missing chassis manufacturer, and lacking both serial-number and rack_id; existing Flow rack preserved")
+				Str("rack_profile_id", cr.RackProfileID).
+				Msg("Expected-inventory mirror: skipping Core expected rack with no rack_id; existing Flow rack preserved")
 			result.skippedNoIDOrKey++
 			continue
 		}
 
-		if cr.RackID == "" {
+		// Drop Core duplicates before they collide on unique indexes.
+		if _, planned := plannedExtID[cr.RackID]; planned {
 			log.Warn().
-				Str("rack_profile_id", cr.RackProfileID).
-				Str("name", cr.Name).
+				Str("rack_id", cr.RackID).
 				Str("manufacturer", built.Manufacturer).
 				Str("serial", built.SerialNumber).
-				Msg("Expected-inventory mirror: Core expected rack has no rack_id; rack will be mirrored but components can't reference it")
+				Msg("Expected-inventory mirror: Core returned duplicate expected racks for the same rack_id; skipping the later occurrence")
+			continue
 		}
+		plannedExtID[cr.RackID] = struct{}{}
 
-		// Drop Core duplicates before they collide on unique indexes.
-		if cr.RackID != "" {
-			if _, planned := plannedExtID[cr.RackID]; planned {
-				log.Warn().
-					Str("rack_id", cr.RackID).
-					Str("manufacturer", built.Manufacturer).
-					Str("serial", built.SerialNumber).
-					Msg("Expected-inventory mirror: Core returned duplicate expected racks for the same rack_id; skipping the later occurrence")
-				continue
-			}
-			plannedExtID[cr.RackID] = struct{}{}
-		}
-		if built.SerialNumber != "" {
-			naturalKey := rackNaturalKey(built.Manufacturer, built.SerialNumber)
+		if naturalKey := naturalKeyOrEmpty(built.Manufacturer, built.SerialNumber); naturalKey != "" {
 			if _, planned := plannedSerial[naturalKey]; planned {
 				log.Warn().
 					Str("rack_id", cr.RackID).
@@ -213,8 +196,7 @@ func mirrorExpectedRacks(
 		}
 
 		// Prefer external_id match (already adopted on a previous cycle).
-		// Empty rack_ids never hit flowByExtID by construction.
-		if existing, ok := flowByExtID[cr.RackID]; ok && cr.RackID != "" {
+		if existing, ok := flowByExtID[cr.RackID]; ok {
 			candidate := *existing
 			needUpdate := false
 			if candidate.DeletedAt != nil {
@@ -259,9 +241,9 @@ func mirrorExpectedRacks(
 
 		// Fall back to natural key (legacy ingestion-gRPC rows the mirror has
 		// never adopted; adopt by writing external_id alongside any deltas).
-		// Only serial-bearing rows participate — NULL serial has no natural key.
-		if built.SerialNumber != "" {
-			naturalKey := rackNaturalKey(built.Manufacturer, built.SerialNumber)
+		// Only fully-labelled rows participate — a pair with either half
+		// absent has no natural key.
+		if naturalKey := naturalKeyOrEmpty(built.Manufacturer, built.SerialNumber); naturalKey != "" {
 			if existing, ok := flowBySerial[naturalKey]; ok {
 				candidate := *existing
 				candidate.ExternalID = built.ExternalID
@@ -367,7 +349,7 @@ func mirrorExpectedRacks(
 			p.toUpdate[i].UpdatedAt = now
 			if _, err := tx.NewUpdate().
 				Model(&p.toUpdate[i]).
-				Column("name", "serial_number", "description", "location", "external_id", "deleted_at", "updated_at").
+				Column("name", "manufacturer", "serial_number", "description", "location", "external_id", "deleted_at", "updated_at").
 				WhereAllWithDeleted().
 				Where("id = ?", p.toUpdate[i].ID).
 				Exec(ctx); err != nil {
@@ -382,11 +364,9 @@ func mirrorExpectedRacks(
 		return nil
 	}); err != nil {
 		log.Error().Err(err).Msg("Expected-inventory mirror: rack reconciliation transaction failed; mirror is no-op this cycle")
-		// Tx rolled back: per-spec decisions logged above describe intent,
-		// not committed state. Strip success-side counters so the summary
-		// log reflects what actually landed (nothing). pulled, the skipped_*
-		// counters and legacyExempt survive: they're decided before the tx
-		// opened and aren't invalidated by the rollback.
+		// Tx rolled back, so the decisions logged above are intent, not
+		// committed state. pulled, the skipped_* counters and legacyExempt
+		// survive the strip: all are decided before the tx opened.
 		result.resurrected = 0
 		result.adopted = 0
 		return result
@@ -453,20 +433,16 @@ func getAllRacksIncludingDeleted(ctx context.Context, idb bun.IDB) ([]model.Rack
 // flowBySerialInCore is a small helper: it scans Core's racks and returns
 // whether any of them shares this Flow rack's (manufacturer, serial_number).
 // Used to suppress the "legacy not in Core" warn for rows that the adoption
-// path will pick up on this same cycle. Rows with an empty serial have no
-// natural key and never match here.
+// path will pick up on this same cycle. A row missing either chassis label has
+// no natural key and never matches here.
 func flowBySerialInCore(r *model.Rack, coreRacks []nicoapi.ExpectedRackDetail) (string, bool) {
-	if r.SerialNumber == "" {
+	want := naturalKeyOrEmpty(r.Manufacturer, r.SerialNumber)
+	if want == "" {
 		return "", false
 	}
-	want := rackNaturalKey(r.Manufacturer, r.SerialNumber)
 	for _, cr := range coreRacks {
-		manufacturer := cr.Labels[labelChassisManufacturer]
-		serial := cr.Labels[labelChassisSerialNumber]
-		if manufacturer == "" || serial == "" {
-			continue
-		}
-		if rackNaturalKey(manufacturer, serial) == want {
+		got := naturalKeyOrEmpty(cr.Labels[labelChassisManufacturer], cr.Labels[labelChassisSerialNumber])
+		if got != "" && got == want {
 			return cr.RackID, true
 		}
 	}
@@ -474,47 +450,29 @@ func flowBySerialInCore(r *model.Rack, coreRacks []nicoapi.ExpectedRackDetail) (
 }
 
 // buildRackFromCore translates one Core ExpectedRackDetail into the Flow Rack
-// shape the mirror will insert. Returns false when the Core row lacks a usable
-// identity: manufacturer is always required (NOT NULL), and at least one of
-// chassis serial-number or Core rack_id must be present. Serial may be empty
-// when rack_id is set — UNIQUE (manufacturer, serial_number) treats NULLs as
-// distinct, and external_id is the stable match key in that case.
+// shape the mirror will insert. rack_id is the identity and the only thing
+// required; a rack whose chassis is unlabelled is still mirrored.
+//
+// Core validates that rack_id is present but not that it is non-empty, so the
+// guard stays even though a rack without one should not reach here.
 func buildRackFromCore(cr nicoapi.ExpectedRackDetail) (model.Rack, bool) {
-	manufacturer := cr.Labels[labelChassisManufacturer]
-	serial := cr.Labels[labelChassisSerialNumber]
-	if manufacturer == "" {
-		return model.Rack{}, false
-	}
-	if serial == "" && cr.RackID == "" {
+	if cr.RackID == "" {
 		return model.Rack{}, false
 	}
 
 	name := cr.Name
 	if name == "" {
-		// Flow's rack.name is NOT NULL with a unique index. Fall back to
-		// Core's stable rack_id first (operator-meaningful), then to
-		// manufacturer-serial so the row is still insertable when Core has
-		// neither. Operators can always rename later via the existing rack
-		// PATCH path.
-		switch {
-		case cr.RackID != "":
-			name = cr.RackID
-		default:
-			name = manufacturer + "-" + serial
-		}
+		// rack.name is NOT NULL and the chassis labels may supply nothing.
+		// rack_id is operator-meaningful; a PATCH can rename later.
+		name = cr.RackID
 	}
 
+	extID := cr.RackID
 	r := model.Rack{
 		Name:         name,
-		Manufacturer: manufacturer,
-		SerialNumber: serial,
-	}
-	// Leave ExternalID NULL when Core has no rack_id. Storing an empty
-	// string would still hit the partial unique index (which excludes NULL
-	// but not the empty string), so two such racks would collide.
-	if cr.RackID != "" {
-		extID := cr.RackID
-		r.ExternalID = &extID
+		Manufacturer: cr.Labels[labelChassisManufacturer],
+		SerialNumber: cr.Labels[labelChassisSerialNumber],
+		ExternalID:   &extID,
 	}
 
 	if desc := rackDescriptionFromLabels(cr.Labels, cr.Description); len(desc) > 0 {
@@ -562,12 +520,9 @@ func rackLocationFromLabels(labels map[string]string) map[string]any {
 }
 
 // rackUpdatedFromCore returns a copy of `existing` with mirror-managed fields
-// overwritten from `fromCore`. It deliberately does not rewrite manufacturer
-// (still part of the natural key for serial-bearing rows), lifecycle
-// (status / ingested_at), or fields the mirror has no opinion on
-// (nvldomain_id is out of scope; the runtime sync owns it). Serial may be
-// filled in when Core later supplies a chassis serial for a rack that was
-// first mirrored by external_id alone.
+// overwritten from `fromCore`. It deliberately does not rewrite lifecycle
+// (status / ingested_at) or fields the mirror has no opinion on (nvldomain_id
+// is out of scope; the runtime sync owns it).
 //
 // Returns nil when no patchable field changed so the caller can skip a no-op
 // UPDATE.
@@ -579,9 +534,14 @@ func rackUpdatedFromCore(existing, fromCore *model.Rack) *model.Rack {
 		patched.Name = fromCore.Name
 		changed = true
 	}
-	// Fill a previously-NULL serial once Core starts reporting one. Never
-	// clear a populated serial back to empty — that would drop the natural
-	// key for no good reason if Core momentarily omits the label.
+	// Fill a previously-NULL chassis label once Core reports one, but never
+	// clear a populated one: a momentary omission on Core's side would vacate
+	// the (manufacturer, serial_number) slot and drop the row out of
+	// GetRackInfoBySerial.
+	if existing.Manufacturer == "" && fromCore.Manufacturer != "" {
+		patched.Manufacturer = fromCore.Manufacturer
+		changed = true
+	}
 	if existing.SerialNumber == "" && fromCore.SerialNumber != "" {
 		patched.SerialNumber = fromCore.SerialNumber
 		changed = true

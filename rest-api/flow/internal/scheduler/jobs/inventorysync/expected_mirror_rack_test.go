@@ -105,20 +105,39 @@ func TestBuildRackFromCore(t *testing.T) {
 			},
 		},
 		{
-			name: "missing manufacturer is unusable",
+			name: "missing manufacturer is usable (chassis labels are metadata)",
 			in: nicoapi.ExpectedRackDetail{
 				RackID: "c01",
 				Labels: map[string]string{
 					labelChassisSerialNumber: "SN-C01",
 				},
 			},
-			wantOK: false,
+			wantOK: true,
+			assertRow: func(t *testing.T, r model.Rack) {
+				assert.Empty(t, r.Manufacturer)
+				assert.Equal(t, "SN-C01", r.SerialNumber)
+				require.NotNil(t, r.ExternalID)
+				assert.Equal(t, "c01", *r.ExternalID)
+			},
 		},
 		{
-			name: "missing serial without rack_id is unusable",
+			name: "neither chassis label is usable; rack_id alone is the identity",
+			in: nicoapi.ExpectedRackDetail{
+				RackID: "c03",
+			},
+			wantOK: true,
+			assertRow: func(t *testing.T, r model.Rack) {
+				assert.Empty(t, r.Manufacturer)
+				assert.Empty(t, r.SerialNumber)
+				assert.Equal(t, "c03", r.Name)
+			},
+		},
+		{
+			name: "no rack_id is unusable even with complete chassis labels",
 			in: nicoapi.ExpectedRackDetail{
 				Labels: map[string]string{
 					labelChassisManufacturer: "Foxconn",
+					labelChassisSerialNumber: "SN-C04",
 				},
 			},
 			wantOK: false,
@@ -157,9 +176,9 @@ func TestBuildRackFromCore(t *testing.T) {
 			},
 		},
 		{
-			name: "missing rack_id yields nil ExternalID (NULL in DB) so partial unique index stays clean",
+			name: "missing name falls back to rack_id rather than the chassis labels",
 			in: nicoapi.ExpectedRackDetail{
-				Name: "noext",
+				RackID: "e01",
 				Labels: map[string]string{
 					labelChassisManufacturer: "Foxconn",
 					labelChassisSerialNumber: "SN-E01",
@@ -167,22 +186,7 @@ func TestBuildRackFromCore(t *testing.T) {
 			},
 			wantOK: true,
 			assertRow: func(t *testing.T, r model.Rack) {
-				assert.Nil(t, r.ExternalID)
-				assert.Equal(t, "noext", r.Name)
-			},
-		},
-		{
-			name: "missing both rack_id and name falls back to manufacturer-serial",
-			in: nicoapi.ExpectedRackDetail{
-				Labels: map[string]string{
-					labelChassisManufacturer: "Foxconn",
-					labelChassisSerialNumber: "SN-F01",
-				},
-			},
-			wantOK: true,
-			assertRow: func(t *testing.T, r model.Rack) {
-				assert.Equal(t, "Foxconn-SN-F01", r.Name)
-				assert.Nil(t, r.ExternalID)
+				assert.Equal(t, "e01", r.Name)
 			},
 		},
 	}
@@ -272,6 +276,24 @@ func TestRackUpdatedFromCore(t *testing.T) {
 		fromCore.SerialNumber = ""
 		assert.Nil(t, rackUpdatedFromCore(existing, &fromCore))
 		assert.Equal(t, "SN-1", existing.SerialNumber)
+	})
+
+	t.Run("fills NULL manufacturer when Core later reports one", func(t *testing.T) {
+		existing := base()
+		existing.Manufacturer = ""
+		fromCore := *base()
+		fromCore.Manufacturer = "NVIDIA"
+		got := rackUpdatedFromCore(existing, &fromCore)
+		require.NotNil(t, got)
+		assert.Equal(t, "NVIDIA", got.Manufacturer)
+	})
+
+	t.Run("does not clear an existing manufacturer when Core omits it", func(t *testing.T) {
+		existing := base()
+		fromCore := *base()
+		fromCore.Manufacturer = ""
+		assert.Nil(t, rackUpdatedFromCore(existing, &fromCore))
+		assert.Equal(t, "Foxconn", existing.Manufacturer)
 	})
 
 	t.Run("empty name in fromCore does not clobber existing name", func(t *testing.T) {

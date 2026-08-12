@@ -26,20 +26,13 @@ type Component struct {
 	Name string    `bun:"name"`
 	Type string    `bun:"type,type:varchar(16),default:'Compute'"`
 	// IdentityKey is what the expected-inventory mirror matches a Core row
-	// against, made unique by component_identity_key_idx. It is empty (SQL
-	// NULL, which the partial index exempts) on components created by the
-	// ingestion gRPC paths, which have no Core row to mirror.
-	//
-	// The schema deliberately says nothing about what composes the value:
-	// changing the derivation has to stay a backfill rather than a reshaping
-	// of constraints. See identityKeyForSpec in the inventorysync package for
-	// the current derivation and the procedure a change requires.
+	// against, made unique by the partial index component_identity_key_idx.
+	// Empty (SQL NULL, which the index exempts) on components created by the
+	// ingestion gRPC paths. identityKeyForSpec defines the value.
 	IdentityKey string `bun:"identity_key,nullzero"`
-	// Manufacturer and SerialNumber are descriptive metadata, not identity, so
-	// a Core row with incomplete chassis labels is still mirrored. Empty
-	// string maps to SQL NULL via nullzero, and UNIQUE (manufacturer,
-	// serial_number) keeps protecting fully-labelled rows because Postgres
-	// treats NULLs as distinct.
+	// Manufacturer and SerialNumber are descriptive metadata, not identity.
+	// Empty string maps to SQL NULL via nullzero, so an incomplete pair
+	// occupies no slot in component_manufacturer_serial_idx.
 	Manufacturer    string         `bun:"manufacturer,nullzero,unique:component_manufacturer_serial_idx"`
 	Model           string         `bun:"model"`
 	SerialNumber    string         `bun:"serial_number,nullzero,unique:component_manufacturer_serial_idx"`

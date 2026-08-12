@@ -24,13 +24,13 @@ var defaultRackPagination = dbquery.Pagination{
 type Rack struct {
 	bun.BaseModel `bun:"table:rack,alias:r"`
 
-	ID           uuid.UUID `bun:"id,pk,type:uuid,default:gen_random_uuid()"`
-	Name         string    `bun:"name,notnull,unique:rack_name_idx"`
-	Manufacturer string    `bun:"manufacturer,notnull,unique:rack_manufacturer_serial_idx"`
-	// SerialNumber is nullable so expected-inventory can mirror Core racks
-	// that have a stable external_id but no chassis serial yet. Empty string
-	// maps to SQL NULL via nullzero; UNIQUE (manufacturer, serial_number)
-	// still protects serial-bearing rows (Postgres treats NULLs as distinct).
+	ID   uuid.UUID `bun:"id,pk,type:uuid,default:gen_random_uuid()"`
+	Name string    `bun:"name,notnull,unique:rack_name_idx"`
+	// Manufacturer and SerialNumber are descriptive chassis labels, not
+	// identity: a mirrored rack is identified by ExternalID (Core's rack_id).
+	// Empty string maps to SQL NULL via nullzero, so an incomplete pair
+	// occupies no slot in rack_manufacturer_serial_idx.
+	Manufacturer string         `bun:"manufacturer,nullzero,unique:rack_manufacturer_serial_idx"`
 	SerialNumber string         `bun:"serial_number,nullzero,unique:rack_manufacturer_serial_idx"`
 	Description  map[string]any `bun:"description,type:jsonb,json_use_number"`
 	Location     map[string]any `bun:"location,type:jsonb"`
@@ -78,11 +78,8 @@ func (rd *Rack) Create(ctx context.Context, idb bun.IDB) error {
 }
 
 // Get looks the rack up by ID, or by (manufacturer, serial_number) when no ID
-// is set. serial_number is nullable, so a rack the expected-inventory mirror
-// stored without a chassis serial is not addressable this way and reports
-// sql.ErrNoRows; look it up by ID or external_id instead.
-// rack_manufacturer_serial_idx still guarantees at most one match whenever
-// both values are supplied.
+// is set. Both chassis columns are nullable, so a rack stored without one of
+// them reports sql.ErrNoRows here — look it up by ID or external_id instead.
 func (rd *Rack) Get(
 	ctx context.Context,
 	idb bun.IDB,
