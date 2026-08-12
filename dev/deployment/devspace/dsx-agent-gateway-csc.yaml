@@ -4,13 +4,14 @@
 agentgateway:
   discoveryNamespaceSelectors:
     - matchLabels:
-        kubernetes.io/metadata.name: dsx-gateway-leaf
+        kubernetes.io/metadata.name: dsx-gateway-csc
     - matchLabels:
         kubernetes.io/metadata.name: nico-rest
 
-bridge:
-  role: leaf
-  shardId: nico-dev
+gateway:
+  service:
+    type: NodePort
+    nodePort: 30180
 
 upstreams:
   nico-mcp:

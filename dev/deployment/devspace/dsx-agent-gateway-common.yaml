@@ -21,12 +21,14 @@ auth:
   cel:
     operatorTenantId: admin@example.com
     unprivilegedTenantMCPs:
-      - bridge
       - nico-mcp
 
 rateLimit:
   tenantRequestsPerSecond: 30
   replicaCount: 1
+
+bridge:
+  enabled: false
 
 valkey:
   replica:
@@ -38,21 +40,6 @@ valkey:
     enabled: false
   metrics:
     enabled: false
-
-bridge:
-  enabled: true
-  replicaCount: 1
-  image:
-    repository: localhost:5000/dsx-agentgateway-bridge
-    tag: dev
-    pullPolicy: Never
-  nats:
-    endpoint:
-      serviceName: dsx-exchange
-      namespace: nico-system
-      port: 4222
-    auth:
-      mode: noauth
 
 observability:
   alerts:

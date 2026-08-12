@@ -59,14 +59,8 @@ kubectl rollout status deployment/nico-rest-site-worker -n "${REST_NAMESPACE}" -
 kubectl rollout status deployment/nico-rest-site-manager -n "${REST_NAMESPACE}" --timeout=300s >/dev/null
 if [[ "${DSX_GATEWAY_ENABLED}" == "1" ]]; then
   kubectl rollout status deployment/nico-mcp -n "${REST_NAMESPACE}" --timeout=300s >/dev/null
-  kubectl rollout status deployment/dsx-gateway-hub-bridge \
-    -n dsx-gateway-hub --timeout=300s >/dev/null
-  kubectl rollout status deployment/dsx-gateway-leaf-bridge \
-    -n dsx-gateway-leaf --timeout=300s >/dev/null
-  kubectl wait --for=condition=Programmed gateway/dsx-gateway-hub \
-    -n dsx-gateway-hub --timeout=300s >/dev/null
-  kubectl wait --for=condition=Programmed gateway/dsx-gateway-leaf \
-    -n dsx-gateway-leaf --timeout=300s >/dev/null
+  kubectl wait --for=condition=Programmed gateway/dsx-gateway-csc \
+    -n dsx-gateway-csc --timeout=300s >/dev/null
 fi
 kubectl wait --for=condition=Ready certificate/core-grpc-client-site-agent-certs \
   -n "${REST_NAMESPACE}" --timeout=240s >/dev/null
@@ -82,8 +76,8 @@ kubectl port-forward --address 127.0.0.1 -n "${REST_NAMESPACE}" \
 keycloak_forward_pid=$!
 
 if [[ "${DSX_GATEWAY_ENABLED}" == "1" ]]; then
-  kubectl port-forward --address 127.0.0.1 -n dsx-gateway-hub \
-    service/dsx-gateway-hub "${DSX_GATEWAY_FORWARD_PORT}:80" \
+  kubectl port-forward --address 127.0.0.1 -n dsx-gateway-csc \
+    service/dsx-gateway-csc "${DSX_GATEWAY_FORWARD_PORT}:80" \
     >"${WORK_DIR}/dsx-gateway-port-forward.log" 2>&1 &
   dsx_gateway_forward_pid=$!
 fi
@@ -301,15 +295,16 @@ if [[ "${DSX_GATEWAY_ENABLED}" == "1" ]]; then
     sed -n 's/^data: //p' "${WORK_DIR}/dsx-gateway-tools-list.body" | head -1)"
   if ! jq -e '
     .result.tools as $tools |
-    ($tools | type == "array" and length > 1) and
-    any($tools[]; .name == "dsx_bridge_list_shards") and
-    any($tools[]; .inputSchema.properties.shard_id != null)
+    ($tools | type == "array" and length > 0) and
+    any($tools[]; .name != null) and
+    all($tools[]; .name != "dsx_bridge_list_shards" and
+      .inputSchema.properties.shard_id == null)
   ' <<<"${tools_list_json}" >/dev/null; then
-    printf 'DSX Agent Gateway did not return the bridge shard tool and routed NICo MCP tools\n' >&2
+    printf 'DSX Agent Gateway did not return direct NICo MCP tools without shard routing\n' >&2
     printf '%s\n' "${tools_list_json}" >&2
     exit 1
   fi
-  printf 'DSX Agent Gateway authenticated through the hub and listed routed NICo MCP tools\n'
+  printf 'CSC Agent Gateway authenticated and listed direct NICo MCP tools without shard routing\n'
 fi
 
 printf 'REST integration setup complete\n'

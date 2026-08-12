@@ -315,20 +315,6 @@ profiles:
           buildKit: {}
           skipPush: true
       - op: add
-        path: images.dsx-agentgateway-bridge
-        value:
-          image: localhost:5000/dsx-agentgateway-bridge
-          custom:
-            command: |-
-              DSX_DIR=$(dev/deployment/devspace/prepare-dsx-exchange.sh)
-              docker build \
-                -t ${runtime.images.dsx-agentgateway-bridge.image}:${runtime.images.dsx-agentgateway-bridge.tag} \
-                -f "${DSX_DIR}/dsx-agentgateway-bridge/Dockerfile" \
-                "${DSX_DIR}/dsx-agentgateway-bridge"
-            onChange:
-              - dev/deployment/devspace/prepare-dsx-exchange.sh
-              - devspace.yaml
-      - op: add
         path: deployments.nico-mcp
         value:
           namespace: nico-rest
@@ -347,49 +333,22 @@ profiles:
                 baseURL: http://nico-rest-api:8388
                 apiName: nico
       - op: add
-        path: deployments.dsx-gateway-hub
+        path: deployments.dsx-gateway-csc
         value:
-          namespace: dsx-gateway-hub
+          namespace: dsx-gateway-csc
           updateImageTags: false
           helm:
             chart:
               path: ./.devspace/dsx-exchange-v2.9.1/deploy/dsx-agent-gateway
             valuesFiles:
               - dev/deployment/devspace/dsx-agent-gateway-common.yaml
-              - dev/deployment/devspace/dsx-agent-gateway-hub.yaml
+              - dev/deployment/devspace/dsx-agent-gateway-csc.yaml
             values:
               auth:
                 jwt:
                   providers:
                     nico-dev:
                       issuer: http://localhost:${LOCAL_DEV_KEYCLOAK_FORWARD_PORT}/realms/nico-dev
-              bridge:
-                image:
-                  repository: ${runtime.images.dsx-agentgateway-bridge.image}
-                  tag: ${runtime.images.dsx-agentgateway-bridge.tag}
-                  pullPolicy: Never
-      - op: add
-        path: deployments.dsx-gateway-leaf
-        value:
-          namespace: dsx-gateway-leaf
-          updateImageTags: false
-          helm:
-            chart:
-              path: ./.devspace/dsx-exchange-v2.9.1/deploy/dsx-agent-gateway
-            valuesFiles:
-              - dev/deployment/devspace/dsx-agent-gateway-common.yaml
-              - dev/deployment/devspace/dsx-agent-gateway-leaf.yaml
-            values:
-              auth:
-                jwt:
-                  providers:
-                    nico-dev:
-                      issuer: http://localhost:${LOCAL_DEV_KEYCLOAK_FORWARD_PORT}/realms/nico-dev
-              bridge:
-                image:
-                  repository: ${runtime.images.dsx-agentgateway-bridge.image}
-                  tag: ${runtime.images.dsx-agentgateway-bridge.tag}
-                  pullPolicy: Never
       - op: add
         path: hooks
         value:
@@ -411,10 +370,9 @@ profiles:
             CONTEXT=$(kubectl config current-context 2>/dev/null || echo "")
             case "$CONTEXT" in
               kind-*)
-                echo "Loading NICo MCP and DSX bridge images into kind cluster..."
+                echo "Loading the NICo MCP image into the kind cluster..."
                 kind load docker-image --name "${CONTEXT#kind-}" \
-                  "${runtime.images.nico-mcp.image}:${runtime.images.nico-mcp.tag}" \
-                  "${runtime.images.dsx-agentgateway-bridge.image}:${runtime.images.dsx-agentgateway-bridge.tag}"
+                  "${runtime.images.nico-mcp.image}:${runtime.images.nico-mcp.tag}"
                 ;;
             esac
       - op: replace
