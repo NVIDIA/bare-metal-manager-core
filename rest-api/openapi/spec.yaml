@@ -124,9 +124,11 @@ tags:
       - `rackLevelAdministration` capability attribute was deprecated in favor of `flow` and was removed on May 13th, 2026 0:00 UTC. Please use `flow` instead.
       - `isRackLevelAdministrationEnabled` query parameter was deprecated in favor of `isFlowEnabled` and was removed on May 13th, 2026 0:00 UTC. Please use `isFlowEnabled` instead.
   - name: BMC Credential
+    x-displayName: BMC Credential
     description: |-
       BMC Credential endpoints allow creating and updating BMC credentials across all Machines of a Site
   - name: UEFI Credential
+    x-displayName: UEFI Credential
     description: |-
       UEFI Credential endpoints allow creating site-default host and DPU UEFI credentials for a Site
   - name: Measured Boot Trusted Machine
@@ -149,12 +151,15 @@ tags:
 
       - `ResourceTypeID` attribute on Allocation Constraint was deprecated in favor of `resourceTypeId` and will be removed on July 9th, 2026 0:00 UTC. Please use `resourceTypeId` instead.
   - name: VPC
+    x-displayName: VPC
     description: |-
       VPC defines the networking isolation boundary for Tenant's Instances.
   - name: VPC Peering
+    x-displayName: VPC Peering
     description: |-
       VPC Peering allows Instances in one VPC to communicate with Instances in another VPC on the same Site.
   - name: VPC Prefix
+    x-displayName: VPC Prefix
     description: |-
       VPC Prefix is a network prefix belonging to an IP Block allocated to a Tenant. Tenant can use VPC Prefixes to enable network connectivity between their Instances.
 
@@ -182,6 +187,7 @@ tags:
       Expected Switch identifies an NVLink Switch that is expected to be discovered at a Site. Infrastructure Providers can pre-register Expected Switches using BMC, NVOS credentials
       and serial numbers to help with NVLink Switch discovery and ingestion.
   - name: SKU
+    x-displayName: SKU
     description: |-
       SKU (Stock Keeping Unit) defines one or more hardware configurations or Machine Bill of Materials (BOM).
 
@@ -207,6 +213,7 @@ tags:
 
       - `isCloudInit` on create and update requests is deprecated and ignored; the response field is derived from whether `userData` is non-empty.
   - name: iPXE Template
+    x-displayName: iPXE Template
     description: |-
       iPXE Templates are read-only definitions propagated from nico-core into the REST API. Each template has a stable core UUID and a globally unique name; per-site availability is tracked in IpxeTemplateSiteAssociation records rather than on the template row itself. List and retrieve operations return templates reported at sites the caller is authorized for (optionally filtered by `siteId`). Templated iPXE Operating Systems reference a template by `ipxeTemplateId`.
   - name: Instance Type
@@ -226,7 +233,7 @@ tags:
     description: |-
       BMC Reset allows resetting a Machine's BMC
   - name: DPU Reprovision
-    x-DisplayName: DPU Reprovision
+    x-displayName: DPU Reprovision
     description: |-
       DPU Reprovision allows re-provisioning Machine's DPUs
   - name: Health Report
@@ -258,6 +265,7 @@ tags:
 
       - `object_id` attribute on Network Security Group propagation details was deprecated in favor of `objectId` and will be removed on July 9th, 2026 0:00 UTC. Please use `objectId` instead.
   - name: IP Block
+    x-displayName: IP Block
     description: |-
       IP Block is a contiguous block of IP addresses defined by a prefix and prefix length.
 
@@ -267,9 +275,11 @@ tags:
     description: |-
       DPU Extension Service allows users to run custom services in the DPUs of their Instances. Currently K8s pods are the only supported service type.
   - name: SSH Key Group
+    x-displayName: SSH Key Group
     description: |-
       SSH Key Groups allow grouping several SSH Keys together so they can be synced to Sites and used to access the Serial Console of Instances.
   - name: SSH Key
+    x-displayName: SSH Key
     description: |-
       SSH Key is a public key that can be used to access the Serial Console of an Instance.
   - name: User
