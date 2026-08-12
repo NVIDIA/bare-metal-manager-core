@@ -21,6 +21,12 @@
 #     -f crates/machine-a-tron/Dockerfile \
 #     --build-arg VERSION=0.1.0 -t machine-a-tron:latest .
 #
+# NOTE: Cross-compilation architecture
+# The BUILDER stage always runs NATIVE on the build host ($BUILDPLATFORM) and
+# cross-compiles to x86_64-unknown-linux-gnu. This avoids QEMU emulation when
+# building on Apple Silicon hosts, which would otherwise SEGFAULT while
+# assembling aws-lc-sys's hand-written x86-64 assembly code.
+#
 ARG RUST_VERSION=1.96.0
 
 FROM --platform=$BUILDPLATFORM rust:${RUST_VERSION}-slim-bookworm AS builder

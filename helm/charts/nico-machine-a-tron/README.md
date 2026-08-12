@@ -253,6 +253,17 @@ machineATron:
 | `0` | Use dynamic port (required for K8s controller mode) |
 | `1-65535` | Use specified port |
 
+**Deployment Mode Considerations:**
+
+| Mode | IPMI Accessible? | Notes |
+|------|------------------|-------|
+| Controller mode (`useSingleBmcMock: true` + `mat-k8s-controller`) |Yes | Use `ipmiReachablePort: 0`. Controller creates per-BMC Services with dynamic IPMI ports. |
+| Shared-proxy mode (`useSingleBmcMock: true` without controller) |No | No per-BMC Services to route dynamic IPMI ports. IPMI simulators run but are not externally reachable. |
+| Override mode (`useSingleBmcMock: false`) |Yes | Each BMC gets its own IP address. Use `ipmiReachablePort: 623` (default) or a fixed port. |
+
+> **Note:** IPMI ports are only added to Services for host machines with
+> IPMI-capable hardware types (eg, NVIDIA GB300, Supermicro GB300)
+
 When using K8s controller mode (`machineATron.useSingleBmcMock: true`), set
 `ipmiReachablePort: 0` so each IPMI simulator gets a unique dynamic port that
 the `mat-k8s-controller` can map to individual Services.
@@ -264,7 +275,7 @@ When enabled:
 2. The `/machines/status` API reports `bmc.ipmi` with `reachable_port` and
    `listen_port` for each BMC with IPMI enabled
 3. The `mat-k8s-controller` creates UDP Service ports for IPMI access alongside
-   the existing TCP Redfish port
+   the existing TCP Redfish port (controller mode only)
 
 **Requirements:**
 
