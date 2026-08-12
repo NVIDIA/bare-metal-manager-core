@@ -151,7 +151,7 @@ pub(crate) struct Args {
     #[clap(
         long = "default_pause_ingestion_and_poweron",
         value_name = "DEFAULT_PAUSE_INGESTION_AND_POWERON",
-        help = "Optional flag to pause machine's ingestion and power on. False - don't pause, true - will pause it. The actual mutable state is stored in explored_endpoints."
+        help = "Initial pause state applied when the BMC endpoint for this machine is first explored. `true` pauses ingestion and automatic power-on; `false` pauses neither. Defaults to `false`."
     )]
     default_pause_ingestion_and_poweron: Option<bool>,
 
@@ -159,7 +159,7 @@ pub(crate) struct Args {
         long,
         action = clap::ArgAction::Set,
         value_name = "DPF_ENABLED",
-        help = "DPF enable/disable for this machine. Default is updated as true.",
+        help = "Whether DPF is enabled for this machine. Defaults to true.",
     )]
     dpf_enabled: Option<bool>,
 
@@ -190,7 +190,7 @@ pub(crate) struct Args {
         long = "bmc-ip-allocation",
         value_name = "BMC_IP_ALLOCATION",
         value_enum,
-        help = "Per-host control over how this BMC's IP is assigned and retained. `auto` (default): infer from `--bmc-ip-address` -- a configured address is `fixed`, no address is `retained`; `dynamic`: a normal DHCP lease that may expire and change; `fixed`: the operator-specified `--bmc-ip-address` (static); `retained`: an auto-allocated DHCP address that stays static for the lifetime of its machine-interface record. Unset defers to the server default (`auto`)."
+        help = "Per-host control over IP assignment and retention for this BMC. `auto` (default): infer from `--bmc-ip-address` -- a configured address is `fixed`, no address is `retained`; `dynamic`: a normal DHCP lease that may expire and change; `fixed`: the operator-specified `--bmc-ip-address` (static); `retained`: an auto-allocated DHCP address that stays static for the lifetime of its machine-interface record. Unset defers to the server default (`auto`)."
     )]
     bmc_ip_allocation: Option<BmcIpAllocationType>,
 
