@@ -194,40 +194,45 @@ pub async fn insert(
         ON CONFLICT DO NOTHING
         RETURNING interface_id";
 
-    let inserted: Option<MachineInterfaceId> = sqlx::query_scalar(query)
+    let address_inserted = sqlx::query_scalar::<_, MachineInterfaceId>(query)
         .bind(interface_id)
         .bind(address)
         .bind(allocation_type)
         .fetch_optional(&mut *txn)
         .await
-        .map_err(|e| DatabaseError::query(query, e))?;
-    if inserted.is_some() {
+        .map_err(|e| DatabaseError::query(query, e))?
+        .is_some();
+    if address_inserted {
         return Ok(());
     }
 
-    let Some(existing) = find_by_address(&mut *txn, address).await? else {
-        if let Some(existing) = find_for_interface(&mut *txn, interface_id)
+    let Some(address_owner) = find_by_address(&mut *txn, address).await? else {
+        if let Some(existing_in_family) = find_for_interface(&mut *txn, interface_id)
             .await?
             .into_iter()
-            .find(|existing| existing.address.is_address_family(address.address_family()))
+            .find(|candidate| {
+                candidate
+                    .address
+                    .is_address_family(address.address_family())
+            })
         {
             return Err(DatabaseError::FailedPrecondition(format!(
                 "interface {interface_id} already has address {} in the same family as {address}",
-                existing.address,
+                existing_in_family.address,
             )));
         }
         return Err(DatabaseError::internal(format!(
-            "address {address} was reported as in use but has no owner"
+            "address {address} could not be assigned to interface {interface_id}, and no conflicting assignment was found"
         )));
     };
-    if existing.id == interface_id && existing.allocation_type == allocation_type {
+    if address_owner.id == interface_id && address_owner.allocation_type == allocation_type {
         return Ok(());
     }
     Err(AddressAlreadyInUseError(
         address,
-        existing.mac_address,
-        existing.segment_id,
-        existing.id,
+        address_owner.mac_address,
+        address_owner.segment_id,
+        address_owner.id,
     )
     .into())
 }
@@ -543,25 +548,61 @@ mod tests {
         .await?;
         assert_eq!(slaac_owner_count, 1);
 
-        let mut txn = crate::Transaction::begin(&pool).await?;
-        let other_slaac_address: IpAddr = "2001:db8::11".parse()?;
+        Ok(())
+    }
+
+    /// Verifies that a second address in the same family is rejected.
+    #[crate::sqlx_test]
+    async fn insert_rejects_another_address_in_the_same_family(
+        pool: sqlx::PgPool,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let mut txn = pool.begin().await?;
+        let segment_id: NetworkSegmentId = sqlx::query_scalar(
+            "INSERT INTO network_segments (name, version)
+             VALUES ('address-family-conflict', 'V1-T0')
+             RETURNING id",
+        )
+        .fetch_one(&mut *txn)
+        .await?;
+        let interface_id = create_test_interface(
+            &mut txn,
+            segment_id,
+            "02:00:00:00:00:14".parse()?,
+            "address-family-conflict",
+        )
+        .await?;
+        let existing_address: IpAddr = "2001:db8::10".parse()?;
+        insert(
+            &mut txn,
+            interface_id,
+            existing_address,
+            AllocationType::Slaac,
+        )
+        .await?;
+
+        let requested_address: IpAddr = "2001:db8::11".parse()?;
         let error = insert(
-            txn.as_pgconn(),
-            first_interface_id,
-            other_slaac_address,
+            &mut txn,
+            interface_id,
+            requested_address,
             AllocationType::Slaac,
         )
         .await
         .expect_err("a second IPv6 address on the same interface should be rejected");
         match error {
-            DatabaseError::FailedPrecondition(message) => assert_eq!(
-                message,
-                format!(
-                    "interface {first_interface_id} already has address {slaac_address} in the same family as {other_slaac_address}"
-                ),
-            ),
+            DatabaseError::FailedPrecondition(message) => {
+                assert!(
+                    message.contains(&format!("already has address {existing_address}")),
+                    "{message}"
+                );
+                assert!(
+                    message.contains(&requested_address.to_string()),
+                    "{message}"
+                );
+            }
             error => panic!("expected a failed-precondition error, got {error:?}"),
         }
+
         txn.rollback().await?;
         Ok(())
     }
