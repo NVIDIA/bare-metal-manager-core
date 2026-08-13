@@ -108,6 +108,10 @@ DPU_ARCHES ?= amd64 arm64
 # error if SOME_ARCHES contains anything other than amd64/arm64.
 check-arches = $(if $(filter-out amd64 arm64,$(1)),$(error $(2) must be a subset of "amd64 arm64", got: $(1)))
 
+# $(call require-amd64,$(SOME_ARCHES),error-message) aborts the build if amd64 is
+# missing from SOME_ARCHES.
+require-amd64 = $(if $(filter amd64,$(1)),,$(error $(2)))
+
 # Intermediate base containers the Core and machine-validation images build FROM.
 CORE_BUILD_CONTAINER_AMD64 ?= $(IMAGE_REGISTRY)/nico-buildcontainer:$(IMAGE_TAG)-amd64
 CORE_BUILD_CONTAINER_ARM64 ?= $(IMAGE_REGISTRY)/nico-buildcontainer:$(IMAGE_TAG)-arm64
@@ -171,8 +175,9 @@ images-core: images-base ## Build the NICo Core image (nico) (NICO_ARCHES="amd64
 images-rest: images-registry ## Build the REST service images (api, workflow, site-manager, site-agent, db, cert-manager, flow, psm, nsm) (NICO_ARCHES="amd64 arm64")
 	$(MAKE) -C rest-api docker-build IMAGE_REGISTRY=$(IMAGE_REGISTRY) IMAGE_TAG=$(IMAGE_TAG) DOCKER_ARCHES="$(NICO_ARCHES)"
 
-images-machine-validation: images-base ## Build the machine-validation runner + config images (NICO_ARCHES="amd64 arm64")
+images-machine-validation: images-base ## Build the machine-validation runner + config images (NICO_ARCHES="amd64 arm64"; must include amd64)
 	$(call check-arches,$(NICO_ARCHES),NICO_ARCHES)
+	$(call require-amd64,$(NICO_ARCHES),NICO_ARCHES must include amd64: the machine-validation-runner intermediate image is always built for amd64 and depends on the amd64 Core runtime base container that images-base only pushes when amd64 is requested; got: $(NICO_ARCHES))
 	docker buildx build --platform linux/amd64 --load --build-arg CONTAINER_RUNTIME_X86_64=$(CORE_RUNTIME_CONTAINER_AMD64) \
 		-t machine-validation-runner:$(IMAGE_TAG) \
 		--file dev/docker/Dockerfile.machine-validation-runner .
