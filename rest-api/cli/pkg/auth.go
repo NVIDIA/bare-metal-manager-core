@@ -393,7 +393,7 @@ func loginWithOIDCCmd(c *cli.Context, cfg *ConfigFile) error {
 	}
 
 	clientID := c.String("client-id")
-	if clientID == "" && cfg.Auth.OIDC != nil {
+	if cfg.Auth.OIDC != nil && cfg.Auth.OIDC.ClientID != "" && !cliFlagExplicitlySet(c, "client-id") {
 		clientID = cfg.Auth.OIDC.ClientID
 	}
 
@@ -416,9 +416,14 @@ func loginWithOIDCCmd(c *cli.Context, cfg *ConfigFile) error {
 	var err error
 
 	if username == "" && clientSecret != "" {
-		tokenResp, err = clientCredentialsGrant(&ConfigOIDC{
-			TokenURL: tokenURL, ClientID: clientID, ClientSecret: clientSecret,
-		})
+		requestOIDC := ConfigOIDC{}
+		if cfg.Auth.OIDC != nil {
+			requestOIDC = *cfg.Auth.OIDC
+		}
+		requestOIDC.TokenURL = tokenURL
+		requestOIDC.ClientID = clientID
+		requestOIDC.ClientSecret = clientSecret
+		tokenResp, err = clientCredentialsGrant(&requestOIDC)
 	} else {
 		if username == "" {
 			fmt.Print("Username: ")
@@ -517,7 +522,7 @@ func postTokenWithBasicAuth(tokenURL string, data url.Values, clientID, clientSe
 		return nil, fmt.Errorf("token request: %w", err)
 	}
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	req.SetBasicAuth(clientID, clientSecret)
+	req.SetBasicAuth(url.QueryEscape(clientID), url.QueryEscape(clientSecret))
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("token request: %w", err)
