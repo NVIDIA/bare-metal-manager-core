@@ -173,6 +173,7 @@ pub(crate) fn default_dts_service() -> DpfServiceConfig {
         docker_repo_url: String::new(),
         docker_image_tag: String::new(),
         docker_image_pull_secret: None,
+        extra_helm_values: None,
     }
 }
 
@@ -185,6 +186,7 @@ pub(crate) fn default_doca_hbn_service() -> DpfServiceConfig {
         docker_repo_url: format!("{DEFAULT_DOCA_IMAGE_REGISTRY}/{DOCA_HBN_SERVICE_IMAGE_NAME}"),
         docker_image_tag: DOCA_HBN_SERVICE_IMAGE_TAG.to_string(),
         docker_image_pull_secret: None,
+        extra_helm_values: None,
     }
 }
 
@@ -197,6 +199,7 @@ pub(crate) fn default_dpu_agent_service() -> DpfServiceConfig {
         docker_repo_url: format!("{DEFAULT_CARBIDE_IMAGE_REGISTRY}/{DPU_AGENT_SERVICE_IMAGE_NAME}"),
         docker_image_tag: COMPILE_TIME_IMAGE_TAG.to_string(),
         docker_image_pull_secret: None,
+        extra_helm_values: None,
     }
 }
 
@@ -211,6 +214,7 @@ pub(crate) fn default_dhcp_server_service() -> DpfServiceConfig {
         ),
         docker_image_tag: COMPILE_TIME_IMAGE_TAG.to_string(),
         docker_image_pull_secret: None,
+        extra_helm_values: None,
     }
 }
 
@@ -223,6 +227,7 @@ pub(crate) fn default_fmds_service() -> DpfServiceConfig {
         docker_repo_url: format!("{DEFAULT_CARBIDE_IMAGE_REGISTRY}/{FMDS_SERVICE_IMAGE_NAME}"),
         docker_image_tag: COMPILE_TIME_IMAGE_TAG.to_string(),
         docker_image_pull_secret: None,
+        extra_helm_values: None,
     }
 }
 
@@ -237,6 +242,7 @@ pub(crate) fn default_otelcol_service() -> DpfServiceConfig {
         ),
         docker_image_tag: COMPILE_TIME_IMAGE_TAG.to_string(),
         docker_image_pull_secret: None,
+        extra_helm_values: None,
     }
 }
 
@@ -251,6 +257,7 @@ pub(crate) fn default_doca_weave_dhcp_agent_service() -> DpfServiceConfig {
         ),
         docker_image_tag: DOCA_WEAVE_DHCP_AGENT_SERVICE_IMAGE_TAG.to_string(),
         docker_image_pull_secret: None,
+        extra_helm_values: None,
     }
 }
 
@@ -265,6 +272,7 @@ pub(crate) fn default_doca_weave_flow_controller_service() -> DpfServiceConfig {
         ),
         docker_image_tag: DOCA_WEAVE_FLOW_CONTROLLER_SERVICE_IMAGE_TAG.to_string(),
         docker_image_pull_secret: None,
+        extra_helm_values: None,
     }
 }
 
@@ -277,6 +285,7 @@ pub(crate) fn default_doca_xplane_service() -> DpfServiceConfig {
         docker_repo_url: format!("{DEFAULT_DOCA_IMAGE_REGISTRY}/{DOCA_XPLANE_SERVICE_IMAGE_NAME}"),
         docker_image_tag: DOCA_XPLANE_SERVICE_IMAGE_TAG.to_string(),
         docker_image_pull_secret: None,
+        extra_helm_values: None,
     }
 }
 
@@ -296,6 +305,34 @@ fn apply_image_pull_secrets(helm_values: &mut serde_json::Value, cfg: &DpfServic
             "imagePullSecrets".to_string(),
             serde_json::json!([{ "name": secret }]),
         );
+}
+
+fn merge_helm_values(
+    base: &mut serde_json::Map<String, serde_json::Value>,
+    overlay: &serde_json::Map<String, serde_json::Value>,
+) {
+    for (key, value) in overlay {
+        match (base.get_mut(key), value) {
+            (Some(serde_json::Value::Object(base)), serde_json::Value::Object(overlay)) => {
+                merge_helm_values(base, overlay);
+            }
+            _ => {
+                base.insert(key.clone(), value.clone());
+            }
+        }
+    }
+}
+
+fn apply_helm_values(helm_values: &mut serde_json::Value, cfg: &DpfServiceConfig) {
+    apply_image_pull_secrets(helm_values, cfg);
+    if let Some(overlay) = &cfg.extra_helm_values {
+        merge_helm_values(
+            helm_values
+                .as_object_mut()
+                .expect("generated Helm values must be an object"),
+            overlay,
+        );
+    }
 }
 
 /// DOCA HBN service definition.
@@ -321,7 +358,7 @@ pub fn doca_hbn_service(cfg: &DpfServiceConfig) -> ServiceDefinition {
             },
         }
     });
-    apply_image_pull_secrets(&mut helm_values, cfg);
+    apply_helm_values(&mut helm_values, cfg);
     ServiceDefinition {
         helm_values: Some(helm_values),
 
@@ -349,7 +386,7 @@ pub fn dts_service(cfg: &DpfServiceConfig) -> ServiceDefinition {
     let mut helm_values = serde_json::json!({
         "exposedPorts": { "ports": { "httpserverport": true } }
     });
-    apply_image_pull_secrets(&mut helm_values, cfg);
+    apply_helm_values(&mut helm_values, cfg);
     ServiceDefinition {
         helm_values: Some(helm_values),
         config_ports: None,
@@ -378,8 +415,6 @@ fn dpu_agent_helm_values(
             "nvue_password_key": "password",
         }
     });
-    apply_image_pull_secrets(&mut values, cfg);
-
     let bootstrap_ca_values = match bootstrap_ca {
         DpfDpuAgentBootstrapCa::LegacyDownload { url: None } => None,
         DpfDpuAgentBootstrapCa::LegacyDownload { url: Some(url) } => Some(serde_json::json!({
@@ -409,6 +444,7 @@ fn dpu_agent_helm_values(
             .expect("DPU agent Helm values are an object")
             .insert("bootstrapCa".to_string(), bootstrap_ca_values);
     }
+    apply_helm_values(&mut values, cfg);
 
     values
 }
@@ -453,7 +489,7 @@ pub fn dhcp_server_service(cfg: &DpfServiceConfig) -> ServiceDefinition {
             "tag": cfg.docker_image_tag,
         }
     });
-    apply_image_pull_secrets(&mut helm_values, cfg);
+    apply_helm_values(&mut helm_values, cfg);
     ServiceDefinition {
         helm_values: Some(helm_values),
 
@@ -486,7 +522,7 @@ pub fn fmds_service(cfg: &DpfServiceConfig) -> ServiceDefinition {
             "tag": cfg.docker_image_tag,
         }
     });
-    apply_image_pull_secrets(&mut helm_values, cfg);
+    apply_helm_values(&mut helm_values, cfg);
     ServiceDefinition {
         helm_values: Some(helm_values),
 
@@ -519,7 +555,7 @@ pub fn otelcol_service(cfg: &DpfServiceConfig) -> ServiceDefinition {
             "tag": cfg.docker_image_tag,
         }
     });
-    apply_image_pull_secrets(&mut helm_values, cfg);
+    apply_helm_values(&mut helm_values, cfg);
     ServiceDefinition {
         helm_values: Some(helm_values),
         service_daemon_set_annotations: Some(BTreeMap::new()),
@@ -551,7 +587,7 @@ pub fn doca_weave_dhcp_agent_service(cfg: &DpfServiceConfig) -> ServiceDefinitio
             }
         }
     });
-    apply_image_pull_secrets(&mut helm_values, cfg);
+    apply_helm_values(&mut helm_values, cfg);
     ServiceDefinition {
         helm_values: Some(helm_values),
         config_values: Some(serde_json::json!({
@@ -635,7 +671,7 @@ pub fn doca_weave_flow_controller_service(cfg: &DpfServiceConfig) -> ServiceDefi
             }
         }
     });
-    apply_image_pull_secrets(&mut helm_values, cfg);
+    apply_helm_values(&mut helm_values, cfg);
     ServiceDefinition {
         helm_values: Some(helm_values),
         config_values: Some(serde_json::json!({
@@ -663,7 +699,7 @@ pub fn doca_xplane_service(cfg: &DpfServiceConfig) -> ServiceDefinition {
             "tag": cfg.docker_image_tag,
         }
     });
-    apply_image_pull_secrets(&mut helm_values, cfg);
+    apply_helm_values(&mut helm_values, cfg);
     ServiceDefinition {
         helm_values: Some(helm_values),
         ..ServiceDefinition::new(
@@ -708,13 +744,70 @@ pub fn mandatory_services(
 mod tests {
     use carbide_dpf::sdk::build_dpu_interfaces_vec;
     use carbide_dpf::types::DpuServiceInterfaceTemplateType;
-    use carbide_dpf::{build_service_configuration, build_service_interface};
+    use carbide_dpf::{
+        build_service_configuration, build_service_interface, build_service_template,
+    };
     use carbide_test_support::value_scenarios;
     use url::Url;
 
     use super::*;
 
     const TEST_NS: &str = "dpf-operator-system";
+
+    #[test]
+    fn helm_value_tables_merge_recursively() {
+        let mut values = serde_json::json!({
+            "image": {
+                "repository": "generated",
+                "tag": "generated",
+            }
+        });
+
+        let overlay = serde_json::json!({
+            "image": { "tag": "configured" },
+            "fmds": { "sign_proxy_url": "http://dsx-imds" },
+        });
+        merge_helm_values(
+            values.as_object_mut().unwrap(),
+            overlay.as_object().unwrap(),
+        );
+
+        assert_eq!(
+            values,
+            serde_json::json!({
+                "image": {
+                    "repository": "generated",
+                    "tag": "configured",
+                },
+                "fmds": { "sign_proxy_url": "http://dsx-imds" },
+            })
+        );
+    }
+
+    #[test]
+    fn helm_value_scalars_and_arrays_replace_generated_values() {
+        let mut values = serde_json::json!({
+            "enabled": false,
+            "tolerations": [{ "key": "generated" }],
+        });
+
+        let overlay = serde_json::json!({
+            "enabled": true,
+            "tolerations": [{ "key": "configured" }],
+        });
+        merge_helm_values(
+            values.as_object_mut().unwrap(),
+            overlay.as_object().unwrap(),
+        );
+
+        assert_eq!(
+            values,
+            serde_json::json!({
+                "enabled": true,
+                "tolerations": [{ "key": "configured" }],
+            })
+        );
+    }
 
     #[test]
     fn dpu_agent_bootstrap_ca_helm_values_follow_site_policy() {
@@ -877,6 +970,31 @@ mod tests {
             agent.helm_values.unwrap()["imagePullSecrets"],
             serde_json::json!([{ "name": "nico-pull-secret" }])
         );
+    }
+
+    #[test]
+    fn dpu_agent_template_merges_extra_helm_values() {
+        let mut config = default_dpu_agent_service();
+        config.extra_helm_values = serde_json::json!({
+            "fmds": {
+                "sign_proxy_url": "http://dsx-imds.dpf-operator-system.svc.cluster.local:8080"
+            },
+            "image": {
+                "tag": "configured-tag"
+            }
+        })
+        .as_object()
+        .cloned();
+        let service = dpu_agent_service(&config, &DpfDpuAgentBootstrapCa::default());
+        let template = build_service_template(&service, TEST_NS, "");
+        let values = template.spec.helm_chart.values.unwrap();
+
+        assert_eq!(
+            values["fmds"]["sign_proxy_url"],
+            "http://dsx-imds.dpf-operator-system.svc.cluster.local:8080"
+        );
+        assert_eq!(values["image"]["repository"], config.docker_repo_url);
+        assert_eq!(values["image"]["tag"], "configured-tag");
     }
 
     // ---- weave services ----
