@@ -166,9 +166,15 @@ impl DpuServiceTemplateRepository for OutdatedDpuMock {
 
 /// A DPU owned by [`DEPLOYMENT`], built through serde so the literal names only
 /// the fields these tests care about.
-fn dpu(bfb: Option<&str>, installed_bfb_file: Option<&str>, flavor: &str) -> DPU {
+fn dpu(
+    bfb: Option<&str>,
+    blue_field_software: Option<&str>,
+    installed_bfb_file: Option<&str>,
+    flavor: &str,
+) -> DPU {
     let spec = serde_json::json!({
         "bfb": bfb,
+        "blueFieldSoftware": blue_field_software,
         "dpuDeviceName": "device-001",
         "dpuFlavor": flavor,
         "dpuNodeName": "node-host-001",
@@ -243,32 +249,55 @@ async fn is_outdated(mock: OutdatedDpuMock) -> Result<bool, DpfError> {
         .await
 }
 
+/// Both provisioning sources, matching and drifted. A DPUDeployment declares
+/// either a BFB or a BlueFieldSoftware CR, and the two are compared differently:
+/// a BFB against the image actually installed, BlueFieldSoftware against the CR
+/// name the DPU was created with.
 #[tokio::test]
-async fn a_dpu_matching_its_deployment_is_current() {
-    let mock = OutdatedDpuMock::with(
-        dpu(
-            Some("bf-bundle-abc"),
-            Some("/bfb/test-namespace-bf-bundle-abc.bfb"),
-            FLAVOR,
+async fn a_dpu_is_current_only_while_it_matches_its_declared_provisioning_source() {
+    let cases: [(&str, DPU, DPUDeployment, bool); 4] = [
+        (
+            "BFB matches the installed image",
+            dpu(
+                Some("bf-bundle-abc"),
+                None,
+                Some("/bfb/test-namespace-bf-bundle-abc.bfb"),
+                FLAVOR,
+            ),
+            deployment(Some("bf-bundle-abc"), None, true),
+            false,
         ),
-        deployment(Some("bf-bundle-abc"), None, true),
-    );
-
-    assert!(!is_outdated(mock).await.expect("evaluated"));
-}
-
-#[tokio::test]
-async fn a_dpu_running_an_older_image_is_outdated() {
-    let mock = OutdatedDpuMock::with(
-        dpu(
-            Some("bf-bundle-old"),
-            Some("/bfb/test-namespace-bf-bundle-old.bfb"),
-            FLAVOR,
+        (
+            "BFB moved on from the installed image",
+            dpu(
+                Some("bf-bundle-old"),
+                None,
+                Some("/bfb/test-namespace-bf-bundle-old.bfb"),
+                FLAVOR,
+            ),
+            deployment(Some("bf-bundle-new"), None, true),
+            true,
         ),
-        deployment(Some("bf-bundle-new"), None, true),
-    );
+        (
+            "BlueFieldSoftware matches the DPU's spec",
+            dpu(None, Some("bf-software-abc"), None, FLAVOR),
+            deployment(None, Some("bf-software-abc"), true),
+            false,
+        ),
+        (
+            "BlueFieldSoftware moved on from the DPU's spec",
+            dpu(None, Some("bf-software-old"), None, FLAVOR),
+            deployment(None, Some("bf-software-new"), true),
+            true,
+        ),
+    ];
 
-    assert!(is_outdated(mock).await.expect("evaluated"));
+    for (name, dpu, deployment, expected_outdated) in cases {
+        let outdated = is_outdated(OutdatedDpuMock::with(dpu, deployment))
+            .await
+            .unwrap_or_else(|error| panic!("{name}: evaluation failed: {error}"));
+        assert_eq!(outdated, expected_outdated, "{name}");
+    }
 }
 
 #[tokio::test]
@@ -276,6 +305,7 @@ async fn a_dpu_whose_flavor_drifted_is_outdated() {
     let mock = OutdatedDpuMock::with(
         dpu(
             Some("bf-bundle-abc"),
+            None,
             Some("/bfb/test-namespace-bf-bundle-abc.bfb"),
             "some-other-flavor",
         ),
@@ -293,6 +323,7 @@ async fn an_unready_deployment_leaves_the_dpu_outdated() {
     let mock = OutdatedDpuMock::with(
         dpu(
             Some("bf-bundle-abc"),
+            None,
             Some("/bfb/test-namespace-bf-bundle-abc.bfb"),
             FLAVOR,
         ),
@@ -309,7 +340,7 @@ async fn a_deployment_declaring_no_provisioning_source_leaves_the_dpu_outdated()
     // inconclusive. `find_outdated_dpus_dpf` skips this case; here it must not
     // read as "up to date".
     let mock = OutdatedDpuMock::with(
-        dpu(Some("bf-bundle-abc"), None, FLAVOR),
+        dpu(Some("bf-bundle-abc"), None, None, FLAVOR),
         deployment(None, None, true),
     );
 
@@ -319,7 +350,7 @@ async fn a_deployment_declaring_no_provisioning_source_leaves_the_dpu_outdated()
 #[tokio::test]
 async fn a_deployment_declaring_both_provisioning_sources_leaves_the_dpu_outdated() {
     let mock = OutdatedDpuMock::with(
-        dpu(Some("bf-bundle-abc"), None, FLAVOR),
+        dpu(Some("bf-bundle-abc"), None, None, FLAVOR),
         deployment(Some("bf-bundle-abc"), Some("bf-software-abc"), true),
     );
 
@@ -340,6 +371,7 @@ async fn a_missing_dpu_is_an_error_rather_than_a_verdict() {
 async fn a_dpu_without_an_owner_label_is_an_error() {
     let mut orphan = dpu(
         Some("bf-bundle-abc"),
+        None,
         Some("/bfb/test-namespace-bf-bundle-abc.bfb"),
         FLAVOR,
     );
