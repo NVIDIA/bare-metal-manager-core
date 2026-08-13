@@ -7,6 +7,7 @@
 | Version | Date | Modified By | Description |
 | :---: | :---: | :---- | :---- |
 | 0.1 | 2026-08-07 | Ron Thompson | Initial draft |
+| 0.2 | 2026-08-13 | Ron Thompson | Review feedback: compatibility, secrets boundary, cloud-init status as the completion signal |
 
 # **1. Introduction**
 
@@ -27,11 +28,16 @@ than narrowly. Either way, it lets `carbide-extras` be removed from the build en
 
 ## **1.2 Scope**
 
-In scope: the x86_64 and aarch64 host Scout discovery boot. The feature is **optional** — with no site
-config present, behavior is byte-for-byte what it is today.
+In scope: the x86_64 and aarch64 host Scout discovery boot.
+
+Configuring snippets is optional; the mechanism is not conditional. cloud-init is installed and runs on
+every discovery boot whether or not a site configures anything. For a site that configures nothing the
+boot is not bit-identical, but it is materially unchanged: the scout service starts and registers as
+before, the machine moves through the same discovery states, and no reboots are added. The cost is a
+small amount of boot time, measured in 8.4.
 
 Out of scope for v1: the DPU/BFB path (unchanged), tenant-assigned instance cloud-init (unchanged), and
-storing snippets in carbide-api/the database.
+storing snippets in the API or database.
 
 # **2. Current State**
 
@@ -41,44 +47,47 @@ storing snippets in carbide-api/the database.
   does not call the cloud-init routes at all.
 - **Both halves of the mechanism have precedent.** `ubuntu-autoinstall`, `dgx-os`, and the qcow imager
   already append `ds=nocloud-net;s=${cloudinit-url}` to boot a machine against a cloud-init datasource,
-  and the Scout image already trusts a PXE-served apt repo (`/etc/apt/sources.list.d/forge.list` →
-  `http://carbide-pxe.forge/public/blobs/internal/apt/`).
+  and the Scout image already trusts a PXE-served apt repo.
 
 # **3. Design**
 
-A site drops cloud-config files into a directory that carbide-pxe serves. carbide-pxe lists them as a
-cloud-init `#include` document, and Scout — which gains cloud-init and a datasource on its kernel command
-line — applies them before `forge-scout` starts.
+A site drops cloud-config files into a directory the PXE service serves. It lists them as a cloud-init
+`#include` document, and Scout — which gains cloud-init and a datasource on its kernel command line —
+applies them before the scout service starts.
 
-Everything below is work to be built unless marked as existing:
+Each item below is marked **New** or **Changed**:
 
 | Component | Change |
 | :---- | :---- |
-| Site deployment | **New** — optional per-site snippet files mounted into carbide-pxe; produced by whatever tooling owns that site (3.1) |
-| carbide-pxe | **New** — `/api/v0/cloud-init/discovery/` prefix serving `user-data` and `meta-data`, the snippet-directory scan, and the rendered terminal document (3.2, 3.5) |
+| Site deployment | **New** — optional per-site snippet files mounted into the PXE pod (3.1) |
+| PXE service | **New** — `/api/v0/cloud-init/discovery/` prefix serving `user-data` and `meta-data`, and the snippet-directory scan (3.2) |
 | Scout image | **Changed** — add the `cloud-init` package; drop `power_state_change` from the enabled final modules (3.3, 3.6) |
-| carbide-api | **Changed** — append `ds=nocloud-net;s=…` to the Scout kernel command line (3.4) |
-| `forge-scout.service` | **Changed** — order after cloud-init's completion unit; read the sentinel at startup (3.5) |
+| API service | **Changed** — append `ds=nocloud-net;s=…` to the Scout kernel command line (3.4) |
+| Scout service unit | **Changed** — order after cloud-init; read and report the cloud-init outcome (3.5) |
+| Helm chart | **New** — optional values-driven snippet mount, shipped as a commented example and not enabled by default |
 
 Reused unchanged: the static file handler under `/public`, resolution of the caller from client IP,
-`instance_id` population on the machine-interface path, `[pxe_url]` substitution and its per-machine
-overrides, the `PxeBootOutcome` / `OutcomeReason` metrics, and the PXE-served site apt repo.
+`instance_id` population on the machine-interface path, per-machine PXE URL substitution and its
+overrides, and the existing PXE boot-outcome metrics.
 
 ## **3.1 Snippet source**
 
-**New.** The contract is a mount path: any files present inside the carbide-pxe pod at
-`/forge-boot-artifacts/blobs/internal/cloud-init.d/scout/` are picked up, and are served by the existing
-static handler under `/public/blobs/internal/cloud-init.d/scout/`. Snippets are flat, site-wide, and
-applied in sorted filename order (`10-auth.yaml`, `20-…`).
+**New.** The contract is a directory: any files present under `<static-dir>/blobs/internal/cloud-init.d/
+scout/` inside the PXE pod are picked up, where `<static-dir>` is the path the PXE service is already
+given as its static-file argument. Expressing it that way means this design names no mount point of its
+own and follows whatever the deployment configures. Those files are served by the existing static handler
+under `/public/blobs/internal/cloud-init.d/scout/`. Snippets are flat, site-wide, and applied in sorted
+filename order (`10-auth.yaml`, `20-…`).
 
 How the files arrive there is up to whatever tooling owns the site, and the feature depends on nothing
-beyond their presence. Site configuration does not come from one place: `forged` drives the environments
-it owns, a growing number of sites are materialized through dsx-sbom, and external customers generally
-deploy with their own Helm charts and use neither. A ConfigMap is the natural implementation for the
-sites we run and is what reference material should show, but a Helm-templated Secret or any other volume
-satisfies the contract equally.
+beyond their presence.
 
-**A stock cloud-config must work unmodified.** There is no Carbide-specific dialect, no required
+**Snippets must not contain secrets.** They are served from `/public`, which is deliberately
+unauthenticated — it is how a machine with no credentials fetches iPXE and the rootfs — so anything
+placed there is readable by any client that can reach the PXE service. A snippet needing privileged
+material must fetch it at runtime from an authenticated source rather than embed it. See 5.1.
+
+**A stock cloud-config must work unmodified.** There is no product-specific dialect, no required
 preamble, and no wrapper to learn — any valid cloud-config document in that directory is applied as-is.
 This is a design constraint and the bar the documentation is held to: if the feature needs a sample to be
 usable, the mechanism is too specialized. The only limits on what a snippet may do are in 3.6.
@@ -88,28 +97,32 @@ machine interface ID and MAC arrive on the kernel command line as `machine_id=` 
 ID is in the `meta-data` document (3.2); and hardware identity is readable locally through `dmidecode`
 and `lshw`, both already in the image. A snippet that wants to branch on any of it does so directly.
 
-## **3.2 carbide-pxe: the discovery endpoint**
+## **3.2 The discovery endpoint**
 
-**New.** carbide-pxe gains a route prefix used only by the discovery OS: `/api/v0/cloud-init/discovery/`.
-carbide-api emits this URL only on the Scout kernel command line (3.4), so only discovery hosts reach it,
-and the existing tenant cloud-init path is untouched.
+**New.** The PXE service gains a route prefix used only by the discovery OS:
+`/api/v0/cloud-init/discovery/`. The API emits this URL only on the Scout kernel command line (3.4), so
+only discovery hosts reach it, and the existing tenant cloud-init path is untouched.
 
-`user-data` is rendered as a cloud-init `#include` list — the snippet directory scanned and sorted,
-emitted as URLs under `CUSTOM_CLOUD_INIT_WEB_ROOT`. cloud-init fetches each in turn, so carbide-pxe never
-parses or merges site YAML. A missing or empty directory yields a list containing only the terminal
-document from 3.5; that is the "feature not configured" path.
+`user-data` is rendered from the snippet directory, scanned and sorted:
+
+- With one or more snippets, a cloud-init `#include` list of their URLs. cloud-init fetches each in turn,
+  so the PXE service never parses or merges site YAML.
+- With none, a minimal no-op `#cloud-config`. This avoids depending on how cloud-init treats an
+  `#include` document containing no URLs, and makes the unconfigured path deterministic.
+
+Either form carries the operator documentation as comments (3.5), so the rendered `user-data` is always a
+meaningful document to fetch and read.
 
 `meta-data` is required by NoCloud and must always return a valid document, because a datasource that
-fails to come up costs not just the snippets but the terminal document and therefore the sentinel. Its
-`instance-id` carries the machine ID, which needs no new work: carbide-api already populates that field
-on the machine-interface path when resolving the caller by client IP
-(`crates/api-core/src/handlers/client_resolution.rs`), independently of and prior to Scout registering. A
-snippet needing machine identity reads it there rather than scraping `/proc/cmdline`.
+fails to come up costs the snippets entirely. Its `instance-id` carries the machine ID, which needs no new
+work: the API already populates that field on the machine-interface path when resolving the caller by
+client IP (`crates/api-core/src/handlers/client_resolution.rs`), independently of and prior to Scout
+registering. A snippet needing machine identity reads it there rather than scraping `/proc/cmdline`.
 
-**Treat the machine ID as usually present rather than guaranteed.** It is served in `meta-data` whenever
-carbide-api has it, which is the common case, but the field is optional and can be unset. A snippet that
-uses it should tolerate its absence. The document itself is served and valid either way, with
-`instance-id` backstopped by the interface ID so cloud-init always has one.
+**Treat the machine ID as usually present rather than guaranteed.** It is served whenever the API has it,
+which is the common case, but the field is optional and can be unset. A snippet that uses it should
+tolerate its absence. The document is served and valid either way, with `instance-id` backstopped by the
+interface ID so cloud-init always has one.
 
 ## **3.3 Scout image (mkosi)**
 
@@ -118,44 +131,45 @@ the Scout rootfs is a read-only squashfs with a tmpfs overlay, **every discovery
 cloud-init instance**: there is no first-boot suppression to work around and no accumulated cloud-init
 state to reset. Snippets apply on every discovery boot by construction.
 
-## **3.4 Kernel command line (carbide-api)**
+## **3.4 Kernel command line**
 
 **Changed.** Append `ds=nocloud-net;s=[pxe_url]/api/v0/cloud-init/discovery/` to both host branches of
-`get_pxe_instruction_for_arch`. This is the only carbide-api change the feature needs. The `[pxe_url]`
-placeholder is already substituted per machine and already honors `pxe_url_override`, so external hosts
-on the static-assignments segment work with no further change.
+`get_pxe_instruction_for_arch`. This is the only API change the feature needs. The `[pxe_url]`
+placeholder is already substituted per machine and already honors its override, so external hosts on the
+static-assignments segment work with no further change.
 
-## **3.5 Completion sentinel and forge-scout ordering**
+## **3.5 Completion signal and ordering**
 
-Today `forge-scout.service` orders only on `network-online.target`, so nothing keeps it from starting
-before snippets have applied. Two changes address that.
+Today the scout service orders only on `network-online.target`, so nothing keeps it from starting before
+snippets have applied.
 
-**New — the terminal document.** carbide-pxe always appends a document of its own to the end of the
-`#include` list, whose only job is to write a sentinel file (e.g. `/run/forge/cloud-init-complete`) once
-everything ahead of it has run. Because carbide-pxe builds the list, a site snippet cannot remove or
-reorder that entry.
+**Changed — ordering.** The scout service gains `Wants=` and `After=` on cloud-init's completion unit,
+with no `Requires=`. `Wants=` is required as well as `After=`, because `After=` alone orders units only
+if both are already in the same transaction; it does not pull one in. Omitting `Requires=` means ordering
+does not demand success, so a cloud-init that fails — or exceeds its own `TimeoutStartSec` and is killed
+— still releases the scout service. The time bound therefore comes from cloud-init's own unit timeout,
+and Scout needs no waiting logic.
 
-**Changed — the ordering.** `forge-scout.service` gains `After=` cloud-init's completion unit, with no
-`Requires=`. Ordering does not demand success, so a cloud-init that fails — or that exceeds its own
-`TimeoutStartSec` and is killed — still releases forge-scout. The time bound therefore comes from
-cloud-init's own unit timeout, and Scout needs no waiting logic of its own.
+**Changed — the completion signal.** Scout asks cloud-init how it went, via `cloud-init status`, and
+consumes only the status value: a clean completion, a completion with errors, or a run that never
+finished. Anything unrecognized is treated as unknown rather than as failure. Scout logs the outcome and,
+when customization did not complete cleanly, reports it through the existing scout error RPC so the
+failure is recorded centrally by the API rather than only on the host console. This turns a silently
+ineffective snippet into a visible error, which is the failure mode most likely to waste an operator's
+afternoon.
 
-The sentinel is a **signal, not a gate**: Scout reads it once at startup, without blocking, to establish
-whether site customization completed. Its absence means the boot is degraded rather than stalled, and is
-logged and counted.
+This deliberately uses cloud-init's own report rather than anything of ours embedded in user-data, so no
+part of the mechanism has to survive merging with site snippets (6). It carries one honest limit: it
+reports whether cloud-init and its modules succeeded, not whether every command inside a snippet did what
+its author intended. Commands in `runcmd` share one generated script that does not stop on error, so an
+individual failing command need not surface.
 
-The sentinel step must survive cloud-config merge semantics across multiple documents — a site snippet
-defining overlapping keys must merge with the terminal document rather than displace it. The cloud-init
-shipped in Ubuntu 24.04 (noble) is documented to behave this way, but it is load-bearing enough to be
-verified rather than assumed (8.1).
-
-**The terminal document is also where the operator documentation lives.** It ships on every boot, cannot
-be edited away by a site, and is what an operator lands on when they curl the endpoint or read cloud-init
-logs while debugging. It carries, in comments, the effective time bound and what happens when a snippet
-exceeds it — cloud-init is killed, Scout starts anyway, and the unfinished work is lost — together with
-the no-reboot constraint from 3.6. Because carbide-pxe renders the document, that bound is interpolated
-from the configured value rather than restated by hand, so it cannot drift from the behavior. This
-requires the value to be readable where the document is rendered.
+**Operator documentation lives in the rendered `user-data`.** It ships on every boot as comments in the
+document the PXE service serves, cannot be edited away by a site, and is what an operator lands on when
+they curl the endpoint. It states the effective time bound and what happens when a snippet exceeds it —
+cloud-init is killed, Scout starts anyway, and the unfinished work is lost — together with the no-reboot
+constraint from 3.6 and the prohibition on secrets from 3.1. Because the document is rendered, the time
+bound is interpolated from the configured value rather than restated by hand, so it cannot drift.
 
 ## **3.6 Reboot semantics**
 
@@ -167,33 +181,29 @@ Two rules follow.
 **Snippets must not reboot.** This is the sharpest edge in the design, because the cost is not one
 re-PXE but an unbounded reboot loop across every machine that receives the snippet. The host re-PXEs, is
 served Scout again, re-runs the same unchanged snippet, and reboots again. Nothing breaks the cycle on
-its own: the rootfs is ephemeral so no local state accumulates, the sentinel lives in `/run`,
-`check-scout-updates` needs 24 hours of uptime it will never reach, and the reboot fires before
-`forge-scout` has started (3.5), so the machine never registers and never leaves the discovery state that
-keeps serving it Scout. Because snippets are site-wide, every machine in discovery at that site loops at
-once, each cycle re-downloading the rootfs from carbide-pxe.
+its own: the rootfs is ephemeral so no local state accumulates, `check-scout-updates` needs 24 hours of
+uptime it will never reach, and the reboot fires before the scout service has started (3.5), so the
+machine never registers and never leaves the discovery state that keeps serving it Scout. Because
+snippets are site-wide, every machine in discovery at that site loops at once, each cycle re-downloading
+the rootfs.
 
 **Anything requiring a reboot to take effect cannot be delivered this way.** Kernel parameters, kernel or
 module changes needing a restart, and firmware activation belong in the image or in a lifecycle state
 that already owns a reboot.
 
-The loop is loud, and it self-heals: every cycle spikes request rates on carbide-pxe and carbide-api, and
+The loop is loud, and it self-heals: every cycle spikes request rates on the PXE and API services, and
 stalled machines eventually breach their time-in-state SLA and alert, while correcting the snippet ends
-the loop at the next boot with no per-machine intervention. What those signals do not say is *why* — that
-a snippet is rebooting hosts — and machine-controller's reboot histograms do not help, because they count
-only Carbide-initiated reboots. The cost is therefore paid in diagnosis time rather than in going
-unnoticed, and is addressed by writing the symptom signature down: **a request-rate spike on carbide-pxe
-and carbide-api together with discovery machines breaching time-in-state means a snippet is rebooting
-hosts.** That makes the diagnosis a lookup.
+the loop at the next boot with no per-machine intervention. What those signals do not say is *why* — and
+the error report in 3.5 cannot fill that gap either, because Scout never starts. So the loop is addressed
+by writing the symptom signature down: **a request-rate spike on the PXE and API services together with
+discovery machines breaching time-in-state means a snippet is rebooting hosts.**
 
 The image build drops `power_state_change` from cloud-init's enabled final modules, which stops
 cloud-init rebooting on its own. It cannot stop a snippet calling `reboot` from `runcmd`, and reboot
-cannot be masked generally, since Carbide reboots hosts for lifecycle transitions and
+cannot be masked generally, since the platform reboots hosts for lifecycle transitions and
 `check-scout-updates` deliberately reboots to pick up a newer Scout image. The rule is therefore guarded
-where it can be and stated everywhere it can be — in the terminal document served on every boot, and in
-the operator documentation alongside the symptom signature. Since the guard cannot be enforcement,
-documentation is the control that does the work, and it should be repeated past the point of feeling
-excessive.
+where it can be and stated everywhere it can be. Since the guard cannot be enforcement, documentation is
+the control that does the work, and it should be repeated past the point of feeling excessive.
 
 Reboots do happen legitimately — image updates and lifecycle transitions — and snippets re-run on a clean
 rootfs each time. Local state is therefore always fresh and needs no first-run guarding. What needs care
@@ -206,82 +216,105 @@ like these must be idempotent.
 
 | Payload injected today | Replacement |
 | :---- | :---- |
-| `nvinit_setup/` (nvssh auth config) | `carbide-nvinit` deb from the site apt repo |
+| `nvinit_setup/` (nvssh auth config) | auth deb from the site apt repo |
 | `libnss-exec`, `libssl1.1`, `libuser` debs | site apt repo |
-| `mnv_cli` (Lenovo M.2 RAID cleanup) | `carbide-tools` deb |
+| `mnv_cli` (Lenovo M.2 RAID cleanup) | tools deb from the site apt repo |
 | `postinst-extras.sh` | snippet `runcmd` |
 | machine-validation dependencies, as needed | site apt repo, installed by a snippet |
 
-The site apt repo is the already-prototyped `carbide-apt-repo` sidecar. Once the above land, delete the
-"Inject carbide_extras content into build" and "Verify required extras binaries are present" CI steps and
-the `inject_extras` / `extras_container` workflow inputs. The `mnv_cli` check is currently a hard CI gate,
-so its removal and the packaging of `carbide-tools` must land together.
+The site apt repo is the already-prototyped apt-repo sidecar. Once the above land, delete the "Inject
+carbide_extras content into build" and "Verify required extras binaries are present" CI steps and the
+`inject_extras` / `extras_container` workflow inputs. The `mnv_cli` check is currently a hard CI gate, so
+its removal and the packaging of its replacement must land together.
+
+Anything in that payload which is genuinely secret cannot move to a snippet as-is (3.1) and needs an
+authenticated delivery path instead. Auditing the payload for secrets is part of this migration.
 
 # **5. Technical Considerations**
 
 ## **5.1 Security and trust model**
 
-Snippets are fetched over plain HTTP (`carbide_pxe_url` is `http://`) and execute as root on the
-discovery OS. This matches the trust model already in place for the `[trusted=yes]` apt source and the
-loader's unauthenticated rootfs fetch, and it is inherent to the feature: an operator who can configure
-the site can already choose what the discovery OS runs. PCR 16 measures the image we ship and continues
-to mean exactly that; by design it does not attest to site customization layered on top.
+Snippets are fetched over plain HTTP and execute as root on the discovery OS. This matches the trust
+model already in place for the `[trusted=yes]` apt source and the loader's unauthenticated rootfs fetch,
+and it is inherent to the feature: an operator who can configure the site can already choose what the
+discovery OS runs. PCR 16 measures the image we ship and continues to mean exactly that; by design it
+does not attest to site customization layered on top.
+
+The boundary this creates is that **the snippet directory is public**. `/public` has no authorization —
+it cannot have any, since its clients are machines that do not yet possess credentials. Any secret placed
+in a snippet is readable by anything that can reach the PXE service. Snippets are therefore restricted to
+non-secret material, and a snippet needing privileged data must fetch it at runtime from an authenticated
+source. Defining that path is not solved here (9.2), and it may constrain which parts of an existing
+authentication setup can move to a snippet.
 
 ## **5.2 Failure handling**
 
-A broken snippet must not brick discovery. Fail open — log, emit a metric, and continue into
-`forge-scout` — consistent with how `forge-scout-pre.sh` already tolerates `forge-scout-network.sh`
-failing, and the reason for the ordering choice in 3.5.
+A snippet that fails or hangs must not brick discovery: cloud-init's own timeout bounds it, ordering
+without `Requires=` releases the scout service regardless, and the outcome is logged and reported (3.5).
+
+This guarantee explicitly does not extend to a snippet that reboots the host. That case prevents the
+scout service from starting at all and is an unbounded loop, not a degraded boot; it is addressed by
+constraint and documentation rather than by mechanism (3.6).
 
 ## **5.3 Resource cost**
 
 The overlay upper layer is tmpfs, so anything a snippet installs is resident in RAM for the life of the
-boot and is re-fetched every boot. Prefer the site apt repo over large in-snippet payloads, and bound
-total snippet size.
+boot and is re-fetched every boot. Exhausting it fails the boot, which returns the machine to a re-PXE
+rather than corrupting anything — these are large-memory machines, so this is unlikely in practice.
+
+No enforcement is proposed, deliberately. The snippet files themselves are kilobytes of YAML; the
+quantity that actually consumes tmpfs is whatever those snippets install or download, which the PXE
+service cannot observe or bound from the serving side. A byte limit on served snippets would constrain
+the wrong number. Sites should prefer the apt repo over large in-snippet payloads. Serving-side snippet
+bytes are cheap to expose as a metric if a number is wanted.
 
 ## **5.4 Observability**
 
-Count served / not-configured / error outcomes on the new endpoint using the existing `PxeBootOutcome`
-and `OutcomeReason` instrumentation, plus the sentinel outcome from 3.5. No new alerting is proposed: the
-reboot loop of 3.6 is covered by documenting its symptom signature against the request-rate and
-time-in-state alerts that already exist.
+Count served / not-configured / error outcomes on the new endpoint using the existing PXE boot-outcome
+metrics. Scout logs the cloud-init outcome and reports non-clean outcomes via the scout error RPC, so
+they appear in the API's logs (3.5). No new alerting is proposed: the reboot loop of 3.6 is covered by
+documenting its symptom signature against the request-rate and time-in-state alerts that already exist.
 
 # **6. Alternatives Considered**
 
+- **Write our own completion sentinel from a terminal document appended to the `#include` list.** This
+  was the earlier shape of 3.5 and is weaker in two ways. It depends on cloud-config merge semantics: a
+  site snippet can declare `merge_how`, so a document of ours being last does not guarantee its work
+  survives or runs last. Worse, all merged `runcmd` entries become a single script that does not stop on
+  error, so a terminal `touch` would run even when every snippet ahead of it failed — signalling success
+  for a boot that had none. cloud-init's own status has neither problem.
 - **Extend the existing `/api/v0/cloud-init/` routes instead of adding a discovery prefix.** This would
   require deciding per request whether the caller is a host in discovery or an assigned instance, from
   data that does not cleanly distinguish them. A separate prefix reachable only from the Scout kernel
   command line removes the question. It also avoids inheriting the tenant `meta-data` handler's behavior
   of answering a missing-metadata case with an error template, which on this path would take the whole
-  datasource down (3.2).
-- **Serve one merged cloud-config instead of an `#include` list.** This would put carbide-pxe in the
+  datasource down.
+- **Serve one merged cloud-config instead of an `#include` list.** This would put the PXE service in the
   business of parsing and merging site YAML, and make it responsible for conflicts between snippets.
-- **Gate `forge-scout` with `ConditionPathExists=` on the sentinel.** Conditions are evaluated once, when
-  the queued start job runs; they do not wait. A failing one skips the unit "mostly silently" without
-  moving it to `failed`, so `Restart=on-failure` would not recover it, and a sentinel that had not yet
-  appeared would suppress `forge-scout` for the whole boot.
-- **Detect the reboot loop in carbide-api and refuse to serve the customized path past a threshold.**
+- **Gate the scout service with `ConditionPathExists=`.** Conditions are evaluated once, when the queued
+  start job runs; they do not wait. A failing one skips the unit "mostly silently" without moving it to
+  `failed`, so `Restart=on-failure` would not recover it, and the unit would be suppressed for the whole
+  boot.
+- **Detect the reboot loop in the API and refuse to serve the customized path past a threshold.**
   Rejected as more mechanism than the failure warrants, given the loop already surfaces on existing
   alerts and self-heals as soon as the snippet is corrected (3.6).
-- **Ship a starter snippet for operators to copy.** Rejected: 3.1 requires a stock cloud-config to work
-  unmodified, so an author starts from any cloud-init document they already have, and a shipped sample
-  would become a second source of truth that drifts from the terminal document.
+- **Raise a machine health report on failed customization instead of logging one.** Scout has no health
+  dependency today, and adding one to carry a single condition is disproportionate. The scout error RPC
+  already exists and puts the failure in the API's logs. Revisitable (9.3).
 
 # **7. Acceptance Criteria**
 
-1. With no snippets present, Scout boots as it does today; the discovery endpoint serves only the
-   terminal document and the sentinel appears promptly.
+1. With no snippets configured, the scout service starts and registers, the machine moves through the
+   same discovery states, no reboots are added, and cloud-init completes with no errors.
 2. With N snippets configured, all N apply in filename order and are visible in cloud-init logs on the
-   console, and Scout observes the sentinel before doing dependent work.
-3. A deliberately broken snippet degrades the boot but still reaches `forge-scout`.
-4. A host whose interface has no associated machine still gets a valid `meta-data` document, applies its
-   snippets, and produces a sentinel.
-5. A snippet that exceeds the time bound does not stall the boot: cloud-init is killed, Scout starts, and
-   the missing sentinel is logged and counted as degraded customization.
-6. The served terminal document carries the time bound and no-reboot constraint in comments, with the
-   bound matching the value actually enforced; the no-reboot rule and the symptom signature from 3.6 also
-   appear in the operator-facing documentation.
-7. A site's authentication setup is delivered entirely by snippet, with no `carbide-extras` injection
+   console, and the scout service starts only after cloud-init has finished.
+3. A snippet that fails, and one that hangs past the timeout, each still reach the scout service, and
+   each produces a logged outcome and an error report to the API.
+4. A host whose interface has no associated machine still gets a valid `meta-data` document and applies
+   its snippets.
+5. The rendered `user-data` carries the time bound, the no-reboot constraint, and the no-secrets rule in
+   comments, with the bound matching the value actually enforced.
+6. A site's authentication setup is delivered entirely by snippet, with no `carbide-extras` injection
    anywhere in the build; the extras CI steps and inputs are deleted and boot-artifacts builds green
    without an extras container.
 
@@ -289,30 +322,38 @@ time-in-state alerts that already exist.
 
 These are assumptions the design rests on, and none should be taken from documentation alone.
 
-1. **Merge, not displacement.** On the cloud-init version actually shipped in noble, confirm that a site
-   snippet defining keys that overlap the terminal document merges with it rather than replacing it, and
-   that the sentinel step still runs. Pin the behavior with an explicit `merge_how` and re-confirm.
-   Determine the exact packaged version as part of this, rather than assuming it from the release.
-2. **Reboot behavior.** Confirm that dropping `power_state_change` prevents cloud-init from rebooting
+1. **The cloud-init status contract.** Establish how stable `cloud-init status` output is on the version
+   actually shipped in noble, what it reports for a snippet that fails versus one killed by timeout, and
+   whether the CLI or `/run/cloud-init/result.json` is the more durable surface. Determine the exact
+   packaged version as part of this. The design consumes only a status value specifically to keep this
+   coupling as small as possible; if the contract proves weak, that is the decision point.
+2. **Ordering.** Resolve which unit in the shipped layout is the completion target (`cloud-final.service`
+   and `cloud-init.target` are the candidates), and confirm that with `Wants=` and `After=` but no
+   `Requires=`, a cloud-init failure or timeout still lets the scout service start.
+3. **Reboot behavior.** Confirm that dropping `power_state_change` prevents cloud-init from rebooting
    Scout on its own. Then deliberately reproduce the reboot loop from 3.6 on a test machine, to confirm
    both that it behaves as described and that correcting the snippet ends it cleanly.
-3. **Completion unit and its timeout.** Confirm which unit in the shipped cloud-init layout is the right
-   ordering target for "customization is done" (`cloud-final.service` and `cloud-init.target` are the
-   candidates), and that exceeding its `TimeoutStartSec` releases `forge-scout` rather than blocking it.
-4. **End-to-end proof.** The first implementation slice is a `10-hello-world.yaml` in the local-dev site
-   configuration that writes a line to a log file — enough to exercise the whole path (mount → directory
-   scan → `#include` → cloud-init → sentinel) without depending on any of the migration work in 4. It is
-   a local-dev artifact and is not shipped in production site configuration.
+4. **Boot-time cost.** Measure the added boot time with no snippets configured, and confirm it is small
+   enough to justify the framing in 1.2.
+5. **End-to-end proof.** The first implementation slice is a `10-hello-world.yaml` in the local-dev site
+   configuration that writes a line to a log file — enough to exercise the whole path (directory scan →
+   `#include` → cloud-init → status → Scout) without depending on any of the migration work in 4. The
+   local environment does not deploy via Helm, so this is the artifact that gets tested; the Helm chart
+   carries a commented example instead, and a chart render test is the way to cover that plumbing.
 
    It also creates a testing hazard worth naming: once local-dev always has a snippet present, the
-   *unconfigured* path stops being exercised in the normal dev loop, and that is precisely the path
-   required to be byte-for-byte unchanged (criterion 1). That case needs testing deliberately.
+   *unconfigured* path stops being exercised in the normal dev loop, and that is precisely the path 1.2
+   describes. That case needs testing deliberately.
 
 # **9. Open Questions**
 
-1. Sentinel path (`/run/forge/cloud-init-complete` is a placeholder), and what `TimeoutStartSec`
-   cloud-init's completion unit should carry — the stock value may be generous for a discovery boot.
-2. Should the daily `check-scout-updates` reboot consider snippet changes? It currently compares only the
+1. What `TimeoutStartSec` should cloud-init's completion unit carry? The stock value may be generous for
+   a discovery boot.
+2. What is the supported way for a snippet to obtain secret material at runtime, given the directory
+   itself is public (5.1)? This may constrain the migration in 4.
+3. Should a failed customization become a machine health report rather than a logged error, accepting the
+   new dependency in Scout?
+4. Should the daily `check-scout-updates` reboot consider snippet changes? It currently compares only the
    squashfs `Last-Modified`, so a snippet edit does not by itself recycle a long-lived discovery host.
-3. Is a deprecation window needed for sites still building against `carbide-extras`?
+5. Is a deprecation window needed for sites still building against `carbide-extras`?
 
