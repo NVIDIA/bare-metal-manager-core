@@ -24,23 +24,28 @@ use carbide_uuid::machine::MachineId;
 use chrono::Utc;
 use component_manager::compute_tray_manager::{ComputeTrayEndpoint, ComputeTrayResult};
 use db::machine as db_machine;
+use health_report::HealthReport;
 use mac_address::MacAddress;
 use model::component_manager::PowerAction;
 use model::machine::{
-    FailureCause, FailureDetails, FailureSource, Machine, MachineMaintenanceOperation,
-    ManagedHostState, ManagedHostStateSnapshot, StateMachineArea,
+    BomValidating, BomValidatingContext, FailureCause, FailureDetails, FailureSource, Machine,
+    MachineMaintenanceOperation, ManagedHostState, ManagedHostStateSnapshot, StateMachineArea,
 };
 use state_controller::state_handler::{
     StateHandlerContext, StateHandlerError, StateHandlerOutcome,
 };
 
+use crate::config::BomValidationConfig;
 use crate::context::MachineStateHandlerContextObjects;
+use crate::handler::HostHandlerParams;
+use crate::handler::sku::{clear_sku_validation_report, has_only_sku_unassigned_alert};
 
 /// Handles the Maintenance state for a host, dispatching on the requested
 /// operation (`PowerOn` / `PowerOff` / `Reset`).
 pub(super) async fn handle_maintenance(
     host_machine_id: &MachineId,
     mh_snapshot: &ManagedHostStateSnapshot,
+    host_handler_params: &HostHandlerParams,
     ctx: &mut StateHandlerContext<'_, MachineStateHandlerContextObjects>,
 ) -> Result<StateHandlerOutcome<ManagedHostState>, StateHandlerError> {
     let operation = match &mh_snapshot.managed_state {
@@ -50,24 +55,28 @@ pub(super) async fn handle_maintenance(
 
     match operation {
         MachineMaintenanceOperation::PowerOn => {
-            handle_power_on(host_machine_id, mh_snapshot, ctx).await
+            handle_power_on(host_machine_id, mh_snapshot, host_handler_params, ctx).await
         }
         MachineMaintenanceOperation::PowerOff => {
-            handle_power_off(host_machine_id, mh_snapshot, ctx).await
+            handle_power_off(host_machine_id, mh_snapshot, host_handler_params, ctx).await
         }
-        MachineMaintenanceOperation::Reset => handle_reset(host_machine_id, mh_snapshot, ctx).await,
+        MachineMaintenanceOperation::Reset => {
+            handle_reset(host_machine_id, mh_snapshot, host_handler_params, ctx).await
+        }
     }
 }
 
 async fn handle_power_on(
     host_machine_id: &MachineId,
     mh_snapshot: &ManagedHostStateSnapshot,
+    host_handler_params: &HostHandlerParams,
     ctx: &mut StateHandlerContext<'_, MachineStateHandlerContextObjects>,
 ) -> Result<StateHandlerOutcome<ManagedHostState>, StateHandlerError> {
     tracing::info!(machine_id = %host_machine_id, "Machine maintenance: PowerOn");
     invoke_power_operation(
         host_machine_id,
         mh_snapshot,
+        host_handler_params,
         ctx,
         PowerAction::On,
         "PowerOn",
@@ -78,12 +87,14 @@ async fn handle_power_on(
 async fn handle_power_off(
     host_machine_id: &MachineId,
     mh_snapshot: &ManagedHostStateSnapshot,
+    host_handler_params: &HostHandlerParams,
     ctx: &mut StateHandlerContext<'_, MachineStateHandlerContextObjects>,
 ) -> Result<StateHandlerOutcome<ManagedHostState>, StateHandlerError> {
     tracing::info!(machine_id = %host_machine_id, "Machine maintenance: PowerOff");
     invoke_power_operation(
         host_machine_id,
         mh_snapshot,
+        host_handler_params,
         ctx,
         PowerAction::ForceOff,
         "PowerOff",
@@ -94,12 +105,14 @@ async fn handle_power_off(
 async fn handle_reset(
     host_machine_id: &MachineId,
     mh_snapshot: &ManagedHostStateSnapshot,
+    host_handler_params: &HostHandlerParams,
     ctx: &mut StateHandlerContext<'_, MachineStateHandlerContextObjects>,
 ) -> Result<StateHandlerOutcome<ManagedHostState>, StateHandlerError> {
     tracing::info!(machine_id = %host_machine_id, "Machine maintenance: Reset");
     invoke_power_operation(
         host_machine_id,
         mh_snapshot,
+        host_handler_params,
         ctx,
         PowerAction::ForceRestart,
         "Reset",
@@ -111,6 +124,7 @@ async fn handle_reset(
 async fn invoke_power_operation(
     host_machine_id: &MachineId,
     mh_snapshot: &ManagedHostStateSnapshot,
+    host_handler_params: &HostHandlerParams,
     ctx: &mut StateHandlerContext<'_, MachineStateHandlerContextObjects>,
     action: PowerAction,
     operation_label: &'static str,
@@ -163,11 +177,27 @@ async fn invoke_power_operation(
                     machine_id = %host_machine_id,
                     operation = operation_label,
                     backend = component_manager.compute_tray.name(),
-                    "Machine power control succeeded; returning host to Ready"
+                    "Machine power control succeeded"
                 );
                 let mut txn = ctx.services.db_pool.begin().await?;
                 db_machine::clear_machine_maintenance_requested(&mut txn, *host_machine_id).await?;
-                return Ok(StateHandlerOutcome::transition(ManagedHostState::Ready).with_txn(txn));
+                let next_state = post_maintenance_state(
+                    mh_snapshot.host_snapshot.config.hw_sku.is_some(),
+                    mh_snapshot.instance.is_some(),
+                    super::pending_ready_boot_config_state(&mh_snapshot.host_snapshot).is_some(),
+                    &host_handler_params.bom_validation,
+                );
+                if matches!(&next_state, ManagedHostState::BomValidating { .. }) {
+                    db_machine::update_sku_validation_health_report(
+                        &mut txn,
+                        host_machine_id,
+                        &HealthReport::sku_unassigned(),
+                    )
+                    .await?;
+                } else if has_only_sku_unassigned_alert(mh_snapshot) {
+                    clear_sku_validation_report(&mut txn, mh_snapshot).await?;
+                }
+                return Ok(StateHandlerOutcome::transition(next_state).with_txn(txn));
             }
 
             let summary = result
@@ -206,6 +236,35 @@ async fn invoke_power_operation(
             )
             .await
         }
+    }
+}
+
+/// Returns the state after an on-demand maintenance operation completes.
+///
+/// A strict unassigned-SKU policy must not return an unassigned host directly
+/// to `Ready`, because that opens an allocation window before the Ready handler
+/// can re-enter BOM validation. A pending boot-interface change is already an
+/// allocation barrier, so it instead returns to `Ready` to resume that
+/// reconciliation before BOM validation.
+fn post_maintenance_state(
+    has_assigned_sku: bool,
+    has_instance: bool,
+    has_pending_boot_interface_config: bool,
+    bom_validation: &BomValidationConfig,
+) -> ManagedHostState {
+    if bom_validation.enabled
+        && !bom_validation.ignore_unassigned_machines
+        && !has_assigned_sku
+        && !has_instance
+        && !has_pending_boot_interface_config
+    {
+        ManagedHostState::BomValidating {
+            bom_validating_state: BomValidating::WaitingForSkuAssignment(
+                BomValidatingContext::default(),
+            ),
+        }
+    } else {
+        ManagedHostState::Ready
     }
 }
 
@@ -294,4 +353,43 @@ pub(super) fn maintenance_transition_if_requested(
     Some(StateHandlerOutcome::transition(
         ManagedHostState::maintenance_for_operation(req.operation),
     ))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn post_maintenance_state_requires_sku_assignment_when_strict() {
+        let mut bom_validation = BomValidationConfig {
+            enabled: true,
+            ..BomValidationConfig::default()
+        };
+
+        assert!(matches!(
+            post_maintenance_state(false, false, false, &bom_validation),
+            ManagedHostState::BomValidating {
+                bom_validating_state: BomValidating::WaitingForSkuAssignment(_),
+            }
+        ));
+
+        assert_eq!(
+            post_maintenance_state(true, false, false, &bom_validation),
+            ManagedHostState::Ready
+        );
+        assert_eq!(
+            post_maintenance_state(false, true, false, &bom_validation),
+            ManagedHostState::Ready
+        );
+        assert_eq!(
+            post_maintenance_state(false, false, true, &bom_validation),
+            ManagedHostState::Ready
+        );
+
+        bom_validation.ignore_unassigned_machines = true;
+        assert_eq!(
+            post_maintenance_state(false, false, false, &bom_validation),
+            ManagedHostState::Ready
+        );
+    }
 }

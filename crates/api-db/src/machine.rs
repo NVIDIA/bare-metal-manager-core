@@ -163,6 +163,24 @@ pub async fn find_one(
         .pop())
 }
 
+/// Locks a machine row and reports whether it exists.
+///
+/// Callers that need synchronization but not a full machine snapshot should use
+/// this instead of `find_one` with `for_update`.
+pub async fn lock_machine(
+    txn: &mut PgConnection,
+    machine_id: &MachineId,
+) -> Result<bool, DatabaseError> {
+    let query = "SELECT 1 FROM machines WHERE id = $1 FOR UPDATE";
+    let locked: Option<i32> = sqlx::query_scalar(query)
+        .bind(machine_id.to_string())
+        .fetch_optional(txn)
+        .await
+        .map_err(|e| DatabaseError::query(query, e))?;
+
+    Ok(locked.is_some())
+}
+
 pub async fn find_existing_machine(
     txn: &mut PgConnection,
     macaddr: MacAddress,
@@ -255,6 +273,65 @@ pub async fn advance(
         .fetch_one(txn)
         .await
         .map_err(|e| DatabaseError::new("update machines state", e))?;
+
+    Ok(true)
+}
+
+/// Updates a machine controller state only when its current state version
+/// matches `expected_version`.
+///
+/// The state controller uses this compare-and-swap to avoid overwriting a
+/// state transition made by an API request after the controller loaded its
+/// snapshot. The associated DPUs are updated only after the host transition
+/// succeeds.
+pub async fn try_update_controller_state(
+    txn: &mut PgConnection,
+    host_id: &MachineId,
+    expected_version: ConfigVersion,
+    new_version: ConfigVersion,
+    state: &ManagedHostState,
+) -> Result<bool, DatabaseError> {
+    let query = "WITH updated AS (
+        UPDATE machines
+        SET controller_state_version = $1, controller_state = $2, controller_state_outcome = NULL
+        WHERE id = $3
+          AND controller_state_version = $4
+        RETURNING id
+    )
+    SELECT EXISTS (SELECT 1 FROM machines WHERE id = $3),
+           EXISTS (SELECT 1 FROM updated)";
+    let (exists, updated): (bool, bool) = sqlx::query_as(query)
+        .bind(new_version)
+        .bind(sqlx::types::Json(state))
+        .bind(host_id.to_string())
+        .bind(expected_version)
+        .fetch_one(&mut *txn)
+        .await
+        .map_err(|e| DatabaseError::new("try_update_controller_state", e))?;
+
+    if !exists {
+        return Err(DatabaseError::NotFoundError {
+            kind: "machine",
+            id: host_id.to_string(),
+        });
+    }
+
+    if !updated {
+        return Ok(false);
+    }
+
+    crate::state_history::persist(
+        txn,
+        crate::state_history::StateHistoryTableId::Machine,
+        host_id,
+        state,
+        new_version,
+    )
+    .await?;
+
+    for dpu in find_dpus_by_host_machine_id(txn, host_id).await? {
+        advance(&dpu, txn, state, Some(new_version)).await?;
+    }
 
     Ok(true)
 }
@@ -3298,6 +3375,109 @@ mod test {
             1.0
         );
 
+        Ok(())
+    }
+
+    #[crate::sqlx_test]
+    async fn try_update_controller_state_rejects_stale_version(
+        pool: sqlx::PgPool,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let machine_id =
+            MachineId::from_str("fm100htes3rn1npvbtm5qd57dkilaag7ljugl1llmm7rfuq1ov50i0rpl30")?;
+        let mut txn = pool.begin().await?;
+        super::create(
+            txn.as_mut(),
+            None,
+            &machine_id,
+            ManagedHostState::Ready,
+            None,
+            2,
+        )
+        .await?;
+        let machine = super::find_one(txn.as_mut(), &machine_id, MachineSearchConfig::default())
+            .await?
+            .expect("created machine should still exist");
+        let initial_version = machine.current_version();
+        let transitioned_version = initial_version.increment();
+        let transitioned_state = ManagedHostState::Created;
+
+        assert!(
+            super::try_update_controller_state(
+                txn.as_mut(),
+                &machine_id,
+                initial_version,
+                transitioned_version,
+                &transitioned_state,
+            )
+            .await?
+        );
+
+        super::update_state(txn.as_mut(), &machine_id, &ManagedHostState::Ready).await?;
+
+        assert!(
+            !super::try_update_controller_state(
+                txn.as_mut(),
+                &machine_id,
+                transitioned_version,
+                transitioned_version,
+                &ManagedHostState::Created,
+            )
+            .await?,
+            "a stale controller snapshot must not overwrite a newer state"
+        );
+
+        let machine = super::find_one(txn.as_mut(), &machine_id, MachineSearchConfig::default())
+            .await?
+            .expect("created machine should still exist");
+        assert_eq!(machine.current_state(), &ManagedHostState::Ready);
+        assert_ne!(machine.current_version(), transitioned_version);
+
+        txn.rollback().await?;
+        Ok(())
+    }
+
+    #[crate::sqlx_test]
+    async fn try_update_controller_state_reports_missing_machine(
+        pool: sqlx::PgPool,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let machine_id =
+            MachineId::from_str("fm100htes3rn1npvbtm5qd57dkilaag7ljugl1llmm7rfuq1ov50i0rpl30")?;
+        let mut txn = pool.begin().await?;
+        super::create(
+            txn.as_mut(),
+            None,
+            &machine_id,
+            ManagedHostState::Ready,
+            None,
+            2,
+        )
+        .await?;
+        let machine = super::find_one(txn.as_mut(), &machine_id, MachineSearchConfig::default())
+            .await?
+            .expect("created machine should still exist");
+        sqlx::query("DELETE FROM machines WHERE id = $1")
+            .bind(machine_id)
+            .execute(txn.as_mut())
+            .await?;
+
+        let error = super::try_update_controller_state(
+            txn.as_mut(),
+            &machine_id,
+            machine.current_version(),
+            machine.current_version().increment(),
+            &ManagedHostState::Created,
+        )
+        .await
+        .expect_err("a deleted machine must not look like a version conflict");
+        assert!(matches!(
+            error,
+            crate::DatabaseError::NotFoundError {
+                kind: "machine",
+                ..
+            }
+        ));
+
+        txn.rollback().await?;
         Ok(())
     }
 

@@ -26,15 +26,15 @@ pub struct BomValidationConfig {
     #[serde(default)]
     pub enabled: bool,
 
-    /// Allow machines that do not have a SKU assigned to bypass SKU validation
-    /// When true, machines in WaitingForSkuAssignment state can proceed without a SKU
+    /// Allow machines without an assigned SKU to bypass SKU validation rather than wait for assignment.
+    /// This applies during initial validation and when processing unassigned Ready machines.
     #[serde(default)]
     pub ignore_unassigned_machines: bool,
 
     /// Allow machines to stay in Ready state and remain allocatable even when SKU validation fails
     /// When false (default): Standard mode - validation failures block allocation (machine enters failed state)
-    /// When true: Allow allocation mode - validation still occurs and health reports are recorded, but machines do not transition
-    /// into failed states (SkuVerificationFailed, SkuMissing, WaitingForSkuAssignment) and can proceed to Ready/MachineValidation
+    /// When true: Allow allocation mode - validation still occurs, but machines with an assigned SKU do not transition into failed
+    /// states (SkuVerificationFailed, SkuMissing); their SKU validation health reports are cleared before proceeding to Ready/MachineValidation
     #[serde(default)]
     pub allow_allocation_on_validation_failure: bool,
 

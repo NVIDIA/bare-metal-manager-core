@@ -15,10 +15,9 @@ SKUs can be downloaded for modification or use with other sites.
 Machines that are assigned a SKU are automatically validated during ingestion based on their discovery information.
 Hardware validation occurs during initial ingestion and after an instance is released and new discovery information is received.
 
-New machines are automatically checked against existing SKUs and if a match is found, the machine passes
-SKU validation and continues with the normal ingestion process.  If no match is found the machine waits until
-a matching SKU is available or until the machine is made compatible with an existing SKU, if SKU validation is enabled
-in the site (`ignore_unassigned_machines` configuration option).
+New machines are automatically checked against existing SKUs and, if a match is found, pass SKU validation and continue
+with the normal ingestion process. If no match is found, a machine waits for a matching or manually assigned SKU unless
+the site enables `ignore_unassigned_machines`, in which case it bypasses SKU validation until a SKU is assigned.
 
 ## Behavior
 
@@ -38,16 +37,21 @@ An admin can also assign or remove a SKU on an individual host manually, either 
 `nico-admin-cli sku unassign` commands or from the machine detail page of the [NICo Debug WebUI](../operations/debug_webui.md).
 
 ### BOM Validation States
-Verifying a SKU against a machine goes through several steps to acquire updated machine inventory and perform the validation.  Depending on the inventory of the machine and the SKU configuration, the state machine needs to handle several situations.  The bom validation process is broken down into the following sub-states:
+
+Verifying a SKU against a machine goes through several steps to acquire updated machine inventory and perform the validation. Depending on the inventory of the machine and the SKU configuration, the state machine needs to handle several situations. The bom validation process is broken down into the following sub-states:
+
 - `MatchingSku` - The state machine will attempt to find an existing SKU that matches the machine inventory.
-- `UpdatingInventory` - NICo is requesting that scout re-inventory the machine.  This ensures that other operations are using a recent version of the machine inventory
+- `UpdatingInventory` - NICo is requesting that scout re-inventory the machine. This ensures that other operations are using a recent version of the machine inventory
 - `VerifyingSku` - NICo is comparing the machine inventory against the SKU
-- `SkuVerificationFailed` - The machine did not match the SKU.  Manual intervention is required.  The `sku verify` command may be used to retry the verification
-- `WaitingForSkuAssignment` - The machine does not have a SKU assigned and the configuration requires one.
-- `SkuMissing` - The machine has a SKU assigned, but the SKU does not exist.  This happens when a SKU is specified in the expected machines, but was not created.  If configured, NICo will attempt to generate a SKU
+- `SkuVerificationFailed` - The machine did not match the SKU. Manual intervention is required. The `sku verify` command may be used to retry the verification
+- `WaitingForSkuAssignment` - The machine does not have a SKU assigned and the configuration requires one. NICo adds an
+  unassigned-SKU health alert that prevents allocations until NICo automatically finds a matching SKU or an operator
+  assigns one.
+- `SkuMissing` - The machine has a SKU assigned, but the SKU does not exist. This happens when a SKU is specified in the expected machines, but was not created. If configured, NICo will attempt to generate a SKU
 
 ### Versions
-NICo maintains a version of the SKU schema used when a SKU is created.  This ensures that the same comparison is used during the lifetime of a SKU and ensures that the behavior of BOM validation does not change between NICo versions.  When new components are added, or new data sources are used during validation, existing SKUs will not be updated with the change and continue to behave as they did in previous NICo versions.  In order to use the new version, a new SKU must be created.
+
+NICo maintains a version of the SKU schema used when a SKU is created. This ensures that the same comparison is used during the lifetime of a SKU and ensures that the behavior of BOM validation does not change between NICo versions. When new components are added, or new data sources are used during validation, existing SKUs will not be updated with the change and continue to behave as they did in previous NICo versions. In order to use the new version, a new SKU must be created.
 
 ### Configuration
 
@@ -64,33 +68,55 @@ auto_generate_missing_sku = false,
 auto_generate_missing_sku_interval = "300s"
 ```
 
- - `enabled` - Enables or disables the entire bom validation process.  When disabled, machines
+- `enabled` - Enables or disables the entire bom validation process. When disabled, machines
   will skip bom validation and proceed as if all validation has passed.
- - `allow_allocation_on_validation_failure` - When true, machines are allowed to stay in Ready state and remain allocatable
-  even when SKU validation fails. Validation still occurs but only logs are recorded - health reports are cleared instead
-  of recording validation failures. Machines do not transition into failed states (SkuVerificationFailed, SkuMissing,
-  WaitingForSkuAssignment). When false (default), standard mode applies where validation failures are recorded in health
-  reports and machines enter failed states and become unallocatable until fixed. This is useful for avoiding machine
-  allocation blockage due to SKU validation issues when you only need logging without health report alerts.
- - `ignore_unassigned_machines` - When true and BOM validation encounters a machine that does not have an associated SKU,
+- `allow_allocation_on_validation_failure` - When true, machines with an assigned SKU are allowed to stay in Ready state
+  and remain allocatable even when SKU validation fails. Validation still occurs but only logs are recorded - health reports
+  are cleared instead of recording validation failures. Machines do not transition into failed states
+  (SkuVerificationFailed, SkuMissing). This does not bypass SKU assignment: a machine without an assigned SKU remains in
+  WaitingForSkuAssignment unless `ignore_unassigned_machines` is true. When false (default), standard mode applies where
+  validation failures are recorded in health reports and machines enter failed states and become unallocatable until fixed.
+  This is useful for avoiding machine allocation blockage due to SKU validation issues when you only need logging without
+  health report alerts. Before enabling this setting without `ignore_unassigned_machines`, assign SKUs to every machine
+  that must remain allocatable.
+- `ignore_unassigned_machines` - When true and BOM validation encounters a machine that does not have an associated SKU,
   it will proceed as if all validation has passed. Only machines with an associated SKU will be validated. This allows
   existing sites to be upgraded and BOM Validation enabled as SKUs are added to the system without impacting site operation.
   Machines that do not have an assigned SKU will still be usable and assignable.
- - `find_match_interval` - determines how often NICo will attempt to find a matching SKU for a machine.  NICo will only
-  attempt to find a SKU when the machine is in the `Ready` state.
- - `auto_generate_missing_sku` - enable or disable generation of a SKU from a machine.  This only applies to a machine with a SKU
+- `find_match_interval` - determines how often NICo will attempt to find a matching SKU for an unassigned machine. NICo
+  attempts matching during initial validation (`MatchingSku`) and when an unassigned machine is processed in `Ready` or
+  `WaitingForSkuAssignment`. A machine without a previous matching attempt is tried immediately, including when its SKU
+  status was created by a verification request before the SKU was unassigned. After no match is found, NICo records the
+  attempt and waits for this interval before trying again; this also applies when `ignore_unassigned_machines` keeps the
+  machine in `Ready`.
+- `auto_generate_missing_sku` - enable or disable generation of a SKU from a machine. This only applies to a machine with a SKU
   specified in the expected machine configuration and in the `SkuMissing` state.
- - `auto_generate_missing_sku_interval` - determines how often NICo will attempt to generate a sku from the machine data.
+- `auto_generate_missing_sku_interval` - determines how often NICo will attempt to generate a sku from the machine data.
+
+### Upgrade impact
+
+Sites that set `allow_allocation_on_validation_failure = true` while leaving `ignore_unassigned_machines = false` must assign
+an SKU to every machine that must remain allocatable. To continue allowing machines without an assigned SKU, set
+`ignore_unassigned_machines = true` as well.
+
+For sites that set `ignore_unassigned_machines = true`, an unsuccessful SKU match is now recorded. When a matching SKU is
+created later, automatic matching resumes after `find_match_interval` (five minutes by default) rather than on the next
+controller iteration.
+
+For sites that set `ignore_unassigned_machines = true` while leaving `allow_allocation_on_validation_failure = false`,
+assigned-SKU validation behavior is unchanged: a missing or mismatched assigned SKU blocks allocation as `SkuMissing` or
+`SkuVerificationFailed`. `ignore_unassigned_machines` only bypasses machines that have no SKU. To keep assigned machines
+allocatable despite those failures, set `allow_allocation_on_validation_failure = true`.
 
 ### Hardware Validated
 
 Machines will (currently) have the following hardware validated against the SKU:
 
- - Chassis (motherboard): Vendor and model matched
- - CPU: Model and count matched
- - GPUs: Model, memory capacity, and count matched
- - Memory: Type, capacity, and count matched
- - Storage: Model and count matched
+- Chassis (motherboard): Vendor and model matched
+- CPU: Model and count matched
+- GPUs: Model, memory capacity, and count matched
+- Memory: Type, capacity, and count matched
+- Storage: Model and count matched
 
 ## Design Information
 
@@ -104,20 +130,20 @@ By convention, SKU names (defined per site) are in the following format:
 
 Where:
 
- - `<vendor>` is the first word of the "chassis" "vendor" field, e.g. `dell` or `lenovo`
- - `<model>` is the unique ending to the "chassis" "model" field, e.g. `r750` or `sr670v2`
- - `<node_type>` is one of the following types of node that are deployed in NICo:
-    - `gpu`
-    - `cpu`
-    - `storage`
-    - `controller` (site controller node, if applicable)
- - `<idx>` arbitrary index starting at 1 to define different configurations, if required, generally 1
+- `<vendor>` is the first word of the "chassis" "vendor" field, e.g. `dell` or `lenovo`
+- `<model>` is the unique ending to the "chassis" "model" field, e.g. `r750` or `sr670v2`
+- `<node_type>` is one of the following types of node that are deployed in NICo:
+  - `gpu`
+  - `cpu`
+  - `storage`
+  - `controller` (site controller node, if applicable)
+- `<idx>` arbitrary index starting at 1 to define different configurations, if required, generally 1
 
 Some example SKU names:
 
- - `lenovo.sr670v2.gpu.1`
- - `dell.r750.gpu.1`
- - `dell.r750.storage.1`
+- `lenovo.sr670v2.gpu.1`
+- `dell.r750.gpu.1`
+- `dell.r750.storage.1`
 
 ## Managing SKU Validation
 
@@ -129,12 +155,14 @@ by visiting the admin page for a site and clicking "SKUs" from the left-side nav
 ### Viewing SKU information
 
 There are 2 commands for showing information related to SKUs:
-- `sku show` lists SKUs or shows information related to an existing SKU.
-- `sku generate` shows what a SKU would look like for a machine.  The generate command does not create the SKU or assign the SKU to the machine.
 
-Both commands honor the JSON format flag `-f json` to change the output to JSON.  JSON is used by other commands.
+- `sku show` lists SKUs or shows information related to an existing SKU.
+- `sku generate` shows what a SKU would look like for a machine. The generate command does not create the SKU or assign the SKU to the machine.
+
+Both commands honor the JSON format flag `-f json` to change the output to JSON. JSON is used by other commands.
 
 The `sku show` command can be used to list all SKUs, or show the details of a single SKU:
+
 ```sh
 nico-admin-cli sku show [<sku id>]
 
@@ -273,7 +301,8 @@ nico-admin-cli sku unassign <machineid>
 ```
 
 ### Replacing an existing SKU
-If a SKU has a set of components that do not work for a set of machines (either due to bugs, or NICo software updates) updating machines by unassigning and assigning a SKU would be challenging.  Replacing the components of a SKU can be done with the `sku replace` command.  This will force all machines to go through verification when no instance is allocated to the machine (all machines are verified when an instance is released).
+
+If a SKU has a set of components that do not work for a set of machines (either due to bugs, or NICo software updates) updating machines by unassigning and assigning a SKU would be challenging. Replacing the components of a SKU can be done with the `sku replace` command. This will force all machines to go through verification when no instance is allocated to the machine (all machines are verified when an instance is released).
 
 ```sh
 nico-admin-cli sku replace <filename> [--id <sku_name>]
@@ -291,9 +320,10 @@ nico-admin-cli sku delete <sku_name>
 ```
 
 #### Upgrading a SKU to the current version example
-When a new version of NICo is released that changes how SKUs behave, existing SKUs maintain their previous behavior.  In order to use the new version of the SKU, a manual "upgrade" process is required using the `sku replace` command.
 
-The existing SKU is below.  Note that the "Storage Devices" section includes a device with a model of "NO_MODEL" and there is no TPM.  The extra storage device is created by the raid card and may not always exist and should not have been included in the SKU.
+When a new version of NICo is released that changes how SKUs behave, existing SKUs maintain their previous behavior. In order to use the new version of the SKU, a manual "upgrade" process is required using the `sku replace` command.
+
+The existing SKU is below. Note that the "Storage Devices" section includes a device with a model of "NO_MODEL" and there is no TPM. The extra storage device is created by the raid card and may not always exist and should not have been included in the SKU.
 
 ```sh
 nico-admin-cli sku show XE9680
@@ -337,7 +367,7 @@ Storage Devices:
           +----------------------------------+-------+
 ```
 
-Using the `sku generate` command, we can see what the updated SKU looks like for the same machine.  This is the same machine that generated the older SKU in a previous release.  Note that the "NO_MODEL" device is gone, the RAID controller is now shown as `Dell BOSS-N1` and the version of the TPM is shown.
+Using the `sku generate` command, we can see what the updated SKU looks like for the same machine. This is the same machine that generated the older SKU in a previous release. Note that the "NO_MODEL" device is gone, the RAID controller is now shown as `Dell BOSS-N1` and the version of the TPM is shown.
 
 ``` sh
 nico-admin-cli sku generate fm100hti7olik00gefc9qlma831n6q49d1odkksp86q639cugt5afjnm4s0
@@ -384,13 +414,15 @@ Storage Devices:
 
 ```
 
-Create a new SKU file using the generate command again, but create a json file.  Note that the same ID needs to be specified as the existing SKU in order for the replace command to find the old SKU.
+Create a new SKU file using the generate command again, but create a json file. Note that the same ID needs to be specified as the existing SKU in order for the replace command to find the old SKU.
+
 ```sh
 nico-admin-cli -f json -o /tmp/xe9680.json sku g fm100hti7olik00gefc9qlma831n6q49d1odkksp86q639cugt5afjnm4s0 --id XE9680
 
 ```
 
 Then replace the old SKU
+
 ```sh
 nico-admin-cli sku replace /tmp/xe9680.json
 +--------+---------------------------------------+------------------+-----------------------------+
@@ -402,6 +434,7 @@ nico-admin-cli sku replace /tmp/xe9680.json
 ```
 
 The `show sku` command now shows the updated components (and version)
+
 ```sh
 nico-admin-cli sku show XE9680
 ID                  : XE9680
@@ -445,7 +478,6 @@ Storage Devices:
           | Dell Ent NVMe FIPS CM6 RI 3.84TB | 8     |
           +----------------------------------+-------+
 ```
-
 
 ### Finding assigned machines for a SKU
 

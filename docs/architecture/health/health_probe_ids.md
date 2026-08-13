@@ -22,6 +22,11 @@ all specified tests on the host.
 An alert with this ID is placed on a host in case the SKU validation workflow failed.
 The alert will make the host un-allocatable by tenants.
 
+### `SkuUnassigned`
+
+An alert with this ID is placed on a host when SKU validation requires a SKU assignment and none is configured.
+The alert will make the host un-allocatable by tenants until NICo finds a matching SKU or an operator assigns one.
+
 ## Repair workflow integrations related health probe identifiers
 
 ### `TenantReportedIssue`
@@ -60,6 +65,7 @@ Indicates that an already-ingested Managed Host's BMC MAC is no longer listed in
 Indicates that a BMC sensor reported a warning/critical/failure condition.
 
 Details:
+
 - `target` is set to the BMC sensor ID (for example, a fan/temperature/power sensor name).
 - The alert `message` contains the entity type, reading, unit, and threshold ranges used for evaluation.
 - Classifications are documented in [Health alert classifications](health_alert_classifications.md), including `Hardware`, `SensorWarning`, `SensorCritical`, and `SensorFailure`.
@@ -126,7 +132,7 @@ Indicates that an expected service on the DPU is not runnning
 ### `PostConfigCheckWait`
 
 The alert is placed on a host for a few seconds after a configuration change by dpu-agent in order to allow the configuration changes to "settle" before doing the health assessment.
-That avoids the host to move between states even though the new configuration might be  problematic.
+That avoids the host to move between states even though the new configuration might be problematic.
 
 ### `RestrictedMode`
 
@@ -146,6 +152,7 @@ Indicates that the dpu-agent disk utilization on the DPU is above a critical thr
 
 The alert indicates that no health report was received, where health report
 was expected. It is different from `HeartbeatTimeout` in the following sense
+
 - `HeartbeatTimeout` alerts can be emitted if data is available, but stale.
   `MissingReport` is only emitted if data has never been received.
 - `MissingReport` is mainly used on the NICo client side. It has no impact on

@@ -714,8 +714,8 @@ async fn process_object<IO: StateControllerIO>(
         let mut next_state_entered_at = None;
         let mut next_state_sla = None;
         if let Ok(StateHandlerOutcome::Transition {
-                      next_state: next, ..
-                  }) = &handler_outcome
+            next_state: next, ..
+        }) = &handler_outcome
         {
             next_state = Some(next.clone());
 

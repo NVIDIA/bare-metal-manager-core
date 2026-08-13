@@ -61,6 +61,8 @@ enabled = true
 
 [bom_validation]
 enabled = true
+# This bypass does not cover assigned-SKU failures; set
+# allow_allocation_on_validation_failure = true to allocate despite those failures.
 ignore_unassigned_machines = true
 
 [pools.lo-ip]

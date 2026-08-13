@@ -343,25 +343,30 @@ stateDiagram-v2
     Ready --> bv_requested
 
     bv_requested --> BV_UpdatingInventory : Possible SKU match
-    bv_requested --> BV_WaitingForSkuAssignment : SKU unassigned
+    bv_requested --> BV_WaitingForSkuAssignment : SKU unassigned AND !ignore unassigned machines
+    bv_requested --> Ready : SKU unassigned AND ignore unassigned machines
     bv_requested --> BV_SkuMissing : SKU not found
 
     BV_MatchingSku --> BV_VerifyingSku : SKU present
-    BV_MatchingSku --> BV_WaitingForSkuAssignment : SKU not present AND !matched
+    BV_MatchingSku --> BV_WaitingForSkuAssignment : SKU not present AND !matched AND !ignore unassigned machines
+    BV_MatchingSku --> bv_validation_enabled : SKU not present AND !matched AND ignore unassigned machines
     BV_UpdatingInventory --> BV_UpdatingInventory : Wait discovery
     BV_UpdatingInventory --> BV_MatchingSku : SKU not present
     BV_UpdatingInventory --> BV_VerifyingSku : SKU present
     BV_VerifyingSku --> BV_MatchingSku : SKU present
     BV_VerifyingSku --> BV_SkuMissing : SKU not found
     BV_VerifyingSku --> BV_SkuVerificationFailed : SKU diff is not empty
-    BV_SkuVerificationFailed --> BV_WaitingForSkuAssignment : SKU not present
+    BV_SkuVerificationFailed --> BV_WaitingForSkuAssignment : SKU not present AND !ignore unassigned machines
+    BV_SkuVerificationFailed --> bv_validation_enabled : SKU not present AND ignore unassigned machines
     BV_SkuVerificationFailed --> BV_UpdatingInventory : Update timeout
     BV_SkuVerificationFailed --> BV_SkuVerificationFailed : Wait update timeout
     BV_WaitingForSkuAssignment --> BV_UpdatingInventory : SKU present OR matched
-    BV_WaitingForSkuAssignment --> BV_WaitingForSkuAssignment : wait assignment
+    BV_WaitingForSkuAssignment --> BV_WaitingForSkuAssignment : wait assignment AND !ignore unassigned machines
+    BV_WaitingForSkuAssignment --> bv_validation_enabled : ignore unassigned machines
     BV_SkuMissing --> BV_UpdatingInventory : SKU present and found
     BV_SkuMissing --> BV_SkuMissing : SKU present and not found
-    BV_SkuMissing --> BV_WaitingForSkuAssignment : SKU not present
+    BV_SkuMissing --> BV_WaitingForSkuAssignment : SKU not present AND !ignore unassigned machines
+    BV_SkuMissing --> bv_validation_enabled : SKU not present AND ignore unassigned machines
 
     BV_WaitingForSkuAssignment --> bv_validation_enabled : BOM validation disabled
     BV_MatchingSku --> bv_validation_enabled : BOM validation disabled OR (SKU Present and matched)
@@ -370,6 +375,14 @@ stateDiagram-v2
     bv_validation_enabled --> Validation_V_RebootHost : validation enabled
     bv_validation_enabled --> HostInit_HI_Discovered : validation disabled
 ```
+
+Maintenance does not interrupt an in-progress BOM validation. Under the strict
+SKU policy, successful maintenance returns an unallocated host without an
+assigned SKU to
+`WaitingForSkuAssignment`, never directly to `Ready`. An already allocated host
+instead returns to `Ready`, so the normal assigned-host flow resumes. A host
+with pending boot-interface reconciliation also returns to `Ready`: that work
+already prevents allocation and must resume before SKU validation.
 
 ## Machine Validation State Details (ValidationState)
 
@@ -555,7 +568,6 @@ stateDiagram-v2
     A_Failed --> A_HPC_SBO_SetBootOrder : BiosSetupFailed AND is_bios_setup ok
 ```
 
-
 ## Host Reprovision State Details (HostReprovisionState)
 
 Shows the host firmware reprovision process:
@@ -673,7 +685,6 @@ stateDiagram-v2
     DR_RebootHost --> Assigned_A_Ready : if entered from Assigned AND host reprovision not requested
 ```
 
-
 ## WaitingForCleanup State Details
 
 ```mermaid
@@ -757,7 +768,6 @@ stateDiagram-v2
 ```
 
 ## Failed State
-
 
 ```mermaid
 stateDiagram-v2

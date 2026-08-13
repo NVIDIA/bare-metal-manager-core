@@ -8716,7 +8716,7 @@ type RuntimeConfig struct {
 	VpcIsolationBehavior     string   `protobuf:"bytes,34,opt,name=vpc_isolation_behavior,json=vpcIsolationBehavior,proto3" json:"vpc_isolation_behavior,omitempty"`
 	// BOM Validation Configuration
 	BomValidationEnabled                            bool     `protobuf:"varint,35,opt,name=bom_validation_enabled,json=bomValidationEnabled,proto3" json:"bom_validation_enabled,omitempty"`
-	BomValidationIgnoreUnassignedMachines           bool     `protobuf:"varint,36,opt,name=bom_validation_ignore_unassigned_machines,json=bomValidationIgnoreUnassignedMachines,proto3" json:"bom_validation_ignore_unassigned_machines,omitempty"` // TODO: Remove after all consumers updated
+	BomValidationIgnoreUnassignedMachines           bool     `protobuf:"varint,36,opt,name=bom_validation_ignore_unassigned_machines,json=bomValidationIgnoreUnassignedMachines,proto3" json:"bom_validation_ignore_unassigned_machines,omitempty"`
 	DpuNicFirmwareUpdateVersions                    []string `protobuf:"bytes,37,rep,name=dpu_nic_firmware_update_versions,json=dpuNicFirmwareUpdateVersions,proto3" json:"dpu_nic_firmware_update_versions,omitempty"`
 	DpaEnabled                                      bool     `protobuf:"varint,38,opt,name=dpa_enabled,json=dpaEnabled,proto3" json:"dpa_enabled,omitempty"`
 	MqttEndpoint                                    string   `protobuf:"bytes,39,opt,name=mqtt_endpoint,json=mqttEndpoint,proto3" json:"mqtt_endpoint,omitempty"`

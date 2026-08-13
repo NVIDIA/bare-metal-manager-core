@@ -214,6 +214,17 @@ impl HealthReport {
         }
     }
 
+    /// Returns a health report that indicates that a machine needs a SKU assignment.
+    pub fn sku_unassigned() -> Self {
+        Self {
+            source: Self::SKU_VALIDATION_SOURCE.to_string(),
+            observed_at: Some(chrono::Utc::now()),
+            successes: vec![],
+            alerts: vec![HealthProbeAlert::sku_unassigned()],
+            triggered_by: None,
+        }
+    }
+
     /// Update the in_alert_since timestamps on all alerts in the reports
     /// by taking into account the timestaps in a previous report
     /// - If the alert has been reported in the previous report, the old timestamp
@@ -479,6 +490,22 @@ impl HealthProbeAlert {
         }
     }
 
+    pub fn sku_unassigned() -> Self {
+        Self {
+            id: HealthProbeId::sku_unassigned(),
+            target: None,
+            in_alert_since: Some(chrono::Utc::now()),
+            message: "No SKU is assigned. Assign a SKU to resume BOM validation.".to_string(),
+            tenant_message: None,
+            classifications: vec![HealthAlertClassification::prevent_allocations()],
+        }
+    }
+
+    /// Returns whether this alert represents a missing SKU assignment.
+    pub fn is_sku_unassigned(&self) -> bool {
+        self.id.is_sku_unassigned()
+    }
+
     pub fn ib_port_down(down_ports: Vec<String>, total_ports: usize) -> Self {
         let message = format!(
             "IB port(s) down: {} of {} ports are not active. Down GUIDs: {}",
@@ -594,6 +621,16 @@ impl HealthProbeId {
     /// The ID used by SKU validation alerts.
     pub fn sku_validation() -> Self {
         HealthProbeId("SkuValidation".to_string())
+    }
+
+    /// The ID used when a machine needs a SKU assignment.
+    pub fn sku_unassigned() -> Self {
+        HealthProbeId("SkuUnassigned".to_string())
+    }
+
+    /// Returns whether this ID represents a missing SKU assignment.
+    pub fn is_sku_unassigned(&self) -> bool {
+        self == &Self::sku_unassigned()
     }
 
     /// The ID is used to mark host under internal maintenance.
@@ -895,6 +932,14 @@ mod tests {
             serde_json::from_str::<HealthReport>(&serialized).unwrap(),
             report
         );
+    }
+
+    #[test]
+    fn test_sku_unassigned_alert_matches_its_constructor() {
+        let alert = HealthProbeAlert::sku_unassigned();
+        assert!(alert.is_sku_unassigned());
+        assert_eq!(alert.id, HealthProbeId::sku_unassigned());
+        assert_ne!(alert.id, HealthProbeId::sku_validation());
     }
 
     #[test]

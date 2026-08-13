@@ -3075,6 +3075,33 @@ pub enum BomValidating {
     SkuMissing(BomValidatingContext),
 }
 
+impl BomValidating {
+    /// Returns the context carried through this BOM-validation substate.
+    pub fn context(&self) -> &BomValidatingContext {
+        match self {
+            Self::MatchingSku(context)
+            | Self::UpdatingInventory(context)
+            | Self::VerifyingSku(context)
+            | Self::SkuVerificationFailed(context)
+            | Self::WaitingForSkuAssignment(context)
+            | Self::SkuMissing(context) => context,
+        }
+    }
+}
+
+impl ManagedHostState {
+    /// Returns the context carried by BOM validation, or the default context
+    /// for states outside that flow.
+    pub fn bom_validation_context(&self) -> BomValidatingContext {
+        match self {
+            Self::BomValidating {
+                bom_validating_state,
+            } => bom_validating_state.context().clone(),
+            _ => BomValidatingContext::default(),
+        }
+    }
+}
+
 /// Represents the machine validation test filter
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
 pub struct MachineValidationFilter {

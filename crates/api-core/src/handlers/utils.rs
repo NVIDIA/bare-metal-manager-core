@@ -109,6 +109,7 @@ pub(super) enum WakeupTrigger {
     ScoutFirmwareUpgradeStatus,
     DpuNetworkStatus,
     BootInterfaceIntent,
+    SkuAssociationRemoved,
 }
 
 /// A change was recorded but the machine's state handler could not be woken:
@@ -257,6 +258,7 @@ mod tests {
                 WakeupTrigger::ScoutFirmwareUpgradeStatus,
                 WakeupTrigger::DpuNetworkStatus,
                 WakeupTrigger::BootInterfaceIntent,
+                WakeupTrigger::SkuAssociationRemoved,
             ] {
                 carbide_instrument::emit(StateHandlerWakeupFailed {
                     trigger,
@@ -266,7 +268,7 @@ mod tests {
             }
         });
 
-        assert_eq!(logs.len(), 5);
+        assert_eq!(logs.len(), 6);
         for log in &logs {
             assert_eq!(log.level, tracing::Level::WARN);
             assert_eq!(log.message, "Failed to wake up state handler for machine");
@@ -290,6 +292,7 @@ mod tests {
             "scout_firmware_upgrade_status",
             "dpu_network_status",
             "boot_interface_intent",
+            "sku_association_removed",
         ] {
             assert_eq!(
                 metrics.counter_delta(

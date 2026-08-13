@@ -1750,7 +1750,13 @@ impl MachineStateHandler {
             }
 
             ManagedHostState::Maintenance { .. } => {
-                maintenance::handle_maintenance(host_machine_id, mh_snapshot, ctx).await
+                maintenance::handle_maintenance(
+                    host_machine_id,
+                    mh_snapshot,
+                    &self.host_handler.host_handler_params,
+                    ctx,
+                )
+                .await
             }
 
             // ManagedHostState::Measuring is introduced into the flow when

@@ -15,6 +15,7 @@
  * limitations under the License.
  */
 use carbide_uuid::machine::MachineId;
+use health_report::HealthReport;
 use model::machine::machine_search_config::MachineSearchConfig;
 use model::machine::{BomValidating, ManagedHostState};
 use model::sku::Sku;
@@ -23,7 +24,7 @@ use tonic::{Request, Response, Status};
 
 use crate::CarbideError;
 use crate::api::{Api, log_request_data};
-use crate::handlers::utils::convert_and_log_machine_id;
+use crate::handlers::utils::{StateHandlerWakeupFailed, WakeupTrigger, convert_and_log_machine_id};
 
 pub(crate) async fn create(
     api: &Api,
@@ -220,8 +221,15 @@ pub(crate) async fn remove_sku_association(
 
     let mut txn = api.txn_begin().await?;
 
-    let machine =
-        db::machine::find_one(&mut txn, &machine_id, MachineSearchConfig::default()).await?;
+    let machine = db::machine::find_one(
+        &mut txn,
+        &machine_id,
+        MachineSearchConfig {
+            for_update: true,
+            ..MachineSearchConfig::default()
+        },
+    )
+    .await?;
 
     let machine = machine.ok_or(CarbideError::NotFoundError {
         kind: "machine",
@@ -243,9 +251,67 @@ pub(crate) async fn remove_sku_association(
             }
         }
     }
+    // The machine row lock serializes this check with allocation, which locks the
+    // same row before creating an instance.
+    let bom_validation_requires_sku = api.runtime_config.bom_validation.enabled
+        && !api.runtime_config.bom_validation.ignore_unassigned_machines
+        && !machine.is_dpu();
+    let sku_assignment_required_for_unallocated_host = bom_validation_requires_sku
+        && db::instance::find_id_by_machine_id(&mut txn, &machine_id)
+            .await?
+            .is_none();
+
+    // Forced removal is allowed in every lifecycle state, but it must leave
+    // the allocation-blocking alert behind until the controller can park the
+    // host or verify a replacement SKU.
+    let should_block_allocation_for_unassigned_sku =
+        machine.config.hw_sku.is_some() && sku_assignment_required_for_unallocated_host;
+    let should_wait_for_sku_assignment = should_block_allocation_for_unassigned_sku
+        && matches!(
+            machine.current_state(),
+            ManagedHostState::Ready | ManagedHostState::BomValidating { .. }
+        );
+    let waiting_for_sku_assignment_context = machine.current_state().bom_validation_context();
+
     db::machine::unassign_sku(&mut txn, &machine_id).await?;
 
+    if should_block_allocation_for_unassigned_sku {
+        db::machine::update_sku_validation_health_report(
+            &mut txn,
+            &machine_id,
+            &HealthReport::sku_unassigned(),
+        )
+        .await?;
+    }
+
+    // Keep an unassigned, unallocated host from being allocated between this
+    // request committing and the machine state controller's next iteration.
+    // Updating the state also advances its version, so a controller iteration
+    // that loaded the former SKU cannot commit a stale transition to Ready.
+    let waiting_for_sku_assignment =
+        should_wait_for_sku_assignment.then_some(ManagedHostState::BomValidating {
+            bom_validating_state: BomValidating::WaitingForSkuAssignment(
+                waiting_for_sku_assignment_context,
+            ),
+        });
+    if let Some(waiting_for_sku_assignment) = &waiting_for_sku_assignment {
+        db::machine::update_state(&mut txn, &machine_id, waiting_for_sku_assignment).await?;
+    }
+
     txn.commit().await?;
+
+    if waiting_for_sku_assignment.is_some()
+        && let Err(err) = api
+            .machine_state_handler_enqueuer
+            .enqueue_object(&machine_id)
+            .await
+    {
+        carbide_instrument::emit(StateHandlerWakeupFailed {
+            trigger: WakeupTrigger::SkuAssociationRemoved,
+            machine_id,
+            err: err.to_string(),
+        });
+    }
 
     Ok(Response::new(()))
 }

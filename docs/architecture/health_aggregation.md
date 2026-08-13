@@ -1,11 +1,10 @@
 # Health Checks and Health Aggregation
 
-[summary]: #summary
-
 NVIDIA Infra Controller (NICo) integrates a variety of tools to continuously assess and report the health of any host under its management. It also allows site operators to configure and extend the set of health checks via runtime configurations and extension APIs.
 
 The health information that is obtained by these tools is rolled up within NICo Core into an "aggregated host health".
 The aggregated host health information is used for multiple purposes:
+
 1. For NICo internal decision making - e.g. "is this host usable as a bare metal instance by a tenant" and "is the host allowed to transition between 2 states".
 2. The aggregated host health information is made available to NICo API users. Site administrators can use the information to assess host health and external fleet health automation systems can use it to trigger remediation workflows.
 3. A filtered subset of the aggregated health status is made available to tenants in order to inform them whether their host is subject to known problems and whether they should release it.
@@ -13,6 +12,7 @@ The aggregated host health information is used for multiple purposes:
 ## Health check types
 
 Health checks roughly fall into 3 categories:
+
 1. Out of band health checks: These continuous health checks are able to continuously assess the health of a host - independent of whether the host is used as a bare metal instance or not. Within this category, NICo provides the following types of health checks
     1. [BMC health metric based health monitoring](#bmc-health-monitoring)
     2. [BMC inventory based health monitoring](#bmc-inventory-monitoring)
@@ -193,6 +193,7 @@ For failed health checks, the `HealthProbeAlert` can carry an optional set of `c
 The core idea here is that not all types of alerts have the same significance, and that different alerts will require a different response by NICo and site administrators: E.g. a BGP peering failure with a BGP peering issue on just one of the 2 redundant links will not render a host automatically unusable, while a fully unreachable DPU implies that the host can't be used.
 
 Health alert classifications decouple the NICo logic from the actual alert IDs. E.g. NICo logic does not have to encode an exhaustive check over all possible health probe IDs:
+
 ```rust
 if alert.id == "BgpPeeringFailure" || alert.id === BmcUnreachable || lots_of_other_conditions {
     host_is_fit_for_instance_creation = false;
@@ -200,6 +201,7 @@ if alert.id == "BgpPeeringFailure" || alert.id === BmcUnreachable || lots_of_oth
 ```
 
 Instead of this, it can just scan whether any of the health alerts in the aggregate host health carries a certain condition:
+
 ```rust
 if alert.classifications.contains("PreventAllocations") {
   host_is_fit_for_instance_creation = false;
@@ -216,6 +218,7 @@ The set of classifications that are currently interpreted by NICo is described i
 
 NICo will schedule the execution of validation tests via the `scout` tool on the actual host at various points
 in the lifecycle of a managed host:
+
 1. When the host is ingested into NICo
 2. After an instance is released by tenant and got cleaned up
 3. On demand while the host is not assigned to any tenant
@@ -236,6 +239,7 @@ SKU validation is a feature in NICo which validates that a host contains all the
 The SKU is the definition of hardware components within the host. And the SKU validation workflow compares it to the set of hardware components that have been detected via NICo hardware discovery workflows - which utilize inband data as well as out of band data.
 
 SKU validation can thereby e.g. detect
+
 - whether a host has the right type of CPU installed
 - whether a host has the right amount of memory installed
 - whether a host has the right type and amount of GPUS installed
@@ -244,7 +248,8 @@ SKU validation can thereby e.g. detect
 SKU validation runs at the same points in the host lifecycle as machine validation tests, and can also be run on-demand while the host is not assigned to any tenant.
 
 If SKU validation fails, a Health Alert with ID `SkuValidation` will be placed on the host
-to make the host un-allocatable by tenants.
+to make the host un-allocatable by tenants. When SKU validation requires a SKU assignment,
+an alert with ID `SkuUnassigned` is placed on the host until NICo finds a matching SKU or an operator assigns one.
 
 Details can be found in the [SKU Validation guide](../provisioning/sku-validation.md).
 
@@ -255,6 +260,7 @@ Details can be found in the [SKU Validation guide](../provisioning/sku-validatio
 The [`nico-hw-health`](https://github.com/NVIDIA/infra-controller/blob/main/crates/health) service periodically queries all Host and DPU BMCs in the system for health information. It emits the captured health datapoints as metrics on a metrics endpoint that can be scraped by a standard telemetry system (prometheus/otel).
 
 Health metrics fetched from BMCs include:
+
 - Fan speeds
 - Temperatures
 - Power supply utilization, outputs and voltages
@@ -289,12 +295,14 @@ The publishing sinks expose that inventory context using the conventions of the 
 The Site Explorer process within NICo Core periodically queries all Host and DPU BMCs in order to record certain BMC properties (e.g. components within a host and firmware versions).
 
 In certain conditions the scraping process will place a health alert on the host:
+
 - If the host BMC is not reachable
 - If any of the host properties indicates the host is not fit for instance creation.
 
 ### dpu-agent based health monitoring
 
 [`dpu-agent`](https://github.com/NVIDIA/infra-controller/blob/main/crates/agent) collects health information directly on the DPU and sends a health-**rollup** towards `nico-core`. The agent monitors a variety of health conditions, including
+
 - whether BGP sessions are established to peers according to the current configuration of the DPU
 - whether all required services on the DPU are running
 - whether the DPU is configured in restricted mode
@@ -326,6 +334,7 @@ This allows you to integrate health information from multiple external systems a
 If a ManagedHost's health is overridden, the remaining behavior is exactly the same
 as if the overridden Health report would have been directly derived from monitoring
 hardware health:
+
 - The host will be allocatable depending on whether any `PreventAllocations` classification is present in the aggregate host health
 - State transitions behave as if NICo integrated monitoring would have detected
   the same health status:
