@@ -3118,6 +3118,7 @@ version = "0.0.1"
 dependencies = [
  "arc-swap",
  "async-trait",
+ "axum",
  "bmc-explorer",
  "bmc-mock",
  "bmc-vendor",

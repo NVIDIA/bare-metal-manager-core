@@ -37,6 +37,7 @@ mod middleware_router;
 mod mock_machine_router;
 mod rack_info;
 mod redfish;
+mod tar_router;
 pub mod test_support;
 pub mod tls;
 
