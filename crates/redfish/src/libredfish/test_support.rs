@@ -58,6 +58,7 @@ struct RedfishSimState {
     machine_setup_bios_job_id: Option<String>,
     is_bios_setup: Option<bool>,
     default_lockdown: Option<EnabledDisabled>,
+    boss_controller_id: Option<String>,
     /// Override whether `lockdown_bmc` changes the observed state. `None`
     /// preserves the normal successful behavior; `Some(false)` models a BMC
     /// accepting the write without applying the requested policy.
@@ -77,6 +78,8 @@ struct RedfishSimState {
     /// change-on-first-use has been done -- the case the `AMI`/`LenovoGB300`
     /// rotation path handles by retrying `change_password_by_id("2")`.
     password_change_required: bool,
+    /// Optional account URI returned with [`RedfishError::PasswordChangeRequired`].
+    password_change_required_account_uri: Option<String>,
     /// When set, overrides the `Vendor` field returned by `get_service_root`.
     /// Tests set it to an unrecognized value to force `probe_bmc_vendor` down
     /// the Chassis `Manufacturer` fallback path.
@@ -286,6 +289,10 @@ impl RedfishSim {
         self.state.lock().unwrap().job_state_sequence = VecDeque::from(states);
     }
 
+    pub fn set_boss_controller_id(&self, boss_controller_id: Option<String>) {
+        self.state.lock().unwrap().boss_controller_id = boss_controller_id;
+    }
+
     pub fn set_is_bios_setup(&self, ready: bool) {
         self.state.lock().unwrap().is_bios_setup = Some(ready);
     }
@@ -363,8 +370,14 @@ impl RedfishSim {
     /// [`RedfishError::PasswordChangeRequired`], modeling a factory BMC that
     /// blocks it until change-on-first-use. `change_password_by_id` still
     /// succeeds, so this exercises the `AMI`/`LenovoGB300` rotation fallback.
-    pub fn set_password_change_required(&self, required: bool) {
-        self.state.lock().unwrap().password_change_required = required;
+    pub fn set_password_change_required(&self, required: bool, account_uri: Option<&str>) {
+        let mut state = self.state.lock().unwrap();
+        state.password_change_required = required;
+        state.password_change_required_account_uri = if required {
+            account_uri.map(str::to_string)
+        } else {
+            None
+        };
     }
 
     /// Enable opt-in authentication enforcement (see [`RedfishSimState::enforce_auth`]):
@@ -851,7 +864,9 @@ impl Redfish for RedfishSimClient {
                 });
             }
             if state.password_change_required {
-                return Err(RedfishError::PasswordChangeRequired);
+                return Err(RedfishError::PasswordChangeRequired {
+                    account_uri: state.password_change_required_account_uri.clone(),
+                });
             }
             self.authorize(&state, "AccountService/Accounts")?;
             if !state.users.contains_key(&s_user) {
@@ -1880,7 +1895,7 @@ impl Redfish for RedfishSimClient {
     fn get_boss_controller<'a>(
         &'a self,
     ) -> libredfish::RedfishFuture<'a, Result<Option<String>, RedfishError>> {
-        Box::pin(async move { Ok(None) })
+        Box::pin(async move { Ok(self.state.lock().unwrap().boss_controller_id.clone()) })
     }
 
     fn decommission_storage_controller<'a>(
