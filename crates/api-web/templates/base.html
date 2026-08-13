@@ -259,7 +259,7 @@
 			// Build logs URL for a given search term (machine ID or BMC IP).
 			// Returns the URL with {search} replaced, or null if not configured.
 			function buildLogsUrl(searchTerm) {
-				const template = "{{ Self::logs_link_template() }}";
+				const template = {{ Self::logs_link_template()|json|safe }};
 				if (!template) return null;
 				return template.replace('{search}', encodeURIComponent(searchTerm));
 			}

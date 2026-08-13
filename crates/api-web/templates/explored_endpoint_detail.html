@@ -509,10 +509,11 @@
 <script>
 
 document.addEventListener('DOMContentLoaded', function() {
+	const bmcIp = "{{ endpoint.address }}";
+
 	// Set up Logs link (if configured)
 	const logsLink = document.getElementById('logs-link');
 	if (logsLink) {
-		const bmcIp = "{{ endpoint.address }}";
 		logsLink.href = buildLogsUrl(bmcIp);
 	}
 
