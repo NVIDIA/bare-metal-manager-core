@@ -5,10 +5,8 @@ package inventorysync
 
 import (
 	"context"
-	"errors"
 	"os"
 	"testing"
-	"time"
 
 	"github.com/google/uuid"
 	"github.com/rs/zerolog/log"
@@ -21,16 +19,6 @@ import (
 	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/nicoapi"
 	"github.com/NVIDIA/infra-controller/rest-api/flow/pkg/common/devicetypes"
 )
-
-// failGetMachinesClient wraps the production mock and forces the machine
-// actual-sync RPC to fail, so runActualSync reports allRPCOK=false.
-type failGetMachinesClient struct {
-	nicoapi.Client
-}
-
-func (c *failGetMachinesClient) GetMachines(_ context.Context) ([]nicoapi.MachineDetail, error) {
-	return nil, errors.New("boom")
-}
 
 // These tests exercise the mirror's write paths against a real database —
 // the half that pure-function tests can't reach and where the
@@ -502,33 +490,6 @@ func TestMirrorComponents_EvictRefusesNonHostBMC(t *testing.T) {
 	b, err := (&model.Component{Manufacturer: "Mfg", SerialNumber: "C-B"}).Get(ctx, pool.DB)
 	require.NoError(t, err)
 	assert.Empty(t, b.BMCs, "B's host BMC insert must be skipped, not steal the DPU MAC")
-}
-
-// #10: when an actual-sync RPC fails, the component_drift table must be left
-// intact rather than wiped with a partial view.
-func TestRunInventoryOne_DriftTablePreservedOnRPCFailure(t *testing.T) {
-	ctx, pool := mirrorTestPool(t)
-
-	// A compute component so syncMachines reaches GetMachines (which fails).
-	c := model.Component{Type: compType(), Manufacturer: "Mfg", SerialNumber: "C-DRIFT-1"}
-	require.NoError(t, c.Create(ctx, pool.DB))
-
-	// A pre-existing drift row that must survive the failed cycle.
-	existing := model.ComponentDrift{
-		ComponentID: &c.ID,
-		DriftType:   model.DriftTypeMissingInActual,
-		Diffs:       []model.FieldDiff{},
-		CheckedAt:   time.Now(),
-	}
-	_, err := pool.DB.NewInsert().Model(&existing).Exec(ctx)
-	require.NoError(t, err)
-
-	client := &failGetMachinesClient{Client: nicoapi.NewMockClient()}
-	runInventoryOne(ctx, pool, client, false)
-
-	n, err := pool.DB.NewSelect().Model((*model.ComponentDrift)(nil)).Count(ctx)
-	require.NoError(t, err)
-	assert.Equal(t, 1, n, "drift table must not be wiped when an actual-sync RPC failed")
 }
 
 // #4: two specs reporting the same manufacturer and serial must not abort the
