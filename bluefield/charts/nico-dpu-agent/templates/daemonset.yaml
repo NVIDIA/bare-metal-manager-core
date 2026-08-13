@@ -303,6 +303,10 @@ spec:
                 sleep "${refresh_interval}"
               done
           imagePullPolicy: {{ .Values.image.pullPolicy }}
+          {{- with .Values.lldpSidecar.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
           volumeMounts:
             - name: hw-cache
               mountPath: /data

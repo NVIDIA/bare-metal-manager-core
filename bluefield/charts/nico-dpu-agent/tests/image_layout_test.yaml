@@ -143,30 +143,37 @@ tests:
           path: spec.template.spec.containers[0].volumeMounts
           content:
             name: host-run
+          any: true
       - notContains:
           path: spec.template.spec.initContainers[0].volumeMounts
           content:
             name: host-run
+          any: true
       - notContains:
           path: spec.template.spec.containers[0].volumeMounts
           content:
             name: host-usr-sbin
+          any: true
       - notContains:
           path: spec.template.spec.initContainers[0].volumeMounts
           content:
             name: host-usr-sbin
+          any: true
       - notContains:
           path: spec.template.spec.containers[0].volumeMounts
           content:
             name: host-lib
+          any: true
       - notContains:
           path: spec.template.spec.initContainers[0].volumeMounts
           content:
             name: host-lib
+          any: true
       - notContains:
           path: spec.template.spec.containers[0].volumeMounts
           content:
             name: sys
+          any: true
       - contains:
           path: spec.template.spec.containers[0].env
           content:

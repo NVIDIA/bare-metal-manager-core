@@ -3,7 +3,7 @@
   "title": "DPUService Helm Chart Values",
   "description": "Schema for validating values.yaml for DPUService Helm charts. Note: All Kubernetes resources must include {{ .Release.Name }} in their metadata.name to enable deployment of multiple instances of the service.",
   "type": "object",
-  "required": ["serviceDaemonSet"],
+  "required": ["serviceDaemonSet", "lldpSidecar"],
   "properties": {
     "serviceDaemonSet": {
       "type": "object",
@@ -134,6 +134,36 @@
           "description": "serviceDaemonset pod Resource requests/limits (e.g., CPU, memory)",
           "additionalProperties": {
             "type": "string"
+          }
+        }
+      }
+    },
+    "lldpSidecar": {
+      "type": "object",
+      "description": "Configuration for the LLDP snapshot sidecar",
+      "required": ["resources"],
+      "properties": {
+        "resources": {
+          "type": "object",
+          "description": "CPU and memory requests and limits for the LLDP snapshot sidecar",
+          "required": ["requests", "limits"],
+          "properties": {
+            "requests": {
+              "type": "object",
+              "required": ["cpu", "memory"],
+              "properties": {
+                "cpu": { "type": "string" },
+                "memory": { "type": "string" }
+              }
+            },
+            "limits": {
+              "type": "object",
+              "required": ["cpu", "memory"],
+              "properties": {
+                "cpu": { "type": "string" },
+                "memory": { "type": "string" }
+              }
+            }
           }
         }
       }
