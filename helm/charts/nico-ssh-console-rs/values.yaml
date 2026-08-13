@@ -29,6 +29,7 @@ replicas: 1
 annotations:
   configmap.reloader.stakater.com/reload: '{{ include "nico-ssh-console-rs.name" . }}-config-files'
 
+## Soft open-file limit applied before startup. Must not exceed the runtime hard limit.
 fileDescriptorLimit: 65536
 
 imagePullSecrets: []
