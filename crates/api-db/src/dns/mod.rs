@@ -686,7 +686,6 @@ mod tests {
     }
 
     #[crate::sqlx_test]
-    #[allow(txn_held_across_await)] // Intentionally hold mutations open to force the race.
     async fn concurrent_create_and_delete_preserve_the_shared_zone(pool: sqlx::PgPool) {
         // A replacement prefix created while the old segment drains still
         // needs the shared zone after both transactions commit.
@@ -742,7 +741,6 @@ mod tests {
     }
 
     #[crate::sqlx_test]
-    #[allow(txn_held_across_await)] // Intentionally hold both deletions open to force the race.
     async fn concurrent_deletes_remove_the_last_shared_zone(pool: sqlx::PgPool) {
         // Both owners become deleted before either lifecycle call can decide
         // whether another live prefix remains. Serialization must still remove

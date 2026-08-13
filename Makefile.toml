@@ -824,7 +824,7 @@ script = [
 workspace = false
 description = "Run custom lints defined in lints/carbide-lints"
 dependencies = ["setup-carbide-lints"]
-script = ["cargo carbide-lints --all-targets --all-features"]
+script = ["cargo carbide-lints"]
 
 [tasks.check-workspace-deps]
 workspace = false

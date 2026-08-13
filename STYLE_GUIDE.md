@@ -551,10 +551,18 @@ connection, or a nested transaction derived from that transaction. Passing it on
 responsibility; it does not make unrelated work safe.
 
 Treat a production lint finding as a design problem: finish the transaction before awaiting unrelated work, or move
-that work outside the transaction. Do not add `#[allow(txn_held_across_await)]` merely to silence the lint. A narrowly
-reviewed infrastructure boundary may deliberately reserve a dedicated connection when that is the mechanism's purpose
-and its pool-capacity cost is fixed and documented; keep that proof next to the allowance. Tests may allow the lint
-when holding a transaction or row lock across an await is the behavior under test.
+that work outside the transaction. Do not add `#[allow(txn_held_across_await)]` merely to silence the lint.
+
+Test code is an exception to this rule, and so we allow these lints for test builds, since we don't have to worry about
+connection build-up like we do in production. Do not allow the lints individually for each test method and helper,
+instead allow the lints globally for test configurations, at the top of a crate's `lib.rs` or `main.rs`. For example:
+
+```rust
+#![cfg_attr(
+    any(test, feature = "test-support"),
+    allow(txn_held_across_await, txn_without_commit)
+)]
+```
 
 ### Concurrent updates
 
