@@ -273,12 +273,29 @@ pub(in crate::tests) mod tests {
         find_match_interval: Option<Duration>,
         auto_generate_missing_sku: bool,
     ) -> TestEnv {
+        create_test_env_for_bom_validation_with_ignore_unassigned_machines(
+            db_pool,
+            allow_allocation_on_validation_failure,
+            find_match_interval,
+            auto_generate_missing_sku,
+            false,
+        )
+        .await
+    }
+
+    async fn create_test_env_for_bom_validation_with_ignore_unassigned_machines(
+        db_pool: sqlx::PgPool,
+        allow_allocation_on_validation_failure: bool,
+        find_match_interval: Option<Duration>,
+        auto_generate_missing_sku: bool,
+        ignore_unassigned_machines: bool,
+    ) -> TestEnv {
         let mut overrides = TestEnvOverrides::default();
         let mut config = get_config();
         config.bom_validation.enabled = true;
         config.bom_validation.allow_allocation_on_validation_failure =
             allow_allocation_on_validation_failure;
-        config.bom_validation.ignore_unassigned_machines = false; // Deprecated, will be removed
+        config.bom_validation.ignore_unassigned_machines = ignore_unassigned_machines;
         config.bom_validation.auto_generate_missing_sku = auto_generate_missing_sku;
         config.bom_validation.auto_generate_missing_sku_interval = Duration::from_secs(2);
 
@@ -1482,6 +1499,46 @@ pub(in crate::tests) mod tests {
         // With prevent_allocation=true, should stay in SkuVerificationFailed
         assert!(matches!(
             machine.current_state(),
+            ManagedHostState::BomValidating {
+                bom_validating_state: BomValidating::SkuVerificationFailed(_)
+            }
+        ));
+
+        Ok(())
+    }
+
+    /// An assigned SKU must still block allocation when only unassigned machines are ignored.
+    #[crate::sqlx_test]
+    async fn test_ignore_unassigned_machines_does_not_bypass_assigned_sku_verification(
+        pool: sqlx::PgPool,
+    ) -> Result<(), eyre::Error> {
+        let env = create_test_env_for_bom_validation_with_ignore_unassigned_machines(
+            pool.clone(),
+            false,
+            None,
+            false,
+            true,
+        )
+        .await;
+
+        let mh = create_managed_host(&env).await;
+        let machine_id = mh.host().id;
+
+        let mut txn = pool.begin().await?;
+        let current_sku = db::sku::generate_sku_from_machine(txn.as_mut(), &machine_id).await?;
+        db::sku::create(&mut txn, &current_sku).await?;
+        db::machine::assign_sku(&mut txn, &machine_id, &current_sku.id).await?;
+        let current_sku_id = current_sku.id;
+        assign_mismatched_sku(&mut txn, &machine_id, &current_sku_id).await?;
+        db::machine::update_sku_status_verify_request_time(&mut txn, &machine_id).await?;
+        txn.commit().await?;
+
+        handle_inventory_update(&pool, &env, &mh).await;
+        env.run_machine_state_controller_iteration().await;
+        env.run_machine_state_controller_iteration().await;
+
+        assert!(matches!(
+            get_machine_state(&pool, &mh).await,
             ManagedHostState::BomValidating {
                 bom_validating_state: BomValidating::SkuVerificationFailed(_)
             }
