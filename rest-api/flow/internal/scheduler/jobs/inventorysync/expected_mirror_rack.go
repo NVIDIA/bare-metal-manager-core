@@ -147,6 +147,10 @@ func mirrorExpectedRacks(
 	seenExtID := make(map[string]struct{}, len(coreRacks))
 	touchedIDs := make(map[uuid.UUID]struct{}, len(coreRacks))
 	plannedNaturalKeys := make(map[string]struct{}, len(coreRacks))
+	// plannedNames: names claimed by a write already queued this cycle, which
+	// liveByName cannot know about since it is built from the state at cycle
+	// start. See nameUnavailable.
+	plannedNames := make(map[string]struct{}, len(coreRacks))
 
 	// coreExtIDs is every rack_id in this response. Precomputed because the
 	// adoption guard has to ask about rack_ids the loop below has not reached
@@ -210,7 +214,7 @@ func mirrorExpectedRacks(
 				candidate = *patched
 				needUpdate = true
 			}
-			if needUpdate && nameTakenByOtherLiveRack(liveByName, candidate.Name, existing.ID) {
+			if needUpdate && nameUnavailable(liveByName, plannedNames, candidate.Name, existing.ID) {
 				log.Warn().
 					Str("rack_id", cr.RackID).
 					Str("name", candidate.Name).
@@ -221,6 +225,7 @@ func mirrorExpectedRacks(
 				continue
 			}
 			if needUpdate {
+				plannedNames[candidate.Name] = struct{}{}
 				p.toUpdate = append(p.toUpdate, candidate)
 			}
 			touchedIDs[existing.ID] = struct{}{}
@@ -244,7 +249,7 @@ func mirrorExpectedRacks(
 			if patched := rackUpdatedFromCore(&candidate, &built); patched != nil {
 				candidate = *patched
 			}
-			if nameTakenByOtherLiveRack(liveByName, candidate.Name, existing.ID) {
+			if nameUnavailable(liveByName, plannedNames, candidate.Name, existing.ID) {
 				log.Warn().
 					Str("rack_id", cr.RackID).
 					Str("name", candidate.Name).
@@ -254,13 +259,14 @@ func mirrorExpectedRacks(
 				touchedIDs[existing.ID] = struct{}{}
 				continue
 			}
+			plannedNames[candidate.Name] = struct{}{}
 			p.toUpdate = append(p.toUpdate, candidate)
 			touchedIDs[existing.ID] = struct{}{}
 			result.adopted++
 			continue
 		}
 
-		if nameTakenByOtherLiveRack(liveByName, built.Name, uuid.Nil) {
+		if nameUnavailable(liveByName, plannedNames, built.Name, uuid.Nil) {
 			log.Warn().
 				Str("rack_id", cr.RackID).
 				Str("name", built.Name).
@@ -271,6 +277,7 @@ func mirrorExpectedRacks(
 		}
 
 		clearChassisLabelsIfSlotTaken(&built, flowByNaturalKey, uuid.Nil, cr.RackID)
+		plannedNames[built.Name] = struct{}{}
 		p.toInsert = append(p.toInsert, built)
 	}
 
@@ -371,9 +378,24 @@ func mirrorExpectedRacks(
 	return result
 }
 
-// nameTakenByOtherLiveRack reports whether a live (non-deleted) Flow rack
-// other than selfID already holds name. selfID is uuid.Nil for an INSERT.
-func nameTakenByOtherLiveRack(liveByName map[string]uuid.UUID, name string, selfID uuid.UUID) bool {
+// nameUnavailable reports whether writing name would collide on rack_name_idx:
+// either a live Flow rack other than selfID already holds it, or a write queued
+// earlier in this cycle has claimed it. selfID is uuid.Nil for an INSERT.
+//
+// The index is a full unique constraint and every write lands in one
+// transaction, so a collision rolls back the entire cycle rather than the one
+// offending write. That is why queued claims count: two Core racks can resolve
+// to the same name, and the second must be skipped rather than left to abort
+// everything.
+func nameUnavailable(
+	liveByName map[string]uuid.UUID,
+	plannedNames map[string]struct{},
+	name string,
+	selfID uuid.UUID,
+) bool {
+	if _, planned := plannedNames[name]; planned {
+		return true
+	}
 	id, ok := liveByName[name]
 	return ok && id != selfID
 }

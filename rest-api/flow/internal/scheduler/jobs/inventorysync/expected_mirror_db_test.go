@@ -64,6 +64,14 @@ func coreRack(rackID, mfr, serial string) nicoapi.ExpectedRackDetail {
 	}
 }
 
+// coreRackNamed is coreRack with an explicit name, for cases that contend on
+// the chassis pair and so must not also contend on rack_name_idx.
+func coreRackNamed(rackID, name, mfr, serial string) nicoapi.ExpectedRackDetail {
+	r := coreRack(rackID, mfr, serial)
+	r.Name = name
+	return r
+}
+
 func computeSpec(mfr, serial, mac string) expectedComponentSpec {
 	return expectedComponentSpec{
 		Type:         devicetypes.ComponentTypeToString(devicetypes.ComponentTypeCompute),
@@ -212,8 +220,8 @@ func TestMirrorRacks_AdoptionDoesNotStealAnIdentifiedRack(t *testing.T) {
 
 	// Both racks claim the same chassis; a12 already holds the Flow row.
 	mirrorExpectedRacks(ctx, pool, []nicoapi.ExpectedRackDetail{
-		coreRack("b34", "Mfg", "ST-1"),
-		coreRack("a12", "Mfg", "ST-1"),
+		coreRackNamed("b34", "rack-b34", "Mfg", "ST-1"),
+		coreRackNamed("a12", "rack-a12", "Mfg", "ST-1"),
 	})
 
 	got, err := (&model.Rack{ID: owner.ID}).GetIncludingDeleted(ctx, pool.DB)
@@ -235,8 +243,8 @@ func TestMirrorRacks_DuplicateChassisNoAbort(t *testing.T) {
 	ctx, pool := mirrorTestPool(t)
 
 	mirrorExpectedRacks(ctx, pool, []nicoapi.ExpectedRackDetail{
-		coreRack("a12", "Mfg", "DUP-1"),
-		coreRack("b34", "Mfg", "DUP-1"),
+		coreRackNamed("a12", "rack-a12", "Mfg", "DUP-1"),
+		coreRackNamed("b34", "rack-b34", "Mfg", "DUP-1"),
 	})
 
 	total, err := pool.DB.NewSelect().Model((*model.Rack)(nil)).Count(ctx)
@@ -246,6 +254,25 @@ func TestMirrorRacks_DuplicateChassisNoAbort(t *testing.T) {
 	withSerial, err := pool.DB.NewSelect().Model((*model.Rack)(nil)).Where("serial_number = ?", "DUP-1").Count(ctx)
 	require.NoError(t, err)
 	assert.Equal(t, 1, withSerial, "only one rack may hold the contested chassis pair")
+}
+
+// Two Core racks resolving to the same name must not abort the cycle on
+// rack_name_idx: the second write is skipped and the first still lands.
+func TestMirrorRacks_DuplicateNameNoAbort(t *testing.T) {
+	ctx, pool := mirrorTestPool(t)
+
+	mirrorExpectedRacks(ctx, pool, []nicoapi.ExpectedRackDetail{
+		coreRackNamed("a12", "same-name", "Mfg", "NM-1"),
+		coreRackNamed("b34", "same-name", "Mfg", "NM-2"),
+	})
+
+	total, err := pool.DB.NewSelect().Model((*model.Rack)(nil)).Count(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, 1, total, "the first rack must land; the second is skipped, not left to abort the cycle")
+
+	var got model.Rack
+	require.NoError(t, pool.DB.NewSelect().Model(&got).Where("name = ?", "same-name").Scan(ctx))
+	assert.Equal(t, "NM-1", got.SerialNumber)
 }
 
 // #8: an empty Core description must not wipe operator-set rack metadata.

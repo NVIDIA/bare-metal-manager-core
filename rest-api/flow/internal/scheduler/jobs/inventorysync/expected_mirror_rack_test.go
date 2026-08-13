@@ -275,6 +275,74 @@ func TestRackUpdatedFromCore(t *testing.T) {
 	})
 }
 
+func TestNameUnavailable(t *testing.T) {
+	holder := uuid.New()
+	liveByName := map[string]uuid.UUID{"held": holder}
+
+	tests := []struct {
+		name         string
+		plannedNames map[string]struct{}
+		rackName     string
+		selfID       uuid.UUID
+		want         bool
+	}{
+		{name: "free name", rackName: "free", selfID: uuid.Nil},
+		{name: "name held by another live rack", rackName: "held", selfID: uuid.New(), want: true},
+		{name: "name held by the rack being updated", rackName: "held", selfID: holder},
+		{
+			name:         "name claimed by a write queued earlier this cycle",
+			plannedNames: map[string]struct{}{"free": {}},
+			rackName:     "free",
+			selfID:       uuid.Nil,
+			want:         true,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			planned := tc.plannedNames
+			if planned == nil {
+				planned = map[string]struct{}{}
+			}
+			assert.Equal(t, tc.want, nameUnavailable(liveByName, planned, tc.rackName, tc.selfID))
+		})
+	}
+}
+
+func TestClearChassisLabelsIfSlotTaken(t *testing.T) {
+	owner := &model.Rack{ID: uuid.New(), Name: "owner", Manufacturer: "Foxconn", SerialNumber: "SN-1"}
+	flowByNaturalKey := map[string]*model.Rack{
+		naturalKey("Foxconn", "SN-1"): owner,
+	}
+
+	t.Run("labels held by another rack are dropped", func(t *testing.T) {
+		built := model.Rack{Manufacturer: "Foxconn", SerialNumber: "SN-1"}
+		clearChassisLabelsIfSlotTaken(&built, flowByNaturalKey, uuid.New(), "b34")
+		assert.Empty(t, built.Manufacturer)
+		assert.Empty(t, built.SerialNumber)
+	})
+
+	t.Run("the rack already holding the pair keeps it", func(t *testing.T) {
+		built := model.Rack{Manufacturer: "Foxconn", SerialNumber: "SN-1"}
+		clearChassisLabelsIfSlotTaken(&built, flowByNaturalKey, owner.ID, "a12")
+		assert.Equal(t, "Foxconn", built.Manufacturer)
+		assert.Equal(t, "SN-1", built.SerialNumber)
+	})
+
+	t.Run("an unclaimed pair is kept", func(t *testing.T) {
+		built := model.Rack{Manufacturer: "Wistron", SerialNumber: "SN-9"}
+		clearChassisLabelsIfSlotTaken(&built, flowByNaturalKey, uuid.Nil, "c01")
+		assert.Equal(t, "Wistron", built.Manufacturer)
+		assert.Equal(t, "SN-9", built.SerialNumber)
+	})
+
+	t.Run("a half-populated pair occupies no slot and is left alone", func(t *testing.T) {
+		built := model.Rack{SerialNumber: "SN-1"}
+		clearChassisLabelsIfSlotTaken(&built, flowByNaturalKey, uuid.Nil, "c02")
+		assert.Equal(t, "SN-1", built.SerialNumber)
+	})
+}
+
 func TestAdoptableByNaturalKey(t *testing.T) {
 	coreExtIDs := map[string]struct{}{"live": {}}
 
