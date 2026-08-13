@@ -116,7 +116,9 @@ func SaveConfigToPath(cfg *ConfigFile, path string) error {
 	// Load existing file as raw map to preserve unknown keys.
 	raw := make(map[string]interface{})
 	if existing, err := os.ReadFile(path); err == nil {
-		yaml.Unmarshal(existing, &raw)
+		if err := yaml.Unmarshal(existing, &raw); err != nil {
+			return fmt.Errorf("parsing existing config %s: %w", path, err)
+		}
 	}
 
 	// Marshal the struct and merge into the raw map.
@@ -125,7 +127,9 @@ func SaveConfigToPath(cfg *ConfigFile, path string) error {
 		return fmt.Errorf("marshaling config: %w", err)
 	}
 	var cfgMap map[string]interface{}
-	yaml.Unmarshal(structured, &cfgMap)
+	if err := yaml.Unmarshal(structured, &cfgMap); err != nil {
+		return fmt.Errorf("parsing marshaled config: %w", err)
+	}
 	for k, v := range cfgMap {
 		raw[k] = v
 	}

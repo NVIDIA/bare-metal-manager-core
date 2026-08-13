@@ -427,7 +427,9 @@ func loginWithOIDCCmd(c *cli.Context, cfg *ConfigFile) error {
 	} else {
 		if username == "" {
 			fmt.Print("Username: ")
-			fmt.Scanln(&username)
+			if _, scanErr := fmt.Scanln(&username); scanErr != nil {
+				return fmt.Errorf("reading username: %w", scanErr)
+			}
 		}
 		if password == "" {
 			fmt.Print("Password: ")

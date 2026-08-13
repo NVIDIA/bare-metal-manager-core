@@ -168,42 +168,33 @@ func TestHasAPIKeyConfig(t *testing.T) {
 	}
 }
 
-func TestSaveConfigPreservesUnknownKeys(t *testing.T) {
-	dir := t.TempDir()
-	path := filepath.Join(dir, "config.yaml")
+func TestSaveConfigToPath(t *testing.T) {
+	t.Run("preserves unknown keys", func(t *testing.T) {
+		dir := t.TempDir()
+		path := filepath.Join(dir, "config.yaml")
+		initial := "api:\n  base: http://localhost\ncustom_key: my-value\n"
+		require.NoError(t, os.WriteFile(path, []byte(initial), 0600))
 
-	// Write a config with a custom key.
-	initial := "api:\n  base: http://localhost\ncustom_key: my-value\n"
-	if err := os.WriteFile(path, []byte(initial), 0600); err != nil {
-		t.Fatal(err)
-	}
+		cfg, err := LoadConfigFromPath(path)
+		require.NoError(t, err)
+		cfg.API.Org = "test-org"
+		require.NoError(t, SaveConfigToPath(cfg, path))
 
-	// Load, modify, and save.
-	cfg, err := LoadConfigFromPath(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	cfg.API.Org = "test-org"
-	if err := SaveConfigToPath(cfg, path); err != nil {
-		t.Fatal(err)
-	}
+		data, err := os.ReadFile(path)
+		require.NoError(t, err)
+		content := string(data)
+		require.Contains(t, content, "custom_key")
+		require.Contains(t, content, "test-org")
+		require.Contains(t, content, "http://localhost")
+	})
 
-	// Read back and verify custom key is preserved.
-	data, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	content := string(data)
+	t.Run("rejects malformed existing config", func(t *testing.T) {
+		path := filepath.Join(t.TempDir(), "config.yaml")
+		require.NoError(t, os.WriteFile(path, []byte("api: ["), 0600))
 
-	if !contains(content, "custom_key") {
-		t.Errorf("SaveConfigToPath lost unknown key 'custom_key'. Content:\n%s", content)
-	}
-	if !contains(content, "test-org") {
-		t.Errorf("SaveConfigToPath lost org value. Content:\n%s", content)
-	}
-	if !contains(content, "http://localhost") {
-		t.Errorf("SaveConfigToPath lost base URL. Content:\n%s", content)
-	}
+		err := SaveConfigToPath(&ConfigFile{}, path)
+		require.ErrorContains(t, err, "parsing existing config")
+	})
 }
 
 func TestLoadConfigFromPath_NotFound(t *testing.T) {
