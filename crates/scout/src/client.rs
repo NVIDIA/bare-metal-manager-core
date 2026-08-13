@@ -33,7 +33,7 @@ pub(super) async fn create_forge_client(
     )
     // Node-auth (#355): also present a self-signed bearer JWT minted from the
     // client cert's key. Ignored by the API unless [node_auth] is enabled.
-    .with_node_jwt(config.node_auth_audience.clone());
+    .with_node_jwt();
     let api_config = ApiConfig::new(&config.api, &client_config);
 
     let client = forge_tls_client::ForgeTlsClient::retry_build(&api_config)

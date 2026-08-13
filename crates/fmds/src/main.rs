@@ -119,9 +119,7 @@ async fn main() -> eyre::Result<()> {
                 // otherwise leave the channel on the dummy TLS verifier. The
                 // bearer token is the client credential; the server still has
                 // to prove itself against the root CA.
-                config = config
-                    .require_tls_enforcement()
-                    .with_token_provider(SocketTokenSource::spawn(socket.clone()));
+                config = config.with_token_provider(SocketTokenSource::spawn(socket.clone()));
             }
             Some(Arc::new(config))
         }

@@ -121,7 +121,7 @@ impl NodeJwtValidator {
         let cert_verifier = Self::build_verifier(root_cafile_path)?;
 
         let mut validation = Validation::new(Algorithm::ES256);
-        validation.set_audience(&[&cfg.audience]);
+        validation.set_audience(&[::rpc::node_jwt::NODE_JWT_AUDIENCE]);
         // `jsonwebtoken` validates these registered claims. `iat` is required
         // by `NodeClaims` and checked explicitly below because the library does
         // not validate it.
@@ -406,47 +406,6 @@ mod tests {
             .duration_since(std::time::UNIX_EPOCH)
             .expect("system clock is after UNIX epoch")
             .as_secs()
-    }
-
-    /// `[node_auth] audience` is configurable, so a site that changes it must
-    /// still work end to end: the minter has to stamp the configured value and
-    /// the validator has to accept it (and nothing else).
-    #[test]
-    fn a_configured_audience_round_trips_and_excludes_the_default() {
-        let dir = tempfile::tempdir().expect("tempdir");
-        let pki = test_pki(MACHINE_PATH);
-        let ca_path = write_temp(&dir, "ca.pem", &pki.ca_pem);
-        let cfg = NodeAuthConfig {
-            audience: "carbide-api-eu".to_string(),
-            ..NodeAuthConfig::default()
-        };
-        let validator =
-            NodeJwtValidator::from_root_ca_file(&ca_path, &cfg).expect("validator builds");
-
-        let cert_path = write_temp(&dir, "cert.pem", &pki.cert_pem);
-        let key_path = write_temp(&dir, "key.pem", &pki.key_pem);
-
-        let matching = NodeJwtMinter::with_audience(
-            cert_path.clone(),
-            key_path.clone(),
-            "carbide-api-eu".to_string(),
-        )
-        .current()
-        .expect("token minted");
-        assert_eq!(
-            validator.spiffe_id_from_bearer(&matching).as_deref(),
-            Some(format!("spiffe://{TRUST_DOMAIN}{MACHINE_PATH}").as_str()),
-            "a token minted for the configured audience must be accepted"
-        );
-
-        let default_aud = NodeJwtMinter::new(cert_path, key_path)
-            .current()
-            .expect("token minted");
-        assert_eq!(
-            validator.spiffe_id_from_bearer(&default_aud),
-            None,
-            "the default audience must not be accepted once one is configured"
-        );
     }
 
     /// A rotated client-CA bundle has to be picked up without a restart: the

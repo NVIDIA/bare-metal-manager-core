@@ -2209,23 +2209,12 @@ impl Default for MachineIdentityConfig {
 /// `x5c` chain against the client-cert root CA (see
 /// `docs/design/machine-identity/node-auth-jwt.md`).
 #[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct NodeAuthConfig {
     /// Master switch. When false, no bearer authenticator is installed and
     /// nodes keep authenticating via mTLS client certs only.
     #[serde(default = "node_auth_default_enabled")]
     pub enabled: bool,
-    /// `aud` claim required on presented tokens. Must match what nodes mint
-    /// (`rpc::node_jwt::NODE_JWT_AUDIENCE`).
-    ///
-    /// Trimmed on load: `aud` is compared verbatim, so a padded value here
-    /// would pass the non-blank check in [`validate`](Self::validate) and then
-    /// reject every token the fleet presents. Node-side flags trim the same
-    /// way, so both ends agree on a value an operator indented in TOML.
-    #[serde(
-        default = "node_auth_default_audience",
-        deserialize_with = "trimmed_audience"
-    )]
-    pub audience: String,
     /// Maximum accepted token lifetime, in seconds. Nodes mint 5-minute
     /// tokens; this bounds how far a (compromised) client can stretch `exp`.
     #[serde(default = "node_auth_default_max_token_ttl_sec")]
@@ -2302,9 +2291,6 @@ impl NodeAuthConfig {
             // Remaining checks only constrain token validation.
             return Ok(());
         }
-        if self.audience.trim().is_empty() {
-            return Err(eyre::eyre!("[node_auth] audience must not be empty"));
-        }
         if self.max_token_ttl_sec == 0 {
             return Err(eyre::eyre!(
                 "[node_auth] max_token_ttl_sec must be greater than zero"
@@ -2335,18 +2321,6 @@ impl NodeAuthConfig {
 fn node_auth_default_enabled() -> bool {
     false
 }
-fn node_auth_default_audience() -> String {
-    "nico-api".to_string()
-}
-/// Trims `[node_auth] audience` as it is read, so the value the validator
-/// checks is the value the verifier compares against.
-fn trimmed_audience<'de, D>(deserializer: D) -> Result<String, D::Error>
-where
-    D: serde::Deserializer<'de>,
-{
-    use serde::Deserialize as _;
-    Ok(String::deserialize(deserializer)?.trim().to_string())
-}
 fn node_auth_default_max_token_ttl_sec() -> u32 {
     900
 }
@@ -2358,7 +2332,6 @@ impl Default for NodeAuthConfig {
     fn default() -> Self {
         Self {
             enabled: node_auth_default_enabled(),
-            audience: node_auth_default_audience(),
             max_token_ttl_sec: node_auth_default_max_token_ttl_sec(),
             mtls_enabled: node_auth_default_mtls_enabled(),
             // Unset: follow `enabled`. Only a site staging a change sets it.
@@ -4133,6 +4106,13 @@ mod tests {
             ..NodeAuthConfig::default()
         };
         assert!(jwt_only.validate().is_ok());
+    }
+
+    #[test]
+    fn node_auth_rejects_the_removed_audience_setting() {
+        let error = toml::from_str::<NodeAuthConfig>("audience = \"nico-api-eu\"")
+            .expect_err("the node-auth audience is fixed");
+        assert!(error.to_string().contains("unknown field `audience`"));
     }
 
     /// A cap below the clients' fixed 300 s lifetime is accepted-looking and

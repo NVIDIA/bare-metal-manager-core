@@ -499,7 +499,6 @@ pub(crate) fn dts_service(cfg: &DpfServiceConfig) -> ServiceDefinition {
 fn dpu_agent_helm_values(
     cfg: &DpfServiceConfig,
     bootstrap_ca: &DpfDpuAgentBootstrapCa,
-    node_auth_audience: &str,
 ) -> serde_json::Value {
     let mut values = serde_json::json!({
         "image": {
@@ -510,11 +509,6 @@ fn dpu_agent_helm_values(
             "nvue_https_address": "nvue",
             "nvue_credentials_secret_name": "hbn-user-password",
             "nvue_password_key": "password",
-        },
-        // DPF agents get no config file, so [node_auth] audience has to ride
-        // in as a flag or they mint tokens the API will reject.
-        "nodeAuth": {
-            "audience": node_auth_audience,
         }
     });
     let bootstrap_ca_values = match bootstrap_ca {
@@ -547,12 +541,6 @@ fn dpu_agent_helm_values(
             .insert("bootstrapCa".to_string(), bootstrap_ca_values);
     }
     apply_helm_values(&mut values, cfg);
-    reassert_api_owned_value(
-        &mut values,
-        DPU_AGENT_SERVICE_NAME,
-        &["nodeAuth", "audience"],
-        serde_json::json!(node_auth_audience),
-    );
 
     values
 }
@@ -561,10 +549,9 @@ fn dpu_agent_helm_values(
 pub(crate) fn dpu_agent_service(
     cfg: &DpfServiceConfig,
     bootstrap_ca: &DpfDpuAgentBootstrapCa,
-    node_auth_audience: &str,
 ) -> ServiceDefinition {
     ServiceDefinition {
-        helm_values: Some(dpu_agent_helm_values(cfg, bootstrap_ca, node_auth_audience)),
+        helm_values: Some(dpu_agent_helm_values(cfg, bootstrap_ca)),
 
         service_daemon_set_annotations: Some(BTreeMap::new()),
 
@@ -843,9 +830,7 @@ pub(crate) fn doca_xplane_service(cfg: &DpfServiceConfig) -> ServiceDefinition {
 /// Build the full list of resolved mandatory DPU services.
 ///
 /// `node_auth` mirrors the API's `[node_auth]` section: fmds token mode follows
-/// `enabled` unless `fmds_use_node_tokens` overrides it, and `audience` is
-/// templated onto the agent so both ends stamp/expect the same `aud`
-/// (issue #355).
+/// `enabled` unless `fmds_use_node_tokens` overrides it (issue #355).
 pub(crate) fn mandatory_services(
     resolved: &DpfResolvedMandatoryServicesConfig,
     bootstrap_ca: &DpfDpuAgentBootstrapCa,
@@ -856,7 +841,7 @@ pub(crate) fn mandatory_services(
         dts_service(&resolved.base.dts),
         doca_hbn_service(&resolved.base.doca_hbn, interfaces),
         dhcp_server_service(&resolved.base.dhcp_server, interfaces),
-        dpu_agent_service(&resolved.base.dpu_agent, bootstrap_ca, &node_auth.audience),
+        dpu_agent_service(&resolved.base.dpu_agent, bootstrap_ca),
         // Not `node_auth.enabled` directly: an operator staging a disable
         // moves fmds off tokens first, while the API still accepts them.
         fmds_service(
@@ -1047,7 +1032,6 @@ mod tests {
                 dpu_agent_helm_values(
                     &default_dpu_agent_service(),
                     &policy,
-                    ::rpc::node_jwt::NODE_JWT_AUDIENCE,
                 )
                     .get("bootstrapCa")
                     .cloned()
@@ -1189,7 +1173,6 @@ mod tests {
         let dpu_agent = dpu_agent_service(
             &default_dpu_agent_service(),
             &DpfDpuAgentBootstrapCa::default(),
-            ::rpc::node_jwt::NODE_JWT_AUDIENCE,
         );
         assert!(
             dpu_agent
@@ -1203,11 +1186,7 @@ mod tests {
         // When a pull secret is configured, the block is emitted with its name.
         let mut cfg = default_dpu_agent_service();
         cfg.docker_image_pull_secret = Some("nico-pull-secret".to_string());
-        let agent = dpu_agent_service(
-            &cfg,
-            &DpfDpuAgentBootstrapCa::default(),
-            ::rpc::node_jwt::NODE_JWT_AUDIENCE,
-        );
+        let agent = dpu_agent_service(&cfg, &DpfDpuAgentBootstrapCa::default());
         assert_eq!(
             agent.helm_values.unwrap()["imagePullSecrets"],
             serde_json::json!([{ "name": "nico-pull-secret" }])
@@ -1227,11 +1206,7 @@ mod tests {
         })
         .as_object()
         .cloned();
-        let service = dpu_agent_service(
-            &config,
-            &DpfDpuAgentBootstrapCa::default(),
-            ::rpc::node_jwt::NODE_JWT_AUDIENCE,
-        );
+        let service = dpu_agent_service(&config, &DpfDpuAgentBootstrapCa::default());
         let template = build_service_template(&service, TEST_NS, "");
         let values = template.spec.helm_chart.values.unwrap();
 
@@ -1564,31 +1539,6 @@ mod tests {
         println!("wrote {}", template_path.display());
         println!("wrote {}", configuration_path.display());
     }
-    /// Pins the key the chart reads. `nico-dpu-agent` renders the flag under
-    /// `{{- with .Values.nodeAuth.audience }}`, and `with` on a missing key is
-    /// a no-op — so renaming this key here drops `--node-auth-audience`
-    /// silently, leaving the agent on its own default while the API expects
-    /// something else and rejects every token the fleet mints. The chart's own
-    /// test sets the value itself, so nothing but this assertion holds the two
-    /// halves to the same name. Deliberately non-default, so a hard-coded
-    /// audience cannot pass.
-    #[test]
-    fn dpu_agent_helm_values_carry_the_configured_node_auth_audience() {
-        let values = dpu_agent_helm_values(
-            &default_dpu_agent_service(),
-            &DpfDpuAgentBootstrapCa::default(),
-            "nico-api-eu",
-        );
-
-        assert_eq!(
-            values
-                .get("nodeAuth")
-                .and_then(|node_auth| node_auth.get("audience")),
-            Some(&serde_json::json!("nico-api-eu")),
-            "the agent chart reads .Values.nodeAuth.audience; rendering any \
-             other key silently omits the flag"
-        );
-    }
     /// The override has to reach the rendered helm values, not just the
     /// resolver — staging a disable is worthless if `mandatory_services` still
     /// reads `enabled` and deploys fmds in token mode anyway.
@@ -1631,27 +1581,6 @@ mod tests {
         assert!(
             !fmds_mode(&NodeAuthConfig::default()),
             "node-auth off still renders cert mode"
-        );
-    }
-    /// `extra_helm_values` merges last, so without protection an overlay could
-    /// silently replace the audience the API validates against -- and the agent
-    /// would mint, and broker to fmds, tokens the API rejects. The override is
-    /// ignored rather than honoured.
-    #[test]
-    fn an_overlay_cannot_change_the_node_auth_audience() {
-        let mut cfg = default_dpu_agent_service();
-        cfg.extra_helm_values = serde_json::json!({
-            "nodeAuth": { "audience": "attacker-chosen" }
-        })
-        .as_object()
-        .cloned();
-
-        let values = dpu_agent_helm_values(&cfg, &DpfDpuAgentBootstrapCa::default(), "nico-api-eu");
-
-        assert_eq!(
-            values.get("nodeAuth").and_then(|n| n.get("audience")),
-            Some(&serde_json::json!("nico-api-eu")),
-            "the API's configured audience must survive the overlay"
         );
     }
     /// Same reasoning for token mode: an overlay setting it true while the API

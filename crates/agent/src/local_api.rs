@@ -29,23 +29,10 @@
 
 use std::sync::Arc;
 
+use ::rpc::agent_local::agent_local_server::{AgentLocal, AgentLocalServer};
+use ::rpc::agent_local::{GetNodeTokenRequest, GetNodeTokenResponse};
 use ::rpc::node_jwt::NodeJwtMinter;
-
-/// Server bindings for the service this crate owns and serves. `carbide-rpc`
-/// compiles the same file for its client side, so the two never share Rust
-/// types — only the wire format, which is the point of the proto.
-mod proto {
-    #![allow(
-        unreachable_pub,
-        reason = "tonic_prost_build emits public items for this crate-internal protocol module"
-    )]
-
-    tonic::include_proto!("agent_local");
-}
-
 use eyre::WrapErr;
-use proto::agent_local_server::{AgentLocal, AgentLocalServer};
-use proto::{GetNodeTokenRequest, GetNodeTokenResponse};
 use tokio_stream::wrappers::UnixListenerStream;
 use tonic::{Request, Response, Status};
 

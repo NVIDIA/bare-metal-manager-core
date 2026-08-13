@@ -383,7 +383,7 @@ pub async fn start(cmdline: command_line::Options) -> eyre::Result<()> {
         return Ok(());
     }
 
-    let (mut agent, path) = match cmdline.config_path {
+    let (agent, path) = match cmdline.config_path {
         // normal production case
         None => (AgentConfig::default(), "default".to_string()),
         // development overrides
@@ -395,17 +395,6 @@ pub async fn start(cmdline: command_line::Options) -> eyre::Result<()> {
             config_path.display().to_string(),
         ),
     };
-    // Containerized (DPF) agents run without a config file, so the flag is the
-    // only way the API's configured audience reaches them.
-    if let Some(node_auth_audience) = cmdline.node_auth_audience.clone() {
-        agent.forge_system.node_auth_audience = node_auth_audience;
-    }
-    // After the override above, so the flag and the file are held to the same
-    // rule rather than only the flag validating itself at parse time.
-    agent
-        .forge_system
-        .validate()
-        .map_err(|e| eyre::eyre!("invalid [forge-system] in agent config: {e}"))?;
     agent
         .machine_identity
         .validate()
@@ -425,10 +414,9 @@ pub async fn start(cmdline: command_line::Options) -> eyre::Result<()> {
     // the machine key. This minter signs bearer JWTs for the agent's own API
     // calls AND backs the local API socket that brokers tokens to co-located
     // services (fmds, ...). Ignored by the API unless [node_auth] is enabled.
-    let node_jwt_minter = ::rpc::node_jwt::NodeJwtMinter::with_audience(
+    let node_jwt_minter = ::rpc::node_jwt::NodeJwtMinter::new(
         agent.forge_system.client_cert.clone(),
         agent.forge_system.client_key.clone(),
-        agent.forge_system.node_auth_audience.clone(),
     );
     let forge_client_config = Arc::new(
         ForgeClientConfig::new(
@@ -453,19 +441,7 @@ pub async fn start(cmdline: command_line::Options) -> eyre::Result<()> {
                 tracing::warn!("Upgrades disabled. Dev only");
             }
 
-            // Broker node tokens to co-located services over the local API
-            // socket. Not fatal on failure, and retried forever: consumers
-            // fall back to their own credentials (mTLS client cert) until the
-            // socket comes up, and on non-DPF DPU OS the agent may start
-            // before its socket directory is usable.
-            //
-            // The handle is kept rather than detached. The loop never returns,
-            // so the only way this task can finish is a panic — and a detached
-            // panic would leave the socket silently gone for the rest of the
-            // process, with every co-located consumer quietly falling back to
-            // whatever credential it has. Joining it below turns that into a
-            // reported error at shutdown instead of an invisible degradation.
-            let mut local_api_task = tokio::spawn({
+            let local_api = {
                 let minter = node_jwt_minter.clone();
                 let socket_path = agent.forge_system.local_api_socket.clone();
                 async move {
@@ -476,7 +452,7 @@ pub async fn start(cmdline: command_line::Options) -> eyre::Result<()> {
                         tokio::time::sleep(std::time::Duration::from_secs(10)).await;
                     }
                 }
-            });
+            };
 
             let Registration {
                 machine_id,
@@ -492,19 +468,6 @@ pub async fn start(cmdline: command_line::Options) -> eyre::Result<()> {
                     factory_mac_address: "11:22:33:44:55:66".parse().unwrap(),
                 },
             };
-            // The broker loop is infinite, so its finishing means it panicked.
-            // Racing it against the main loop makes that fatal rather than
-            // silent: a detached panic would leave the agent running for the
-            // rest of its life with no token broker, so co-located services
-            // would quietly lose their credential — invisible until something
-            // downstream failed.
-            //
-            // Exiting is safe because both deployments restart us:
-            // `forge-dpu-agent.service` sets `Restart=always` (with the start
-            // limits deliberately removed so it never wedges), and the DPF
-            // DaemonSet restarts its pods. A restart also re-runs the whole
-            // init path — config reload, CA republish, socket rebind — which an
-            // in-process retry would not.
             let main_loop_result = tokio::select! {
                 result = main_loop::setup_and_run(
                     machine_id,
@@ -513,17 +476,8 @@ pub async fn start(cmdline: command_line::Options) -> eyre::Result<()> {
                     agent,
                     *options,
                 ) => result.wrap_err("main_loop error exit"),
-                joined = &mut local_api_task => {
-                    let Err(error) = joined;
-                    Err(eyre::eyre!(
-                        "agent local API task exited unexpectedly ({error}); \
-                         co-located services would have no token source"
-                    ))
-                }
+                () = local_api => unreachable!("the agent local API retry loop cannot finish"),
             };
-
-            // Whichever arm won, the broker loop may not outlive this scope.
-            local_api_task.abort();
 
             main_loop_result?;
             tracing::info!("Agent exit");

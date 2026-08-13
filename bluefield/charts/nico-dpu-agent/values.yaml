@@ -69,12 +69,3 @@ fmds:
   service_name: ""
   # Empty keeps NICo's Forge signer.
   sign_proxy_url: ""
-
-### Node-auth (issue #355).
-nodeAuth:
-  # `aud` the agent stamps on the bearer JWTs it mints, both for its own API
-  # calls and for the tokens it brokers to co-located services. Must match the
-  # API's [node_auth] audience, which is where dpf_services.rs templates this
-  # from — so a DPF deployment always sets it. Empty means "pass no flag" and
-  # falls back to the agent's own default.
-  audience: ""

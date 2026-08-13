@@ -53,8 +53,7 @@ enabled = false
 # refuses to start with both mechanisms off). Service/admin-CLI certs are
 # unaffected.
 mtls_enabled = true
-# `aud` claim required on presented tokens.
-#audience = "nico-api"
+# `aud` claim is always "nico-api".
 # Maximum accepted token lifetime in seconds (nodes mint 300 s tokens).
 #max_token_ttl_sec = 900
 # Whether DPF-deployed fmds is rendered in token mode. Unset follows `enabled`,

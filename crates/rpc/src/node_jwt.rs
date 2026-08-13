@@ -43,8 +43,7 @@ use serde::Serialize;
 use tower::Service;
 use x509_parser::prelude::{FromDer, GeneralName, X509Certificate};
 
-/// `aud` claim stamped on minted tokens; must match the API's
-/// `[node_auth] audience`.
+/// `aud` claim stamped on all node-auth tokens.
 pub const NODE_JWT_AUDIENCE: &str = "nico-api";
 
 /// Lifetime of minted tokens. Deliberately short: tokens cost nothing to
@@ -88,10 +87,6 @@ struct CachedToken {
 pub struct NodeJwtMinter {
     cert_path: String,
     key_path: String,
-    /// `aud` stamped on every minted token. Must match the API's
-    /// `[node_auth] audience`, which is configurable — a minter pinned to the
-    /// default would be rejected wholesale by a site that changed it.
-    audience: String,
     cached: RwLock<Option<CachedToken>>,
 }
 
@@ -118,20 +113,12 @@ struct NodeClaims<'a> {
 }
 
 impl NodeJwtMinter {
-    /// Mints tokens for the default audience ([`NODE_JWT_AUDIENCE`]). Use
-    /// [`NodeJwtMinter::with_audience`] when the API's `[node_auth] audience`
-    /// has been changed from the default.
+    /// Mints tokens for [`NODE_JWT_AUDIENCE`].
     #[must_use]
     pub fn new(cert_path: String, key_path: String) -> Arc<Self> {
-        Self::with_audience(cert_path, key_path, NODE_JWT_AUDIENCE.to_string())
-    }
-
-    #[must_use]
-    pub fn with_audience(cert_path: String, key_path: String, audience: String) -> Arc<Self> {
         Arc::new(Self {
             cert_path,
             key_path,
-            audience,
             cached: RwLock::new(None),
         })
     }
@@ -192,6 +179,7 @@ impl NodeJwtMinter {
             .map_err(|e| NodeJwtError::BadCertificate(e.to_string()))?;
         let leaf = chain.first().ok_or(NodeJwtError::NoCertificate)?;
         let sub = spiffe_uri_from_cert(leaf.as_ref())?;
+        let secret = parse_secret_key(&key_pem)?;
 
         // Certificate renewal rewrites the two files in sequence, so a mint
         // landing in between can pair a new certificate with the old key.
@@ -199,7 +187,7 @@ impl NodeJwtMinter {
         // and the bad token would sit in the cache for a re-mint margin. Catch
         // the mismatch here instead: returning an error means no bearer header
         // on this request and a fresh attempt on the next one.
-        if !key_matches_certificate(&key_pem, leaf.as_ref())? {
+        if !key_matches_certificate(&secret, leaf.as_ref())? {
             return Err(NodeJwtError::KeyCertMismatch);
         }
 
@@ -210,11 +198,11 @@ impl NodeJwtMinter {
         let expires_at = now + NODE_JWT_TTL_SECS;
         let claims = NodeClaims {
             sub: &sub,
-            aud: &self.audience,
+            aud: NODE_JWT_AUDIENCE,
             iat: now,
             exp: expires_at,
         };
-        let token = jsonwebtoken::encode(&header, &claims, &ec_encoding_key(&key_pem)?)?;
+        let token = jsonwebtoken::encode(&header, &claims, &ec_encoding_key(&secret)?)?;
         Ok(CachedToken { token, expires_at })
     }
 }
@@ -261,20 +249,26 @@ fn spiffe_uri_from_cert(der: &[u8]) -> Result<String, NodeJwtError> {
     Ok(uri)
 }
 
-/// Whether `key_pem`'s public half is the one certified by `leaf_der`.
+/// Parses a Vault-issued SEC1 or PKCS#8 client key.
+fn parse_secret_key(key_pem: &str) -> Result<p256::SecretKey, NodeJwtError> {
+    if key_pem.contains("BEGIN EC PRIVATE KEY") {
+        p256::SecretKey::from_sec1_pem(key_pem).map_err(|e| NodeJwtError::BadKey(e.to_string()))
+    } else {
+        <p256::SecretKey as p256::pkcs8::DecodePrivateKey>::from_pkcs8_pem(key_pem)
+            .map_err(|e| NodeJwtError::BadKey(e.to_string()))
+    }
+}
+
+/// Whether `secret`'s public half is the one certified by `leaf_der`.
 ///
 /// Both encodings the node may hold are accepted: Vault issues SEC1 ("EC
 /// PRIVATE KEY") and renewal may leave PKCS#8. The comparison is on the
 /// uncompressed SEC1 point, which is exactly what an EC `SubjectPublicKeyInfo`
 /// carries.
-fn key_matches_certificate(key_pem: &str, leaf_der: &[u8]) -> Result<bool, NodeJwtError> {
-    let secret = if key_pem.contains("BEGIN EC PRIVATE KEY") {
-        p256::SecretKey::from_sec1_pem(key_pem).map_err(|e| NodeJwtError::BadKey(e.to_string()))?
-    } else {
-        <p256::SecretKey as p256::pkcs8::DecodePrivateKey>::from_pkcs8_pem(key_pem)
-            .map_err(|e| NodeJwtError::BadKey(e.to_string()))?
-    };
-
+fn key_matches_certificate(
+    secret: &p256::SecretKey,
+    leaf_der: &[u8],
+) -> Result<bool, NodeJwtError> {
     let (_, cert) = X509Certificate::from_der(leaf_der)
         .map_err(|e| NodeJwtError::BadCertificate(e.to_string()))?;
     let certified = &cert.public_key().subject_public_key.data;
@@ -286,24 +280,12 @@ fn key_matches_certificate(key_pem: &str, leaf_der: &[u8]) -> Result<bool, NodeJ
     Ok(certified.as_ref() == from_key.as_bytes())
 }
 
-/// Builds an ES256 signing key from the client key PEM. Vault-issued machine
-/// keys are SEC1 (`BEGIN EC PRIVATE KEY`), which `jsonwebtoken` cannot load
-/// directly, so those are re-encoded to PKCS#8 first.
-fn ec_encoding_key(key_pem: &str) -> Result<EncodingKey, NodeJwtError> {
-    if key_pem.contains("BEGIN EC PRIVATE KEY") {
-        let secret = p256::SecretKey::from_sec1_pem(key_pem)
-            .map_err(|e| NodeJwtError::BadKey(e.to_string()))?;
-        let pkcs8 = secret
-            .to_pkcs8_pem(LineEnding::LF)
-            .map_err(|e| NodeJwtError::BadKey(e.to_string()))?;
-        // `BadKey`, not `Sign`: this is loading a key, and reporting it as a
-        // signing failure sends whoever reads the mint log looking in the wrong
-        // place. `Sign` belongs to `jsonwebtoken::encode` alone.
-        EncodingKey::from_ec_pem(pkcs8.as_bytes()).map_err(|e| NodeJwtError::BadKey(e.to_string()))
-    } else {
-        EncodingKey::from_ec_pem(key_pem.as_bytes())
-            .map_err(|e| NodeJwtError::BadKey(e.to_string()))
-    }
+/// Builds an ES256 signing key from an already-validated client key.
+fn ec_encoding_key(secret: &p256::SecretKey) -> Result<EncodingKey, NodeJwtError> {
+    let pkcs8 = secret
+        .to_pkcs8_pem(LineEnding::LF)
+        .map_err(|e| NodeJwtError::BadKey(e.to_string()))?;
+    EncodingKey::from_ec_pem(pkcs8.as_bytes()).map_err(|e| NodeJwtError::BadKey(e.to_string()))
 }
 
 /// A source of node-auth bearer tokens for outgoing requests. Implemented by

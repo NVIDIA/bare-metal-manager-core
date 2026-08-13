@@ -168,18 +168,11 @@ impl ForgeClientConfig {
     /// Enables node-auth JWTs: requests built from this config mint and carry
     /// short-lived bearer tokens signed with the configured client cert's key.
     /// A no-op when no client cert is configured.
-    ///
-    /// `audience` must match the API's `[node_auth] audience` — the server
-    /// rejects any other value outright, so a client pinned to the default
-    /// would fail every request at a site that changed it.
     #[must_use]
-    pub fn with_node_jwt(mut self, audience: String) -> Self {
+    pub fn with_node_jwt(mut self) -> Self {
         self.node_token_provider = self.client_cert.as_ref().map(|client_cert| {
-            NodeJwtMinter::with_audience(
-                client_cert.cert_path.clone(),
-                client_cert.key_path.clone(),
-                audience,
-            ) as Arc<dyn NodeTokenProvider>
+            NodeJwtMinter::new(client_cert.cert_path.clone(), client_cert.key_path.clone())
+                as Arc<dyn NodeTokenProvider>
         });
         self
     }

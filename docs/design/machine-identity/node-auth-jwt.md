@@ -71,9 +71,8 @@ GetNodeToken                      mints as above           (identical
   service starts on it. Two config inputs are sufficient to get through
   bootstrap: the API endpoint and the root CA bundle (`forge_system.root_ca`).
   The cert/key files at `/opt/forge/machine_cert.pem` / `machine_cert.key`
-  don't exist yet. (`node-auth-audience` is not needed here — nothing is minted
-  until the certificate lands — but it must be right by then, or every token
-  the node goes on to mint is rejected.)
+  don't exist yet. Node-auth has no per-node configuration: every node mints
+  the fixed `nico-api` audience once its certificate lands.
 - The agent opens a TLS connection to `nico-api` that is **server-auth only**
   — it verifies the API's cert against the root CA but presents no client
   credential (the API listener uses `allow_unauthenticated()`, so the
@@ -118,13 +117,12 @@ GetNodeToken                      mints as above           (identical
 **Minting the JWT (client side, `rpc::node_jwt`)**
 
 - The agent's gRPC client was built with
-  `ForgeClientConfig::new(root_ca, ClientCert{...}).with_node_jwt(audience)`,
-  so a `NodeJwtMinter` watches those two file paths. The audience comes from
-  the node's own config, and must match the API's `[node_auth] audience`.
+  `ForgeClientConfig::new(root_ca, ClientCert{...}).with_node_jwt()`, so a
+  `NodeJwtMinter` watches those two file paths.
 - On the next outgoing RPC, the minter reads cert+key from disk (re-encoding
   Vault's SEC1 key PEM to PKCS#8) and signs an **ES256 JWT**: header
   `{alg: ES256, x5c: [leaf, issuing CA]}`, claims
-  `{sub: <SPIFFE URI from its own cert SAN>, aud: <configured audience>,
+  `{sub: <SPIFFE URI from its own cert SAN>, aud: "nico-api",
   iat: now, exp: now+300s}`. The token is cached and re-minted when < 60 s
   remain — no refresh RPC, and cert renewal is picked up automatically
   because the files are re-read at each mint.
@@ -210,7 +208,6 @@ symmetry claim applies to the enable direction only.
 ```toml
 [node_auth]
 enabled = false          # master switch for accepting bearer JWTs
-audience = "nico-api"    # `aud` required on presented tokens
 max_token_ttl_sec = 900  # upper bound on client-chosen lifetimes (cap 86400)
 # fmds_use_node_tokens   # optional; unset follows `enabled`. Only for staging
                          # a change — see "Disabling node-auth" below.
@@ -222,66 +219,18 @@ an API restart. The defaults and validation contract is:
 | Setting | Default and accepted values | Startup behavior |
 | --- | --- | --- |
 | `enabled` | `false` or `true`. | `false` installs no bearer validator. `true` requires a TLS listener and readable `[tls] root_cafile_path`; the API refuses startup rather than accepting bearer tokens over plaintext. |
-| `audience` | `"nico-api"`; any non-blank string after surrounding whitespace is trimmed on TOML load. | When `enabled = true`, an empty or whitespace-only value is rejected. A padded value is normalized, not preserved. When `enabled = false`, the value is inactive and is not otherwise validated. |
 | `max_token_ttl_sec` | `900` seconds; with bearer auth enabled, an integer from `300` (the node's fixed minted lifetime) through `86400`, inclusive. | `0`, `1`–`299`, and values greater than `86400` fail startup when `enabled = true`. When bearer auth is disabled, this inactive value is not otherwise validated. |
 | `mtls_enabled` | `true` or `false`; it controls only machine mTLS identities. | Setting both `enabled` and `mtls_enabled` to `false` always fails startup because no node credential would remain. Service and admin client certificates are unaffected. |
 | `fmds_use_node_tokens` | Unset; then follows `enabled`. An explicit boolean is a rollout override. | `true` with `enabled = false` always fails startup, because that deployment would make fmds present tokens to an API that rejects them. |
 
+The `aud` claim is always `"nico-api"`, defined once in
+`rpc::node_jwt::NODE_JWT_AUDIENCE` and used by every minter and by the API
+validator. It has no configuration, CLI flag, or Helm value. `[node_auth]`
+rejects unknown keys, including a legacy `audience` setting, rather than
+silently accepting a value that cannot change token validation.
+
 The entire preflight runs *before* DPF resource creation, so a
 misconfiguration cannot mutate cluster state on its way to failing.
-
-`audience` is the one value that must be set on **both** ends: the API
-validates `aud` against it, and each node stamps it. Nodes take it from their
-own configuration, using this precedence and fallback behavior:
-
-| Node | Sources, in descending precedence | Fallback |
-| --- | --- | --- |
-| DPU-agent | `--node-auth-audience` overrides `[forge-system] node-auth-audience`. DPF supplies the flag from the API-owned `[node_auth] audience`; containerized agents do not need a config file for this value. | The agent config and an omitted flag both default to `"nico-api"`. |
-| Scout | `--node-auth-audience`; Scout has no TOML source for this value. | The flag defaults to `"nico-api"`. |
-
-Both command-line parsers trim surrounding whitespace and reject an empty or
-whitespace-only value. The agent's TOML field is trimmed on load and then
-validated after its command-line override is applied; a whitespace-only TOML
-value therefore fails startup unless a valid flag overrides it. The DPF chart
-also trims the API-provided value and omits a blank flag, leaving the agent's
-default in place. With bearer auth enabled, the API itself rejects that blank
-source before it can render a deployment. If the resolved node value differs
-from the API value, every bearer token is rejected; with the default
-`mtls_enabled = true`, mTLS keeps the node authenticated during that mismatch.
-
-**There is no overlap period, so rotation cannot be seamless.**
-`Validation::set_audience` is given exactly one value, so the API accepts a
-single `aud` at a time. Whichever end changes first, every token minted
-between that change and the other end catching up is rejected.
-
-How much that costs depends on `mtls_enabled`:
-
-- **With `mtls_enabled = true`** (the default) the nodes are still
-  authenticated — bearer validation fails, but the machine client certificate
-  on the same connection produces the identical principal, so requests keep
-  succeeding. The rotation is disruptive to node-auth only, and invisible to
-  the fleet's actual work.
-- **With `mtls_enabled = false`**, bearer tokens are the only credential those
-  nodes have, so the same window is a full authentication outage.
-
-So treat the audience as fixed at deployment time. If it must change:
-
-1. Set `mtls_enabled = true` first if it is off, and confirm nodes are
-   presenting client certificates. This is what makes the rotation survivable:
-   machine certs carry the fleet through the window in which the two ends
-   disagree about `aud`. It is the only mitigation available today.
-2. If `mtls_enabled` cannot be turned on, take a maintenance window instead —
-   nodes will fail to authenticate for the whole window, so plan for the
-   outage rather than trying to avoid it.
-3. Change `[node_auth] audience` and restart the API. DPF-deployed agents pick
-   the new value up when the API re-renders their helm values and DPF rolls
-   them; scout and non-DPF agents need their own config or flag updated.
-4. Confirm nodes are authenticating on the new value before restoring
-   `mtls_enabled = false`.
-
-Supporting a list of accepted audiences would remove the window entirely and
-is the obvious hardening if rotation ever becomes routine; it is not
-implemented.
 
 ## Q4 — mTLS on by default, disableable in the API config
 
@@ -386,9 +335,9 @@ taking the whole CA with it — needs revocation checking we do not do yet.
 | Client mint + cache + header injection | `crates/rpc/src/node_jwt.rs` (`NodeJwtMinter`, `BearerAuthService`, `NodeTokenProvider`) |
 | Client opt-in | `ForgeClientConfig::with_node_jwt()` / `with_token_provider()` (`crates/rpc/src/forge_tls_client.rs`); called in scout `client.rs` and dpu-agent `lib.rs` |
 | Key-less token source | `crates/rpc/src/node_token_socket.rs` (`SocketTokenSource`), consumed by fmds via `--node-token-socket` |
-| Broker service | `AgentLocal/GetNodeToken` in `crates/rpc/proto/agent_local.proto`, served by `crates/agent/src/local_api.rs` |
+| Broker service | `AgentLocal/GetNodeToken` in `crates/agent/proto/agent_local.proto`, with bindings generated once by `carbide-rpc` and served by `crates/agent/src/local_api.rs` |
 | Server validation | `crates/api-core/src/node_auth.rs` (`NodeJwtValidator`) |
-| Config | `NodeAuthConfig` in `crates/api-core/src/cfg/file.rs` (`[node_auth]`); node side in `crates/host-support/src/agent_config.rs` and the two `command_line.rs` |
+| Config | `NodeAuthConfig` in `crates/api-core/src/cfg/file.rs` (`[node_auth]`) |
 | Middleware hook | `BearerTokenAuthenticator` trait + machine-cert gate in `crates/authn/src/middleware.rs` |
 | Wiring | `crates/api-core/src/setup.rs` (preflight, validator construction), `listener.rs` (middleware install, trust-anchor reload), `dpf_services.rs` (fmds token mode) |
 | Charts | `bluefield/charts/nico-fmds` (`useNodeTokens`), `bluefield/charts/nico-dpu-agent` |
@@ -497,8 +446,7 @@ ingest path has its own credential story.
    mTLS.
 3. **Client-side enable knob?** → none. Nodes always mint when they hold a
    cert; a disabled server ignores the header (verified by middleware test).
-   One switch (`[node_auth] enabled`) controls the feature. The audience is
-   the sole value that must agree on both ends.
+   One switch (`[node_auth] enabled`) controls the feature.
 4. **Replay window** → bounded by what the *server* accepts, not by what our
    clients mint. A token captured from a stock scout or dpu-agent is replayable
    for ≤ 5 minutes (`NODE_JWT_TTL_SECS`), but a holder of the signing key can
