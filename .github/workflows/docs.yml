@@ -8,11 +8,9 @@ on:
   # Allow manual trigger
   workflow_dispatch:
 
-# Sets permissions for GitHub Pages deployment
+# The build only reads Pages configuration; deployment owns the write token.
 permissions:
-  contents: read
-  pages: write
-  id-token: write
+  pages: read
 
 # Allow only one concurrent deployment
 concurrency:
@@ -55,6 +53,9 @@ jobs:
 
   deploy:
     if: github.ref == 'refs/heads/main'
+    permissions:
+      pages: write
+      id-token: write
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}

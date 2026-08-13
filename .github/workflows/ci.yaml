@@ -76,6 +76,9 @@ jobs:
       - name: Check Image Scan token permissions
         run: bash .github/ci/check-image-scan-ci-permissions.sh
 
+      - name: Check GitHub Pages token permissions
+        run: bash .github/ci/check-docs-pages-permissions.sh
+
       - name: Check Core CI concurrency policy
         run: bash scripts/check-ci-concurrency.sh core
 
