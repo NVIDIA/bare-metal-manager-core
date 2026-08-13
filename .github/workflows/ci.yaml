@@ -64,6 +64,9 @@ jobs:
       - name: Check Stale PRs token permissions
         run: bash .github/ci/check-stale-ci-permissions.sh
 
+      - name: Check Artifacts Promotion token permissions
+        run: bash .github/ci/check-promotion-permissions.sh
+
       - name: Check Fern docs (check) token permissions
         run: bash .github/ci/check-fern-docs-ci-permissions.sh
 

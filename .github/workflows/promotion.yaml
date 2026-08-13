@@ -24,6 +24,9 @@ on:
         required: true
         type: string
 
+permissions:
+  contents: read
+
 jobs:
   # ============================================================================
   # PREPARE - Validate source images exist
