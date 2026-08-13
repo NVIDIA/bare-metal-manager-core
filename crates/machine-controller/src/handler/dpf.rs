@@ -190,6 +190,8 @@ async fn create_and_register_dpudevices_and_dpunode(
             missing: "primary_dpu",
         })?;
 
+    let astra_nics = state.has_astra_nics();
+
     for dpu in &state.dpu_snapshots {
         let serial_number = dpu
             .status
@@ -228,7 +230,7 @@ async fn create_and_register_dpudevices_and_dpunode(
             missing: "primary_dpu_snapshot",
         })?;
     let deployment_type = dpf_sdk
-        .deployment_type_for_dpu(primary_dpu)
+        .deployment_type_for_dpu(primary_dpu, astra_nics)
         .map_err(dpf_error)?;
 
     let device_ids: Vec<String> = state
@@ -596,8 +598,11 @@ pub(super) async fn handle_dpf_state(
     power_down_wait: chrono::Duration,
 ) -> Result<StateHandlerOutcome<ManagedHostState>, StateHandlerError> {
     let node_name = dpu_node_cr_name(&dpf_id(&state.host_snapshot)?);
+
+    let astra_nics = state.has_astra_nics();
+
     let deployment_type = dpf_sdk
-        .deployment_type_for_dpu(dpu_snapshot)
+        .deployment_type_for_dpu(dpu_snapshot, astra_nics)
         .map_err(dpf_error)?;
     if !dpf_sdk
         .verify_node_labels(&node_name, deployment_type)

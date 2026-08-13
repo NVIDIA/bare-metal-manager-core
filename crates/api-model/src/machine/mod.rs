@@ -45,7 +45,7 @@ use super::instance::status::network::InstanceNetworkStatusObservation;
 use super::machine_boot_interface::{MachineBootInterface, MachineBootInterfaceTarget};
 use super::metadata::Metadata;
 use crate::controller_outcome::PersistentStateHandlerOutcome;
-use crate::dpa_interface::DpaInterface;
+use crate::dpa_interface::{DpaInterface, DpaInterfaceType};
 use crate::errors::{ModelError, ModelResult};
 use crate::expected_machine::ExpectedMachineData;
 use crate::firmware::FirmwareComponentType;
@@ -437,6 +437,12 @@ impl ManagedHostStateSnapshot {
     /// different interface than `boot_interface_mac`.
     pub fn boot_interface(&self) -> Option<MachineBootInterface> {
         pick_boot_interface_pair(&self.host_snapshot.status.interfaces)
+    }
+
+    pub fn has_astra_nics(&self) -> bool {
+        self.dpa_interface_snapshots
+            .iter()
+            .any(|nic| matches!(nic.interface_type, DpaInterfaceType::Astra))
     }
 
     /// Returns `true` if override report is hw_health, `false` otherwise.
