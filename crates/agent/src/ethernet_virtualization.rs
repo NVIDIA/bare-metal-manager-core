@@ -2519,6 +2519,7 @@ mod tests {
             ipv6_interface_config: None,
             vpc_routing_profile: None,
             interface_routing_profile: None,
+            addresses: vec![],
         };
         assert_eq!(admin_interface.svi_ip, None);
 
@@ -2598,6 +2599,7 @@ mod tests {
                     }],
                 }),
                 interface_routing_profile: None,
+                addresses: vec![],
             },
             rpc::FlatInterfaceConfig {
                 function_type: rpc::InterfaceFunctionType::Physical.into(),
@@ -2800,6 +2802,7 @@ mod tests {
                     }],
                 }),
                 interface_routing_profile: None,
+                addresses: vec![],
             },
         ];
 
@@ -3251,6 +3254,7 @@ mod tests {
             ipv6_interface_config: None,
             vpc_routing_profile: None,
             interface_routing_profile: None,
+            addresses: vec![],
         };
 
         let mut admin_interface_with_mtu = admin_interface.clone();
@@ -3289,6 +3293,7 @@ mod tests {
                 ipv6_interface_config: None,
                 vpc_routing_profile: None,
                 interface_routing_profile: None,
+                addresses: vec![],
             },
             rpc::FlatInterfaceConfig {
                 function_type: rpc::InterfaceFunctionType::Physical.into(),
@@ -3316,6 +3321,7 @@ mod tests {
                 ipv6_interface_config: None,
                 vpc_routing_profile: None,
                 interface_routing_profile: None,
+                addresses: vec![],
             },
         ];
 

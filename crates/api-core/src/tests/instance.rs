@@ -1952,6 +1952,19 @@ async fn test_instance_address_creation(_: PgPoolOptions, options: PgConnectOpti
     assert_eq!(network_config.tenant_interfaces.len(), 2);
     assert_eq!(network_config.tenant_interfaces[0].ip, "192.0.4.3");
     assert_eq!(network_config.tenant_interfaces[1].ip, "192.1.4.3");
+    for interface in &network_config.tenant_interfaces {
+        assert_eq!(
+            interface.addresses,
+            vec![rpc::forge::InterfaceAddressConfig {
+                address_family: rpc::forge::AddressFamily::V4.into(),
+                gateway: interface.gateway.clone(),
+                ip: interface.ip.clone(),
+                interface_prefix: interface.interface_prefix.clone(),
+                prefix: interface.prefix.clone(),
+                svi_ip: interface.svi_ip.clone(),
+            }]
+        );
+    }
     assert_eq!(network_config.dpu_network_pinger_type, None);
     // Ensure the VPC prefixes (which in this case are the two network segment
     // IDs referenced above) are both associated with both interfaces.

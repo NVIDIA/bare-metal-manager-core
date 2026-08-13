@@ -203,7 +203,6 @@ impl<'a> PrefixPair<'a> {
     }
 
     /// Return the IPv6 prefix, if present.
-    #[allow(dead_code)]
     fn v6(&self) -> Option<&NetworkPrefix> {
         self.v6
     }
@@ -290,6 +289,37 @@ impl<'a> PrefixPair<'a> {
 
         Ok((svi_ip, svi_ip_v6))
     }
+}
+
+/// Mirrors the legacy family-specific fields into the staged address list.
+fn interface_address_configs(
+    config: &rpc::FlatInterfaceConfig,
+    ipv6_segment_prefix: Option<&str>,
+) -> Vec<rpc::InterfaceAddressConfig> {
+    let mut addresses = vec![rpc::InterfaceAddressConfig {
+        address_family: rpc::AddressFamily::V4.into(),
+        gateway: config.gateway.clone(),
+        ip: config.ip.clone(),
+        interface_prefix: config.interface_prefix.clone(),
+        prefix: config.prefix.clone(),
+        svi_ip: config.svi_ip.clone(),
+    }];
+
+    if let Some(ipv6) = config.ipv6_interface_config.as_ref()
+        && !ipv6.interface_prefix.is_empty()
+        && let Some(prefix) = ipv6_segment_prefix
+    {
+        addresses.push(rpc::InterfaceAddressConfig {
+            address_family: rpc::AddressFamily::V6.into(),
+            gateway: ipv6.interface_prefix.clone(),
+            ip: ipv6.ip.clone(),
+            interface_prefix: ipv6.interface_prefix.clone(),
+            prefix: prefix.to_string(),
+            svi_ip: ipv6.svi_ip.clone(),
+        });
+    }
+
+    addresses
 }
 
 pub(crate) async fn admin_network(
@@ -476,7 +506,7 @@ pub(crate) async fn admin_network(
         }
     };
 
-    let cfg = rpc::FlatInterfaceConfig {
+    let mut cfg = rpc::FlatInterfaceConfig {
         function_type: rpc::InterfaceFunctionType::Physical.into(),
         virtual_function_id: None,
         vlan_id: admin_segment.status.vlan_id.unwrap_or_default() as u32,
@@ -508,7 +538,9 @@ pub(crate) async fn admin_network(
         ipv6_interface_config: None,
         vpc_routing_profile: admin_vpc_routing_profile.map(rpc::RoutingProfile::from),
         interface_routing_profile: None,
+        addresses: vec![],
     };
+    cfg.addresses = interface_address_configs(&cfg, None);
     Ok((cfg, interface.id))
 }
 
@@ -726,7 +758,7 @@ pub(crate) async fn tenant_network(
         _ => None,
     };
 
-    Ok(rpc::FlatInterfaceConfig {
+    let mut config = rpc::FlatInterfaceConfig {
         function_type: rpc_ft.into(),
         virtual_function_id: match iface.function_id {
             InterfaceFunctionId::Physical {} => None,
@@ -788,7 +820,12 @@ pub(crate) async fn tenant_network(
         }),
         vpc_routing_profile,
         interface_routing_profile,
-    })
+        addresses: vec![],
+    };
+    let ipv6_segment_prefix = ds.v6().map(|prefix| prefix.prefix.to_string());
+    config.addresses = interface_address_configs(&config, ipv6_segment_prefix.as_deref());
+
+    Ok(config)
 }
 
 pub(crate) fn resolve_security_group_rule(
@@ -814,7 +851,79 @@ pub(crate) fn resolve_security_group_rule(
 
 #[cfg(test)]
 mod test {
+    use carbide_test_support::value_scenarios;
+
     use super::*;
+
+    fn legacy_interface_config(
+        ipv6_interface_config: Option<rpc::FlatInterfaceIpv6Config>,
+    ) -> rpc::FlatInterfaceConfig {
+        rpc::FlatInterfaceConfig {
+            gateway: "192.0.2.1/24".to_string(),
+            ip: "192.0.2.10".to_string(),
+            interface_prefix: "192.0.2.10/32".to_string(),
+            prefix: "192.0.2.0/24".to_string(),
+            svi_ip: Some("192.0.2.2/24".to_string()),
+            ipv6_interface_config,
+            ..Default::default()
+        }
+    }
+
+    fn ipv4_address_config() -> rpc::InterfaceAddressConfig {
+        rpc::InterfaceAddressConfig {
+            address_family: rpc::AddressFamily::V4.into(),
+            gateway: "192.0.2.1/24".to_string(),
+            ip: "192.0.2.10".to_string(),
+            interface_prefix: "192.0.2.10/32".to_string(),
+            prefix: "192.0.2.0/24".to_string(),
+            svi_ip: Some("192.0.2.2/24".to_string()),
+        }
+    }
+
+    #[test]
+    fn interface_address_configs_mirror_legacy_fields_in_family_order() {
+        value_scenarios!(
+            run = |(config, ipv6_prefix): (rpc::FlatInterfaceConfig, Option<&str>)| {
+                interface_address_configs(&config, ipv6_prefix)
+            };
+            "IPv4-only config" {
+                (legacy_interface_config(None), None) => vec![ipv4_address_config()],
+            }
+            "IPv6 segment without an interface address" {
+                (legacy_interface_config(None), Some("2001:db8::/64")) => vec![ipv4_address_config()],
+            }
+            "IPv6 address without an interface prefix" {
+                (
+                    legacy_interface_config(Some(rpc::FlatInterfaceIpv6Config {
+                        ip: "2001:db8::1".to_string(),
+                        interface_prefix: String::new(),
+                        svi_ip: None,
+                    })),
+                    Some("2001:db8::/64"),
+                ) => vec![ipv4_address_config()],
+            }
+            "dual-stack config" {
+                (
+                    legacy_interface_config(Some(rpc::FlatInterfaceIpv6Config {
+                        ip: "2001:db8::1".to_string(),
+                        interface_prefix: "2001:db8::/127".to_string(),
+                        svi_ip: Some("2001:db8::2/64".to_string()),
+                    })),
+                    Some("2001:db8::/64"),
+                ) => vec![
+                    ipv4_address_config(),
+                    rpc::InterfaceAddressConfig {
+                        address_family: rpc::AddressFamily::V6.into(),
+                        gateway: "2001:db8::/127".to_string(),
+                        ip: "2001:db8::1".to_string(),
+                        interface_prefix: "2001:db8::/127".to_string(),
+                        prefix: "2001:db8::/64".to_string(),
+                        svi_ip: Some("2001:db8::2/64".to_string()),
+                    },
+                ],
+            }
+        );
+    }
 
     /// Returns a test FNN routing profile with the provided allowed anycast prefixes.
     fn routing_profile_with_anycast(prefixes: &[&str]) -> FnnRoutingProfileConfig {
