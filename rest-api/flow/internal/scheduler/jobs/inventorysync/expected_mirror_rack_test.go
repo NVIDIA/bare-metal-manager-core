@@ -16,12 +16,37 @@ import (
 	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/nicoapi"
 )
 
-func TestRackNaturalKeyIsCollisionFree(t *testing.T) {
+func TestNaturalKeyIsCollisionFree(t *testing.T) {
 	// The classic concatenation bug: "ab"+"cd" and "abc"+"d" collide if you
 	// don't separate with a forbidden byte.
-	a := rackNaturalKey("ab", "cd")
-	b := rackNaturalKey("abc", "d")
+	a := naturalKey("ab", "cd")
+	b := naturalKey("abc", "d")
 	assert.NotEqual(t, a, b, "manufacturer/serial collisions must be impossible")
+}
+
+func TestNaturalKeyOrEmpty(t *testing.T) {
+	tests := []struct {
+		name         string
+		manufacturer string
+		serialNumber string
+		wantEmpty    bool
+	}{
+		{name: "both halves populated", manufacturer: "Foxconn", serialNumber: "SN-1"},
+		{name: "no manufacturer", serialNumber: "SN-1", wantEmpty: true},
+		{name: "no serial", manufacturer: "Foxconn", wantEmpty: true},
+		{name: "neither", wantEmpty: true},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := naturalKeyOrEmpty(tc.manufacturer, tc.serialNumber)
+			if tc.wantEmpty {
+				assert.Empty(t, got)
+				return
+			}
+			assert.Equal(t, naturalKey(tc.manufacturer, tc.serialNumber), got)
+		})
+	}
 }
 
 func TestBuildRackFromCore(t *testing.T) {
@@ -75,24 +100,47 @@ func TestBuildRackFromCore(t *testing.T) {
 			},
 		},
 		{
-			name: "missing manufacturer is unusable",
+			name: "missing manufacturer is mirrored without it",
 			in: nicoapi.ExpectedRackDetail{
 				RackID: "c01",
 				Labels: map[string]string{
 					labelChassisSerialNumber: "SN-C01",
 				},
 			},
-			wantOK: false,
+			wantOK: true,
+			assertRow: func(t *testing.T, r model.Rack) {
+				assert.Empty(t, r.Manufacturer)
+				assert.Equal(t, "SN-C01", r.SerialNumber)
+				require.NotNil(t, r.ExternalID)
+				assert.Equal(t, "c01", *r.ExternalID)
+			},
 		},
 		{
-			name: "missing serial is unusable",
+			name: "missing serial is mirrored without it",
 			in: nicoapi.ExpectedRackDetail{
 				RackID: "c02",
 				Labels: map[string]string{
 					labelChassisManufacturer: "Foxconn",
 				},
 			},
-			wantOK: false,
+			wantOK: true,
+			assertRow: func(t *testing.T, r model.Rack) {
+				assert.Equal(t, "Foxconn", r.Manufacturer)
+				assert.Empty(t, r.SerialNumber)
+			},
+		},
+		{
+			name: "no chassis labels at all is still mirrored under rack_id",
+			in: nicoapi.ExpectedRackDetail{
+				RackID: "c03",
+				Name:   "klamath-1",
+			},
+			wantOK: true,
+			assertRow: func(t *testing.T, r model.Rack) {
+				assert.Empty(t, r.Manufacturer)
+				assert.Empty(t, r.SerialNumber)
+				assert.Equal(t, "klamath-1", r.Name)
+			},
 		},
 		{
 			name: "no description/location labels leaves jsonb columns nil",
@@ -111,7 +159,7 @@ func TestBuildRackFromCore(t *testing.T) {
 			},
 		},
 		{
-			name: "missing rack_id yields nil ExternalID (NULL in DB) so partial unique index stays clean",
+			name: "missing rack_id is unusable: nothing to identify the rack by",
 			in: nicoapi.ExpectedRackDetail{
 				Name: "noext",
 				Labels: map[string]string{
@@ -119,25 +167,7 @@ func TestBuildRackFromCore(t *testing.T) {
 					labelChassisSerialNumber: "SN-E01",
 				},
 			},
-			wantOK: true,
-			assertRow: func(t *testing.T, r model.Rack) {
-				assert.Nil(t, r.ExternalID)
-				assert.Equal(t, "noext", r.Name)
-			},
-		},
-		{
-			name: "missing both rack_id and name falls back to manufacturer-serial",
-			in: nicoapi.ExpectedRackDetail{
-				Labels: map[string]string{
-					labelChassisManufacturer: "Foxconn",
-					labelChassisSerialNumber: "SN-F01",
-				},
-			},
-			wantOK: true,
-			assertRow: func(t *testing.T, r model.Rack) {
-				assert.Equal(t, "Foxconn-SN-F01", r.Name)
-				assert.Nil(t, r.ExternalID)
-			},
+			wantOK: false,
 		},
 	}
 
@@ -216,9 +246,36 @@ func TestRackUpdatedFromCore(t *testing.T) {
 		fromCore.Name = ""
 		assert.Nil(t, rackUpdatedFromCore(existing, &fromCore))
 	})
+
+	t.Run("chassis labels are backfilled once Core starts sending them", func(t *testing.T) {
+		existing := base()
+		existing.Manufacturer = ""
+		existing.SerialNumber = ""
+		fromCore := *base()
+		got := rackUpdatedFromCore(existing, &fromCore)
+		require.NotNil(t, got)
+		assert.Equal(t, "Foxconn", got.Manufacturer)
+		assert.Equal(t, "SN-1", got.SerialNumber)
+	})
+
+	t.Run("Core dropping a chassis label does not erase Flow's copy", func(t *testing.T) {
+		existing := base()
+		fromCore := *base()
+		fromCore.Manufacturer = ""
+		fromCore.SerialNumber = ""
+		assert.Nil(t, rackUpdatedFromCore(existing, &fromCore))
+	})
+
+	t.Run("a populated chassis label is not overwritten with a different one", func(t *testing.T) {
+		existing := base()
+		fromCore := *base()
+		fromCore.Manufacturer = "Wistron"
+		fromCore.SerialNumber = "SN-2"
+		assert.Nil(t, rackUpdatedFromCore(existing, &fromCore))
+	})
 }
 
-func TestFlowBySerialInCore(t *testing.T) {
+func TestAdoptableFromCore(t *testing.T) {
 	core := []nicoapi.ExpectedRackDetail{
 		{
 			RackID: "a12",
@@ -230,7 +287,6 @@ func TestFlowBySerialInCore(t *testing.T) {
 		{
 			RackID: "b07",
 			Labels: map[string]string{
-				// Missing manufacturer; should not match anything.
 				labelChassisSerialNumber: "SN-B07",
 			},
 		},
@@ -238,20 +294,26 @@ func TestFlowBySerialInCore(t *testing.T) {
 
 	t.Run("matches by (manufacturer, serial)", func(t *testing.T) {
 		flow := &model.Rack{Manufacturer: "Foxconn", SerialNumber: "SN-A12"}
-		ext, ok := flowBySerialInCore(flow, core)
+		ext, ok := adoptableFromCore(flow, core)
 		assert.True(t, ok)
 		assert.Equal(t, "a12", ext)
 	})
 
 	t.Run("no match returns false", func(t *testing.T) {
 		flow := &model.Rack{Manufacturer: "Foxconn", SerialNumber: "SN-ZZ"}
-		_, ok := flowBySerialInCore(flow, core)
+		_, ok := adoptableFromCore(flow, core)
 		assert.False(t, ok)
 	})
 
-	t.Run("core row without manufacturer is ignored", func(t *testing.T) {
+	t.Run("core row with a half-populated pair is not adoptable", func(t *testing.T) {
 		flow := &model.Rack{Manufacturer: "Foxconn", SerialNumber: "SN-B07"}
-		_, ok := flowBySerialInCore(flow, core)
+		_, ok := adoptableFromCore(flow, core)
+		assert.False(t, ok)
+	})
+
+	t.Run("flow row with a half-populated pair is not adoptable", func(t *testing.T) {
+		flow := &model.Rack{SerialNumber: "SN-B07"}
+		_, ok := adoptableFromCore(flow, core)
 		assert.False(t, ok)
 	})
 }
