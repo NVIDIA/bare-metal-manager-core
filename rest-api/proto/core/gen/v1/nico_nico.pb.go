@@ -2864,8 +2864,8 @@ func (DpuMode) EnumDescriptor() ([]byte, []int) {
 //     a configured address is treated as FIXED, no address is treated as RETAINED.
 //   - BMC_IP_ALLOCATION_TYPE_DYNAMIC: a normal DHCP lease that may expire and change.
 //   - BMC_IP_ALLOCATION_TYPE_FIXED: the operator-specified `bmc_ip_address` (static).
-//   - BMC_IP_ALLOCATION_TYPE_RETAINED: an auto-allocated address pinned as Static
-//     (never expires).
+//   - BMC_IP_ALLOCATION_TYPE_RETAINED: an auto-allocated DHCP address that stays
+//     static for the lifetime of its machine-interface record.
 //
 // On create, omission and `BMC_IP_ALLOCATION_TYPE_UNSPECIFIED` mean AUTO. On
 // single and batch update, omission preserves the effective Host BMC policy,
@@ -15669,14 +15669,20 @@ func (x *NetworkSegmentStateHistory) GetTime() *timestamppb.Timestamp {
 }
 
 type NetworkSegmentConfig struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	VpcId         *VpcId                 `protobuf:"bytes,1,opt,name=vpc_id,json=vpcId,proto3" json:"vpc_id,omitempty"`
-	SubdomainId   *DomainId              `protobuf:"bytes,2,opt,name=subdomain_id,json=subdomainId,proto3,oneof" json:"subdomain_id,omitempty"`
-	Mtu           *int32                 `protobuf:"varint,3,opt,name=mtu,proto3,oneof" json:"mtu,omitempty"`
-	SegmentType   NetworkSegmentType     `protobuf:"varint,4,opt,name=segment_type,json=segmentType,proto3,enum=forge.NetworkSegmentType" json:"segment_type,omitempty"`
-	Prefixes      []*NetworkPrefix       `protobuf:"bytes,5,rep,name=prefixes,proto3" json:"prefixes,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	state       protoimpl.MessageState `protogen:"open.v1"`
+	VpcId       *VpcId                 `protobuf:"bytes,1,opt,name=vpc_id,json=vpcId,proto3" json:"vpc_id,omitempty"`
+	SubdomainId *DomainId              `protobuf:"bytes,2,opt,name=subdomain_id,json=subdomainId,proto3,oneof" json:"subdomain_id,omitempty"`
+	Mtu         *int32                 `protobuf:"varint,3,opt,name=mtu,proto3,oneof" json:"mtu,omitempty"`
+	SegmentType NetworkSegmentType     `protobuf:"varint,4,opt,name=segment_type,json=segmentType,proto3,enum=forge.NetworkSegmentType" json:"segment_type,omitempty"`
+	Prefixes    []*NetworkPrefix       `protobuf:"bytes,5,rep,name=prefixes,proto3" json:"prefixes,omitempty"`
+	// Allows NICo to infer modified EUI-64 SLAAC addresses for clients making
+	// stateless DHCPv6 requests and add them to interface address state. False by
+	// default. Inference also requires dynamic allocation, exactly one IPv6 /64,
+	// and an interface without an existing IPv6 address. Set this only when
+	// clients derive SLAAC addresses from their MAC addresses using modified EUI-64.
+	InferSlaacEui64Addresses bool `protobuf:"varint,6,opt,name=infer_slaac_eui64_addresses,json=inferSlaacEui64Addresses,proto3" json:"infer_slaac_eui64_addresses,omitempty"`
+	unknownFields            protoimpl.UnknownFields
+	sizeCache                protoimpl.SizeCache
 }
 
 func (x *NetworkSegmentConfig) Reset() {
@@ -15742,6 +15748,13 @@ func (x *NetworkSegmentConfig) GetPrefixes() []*NetworkPrefix {
 		return x.Prefixes
 	}
 	return nil
+}
+
+func (x *NetworkSegmentConfig) GetInferSlaacEui64Addresses() bool {
+	if x != nil {
+		return x.InferSlaacEui64Addresses
+	}
+	return false
 }
 
 type NetworkSegmentStatus struct {
@@ -16055,9 +16068,15 @@ type NetworkSegmentCreationRequest struct {
 	// Desired ID for this Network Segment. If the ID is not provided, NICo will generate
 	// a random ID.
 	// The Network Segment ID must be unique within the NICo site.
-	Id            *NetworkSegmentId `protobuf:"bytes,8,opt,name=id,proto3,oneof" json:"id,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	Id *NetworkSegmentId `protobuf:"bytes,8,opt,name=id,proto3,oneof" json:"id,omitempty"`
+	// Allows NICo to infer modified EUI-64 SLAAC addresses for clients making
+	// stateless DHCPv6 requests and add them to interface address state. False by
+	// default. Inference also requires dynamic allocation, exactly one IPv6 /64,
+	// and an interface without an existing IPv6 address. Set this only when
+	// clients derive SLAAC addresses from their MAC addresses using modified EUI-64.
+	InferSlaacEui64Addresses bool `protobuf:"varint,9,opt,name=infer_slaac_eui64_addresses,json=inferSlaacEui64Addresses,proto3" json:"infer_slaac_eui64_addresses,omitempty"`
+	unknownFields            protoimpl.UnknownFields
+	sizeCache                protoimpl.SizeCache
 }
 
 func (x *NetworkSegmentCreationRequest) Reset() {
@@ -16137,6 +16156,13 @@ func (x *NetworkSegmentCreationRequest) GetId() *NetworkSegmentId {
 		return x.Id
 	}
 	return nil
+}
+
+func (x *NetworkSegmentCreationRequest) GetInferSlaacEui64Addresses() bool {
+	if x != nil {
+		return x.InferSlaacEui64Addresses
+	}
+	return false
 }
 
 type NetworkSegmentDeletionRequest struct {
@@ -64266,13 +64292,14 @@ const file_nico_nico_proto_rawDesc = "" +
 	"\x1aNetworkSegmentStateHistory\x12\x14\n" +
 	"\x05state\x18\x01 \x01(\tR\x05state\x12\x18\n" +
 	"\aversion\x18\x02 \x01(\tR\aversion\x12.\n" +
-	"\x04time\x18\x03 \x01(\v2\x1a.google.protobuf.TimestampR\x04time\"\x96\x02\n" +
+	"\x04time\x18\x03 \x01(\v2\x1a.google.protobuf.TimestampR\x04time\"\xd5\x02\n" +
 	"\x14NetworkSegmentConfig\x12$\n" +
 	"\x06vpc_id\x18\x01 \x01(\v2\r.common.VpcIdR\x05vpcId\x128\n" +
 	"\fsubdomain_id\x18\x02 \x01(\v2\x10.common.DomainIdH\x00R\vsubdomainId\x88\x01\x01\x12\x15\n" +
 	"\x03mtu\x18\x03 \x01(\x05H\x01R\x03mtu\x88\x01\x01\x12<\n" +
 	"\fsegment_type\x18\x04 \x01(\x0e2\x19.forge.NetworkSegmentTypeR\vsegmentType\x120\n" +
-	"\bprefixes\x18\x05 \x03(\v2\x14.forge.NetworkPrefixR\bprefixesB\x0f\n" +
+	"\bprefixes\x18\x05 \x03(\v2\x14.forge.NetworkPrefixR\bprefixes\x12=\n" +
+	"\x1binfer_slaac_eui64_addresses\x18\x06 \x01(\bR\x18inferSlaacEui64AddressesB\x0f\n" +
 	"\r_subdomain_idB\x06\n" +
 	"\x04_mtu\"\xb4\x01\n" +
 	"\x14NetworkSegmentStatus\x12/\n" +
@@ -64301,7 +64328,7 @@ const file_nico_nico_proto_rawDesc = "" +
 	"\tstate_sla\x18g \x01(\v2\x0f.forge.StateSlaB\x02\x18\x01R\bstateSlaB\x0f\n" +
 	"\r_subdomain_idB\x06\n" +
 	"\x04_mtuB\x0f\n" +
-	"\r_state_reason\"\xe9\x02\n" +
+	"\r_state_reason\"\xa8\x03\n" +
 	"\x1dNetworkSegmentCreationRequest\x12$\n" +
 	"\x06vpc_id\x18\x02 \x01(\v2\r.common.VpcIdR\x05vpcId\x12\x12\n" +
 	"\x04name\x18\x03 \x01(\tR\x04name\x128\n" +
@@ -64309,7 +64336,8 @@ const file_nico_nico_proto_rawDesc = "" +
 	"\x03mtu\x18\x05 \x01(\x05H\x01R\x03mtu\x88\x01\x01\x120\n" +
 	"\bprefixes\x18\x06 \x03(\v2\x14.forge.NetworkPrefixR\bprefixes\x12<\n" +
 	"\fsegment_type\x18\a \x01(\x0e2\x19.forge.NetworkSegmentTypeR\vsegmentType\x12-\n" +
-	"\x02id\x18\b \x01(\v2\x18.common.NetworkSegmentIdH\x02R\x02id\x88\x01\x01B\x0f\n" +
+	"\x02id\x18\b \x01(\v2\x18.common.NetworkSegmentIdH\x02R\x02id\x88\x01\x01\x12=\n" +
+	"\x1binfer_slaac_eui64_addresses\x18\t \x01(\bR\x18inferSlaacEui64AddressesB\x0f\n" +
 	"\r_subdomain_idB\x06\n" +
 	"\x04_mtuB\x05\n" +
 	"\x03_id\"I\n" +

@@ -462,6 +462,7 @@ impl ApiClient {
                         prefixes,
                         mtu: Some(1500),
                         subdomain_id: None,
+                        infer_slaac_eui64_addresses: false,
                     })
                     .await
                     .map_err(ClientApiError::InvocationError)

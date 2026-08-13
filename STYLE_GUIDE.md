@@ -45,9 +45,19 @@ Other common places where we've seen `#[allow(dead_code)]` that are not necessar
   underscore to hint that it's not supposed to be read
 - If a field is only used if certain crate features are enabled, prefer `#[cfg(feature = "feature")]` to only
   include it when that feature is being used.
-- If a field isn't currently yet, but you want to leave it around as documentation on what fields could exist (like an
+- If a field isn't currently used, but you want to leave it around as documentation on what fields could exist (like an
   unused database column, or unused JSON field), comment it out.
 - Otherwise, strongly consider deleting the code.
+
+For binaries, add the following to the beginning of your main.rs:
+
+```rust
+#![cfg_attr(not(test), deny(dead_code_pub_in_binary))]
+```
+
+This ensures that dead code is detected even if it's marked `pub` in a binary, since binaries cannot be used by other
+crates anyway (making `pub` meaningless in a binary crate.) We would prefer to put this in the workspace-wide cargo
+config, but it results in false positives for test targets, see [rust-lang/rust#159078].
 
 ## Visibility
 
@@ -460,6 +470,69 @@ your interface `async` just so you can use the tokio Mutex. That way callers can
 async themselves. Async work should generally be traceable to some I/O or timer that needs to be used, otherwise
 code should typically be synchronous.
 
+### External I/O deadlines
+
+Set an intentional client-side deadline for every external I/O attempt that is expected to finish, or document why the
+operation is deliberately long-lived. This applies to HTTP, gRPC, SQL, SSH, Redfish, DNS, command execution, and
+similar calls.
+
+Apply these rules to every external I/O attempt:
+
+- **Bound the attempt, not the workflow.** For work that should finish, bound the individual attempt rather than the
+  lifetime of a durable reconciliation workflow.
+- **Include prerequisite waits.** Treat rate-limit permits, connection-pool acquisition, and similar waits as part of
+  the attempt's deadline and cancellation contract.
+- **Define every timer.** When a client or protocol distinguishes connect, read, write, and overall attempt deadlines,
+  configure the relevant phases separately. State whether each phase timer applies per I/O operation, measures
+  inactivity, or is cumulative, and state when it resets.
+- **Keep bounds reviewable.** At the code, configuration, or interface boundary that owns each deadline or
+  liveness-detection bound, state its value, unit, scope, and relationship to any enclosing deadline.
+
+Do not assume that a request header, client default, or TCP liveness timeout provides the intended bound. Choose timeout
+values from protocol behavior and the service objective, not an arbitrary short duration. Test timeout behavior when it
+is part of the contract.
+
+### Long-lived streams
+
+A long-lived stream can intentionally omit a short overall deadline, but it still needs explicit cancellation and a
+finite bound on how long lost liveness can go undetected.
+
+- When liveness is lost, cancel the stream.
+- Then either surface a terminal failure to the caller or owning task, or reconnect under the
+  [retry and backoff](#retries-and-backoff) rules.
+- Reconnect a data-bearing stream only when its documented delivery contract makes resumption or restart safe with
+  respect to replay, loss, duplication, and ordering. Otherwise, surface a terminal failure.
+
+### Cancellation and lifecycle
+
+Make every in-flight attempt and retry backoff observe an enclosing caller or request cancellation signal. Stop the
+retry sequence when that signal arrives unless a documented owning task must deliberately continue. Work that
+deliberately outlives the caller must still observe the owning task's cancellation or terminal lifecycle boundary.
+
+When an attempt deadline expires or a cancellation signal arrives, define each outcome separately:
+
+- Whether and how the current operation stops or continues.
+- Whether and how the retry sequence continues with backoff.
+- How the outcome is mapped for the caller or owning task.
+- How repeated failures and exhausted retry budgets become observable when they matter operationally.
+
+### Retries and backoff
+
+Define which outcomes are eligible for automatic retry and what happens to outcomes that are not explicitly classified
+as retryable. Apply these additional rules:
+
+- **Retry safety.** Classify retry safety before retrying an ambiguous outcome. Do not automatically retry a
+  non-idempotent operation unless the protocol or request provides an idempotency mechanism.
+- **Caller-scoped work.** When the caller waits for a terminal result, bound the retry sequence by attempt count or
+  elapsed time. Fit the attempts, backoff, and result handling within any enclosing caller deadline, leaving time to
+  translate and return the terminal result.
+- **Durable reconciliation.** A workflow can keep trying across iterations, but each iteration needs a bounded retry
+  count or elapsed-time budget. Keep backoff bounded, and keep every attempt subject to its documented deadline and
+  cancellation-or-continuation behavior.
+
+At the owning boundary, keep each retry limit and maximum backoff visible with its value, unit, scope, and relationship
+to caller or owning-task lifecycle bounds.
+
 ## Database migrations
 
 Name new Core database migration files with a fully populated 14-digit timestamp:
@@ -565,6 +638,58 @@ be cloned and re-used to cancel sub-tasks.
 
 A note on function naming: `start` or `spawn` should mean "spawns work in the background". `run` should mean "run
 forever".
+
+### Bound admitted work
+
+Bound work admitted from requests, packets, streams, database results, and external events. Account for work that is
+running, waiting to run, or waiting for capacity.
+
+The admission boundary has three independent layers:
+
+| Layer | Required bound |
+| --- | --- |
+| Active work | A concurrency limit, fixed worker count, or visible invariant |
+| Pending work | A finite queue, explicit no-queue policy, or visible invariant |
+| Producers waiting for capacity | A finite waiter limit, including zero, or visible invariant; each wait also follows the cancellation rules below |
+
+Count work retained for retry, including items in backoff or delayed-retry queues, as pending work. Alternatively, place
+it in a separately bounded retry scheduler with its own overload policy. A limit on one layer does not bound the others.
+Do not spawn an unbounded task for each item unless the input size is locally bounded.
+
+### Capacity outcomes and waits
+
+Choose an overload policy and define the item's lifecycle and producer-visible result, if any. Cover each applicable
+outcome:
+
+- **No capacity is available.** Wait with backpressure, reject, drop new work, coalesce it, or shed old work.
+- **A capacity wait is cancelled or expires.** Define what happens to the pending item and any reservation, what error
+  or fallback the producer observes, and whether it may retry.
+- **The owner stops.** Define whether queued work drains or is discarded and how blocked producers are released.
+
+Make every capacity wait cancellable. Give it either a finite deadline or a documented caller or owning-task lifecycle
+boundary. At the owning boundary:
+
+- **Finite deadline.** State its value, unit, scope, and relationship to any enclosing deadline.
+- **Lifecycle bound.** Name the cancellation source and terminal lifecycle boundary that bounds the wait.
+
+### Channel bounds
+
+Prefer bounded channels for work and data. An unbounded channel is acceptable only when:
+
+- A visible invariant places a hard bound on outstanding messages.
+- A nonblocking lifecycle or control path needs a synchronous sender that cannot wait.
+
+For a nonblocking lifecycle or control channel, bound the admitted work separately and document the ordering or
+lifecycle invariant that the unbounded path preserves. Do not assume the consumer can always keep up with its producers.
+
+### Capacity rationale and observability
+
+At the owning boundary, keep each limit's value, unit, scope, and rationale visible. Explain how multiple limits compose.
+If an invariant supplies a finite bound instead, state both the invariant and the bound it provides.
+
+When overload matters operationally, make the relevant queue depth, rejected, dropped, or coalesced work, saturated
+waiters, or latency observable. Use a plain log when diagnostic text is enough. Use a metric-backed event when the
+condition merits a count, rate, or duration. See [Instrumentation](#instrumentation).
 
 ### Cancelling background tasks
 
@@ -1047,7 +1172,9 @@ applicable, plus each wire, serde, or database representation the type uses.
 
 ### Prefer methods over free functions
 
-When a function operates primarily on a specific type, define it as a method on that type rather than a free-standing function. This keeps related behavior co-located with the type, makes it easier to discover via autocomplete, and reads more naturally at the call site.
+When a function operates primarily on a specific type, define it as a method on that type rather than a free-standing
+function. This keeps related behavior co-located with the type, makes it easier to discover via autocomplete, and reads
+more naturally at the call site.
 
 ```rust
 // Avoid — free function that operates on a specific type
@@ -1103,7 +1230,8 @@ impl MachineState {
 }
 ```
 
-Free functions are still appropriate when the logic genuinely spans multiple unrelated types, belongs in a module rather than a single type, or is a utility with no natural owner.
+Free functions are still appropriate when the logic genuinely spans multiple unrelated types, belongs in a module rather
+than a single type, or is a utility with no natural owner.
 
 ### Error message style
 
@@ -1134,3 +1262,4 @@ a `// xtask:allow-error-case` comment on, or directly above, the line. Rust sour
 `// This file is @generated by ...` banner are skipped because their messages are owned by the generator.
 
 [C-GOOD-ERR]: https://rust-lang.github.io/api-guidelines/interoperability.html#c-good-err
+[rust-lang/rust#159078]: https://github.com/rust-lang/rust/issues/159078

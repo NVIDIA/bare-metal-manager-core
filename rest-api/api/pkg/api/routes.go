@@ -37,6 +37,13 @@ func NewAPIRoutes(dbSession *cdb.Session, tc tClient.Client, tnc tClient.Namespa
 			Method:  http.MethodPut,
 			Handler: apiHandler.NewCreateOrUpdateBMCCredentialHandler(dbSession, scp, cfg),
 		},
+		// Site Explorer explored endpoints (Provider Admin). Lists Core explored
+		// endpoints through FindExploredEndpointIds + FindExploredEndpointsByIds.
+		{
+			Path:    apiPathPrefix + "/site-explorer/endpoint",
+			Method:  http.MethodGet,
+			Handler: apiHandler.NewGetAllExploredEndpointHandler(dbSession, scp, cfg),
+		},
 		// Site Explorer endpoint actions (Provider Admin). Composes existing
 		// single-endpoint Core methods through the generic gRPC proxy.
 		{

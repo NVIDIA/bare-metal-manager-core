@@ -45,6 +45,10 @@ pub struct MachineStateHandlerSiteConfig {
 
     pub dpa_enabled: bool,
     pub dpf_enabled: bool,
+    /// Site-wide enable for releasing the DPF maintenance hold so a changed
+    /// DPUService rolls out. When `false`, a host that DPF has parked in the
+    /// NodeEffect phase keeps its hold and its pending marker.
+    pub dpu_service_sync_enabled: bool,
     pub spdm_enabled: bool,
 
     /// Site-wide kill-switch for the passive BMC credential rotation guard. When
@@ -76,6 +80,7 @@ impl MachineStateHandlerSiteConfig {
             oem_manager_profiles: HashMap::new(),
             dpa_enabled: true,
             dpf_enabled: false,
+            dpu_service_sync_enabled: true,
             spdm_enabled: false,
             bmc_rotation_enabled: false,
             uefi_rotation_enabled: false,

@@ -25,7 +25,8 @@
 //! The DPF SDK abstracts away the complexity of managing DPF CRDs, providing
 //! a clean interface for:
 //!
-//! - Initializing DPF resources (BFB, DPUFlavor, DPUDeployment with services)
+//! - Initializing DPF resources (provisioning source, DPUFlavor, and
+//!   DPUDeployment with services)
 //! - Registering and managing DPU devices
 //! - Registering and managing DPU nodes (hosts with DPUs)
 //! - Watching for DPF events via callbacks
@@ -74,17 +75,19 @@ pub use k8s_openapi::apimachinery::pkg::util::intstr::IntOrString;
 pub use repository::{DpfRepository, KubeRepository};
 pub use sdk::{
     DpfSdk, DpfSdkBuilder, DpuProvisioningSource, NoLabels, ResourceLabeler, build_deployment,
-    build_service_configuration, build_service_interface, build_service_nad,
-    build_service_template, dpu_cr_name, dpu_device_cr_name, dpu_node_cr_name,
-    node_id_from_dpu_node_cr_name,
+    build_effective_dpu_interfaces, build_service_configuration, build_service_interface,
+    build_service_nad, build_service_template, calculate_pf_total_sf, dpu_cr_name,
+    dpu_device_cr_name, dpu_node_cr_name, node_id_from_dpu_node_cr_name,
 };
 pub use services::{DEFAULT_DOCA_HELM_REGISTRY, ServiceRegistryConfig};
 pub use types::{
-    BlueFieldSoftwareParams, BmcPasswordProvider, ConfigPortsServiceType, DpuDeploymentType,
-    DpuDeviceInfo, DpuErrorEvent, DpuEvent, DpuMismatch, DpuNodeInfo, DpuPhase, DpuReadyEvent,
-    DpuServiceVersion, InitDpfResourcesConfig, MaintenanceEvent, RebootRequiredEvent,
-    ServiceChainSwitch, ServiceConfigPort, ServiceConfigPortProtocol, ServiceDefinition,
-    ServiceInterface, ServiceNAD, ServiceNADResourceType,
+    BlueFieldSoftwareParams, BmcPasswordProvider, ConfigPortsServiceType, DEFAULT_DPU_NUM_OF_VFS,
+    DEFAULT_PF_TOTAL_SF_RESERVED, DPU_ENABLED_NODE_LABEL, DpfInterceptBridge, DpfInterceptBridging,
+    DpfInterfaceIdentity, DpuDeploymentType, DpuDeviceInfo, DpuErrorEvent, DpuEvent, DpuMismatch,
+    DpuNodeInfo, DpuPhase, DpuReadyEvent, DpuServiceVersion, InitDpfResourcesConfig,
+    MaintenanceEvent, RebootRequiredEvent, ServiceChainSwitch, ServiceConfigPort,
+    ServiceConfigPortProtocol, ServiceDefinition, ServiceInterface, ServiceNAD,
+    ServiceNADResourceType,
 };
 pub use watcher::{DpuWatcher, DpuWatcherBuilder};
 

@@ -42,6 +42,17 @@ pub enum HealthReportTarget {
     Switch,
 }
 
+impl HealthReportTarget {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Machine => "machine",
+            Self::PowerShelf => "power-shelf",
+            Self::Rack => "rack",
+            Self::Switch => "switch",
+        }
+    }
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct EventContext {
     pub endpoint_key: String,
@@ -893,6 +904,28 @@ mod tests {
 
             "GPU inventory" {
                 ReportSource::GpuInventory => "gpu-inventory",
+            }
+        );
+    }
+
+    #[test]
+    fn report_target_strings() {
+        value_scenarios!(
+            run = HealthReportTarget::as_str;
+            "machine" {
+                HealthReportTarget::Machine => "machine",
+            }
+
+            "power shelf" {
+                HealthReportTarget::PowerShelf => "power-shelf",
+            }
+
+            "rack" {
+                HealthReportTarget::Rack => "rack",
+            }
+
+            "switch" {
+                HealthReportTarget::Switch => "switch",
             }
         );
     }

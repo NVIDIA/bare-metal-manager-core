@@ -1629,14 +1629,8 @@ fn warn_report_diff(report1: &EndpointExplorationReport, report2: &EndpointExplo
                 if i1.id != i2.id
                     || i1.description != i2.description
                     || i1.version != i2.version
-                    || i1
-                        .release_date
-                        .as_ref()
-                        .and_then(|v| if v == "00:00:00Z" { None } else { Some(v) })
-                        != i2
-                            .release_date
-                            .as_ref()
-                            .and_then(|v| if v == "00:00:00Z" { None } else { Some(v) })
+                    || i1.release_date.as_ref().filter(|&v| v != "00:00:00Z")
+                        != i2.release_date.as_ref().filter(|&v| v != "00:00:00Z")
                 {
                     tracing::warn!(
                         service_id = ?s1.id,

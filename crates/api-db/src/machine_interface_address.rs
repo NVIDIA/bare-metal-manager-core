@@ -179,8 +179,10 @@ pub async fn delete_by_interface_and_address(
 /// `ON CONFLICT DO NOTHING` leaves the caller's transaction usable so we can
 /// identify the current owner. Repeating the same assignment for the same
 /// interface is idempotent; a different owner or allocation type returns
-/// [`AddressAlreadyInUseError`]. Allocation callers decide whether to choose
-/// another address; this function only attempts the requested address once.
+/// [`AddressAlreadyInUseError`]. An interface that already has another address
+/// in the same family returns [`DatabaseError::FailedPrecondition`]. Allocation
+/// callers decide whether to choose another address; this function only
+/// attempts the requested address once.
 pub async fn insert(
     txn: &mut PgConnection,
     interface_id: MachineInterfaceId,
@@ -189,33 +191,48 @@ pub async fn insert(
 ) -> Result<(), DatabaseError> {
     let query = "INSERT INTO machine_interface_addresses (interface_id, address, allocation_type)
         VALUES ($1::uuid, $2::inet, $3)
-        ON CONFLICT (address) DO NOTHING
+        ON CONFLICT DO NOTHING
         RETURNING interface_id";
 
-    let inserted: Option<MachineInterfaceId> = sqlx::query_scalar(query)
+    let address_inserted = sqlx::query_scalar::<_, MachineInterfaceId>(query)
         .bind(interface_id)
         .bind(address)
         .bind(allocation_type)
         .fetch_optional(&mut *txn)
         .await
-        .map_err(|e| DatabaseError::query(query, e))?;
-    if inserted.is_some() {
+        .map_err(|e| DatabaseError::query(query, e))?
+        .is_some();
+    if address_inserted {
         return Ok(());
     }
 
-    let Some(existing) = find_by_address(&mut *txn, address).await? else {
+    let Some(address_owner) = find_by_address(&mut *txn, address).await? else {
+        if let Some(existing_in_family) = find_for_interface(&mut *txn, interface_id)
+            .await?
+            .into_iter()
+            .find(|candidate| {
+                candidate
+                    .address
+                    .is_address_family(address.address_family())
+            })
+        {
+            return Err(DatabaseError::FailedPrecondition(format!(
+                "interface {interface_id} already has address {} in the same family as {address}",
+                existing_in_family.address,
+            )));
+        }
         return Err(DatabaseError::internal(format!(
-            "address {address} was reported as in use but has no owner"
+            "address {address} could not be assigned to interface {interface_id}, and no conflicting assignment was found"
         )));
     };
-    if existing.id == interface_id && existing.allocation_type == allocation_type {
+    if address_owner.id == interface_id && address_owner.allocation_type == allocation_type {
         return Ok(());
     }
     Err(AddressAlreadyInUseError(
         address,
-        existing.mac_address,
-        existing.segment_id,
-        existing.id,
+        address_owner.mac_address,
+        address_owner.segment_id,
+        address_owner.id,
     )
     .into())
 }
@@ -422,7 +439,7 @@ mod tests {
         Ok(())
     }
 
-    /// Verifies that concurrent inserts leave one owner and return a useful conflict.
+    /// Verifies that concurrent inserts leave one owner and conflicts stay actionable.
     #[crate::sqlx_test]
     async fn concurrent_inserts_keep_one_address_owner(
         pool: sqlx::PgPool,
@@ -530,6 +547,63 @@ mod tests {
         .fetch_one(&pool)
         .await?;
         assert_eq!(slaac_owner_count, 1);
+
+        Ok(())
+    }
+
+    /// Verifies that a second address in the same family is rejected.
+    #[crate::sqlx_test]
+    async fn insert_rejects_another_address_in_the_same_family(
+        pool: sqlx::PgPool,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let mut txn = pool.begin().await?;
+        let segment_id: NetworkSegmentId = sqlx::query_scalar(
+            "INSERT INTO network_segments (name, version)
+             VALUES ('address-family-conflict', 'V1-T0')
+             RETURNING id",
+        )
+        .fetch_one(&mut *txn)
+        .await?;
+        let interface_id = create_test_interface(
+            &mut txn,
+            segment_id,
+            "02:00:00:00:00:14".parse()?,
+            "address-family-conflict",
+        )
+        .await?;
+        let existing_address: IpAddr = "2001:db8::10".parse()?;
+        insert(
+            &mut txn,
+            interface_id,
+            existing_address,
+            AllocationType::Slaac,
+        )
+        .await?;
+
+        let requested_address: IpAddr = "2001:db8::11".parse()?;
+        let error = insert(
+            &mut txn,
+            interface_id,
+            requested_address,
+            AllocationType::Slaac,
+        )
+        .await
+        .expect_err("a second IPv6 address on the same interface should be rejected");
+        match error {
+            DatabaseError::FailedPrecondition(message) => {
+                assert!(
+                    message.contains(&format!("already has address {existing_address}")),
+                    "{message}"
+                );
+                assert!(
+                    message.contains(&requested_address.to_string()),
+                    "{message}"
+                );
+            }
+            error => panic!("expected a failed-precondition error, got {error:?}"),
+        }
+
+        txn.rollback().await?;
         Ok(())
     }
 

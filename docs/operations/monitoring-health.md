@@ -271,16 +271,19 @@ For leak-related events, look for:
 report_source=tray-leak-detection
 ```
 
-Health report records exported over OTLP carry only these counts by default.
-Setting `include_alert_details = true` on a `[[sinks.otlp.targets]]` entry adds
-a `health_report.alerts` attribute holding a JSON array of the individual
-alerts, each with `probe_id`, `message`, `classifications`, and `target` when
-the alert names one. The setting is per target, so a debugging destination can
-receive detail while a long-term store receives only counts. At most 64 alerts
-are serialized per record; a truncated record also carries
-`health_report.alerts.dropped` with the number omitted. Note that `probe_id`
-uses health API probe names, so OOB GPU inventory alerts appear as
-`SkuValidation` to dedup with the in-band SKU alerts.
+Health report records exported over OTLP carry versioned routing fields, counts, and structured success entries by default. Refer to the [OTLP health-report log contract](../architecture/health_aggregation.md#otlp-health-report-log-contract) for the complete attribute schema.
+
+Keep the following in mind when configuring health report records:
+
+* The per-target `include_alert_details` setting defaults to `false`. This omits `health_report.alerts` and `health_report.alerts.dropped`. Set `include_alert_details` to `true` on a `[[sinks.otlp.targets]]` entry to add `health_report.alerts` when the report has alerts.
+
+* _The setting is per-target_. This means that, for example, a debugging destination can receive detail, while a long-term store receives the routing, count, and success evidence without needing to store free-form alert messages.
+
+* The JSON array in `health_report.alerts` contains the first 64 alerts in report order, each with `probe_id`, `message`, `classifications`, and `target` if the alert names one.
+
+* `health_report.alerts.dropped` appears only when details are enabled _and_ the report has more than 64 alerts. It contains the number of omitted alerts beyond those first 64.
+
+* Probe IDs use health API names: for example, OOB GPU inventory alerts appear as `SkuValidation` to deduplicate with the in-band SKU alerts.
 
 ## DPU Health Checks
 

@@ -18,12 +18,14 @@
 use std::collections::HashMap;
 use std::time::SystemTime;
 
-use opentelemetry::{Key, Value};
+use opentelemetry::logs::AnyValue;
+use opentelemetry::{Key, KeyValue};
+use opentelemetry_proto::transform::common::tonic::Attributes;
 use serde::Serialize;
 
 use super::collector_logs::ExportLogsServiceRequest;
 use super::collector_metrics::ExportMetricsServiceRequest;
-use super::common::{AnyValue, KeyValue};
+use super::common::KeyValue as OtlpKeyValue;
 use super::logs::{LogRecord as OtlpLogRecord, ResourceLogs, ScopeLogs, SeverityNumber};
 use super::metrics::{
     Gauge as OtlpGauge, Metric as OtlpMetric, NumberDataPoint, ResourceMetrics, ScopeMetrics,
@@ -31,7 +33,10 @@ use super::metrics::{
 };
 use super::resource::Resource;
 use crate::endpoint::SwitchEndpointRole;
-use crate::sink::{CollectorEvent, EventContext, HealthReportAlert, LogSeverity, MetricSample};
+use crate::sink::{
+    CollectorEvent, EventContext, HealthReport, HealthReportAlert, HealthReportSuccess,
+    LogSeverity, MetricSample,
+};
 
 /// Maximum alerts serialized into the `health_report.alerts` attribute.
 ///
@@ -40,6 +45,17 @@ use crate::sink::{CollectorEvent, EventContext, HealthReportAlert, LogSeverity, 
 /// which the drain retries before dropping the whole batch. Truncating here
 /// keeps one degraded endpoint from taking unrelated records down with it.
 const MAX_SERIALIZED_ALERTS: usize = 64;
+
+const HEALTH_REPORT_SCHEMA_VERSION: &str = "v1";
+const HEALTH_REPORT_SCHEMA_VERSION_KEY: &str = "health_report.schema_version";
+const HEALTH_REPORT_SOURCE_KEY: &str = "health_report.source";
+const HEALTH_REPORT_TARGET_KEY: &str = "health_report.target";
+const HEALTH_REPORT_OBSERVED_AT_KEY: &str = "health_report.observed_at";
+const HEALTH_REPORT_SUCCESS_COUNT_KEY: &str = "health_report.success_count";
+const HEALTH_REPORT_ALERT_COUNT_KEY: &str = "health_report.alert_count";
+const HEALTH_REPORT_SUCCESSES_KEY: &str = "health_report.successes";
+const HEALTH_REPORT_SUCCESS_PROBE_ID_KEY: &str = "probe_id";
+const HEALTH_REPORT_SUCCESS_TARGET_KEY: &str = "target";
 
 fn severity_number(severity: LogSeverity) -> i32 {
     match severity {
@@ -55,6 +71,14 @@ fn severity_number(severity: LogSeverity) -> i32 {
 
 fn resource_group_key(context: &EventContext) -> String {
     format!("{}|{}", context.endpoint_key, context.collector_type)
+}
+
+/// Lowers [`KeyValue`] attributes onto the wire.
+///
+/// [`Attributes`] is opentelemetry-proto's newtype over the OTLP attribute list;
+/// it owns the [`KeyValue`] conversion, so this only unwraps it.
+fn otlp_attributes(attributes: impl IntoIterator<Item = KeyValue>) -> Vec<OtlpKeyValue> {
+    Attributes::from(attributes).0
 }
 
 fn resource_attributes(context: &EventContext) -> Vec<KeyValue> {
@@ -135,18 +159,91 @@ fn convert_log(log: &crate::sink::LogRecord, observed_nanos: u64) -> OtlpLogReco
     let attributes = log
         .attributes
         .iter()
-        .map(|(k, v)| KeyValue::new(k.to_string(), v.clone()))
-        .collect();
+        .map(|(k, v)| KeyValue::new(k.to_string(), v.clone()));
 
     OtlpLogRecord {
         time_unix_nano: observed_nanos,
         observed_time_unix_nano: observed_nanos,
         severity_number: severity_number(log.severity),
         severity_text: log.severity.as_str().to_string(),
-        body: Some(log.body.clone().into_any_value()),
-        attributes,
+        body: Some(AnyValue::from(log.body.clone()).into()),
+        attributes: otlp_attributes(attributes),
         ..Default::default()
     }
+}
+
+/// One passing probe, as a nested kvlist under `health_report.successes`.
+fn health_report_success_value(success: &HealthReportSuccess) -> AnyValue {
+    let mut entries = HashMap::from([(
+        Key::from_static_str(HEALTH_REPORT_SUCCESS_PROBE_ID_KEY),
+        AnyValue::from(success.probe_id.as_str()),
+    )]);
+    if let Some(target) = &success.target {
+        entries.insert(
+            Key::from_static_str(HEALTH_REPORT_SUCCESS_TARGET_KEY),
+            AnyValue::from(target.clone()),
+        );
+    }
+
+    AnyValue::Map(Box::new(entries))
+}
+
+/// The versioned `health_report.*` attribute contract.
+///
+/// Scalar routing fields let a consumer filter without parsing the summary body;
+/// `health_report.successes` carries the passing probes as nested kvlists.
+fn health_report_attributes(report: &HealthReport) -> Vec<(&'static str, AnyValue)> {
+    let successes = report
+        .successes
+        .iter()
+        .map(health_report_success_value)
+        .collect();
+
+    let mut attributes = vec![
+        ("event.type", AnyValue::from("health_report")),
+        (
+            HEALTH_REPORT_SCHEMA_VERSION_KEY,
+            AnyValue::from(HEALTH_REPORT_SCHEMA_VERSION),
+        ),
+        (
+            HEALTH_REPORT_SOURCE_KEY,
+            AnyValue::from(report.source.as_str()),
+        ),
+        (
+            HEALTH_REPORT_SUCCESS_COUNT_KEY,
+            AnyValue::from(i64::try_from(report.successes.len()).unwrap_or(i64::MAX)),
+        ),
+        (
+            HEALTH_REPORT_ALERT_COUNT_KEY,
+            AnyValue::from(i64::try_from(report.alerts.len()).unwrap_or(i64::MAX)),
+        ),
+        (
+            HEALTH_REPORT_SUCCESSES_KEY,
+            AnyValue::ListAny(Box::new(successes)),
+        ),
+    ];
+    if let Some(target) = report.target {
+        attributes.push((HEALTH_REPORT_TARGET_KEY, AnyValue::from(target.as_str())));
+    }
+    if let Some(observed_at) = &report.observed_at {
+        attributes.push((
+            HEALTH_REPORT_OBSERVED_AT_KEY,
+            AnyValue::from(observed_at.to_rfc3339_opts(chrono::SecondsFormat::Nanos, true)),
+        ));
+    }
+
+    attributes
+}
+
+/// When the report was observed, falling back to the export time for reports
+/// without an observation time or dated before the Unix epoch.
+fn health_report_event_time(report: &HealthReport, fallback_nanos: u64) -> u64 {
+    report
+        .observed_at
+        .as_ref()
+        .and_then(chrono::DateTime::timestamp_nanos_opt)
+        .and_then(|nanos| u64::try_from(nanos).ok())
+        .unwrap_or(fallback_nanos)
 }
 
 /// Alert detail as it appears inside the `health_report.alerts` JSON array.
@@ -168,7 +265,7 @@ struct AlertDetail<'a> {
 ///
 /// Returns no attributes when serialization fails so a malformed report costs
 /// only the detail, not the record.
-fn alert_detail_attributes(alerts: &[HealthReportAlert]) -> Vec<KeyValue> {
+fn alert_detail_attributes(alerts: &[HealthReportAlert]) -> Vec<(&'static str, AnyValue)> {
     let details: Vec<AlertDetail<'_>> = alerts
         .iter()
         .take(MAX_SERIALIZED_ALERTS)
@@ -197,13 +294,13 @@ fn alert_detail_attributes(alerts: &[HealthReportAlert]) -> Vec<KeyValue> {
         }
     };
 
-    let mut attributes = vec![KeyValue::new("health_report.alerts", json)];
+    let mut attributes = vec![("health_report.alerts", AnyValue::from(json))];
     let dropped = alerts.len().saturating_sub(MAX_SERIALIZED_ALERTS);
 
     if dropped > 0 {
-        attributes.push(KeyValue::new(
+        attributes.push((
             "health_report.alerts.dropped",
-            i64::try_from(dropped).unwrap_or(i64::MAX),
+            AnyValue::from(i64::try_from(dropped).unwrap_or(i64::MAX)),
         ));
     }
 
@@ -230,19 +327,19 @@ fn convert_event(
                 LogSeverity::Warn
             };
 
-            let mut attributes = vec![KeyValue::new("event.type", "health_report".to_string())];
+            let mut attributes = health_report_attributes(report);
 
             if include_alert_details && !report.alerts.is_empty() {
                 attributes.extend(alert_detail_attributes(&report.alerts));
             }
 
             Some(OtlpLogRecord {
-                time_unix_nano: observed_nanos,
+                time_unix_nano: health_report_event_time(report, observed_nanos),
                 observed_time_unix_nano: observed_nanos,
                 severity_number: severity_number(severity),
                 severity_text: severity.as_str().to_string(),
-                body: Some(body.into_any_value()),
-                attributes,
+                body: Some(AnyValue::from(body).into()),
+                attributes: attributes.into_iter().collect::<Attributes>().0,
                 ..Default::default()
             })
         }
@@ -253,8 +350,8 @@ fn convert_event(
                 observed_time_unix_nano: observed_nanos,
                 severity_number: severity_number(LogSeverity::Info),
                 severity_text: LogSeverity::Info.as_str().to_string(),
-                body: Some(body.into_any_value()),
-                attributes: vec![KeyValue::new("event.type", "firmware".to_string())],
+                body: Some(AnyValue::from(body).into()),
+                attributes: otlp_attributes([KeyValue::new("event.type", "firmware")]),
                 ..Default::default()
             })
         }
@@ -295,9 +392,8 @@ pub fn build_export_request(
         .into_values()
         .map(|(attrs, records)| ResourceLogs {
             resource: Some(Resource {
-                attributes: attrs,
-                dropped_attributes_count: 0,
-                entity_refs: vec![],
+                attributes: otlp_attributes(attrs),
+                ..Default::default()
             }),
             scope_logs: vec![ScopeLogs {
                 scope: None,
@@ -331,14 +427,13 @@ pub fn build_metrics_export_request(
         // switch.serial_number, switch.ip). VictoriaMetrics flattens resource
         // attributes onto every series, so promoting them onto the datapoint too
         // only duplicates the same value under a second (underscore) label name.
-        let attributes: Vec<KeyValue> = sample
+        let attributes = sample
             .labels
             .iter()
-            .map(|(k, v)| KeyValue::new(k.to_string(), v.clone()))
-            .collect();
+            .map(|(k, v)| KeyValue::new(k.to_string(), v.clone()));
 
         let data_point = NumberDataPoint {
-            attributes,
+            attributes: otlp_attributes(attributes),
             time_unix_nano: observed_nanos,
             value: Some(number_data_point::Value::AsDouble(sample.value)),
             ..Default::default()
@@ -370,9 +465,8 @@ pub fn build_metrics_export_request(
         .into_values()
         .map(|(attrs, metrics)| ResourceMetrics {
             resource: Some(Resource {
-                attributes: attrs,
-                dropped_attributes_count: 0,
-                entity_refs: vec![],
+                attributes: otlp_attributes(attrs),
+                ..Default::default()
             }),
             scope_metrics: vec![ScopeMetrics {
                 scope: None,
@@ -386,63 +480,29 @@ pub fn build_metrics_export_request(
     ExportMetricsServiceRequest { resource_metrics }
 }
 
-/// Convenience trait to make opentelemetry-proto's AnyValue easier to work with
-///
-/// opentelemetry-proto's [`AnyValue`] implements `From` from [`opentelemetry::Value`], but it's
-/// opentelemetry::Value tself that has multiple convenient `From` impls for things like String,
-/// u32, etc. So convert first through [`opentelemetry::Value`], then into opentelemetry_proto's
-/// [`AnyValue`].
-trait IntoAnyValue {
-    fn into_any_value(self) -> AnyValue;
-}
-
-impl<T> IntoAnyValue for T
-where
-    T: Into<Value>,
-{
-    fn into_any_value(self) -> AnyValue {
-        AnyValue::from(self.into())
-    }
-}
-
-/// Convenience trait: A `new` function for opentelemetry_proto's [`KeyValue`], leveraging
-/// [`opentelemetry::Key`] and [`opentelemetry::Value`]'s existing `From` implementations to make
-/// constructing KeyValues easier.
-/// convert to an opentelemetry_proto [`AnyValue`]
-trait NewFromKeyAndValue {
-    fn new(key: impl Into<Key>, value: impl Into<Value>) -> Self;
-}
-
-impl NewFromKeyAndValue for KeyValue {
-    fn new(key: impl Into<Key>, value: impl Into<Value>) -> Self {
-        KeyValue {
-            key: key.into().to_string(),
-            value: Some(AnyValue::from(value.into())),
-            key_strindex: 0,
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use std::borrow::Cow;
     use std::net::{IpAddr, Ipv4Addr};
     use std::str::FromStr;
 
+    use carbide_test_support::value_scenarios;
     use carbide_uuid::nvlink::NvLinkDomainId;
     use carbide_uuid::power_shelf::PowerShelfId;
     use carbide_uuid::rack::RackId;
     use carbide_uuid::switch::{SwitchId, SwitchIdSource, SwitchType};
+    use chrono::{TimeZone, Utc};
     use mac_address::MacAddress;
-    use opentelemetry_proto::tonic::common::v1::any_value;
 
     use super::*;
     use crate::endpoint::{
         BmcAddr, EndpointMetadata, MachineData, PowerShelfData, SharedSystemUuid, SwitchData,
         SwitchEndpointRole,
     };
+    use crate::otlp::common::{AnyValue as OtlpAnyValue, any_value};
     use crate::sink::{
-        Classification, HealthReport, HealthReportAlert, LogRecord, Probe, ReportSource,
+        Classification, HealthReport, HealthReportAlert, HealthReportSuccess, HealthReportTarget,
+        LogRecord, Probe, ReportSource,
     };
 
     fn test_context() -> EventContext {
@@ -467,7 +527,13 @@ mod tests {
         SwitchId::new(SwitchIdSource::Tpm, hash, SwitchType::NvLink)
     }
 
-    fn attr_value<'a>(attrs: &'a [KeyValue], key: &str) -> Option<&'a str> {
+    /// Resource attributes as an export carries them, so assertions read the
+    /// same wire form the collector receives.
+    fn otlp_resource_attributes(context: &EventContext) -> Vec<OtlpKeyValue> {
+        otlp_attributes(resource_attributes(context))
+    }
+
+    fn attr_value<'a>(attrs: &'a [OtlpKeyValue], key: &str) -> Option<&'a str> {
         attrs
             .iter()
             .find(|attr| attr.key == key)
@@ -478,7 +544,7 @@ mod tests {
             })
     }
 
-    fn attr_int_value(attrs: &[KeyValue], key: &str) -> Option<i64> {
+    fn attr_int_value(attrs: &[OtlpKeyValue], key: &str) -> Option<i64> {
         attrs
             .iter()
             .find(|attr| attr.key == key)
@@ -489,7 +555,7 @@ mod tests {
             })
     }
 
-    fn attr_bool_value(attrs: &[KeyValue], key: &str) -> Option<bool> {
+    fn attr_bool_value(attrs: &[OtlpKeyValue], key: &str) -> Option<bool> {
         attrs
             .iter()
             .find(|attr| attr.key == key)
@@ -498,6 +564,37 @@ mod tests {
                 any_value::Value::BoolValue(value) => Some(*value),
                 _ => None,
             })
+    }
+
+    /// The record's body when it is a string, the only body shape the health
+    /// crate emits.
+    fn body_value(record: &OtlpLogRecord) -> Option<&str> {
+        match record.body.as_ref()?.value.as_ref()? {
+            any_value::Value::StringValue(value) => Some(value.as_str()),
+            _ => None,
+        }
+    }
+
+    fn any_array_value(value: &OtlpAnyValue) -> Option<&[OtlpAnyValue]> {
+        match value.value.as_ref()? {
+            any_value::Value::ArrayValue(value) => Some(value.values.as_slice()),
+            _ => None,
+        }
+    }
+
+    fn any_kvlist_value(value: &OtlpAnyValue) -> Option<&[OtlpKeyValue]> {
+        match value.value.as_ref()? {
+            any_value::Value::KvlistValue(value) => Some(value.values.as_slice()),
+            _ => None,
+        }
+    }
+
+    fn attr_array_value<'a>(attrs: &'a [OtlpKeyValue], key: &str) -> Option<&'a [OtlpAnyValue]> {
+        attrs
+            .iter()
+            .find(|attr| attr.key == key)
+            .and_then(|attr| attr.value.as_ref())
+            .and_then(any_array_value)
     }
 
     #[test]
@@ -531,7 +628,7 @@ mod tests {
             rack_id: Some(RackId::new("RACK_1")),
         };
 
-        let attrs = resource_attributes(&context);
+        let attrs = otlp_resource_attributes(&context);
 
         assert_eq!(attr_value(&attrs, "rack.id"), Some("RACK_1"));
         assert_eq!(attr_value(&attrs, "site"), Some("rno-dev7"));
@@ -574,7 +671,7 @@ mod tests {
             rack_id: None,
         };
 
-        let attrs = resource_attributes(&context);
+        let attrs = otlp_resource_attributes(&context);
 
         assert_eq!(attr_value(&attrs, "machine.id"), None);
         assert_eq!(attr_value(&attrs, "component.type"), Some("compute_node"));
@@ -614,7 +711,7 @@ mod tests {
             rack_id: Some(RackId::new("RACK_2")),
         };
 
-        let attrs = resource_attributes(&context);
+        let attrs = otlp_resource_attributes(&context);
 
         assert_eq!(
             attr_value(&attrs, "switch.id"),
@@ -658,7 +755,7 @@ mod tests {
             rack_id: Some(RackId::new("RACK_2")),
         };
 
-        let attrs = resource_attributes(&context);
+        let attrs = otlp_resource_attributes(&context);
 
         assert_eq!(attr_value(&attrs, "bmc.endpoint"), None);
         assert_eq!(attr_value(&attrs, "bmc.ip"), None);
@@ -827,7 +924,7 @@ mod tests {
             rack_id: Some(RackId::new("RACK_4")),
         };
 
-        let attrs = resource_attributes(&context);
+        let attrs = otlp_resource_attributes(&context);
 
         assert_eq!(attr_value(&attrs, "component.type"), Some("power_shelf"));
         assert_eq!(attr_value(&attrs, "rack.id"), Some("RACK_4"));
@@ -921,7 +1018,7 @@ mod tests {
         let records = &request.resource_logs[0].scope_logs[0].log_records;
         let record = &records[0];
 
-        assert_eq!(record.body, Some(body.into_any_value()));
+        assert_eq!(body_value(record), Some(body));
         assert_eq!(
             attr_value(&record.attributes, "redfish.diagnostic_data.type"),
             Some("cper")
@@ -941,6 +1038,34 @@ mod tests {
         ];
         let request = build_export_request(&batch, false);
         assert!(request.resource_logs.is_empty());
+    }
+
+    #[test]
+    fn health_report_attribute_keys_are_stable() {
+        assert_eq!(
+            [
+                HEALTH_REPORT_SCHEMA_VERSION_KEY,
+                HEALTH_REPORT_SOURCE_KEY,
+                HEALTH_REPORT_TARGET_KEY,
+                HEALTH_REPORT_OBSERVED_AT_KEY,
+                HEALTH_REPORT_SUCCESS_COUNT_KEY,
+                HEALTH_REPORT_ALERT_COUNT_KEY,
+                HEALTH_REPORT_SUCCESSES_KEY,
+                HEALTH_REPORT_SUCCESS_PROBE_ID_KEY,
+                HEALTH_REPORT_SUCCESS_TARGET_KEY,
+            ],
+            [
+                "health_report.schema_version",
+                "health_report.source",
+                "health_report.target",
+                "health_report.observed_at",
+                "health_report.success_count",
+                "health_report.alert_count",
+                "health_report.successes",
+                "probe_id",
+                "target",
+            ]
+        );
     }
 
     fn sensor_alert() -> HealthReportAlert {
@@ -990,15 +1115,28 @@ mod tests {
         assert_eq!(record.severity_text, "WARN");
     }
 
-    /// Guards the flag-off record against any change from the alert detail work.
+    /// Guards the per-target policy: scalar evidence remains available while
+    /// free-form alert detail stays absent when the flag is disabled.
     #[test]
     fn health_report_omits_alert_details_when_disabled() {
         let record = health_report_record(vec![sensor_alert()], false);
 
-        assert_eq!(record.attributes.len(), 1);
         assert_eq!(
             attr_value(&record.attributes, "event.type"),
             Some("health_report")
+        );
+        assert_eq!(
+            attr_value(&record.attributes, HEALTH_REPORT_SCHEMA_VERSION_KEY),
+            Some("v1")
+        );
+        assert_eq!(
+            attr_int_value(&record.attributes, HEALTH_REPORT_ALERT_COUNT_KEY),
+            Some(1)
+        );
+        assert_eq!(attr_value(&record.attributes, "health_report.alerts"), None);
+        assert_eq!(
+            attr_int_value(&record.attributes, "health_report.alerts.dropped"),
+            None
         );
     }
 
@@ -1023,8 +1161,8 @@ mod tests {
         assert_eq!(record.severity_text, "WARN");
         assert_eq!(record.severity_number, SeverityNumber::Warn as i32);
         assert_eq!(
-            record.body,
-            Some("health report: 2 alerts, 0 ok (source: BmcSensors)".into_any_value())
+            body_value(&record),
+            Some("health report: 2 alerts, 0 ok (source: BmcSensors)")
         );
         assert_eq!(
             attr_value(&record.attributes, "event.type"),
@@ -1066,8 +1204,11 @@ mod tests {
     fn health_report_without_alerts_omits_alert_details() {
         let record = health_report_record(vec![], true);
 
-        assert_eq!(record.attributes.len(), 1);
         assert_eq!(attr_value(&record.attributes, "health_report.alerts"), None);
+        assert_eq!(
+            attr_int_value(&record.attributes, HEALTH_REPORT_ALERT_COUNT_KEY),
+            Some(0)
+        );
     }
 
     #[test]
@@ -1104,6 +1245,167 @@ mod tests {
         assert_eq!(
             attr_int_value(&record.attributes, "health_report.alerts.dropped"),
             Some(3)
+        );
+    }
+
+    #[test]
+    fn health_report_converts_with_structured_evidence() {
+        let ctx = test_context();
+        let observed_at = Utc
+            .with_ymd_and_hms(2026, 7, 31, 12, 34, 56)
+            .single()
+            .expect("valid timestamp");
+        let report = CollectorEvent::HealthReport(
+            HealthReport {
+                source: ReportSource::NvueLeakage,
+                target: Some(HealthReportTarget::Switch),
+                observed_at: Some(observed_at),
+                successes: vec![HealthReportSuccess {
+                    probe_id: Probe::NvueLeakage,
+                    target: Some("LEAK1".to_string()),
+                }],
+                alerts: vec![HealthReportAlert {
+                    probe_id: Probe::NvueLeakage,
+                    target: Some("LEAK2".to_string()),
+                    message: "NVUE leakage sensor LEAK2 reports leak".to_string(),
+                    classifications: vec![Classification::Leak, Classification::SensorFailure],
+                }],
+            }
+            .into(),
+        );
+
+        let request = build_export_request(&[(ctx, report)], true);
+        let records = &request.resource_logs[0].scope_logs[0].log_records;
+        let record = &records[0];
+        let attrs = record.attributes.as_slice();
+
+        assert_eq!(record.severity_text, "WARN");
+        assert_eq!(
+            body_value(record),
+            Some("health report: 1 alerts, 1 ok (source: NvueLeakage)")
+        );
+        assert_eq!(attr_value(attrs, "event.type"), Some("health_report"));
+        assert_eq!(
+            record.time_unix_nano,
+            u64::try_from(
+                observed_at
+                    .timestamp_nanos_opt()
+                    .expect("timestamp has nanoseconds")
+            )
+            .expect("timestamp is after the Unix epoch")
+        );
+        assert_eq!(
+            attr_value(attrs, HEALTH_REPORT_SCHEMA_VERSION_KEY),
+            Some("v1")
+        );
+        assert_eq!(
+            attr_value(attrs, HEALTH_REPORT_SOURCE_KEY),
+            Some("nvue-leakage")
+        );
+        assert_eq!(attr_value(attrs, HEALTH_REPORT_TARGET_KEY), Some("switch"));
+        assert_eq!(
+            attr_value(attrs, HEALTH_REPORT_OBSERVED_AT_KEY),
+            Some("2026-07-31T12:34:56.000000000Z")
+        );
+        assert_eq!(
+            attr_int_value(attrs, HEALTH_REPORT_SUCCESS_COUNT_KEY),
+            Some(1)
+        );
+        assert_eq!(
+            attr_int_value(attrs, HEALTH_REPORT_ALERT_COUNT_KEY),
+            Some(1)
+        );
+
+        let successes =
+            attr_array_value(attrs, HEALTH_REPORT_SUCCESSES_KEY).expect("success array");
+        let success = any_kvlist_value(&successes[0]).expect("structured success");
+        assert_eq!(
+            attr_value(success, HEALTH_REPORT_SUCCESS_PROBE_ID_KEY),
+            Some("NvueLeakage")
+        );
+        assert_eq!(
+            attr_value(success, HEALTH_REPORT_SUCCESS_TARGET_KEY),
+            Some("LEAK1")
+        );
+
+        let alerts = alert_details(record);
+        let alert = &alerts[0];
+        assert_eq!(alert["probe_id"], "NvueLeakage");
+        assert_eq!(alert["target"], "LEAK2");
+        assert_eq!(alert["message"], "NVUE leakage sensor LEAK2 reports leak");
+        assert_eq!(
+            alert["classifications"],
+            serde_json::json!(["Leak", "SensorFailure"])
+        );
+        assert_eq!(attr_int_value(attrs, "health_report.alerts.dropped"), None);
+    }
+
+    /// Export timestamp handed to `convert_event` so timestamp expectations stay
+    /// independent of the wall clock.
+    const EXPORT_NANOS: u64 = 1_784_500_000_000_000_000;
+
+    #[derive(Debug, PartialEq)]
+    struct RecordTimestamps {
+        time_unix_nano: u64,
+        observed_time_unix_nano: u64,
+    }
+
+    fn health_report_timestamps(observed_at: Option<chrono::DateTime<Utc>>) -> RecordTimestamps {
+        let event = CollectorEvent::HealthReport(
+            HealthReport {
+                source: ReportSource::BmcSensors,
+                target: Some(HealthReportTarget::Machine),
+                observed_at,
+                successes: vec![HealthReportSuccess {
+                    probe_id: Probe::Sensor,
+                    target: Some("Temp1".to_string()),
+                }],
+                alerts: vec![],
+            }
+            .into(),
+        );
+        let record = convert_event(&event, EXPORT_NANOS, false).expect("health report converts");
+
+        RecordTimestamps {
+            time_unix_nano: record.time_unix_nano,
+            observed_time_unix_nano: record.observed_time_unix_nano,
+        }
+    }
+
+    #[test]
+    fn health_report_event_time_prefers_the_observation_time() {
+        let observed_at = Utc
+            .with_ymd_and_hms(2026, 7, 31, 12, 34, 56)
+            .single()
+            .expect("valid timestamp");
+        let observed_nanos = u64::try_from(
+            observed_at
+                .timestamp_nanos_opt()
+                .expect("timestamp has nanoseconds"),
+        )
+        .expect("timestamp is after the Unix epoch");
+
+        value_scenarios!(health_report_timestamps:
+            "observation time present" {
+                Some(observed_at) => RecordTimestamps {
+                    time_unix_nano: observed_nanos,
+                    observed_time_unix_nano: EXPORT_NANOS,
+                },
+            }
+
+            "observation time absent" {
+                None => RecordTimestamps {
+                    time_unix_nano: EXPORT_NANOS,
+                    observed_time_unix_nano: EXPORT_NANOS,
+                },
+            }
+
+            "observation time before the Unix epoch" {
+                Utc.with_ymd_and_hms(1969, 12, 31, 23, 59, 59).single() => RecordTimestamps {
+                    time_unix_nano: EXPORT_NANOS,
+                    observed_time_unix_nano: EXPORT_NANOS,
+                },
+            }
         );
     }
 
