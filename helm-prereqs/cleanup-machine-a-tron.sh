@@ -243,7 +243,7 @@ else
     if [[ "${_CRS:-0}" == "0" ]]; then
         ok "no DPF CRs present"
     elif confirm "Delete ${_CRS} DPF CR(s) in ${DPF_NAMESPACE}?"; then
-        kubectl delete dpudevices,dpunodes,dpus,dpunodemaintenances --all \
+        timeout 180 kubectl delete dpudevices,dpunodes,dpus,dpunodemaintenances --all \
             -n "$DPF_NAMESPACE" --ignore-not-found --timeout=120s >/dev/null \
             || warn "some DPF CRs did not delete cleanly — check finalizers"
         ok "DPF CRs deleted (${_CRS})"
