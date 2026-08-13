@@ -119,15 +119,13 @@ pub(crate) async fn rotate_managed_host_bmcs(
         }
         match BmcEndpoint::from_machine(machine) {
             Some(endpoint) => {
-                if matches!(
-                    rotate_endpoint(services, endpoint, force).await,
-                    BmcRotationTick::Retry
-                ) {
-                    // One transient bookkeeping failure asks the whole tick to
-                    // retry; the other endpoints still ran, and their per-device
-                    // rows persist.
-                    tick = BmcRotationTick::Retry;
-                }
+                // Fold each device outcome in, strongest wins: a store-reconcile
+                // hold or a transient retry from any one BMC carries the whole
+                // tick (the other endpoints still ran, and their per-device rows
+                // persist). `merge` keeps a lagging store dominant so the tick
+                // never settles out of the rotation state while any BMC's
+                // hardware is ahead of its stored secret.
+                tick = tick.merge(rotate_endpoint(services, endpoint, force).await);
             }
             // A forced request announces a missing BMC so its one-shot flag
             // still clears; a passive sweep silently skips an unaddressable
@@ -218,6 +216,13 @@ async fn rotate_endpoint(
                 "BMC rotation attempt failed; quarantined until backoff elapses"
             );
             BmcRotationTick::Settled
+        }
+        Ok(RotateOutcome::CredentialStoreReconcilePending) => {
+            tracing::warn!(
+                mac = %target.device_mac,
+                "BMC hardware changed but the per-device secret persist failed; holding rotation until the credential store reconciles"
+            );
+            BmcRotationTick::WaitForCredentialStoreReconcile
         }
         Ok(RotateOutcome::NoWork) => BmcRotationTick::Settled,
         Err(e) => {

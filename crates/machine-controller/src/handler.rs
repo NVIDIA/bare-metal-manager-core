@@ -1180,6 +1180,21 @@ impl MachineStateHandler {
                 // enabled, any lagging host or DPU BMC -- handled together.
                 let tick = rotation::rotate_managed_host_bmcs(ctx.services, mh_snapshot).await;
                 match advance(tick, *retry_count, host_machine_id) {
+                    // A BMC changed its hardware password but the per-device
+                    // secret persist has not yet succeeded: hold in RotatingBmc
+                    // (site-explorer stays suppressed, and the `Ready`-only
+                    // allocation gate keeps the host non-allocatable) and re-tick.
+                    // Do NOT resume site-explorer and do NOT clear a force
+                    // request -- the rotation has not finished. The engine leaves
+                    // the device `needs_rotation`, so a later tick's
+                    // change-then-verify recovery re-persists and converges; the
+                    // hold's upper bound is the state's time-in-state SLA.
+                    RotationStep::WaitForCredentialStoreReconcile => Ok(StateHandlerOutcome::wait(
+                        "BMC hardware changed but the per-device secret persist has not yet \
+                         succeeded; holding rotation (site-explorer suppressed, host \
+                         non-allocatable) until the credential store reconciles"
+                            .to_string(),
+                    )),
                     step @ (RotationStep::Settled | RotationStep::GaveUp) => {
                         // Both terminal steps return to Ready. Only a settled tick
                         // clears a one-shot force request: the forced attempt

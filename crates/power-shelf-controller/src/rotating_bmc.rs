@@ -132,6 +132,19 @@ pub async fn handle_rotating_bmc(
     };
 
     match advance(tick, retry_count, power_shelf_id) {
+        // The PMC changed its hardware password but the per-device secret persist
+        // has not yet succeeded: hold in RotatingBmc (site-explorer stays
+        // suppressed) and re-tick. Do NOT resume site-explorer and do NOT clear a
+        // force request -- the rotation has not finished. The engine leaves the
+        // device `needs_rotation`, so a later tick's change-then-verify recovery
+        // re-persists and converges; the hold's upper bound is the state's
+        // time-in-state SLA.
+        RotationStep::WaitForCredentialStoreReconcile => Ok(StateHandlerOutcome::wait(
+            "PMC's credential changed but persisting the new credential to the credential store \
+             has not yet succeeded; holding rotation (site-explorer suppressed) until the \
+             credential store reconciles"
+                .to_string(),
+        )),
         step @ (RotationStep::Settled | RotationStep::GaveUp) => {
             // Only a settled tick clears a one-shot force request: the forced
             // attempt genuinely fired. GaveUp exhausted the transient-retry
@@ -199,6 +212,13 @@ async fn rotate_power_shelf_bmc(
                 "power shelf BMC (PMC) rotation attempt failed; quarantined until backoff elapses"
             );
             BmcRotationTick::Settled
+        }
+        Ok(RotateOutcome::CredentialStoreReconcilePending) => {
+            tracing::warn!(
+                mac = %target.device_mac,
+                "PMC's credential changed but persisting the new credential to the credential store failed; holding rotation until the credential store reconciles"
+            );
+            BmcRotationTick::WaitForCredentialStoreReconcile
         }
         Ok(RotateOutcome::NoWork) => BmcRotationTick::Settled,
         Err(e) => {

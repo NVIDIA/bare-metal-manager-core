@@ -178,8 +178,6 @@ mod tests {
 
     use super::{GateDecision, gate_before_rotation, resume_after_rotation};
 
-    const SITE_EXPLORER: BmcSuppressionSubsystem = BmcSuppressionSubsystem::SiteExplorer;
-
     fn mac(last: u8) -> MacAddress {
         MacAddress::new([0x02, 0, 0, 0, 0, last])
     }
@@ -205,9 +203,13 @@ mod tests {
         // Acknowledging only one leaves the gate waiting.
         let mut txn = pool.begin().await.unwrap();
         assert!(
-            db::bmc_suppression::acknowledge(&mut txn, mac(1), SITE_EXPLORER)
-                .await
-                .unwrap()
+            db::bmc_suppression::acknowledge(
+                &mut txn,
+                mac(1),
+                BmcSuppressionSubsystem::SiteExplorer
+            )
+            .await
+            .unwrap()
         );
         txn.commit().await.unwrap();
         assert_eq!(
@@ -218,9 +220,13 @@ mod tests {
         // Once site-explorer has acknowledged both, the gate proceeds.
         let mut txn = pool.begin().await.unwrap();
         assert!(
-            db::bmc_suppression::acknowledge(&mut txn, mac(2), SITE_EXPLORER)
-                .await
-                .unwrap()
+            db::bmc_suppression::acknowledge(
+                &mut txn,
+                mac(2),
+                BmcSuppressionSubsystem::SiteExplorer
+            )
+            .await
+            .unwrap()
         );
         txn.commit().await.unwrap();
         assert_eq!(
@@ -238,7 +244,7 @@ mod tests {
             &mut txn,
             &NewBmcSuppression {
                 bmc_mac_address: mac(2),
-                subsystem: SITE_EXPLORER,
+                subsystem: BmcSuppressionSubsystem::SiteExplorer,
                 reason: "decommissioning".to_string(),
             },
         )
@@ -253,13 +259,13 @@ mod tests {
         txn.commit().await.unwrap();
 
         assert!(
-            db::bmc_suppression::find(&pool, mac(1), SITE_EXPLORER)
+            db::bmc_suppression::find(&pool, mac(1), BmcSuppressionSubsystem::SiteExplorer)
                 .await
                 .unwrap()
                 .is_none()
         );
         assert!(
-            db::bmc_suppression::find(&pool, mac(2), SITE_EXPLORER)
+            db::bmc_suppression::find(&pool, mac(2), BmcSuppressionSubsystem::SiteExplorer)
                 .await
                 .unwrap()
                 .is_some()

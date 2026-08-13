@@ -221,10 +221,24 @@ pub enum RotateOutcome {
     /// The device is at the target version (just rotated, or already there).
     /// The controller transitions back to its steady (`Ready`) state.
     Converged,
-    /// The attempt failed; a backoff window was recorded. The controller
-    /// returns to steady state and its entry guard skips this device (it reads
-    /// as `quarantined`) until `until` passes.
+    /// The attempt failed *before* the hardware password changed (or the change
+    /// itself failed), so the stored per-device secret still authenticates the
+    /// BMC. A backoff window was recorded. The controller returns to steady
+    /// state and its entry guard skips this device (it reads as `quarantined`)
+    /// until `until` passes.
     Quarantined { until: DateTime<Utc> },
+    /// The BMC reached the rotate-to password but persisting the new per-device
+    /// secret to the credential store failed: the hardware is AHEAD of the
+    /// store (the BMC is on the new password while the store still serves the
+    /// old one). The device is intentionally left **not quarantined and not
+    /// converged**, so it keeps reading as `needs_rotation` and the engine's
+    /// change-then-verify recovery re-persists and converges on a later tick.
+    ///
+    /// The controller must **remain in its rotation state** (keeping the device
+    /// suppressed from site-explorer and out of the allocatable pool) and
+    /// re-tick until the store write succeeds -- reconciliation is retried every
+    /// sweep rather than backed off, and is never abandoned.
+    CredentialStoreReconcilePending,
     /// Nothing to do: no rotation row for this device (not under management, or
     /// the row was torn down). The controller transitions back without acting.
     NoWork,
@@ -412,6 +426,34 @@ pub enum BmcRotationTick {
     /// At least one device hit a transient bookkeeping failure. The controller
     /// should retry the tick, bounded by the state's retry budget.
     Retry,
+    /// At least one device changed its hardware password but the credential
+    /// store persist has not yet succeeded (hardware ahead of the stored
+    /// secret). The controller must **remain** in its rotation state -- keeping
+    /// the device suppressed and out of the allocatable pool -- and wait; a
+    /// later tick's change-then-verify recovery re-persists and converges once
+    /// the store write succeeds. Dominates `Retry` and `Settled` (see
+    /// [`BmcRotationTick::merge`]) so a mixed multi-device tick never leaves the
+    /// rotation state while any device's hardware is ahead of its store.
+    WaitForCredentialStoreReconcile,
+}
+
+impl BmcRotationTick {
+    /// Fold two device outcomes into one tick outcome, strongest wins:
+    /// `WaitForCredentialStoreReconcile` > `Retry` > `Settled`. Holding for a lagging store
+    /// dominates a transient retry so the bounded transient budget can never
+    /// `GaveUp` out of the rotation state (returning the device to an
+    /// allocatable, un-suppressed steady state) while a device's hardware is
+    /// ahead of its stored secret.
+    pub fn merge(self, other: Self) -> Self {
+        use BmcRotationTick::*;
+        match (self, other) {
+            (WaitForCredentialStoreReconcile, _) | (_, WaitForCredentialStoreReconcile) => {
+                WaitForCredentialStoreReconcile
+            }
+            (Retry, _) | (_, Retry) => Retry,
+            (Settled, Settled) => Settled,
+        }
+    }
 }
 
 /// What a state controller should do after one BMC-rotation tick, independent of
@@ -435,6 +477,14 @@ pub enum RotationStep {
     GaveUp,
     /// Re-enter the rotation state carrying this incremented retry count.
     Retry { retry_count: u32 },
+    /// A device's hardware is ahead of its stored secret (the credential-store
+    /// persist is still pending): **remain** in the rotation state and wait for
+    /// a later tick to reconcile the store. Unlike `Retry` this does *not*
+    /// consume the transient-retry budget -- it is a legitimate hold, not a
+    /// bookkeeping error -- and unlike `Settled`/`GaveUp` it must not resume
+    /// site-explorer or clear a force request, so the device stays suppressed
+    /// and non-allocatable until the store write succeeds.
+    WaitForCredentialStoreReconcile,
 }
 
 /// Fold one tick outcome and the current retry count into the next
@@ -451,6 +501,12 @@ pub fn advance(
 ) -> RotationStep {
     match tick {
         BmcRotationTick::Settled => RotationStep::Settled,
+        // A store-reconcile hold is budget-neutral: it is a legitimate wait for
+        // the credential store, not a transient bookkeeping error, so it neither
+        // advances nor exhausts the retry count.
+        BmcRotationTick::WaitForCredentialStoreReconcile => {
+            RotationStep::WaitForCredentialStoreReconcile
+        }
         BmcRotationTick::Retry => {
             let next = retry_count + 1;
             if next >= MAX_BMC_ROTATION_RETRIES {
@@ -519,6 +575,57 @@ mod retry_seam_tests {
                 OBJECT_ID
             ),
             RotationStep::GaveUp
+        ));
+    }
+
+    #[test]
+    fn advance_holds_for_store_reconcile_without_consuming_budget() {
+        // A store-reconcile hold is budget-neutral: it maps straight to
+        // `WaitForCredentialStoreReconcile` regardless of retry count, so waiting for the
+        // credential store never exhausts the transient-retry budget and can
+        // never `GaveUp` out of the rotation state (which would return the device
+        // to an allocatable, un-suppressed steady state while its hardware is
+        // ahead of the store).
+        for count in [0, MAX_BMC_ROTATION_RETRIES - 1, MAX_BMC_ROTATION_RETRIES] {
+            assert!(matches!(
+                advance(
+                    BmcRotationTick::WaitForCredentialStoreReconcile,
+                    count,
+                    OBJECT_ID
+                ),
+                RotationStep::WaitForCredentialStoreReconcile
+            ));
+        }
+    }
+
+    #[test]
+    fn merge_folds_device_outcomes_strongest_wins() {
+        use BmcRotationTick::*;
+        // WaitForCredentialStoreReconcile dominates everything so a mixed multi-device tick
+        // holds; Retry dominates Settled; Settled only survives when both are.
+        assert!(matches!(Settled.merge(Settled), Settled));
+        assert!(matches!(Settled.merge(Retry), Retry));
+        assert!(matches!(Retry.merge(Settled), Retry));
+        assert!(matches!(Retry.merge(Retry), Retry));
+        assert!(matches!(
+            Settled.merge(WaitForCredentialStoreReconcile),
+            WaitForCredentialStoreReconcile
+        ));
+        assert!(matches!(
+            WaitForCredentialStoreReconcile.merge(Settled),
+            WaitForCredentialStoreReconcile
+        ));
+        assert!(matches!(
+            Retry.merge(WaitForCredentialStoreReconcile),
+            WaitForCredentialStoreReconcile
+        ));
+        assert!(matches!(
+            WaitForCredentialStoreReconcile.merge(Retry),
+            WaitForCredentialStoreReconcile
+        ));
+        assert!(matches!(
+            WaitForCredentialStoreReconcile.merge(WaitForCredentialStoreReconcile),
+            WaitForCredentialStoreReconcile
         ));
     }
 }
@@ -746,7 +853,7 @@ pub async fn rotate_bmc(
             }
             Ok(RotateOutcome::Converged)
         }
-        Err(redacted) => {
+        Err(ConvergeError::DeviceFault(redacted)) => {
             let until = backoff_until(status.rotate_attempts, Utc::now());
             let mut conn = db_pool.acquire().await?;
             increment_rotate_attempt(&mut conn, mac, BMC, &redacted, until).await?;
@@ -756,6 +863,26 @@ pub async fn rotate_bmc(
                 redacted,
             ));
             Ok(RotateOutcome::Quarantined { until })
+        }
+        // The hardware reached the target but the store write failed: the BMC is
+        // ahead of the stored secret. Deliberately record *no* backoff and leave
+        // the row not-converged / not-quarantined, so it keeps reading as
+        // `needs_rotation` and the change-then-verify recovery re-persists on a
+        // later tick. The crash marker stays set (we never promoted). The
+        // controller holds in its rotation state until the store reconciles, so
+        // reconciliation is retried every sweep and never abandoned.
+        Err(ConvergeError::CredentialStoreWriteFailed(redacted)) => {
+            // A transient hold, not a terminal result: a plain log rather than a
+            // metric series. The device keeps reading as `needs_rotation`, so the
+            // retry is observable through the existing rotation-state gauges; a
+            // dedicated counter can follow if operators need to trend it.
+            tracing::warn!(
+                %mac,
+                target_version,
+                error = %redacted,
+                "BMC reached the rotate-to password but persisting the new per-device secret failed; holding rotation until the credential store reconciles"
+            );
+            Ok(RotateOutcome::CredentialStoreReconcilePending)
         }
     }
 }
@@ -770,6 +897,33 @@ enum CredentialConvergence {
     /// attempt changed the hardware and crashed before recording success, and
     /// this tick reconciled it. Carries the (redacted) change error for context.
     Recovered { change_error: String },
+}
+
+/// Where a convergence attempt failed, so the caller can tell a *device* fault
+/// (quarantine + backoff; the stored secret still authenticates the BMC) from a
+/// credential-store *persist* failure that lands after the hardware already
+/// changed (hardware AHEAD of the store; hold and reconcile rather than
+/// quarantine). Both carry an already-redacted reason.
+#[derive(Debug)]
+enum ConvergeError {
+    /// The attempt failed before (or at) the hardware change: the stored
+    /// per-device secret still authenticates the BMC, so the device is safe to
+    /// return to steady state after a backoff.
+    DeviceFault(String),
+    /// The hardware reached the rotate-to password but persisting the new
+    /// per-device secret to the credential store failed: the BMC is on the new
+    /// password while the store still serves the old one.
+    CredentialStoreWriteFailed(String),
+}
+
+/// Every pre-persist failure in [`converge_bmc_password`] is a device fault: the
+/// hardware has not (confirmed) moved, so the stored secret is still
+/// authoritative. Only the final store write is special-cased to
+/// [`ConvergeError::CredentialStoreWriteFailed`] explicitly.
+impl From<String> for ConvergeError {
+    fn from(reason: String) -> Self {
+        Self::DeviceFault(reason)
+    }
 }
 
 impl CredentialConvergence {
@@ -795,7 +949,7 @@ async fn converge_bmc_password(
     redfish_pool: &dyn RedfishClientPool,
     bmc: &BmcRotationTarget,
     rotate_to_version: u32,
-) -> Result<CredentialConvergence, String> {
+) -> Result<CredentialConvergence, ConvergeError> {
     let per_device_key = CredentialKey::BmcCredentials {
         credential_type: BmcCredentialType::BmcRoot {
             bmc_mac_address: bmc.device_mac,
@@ -859,10 +1013,15 @@ async fn converge_bmc_password(
         .set_credentials(&per_device_key, &updated)
         .await
         .map_err(|e| {
-            redact(
+            // This is the one failure that leaves the hardware ahead of the
+            // store: the password change already succeeded above, so a failed
+            // persist means the BMC is on the new password while the store still
+            // serves the old one. Surface it distinctly so the caller holds and
+            // reconciles instead of quarantining.
+            ConvergeError::CredentialStoreWriteFailed(redact(
                 format!("persist per-device BMC secret: {e}"),
                 &[&current_password, &new_password],
-            )
+            ))
         })?;
 
     Ok(convergence)
@@ -1513,6 +1672,100 @@ mod tests {
         assert!(
             bmc_accepts(&redfish, "new").await,
             "the BMC must now be on the rotate-TO password"
+        );
+    }
+
+    #[carbide_macros::sqlx_test]
+    async fn rotate_bmc_holds_for_store_reconcile_when_persist_fails_then_converges(pool: PgPool) {
+        // Fault-injection: the BMC accepts the new password but persisting the
+        // new per-device secret to the store fails. The hardware is now AHEAD of
+        // the store.  The engine must NOT quarantine: it reports `CredentialStoreReconcilePending`,
+        // leaves the row not-converged / not-quarantined (so it keeps reading as
+        // `needs_rotation`), and the stored secret still lags. A later tick with
+        // the store writable then recovers (the rotate-to value already authenticates)
+        // and converges, reconciling the store -- reconciliation is never abandoned.
+        seed_device_behind_target(&pool, 1).await;
+        let cm = TestCredentialManager::default();
+        cm.set_credentials(&per_device_key(), &creds("root", "old"))
+            .await
+            .unwrap();
+        cm.set_credentials(&rotate_to_key(1), &creds("root", "new"))
+            .await
+            .unwrap();
+        // The BMC is on the per-device secret ("old"), so the hardware change
+        // old -> new succeeds; only the store write is made to fail.
+        let redfish = bmc_on_password("old");
+        cm.set_set_credentials_failure(true);
+
+        let outcome = rotate_bmc(&pool, &cm, &redfish, &target(), false)
+            .await
+            .expect("a store-persist failure is not a transient engine error");
+
+        assert_eq!(
+            outcome,
+            RotateOutcome::CredentialStoreReconcilePending,
+            "a persist failure after the hardware changed must hold for reconcile, not quarantine"
+        );
+
+        let status = status_of(&pool).await;
+        assert!(
+            !status.converged,
+            "hardware ahead of store is not converged"
+        );
+        assert!(
+            !status.quarantined,
+            "a persist failure must NOT record a backoff; the device stays eligible so the persist is retried every sweep"
+        );
+        assert_eq!(
+            status.current_version,
+            Some(0),
+            "the convergence marker must not advance while the store lags"
+        );
+        assert_eq!(
+            status.rotating_to_version,
+            Some(1),
+            "the crash marker stays set (we never promoted) so recovery re-enters"
+        );
+        // Hardware is on the new password, but the stored secret still lags.
+        assert!(
+            bmc_accepts(&redfish, "new").await,
+            "the hardware change must have landed even though the persist failed"
+        );
+        assert_eq!(
+            cm.get_credentials(&per_device_key())
+                .await
+                .unwrap()
+                .unwrap(),
+            creds("root", "old"),
+            "the stored secret must still lag after the failed persist"
+        );
+
+        // The store becomes writable again: the next tick's change-then-verify
+        // recovery re-persists and converges, reconciling hardware and store.
+        cm.set_set_credentials_failure(false);
+        let metrics = MetricsCapture::start();
+        let outcome = rotate_bmc(&pool, &cm, &redfish, &target(), false)
+            .await
+            .expect("the reconciling tick must not raise a transient engine error");
+
+        assert_eq!(outcome, RotateOutcome::Converged);
+        assert_eq!(
+            rotation_result_deltas(&metrics),
+            [0.0, 1.0, 0.0],
+            "reconciling an already-changed BMC counts as a recovery"
+        );
+        drop(metrics);
+        let status = status_of(&pool).await;
+        assert!(status.converged);
+        assert_eq!(status.current_version, Some(1));
+        assert_eq!(status.rotating_to_version, None);
+        assert_eq!(
+            cm.get_credentials(&per_device_key())
+                .await
+                .unwrap()
+                .unwrap(),
+            creds("root", "new"),
+            "the store is reconciled to the new password once the write succeeds"
         );
     }
 
