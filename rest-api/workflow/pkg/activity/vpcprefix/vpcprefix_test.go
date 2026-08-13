@@ -5,6 +5,7 @@ package vpcprefix
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"reflect"
 	"testing"
@@ -13,10 +14,12 @@ import (
 	cdb "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db"
 	"github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/ipam"
 	cdbm "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/model"
+	cdbp "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/paginator"
 	cdbu "github.com/NVIDIA/infra-controller/rest-api/db/pkg/util"
 	cipam "github.com/NVIDIA/infra-controller/rest-api/ipam"
 	corev1 "github.com/NVIDIA/infra-controller/rest-api/proto/core/gen/v1"
 	sc "github.com/NVIDIA/infra-controller/rest-api/workflow/pkg/client/site"
+	"github.com/rs/zerolog"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/uptrace/bun/extra/bundebug"
@@ -184,14 +187,14 @@ func testVPCSiteBuildAllocation(t *testing.T, dbSession *cdb.Session, st *cdbm.S
 	return al
 }
 
-// testVPCBuildVPC Building VPCPrefix in DB
+// testVPCBuildVPC Building VPC in DB
 func testVPCBuildVPC(t *testing.T, dbSession *cdb.Session, name string, ip *cdbm.InfrastructureProvider, tn *cdbm.Tenant, st *cdbm.Site, ct *uuid.UUID, lb map[string]string, user *cdbm.User, status string) *cdbm.Vpc {
 	vpcDAO := cdbm.NewVpcDAO(dbSession)
 
 	input := cdbm.VpcCreateInput{
 		Name:                      name,
-		Description:               cutil.GetPtr("Test VPCPrefix"),
-		Org:                       st.Org,
+		Description:               cutil.GetPtr("Test VPC"),
+		Org:                       tn.Org,
 		InfrastructureProviderID:  ip.ID,
 		TenantID:                  tn.ID,
 		SiteID:                    st.ID,
@@ -235,7 +238,7 @@ func testVPCPrefixBuildIPBlock(t *testing.T, dbSession *cdb.Session, name string
 func testVPCBuildVPCPrefix(t *testing.T, dbSession *cdb.Session, name string, st *cdbm.Site, tenant *cdbm.Tenant, vpcID uuid.UUID, ipv4BlockID *uuid.UUID, prefix *string, prefixLength *int, status string, user *cdbm.User) *cdbm.VpcPrefix {
 	vpcPrefixDAO := cdbm.NewVpcPrefixDAO(dbSession)
 
-	vpcprefix, err := vpcPrefixDAO.Create(context.Background(), nil, cdbm.VpcPrefixCreateInput{Name: name, TenantOrg: st.Org, SiteID: st.ID, VpcID: vpcID, TenantID: tenant.ID, IpBlockID: ipv4BlockID, Prefix: *prefix, PrefixLength: *prefixLength, Status: status, CreatedBy: user.ID})
+	vpcprefix, err := vpcPrefixDAO.Create(context.Background(), nil, cdbm.VpcPrefixCreateInput{Name: name, TenantOrg: tenant.Org, SiteID: st.ID, VpcID: vpcID, TenantID: tenant.ID, IpBlockID: ipv4BlockID, Prefix: *prefix, PrefixLength: *prefixLength, Status: status, CreatedBy: user.ID})
 	assert.Nil(t, err)
 
 	return vpcprefix
@@ -664,4 +667,853 @@ func TestNewManageVpcPrefix(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestManageVpcPrefix_UpdateVpcPrefixesInDB_AutoCreatesAndRestores(t *testing.T) {
+	ctx := context.Background()
+	dbSession := testVpcPrefixInitDB(t)
+	defer dbSession.Close()
+	testVPCPrefixSetupSchema(t, dbSession)
+
+	providerOrg := "test-provider-org"
+	providerUser := testVPCBuildUser(t, dbSession, uuid.NewString(), providerOrg, []string{"FORGE_PROVIDER_ADMIN"})
+	provider := testVPCSiteBuildInfrastructureProvider(t, dbSession, "test-provider", providerOrg, providerUser)
+	tenantOrg := "test-tenant-org"
+	tenantUser := testVPCBuildUser(t, dbSession, uuid.NewString(), tenantOrg, []string{"FORGE_TENANT_ADMIN"})
+	tenant := testVPCBuildTenant(t, dbSession, "test-tenant", tenantOrg, tenantUser)
+	site := testVPCBuildSite(t, dbSession, provider, "test-site", providerUser)
+
+	parentVpc := testVPCBuildVPC(
+		t, dbSession, "parent-vpc", provider, tenant, site, nil, nil, tenantUser, cdbm.VpcStatusReady,
+	)
+	controllerVpcID := parentVpc.ID
+	ipBlock := testVPCPrefixBuildIPBlock(
+		t, dbSession, "test-vpc-prefix-ip-block", site, provider, &tenant.ID,
+		cdbm.IPBlockRoutingTypeDatacenterOnly, "10.20.0.0", 16,
+		cdbm.IPBlockProtocolVersionV4, false, cdbm.IPBlockStatusReady, tenantUser,
+	)
+	ipamStorage := ipam.NewIpamStorage(dbSession.DB, nil)
+	_, err := ipam.CreateIpamEntryForIPBlock(
+		ctx, ipamStorage, ipBlock.Prefix, ipBlock.PrefixLength, ipBlock.RoutingType,
+		ipBlock.InfrastructureProviderID.String(), ipBlock.SiteID.String(),
+	)
+	require.NoError(t, err)
+
+	manager := ManageVpcPrefix{dbSession: dbSession}
+	vpcPrefixDAO := cdbm.NewVpcPrefixDAO(dbSession)
+	statusDetailDAO := cdbm.NewStatusDetailDAO(dbSession)
+
+	controllerVpcPrefixID := uuid.New()
+	controllerVpcPrefix := &corev1.VpcPrefix{
+		Id:    &corev1.VpcPrefixId{Value: controllerVpcPrefixID.String()},
+		VpcId: &corev1.VpcId{Value: controllerVpcID.String()},
+		Config: &corev1.VpcPrefixConfig{
+			Prefix: "10.20.30.0/24",
+		},
+		Metadata: &corev1.Metadata{
+			Name: "site-created-vpc-prefix",
+		},
+		Status: &corev1.VpcPrefixStatus{
+			TenantState: corev1.TenantState_READY,
+		},
+	}
+	inventory := &corev1.VpcPrefixInventory{
+		VpcPrefixes: []*corev1.VpcPrefix{controllerVpcPrefix},
+	}
+
+	if !t.Run("auto creates VPC Prefix from inventory", func(t *testing.T) {
+		err := manager.UpdateVpcPrefixesInDB(ctx, site.ID, inventory)
+		require.NoError(t, err)
+
+		created, err := vpcPrefixDAO.GetByID(ctx, nil, controllerVpcPrefixID, nil)
+		require.NoError(t, err)
+		assert.Equal(t, controllerVpcPrefixID, created.ID)
+		assert.Equal(t, parentVpc.ID, created.VpcID)
+		assert.Equal(t, tenant.ID, created.TenantID)
+		assert.Equal(t, tenantOrg, created.Org)
+		assert.Equal(t, site.ID, created.SiteID)
+		assert.Equal(t, site.ID, created.CreatedBy)
+		assert.Equal(t, cdbm.VpcPrefixStatusReady, created.Status)
+		assert.Equal(t, "site-created-vpc-prefix", created.Name)
+		assert.Equal(t, "10.20.30.0/24", created.Prefix)
+		assert.Equal(t, 24, created.PrefixLength)
+		require.NotNil(t, created.IPBlockID)
+		assert.Equal(t, ipBlock.ID, *created.IPBlockID)
+
+		ipamer := cipam.NewWithStorage(ipamStorage)
+		ipamer.SetNamespace(ipam.GetIpamNamespaceForIPBlock(
+			ctx, ipBlock.RoutingType, ipBlock.InfrastructureProviderID.String(), ipBlock.SiteID.String(),
+		))
+		assert.NotNil(t, ipamer.PrefixFrom(ctx, controllerVpcPrefix.Config.Prefix))
+
+		statusDetails, _, statusErr := statusDetailDAO.GetAll(
+			ctx,
+			nil,
+			cdbm.StatusDetailFilterInput{EntityIDs: []string{created.ID.String()}},
+			cdbp.PageInput{},
+		)
+		require.NoError(t, statusErr)
+		require.NotEmpty(t, statusDetails)
+		foundCreateMessage := false
+		for i := range statusDetails {
+			if statusDetails[i].Message != nil &&
+				*statusDetails[i].Message == "VPC Prefix was found on Site, Ready for use" {
+				foundCreateMessage = true
+				break
+			}
+		}
+		assert.True(t, foundCreateMessage)
+	}) {
+		t.FailNow()
+	}
+
+	if !t.Run("inventory replay is idempotent", func(t *testing.T) {
+		err := manager.UpdateVpcPrefixesInDB(ctx, site.ID, inventory)
+		require.NoError(t, err)
+		prefixes, count, err := vpcPrefixDAO.GetAll(
+			ctx,
+			nil,
+			cdbm.VpcPrefixFilterInput{VpcPrefixIDs: []uuid.UUID{controllerVpcPrefixID}},
+			cdbp.PageInput{Limit: cutil.GetPtr(cdbp.TotalLimit)},
+			nil,
+		)
+		require.NoError(t, err)
+		require.Len(t, prefixes, 1)
+		assert.Equal(t, 1, count)
+	}) {
+		t.FailNow()
+	}
+
+	t.Run("inventory skips restore when Site reports TERMINATING", func(t *testing.T) {
+		_, err := vpcPrefixDAO.Update(ctx, nil, cdbm.VpcPrefixUpdateInput{
+			// Seed Deleting: that is the status the REST delete path leaves before soft-delete.
+			VpcPrefixID:     controllerVpcPrefixID,
+			Status:          cutil.GetPtr(cdbm.VpcPrefixStatusDeleting),
+			IsMissingOnSite: cutil.GetPtr(true),
+		})
+		require.NoError(t, err)
+		require.NoError(t, ipam.DeleteChildIpamEntryFromCidr(
+			ctx, nil, dbSession, ipamStorage, ipBlock, controllerVpcPrefix.Config.Prefix,
+		))
+		require.NoError(t, vpcPrefixDAO.Delete(ctx, nil, controllerVpcPrefixID))
+
+		deleted, _, err := vpcPrefixDAO.GetAll(
+			ctx,
+			nil,
+			cdbm.VpcPrefixFilterInput{VpcPrefixIDs: []uuid.UUID{controllerVpcPrefixID}, IncludeDeleted: true},
+			cdbp.PageInput{Limit: cutil.GetPtr(cdbp.TotalLimit)},
+			nil,
+		)
+		require.NoError(t, err)
+		require.Len(t, deleted, 1)
+		require.NotNil(t, deleted[0].Deleted)
+		assert.Equal(t, cdbm.VpcPrefixStatusDeleting, deleted[0].Status)
+		deletedAt := *deleted[0].Deleted
+
+		terminatingInventory := &corev1.VpcPrefixInventory{
+			VpcPrefixes: []*corev1.VpcPrefix{
+				{
+					Id:    &corev1.VpcPrefixId{Value: controllerVpcPrefixID.String()},
+					VpcId: &corev1.VpcId{Value: controllerVpcID.String()},
+					Config: &corev1.VpcPrefixConfig{
+						Prefix: controllerVpcPrefix.Config.Prefix,
+					},
+					Metadata: &corev1.Metadata{
+						Name: "site-created-vpc-prefix",
+					},
+					Status: &corev1.VpcPrefixStatus{
+						TenantState: corev1.TenantState_TERMINATING,
+					},
+				},
+			},
+		}
+		err = manager.UpdateVpcPrefixesInDB(ctx, site.ID, terminatingInventory)
+		require.NoError(t, err)
+
+		stillDeleted, _, err := vpcPrefixDAO.GetAll(
+			ctx,
+			nil,
+			cdbm.VpcPrefixFilterInput{VpcPrefixIDs: []uuid.UUID{controllerVpcPrefixID}, IncludeDeleted: true},
+			cdbp.PageInput{Limit: cutil.GetPtr(cdbp.TotalLimit)},
+			nil,
+		)
+		require.NoError(t, err)
+		require.Len(t, stillDeleted, 1)
+		require.NotNil(t, stillDeleted[0].Deleted)
+		assert.Equal(t, deletedAt, *stillDeleted[0].Deleted)
+		assert.Equal(t, cdbm.VpcPrefixStatusDeleting, stillDeleted[0].Status)
+
+		_, err = vpcPrefixDAO.GetByID(ctx, nil, controllerVpcPrefixID, nil)
+		assert.ErrorIs(t, err, cdb.ErrDoesNotExist)
+
+		ipamer := cipam.NewWithStorage(ipamStorage)
+		ipamer.SetNamespace(ipam.GetIpamNamespaceForIPBlock(
+			ctx, ipBlock.RoutingType, ipBlock.InfrastructureProviderID.String(), ipBlock.SiteID.String(),
+		))
+		assert.Nil(t, ipamer.PrefixFrom(ctx, controllerVpcPrefix.Config.Prefix))
+	})
+
+	t.Run("inventory restores soft-deleted VPC Prefix", func(t *testing.T) {
+		// Prefix may already be soft-deleted by the TERMINATING skip case; ensure that state.
+		existing, _, err := vpcPrefixDAO.GetAll(
+			ctx,
+			nil,
+			cdbm.VpcPrefixFilterInput{VpcPrefixIDs: []uuid.UUID{controllerVpcPrefixID}, IncludeDeleted: true},
+			cdbp.PageInput{Limit: cutil.GetPtr(cdbp.TotalLimit)},
+			nil,
+		)
+		require.NoError(t, err)
+		require.Len(t, existing, 1)
+		if existing[0].Deleted == nil {
+			_, err = vpcPrefixDAO.Update(ctx, nil, cdbm.VpcPrefixUpdateInput{
+				VpcPrefixID:     controllerVpcPrefixID,
+				Status:          cutil.GetPtr(cdbm.VpcPrefixStatusDeleting),
+				IsMissingOnSite: cutil.GetPtr(true),
+			})
+			require.NoError(t, err)
+			require.NoError(t, ipam.DeleteChildIpamEntryFromCidr(
+				ctx, nil, dbSession, ipamStorage, ipBlock, controllerVpcPrefix.Config.Prefix,
+			))
+			require.NoError(t, vpcPrefixDAO.Delete(ctx, nil, controllerVpcPrefixID))
+		} else {
+			assert.Equal(t, cdbm.VpcPrefixStatusDeleting, existing[0].Status)
+		}
+
+		deleted, _, err := vpcPrefixDAO.GetAll(
+			ctx,
+			nil,
+			cdbm.VpcPrefixFilterInput{VpcPrefixIDs: []uuid.UUID{controllerVpcPrefixID}, IncludeDeleted: true},
+			cdbp.PageInput{Limit: cutil.GetPtr(cdbp.TotalLimit)},
+			nil,
+		)
+		require.NoError(t, err)
+		require.Len(t, deleted, 1)
+		require.NotNil(t, deleted[0].Deleted)
+		assert.Equal(t, cdbm.VpcPrefixStatusDeleting, deleted[0].Status)
+
+		err = manager.UpdateVpcPrefixesInDB(ctx, site.ID, inventory)
+		require.NoError(t, err)
+
+		restored, err := vpcPrefixDAO.GetByID(ctx, nil, controllerVpcPrefixID, nil)
+		require.NoError(t, err)
+		assert.Nil(t, restored.Deleted)
+		assert.False(t, restored.IsMissingOnSite)
+		assert.Equal(t, cdbm.VpcPrefixStatusReady, restored.Status)
+		ipamer := cipam.NewWithStorage(ipamStorage)
+		ipamer.SetNamespace(ipam.GetIpamNamespaceForIPBlock(
+			ctx, ipBlock.RoutingType, ipBlock.InfrastructureProviderID.String(), ipBlock.SiteID.String(),
+		))
+		assert.NotNil(t, ipamer.PrefixFrom(ctx, controllerVpcPrefix.Config.Prefix))
+
+		statusDetails, _, statusErr := statusDetailDAO.GetAll(
+			ctx,
+			nil,
+			cdbm.StatusDetailFilterInput{EntityIDs: []string{restored.ID.String()}},
+			cdbp.PageInput{},
+		)
+		require.NoError(t, statusErr)
+		foundReadyMessage := false
+		for i := range statusDetails {
+			if statusDetails[i].Message != nil &&
+				*statusDetails[i].Message == "VPC Prefix is ready for use" {
+				foundReadyMessage = true
+				break
+			}
+		}
+		assert.True(t, foundReadyMessage)
+	})
+
+	t.Run("inventory skips restore when tenant organization differs", func(t *testing.T) {
+		require.NoError(t, ipam.DeleteChildIpamEntryFromCidr(
+			ctx, nil, dbSession, ipamStorage, ipBlock, controllerVpcPrefix.Config.Prefix,
+		))
+		require.NoError(t, vpcPrefixDAO.Delete(ctx, nil, controllerVpcPrefixID))
+		deleted, _, err := vpcPrefixDAO.GetAll(
+			ctx,
+			nil,
+			cdbm.VpcPrefixFilterInput{VpcPrefixIDs: []uuid.UUID{controllerVpcPrefixID}, IncludeDeleted: true},
+			cdbp.PageInput{Limit: cutil.GetPtr(cdbp.TotalLimit)},
+			nil,
+		)
+		require.NoError(t, err)
+		require.Len(t, deleted, 1)
+		require.NotNil(t, deleted[0].Deleted)
+		deletedAt := *deleted[0].Deleted
+
+		_, err = dbSession.DB.NewUpdate().
+			Model((*cdbm.VpcPrefix)(nil)).
+			Set("org = ?", "other-tenant-org").
+			Where("id = ?", controllerVpcPrefixID).
+			WhereAllWithDeleted().
+			Exec(ctx)
+		require.NoError(t, err)
+
+		err = manager.UpdateVpcPrefixesInDB(ctx, site.ID, inventory)
+		require.NoError(t, err)
+
+		stillDeleted, _, err := vpcPrefixDAO.GetAll(
+			ctx,
+			nil,
+			cdbm.VpcPrefixFilterInput{VpcPrefixIDs: []uuid.UUID{controllerVpcPrefixID}, IncludeDeleted: true},
+			cdbp.PageInput{Limit: cutil.GetPtr(cdbp.TotalLimit)},
+			nil,
+		)
+		require.NoError(t, err)
+		require.Len(t, stillDeleted, 1)
+		require.NotNil(t, stillDeleted[0].Deleted)
+		assert.Equal(t, deletedAt, *stillDeleted[0].Deleted)
+
+		_, err = vpcPrefixDAO.GetByID(ctx, nil, controllerVpcPrefixID, nil)
+		assert.ErrorIs(t, err, cdb.ErrDoesNotExist)
+	})
+}
+
+func TestManageVpcPrefix_CreateOrUpdateVpcPrefixFromSite_SkipsIncompleteOwnership(t *testing.T) {
+	ctx := context.Background()
+	dbSession := testVpcPrefixInitDB(t)
+	defer dbSession.Close()
+	testVPCPrefixSetupSchema(t, dbSession)
+
+	providerOrg := "test-provider-org"
+	providerUser := testVPCBuildUser(t, dbSession, uuid.NewString(), providerOrg, []string{"FORGE_PROVIDER_ADMIN"})
+	provider := testVPCSiteBuildInfrastructureProvider(t, dbSession, "test-provider", providerOrg, providerUser)
+	site := testVPCBuildSite(t, dbSession, provider, "test-site", providerUser)
+
+	authorizedTenantOrg := "test-authorized-tenant"
+	authorizedTenantUser := testVPCBuildUser(t, dbSession, uuid.NewString(), authorizedTenantOrg, []string{"FORGE_TENANT_ADMIN"})
+	authorizedTenant := testVPCBuildTenant(t, dbSession, "test-authorized-tenant", authorizedTenantOrg, authorizedTenantUser)
+
+	parentVpc := testVPCBuildVPC(
+		t, dbSession, "parent-vpc", provider, authorizedTenant, site, nil, nil, authorizedTenantUser, cdbm.VpcStatusReady,
+	)
+	controllerVpcID := parentVpc.ID
+	ipBlock := testVPCPrefixBuildIPBlock(
+		t, dbSession, "test-vpc-prefix-ip-block", site, provider, &authorizedTenant.ID,
+		cdbm.IPBlockRoutingTypeDatacenterOnly, "10.0.0.0", 8,
+		cdbm.IPBlockProtocolVersionV4, false, cdbm.IPBlockStatusReady, authorizedTenantUser,
+	)
+	ipamStorage := ipam.NewIpamStorage(dbSession.DB, nil)
+	_, err := ipam.CreateIpamEntryForIPBlock(
+		ctx, ipamStorage, ipBlock.Prefix, ipBlock.PrefixLength, ipBlock.RoutingType,
+		ipBlock.InfrastructureProviderID.String(), ipBlock.SiteID.String(),
+	)
+	require.NoError(t, err)
+	ipamer := cipam.NewWithStorage(ipamStorage)
+	ipamer.SetNamespace(ipam.GetIpamNamespaceForIPBlock(
+		ctx, ipBlock.RoutingType, ipBlock.InfrastructureProviderID.String(), ipBlock.SiteID.String(),
+	))
+	_, err = ipamer.AcquireSpecificChildPrefix(ctx, "10.0.0.0/8", "10.5.0.0/24")
+	require.NoError(t, err)
+	existingPrefix := testVPCBuildVPCPrefix(
+		t, dbSession, "existing-name", site, authorizedTenant, parentVpc.ID, nil,
+		cutil.GetPtr("10.0.0.0/24"), cutil.GetPtr(24), cdbm.VpcPrefixStatusReady, authorizedTenantUser,
+	)
+
+	manager := ManageVpcPrefix{dbSession: dbSession}
+
+	tests := []struct {
+		name                string
+		controllerVpcPrefix *corev1.VpcPrefix
+		wantVpcPrefix       bool
+		wantName            string
+		wantNamePref        string
+	}{
+		{
+			name: "unknown parent VPC is rejected",
+			controllerVpcPrefix: &corev1.VpcPrefix{
+				Id:    &corev1.VpcPrefixId{Value: uuid.NewString()},
+				VpcId: &corev1.VpcId{Value: uuid.NewString()},
+				Config: &corev1.VpcPrefixConfig{
+					Prefix: "10.1.0.0/24",
+				},
+				Metadata: &corev1.Metadata{Name: "unknown-vpc-prefix"},
+			},
+		},
+		{
+			name: "invalid controller VPC Prefix ID",
+			controllerVpcPrefix: &corev1.VpcPrefix{
+				Id:    &corev1.VpcPrefixId{Value: "not-a-uuid"},
+				VpcId: &corev1.VpcId{Value: controllerVpcID.String()},
+				Config: &corev1.VpcPrefixConfig{
+					Prefix: "10.1.0.0/24",
+				},
+				Metadata: &corev1.Metadata{Name: "invalid-id-prefix"},
+			},
+		},
+		{
+			name: "empty prefix is rejected",
+			controllerVpcPrefix: &corev1.VpcPrefix{
+				Id:       &corev1.VpcPrefixId{Value: uuid.NewString()},
+				VpcId:    &corev1.VpcId{Value: controllerVpcID.String()},
+				Config:   &corev1.VpcPrefixConfig{Prefix: ""},
+				Metadata: &corev1.Metadata{Name: "missing-prefix"},
+			},
+		},
+		{
+			name: "invalid prefix CIDR is rejected",
+			controllerVpcPrefix: &corev1.VpcPrefix{
+				Id:       &corev1.VpcPrefixId{Value: uuid.NewString()},
+				VpcId:    &corev1.VpcId{Value: controllerVpcID.String()},
+				Config:   &corev1.VpcPrefixConfig{Prefix: "not-a-cidr"},
+				Metadata: &corev1.Metadata{Name: "bad-cidr-prefix"},
+			},
+		},
+		{
+			name: "empty VPC ID is rejected",
+			controllerVpcPrefix: &corev1.VpcPrefix{
+				Id:       &corev1.VpcPrefixId{Value: uuid.NewString()},
+				Config:   &corev1.VpcPrefixConfig{Prefix: "10.1.0.0/24"},
+				Metadata: &corev1.Metadata{Name: "missing-vpc-id"},
+			},
+		},
+		{
+			name: "no containing IP Block is rejected",
+			controllerVpcPrefix: &corev1.VpcPrefix{
+				Id:       &corev1.VpcPrefixId{Value: uuid.NewString()},
+				VpcId:    &corev1.VpcId{Value: controllerVpcID.String()},
+				Config:   &corev1.VpcPrefixConfig{Prefix: "192.168.1.0/24"},
+				Metadata: &corev1.Metadata{Name: "no-ip-block-prefix"},
+			},
+		},
+		{
+			name: "already allocated Site CIDR is rejected",
+			controllerVpcPrefix: &corev1.VpcPrefix{
+				Id:       &corev1.VpcPrefixId{Value: uuid.NewString()},
+				VpcId:    &corev1.VpcId{Value: controllerVpcID.String()},
+				Config:   &corev1.VpcPrefixConfig{Prefix: "10.5.0.0/24"},
+				Metadata: &corev1.Metadata{Name: "allocated-prefix"},
+			},
+		},
+		{
+			name: "renames VPC Prefix when active name already exists",
+			controllerVpcPrefix: &corev1.VpcPrefix{
+				Id:    &corev1.VpcPrefixId{Value: uuid.NewString()},
+				VpcId: &corev1.VpcId{Value: controllerVpcID.String()},
+				Config: &corev1.VpcPrefixConfig{
+					Prefix: "10.2.0.0/24",
+				},
+				Metadata: &corev1.Metadata{Name: existingPrefix.Name},
+			},
+			wantVpcPrefix: true,
+			wantNamePref:  existingPrefix.Name + "-recovered-",
+		},
+		{
+			name: "assigns recovered name when metadata name is empty",
+			controllerVpcPrefix: &corev1.VpcPrefix{
+				Id:    &corev1.VpcPrefixId{Value: uuid.NewString()},
+				VpcId: &corev1.VpcId{Value: controllerVpcID.String()},
+				Config: &corev1.VpcPrefixConfig{
+					Prefix: "10.3.0.0/24",
+				},
+				Metadata: &corev1.Metadata{Name: ""},
+			},
+			wantVpcPrefix: true,
+			wantNamePref:  "recovered-",
+		},
+		{
+			name: "creates VPC Prefix using parent VPC REST ID as site VPC ID",
+			controllerVpcPrefix: &corev1.VpcPrefix{
+				Id:    &corev1.VpcPrefixId{Value: uuid.NewString()},
+				VpcId: &corev1.VpcId{Value: parentVpc.ID.String()},
+				Config: &corev1.VpcPrefixConfig{
+					Prefix: "10.4.0.0/24",
+				},
+				Metadata: &corev1.Metadata{Name: "rest-id-parent-vpc-prefix"},
+			},
+			wantVpcPrefix: true,
+			wantName:      "rest-id-parent-vpc-prefix",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			vpcPrefix := manager.createOrUpdateVpcPrefixFromSite(ctx, site, tt.controllerVpcPrefix)
+			if tt.wantVpcPrefix {
+				require.NotNil(t, vpcPrefix)
+				assert.Equal(t, cdbm.VpcPrefixStatusReady, vpcPrefix.Status)
+				assert.Equal(t, authorizedTenant.ID, vpcPrefix.TenantID)
+				assert.Equal(t, parentVpc.ID, vpcPrefix.VpcID)
+				require.NotNil(t, vpcPrefix.IPBlockID)
+				assert.Equal(t, ipBlock.ID, *vpcPrefix.IPBlockID)
+				assert.NotNil(t, ipamer.PrefixFrom(ctx, tt.controllerVpcPrefix.Config.Prefix))
+				if tt.wantName != "" {
+					assert.Equal(t, tt.wantName, vpcPrefix.Name)
+				}
+				if tt.wantNamePref != "" {
+					assert.True(t, len(vpcPrefix.Name) > len(tt.wantNamePref))
+					assert.Equal(t, tt.wantNamePref, vpcPrefix.Name[:len(tt.wantNamePref)])
+				}
+			} else {
+				assert.Nil(t, vpcPrefix)
+			}
+		})
+	}
+}
+
+func TestManageVpcPrefix_CreateOrUpdateVpcPrefixFromSite_RejectsHostBitsEqualLengthCIDR(t *testing.T) {
+	// Regression: a non-canonical equal-length CIDR (host bits set) must not leave the
+	// parent IPBlock with FullGrant=true after a soft-skip commits the transaction.
+	ctx := context.Background()
+	dbSession := testVpcPrefixInitDB(t)
+	defer dbSession.Close()
+	testVPCPrefixSetupSchema(t, dbSession)
+
+	providerOrg := "test-provider-org"
+	providerUser := testVPCBuildUser(t, dbSession, uuid.NewString(), providerOrg, []string{"FORGE_PROVIDER_ADMIN"})
+	provider := testVPCSiteBuildInfrastructureProvider(t, dbSession, "test-provider", providerOrg, providerUser)
+	tenantOrg := "test-tenant-org"
+	tenantUser := testVPCBuildUser(t, dbSession, uuid.NewString(), tenantOrg, []string{"FORGE_TENANT_ADMIN"})
+	tenant := testVPCBuildTenant(t, dbSession, "test-tenant", tenantOrg, tenantUser)
+	site := testVPCBuildSite(t, dbSession, provider, "test-site", providerUser)
+
+	parentVpc := testVPCBuildVPC(
+		t, dbSession, "parent-vpc", provider, tenant, site, nil, nil, tenantUser, cdbm.VpcStatusReady,
+	)
+	ipBlock := testVPCPrefixBuildIPBlock(
+		t, dbSession, "test-full-grant-ip-block", site, provider, &tenant.ID,
+		cdbm.IPBlockRoutingTypeDatacenterOnly, "10.20.0.0", 16,
+		cdbm.IPBlockProtocolVersionV4, false, cdbm.IPBlockStatusReady, tenantUser,
+	)
+	ipamStorage := ipam.NewIpamStorage(dbSession.DB, nil)
+	_, err := ipam.CreateIpamEntryForIPBlock(
+		ctx, ipamStorage, ipBlock.Prefix, ipBlock.PrefixLength, ipBlock.RoutingType,
+		ipBlock.InfrastructureProviderID.String(), ipBlock.SiteID.String(),
+	)
+	require.NoError(t, err)
+
+	hostBitsVpcPrefixID := uuid.New()
+	manager := ManageVpcPrefix{dbSession: dbSession}
+	created := manager.createOrUpdateVpcPrefixFromSite(ctx, site, &corev1.VpcPrefix{
+		Id:    &corev1.VpcPrefixId{Value: hostBitsVpcPrefixID.String()},
+		VpcId: &corev1.VpcId{Value: parentVpc.ID.String()},
+		Config: &corev1.VpcPrefixConfig{
+			// netip.ParsePrefix accepts this; Masked() form is 10.20.0.0/16.
+			Prefix: "10.20.0.1/16",
+		},
+		Metadata: &corev1.Metadata{Name: "host-bits-vpc-prefix"},
+		Status:   &corev1.VpcPrefixStatus{TenantState: corev1.TenantState_READY},
+	})
+	assert.Nil(t, created)
+
+	vpcPrefixDAO := cdbm.NewVpcPrefixDAO(dbSession)
+	_, err = vpcPrefixDAO.GetByID(ctx, nil, hostBitsVpcPrefixID, nil)
+	assert.ErrorIs(t, err, cdb.ErrDoesNotExist)
+
+	ipBlockDAO := cdbm.NewIPBlockDAO(dbSession)
+	reloadedIPBlock, err := ipBlockDAO.GetByID(ctx, nil, ipBlock.ID, nil)
+	require.NoError(t, err)
+	assert.False(t, reloadedIPBlock.FullGrant)
+
+	// A normal REST-style full-grant create on the same IPBlock must still succeed.
+	childPrefix, err := ipam.CreateChildIpamEntryForIPBlock(
+		ctx, nil, dbSession, ipamStorage, reloadedIPBlock, reloadedIPBlock.PrefixLength,
+	)
+	require.NoError(t, err)
+	assert.Equal(t, "10.20.0.0/16", childPrefix.Cidr)
+	reloadedIPBlock, err = ipBlockDAO.GetByID(ctx, nil, ipBlock.ID, nil)
+	require.NoError(t, err)
+	assert.True(t, reloadedIPBlock.FullGrant)
+}
+
+func TestManageVpcPrefix_CreateOrUpdateVpcPrefixFromSite_SkipsFullGrantIPBlock(t *testing.T) {
+	// Regression: FullGrant lives only in the REST DB, so the ipam library reports a fully
+	// granted IPBlock as empty. Recovery must not carve a child CIDR out of it.
+	ctx := context.Background()
+	dbSession := testVpcPrefixInitDB(t)
+	defer dbSession.Close()
+	testVPCPrefixSetupSchema(t, dbSession)
+
+	providerOrg := "test-provider-org"
+	providerUser := testVPCBuildUser(t, dbSession, uuid.NewString(), providerOrg, []string{"FORGE_PROVIDER_ADMIN"})
+	provider := testVPCSiteBuildInfrastructureProvider(t, dbSession, "test-provider", providerOrg, providerUser)
+	tenantOrg := "test-tenant-org"
+	tenantUser := testVPCBuildUser(t, dbSession, uuid.NewString(), tenantOrg, []string{"FORGE_TENANT_ADMIN"})
+	tenant := testVPCBuildTenant(t, dbSession, "test-tenant", tenantOrg, tenantUser)
+	site := testVPCBuildSite(t, dbSession, provider, "test-site", providerUser)
+
+	parentVpc := testVPCBuildVPC(
+		t, dbSession, "parent-vpc", provider, tenant, site, nil, nil, tenantUser, cdbm.VpcStatusReady,
+	)
+	ipBlock := testVPCPrefixBuildIPBlock(
+		t, dbSession, "test-full-grant-ip-block", site, provider, &tenant.ID,
+		cdbm.IPBlockRoutingTypeDatacenterOnly, "10.20.0.0", 16,
+		cdbm.IPBlockProtocolVersionV4, false, cdbm.IPBlockStatusReady, tenantUser,
+	)
+	ipamStorage := ipam.NewIpamStorage(dbSession.DB, nil)
+	_, err := ipam.CreateIpamEntryForIPBlock(
+		ctx, ipamStorage, ipBlock.Prefix, ipBlock.PrefixLength, ipBlock.RoutingType,
+		ipBlock.InfrastructureProviderID.String(), ipBlock.SiteID.String(),
+	)
+	require.NoError(t, err)
+
+	// Full-grant the whole IPBlock the way the REST create path does.
+	_, err = ipam.CreateChildIpamEntryForIPBlock(
+		ctx, nil, dbSession, ipamStorage, ipBlock, ipBlock.PrefixLength,
+	)
+	require.NoError(t, err)
+	ipBlockDAO := cdbm.NewIPBlockDAO(dbSession)
+	fullGrantedIPBlock, err := ipBlockDAO.GetByID(ctx, nil, ipBlock.ID, nil)
+	require.NoError(t, err)
+	require.True(t, fullGrantedIPBlock.FullGrant)
+
+	childVpcPrefixID := uuid.New()
+	manager := ManageVpcPrefix{dbSession: dbSession}
+	created := manager.createOrUpdateVpcPrefixFromSite(ctx, site, &corev1.VpcPrefix{
+		Id:    &corev1.VpcPrefixId{Value: childVpcPrefixID.String()},
+		VpcId: &corev1.VpcId{Value: parentVpc.ID.String()},
+		Config: &corev1.VpcPrefixConfig{
+			Prefix: "10.20.30.0/24",
+		},
+		Metadata: &corev1.Metadata{Name: "full-grant-child-vpc-prefix"},
+		Status:   &corev1.VpcPrefixStatus{TenantState: corev1.TenantState_READY},
+	})
+	assert.Nil(t, created)
+
+	vpcPrefixDAO := cdbm.NewVpcPrefixDAO(dbSession)
+	_, err = vpcPrefixDAO.GetByID(ctx, nil, childVpcPrefixID, nil)
+	assert.ErrorIs(t, err, cdb.ErrDoesNotExist)
+
+	ipamer := cipam.NewWithStorage(ipamStorage)
+	ipamer.SetNamespace(ipam.GetIpamNamespaceForIPBlock(
+		ctx, ipBlock.RoutingType, ipBlock.InfrastructureProviderID.String(), ipBlock.SiteID.String(),
+	))
+	assert.Nil(t, ipamer.PrefixFrom(ctx, "10.20.30.0/24"))
+
+	reloadedIPBlock, err := ipBlockDAO.GetByID(ctx, nil, ipBlock.ID, nil)
+	require.NoError(t, err)
+	assert.True(t, reloadedIPBlock.FullGrant)
+}
+
+func TestManageVpcPrefix_CreateOrUpdateVpcPrefixFromSite_SkipsRestoreWhenPrefixDiffers(t *testing.T) {
+	// Soft-deleted row stores 10.20.30.0/24; Site reports the same controller UUID with a
+	// different CIDR in the same IPBlock. Undelete must not acquire the reported CIDR.
+	ctx := context.Background()
+	dbSession := testVpcPrefixInitDB(t)
+	defer dbSession.Close()
+	testVPCPrefixSetupSchema(t, dbSession)
+
+	providerOrg := "test-provider-org"
+	providerUser := testVPCBuildUser(t, dbSession, uuid.NewString(), providerOrg, []string{"FORGE_PROVIDER_ADMIN"})
+	provider := testVPCSiteBuildInfrastructureProvider(t, dbSession, "test-provider", providerOrg, providerUser)
+	tenantOrg := "test-tenant-org"
+	tenantUser := testVPCBuildUser(t, dbSession, uuid.NewString(), tenantOrg, []string{"FORGE_TENANT_ADMIN"})
+	tenant := testVPCBuildTenant(t, dbSession, "test-tenant", tenantOrg, tenantUser)
+	site := testVPCBuildSite(t, dbSession, provider, "test-site", providerUser)
+
+	parentVpc := testVPCBuildVPC(
+		t, dbSession, "parent-vpc", provider, tenant, site, nil, nil, tenantUser, cdbm.VpcStatusReady,
+	)
+	ipBlock := testVPCPrefixBuildIPBlock(
+		t, dbSession, "test-prefix-mismatch-ip-block", site, provider, &tenant.ID,
+		cdbm.IPBlockRoutingTypeDatacenterOnly, "10.20.0.0", 16,
+		cdbm.IPBlockProtocolVersionV4, false, cdbm.IPBlockStatusReady, tenantUser,
+	)
+	ipamStorage := ipam.NewIpamStorage(dbSession.DB, nil)
+	_, err := ipam.CreateIpamEntryForIPBlock(
+		ctx, ipamStorage, ipBlock.Prefix, ipBlock.PrefixLength, ipBlock.RoutingType,
+		ipBlock.InfrastructureProviderID.String(), ipBlock.SiteID.String(),
+	)
+	require.NoError(t, err)
+
+	storedCIDR := "10.20.30.0/24"
+	reportedCIDR := "10.20.31.0/24"
+	vpcPrefixID := uuid.New()
+	vpcPrefixDAO := cdbm.NewVpcPrefixDAO(dbSession)
+	_, err = vpcPrefixDAO.Create(ctx, nil, cdbm.VpcPrefixCreateInput{
+		VpcPrefixID:  &vpcPrefixID,
+		Name:         "stored-vpc-prefix",
+		TenantOrg:    tenant.Org,
+		SiteID:       site.ID,
+		VpcID:        parentVpc.ID,
+		TenantID:     tenant.ID,
+		IpBlockID:    &ipBlock.ID,
+		Prefix:       storedCIDR,
+		PrefixLength: 24,
+		Status:       cdbm.VpcPrefixStatusDeleting,
+		CreatedBy:    site.ID,
+	})
+	require.NoError(t, err)
+	require.NoError(t, vpcPrefixDAO.Delete(ctx, nil, vpcPrefixID))
+
+	deleted, _, err := vpcPrefixDAO.GetAll(
+		ctx,
+		nil,
+		cdbm.VpcPrefixFilterInput{VpcPrefixIDs: []uuid.UUID{vpcPrefixID}, IncludeDeleted: true},
+		cdbp.PageInput{Limit: cutil.GetPtr(cdbp.TotalLimit)},
+		nil,
+	)
+	require.NoError(t, err)
+	require.Len(t, deleted, 1)
+	require.NotNil(t, deleted[0].Deleted)
+	deletedAt := *deleted[0].Deleted
+
+	manager := ManageVpcPrefix{dbSession: dbSession}
+	created := manager.createOrUpdateVpcPrefixFromSite(ctx, site, &corev1.VpcPrefix{
+		Id:    &corev1.VpcPrefixId{Value: vpcPrefixID.String()},
+		VpcId: &corev1.VpcId{Value: parentVpc.ID.String()},
+		Config: &corev1.VpcPrefixConfig{
+			Prefix: reportedCIDR,
+		},
+		Metadata: &corev1.Metadata{Name: "drifted-vpc-prefix"},
+		Status:   &corev1.VpcPrefixStatus{TenantState: corev1.TenantState_READY},
+	})
+	assert.Nil(t, created)
+
+	stillDeleted, _, err := vpcPrefixDAO.GetAll(
+		ctx,
+		nil,
+		cdbm.VpcPrefixFilterInput{VpcPrefixIDs: []uuid.UUID{vpcPrefixID}, IncludeDeleted: true},
+		cdbp.PageInput{Limit: cutil.GetPtr(cdbp.TotalLimit)},
+		nil,
+	)
+	require.NoError(t, err)
+	require.Len(t, stillDeleted, 1)
+	require.NotNil(t, stillDeleted[0].Deleted)
+	assert.Equal(t, deletedAt, *stillDeleted[0].Deleted)
+	assert.Equal(t, storedCIDR, stillDeleted[0].Prefix)
+
+	_, err = vpcPrefixDAO.GetByID(ctx, nil, vpcPrefixID, nil)
+	assert.ErrorIs(t, err, cdb.ErrDoesNotExist)
+
+	ipamer := cipam.NewWithStorage(ipamStorage)
+	ipamer.SetNamespace(ipam.GetIpamNamespaceForIPBlock(
+		ctx, ipBlock.RoutingType, ipBlock.InfrastructureProviderID.String(), ipBlock.SiteID.String(),
+	))
+	assert.Nil(t, ipamer.PrefixFrom(ctx, reportedCIDR))
+	assert.Nil(t, ipamer.PrefixFrom(ctx, storedCIDR))
+}
+
+func TestManageVpcPrefix_DeleteVpcPrefixFromDB_ErrorsWhenIPBlockRelationMissing(t *testing.T) {
+	// IPBlockID set but IPBlock relation nil must abort delete — silent skip would leak the CIDR.
+	ctx := context.Background()
+	dbSession := testVpcPrefixInitDB(t)
+	defer dbSession.Close()
+	testVPCPrefixSetupSchema(t, dbSession)
+
+	providerOrg := "test-provider-org"
+	providerUser := testVPCBuildUser(t, dbSession, uuid.NewString(), providerOrg, []string{"FORGE_PROVIDER_ADMIN"})
+	provider := testVPCSiteBuildInfrastructureProvider(t, dbSession, "test-provider", providerOrg, providerUser)
+	tenantOrg := "test-tenant-org"
+	tenantUser := testVPCBuildUser(t, dbSession, uuid.NewString(), tenantOrg, []string{"FORGE_TENANT_ADMIN"})
+	tenant := testVPCBuildTenant(t, dbSession, "test-tenant", tenantOrg, tenantUser)
+	site := testVPCBuildSite(t, dbSession, provider, "test-site", providerUser)
+
+	parentVpc := testVPCBuildVPC(
+		t, dbSession, "parent-vpc", provider, tenant, site, nil, nil, tenantUser, cdbm.VpcStatusReady,
+	)
+	ipBlock := testVPCPrefixBuildIPBlock(
+		t, dbSession, "test-missing-relation-ip-block", site, provider, &tenant.ID,
+		cdbm.IPBlockRoutingTypeDatacenterOnly, "10.20.0.0", 16,
+		cdbm.IPBlockProtocolVersionV4, false, cdbm.IPBlockStatusReady, tenantUser,
+	)
+	prefix := "10.20.30.0/24"
+	prefixLength := 24
+	vpcPrefix := testVPCBuildVPCPrefix(
+		t, dbSession, "missing-relation-vpc-prefix", site, tenant, parentVpc.ID, &ipBlock.ID,
+		&prefix, &prefixLength, cdbm.VpcPrefixStatusDeleting, tenantUser,
+	)
+	// Simulate a caller that omitted IPBlockRelationName (or a soft-deleted parent block).
+	vpcPrefix.IPBlock = nil
+	require.NotNil(t, vpcPrefix.IPBlockID)
+
+	manager := ManageVpcPrefix{dbSession: dbSession}
+	tx, err := cdb.BeginTx(ctx, dbSession, &sql.TxOptions{})
+	require.NoError(t, err)
+	err = manager.deleteVpcPrefixFromDB(ctx, tx, vpcPrefix, zerolog.Nop())
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "IP Block relation is missing")
+	require.NoError(t, tx.Rollback())
+
+	stillActive, err := cdbm.NewVpcPrefixDAO(dbSession).GetByID(ctx, nil, vpcPrefix.ID, nil)
+	require.NoError(t, err)
+	assert.Nil(t, stillActive.Deleted)
+}
+
+func TestManageVpcPrefix_CreateOrUpdateVpcPrefixFromSite_SkipsWhenIDExistsUnderDifferentSite(t *testing.T) {
+	// Same controller UUID under another site must skip cleanly — not unique-constraint-fail every cycle.
+	ctx := context.Background()
+	dbSession := testVpcPrefixInitDB(t)
+	defer dbSession.Close()
+	testVPCPrefixSetupSchema(t, dbSession)
+
+	providerOrg := "test-provider-org"
+	providerUser := testVPCBuildUser(t, dbSession, uuid.NewString(), providerOrg, []string{"FORGE_PROVIDER_ADMIN"})
+	provider := testVPCSiteBuildInfrastructureProvider(t, dbSession, "test-provider", providerOrg, providerUser)
+	tenantOrg := "test-tenant-org"
+	tenantUser := testVPCBuildUser(t, dbSession, uuid.NewString(), tenantOrg, []string{"FORGE_TENANT_ADMIN"})
+	tenant := testVPCBuildTenant(t, dbSession, "test-tenant", tenantOrg, tenantUser)
+	siteA := testVPCBuildSite(t, dbSession, provider, "test-site-a", providerUser)
+	siteB := testVPCBuildSite(t, dbSession, provider, "test-site-b", providerUser)
+
+	vpcA := testVPCBuildVPC(t, dbSession, "vpc-a", provider, tenant, siteA, nil, nil, tenantUser, cdbm.VpcStatusReady)
+	vpcB := testVPCBuildVPC(t, dbSession, "vpc-b", provider, tenant, siteB, nil, nil, tenantUser, cdbm.VpcStatusReady)
+
+	ipBlockA := testVPCPrefixBuildIPBlock(
+		t, dbSession, "ip-block-a", siteA, provider, &tenant.ID,
+		cdbm.IPBlockRoutingTypeDatacenterOnly, "10.10.0.0", 16,
+		cdbm.IPBlockProtocolVersionV4, false, cdbm.IPBlockStatusReady, tenantUser,
+	)
+	ipBlockB := testVPCPrefixBuildIPBlock(
+		t, dbSession, "ip-block-b", siteB, provider, &tenant.ID,
+		cdbm.IPBlockRoutingTypeDatacenterOnly, "10.20.0.0", 16,
+		cdbm.IPBlockProtocolVersionV4, false, cdbm.IPBlockStatusReady, tenantUser,
+	)
+	ipamStorage := ipam.NewIpamStorage(dbSession.DB, nil)
+	_, err := ipam.CreateIpamEntryForIPBlock(
+		ctx, ipamStorage, ipBlockB.Prefix, ipBlockB.PrefixLength, ipBlockB.RoutingType,
+		ipBlockB.InfrastructureProviderID.String(), ipBlockB.SiteID.String(),
+	)
+	require.NoError(t, err)
+
+	sharedVpcPrefixID := uuid.New()
+	prefixA := "10.10.1.0/24"
+	prefixLengthA := 24
+	existing, err := cdbm.NewVpcPrefixDAO(dbSession).Create(ctx, nil, cdbm.VpcPrefixCreateInput{
+		VpcPrefixID:  &sharedVpcPrefixID,
+		Name:         "site-a-vpc-prefix",
+		TenantOrg:    tenant.Org,
+		SiteID:       siteA.ID,
+		VpcID:        vpcA.ID,
+		TenantID:     tenant.ID,
+		IpBlockID:    &ipBlockA.ID,
+		Prefix:       prefixA,
+		PrefixLength: prefixLengthA,
+		Status:       cdbm.VpcPrefixStatusReady,
+		CreatedBy:    tenantUser.ID,
+	})
+	require.NoError(t, err)
+	require.Equal(t, sharedVpcPrefixID, existing.ID)
+	require.Equal(t, siteA.ID, existing.SiteID)
+
+	manager := ManageVpcPrefix{dbSession: dbSession}
+	created := manager.createOrUpdateVpcPrefixFromSite(ctx, siteB, &corev1.VpcPrefix{
+		Id:    &corev1.VpcPrefixId{Value: sharedVpcPrefixID.String()},
+		VpcId: &corev1.VpcId{Value: vpcB.ID.String()},
+		Config: &corev1.VpcPrefixConfig{
+			Prefix: "10.20.1.0/24",
+		},
+		Metadata: &corev1.Metadata{Name: "site-b-collision-vpc-prefix"},
+		Status:   &corev1.VpcPrefixStatus{TenantState: corev1.TenantState_READY},
+	})
+	assert.Nil(t, created)
+
+	vpcPrefixDAO := cdbm.NewVpcPrefixDAO(dbSession)
+	stillOriginal, err := vpcPrefixDAO.GetByID(ctx, nil, sharedVpcPrefixID, nil)
+	require.NoError(t, err)
+	assert.Equal(t, siteA.ID, stillOriginal.SiteID)
+	assert.Equal(t, prefixA, stillOriginal.Prefix)
+	assert.Equal(t, "site-a-vpc-prefix", stillOriginal.Name)
+	assert.Nil(t, stillOriginal.Deleted)
+
+	siteBPrefixes, _, err := vpcPrefixDAO.GetAll(ctx, nil, cdbm.VpcPrefixFilterInput{
+		SiteIDs: []uuid.UUID{siteB.ID},
+	}, cdbp.PageInput{Limit: cutil.GetPtr(cdbp.TotalLimit)}, nil)
+	require.NoError(t, err)
+	assert.Empty(t, siteBPrefixes)
+
+	ipamer := cipam.NewWithStorage(ipamStorage)
+	ipamer.SetNamespace(ipam.GetIpamNamespaceForIPBlock(
+		ctx, ipBlockB.RoutingType, ipBlockB.InfrastructureProviderID.String(), ipBlockB.SiteID.String(),
+	))
+	assert.Nil(t, ipamer.PrefixFrom(ctx, "10.20.1.0/24"))
 }

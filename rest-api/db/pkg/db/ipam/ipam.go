@@ -183,6 +183,29 @@ func CreateChildIpamEntryForIPBlock(ctx context.Context, tx *cdb.Tx, dbSession *
 	return childPrefix, err
 }
 
+// AcquireSpecificChildIpamEntryForIPBlock will create a child ipam entry in the ipam DB for the
+// given parent IP Block, using an exact child cidr instead of letting ipam choose one
+// Note: FullGrant is tracked only in the REST DB, so the ipam DB reports a fully granted parent as
+// empty. The caller must go through this helper (rather than the ipam library directly) so a
+// fully granted parent cannot hand out an overlapping child prefix
+func AcquireSpecificChildIpamEntryForIPBlock(ctx context.Context, tx *cdb.Tx, dbSession *cdb.Session, ipamDB cipam.Storage, parentIPBlock *cdbm.IPBlock, childCidr string) (*cipam.Prefix, error) {
+	if parentIPBlock == nil {
+		return nil, ErrNilIPBlock
+	}
+	if parentIPBlock.FullGrant {
+		return nil, errors.New(fmt.Sprintf("parent IPBlock : %s already has a full-grant", parentIPBlock.ID.String()))
+	}
+	ipamer := cipam.NewWithStorage(ipamDB)
+	namespace := GetIpamNamespaceForIPBlock(ctx, parentIPBlock.RoutingType, parentIPBlock.InfrastructureProviderID.String(), parentIPBlock.SiteID.String())
+	ipamer.SetNamespace(namespace)
+	parentCidr := GetCidrForIPBlock(ctx, parentIPBlock.Prefix, parentIPBlock.PrefixLength)
+	childPrefix, err := ipamer.AcquireSpecificChildPrefix(ctx, parentCidr, childCidr)
+	if err != nil {
+		return nil, err
+	}
+	return childPrefix, nil
+}
+
 // DeleteChildIpamEntryFromCidr will delete a child ipam entry in the ipam DB
 // given the parent IPBlock, and child cidr
 // Note: FullGrant is a special case when the parentIPBlock has a full grant, and the child
