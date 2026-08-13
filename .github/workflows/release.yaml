@@ -19,6 +19,9 @@ name: Carbide Release new version
 on:
   workflow_dispatch:
 
+permissions:
+  contents: none
+
 jobs:
   # ============================================================================
   # Release new version
@@ -36,6 +39,8 @@ jobs:
   # ============================================================================
   fetch-new-version:
     runs-on: linux-amd64-cpu4
+    permissions:
+      contents: read
     needs:
       - release-new-version-approve
     outputs:
@@ -69,6 +74,8 @@ jobs:
   # ============================================================================
   release-new-version:
     runs-on: linux-amd64-cpu4
+    permissions:
+      contents: write
     needs:
       - fetch-new-version
     steps:
