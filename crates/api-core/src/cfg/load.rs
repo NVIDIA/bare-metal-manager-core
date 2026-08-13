@@ -134,8 +134,13 @@ fn apply_unknown_field_policy(
 }
 
 /// Parse the `InitialObjectsConfig` file referenced by
-/// [`CarbideConfig::initial_objects_file`].
-pub fn parse_initial_objects_config(
+/// [`CarbideConfig::initial_objects_file`], warning about unknown fields.
+pub fn parse_initial_objects_config(path: &Path) -> eyre::Result<InitialObjectsConfig> {
+    parse_initial_objects_config_with_policy(path, false)
+}
+
+/// Parse an `InitialObjectsConfig` using the caller's unknown-field policy.
+pub fn parse_initial_objects_config_with_policy(
     path: &Path,
     deny_unknown_fields: bool,
 ) -> eyre::Result<InitialObjectsConfig> {
@@ -218,16 +223,42 @@ pub fn parse_carbide_config(
     let merged_config = merged_carbide_config_figment(config_path, site_config_path);
     let (mut config, unknown_fields) = extract_with_unknown_fields::<CarbideConfig>(&merged_config)
         .wrap_err("failed to load configuration files")?;
+    tracing::info!(
+        deny_unknown_fields = config.deny_unknown_fields,
+        unknown_field_policy = if config.deny_unknown_fields {
+            "deny"
+        } else {
+            "warn"
+        },
+        "Using configuration unknown-field policy"
+    );
     apply_unknown_field_policy(&unknown_fields, config.deny_unknown_fields)
         .wrap_err("failed to load configuration files")?;
 
     config.config_ctx = Some(merged_config);
 
-    if config.deprecated_force_dpu_nic_mode.is_some()
-        || config.site_explorer.deprecated_force_dpu_nic_mode.is_some()
-    {
+    for (path, is_set) in [
+        (
+            "force_dpu_nic_mode",
+            config.deprecated_force_dpu_nic_mode.is_some(),
+        ),
+        (
+            "site_explorer.force_dpu_nic_mode",
+            config.site_explorer.deprecated_force_dpu_nic_mode.is_some(),
+        ),
+    ] {
+        if !is_set {
+            continue;
+        }
+        let source = config
+            .config_ctx
+            .as_ref()
+            .and_then(|figment| figment.find_metadata(path))
+            .map(super::provenance::source_label)
+            .unwrap_or_else(|| "configuration".to_string());
         tracing::warn!(
-            config_key = "force_dpu_nic_mode",
+            config_key = path,
+            config_source = %source,
             replacement = "site_explorer.dpu_policy",
             "Ignoring deprecated configuration key"
         );

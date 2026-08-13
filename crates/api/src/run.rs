@@ -67,10 +67,12 @@ pub async fn run(
     // `InitialObjectsConfig` so that the core runtime can reconcile its contents
     // against the database on first startup.
     let initial_objects = if let Some(path) = carbide_config.initial_objects_file.as_deref() {
-        Some(carbide_api_core::cfg::load::parse_initial_objects_config(
-            path,
-            carbide_config.deny_unknown_fields,
-        )?)
+        Some(
+            carbide_api_core::cfg::load::parse_initial_objects_config_with_policy(
+                path,
+                carbide_config.deny_unknown_fields,
+            )?,
+        )
     } else {
         None
     };

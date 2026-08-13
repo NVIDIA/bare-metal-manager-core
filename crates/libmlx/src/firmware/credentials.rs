@@ -312,4 +312,15 @@ mod tests {
             }
         );
     }
+
+    #[test]
+    fn ssh_agent_json_round_trip_preserves_legacy_shape() {
+        let encoded = serde_json::to_value(Credentials::ssh_agent())
+            .expect("SSH-agent credential serializes");
+        assert_eq!(encoded, serde_json::json!({ "type": "ssh_agent" }));
+
+        let decoded: Credentials =
+            serde_json::from_value(encoded).expect("legacy SSH-agent JSON deserializes");
+        assert!(matches!(decoded, Credentials::SshAgent {}));
+    }
 }
