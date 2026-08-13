@@ -6,7 +6,9 @@ package inventorysync
 import (
 	"context"
 	"fmt"
+	"maps"
 	"reflect"
+	"slices"
 	"time"
 
 	"github.com/google/uuid"
@@ -17,6 +19,16 @@ import (
 	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/db/model"
 	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/nicoapi"
 )
+
+// rackNameReservation is a comparable description of the rack that owns one
+// name during planning. Equality means the same Flow row or Core identity may
+// safely reserve its own name again; any different value is a collision.
+type rackNameReservation struct {
+	flowID       uuid.UUID
+	coreRackID   string
+	manufacturer string
+	serialNumber string
+}
 
 // Well-known label keys Core writes on ExpectedRack.metadata.labels. Mirrored
 // here so this package doesn't pull in the api-model crate's Rust constants.
@@ -102,6 +114,22 @@ func mirrorExpectedRacks(
 		}
 		flowBySerial[rackNaturalKey(r.Manufacturer, r.SerialNumber)] = r
 	}
+	// An exact external-ID owner always outranks natural-key adoption of the
+	// same Flow row. Record those claims before validating labels or planning
+	// names so a temporarily malformed owner still protects its row. When the
+	// old external ID is absent from Core, no claim is recorded and the normal
+	// natural-key path can adopt a legitimate rack-ID rename.
+	exactCoreRackIDByFlowID := make(map[uuid.UUID]string)
+	for _, rack := range coreRacks {
+		if rack.RackID == "" {
+			continue
+		}
+		existing, exists := flowByExtID[rack.RackID]
+		if !exists {
+			continue
+		}
+		exactCoreRackIDByFlowID[existing.ID] = rack.RackID
+	}
 
 	type plan struct {
 		toInsert []model.Rack
@@ -116,35 +144,49 @@ func mirrorExpectedRacks(
 	// most once: gcTombstoneForNameReuse deletes the entry after firing so
 	// we don't attempt to GC the same tombstone twice in the same cycle.
 	tombstonesByName := make(map[string]*model.Rack)
-	// liveByName: name -> id of every live (non-deleted) rack. rack_name_idx
-	// is a full unique index, so an INSERT or UPDATE that writes a name a
-	// different live rack already holds would roll back the whole cycle.
-	// The mirror skips the colliding write and logs instead. A soft-deleted
-	// row holding the name is handled separately by gcTombstoneForNameReuse.
-	liveByName := make(map[string]uuid.UUID)
+	// `reservedByName` starts with every live row and grows with each accepted
+	// INSERT or UPDATE. Keeping the whole plan in the same index is what stops
+	// two pending writes from reaching `rack_name_idx` with the same target
+	// name and rolling back an unrelated rack change. Names are deliberately
+	// not released when a rack plans to rename: INSERTs execute before UPDATEs,
+	// so an insert claiming the old name would still hit the live row before
+	// its rename runs. That conservative reservation defers reuse to a later
+	// cycle instead of risking a transaction-wide rollback. A true name swap
+	// remains a conflict and needs operator resolution.
+	reservedByName := make(map[string]rackNameReservation)
 	for i := range flowRacks {
 		r := &flowRacks[i]
 		if r.DeletedAt != nil {
 			tombstonesByName[r.Name] = r
 			continue
 		}
-		liveByName[r.Name] = r.ID
+		reservedByName[r.Name] = rackNameReservationForFlowRack(r)
 	}
+	// Protect the current name of every tombstone Core still identifies. A
+	// renamed resurrection runs after INSERTs, so allowing an insert to reuse
+	// that old name would make tombstone GC erase the row before its UPDATE.
+	// Unmatched tombstones stay unreserved and can still be collected for name
+	// reuse. Match precedence must remain identical to the main planner:
+	// external_id first (even when Core's labels are malformed), then a valid
+	// natural key. An external-ID match stays protected across a temporary label
+	// gap even though the malformed Core row cannot be mirrored that cycle.
+	reserveMatchedTombstoneNames(coreRacks, flowByExtID, flowBySerial, reservedByName)
 
 	// seenExtID: every Core rack_id still reported this cycle, recorded
 	// BEFORE any skip so the delete phase never drops a Flow rack Core is
 	// still listing (even one whose labels are momentarily incomplete).
-	// touchedIDs: Flow rack UUIDs the match path adopted / updated this
-	// cycle; the delete phase skips them so a rack_id rename (update to the
-	// new external_id) isn't immediately undone by a soft-delete keyed off
-	// the stale in-memory external_id. plannedSerial: natural keys already
-	// queued, to drop Core duplicates before they collide on the
-	// (manufacturer, serial) unique index.
+	// touchedIDs: Flow rack UUIDs matched by a valid Core row. The delete phase
+	// skips them so a rack_id rename (update to the new external_id) isn't
+	// immediately undone by a soft-delete keyed off the stale in-memory
+	// external_id. plannedExtID and plannedSerial drop Core duplicates before
+	// they collide on Flow's unique external-ID or (manufacturer, serial)
+	// indexes.
 	seenExtID := make(map[string]struct{}, len(coreRacks))
 	touchedIDs := make(map[uuid.UUID]struct{}, len(coreRacks))
+	plannedExtID := make(map[string]struct{}, len(coreRacks))
 	plannedSerial := make(map[string]struct{}, len(coreRacks))
 
-	for _, cr := range coreRacks {
+	for _, cr := range orderCoreRacksForPlanning(coreRacks) {
 		// Record the rack_id as "still reported" before any skip below.
 		if cr.RackID != "" {
 			seenExtID[cr.RackID] = struct{}{}
@@ -172,13 +214,48 @@ func mirrorExpectedRacks(
 				Str("manufacturer", built.Manufacturer).
 				Str("serial", built.SerialNumber).
 				Msg("Expected-inventory mirror: Core expected rack has no rack_id; rack will be mirrored but components can't reference it")
+		} else {
+			_, planned := plannedExtID[cr.RackID]
+			if planned {
+				log.Warn().
+					Str("rack_id", cr.RackID).
+					Str("rack_name", built.Name).
+					Str("rack_manufacturer", built.Manufacturer).
+					Str("rack_serial", built.SerialNumber).
+					Msg("Expected-inventory mirror: Core returned duplicate expected racks with the same rack_id; skipping the later occurrence")
+				continue
+			}
+			plannedExtID[cr.RackID] = struct{}{}
+		}
+
+		// Prefer external_id match (already adopted on a previous cycle), then
+		// fall back to the natural key. matchFlowRackForCore is also used by the
+		// tombstone source-name pre-reservation above so both passes select the
+		// same row.
+		existing, matchedByExternalID := matchFlowRackForCore(cr, flowByExtID, flowBySerial)
+		if existing != nil && !matchedByExternalID {
+			exactOwnerRackID, claimed := exactCoreRackIDByFlowID[existing.ID]
+			if claimed {
+				log.Warn().
+					Str("rack_id", cr.RackID).
+					Str("rack_name", built.Name).
+					Str("rack_manufacturer", built.Manufacturer).
+					Str("rack_serial", built.SerialNumber).
+					Str("flow_rack_id", existing.ID.String()).
+					Str("exact_owner_rack_id", exactOwnerRackID).
+					Msg("Expected-inventory mirror: Core rack natural identity resolves to a Flow rack still owned by another reported rack_id; skipping adoption")
+				continue
+			}
 		}
 
 		// Drop Core duplicates: planning the same chassis twice would queue a
 		// second INSERT that collides on the (manufacturer, serial) unique
-		// index and roll back the whole rack mirror.
+		// index and roll back the whole rack mirror. This check follows the
+		// exact-owner guard so a natural-key claimant cannot preempt the Flow
+		// row's reported external-ID owner merely by sorting first.
 		natKey := rackNaturalKey(built.Manufacturer, built.SerialNumber)
-		if _, planned := plannedSerial[natKey]; planned {
+		_, planned := plannedSerial[natKey]
+		if planned {
 			log.Warn().
 				Str("rack_id", cr.RackID).
 				Str("manufacturer", built.Manufacturer).
@@ -188,34 +265,34 @@ func mirrorExpectedRacks(
 		}
 		plannedSerial[natKey] = struct{}{}
 
-		// Prefer external_id match (already adopted on a previous cycle).
-		// Empty rack_ids never hit flowByExtID by construction.
-		if existing, ok := flowByExtID[cr.RackID]; ok && cr.RackID != "" {
+		if existing != nil {
+			touchedIDs[existing.ID] = struct{}{}
+		}
+		if existing != nil && matchedByExternalID {
 			candidate := *existing
 			needUpdate := false
-			if candidate.DeletedAt != nil {
+			wasDeleted := candidate.DeletedAt != nil
+			if wasDeleted {
 				candidate.DeletedAt = nil
 				needUpdate = true
-				result.resurrected++
 			}
 			if patched := rackUpdatedFromCore(&candidate, &built); patched != nil {
 				candidate = *patched
 				needUpdate = true
 			}
-			if needUpdate && nameTakenByOtherLiveRack(liveByName, candidate.Name, existing.ID) {
-				log.Warn().
-					Str("rack_id", cr.RackID).
-					Str("name", candidate.Name).
-					Str("rack_serial", candidate.SerialNumber).
-					Msg("Expected-inventory mirror: Core rack name already held by a different live Flow rack; skipping this update to avoid a unique-name abort (operator must resolve the duplicate name)")
-				result.skippedNameTaken++
-				touchedIDs[existing.ID] = struct{}{}
-				continue
-			}
 			if needUpdate {
+				reservation := rackNameReservationForFlowRack(existing)
+				nameOwner, reserved := reserveRackName(reservedByName, candidate.Name, reservation)
+				if !reserved {
+					logRackNameCollision("update", cr, candidate, nameOwner)
+					result.skippedNameTaken++
+					continue
+				}
 				p.toUpdate = append(p.toUpdate, candidate)
+				if wasDeleted {
+					result.resurrected++
+				}
 			}
-			touchedIDs[existing.ID] = struct{}{}
 			continue
 		}
 
@@ -223,38 +300,35 @@ func mirrorExpectedRacks(
 		// never adopted; adopt by writing external_id alongside any deltas).
 		// A serial match that's also soft-deleted gets resurrected at the
 		// same time — see the function-level comment for why this matters.
-		if existing, ok := flowBySerial[natKey]; ok {
+		if existing != nil {
 			candidate := *existing
+			reservation := rackNameReservationForFlowRack(existing)
 			candidate.ExternalID = built.ExternalID
-			if candidate.DeletedAt != nil {
+			wasDeleted := candidate.DeletedAt != nil
+			if wasDeleted {
 				candidate.DeletedAt = nil
-				result.resurrected++
 			}
 			if patched := rackUpdatedFromCore(&candidate, &built); patched != nil {
 				candidate = *patched
 			}
-			if nameTakenByOtherLiveRack(liveByName, candidate.Name, existing.ID) {
-				log.Warn().
-					Str("rack_id", cr.RackID).
-					Str("name", candidate.Name).
-					Str("rack_serial", candidate.SerialNumber).
-					Msg("Expected-inventory mirror: Core rack name already held by a different live Flow rack; skipping this adoption to avoid a unique-name abort (operator must resolve the duplicate name)")
+			nameOwner, reserved := reserveRackName(reservedByName, candidate.Name, reservation)
+			if !reserved {
+				logRackNameCollision("adoption", cr, candidate, nameOwner)
 				result.skippedNameTaken++
-				touchedIDs[existing.ID] = struct{}{}
 				continue
 			}
 			p.toUpdate = append(p.toUpdate, candidate)
-			touchedIDs[existing.ID] = struct{}{}
+			if wasDeleted {
+				result.resurrected++
+			}
 			result.adopted++
 			continue
 		}
 
-		if nameTakenByOtherLiveRack(liveByName, built.Name, uuid.Nil) {
-			log.Warn().
-				Str("rack_id", cr.RackID).
-				Str("name", built.Name).
-				Str("rack_serial", built.SerialNumber).
-				Msg("Expected-inventory mirror: Core rack name already held by a different live Flow rack; skipping this insert to avoid a unique-name abort (operator must resolve the duplicate name)")
+		reservation := rackNameReservationForFlowRack(&built)
+		nameOwner, reserved := reserveRackName(reservedByName, built.Name, reservation)
+		if !reserved {
+			logRackNameCollision("insert", cr, built, nameOwner)
 			result.skippedNameTaken++
 			continue
 		}
@@ -325,13 +399,29 @@ func mirrorExpectedRacks(
 			// bun otherwise appends "deleted_at IS NULL" to the UPDATE and the
 			// resurrect silently matches zero rows.
 			p.toUpdate[i].UpdatedAt = now
-			if _, err := tx.NewUpdate().
+			updateResult, updateErr := tx.NewUpdate().
 				Model(&p.toUpdate[i]).
 				Column("name", "description", "location", "external_id", "deleted_at", "updated_at").
 				WhereAllWithDeleted().
 				Where("id = ?", p.toUpdate[i].ID).
-				Exec(ctx); err != nil {
-				return fmt.Errorf("update rack %q: %w", p.toUpdate[i].Name, err)
+				Exec(ctx)
+			if updateErr != nil {
+				return fmt.Errorf("update rack %q: %w", p.toUpdate[i].Name, updateErr)
+			}
+			rowsAffected, rowsErr := updateResult.RowsAffected()
+			if rowsErr != nil {
+				return fmt.Errorf("read affected rows after updating rack %q: %w", p.toUpdate[i].Name, rowsErr)
+			}
+			if rowsAffected != 1 {
+				// The plan was built from one coherent snapshot. If that row no
+				// longer exists, roll the transaction back and let the next cycle
+				// rebuild from fresh state instead of reporting partial success.
+				return fmt.Errorf(
+					"update rack %q (id %s) affected %d rows, expected 1",
+					p.toUpdate[i].Name,
+					p.toUpdate[i].ID,
+					rowsAffected,
+				)
 			}
 		}
 		for i := range p.toDelete {
@@ -358,11 +448,157 @@ func mirrorExpectedRacks(
 	return result
 }
 
-// nameTakenByOtherLiveRack reports whether a live (non-deleted) Flow rack
-// other than selfID already holds name. selfID is uuid.Nil for an INSERT.
-func nameTakenByOtherLiveRack(liveByName map[string]uuid.UUID, name string, selfID uuid.UUID) bool {
-	id, ok := liveByName[name]
-	return ok && id != selfID
+// orderCoreRacksForPlanning returns a copy in deterministic identity order.
+// Rows with a Core `rack_id` come first; rows missing one fall back to the
+// chassis key.
+// The remaining mirrored and diagnostic fields provide deterministic tie
+// breakers, including every label in sorted key order. This makes the same
+// rack win a contested name even if the RPC response order changes between
+// reconciliation cycles.
+func orderCoreRacksForPlanning(coreRacks []nicoapi.ExpectedRackDetail) []nicoapi.ExpectedRackDetail {
+	type keyedRack struct {
+		rack nicoapi.ExpectedRackDetail
+		key  []string
+	}
+	keyed := make([]keyedRack, len(coreRacks))
+	for i, rack := range coreRacks {
+		keyed[i] = keyedRack{rack: rack, key: rackPlanningKey(rack)}
+	}
+	slices.SortFunc(keyed, func(a, b keyedRack) int {
+		return slices.Compare(a.key, b.key)
+	})
+	ordered := make([]nicoapi.ExpectedRackDetail, len(keyed))
+	for i := range keyed {
+		ordered[i] = keyed[i].rack
+	}
+	return ordered
+}
+
+func rackPlanningKey(rack nicoapi.ExpectedRackDetail) []string {
+	idPresence := "0"
+	if rack.RackID == "" {
+		idPresence = "1"
+	}
+	key := []string{
+		idPresence,
+		rack.RackID,
+		rack.Labels[labelChassisManufacturer],
+		rack.Labels[labelChassisSerialNumber],
+		rack.Name,
+		rack.RackProfileID,
+		rack.Description,
+	}
+	labelKeys := slices.Sorted(maps.Keys(rack.Labels))
+	for _, labelKey := range labelKeys {
+		if labelKey == labelChassisManufacturer || labelKey == labelChassisSerialNumber {
+			continue
+		}
+		key = append(key, labelKey, rack.Labels[labelKey])
+	}
+	return key
+}
+
+// matchFlowRackForCore applies the planner's authoritative identity precedence.
+// An external-id match wins even when the Core row lacks the labels required to
+// update it; this lets the pre-planning pass protect that row from tombstone GC.
+// Natural-key fallback is only possible with both required chassis labels.
+func matchFlowRackForCore(
+	rack nicoapi.ExpectedRackDetail,
+	flowByExtID map[string]*model.Rack,
+	flowBySerial map[string]*model.Rack,
+) (*model.Rack, bool) {
+	if rack.RackID != "" {
+		existing, exists := flowByExtID[rack.RackID]
+		if exists {
+			return existing, true
+		}
+	}
+	manufacturer := rack.Labels[labelChassisManufacturer]
+	serialNumber := rack.Labels[labelChassisSerialNumber]
+	if manufacturer == "" || serialNumber == "" {
+		return nil, false
+	}
+	existing, exists := flowBySerial[rackNaturalKey(manufacturer, serialNumber)]
+	if !exists {
+		return nil, false
+	}
+	return existing, false
+}
+
+// reserveMatchedTombstoneNames protects the source names of tombstones Core
+// still identifies so an earlier INSERT cannot delete a row queued for
+// resurrection later in the same transaction.
+func reserveMatchedTombstoneNames(
+	coreRacks []nicoapi.ExpectedRackDetail,
+	flowByExtID map[string]*model.Rack,
+	flowBySerial map[string]*model.Rack,
+	reservedByName map[string]rackNameReservation,
+) {
+	for _, rack := range coreRacks {
+		existing, _ := matchFlowRackForCore(rack, flowByExtID, flowBySerial)
+		if existing == nil || existing.DeletedAt == nil {
+			continue
+		}
+		reservedByName[existing.Name] = rackNameReservationForFlowRack(existing)
+	}
+}
+
+func rackNameReservationForFlowRack(rack *model.Rack) rackNameReservation {
+	reservation := rackNameReservation{
+		flowID:       rack.ID,
+		manufacturer: rack.Manufacturer,
+		serialNumber: rack.SerialNumber,
+	}
+	if rack.ExternalID != nil {
+		reservation.coreRackID = *rack.ExternalID
+	}
+	return reservation
+}
+
+// reserveRackName records one accepted target name. The returned values identify
+// the winning owner and whether the candidate won. A rejected candidate leaves
+// the existing reservation untouched so the caller can skip only that operation.
+func reserveRackName(
+	reservedByName map[string]rackNameReservation,
+	name string,
+	reservation rackNameReservation,
+) (rackNameReservation, bool) {
+	existing, ok := reservedByName[name]
+	if ok && existing != reservation {
+		return existing, false
+	}
+	reservedByName[name] = reservation
+	return reservation, true
+}
+
+func logRackNameCollision(
+	operation string,
+	coreRack nicoapi.ExpectedRackDetail,
+	candidate model.Rack,
+	nameOwner rackNameReservation,
+) {
+	event := log.Warn().
+		Str("rack_id", coreRack.RackID).
+		Str("rack_name", candidate.Name).
+		Str("rack_manufacturer", candidate.Manufacturer).
+		Str("rack_serial", candidate.SerialNumber).
+		Str("operation", operation)
+	if candidate.ID != uuid.Nil {
+		event.Str("skipped_flow_id", candidate.ID.String())
+	}
+	if nameOwner.flowID != uuid.Nil {
+		event.Str("name_owner_flow_id", nameOwner.flowID.String())
+	}
+	if nameOwner.coreRackID != "" {
+		event.Str("name_owner_core_rack_id", nameOwner.coreRackID)
+	}
+	if nameOwner.manufacturer != "" {
+		event.Str("name_owner_manufacturer", nameOwner.manufacturer)
+	}
+	if nameOwner.serialNumber != "" {
+		event.Str("name_owner_serial", nameOwner.serialNumber)
+	}
+	event.Msg("Expected-inventory mirror: Core rack name already held or reserved by another rack; skipping this operation to avoid a unique-name abort (operator must resolve the duplicate name)")
 }
 
 // gcTombstoneForNameReuse hard-deletes a soft-deleted rack that's occupying

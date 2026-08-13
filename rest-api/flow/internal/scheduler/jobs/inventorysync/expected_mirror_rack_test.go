@@ -24,6 +24,217 @@ func TestRackNaturalKeyIsCollisionFree(t *testing.T) {
 	assert.NotEqual(t, a, b, "manufacturer/serial collisions must be impossible")
 }
 
+func TestOrderCoreRacksForPlanning(t *testing.T) {
+	tests := []struct {
+		name            string
+		coreRacks       []nicoapi.ExpectedRackDetail
+		wantNames       []string
+		wantTieBreakers []string
+	}{
+		{
+			name: "rack IDs sort before missing IDs",
+			coreRacks: []nicoapi.ExpectedRackDetail{
+				{RackID: "z", Name: "rack-z"},
+				{
+					Name: "missing-z",
+					Labels: map[string]string{
+						labelChassisManufacturer: "Mfg",
+						labelChassisSerialNumber: "Z",
+					},
+				},
+				{RackID: "a", Name: "rack-a"},
+				{
+					Name: "missing-a",
+					Labels: map[string]string{
+						labelChassisManufacturer: "Mfg",
+						labelChassisSerialNumber: "A",
+					},
+				},
+			},
+			wantNames: []string{"rack-a", "rack-z", "missing-a", "missing-z"},
+		},
+		{
+			name: "all labels break identity ties",
+			coreRacks: []nicoapi.ExpectedRackDetail{
+				{
+					RackID:        "same",
+					RackProfileID: "profile",
+					Name:          "same",
+					Description:   "same",
+					Labels: map[string]string{
+						labelChassisManufacturer: "Mfg",
+						labelChassisSerialNumber: "Serial",
+						"tie-breaker":            "z",
+					},
+				},
+				{
+					RackID:        "same",
+					RackProfileID: "profile",
+					Name:          "same",
+					Description:   "same",
+					Labels: map[string]string{
+						labelChassisManufacturer: "Mfg",
+						labelChassisSerialNumber: "Serial",
+						"tie-breaker":            "a",
+					},
+				},
+			},
+			wantNames:       []string{"same", "same"},
+			wantTieBreakers: []string{"a", "z"},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			original := append([]nicoapi.ExpectedRackDetail(nil), tc.coreRacks...)
+
+			ordered := orderCoreRacksForPlanning(tc.coreRacks)
+
+			require.Len(t, ordered, len(tc.wantNames))
+			gotNames := make([]string, 0, len(ordered))
+			var gotTieBreakers []string
+			for _, rack := range ordered {
+				gotNames = append(gotNames, rack.Name)
+				if tc.wantTieBreakers != nil {
+					gotTieBreakers = append(gotTieBreakers, rack.Labels["tie-breaker"])
+				}
+			}
+			assert.Equal(t, tc.wantNames, gotNames)
+			assert.Equal(t, tc.wantTieBreakers, gotTieBreakers)
+			assert.Equal(t, original, tc.coreRacks, "planning must not reorder the RPC result in place")
+		})
+	}
+}
+
+func TestMatchFlowRackForCore(t *testing.T) {
+	extID := "ext"
+	extMatch := &model.Rack{
+		ID:           uuid.MustParse("00000000-0000-0000-0000-00000000000a"),
+		ExternalID:   &extID,
+		Manufacturer: "Mfg",
+		SerialNumber: "Ext",
+	}
+	naturalMatch := &model.Rack{
+		ID:           uuid.MustParse("00000000-0000-0000-0000-00000000000b"),
+		Manufacturer: "Mfg",
+		SerialNumber: "Natural",
+	}
+	flowByExtID := map[string]*model.Rack{"ext": extMatch}
+	flowBySerial := map[string]*model.Rack{
+		rackNaturalKey("Mfg", "Natural"): naturalMatch,
+	}
+	tests := []struct {
+		name           string
+		rack           nicoapi.ExpectedRackDetail
+		want           *model.Rack
+		wantExternalID bool
+	}{
+		{
+			name: "external ID wins over a different natural-key match",
+			rack: nicoapi.ExpectedRackDetail{
+				RackID: "ext",
+				Labels: map[string]string{
+					labelChassisManufacturer: "Mfg",
+					labelChassisSerialNumber: "Natural",
+				},
+			},
+			want:           extMatch,
+			wantExternalID: true,
+		},
+		{
+			name:           "malformed labels still keep an external ID match",
+			rack:           nicoapi.ExpectedRackDetail{RackID: "ext"},
+			want:           extMatch,
+			wantExternalID: true,
+		},
+		{
+			name: "valid natural key is the fallback",
+			rack: nicoapi.ExpectedRackDetail{
+				RackID: "unknown",
+				Labels: map[string]string{
+					labelChassisManufacturer: "Mfg",
+					labelChassisSerialNumber: "Natural",
+				},
+			},
+			want: naturalMatch,
+		},
+		{
+			name: "malformed unmatched rack has no fallback",
+			rack: nicoapi.ExpectedRackDetail{RackID: "unknown"},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got, matchedByExternalID := matchFlowRackForCore(tc.rack, flowByExtID, flowBySerial)
+
+			if tc.want == nil {
+				assert.Nil(t, got)
+			} else {
+				assert.Same(t, tc.want, got)
+			}
+			assert.Equal(t, tc.wantExternalID, matchedByExternalID)
+		})
+	}
+}
+
+func TestReserveRackName(t *testing.T) {
+	flowA := rackNameReservation{flowID: uuid.MustParse("00000000-0000-0000-0000-00000000000a")}
+	flowB := rackNameReservation{flowID: uuid.MustParse("00000000-0000-0000-0000-00000000000b")}
+	coreA := rackNameReservation{coreRackID: "a", manufacturer: "Mfg", serialNumber: "A"}
+	coreB := rackNameReservation{coreRackID: "b", manufacturer: "Mfg", serialNumber: "B"}
+	tests := []struct {
+		name        string
+		current     *rackNameReservation
+		candidate   rackNameReservation
+		wantAllowed bool
+		wantOwner   rackNameReservation
+	}{
+		{
+			name:        "unclaimed name is reserved",
+			candidate:   coreA,
+			wantAllowed: true,
+			wantOwner:   coreA,
+		},
+		{
+			name:        "same Flow rack keeps its own name",
+			current:     &flowA,
+			candidate:   flowA,
+			wantAllowed: true,
+			wantOwner:   flowA,
+		},
+		{
+			name:        "different live Flow rack is rejected",
+			current:     &flowA,
+			candidate:   flowB,
+			wantAllowed: false,
+			wantOwner:   flowA,
+		},
+		{
+			name:        "different planned Core rack is rejected",
+			current:     &coreA,
+			candidate:   coreB,
+			wantAllowed: false,
+			wantOwner:   coreA,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			reserved := map[string]rackNameReservation{}
+			if tc.current != nil {
+				reserved["shared"] = *tc.current
+			}
+
+			owner, allowed := reserveRackName(reserved, "shared", tc.candidate)
+
+			assert.Equal(t, tc.wantAllowed, allowed)
+			assert.Equal(t, tc.wantOwner, owner)
+			assert.Equal(t, tc.wantOwner, reserved["shared"])
+		})
+	}
+}
+
 func TestBuildRackFromCore(t *testing.T) {
 	tests := []struct {
 		name      string

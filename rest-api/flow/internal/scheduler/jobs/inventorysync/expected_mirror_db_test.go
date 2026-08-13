@@ -64,6 +64,12 @@ func coreRack(rackID, mfr, serial string) nicoapi.ExpectedRackDetail {
 	}
 }
 
+func namedCoreRack(rackID, name, mfr, serial string) nicoapi.ExpectedRackDetail {
+	rack := coreRack(rackID, mfr, serial)
+	rack.Name = name
+	return rack
+}
+
 func computeSpec(mfr, serial, mac string) expectedComponentSpec {
 	return expectedComponentSpec{
 		Type:         devicetypes.ComponentTypeToString(devicetypes.ComponentTypeCompute),
@@ -194,6 +200,9 @@ func TestMirrorRacks_NameCollisionWithLiveRackSkips(t *testing.T) {
 
 	live := model.Rack{Name: "collide", Manufacturer: "Mfg", SerialNumber: "LIVE-1", ExternalID: strPtr("x")}
 	require.NoError(t, live.Create(ctx, pool.DB))
+	returning := model.Rack{Name: "deleted-name", Manufacturer: "Mfg", SerialNumber: "RETURNING", ExternalID: strPtr("z")}
+	require.NoError(t, returning.Create(ctx, pool.DB))
+	require.NoError(t, returning.Delete(ctx, pool.DB))
 
 	collidingCore := nicoapi.ExpectedRackDetail{
 		RackID: "y",
@@ -204,9 +213,10 @@ func TestMirrorRacks_NameCollisionWithLiveRackSkips(t *testing.T) {
 		},
 	}
 	// Include the live rack's own Core row so it isn't soft-deleted for absence.
-	mirrorExpectedRacks(ctx, pool, []nicoapi.ExpectedRackDetail{
+	result := mirrorExpectedRacks(ctx, pool, []nicoapi.ExpectedRackDetail{
 		coreRack("x", "Mfg", "LIVE-1"),
 		collidingCore,
+		namedCoreRack("z", "collide", "Mfg", "RETURNING"),
 	})
 
 	gotLive, err := (&model.Rack{ID: live.ID}).GetIncludingDeleted(ctx, pool.DB)
@@ -216,6 +226,254 @@ func TestMirrorRacks_NameCollisionWithLiveRackSkips(t *testing.T) {
 	n, err := pool.DB.NewSelect().Model((*model.Rack)(nil)).Where("serial_number = ?", "NEW-1").Count(ctx)
 	require.NoError(t, err)
 	assert.Equal(t, 0, n, "the colliding-name insert must be skipped, not committed or aborting the cycle")
+	gotReturning, err := (&model.Rack{ID: returning.ID}).GetIncludingDeleted(ctx, pool.DB)
+	require.NoError(t, err)
+	assert.NotNil(t, gotReturning.DeletedAt, "a blocked resurrection must remain deleted")
+	assert.Zero(t, result.resurrected, "a blocked resurrection must not be reported as committed")
+}
+
+// One Core row can match a Flow rack by external ID while another matches the
+// same row by its original chassis key. The exact owner must win regardless of
+// planning order, and even malformed owner data must preserve the existing row.
+func TestMirrorRacks_DuplicateFlowMatch(t *testing.T) {
+	tests := []struct {
+		name               string
+		flowExternalID     string
+		coreRacks          []nicoapi.ExpectedRackDetail
+		wantName           string
+		wantUpdated        int
+		wantSkippedInvalid int
+	}{
+		{
+			name:           "exact-first",
+			flowExternalID: "a",
+			coreRacks: []nicoapi.ExpectedRackDetail{
+				namedCoreRack("a", "exact-name", "Mfg", "CORRECTED"),
+				namedCoreRack("z", "natural-name", "Mfg", "ORIGINAL"),
+			},
+			wantName:    "exact-name",
+			wantUpdated: 1,
+		},
+		{
+			name:           "natural-first",
+			flowExternalID: "z",
+			coreRacks: []nicoapi.ExpectedRackDetail{
+				namedCoreRack("z", "exact-name", "Mfg", "ORIGINAL"),
+				namedCoreRack("a", "natural-name", "Mfg", "ORIGINAL"),
+			},
+			wantName:    "exact-name",
+			wantUpdated: 1,
+		},
+		{
+			name:           "bad-owner",
+			flowExternalID: "z",
+			coreRacks: []nicoapi.ExpectedRackDetail{
+				{
+					RackID: "z",
+					Name:   "malformed-name",
+					Labels: map[string]string{
+						labelChassisManufacturer: "Mfg",
+					},
+				},
+				namedCoreRack("a", "natural-name", "Mfg", "ORIGINAL"),
+			},
+			wantName:           "old-name",
+			wantSkippedInvalid: 1,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx, pool := mirrorTestPool(t)
+			existing := model.Rack{
+				Name:         "old-name",
+				Manufacturer: "Mfg",
+				SerialNumber: "ORIGINAL",
+				ExternalID:   strPtr(tc.flowExternalID),
+			}
+			require.NoError(t, existing.Create(ctx, pool.DB))
+
+			result := mirrorExpectedRacks(ctx, pool, tc.coreRacks)
+
+			assert.Equal(t, tc.wantUpdated, result.updated)
+			assert.Equal(t, tc.wantSkippedInvalid, result.skippedNoIDOrKey)
+			assert.Zero(t, result.inserted)
+			assert.Zero(t, result.adopted)
+			assert.Zero(t, result.skippedNameTaken)
+			got, err := (&model.Rack{ID: existing.ID}).GetIncludingDeleted(ctx, pool.DB)
+			require.NoError(t, err)
+			assert.Equal(t, existing.ID, got.ID)
+			assert.Equal(t, "Mfg", got.Manufacturer)
+			assert.Equal(t, "ORIGINAL", got.SerialNumber)
+			require.NotNil(t, got.ExternalID)
+			assert.Equal(t, tc.flowExternalID, *got.ExternalID)
+			assert.Equal(t, tc.wantName, got.Name)
+			count, err := pool.DB.NewSelect().Model((*model.Rack)(nil)).Count(ctx)
+			require.NoError(t, err)
+			assert.Equal(t, 1, count)
+		})
+	}
+}
+
+// Name conflicts and duplicate rack IDs skip only the losing Core row while
+// unrelated creates and updates still commit.
+func TestMirrorRacks_NamePlan(t *testing.T) {
+	tests := []struct {
+		name              string
+		existing          []model.Rack
+		coreRacks         []nicoapi.ExpectedRackDetail
+		wantNameBySerial  map[string]string
+		wantAbsentSerials []string
+		wantInserted      int
+		wantUpdated       int
+		wantSkippedName   int
+	}{
+		{
+			name: "creates",
+			coreRacks: []nicoapi.ExpectedRackDetail{
+				namedCoreRack("z", "shared", "Mfg", "CREATE-Z"),
+				namedCoreRack("u", "unrelated", "Mfg", "CREATE-U"),
+				namedCoreRack("a", "shared", "Mfg", "CREATE-A"),
+			},
+			wantNameBySerial: map[string]string{
+				"CREATE-A": "shared",
+				"CREATE-U": "unrelated",
+			},
+			wantAbsentSerials: []string{"CREATE-Z"},
+			wantInserted:      2,
+			wantSkippedName:   1,
+		},
+		{
+			name: "updates",
+			existing: []model.Rack{
+				{Name: "old-a", Manufacturer: "Mfg", SerialNumber: "UPDATE-A", ExternalID: strPtr("a")},
+				{Name: "old-z", Manufacturer: "Mfg", SerialNumber: "UPDATE-Z", ExternalID: strPtr("z")},
+			},
+			coreRacks: []nicoapi.ExpectedRackDetail{
+				namedCoreRack("z", "shared", "Mfg", "UPDATE-Z"),
+				namedCoreRack("u", "unrelated", "Mfg", "UPDATE-U"),
+				namedCoreRack("a", "shared", "Mfg", "UPDATE-A"),
+			},
+			wantNameBySerial: map[string]string{
+				"UPDATE-A": "shared",
+				"UPDATE-U": "unrelated",
+				"UPDATE-Z": "old-z",
+			},
+			wantInserted:    1,
+			wantUpdated:     1,
+			wantSkippedName: 1,
+		},
+		{
+			name: "mixed",
+			existing: []model.Rack{
+				{Name: "old-z", Manufacturer: "Mfg", SerialNumber: "MIXED-Z", ExternalID: strPtr("z")},
+			},
+			coreRacks: []nicoapi.ExpectedRackDetail{
+				namedCoreRack("z", "shared", "Mfg", "MIXED-Z"),
+				namedCoreRack("u", "unrelated", "Mfg", "MIXED-U"),
+				namedCoreRack("a", "shared", "Mfg", "MIXED-A"),
+			},
+			wantNameBySerial: map[string]string{
+				"MIXED-A": "shared",
+				"MIXED-U": "unrelated",
+				"MIXED-Z": "old-z",
+			},
+			wantInserted:    2,
+			wantSkippedName: 1,
+		},
+		{
+			name: "duplicate-rack-id",
+			coreRacks: []nicoapi.ExpectedRackDetail{
+				namedCoreRack("duplicate", "winner", "Mfg", "DUPLICATE-A"),
+				namedCoreRack("duplicate", "loser", "Mfg", "DUPLICATE-B"),
+				namedCoreRack("unrelated", "unrelated", "Mfg", "DUPLICATE-U"),
+			},
+			wantNameBySerial: map[string]string{
+				"DUPLICATE-A": "winner",
+				"DUPLICATE-U": "unrelated",
+			},
+			wantAbsentSerials: []string{"DUPLICATE-B"},
+			wantInserted:      2,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx, pool := mirrorTestPool(t)
+			for i := range tc.existing {
+				require.NoError(t, tc.existing[i].Create(ctx, pool.DB))
+			}
+
+			result := mirrorExpectedRacks(ctx, pool, tc.coreRacks)
+
+			assert.Equal(t, tc.wantSkippedName, result.skippedNameTaken)
+			assert.Equal(t, tc.wantInserted, result.inserted)
+			assert.Equal(t, tc.wantUpdated, result.updated)
+			for serial, wantName := range tc.wantNameBySerial {
+				got, err := (&model.Rack{Manufacturer: "Mfg", SerialNumber: serial}).Get(ctx, pool.DB, false)
+				require.NoError(t, err)
+				assert.Equal(t, wantName, got.Name)
+			}
+			for _, serial := range tc.wantAbsentSerials {
+				count, err := pool.DB.NewSelect().
+					Model((*model.Rack)(nil)).
+					Where("manufacturer = ? AND serial_number = ?", "Mfg", serial).
+					Count(ctx)
+				require.NoError(t, err)
+				assert.Zero(t, count)
+			}
+		})
+	}
+}
+
+// A tombstone being resurrected keeps its source name reserved for that pass;
+// another rack can reuse the name after the resurrection has renamed it.
+func TestMirrorRacks_NameReuseAcrossCycles(t *testing.T) {
+	ctx, pool := mirrorTestPool(t)
+	returning := model.Rack{
+		Name:         "old-name",
+		Manufacturer: "Mfg",
+		SerialNumber: "RETURNING",
+		ExternalID:   strPtr("z"),
+	}
+	require.NoError(t, returning.Create(ctx, pool.DB))
+	require.NoError(t, returning.Delete(ctx, pool.DB))
+	coreRacks := []nicoapi.ExpectedRackDetail{
+		namedCoreRack("a", "old-name", "Mfg", "NEW"),
+		namedCoreRack("z", "new-name", "Mfg", "RETURNING"),
+	}
+
+	first := mirrorExpectedRacks(ctx, pool, coreRacks)
+
+	assert.Equal(t, 1, first.skippedNameTaken)
+	assert.Equal(t, 0, first.inserted)
+	assert.Equal(t, 1, first.updated)
+	assert.Equal(t, 1, first.resurrected)
+	gotReturning, err := (&model.Rack{ID: returning.ID}).GetIncludingDeleted(ctx, pool.DB)
+	require.NoError(t, err)
+	assert.Equal(t, returning.ID, gotReturning.ID, "resurrection must preserve the Flow rack UUID")
+	assert.Equal(t, "new-name", gotReturning.Name)
+	assert.Nil(t, gotReturning.DeletedAt)
+	newCount, err := pool.DB.NewSelect().
+		Model((*model.Rack)(nil)).
+		Where("manufacturer = ? AND serial_number = ?", "Mfg", "NEW").
+		Count(ctx)
+	require.NoError(t, err)
+	assert.Zero(t, newCount, "old-name reuse waits until the resurrection has renamed its source row")
+
+	second := mirrorExpectedRacks(ctx, pool, coreRacks)
+
+	assert.Equal(t, 0, second.skippedNameTaken)
+	assert.Equal(t, 1, second.inserted)
+	assert.Equal(t, 0, second.updated)
+	gotNew, err := (&model.Rack{Manufacturer: "Mfg", SerialNumber: "NEW"}).Get(ctx, pool.DB, false)
+	require.NoError(t, err)
+	assert.Equal(t, "old-name", gotNew.Name)
+	gotReturning, err = (&model.Rack{ID: returning.ID}).GetIncludingDeleted(ctx, pool.DB)
+	require.NoError(t, err)
+	assert.Equal(t, returning.ID, gotReturning.ID)
+	assert.Equal(t, "new-name", gotReturning.Name)
+	assert.Nil(t, gotReturning.DeletedAt)
 }
 
 // --- component mirror -----------------------------------------------------
