@@ -61,6 +61,9 @@ jobs:
       - name: Check Core CI token permissions
         run: bash .github/ci/check-core-ci-permissions.sh
 
+      - name: Check Pull Request Description token permissions
+        run: bash .github/ci/check-pr-description-permissions.sh
+
       - name: Check Stale PRs token permissions
         run: bash .github/ci/check-stale-ci-permissions.sh
 
