@@ -173,6 +173,7 @@ images-core: images-base ## Build the NICo Core image (nico) (NICO_ARCHES="amd64
 	docker buildx imagetools create -t $(IMAGE_REGISTRY)/nico:$(IMAGE_TAG) $$tags
 
 images-rest: images-registry ## Build the REST service images (api, workflow, site-manager, site-agent, db, cert-manager, flow, psm, nsm) (NICO_ARCHES="amd64 arm64")
+	$(call check-arches,$(NICO_ARCHES),NICO_ARCHES)
 	$(MAKE) -C rest-api docker-build IMAGE_REGISTRY=$(IMAGE_REGISTRY) IMAGE_TAG=$(IMAGE_TAG) DOCKER_ARCHES="$(NICO_ARCHES)"
 
 images-machine-validation: images-base ## Build the machine-validation runner + config images (NICO_ARCHES="amd64 arm64"; must include amd64)
