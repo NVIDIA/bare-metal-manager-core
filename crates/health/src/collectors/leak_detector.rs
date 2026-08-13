@@ -20,6 +20,7 @@ use std::time::{Duration, Instant};
 
 use nv_redfish::ServiceRoot;
 use nv_redfish::core::{Bmc, EntityTypeRef, ODataId, ToSnakeCase};
+use nv_redfish::resource::State;
 use nv_redfish::schema::leak_detector::{DetectorState, LeakDetector};
 
 use crate::HealthError;
@@ -208,6 +209,20 @@ fn build_health_report(detectors: Vec<Arc<LeakDetector>>, context: &EventContext
 
     for detector in detectors {
         let target = detector_target(detector.as_ref());
+        let resource_state = detector
+            .status
+            .as_ref()
+            .and_then(|status| status.state.flatten());
+        if resource_state != Some(State::Enabled) {
+            tracing::warn!(
+                detector = %target,
+                leak_detector_state = ?detector.detector_state.flatten(),
+                leak_detector_resource_state = ?resource_state,
+                "Leak detector resource state does not permit leak classification"
+            );
+            continue;
+        }
+
         match detector.detector_state.flatten() {
             Some(DetectorState::Ok) => successes.push(HealthReportSuccess {
                 probe_id: Probe::LeakDetection,
@@ -375,6 +390,7 @@ mod tests {
                             "Id": "Critical",
                             "Name": "Critical leak detector",
                             "DetectorState": "Critical",
+                            "Status": { "Health": "Critical", "State": "Enabled" },
                             "UserLabel": ""
                         }"#,
                         r#"{
@@ -382,6 +398,7 @@ mod tests {
                             "Id": "OK",
                             "Name": "Healthy leak detector",
                             "DetectorState": "OK",
+                            "Status": { "Health": "OK", "State": "Enabled" },
                             "UserLabel": "Rack floor"
                         }"#,
                         r#"{
@@ -389,6 +406,7 @@ mod tests {
                             "Id": "Warning",
                             "Name": "Warning leak detector",
                             "DetectorState": "Warning",
+                            "Status": { "Health": "Warning", "State": "Enabled" },
                             "UserLabel": "Cooling tray"
                         }"#,
                     ],
@@ -416,36 +434,82 @@ mod tests {
                     ),
                 },
                 Check {
+                    scenario: "degraded leak detectors do not produce leak alerts",
+                    input: vec![
+                        r##"{
+                            "@odata.id": "/redfish/v1/Chassis/Chassis_0/ThermalSubsystem/LeakDetection/LeakDetectors/Chassis_0_LeakDetector_0_ColdPlate",
+                            "@odata.type": "#LeakDetector.v1_1_0.LeakDetector",
+                            "Id": "Chassis_0_LeakDetector_0_ColdPlate",
+                            "Name": "Chassis 0 LeakDetector 0 ColdPlate",
+                            "DetectorState": "Critical",
+                            "LeakDetectorType": "Moisture",
+                            "Status": { "Health": "Critical", "State": "Degraded" }
+                        }"##,
+                    ],
+                    expect: expected_report(vec![], vec![]),
+                },
+                Check {
+                    scenario: "missing and disabled resource states do not produce leak alerts",
+                    input: vec![
+                        r#"{
+                            "@odata.id": "/redfish/v1/Chassis/System/LeakDetectors/MissingStatus",
+                            "Id": "MissingStatus",
+                            "Name": "Missing status leak detector",
+                            "DetectorState": "Critical"
+                        }"#,
+                        r#"{
+                            "@odata.id": "/redfish/v1/Chassis/System/LeakDetectors/MissingResourceState",
+                            "Id": "MissingResourceState",
+                            "Name": "Missing resource state leak detector",
+                            "DetectorState": "Critical",
+                            "Status": { "Health": "Critical" }
+                        }"#,
+                        r#"{
+                            "@odata.id": "/redfish/v1/Chassis/System/LeakDetectors/Disabled",
+                            "Id": "Disabled",
+                            "Name": "Disabled leak detector",
+                            "DetectorState": "Critical",
+                            "Status": { "Health": "Critical", "State": "Disabled" }
+                        }"#,
+                    ],
+                    expect: expected_report(vec![], vec![]),
+                },
+                Check {
                     scenario: "non-actionable and missing states do not produce report entries",
                     input: vec![
                         r#"{
                             "@odata.id": "/redfish/v1/Chassis/System/LeakDetectors/Unavailable",
                             "Id": "Unavailable",
                             "Name": "Unavailable leak detector",
-                            "DetectorState": "Unavailable"
+                            "DetectorState": "Unavailable",
+                            "Status": { "State": "Enabled" }
                         }"#,
                         r#"{
                             "@odata.id": "/redfish/v1/Chassis/System/LeakDetectors/Absent",
                             "Id": "Absent",
                             "Name": "Absent leak detector",
-                            "DetectorState": "Absent"
+                            "DetectorState": "Absent",
+                            "Status": { "State": "Enabled" }
                         }"#,
                         r#"{
                             "@odata.id": "/redfish/v1/Chassis/System/LeakDetectors/Vendor",
                             "Id": "Vendor",
                             "Name": "Vendor leak detector",
-                            "DetectorState": "VendorDefinedState"
+                            "DetectorState": "VendorDefinedState",
+                            "Status": { "State": "Enabled" }
                         }"#,
                         r#"{
                             "@odata.id": "/redfish/v1/Chassis/System/LeakDetectors/Missing",
                             "Id": "Missing",
-                            "Name": "Missing state leak detector"
+                            "Name": "Missing state leak detector",
+                            "Status": { "State": "Enabled" }
                         }"#,
                         r#"{
                             "@odata.id": "/redfish/v1/Chassis/System/LeakDetectors/Null",
                             "Id": "Null",
                             "Name": "Null state leak detector",
-                            "DetectorState": null
+                            "DetectorState": null,
+                            "Status": { "State": "Enabled" }
                         }"#,
                     ],
                     expect: expected_report(vec![], vec![]),
