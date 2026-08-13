@@ -20,6 +20,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     tonic_prost_build::configure()
         .build_server(false)
         .build_client(true)
+        .protoc_arg("--experimental_allow_proto3_optional")
         .compile_protos(
             &["../dhcp-server/proto/dhcp_server_control.proto"],
             &["../dhcp-server/proto"],
@@ -28,6 +29,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     tonic_prost_build::configure()
         .build_server(true)
         .build_client(true)
+        .protoc_arg("--experimental_allow_proto3_optional")
         .compile_protos(&["proto/weave_ew_vpc.proto"], &["proto", "/usr/include"])?;
 
     Ok(())
