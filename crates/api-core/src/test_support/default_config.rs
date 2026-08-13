@@ -143,6 +143,7 @@ pub fn get() -> CarbideConfig {
         default_tenant_routing_profile_type: "EXTERNAL".to_string(),
         enable_admin_ui: true,
         web_ui_sidebar_tools: vec![],
+        web_ui_logs_link_template: String::new(),
         log_history: Default::default(),
         observability: Default::default(),
         bgp_leaf_session_password: None,
