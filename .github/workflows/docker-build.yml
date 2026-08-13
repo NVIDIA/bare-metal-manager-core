@@ -123,6 +123,8 @@ on:
         description: 'All tags applied during the build'
         value: ${{ jobs.build.outputs.tags }}
 
+permissions:
+  contents: read
 
 jobs:
   build:

@@ -76,6 +76,15 @@ jobs:
       - name: Check Image Scan token permissions
         run: bash .github/ci/check-image-scan-ci-permissions.sh
 
+      - name: Check Build Artifacts (Boot & Ephemeral Images) token permissions
+        run: bash .github/ci/check-build-boot-artifacts-permissions.sh
+
+      - name: Check Build Container with Buildx token permissions
+        run: bash .github/ci/check-docker-build-permissions.sh
+
+      - name: Check Notify Build Status token permissions
+        run: bash .github/ci/check-notify-build-status-permissions.sh
+
       - name: Check Core CI concurrency policy
         run: bash scripts/check-ci-concurrency.sh core
 

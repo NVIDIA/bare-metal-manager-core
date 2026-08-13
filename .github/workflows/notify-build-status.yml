@@ -55,6 +55,10 @@ on:
         description: 'Slack Bot OAuth Token'
         required: true
 
+# Slack notification uses its own bot token, so this workflow does not need repository access.
+permissions:
+  contents: none
+
 jobs:
   notify:
     runs-on: linux-amd64-cpu4

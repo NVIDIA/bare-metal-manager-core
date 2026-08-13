@@ -64,6 +64,9 @@ on:
         default: ''
         type: string
 
+permissions:
+  contents: read
+
 jobs:
   build:
     runs-on: ${{ inputs.runner }}
