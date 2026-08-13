@@ -146,3 +146,15 @@ tests:
           path: metadata.name
           value: nico-machine-a-tron-rack-sim
         template: deployment.yaml
+
+  - it: should render startupProbe by default to prevent liveness killing during registration
+    template: deployment.yaml
+    asserts:
+      - isNotNull:
+          path: spec.template.spec.containers[0].startupProbe
+      - equal:
+          path: spec.template.spec.containers[0].startupProbe.tcpSocket.port
+          value: redfish
+      - equal:
+          path: spec.template.spec.containers[0].startupProbe.failureThreshold
+          value: 20

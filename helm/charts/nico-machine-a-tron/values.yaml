@@ -106,7 +106,7 @@ envFrom:
 # (issue #4298). Scale the failureThreshold to cover your largest deployment:
 #   hosts=2300  → default (20 * 30s = 10 min)
 #   hosts=4500  → failureThreshold: 60  (30 min)
-#   hosts=13500 → failureThreshold: 480 (4 h, see machine-a-tron-scale.yaml)
+#   hosts=13500 → failureThreshold: 1200 (10 h, see machine-a-tron-scale.yaml)
 startupProbe:
   tcpSocket:
     port: redfish
