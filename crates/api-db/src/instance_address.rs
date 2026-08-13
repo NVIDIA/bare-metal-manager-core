@@ -47,57 +47,41 @@ use crate::{BIND_LIMIT, DatabaseError, DatabaseResult, Transaction};
 /// single statement.
 const ADDRESS_BINDS_PER_ROW: usize = 6;
 
-#[derive(Copy, Clone)]
-pub struct PrefixColumn;
-
-impl super::ColumnInfo<'_> for PrefixColumn {
-    type TableType = InstanceAddress;
-    type ColumnType = IpNetwork;
-
-    fn column_name(&self) -> &'static str {
-        "prefix"
-    }
-}
-
-pub async fn find_by_address(
+/// `find_all_by_address` returns every overlay allocation using `address`.
+/// An address is only unique inside its VPC, so callers without that context
+/// must handle every row rather than letting PostgreSQL pick one.
+pub async fn find_all_by_address(
     txn: impl DbReader<'_>,
     address: IpAddr,
-) -> Result<Option<InstanceAddress>, DatabaseError> {
-    let query = "SELECT * FROM instance_addresses WHERE address = $1::inet";
+) -> Result<Vec<InstanceAddress>, DatabaseError> {
+    let query = "SELECT * FROM instance_addresses
+        WHERE address = $1::inet
+        ORDER BY vpc_id, segment_id, instance_id";
     sqlx::query_as(query)
         .bind(address)
-        .fetch_optional(txn)
+        .fetch_all(txn)
         .await
         .map_err(|e| DatabaseError::query(query, e))
 }
 
-pub async fn find_by_instance_id_and_segment_id(
+/// Returns every address an instance holds on one segment, ordered by address.
+/// A dual-stack segment has one row per address family, so this lookup is not
+/// a zero-or-one relationship.
+pub async fn find_all_by_instance_id_and_segment_id(
     txn: &mut PgConnection,
     instance_id: &InstanceId,
     segment_id: &NetworkSegmentId,
-) -> Result<Option<InstanceAddress>, DatabaseError> {
-    let query = "SELECT * FROM instance_addresses WHERE instance_id=$1 AND segment_id=$2";
+) -> Result<Vec<InstanceAddress>, DatabaseError> {
+    let query = "SELECT * FROM instance_addresses
+        WHERE instance_id=$1 AND segment_id=$2
+        ORDER BY address";
 
     sqlx::query_as(query)
         .bind(instance_id)
         .bind(segment_id)
-        .fetch_optional(txn)
+        .fetch_all(txn)
         .await
         .map_err(|e| DatabaseError::query(query, e))
-}
-
-pub async fn find_by_prefix(
-    txn: &mut PgConnection,
-    prefix: IpNetwork,
-) -> Result<Option<InstanceAddress>, DatabaseError> {
-    let mut query = crate::FilterableQueryBuilder::new("SELECT * FROM instance_addresses")
-        .filter(&ObjectColumnFilter::One(PrefixColumn, &prefix));
-
-    query
-        .build_query_as()
-        .fetch_optional(txn)
-        .await
-        .map_err(|e| DatabaseError::query(query.sql(), e))
 }
 
 pub async fn find_by_segment_id(
@@ -123,14 +107,36 @@ pub async fn delete(txn: &mut PgConnection, instance_id: InstanceId) -> Result<(
     Ok(())
 }
 
-pub async fn delete_addresses(
+/// `delete_addresses_for_instance` releases exact segment/address pairs from
+/// one instance. The segment is part of the identity because an FNN instance
+/// can use more than one VPC, including VPCs with equal address space.
+/// Missing rows are ignored so a retried release remains idempotent.
+pub async fn delete_addresses_for_instance(
     txn: &mut PgConnection,
-    addresses: &[IpAddr],
+    instance_id: InstanceId,
+    addresses: &[(NetworkSegmentId, IpAddr)],
 ) -> Result<(), DatabaseError> {
-    // Lock MUST be taken by calling function.
-    let query = "DELETE FROM instance_addresses WHERE address=ANY($1)";
+    if addresses.is_empty() {
+        return Ok(());
+    }
+
+    let segment_ids = addresses
+        .iter()
+        .map(|(segment_id, _)| *segment_id)
+        .collect::<Vec<_>>();
+    let released_addresses = addresses
+        .iter()
+        .map(|(_, address)| *address)
+        .collect::<Vec<_>>();
+    let query = "DELETE FROM instance_addresses stored
+        USING UNNEST($2::uuid[], $3::inet[]) AS released(segment_id, address)
+        WHERE stored.instance_id = $1
+          AND stored.segment_id = released.segment_id
+          AND stored.address = released.address";
     sqlx::query(query)
-        .bind(addresses)
+        .bind(instance_id)
+        .bind(segment_ids)
+        .bind(released_addresses)
         .execute(txn)
         .await
         .map_err(|e| DatabaseError::query(query, e))?;
@@ -763,6 +769,7 @@ mod tests {
                         mtu: 1500,
                         segment_type: NetworkSegmentType::Tenant,
                         allocation_strategy: Default::default(),
+                        infer_slaac_eui64_addresses: false,
                     },
                     status: NetworkSegmentStatus {
                         controller_state: Versioned {
@@ -891,27 +898,15 @@ mod tests {
     // measures the lock-window reduction directly: one INSERT regardless of
     // how many addresses an instance's interfaces carry.
 
-    /// Inserts the minimal FK ancestry `instance_addresses` requires (one vpc,
-    /// one machine, one instance, one segment) and returns their ids.
-    ///
-    /// Mirrors the proven raw-INSERT fixture in `dns::resource_record`'s tests:
-    /// only NOT-NULL columns without a default are supplied.
-    async fn seed_fk_fixtures(conn: &mut PgConnection) -> (InstanceId, NetworkSegmentId, VpcId) {
+    /// Inserts one VPC and tenant network segment for an address fixture.
+    async fn seed_vpc_and_segment(
+        conn: &mut PgConnection,
+        fixture_name: &str,
+    ) -> (NetworkSegmentId, VpcId) {
         let vpc_id: VpcId =
             sqlx::query_scalar("INSERT INTO vpcs (name, version) VALUES ($1, $2) RETURNING id")
-                .bind("vpc-p13")
+                .bind(format!("vpc-{fixture_name}"))
                 .bind("1")
-                .fetch_one(&mut *conn)
-                .await
-                .unwrap();
-        sqlx::query("INSERT INTO machines (id, dpf) VALUES ($1, '{}'::jsonb)")
-            .bind("test-machine-p13")
-            .execute(&mut *conn)
-            .await
-            .unwrap();
-        let instance_id: InstanceId =
-            sqlx::query_scalar("INSERT INTO instances (machine_id) VALUES ($1) RETURNING id")
-                .bind("test-machine-p13")
                 .fetch_one(&mut *conn)
                 .await
                 .unwrap();
@@ -919,13 +914,38 @@ mod tests {
             "INSERT INTO network_segments (name, version, network_segment_type, vpc_id)
              VALUES ($1, $2, $3::network_segment_type_t, $4) RETURNING id",
         )
-        .bind("seg-p13")
+        .bind(format!("seg-{fixture_name}"))
         .bind("1")
         .bind("tenant")
         .bind(vpc_id)
         .fetch_one(&mut *conn)
         .await
         .unwrap();
+        (segment_id, vpc_id)
+    }
+
+    /// Inserts the minimal FK ancestry `instance_addresses` requires: one VPC,
+    /// one machine, one instance, and one tenant network segment.
+    ///
+    /// Mirrors the proven raw-INSERT fixture in `dns::resource_record`'s tests:
+    /// only NOT-NULL columns without a default are supplied.
+    async fn seed_fk_fixtures(
+        conn: &mut PgConnection,
+        fixture_name: &str,
+    ) -> (InstanceId, NetworkSegmentId, VpcId) {
+        let (segment_id, vpc_id) = seed_vpc_and_segment(conn, fixture_name).await;
+        let machine_id = format!("test-machine-{fixture_name}");
+        sqlx::query("INSERT INTO machines (id, dpf) VALUES ($1, '{}'::jsonb)")
+            .bind(&machine_id)
+            .execute(&mut *conn)
+            .await
+            .unwrap();
+        let instance_id: InstanceId =
+            sqlx::query_scalar("INSERT INTO instances (machine_id) VALUES ($1) RETURNING id")
+                .bind(&machine_id)
+                .fetch_one(&mut *conn)
+                .await
+                .unwrap();
         (instance_id, segment_id, vpc_id)
     }
 
@@ -976,6 +996,152 @@ mod tests {
         Ok(())
     }
 
+    /// Makes overlapping addresses visible to every reader while limiting a
+    /// release to the exact instance, segment, and address the caller named.
+    #[crate::sqlx_test]
+    async fn overlapping_addresses_are_read_and_deleted_by_exact_owner(pool: sqlx::PgPool) {
+        let mut txn = pool.begin().await.unwrap();
+        let (target_instance_id, target_segment_id, target_vpc_id) =
+            seed_fk_fixtures(txn.as_mut(), "overlap-target").await;
+        let (other_target_segment_id, other_target_vpc_id) =
+            seed_vpc_and_segment(txn.as_mut(), "overlap-target-other-vpc").await;
+        let (other_instance_id, other_instance_segment_id, other_instance_vpc_id) =
+            seed_fk_fixtures(txn.as_mut(), "overlap-other-instance").await;
+
+        let shared_address: IpAddr = "10.88.0.10".parse().unwrap();
+        let target_only_address: IpAddr = "10.88.0.11".parse().unwrap();
+        let target_kept_address: IpAddr = "10.88.0.12".parse().unwrap();
+        let rows = [
+            InstanceAddress {
+                instance_id: target_instance_id,
+                address: shared_address,
+                segment_id: target_segment_id,
+                prefix: IpNetwork::new(shared_address, 32).unwrap(),
+                vpc_id: target_vpc_id,
+                hostname: None,
+            },
+            InstanceAddress {
+                instance_id: target_instance_id,
+                address: target_only_address,
+                segment_id: target_segment_id,
+                prefix: IpNetwork::new(target_only_address, 32).unwrap(),
+                vpc_id: target_vpc_id,
+                hostname: None,
+            },
+            InstanceAddress {
+                instance_id: target_instance_id,
+                address: target_kept_address,
+                segment_id: target_segment_id,
+                prefix: IpNetwork::new(target_kept_address, 32).unwrap(),
+                vpc_id: target_vpc_id,
+                hostname: None,
+            },
+            InstanceAddress {
+                instance_id: target_instance_id,
+                address: shared_address,
+                segment_id: other_target_segment_id,
+                prefix: IpNetwork::new(shared_address, 32).unwrap(),
+                vpc_id: other_target_vpc_id,
+                hostname: None,
+            },
+            InstanceAddress {
+                instance_id: other_instance_id,
+                address: shared_address,
+                segment_id: other_instance_segment_id,
+                prefix: IpNetwork::new(shared_address, 32).unwrap(),
+                vpc_id: other_instance_vpc_id,
+                hostname: None,
+            },
+        ];
+        insert_instance_addresses(txn.as_mut(), &rows)
+            .await
+            .unwrap();
+
+        let shared_rows = find_all_by_address(txn.as_mut(), shared_address)
+            .await
+            .unwrap();
+        assert_eq!(shared_rows.len(), 3);
+        assert!(shared_rows.iter().any(|row| {
+            row.instance_id == target_instance_id && row.segment_id == target_segment_id
+        }));
+        assert!(shared_rows.iter().any(|row| {
+            row.instance_id == target_instance_id && row.segment_id == other_target_segment_id
+        }));
+        assert!(shared_rows.iter().any(|row| {
+            row.instance_id == other_instance_id && row.segment_id == other_instance_segment_id
+        }));
+
+        let target_segment_rows = find_all_by_instance_id_and_segment_id(
+            txn.as_mut(),
+            &target_instance_id,
+            &target_segment_id,
+        )
+        .await
+        .unwrap();
+        assert_eq!(
+            target_segment_rows
+                .iter()
+                .map(|row| row.address)
+                .collect::<Vec<_>>(),
+            vec![shared_address, target_only_address, target_kept_address]
+        );
+
+        delete_addresses_for_instance(
+            txn.as_mut(),
+            target_instance_id,
+            &[
+                (target_segment_id, shared_address),
+                (target_segment_id, target_only_address),
+            ],
+        )
+        .await
+        .unwrap();
+
+        let target_segment_rows = find_all_by_instance_id_and_segment_id(
+            txn.as_mut(),
+            &target_instance_id,
+            &target_segment_id,
+        )
+        .await
+        .unwrap();
+        assert_eq!(target_segment_rows.len(), 1);
+        assert_eq!(target_segment_rows[0].address, target_kept_address);
+
+        let shared_rows = find_all_by_address(txn.as_mut(), shared_address)
+            .await
+            .unwrap();
+        assert_eq!(shared_rows.len(), 2);
+        assert!(shared_rows.iter().all(|row| {
+            row.instance_id != target_instance_id || row.segment_id != target_segment_id
+        }));
+        assert!(shared_rows.iter().any(|row| {
+            row.instance_id == target_instance_id && row.segment_id == other_target_segment_id
+        }));
+        assert!(shared_rows.iter().any(|row| {
+            row.instance_id == other_instance_id && row.segment_id == other_instance_segment_id
+        }));
+
+        txn.rollback().await.unwrap();
+    }
+
+    /// Large releases stay in one array-backed statement instead of expanding
+    /// into one bind pair per address.
+    #[crate::sqlx_test]
+    async fn delete_addresses_for_instance_uses_one_array_query(pool: sqlx::PgPool) {
+        let addresses =
+            vec![(NetworkSegmentId::new(), "10.88.0.20".parse().unwrap()); BIND_LIMIT / 2 + 1];
+
+        let ((), query_count) = count_queries(async {
+            let mut txn = pool.begin().await.unwrap();
+            delete_addresses_for_instance(txn.as_mut(), InstanceId::new(), &addresses)
+                .await
+                .unwrap();
+        })
+        .await;
+
+        assert_eq!(query_count, 1, "the release should use one array query");
+    }
+
     /// BEFORE/AFTER measurement of the INSERT statement count.
     ///
     /// K addresses go in two ways under a `sqlx::query`-event counter:
@@ -996,7 +1162,7 @@ mod tests {
         // returns it, so the persisted-count check and the rollback happen
         // outside the counted region.
         let mut txn = pool.begin().await.unwrap();
-        let (instance_id, segment_id, vpc_id) = seed_fk_fixtures(txn.as_mut()).await;
+        let (instance_id, segment_id, vpc_id) = seed_fk_fixtures(txn.as_mut(), "batch-count").await;
         txn.commit().await.unwrap();
         let rows = make_rows(instance_id, segment_id, vpc_id, K);
 
@@ -1077,7 +1243,8 @@ mod tests {
     async fn insert_instance_addresses_persists_all_rows(pool: sqlx::PgPool) {
         const K: usize = 4;
         let mut txn = pool.begin().await.unwrap();
-        let (instance_id, segment_id, vpc_id) = seed_fk_fixtures(txn.as_mut()).await;
+        let (instance_id, segment_id, vpc_id) =
+            seed_fk_fixtures(txn.as_mut(), "persisted-rows").await;
         let rows = make_rows(instance_id, segment_id, vpc_id, K);
 
         insert_instance_addresses(txn.as_mut(), &rows)
@@ -1163,6 +1330,7 @@ mod segment_has_allocations_tests {
                 segment_type: NetworkSegmentType::Underlay,
                 can_stretch: Some(false),
                 allocation_strategy: AllocationStrategy::Reserved,
+                infer_slaac_eui64_addresses: false,
             },
             txn.deref_mut(),
             NetworkSegmentControllerState::Ready,
@@ -1241,6 +1409,7 @@ mod segment_has_allocations_tests {
                 segment_type: NetworkSegmentType::Underlay,
                 can_stretch: Some(false),
                 allocation_strategy: AllocationStrategy::Reserved,
+                infer_slaac_eui64_addresses: false,
             },
             txn.deref_mut(),
             NetworkSegmentControllerState::Ready,

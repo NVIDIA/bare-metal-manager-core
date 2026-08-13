@@ -90,6 +90,10 @@ impl RangesConfig {
         })
     }
 
+    pub fn base(&self) -> MacAddress {
+        self.base
+    }
+
     fn in_any_range(&self, v: MacAddress) -> bool {
         v.clear_mask_bits(self.host_bits) == self.base
     }

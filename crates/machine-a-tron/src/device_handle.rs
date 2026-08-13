@@ -28,6 +28,7 @@ use crate::PersistedDevice;
 use crate::api_client::ApiClient;
 use crate::dpu_machine::DpuMachineHandle;
 use crate::host_machine::MachineHandle;
+use crate::machine_state_machine::InfinibandPortState;
 use crate::power_shelf_simulator::PowerShelfHandle;
 use crate::status::{DeviceKind, DeviceStatus, DeviceStatusConfig};
 use crate::switch_simulator::SwitchHandle;
@@ -151,6 +152,19 @@ impl DeviceHandle {
             DeviceHandleInner::Machine(handle) => handle.status(config),
             DeviceHandleInner::Switch(handle) => handle.status(config),
             DeviceHandleInner::PowerShelf(handle) => handle.status(config),
+        }
+    }
+
+    pub fn set_infiniband_port_state(
+        &self,
+        guid: &str,
+        state: InfinibandPortState,
+    ) -> eyre::Result<()> {
+        match &self.0 {
+            DeviceHandleInner::Machine(handle) => handle.set_infiniband_port_state(guid, state),
+            DeviceHandleInner::Switch(_) | DeviceHandleInner::PowerShelf(_) => {
+                eyre::bail!("cannot set InfiniBand port state on {}", self.kind())
+            }
         }
     }
 

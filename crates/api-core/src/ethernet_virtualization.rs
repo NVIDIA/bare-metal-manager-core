@@ -695,7 +695,7 @@ pub(crate) async fn tenant_network(
                     // Make our DB query for the IDs to get our NetworkSecurityGroup
                     let network_security_group = network_security_group::find_by_ids(
                         txn,
-                        &[vpc_nsg_id.to_owned()],
+                        std::slice::from_ref(vpc_nsg_id),
                         Some(&v.config.tenant_organization_id.parse().map_err(|_| {
                             CarbideError::Internal {
                                 message: "invalid tenant org in VPC data".to_string(),

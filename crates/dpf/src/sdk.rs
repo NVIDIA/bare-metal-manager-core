@@ -824,8 +824,13 @@ pub fn build_service_configuration(
             deployment_service_name: svc.name.clone(),
             interfaces: interfaces.none_if_empty(),
             service_configuration,
+            // Treat a service update as disruptive so DPF creates a new revision
+            // and parks the DPU in the NodeEffect phase instead of restarting
+            // services underneath whatever is running. That phase is the gate
+            // carbide opens once it has confirmed the DPU is not still awaiting
+            // reprovisioning -- see the DPU service sync handler.
             upgrade_policy: DpuServiceConfigurationUpgradePolicy {
-                apply_node_effect: Some(false),
+                apply_node_effect: Some(true),
             },
         },
     }
@@ -951,8 +956,10 @@ pub fn build_deployment(
     } else {
         Some(DpuDeploymentServiceChains {
             switches: all_switches,
+            // Disruptive for the same reason as the per-service policy above: a
+            // service-chain change must wait for carbide to release the hold.
             upgrade_policy: DpuDeploymentServiceChainsUpgradePolicy {
-                apply_node_effect: Some(false),
+                apply_node_effect: Some(true),
             },
         })
     };
@@ -2111,7 +2118,32 @@ impl<R: DpuDeploymentRepository + DpuRepository, L> DpfSdk<R, L> {
 /// exercised directly, without standing up repository mocks for a namespace
 /// scan.
 fn dpu_mismatch(namespace: &str, dpu: &DPU, deployment: &DPUDeployment) -> Option<DpuMismatch> {
-    let cr_name = dpu.metadata.name.clone()?;
+    match dpu_comparison(namespace, dpu, deployment) {
+        DpuComparison::Mismatch(mismatch) => Some(mismatch),
+        DpuComparison::Match | DpuComparison::Inconclusive => None,
+    }
+}
+
+/// The outcome of comparing one DPU against the DPUDeployment that owns it.
+///
+/// The third case is the point of this type: `Match` and `Inconclusive` are both
+/// "no drift to report", but only one of them means the DPU is current. Callers
+/// whose safe answer is to skip may treat them alike; callers that act on
+/// "current" must not. Keeping them distinct in the return value is what stops a
+/// future early return from silently reading as `Match`.
+enum DpuComparison {
+    /// The DPU matches everything its deployment declares.
+    Match,
+    /// The DPU differs from its deployment and needs reprovisioning.
+    Mismatch(DpuMismatch),
+    /// The pair could not be compared, so nothing is known either way.
+    Inconclusive,
+}
+
+fn dpu_comparison(namespace: &str, dpu: &DPU, deployment: &DPUDeployment) -> DpuComparison {
+    let Some(cr_name) = dpu.metadata.name.clone() else {
+        return DpuComparison::Inconclusive;
+    };
     let expected_flavor = deployment.spec.dpus.flavor.clone().unwrap_or_default();
     let flavor_matches = dpu.spec.dpu_flavor == expected_flavor;
 
@@ -2148,14 +2180,14 @@ fn dpu_mismatch(namespace: &str, dpu: &DPU, deployment: &DPUDeployment) -> Optio
                 dpu_name = %cr_name,
                 "Owning DPUDeployment sets neither or both of bfb and blueFieldSoftware; skipping"
             );
-            return None;
+            return DpuComparison::Inconclusive;
         }
     };
 
     if source_matches && flavor_matches {
-        return None;
+        return DpuComparison::Match;
     }
-    Some(DpuMismatch {
+    DpuComparison::Mismatch(DpuMismatch {
         dpu_cr_name: cr_name,
         dpu_labels: dpu.metadata.labels.clone().unwrap_or_default(),
         target_source,
@@ -2454,6 +2486,93 @@ impl<R: DpuServiceTemplateRepository, L> DpfSdk<R, L> {
 }
 
 impl<R: DpuRepository + DpuDeploymentRepository + DpuServiceTemplateRepository, L> DpfSdk<R, L> {
+    /// Fetch a DPU CR together with the DPUDeployment that owns it, resolved
+    /// through the `svc.dpu.nvidia.com/owned-by-dpudeployment` label.
+    ///
+    /// Returns the deployment's name alongside it, since callers report it in
+    /// errors and log lines.
+    async fn dpu_with_owning_deployment(
+        &self,
+        dpu_name: &str,
+    ) -> Result<(DPU, String, DPUDeployment), DpfError> {
+        let dpu = DpuRepository::get(&*self.repo, dpu_name, &self.namespace)
+            .await?
+            .ok_or_else(|| DpfError::InvalidState(format!("DPU CR not found: {dpu_name}")))?;
+
+        let owner_label = dpu
+            .metadata
+            .labels
+            .as_ref()
+            .and_then(|l| l.get(DPU_OWNED_BY_DEPLOYMENT_LABEL))
+            .ok_or_else(|| {
+                DpfError::InvalidState(format!(
+                    "DPU {dpu_name} is missing {DPU_OWNED_BY_DEPLOYMENT_LABEL} label"
+                ))
+            })?;
+
+        let deployment_name = owner_label
+            .strip_prefix(&format!("{}_", self.namespace))
+            .unwrap_or(owner_label.as_str())
+            .to_string();
+
+        let deployment =
+            DpuDeploymentRepository::get(&*self.repo, &deployment_name, &self.namespace)
+                .await?
+                .ok_or_else(|| {
+                    DpfError::InvalidState(format!(
+                        "DPUDeployment {deployment_name} not found for DPU {dpu_name}"
+                    ))
+                })?;
+
+        Ok((dpu, deployment_name, deployment))
+    }
+
+    /// Whether one DPU's installed BFB, BlueFieldSoftware, or flavor differs
+    /// from what its owning DPUDeployment declares.
+    ///
+    /// This answers "is a reprovision still coming for this DPU", which gates
+    /// work that must not land on an OS about to be replaced.
+    ///
+    /// Note the deliberate asymmetry with [`Self::find_outdated_dpus_dpf`],
+    /// which skips a DPU it cannot evaluate so a malformed deployment never
+    /// triggers a fleet-wide reprovision. Here an unevaluable DPU reports
+    /// `true`: the caller's safe action is to do nothing, so "unknown" must not
+    /// be reported as "up to date".
+    pub async fn is_dpu_outdated(&self, dpu_name: &str) -> Result<bool, DpfError> {
+        let (dpu, deployment_name, deployment) = self.dpu_with_owning_deployment(dpu_name).await?;
+
+        if !dpu_deployment_is_ready(&deployment) {
+            tracing::info!(
+                dpu_name,
+                deployment = %deployment_name,
+                "DPU's owning DPUDeployment is not ready; treating the DPU as outdated"
+            );
+            return Ok(true);
+        }
+
+        match dpu_comparison(&self.namespace, &dpu, &deployment) {
+            DpuComparison::Match => Ok(false),
+            DpuComparison::Mismatch(mismatch) => {
+                tracing::info!(
+                    dpu_name,
+                    deployment = %deployment_name,
+                    target_source = %mismatch.target_source,
+                    "DPU does not match its owning DPUDeployment"
+                );
+                Ok(true)
+            }
+            DpuComparison::Inconclusive => {
+                tracing::warn!(
+                    dpu_name,
+                    deployment = %deployment_name,
+                    "DPU could not be compared against its owning DPUDeployment; \
+                     treating it as outdated"
+                );
+                Ok(true)
+            }
+        }
+    }
+
     /// Resolve the installed service versions for a DPU by looking up its owning
     /// DPUDeployment (via the `svc.dpu.nvidia.com/owned-by-dpudeployment` label on the DPU CR)
     /// and reading each service's DPUServiceTemplate.
@@ -2473,33 +2592,7 @@ impl<R: DpuRepository + DpuDeploymentRepository + DpuServiceTemplateRepository, 
         &self,
         dpu_name: &str,
     ) -> Result<Vec<DpuServiceVersion>, DpfError> {
-        let dpu = DpuRepository::get(&*self.repo, dpu_name, &self.namespace)
-            .await?
-            .ok_or_else(|| DpfError::InvalidState(format!("DPU CR not found: {dpu_name}")))?;
-
-        let owner_label = dpu
-            .metadata
-            .labels
-            .as_ref()
-            .and_then(|l| l.get(DPU_OWNED_BY_DEPLOYMENT_LABEL))
-            .ok_or_else(|| {
-                DpfError::InvalidState(format!(
-                    "DPU {dpu_name} is missing {DPU_OWNED_BY_DEPLOYMENT_LABEL} label"
-                ))
-            })?;
-
-        let deployment_name = owner_label
-            .strip_prefix(&format!("{}_", self.namespace))
-            .unwrap_or(owner_label.as_str());
-
-        let deployment =
-            DpuDeploymentRepository::get(&*self.repo, deployment_name, &self.namespace)
-                .await?
-                .ok_or_else(|| {
-                    DpfError::InvalidState(format!(
-                        "DPUDeployment {deployment_name} not found for DPU {dpu_name}"
-                    ))
-                })?;
+        let (_dpu, deployment_name, deployment) = self.dpu_with_owning_deployment(dpu_name).await?;
 
         let mut versions = Vec::new();
         for (service_name, service) in &deployment.spec.services {

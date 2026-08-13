@@ -355,6 +355,7 @@ pub(crate) async fn ensure_static_assignments_segment(
         segment_type: NetworkSegmentType::Underlay,
         can_stretch: Some(false),
         allocation_strategy: model::network_segment::AllocationStrategy::Reserved,
+        infer_slaac_eui64_addresses: false,
     };
     crate::handlers::network_segment::save_without_reverse_zones(api, txn, ns, true, false).await?;
     tracing::info!(

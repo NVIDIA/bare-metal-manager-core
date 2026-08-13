@@ -27,30 +27,25 @@ use axum::response::Response;
 use axum::routing::any;
 use tokio::sync::RwLock;
 
-use crate::http::call_router_with_new_request;
+use crate::router::call_router_with_new_request;
 
-/// Multiplexed axum::Routers on a single IP/port.
+/// Multiplexes Axum routers on a single listener using request authority.
 ///
-/// HTTP header `forwarded` is used to route the request to the
-/// appropriate entry.
-///
-/// Note: that this code is not BMC-mock specific and potentially can
-/// be separate crate if needed.
-pub fn combined_router(routers: Arc<RwLock<HashMap<String, Router>>>) -> Router {
+/// The lookup order is the `host` parameter of `Forwarded`, the `Host`
+/// header, the URI authority, and finally the router stored under an empty
+/// string.
+pub fn authority_router(routers: Arc<RwLock<HashMap<String, Router>>>) -> Router {
     Router::new()
         .route("/{*all}", any(process))
-        .with_state(CombinedRouter { routers })
+        .with_state(AuthorityRouter { routers })
 }
 
 #[derive(Clone)]
-struct CombinedRouter {
+struct AuthorityRouter {
     routers: Arc<RwLock<HashMap<String, Router>>>,
 }
 
-async fn process(
-    State(state): State<CombinedRouter>,
-    request: axum::http::Request<Body>,
-) -> Response {
+async fn process(State(state): State<AuthorityRouter>, request: Request<Body>) -> Response {
     let forwarded_host = forwarded_host(&request);
     let host = request
         .headers()
@@ -127,7 +122,7 @@ fn no_router_response(
         forwarded_host = ?forwarded_host,
         host = ?host,
         authority = ?authority,
-        "No BMC mock router is configured for request",
+        "No router is configured for request",
     );
     Response::builder()
         .status(StatusCode::NOT_FOUND)
@@ -147,7 +142,7 @@ mod tests {
     use tokio::sync::RwLock;
     use tower::ServiceExt;
 
-    use super::combined_router;
+    use super::authority_router;
 
     #[tokio::test]
     async fn routes_by_forwarded_host() {
@@ -169,7 +164,7 @@ mod tests {
                 "for=192.0.2.1, host=\"[2001:db8::20]\"",
             ),
         ] {
-            let router = combined_router(Arc::new(RwLock::new(HashMap::from([(
+            let router = authority_router(Arc::new(RwLock::new(HashMap::from([(
                 router_key.to_string(),
                 Router::new().route("/redfish/v1", get(|| async { "bmc" })),
             )]))));
@@ -193,7 +188,7 @@ mod tests {
 
     #[tokio::test]
     async fn preserves_empty_key_fallback() {
-        let router = combined_router(Arc::new(RwLock::new(HashMap::from([(
+        let router = authority_router(Arc::new(RwLock::new(HashMap::from([(
             "".to_string(),
             Router::new().route("/redfish/v1", get(|| async { "default" })),
         )]))));

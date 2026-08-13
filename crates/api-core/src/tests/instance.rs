@@ -286,14 +286,16 @@ async fn test_allocate_and_release_instance_impl(
 
     let mut txn = env.db_txn().await;
     // TODO: The MAC here doesn't matter. It's not used for lookup
-    let record = db::instance_address::find_by_instance_id_and_segment_id(
+    let records = db::instance_address::find_all_by_instance_id_and_segment_id(
         &mut txn,
         &fetched_instance.id,
         segment_ids.first().unwrap(),
     )
     .await
-    .unwrap()
     .unwrap();
+    let [record] = records.as_slice() else {
+        panic!("expected one address on the first segment")
+    };
 
     // This should the first IP. Algo does not look into machine_interface_addresses
     // table for used addresses for instance.
@@ -309,7 +311,7 @@ async fn test_allocate_and_release_instance_impl(
     );
 
     assert_eq!(
-        format!("{}/32", &record.address),
+        format!("{}/32", record.address),
         network_config.interfaces[0]
             .interface_prefixes
             .iter()
@@ -524,14 +526,16 @@ async fn test_measurement_assigned_ready_to_waiting_for_measurements_to_ca_faile
     let segment = db::network_segment::find_by_name(&mut txn, "TENANT")
         .await
         .unwrap();
-    let record = db::instance_address::find_by_instance_id_and_segment_id(
+    let records = db::instance_address::find_all_by_instance_id_and_segment_id(
         &mut txn,
         &fetched_instance.id,
         &segment.id,
     )
     .await
-    .unwrap()
     .unwrap();
+    let [record] = records.as_slice() else {
+        panic!("expected one address on the tenant segment")
+    };
 
     // This should the first IP. Algo does not look into machine_interface_addresses
     // table for used addresses for instance.
@@ -547,7 +551,7 @@ async fn test_measurement_assigned_ready_to_waiting_for_measurements_to_ca_faile
     );
 
     assert_eq!(
-        format!("{}/32", &record.address),
+        format!("{}/32", record.address),
         network_config.interfaces[0]
             .interface_prefixes
             .iter()
@@ -1883,7 +1887,7 @@ async fn test_instance_address_creation(_: PgPoolOptions, options: PgConnectOpti
         auto_config: None,
     };
 
-    let tinstance = mh.instance_builer(&env).network(network).build().await;
+    mh.instance_builer(&env).network(network).build().await;
 
     let mut txn = env.db_txn().await;
     assert_eq!(
@@ -1930,15 +1934,6 @@ async fn test_instance_address_creation(_: PgPoolOptions, options: PgConnectOpti
     assert_eq!(1, used_prefixes.len());
     assert_eq!("192.1.4.3", used_ips[0].to_string());
     assert_eq!("192.1.4.3/32", used_prefixes[0].to_string());
-
-    // And make sure find_by_prefix works -- just leverage
-    // the last used_prefixes prefix and make sure it matches
-    // the allocated instance ID.
-    let address_by_prefix = db::instance_address::find_by_prefix(&mut txn, used_prefixes[0])
-        .await
-        .unwrap()
-        .unwrap();
-    assert_eq!(tinstance.id, address_by_prefix.instance_id);
 
     txn.commit().await.unwrap();
 
@@ -2706,14 +2701,16 @@ async fn test_allocate_and_release_instance_vpc_prefix_id(
 
     let ns = ns.remove(0);
 
-    let record = db::instance_address::find_by_instance_id_and_segment_id(
+    let records = db::instance_address::find_all_by_instance_id_and_segment_id(
         &mut txn,
         &fetched_instance.id,
         &ns.id,
     )
     .await
-    .unwrap()
     .unwrap();
+    let [record] = records.as_slice() else {
+        panic!("expected one address on the allocated segment")
+    };
 
     // This should the first IP. Algo does not look into machine_interface_addresses
     // table for used addresses for instance.
@@ -2729,7 +2726,7 @@ async fn test_allocate_and_release_instance_vpc_prefix_id(
     );
 
     assert_eq!(
-        format!("{}/32", &record.address),
+        format!("{}/32", record.address),
         network_config.interfaces[0]
             .interface_prefixes
             .iter()
@@ -3128,6 +3125,7 @@ async fn test_auto_vpc_prefix_selection_retries_concurrent_network_prefix_insert
             segment_type: NetworkSegmentType::Tenant,
             can_stretch: Some(false),
             allocation_strategy: Default::default(),
+            infer_slaac_eui64_addresses: false,
         },
         blocker.as_mut(),
         NetworkSegmentControllerState::Ready,

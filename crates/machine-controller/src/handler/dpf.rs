@@ -465,6 +465,26 @@ async fn handle_dpf_waiting_for_ready(
         .await
         .map_err(dpf_error)?;
 
+    // The watcher records a pending service sync for any DPU it sees in the
+    // NodeEffect phase, because the phase does not say why the DPU is parked --
+    // a provisioning pass produces one just as a DPUService change does. This
+    // release satisfies whichever it was, so retire the marker here rather than
+    // leave the Ready handler to rediscover it and call Kubernetes for work that
+    // has already happened.
+    //
+    // Bookkeeping only: a failure here costs a redundant check later, so it must
+    // not fail provisioning.
+    if let Err(error) =
+        super::dpu_action_handler::complete_pending_sync(ctx, &state.host_snapshot).await
+    {
+        tracing::warn!(
+            machine_id = %state.host_snapshot.id,
+            node = %node_name,
+            %error,
+            "Could not retire the host's pending DPU service sync after releasing its hold"
+        );
+    }
+
     if dpf_sdk
         .is_reboot_required(&node_name)
         .await

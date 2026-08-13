@@ -15,15 +15,15 @@
  * limitations under the License.
  */
 
-//! Generic fault- and value-injection store for `bmc-mock`.
+//! Generic HTTP fault- and value-injection store.
 //!
 //! The store holds an ordered list of [`Rule`]s. Each rule pairs a [`Selector`]
-//! (matching a Redfish odata id or arbitrary path) with an [`Action`] (mutate
-//! the response body, replace it wholesale, slow it down, or short-circuit
+//! (matching an odata id or arbitrary path) with an [`Action`] (mutate the
+//! response body, replace it wholesale, slow it down, or short-circuit
 //! it with a status code).
 //!
 //! At HTTP request time the middleware calls `InjectionStore::pre_handle`
-//! before invoking the inner Redfish router; if that returns `Some(response)`
+//! before invoking the inner router; if that returns `Some(response)`
 //! the inner handler is skipped (`Status` short-circuit) or its execution is
 //! delayed (`Latency`). After the inner handler runs the middleware calls
 //! `InjectionStore::post_handle` to apply `Replace` / `JsonMerge` actions
@@ -47,62 +47,71 @@ use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use axum::routing::{delete, get};
 use axum::{Json, Router};
+pub use middleware::injection_router;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 pub use store::InjectionStore;
 
-use crate::BmcState;
-use crate::json::JsonExt;
-
-#[cfg(test)]
-mod presets;
+mod middleware;
 mod store;
 
-pub(super) fn add_routes(r: Router<BmcState>) -> Router<BmcState> {
-    r.route(
-        "/Injection/rules",
-        get(list_rules)
-            .put(put_rules)
-            .post(upsert_rule)
-            .delete(clear_rules),
-    )
-    .route("/Injection/rules/{id}", delete(delete_rule))
+#[cfg(test)]
+mod tests;
+
+/// Adds management endpoints for an [`InjectionStore`].
+pub fn management_router(store: Arc<InjectionStore>) -> Router {
+    Router::new()
+        .route(
+            "/Injection/rules",
+            get(list_rules)
+                .put(put_rules)
+                .post(upsert_rule)
+                .delete(clear_rules),
+        )
+        .route("/Injection/rules/{id}", delete(delete_rule))
+        .with_state(store)
 }
 
-async fn list_rules(State(state): State<BmcState>) -> Response {
-    rules_response(&state.injection)
+async fn list_rules(State(store): State<Arc<InjectionStore>>) -> Response {
+    rules_response(&store)
 }
 
-async fn put_rules(State(state): State<BmcState>, Json(rules): Json<Vec<Rule>>) -> Response {
-    state.injection.put(rules);
-    rules_response(&state.injection)
+async fn put_rules(
+    State(store): State<Arc<InjectionStore>>,
+    Json(rules): Json<Vec<Rule>>,
+) -> Response {
+    store.put(rules);
+    rules_response(&store)
 }
 
-async fn upsert_rule(State(state): State<BmcState>, Json(rule): Json<Rule>) -> Response {
-    state.injection.upsert(rule);
-    rules_response(&state.injection)
+async fn upsert_rule(State(store): State<Arc<InjectionStore>>, Json(rule): Json<Rule>) -> Response {
+    store.upsert(rule);
+    rules_response(&store)
 }
 
-async fn delete_rule(State(state): State<BmcState>, Path(id): Path<String>) -> Response {
-    if state.injection.delete(&RuleId::from(id)) {
-        rules_response(&state.injection)
+async fn delete_rule(State(store): State<Arc<InjectionStore>>, Path(id): Path<String>) -> Response {
+    if store.delete(&RuleId::from(id)) {
+        rules_response(&store)
     } else {
         StatusCode::NOT_FOUND.into_response()
     }
 }
 
-async fn clear_rules(State(state): State<BmcState>) -> Response {
-    state.injection.clear();
-    rules_response(&state.injection)
+async fn clear_rules(State(store): State<Arc<InjectionStore>>) -> Response {
+    store.clear();
+    rules_response(&store)
 }
 
 fn rules_response(store: &InjectionStore) -> Response {
     let snapshot = store.list();
     let owned: Vec<&Rule> = snapshot.iter().map(Arc::as_ref).collect();
     match serde_json::to_value(owned) {
-        Ok(v) => v.into_ok_response(),
-        Err(err) => serde_json::json!({"error": format!("{err:?}")})
-            .into_response(StatusCode::INTERNAL_SERVER_ERROR),
+        Ok(v) => Json(v).into_response(),
+        Err(err) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({"error": format!("{err:?}")})),
+        )
+            .into_response(),
     }
 }
 
