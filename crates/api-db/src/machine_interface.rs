@@ -1394,6 +1394,38 @@ async fn lock_network_segment_exclusive(
         .map_err(|e| DatabaseError::query(query, e))
 }
 
+static ADMIN_LOCK_ADMISSION: std::sync::OnceLock<std::sync::Arc<tokio::sync::Semaphore>> =
+    std::sync::OnceLock::new();
+
+/// Admission gate for the `lock_all_admin_segments` flows. The admin-segment
+/// advisory locks serialize those transactions anyway; without a gate, every
+/// waiter parks *inside* an open transaction, pinning a pool connection while
+/// blocked on the lock. At fleet-ingestion scale that queue grows past
+/// Postgres `max_connections` and the whole system wedges (registration,
+/// exploration, and the state controllers all starve; see the 4,500-host
+/// ingestion wedge). Acquire this permit BEFORE opening the transaction and
+/// hold it until commit/rollback, so excess waiters queue in memory instead
+/// of on connections. Permits: `ADMIN_LOCK_ADMISSION` env var, default 16.
+pub async fn admin_lock_admission() -> tokio::sync::OwnedSemaphorePermit {
+    let sem = ADMIN_LOCK_ADMISSION.get_or_init(|| {
+        // Clamp to a sane range: 0 would deadlock every gated flow, and a
+        // value at or above the pool size defeats the gate's purpose (the
+        // waiters it is meant to keep off connections would all be admitted).
+        const DEFAULT_PERMITS: usize = 16;
+        const MAX_PERMITS: usize = 256;
+        let permits = std::env::var("ADMIN_LOCK_ADMISSION")
+            .ok()
+            .and_then(|v| v.parse::<usize>().ok())
+            .map(|n| n.clamp(1, MAX_PERMITS))
+            .unwrap_or(DEFAULT_PERMITS);
+        std::sync::Arc::new(tokio::sync::Semaphore::new(permits))
+    });
+    sem.clone()
+        .acquire_owned()
+        .await
+        .expect("admin-lock admission semaphore is never closed")
+}
+
 pub async fn allocate_svi_ip(
     txn: &mut PgTransaction<'_>,
     segment: &NetworkSegment,

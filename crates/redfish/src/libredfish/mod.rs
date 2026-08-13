@@ -290,7 +290,7 @@ pub fn redact_password(err: libredfish::RedfishError, password: &str) -> libredf
         | RfError::NoHeader
         | RfError::Lockdown
         | RfError::MissingVendor
-        | RfError::PasswordChangeRequired
+        | RfError::PasswordChangeRequired { .. }
         | RfError::FileError(_)
         | RfError::UserNotFound(_)
         | RfError::NotSupported(_)

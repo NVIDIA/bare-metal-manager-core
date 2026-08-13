@@ -18,13 +18,14 @@
 use std::collections::HashMap;
 
 use carbide_network::virtualization::VpcVirtualizationType;
+use carbide_uuid::domain::DomainId;
 use carbide_uuid::vpc::VpcId;
 use db::dns::domain;
 use db::network_segment::reconcile_network_defs;
 use db::vpc::{self};
 use db::{ObjectColumnFilter, Transaction, dpu_agent_upgrade_policy, network_segment};
 use itertools::Itertools;
-use model::dns::NewDomain;
+use model::dns::{Domain, NewDomain};
 use model::firmware::AgentUpgradePolicyChoice;
 use model::machine::upgrade_policy::AgentUpgradePolicy;
 use model::metadata::Metadata;
@@ -62,30 +63,84 @@ pub async fn create_initial_domain(
         Ok(false)
     }
 }
+
+#[derive(Debug, PartialEq, Eq)]
+enum SeedNetworkDomainSelection {
+    Selected(DomainId),
+    NoForwardDomain,
+    Ambiguous(Vec<String>),
+}
+
+/// Select the forward domain used to parent config-seeded network segments.
+///
+/// Reverse-DNS zones share the domains table and must not make a sole forward
+/// domain appear ambiguous.
+fn select_seed_network_domain(
+    domains: &[Domain],
+    configured_domain_name: Option<&str>,
+) -> SeedNetworkDomainSelection {
+    let forward_domains = domains
+        .iter()
+        .filter(|domain| {
+            let name = domain.name.trim_end_matches('.');
+            !matches!(name, "in-addr.arpa" | "ip6.arpa")
+                && !name.ends_with(".in-addr.arpa")
+                && !name.ends_with(".ip6.arpa")
+        })
+        .collect_vec();
+
+    if let Some(domain_name) = configured_domain_name {
+        let configured_domains = forward_domains
+            .iter()
+            .filter(|domain| domain.name == domain_name)
+            .collect_vec();
+        if let [domain] = configured_domains.as_slice() {
+            return SeedNetworkDomainSelection::Selected(domain.id);
+        }
+    }
+
+    match forward_domains.as_slice() {
+        [] => SeedNetworkDomainSelection::NoForwardDomain,
+        [domain] => SeedNetworkDomainSelection::Selected(domain.id),
+        domains => SeedNetworkDomainSelection::Ambiguous(
+            domains
+                .iter()
+                .map(|domain| domain.name.clone())
+                .sorted()
+                .collect(),
+        ),
+    }
+}
+
 pub async fn create_initial_networks(
     api: &Api,
     db_pool: &Pool<Postgres>,
     networks: &HashMap<String, NetworkDefinition>,
 ) -> Result<(), CarbideError> {
     let mut txn = Transaction::begin(db_pool).await?;
-    let all_domains = db::dns::domain::find_by(
+    let domains = db::dns::domain::find_by(
         &mut txn,
         ObjectColumnFilter::<db::dns::domain::IdColumn>::All,
     )
     .await?;
-    if all_domains.is_empty() {
-        tracing::warn!("No domain configured, skipping initial network creation");
-        return Ok(());
-    }
-    if all_domains.len() > 1 {
-        // We only create initial networks if we only have a single domain - usually created
-        // as initial_domain_name in config file.
-        // Having multiple domains is fine, it means we probably created the network much
-        // earlier.
-        tracing::info!("Multiple domains, skipping initial network creation");
-        return Ok(());
-    }
-    let domain_id = all_domains[0].id;
+    let domain_id = match select_seed_network_domain(
+        &domains,
+        api.runtime_config.initial_domain_name.as_deref(),
+    ) {
+        SeedNetworkDomainSelection::Selected(domain_id) => domain_id,
+        SeedNetworkDomainSelection::NoForwardDomain => {
+            tracing::warn!("No forward domain configured, skipping initial network creation");
+            return Ok(());
+        }
+        SeedNetworkDomainSelection::Ambiguous(forward_domains) => {
+            tracing::warn!(
+                ?forward_domains,
+                configured_domain_name = ?api.runtime_config.initial_domain_name,
+                "Multiple forward domains, skipping initial network creation",
+            );
+            return Ok(());
+        }
+    };
     reconcile_network_defs(&mut txn, networks).await?;
 
     for (name, def) in networks {
@@ -493,4 +548,137 @@ pub(crate) async fn create_admin_vpc(
     txn.commit().await?;
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use carbide_test_support::{Check, check_values};
+    use chrono::Utc;
+
+    use super::*;
+
+    struct DomainSelectionCase {
+        domains: Vec<Domain>,
+        configured_domain_name: Option<&'static str>,
+    }
+
+    fn domain_id(id: u128) -> DomainId {
+        uuid::Uuid::from_u128(id).into()
+    }
+
+    fn domain(id: u128, name: &str) -> Domain {
+        let timestamp = Utc::now();
+        Domain {
+            id: domain_id(id),
+            name: name.to_string(),
+            created: timestamp,
+            updated: timestamp,
+            deleted: None,
+            soa: None,
+            metadata: None,
+        }
+    }
+
+    #[test]
+    fn seed_network_domain_selection_distinguishes_forward_and_reverse_domains() {
+        check_values(
+            [
+                Check {
+                    scenario: "no domains are available",
+                    input: DomainSelectionCase {
+                        domains: vec![],
+                        configured_domain_name: None,
+                    },
+                    expect: SeedNetworkDomainSelection::NoForwardDomain,
+                },
+                Check {
+                    scenario: "the configured domain wins among multiple forward domains",
+                    input: DomainSelectionCase {
+                        domains: vec![
+                            domain(1, "legacy.example"),
+                            domain(2, "0.20.172.in-addr.arpa"),
+                            domain(3, "site.example"),
+                        ],
+                        configured_domain_name: Some("site.example"),
+                    },
+                    expect: SeedNetworkDomainSelection::Selected(domain_id(3)),
+                },
+                Check {
+                    scenario: "a renamed configured domain falls back to the sole forward domain",
+                    input: DomainSelectionCase {
+                        domains: vec![
+                            domain(1, "renamed.example"),
+                            domain(2, "0.20.172.in-addr.arpa"),
+                        ],
+                        configured_domain_name: Some("site.example"),
+                    },
+                    expect: SeedNetworkDomainSelection::Selected(domain_id(1)),
+                },
+                Check {
+                    scenario: "an API-created domain works without initial_domain_name",
+                    input: DomainSelectionCase {
+                        domains: vec![
+                            domain(1, "api-created.example"),
+                            domain(2, "0.20.172.in-addr.arpa"),
+                            domain(3, "0.0.ip6.arpa"),
+                        ],
+                        configured_domain_name: None,
+                    },
+                    expect: SeedNetworkDomainSelection::Selected(domain_id(1)),
+                },
+                Check {
+                    scenario: "reverse domains alone do not become the forward domain",
+                    input: DomainSelectionCase {
+                        domains: vec![
+                            domain(1, "0.20.172.in-addr.arpa"),
+                            domain(2, "0.0.ip6.arpa."),
+                        ],
+                        configured_domain_name: None,
+                    },
+                    expect: SeedNetworkDomainSelection::NoForwardDomain,
+                },
+                Check {
+                    scenario: "a configured reverse domain does not override the forward domain",
+                    input: DomainSelectionCase {
+                        domains: vec![
+                            domain(1, "site.example"),
+                            domain(2, "0.20.172.in-addr.arpa"),
+                        ],
+                        configured_domain_name: Some("0.20.172.in-addr.arpa"),
+                    },
+                    expect: SeedNetworkDomainSelection::Selected(domain_id(1)),
+                },
+                Check {
+                    scenario: "multiple forward domains without a configured match are ambiguous",
+                    input: DomainSelectionCase {
+                        domains: vec![
+                            domain(1, "one.example"),
+                            domain(2, "two.example"),
+                            domain(3, "0.20.172.in-addr.arpa"),
+                        ],
+                        configured_domain_name: None,
+                    },
+                    expect: SeedNetworkDomainSelection::Ambiguous(vec![
+                        "one.example".to_string(),
+                        "two.example".to_string(),
+                    ]),
+                },
+                Check {
+                    scenario: "duplicate configured domains are ambiguous",
+                    input: DomainSelectionCase {
+                        domains: vec![domain(1, "site.example"), domain(2, "site.example")],
+                        configured_domain_name: Some("site.example"),
+                    },
+                    expect: SeedNetworkDomainSelection::Ambiguous(vec![
+                        "site.example".to_string(),
+                        "site.example".to_string(),
+                    ]),
+                },
+            ],
+            |DomainSelectionCase {
+                 domains,
+                 configured_domain_name,
+             }| { select_seed_network_domain(&domains, configured_domain_name) },
+        );
+    }
 }
