@@ -3,6 +3,22 @@
 
 The `deploy/kustomization.yaml` file drives the top‑level deployment. Populate the placeholders below before applying any overlays.
 
+## Table of contents
+
+- [Files inputs](#files-inputs-deployfiles)
+- [NICo Core services](#nico-core-services-baremetal-provisioning)
+  - [NICo API](#nico-api)
+  - [NICo DHCP](#nico-dhcp)
+  - [NICo DNS](#nico-dns)
+  - [NICo Hardware Health](#nico-hardware-health)
+  - [NICo NTP](#nico-ntp)
+  - [NICo PXE](#nico-pxe)
+  - [NICo SSH Console](#nico-ssh-console)
+  - [NICo Base Kustomization](#nico-base-kustomization)
+  - [NICo Unbound Base](#nico-unbound-base)
+  - [Components](#components)
+  - [NICo System](#nico-system)
+
 | Value | Description |
 | --- | --- |
 | `yourdockerregistry.com/path/to/nico-core` | Source image placeholder rewritten to `NICO_REGISTRY_PATH/nico-core` by `deploy/kustomization.yaml`. |
@@ -46,9 +62,9 @@ After populating `deploy/kustomization.yaml` and all files under `deploy/files/`
 kustomize build . --enable-helm --enable-alpha-plugins --enable-exec | kubectl apply -f -
 ```
 
-## NICo core services (bare‑metal provisioning)
+## NICo Core services (bare‑metal provisioning)
 
-This document summarizes the Kubernetes components that make up the **NICo core** bare‑metal provisioning system and how to get started deploying them.
+This document summarizes the Kubernetes components that make up the **NICo Core** bare‑metal provisioning system and how to get started deploying them.
 
 NICo is responsible for:
 
@@ -68,7 +84,7 @@ All examples below assume you have chosen a namespace such as **`nico-system`**;
 **Role**  
 The **nico‑api** deployment is the control‑plane API for all bare‑metal operations. Other NICo services (DHCP, DNS, hardware‑health, PXE, UI, etc.) and cloud components talk to this service over mTLS‑protected gRPC.
 
-#### What it deploys
+**What it deploys**
 
 Path: `deploy/nico-base/api/`
 
@@ -87,7 +103,7 @@ Path: `deploy/nico-base/api/`
   - `ServiceAccount/nico-api`
   - `Role/RoleBinding nico-api` – allows creating cert‑manager `CertificateRequest`s
 
-#### External inputs you must provide
+**External inputs you must provide**
 
 - **Database access**
   - Secret with DB credentials: `<NICO_DB_CREDENTIALS_SECRET>` (keys: `username`, `password`)
@@ -101,7 +117,7 @@ Path: `deploy/nico-base/api/`
 - **Root CA bundle**
   - Secret `<NICO_ROOT_CA_SECRET>` mounted where `nico-api-config.toml` expects it.
 
-#### Configuration notes
+**Configuration notes**
 
 - Runtime config lives in `nico-api-config.toml` and is overlaid by a site‑specific TOML in `nico-api-site-config-files`.
 - Important knobs include:
@@ -112,7 +128,7 @@ Path: `deploy/nico-base/api/`
   - Casbin policy path under `[auth]`
 - For SA / lab environments it is common to run with **permissive authorization** (for example by enabling an “allow all trusted certs” rule in the Casbin policy). A hardened deployment should tighten these rules.
 
-#### Quick start
+**Quick start**
 
 1. Create the DB credentials Secret and DB endpoint ConfigMap for your environment.
 2. Create the Vault token/AppRole Secret and Vault cluster ConfigMap.
@@ -130,7 +146,7 @@ Path: `deploy/nico-base/api/`
 **Role**  
 `nico-dhcp` is the **authoritative DHCP server** for NICo‑managed subnets. It runs Kea DHCPv4 and is the endpoint that **tenant ToR switches or DHCP relays point to**. When a tenant node PXE boots or requests an address, this service assigns IPs and options according to your Kea configuration.
 
-#### What it deploys
+**What it deploys**
 
 Path: `deploy/nico-base/dhcp/`
 
@@ -150,12 +166,12 @@ The pod:
 - Mounts SPIFFE client certs at `/var/run/secrets/spiffe.io`
 - Mounts a `ConfigMap` at `/tmp` that must contain `kea_config.json`
 
-#### External inputs you must provide
+**External inputs you must provide**
 
 - ConfigMap `<NICO_DHCP_CONFIGMAP>` with your Kea JSON config (key/file mapping to `/tmp/kea_config.json`).
 - A cert‑manager `ClusterIssuer` capable of issuing `nico-dhcp-certificate` (for SPIFFE‑style mTLS to nico‑api or other services).
 
-#### Quick start
+**Quick start**
 
 1. Write a small Kea config JSON for your tenant subnet and create the DHCP ConfigMap.
 2. Point your tenant switches / DHCP relay to the `nico-dhcp` Service IP (UDP/67).
@@ -172,7 +188,7 @@ The pod:
 **Role**  
 `nico-dns` is the **authoritative DNS service** for NICo‑managed hosts and internal services. It answers queries for the internal zones and forwards anything else to a recursive resolver such as the Unbound deployment.
 
-#### What it deploys
+**What it deploys**
 
 Path: `deploy/nico-base/dns/`
 
@@ -184,14 +200,14 @@ Path: `deploy/nico-base/dns/`
   - `ServiceAccount/nico-dns`
   - `Role/RoleBinding nico-dns`
 
-#### External inputs you must provide
+**External inputs you must provide**
 
 - ConfigMap `<NICO_DNS_CONFIGMAP>` with at least:
   - `NICO_API` – URL for the nico‑api gRPC endpoint (e.g. `https://nico-api.<NICO_NAMESPACE>.svc.cluster.local:1079`).
   - Any additional DNS or zone settings your environment requires.
 - A cert‑manager `ClusterIssuer` for `nico-dns-certificate`.
 
-#### Quick start
+**Quick start**
 
 1. Create the DNS ConfigMap with `NICO_API` pointing at your nico‑api Service.
 2. Ensure cert‑manager is running and the ClusterIssuer for `nico-dns-certificate` exists.
@@ -208,7 +224,7 @@ Path: `deploy/nico-base/dns/`
 **Role**  
 `nico-hardware-health` continuously polls host and DPU BMCs for health information (fans, temperatures, leak sensors, etc.), exposes those metrics via Prometheus, and notifies nico‑api when it detects problems so operators get alerts on failing hardware.
 
-#### What it deploys
+**What it deploys**
 
 Path: `deploy/nico-base/hardware-health/`
 
@@ -225,13 +241,13 @@ The pod:
 - Uses SPIFFE certs from `/var/run/secrets/spiffe.io` to talk back to nico‑api.
 - Exposes Prometheus metrics at `:9009/metrics`.
 
-#### External inputs you must provide
+**External inputs you must provide**
 
 - A reachable nico‑api endpoint.
 - A Prometheus instance (or other metrics system) scraping the `nico-hardware-health` Service.
 - A cert‑manager `ClusterIssuer` for the hardware‑health certificate.
 
-#### Quick start
+**Quick start**
 
 1. Confirm nico‑api is running and reachable from `<NICO_NAMESPACE>`.
 2. Deploy hardware health:
@@ -249,7 +265,7 @@ The pod:
 **Role**  
 `nico-ntp` provides a redundant chrony‑based NTP service for NICo clusters.
 
-#### What it deploys
+**What it deploys**
 
 Path: `deploy/nico-base/ntp/`
 
@@ -258,12 +274,12 @@ Path: `deploy/nico-base/ntp/`
 
 The container runs `dockurr/chrony` and reads `NTP_SERVERS` / `NTP_DIRECTIVES` from env vars.
 
-#### External inputs you must provide
+**External inputs you must provide**
 
 - Update `NTP_SERVERS` to point at your upstream time sources plus the peer pods (adjust the default `nico-system` namespace in an overlay).
 - Optionally set `NTP_DIRECTIVES` for additional chrony tuning.
 
-#### Quick start
+**Quick start**
 
 1. Patch the StatefulSet env to your upstream NTP servers.
 2. Deploy NTP:
@@ -281,7 +297,7 @@ The container runs `dockurr/chrony` and reads `NTP_SERVERS` / `NTP_DIRECTIVES` f
 **Role**  
 `nico-pxe` serves the HTTP/iPXE entrypoint and boot artifacts for tenant machines, using SPIFFE certs to call back into NICo services.
 
-#### What it deploys
+**What it deploys**
 
 Path: `deploy/nico-base/pxe/`
 
@@ -297,13 +313,13 @@ Path: `deploy/nico-base/pxe/`
 
 The pod mounts SPIFFE material at `/var/run/secrets/spiffe.io`, reads Rocket/pxe config from `/tmp/nico`, and reloads when the `nico-pxe-config` ConfigMap changes.
 
-#### External inputs you must provide
+**External inputs you must provide**
 
 - A published PXE image (override `yourdockerregistry.com/path/to/nico-core:latest`).
 - ConfigMap(s) with `Rocket.toml` / templates at `/tmp/nico` plus any env ConfigMap (`nico-pxe-env-config`) your boot flow requires.
 - A cert‑manager `ClusterIssuer` for the SPIFFE certificate.
 
-#### Quick start
+**Quick start**
 
 1. Build/publish the PXE image and patch the Deployment to use it.
 2. Create the config/env ConfigMaps referenced above.
@@ -320,7 +336,7 @@ The pod mounts SPIFFE material at `/var/run/secrets/spiffe.io`, reads Rocket/pxe
 **Role**  
 `nico-ssh-console-rs` exposes SSH access to server and DPU consoles, querying nico‑api for targets and shipping console logs through an embedded OpenTelemetry collector.
 
-#### What it deploys
+**What it deploys**
 
 Path: `deploy/nico-base/ssh-console-rs/`
 
@@ -339,14 +355,14 @@ Path: `deploy/nico-base/ssh-console-rs/`
 
 Key settings live in `config-files/config.toml` (nico‑api URL, SPIFFE cert paths, SSH CA fingerprints, logging paths). The sidecar tails `/var/log/consoles` using the OTel config.
 
-#### External inputs you must provide
+**External inputs you must provide**
 
 - Fill out `config.toml` with your nico‑api endpoint, trusted CA fingerprints, and any authorized keys or test settings.
 - Provide an encrypted `secrets/ssh_host_key.enc.yaml` so KSOPS can create `ssh-host-key`.
 - Add exporters/remote targets to `config-files/otelcol-config.yaml` (for example, a Loki endpoint).
 - A cert‑manager `ClusterIssuer` compatible with the SPIFFE certificate.
 
-#### Quick start
+**Quick start**
 
 1. Update the ConfigMaps and KSOPS secret with your site settings.
 2. Ensure cert‑manager can issue via `vault-nico-issuer` (or patch the issuerRef).
@@ -363,7 +379,7 @@ Key settings live in `config-files/config.toml` (nico‑api URL, SPIFFE cert pat
 **Role**  
 `deploy/nico-base/kustomization.yaml` bundles the core NICo services into one base for overlays.
 
-#### What it includes
+**What it includes**
 
 - Applies shared labels and disables name suffix hashing for stable resource names.
 - Aggregates:
@@ -375,7 +391,7 @@ Key settings live in `config-files/config.toml` (nico‑api URL, SPIFFE cert pat
   - `ssh-console-rs`
   - `ntp`
 
-#### Quick start
+**Quick start**
 
 - Apply the full base (optionally with your overlay):
 
@@ -390,7 +406,7 @@ Key settings live in `config-files/config.toml` (nico‑api URL, SPIFFE cert pat
 **Role**  
 `nico-unbound` provides a **recursive DNS resolver** for NICo deployments. Authoritative services (like `nico-dns`) can forward unknown lookups here, and the included exporter publishes Prometheus metrics for Unbound.
 
-#### What it deploys
+**What it deploys**
 
 Path: `deploy/nico-unbound-base/`
 
@@ -404,14 +420,14 @@ Path: `deploy/nico-unbound-base/`
   - EmptyDir at `/etc/unbound/keys` for Unbound control keys shared with the exporter
 - Image pull secret reference: `imagepullsecret` (patch or replace for your registry).
 
-#### External inputs you must provide
+**External inputs you must provide**
 
 - Publish or point the Deployment images to your registry (`unbound` and `unbound_exporter`).
 - Provide upstream DNS forwarders by replacing `local.conf.d/patchme.conf` (the source for `forwarders.conf`) with the `forward-zone`/`stub-zone` config your environment requires.
 - Ensure the `imagepullsecret` exists in the namespace or update the Deployment to the correct secret name.
 - Optionally tighten `access_control.conf` to limit which networks can query the resolver.
 
-#### Quick start
+**Quick start**
 
 1. Add your upstream resolver config to `local.conf.d/patchme.conf` (or replace the `forwarders.conf` entry in kustomization) and update the container images.
 2. Confirm the image pull secret name matches your registry credentials.
@@ -428,19 +444,19 @@ Path: `deploy/nico-unbound-base/`
 **Role**  
 Reusable Kustomize components that layer registry credentials and boot artifact sidecars onto NICo workloads.
 
-#### What it includes
+**What it includes**
 
 Path: `deploy/components/`
 
 - Component `boot-artifacts-containers` – JSON6902 patch that adds an EmptyDir volume plus sidecar containers to `nico-pxe` and `nico-api` Deployments. The sidecars copy `x86_64`, `aarch64`, `apt`, `firmware`, and machine-validation artifacts into `/nico-boot-artifacts/blobs/internal`, including a legacy x86_64 image for backward compatibility.
 - Component `imagepullsecret` – JSON6902 patch that injects an `imagepullsecret` reference into all Deployments, Jobs, and StatefulSets.
 
-#### External inputs you must provide
+**External inputs you must provide**
 
 - Publish the boot artifact container images (x86_64, aarch64, legacy x86_64, machine-validation) to your registry and override the placeholders in the parent Kustomization.
 - Create the `imagepullsecret` Secret in the target namespace or change the referenced name in the patch.
 
-#### Quick start
+**Quick start**
 
 1. Add the components to your overlay:
 
@@ -460,7 +476,7 @@ Path: `deploy/components/`
 **Role**  
 Reference overlay that deploys NICo + Unbound into the `nico-system` namespace with external access points and environment defaults.
 
-#### What it deploys
+**What it deploys**
 
 Path: `deploy/nico-system/`
 
@@ -471,14 +487,14 @@ Path: `deploy/nico-system/`
 - Certificate patches that add namespace‑specific DNSNames and SPIFFE URIs for all NICo cert-manager `Certificate`s, plus a patch targeting the `nico-pg-cluster` Postgres resource.
 - Name suffix hashing disabled to keep stable names.
 
-#### External inputs you must provide
+**External inputs you must provide**
 
 - Assign LoadBalancer IPs / addresses for the external Services (for example via the parent `deploy/kustomization.yaml` Metallb patches) or adapt to your cloud LB configuration.
 - Ensure the `nico-pg-cluster` Postgres instance and the secret referenced by `SECRET_REF` exist, or update the literals.
 - Point the Vault settings (`VAULT_SERVICE`, mounts) at your Vault cluster, or patch the ConfigMap.
 - Provide the `imagepullsecret` Secret in `nico-system` and publish the boot artifact images referenced by the components.
 
-#### Quick start
+**Quick start**
 
 1. Update the literals and image overrides in `deploy/nico-system/kustomization.yaml` (and the top-level `deploy/kustomization.yaml` if you use the Metallb IP patches) to match your environment.
 2. Apply the overlay:
