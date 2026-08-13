@@ -106,7 +106,7 @@ DPU_ARCHES ?= amd64 arm64
 
 # $(call check-arches,$(SOME_ARCHES),SOME_ARCHES) aborts the build with a clear
 # error if SOME_ARCHES contains anything other than amd64/arm64.
-check-arches = $(if $(filter-out amd64 arm64,$(1)),$(error $(2) must be a subset of "amd64 arm64", got: $(1)))
+check-arches = $(if $(strip $(1)),,$(error $(2) must not be empty))$(if $(filter-out amd64 arm64,$(1)),$(error $(2) must be a subset of "amd64 arm64", got: $(1)))
 
 # $(call require-amd64,$(SOME_ARCHES),error-message) aborts the build if amd64 is
 # missing from SOME_ARCHES.
