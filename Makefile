@@ -85,7 +85,10 @@ bootstrap: ## Set up an Ubuntu/Debian build host: apt deps, rustup, submodules, 
 #
 # Images are pushed as amd64/arm64 manifests at
 # $(IMAGE_REGISTRY)/<name>:$(IMAGE_TAG). Override IMAGE_REGISTRY and IMAGE_TAG to
-# publish under your own registry/tag (defaults match rest-api/).
+# publish under your own registry/tag (defaults match rest-api/). Override
+# NICO_ARCHES, BOOT_ARTIFACTS_ARCHES, and/or DPU_ARCHES (each "amd64 arm64" by
+# default) to restrict which architectures a given image group builds, e.g.:
+#   make images-all NICO_ARCHES=amd64 DPU_ARCHES=arm64
 
 IMAGE_REGISTRY ?= localhost:5000
 IMAGE_TAG ?= latest
@@ -94,19 +97,22 @@ CI_COMMIT_SHORT_SHA ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo un
 LOCAL_REGISTRY_CONTAINER ?= nico-build-registry
 BOOT_ARTIFACTS_RUNTIME_IMAGE ?= docker.io/library/alpine:3.20.10@sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc
 
+# Architectures to build, per image group. Each defaults to both so the
+# published tags stay multi-arch unless you deliberately narrow them, e.g.:
+#   make images-all NICO_ARCHES=amd64 DPU_ARCHES=arm64
+NICO_ARCHES ?= amd64 arm64
+BOOT_ARTIFACTS_ARCHES ?= amd64 arm64
+DPU_ARCHES ?= amd64 arm64
+
+# $(call check-arches,$(SOME_ARCHES),SOME_ARCHES) aborts the build with a clear
+# error if SOME_ARCHES contains anything other than amd64/arm64.
+check-arches = $(if $(filter-out amd64 arm64,$(1)),$(error $(2) must be a subset of "amd64 arm64", got: $(1)))
+
 # Intermediate base containers the Core and machine-validation images build FROM.
 CORE_BUILD_CONTAINER_AMD64 ?= $(IMAGE_REGISTRY)/nico-buildcontainer:$(IMAGE_TAG)-amd64
 CORE_BUILD_CONTAINER_ARM64 ?= $(IMAGE_REGISTRY)/nico-buildcontainer:$(IMAGE_TAG)-arm64
 CORE_RUNTIME_CONTAINER_AMD64 ?= $(IMAGE_REGISTRY)/nico-runtime-container:$(IMAGE_TAG)-amd64
 CORE_RUNTIME_CONTAINER_ARM64 ?= $(IMAGE_REGISTRY)/nico-runtime-container:$(IMAGE_TAG)-arm64
-CORE_IMAGE_AMD64 := $(IMAGE_REGISTRY)/nico:$(IMAGE_TAG)-amd64
-CORE_IMAGE_ARM64 := $(IMAGE_REGISTRY)/nico:$(IMAGE_TAG)-arm64
-MACHINE_VALIDATION_IMAGE_AMD64 := $(IMAGE_REGISTRY)/machine-validation:$(IMAGE_TAG)-amd64
-MACHINE_VALIDATION_IMAGE_ARM64 := $(IMAGE_REGISTRY)/machine-validation:$(IMAGE_TAG)-arm64
-BOOT_ARTIFACTS_X86_IMAGE_AMD64 := $(IMAGE_REGISTRY)/boot-artifacts-x86_64:$(IMAGE_TAG)-amd64
-BOOT_ARTIFACTS_X86_IMAGE_ARM64 := $(IMAGE_REGISTRY)/boot-artifacts-x86_64:$(IMAGE_TAG)-arm64
-BOOT_ARTIFACTS_BFB_IMAGE_AMD64 := $(IMAGE_REGISTRY)/boot-artifacts-aarch64:$(IMAGE_TAG)-amd64
-BOOT_ARTIFACTS_BFB_IMAGE_ARM64 := $(IMAGE_REGISTRY)/boot-artifacts-aarch64:$(IMAGE_TAG)-arm64
 
 .PHONY: images images-all images-registry images-base images-core images-rest \
         images-machine-validation images-boot-artifacts images-bfb
@@ -128,69 +134,90 @@ images-registry:
 		fi; \
 	fi
 
-images-base: images-registry ## Build and push the amd64 + arm64 Core base containers
-	docker buildx build --platform linux/amd64 --push --file dev/docker/Dockerfile.build-container-x86_64 -t $(CORE_BUILD_CONTAINER_AMD64) .
-	docker buildx build --platform linux/arm64 --push --file dev/docker/Dockerfile.build-container-aarch64 -t $(CORE_BUILD_CONTAINER_ARM64) .
-	docker buildx build --platform linux/amd64 --push --file dev/docker/Dockerfile.runtime-container-x86_64 -t $(CORE_RUNTIME_CONTAINER_AMD64) .
-	docker buildx build --platform linux/arm64 --push --file dev/docker/Dockerfile.runtime-container-aarch64 -t $(CORE_RUNTIME_CONTAINER_ARM64) .
+images-base: images-registry ## Build and push the Core base containers (NICO_ARCHES="amd64 arm64")
+	$(call check-arches,$(NICO_ARCHES),NICO_ARCHES)
+	@set -e; \
+	for arch in $(NICO_ARCHES); do \
+		case $$arch in \
+			amd64) build_file=dev/docker/Dockerfile.build-container-x86_64; build_tag=$(CORE_BUILD_CONTAINER_AMD64); \
+			       runtime_file=dev/docker/Dockerfile.runtime-container-x86_64; runtime_tag=$(CORE_RUNTIME_CONTAINER_AMD64) ;; \
+			arm64) build_file=dev/docker/Dockerfile.build-container-aarch64; build_tag=$(CORE_BUILD_CONTAINER_ARM64); \
+			       runtime_file=dev/docker/Dockerfile.runtime-container-aarch64; runtime_tag=$(CORE_RUNTIME_CONTAINER_ARM64) ;; \
+		esac; \
+		docker buildx build --platform linux/$$arch --push --file $$build_file -t $$build_tag . ; \
+		docker buildx build --platform linux/$$arch --push --file $$runtime_file -t $$runtime_tag . ; \
+	done
 
-images-core: images-base ## Build the NICo Core image (nico)
-	docker buildx build --platform linux/amd64 --push \
-		--build-arg CONTAINER_BUILD_X86_64=$(CORE_BUILD_CONTAINER_AMD64) \
-		--build-arg CONTAINER_RUNTIME_X86_64=$(CORE_RUNTIME_CONTAINER_AMD64) \
-		--build-arg VERSION=$(VERSION) \
-		--build-arg CI_COMMIT_SHORT_SHA=$(CI_COMMIT_SHORT_SHA) \
-		--file dev/docker/Dockerfile.release-container-sa-x86_64 \
-		-t $(CORE_IMAGE_AMD64) .
-	docker buildx build --platform linux/arm64 --push \
-		--build-arg CONTAINER_BUILD_AARCH64=$(CORE_BUILD_CONTAINER_ARM64) \
-		--build-arg CONTAINER_RUNTIME_AARCH64=$(CORE_RUNTIME_CONTAINER_ARM64) \
-		--build-arg VERSION=$(VERSION) \
-		--build-arg CI_COMMIT_SHORT_SHA=$(CI_COMMIT_SHORT_SHA) \
-		--file dev/docker/Dockerfile.release-container-aarch64 \
-		-t $(CORE_IMAGE_ARM64) .
-	docker buildx imagetools create -t $(IMAGE_REGISTRY)/nico:$(IMAGE_TAG) \
-		$(CORE_IMAGE_AMD64) $(CORE_IMAGE_ARM64)
+images-core: images-base ## Build the NICo Core image (nico) (NICO_ARCHES="amd64 arm64")
+	$(call check-arches,$(NICO_ARCHES),NICO_ARCHES)
+	@set -e; \
+	tags=""; \
+	for arch in $(NICO_ARCHES); do \
+		case $$arch in \
+			amd64) file=dev/docker/Dockerfile.release-container-sa-x86_64; \
+			       buildarg="--build-arg CONTAINER_BUILD_X86_64=$(CORE_BUILD_CONTAINER_AMD64) --build-arg CONTAINER_RUNTIME_X86_64=$(CORE_RUNTIME_CONTAINER_AMD64)" ;; \
+			arm64) file=dev/docker/Dockerfile.release-container-aarch64; \
+			       buildarg="--build-arg CONTAINER_BUILD_AARCH64=$(CORE_BUILD_CONTAINER_ARM64) --build-arg CONTAINER_RUNTIME_AARCH64=$(CORE_RUNTIME_CONTAINER_ARM64)" ;; \
+		esac; \
+		tag=$(IMAGE_REGISTRY)/nico:$(IMAGE_TAG)-$$arch; \
+		docker buildx build --platform linux/$$arch --push $$buildarg \
+			--build-arg VERSION=$(VERSION) \
+			--build-arg CI_COMMIT_SHORT_SHA=$(CI_COMMIT_SHORT_SHA) \
+			--file $$file -t $$tag . ; \
+		tags="$$tags $$tag"; \
+	done; \
+	docker buildx imagetools create -t $(IMAGE_REGISTRY)/nico:$(IMAGE_TAG) $$tags
 
-images-rest: images-registry ## Build the REST service images (api, workflow, site-manager, site-agent, db, cert-manager, flow, psm, nsm)
-	$(MAKE) -C rest-api docker-build IMAGE_REGISTRY=$(IMAGE_REGISTRY) IMAGE_TAG=$(IMAGE_TAG)
+images-rest: images-registry ## Build the REST service images (api, workflow, site-manager, site-agent, db, cert-manager, flow, psm, nsm) (NICO_ARCHES="amd64 arm64")
+	$(MAKE) -C rest-api docker-build IMAGE_REGISTRY=$(IMAGE_REGISTRY) IMAGE_TAG=$(IMAGE_TAG) DOCKER_ARCHES="$(NICO_ARCHES)"
 
-images-machine-validation: images-base ## Build the machine-validation runner + config images
+images-machine-validation: images-base ## Build the machine-validation runner + config images (NICO_ARCHES="amd64 arm64")
+	$(call check-arches,$(NICO_ARCHES),NICO_ARCHES)
 	docker buildx build --platform linux/amd64 --load --build-arg CONTAINER_RUNTIME_X86_64=$(CORE_RUNTIME_CONTAINER_AMD64) \
 		-t machine-validation-runner:$(IMAGE_TAG) \
 		--file dev/docker/Dockerfile.machine-validation-runner .
 	mkdir -p crates/machine-validation/images
 	docker save --output crates/machine-validation/images/machine-validation-runner.tar machine-validation-runner:$(IMAGE_TAG)
-	docker buildx build --platform linux/amd64 --push --build-arg CONTAINER_RUNTIME_X86_64=$(CORE_RUNTIME_CONTAINER_AMD64) \
-		-t $(MACHINE_VALIDATION_IMAGE_AMD64) \
-		--file dev/docker/Dockerfile.machine-validation-config .
-	docker buildx build --platform linux/arm64 --push --build-arg CONTAINER_RUNTIME_AARCH64=$(CORE_RUNTIME_CONTAINER_ARM64) \
-		-t $(MACHINE_VALIDATION_IMAGE_ARM64) \
-		--file dev/docker/Dockerfile.machine-validation-config-aarch64 .
-	docker buildx imagetools create -t $(IMAGE_REGISTRY)/machine-validation:$(IMAGE_TAG) \
-		$(MACHINE_VALIDATION_IMAGE_AMD64) $(MACHINE_VALIDATION_IMAGE_ARM64)
+	@set -e; \
+	tags=""; \
+	for arch in $(NICO_ARCHES); do \
+		case $$arch in \
+			amd64) file=dev/docker/Dockerfile.machine-validation-config; \
+			       buildarg="--build-arg CONTAINER_RUNTIME_X86_64=$(CORE_RUNTIME_CONTAINER_AMD64)" ;; \
+			arm64) file=dev/docker/Dockerfile.machine-validation-config-aarch64; \
+			       buildarg="--build-arg CONTAINER_RUNTIME_AARCH64=$(CORE_RUNTIME_CONTAINER_ARM64)" ;; \
+		esac; \
+		tag=$(IMAGE_REGISTRY)/machine-validation:$(IMAGE_TAG)-$$arch; \
+		docker buildx build --platform linux/$$arch --push $$buildarg -t $$tag --file $$file . ; \
+		tags="$$tags $$tag"; \
+	done; \
+	docker buildx imagetools create -t $(IMAGE_REGISTRY)/machine-validation:$(IMAGE_TAG) $$tags
 
-images-boot-artifacts: images-registry ## Build the x86 boot-artifact image (requires mkosi + rust toolchain on the host)
+images-boot-artifacts: images-registry ## Build the x86 boot-artifact image (BOOT_ARTIFACTS_ARCHES="amd64 arm64"; requires mkosi + rust toolchain on the host)
+	$(call check-arches,$(BOOT_ARTIFACTS_ARCHES),BOOT_ARTIFACTS_ARCHES)
 	cargo make --cwd pxe --env SA_ENABLEMENT=1 build-boot-artifacts-x86-host-sa
-	docker buildx build --platform linux/amd64 --push --build-arg CONTAINER_RUNTIME_X86_64=$(BOOT_ARTIFACTS_RUNTIME_IMAGE) \
-		-t $(BOOT_ARTIFACTS_X86_IMAGE_AMD64) \
-		--file dev/docker/Dockerfile.release-artifacts-x86_64 .
-	docker buildx build --platform linux/arm64 --push --build-arg CONTAINER_RUNTIME_X86_64=$(BOOT_ARTIFACTS_RUNTIME_IMAGE) \
-		-t $(BOOT_ARTIFACTS_X86_IMAGE_ARM64) \
-		--file dev/docker/Dockerfile.release-artifacts-x86_64 .
-	docker buildx imagetools create -t $(IMAGE_REGISTRY)/boot-artifacts-x86_64:$(IMAGE_TAG) \
-		$(BOOT_ARTIFACTS_X86_IMAGE_AMD64) $(BOOT_ARTIFACTS_X86_IMAGE_ARM64)
+	@set -e; \
+	tags=""; \
+	for arch in $(BOOT_ARTIFACTS_ARCHES); do \
+		tag=$(IMAGE_REGISTRY)/boot-artifacts-x86_64:$(IMAGE_TAG)-$$arch; \
+		docker buildx build --platform linux/$$arch --push --build-arg CONTAINER_RUNTIME_X86_64=$(BOOT_ARTIFACTS_RUNTIME_IMAGE) \
+			-t $$tag --file dev/docker/Dockerfile.release-artifacts-x86_64 . ; \
+		tags="$$tags $$tag"; \
+	done; \
+	docker buildx imagetools create -t $(IMAGE_REGISTRY)/boot-artifacts-x86_64:$(IMAGE_TAG) $$tags
 
-images-bfb: images-registry ## Build the aarch64 DPU BFB boot-artifact image (cross-arch; requires mkosi + aarch64 toolchain)
+images-bfb: images-registry ## Build the aarch64 DPU BFB boot-artifact image (DPU_ARCHES="amd64 arm64"; cross-arch; requires mkosi + aarch64 toolchain)
+	$(call check-arches,$(DPU_ARCHES),DPU_ARCHES)
 	cargo make --cwd pxe --env SA_ENABLEMENT=1 build-boot-artifacts-bfb-sa
-	docker buildx build --platform linux/amd64 --push --build-arg CONTAINER_RUNTIME_AARCH64=$(BOOT_ARTIFACTS_RUNTIME_IMAGE) \
-		-t $(BOOT_ARTIFACTS_BFB_IMAGE_AMD64) \
-		--file dev/docker/Dockerfile.release-artifacts-aarch64 .
-	docker buildx build --platform linux/arm64 --push --build-arg CONTAINER_RUNTIME_AARCH64=$(BOOT_ARTIFACTS_RUNTIME_IMAGE) \
-		-t $(BOOT_ARTIFACTS_BFB_IMAGE_ARM64) \
-		--file dev/docker/Dockerfile.release-artifacts-aarch64 .
-	docker buildx imagetools create -t $(IMAGE_REGISTRY)/boot-artifacts-aarch64:$(IMAGE_TAG) \
-		$(BOOT_ARTIFACTS_BFB_IMAGE_AMD64) $(BOOT_ARTIFACTS_BFB_IMAGE_ARM64)
+	@set -e; \
+	tags=""; \
+	for arch in $(DPU_ARCHES); do \
+		tag=$(IMAGE_REGISTRY)/boot-artifacts-aarch64:$(IMAGE_TAG)-$$arch; \
+		docker buildx build --platform linux/$$arch --push --build-arg CONTAINER_RUNTIME_AARCH64=$(BOOT_ARTIFACTS_RUNTIME_IMAGE) \
+			-t $$tag --file dev/docker/Dockerfile.release-artifacts-aarch64 . ; \
+		tags="$$tags $$tag"; \
+	done; \
+	docker buildx imagetools create -t $(IMAGE_REGISTRY)/boot-artifacts-aarch64:$(IMAGE_TAG) $$tags
 
 # =============================================================================
 # Rest (delegate to rest-api/Makefile)

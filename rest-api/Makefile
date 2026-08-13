@@ -24,7 +24,8 @@ BUILD_DIR := build/binaries
 IMAGE_REGISTRY := localhost:5000
 IMAGE_TAG := latest
 DOCKERFILE_DIR := docker/production
-DOCKER_ARCHES := amd64 arm64
+# Architectures to build; override to restrict to one, e.g. DOCKER_ARCHES=amd64.
+DOCKER_ARCHES ?= amd64 arm64
 LOCAL_REGISTRY_CONTAINER := nico-build-registry
 REST_IMAGES := nico-rest-api nico-rest-workflow nico-rest-site-manager \
 	nico-rest-site-agent nico-rest-db nico-rest-cert-manager nico-flow \
@@ -297,15 +298,16 @@ docker-build:
 	fi
 	@set -e; \
 	for image in $(REST_IMAGES); do \
+		tags=""; \
 		for arch in $(DOCKER_ARCHES); do \
+			tag=$(IMAGE_REGISTRY)/$$image:$(IMAGE_TAG)-$$arch; \
 			docker buildx build --platform linux/$$arch --push \
 				--build-arg TARGETOS=linux --build-arg TARGETARCH=$$arch \
-				-t $(IMAGE_REGISTRY)/$$image:$(IMAGE_TAG)-$$arch \
+				-t $$tag \
 				-f $(DOCKERFILE_DIR)/Dockerfile.$$image .; \
+			tags="$$tags $$tag"; \
 		done; \
-		docker buildx imagetools create -t $(IMAGE_REGISTRY)/$$image:$(IMAGE_TAG) \
-			$(IMAGE_REGISTRY)/$$image:$(IMAGE_TAG)-amd64 \
-			$(IMAGE_REGISTRY)/$$image:$(IMAGE_TAG)-arm64; \
+		docker buildx imagetools create -t $(IMAGE_REGISTRY)/$$image:$(IMAGE_TAG) $$tags; \
 	done
 
 core-proto:

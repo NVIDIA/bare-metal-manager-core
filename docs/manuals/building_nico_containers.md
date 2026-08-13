@@ -61,6 +61,21 @@ under your own registry; authenticate Docker to that registry before running the
 make images IMAGE_REGISTRY=my-registry.example.com/nico IMAGE_TAG=v1.0.0
 ```
 
+By default every image group is built for both `amd64` and `arm64`. Each group has its
+own override variable if you only need one architecture:
+
+- `NICO_ARCHES` — the NICo control-plane images (`images-base`, `images-core`,
+  `images-rest`, `images-machine-validation`)
+- `BOOT_ARTIFACTS_ARCHES` — the x86 boot-artifact image (`images-boot-artifacts`)
+- `DPU_ARCHES` — the DPU BFB boot-artifact image (`images-bfb`)
+
+```sh
+make images-all NICO_ARCHES=amd64 DPU_ARCHES=arm64
+```
+
+A single-architecture build still produces a valid tag at `$(IMAGE_TAG)` (the multi-arch
+manifest just has one entry). Values other than `amd64`/`arm64` fail fast with an error.
+
 Each architecture is built separately before the bare tag is assembled. This matches CI
 and is required for the REST Dockerfiles: a single combined Buildx invocation would reuse
 one builder stage and could copy an amd64 binary into the arm64 image. Building the
@@ -73,8 +88,10 @@ need to build or debug a single image.
 
 ### Verifying the build
 
-After `make images-all` completes, verify that all 14 deployable image tags contain both
-platforms:
+After `make images-all` completes with the default `*_ARCHES` values, verify that all 14
+deployable image tags contain both platforms. (If you narrowed `NICO_ARCHES`,
+`BOOT_ARTIFACTS_ARCHES`, or `DPU_ARCHES` to a single architecture, the corresponding
+images will only report that one platform — adjust the expected value below to match.)
 
 ```bash
 images=(
