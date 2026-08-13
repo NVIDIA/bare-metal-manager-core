@@ -89,7 +89,7 @@ impl AgentLocal for AgentLocalService {
 /// already root, which is why this stays a validity check rather than growing
 /// into `openat`/`fchmod` plumbing.
 fn prepare_socket_dir(dir: &std::path::Path, socket_path: &str) -> eyre::Result<()> {
-    use std::os::unix::fs::{DirBuilderExt, MetadataExt, PermissionsExt};
+    use std::os::unix::fs::{DirBuilderExt, FileTypeExt, MetadataExt, PermissionsExt};
 
     let Some(metadata) = optional_symlink_metadata(dir)
         .wrap_err(format!("inspecting socket directory {}", dir.display()))?
@@ -139,7 +139,19 @@ fn prepare_socket_dir(dir: &std::path::Path, socket_path: &str) -> eyre::Result<
     {
         let entry = entry.wrap_err(format!("reading socket directory {}", dir.display()))?;
         let name = entry.file_name();
-        if socket_name != Some(name.as_os_str()) {
+        if socket_name == Some(name.as_os_str()) {
+            if !entry
+                .file_type()
+                .wrap_err(format!("inspecting socket path {}", entry.path().display()))?
+                .is_socket()
+            {
+                eyre::bail!(
+                    "socket path {} exists and is not a socket; refusing to restrict its parent \
+                     directory — point local-api-socket at a path the agent owns",
+                    entry.path().display()
+                );
+            }
+        } else {
             eyre::bail!(
                 "socket directory {} is shared with other files (found {}); \
                  point local-api-socket at a directory used for nothing else, \
@@ -439,6 +451,49 @@ mod tests {
             "the error should say why, got: {err}"
         );
         assert!(occupied.exists(), "the file must be left untouched");
+    }
+
+    /// An existing entry with the configured socket name must be a socket
+    /// before it makes the parent look dedicated. Otherwise we would tighten
+    /// the directory and only then reject the regular file or symlink.
+    #[test]
+    fn a_non_socket_in_the_socket_directory_is_refused_before_restricting() {
+        use std::os::unix::fs::PermissionsExt;
+
+        for occupant in ["regular file", "symlink"] {
+            let dir = tempfile::tempdir().expect("tempdir");
+            let run_dir = dir.path().join("run");
+            std::fs::create_dir(&run_dir).expect("create run dir");
+            std::fs::set_permissions(&run_dir, std::fs::Permissions::from_mode(0o755))
+                .expect("loosen run dir");
+            let socket = run_dir.join("agent.sock");
+            match occupant {
+                "regular file" => {
+                    std::fs::write(&socket, b"not a socket").expect("write regular file");
+                }
+                "symlink" => {
+                    std::os::unix::fs::symlink("someone-elses.sock", &socket)
+                        .expect("create symlink");
+                }
+                _ => unreachable!("test cases are exhaustive"),
+            }
+
+            let err = prepare_socket_dir(&run_dir, &socket.to_string_lossy())
+                .expect_err("a non-socket must not make the directory look dedicated");
+            assert!(
+                err.to_string().contains("not a socket"),
+                "{occupant}: the error should say why, got: {err}"
+            );
+            let mode = std::fs::metadata(&run_dir)
+                .expect("run dir metadata")
+                .permissions()
+                .mode()
+                & 0o777;
+            assert_eq!(
+                mode, 0o755,
+                "{occupant}: a refused directory must be left exactly as it was found"
+            );
+        }
     }
 
     /// A missing socket is the normal first-boot case, not an error.

@@ -616,28 +616,26 @@ where
         let mut auth_context = AuthContext::<AZ>::default();
 
         // Bearer-token (node-auth JWT) authentication. Validated tokens map
-        // through the same SpiffeContext as client certs, so a JWT and an mTLS
-        // cert for the same machine produce identical principals. This runs in
-        // addition to (not instead of) cert auth to support the migration.
+        // through the same SpiffeContext as client certs. A recognized bearer
+        // credential also represents a trusted identity for authorization: it
+        // was signed by the node's certificate and validated by the configured
+        // authenticator, so it needs the same Casbin grant as mTLS. This runs
+        // in addition to (not instead of) cert auth to support the migration.
         if let Some(authenticator) = &self.authorization_context.bearer_authenticator
             && let Some(token) = bearer_token_from_headers(request.headers())
             && let Some(spiffe_uri) = authenticator.spiffe_id_from_bearer(token)
         {
-            match crate::spiffe_id::SpiffeId::new(&spiffe_uri) {
+            let principal = match crate::spiffe_id::SpiffeId::new(&spiffe_uri) {
                 Ok(spiffe_id) => match self
                     .authorization_context
                     .spiffe_context
                     .extract_service_identifier(&spiffe_id)
                 {
                     Ok(crate::SpiffeIdClass::Service(id)) => {
-                        auth_context
-                            .principals
-                            .push(Principal::SpiffeServiceIdentifier(id));
+                        Some(Principal::SpiffeServiceIdentifier(id))
                     }
                     Ok(crate::SpiffeIdClass::Machine(id)) => {
-                        auth_context
-                            .principals
-                            .push(Principal::SpiffeMachineIdentifier(id));
+                        Some(Principal::SpiffeMachineIdentifier(id))
                     }
                     Err(e) => {
                         tracing::debug!(
@@ -645,6 +643,7 @@ where
                             error = %e,
                             "node-auth: bearer token SPIFFE id not recognized"
                         );
+                        None
                     }
                 },
                 Err(e) => {
@@ -653,7 +652,12 @@ where
                         error = %e,
                         "node-auth: bearer token contained an unparsable SPIFFE URI"
                     );
+                    None
                 }
+            };
+            if let Some(principal) = principal {
+                auth_context.principals.push(principal);
+                auth_context.principals.push(Principal::TrustedCertificate);
             }
         }
 
@@ -1014,6 +1018,10 @@ mod tests {
             principals.contains(&Principal::SpiffeMachineIdentifier("m1".to_string())),
             "expected machine principal, got {principals:?}"
         );
+        assert!(
+            principals.contains(&Principal::TrustedCertificate),
+            "a validated bearer token must authorize as a trusted identity, got {principals:?}"
+        );
     }
 
     /// RFC 6750's scheme is case-insensitive and allows more than one space
@@ -1067,6 +1075,10 @@ mod tests {
                 .iter()
                 .any(|p| matches!(p, Principal::SpiffeMachineIdentifier(_))),
             "rejected token must not yield a machine principal, got {principals:?}"
+        );
+        assert!(
+            !principals.contains(&Principal::TrustedCertificate),
+            "rejected token must not earn trusted-certificate, got {principals:?}"
         );
     }
 
@@ -1184,12 +1196,11 @@ mod tests {
     }
 
     /// The realistic migration state: the agent presents its machine cert *and*
-    /// a bearer token. Refusing the cert must still withhold
-    /// `TrustedCertificate` — the bearer principal must not resurrect it, or
-    /// `mtls_enabled = false` would leave the certificate path authorized for
-    /// every `forge/*` and `nico/*` method under a different name.
+    /// a bearer token. Refusing the cert does not affect the independently
+    /// validated bearer credential, which is the sole authorization path when
+    /// machine mTLS is disabled.
     #[tokio::test]
-    async fn a_bearer_token_does_not_resurrect_trusted_certificate_for_a_refused_machine_cert() {
+    async fn a_bearer_token_authorizes_when_the_machine_cert_is_refused() {
         let middleware = CertDescriptionMiddleware::<NoAuthorization>::new(None, spiffe_context())
             .with_bearer_authenticator(Arc::new(FakeAuth(
                 "spiffe://example.test/carbide-system/machine/m1".to_string(),
@@ -1207,8 +1218,8 @@ mod tests {
             "the bearer token is the credential now, and must still authenticate: {principals:?}"
         );
         assert!(
-            !principals.contains(&Principal::TrustedCertificate),
-            "a refused machine cert must not earn trusted-certificate alongside a token: {principals:?}"
+            principals.contains(&Principal::TrustedCertificate),
+            "a validated bearer token must authorize even when its mTLS cert is refused: {principals:?}"
         );
     }
 
