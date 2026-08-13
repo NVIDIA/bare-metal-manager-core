@@ -318,7 +318,6 @@ func (mvp ManageVpcPrefix) createOrUpdateVpcPrefixFromSite(
 		// fail every inventory cycle.
 		matches, _, reloadErr := vpcPrefixDAO.GetAll(ctx, tx, cdbm.VpcPrefixFilterInput{
 			VpcPrefixIDs:   []uuid.UUID{vpcPrefixID},
-			SiteIDs:        []uuid.UUID{site.ID},
 			IncludeDeleted: true,
 		}, cdbp.PageInput{Limit: cwutil.GetPtr(cdbp.TotalLimit)}, nil)
 		if reloadErr != nil {
@@ -327,6 +326,10 @@ func (mvp ManageVpcPrefix) createOrUpdateVpcPrefixFromSite(
 
 		if len(matches) > 0 {
 			existingVpcPrefix := &matches[0]
+			if existingVpcPrefix.SiteID != site.ID {
+				logger.Warn().Msgf("unable to create VPC Prefix found on Site: VPC Prefix ID already exists under a different Site for VPC Prefix %s", vpcPrefixID)
+				return nil, nil
+			}
 			if existingVpcPrefix.Deleted == nil {
 				return existingVpcPrefix, nil
 			}
@@ -469,7 +472,7 @@ func (mvp ManageVpcPrefix) createOrUpdateVpcPrefixFromSite(
 		return created, nil
 	})
 	if err != nil {
-		logger.Warn().Err(err).Msg(err.Error())
+		logger.Warn().Err(err).Msg("failed to recover VPC Prefix from Site inventory")
 		return nil
 	}
 	return vpcPrefix
@@ -507,18 +510,29 @@ func (mvp ManageVpcPrefix) deleteVpcPrefixFromDB(ctx context.Context, tx *cdb.Tx
 		// IPBlockID is nullable on the model. When unset there is no parent block and no
 		// child CIDR to release in IPAM (inventory recovery always sets IpBlockID today).
 	case vpcPrefix.IPBlock != nil:
-		// Acquire an advisory lock on the parent IP block ID on which there could be contention
-		// this lock is released when the transaction commits or rollsback
-		err := tx.AcquireAdvisoryLock(ctx, cdb.GetAdvisoryLockIDFromString(vpcPrefix.IPBlockID.String()), false)
+		// Use the same tenant/IPBlock advisory lock key as REST create and inventory recovery
+		// so concurrent IPAM/FullGrant mutations serialize. Released on commit/rollback.
+		lockKey := fmt.Sprintf("%s-%s", vpcPrefix.TenantID, vpcPrefix.IPBlockID)
+		err := tx.AcquireAdvisoryLock(ctx, cdb.GetAdvisoryLockIDFromString(lockKey), false)
 		if err != nil {
 			logger.Error().Err(err).Msg("Failed to acquire advisory lock on IP Block")
 			return err
 		}
 		logger.Info().Msg("acquired advisory lock on IP Block for VPC Prefix")
 
+		// Refresh FullGrant under the lock; a concurrent create may have flipped it.
+		freshIPBlock, reloadErr := cdbm.NewIPBlockDAO(mvp.dbSession).GetByID(ctx, tx, *vpcPrefix.IPBlockID, nil)
+		if reloadErr != nil {
+			logger.Error().Err(reloadErr).
+				Str("VPC Prefix ID", vpcPrefix.ID.String()).
+				Str("IP Block ID", vpcPrefix.IPBlockID.String()).
+				Msg("failed to reload IP Block under advisory lock for VPC Prefix delete")
+			return reloadErr
+		}
+
 		// Delete IPAM entry for this VPC Prefix
 		ipamStorage := ipam.NewIpamStorage(mvp.dbSession.DB, tx.GetBunTx())
-		err = ipam.DeleteChildIpamEntryFromCidr(ctx, tx, mvp.dbSession, ipamStorage, vpcPrefix.IPBlock, vpcPrefix.Prefix)
+		err = ipam.DeleteChildIpamEntryFromCidr(ctx, tx, mvp.dbSession, ipamStorage, freshIPBlock, vpcPrefix.Prefix)
 		if err != nil {
 			logger.Error().Err(err).Msg("failed to delete ipam record for VPC Prefix")
 			return err
@@ -528,8 +542,11 @@ func (mvp ManageVpcPrefix) deleteVpcPrefixFromDB(ctx context.Context, tx *cdb.Tx
 		// IPBlockID is set but the relation was not loaded (or the parent IPBlock is
 		// soft-deleted). Skipping cleanup would soft-delete the prefix while leaking its
 		// child CIDR in IPAM.
-		err := fmt.Errorf("unable to delete VPC Prefix: IP Block relation is missing for IP Block ID %s", vpcPrefix.IPBlockID)
-		logger.Error().Err(err).Msg("failed to delete VPC Prefix from DB")
+		err := fmt.Errorf("unable to delete VPC Prefix %s: IP Block relation is missing for IP Block ID %s", vpcPrefix.ID, vpcPrefix.IPBlockID)
+		logger.Error().Err(err).
+			Str("VPC Prefix ID", vpcPrefix.ID.String()).
+			Str("IP Block ID", vpcPrefix.IPBlockID.String()).
+			Msg("failed to delete VPC Prefix from DB")
 		return err
 	}
 

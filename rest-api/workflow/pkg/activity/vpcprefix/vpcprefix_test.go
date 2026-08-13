@@ -854,7 +854,8 @@ func TestManageVpcPrefix_UpdateVpcPrefixesInDB_AutoCreatesAndRestores(t *testing
 	})
 
 	t.Run("inventory restores soft-deleted VPC Prefix", func(t *testing.T) {
-		// Prefix may already be soft-deleted by the TERMINATING skip case; ensure that state.
+		// Depends on the preceding TERMINATING subtest leaving the row soft-deleted with
+		// Status=Deleting. Do not soft-delete here — that would hide failures in the prior case.
 		existing, _, err := vpcPrefixDAO.GetAll(
 			ctx,
 			nil,
@@ -864,20 +865,8 @@ func TestManageVpcPrefix_UpdateVpcPrefixesInDB_AutoCreatesAndRestores(t *testing
 		)
 		require.NoError(t, err)
 		require.Len(t, existing, 1)
-		if existing[0].Deleted == nil {
-			_, err = vpcPrefixDAO.Update(ctx, nil, cdbm.VpcPrefixUpdateInput{
-				VpcPrefixID:     controllerVpcPrefixID,
-				Status:          cutil.GetPtr(cdbm.VpcPrefixStatusDeleting),
-				IsMissingOnSite: cutil.GetPtr(true),
-			})
-			require.NoError(t, err)
-			require.NoError(t, ipam.DeleteChildIpamEntryFromCidr(
-				ctx, nil, dbSession, ipamStorage, ipBlock, controllerVpcPrefix.Config.Prefix,
-			))
-			require.NoError(t, vpcPrefixDAO.Delete(ctx, nil, controllerVpcPrefixID))
-		} else {
-			assert.Equal(t, cdbm.VpcPrefixStatusDeleting, existing[0].Status)
-		}
+		require.NotNil(t, existing[0].Deleted, "expected the prefix to be soft-deleted by the preceding subtest")
+		require.Equal(t, cdbm.VpcPrefixStatusDeleting, existing[0].Status)
 
 		deleted, _, err := vpcPrefixDAO.GetAll(
 			ctx,

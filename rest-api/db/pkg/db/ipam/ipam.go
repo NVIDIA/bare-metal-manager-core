@@ -199,6 +199,11 @@ func AcquireSpecificChildIpamEntryForIPBlock(ctx context.Context, tx *cdb.Tx, db
 	namespace := GetIpamNamespaceForIPBlock(ctx, parentIPBlock.RoutingType, parentIPBlock.InfrastructureProviderID.String(), parentIPBlock.SiteID.String())
 	ipamer.SetNamespace(namespace)
 	parentCidr := GetCidrForIPBlock(ctx, parentIPBlock.Prefix, parentIPBlock.PrefixLength)
+	// A child equal to the parent is a full grant. That path must go through
+	// CreateChildIpamEntryForIPBlock so the REST DB FullGrant flag stays consistent.
+	if childCidr == parentCidr {
+		return nil, errors.New(fmt.Sprintf("childCidr: %s equals parentCidr for IPBlock: %s, use CreateChildIpamEntryForIPBlock", childCidr, parentIPBlock.ID.String()))
+	}
 	childPrefix, err := ipamer.AcquireSpecificChildPrefix(ctx, parentCidr, childCidr)
 	if err != nil {
 		return nil, err
