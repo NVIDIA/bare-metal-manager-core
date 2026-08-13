@@ -362,6 +362,37 @@ func TestNewAPIInstance(t *testing.T) {
 	}
 }
 
+func TestAPIInstancePowerProfile(t *testing.T) {
+	profile := "performance"
+	instance := &cdbm.Instance{PowerProfile: &profile}
+
+	got := NewAPIInstance(instance, nil, nil, nil, nil, nil, nil, nil)
+	require.NotNil(t, got.PowerProfile)
+	assert.Equal(t, profile, *got.PowerProfile)
+	assert.True(t, (&APIInstanceUpdateRequest{PowerProfile: &profile}).IsUpdateRequest())
+}
+
+func TestAPIInstanceUpdateRequest_PowerProfileJSON(t *testing.T) {
+	tests := []struct {
+		name    string
+		payload string
+		want    *string
+	}{
+		{name: "omitted", payload: `{}`},
+		{name: "null", payload: `{"powerProfile":null}`},
+		{name: "clear", payload: `{"powerProfile":""}`, want: cutil.GetPtr("")},
+		{name: "set", payload: `{"powerProfile":"performance"}`, want: cutil.GetPtr("performance")},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var request APIInstanceUpdateRequest
+			require.NoError(t, json.Unmarshal([]byte(tt.payload), &request))
+			assert.Equal(t, tt.want, request.PowerProfile)
+		})
+	}
+}
+
 func TestAPIInstanceCreateRequest_Validate(t *testing.T) {
 	type fields struct {
 		Name                           string

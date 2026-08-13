@@ -1566,6 +1566,7 @@ func (cih CreateInstanceHandler) Handle(c echo.Context) error {
 			IsUpdatePending:          false,
 			Status:                   cdbm.InstanceStatusPending,
 			PowerStatus:              cutil.GetPtr(cdbm.InstancePowerStatusRebooting),
+			PowerProfile:             apiRequest.PowerProfile,
 			CreatedBy:                dbUser.ID,
 		}
 
@@ -1865,6 +1866,7 @@ func (cih CreateInstanceHandler) Handle(c echo.Context) error {
 			},
 			Config: &corev1.InstanceConfig{
 				NetworkSecurityGroupId: instance.NetworkSecurityGroupID,
+				PowerProfile:           instance.PowerProfile,
 				Tenant: &corev1.TenantConfig{
 					TenantOrganizationId: tenant.Org,
 					TenantKeysetIds:      instanceSshKeyGroupIds,
@@ -3269,6 +3271,7 @@ func (uih UpdateInstanceHandler) Handle(c echo.Context) error {
 					UserData:                 apiRequest.UserData,
 					AutoNetwork:              apiRequest.AutoNetwork,
 					Labels:                   apiRequest.Labels,
+					PowerProfile:             apiRequest.PowerProfile,
 				},
 			},
 		)
@@ -3294,6 +3297,11 @@ func (uih UpdateInstanceHandler) Handle(c echo.Context) error {
 			// We should always clear details for any NSG change so that users don't see stale
 			// status.
 			clearInput.NetworkSecurityGroupPropagationDetails = true
+			shouldClear = true
+		}
+
+		if apiRequest.PowerProfile != nil && *apiRequest.PowerProfile == "" {
+			clearInput.PowerProfile = true
 			shouldClear = true
 		}
 
@@ -4001,6 +4009,7 @@ func (uih UpdateInstanceHandler) Handle(c echo.Context) error {
 			},
 			Config: &corev1.InstanceConfig{
 				NetworkSecurityGroupId: ui.NetworkSecurityGroupID,
+				PowerProfile:           apiRequest.PowerProfile,
 				Tenant: &corev1.TenantConfig{
 					TenantOrganizationId: tenant.Org,
 					TenantKeysetIds:      instanceSshKeyGroupIds,

@@ -359,6 +359,7 @@ func (cvh CreateVPCHandler) Handle(c echo.Context) error {
 			NetworkVirtualizationType: networkVirtualizationType,
 			SlaacEnabled:              slaacEnabled,
 			RoutingProfile:            routingProfile,
+			PowerResourceGroup:        apiRequest.PowerResourceGroup,
 			RoutingProfileOverrides:   apiRequest.RoutingProfileOverrides.ToDB(),
 			NVLinkLogicalPartitionID:  defaultNvllPartitionId,
 			Labels:                    labels,
@@ -807,6 +808,7 @@ func (uvh UpdateVPCHandler) Handle(c echo.Context) error {
 			Labels:                  labels,
 			NetworkSecurityGroupID:  nsgID,
 			RoutingProfileOverrides: apiRequest.RoutingProfileOverrides.ToDB(),
+			PowerResourceGroup:      apiRequest.PowerResourceGroup,
 		}
 
 		if defaultNvllPartitionId != nil {
@@ -845,6 +847,11 @@ func (uvh UpdateVPCHandler) Handle(c echo.Context) error {
 		// A changed desired definition invalidates the last controller-resolved value.
 		if apiRequest.RoutingProfileOverrides != nil {
 			clearInput.EffectiveRoutingProfile = true
+			shouldClear = true
+		}
+
+		if apiRequest.PowerResourceGroup != nil && *apiRequest.PowerResourceGroup == "" {
+			clearInput.PowerResourceGroup = true
 			shouldClear = true
 		}
 

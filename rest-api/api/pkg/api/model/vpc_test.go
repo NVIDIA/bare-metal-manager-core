@@ -811,6 +811,14 @@ func TestAPIVpcCreateRequest_ToProto(t *testing.T) {
 		assert.False(t, *got.RoutingProfileOverrides.LeakTenantHostRoutesToUnderlay)
 		require.NotNil(t, got.RoutingProfileOverrides.AllowedAnycastPrefixes)
 	})
+
+	t.Run("forwards persisted power resource group", func(t *testing.T) {
+		powerResourceGroup := "power-rg-a"
+		vpc := &cdbm.Vpc{ID: id, Org: "org-1", Name: "vpc-a", PowerResourceGroup: &powerResourceGroup}
+		got := (APIVpcCreateRequest{PowerResourceGroup: &powerResourceGroup}).ToProto(vpc)
+		require.NotNil(t, got.PowerResourceGroup)
+		assert.Equal(t, powerResourceGroup, *got.PowerResourceGroup)
+	})
 }
 
 func TestVpcResponseIncludesDisabledSlaacField(t *testing.T) {
@@ -924,4 +932,34 @@ func TestAPIVpcUpdateRequest_ToProto(t *testing.T) {
 		got := (APIVpcUpdateRequest{RoutingProfileOverrides: &APIVpcRoutingProfileOverrides{}}).ToProto(vpc)
 		require.NotNil(t, got.RoutingProfileOverrides)
 	})
+
+	t.Run("preserves power resource group update presence", func(t *testing.T) {
+		vpc := &cdbm.Vpc{ID: id, Name: "vpc-a"}
+		set := "power-rg-a"
+
+		assert.Nil(t, (APIVpcUpdateRequest{}).ToProto(vpc).PowerResourceGroup)
+		assert.Equal(t, set, *(APIVpcUpdateRequest{PowerResourceGroup: &set}).ToProto(vpc).PowerResourceGroup)
+		assert.Equal(t, "", *(APIVpcUpdateRequest{PowerResourceGroup: &empty}).ToProto(vpc).PowerResourceGroup)
+	})
+}
+
+func TestAPIVpcUpdateRequest_PowerResourceGroupJSON(t *testing.T) {
+	tests := []struct {
+		name    string
+		payload string
+		want    *string
+	}{
+		{name: "omitted", payload: `{}`},
+		{name: "null", payload: `{"powerResourceGroup":null}`},
+		{name: "clear", payload: `{"powerResourceGroup":""}`, want: cutil.GetPtr("")},
+		{name: "set", payload: `{"powerResourceGroup":"power-rg-a"}`, want: cutil.GetPtr("power-rg-a")},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var request APIVpcUpdateRequest
+			require.NoError(t, json.Unmarshal([]byte(tt.payload), &request))
+			assert.Equal(t, tt.want, request.PowerResourceGroup)
+		})
+	}
 }

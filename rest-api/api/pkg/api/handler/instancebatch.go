@@ -1346,6 +1346,7 @@ func (bcih BatchCreateInstanceHandler) Handle(c echo.Context) error {
 				IsUpdatePending:          false,
 				Status:                   cdbm.InstanceStatusPending,
 				PowerStatus:              cutil.GetPtr(cdbm.InstancePowerStatusRebooting),
+				PowerProfile:             apiRequest.PowerProfile,
 				CreatedBy:                dbUser.ID,
 			})
 		}
@@ -1732,6 +1733,7 @@ func (bcih BatchCreateInstanceHandler) Handle(c echo.Context) error {
 				},
 				Config: &corev1.InstanceConfig{
 					NetworkSecurityGroupId: instance.NetworkSecurityGroupID,
+					PowerProfile:           instance.PowerProfile,
 					Tenant: &corev1.TenantConfig{
 						TenantOrganizationId: tenant.Org,
 						TenantKeysetIds:      instanceSshKeyGroupIds,
