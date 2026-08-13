@@ -1501,6 +1501,8 @@ pub enum PowerState {
     PoweringOff,
     PoweringOn,
     Paused,
+    Hibernating,
+    Sleeping,
     Unknown,
 }
 
