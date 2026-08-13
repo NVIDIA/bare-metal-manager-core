@@ -159,16 +159,6 @@ pub async fn run_discovery_iteration(
     )
     .await;
 
-    if !spawn_errors.is_empty() {
-        if let Err(error) = reachability_result {
-            tracing::error!(?error, "Could not reconcile TCP reachability collectors");
-        }
-
-        return Err(HealthError::CollectorSpawnErrors(spawn_errors));
-    }
-
-    reachability_result?;
-
     if matches!(&ctx.nmxc_config, Configurable::Enabled(_)) {
         // Endpoints can remain active while Carbide API changes primary or
         // NMX-C desired-state flags. Reconcile existing streams against the
@@ -180,6 +170,16 @@ pub async fn run_discovery_iteration(
         // remains eligible even though the endpoint keys may still be active.
         stop_ineligible_nmxc_collectors(ctx, &HashSet::new());
     }
+
+    if !spawn_errors.is_empty() {
+        if let Err(error) = reachability_result {
+            tracing::error!(?error, "Could not reconcile TCP reachability collectors");
+        }
+
+        return Err(HealthError::CollectorSpawnErrors(spawn_errors));
+    }
+
+    reachability_result?;
 
     let iteration_duration = iteration_start.elapsed();
     ctx.discovery_iteration_histogram
@@ -490,6 +490,14 @@ mod tests {
             }),
         );
 
+        ctx.collectors.insert(
+            CollectorKind::Nmxc,
+            Cow::Owned(active_endpoint.key()),
+            crate::collectors::Collector::spawn_task(|cancel| async move {
+                cancel.cancelled().await;
+            }),
+        );
+
         let iteration_sink = sink.clone();
 
         let iteration = tokio::spawn(async move {
@@ -550,6 +558,11 @@ mod tests {
             ctx.collectors
                 .contains(CollectorKind::Discovery, &later_endpoint.key()),
             "the later endpoint must still be spawned after the first endpoint fails",
+        );
+
+        assert!(
+            !ctx.collectors
+                .contains(CollectorKind::Nmxc, &active_endpoint.key())
         );
 
         assert!(logs.iter().any(|log| {
