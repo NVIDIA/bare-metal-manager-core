@@ -15,14 +15,8 @@
  * limitations under the License.
  */
 
-pub(crate) mod auto;
+//! Reusable middleware and routing utilities for Axum-based simulators.
 
-mod diagnostic;
-mod downgrade;
-mod periodic;
-mod redfish;
-mod sse;
-
-pub use downgrade::{DowngradeEvent, DowngradeReason, LogDowngradeRegistry};
-pub use periodic::{LogsCollector, LogsCollectorConfig};
-pub use sse::{SseLogCollector, SseLogCollectorConfig};
+pub mod authority_router;
+pub mod injection;
+pub mod router;

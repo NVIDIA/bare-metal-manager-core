@@ -28,10 +28,8 @@ pub mod simulated;
 mod auth_router;
 mod bmc_state;
 mod combined_server;
-mod combined_service;
 mod http;
 mod hw;
-pub mod injection;
 mod json;
 pub mod mac_address_pool;
 mod machine_info;
@@ -43,8 +41,9 @@ pub mod test_support;
 pub mod tls;
 
 pub use bmc_state::{BmcEvent, BmcState};
+pub use carbide_axum_utils::authority_router::authority_router as combined_router;
+pub use carbide_axum_utils::injection;
 pub use combined_server::{CombinedServer, ListenerOrAddress};
-pub use combined_service::combined_router;
 pub use hw::rack::{RackElevation, RackUnit};
 pub use machine_info::{
     DpuFirmwareVersions, DpuMachineInfo, DpuSettings, HostMachineInfo, MachineInfo,

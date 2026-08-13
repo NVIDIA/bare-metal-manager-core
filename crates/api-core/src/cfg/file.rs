@@ -1081,6 +1081,7 @@ impl CarbideConfig {
 
             dpa_enabled: self.is_dpa_enabled(),
             dpf_enabled: self.dpf.enabled,
+            dpu_service_sync_enabled: self.dpf.dpu_service_sync_enabled,
             spdm_enabled: self.spdm.enabled,
             bmc_rotation_enabled: self.bmc_rotation_enabled,
             uefi_rotation_enabled: self.uefi_rotation_enabled,
@@ -1527,6 +1528,22 @@ pub struct DpfConfig {
     /// Without intercept bridging, this remains the complete legacy `PF_TOTAL_SF` value.
     #[serde(default = "default_dpf_pf_total_sf_reserved")]
     pub pf_total_sf_reserved: u32,
+    /// Whether carbide rolls a changed DPUService out on its own, by releasing
+    /// the DPF maintenance hold for hosts it has confirmed are already running
+    /// the software their DPUDeployment declares.
+    ///
+    /// This selects *who* opens the gate, never whether one exists. DPF is
+    /// always configured to park a changed DPUService behind a maintenance hold
+    /// (`upgradePolicy.applyNodeEffect`), so no service update ever reaches a DPU
+    /// without something having checked its side effects first.
+    ///
+    /// On by default. Setting it to false does not resume unchecked rollout: it
+    /// means the held DPUs wait for an operator to release them deliberately,
+    /// rather than for carbide to do it on the host's next idle sweep. Hosts
+    /// still awaiting reprovisioning, and hosts carrying a live tenant instance,
+    /// keep their hold either way.
+    #[serde(default = "default_to_true")]
+    pub dpu_service_sync_enabled: bool,
     /// Optional override for the Kubernetes `imagePullSecrets` entry used to pull the
     /// docker images of the mandatory services. When set, it is applied to every
     /// mandatory service except `dts` and `doca_hbn`, which take a pull secret only
@@ -1556,6 +1573,7 @@ impl Default for DpfConfig {
             enabled: false,
             deployment_scoped_service_interfaces: false,
             pf_total_sf_reserved: default_dpf_pf_total_sf_reserved(),
+            dpu_service_sync_enabled: default_to_true(),
             docker_image_pull_secret: None,
             dpu_agent_bootstrap_ca: DpfDpuAgentBootstrapCa::default(),
             services: Box::default(),

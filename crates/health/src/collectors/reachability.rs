@@ -27,7 +27,7 @@ use super::{IterationResult, PeriodicCollector};
 use crate::HealthError;
 use crate::config::ReachabilityLogMode;
 use crate::endpoint::BmcEndpoint;
-use crate::sink::{CollectorEvent, DataSink, EventContext, LogRecord, MetricSample};
+use crate::sink::{CollectorEvent, DataSink, EventContext, LogRecord, LogSeverity, MetricSample};
 
 pub(crate) const COLLECTOR_TYPE: &str = "reachability";
 const METRIC_NAME: &str = "tcp_port";
@@ -211,14 +211,14 @@ impl ReachabilityCollector {
         let (body, severity, message_id, state) = if outcome.reachable {
             (
                 "TCP port is reachable",
-                "INFO",
+                LogSeverity::Info,
                 "CarbideHealth.1.0.TcpPortReachable",
                 "reachable",
             )
         } else {
             (
                 "TCP port is unreachable",
-                "WARN",
+                LogSeverity::Warn,
                 "CarbideHealth.1.0.TcpPortUnreachable",
                 "unreachable",
             )
@@ -257,7 +257,7 @@ impl ReachabilityCollector {
             &self.event_context,
             &CollectorEvent::Log(Box::new(LogRecord {
                 body: body.to_string(),
-                severity: severity.to_string(),
+                severity,
                 attributes,
                 diagnostic_record: None,
             })),

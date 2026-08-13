@@ -84,6 +84,12 @@ pub enum HealthError {
     #[error("prometheus error {0}")]
     PrometheusError(#[from] prometheus::Error),
 
+    /// Nonempty endpoint-keyed spawn failures in discovery processing order.
+    ///
+    /// Returned after all spawn attempts and reachability reconciliation.
+    #[error("collector spawning failed for {} endpoints", .0.len())]
+    CollectorSpawnErrors(Vec<(String, HealthError)>),
+
     #[error("BMC error: {0}")]
     BmcError(#[from] Box<dyn std::error::Error + Send + Sync>),
 
