@@ -72,6 +72,10 @@ impl BmcIntrusionEventProcessor {
             return None;
         }
 
+        if text.contains("clear") || text.contains("deassert") || text.contains("reset") {
+            return Some(IntrusionEventState::Clear);
+        }
+
         // Typed severity and state words in the payload are both signals. Some
         // BMCs omit Severity while describing the transition in Message.
         let severe = matches!(
@@ -91,12 +95,7 @@ impl BmcIntrusionEventProcessor {
             return Some(IntrusionEventState::Alert);
         }
 
-        if text.contains("clear")
-            || text.contains("cleared")
-            || text.contains("deassert")
-            || text.contains("normal")
-            || text.contains("reset")
-        {
+        if text.contains("normal") {
             return Some(IntrusionEventState::Clear);
         }
 
@@ -314,7 +313,7 @@ mod tests {
             "cleared intrusion event" {
                 IntrusionLogCase {
                     body: "Physical Chassis Intrusion cleared",
-                    severity: LogSeverity::Info,
+                    severity: LogSeverity::Warn,
                     message_args: None,
                 } => IntrusionReportSummary {
                     alert_count: 0,
