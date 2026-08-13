@@ -2343,6 +2343,17 @@ pub enum HostPlatformConfigurationState {
         set_boot_order_info: SetBootOrderInfo,
     },
     LockHost,
+    /// Deletion-only, site-gated BMC factory-reset sub-flow. Runs before
+    /// `PowerCycle` to proactively clear wedged BMC state (bad/rejected boot
+    /// order). Gating and per-step behavior are handled inside the sub-state
+    /// machine; see [`FactoryResetBmcState`]. We have seen BMCs on GB200,
+    /// Grace-Grace, and SMC machines that have been wedged in a bad state where
+    /// they report an incorrect boot order and do NOT register a new boot
+    /// order with the UEFI (https://github.com/NVIDIA/infra-controller/issues/4759).
+    FactoryResetBmc {
+        #[serde(default)]
+        reset_state: FactoryResetBmcState,
+    },
 }
 
 /// Variant order follows unlock progression for derived reprovision-state comparisons.
@@ -2353,6 +2364,49 @@ pub enum UnlockHostState {
     DisableLockdown,
     RebootHost,
     WaitForUefiBoot,
+}
+
+/// Sub-states of [`HostPlatformConfigurationState::FactoryResetBmc`].
+///
+/// Ordering of the flow: suppress site-explorer against the host BMC and wait
+/// for the suppression to be acknowledged, issue the factory reset, wait for the
+/// BMC to come back, verify the factory credentials and restore the device to
+/// its previous per-device credential, then remove the suppression and hand off
+/// to `PowerCycle`.
+#[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq, Default)]
+#[serde(tag = "state", rename_all = "lowercase")]
+pub enum FactoryResetBmcState {
+    /// Entry point. Checks the site-config gate; when enabled, verifies an
+    /// `expected_machines` entry with factory credentials exists, upserts a
+    /// site-explorer suppression for the host BMC (idempotent - re-created if it
+    /// disappears), then waits up to a fixed budget for site-explorer to
+    /// acknowledge it, proceeding anyway once the budget elapses (a disabled or
+    /// unavailable site-explorer can never acknowledge, and the suppression row
+    /// alone already blocks new exploration). The budget is measured from the
+    /// state version timestamp, so no retry/counter bookkeeping is needed.
+    #[default]
+    SuppressExploration,
+    /// Issue `Manager.ResetToDefaults` against the BMC using stored credentials.
+    ResetToDefaults,
+    /// Wait for the BMC to respond to an anonymous service-root read. Polls at
+    /// the controller dispatch cadence and never parks; a BMC that never returns
+    /// is surfaced by the `HostPlatformConfiguration` time-in-state SLA. The
+    /// anonymous probe consumes no auth attempt, so there is no lockout risk and
+    /// hence no retry/backoff bookkeeping.
+    WaitForBmc,
+    /// Verify the factory credentials, then change the BMC root password from the
+    /// factory default back to the device's previous per-device credential (read
+    /// from Vault; Vault is never written). `retry_count` drives a login backoff
+    /// derived from the state version timestamp (immediate first probe, then
+    /// 5/10/15/20 min, then hourly) for the factory-credential verification: that
+    /// path never parks and degrades to hourly polling to avoid BMC lockout. Once
+    /// the factory credentials verify, a genuine password-change failure parks.
+    RestoreCredentials {
+        #[serde(default)]
+        retry_count: u32,
+    },
+    /// Delete the site-explorer suppression, then hand off to `PowerCycle`.
+    RemoveSuppression,
 }
 
 /// Struct to store information if Reprovision is requested.
@@ -4091,6 +4145,96 @@ mod tests {
 
             "bogus tag with extra field falls back to Unknown" {
                 r#"{"dpfstate":"bogus","extra":"field"}"# => Yields((DpfState::Unknown, DpfState::Unknown)),
+            }
+        );
+    }
+
+    #[test]
+    fn test_factory_reset_bmc_state_deserialize_and_roundtrip() {
+        scenarios!(
+            run = |s| {
+                let parsed: HostPlatformConfigurationState =
+                    serde_json::from_str(s).map_err(drop)?;
+                let serialized = serde_json::to_string(&parsed).map_err(drop)?;
+                let roundtrip: HostPlatformConfigurationState =
+                    serde_json::from_str(&serialized).map_err(drop)?;
+                Ok::<_, ()>((parsed, roundtrip))
+            };
+            "factory reset defaults to suppress exploration when reset_state omitted" {
+                r#"{"state":"factoryresetbmc"}"# => Yields((
+                    HostPlatformConfigurationState::FactoryResetBmc {
+                        reset_state: FactoryResetBmcState::SuppressExploration,
+                    },
+                    HostPlatformConfigurationState::FactoryResetBmc {
+                        reset_state: FactoryResetBmcState::SuppressExploration,
+                    },
+                )),
+            }
+
+            "explicit suppress exploration" {
+                r#"{"state":"factoryresetbmc","reset_state":{"state":"suppressexploration"}}"# => Yields((
+                    HostPlatformConfigurationState::FactoryResetBmc {
+                        reset_state: FactoryResetBmcState::SuppressExploration,
+                    },
+                    HostPlatformConfigurationState::FactoryResetBmc {
+                        reset_state: FactoryResetBmcState::SuppressExploration,
+                    },
+                )),
+            }
+
+            "reset to defaults" {
+                r#"{"state":"factoryresetbmc","reset_state":{"state":"resettodefaults"}}"# => Yields((
+                    HostPlatformConfigurationState::FactoryResetBmc {
+                        reset_state: FactoryResetBmcState::ResetToDefaults,
+                    },
+                    HostPlatformConfigurationState::FactoryResetBmc {
+                        reset_state: FactoryResetBmcState::ResetToDefaults,
+                    },
+                )),
+            }
+
+            "wait for bmc" {
+                r#"{"state":"factoryresetbmc","reset_state":{"state":"waitforbmc"}}"# => Yields((
+                    HostPlatformConfigurationState::FactoryResetBmc {
+                        reset_state: FactoryResetBmcState::WaitForBmc,
+                    },
+                    HostPlatformConfigurationState::FactoryResetBmc {
+                        reset_state: FactoryResetBmcState::WaitForBmc,
+                    },
+                )),
+            }
+
+            "restore credentials, explicit retry" {
+                r#"{"state":"factoryresetbmc","reset_state":{"state":"restorecredentials","retry_count":5}}"# => Yields((
+                    HostPlatformConfigurationState::FactoryResetBmc {
+                        reset_state: FactoryResetBmcState::RestoreCredentials { retry_count: 5 },
+                    },
+                    HostPlatformConfigurationState::FactoryResetBmc {
+                        reset_state: FactoryResetBmcState::RestoreCredentials { retry_count: 5 },
+                    },
+                )),
+            }
+
+            "restore credentials, default retry" {
+                r#"{"state":"factoryresetbmc","reset_state":{"state":"restorecredentials"}}"# => Yields((
+                    HostPlatformConfigurationState::FactoryResetBmc {
+                        reset_state: FactoryResetBmcState::RestoreCredentials { retry_count: 0 },
+                    },
+                    HostPlatformConfigurationState::FactoryResetBmc {
+                        reset_state: FactoryResetBmcState::RestoreCredentials { retry_count: 0 },
+                    },
+                )),
+            }
+
+            "remove suppression" {
+                r#"{"state":"factoryresetbmc","reset_state":{"state":"removesuppression"}}"# => Yields((
+                    HostPlatformConfigurationState::FactoryResetBmc {
+                        reset_state: FactoryResetBmcState::RemoveSuppression,
+                    },
+                    HostPlatformConfigurationState::FactoryResetBmc {
+                        reset_state: FactoryResetBmcState::RemoveSuppression,
+                    },
+                )),
             }
         );
     }

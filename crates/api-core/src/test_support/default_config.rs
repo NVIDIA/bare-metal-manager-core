@@ -210,6 +210,7 @@ pub fn get() -> CarbideConfig {
         attestation_enabled: false,
         bmc_rotation_enabled: false,
         uefi_rotation_enabled: false,
+        bmc_factory_reset_on_instance_termination_enabled: false,
         tpm_required: true,
         ib_config: None,
         ib_fabrics: [(

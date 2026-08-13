@@ -584,9 +584,13 @@ async fn test_measurement_assigned_ready_to_waiting_for_measurements_to_ca_faile
     let instance = get_rpc_instance().await;
     assert_eq!(instance.status().tenant(), rpc::TenantState::Terminating);
 
+    // One extra iteration versus the historical count: tenant release now first
+    // passes through the site-gated FactoryResetBmc/SuppressExploration state
+    // (a no-op transition to PowerCycle while the feature flag is off) before the
+    // existing power-cycle / boot-order flow reaches CheckHostConfig.
     env.run_machine_state_controller_iteration_until_state_matches(
         &mh.host().id,
-        7,
+        8,
         ManagedHostState::Assigned {
             instance_state: model::machine::InstanceState::HostPlatformConfiguration {
                 platform_config_state:
@@ -2181,9 +2185,13 @@ async fn test_bootingwithdiscoveryimage_delay(_: PgPoolOptions, options: PgConne
         .await
         .expect("Delete instance failed.");
 
+    // One extra iteration versus the historical count: tenant release now first
+    // passes through the site-gated FactoryResetBmc/SuppressExploration state
+    // (a no-op transition to PowerCycle while the feature flag is off) before the
+    // existing power-cycle / boot-order flow reaches CheckHostConfig.
     env.run_machine_state_controller_iteration_until_state_matches(
         &mh.host().id,
-        7,
+        8,
         ManagedHostState::Assigned {
             instance_state: model::machine::InstanceState::HostPlatformConfiguration {
                 platform_config_state:
@@ -8649,5 +8657,239 @@ async fn test_can_not_create_instances_with_machine_in_quarantine(
     assert!(
         err.message()
             .contains("host is not available for allocation due to health probe alert")
+    );
+}
+
+/// With the site flag on, tenant release drives the host through the full
+/// `FactoryResetBmc` sub-flow before the existing power-cycle path: it suppresses
+/// site-explorer, waits for the acknowledgement, factory-resets and re-probes the
+/// BMC, verifies the factory credentials, restores the device to its previous
+/// per-device Vault credential (read-only), removes the suppression, and hands
+/// off to `PowerCycle`. Asserts the suppression is cleaned up, the per-device
+/// Vault secret is preserved (never written), and the BMC ends on the restored
+/// per-device password.
+#[crate::sqlx_test]
+async fn test_factory_reset_bmc_on_release_sanitizes_host_bmc(
+    _: PgPoolOptions,
+    options: PgConnectOptions,
+) {
+    use carbide_secrets::credentials::{
+        BmcCredentialType, CredentialKey, CredentialReader, CredentialWriter, Credentials,
+    };
+    use model::bmc_suppression::BmcSuppressionSubsystem;
+    use model::machine::HostPlatformConfigurationState;
+
+    const FACTORY_USER: &str = "root";
+    const FACTORY_PW: &str = "factory-default";
+    const PER_DEVICE_PW: &str = "prev-per-device";
+    const SITE_EXPLORER: BmcSuppressionSubsystem = BmcSuppressionSubsystem::SiteExplorer;
+
+    let pool = PgPoolOptions::new().connect_with(options).await.unwrap();
+
+    // Opt the site in to the deletion-only BMC factory-reset sub-flow.
+    let mut config = get_config();
+    config.bmc_factory_reset_on_instance_termination_enabled = true;
+    let env = create_test_env_with_overrides(pool, TestEnvOverrides::with_config(config)).await;
+
+    let segment_ids = env.create_vpc_and_tenant_segments(1).await;
+    let mh = create_managed_host_multi_dpu(&env, 1).await;
+
+    let mut txn = env.db_txn().await;
+    let host_machine = mh.host().db_machine(&mut txn).await;
+    let device_locators: Vec<DeviceLocator> = mh
+        .dpu_ids
+        .iter()
+        .map(|dpu_id| {
+            host_machine
+                .get_device_locator_for_dpu_id(dpu_id)
+                .expect("device locator for DPU")
+        })
+        .collect();
+    let host_bmc_mac = host_machine
+        .status
+        .bmc_info
+        .mac
+        .expect("fixture host should have a BMC MAC");
+    txn.commit().await.unwrap();
+
+    // Allocate and drive the instance to Assigned/Ready.
+    let tinstance = mh
+        .instance_builer(&env)
+        .network(interface_network_config_with_devices(
+            &segment_ids,
+            &device_locators,
+        ))
+        .build()
+        .await;
+
+    // Seed the state the sub-flow depends on, after provisioning so nothing
+    // overwrites it: non-empty factory credentials in expected_machines (the
+    // recovery path for the factory password), the sim's factory `root` account,
+    // and the device's previous per-device Vault credential (the restore target).
+    let per_device_key = CredentialKey::BmcCredentials {
+        credential_type: BmcCredentialType::BmcRoot {
+            bmc_mac_address: host_bmc_mac,
+        },
+    };
+    let per_device_creds = Credentials::UsernamePassword {
+        username: FACTORY_USER.to_string(),
+        password: PER_DEVICE_PW.to_string(),
+    };
+    {
+        let mut expected = db::expected_machine::find_by_bmc_mac_address(&env.pool, host_bmc_mac)
+            .await
+            .unwrap()
+            .expect("expected_machines row for the fixture host");
+        let mut txn = env.pool.begin().await.unwrap();
+        db::expected_machine::update_bmc_credentials(
+            &mut expected,
+            txn.as_mut(),
+            FACTORY_USER.to_string(),
+            FACTORY_PW.to_string(),
+        )
+        .await
+        .unwrap();
+        txn.commit().await.unwrap();
+    }
+    env.redfish_sim.seed_user(FACTORY_USER, FACTORY_PW);
+    env.test_credential_manager
+        .set_credentials(&per_device_key, &per_device_creds)
+        .await
+        .expect("staging the per-device Vault credential should succeed");
+
+    // Tenant release: mark the instance deleted.
+    env.api
+        .release_instance(tonic::Request::new(InstanceReleaseRequest {
+            id: Some(tinstance.id),
+            issue: None,
+            is_repair_tenant: None,
+            delete_attribution: None,
+        }))
+        .await
+        .expect("release_instance failed");
+
+    // Drive the sub-flow one iteration at a time, acknowledging the suppression
+    // once it appears (site-explorer does not run in this env), and stop as soon
+    // as the machine advances past FactoryResetBmc.
+    let mut acknowledged = false;
+    let mut entered_factory_reset = false;
+    let mut state_after_factory_reset = None;
+    for _ in 0..60 {
+        env.run_machine_state_controller_iteration().await;
+
+        if !acknowledged
+            && let Some(suppression) =
+                db::bmc_suppression::find(&env.pool, host_bmc_mac, SITE_EXPLORER)
+                    .await
+                    .unwrap()
+            && suppression.acknowledged_at.is_none()
+        {
+            let mut txn = env.pool.begin().await.unwrap();
+            db::bmc_suppression::acknowledge(txn.as_mut(), host_bmc_mac, SITE_EXPLORER)
+                .await
+                .unwrap();
+            txn.commit().await.unwrap();
+            acknowledged = true;
+        }
+
+        let mut txn = env.pool.begin().await.unwrap();
+        let machine = mh.host().db_machine(&mut txn).await;
+        let state = machine.current_state().clone();
+        txn.commit().await.unwrap();
+
+        // WaitForBmc holds a fixed 30s wall-clock settle window before its first
+        // readiness probe. Backdate the state version timestamp (preserving the
+        // version number so the next transition's optimistic check still passes)
+        // so the settle elapses and the always-up sim BMC is probed without a
+        // real 30s wait.
+        if matches!(
+            state,
+            ManagedHostState::Assigned {
+                instance_state: InstanceState::HostPlatformConfiguration {
+                    platform_config_state: HostPlatformConfigurationState::FactoryResetBmc {
+                        reset_state: model::machine::FactoryResetBmcState::WaitForBmc,
+                    },
+                },
+            }
+        ) {
+            let aged_version = format!(
+                "V{}-T{}",
+                machine.current_version().version_nr(),
+                (chrono::Utc::now() - chrono::Duration::seconds(120)).timestamp_micros()
+            );
+            let mut txn = env.pool.begin().await.unwrap();
+            sqlx::query("UPDATE machines SET controller_state_version=$1 WHERE id=$2")
+                .bind(aged_version)
+                .bind(machine.id.to_string())
+                .execute(txn.as_mut())
+                .await
+                .unwrap();
+            txn.commit().await.unwrap();
+        }
+
+        if matches!(
+            state,
+            ManagedHostState::Assigned {
+                instance_state: InstanceState::HostPlatformConfiguration {
+                    platform_config_state: HostPlatformConfigurationState::FactoryResetBmc { .. },
+                },
+            }
+        ) {
+            entered_factory_reset = true;
+        } else if entered_factory_reset {
+            state_after_factory_reset = Some(state);
+            break;
+        }
+    }
+
+    assert!(
+        entered_factory_reset,
+        "tenant release with the flag on must enter FactoryResetBmc"
+    );
+    assert!(
+        acknowledged,
+        "the sub-flow must upsert a site-explorer suppression to acknowledge"
+    );
+    let state_after_factory_reset =
+        state_after_factory_reset.expect("machine must advance past FactoryResetBmc");
+    assert!(
+        matches!(
+            state_after_factory_reset,
+            ManagedHostState::Assigned {
+                instance_state: InstanceState::HostPlatformConfiguration {
+                    platform_config_state: HostPlatformConfigurationState::PowerCycle { .. },
+                },
+            }
+        ),
+        "FactoryResetBmc must hand off to PowerCycle, got {state_after_factory_reset:?}"
+    );
+
+    // RemoveSuppression deletes the row it created.
+    assert!(
+        db::bmc_suppression::find(&env.pool, host_bmc_mac, SITE_EXPLORER)
+            .await
+            .unwrap()
+            .is_none(),
+        "RemoveSuppression must delete the site-explorer suppression"
+    );
+
+    // The per-device Vault secret is preserved verbatim: this flow only reads it.
+    let persisted = env
+        .test_credential_manager
+        .get_credentials(&per_device_key)
+        .await
+        .expect("reading the per-device Vault credential should succeed")
+        .expect("the per-device Vault credential must still be present");
+    assert_eq!(
+        persisted, per_device_creds,
+        "the per-device Vault credential must be preserved (read-only restore target)"
+    );
+
+    // RestoreCredentials changed the BMC root password from the factory default
+    // back to the device's previous per-device password.
+    assert_eq!(
+        env.redfish_sim.user_password(FACTORY_USER).as_deref(),
+        Some(PER_DEVICE_PW),
+        "the BMC root account must end on the restored per-device password"
     );
 }

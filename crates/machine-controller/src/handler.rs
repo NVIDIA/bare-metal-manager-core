@@ -75,17 +75,17 @@ use model::machine::nvlink::nvlink_config_synced;
 use model::machine::{
     AttestationMode, BomValidating, BomValidatingContext, CleanupContext, CleanupState,
     CreateBossVolumeContext, CreateBossVolumeState, DpuDiscoveringState, DpuInitNextStateResolver,
-    DpuInitState, FailureCause, FailureDetails, FailureSource, HostPlatformConfigurationState,
-    HostReprovisionState, InitialResetPhase, InstallDpuOsState, InstanceNextStateResolver,
-    InstanceState, LockdownInfo, LockdownState, MAX_FIRMWARE_UPGRADE_RETRIES, Machine,
-    MachineLastRebootRequested, MachineLastRebootRequestedMode, MachineNextStateResolver,
-    MachineState, MachineValidationContext, ManagedHostState, ManagedHostStateSnapshot,
-    MeasuringState, NetworkConfigUpdateState, NextStateBFBSupport, PerformPowerOperation,
-    PowerDrainState, PowerState, ReadyBootConfigState, ReadyBootConfigTerminalFailure,
-    ReprovisionState, RetryInfo, SecureEraseBossContext, SecureEraseBossState, SetBootOrderInfo,
-    SetBootOrderState, SetSecureBootState, SpdmMeasuringState, StateMachineArea, UefiSetupInfo,
-    UefiSetupState, UnlockHostState, ValidationState, dpf_based_dpu_provisioning_possible,
-    get_display_ids,
+    DpuInitState, FactoryResetBmcState, FailureCause, FailureDetails, FailureSource,
+    HostPlatformConfigurationState, HostReprovisionState, InitialResetPhase, InstallDpuOsState,
+    InstanceNextStateResolver, InstanceState, LockdownInfo, LockdownState,
+    MAX_FIRMWARE_UPGRADE_RETRIES, Machine, MachineLastRebootRequested,
+    MachineLastRebootRequestedMode, MachineNextStateResolver, MachineState,
+    MachineValidationContext, ManagedHostState, ManagedHostStateSnapshot, MeasuringState,
+    NetworkConfigUpdateState, NextStateBFBSupport, PerformPowerOperation, PowerDrainState,
+    PowerState, ReadyBootConfigState, ReadyBootConfigTerminalFailure, ReprovisionState, RetryInfo,
+    SecureEraseBossContext, SecureEraseBossState, SetBootOrderInfo, SetBootOrderState,
+    SetSecureBootState, SpdmMeasuringState, StateMachineArea, UefiSetupInfo, UefiSetupState,
+    UnlockHostState, ValidationState, dpf_based_dpu_provisioning_possible, get_display_ids,
 };
 use model::machine_boot_interface::MachineBootInterfaceTarget;
 use model::power_manager::PowerHandlingOutcome;
@@ -124,6 +124,7 @@ mod boot_interface_observation;
 mod dpf;
 mod dpu_action_handler;
 mod dpu_uefi_rotation;
+mod factory_reset;
 mod firmware_artifact;
 mod helpers;
 mod host_boot_config;
@@ -8002,22 +8003,19 @@ impl StateHandler for InstanceStateHandler {
                             );
                         }
 
-                        // For deletion, power cycle the host first. For everything else
-                        // (reprovision, firmware update, custom PXE), verify boot config first.
+                        // For deletion, sanitize the host BMC first (site-gated,
+                        // no-op pass-through to PowerCycle when disabled) via the
+                        // FactoryResetBmc sub-flow. The power-state read that used
+                        // to gate PowerCycle now happens when that sub-flow reaches
+                        // PowerCycle (see `handle_factory_reset_bmc`). For everything
+                        // else (reprovision, firmware update, custom PXE), verify
+                        // boot config first.
                         let next_state = if instance.deleted.is_some() {
-                            let redfish_client = ctx
-                                .services
-                                .create_redfish_client_from_machine(&mh_snapshot.host_snapshot)
-                                .await?;
-
-                            let power_state = host_power_state(redfish_client.as_ref()).await?;
-
                             ManagedHostState::Assigned {
                                 instance_state: InstanceState::HostPlatformConfiguration {
                                     platform_config_state:
-                                        HostPlatformConfigurationState::PowerCycle {
-                                            power_on: power_state == libredfish::PowerState::Off,
-                                            power_on_retry_count: 0,
+                                        HostPlatformConfigurationState::FactoryResetBmc {
+                                            reset_state: FactoryResetBmcState::SuppressExploration,
                                         },
                                 },
                             }
@@ -12453,6 +12451,17 @@ async fn handle_instance_host_platform_config(
     reachability_params: &ReachabilityParams,
     platform_config_state: HostPlatformConfigurationState,
 ) -> Result<StateHandlerOutcome<ManagedHostState>, StateHandlerError> {
+    // The deletion-only BMC factory-reset sub-flow must be dispatched before the
+    // shared stored-credential client is built: during/after the reset the BMC
+    // is down or on factory credentials, so the unconditional authenticated
+    // client build below would fail before we reached the match. That handler
+    // builds exactly the client each of its sub-states needs.
+    if let HostPlatformConfigurationState::FactoryResetBmc { reset_state } = &platform_config_state
+    {
+        return factory_reset::handle_factory_reset_bmc(ctx, mh_snapshot, reset_state.clone())
+            .await;
+    }
+
     let redfish_client = ctx
         .services
         .create_redfish_client_from_machine(&mh_snapshot.host_snapshot)
@@ -12781,6 +12790,23 @@ async fn handle_instance_host_platform_config(
             }
 
             InstanceState::WaitingForDpusToUp
+        }
+        HostPlatformConfigurationState::FactoryResetBmc { .. } => {
+            // `FactoryResetBmc` is dispatched at the top of this function, before
+            // the shared authenticated client is built, and returns there.
+            // Reaching this arm means that early dispatch was removed or bypassed
+            // -- a logic bug. Park just this instance with a loud error rather
+            // than panicking: a panic here would `resume_unwind` up through the
+            // processor's `join_many` and crash the whole controller loop, not
+            // only this object.
+            tracing::error!(
+                machine_id = %mh_snapshot.host_snapshot.id,
+                "FactoryResetBmc reached the shared host-platform-config match; early dispatch to handle_factory_reset_bmc was bypassed"
+            );
+            return Err(StateHandlerError::InvalidState(format!(
+                "FactoryResetBmc must be dispatched by handle_factory_reset_bmc before the shared client build (machine {})",
+                mh_snapshot.host_snapshot.id
+            )));
         }
     };
 
