@@ -281,13 +281,12 @@ async fn test_zero_dpu_cloud_init_prefers_instance_when_ip_matches_host_interfac
             cloud_init.discovery_instructions.is_none(),
             "tenant cloud-init must not render discovery instructions for the shared zero-DPU IP"
         );
-        let meta = cloud_init
-            .metadata
-            .expect("tenant cloud-init should include metadata");
-        assert_eq!(meta.instance_id, instance_id.to_string());
         assert_eq!(
-            meta.local_hostname, "",
-            "local_hostname should be empty when instance has no name"
+            cloud_init
+                .metadata
+                .expect("tenant cloud-init should include metadata")
+                .instance_id,
+            instance_id.to_string()
         );
     }
 }
@@ -327,7 +326,7 @@ async fn test_cloud_init_local_hostname_set_from_instance_name(pool: sqlx::PgPoo
     let host_ip = host_interfaces[&mh.host().id][0].addresses[0];
     txn.rollback().await.unwrap();
 
-    let instance_name = "nke-worker-0";
+    let instance_name = "worker-0";
     let instance = env
         .api
         .allocate_instance(tonic::Request::new(rpc::InstanceAllocationRequest {

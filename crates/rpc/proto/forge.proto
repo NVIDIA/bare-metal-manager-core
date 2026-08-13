@@ -5362,10 +5362,6 @@ message CloudInitMetaData {
   string instance_id = 1;
   string cloud_name = 2;
   string platform = 3;
-  // local_hostname is the instance name as set by the caller at creation time.
-  // Surfaced as local-hostname in the NoCloud meta-data response so cloud-init
-  // can set the OS hostname via the designed datasource mechanism.
-  // Empty when the instance has no name; PXE server omits the field in that case.
   string local_hostname = 4;
 }
 
