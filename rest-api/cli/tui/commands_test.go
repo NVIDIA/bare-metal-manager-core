@@ -128,6 +128,49 @@ func TestLogCmd_NoScope(t *testing.T) {
 	}
 }
 
+func TestFirstMachineIPAddress(t *testing.T) {
+	tests := []struct {
+		name string
+		raw  interface{}
+		want string
+	}{
+		{
+			name: "first available address",
+			raw: map[string]interface{}{
+				"machineInterfaces": []interface{}{
+					map[string]interface{}{"ipAddresses": []interface{}{"192.0.2.10", "192.0.2.11"}},
+					map[string]interface{}{"ipAddresses": []interface{}{"192.0.2.12"}},
+				},
+			},
+			want: "192.0.2.10",
+		},
+		{
+			name: "later interface address",
+			raw: map[string]interface{}{
+				"machineInterfaces": []interface{}{
+					map[string]interface{}{"ipAddresses": []interface{}{}},
+					map[string]interface{}{"ipAddresses": []interface{}{"198.51.100.20"}},
+				},
+			},
+			want: "198.51.100.20",
+		},
+		{
+			name: "no address",
+			raw: map[string]interface{}{
+				"machineInterfaces": []interface{}{
+					map[string]interface{}{"ipAddresses": []interface{}{}},
+				},
+			},
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			assert.Equal(t, test.want, firstMachineIPAddress(test.raw))
+		})
+	}
+}
+
 // --- VPC scope coverage tests ---
 
 func TestAppendScopeFlags_SiteOnly(t *testing.T) {
