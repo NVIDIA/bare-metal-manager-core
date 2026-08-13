@@ -66,7 +66,7 @@ fn mock(
     mock.expect_get_dpu_phase()
         .returning(|_, _| Ok(DpuPhase::Ready));
     mock.expect_deployment_type_for_dpu()
-        .returning(|_| Ok(DpuDeploymentType::Bf3));
+        .returning(|_, _| Ok(DpuDeploymentType::Bf3));
     mock.expect_verify_node_labels().returning(|_, _| Ok(true));
 
     let outdated_calls = calls.clone();
