@@ -7,6 +7,10 @@
 {{- fail "multi-pod machine-a-tron deployments require mat-k8s-controller.enabled=true" }}
 {{- end }}
 
+{{- if not .Values.startupProbe }}
+{{- fail "startupProbe must be configured — without it liveness fires immediately and can kill MAT during registration (issue #4298)" }}
+{{- end }}
+
 {{- range $podName, $podConfig := .Values.pods }}
 {{/*
 Skip unconfigured pods

@@ -158,3 +158,11 @@ tests:
       - equal:
           path: spec.template.spec.containers[0].startupProbe.failureThreshold
           value: 20
+
+  - it: should fail when startupProbe is explicitly nulled (recreates issue 4298)
+    template: deployment.yaml
+    set:
+      startupProbe: null
+    asserts:
+      - failedTemplate:
+          errorMessage: "startupProbe must be configured — without it liveness fires immediately and can kill MAT during registration (issue #4298)"
