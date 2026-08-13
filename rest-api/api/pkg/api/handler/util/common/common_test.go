@@ -772,7 +772,8 @@ func TestGetIPBlockFromIDString(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			s, err := GetIPBlockFromIDString(ctx, nil, tc.ipBlockID, dbSession)
+			filter := cdbm.NewAllocationBackedIPBlockFilter(tenant.ID)
+			s, err := GetIPBlockFromIDString(ctx, nil, tc.ipBlockID, filter, dbSession)
 			assert.Equal(t, tc.expectErr, err != nil)
 			if err == nil {
 				assert.NotNil(t, s)
