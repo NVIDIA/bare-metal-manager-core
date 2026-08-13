@@ -57,6 +57,44 @@ use crate::metrics::{SiteExplorationMetrics, SiteExplorerMachineSlotTrayPersiste
 
 const DESIRED_BOOT_INTERFACE_RECONCILE_PAGE_SIZE: i64 = 100;
 
+/// Whether `create_managed_host` acquires the admin-segment advisory locks
+/// lazily -- immediately before the writes that need them -- instead of
+/// unconditionally at the top of its transaction.
+///
+/// # Why (measured, #4711 follow-up -- do not delete)
+///
+/// A profiler sampled once a second which query each backend was running while
+/// it *held* a granted admin-segment advisory lock, over a full 4,500-host run
+/// (72,562 hold-time samples). Of the 39,791 exclusive samples on the
+/// admin-segment keys, 24,907 (63%) caught the holder `idle in transaction`:
+/// the lock was granted, the transaction was open, and the backend was doing
+/// nothing in the database at all -- the application was computing, round
+/// tripping, or waiting. Only 27% were `active`. Three earlier fixes all
+/// targeted how *often* the lock was acquired and moved throughput not at all
+/// (55.7, 56.3, 54.3, 56.4 machines/min -- flat within noise), because
+/// acquisition count was never the cost. Wall-clock hold time is.
+///
+/// `create_managed_host` took the fleet-wide exclusive lock unconditionally,
+/// before it knew which branch it was in, and `pg_advisory_xact_lock` releases
+/// only at COMMIT. So the whole transaction -- every read, every application
+/// round trip, and the commit itself -- was one fleet-wide critical section,
+/// even on the steady-state branch, which at 4,500 hosts is ~99.6% of passes
+/// and writes nothing that needs the lock.
+///
+/// Set `MACHINE_CREATOR_LAZY_LOCK=0` to restore the unconditional acquisition
+/// (the previous behaviour), so the two can be A/B'd on a live fleet without a
+/// rebuild. Same shape and same knob style as `ADMIN_RECONCILE_FAST_PATH` in
+/// `carbide_api_db::machine_interface`.
+fn lazy_segment_lock_enabled() -> bool {
+    static ENABLED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ENABLED.get_or_init(|| {
+        !matches!(
+            std::env::var("MACHINE_CREATOR_LAZY_LOCK").as_deref(),
+            Ok("0") | Ok("false")
+        )
+    })
+}
+
 /// Creates machines from site-explorer managed-host reports.
 pub struct MachineCreator {
     database_connection: PgPool,
@@ -133,6 +171,19 @@ impl MachineCreator {
     /// its initial desired target still commit atomically. Keyset pages prevent
     /// permanently MAC-only hosts from starving later IDs, while one
     /// transaction per machine bounds locks and preserves completed progress.
+    ///
+    /// This sweep is also the *only* path for hosts that already exist (#4711).
+    /// `create_managed_host`'s steady-state branch deliberately does not
+    /// reconcile inline: with `MACHINE_CREATOR_LAZY_LOCK=0` it holds every
+    /// admin-segment advisory lock until it commits, so reconciling there would
+    /// put these reads inside a fleet-wide critical section for every host on
+    /// every pass -- and with lazy locking on, that branch runs unlocked, where
+    /// these writes would invert the segment-lock ordering (see the comment at
+    /// the call site). Here they take no segment lock and never ask for one.
+    /// Anything that branch would have fixed shows up in
+    /// `find_incomplete_machine_ids` (`desired_interface_id IS NULL` covers
+    /// both the unset and MAC-only cases), so keep this pass unconditional --
+    /// gating it behind `create_machines` would strand those hosts.
     pub(crate) async fn reconcile_desired_boot_interfaces(&self) -> SiteExplorerResult<()> {
         let mut after_id = None;
         loop {
@@ -220,7 +271,11 @@ impl MachineCreator {
 
         // Admission permit BEFORE the transaction: waiters on the admin-segment
         // advisory lock must queue in memory, not on open pool connections.
+        // Kept unconditional even under lazy locking: the lock-wait window is
+        // now inside the transaction, so the permit must still bound how many
+        // transactions can be sitting in it at once.
         let _admin_admission = db::machine_interface::admin_lock_admission().await;
+        let lazy_segment_lock = lazy_segment_lock_enabled();
         let mut txn = Transaction::begin(pool).await?;
 
         // Advisory-lock the admin segments before any machine-interface row
@@ -228,10 +283,42 @@ impl MachineCreator {
         // transaction holds locks in the allocator order (segment advisory
         // lock first, then interface rows) all the way to the reconcile
         // pass -- which re-acquires the same locks as a no-op.
-        db::machine_interface::lock_all_admin_segments(txn.as_pgconn(), "machine_creator").await?;
+        //
+        // Under `lazy_segment_lock` this acquisition moves down to the three
+        // points that actually need it (see [`lazy_segment_lock_enabled`] for
+        // the measurement): the zero-DPU branch, the creation branch, and the
+        // one write inside `configure_dpu_interface`. Nothing between here and
+        // those points writes anything, and nothing between here and those
+        // points takes a row lock -- `lookup_host_machine_ids_by_dpu_ids` and
+        // `find_by_mac_address` are plain `SELECT`s with no `FOR UPDATE` -- so
+        // the allocator order (segment advisory lock first, then machine
+        // interface/address rows) still holds on every path.
+        if !lazy_segment_lock {
+            db::machine_interface::lock_all_admin_segments(txn.as_pgconn(), "machine_creator")
+                .await?;
+        }
 
         // Zero-dpu case: If the explored host had no DPUs, we can create the machine now
         if managed_host.explored_host.dpus.is_empty() {
+            // Locked eagerly for the whole branch, lazy mode included.
+            // `create_zero_dpu_machine` writes on *both* its outcomes: the
+            // "already exists" outcome still calls
+            // `reconcile_desired_boot_interface`, which writes
+            // `machine_desired_boot_interface` rows. `set_primary_interface`
+            // in `managed_host::set_primary_interface` writes that same table
+            // while holding these segment locks, so a transaction that wrote
+            // it *first* and asked for the segment locks afterwards would
+            // close an ABBA cycle against that handler. Taking the locks at
+            // branch entry, before any of it, keeps this path in the
+            // documented order. This branch is also not where the cost is: the
+            // measured fleet is DPU-backed, so it takes the branch below.
+            if lazy_segment_lock {
+                db::machine_interface::lock_all_admin_segments(
+                    txn.as_pgconn(),
+                    "machine_creator_zero_dpu",
+                )
+                .await?;
+            }
             if let Some(machine_id) = self
                 .create_zero_dpu_machine(
                     &mut txn,
@@ -262,8 +349,34 @@ impl MachineCreator {
             dpu_ids.push(dpu_machine_id);
         }
 
-        let existing_hosts_by_dpu_id =
+        let mut existing_hosts_by_dpu_id =
             db::machine::lookup_host_machine_ids_by_dpu_ids(&mut txn, &dpu_ids).await?;
+
+        // Unlocked pre-read as a pure filter, re-validated under the lock --
+        // the same shape as the #4711 pre-check in
+        // `reconcile_admin_addresses_for_host`.
+        //
+        // A non-empty result means the steady-state branch: it writes nothing
+        // that needs a segment lock, and the one write it can reach
+        // (`configure_dpu_interface`) re-reads and re-checks under the lock
+        // itself, so the unlocked answer is never trusted by a writer.
+        //
+        // An empty result means the creation branch, which writes machines,
+        // interfaces and addresses. Take the locks and ask again, so that
+        // branch is decided by a read taken *under* the lock: a host created
+        // by a concurrent pass since the pre-read is then visible, and this
+        // transaction falls into the steady-state branch exactly as it would
+        // have before. Only reads have happened so far in this transaction, so
+        // acquiring here still precedes every row lock it will take.
+        if lazy_segment_lock && existing_hosts_by_dpu_id.is_empty() {
+            db::machine_interface::lock_all_admin_segments(
+                txn.as_pgconn(),
+                "machine_creator_create",
+            )
+            .await?;
+            existing_hosts_by_dpu_id =
+                db::machine::lookup_host_machine_ids_by_dpu_ids(&mut txn, &dpu_ids).await?;
+        }
 
         if !existing_hosts_by_dpu_id.is_empty() {
             // TODO: We run this code for every endpoint on every site explorer run, and it is slow.
@@ -317,7 +430,54 @@ impl MachineCreator {
 
             self.reconcile_host_admin_addresses(&mut txn, &host_machine_id)
                 .await?;
-            reconcile_desired_boot_interface(&mut txn, &host_machine_id).await?;
+
+            // Deliberately NOT reconciling the desired boot interface here
+            // (#4711), for two independent reasons.
+            //
+            // Performance, which is why it was removed: with
+            // `MACHINE_CREATOR_LAZY_LOCK=0` this transaction has held every
+            // admin-segment advisory lock since it opened, and those locks are
+            // `pg_advisory_xact_lock` -- they release at COMMIT, not when the
+            // allocator is done. So every statement between the lock and the
+            // commit below runs inside a fleet-wide critical section, and the
+            // measured cost of that section is dominated by ordinary reads and
+            // by the application time between them, not by lock acquisition.
+            // `reconcile_desired_boot_interface` contributes three reads (the
+            // desired target, this host's interface snapshots with their
+            // address aggregation, and its predicted interfaces), and this is
+            // the steady-state branch: it runs for every already-ingested host
+            // on every exploration pass while creating nothing.
+            //
+            // Deadlock safety, which is why it must not come back: under lazy
+            // locking this branch reaches here *unlocked*, and
+            // `reconcile_desired_boot_interface` writes
+            // `machine_desired_boot_interface` rows. `configure_dpu_interface`
+            // above and `reconcile_host_admin_addresses` below can both still
+            // acquire the segment locks later in this same transaction. Writing
+            // that table first and asking for the segment locks afterwards
+            // inverts the order that `managed_host::set_primary_interface`
+            // uses (segment locks, then `machine_desired_boot_interface::set`),
+            // which is an ABBA cycle. Restoring this call would require taking
+            // the segment locks before it.
+            //
+            // Dropping it here loses no work, because the identical work is
+            // already done unlocked in the same pass:
+            // `reconcile_desired_boot_interfaces` runs right after
+            // `create_machines` in `SiteExplorer::explore_site` -- unconditional
+            // on every `run_single_iteration`, and outside the `create_machines`
+            // gate -- one transaction per machine, taking no segment lock. It
+            // selects exactly the machines this call could have changed:
+            // `find_incomplete_machine_ids` returns every host/predicted-host
+            // row whose `desired_interface_id` is NULL, which covers both the
+            // unset and the MAC-only cases, and an already-complete Pair is a
+            // no-op in `reconcile_desired_boot_interface` regardless.
+            // `host_machine_id` came from `machine_interfaces.machine_id`,
+            // which has a foreign key to `machines`, so the sweep is guaranteed
+            // to see this host.
+            //
+            // The creation-time call further down stays where it is: a
+            // brand-new machine and its initial desired target must still
+            // commit atomically.
 
             txn.commit().await?;
             return Ok(false);
@@ -1049,24 +1209,56 @@ impl MachineCreator {
 
         // If machine_interface exists for the DPU and machine_id is not updated, do it now.
         if let Some(oob_net0_mac) = oob_net0_mac {
+            // Unlocked on the steady-state path (see `create_managed_host`).
+            // This is the only lock-needing write the steady-state branch can
+            // reach, and in steady state it does not fire: the DPU's interface
+            // was associated on the pass that ingested it, so `machine_id` is
+            // already `Some` and this function is a pure read.
             let mi = db::machine_interface::find_by_mac_address(&mut *txn, oob_net0_mac).await?;
 
             if let Some(interface) = mi.first()
                 && interface.machine_id.is_none()
             {
+                let interface_id = interface.id;
+
+                // The read above is a pure filter: re-take the decision under
+                // the locks before writing, so no write is based on unlocked
+                // state. Acquiring here still precedes every row lock this
+                // transaction takes, so the allocator order (segment advisory
+                // lock first, then machine interface/address rows) holds.
+                // Under `MACHINE_CREATOR_LAZY_LOCK=0` the caller already holds
+                // these locks and this block is skipped entirely.
+                if lazy_segment_lock_enabled() {
+                    db::machine_interface::lock_all_admin_segments(
+                        &mut *txn,
+                        "machine_creator_dpu_interface",
+                    )
+                    .await?;
+                    let locked =
+                        db::machine_interface::find_by_mac_address(&mut *txn, oob_net0_mac).await?;
+                    let still_unowned = locked
+                        .first()
+                        .is_some_and(|i| i.id == interface_id && i.machine_id.is_none());
+                    if !still_unowned {
+                        // Another writer claimed it between the two reads;
+                        // it did the same association we were about to do.
+                        return Ok(false);
+                    }
+                }
+
                 tracing::info!(
-                    machine_interface_id = %interface.id,
+                    machine_interface_id = %interface_id,
                     machine_id = %dpu_machine_id,
                     "Associating machine interface with machine"
                 );
                 db::machine_interface::associate_interface_with_machine(
-                    &interface.id,
+                    &interface_id,
                     MachineInterfaceAssociation::Machine(*dpu_machine_id),
                     txn,
                 )
                 .await?;
                 db::machine_interface::associate_interface_with_dpu_machine(
-                    &interface.id,
+                    &interface_id,
                     dpu_machine_id,
                     txn,
                 )
