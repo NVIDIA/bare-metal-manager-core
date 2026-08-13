@@ -156,6 +156,36 @@ pub(super) async fn handle_pending_dpu_actions(
         }
     }
 
+    // The tenant check that let this host through ran against the snapshot the
+    // iteration opened with, and the DPU checks since have cost a Kubernetes
+    // round trip each. Allocation commits under a row lock this handler does not
+    // hold, so an instance can appear in that window.
+    //
+    // The transitions elsewhere in `Ready` do not need this: they only propose a
+    // new state and lose harmlessly to the optimistic-concurrency version check.
+    // Releasing a hold is an external action that cannot be taken back, so it
+    // re-reads instead. That narrows the window to this query plus the patch
+    // rather than closing it; the marker survives, so a host that slips through
+    // is caught on the sweep after its instance is gone.
+    match host_has_instance(ctx, host).await {
+        Ok(false) => {}
+        Ok(true) => {
+            tracing::info!(
+                machine_id = %host.id,
+                "Host was assigned while its DPUs were being checked; keeping the hold"
+            );
+            return Ok(StateHandlerOutcome::do_nothing());
+        }
+        Err(error) => {
+            tracing::warn!(
+                machine_id = %host.id,
+                %error,
+                "Could not confirm the host is still unassigned; keeping the hold"
+            );
+            return Ok(StateHandlerOutcome::do_nothing());
+        }
+    }
+
     if let Err(error) = dpf_sdk.release_maintenance_hold(&node_name).await {
         tracing::warn!(
             machine_id = %host.id,
@@ -189,6 +219,18 @@ pub(super) async fn handle_pending_dpu_actions(
         "Released the DPF maintenance hold so DPU services can roll out"
     );
     Ok(StateHandlerOutcome::do_nothing())
+}
+
+/// Whether an instance is currently assigned to this host, read fresh rather
+/// than from the iteration's snapshot.
+async fn host_has_instance(
+    ctx: &mut StateHandlerContext<'_, MachineStateHandlerContextObjects>,
+    host: &Machine,
+) -> Result<bool, StateHandlerError> {
+    let mut conn = ctx.services.db_pool.acquire().await?;
+    Ok(db::instance::find_id_by_machine_id(&mut conn, &host.id)
+        .await?
+        .is_some())
 }
 
 async fn pending_sync_is_outstanding(
