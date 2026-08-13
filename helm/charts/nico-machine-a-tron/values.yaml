@@ -137,6 +137,13 @@ serviceMonitor:
   interval: 30s
   scrapeTimeout: 25s
 
+## UFM-compatible API mock hosted by each machine-a-tron process on its existing
+## HTTPS listener. Disable it for simulations that do not need InfiniBand.
+ufmMock:
+  enabled: true
+  authToken: "Welcome123"
+  existingAuthSecret: ""
+
 ## =============================================================================
 ## Machine-a-tron Core Settings (shared across all pods)
 ## =============================================================================

@@ -1,0 +1,12 @@
+{{- if and .Values.ufmMock.enabled (not .Values.ufmMock.existingAuthSecret) }}
+apiVersion: v1
+kind: Secret
+metadata:
+  name: {{ include "nico-machine-a-tron.name" . }}-ufm-mock-auth
+  namespace: {{ include "nico-machine-a-tron.namespace" . }}
+  labels:
+    {{- include "nico-machine-a-tron.labels" . | nindent 4 }}
+type: Opaque
+stringData:
+  token: {{ required "ufmMock.authToken is required when the UFM mock is enabled" .Values.ufmMock.authToken | quote }}
+{{- end }}

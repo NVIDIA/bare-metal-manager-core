@@ -34,6 +34,32 @@ as nico-machine-a-tron. The controller does not support a separate namespace.
 
 **Default:** Override Mode (controller disabled, single pod).
 
+## UFM mock
+
+Machine-a-tron hosts a UFM-compatible mock on its existing HTTPS listener. The
+mock is enabled by default and exposes only the InfiniBand inventory belonging
+to that machine-a-tron process. Point the default NICo IB fabric at the same
+Service used for the machine-a-tron control and Redfish APIs, with
+`/ufmRestV3` as the UFM API path.
+
+The generated Secret contains the HTTP Basic credential accepted by the mock.
+Set `ufmMock.authToken`, or set `ufmMock.existingAuthSecret` to a Secret whose
+`token` key contains the credential.
+
+Disable the embedded mock when InfiniBand simulation is not needed or when an
+external fabric mock is managed separately:
+
+```yaml
+ufmMock:
+  enabled: false
+```
+
+For the default `mat-0` pod and chart name, the endpoint is
+`https://nico-machine-a-tron-mat-0-bmc-mock.<namespace>.svc.cluster.local:1266`.
+The chart does not aggregate InfiniBand inventory across multiple
+machine-a-tron pods. A full `configFiles.matConfigs` override owns the complete
+MAT configuration, including its `[ufm_mock]` section.
+
 ---
 
 ## Mode 1: Override Mode (Development)

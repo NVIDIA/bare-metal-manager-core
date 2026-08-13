@@ -2213,6 +2213,7 @@ name = "carbide-ib-fabric"
 version = "0.0.1"
 dependencies = [
  "async-trait",
+ "axum",
  "base64",
  "carbide-api-db",
  "carbide-api-model",
@@ -2222,6 +2223,7 @@ dependencies = [
  "carbide-secrets",
  "carbide-test-support",
  "carbide-tls",
+ "carbide-ufm-mock",
  "carbide-utils",
  "carbide-uuid",
  "chrono",
@@ -2435,6 +2437,7 @@ dependencies = [
  "carbide-rpc",
  "carbide-test-support",
  "carbide-tls",
+ "carbide-ufm-mock",
  "carbide-utils",
  "carbide-uuid",
  "carbide-version",
@@ -2448,6 +2451,7 @@ dependencies = [
  "futures",
  "lazy_static",
  "mac_address",
+ "metrics-endpoint",
  "rand 0.10.1",
  "ratatui",
  "reqwest 0.13.4",
@@ -3384,6 +3388,33 @@ dependencies = [
  "serde_json",
  "thiserror 2.0.18",
  "tonic",
+]
+
+[[package]]
+name = "carbide-ufm-mock"
+version = "0.0.1"
+dependencies = [
+ "axum",
+ "axum-server",
+ "carbide-axum-utils",
+ "carbide-utils",
+ "clap",
+ "duration-str",
+ "eyre",
+ "figment",
+ "futures",
+ "metrics-endpoint",
+ "opentelemetry 0.32.0",
+ "reqwest 0.13.4",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.18",
+ "tokio",
+ "tokio-util",
+ "tower",
+ "tracing",
+ "tracing-subscriber",
+ "url",
 ]
 
 [[package]]

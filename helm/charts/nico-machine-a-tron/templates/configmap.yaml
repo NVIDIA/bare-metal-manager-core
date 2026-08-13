@@ -106,6 +106,13 @@ data:
     {{- end }}
     api_refresh_interval = {{ $root.Values.machineATron.apiRefreshInterval | quote }}
 
+    [ufm_mock]
+    enabled = {{ $root.Values.ufmMock.enabled }}
+    {{- if $root.Values.ufmMock.enabled }}
+    include_local_inventory = true
+    metrics_address = "[::]:{{ $root.Values.service.metrics.port }}"
+    {{- end }}
+
     {{/*
     MAC Address Pool Configuration
     Each pod gets a unique base address: basePrefix:podIndex:00:00:00

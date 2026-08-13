@@ -50,16 +50,9 @@ use crate::machine_state_machine::MachineStateError::MissingMachineId;
 use crate::machine_utils::{
     PxeError, PxeResponse, forge_agent_control, get_validation_id, send_pxe_boot_request,
 };
-use crate::{PersistedDevice, PersistedDpuMachine};
+use crate::{Guid, InfinibandPortState, PersistedDevice, PersistedDpuMachine};
 
 type DpuDhcpRelayHandle = oneshot::Sender<()>;
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
-#[serde(rename_all = "snake_case")]
-pub enum InfinibandPortState {
-    Active,
-    Down,
-}
 
 // RFC 2131 section 4.1's Ethernet example starts at four seconds, doubles to a
 // 64-second base, and adds uniform jitter from -1 through +1 second.
@@ -260,7 +253,7 @@ pub(super) struct LiveState {
     pub(super) api_state: String,
     pub(super) tpm_ek_certificate: Option<Vec<u8>>,
     pub(super) ssh_host_key: Option<String>,
-    pub(super) infiniband_port_states: HashMap<String, InfinibandPortState>,
+    pub(super) infiniband_port_states: HashMap<Guid, InfinibandPortState>,
     /// For a DPU machine, whether its BlueField has flipped to NIC mode. Lets the
     /// owning host observe the flip through the DPU handle and converge (detach
     /// its DPU DHCP relay). Always false for a host machine.
@@ -305,7 +298,10 @@ impl LiveState {
             MachineInfo::Host(host) => host
                 .infiniband_port_guids()
                 .into_iter()
-                .map(|guid| (guid, InfinibandPortState::Active))
+                .map(|guid| {
+                    let bytes: [u8; 8] = guid.into();
+                    (Guid::from(bytes), InfinibandPortState::Active)
+                })
                 .collect(),
             MachineInfo::Dpu(_) => HashMap::new(),
         };

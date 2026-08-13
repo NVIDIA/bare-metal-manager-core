@@ -20,6 +20,7 @@ use std::sync::Arc;
 use mac_address::MacAddress;
 use serde::{Deserialize, Serialize};
 
+use crate::infiniband::Guid;
 use crate::mac_address_pool::{MacAddressPool, PoolConfig as MacAddressPoolConfig};
 use crate::redfish::update_service::UpdateServiceConfig;
 use crate::{DUMMY_FACTORY_PASSWORD, DUMMY_FACTORY_USERNAME, HardwareType, hw, redfish};
@@ -381,15 +382,14 @@ impl HostMachineInfo {
             .or(self.non_dpu_mac_address)
     }
 
-    pub fn infiniband_port_guids(&self) -> Vec<String> {
+    pub fn infiniband_port_guids(&self) -> Vec<Guid> {
         let [b0, b1, b2, b3, b4, b5] = self.hw_mac_addr_pool.base().bytes();
         (0..self.hw_type.infiniband_port_count())
             .map(|interface_index| {
                 let interface_index = u16::try_from(interface_index)
                     .expect("mock hardware models have fewer than 65536 InfiniBand interfaces");
                 let [b6, b7] = interface_index.to_be_bytes();
-                let guid = u64::from_be_bytes([b0, b1, b2, b3, b4, b5, b6, b7]);
-                format!("{guid:016x}")
+                Guid::from([b0, b1, b2, b3, b4, b5, b6, b7])
             })
             .collect()
     }

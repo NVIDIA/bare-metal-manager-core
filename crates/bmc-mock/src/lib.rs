@@ -30,6 +30,7 @@ mod bmc_state;
 mod combined_server;
 mod http;
 mod hw;
+pub mod infiniband;
 mod json;
 pub mod mac_address_pool;
 mod machine_info;

@@ -34,6 +34,7 @@ use rpc::forge_tls_client::ForgeClientConfig;
 use rpc::protos::forge_api_client::ForgeApiClient;
 use serde::ser::SerializeMap;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
+use ufm_mock::UfmMockConfig;
 use uuid::Uuid;
 
 use crate::BmcRegistrationMode;
@@ -497,10 +498,23 @@ pub struct MachineATronConfig {
     /// inventories are aggregated must use non-overlapping ranges.
     #[serde(default)]
     pub hw_mac_address_ranges: Option<MacAddressRangesConfig>,
+
+    /// Optional UFM API hosted on the machine-a-tron control listener.
+    ///
+    /// Unlike standalone execution, the hosted mock may consume machine-a-tron's control state
+    /// directly when `include_local_inventory` is enabled. Configured static sources are still
+    /// polled and can be combined with that local inventory. A present section is activated only
+    /// when its explicit `enabled` flag is set.
+    #[serde(default)]
+    pub ufm_mock: Option<UfmMockConfig>,
 }
 
 impl MachineATronConfig {
     pub fn validate(&self) -> eyre::Result<()> {
+        if let Some(ufm_mock) = self.ufm_mock.as_ref() {
+            ufm_mock.validate()?;
+        }
+
         if let DhcpType::UdpRelay {
             server_address,
             listen_address,
