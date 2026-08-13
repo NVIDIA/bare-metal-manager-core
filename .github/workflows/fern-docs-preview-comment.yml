@@ -31,7 +31,6 @@ on:
     types: [completed]
 
 permissions:
-  pull-requests: write
   actions: read
 
 jobs:
@@ -60,6 +59,9 @@ jobs:
     needs: artifact-present
     runs-on: ubuntu-latest
     if: needs.artifact-present.outputs.exists == 'true'
+    permissions:
+      actions: read
+      pull-requests: write
     steps:
       - name: Download fern sources and metadata
         uses: actions/download-artifact@v4

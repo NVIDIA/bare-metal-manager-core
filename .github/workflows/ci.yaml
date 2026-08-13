@@ -70,6 +70,9 @@ jobs:
       - name: "Check Preview Fern Docs: Build token permissions"
         run: bash .github/ci/check-fern-docs-preview-build-permissions.sh
 
+      - name: "Check Preview Fern Docs: Comment token permissions"
+        run: bash .github/ci/check-fern-docs-preview-comment-permissions.sh
+
       - name: Check Publish Fern Docs token permissions
         run: bash .github/ci/check-publish-fern-docs-permissions.sh
 
