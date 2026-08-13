@@ -2078,15 +2078,20 @@ impl SiteExplorer {
             .map(|suppression| suppression.bmc_mac_address)
             .collect();
 
-        let mut guards = Vec::new();
-        let mut acknowledgements = Vec::new();
-        for suppression in suppressions
+        // Multiple sources may suppress the same MAC. Acknowledge once per MAC so
+        // endpoint claims are not contended across duplicate suppression rows.
+        let pending_macs: HashSet<MacAddress> = suppressions
             .iter()
             .filter(|suppression| suppression.acknowledged_at.is_none())
-        {
+            .map(|suppression| suppression.bmc_mac_address)
+            .collect();
+
+        let mut guards = Vec::new();
+        let mut acknowledgements = Vec::new();
+        for bmc_mac_address in pending_macs {
             let bmc_ips = db::machine_interface::lookup_bmc_ip_by_mac_address(
                 &self.database_connection,
-                suppression.bmc_mac_address,
+                bmc_mac_address,
             )
             .await?;
             let mut suppression_guards = Vec::new();
@@ -2101,7 +2106,7 @@ impl SiteExplorer {
             }
             if all_endpoints_available {
                 guards.extend(suppression_guards);
-                acknowledgements.push(suppression.bmc_mac_address);
+                acknowledgements.push(bmc_mac_address);
             }
         }
 
