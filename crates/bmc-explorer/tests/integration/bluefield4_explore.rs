@@ -18,6 +18,7 @@ use bmc_explorer::nv_generate_exploration_report;
 use bmc_mock::{DpuMachineInfo, DpuSettings, HardwareType, MachineInfo, test_support};
 use mac_address::MacAddress;
 use model::site_explorer::EndpointType;
+use serde_json::json;
 use tokio::test;
 
 use crate::common;
@@ -62,8 +63,11 @@ async fn explore_bluefield4_and_generate_machine_id_from_system_serial() {
             "BlueField_BMC_0",
             "BlueField_ERoT_BMC_0",
             "BlueField_ERoT_CPU_0",
-            "BlueField_IRoT_NIC_0",
         ]
+    );
+    assert!(
+        !chassis_ids.contains(&"BlueField_IRoT_NIC_0"),
+        "BlueField_IRoT_NIC_0 should be skipped; NICo does not need it and some firmware returns a non-UUID STATIC value"
     );
     let bmc_chassis_serial = report
         .chassis
@@ -129,4 +133,42 @@ async fn explore_b4240v_and_generate_machine_id() {
         .expect("B4240V report should have enough collected data for machine ID")
         .expect("B4240V report should generate a DPU machine ID");
     assert!(machine_id.machine_type().is_dpu());
+}
+
+#[test]
+async fn explore_bluefield4_succeeds_when_irot_nic_has_invalid_uuid() {
+    let h = test_support::dell_poweredge_r760_bluefield4_bmc(DpuMachineInfo {
+        hw_type: HardwareType::DellPowerEdgeR760Bf4,
+        bmc_mac_address: MacAddress::new([0x02, 0x00, 0x00, 0xbf, 0x04, 0x11]),
+        host_mac_address: MacAddress::new([0x02, 0x00, 0x00, 0xbf, 0x04, 0x12]),
+        oob_mac_address: MacAddress::new([0x02, 0x00, 0x00, 0xbf, 0x04, 0x13]),
+        serial: "MT2610604VN6".to_string(),
+        settings: DpuSettings::default(),
+    })
+    .await;
+
+    // Field BMCs have returned UUID = "STATIC:1026:0:MCTP_EID:101" on this
+    // chassis. nv-redfish rejects that while parsing the member; skipping the
+    // fetch keeps exploration healthy.
+    h.state.injection.put(vec![bmc_mock::injection::Rule {
+        id: "irot_invalid_uuid".into(),
+        selector: bmc_mock::injection::Selector::Path {
+            method: Some("GET".into()),
+            glob: "/redfish/v1/Chassis/BlueField_IRoT_NIC_0".into(),
+        },
+        action: bmc_mock::injection::Action::JsonMerge(json!({
+            "UUID": "STATIC:1026:0:MCTP_EID:101"
+        })),
+        remaining: Some(100),
+    }]);
+
+    let report = nv_generate_exploration_report(h.service_root, &common::explorer_config())
+        .await
+        .expect("exploration must succeed even when IRoT NIC reports a non-UUID STATIC value");
+
+    let chassis_ids: Vec<&str> = report.chassis.iter().map(|c| c.id.as_str()).collect();
+    assert!(
+        !chassis_ids.contains(&"BlueField_IRoT_NIC_0"),
+        "BlueField_IRoT_NIC_0 should be skipped, got: {chassis_ids:?}"
+    );
 }
