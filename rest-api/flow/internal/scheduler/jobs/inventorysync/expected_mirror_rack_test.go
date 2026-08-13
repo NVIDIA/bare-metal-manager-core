@@ -275,6 +275,28 @@ func TestRackUpdatedFromCore(t *testing.T) {
 	})
 }
 
+func TestAdoptableByNaturalKey(t *testing.T) {
+	coreExtIDs := map[string]struct{}{"live": {}}
+
+	tests := []struct {
+		name       string
+		externalID *string
+		want       bool
+	}{
+		{name: "no external_id has never been claimed", want: true},
+		{name: "empty external_id has never been claimed", externalID: strPtr(""), want: true},
+		{name: "external_id Core no longer reports may be re-pointed", externalID: strPtr("retired"), want: true},
+		{name: "external_id Core still reports owns the row", externalID: strPtr("live")},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			r := &model.Rack{ExternalID: tc.externalID}
+			assert.Equal(t, tc.want, adoptableByNaturalKey(r, coreExtIDs))
+		})
+	}
+}
+
 func TestAdoptableFromCore(t *testing.T) {
 	core := []nicoapi.ExpectedRackDetail{
 		{

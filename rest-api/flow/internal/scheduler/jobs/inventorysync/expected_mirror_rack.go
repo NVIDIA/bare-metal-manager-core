@@ -148,6 +148,16 @@ func mirrorExpectedRacks(
 	touchedIDs := make(map[uuid.UUID]struct{}, len(coreRacks))
 	plannedNaturalKeys := make(map[string]struct{}, len(coreRacks))
 
+	// coreExtIDs is every rack_id in this response. Precomputed because the
+	// adoption guard has to ask about rack_ids the loop below has not reached
+	// yet, whereas seenExtID only fills in as it goes.
+	coreExtIDs := make(map[string]struct{}, len(coreRacks))
+	for _, cr := range coreRacks {
+		if cr.RackID != "" {
+			coreExtIDs[cr.RackID] = struct{}{}
+		}
+	}
+
 	for _, cr := range coreRacks {
 		// Record the rack_id as "still reported" before any skip below.
 		if cr.RackID != "" {
@@ -223,7 +233,7 @@ func mirrorExpectedRacks(
 		// external_id, so a row passes through here at most once. A match
 		// that's also soft-deleted gets resurrected at the same time — see
 		// the function-level comment for why this matters.
-		if existing, ok := flowByNaturalKey[naturalKey]; ok {
+		if existing, ok := flowByNaturalKey[naturalKey]; ok && adoptableByNaturalKey(existing, coreExtIDs) {
 			candidate := *existing
 			candidate.ExternalID = built.ExternalID
 			if candidate.DeletedAt != nil {
@@ -555,6 +565,22 @@ func rackUpdatedFromCore(existing, fromCore *model.Rack) *model.Rack {
 		return nil
 	}
 	return &patched
+}
+
+// adoptableByNaturalKey reports whether a natural-key match may take over the
+// Flow row and write Core's rack_id onto it. A row carrying no external_id has
+// never been claimed, so it is always adoptable. A row that carries one may only
+// be re-pointed once Core has stopped reporting that rack_id, which is how a
+// rack re-registered under a new rack_id keeps its UUID. While both rack_ids are
+// live the row belongs to the one already named on it: taking it would leave the
+// other Core rack with no row of its own and make the two trade this one on
+// every cycle.
+func adoptableByNaturalKey(r *model.Rack, coreExtIDs map[string]struct{}) bool {
+	if r.ExternalID == nil || *r.ExternalID == "" {
+		return true
+	}
+	_, stillReported := coreExtIDs[*r.ExternalID]
+	return !stillReported
 }
 
 // clearChassisLabelsIfSlotTaken blanks built's chassis labels when a Flow rack

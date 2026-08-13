@@ -202,6 +202,32 @@ func TestMirrorRacks_ChassisLabelsBackfilled(t *testing.T) {
 	assert.Equal(t, "BF-1", got.SerialNumber)
 }
 
+// A Core rack whose chassis pair matches an already-identified Flow rack must
+// not take that rack's row while Core still reports the rack_id on it.
+func TestMirrorRacks_AdoptionDoesNotStealAnIdentifiedRack(t *testing.T) {
+	ctx, pool := mirrorTestPool(t)
+
+	owner := model.Rack{Name: "owner", Manufacturer: "Mfg", SerialNumber: "ST-1", ExternalID: strPtr("a12")}
+	require.NoError(t, owner.Create(ctx, pool.DB))
+
+	// Both racks claim the same chassis; a12 already holds the Flow row.
+	mirrorExpectedRacks(ctx, pool, []nicoapi.ExpectedRackDetail{
+		coreRack("b34", "Mfg", "ST-1"),
+		coreRack("a12", "Mfg", "ST-1"),
+	})
+
+	got, err := (&model.Rack{ID: owner.ID}).GetIncludingDeleted(ctx, pool.DB)
+	require.NoError(t, err)
+	assert.Nil(t, got.DeletedAt)
+	require.NotNil(t, got.ExternalID)
+	assert.Equal(t, "a12", *got.ExternalID, "the row must stay with the rack_id already on it")
+	assert.Equal(t, "ST-1", got.SerialNumber, "the owner keeps the contested chassis pair")
+
+	var intruder model.Rack
+	require.NoError(t, pool.DB.NewSelect().Model(&intruder).Where("external_id = ?", "b34").Scan(ctx))
+	assert.Empty(t, intruder.SerialNumber, "the second rack is mirrored without the contested pair")
+}
+
 // #4: two Core racks reporting the same chassis must not abort the cycle on
 // rack_manufacturer_serial_idx. Both racks are mirrored; only the first keeps
 // the contested labels.
