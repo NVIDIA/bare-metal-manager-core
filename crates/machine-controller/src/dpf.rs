@@ -506,27 +506,34 @@ async fn enqueue_host(
     // Written before the enqueue so a processor cannot reach the host's handler
     // while the marker is still missing.
     //
-    // A failure here must not suppress the enqueue. This callback's wake-up is
+    // A failure here must not suppress the enqueue: this callback's wake-up is
     // what the DPF provisioning handler relies on to release a node's hold, and
-    // that is older and more important than the marker; losing it would stall
-    // provisioning until the periodic sweep noticed. The marker is recoverable
-    // on its own -- the watcher fires again while the DPU stays in NodeEffect.
-    if let Some(kind) = pending_action {
-        match record_pending_action(db_pool, &host_machine_id, kind).await {
-            Ok(action) => tracing::info!(
-                node = %node_name,
-                machine_id = %host_machine_id,
-                requested_at = %action.requested_at,
-                "Recorded pending DPF action for host"
-            ),
-            Err(error) => tracing::warn!(
-                node = %node_name,
-                machine_id = %host_machine_id,
-                %error,
-                "Could not record pending DPF action; enqueueing the host regardless"
-            ),
-        }
-    }
+    // that is older and more important than the marker. The error is carried
+    // past the enqueue and returned instead, so the watcher retries this event
+    // (~30s) rather than leaving the marker to the next hourly resync.
+    let marker_error = match pending_action {
+        Some(kind) => match record_pending_action(db_pool, &host_machine_id, kind).await {
+            Ok(action) => {
+                tracing::info!(
+                    node = %node_name,
+                    machine_id = %host_machine_id,
+                    requested_at = %action.requested_at,
+                    "Recorded pending DPF action for host"
+                );
+                None
+            }
+            Err(error) => {
+                tracing::warn!(
+                    node = %node_name,
+                    machine_id = %host_machine_id,
+                    %error,
+                    "Could not record pending DPF action; enqueueing the host before retrying"
+                );
+                Some(error)
+            }
+        },
+        None => None,
+    };
 
     Enqueuer::<MachineStateControllerIO>::new(db_pool.clone())
         .enqueue_object(&host_machine_id)
@@ -536,7 +543,11 @@ async fn enqueue_host(
         })?;
 
     tracing::info!(node = %node_name, machine_id = %host_machine_id, reason, "Enqueued host for DPF state handling");
-    Ok(())
+
+    match marker_error {
+        Some(error) => Err(error),
+        None => Ok(()),
+    }
 }
 
 impl std::fmt::Debug for DpfSdkOps {
