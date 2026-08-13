@@ -423,20 +423,6 @@ pub async fn persist(
     Ok(vpc_prefix)
 }
 
-/// Checks for existing or deleting VPC prefixes using any of the address space.
-pub async fn probe(
-    network: IpNetwork,
-    txn: &mut PgConnection,
-) -> Result<Vec<VpcPrefix>, DatabaseError> {
-    // Include soft-deleted rows because the global exclusion constraint still reserves them.
-    let query = "SELECT * FROM network_vpc_prefixes WHERE prefix && $1";
-    sqlx::query_as(query)
-        .bind(network)
-        .fetch_all(txn)
-        .await
-        .map_err(|e| DatabaseError::query(query, e))
-}
-
 // Given a new VPC prefix which has been not been persisted yet, find the
 // network segment prefixes that overlap with it, along with the VPC ID each
 // one is associated with. The caller should use this information to reject

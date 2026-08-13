@@ -889,9 +889,13 @@ async fn test_ipv6_vpc_prefix_linknet_counters_cap_large_prefix(
     Ok(())
 }
 
-#[crate::sqlx_test]
-async fn test_overlapping_vpc_prefixes(pool: PgPool) -> Result<(), Box<dyn std::error::Error>> {
-    let env = create_test_env(pool).await;
+async fn assert_same_vpc_overlap_is_sanitized(
+    pool: PgPool,
+    tenant_prefix_overlap_enabled: bool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let mut config = api_fixtures::get_config();
+    config.tenant_prefix_overlap_enabled = tenant_prefix_overlap_enabled;
+    let env = create_test_env_with_overrides(pool, TestEnvOverrides::with_config(config)).await;
     env.create_vpc_and_tenant_segment().await;
     let vpc_id = get_vpc_fixture_id(&env).await;
 
@@ -937,10 +941,32 @@ async fn test_overlapping_vpc_prefixes(pool: PgPool) -> Result<(), Box<dyn std::
         }),
     };
     let request = Request::new(overlapping_vpc_prefix);
-    let response = env.api.create_vpc_prefix(request).await;
-    assert!(response.is_err());
+    let error = env
+        .api
+        .create_vpc_prefix(request)
+        .await
+        .expect_err("same-VPC overlap must be rejected");
+    assert_eq!(error.code(), tonic::Code::InvalidArgument);
+    assert_eq!(
+        error.message(),
+        "requested address space overlaps existing routed address space"
+    );
 
     Ok(())
+}
+
+#[crate::sqlx_test]
+async fn same_vpc_overlap_is_invalid_argument_with_gate_enabled(
+    pool: PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    assert_same_vpc_overlap_is_sanitized(pool, true).await
+}
+
+#[crate::sqlx_test]
+async fn same_vpc_overlap_is_invalid_argument_with_gate_disabled(
+    pool: PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    assert_same_vpc_overlap_is_sanitized(pool, false).await
 }
 
 #[crate::sqlx_test]

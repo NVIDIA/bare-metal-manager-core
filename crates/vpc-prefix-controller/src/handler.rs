@@ -123,6 +123,8 @@ impl StateHandler for VpcPrefixStateHandler {
                 }
                 VpcPrefixDeletionState::DBDelete => {
                     let mut txn = ctx.services.db_pool.begin().await?;
+                    // Serialize the graph removal before resource-specific locks.
+                    db::routing_safety::lock_site_mutation(&mut txn).await?;
 
                     // Remove the prefix row after all network_prefix references are gone.
                     tracing::info!(

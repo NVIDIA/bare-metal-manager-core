@@ -23,7 +23,6 @@ use ::rpc::model::RpcTryFrom;
 use carbide_redfish::libredfish::RedfishAuth;
 use carbide_secrets::credentials::{BmcCredentialType, CredentialKey};
 use carbide_uuid::infiniband::IBPartitionId;
-use carbide_uuid::instance::InstanceId;
 use carbide_uuid::machine::MachineId;
 use carbide_uuid::network::NetworkSegmentId;
 use carbide_uuid::vpc::VpcId;
@@ -722,6 +721,7 @@ pub(crate) async fn release(
         .ok_or(RpcDataConversionError::MissingArgument("id"))?;
 
     let mut txn = api.txn_begin().await?;
+    crate::routing_safety::lock_site_mutation(&mut txn).await?;
 
     let instance = db::instance::find_by_id(&mut txn, instance_id)
         .await?
@@ -1236,6 +1236,10 @@ pub(crate) async fn update_instance_config(
     })?;
 
     let mut txn = api.txn_begin().await?;
+    // Current and pending old/new network configs all remain routable during an
+    // update. Take the site lock before snapshot and row locks, then retain it
+    // through the post-write graph check.
+    crate::routing_safety::lock_site_mutation(&mut txn).await?;
 
     let instance = db::instance::find_by_id(&mut txn, instance_id)
         .await?
@@ -1424,6 +1428,7 @@ pub(crate) async fn update_instance_config(
     update_instance_spx_config(&mh_snapshot, &instance, &mut config.spxconfig, &mut txn).await?;
 
     db::instance::update_config(&mut txn, instance.id, expected_version, config, metadata).await?;
+    crate::routing_safety::validate_live_state(&api.runtime_config, &mut txn).await?;
 
     let mh_snapshot = db::managed_host::load_snapshot(
         &mut txn,
@@ -1746,22 +1751,33 @@ fn snapshot_to_instance(
 }
 
 pub(super) async fn force_delete_instance(
-    instance_id: InstanceId,
+    fenced_instance: &InstanceSnapshot,
     api: &Api,
     response: &mut AdminForceDeleteMachineResponse,
 ) -> CarbideResult<()> {
-    let instance = db::instance::find_by_id(&api.database_connection, instance_id)
-        .await?
-        .ok_or_else(|| {
-            CarbideError::internal(format!("could not find an instance for {instance_id}"))
-        })?
-        .to_owned();
-
-    response.ufm_unregistrations += unbind_all_instance_ib_ports(api, &instance).await?;
+    // The caller captured this snapshot in the same site-locked transaction
+    // that marked the instance deleted and published `ForceDeletion`. Earlier
+    // config updates are therefore present, and later API updates reject the
+    // durable `instances.deleted` fence even if an old controller write replaces
+    // the machine state. Use that authoritative snapshot so UFM I/O stays
+    // outside a database transaction without reopening a read race.
+    response.ufm_unregistrations += unbind_all_instance_ib_ports(api, fenced_instance).await?;
 
     // Delete the instance and allocated address
     // TODO: This might need some changes with the new state machine
     let mut txn = api.txn_begin().await?;
+    crate::routing_safety::lock_site_mutation(&mut txn).await?;
+    // UFM work cannot hold a database transaction. Reload after serializing
+    // with routing mutations so cleanup uses the current and pending configs.
+    let Some(instance) = db::instance::find_by_id(&mut txn, fenced_instance.id).await? else {
+        // The machine controller is the only other hard-delete owner. It
+        // removes the instance, generated segments, and loopbacks in one
+        // site-locked transaction, so a missing row means DB cleanup already
+        // completed while this function performed external UFM work.
+        txn.commit().await?;
+        return Ok(());
+    };
+    let instance_id = instance.id;
     db::instance::delete(instance_id, &mut txn).await?;
 
     let mut network_segment_ids_with_vpc = vec![];

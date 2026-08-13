@@ -269,6 +269,9 @@ pub(crate) async fn start_runtime(
     if let Some(seed_data) = seed_data.as_ref() {
         // Determine the authoritative list of resource_pools to seed into the database
         let mut txn = Transaction::begin(&db_pool).await?;
+        // This must be the transaction's first database lock. Configured
+        // SitePrefix reconciliation below changes the retained routing graph.
+        crate::routing_safety::lock_site_mutation(&mut txn).await?;
         db::resource_pool::reconcile_pool_defs(&mut txn, &seed_data.initial_pools).await?;
 
         // We'll always update whatever route servers are in the config
@@ -528,7 +531,7 @@ pub(crate) async fn start_runtime(
         nmxc_client_pool: shared_nmxc_pool.clone(),
         work_lock_manager_handle,
         dpf_sdk: dpf_sdk.clone(),
-        machine_state_handler_enqueuer: Enqueuer::new(db_pool),
+        machine_state_handler_enqueuer: Enqueuer::new(db_pool.clone()),
         metric_emitter: ApiMetricsEmitter::new(&meter),
         component_manager,
         bms_client: std::sync::OnceLock::new(),
@@ -537,6 +540,7 @@ pub(crate) async fn start_runtime(
 
     if carbide_config.listen_only {
         tracing::info!("Not starting background services, as listen_only=true");
+        crate::routing_safety::validate_startup(&carbide_config, &db_pool).await?;
     } else {
         initialize_and_start_controllers(
             join_set,
@@ -1193,7 +1197,7 @@ async fn initialize_and_start_controllers<'a>(
         && let Some(admin) = fnn_config.admin_vpc.as_ref()
         && admin.enabled
     {
-        db_init::create_admin_vpc(db_pool, admin.vpc_vni).await?;
+        db_init::create_admin_vpc(db_pool, carbide_config, admin.vpc_vni).await?;
     }
     // Update SVI IP to segments which have VPC attached and type is FNN.
     db_init::update_network_segments_svi_ip(db_pool).await?;
@@ -1217,6 +1221,10 @@ async fn initialize_and_start_controllers<'a>(
             "Failed to update ASN for DPUs",
         );
     }
+
+    // Startup routing writes are complete. Validate them before a state
+    // controller can render or mutate the retained routing graph.
+    crate::routing_safety::validate_startup(carbide_config, db_pool).await?;
 
     let downloader = FirmwareDownloader::new();
     let upload_limiter = Arc::new(Semaphore::new(carbide_config.firmware_global.max_uploads));

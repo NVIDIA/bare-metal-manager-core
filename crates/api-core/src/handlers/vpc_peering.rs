@@ -49,6 +49,7 @@ pub(crate) async fn create(
         peer_vpc_id.ok_or_else(|| CarbideError::MissingArgument("peer_vpc_id cannot be null"))?;
 
     let mut txn = api.txn_begin().await?;
+    crate::routing_safety::lock_site_mutation(&mut txn).await?;
 
     // Check this VPC peering is permitted under current site vpc_peering_policy
     match api.runtime_config.vpc_peering_policy {
@@ -86,6 +87,7 @@ pub(crate) async fn create(
     }
 
     let vpc_peering = db::create(&mut txn, vpc_id, peer_vpc_id, id).await?;
+    crate::routing_safety::validate_live_state(&api.runtime_config, &mut txn).await?;
 
     txn.commit().await?;
 
@@ -141,6 +143,7 @@ pub(crate) async fn delete(
     let id = id.ok_or_else(|| CarbideError::MissingArgument("id cannot be null"))?;
 
     let mut txn = api.txn_begin().await?;
+    crate::routing_safety::lock_site_mutation(&mut txn).await?;
 
     let _ = db::delete(&mut txn, id).await?;
 

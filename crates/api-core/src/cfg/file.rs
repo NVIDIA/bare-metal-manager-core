@@ -223,6 +223,15 @@ pub struct CarbideConfig {
     #[serde(default)]
     pub site_fabric_prefixes: Vec<IpNetwork>,
 
+    /// Enables exact-CIDR reuse across isolated tenant FNN VPCs.
+    ///
+    /// Defaults to false. Disabling the gate blocks expansion but still
+    /// protects retained overlap and permits contraction or drain. Participating
+    /// base profiles must also set `overlap_eligible`; this setting does not
+    /// bypass the legacy database exclusion constraints.
+    #[serde(default)]
+    pub tenant_prefix_overlap_enabled: bool,
+
     /// Maximum number of tenant-managed SitePrefixes retained for one tenant
     /// at this site. Prefixes awaiting removal still count against this limit
     /// and keep their CIDR reserved.
@@ -2432,6 +2441,13 @@ pub struct FnnConfig {
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Default)]
 #[serde(deny_unknown_fields)]
 pub struct FnnRoutingProfileConfig {
+    /// Allows VPCs based on this profile to participate in tenant prefix overlap.
+    ///
+    /// This operator-owned value defaults to false, cannot be overridden by a
+    /// VPC, and still requires the site gate plus every routing-safety check.
+    #[serde(default)]
+    pub overlap_eligible: bool,
+
     /// These are used for import policies to import routes
     /// that match these targets.
     #[serde(default)]
@@ -2513,6 +2529,7 @@ impl FnnConfig {
         };
 
         Ok(Cow::Owned(FnnRoutingProfileConfig {
+            overlap_eligible: base_profile.overlap_eligible,
             route_target_imports: overrides
                 .route_target_imports
                 .clone()
@@ -3618,7 +3635,7 @@ impl MeasuredBootMetricsCollectorConfig {
 }
 
 /// The VPC isolation behavior enforced within a site.
-#[derive(Clone, Copy, Debug, Default, Deserialize, Serialize)]
+#[derive(Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum VpcIsolationBehaviorType {
     #[default]
@@ -4328,6 +4345,7 @@ mod tests {
         let profile: FnnRoutingProfileConfig = Figment::new()
             .merge(Toml::string(
                 r#"
+                    overlap_eligible = true
                     route_target_imports = [{ asn = 64512, vni = 10 }]
                     route_targets_on_exports = []
                     internal = true
@@ -4345,6 +4363,7 @@ mod tests {
         assert_eq!(
             profile,
             FnnRoutingProfileConfig {
+                overlap_eligible: true,
                 route_target_imports: Some(vec![RouteTargetConfig {
                     asn: 64512,
                     vni: 10,
@@ -4421,6 +4440,7 @@ mod tests {
             prefix: "192.0.2.0/24".parse().expect("valid test prefix"),
         };
         let base = FnnRoutingProfileConfig {
+            overlap_eligible: true,
             route_target_imports: Some(vec![RouteTargetConfig { asn: 3, vni: 4 }]),
             route_targets_on_exports: Some(vec![inherited_export.clone()]),
             internal: Some(true),
@@ -4453,6 +4473,7 @@ mod tests {
         assert_eq!(
             fnn.resolve_vpc_routing_profile(&vpc).unwrap().as_ref(),
             &FnnRoutingProfileConfig {
+                overlap_eligible: true,
                 route_target_imports: Some(vec![]),
                 route_targets_on_exports: Some(vec![inherited_export]),
                 internal: Some(true),
@@ -5124,6 +5145,7 @@ mod tests {
             }
         );
         assert!(config.dhcp_servers.is_empty());
+        assert!(!config.tenant_prefix_overlap_enabled);
         assert!(!config.allow_insecure_discovery);
         assert!(config.route_servers.is_empty());
         assert!(config.tls.is_none());
@@ -5545,6 +5567,7 @@ mod tests {
             std::time::Duration::from_secs(45 * 60)
         );
         assert_eq!(config.asn, 123);
+        assert!(config.tenant_prefix_overlap_enabled);
         assert_eq!(config.bmc_session_lockout_threshold, 4);
         assert_eq!(
             config.dhcp_servers,

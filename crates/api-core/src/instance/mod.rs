@@ -1458,6 +1458,10 @@ pub(crate) async fn batch_allocate_instances(
 
     // Start a single transaction for all allocations
     let mut txn = api.txn_begin().await?;
+    // Network allocation can create generated VPC-prefix segments. Hold the
+    // site lock from the first database read through final graph validation so
+    // the complete batch is admitted atomically.
+    crate::routing_safety::lock_site_mutation(&mut txn).await?;
 
     // ==== Phase 2: Check against allocations for tenants in requests ====
 
@@ -2111,6 +2115,8 @@ pub(crate) async fn batch_allocate_instances(
         .map(|(id, ver, cfg)| (*id, *ver, cfg))
         .collect();
     db::instance::batch_update_spx_config(&mut txn, &spx_refs, false).await?;
+
+    crate::routing_safety::validate_live_state(&api.runtime_config, &mut txn).await?;
 
     // ==== Phase 9: Load final instances ====
     let machine_id_refs: Vec<&MachineId> = processed_requests

@@ -131,6 +131,7 @@ pub(crate) async fn create(
     }
 
     let mut txn = api.txn_begin().await?;
+    crate::routing_safety::lock_site_mutation(&mut txn).await?;
 
     let allocate_svi_ip = if let Some(vpc_id) = new_network_segment.vpc_id {
         let vpcs = db::vpc::find_by(
@@ -156,7 +157,15 @@ pub(crate) async fn create(
         false
     };
 
+    crate::routing_safety::validate_network_segment_candidate(
+        &api.runtime_config,
+        &mut txn,
+        &new_network_segment,
+    )
+    .await?;
+
     let network_segment = save(api, &mut txn, new_network_segment, false, allocate_svi_ip).await?;
+    crate::routing_safety::validate_live_state(&api.runtime_config, &mut txn).await?;
 
     txn.commit().await?;
 
@@ -181,6 +190,7 @@ pub(crate) async fn attach_to_vpc(
     let vpc_id = vpc_id.ok_or(CarbideError::MissingArgument("vpc_id"))?;
 
     let mut txn = api.txn_begin().await?;
+    crate::routing_safety::lock_site_mutation(&mut txn).await?;
 
     let vpcs = db::vpc::find_by_with_lock(
         txn.as_mut(),
@@ -228,8 +238,19 @@ pub(crate) async fn attach_to_vpc(
             ))
             .into());
         }
-        _ => db::network_segment::attach_to_vpc(&segment, txn.as_mut(), vpc_id).await?,
+        _ => {
+            crate::routing_safety::validate_network_segment_attachment(
+                &api.runtime_config,
+                &mut txn,
+                &segment,
+                vpc_id,
+            )
+            .await?;
+            db::network_segment::attach_to_vpc(&segment, txn.as_mut(), vpc_id).await?
+        }
     };
+
+    crate::routing_safety::validate_live_state(&api.runtime_config, &mut txn).await?;
 
     txn.commit().await?;
     Ok(Response::new(network_segment.into()))
@@ -242,6 +263,7 @@ pub(crate) async fn delete(
     crate::api::log_request_data(&request);
 
     let mut txn = api.txn_begin().await?;
+    crate::routing_safety::lock_site_mutation(&mut txn).await?;
 
     let rpc::NetworkSegmentDeletionRequest { id, .. } = request.into_inner();
 

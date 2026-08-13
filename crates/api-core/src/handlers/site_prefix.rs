@@ -223,6 +223,16 @@ pub(crate) async fn create(
             return Err(CarbideError::from(error).into());
         }
     };
+    if let Err(error) = crate::routing_safety::lock_site_mutation(&mut txn).await {
+        emit_admission(
+            SitePrefixAdmissionResult::Failed,
+            &site_prefix_id,
+            &tenant_organization_id,
+            &prefix,
+            &error,
+        );
+        return Err(error.into());
+    }
     let result = match db::site_prefix::create_tenant_managed(
         new_site_prefix,
         quota_limit,
@@ -326,6 +336,7 @@ pub(crate) async fn delete(
 
     let retire = RetireTenantManagedSitePrefix::try_from(request.into_inner())?;
     let mut txn = api.txn_begin().await?;
+    crate::routing_safety::lock_site_mutation(&mut txn).await?;
     let current = db::site_prefix::find_by_id_for_update(&mut txn, retire.id)
         .await?
         .ok_or_else(|| CarbideError::NotFoundError {

@@ -227,6 +227,7 @@ async fn assigned_host_returns_to_assigned_ready_on_completion(pool: PgPool) {
         .await
         .unwrap();
     assert_eq!(attached_instance, Some(instance_id));
+    txn.rollback().await.unwrap();
 }
 
 #[sqlx_test]

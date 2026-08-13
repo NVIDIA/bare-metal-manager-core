@@ -20,7 +20,7 @@ use std::ops::DerefMut;
 use carbide_network::virtualization::VpcVirtualizationType;
 use carbide_test_support::Outcome::FailsWith;
 use carbide_test_support::{Case, check_cases_async};
-use carbide_uuid::vpc::VpcId;
+use carbide_uuid::vpc::{VpcId, VpcPrefixId};
 use common::api_fixtures::{create_test_env, populate_network_security_groups};
 use config_version::ConfigVersion;
 use db::vpc::{self};
@@ -1589,7 +1589,7 @@ async fn vpc_deletion_is_idempotent(pool: sqlx::PgPool) -> Result<(), eyre::Repo
 async fn create_admin_vpc(pool: sqlx::PgPool) -> Result<(), eyre::Report> {
     let env = create_test_env(pool).await;
     let vni = 10000;
-    db_init::create_admin_vpc(&env.pool, Some(vni)).await?;
+    db_init::create_admin_vpc(&env.pool, &env.config, Some(vni)).await?;
 
     let mut txn = env.pool.begin().await?;
     let mut admin_vpc = db::vpc::find_by_vni(&mut txn, vni as i32).await?;
@@ -1611,6 +1611,135 @@ async fn create_admin_vpc(pool: sqlx::PgPool) -> Result<(), eyre::Report> {
 }
 
 #[crate::sqlx_test]
+async fn create_admin_vpc_preserves_legacy_prefix_containment(
+    pool: sqlx::PgPool,
+) -> Result<(), eyre::Report> {
+    let env = create_test_env(pool).await;
+    let tenant_prefix = "192.0.2.0/25".parse::<ipnetwork::IpNetwork>()?;
+    let (tenant_vpc_id, _) = common::api_fixtures::vpc::create_flat_vpc(
+        &env,
+        "legacy-admin-containment".to_string(),
+        None,
+    )
+    .await;
+    env.api
+        .create_vpc_prefix(tonic::Request::new(rpc::forge::VpcPrefixCreationRequest {
+            id: None,
+            prefix: String::new(),
+            vpc_id: Some(tenant_vpc_id),
+            site_prefix_id: None,
+            config: Some(rpc::forge::VpcPrefixConfig {
+                prefix: tenant_prefix.to_string(),
+            }),
+            metadata: Some(rpc::forge::Metadata {
+                name: "legacy admin containment".to_string(),
+                description: "startup compatibility regression".to_string(),
+                labels: vec![],
+            }),
+        }))
+        .await?;
+
+    let mut txn = env.pool.begin().await?;
+    let admin_segments = db::network_segment::admin(&mut txn).await?;
+    assert!(admin_segments.iter().any(|segment| {
+        segment.config.vpc_id.is_none()
+            && segment.prefixes.iter().any(|prefix| {
+                prefix.prefix.prefix() < tenant_prefix.prefix()
+                    && prefix.prefix.contains(tenant_prefix.network())
+            })
+    }));
+    txn.rollback().await?;
+
+    db_init::create_admin_vpc(&env.pool, &env.config, Some(10000)).await?;
+
+    let mut txn = env.pool.begin().await?;
+    let admin_vpc = db::vpc::find_by_vni(&mut txn, 10000)
+        .await?
+        .pop()
+        .expect("admin VPC is created");
+    for admin_segment in db::network_segment::admin(&mut txn).await? {
+        assert_eq!(admin_segment.config.vpc_id, Some(admin_vpc.id));
+    }
+
+    Ok(())
+}
+
+#[crate::sqlx_test]
+async fn create_admin_vpc_validates_before_committing(
+    pool: sqlx::PgPool,
+) -> Result<(), eyre::Report> {
+    let env = create_test_env(pool).await;
+    let prefix = "198.51.100.0/24".parse::<ipnetwork::IpNetwork>()?;
+    let version = ConfigVersion::initial();
+    let vpc_ids = [VpcId::new(), VpcId::new()];
+    let mut setup = env.pool.begin().await?;
+
+    // This seam cannot create tenant-prefix reuse itself. Reconstruct the
+    // post-exclusion database state to prove its mutation still validates
+    // before commit when an unsafe exact cross-tenant duplicate is retained.
+    sqlx::query(
+        "ALTER TABLE network_vpc_prefixes \
+         DROP CONSTRAINT network_vpc_prefixes_globally_unique",
+    )
+    .execute(setup.as_mut())
+    .await?;
+    for (index, (vpc_id, organization_id)) in vpc_ids
+        .into_iter()
+        .zip(["routing-safety-a", "routing-safety-b"])
+        .enumerate()
+    {
+        sqlx::query(
+            "INSERT INTO tenants (organization_id, organization_name, version) \
+             VALUES ($1, $1, $2)",
+        )
+        .bind(organization_id)
+        .bind(version)
+        .execute(setup.as_mut())
+        .await?;
+        sqlx::query(
+            "INSERT INTO vpcs \
+             (id, name, organization_id, version, network_virtualization_type, vni, status) \
+             VALUES ($1, $2, $3, $4, 'fnn', $5, jsonb_build_object('vni', $5))",
+        )
+        .bind(vpc_id)
+        .bind(format!("routing-safety-{index}"))
+        .bind(organization_id)
+        .bind(version)
+        .bind(11001 + index as i32)
+        .execute(setup.as_mut())
+        .await?;
+        sqlx::query(
+            "INSERT INTO network_vpc_prefixes (id, prefix, name, vpc_id) \
+             VALUES ($1, $2, $3, $4)",
+        )
+        .bind(VpcPrefixId::new())
+        .bind(prefix)
+        .bind(format!("unsafe-duplicate-{index}"))
+        .bind(vpc_id)
+        .execute(setup.as_mut())
+        .await?;
+    }
+    setup.commit().await?;
+
+    let vni = 10000;
+    let error = db_init::create_admin_vpc(&env.pool, &env.config, Some(vni))
+        .await
+        .expect_err("admin VPC reconciliation must reject unsafe retained tenant reuse");
+    assert!(matches!(error, crate::CarbideError::FailedPrecondition(_)));
+
+    // Validation runs in the mutation transaction, so neither the new admin
+    // VPC nor its segment attachments survive the failed reconciliation.
+    assert!(db::vpc::find_by_name(&env.pool, "admin").await?.is_empty());
+    let mut txn = env.pool.begin().await?;
+    assert!(db::vpc::find_by_vni(&mut txn, vni as i32).await?.is_empty());
+    for admin_segment in db::network_segment::admin(&mut txn).await? {
+        assert!(admin_segment.config.vpc_id.is_none());
+    }
+
+    Ok(())
+}
+
+#[crate::sqlx_test]
 async fn create_admin_vpc_updates_existing_admin_vpc_vni(
     pool: sqlx::PgPool,
 ) -> Result<(), eyre::Report> {
@@ -1619,7 +1748,7 @@ async fn create_admin_vpc_updates_existing_admin_vpc_vni(
     let updated_vni = 10001;
 
     // Create the initial admin VPC and verify the admin segments attach to it.
-    db_init::create_admin_vpc(&env.pool, Some(initial_vni)).await?;
+    db_init::create_admin_vpc(&env.pool, &env.config, Some(initial_vni)).await?;
     let mut txn = env.pool.begin().await?;
     let mut initial_admin_vpcs = db::vpc::find_by_vni(&mut txn, initial_vni as i32).await?;
     assert_eq!(initial_admin_vpcs.len(), 1);
@@ -1630,7 +1759,7 @@ async fn create_admin_vpc_updates_existing_admin_vpc_vni(
     txn.commit().await?;
 
     // Change the configured VNI and run startup reconciliation again.
-    db_init::create_admin_vpc(&env.pool, Some(updated_vni)).await?;
+    db_init::create_admin_vpc(&env.pool, &env.config, Some(updated_vni)).await?;
 
     // Fetch from the DB to verify the existing admin VPC was updated in place.
     let mut txn = env.pool.begin().await?;
@@ -1688,7 +1817,7 @@ async fn create_admin_vpc_rejects_existing_tenant_vpc_vni(
     txn.commit().await?;
 
     // Seeding the admin VPC must fail instead of adopting the tenant VPC.
-    let err = db_init::create_admin_vpc(&env.pool, Some(vni))
+    let err = db_init::create_admin_vpc(&env.pool, &env.config, Some(vni))
         .await
         .expect_err("admin VPC seeding should reject an already-used tenant VNI");
     assert!(

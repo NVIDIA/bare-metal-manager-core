@@ -26,10 +26,11 @@ use ::rpc::forge::{
 };
 use carbide_dpf::DpuDeploymentType;
 use carbide_ib_fabric::config::IBFabricConfig;
-use carbide_ib_fabric::ib::{self, IBFabricManager};
+use carbide_ib_fabric::ib::{self, GetPartitionOptions, IBFabricManager};
 use carbide_machine_controller::dpf::{DpfOperations, MockDpfOperations};
 use carbide_uuid::infiniband::IBPartitionId;
 use carbide_uuid::machine::{MachineId, MachineType};
+use carbide_uuid::vpc::VpcId;
 use common::api_fixtures::dpu::create_dpu_machine;
 use common::api_fixtures::host::host_discover_dhcp;
 use common::api_fixtures::ib_partition::{DEFAULT_TENANT, create_ib_partition};
@@ -42,6 +43,7 @@ use common::api_fixtures::{
 };
 use model::hardware_info::TpmEkCertificate;
 use model::ib::DEFAULT_IB_FABRIC_NAME;
+use model::instance::config::network::InstanceNetworkConfig;
 use model::machine::machine_search_config::MachineSearchConfig;
 use model::machine::{InstanceState, ManagedHostState};
 use model::resource_pool::{ResourcePoolDef, ResourcePoolType};
@@ -421,6 +423,123 @@ async fn test_admin_force_delete_orders_locks_against_exploration(pool: sqlx::Pg
     validate_machine_deletion(&env, &host.dpu_ids[0], None).await;
 }
 
+/// Force-delete must serialize behind an in-flight network update and clean
+/// every generated segment from the update that committed before its fence.
+#[crate::sqlx_test]
+async fn test_admin_force_delete_serializes_with_pending_network_update(pool: sqlx::PgPool) {
+    let env = create_test_env(pool).await;
+    let segment_id = env.create_vpc_and_tenant_segment().await;
+    let vpc_id: VpcId = sqlx::query_scalar("SELECT vpc_id FROM network_segments WHERE id = $1")
+        .bind(segment_id)
+        .fetch_one(&env.pool)
+        .await
+        .unwrap();
+    let vpc_prefix_id = env
+        .api
+        .create_vpc_prefix(Request::new(rpc::forge::VpcPrefixCreationRequest {
+            id: None,
+            prefix: String::new(),
+            vpc_id: Some(vpc_id),
+            site_prefix_id: None,
+            config: Some(rpc::forge::VpcPrefixConfig {
+                prefix: "192.0.5.0/25".to_string(),
+            }),
+            metadata: Some(rpc::forge::Metadata {
+                name: "force-delete pending prefix".to_string(),
+                description: "concurrent cleanup regression".to_string(),
+                labels: vec![],
+            }),
+        }))
+        .await
+        .unwrap()
+        .into_inner()
+        .id
+        .unwrap();
+    let managed_host = create_managed_host(&env).await;
+    let instance = managed_host
+        .instance_builer(&env)
+        .single_interface_network_config(segment_id)
+        .tenant_org(crate::test_support::network_segment::FIXTURE_TENANT_ORG_ID)
+        .build()
+        .await;
+
+    let mut update_txn = env.pool.begin().await.unwrap();
+    db::routing_safety::lock_site_mutation(update_txn.as_mut())
+        .await
+        .unwrap();
+
+    let api = managed_host.api.clone();
+    let host_id = managed_host.id;
+    let force_delete_task = tokio::spawn(async move {
+        api.admin_force_delete_machine(tonic::Request::new(AdminForceDeleteMachineRequest {
+            host_query: host_id.to_string(),
+            delete_interfaces: false,
+            delete_bmc_interfaces: false,
+            delete_bmc_credentials: false,
+            allow_delete_with_orphaned_dpf_crds: false,
+        }))
+        .await
+    });
+    wait_until_blocked_on(&env.pool, "pg_advisory_xact_lock").await;
+
+    let current = db::instance::find_by_id(update_txn.as_mut(), instance.id)
+        .await
+        .unwrap()
+        .unwrap();
+    let mut requested = InstanceNetworkConfig::for_vpc_prefix_id(vpc_prefix_id, Some(vpc_id));
+    crate::instance::allocate_network(
+        &mut requested,
+        &current.config.tenant.tenant_organization_id,
+        update_txn.as_mut(),
+    )
+    .await
+    .unwrap();
+    let generated_segment_id = requested.interfaces[0]
+        .generated_network_segment_id()
+        .expect("prefix allocation creates a distinct generated segment");
+    assert_ne!(generated_segment_id, segment_id);
+    db::instance::trigger_update_network_config_request(
+        &instance.id,
+        &current.config.network,
+        &requested,
+        &mut update_txn,
+    )
+    .await
+    .unwrap();
+    update_txn.commit().await.unwrap();
+
+    let response = tokio::time::timeout(std::time::Duration::from_secs(60), force_delete_task)
+        .await
+        .expect(
+            "force delete did not complete after the network update commit released the site lock",
+        )
+        .unwrap()
+        .expect("force delete completes after the network update commits")
+        .into_inner();
+    assert!(response.all_done);
+
+    let generated_deleted: Option<chrono::DateTime<chrono::Utc>> =
+        sqlx::query_scalar("SELECT deleted FROM network_segments WHERE id = $1")
+            .bind(generated_segment_id)
+            .fetch_one(&env.pool)
+            .await
+            .unwrap();
+    assert!(
+        generated_deleted.is_some(),
+        "force delete must clean the generated segment from the committed update"
+    );
+    let original_deleted: Option<chrono::DateTime<chrono::Utc>> =
+        sqlx::query_scalar("SELECT deleted FROM network_segments WHERE id = $1")
+            .bind(segment_id)
+            .fetch_one(&env.pool)
+            .await
+            .unwrap();
+    assert!(
+        original_deleted.is_none(),
+        "force delete must not mistake the original shared segment for a generated one"
+    );
+}
+
 /// Multi-endpoint exploration persistence and force-delete must acquire
 /// `explored_endpoints` rows in the same ascending address order. The fixture
 /// allocates DPU BMC addresses before the host BMC address, so the old
@@ -721,10 +840,8 @@ async fn validate_machine_deletion(
     txn.rollback().await.unwrap();
 }
 
-// TODO: Test deletion for machines with active instances on them
-
 #[crate::sqlx_test]
-async fn test_admin_force_delete_host_with_ib_instance(pool: sqlx::PgPool) {
+async fn test_admin_force_delete_host_with_concurrent_ib_update(pool: sqlx::PgPool) {
     let mut config = common::api_fixtures::get_config();
     config.ib_config = Some(IBFabricConfig {
         enabled: true,
@@ -868,10 +985,193 @@ async fn test_admin_force_delete_host_with_ib_instance(pool: sqlx::PgPool) {
     };
     assert_eq!(ib_fabric.find_ib_port(Some(filter)).await.unwrap().len(), 1);
 
-    let response = force_delete(&env, &mh.id).await;
+    // Move the fabric to the state produced by the pending config update. The
+    // old implementation could unregister the stale GUID before the update
+    // committed, then delete the row without ever unregistering this GUID.
+    let sorted_ib_interfaces = crate::instance::sort_ib_by_slot(
+        &machine
+            .status
+            .hardware_info
+            .as_ref()
+            .unwrap()
+            .infiniband_interfaces,
+    );
+    let updated_guid = sorted_ib_interfaces["MT2910 Family [ConnectX-7]"][0]
+        .guid
+        .clone();
+    assert!(!guids.contains(&updated_guid));
+    let ib_network = ib_fabric
+        .get_ib_network(
+            pkey,
+            GetPartitionOptions {
+                include_guids_data: false,
+                include_qos_conf: true,
+            },
+        )
+        .await
+        .unwrap();
+    ib_fabric
+        .bind_ib_ports(ib_network, vec![updated_guid.clone()])
+        .await
+        .unwrap();
+    ib_fabric
+        .unbind_ib_ports(pkey, guids.iter().cloned().collect())
+        .await
+        .unwrap();
+
+    let late_config = check_instance.config().inner().clone();
+    let mut updated_config = late_config.clone();
+    updated_config.infiniband = Some(rpc::forge::InstanceInfinibandConfig {
+        ib_interfaces: vec![rpc::forge::InstanceIbInterfaceConfig {
+            function_type: rpc::forge::InterfaceFunctionType::Physical as i32,
+            virtual_function_id: None,
+            ib_partition_id: Some(ib_partition_id),
+            device: "MT2910 Family [ConnectX-7]".to_string(),
+            vendor: None,
+            device_instance: 0,
+        }],
+    });
+    let metadata = check_instance.metadata().clone();
+    let instance_id = check_instance.id();
+    let late_metadata = metadata.clone();
+
+    // Pause the real update after it has acquired the site lock and loaded the
+    // `Ready` machine snapshot. Force-delete must wait behind that update before
+    // it publishes `ForceDeletion` and takes its UFM cleanup snapshot.
+    let mut instance_row_lock = env.pool.begin().await.unwrap();
+    sqlx::query("UPDATE instances SET id = id WHERE id = $1")
+        .bind(instance_id)
+        .execute(instance_row_lock.as_mut())
+        .await
+        .unwrap();
+
+    let update_api = env.api.clone();
+    let update_task = tokio::spawn(async move {
+        update_api
+            .update_instance_config(Request::new(rpc::forge::InstanceConfigUpdateRequest {
+                instance_id: Some(instance_id),
+                if_version_match: None,
+                config: Some(updated_config),
+                metadata: Some(metadata),
+            }))
+            .await
+    });
+    wait_until_blocked_on(&env.pool, "UPDATE instances SET").await;
+
+    // Queue an exclusive IB-partition table lock behind the update's ownership
+    // validation. Once the update commits, this pauses force-delete after its
+    // deletion fence commits but before its unlocked UFM lookup completes.
+    let partition_lock_pool = env.pool.clone();
+    let partition_lock_task = tokio::spawn(async move {
+        let mut partition_lock = partition_lock_pool.begin().await.unwrap();
+        sqlx::query("LOCK TABLE ib_partitions IN ACCESS EXCLUSIVE MODE")
+            .execute(partition_lock.as_mut())
+            .await
+            .unwrap();
+        partition_lock
+    });
+    wait_until_blocked_on(&env.pool, "LOCK TABLE ib_partitions").await;
+
+    let delete_api = env.api.clone();
+    let machine_id = mh.id;
+    let force_delete_task = tokio::spawn(async move {
+        delete_api
+            .admin_force_delete_machine(Request::new(AdminForceDeleteMachineRequest {
+                host_query: machine_id.to_string(),
+                delete_interfaces: false,
+                delete_bmc_interfaces: false,
+                delete_bmc_credentials: false,
+                allow_delete_with_orphaned_dpf_crds: false,
+            }))
+            .await
+    });
+    wait_until_blocked_on(&env.pool, "pg_advisory_xact_lock").await;
+
+    instance_row_lock.commit().await.unwrap();
+    update_task
+        .await
+        .unwrap()
+        .expect("the config update that owns the site lock must commit first");
+
+    let partition_lock = partition_lock_task.await.unwrap();
+    wait_until_blocked_on(&env.pool, "FROM ib_partitions").await;
+
+    let deleted: Option<chrono::DateTime<chrono::Utc>> =
+        sqlx::query_scalar("SELECT deleted FROM instances WHERE id = $1")
+            .bind(instance_id)
+            .fetch_one(&env.pool)
+            .await
+            .unwrap();
+    assert!(
+        deleted.is_some(),
+        "force delete must publish the durable instance fence before UFM cleanup"
+    );
+
+    // Model a machine controller finishing work from its pre-delete snapshot.
+    // The current controller persistence path can replace `ForceDeletion`, so
+    // the instance flag must continue to fence config writes on its own.
+    let mut stale_controller_write = env.pool.begin().await.unwrap();
+    db::machine::update_state(
+        stale_controller_write.as_mut(),
+        &mh.id,
+        &ManagedHostState::Assigned {
+            instance_state: InstanceState::Ready,
+        },
+    )
+    .await
+    .unwrap();
+    stale_controller_write.commit().await.unwrap();
+
+    // This is the original device selection, so accepting it would perform a
+    // real InfiniBand mutation rather than an idempotent metadata-only write.
+    let late_update_error = env
+        .api
+        .update_instance_config(Request::new(rpc::forge::InstanceConfigUpdateRequest {
+            instance_id: Some(instance_id),
+            if_version_match: None,
+            config: Some(late_config),
+            metadata: Some(late_metadata),
+        }))
+        .await
+        .expect_err("an update starting after the deletion fence must be rejected");
+    assert_eq!(late_update_error.code(), tonic::Code::InvalidArgument);
+    assert_eq!(
+        late_update_error.message(),
+        "configuration for a terminating instance can not be changed"
+    );
+
+    // Model the machine controller winning the site lock and completing its
+    // atomic hard-delete phase while admin cleanup is outside the database for
+    // UFM work. The fixture uses a shared segment, so there is no generated
+    // instance-owned segment for that owner to mark alongside the row delete.
+    let mut controller_cleanup = env.pool.begin().await.unwrap();
+    db::routing_safety::lock_site_mutation(controller_cleanup.as_mut())
+        .await
+        .unwrap();
+    db::instance::delete(instance_id, controller_cleanup.as_mut())
+        .await
+        .unwrap();
+    controller_cleanup.commit().await.unwrap();
+
+    partition_lock.commit().await.unwrap();
+
+    let response = tokio::time::timeout(std::time::Duration::from_secs(60), force_delete_task)
+        .await
+        .expect("force delete did not complete after the config update released the site lock")
+        .unwrap()
+        .expect("force delete completes after the config update")
+        .into_inner();
     validate_delete_response(&response, Some(&mh.id), &mh.dpu().id);
 
-    // after host deleted, ib port should be removed from UFM
+    // The cleanup snapshot must include the just-committed GUID.
+    let filter = ib::Filter {
+        guids: Some(HashSet::from_iter([updated_guid])),
+        pkey: Some(pkey),
+        state: Some(model::ib::IBPortState::Active),
+    };
+    assert_eq!(ib_fabric.find_ib_port(Some(filter)).await.unwrap().len(), 0);
+
+    // after host deleted, the original ib port should remain absent from UFM
     let filter = ib::Filter {
         guids: Some(guids.iter().cloned().collect()),
         pkey: Some(pkey),

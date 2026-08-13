@@ -537,6 +537,11 @@ pub(crate) async fn admin_force_delete_machine(
     response.machine_unlocked = false;
 
     let mut txn = api.txn_begin().await?;
+    // Publish the instance and machine deletion fences behind the same lock as
+    // instance configuration updates. Once this transaction commits, updates
+    // that started first are visible to cleanup and updates that start later
+    // observe the fence before changing InfiniBand or routing configuration.
+    crate::routing_safety::lock_site_mutation(&mut txn).await?;
 
     let machine = match db::machine::find_by_query(&mut txn, query).await? {
         Some(machine) => machine,
@@ -603,10 +608,12 @@ pub(crate) async fn admin_force_delete_machine(
         host_machine = Some(machine);
     }
 
-    let mut instance_id = None;
-    if let Some(host_machine) = &host_machine {
-        instance_id = db::instance::find_id_by_machine_id(&mut txn, &host_machine.id).await?;
-    }
+    let instance = if let Some(host_machine) = &host_machine {
+        db::instance::find_by_machine_id(&mut txn, &host_machine.id).await?
+    } else {
+        None
+    };
+    let instance_id = instance.as_ref().map(|instance| instance.id);
 
     if let Some(host_machine) = &host_machine {
         response.managed_host_machine_id = host_machine.id.to_string();
@@ -657,6 +664,15 @@ pub(crate) async fn admin_force_delete_machine(
 
     // So far we only inspected state - now we start the deletion process
     // TODO: In the new model we might just need to move one Machine to this state
+    if let Some(instance) = &instance
+        && instance.deleted.is_none()
+    {
+        // This flag is the durable update fence. A machine-state controller
+        // finishing work from an older snapshot can overwrite `ForceDeletion`,
+        // but it cannot clear `instances.deleted`. Preserve an earlier deletion
+        // timestamp so retrying this idempotent admin operation does not move it.
+        db::instance::mark_as_deleted(instance.id, &mut txn).await?;
+    }
     if let Some(host_machine) = &host_machine {
         db::machine::advance(
             host_machine,
@@ -681,8 +697,8 @@ pub(crate) async fn admin_force_delete_machine(
     txn.commit().await?;
 
     // Note: The following deletion steps are all ordered in an idempotent fashion
-    if let Some(instance_id) = instance_id {
-        crate::handlers::instance::force_delete_instance(instance_id, api, &mut response).await?;
+    if let Some(instance) = &instance {
+        crate::handlers::instance::force_delete_instance(instance, api, &mut response).await?;
     }
 
     if let Some(machine) = &host_machine {

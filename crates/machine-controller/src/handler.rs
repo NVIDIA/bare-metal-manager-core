@@ -8456,6 +8456,8 @@ impl StateHandler for InstanceStateHandler {
 
                     // Delete from database now. Once done, reboot and move to next state.
                     let mut txn = ctx.services.db_pool.begin().await?;
+                    // Serialize the graph removal before resource-specific locks.
+                    db::routing_safety::lock_site_mutation(&mut txn).await?;
                     db::instance::delete(instance.id, &mut txn)
                         .await
                         .map_err(|err| StateHandlerError::GenericError(err.into()))?;
@@ -8831,6 +8833,9 @@ async fn handle_instance_network_config_update_request(
 
             // Update requested network config and increment version.
             let mut txn = ctx.services.db_pool.begin().await?;
+            // The API admitted both retained configs before storing the
+            // request; serialize their promotion with routing graph writers.
+            db::routing_safety::lock_site_mutation(&mut txn).await?;
             db::instance::update_network_config(
                 txn.as_mut(),
                 instance.id,
@@ -8872,6 +8877,8 @@ async fn handle_instance_network_config_update_request(
         }
         NetworkConfigUpdateState::ReleaseOldResources => {
             let mut txn = ctx.services.db_pool.begin().await?;
+            // Serialize the graph contraction before pool and row locks.
+            db::routing_safety::lock_site_mutation(&mut txn).await?;
             // Identify all the resources which have to be released.
             // Release Ips.
             // Release segments.

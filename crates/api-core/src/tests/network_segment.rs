@@ -1817,7 +1817,7 @@ async fn test_update_svi_ip_admin_segment(
     let env = create_test_env(pool).await;
 
     // This should create VPC for admin segment
-    db_init::create_admin_vpc(&env.pool, Some(10600)).await?;
+    db_init::create_admin_vpc(&env.pool, &env.config, Some(10600)).await?;
 
     let mut txn = env.pool.begin().await?;
     let admin_segments = db::network_segment::admin(&mut txn).await?;
@@ -2441,6 +2441,63 @@ async fn attach_host_inband_segment_to_flat_vpc_succeeds(
         .into_inner();
 
     assert_eq!(attached.config.unwrap().vpc_id, Some(vpc_id));
+
+    Ok(())
+}
+
+#[crate::sqlx_test]
+async fn attach_host_inband_segment_rejects_new_routed_overlap(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = create_test_env_with_overrides(pool, TestEnvOverrides::no_network_segments()).await;
+    let (vpc_id, _vpc) =
+        common::api_fixtures::vpc::create_flat_vpc(&env, "flat-overlap".to_string(), None).await;
+    env.api
+        .create_vpc_prefix(Request::new(rpc::forge::VpcPrefixCreationRequest {
+            id: None,
+            prefix: String::new(),
+            vpc_id: Some(vpc_id),
+            site_prefix_id: None,
+            config: Some(rpc::forge::VpcPrefixConfig {
+                prefix: "192.1.4.0/24".to_string(),
+            }),
+            metadata: Some(rpc::forge::Metadata {
+                name: "flat overlap parent".to_string(),
+                description: "attachment admission regression".to_string(),
+                labels: vec![],
+            }),
+        }))
+        .await?;
+    let segment = create_unattached_segment(
+        &env,
+        "ATTACH_HOST_INBAND_OVERLAP",
+        "192.1.4.0/24",
+        "192.1.4.1",
+        rpc::forge::NetworkSegmentType::HostInband,
+    )
+    .await?;
+    let segment_id = segment.id.expect("created segment has an ID");
+
+    let error = attach_network_segment_to_vpc(&env, segment_id, vpc_id, false)
+        .await
+        .expect_err("binding an unbound prefix must run candidate admission");
+
+    assert_eq!(error.code(), tonic::Code::InvalidArgument);
+    assert_eq!(
+        error.message(),
+        "requested address space overlaps existing routed address space"
+    );
+    let mut txn = env.pool.begin().await?;
+    let persisted = db::network_segment::find_by(
+        txn.as_mut(),
+        ObjectColumnFilter::One(db::network_segment::IdColumn, &segment_id),
+        network_segment::NetworkSegmentSearchConfig::default(),
+    )
+    .await?
+    .pop()
+    .expect("segment remains after rejected attachment");
+    assert_eq!(persisted.config.vpc_id, None);
+    txn.rollback().await?;
 
     Ok(())
 }

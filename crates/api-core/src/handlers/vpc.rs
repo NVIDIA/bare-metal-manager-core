@@ -44,6 +44,7 @@ pub(crate) async fn create(
     let vpc_creation_request = request.get_ref();
 
     let mut txn = api.txn_begin().await?;
+    crate::routing_safety::lock_site_mutation(&mut txn).await?;
 
     // Grab the tenant details and a row-lock if found so we can coordinate around the tenant record.
     // If we're still allowing VPC creation for tenant org IDs that don't actually exist
@@ -171,6 +172,7 @@ pub(crate) async fn update(
     })?;
 
     let mut txn = api.txn_begin().await?;
+    crate::routing_safety::lock_site_mutation(&mut txn).await?;
 
     // Security-group and routing-profile changes both require validation
     // against the VPC's persisted tenant and virtualization type.
@@ -245,6 +247,7 @@ pub(crate) async fn update(
     // It's better to keep the property immutable.
 
     let vpc = db::vpc::update(&vpc_update, &mut txn).await?;
+    crate::routing_safety::validate_live_state(&api.runtime_config, &mut txn).await?;
 
     txn.commit().await?;
 
@@ -260,6 +263,7 @@ pub(crate) async fn update_virtualization(
     log_request_data(&request);
 
     let mut txn = api.txn_begin().await?;
+    crate::routing_safety::lock_site_mutation(&mut txn).await?;
 
     let updater = UpdateVpcVirtualization::try_from(request.into_inner())?;
 
@@ -305,6 +309,7 @@ pub(crate) async fn update_virtualization(
         .into());
     }
     db::vpc::update_virtualization(&updater, &mut txn).await?;
+    crate::routing_safety::validate_live_state(&api.runtime_config, &mut txn).await?;
 
     txn.commit().await?;
 
@@ -318,6 +323,7 @@ pub(crate) async fn delete(
     log_request_data(&request);
 
     let mut txn = api.txn_begin().await?;
+    crate::routing_safety::lock_site_mutation(&mut txn).await?;
 
     // TODO: This needs to validate that nothing references the VPC anymore
     // (like NetworkSegments)

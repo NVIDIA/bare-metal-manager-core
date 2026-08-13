@@ -19,6 +19,7 @@ use ::db::{ObjectColumnFilter, vpc_prefix as db};
 use ::rpc::forge as rpc;
 use ::rpc::forge::PrefixMatchType;
 use carbide_network::virtualization::VpcVirtualizationType;
+use carbide_uuid::vpc::VpcId;
 use ipnetwork::IpNetwork;
 use model::network_prefix::NetworkPrefix;
 use model::site_prefix::{
@@ -37,6 +38,25 @@ fn contains_prefix(parent: IpNetwork, child: IpNetwork) -> bool {
         (IpNetwork::V6(parent), IpNetwork::V6(child)) => child.is_subnet_of(parent),
         _ => false,
     }
+}
+
+/// `adoptable_segment_prefixes` keeps overlapping segment prefixes owned by
+/// the candidate VPC.
+///
+/// Foreign prefixes remain in the common routing snapshot so one candidate
+/// evaluator owns their rejection. Generated children remain in this list so
+/// the caller's existing-parent guard rejects them; only direct prefixes are
+/// ultimately adopted.
+fn adoptable_segment_prefixes(
+    segment_prefixes: Vec<(VpcId, NetworkPrefix)>,
+    vpc_id: VpcId,
+) -> Vec<NetworkPrefix> {
+    segment_prefixes
+        .into_iter()
+        .filter_map(|(segment_vpc_id, segment_prefix)| {
+            (segment_vpc_id == vpc_id).then_some(segment_prefix)
+        })
+        .collect()
 }
 
 fn validate_site_prefix_attachment(
@@ -113,6 +133,7 @@ pub(crate) async fn create(
     }
 
     let mut txn = api.txn_begin().await?;
+    crate::routing_safety::lock_site_mutation(&mut txn).await?;
 
     // Resolve and lock the exact SitePrefix before locking the VPC. The shared
     // row lock permits concurrent child creation but conflicts with retirement
@@ -220,48 +241,9 @@ pub(crate) async fn create(
     }
     let expected_vpc_version = vpc.version;
 
-    let conflicting_vpc_prefixes = db::probe(new_prefix.config.prefix, &mut txn).await?;
-    if !conflicting_vpc_prefixes.is_empty() {
-        let conflicting_vpc_prefixes = conflicting_vpc_prefixes
-            .into_iter()
-            .map(|p| p.config.prefix);
-        let conflicting_vpc_prefixes = itertools::join(conflicting_vpc_prefixes, ", ");
-        let msg = format!(
-            "The requested VPC prefix ({vpc_prefix}) overlaps at least one \
-            existing VPC prefix ({conflicting_vpc_prefixes})",
-            vpc_prefix = new_prefix.config.prefix,
-        );
-        return Err(CarbideError::InvalidArgument(msg).into());
-    }
-
     let segment_prefixes = db::probe_segment_prefixes(new_prefix.config.prefix, &mut txn).await?;
 
-    // Check that all the prefixes we found are on segments that belong to our
-    // own VPC.
-    let segment_prefixes: Vec<NetworkPrefix> = {
-        let (own_segment_prefixes, foreign_segment_prefixes) = segment_prefixes
-            .into_iter()
-            .partition::<Vec<_>, _>(|(segment_vpc_id, _)| segment_vpc_id == &new_prefix.vpc_id);
-
-        if !foreign_segment_prefixes.is_empty() {
-            let foreign_segment_prefixes = foreign_segment_prefixes
-                .into_iter()
-                .map(|(_, np)| np.prefix);
-            let foreign_segment_prefixes = itertools::join(foreign_segment_prefixes, ", ");
-            let msg = format!(
-                "The requested VPC prefix of {vpc_prefix} conflicts with at \
-                least one network segment prefix ({foreign_segment_prefixes}) \
-                owned by another VPC",
-                vpc_prefix = new_prefix.config.prefix,
-            );
-            return Err(CarbideError::InvalidArgument(msg).into());
-        }
-        // We don't need the associated VpcIds anymore, get rid of them.
-        own_segment_prefixes
-            .into_iter()
-            .map(|(_, segment_prefix)| segment_prefix)
-            .collect()
-    };
+    let segment_prefixes = adoptable_segment_prefixes(segment_prefixes, new_prefix.vpc_id);
 
     // Check that the network segment prefixes we found can actually fit into
     // this new VPC prefix container.
@@ -303,6 +285,18 @@ pub(crate) async fn create(
         .validate(true)
         .map_err(CarbideError::from)?;
 
+    let adopted_network_prefix_ids = segment_prefixes
+        .iter()
+        .map(|prefix| prefix.id)
+        .collect::<Vec<_>>();
+    crate::routing_safety::validate_vpc_prefix_candidate(
+        &api.runtime_config,
+        &mut txn,
+        &new_prefix,
+        &adopted_network_prefix_ids,
+    )
+    .await?;
+
     let vpc_prefix = db::persist(new_prefix, expected_vpc_version, &mut txn).await?;
     let vpc_prefix_id = vpc_prefix.id;
     let vpc_prefix_network = vpc_prefix.config.prefix;
@@ -317,6 +311,7 @@ pub(crate) async fn create(
         )
         .await?;
     }
+    crate::routing_safety::validate_live_state(&api.runtime_config, &mut txn).await?;
 
     // Reload through the normal read path so create responses include computed utilization stats.
     let vpc_prefix = db::get_by_id(
@@ -513,6 +508,7 @@ pub(crate) async fn delete(
     let delete_prefix = vpc_prefix::DeleteVpcPrefix::try_from(request.into_inner())?;
 
     let mut txn = api.txn_begin().await?;
+    crate::routing_safety::lock_site_mutation(&mut txn).await?;
 
     // Load the active prefix so repeat deletes preserve current NotFound
     // behavior unless the DB layer deliberately makes soft-delete idempotent.
@@ -547,4 +543,55 @@ pub(crate) async fn delete(
     txn.commit().await?;
 
     Ok(tonic::Response::new(rpc::VpcPrefixDeletionResult {}))
+}
+
+#[cfg(test)]
+mod routing_safety_tests {
+    use carbide_uuid::network::{NetworkPrefixId, NetworkSegmentId};
+    use carbide_uuid::vpc::VpcPrefixId;
+
+    use super::*;
+
+    fn prefix(vpc_prefix_id: Option<VpcPrefixId>) -> NetworkPrefix {
+        NetworkPrefix {
+            id: NetworkPrefixId::new(),
+            segment_id: NetworkSegmentId::new(),
+            prefix: "192.0.2.0/31".parse().unwrap(),
+            gateway: None,
+            dhcpv6_link_address: None,
+            num_reserved: 0,
+            vpc_prefix_id,
+            vpc_prefix: vpc_prefix_id.map(|_| "192.0.2.0/24".parse().unwrap()),
+            svi_ip: None,
+            num_free_ips: None,
+        }
+    }
+
+    #[test]
+    fn adoptable_segment_prefixes_keep_only_candidate_vpc_overlaps() {
+        let candidate_vpc_id = VpcId::new();
+        let foreign_vpc_id = VpcId::new();
+
+        let cases = [
+            ("candidate direct prefix", true, false, 1),
+            ("candidate generated prefix", true, true, 1),
+            ("foreign direct prefix", false, false, 0),
+            ("foreign generated prefix", false, true, 0),
+        ];
+        for (scenario, owned_by_candidate, generated, expected_count) in cases {
+            let owner = if owned_by_candidate {
+                candidate_vpc_id
+            } else {
+                foreign_vpc_id
+            };
+            let vpc_prefix_id = generated.then(VpcPrefixId::new);
+            let result =
+                adoptable_segment_prefixes(vec![(owner, prefix(vpc_prefix_id))], candidate_vpc_id);
+
+            assert_eq!(result.len(), expected_count, "{scenario}");
+            if let Some(result) = result.first() {
+                assert_eq!(result.vpc_prefix_id.is_some(), generated, "{scenario}");
+            }
+        }
+    }
 }

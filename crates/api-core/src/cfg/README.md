@@ -42,6 +42,7 @@ Use `site_explorer.dpu_policy` instead.
 | `enable_route_servers` | `bool` | `false` | `networking` | Enables route server injection into DPU FRR configs for L2VPN. |
 | `deny_prefixes` | `Vec<IpNetwork>` | `[]` | `networking` | IPv4 and IPv6 CIDR prefixes that tenant instances are blocked from reaching. FNN generates family-specific NVUE ACL policies; all non-FNN virtualizers apply the IPv4 prefixes only. |
 | `site_fabric_prefixes` | `Vec<IpNetwork>` | `[]` | `networking` | IP prefixes (v4/v6) assigned for tenant use within this site. |
+| `tenant_prefix_overlap_enabled` | `bool` | `false` | `networking` | Enables application admission for tenant-owned VPC prefixes to reuse CIDRs in separate, mutually isolated FNN routing domains after the legacy database exclusions are removed. Enabling the site gate alone is insufficient: every overlapping VPC must use an `overlap_eligible` safe base profile and satisfy the routing-safety preflight described below. Disabling the gate freezes expansion but still permits deletion and drain. |
 | `max_site_prefixes_per_tenant` | `u32` | `8` | `networking` | Maximum tenant-managed SitePrefixes retained for one tenant at this site. Prefixes awaiting removal still count against this limit and keep their CIDR reserved. |
 | `anycast_site_prefixes` | `Vec<Ipv4Network>` | `[]` | `networking` | Aggregate IPv4 prefixes containing tenant-announced prefixes (e.g., BYOIP). **Deprecated.** Use [`routing_profiles.allowed_anycast_prefixes`](#fnnroutingprofileconfig) instead. |
 | `common_tenant_host_asn` | `Option<u32>` | — | `networking` | ASN that tenants use to peer with the DPU. If unset, any ASN is accepted. |
@@ -635,6 +636,7 @@ client-certificate authentication is not used.
 
 | Field | Type | Default | Description |
 | ------- | ------ | --------- | ------------- |
+| `overlap_eligible` | `bool` | `false` | Operator opt-in allowing VPCs based on this profile to participate in tenant prefix overlap. This base-profile property cannot be overridden on a VPC. |
 | `route_target_imports` | `Option<Vec<RouteTargetConfig>>` | — (effective `[]`) | Route targets imported into DPU VRFs for VPC routes. |
 | `route_targets_on_exports` | `Option<Vec<RouteTargetConfig>>` | — (effective `[]`) | Route targets added to routes exported by the DPU. |
 | `internal` | `Option<bool>` | — (effective `false`) | Whether the profile uses internal VNI allocation. This property cannot be overridden on a VPC. |
@@ -648,6 +650,40 @@ client-certificate authentication is not used.
 Unset properties retain presence information so a VPC's inline
 `routing_profile_overrides` can inherit them. After the named profile and VPC
 override are combined, properties still unset use the effective defaults above.
+
+Tenant prefix overlap is admitted only when both the top-level
+`tenant_prefix_overlap_enabled` gate and every overlapping VPC's base-profile
+`overlap_eligible` flag are true. An eligible effective profile must also set
+`internal = true` and leave route-target imports/exports, underlay/default-route
+leaks, tenant leak communities, and allowed anycast prefixes disabled or empty.
+The site must use mutual VPC isolation, distinct actual VNIs, deny-only
+non-stateful effective NSGs, and no permit-bearing global
+`network_security_group.policy_overrides`. Active interface routing overrides,
+a site-global VPC VNI, VMaaS, a site-wide anycast prefix, a common internal
+route target, and additional FNN imports are also unsafe. VPC peering is
+rejected if it would make overlapping routes visible in either direction.
+
+These settings and checks are staged safety plumbing. The legacy database
+exclusions continue to block duplicate VPC-prefix persistence until
+[#3891](https://github.com/NVIDIA/infra-controller/issues/3891) and
+[#3892](https://github.com/NVIDIA/infra-controller/issues/3892) replace them;
+the settings alone do not make tenant CIDR reuse available to operators.
+
+NICo renders one SitePrefix isolation list for the whole site. While any
+retained duplicate address space exists, every graph-active tenant-serving FNN
+path must satisfy the isolation rules above, including VPCs whose own prefixes
+do not overlap. Only VPCs participating in an overlap must set their base
+profile's `overlap_eligible` flag. A graph-active FNN VPC without a resolvable
+profile fails closed; a profile or VPC that is not referenced by an address,
+peering, or retained instance is not graph-active and does not block startup.
+
+These settings are read at process startup. Before opening its listeners, NICo
+checks the retained routing graph (including resources draining after soft
+deletion) and refuses to start when live duplicate tenant address space is
+unsafe. This check remains active when `tenant_prefix_overlap_enabled = false`:
+disabling the gate freezes expansion but cannot remove protection from retained
+duplicates. The first unsafe expansion of a latent profile is rejected. Errors
+intentionally do not identify another tenant's CIDR or resource.
 
 ### `VpcDefinition`
 

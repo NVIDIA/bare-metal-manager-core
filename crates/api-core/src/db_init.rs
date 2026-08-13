@@ -121,6 +121,7 @@ pub(crate) async fn create_initial_networks(
     networks: &HashMap<String, NetworkDefinition>,
 ) -> Result<(), CarbideError> {
     let mut txn = Transaction::begin(db_pool).await?;
+    crate::routing_safety::lock_site_mutation(&mut txn).await?;
     let domains = db::dns::domain::find_by(
         &mut txn,
         ObjectColumnFilter::<db::dns::domain::IdColumn>::All,
@@ -172,6 +173,17 @@ pub(crate) async fn create_initial_networks(
             None
         };
 
+        // Re-read transaction-visible routing state for each configured
+        // segment so earlier inserts in this loop constrain later candidates.
+        // The final live-state check preserves legacy occupancy and cannot
+        // identify which conflict this startup transaction introduced.
+        crate::routing_safety::validate_network_segment_candidate(
+            &api.runtime_config,
+            &mut txn,
+            &ns,
+        )
+        .await?;
+
         // Capture before `save_without_reverse_zones` moves `ns`.
         // `insert_network_def` needs the id because
         // `network_def.segment_id` is FK-bound to it.
@@ -212,6 +224,7 @@ pub(crate) async fn create_initial_networks(
         );
     }
     db::dns::ensure_reverse_zones(&reverse_zone_prefixes, &mut txn).await?;
+    crate::routing_safety::validate_live_state(&api.runtime_config, &mut txn).await?;
 
     txn.commit().await?;
     Ok(())
@@ -243,6 +256,7 @@ pub(crate) async fn create_initial_vpcs(
     validate_initial_vpcs(vpcs).map_err(CarbideError::InvalidConfiguration)?;
 
     let mut txn = Transaction::begin(db_pool).await?;
+    crate::routing_safety::lock_site_mutation(&mut txn).await?;
     for (name, def) in vpcs {
         if db::vpc::find_by_name(&mut txn, name)
             .await
@@ -465,6 +479,7 @@ pub(crate) async fn store_initial_dpu_agent_upgrade_policy(
 
 pub(crate) async fn create_admin_vpc(
     db_pool: &Pool<Postgres>,
+    config: &crate::cfg::file::CarbideConfig,
     vpc_vni: Option<u32>,
 ) -> Result<(), CarbideError> {
     let Some(vpc_vni) = vpc_vni else {
@@ -474,6 +489,7 @@ pub(crate) async fn create_admin_vpc(
     };
 
     let mut txn = Transaction::begin(db_pool).await?;
+    crate::routing_safety::lock_site_mutation(&mut txn).await?;
 
     let configured_vni = vpc_vni as i32;
     let admin_segments = db::network_segment::admin(&mut txn).await?;
@@ -562,7 +578,10 @@ pub(crate) async fn create_admin_vpc(
                 }
                 Some(_) => {}
                 None => {
-                    // Attach any newly-created admin segment to the existing admin VPC.
+                    // Upgrade reconciliation may bind a legacy Admin prefix
+                    // that contains tenant space. It is not tenant reuse and
+                    // remains outside candidate admission; the post-write live
+                    // check still protects exact cross-VPC VPC-prefix reuse.
                     db::network_segment::set_vpc_id_and_can_stretch(
                         &admin_segment,
                         &mut txn,
@@ -573,6 +592,7 @@ pub(crate) async fn create_admin_vpc(
             }
         }
 
+        crate::routing_safety::validate_live_state(config, &mut txn).await?;
         txn.commit().await?;
 
         return Ok(());
@@ -608,9 +628,12 @@ pub(crate) async fn create_admin_vpc(
 
     // Attach it to admin network segments.
     for admin_segment in admin_segments {
+        // See the existing-VPC branch above: startup preserves the legacy
+        // Admin-containment contract and validates tenant reuse after binding.
         db::network_segment::set_vpc_id_and_can_stretch(&admin_segment, &mut txn, vpc.id).await?;
     }
 
+    crate::routing_safety::validate_live_state(config, &mut txn).await?;
     txn.commit().await?;
 
     Ok(())

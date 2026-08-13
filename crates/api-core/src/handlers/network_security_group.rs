@@ -97,6 +97,7 @@ pub(crate) async fn create(
 
     // Start a new transaction for a db write.
     let mut txn = api.txn_begin().await?;
+    crate::routing_safety::lock_site_mutation(&mut txn).await?;
 
     // Write a new NetworkSecurityGroup to the DB and get back
     // our new NetworkSecurityGroup.
@@ -308,6 +309,7 @@ pub(crate) async fn update(
 
     // Start a new transaction for a db write.
     let mut txn = api.txn_begin().await?;
+    crate::routing_safety::lock_site_mutation(&mut txn).await?;
 
     // Look up the NetworkSecurityGroup.  We'll need to check the current
     // version. We could probably do everything with a single query
@@ -380,6 +382,7 @@ pub(crate) async fn update(
         None,
     )
     .await?;
+    crate::routing_safety::validate_live_state(&api.runtime_config, &mut txn).await?;
 
     // Prepare the response to send back
     let rpc_out = rpc::UpdateNetworkSecurityGroupResponse {
@@ -420,6 +423,7 @@ pub(crate) async fn delete(
 
     // Prepare our txn to delete from the DB
     let mut txn = api.txn_begin().await?;
+    crate::routing_safety::lock_site_mutation(&mut txn).await?;
 
     // Make our DB query for the NetworkSecurityGroup.
     // This is mainly to get a row-level lock if the record exists

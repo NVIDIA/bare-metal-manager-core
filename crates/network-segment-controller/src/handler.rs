@@ -171,6 +171,8 @@ impl StateHandler for NetworkSegmentStateHandler {
                     }
                     NetworkSegmentDeletionState::DBDelete => {
                         let mut txn = ctx.services.db_pool.begin().await?;
+                        // Serialize the graph removal before pool and row locks.
+                        db::routing_safety::lock_site_mutation(&mut txn).await?;
                         if let Some(vni) = state.status.vni.take() {
                             db::resource_pool::release(&self.pool_vni, &mut txn, vni).await?;
                         }
