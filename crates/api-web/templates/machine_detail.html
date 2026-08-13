@@ -4,7 +4,9 @@
 
 {% block content %}
 <div id="json">
+	{% if !Self::logs_link_template().is_empty() %}
 	<a id="logs-link" href="" target="_blank">Logs</a>
+	{% endif %}
 	<a id="json-link" href="">JSON</a>
 </div>
 <h1>{{ machine_type }} {{ id }}</h1>
@@ -633,9 +635,12 @@ Missing BMC Data
 		let quarantine_form = document.getElementById("quarantine_action");
 		quarantine_form.addEventListener("submit", are_you_sure_quarantine);
 
-		// Set up Logs link
-		const machineId = "{{ id }}";
-		document.getElementById('logs-link').href = buildGrafanaLogsUrl(machineId);
+		// Set up Logs link (if configured)
+		const logsLink = document.getElementById('logs-link');
+		if (logsLink) {
+			const machineId = "{{ id }}";
+			logsLink.href = buildLogsUrl(machineId);
+		}
 	});
 </script>
 

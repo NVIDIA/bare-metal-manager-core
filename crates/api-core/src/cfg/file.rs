@@ -803,6 +803,12 @@ pub struct CarbideConfig {
     #[serde(default)]
     pub web_ui_sidebar_tools: Vec<ToolLink>,
 
+    /// URL template for the "Logs" link on machine and endpoint detail
+    /// pages. The placeholder `{search}` is replaced with the machine ID
+    /// or BMC IP. When empty, the Logs link is hidden.
+    #[serde(default)]
+    pub web_ui_logs_link_template: String,
+
     /// In-memory log history for the admin web live log viewer
     /// (`/admin/logs`): how much recent log data to keep for
     /// replay-on-connect and scrollback, and how many lines to send

@@ -245,15 +245,6 @@
 				});
 			}
 
-
-			// Extract site name from URL (e.g., "dev3" from "api-dev3.frg.nvidia.com")
-			// If URL doesn't match the pattern, returns defaultSiteName (defaults to "dev3")
-			function getSiteName(defaultSiteName = "dev3") {
-				const url = window.location.href;
-				const match = url.match(/https?:\/\/api-([^.]+)\.frg\.nvidia\.com/);
-				return match ? match[1] : defaultSiteName;
-			}
-
 			function create_el(type, attributes, htmlAttributes) {
 				const el = document.createElement(type);
 				Object.assign(el, attributes);
@@ -265,31 +256,12 @@
 				return el;
 			}
 
-			// Build Grafana logs URL for a given search term (machine ID or BMC IP)
-			function buildGrafanaLogsUrl(searchTerm) {
-				const siteName = getSiteName();
-				const grafanaBaseUrl = 'https://grafana-' + siteName + '.frg.nvidia.com';
-				const query = '{k8s_container_name="carbide-api"} |= `' + searchTerm + '` != `SPAN`';
-				const panesJson = {
-					"KLl": {
-						"datasource": "P8E80F9AEF21F6940",
-						"queries": [{
-							"refId": "A",
-							"expr": query,
-							"queryType": "range",
-							"datasource": {
-								"type": "loki",
-								"uid": "P8E80F9AEF21F6940"
-							},
-							"editorMode": "builder"
-						}],
-						"range": {
-							"from": "now-6h",
-							"to": "now"
-						}
-					}
-				};
-				return grafanaBaseUrl + '/explore?panes=' + encodeURIComponent(JSON.stringify(panesJson)) + '&schemaVersion=1&orgId=1';
+			// Build logs URL for a given search term (machine ID or BMC IP).
+			// Returns the URL with {search} replaced, or null if not configured.
+			function buildLogsUrl(searchTerm) {
+				const template = "{{ Self::logs_link_template() }}";
+				if (!template) return null;
+				return template.replace('{search}', encodeURIComponent(searchTerm));
 			}
 
 			// "Show" pages have a JSON link, fill in its target
