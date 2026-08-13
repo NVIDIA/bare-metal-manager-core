@@ -7371,6 +7371,7 @@ async fn test_dpf_topology_rejects_unselected_vf_on_create_and_update(
                     dpu_extension_services: None,
                     nvlink: None,
                     spxconfig: None,
+                    power_profile: None,
                 }),
                 metadata: Some(rpc::forge::Metadata {
                     name: "topology-update".to_string(),
@@ -7431,6 +7432,7 @@ async fn test_public_instance_endpoints_reject_out_of_range_wire_vfs(
             dpu_extension_services: None,
             nvlink: None,
             spxconfig: None,
+            power_profile: None,
         }
     };
     let metadata = |operation: &str, wire_vf_id| rpc::forge::Metadata {
