@@ -53,7 +53,7 @@ data:
   # literal strings). Bare (unquoted) values are not valid TOML for strings
   # and are not expected in practice.
   {{- $raw := .Values.siteConfig.nicoApiSiteConfig | default "" }}
-  {{- $siteConfig := regexReplaceAll `(?m)^\s*spiffe_trust_domain\s*=\s*["'][^"']*["']\s*$` $raw "" }}
+  {{- $siteConfig := regexReplaceAll `(?m)^\s*spiffe_trust_domain\s*=\s*["'][^"']*["'][^\n]*$` $raw "" }}
   carbide-api-site-config.toml: {{ $siteConfig | quote }}
   nico-api-site-config.toml:    {{ $siteConfig | quote }}
 {{- with .Values.siteConfig.adminRootCertPem }}
