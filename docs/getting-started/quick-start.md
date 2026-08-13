@@ -46,7 +46,7 @@ If your site controller nodes are equipped with Bluefield-3 DPUs, they must be f
 
 - Configure the Bluefield-3 device in DPU mode (operating mode).
 - Ensure the DPU ARM OS is booted and reachable via its management interface.
-- Verify that the DPU can connect to the outside world (curl -I [https://www.google.com](https://www.google.com))
+- Verify that the DPU can connect to the outside world with `curl -I https://www.google.com`
 
 Refer to the NVIDIA DOCA documentation and the BlueField Firmware Bundle download archive for firmware flashing instructions and supported firmware versions:
 
