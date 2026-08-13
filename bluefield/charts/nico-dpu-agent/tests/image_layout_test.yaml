@@ -84,3 +84,125 @@ tests:
             hostPath:
               path: /custom/cert/dir
               type: DirectoryOrCreate
+
+  - it: should run the LLDP snapshot sidecar with read-only host runtime access
+    set:
+      image:
+        repository: test
+        tag: test
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[1].name
+          value: nico-lldp-sidecar
+      - equal:
+          path: spec.template.spec.containers[1].securityContext
+          value:
+            privileged: false
+            allowPrivilegeEscalation: true
+            capabilities:
+              drop:
+                - ALL
+              add:
+                - DAC_OVERRIDE
+      - equal:
+          path: spec.template.spec.containers[1].command[0]
+          value: /busybox/sh
+      - matchRegex:
+          path: spec.template.spec.containers[1].command[2]
+          pattern: '(?s)readonly lldpcli_kill_grace=2.*timeout -k "\$\{lldpcli_kill_grace\}" "\$\{lldpcli_timeout\}".*show neighbors details.*timeout -k "\$\{lldpcli_kill_grace\}" "\$\{lldpcli_timeout\}".*show chassis'
+      - contains:
+          path: spec.template.spec.containers[1].volumeMounts
+          content:
+            name: hw-cache
+            mountPath: /data
+      - contains:
+          path: spec.template.spec.containers[1].volumeMounts
+          content:
+            name: host-run
+            mountPath: /run
+            readOnly: true
+      - contains:
+          path: spec.template.spec.containers[1].volumeMounts
+          content:
+            name: host-usr-sbin
+            mountPath: /usr/sbin
+            readOnly: true
+      - contains:
+          path: spec.template.spec.containers[1].volumeMounts
+          content:
+            name: host-lib
+            mountPath: /lib
+            readOnly: true
+      - contains:
+          path: spec.template.spec.containers[1].volumeMounts
+          content:
+            name: sys
+            mountPath: /host-sys
+            readOnly: true
+      - notContains:
+          path: spec.template.spec.containers[0].volumeMounts
+          content:
+            name: host-run
+      - notContains:
+          path: spec.template.spec.initContainers[0].volumeMounts
+          content:
+            name: host-run
+      - notContains:
+          path: spec.template.spec.containers[0].volumeMounts
+          content:
+            name: host-usr-sbin
+      - notContains:
+          path: spec.template.spec.initContainers[0].volumeMounts
+          content:
+            name: host-usr-sbin
+      - notContains:
+          path: spec.template.spec.containers[0].volumeMounts
+          content:
+            name: host-lib
+      - notContains:
+          path: spec.template.spec.initContainers[0].volumeMounts
+          content:
+            name: host-lib
+      - notContains:
+          path: spec.template.spec.containers[0].volumeMounts
+          content:
+            name: sys
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: AGENT_PLATFORM_TYPE
+            value: containerized
+
+  - it: should hostPath-mount the host runtime directory read-only in the sidecar
+    set:
+      image:
+        repository: test
+        tag: test
+    asserts:
+      - contains:
+          path: spec.template.spec.volumes
+          content:
+            name: host-run
+            hostPath:
+              path: /run
+              type: Directory
+      - contains:
+          path: spec.template.spec.volumes
+          content:
+            name: host-usr-sbin
+            hostPath:
+              path: /usr/sbin
+              type: Directory
+      - contains:
+          path: spec.template.spec.volumes
+          content:
+            name: host-lib
+            hostPath:
+              path: /lib
+              type: Directory
+      - contains:
+          path: spec.template.spec.volumes
+          content:
+            name: sys
+            hostPath:
+              path: /sys

@@ -401,8 +401,8 @@ pub async fn start(cmdline: command_line::Options) -> eyre::Result<()> {
             println!("{}", serde_json::to_string_pretty(&health_report)?);
         }
 
-        Some(AgentCommand::LldpNeighbors) => {
-            let neighbors = carbide_host_support::lldp_collector::collect_lldp_neighbors()?;
+        Some(AgentCommand::LldpNeighbors(options)) => {
+            let neighbors = collect_lldp_neighbors(&options.agent_platform_type)?;
             println!("{neighbors:#?}");
         }
 
@@ -600,6 +600,39 @@ pub async fn start(cmdline: command_line::Options) -> eyre::Result<()> {
         },
     }
     Ok(())
+}
+
+/// Collect LLDP neighbors from the source appropriate for this agent platform.
+///
+/// Periodic topology publishers must retain their last successful topology when
+/// this returns an error, then log the failure and retry on their normal interval.
+pub fn collect_lldp_neighbors(
+    platform_type: &AgentPlatformType,
+) -> carbide_host_support::lldp_collector::LldpCollectorResult<
+    Vec<carbide_host_support::lldp_collector::LldpNeighbor>,
+> {
+    collect_lldp_neighbors_with_collectors(
+        platform_type,
+        carbide_host_support::lldp_collector::collect_lldp_neighbors,
+        carbide_host_support::lldp_collector::collect_lldp_neighbors_from_snapshot,
+    )
+}
+
+fn collect_lldp_neighbors_with_collectors(
+    platform_type: &AgentPlatformType,
+    dpu_os_collector: impl FnOnce() -> carbide_host_support::lldp_collector::LldpCollectorResult<
+        Vec<carbide_host_support::lldp_collector::LldpNeighbor>,
+    >,
+    containerized_collector: impl FnOnce() -> carbide_host_support::lldp_collector::LldpCollectorResult<
+        Vec<carbide_host_support::lldp_collector::LldpNeighbor>,
+    >,
+) -> carbide_host_support::lldp_collector::LldpCollectorResult<
+    Vec<carbide_host_support::lldp_collector::LldpNeighbor>,
+> {
+    match platform_type {
+        AgentPlatformType::DpuOs => dpu_os_collector(),
+        AgentPlatformType::Containerized => containerized_collector(),
+    }
 }
 
 struct Registration {

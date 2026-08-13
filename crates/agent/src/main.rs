@@ -19,15 +19,15 @@ use std::time::Duration;
 
 fn main() -> eyre::Result<()> {
     let options = agent::Options::load();
+    carbide_host_support::init_logging("nico-dpu-agent")?;
 
     // Purely local interrogation for troubleshooting.
-    if matches!(options.cmd, Some(agent::AgentCommand::LldpNeighbors)) {
-        let neighbors = carbide_host_support::lldp_collector::collect_lldp_neighbors()?;
+    if let Some(agent::AgentCommand::LldpNeighbors(lldp_options)) = &options.cmd {
+        let neighbors = agent::collect_lldp_neighbors(&lldp_options.agent_platform_type)?;
         println!("{neighbors:#?}");
         return Ok(());
     }
 
-    carbide_host_support::init_logging("nico-dpu-agent")?;
     carbide_instrument::log_events::register(&agent::instrumentation::config::get_dpu_agent_meter());
 
     // We need a multi-threaded runtime since background threads will queue work

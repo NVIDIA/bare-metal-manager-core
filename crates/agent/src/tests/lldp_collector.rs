@@ -14,10 +14,21 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-mod bootstrap_ca;
-mod common;
-mod full;
-mod lldp_collector;
-mod metrics;
-mod test_network_monitor;
-mod upgrade;
+
+use carbide_host_support::lldp_collector::LldpCollectorError;
+
+use crate::{AgentPlatformType, collect_lldp_neighbors_with_collectors};
+
+#[test]
+fn containerized_lldp_collection_preserves_snapshot_errors() {
+    let result = collect_lldp_neighbors_with_collectors(
+        &AgentPlatformType::Containerized,
+        || Ok(Vec::new()),
+        || Err(LldpCollectorError::Lldp("snapshot unavailable".into())),
+    );
+
+    assert!(matches!(
+        result,
+        Err(LldpCollectorError::Lldp(message)) if message == "snapshot unavailable"
+    ));
+}

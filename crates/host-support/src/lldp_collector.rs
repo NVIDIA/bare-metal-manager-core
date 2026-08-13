@@ -1,7 +1,10 @@
 //! Collects the LLDP neighbors this host/DPU sees by shelling out to `lldpcli`,
 //! parsing its JSON, and dropping self-loopback entries.
 
+use std::collections::HashMap;
 use std::fs;
+use std::path::{Component, Path, PathBuf};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use ::rpc::machine_discovery as rpc_discovery;
 use carbide_utils::cmd::Cmd;
@@ -15,6 +18,9 @@ pub enum LldpCollectorError {
 }
 
 pub type LldpCollectorResult<T> = Result<T, LldpCollectorError>;
+
+const LLDP_SNAPSHOT_ROOT: &str = "/data/lldp";
+const LLDP_SNAPSHOT_MAX_AGE: Duration = Duration::from_secs(5 * 60);
 
 /// One LLDP neighbor plus the MAC of the local interface that sees it.
 #[derive(Debug, Clone)]
@@ -102,22 +108,197 @@ pub struct LldpResponse {
 pub fn collect_lldp_neighbors() -> LldpCollectorResult<Vec<LldpNeighbor>> {
     let local_chassis_id = get_local_chassis_id();
 
-    Ok(get_all_lldp_neighbors()?
-        .into_iter()
+    build_lldp_neighbors(
+        get_all_lldp_neighbors()?,
+        local_chassis_id.as_ref(),
+        |ifname| Ok(read_interface_mac(ifname)),
+    )
+}
+
+/// Returns LLDP neighbors captured by the sidecar for a containerized DPU agent.
+///
+/// A successful empty result means the validated snapshot contains no reportable
+/// neighbors. Missing, stale, malformed, or incomplete snapshots return an error,
+/// except malformed chassis data, which disables self-loop filtering.
+pub fn collect_lldp_neighbors_from_snapshot() -> LldpCollectorResult<Vec<LldpNeighbor>> {
+    collect_lldp_neighbors_from_snapshot_at(
+        Path::new(LLDP_SNAPSHOT_ROOT),
+        SystemTime::now(),
+        LLDP_SNAPSHOT_MAX_AGE,
+    )
+}
+
+fn collect_lldp_neighbors_from_snapshot_at(
+    snapshot_root: &Path,
+    now: SystemTime,
+    max_age: Duration,
+) -> LldpCollectorResult<Vec<LldpNeighbor>> {
+    let snapshot_dir = resolve_current_snapshot(snapshot_root)?;
+    validate_snapshot_age(&snapshot_dir, now, max_age)?;
+
+    let neighbors_json = read_snapshot_file(&snapshot_dir.join("neighbors.json"))?;
+    let chassis_json = read_snapshot_file(&snapshot_dir.join("chassis.json"))?;
+    let local_chassis_id = parse_local_chassis_id(&chassis_json);
+    let interface_macs = snapshot_dir.join("interface-macs");
+    validate_snapshot_directory(&interface_macs)?;
+
+    let neighbors = parse_lldp_neighbors(&neighbors_json)?;
+    let mut local_macs: HashMap<String, String> = HashMap::new();
+    build_lldp_neighbors(neighbors, local_chassis_id.as_ref(), |ifname| {
+        if let Some(mac) = local_macs.get(ifname) {
+            return Ok(Some(mac.clone()));
+        }
+
+        let mac = read_snapshot_interface_mac(&interface_macs, ifname)?;
+        local_macs.insert(ifname.to_string(), mac.clone());
+        Ok(Some(mac))
+    })
+}
+
+fn resolve_current_snapshot(snapshot_root: &Path) -> LldpCollectorResult<PathBuf> {
+    validate_snapshot_directory(snapshot_root)?;
+    let current_path = snapshot_root.join("current");
+    let target = fs::read_link(&current_path).map_err(|error| {
+        LldpCollectorError::Lldp(format!(
+            "could not resolve LLDP snapshot {}: {error}",
+            current_path.display()
+        ))
+    })?;
+    let mut components = target.components();
+    let valid_target = matches!(components.next(), Some(Component::Normal(part)) if part == "snapshots")
+        && matches!(components.next(), Some(Component::Normal(part)) if part.to_string_lossy().starts_with("snapshot-"))
+        && components.next().is_none();
+    if !valid_target {
+        return Err(LldpCollectorError::Lldp(format!(
+            "sidecar LLDP snapshot target {} is not a generated relative snapshot",
+            target.display()
+        )));
+    }
+    let snapshots_dir = snapshot_root.join("snapshots");
+    validate_snapshot_directory(&snapshots_dir)?;
+    let snapshot_dir = snapshot_root.join(target);
+    validate_snapshot_directory(&snapshot_dir)?;
+    Ok(snapshot_dir)
+}
+
+fn validate_snapshot_directory(path: &Path) -> LldpCollectorResult<()> {
+    let metadata = fs::symlink_metadata(path).map_err(|error| {
+        LldpCollectorError::Lldp(format!(
+            "could not inspect LLDP snapshot directory {}: {error}",
+            path.display()
+        ))
+    })?;
+    if !metadata.file_type().is_dir() {
+        return Err(LldpCollectorError::Lldp(format!(
+            "LLDP snapshot path {} is not a directory",
+            path.display()
+        )));
+    }
+    Ok(())
+}
+
+fn validate_snapshot_age(
+    snapshot_dir: &Path,
+    now: SystemTime,
+    max_age: Duration,
+) -> LldpCollectorResult<()> {
+    let captured_at_path = snapshot_dir.join("captured-at");
+    let captured_at = read_snapshot_file(&captured_at_path)?;
+    let captured_at = captured_at.trim().parse::<u64>().map_err(|error| {
+        LldpCollectorError::Lldp(format!(
+            "invalid LLDP snapshot timestamp in {}: {error}",
+            captured_at_path.display()
+        ))
+    })?;
+    let captured_at = UNIX_EPOCH
+        .checked_add(Duration::from_secs(captured_at))
+        .ok_or_else(|| {
+            LldpCollectorError::Lldp("sidecar LLDP snapshot timestamp overflowed".into())
+        })?;
+    let age = now.duration_since(captured_at).map_err(|_| {
+        LldpCollectorError::Lldp(format!(
+            "sidecar LLDP snapshot {} is dated in the future",
+            snapshot_dir.display()
+        ))
+    })?;
+    if age > max_age {
+        return Err(LldpCollectorError::Lldp(format!(
+            "sidecar LLDP snapshot {} is {} seconds old; maximum age is {} seconds",
+            snapshot_dir.display(),
+            age.as_secs(),
+            max_age.as_secs()
+        )));
+    }
+    Ok(())
+}
+
+fn read_snapshot_file(path: &Path) -> LldpCollectorResult<String> {
+    let metadata = fs::symlink_metadata(path).map_err(|error| {
+        LldpCollectorError::Lldp(format!(
+            "could not inspect LLDP snapshot file {}: {error}",
+            path.display()
+        ))
+    })?;
+    if !metadata.file_type().is_file() {
+        return Err(LldpCollectorError::Lldp(format!(
+            "LLDP snapshot path {} is not a regular file",
+            path.display()
+        )));
+    }
+    fs::read_to_string(path).map_err(|error| {
+        LldpCollectorError::Lldp(format!(
+            "could not read LLDP snapshot file {}: {error}",
+            path.display()
+        ))
+    })
+}
+
+fn read_snapshot_interface_mac(interface_macs: &Path, ifname: &str) -> LldpCollectorResult<String> {
+    let interface_name = Path::new(ifname);
+    let mut components = interface_name.components();
+    if !matches!(components.next(), Some(Component::Normal(_))) || components.next().is_some() {
+        return Err(LldpCollectorError::Lldp(format!(
+            "invalid LLDP snapshot interface name {ifname}"
+        )));
+    }
+    let path = interface_macs.join(interface_name);
+    let mac = read_snapshot_file(&path)?;
+    let mac = mac.trim();
+    let octets = mac.split(':').collect::<Vec<_>>();
+    if octets.len() != 6
+        || octets.iter().any(|octet| {
+            octet.len() != 2 || !octet.chars().all(|character| character.is_ascii_hexdigit())
+        })
+    {
+        return Err(LldpCollectorError::Lldp(format!(
+            "invalid MAC address in LLDP snapshot file {}",
+            path.display()
+        )));
+    }
+    Ok(mac.to_string())
+}
+
+fn build_lldp_neighbors(
+    neighbors: Vec<rpc_discovery::LldpSwitchData>,
+    local_chassis_id: Option<&LldpId>,
+    mut interface_mac: impl FnMut(&str) -> LldpCollectorResult<Option<String>>,
+) -> LldpCollectorResult<Vec<LldpNeighbor>> {
+    let mut result = Vec::new();
+    for neighbor in neighbors {
         // Unknown local chassis id -> filter nothing: a spurious self-entry
         // beats a lost fabric link.
-        .filter(|lldp| {
-            local_chassis_id
-                .as_ref()
-                .is_none_or(|own| !is_self_loopback(lldp, own))
-        })
-        .filter_map(|lldp| {
-            Some(LldpNeighbor {
-                local_mac: read_interface_mac(&lldp.local_port)?,
-                switch: lldp,
-            })
-        })
-        .collect())
+        if local_chassis_id.is_some_and(|own| is_self_loopback(&neighbor, own)) {
+            continue;
+        }
+        let Some(local_mac) = interface_mac(&neighbor.local_port)? else {
+            continue;
+        };
+        result.push(LldpNeighbor {
+            local_mac,
+            switch: neighbor,
+        });
+    }
+    Ok(result)
 }
 
 /// Every LLDP neighbor across all interfaces lldpd monitors.
@@ -162,6 +343,13 @@ fn get_local_chassis_id() -> Option<LldpId> {
 
 /// Parse `lldpcli -f json0 show chassis` output down to the first chassis id.
 fn parse_local_chassis_id(json: &str) -> Option<LldpId> {
+    parse_local_chassis_id_result(json)
+        .map_err(|error| warn!(json, error = %error, "Could not deserialize local LLDP chassis"))
+        .ok()
+        .flatten()
+}
+
+fn parse_local_chassis_id_result(json: &str) -> LldpCollectorResult<Option<LldpId>> {
     #[derive(Deserialize, Default)]
     struct LocalChassisEntry {
         #[serde(default)]
@@ -173,13 +361,13 @@ fn parse_local_chassis_id(json: &str) -> Option<LldpId> {
         local_chassis: Vec<LocalChassisEntry>,
     }
 
-    let root: LocalChassisRoot = serde_json::from_str(json)
-        .map_err(|e| warn!(json, error = %e, "Could not deserialize local LLDP chassis"))
-        .ok()?;
-    root.local_chassis
+    let root: LocalChassisRoot =
+        serde_json::from_str(json).map_err(|error| LldpCollectorError::Lldp(error.to_string()))?;
+    Ok(root
+        .local_chassis
         .into_iter()
         .flat_map(|entry| entry.chassis)
-        .find_map(|chassis| chassis.id.into_iter().next())
+        .find_map(|chassis| chassis.id.into_iter().next()))
 }
 
 fn read_interface_mac(ifname: &str) -> Option<String> {
@@ -268,8 +456,14 @@ fn parse_lldp_neighbors(
 
 #[cfg(test)]
 mod tests {
+    use std::os::unix::fs::symlink;
+
+    use carbide_test_support::Outcome::{Fails, Yields};
+    use tempfile::TempDir;
+
     use super::{
-        LldpId, is_self_loopback, parse_lldp_neighbors, parse_local_chassis_id, rpc_discovery,
+        Duration, LldpId, UNIX_EPOCH, collect_lldp_neighbors_from_snapshot_at, fs,
+        is_self_loopback, parse_lldp_neighbors, parse_local_chassis_id, rpc_discovery,
     };
 
     // Three LLDP neighbors on a single physical port (`vlldp`). `-f json0` emits
@@ -393,6 +587,171 @@ mod tests {
               "descr": [{"value":"Forge-SRE"}] }] }
       ]
     }"#;
+
+    fn write_snapshot(
+        root: &std::path::Path,
+        captured_at: &str,
+        neighbors: &str,
+        chassis: &str,
+        interface_mac: Option<&str>,
+    ) {
+        let snapshot = root.join("snapshots/snapshot-test");
+        fs::create_dir_all(snapshot.join("interface-macs")).unwrap();
+        fs::write(snapshot.join("captured-at"), captured_at).unwrap();
+        fs::write(snapshot.join("neighbors.json"), neighbors).unwrap();
+        fs::write(snapshot.join("chassis.json"), chassis).unwrap();
+        if let Some(mac) = interface_mac {
+            fs::write(snapshot.join("interface-macs/p0"), mac).unwrap();
+        }
+        symlink("snapshots/snapshot-test", root.join("current")).unwrap();
+    }
+
+    #[derive(Clone, Copy, Debug)]
+    enum SnapshotState {
+        Valid,
+        Empty,
+        MissingMac,
+        EmptyMac,
+        MalformedMac,
+        UnreadableMac,
+        SelfLoop,
+        SelfLoopMissingMac,
+        Stale,
+        Future,
+        MalformedTimestamp,
+        MalformedNeighbors,
+        MalformedChassis,
+        MissingMacDirectory,
+        MissingCurrent,
+        InvalidCurrent,
+    }
+
+    fn snapshot_for_state(state: SnapshotState) -> TempDir {
+        let root = TempDir::new().unwrap();
+        match state {
+            SnapshotState::MissingCurrent => {}
+            SnapshotState::InvalidCurrent => {
+                symlink("../outside", root.path().join("current")).unwrap();
+            }
+            _ => {
+                let (captured_at, neighbors, chassis, mac) = match state {
+                    SnapshotState::Valid => (
+                        "900",
+                        SINGLE_NEIGHBOR,
+                        LOCAL_CHASSIS,
+                        Some("00:11:22:33:44:00\n"),
+                    ),
+                    SnapshotState::Empty => {
+                        ("900", r#"{"lldp":[{"interface":[]}]}"#, LOCAL_CHASSIS, None)
+                    }
+                    SnapshotState::MissingMac => ("900", SINGLE_NEIGHBOR, LOCAL_CHASSIS, None),
+                    SnapshotState::EmptyMac => ("900", SINGLE_NEIGHBOR, LOCAL_CHASSIS, Some("")),
+                    SnapshotState::MalformedMac => {
+                        ("900", SINGLE_NEIGHBOR, LOCAL_CHASSIS, Some("not-a-mac\n"))
+                    }
+                    SnapshotState::UnreadableMac => ("900", SINGLE_NEIGHBOR, LOCAL_CHASSIS, None),
+                    SnapshotState::SelfLoop => (
+                        "900",
+                        SINGLE_NEIGHBOR,
+                        r#"{"local-chassis":[{"chassis":[{"id":[{"type":"mac","value":"00:11:22:33:44:55"}]}]}]}"#,
+                        Some("00:11:22:33:44:00\n"),
+                    ),
+                    SnapshotState::SelfLoopMissingMac => (
+                        "900",
+                        SINGLE_NEIGHBOR,
+                        r#"{"local-chassis":[{"chassis":[{"id":[{"type":"mac","value":"00:11:22:33:44:55"}]}]}]}"#,
+                        None,
+                    ),
+                    SnapshotState::Stale => (
+                        "699",
+                        SINGLE_NEIGHBOR,
+                        LOCAL_CHASSIS,
+                        Some("00:11:22:33:44:00\n"),
+                    ),
+                    SnapshotState::Future => (
+                        "1001",
+                        SINGLE_NEIGHBOR,
+                        LOCAL_CHASSIS,
+                        Some("00:11:22:33:44:00\n"),
+                    ),
+                    SnapshotState::MalformedTimestamp => (
+                        "not-a-timestamp",
+                        SINGLE_NEIGHBOR,
+                        LOCAL_CHASSIS,
+                        Some("00:11:22:33:44:00\n"),
+                    ),
+                    SnapshotState::MalformedNeighbors => (
+                        "900",
+                        "not-json",
+                        LOCAL_CHASSIS,
+                        Some("00:11:22:33:44:00\n"),
+                    ),
+                    SnapshotState::MalformedChassis => (
+                        "900",
+                        SINGLE_NEIGHBOR,
+                        "not-json",
+                        Some("00:11:22:33:44:00\n"),
+                    ),
+                    SnapshotState::MissingMacDirectory => {
+                        ("900", SINGLE_NEIGHBOR, LOCAL_CHASSIS, None)
+                    }
+                    SnapshotState::MissingCurrent | SnapshotState::InvalidCurrent => unreachable!(),
+                };
+                write_snapshot(root.path(), captured_at, neighbors, chassis, mac);
+                if matches!(state, SnapshotState::MissingMacDirectory) {
+                    fs::remove_dir(root.path().join("snapshots/snapshot-test/interface-macs"))
+                        .unwrap();
+                }
+                if matches!(state, SnapshotState::UnreadableMac) {
+                    fs::create_dir(
+                        root.path()
+                            .join("snapshots/snapshot-test/interface-macs/p0"),
+                    )
+                    .unwrap();
+                }
+            }
+        }
+        root
+    }
+
+    #[test]
+    fn containerized_snapshot_cases() {
+        carbide_test_support::scenarios!(run = |state: SnapshotState| {
+            let root = snapshot_for_state(state);
+            collect_lldp_neighbors_from_snapshot_at(
+                root.path(),
+                UNIX_EPOCH + Duration::from_secs(1000),
+                Duration::from_secs(300),
+            )
+            .map(|neighbors| neighbors.len())
+            .map_err(drop)
+        };
+            "valid snapshots are collected" {
+                SnapshotState::Valid => Yields(1),
+                SnapshotState::Empty => Yields(0),
+                SnapshotState::MalformedChassis => Yields(1),
+            }
+
+            "neighbors representing this chassis are dropped" {
+                SnapshotState::SelfLoop => Yields(0),
+                SnapshotState::SelfLoopMissingMac => Yields(0),
+            }
+
+            "invalid snapshots are rejected" {
+                SnapshotState::MissingMac => Fails,
+                SnapshotState::EmptyMac => Fails,
+                SnapshotState::MalformedMac => Fails,
+                SnapshotState::UnreadableMac => Fails,
+                SnapshotState::Stale => Fails,
+                SnapshotState::Future => Fails,
+                SnapshotState::MalformedTimestamp => Fails,
+                SnapshotState::MalformedNeighbors => Fails,
+                SnapshotState::MissingMacDirectory => Fails,
+                SnapshotState::MissingCurrent => Fails,
+                SnapshotState::InvalidCurrent => Fails,
+            }
+        );
+    }
 
     #[test]
     fn parses_local_chassis_id() {
