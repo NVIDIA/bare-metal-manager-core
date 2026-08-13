@@ -121,6 +121,7 @@ pub mod attestation;
 mod bios_config;
 mod boot_interface_observation;
 mod dpf;
+mod dpu_action_handler;
 mod dpu_uefi_rotation;
 mod firmware_artifact;
 mod helpers;
@@ -1119,6 +1120,15 @@ impl MachineStateHandler {
                         ManagedHostState::RotatingDpuUefi { dpu_machine_id },
                     ));
                 }
+
+                // Releasing a DPF maintenance hold restarts DPU services, so it
+                // belongs with the idle-only work above rather than ahead of it.
+                dpu_action_handler::handle_pending_dpu_actions(
+                    self.dpu_handler.dpf_sdk.as_deref(),
+                    ctx,
+                    mh_snapshot,
+                )
+                .await?;
 
                 // Periodic BMC observation is deliberately Ready's final work,
                 // so it cannot preempt lifecycle or operator-requested actions.
