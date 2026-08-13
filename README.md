@@ -63,9 +63,9 @@ export NICO_DPF_BMC_ROOT_PASSWORD=<bmc-password>    # site-wide BMC root passwor
 
 # 4. Run setup — installs common services, NICo Core, and NICo REST in order
 cd helm-prereqs
-./setup.sh              # interactive — prompts before deploying Core and REST
-./setup.sh -y           # non-interactive — deploys everything including DPF (CI/CD)
-./setup.sh -y --skip-dpf  # non-interactive — skip DPF (no DPUs, or still on iPXE)
+./setup.sh                # interactive: prompts before deploying Core and REST
+./setup.sh -y             # non-interactive: deploys everything including DPF (CI/CD)
+./setup.sh -y --skip-dpf  # non-interactive: skip DPF (no DPUs, or still on iPXE)
 ```
 
 To tear everything down:
