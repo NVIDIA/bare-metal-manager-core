@@ -30,6 +30,7 @@ use carbide_dpf::{
 use carbide_uuid::machine::MachineId;
 use model::dpu_machine_update::OutdatedDpfDpu;
 use model::machine::{Machine, ManagedHostStateSnapshot};
+use model::machine_pending_action::{MachinePendingAction, MachinePendingActionKind};
 use sqlx::PgPool;
 use state_controller::controller::Enqueuer;
 use tokio::task::JoinSet;
@@ -132,6 +133,13 @@ pub trait DpfOperations: Send + Sync + std::fmt::Debug {
     /// from carbide config — see [`DpfSdk::find_outdated_dpus_dpf`] for
     /// details.
     async fn find_outdated_dpus_dpf(&self) -> Result<Vec<OutdatedDpfDpu>, DpfError>;
+
+    /// Whether one DPU still differs from its owning DPUDeployment, i.e. a
+    /// reprovision is still coming for it.
+    ///
+    /// Reports `true` for a DPU it cannot evaluate, so callers gated on "this
+    /// DPU is already up to date" fail closed.
+    async fn is_dpu_outdated(&self, dpu_name: &str) -> Result<bool, DpfError>;
 }
 
 /// Check whether the DPUNode and DPUDevice CRs are missing for the given host.
@@ -376,7 +384,7 @@ impl DpfSdkOps {
                             host_bmc_ip_address = %event.host_bmc_ip,
                             "DPF reboot required"
                         );
-                        enqueue_host(&db_pool, &event.node_name, "reboot").await
+                        enqueue_host(&db_pool, &event.node_name, "reboot", None).await
                     }
                 }
             })
@@ -391,7 +399,7 @@ impl DpfSdkOps {
                             node = %event.node_name,
                             "DPF DPU ready"
                         );
-                        enqueue_host(&db_pool, &event.node_name, "ready").await
+                        enqueue_host(&db_pool, &event.node_name, "ready", None).await
                     }
                 }
             })
@@ -404,7 +412,16 @@ impl DpfSdkOps {
                             node = %event.node_name,
                             "DPF maintenance needed (NodeEffect phase)"
                         );
-                        enqueue_host(&db_pool, &event.node_name, "maintenance").await
+                        // A DPUService change is one of the things that drives a
+                        // DPU here, and rolling it out needs carbide to release
+                        // the hold once the DPU is confirmed up to date.
+                        enqueue_host(
+                            &db_pool,
+                            &event.node_name,
+                            "maintenance",
+                            Some(MachinePendingActionKind::DpuServiceSync),
+                        )
+                        .await
                     }
                 }
             })
@@ -418,7 +435,7 @@ impl DpfSdkOps {
                             node = %event.node_name,
                             "DPF DPU entered error phase"
                         );
-                        enqueue_host(&db_pool, &event.node_name, "error").await
+                        enqueue_host(&db_pool, &event.node_name, "error", None).await
                     }
                 }
             })
@@ -432,10 +449,38 @@ impl DpfSdkOps {
     }
 }
 
+/// Records that a host owes `kind`, returning the stored action.
+async fn record_pending_action(
+    db_pool: &PgPool,
+    host_machine_id: &MachineId,
+    kind: MachinePendingActionKind,
+) -> Result<MachinePendingAction, DpfError> {
+    let mut conn = db_pool.acquire().await.map_err(|e| {
+        DpfError::InvalidState(format!("Failed to acquire database connection: {e}"))
+    })?;
+    db::machine_pending_action::request(&mut conn, host_machine_id, kind)
+        .await
+        .map_err(|e| {
+            DpfError::InvalidState(format!(
+                "DB error recording pending action for machine {host_machine_id}: {e}"
+            ))
+        })
+}
+
 /// Look up a host by DPUNode CR name and enqueue it for state handling.
 /// CR name format: `node-{dpf_id}`, where `dpf_id` is the host's BMC MAC
 /// address with colons replaced by hyphens.
-async fn enqueue_host(db_pool: &PgPool, node_name: &str, reason: &str) -> Result<(), DpfError> {
+///
+/// `pending_action` records durable work the host owes before it is enqueued.
+/// The queue itself cannot carry that signal: it stores only an object id and
+/// coalesces duplicates, so this enqueue is indistinguishable from the periodic
+/// sweep's and is dropped outright if the sweep queued the host first.
+async fn enqueue_host(
+    db_pool: &PgPool,
+    node_name: &str,
+    reason: &str,
+    pending_action: Option<MachinePendingActionKind>,
+) -> Result<(), DpfError> {
     let bmc_mac_id = node_id_from_dpu_node_cr_name(node_name);
     let bmc_mac: mac_address::MacAddress = bmc_mac_id
         .replace('-', ":")
@@ -458,32 +503,39 @@ async fn enqueue_host(db_pool: &PgPool, node_name: &str, reason: &str) -> Result
         return Ok(());
     };
 
-    let host = {
-        let mut conn = db_pool.acquire().await.map_err(|e| {
-            DpfError::InvalidState(format!("Failed to acquire database connection: {e}"))
-        })?;
-        db::machine::find_one(
-            &mut *conn,
-            &host_machine_id,
-            model::machine::machine_search_config::MachineSearchConfig::default(),
-        )
-        .await
-        .map_err(|e| DpfError::InvalidState(format!("DB error looking up host: {e}")))?
-    };
-
-    let Some(host) = host else {
-        tracing::warn!(node = %node_name, reason, "Could not find host for DPF node");
-        return Ok(());
-    };
+    // Written before the enqueue so a processor cannot reach the host's handler
+    // while the marker is still missing.
+    //
+    // A failure here must not suppress the enqueue. This callback's wake-up is
+    // what the DPF provisioning handler relies on to release a node's hold, and
+    // that is older and more important than the marker; losing it would stall
+    // provisioning until the periodic sweep noticed. The marker is recoverable
+    // on its own -- the watcher fires again while the DPU stays in NodeEffect.
+    if let Some(kind) = pending_action {
+        match record_pending_action(db_pool, &host_machine_id, kind).await {
+            Ok(action) => tracing::info!(
+                node = %node_name,
+                machine_id = %host_machine_id,
+                requested_at = %action.requested_at,
+                "Recorded pending DPF action for host"
+            ),
+            Err(error) => tracing::warn!(
+                node = %node_name,
+                machine_id = %host_machine_id,
+                %error,
+                "Could not record pending DPF action; enqueueing the host regardless"
+            ),
+        }
+    }
 
     Enqueuer::<MachineStateControllerIO>::new(db_pool.clone())
-        .enqueue_object(&host.id)
+        .enqueue_object(&host_machine_id)
         .await
         .map_err(|e| {
-            DpfError::InvalidState(format!("Failed to enqueue machine {}: {e}", host.id))
+            DpfError::InvalidState(format!("Failed to enqueue machine {host_machine_id}: {e}"))
         })?;
 
-    tracing::info!(node = %node_name, machine_id = %host.id, reason, "Enqueued host for DPF state handling");
+    tracing::info!(node = %node_name, machine_id = %host_machine_id, reason, "Enqueued host for DPF state handling");
     Ok(())
 }
 
@@ -583,6 +635,10 @@ impl DpfOperations for DpfSdkOps {
 
     async fn snapshot_host(&self, node_name: &str) -> Result<HostDpfSnapshot, DpfError> {
         self.sdk.snapshot_host(node_name).await
+    }
+
+    async fn is_dpu_outdated(&self, dpu_name: &str) -> Result<bool, DpfError> {
+        self.sdk.is_dpu_outdated(dpu_name).await
     }
 
     async fn list_service_template_versions(
