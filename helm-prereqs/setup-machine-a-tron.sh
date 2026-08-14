@@ -227,14 +227,19 @@ _valid_cidr_gw "$SCALE_OOB_PREFIX"   "$SCALE_OOB_GW"   "SCALE_OOB"   || die "$(_
 _valid_cidr_gw "$SCALE_ADMIN_PREFIX" "$SCALE_ADMIN_GW" "SCALE_ADMIN" || die "$(_valid_cidr_gw "$SCALE_ADMIN_PREFIX" "$SCALE_ADMIN_GW" "SCALE_ADMIN" 2>&1)"
 # site_explorer throughput knobs applied in scale mode (defaults 30/90/4 make
 # 4500-host ingestion take ~9h; these bring it to ~1-2h).
-SCALE_CONCURRENT_EXPLORATIONS="${SCALE_CONCURRENT_EXPLORATIONS:-100}"
+# Defaults are the values measured best at BOTH scales (Aug 2026 campaign):
+# 1,000 hosts -> 186.8 machines/min (vs 138.5 under the old conc=200 tuning;
+# the old conc=400 "overshoot" to 68/min was a lock-contention artifact, fixed);
+# 4,500 hosts -> 80-100 machines/min, all 13,500 machines ready in ~3-3.5h.
+# One configuration serves both scales; override only with measurements.
+SCALE_CONCURRENT_EXPLORATIONS="${SCALE_CONCURRENT_EXPLORATIONS:-400}"
 # NB: keep explorations_per_run MODERATE. Identification and machine creation
 # only run at the END of a completed explore_site cycle — a huge per-run value
 # makes every cycle deep-scan hundreds of endpoints (dozens of Redfish calls
 # each) and cycles stop completing, so machines are never created. ~120 keeps
 # cycles under ~2 min while still sweeping the fleet quickly.
-SCALE_EXPLORATIONS_PER_RUN="${SCALE_EXPLORATIONS_PER_RUN:-120}"
-SCALE_MACHINES_CREATED_PER_RUN="${SCALE_MACHINES_CREATED_PER_RUN:-40}"
+SCALE_EXPLORATIONS_PER_RUN="${SCALE_EXPLORATIONS_PER_RUN:-360}"
+SCALE_MACHINES_CREATED_PER_RUN="${SCALE_MACHINES_CREATED_PER_RUN:-100}"
 
 CHART_DIR="${CHART_DIR:-${REPO_ROOT}/helm/charts/nico-machine-a-tron}"
 
@@ -685,7 +690,7 @@ elif [[ "$MAT_MODE" == "scale" ]]; then
         KNOB_SE_RUN_INTERVAL="${SCALE_RUN_INTERVAL:-}" \
         KNOB_FW_CONC="${SCALE_FW_CONCURRENCY:-}" \
         KNOB_FW_RUN_INTERVAL="${SCALE_FW_RUN_INTERVAL:-}" \
-        KNOB_STATE_CONC="${SCALE_STATE_MAX_CONCURRENCY:-}" \
+        KNOB_STATE_CONC="${SCALE_STATE_MAX_CONCURRENCY:-200}" \
         python3 - "$CM_JSON" <<'PY'
 import json, os, sys
 path = sys.argv[1]
