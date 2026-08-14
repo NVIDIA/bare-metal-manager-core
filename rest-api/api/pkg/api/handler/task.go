@@ -4,7 +4,6 @@
 package handler
 
 import (
-	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -15,7 +14,6 @@ import (
 	"go.opentelemetry.io/otel/attribute"
 	temporalEnums "go.temporal.io/api/enums/v1"
 	tClient "go.temporal.io/sdk/client"
-	tp "go.temporal.io/sdk/temporal"
 
 	"github.com/NVIDIA/infra-controller/rest-api/api/internal/config"
 	"github.com/NVIDIA/infra-controller/rest-api/api/pkg/api/handler/util/common"
@@ -27,7 +25,6 @@ import (
 	cdb "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db"
 	cdbm "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/model"
 	flowv1 "github.com/NVIDIA/infra-controller/rest-api/proto/flow/gen/v1"
-	"github.com/NVIDIA/infra-controller/rest-api/workflow/pkg/queue"
 )
 
 // ~~~~~ Get Task Handler ~~~~~ //
@@ -149,33 +146,15 @@ func (gth GetTaskHandler) Handle(c echo.Context) error {
 		TaskIds: []*flowv1.UUID{{Id: taskID}},
 	}
 
-	workflowOptions := tClient.StartWorkflowOptions{
-		ID:                       fmt.Sprintf("task-get-%s", taskID),
-		WorkflowIDReusePolicy:    temporalEnums.WORKFLOW_ID_REUSE_POLICY_ALLOW_DUPLICATE,
-		WorkflowIDConflictPolicy: temporalEnums.WORKFLOW_ID_CONFLICT_POLICY_USE_EXISTING,
-		WorkflowExecutionTimeout: cutil.WorkflowExecutionTimeout,
-		TaskQueue:                queue.SiteTaskQueue,
-	}
-
-	ctx, cancel := context.WithTimeout(ctx, cutil.WorkflowContextTimeout)
-	defer cancel()
-
-	we, err := stc.ExecuteWorkflow(ctx, workflowOptions, "GetTask", flowRequest)
-	if err != nil {
-		logger.Error().Err(err).Msg("failed to schedule GetTask workflow")
-		return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to schedule Task retrieval workflow", nil)
-	}
-
 	var flowResponse flowv1.GetTasksByIDsResponse
-	err = we.Get(ctx, &flowResponse)
-	if err != nil {
-		var timeoutErr *tp.TimeoutError
-		if errors.As(err, &timeoutErr) || err == context.DeadlineExceeded || ctx.Err() != nil {
-			return common.TerminateWorkflowOnTimeOut(c, logger, stc, fmt.Sprintf("task-get-%s", taskID), err, "Task", "GetTask")
-		}
-		code, unwrapErr := common.UnwrapWorkflowError(err)
-		logger.Error().Err(unwrapErr).Msg("failed to get result from GetTask workflow")
-		return cutil.NewAPIErrorResponse(c, code, fmt.Sprintf("Failed to execute Task retrieval workflow on Site: %s", unwrapErr), nil)
+	proxyErr := common.ProxyFlowGRPC(
+		ctx, c, logger, stc,
+		flowv1.Flow_GetTasksByIDs_FullMethodName,
+		flowRequest, &flowResponse,
+		common.FlowWorkflowID(fmt.Sprintf("task-get-%s", taskID)), temporalEnums.WORKFLOW_ID_CONFLICT_POLICY_USE_EXISTING,
+	)
+	if proxyErr != nil {
+		return proxyErr
 	}
 
 	tasks := flowResponse.GetTasks()
@@ -325,33 +304,15 @@ func (cth CancelTaskHandler) Handle(c echo.Context) error {
 	}
 
 	workflowID := fmt.Sprintf("task-cancel-%s", taskID)
-	workflowOptions := tClient.StartWorkflowOptions{
-		ID:                       workflowID,
-		WorkflowIDReusePolicy:    temporalEnums.WORKFLOW_ID_REUSE_POLICY_ALLOW_DUPLICATE,
-		WorkflowIDConflictPolicy: temporalEnums.WORKFLOW_ID_CONFLICT_POLICY_USE_EXISTING,
-		WorkflowExecutionTimeout: cutil.WorkflowExecutionTimeout,
-		TaskQueue:                queue.SiteTaskQueue,
-	}
-
-	ctx, cancel := context.WithTimeout(ctx, cutil.WorkflowContextTimeout)
-	defer cancel()
-
-	we, err := stc.ExecuteWorkflow(ctx, workflowOptions, "CancelTask", flowRequest)
-	if err != nil {
-		logger.Error().Err(err).Msg("failed to schedule CancelTask workflow")
-		return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to schedule Task cancellation workflow", nil)
-	}
-
 	var flowResponse flowv1.CancelTaskResponse
-	err = we.Get(ctx, &flowResponse)
-	if err != nil {
-		var timeoutErr *tp.TimeoutError
-		if errors.As(err, &timeoutErr) || err == context.DeadlineExceeded || ctx.Err() != nil {
-			return common.TerminateWorkflowOnTimeOut(c, logger, stc, workflowID, err, "Task", "CancelTask")
-		}
-		code, unwrapErr := common.UnwrapWorkflowError(err)
-		logger.Error().Err(unwrapErr).Msg("failed to get result from CancelTask workflow")
-		return cutil.NewAPIErrorResponse(c, code, fmt.Sprintf("Failed to execute Task cancellation workflow on Site: %s", unwrapErr), nil)
+	proxyErr := common.ProxyFlowGRPC(
+		ctx, c, logger, stc,
+		flowv1.Flow_CancelTask_FullMethodName,
+		flowRequest, &flowResponse,
+		common.FlowWorkflowID(workflowID), temporalEnums.WORKFLOW_ID_CONFLICT_POLICY_USE_EXISTING,
+	)
+	if proxyErr != nil {
+		return proxyErr
 	}
 
 	apiTask := model.NewAPITask(flowResponse.GetTask(), model.WithTaskReport())
@@ -501,32 +462,15 @@ func (h GetRackTasksHandler) Handle(c echo.Context) error {
 	}
 
 	workflowID := fmt.Sprintf("tasks-rack-get-%s-%s", rackID, common.QueryParamHash(apiRequest.QueryValues(pageRequest)))
-	workflowOptions := tClient.StartWorkflowOptions{
-		ID:                       workflowID,
-		WorkflowIDReusePolicy:    temporalEnums.WORKFLOW_ID_REUSE_POLICY_ALLOW_DUPLICATE,
-		WorkflowIDConflictPolicy: temporalEnums.WORKFLOW_ID_CONFLICT_POLICY_USE_EXISTING,
-		WorkflowExecutionTimeout: cutil.WorkflowExecutionTimeout,
-		TaskQueue:                queue.SiteTaskQueue,
-	}
-
-	wfCtx, cancel := context.WithTimeout(ctx, cutil.WorkflowContextTimeout)
-	defer cancel()
-
-	we, err := stc.ExecuteWorkflow(wfCtx, workflowOptions, "GetTasks", flowRequest)
-	if err != nil {
-		logger.Error().Err(err).Msg("failed to schedule workflow to retrieve all Rack Tasks")
-		return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to schedule workflow to retrieve all Rack Tasks", nil)
-	}
-
 	var flowResponse flowv1.ListTasksResponse
-	if err := we.Get(wfCtx, &flowResponse); err != nil {
-		var timeoutErr *tp.TimeoutError
-		if errors.As(err, &timeoutErr) || err == context.DeadlineExceeded || wfCtx.Err() != nil {
-			return common.TerminateWorkflowOnTimeOut(c, logger, stc, workflowID, err, "Task", "GetTasks")
-		}
-		code, unwrapErr := common.UnwrapWorkflowError(err)
-		logger.Error().Err(unwrapErr).Msg("failed to get result from GetTasks workflow for Rack")
-		return cutil.NewAPIErrorResponse(c, code, fmt.Sprintf("Failed to execute workflow to retrieve all Rack Tasks: %s", unwrapErr), nil)
+	proxyErr := common.ProxyFlowGRPC(
+		ctx, c, logger, stc,
+		flowv1.Flow_ListTasks_FullMethodName,
+		flowRequest, &flowResponse,
+		common.FlowWorkflowID(workflowID), temporalEnums.WORKFLOW_ID_CONFLICT_POLICY_USE_EXISTING,
+	)
+	if proxyErr != nil {
+		return proxyErr
 	}
 
 	taskOpts := apiRequest.TaskOptions()
@@ -687,32 +631,15 @@ func (h GetTrayTasksHandler) Handle(c echo.Context) error {
 	}
 
 	workflowID := fmt.Sprintf("tasks-tray-get-%s-%s", trayID, common.QueryParamHash(apiRequest.QueryValues(pageRequest)))
-	workflowOptions := tClient.StartWorkflowOptions{
-		ID:                       workflowID,
-		WorkflowIDReusePolicy:    temporalEnums.WORKFLOW_ID_REUSE_POLICY_ALLOW_DUPLICATE,
-		WorkflowIDConflictPolicy: temporalEnums.WORKFLOW_ID_CONFLICT_POLICY_USE_EXISTING,
-		WorkflowExecutionTimeout: cutil.WorkflowExecutionTimeout,
-		TaskQueue:                queue.SiteTaskQueue,
-	}
-
-	wfCtx, cancel := context.WithTimeout(ctx, cutil.WorkflowContextTimeout)
-	defer cancel()
-
-	we, err := stc.ExecuteWorkflow(wfCtx, workflowOptions, "GetTasks", flowRequest)
-	if err != nil {
-		logger.Error().Err(err).Msg("failed to schedule workflow to retrieve all Tray Tasks")
-		return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to schedule workflow to retrieve all Tray Tasks", nil)
-	}
-
 	var flowResponse flowv1.ListTasksResponse
-	if err := we.Get(wfCtx, &flowResponse); err != nil {
-		var timeoutErr *tp.TimeoutError
-		if errors.As(err, &timeoutErr) || err == context.DeadlineExceeded || wfCtx.Err() != nil {
-			return common.TerminateWorkflowOnTimeOut(c, logger, stc, workflowID, err, "Task", "GetTasks")
-		}
-		code, unwrapErr := common.UnwrapWorkflowError(err)
-		logger.Error().Err(unwrapErr).Msg("failed to get result from GetTasks workflow for Tray")
-		return cutil.NewAPIErrorResponse(c, code, fmt.Sprintf("Failed to execute workflow to retrieve all Tray Tasks: %s", unwrapErr), nil)
+	proxyErr := common.ProxyFlowGRPC(
+		ctx, c, logger, stc,
+		flowv1.Flow_ListTasks_FullMethodName,
+		flowRequest, &flowResponse,
+		common.FlowWorkflowID(workflowID), temporalEnums.WORKFLOW_ID_CONFLICT_POLICY_USE_EXISTING,
+	)
+	if proxyErr != nil {
+		return proxyErr
 	}
 
 	taskOpts := apiRequest.TaskOptions()

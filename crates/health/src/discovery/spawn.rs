@@ -356,12 +356,10 @@ fn spawn_generic_redfish_collectors(
                 .create_collector_registry(format!("log_collector_{key}"), metrics_prefix)?,
         );
 
-        let sse_backoff_config = || {
-            let sse_cfg = logs_cfg.sse_or_default();
-            BackoffConfig {
-                initial: sse_cfg.initial_backoff,
-                max: sse_cfg.max_backoff,
-            }
+        let sse_cfg = logs_cfg.sse_or_default();
+        let sse_backoff_config = || BackoffConfig {
+            initial: sse_cfg.initial_backoff,
+            max: sse_cfg.max_backoff,
         };
 
         let spawn_periodic_logs = |pcfg: PeriodicLogConfig,
@@ -399,6 +397,7 @@ fn spawn_generic_redfish_collectors(
                         bmc.clone(),
                         SseLogCollectorConfig {
                             include_diagnostics: ctx.logs_include_diagnostics,
+                            event_record_fetch_concurrency: sse_cfg.event_record_fetch_concurrency,
                         },
                         data_sink,
                         StreamingCollectorStartContext {
@@ -435,6 +434,7 @@ fn spawn_generic_redfish_collectors(
                         bmc.clone(),
                         SseLogCollectorConfig {
                             include_diagnostics: ctx.logs_include_diagnostics,
+                            event_record_fetch_concurrency: sse_cfg.event_record_fetch_concurrency,
                         },
                         data_sink,
                         StreamingCollectorStartContext {

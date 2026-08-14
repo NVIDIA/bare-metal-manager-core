@@ -53,6 +53,16 @@ deny_prefixes = [
 # display_name = "Argo CD"
 # url = "https://argocd-ENVIORNMENT_NAME.example.com"
 
+# URL template for the "Logs" link on machine and endpoint detail pages.
+# The placeholder {search} is replaced with the machine ID or BMC IP.
+# Omit or leave empty to hide the Logs link.
+#
+# Example for Grafana Loki:
+# web_ui_logs_link_template = "https://grafana.example.com/explore?panes={\"a\":{\"datasource\":\"loki\",\"queries\":[{\"expr\":\"{k8s_container_name=\\\"nico-api\\\"} |= `{search}`\",\"queryType\":\"range\"}],\"range\":{\"from\":\"now-6h\",\"to\":\"now\"}}}&schemaVersion=1&orgId=1"
+#
+# Example for VictoriaLogs:
+# web_ui_logs_link_template = "https://victorialogs.example.com/select/logsql/query?query={_container_name=\"nico-api\"} AND {search}&time=6h"
+
 [site_explorer]
 run_interval = "30s"
 

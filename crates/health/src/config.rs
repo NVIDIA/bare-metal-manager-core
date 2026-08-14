@@ -1281,6 +1281,10 @@ pub struct SseLogConfig {
     /// Maximum retry backoff after repeated streaming connection failures.
     #[serde(with = "humantime_serde")]
     pub max_backoff: Duration,
+
+    /// Maximum number of concurrent Redfish GET requests used to fetch
+    /// `EventRecord` resources referenced by `@odata.id` in SSE notifications.
+    pub event_record_fetch_concurrency: usize,
 }
 
 impl Default for SseLogConfig {
@@ -1288,6 +1292,7 @@ impl Default for SseLogConfig {
         Self {
             initial_backoff: Duration::from_secs(1),
             max_backoff: Duration::from_secs(30),
+            event_record_fetch_concurrency: 4,
         }
     }
 }
@@ -1305,6 +1310,13 @@ impl SseLogConfig {
         if self.max_backoff < self.initial_backoff {
             return Err(
                 "[collectors.logs.sse].max_backoff must be greater than or equal to initial_backoff"
+                    .to_string(),
+            );
+        }
+
+        if self.event_record_fetch_concurrency == 0 {
+            return Err(
+                "[collectors.logs.sse].event_record_fetch_concurrency must be greater than 0"
                     .to_string(),
             );
         }
@@ -2311,6 +2323,7 @@ mod tests {
             let sse = logs.sse_or_default();
             assert_eq!(sse.initial_backoff, Duration::from_secs(1));
             assert_eq!(sse.max_backoff, Duration::from_secs(30));
+            assert_eq!(sse.event_record_fetch_concurrency, 4);
             assert!(logs.validate().is_ok());
         } else {
             panic!("logs empty")
@@ -4417,8 +4430,19 @@ switch = { serial = "SN-SW-001", physical_slot_number = 7, compute_tray_index = 
                 SseLogConfig {
                     initial_backoff: Duration::from_secs(30),
                     max_backoff: Duration::from_secs(1),
+                    ..SseLogConfig::default()
                 } => FailsWith(
                     "[collectors.logs.sse].max_backoff must be greater than or equal to initial_backoff"
+                        .to_string()
+                ),
+            }
+
+            "zero event record fetch concurrency" {
+                SseLogConfig {
+                    event_record_fetch_concurrency: 0,
+                    ..SseLogConfig::default()
+                } => FailsWith(
+                    "[collectors.logs.sse].event_record_fetch_concurrency must be greater than 0"
                         .to_string()
                 ),
             }
@@ -4561,6 +4585,7 @@ switch = { serial = "SN-SW-001", physical_slot_number = 7, compute_tray_index = 
                     sse: Some(SseLogConfig {
                         initial_backoff: Duration::from_secs(30),
                         max_backoff: Duration::from_secs(1),
+                        ..SseLogConfig::default()
                     }),
                     ..LogsCollectorConfig::default()
                 } => FailsWith(
@@ -4616,18 +4641,21 @@ mode = "sse"
 [sse]
 initial_backoff = "2s"
 max_backoff = "1m"
+event_record_fetch_concurrency = 8
 "# => Yields(LogsConfigProjection {
                     mode: LogCollectionMode::Sse,
                     validation: Ok(()),
                     configured_sse: Some(SseLogConfig {
                         initial_backoff: Duration::from_secs(2),
                         max_backoff: Duration::from_secs(60),
+                        event_record_fetch_concurrency: 8,
                     }),
                     configured_periodic: None,
                     configured_auto: None,
                     effective_sse: SseLogConfig {
                         initial_backoff: Duration::from_secs(2),
                         max_backoff: Duration::from_secs(60),
+                        event_record_fetch_concurrency: 8,
                     },
                     effective_periodic: PeriodicLogConfig::default(),
                     effective_auto_periodic: PeriodicLogConfig::default(),
@@ -4707,12 +4735,14 @@ max_backoff = "45s"
                     configured_sse: Some(SseLogConfig {
                         initial_backoff: Duration::from_secs(3),
                         max_backoff: Duration::from_secs(45),
+                        ..SseLogConfig::default()
                     }),
                     configured_periodic: None,
                     configured_auto: None,
                     effective_sse: SseLogConfig {
                         initial_backoff: Duration::from_secs(3),
                         max_backoff: Duration::from_secs(45),
+                        ..SseLogConfig::default()
                     },
                     effective_periodic: PeriodicLogConfig::default(),
                     effective_auto_periodic: PeriodicLogConfig::default(),
@@ -4738,6 +4768,7 @@ max_backoff = "45s"
         let defaults = SseLogConfig::default();
         assert_eq!(defaults.initial_backoff, Duration::from_secs(1));
         assert_eq!(defaults.max_backoff, Duration::from_secs(30));
+        assert_eq!(defaults.event_record_fetch_concurrency, 4);
     }
 
     #[test]

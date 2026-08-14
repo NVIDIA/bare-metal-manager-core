@@ -27,8 +27,7 @@ use glob::Pattern;
 use rand::RngExt;
 use serde_json::Value;
 
-use crate::injection::{Action, Rule, RuleId, Selector};
-use crate::json::json_patch;
+use super::{Action, Rule, RuleId, Selector};
 
 #[derive(Debug, Default)]
 pub struct InjectionStore {
@@ -77,7 +76,7 @@ impl InjectionStore {
         })
     }
 
-    pub(super) fn clear(&self) {
+    pub fn clear(&self) {
         self.rules.store(Arc::new(Vec::new()));
     }
 
@@ -95,7 +94,7 @@ impl InjectionStore {
     }
 
     /// Used to modify HTTP response and inject latency.
-    pub(crate) async fn pre_handle(&self, method: &Method, path: &str) -> Option<Response> {
+    pub async fn pre_handle(&self, method: &Method, path: &str) -> Option<Response> {
         let snapshot = self.rules.load_full();
         if snapshot.is_empty() {
             return None;
@@ -166,7 +165,7 @@ impl InjectionStore {
     }
 
     /// Modify response body
-    pub(crate) async fn post_handle(&self, path: &str, response: Response) -> Response {
+    pub async fn post_handle(&self, path: &str, response: Response) -> Response {
         let snapshot = self.rules.load_full();
         if snapshot.is_empty() {
             return response;
@@ -289,6 +288,22 @@ impl InjectionStore {
     }
 }
 
+fn json_patch(target: &mut Value, patch: Value) {
+    match (target, patch) {
+        (Value::Object(target_object), Value::Object(patch_object)) => {
+            for (key, patch_value) in patch_object {
+                match target_object.get_mut(&key) {
+                    Some(target_value) => json_patch(target_value, patch_value),
+                    None => {
+                        target_object.insert(key, patch_value);
+                    }
+                }
+            }
+        }
+        (target_slot, patch_value) => *target_slot = patch_value,
+    }
+}
+
 fn is_json_response(response: &Response) -> bool {
     let Some(value) = response.headers().get(axum::http::header::CONTENT_TYPE) else {
         return false;
@@ -327,11 +342,10 @@ fn selector_matches(selector: &Selector, method: Option<&str>, path: &str) -> bo
 
 #[cfg(test)]
 mod tests {
-    use hyper::header;
+    use axum::http::header;
     use serde_json::json;
 
     use super::*;
-    use crate::injection::presets;
 
     fn json_ok(value: Value) -> Response {
         let body = value.to_string();
@@ -565,12 +579,24 @@ mod tests {
         assert!(store.list().is_empty());
     }
 
-    #[tokio::test]
-    async fn rules_serialize_round_trip() {
-        let rules = presets::all_dpu_lost_on_host();
-        let s = serde_json::to_string(&rules).unwrap();
-        let back: Vec<Rule> = serde_json::from_str(&s).unwrap();
-        assert_eq!(back.len(), rules.len());
+    #[test]
+    fn rules_serialize_round_trip() {
+        let rules = vec![
+            rule(
+                "hide",
+                Selector::OdataId("/resources/hidden/*".into()),
+                Action::Status(404),
+            ),
+            rule(
+                "merge",
+                Selector::OdataId("/resources/*".into()),
+                Action::JsonMerge(json!({ "Status": { "Health": "Critical" } })),
+            ),
+        ];
+        let serialized = serde_json::to_value(&rules).unwrap();
+        let deserialized: Vec<Rule> = serde_json::from_value(serialized.clone()).unwrap();
+
+        assert_eq!(serde_json::to_value(deserialized).unwrap(), serialized);
     }
 
     #[tokio::test]

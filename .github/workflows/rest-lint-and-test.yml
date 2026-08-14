@@ -32,6 +32,11 @@ jobs:
           cache: true
           cache-dependency-path: rest-api/go.sum
 
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+
       - name: Download dependencies
         run: go mod download
 
@@ -51,6 +56,9 @@ jobs:
             git -P diff --name-only
             exit 1
           fi
+
+      - name: Check REST command bundle contract
+        run: make check-command-bundle
 
   lint-go:
     name: Lint Go

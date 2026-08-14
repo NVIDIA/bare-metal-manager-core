@@ -572,6 +572,10 @@ func (r *APIExploredComputerSystemPowerState) FromProto(state corev1.ComputerSys
 		*r = "Paused"
 	case corev1.ComputerSystemPowerState_Unknown:
 		*r = "Unknown"
+	case corev1.ComputerSystemPowerState_Hibernating:
+		*r = "Hibernating"
+	case corev1.ComputerSystemPowerState_Sleeping:
+		*r = "Sleeping"
 	default:
 		*r = "Unknown"
 	}

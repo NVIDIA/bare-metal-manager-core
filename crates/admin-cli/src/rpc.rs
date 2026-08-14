@@ -1319,6 +1319,7 @@ impl ApiClient {
             }],
             segment_type: NetworkSegmentType::Tenant as i32,
             id: Some(id),
+            infer_slaac_eui64_addresses: false,
         };
         Ok(self.0.create_network_segment(request).await?)
     }
@@ -1401,6 +1402,7 @@ impl ApiClient {
             }],
             segment_type: NetworkSegmentType::HostInband as i32,
             id: Some(id),
+            infer_slaac_eui64_addresses: false,
         };
         Ok(self.0.create_network_segment(request).await?)
     }

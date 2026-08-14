@@ -41,6 +41,7 @@
 //! A BMC password change never touches the power shelf's power delivery, so this
 //! is safe in `Ready`.
 
+use carbide_credential_rotation::site_explorer_pause::{self, GateDecision};
 use carbide_credential_rotation::{
     BmcEndpoint, BmcRotationTick, RotateOutcome, RotationStep, advance, rotate_bmc,
 };
@@ -95,8 +96,26 @@ pub async fn handle_rotating_bmc(
     ctx: &mut StateHandlerContext<'_, PowerShelfStateHandlerContextObjects>,
 ) -> Result<StateHandlerOutcome<PowerShelfControllerState>, StateHandlerError> {
     let force = power_shelf.bmc_credential_rotation_requested;
+    let endpoint = BmcEndpoint::from_power_shelf(power_shelf);
 
-    let tick = match BmcEndpoint::from_power_shelf(power_shelf) {
+    // Hold site-explorer off the PMC and wait until it has acknowledged, before
+    // changing the credential. This closes the window in which a probe could hit
+    // new-hardware / old-Vault and persist the sticky `AvoidLockout` latch. An
+    // unaddressable power shelf has nothing to suppress (empty scope).
+    let bmc_macs: Vec<_> = endpoint
+        .as_ref()
+        .map(|e| vec![e.device_mac])
+        .unwrap_or_default();
+    if matches!(
+        site_explorer_pause::gate_before_rotation(&ctx.services.db_pool, &bmc_macs).await?,
+        GateDecision::Wait
+    ) {
+        return Ok(StateHandlerOutcome::wait(
+            "waiting for site-explorer to acknowledge the BMC rotation suppression".to_string(),
+        ));
+    }
+
+    let tick = match endpoint {
         Some(endpoint) => rotate_power_shelf_bmc(ctx.services, endpoint, force).await,
         // A forced request announces a missing PMC so its one-shot flag still
         // clears; a passive sweep silently settles an unaddressable power shelf
@@ -113,6 +132,19 @@ pub async fn handle_rotating_bmc(
     };
 
     match advance(tick, retry_count, power_shelf_id) {
+        // The PMC changed its hardware password but the per-device secret persist
+        // has not yet succeeded: hold in RotatingBmc (site-explorer stays
+        // suppressed) and re-tick. Do NOT resume site-explorer and do NOT clear a
+        // force request -- the rotation has not finished. The engine leaves the
+        // device `needs_rotation`, so a later tick's change-then-verify recovery
+        // re-persists and converges; the hold's upper bound is the state's
+        // time-in-state SLA.
+        RotationStep::WaitForCredentialStoreReconcile => Ok(StateHandlerOutcome::wait(
+            "PMC's credential changed but persisting the new credential to the credential store \
+             has not yet succeeded; holding rotation (site-explorer suppressed) until the \
+             credential store reconciles"
+                .to_string(),
+        )),
         step @ (RotationStep::Settled | RotationStep::GaveUp) => {
             // Only a settled tick clears a one-shot force request: the forced
             // attempt genuinely fired. GaveUp exhausted the transient-retry
@@ -127,7 +159,17 @@ pub async fn handle_rotating_bmc(
             } else {
                 None
             };
-            Ok(StateHandlerOutcome::transition(PowerShelfControllerState::Ready).with_txn_opt(txn))
+            // Resume site-explorer atomically with the return to Ready, so its
+            // skip window ends exactly when the rotation does.
+            let mut resume_txn = match txn {
+                Some(txn) => txn,
+                None => ctx.services.db_pool.begin().await?,
+            };
+            site_explorer_pause::resume_after_rotation(&mut resume_txn, &bmc_macs).await?;
+            Ok(
+                StateHandlerOutcome::transition(PowerShelfControllerState::Ready)
+                    .with_txn(resume_txn),
+            )
         }
         RotationStep::Retry { retry_count } => Ok(StateHandlerOutcome::transition(
             PowerShelfControllerState::RotatingBmc { retry_count },
@@ -170,6 +212,13 @@ async fn rotate_power_shelf_bmc(
                 "power shelf BMC (PMC) rotation attempt failed; quarantined until backoff elapses"
             );
             BmcRotationTick::Settled
+        }
+        Ok(RotateOutcome::CredentialStoreReconcilePending) => {
+            tracing::warn!(
+                mac = %target.device_mac,
+                "PMC's credential changed but persisting the new credential to the credential store failed; holding rotation until the credential store reconciles"
+            );
+            BmcRotationTick::WaitForCredentialStoreReconcile
         }
         Ok(RotateOutcome::NoWork) => BmcRotationTick::Settled,
         Err(e) => {

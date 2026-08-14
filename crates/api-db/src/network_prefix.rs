@@ -104,12 +104,18 @@ impl super::ColumnInfo<'_> for SegmentIdColumn {
     }
 }
 
-/// Fetch the prefix that matches, is a subnet of, or contains the given one.
+/// Returns every network prefix that overlaps `prefix`.
+///
+/// The global exclusion constraint limits this to one row today. Returning all
+/// matches keeps callers correct when that constraint is scoped for eligible
+/// isolated VPCs.
 pub async fn containing_prefix(
     txn: impl DbReader<'_>,
     prefix: &str,
 ) -> Result<Vec<NetworkPrefix>, DatabaseError> {
-    let query = "select * from network_prefixes where prefix && $1::inet";
+    let query = "SELECT * FROM network_prefixes
+        WHERE prefix && $1::inet
+        ORDER BY segment_id, prefix";
     let container = sqlx::query_as(query)
         .bind(prefix)
         .fetch_all(txn)

@@ -48,8 +48,7 @@ pub(crate) const DEFAULT_DOCA_IMAGE_REGISTRY: &str = "nvcr.io/nvidia/doca";
 pub(crate) const DEFAULT_CARBIDE_IMAGE_REGISTRY: &str = "nvcr.io/0837451325059433/carbide-dev";
 
 /// Astra Service Helm and Image Registries
-pub(crate) const DOCA_WEAVE_CHART_REPO_URL: &str =
-    "oci://harbor.mellanox.com/cloud-orchestration-dev/dpf";
+pub(crate) const DOCA_WEAVE_CHART_REPO_URL: &str = "oci://nvcr.io/nvstaging/doca";
 pub(crate) const DOCA_WEAVE_IMAGE_REGISTRY: &str = "nvcr.io/nvstaging/doca";
 
 const DOCA_XPLANE_CHART_REPO_URL: &str = "https://helm.ngc.nvidia.com/nvstaging/doca";
@@ -89,15 +88,15 @@ pub(crate) const OTEL_COLLECTOR_SERVICE_IMAGE_NAME: &str = "otelcol-contrib";
 
 /// Weave DHCP agent service definitions.
 pub(crate) const DOCA_WEAVE_DHCP_AGENT_SERVICE_HELM_NAME: &str = "dpf-weave";
-pub(crate) const DOCA_WEAVE_DHCP_AGENT_SERVICE_HELM_VERSION: &str = "v26.5.0-1f8f4e1e";
+pub(crate) const DOCA_WEAVE_DHCP_AGENT_SERVICE_HELM_VERSION: &str = "v26.8.0-a02ded2e-nightly";
 pub(crate) const DOCA_WEAVE_DHCP_AGENT_SERVICE_IMAGE_NAME: &str = "weave-system";
-pub(crate) const DOCA_WEAVE_DHCP_AGENT_SERVICE_IMAGE_TAG: &str = "v26.5.0-f2c9f7c4-nightly";
+pub(crate) const DOCA_WEAVE_DHCP_AGENT_SERVICE_IMAGE_TAG: &str = "v26.8.0-a02ded2e-nightly";
 
 /// Weave flow (ovs) controller service definitions.
 pub(crate) const DOCA_WEAVE_FLOW_CONTROLLER_SERVICE_HELM_NAME: &str = "dpf-weave";
-pub(crate) const DOCA_WEAVE_FLOW_CONTROLLER_SERVICE_HELM_VERSION: &str = "v26.5.0-1f8f4e1e";
+pub(crate) const DOCA_WEAVE_FLOW_CONTROLLER_SERVICE_HELM_VERSION: &str = "v26.8.0-a02ded2e-nightly";
 pub(crate) const DOCA_WEAVE_FLOW_CONTROLLER_SERVICE_IMAGE_NAME: &str = "weave-system";
-pub(crate) const DOCA_WEAVE_FLOW_CONTROLLER_SERVICE_IMAGE_TAG: &str = "v26.5.0-f2c9f7c4-nightly";
+pub(crate) const DOCA_WEAVE_FLOW_CONTROLLER_SERVICE_IMAGE_TAG: &str = "v26.8.0-a02ded2e-nightly";
 
 /// Xplane service definitions.
 const DOCA_XPLANE_SERVICE_HELM_NAME: &str = "xplane";

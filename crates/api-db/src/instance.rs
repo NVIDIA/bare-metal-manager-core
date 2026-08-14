@@ -14,7 +14,6 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-use std::net::IpAddr;
 use std::ops::DerefMut;
 use std::str::FromStr;
 
@@ -316,27 +315,6 @@ pub async fn find_by_id(
         WHERE i.id = $1";
     let Some(instance_and_os_row) = sqlx::query_as::<_, InstanceAndOsRow>(query)
         .bind(id)
-        .fetch_optional(txn)
-        .await
-        .map_err(|e| DatabaseError::query(query, e))?
-    else {
-        return Ok(None);
-    };
-    Ok(Some(instance_and_os_row.try_into()?))
-}
-
-pub async fn find_by_address(
-    txn: impl DbReader<'_>,
-    address: IpAddr,
-) -> Result<Option<InstanceSnapshot>, DatabaseError> {
-    // Single query; LEFT JOIN so we get instance even when operating_system_id is NULL.
-    let query = "SELECT row_to_json(i.*) AS instance, row_to_json(o.*) AS operating_system
-        FROM instances i
-        LEFT JOIN operating_systems o ON i.operating_system_id = o.id AND o.deleted IS NULL
-        INNER JOIN instance_addresses a ON a.instance_id = i.id
-        WHERE a.address = $1";
-    let Some(instance_and_os_row) = sqlx::query_as::<_, InstanceAndOsRow>(query)
-        .bind(address)
         .fetch_optional(txn)
         .await
         .map_err(|e| DatabaseError::query(query, e))?

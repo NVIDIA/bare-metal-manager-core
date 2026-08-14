@@ -633,6 +633,43 @@ async fn test_managed_host_health_alert_filter_empty_state(pool: sqlx::PgPool) -
     let body_str = std::str::from_utf8(&body_bytes).expect("Invalid UTF-8 in body");
 
     assert!(body_str.contains("No machines match the selected filters."));
+    assert!(
+        body_str.contains(r#"<option value="SomeAlertNoOneHas" selected>"#),
+        "expected the stale alert ID to appear as a selected dropdown option"
+    );
 
     Ok(())
+}
+
+#[crate::sqlx_test]
+async fn test_managed_host_empty_health_alert_filter_is_unfiltered(pool: sqlx::PgPool) {
+    let env = TestEnv::new(pool).await;
+    let mh = env.create_ready_managed_host(1).await.0;
+
+    let app = make_test_app(&env.test_harness);
+    let response = app
+        .oneshot(
+            web_request_builder()
+                .uri("/admin/managed-host?health-alerts-filter=")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let body_bytes = response
+        .into_body()
+        .collect()
+        .await
+        .expect("Empty response body?")
+        .to_bytes();
+    let body_str = std::str::from_utf8(&body_bytes).expect("Invalid UTF-8 in body");
+
+    assert!(
+        !body_str.contains(r#"<option value="" selected>"#),
+        "expected an empty health-alert filter not to render a blank selected option"
+    );
+    assert!(body_str.contains("All Managed Hosts (1)"));
+    assert!(body_str.contains(&mh.host.id.to_string()));
 }

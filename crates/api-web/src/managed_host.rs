@@ -429,6 +429,7 @@ pub(super) async fn show_html(
 
     let active_health_alerts_filter = params
         .remove("health-alerts-filter")
+        .filter(|value| !value.is_empty())
         .unwrap_or("all".to_string());
     let active_maintenance_filter = params
         .remove("maintenance-filter")
@@ -582,7 +583,7 @@ pub(super) async fn show_html(
         .sorted_unstable()
         .collect();
 
-    for (_, models) in models_per_vendor.iter_mut() {
+    for models in models_per_vendor.values_mut() {
         models.sort_unstable();
     }
 
@@ -590,6 +591,12 @@ pub(super) async fn show_html(
 
     let states: Vec<String> = states.into_iter().sorted_unstable().collect();
 
+    if !matches!(
+        active_health_alerts_filter.as_str(),
+        "all" | "healthy" | "unhealthy"
+    ) {
+        health_alert_ids.insert(active_health_alerts_filter.clone());
+    }
     let health_alert_ids: Vec<String> = health_alert_ids.into_iter().sorted_unstable().collect();
 
     let gpus: Vec<String> = gpus

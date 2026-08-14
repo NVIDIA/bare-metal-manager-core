@@ -176,10 +176,24 @@ async fn test_managed_host_network_config(pool: sqlx::PgPool) {
     assert!(
         response
             .managed_host_config
+            .as_ref()
             .expect("managed host config")
             .loopback_ip_v6
             .is_none(),
         "sites without lo-ip-v6 must remain IPv4-only"
+    );
+
+    let admin_interface = response.admin_interface.expect("admin interface");
+    assert_eq!(
+        admin_interface.addresses,
+        vec![rpc::forge::InterfaceAddressConfig {
+            address_family: rpc::forge::AddressFamily::V4.into(),
+            gateway: admin_interface.gateway,
+            ip: admin_interface.ip,
+            interface_prefix: admin_interface.interface_prefix,
+            prefix: admin_interface.prefix,
+            svi_ip: admin_interface.svi_ip,
+        }]
     );
 }
 

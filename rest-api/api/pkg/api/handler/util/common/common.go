@@ -26,6 +26,7 @@ import (
 	tp "go.temporal.io/sdk/temporal"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/proto"
 
 	cutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
 
@@ -45,7 +46,6 @@ import (
 	cdbp "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/paginator"
 	flowv1 "github.com/NVIDIA/infra-controller/rest-api/proto/flow/gen/v1"
 	swe "github.com/NVIDIA/infra-controller/rest-api/site-workflow/pkg/error"
-	"github.com/NVIDIA/infra-controller/rest-api/workflow/pkg/queue"
 )
 
 const (
@@ -2074,8 +2074,9 @@ func QueryParamHash(params url.Values) string {
 	return fmt.Sprintf("%x", sha256.Sum256([]byte(strings.Join(sortedParams, "&"))))[:12]
 }
 
-// ExecutePowerControlWorkflow determines the appropriate power control workflow based on state,
-// executes it via Temporal, and returns the raw SubmitTaskResponse.
+// ExecutePowerControlWorkflow determines the appropriate Flow power control
+// method based on state, proxies it to the site, and returns the raw
+// SubmitTaskResponse.
 //
 // ruleID, when non-nil and non-empty, pins the operation to a specific
 // Operation Rule (overrides Flow's default rule resolution). Must be a valid
@@ -2092,13 +2093,13 @@ func ExecutePowerControlWorkflow(
 	workflowID string,
 	entityName string,
 ) (*flowv1.SubmitTaskResponse, error) {
-	var workflowName string
-	var flowRequest interface{}
+	var fullMethod string
+	var flowRequest proto.Message
 	ruleUUID := GetFlowUUIDPtr(ruleID)
 
 	switch state {
 	case cam.PowerControlStateOn:
-		workflowName = "PowerOnRack"
+		fullMethod = flowv1.Flow_PowerOnRack_FullMethodName
 		flowRequest = &flowv1.PowerOnRackRequest{
 			TargetSpec:             targetSpec,
 			Description:            fmt.Sprintf("API power on %s", entityName),
@@ -2106,7 +2107,7 @@ func ExecutePowerControlWorkflow(
 			OverrideReadinessCheck: overrideReadinessCheck,
 		}
 	case cam.PowerControlStateOff:
-		workflowName = "PowerOffRack"
+		fullMethod = flowv1.Flow_PowerOffRack_FullMethodName
 		flowRequest = &flowv1.PowerOffRackRequest{
 			TargetSpec:             targetSpec,
 			Description:            fmt.Sprintf("API power off %s", entityName),
@@ -2114,7 +2115,7 @@ func ExecutePowerControlWorkflow(
 			OverrideReadinessCheck: overrideReadinessCheck,
 		}
 	case cam.PowerControlStateCycle:
-		workflowName = "PowerResetRack"
+		fullMethod = flowv1.Flow_PowerResetRack_FullMethodName
 		flowRequest = &flowv1.PowerResetRackRequest{
 			TargetSpec:             targetSpec,
 			Description:            fmt.Sprintf("API power cycle %s", entityName),
@@ -2122,7 +2123,7 @@ func ExecutePowerControlWorkflow(
 			OverrideReadinessCheck: overrideReadinessCheck,
 		}
 	case cam.PowerControlStateForceOff:
-		workflowName = "PowerOffRack"
+		fullMethod = flowv1.Flow_PowerOffRack_FullMethodName
 		flowRequest = &flowv1.PowerOffRackRequest{
 			TargetSpec:             targetSpec,
 			Forced:                 true,
@@ -2131,7 +2132,7 @@ func ExecutePowerControlWorkflow(
 			OverrideReadinessCheck: overrideReadinessCheck,
 		}
 	case cam.PowerControlStateForceCycle:
-		workflowName = "PowerResetRack"
+		fullMethod = flowv1.Flow_PowerResetRack_FullMethodName
 		flowRequest = &flowv1.PowerResetRackRequest{
 			TargetSpec:             targetSpec,
 			Forced:                 true,
@@ -2143,39 +2144,22 @@ func ExecutePowerControlWorkflow(
 		return nil, cutil.NewAPIErrorResponse(c, http.StatusBadRequest, fmt.Sprintf("Invalid power control state: %s", state), nil)
 	}
 
-	workflowOptions := tclient.StartWorkflowOptions{
-		ID:                       workflowID,
-		WorkflowIDReusePolicy:    temporalEnums.WORKFLOW_ID_REUSE_POLICY_ALLOW_DUPLICATE,
-		WorkflowIDConflictPolicy: temporalEnums.WORKFLOW_ID_CONFLICT_POLICY_USE_EXISTING,
-		WorkflowExecutionTimeout: cutil.WorkflowExecutionTimeout,
-		TaskQueue:                queue.SiteTaskQueue,
-	}
-
-	ctx, cancel := context.WithTimeout(ctx, cutil.WorkflowContextTimeout)
-	defer cancel()
-
-	we, err := stc.ExecuteWorkflow(ctx, workflowOptions, workflowName, flowRequest)
-	if err != nil {
-		logger.Error().Err(err).Msg(fmt.Sprintf("failed to execute %s workflow", workflowName))
-		return nil, cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, fmt.Sprintf("Failed to power control %s", entityName), nil)
-	}
-
 	var flowResponse flowv1.SubmitTaskResponse
-	err = we.Get(ctx, &flowResponse)
-	if err != nil {
-		var timeoutErr *tp.TimeoutError
-		if errors.As(err, &timeoutErr) || err == context.DeadlineExceeded || ctx.Err() != nil {
-			return nil, TerminateWorkflowOnTimeOut(c, logger, stc, workflowID, err, entityName, workflowName)
-		}
-		logger.Error().Err(err).Msg(fmt.Sprintf("failed to get result from %s workflow", workflowName))
-		return nil, cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, fmt.Sprintf("Failed to power control %s", entityName), nil)
+	proxyErr := ProxyFlowGRPC(
+		ctx, c, logger, stc,
+		fullMethod,
+		flowRequest, &flowResponse,
+		FlowWorkflowID(workflowID), temporalEnums.WORKFLOW_ID_CONFLICT_POLICY_USE_EXISTING,
+	)
+	if proxyErr != nil {
+		return nil, proxyErr
 	}
 
 	return &flowResponse, nil
 }
 
-// ExecuteBringUpRackWorkflow builds a BringUpRackRequest, executes the BringUpRack
-// workflow via Temporal, and returns the raw SubmitTaskResponse.
+// ExecuteBringUpRackWorkflow builds a BringUpRackRequest, proxies it to Flow's
+// BringUpRack, and returns the raw SubmitTaskResponse.
 //
 // ruleID, when non-nil and non-empty, pins the bring-up to a specific
 // Operation Rule.
@@ -2198,39 +2182,22 @@ func ExecuteBringUpRackWorkflow(
 		OverrideReadinessCheck: overrideReadinessCheck,
 	}
 
-	workflowOptions := tclient.StartWorkflowOptions{
-		ID:                       workflowID,
-		WorkflowIDReusePolicy:    temporalEnums.WORKFLOW_ID_REUSE_POLICY_ALLOW_DUPLICATE,
-		WorkflowIDConflictPolicy: temporalEnums.WORKFLOW_ID_CONFLICT_POLICY_USE_EXISTING,
-		WorkflowExecutionTimeout: cutil.WorkflowExecutionTimeout,
-		TaskQueue:                queue.SiteTaskQueue,
-	}
-
-	ctx, cancel := context.WithTimeout(ctx, cutil.WorkflowContextTimeout)
-	defer cancel()
-
-	we, err := stc.ExecuteWorkflow(ctx, workflowOptions, "BringUpRack", flowRequest)
-	if err != nil {
-		logger.Error().Err(err).Msg("failed to execute BringUpRack workflow")
-		return nil, cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, fmt.Sprintf("Failed to bring up %s", entityName), nil)
-	}
-
 	var flowResponse flowv1.SubmitTaskResponse
-	err = we.Get(ctx, &flowResponse)
-	if err != nil {
-		var timeoutErr *tp.TimeoutError
-		if errors.As(err, &timeoutErr) || err == context.DeadlineExceeded || ctx.Err() != nil {
-			return nil, TerminateWorkflowOnTimeOut(c, logger, stc, workflowID, err, entityName, "BringUpRack")
-		}
-		logger.Error().Err(err).Msg("failed to get result from BringUpRack workflow")
-		return nil, cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, fmt.Sprintf("Failed to bring up %s", entityName), nil)
+	proxyErr := ProxyFlowGRPC(
+		ctx, c, logger, stc,
+		flowv1.Flow_BringUpRack_FullMethodName,
+		flowRequest, &flowResponse,
+		FlowWorkflowID(workflowID), temporalEnums.WORKFLOW_ID_CONFLICT_POLICY_USE_EXISTING,
+	)
+	if proxyErr != nil {
+		return nil, proxyErr
 	}
 
 	return &flowResponse, nil
 }
 
-// ExecuteFirmwareUpdateWorkflow builds an UpgradeFirmwareRequest, executes the UpgradeFirmware
-// workflow via Temporal, and returns the raw SubmitTaskResponse.
+// ExecuteFirmwareUpdateWorkflow builds an UpgradeFirmwareRequest, proxies it to
+// Flow's UpgradeFirmware, and returns the raw SubmitTaskResponse.
 //
 // targets, when non-empty, restricts the upgrade to the listed firmware
 // sub-parts within each targeted tray (e.g. ["bmc", "nvos"] for switch
@@ -2263,32 +2230,15 @@ func ExecuteFirmwareUpdateWorkflow(
 		OverrideReadinessCheck: overrideReadinessCheck,
 	}
 
-	workflowOptions := tclient.StartWorkflowOptions{
-		ID:                       workflowID,
-		WorkflowIDReusePolicy:    temporalEnums.WORKFLOW_ID_REUSE_POLICY_ALLOW_DUPLICATE,
-		WorkflowIDConflictPolicy: temporalEnums.WORKFLOW_ID_CONFLICT_POLICY_USE_EXISTING,
-		WorkflowExecutionTimeout: cutil.WorkflowExecutionTimeout,
-		TaskQueue:                queue.SiteTaskQueue,
-	}
-
-	ctx, cancel := context.WithTimeout(ctx, cutil.WorkflowContextTimeout)
-	defer cancel()
-
-	we, err := stc.ExecuteWorkflow(ctx, workflowOptions, "UpgradeFirmware", flowRequest)
-	if err != nil {
-		logger.Error().Err(err).Msg("failed to execute UpgradeFirmware workflow")
-		return nil, cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, fmt.Sprintf("Failed to upgrade firmware for %s", entityName), nil)
-	}
-
 	var flowResponse flowv1.SubmitTaskResponse
-	err = we.Get(ctx, &flowResponse)
-	if err != nil {
-		var timeoutErr *tp.TimeoutError
-		if errors.As(err, &timeoutErr) || err == context.DeadlineExceeded || ctx.Err() != nil {
-			return nil, TerminateWorkflowOnTimeOut(c, logger, stc, workflowID, err, entityName, "UpgradeFirmware")
-		}
-		logger.Error().Err(err).Msg("failed to get result from UpgradeFirmware workflow")
-		return nil, cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, fmt.Sprintf("Failed to upgrade firmware for %s", entityName), nil)
+	proxyErr := ProxyFlowGRPC(
+		ctx, c, logger, stc,
+		flowv1.Flow_UpgradeFirmware_FullMethodName,
+		flowRequest, &flowResponse,
+		FlowWorkflowID(workflowID), temporalEnums.WORKFLOW_ID_CONFLICT_POLICY_USE_EXISTING,
+	)
+	if proxyErr != nil {
+		return nil, proxyErr
 	}
 
 	return &flowResponse, nil

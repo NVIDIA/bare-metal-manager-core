@@ -288,6 +288,8 @@ impl<B: Bmc> ExploredComputerSystem<B> {
                         PowerState::PoweringOn => Some(ModelPowerState::PoweringOn),
                         PowerState::PoweringOff => Some(ModelPowerState::PoweringOff),
                         PowerState::Paused => Some(ModelPowerState::Paused),
+                        PowerState::Hibernating => Some(ModelPowerState::Hibernating),
+                        PowerState::Sleeping => Some(ModelPowerState::Sleeping),
                         PowerState::UnsupportedValue => None,
                     })
                     .unwrap_or_default()

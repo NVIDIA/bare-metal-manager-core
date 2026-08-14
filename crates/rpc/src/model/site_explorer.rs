@@ -235,6 +235,8 @@ impl From<PowerState> for rpc::site_explorer::PowerState {
             PowerState::PoweringOff => rpc::site_explorer::PowerState::PoweringOff,
             PowerState::PoweringOn => rpc::site_explorer::PowerState::PoweringOn,
             PowerState::Paused => rpc::site_explorer::PowerState::Paused,
+            PowerState::Hibernating => rpc::site_explorer::PowerState::Hibernating,
+            PowerState::Sleeping => rpc::site_explorer::PowerState::Sleeping,
             PowerState::Unknown => rpc::site_explorer::PowerState::Unknown,
         }
     }

@@ -24,7 +24,7 @@ use crate::pretty_cmd;
 
 #[derive(Debug, Serialize, Deserialize, PartialEq, Clone)]
 pub struct IpLink {
-    pub ifindex: u8,
+    pub ifindex: u32,
     pub ifname: Option<String>,
     pub flags: Vec<String>,
     pub mtu: u32,
@@ -71,5 +71,23 @@ impl IpLink {
             let fout = String::from_utf8_lossy(&output.stdout).to_string();
             Ok(fout)
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::IpLink;
+    use crate::dpu::interface::IpInterface;
+
+    const IP_LINK_OUT: &str = r#"[{"ifindex":256,"ifname":"pf0vf51","flags":["BROADCAST","MULTICAST","UP","LOWER_UP"],"mtu":9216,"qdisc":"mq","operstate":"UP","linkmode":"DEFAULT","group":"default","txqlen":128,"link_type":"ether","address":"26:97:d8:57:c8:31","broadcast":"ff:ff:ff:ff:ff:ff","addr_info":[]}]"#;
+
+    #[test]
+    fn test_parse_ifindex_above_u8_max() -> eyre::Result<()> {
+        let links: Vec<IpLink> = serde_json::from_str(IP_LINK_OUT)?;
+        assert_eq!(links[0].ifindex, 256);
+
+        let interfaces: Vec<IpInterface> = serde_json::from_str(IP_LINK_OUT)?;
+        assert_eq!(interfaces[0].link.ifindex, 256);
+        Ok(())
     }
 }

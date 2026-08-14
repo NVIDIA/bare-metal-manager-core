@@ -70,6 +70,7 @@ pub struct Vpc {
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
 pub struct VpcDefinition {
     pub organization_id: Option<String>,
     pub network_virtualization_type: VpcVirtualizationType,

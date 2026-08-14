@@ -14,6 +14,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+#![cfg_attr(not(test), deny(dead_code_pub_in_binary))]
 
 mod cache;
 mod command_line;
@@ -29,8 +30,6 @@ use std::error::Error;
 use std::net::SocketAddr;
 use std::sync::Arc;
 
-#[cfg(test)]
-use ::rpc::forge::{DhcpDiscovery, DhcpRecord};
 use ::rpc::forge_tls_client::ForgeClientConfig;
 use cache::CacheEntry;
 use carbide_instrument::emit;
@@ -50,8 +49,6 @@ use modes::dpu::{Dpu, get_host_config};
 use tokio::net::UdpSocket;
 use tokio::sync::Mutex;
 use tokio_util::sync::CancellationToken;
-#[cfg(test)]
-use tonic::async_trait;
 use tracing::level_filters::LevelFilter;
 use tracing_subscriber::EnvFilter;
 use tracing_subscriber::prelude::*;
@@ -614,74 +611,6 @@ fn forge_client_config(args: &Args) -> Result<ForgeClientConfig, DhcpError> {
     Ok(ForgeClientConfig::new(root_ca_path, Some(client_cert)))
 }
 
-#[cfg(test)]
-#[derive(Debug)]
-struct TestArm {}
-
-#[cfg(test)]
-#[async_trait]
-impl DhcpMode for TestArm {
-    async fn discover_dhcp(
-        &self,
-        _discovery_request: DhcpDiscovery,
-        _config: &Config,
-        _machine_cache: &mut Arc<Mutex<LruCache<String, CacheEntry>>>,
-    ) -> Result<DhcpRecord, DhcpError> {
-        Test::dhcp_record()
-    }
-
-    // Packets received from DPU to API must be relayed.
-    fn should_be_relayed(&self) -> bool {
-        true
-    }
-}
-
-#[cfg(test)]
-#[derive(Debug)]
-struct Test {}
-
-#[cfg(test)]
-impl Test {
-    fn dhcp_record() -> Result<DhcpRecord, DhcpError> {
-        Ok(DhcpRecord {
-            machine_id: Some(
-                "fm100dsbiu5ckus880v8407u0mkcensa39cule26im5gnpvmuufckacguc0"
-                    .parse()
-                    .unwrap(),
-            ),
-            machine_interface_id: Some("0fd6e9a3-06fc-4a22-ad29-aca299677b00".parse().unwrap()),
-            segment_id: Some("55a2d74e-f9e1-49d5-bf99-be05171a5d75".parse().unwrap()),
-            subdomain_id: Some("56a2d74e-f9e1-49d5-bf99-be05171a5d75".parse().unwrap()),
-            fqdn: "seventeen-connecticut.dev3.frg.nvidia.com".to_string(),
-            mac_address: "b8:3f:d2:90:9a:12".to_string(),
-            address: "10.217.132.204".to_string(),
-            mtu: 6000,
-            prefix: "10.217.132.192/26".to_string(),
-            gateway: Some("10.217.132.193".to_string()),
-            booturl: None,
-            last_invalidation_time: None,
-            ntp_servers: vec!["1.2.3.4".to_string(), "5.6.7.8".to_string()],
-        })
-    }
-}
-
-#[cfg(test)]
-#[async_trait]
-impl DhcpMode for Test {
-    async fn discover_dhcp(
-        &self,
-        _discovery_request: DhcpDiscovery,
-        _config: &Config,
-        _machine_cache: &mut Arc<Mutex<LruCache<String, CacheEntry>>>,
-    ) -> Result<DhcpRecord, DhcpError> {
-        Test::dhcp_record()
-    }
-
-    fn should_be_relayed(&self) -> bool {
-        false
-    }
-}
-
 const MINIMUM_DHCP_PKT_SIZE: usize = 236;
 
 #[tracing::instrument(skip_all)]
@@ -772,20 +701,85 @@ mod test {
     use dhcproto::v4::{DhcpOption, Message, MessageType, OptionCode};
     use dhcproto::{Decodable, Decoder, Encodable};
     use lru::LruCache;
+    use rpc::forge::{DhcpDiscovery, DhcpRecord};
     use tempfile::TempDir;
     use tokio::net::UdpSocket;
     use tokio::sync::Mutex;
     use tokio_util::sync::CancellationToken;
+    use tonic::async_trait;
 
+    use crate::cache::CacheEntry;
     use crate::command_line::{Args, ServerMode};
     use crate::errors::DhcpError;
     use crate::{
-        DhcpMode, Test, TestArm, cache, forge_client_config, handle_reload, init, packet_handler,
-        process,
+        Config, DhcpMode, cache, forge_client_config, handle_reload, init, packet_handler, process,
     };
 
     const TEST_SOURCE_ADDRESS: SocketAddr =
         SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::new(192, 0, 2, 10), 68));
+
+    #[derive(Debug)]
+    struct TestArm {}
+
+    #[async_trait]
+    impl DhcpMode for TestArm {
+        async fn discover_dhcp(
+            &self,
+            _discovery_request: DhcpDiscovery,
+            _config: &Config,
+            _machine_cache: &mut Arc<Mutex<LruCache<String, CacheEntry>>>,
+        ) -> Result<DhcpRecord, DhcpError> {
+            Test::dhcp_record()
+        }
+
+        // Packets received from DPU to API must be relayed.
+        fn should_be_relayed(&self) -> bool {
+            true
+        }
+    }
+
+    #[derive(Debug)]
+    struct Test {}
+
+    impl Test {
+        fn dhcp_record() -> Result<DhcpRecord, DhcpError> {
+            Ok(DhcpRecord {
+                machine_id: Some(
+                    "fm100dsbiu5ckus880v8407u0mkcensa39cule26im5gnpvmuufckacguc0"
+                        .parse()
+                        .unwrap(),
+                ),
+                machine_interface_id: Some("0fd6e9a3-06fc-4a22-ad29-aca299677b00".parse().unwrap()),
+                segment_id: Some("55a2d74e-f9e1-49d5-bf99-be05171a5d75".parse().unwrap()),
+                subdomain_id: Some("56a2d74e-f9e1-49d5-bf99-be05171a5d75".parse().unwrap()),
+                fqdn: "seventeen-connecticut.dev3.frg.nvidia.com".to_string(),
+                mac_address: "b8:3f:d2:90:9a:12".to_string(),
+                address: "10.217.132.204".to_string(),
+                mtu: 6000,
+                prefix: "10.217.132.192/26".to_string(),
+                gateway: Some("10.217.132.193".to_string()),
+                booturl: None,
+                last_invalidation_time: None,
+                ntp_servers: vec!["1.2.3.4".to_string(), "5.6.7.8".to_string()],
+            })
+        }
+    }
+
+    #[async_trait]
+    impl DhcpMode for Test {
+        async fn discover_dhcp(
+            &self,
+            _discovery_request: DhcpDiscovery,
+            _config: &Config,
+            _machine_cache: &mut Arc<Mutex<LruCache<String, CacheEntry>>>,
+        ) -> Result<DhcpRecord, DhcpError> {
+            Test::dhcp_record()
+        }
+
+        fn should_be_relayed(&self) -> bool {
+            false
+        }
+    }
 
     fn make_reload_args(td: &TempDir, interfaces: Vec<String>) -> Args {
         Args {
