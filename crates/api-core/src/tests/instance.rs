@@ -584,10 +584,6 @@ async fn test_measurement_assigned_ready_to_waiting_for_measurements_to_ca_faile
     let instance = get_rpc_instance().await;
     assert_eq!(instance.status().tenant(), rpc::TenantState::Terminating);
 
-    // One extra iteration versus the historical count: tenant release now first
-    // passes through the site-gated FactoryResetBmc/SuppressExploration state
-    // (a no-op transition to PowerCycle while the feature flag is off) before the
-    // existing power-cycle / boot-order flow reaches CheckHostConfig.
     env.run_machine_state_controller_iteration_until_state_matches(
         &mh.host().id,
         8,
@@ -2185,10 +2181,6 @@ async fn test_bootingwithdiscoveryimage_delay(_: PgPoolOptions, options: PgConne
         .await
         .expect("Delete instance failed.");
 
-    // One extra iteration versus the historical count: tenant release now first
-    // passes through the site-gated FactoryResetBmc/SuppressExploration state
-    // (a no-op transition to PowerCycle while the feature flag is off) before the
-    // existing power-cycle / boot-order flow reaches CheckHostConfig.
     env.run_machine_state_controller_iteration_until_state_matches(
         &mh.host().id,
         8,

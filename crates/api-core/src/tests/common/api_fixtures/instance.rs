@@ -473,10 +473,6 @@ pub(in crate::tests) async fn delete_instance(
     let instance = env.one_instance(instance_id).await;
     assert_eq!(instance.status().tenant(), rpc::TenantState::Terminating);
 
-    // One extra iteration versus the historical count: tenant release now first
-    // passes through the site-gated FactoryResetBmc/SuppressExploration state
-    // (a no-op transition to PowerCycle while the feature flag is off) before the
-    // existing power-cycle / boot-order flow reaches CheckHostConfig.
     env.run_machine_state_controller_iteration_until_state_matches(
         &mh.host().id,
         8,

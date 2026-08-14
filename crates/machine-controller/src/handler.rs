@@ -1166,8 +1166,12 @@ impl MachineStateHandler {
                     .map(|e| e.device_mac)
                     .collect();
                 if matches!(
-                    site_explorer_pause::gate_before_rotation(&ctx.services.db_pool, &bmc_macs)
-                        .await?,
+                    site_explorer_pause::gate_before_credential_change(
+                        &ctx.services.db_pool,
+                        &bmc_macs,
+                        site_explorer_pause::ROTATION_SUPPRESSION_REASON,
+                    )
+                    .await?,
                     GateDecision::Wait
                 ) {
                     return Ok(StateHandlerOutcome::wait(
@@ -1214,7 +1218,12 @@ impl MachineStateHandler {
                         if matches!(step, RotationStep::Settled) {
                             rotation::clear_forced_bmc_requests(&mut txn, mh_snapshot).await?;
                         }
-                        site_explorer_pause::resume_after_rotation(&mut txn, &bmc_macs).await?;
+                        site_explorer_pause::resume_after_credential_change(
+                            &mut txn,
+                            &bmc_macs,
+                            site_explorer_pause::ROTATION_SUPPRESSION_REASON,
+                        )
+                        .await?;
                         Ok(StateHandlerOutcome::transition(ManagedHostState::Ready).with_txn(txn))
                     }
                     RotationStep::Retry { retry_count } => Ok(StateHandlerOutcome::transition(
@@ -8015,7 +8024,7 @@ impl StateHandler for InstanceStateHandler {
                                 instance_state: InstanceState::HostPlatformConfiguration {
                                     platform_config_state:
                                         HostPlatformConfigurationState::FactoryResetBmc {
-                                            reset_state: FactoryResetBmcState::SuppressExploration,
+                                            reset_state: FactoryResetBmcState::CheckPreconditions,
                                         },
                                 },
                             }
@@ -12792,13 +12801,10 @@ async fn handle_instance_host_platform_config(
             InstanceState::WaitingForDpusToUp
         }
         HostPlatformConfigurationState::FactoryResetBmc { .. } => {
-            // `FactoryResetBmc` is dispatched at the top of this function, before
-            // the shared authenticated client is built, and returns there.
+            // We should never get here. `FactoryResetBmc` is dispatched at the top
+            // of this function, before the shared authenticated client is built, and returns there.
             // Reaching this arm means that early dispatch was removed or bypassed
-            // -- a logic bug. Park just this instance with a loud error rather
-            // than panicking: a panic here would `resume_unwind` up through the
-            // processor's `join_many` and crash the whole controller loop, not
-            // only this object.
+            // -- a logic bug.
             tracing::error!(
                 machine_id = %mh_snapshot.host_snapshot.id,
                 "FactoryResetBmc reached the shared host-platform-config match; early dispatch to handle_factory_reset_bmc was bypassed"

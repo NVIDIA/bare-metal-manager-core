@@ -23,25 +23,30 @@
 //! on GB200, Grace-Grace, SMC) before the existing `PowerCycle` flow takes over.
 //!
 //! The flow, keyed off [`FactoryResetBmcState`]:
-//! 1. [`SuppressExploration`](FactoryResetBmcState::SuppressExploration) - site
-//!    gate (transparent pass-through to `PowerCycle` when disabled); otherwise
-//!    verify an `expected_machines` entry with factory creds exists, upsert a
-//!    site-explorer suppression for the host BMC (idempotent - re-created if it
-//!    disappears), and wait up to [`SITE_EXPLORER_PAUSE_BUDGET`] for
-//!    site-explorer to acknowledge it (proceed anyway when the budget elapses).
-//! 2. [`ResetToDefaults`](FactoryResetBmcState::ResetToDefaults) - issue
+//! 1. [`CheckPreconditions`](FactoryResetBmcState::CheckPreconditions) - run once
+//!    on entry: the site gate (transparent pass-through to `PowerCycle` when
+//!    disabled) and a one-shot check for a usable `expected_machines` factory-cred
+//!    entry, skipping the reset (straight to `PowerCycle`) when it is absent so a
+//!    config gap never parks the release. Kept separate from the
+//!    acknowledgement-wait below so the `expected_machines` lookup runs once, not
+//!    on every controller dispatch during the wait.
+//! 2. [`SuppressExploration`](FactoryResetBmcState::SuppressExploration) - use the
+//!    shared [`site_explorer_pause`] handshake (the same one BMC rotation uses)
+//!    to idempotently suppress site-explorer for the host BMC and wait for it to
+//!    acknowledge (proceeding anyway once the shared pause budget elapses).
+//! 3. [`ResetToDefaults`](FactoryResetBmcState::ResetToDefaults) - issue
 //!    `Manager.ResetToDefaults` with stored credentials.
-//! 3. [`WaitForBmc`](FactoryResetBmcState::WaitForBmc) - wait for an anonymous
+//! 4. [`WaitForBmc`](FactoryResetBmcState::WaitForBmc) - wait for an anonymous
 //!    service-root read to succeed (polls at the controller cadence; never
 //!    parks - a BMC that never returns is surfaced by the time-in-state SLA).
-//! 4. [`RestoreCredentials`](FactoryResetBmcState::RestoreCredentials) - first a
+//! 5. [`RestoreCredentials`](FactoryResetBmcState::RestoreCredentials) - first a
 //!    login-backoff probe of the factory creds (never parks; degrades to hourly
 //!    polling to avoid BMC auth-lockout), with a per-device crash-recovery probe;
 //!    then, once verified, change the BMC root password from factory default
 //!    back to the device's previous per-device credential read from Vault. Vault
 //!    is never written or deleted; any site-wide drift is left to the passive
 //!    `RotatingBmc` rotation later. A genuine password-change failure parks.
-//! 5. [`RemoveSuppression`](FactoryResetBmcState::RemoveSuppression) - delete the
+//! 6. [`RemoveSuppression`](FactoryResetBmcState::RemoveSuppression) - delete the
 //!    suppression and hand off to `PowerCycle`.
 //!
 //! Failures in reset / restore park the instance (blocking termination) per the
@@ -69,6 +74,7 @@
 //!   non-`NotSupported` error and the instance parks for operator attention
 //!   rather than silently attempting a speculative unlock.
 
+use carbide_credential_rotation::site_explorer_pause::{self, GateDecision};
 use carbide_redfish::libredfish::RedfishAuth;
 use carbide_redfish::libredfish::error::state_handler_redfish_error as redfish_error;
 use carbide_secrets::credentials::{BmcCredentialType, CredentialKey, Credentials};
@@ -76,7 +82,6 @@ use eyre::eyre;
 use libredfish::RedfishError;
 use libredfish::model::service_root::RedfishVendor;
 use mac_address::MacAddress;
-use model::bmc_suppression::{BmcSuppressionSubsystem, NewBmcSuppression};
 use model::machine::{
     FactoryResetBmcState, HostPlatformConfigurationState, InstanceState, ManagedHostState,
     ManagedHostStateSnapshot,
@@ -87,15 +92,11 @@ use state_controller::state_handler::{
 
 use crate::context::MachineStateHandlerContextObjects;
 
-/// How long a controller waits for site-explorer to acknowledge the suppression
-/// before proceeding anyway.
-///
-/// The wait normally resolves within one site-explorer iteration. The budget is
-/// a backstop for a disabled or unavailable site-explorer, which can never
-/// acknowledge and also can never latch -- so proceeding after the budget is
-/// safe. It is deliberately several site-explorer run intervals long so a busy
-/// or briefly-contended explorer is never cut short.
-const SITE_EXPLORER_PAUSE_BUDGET: std::time::Duration = std::time::Duration::from_secs(300);
+/// The `reason` this flow stamps on the site-explorer suppression it owns.
+/// Deletes in [`remove_suppression`] are scoped to it (via the shared
+/// [`site_explorer_pause`] module) so a factory reset never removes a
+/// rotation's or an operator's suppression for the same BMC, and vice versa.
+const FACTORY_RESET_SUPPRESSION_REASON: &str = "factory_reset_bmc";
 
 /// Small intra-tick delay between the two credential probes, mirroring
 /// site-explorer's `BMC_AUTH_RETRY_DURATION`, so a BMC that throttles after a
@@ -141,6 +142,7 @@ pub(super) async fn handle_factory_reset_bmc(
     reset_state: FactoryResetBmcState,
 ) -> Result<StateHandlerOutcome<ManagedHostState>, StateHandlerError> {
     match reset_state {
+        FactoryResetBmcState::CheckPreconditions => check_preconditions(ctx, mh_snapshot).await,
         FactoryResetBmcState::SuppressExploration => suppress_exploration(ctx, mh_snapshot).await,
         FactoryResetBmcState::ResetToDefaults => reset_to_defaults(ctx, mh_snapshot).await,
         FactoryResetBmcState::WaitForBmc => wait_for_bmc(ctx, mh_snapshot).await,
@@ -213,39 +215,93 @@ fn bmc_host_port(
     Ok((addr.ip().to_string(), Some(addr.port())))
 }
 
-/// Load the factory BMC credentials from `expected_machines`, parking if the
-/// entry is missing or the credentials are empty - without them we can never log
-/// back in to restore the device, so there is no point suppressing exploration.
-/// Returns the credentials and the `bmc_retain_credentials` flag.
+/// Outcome of looking up the factory BMC credentials for a host in
+/// `expected_machines`. The two unusable cases are kept distinct so callers can
+/// log which config problem occurred; note "unusable" here is purely structural
+/// (missing row / empty strings), not a live credential check -- whether the BMC
+/// actually accepts the credentials is only determined at login in
+/// [`restore_credentials`].
+enum FactoryCredentialLookup {
+    /// A usable entry: non-empty username and password, plus the
+    /// `bmc_retain_credentials` flag.
+    Usable {
+        credentials: Credentials,
+        retain: bool,
+    },
+    /// No `expected_machines` entry exists for this BMC MAC.
+    NoEntry,
+    /// An `expected_machines` entry exists but its BMC credentials are empty.
+    EmptyCredentials,
+}
+
+impl FactoryCredentialLookup {
+    /// A human-readable reason the credentials are unusable, or `None` when
+    /// [`Usable`](FactoryCredentialLookup::Usable). Shared by the skip log in
+    /// [`check_preconditions`] and the park error in
+    /// [`load_validated_factory_credentials`] so both describe the case the same
+    /// way.
+    fn unusable_reason(&self) -> Option<&'static str> {
+        match self {
+            Self::Usable { .. } => None,
+            Self::NoEntry => Some("no expected_machines entry exists for the host BMC"),
+            Self::EmptyCredentials => {
+                Some("the expected_machines entry for the host BMC has empty factory credentials")
+            }
+        }
+    }
+}
+
+/// Look up the factory BMC credentials from `expected_machines` for this host,
+/// distinguishing a missing entry from an entry with empty credentials (see
+/// [`FactoryCredentialLookup`]). `Err` is reserved for a real datastore failure.
+async fn lookup_factory_credentials(
+    ctx: &mut StateHandlerContext<'_, MachineStateHandlerContextObjects>,
+    host_bmc_mac: MacAddress,
+) -> Result<FactoryCredentialLookup, StateHandlerError> {
+    let Some(expected) =
+        db::expected_machine::find_by_bmc_mac_address(&ctx.services.db_pool, host_bmc_mac).await?
+    else {
+        return Ok(FactoryCredentialLookup::NoEntry);
+    };
+
+    if expected.data.bmc_username.is_empty() || expected.data.bmc_password.is_empty() {
+        return Ok(FactoryCredentialLookup::EmptyCredentials);
+    }
+
+    Ok(FactoryCredentialLookup::Usable {
+        credentials: Credentials::UsernamePassword {
+            username: expected.data.bmc_username,
+            password: expected.data.bmc_password,
+        },
+        retain: expected.data.bmc_retain_credentials.unwrap_or(false),
+    })
+}
+
+/// Load the factory BMC credentials from `expected_machines`, parking if there
+/// is no usable entry - without them we can never log back in to restore the
+/// device. Returns the credentials and the `bmc_retain_credentials` flag.
+///
+/// Used by `restore_credentials`, where a missing entry is anomalous: the host
+/// has already been factory-reset, so `check_preconditions` must have seen a
+/// usable entry earlier, and losing it now blocks the restore.
 async fn load_validated_factory_credentials(
     ctx: &mut StateHandlerContext<'_, MachineStateHandlerContextObjects>,
     mh_snapshot: &ManagedHostStateSnapshot,
     host_bmc_mac: MacAddress,
 ) -> Result<(Credentials, bool), StateHandlerError> {
-    let expected =
-        db::expected_machine::find_by_bmc_mac_address(&ctx.services.db_pool, host_bmc_mac)
-            .await?
-            .ok_or_else(|| {
-                StateHandlerError::ManualInterventionRequired(format!(
-                    "BMC factory reset for machine {} requires an expected_machines entry for \
-                     {host_bmc_mac} to recover the factory password; none found",
-                    mh_snapshot.host_snapshot.id
-                ))
-            })?;
-
-    if expected.data.bmc_username.is_empty() || expected.data.bmc_password.is_empty() {
-        return Err(StateHandlerError::ManualInterventionRequired(format!(
-            "BMC factory reset for machine {} requires non-empty factory BMC credentials in \
-             expected_machines for {host_bmc_mac}",
-            mh_snapshot.host_snapshot.id
-        )));
+    match lookup_factory_credentials(ctx, host_bmc_mac).await? {
+        FactoryCredentialLookup::Usable {
+            credentials,
+            retain,
+        } => Ok((credentials, retain)),
+        unusable => Err(StateHandlerError::ManualInterventionRequired(format!(
+            "BMC factory reset for machine {} cannot recover the factory password: {} ({host_bmc_mac})",
+            mh_snapshot.host_snapshot.id,
+            unusable
+                .unusable_reason()
+                .unwrap_or("no usable factory credentials"),
+        ))),
     }
-
-    let creds = Credentials::UsernamePassword {
-        username: expected.data.bmc_username,
-        password: expected.data.bmc_password,
-    };
-    Ok((creds, expected.data.bmc_retain_credentials.unwrap_or(false)))
 }
 
 /// Read the device's previous per-device BMC root credential from Vault
@@ -291,32 +347,28 @@ fn verify_backoff(retry_count: u32) -> chrono::Duration {
     }
 }
 
-/// Establish the site-explorer suppression for the host BMC and wait for it to
-/// be acknowledged.
+/// Entry point, run once: gate the whole sub-flow and confirm the reset is
+/// recoverable before anything touches the hardware or suppresses exploration.
 ///
-/// Every dispatch first pre-flights the factory credentials (via
-/// [`load_validated_factory_credentials`]) and parks if they are missing, since
-/// without them the device could never be restored after the reset. It then has
-/// two phases keyed off whether the suppression row exists yet:
-/// - **Absent** (first entry, or the row was deleted out from under us): upsert
-///   the suppression. Committing the upsert on a `Wait` outcome (rather than a
-///   self-transition) avoids a spurious "transition to current state" while
-///   keeping the state version timestamp stable, so the ack budget below is
-///   measured from state entry. The upsert is idempotent, so this also self-heals
-///   a vanished row.
-/// - **Present**: an ack means site-explorer has claimed the endpoint lock and
-///   will not poll/rotate/reset it concurrently, so proceed to the reset.
-///   Otherwise keep waiting (re-checked each controller dispatch) until
-///   [`SITE_EXPLORER_PAUSE_BUDGET`] elapses from state entry, then proceed
-///   anyway: a disabled/`listen_only` site-explorer can never ack, and the
-///   suppression row alone already makes the next sweep skip this BMC.
-async fn suppress_exploration(
+/// Two checks, in order, either of which routes straight to the existing
+/// `PowerCycle` deletion path without entering the reset:
+/// - **Site gate.** When the feature is disabled this sub-flow is a transparent
+///   pass-through, so non-opted-in sites behave exactly as before apart from this
+///   one cheap tick.
+/// - **Factory-credential pre-flight.** If there is no usable `expected_machines`
+///   entry to recover the factory password afterward, skip the reset (best-effort
+///   feature) and log, rather than parking the tenant's release on a config gap.
+///   A real datastore error still propagates.
+///
+/// This lives in its own one-shot state (rather than on every
+/// [`suppress_exploration`] dispatch) so the `expected_machines` lookup stays off
+/// the hot acknowledgement-wait loop. `RestoreCredentials` re-loads and, there,
+/// *parks* if the entry vanishes after we have already reset -- anomalous, unlike
+/// the pre-reset skip here.
+async fn check_preconditions(
     ctx: &mut StateHandlerContext<'_, MachineStateHandlerContextObjects>,
     mh_snapshot: &ManagedHostStateSnapshot,
 ) -> Result<StateHandlerOutcome<ManagedHostState>, StateHandlerError> {
-    // Site gate: when disabled this sub-flow is a transparent pass-through to the
-    // existing PowerCycle flow, so non-opted-in sites behave exactly as before
-    // apart from one extra cheap tick.
     if !ctx
         .services
         .site_config
@@ -327,72 +379,60 @@ async fn suppress_exploration(
 
     let host_bmc_mac = require_bmc_mac(mh_snapshot)?;
 
-    // Pre-flight the factory credentials on every dispatch, regardless of whether
-    // a suppression row already exists. Without them we could never log back in
-    // to restore the device after the reset, so there is no point suppressing
-    // exploration or advancing to the reset -- park instead. Running it before
-    // the upsert below also guarantees a failed check never leaves a dangling
-    // suppression row, and running it while a row already exists catches an
-    // expected_machines entry that was removed after suppression was set.
-    let _ = load_validated_factory_credentials(ctx, mh_snapshot, host_bmc_mac).await?;
+    // Only enter the reset when we can actually recover the factory password
+    // afterward. With no usable expected_machines entry, skip the whole sub-flow
+    // and continue the normal deletion path instead of parking the release. The
+    // two unusable cases (no entry vs. empty credentials) are logged distinctly
+    // so the specific config gap is diagnosable.
+    if let Some(reason) = lookup_factory_credentials(ctx, host_bmc_mac)
+        .await?
+        .unusable_reason()
+    {
+        tracing::warn!(
+            %host_bmc_mac,
+            reason,
+            "cannot recover host BMC factory password; skipping BMC factory reset and continuing tenant release"
+        );
+        return transition_to_power_cycle(ctx, mh_snapshot).await;
+    }
 
-    let Some(suppression) = db::bmc_suppression::find(
+    Ok(transition_to_factory_reset_bmc(
+        FactoryResetBmcState::SuppressExploration,
+    ))
+}
+
+/// Establish the site-explorer suppression for the host BMC and wait for it to
+/// be acknowledged before advancing to the reset.
+///
+/// The gate and factory-credential pre-flight already ran once in
+/// [`check_preconditions`], so this state is purely the suppress/acknowledge/
+/// budget handshake, delegated to the shared [`site_explorer_pause`] module --
+/// the same barrier BMC credential rotation uses -- scoped to
+/// [`FACTORY_RESET_SUPPRESSION_REASON`]. It idempotently ensures the suppression
+/// row exists, returns [`GateDecision::Proceed`] once site-explorer has
+/// acknowledged it (or once the pause budget elapses, so a disabled/`listen_only`
+/// explorer that can never ack does not wedge us -- the row alone already makes
+/// the next sweep skip this BMC), and otherwise [`GateDecision::Wait`].
+async fn suppress_exploration(
+    ctx: &mut StateHandlerContext<'_, MachineStateHandlerContextObjects>,
+    mh_snapshot: &ManagedHostStateSnapshot,
+) -> Result<StateHandlerOutcome<ManagedHostState>, StateHandlerError> {
+    let host_bmc_mac = require_bmc_mac(mh_snapshot)?;
+
+    match site_explorer_pause::gate_before_credential_change(
         &ctx.services.db_pool,
-        host_bmc_mac,
-        BmcSuppressionSubsystem::SiteExplorer,
+        &[host_bmc_mac],
+        FACTORY_RESET_SUPPRESSION_REASON,
     )
     .await?
-    else {
-        // No suppression yet (first entry or externally deleted); create it.
-        let mut txn = ctx.services.db_pool.begin().await?;
-        db::bmc_suppression::upsert(
-            &mut txn,
-            &NewBmcSuppression {
-                bmc_mac_address: host_bmc_mac,
-                subsystem: BmcSuppressionSubsystem::SiteExplorer,
-                reason: format!(
-                    "factory-reset host BMC during tenant release (machine {})",
-                    mh_snapshot.host_snapshot.id
-                ),
-            },
-        )
-        .await?;
-
-        return Ok(StateHandlerOutcome::wait(format!(
-            "suppressed site-explorer for BMC {host_bmc_mac}; awaiting acknowledgement"
-        ))
-        .with_txn(txn));
-    };
-
-    // Suppression exists: check for acknowledgement each dispatch (cheap).
-    if suppression.acknowledged_at.is_some() {
-        return Ok(transition_to_factory_reset_bmc(
+    {
+        GateDecision::Wait => Ok(StateHandlerOutcome::wait(format!(
+            "awaiting site-explorer acknowledgement of BMC {host_bmc_mac} suppression before factory reset"
+        ))),
+        GateDecision::Proceed => Ok(transition_to_factory_reset_bmc(
             FactoryResetBmcState::ResetToDefaults,
-        ));
+        )),
     }
-
-    // Not acknowledged yet: keep waiting until the pause budget (measured from
-    // state entry via the stable state version timestamp) elapses.
-    let budget = chrono::Duration::from_std(SITE_EXPLORER_PAUSE_BUDGET)
-        .expect("SITE_EXPLORER_PAUSE_BUDGET fits in chrono::Duration");
-    let entered_at = mh_snapshot.host_snapshot.state.version.timestamp();
-    if super::wait(&entered_at, budget) {
-        return Ok(StateHandlerOutcome::wait(format!(
-            "awaiting site-explorer acknowledgement of BMC {host_bmc_mac} suppression"
-        )));
-    }
-
-    // Budget elapsed. Site-explorer may be disabled / listen-only and will never
-    // ack; the suppression row alone already makes the next sweep skip this BMC,
-    // so proceed rather than wedge here forever (note: unlike the hard-fail of
-    // reset/restore, the ack-wait budget is a "proceed").
-    tracing::warn!(
-        %host_bmc_mac,
-        "site-explorer did not acknowledge the BMC suppression within the budget; proceeding with factory reset"
-    );
-    Ok(transition_to_factory_reset_bmc(
-        FactoryResetBmcState::ResetToDefaults,
-    ))
 }
 
 async fn reset_to_defaults(
@@ -646,10 +686,10 @@ async fn remove_suppression(
     let power_cycle = transition_to_power_cycle(ctx, mh_snapshot).await?;
 
     let mut txn = ctx.services.db_pool.begin().await?;
-    db::bmc_suppression::delete(
+    site_explorer_pause::resume_after_credential_change(
         &mut txn,
-        host_bmc_mac,
-        BmcSuppressionSubsystem::SiteExplorer,
+        &[host_bmc_mac],
+        FACTORY_RESET_SUPPRESSION_REASON,
     )
     .await?;
     Ok(power_cycle.with_txn(txn))

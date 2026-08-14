@@ -2368,23 +2368,31 @@ pub enum UnlockHostState {
 
 /// Sub-states of [`HostPlatformConfigurationState::FactoryResetBmc`].
 ///
-/// Ordering of the flow: suppress site-explorer against the host BMC and wait
-/// for the suppression to be acknowledged, issue the factory reset, wait for the
-/// BMC to come back, verify the factory credentials and restore the device to
-/// its previous per-device credential, then remove the suppression and hand off
-/// to `PowerCycle`.
+/// Ordering of the flow: check the site-config gate and verify the factory
+/// credentials are recoverable, suppress site-explorer against the host BMC and
+/// wait for the suppression to be acknowledged, issue the factory reset, wait
+/// for the BMC to come back, verify the factory credentials and restore the
+/// device to its previous per-device credential, then remove the suppression and
+/// hand off to `PowerCycle`.
 #[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq, Default)]
 #[serde(tag = "state", rename_all = "lowercase")]
 pub enum FactoryResetBmcState {
-    /// Entry point. Checks the site-config gate; when enabled, verifies an
-    /// `expected_machines` entry with factory credentials exists, upserts a
-    /// site-explorer suppression for the host BMC (idempotent - re-created if it
-    /// disappears), then waits up to a fixed budget for site-explorer to
-    /// acknowledge it, proceeding anyway once the budget elapses (a disabled or
-    /// unavailable site-explorer can never acknowledge, and the suppression row
-    /// alone already blocks new exploration). The budget is measured from the
-    /// state version timestamp, so no retry/counter bookkeeping is needed.
+    /// Entry point, run once. Checks the site-config gate (transparent
+    /// pass-through to `PowerCycle` when disabled) and checks for a usable
+    /// `expected_machines` factory-credential entry; if none exists the reset is
+    /// skipped (straight to `PowerCycle`) rather than parked, since without those
+    /// credentials the device could never be restored afterward and blocking the
+    /// release on a config gap helps no one. Doing this here, rather than on every
+    /// `SuppressExploration` dispatch, keeps the `expected_machines` lookup off
+    /// the hot acknowledgement-wait loop.
     #[default]
+    CheckPreconditions,
+    /// Idempotently suppress site-explorer for the host BMC and wait up to a
+    /// fixed budget for it to acknowledge, proceeding anyway once the budget
+    /// elapses (a disabled or unavailable site-explorer can never acknowledge,
+    /// and the suppression row alone already blocks new exploration). The budget
+    /// is measured from the suppression row, so no retry/counter bookkeeping is
+    /// needed.
     SuppressExploration,
     /// Issue `Manager.ResetToDefaults` against the BMC using stored credentials.
     ResetToDefaults,
@@ -4160,13 +4168,24 @@ mod tests {
                     serde_json::from_str(&serialized).map_err(drop)?;
                 Ok::<_, ()>((parsed, roundtrip))
             };
-            "factory reset defaults to suppress exploration when reset_state omitted" {
+            "factory reset defaults to check preconditions when reset_state omitted" {
                 r#"{"state":"factoryresetbmc"}"# => Yields((
                     HostPlatformConfigurationState::FactoryResetBmc {
-                        reset_state: FactoryResetBmcState::SuppressExploration,
+                        reset_state: FactoryResetBmcState::CheckPreconditions,
                     },
                     HostPlatformConfigurationState::FactoryResetBmc {
-                        reset_state: FactoryResetBmcState::SuppressExploration,
+                        reset_state: FactoryResetBmcState::CheckPreconditions,
+                    },
+                )),
+            }
+
+            "explicit check preconditions" {
+                r#"{"state":"factoryresetbmc","reset_state":{"state":"checkpreconditions"}}"# => Yields((
+                    HostPlatformConfigurationState::FactoryResetBmc {
+                        reset_state: FactoryResetBmcState::CheckPreconditions,
+                    },
+                    HostPlatformConfigurationState::FactoryResetBmc {
+                        reset_state: FactoryResetBmcState::CheckPreconditions,
                     },
                 )),
             }
