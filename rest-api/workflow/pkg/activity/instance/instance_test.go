@@ -216,6 +216,15 @@ func TestManageInstance_UpdateInstancesInDBVpcSelectionInventory(t *testing.T) {
 	deviceLessInstance := buildInstance("device-less-vpc-selection")
 	deviceInstance := buildInstance("device-vpc-selection")
 	shortStatusInstance := buildInstance("short-vpc-selection-status")
+	nilConfigInstance := buildInstance("nil-config-vpc-selection")
+	existingPowerProfile := "existing-power-profile"
+	_, err = dbSession.DB.Exec(
+		"UPDATE instance SET power_profile = ?, updated = ? WHERE id = ?",
+		existingPowerProfile,
+		time.Now().Add(-time.Duration(cutil.InventoryReceiptInterval)*2),
+		nilConfigInstance.ID,
+	)
+	require.NoError(t, err)
 	interfaceDAO := cdbm.NewInterfaceDAO(dbSession)
 	createInterface := func(instanceID uuid.UUID, familyMode cdbm.InterfaceVpcIPFamilyMode, isPhysical bool, device *string, deviceInstance, virtualFunctionID *int) *cdbm.Interface {
 		ifc, createErr := interfaceDAO.Create(ctx, nil, cdbm.InterfaceCreateInput{
@@ -330,6 +339,11 @@ func TestManageInstance_UpdateInstancesInDBVpcSelectionInventory(t *testing.T) {
 				},
 			},
 		},
+		{
+			Id:     &corev1.InstanceId{Value: nilConfigInstance.ControllerInstanceID.String()},
+			Config: nil,
+			Status: &corev1.InstanceStatus{Tenant: &corev1.InstanceTenantStatus{State: corev1.TenantState_READY}},
+		},
 	}}
 
 	tSiteClientPool := testTemporalSiteClientPool(t)
@@ -392,6 +406,13 @@ func TestManageInstance_UpdateInstancesInDBVpcSelectionInventory(t *testing.T) {
 	assert.Equal(t, cdbm.InterfaceVpcIPFamilyModeIPv4Only, *shortStatusUnchanged.VpcIPFamilyMode)
 	assert.Nil(t, shortStatusUnchanged.MacAddress)
 	assert.Equal(t, cdbm.InterfaceStatusPending, shortStatusUnchanged.Status)
+
+	// An incomplete inventory entry must not panic or clear persisted state.
+	nilConfigUnchanged, err := instanceDAO.GetByID(ctx, nil, nilConfigInstance.ID, nil)
+	require.NoError(t, err)
+	require.NotNil(t, nilConfigUnchanged.PowerProfile)
+	assert.Equal(t, existingPowerProfile, *nilConfigUnchanged.PowerProfile)
+	assert.False(t, nilConfigUnchanged.IsMissingOnSite)
 
 	// Pending inventory is not authoritative enough to clear either resolution.
 	inventory.Instances[0].Status.Network.Interfaces[0].ResolvedVpcPrefixes = nil

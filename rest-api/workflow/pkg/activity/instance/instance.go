@@ -182,6 +182,11 @@ func (mi ManageInstance) UpdateInstancesInDB(ctx context.Context, siteID uuid.UU
 			continue
 		}
 
+		if controllerInstance.Config == nil {
+			slogger.Warn().Msg("instance config missing from Site inventory, skipping processing")
+			continue
+		}
+
 		// Reset missing flag if necessary.
 		// If we're here, then it means we saw the instance in the
 		// inventory returned from the site.  If the instance in cloud-db
