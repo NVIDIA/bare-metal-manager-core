@@ -2304,7 +2304,7 @@ async fn lock_network_segment_exclusive(
 /// transaction: the locks are `pg_advisory_xact_lock`-scoped and release on
 /// commit or rollback.
 ///
-/// `call_site` names the caller for the [`record_admin_lock_site`] tally; it
+/// `call_site` names the caller for the `record_admin_lock_site` tally; it
 /// must be a `&'static str` label, conventionally the enclosing function name.
 pub async fn lock_network_segments_exclusive(
     txn: &mut PgConnection,
@@ -3099,7 +3099,11 @@ async fn admin_reconcile_work_needed(
                 interface_id: Some(interface.id),
                 domain_id: interface.domain_id,
             };
-            let hostname = host_naming::hostname_for(&mut *txn, &ctx).await?;
+            // `hostname_for_readonly`, not `hostname_for`: this predicate runs
+            // before the segment lock, and `hostname_for` may write (serial
+            // naming's bare-serial claim). Any mismatch routes to the locked
+            // path, which resolves the name again with the real call.
+            let hostname = host_naming::hostname_for_readonly(&mut *txn, &ctx).await?;
             if interface.domain_id.is_some() || interface.hostname != hostname {
                 return Ok(true);
             }
@@ -3127,7 +3131,10 @@ async fn admin_reconcile_work_needed(
             interface_id: Some(primary.id),
             domain_id: primary.domain_id,
         };
-        let hostname = host_naming::hostname_for(&mut *txn, &ctx).await?;
+        // Read-only for the same reason as above: for a primary under serial
+        // naming, `hostname_for` claims the bare serial, which can rename a
+        // demoted sibling -- a write this unlocked predicate must never make.
+        let hostname = host_naming::hostname_for_readonly(&mut *txn, &ctx).await?;
         if primary.hostname != hostname || primary.domain_id != primary_segment.config.subdomain_id
         {
             return Ok(true);

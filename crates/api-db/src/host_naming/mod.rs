@@ -161,7 +161,33 @@ pub async fn hostname_for(
     txn: &mut PgConnection,
     ctx: &NamingContext<'_>,
 ) -> DatabaseResult<String> {
-    match configured().strategy().name(txn, ctx).await? {
+    let naming = configured().strategy().name(txn, ctx).await?;
+    resolve_naming(ctx, naming)
+}
+
+/// Read-only counterpart of [`hostname_for`]: resolves the same name but is
+/// guaranteed never to write.
+///
+/// `hostname_for` is allowed to write -- serial naming's bare-serial claim
+/// renames a demoted sibling via `update_interface_hostname`. Unlocked
+/// pre-checks (the #4711 fast path in `reconcile_admin_addresses_for_host`)
+/// must not call it: a write from the pre-check would take machine-interface
+/// row locks before the segment advisory lock, inverting the allocator order.
+/// They call this instead; a name mismatch sends the caller to the locked
+/// path, where the real `hostname_for` performs any claim, rename, and
+/// duplicate-identifier validation under the lock.
+pub async fn hostname_for_readonly(
+    txn: &mut PgConnection,
+    ctx: &NamingContext<'_>,
+) -> DatabaseResult<String> {
+    let naming = configured().strategy().preview(txn, ctx).await?;
+    resolve_naming(ctx, naming)
+}
+
+/// Turn a strategy decision into the concrete name: the assigned one, or the
+/// stored one when the strategy keeps it.
+fn resolve_naming(ctx: &NamingContext<'_>, naming: Naming) -> DatabaseResult<String> {
+    match naming {
         Naming::Assign(hostname) => Ok(hostname),
         Naming::Keep => ctx.current_hostname.map(str::to_string).ok_or_else(|| {
             DatabaseError::internal(
@@ -180,6 +206,21 @@ pub trait HostNamingStrategy: Send + Sync {
     /// the database (the others ignore it).
     async fn name(&self, txn: &mut PgConnection, ctx: &NamingContext<'_>)
     -> DatabaseResult<Naming>;
+
+    /// The decision [`Self::name`] would make, computed WITHOUT side effects.
+    ///
+    /// The default forwards to [`Self::name`], which is correct only for
+    /// strategies whose `name` never writes. A strategy that can write there
+    /// (serial naming's bare-serial claim) MUST override this with a
+    /// write-free equivalent: the unlocked reconcile pre-check relies on it
+    /// (see [`hostname_for_readonly`]).
+    async fn preview(
+        &self,
+        txn: &mut PgConnection,
+        ctx: &NamingContext<'_>,
+    ) -> DatabaseResult<Naming> {
+        self.name(txn, ctx).await
+    }
 }
 
 /// Config-selectable naming strategy. Deserializes from snake_case (e.g.
@@ -319,6 +360,25 @@ impl HostNamingStrategy for SerialNumberHostNamingStrategy {
             // No usable serial (yet): the temporary IP-based name.
             None => Ok(Naming::Assign(ip_or_dormant(ctx)?)),
         }
+    }
+
+    /// Write-free preview. `name` can rename a demoted sibling while claiming
+    /// the bare serial and can fail loudly on duplicated identifiers; neither
+    /// belongs in an unlocked pre-check. The previewed outcome is the same
+    /// name either way: when the stored name already matches it, `name` would
+    /// return early without writing, and when it differs the caller takes the
+    /// locked path, where `name` performs the claim -- validation, sibling
+    /// renames, and any duplicate-serial error -- under the lock.
+    async fn preview(
+        &self,
+        txn: &mut PgConnection,
+        ctx: &NamingContext<'_>,
+    ) -> DatabaseResult<Naming> {
+        Ok(Naming::Assign(match usable_serial(txn, ctx).await? {
+            Some(serial) if ctx.is_primary => serial_to_hostname(&serial)?,
+            Some(serial) => serial_with_mac_hostname(&serial, ctx.mac_address)?,
+            None => ip_or_dormant(ctx)?,
+        }))
     }
 }
 
