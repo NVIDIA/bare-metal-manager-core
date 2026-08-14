@@ -521,8 +521,8 @@ Configure your workload's OpenTelemetry exporter to send spans to the local coll
 
 ```bash
 # Environment variables (standard OTLP configuration)
-OTEL_EXPORTER_OTLP_ENDPOINT="http://127.0.0.1:4317"
-OTEL_EXPORTER_OTLP_PROTOCOL="grpc"
+export OTEL_EXPORTER_OTLP_ENDPOINT="http://127.0.0.1:4317"
+export OTEL_EXPORTER_OTLP_PROTOCOL="grpc"
 ```
 
 For Kubernetes workloads running on DPUs managed by DPF:
@@ -536,9 +536,17 @@ env:
     value: "grpc"
 ```
 
-### Security
+<Note>
+The nico-otelcol DaemonSet runs with `hostNetwork: true`, so the loopback endpoint
+`127.0.0.1:4317` is reachable only from the host network namespace. This works for
+workloads like ovnkube-node that also use `hostNetwork: true`. Workloads in pod
+network namespaces cannot reach this endpoint.
+</Note>
 
-- The OTLP receiver binds only to loopback (`127.0.0.1`), preventing external access
+### 6.4 Security
+
+- The OTLP receiver binds only to loopback (`127.0.0.1`), preventing access from outside the node
+- Loopback does not authenticate callers - any process in the host network namespace can send spans
 - Workloads do not need access to DPU mTLS credentials
 - The collector authenticates to the site-level receiver using existing mTLS configuration
 
