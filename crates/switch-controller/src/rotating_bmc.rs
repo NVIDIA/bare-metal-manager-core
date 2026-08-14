@@ -101,7 +101,12 @@ pub async fn handle_rotating_bmc(
         .map(|e| vec![e.device_mac])
         .unwrap_or_default();
     if matches!(
-        site_explorer_pause::gate_before_rotation(&ctx.services.db_pool, &bmc_macs).await?,
+        site_explorer_pause::gate_before_credential_change(
+            &ctx.services.db_pool,
+            &bmc_macs,
+            site_explorer_pause::ROTATION_SUPPRESSION_REASON,
+        )
+        .await?,
         GateDecision::Wait
     ) {
         return Ok(StateHandlerOutcome::wait(
@@ -158,7 +163,12 @@ pub async fn handle_rotating_bmc(
                 Some(txn) => txn,
                 None => ctx.services.db_pool.begin().await?,
             };
-            site_explorer_pause::resume_after_rotation(&mut resume_txn, &bmc_macs).await?;
+            site_explorer_pause::resume_after_credential_change(
+                &mut resume_txn,
+                &bmc_macs,
+                site_explorer_pause::ROTATION_SUPPRESSION_REASON,
+            )
+            .await?;
             Ok(StateHandlerOutcome::transition(SwitchControllerState::Ready).with_txn(resume_txn))
         }
         RotationStep::Retry { retry_count } => Ok(StateHandlerOutcome::transition(

@@ -359,6 +359,16 @@ pub struct CarbideConfig {
     #[serde(default)]
     pub uefi_rotation_enabled: bool,
 
+    /// Site-wide enable for factory-resetting the host BMC during tenant
+    /// release. When `false` (the default), tenant release skips the BMC
+    /// factory-reset sub-flow entirely and proceeds directly to `PowerCycle`.
+    /// When `true`, the release flow factory-resets the BMC, waits for it to
+    /// return, restores the device's previous per-device credential, then
+    /// continues with the existing power-cycle / boot-order repair. Opt-in
+    /// per site for rollout.
+    #[serde(default)]
+    pub bmc_factory_reset_on_instance_termination_enabled: bool,
+
     /// *** This mode is for testing purposes and is not widely supported right now ***
     /// Controls if machines allowed to be registered without TPM module,
     /// in this case for stable machine identifier api will use chasis serial.
@@ -942,6 +952,8 @@ impl CarbideConfig {
             spdm_enabled: self.spdm.enabled,
             bmc_rotation_enabled: self.bmc_rotation_enabled,
             uefi_rotation_enabled: self.uefi_rotation_enabled,
+            bmc_factory_reset_on_instance_termination_enabled: self
+                .bmc_factory_reset_on_instance_termination_enabled,
 
             dpu_enable_secure_boot: self.dpu_config.dpu_enable_secure_boot,
             restart_ovs_on_use_admin_network_change: self
