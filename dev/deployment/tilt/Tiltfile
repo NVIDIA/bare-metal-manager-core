@@ -43,6 +43,16 @@ def merged(first, second):
 def component_values(global_values, values):
     return merged({'global': global_values}, values)
 
+def helm_json_flags(values, prefix=''):
+    flags = []
+    for key, value in values.items():
+        path = '%s.%s' % (prefix, key) if prefix else key
+        if type(value) == 'dict' and len(value):
+            flags.extend(helm_json_flags(value, path))
+        else:
+            flags.extend(['--set-json', '%s=%s' % (path, encode_json(value))])
+    return flags
+
 def object_metadata(name, namespace=None):
     result = {'name': name}
     if namespace:
@@ -87,11 +97,7 @@ def helm_chart(
         manual=False,
         wait=True,
         timeout='5m'):
-    flags = [
-        '--create-namespace',
-        '--set-json',
-        encode_json(values),
-    ]
+    flags = ['--create-namespace'] + helm_json_flags(values)
     if wait:
         flags.extend(['--wait', '--wait-for-jobs', '--timeout=%s' % timeout])
     helm_resource(
@@ -133,8 +139,7 @@ def prerequisite(
         flags=[
             '--version=%s' % version,
             '--create-namespace',
-            '--set-json',
-            encode_json(values),
+        ] + helm_json_flags(values) + [
             '--wait',
             '--timeout=5m',
         ],
@@ -518,8 +523,7 @@ helm_resource(
             rest_api_dir,
             'temporal-helm/temporal/values-kind.yaml',
         ),
-        '--set-json',
-        encode_json(temporal_values),
+    ] + helm_json_flags(temporal_values) + [
         '--wait',
         '--wait-for-jobs',
         '--timeout=16m',
@@ -776,8 +780,7 @@ rest_db_yaml = local(
         rest_db_chart,
         '--namespace=%s' % rest_namespace,
         '--show-only=templates/migration-job.yaml',
-        '--set-json',
-        encode_json(rest_db_values),
+    ] + helm_json_flags(rest_db_values) + [
         '--set=ttlSecondsAfterFinished=86400',
     ],
     quiet=True,

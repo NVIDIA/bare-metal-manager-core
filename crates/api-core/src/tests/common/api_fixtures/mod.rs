@@ -1748,6 +1748,7 @@ pub(in crate::tests) async fn create_test_env_with_overrides(
             switches_created_per_run: 1,
             rotate_switch_nvos_credentials: Arc::new(false.into()),
             dpu_policy: None,
+            deprecated_force_dpu_nic_mode: None,
             // Tests use MockEndpointExplorer. So this doesn't affect anything.
             explore_mode: SiteExplorerExploreMode::NvRedfish,
         },

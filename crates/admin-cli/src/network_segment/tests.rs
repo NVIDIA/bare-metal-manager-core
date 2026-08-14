@@ -28,6 +28,7 @@ use carbide_test_support::scenarios;
 use carbide_uuid::network::NetworkSegmentId;
 use carbide_uuid::vpc::VpcId;
 use clap::{CommandFactory, Parser};
+use rpc::forge;
 
 use super::*;
 use crate::test_support::{parse_leaf, raw_value};
@@ -78,6 +79,38 @@ fn parse_show_routes_to_show() {
 
         "with --name" {
             &["network-segment", "show", "--name", "my-segment"][..] => Yields((false, None, Some("my-segment".to_string()))),
+        }
+    );
+}
+
+#[test]
+fn parse_create_controls_slaac_eui64_inference() {
+    scenarios!(
+        run = |argv| {
+            Cmd::try_parse_from(argv.iter().copied())
+                .map(|command| match command {
+                    Cmd::Create(args) => {
+                        forge::NetworkSegmentCreationRequest::from(args)
+                            .infer_slaac_eui64_addresses
+                    }
+                    _ => unreachable!("scenario must parse as network-segment create"),
+                })
+                .map_err(drop)
+        };
+        "inference omitted" {
+            &["network-segment", "create", "--name", "segment", "--prefix", "2001:db8::/64"][..] => Yields(false),
+        }
+
+        "inference enabled" {
+            &[
+                "network-segment",
+                "create",
+                "--name",
+                "segment",
+                "--prefix",
+                "2001:db8::/64",
+                "--infer-slaac-eui64-addresses",
+            ][..] => Yields(true),
         }
     );
 }

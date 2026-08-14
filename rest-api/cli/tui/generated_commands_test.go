@@ -128,6 +128,7 @@ func TestAllCommands_RegistersRepresentativeFormerGaps(t *testing.T) {
 		"rack bringup-racks bringup-racks",
 		"rule list-rules list-rules",
 		"site-explorer create",
+		"site-explorer list",
 		"uefi-credential create",
 		"vpc-peering list",
 	} {

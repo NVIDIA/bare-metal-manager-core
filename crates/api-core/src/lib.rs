@@ -143,3 +143,23 @@ pub(crate) fn init_site_name(site_name: Option<String>) {
 pub fn configured_site_name() -> Option<&'static str> {
     SITE_NAME.get().and_then(|name| name.as_deref())
 }
+
+/// Process-global URL template for the "Logs" link on machine and endpoint
+/// detail pages
+static LOGS_LINK_TEMPLATE: OnceLock<String> = OnceLock::new();
+
+/// Initialize the global logs link template. Call once during startup before
+/// serving any web requests. Subsequent calls are ignored.
+pub(crate) fn init_logs_link_template(template: String) {
+    let _ = LOGS_LINK_TEMPLATE.set(template);
+}
+
+/// The configured URL template for the "Logs" link on machine and endpoint
+/// detail pages. The placeholder `{search}` should be replaced with the
+/// machine ID or BMC IP by the caller.
+///
+/// Empty when not configured or when [`init_logs_link_template`] has not been
+/// called (e.g. unit tests).
+pub fn configured_logs_link_template() -> &'static str {
+    LOGS_LINK_TEMPLATE.get().map(String::as_str).unwrap_or("")
+}

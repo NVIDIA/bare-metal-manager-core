@@ -6,6 +6,7 @@ package model
 import (
 	"context"
 	"testing"
+	"time"
 
 	cutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
 	"github.com/NVIDIA/infra-controller/rest-api/db/pkg/db"
@@ -17,6 +18,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	otrace "go.opentelemetry.io/otel/trace"
+	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
 func TestSkuComponents_Equal(t *testing.T) {
@@ -49,6 +51,7 @@ func TestSkuComponents_Equal(t *testing.T) {
 func TestSKU_ToProto(t *testing.T) {
 	siteID := uuid.New()
 	deviceType := "GPU"
+	created := time.Date(2025, time.January, 2, 3, 4, 5, 678_901_000, time.UTC)
 
 	t.Run("populates proto from receiver", func(t *testing.T) {
 		sk := &SKU{
@@ -57,6 +60,7 @@ func TestSKU_ToProto(t *testing.T) {
 			Description:          "GPU compute SKU",
 			SchemaVersion:        5,
 			DeviceType:           &deviceType,
+			Created:              created,
 			Components:           &SkuComponents{SkuComponents: &corev1.SkuComponents{}},
 			AssociatedMachineIds: []string{"m-1", "m-2"},
 		}
@@ -66,6 +70,8 @@ func TestSKU_ToProto(t *testing.T) {
 		assert.Equal(t, "GPU compute SKU", proto.GetDescription())
 		assert.Equal(t, uint32(5), proto.SchemaVersion)
 		assert.Equal(t, &deviceType, proto.DeviceType)
+		require.NotNil(t, proto.Created)
+		assert.Equal(t, created, proto.Created.AsTime())
 		require.NotNil(t, proto.Components)
 		require.Len(t, proto.AssociatedMachineIds, 2)
 		assert.Equal(t, "m-1", proto.AssociatedMachineIds[0].Id)
@@ -76,6 +82,7 @@ func TestSKU_ToProto(t *testing.T) {
 		sk := &SKU{ID: "sku-2"}
 		proto := sk.ToProto()
 		require.NotNil(t, proto)
+		assert.Nil(t, proto.Created)
 		assert.Nil(t, proto.Components)
 	})
 
@@ -90,6 +97,8 @@ func TestSKU_ToProto(t *testing.T) {
 func TestSKU_FromProto(t *testing.T) {
 	siteID := uuid.New()
 	deviceType := "GPU"
+	created := time.Date(2025, time.January, 2, 3, 4, 5, 678_901_234, time.UTC)
+	normalizedCreated := created.Round(time.Microsecond)
 
 	t.Run("nil proto leaves receiver unchanged", func(t *testing.T) {
 		sk := &SKU{ID: "preserved", SiteID: siteID}
@@ -105,6 +114,7 @@ func TestSKU_FromProto(t *testing.T) {
 			Description:   cutil.GetPtr("GPU compute SKU"),
 			SchemaVersion: 4,
 			DeviceType:    &deviceType,
+			Created:       timestamppb.New(created),
 			Components:    &corev1.SkuComponents{},
 			AssociatedMachineIds: []*corev1.MachineId{
 				{Id: "m-1"},
@@ -117,8 +127,24 @@ func TestSKU_FromProto(t *testing.T) {
 		assert.Equal(t, "GPU compute SKU", sk.Description)
 		assert.Equal(t, uint32(4), sk.SchemaVersion)
 		assert.Equal(t, &deviceType, sk.DeviceType)
+		assert.Equal(t, normalizedCreated, sk.Created)
 		assert.Equal(t, []string{"m-1", "m-2"}, sk.AssociatedMachineIds)
 		require.NotNil(t, sk.Components)
+	})
+
+	t.Run("missing created timestamp clears stale value", func(t *testing.T) {
+		sk := &SKU{Created: created}
+		sk.FromProto(&corev1.Sku{Id: "sku-1"}, siteID)
+		assert.True(t, sk.Created.IsZero())
+	})
+
+	t.Run("invalid created timestamp is treated as missing", func(t *testing.T) {
+		sk := &SKU{}
+		sk.FromProto(&corev1.Sku{
+			Id:      "sku-1",
+			Created: &timestamppb.Timestamp{Seconds: 253_402_300_800},
+		}, siteID)
+		assert.True(t, sk.Created.IsZero())
 	})
 
 	t.Run("nil description clears existing description", func(t *testing.T) {
@@ -192,6 +218,8 @@ func TestSkuSQLDAO_Create(t *testing.T) {
 	site := TestBuildSite(t, dbSession, ip, "test-site", user)
 
 	ssd := NewSkuDAO(dbSession)
+	authoritativeCreated := time.Date(2025, time.January, 2, 3, 4, 5, 678_901_234, time.UTC)
+	normalizedAuthoritativeCreated := authoritativeCreated.Round(time.Microsecond)
 
 	// OTEL Spanner configuration
 	_, _, ctx = testCommonTraceProviderSetup(t, ctx)
@@ -204,7 +232,7 @@ func TestSkuSQLDAO_Create(t *testing.T) {
 	}{
 		{
 			desc:               "create one",
-			inputs:             []SkuCreateInput{{SkuID: "sku-1", SiteID: site.ID, Description: "first SKU", SchemaVersion: 5, Components: &SkuComponents{SkuComponents: &corev1.SkuComponents{}}}},
+			inputs:             []SkuCreateInput{{SkuID: "sku-1", SiteID: site.ID, Created: &authoritativeCreated, Description: "first SKU", SchemaVersion: 5, Components: &SkuComponents{SkuComponents: &corev1.SkuComponents{}}}},
 			expectError:        false,
 			verifyChildSpanner: true,
 		},
@@ -217,7 +245,9 @@ func TestSkuSQLDAO_Create(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.desc, func(t *testing.T) {
 			for _, input := range tc.inputs {
+				beforeCreate := time.Now().UTC()
 				got, err := ssd.Create(ctx, nil, input)
+				afterCreate := time.Now().UTC()
 				assert.Equal(t, tc.expectError, err != nil)
 				if !tc.expectError {
 					assert.NotNil(t, got)
@@ -226,6 +256,12 @@ func TestSkuSQLDAO_Create(t *testing.T) {
 					assert.Equal(t, input.Description, got.Description)
 					if input.Components != nil {
 						assert.NotNil(t, got.Components)
+					}
+					if input.Created != nil {
+						assert.True(t, normalizedAuthoritativeCreated.Equal(got.Created))
+					} else {
+						assert.False(t, got.Created.Before(beforeCreate))
+						assert.False(t, got.Created.After(afterCreate))
 					}
 				}
 			}
@@ -349,6 +385,8 @@ func TestSkuSQLDAO_Update(t *testing.T) {
 
 	created := testSkuCreateSkus(ctx, t, dbSession, site.ID)
 	ssd := NewSkuDAO(dbSession)
+	authoritativeCreated := time.Date(2025, time.January, 2, 3, 4, 5, 678_901_234, time.UTC)
+	normalizedAuthoritativeCreated := authoritativeCreated.Round(time.Microsecond)
 
 	// OTEL Spanner configuration
 	_, _, ctx = testCommonTraceProviderSetup(t, ctx)
@@ -358,17 +396,20 @@ func TestSkuSQLDAO_Update(t *testing.T) {
 		input               SkuUpdateInput
 		expectedDescription string
 		expectedVersion     uint32
+		expectedCreated     time.Time
 	}{
 		{
 			desc: "update sku data",
 			input: SkuUpdateInput{
 				SkuID:         created[0].ID,
+				Created:       &authoritativeCreated,
 				Description:   cutil.GetPtr("updated description"),
 				SchemaVersion: cutil.GetPtr(uint32(5)),
 				Components:    &SkuComponents{SkuComponents: &corev1.SkuComponents{}},
 			},
 			expectedDescription: "updated description",
 			expectedVersion:     5,
+			expectedCreated:     normalizedAuthoritativeCreated,
 		},
 		{
 			desc: "nil description preserves stored description",
@@ -379,6 +420,7 @@ func TestSkuSQLDAO_Update(t *testing.T) {
 			},
 			expectedDescription: created[1].Description,
 			expectedVersion:     created[1].SchemaVersion,
+			expectedCreated:     created[1].Created,
 		},
 		{
 			desc: "empty description clears stored description",
@@ -388,6 +430,7 @@ func TestSkuSQLDAO_Update(t *testing.T) {
 			},
 			expectedDescription: "",
 			expectedVersion:     created[2].SchemaVersion,
+			expectedCreated:     created[2].Created,
 		},
 	}
 	for _, tc := range tests {
@@ -398,6 +441,7 @@ func TestSkuSQLDAO_Update(t *testing.T) {
 			assert.Equal(t, tc.input.SkuID, got.ID)
 			assert.Equal(t, tc.expectedDescription, got.Description)
 			assert.Equal(t, tc.expectedVersion, got.SchemaVersion)
+			assert.True(t, tc.expectedCreated.Equal(got.Created))
 			if tc.input.Components != nil {
 				assert.NotNil(t, got.Components)
 			}

@@ -21,6 +21,7 @@ use serde::{Deserialize, Serialize};
 
 /// MachineValidation related configuration
 #[derive(Default, Clone, Copy, Debug, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
 pub struct BomValidationConfig {
     /// Whether BOM Validation is enabled
     #[serde(default)]

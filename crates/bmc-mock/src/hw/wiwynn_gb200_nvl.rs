@@ -270,6 +270,9 @@ impl WiwynnGB200Nvl<'_> {
             .iter()
             .map(|(id, version)| fw_inv_builder(id).version(version).build())
             .collect(),
+            host_bmc_inventory_id: Some("FW_BMC_0".to_string()),
+            host_uefi_inventory_id: Some("HGX_FW_CPU_0".to_string()),
+            ..Default::default()
         }
     }
 }

@@ -483,16 +483,13 @@ jobs:
 
           echo "Build completed!"
 
-      # Only main publishes this cache. Actions cache entries are ref-scoped: a
-      # pull request that saves writes a copy nothing else can read, so a herd of
-      # concurrent pull requests starting from a cold cache each stores its own
-      # byte-identical archive. Nine copies of this one 1.3 GB entry were live at
-      # once, 10.7 GB of duplication in the same 50 GB pool that has to hold
-      # main's sccache. Pull requests keep restoring main's copy through the
-      # restore-keys prefix above, so they lose nothing.
+      # Only main saves this cache. Pull requests restore main's copy through the
+      # restore-keys prefix above but cannot add one of their own: entries are
+      # ref-scoped, so concurrent pull requests starting cold each used to store
+      # a byte-identical duplicate, crowding out main's sccache.
       #
-      # Saved on failure as well, because the packages mkosi already downloaded
-      # are valid regardless of whether the image build that followed succeeded.
+      # Saved on failure too: the packages mkosi downloaded are valid whether or
+      # not the image build that followed succeeded.
       - name: Save mkosi package cache
         if: ${{ !cancelled() && inputs.build_type == 'ephemeral' && github.ref == 'refs/heads/main' && steps.mkosi-cache.outputs.cache-hit != 'true' }}
         uses: actions/cache/save@v4

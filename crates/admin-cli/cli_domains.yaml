@@ -47,6 +47,7 @@ network:
   - vpc
   - vpc-peering
   - vpc-prefix
+  - site-prefix
   - network-segment
   - network-device
   - network-security-group

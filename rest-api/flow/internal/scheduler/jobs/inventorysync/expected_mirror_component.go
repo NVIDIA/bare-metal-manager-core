@@ -16,6 +16,7 @@ import (
 	"github.com/uptrace/bun"
 
 	cdb "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db"
+	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/common/utils"
 	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/db/model"
 	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/nicoapi"
 	"github.com/NVIDIA/infra-controller/rest-api/flow/pkg/common/devicetypes"
@@ -231,10 +232,12 @@ func pullExpectedPowerShelves(ctx context.Context, c nicoapi.Client) (rows []nic
 }
 
 // mirrorExpectedComponents reconciles Flow's component table for a single
-// component type against the supplied normalised specs. Matching key is
-// (manufacturer, serial_number), the same unique key Flow's ingestion path
-// already enforces; resurrect behaviour is symmetrical to the rack mirror so
-// transient Core absence doesn't cause UUID churn.
+// component type against the supplied normalised specs. A component is
+// identified by its host BMC's MAC address, which bmc.mac_address makes unique
+// across the table; (manufacturer, serial_number) is a fallback for rows no MAC
+// can reach and is otherwise descriptive metadata. Resurrect behaviour is
+// symmetrical to the rack mirror so transient Core absence doesn't cause UUID
+// churn.
 //
 // rackIDByExtID resolves a Core rack_id string (e.g. "a12") to the Flow rack
 // UUID. A spec whose RackExternalID can't be resolved is mirrored with a NULL
@@ -267,10 +270,16 @@ func mirrorExpectedComponents(
 		return result
 	}
 
-	flowBySerial := make(map[string]*model.Component, len(existing))
+	flowByHostMAC := make(map[string]*model.Component, len(existing))
+	flowByNaturalKey := make(map[string]*model.Component, len(existing))
 	for i := range existing {
 		c := &existing[i]
-		flowBySerial[rackNaturalKey(c.Manufacturer, c.SerialNumber)] = c
+		for _, mac := range hostBMCMACs(c) {
+			flowByHostMAC[mac] = c
+		}
+		if key := naturalKeyOrEmpty(c.Manufacturer, c.SerialNumber); key != "" {
+			flowByNaturalKey[key] = c
+		}
 	}
 
 	type plan struct {
@@ -282,25 +291,26 @@ func mirrorExpectedComponents(
 	}
 	var p plan
 
-	// seenKeys: every (manufacturer, serial) Core is still reporting this
-	// cycle, recorded BEFORE any validity / dedup skip. The delete phase
-	// treats a row whose key is absent from this set as "Core dropped it".
-	// plannedKeys: keys we've already queued an insert/update for, used to
-	// drop Core duplicates before they hit the (manufacturer, serial)
-	// unique index and roll back the whole type's transaction.
-	seenKeys := make(map[string]struct{}, len(specs))
-	plannedKeys := make(map[string]struct{}, len(specs))
+	// seenMACs / seenNaturalKeys: every host BMC MAC and every complete
+	// (manufacturer, serial) pair Core is still reporting this cycle, recorded
+	// BEFORE any validity / dedup skip so a partially-populated Core row reads
+	// as a blip rather than an absence and can't drive a soft-delete.
+	// plannedMACs / plannedNaturalKeys: values already queued this cycle, so
+	// two Core specs can't collide on bmc's primary key or on
+	// component_manufacturer_serial_idx.
+	seenMACs := make(map[string]struct{}, len(specs))
+	seenNaturalKeys := make(map[string]struct{}, len(specs))
+	plannedMACs := make(map[string]struct{}, len(specs))
+	plannedNaturalKeys := make(map[string]struct{}, len(specs))
 
 	for _, s := range specs {
-		// Record the natural key as "still reported by Core" as early as
-		// possible. The key needs only (manufacturer, serial); a missing
-		// BMC MAC is a partial-row blip, not an absence, so it must not
-		// let the delete phase soft-delete a row Core is still listing.
-		keyDerivable := s.Manufacturer != "" && s.SerialNumber != ""
-		var key string
-		if keyDerivable {
-			key = rackNaturalKey(s.Manufacturer, s.SerialNumber)
-			seenKeys[key] = struct{}{}
+		mac := utils.NormalizeMAC(s.BMC.MACAddress)
+		if mac != "" {
+			seenMACs[mac] = struct{}{}
+		}
+		naturalKey := naturalKeyOrEmpty(s.Manufacturer, s.SerialNumber)
+		if naturalKey != "" {
+			seenNaturalKeys[naturalKey] = struct{}{}
 		}
 
 		if !specValid(s) {
@@ -308,24 +318,42 @@ func mirrorExpectedComponents(
 				Str("type", componentType).
 				Str("serial", s.SerialNumber).
 				Str("manufacturer", s.Manufacturer).
-				Str("bmc_mac", s.BMC.MACAddress).
-				Msg("Expected-inventory mirror: skipping Core expected component missing required identity (manufacturer / serial / BMC MAC); row preserved if its key is still reported")
+				Msg("Expected-inventory mirror: skipping Core expected component with no BMC MAC address; Flow has no identity to mirror it under")
 			result.skippedNoIDOrKey++
 			continue
 		}
 
-		// specValid guarantees manufacturer and serial are set, so key is
-		// populated here. Drop Core duplicates: planning the same key twice
-		// would queue two INSERTs that collide on the unique index.
-		if _, planned := plannedKeys[key]; planned {
+		// One MAC on two Core specs is a Core-side fault: bmc.mac_address is
+		// that table's primary key, so the second spec has nowhere to land.
+		if _, planned := plannedMACs[mac]; planned {
 			log.Warn().
 				Str("type", componentType).
-				Str("manufacturer", s.Manufacturer).
 				Str("serial", s.SerialNumber).
-				Msg("Expected-inventory mirror: Core returned duplicate spec for this component; skipping the later occurrence to avoid a unique-constraint abort (Cloud REST is producing duplicates)")
+				Str("bmc_mac", s.BMC.MACAddress).
+				Msg("Expected-inventory mirror: Core reported this BMC MAC address on more than one expected component; skipping the later occurrence")
 			continue
 		}
-		plannedKeys[key] = struct{}{}
+		plannedMACs[mac] = struct{}{}
+
+		// Two components can't both store the same pair —
+		// component_manufacturer_serial_idx would abort the type's
+		// transaction. Drop the labels off the loser rather than the
+		// component: the MAC is its identity and the labels are metadata.
+		if naturalKey != "" {
+			if _, planned := plannedNaturalKeys[naturalKey]; planned {
+				log.Warn().
+					Str("type", componentType).
+					Str("manufacturer", s.Manufacturer).
+					Str("serial", s.SerialNumber).
+					Str("bmc_mac", s.BMC.MACAddress).
+					Msg("Expected-inventory mirror: Core reported this manufacturer and serial number on more than one expected component; mirroring the later one without them")
+				s.Manufacturer = ""
+				s.SerialNumber = ""
+				naturalKey = ""
+			} else {
+				plannedNaturalKeys[naturalKey] = struct{}{}
+			}
+		}
 
 		rackID, ok := resolveRackID(s, rackIDByExtID)
 		if !ok {
@@ -347,7 +375,17 @@ func mirrorExpectedComponents(
 
 		desired := componentFromSpec(s, rackID)
 
-		if cur, ok := flowBySerial[key]; ok {
+		// Match on the host BMC MAC first. The natural key is a fallback for
+		// rows the MAC can't reach: those the AddComponent gRPC created with
+		// no BMC at all, and those whose BMC board was swapped so Core now
+		// reports a MAC Flow has never seen. Either way the match adopts the
+		// existing UUID and planBMCReconciliation repoints the BMC row.
+		cur := flowByHostMAC[mac]
+		if cur == nil && naturalKey != "" {
+			cur = flowByNaturalKey[naturalKey]
+		}
+
+		if cur != nil {
 			candidate := *cur
 			needUpdate := false
 			if candidate.DeletedAt != nil {
@@ -361,6 +399,7 @@ func mirrorExpectedComponents(
 					Msg("Expected-inventory mirror: resurrecting soft-deleted component")
 			}
 
+			clearComponentLabelsIfSlotTaken(&desired, flowByNaturalKey, candidate.ID, componentType)
 			diffs := diffComponentFields(&candidate, &desired, s)
 			if len(diffs) > 0 {
 				applyComponentChanges(&candidate, &desired, s)
@@ -376,6 +415,7 @@ func mirrorExpectedComponents(
 			continue
 		}
 
+		clearComponentLabelsIfSlotTaken(&desired, flowByNaturalKey, uuid.Nil, componentType)
 		p.toInsert = append(p.toInsert, desired)
 		p.toInsertBMCs = append(p.toInsertBMCs, model.BMC{
 			MacAddress: s.BMC.MACAddress,
@@ -394,7 +434,21 @@ func mirrorExpectedComponents(
 		if c.DeletedAt != nil {
 			continue
 		}
-		if _, seen := seenKeys[rackNaturalKey(c.Manufacturer, c.SerialNumber)]; seen {
+		macs := hostBMCMACs(c)
+		key := naturalKeyOrEmpty(c.Manufacturer, c.SerialNumber)
+		if len(macs) == 0 && key == "" {
+			// Nothing on this row can be compared with what Core reported, so
+			// "Core dropped it" is indistinguishable from "Flow cannot
+			// recognise it". Left in place, with a warn so the operator can
+			// repair the row.
+			result.legacyExempt++
+			log.Warn().
+				Str("type", componentType).
+				Str("component_id", c.ID.String()).
+				Msg("Expected-inventory mirror: Flow component has neither a host BMC nor a manufacturer/serial pair; it cannot be matched against Core and is left in place")
+			continue
+		}
+		if stillReportedByCore(macs, key, seenMACs, seenNaturalKeys) {
 			continue
 		}
 		p.toDelete = append(p.toDelete, *c)
@@ -438,7 +492,8 @@ func mirrorExpectedComponents(
 			p.toUpdate[i].UpdatedAt = now
 			if _, err := tx.NewUpdate().
 				Model(&p.toUpdate[i]).
-				Column("name", "model", "slot_id", "tray_index", "host_id", "rack_id", "deleted_at", "updated_at").
+				Column("name", "model", "manufacturer", "serial_number", "slot_id",
+					"tray_index", "host_id", "rack_id", "deleted_at", "updated_at").
 				WhereAllWithDeleted().
 				Where("id = ?", p.toUpdate[i].ID).
 				Exec(ctx); err != nil {
@@ -492,11 +547,77 @@ func mirrorExpectedComponents(
 	return result
 }
 
-// specValid rejects rows missing fields the mirror needs to construct a row
-// that both inserts cleanly (Component.Manufacturer / SerialNumber are
-// NOT NULL and form a unique index) and reconciles BMC (MAC is BMC PK).
+// specValid rejects a Core row carrying no BMC MAC address. The MAC is the
+// mirrored component's identity, so without one the row could not be matched
+// again on any later cycle. Manufacturer and serial number are descriptive
+// metadata and may be absent.
 func specValid(s expectedComponentSpec) bool {
-	return s.Manufacturer != "" && s.SerialNumber != "" && s.BMC.MACAddress != ""
+	return s.BMC.MACAddress != ""
+}
+
+// hostBMCMACs returns the normalised MAC of every type='Host' BMC on the
+// component. bmc.mac_address is that table's primary key, so a MAC belongs to
+// exactly one component and each of these identifies this row uniquely. A
+// component carrying several host BMCs is an ingestion fault that
+// planBMCReconciliation reduces to one; until it does, accepting any of them
+// keeps the component reachable.
+func hostBMCMACs(c *model.Component) []string {
+	hostType := devicetypes.BMCTypeToString(devicetypes.BMCTypeHost)
+	var macs []string
+	for i := range c.BMCs {
+		if c.BMCs[i].Type != hostType || c.BMCs[i].MacAddress == "" {
+			continue
+		}
+		macs = append(macs, utils.NormalizeMAC(c.BMCs[i].MacAddress))
+	}
+	return macs
+}
+
+// stillReportedByCore reports whether what Core sent this cycle covers the
+// component, by any of its host BMC MACs or by its complete chassis pair.
+// Either alone is enough: a BMC board swap changes the MAC while the pair
+// holds, and a relabelled chassis changes the pair while the MAC holds.
+func stillReportedByCore(macs []string, naturalKey string, seenMACs, seenNaturalKeys map[string]struct{}) bool {
+	for _, mac := range macs {
+		if _, ok := seenMACs[mac]; ok {
+			return true
+		}
+	}
+	if naturalKey == "" {
+		return false
+	}
+	_, ok := seenNaturalKeys[naturalKey]
+	return ok
+}
+
+// clearComponentLabelsIfSlotTaken blanks desired's manufacturer and serial
+// number when a Flow component other than selfID already holds that complete
+// pair. selfID is uuid.Nil for an INSERT. component_manufacturer_serial_idx
+// covers soft-deleted rows too, so writing an occupied pair would abort the
+// whole type's transaction; the component is still mirrored under its host BMC
+// MAC, just without the labels.
+func clearComponentLabelsIfSlotTaken(
+	desired *model.Component,
+	flowByNaturalKey map[string]*model.Component,
+	selfID uuid.UUID,
+	componentType string,
+) {
+	key := naturalKeyOrEmpty(desired.Manufacturer, desired.SerialNumber)
+	if key == "" {
+		return
+	}
+	owner, ok := flowByNaturalKey[key]
+	if !ok || owner.ID == selfID {
+		return
+	}
+	log.Warn().
+		Str("type", componentType).
+		Str("manufacturer", desired.Manufacturer).
+		Str("serial", desired.SerialNumber).
+		Str("held_by_component_id", owner.ID.String()).
+		Msg("Expected-inventory mirror: another Flow component already holds this manufacturer and serial number; mirroring this component without them")
+	desired.Manufacturer = ""
+	desired.SerialNumber = ""
 }
 
 // resolveRackID translates Core's rack_id string into the Flow Rack.ID
@@ -542,16 +663,25 @@ func componentFromSpec(s expectedComponentSpec, rackID uuid.UUID) model.Componen
 }
 
 // applyComponentChanges copies mirror-managed fields from desired into
-// existing. Identity (Manufacturer/SerialNumber/Type), runtime (ComponentID,
-// PowerState, FirmwareVersion), lifecycle (Status, IngestedAt) and audit
-// (CreatedAt, UpdatedAt) are intentionally not touched. Fields named in
-// spec.preserveFields are also skipped — those are the columns whose Core
-// labels were malformed and so should keep Flow's existing value rather
-// than be overwritten with the parseLabelInt fallback zero.
+// existing. Type, runtime (ComponentID, PowerState, FirmwareVersion), lifecycle
+// (Status, IngestedAt) and audit (CreatedAt, UpdatedAt) are intentionally not
+// touched. Fields named in spec.preserveFields are also skipped — those are the
+// columns whose Core labels were malformed and so should keep Flow's existing
+// value rather than be overwritten with the parseLabelInt fallback zero.
+//
+// Manufacturer and serial number are only filled in when Flow's copy is empty:
+// Core dropping a label it used to send is a data gap, not an instruction to
+// erase what Flow already recorded.
 func applyComponentChanges(existing, desired *model.Component, spec expectedComponentSpec) {
 	existing.Name = desired.Name
 	existing.Model = desired.Model
 	existing.RackID = desired.RackID
+	if existing.Manufacturer == "" {
+		existing.Manufacturer = desired.Manufacturer
+	}
+	if existing.SerialNumber == "" {
+		existing.SerialNumber = desired.SerialNumber
+	}
 	if !spec.preserveFields["slot_id"] {
 		existing.SlotID = desired.SlotID
 	}
@@ -578,6 +708,12 @@ func diffComponentFields(existing, desired *model.Component, spec expectedCompon
 	}
 	if existing.Model != desired.Model {
 		diffs = append(diffs, fieldChange{"model", existing.Model, desired.Model})
+	}
+	if existing.Manufacturer == "" && desired.Manufacturer != "" {
+		diffs = append(diffs, fieldChange{"manufacturer", existing.Manufacturer, desired.Manufacturer})
+	}
+	if existing.SerialNumber == "" && desired.SerialNumber != "" {
+		diffs = append(diffs, fieldChange{"serial_number", existing.SerialNumber, desired.SerialNumber})
 	}
 	if !spec.preserveFields["slot_id"] && existing.SlotID != desired.SlotID {
 		diffs = append(diffs, fieldChange{"slot_id", strconv.Itoa(existing.SlotID), strconv.Itoa(desired.SlotID)})

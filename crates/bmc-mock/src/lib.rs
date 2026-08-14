@@ -28,10 +28,8 @@ pub mod simulated;
 mod auth_router;
 mod bmc_state;
 mod combined_server;
-mod combined_service;
 mod http;
 mod hw;
-pub mod injection;
 mod json;
 pub mod mac_address_pool;
 mod machine_info;
@@ -39,15 +37,18 @@ mod middleware_router;
 mod mock_machine_router;
 mod rack_info;
 mod redfish;
+mod tar_router;
 pub mod test_support;
 pub mod tls;
 
 pub use bmc_state::{BmcEvent, BmcState};
+pub use carbide_axum_utils::authority_router::authority_router as combined_router;
+pub use carbide_axum_utils::injection;
 pub use combined_server::{CombinedServer, ListenerOrAddress};
-pub use combined_service::combined_router;
 pub use hw::rack::{RackElevation, RackUnit};
 pub use machine_info::{
-    DpuFirmwareVersions, DpuMachineInfo, DpuSettings, HostMachineInfo, MachineInfo,
+    DpuFirmwareVersions, DpuMachineInfo, DpuSettings, HostFirmwareVersions, HostMachineInfo,
+    MachineInfo,
 };
 pub use mock_machine_router::{
     BmcCommand, MachineRouterOptions, SetSystemPowerError, SetSystemPowerResult, machine_router,
@@ -137,6 +138,16 @@ impl fmt::Display for HardwareType {
 }
 
 impl HardwareType {
+    /// Key in `DesiredFirmwareVersionEntry.component_versions` for the host BMC
+    /// version.  Most platforms use `"bmc"`; DGX H100 uses `"combinedbmcuefi"`
+    /// because the API models its BMC as a `CombinedBmcUefi` component type.
+    pub fn host_bmc_version_key(&self) -> &'static str {
+        match self {
+            Self::NvidiaDgxH100 => "combinedbmcuefi",
+            _ => "bmc",
+        }
+    }
+
     // This function returns how many DPUs must be attached to the
     // platform. If None than platform can support variable number of
     // DPUs.

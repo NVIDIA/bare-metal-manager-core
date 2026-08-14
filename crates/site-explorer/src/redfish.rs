@@ -285,32 +285,37 @@ impl RedfishClient {
             .map_err(map_redfish_client_creation_error)?;
 
         let service_root = client.get_service_root().await.map_err(map_redfish_error)?;
-        let vendor = service_root.vendor().map(bmc_vendor);
+        let redfish_vendor = service_root.vendor();
+        // Lenovo XCC is the platform where we have verified that adapter Ports
+        // belong to the linked host chassis. Keep that policy here so the
+        // inventory path stays generic.
+        let supports_adapter_port_mac_inventory = redfish_vendor == Some(RedfishVendor::Lenovo);
+        let vendor = redfish_vendor.map(bmc_vendor);
 
         let manager = fetch_manager(client.as_ref())
             .await
             .map_err(map_redfish_error)?;
         let FetchedSystem {
-            mut system,
+            system,
             is_dpu,
             is_host,
+            linked_chassis_ids,
         } = fetch_system(client.as_ref()).await?;
 
-        let fetch_network_adapter_ports =
-            should_fetch_network_adapter_ports(is_host, &system.ethernet_interfaces);
+        let fetch_network_adapter_ports = should_fetch_network_adapter_ports(
+            supports_adapter_port_mac_inventory,
+            is_host,
+            &linked_chassis_ids,
+        );
         // TODO (spyda): once we test the BMC reset logic, we can enhance our logic here
         // to detect cases where the host's BMC is returning invalid (empty) chassis information, even though
         // an error is not returned.
-        let FetchedChassis {
-            chassis,
-            network_adapter_interfaces,
-        } = fetch_chassis(client.as_ref(), fetch_network_adapter_ports)
-            .await
-            .map_err(map_redfish_error)?;
-        system.ethernet_interfaces = merge_network_adapter_interfaces(
-            system.ethernet_interfaces,
-            network_adapter_interfaces,
-        );
+        let FetchedChassis { chassis } = fetch_chassis(
+            client.as_ref(),
+            fetch_network_adapter_ports.then_some(linked_chassis_ids.as_slice()),
+        )
+        .await
+        .map_err(map_redfish_error)?;
         let service = fetch_service(client.as_ref())
             .await
             .map_err(map_redfish_error)?;
@@ -803,10 +808,25 @@ struct FetchedSystem {
     system: ComputerSystem,
     is_dpu: bool,
     is_host: bool,
+    linked_chassis_ids: Vec<String>,
 }
 
 async fn fetch_system(client: &dyn Redfish) -> Result<FetchedSystem, EndpointExplorationError> {
     let mut system = client.get_system().await.map_err(map_redfish_error)?;
+    let linked_chassis_ids = system
+        .links
+        .as_ref()
+        .and_then(|links| links.chassis.as_ref())
+        .into_iter()
+        .flatten()
+        .filter_map(|chassis| {
+            chassis
+                .odata_id_get()
+                .ok()
+                .and_then(|id| id.rsplit('/').next())
+                .map(str::to_owned)
+        })
+        .collect();
     let is_dpu = system.id.to_lowercase().contains("bluefield");
     let ethernet_interfaces = match fetch_ethernet_interfaces(client, true, is_dpu).await {
         Ok(interfaces) => Ok(interfaces),
@@ -929,6 +949,7 @@ async fn fetch_system(client: &dyn Redfish) -> Result<FetchedSystem, EndpointExp
         },
         is_dpu,
         is_host: !(is_dpu || is_switch || is_powershelf),
+        linked_chassis_ids,
     })
 }
 
@@ -1105,24 +1126,21 @@ async fn get_oob_interface(
 
 struct FetchedChassis {
     chassis: Vec<Chassis>,
-    network_adapter_interfaces: Vec<EthernetInterface>,
 }
 
 fn should_fetch_network_adapter_ports(
+    supports_adapter_port_mac_inventory: bool,
     is_host: bool,
-    system_interfaces: &[EthernetInterface],
+    linked_chassis_ids: &[String],
 ) -> bool {
-    is_host
-        && !system_interfaces
-            .iter()
-            .any(|interface| interface.mac_address.is_some())
+    supports_adapter_port_mac_inventory && is_host && !linked_chassis_ids.is_empty()
 }
 
-async fn fetch_network_adapter_port_interfaces(
+async fn fetch_network_adapter_port_mac_addresses(
     client: &dyn Redfish,
     chassis_id: &str,
     network_adapter_id: &str,
-) -> Vec<EthernetInterface> {
+) -> Vec<MacAddress> {
     let port_ids = match client.get_ports(chassis_id, network_adapter_id).await {
         Ok(port_ids) => port_ids,
         Err(error) => {
@@ -1136,7 +1154,7 @@ async fn fetch_network_adapter_port_interfaces(
         }
     };
 
-    let mut interfaces = Vec::new();
+    let mut result = Vec::new();
     for port_id in port_ids {
         let port = match client
             .get_port(chassis_id, network_adapter_id, &port_id)
@@ -1167,33 +1185,20 @@ async fn fetch_network_adapter_port_interfaces(
                 continue;
             }
         };
-        let link_status = port.link_status.map(|status| status.to_string());
-
-        interfaces.extend(
-            mac_addresses
-                .into_iter()
-                .map(|mac_address| EthernetInterface {
-                    description: None,
-                    // `Port.Id` names a physical port, not the firmware interface
-                    // selector consumed by `BootInterfaceTarget`. Leaving this unset
-                    // keeps a port-only discovery on the existing MAC-only path.
-                    id: None,
-                    interface_enabled: None,
-                    mac_address: Some(mac_address),
-                    link_status: link_status.clone(),
-                    uefi_device_path: None,
-                }),
-        );
+        for mac_address in mac_addresses {
+            if !result.contains(&mac_address) {
+                result.push(mac_address);
+            }
+        }
     }
-    interfaces
+    result
 }
 
 async fn fetch_chassis(
     client: &dyn Redfish,
-    fetch_network_adapter_ports: bool,
+    port_chassis_ids: Option<&[String]>,
 ) -> Result<FetchedChassis, RedfishError> {
     let mut chassis: Vec<Chassis> = Vec::new();
-    let mut network_adapter_interfaces = Vec::new();
 
     let chassis_list = client.get_chassis_all().await?;
     for chassis_id in &chassis_list {
@@ -1220,11 +1225,13 @@ async fn fetch_chassis(
                 .get_chassis_network_adapter(chassis_id, net_adapter_id)
                 .await?;
 
-            if fetch_network_adapter_ports && value.ports.is_some() {
-                network_adapter_interfaces.extend(
-                    fetch_network_adapter_port_interfaces(client, chassis_id, net_adapter_id).await,
-                );
-            }
+            let port_mac_addresses = if value.ports.is_some()
+                && port_chassis_ids.is_some_and(|chassis_ids| chassis_ids.contains(chassis_id))
+            {
+                fetch_network_adapter_port_mac_addresses(client, chassis_id, net_adapter_id).await
+            } else {
+                Vec::new()
+            };
 
             let net_adapter = NetworkAdapter {
                 id: value.id,
@@ -1239,6 +1246,7 @@ async fn fetch_chassis(
                         .trim()
                         .to_string(),
                 ),
+                port_mac_addresses,
             };
 
             net_adapters.push(net_adapter);
@@ -1283,25 +1291,7 @@ async fn fetch_chassis(
         });
     }
 
-    Ok(FetchedChassis {
-        chassis,
-        network_adapter_interfaces,
-    })
-}
-
-fn merge_network_adapter_interfaces(
-    mut system_interfaces: Vec<EthernetInterface>,
-    network_adapter_interfaces: Vec<EthernetInterface>,
-) -> Vec<EthernetInterface> {
-    for interface in network_adapter_interfaces {
-        if !system_interfaces
-            .iter()
-            .any(|existing| existing.mac_address == interface.mac_address)
-        {
-            system_interfaces.push(interface);
-        }
-    }
-    system_interfaces
+    Ok(FetchedChassis { chassis })
 }
 
 async fn get_base_mac_from_bf4_ndf0(client: &dyn Redfish) -> Option<MacAddress> {
@@ -1712,12 +1702,11 @@ mod tests {
     use libredfish::model::service_root::RedfishVendor;
     use mac_address::MacAddress;
     use model::machine_boot_interface::{MachineBootInterface, MachineBootInterfaceTarget};
-    use model::site_explorer::EthernetInterface;
 
     use super::{
         BootInterfaceTarget, EndpointExplorationError, MachineSetupStatus, RedfishClient,
-        fetch_machine_setup_status, merge_network_adapter_interfaces, nv_bmc_explore_config,
-        record_evaluated_boot_interface, should_fetch_network_adapter_ports,
+        fetch_machine_setup_status, nv_bmc_explore_config, record_evaluated_boot_interface,
+        should_fetch_network_adapter_ports,
     };
 
     fn test_addr() -> SocketAddr {
@@ -1731,10 +1720,12 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn host_report_uses_network_adapter_port_mac_as_mac_only_interface() {
+    async fn detected_lenovo_host_collects_linked_network_adapter_port_mac() {
         let mac_address = MacAddress::new([0x94, 0x6d, 0xae, 0x53, 0xcb, 0x9b]);
         let sim = Arc::new(RedfishSim::default());
+        sim.set_service_root_vendor(Some("Lenovo".to_string()));
         sim.set_system_id("System");
+        sim.set_system_chassis_ids(vec!["Card1".to_string()]);
         sim.set_network_adapter_port_mac_addresses(vec![mac_address]);
         let redfish = build_redfish_client(sim);
 
@@ -1751,17 +1742,20 @@ mod tests {
             .await
             .unwrap();
 
-        let interface = report.systems[0]
-            .ethernet_interfaces
-            .iter()
-            .find(|interface| interface.mac_address == Some(mac_address));
-        assert_eq!(
-            interface,
-            Some(&EthernetInterface {
-                mac_address: Some(mac_address),
-                ..Default::default()
-            })
+        assert!(
+            report.systems[0]
+                .ethernet_interfaces
+                .iter()
+                .all(|interface| interface.mac_address.is_none()),
+            "Port data must not become a System EthernetInterface",
         );
+        let adapter = report
+            .chassis
+            .iter()
+            .find(|chassis| chassis.id == "Card1")
+            .and_then(|chassis| chassis.network_adapters.first())
+            .expect("linked chassis network adapter");
+        assert_eq!(adapter.port_mac_addresses, vec![mac_address]);
         assert_eq!(report.all_mac_addresses(), vec![mac_address]);
         assert_eq!(report.find_interface_id_for_mac(mac_address), None);
         assert_eq!(report.complete_boot_interfaces().count(), 0);
@@ -1794,94 +1788,60 @@ mod tests {
     }
 
     #[test]
-    fn network_adapter_interfaces_keep_system_interface_ids() {
+    fn network_adapter_port_inventory_gate_cases() {
         #[derive(Clone)]
         struct Input {
-            system_interfaces: Vec<EthernetInterface>,
-            network_adapter_interfaces: Vec<EthernetInterface>,
-        }
-
-        let mac_address = MacAddress::new([0x94, 0x6d, 0xae, 0x53, 0xcb, 0x9b]);
-        let system_interface = EthernetInterface {
-            id: Some("NIC.Slot.3-1-1".to_string()),
-            mac_address: Some(mac_address),
-            ..Default::default()
-        };
-        let adapter_interface = EthernetInterface {
-            mac_address: Some(mac_address),
-            ..Default::default()
-        };
-
-        check_values(
-            [
-                Check {
-                    scenario: "port-only discovery stays MAC-only",
-                    input: Input {
-                        system_interfaces: vec![],
-                        network_adapter_interfaces: vec![adapter_interface.clone()],
-                    },
-                    expect: vec![adapter_interface.clone()],
-                },
-                Check {
-                    scenario: "System EthernetInterface wins for the same MAC",
-                    input: Input {
-                        system_interfaces: vec![system_interface.clone()],
-                        network_adapter_interfaces: vec![adapter_interface],
-                    },
-                    expect: vec![system_interface],
-                },
-            ],
-            |input| {
-                merge_network_adapter_interfaces(
-                    input.system_interfaces,
-                    input.network_adapter_interfaces,
-                )
-            },
-        );
-    }
-
-    #[test]
-    fn network_adapter_port_fallback_gate_cases() {
-        #[derive(Clone)]
-        struct Input {
+            supports_adapter_port_mac_inventory: bool,
             is_host: bool,
-            system_interfaces: Vec<EthernetInterface>,
+            linked_chassis_ids: Vec<String>,
         }
-
-        let interface = |mac_address| EthernetInterface {
-            mac_address,
-            ..Default::default()
-        };
-        let mac_address = MacAddress::new([0x94, 0x6d, 0xae, 0x53, 0xcb, 0x9b]);
 
         check_values(
             [
                 Check {
-                    scenario: "host without a System MAC uses adapter ports",
+                    scenario: "eligible host uses linked adapter ports",
                     input: Input {
+                        supports_adapter_port_mac_inventory: true,
                         is_host: true,
-                        system_interfaces: vec![interface(None)],
+                        linked_chassis_ids: vec!["Card1".to_string()],
                     },
                     expect: true,
                 },
                 Check {
-                    scenario: "host with a System MAC skips adapter ports",
+                    scenario: "non-host skips adapter ports",
                     input: Input {
-                        is_host: true,
-                        system_interfaces: vec![interface(Some(mac_address))],
+                        supports_adapter_port_mac_inventory: true,
+                        is_host: false,
+                        linked_chassis_ids: vec!["Card1".to_string()],
                     },
                     expect: false,
                 },
                 Check {
-                    scenario: "non-host without a System MAC skips adapter ports",
+                    scenario: "platform without adapter-port inventory skips adapter ports",
                     input: Input {
-                        is_host: false,
-                        system_interfaces: vec![],
+                        supports_adapter_port_mac_inventory: false,
+                        is_host: true,
+                        linked_chassis_ids: vec!["Card1".to_string()],
+                    },
+                    expect: false,
+                },
+                Check {
+                    scenario: "eligible host without chassis links skips adapter ports",
+                    input: Input {
+                        supports_adapter_port_mac_inventory: true,
+                        is_host: true,
+                        linked_chassis_ids: vec![],
                     },
                     expect: false,
                 },
             ],
-            |input| should_fetch_network_adapter_ports(input.is_host, &input.system_interfaces),
+            |input| {
+                should_fetch_network_adapter_ports(
+                    input.supports_adapter_port_mac_inventory,
+                    input.is_host,
+                    &input.linked_chassis_ids,
+                )
+            },
         );
     }
 

@@ -137,7 +137,10 @@ fn convert_tests_to_nice_format(
             ("Args", test.args),
             ("Contexts", contexts),
             ("PreCondition", test.pre_condition.unwrap_or_default()),
-            ("TimeOut", test.timeout.unwrap().to_string()),
+            (
+                "TimeOut",
+                test.timeout.map(|t| t.to_string()).unwrap_or_default(),
+            ),
             ("CustomTags", custom_tags),
             ("Components", components),
             ("SupportedPlatforms", platforms),

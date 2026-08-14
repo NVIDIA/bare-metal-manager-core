@@ -38,6 +38,7 @@ use forge_certs::cert_renewal::ClientCertRenewer;
 use forge_dpu_remediation::remediation::{MachineInfo, RemediationExecutor};
 use ipnetwork::IpNetwork;
 use mac_address::MacAddress;
+use prost::Message as _;
 use tokio::signal::unix::{SignalKind, signal};
 use tokio::sync::watch;
 use tokio::task::JoinHandle;
@@ -488,21 +489,20 @@ struct IterationResult {
     loop_period: std::time::Duration,
 }
 
-/// `CurrentNetworkVersion` tracks the versions we last successfully applied,
-/// mostly so we can avoid hitting the HBN update methods more frequently than
-/// needed.
+/// `CurrentNetworkVersion` tracks the response inputs we last applied so the
+/// agent can skip an HBN update only when the explicit versions match and the
+/// current response still describes the same HBN behavior.
 #[derive(Debug, Default)]
 struct CurrentNetworkVersion {
     managed_host_config_version: Option<String>,
     instance_network_config_version: Option<String>,
-    // This hashes over a bunch of unversioned fields from the API.
-    unversioned_fields_hash: Option<u64>,
+    rendered_inputs_hash: Option<u64>,
 }
 
 impl CurrentNetworkVersion {
-    // Return whether our stored version matches the specific config.
-    fn matches_versions_from(&self, conf: impl AsRef<ManagedHostNetworkConfigResponse>) -> bool {
-        let conf = conf.as_ref();
+    /// Returns whether the explicit versions and HBN inputs from the response
+    /// match the last successful network reconciliation.
+    fn matches_versions_from(&self, conf: &ManagedHostNetworkConfigResponse) -> bool {
         let managed_host_config_version = get_non_empty_str(&conf.managed_host_config_version);
         let instance_network_config_version =
             get_non_empty_str(&conf.instance_network_config_version);
@@ -510,14 +510,12 @@ impl CurrentNetworkVersion {
         let config_versions_identical = self.managed_host_config_version.as_deref()
             == managed_host_config_version
             && self.instance_network_config_version.as_deref() == instance_network_config_version;
-        match (config_versions_identical, self.unversioned_fields_hash) {
-            (true, Some(unversioned_fields_hash)) => {
-                if unversioned_fields_hash == Self::hash_unversioned_fields(conf) {
+        match (config_versions_identical, self.rendered_inputs_hash) {
+            (true, Some(rendered_inputs_hash)) => {
+                if rendered_inputs_hash == Self::hash_rendered_inputs(conf) {
                     true
                 } else {
-                    tracing::info!(
-                        "An unversioned field in ManagedHostNetworkConfigResponse has changed"
-                    );
+                    tracing::info!("Rendered network inputs changed without a version change");
                     false
                 }
             }
@@ -526,88 +524,168 @@ impl CurrentNetworkVersion {
         }
     }
 
-    fn update_from(&mut self, conf: impl AsRef<ManagedHostNetworkConfigResponse>) {
-        let conf = conf.as_ref();
+    /// Records the versions and HBN inputs from the response after network
+    /// reconciliation succeeds.
+    fn update_from(&mut self, conf: &ManagedHostNetworkConfigResponse) {
         self.managed_host_config_version =
             get_non_empty_str(&conf.managed_host_config_version).map(String::from);
         self.instance_network_config_version =
             get_non_empty_str(&conf.instance_network_config_version).map(String::from);
-        self.unversioned_fields_hash
-            .replace(Self::hash_unversioned_fields(conf));
+        self.rendered_inputs_hash
+            .replace(Self::hash_rendered_inputs(conf));
     }
 
-    // Some of the fields aren't covered by any of the ConfigVersions that we
-    // receive from the API, so let's try to catch changes in these so that we
-    // don't skip a needed config update.
-    fn hash_unversioned_fields(conf: &ManagedHostNetworkConfigResponse) -> u64 {
+    /// Builds the one local fingerprint used to decide whether HBN rendering
+    /// can be skipped. Starting with the complete response makes new protobuf
+    /// fields part of the comparison by default; we remove only fields that
+    /// cannot affect HBN rendering, then normalize collections whose order does
+    /// not change HBN behavior. A future protobuf map field must be normalized
+    /// explicitly because its encoded iteration order is not stable.
+    fn hash_rendered_inputs(conf: &ManagedHostNetworkConfigResponse) -> u64 {
+        // TODO(chet): Eventually, Core should bump a version whenever any of
+        // these HBN inputs change, and then we can drop this fingerprint.
+        // Parent VPC policies can affect a lot of DPUs at once, though.
+        // Updating every instance would turn one VPC change into a lot of
+        // writes, and the version would say the instance changed when it
+        // didn't. This probably needs its own version.
+        let mut canonical = conf.clone();
+        Self::remove_non_rendered_inputs(&mut canonical);
+        Self::normalize_set_like_inputs(&mut canonical);
+
         let mut hasher = DefaultHasher::new();
-        let h = &mut hasher;
-
-        conf.additional_route_target_imports.hash(h);
-        conf.anycast_site_prefixes.hash(h);
-        conf.asn.hash(h);
-        conf.bgp_leaf_session_password.hash(h);
-        conf.common_internal_route_target.hash(h);
-        conf.datacenter_asn.hash(h);
-        conf.deny_prefixes.hash(h);
-        conf.deprecated_deny_prefixes.hash(h);
-        conf.dhcp_servers.hash(h);
-        conf.internet_l3_vni.hash(h);
-        // `managed_host_config_version` normally follows machine-group updates,
-        // but that relies on the DPU already being attached to its host. Hash
-        // the nested config so a missed fan-out cannot hide a DPU-specific change.
-        conf.managed_host_config.hash(h);
-        conf.network_security_policy_overrides.hash(h);
-        conf.ntp_servers.hash(h);
-        conf.remote_id.hash(h);
-        conf.route_servers.hash(h);
-        conf.site_global_vpc_vni.hash(h);
-        conf.stateful_acls_enabled.hash(h);
-        conf.tenant_host_asn.hash(h);
-        conf.vni_device.hash(h);
-        conf.vpc_isolation_behavior.hash(h);
-
-        conf.dpu_extension_services
-            .iter()
-            .for_each(|dpu_extension_service| {
-                dpu_extension_service.removed.hash(h);
-                dpu_extension_service.service_id.hash(h);
-                // We can probably ignore the other fields, assuming good
-                // behavior from the versioning.
-            });
-
-        let hash_routing_profile = |routing_profile: &rpc::RoutingProfile,
-                                    h: &mut DefaultHasher| {
-            routing_profile.accepted_leaks_from_underlay.hash(h);
-            routing_profile.allowed_anycast_prefixes.hash(h);
-            routing_profile.leak_default_route_from_underlay.hash(h);
-            routing_profile.leak_tenant_host_routes_to_underlay.hash(h);
-            routing_profile.route_target_imports.hash(h);
-            routing_profile.route_targets_on_exports.hash(h);
-            routing_profile.tenant_leak_communities_accepted.hash(h);
-        };
-
-        if let Some(routing_profile) = &conf.routing_profile {
-            hash_routing_profile(routing_profile, h);
-        }
-
-        // Parent VPC profile changes do not increment either version supplied
-        // to the agent, so hash every interface's resolved profile explicitly.
-        // TODO: Consider replacing this fallback hash with explicit invalidation
-        // by incrementing every affected instance's network-config or config
-        // version, or by introducing a dedicated dependency version. Fan-out
-        // updates could contend at scale, and changing an instance version is
-        // misleading when only its parent VPC policy changed.
-        conf.tenant_interfaces.len().hash(h);
-        for interface in &conf.tenant_interfaces {
-            interface.internal_uuid.hash(h);
-            interface.vpc_routing_profile.is_some().hash(h);
-            if let Some(routing_profile) = &interface.vpc_routing_profile {
-                hash_routing_profile(routing_profile, h);
-            }
-        }
+        canonical.encode_to_vec().hash(&mut hasher);
 
         hasher.finish()
+    }
+
+    /// Removes response fields that do not affect HBN rendering. The
+    /// fingerprint starts with the complete response, so a new protobuf field
+    /// remains part of the comparison until we deliberately exclude it here.
+    fn remove_non_rendered_inputs(config: &mut ManagedHostNetworkConfigResponse) {
+        // These versions are compared directly before the fingerprint.
+        config.managed_host_config_version.clear();
+        config.instance_network_config_version.clear();
+
+        // Instance payload fields feed status and metadata paths, not network
+        // rendering.
+        config.instance_id = None;
+        config.instance = None;
+
+        // The pinger type is read once when the agent starts. A runtime change
+        // cannot affect HBN rendering and still requires an agent restart.
+        config.dpu_network_pinger_type = None;
+
+        // These inputs have separate owners that run independently of the HBN
+        // comparison.
+        config.min_dpu_functioning_links = None;
+        config.dpu_extension_services.clear();
+        config.astra_config = None;
+        config.use_admin_network_changed = None;
+
+        // DHCP is reconciled before this HBN skip decision on every iteration.
+        config.ntp_servers.clear();
+
+        // `host_interface_id` helps resolve the host machine ID when the agent
+        // starts, but a later change does not affect HBN rendering.
+        config.host_interface_id = None;
+
+        // Nothing in the agent reads the deprecated deny-prefix list anymore.
+        config.deprecated_deny_prefixes.clear();
+
+        // DHCP is always enabled; this deprecated flag no longer controls
+        // rendering.
+        config.enable_dhcp = false;
+    }
+
+    /// `normalize_set_like_inputs` sorts inputs that HBN treats as sets, but
+    /// preserves relative order anywhere HBN cares about it.
+    fn normalize_set_like_inputs(config: &mut ManagedHostNetworkConfigResponse) {
+        config.dhcp_servers.sort_unstable();
+        config.route_servers.sort_unstable();
+        config.deny_prefixes.sort_unstable();
+        config.site_fabric_prefixes.sort_unstable();
+        config.anycast_site_prefixes.sort_unstable();
+        config
+            .additional_route_target_imports
+            .sort_by_key(|route_target| (route_target.asn, route_target.vni));
+
+        if let Some(admin_interface) = &mut config.admin_interface {
+            Self::normalize_interface(admin_interface);
+        }
+        for interface in &mut config.tenant_interfaces {
+            Self::normalize_interface(interface);
+        }
+
+        for rule in &mut config.network_security_policy_overrides {
+            Self::normalize_security_group_rule(rule);
+        }
+        Self::normalize_security_group_rule_order(&mut config.network_security_policy_overrides);
+
+        if let Some(routing_profile) = &mut config.routing_profile {
+            Self::normalize_routing_profile(routing_profile);
+        }
+    }
+
+    /// Orders prefix-policy entries by their only rendered value.
+    fn sort_prefix_entries(entries: &mut [rpc::PrefixFilterPolicyEntry]) {
+        entries.sort_by(|left, right| left.prefix.cmp(&right.prefix));
+    }
+
+    /// `normalize_interface` sorts the set-like inputs inside one interface
+    /// without changing the surrounding interface order.
+    fn normalize_interface(interface: &mut rpc::FlatInterfaceConfig) {
+        interface.vpc_prefixes.sort_unstable();
+        interface.vpc_peer_prefixes.sort_unstable();
+        interface.vpc_peer_vnis.sort_unstable();
+
+        if let Some(routing_profile) = &mut interface.vpc_routing_profile {
+            Self::normalize_routing_profile(routing_profile);
+        }
+        if let Some(routing_profile) = &mut interface.interface_routing_profile {
+            Self::sort_prefix_entries(&mut routing_profile.allowed_anycast_prefixes);
+        }
+        if let Some(network_security_group) = &mut interface.network_security_group {
+            for rule in &mut network_security_group.rules {
+                Self::normalize_security_group_rule(rule);
+            }
+            Self::normalize_security_group_rule_order(&mut network_security_group.rules);
+        }
+    }
+
+    /// `normalize_routing_profile` sorts collections whose order does not
+    /// change routing behavior.
+    fn normalize_routing_profile(routing_profile: &mut rpc::RoutingProfile) {
+        routing_profile
+            .route_target_imports
+            .sort_by_key(|route_target| (route_target.asn, route_target.vni));
+        routing_profile
+            .route_targets_on_exports
+            .sort_by_key(|route_target| (route_target.asn, route_target.vni));
+        Self::sort_prefix_entries(&mut routing_profile.accepted_leaks_from_underlay);
+        Self::sort_prefix_entries(&mut routing_profile.allowed_anycast_prefixes);
+    }
+
+    /// `normalize_security_group_rule` sorts the resolved source and
+    /// destination prefixes for one security-group rule.
+    fn normalize_security_group_rule(rule: &mut rpc::ResolvedNetworkSecurityGroupRule) {
+        rule.src_prefixes.sort_unstable();
+        rule.dst_prefixes.sort_unstable();
+    }
+
+    /// The renderer partitions rules by direction and address family, then
+    /// stable-sorts each partition by priority. Mirror that behavior without
+    /// erasing the meaningful relative order of equal-priority rules.
+    fn normalize_security_group_rule_order(rules: &mut [rpc::ResolvedNetworkSecurityGroupRule]) {
+        rules.sort_by_key(|rule| {
+            rule.rule.as_ref().map(|attributes| {
+                (
+                    attributes.direction()
+                        == rpc::NetworkSecurityGroupRuleDirection::NsgRuleDirectionIngress,
+                    attributes.ipv6,
+                    attributes.priority,
+                )
+            })
+        });
     }
 }
 
@@ -1627,216 +1705,5 @@ ATF: v2.2(release):4.9.3-")
 }
 
 #[cfg(test)]
-mod test {
-    use super::*;
-
-    /// Verifies the supplemental cache hash tracks every interface's parent
-    /// VPC profile and stable identity so non-first changes trigger rendering.
-    #[test]
-    fn test_current_network_version_hashes_all_vpc_routing_profiles() {
-        use carbide_test_support::value_scenarios;
-
-        /// Selects the non-first interface mutation applied after caching.
-        #[derive(Clone, Copy, Debug)]
-        enum InterfaceChange {
-            Unchanged,
-            Profile,
-            ProfilePresence,
-            Identity,
-        }
-
-        value_scenarios!(run = |change| {
-            let first_profile = rpc::RoutingProfile {
-                leak_default_route_from_underlay: true,
-                ..Default::default()
-            };
-            let second_profile = rpc::RoutingProfile::default();
-            let mut conf = Arc::new(ManagedHostNetworkConfigResponse {
-                managed_host_config_version: "managed-v1".to_string(),
-                instance_network_config_version: "instance-v1".to_string(),
-                // Preserve the compatibility field derived from the first
-                // interface so only per-interface hashing can catch changes.
-                routing_profile: Some(first_profile.clone()),
-                tenant_interfaces: vec![
-                    rpc::FlatInterfaceConfig {
-                        internal_uuid: Some(::rpc::common::Uuid {
-                            value: "first-interface".to_string(),
-                        }),
-                        vpc_routing_profile: Some(first_profile),
-                        ..Default::default()
-                    },
-                    rpc::FlatInterfaceConfig {
-                        internal_uuid: Some(::rpc::common::Uuid {
-                            value: "second-interface".to_string(),
-                        }),
-                        vpc_routing_profile: Some(second_profile),
-                        ..Default::default()
-                    },
-                ],
-                ..Default::default()
-            });
-            let mut current = CurrentNetworkVersion::default();
-            current.update_from(&conf);
-
-            // Change only the second interface while leaving both compared
-            // configuration versions and the compatibility profile untouched.
-            let second_interface = &mut Arc::get_mut(&mut conf)
-                .expect("network configuration must not be shared")
-                .tenant_interfaces[1];
-            match change {
-                InterfaceChange::Unchanged => {}
-                InterfaceChange::Profile => {
-                    second_interface
-                        .vpc_routing_profile
-                        .as_mut()
-                        .expect("second interface profile")
-                        .leak_default_route_from_underlay = true;
-                }
-                InterfaceChange::ProfilePresence => {
-                    second_interface.vpc_routing_profile = None;
-                }
-                InterfaceChange::Identity => {
-                    second_interface.internal_uuid = Some(::rpc::common::Uuid {
-                        value: "replacement-interface".to_string(),
-                    });
-                }
-            }
-
-            current.matches_versions_from(&conf)
-        };
-            "unchanged interface state" {
-                // Identical interface profiles and identities remain cached.
-                InterfaceChange::Unchanged => true,
-            }
-            "non-first interface changes" {
-                // A changed parent VPC profile must invalidate the cached render.
-                InterfaceChange::Profile => false,
-                // Profile presence is meaningful even when all present fields
-                // would otherwise have default values.
-                InterfaceChange::ProfilePresence => false,
-                // Interface identity prevents profiles from being silently
-                // reassociated with a different port.
-                InterfaceChange::Identity => false,
-            }
-        );
-    }
-
-    enum ManagedHostConfigInput {
-        Missing,
-        WithoutIpv6Loopback,
-        WithIpv6Loopback(&'static str),
-    }
-
-    struct Ipv6UnicastHealthRow {
-        virtualization_type: VpcVirtualizationType,
-        managed_host_config: ManagedHostConfigInput,
-    }
-
-    #[test]
-    fn ipv6_unicast_health_requires_fnn_with_an_ipv6_loopback() {
-        use carbide_test_support::value_scenarios;
-
-        value_scenarios!(run = |row: Ipv6UnicastHealthRow| {
-            let managed_host_config = match row.managed_host_config {
-                ManagedHostConfigInput::Missing => None,
-                ManagedHostConfigInput::WithoutIpv6Loopback => {
-                    Some(rpc::ManagedHostNetworkConfig {
-                        loopback_ip: "10.0.0.1".to_string(),
-                        loopback_ip_v6: None,
-                        quarantine_state: None,
-                    })
-                }
-                ManagedHostConfigInput::WithIpv6Loopback(loopback_ip_v6) => {
-                    Some(rpc::ManagedHostNetworkConfig {
-                        loopback_ip: "10.0.0.1".to_string(),
-                        loopback_ip_v6: Some(loopback_ip_v6.to_string()),
-                        quarantine_state: None,
-                    })
-                }
-            };
-            let conf = ManagedHostNetworkConfigResponse {
-                managed_host_config,
-                ..Default::default()
-            };
-            ipv6_unicast_health_enabled(&conf, row.virtualization_type)
-        };
-            "FNN with a reserved IPv6 loopback" {
-                Ipv6UnicastHealthRow {
-                    virtualization_type: VpcVirtualizationType::Fnn,
-                    managed_host_config: ManagedHostConfigInput::WithIpv6Loopback("2001:db8::1"),
-                } => true,
-            }
-
-            "inactive IPv6 underlay" {
-                Ipv6UnicastHealthRow {
-                    virtualization_type: VpcVirtualizationType::Fnn,
-                    managed_host_config: ManagedHostConfigInput::Missing,
-                } => false,
-                Ipv6UnicastHealthRow {
-                    virtualization_type: VpcVirtualizationType::Fnn,
-                    managed_host_config: ManagedHostConfigInput::WithoutIpv6Loopback,
-                } => false,
-                Ipv6UnicastHealthRow {
-                    virtualization_type: VpcVirtualizationType::EthernetVirtualizer,
-                    managed_host_config: ManagedHostConfigInput::WithIpv6Loopback("2001:db8::1"),
-                } => false,
-                Ipv6UnicastHealthRow {
-                    virtualization_type: VpcVirtualizationType::EthernetVirtualizerWithNvue,
-                    managed_host_config: ManagedHostConfigInput::WithIpv6Loopback("2001:db8::1"),
-                } => false,
-                Ipv6UnicastHealthRow {
-                    virtualization_type: VpcVirtualizationType::Flat,
-                    managed_host_config: ManagedHostConfigInput::WithIpv6Loopback("2001:db8::1"),
-                } => false,
-            }
-        );
-    }
-
-    #[test]
-    fn test_current_network_version_hashes_nested_managed_host_config() {
-        use carbide_test_support::value_scenarios;
-
-        value_scenarios!(run = |managed_host_config| {
-            let mut conf = Arc::new(ManagedHostNetworkConfigResponse {
-                managed_host_config: Some(rpc::ManagedHostNetworkConfig {
-                    loopback_ip: "10.0.0.1".to_string(),
-                    loopback_ip_v6: None,
-                    quarantine_state: None,
-                }),
-                managed_host_config_version: "managed-v1".to_string(),
-                instance_network_config_version: "instance-v1".to_string(),
-                ..Default::default()
-            });
-            let mut current = CurrentNetworkVersion::default();
-            current.update_from(&conf);
-            Arc::get_mut(&mut conf).unwrap().managed_host_config = managed_host_config;
-            current.matches_versions_from(&conf)
-        };
-            "nested config changes invalidate the cache" {
-                Some(rpc::ManagedHostNetworkConfig {
-                    loopback_ip: "10.0.0.2".to_string(),
-                    loopback_ip_v6: None,
-                    quarantine_state: None,
-                }) => false,
-                Some(rpc::ManagedHostNetworkConfig {
-                    loopback_ip: "10.0.0.1".to_string(),
-                    loopback_ip_v6: Some("2001:db8::1".to_string()),
-                    quarantine_state: None,
-                }) => false,
-                None => false,
-            }
-        );
-    }
-
-    #[cfg(target_os = "linux")]
-    #[tokio::test]
-    async fn test_get_fabric_interfaces_data() {
-        let fabric_interfaces_data = get_fabric_interfaces_data().await.unwrap();
-        dbg!(fabric_interfaces_data.as_slice());
-        // Under virtualization we probably can't make any assertions about
-        // whether this list contains any interfaces, but uncommenting this
-        // should pass on any Linux host with real hardware or a virtualized PCI
-        // network interface.
-        // assert!(fabric_interfaces_data.len() > 0);
-    }
-}
+#[path = "tests/main_loop.rs"]
+mod tests;

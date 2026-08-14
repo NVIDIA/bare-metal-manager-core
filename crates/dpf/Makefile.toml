@@ -10,7 +10,7 @@ DOCA_BRANCH = "v0.1.0-carbide-47c105e2-nightly"
 # DOCA_REPO_URL = "https://gitlab-master.nvidia.com/doca-platform-foundation/doca-platform-foundation"
 # DOCA_BRANCH = "v26.4.0-rc.4"
 # Comment out DOCA_COMMIT when a tag/branch exists.
-DOCA_COMMIT = "cc7572c84b804a7b400ca79352b124a063c2dc01"
+DOCA_COMMIT = "ab19f69ad1702604edaf2868cd2425ac87fd54aa"
 DOCA_CLONE_DIR = "${CARGO_MAKE_WORKING_DIRECTORY}/doca-platform"
 CRD_SOURCE_PATH = "${DOCA_CLONE_DIR}/deploy/charts/dpf-operator/templates/crds"
 CRD_DEST_PATH = "${CARGO_MAKE_WORKING_DIRECTORY}/crds"
@@ -24,9 +24,13 @@ echo "Cloning NVIDIA doca-platform repository..."
 if [ -z "${DOCA_COMMIT}" ]; then
     git clone --depth 1 --branch ${DOCA_BRANCH} ${DOCA_REPO_URL} "${DOCA_CLONE_DIR}"
 else
-    git clone --depth 1 ${DOCA_REPO_URL} "${DOCA_CLONE_DIR}"
-    git -C "${DOCA_CLONE_DIR}" fetch --unshallow --all
-    git -C "${DOCA_CLONE_DIR}" checkout "${DOCA_COMMIT}"
+    # Fetch the commit directly: nightly commits often live on histories that
+    # are not reachable from the default branch, so cloning and deepening the
+    # default branch alone cannot resolve them.
+    git init -q "${DOCA_CLONE_DIR}"
+    git -C "${DOCA_CLONE_DIR}" remote add origin ${DOCA_REPO_URL}
+    git -C "${DOCA_CLONE_DIR}" fetch --depth 1 origin "${DOCA_COMMIT}"
+    git -C "${DOCA_CLONE_DIR}" checkout --detach FETCH_HEAD
 fi
 echo "Repository cloned"
 '''

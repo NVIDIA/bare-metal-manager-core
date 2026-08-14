@@ -51,6 +51,7 @@ impl From<Firmware> for DesiredFirmwareVersions {
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize, Default)]
+#[serde(deny_unknown_fields)]
 pub struct Firmware {
     pub vendor: bmc_vendor::BMCVendor,
     pub model: String,
@@ -224,6 +225,7 @@ impl FirmwareComponentType {
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize, Default)]
+#[serde(deny_unknown_fields)]
 pub struct FirmwareComponent {
     #[serde(with = "serde_regex")]
     pub current_version_reported_as: Option<Regex>,
@@ -233,6 +235,7 @@ pub struct FirmwareComponent {
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize, Default)]
+#[serde(deny_unknown_fields)]
 pub struct FirmwareEntry {
     pub version: String,
     pub mandatory_upgrade_from_priority: Option<MandatoryUpgradeFromPriority>,
@@ -273,6 +276,7 @@ pub struct FirmwareFileArtifact {
 }
 
 #[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 struct FirmwareFileArtifactWire {
     #[serde(default)]
     filename: Option<String>,
@@ -314,6 +318,7 @@ fn firmware_file_artifact_location_is_set(value: &Option<String>) -> bool {
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
 pub struct ScoutConfig {
     /// Legacy script metadata accepted for backwards-compatible config parsing.
     /// Scout script selection is inferred from the PXE script registry.

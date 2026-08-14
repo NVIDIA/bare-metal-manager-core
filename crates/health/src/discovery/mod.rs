@@ -19,6 +19,7 @@ mod cleanup;
 mod context;
 mod identity;
 mod iteration;
+mod reachability;
 mod spawn;
 
 use std::time::Duration;

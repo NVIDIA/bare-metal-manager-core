@@ -5,9 +5,6 @@ syntax = "proto3";
 
 package forge;
 
-// Don't forget to update build.rs to add the Serialize annotation for any new
-// message types!
-
 import "common_nico.proto";
 import "dns_nico.proto";
 import "google/protobuf/duration.proto";
@@ -1691,6 +1688,10 @@ message VpcConfig {
   optional uint32 vni = 6;
   optional string routing_profile_type = 7;
   optional VpcRoutingProfileOverrides routing_profile_overrides = 8;
+  // Resource group managed by the external power provisioning service. Unset
+  // means that the VPC has no associated resource group; empty values are not
+  // persisted.
+  optional string power_resource_group = 9;
 }
 
 message VpcStatus {
@@ -1794,6 +1795,9 @@ message VpcCreationRequest {
   // Properties to overlay on the selected named routing profile. Properties
   // left unset inherit from the base profile.
   optional VpcRoutingProfileOverrides routing_profile_overrides = 18;
+  // Resource group managed by the external power provisioning service. During
+  // creation, omission or an empty value creates no association.
+  optional string power_resource_group = 19;
 }
 
 enum VpcVirtualizationType {
@@ -1848,6 +1852,10 @@ message VpcUpdateRequest {
   // previous inline definition. Omit this field to preserve the current
   // definition; send an empty message to restore inheritance for every property.
   optional VpcRoutingProfileOverrides routing_profile_overrides = 19;
+  // External power provisioning resource group update. Omit this field to
+  // preserve the current association, send an empty string to remove it, or
+  // send a non-empty value to replace it.
+  optional string power_resource_group = 20;
 }
 
 message VpcUpdateResult {
@@ -2625,6 +2633,13 @@ message NetworkSegmentConfig {
   NetworkSegmentType segment_type = 4;
 
   repeated NetworkPrefix prefixes = 5;
+
+  // Allows NICo to infer modified EUI-64 SLAAC addresses for clients making
+  // stateless DHCPv6 requests and add them to interface address state. False by
+  // default. Inference also requires dynamic allocation, exactly one IPv6 /64,
+  // and an interface without an existing IPv6 address. Set this only when
+  // clients derive SLAAC addresses from their MAC addresses using modified EUI-64.
+  bool infer_slaac_eui64_addresses = 6;
 }
 
 message NetworkSegmentStatus {
@@ -2694,6 +2709,13 @@ message NetworkSegmentCreationRequest {
   // a random ID.
   // The Network Segment ID must be unique within the NICo site.
   optional common.NetworkSegmentId id = 8;
+
+  // Allows NICo to infer modified EUI-64 SLAAC addresses for clients making
+  // stateless DHCPv6 requests and add them to interface address state. False by
+  // default. Inference also requires dynamic allocation, exactly one IPv6 /64,
+  // and an interface without an existing IPv6 address. Set this only when
+  // clients derive SLAAC addresses from their MAC addresses using modified EUI-64.
+  bool infer_slaac_eui64_addresses = 9;
 }
 
 message NetworkSegmentDeletionRequest {
@@ -3007,6 +3029,13 @@ message InstanceConfig {
   InstanceNVLinkConfig nvlink = 24;
 
   InstanceSpxConfig spxconfig = 25;
+
+  // Power profile managed by the external power provisioning service. During
+  // creation, omission or an empty value creates no association. In an
+  // InstanceConfigUpdateRequest, omission preserves the current profile for
+  // compatibility with older clients, an empty string explicitly clears it,
+  // and a non-empty value replaces it.
+  optional string power_profile = 26;
 }
 
 // Desired network configuration for an instance
@@ -3133,9 +3162,11 @@ message InstanceConfigUpdateRequest {
   // a `ConcurrentModificationError`.
   optional string if_version_match = 2;
 
-  // Complete desired configuration replacing the current configuration. The
-  // server does not merge omitted fields. Read-modify-write clients must
-  // preserve fields and oneof variants they do not intend to change.
+  // Complete desired configuration replacing the current configuration. With
+  // the exception of power_profile (whose compatibility semantics are
+  // documented on that field), the server does not merge omitted fields.
+  // Read-modify-write clients must preserve fields and oneof variants they do
+  // not intend to change.
   InstanceConfig config = 3;
   // New Metadata to be utilized by the instance
   Metadata metadata = 4;
@@ -4294,16 +4325,13 @@ message DhcpDiscovery {
   optional bytes duid = 10;
 }
 
-// DHCP protocol family used to validate DhcpDiscovery.message_kind and duid.
-// Field absence means legacy inference; *_UNSPECIFIED means an explicit invalid
-// value and is rejected when supplied.
+// IP address family.
 enum AddressFamily {
-  // Invalid when explicitly supplied. Omit DhcpDiscovery.address_family instead
-  // when using legacy family inference.
+  // No address family selected. Invalid in fields that require an explicit family.
   ADDRESS_FAMILY_UNSPECIFIED = 0;
-  // DHCPv4. Compatible only with MESSAGE_KIND_V4_DISCOVER and no DUID.
+  // IPv4.
   ADDRESS_FAMILY_V4 = 1;
-  // DHCPv6. Compatible only with V6 MessageKind values and requires a DUID.
+  // IPv6.
   ADDRESS_FAMILY_V6 = 2;
 }
 
@@ -4819,6 +4847,12 @@ message FlatInterfaceConfig {
   // Interface-local routing profile details. These narrow the VPC routing
   // profile for this interface.
   optional FlatInterfaceRoutingProfile interface_routing_profile = 21;
+
+  // Family-neutral replacement for gateway, ip, interface_prefix, prefix, svi_ip,
+  // and ipv6_interface_config. An empty list identifies a legacy payload. Writers
+  // must emit at most one entry per family, ordered V4 before V6. Readers must
+  // select entries by address_family rather than position.
+  repeated InterfaceAddressConfig addresses = 22;
 
   // The details of the network security group associated with
   // either the instance or its parent VPC.
@@ -6335,8 +6369,8 @@ enum DpuMode {
 //   a configured address is treated as FIXED, no address is treated as RETAINED.
 // - BMC_IP_ALLOCATION_TYPE_DYNAMIC: a normal DHCP lease that may expire and change.
 // - BMC_IP_ALLOCATION_TYPE_FIXED: the operator-specified `bmc_ip_address` (static).
-// - BMC_IP_ALLOCATION_TYPE_RETAINED: an auto-allocated address pinned as Static
-//   (never expires).
+// - BMC_IP_ALLOCATION_TYPE_RETAINED: an auto-allocated DHCP address that stays
+//   static for the lifetime of its machine-interface record.
 //
 // On create, omission and `BMC_IP_ALLOCATION_TYPE_UNSPECIFIED` mean AUTO. On
 // single and batch update, omission preserves the effective Host BMC policy,
@@ -6644,6 +6678,7 @@ message MachineValidationOnDemandRequest {
 
 message MachineValidationOnDemandResponse {
   common.MachineValidationId validation_id = 1;
+  MachineValidationRun run = 2;
 }
 
 message FirmwareUpgradeActivity {
@@ -9772,4 +9807,22 @@ message SitePrefixIdList {
 
 message SitePrefixList {
   repeated SitePrefix site_prefixes = 1;
+}
+
+// Family-specific address configuration for a managed-host interface.
+message InterfaceAddressConfig {
+
+  // Family shared by every address and prefix in this entry. Must be V4 or V6.
+  AddressFamily address_family = 1;
+  // IPv4 gateway CIDR. For IPv6, the DPU-side port/linknet CIDR used as
+  // gateway_cidr, matching FlatInterfaceIpv6Config.interface_prefix.
+  string gateway = 2;
+  // Host address, without a prefix length.
+  string ip = 3;
+  // Prefix allocated to this interface, such as an FNN linknet or host route.
+  string interface_prefix = 4;
+  // Prefix for the network segment that contains this interface.
+  string prefix = 5;
+  // DPU-hosted SVI address used as the host gateway when configured.
+  optional string svi_ip = 6;
 }

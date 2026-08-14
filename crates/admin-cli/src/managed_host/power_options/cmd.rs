@@ -20,6 +20,7 @@ use std::fmt::Write;
 use ::rpc::admin_cli::OutputFormat;
 use mac_address::MacAddress;
 use prettytable::{Cell, Row, Table};
+use rpc::errors::RpcDataConversionError;
 use rpc::forge::{BmcEndpointRequest, PowerOptions};
 
 use super::args::{ShowPowerOptions, UpdatePowerOptions};
@@ -53,7 +54,7 @@ fn power_options_show_one(
     output_format: OutputFormat,
 ) -> CarbideCliResult<()> {
     if output_format == OutputFormat::Json {
-        println!("{}", serde_json::to_string(power_option).unwrap());
+        println!("{}", serde_json::to_string(power_option)?);
         return Ok(());
     }
     let mut lines = String::new();
@@ -157,7 +158,7 @@ async fn power_options_show_all(
     let all_options = api_client.get_power_options(vec![]).await?;
 
     if output_format == OutputFormat::Json {
-        println!("{}", serde_json::to_string(&all_options).unwrap());
+        println!("{}", serde_json::to_string(&all_options)?);
         return Ok(());
     }
     let headers = vec![
@@ -213,13 +214,19 @@ pub(super) async fn update_power_option(
     args: UpdatePowerOptions,
     api_client: &ApiClient,
 ) -> CarbideCliResult<()> {
-    let updated_power_option = api_client.0.update_power_option(args).await?.response;
+    let Some(updated_power_option) = api_client
+        .0
+        .update_power_option(args)
+        .await?
+        .response
+        .into_iter()
+        .next()
+    else {
+        return Err(RpcDataConversionError::MissingArgument("response").into());
+    };
     println!("Power options updated successfully!!");
     println!("Updated power options are");
-    power_options_show_one(
-        updated_power_option.first().unwrap(),
-        OutputFormat::AsciiTable,
-    )
+    power_options_show_one(&updated_power_option, OutputFormat::AsciiTable)
 }
 
 pub(crate) async fn get_machine_state(

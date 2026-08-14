@@ -16,14 +16,14 @@
  */
 
 use common::api_fixtures::{
-    TestEnvOverrides, create_managed_host, create_managed_host_with_config, create_test_env,
-    create_test_env_with_overrides,
+    TestEnv, TestEnvOverrides, create_managed_host, create_managed_host_with_config,
+    create_test_env, create_test_env_with_overrides,
 };
 use ipnetwork::IpNetwork;
 use model::machine::{InstanceState, ManagedHostState, SpdmMeasuringState};
 use model::test_support::ManagedHostConfig;
 use rpc::forge::forge_server::Forge;
-use tonic::IntoRequest;
+use tonic::{Code, IntoRequest};
 
 use crate::CarbideError;
 use crate::handlers::resolve_machine_interface_for_test;
@@ -37,6 +37,44 @@ use crate::tests::common::api_fixtures::network_segment::{
     FIXTURE_ADMIN_NETWORK_SEGMENT_GATEWAY, FIXTURE_HOST_INBAND_NETWORK_SEGMENT_GATEWAY,
     create_host_inband_network_segment,
 };
+
+/// Verifies that neither PXE resolution nor cloud-init can select tenant data
+/// when the observed address does not identify one client.
+async fn assert_client_resolution_fails_closed(
+    env: &TestEnv,
+    client_ip: std::net::IpAddr,
+    private_ids: &[String],
+) {
+    let mut txn = env.pool.begin().await.unwrap();
+    let error = resolve_machine_interface_for_test(txn.as_mut(), client_ip)
+        .await
+        .expect_err("PXE resolution should reject an ambiguous client address");
+    txn.rollback().await.unwrap();
+    assert!(
+        matches!(&error, CarbideError::FailedPrecondition(_)),
+        "PXE resolution should fail with FailedPrecondition: {error:?}"
+    );
+
+    let status = env
+        .api
+        .get_cloud_init_instructions(
+            rpc::forge::CloudInitInstructionsRequest {
+                ip: client_ip.to_string(),
+            }
+            .into_request(),
+        )
+        .await
+        .expect_err("cloud-init should reject an ambiguous client address");
+    assert_eq!(status.code(), Code::FailedPrecondition);
+
+    let errors = [error.to_string(), status.message().to_string()];
+    for private_id in private_ids {
+        assert!(
+            errors.iter().all(|message| !message.contains(private_id)),
+            "ambiguity errors must not identify a candidate owner: {private_id}"
+        );
+    }
+}
 
 // A client_ip that matches a row in machine_interface_addresses (the
 // common admin/host case) should resolve directly to that interface.
@@ -90,19 +128,22 @@ async fn test_resolve_machine_interface_via_instance_address(pool: sqlx::PgPool)
         dpu_extension_services: None,
         nvlink: None,
         spxconfig: None,
+        power_profile: None,
     };
     let tinstance = mh.instance_builer(&env).config(config).build().await;
 
     // Look up the tenant IP carbide-api allocated to the instance.
     let mut txn = env.pool.begin().await.unwrap();
-    let inst_addr = db::instance_address::find_by_instance_id_and_segment_id(
+    let instance_addresses = db::instance_address::find_all_by_instance_id_and_segment_id(
         txn.as_mut(),
         &tinstance.id,
         &segment_id,
     )
     .await
-    .unwrap()
-    .expect("instance should have a tenant address on the segment");
+    .unwrap();
+    let [inst_addr] = instance_addresses.as_slice() else {
+        panic!("instance should have one tenant address on the segment")
+    };
     let tenant_ip = inst_addr.address;
 
     let resolved = resolve_machine_interface_for_test(txn.as_mut(), tenant_ip)
@@ -132,6 +173,128 @@ async fn test_resolve_machine_interface_unknown_ip_returns_not_found(pool: sqlx:
         }
         other => panic!("expected NotFoundError, got {other:?}"),
     }
+}
+
+/// Equal addresses on two tenant instances are not enough to choose either
+/// host for PXE or cloud-init.
+#[crate::sqlx_test]
+async fn test_client_resolution_rejects_duplicate_overlay_addresses(pool: sqlx::PgPool) {
+    let env = create_test_env(pool).await;
+    let client_ip = "10.20.30.50".parse().unwrap();
+
+    let mut txn = env.pool.begin().await.unwrap();
+    let owners = [
+        common::overlay_address::seed_overlay_address_owner(
+            txn.as_mut(),
+            "client-resolution-a",
+            client_ip,
+        )
+        .await,
+        common::overlay_address::seed_overlay_address_owner(
+            txn.as_mut(),
+            "client-resolution-b",
+            client_ip,
+        )
+        .await,
+    ];
+    txn.commit().await.unwrap();
+
+    assert_client_resolution_fails_closed(
+        &env,
+        client_ip,
+        &owners
+            .iter()
+            .map(|owner| owner.instance_id.to_string())
+            .collect::<Vec<_>>(),
+    )
+    .await;
+}
+
+/// An underlay interface and an unrelated tenant instance are separate
+/// owners, so the caller's preferred lookup cannot safely choose between them.
+#[crate::sqlx_test]
+async fn test_client_resolution_rejects_unrelated_underlay_and_overlay_owners(pool: sqlx::PgPool) {
+    let env = create_test_env(pool).await;
+    let managed_host = create_managed_host(&env).await;
+
+    let mut txn = env.pool.begin().await.unwrap();
+    let interfaces =
+        db::machine_interface::find_by_machine_ids(txn.as_mut(), &[managed_host.host().id])
+            .await
+            .unwrap();
+    let client_ip = interfaces[&managed_host.host().id]
+        .iter()
+        .find(|interface| {
+            interface.network_segment_type
+                == Some(model::network_segment::NetworkSegmentType::Admin)
+        })
+        .and_then(|interface| interface.addresses.first())
+        .copied()
+        .expect("managed host should have an admin address");
+    let overlay_owner = common::overlay_address::seed_overlay_address_owner(
+        txn.as_mut(),
+        "mixed-client-resolution",
+        client_ip,
+    )
+    .await;
+    txn.commit().await.unwrap();
+
+    assert_client_resolution_fails_closed(
+        &env,
+        client_ip,
+        &[
+            managed_host.host().id.to_string(),
+            overlay_owner.instance_id.to_string(),
+        ],
+    )
+    .await;
+}
+
+/// Matching the physical machine is not enough to treat an underlay address
+/// as the zero-DPU instance interface. A tenant segment on that same host is
+/// still a separate address owner.
+#[crate::sqlx_test]
+async fn test_client_resolution_rejects_same_machine_different_segment_owners(pool: sqlx::PgPool) {
+    let env = create_test_env(pool).await;
+    let managed_host = create_managed_host(&env).await;
+
+    let mut txn = env.pool.begin().await.unwrap();
+    let interfaces =
+        db::machine_interface::find_by_machine_ids(txn.as_mut(), &[managed_host.host().id])
+            .await
+            .unwrap();
+    let client_ip = interfaces[&managed_host.host().id]
+        .iter()
+        .find(|interface| {
+            interface.network_segment_type
+                == Some(model::network_segment::NetworkSegmentType::Admin)
+        })
+        .and_then(|interface| interface.addresses.first())
+        .copied()
+        .expect("managed host should have an admin address");
+    let overlay_owner = common::overlay_address::seed_overlay_address_owner(
+        txn.as_mut(),
+        "same-machine-different-segment",
+        client_ip,
+    )
+    .await;
+    sqlx::query("UPDATE instances SET machine_id = $1 WHERE id = $2")
+        .bind(managed_host.host().id)
+        .bind(overlay_owner.instance_id)
+        .execute(txn.as_mut())
+        .await
+        .unwrap();
+    txn.commit().await.unwrap();
+
+    assert_client_resolution_fails_closed(
+        &env,
+        client_ip,
+        &[
+            managed_host.host().id.to_string(),
+            overlay_owner.instance_id.to_string(),
+        ],
+    )
+    .await;
 }
 
 #[crate::sqlx_test]
@@ -204,6 +367,7 @@ async fn test_zero_dpu_cloud_init_prefers_instance_when_ip_matches_host_interfac
                 dpu_extension_services: None,
                 nvlink: None,
                 spxconfig: None,
+                power_profile: None,
             }),
             instance_id: None,
             metadata: None,
@@ -214,9 +378,12 @@ async fn test_zero_dpu_cloud_init_prefers_instance_when_ip_matches_host_interfac
         .into_inner();
     let instance_id = instance.id.expect("allocated instance should have an ID");
 
-    let instance_address = db::instance_address::find_by_address(&env.pool, host_ip)
+    let instance_addresses = db::instance_address::find_all_by_address(&env.pool, host_ip)
         .await
-        .unwrap()
+        .unwrap();
+    let instance_address = instance_addresses
+        .iter()
+        .find(|address| address.instance_id == instance_id)
         .expect("zero-DPU instance should reuse the host interface IP");
     assert_eq!(instance_address.instance_id, instance_id);
 
@@ -253,6 +420,46 @@ async fn test_zero_dpu_cloud_init_prefers_instance_when_ip_matches_host_interfac
         );
     }
 
+    let stored_mac: Option<String> = sqlx::query_scalar(
+        "SELECT network_config #>> '{interfaces,0,host_inband_mac_address}'
+         FROM instances
+         WHERE id = $1",
+    )
+    .bind(instance_id)
+    .fetch_one(&env.pool)
+    .await
+    .unwrap();
+    assert!(
+        stored_mac.is_some(),
+        "the fixture should start with Core's HostInband MAC"
+    );
+
+    // Resolution uses the stored address owner and segment, so older configs
+    // without Core's HostInband MAC still identify the same shared NIC.
+    sqlx::query(
+        "UPDATE instances
+         SET network_config = jsonb_set(
+             network_config,
+             '{interfaces,0,host_inband_mac_address}',
+             'null'::jsonb
+         )
+         WHERE id = $1",
+    )
+    .bind(instance_id)
+    .execute(&env.pool)
+    .await
+    .unwrap();
+    let stored_mac: Option<String> = sqlx::query_scalar(
+        "SELECT network_config #>> '{interfaces,0,host_inband_mac_address}'
+         FROM instances
+         WHERE id = $1",
+    )
+    .bind(instance_id)
+    .fetch_one(&env.pool)
+    .await
+    .unwrap();
+    assert!(stored_mac.is_none(), "the legacy MAC setup should apply");
+
     // When the instance is ready, we should get tenant cloud-init instructions
     for instance_state in [InstanceState::WaitingForRebootToReady, InstanceState::Ready] {
         env.run_machine_state_controller_iteration_until_state_matches(
@@ -261,6 +468,20 @@ async fn test_zero_dpu_cloud_init_prefers_instance_when_ip_matches_host_interfac
             ManagedHostState::Assigned { instance_state },
         )
         .await;
+
+        let stored_mac: Option<String> = sqlx::query_scalar(
+            "SELECT network_config #>> '{interfaces,0,host_inband_mac_address}'
+             FROM instances
+             WHERE id = $1",
+        )
+        .bind(instance_id)
+        .fetch_one(&env.pool)
+        .await
+        .unwrap();
+        assert!(
+            stored_mac.is_none(),
+            "the controller should preserve a legacy config without the HostInband MAC"
+        );
 
         let cloud_init = env
             .api

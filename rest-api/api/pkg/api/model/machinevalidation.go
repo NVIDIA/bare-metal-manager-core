@@ -371,6 +371,47 @@ func NewAPIMachineValidationRun(proto *corev1.MachineValidationRun) *APIMachineV
 	return apio
 }
 
+// APIMachineValidationRunCreateRequest contains optional filters for an
+// on-demand Machine validation run.
+type APIMachineValidationRunCreateRequest struct {
+	Tags               []string `json:"tags,omitempty"`
+	AllowedTests       []string `json:"allowedTests,omitempty"`
+	RunUnverifiedTests bool     `json:"runUnverifiedTests,omitempty"`
+	Contexts           []string `json:"contexts,omitempty"`
+}
+
+// Validate ensures the on-demand Machine validation filters are well-formed.
+func (r APIMachineValidationRunCreateRequest) Validate() error {
+	return validation.ValidateStruct(&r,
+		validation.Field(&r.Tags, validation.Each(validation.Required)),
+		validation.Field(&r.AllowedTests, validation.Each(validation.Required)),
+		validation.Field(&r.Contexts, validation.Each(validation.Required)),
+	)
+}
+
+// ToProto converts an on-demand Machine validation request to the Core API model.
+func (r APIMachineValidationRunCreateRequest) ToProto(machineID string) *corev1.MachineValidationOnDemandRequest {
+	return &corev1.MachineValidationOnDemandRequest{
+		MachineId:         &corev1.MachineId{Id: machineID},
+		Tags:              r.Tags,
+		Action:            corev1.MachineValidationOnDemandRequest_Start,
+		AllowedTests:      r.AllowedTests,
+		RunUnverfiedTests: r.RunUnverifiedTests,
+		Contexts:          r.Contexts,
+	}
+}
+
+// NewAPIMachineValidationRunFromOnDemandResponse converts the Core response to
+// the REST API model. The validation ID fallback supports older Core versions
+// that do not populate the run field.
+func NewAPIMachineValidationRunFromOnDemandResponse(response *corev1.MachineValidationOnDemandResponse) *APIMachineValidationRun {
+	run := response.GetRun()
+	if run == nil {
+		run = &corev1.MachineValidationRun{ValidationId: response.GetValidationId()}
+	}
+	return NewAPIMachineValidationRun(run)
+}
+
 type APIMachineValidationExternalConfig struct {
 	Name        string    `json:"name"`
 	Description string    `json:"description"`

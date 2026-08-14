@@ -60,7 +60,10 @@ use model::firmware::{
     AgentUpgradePolicyChoice, Firmware, FirmwareComponent, FirmwareComponentType, FirmwareEntry,
 };
 use model::machine::HostHealthConfig;
-use model::network_security_group::NetworkSecurityGroupRule;
+use model::network_security_group::{
+    NetworkSecurityGroupRule, NetworkSecurityGroupRuleAction, NetworkSecurityGroupRuleDirection,
+    NetworkSecurityGroupRuleNet, NetworkSecurityGroupRuleProtocol,
+};
 use model::network_segment::NetworkDefinition;
 use model::resource_pool::define::ResourcePoolDef;
 use model::tenant::identity_config::SigningAlgorithm;
@@ -71,8 +74,22 @@ use serde::{Deserialize, Deserializer, Serialize};
 
 use crate::CarbideError;
 
-pub(crate) const DEFAULT_DPU_NUM_OF_VFS: u32 = 16;
+pub(crate) const DEFAULT_DPU_NUM_OF_VFS: u32 = carbide_dpf::DEFAULT_DPU_NUM_OF_VFS;
 pub(crate) const MAX_DPU_NUM_OF_VFS: u32 = 126;
+
+// Deployment selectors must never reuse labels whose values NICo supplies independently.
+// The shared marker would make every deployment select every DPUNode, while the contextual
+// host-BMC label is overwritten with an address during registration and would match none.
+const RESERVED_DPF_DEPLOYMENT_NODE_LABELS: [(&str, &str); 2] = [
+    (
+        carbide_dpf::DPU_ENABLED_NODE_LABEL,
+        "the shared DPF-enabled node marker",
+    ),
+    (
+        carbide_machine_controller::dpf::HOST_BMC_IP_LABEL,
+        "the per-node host BMC address",
+    ),
+];
 
 /// Parses an optional duration ("30d", "12h", ...; absent = `None`) into
 /// `Option<chrono::Duration>`. Hand-rolled because `duration_str` deprecated
@@ -90,6 +107,7 @@ where
 
 /// nico-api configuration file content
 #[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
 pub struct CarbideConfig {
     /// Socket address for the gRPC API server, used by
     /// clients and nico-admin-cli to connect.
@@ -121,6 +139,13 @@ pub struct CarbideConfig {
     /// Default is 1000.
     #[serde(default = "default_max_database_connections")]
     pub max_database_connections: u32,
+
+    /// Whether unknown configuration fields should prevent startup.
+    ///
+    /// Defaults to `false`, which logs each unknown field and continues so
+    /// configuration can be deployed independently of the supporting binary.
+    #[serde(default)]
+    pub deny_unknown_fields: bool,
 
     /// How long a caller may wait for a connection from the pool before the
     /// attempt fails (sqlx's own default). It trips on a stalled database or
@@ -336,6 +361,13 @@ pub struct CarbideConfig {
     /// SiteExplorer related configuration
     #[serde(default)]
     pub site_explorer: SiteExplorerConfig,
+
+    /// Deprecated compatibility key. This setting no longer affects runtime
+    /// behavior; keep accepting it temporarily so existing site files can be
+    /// migrated without weakening unknown-field validation.
+    #[doc(hidden)]
+    #[serde(default, rename = "force_dpu_nic_mode", skip_serializing)]
+    pub deprecated_force_dpu_nic_mode: Option<bool>,
 
     /// The policy to decide whether two VPCs are allowed to peer with each other based on their
     /// network virtualization type during creation
@@ -789,6 +821,12 @@ pub struct CarbideConfig {
     #[serde(default)]
     pub web_ui_sidebar_tools: Vec<ToolLink>,
 
+    /// URL template for the "Logs" link on machine and endpoint detail
+    /// pages. The placeholder `{search}` is replaced with the machine ID
+    /// or BMC IP. When empty, the Logs link is hidden.
+    #[serde(default)]
+    pub web_ui_logs_link_template: String,
+
     /// In-memory log history for the admin web live log viewer
     /// (`/admin/logs`): how much recent log data to keep for
     /// replay-on-connect and scrollback, and how many lines to send
@@ -816,6 +854,7 @@ pub struct CarbideConfig {
 
 /// Global admission limits for business requests handled by nico-api.
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
 pub struct ApiAdmissionControlConfig {
     /// Whether admission control is active.
     #[serde(default = "default_to_true")]
@@ -1031,6 +1070,7 @@ impl CertificatesConfig {
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
 pub struct TracingConfig {
     /// Whether to enable OTLP tracing. Default: false
     #[serde(default)]
@@ -1067,6 +1107,7 @@ impl CarbideConfig {
 
             dpa_enabled: self.is_dpa_enabled(),
             dpf_enabled: self.dpf.enabled,
+            dpu_service_sync_enabled: self.dpf.dpu_service_sync_enabled,
             spdm_enabled: self.spdm.enabled,
             bmc_rotation_enabled: self.bmc_rotation_enabled,
             uefi_rotation_enabled: self.uefi_rotation_enabled,
@@ -1081,6 +1122,7 @@ impl CarbideConfig {
 
 /// Observability settings shared across all state controllers.
 #[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
 pub struct ObservabilityConfig {
     /// Health alert classifications for which an additional per-object metric
     /// (`carbide_object_unhealthy_by_classification_count`) is emitted,
@@ -1099,6 +1141,7 @@ pub struct ObservabilityConfig {
 /// the series cost O(fleet) cardinality, so operators opt in and scrape the
 /// dedicated endpoint at their own cadence.
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
 pub struct PerObjectStateMetricsConfig {
     /// Whether the per-object state metrics endpoint is enabled.
     #[serde(default)]
@@ -1176,6 +1219,7 @@ impl PerObjectStateMetricObjectType {
 /// One external tool link rendered in the admin web UI's "Tools"
 /// sidebar.
 #[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
 pub struct ToolLink {
     /// Stable identifier, must be unique within `tools`. Used
     /// to look up well-known integrations.
@@ -1190,6 +1234,7 @@ pub struct ToolLink {
 /// (`crate::web::logs`). Bounds memory use and the page size served
 /// to the browser.
 #[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct LogHistoryConfig {
     /// Maximum amount of recent log history to retain in memory, in
     /// MiB. Oldest lines are evicted once the budget is exceeded.
@@ -1494,11 +1539,42 @@ fn default_dpf_bootstrap_ca_key() -> String {
     "ca.crt".to_string()
 }
 
-#[derive(Clone, Debug, Serialize, Default, Deserialize)]
+/// Supplies Serde's legacy PF_TOTAL_SF default when the operator omits the reserve.
+fn default_dpf_pf_total_sf_reserved() -> u32 {
+    carbide_dpf::DEFAULT_PF_TOTAL_SF_RESERVED
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct DpfConfig {
     /// Enables DPF deployment.
     #[serde(default)]
     pub enabled: bool,
+    /// Opts the DPF namespace into deployment-scoped DPUServiceInterfaces.
+    /// Changing modes requires operators to remove old-mode NICo resources and
+    /// re-ingest DPUs; NICo neither detects nor deletes those resources.
+    #[serde(default)]
+    pub deployment_scoped_service_interfaces: bool,
+    /// SF capacity reserved beyond configured NICo-managed service endpoints.
+    /// Without intercept bridging, this remains the complete legacy `PF_TOTAL_SF` value.
+    #[serde(default = "default_dpf_pf_total_sf_reserved")]
+    pub pf_total_sf_reserved: u32,
+    /// Whether carbide rolls a changed DPUService out on its own, by releasing
+    /// the DPF maintenance hold for hosts it has confirmed are already running
+    /// the software their DPUDeployment declares.
+    ///
+    /// This selects *who* opens the gate, never whether one exists. DPF is
+    /// always configured to park a changed DPUService behind a maintenance hold
+    /// (`upgradePolicy.applyNodeEffect`), so no service update ever reaches a DPU
+    /// without something having checked its side effects first.
+    ///
+    /// On by default. Setting it to false does not resume unchecked rollout: it
+    /// means the held DPUs wait for an operator to release them deliberately,
+    /// rather than for carbide to do it on the host's next idle sweep. Hosts
+    /// still awaiting reprovisioning, and hosts carrying a live tenant instance,
+    /// keep their hold either way.
+    #[serde(default = "default_to_true")]
+    pub dpu_service_sync_enabled: bool,
     /// Optional override for the Kubernetes `imagePullSecrets` entry used to pull the
     /// docker images of the mandatory services. When set, it is applied to every
     /// mandatory service except `dts` and `doca_hbn`, which take a pull secret only
@@ -1522,7 +1598,37 @@ pub struct DpfConfig {
     pub deployments: DpfDeploymentsConfig,
 }
 
+impl Default for DpfConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            deployment_scoped_service_interfaces: false,
+            pf_total_sf_reserved: default_dpf_pf_total_sf_reserved(),
+            dpu_service_sync_enabled: default_to_true(),
+            docker_image_pull_secret: None,
+            dpu_agent_bootstrap_ca: DpfDpuAgentBootstrapCa::default(),
+            services: Box::default(),
+            proxy: None,
+            deployments: DpfDeploymentsConfig::default(),
+        }
+    }
+}
+
 impl DpfConfig {
+    /// Rejects Astra unless deployment-scoped ServiceInterfaces are enabled.
+    ///
+    /// Astra is supported only by the BF4+CX9 deployment class and has a
+    /// different interface inventory. Legacy global ServiceInterfaces cannot
+    /// safely distinguish it from BF3 or generic BF4 nodes.
+    pub(crate) fn validate_service_interface_scoping(&self) -> eyre::Result<()> {
+        eyre::ensure!(
+            self.deployments.bf4_astra.is_none() || self.deployment_scoped_service_interfaces,
+            "dpf.deployments.bf4_astra requires \
+             dpf.deployment_scoped_service_interfaces=true"
+        );
+        Ok(())
+    }
+
     /// Returns the top-level mandatory services with the optional
     /// [`Self::docker_image_pull_secret`] override applied. The override affects every
     /// mandatory service except `dts` and `doca_hbn`, which take a pull secret only
@@ -1610,6 +1716,14 @@ impl<'de> Deserialize<'de> for DpfMandatoryServicesConfig {
         let configured = BTreeMap::<String, serde_json::Value>::deserialize(deserializer)?;
         let mut services = Self::default();
         for (name, configured) in configured {
+            const SERVICE_FIELDS: &[&str] = &[
+                "dts",
+                "doca_hbn",
+                "dpu_agent",
+                "dhcp_server",
+                "fmds",
+                "otel",
+            ];
             let service = match name.as_str() {
                 "dts" => &mut services.dts,
                 "doca_hbn" => &mut services.doca_hbn,
@@ -1617,12 +1731,20 @@ impl<'de> Deserialize<'de> for DpfMandatoryServicesConfig {
                 "dhcp_server" => &mut services.dhcp_server,
                 "fmds" => &mut services.fmds,
                 "otel" => &mut services.otel,
-                _ => continue,
+                _ => return Err(serde::de::Error::unknown_field(&name, SERVICE_FIELDS)),
             };
-            *service = Figment::from(Serialized::defaults(std::mem::take(service)))
+            let merged = Figment::from(Serialized::defaults(std::mem::take(service)))
                 .merge(Serialized::defaults(configured))
-                .extract()
-                .map_err(serde::de::Error::custom)?;
+                .extract();
+            *service = match merged {
+                Ok(service) => service,
+                Err(error) => match error.kind {
+                    figment::error::Kind::UnknownField(field, expected) => {
+                        return Err(serde::de::Error::unknown_field(&field, expected));
+                    }
+                    _ => return Err(serde::de::Error::custom(error)),
+                },
+            };
         }
         Ok(services)
     }
@@ -1697,6 +1819,7 @@ pub struct DpfResolvedMandatoryServicesConfig {
 
 /// Configuration for a single Helm-based DPF service.
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct DpfServiceConfig {
     /// Name of the Helm service.
     pub name: String,
@@ -1733,6 +1856,7 @@ pub struct DpfServiceConfig {
 /// `[dpf.deployments.bf3]` block is absent, via `#[serde(default)]` on the
 /// `bf3` field of [`DpfDeploymentsConfig`].
 #[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct DpfDeploymentConfig {
     /// URL to the BlueField firmware bundle (BFB) for DPU provisioning
     /// (BF3-class DPUs). Exactly one of `bfb_url` or `bluefield_software`
@@ -1787,6 +1911,7 @@ impl Default for DpfDeploymentConfig {
 /// [`DpfDeploymentConfig::per_psid_deployment_name`] and
 /// [`DpfDeploymentConfig::per_psid_node_label_key`]).
 #[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct DpfBlueFieldSoftwareConfig {
     /// OS ISO URL used by the DPU OS installation flow (`spec.osIso`). Shared
     /// across all PSIDs.
@@ -1798,7 +1923,8 @@ pub struct DpfBlueFieldSoftwareConfig {
 }
 
 /// Named DPUDeployment configurations under `[dpf.deployments]`.
-/// Each entry creates its own BFB, DPUFlavor, and DPUDeployment CR at startup.
+/// Each entry creates its own provisioning source, DPUFlavor, and DPUDeployment
+/// CR at startup.
 #[derive(Clone, Debug, Default, Serialize)]
 pub struct DpfDeploymentsConfig {
     /// BF3 deployment. Present by default with sensible values; override individual
@@ -1814,6 +1940,7 @@ pub struct DpfDeploymentsConfig {
 }
 
 #[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 struct DpfDeploymentsConfigDef {
     #[serde(default)]
     bf3: DpfDeploymentConfig,
@@ -1877,9 +2004,8 @@ impl DpfDeploymentsConfig {
         v
     }
 
-    /// Validates that no two active deployments share a `deployment_name`,
-    /// `flavor_name`, or `node_label_key`. Returns an error listing every
-    /// conflict so the operator can fix them all in one pass.
+    /// Validates that identifiers are unique and deployment label keys are not reserved.
+    /// Returns every conflict so the operator can fix them all in one pass.
     pub fn validate_unique_identifiers(&self) -> eyre::Result<()> {
         let deployments = self.all();
         let mut errors: Vec<String> = Vec::new();
@@ -1912,11 +2038,24 @@ impl DpfDeploymentsConfig {
             }
         }
 
+        // This is intentionally a local configuration check. Querying current DPUNode labels
+        // cannot establish safety: these keys have fixed NICo semantics before any node exists.
+        for (deployment, label_key) in &label_vals {
+            if let Some((_, purpose)) = RESERVED_DPF_DEPLOYMENT_NODE_LABELS
+                .iter()
+                .find(|(reserved, _)| label_key == reserved)
+            {
+                errors.push(format!(
+                    "node_label_key {label_key:?} for deployment {deployment:?} is reserved for {purpose}"
+                ));
+            }
+        }
+
         if errors.is_empty() {
             Ok(())
         } else {
             Err(eyre::eyre!(
-                "DPF deployment configuration has conflicting identifiers:\n  - {}",
+                "DPF deployment configuration has invalid identifiers:\n  - {}",
                 errors.join("\n  - ")
             ))
         }
@@ -1991,6 +2130,7 @@ impl DpfDeploymentsConfig {
 /// Machine identity (SPIFFE JWT-SVID) configuration.
 /// Loaded from `[machine_identity]` section in config.
 #[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct MachineIdentityConfig {
     /// Master switch. If false, SetTenantIdentityConfiguration and SignMachineIdentity return 503.
     #[serde(default = "machine_identity_default_enabled")]
@@ -2088,6 +2228,7 @@ impl From<MachineIdentityConfig> for model::tenant::TokenDelegationValidationBou
 /// SPDM (Security Protocol and Data Model) configuration
 /// for hardware attestation of DPU components.
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct SpdmConfig {
     /// Enables SPDM-based hardware attestation.
     #[serde(default)]
@@ -2101,6 +2242,7 @@ pub struct SpdmConfig {
 
 /// Fabric Nearest Neighbor (FNN) configuration for L3 VNI-based overlay networking.
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
+#[serde(deny_unknown_fields)]
 pub struct FnnConfig {
     /// Optional FNN configuration for the admin network VPC.
     #[serde(default)]
@@ -2131,6 +2273,7 @@ pub struct FnnConfig {
 /// A named routing-profile definition whose unset properties use effective
 /// defaults unless a VPC supplies an inline override.
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Default)]
+#[serde(deny_unknown_fields)]
 pub struct FnnRoutingProfileConfig {
     /// These are used for import policies to import routes
     /// that match these targets.
@@ -2319,6 +2462,7 @@ impl From<&FnnRoutingProfileConfig> for rpc::forge::VpcEffectiveRoutingProfile {
 
 /// FNN configuration specific to the admin network.
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
+#[serde(deny_unknown_fields)]
 pub struct AdminFnnConfig {
     /// Whether FNN should be applied to the admin network as well.
     pub enabled: bool,
@@ -2578,6 +2722,7 @@ impl MaxConcurrentUpdates {
 
 /// NetworkSegmentStateController related config.
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
 pub struct NetworkSegmentStateControllerConfig {
     /// Common state controller configs
     #[serde(default = "StateControllerConfig::default")]
@@ -2611,6 +2756,7 @@ impl Default for NetworkSegmentStateControllerConfig {
 
 /// VpcPrefixStateController related config.
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
 pub struct VpcPrefixStateControllerConfig {
     /// Common state controller configs
     #[serde(default = "StateControllerConfig::default")]
@@ -2648,6 +2794,7 @@ impl Default for VpcPrefixStateControllerConfig {
 
 /// IbPartitionStateController related config
 #[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
 pub struct IbPartitionStateControllerConfig {
     /// Common state controller configs
     #[serde(default = "StateControllerConfig::default")]
@@ -2656,6 +2803,7 @@ pub struct IbPartitionStateControllerConfig {
 
 /// DpaInterfaceStateController related config
 #[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
 pub struct DpaInterfaceStateControllerConfig {
     /// Common state controller configs
     #[serde(default = "StateControllerConfig::default")]
@@ -2664,6 +2812,7 @@ pub struct DpaInterfaceStateControllerConfig {
 
 /// PowerShelfStateController related config
 #[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
 pub struct PowerShelfStateControllerConfig {
     /// Common state controller configs
     #[serde(default = "StateControllerConfig::default")]
@@ -2688,6 +2837,7 @@ pub struct PowerShelfStateControllerConfig {
 
 /// RackStateController related config
 #[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
 pub struct RackStateControllerConfig {
     /// Common state controller configs
     #[serde(default = "StateControllerConfig::default")]
@@ -2724,6 +2874,7 @@ impl RackStateControllerConfig {
 
 /// SwitchStateController related config
 #[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
 pub struct SwitchStateControllerConfig {
     /// Common state controller configs
     #[serde(default = "StateControllerConfig::default")]
@@ -2760,6 +2911,7 @@ impl SwitchStateControllerConfig {
 
 /// SpdmStateController related config
 #[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
 pub struct SpdmStateControllerConfig {
     /// Common state controller configs
     #[serde(default = "StateControllerConfig::default")]
@@ -2767,6 +2919,7 @@ pub struct SpdmStateControllerConfig {
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
 pub struct InitialObjectsConfig {
     /// Resource pools that allocate IPs, VNIs, etc.
     /// Required, but wrapped in `Option` so partial configs
@@ -2781,6 +2934,7 @@ pub struct InitialObjectsConfig {
 /// TLS certificate and key configuration for securing
 /// gRPC and HTTP connections.
 #[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
 pub struct TlsConfig {
     /// Path to the root CA certificate file for
     /// validating client certificates.
@@ -2818,6 +2972,7 @@ pub enum ListenMode {
 
 /// Authentication related configuration
 #[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
 pub struct AuthConfig {
     /// Enable permissive mode in the authorization enforcer (for development).
     pub permissive_mode: bool,
@@ -2947,6 +3102,7 @@ impl<'de> Deserialize<'de> for DpuConfig {
     {
         // Create a temporary struct for partial deserialization
         #[derive(Deserialize)]
+        #[serde(deny_unknown_fields)]
         struct PartialDpuConfig {
             #[serde(default)]
             bootstrap_ca_source: Option<BootstrapCaSource>,
@@ -3128,7 +3284,54 @@ impl Default for DpuConfig {
     }
 }
 
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct NetworkSecurityGroupRuleConfig {
+    id: Option<String>,
+    src_net: NetworkSecurityGroupRuleNet,
+    dst_net: NetworkSecurityGroupRuleNet,
+    direction: NetworkSecurityGroupRuleDirection,
+    ipv6: bool,
+    src_port_start: Option<u32>,
+    src_port_end: Option<u32>,
+    dst_port_start: Option<u32>,
+    dst_port_end: Option<u32>,
+    protocol: NetworkSecurityGroupRuleProtocol,
+    action: NetworkSecurityGroupRuleAction,
+    priority: u32,
+}
+
+impl From<NetworkSecurityGroupRuleConfig> for NetworkSecurityGroupRule {
+    fn from(rule: NetworkSecurityGroupRuleConfig) -> Self {
+        Self {
+            id: rule.id,
+            src_net: rule.src_net,
+            dst_net: rule.dst_net,
+            direction: rule.direction,
+            ipv6: rule.ipv6,
+            src_port_start: rule.src_port_start,
+            src_port_end: rule.src_port_end,
+            dst_port_start: rule.dst_port_start,
+            dst_port_end: rule.dst_port_end,
+            protocol: rule.protocol,
+            action: rule.action,
+            priority: rule.priority,
+        }
+    }
+}
+
+fn deserialize_network_security_group_policy_overrides<'de, D>(
+    deserializer: D,
+) -> Result<Vec<NetworkSecurityGroupRule>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    Vec::<NetworkSecurityGroupRuleConfig>::deserialize(deserializer)
+        .map(|rules| rules.into_iter().map(Into::into).collect())
+}
+
 #[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
 pub struct NetworkSecurityGroupConfig {
     /// The maximum number of unique rules allowed for
     /// a network security group after rules are expanded.
@@ -3143,7 +3346,10 @@ pub struct NetworkSecurityGroupConfig {
     pub stateful_acls_enabled: bool,
 
     /// A set of NSG rules that will be inserted before any user-defined rules.
-    #[serde(default)]
+    #[serde(
+        default,
+        deserialize_with = "deserialize_network_security_group_policy_overrides"
+    )]
     pub policy_overrides: Vec<NetworkSecurityGroupRule>,
 }
 
@@ -3160,6 +3366,7 @@ impl Default for NetworkSecurityGroupConfig {
 /// Configuration for rolling machine updates and
 /// maintenance windows.
 #[derive(Clone, Debug, Default, Deserialize, Serialize, PartialEq)]
+#[serde(deny_unknown_fields)]
 pub struct MachineUpdater {
     /// Time window during which machines may automatically
     /// reboot for updates.
@@ -3221,6 +3428,7 @@ fn default_tenant_routing_profile() -> String {
 /// which exports TPM-based boot measurement data as
 /// Prometheus metrics.
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
+#[serde(deny_unknown_fields)]
 pub struct MeasuredBootMetricsCollectorConfig {
     /// Enables the measured boot metrics monitor. When
     /// disabled, measured boot metrics are not exported.
@@ -3427,6 +3635,7 @@ use model::vpc::VpcDefinition;
 /// topics, and subscribe to `BMS/v1/PUB/Metadata/#` to learn those routing
 /// targets.
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
 pub struct DsxExchangeEventBusConfig {
     /// Enable/disable the DSX Exchange Event Bus.
     #[serde(default)]
@@ -3527,6 +3736,7 @@ const PUBLISH_INTERVAL_MAX: std::time::Duration = std::time::Duration::from_secs
 /// self-heal. Republished messages reuse the same topic and JSON payload as
 /// change-driven events, so consumers handle them identically.
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
+#[serde(deny_unknown_fields)]
 pub struct PeriodicStateRepublishConfig {
     /// Enable periodic republishing. Enabled by default whenever the DSX
     /// Exchange Event Bus itself is enabled. Change-driven publishing is
@@ -3603,6 +3813,7 @@ impl PeriodicStateRepublishConfig {
 
 /// Auto machine repair plugin related configuration
 #[derive(Default, Clone, Copy, Debug, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
 pub struct AutoMachineRepairPluginConfig {
     /// Whether automatic machine repair mode is enabled
     #[serde(default)]
@@ -3624,6 +3835,7 @@ pub enum VpcPeeringPolicy {
 }
 
 #[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
 pub struct VmaasConfig {
     /// Allow VFs on instance creation.  defaults to true, but will be disabled when
     /// using SDN to manage the instance network configuration for VMs
@@ -3638,6 +3850,7 @@ pub struct VmaasConfig {
 }
 
 #[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
 pub struct HostRepresentorBridgingConfig {
     /// The HBN/SFC bridge that host-representor patch ports attach to during provisioning.
     #[serde(default = "default_hbn_bridge")]
@@ -3650,6 +3863,7 @@ pub struct HostRepresentorBridgingConfig {
 }
 
 #[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
 pub struct HostInterceptBridging {
     /// The name of the bridge (e.g., br-host) that will sit between host PF/VF and br-hbn.
     /// It will be connected to br-hbn or br-sfc.
@@ -3662,6 +3876,22 @@ pub struct HostInterceptBridging {
     /// By default, we expect to create these bridges.
     #[serde(default)]
     pub skip_create: bool,
+
+    /// Typed PF/VF identity used only when DPF is enabled.
+    pub dpf_interface: Option<DpfInterfaceIdentity>,
+}
+
+/// Typed DPF identity for a configured host PF or VF.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
+pub struct DpfInterfaceIdentity {
+    /// DPF controller number that owns the selected PF or VF.
+    pub controller_id: u8,
+
+    /// Physical-function identifier on the selected controller.
+    pub pf_id: u8,
+
+    /// Virtual-function identifier. Omission selects the PF itself.
+    pub vf_id: Option<u8>,
 }
 
 impl HostRepresentorBridgingConfig {
@@ -3695,10 +3925,11 @@ mod tests {
     use carbide_authn::config::CertComponent;
     use carbide_network::virtualization::VpcVirtualizationType;
     use carbide_site_explorer::config::SiteExplorerExploreMode;
-    use carbide_test_support::Outcome::Yields;
-    use carbide_test_support::{Check, check_values, scenarios};
+    use carbide_test_support::Outcome::*;
+    use carbide_test_support::{Check, check_values, scenarios, value_scenarios};
     use chrono::Datelike;
     use figment::Figment;
+    use figment::error::Kind;
     use figment::providers::{Env, Format, Toml};
     use health_report::HealthAlertClassification;
     use libmlx::variables::value::MlxValueType;
@@ -3713,6 +3944,96 @@ mod tests {
 
     const TEST_DATA_DIR: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/src/cfg/test_data");
 
+    /// Verifies legacy entries remain valid while typed DPF identities require and preserve their
+    /// complete controller, PF, and optional VF selection.
+    #[test]
+    fn host_intercept_bridging_deserializes_optional_dpf_identity() {
+        scenarios!(
+            run = |config: &str| {
+                toml::from_str::<HostInterceptBridging>(config)
+                    .map(|bridging| bridging.dpf_interface)
+                    .map_err(drop)
+            };
+            "legacy compatibility" {
+                // Existing pre-DPF entries do not need typed identity.
+                "bridge = 'br-host'\npatch_port = 'p-host'" => Yields(None),
+            }
+
+            "PF identity" {
+                // Omitting vf_id selects the complete configured PF identity.
+                "bridge = 'br-host'\npatch_port = 'p-host'\ndpf_interface = { controller_id = 2, pf_id = 3 }" => Yields(Some(DpfInterfaceIdentity {
+                    controller_id: 2,
+                    pf_id: 3,
+                    vf_id: None,
+                })),
+            }
+
+            "VF identity" {
+                // Including vf_id preserves that VF under the complete configured PF identity.
+                "bridge = 'br-host'\npatch_port = 'p-host'\ndpf_interface = { controller_id = 2, pf_id = 3, vf_id = 4 }" => Yields(Some(DpfInterfaceIdentity {
+                    controller_id: 2,
+                    pf_id: 3,
+                    vf_id: Some(4),
+                })),
+            }
+
+            "missing controller identity" {
+                // A PF number without its controller cannot select DPF hardware unambiguously.
+                "bridge = 'br-host'\npatch_port = 'p-host'\ndpf_interface = { pf_id = 3 }" => Fails,
+            }
+
+            "missing PF identity" {
+                // A controller without its PF cannot select the required parent interface.
+                "bridge = 'br-host'\npatch_port = 'p-host'\ndpf_interface = { controller_id = 2 }" => Fails,
+            }
+        );
+    }
+
+    /// Verifies typed DPF identity cannot alter the legacy sorted `bf.cfg` value.
+    #[test]
+    fn dpf_identity_does_not_change_legacy_bridging_provisioning_config() {
+        // Build equivalent legacy entries with and without a typed DPF identity.
+        let make_config = |dpf_interface| HostRepresentorBridgingConfig {
+            hbn_bridge: default_hbn_bridge(),
+            host_representor_intercept_bridging: HashMap::from([
+                (
+                    "pf0vf1".to_string(),
+                    HostInterceptBridging {
+                        bridge: "br-vf1".to_string(),
+                        patch_port: "p-vf1".to_string(),
+                        skip_create: false,
+                        dpf_interface,
+                    },
+                ),
+                (
+                    "pf0vf0".to_string(),
+                    HostInterceptBridging {
+                        bridge: "br-vf0".to_string(),
+                        patch_port: "p-vf0".to_string(),
+                        skip_create: false,
+                        dpf_interface,
+                    },
+                ),
+            ]),
+        };
+        let typed_identity = Some(DpfInterfaceIdentity {
+            controller_id: 1,
+            pf_id: 0,
+            vf_id: Some(3),
+        });
+
+        // Both variants must render the exact historical ordering and wire format.
+        let expected = Some("pf0vf0:br-vf0:p-vf0,pf0vf1:br-vf1:p-vf1".to_string());
+        assert_eq!(
+            make_config(None).host_representor_intercept_bridging_provisioning_config(),
+            expected
+        );
+        assert_eq!(
+            make_config(typed_identity).host_representor_intercept_bridging_provisioning_config(),
+            expected
+        );
+    }
+
     fn vpc_config(
         routing_profile_type: Option<&str>,
         routing_profile_overrides: Option<VpcRoutingProfileOverrides>,
@@ -3726,6 +4047,7 @@ mod tests {
             vni: None,
             routing_profile_type: routing_profile_type.map(str::to_string),
             routing_profile_overrides,
+            power_resource_group: None,
         }
     }
 
@@ -4502,6 +4824,7 @@ mod tests {
             config.max_database_connections,
             default_max_database_connections()
         );
+        assert!(!config.deny_unknown_fields);
         // Literals on purpose: these pin the documented defaults (30s/10m/30m
         // -- sqlx's own), so silently changing a default fn fails here rather
         // than passing self-referentially.
@@ -4704,6 +5027,7 @@ mod tests {
                 switches_created_per_run: 9,
                 rotate_switch_nvos_credentials: Arc::new(false.into()),
                 dpu_policy: None,
+                deprecated_force_dpu_nic_mode: None,
                 explore_mode: SiteExplorerExploreMode::NvRedfish,
             }
         );
@@ -4784,6 +5108,148 @@ mod tests {
             config.dpu_network_monitor_pinger_type,
             Some("OobNetBind".to_string())
         );
+    }
+
+    fn rendered_helm_api_config() -> String {
+        let mut config =
+            include_str!("../../../../helm/charts/nico-api/files/carbide-api-config.toml")
+                .to_string();
+        for (template, rendered) in [
+            (
+                r#"{{ .Values.auth.adminRootCafilePath | default "/etc/forge/carbide-api/site/admin_root_cert_pem" }}"#,
+                "/etc/forge/carbide-api/site/admin_root_cert_pem",
+            ),
+            ("{{ .Values.auth.permissiveMode | default false }}", "false"),
+            ("{{ .Values.global.spiffe.trustDomain }}", "example.test"),
+            (
+                r#"{{ .Values.auth.namespace | default (include "nico-api.namespace" .) }}"#,
+                "nico-system",
+            ),
+            (
+                "{{ range $i, $cn := .Values.auth.additionalIssuerCns }}{{ if $i }}, {{ end }}{{ $cn | quote }}{{ end }}",
+                "",
+            ),
+            (
+                "{{ .Values.service.perObjectStateMetrics.enabled }}",
+                "false",
+            ),
+            ("{{ .Values.service.perObjectStateMetrics.port }}", "9091"),
+            (
+                "{{ default list .Values.service.perObjectStateMetrics.objectTypes | toJson }}",
+                "[]",
+            ),
+            (
+                "{{ .Values.componentManager.computeTrayBackend | quote }}",
+                r#""rms""#,
+            ),
+            (
+                "{{ .Values.componentManager.nvSwitchBackend | quote }}",
+                r#""rms""#,
+            ),
+            (
+                "{{ .Values.componentManager.powerShelfBackend | quote }}",
+                r#""rms""#,
+            ),
+            (
+                "{{ .Values.componentManager.nvSwitchUseStateController }}",
+                "false",
+            ),
+            (
+                "{{ .Values.componentManager.powerShelfUseStateController }}",
+                "false",
+            ),
+            (
+                "{{ .Values.componentManager.computeTrayUseStateController }}",
+                "false",
+            ),
+            (
+                "{{ .Values.rms.apiUrl | quote }}",
+                r#""https://rms.example.test""#,
+            ),
+            ("{{ .Values.rms.enforceTls }}", "true"),
+            ("{{ . | quote }}", r#""/tmp/test.pem""#),
+        ] {
+            config = config.replace(template, rendered);
+        }
+
+        let config = config
+            .lines()
+            .filter(|line| !line.trim_start().starts_with("{{-"))
+            .join("\n");
+        assert!(
+            !config.contains("{{"),
+            "all Helm template expressions must be rendered for this test"
+        );
+        config
+    }
+
+    fn rendered_deployment_site_config() -> String {
+        let mut config =
+            include_str!("../../../../deploy/files/nico-api/nico-api-site-config.toml").to_string();
+        for (placeholder, value) in [
+            ("MANAGED_HOST_IPMI_POOL_1_GATEWAY_IP", "203.0.113.1"),
+            ("MANAGED_HOST_IPMI_POOL_1", "203.0.113.0/24"),
+            ("CONTROL_PLANE_IPMI_POOL_1", "198.51.100.0/24"),
+            ("ADMIN_NETWORK_GATEWAY_IP", "192.0.2.1"),
+            ("ADMIN_NETWORK_IP_POOL", "192.0.2.0/24"),
+            ("DPU_LOOPBACK_START_IP", "10.180.62.1"),
+            ("DPU_LOOPBACK_END_IP", "10.180.62.62"),
+            ("NICO_DHCP_EXTERNAL_IP", "192.0.2.10"),
+            ("SITE_FABRIC_PREFIX_1", "10.0.0.0/8"),
+            ("ENVIORNMENT_NAME", "test"),
+        ] {
+            config = config.replace(placeholder, value);
+        }
+        config
+    }
+
+    #[test]
+    fn deserialize_shipped_api_configurations() {
+        let repository_root = concat!(env!("CARGO_MANIFEST_DIR"), "/../..");
+        let deploy_path =
+            format!("{repository_root}/deploy/nico-base/api/config-files/carbide-api-config.toml");
+        let docker_config = include_str!("../../../../dev/docker-env/carbide-api-config.toml");
+        let webdev_config = include_str!("../../../../dev/webdev-env/carbide-api-config.toml");
+        let site_config = rendered_deployment_site_config();
+        let helm_config = rendered_helm_api_config();
+
+        let deploy_config = Figment::new()
+            .merge(Toml::file(&deploy_path))
+            .extract::<CarbideConfig>()
+            .expect("the shipped deployment config must match the strict schema");
+        assert_eq!(
+            deploy_config.dpu_config.dpu_nic_firmware_update_versions,
+            [BF2_NIC_VERSION.to_string(), BF3_NIC_VERSION.to_string()]
+        );
+
+        for (name, figment) in [
+            (
+                "deployment base plus site override",
+                Figment::new()
+                    .merge(Toml::file(&deploy_path))
+                    .merge(Toml::string(&site_config)),
+            ),
+            (
+                "Docker development",
+                Figment::new()
+                    .merge(Toml::string(docker_config))
+                    .merge(Toml::string(
+                        r#"database_url = "postgres://test:test@localhost/test""#,
+                    )),
+            ),
+            (
+                "web development",
+                Figment::new().merge(Toml::string(webdev_config)),
+            ),
+            (
+                "rendered Helm",
+                Figment::new().merge(Toml::string(&helm_config)),
+            ),
+        ] {
+            figment.extract::<CarbideConfig>().unwrap_or_else(|error| {
+                panic!("{name} config must match the strict schema: {error}")
+            });
+        }
     }
 
     #[test]
@@ -4921,6 +5387,7 @@ mod tests {
                 switches_created_per_run: 9,
                 rotate_switch_nvos_credentials: Arc::new(false.into()),
                 dpu_policy: None,
+                deprecated_force_dpu_nic_mode: None,
                 explore_mode: SiteExplorerExploreMode::NvRedfish,
             }
         );
@@ -5021,11 +5488,11 @@ mod tests {
             }
         );
         assert_eq!(config.dpu_config.dpu_models.len(), 2);
-        for (_, entry) in config.dpu_config.dpu_models.iter() {
+        for entry in config.dpu_config.dpu_models.values() {
             assert_eq!(entry.vendor, bmc_vendor::BMCVendor::Nvidia);
         }
         assert_eq!(config.host_models.len(), 2);
-        for (_, entry) in config.host_models.iter() {
+        for entry in config.host_models.values() {
             assert_eq!(entry.vendor, bmc_vendor::BMCVendor::Dell);
         }
 
@@ -5309,6 +5776,7 @@ mod tests {
                 switches_created_per_run: 9,
                 rotate_switch_nvos_credentials: Arc::new(false.into()),
                 dpu_policy: None,
+                deprecated_force_dpu_nic_mode: None,
                 explore_mode: SiteExplorerExploreMode::NvRedfish,
             }
         );
@@ -5500,6 +5968,54 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::result_large_err)]
+    fn deserialize_unknown_environment_field_is_rejected() {
+        figment::Jail::expect_with(|jail| {
+            jail.set_env("CARBIDE_API_UNKNOWN_FIELD", true);
+
+            let error = Figment::new()
+                .merge(Toml::file(format!("{TEST_DATA_DIR}/min_config.toml")))
+                .merge(Env::prefixed("CARBIDE_API_"))
+                .extract::<CarbideConfig>()
+                .unwrap_err();
+
+            assert!(matches!(
+                &error.kind,
+                Kind::UnknownField(field, _) if field == "unknown_field"
+            ));
+            assert_eq!(error.path, vec!["unknown_field".to_string()]);
+            Ok(())
+        })
+    }
+
+    #[test]
+    #[allow(clippy::result_large_err)]
+    fn deserialize_unknown_nested_environment_field_is_rejected() {
+        figment::Jail::expect_with(|jail| {
+            jail.set_env("CARBIDE_API_SITE_EXPLORER", "{unknown_nested_field=true}");
+
+            let error = Figment::new()
+                .merge(Toml::file(format!("{TEST_DATA_DIR}/min_config.toml")))
+                .merge(Env::prefixed("CARBIDE_API_"))
+                .extract::<CarbideConfig>()
+                .unwrap_err();
+
+            assert!(matches!(
+                &error.kind,
+                Kind::UnknownField(field, _) if field == "unknown_nested_field"
+            ));
+            assert_eq!(
+                error.path,
+                vec![
+                    "site_explorer".to_string(),
+                    "unknown_nested_field".to_string()
+                ]
+            );
+            Ok(())
+        })
+    }
+
+    #[test]
     fn site_explorer_serde_defaults_match_core_defaults() -> eyre::Result<()> {
         // Make sure that if we let serde pick the defaults, it matches Default::default().
         let deserialized = serde_json::from_str::<SiteExplorerConfig>("{}")?;
@@ -5612,12 +6128,10 @@ mod tests {
 
     /// Real-world site TOMLs may still carry the now-removed
     /// `force_dpu_nic_mode` setting (top-level and/or under
-    /// `[site_explorer]`). serde silently ignores unknown keys, so
-    /// those files should keep parsing cleanly after the rip-out --
-    /// this is the regression guard for that.
+    /// `[site_explorer]`). Keep that one compatibility exception explicit.
     #[test]
     fn legacy_force_dpu_nic_mode_in_toml_still_parses() {
-        let _config: CarbideConfig = Figment::new()
+        let config: CarbideConfig = Figment::new()
             .merge(Toml::file(format!("{TEST_DATA_DIR}/min_config.toml")))
             .merge(Toml::string(
                 "force_dpu_nic_mode = false\n\
@@ -5626,6 +6140,153 @@ mod tests {
             ))
             .extract()
             .expect("legacy force_dpu_nic_mode in TOML must still parse");
+
+        assert_eq!(config.deprecated_force_dpu_nic_mode, Some(false));
+        assert_eq!(
+            config.site_explorer.deprecated_force_dpu_nic_mode,
+            Some(true)
+        );
+    }
+
+    #[test]
+    fn carbide_config_rejects_unknown_fields_across_fixed_schema_levels() {
+        scenarios!(
+            run = |patch| Figment::new()
+                .merge(Toml::file(format!("{TEST_DATA_DIR}/min_config.toml")))
+                .merge(Toml::string(patch))
+                .extract::<CarbideConfig>()
+                .map(drop)
+                .map_err(|error| match error.kind {
+                    Kind::UnknownField(field, _) => field,
+                    other => panic!("expected an unknown-field rejection, got {other:?}"),
+                });
+
+            "unknown fields are rejected" {
+                "unknown_top_level = true" => Fails,
+                "rapid_iterations = true" => Fails,
+                "nvue_enabled = false" => Fails,
+                "[site_explorer]\nunknown_site_explorer_field = true" => Fails,
+                "[tracing]\nunknown_tracing_field = true" => Fails,
+                "[machine_state_controller]\nunknown_machine_controller_field = true" => Fails,
+                "[machine_state_controller.controller]\nunknown_controller_field = true" => Fails,
+                "[auth]\npermissive_mode = true\nunknown_auth_field = true" => Fails,
+                "[pools.test-pool]\ntype = \"integer\"\nunknown_pool_field = true" => Fails,
+                "[dpu_config]\nunknown_dpu_field = true" => Fails,
+                "[fnn]\nunknown_fnn_field = true" => Fails,
+                "[fnn.routing_profiles.test]\nunknown_routing_profile_field = true" => Fails,
+                "[host_health]\nunknown_host_health_field = true" => Fails,
+                "[firmware_global]\nunknown_firmware_field = true" => Fails,
+                "[machine_validation_config]\nunknown_validation_field = true" => Fails,
+                "[network_security_group]\nunknown_nsg_field = true" => Fails,
+                "[machine_identity]\nunknown_identity_field = true" => Fails,
+                "[spdm]\nunknown_spdm_field = true" => Fails,
+                "[component_manager]\nunknown_component_manager_field = true" => Fails,
+                "[dpa_config]\nunknown_dpa_field = true" => Fails,
+                "[dsx_exchange_event_bus]\nunknown_event_bus_field = true" => Fails,
+                "[host_models.test-model]\nvendor = \"Dell\"\nmodel = \"test\"\ncomponents = {}\nunknown_host_model_field = true" => Fails,
+                "[supernic_firmware_profiles.part-number.psid]\npart_number = \"part-number\"\npsid = \"psid\"\nversion = \"1.0\"\nfirmware_url = \"https://example.com/fw.bin\"\nunknown_supernic_field = true" => Fails,
+                "[mlx-config-profiles.test]\nname = \"test\"\nregistry_name = \"mlx_generic\"\nconfig = {}\nunknown_mlx_profile_field = true" => Fails,
+            }
+
+            "dynamic map keys and valid partial sections remain accepted" {
+                "[pools.an-arbitrary-pool-name]\ntype = \"integer\"" => Yields(()),
+                "[tracing]\nenabled = true" => Yields(()),
+            }
+        );
+    }
+
+    #[test]
+    fn network_security_policy_override_rejects_unknown_rule_fields() {
+        const VALID_POLICY: &str = r#"
+[[network_security_group.policy_overrides]]
+src_net = { Prefix = "0.0.0.0/0" }
+dst_net = { Prefix = "0.0.0.0/0" }
+direction = "Ingress"
+ipv6 = false
+protocol = "Any"
+action = "Deny"
+priority = 1
+"#;
+
+        let config = Figment::new()
+            .merge(Toml::file(format!("{TEST_DATA_DIR}/min_config.toml")))
+            .merge(Toml::string(VALID_POLICY))
+            .extract::<CarbideConfig>()
+            .expect("valid policy override parses");
+        assert_eq!(config.network_security_group.policy_overrides.len(), 1);
+
+        let invalid_policy =
+            VALID_POLICY.replace("priority = 1", "priority = 1\nmisspelled_priority = 2");
+        let error = Figment::new()
+            .merge(Toml::file(format!("{TEST_DATA_DIR}/min_config.toml")))
+            .merge(Toml::string(&invalid_policy))
+            .extract::<CarbideConfig>()
+            .unwrap_err();
+        assert!(matches!(
+            &error.kind,
+            Kind::UnknownField(field, _) if field == "misspelled_priority"
+        ));
+        assert_eq!(
+            error.path,
+            vec![
+                "network_security_group".to_string(),
+                "policy_overrides".to_string(),
+                "0".to_string(),
+                "misspelled_priority".to_string()
+            ]
+        );
+    }
+
+    #[test]
+    fn unknown_field_error_identifies_key_and_section() {
+        let error = Figment::new()
+            .merge(Toml::file(format!("{TEST_DATA_DIR}/min_config.toml")))
+            .merge(Toml::string(
+                "[site_explorer]\nunknown_site_explorer_field = true",
+            ))
+            .extract::<CarbideConfig>()
+            .unwrap_err();
+
+        assert!(matches!(
+            &error.kind,
+            Kind::UnknownField(field, _) if field == "unknown_site_explorer_field"
+        ));
+        assert_eq!(
+            error.path,
+            vec![
+                "site_explorer".to_string(),
+                "unknown_site_explorer_field".to_string()
+            ]
+        );
+        assert!(
+            error
+                .to_string()
+                .contains("site_explorer.unknown_site_explorer_field")
+        );
+    }
+
+    #[test]
+    fn initial_objects_config_rejects_unknown_fields() {
+        scenarios!(
+            run = |input| Figment::new()
+                .merge(Toml::string(input))
+                .extract::<InitialObjectsConfig>()
+                .map(drop)
+                .map_err(|error| match error.kind {
+                    Kind::UnknownField(field, _) => field,
+                    other => panic!("expected an unknown-field rejection, got {other:?}"),
+                });
+
+            "unknown fields are rejected" {
+                "unknown_top_level = true" => Fails,
+                "[pools.test-pool]\ntype = \"integer\"\nunknown_pool_field = true" => Fails,
+                "[networks.admin]\ntype = \"admin\"\nprefix = \"172.20.0.0/24\"\ngateway = \"172.20.0.1\"\nmtu = 9000\nreserve_first = 5\nunknown_network_field = true" => Fails,
+            }
+
+            "dynamic object names remain accepted" {
+                "[pools.an-arbitrary-pool-name]\ntype = \"integer\"" => Yields(()),
+            }
+        );
     }
 
     #[test]
@@ -5945,6 +6606,7 @@ firmware_url = "https://firmware.example.com/fw-b.bin"
                 mtu: 9000,
                 reserve_first: 5,
                 allocation_strategy: Default::default(),
+                infer_slaac_eui64_addresses: true,
                 vpc_name: None,
             }
         );
@@ -5960,6 +6622,7 @@ firmware_url = "https://firmware.example.com/fw-b.bin"
                 mtu: 1500,
                 reserve_first: 5,
                 allocation_strategy: Default::default(),
+                infer_slaac_eui64_addresses: false,
                 vpc_name: None,
             }
         );
@@ -5975,6 +6638,7 @@ firmware_url = "https://firmware.example.com/fw-b.bin"
                 mtu: 1500,
                 reserve_first: 1,
                 allocation_strategy: Default::default(),
+                infer_slaac_eui64_addresses: false,
                 vpc_name: Some("zero-dpu-vpc".to_string()),
             }
         );
@@ -6119,6 +6783,72 @@ object_kind = "secret"
         .unwrap_err();
 
         assert!(error.to_string().contains("unknown field `object_kind`"));
+    }
+
+    /// Verifies deployment scoping is opt-in and is mandatory for BF4+CX9 Astra.
+    #[test]
+    fn dpf_service_interface_scoping_gates_astra() {
+        // Serde omission must preserve the legacy namespace-wide mode.
+        assert!(
+            !toml::from_str::<DpfConfig>("")
+                .unwrap()
+                .deployment_scoped_service_interfaces
+        );
+
+        value_scenarios!(
+            run = |(deployment_scoped_service_interfaces, has_astra)| {
+                let mut config = DpfConfig {
+                    deployment_scoped_service_interfaces,
+                    ..Default::default()
+                };
+                config.deployments.bf4_astra = has_astra.then(DpfDeploymentConfig::default);
+                config.validate_service_interface_scoping().is_ok()
+            };
+            "legacy default" {
+                // Omission preserves existing global ServiceInterfaces without a scoping migration.
+                (false, false) => true,
+            }
+
+            "explicit scoped mode" {
+                // Operators opt into the migration independently of Astra enablement.
+                (true, false) => true,
+            }
+
+            "unsafe Astra mode" {
+                // Astra's distinct inventory cannot be represented by legacy global resources.
+                (false, true) => false,
+            }
+
+            "scoped Astra mode" {
+                // The BF4+CX9 deployment is valid only after opting into isolated resources.
+                (true, true) => true,
+            }
+        );
+    }
+
+    /// Verifies the reserved SF setting preserves the legacy pool by default while allowing an
+    /// operator to reserve additional platform-specific capacity.
+    #[test]
+    fn dpf_pf_total_sf_reserved_defaults_and_deserializes() {
+        // Exercise omission and an explicit override through the operator-facing TOML contract.
+        value_scenarios!(
+            run = |input| toml::from_str::<DpfConfig>(input).unwrap().pf_total_sf_reserved;
+            "omitted reserve" {
+                // Omission must retain the existing PF_TOTAL_SF value for inventory-free sites.
+                "" => carbide_dpf::DEFAULT_PF_TOTAL_SF_RESERVED,
+            }
+
+            "explicit reserve" {
+                // Operators may size headroom for their DPF and firmware consumers.
+                "pf_total_sf_reserved = 47" => 47,
+            }
+        );
+
+        // Programmatic defaults must match deserialization defaults used by production config.
+        assert_eq!(
+            DpfConfig::default().pf_total_sf_reserved,
+            carbide_dpf::DEFAULT_PF_TOTAL_SF_RESERVED
+        );
     }
 
     #[test]
@@ -6817,6 +7547,51 @@ node_label_key = "carbide.nvidia.com/astra"
             services: None,
             extra_services: BTreeMap::new(),
         }
+    }
+
+    /// Verifies deployment selectors remain distinct from each other and NICo-owned labels.
+    #[test]
+    fn validate_dpf_deployment_node_label_keys() {
+        // Build the smallest two-deployment configuration needed to exercise selector overlap.
+        let deployments = |bf3_label: &str, bf4_label: &str| {
+            let bf3 = DpfDeploymentConfig {
+                node_label_key: bf3_label.to_string(),
+                ..Default::default()
+            };
+            let bf4 = DpfDeploymentConfig {
+                node_label_key: bf4_label.to_string(),
+                ..bf4_config(None, None)
+            };
+            DpfDeploymentsConfig {
+                bf3,
+                bf4_generic: Some(bf4),
+                bf4_astra: None,
+            }
+        };
+
+        value_scenarios!(
+            run = |(bf3_label, bf4_label)| deployments(bf3_label, bf4_label)
+                .validate_unique_identifiers()
+                .is_ok();
+            "distinct deployment labels" {
+                ("carbide.nvidia.com/bf3", "carbide.nvidia.com/bf4") => true,
+            }
+
+            "duplicate deployment labels" {
+                ("carbide.nvidia.com/dpu", "carbide.nvidia.com/dpu") => false,
+            }
+
+            "shared DPF marker" {
+                (carbide_dpf::DPU_ENABLED_NODE_LABEL, "carbide.nvidia.com/bf4") => false,
+            }
+
+            "contextual host BMC label" {
+                (
+                    "carbide.nvidia.com/bf4",
+                    carbide_machine_controller::dpf::HOST_BMC_IP_LABEL,
+                ) => false,
+            }
+        );
     }
 
     #[test]

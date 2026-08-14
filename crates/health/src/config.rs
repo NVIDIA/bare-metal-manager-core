@@ -27,6 +27,8 @@ use rustls_pki_types::DnsName;
 use serde::{Deserialize, Deserializer, Serialize};
 use url::Url;
 
+use crate::metrics::BmcLatencyAttribute;
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Config {
@@ -371,7 +373,10 @@ impl StaticBmcEndpoint {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct SinksConfig {
-    /// Tracing sink: logs all collector events through `tracing`.
+    /// Tracing sink: logs collector events through `tracing`.
+    ///
+    /// Reachability metrics are excluded because the collector emits explicit
+    /// structured records according to its `log_mode`.
     pub tracing: Configurable<TracingSinkConfig>,
 
     /// Prometheus sink: stores metric events in Prometheus exporter format.
@@ -859,6 +864,12 @@ pub struct CollectorsConfig {
 
     /// GPU inventory collector: compares OOB GPU count vs the assigned SKU.
     pub gpu_inventory: Configurable<GpuInventoryConfig>,
+
+    /// Direct TCP probes for ports used by enabled collectors.
+    ///
+    /// The probes report transport reachability only. They do not check TLS,
+    /// authentication, or collector protocol readiness.
+    pub reachability: Configurable<ReachabilityCollectorConfig>,
 }
 
 impl Default for CollectorsConfig {
@@ -875,7 +886,79 @@ impl Default for CollectorsConfig {
             nmxc: Configurable::Disabled,
             nvue: Configurable::Disabled,
             gpu_inventory: Configurable::Disabled,
+            reachability: Configurable::Disabled,
         }
+    }
+}
+
+/// Controls structured log emission for TCP reachability probes.
+///
+/// Metrics are emitted for every completed probe regardless of this setting.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ReachabilityLogMode {
+    /// Emit a structured log for every successful and failed probe.
+    All,
+
+    /// Emit a structured log for every failed probe and suppress successful probes.
+    #[default]
+    Unreachable,
+}
+
+/// Global configuration for periodic TCP reachability probes.
+///
+/// The collector probes the BMC Redfish port when an enabled collector is
+/// eligible to use it, plus ports used by enabled eligible switch collectors.
+/// One global cadence applies to all targets; each collector's own configuration
+/// remains the source of truth for whether its target and port exist. Each
+/// completed probe is sent to configured metric sinks; configured log sinks
+/// receive policy-selected records.
+/// Results never create health reports. It is disabled by default.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct ReachabilityCollectorConfig {
+    /// Interval between probe cycles for each endpoint.
+    ///
+    /// Every selected target is probed once per cycle and emits a state metric.
+    #[serde(with = "humantime_serde")]
+    pub interval: Duration,
+
+    /// Timeout for one TCP connection attempt.
+    ///
+    /// This bounds the TCP handshake only; it does not cover TLS or any
+    /// collector-specific protocol exchange.
+    #[serde(with = "humantime_serde")]
+    pub timeout: Duration,
+
+    /// Selects which completed probes emit structured log records.
+    ///
+    /// This policy is stateless: `unreachable` emits every failed probe, including
+    /// repeated failures after service restart. Metrics remain continuous in all modes.
+    pub log_mode: ReachabilityLogMode,
+}
+
+impl Default for ReachabilityCollectorConfig {
+    fn default() -> Self {
+        Self {
+            interval: Duration::from_secs(30),
+            timeout: Duration::from_secs(3),
+            log_mode: ReachabilityLogMode::Unreachable,
+        }
+    }
+}
+
+impl ReachabilityCollectorConfig {
+    /// Validates the probe cadence and timeout.
+    pub(crate) fn validate(&self) -> Result<(), String> {
+        if self.interval.is_zero() {
+            return Err("[collectors.reachability].interval must be greater than 0".to_string());
+        }
+
+        if self.timeout.is_zero() {
+            return Err("[collectors.reachability].timeout must be greater than 0".to_string());
+        }
+
+        Ok(())
     }
 }
 
@@ -1198,6 +1281,10 @@ pub struct SseLogConfig {
     /// Maximum retry backoff after repeated streaming connection failures.
     #[serde(with = "humantime_serde")]
     pub max_backoff: Duration,
+
+    /// Maximum number of concurrent Redfish GET requests used to fetch
+    /// `EventRecord` resources referenced by `@odata.id` in SSE notifications.
+    pub event_record_fetch_concurrency: usize,
 }
 
 impl Default for SseLogConfig {
@@ -1205,6 +1292,7 @@ impl Default for SseLogConfig {
         Self {
             initial_backoff: Duration::from_secs(1),
             max_backoff: Duration::from_secs(30),
+            event_record_fetch_concurrency: 4,
         }
     }
 }
@@ -1222,6 +1310,13 @@ impl SseLogConfig {
         if self.max_backoff < self.initial_backoff {
             return Err(
                 "[collectors.logs.sse].max_backoff must be greater than or equal to initial_backoff"
+                    .to_string(),
+            );
+        }
+
+        if self.event_record_fetch_concurrency == 0 {
+            return Err(
+                "[collectors.logs.sse].event_record_fetch_concurrency must be greater than 0"
                     .to_string(),
             );
         }
@@ -1659,6 +1754,14 @@ pub struct MetricsConfig {
     pub endpoint: String,
     /// Prefix for all metrics, defaults to carbide_hardware_health
     pub prefix: String,
+    /// Emit per-request BMC latency histograms.
+    pub enable_bmc_latency_metrics: bool,
+    /// Label attributes emitted on the BMC latency histogram.
+    #[serde(
+        default = "default_bmc_latency_attributes",
+        deserialize_with = "deserialize_bmc_latency_attributes"
+    )]
+    pub bmc_latency_attributes: Vec<BmcLatencyAttribute>,
 }
 
 impl Default for RateLimitConfig {
@@ -1676,7 +1779,82 @@ impl Default for MetricsConfig {
         Self {
             endpoint: "0.0.0.0:9009".to_string(),
             prefix: "carbide_hardware_health".to_string(),
+            enable_bmc_latency_metrics: false,
+            bmc_latency_attributes: default_bmc_latency_attributes(),
         }
+    }
+}
+
+fn default_bmc_latency_attributes() -> Vec<BmcLatencyAttribute> {
+    BmcLatencyAttribute::ATTRIBUTES.to_vec()
+}
+
+fn deserialize_bmc_latency_attributes<'de, D>(
+    deserializer: D,
+) -> Result<Vec<BmcLatencyAttribute>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let labels = Vec::<String>::deserialize(deserializer)?;
+    let mut has_all = false;
+    let mut unknown = Vec::new();
+
+    for label in &labels {
+        if label == "all" {
+            has_all = true;
+        } else if BmcLatencyAttribute::from_label_name(label).is_none() {
+            unknown.push(label.as_str());
+        }
+    }
+
+    if !unknown.is_empty() {
+        return Err(serde::de::Error::custom(format!(
+            "unknown BMC latency attribute(s): {}; allowed values are: {}",
+            unknown.join(", "),
+            bmc_latency_attribute_allowed_values().join(", ")
+        )));
+    }
+
+    if has_all {
+        return Ok(default_bmc_latency_attributes());
+    }
+
+    let requested = labels.iter().map(String::as_str).collect::<HashSet<_>>();
+    Ok(BmcLatencyAttribute::ATTRIBUTES
+        .iter()
+        .copied()
+        .filter(|attribute| requested.contains(attribute.label_name()))
+        .collect())
+}
+
+fn bmc_latency_attribute_allowed_values() -> Vec<&'static str> {
+    let mut values = vec!["all"];
+    values.extend(
+        BmcLatencyAttribute::ATTRIBUTES
+            .iter()
+            .map(|attribute| attribute.label_name()),
+    );
+    values
+}
+
+impl MetricsConfig {
+    pub fn bmc_latency_attributes(&self) -> Vec<BmcLatencyAttribute> {
+        BmcLatencyAttribute::ATTRIBUTES
+            .iter()
+            .copied()
+            .filter(|attribute| self.bmc_latency_attributes.contains(attribute))
+            .collect()
+    }
+
+    fn validate(&self) -> Result<(), String> {
+        if self.enable_bmc_latency_metrics && self.bmc_latency_attributes().is_empty() {
+            return Err(
+                "metrics.bmc_latency_attributes must not be empty when metrics.enable_bmc_latency_metrics is true"
+                    .to_string(),
+            );
+        }
+
+        Ok(())
     }
 }
 
@@ -1719,6 +1897,8 @@ impl Config {
         if self.endpoint_discovery_interval.is_zero() {
             return Err("endpoint_discovery_interval must be greater than 0".to_string());
         }
+
+        self.metrics.validate()?;
 
         if let Configurable::Enabled(rate_limit) = &self.rate_limit
             && rate_limit.bucket_replenish.is_zero()
@@ -1806,6 +1986,10 @@ impl Config {
 
         if let Configurable::Enabled(nmxc) = &self.collectors.nmxc {
             nmxc.validate()?;
+        }
+
+        if let Configurable::Enabled(reachability) = &self.collectors.reachability {
+            reachability.validate()?;
         }
 
         if let Configurable::Enabled(gpu_inventory) = &self.collectors.gpu_inventory {
@@ -2102,8 +2286,19 @@ mod tests {
         assert!(config.collectors.logs.is_enabled());
         assert!(config.collectors.nvue.is_enabled());
         assert!(!config.collectors.nmxc.is_enabled());
+        assert!(config.collectors.reachability.is_enabled());
         assert!(!config.sinks.tracing.is_enabled());
         assert!(config.sinks.prometheus.is_enabled());
+
+        let reachability = config
+            .collectors
+            .reachability
+            .as_option()
+            .expect("example config enables reachability");
+
+        assert_eq!(reachability.interval, Duration::from_secs(30));
+        assert_eq!(reachability.timeout, Duration::from_secs(3));
+        assert_eq!(reachability.log_mode, ReachabilityLogMode::Unreachable);
 
         if let Configurable::Enabled(ref sensors) = config.collectors.sensors {
             assert_eq!(sensors.sensor_fetch_concurrency, 10);
@@ -2128,6 +2323,7 @@ mod tests {
             let sse = logs.sse_or_default();
             assert_eq!(sse.initial_backoff, Duration::from_secs(1));
             assert_eq!(sse.max_backoff, Duration::from_secs(30));
+            assert_eq!(sse.event_record_fetch_concurrency, 4);
             assert!(logs.validate().is_ok());
         } else {
             panic!("logs empty")
@@ -2407,6 +2603,15 @@ username = "root"
                         targets: vec![otlp_target("http://localhost:4317")],
                     });
                 }) => Yields(()),
+
+                config_with(|config| {
+                    config.metrics.enable_bmc_latency_metrics = true;
+                    config.metrics.bmc_latency_attributes = vec![
+                        BmcLatencyAttribute::HttpResponseStatusCode,
+                        BmcLatencyAttribute::ServerAddress,
+                        BmcLatencyAttribute::UrlScheme,
+                    ];
+                }) => Yields(()),
             }
 
             "top-level settings" {
@@ -2419,6 +2624,13 @@ username = "root"
                     config.endpoint_discovery_interval = Duration::ZERO;
                 }) => FailsWith(
                     "endpoint_discovery_interval must be greater than 0".to_string()
+                ),
+
+                config_with(|config| {
+                    config.metrics.enable_bmc_latency_metrics = true;
+                    config.metrics.bmc_latency_attributes = vec![];
+                }) => FailsWith(
+                    "metrics.bmc_latency_attributes must not be empty when metrics.enable_bmc_latency_metrics is true".to_string()
                 ),
 
                 config_with(|config| {
@@ -3067,6 +3279,15 @@ reload_interval = "30s"
         assert_eq!(config.shards_count, 1);
         assert_eq!(config.cache_size, 100);
         assert_eq!(config.metrics.endpoint, "0.0.0.0:9009");
+        assert!(!config.metrics.enable_bmc_latency_metrics);
+        assert_eq!(
+            config.metrics.bmc_latency_attributes,
+            BmcLatencyAttribute::ATTRIBUTES.to_vec()
+        );
+        assert_eq!(
+            config.metrics.bmc_latency_attributes(),
+            BmcLatencyAttribute::ATTRIBUTES.to_vec()
+        );
         assert!(config.rate_limit.is_enabled());
         assert!(config.processors.leak_detection.is_enabled());
         assert!(config.collectors.leak_detector.is_enabled());
@@ -3077,6 +3298,54 @@ reload_interval = "30s"
         } else {
             panic!("health report sink should be enabled by default");
         }
+    }
+
+    #[test]
+    fn bmc_latency_metrics_config_parsing() {
+        let toml_content = r#"
+[metrics]
+enable_bmc_latency_metrics = true
+bmc_latency_attributes = ["http_response_status_code", "server_address", "url_scheme", "entity_type", "machine_id", "rack_id"]
+"#;
+
+        let config: Config = Figment::new()
+            .merge(Serialized::defaults(Config::default()))
+            .merge(Toml::string(toml_content))
+            .extract()
+            .expect("could not parse config toml file");
+
+        assert!(config.metrics.enable_bmc_latency_metrics);
+        assert_eq!(
+            config.metrics.bmc_latency_attributes(),
+            vec![
+                BmcLatencyAttribute::HttpResponseStatusCode,
+                BmcLatencyAttribute::ServerAddress,
+                BmcLatencyAttribute::UrlScheme,
+                BmcLatencyAttribute::EntityType,
+                BmcLatencyAttribute::MachineId,
+                BmcLatencyAttribute::RackId,
+            ]
+        );
+
+        let toml_content = r#"
+[metrics]
+bmc_latency_attributes = ["http_path", "all"]
+"#;
+
+        let config: Config = Figment::new()
+            .merge(Serialized::defaults(Config::default()))
+            .merge(Toml::string(toml_content))
+            .extract()
+            .expect("could not parse config toml file");
+
+        assert_eq!(
+            config.metrics.bmc_latency_attributes,
+            BmcLatencyAttribute::ATTRIBUTES.to_vec()
+        );
+        assert_eq!(
+            config.metrics.bmc_latency_attributes(),
+            BmcLatencyAttribute::ATTRIBUTES.to_vec()
+        );
     }
 
     #[test]
@@ -4161,8 +4430,19 @@ switch = { serial = "SN-SW-001", physical_slot_number = 7, compute_tray_index = 
                 SseLogConfig {
                     initial_backoff: Duration::from_secs(30),
                     max_backoff: Duration::from_secs(1),
+                    ..SseLogConfig::default()
                 } => FailsWith(
                     "[collectors.logs.sse].max_backoff must be greater than or equal to initial_backoff"
+                        .to_string()
+                ),
+            }
+
+            "zero event record fetch concurrency" {
+                SseLogConfig {
+                    event_record_fetch_concurrency: 0,
+                    ..SseLogConfig::default()
+                } => FailsWith(
+                    "[collectors.logs.sse].event_record_fetch_concurrency must be greater than 0"
                         .to_string()
                 ),
             }
@@ -4305,6 +4585,7 @@ switch = { serial = "SN-SW-001", physical_slot_number = 7, compute_tray_index = 
                     sse: Some(SseLogConfig {
                         initial_backoff: Duration::from_secs(30),
                         max_backoff: Duration::from_secs(1),
+                        ..SseLogConfig::default()
                     }),
                     ..LogsCollectorConfig::default()
                 } => FailsWith(
@@ -4360,18 +4641,21 @@ mode = "sse"
 [sse]
 initial_backoff = "2s"
 max_backoff = "1m"
+event_record_fetch_concurrency = 8
 "# => Yields(LogsConfigProjection {
                     mode: LogCollectionMode::Sse,
                     validation: Ok(()),
                     configured_sse: Some(SseLogConfig {
                         initial_backoff: Duration::from_secs(2),
                         max_backoff: Duration::from_secs(60),
+                        event_record_fetch_concurrency: 8,
                     }),
                     configured_periodic: None,
                     configured_auto: None,
                     effective_sse: SseLogConfig {
                         initial_backoff: Duration::from_secs(2),
                         max_backoff: Duration::from_secs(60),
+                        event_record_fetch_concurrency: 8,
                     },
                     effective_periodic: PeriodicLogConfig::default(),
                     effective_auto_periodic: PeriodicLogConfig::default(),
@@ -4451,12 +4735,14 @@ max_backoff = "45s"
                     configured_sse: Some(SseLogConfig {
                         initial_backoff: Duration::from_secs(3),
                         max_backoff: Duration::from_secs(45),
+                        ..SseLogConfig::default()
                     }),
                     configured_periodic: None,
                     configured_auto: None,
                     effective_sse: SseLogConfig {
                         initial_backoff: Duration::from_secs(3),
                         max_backoff: Duration::from_secs(45),
+                        ..SseLogConfig::default()
                     },
                     effective_periodic: PeriodicLogConfig::default(),
                     effective_auto_periodic: PeriodicLogConfig::default(),
@@ -4482,5 +4768,27 @@ max_backoff = "45s"
         let defaults = SseLogConfig::default();
         assert_eq!(defaults.initial_backoff, Duration::from_secs(1));
         assert_eq!(defaults.max_backoff, Duration::from_secs(30));
+        assert_eq!(defaults.event_record_fetch_concurrency, 4);
+    }
+
+    #[test]
+    fn reachability_validation_rejects_non_positive_runtime_values() {
+        let mut config = ReachabilityCollectorConfig {
+            interval: Duration::ZERO,
+            ..ReachabilityCollectorConfig::default()
+        };
+
+        assert_eq!(
+            config.validate().expect_err("zero interval must fail"),
+            "[collectors.reachability].interval must be greater than 0"
+        );
+
+        config.interval = Duration::from_secs(1);
+        config.timeout = Duration::ZERO;
+
+        assert_eq!(
+            config.validate().expect_err("zero timeout must fail"),
+            "[collectors.reachability].timeout must be greater than 0"
+        );
     }
 }

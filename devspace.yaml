@@ -35,6 +35,20 @@ vars:
   LOCAL_DEV_DSX_GATEWAY_PROFILE: "0"
 
 pipelines:
+  build: |-
+    run_dependencies --all --pipeline build
+    build_local_images
+  dev: |-
+    run_dependencies --all
+    ensure_pull_secrets --all
+    build_local_images
+    create_deployments --all
+    start_dev --all
+  deploy: |-
+    run_dependencies --all
+    ensure_pull_secrets --all
+    build_local_images
+    create_deployments --all
   purge: |-
     CONTEXT=$(kubectl config current-context 2>/dev/null || echo "")
     case "$CONTEXT" in
@@ -46,7 +60,25 @@ pipelines:
         ;;
     esac
 
+functions:
+  build_local_images: |-
+    build_images core-artifacts nico-rest-api nico-rest-workflow \
+      nico-rest-site-manager nico-rest-site-agent nico-rest-db \
+      nico-rest-cert-manager nico-mcp
+    # Custom-build onChange state can outlive the corresponding local Docker
+    # image. Always invoke these inexpensive second-stage builds so the tags
+    # consumed by the Kind image-loading hook are guaranteed to exist.
+    build_images nico-api nico-bmc-proxy machine-a-tron --force-rebuild
+
 images:
+  core-artifacts:
+    image: nico-devspace-core-artifacts
+    tags:
+      - latest
+    dockerfile: dev/deployment/devspace/Dockerfile.core-artifacts
+    context: .
+    buildKit: {}
+    skipPush: true
   nico-api:
     image: nico-api
     custom:
@@ -61,7 +93,10 @@ images:
         - crates
         - include
         - dev/docker/Dockerfile.build-container-x86_64
+        - dev/deployment/devspace/Dockerfile.core-artifacts
+        - dev/deployment/devspace/Dockerfile.core-artifacts.dockerignore
         - dev/deployment/devspace/Dockerfile.api
+        - dev/deployment/devspace/Dockerfile.api.dockerignore
         - pxe/templates
         - pxe/static/blobs/internal/aarch64/secure-boot-pk.pem
   nico-bmc-proxy:
@@ -77,7 +112,10 @@ images:
         - .cargo
         - crates
         - dev/docker/Dockerfile.build-container-x86_64
+        - dev/deployment/devspace/Dockerfile.core-artifacts
+        - dev/deployment/devspace/Dockerfile.core-artifacts.dockerignore
         - dev/deployment/devspace/Dockerfile.bmc-proxy
+        - dev/deployment/devspace/Dockerfile.bmc-proxy.dockerignore
   machine-a-tron:
     image: machine-a-tron
     custom:
@@ -92,7 +130,10 @@ images:
         - crates
         - include
         - dev/docker/Dockerfile.build-container-x86_64
+        - dev/deployment/devspace/Dockerfile.core-artifacts
+        - dev/deployment/devspace/Dockerfile.core-artifacts.dockerignore
         - dev/deployment/devspace/Dockerfile.machine-a-tron
+        - dev/deployment/devspace/Dockerfile.machine-a-tron.dockerignore
   nico-rest-api:
     image: localhost:5000/nico-rest-api
     tags:
@@ -252,6 +293,9 @@ deployments:
           CORE_GRPC_SEC_OPT: "2"
           FLOW_GRPC_ENABLED: "false"
           CLUSTER_ID: 00000000-0000-4000-8000-000000000001
+          # The REST workflow ignores inventory for 3m5s after a machine update.
+          # Keep the local inventory cadence beyond that guard to avoid skipped hosts.
+          TEMPORAL_INVENTORY_SCHEDULE: "@every 4m"
           TEMPORAL_SERVER: site.server.temporal.local
           TEMPORAL_SUBSCRIBE_NAMESPACE: 00000000-0000-4000-8000-000000000001
           TEMPORAL_SUBSCRIBE_QUEUE: site
@@ -441,6 +485,11 @@ profiles:
               echo "the dsx-exchange and core-only profiles cannot be combined" >&2
               exit 1
             fi
+      - op: replace
+        path: functions.build_local_images
+        value: |-
+          build_images core-artifacts
+          build_images nico-api nico-bmc-proxy machine-a-tron
       - op: remove
         path: images.nico-rest-api
       - op: remove

@@ -34,8 +34,8 @@ mod tracing;
 pub use composite::CompositeDataSink;
 pub use events::{
     Classification, CollectorEvent, DiagnosticLogRecord, EventContext, FirmwareInfo, HealthReport,
-    HealthReportAlert, HealthReportSuccess, HealthReportTarget, LogRecord, MetricSample, Probe,
-    ReportSource, SensorThresholdContext,
+    HealthReportAlert, HealthReportSuccess, HealthReportTarget, LogRecord, LogSeverity,
+    MetricSample, Probe, ReportSource, SensorThresholdContext,
 };
 pub use health_report::HealthReportSink;
 pub use log_file::LogFileSink;
@@ -130,7 +130,7 @@ mod tests {
 
     use super::{
         CollectorEvent, CompositeDataSink, DataSink, DiagnosticLogRecord, EventContext, LogRecord,
-        MetricSample, PrometheusSink,
+        LogSeverity, MetricSample, PrometheusSink,
     };
     use crate::endpoint::{BmcAddr, EndpointMetadata, MachineData, SharedSystemUuid};
     use crate::metrics::MetricsManager;
@@ -387,7 +387,7 @@ mod tests {
         let log_event = CollectorEvent::Log(
             LogRecord {
                 body: "ignored by prometheus sink".to_string(),
-                severity: "INFO".to_string(),
+                severity: LogSeverity::Info,
                 attributes: Vec::new(),
                 diagnostic_record: Some(DiagnosticLogRecord {
                     body: "also ignored by prometheus sink".to_string(),

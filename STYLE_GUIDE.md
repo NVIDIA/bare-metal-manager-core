@@ -45,9 +45,19 @@ Other common places where we've seen `#[allow(dead_code)]` that are not necessar
   underscore to hint that it's not supposed to be read
 - If a field is only used if certain crate features are enabled, prefer `#[cfg(feature = "feature")]` to only
   include it when that feature is being used.
-- If a field isn't currently yet, but you want to leave it around as documentation on what fields could exist (like an
+- If a field isn't currently used, but you want to leave it around as documentation on what fields could exist (like an
   unused database column, or unused JSON field), comment it out.
 - Otherwise, strongly consider deleting the code.
+
+For binaries, add the following to the beginning of your main.rs:
+
+```rust
+#![cfg_attr(not(test), deny(dead_code_pub_in_binary))]
+```
+
+This ensures that dead code is detected even if it's marked `pub` in a binary, since binaries cannot be used by other
+crates anyway (making `pub` meaningless in a binary crate.) We would prefer to put this in the workspace-wide cargo
+config, but it results in false positives for test targets, see [rust-lang/rust#159078].
 
 ## Visibility
 
@@ -411,6 +421,26 @@ pub async fn create_resource(
 }
 ```
 
+## Configuration ownership and precedence
+
+Before adding a configuration option, ask whether the behavior can be safe and predictable without a knob. Keep true
+protocol invariants non-configurable and hard safety caps as named constants. When operators need to tune an operational
+limit, bound it with a non-configurable hard maximum and reject out-of-range values before activation. Do not bake
+values tied to one site or environment, such as cluster names, namespaces, and addresses, into behavior; expose them
+through configuration instead.
+
+When behavior must vary, give each setting one canonical owner and resolution path. Define what omission means: use a
+safe default when omission has a safe and predictable meaning; otherwise require the setting and fail validation.
+Validate values before they become active. State whether changes require a restart or take effect dynamically, and
+define precedence, fallback, and conflict behavior across every supported source.
+
+This does not require one storage location. Files, environment variables, command-line flags, Helm values, database
+values, and APIs can all be valid sources, but overlapping sources must resolve through one declared contract.
+
+Do not copy a configuration schema into another interface just to expose it. Reference the canonical contract or
+generate the interface from it when practical, and keep interface-specific adapters limited to translation and
+precedence.
+
 ## Crate Features
 
 Avoid using crate features unless there is a good reason. Our CI runners only build with the default features you get
@@ -440,6 +470,69 @@ your interface `async` just so you can use the tokio Mutex. That way callers can
 async themselves. Async work should generally be traceable to some I/O or timer that needs to be used, otherwise
 code should typically be synchronous.
 
+### External I/O deadlines
+
+Set an intentional client-side deadline for every external I/O attempt that is expected to finish, or document why the
+operation is deliberately long-lived. This applies to HTTP, gRPC, SQL, SSH, Redfish, DNS, command execution, and
+similar calls.
+
+Apply these rules to every external I/O attempt:
+
+- **Bound the attempt, not the workflow.** For work that should finish, bound the individual attempt rather than the
+  lifetime of a durable reconciliation workflow.
+- **Include prerequisite waits.** Treat rate-limit permits, connection-pool acquisition, and similar waits as part of
+  the attempt's deadline and cancellation contract.
+- **Define every timer.** When a client or protocol distinguishes connect, read, write, and overall attempt deadlines,
+  configure the relevant phases separately. State whether each phase timer applies per I/O operation, measures
+  inactivity, or is cumulative, and state when it resets.
+- **Keep bounds reviewable.** At the code, configuration, or interface boundary that owns each deadline or
+  liveness-detection bound, state its value, unit, scope, and relationship to any enclosing deadline.
+
+Do not assume that a request header, client default, or TCP liveness timeout provides the intended bound. Choose timeout
+values from protocol behavior and the service objective, not an arbitrary short duration. Test timeout behavior when it
+is part of the contract.
+
+### Long-lived streams
+
+A long-lived stream can intentionally omit a short overall deadline, but it still needs explicit cancellation and a
+finite bound on how long lost liveness can go undetected.
+
+- When liveness is lost, cancel the stream.
+- Then either surface a terminal failure to the caller or owning task, or reconnect under the
+  [retry and backoff](#retries-and-backoff) rules.
+- Reconnect a data-bearing stream only when its documented delivery contract makes resumption or restart safe with
+  respect to replay, loss, duplication, and ordering. Otherwise, surface a terminal failure.
+
+### Cancellation and lifecycle
+
+Make every in-flight attempt and retry backoff observe an enclosing caller or request cancellation signal. Stop the
+retry sequence when that signal arrives unless a documented owning task must deliberately continue. Work that
+deliberately outlives the caller must still observe the owning task's cancellation or terminal lifecycle boundary.
+
+When an attempt deadline expires or a cancellation signal arrives, define each outcome separately:
+
+- Whether and how the current operation stops or continues.
+- Whether and how the retry sequence continues with backoff.
+- How the outcome is mapped for the caller or owning task.
+- How repeated failures and exhausted retry budgets become observable when they matter operationally.
+
+### Retries and backoff
+
+Define which outcomes are eligible for automatic retry and what happens to outcomes that are not explicitly classified
+as retryable. Apply these additional rules:
+
+- **Retry safety.** Classify retry safety before retrying an ambiguous outcome. Do not automatically retry a
+  non-idempotent operation unless the protocol or request provides an idempotency mechanism.
+- **Caller-scoped work.** When the caller waits for a terminal result, bound the retry sequence by attempt count or
+  elapsed time. Fit the attempts, backoff, and result handling within any enclosing caller deadline, leaving time to
+  translate and return the terminal result.
+- **Durable reconciliation.** A workflow can keep trying across iterations, but each iteration needs a bounded retry
+  count or elapsed-time budget. Keep backoff bounded, and keep every attempt subject to its documented deadline and
+  cancellation-or-continuation behavior.
+
+At the owning boundary, keep each retry limit and maximum backoff visible with its value, unit, scope, and relationship
+to caller or owning-task lifecycle bounds.
+
 ## Database migrations
 
 Name new Core database migration files with a fully populated 14-digit timestamp:
@@ -452,9 +545,77 @@ immutable.
 
 Transactions should be used to group write operations together such that they can be rolled back on failure. But do
 not hold a transaction open while doing long-running work. Doing so can exhaust the connection pool if the thing
-you're awaiting is blocked or slow. We have a custom lint, `txn_held_across_await` which will catch cases where you're
-`await`ing a future while holding a transaction, which mitigates this. If it happens, your
-code needs to be fixed, do not `#[allow(txn_held_across_await)]`.
+you're awaiting is blocked or slow. We have a custom lint, `txn_held_across_await`, which catches an `.await` while a
+transaction or tracked database connection remains live unless the awaited call receives that transaction or
+connection, or a nested transaction derived from that transaction. Passing it onward gives the callee the same
+responsibility; it does not make unrelated work safe.
+
+Treat a production lint finding as a design problem: finish the transaction before awaiting unrelated work, or move
+that work outside the transaction. Do not add `#[allow(txn_held_across_await)]` merely to silence the lint. A narrowly
+reviewed infrastructure boundary may deliberately reserve a dedicated connection when that is the mechanism's purpose
+and its pool-capacity cost is fixed and documented; keep that proof next to the allowance. Tests may allow the lint
+when holding a transaction or row lock across an await is the behavior under test.
+
+### Concurrent updates
+
+Assume database updates can run concurrently. A transaction alone does not make a stale read-modify-write safe: do not
+read a row, modify an in-memory snapshot, and write the whole row back unless the operation prevents a concurrent
+change from being silently overwritten.
+
+Use the narrowest mechanism that proves the update is safe. Depending on the invariant, this may be an atomic SQL
+expression, an update of only the requested columns, a uniqueness or foreign-key constraint, `SELECT ... FOR UPDATE`,
+or optimistic concurrency with `UPDATE ... WHERE version = ...`. When the version is the entity's
+optimistic-concurrency token, the same statement must write the requested values and advance or replace that token;
+checking a token without changing it allows later writers to reuse the same snapshot.
+When using `SELECT ... FOR UPDATE`, acquire the lock and perform the dependent writes in the same transaction before
+committing it.
+
+Define the no-match contract explicitly. A version-checked predicate can match zero rows because the target is missing,
+is no longer eligible, including when it is soft-deleted, or has a stale version. For each outcome the operation can
+distinguish, define its exact error or not-applied result. Return `ConcurrentModificationError` only when the statement
+or transaction distinguishes a stale token from the missing or ineligible outcome, and return `NotFoundError` only for
+proven absence. If the API intentionally makes two or more outcomes indistinguishable, document which outcomes share
+the combined policy. A deliberately conditional API, such as a `try_*` helper, may return an explicit not-applied result
+instead; it must not report that the mutation succeeded.
+
+Add a concurrent-update test when the contract promises protection from lost updates. Do not add row locks by default
+when an atomic operation, constraint, or version predicate already excludes the invalid interleaving.
+
+### Long-running work locks
+
+Do not hold a database transaction or pooled connection open solely to keep slow or external work mutually exclusive.
+When long-running work needs database-coordinated admission across NICo process instances and cannot fit inside a short
+transaction, use [`WorkLockManager`](crates/api-db/src/work_lock_manager.rs) with a work key that names the protected
+resource or operation. Do not use it for task-local exclusion, where an in-process owner or mutex is enough. Before
+choosing a work lock, ensure that a prior worker continuing after lease expiry cannot make the operation unsafe. Keep
+database updates performed under the work lock in short transactions. In each transaction, call
+`WorkLock::fence_transaction` before any protected write and keep all writes guarded by that fence in the same
+transaction.
+
+If `fence_transaction` reports ownership loss, do not perform the guarded writes. Reconcile any earlier external work,
+then acquire a new `WorkLock` before retrying.
+
+The keepalive loop continues attempting renewal after database or manager communication failures, but stops once the
+database proves ownership was lost. It does not notify or cancel the task holding the `WorkLock`.
+
+Keep the guard until protected work stops. `Drop` stops renewal and queues a best-effort release without waiting, while
+`release()` consumes the guard and waits for the manager to acknowledge the database deletion. A cleanup error may
+leave the work key unavailable until the lease expires; it does not preserve ownership or permit the caller to continue
+protected work.
+
+A `WorkLock` is an expiring lease, not a fencing token. If its keepalives stop, another worker can acquire the same key
+while the previous worker is still running. The lease alone cannot protect an external side effect or prove that a
+later database mutation still belongs to the current owner. Fence the database transaction, and give external work
+its own fencing, idempotency, or a reconciliation protocol proven safe when execution repeats or overlaps. A work lock
+also does not replace atomic SQL, version predicates, or constraints for writers that do not participate in the same
+work key.
+
+### State-controller recovery boundaries
+
+Transactions cannot make external side effects atomic. State-controller work that crosses database and external system
+boundaries must persist a recovery point and avoid holding database transactions open across external I/O. Make repeated
+or overlapping external work safe through fencing, idempotency, or reconciliation. For controller-model background, see
+[Reliable State Handling](docs/architecture/state_handling.md).
 
 ## Database wrappers
 
@@ -484,6 +645,58 @@ be cloned and re-used to cancel sub-tasks.
 
 A note on function naming: `start` or `spawn` should mean "spawns work in the background". `run` should mean "run
 forever".
+
+### Bound admitted work
+
+Bound work admitted from requests, packets, streams, database results, and external events. Account for work that is
+running, waiting to run, or waiting for capacity.
+
+The admission boundary has three independent layers:
+
+| Layer | Required bound |
+| --- | --- |
+| Active work | A concurrency limit, fixed worker count, or visible invariant |
+| Pending work | A finite queue, explicit no-queue policy, or visible invariant |
+| Producers waiting for capacity | A finite waiter limit, including zero, or visible invariant; each wait also follows the cancellation rules below |
+
+Count work retained for retry, including items in backoff or delayed-retry queues, as pending work. Alternatively, place
+it in a separately bounded retry scheduler with its own overload policy. A limit on one layer does not bound the others.
+Do not spawn an unbounded task for each item unless the input size is locally bounded.
+
+### Capacity outcomes and waits
+
+Choose an overload policy and define the item's lifecycle and producer-visible result, if any. Cover each applicable
+outcome:
+
+- **No capacity is available.** Wait with backpressure, reject, drop new work, coalesce it, or shed old work.
+- **A capacity wait is cancelled or expires.** Define what happens to the pending item and any reservation, what error
+  or fallback the producer observes, and whether it may retry.
+- **The owner stops.** Define whether queued work drains or is discarded and how blocked producers are released.
+
+Make every capacity wait cancellable. Give it either a finite deadline or a documented caller or owning-task lifecycle
+boundary. At the owning boundary:
+
+- **Finite deadline.** State its value, unit, scope, and relationship to any enclosing deadline.
+- **Lifecycle bound.** Name the cancellation source and terminal lifecycle boundary that bounds the wait.
+
+### Channel bounds
+
+Prefer bounded channels for work and data. An unbounded channel is acceptable only when:
+
+- A visible invariant places a hard bound on outstanding messages.
+- A nonblocking lifecycle or control path needs a synchronous sender that cannot wait.
+
+For a nonblocking lifecycle or control channel, bound the admitted work separately and document the ordering or
+lifecycle invariant that the unbounded path preserves. Do not assume the consumer can always keep up with its producers.
+
+### Capacity rationale and observability
+
+At the owning boundary, keep each limit's value, unit, scope, and rationale visible. Explain how multiple limits compose.
+If an invariant supplies a finite bound instead, state both the invariant and the bound it provides.
+
+When overload matters operationally, make the relevant queue depth, rejected, dropped, or coalesced work, saturated
+waiters, or latency observable. Use a plain log when diagnostic text is enough. Use a metric-backed event when the
+condition merits a count, rate, or duration. See [Instrumentation](#instrumentation).
 
 ### Cancelling background tasks
 
@@ -966,7 +1179,9 @@ applicable, plus each wire, serde, or database representation the type uses.
 
 ### Prefer methods over free functions
 
-When a function operates primarily on a specific type, define it as a method on that type rather than a free-standing function. This keeps related behavior co-located with the type, makes it easier to discover via autocomplete, and reads more naturally at the call site.
+When a function operates primarily on a specific type, define it as a method on that type rather than a free-standing
+function. This keeps related behavior co-located with the type, makes it easier to discover via autocomplete, and reads
+more naturally at the call site.
 
 ```rust
 // Avoid — free function that operates on a specific type
@@ -1022,7 +1237,8 @@ impl MachineState {
 }
 ```
 
-Free functions are still appropriate when the logic genuinely spans multiple unrelated types, belongs in a module rather than a single type, or is a utility with no natural owner.
+Free functions are still appropriate when the logic genuinely spans multiple unrelated types, belongs in a module rather
+than a single type, or is a utility with no natural owner.
 
 ### Error message style
 
@@ -1053,3 +1269,4 @@ a `// xtask:allow-error-case` comment on, or directly above, the line. Rust sour
 `// This file is @generated by ...` banner are skipped because their messages are owned by the generator.
 
 [C-GOOD-ERR]: https://rust-lang.github.io/api-guidelines/interoperability.html#c-good-err
+[rust-lang/rust#159078]: https://github.com/rust-lang/rust/issues/159078

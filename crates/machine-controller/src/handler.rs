@@ -26,6 +26,7 @@ use std::sync::{Arc, Mutex};
 use attestation::{
     handle_spdm_attestation_failed_recovery, handle_spdm_poll_state, handle_spdm_trigger_state,
 };
+use carbide_credential_rotation::site_explorer_pause::{self, GateDecision};
 use carbide_credential_rotation::{RotationStep, advance};
 use carbide_firmware::{FirmwareConfig, FirmwareConfigSnapshot, FirmwareDownloader};
 use carbide_redfish::boot_interface::BootInterfaceTarget;
@@ -121,6 +122,7 @@ pub mod attestation;
 mod bios_config;
 mod boot_interface_observation;
 mod dpf;
+mod dpu_action_handler;
 mod dpu_uefi_rotation;
 mod firmware_artifact;
 mod helpers;
@@ -1120,6 +1122,15 @@ impl MachineStateHandler {
                     ));
                 }
 
+                // Releasing a DPF maintenance hold restarts DPU services, so it
+                // belongs with the idle-only work above rather than ahead of it.
+                dpu_action_handler::handle_pending_dpu_actions(
+                    self.dpu_handler.dpf_sdk.as_deref(),
+                    ctx,
+                    mh_snapshot,
+                )
+                .await?;
+
                 // Periodic BMC observation is deliberately Ready's final work,
                 // so it cannot preempt lifecycle or operator-requested actions.
                 boot_interface_observation::observe_verified_boot_interface(ctx, mh_snapshot).await
@@ -1146,11 +1157,44 @@ impl MachineStateHandler {
             }
 
             ManagedHostState::RotatingBmc { retry_count } => {
+                // Hold site-explorer off every BMC of this managed host and wait
+                // until it has acknowledged, before changing any credential. This
+                // closes the window in which a probe could hit new-hardware /
+                // old-Vault and persist the sticky `AvoidLockout` latch.
+                let bmc_macs: Vec<_> = rotation::managed_host_bmc_endpoints(mh_snapshot)
+                    .map(|e| e.device_mac)
+                    .collect();
+                if matches!(
+                    site_explorer_pause::gate_before_rotation(&ctx.services.db_pool, &bmc_macs)
+                        .await?,
+                    GateDecision::Wait
+                ) {
+                    return Ok(StateHandlerOutcome::wait(
+                        "waiting for site-explorer to acknowledge the BMC rotation suppression"
+                            .to_string(),
+                    ));
+                }
+
                 // One tick converges every BMC that needs work: force-requested
                 // devices (bypassing backoff) and, when site-wide rotation is
                 // enabled, any lagging host or DPU BMC -- handled together.
                 let tick = rotation::rotate_managed_host_bmcs(ctx.services, mh_snapshot).await;
                 match advance(tick, *retry_count, host_machine_id) {
+                    // A BMC changed its hardware password but the per-device
+                    // secret persist has not yet succeeded: hold in RotatingBmc
+                    // (site-explorer stays suppressed, and the `Ready`-only
+                    // allocation gate keeps the host non-allocatable) and re-tick.
+                    // Do NOT resume site-explorer and do NOT clear a force
+                    // request -- the rotation has not finished. The engine leaves
+                    // the device `needs_rotation`, so a later tick's
+                    // change-then-verify recovery re-persists and converges; the
+                    // hold's upper bound is the state's time-in-state SLA.
+                    RotationStep::WaitForCredentialStoreReconcile => Ok(StateHandlerOutcome::wait(
+                        "BMC hardware changed but the per-device secret persist has not yet \
+                         succeeded; holding rotation (site-explorer suppressed, host \
+                         non-allocatable) until the credential store reconciles"
+                            .to_string(),
+                    )),
                     step @ (RotationStep::Settled | RotationStep::GaveUp) => {
                         // Both terminal steps return to Ready. Only a settled tick
                         // clears a one-shot force request: the forced attempt
@@ -1161,13 +1205,16 @@ impl MachineStateHandler {
                         // attempt cleanly running, so we leave the flag set and let
                         // the entry guard re-attempt on a later sweep rather than
                         // silently drop the operator's request.
-                        let mut txn = None;
+                        // Resume site-explorer atomically with the return to Ready,
+                        // so its skip window ends exactly when the rotation does; a
+                        // settled tick also clears the one-shot force flag in the same
+                        // transaction.
+                        let mut txn = ctx.services.db_pool.begin().await?;
                         if matches!(step, RotationStep::Settled) {
-                            txn = rotation::clear_forced_bmc_requests(ctx.services, mh_snapshot)
-                                .await?;
+                            rotation::clear_forced_bmc_requests(&mut txn, mh_snapshot).await?;
                         }
-                        Ok(StateHandlerOutcome::transition(ManagedHostState::Ready)
-                            .with_txn_opt(txn))
+                        site_explorer_pause::resume_after_rotation(&mut txn, &bmc_macs).await?;
+                        Ok(StateHandlerOutcome::transition(ManagedHostState::Ready).with_txn(txn))
                     }
                     RotationStep::Retry { retry_count } => Ok(StateHandlerOutcome::transition(
                         ManagedHostState::RotatingBmc { retry_count },
@@ -1208,12 +1255,18 @@ impl MachineStateHandler {
                                 .await
                                 .map_err(|e| redfish_error("get_boss_controller", e))?
                         {
+                            let secure_erase_boss_state = match cleanup_context {
+                                CleanupContext::Deprovision => SecureEraseBossState::UnlockHost,
+                                CleanupContext::InitialDiscovery => {
+                                    SecureEraseBossState::SecureEraseBoss
+                                }
+                            };
                             let next_state = waiting_for_cleanup_state(
                                 CleanupState::SecureEraseBoss {
                                     secure_erase_boss_context: SecureEraseBossContext {
                                         boss_controller_id,
                                         secure_erase_jid: None,
-                                        secure_erase_boss_state: SecureEraseBossState::UnlockHost,
+                                        secure_erase_boss_state,
                                         iteration: Some(0),
                                     },
                                 },
@@ -1240,10 +1293,12 @@ impl MachineStateHandler {
 
                         match secure_erase_boss_context.secure_erase_boss_state {
                             SecureEraseBossState::UnlockHost => {
-                                redfish_client
-                                    .set_idrac_lockdown(EnabledDisabled::Disabled)
-                                    .await
-                                    .map_err(|e| redfish_error("set_idrac_lockdown", e))?;
+                                if matches!(cleanup_context, CleanupContext::Deprovision) {
+                                    redfish_client
+                                        .set_idrac_lockdown(EnabledDisabled::Disabled)
+                                        .await
+                                        .map_err(|e| redfish_error("set_idrac_lockdown", e))?;
+                                }
 
                                 let next_state = waiting_for_cleanup_state(
                                     CleanupState::SecureEraseBoss {
@@ -1423,10 +1478,12 @@ impl MachineStateHandler {
                                 .await
                             }
                             CreateBossVolumeState::LockHost => {
-                                redfish_client
-                                    .set_idrac_lockdown(EnabledDisabled::Enabled)
-                                    .await
-                                    .map_err(|e| redfish_error("set_idrac_lockdown", e))?;
+                                if matches!(cleanup_context, CleanupContext::Deprovision) {
+                                    redfish_client
+                                        .set_idrac_lockdown(EnabledDisabled::Enabled)
+                                        .await
+                                        .map_err(|e| redfish_error("set_idrac_lockdown", e))?;
+                                }
 
                                 let next_state = post_cleanup_state(*cleanup_context);
 
@@ -8257,8 +8314,8 @@ impl StateHandler for InstanceStateHandler {
                             .service_configs
                             .is_empty()
                     {
-                        for (_dpu_id, extension_service_statuses) in
-                            instance.observations.extension_services.iter()
+                        for extension_service_statuses in
+                            instance.observations.extension_services.values()
                         {
                             for status in
                                 extension_service_statuses.extension_service_statuses.iter()
@@ -8842,15 +8899,36 @@ async fn handle_instance_network_config_update_request(
 
                 let addresses = resources_to_be_released
                     .iter()
-                    .flat_map(|x| x.ip_addrs.values().copied().collect_vec())
-                    .collect_vec();
+                    .flat_map(|interface| {
+                        interface
+                            .ip_addrs
+                            .values()
+                            .map(move |address| (interface.network_segment_id, *address))
+                    })
+                    .map(|(segment_id, address)| {
+                        Ok((
+                            segment_id.ok_or_else(|| {
+                                StateHandlerError::GenericError(eyre::eyre!(
+                                    "instance {} has allocated addresses without a network segment",
+                                    instance.id,
+                                ))
+                            })?,
+                            address,
+                        ))
+                    })
+                    .collect::<Result<Vec<_>, StateHandlerError>>()?;
 
                 tracing::info!(
-                    "Releasing network resources for instance {}: addresses: {:?}",
-                    instance.id,
-                    addresses,
+                    instance_id = %instance.id,
+                    addresses = ?addresses,
+                    "releasing network resources",
                 );
-                db::instance_address::delete_addresses(&mut txn, &addresses).await?;
+                db::instance_address::delete_addresses_for_instance(
+                    &mut txn,
+                    instance.id,
+                    &addresses,
+                )
+                .await?;
                 release_network_segments_with_vpc_prefix(&resources_to_be_released, &mut txn)
                     .await?;
                 release_vpc_dpu_loopback_for_vpcs(
@@ -11698,24 +11776,30 @@ async fn wait_for_boss_controller_job_to_complete(
         // The job has completed; transition to next step in host cleanup
         libredfish::JobState::Completed => {
             // healthy path
-            let cleanup_state = match secure_erase_boss_controller {
+            let next_state = match (secure_erase_boss_controller, cleanup_context) {
                 // now that we have finished doing a secure erase of the BOSS controller
                 // we can do a standard secure erase of the remaining drives through the /usr/sbin/nvme tool
-                true => CleanupState::HostCleanup {
-                    boss_controller_id: Some(boss_controller_id),
-                },
-                // now that we have recreated the R1 volume on top of the BOSS controller, we can lock the host back down again.
-                false => CleanupState::CreateBossVolume {
-                    create_boss_volume_context: CreateBossVolumeContext {
-                        boss_controller_id,
-                        create_boss_volume_jid: None,
-                        create_boss_volume_state: CreateBossVolumeState::LockHost,
-                        iteration: Some(iterations),
+                (true, _) => waiting_for_cleanup_state(
+                    CleanupState::HostCleanup {
+                        boss_controller_id: Some(boss_controller_id),
                     },
-                },
+                    cleanup_context,
+                ),
+                // now that we have recreated the R1 volume on top of the BOSS controller, we can lock the host back down again.
+                (false, CleanupContext::Deprovision) => waiting_for_cleanup_state(
+                    CleanupState::CreateBossVolume {
+                        create_boss_volume_context: CreateBossVolumeContext {
+                            boss_controller_id,
+                            create_boss_volume_jid: None,
+                            create_boss_volume_state: CreateBossVolumeState::LockHost,
+                            iteration: Some(iterations),
+                        },
+                    },
+                    cleanup_context,
+                ),
+                (false, CleanupContext::InitialDiscovery) => post_cleanup_state(cleanup_context),
             };
 
-            let next_state = waiting_for_cleanup_state(cleanup_state, cleanup_context);
             Ok(StateHandlerOutcome::transition(next_state))
         }
         // The job has failed; handle error

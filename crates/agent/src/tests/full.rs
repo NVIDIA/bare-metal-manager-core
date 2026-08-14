@@ -496,6 +496,7 @@ async fn handle_netconf(AxumState(state): AxumState<Arc<Mutex<State>>>) -> impl 
         ipv6_interface_config: None,
         vpc_routing_profile: None,
         interface_routing_profile: None,
+        addresses: vec![],
     };
     assert_eq!(admin_interface.svi_ip, None);
 
@@ -667,6 +668,7 @@ async fn handle_netconf(AxumState(state): AxumState<Arc<Mutex<State>>>) -> impl 
         ipv6_interface_config: None,
         vpc_routing_profile: None,
         interface_routing_profile: None,
+        addresses: vec![],
     };
 
     let network_security_policy_overrides = vec![
@@ -826,7 +828,7 @@ async fn handle_netconf(AxumState(state): AxumState<Arc<Mutex<State>>>) -> impl 
             dpu_extension_services: None,
             nvlink: None,
             spxconfig: None,
-
+            power_profile: None,
         }),
         status: Some(rpc::InstanceStatus {
             tenant: Some(rpc::InstanceTenantStatus {
