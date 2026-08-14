@@ -236,8 +236,9 @@ SCALE_CONCURRENT_EXPLORATIONS="${SCALE_CONCURRENT_EXPLORATIONS:-400}"
 # NB: keep explorations_per_run MODERATE. Identification and machine creation
 # only run at the END of a completed explore_site cycle — a huge per-run value
 # makes every cycle deep-scan hundreds of endpoints (dozens of Redfish calls
-# each) and cycles stop completing, so machines are never created. ~120 keeps
-# cycles under ~2 min while still sweeping the fleet quickly.
+# each) and cycles stop completing, so machines are never created. 360 is the
+# measured sweet spot of that trade-off (same Aug 2026 campaign as above);
+# raise it further only with cycle-completion measurements in hand.
 SCALE_EXPLORATIONS_PER_RUN="${SCALE_EXPLORATIONS_PER_RUN:-360}"
 SCALE_MACHINES_CREATED_PER_RUN="${SCALE_MACHINES_CREATED_PER_RUN:-100}"
 
