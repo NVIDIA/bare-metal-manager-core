@@ -132,6 +132,26 @@ type Interface struct {
 	CreatedBy            uuid.UUID                      `bun:"type:uuid,notnull"`
 }
 
+// EthernetInterfaceKey identifies an Ethernet interface configuration for update reconciliation.
+type EthernetInterfaceKey struct {
+	SubnetID                uuid.UUID
+	VpcPrefixID             uuid.UUID
+	VpcID                   uuid.UUID
+	VpcIPFamilyMode         InterfaceVpcIPFamilyMode
+	HasVpcIPFamilyMode      bool
+	VirtualFunctionID       int
+	HasVirtualFunctionID    bool
+	Device                  string
+	HasDevice               bool
+	DeviceInstance          int
+	HasDeviceInstance       bool
+	IsPhysical              bool
+	RequestedIPAddress      string
+	HasRequestedIPAddress   bool
+	InlineRoutingProfile    string
+	HasInlineRoutingProfile bool
+}
+
 // InterfaceCreateInput input parameters for Create method
 type InterfaceCreateInput struct {
 	InstanceID           uuid.UUID

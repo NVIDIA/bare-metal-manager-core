@@ -2581,8 +2581,8 @@ func (uih UpdateInstanceHandler) Handle(c echo.Context) error {
 	// Collect all Subnet and VPC Prefix IDs for batch query
 	subnetIDs := []uuid.UUID{}
 	vpcPrefixIDs := []uuid.UUID{}
-	subnetIfcMap := map[uuid.UUID]int{}
-	vpcPrefixIfcMap := map[uuid.UUID]int{}
+	subnetIfcMap := map[uuid.UUID]uint64{}
+	vpcPrefixIfcMap := map[uuid.UUID]uint64{}
 
 	for _, ifc := range apiRequest.Interfaces {
 		if ifc.SubnetID != nil {
@@ -2638,8 +2638,8 @@ func (uih UpdateInstanceHandler) Handle(c echo.Context) error {
 		return cutil.NewAPIErrorResponse(c, interfaceVpcErr.Code, interfaceVpcErr.Message, interfaceVpcErr.Data)
 	}
 
-	existingSubnetIfcMap := map[uuid.UUID]int{}
-	existingVpcPrefixIfcMap := map[uuid.UUID]int{}
+	existingSubnetIfcMap := map[uuid.UUID]uint64{}
+	existingVpcPrefixIfcMap := map[uuid.UUID]uint64{}
 	if len(apiRequest.Interfaces) > 0 {
 		ifcDAO := cdbm.NewInterfaceDAO(uih.dbSession)
 		existingIfcsForCapacity, _, err := ifcDAO.GetAll(ctx, nil, cdbm.InterfaceFilterInput{InstanceIDs: []uuid.UUID{instance.ID}}, cdbp.PageInput{Limit: cutil.GetPtr(cdbp.TotalLimit)}, nil)
@@ -2649,6 +2649,10 @@ func (uih UpdateInstanceHandler) Handle(c echo.Context) error {
 		}
 		for i := range existingIfcsForCapacity {
 			eifc := &existingIfcsForCapacity[i]
+			if eifc.Status == cdbm.InterfaceStatusDeleting {
+				continue
+			}
+
 			if eifc.SubnetID != nil {
 				existingSubnetIfcMap[*eifc.SubnetID]++
 			}
@@ -2742,9 +2746,13 @@ func (uih UpdateInstanceHandler) Handle(c echo.Context) error {
 			}
 
 			// Check if Subnet is exhausted
-			incomingInterfaceIPs := subnetIfcMap[subnetID] - existingSubnetIfcMap[subnetID]
+			incomingInterfaceIPs := uint64(0)
+			if subnetIfcMap[subnetID] > existingSubnetIfcMap[subnetID] {
+				incomingInterfaceIPs = subnetIfcMap[subnetID] - existingSubnetIfcMap[subnetID]
+			}
+
 			subnetUsage := subnetUsageMap[subnetID]
-			if subnetUsage != nil && subnetUsage.AvailableIPs > 0 && subnetUsage.AcquiredIPs+uint64(incomingInterfaceIPs) > subnetUsage.AvailableIPs {
+			if incomingInterfaceIPs > 0 && subnetUsage != nil && subnetUsage.AvailableIPs > 0 && subnetUsage.AcquiredIPs+incomingInterfaceIPs > subnetUsage.AvailableIPs {
 				msg := fmt.Sprintf(
 					"Subnet %v does not have enough IP addresses: %d of %d IP addresses remain available, but the %d additional interface(s) in this request require %d IP address(es)",
 					subnetID, subnetUsage.AvailableIPs-subnetUsage.AcquiredIPs, subnetUsage.AvailableIPs, incomingInterfaceIPs, incomingInterfaceIPs,
@@ -2826,9 +2834,13 @@ func (uih UpdateInstanceHandler) Handle(c echo.Context) error {
 			}
 
 			// Check if VPC Prefix is exhausted
-			incomingInterfaceIPs := max(vpcPrefixIfcMap[vpcPrefixID]-existingVpcPrefixIfcMap[vpcPrefixID], 0)
+			incomingInterfaceIPs := uint64(0)
+			if vpcPrefixIfcMap[vpcPrefixID] > existingVpcPrefixIfcMap[vpcPrefixID] {
+				incomingInterfaceIPs = vpcPrefixIfcMap[vpcPrefixID] - existingVpcPrefixIfcMap[vpcPrefixID]
+			}
+
 			vpUsage := vpcPrefixUsageMap[vpcPrefixID]
-			if vpUsage != nil && vpUsage.AvailableIPs > 0 && vpUsage.AcquiredIPs+uint64(incomingInterfaceIPs)*2 > vpUsage.AvailableIPs {
+			if incomingInterfaceIPs > 0 && vpUsage != nil && vpUsage.AvailableIPs > 0 && vpUsage.AcquiredIPs+incomingInterfaceIPs*2 > vpUsage.AvailableIPs {
 				msg := fmt.Sprintf(
 					"VPC Prefix %v does not have enough IP addresses: %d of %d IP addresses remain available, but the %d additional interface(s) in this request require %d IP addresses",
 					vpcPrefixID, vpUsage.AvailableIPs-vpUsage.AcquiredIPs, vpUsage.AvailableIPs, incomingInterfaceIPs, incomingInterfaceIPs*2,
@@ -3460,8 +3472,8 @@ func (uih UpdateInstanceHandler) Handle(c echo.Context) error {
 		//     return an empty list. Reads after this should reflect the
 		//     auto contract (no explicit interfaces) rather than the
 		//     stale rows that pre-dated the mode switch.
-		//   - Explicit interfaces in the request: create the new rows
-		//     and mark the previous rows as Deleting (existing behavior).
+		//   - Explicit interfaces in the request: reuse matching rows,
+		//     create new rows, and mark only removed rows as Deleting.
 		//   - Neither (no interface change, not switching to auto):
 		//     carry the existing rows forward.
 		switch {
@@ -3476,7 +3488,106 @@ func (uih UpdateInstanceHandler) Handle(c echo.Context) error {
 			}
 			newdbIfcs = []cdbm.Interface{}
 		case len(apiRequest.Interfaces) > 0:
+			keyForInterface := func(ifc cdbm.Interface) cdbm.EthernetInterfaceKey {
+				vpcID := uuid.Nil
+				if ifc.VpcID != nil {
+					vpcID = *ifc.VpcID
+				} else if ifc.VpcPrefix != nil {
+					vpcID = ifc.VpcPrefix.VpcID
+				} else if ifc.Subnet != nil {
+					vpcID = ifc.Subnet.VpcID
+				}
+
+				key := cdbm.EthernetInterfaceKey{
+					SubnetID:                uuid.Nil,
+					VpcPrefixID:             uuid.Nil,
+					VpcID:                   vpcID,
+					VpcIPFamilyMode:         "",
+					HasVpcIPFamilyMode:      false,
+					VirtualFunctionID:       0,
+					HasVirtualFunctionID:    false,
+					Device:                  "",
+					HasDevice:               false,
+					DeviceInstance:          0,
+					HasDeviceInstance:       false,
+					IsPhysical:              ifc.IsPhysical,
+					RequestedIPAddress:      "",
+					HasRequestedIPAddress:   false,
+					InlineRoutingProfile:    "",
+					HasInlineRoutingProfile: false,
+				}
+
+				if ifc.SubnetID != nil {
+					key.SubnetID = *ifc.SubnetID
+				}
+
+				if ifc.VpcPrefixID != nil {
+					key.VpcPrefixID = *ifc.VpcPrefixID
+				}
+
+				if ifc.VpcIPFamilyMode != nil {
+					key.VpcIPFamilyMode = *ifc.VpcIPFamilyMode
+					key.HasVpcIPFamilyMode = true
+				}
+
+				if ifc.VirtualFunctionID != nil {
+					key.VirtualFunctionID = *ifc.VirtualFunctionID
+					key.HasVirtualFunctionID = true
+				}
+
+				if ifc.Device != nil {
+					key.Device = *ifc.Device
+					key.HasDevice = true
+				}
+
+				if ifc.DeviceInstance != nil {
+					key.DeviceInstance = *ifc.DeviceInstance
+					key.HasDeviceInstance = true
+				}
+
+				if ifc.RequestedIpAddress != nil {
+					key.RequestedIPAddress = *ifc.RequestedIpAddress
+					key.HasRequestedIPAddress = true
+				}
+
+				if ifc.InlineRoutingProfile != nil {
+					key.InlineRoutingProfile = strings.Join(ifc.InlineRoutingProfile.AllowedAnycastPrefixes, "\x00")
+					key.HasInlineRoutingProfile = true
+				}
+
+				return key
+			}
+
+			existingIfcMap := make(map[cdbm.EthernetInterfaceKey][]cdbm.Interface)
+
+			for existingIfcIndex := range existingIfcs {
+				if existingIfcs[existingIfcIndex].Status == cdbm.InterfaceStatusDeleting {
+					continue
+				}
+
+				key := keyForInterface(existingIfcs[existingIfcIndex])
+				existingIfcMap[key] = append(existingIfcMap[key], existingIfcs[existingIfcIndex])
+			}
+
+			reusedIfcIDs := make(map[uuid.UUID]struct{})
 			for _, dbifc := range dbInterfaces {
+				key := keyForInterface(dbifc)
+
+				existingIfcsForKey := existingIfcMap[key]
+				if len(existingIfcsForKey) > 0 {
+					reusedIfc := existingIfcsForKey[0]
+					if len(existingIfcsForKey) == 1 {
+						delete(existingIfcMap, key)
+					} else {
+						existingIfcMap[key] = existingIfcsForKey[1:]
+					}
+
+					reusedIfcIDs[reusedIfc.ID] = struct{}{}
+					newdbIfcs = append(newdbIfcs, reusedIfc)
+
+					continue
+				}
+
 				input := cdbm.InterfaceCreateInput{
 					InstanceID:           instance.ID,
 					SubnetID:             dbifc.SubnetID,
@@ -3502,19 +3613,45 @@ func (uih UpdateInstanceHandler) Handle(c echo.Context) error {
 				ifc := *newDbifc
 				ifc.Vpc = dbifc.Vpc
 				ifc.VpcPrefix = dbifc.VpcPrefix // We created the interface in the DB based on the values in dbifc, so we can populate this as well.
+				ifc.Subnet = dbifc.Subnet
 				// Add the new Interface to the list of new Interfaces
 				newdbIfcs = append(newdbIfcs, ifc)
 			}
 
-			// Update status of existing Interfaces to Deleting
-			for i := range existingIfcs {
-				existingIfcs[i].Status = cdbm.InterfaceStatusDeleting
-				_, err := ifcDAO.Update(ctx, tx, cdbm.InterfaceUpdateInput{InterfaceID: existingIfcs[i].ID, Status: cutil.GetPtr(cdbm.InterfaceStatusDeleting)})
-				if err != nil {
-					logger.Error().Err(err).Msg("failed to update Interface record in DB")
-					return cutil.NewAPIError(http.StatusInternalServerError, "Failed to update Interface for Instance, DB error", nil)
+			unmatchedIfcs := make([]cdbm.Interface, 0, len(existingIfcs)-len(reusedIfcIDs))
+			for existingIfcIndex := range existingIfcs {
+				if _, reused := reusedIfcIDs[existingIfcs[existingIfcIndex].ID]; reused {
+					continue
 				}
+
+				if existingIfcs[existingIfcIndex].Status != cdbm.InterfaceStatusDeleting {
+					existingIfcs[existingIfcIndex].Status = cdbm.InterfaceStatusDeleting
+
+					_, err := ifcDAO.Update(ctx, tx, cdbm.InterfaceUpdateInput{
+						InterfaceID:          existingIfcs[existingIfcIndex].ID,
+						InstanceID:           nil,
+						SubnetID:             nil,
+						VpcPrefixID:          nil,
+						Device:               nil,
+						DeviceInstance:       nil,
+						VirtualFunctionID:    nil,
+						RequestedIpAddress:   nil,
+						InlineRoutingProfile: nil,
+						MacAddress:           nil,
+						IpAddresses:          nil,
+						Status:               cutil.GetPtr(cdbm.InterfaceStatusDeleting),
+					})
+					if err != nil {
+						logger.Error().Err(err).Msg("failed to update Interface record in DB")
+
+						return cutil.NewAPIError(http.StatusInternalServerError, "Failed to update Interface for Instance, DB error", nil)
+					}
+				}
+
+				unmatchedIfcs = append(unmatchedIfcs, existingIfcs[existingIfcIndex])
 			}
+
+			existingIfcs = unmatchedIfcs
 		default:
 			newdbIfcs = existingIfcs
 		}

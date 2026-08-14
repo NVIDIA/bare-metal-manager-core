@@ -560,6 +560,15 @@ func testUpdateInterfaceWithIPs(t *testing.T, dbSession *cdb.Session, ifc *cdbm.
 	return ifc
 }
 
+type ethernetReconciliationExpectation struct {
+	rowCount        int
+	readyIDs        []uuid.UUID
+	deletingIDs     []uuid.UUID
+	pendingCount    int
+	uniqueIPAddress *string
+	usagePrefix     *cdbm.VpcPrefix
+}
+
 func testUpdateMachineToUnhealthy(t *testing.T, dbSession *cdb.Session, m *cdbm.Machine) *cdbm.Machine {
 	m.Status = cdbm.MachineStatusError
 	_, err := dbSession.DB.NewUpdate().Where("id = ?", m.ID).Model(m).Exec(context.Background())
@@ -4402,6 +4411,24 @@ func TestUpdateInstanceHandler_Handle(t *testing.T) {
 	// Add Network DPU capability to Instance Type
 	common.TestBuildMachineCapability(t, dbSession, nil, &ist4.ID, cdbm.MachineCapabilityTypeNetwork, "MT42822 BlueField-2 integrated ConnectX-6 Dx network controller", nil, nil, cutil.GetPtr("Mellanox Technologies"), cutil.GetPtr(2), cutil.GetPtr(cdbm.MachineCapabilityDeviceTypeDPU), nil)
 
+	issue4908Device := cutil.GetPtr("MT42822 BlueField-2 integrated ConnectX-6 Dx network controller")
+	issue4908DeviceInstance := cutil.GetPtr(0)
+	issue4908VFID := cutil.GetPtr(1)
+
+	issue4908AddVFMachine := testInstanceBuildMachine(t, dbSession, ip.ID, st3.ID, cutil.GetPtr(false), nil)
+	assert.NotNil(t, testInstanceBuildMachineInstanceType(t, dbSession, issue4908AddVFMachine, ist4))
+	issue4908AddVFInstance := testInstanceBuildInstance(t, dbSession, "issue-4908-add-vf", tn1.ID, ip.ID, st3.ID, &ist4.ID, vpc4.ID, cutil.GetPtr(issue4908AddVFMachine.ID), &os2.ID, nil, cdbm.InstanceStatusReady)
+	issue4908AddVFPF := testInstanceBuildInterface(t, dbSession, issue4908AddVFInstance.ID, nil, &vpcPrefix1.ID, issue4908Device, issue4908DeviceInstance, nil, true, cdbm.InterfaceStatusReady, tnu1)
+	testUpdateInterfaceWithIPs(t, dbSession, issue4908AddVFPF, []string{"192.168.0.1"})
+
+	issue4908RemoveMachine := testInstanceBuildMachine(t, dbSession, ip.ID, st3.ID, cutil.GetPtr(false), nil)
+	assert.NotNil(t, testInstanceBuildMachineInstanceType(t, dbSession, issue4908RemoveMachine, ist4))
+	issue4908RemoveInstance := testInstanceBuildInstance(t, dbSession, "issue-4908-remove-vf", tn1.ID, ip.ID, st3.ID, &ist4.ID, vpc4.ID, cutil.GetPtr(issue4908RemoveMachine.ID), &os2.ID, nil, cdbm.InstanceStatusReady)
+	issue4908RemovePF := testInstanceBuildInterface(t, dbSession, issue4908RemoveInstance.ID, nil, &vpcPrefix1.ID, issue4908Device, issue4908DeviceInstance, nil, true, cdbm.InterfaceStatusReady, tnu1)
+	testUpdateInterfaceWithIPs(t, dbSession, issue4908RemovePF, []string{"192.168.0.3"})
+	issue4908RemoveVF := testInstanceBuildInterface(t, dbSession, issue4908RemoveInstance.ID, nil, &vpcPrefixSite3Secondary.ID, issue4908Device, issue4908DeviceInstance, issue4908VFID, false, cdbm.InterfaceStatusReady, tnu1)
+	testUpdateInterfaceWithIPs(t, dbSession, issue4908RemoveVF, []string{"192.174.0.1"})
+
 	inst13 := testInstanceBuildInstance(t, dbSession, "test-instance-nvlink-update", tn1.ID, ip.ID, st3.ID, &ist4.ID, vpc4.ID, cutil.GetPtr(mc5.ID), &os2.ID, nil, cdbm.InstanceStatusReady)
 
 	// Add NVLink GPU capability to Machine
@@ -4761,7 +4788,8 @@ func TestUpdateInstanceHandler_Handle(t *testing.T) {
 		// When true with nvlinkInterfacesToDelete, still assert those rows are Deleting but skip Pending-row count/order checks.
 		nvLinkSkipPendingDBAssertions bool
 		// Optional hook after building the echo context and before Handle (e.g. adjust DB timestamps for time-sensitive branches).
-		beforeHandle func(t *testing.T)
+		beforeHandle           func(t *testing.T)
+		ethernetReconciliation *ethernetReconciliationExpectation
 	}
 
 	tests := []struct {
@@ -6159,6 +6187,105 @@ func TestUpdateInstanceHandler_Handle(t *testing.T) {
 			verifyChildSpanner:          true,
 		},
 		{
+			name: "test UpdateInstance adding VF reuses unchanged PF issue 4908",
+			fields: fields{
+				dbSession: dbSession,
+				tc:        tc,
+				scp:       scp,
+				cfg:       cfg,
+			},
+			args: args{ //nolint:exhaustruct // This case leaves unrelated response assertions unset.
+				reqData: &model.APIInstanceUpdateRequest{ //nolint:exhaustruct // The request changes only Ethernet fields.
+					Name:       cutil.GetPtr("Issue 4908 Add VF"),
+					IpxeScript: os2.IpxeScript,
+					SecondaryVpcIDs: []string{
+						vpc4Site3Secondary.ID.String(),
+					},
+					Interfaces: []model.APIInterfaceCreateOrUpdateRequest{
+						{
+							SubnetID:             nil,
+							VpcPrefixID:          cutil.GetPtr(vpcPrefix1.ID.String()),
+							IPAddress:            nil,
+							InlineRoutingProfile: nil,
+							Device:               issue4908Device,
+							DeviceInstance:       issue4908DeviceInstance,
+							VirtualFunctionID:    nil,
+							IsPhysical:           true,
+						},
+						{
+							SubnetID:             nil,
+							VpcPrefixID:          cutil.GetPtr(vpcPrefixSite3Secondary.ID.String()),
+							IPAddress:            nil,
+							InlineRoutingProfile: nil,
+							Device:               issue4908Device,
+							DeviceInstance:       issue4908DeviceInstance,
+							VirtualFunctionID:    issue4908VFID,
+							IsPhysical:           false,
+						},
+					},
+				},
+				reqOrg:                tnOrg1,
+				reqUser:               tnu1,
+				reqInstance:           issue4908AddVFInstance.ID.String(),
+				cleanInstanceToStatus: issue4908AddVFInstance.Status,
+				respCode:              http.StatusOK,
+				ethernetReconciliation: &ethernetReconciliationExpectation{
+					rowCount:        2,
+					readyIDs:        []uuid.UUID{issue4908AddVFPF.ID},
+					deletingIDs:     []uuid.UUID{},
+					pendingCount:    1,
+					uniqueIPAddress: cutil.GetPtr("192.168.0.1"),
+					usagePrefix:     vpcPrefix1,
+				},
+			},
+			wantErr:                     false,
+			verifySiteControllerRequest: true,
+			verifyChildSpanner:          true,
+		},
+		{
+			name: "test UpdateInstance marks only omitted Ethernet interface deleting issue 4908",
+			fields: fields{
+				dbSession: dbSession,
+				tc:        tc,
+				scp:       scp,
+				cfg:       cfg,
+			},
+			args: args{ //nolint:exhaustruct // This case leaves unrelated response assertions unset.
+				reqData: &model.APIInstanceUpdateRequest{ //nolint:exhaustruct // The request changes only Ethernet fields.
+					Name:       cutil.GetPtr("Issue 4908 Remove VF"),
+					IpxeScript: os2.IpxeScript,
+					Interfaces: []model.APIInterfaceCreateOrUpdateRequest{
+						{
+							SubnetID:             nil,
+							VpcPrefixID:          cutil.GetPtr(vpcPrefix1.ID.String()),
+							IPAddress:            nil,
+							InlineRoutingProfile: nil,
+							Device:               issue4908Device,
+							DeviceInstance:       issue4908DeviceInstance,
+							VirtualFunctionID:    nil,
+							IsPhysical:           true,
+						},
+					},
+				},
+				reqOrg:                tnOrg1,
+				reqUser:               tnu1,
+				reqInstance:           issue4908RemoveInstance.ID.String(),
+				cleanInstanceToStatus: issue4908RemoveInstance.Status,
+				respCode:              http.StatusOK,
+				ethernetReconciliation: &ethernetReconciliationExpectation{
+					rowCount:        2,
+					readyIDs:        []uuid.UUID{issue4908RemovePF.ID},
+					deletingIDs:     []uuid.UUID{issue4908RemoveVF.ID},
+					pendingCount:    0,
+					uniqueIPAddress: nil,
+					usagePrefix:     nil,
+				},
+			},
+			wantErr:                     false,
+			verifySiteControllerRequest: true,
+			verifyChildSpanner:          true,
+		},
+		{
 			name: "test Instance update API endpoint success with interface update",
 			fields: fields{
 				dbSession: dbSession,
@@ -7251,6 +7378,75 @@ func TestUpdateInstanceHandler_Handle(t *testing.T) {
 				assert.ElementsMatch(t, tt.args.reqData.SecondaryVpcIDs, rst.SecondaryVpcIDs)
 			}
 
+			if expected := tt.args.ethernetReconciliation; expected != nil {
+				reconciledIfcs, _, reconciliationErr := ifcDAO.GetAll(
+					ctx,
+					nil,
+					cdbm.InterfaceFilterInput{
+						InstanceIDs:    []uuid.UUID{reqIns.ID},
+						SubnetID:       nil,
+						VpcPrefixID:    nil,
+						Device:         nil,
+						DeviceInstance: nil,
+						IsPhysical:     nil,
+						Statuses:       nil,
+						IPAddresses:    nil,
+					},
+					cdbp.PageInput{Offset: nil, Limit: cutil.GetPtr(cdbp.TotalLimit), OrderBy: nil},
+					nil,
+				)
+				require.NoError(t, reconciliationErr)
+				assert.Len(t, reconciledIfcs, expected.rowCount)
+				assert.Len(t, rst.Interfaces, expected.rowCount)
+
+				pendingCount := 0
+				deletingCount := 0
+				rowsWithExpectedIP := 0
+
+				for _, ifc := range reconciledIfcs {
+					switch ifc.Status {
+					case cdbm.InterfaceStatusPending:
+						pendingCount++
+					case cdbm.InterfaceStatusDeleting:
+						deletingCount++
+					}
+
+					for _, ipAddress := range ifc.IPAddresses {
+						if expected.uniqueIPAddress != nil && ipAddress == *expected.uniqueIPAddress {
+							rowsWithExpectedIP++
+						}
+					}
+				}
+
+				assert.Equal(t, expected.pendingCount, pendingCount)
+				assert.Equal(t, len(expected.deletingIDs), deletingCount)
+
+				if expected.uniqueIPAddress != nil {
+					assert.Equal(t, 1, rowsWithExpectedIP)
+				}
+
+				for _, interfaceID := range expected.readyIDs {
+					ifc, getErr := ifcDAO.GetByID(ctx, nil, interfaceID, nil)
+					require.NoError(t, getErr)
+					assert.Equal(t, cdbm.InterfaceStatusReady, ifc.Status)
+				}
+
+				for _, interfaceID := range expected.deletingIDs {
+					ifc, getErr := ifcDAO.GetByID(ctx, nil, interfaceID, nil)
+					require.NoError(t, getErr)
+					assert.Equal(t, cdbm.InterfaceStatusDeleting, ifc.Status)
+				}
+
+				if expected.usagePrefix != nil {
+					usageByID, usageErr := cdbm.NewVpcPrefixDAO(tt.fields.dbSession).GetPrefixUsage(ctx, nil, expected.usagePrefix)
+					require.NoError(t, usageErr)
+
+					usage := usageByID[expected.usagePrefix.ID]
+					require.NotNil(t, usage)
+					assert.LessOrEqual(t, usage.AcquiredIPs+uint64(2), usage.AvailableIPs)
+				}
+			}
+
 			if tt.args.expectedNetworkSecurityGroupInherited != nil {
 				assert.Equal(t, *tt.args.expectedNetworkSecurityGroupInherited, rst.NetworkSecurityGroupInherited)
 			}
@@ -7370,7 +7566,21 @@ func TestUpdateInstanceHandler_Handle(t *testing.T) {
 					if tt.args.respNoOfInterfaces != nil {
 						reqInsIfcs, _, _ = ifcDAO.GetAll(ec.Request().Context(), nil, cdbm.InterfaceFilterInput{InstanceIDs: []uuid.UUID{reqIns.ID}, Statuses: []string{cdbm.InterfaceStatusPending}}, cdbp.PageInput{OrderBy: &cdbp.OrderBy{Field: cdbm.InterfaceOrderByCreated, Order: cdbp.OrderAscending}}, nil)
 					} else {
-						reqInsIfcs, _, _ = ifcDAO.GetAll(ec.Request().Context(), nil, cdbm.InterfaceFilterInput{InstanceIDs: []uuid.UUID{reqIns.ID}}, cdbp.PageInput{OrderBy: &cdbp.OrderBy{Field: cdbm.InterfaceOrderByCreated, Order: cdbp.OrderAscending}}, nil)
+						reqInsIfcs, _, _ = ifcDAO.GetAll(ec.Request().Context(), nil, cdbm.InterfaceFilterInput{
+							InstanceIDs:    []uuid.UUID{reqIns.ID},
+							SubnetID:       nil,
+							VpcPrefixID:    nil,
+							Device:         nil,
+							DeviceInstance: nil,
+							IsPhysical:     nil,
+							Statuses: []string{
+								cdbm.InterfaceStatusPending,
+								cdbm.InterfaceStatusProvisioning,
+								cdbm.InterfaceStatusReady,
+								cdbm.InterfaceStatusError,
+							},
+							IPAddresses: nil,
+						}, cdbp.PageInput{Offset: nil, Limit: nil, OrderBy: &cdbp.OrderBy{Field: cdbm.InterfaceOrderByCreated, Order: cdbp.OrderAscending}}, nil)
 					}
 
 					assert.Equal(t, len(reqInsIfcs), len(siteReq.Config.Network.Interfaces))
@@ -7421,7 +7631,7 @@ func TestUpdateInstanceHandler_Handle(t *testing.T) {
 
 						// Check if VirtualFunctionId is present
 						if reqInsIfcs[i].VirtualFunctionID != nil {
-							assert.Equal(t, siteIfc.VirtualFunctionId, reqInsIfcs[i].VirtualFunctionID)
+							assert.Equal(t, uint32(*reqInsIfcs[i].VirtualFunctionID), siteIfc.GetVirtualFunctionId())
 						}
 
 						if reqInsIfcs[i].RequestedIpAddress != nil {

@@ -41,6 +41,9 @@ const (
 
 	// VpcPrefixOrderByDefault default field to be used for ordering when none specified
 	VpcPrefixOrderByDefault = "created"
+
+	vpcPrefixInterfaceBits          = 31
+	vpcPrefixIPsPerInterface uint64 = 2
 )
 
 var (
@@ -540,7 +543,8 @@ func (vpsd VpcPrefixSQLDAO) Delete(ctx context.Context, tx *db.Tx, id uuid.UUID)
 	return nil
 }
 
-func vpcPrefixUsageFromInterfaces(ctx context.Context, cidr string, ifcCount int64, ips []string) (*cipam.Usage, error) {
+//nolint:cyclop,funlen // Sequential guards intentionally keep address handling inline.
+func vpcPrefixUsageFromInterfaces(ctx context.Context, cidr string, ifcCountWithoutIPs uint64, ips []string) (*cipam.Usage, error) {
 	ipamer := cipam.New(ctx)
 	ipamPrefix, err := ipamer.NewPrefix(ctx, cidr)
 	if err != nil {
@@ -555,25 +559,31 @@ func vpcPrefixUsageFromInterfaces(ctx context.Context, cidr string, ifcCount int
 
 	acquiredPrefixes := make(map[string]struct{})
 	for _, ipStr := range ips {
-		netIpAddr, ierr := netip.ParseAddr(strings.TrimSpace(ipStr))
-		if ierr != nil || !netIpAddr.Is4() {
+		ipAddress, parseErr := netip.ParseAddr(strings.TrimSpace(ipStr))
+		if parseErr != nil || !ipAddress.Is4() {
 			continue
 		}
-		if !netIpPrefix.Contains(netIpAddr) {
+
+		if !netIpPrefix.Contains(ipAddress) {
 			continue
 		}
-		contained31Prefix, perr := netIpAddr.Prefix(31)
-		if perr != nil {
+
+		containedPrefix, prefixErr := ipAddress.Prefix(vpcPrefixInterfaceBits)
+		if prefixErr != nil {
 			continue
 		}
-		k := contained31Prefix.Masked().String()
-		if _, dup := acquiredPrefixes[k]; dup {
+
+		prefix := containedPrefix.Masked().String()
+		if _, dup := acquiredPrefixes[prefix]; dup {
 			continue
 		}
-		if _, ierr := ipamer.AcquireSpecificChildPrefix(ctx, validatedCidr, k); ierr != nil {
+
+		_, acquireErr := ipamer.AcquireSpecificChildPrefix(ctx, validatedCidr, prefix)
+		if acquireErr != nil {
 			continue
 		}
-		acquiredPrefixes[k] = struct{}{}
+
+		acquiredPrefixes[prefix] = struct{}{}
 	}
 
 	ipamPrefix = ipamer.PrefixFrom(ctx, validatedCidr)
@@ -583,7 +593,8 @@ func vpcPrefixUsageFromInterfaces(ctx context.Context, cidr string, ifcCount int
 
 	usage := ipamPrefix.Usage()
 
-	acquiredIPs := uint64(ifcCount) * 2
+	acquiredIPs := uint64(len(acquiredPrefixes))*vpcPrefixIPsPerInterface +
+		ifcCountWithoutIPs*vpcPrefixIPsPerInterface
 	if acquiredIPs > usage.AvailableIPs {
 		acquiredIPs = usage.AvailableIPs
 	}
@@ -622,10 +633,10 @@ func (vpsd VpcPrefixSQLDAO) GetPrefixUsage(ctx context.Context, tx *db.Tx, vpcPr
 
 	idb := db.GetIDB(tx, vpsd.dbSession)
 
-	ifcCounts := make(map[uuid.UUID]int64, len(vpcPrefixIDs))
+	ifcCountsWithoutIPs := make(map[uuid.UUID]uint64, len(vpcPrefixIDs))
 	ifcIPs := make(map[uuid.UUID][]string, len(vpcPrefixIDs))
 	for _, id := range vpcPrefixIDs {
-		ifcCounts[id] = 0
+		ifcCountsWithoutIPs[id] = 0
 		ifcIPs[id] = nil
 	}
 
@@ -644,15 +655,18 @@ func (vpsd VpcPrefixSQLDAO) GetPrefixUsage(ctx context.Context, tx *db.Tx, vpcPr
 		return nil, err
 	}
 	for _, r := range rows {
-		ifcCounts[r.VpcPrefixID]++
-		if len(r.IPAddresses) > 0 {
-			ifcIPs[r.VpcPrefixID] = append(ifcIPs[r.VpcPrefixID], r.IPAddresses...)
+		if len(r.IPAddresses) == 0 {
+			ifcCountsWithoutIPs[r.VpcPrefixID]++
+
+			continue
 		}
+
+		ifcIPs[r.VpcPrefixID] = append(ifcIPs[r.VpcPrefixID], r.IPAddresses...)
 	}
 
 	usageByID := make(map[uuid.UUID]*cipam.Usage, len(vpcPrefixIDs))
 	for _, vpcPrefixID := range vpcPrefixIDs {
-		usage, uerr := vpcPrefixUsageFromInterfaces(ctx, vpcPrefixCIDRs[vpcPrefixID], ifcCounts[vpcPrefixID], ifcIPs[vpcPrefixID])
+		usage, uerr := vpcPrefixUsageFromInterfaces(ctx, vpcPrefixCIDRs[vpcPrefixID], ifcCountsWithoutIPs[vpcPrefixID], ifcIPs[vpcPrefixID])
 		if uerr != nil {
 			return nil, uerr
 		}
