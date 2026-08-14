@@ -66,6 +66,16 @@ func main() {
 		os.Exit(2)
 	}
 
+	// controller-runtime only honors a manager-level CacheSyncTimeout that is
+	// positive; zero or negative silently falls back to the per-controller
+	// 2-minute default -- the very value this flag exists to raise past. Fail
+	// loudly instead of letting "0 = no timeout" intuition reintroduce the
+	// fleet-scale crash-loop.
+	if cacheSyncTimeout <= 0 {
+		fmt.Fprintf(os.Stderr, "invalid --cache-sync-timeout %v: must be > 0\n", cacheSyncTimeout)
+		os.Exit(2)
+	}
+
 	// Raise with --cache-sync-timeout when simulating very large fleets.
 	ctrl.SetLogger(zap.New(zap.UseFlagOptions(&opts)))
 	setupLog := ctrl.Log.WithName("setup")
