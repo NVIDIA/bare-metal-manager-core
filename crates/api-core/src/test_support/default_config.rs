@@ -103,9 +103,14 @@ pub(crate) fn with_dpf_intercept_topology(selected_vfs: &[u8]) -> CarbideConfig 
 
 /// [`get`] with every `Option` config section populated. Used by tests that
 /// walk the *serialized* config shape — e.g. the admin-UI documentation
-/// guards, which can only verify sections that actually serialize. When a
-/// new `Option` section is added to [`CarbideConfig`] (the compiler forces
-/// it into [`get`]), populate it here too so those guards can see inside it.
+/// guards, which can only verify sections and fields that actually serialize.
+/// When a new `Option` section is added to [`CarbideConfig`] (the compiler
+/// forces it into [`get`]), populate it here too. The
+/// `fmds_use_node_tokens` inner `Option` below is populated so its documented
+/// row is covered. New `skip_serializing_if` fields need the same explicit
+/// treatment when they should be checked; this is not compiler-enforced.
+/// `mlxconfig_profiles` is intentionally exempted by `SKIP_SERIALIZING` in
+/// `crates/api-web/src/configuration.rs`.
 pub fn fully_populated() -> CarbideConfig {
     CarbideConfig {
         auth: Some(AuthConfig {
