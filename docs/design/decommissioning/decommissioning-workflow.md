@@ -2,26 +2,28 @@
 
 ## Status
 
-Draft
+Draft — aligned with the managed-host, managed-switch, managed-power-shelf,
+and Flow rack decommissioning implementations tracked under
+[#1969](https://github.com/NVIDIA/infra-controller/issues/1969).
 
 ## Summary
 
 This document defines the lifecycle behavior shared by NICo decommissioning
 workflows. Decommissioning returns a managed resource to an unmanaged,
 pre-ingestion state. An operator can then either physically remove the resource
-or delete its record and let the still-connected hardware be discovered and
+or delete its NICo record and let still-connected hardware be discovered and
 ingested again.
 
 Resource-specific documents define the hardware cleanup and exact controller
 states:
 
-- [Managed host decommissioning](/docs/design/decommissioning/managed-host-decommissioning.md)
+- [Managed host decommissioning](./managed-host-decommissioning.md)
   resets the host and its DPUs and installs a vanilla BFB on each managed DPU.
-- [Managed switch decommissioning](/docs/design/decommissioning/managed-switch-decommissioning.md)
-  resets NVOS configuration and credentials and resets BMC credentials.
-- [Managed power shelf decommissioning](/docs/design/decommissioning/managed-power-shelf-decommissioning.md)
-  resets PMC credentials.
-- [Rack-scale decommissioning with NICo Flow](/docs/design/decommissioning/rack-decommissioning.md)
+- [Managed switch decommissioning](./managed-switch-decommissioning.md)
+  factory-resets NVOS and the switch BMC through the RMS backend.
+- [Managed power shelf decommissioning](./managed-power-shelf-decommissioning.md)
+  factory-resets the power-shelf PMC.
+- [Rack-scale decommissioning with NICo Flow](./rack-decommissioning.md)
   orchestrates those workflows across an entire rack.
 
 The same lifecycle defines dependency-safe ordering when an entire rack is
@@ -32,37 +34,42 @@ decommissioned.
 - **Decommissioning** is the convergent hardware and control-plane cleanup that
   ends in a retained terminal record.
 - **Final deletion** removes a successfully decommissioned resource from NICo.
-  It is deliberately separate from decommissioning. By default it also
-  removes the resource's BMC ignore entries, but the caller can retain those
-  entries to defer rediscovery.
+  It is deliberately separate from decommissioning. Final deletion also removes
+  that resource's BMC suppression rows so still-connected hardware becomes
+  eligible for rediscovery.
 - **Force deletion** is an administrative recovery mechanism. It does not prove
   that hardware is neutral and is not a substitute for decommissioning or final
   deletion.
 - An **expected-resource record** is the corresponding `expected_machines`,
   `expected_switches`, or `expected_power_shelves` entry that permits Site
-  Explorer to ingest known hardware.
+  Explorer to ingest known hardware. NICo does not own this data and must not
+  delete it during decommissioning or final deletion.
 - **BMC** is used collectively for a host or switch BMC or a power-shelf PMC.
+- A **BMC suppression** is a row in `bmc_suppressions` that tells a subsystem
+  (`site_explorer` or `dhcp`) to stop serving a MAC until the row is removed.
 
 ## Common invariants
 
 Every resource-specific decommissioning workflow preserves these invariants:
 
 1. There is at most one active decommissioning operation for a resource.
-2. A decommissioning resource is excluded from allocation, reprovisioning,
+1. A decommissioning resource is excluded from allocation, reprovisioning,
    updates, repair, maintenance selection, and other exclusive operations.
-3. The terminal `Decommissioned` state performs no more hardware work.
-4. Decommissioning and final deletion preserve the expected-resource record.
-5. Per-device credentials remain available until the last operation that needs
-   them has succeeded.
-6. A resource enters `Decommissioned` only after required hardware cleanup is
+1. The terminal `Decommissioned` substate performs no more hardware work.
+1. Decommissioning and final deletion preserve the expected-resource record.
+1. Per-device credentials remain available until the last operation that needs
+   them has succeeded; credential deletion is the final step before
+   `Decommissioned`.
+1. A resource enters `Decommissioned` only after required hardware cleanup is
    verified and NICo-managed per-device credentials have been removed.
-7. Retriable work is idempotent and resumes from persisted progress rather than
-   repeating already verified device work.
-8. A switch or power shelf cannot begin decommissioning while any managed host
-   on its rack is in use.
-9. Hardware cleanup does not begin until Site Explorer has finished all
-   queued or in-flight work for every BMC and acknowledged that each BMC is
-   suppressed.
+1. Retriable work is idempotent and resumes from persisted progress.
+1. A switch or power shelf cannot begin decommissioning while any managed host
+   on its rack is assigned to an instance.
+1. Hardware cleanup does not begin until Site Explorer has acknowledged
+   suppression for every required BMC MAC.
+1. DHCP is suppressed before the reset or power cycle that forces the device
+   back into DHCP discovery, and the resource does not advance until that
+   suppression is acknowledged.
 
 ## Common lifecycle
 
@@ -72,50 +79,42 @@ workflow follows the same lifecycle:
 ```mermaid
 stateDiagram-v2
     state "Ready" as Ready
-    state "Preparing" as Preparing
+    state "Suppress Site Explorer" as SuppressSE
     state "Resource cleanup" as Cleanup
-    state "Removing managed credentials" as RemovingCredentials
-    state "VerifyingDhcpRelease" as VerifyingDhcpRelease
+    state "Suppress DHCP and reset" as DhcpHandoff
+    state "Delete managed credentials" as DeleteCreds
     state "Decommissioned" as Decommissioned
     state "Deleted" as Deleted
     state "Fresh ingestion" as FreshIngestion
 
-    Ready --> Preparing : start accepted
-    Preparing --> Cleanup : preflight complete and Site Explorer quiesced
-    Cleanup --> RemovingCredentials : resource cleanup verified
-    RemovingCredentials --> VerifyingDhcpRelease : neutral reset credential retained
-    VerifyingDhcpRelease --> Decommissioned : controller restart and DHCP handoff verified
+    Ready --> SuppressSE : start accepted
+    SuppressSE --> Cleanup : Site Explorer acknowledged
+    Cleanup --> DhcpHandoff : resource cleanup verified
+    DhcpHandoff --> DeleteCreds : DHCP handoff acknowledged
+    DeleteCreds --> Decommissioned : per-device credentials removed
     Decommissioned --> Deleted : final deletion
-    Deleted --> FreshIngestion : ignore entries released and hardware is visible
+    Deleted --> FreshIngestion : suppressions removed and hardware is visible
 ```
 
 ### Rack dependency gate and ordering
 
 The complete orchestration contract, Flow API, and operator workflow are
 defined in
-[Rack-scale decommissioning with NICo Flow](/docs/design/decommissioning/rack-decommissioning.md).
+[Rack-scale decommissioning with NICo Flow](./rack-decommissioning.md).
 
 Decommissioning a switch, power shelf, or whole rack must not interrupt a
-managed host that is still in use. Before accepting one of those operations,
-NICo resolves the rack association and verifies that no managed host on the
-rack:
-
-- is referenced by an instance or active allocation;
-- is being provisioned, reprovisioned, updated, or repaired; or
-- is participating in maintenance or another operation that depends on rack
-power or switching.
-
-If NICo cannot resolve the rack or prove that every managed host is unused,
-preflight fails without changing hardware.
+managed host that is still in use. Before accepting a switch or power-shelf
+start request, NICo Core verifies that no managed host on the associated rack
+is assigned to an instance. Rack-scale Flow decommissioning additionally
+decommissions every compute component before switches and power shelves.
 
 A rack-wide decommissioning operation proceeds in dependency order:
 
-1. stop new allocations and exclusive rack operations;
-2. decommission every managed host and wait for each one to reach
+1. decommission every managed host and wait for each one to reach
    `Decommissioned`;
-3. decommission every managed switch and wait for each one to reach
+1. decommission every managed switch and wait for each one to reach
    `Decommissioned`; and
-4. decommission every managed power shelf and wait for each one to reach
+1. decommission every managed power shelf and wait for each one to reach
    `Decommissioned`.
 
 ```mermaid
@@ -128,44 +127,42 @@ The parent rack operation persists per-resource progress so a retry does not
 repeat a resource that already reached `Decommissioned`. Final deletion remains
 an explicit operator action and is not part of this dependency sequence.
 
-An individually requested switch or power-shelf decommissioning operation does
-not require the rack's hosts to be decommissioned, but it does require every
-host on the rack to pass the unused-host gate above.
-
 ### Eligibility and preflight
 
-A start request is accepted only when the target resource is exactly `Ready`,
-is not in use, and is not participating in maintenance or another exclusive
-operation. Before changing hardware, NICo resolves:
+A start request is accepted only when the target resource is exactly `Ready`
+and resource-specific preconditions hold (for example, DPU Redfish BFB-install
+capability for hosts, or the RMS switch backend for managed switches). The
+start request atomically claims the resource into decommissioning; a duplicate
+start against an already-decommissioning resource is rejected or treated as
+already claimed.
 
-- the canonical resource and all BMC MAC addresses;
+Before changing hardware, NICo resolves:
+
+- the canonical resource and all BMC MAC addresses required by the workflow;
 - the expected-resource record;
 - the credentials required by every cleanup operation; and
 - all resource-specific reset artifacts, installation methods, and cleanup
-capabilities.
+  capabilities.
 
 A missing required input fails preflight. NICo must not silently omit an
 unsupported required cleanup operation.
 
 ### Discovery suppression
 
-After preflight succeeds, NICo adds each BMC MAC address to
-the ignore table, atomically sets `suppress_site_explorer` to `true`, and clears
-`site_explorer_suppressed_at` when suppression changes from `false` to `true`.
-Site Explorer starts no new exploration for that controller. After it has
-observed the suppression and all queued or in-flight exploration work for that
-BMC has finished, Site Explorer atomically records
-`site_explorer_suppressed_at`.
+After the start request is accepted, the controller upserts a
+`bmc_suppressions` row with `subsystem = 'site_explorer'` for every BMC MAC
+that the workflow must quiesce. Site Explorer starts no new exploration for
+that MAC. After it has observed the suppression and finished queued or
+in-flight work for that BMC, Site Explorer sets `acknowledged_at`.
 
-The decommissioning workflow waits for a non-null
-`site_explorer_suppressed_at` for every BMC before leaving `Preparing` or
-changing hardware. The timestamp is therefore an acknowledgement from Site
-Explorer, not merely the time at which the decommissioning controller requested
-suppression. It proves that Site Explorer is ignoring the BMC and that no
-earlier exploration pass can race with hardware cleanup.
+The decommissioning workflow waits for a non-null `acknowledged_at` on every
+required Site Explorer suppression before leaving the initial suppression
+state or changing hardware. The timestamp is therefore an acknowledgement from
+Site Explorer, not merely the time at which the controller requested
+suppression.
 
-The ignore record remains through decommissioning and terminal retention. This
-prevents discovery from recreating or mutating a resource while NICo is
+The suppression rows remain through decommissioning and terminal retention.
+This prevents discovery from recreating or mutating a resource while NICo is
 cleaning it up.
 
 ### Resource cleanup
@@ -175,156 +172,98 @@ configuration and credentials NICo placed on the hardware. A write is made only
 when needed, required resets or power cycles are performed, and the result is
 read back before advancing.
 
+### DHCP suppression and controller reset
+
+After hardware cleanup that still needs authenticated access, NICo performs a
+DHCP handoff for every management interface the workflow owns:
+
+1. Upsert a `bmc_suppressions` row with `subsystem = 'dhcp'` for each MAC.
+1. Invalidate DHCP caches so subsequent requests observe the suppression.
+1. Force the device back into DHCP discovery by power-cycling the host,
+   factory-resetting NVOS, and/or factory-resetting the BMC, depending on the
+   resource type.
+1. Return `DHCPNAK` if the restarted client sends `DHCPREQUEST` for its old
+   address, forcing the client back to INIT.
+1. Suppress incoming `DHCPDISCOVER` (no `DHCPOFFER`) and set `acknowledged_at`
+   on the DHCP suppression row when that discover is observed.
+1. Wait for `acknowledged_at` on every required DHCP suppression before
+   releasing old leases or deleting remaining per-device credentials.
+
+Clearing `acknowledged_at` happens when a suppression is newly requested or
+re-requested. A retry that finds suppression already present preserves an
+existing acknowledgement. If any required acknowledgement remains null, the
+resource remains in the waiting substate and retains the credentials needed to
+retry the reset.
+
 ### Managed credential removal
 
-Credential removal occurs after the last hardware operation that needs each
-credential. NICo resets the device credential and verifies the replacement
-credential before entering `VerifyingDhcpRelease`. It removes credentials that
-are no longer needed, but retains access to the verified neutral credential
-required to reset the BMC. Any remaining per-device
-credential and rotation state is removed only after the reset and DHCP handoff
-succeed.
-Resource-specific documents identify the credentials and other trust material
-that must be removed.
-
-Site-wide credentials and shared lockdown input key material are not deleted.
-
-### Verifying DHCP release
-
-After hardware cleanup, NICo performs the following operation for every
-BMC:
-
-1. atomically sets `suppress_dhcp` to `true` and clears
-   `dhcp_discover_suppressed_at` for each BMC MAC whose
-   suppression changes from `false` to `true`;
-2. invalidates the DHCP record cache so subsequent DHCP requests observe the
-   suppression;
-3. uses the retained, verified reset credential to restart the management
-   controller with Redfish `Manager.Reset` or the vendor-equivalent operation;
-4. returns `DHCPNAK`, if the restarted controller sends `DHCPREQUEST` for its old
-   address; the NAK forces the DHCP client back to INIT.
-5. suppresses incoming `DHCPDISCOVER`, returns no
-   `DHCPOFFER`, and atomically records `dhcp_discover_suppressed_at`;
-6. waits for `dhcp_discover_suppressed_at` to be set for every management
-   controller, proving that each DHCP client discarded its old address and
-   returned to the initial DHCP state;
-7. revokes the old DHCP leases, releases their address allocations, and removes
-   any remaining per-device reset-credential and rotation state; and
-8. commits the transition to `Decommissioned`.
-
-Clearing the timestamp happens only when `suppress_dhcp` changes from `false`
-to `true`. A retry that finds suppression already enabled preserves an existing
-timestamp. If any required timestamp remains null, the resource remains in
-`VerifyingDhcpRelease`; its address allocation and reset credential are
-retained. A retry does not reset a controller whose suppressed discovery is
-already recorded. A reset is otherwise idempotent and may be reissued according
-to the normal retry policy.
-
-The resource is then excluded from capacity and health remediation. Rack
-health may report it as administratively absent, but no controller may try to
-return it to `Ready`.
+Credential removal is the last step before `Decommissioned`. NICo retains
+working credentials through factory reset and DHCP handoff, then deletes
+per-device secrets and rotation state. Site-wide credentials and shared
+lockdown input key material are not deleted.
 
 ### Final deletion and reingestion
 
-Final deletion is accepted only from exactly `Decommissioned`. It removes the
-resource and its associated NICo state and address state in the
-resource-specific transaction boundary. The expected-resource record remains.
-Every resource-specific final-deletion request includes:
+Final deletion is accepted only from the terminal `Decommissioned` substate.
+It removes the resource and its associated NICo state in the resource-specific
+transaction boundary. The expected-resource record remains. Final deletion also
+removes the resource's Site Explorer and DHCP suppression rows, which makes
+still-connected expected hardware eligible for normal discovery and ingestion.
 
-```protobuf
-bool retain_ignore_entries = 2;
-```
+Physically absent hardware stays absent. An operator may remove the
+expected-resource record separately after decommissioning when the hardware
+should not be ingested again.
 
-The default value, `false`, removes the resource's BMC ignore entries in the
-final-deletion transaction. When the value is `true`,
-final deletion leaves `suppress_site_explorer` and `suppress_dhcp` set.
-This lets an operator delete NICo's managed-resource state without making
-still-connected hardware immediately eligible for rediscovery.
-The final-deletion response reports the retained MAC addresses.
-
-Removing the ignore rows makes still-connected expected hardware eligible for
-normal discovery and ingestion from the beginning. Physically absent hardware
-stays absent. An operator may remove the expected-resource record separately
-after decommissioning when the hardware should not be ingested again.
-
-An operator releases entries retained by final deletion through the site
-inventory API:
-
-```protobuf
-rpc ReleaseDecommissionedBmcs(ReleaseDecommissionedBmcsRequest)
-    returns (ReleaseDecommissionedBmcsResponse);
-
-message ReleaseDecommissionedBmcsRequest {
-  repeated string bmc_mac_addresses = 1;
-}
-```
-
-The release is authorized at the same level as final deletion. NICo rejects a
-MAC that is still referenced by a managed resource; an already absent row is
-success. Removing a retained row is the explicit point at which a
-still-connected expected resource becomes eligible for fresh discovery.
-Removing the corresponding expected-resource record remains a separate
-operation and does not implicitly release a retained ignore entry.
-
-## BMC ignore table
+## BMC suppressions
 
 Add a table owned by the site inventory domain:
 
 ```sql
-CREATE TABLE ignored_bmc_macs (
-    bmc_mac_address MACADDR PRIMARY KEY,
+CREATE TABLE bmc_suppressions (
+    bmc_mac_address MACADDR NOT NULL,
+    subsystem TEXT NOT NULL CHECK (
+        subsystem IN ('site_explorer', 'dhcp')
+    ),
     reason TEXT NOT NULL,
-    suppress_site_explorer BOOLEAN NOT NULL DEFAULT FALSE,
-    site_explorer_suppressed_at TIMESTAMPTZ,
-    suppress_dhcp BOOLEAN NOT NULL DEFAULT FALSE,
-    dhcp_discover_suppressed_at TIMESTAMPTZ,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    requested_at TIMESTAMPTZ NOT NULL DEFAULT statement_timestamp(),
+    acknowledged_at TIMESTAMPTZ,
+    PRIMARY KEY (bmc_mac_address, subsystem)
 );
 ```
 
-Site Explorer loads this table on each iteration and filters an endpoint as
-soon as its MAC is known, before authentication, credential rotation, inventory
-persistence, power control, or managed-resource creation. When it observes
-`suppress_site_explorer`, it prevents new work for the MAC, waits for all
-previously queued or in-flight work for that MAC to finish, and then atomically
-sets `site_explorer_suppressed_at`. Site Explorer is the only writer of this
-timestamp.
+Site Explorer loads this table and filters an endpoint as soon as its MAC is
+known, before authentication, credential rotation, inventory persistence, power
+control, or managed-resource creation. When it observes a `site_explorer`
+suppression, it prevents new work for the MAC, waits for previously queued or
+in-flight work for that MAC to finish, and then sets `acknowledged_at`. Site
+Explorer is the only writer of the Site Explorer acknowledgement.
 
-Setting `suppress_site_explorer` from `false` to `true` atomically clears
-`site_explorer_suppressed_at`. A retry that finds suppression already enabled
-preserves a non-null timestamp. If the timestamp is null, the resource remains
-in `Preparing` and no hardware cleanup begins.
-
-
-For a MAC with `suppress_dhcp` set, NICo handles the message as follows:
+For a MAC with a `dhcp` suppression, NICo handles the message as follows:
 
 - `DHCPREQUEST` returns a `DHCPNAK` disposition; and
-- `DHCPDISCOVER` atomically sets `dhcp_discover_suppressed_at` and returns a
-  no-offer disposition.
+- `DHCPDISCOVER` sets `acknowledged_at` and returns a no-offer disposition.
 
-The table covers the BMC or PMC MAC used to discover each managed host, switch,
-or power shelf.
+Host decommissioning also suppresses OOB underlay MACs for DHCP during the
+host power-cycle handoff. Switch decommissioning suppresses the NVOS management
+MAC for DHCP before the NVOS factory reset.
 
 ## Failure and retry behavior
 
 Failures remain in the current decommissioning substate. The normal state
 handler outcome records the redacted error, retry count, last-attempt time, and
-retry schedule. A resume request clears an exhausted retry delay and reruns the
-current substate; it does not implicitly skip a required criterion.
+retry schedule. Controllers resume from persisted progress; they do not
+implicitly skip a required criterion.
 
 Operations must be idempotent:
 
 - an already absent account, password, or resource is successful only when the
-desired absence is verified;
+  desired absence is verified;
 - asynchronous operation identifiers are persisted before polling;
 - a replacement credential is verified before the old secret is deleted; and
-- deleting an already absent secret or ignore row succeeds.
+- deleting an already absent secret or suppression row succeeds.
 
-If a resource API permits an operator to skip a failed step, the
-resource-specific design must identify which steps are optional and record the
-skip in the completion summary. A required cleanup criterion cannot be skipped
-while still claiming successful decommissioning.
+There is no force-skip API that can claim successful decommissioning while a
+required cleanup criterion remains unmet.
 
 ## Shared verification requirements
 
@@ -332,30 +271,24 @@ Every resource workflow must verify that:
 
 - only an eligible `Ready` resource can begin decommissioning;
 - switch and power-shelf decommissioning is rejected while any managed host on
-the rack is in use;
+  the rack is assigned to an instance;
 - rack decommissioning completes hosts before switches and switches before
-power shelves;
+  power shelves;
 - missing identity, expected-resource, credential, or capability inputs fail
-before hardware mutation;
+  before hardware mutation;
 - every substate resumes correctly after a controller restart;
 - credentials remain until dependent hardware operations finish;
-- every required BMC has a non-null `site_explorer_suppressed_at` before
+- every required BMC has a non-null Site Explorer `acknowledged_at` before
   hardware cleanup begins;
-- `site_explorer_suppressed_at` is recorded only after Site Explorer has
-  observed suppression and all queued or in-flight exploration for the BMC has
-  finished;
-- ignored BMCs are neither explored nor served by DHCP;
-- each BMC is restarted with a verified credential after DHCP
-  suppression is committed;
-- a suppressed `DHCPREQUEST` receives `DHCPNAK`, and a suppressed `DHCPDISCOVER` receives no offer;
-- every required BMC has a non-null
-  `dhcp_discover_suppressed_at` before its address allocation is released and
-  its retained reset credential is removed or the resource enters
-  `Decommissioned`;
+- ignored BMCs are neither explored nor served by DHCP while suppressed;
+- DHCP suppression is requested before the reset or power cycle that forces
+  rediscovery;
+- a suppressed `DHCPREQUEST` receives `DHCPNAK`, and a suppressed
+  `DHCPDISCOVER` receives no offer;
+- every required DHCP suppression has a non-null `acknowledged_at` before
+  credential deletion and the transition to `Decommissioned`;
 - final deletion is rejected before `Decommissioned`;
-- final deletion preserves the expected-resource record and removes ignore
-  rows by default;
-- connected hardware is rediscovered only after its ignore entries are removed,
-  while absent hardware is not recreated; and
-- stale resource credentials cannot use authenticated APIs during
-decommissioning, after terminal completion, or after deletion.
+- final deletion preserves the expected-resource record and removes suppression
+  rows; and
+- connected hardware is rediscovered only after its suppressions are removed,
+  while absent hardware is not recreated.

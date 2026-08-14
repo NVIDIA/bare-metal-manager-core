@@ -2,151 +2,118 @@
 
 ## Status
 
-Draft
+Draft — aligned with the managed power-shelf decommissioning implementation
+tracked under [#1969](https://github.com/NVIDIA/infra-controller/issues/1969).
 
 ## Summary
 
 This document defines the managed-power-shelf specialization of the
-[shared decommissioning lifecycle](/docs/design/decommissioning/decommissioning-workflow.md).
-A managed
-power shelf is returned to a neutral state by resetting its PMC management
-credential and removing NICo's stored per-shelf credential state. No firmware,
-configuration, or power-state change is required by this design.
+[shared decommissioning lifecycle](./decommissioning-workflow.md).
+A managed power shelf is returned to a neutral state by suppressing Site
+Explorer, suppressing PMC DHCP, factory-resetting the PMC, verifying DHCP
+handoff, and then removing NICo's stored per-shelf credential state. This
+workflow does not change shelf power state or firmware beyond the PMC reset
+needed for DHCP handoff.
 
-Decommissioning starts only from `Ready` and only when no managed host on the
-power shelf's rack is in use. It ends in the retained terminal
-`Decommissioned` state. Final deletion preserves the
+Decommissioning starts only from `Ready` and is rejected while any managed host
+on the power shelf's rack is assigned to an instance. It ends in the retained
+terminal `Decommissioned` substate. Final deletion preserves the
 `expected_power_shelves` record so a connected shelf can be discovered and
-ingested again. The caller can retain the PMC ignore entry during final
-deletion to defer that rediscovery.
+ingested again.
 
 ## Invariants
 
 The power-shelf workflow inherits all
-[common invariants](/docs/design/decommissioning/decommissioning-workflow.md#common-invariants).
-In
-particular:
+[common invariants](./decommissioning-workflow.md#common-invariants).
+In particular:
 
-1. The PMC credential is reset and verified before NICo removes its stored
-   credential.
-2. The power shelf cannot enter `Decommissioned` while the credential reset is
-   unverified.
-3. Decommissioning does not change shelf power state or firmware.
-4. `expected_power_shelves` is preserved by decommissioning and final deletion.
+1. PMC DHCP is suppressed before the PMC factory reset.
+1. Credentials remain until DHCP handoff is acknowledged.
+1. Decommissioning does not change shelf power state or firmware beyond the PMC
+   reset used for handoff.
+1. `expected_power_shelves` is preserved by decommissioning and final deletion.
 
-## Proposed state model
-
-Add two states to `PowerShelfControllerState`:
+## State model
 
 ```rust
 Decommissioning {
     decommissioning_state: PowerShelfDecommissioningState,
 },
-Decommissioned,
 ```
 
 ```rust
 enum PowerShelfDecommissioningState {
-    Preparing,
-    RemovingManagedCredentials,
-    VerifyingDhcpRelease,
+    SuppressingSiteExplorer,
+    SuppressingBmcDhcp,
+    FactoryResetBmc,
+    WaitingForBmcDhcpAcknowledgement,
+    DeletingManagedCredentials,
+    Decommissioned,
 }
 ```
 
-Each substate persists its retry count, last redacted error, last-attempt time,
-and any asynchronous operation identifier in the normal controller outcome
-fields.
-
-The externally reported state strings are:
-
-- `Decommissioning/Preparing`
-- `Decommissioning/RemovingManagedCredentials`
-- `Decommissioning/VerifyingDhcpRelease`
-- `Decommissioned`
+Externally reported state strings are `Decommissioning/<substate>`.
 
 ### State diagram
 
 ```mermaid
 stateDiagram-v2
     state "Ready" as Ready
-    state "Decommissioning/Preparing" as Preparing
-    state "Decommissioning/RemovingManagedCredentials" as RemovingCredentials
-    state "Decommissioning/VerifyingDhcpRelease" as VerifyingDhcpRelease
+    state "SuppressingSiteExplorer" as SuppressSE
+    state "SuppressingBmcDhcp" as SuppressBmc
+    state "FactoryResetBmc" as ResetBmc
+    state "WaitingForBmcDhcpAcknowledgement" as WaitBmc
+    state "DeletingManagedCredentials" as DeleteCreds
     state "Decommissioned" as Decommissioned
     state "Deleted" as Deleted
-    state "Fresh ingestion" as FreshIngestion
 
-    Ready --> Preparing : DecommissionPowerShelf accepted
-    Preparing --> RemovingCredentials : preflight passes and Site Explorer quiesced
-    RemovingCredentials --> VerifyingDhcpRelease : neutral PMC credential verified
-    VerifyingDhcpRelease --> Decommissioned : PMC restart and DHCP handoff verified
+    Ready --> SuppressSE : DecommissionPowerShelf accepted
+    SuppressSE --> SuppressBmc : Site Explorer acknowledged
+    SuppressBmc --> ResetBmc : PMC DHCP suppressed
+    ResetBmc --> WaitBmc : PMC factory reset issued
+    WaitBmc --> DeleteCreds : PMC DHCP acknowledged
+    DeleteCreds --> Decommissioned : per-shelf credentials removed
     Decommissioned --> Deleted : DeleteDecommissionedPowerShelf
-    Deleted --> FreshIngestion : expected power shelf remains
 ```
 
 ### Transition criteria
 
 | From | To | Required criteria |
 | --- | --- | --- |
-| `Ready` | `Decommissioning/Preparing` | The request is authorized; the power shelf is exactly `Ready`; its rack is known; no managed host on the rack is in use; and no maintenance, firmware, rack, or other exclusive operation is active. |
-| `Preparing` | `RemovingManagedCredentials` | The PMC MAC and `expected_power_shelves` record exist; `site_explorer_suppressed_at` is non-null for the PMC; and the current and neutral PMC credentials are available. |
-| `RemovingManagedCredentials` | `VerifyingDhcpRelease` | The PMC credential reset is verified; the neutral credential needed for the final PMC reset remains available; other NICo-held PMC credential material, sessions, and rotation markers are absent. |
-| `VerifyingDhcpRelease` | `Decommissioned` | The PMC restart is issued after DHCP suppression; `dhcp_discover_suppressed_at` is non-null; the old lease and address allocation are released; any remaining per-shelf credential state is absent. |
-| `Decommissioned` | deleted | `DeleteDecommissionedPowerShelf` is authorized; associated power-shelf state is removed; the PMC ignore row is removed unless retention is requested; `expected_power_shelves` remains. |
+| `Ready` | `SuppressingSiteExplorer` | Request authorized; power shelf is exactly `Ready`; no managed host on the rack is assigned to an instance. |
+| `SuppressingSiteExplorer` | `SuppressingBmcDhcp` | PMC MAC resolved; Site Explorer suppression has `acknowledged_at`. |
+| `SuppressingBmcDhcp` | `FactoryResetBmc` | DHCP suppression exists for the PMC MAC. |
+| `FactoryResetBmc` | `WaitingForBmcDhcpAcknowledgement` | PMC factory reset issued through Redfish. |
+| `WaitingForBmcDhcpAcknowledgement` | `DeletingManagedCredentials` | PMC DHCP suppression has `acknowledged_at`. |
+| `DeletingManagedCredentials` | `Decommissioned` | Per-shelf PMC credentials removed. |
+| `Decommissioned` | Deleted | `DeleteDecommissionedPowerShelf` authorized; power-shelf state and suppressions removed; `expected_power_shelves` remains. |
 
 ## State behavior
 
-### `Decommissioning/Preparing`
+### `SuppressingSiteExplorer`
 
-The start API changes `Ready` to `Preparing`. The state first applies the
-[rack unused-host gate](/docs/design/decommissioning/decommissioning-workflow.md#rack-dependency-gate-and-ordering).
-It then resolves the expected-power-shelf record, PMC identity, current PMC
-credential, and defined neutral credential before changing hardware.
+The start API claims a `Ready` power shelf into decommissioning. The controller
+upserts a Site Explorer suppression for the PMC MAC and waits for
+acknowledgement before destructive work.
 
-After preflight succeeds, NICo adds the PMC MAC to `ignored_bmc_macs` and sets
-`suppress_site_explorer` to `true`. It waits for Site Explorer to set
-`site_explorer_suppressed_at`, proving that all queued or in-flight exploration
-has finished and that the PMC is now ignored, before advancing to
-`RemovingManagedCredentials`. Pending maintenance, firmware, and other
-power-shelf requests are cleared so another controller cannot act on the shelf
-during decommissioning.
+### PMC reset and DHCP handoff
 
-### `Decommissioning/RemovingManagedCredentials`
+`SuppressingBmcDhcp`, `FactoryResetBmc`, and
+`WaitingForBmcDhcpAcknowledgement` suppress PMC DHCP, factory-reset the PMC,
+and wait for DHCP acknowledgement. The PMC reset restarts the management
+controller so its DHCP client begins a new exchange against the suppressed
+service.
 
-NICo resets the PMC password to its factory or other defined neutral value,
-then reconnects with that value to verify the reset. NICo retains access to the
-neutral credential for the final PMC reset, while removing per-shelf credential
-material that is no longer needed, active sessions, and credential-rotation
-markers.
+### `DeletingManagedCredentials`
 
-The operation is converge-and-verify. A PMC already using the neutral password
-is successful after authentication verifies that state. An unreachable PMC or
-unsupported password-reset operation blocks decommissioning rather than being
-treated as success.
-
-This workflow does not power the shelf off, reset its configuration, or change
-its firmware. The PMC reset in `VerifyingDhcpRelease`
-restarts only the PMC so its DHCP client begins a new exchange.
-
-### `Decommissioning/VerifyingDhcpRelease`
-
-The power shelf follows the
-[shared DHCP-release verification](/docs/design/decommissioning/decommissioning-workflow.md#verifying-dhcp-release):
-suppress PMC DHCP, invalidate the DHCP cache, and restart the PMC with the
-verified neutral credential. If the PMC enters INIT-REBOOT, a `DHCPREQUEST` for
-the old address receives `DHCPNAK`, forcing the client back to INIT; the
-resulting `DHCPDISCOVER` receives no offer and sets
-`dhcp_discover_suppressed_at`. Only then are the old lease and address allocation
-released, any remaining per-shelf credential state removed, and the shelf
-transitioned to `Decommissioned`. A null timestamp leaves the shelf in
-`VerifyingDhcpRelease` with its reset credential and allocation retained.
+After handoff succeeds, NICo deletes per-shelf PMC credential material and
+related rotation markers.
 
 ### `Decommissioned`
 
-NICo retains the power-shelf inventory and completion summary for operator
-verification. The shelf is excluded from rack health remediation, maintenance,
-firmware, and power operations. The only normal mutation accepted in this state
-is final deletion.
+NICo retains inventory for operator verification. The shelf is excluded from
+rack health remediation, maintenance, firmware, and power operations. The only
+normal mutation accepted in this substate is final deletion.
 
 ## APIs and authorization
 
@@ -158,73 +125,53 @@ rpc DecommissionPowerShelf(DecommissionPowerShelfRequest)
 
 message DecommissionPowerShelfRequest {
   PowerShelfId power_shelf_id = 1;
-  string message = 2;
 }
+
+message DecommissionPowerShelfResponse {}
 ```
 
-The response returns the canonical power-shelf ID.
+Admin CLI:
 
-### Resume/retry
-
-```protobuf
-rpc ResumePowerShelfDecommissioning(
-    ResumePowerShelfDecommissioningRequest
-) returns (DecommissionPowerShelfResponse);
+```bash
+nico-admin-cli power-shelf decommission <power-shelf-id>
 ```
-
-The API reruns the current persisted substate. It does not skip the credential
-reset or advance past an unverified result.
 
 ### Final deletion
 
 ```protobuf
-rpc DeleteDecommissionedPowerShelf(
-    DeleteDecommissionedPowerShelfRequest
-) returns (DeleteDecommissionedPowerShelfResponse);
+rpc DeleteDecommissionedPowerShelf(DeleteDecommissionedPowerShelfRequest)
+    returns (DeleteDecommissionedPowerShelfResponse);
 
 message DeleteDecommissionedPowerShelfRequest {
   PowerShelfId power_shelf_id = 1;
-  bool retain_ignore_entries = 2;
 }
 
-message DeleteDecommissionedPowerShelfResponse {
-  repeated string retained_bmc_mac_addresses = 1;
-}
+message DeleteDecommissionedPowerShelfResponse {}
 ```
 
-The request is accepted only from exactly `Decommissioned`. It removes the
-power shelf, interfaces, observations, health records, DNS/DHCP state, stored
-operation state, and, by default, the PMC ignore row. With
-`retain_ignore_entries` set, NICo marks and retains the PMC ignore row and
-reports its MAC address in the response. The shared release API removes it
-later. The `expected_power_shelves` record is deliberately preserved, and the
-shelf is not eligible for rediscovery until its ignore row is removed.
+The request is accepted only from
+`Decommissioning { Decommissioned }`. It removes the power shelf, associated
+interfaces and address state, and PMC suppressions. The
+`expected_power_shelves` record is deliberately preserved.
 
-The existing `DeletePowerShelf` and `AdminForceDeletePowerShelf` operations do
-not perform or prove this cleanup and are not substitutes for decommissioning.
+Admin CLI:
+
+```bash
+nico-admin-cli power-shelf delete-decommissioned <power-shelf-id>
+```
+
+Existing `DeletePowerShelf` and force-delete operations do not perform or prove
+this cleanup and are not substitutes for decommissioning.
 
 ## Verification plan
 
 In addition to the
-[shared verification requirements](/docs/design/decommissioning/decommissioning-workflow.md#shared-verification-requirements),
+[shared verification requirements](./decommissioning-workflow.md#shared-verification-requirements),
 unit, integration, and hardware qualification must cover:
 
-- rejection when the rack is unknown or any managed host on it is in use;
-- rejection while power-shelf maintenance, firmware, rack, or other exclusive
-  work is active;
-- credential cleanup waits for `site_explorer_suppressed_at`, including when
-  Site Explorer work for the PMC was already in flight;
-- PMC password reset and verification, including an already-neutral PMC;
-- retry after the password write succeeds but verification or stored cleanup
-  fails;
-- retention of the PMC credential through the final PMC reset and DHCP handoff;
-- no power-state, configuration, or firmware change during decommissioning;
-- restart of the PMC after DHCP suppression using the verified neutral credential;
-- a PMC request for the old lease receiving `DHCPNAK` rather than being dropped;
-- a suppressed PMC `DHCPDISCOVER` is recorded before the old address allocation
-  is released;
-- terminal exclusion from rack and power-shelf controller work; and
-- final deletion preserving `expected_power_shelves` and removing the PMC
-  ignore row by default; and
-- final deletion with `retain_ignore_entries` deferring reingestion of
-  still-connected hardware until the shared release API is called.
+- rejection while any managed host on the rack is assigned;
+- Site Explorer acknowledgement before PMC reset;
+- PMC DHCP suppression before factory reset;
+- no unintended shelf power-state or firmware change;
+- credential deletion only after PMC DHCP acknowledgement; and
+- final deletion preserving `expected_power_shelves` and removing suppressions.

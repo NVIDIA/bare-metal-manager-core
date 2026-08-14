@@ -2,164 +2,136 @@
 
 ## Status
 
-Draft
+Draft — aligned with the managed-switch decommissioning implementation tracked
+under [#1969](https://github.com/NVIDIA/infra-controller/issues/1969).
 
 ## Summary
 
 This document defines the managed-switch specialization of the
-[shared decommissioning lifecycle](/docs/design/decommissioning/decommissioning-workflow.md).
-A managed
-switch is returned to a neutral state by resetting its NVOS configuration and
-password, resetting its BMC credentials, and removing NICo's stored per-switch
-credential state.
+[shared decommissioning lifecycle](./decommissioning-workflow.md).
+A managed switch is returned to a neutral state by factory-resetting NVOS,
+factory-resetting its BMC, verifying DHCP handoff for both, and then removing
+NICo's stored per-switch credential state.
 
-Decommissioning starts only from `Ready` and only when no managed host on the
-switch's rack is in use. It ends in the retained terminal `Decommissioned`
-state. Final deletion preserves the `expected_switches` record so a connected
-switch can be discovered and ingested again. The caller can retain the BMC
-ignore entry during final deletion to defer that rediscovery.
+Decommissioning starts only from `Ready`, requires the RMS component-manager
+backend for NVSwitch, and is rejected while any managed host on the switch's
+rack is assigned to an instance. It ends in the retained terminal
+`Decommissioned` substate. Final deletion preserves the `expected_switches`
+record so a connected switch can be discovered and ingested again.
 
 ## Invariants
 
 The switch workflow inherits all
-[common invariants](/docs/design/decommissioning/decommissioning-workflow.md#common-invariants).
-In
-particular:
+[common invariants](./decommissioning-workflow.md#common-invariants).
+In particular:
 
-1. NVOS is reset and verified before NICo removes the NVOS credential it needs
-   to perform that reset.
-2. The BMC credential is reset and verified before NICo removes its stored BMC
-   credential.
-3. The switch cannot enter `Decommissioned` while any required reset is
-   unverified.
-4. `expected_switches` is preserved by decommissioning and final deletion.
+1. NVOS DHCP is suppressed before the NVOS factory reset so post-reset
+   discovers are ignored.
+1. BMC DHCP is suppressed before the BMC factory reset.
+1. Credentials remain until both DHCP handoffs are acknowledged.
+1. `expected_switches` is preserved by decommissioning and final deletion.
 
-## Proposed state model
-
-Add two states to `SwitchControllerState`:
+## State model
 
 ```rust
 Decommissioning {
     decommissioning_state: SwitchDecommissioningState,
 },
-Decommissioned,
 ```
 
 ```rust
 enum SwitchDecommissioningState {
-    Preparing,
-    ResettingNVOS,
-    RemovingManagedCredentials,
-    VerifyingDhcpRelease,
+    SuppressingSiteExplorer,
+    SuppressingNvosDhcp,
+    FactoryResetNvos,
+    WaitingForNvosDhcpAcknowledgement,
+    SuppressingBmcDhcp,
+    FactoryResetBmc,
+    WaitingForBmcDhcpAcknowledgement,
+    DeletingManagedCredentials,
+    Decommissioned,
 }
 ```
 
-Each substate persists its retry count, last redacted error, last-attempt time,
-and any asynchronous operation identifier in the normal controller outcome
-fields.
-
-The externally reported state strings are:
-
-- `Decommissioning/Preparing`
-- `Decommissioning/ResettingNVOS`
-- `Decommissioning/RemovingManagedCredentials`
-- `Decommissioning/VerifyingDhcpRelease`
-- `Decommissioned`
+Externally reported state strings are `Decommissioning/<substate>`, for
+example `Decommissioning/FactoryResetNvos`.
 
 ### State diagram
 
 ```mermaid
 stateDiagram-v2
     state "Ready" as Ready
-    state "Decommissioning/Preparing" as Preparing
-    state "Decommissioning/ResettingNVOS" as ResettingNVOS
-    state "Decommissioning/RemovingManagedCredentials" as RemovingCredentials
-    state "Decommissioning/VerifyingDhcpRelease" as VerifyingDhcpRelease
+    state "SuppressingSiteExplorer" as SuppressSE
+    state "SuppressingNvosDhcp" as SuppressNvos
+    state "FactoryResetNvos" as ResetNvos
+    state "WaitingForNvosDhcpAcknowledgement" as WaitNvos
+    state "SuppressingBmcDhcp" as SuppressBmc
+    state "FactoryResetBmc" as ResetBmc
+    state "WaitingForBmcDhcpAcknowledgement" as WaitBmc
+    state "DeletingManagedCredentials" as DeleteCreds
     state "Decommissioned" as Decommissioned
     state "Deleted" as Deleted
-    state "Fresh ingestion" as FreshIngestion
 
-    Ready --> Preparing : DecommissionSwitch accepted
-    Preparing --> ResettingNVOS : preflight passes and Site Explorer quiesced
-    ResettingNVOS --> RemovingCredentials : NVOS reset verified
-    RemovingCredentials --> VerifyingDhcpRelease : neutral BMC credential verified
-    VerifyingDhcpRelease --> Decommissioned : BMC restart and DHCP handoff verified
+    Ready --> SuppressSE : DecommissionSwitch accepted
+    SuppressSE --> SuppressNvos : Site Explorer acknowledged
+    SuppressNvos --> ResetNvos : NVOS DHCP suppressed
+    ResetNvos --> WaitNvos : NVOS factory reset submitted
+    WaitNvos --> SuppressBmc : NVOS DHCP acknowledged
+    SuppressBmc --> ResetBmc : BMC DHCP suppressed
+    ResetBmc --> WaitBmc : BMC factory reset issued
+    WaitBmc --> DeleteCreds : BMC DHCP acknowledged
+    DeleteCreds --> Decommissioned : per-switch credentials removed
     Decommissioned --> Deleted : DeleteDecommissionedSwitch
-    Deleted --> FreshIngestion : expected switch remains
 ```
 
 ### Transition criteria
 
 | From | To | Required criteria |
 | --- | --- | --- |
-| `Ready` | `Decommissioning/Preparing` | The request is authorized; the switch is exactly `Ready`; its rack is known; no managed host on the rack is in use; and no maintenance, reprovisioning, rack firmware, or other exclusive operation is active. |
-| `Preparing` | `ResettingNVOS` | The BMC MAC and `expected_switches` record exist; `site_explorer_suppressed_at` is non-null for the BMC; BMC and NVOS credentials are readable; and pending switch operations are cleared. |
-| `ResettingNVOS` | `RemovingManagedCredentials` | NICo-managed NVOS configuration is removed, the NVOS password is reset to its neutral value, and both outcomes are verified. |
-| `RemovingManagedCredentials` | `VerifyingDhcpRelease` | The BMC credential reset is verified; the neutral credential needed for the final BMC reset remains available; other NICo-held BMC and NVOS credential material and rotation markers are absent. |
-| `VerifyingDhcpRelease` | `Decommissioned` | The BMC restart is issued after DHCP suppression; `dhcp_discover_suppressed_at` is non-null; the old lease and address allocation are released; any remaining per-switch credential state is absent. |
-| `Decommissioned` | deleted | `DeleteDecommissionedSwitch` is authorized; associated switch state is removed; the BMC ignore row is removed unless retention is requested; `expected_switches` remains. |
+| `Ready` | `SuppressingSiteExplorer` | Request authorized; switch is exactly `Ready`; NVSwitch backend is RMS; no managed host on the rack is assigned to an instance. |
+| `SuppressingSiteExplorer` | `SuppressingNvosDhcp` | BMC MAC resolved; Site Explorer suppression has `acknowledged_at`. |
+| `SuppressingNvosDhcp` | `FactoryResetNvos` | DHCP suppression exists for the NVOS management MAC. |
+| `FactoryResetNvos` | `WaitingForNvosDhcpAcknowledgement` | Destructive RMS NVOS factory-reset job submitted. Completion is not polled; progress continues via DHCP acknowledgement because NVOS DHCP is already suppressed. |
+| `WaitingForNvosDhcpAcknowledgement` | `SuppressingBmcDhcp` | NVOS DHCP suppression has `acknowledged_at`. |
+| `SuppressingBmcDhcp` | `FactoryResetBmc` | DHCP suppression exists for the BMC MAC. |
+| `FactoryResetBmc` | `WaitingForBmcDhcpAcknowledgement` | BMC factory reset issued. |
+| `WaitingForBmcDhcpAcknowledgement` | `DeletingManagedCredentials` | BMC DHCP suppression has `acknowledged_at`. |
+| `DeletingManagedCredentials` | `Decommissioned` | Per-switch BMC and NVOS credentials removed. |
+| `Decommissioned` | Deleted | `DeleteDecommissionedSwitch` authorized; switch state and suppressions removed; `expected_switches` remains. |
 
 ## State behavior
 
-### `Decommissioning/Preparing`
+### `SuppressingSiteExplorer`
 
-The start API changes `Ready` to `Preparing`. The state first applies the
-[rack unused-host gate](/docs/design/decommissioning/decommissioning-workflow.md#rack-dependency-gate-and-ordering).
-It then resolves the expected-switch record, BMC identity, BMC credential, and
-NVOS credential before changing hardware.
+The start API claims a `Ready` switch into decommissioning. The controller
+upserts a Site Explorer suppression for the BMC MAC and waits for
+acknowledgement before destructive work.
 
-After preflight succeeds, NICo adds the BMC MAC to `ignored_bmc_macs` and sets
-`suppress_site_explorer` to `true`. It waits for Site Explorer to set
-`site_explorer_suppressed_at`, proving that all queued or in-flight exploration
-has finished and that the BMC is now ignored, before advancing to
-`ResettingNVOS`. Pending maintenance, reprovisioning, firmware, and
-configuration requests are cleared so another controller cannot reconfigure
-the switch during decommissioning.
+### NVOS reset and DHCP handoff
 
-### `Decommissioning/ResettingNVOS`
+`SuppressingNvosDhcp`, `FactoryResetNvos`, and
+`WaitingForNvosDhcpAcknowledgement` suppress NVOS DHCP, submit the RMS NVOS
+factory-reset job, and wait for DHCP acknowledgement. Because NVOS DHCP is
+already suppressed, job completion cannot be observed reliably through normal
+management paths; acknowledgement of the suppressed discover is the progress
+signal.
 
-NICo uses the current NVOS credential to:
+### BMC reset and DHCP handoff
 
-1. remove NICo-applied NVOS configuration and restore the supported neutral
-   configuration;
-2. reset the NVOS password to its neutral value; and
-3. reconnect with the reset credential and verify both the configuration and
-   password reset.
+`SuppressingBmcDhcp`, `FactoryResetBmc`, and
+`WaitingForBmcDhcpAcknowledgement` suppress BMC DHCP, factory-reset the BMC
+through Redfish, and wait for DHCP acknowledgement.
 
-The operation is converge-and-verify. A switch already in the neutral state is
-successful after verification. NICo retains the old and reset credentials until
-the reset credential has been used successfully.
+### `DeletingManagedCredentials`
 
-### `Decommissioning/RemovingManagedCredentials`
-
-NICo resets the switch BMC credential to its factory or other defined neutral
-value and verifies the reset credential. It retains access to that neutral
-credential for the final BMC reset, while removing NICo-held credential material
-that is no longer needed, including NVOS credentials, certificate or enrollment
-material, sessions, and credential-rotation markers.
-
-The BMC reset happens after the NVOS work so a retry can still use the BMC when
-needed to recover or inspect the switch.
-
-### `Decommissioning/VerifyingDhcpRelease`
-
-The switch follows the
-[shared DHCP-release verification](/docs/design/decommissioning/decommissioning-workflow.md#verifying-dhcp-release):
-suppress BMC DHCP, invalidate the DHCP cache, and restart the BMC with the
-verified neutral credential. If the BMC enters INIT-REBOOT, a `DHCPREQUEST` for
-the old address receives `DHCPNAK`, forcing the client back to INIT; the
-resulting `DHCPDISCOVER` receives no offer and sets
-`dhcp_discover_suppressed_at`. Only then are the old lease and address allocation
-released, any remaining per-switch credential state removed, and the switch
-transitioned to `Decommissioned`. A null timestamp leaves the switch in
-`VerifyingDhcpRelease` with its reset credential and allocation retained.
+After both handoffs succeed, NICo deletes per-switch BMC and NVOS credential
+material and related rotation markers.
 
 ### `Decommissioned`
 
-NICo retains the switch inventory and completion summary for operator
-verification. The switch is excluded from rack capacity, health remediation,
-maintenance, reprovisioning, and firmware work. The only normal mutation
-accepted in this state is final deletion.
+NICo retains inventory for operator verification. The switch is excluded from
+rack capacity, health remediation, maintenance, reprovisioning, and firmware
+work. The only normal mutation accepted in this substate is final deletion.
 
 ## APIs and authorization
 
@@ -171,21 +143,16 @@ rpc DecommissionSwitch(DecommissionSwitchRequest)
 
 message DecommissionSwitchRequest {
   SwitchId switch_id = 1;
-  string message = 2;
 }
+
+message DecommissionSwitchResponse {}
 ```
 
-The response returns the canonical switch ID.
+Admin CLI:
 
-### Resume/retry
-
-```protobuf
-rpc ResumeSwitchDecommissioning(ResumeSwitchDecommissioningRequest)
-    returns (DecommissionSwitchResponse);
+```bash
+nico-admin-cli managed-switch decommission <switch-id>
 ```
-
-The API reruns the current persisted substate. It does not skip a required reset
-or advance past an unverified result.
 
 ### Final deletion
 
@@ -195,46 +162,35 @@ rpc DeleteDecommissionedSwitch(DeleteDecommissionedSwitchRequest)
 
 message DeleteDecommissionedSwitchRequest {
   SwitchId switch_id = 1;
-  bool retain_ignore_entries = 2;
 }
 
-message DeleteDecommissionedSwitchResponse {
-  repeated string retained_bmc_mac_addresses = 1;
-}
+message DeleteDecommissionedSwitchResponse {}
 ```
 
-The request is accepted only from exactly `Decommissioned`. It removes the
-switch, interfaces, observations, health records, DNS/DHCP state, stored
-operation state, and, by default, the BMC ignore row. With
-`retain_ignore_entries` set, NICo marks and retains the BMC ignore row and
-reports its MAC address in the response. The shared release API removes it
-later. The `expected_switches` record is deliberately preserved, and the switch
-is not eligible for rediscovery until its ignore row is removed.
+The request is accepted only from
+`Decommissioning { Decommissioned }`. It removes the switch, associated
+interfaces and address state, and BMC/NVOS suppressions. The
+`expected_switches` record is deliberately preserved.
 
-The existing `DeleteSwitch` and `AdminForceDeleteSwitch` operations do not
-perform or prove this cleanup and are not substitutes for decommissioning.
+Admin CLI:
+
+```bash
+nico-admin-cli managed-switch delete-decommissioned <switch-id>
+```
+
+Existing `DeleteSwitch` and force-delete operations do not perform or prove
+this cleanup and are not substitutes for decommissioning.
 
 ## Verification plan
 
 In addition to the
-[shared verification requirements](/docs/design/decommissioning/decommissioning-workflow.md#shared-verification-requirements),
+[shared verification requirements](./decommissioning-workflow.md#shared-verification-requirements),
 unit, integration, and hardware qualification must cover:
 
-- rejection when the rack is unknown or any managed host on it is in use;
-- rejection while switch maintenance, reprovisioning, rack firmware, or
-  configuration work is active;
-- NVOS cleanup waits for `site_explorer_suppressed_at`, including when Site
-  Explorer work for the BMC was already in flight;
-- NVOS configuration and password reset, including an already-neutral switch;
-- retry after the NVOS reset succeeds but its verification or BMC reset fails;
-- retention of NVOS and BMC credentials until their last dependent operations;
-- verification of the replacement password before stored credential removal;
-- restart of the BMC after DHCP suppression using the verified neutral credential;
-- a BMC request for the old lease receiving `DHCPNAK`;
-- a suppressed BMC `DHCPDISCOVER` is recorded before the old address allocation
-  is released;
-- terminal exclusion from rack and switch controller work; and
-- final deletion preserving `expected_switches` and removing the BMC ignore row
-  by default; and
-- final deletion with `retain_ignore_entries` deferring reingestion of
-  still-connected hardware until the shared release API is called.
+- rejection when the NVSwitch backend is not RMS;
+- rejection while any managed host on the rack is assigned;
+- Site Explorer acknowledgement before NVOS reset;
+- NVOS DHCP suppression before factory reset;
+- BMC DHCP suppression before BMC factory reset;
+- credential deletion only after both DHCP acknowledgements; and
+- final deletion preserving `expected_switches` and removing suppressions.

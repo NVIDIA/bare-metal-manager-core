@@ -2,7 +2,9 @@
 
 ## Status
 
-Draft
+Draft — aligned with the merged Flow rack decommission workflow and the Core
+resource workflows tracked under
+[#1969](https://github.com/NVIDIA/infra-controller/issues/1969).
 
 ## Summary
 
@@ -11,17 +13,15 @@ through NICo Flow. Flow creates one durable task for the rack and drives the
 resource-specific NICo Core decommissioning APIs in dependency order:
 
 1. managed hosts on compute trays;
-2. managed switches; and
-3. managed power shelves.
+1. managed switches; and
+1. managed power shelves.
 
 Every component in one stage must reach `Decommissioned` before Flow starts the
 next stage. Flow does not perform hardware cleanup itself. NICo Core owns each
 resource state machine and the cleanup defined by the
-[managed host](/docs/design/decommissioning/managed-host-decommissioning.md),
-[managed switch](/docs/design/decommissioning/managed-switch-decommissioning.md),
-and
-[managed power shelf](/docs/design/decommissioning/managed-power-shelf-decommissioning.md)
-designs.
+[managed host](./managed-host-decommissioning.md),
+[managed switch](./managed-switch-decommissioning.md), and
+[managed power shelf](./managed-power-shelf-decommissioning.md) designs.
 
 Final deletion is not part of the rack task. The task leaves the rack and its
 components in their retained terminal states for operator verification.
@@ -40,8 +40,6 @@ flowchart LR
     Core --> Shelf["Power-shelf controller"]
 ```
 
-
-
 NICo Flow owns rack target resolution, task conflicts, stage ordering, durable
 execution, retries, cancellation, and progress reporting. NICo Core remains the
 source of truth for hardware state, eligibility, credentials, and terminal
@@ -53,31 +51,22 @@ Rack-scale decommissioning requires:
 
 - NICo Flow and its Temporal namespace to be deployed and healthy;
 - current Flow inventory for the target rack, including compute, NVSwitch, and
-power-shelf component associations;
+  power-shelf component associations;
 - a NICo Core resource ID for every Flow component selected in the rack;
 - no active conflicting Flow task for the rack; and
 - all resource-specific credentials, expected-resource records, artifacts, and
-reset capabilities required by the three component workflows.
-
-The unused-host gate is mandatory. Before stage 1 starts, Flow asks NICo Core to
-verify that no managed host on the rack:
-
-- is referenced by an instance or active allocation;
-- is being provisioned, reprovisioned, updated, or repaired; or
-- is participating in maintenance or another exclusive operation.
-
-The gate has no override. If the rack association is missing, inventory is
-incomplete, or NICo cannot prove that every managed host is unused, the task
-fails before starting any component decommissioning operation.
+  reset capabilities required by the three component workflows.
 
 Once accepted, the rack task is exclusive with allocation and other rack
 lifecycle operations. New allocation, maintenance, power, firmware, bring-up,
 and decommissioning work for the rack must be rejected or queued until the task
 finishes or is cancelled.
 
-## Flow API
+Core still enforces per-resource eligibility when Flow dispatches each start
+request. A switch or power-shelf start fails if any managed host on that rack
+is assigned to an instance.
 
-Add a rack operation to the Flow gRPC service:
+## Flow API
 
 ```protobuf
 rpc DecommissionRack(DecommissionRackRequest)
@@ -91,10 +80,9 @@ message DecommissionRackRequest {
 }
 ```
 
-`target_spec` must contain rack targets. Component targets and rack targets with
-a component-type filter are rejected because this operation decommissions the
-entire rack. As with other Flow rack operations, a request may name more than
-one rack, but Flow creates and returns one independent task ID per rack.
+`target_spec` must contain rack targets. As with other Flow rack operations, a
+request may name more than one rack, but Flow creates and returns one
+independent task ID per rack.
 
 The operation adds:
 
@@ -102,35 +90,22 @@ The operation adds:
 - operation code `decommission`;
 - Temporal workflow name `Decommission`; and
 - an exclusive rack-task conflict entry against allocation, power, firmware,
-bring-up, maintenance, and another decommissioning task.
-
-There is intentionally no readiness or unused-host override.
+  bring-up, maintenance, and another decommissioning task.
 
 ### Start an operation
 
 In production, the operator starts the operation through the authenticated HW
 Lifecycle API. That service resolves the site and forwards the rack target to
-NICo Flow through its generated gRPC client. 
-
-The caller supplies an unfiltered rack target by rack ID or rack name and an
+NICo Flow. The caller supplies a rack target by rack ID or rack name and an
 optional description, queue policy, or rule override. Flow returns the rack
-task ID in `SubmitTaskResponse`. The caller retains that ID to monitor or cancel
-the operation through the existing task APIs.
+task ID in `SubmitTaskResponse`.
 
 ### Monitor the operation
 
-Use the existing `GetTasksByIDs` API with the returned task ID. The task report
-includes:
-
-- current stage: `compute`, `nvswitch`, or `power_shelf`;
-- each targeted Core resource ID and last observed controller state;
-- whether its start request was accepted, already active, or already complete;
-- retry count and last redacted error; and
-- completed and total counts for each component type.
-
-The task reaches `TASK_STATUS_COMPLETED` only after every selected resource is
-`Decommissioned`. A terminal task report is retained for audit and operator
-verification.
+Use the existing task APIs with the returned task ID. The task report includes
+per-component progress while Core persists the detailed resource substate. The
+task reaches `TASK_STATUS_COMPLETED` only after every selected resource is
+`Decommissioned`.
 
 ## Target resolution and frozen plan
 
@@ -142,71 +117,78 @@ contains:
 - every NVSwitch component and its canonical switch ID; and
 - every power-shelf component and its canonical power-shelf ID.
 
-Flow compares this set with NICo Core's current rack membership. Missing,
-duplicated, unassociated, or cross-rack components fail preflight. Inventory
-changes after the plan is frozen do not silently expand or shrink the running
-task; they stop the task for operator review.
-
 For each planned resource, these states are valid when a stage begins:
 
 - `Ready`: call the resource's start-decommissioning API;
-- `Decommissioning/*`: do not start a second operation; observe and wait for the
-existing operation;
-- `Decommissioned`: count it as already complete; or
+- `Decommissioning/*` other than terminal: observe and wait for the existing
+  operation;
+- `Decommissioned` / `Decommissioning/Decommissioned`: count it as already
+  complete; or
 - any other state: fail the stage without advancing to the next component type.
 
 This makes a resubmitted rack task converge after a previous partial run while
-preserving the one-operation-per-resource invariant.
+preserving the one-operation-per-resource invariant. Core's start RPC is the
+atomic claim from `Ready` into decommissioning; Flow must not treat a bare
+state read followed by an unconditional start as sufficient idempotency.
 
 ## Default decommissioning rule
 
-The default Flow operation rule has three sequential stages. Components within
-one stage may run in parallel, subject to `max_parallel`; stages never overlap.
+The hardcoded default Flow rule has three sequential stages. Components within
+one stage may run in parallel. `max_parallel: 0` means unlimited concurrency
+within the stage; stages never overlap.
 
 ```yaml
-name: Default Rack Decommissioning
-description: Decommission compute, then NVSwitches, then power shelves
+name: Hardcoded Default Decommission
+description: Rack decommission: compute first, then NVSwitch, then PowerShelf
 operation_type: decommission
 operation: decommission
 steps:
   - component_type: compute
     stage: 1
     max_parallel: 0
+    timeout: 4h
     main_operation:
       name: DecommissionControl
     post_operation:
       - name: WaitDecommissioned
+        timeout: 4h
+        poll_interval: 30s
 
   - component_type: nvswitch
     stage: 2
     max_parallel: 0
+    timeout: 4h
     main_operation:
       name: DecommissionControl
     post_operation:
       - name: WaitDecommissioned
+        timeout: 4h
+        poll_interval: 30s
 
   - component_type: powershelf
     stage: 3
     max_parallel: 0
+    timeout: 4h
     main_operation:
       name: DecommissionControl
     post_operation:
       - name: WaitDecommissioned
+        timeout: 4h
+        poll_interval: 30s
 ```
 
 `DecommissionControl` dispatches by component type:
 
+| Flow component type | NICo Core operation | Completion state |
+| --- | --- | --- |
+| `compute` | `DecommissionManagedHost` | Managed host reaches `Decommissioning/Decommissioned` |
+| `nvswitch` | `DecommissionSwitch` | Switch reaches `Decommissioning/Decommissioned` |
+| `powershelf` | `DecommissionPowerShelf` | Power shelf reaches `Decommissioning/Decommissioned` |
 
-| Flow component type | NICo Core operation                                         | Completion state                                       |
-| ------------------- | ----------------------------------------------------------- | ------------------------------------------------------ |
-| `compute`           | `DecommissionMachine` using the canonical managed-host ID   | Managed host and every linked DPU are `Decommissioned` |
-| `nvswitch`          | `DecommissionSwitch` using the canonical switch ID          | Switch is `Decommissioned`                             |
-| `powershelf`        | `DecommissionPowerShelf` using the canonical power-shelf ID | Power shelf is `Decommissioned`                        |
-
-
-`WaitDecommissioned` polls NICo Core rather than relying on a fixed delay. It
-persists progress in the task report while Core persists the detailed resource
-substate.
+`WaitDecommissioned` polls NICo Core. States that begin with
+`Decommissioning/` are in progress. The terminal `Decommissioned` value
+completes the wait. A permanent status-read failure aborts within a bounded
+consecutive-failure budget.
 
 ## Execution sequence
 
@@ -217,11 +199,10 @@ sequenceDiagram
     participant C as NICo Core
 
     O->>F: DecommissionRack(rack)
-    F->>C: Validate rack inventory and unused-host gate
-    C-->>F: Eligible
+    F->>C: Resolve inventory and begin stage 1
 
     par Every managed host
-        F->>C: DecommissionMachine(host_id)
+        F->>C: DecommissionManagedHost(host_id)
         F->>C: Poll until Decommissioned
     end
 
@@ -238,8 +219,6 @@ sequenceDiagram
     F-->>O: Task completed with report
 ```
 
-
-
 The switch stage is never dispatched until every managed host has completed.
 The power-shelf stage is never dispatched until every managed switch has
 completed.
@@ -251,20 +230,21 @@ A failure stays in its current stage:
 - a compute failure prevents all switch and power-shelf starts;
 - a switch failure prevents all power-shelf starts; and
 - a power-shelf failure leaves the task incomplete but does not undo completed
-hosts or switches.
+  hosts or switches.
 
 Temporal retries transient activities according to the selected rule. A retry
-re-reads Core state before acting: `Decommissioned` is success,
-`Decommissioning/*` is observed without submitting another start request, and
-`Ready` receives the idempotent start request.
+re-reads Core state before acting: terminal `Decommissioned` is success,
+in-progress `Decommissioning/*` is observed without submitting another start
+request, and `Ready` receives the Core start request that atomically claims the
+resource.
 
 After retry exhaustion, an operator corrects the underlying resource problem
 and submits `DecommissionRack` again. The new task freezes the rack membership
 again and converges from persisted Core state; it does not repeat cleanup on
 resources already in `Decommissioned`.
 
-Cancelling the Flow task prevents new stages and stops Flow polling. It does not
-roll back hardware changes or force a Core resource out of its persisted
+Cancelling the Flow task prevents new stages and stops Flow polling. It does
+not roll back hardware changes or force a Core resource out of its persisted
 decommissioning state. A Core controller may therefore finish work that Flow
 started before cancellation. The operator must inspect Core state before
 resubmitting or taking manual action.
@@ -273,7 +253,7 @@ resubmitting or taking manual action.
 
 Successful task completion means every planned managed host, switch, and power
 shelf reached `Decommissioned` and remains protected from rediscovery by its
-BMC ignore record.
+BMC suppressions.
 
 The operator then chooses one of two follow-up paths:
 
@@ -281,11 +261,8 @@ The operator then chooses one of two follow-up paths:
   site should no longer ingest that hardware, then use the resource-specific
   final-deletion APIs.
 - **Fresh ingestion:** leave the expected-resource records in place and use the
-  resource-specific final-deletion APIs. By default final deletion removes the
-  ignore records, making connected hardware eligible for discovery and
-  ingestion again. Set `retain_ignore_entries` on a final-deletion request to
-  defer discovery, then release those entries explicitly when the site is ready
-  to ingest the hardware again.
+  resource-specific final-deletion APIs. Final deletion removes suppressions,
+  making connected hardware eligible for discovery and ingestion again.
 
 Deleting or purging the Flow inventory rack is a separate inventory operation.
 `DeleteRack` and `PurgeRack` do not substitute for Core decommissioning or prove
@@ -295,10 +272,8 @@ that hardware cleanup succeeded.
 
 Unit and integration coverage must verify:
 
-- only unfiltered rack targets are accepted;
 - one Flow task and one frozen component plan are created per rack;
 - missing or cross-rack inventory fails before any start request;
-- an allocated or otherwise in-use host fails the rack gate before stage 1;
 - compute start requests fan out before any switch request;
 - all compute resources must reach `Decommissioned` before stage 2 starts;
 - all switches must reach `Decommissioned` before stage 3 starts;
@@ -306,8 +281,7 @@ Unit and integration coverage must verify:
 - a failed stage never dispatches a later component type;
 - cancellation prevents later stages without claiming rollback;
 - the task report exposes per-resource state and redacted failures;
-- successful completion leaves expected-resource and ignore records intact;
-and
+- successful completion leaves expected-resource records intact; and
 - Flow rack deletion is not treated as successful hardware decommissioning.
 
 End-to-end qualification must cover empty component groups, multiple resources
