@@ -2391,7 +2391,7 @@ mod tests {
     #[test]
     fn instance_creation_power_profile_semantics() {
         value_scenarios!(
-            run = |power_profile| normalize_created_power_profile(power_profile);
+            run = normalize_created_power_profile;
             "non-empty profile is preserved" {
                 Some("balanced".to_string()) => Some("balanced".to_string()),
             }
