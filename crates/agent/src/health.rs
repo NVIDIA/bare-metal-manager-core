@@ -28,6 +28,7 @@ use tokio::time::timeout;
 
 use crate::{HBNDeviceNames, hbn};
 mod bgp;
+mod nvue;
 mod probe_ids;
 
 const HBN_DAEMONS_FILE: &str = "etc/frr/daemons";
