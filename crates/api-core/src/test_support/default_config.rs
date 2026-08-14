@@ -51,6 +51,55 @@ use crate::cfg::file::{
     default_database_pool_max_lifetime, default_max_find_by_ids,
     default_max_site_prefixes_per_tenant, default_pxe_public_base_url,
 };
+#[cfg(test)]
+use crate::cfg::file::{
+    DpfInterfaceIdentity, HostInterceptBridging, HostRepresentorBridgingConfig,
+};
+
+/// Returns the default configuration with one selected PF and the requested sparse DPF VFs.
+#[cfg(test)]
+pub(crate) fn with_dpf_intercept_topology(selected_vfs: &[u8]) -> CarbideConfig {
+    let mut config = get();
+    config.dpf.enabled = true;
+
+    let mut interfaces = HashMap::from([(
+        "selected-pf".to_string(),
+        HostInterceptBridging {
+            bridge: "br-pf".to_string(),
+            patch_port: "p-pf".to_string(),
+            skip_create: false,
+            dpf_interface: Some(DpfInterfaceIdentity {
+                controller_id: 1,
+                pf_id: 0,
+                vf_id: None,
+            }),
+        },
+    )]);
+    interfaces.extend(selected_vfs.iter().map(|vf_id| {
+        (
+            format!("selected-vf{vf_id}"),
+            HostInterceptBridging {
+                bridge: format!("br-vf{vf_id}"),
+                patch_port: format!("p-vf{vf_id}"),
+                skip_create: false,
+                dpf_interface: Some(DpfInterfaceIdentity {
+                    controller_id: 1,
+                    pf_id: 0,
+                    vf_id: Some(*vf_id),
+                }),
+            },
+        )
+    }));
+    config.vmaas_config = Some(VmaasConfig {
+        allow_instance_vf: true,
+        hbn_reps: None,
+        bridging: Some(HostRepresentorBridgingConfig {
+            hbn_bridge: "br-hbn".to_string(),
+            host_representor_intercept_bridging: interfaces,
+        }),
+    });
+    config
+}
 
 /// [`get`] with every `Option` config section populated. Used by tests that
 /// walk the *serialized* config shape — e.g. the admin-UI documentation
@@ -94,6 +143,7 @@ pub fn get() -> CarbideConfig {
         default_tenant_routing_profile_type: "EXTERNAL".to_string(),
         enable_admin_ui: true,
         web_ui_sidebar_tools: vec![],
+        web_ui_logs_link_template: String::new(),
         log_history: Default::default(),
         observability: Default::default(),
         bgp_leaf_session_password: None,
@@ -107,6 +157,7 @@ pub fn get() -> CarbideConfig {
         alt_metric_prefix: None,
         database_url: "pgsql:://localhost".to_string(),
         max_database_connections: 1000,
+        deny_unknown_fields: false,
         database_pool_acquire_timeout: default_database_pool_acquire_timeout(),
         database_pool_idle_timeout: default_database_pool_idle_timeout(),
         database_pool_max_lifetime: default_database_pool_max_lifetime(),
@@ -153,6 +204,7 @@ pub fn get() -> CarbideConfig {
             create_machines: Arc::new(false.into()),
             ..Default::default()
         },
+        deprecated_force_dpu_nic_mode: None,
         vpc_peering_policy: Some(VpcPeeringPolicy::Exclusive),
         vpc_peering_policy_on_existing: None,
         attestation_enabled: false,

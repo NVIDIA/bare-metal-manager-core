@@ -56,30 +56,40 @@ fn slaac_gua_from_eui64(prefix: &IpNetwork, mac: &MacAddress) -> Option<Ipv6Addr
     Some(Ipv6Addr::from(octets))
 }
 
-/// Record one SLAAC observation for an interface when the segment is eligible.
+/// Infer and persist one modified EUI-64 SLAAC address when the segment
+/// permits it.
 ///
-/// A row is inserted only when the segment has exactly one IPv6 prefix and that
-/// prefix is /64. Stateful DHCPv6 or static IPv6 assignments therefore
-/// suppress SLAAC observation. Reserved segments serve DHCPv6 options without
-/// creating observed SLAAC rows.
-pub(super) async fn observe_slaac_address(
+/// A row is inserted only when the segment opts in and has exactly one IPv6
+/// prefix whose length is /64. Stateful DHCPv6 or static IPv6 assignments
+/// suppress inference. Opted-out and reserved segments still serve DHCPv6
+/// options without creating an inferred address row.
+pub(super) async fn infer_slaac_eui64_address(
     txn: &mut PgConnection,
     interface_id: MachineInterfaceId,
     segment: &NetworkSegment,
     mac: &MacAddress,
 ) -> Result<(), CarbideError> {
-    // Segment-level SLAAC availability is centralized on NetworkSegment so a
-    // future segment flag can be added without auditing DHCP call sites.
-    let Some(prefix) = segment.slaac_eligible() else {
+    // `NetworkSegment::slaac_eui64_inference_prefix` owns the full segment
+    // policy. Keeping the opt-in beside the prefix checks means a stateless
+    // DHCPv6 request cannot persist an inferred address through a second path.
+    let Some(prefix) = segment.slaac_eui64_inference_prefix() else {
         tracing::debug!(
             network_segment_id = %segment.id,
             allocation_strategy = ?segment.config.allocation_strategy,
+            infer_slaac_eui64_addresses = segment.config.infer_slaac_eui64_addresses,
             prefixes = ?segment.prefixes,
-            "DHCPv6 SLAAC observation skipped because segment is not SLAAC-eligible"
+            "DHCPv6 EUI-64 inference skipped because the segment does not permit it"
         );
         return Ok(());
     };
 
+    // TODO(chet): Serialize same-interface IPv6 selection and replacement
+    // across SLAAC observation, static assignment, and stateful DHCPv6. The
+    // `unique_address_family_on_interface` index keeps us from storing two IPv6
+    // rows for one interface, but it does not decide which concurrent writer
+    // should win. The losing writer currently returns a database error and
+    // aborts its DHCP transaction.
+    //
     // A stateful/static IPv6 address already owns this interface family.
     if db::machine_interface_address::has_address_for_family(
         &mut *txn,
@@ -91,12 +101,12 @@ pub(super) async fn observe_slaac_address(
         return Ok(());
     }
 
-    // Persist the client-derived address and refresh DNS naming from the new state.
+    // Persist the inferred address and refresh DNS naming from the new state.
     if let Some(address) = slaac_gua_from_eui64(prefix, mac) {
         let address = IpAddr::V6(address);
 
-        // The shared insert is the ownership boundary for both visible and
-        // concurrent owners.
+        // The shared insert enforces global ownership of this exact address,
+        // including concurrent claims from another interface.
         db::machine_interface_address::insert(
             &mut *txn,
             interface_id,

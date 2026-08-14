@@ -84,6 +84,12 @@ pub enum HealthError {
     #[error("prometheus error {0}")]
     PrometheusError(#[from] prometheus::Error),
 
+    /// Nonempty endpoint-keyed spawn failures in discovery processing order.
+    ///
+    /// Returned after all spawn attempts and reachability reconciliation.
+    #[error("collector spawning failed for {} endpoints", .0.len())]
+    CollectorSpawnErrors(Vec<(String, HealthError)>),
+
     #[error("BMC error: {0}")]
     BmcError(#[from] Box<dyn std::error::Error + Send + Sync>),
 
@@ -389,7 +395,7 @@ pub async fn run_service(config: Config) -> Result<(), HealthError> {
     let active_endpoints_gauge = Gauge::new(
         format!(
             "{metrics_prefix}_active_endpoints",
-            metrics_prefix = &config.metrics.prefix
+            metrics_prefix = config.metrics.prefix
         ),
         "Number of active endpoints",
     )?;
@@ -399,7 +405,7 @@ pub async fn run_service(config: Config) -> Result<(), HealthError> {
         Opts::new(
             format!(
                 "{metrics_prefix}_discovery_endpoints",
-                metrics_prefix = &config.metrics.prefix
+                metrics_prefix = config.metrics.prefix
             ),
             "Number of endpoints at each discovery stage",
         ),

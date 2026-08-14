@@ -20,6 +20,7 @@ use serde::{Deserialize, Serialize};
 
 /// A BGP route target used in FNN VRF import/export policies.
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
 pub struct RouteTargetConfig {
     /// Autonomous System Number component of the route target.
     #[serde(default)]
@@ -32,6 +33,7 @@ pub struct RouteTargetConfig {
 
 /// An entry used by a DPU prefix-list policy.
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
 pub struct PrefixFilterPolicyEntry {
     /// Prefix matched by the policy.
     pub prefix: IpNetwork,
@@ -44,6 +46,7 @@ pub struct PrefixFilterPolicyEntry {
 /// because VPCs cannot override the base profile's allocation and access
 /// controls.
 #[derive(Clone, Debug, Default, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
 pub struct VpcRoutingProfileOverrides {
     pub route_target_imports: Option<Vec<RouteTargetConfig>>,
     pub route_targets_on_exports: Option<Vec<RouteTargetConfig>>,

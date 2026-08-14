@@ -20,6 +20,7 @@ use duration_str::deserialize_duration;
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
+#[serde(deny_unknown_fields)]
 pub struct NvLinkConfig {
     /// Enables NvLink partitioning.
     #[serde(default)]

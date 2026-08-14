@@ -16,7 +16,9 @@ User-facing CRDs include: **BFB** (BlueField Boot image), **DPUFlavor** (hardwar
 This SDK provides a Rust interface for NICo to interact with the DPF operator. It maps to the four provisioning user flows from the [Component Description](https://docs.nvidia.com/networking/display/dpf25101/component-description). Details: `design-docs/DPF NICo SDK - DPF background.md`.
 
 1. **Provision a DPU** (Component Description steps 2-5 + manual discovery + external node effect and reboot):
-   - Steps 2-5: `create_initialization_objects` creates BFB, DPUFlavor, and DPUDeployment (with `dpu_sets` referencing BFB and DPUFlavor).
+   - Steps 2-5: `create_initialization_objects` creates a BFB or
+     BlueFieldSoftware provisioning source, a DPUFlavor, and a DPUDeployment
+     referencing that source and flavor.
    - Manual discovery: `register_dpu_device` and `register_dpu_node` register DPUDevice/DPUNode CRDs (NICo uses manual registration instead of NFD auto-discovery).
    - Monitor flow (per design): watcher fires **MaintenanceNeeded** (DPU in NodeEffect) -> NICo calls `release_maintenance_hold`; then **RebootRequired** -> NICo reboots the host and calls `reboot_complete`; then **Ready**.
 

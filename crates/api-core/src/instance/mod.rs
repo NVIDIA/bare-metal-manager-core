@@ -61,7 +61,7 @@ use model::vpc_prefix::VpcPrefix;
 use sqlx::PgConnection;
 
 use crate::api::Api;
-use crate::cfg::file::ComputeAllocationEnforcement;
+use crate::cfg::file::{CarbideConfig, ComputeAllocationEnforcement};
 use crate::ethernet_virtualization::validate_instance_interface_routing_profiles;
 use crate::network_segment::allocate::PrefixAllocator;
 
@@ -130,6 +130,68 @@ async fn validate_zero_dpu_auto_vpc(
     }
 
     Ok(vpc)
+}
+
+/// Rejects instance VFs that DPF did not materialize from the configured replacement topology.
+///
+/// DPF topology replaces the static PF/VF ServiceInterface inventory, making exact membership
+/// authoritative. Pre-DPF bridging is only a sparse provisioning override, not an inventory;
+/// omitting a representor does not remove it from the provisioned hardware population. The pre-DPF
+/// and static DPF paths therefore retain their historical admission behavior. DPF startup owns
+/// normalization of the raw topology, so this request-time gate only projects its already-validated
+/// VF identities from immutable runtime configuration.
+pub(crate) fn validate_instance_vfs_against_dpf_topology(
+    network: &InstanceNetworkConfig,
+    config: &CarbideConfig,
+) -> CarbideResult<()> {
+    validate_vf_ids_against_dpf_topology(
+        network
+            .interfaces
+            .iter()
+            .filter_map(|interface| match &interface.function_id {
+                InterfaceFunctionId::Physical {} => None,
+                InterfaceFunctionId::Virtual { id } => Some(*id),
+            }),
+        config,
+    )
+}
+
+/// Applies exact topology membership to an already structurally validated VF sequence.
+fn validate_vf_ids_against_dpf_topology(
+    vf_ids: impl IntoIterator<Item = u8>,
+    config: &CarbideConfig,
+) -> CarbideResult<()> {
+    let Some(selected_vfs) = dpf_topology_vf_ids(config) else {
+        return Ok(());
+    };
+
+    if let Some(unselected_vf) = vf_ids
+        .into_iter()
+        .find(|vf_id| !selected_vfs.contains(vf_id))
+    {
+        return Err(ConfigValidationError::InvalidValue(format!(
+            "virtual function VF{unselected_vf} is not selected by the configured DPF intercept-bridging topology"
+        ))
+        .into());
+    }
+
+    Ok(())
+}
+
+/// Returns the exact topology VF population, or `None` when legacy admission remains in effect.
+fn dpf_topology_vf_ids(config: &CarbideConfig) -> Option<BTreeSet<u8>> {
+    if !config.dpf.enabled {
+        return None;
+    }
+
+    let topology = config.vmaas_config.as_ref()?.bridging.as_ref()?;
+    Some(
+        topology
+            .host_representor_intercept_bridging
+            .values()
+            .filter_map(|interface| interface.dpf_interface?.vf_id)
+            .collect(),
+    )
 }
 
 /// Validates that an operating system definition referenced by ID exists, is active,
@@ -1768,6 +1830,7 @@ pub(crate) async fn batch_allocate_instances(
                 .map(|vc| vc.allow_instance_vf)
                 .unwrap_or(true),
         )?;
+        validate_instance_vfs_against_dpf_topology(&request.config.network, &api.runtime_config)?;
         validate_instance_interface_routing_profiles(
             &mut txn,
             &request.config.network,
@@ -2314,7 +2377,7 @@ pub(crate) fn allocate_spx_port_mac(
 #[cfg(test)]
 mod tests {
     use carbide_test_support::Outcome::*;
-    use carbide_test_support::{Case, check_cases};
+    use carbide_test_support::{Case, check_cases, value_scenarios};
 
     use super::*;
 
@@ -2350,6 +2413,74 @@ mod tests {
             |(ip, prefix_len)| {
                 build_requested_linknet_prefix(ip.parse().unwrap(), prefix_len).map_err(|_| ())
             },
+        );
+    }
+
+    /// Verifies instance admission uses exact topology membership without changing legacy mode.
+    #[test]
+    fn instance_vf_admission_follows_dpf_topology() {
+        #[derive(Clone, Copy)]
+        enum InventoryMode {
+            Topology(&'static [u8]),
+            Static,
+            DpfDisabled(&'static [u8]),
+        }
+
+        value_scenarios!(
+            run = |(mode, requested_vfs)| {
+                let config = match mode {
+                    InventoryMode::Topology(vf_ids) => {
+                        crate::test_support::default_config::with_dpf_intercept_topology(vf_ids)
+                    }
+                    InventoryMode::Static => {
+                        let mut config = crate::test_support::default_config::get();
+                        config.dpf.enabled = true;
+                        config.vmaas_config = None;
+                        config
+                    }
+                    InventoryMode::DpfDisabled(vf_ids) => {
+                        let mut config =
+                            crate::test_support::default_config::with_dpf_intercept_topology(vf_ids);
+                        config.dpf.enabled = false;
+                        config
+                    }
+                };
+                validate_vf_ids_against_dpf_topology(requested_vfs, &config).is_ok()
+            };
+            "selected sparse VF" {
+                // An explicitly selected sparse VF is addressable.
+                (InventoryMode::Topology(&[7]), vec![7]) => true,
+            }
+
+            "unselected sparse VF" {
+                // VF0 must not pass merely because the hardware provisions it.
+                (InventoryMode::Topology(&[7]), vec![0]) => false,
+            }
+
+            "all requested VFs selected" {
+                // Multiple requested VFs must each belong to the replacement inventory.
+                (InventoryMode::Topology(&[4, 7]), vec![4, 7]) => true,
+            }
+
+            "one requested VF omitted" {
+                // One unselected VF rejects the complete network configuration.
+                (InventoryMode::Topology(&[4, 7]), vec![4, 6]) => false,
+            }
+
+            "PF-only topology" {
+                // A valid PF-only topology deliberately exposes no instance VFs.
+                (InventoryMode::Topology(&[]), vec![0]) => false,
+            }
+
+            "static compatibility mode" {
+                // DPF without a replacement topology retains the historical admission behavior.
+                (InventoryMode::Static, vec![0]) => true,
+            }
+
+            "DPF disabled" {
+                // Legacy non-DPF VMaaS configuration remains outside this DPF admission gate.
+                (InventoryMode::DpfDisabled(&[7]), vec![0]) => true,
+            }
         );
     }
 

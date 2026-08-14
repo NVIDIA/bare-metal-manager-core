@@ -6,6 +6,7 @@ package eventrule
 import (
 	"context"
 	"errors"
+	"time"
 
 	"github.com/google/uuid"
 )
@@ -17,6 +18,13 @@ var ErrRuleNotFound = errors.New("event rule not found")
 // decoded into a valid domain rule. Retrying without repairing the stored data
 // cannot succeed.
 var ErrInvalidPersistedRule = errors.New("invalid persisted event rule")
+
+// ErrInvalidPersistedExecution identifies persisted execution data that
+// cannot be decoded into a valid domain execution.
+var ErrInvalidPersistedExecution = errors.New("invalid persisted event action execution")
+
+// ErrExecutionNotFound identifies an unsuccessful execution lookup.
+var ErrExecutionNotFound = errors.New("event action execution not found")
 
 // RuleFilter limits rules returned by a store.
 type RuleFilter struct {
@@ -80,4 +88,20 @@ type BindingStore interface {
 	// GetForScope returns the binding for an event type and scope. When no
 	// binding exists, implementations must return (nil, nil).
 	GetForScope(context.Context, Type, Scope) (*Binding, error)
+}
+
+// ExecutionStore owns idempotent claims and action state transitions.
+// Claim atomically creates or resumes an execution. It returns a non-nil
+// execution only when the caller owns processing. It returns (nil, nil) when
+// an existing execution makes the claim an accepted no-op. When an existing
+// retryable execution is not yet eligible to resume, Claim returns an error
+// wrapping ErrRetryScheduled unless persisting the claim's observation or
+// state fails; that persistence error takes precedence and is returned alone.
+// Other non-nil errors report claim failures.
+// Transition validates and atomically persists an execution state transition,
+// returning the canonical stored execution. Transition must return an error
+// wrapping ErrExecutionNotFound when the execution ID does not exist.
+type ExecutionStore interface {
+	Claim(context.Context, ExecutionClaim) (*Execution, error)
+	Transition(context.Context, uuid.UUID, ExecutionState, time.Time) (*Execution, error)
 }

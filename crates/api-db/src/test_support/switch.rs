@@ -71,6 +71,7 @@ async fn ensure_network_segment(
             segment_type,
             can_stretch: None,
             allocation_strategy: AllocationStrategy::Dynamic,
+            infer_slaac_eui64_addresses: false,
         },
         txn,
         NetworkSegmentControllerState::Ready,

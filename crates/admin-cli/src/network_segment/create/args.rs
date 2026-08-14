@@ -29,10 +29,14 @@ use rpc::forge;
 EXAMPLES:
 
 Create a tenant network segment with an IPv4 prefix:
-    $ nico-admin-cli --cloud-unsafe-op=my_username network-segment create --name tenant-segment-1 --vpc-id 12345678-1234-5678-90ab-cdef01234567 --prefix 10.0.0.0/24 --gateway 10.0.0.1
+    $ nico-admin-cli --cloud-unsafe-op=admin network-segment create --name tenant-segment-1 --vpc-id 12345678-1234-5678-90ab-cdef01234567 --prefix 10.0.0.0/24 --gateway 10.0.0.1
 
-Create a dual-stack host in-band segment with a chosen ID:
-    $ nico-admin-cli --cloud-unsafe-op=my_username network-segment create --name host-inband-a --segment-type host-inband --id 12345678-1234-5678-90ab-cdef01234567 --prefix 192.0.2.0/24 --gateway 192.0.2.1 --prefix 2001:db8::/64 --dhcpv6-link-address fe80::1 --subdomain-id 3ea8d9a2-4fe3-4189-97fc-cf9134e31f8f
+Create a dual-stack host in-band segment with a chosen ID and SLAAC EUI-64 inference:
+    $ nico-admin-cli --cloud-unsafe-op=admin network-segment create --name host-inband-a \
+    --segment-type host-inband --id 12345678-1234-5678-90ab-cdef01234567 \
+    --prefix 192.0.2.0/24 --gateway 192.0.2.1 --prefix 2001:db8::/64 \
+    --dhcpv6-link-address fe80::1 --subdomain-id 3ea8d9a2-4fe3-4189-97fc-cf9134e31f8f \
+    --infer-slaac-eui64-addresses
 
 ")]
 pub(crate) struct Args {
@@ -107,6 +111,12 @@ pub(crate) struct Args {
         help = "Network segment type"
     )]
     pub(super) segment_type: forge::NetworkSegmentType,
+
+    #[clap(
+        long,
+        help = "Infer modified EUI-64 SLAAC addresses for stateless DHCPv6 clients and add them to interface address state. Off by default; use only when clients derive SLAAC addresses from their MAC addresses, and only on a dynamic segment with exactly one IPv6 /64. Existing IPv6 addresses are not replaced"
+    )]
+    infer_slaac_eui64_addresses: bool,
 }
 
 impl From<Args> for forge::NetworkSegmentCreationRequest {
@@ -134,6 +144,7 @@ impl From<Args> for forge::NetworkSegmentCreationRequest {
             prefixes,
             segment_type: args.segment_type as i32,
             id: args.id,
+            infer_slaac_eui64_addresses: args.infer_slaac_eui64_addresses,
         }
     }
 }

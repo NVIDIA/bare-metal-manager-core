@@ -42,6 +42,7 @@ use model::site_explorer::{
 };
 use nv_redfish::assembly::Model as AssemblyModel;
 use nv_redfish::computer_system::BootOption;
+use nv_redfish::core::ODataId;
 use nv_redfish::oem::ami::config_bmc::{
     LockdownBiosSettingsChangeState, LockdownBiosUpgradeDowngradeState,
     LockoutBiosVariableWriteMode, LockoutHostControlState,
@@ -78,6 +79,12 @@ pub fn is_bf4_product(product: Option<Product<&str>>) -> bool {
     product == Some(Product::new("B4240V")) || product == Some(Product::new("BlueField-4"))
 }
 
+/// BlueField-4 BMC firmware reports a non-UUID value (`STATIC:1026:0:MCTP_EID:101`)
+/// in the `UUID` of the IRoT NIC chassis. skip it for now. TODO: remove this once we have a fix.
+fn should_fetch_bf4_chassis_except_irot_nic(odata_id: &ODataId) -> bool {
+    odata_id.last_segment() != Some("BlueField_IRoT_NIC_0")
+}
+
 /// Builds the chassis exploration config shared by [`nv_generate_exploration_report`]
 /// and the [`detect_hw_type`] accessor, so detection cannot drift between them.
 fn build_chassis_explore_config<B: Bmc>(root: &ServiceRoot<B>) -> chassis::Config {
@@ -106,9 +113,14 @@ fn build_chassis_explore_config<B: Bmc>(root: &ServiceRoot<B>) -> chassis::Confi
         // with ERoT chassis. It stucks sometimes until next request
         // of BlueField_ERoT. Because carbide doesn't need
         // BlueField_ERoT we just skip it.
-        lazy_fetch: (root.vendor() == Some(Vendor::new("Nvidia"))
-            && root.product() == Some(Product::new("BlueField-3 DPU")))
-        .then_some(|odata_id| odata_id.last_segment() != Some("Bluefield_ERoT")),
+        // BlueField-4: skip IRoT NIC (invalid STATIC UUID breaks parsing).
+        lazy_fetch: if is_nvidia_vendor && is_bf4_product(root.product()) {
+            Some(should_fetch_bf4_chassis_except_irot_nic)
+        } else {
+            (root.vendor() == Some(Vendor::new("Nvidia"))
+                && root.product() == Some(Product::new("BlueField-3 DPU")))
+            .then_some(|odata_id| odata_id.last_segment() != Some("Bluefield_ERoT"))
+        },
     }
 }
 
@@ -1178,7 +1190,10 @@ mod tests {
     use nv_redfish::core::ODataId;
 
     use super::hw::HwType;
-    use super::{Product, is_bf4_product, should_use_network_adapter_port_fallback};
+    use super::{
+        Product, is_bf4_product, should_fetch_bf4_chassis_except_irot_nic,
+        should_use_network_adapter_port_fallback,
+    };
 
     #[test]
     fn is_bf4_product_matches_bf4_service_root_products() {
@@ -1186,6 +1201,19 @@ mod tests {
         assert!(is_bf4_product(Some(Product::new("BlueField-4"))));
         assert!(!is_bf4_product(Some(Product::new("BlueField-3 DPU"))));
         assert!(!is_bf4_product(None));
+    }
+
+    #[test]
+    fn bf4_chassis_fetch_excludes_irot_nic() {
+        assert!(!should_fetch_bf4_chassis_except_irot_nic(&ODataId::from(
+            "/redfish/v1/Chassis/BlueField_IRoT_NIC_0".to_string()
+        )));
+        assert!(should_fetch_bf4_chassis_except_irot_nic(&ODataId::from(
+            "/redfish/v1/Chassis/BlueField_ERoT_BMC_0".to_string()
+        )));
+        assert!(should_fetch_bf4_chassis_except_irot_nic(&ODataId::from(
+            "/redfish/v1/Chassis/BlueField_0".to_string()
+        )));
     }
 
     #[test]

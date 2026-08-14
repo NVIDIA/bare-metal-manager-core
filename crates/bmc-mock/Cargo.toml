@@ -25,19 +25,17 @@ repository.workspace = true
 
 [dependencies]
 bmc-vendor = { path = "../bmc-vendor" }
-arc-swap = { workspace = true }
 axum = { workspace = true }
 axum-extra = { features = ["typed-header"], workspace = true }
 axum-server = { features = ["tls-rustls"], workspace = true }
 bytes = { workspace = true }
+carbide-axum-utils = { path = "../axum-utils" }
 chrono = { workspace = true }
 clap = { workspace = true }
-duration-str = { workspace = true }
 eyre = { workspace = true }
 flate2 = { workspace = true }
 form_urlencoded = { workspace = true }
 futures = { workspace = true }
-glob = { workspace = true }
 http-body-util = { workspace = true }
 hyper = { workspace = true }
 itertools = { workspace = true }

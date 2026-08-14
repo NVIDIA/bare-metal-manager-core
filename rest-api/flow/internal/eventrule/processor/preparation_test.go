@@ -10,7 +10,6 @@ import (
 	"testing"
 
 	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/eventrule"
-	inventoryresolver "github.com/NVIDIA/infra-controller/rest-api/flow/internal/inventory/resolver"
 	"github.com/NVIDIA/infra-controller/rest-api/flow/pkg/common/deviceinfo"
 	"github.com/NVIDIA/infra-controller/rest-api/flow/pkg/common/location"
 	"github.com/NVIDIA/infra-controller/rest-api/flow/pkg/inventoryobjects/rack"
@@ -73,7 +72,7 @@ func TestPrepare(t *testing.T) {
 			}
 
 			resolverCalled := false
-			resolver := effectiveRuleResolverFunc(func(
+			resolver := ruleResolverFunc(func(
 				_ context.Context,
 				eventType eventrule.Type,
 				resolvedRackID uuid.UUID,
@@ -83,7 +82,7 @@ func TestPrepare(t *testing.T) {
 				require.Equal(t, rackID, resolvedRackID)
 				return test.rule, test.ruleErr
 			})
-			processor := newRackProcessor(rackID, resolver)
+			processor := newRackProcessor(t, rackID, resolver)
 
 			result, err := processor.prepare(
 				context.Background(),
@@ -111,24 +110,27 @@ func TestPrepare(t *testing.T) {
 }
 
 func newRackProcessor(
+	t *testing.T,
 	rackID uuid.UUID,
-	rules effectiveRuleResolver,
+	rules RuleResolver,
 ) *Processor {
-	return New(
-		inventoryresolver.New(&processorInventory{
+	t.Helper()
+	return newTestProcessor(
+		t,
+		&processorInventory{
 			rack: rack.New(deviceinfo.DeviceInfo{ID: rackID}, location.Location{}),
-		}),
+		},
 		rules,
 	)
 }
 
-type effectiveRuleResolverFunc func(
+type ruleResolverFunc func(
 	context.Context,
 	eventrule.Type,
 	uuid.UUID,
 ) (*eventrule.Rule, error)
 
-func (f effectiveRuleResolverFunc) GetEffective(
+func (f ruleResolverFunc) GetEffective(
 	ctx context.Context,
 	eventType eventrule.Type,
 	rackID uuid.UUID,

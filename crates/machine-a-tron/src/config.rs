@@ -415,6 +415,13 @@ pub struct MachineATronConfig {
     #[serde(default = "default_false")]
     pub enable_ipmi_simulation: bool,
 
+    /// IPMI port advertised through Redfish for client connections.
+    /// - Unset/None: Use default port
+    /// - 0: Use dynamic port (same as listen port)
+    /// - 1-65535: Use this specific port
+    #[serde(default)]
+    pub ipmi_reachable_port: Option<u16>,
+
     /// Set this to configure the port to use when mocking a BMC SSH server. If unset and
     /// use_single_bmc_mock is true, it will pick a random port. If unset and use_single_bmc_mock
     /// is false, it will use port 2222 for each IP alias. (Port 22 is problematic because it
@@ -473,7 +480,9 @@ pub struct MachineATronConfig {
     /// Pool to allocate ranges of HW MAC addresses for the machines.
     /// Ranges are needed for deterministic and unique addresses but
     /// that do not participate in any associations (allocated using
-    /// just "next_mac()" manner).
+    /// just "next_mac()" manner). The normalized base also identifies
+    /// the inventory exposed by `/machines/status`, so deployments whose
+    /// inventories are aggregated must use non-overlapping ranges.
     #[serde(default)]
     pub hw_mac_address_ranges: Option<MacAddressRangesConfig>,
 }
@@ -1194,6 +1203,11 @@ scout_run_interval = "5s"
     #[test]
     fn ipmi_simulation_is_disabled_by_default() {
         assert!(!rack_config().enable_ipmi_simulation);
+    }
+
+    #[test]
+    fn ipmi_reachable_port_is_unset_by_default() {
+        assert!(rack_config().ipmi_reachable_port.is_none());
     }
 
     #[test]

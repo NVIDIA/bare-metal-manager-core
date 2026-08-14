@@ -26,8 +26,8 @@ use crate::address_selection_strategy::AddressSelectionStrategy;
 ///   or a DHCP service that integrates directly with carbide-api.
 /// - `Static`: These addresses are assigned and managed explicitly by
 ///   an operator or operator-provided configuration.
-/// - `Slaac`: These IPv6 addresses are client-derived and observed through
-///   DHCPv6 information-request or stateless flows.
+/// - `Slaac`: These IPv6 addresses were inferred from a client MAC using
+///   modified EUI-64 during stateless DHCPv6 handling.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, sqlx::Type, Serialize, Deserialize)]
 #[sqlx(type_name = "text", rename_all = "snake_case")]
 #[serde(rename_all = "snake_case")]

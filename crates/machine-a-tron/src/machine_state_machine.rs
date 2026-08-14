@@ -15,7 +15,7 @@
  * limitations under the License.
  */
 use std::borrow::Cow;
-use std::collections::VecDeque;
+use std::collections::{HashMap, VecDeque};
 use std::fmt::{Display, Formatter};
 use std::net::{Ipv4Addr, SocketAddr};
 use std::sync::{Arc, RwLock};
@@ -53,6 +53,13 @@ use crate::machine_utils::{
 use crate::{PersistedDevice, PersistedDpuMachine};
 
 type DpuDhcpRelayHandle = oneshot::Sender<()>;
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum InfinibandPortState {
+    Active,
+    Down,
+}
 
 // RFC 2131 section 4.1's Ethernet example starts at four seconds, doubles to a
 // 64-second base, and adds uniform jitter from -1 through +1 second.
@@ -253,6 +260,7 @@ pub(super) struct LiveState {
     pub(super) api_state: String,
     pub(super) tpm_ek_certificate: Option<Vec<u8>>,
     pub(super) ssh_host_key: Option<String>,
+    pub(super) infiniband_port_states: HashMap<String, InfinibandPortState>,
     /// For a DPU machine, whether its BlueField has flipped to NIC mode. Lets the
     /// owning host observe the flip through the DPU handle and converge (detach
     /// its DPU DHCP relay). Always false for a host machine.
@@ -276,12 +284,34 @@ impl Default for LiveState {
             api_state: "Unknown".to_string(),
             tpm_ek_certificate: None,
             ssh_host_key: None,
+            infiniband_port_states: HashMap::new(),
             dpu_flipped_to_nic_mode: false,
         }
     }
 }
 
 impl LiveState {
+    fn for_machine(
+        machine_info: &MachineInfo,
+        power_state: MockPowerState,
+        tpm_ek_certificate: Option<Vec<u8>>,
+    ) -> Self {
+        let infiniband_port_states = match machine_info {
+            MachineInfo::Host(host) => host
+                .infiniband_port_guids()
+                .into_iter()
+                .map(|guid| (guid, InfinibandPortState::Active))
+                .collect(),
+            MachineInfo::Dpu(_) => HashMap::new(),
+        };
+        Self {
+            power_state,
+            tpm_ek_certificate,
+            infiniband_port_states,
+            ..Default::default()
+        }
+    }
+
     pub(super) fn ui_next_boot_kind(&self) -> &'static str {
         match self.next_boot_kind {
             Some(BootOptionKind::Disk) => "Disk",
@@ -342,11 +372,11 @@ impl MachineStateMachine {
             dhcp_retry: DhcpRetryState::default(),
             machine_discovery_result: None,
             installed_os: initial_os_image,
-            live_state: Arc::new(RwLock::new(LiveState {
-                power_state: MockPowerState::On,
+            live_state: Arc::new(RwLock::new(LiveState::for_machine(
+                &machine_info,
+                MockPowerState::On,
                 tpm_ek_certificate,
-                ..Default::default()
-            })),
+            ))),
             machine_info,
             bmc_command_channel,
             config,
@@ -368,11 +398,11 @@ impl MachineStateMachine {
     ) -> MachineStateMachine {
         let (fsm, actions) = MachineFsm::init(false, Self::is_bmc_only(&machine_info, &config));
         MachineStateMachine {
-            live_state: Arc::new(RwLock::new(LiveState {
-                power_state: MockPowerState::Off,
+            live_state: Arc::new(RwLock::new(LiveState::for_machine(
+                &machine_info,
+                MockPowerState::Off,
                 tpm_ek_certificate,
-                ..Default::default()
-            })),
+            ))),
             fsm,
             actions: actions.into_iter().collect(),
             bmc_dhcp_info: None,

@@ -871,21 +871,19 @@ dependencies = [
 name = "bmc-mock"
 version = "0.1.0"
 dependencies = [
- "arc-swap",
  "axum",
  "axum-extra",
  "axum-server",
  "bmc-vendor",
  "bytes",
+ "carbide-axum-utils",
  "carbide-test-support",
  "chrono",
  "clap",
- "duration-str",
  "eyre",
  "flate2",
  "form_urlencoded",
  "futures",
- "glob",
  "http-body-util",
  "hyper",
  "itertools 0.14.0",
@@ -1557,6 +1555,22 @@ dependencies = [
  "tower",
  "tracing",
  "x509-parser",
+]
+
+[[package]]
+name = "carbide-axum-utils"
+version = "0.1.0"
+dependencies = [
+ "arc-swap",
+ "axum",
+ "duration-str",
+ "glob",
+ "rand 0.10.1",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tower",
+ "tracing",
 ]
 
 [[package]]
@@ -2465,6 +2479,7 @@ dependencies = [
  "carbide-instrument",
  "carbide-ipmi",
  "carbide-measured-boot",
+ "carbide-proto-compiler",
  "carbide-redfish",
  "carbide-secrets",
  "carbide-state-controller-common",
@@ -6869,7 +6884,7 @@ dependencies = [
 [[package]]
 name = "libredfish"
 version = "0.0.0"
-source = "git+https://github.com/NVIDIA/libredfish.git?tag=v0.46.3#b199e7bebeb8238fe1440f110d06affba5b6b799"
+source = "git+https://github.com/NVIDIA/libredfish.git?tag=v0.46.6#8b0fc4384f82df962b085e6602bc78d348b2300c"
 dependencies = [
  "chrono",
  "clap",

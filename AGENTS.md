@@ -115,6 +115,8 @@ When writing tests, prefer the **table-driven** style — see the [Testing secti
 Enumerating a function's input variants as grouped `carbide-test-support` scenarios (`scenarios!` / `value_scenarios!`)
 or explicit cases (`check_cases` / `check_values`) is the easiest way to reach thorough coverage of parsers, validators,
 conversions, and the like.
+For functions that map multiple booleans or enums to state and action outputs,
+enumerate every input combination in one table before requesting review.
 
 Keep test rack-profile capability counts aligned with the inventory the fixture
 actually instantiates. Use zero for unsupported component types so tests do not

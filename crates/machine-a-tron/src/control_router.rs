@@ -14,7 +14,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use axum::body::Body;
 use axum::extract::{Path, Request, State};
@@ -22,13 +22,17 @@ use axum::http::StatusCode;
 use axum::response::{Html, IntoResponse, Response};
 use axum::routing::{any, get};
 use axum::{Json, Router};
+use bmc_mock::HardwareType;
 use bmc_mock::injection::{InjectionStore, Rule, RuleId};
 use carbide_uuid::rack::RackId;
+use chrono::{SecondsFormat, Utc};
 use tower::Service;
 
 use crate::device_simulator::SimulatorLifecycle;
 use crate::simulator_registry::SimulatorRegistry;
-use crate::status::{DeviceStatusConfig, DevicesStatusResponse};
+use crate::status::{
+    DeviceKind, DeviceStatus, DeviceStatusConfig, DevicesStatusResponse, InfinibandPortStatus,
+};
 
 pub fn append(router: Router, control_state: ControlState) -> Router {
     Router::new()
@@ -55,25 +59,95 @@ pub fn append(router: Router, control_state: ControlState) -> Router {
 pub struct ControlState {
     simulators: SimulatorRegistry,
     status_config: DeviceStatusConfig,
+    inventory_version: Arc<Mutex<InventoryVersion>>,
+}
+
+#[derive(Debug)]
+struct InventoryVersion {
+    inventory_id: String,
+    epoch_id: String,
+    generation: u64,
+    snapshot: Vec<InventoryMachine>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct InventoryMachine {
+    mat_id: String,
+    machine_id: Option<String>,
+    hardware_type: Option<HardwareType>,
+    infiniband_ports: Vec<InfinibandPortStatus>,
 }
 
 impl ControlState {
-    pub fn new(simulators: SimulatorRegistry, status_config: DeviceStatusConfig) -> Self {
+    pub fn new(
+        simulators: SimulatorRegistry,
+        status_config: DeviceStatusConfig,
+        inventory_id: String,
+    ) -> Self {
+        let devices = Self::collect_statuses(&simulators, &status_config);
         Self {
             simulators,
             status_config,
+            inventory_version: Arc::new(Mutex::new(InventoryVersion {
+                inventory_id,
+                epoch_id: Utc::now().to_rfc3339_opts(SecondsFormat::Nanos, true),
+                generation: 1,
+                snapshot: Self::inventory_snapshot(&devices),
+            })),
         }
     }
 
     fn devices_status(&self) -> DevicesStatusResponse {
-        DevicesStatusResponse {
-            devices: self
-                .simulators
-                .devices()
-                .iter()
-                .map(|simulator| simulator.status(&self.status_config))
-                .collect(),
+        let mut version = self
+            .inventory_version
+            .lock()
+            .expect("inventory version lock poisoned");
+        let devices = Self::collect_statuses(&self.simulators, &self.status_config);
+        let snapshot = Self::inventory_snapshot(&devices);
+        if snapshot != version.snapshot {
+            version.snapshot = snapshot;
+            version.generation = version
+                .generation
+                .checked_add(1)
+                .expect("inventory generation cannot overflow during one process epoch");
         }
+
+        DevicesStatusResponse {
+            inventory_id: version.inventory_id.clone(),
+            epoch_id: version.epoch_id.clone(),
+            generation: version.generation,
+            devices,
+        }
+    }
+
+    fn collect_statuses(
+        simulators: &SimulatorRegistry,
+        status_config: &DeviceStatusConfig,
+    ) -> Vec<DeviceStatus> {
+        simulators
+            .devices()
+            .iter()
+            .map(|simulator| simulator.status(status_config))
+            .collect()
+    }
+
+    fn inventory_snapshot(devices: &[DeviceStatus]) -> Vec<InventoryMachine> {
+        let mut machines = devices
+            .iter()
+            .filter(|device| device.device_kind == DeviceKind::Machine)
+            .map(|device| {
+                let mut infiniband_ports = device.infiniband_ports.clone().unwrap_or_default();
+                infiniband_ports.sort_by(|left, right| left.guid.cmp(&right.guid));
+                InventoryMachine {
+                    mat_id: device.mat_id.clone(),
+                    machine_id: device.machine_id.clone(),
+                    hardware_type: device.hardware_type,
+                    infiniband_ports,
+                }
+            })
+            .collect::<Vec<_>>();
+        machines.sort_by(|left, right| left.mat_id.cmp(&right.mat_id));
+        machines
     }
 
     fn device(&self, id: &str) -> Option<Arc<InjectionStore>> {
@@ -210,6 +284,7 @@ mod tests {
         ControlState::new(
             SimulatorRegistry::try_from_handles(handles).unwrap(),
             DeviceStatusConfig::new(1266),
+            "mat-06:00:00:00:00:00".to_string(),
         )
     }
 
@@ -247,6 +322,7 @@ mod tests {
                 .build()
                 .unwrap(),
             DeviceStatusConfig::new(1266),
+            "mat-06:00:00:00:00:00".to_string(),
         )
     }
 
@@ -266,7 +342,15 @@ mod tests {
 
         assert_eq!(response.status(), StatusCode::OK);
         let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
-        assert_eq!(&body[..], br#"{"machines":[]}"#);
+        let body: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(body["inventory_id"], "mat-06:00:00:00:00:00");
+        assert!(
+            body["epoch_id"]
+                .as_str()
+                .is_some_and(|value| { chrono::DateTime::parse_from_rfc3339(value).is_ok() })
+        );
+        assert_eq!(body["generation"], 1);
+        assert_eq!(body["machines"], serde_json::json!([]));
     }
 
     #[tokio::test]

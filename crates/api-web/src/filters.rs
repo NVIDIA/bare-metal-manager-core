@@ -138,7 +138,7 @@ pub(super) fn label_list_fmt(
         let truncated_key = if truncate && label.key.len() > MAX_LABEL_LENGTH {
             &format!(
                 "{}...",
-                &label.key.chars().take(MAX_LABEL_LENGTH).collect::<String>()
+                label.key.chars().take(MAX_LABEL_LENGTH).collect::<String>()
             )
         } else {
             &label.key
@@ -151,7 +151,7 @@ pub(super) fn label_list_fmt(
             let truncated_value = if truncate && value.len() > MAX_LABEL_LENGTH {
                 &format!(
                     "{}...",
-                    &value.chars().take(MAX_LABEL_LENGTH).collect::<String>()
+                    value.chars().take(MAX_LABEL_LENGTH).collect::<String>()
                 )
             } else {
                 value
