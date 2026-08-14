@@ -142,6 +142,8 @@ const (
 	ComputerSystemPowerState_PoweringOn  ComputerSystemPowerState = 3
 	ComputerSystemPowerState_Paused      ComputerSystemPowerState = 4
 	ComputerSystemPowerState_Unknown     ComputerSystemPowerState = 5
+	ComputerSystemPowerState_Hibernating ComputerSystemPowerState = 6
+	ComputerSystemPowerState_Sleeping    ComputerSystemPowerState = 7
 )
 
 // Enum value maps for ComputerSystemPowerState.
@@ -153,6 +155,8 @@ var (
 		3: "PoweringOn",
 		4: "Paused",
 		5: "Unknown",
+		6: "Hibernating",
+		7: "Sleeping",
 	}
 	ComputerSystemPowerState_value = map[string]int32{
 		"On":          0,
@@ -161,6 +165,8 @@ var (
 		"PoweringOn":  3,
 		"Paused":      4,
 		"Unknown":     5,
+		"Hibernating": 6,
+		"Sleeping":    7,
 	}
 )
 
@@ -3098,7 +3104,7 @@ const file_site_explorer_nico_proto_rawDesc = "" +
 	"\x17MLX_DEVICE_KIND_BF2_DPU\x10\x04*\x1b\n" +
 	"\aNicMode\x12\a\n" +
 	"\x03DPU\x10\x00\x12\a\n" +
-	"\x03NIC\x10\x01*e\n" +
+	"\x03NIC\x10\x01*\x84\x01\n" +
 	"\x18ComputerSystemPowerState\x12\x06\n" +
 	"\x02On\x10\x00\x12\a\n" +
 	"\x03Off\x10\x01\x12\x0f\n" +
@@ -3107,7 +3113,9 @@ const file_site_explorer_nico_proto_rawDesc = "" +
 	"PoweringOn\x10\x03\x12\n" +
 	"\n" +
 	"\x06Paused\x10\x04\x12\v\n" +
-	"\aUnknown\x10\x05*@\n" +
+	"\aUnknown\x10\x05\x12\x0f\n" +
+	"\vHibernating\x10\x06\x12\f\n" +
+	"\bSleeping\x10\a*@\n" +
 	"\x16InternalLockdownStatus\x12\v\n" +
 	"\aENABLED\x10\x00\x12\v\n" +
 	"\aPARTIAL\x10\x01\x12\f\n" +

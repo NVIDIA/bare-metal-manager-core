@@ -15488,6 +15488,8 @@ components:
             - PoweringOn
             - Paused
             - Unknown
+            - Hibernating
+            - Sleeping
         bootOrder:
           $ref: '#/components/schemas/ExploredBootOrder'
     ExploredComputerSystemAttributes:
