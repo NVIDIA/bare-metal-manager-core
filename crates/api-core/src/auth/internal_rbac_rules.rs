@@ -294,7 +294,10 @@ impl InternalRBACRules {
             "FindExploredEndpointIds",
             vec![ForgeAdminCLI, Flow, SiteAgent],
         );
-        x.perm("FindExploredEndpointsByIds", vec![ForgeAdminCLI, Flow]);
+        x.perm(
+            "FindExploredEndpointsByIds",
+            vec![ForgeAdminCLI, Flow, SiteAgent],
+        );
         x.perm("FindExploredManagedHostIds", vec![ForgeAdminCLI, Flow]);
         x.perm("FindExploredManagedHostsByIds", vec![ForgeAdminCLI, Flow]);
         x.perm("FindExploredMlxDeviceHostIds", vec![ForgeAdminCLI]);
@@ -1229,6 +1232,7 @@ mod rbac_rule_tests {
             "ClearSiteExplorationError",
             "ReExploreEndpoint",
             "FindExploredEndpointIds",
+            "FindExploredEndpointsByIds",
         ] {
             assert!(
                 InternalRBACRules::allowed_from_static(

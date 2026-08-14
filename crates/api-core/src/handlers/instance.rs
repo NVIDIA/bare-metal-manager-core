@@ -59,12 +59,13 @@ use sqlx::PgConnection;
 use tonic::{Request, Response, Status};
 
 use crate::api::{Api, log_machine_id, log_request_data, log_tenant_organization_id};
-use crate::cfg::file::FnnConfig;
+use crate::cfg::file::CarbideConfig;
 use crate::ethernet_virtualization::validate_instance_interface_routing_profiles;
 use crate::handlers::utils::convert_and_log_machine_id;
 use crate::instance::{
     InstanceAllocationRequest, allocate_ib_port_guid, allocate_instance, allocate_network,
-    allocate_spx_port_mac, validate_ib_partition_ownership, validate_os_definition_usable,
+    allocate_spx_port_mac, validate_ib_partition_ownership,
+    validate_instance_vfs_against_dpf_topology, validate_os_definition_usable,
     validate_spx_partition_ownership,
 };
 use crate::{CarbideError, CarbideResult};
@@ -1377,12 +1378,7 @@ pub(crate) async fn update_instance_config(
     }
 
     update_instance_network_config(
-        api.runtime_config
-            .vmaas_config
-            .as_ref()
-            .map(|vc| vc.allow_instance_vf)
-            .unwrap_or(true),
-        api.runtime_config.fnn.as_ref(),
+        &api.runtime_config,
         &instance,
         &mut config.network,
         &mh_snapshot,
@@ -1445,8 +1441,7 @@ pub(crate) async fn update_instance_config(
 /// indicate the state machine to start updating network on DPUs. This function also increments
 /// network_config_version.
 async fn update_instance_network_config(
-    allow_instance_vf: bool,
-    fnn_config: Option<&FnnConfig>,
+    runtime_config: &CarbideConfig,
     instance: &InstanceSnapshot,
     network: &mut InstanceNetworkConfig,
     mh_snapshot: &ManagedHostStateSnapshot,
@@ -1544,9 +1539,16 @@ async fn update_instance_network_config(
     // Resolve prefix-backed network resources before validating the generated segment IDs.
     allocate_network(network, &instance.config.tenant.tenant_organization_id, txn).await?;
     network
-        .validate(allow_instance_vf)
+        .validate(
+            runtime_config
+                .vmaas_config
+                .as_ref()
+                .map(|config| config.allow_instance_vf)
+                .unwrap_or(true),
+        )
         .map_err(CarbideError::from)?;
-    validate_instance_interface_routing_profiles(txn, network, fnn_config).await?;
+    validate_instance_vfs_against_dpf_topology(network, runtime_config)?;
+    validate_instance_interface_routing_profiles(txn, network, runtime_config.fnn.as_ref()).await?;
 
     // Allocate IPs and add them to the network config
     let updated_network_config = db::instance_network_config::with_allocated_ips(
@@ -1755,24 +1757,6 @@ pub(super) async fn force_delete_instance(
 
     let mut network_segment_ids_with_vpc = vec![];
     if let Some(update_network_req) = &instance.update_network_config_request {
-        // Not sure if new config is applied yet. Free all the resources.
-        let mut addresses = update_network_req
-            .new_config
-            .interfaces
-            .iter()
-            .flat_map(|x| x.ip_addrs.values().copied().collect_vec())
-            .collect_vec();
-
-        addresses.extend(
-            update_network_req
-                .old_config
-                .interfaces
-                .iter()
-                .flat_map(|x| x.ip_addrs.values().collect_vec()),
-        );
-
-        db::instance_address::delete_addresses(&mut txn, &addresses).await?;
-
         network_segment_ids_with_vpc = update_network_req
             .new_config
             .interfaces

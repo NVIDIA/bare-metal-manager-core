@@ -270,9 +270,12 @@ pub(crate) async fn delete(
     // A network's reverse-DNS zone exists only because the network does, so it
     // is dropped with the segment -- the inverse of the create-time hook in
     // `save`.
-    for network_prefix in &segment.prefixes {
-        db::dns::remove_reverse_zone(network_prefix.prefix, txn.as_mut()).await?;
-    }
+    let prefixes = segment
+        .prefixes
+        .iter()
+        .map(|network_prefix| network_prefix.prefix)
+        .collect::<Vec<_>>();
+    db::dns::remove_reverse_zones(&prefixes, segment.id, &mut txn).await?;
 
     txn.commit().await?;
 
@@ -337,11 +340,44 @@ pub(crate) async fn find_state_histories(
     Ok(tonic::Response::new(response))
 }
 
-// Called by db_init::create_initial_networks
+/// `save` is the single-segment persistence path used by the
+/// `CreateNetworkSegment` handler. It writes the segment, performs its resource
+/// allocations, and creates every reverse-DNS zone derived from the persisted
+/// prefixes before the caller commits. The segment and its zones therefore
+/// become visible together, and a zone failure rolls the segment back as well.
+///
+/// Startup uses [`save_without_reverse_zones`] instead. It persists every
+/// configured segment first, resolves config drift through the stored
+/// `network_def.segment_id` links, then acquires the complete sorted zone-lock
+/// set once before creating any missing zones.
 pub(crate) async fn save(
     api: &Api,
-    // Note: This is a PgTransaction, not a PgConnection, because we will be doing table locking,
-    // which must happen in a transaction.
+    txn: &mut PgTransaction<'_>,
+    ns: NewNetworkSegment,
+    set_to_ready: bool,
+    allocate_svi_ip: bool,
+) -> Result<NetworkSegment, CarbideError> {
+    let network_segment =
+        save_without_reverse_zones(api, txn, ns, set_to_ready, allocate_svi_ip).await?;
+    let prefixes = network_segment
+        .prefixes
+        .iter()
+        .map(|network_prefix| network_prefix.prefix)
+        .collect::<Vec<_>>();
+    db::dns::ensure_reverse_zones(&prefixes, txn).await?;
+    Ok(network_segment)
+}
+
+/// `save_without_reverse_zones` performs the segment write, resource-pool
+/// allocations, and optional SVI allocation without updating DNS.
+///
+/// [`save`] follows it immediately with one segment's DNS update.
+/// [`crate::db_init::create_initial_networks`] uses it for configured segments
+/// and the static-assignments anchor so startup can update all reverse zones
+/// once, in the same transaction and with a stable lock order. Any other caller
+/// must arrange the matching DNS update before committing.
+pub(crate) async fn save_without_reverse_zones(
+    api: &Api,
     txn: &mut PgTransaction<'_>,
     mut ns: NewNetworkSegment,
     set_to_ready: bool,
@@ -370,13 +406,6 @@ pub(crate) async fn save(
             return Err(err.into());
         }
     };
-
-    // A network's reverse-DNS zone is derived from its prefix and created with
-    // it, so PTR lookups for the network's addresses resolve without anyone
-    // hand-authoring the zone.
-    for network_prefix in &network_segment.prefixes {
-        db::dns::ensure_reverse_zone(network_prefix.prefix, txn.as_mut()).await?;
-    }
 
     if allocate_svi_ip {
         db::network_segment::allocate_svi_ip(&network_segment, txn).await?;

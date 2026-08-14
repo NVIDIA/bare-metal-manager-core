@@ -17,6 +17,7 @@
 
 // CLI enums variants can be rather large, we are ok with that.
 #![allow(clippy::large_enum_variant)]
+#![cfg_attr(not(test), deny(dead_code_pub_in_binary))]
 
 use std::fs::File;
 use std::io::Write;

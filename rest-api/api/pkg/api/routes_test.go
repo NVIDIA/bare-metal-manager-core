@@ -37,7 +37,7 @@ func TestNewAPIRoutes(t *testing.T) {
 		"metadata":                  1,
 		"credential":                4,
 		"measured-boot":             6,
-		"site-explorer":             1,
+		"site-explorer":             2,
 		"service-account":           1,
 		"infrastructure-provider":   4,
 		"tenant":                    4,
@@ -116,6 +116,8 @@ func TestNewAPIRoutes(t *testing.T) {
 
 			bmcCredentialPath := "/org/:orgName/" + cfg.GetAPIName() + "/credential/bmc"
 			assertRouteExists(t, got, http.MethodPut, bmcCredentialPath)
+			siteExplorerEndpointPath := "/org/:orgName/" + cfg.GetAPIName() + "/site-explorer/endpoint"
+			assertRouteExists(t, got, http.MethodGet, siteExplorerEndpointPath)
 			siteExplorerActionPath := "/org/:orgName/" + cfg.GetAPIName() + "/site-explorer/endpoint/action"
 			assertRouteExists(t, got, http.MethodPost, siteExplorerActionPath)
 			uefiCredentialPath := "/org/:orgName/" + cfg.GetAPIName() + "/credential/uefi"

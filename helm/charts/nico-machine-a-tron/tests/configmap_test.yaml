@@ -136,3 +136,44 @@ tests:
       - matchRegex:
           path: data["mat.toml"]
           pattern: 'scout_run_interval = "120s"'
+
+  - it: should not include enable_ipmi_simulation by default
+    asserts:
+      - notMatchRegex:
+          path: data["mat.toml"]
+          pattern: "enable_ipmi_simulation"
+
+  - it: should include enable_ipmi_simulation when enabled
+    set:
+      machineATron:
+        enableIpmiSimulation: true
+    asserts:
+      - matchRegex:
+          path: data["mat.toml"]
+          pattern: "enable_ipmi_simulation = true"
+
+  - it: should not include ipmi_reachable_port by default
+    asserts:
+      - notMatchRegex:
+          path: data["mat.toml"]
+          pattern: "ipmi_reachable_port"
+
+  - it: should include ipmi_reachable_port when set to 0 for dynamic
+    set:
+      machineATron:
+        enableIpmiSimulation: true
+        ipmiReachablePort: 0
+    asserts:
+      - matchRegex:
+          path: data["mat.toml"]
+          pattern: "ipmi_reachable_port = 0"
+
+  - it: should include ipmi_reachable_port when set to custom value
+    set:
+      machineATron:
+        enableIpmiSimulation: true
+        ipmiReachablePort: 12345
+    asserts:
+      - matchRegex:
+          path: data["mat.toml"]
+          pattern: "ipmi_reachable_port = 12345"

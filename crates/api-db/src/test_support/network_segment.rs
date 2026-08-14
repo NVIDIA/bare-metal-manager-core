@@ -41,5 +41,6 @@ pub(crate) fn admin_segment(
         id: uuid::Uuid::new_v4().into(),
         can_stretch: None,
         allocation_strategy: AllocationStrategy::Dynamic,
+        infer_slaac_eui64_addresses: false,
     }
 }

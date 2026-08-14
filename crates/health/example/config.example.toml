@@ -116,10 +116,10 @@ flush_interval = "2s"
 # latest-wins per endpoint while the drain is backed up.
 include_diagnostics = false
 
-# Include per-alert detail on health report records for this target. Health
-# report records otherwise carry only alert and success counts. When enabled,
-# each record with alerts gains a `health_report.alerts` attribute holding a
-# JSON array of up to 64 alerts; a truncated record also carries
+# Include per-alert detail on health report records for this target. Records
+# otherwise carry routing fields, counts, and structured successes without the
+# alert attributes. When enabled, each record with alerts carries the first 64
+# alerts in report order; only a report with more than 64 alerts also carries
 # `health_report.alerts.dropped` with the number omitted.
 include_alert_details = false
 #
@@ -278,6 +278,9 @@ exclude_services = ["Journal"]
 [collectors.logs.sse]
 initial_backoff = "1s"
 max_backoff = "30s"
+# Maximum number of concurrent Redfish GET requests used to fetch EventRecord
+# resources referenced by @odata.id in SSE notifications.
+event_record_fetch_concurrency = 4
 
 # required when
 # mode = "periodic"; must not be set when mode = "sse"

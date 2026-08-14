@@ -160,6 +160,7 @@ var commandPathAliases = map[string][]string{
 	"create-or-update-machine-health-report":            {"health-report", "update"},
 	"create-or-update-tenant-identity-config":           {"tenant-identity", "update"},
 	"create-or-update-tenant-identity-token-delegation": {"tenant-identity", "token-delegation", "update"},
+	"create-site-explorer-endpoint-action":              {"site-explorer", "create"},
 	"delete-all-expected-rack":                          {"expected-rack", "delete-all"},
 	"delete-tenant-identity-token-delegation":           {"tenant-identity", "token-delegation", "delete"},
 	"firmware-update-rack":                              {"rack", "firmware"},

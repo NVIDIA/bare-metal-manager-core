@@ -286,14 +286,16 @@ async fn test_allocate_and_release_instance_impl(
 
     let mut txn = env.db_txn().await;
     // TODO: The MAC here doesn't matter. It's not used for lookup
-    let record = db::instance_address::find_by_instance_id_and_segment_id(
+    let records = db::instance_address::find_all_by_instance_id_and_segment_id(
         &mut txn,
         &fetched_instance.id,
         segment_ids.first().unwrap(),
     )
     .await
-    .unwrap()
     .unwrap();
+    let [record] = records.as_slice() else {
+        panic!("expected one address on the first segment")
+    };
 
     // This should the first IP. Algo does not look into machine_interface_addresses
     // table for used addresses for instance.
@@ -309,7 +311,7 @@ async fn test_allocate_and_release_instance_impl(
     );
 
     assert_eq!(
-        format!("{}/32", &record.address),
+        format!("{}/32", record.address),
         network_config.interfaces[0]
             .interface_prefixes
             .iter()
@@ -524,14 +526,16 @@ async fn test_measurement_assigned_ready_to_waiting_for_measurements_to_ca_faile
     let segment = db::network_segment::find_by_name(&mut txn, "TENANT")
         .await
         .unwrap();
-    let record = db::instance_address::find_by_instance_id_and_segment_id(
+    let records = db::instance_address::find_all_by_instance_id_and_segment_id(
         &mut txn,
         &fetched_instance.id,
         &segment.id,
     )
     .await
-    .unwrap()
     .unwrap();
+    let [record] = records.as_slice() else {
+        panic!("expected one address on the tenant segment")
+    };
 
     // This should the first IP. Algo does not look into machine_interface_addresses
     // table for used addresses for instance.
@@ -547,7 +551,7 @@ async fn test_measurement_assigned_ready_to_waiting_for_measurements_to_ca_faile
     );
 
     assert_eq!(
-        format!("{}/32", &record.address),
+        format!("{}/32", record.address),
         network_config.interfaces[0]
             .interface_prefixes
             .iter()
@@ -1883,7 +1887,7 @@ async fn test_instance_address_creation(_: PgPoolOptions, options: PgConnectOpti
         auto_config: None,
     };
 
-    let tinstance = mh.instance_builer(&env).network(network).build().await;
+    mh.instance_builer(&env).network(network).build().await;
 
     let mut txn = env.db_txn().await;
     assert_eq!(
@@ -1931,15 +1935,6 @@ async fn test_instance_address_creation(_: PgPoolOptions, options: PgConnectOpti
     assert_eq!("192.1.4.3", used_ips[0].to_string());
     assert_eq!("192.1.4.3/32", used_prefixes[0].to_string());
 
-    // And make sure find_by_prefix works -- just leverage
-    // the last used_prefixes prefix and make sure it matches
-    // the allocated instance ID.
-    let address_by_prefix = db::instance_address::find_by_prefix(&mut txn, used_prefixes[0])
-        .await
-        .unwrap()
-        .unwrap();
-    assert_eq!(tinstance.id, address_by_prefix.instance_id);
-
     txn.commit().await.unwrap();
 
     // The addresses should show up in the internal config - which is sent to the DPU
@@ -1957,6 +1952,19 @@ async fn test_instance_address_creation(_: PgPoolOptions, options: PgConnectOpti
     assert_eq!(network_config.tenant_interfaces.len(), 2);
     assert_eq!(network_config.tenant_interfaces[0].ip, "192.0.4.3");
     assert_eq!(network_config.tenant_interfaces[1].ip, "192.1.4.3");
+    for interface in &network_config.tenant_interfaces {
+        assert_eq!(
+            interface.addresses,
+            vec![rpc::forge::InterfaceAddressConfig {
+                address_family: rpc::forge::AddressFamily::V4.into(),
+                gateway: interface.gateway.clone(),
+                ip: interface.ip.clone(),
+                interface_prefix: interface.interface_prefix.clone(),
+                prefix: interface.prefix.clone(),
+                svi_ip: interface.svi_ip.clone(),
+            }]
+        );
+    }
     assert_eq!(network_config.dpu_network_pinger_type, None);
     // Ensure the VPC prefixes (which in this case are the two network segment
     // IDs referenced above) are both associated with both interfaces.
@@ -2706,14 +2714,16 @@ async fn test_allocate_and_release_instance_vpc_prefix_id(
 
     let ns = ns.remove(0);
 
-    let record = db::instance_address::find_by_instance_id_and_segment_id(
+    let records = db::instance_address::find_all_by_instance_id_and_segment_id(
         &mut txn,
         &fetched_instance.id,
         &ns.id,
     )
     .await
-    .unwrap()
     .unwrap();
+    let [record] = records.as_slice() else {
+        panic!("expected one address on the allocated segment")
+    };
 
     // This should the first IP. Algo does not look into machine_interface_addresses
     // table for used addresses for instance.
@@ -2729,7 +2739,7 @@ async fn test_allocate_and_release_instance_vpc_prefix_id(
     );
 
     assert_eq!(
-        format!("{}/32", &record.address),
+        format!("{}/32", record.address),
         network_config.interfaces[0]
             .interface_prefixes
             .iter()
@@ -3128,6 +3138,7 @@ async fn test_auto_vpc_prefix_selection_retries_concurrent_network_prefix_insert
             segment_type: NetworkSegmentType::Tenant,
             can_stretch: Some(false),
             allocation_strategy: Default::default(),
+            infer_slaac_eui64_addresses: false,
         },
         blocker.as_mut(),
         NetworkSegmentControllerState::Ready,
@@ -7286,6 +7297,190 @@ async fn test_instance_without_vf_when_vf_disabled(_: PgPoolOptions, options: Pg
         .await;
 
     assert!(instance_result.is_ok());
+}
+
+/// Verifies sparse DPF topology membership gates both allocation and network replacement.
+#[crate::sqlx_test]
+async fn test_dpf_topology_rejects_unselected_vf_on_create_and_update(
+    _: PgPoolOptions,
+    options: PgConnectOptions,
+) {
+    let pool = PgPoolOptions::new().connect_with(options).await.unwrap();
+    let config = crate::test_support::default_config::with_dpf_intercept_topology(&[7]);
+    let env = create_test_env_with_overrides(pool, TestEnvOverrides::with_config(config)).await;
+    let managed_host = create_managed_host(&env).await;
+    let segment_ids = env.create_vpc_and_tenant_segments(2).await;
+
+    // VF0 is structurally valid and globally enabled, but the replacement topology selects VF7.
+    let mut network_with_unselected_vf =
+        single_interface_network_config_with_vfs(segment_ids.clone());
+    network_with_unselected_vf.interfaces[1].virtual_function_id = Some(0);
+    let create_error = env
+        .api
+        .allocate_instance(
+            InstanceAllocationRequest::builder(false)
+                .machine_id(managed_host.id)
+                .config(
+                    InstanceConfig::default_tenant_and_os()
+                        .network(network_with_unselected_vf.clone()),
+                )
+                .tonic_request(),
+        )
+        .await
+        .expect_err("an unselected topology VF must not be allocated");
+    assert!(create_error.message().contains(
+        "virtual function VF0 is not selected by the configured DPF intercept-bridging topology"
+    ));
+
+    // A PF-only instance remains valid; once ready, adding the same unselected VF must fail at
+    // the network-update gate and leave no staged replacement request.
+    let instance = managed_host
+        .instance_builer(&env)
+        .single_interface_network_config(segment_ids[0])
+        .build()
+        .await;
+    let update_error = env
+        .api
+        .update_instance_config(tonic::Request::new(
+            rpc::forge::InstanceConfigUpdateRequest {
+                instance_id: instance.rpc_instance().await.rpc_id(),
+                if_version_match: None,
+                config: Some(rpc::InstanceConfig {
+                    tenant: Some(default_tenant_config()),
+                    os: Some(default_os_config()),
+                    network: Some(network_with_unselected_vf),
+                    infiniband: None,
+                    network_security_group_id: None,
+                    dpu_extension_services: None,
+                    nvlink: None,
+                    spxconfig: None,
+                }),
+                metadata: Some(rpc::forge::Metadata {
+                    name: "topology-update".to_string(),
+                    description: String::new(),
+                    labels: vec![],
+                }),
+            },
+        ))
+        .await
+        .expect_err("an unselected topology VF must not be staged");
+    assert!(update_error.message().contains(
+        "virtual function VF0 is not selected by the configured DPF intercept-bridging topology"
+    ));
+
+    let mut txn = env.db_txn().await;
+    assert!(
+        instance
+            .db_instance(&mut txn)
+            .await
+            .update_network_config_request
+            .is_none()
+    );
+    txn.rollback().await.unwrap();
+}
+
+/// Verifies raw protobuf VF identities cannot alias selected topology VFs during conversion.
+#[crate::sqlx_test]
+async fn test_public_instance_endpoints_reject_out_of_range_wire_vfs(
+    _: PgPoolOptions,
+    options: PgConnectOptions,
+) {
+    let pool = PgPoolOptions::new().connect_with(options).await.unwrap();
+    // Include the truncation targets for 256 (VF0) and 263 (VF7). Without wire-range validation,
+    // both malformed values would pass exact topology membership after a lossy u32-to-u8 cast.
+    let config = crate::test_support::default_config::with_dpf_intercept_topology(&[0, 7, 15]);
+    let env = create_test_env_with_overrides(pool, TestEnvOverrides::with_config(config)).await;
+    let create_host = create_managed_host(&env).await;
+    let update_host = create_managed_host(&env).await;
+    let segment_ids = env.create_vpc_and_tenant_segments(2).await;
+    let update_instance = update_host
+        .instance_builer(&env)
+        .single_interface_network_config(segment_ids[0])
+        .build()
+        .await;
+    let update_instance_id = update_instance.rpc_instance().await.rpc_id();
+
+    // Build the protobuf directly so values wider than the model's u8 cannot be normalized by
+    // test helpers before they reach the public handlers.
+    let config_with_wire_vf = |wire_vf_id| {
+        let mut network = single_interface_network_config_with_vfs(segment_ids.clone());
+        network.interfaces[1].virtual_function_id = Some(wire_vf_id);
+        rpc::InstanceConfig {
+            tenant: Some(default_tenant_config()),
+            os: Some(default_os_config()),
+            network: Some(network),
+            infiniband: None,
+            network_security_group_id: None,
+            dpu_extension_services: None,
+            nvlink: None,
+            spxconfig: None,
+        }
+    };
+    let metadata = |operation: &str, wire_vf_id| rpc::forge::Metadata {
+        name: format!("{operation}-vf{wire_vf_id}"),
+        description: String::new(),
+        labels: vec![],
+    };
+
+    for wire_vf_id in [16, 256, 263] {
+        let create_error = env
+            .api
+            .allocate_instance(Request::new(rpc::forge::InstanceAllocationRequest {
+                machine_id: Some(create_host.id),
+                config: Some(config_with_wire_vf(wire_vf_id)),
+                instance_id: None,
+                instance_type_id: None,
+                metadata: Some(metadata("create", wire_vf_id)),
+                allow_unhealthy_machine: false,
+            }))
+            .await
+            .expect_err("out-of-range wire VF must be rejected during instance creation");
+        assert_eq!(create_error.code(), tonic::Code::InvalidArgument);
+        assert!(
+            create_error
+                .message()
+                .contains(&format!("virtual function ID of value {wire_vf_id}"))
+        );
+
+        let update_error = env
+            .api
+            .update_instance_config(Request::new(rpc::forge::InstanceConfigUpdateRequest {
+                instance_id: update_instance_id,
+                if_version_match: None,
+                config: Some(config_with_wire_vf(wire_vf_id)),
+                metadata: Some(metadata("update", wire_vf_id)),
+            }))
+            .await
+            .expect_err("out-of-range wire VF must be rejected during instance update");
+        assert_eq!(update_error.code(), tonic::Code::InvalidArgument);
+        assert!(
+            update_error
+                .message()
+                .contains(&format!("virtual function ID of value {wire_vf_id}"))
+        );
+    }
+
+    // VF15 is the inclusive boundary and must pass the same public create and update paths.
+    env.api
+        .allocate_instance(Request::new(rpc::forge::InstanceAllocationRequest {
+            machine_id: Some(create_host.id),
+            config: Some(config_with_wire_vf(15)),
+            instance_id: None,
+            instance_type_id: None,
+            metadata: Some(metadata("create", 15)),
+            allow_unhealthy_machine: false,
+        }))
+        .await
+        .expect("VF15 must remain valid during instance creation");
+    env.api
+        .update_instance_config(Request::new(rpc::forge::InstanceConfigUpdateRequest {
+            instance_id: update_instance_id,
+            if_version_match: None,
+            config: Some(config_with_wire_vf(15)),
+            metadata: Some(metadata("update", 15)),
+        }))
+        .await
+        .expect("VF15 must remain valid during instance update");
 }
 
 fn create_dpu_extension_service_data(name: &str) -> String {

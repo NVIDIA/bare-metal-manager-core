@@ -68,6 +68,7 @@ pub mod machine_boot_interface;
 pub mod machine_boot_override;
 pub mod machine_interface;
 pub mod machine_interface_address;
+pub mod machine_pending_action;
 pub mod machine_update_module;
 pub mod machine_validation;
 pub mod metadata;

@@ -31,11 +31,11 @@ impl ExternPaths {
     }
 }
 
-pub trait TonicBuilderExternPaths {
+pub trait TonicBuilderExternPathsExt {
     fn extern_paths(self, paths: &ExternPaths) -> Self;
 }
 
-impl TonicBuilderExternPaths for tonic_prost_build::Builder {
+impl TonicBuilderExternPathsExt for tonic_prost_build::Builder {
     fn extern_paths(self, paths: &ExternPaths) -> Self {
         paths.0.iter().fold(self, |builder, (name, rust_type)| {
             builder.extern_path(name, quote::quote! { #rust_type }.to_string())

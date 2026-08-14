@@ -282,7 +282,9 @@ mod tests {
 
     use super::*;
     use crate::sink::event_mapper::OpenBmcEventMapper;
-    use crate::sink::{CompositeDataSink, DiagnosticLogRecord, LogRecord, MetricSample};
+    use crate::sink::{
+        CompositeDataSink, DiagnosticLogRecord, LogRecord, LogSeverity, MetricSample,
+    };
 
     fn test_context() -> EventContext {
         EventContext {
@@ -311,7 +313,7 @@ mod tests {
     ) -> CollectorEvent {
         CollectorEvent::Log(Box::new(LogRecord {
             body: "test".to_string(),
-            severity: "OK".to_string(),
+            severity: LogSeverity::Info,
             attributes: vec![
                 (Cow::Borrowed("message_id"), message_id.to_string()),
                 (Cow::Borrowed("message_args"), message_args.to_string()),

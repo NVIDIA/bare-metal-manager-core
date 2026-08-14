@@ -266,6 +266,7 @@ impl fmt::Display for RackCapabilityType {
 /// RackCapabilityCompute describes the expected compute tray capability
 /// for a rack type.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct RackCapabilityCompute {
     /// Model name of the compute tray (e.g. "GB200").
     #[serde(default)]
@@ -298,6 +299,7 @@ pub struct RackCapabilityCompute {
 /// RackCapabilitySwitch describes the expected switch capability
 /// for a rack type.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct RackCapabilitySwitch {
     /// Model name of the switch.
     #[serde(default)]
@@ -330,6 +332,7 @@ pub struct RackCapabilitySwitch {
 /// RackCapabilityPowerShelf describes the expected power shelf capability
 /// for a rack type.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct RackCapabilityPowerShelf {
     /// Model name of the power shelf.
     #[serde(default)]
@@ -363,6 +366,7 @@ pub struct RackCapabilityPowerShelf {
 /// capabilities. It describes what a rack should contain in terms of
 /// compute trays, switches, and power shelves.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct RackCapabilitiesSet {
     pub compute: RackCapabilityCompute,
     pub switch: RackCapabilitySwitch,
@@ -379,6 +383,7 @@ pub struct RackCapabilitiesSet {
 /// uses it as the default firmware request for the profile's compute and switch
 /// inventory.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct RackFirmwareObjectConfig {
     /// URL from which rack ingestion fetches the SOT JSON document.
     pub url: url::Url,
@@ -404,6 +409,7 @@ impl RackFirmwareObjectConfig {
 /// capabilities for a class of rack. The profile is referenced by name
 /// (the map key in the config file) from expected racks and rack configs.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct RackProfile {
     /// Product family used for product-level component behavior.
     #[serde(default)]

@@ -13,7 +13,6 @@ import (
 	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/eventrule/manager"
 	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/eventrule/registry"
 	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/eventrule/store/memory"
-	inventoryresolver "github.com/NVIDIA/infra-controller/rest-api/flow/internal/inventory/resolver"
 	"github.com/NVIDIA/infra-controller/rest-api/flow/pkg/common/deviceinfo"
 	"github.com/NVIDIA/infra-controller/rest-api/flow/pkg/common/location"
 	"github.com/NVIDIA/infra-controller/rest-api/flow/pkg/inventoryobjects/rack"
@@ -41,10 +40,11 @@ func TestProcessorPreparationIntegration(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	processor := New(
-		inventoryresolver.New(&processorInventory{
+	processor := newTestProcessor(
+		t,
+		&processorInventory{
 			rack: rack.New(deviceinfo.DeviceInfo{ID: rackID}, location.Location{}),
-		}),
+		},
 		ruleManager,
 	)
 	envelope := eventrule.Envelope{

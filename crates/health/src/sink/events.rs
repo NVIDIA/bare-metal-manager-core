@@ -42,6 +42,17 @@ pub enum HealthReportTarget {
     Switch,
 }
 
+impl HealthReportTarget {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Machine => "machine",
+            Self::PowerShelf => "power-shelf",
+            Self::Rack => "rack",
+            Self::Switch => "switch",
+        }
+    }
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct EventContext {
     pub endpoint_key: String,
@@ -226,14 +237,45 @@ pub struct MetricSample {
     pub context: Option<SensorThresholdContext>,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum LogSeverity {
+    Unspecified,
+    Trace,
+    Debug,
+    Info,
+    Warn,
+    Error,
+    Fatal,
+}
+
+impl LogSeverity {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Unspecified => "UNSPECIFIED",
+            Self::Trace => "TRACE",
+            Self::Debug => "DEBUG",
+            Self::Info => "INFO",
+            Self::Warn => "WARN",
+            Self::Error => "ERROR",
+            Self::Fatal => "FATAL",
+        }
+    }
+}
+
+impl std::fmt::Display for LogSeverity {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
 /// Log event emitted by collectors and consumed by sinks.
 #[derive(Clone, Debug)]
 pub struct LogRecord {
     /// Human-readable log message or emitted structured body.
     pub body: String,
 
-    /// Source-provided severity text.
-    pub severity: String,
+    /// Severity, decoded by the collector from its source's own vocabulary.
+    pub severity: LogSeverity,
 
     /// Sink-visible metadata used for filtering, grouping, and correlation.
     pub attributes: Vec<MetricLabel>,
@@ -297,7 +339,7 @@ impl LogRecord {
 
         Cow::Owned(Self {
             body,
-            severity: self.severity.clone(),
+            severity: self.severity,
             attributes,
             diagnostic_record: None,
         })
@@ -862,6 +904,28 @@ mod tests {
 
             "GPU inventory" {
                 ReportSource::GpuInventory => "gpu-inventory",
+            }
+        );
+    }
+
+    #[test]
+    fn report_target_strings() {
+        value_scenarios!(
+            run = HealthReportTarget::as_str;
+            "machine" {
+                HealthReportTarget::Machine => "machine",
+            }
+
+            "power shelf" {
+                HealthReportTarget::PowerShelf => "power-shelf",
+            }
+
+            "rack" {
+                HealthReportTarget::Rack => "rack",
+            }
+
+            "switch" {
+                HealthReportTarget::Switch => "switch",
             }
         );
     }

@@ -20,6 +20,7 @@ pub(crate) mod auto;
 mod diagnostic;
 mod downgrade;
 mod periodic;
+mod redfish;
 mod sse;
 
 pub use downgrade::{DowngradeEvent, DowngradeReason, LogDowngradeRegistry};

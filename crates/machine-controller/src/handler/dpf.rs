@@ -190,6 +190,8 @@ async fn create_and_register_dpudevices_and_dpunode(
             missing: "primary_dpu",
         })?;
 
+    let astra_nics = state.has_astra_nics();
+
     for dpu in &state.dpu_snapshots {
         let serial_number = dpu
             .status
@@ -228,7 +230,7 @@ async fn create_and_register_dpudevices_and_dpunode(
             missing: "primary_dpu_snapshot",
         })?;
     let deployment_type = dpf_sdk
-        .deployment_type_for_dpu(primary_dpu)
+        .deployment_type_for_dpu(primary_dpu, astra_nics)
         .map_err(dpf_error)?;
 
     let device_ids: Vec<String> = state
@@ -465,6 +467,26 @@ async fn handle_dpf_waiting_for_ready(
         .await
         .map_err(dpf_error)?;
 
+    // The watcher records a pending service sync for any DPU it sees in the
+    // NodeEffect phase, because the phase does not say why the DPU is parked --
+    // a provisioning pass produces one just as a DPUService change does. This
+    // release satisfies whichever it was, so retire the marker here rather than
+    // leave the Ready handler to rediscover it and call Kubernetes for work that
+    // has already happened.
+    //
+    // Bookkeeping only: a failure here costs a redundant check later, so it must
+    // not fail provisioning.
+    if let Err(error) =
+        super::dpu_action_handler::complete_pending_sync(ctx, &state.host_snapshot).await
+    {
+        tracing::warn!(
+            machine_id = %state.host_snapshot.id,
+            node = %node_name,
+            %error,
+            "Could not retire the host's pending DPU service sync after releasing its hold"
+        );
+    }
+
     if dpf_sdk
         .is_reboot_required(&node_name)
         .await
@@ -596,8 +618,11 @@ pub(super) async fn handle_dpf_state(
     power_down_wait: chrono::Duration,
 ) -> Result<StateHandlerOutcome<ManagedHostState>, StateHandlerError> {
     let node_name = dpu_node_cr_name(&dpf_id(&state.host_snapshot)?);
+
+    let astra_nics = state.has_astra_nics();
+
     let deployment_type = dpf_sdk
-        .deployment_type_for_dpu(dpu_snapshot)
+        .deployment_type_for_dpu(dpu_snapshot, astra_nics)
         .map_err(dpf_error)?;
     if !dpf_sdk
         .verify_node_labels(&node_name, deployment_type)
