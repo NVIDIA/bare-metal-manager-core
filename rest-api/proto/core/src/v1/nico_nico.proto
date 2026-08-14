@@ -280,6 +280,13 @@ service Forge {
   // Query for BMC Credentials
   rpc GetBmcCredentials(GetBmcCredentialsRequest) returns (GetBmcCredentialsResponse);
   rpc GetSwitchNvosCredentials(GetSwitchNvosCredentialsRequest) returns (GetBmcCredentialsResponse);
+  // Query for a switch BMC's stored root credential by BMC MAC.
+  //
+  // Distinct from GetBmcCredentials: that RPC resolves a machine BMC's IP and
+  // mints a Redfish session token, neither of which applies to switch BMCs.
+  // This one reads the stored username/password the same way Core's own
+  // component-manager lookup does.
+  rpc GetSwitchBmcCredentials(GetSwitchBmcCredentialsRequest) returns (GetBmcCredentialsResponse);
 
   // Admin CLI actions
 
@@ -4406,7 +4413,20 @@ message GetBmcCredentialsRequest {
 }
 
 message GetSwitchNvosCredentialsRequest {
+  // Exactly one of these identifies the switch. Callers holding a NICo
+  // SwitchId use switch_id; callers that only know the switch's BMC MAC (the
+  // key the credential itself is stored under) use bmc_mac_addr and skip the
+  // switch lookup. The server rejects a request setting both or neither.
+  //
+  // Deliberately not a oneof, which would carry that exclusivity in the type
+  // system: moving switch_id into one trips `buf breaking`
+  // (FIELD_SAME_ONEOF), even though the wire encoding is identical.
   common.SwitchId switch_id = 1;
+  optional string bmc_mac_addr = 2;
+}
+
+message GetSwitchBmcCredentialsRequest {
+  string bmc_mac_addr = 1;
 }
 
 message GetBmcCredentialsResponse {

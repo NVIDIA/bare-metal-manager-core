@@ -5,7 +5,6 @@ package credentials
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"net"
 	"sync"
@@ -19,7 +18,10 @@ const (
 	nvosPrefix = "nvos:"
 )
 
-// InMemoryCredentialManager implements the CredentialManager interface with an in-memory store.
+// InMemoryCredentialManager implements the CredentialManager interface with an
+// in-memory store, for local development and tests. Nothing in the service
+// writes credentials any more, so callers seed it directly with PutBMC/PutNVOS
+// — those are deliberately not part of the CredentialManager interface.
 type InMemoryCredentialManager struct {
 	store map[string]*credential.Credential
 	mu    sync.RWMutex
@@ -53,164 +55,68 @@ func (m *InMemoryCredentialManager) nvosKey(mac net.HardwareAddr) string {
 	return nvosPrefix + mac.String()
 }
 
-// GetBMC returns the BMC credential for mac or an error if missing/invalid.
+func (m *InMemoryCredentialManager) get(kind, key string, mac net.HardwareAddr) (*credential.Credential, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	cred, exists := m.store[key]
+	if !exists {
+		return nil, fmt.Errorf("%s credential for %s: %w", kind, mac, ErrNotFound)
+	}
+
+	if !cred.IsValid() {
+		return nil, fmt.Errorf("%s credential for %s is not valid", kind, mac)
+	}
+
+	return cred, nil
+}
+
+func (m *InMemoryCredentialManager) put(kind, key string, mac net.HardwareAddr, cred *credential.Credential) error {
+	if cred == nil {
+		return fmt.Errorf("%s credential for %s is nil", kind, mac)
+	}
+
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	if existing, exists := m.store[key]; exists {
+		if existing.Equal(cred) {
+			log.Infof("%s credentials for %s already exist and match; skipping write", kind, mac)
+			return nil
+		}
+		log.Warnf("%s credentials for %s differ from existing; overwriting in-memory entry", kind, mac)
+	}
+
+	m.store[key] = cred
+	return nil
+}
+
+// GetBMC returns the BMC credential for mac, or ErrNotFound.
 func (m *InMemoryCredentialManager) GetBMC(ctx context.Context, mac net.HardwareAddr) (*credential.Credential, error) {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	key := m.bmcKey(mac)
-	cred, exists := m.store[key]
-	if !exists {
-		return nil, errors.New("BMC credential not found")
-	}
-
-	if !cred.IsValid() {
-		return nil, errors.New("BMC credential not valid")
-	}
-
-	return cred, nil
+	return m.get("BMC", m.bmcKey(mac), mac)
 }
 
-// PutBMC stores the BMC credential for mac. If an identical entry exists, this is a no-op.
-// If a different entry exists, the new value overwrites (with a warning log).
+// PutBMC seeds the BMC credential for mac, replacing any current value.
 func (m *InMemoryCredentialManager) PutBMC(ctx context.Context, mac net.HardwareAddr, cred *credential.Credential) error {
-	if cred == nil {
-		return fmt.Errorf("BMC credential for %s is nil", mac)
-	}
-
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	key := m.bmcKey(mac)
-	if existing, exists := m.store[key]; exists {
-		if existing.Equal(cred) {
-			log.Infof("BMC credentials for %s already exist and match; skipping write", mac)
-			return nil
-		}
-		log.Warnf("BMC credentials for %s differ from existing; overwriting in-memory entry", mac)
-	}
-	m.store[key] = cred
-	return nil
+	return m.put("BMC", m.bmcKey(mac), mac, cred)
 }
 
-// PatchBMC updates the BMC credential for mac (replaces current value).
-func (m *InMemoryCredentialManager) PatchBMC(ctx context.Context, mac net.HardwareAddr, cred *credential.Credential) error {
-	if cred == nil {
-		return fmt.Errorf("BMC credential for %s is nil", mac)
-	}
-
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	key := m.bmcKey(mac)
-
-	if _, exists := m.store[key]; !exists {
-		return errors.New("BMC credential not found")
-	}
-
-	m.store[key] = cred
-	return nil
-}
-
-// DeleteBMC removes the BMC credential for mac (no error if absent).
-func (m *InMemoryCredentialManager) DeleteBMC(ctx context.Context, mac net.HardwareAddr) error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	key := m.bmcKey(mac)
-
-	delete(m.store, key)
-	return nil
-}
-
-// GetNVOS returns the NVOS credential for mac or an error if missing/invalid.
+// GetNVOS returns the NVOS credential for mac, or ErrNotFound.
 func (m *InMemoryCredentialManager) GetNVOS(ctx context.Context, mac net.HardwareAddr) (*credential.Credential, error) {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	key := m.nvosKey(mac)
-	cred, exists := m.store[key]
-	if !exists {
-		return nil, errors.New("NVOS credential not found")
-	}
-
-	if !cred.IsValid() {
-		return nil, errors.New("NVOS credential not valid")
-	}
-
-	return cred, nil
+	return m.get("NVOS", m.nvosKey(mac), mac)
 }
 
-// PutNVOS stores the NVOS credential for mac. If an identical entry exists, this is a no-op.
-// If a different entry exists, the new value overwrites (with a warning log).
+// PutNVOS seeds the NVOS credential for mac, replacing any current value.
 func (m *InMemoryCredentialManager) PutNVOS(ctx context.Context, mac net.HardwareAddr, cred *credential.Credential) error {
-	if cred == nil {
-		return fmt.Errorf("NVOS credential for %s is nil", mac)
-	}
-
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	key := m.nvosKey(mac)
-	if existing, exists := m.store[key]; exists {
-		if existing.Equal(cred) {
-			log.Infof("NVOS credentials for %s already exist and match; skipping write", mac)
-			return nil
-		}
-		log.Warnf("NVOS credentials for %s differ from existing; overwriting in-memory entry", mac)
-	}
-	m.store[key] = cred
-	return nil
+	return m.put("NVOS", m.nvosKey(mac), mac, cred)
 }
 
-// PatchNVOS updates the NVOS credential for mac (replaces current value).
-func (m *InMemoryCredentialManager) PatchNVOS(ctx context.Context, mac net.HardwareAddr, cred *credential.Credential) error {
-	if cred == nil {
-		return fmt.Errorf("NVOS credential for %s is nil", mac)
-	}
-
+// Forget drops both seeded credentials for mac. No-op if absent, so callers
+// can use it to clean up without first checking what was seeded.
+func (m *InMemoryCredentialManager) Forget(ctx context.Context, mac net.HardwareAddr) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	key := m.nvosKey(mac)
 
-	if _, exists := m.store[key]; !exists {
-		return errors.New("NVOS credential not found")
-	}
-
-	m.store[key] = cred
-	return nil
-}
-
-// DeleteNVOS removes the NVOS credential for mac (no error if absent).
-func (m *InMemoryCredentialManager) DeleteNVOS(ctx context.Context, mac net.HardwareAddr) error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	key := m.nvosKey(mac)
-
-	delete(m.store, key)
-	return nil
-}
-
-// Keys returns all MACs with stored credentials (checking for BMC credentials).
-func (m *InMemoryCredentialManager) Keys(ctx context.Context) ([]net.HardwareAddr, error) {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-
-	macSet := make(map[string]struct{})
-	for key := range m.store {
-		// Extract MAC from prefixed key
-		var macStr string
-		if len(key) > len(bmcPrefix) && key[:len(bmcPrefix)] == bmcPrefix {
-			macStr = key[len(bmcPrefix):]
-		} else if len(key) > len(nvosPrefix) && key[:len(nvosPrefix)] == nvosPrefix {
-			macStr = key[len(nvosPrefix):]
-		} else {
-			continue
-		}
-		macSet[macStr] = struct{}{}
-	}
-
-	macs := make([]net.HardwareAddr, 0, len(macSet))
-	for macStr := range macSet {
-		mac, err := net.ParseMAC(macStr)
-		if err != nil {
-			return nil, err
-		}
-		macs = append(macs, mac)
-	}
-	return macs, nil
+	delete(m.store, m.bmcKey(mac))
+	delete(m.store, m.nvosKey(mac))
 }

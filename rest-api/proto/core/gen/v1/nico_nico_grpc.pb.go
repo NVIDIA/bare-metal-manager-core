@@ -163,6 +163,7 @@ const (
 	Forge_ValidateTenantPublicKey_FullMethodName                            = "/forge.Forge/ValidateTenantPublicKey"
 	Forge_GetBmcCredentials_FullMethodName                                  = "/forge.Forge/GetBmcCredentials"
 	Forge_GetSwitchNvosCredentials_FullMethodName                           = "/forge.Forge/GetSwitchNvosCredentials"
+	Forge_GetSwitchBmcCredentials_FullMethodName                            = "/forge.Forge/GetSwitchBmcCredentials"
 	Forge_GetAllManagedHostNetworkStatus_FullMethodName                     = "/forge.Forge/GetAllManagedHostNetworkStatus"
 	Forge_GetSiteExplorationReport_FullMethodName                           = "/forge.Forge/GetSiteExplorationReport"
 	Forge_GetSiteExplorerLastRun_FullMethodName                             = "/forge.Forge/GetSiteExplorerLastRun"
@@ -721,6 +722,13 @@ type ForgeClient interface {
 	// Query for BMC Credentials
 	GetBmcCredentials(ctx context.Context, in *GetBmcCredentialsRequest, opts ...grpc.CallOption) (*GetBmcCredentialsResponse, error)
 	GetSwitchNvosCredentials(ctx context.Context, in *GetSwitchNvosCredentialsRequest, opts ...grpc.CallOption) (*GetBmcCredentialsResponse, error)
+	// Query for a switch BMC's stored root credential by BMC MAC.
+	//
+	// Distinct from GetBmcCredentials: that RPC resolves a machine BMC's IP and
+	// mints a Redfish session token, neither of which applies to switch BMCs.
+	// This one reads the stored username/password the same way Core's own
+	// component-manager lookup does.
+	GetSwitchBmcCredentials(ctx context.Context, in *GetSwitchBmcCredentialsRequest, opts ...grpc.CallOption) (*GetBmcCredentialsResponse, error)
 	// List all machines network status (HBN), as reported by `nico-dpu-agent`
 	GetAllManagedHostNetworkStatus(ctx context.Context, in *ManagedHostNetworkStatusRequest, opts ...grpc.CallOption) (*ManagedHostNetworkStatusResponse, error)
 	// Gets the latest Site Exploration report
@@ -2751,6 +2759,16 @@ func (c *forgeClient) GetSwitchNvosCredentials(ctx context.Context, in *GetSwitc
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(GetBmcCredentialsResponse)
 	err := c.cc.Invoke(ctx, Forge_GetSwitchNvosCredentials_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *forgeClient) GetSwitchBmcCredentials(ctx context.Context, in *GetSwitchBmcCredentialsRequest, opts ...grpc.CallOption) (*GetBmcCredentialsResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(GetBmcCredentialsResponse)
+	err := c.cc.Invoke(ctx, Forge_GetSwitchBmcCredentials_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -6331,6 +6349,13 @@ type ForgeServer interface {
 	// Query for BMC Credentials
 	GetBmcCredentials(context.Context, *GetBmcCredentialsRequest) (*GetBmcCredentialsResponse, error)
 	GetSwitchNvosCredentials(context.Context, *GetSwitchNvosCredentialsRequest) (*GetBmcCredentialsResponse, error)
+	// Query for a switch BMC's stored root credential by BMC MAC.
+	//
+	// Distinct from GetBmcCredentials: that RPC resolves a machine BMC's IP and
+	// mints a Redfish session token, neither of which applies to switch BMCs.
+	// This one reads the stored username/password the same way Core's own
+	// component-manager lookup does.
+	GetSwitchBmcCredentials(context.Context, *GetSwitchBmcCredentialsRequest) (*GetBmcCredentialsResponse, error)
 	// List all machines network status (HBN), as reported by `nico-dpu-agent`
 	GetAllManagedHostNetworkStatus(context.Context, *ManagedHostNetworkStatusRequest) (*ManagedHostNetworkStatusResponse, error)
 	// Gets the latest Site Exploration report
@@ -7378,6 +7403,9 @@ func (UnimplementedForgeServer) GetBmcCredentials(context.Context, *GetBmcCreden
 }
 func (UnimplementedForgeServer) GetSwitchNvosCredentials(context.Context, *GetSwitchNvosCredentialsRequest) (*GetBmcCredentialsResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method GetSwitchNvosCredentials not implemented")
+}
+func (UnimplementedForgeServer) GetSwitchBmcCredentials(context.Context, *GetSwitchBmcCredentialsRequest) (*GetBmcCredentialsResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method GetSwitchBmcCredentials not implemented")
 }
 func (UnimplementedForgeServer) GetAllManagedHostNetworkStatus(context.Context, *ManagedHostNetworkStatusRequest) (*ManagedHostNetworkStatusResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method GetAllManagedHostNetworkStatus not implemented")
@@ -10920,6 +10948,24 @@ func _Forge_GetSwitchNvosCredentials_Handler(srv interface{}, ctx context.Contex
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(ForgeServer).GetSwitchNvosCredentials(ctx, req.(*GetSwitchNvosCredentialsRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _Forge_GetSwitchBmcCredentials_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetSwitchBmcCredentialsRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ForgeServer).GetSwitchBmcCredentials(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Forge_GetSwitchBmcCredentials_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ForgeServer).GetSwitchBmcCredentials(ctx, req.(*GetSwitchBmcCredentialsRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -17509,6 +17555,10 @@ var Forge_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "GetSwitchNvosCredentials",
 			Handler:    _Forge_GetSwitchNvosCredentials_Handler,
+		},
+		{
+			MethodName: "GetSwitchBmcCredentials",
+			Handler:    _Forge_GetSwitchBmcCredentials_Handler,
 		},
 		{
 			MethodName: "GetAllManagedHostNetworkStatus",

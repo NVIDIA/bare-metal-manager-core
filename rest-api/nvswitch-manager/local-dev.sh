@@ -115,7 +115,6 @@ show_usage() {
     echo "  NSM:       localhost:50052  (gRPC)"
     echo "  Postgres:  localhost:5432"
     echo "  Temporal:  localhost:7233"
-    echo "  Vault:     localhost:8201"
 }
 
 case "${1:-}" in

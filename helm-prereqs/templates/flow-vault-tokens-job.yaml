@@ -1,11 +1,15 @@
 {{- if and .Values.flow.enabled .Values.vault.configJob.enabled }}
 ## =============================================================================
-## Flow Vault Tokens — psm-vault-token, nsm-vault-token
+## Flow Vault Tokens — psm-vault-token
 ## =============================================================================
-## PSM and NSM containers in the flow pod authenticate to Vault with a
+## The PSM container in the flow pod authenticates to Vault with a
 ## periodic token (VAULT_TOKEN env var).  Forged provisions these out-of-band;
 ## here we mint them with a scoped policy as a post-install Helm hook so
 ## `./setup.sh` brings flow up end-to-end with no manual secret juggling.
+##
+## NSM no longer needs a token: it reads switch credentials from nico-api,
+## which stores them encrypted in Postgres.  This job retires the artifacts
+## from when it did — see the cleanup steps below.
 ##
 ## Runs after the main vault-pki-config job (hook-weight: 20 > 10).
 ## Mints a periodic Vault token per service (period=24h; the token never
@@ -24,6 +28,15 @@ metadata:
     helm.sh/hook-weight: "15"
     helm.sh/hook-delete-policy: before-hook-creation
 ---
+## These rules are cluster-scoped rather than a Role in the flow namespace,
+## which would be the tighter grant, because this chart cannot own anything in
+## that namespace. The Job below is what creates it, so on a first install it
+## does not exist when these hooks are applied; and setup.sh then hands its Helm
+## ownership to the separate flow release, so rendering it from this chart makes
+## the next nico-prereqs upgrade fail on conflicting ownership metadata.
+##
+## The grants are therefore narrowed by verb and name instead of by namespace:
+## reads only on workloads, and `delete` on exactly one Secret name.
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
@@ -39,6 +52,25 @@ rules:
   - apiGroups: [""]
     resources: ["secrets"]
     verbs: ["get", "create", "update", "patch"]
+  ## `delete` exists only to retire the obsolete nsm-vault-token Secret, so it
+  ## is pinned to that one name rather than granted over secrets generally.
+  ## resourceNames is the right tool here because delete is a named operation;
+  ## it could not restrict `create`, which is authorized before a name exists.
+  - apiGroups: [""]
+    resources: ["secrets"]
+    resourceNames: ["nsm-vault-token"]
+    verbs: ["delete"]
+  ## Reading workloads lets the cleanup below check whether a not-yet-upgraded
+  ## nico-flow still mounts that Secret.
+  - apiGroups: ["apps"]
+    resources: ["deployments", "statefulsets", "daemonsets"]
+    verbs: ["get", "list"]
+  - apiGroups: ["batch"]
+    resources: ["jobs", "cronjobs"]
+    verbs: ["get", "list"]
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list"]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
@@ -134,20 +166,7 @@ spec:
               }
               POLICY
 
-              echo "Writing nsm-vault-policy..."
-              vault policy write nsm-vault-policy - <<'POLICY'
-              path "{{ .Values.vault.kvMount }}/data/nsm/*" {
-                capabilities = ["create", "read", "update", "delete", "list"]
-              }
-              path "{{ .Values.vault.kvMount }}/metadata/nsm/*" {
-                capabilities = ["read", "list", "delete"]
-              }
-              path "{{ .Values.vault.pkiMount }}/sign/{{ .Values.vault.pkiRole }}" {
-                capabilities = ["create", "update"]
-              }
-              POLICY
-
-              # Mint periodic tokens (renewable every 24h, never expire while renewed).
+              # Mint a periodic token (renewable every 24h, never expires while renewed).
               echo "Minting psm token..."
               vault token create \
                 -policy=psm-vault-policy \
@@ -155,15 +174,15 @@ spec:
                 -display-name=psm-vault-token \
                 -field=token > /tokens/psm-token
 
-              echo "Minting nsm token..."
-              vault token create \
-                -policy=nsm-vault-policy \
-                -period=24h \
-                -display-name=nsm-vault-token \
-                -field=token > /tokens/nsm-token
+              # nsm-vault-policy is deliberately left in place. Deleting it
+              # would strip capabilities from any NSM token still in use the
+              # moment this prereqs chart is upgraded, which need not be
+              # ordered against the nico-flow rollout. The retired token is
+              # periodic, so it lapses on its own within its 24h period once
+              # nothing renews it, and its Secret is removed below.
 
               touch /tokens/done
-              echo "Tokens minted"
+              echo "Token minted"
         ## ---------------------------------------------------------------
         ## Write tokens into k8s Secrets in the flow namespace.
         ## ---------------------------------------------------------------
@@ -187,15 +206,90 @@ spec:
                 nico.nvidia.com/managed=true --overwrite
 
               PSM_TOKEN=$(cat /tokens/psm-token)
-              NSM_TOKEN=$(cat /tokens/nsm-token)
 
-              for pair in "psm-vault-token:$PSM_TOKEN" "nsm-vault-token:$NSM_TOKEN"; do
-                name=${pair%%:*}
-                value=${pair#*:}
-                kubectl create secret generic "$name" \
-                  -n {{ .Values.flow.namespace }} \
-                  --from-literal=token="$value" \
-                  --dry-run=client -o yaml | kubectl apply -f -
+              kubectl create secret generic psm-vault-token \
+                -n {{ .Values.flow.namespace }} \
+                --from-literal=token="$PSM_TOKEN" \
+                --dry-run=client -o yaml | kubectl apply -f -
+              ## Name kept literal: this chart has no vault.psmTokenSecret value
+              ## (that key belongs to the separate nico-flow chart, whose default
+              ## is this same literal). Templating it here renders an empty name.
+              echo "psm-vault-token written to {{ .Values.flow.namespace }} namespace"
+
+              # Remove the Secret NSM used before it moved to nico-api for
+              # credentials; left in place it is a live Vault token in the
+              # namespace with no consumer.
+              #
+              # Guarded because nico-flow is a separate release with no ordering
+              # guarantee against this one. A not-yet-upgraded NSM Deployment
+              # still has a non-optional secretKeyRef to this Secret, and kubelet
+              # resolves that at container start whether or not NSM reads the
+              # value -- deleting it first would put any restarting NSM pod into
+              # CreateContainerConfigError. So skip while a reference remains;
+              # the next prereqs upgrade after nico-flow rolls out cleans it up.
+              # The scan fails closed: a query that errors marks the result
+              # unknown and keeps the Secret. Suppressing the error instead
+              # would make an unreachable API server look identical to "no
+              # references found" and delete a token that is still mounted.
+              RETIRED_SECRET=nsm-vault-token
+              SCAN_REFS=""
+              SCAN_OK=1
+
+              # scan <kind> <jsonpath>...  — append every Secret name the given
+              # resources reference to SCAN_REFS.
+              scan() {
+                kind=$1
+                shift
+                for path in "$@"; do
+                  if found=$(kubectl get "$kind" -n {{ .Values.flow.namespace }} \
+                               -o jsonpath="$path" 2>&1); then
+                    SCAN_REFS="$SCAN_REFS $found"
+                  else
+                    echo "  WARNING: could not scan $kind: $found"
+                    SCAN_OK=0
+                    return 0
+                  fi
+                done
+              }
+
+              # Every way a pod template can name a Secret: env, envFrom, and
+              # plain or projected volumes, in both regular and init containers.
+              for kind in deployments statefulsets daemonsets jobs; do
+                scan "$kind" \
+                  '{.items[*].spec.template.spec.containers[*].env[*].valueFrom.secretKeyRef.name}' \
+                  '{.items[*].spec.template.spec.initContainers[*].env[*].valueFrom.secretKeyRef.name}' \
+                  '{.items[*].spec.template.spec.containers[*].envFrom[*].secretRef.name}' \
+                  '{.items[*].spec.template.spec.initContainers[*].envFrom[*].secretRef.name}' \
+                  '{.items[*].spec.template.spec.volumes[*].secret.secretName}' \
+                  '{.items[*].spec.template.spec.volumes[*].projected.sources[*].secret.name}'
               done
-              echo "psm-vault-token and nsm-vault-token written to {{ .Values.flow.namespace }} namespace"
+              # CronJobs nest the pod template one level deeper, under jobTemplate.
+              scan cronjobs \
+                '{.items[*].spec.jobTemplate.spec.template.spec.containers[*].env[*].valueFrom.secretKeyRef.name}' \
+                '{.items[*].spec.jobTemplate.spec.template.spec.initContainers[*].env[*].valueFrom.secretKeyRef.name}' \
+                '{.items[*].spec.jobTemplate.spec.template.spec.containers[*].envFrom[*].secretRef.name}' \
+                '{.items[*].spec.jobTemplate.spec.template.spec.initContainers[*].envFrom[*].secretRef.name}' \
+                '{.items[*].spec.jobTemplate.spec.template.spec.volumes[*].secret.secretName}' \
+                '{.items[*].spec.jobTemplate.spec.template.spec.volumes[*].projected.sources[*].secret.name}'
+              # Pods directly, so a workload kind not listed above -- or a bare
+              # pod -- still counts as a reference.
+              scan pods \
+                '{.items[*].spec.containers[*].env[*].valueFrom.secretKeyRef.name}' \
+                '{.items[*].spec.initContainers[*].env[*].valueFrom.secretKeyRef.name}' \
+                '{.items[*].spec.containers[*].envFrom[*].secretRef.name}' \
+                '{.items[*].spec.initContainers[*].envFrom[*].secretRef.name}' \
+                '{.items[*].spec.volumes[*].secret.secretName}' \
+                '{.items[*].spec.volumes[*].projected.sources[*].secret.name}'
+
+              # grep -x so a similarly named Secret does not read as a match.
+              if [ "$SCAN_OK" -ne 1 ]; then
+                echo "could not confirm $RETIRED_SECRET is unreferenced in {{ .Values.flow.namespace }}; leaving it in place"
+              elif echo "$SCAN_REFS" | tr ' ' '\n' | grep -qx "$RETIRED_SECRET"; then
+                echo "$RETIRED_SECRET still referenced by a workload in {{ .Values.flow.namespace }}; leaving it in place"
+              else
+                kubectl delete secret "$RETIRED_SECRET" \
+                  -n {{ .Values.flow.namespace }} \
+                  --ignore-not-found
+                echo "retired $RETIRED_SECRET removed from {{ .Values.flow.namespace }} namespace (if present)"
+              fi
 {{- end }}

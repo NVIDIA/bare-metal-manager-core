@@ -5,6 +5,7 @@ package nvswitchmanager
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	"github.com/NVIDIA/infra-controller/rest-api/common/pkg/credential"
@@ -24,6 +25,17 @@ func newTestManager() *NVSwitchManager {
 		Registry:          nvswitchregistry.NewInMemoryRegistry(),
 		CredentialManager: credentials.NewInMemoryCredentialManager(),
 	}
+}
+
+// seeder exposes the in-memory store's write methods, which the read-only
+// CredentialManager interface does not carry. Registration no longer stores
+// credentials in persistent mode, so tests seed them the same way local dev
+// does.
+func seeder(t *testing.T, nm *NVSwitchManager) *credentials.InMemoryCredentialManager {
+	t.Helper()
+	m, ok := nm.CredentialManager.(*credentials.InMemoryCredentialManager)
+	require.True(t, ok, "test manager must use the in-memory credential manager")
+	return m
 }
 
 func mustParseBMC(t *testing.T, mac, ip string) *bmc.BMC {
@@ -130,11 +142,11 @@ func TestNVSwitchManager_Get(t *testing.T) {
 
 			if tc.setupBMCCred {
 				c := credential.New("admin", "pass")
-				require.NoError(t, nm.CredentialManager.PutBMC(ctx, tray.BMC.MAC, &c))
+				require.NoError(t, seeder(t, nm).PutBMC(ctx, tray.BMC.MAC, &c))
 			}
 			if tc.setupNVOSCred {
 				c := credential.New("nvos_admin", "nvos_pass")
-				require.NoError(t, nm.CredentialManager.PutNVOS(ctx, tray.BMC.MAC, &c))
+				require.NoError(t, seeder(t, nm).PutNVOS(ctx, tray.BMC.MAC, &c))
 			}
 
 			_, _, err := nm.Registry.Register(ctx, tray)
@@ -201,4 +213,90 @@ func TestNVSwitchManager_Get_NilNVOS(t *testing.T) {
 	assert.Error(t, err)
 	assert.Nil(t, got)
 	assert.Contains(t, err.Error(), "no NVOS subsystem")
+}
+
+// Delete must drop credentials this manager seeded itself, so a switch
+// re-registered on the same MAC does not silently inherit the old ones.
+// Core-owned credentials are a different matter and are never touched here.
+func TestNVSwitchManager_Delete_ForgetsSeededCredentials(t *testing.T) {
+	nm := newTestManager()
+	ctx := context.Background()
+
+	tray := newTestTray(t)
+	bmcCred := credential.New("admin", "pass")
+	tray.BMC.Credential = &bmcCred
+	nvosCred := credential.New("nvos_admin", "nvos_pass")
+	tray.NVOS.Credential = &nvosCred
+
+	id, _, err := nm.Register(ctx, tray)
+	require.NoError(t, err)
+
+	// Seeded by Register, so readable before the delete.
+	_, err = nm.CredentialManager.GetBMC(ctx, tray.BMC.MAC)
+	require.NoError(t, err)
+
+	require.NoError(t, nm.Delete(ctx, id))
+
+	_, err = nm.CredentialManager.GetBMC(ctx, tray.BMC.MAC)
+	assert.ErrorIs(t, err, credentials.ErrNotFound)
+	_, err = nm.CredentialManager.GetNVOS(ctx, tray.BMC.MAC)
+	assert.ErrorIs(t, err, credentials.ErrNotFound)
+}
+
+// A failed registration must not leave credentials behind for a switch that
+// does not exist, which is why Register seeds only after the registry accepts.
+// Two ways in: validation rejects the tray before the registry is reached, and
+// the registry itself rejects it. Neither may seed.
+func TestNVSwitchManager_Register_NoSeedWhenValidationRejects(t *testing.T) {
+	nm := newTestManager()
+	ctx := context.Background()
+
+	tray := newTestTray(t)
+	bmcCred := credential.New("admin", "pass")
+	tray.BMC.Credential = &bmcCred
+	tray.NVOS = nil // rejected before the registry is reached
+
+	_, _, err := nm.Register(ctx, tray)
+	require.Error(t, err)
+
+	_, err = nm.CredentialManager.GetBMC(ctx, tray.BMC.MAC)
+	assert.ErrorIs(t, err, credentials.ErrNotFound)
+}
+
+// rejectingRegistry fails every Register, leaving the rest of the Registry
+// behaviour to the in-memory implementation it embeds.
+type rejectingRegistry struct {
+	nvswitchregistry.Registry
+	err error
+}
+
+func (r *rejectingRegistry) Register(context.Context, *nvswitch.NVSwitchTray) (uuid.UUID, bool, error) {
+	return uuid.Nil, false, r.err
+}
+
+func TestNVSwitchManager_Register_NoSeedWhenRegistryRejects(t *testing.T) {
+	ctx := context.Background()
+	rejected := errors.New("registry rejected the switch")
+	nm := &NVSwitchManager{
+		Registry: &rejectingRegistry{
+			Registry: nvswitchregistry.NewInMemoryRegistry(),
+			err:      rejected,
+		},
+		CredentialManager: credentials.NewInMemoryCredentialManager(),
+	}
+
+	// A fully valid tray, so the registry is what does the rejecting.
+	tray := newTestTray(t)
+	bmcCred := credential.New("admin", "pass")
+	tray.BMC.Credential = &bmcCred
+	nvosCred := credential.New("nvos-admin", "nvos-pass")
+	tray.NVOS.Credential = &nvosCred
+
+	_, _, err := nm.Register(ctx, tray)
+	require.ErrorIs(t, err, rejected)
+
+	_, err = nm.CredentialManager.GetBMC(ctx, tray.BMC.MAC)
+	assert.ErrorIs(t, err, credentials.ErrNotFound)
+	_, err = nm.CredentialManager.GetNVOS(ctx, tray.BMC.MAC)
+	assert.ErrorIs(t, err, credentials.ErrNotFound)
 }

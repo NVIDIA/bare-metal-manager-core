@@ -26,13 +26,13 @@ func TestNewCredentialManager_TypeByConfig(t *testing.T) {
 				return NewInMemoryCredentialManager()
 			},
 		},
-		"vault with nil config returns validation error": {
+		"core with nil config returns validation error": {
 			cfg: Config{
-				DataStoreType: DatastoreTypeVault,
-				VaultConfig:   nil,
+				DataStoreType: DatastoreTypeCore,
+				CoreConfig:    nil,
 			},
 			expectErr:   true,
-			errContains: "vault config needs to be specified",
+			errContains: "core config needs to be specified",
 		},
 		"unsupported datastore type returns error": {
 			cfg: Config{
@@ -40,13 +40,6 @@ func TestNewCredentialManager_TypeByConfig(t *testing.T) {
 			},
 			expectErr:   true,
 			errContains: "unsupported datastore type",
-		},
-		"vault with non-nil config: returned type matches VaultConfig.NewManager()": {
-			cfg: Config{
-				DataStoreType: DatastoreTypeVault,
-				VaultConfig:   &VaultConfig{Address: "http://127.0.0.1", Token: "x"},
-			},
-			expectErr: false,
 		},
 	}
 
@@ -73,13 +66,6 @@ func TestNewCredentialManager_TypeByConfig(t *testing.T) {
 				expected := tc.checkTypeWithFn()
 				assert.Equal(t, reflect.TypeOf(expected), reflect.TypeOf(mgr))
 				return
-			}
-
-			if tc.cfg.DataStoreType == DatastoreTypeVault && tc.cfg.VaultConfig != nil {
-				expMgr, expErr := tc.cfg.VaultConfig.NewManager()
-				assert.NoError(t, expErr)
-				assert.NotNil(t, expMgr)
-				assert.Equal(t, reflect.TypeOf(expMgr), reflect.TypeOf(mgr))
 			}
 		})
 	}

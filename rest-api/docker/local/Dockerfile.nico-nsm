@@ -28,6 +28,10 @@ COPY sdk/standard/go.mod ./sdk/standard/
 # Download dependencies
 RUN go mod download
 
+# common/ and proto/ are imported by nvswitch-manager: the shared credential
+# type, and the generated NICo Core gRPC client it reads credentials through.
+COPY common/ ./common/
+COPY proto/ ./proto/
 COPY nvswitch-manager/ ./nvswitch-manager/
 
 WORKDIR /workspace/nvswitch-manager

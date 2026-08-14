@@ -12,29 +12,29 @@ import (
 type DataStoreType string
 
 const (
-	DatastoreTypeVault    DataStoreType = "Vault"
+	DatastoreTypeCore     DataStoreType = "Core"
 	DatastoreTypeInMemory DataStoreType = "InMemory"
 )
 
-// Config holds the selected backend and provider config (Vault).
+// Config holds the selected backend and provider config (NICo Core).
 type Config struct {
 	DataStoreType DataStoreType
-	VaultConfig   *VaultConfig
+	CoreConfig    *CoreConfig
 }
 
 func (c *Config) String() string {
-	return fmt.Sprintf("DataStoreType: %s; VaultConfig: %v", c.DataStoreType, c.VaultConfig)
+	return fmt.Sprintf("DataStoreType: %s; CoreConfig: %v", c.DataStoreType, c.CoreConfig)
 }
 
 // Validate checks if the Config fields are set correctly.
 func (c *Config) Validate() error {
 	switch c.DataStoreType {
-	case DatastoreTypeVault:
-		if c.VaultConfig == nil {
-			return errors.New("vault config needs to be specified when using Vault as the credential manager datastore")
+	case DatastoreTypeCore:
+		if c.CoreConfig == nil {
+			return errors.New("core config needs to be specified when using NICo Core as the credential manager datastore")
 		}
 
-		return c.VaultConfig.Validate()
+		return c.CoreConfig.Validate()
 	}
 	return nil
 }

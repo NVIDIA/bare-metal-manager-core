@@ -538,33 +538,35 @@ pub(crate) async fn get_switch_nvos_credentials(
     crate::api::log_request_data(&request);
 
     let req = request.into_inner();
-    let switch_id = req
-        .switch_id
-        .ok_or_else(|| CarbideError::InvalidArgument("switch_id is required".to_string()))?;
 
-    let bmc_mac_address = {
-        let mut txn = api.txn_begin().await?;
-        let switches = db::switch::find_by(
-            &mut txn,
-            db::ObjectColumnFilter::One(db::switch::IdColumn, &switch_id),
-        )
-        .await?;
-        txn.rollback_or_log("read-only load of switch for credential lookup")
-            .await;
-
-        let switch = switches
-            .first()
-            .ok_or_else(|| CarbideError::NotFoundError {
-                kind: "switch",
-                id: switch_id.to_string(),
-            })?;
-
-        switch
-            .bmc_mac_address
-            .ok_or_else(|| CarbideError::NotFoundError {
-                kind: "switch_bmc_mac_address",
-                id: switch_id.to_string(),
-            })?
+    // `subject` is the caller's own spelling of the switch, used verbatim in
+    // NotFound errors so the operator sees back what they asked for.
+    //
+    // Exclusivity is enforced here rather than by a oneof; see the message
+    // definition in forge.proto for why. Setting both is rejected instead of
+    // picking a winner, which would silently ignore half the request.
+    let (bmc_mac_address, subject) = match (req.switch_id, req.bmc_mac_addr) {
+        (Some(_), Some(_)) => {
+            return Err(CarbideError::InvalidArgument(
+                "set exactly one of switch_id or bmc_mac_addr, not both".to_string(),
+            )
+            .into());
+        }
+        (Some(switch_id), None) => {
+            let mac = resolve_switch_bmc_mac(api, &switch_id).await?;
+            (mac, switch_id.to_string())
+        }
+        (None, Some(mac_addr)) => {
+            let mac = parse_bmc_mac(&mac_addr)?;
+            require_expected_switch(api, mac, &mac_addr).await?;
+            (mac, mac_addr)
+        }
+        (None, None) => {
+            return Err(CarbideError::InvalidArgument(
+                "switch_id or bmc_mac_addr is required".to_string(),
+            )
+            .into());
+        }
     };
 
     let credentials = api
@@ -572,20 +574,131 @@ pub(crate) async fn get_switch_nvos_credentials(
         .get_credentials(&CredentialKey::SwitchNvosAdmin { bmc_mac_address })
         .await
         .map_err(|e| CarbideError::internal(e.to_string()))?
-        .ok_or_else(|| CarbideError::NotFoundError {
+        .ok_or(CarbideError::NotFoundError {
             kind: "switch_nvos_credentials",
+            id: subject,
+        })?;
+
+    Ok(Response::new(username_password_response(credentials)))
+}
+
+/// Read a switch BMC's stored root credential by BMC MAC.
+///
+/// Deliberately not routed through [`get_bmc_credentals`]: that path resolves
+/// the BMC IP from `machine_interface` and mints a Redfish session token, and
+/// switch BMCs are in neither the machine tables nor the session manager. This
+/// mirrors `fetch_switch_bmc_credentials` in the component-manager handler.
+///
+/// The MAC is checked against expected-switch inventory first. `BmcRoot` is
+/// one namespace shared by switch BMCs, compute tray BMCs, and power shelf
+/// PMCs (see `component_manager.rs`), keyed only by MAC -- without this gate a
+/// caller authorized for switch credentials could name any machine's BMC MAC
+/// and read that machine's root password. Expected inventory, rather than the
+/// discovered `switches` table, is authoritative here because site exploration
+/// stores BMC credentials before it creates the switch row.
+pub(crate) async fn get_switch_bmc_credentials(
+    api: &Api,
+    request: tonic::Request<rpc::GetSwitchBmcCredentialsRequest>,
+) -> Result<Response<rpc::GetBmcCredentialsResponse>, tonic::Status> {
+    crate::api::log_request_data(&request);
+
+    let req = request.into_inner();
+    let bmc_mac_address = parse_bmc_mac(&req.bmc_mac_addr)?;
+
+    require_expected_switch(api, bmc_mac_address, &req.bmc_mac_addr).await?;
+
+    let credentials = api
+        .credential_manager
+        .get_credentials(&CredentialKey::BmcCredentials {
+            credential_type: BmcCredentialType::BmcRoot { bmc_mac_address },
+        })
+        .await
+        .map_err(|e| CarbideError::internal(e.to_string()))?
+        .ok_or(CarbideError::NotFoundError {
+            kind: "switch_bmc_credentials",
+            id: req.bmc_mac_addr,
+        })?;
+
+    Ok(Response::new(username_password_response(credentials)))
+}
+
+/// Parse a caller-supplied BMC MAC.
+///
+/// Reported as InvalidArgument rather than letting `MacAddressParseError` fall
+/// through to the catch-all Internal mapping: a malformed MAC is the caller's
+/// mistake, and Internal would invite them to retry it forever.
+fn parse_bmc_mac(mac_addr: &str) -> Result<MacAddress, CarbideError> {
+    mac_addr.parse().map_err(|error| {
+        CarbideError::InvalidArgument(format!("invalid bmc_mac_addr {mac_addr:?}: {error}"))
+    })
+}
+
+/// Ensure a MAC is declared as a switch before returning a switch-only secret.
+///
+/// Expected-switch inventory exists before discovery and is removed when the
+/// operator removes the expected switch. It therefore both permits the normal
+/// pre-discovery credential path and prevents an orphaned credential from being
+/// read merely by knowing its MAC.
+async fn require_expected_switch(
+    api: &Api,
+    bmc_mac_address: MacAddress,
+    subject: &str,
+) -> Result<(), CarbideError> {
+    let mut txn = api.txn_begin().await?;
+    let expected_switch =
+        db::expected_switch::find_by_bmc_mac_address(&mut txn, bmc_mac_address).await?;
+    txn.rollback_or_log("read-only expected-switch lookup for credential authorization")
+        .await;
+
+    if expected_switch.is_none() {
+        return Err(CarbideError::NotFoundError {
+            kind: "expected_switch",
+            id: subject.to_string(),
+        });
+    }
+
+    Ok(())
+}
+
+/// Load a switch's BMC MAC, the key its credentials are stored under.
+async fn resolve_switch_bmc_mac(
+    api: &Api,
+    switch_id: &carbide_uuid::switch::SwitchId,
+) -> Result<MacAddress, CarbideError> {
+    let mut txn = api.txn_begin().await?;
+    let switches = db::switch::find_by(
+        &mut txn,
+        db::ObjectColumnFilter::One(db::switch::IdColumn, switch_id),
+    )
+    .await?;
+    txn.rollback_or_log("read-only load of switch for credential lookup")
+        .await;
+
+    let switch = switches
+        .first()
+        .ok_or_else(|| CarbideError::NotFoundError {
+            kind: "switch",
             id: switch_id.to_string(),
         })?;
 
+    switch
+        .bmc_mac_address
+        .ok_or_else(|| CarbideError::NotFoundError {
+            kind: "switch_bmc_mac_address",
+            id: switch_id.to_string(),
+        })
+}
+
+fn username_password_response(credentials: Credentials) -> rpc::GetBmcCredentialsResponse {
     let Credentials::UsernamePassword { username, password } = credentials;
 
-    Ok(Response::new(rpc::GetBmcCredentialsResponse {
+    rpc::GetBmcCredentialsResponse {
         credentials: Some(rpc::BmcCredentials {
             r#type: Some(rpc::bmc_credentials::Type::UsernamePassword(
                 rpc::UsernamePassword { username, password },
             )),
         }),
-    }))
+    }
 }
 
 async fn set_sitewide_bmc_root_credentials(

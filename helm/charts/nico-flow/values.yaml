@@ -3,8 +3,15 @@
 ## =============================================================================
 ## Single pod with three gRPC containers: flow (50051), psm (50052), nsm (50053).
 ## Each container has its own Postgres database (flow, psm, nsm) on the shared
-## nico-pg-cluster.  PSM and NSM also need a Vault token (provisioned by the
-## helm-prereqs vault-config-job).
+## nico-pg-cluster.  PSM also needs a Vault token (provisioned by the
+## helm-prereqs flow-vault-tokens post-install hook; debug with
+## 'kubectl logs -n nico-system job/flow-vault-tokens').  NSM reads switch
+## credentials from nico-api instead, which stores them encrypted in Postgres.
+##
+## That requires a nico-api carrying GetSwitchBmcCredentials and the
+## bmc_mac_addr selector on GetSwitchNvosCredentials, so UPGRADE nico-api
+## BEFORE this chart.  There is no fallback path: against an older Core every
+## NSM credential lookup fails rather than silently using a stale password.
 ##
 ## Deploys into a dedicated `flow` namespace.  The namespace must carry the
 ## label nico.nvidia.com/managed=true so ESO syncs nico-roots in.
@@ -167,11 +174,10 @@ temporal:
   serverName: interservice.server.temporal.local
   certPath: /var/run/secrets/temporal-client-certs
 
-## Vault for PSM/NSM dynamic secrets.
+## Vault for PSM dynamic secrets.
 vault:
   address: https://vault.vault.svc.cluster.local:8200
   psmTokenSecret: psm-vault-token
-  nsmTokenSecret: nsm-vault-token
 
 ## Firmware staging volumes (emptyDir by default; override with hostPath for sites
 ## that need a persistent firmware repo).

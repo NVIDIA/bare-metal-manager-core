@@ -394,7 +394,7 @@ section "NICo Flow"
 FLOW_NS="${FLOW_NS:-flow}"
 if kc get ns "${FLOW_NS}" &>/dev/null; then
   _check_deployment "${FLOW_NS}" flow
-  for _S in psm-vault-token nsm-vault-token \
+  for _S in psm-vault-token \
             flow.nico.nico-pg-cluster.credentials \
             psm.nico.nico-pg-cluster.credentials \
             nsm.nico.nico-pg-cluster.credentials \

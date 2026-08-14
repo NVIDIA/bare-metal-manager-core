@@ -28,7 +28,7 @@ use tonic::Code;
 
 use crate::handlers::credential::TEST_MAX_BGP_PASSWORD_LENGTH;
 use crate::tests::common::api_fixtures::create_test_env;
-use crate::tests::common::api_fixtures::site_explorer::new_switch;
+use crate::tests::common::api_fixtures::site_explorer::{create_expected_switch, new_switch};
 
 #[crate::sqlx_test]
 async fn test_create_host_uefi_credential_when_missing(pool: sqlx::PgPool) {
@@ -295,22 +295,253 @@ async fn test_get_switch_nvos_credentials(pool: sqlx::PgPool) -> eyre::Result<()
         .get_switch_nvos_credentials(tonic::Request::new(
             rpc::forge::GetSwitchNvosCredentialsRequest {
                 switch_id: Some(switch_id),
+                bmc_mac_addr: None,
             },
         ))
         .await?
         .into_inner();
 
+    let (username, password) = expect_username_password(response);
+    assert_eq!(username, "nvos-admin");
+    assert_eq!(password, "nvos-secret");
+
+    // The same credential resolves by BMC MAC, the key it is stored under.
+    // NSM has no SwitchId, so this is the selector it uses.
+    let by_mac = env
+        .api
+        .get_switch_nvos_credentials(tonic::Request::new(
+            rpc::forge::GetSwitchNvosCredentialsRequest {
+                switch_id: None,
+                bmc_mac_addr: Some(bmc_mac_address.to_string()),
+            },
+        ))
+        .await?
+        .into_inner();
+
+    let (username, password) = expect_username_password(by_mac);
+    assert_eq!(username, "nvos-admin");
+    assert_eq!(password, "nvos-secret");
+
+    Ok(())
+}
+
+#[crate::sqlx_test]
+async fn test_get_switch_nvos_credentials_rejects_bad_selector(
+    pool: sqlx::PgPool,
+) -> eyre::Result<()> {
+    let env = create_test_env(pool).await;
+
+    // Neither field set: an empty request must not silently resolve to some
+    // default switch.
+    let status = env
+        .api
+        .get_switch_nvos_credentials(tonic::Request::new(
+            rpc::forge::GetSwitchNvosCredentialsRequest {
+                switch_id: None,
+                bmc_mac_addr: None,
+            },
+        ))
+        .await
+        .expect_err("missing selector must be rejected");
+    assert_eq!(status.code(), Code::InvalidArgument);
+
+    // Both set: rejected rather than silently preferring one, which would
+    // ignore half of what the caller asked for. Exclusivity is enforced by the
+    // handler because the fields are not a oneof.
+    let status = env
+        .api
+        .get_switch_nvos_credentials(tonic::Request::new(
+            rpc::forge::GetSwitchNvosCredentialsRequest {
+                switch_id: Some(carbide_uuid::switch::SwitchId::from(uuid::Uuid::new_v4())),
+                bmc_mac_addr: Some("00:11:22:33:44:55".to_string()),
+            },
+        ))
+        .await
+        .expect_err("setting both selectors must be rejected");
+    assert_eq!(status.code(), Code::InvalidArgument);
+
+    let status = env
+        .api
+        .get_switch_nvos_credentials(tonic::Request::new(
+            rpc::forge::GetSwitchNvosCredentialsRequest {
+                switch_id: None,
+                bmc_mac_addr: Some("not-a-mac".to_string()),
+            },
+        ))
+        .await
+        .expect_err("unparseable MAC must be rejected");
+    assert_eq!(status.code(), Code::InvalidArgument);
+
+    // A well-formed MAC with no stored credential is NotFound, not an error
+    // the caller should retry.
+    let status = env
+        .api
+        .get_switch_nvos_credentials(tonic::Request::new(
+            rpc::forge::GetSwitchNvosCredentialsRequest {
+                switch_id: None,
+                bmc_mac_addr: Some("00:11:22:33:44:55".to_string()),
+            },
+        ))
+        .await
+        .expect_err("unknown MAC must be NotFound");
+    assert_eq!(status.code(), Code::NotFound);
+
+    // A stored credential is not sufficient authorization: this MAC is not
+    // declared by expected-switch inventory, so it may be an orphan left after
+    // an expected switch was removed.
+    let orphaned_mac: mac_address::MacAddress = "aa:bb:cc:00:11:22".parse()?;
+    env.test_credential_manager
+        .set_credentials(
+            &CredentialKey::SwitchNvosAdmin {
+                bmc_mac_address: orphaned_mac,
+            },
+            &Credentials::UsernamePassword {
+                username: "nvos-admin".to_string(),
+                password: "orphaned-secret".to_string(),
+            },
+        )
+        .await?;
+    let status = env
+        .api
+        .get_switch_nvos_credentials(tonic::Request::new(
+            rpc::forge::GetSwitchNvosCredentialsRequest {
+                switch_id: None,
+                bmc_mac_addr: Some(orphaned_mac.to_string()),
+            },
+        ))
+        .await
+        .expect_err("an orphaned credential must not be readable");
+    assert_eq!(status.code(), Code::NotFound);
+
+    Ok(())
+}
+
+#[crate::sqlx_test]
+async fn test_get_switch_bmc_credentials(pool: sqlx::PgPool) -> eyre::Result<()> {
+    let env = create_test_env(pool).await;
+    let switch_id = new_switch(&env, Some("Switch1".to_string()), None).await?;
+    let bmc_mac_address = db::switch::find_switch_endpoints_by_ids(&env.pool, &[switch_id])
+        .await?
+        .first()
+        .expect("switch endpoint row")
+        .bmc_mac;
+
+    env.test_credential_manager
+        .set_credentials(
+            &CredentialKey::BmcCredentials {
+                credential_type: BmcCredentialType::BmcRoot { bmc_mac_address },
+            },
+            &Credentials::UsernamePassword {
+                username: "root".to_string(),
+                password: "bmc-secret".to_string(),
+            },
+        )
+        .await?;
+
+    let response = env
+        .api
+        .get_switch_bmc_credentials(tonic::Request::new(
+            rpc::forge::GetSwitchBmcCredentialsRequest {
+                bmc_mac_addr: bmc_mac_address.to_string(),
+            },
+        ))
+        .await?
+        .into_inner();
+
+    // Unlike GetBmcCredentials, this returns the stored password rather than a
+    // minted Redfish session token: switch BMCs have no machine_interface row
+    // and no session manager entry.
+    let (username, password) = expect_username_password(response);
+    assert_eq!(username, "root");
+    assert_eq!(password, "bmc-secret");
+
+    // Site exploration stores the BMC credential before creating a discovered
+    // switch row. The RPC must support that expected-but-undiscovered state,
+    // which persistent NSM relies on after it stops accepting request secrets.
+    let expected_switch = {
+        let mut txn = env.pool.begin().await?;
+        let expected_switch = create_expected_switch(&mut txn, 42).await;
+        txn.commit().await?;
+        expected_switch
+    };
+    env.test_credential_manager
+        .set_credentials(
+            &CredentialKey::BmcCredentials {
+                credential_type: BmcCredentialType::BmcRoot {
+                    bmc_mac_address: expected_switch.bmc_mac_address,
+                },
+            },
+            &Credentials::UsernamePassword {
+                username: "root".to_string(),
+                password: "expected-switch-secret".to_string(),
+            },
+        )
+        .await?;
+    let response = env
+        .api
+        .get_switch_bmc_credentials(tonic::Request::new(
+            rpc::forge::GetSwitchBmcCredentialsRequest {
+                bmc_mac_addr: expected_switch.bmc_mac_address.to_string(),
+            },
+        ))
+        .await?
+        .into_inner();
+    let (username, password) = expect_username_password(response);
+    assert_eq!(username, "root");
+    assert_eq!(password, "expected-switch-secret");
+
+    let status = env
+        .api
+        .get_switch_bmc_credentials(tonic::Request::new(
+            rpc::forge::GetSwitchBmcCredentialsRequest {
+                bmc_mac_addr: "00:11:22:33:44:55".to_string(),
+            },
+        ))
+        .await
+        .expect_err("unknown MAC must be NotFound");
+    assert_eq!(status.code(), Code::NotFound);
+
+    // A MAC that has a BmcRoot credential but is not a switch must not be
+    // readable here: BmcRoot is shared with compute trays and power shelves,
+    // so without the switch-inventory gate this RPC would hand out any
+    // machine's root password to a caller authorized only for switches.
+    let non_switch_mac: mac_address::MacAddress = "aa:bb:cc:00:11:22".parse()?;
+    env.test_credential_manager
+        .set_credentials(
+            &CredentialKey::BmcCredentials {
+                credential_type: BmcCredentialType::BmcRoot {
+                    bmc_mac_address: non_switch_mac,
+                },
+            },
+            &Credentials::UsernamePassword {
+                username: "root".to_string(),
+                password: "compute-node-secret".to_string(),
+            },
+        )
+        .await?;
+
+    let status = env
+        .api
+        .get_switch_bmc_credentials(tonic::Request::new(
+            rpc::forge::GetSwitchBmcCredentialsRequest {
+                bmc_mac_addr: non_switch_mac.to_string(),
+            },
+        ))
+        .await
+        .expect_err("a non-switch BMC credential must not be readable");
+    assert_eq!(status.code(), Code::NotFound);
+
+    Ok(())
+}
+
+fn expect_username_password(response: rpc::forge::GetBmcCredentialsResponse) -> (String, String) {
     let credentials = response.credentials.expect("credentials");
     let Some(rpc::forge::bmc_credentials::Type::UsernamePassword(username_password)) =
         credentials.r#type
     else {
         panic!("expected username/password credentials");
     };
-
-    assert_eq!(username_password.username, "nvos-admin");
-    assert_eq!(username_password.password, "nvos-secret");
-
-    Ok(())
+    (username_password.username, username_password.password)
 }
 
 #[crate::sqlx_test]

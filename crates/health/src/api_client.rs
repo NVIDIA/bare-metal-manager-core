@@ -238,6 +238,7 @@ impl CredentialProvider for ApiCredentialProvider {
                 ApiCredentialKind::SwitchNvosAdmin { switch_id } => {
                     let request = rpc::forge::GetSwitchNvosCredentialsRequest {
                         switch_id: Some(*switch_id),
+                        bmc_mac_addr: None,
                     };
                     self.client
                         .get_switch_nvos_credentials(request)

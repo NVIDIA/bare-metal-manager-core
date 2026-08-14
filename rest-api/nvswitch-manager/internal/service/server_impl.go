@@ -77,6 +77,8 @@ func (s *NVSwitchManagerServerImpl) registerNVSwitch(
 	}
 
 	if s.nsm.DataStoreType == nvswitchmanager.DatastoreTypeInMemory {
+		// In-memory mode has no NICo Core to read from, so registration must
+		// carry the credentials that seed the in-memory store.
 		if bmcCred == nil {
 			return &pb.RegisterNVSwitchResponse{
 				Status: pb.StatusCode_INVALID_ARGUMENT,
@@ -89,6 +91,15 @@ func (s *NVSwitchManagerServerImpl) registerNVSwitch(
 				Error:  "NVOS credentials are required when running in in-memory mode",
 			}
 		}
+	} else if bmcCred != nil || nvosCred != nil {
+		// Persistent mode reads credentials from NICo Core, which owns their
+		// storage and rotation. Registering them here would have no effect,
+		// so say so rather than silently dropping them.
+		log.Warnf("ignoring credentials supplied when registering switch %s: NICo Core is the source of switch credentials", req.Bmc.MacAddress)
+		// Dropped here rather than merely left unwritten, so "ignored" holds by
+		// construction and they cannot ride along on the objects built below.
+		bmcCred = nil
+		nvosCred = nil
 	}
 
 	bmcObj, err := bmc.New(req.Bmc.MacAddress, req.Bmc.IpAddress, bmcCred)

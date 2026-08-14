@@ -1010,6 +1010,13 @@ impl Forge for Api {
         crate::handlers::credential::get_switch_nvos_credentials(self, request).await
     }
 
+    async fn get_switch_bmc_credentials(
+        &self,
+        request: Request<rpc::GetSwitchBmcCredentialsRequest>,
+    ) -> Result<Response<rpc::GetBmcCredentialsResponse>, Status> {
+        crate::handlers::credential::get_switch_bmc_credentials(self, request).await
+    }
+
     async fn get_container_registry_credential(
         &self,
         request: Request<rpc::GetContainerRegistryCredentialRequest>,

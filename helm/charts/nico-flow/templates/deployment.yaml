@@ -173,13 +173,13 @@ spec:
               value: {{ .Values.database.port | quote }}
             - name: DB_CERT_PATH
               value: {{ .Values.database.certPath | quote }}
-            - name: VAULT_TOKEN
-              valueFrom:
-                secretKeyRef:
-                  name: {{ .Values.vault.nsmTokenSecret }}
-                  key: token
-            - name: VAULT_ADDR
-              value: {{ .Values.vault.address | quote }}
+            ## The image entrypoint is `nsm serve` with no arguments, and the
+            ## flag defaults to InMemory -- without this the Postgres registry
+            ## and Core credential reads configured above are all ignored.
+            - name: NSM_DATASTORE
+              value: Persistent
+            - name: NICO_CORE_API_URL
+              value: {{ .Values.nicoCoreApi.url | quote }}
             - name: FW_FIRMWARE_DIR
               value: {{ printf "%s/firmware" .Values.firmware.nsm.mountPath | quote }}
             - name: FW_BUNDLES_DIR

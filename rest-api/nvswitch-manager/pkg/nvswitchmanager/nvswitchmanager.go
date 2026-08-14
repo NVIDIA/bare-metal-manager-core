@@ -6,6 +6,7 @@ package nvswitchmanager
 import (
 	"context"
 	"fmt"
+	"net"
 
 	"github.com/NVIDIA/infra-controller/rest-api/nvswitch-manager/pkg/credentials"
 	"github.com/NVIDIA/infra-controller/rest-api/nvswitch-manager/pkg/nvswitchregistry"
@@ -67,7 +68,13 @@ func (nm *NVSwitchManager) Stop(ctx context.Context) error {
 	return nm.CredentialManager.Stop(ctx)
 }
 
-// Register registers a new NV-Switch tray and stores its credentials.
+// Register registers a new NV-Switch tray.
+//
+// In persistent mode, credentials carried on the tray are ignored: NICo Core
+// owns switch credentials, seeding them from the expected-switch record and
+// rotating them from the switch controller, so registration records identity
+// and routing only. In in-memory mode there is no Core to read from, so the
+// supplied credentials seed the in-memory store instead.
 func (nm *NVSwitchManager) Register(ctx context.Context, tray *nvswitch.NVSwitchTray) (uuid.UUID, bool, error) {
 	if tray.BMC == nil {
 		return uuid.Nil, false, fmt.Errorf("tray BMC subsystem is required")
@@ -76,21 +83,30 @@ func (nm *NVSwitchManager) Register(ctx context.Context, tray *nvswitch.NVSwitch
 		return uuid.Nil, false, fmt.Errorf("tray NVOS subsystem is required")
 	}
 
-	// Store credentials first
-	if tray.BMC.Credential != nil {
-		if err := nm.CredentialManager.PutBMC(ctx, tray.BMC.MAC, tray.BMC.Credential); err != nil {
-			return uuid.Nil, false, fmt.Errorf("failed to store BMC credentials: %v", err)
+	// Register first, then seed. Seeding beforehand would leave credentials
+	// behind for a switch that never registered.
+	id, created, err := nm.Registry.Register(ctx, tray)
+	if err != nil {
+		return id, created, err
+	}
+
+	// The registry has already accepted the switch at this point, so a seeding
+	// failure reports the real id rather than uuid.Nil: the caller needs it to
+	// reach the registered-but-unseeded switch and reconcile.
+	if seeder, ok := nm.CredentialManager.(*credentials.InMemoryCredentialManager); ok {
+		if tray.BMC.Credential != nil {
+			if err := seeder.PutBMC(ctx, tray.BMC.MAC, tray.BMC.Credential); err != nil {
+				return id, created, fmt.Errorf("failed to seed BMC credentials: %v", err)
+			}
+		}
+		if tray.NVOS.Credential != nil {
+			if err := seeder.PutNVOS(ctx, tray.BMC.MAC, tray.NVOS.Credential); err != nil {
+				return id, created, fmt.Errorf("failed to seed NVOS credentials: %v", err)
+			}
 		}
 	}
 
-	if tray.NVOS.Credential != nil {
-		if err := nm.CredentialManager.PutNVOS(ctx, tray.BMC.MAC, tray.NVOS.Credential); err != nil {
-			return uuid.Nil, false, fmt.Errorf("failed to store NVOS credentials: %v", err)
-		}
-	}
-
-	// Register in registry
-	return nm.Registry.Register(ctx, tray)
+	return id, created, nil
 }
 
 // Get retrieves an NV-Switch by UUID and attaches credentials.
@@ -127,18 +143,33 @@ func (nm *NVSwitchManager) List(ctx context.Context) ([]*nvswitch.NVSwitchTray, 
 	return nm.Registry.List(ctx)
 }
 
-// Delete removes an NV-Switch and its credentials.
+// Delete removes an NV-Switch from the registry.
+//
+// Core-owned credentials are left alone: Core owns their lifecycle, and a
+// switch deregistered here may still be a live, credentialed switch there.
+// Credentials this manager seeded into its own in-memory store are dropped
+// with the switch, so a later re-registration does not silently inherit them.
 func (nm *NVSwitchManager) Delete(ctx context.Context, id uuid.UUID) error {
-	tray, err := nm.Registry.Get(ctx, id)
-	if err != nil {
+	// The MAC has to be read before the delete, but forgetting has to happen
+	// after it succeeds: dropping the credentials first would strip a switch
+	// that is still registered if the delete then fails.
+	var seeder *credentials.InMemoryCredentialManager
+	var bmcMAC net.HardwareAddr
+	if manager, ok := nm.CredentialManager.(*credentials.InMemoryCredentialManager); ok {
+		seeder = manager
+		// Best effort: the registry delete below is what the caller asked for,
+		// and a switch that cannot be loaded has no MAC to forget anyway.
+		if tray, err := nm.Registry.Get(ctx, id); err == nil && tray.BMC != nil {
+			bmcMAC = tray.BMC.MAC
+		}
+	}
+
+	if err := nm.Registry.Delete(ctx, id); err != nil {
 		return err
 	}
 
-	// Delete credentials
-	if tray.BMC != nil {
-		_ = nm.CredentialManager.DeleteBMC(ctx, tray.BMC.MAC)
-		_ = nm.CredentialManager.DeleteNVOS(ctx, tray.BMC.MAC)
+	if seeder != nil && bmcMAC != nil {
+		seeder.Forget(ctx, bmcMAC)
 	}
-
-	return nm.Registry.Delete(ctx, id)
+	return nil
 }

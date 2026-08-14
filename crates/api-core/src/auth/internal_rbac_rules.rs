@@ -276,7 +276,10 @@ impl InternalRBACRules {
         x.perm("DeleteTenantKeyset", vec![SiteAgent]);
         x.perm("ValidateTenantPublicKey", vec![SiteAgent, Ssh, SshRs]);
         x.perm("GetBmcCredentials", vec![Health, BmcProxy]);
-        x.perm("GetSwitchNvosCredentials", vec![Health]);
+        // Flow covers the nsm container, which shares the nico-flow pod's
+        // SPIFFE identity and reads switch credentials it no longer stores.
+        x.perm("GetSwitchNvosCredentials", vec![Health, Flow]);
+        x.perm("GetSwitchBmcCredentials", vec![Flow]);
         x.perm("GetAllManagedHostNetworkStatus", vec![ForgeAdminCLI]);
         x.perm(
             "GetSiteExplorationReport",
@@ -1261,6 +1264,17 @@ mod rbac_rule_tests {
             "MachineSetAutoUpdate",
             &[Principal::SpiffeServiceIdentifier("nico-flow".to_string())]
         ));
+        // The nsm container shares the nico-flow pod's identity, so these two
+        // pin the switch credential reads it depends on against scope drift.
+        for method in ["GetSwitchNvosCredentials", "GetSwitchBmcCredentials"] {
+            assert!(
+                InternalRBACRules::allowed_from_static(
+                    method,
+                    &[Principal::SpiffeServiceIdentifier("nico-flow".to_string())]
+                ),
+                "{method} should allow Flow"
+            );
+        }
         for method in ["FindMacAddressByBmcIp", "GetBmcCredentials"] {
             assert!(
                 InternalRBACRules::allowed_from_static(

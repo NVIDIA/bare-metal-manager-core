@@ -20,7 +20,7 @@ import (
 type Config struct {
 	Port          int
 	DataStoreType nvswitchmanager.DataStoreType
-	VaultConf     credentials.VaultConfig
+	CoreConf      credentials.CoreConfig
 	DBConf        db.Config
 	FirmwareConf  FirmwareConfig
 }
@@ -46,17 +46,17 @@ func (c *FirmwareConfig) ToFirmwareManagerConfig() firmwaremanager.Config {
 // toCredentialManagerConf converts the service Config into a credentials.Config.
 func (c *Config) toCredentialManagerConf() (*credentials.Config, error) {
 	var dataStoreType credentials.DataStoreType
-	var vaultConfig *credentials.VaultConfig
+	var coreConfig *credentials.CoreConfig
 	switch c.DataStoreType {
 	case nvswitchmanager.DatastoreTypePersistent:
-		dataStoreType = credentials.DatastoreTypeVault
-		vaultConfig = &credentials.VaultConfig{Address: c.VaultConf.Address, Token: c.VaultConf.Token}
+		dataStoreType = credentials.DatastoreTypeCore
+		coreConfig = &credentials.CoreConfig{Address: c.CoreConf.Address, Timeout: c.CoreConf.Timeout}
 	case nvswitchmanager.DatastoreTypeInMemory:
 		dataStoreType = credentials.DatastoreTypeInMemory
 	}
 	return &credentials.Config{
 		DataStoreType: dataStoreType,
-		VaultConfig:   vaultConfig,
+		CoreConfig:    coreConfig,
 	}, nil
 }
 
@@ -92,10 +92,9 @@ func BuildDBConfigFromEnv() (*db.Config, error) {
 	return &dbConf, nil
 }
 
-// BuildVaultConfigFromEnv builds credentials.VaultConfig from environment variables.
-func BuildVaultConfigFromEnv() (*credentials.VaultConfig, error) {
-	return &credentials.VaultConfig{
-		Address: os.Getenv("VAULT_ADDR"),
-		Token:   os.Getenv("VAULT_TOKEN"),
+// BuildCoreConfigFromEnv builds credentials.CoreConfig from environment variables.
+func BuildCoreConfigFromEnv() (*credentials.CoreConfig, error) {
+	return &credentials.CoreConfig{
+		Address: os.Getenv("NICO_CORE_API_URL"),
 	}, nil
 }

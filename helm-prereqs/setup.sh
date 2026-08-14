@@ -1677,8 +1677,9 @@ fi
 #   - flow/psm/nsm databases on nico-pg-cluster (helm-prereqs postgresql.yaml)
 #   - flow.nico/psm.nico/nsm.nico DB credentials synced via ESO into the flow
 #     namespace by the flow-db-eso / psm-db-eso / nsm-db-eso ClusterExternalSecrets
-#   - psm-vault-token and nsm-vault-token Secrets in the flow namespace
-#     (provisioned by the flow-vault-tokens post-install hook)
+#   - psm-vault-token Secret in the flow namespace (provisioned by the
+#     flow-vault-tokens post-install hook).  NSM needs no Vault token: it reads
+#     switch credentials from nico-api.
 #   - Temporal `flow` namespace (created in phase 7f above)
 #   - nico-rest-ca-issuer ClusterIssuer (installed by phase 7b — issues the
 #     temporal-client-certs)
@@ -1779,11 +1780,9 @@ else
         return 1
     }
 
-    echo "Waiting for psm/nsm Vault tokens..."
-    for _s in psm-vault-token nsm-vault-token; do
-        _wait_for_secret "${_s}" "${NICO_FLOW_NAMESPACE}" \
-            "Provisioned by the flow-vault-tokens helm hook in nico-prereqs. Check 'kubectl logs -n nico-system job/flow-vault-tokens' and confirm helm-prereqs/values.yaml::flow.enabled=true."
-    done
+    echo "Waiting for psm Vault token..."
+    _wait_for_secret "psm-vault-token" "${NICO_FLOW_NAMESPACE}" \
+        "Provisioned by the flow-vault-tokens helm hook in nico-prereqs. Check 'kubectl logs -n nico-system job/flow-vault-tokens' and confirm helm-prereqs/values.yaml::flow.enabled=true."
 
     echo "Waiting for flow/psm/nsm DB credentials..."
     for _s in flow.nico.nico-pg-cluster.credentials \
