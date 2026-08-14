@@ -451,7 +451,13 @@ echo "=== [1c] MetalLB ==="
 # install, so a helm-managed CRD upgrade conflicts on every re-sync (see
 # operators/values/metallb.yaml crds.enabled=false). --force-conflicts keeps
 # this idempotent against the rotator's field ownership.
-echo "Applying MetalLB CRDs (server-side)..."
+#
+# CRDs are re-applied AFTER helmfile sync (as well as before) to handle the
+# 2.0→2.1 upgrade path: prior to 2.1, crds.enabled defaulted to true, so CRDs
+# were helm-managed template resources. When the 2.1 upgrade sets
+# crds.enabled=false, helm removes those resources from its release manifest
+# and deletes them. Re-applying after helmfile sync restores them regardless
+# of which direction the crds.enabled flag moved.
 # Single source of truth for the chart version is the metallb release in
 # helmfile.yaml — read it from there so this bootstrap and the helm release
 # cannot drift when the version is bumped.
@@ -460,19 +466,33 @@ if [[ -z "${METALLB_CHART_VERSION}" ]]; then
     echo "ERROR: could not read the metallb chart version from helmfile.yaml" >&2
     exit 1
 fi
+
+# Helper: render and server-side apply only the CRD documents from the chart.
 # The awk filter emits only CustomResourceDefinition documents, splitting on
 # '---' separator lines itself (POSIX awk/mawk/BusyBox treat a multi-character
 # RS as its first character only, so RS="\n---\n" is not portable). helm's
 # stderr is left attached so a repo/render failure says what actually broke
 # instead of surfacing as a confusing kubectl parse error downstream.
-helm template metallb metallb/metallb --version "${METALLB_CHART_VERSION}" -n metallb-system --include-crds \
-    | awk '
-        /^---[[:space:]]*$/ { if (doc ~ /kind: CustomResourceDefinition/) printf "%s---\n", doc; doc = ""; next }
-        { doc = doc $0 "\n" }
-        END { if (doc ~ /kind: CustomResourceDefinition/) printf "%s", doc }' \
-    | kubectl apply --server-side --force-conflicts -f -
+_apply_metallb_crds() {
+    helm template metallb metallb/metallb --version "${METALLB_CHART_VERSION}" -n metallb-system --include-crds \
+        | awk '
+            /^---[[:space:]]*$/ { if (doc ~ /kind: CustomResourceDefinition/) printf "%s---\n", doc; doc = ""; next }
+            { doc = doc $0 "\n" }
+            END { if (doc ~ /kind: CustomResourceDefinition/) printf "%s", doc }' \
+        | kubectl apply --server-side --force-conflicts -f -
+}
+
+echo "Applying MetalLB CRDs (server-side)..."
+_apply_metallb_crds
 
 helmfile sync -l name=metallb
+
+# Re-apply CRDs after the helm upgrade: upgrading from a release where
+# crds.enabled=true to one where crds.enabled=false causes helm to delete the
+# CRDs it previously owned. Applying them here ensures they exist regardless
+# of upgrade direction and before metallb-config.yaml is applied below.
+echo "Re-applying MetalLB CRDs (post-upgrade, ensures CRDs survive ownership change)..."
+_apply_metallb_crds
 
 echo "Waiting for MetalLB controller to be ready..."
 kubectl wait --for=condition=Available deployment/metallb-controller \
