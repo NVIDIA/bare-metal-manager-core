@@ -172,9 +172,14 @@ pub async fn nv_generate_exploration_report<B: Bmc>(
 
     let hw_type = hw_type(&root, &explored_system, &explored_chassis);
     let linked_chassis_ids = explored_system.linked_chassis_ids();
+    let has_system_mac_address = explored_system.has_usable_ethernet_mac_address();
     if should_use_network_adapter_port_fallback(
         hw_type,
-        explored_system.has_usable_ethernet_mac_address(),
+        has_system_mac_address,
+        &linked_chassis_ids,
+    ) || should_fetch_supplemental_network_adapter_ports(
+        hw_type,
+        has_system_mac_address,
         &linked_chassis_ids,
     ) {
         explored_chassis
@@ -329,6 +334,15 @@ fn should_use_network_adapter_port_fallback(
     linked_chassis_ids: &[nv_redfish::core::ODataId],
 ) -> bool {
     hw_type == Some(hw::HwType::Lenovo) && !has_system_mac_address && !linked_chassis_ids.is_empty()
+}
+
+/// Whether linked adapter Ports can supplement a Lenovo XCC's System inventory.
+fn should_fetch_supplemental_network_adapter_ports(
+    hw_type: Option<hw::HwType>,
+    has_system_mac_address: bool,
+    linked_chassis_ids: &[nv_redfish::core::ODataId],
+) -> bool {
+    hw_type == Some(hw::HwType::Lenovo) && has_system_mac_address && !linked_chassis_ids.is_empty()
 }
 
 /// Builds an exploration report for a Delta power shelf.
@@ -1178,7 +1192,10 @@ mod tests {
     use nv_redfish::core::ODataId;
 
     use super::hw::HwType;
-    use super::{Product, is_bf4_product, should_use_network_adapter_port_fallback};
+    use super::{
+        Product, is_bf4_product, should_fetch_supplemental_network_adapter_ports,
+        should_use_network_adapter_port_fallback,
+    };
 
     #[test]
     fn is_bf4_product_matches_bf4_service_root_products() {
@@ -1216,6 +1233,38 @@ mod tests {
             }
             "Lenovo XCC without a linked chassis" {
                 (Some(HwType::Lenovo), false, false) => false,
+            }
+        );
+    }
+
+    #[test]
+    fn lenovo_network_adapter_port_fetch_supplements_partial_inventory() {
+        value_scenarios!(run = |(hw_type, has_system_mac_address, has_linked_chassis)| {
+            let linked_chassis_ids = has_linked_chassis
+                .then(|| ODataId::from("/redfish/v1/Chassis/Self".to_string()))
+                .into_iter()
+                .collect::<Vec<_>>();
+
+            should_fetch_supplemental_network_adapter_ports(
+                hw_type,
+                has_system_mac_address,
+                &linked_chassis_ids,
+            )
+        };
+            "Lenovo XCC without a System MAC" {
+                (Some(HwType::Lenovo), false, true) => false,
+            }
+            "Lenovo XCC with a System MAC supplements its inventory" {
+                (Some(HwType::Lenovo), true, true) => true,
+            }
+            "non-Lenovo host" {
+                (Some(HwType::Ami), true, true) => false,
+            }
+            "Lenovo AMI host" {
+                (Some(HwType::LenovoAmi), true, true) => false,
+            }
+            "Lenovo XCC without a linked chassis" {
+                (Some(HwType::Lenovo), true, false) => false,
             }
         );
     }
