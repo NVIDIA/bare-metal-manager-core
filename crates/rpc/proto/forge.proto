@@ -1746,7 +1746,9 @@ message VpcConfig {
   optional uint32 vni = 6;
   optional string routing_profile_type = 7;
   optional VpcRoutingProfileOverrides routing_profile_overrides = 8;
-  // Resource group managed by the external power provisioning service.
+  // Resource group managed by the external power provisioning service. Unset
+  // means that the VPC has no associated resource group; empty values are not
+  // persisted.
   optional string power_resource_group = 9;
 }
 
@@ -1853,7 +1855,8 @@ message VpcCreationRequest {
   // Properties to overlay on the selected named routing profile. Properties
   // left unset inherit from the base profile.
   optional VpcRoutingProfileOverrides routing_profile_overrides = 18;
-  // Resource group managed by the external power provisioning service.
+  // Resource group managed by the external power provisioning service. During
+  // creation, omission or an empty value creates no association.
   optional string power_resource_group = 19;
 }
 
@@ -3125,7 +3128,8 @@ message InstanceConfig {
 
   InstanceSpxConfig spxconfig = 25;
 
-  // Power profile managed by the external power provisioning service. In an
+  // Power profile managed by the external power provisioning service. During
+  // creation, omission or an empty value creates no association. In an
   // InstanceConfigUpdateRequest, omission preserves the current profile for
   // compatibility with older clients, an empty string explicitly clears it,
   // and a non-empty value replaces it.

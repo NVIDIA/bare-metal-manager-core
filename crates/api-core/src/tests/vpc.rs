@@ -376,6 +376,23 @@ async fn create_vpc(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>
 
     let no_org_vpc_id: VpcId = no_org_vpc.id.expect("should have id");
 
+    // A power-resource-group-only update still validates that the VPC exists.
+    let unknown_vpc_id = VpcId::from(uuid::Uuid::new_v4());
+    let status = env
+        .api
+        .update_vpc(tonic::Request::new(rpc::forge::VpcUpdateRequest {
+            id: Some(unknown_vpc_id),
+            if_version_match: None,
+            metadata: None,
+            network_security_group_id: None,
+            default_nvlink_logical_partition_id: None,
+            routing_profile_overrides: None,
+            power_resource_group: Some("power-group".to_string()),
+        }))
+        .await
+        .expect_err("updating an unknown VPC should fail");
+    assert_eq!(status.code(), tonic::Code::NotFound);
+
     // Try to update to invalid metadata
     for (invalid_metadata, expected_err) in common::metadata::invalid_metadata_testcases(true) {
         let invalid_updated_vpc = env

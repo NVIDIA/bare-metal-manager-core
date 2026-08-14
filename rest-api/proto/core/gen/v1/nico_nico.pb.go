@@ -9985,7 +9985,9 @@ type VpcConfig struct {
 	Vni                     *uint32                     `protobuf:"varint,6,opt,name=vni,proto3,oneof" json:"vni,omitempty"`
 	RoutingProfileType      *string                     `protobuf:"bytes,7,opt,name=routing_profile_type,json=routingProfileType,proto3,oneof" json:"routing_profile_type,omitempty"`
 	RoutingProfileOverrides *VpcRoutingProfileOverrides `protobuf:"bytes,8,opt,name=routing_profile_overrides,json=routingProfileOverrides,proto3,oneof" json:"routing_profile_overrides,omitempty"`
-	// Resource group managed by the external power provisioning service.
+	// Resource group managed by the external power provisioning service. Unset
+	// means that the VPC has no associated resource group; empty values are not
+	// persisted.
 	PowerResourceGroup *string `protobuf:"bytes,9,opt,name=power_resource_group,json=powerResourceGroup,proto3,oneof" json:"power_resource_group,omitempty"`
 	unknownFields      protoimpl.UnknownFields
 	sizeCache          protoimpl.SizeCache
@@ -10386,7 +10388,8 @@ type VpcCreationRequest struct {
 	// Properties to overlay on the selected named routing profile. Properties
 	// left unset inherit from the base profile.
 	RoutingProfileOverrides *VpcRoutingProfileOverrides `protobuf:"bytes,18,opt,name=routing_profile_overrides,json=routingProfileOverrides,proto3,oneof" json:"routing_profile_overrides,omitempty"`
-	// Resource group managed by the external power provisioning service.
+	// Resource group managed by the external power provisioning service. During
+	// creation, omission or an empty value creates no association.
 	PowerResourceGroup *string `protobuf:"bytes,19,opt,name=power_resource_group,json=powerResourceGroup,proto3,oneof" json:"power_resource_group,omitempty"`
 	unknownFields      protoimpl.UnknownFields
 	sizeCache          protoimpl.SizeCache
@@ -10528,9 +10531,8 @@ type VpcUpdateRequest struct {
 	// definition; send an empty message to restore inheritance for every property.
 	RoutingProfileOverrides *VpcRoutingProfileOverrides `protobuf:"bytes,19,opt,name=routing_profile_overrides,json=routingProfileOverrides,proto3,oneof" json:"routing_profile_overrides,omitempty"`
 	// External power provisioning resource group update. Omit this field to
-	// preserve the current value. A present value replaces the current value
-	// exactly, including an empty string. Clearing the association is not
-	// supported by this API.
+	// preserve the current association, send an empty string to remove it, or
+	// send a non-empty value to replace it.
 	PowerResourceGroup *string `protobuf:"bytes,20,opt,name=power_resource_group,json=powerResourceGroup,proto3,oneof" json:"power_resource_group,omitempty"`
 	unknownFields      protoimpl.UnknownFields
 	sizeCache          protoimpl.SizeCache
@@ -17886,7 +17888,8 @@ type InstanceConfig struct {
 	// Configures instance nvlink partitions
 	Nvlink    *InstanceNVLinkConfig `protobuf:"bytes,24,opt,name=nvlink,proto3" json:"nvlink,omitempty"`
 	Spxconfig *InstanceSpxConfig    `protobuf:"bytes,25,opt,name=spxconfig,proto3" json:"spxconfig,omitempty"`
-	// Power profile managed by the external power provisioning service. In an
+	// Power profile managed by the external power provisioning service. During
+	// creation, omission or an empty value creates no association. In an
 	// InstanceConfigUpdateRequest, omission preserves the current profile for
 	// compatibility with older clients, an empty string explicitly clears it,
 	// and a non-empty value replaces it.

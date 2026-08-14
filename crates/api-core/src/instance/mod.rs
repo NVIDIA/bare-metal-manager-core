@@ -248,6 +248,10 @@ pub(crate) struct InstanceAllocationRequest {
     pub(crate) allow_unhealthy_machine: bool,
 }
 
+fn normalize_created_power_profile(power_profile: Option<String>) -> Option<String> {
+    power_profile.filter(|profile| !profile.is_empty())
+}
+
 impl TryFrom<rpc::InstanceAllocationRequest> for InstanceAllocationRequest {
     type Error = CarbideError;
 
@@ -268,7 +272,10 @@ impl TryFrom<rpc::InstanceAllocationRequest> for InstanceAllocationRequest {
             .config
             .ok_or(RpcDataConversionError::MissingArgument("config"))?;
 
-        let config = InstanceConfig::try_from(config)?;
+        let mut config = InstanceConfig::try_from(config)?;
+        // Empty power-policy values are clear sentinels only on update. During
+        // creation there is no association to clear, so persist them as unset.
+        config.power_profile = normalize_created_power_profile(config.power_profile);
 
         // If the Tenant provides an instance ID use this one
         // Otherwise create a random ID
@@ -2380,6 +2387,22 @@ mod tests {
     use carbide_test_support::{Case, check_cases, value_scenarios};
 
     use super::*;
+
+    #[test]
+    fn instance_creation_power_profile_semantics() {
+        value_scenarios!(
+            run = |power_profile| normalize_created_power_profile(power_profile);
+            "non-empty profile is preserved" {
+                Some("balanced".to_string()) => Some("balanced".to_string()),
+            }
+            "empty profile is treated as unset" {
+                Some(String::new()) => None,
+            }
+            "omitted profile remains unset" {
+                None => None,
+            }
+        );
+    }
 
     #[test]
     fn build_requested_linknet_prefix_accepts_host_end_rejects_dpu_end() {

@@ -268,7 +268,9 @@ impl TryFrom<rpc::forge::VpcCreationRequest> for NewVpc {
                 .routing_profile_overrides
                 .map(TryInto::try_into)
                 .transpose()?,
-            power_resource_group: value.power_resource_group,
+            power_resource_group: value
+                .power_resource_group
+                .filter(|resource_group| !resource_group.is_empty()),
             network_virtualization_type: virt_type,
             metadata,
         })
@@ -478,6 +480,30 @@ mod tests {
         let omitted = UpdateVpc::try_from(vpc_update_request(None))
             .expect("omitted operation should be accepted");
         assert_eq!(omitted.power_resource_group, None);
+    }
+
+    #[test]
+    fn vpc_creation_power_resource_group_semantics() {
+        value_scenarios!(
+            run = |power_resource_group| {
+                NewVpc::try_from(rpc::forge::VpcCreationRequest {
+                    tenant_organization_id: "tenant-1".to_string(),
+                    power_resource_group,
+                    ..Default::default()
+                })
+                .expect("creation request should be valid")
+                .power_resource_group
+            };
+            "non-empty resource group is preserved" {
+                Some("power-group".to_string()) => Some("power-group".to_string()),
+            }
+            "empty resource group is treated as unset" {
+                Some(String::new()) => None,
+            }
+            "omitted resource group remains unset" {
+                None => None,
+            }
+        );
     }
 
     // `VpcSearchFilter::from` is a total conversion, so we project its output to
