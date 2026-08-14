@@ -23,14 +23,17 @@ profiles = tilt_values['profiles']
 config.define_bool('rest')
 config.define_bool('mcp')
 config.define_bool('dsx-exchange')
+config.define_bool('observability')
 options = config.parse()
 enable_mcp = options.get('mcp', profiles['mcp'])
 enable_rest = options.get('rest', profiles['rest']) or enable_mcp
 enable_dsx_exchange = options.get('dsx-exchange', profiles['dsxExchange'])
+enable_observability = options.get('observability', profiles['observability'])
 local_config = tilt_values['localConfig']
 core_namespace = local_config['coreNamespace']
 rest_namespace = local_config['restNamespace']
 temporal_namespace = local_config['temporalNamespace']
+observability_namespace = local_config['observabilityNamespace']
 
 def merged(first, second):
     result = {}
@@ -46,7 +49,8 @@ def component_values(global_values, values):
 def helm_json_flags(values, prefix=''):
     flags = []
     for key, value in values.items():
-        path = '%s.%s' % (prefix, key) if prefix else key
+        escaped_key = key.replace('\\', '\\\\').replace('.', '\\.')
+        path = '%s.%s' % (prefix, escaped_key) if prefix else escaped_key
         if type(value) == 'dict' and len(value):
             flags.extend(helm_json_flags(value, path))
         else:
@@ -126,7 +130,10 @@ def prerequisite(
         version,
         values,
         repo,
-        resource_deps=[]):
+        resource_deps=[],
+        port_forwards=[],
+        links=[],
+        labels=['infrastructure']):
     helm_resource(
         name=name,
         chart=chart,
@@ -134,8 +141,10 @@ def prerequisite(
         namespace=namespace,
         deps=[values_file],
         resource_deps=[repo] + resource_deps,
-        labels=['infrastructure'],
+        labels=labels,
         pod_readiness='wait',
+        port_forwards=port_forwards,
+        links=links,
         flags=[
             '--version=%s' % version,
             '--create-namespace',
@@ -175,6 +184,24 @@ helm_repo(
     'https://helm.releases.hashicorp.com',
     resource_name='repo-hashicorp',
     labels=['infrastructure'],
+)
+helm_repo(
+    'grafana-community',
+    'https://grafana-community.github.io/helm-charts',
+    resource_name='repo-grafana-community',
+    labels=['observability'],
+)
+helm_repo(
+    'grafana',
+    'https://grafana.github.io/helm-charts',
+    resource_name='repo-grafana',
+    labels=['observability'],
+)
+helm_repo(
+    'prometheus-community',
+    'https://prometheus-community.github.io/helm-charts',
+    resource_name='repo-prometheus-community',
+    labels=['observability'],
 )
 
 prerequisite(
@@ -231,6 +258,19 @@ namespace_objects = [
     },
 ]
 
+observability_namespace_object = {
+    'apiVersion': 'v1',
+    'kind': 'Namespace',
+    'metadata': object_metadata(observability_namespace),
+}
+k8s_yaml(encode_yaml(observability_namespace_object))
+k8s_resource(
+    new_name='nico-observability-namespace',
+    objects=[object_selector(observability_namespace_object)],
+    labels=['observability'],
+    pod_readiness='ignore',
+)
+
 for obj in namespace_objects:
     k8s_yaml(encode_yaml(obj))
 
@@ -239,6 +279,109 @@ k8s_resource(
     objects=[object_selector(obj) for obj in namespace_objects],
     labels=['infrastructure'],
     pod_readiness='ignore',
+)
+
+observability_values = tilt_values['observability']
+grafana_dashboard_object = {
+    'apiVersion': 'v1',
+    'kind': 'ConfigMap',
+    'metadata': merged(
+        object_metadata('grafana-dashboards-nico', observability_namespace),
+        {
+            'labels': {'grafana_dashboard': '1'},
+            'annotations': {'grafana_folder': 'NICo'},
+        },
+    ),
+    'data': {
+        'nico-api-performance.json': str(read_file(os.path.join(
+            repo_root,
+            'helm/observability/dashboards/nico-api-performance.json',
+        ))),
+        'nico-lifecycle.json': str(read_file(os.path.join(
+            repo_root,
+            'helm/observability/dashboards/nico-lifecycle.json',
+        ))),
+        'nico-overview.json': str(read_file(os.path.join(
+            repo_root,
+            'helm/observability/dashboards/nico-overview.json',
+        ))),
+        'nico-site-explorer.json': str(read_file(os.path.join(
+            repo_root,
+            'dev/deployment/tilt/dashboards/nico-site-explorer.json',
+        ))),
+        'nico-core-health.json': str(read_file(os.path.join(
+            repo_root,
+            'helm-prereqs/observability/dashboards/nico-core-health.json',
+        ))),
+    },
+}
+k8s_yaml(encode_yaml(grafana_dashboard_object))
+k8s_resource(
+    new_name='grafana-dashboards',
+    objects=[object_selector(grafana_dashboard_object)],
+    resource_deps=['nico-observability-namespace'],
+    labels=['observability'],
+    pod_readiness='ignore',
+)
+prerequisite(
+    name='prometheus',
+    chart='prometheus-community/kube-prometheus-stack',
+    release_name='prometheus',
+    namespace=observability_namespace,
+    version='59.1.0',
+    values=observability_values['prometheus'],
+    repo='repo-prometheus-community',
+    resource_deps=['nico-observability-namespace'],
+    port_forwards=[port_forward(19090, 9090)],
+    links=[link('http://localhost:19090', 'Prometheus')],
+    labels=['observability'],
+)
+prerequisite(
+    name='loki',
+    chart='grafana-community/loki',
+    release_name='loki',
+    namespace=observability_namespace,
+    version='18.8.1',
+    values=observability_values['loki'],
+    repo='repo-grafana-community',
+    resource_deps=['nico-observability-namespace'],
+    labels=['observability'],
+)
+prerequisite(
+    name='alloy',
+    chart='grafana/alloy',
+    release_name='alloy',
+    namespace=observability_namespace,
+    version='1.11.1',
+    values=observability_values['alloy'],
+    repo='repo-grafana',
+    resource_deps=['nico-observability-namespace', 'loki'],
+    labels=['observability'],
+)
+helm_resource(
+    name='grafana',
+    chart='grafana-community/grafana',
+    release_name='grafana',
+    namespace=observability_namespace,
+    deps=[values_file],
+    resource_deps=[
+        'repo-grafana-community',
+        'nico-observability-namespace',
+        'grafana-dashboards',
+        'loki',
+        'prometheus',
+    ],
+    labels=['observability'],
+    pod_readiness='wait',
+    port_forwards=[port_forward(13000, 3000)],
+    links=[link('http://localhost:13000', 'Grafana')],
+    flags=[
+        '--version=12.10.4',
+        '--create-namespace',
+    ] + helm_json_flags(observability_values['grafana']) + [
+        '--wait',
+        '--timeout=5m',
+    ],
 )
 
 local_objects = [
@@ -621,6 +764,15 @@ docker_build(
     ),
 )
 docker_build(
+    'nico-devspace-core-artifacts',
+    repo_root,
+    dockerfile=os.path.join(
+        devspace_dir,
+        'Dockerfile.core-artifacts',
+    ),
+    ignore=['dev/deployment/tilt'],
+)
+docker_build(
     'nico-api',
     repo_root,
     dockerfile=os.path.join(devspace_dir, 'Dockerfile.api'),
@@ -904,6 +1056,18 @@ enabled_resources = [
     'nico-bmc-proxy',
     'nico-machine-a-tron',
 ]
+if enable_observability:
+    enabled_resources.extend([
+        'repo-grafana-community',
+        'repo-grafana',
+        'repo-prometheus-community',
+        'nico-observability-namespace',
+        'grafana-dashboards',
+        'prometheus',
+        'loki',
+        'alloy',
+        'grafana',
+    ])
 if enable_rest:
     enabled_resources.extend([
         'nico-local-namespaces',
