@@ -3435,9 +3435,6 @@ message InstanceInterfaceVpcSelection {
 }
 
 // Address families requested for automatic VPC prefix and address selection.
-//
-// Core models and persists every mode. External IPv6-only and dual-stack
-// requests are temporarily rejected until downstream DPU support is complete.
 enum InstanceInterfaceIpFamilyMode {
   // Invalid for an automatic VPC selection request.
   INSTANCE_INTERFACE_IP_FAMILY_MODE_UNSPECIFIED = 0;
@@ -3520,18 +3517,23 @@ message InstanceInterfaceStatus {
 
   // The list of IP addresses that had been assigned to this interface,
   // based on the requested subnet.
+  // IPv4 precedes IPv6 when both families are assigned.
   // The list will be empty if interface configuration hasn't been completed
   repeated string addresses = 3;
 
-  // The list of gateways, in CIDR notation, one for each address in `addresses`.
+  // The explicitly configured gateways, in CIDR notation. There is at most one
+  // gateway per address family, associated with the same-family address and
+  // prefix. A family without an explicit gateway is omitted, so this list can
+  // be shorter than `addresses` and is not positionally aligned. IPv4 precedes
+  // IPv6 when both gateways are explicitly configured.
   repeated string gateways = 4;
 
   // The list of IP prefixes that have been assigned to this interface
   // out of the requested subnet (where the prefix allocated to the interface
   // may be a /30 in the case of FNN, or just a /32 in the case of ETV).
   //
-  // This is similar to `gateways`, in that there is one `prefix` for each
-  // address in `addresses`.
+  // There is one prefix for each entry in `addresses`, in the same
+  // IPv4-before-IPv6 order.
   repeated string prefixes = 5;
 
   optional string device = 6;
@@ -4842,7 +4844,7 @@ message FlatInterfaceConfig {
   // MTU size
   optional uint32 mtu = 18;
 
-  // IPv6 configuration for dual-stack FNN interfaces.
+  // IPv6 configuration for FNN interfaces that include IPv6.
   optional FlatInterfaceIpv6Config ipv6_interface_config = 19;
 
   // Route imports and tagging details for exports used by FNN configs.
@@ -4855,8 +4857,9 @@ message FlatInterfaceConfig {
 
   // Family-neutral replacement for gateway, ip, interface_prefix, prefix, svi_ip,
   // and ipv6_interface_config. An empty list identifies a legacy payload. Writers
-  // must emit at most one entry per family, ordered V4 before V6. Readers must
-  // select entries by address_family rather than position.
+  // must emit at most one entry per family, ordered V4 before V6. A family absent
+  // from this list has empty deprecated compatibility fields. Readers must select
+  // entries by address_family rather than position.
   repeated InterfaceAddressConfig addresses = 22;
 
   // The details of the network security group associated with
@@ -4877,8 +4880,8 @@ message FlatInterfaceRoutingProfile {
   repeated PrefixFilterPolicyEntry allowed_anycast_prefixes = 1;
 }
 
-// IPv6 configuration for a dual-stack FNN interface, sent from the API to
-// the DPU agent as part of FlatInterfaceConfig.
+// IPv6 configuration for an FNN interface that includes IPv6, sent from the
+// API to the DPU agent as part of FlatInterfaceConfig.
 message FlatInterfaceIpv6Config {
   // Host IPv6 address (e.g. "2001:db8::1").
   string ip = 1;
@@ -5603,18 +5606,23 @@ message InstanceInterfaceStatusObservation {
 
   // The list of IP addresses that had been assigned to this interface,
   // based on the requested subnet.
+  // IPv4 precedes IPv6 when both families are assigned.
   // The list will be empty if interface configuration hasn't been completed
   repeated string addresses = 4;
 
-  // The list of gateways, in CIDR notation, one for each address in `addresses`.
+  // The explicitly configured gateways, in CIDR notation. There is at most one
+  // gateway per address family, associated with the same-family address and
+  // prefix. A family without an explicit gateway is omitted, so this list can
+  // be shorter than `addresses` and is not positionally aligned. IPv4 precedes
+  // IPv6 when both gateways are explicitly configured.
   repeated string gateways = 5;
 
   // The list of IP prefixes that have been assigned to this interface
   // out of the requested subnet (where the prefix allocated to the interface
   // may be a /30 in the case of FNN, or just a /32 in the case of ETV).
   //
-  // This is similar to `gateways`, in that there is one `prefix` for each
-  // address in `addresses`.
+  // There is one prefix for each entry in `addresses`, in the same
+  // IPv4-before-IPv6 order.
   repeated string prefixes = 6;
 
   // The NSG details for the observed NSG of the interface

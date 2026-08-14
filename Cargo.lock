@@ -3352,6 +3352,7 @@ dependencies = [
  "carbide-api-db",
  "carbide-api-model",
  "carbide-macros",
+ "carbide-network",
  "carbide-network-segment-controller",
  "carbide-site-explorer",
  "carbide-sqlx-testing",

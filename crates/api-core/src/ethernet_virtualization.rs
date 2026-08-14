@@ -177,9 +177,9 @@ pub(crate) async fn validate_instance_interface_routing_profiles(
     Ok(())
 }
 
-/// Groups the optional IPv4 prefix with the optional IPv6 prefix for a
-/// dual-stack network segment, and provides convenience methods for
-/// extracting addresses and interface prefixes from an InstanceInterfaceConfig.
+/// Groups the optional IPv4 and IPv6 prefixes for a network segment and
+/// provides convenience methods for extracting addresses and interface
+/// prefixes from an InstanceInterfaceConfig.
 struct PrefixPair<'a> {
     v4: Option<&'a NetworkPrefix>,
     v6: Option<&'a NetworkPrefix>,
@@ -297,14 +297,18 @@ fn interface_address_configs(
     config: &rpc::FlatInterfaceConfig,
     ipv6_segment_prefix: Option<&str>,
 ) -> Vec<rpc::InterfaceAddressConfig> {
-    let mut addresses = vec![rpc::InterfaceAddressConfig {
-        address_family: rpc::AddressFamily::V4.into(),
-        gateway: config.gateway.clone(),
-        ip: config.ip.clone(),
-        interface_prefix: config.interface_prefix.clone(),
-        prefix: config.prefix.clone(),
-        svi_ip: config.svi_ip.clone(),
-    }];
+    let mut addresses = Vec::with_capacity(2);
+
+    if !config.interface_prefix.is_empty() {
+        addresses.push(rpc::InterfaceAddressConfig {
+            address_family: rpc::AddressFamily::V4.into(),
+            gateway: config.gateway.clone(),
+            ip: config.ip.clone(),
+            interface_prefix: config.interface_prefix.clone(),
+            prefix: config.prefix.clone(),
+            svi_ip: config.svi_ip.clone(),
+        });
+    }
 
     if let Some(ipv6) = config.ipv6_interface_config.as_ref()
         && !ipv6.interface_prefix.is_empty()
@@ -548,7 +552,8 @@ pub(crate) async fn admin_network(
 }
 
 #[allow(clippy::too_many_arguments)]
-// This writer keeps the deprecated fields populated for older agents during the rollout.
+// This writer keeps the deprecated IPv4 fields populated when IPv4 is configured so older
+// agents can consume IPv4-only and dual-stack payloads during the rollout.
 #[allow(deprecated)]
 pub(crate) async fn tenant_network(
     txn: &mut PgConnection,
@@ -568,12 +573,15 @@ pub(crate) async fn tenant_network(
     let is_l2_segment = segment.status.can_stretch.unwrap_or(true);
 
     let ds = PrefixPair::from_segment_prefixes(&segment.prefixes, instance_id, segment.id)?;
-    let address = ds.v4_address(iface).ok_or_else(|| CarbideError::Internal {
-        message: format!(
-            "No IPv4 address is available for instance {instance_id} on segment {}",
-            segment.id,
-        ),
-    })?;
+    let address = match ds.v4() {
+        Some(_) => Some(ds.v4_address(iface).ok_or_else(|| CarbideError::Internal {
+            message: format!(
+                "no IPv4 address is available for instance {instance_id} on segment {}",
+                segment.id,
+            ),
+        })?),
+        None => None,
+    };
 
     // If not, default to a /32 -- backwards compatibility for instances
     // configured before interface_prefixes were introduced.
@@ -581,13 +589,17 @@ pub(crate) async fn tenant_network(
     // TODO(chet): This can eventually be phased out once all of the
     // InstanceInterfaceConfigs stored contain the prefix.
     let interface_prefix =
-        ds.v4_interface_prefix(iface, address)?
-            .ok_or_else(|| CarbideError::Internal {
-                message: format!(
-                    "No IPv4 prefix is available for instance {instance_id} on segment {}",
-                    segment.id,
-                ),
-            })?;
+        match address {
+            Some(address) => Some(ds.v4_interface_prefix(iface, address)?.ok_or_else(|| {
+                CarbideError::Internal {
+                    message: format!(
+                        "no IPv4 prefix is available for instance {instance_id} on segment {}",
+                        segment.id,
+                    ),
+                }
+            })?),
+            None => None,
+        };
 
     let v6_address = ds.v6_address(iface);
     let v6_interface_prefix = ds.v6_interface_prefix(iface);
@@ -776,8 +788,12 @@ pub(crate) async fn tenant_network(
             .v4()
             .map(|p| p.gateway_cidr().unwrap_or_default())
             .unwrap_or_default(),
-        ip: address.to_string(),
-        interface_prefix: interface_prefix.to_string(),
+        ip: address
+            .map(|address| address.to_string())
+            .unwrap_or_default(),
+        interface_prefix: interface_prefix
+            .map(|prefix| prefix.to_string())
+            .unwrap_or_default(),
         vpc_prefixes,
         prefix: ds.v4().map(|p| p.prefix.to_string()).unwrap_or_default(),
         // FIXME: Right now we are sending instance IP as hostname. This should be replaced by
@@ -886,6 +902,25 @@ mod test {
         }
     }
 
+    fn ipv6_interface_config() -> rpc::FlatInterfaceIpv6Config {
+        rpc::FlatInterfaceIpv6Config {
+            ip: "2001:db8::1".to_string(),
+            interface_prefix: "2001:db8::/127".to_string(),
+            svi_ip: Some("2001:db8::2/64".to_string()),
+        }
+    }
+
+    fn ipv6_address_config() -> rpc::InterfaceAddressConfig {
+        rpc::InterfaceAddressConfig {
+            address_family: rpc::AddressFamily::V6.into(),
+            gateway: "2001:db8::/127".to_string(),
+            ip: "2001:db8::1".to_string(),
+            interface_prefix: "2001:db8::/127".to_string(),
+            prefix: "2001:db8::/64".to_string(),
+            svi_ip: Some("2001:db8::2/64".to_string()),
+        }
+    }
+
     #[test]
     fn interface_address_configs_mirror_legacy_fields_in_family_order() {
         value_scenarios!(
@@ -894,6 +929,18 @@ mod test {
             };
             "IPv4-only config" {
                 (legacy_interface_config(None), None) => vec![ipv4_address_config()],
+            }
+            "no configured address families" {
+                (rpc::FlatInterfaceConfig::default(), None) => vec![],
+            }
+            "IPv6-only config" {
+                (
+                    rpc::FlatInterfaceConfig {
+                        ipv6_interface_config: Some(ipv6_interface_config()),
+                        ..Default::default()
+                    },
+                    Some("2001:db8::/64"),
+                ) => vec![ipv6_address_config()],
             }
             "IPv6 segment without an interface address" {
                 (legacy_interface_config(None), Some("2001:db8::/64")) => vec![ipv4_address_config()],
@@ -910,23 +957,9 @@ mod test {
             }
             "dual-stack config" {
                 (
-                    legacy_interface_config(Some(rpc::FlatInterfaceIpv6Config {
-                        ip: "2001:db8::1".to_string(),
-                        interface_prefix: "2001:db8::/127".to_string(),
-                        svi_ip: Some("2001:db8::2/64".to_string()),
-                    })),
+                    legacy_interface_config(Some(ipv6_interface_config())),
                     Some("2001:db8::/64"),
-                ) => vec![
-                    ipv4_address_config(),
-                    rpc::InterfaceAddressConfig {
-                        address_family: rpc::AddressFamily::V6.into(),
-                        gateway: "2001:db8::/127".to_string(),
-                        ip: "2001:db8::1".to_string(),
-                        interface_prefix: "2001:db8::/127".to_string(),
-                        prefix: "2001:db8::/64".to_string(),
-                        svi_ip: Some("2001:db8::2/64".to_string()),
-                    },
-                ],
+                ) => vec![ipv4_address_config(), ipv6_address_config()],
             }
         );
     }

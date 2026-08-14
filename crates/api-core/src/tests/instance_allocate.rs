@@ -1041,6 +1041,13 @@ async fn test_zero_dpu_instance_allocation_auto_multi_segment(
                     && prefix_id.eq(&host_inband_segment_1.prefixes[0].id)
             )
     );
+    assert_eq!(
+        interface_in_segment_1
+            .interface_prefixes
+            .get(&host_inband_segment_1.prefixes[0].id),
+        Some(&host_inband_segment_1.prefixes[0].prefix),
+        "HostInband allocation should persist the interface's segment prefix",
+    );
 
     assert!(
         interface_in_segment_2
@@ -1050,6 +1057,13 @@ async fn test_zero_dpu_instance_allocation_auto_multi_segment(
                 |(prefix_id, addr)| host_inband_segment_2.prefixes[0].prefix.contains(*addr)
                     && prefix_id.eq(&host_inband_segment_2.prefixes[0].id)
             )
+    );
+    assert_eq!(
+        interface_in_segment_2
+            .interface_prefixes
+            .get(&host_inband_segment_2.prefixes[0].id),
+        Some(&host_inband_segment_2.prefixes[0].prefix),
+        "HostInband allocation should persist the interface's segment prefix",
     );
 
     let mut txn = env.db_txn().await;

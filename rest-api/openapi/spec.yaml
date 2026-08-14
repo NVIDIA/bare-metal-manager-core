@@ -21400,6 +21400,15 @@ components:
           ipFamilies:
             - IPv4
           isPhysical: true
+        - vpcId: 3d9d1608-a87e-4c84-a8b1-53b730e26e9b
+          ipFamilies:
+            - IPv6
+          isPhysical: true
+        - vpcId: 4f7b5b5a-d292-4c38-9e9a-58a5a874fa73
+          ipFamilies:
+            - IPv4
+            - IPv6
+          isPhysical: true
       description: |-
         Request data to create an Interface for an Instance by associating it with a Subnet, an explicit VPC Prefix, or a VPC from which the Controller selects a prefix. Exactly one of `subnetId`, `vpcPrefixId`, or `vpcId` must be specified.
 
@@ -21422,11 +21431,12 @@ components:
         ipFamilies:
           type: array
           minItems: 1
-          description: Address families requested for Controller prefix selection. Required with `vpcId` and prohibited otherwise. Only `IPv4` is currently accepted.
+          description: Address families requested for Controller prefix selection. Required with `vpcId` and prohibited otherwise. Specify `IPv4`, `IPv6`, or both for dual-stack allocation. Duplicate values are accepted and normalized in `IPv4`, then `IPv6` order.
           items:
             type: string
             enum:
               - IPv4
+              - IPv6
         ipAddress:
           type:
             - string

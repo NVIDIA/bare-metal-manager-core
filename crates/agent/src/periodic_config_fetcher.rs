@@ -333,19 +333,21 @@ fn normalize_interface_addresses(
         }
     }
 
-    let ipv4 = ipv4.ok_or_else(|| {
-        eyre::eyre!(
-            "IPv4 address configuration is required; IPv6-only agent support is tracked by https://github.com/NVIDIA/infra-controller/issues/2402"
-        )
-    })?;
-
-    interface.gateway.clone_from(&ipv4.gateway);
-    interface.ip.clone_from(&ipv4.ip);
-    interface
-        .interface_prefix
-        .clone_from(&ipv4.interface_prefix);
-    interface.prefix.clone_from(&ipv4.prefix);
-    interface.svi_ip.clone_from(&ipv4.svi_ip);
+    if let Some(ipv4) = ipv4 {
+        interface.gateway.clone_from(&ipv4.gateway);
+        interface.ip.clone_from(&ipv4.ip);
+        interface
+            .interface_prefix
+            .clone_from(&ipv4.interface_prefix);
+        interface.prefix.clone_from(&ipv4.prefix);
+        interface.svi_ip.clone_from(&ipv4.svi_ip);
+    } else {
+        interface.gateway.clear();
+        interface.ip.clear();
+        interface.interface_prefix.clear();
+        interface.prefix.clear();
+        interface.svi_ip = None;
+    }
     let prefixless_legacy_ipv6 = interface
         .ipv6_interface_config
         .clone()
@@ -594,6 +596,21 @@ mod tests {
         }
     }
 
+    // Describes an authoritative IPv6-only projection with cleared IPv4 compatibility fields.
+    #[allow(deprecated)]
+    fn expected_ipv6_interface() -> rpc::FlatInterfaceConfig {
+        rpc::FlatInterfaceConfig {
+            vlan_id: 100,
+            ipv6_interface_config: Some(rpc::FlatInterfaceIpv6Config {
+                ip: "2001:db8::1".to_string(),
+                interface_prefix: "2001:db8::/127".to_string(),
+                svi_ip: Some("2001:db8::2/64".to_string()),
+            }),
+            addresses: vec![ipv6_address()],
+            ..Default::default()
+        }
+    }
+
     // Exercises authoritative clearing of the deprecated optional SVI field.
     #[test]
     #[allow(deprecated)]
@@ -643,6 +660,9 @@ mod tests {
             "reversed dual-stack list is selected by family without reordering" {
                 legacy_interface(vec![ipv6_address(), ipv4_address()]) => Yields(dual_stack),
             }
+            "IPv6-only list clears stale IPv4 compatibility fields" {
+                legacy_interface(vec![ipv6_address()]) => Yields(expected_ipv6_interface()),
+            }
             "absent V4 SVI clears the legacy value" {
                 legacy_interface(vec![ipv4_without_svi]) => Yields(expected_ipv4_without_svi),
             }
@@ -663,9 +683,6 @@ mod tests {
         unknown.address_family = 99;
 
         scenarios!(run = normalized_interface;
-            "V4 is required during the compatibility phase" {
-                legacy_interface(vec![ipv6_address()]) => Fails,
-            }
             "explicit family is required" {
                 legacy_interface(vec![unspecified]) => Fails,
             }
@@ -688,6 +705,7 @@ mod tests {
             tenant_interfaces: vec![
                 legacy_interface(vec![ipv4_address()]),
                 legacy_interface(vec![ipv6_address(), ipv4_address()]),
+                legacy_interface(vec![ipv6_address()]),
             ],
             ..Default::default()
         };
@@ -708,6 +726,7 @@ mod tests {
                 svi_ip: Some("2001:db8::2/64".to_string()),
             })
         );
+        assert_eq!(response.tenant_interfaces[2], expected_ipv6_interface());
     }
 
     #[test]

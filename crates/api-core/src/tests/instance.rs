@@ -3090,7 +3090,7 @@ async fn test_vpc_prefix_handling(pool: PgPool) {
 }
 
 /// Verifies automatic selection remains deterministic and tenant-scoped across
-/// persistence while gated IPv6 modes exercise the same resolver internally.
+/// every supported address-family mode.
 #[crate::sqlx_test]
 async fn test_auto_vpc_prefix_selection_uses_static_first_fit(pool: PgPool) {
     let fixture = create_auto_vpc_selection_fixture(pool).await;
@@ -3099,19 +3099,14 @@ async fn test_auto_vpc_prefix_selection_uses_static_first_fit(pool: PgPool) {
     // persisted RPC projection, and final exhaustion.
     assert_static_ipv4_first_fit(&fixture).await;
     assert_explicit_prefix_tenant_ownership(&fixture).await;
-    let allocated_instance = allocate_and_assert_auto_vpc_instance(&fixture).await;
+    allocate_and_assert_auto_vpc_instance(&fixture).await;
     assert_ipv4_candidates_exhausted(&fixture).await;
 
-    // Add fresh family capacity and exercise the IPv6 internals that remain
-    // gated at the request layer.
+    // Add fresh family capacity and exercise IPv6-only and dual-stack through
+    // the public allocation boundary.
     let dual_stack_prefixes = add_dual_stack_prefix_capacity(&fixture).await;
-    assert_ipv6_only_resolution(
-        &fixture,
-        &allocated_instance,
-        dual_stack_prefixes.ipv6_prefix_id,
-    )
-    .await;
-    assert_dual_stack_resolution(&fixture, &allocated_instance, &dual_stack_prefixes).await;
+    assert_ipv6_only_resolution(&fixture, dual_stack_prefixes.ipv6_prefix_id).await;
+    assert_dual_stack_resolution(&fixture, &dual_stack_prefixes).await;
 }
 
 /// Verifies a rare overlap from outside parent-prefix serialization retries
@@ -3449,13 +3444,6 @@ struct AutoVpcSelectionFixture {
     tenant_organization_id: TenantOrganizationId,
 }
 
-/// Retains persisted instance and host identity because internal IPv6-only and
-/// dual-stack address allocation requires both.
-struct AutoVpcAllocatedInstance {
-    managed_host: TestManagedHost,
-    instance_id: InstanceId,
-}
-
 /// Holds fresh per-family candidates added after IPv4 exhaustion so future
 /// family-mode checks cannot perturb the initial first-fit coverage.
 struct AutoVpcDualStackPrefixes {
@@ -3588,35 +3576,39 @@ async fn assert_explicit_prefix_tenant_ownership(fixture: &AutoVpcSelectionFixtu
     txn.rollback().await.unwrap();
 }
 
+/// Allocates one instance through the public automatic VPC selector.
+async fn allocate_auto_vpc_instance(
+    fixture: &AutoVpcSelectionFixture,
+    family_mode: rpc::forge::InstanceInterfaceIpFamilyMode,
+    name: &str,
+) -> (TestManagedHost, rpc::Instance) {
+    let managed_host = create_managed_host(&fixture.env).await;
+    let (_, instance) = managed_host
+        .instance_builer(&fixture.env)
+        .tenant_org(FIXTURE_TENANT_ORG_ID)
+        .network(automatic_rpc_network_config(fixture.vpc_id, family_mode))
+        .metadata(rpc::Metadata {
+            name: name.to_string(),
+            description: "tests/instance".to_string(),
+            labels: Vec::new(),
+        })
+        .build_and_return()
+        .await;
+
+    (managed_host, instance.into_inner())
+}
+
 /// Allocates and re-reads through the public boundary so intent and resolution
 /// are proven to persist beyond the allocation response.
-async fn allocate_and_assert_auto_vpc_instance(
-    fixture: &AutoVpcSelectionFixture,
-) -> AutoVpcAllocatedInstance {
+async fn allocate_and_assert_auto_vpc_instance(fixture: &AutoVpcSelectionFixture) {
     // Allocate the final original IPv4 linknet through the public selector and
     // verify its immediate projection.
-    let managed_host = create_managed_host(&fixture.env).await;
-    let instance = fixture
-        .env
-        .api
-        .allocate_instance(
-            InstanceAllocationRequest::builder(false)
-                .machine_id(managed_host.id)
-                .config(
-                    InstanceConfig::default_tenant_and_os()
-                        .tenant(fixture_tenant_config())
-                        .network(automatic_ipv4_rpc_network_config(fixture.vpc_id)),
-                )
-                .metadata(rpc::Metadata {
-                    name: "automatic-vpc-prefix-selection".to_string(),
-                    description: "tests/instance".to_string(),
-                    labels: Vec::new(),
-                })
-                .tonic_request(),
-        )
-        .await
-        .unwrap()
-        .into_inner();
+    let (_, instance) = allocate_auto_vpc_instance(
+        fixture,
+        rpc::forge::InstanceInterfaceIpFamilyMode::Ipv4Only,
+        "automatic-vpc-prefix-selection",
+    )
+    .await;
     assert_ipv4_auto_rpc_resolution(&instance, fixture.vpc_id, fixture.higher_ipv4_prefix_id);
 
     // Re-read through FindInstancesByIds to verify persisted intent and resolution.
@@ -3627,11 +3619,6 @@ async fn allocate_and_assert_auto_vpc_instance(
         fixture.vpc_id,
         fixture.higher_ipv4_prefix_id,
     );
-
-    AutoVpcAllocatedInstance {
-        managed_host,
-        instance_id,
-    }
 }
 
 /// Confirms original IPv4 capacity is exhausted so later family-mode checks
@@ -3682,34 +3669,56 @@ async fn add_dual_stack_prefix_capacity(
     }
 }
 
-/// Exercises IPv6-only resolution and odd-address assignment internally while
-/// its public path remains gated pending end-to-end IPv6 support.
+/// Exercises IPv6-only resolution, persistence, and DPU config rendering
+/// through the public allocation boundary.
+#[allow(deprecated)]
 async fn assert_ipv6_only_resolution(
     fixture: &AutoVpcSelectionFixture,
-    allocated_instance: &AutoVpcAllocatedInstance,
     ipv6_prefix_id: VpcPrefixId,
 ) {
-    // Exercise IPv6-only allocation directly (the request layer still rejects
-    // this mode) and keep its selected prefix in the legacy primary arm.
-    let mut ipv6_only_config =
-        automatic_network_config(fixture.vpc_id, InstanceInterfaceIpFamilyMode::Ipv6Only);
-    let mut txn = fixture.env.db_txn().await;
-    allocate_network(
-        &mut ipv6_only_config,
-        &fixture.tenant_organization_id,
-        &mut txn,
+    let (managed_host, instance) = allocate_auto_vpc_instance(
+        fixture,
+        rpc::forge::InstanceInterfaceIpFamilyMode::Ipv6Only,
+        "automatic-ipv6-only-selection",
     )
-    .await
-    .unwrap();
-    let ipv6_only_interface = &ipv6_only_config.interfaces[0];
-    assert_eq!(
-        ipv6_only_interface.network_details,
-        Some(NetworkDetails::VpcPrefixId(ipv6_prefix_id)),
+    .await;
+    let ipv6_only_segment_id = assert_auto_rpc_resolution(
+        &instance,
+        fixture.vpc_id,
+        rpc::forge::InstanceInterfaceIpFamilyMode::Ipv6Only,
+        None,
+        Some(ipv6_prefix_id),
     );
-    assert!(ipv6_only_interface.ipv6_interface_config.is_none());
 
-    // The generated segment must contain exactly the selected IPv6 linknet.
-    let ipv6_only_segment_id = ipv6_only_interface.network_segment_id.unwrap();
+    // Re-read through the public API to prove the family intent and selected
+    // prefix persisted beyond the allocation response.
+    let instance_id = instance.id.unwrap();
+    let persisted = fixture.env.one_instance(instance_id).await;
+    assert_auto_rpc_resolution(
+        persisted.inner(),
+        fixture.vpc_id,
+        rpc::forge::InstanceInterfaceIpFamilyMode::Ipv6Only,
+        None,
+        Some(ipv6_prefix_id),
+    );
+    let status = persisted.status();
+    let status_interface = &status.network().interfaces[0];
+    assert_eq!(status_interface.addresses.len(), 1);
+    assert!(
+        status_interface.addresses[0]
+            .parse::<IpAddr>()
+            .unwrap()
+            .is_ipv6()
+    );
+    assert_eq!(status_interface.prefixes.len(), 1);
+    assert!(
+        status_interface.prefixes[0]
+            .parse::<IpNetwork>()
+            .unwrap()
+            .is_ipv6()
+    );
+
+    let mut txn = fixture.env.db_txn().await;
     let ipv6_only_segment = db::network_segment::find_by(
         txn.as_mut(),
         ObjectColumnFilter::One(IdColumn, &ipv6_only_segment_id),
@@ -3720,69 +3729,113 @@ async fn assert_ipv6_only_resolution(
     assert_eq!(ipv6_only_segment[0].prefixes.len(), 1);
     assert!(ipv6_only_segment[0].prefixes[0].prefix.is_ipv6());
 
-    // Reuse the persisted instance and host to exercise internal address assignment.
-    let host = allocated_instance
-        .managed_host
-        .host()
-        .db_machine(&mut txn)
-        .await;
-    ipv6_only_config = db::instance_network_config::with_allocated_ips(
-        ipv6_only_config,
-        txn.as_mut(),
-        allocated_instance.instance_id,
-        &host,
-    )
-    .await
-    .unwrap();
     let ipv6_only_addresses =
         db::instance_address::find_by_segment_id(txn.as_mut(), &ipv6_only_segment_id)
             .await
             .unwrap();
 
-    // Config and persistence must each contain one address, with an odd IPv6 host persisted.
-    assert_eq!(ipv6_only_config.interfaces[0].ip_addrs.len(), 1);
+    // Persistence contains one odd IPv6 host address from the selected /127.
     assert_eq!(ipv6_only_addresses.len(), 1);
     assert!(matches!(
         ipv6_only_addresses[0].address,
         IpAddr::V6(address) if address.to_bits() & 1 == 1
     ));
     txn.commit().await.unwrap();
-}
 
-/// Exercises dual-stack resolution and per-family address assignment internally
-/// while its public path remains gated pending end-to-end IPv6 support.
-async fn assert_dual_stack_resolution(
-    fixture: &AutoVpcSelectionFixture,
-    allocated_instance: &AutoVpcAllocatedInstance,
-    prefixes: &AutoVpcDualStackPrefixes,
-) {
-    // IPv6-only consumed the first /127. Resolve dual stack internally with IPv4
-    // as primary and the remaining IPv6 /127 augmenting its generated segment.
-    let mut dual_stack_config =
-        automatic_network_config(fixture.vpc_id, InstanceInterfaceIpFamilyMode::DualStack);
-    let mut txn = fixture.env.db_txn().await;
-    allocate_network(
-        &mut dual_stack_config,
-        &fixture.tenant_organization_id,
-        &mut txn,
-    )
-    .await
-    .unwrap();
-    let dual_stack_interface = &dual_stack_config.interfaces[0];
+    // Core publishes only the real V6 family and leaves deprecated V4 fields
+    // empty rather than fabricating an unusable V4 address configuration.
+    let managed_config = fixture
+        .env
+        .api
+        .get_managed_host_network_config(Request::new(
+            rpc::forge::ManagedHostNetworkConfigRequest {
+                dpu_machine_id: managed_host.dpu().id.into(),
+            },
+        ))
+        .await
+        .unwrap()
+        .into_inner();
+    let [tenant_interface] = managed_config.tenant_interfaces.as_slice() else {
+        panic!("expected one IPv6-only tenant interface");
+    };
+    assert!(tenant_interface.gateway.is_empty());
+    assert!(tenant_interface.ip.is_empty());
+    assert!(tenant_interface.interface_prefix.is_empty());
+    assert!(tenant_interface.prefix.is_empty());
+    assert!(tenant_interface.svi_ip.is_none());
+    let [address] = tenant_interface.addresses.as_slice() else {
+        panic!("expected one IPv6 tenant address configuration");
+    };
     assert_eq!(
-        dual_stack_interface.network_details,
-        Some(NetworkDetails::VpcPrefixId(prefixes.ipv4_prefix_id)),
+        rpc::forge::AddressFamily::try_from(address.address_family).unwrap(),
+        rpc::forge::AddressFamily::V6,
     );
+    assert!(address.ip.parse::<IpAddr>().unwrap().is_ipv6());
     assert_eq!(
-        dual_stack_interface
+        tenant_interface
             .ipv6_interface_config
             .as_ref()
-            .map(|config| config.vpc_prefix_id),
+            .map(|config| config.ip.as_str()),
+        Some(address.ip.as_str()),
+    );
+}
+
+/// Exercises dual-stack resolution and per-family address assignment through
+/// the public allocation boundary.
+// This test deliberately verifies the deprecated V4 compatibility projection.
+#[allow(deprecated)]
+async fn assert_dual_stack_resolution(
+    fixture: &AutoVpcSelectionFixture,
+    prefixes: &AutoVpcDualStackPrefixes,
+) {
+    // IPv6-only consumed the first /127. Dual stack uses IPv4 as primary and
+    // attaches the remaining IPv6 /127 to the same generated segment.
+    let (managed_host, instance) = allocate_auto_vpc_instance(
+        fixture,
+        rpc::forge::InstanceInterfaceIpFamilyMode::DualStack,
+        "automatic-dual-stack-selection",
+    )
+    .await;
+    let dual_stack_segment_id = assert_auto_rpc_resolution(
+        &instance,
+        fixture.vpc_id,
+        rpc::forge::InstanceInterfaceIpFamilyMode::DualStack,
+        Some(prefixes.ipv4_prefix_id),
         Some(prefixes.ipv6_prefix_id),
     );
 
+    let instance_id = instance.id.unwrap();
+    let persisted = fixture.env.one_instance(instance_id).await;
+    assert_auto_rpc_resolution(
+        persisted.inner(),
+        fixture.vpc_id,
+        rpc::forge::InstanceInterfaceIpFamilyMode::DualStack,
+        Some(prefixes.ipv4_prefix_id),
+        Some(prefixes.ipv6_prefix_id),
+    );
+    let status = persisted.status();
+    let status_interface = &status.network().interfaces[0];
+    assert_eq!(status_interface.addresses.len(), 2);
+    assert_eq!(
+        status_interface
+            .addresses
+            .iter()
+            .filter(|address| address.parse::<IpAddr>().unwrap().is_ipv4())
+            .count(),
+        1,
+    );
+    assert_eq!(status_interface.prefixes.len(), 2);
+    assert_eq!(
+        status_interface
+            .prefixes
+            .iter()
+            .filter(|prefix| prefix.parse::<IpNetwork>().unwrap().is_ipv4())
+            .count(),
+        1,
+    );
+
     // Both selected family linknets must share one generated segment.
-    let dual_stack_segment_id = dual_stack_interface.network_segment_id.unwrap();
+    let mut txn = fixture.env.db_txn().await;
     let dual_stack_segment = db::network_segment::find_by(
         txn.as_mut(),
         ObjectColumnFilter::One(IdColumn, &dual_stack_segment_id),
@@ -3808,27 +3861,12 @@ async fn assert_dual_stack_resolution(
         1,
     );
 
-    // Reuse the persisted instance and host to exercise internal address assignment.
-    let host = allocated_instance
-        .managed_host
-        .host()
-        .db_machine(&mut txn)
-        .await;
-    dual_stack_config = db::instance_network_config::with_allocated_ips(
-        dual_stack_config,
-        txn.as_mut(),
-        allocated_instance.instance_id,
-        &host,
-    )
-    .await
-    .unwrap();
     let dual_stack_addresses =
         db::instance_address::find_by_segment_id(txn.as_mut(), &dual_stack_segment_id)
             .await
             .unwrap();
 
-    // Config must expose two addresses; persistence must contain one per family.
-    assert_eq!(dual_stack_config.interfaces[0].ip_addrs.len(), 2);
+    // Persistence contains one address per family.
     assert_eq!(dual_stack_addresses.len(), 2);
     assert_eq!(
         dual_stack_addresses
@@ -3842,10 +3880,44 @@ async fn assert_dual_stack_resolution(
         IpAddr::V6(address) if address.to_bits() & 1 == 1
     )));
     txn.commit().await.unwrap();
+
+    let managed_config = fixture
+        .env
+        .api
+        .get_managed_host_network_config(Request::new(
+            rpc::forge::ManagedHostNetworkConfigRequest {
+                dpu_machine_id: managed_host.dpu().id.into(),
+            },
+        ))
+        .await
+        .unwrap()
+        .into_inner();
+    let [tenant_interface] = managed_config.tenant_interfaces.as_slice() else {
+        panic!("expected one dual-stack tenant interface");
+    };
+    let [ipv4_address, ipv6_address] = tenant_interface.addresses.as_slice() else {
+        panic!("expected IPv4 and IPv6 tenant address configurations");
+    };
+    assert_eq!(
+        [ipv4_address.address_family(), ipv6_address.address_family()],
+        [rpc::forge::AddressFamily::V4, rpc::forge::AddressFamily::V6],
+    );
+    assert!(!tenant_interface.gateway.is_empty());
+    assert!(!tenant_interface.ip.is_empty());
+    assert!(!tenant_interface.interface_prefix.is_empty());
+    assert!(!tenant_interface.prefix.is_empty());
+    assert_eq!(tenant_interface.gateway, ipv4_address.gateway);
+    assert_eq!(tenant_interface.ip, ipv4_address.ip);
+    assert_eq!(
+        tenant_interface.interface_prefix,
+        ipv4_address.interface_prefix,
+    );
+    assert_eq!(tenant_interface.prefix, ipv4_address.prefix);
+    assert_eq!(tenant_interface.svi_ip, ipv4_address.svi_ip);
 }
 
-/// Builds unresolved selector intent so allocator internals (including gated
-/// IPv6 modes) can be exercised without RPC orchestration.
+/// Builds unresolved selector intent so allocator internals can be exercised
+/// without RPC orchestration.
 fn automatic_network_config(
     vpc_id: VpcId,
     family_mode: InstanceInterfaceIpFamilyMode,
@@ -3924,6 +3996,13 @@ async fn wait_until_prefix_allocator_blocked_by(
 /// Builds unresolved external selector intent so public-boundary tests do not
 /// pre-resolve a prefix themselves.
 fn automatic_ipv4_rpc_network_config(vpc_id: VpcId) -> rpc::InstanceNetworkConfig {
+    automatic_rpc_network_config(vpc_id, rpc::forge::InstanceInterfaceIpFamilyMode::Ipv4Only)
+}
+
+fn automatic_rpc_network_config(
+    vpc_id: VpcId,
+    family_mode: rpc::forge::InstanceInterfaceIpFamilyMode,
+) -> rpc::InstanceNetworkConfig {
     rpc::InstanceNetworkConfig {
         interfaces: vec![rpc::InstanceInterfaceConfig {
             function_type: rpc::InterfaceFunctionType::Physical as i32,
@@ -3931,7 +4010,7 @@ fn automatic_ipv4_rpc_network_config(vpc_id: VpcId) -> rpc::InstanceNetworkConfi
             network_details: Some(rpc::forge::instance_interface_config::NetworkDetails::Vpc(
                 rpc::forge::InstanceInterfaceVpcSelection {
                     vpc_id: Some(vpc_id),
-                    family_mode: rpc::forge::InstanceInterfaceIpFamilyMode::Ipv4Only as i32,
+                    family_mode: family_mode as i32,
                 },
             )),
             device: None,
@@ -3949,11 +4028,13 @@ fn automatic_ipv4_rpc_network_config(vpc_id: VpcId) -> rpc::InstanceNetworkConfi
 
 /// Verifies config retains caller VPC intent while status exposes its resolved
 /// prefix, protecting the distinction between intent and active allocation.
-fn assert_ipv4_auto_rpc_resolution(
+fn assert_auto_rpc_resolution(
     instance: &rpc::Instance,
     vpc_id: VpcId,
-    vpc_prefix_id: VpcPrefixId,
-) {
+    family_mode: rpc::forge::InstanceInterfaceIpFamilyMode,
+    ipv4_vpc_prefix_id: Option<VpcPrefixId>,
+    ipv6_vpc_prefix_id: Option<VpcPrefixId>,
+) -> NetworkSegmentId {
     // Config retains VPC-level caller intent while carrying the generated segment.
     let interface = &instance
         .config
@@ -3968,11 +4049,8 @@ fn assert_ipv4_auto_rpc_resolution(
         other => panic!("expected automatic VPC selection, got {other:?}"),
     };
     assert_eq!(selection.vpc_id, Some(vpc_id));
-    assert_eq!(
-        selection.family_mode,
-        rpc::forge::InstanceInterfaceIpFamilyMode::Ipv4Only as i32,
-    );
-    assert!(interface.network_segment_id.is_some());
+    assert_eq!(selection.family_mode, family_mode as i32);
+    let network_segment_id = interface.network_segment_id.unwrap();
 
     // Status publishes the active family-keyed prefix separately.
     let status_interface = &instance
@@ -3985,8 +4063,24 @@ fn assert_ipv4_auto_rpc_resolution(
         .interfaces[0];
     assert_eq!(status_interface.vpc_id, Some(vpc_id));
     let resolved = status_interface.resolved_vpc_prefixes.as_ref().unwrap();
-    assert_eq!(resolved.ipv4_vpc_prefix_id, Some(vpc_prefix_id));
-    assert_eq!(resolved.ipv6_vpc_prefix_id, None);
+    assert_eq!(resolved.ipv4_vpc_prefix_id, ipv4_vpc_prefix_id);
+    assert_eq!(resolved.ipv6_vpc_prefix_id, ipv6_vpc_prefix_id);
+
+    network_segment_id
+}
+
+fn assert_ipv4_auto_rpc_resolution(
+    instance: &rpc::Instance,
+    vpc_id: VpcId,
+    vpc_prefix_id: VpcPrefixId,
+) {
+    assert_auto_rpc_resolution(
+        instance,
+        vpc_id,
+        rpc::forge::InstanceInterfaceIpFamilyMode::Ipv4Only,
+        Some(vpc_prefix_id),
+        None,
+    );
 }
 
 async fn create_tenant_overlay_prefix(env: &TestEnv, vpc_id: VpcId) -> VpcPrefixId {

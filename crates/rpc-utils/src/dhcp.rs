@@ -121,17 +121,18 @@ pub struct HostConfig {
     pub host_ip_addresses: BTreeMap<CircuitId, InterfaceInfo>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct InterfaceInfo {
-    pub address: Ipv4Addr,
-    pub gateway: Ipv4Addr,
-    pub prefix: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub address: Option<Ipv4Addr>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub gateway: Option<Ipv4Addr>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub prefix: Option<String>,
     pub fqdn: String,
     pub booturl: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub mtu: Option<u32>,
-    // TODO(ipv6-only): the v4 fields above are still required. IPv6-only
-    // hosts will need those fields to become optional in a later milestone.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub ipv6: Option<InterfaceInfoV6>,
 }
@@ -142,19 +143,7 @@ pub struct InterfaceInfoV6 {
     pub address: Option<Ipv6Addr>,
     pub prefix: String,
 }
-impl Default for InterfaceInfo {
-    fn default() -> Self {
-        InterfaceInfo {
-            address: Ipv4Addr::UNSPECIFIED,
-            gateway: Ipv4Addr::UNSPECIFIED,
-            prefix: Default::default(),
-            fqdn: Default::default(),
-            booturl: None,
-            mtu: None,
-            ipv6: None,
-        }
-    }
-}
+
 impl HostConfig {
     pub fn try_from(
         value: ManagedHostNetworkConfigResponse,
@@ -214,12 +203,35 @@ impl HostConfig {
 impl TryFrom<::rpc::forge::FlatInterfaceConfig> for InterfaceInfo {
     type Error = DhcpDataError;
     fn try_from(value: ::rpc::forge::FlatInterfaceConfig) -> Result<Self, Self::Error> {
-        let gateway = Ipv4Network::from_str(&value.gateway)?.ip();
+        let empty_ipv4_fields = [
+            value.ip.is_empty(),
+            value.gateway.is_empty(),
+            value.prefix.is_empty(),
+        ]
+        .into_iter()
+        .filter(|empty| *empty)
+        .count();
+
+        if empty_ipv4_fields != 0 && empty_ipv4_fields != 3 {
+            return Err(DhcpDataError::ParameterMissing(
+                "complete IPv4 interface configuration",
+            ));
+        }
+
+        let (address, gateway, prefix) = if empty_ipv4_fields == 3 {
+            (None, None, None)
+        } else {
+            (
+                Some(value.ip.parse()?),
+                Some(Ipv4Network::from_str(&value.gateway)?.ip()),
+                Some(value.prefix),
+            )
+        };
 
         Ok(InterfaceInfo {
-            address: value.ip.parse()?,
+            address,
             gateway,
-            prefix: value.prefix,
+            prefix,
             fqdn: value.fqdn,
             booturl: value.booturl,
             mtu: value.mtu,
@@ -354,9 +366,9 @@ mod tests {
 
     #[derive(Debug, PartialEq)]
     struct InterfaceSummary {
-        address: Ipv4Addr,
-        gateway: Ipv4Addr,
-        prefix: String,
+        address: Option<Ipv4Addr>,
+        gateway: Option<Ipv4Addr>,
+        prefix: Option<String>,
         fqdn: String,
         booturl: Option<String>,
         mtu: Option<u32>,
@@ -395,6 +407,14 @@ mod tests {
             mtu: Some(9000),
             ..Default::default()
         }
+    }
+
+    #[allow(deprecated)]
+    fn ipv6_only_interface_config() -> FlatInterfaceConfig {
+        let mut config =
+            interface_config(InterfaceFunctionType::Virtual, 100, Some(3), false, "", "");
+        config.prefix.clear();
+        config
     }
 
     fn host_network_config(
@@ -520,16 +540,24 @@ mod tests {
                     "192.0.2.50",
                     "192.0.2.1/24",
                 ) => Yields(InterfaceSummary {
-                    address: Ipv4Addr::new(192, 0, 2, 50),
-                    gateway: Ipv4Addr::new(192, 0, 2, 1),
-                    prefix: "192.0.2.0/24".to_string(),
+                    address: Some(Ipv4Addr::new(192, 0, 2, 50)),
+                    gateway: Some(Ipv4Addr::new(192, 0, 2, 1)),
+                    prefix: Some("192.0.2.0/24".to_string()),
+                    fqdn: "host.example.com".to_string(),
+                    booturl: Some("http://boot.example.com/ipxe".to_string()),
+                    mtu: Some(9000),
+                }),
+                ipv6_only_interface_config() => Yields(InterfaceSummary {
+                    address: None,
+                    gateway: None,
+                    prefix: None,
                     fqdn: "host.example.com".to_string(),
                     booturl: Some("http://boot.example.com/ipxe".to_string()),
                     mtu: Some(9000),
                 }),
             }
 
-            "invalid addresses" {
+            "invalid or incomplete addresses" {
                 interface_config(
                     InterfaceFunctionType::Virtual,
                     100,
@@ -546,6 +574,14 @@ mod tests {
                     "192.0.2.50",
                     "not a network",
                 ) => FailsWith("ip-network"),
+                interface_config(
+                    InterfaceFunctionType::Virtual,
+                    100,
+                    Some(3),
+                    false,
+                    "",
+                    "192.0.2.1/24",
+                ) => FailsWith("parameter-missing"),
             }
         );
     }
@@ -575,9 +611,9 @@ mod tests {
                     host_ip_addresses: vec![(
                         "vlan100".to_string(),
                         InterfaceSummary {
-                            address: Ipv4Addr::new(192, 0, 2, 10),
-                            gateway: Ipv4Addr::new(192, 0, 2, 1),
-                            prefix: "192.0.2.0/24".to_string(),
+                            address: Some(Ipv4Addr::new(192, 0, 2, 10)),
+                            gateway: Some(Ipv4Addr::new(192, 0, 2, 1)),
+                            prefix: Some("192.0.2.0/24".to_string()),
                             fqdn: "host.example.com".to_string(),
                             booturl: Some("http://boot.example.com/ipxe".to_string()),
                             mtu: Some(9000),
@@ -608,9 +644,9 @@ mod tests {
                     host_ip_addresses: vec![(
                         "vf3sf".to_string(),
                         InterfaceSummary {
-                            address: Ipv4Addr::new(192, 0, 2, 20),
-                            gateway: Ipv4Addr::new(192, 0, 2, 1),
-                            prefix: "192.0.2.0/24".to_string(),
+                            address: Some(Ipv4Addr::new(192, 0, 2, 20)),
+                            gateway: Some(Ipv4Addr::new(192, 0, 2, 1)),
+                            prefix: Some("192.0.2.0/24".to_string()),
                             fqdn: "host.example.com".to_string(),
                             booturl: Some("http://boot.example.com/ipxe".to_string()),
                             mtu: Some(9000),
@@ -641,9 +677,9 @@ mod tests {
                     host_ip_addresses: vec![(
                         "p0".to_string(),
                         InterfaceSummary {
-                            address: Ipv4Addr::new(192, 0, 2, 30),
-                            gateway: Ipv4Addr::new(192, 0, 2, 1),
-                            prefix: "192.0.2.0/24".to_string(),
+                            address: Some(Ipv4Addr::new(192, 0, 2, 30)),
+                            gateway: Some(Ipv4Addr::new(192, 0, 2, 1)),
+                            prefix: Some("192.0.2.0/24".to_string()),
                             fqdn: "host.example.com".to_string(),
                             booturl: Some("http://boot.example.com/ipxe".to_string()),
                             mtu: Some(9000),
@@ -738,9 +774,9 @@ mod tests {
     #[test]
     fn interface_info_ipv6_round_trip_and_defaults_when_absent() {
         let interface = InterfaceInfo {
-            address: Ipv4Addr::new(192, 0, 2, 10),
-            gateway: Ipv4Addr::new(192, 0, 2, 1),
-            prefix: "192.0.2.0/24".to_string(),
+            address: Some(Ipv4Addr::new(192, 0, 2, 10)),
+            gateway: Some(Ipv4Addr::new(192, 0, 2, 1)),
+            prefix: Some("192.0.2.0/24".to_string()),
             fqdn: "host.example.com".to_string(),
             booturl: None,
             mtu: Some(9000),
@@ -765,7 +801,20 @@ mod tests {
         }"#;
         let old_interface: InterfaceInfo =
             serde_json::from_str(old_wire).expect("old interface deserializes");
+        assert_eq!(old_interface.address, interface.address);
+        assert_eq!(old_interface.gateway, interface.gateway);
+        assert_eq!(old_interface.prefix, interface.prefix);
         assert_eq!(old_interface.ipv6, None);
+
+        let ipv6_only_wire = r#"{
+            "fqdn": "host.example.com",
+            "booturl": null
+        }"#;
+        let ipv6_only_interface: InterfaceInfo = serde_json::from_str(ipv6_only_wire)
+            .expect("interface without IPv4 fields deserializes");
+        assert_eq!(ipv6_only_interface.address, None);
+        assert_eq!(ipv6_only_interface.gateway, None);
+        assert_eq!(ipv6_only_interface.prefix, None);
     }
 
     #[test]

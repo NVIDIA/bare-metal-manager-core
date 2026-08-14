@@ -1160,7 +1160,7 @@ impl MachineStateMachine {
                 mac_address: self.machine_info.host_mac_address().map(|a| a.to_string()),
                 addresses,
                 prefixes,
-                gateways: vec![iface.gateway.clone()],
+                gateways: build_dual_stack_list(iface.gateway.clone(), None),
                 network_security_group: None,
                 internal_uuid: None,
             }]
@@ -1186,7 +1186,7 @@ impl MachineStateMachine {
                     mac_address: self.machine_info.host_mac_address().map(|a| a.to_string()),
                     addresses,
                     prefixes,
-                    gateways: vec![iface.gateway.clone()],
+                    gateways: build_dual_stack_list(iface.gateway.clone(), None),
                     network_security_group: iface.network_security_group.as_ref().map(|s| {
                         rpc::forge::NetworkSecurityGroupStatus {
                             source: s.source,

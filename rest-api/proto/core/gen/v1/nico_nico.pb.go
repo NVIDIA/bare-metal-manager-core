@@ -1010,9 +1010,6 @@ func (SpxAttachmentType) EnumDescriptor() ([]byte, []int) {
 }
 
 // Address families requested for automatic VPC prefix and address selection.
-//
-// Core models and persists every mode. External IPv6-only and dual-stack
-// requests are temporarily rejected until downstream DPU support is complete.
 type InstanceInterfaceIpFamilyMode int32
 
 const (
@@ -19970,16 +19967,21 @@ type InstanceInterfaceStatus struct {
 	MacAddress *string `protobuf:"bytes,2,opt,name=mac_address,json=macAddress,proto3,oneof" json:"mac_address,omitempty"`
 	// The list of IP addresses that had been assigned to this interface,
 	// based on the requested subnet.
+	// IPv4 precedes IPv6 when both families are assigned.
 	// The list will be empty if interface configuration hasn't been completed
 	Addresses []string `protobuf:"bytes,3,rep,name=addresses,proto3" json:"addresses,omitempty"`
-	// The list of gateways, in CIDR notation, one for each address in `addresses`.
+	// The explicitly configured gateways, in CIDR notation. There is at most one
+	// gateway per address family, associated with the same-family address and
+	// prefix. A family without an explicit gateway is omitted, so this list can
+	// be shorter than `addresses` and is not positionally aligned. IPv4 precedes
+	// IPv6 when both gateways are explicitly configured.
 	Gateways []string `protobuf:"bytes,4,rep,name=gateways,proto3" json:"gateways,omitempty"`
 	// The list of IP prefixes that have been assigned to this interface
 	// out of the requested subnet (where the prefix allocated to the interface
 	// may be a /30 in the case of FNN, or just a /32 in the case of ETV).
 	//
-	// This is similar to `gateways`, in that there is one `prefix` for each
-	// address in `addresses`.
+	// There is one prefix for each entry in `addresses`, in the same
+	// IPv4-before-IPv6 order.
 	Prefixes       []string `protobuf:"bytes,5,rep,name=prefixes,proto3" json:"prefixes,omitempty"`
 	Device         *string  `protobuf:"bytes,6,opt,name=device,proto3,oneof" json:"device,omitempty"`
 	DeviceInstance uint32   `protobuf:"varint,7,opt,name=device_instance,json=deviceInstance,proto3" json:"device_instance,omitempty"`
@@ -26614,7 +26616,7 @@ type FlatInterfaceConfig struct {
 	VpcPeerVnis     []uint32 `protobuf:"varint,17,rep,packed,name=vpc_peer_vnis,json=vpcPeerVnis,proto3" json:"vpc_peer_vnis,omitempty"`
 	// MTU size
 	Mtu *uint32 `protobuf:"varint,18,opt,name=mtu,proto3,oneof" json:"mtu,omitempty"`
-	// IPv6 configuration for dual-stack FNN interfaces.
+	// IPv6 configuration for FNN interfaces that include IPv6.
 	Ipv6InterfaceConfig *FlatInterfaceIpv6Config `protobuf:"bytes,19,opt,name=ipv6_interface_config,json=ipv6InterfaceConfig,proto3,oneof" json:"ipv6_interface_config,omitempty"`
 	// Route imports and tagging details for exports used by FNN configs.
 	// This is scoped to the VPC that owns this interface.
@@ -26624,8 +26626,9 @@ type FlatInterfaceConfig struct {
 	InterfaceRoutingProfile *FlatInterfaceRoutingProfile `protobuf:"bytes,21,opt,name=interface_routing_profile,json=interfaceRoutingProfile,proto3,oneof" json:"interface_routing_profile,omitempty"`
 	// Family-neutral replacement for gateway, ip, interface_prefix, prefix, svi_ip,
 	// and ipv6_interface_config. An empty list identifies a legacy payload. Writers
-	// must emit at most one entry per family, ordered V4 before V6. Readers must
-	// select entries by address_family rather than position.
+	// must emit at most one entry per family, ordered V4 before V6. A family absent
+	// from this list has empty deprecated compatibility fields. Readers must select
+	// entries by address_family rather than position.
 	Addresses []*InterfaceAddressConfig `protobuf:"bytes,22,rep,name=addresses,proto3" json:"addresses,omitempty"`
 	// The details of the network security group associated with
 	// either the instance or its parent VPC.
@@ -26889,8 +26892,8 @@ func (x *FlatInterfaceRoutingProfile) GetAllowedAnycastPrefixes() []*PrefixFilte
 	return nil
 }
 
-// IPv6 configuration for a dual-stack FNN interface, sent from the API to
-// the DPU agent as part of FlatInterfaceConfig.
+// IPv6 configuration for an FNN interface that includes IPv6, sent from the
+// API to the DPU agent as part of FlatInterfaceConfig.
 type FlatInterfaceIpv6Config struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// Host IPv6 address (e.g. "2001:db8::1").
@@ -31281,16 +31284,21 @@ type InstanceInterfaceStatusObservation struct {
 	MacAddress *string `protobuf:"bytes,3,opt,name=mac_address,json=macAddress,proto3,oneof" json:"mac_address,omitempty"`
 	// The list of IP addresses that had been assigned to this interface,
 	// based on the requested subnet.
+	// IPv4 precedes IPv6 when both families are assigned.
 	// The list will be empty if interface configuration hasn't been completed
 	Addresses []string `protobuf:"bytes,4,rep,name=addresses,proto3" json:"addresses,omitempty"`
-	// The list of gateways, in CIDR notation, one for each address in `addresses`.
+	// The explicitly configured gateways, in CIDR notation. There is at most one
+	// gateway per address family, associated with the same-family address and
+	// prefix. A family without an explicit gateway is omitted, so this list can
+	// be shorter than `addresses` and is not positionally aligned. IPv4 precedes
+	// IPv6 when both gateways are explicitly configured.
 	Gateways []string `protobuf:"bytes,5,rep,name=gateways,proto3" json:"gateways,omitempty"`
 	// The list of IP prefixes that have been assigned to this interface
 	// out of the requested subnet (where the prefix allocated to the interface
 	// may be a /30 in the case of FNN, or just a /32 in the case of ETV).
 	//
-	// This is similar to `gateways`, in that there is one `prefix` for each
-	// address in `addresses`.
+	// There is one prefix for each entry in `addresses`, in the same
+	// IPv4-before-IPv6 order.
 	Prefixes []string `protobuf:"bytes,6,rep,name=prefixes,proto3" json:"prefixes,omitempty"`
 	// The NSG details for the observed NSG of the interface
 	NetworkSecurityGroup *NetworkSecurityGroupStatus `protobuf:"bytes,7,opt,name=network_security_group,json=networkSecurityGroup,proto3" json:"network_security_group,omitempty"`
