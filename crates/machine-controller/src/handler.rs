@@ -9677,13 +9677,7 @@ impl HostUpgradeState {
         }
 
         let next_state = match &rack_fw_status.status {
-            model::rack::RackFirmwareUpgradeState::Completed => scenario.actual_new_state(
-                HostReprovisionState::CheckingFirmwareRepeatV2 {
-                    firmware_type: None,
-                    firmware_number: None,
-                },
-                state.managed_state.get_host_repro_retry_count(),
-            ),
+            model::rack::RackFirmwareUpgradeState::Completed => scenario.complete_state(),
             model::rack::RackFirmwareUpgradeState::Failed { cause } => scenario.actual_new_state(
                 HostReprovisionState::FailedFirmwareUpgrade {
                     firmware_type: FirmwareComponentType::Unknown,
