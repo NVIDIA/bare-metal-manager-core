@@ -1639,8 +1639,8 @@ pub struct NetworkAdapter {
     /// adapter.
     ///
     /// These remain attached to the adapter that reported them so callers can
-    /// use them as supplemental inventory when `ComputerSystem.EthernetInterfaces`
-    /// does not expose usable MAC addresses.
+    /// apply their own interface-selection policy without fabricating
+    /// `ComputerSystem.EthernetInterfaces` inventory.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub port_mac_addresses: Vec<MacAddress>,
 }
