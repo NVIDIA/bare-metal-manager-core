@@ -17,7 +17,7 @@ NICo currently supports DPU Extension Services of type `KUBERNETES_POD`. When a
 sent to instance's DPUs through `GetManagedHostNetworkConfig`, and deployed
 locally by the DPU agent as a static Kubernetes Pod.
 
-As NICo transitions to DPF, extension services should use DPF to manage
+However, as NICo transitions to DPF, extension services should use DPF to manage
 workloads on DPUs rather than relying on direct deployment by the DPU agent.
 This design introduces a new extension-service type, `DPF_HELM_CHART`, which
 represents a Helm chart-based extension service managed through DPF.
@@ -31,7 +31,7 @@ Argo CD Applications and the Kubernetes resources deployed by the `DPUService`.
 For each `DPF_HELM_CHART` service, NICo generates and owns a stable,
 service-specific `DPUService` Node selector and its corresponding placement
 label. When the service is attached to an instance, NICo adds the matching label
-to the `DPUDevice` resources for that instance's DPUs. DPF propagates the label
+to the `DPUDevice` for that instance's DPUs. DPF propagates the label
 to the corresponding Nodes in the DPU cluster, where it satisfies the
 `DPUService` DaemonSet selector and allows the workload to run only on the
 selected DPUs.
@@ -94,7 +94,9 @@ Stage 2 must:
    rationale.
 
 4. **DPUService contract fields.** Determine whether the API should expose
-   configuration for DPF Helm-chart contract fields -- labels, annotations, updateStrategy, etc -- reserved by DPF. See [DPF contract](https://gitlab-master.nvidia.com/doca-platform-foundation/doca-platform-foundation/-/blob/main/docs/public/developer-guides/services/dpuservice-development.md?ref_type=heads). 
+   configuration for DPF Helm-chart contract fields -- labels, annotations,
+   updateStrategy, etc -- reserved by DPF. See 
+   [DPF contract](https://gitlab-master.nvidia.com/doca-platform-foundation/doca-platform-foundation/-/blob/main/docs/public/developer-guides/services/dpuservice-development.md?ref_type=heads). 
 
 ### 2.4 Future Improvements
 
