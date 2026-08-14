@@ -43,7 +43,7 @@ use crate::cfg::file::{
     DpuConfig as InitialDpuConfig, DsxExchangeEventBusConfig, FnnConfig,
     IbPartitionStateControllerConfig, KmsConfig, ListenMode, MachineUpdater,
     MeasuredBootMetricsCollectorConfig, MqttAuthConfig, NetworkSecurityGroupConfig,
-    NetworkSegmentStateControllerConfig, PowerShelfStateControllerConfig,
+    NetworkSegmentStateControllerConfig, NodeAuthConfig, PowerShelfStateControllerConfig,
     RackStateControllerConfig, SecretsConfig, SpdmConfig, SpdmStateControllerConfig,
     SwitchStateControllerConfig, TracingConfig, VmaasConfig, VpcPeeringPolicy,
     VpcPrefixStateControllerConfig, default_bmc_session_lockout_threshold,
@@ -134,6 +134,10 @@ pub fn fully_populated() -> CarbideConfig {
             import_from: None,
             import_approach: Default::default(),
         }),
+        node_auth: NodeAuthConfig {
+            fmds_use_node_tokens: Some(false),
+            ..Default::default()
+        },
         ..get()
     }
 }
