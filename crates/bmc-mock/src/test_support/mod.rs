@@ -608,6 +608,58 @@ mod test {
     use crate::test_support::axum_http_client::Error;
     use crate::test_support::host_info;
 
+    async fn get_json(router: &Router, path: &str) -> serde_json::Value {
+        let response = router
+            .clone()
+            .oneshot(Request::builder().uri(path).body(Body::empty()).unwrap())
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK, "GET {path}");
+        serde_json::from_slice(
+            &axum::body::to_bytes(response.into_body(), usize::MAX)
+                .await
+                .unwrap(),
+        )
+        .unwrap()
+    }
+
+    #[tokio::test]
+    async fn lenovo_profile_exposes_declared_host_mac_only_through_adapter_port() {
+        let machine = host_info(HardwareType::LenovoGB300Nvl);
+        let expected_host_mac = match &machine {
+            MachineInfo::Host(host) => host.system_mac_address().unwrap().to_string(),
+            MachineInfo::Dpu(_) => unreachable!("Lenovo GB300 must be a host"),
+        };
+        let router = machine_router(
+            &machine,
+            Arc::new(NoopCallbacks),
+            "test-host-id".to_string(),
+            false,
+            MachineRouterOptions::default(),
+        )
+        .0;
+
+        let interfaces = get_json(&router, "/redfish/v1/Systems/System_0/EthernetInterfaces").await;
+        let interface_path = interfaces["Members"][0]["@odata.id"].as_str().unwrap();
+        let interface = get_json(&router, interface_path).await;
+        assert_ne!(interface["MACAddress"], expected_host_mac);
+
+        let chassis = get_json(&router, "/redfish/v1/Chassis/Chassis_0").await;
+        let adapters_path = chassis["NetworkAdapters"]["@odata.id"].as_str().unwrap();
+        let adapters = get_json(&router, adapters_path).await;
+        let adapter_path = adapters["Members"][0]["@odata.id"].as_str().unwrap();
+        let adapter = get_json(&router, adapter_path).await;
+        let ports_path = adapter["Ports"]["@odata.id"].as_str().unwrap();
+        let ports = get_json(&router, ports_path).await;
+        let port_path = ports["Members"][0]["@odata.id"].as_str().unwrap();
+        let port = get_json(&router, port_path).await;
+
+        assert_eq!(
+            port["Oem"]["Lenovo"]["PhysicalPortMacAddress"],
+            expected_host_mac
+        );
+    }
+
     #[tokio::test]
     async fn caller_provided_injection_store_is_active() {
         let injection = Arc::new(InjectionStore::new());

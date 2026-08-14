@@ -241,6 +241,7 @@ impl LenovoGB300Nvl<'_> {
                     part_number: Some("SC57C26750".into()),
                     model: Some(" ".into()),
                     serial_number: Some(self.chassis_0_serial_number.to_string().into()),
+                    network_adapters: Some(vec![self.host_network_adapter()]),
                     sensors: Some(redfish::sensor::generate_chassis_sensors(
                         "Chassis_0",
                         redfish::sensor::Layout {
@@ -274,6 +275,26 @@ impl LenovoGB300Nvl<'_> {
                 )))
                 .collect(),
         }
+    }
+
+    fn host_network_adapter(&self) -> redfish::network_adapter::NetworkAdapter {
+        const CHASSIS_ID: &str = "Chassis_0";
+        const ADAPTER_ID: &str = "slot-16";
+        let port = redfish::network_adapter::port_builder(
+            &redfish::network_adapter::port_resource(CHASSIS_ID, ADAPTER_ID, "1"),
+        )
+        .lenovo_physical_mac_address(self.dpu.host_nic().mac_address)
+        .build();
+        redfish::network_adapter::builder_from_nic(
+            &redfish::network_adapter::chassis_resource(CHASSIS_ID, ADAPTER_ID),
+            &self.dpu.host_nic(),
+        )
+        .ports(
+            &redfish::network_adapter::port_collection(CHASSIS_ID, ADAPTER_ID),
+            vec![port],
+        )
+        .status(redfish::resource::Status::Ok)
+        .build()
     }
 
     pub(crate) fn update_service_config(&self) -> redfish::update_service::UpdateServiceConfig {

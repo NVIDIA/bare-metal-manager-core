@@ -56,6 +56,7 @@ pub(crate) fn add_routes(r: Router<BmcState>) -> Router<BmcState> {
     const CHASSIS_ID: &str = "{chassis_id}";
     const NET_ADAPTER_ID: &str = "{network_adapter_id}";
     const NET_FUNC_ID: &str = "{function_id}";
+    const PORT_ID: &str = "{port_id}";
     const PCIE_DEVICE_ID: &str = "{pcie_device_id}";
     const SENSOR_ID: &str = "{sensor_id}";
     const POWER_SUPPLY_ID: &str = "{power_supply_id}";
@@ -83,6 +84,14 @@ pub(crate) fn add_routes(r: Router<BmcState>) -> Router<BmcState> {
             )
             .odata_id,
             get(get_chassis_network_adapters_network_device_function),
+        )
+        .route(
+            &redfish::network_adapter::port_collection(CHASSIS_ID, NET_ADAPTER_ID).odata_id,
+            get(get_chassis_network_adapter_ports),
+        )
+        .route(
+            &redfish::network_adapter::port_resource(CHASSIS_ID, NET_ADAPTER_ID, PORT_ID).odata_id,
+            get(get_chassis_network_adapter_port),
         )
         .route(
             &redfish::pcie_device::chassis_collection(CHASSIS_ID).odata_id,
@@ -406,6 +415,47 @@ async fn get_chassis_network_adapters_network_device_function(
         .and_then(|chassis_state| chassis_state.find_network_adapter(&network_adapter_id))
         .and_then(|network_adapter| network_adapter.find_function(&function_id))
         .map(|function| function.to_json().into_ok_response())
+        .unwrap_or_else(http::not_found)
+}
+
+async fn get_chassis_network_adapter_ports(
+    State(state): State<BmcState>,
+    Path((chassis_id, network_adapter_id)): Path<(String, String)>,
+) -> Response {
+    state
+        .chassis_state
+        .find(&chassis_id)
+        .and_then(|chassis_state| chassis_state.find_network_adapter(&network_adapter_id))
+        .map(|network_adapter| {
+            let members = network_adapter
+                .ports
+                .iter()
+                .map(|port| {
+                    redfish::network_adapter::port_resource(
+                        &chassis_id,
+                        &network_adapter_id,
+                        &port.id,
+                    )
+                    .entity_ref()
+                })
+                .collect::<Vec<_>>();
+            redfish::network_adapter::port_collection(&chassis_id, &network_adapter_id)
+                .with_members(&members)
+                .into_ok_response()
+        })
+        .unwrap_or_else(http::not_found)
+}
+
+async fn get_chassis_network_adapter_port(
+    State(state): State<BmcState>,
+    Path((chassis_id, network_adapter_id, port_id)): Path<(String, String, String)>,
+) -> Response {
+    state
+        .chassis_state
+        .find(&chassis_id)
+        .and_then(|chassis_state| chassis_state.find_network_adapter(&network_adapter_id))
+        .and_then(|network_adapter| network_adapter.find_port(&port_id))
+        .map(|port| port.to_json().into_ok_response())
         .unwrap_or_else(http::not_found)
 }
 

@@ -36,6 +36,30 @@ pub(crate) fn chassis_resource(chassis_id: &str, adapter_id: &str) -> redfish::R
     }
 }
 
+pub(crate) fn port_resource(
+    chassis_id: &str,
+    adapter_id: &str,
+    port_id: &str,
+) -> redfish::Resource<'static> {
+    let odata_id =
+        format!("/redfish/v1/Chassis/{chassis_id}/NetworkAdapters/{adapter_id}/Ports/{port_id}");
+    redfish::Resource {
+        odata_id: Cow::Owned(odata_id),
+        odata_type: Cow::Borrowed("#Port.v1_6_0.Port"),
+        id: Cow::Owned(port_id.into()),
+        name: Cow::Borrowed("Port"),
+    }
+}
+
+pub(crate) fn port_collection(chassis_id: &str, adapter_id: &str) -> redfish::Collection<'static> {
+    let odata_id = format!("/redfish/v1/Chassis/{chassis_id}/NetworkAdapters/{adapter_id}/Ports");
+    redfish::Collection {
+        odata_id: Cow::Owned(odata_id),
+        odata_type: Cow::Borrowed("#PortCollection.PortCollection"),
+        name: Cow::Borrowed("Port Collection"),
+    }
+}
+
 pub(super) fn chassis_collection(chassis_id: &str) -> redfish::Collection<'static> {
     let odata_id = format!("/redfish/v1/Chassis/{chassis_id}/NetworkAdapters");
     redfish::Collection {
@@ -49,6 +73,7 @@ pub(crate) struct NetworkAdapter {
     pub(crate) id: Cow<'static, str>,
     value: serde_json::Value,
     pub(crate) functions: Vec<redfish::network_device_function::NetworkDeviceFunction>,
+    pub(crate) ports: Vec<Port>,
 }
 
 impl NetworkAdapter {
@@ -61,6 +86,61 @@ impl NetworkAdapter {
     ) -> Option<&redfish::network_device_function::NetworkDeviceFunction> {
         self.functions.iter().find(|f| f.id.as_ref() == function_id)
     }
+
+    pub(crate) fn find_port(&self, port_id: &str) -> Option<&Port> {
+        self.ports.iter().find(|port| port.id.as_ref() == port_id)
+    }
+}
+
+pub(crate) struct Port {
+    pub(crate) id: Cow<'static, str>,
+    value: serde_json::Value,
+}
+
+impl Port {
+    pub(crate) fn to_json(&self) -> serde_json::Value {
+        self.value.clone()
+    }
+}
+
+pub(crate) fn port_builder(resource: &redfish::Resource) -> PortBuilder {
+    PortBuilder {
+        id: Cow::Owned(resource.id.to_string()),
+        value: resource.json_patch(),
+    }
+}
+
+pub(crate) struct PortBuilder {
+    id: Cow<'static, str>,
+    value: serde_json::Value,
+}
+
+impl Builder for PortBuilder {
+    fn apply_patch(self, patch: serde_json::Value) -> Self {
+        Self {
+            id: self.id,
+            value: self.value.patch(patch),
+        }
+    }
+}
+
+impl PortBuilder {
+    pub(crate) fn lenovo_physical_mac_address(self, mac_address: mac_address::MacAddress) -> Self {
+        self.apply_patch(json!({
+            "Oem": {
+                "Lenovo": {
+                    "PhysicalPortMacAddress": mac_address,
+                }
+            }
+        }))
+    }
+
+    pub(crate) fn build(self) -> Port {
+        Port {
+            id: self.id,
+            value: self.value,
+        }
+    }
 }
 
 /// Get builder of the network adapter.
@@ -69,6 +149,7 @@ pub(crate) fn builder(resource: &redfish::Resource) -> NetworkAdapterBuilder {
         id: Cow::Owned(resource.id.to_string()),
         value: resource.json_patch(),
         functions: Vec::new(),
+        ports: Vec::new(),
     }
 }
 
@@ -88,6 +169,7 @@ pub(crate) struct NetworkAdapterBuilder {
     id: Cow<'static, str>,
     value: serde_json::Value,
     functions: Vec<redfish::network_device_function::NetworkDeviceFunction>,
+    ports: Vec<Port>,
 }
 
 impl Builder for NetworkAdapterBuilder {
@@ -96,6 +178,7 @@ impl Builder for NetworkAdapterBuilder {
             value: self.value.patch(patch),
             id: self.id,
             functions: self.functions,
+            ports: self.ports,
         }
     }
 }
@@ -131,6 +214,12 @@ impl NetworkAdapterBuilder {
         v
     }
 
+    pub(crate) fn ports(self, collection: &redfish::Collection<'_>, ports: Vec<Port>) -> Self {
+        let mut value = self.apply_patch(collection.nav_property("Ports"));
+        value.ports = ports;
+        value
+    }
+
     pub(crate) fn status(self, status: redfish::resource::Status) -> Self {
         self.apply_patch(json!({
             "Status": status.into_json()
@@ -142,6 +231,7 @@ impl NetworkAdapterBuilder {
             id: self.id,
             value: self.value,
             functions: self.functions,
+            ports: self.ports,
         }
     }
 }
