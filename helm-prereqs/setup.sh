@@ -439,9 +439,10 @@ helmfile sync -l name=postgres-operator
 #     No TLS/PKI dependency — installed early so it is ready before NICo Core
 #     deploys LoadBalancer services (NICo Core API, dhcp, dns, pxe, ssh-console-rs).
 #
-#     After the helm release installs the CRDs, site-specific config is applied
-#     from --metallb-config <path> (file or kustomize dir) if provided, otherwise
-#     from values/metallb-config.yaml. Fill in that file or pass --metallb-config.
+#     CRDs are managed externally (not by the helm release) and applied before
+#     and after helmfile sync. Site-specific config (IPAddressPool, BGPPeer,
+#     BGPAdvertisement) is applied from --metallb-config <path> if provided,
+#     otherwise from values/metallb-config.yaml.
 # ---------------------------------------------------------------------------
 _SETUP_PHASE="[1c] MetalLB"
 echo "=== [1c] MetalLB ==="
