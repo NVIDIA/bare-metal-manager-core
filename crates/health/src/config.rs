@@ -26,11 +26,12 @@ use figment::Figment;
 use figment::providers::{Env, Format, Serialized, Toml};
 use rustls_pki_types::DnsName;
 use serde::{Deserialize, Deserializer, Serialize};
+use tokio::sync::Semaphore;
 use url::Url;
 
 use crate::metrics::BmcLatencyAttribute;
 
-const DEFAULT_BMC_REQUEST_CONCURRENCY: NonZeroUsize = NonZeroUsize::MIN;
+const DEFAULT_BMC_REQUEST_CONCURRENCY: NonZeroUsize = NonZeroUsize::MIN.saturating_add(3);
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
@@ -58,8 +59,10 @@ pub struct Config {
     /// Maximum cache size per BMC, uses etags
     pub cache_size: usize,
 
-    /// Maximum concurrent Redfish operations per BMC. Changes take effect when
-    /// the service restarts and rebuilds BMC clients.
+    /// Maximum concurrent Redfish operations per BMC, including collector
+    /// fan-out. Changes take effect when the service restarts and rebuilds BMC
+    /// clients. The value must not exceed [`Semaphore::MAX_PERMITS`], which
+    /// bounds SSE event-record buffering.
     pub bmc_request_concurrency: NonZeroUsize,
 
     /// Interval between BMC endpoint discovery iterations.
@@ -1054,6 +1057,7 @@ pub struct DiscoveryConfig {
     #[serde(with = "humantime_serde")]
     pub refresh_interval: Duration,
 
+    /// Maximum endpoints whose system identities are resolved concurrently.
     pub discovery_concurrency: usize,
 }
 
@@ -1071,15 +1075,12 @@ impl Default for DiscoveryConfig {
 pub struct MetricsCollectorConfig {
     #[serde(with = "humantime_serde")]
     pub fetch_interval: Duration,
-
-    pub fetch_concurrency: usize,
 }
 
 impl Default for MetricsCollectorConfig {
     fn default() -> Self {
         Self {
             fetch_interval: Duration::from_secs(120),
-            fetch_concurrency: 4,
         }
     }
 }
@@ -1180,9 +1181,6 @@ pub struct SensorCollectorConfig {
     #[serde(with = "humantime_serde")]
     pub sensor_fetch_interval: Duration,
 
-    /// Number of concurrent sensor fetches.
-    pub sensor_fetch_concurrency: usize,
-
     /// Include sensor thresholds in the metrics attributes.
     pub include_sensor_thresholds: bool,
 }
@@ -1191,7 +1189,6 @@ impl Default for SensorCollectorConfig {
     fn default() -> Self {
         Self {
             sensor_fetch_interval: Duration::from_secs(60),
-            sensor_fetch_concurrency: 4,
             include_sensor_thresholds: true,
         }
     }
@@ -1289,10 +1286,6 @@ pub struct SseLogConfig {
     /// Maximum retry backoff after repeated streaming connection failures.
     #[serde(with = "humantime_serde")]
     pub max_backoff: Duration,
-
-    /// Maximum number of concurrent Redfish GET requests used to fetch
-    /// `EventRecord` resources referenced by `@odata.id` in SSE notifications.
-    pub event_record_fetch_concurrency: usize,
 }
 
 impl Default for SseLogConfig {
@@ -1300,7 +1293,6 @@ impl Default for SseLogConfig {
         Self {
             initial_backoff: Duration::from_secs(1),
             max_backoff: Duration::from_secs(30),
-            event_record_fetch_concurrency: 4,
         }
     }
 }
@@ -1318,13 +1310,6 @@ impl SseLogConfig {
         if self.max_backoff < self.initial_backoff {
             return Err(
                 "[collectors.logs.sse].max_backoff must be greater than or equal to initial_backoff"
-                    .to_string(),
-            );
-        }
-
-        if self.event_record_fetch_concurrency == 0 {
-            return Err(
-                "[collectors.logs.sse].event_record_fetch_concurrency must be greater than 0"
                     .to_string(),
             );
         }
@@ -1906,6 +1891,13 @@ impl Config {
             return Err("endpoint_discovery_interval must be greater than 0".to_string());
         }
 
+        if self.bmc_request_concurrency.get() > Semaphore::MAX_PERMITS {
+            return Err(format!(
+                "bmc_request_concurrency must not exceed {}",
+                Semaphore::MAX_PERMITS
+            ));
+        }
+
         self.metrics.validate()?;
 
         if let Configurable::Enabled(rate_limit) = &self.rate_limit
@@ -2308,12 +2300,6 @@ mod tests {
         assert_eq!(reachability.timeout, Duration::from_secs(3));
         assert_eq!(reachability.log_mode, ReachabilityLogMode::Unreachable);
 
-        if let Configurable::Enabled(ref sensors) = config.collectors.sensors {
-            assert_eq!(sensors.sensor_fetch_concurrency, 10);
-        } else {
-            panic!("sensors empty")
-        }
-
         if let Configurable::Enabled(ref logs) = config.collectors.logs {
             assert_eq!(logs.mode, LogCollectionMode::Auto);
             let auto = logs.auto.as_ref().expect("example config sets [auto]");
@@ -2331,7 +2317,6 @@ mod tests {
             let sse = logs.sse_or_default();
             assert_eq!(sse.initial_backoff, Duration::from_secs(1));
             assert_eq!(sse.max_backoff, Duration::from_secs(30));
-            assert_eq!(sse.event_record_fetch_concurrency, 4);
             assert!(logs.validate().is_ok());
         } else {
             panic!("logs empty")
@@ -2359,7 +2344,7 @@ mod tests {
         assert_eq!(config.shards_count, 1);
 
         assert_eq!(config.cache_size, 100);
-        assert_eq!(config.bmc_request_concurrency.get(), 1);
+        assert_eq!(config.bmc_request_concurrency.get(), 4);
         assert_eq!(config.endpoint_discovery_interval, Duration::from_secs(300));
 
         if let Configurable::Enabled(ref nvue) = config.collectors.nvue {
@@ -2403,7 +2388,6 @@ enabled = false
 
 [collectors.sensors]
 sensor_fetch_interval = "30s"
-sensor_fetch_concurrency = 5
 include_sensor_thresholds = false
 
 [metrics]
@@ -2594,6 +2578,12 @@ username = "root"
                 Box::new(Config::default()) => Yields(()),
 
                 config_with(|config| {
+                    config.bmc_request_concurrency =
+                        NonZeroUsize::new(Semaphore::MAX_PERMITS)
+                            .expect("Tokio supports at least one semaphore permit");
+                }) => Yields(()),
+
+                config_with(|config| {
                     config.collectors.logs =
                         Configurable::Enabled(LogsCollectorConfig::default());
                 }) => Yields(()),
@@ -2637,6 +2627,15 @@ username = "root"
                 }) => FailsWith(
                     "endpoint_discovery_interval must be greater than 0".to_string()
                 ),
+
+                config_with(|config| {
+                    config.bmc_request_concurrency =
+                        NonZeroUsize::new(Semaphore::MAX_PERMITS + 1)
+                            .expect("the value above Tokio's maximum remains nonzero");
+                }) => FailsWith(format!(
+                    "bmc_request_concurrency must not exceed {}",
+                    Semaphore::MAX_PERMITS
+                )),
 
                 config_with(|config| {
                     config.metrics.enable_bmc_latency_metrics = true;
@@ -3290,7 +3289,7 @@ reload_interval = "30s"
         assert_eq!(config.shard, 0);
         assert_eq!(config.shards_count, 1);
         assert_eq!(config.cache_size, 100);
-        assert_eq!(config.bmc_request_concurrency.get(), 1);
+        assert_eq!(config.bmc_request_concurrency.get(), 4);
         assert_eq!(config.metrics.endpoint, "0.0.0.0:9009");
         assert!(!config.metrics.enable_bmc_latency_metrics);
         assert_eq!(
@@ -4453,19 +4452,8 @@ switch = { serial = "SN-SW-001", physical_slot_number = 7, compute_tray_index = 
                 SseLogConfig {
                     initial_backoff: Duration::from_secs(30),
                     max_backoff: Duration::from_secs(1),
-                    ..SseLogConfig::default()
                 } => FailsWith(
                     "[collectors.logs.sse].max_backoff must be greater than or equal to initial_backoff"
-                        .to_string()
-                ),
-            }
-
-            "zero event record fetch concurrency" {
-                SseLogConfig {
-                    event_record_fetch_concurrency: 0,
-                    ..SseLogConfig::default()
-                } => FailsWith(
-                    "[collectors.logs.sse].event_record_fetch_concurrency must be greater than 0"
                         .to_string()
                 ),
             }
@@ -4608,7 +4596,6 @@ switch = { serial = "SN-SW-001", physical_slot_number = 7, compute_tray_index = 
                     sse: Some(SseLogConfig {
                         initial_backoff: Duration::from_secs(30),
                         max_backoff: Duration::from_secs(1),
-                        ..SseLogConfig::default()
                     }),
                     ..LogsCollectorConfig::default()
                 } => FailsWith(
@@ -4664,21 +4651,18 @@ mode = "sse"
 [sse]
 initial_backoff = "2s"
 max_backoff = "1m"
-event_record_fetch_concurrency = 8
 "# => Yields(LogsConfigProjection {
                     mode: LogCollectionMode::Sse,
                     validation: Ok(()),
                     configured_sse: Some(SseLogConfig {
                         initial_backoff: Duration::from_secs(2),
                         max_backoff: Duration::from_secs(60),
-                        event_record_fetch_concurrency: 8,
                     }),
                     configured_periodic: None,
                     configured_auto: None,
                     effective_sse: SseLogConfig {
                         initial_backoff: Duration::from_secs(2),
                         max_backoff: Duration::from_secs(60),
-                        event_record_fetch_concurrency: 8,
                     },
                     effective_periodic: PeriodicLogConfig::default(),
                     effective_auto_periodic: PeriodicLogConfig::default(),
@@ -4758,14 +4742,12 @@ max_backoff = "45s"
                     configured_sse: Some(SseLogConfig {
                         initial_backoff: Duration::from_secs(3),
                         max_backoff: Duration::from_secs(45),
-                        ..SseLogConfig::default()
                     }),
                     configured_periodic: None,
                     configured_auto: None,
                     effective_sse: SseLogConfig {
                         initial_backoff: Duration::from_secs(3),
                         max_backoff: Duration::from_secs(45),
-                        ..SseLogConfig::default()
                     },
                     effective_periodic: PeriodicLogConfig::default(),
                     effective_auto_periodic: PeriodicLogConfig::default(),
@@ -4789,9 +4771,9 @@ max_backoff = "45s"
     #[test]
     fn test_sse_log_config_defaults() {
         let defaults = SseLogConfig::default();
+
         assert_eq!(defaults.initial_backoff, Duration::from_secs(1));
         assert_eq!(defaults.max_backoff, Duration::from_secs(30));
-        assert_eq!(defaults.event_record_fetch_concurrency, 4);
     }
 
     #[test]

@@ -196,7 +196,7 @@ fn spawn_generic_redfish_collectors(
             bmc.clone(),
             EntityDiscoveryCollectorConfig {
                 shared,
-                discovery_concurrency: ctx.discovery_config.discovery_concurrency,
+                request_concurrency: ctx.bmc_request_concurrency,
             },
             CollectorStartContext {
                 limiter: ctx.limiter.clone(),
@@ -238,7 +238,7 @@ fn spawn_generic_redfish_collectors(
             SensorCollectorConfig {
                 data_sink: data_sink.clone(),
                 shared,
-                sensor_fetch_concurrency: sensor_cfg.sensor_fetch_concurrency,
+                request_concurrency: ctx.bmc_request_concurrency,
                 include_sensor_thresholds: sensor_cfg.include_sensor_thresholds,
             },
             CollectorStartContext {
@@ -281,7 +281,7 @@ fn spawn_generic_redfish_collectors(
             MetricsCollectorConfig {
                 data_sink: data_sink.clone(),
                 shared,
-                fetch_concurrency: metrics_cfg.fetch_concurrency,
+                request_concurrency: ctx.bmc_request_concurrency,
             },
             CollectorStartContext {
                 limiter: ctx.limiter.clone(),
@@ -397,7 +397,7 @@ fn spawn_generic_redfish_collectors(
                         bmc.clone(),
                         SseLogCollectorConfig {
                             include_diagnostics: ctx.logs_include_diagnostics,
-                            event_record_fetch_concurrency: sse_cfg.event_record_fetch_concurrency,
+                            request_concurrency: ctx.bmc_request_concurrency,
                         },
                         data_sink,
                         StreamingCollectorStartContext {
@@ -434,7 +434,7 @@ fn spawn_generic_redfish_collectors(
                         bmc.clone(),
                         SseLogCollectorConfig {
                             include_diagnostics: ctx.logs_include_diagnostics,
-                            event_record_fetch_concurrency: sse_cfg.event_record_fetch_concurrency,
+                            request_concurrency: ctx.bmc_request_concurrency,
                         },
                         data_sink,
                         StreamingCollectorStartContext {

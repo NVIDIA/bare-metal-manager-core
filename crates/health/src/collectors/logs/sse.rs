@@ -16,6 +16,7 @@
  */
 
 use std::borrow::Cow;
+use std::num::NonZeroUsize;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -73,15 +74,14 @@ pub struct SseLogCollectorConfig {
     /// Attach Redfish diagnostic payloads to emitted log records.
     pub include_diagnostics: bool,
 
-    /// Maximum number of concurrent Redfish GET requests used to fetch
-    /// referenced event records.
-    pub event_record_fetch_concurrency: usize,
+    /// Bounds event-record resolution to the endpoint Redfish operation limit.
+    pub request_concurrency: NonZeroUsize,
 }
 
 pub struct SseLogCollector<B: Bmc> {
     bmc: Arc<B>,
     include_diagnostics: bool,
-    event_record_fetch_concurrency: usize,
+    request_concurrency: usize,
 }
 
 #[async_trait]
@@ -96,7 +96,7 @@ impl<B: Bmc + 'static> StreamingCollector<B> for SseLogCollector<B> {
         Ok(Self {
             bmc,
             include_diagnostics: config.include_diagnostics,
-            event_record_fetch_concurrency: config.event_record_fetch_concurrency.max(1),
+            request_concurrency: config.request_concurrency.get(),
         })
     }
 
@@ -107,7 +107,7 @@ impl<B: Bmc + 'static> StreamingCollector<B> for SseLogCollector<B> {
             sse_stream,
             Arc::clone(&self.bmc),
             self.include_diagnostics,
-            self.event_record_fetch_concurrency,
+            self.request_concurrency,
         );
 
         Ok(StreamingConnectResult::Connected(event_stream))
@@ -122,13 +122,13 @@ fn map_event_stream<'a, B, S>(
     sse_stream: S,
     bmc: Arc<B>,
     include_diagnostics: bool,
-    event_record_fetch_concurrency: usize,
+    request_concurrency: usize,
 ) -> EventStream<'a>
 where
     B: Bmc + 'static,
     S: futures::Stream<Item = Result<EventStreamPayload, HealthError>> + Send + 'a,
 {
-    let fetch_permits = Arc::new(Semaphore::new(event_record_fetch_concurrency));
+    let fetch_permits = Arc::new(Semaphore::new(request_concurrency));
 
     sse_stream
         .map(move |result| {
@@ -144,7 +144,7 @@ where
                 .await
             }
         })
-        .buffered(event_record_fetch_concurrency)
+        .buffered(request_concurrency)
         .flat_map(futures::stream::iter)
         .boxed()
 }
@@ -649,7 +649,7 @@ mod tests {
     }
 
     #[tokio::test(start_paused = true)]
-    async fn event_record_fetch_concurrency_limits_get_requests() {
+    async fn request_concurrency_limits_event_record_gets() {
         let first_path = "/redfish/v1/EventService/Events/records/hung";
         let second_path = "/redfish/v1/EventService/Events/records/waiting";
         let first_request_started = Arc::new(tokio::sync::Notify::new());

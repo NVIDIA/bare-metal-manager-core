@@ -119,9 +119,10 @@ For a faster fault-injection loop, copy
 run hardware health with the copied file:
 
 ```toml
+bmc_request_concurrency = 4
+
 [collectors.sensors]
 sensor_fetch_interval = "5s"
-sensor_fetch_concurrency = 4
 include_sensor_thresholds = true
 ```
 

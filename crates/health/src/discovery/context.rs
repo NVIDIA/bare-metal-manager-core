@@ -17,6 +17,7 @@
 
 use std::borrow::Cow;
 use std::collections::{HashMap, HashSet};
+use std::num::NonZeroUsize;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -262,6 +263,7 @@ pub struct DiscoveryLoopContext {
     pub(crate) discovery_iteration_histogram: Histogram,
     pub(crate) discovery_endpoint_fetch_histogram: Histogram,
     pub(crate) limiter: Arc<dyn RateLimiter>,
+    pub(crate) bmc_request_concurrency: NonZeroUsize,
     pub(crate) metrics_manager: Arc<MetricsManager>,
     pub(crate) discovery_config: DiscoveryConfig,
     pub(crate) sensors_config: Configurable<SensorCollectorOptions>,
@@ -352,6 +354,7 @@ impl DiscoveryLoopContext {
             discovery_iteration_histogram,
             discovery_endpoint_fetch_histogram,
             limiter,
+            bmc_request_concurrency: config.bmc_request_concurrency,
             metrics_manager,
             discovery_config: config.collectors.discovery.clone(),
             sensors_config: config.collectors.sensors.clone(),

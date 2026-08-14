@@ -20,9 +20,10 @@ shard = 0
 shards_count = 1
 
 cache_size = 100
-# Maximum concurrent Redfish operations per BMC. Must be greater than zero. Default: 1.
+# Maximum concurrent Redfish operations per BMC, including collector fan-out.
+# Must be greater than zero. Default: 4.
 # Changes take effect after restarting carbide-health.
-bmc_request_concurrency = 1
+bmc_request_concurrency = 4
 bmc_proxy_url = "http://proxy.example.com:8080"
 
 endpoint_discovery_interval = "5m"
@@ -216,12 +217,10 @@ log_mode = "unreachable"
 
 [collectors.sensors]
 sensor_fetch_interval = "1m"
-sensor_fetch_concurrency = 10
 include_sensor_thresholds = true
 
 [collectors.metrics]
 fetch_interval = "2m"
-fetch_concurrency = 4
 
 # Redfish telemetry service: pre-aggregated metric reports, one GET per report
 # instead of one per resource. Published under the `hw_telemetry` series name so
@@ -281,9 +280,6 @@ exclude_services = ["Journal"]
 [collectors.logs.sse]
 initial_backoff = "1s"
 max_backoff = "30s"
-# Maximum number of concurrent Redfish GET requests used to fetch EventRecord
-# resources referenced by @odata.id in SSE notifications.
-event_record_fetch_concurrency = 4
 
 # required when
 # mode = "periodic"; must not be set when mode = "sse"

@@ -124,17 +124,16 @@ Collector defaults from the example config:
 
 | Area | Parameter | Example value | Meaning |
 |---|---:|---|---|
+| Redfish | `bmc_request_concurrency` | `4` | Maximum number of concurrent Redfish operations per BMC. |
 | Rate limiting | `bucket_burst` | `200` | Burst size for outbound requests. |
 | Rate limiting | `bucket_replenish` | `"35ms"` | Token replenish interval. |
 | Sensor collector | `sensor_fetch_interval` | `"1m"` | Sensor polling cadence. |
 | Sensor collector | `rediscover_interval` | `"5m"` | Sensor inventory rediscovery cadence. |
 | Sensor collector | `state_refresh_interval` | `"30m"` | Broader BMC state refresh cadence. |
-| Sensor collector | `sensor_fetch_concurrency` | `10` | Concurrent sensor fetch limit. |
 | Sensor collector | `include_sensor_thresholds` | `true` | Include BMC threshold data when available. |
 | Entity discovery | `refresh_interval` | `"5m"` | Redfish entity inventory rediscovery cadence. |
-| Entity discovery | `discovery_concurrency` | `4` | Concurrent per-BMC discovery limit. |
+| Entity discovery | `discovery_concurrency` | `1` | Concurrent endpoint identity resolutions. |
 | Entity metrics collector | `fetch_interval` | `"2m"` | Entity metrics polling cadence. |
-| Entity metrics collector | `fetch_concurrency` | `4` | Concurrent per-entity metric fetch limit. |
 | Firmware collector | `firmware_refresh_interval` | `"30m"` | Firmware refresh cadence. |
 | Logs collector | `mode` | `"sse"` | Preferred BMC log collection mode. |
 | NMX-C collector | `grpc_port` | `9370` | Switch-host NMX-C gRPC endpoint port. |
@@ -204,7 +203,6 @@ section to the hardware health service config to enable it:
 ```toml
 [collectors.metrics]
 fetch_interval = "2m"     # default
-fetch_concurrency = 4     # default; parallel per-entity fetches
 ```
 
 What it collects, per entity type discovered on the BMC:
