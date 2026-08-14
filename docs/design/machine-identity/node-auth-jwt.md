@@ -188,9 +188,12 @@ and the `Authorization: Bearer` token (validated by `NodeJwtValidator`). Both
 paths converge on the same SPIFFE URI → `SpiffeMachineIdentifier` mapping
 through the same `SpiffeContext`, so RBAC (Casbin policy, role mapping) is
 completely unchanged. A node presenting both credentials gets the same
-principal twice — harmless. Clients attach the bearer token unconditionally
-(`ForgeClientConfig::with_node_jwt()` in scout and dpu-agent), and a server
-with node-auth disabled ignores the header.
+principal twice — harmless. Scout configures a bearer-token provider with
+`ForgeClientConfig::with_node_jwt()` and DPU-agent with
+`ForgeClientConfig::with_token_provider()`, regardless of whether node-auth is
+enabled. The provider attaches the `Authorization` header only when it can
+obtain a token; before the certificate exists, requests carry no bearer header.
+A server with node-auth disabled ignores any header that is present.
 
 **Enabling** is therefore order-independent: node and API images can be rolled
 in either order, because a token nobody validates is inert and a node that
@@ -488,7 +491,8 @@ accepts tokens, and only then stop accepting them:
    next step, so check the thing that actually distinguishes the two modes —
    which volumes the pods carry — not just that they restarted:
 
-   ```sh
+   ```bash
+   #!/usr/bin/env bash
    set -euo pipefail
    NS=dpf-operator-system
    SEL=app.kubernetes.io/name=nico-fmds
