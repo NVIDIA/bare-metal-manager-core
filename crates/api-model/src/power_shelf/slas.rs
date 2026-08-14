@@ -37,9 +37,11 @@ pub const DELETING: u64 = 300; // 5 minutes
 pub const MAINTENANCE: u64 = 300; // 5 minutes
 
 /// SLA for PowerShelf BMC (PMC) credential rotation in seconds. Generous enough
-/// to absorb a slow BMC plus the rotation engine's short per-device backoff
-/// without tripping the SLA on the first retry.
-pub const ROTATING_BMC: u64 = 15 * 60; // 15 minutes
+/// to absorb the up-to-5-minute site-explorer pause handshake (its
+/// `SITE_EXPLORER_PAUSE_BUDGET`) that precedes the change, a slow BMC, and the
+/// rotation engine's short per-device backoff without tripping the SLA on the
+/// first retry.
+pub(super) const ROTATING_BMC: u64 = 15 * 60; // 15 minutes
 
 /// SLA for PowerShelf rack-level reprovisioning (firmware wait) in seconds
 pub const REPROVISIONING: u64 = 3600; // 1 hour
