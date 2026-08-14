@@ -85,6 +85,84 @@ issuers:
 	assert.Equal(t, []string{"org-audience"}, issuers[0].ClaimMappings[0].Audiences)
 }
 
+func TestConfig_ValidatePowerProvisioningConfig(t *testing.T) {
+	tests := []struct {
+		name      string
+		values    map[string]any
+		wantError string
+	}{
+		{
+			name: "accepts external mode without DPS settings",
+			values: map[string]any{
+				ConfigPowerProvisioningMode: PowerProvisioningModeExternal,
+			},
+		},
+		{
+			name: "rejects unknown mode",
+			values: map[string]any{
+				ConfigPowerProvisioningMode: "unknown",
+			},
+			wantError: "must be \"external\" or \"dps\"",
+		},
+		{
+			name: "requires endpoint in DPS mode",
+			values: map[string]any{
+				ConfigPowerProvisioningMode: PowerProvisioningModeDPS,
+				ConfigDPSRequestTimeout:     "15s",
+			},
+			wantError: "endpoint is required",
+		},
+		{
+			name: "rejects whitespace endpoint in DPS mode",
+			values: map[string]any{
+				ConfigPowerProvisioningMode: PowerProvisioningModeDPS,
+				ConfigDPSEndpoint:           "   ",
+				ConfigDPSRequestTimeout:     "15s",
+			},
+			wantError: "endpoint is required",
+		},
+		{
+			name: "requires positive timeout in DPS mode",
+			values: map[string]any{
+				ConfigPowerProvisioningMode: PowerProvisioningModeDPS,
+				ConfigDPSEndpoint:           "dps.example.com:443",
+				ConfigDPSRequestTimeout:     "0s",
+				ConfigDPSTokenPath:          "/var/run/secrets/dps/token",
+				ConfigDPSCAPath:             "/var/run/secrets/dps/ca.crt",
+			},
+			wantError: "must be greater than zero",
+		},
+		{
+			name: "accepts complete DPS mode",
+			values: map[string]any{
+				ConfigPowerProvisioningMode: PowerProvisioningModeDPS,
+				ConfigDPSEndpoint:           "dps.example.com:443",
+				ConfigDPSRequestTimeout:     "15s",
+				ConfigDPSTokenPath:          "/var/run/secrets/dps/token",
+				ConfigDPSCAPath:             "/var/run/secrets/dps/ca.crt",
+				ConfigDPSServerName:         "dps.example.com",
+			},
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			v := viper.New()
+			for key, value := range test.values {
+				v.Set(key, value)
+			}
+			c := &Config{v: v}
+
+			err := c.ValidatePowerProvisioningConfig()
+			if test.wantError != "" {
+				require.ErrorContains(t, err, test.wantError)
+				return
+			}
+			require.NoError(t, err)
+		})
+	}
+}
+
 func TestConfig_WatchConfigFile(t *testing.T) {
 	const initialSitePhoneHomeURL = "http://initial.example/phone_home"
 

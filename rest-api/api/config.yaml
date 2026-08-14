@@ -69,3 +69,16 @@ rateLimiter:
   rate: 10.0        # requests per second
   burst: 30         # maximum burst size
   expiresIn: 180    # expiration time in seconds (3 minutes)
+
+# external is for deployments where LaunchLayer drives both NICo and DPS. In
+# dps mode, NICo assumes LaunchLayer's DPS responsibilities and makes direct,
+# synchronous authenticated gRPC calls to the configured DPS service.
+powerProvisioning:
+  mode: external
+  dps:
+    endpoint: ""
+    requestTimeout: 15s
+    tokenPath: ""
+    tls:
+      caPath: ""
+      serverName: ""

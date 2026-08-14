@@ -15,6 +15,7 @@ import (
 	"sync"
 	"time"
 
+	dpsclient "github.com/NVIDIA/infra-controller/rest-api/api/pkg/client/dps"
 	cauth "github.com/NVIDIA/infra-controller/rest-api/auth/pkg/config"
 	cconfig "github.com/NVIDIA/infra-controller/rest-api/common/pkg/config"
 
@@ -134,6 +135,25 @@ const (
 	ConfigRateLimiterBurst = "rateLimiter.burst"
 	// ConfigRateLimiterExpiresIn specifies the expiration time in seconds
 	ConfigRateLimiterExpiresIn = "rateLimiter.expiresIn"
+
+	// ConfigPowerProvisioningMode selects whether LaunchLayer or NICo owns DPS
+	// associations.
+	ConfigPowerProvisioningMode = "powerProvisioning.mode"
+	// ConfigDPSEndpoint is the remote DPS gRPC endpoint.
+	ConfigDPSEndpoint = "powerProvisioning.dps.endpoint"
+	// ConfigDPSRequestTimeout bounds each direct DPS operation.
+	ConfigDPSRequestTimeout = "powerProvisioning.dps.requestTimeout"
+	// ConfigDPSTokenPath specifies the bearer-token secret file.
+	ConfigDPSTokenPath = "powerProvisioning.dps.tokenPath"
+	// ConfigDPSCAPath specifies the CA bundle used to authenticate DPS.
+	ConfigDPSCAPath = "powerProvisioning.dps.tls.caPath"
+	// ConfigDPSServerName optionally overrides TLS server-name verification.
+	ConfigDPSServerName = "powerProvisioning.dps.tls.serverName"
+)
+
+const (
+	PowerProvisioningModeExternal = "external"
+	PowerProvisioningModeDPS      = "dps"
 )
 
 // IssuerConfig represents a single issuer configuration entry
@@ -258,6 +278,10 @@ func NewConfig() *Config {
 	c.v.SetDefault(ConfigRateLimiterBurst, 30)      // burst of 30 requests
 	c.v.SetDefault(ConfigRateLimiterExpiresIn, 180) // 180 seconds (3 minutes)
 
+	// LaunchLayer owns DPS associations unless NICo integration is explicitly enabled.
+	c.v.SetDefault(ConfigPowerProvisioningMode, PowerProvisioningModeExternal)
+	c.v.SetDefault(ConfigDPSRequestTimeout, 15*time.Second)
+
 	c.v.AutomaticEnv()
 	c.v.SetConfigFile(c.GetPathToConfig())
 
@@ -363,6 +387,10 @@ func (c *Config) Validate() {
 	// Keycloak validations
 	if err := c.ValidateKeycloakConfig(); err != nil {
 		log.Panic().Err(err).Msg("Keycloak config must be specified")
+	}
+
+	if err := c.ValidatePowerProvisioningConfig(); err != nil {
+		log.Panic().Err(err).Msg("Power provisioning config is invalid")
 	}
 
 	if len(issuersConfig) == 0 && !keycloakEnabled {
@@ -522,6 +550,46 @@ func (c *Config) GetMetricsConfig() *MetricsConfig {
 // GetRateLimiterConfig returns the rate limiter config
 func (c *Config) GetRateLimiterConfig() *RateLimiterConfig {
 	return NewRateLimiterConfig(c.GetRateLimiterEnabled(), c.GetRateLimiterRate(), c.GetRateLimiterBurst(), c.GetRateLimiterExpiresIn())
+}
+
+// GetDPSConfig returns connection settings for direct DPS calls.
+func (c *Config) GetDPSConfig() dpsclient.Config {
+	return dpsclient.Config{
+		Endpoint:       c.v.GetString(ConfigDPSEndpoint),
+		RequestTimeout: c.v.GetDuration(ConfigDPSRequestTimeout),
+		TokenPath:      c.v.GetString(ConfigDPSTokenPath),
+		CAPath:         c.v.GetString(ConfigDPSCAPath),
+		ServerName:     c.v.GetString(ConfigDPSServerName),
+	}
+}
+
+// ValidatePowerProvisioningConfig validates settings required when NICo owns
+// DPS associations. External mode is the LaunchLayer-managed deployment and
+// intentionally ignores DPS connection fields.
+func (c *Config) ValidatePowerProvisioningConfig() error {
+	mode := c.GetPowerProvisioningMode()
+	if mode == PowerProvisioningModeExternal {
+		return nil
+	}
+	if mode != PowerProvisioningModeDPS {
+		return fmt.Errorf("powerProvisioning.mode must be %q or %q", PowerProvisioningModeExternal, PowerProvisioningModeDPS)
+	}
+
+	dpsConfig := c.GetDPSConfig()
+	if strings.TrimSpace(dpsConfig.Endpoint) == "" {
+		return fmt.Errorf("powerProvisioning.dps.endpoint is required in DPS mode")
+	}
+	if strings.TrimSpace(dpsConfig.TokenPath) == "" {
+		return fmt.Errorf("powerProvisioning.dps.tokenPath is required in DPS mode")
+	}
+	if strings.TrimSpace(dpsConfig.CAPath) == "" {
+		return fmt.Errorf("powerProvisioning.dps.tls.caPath is required in DPS mode")
+	}
+	if dpsConfig.RequestTimeout <= 0 {
+		return fmt.Errorf("powerProvisioning.dps.requestTimeout must be greater than zero")
+	}
+
+	return nil
 }
 
 // NewRateLimiterConfig initializes and returns a configuration object for rate limiting
@@ -708,6 +776,11 @@ func (c *Config) GetLogLevel() string {
 // GetSentryDSN returns the DSN for Sentry
 func (c *Config) GetSentryDSN() string {
 	return c.v.GetString(ConfigSentryDSN)
+}
+
+// GetPowerProvisioningMode returns the owner of DPS associations.
+func (c *Config) GetPowerProvisioningMode() string {
+	return strings.ToLower(c.v.GetString(ConfigPowerProvisioningMode))
 }
 
 // GetDBHost returns the host of the database
