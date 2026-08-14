@@ -4,18 +4,17 @@
 
 """Keep every CI job accounted for by its final required check.
 
-GitHub Actions makes `needs` a static list: it waits for the jobs named there,
-but adding a new top-level job does not update a final gate or warn us that the
-job was omitted. The `inventory` command reads the small part of the workflow
-used by the selected gate policy and requires every job to be gated or
-explicitly exempted. It also protects the gate's `if: always()` condition so a
-failed dependency cannot skip the required check.
+`inventory` checks the static wiring. The workflow's root `jobs` block is the
+complete job inventory, and the final gate's `needs` list says which jobs feed
+that required check. Every remaining job needs a reviewed exemption.
 
-The `results` command evaluates `${{ toJson(needs) }}` from `NEEDS_JSON`.
-`success` and `skipped` pass because conditional jobs legitimately omit work.
-Every gated top-level job is listed independently, so an upstream failure stays
-visible even when it makes downstream jobs skip. Any other or malformed result
-fails closed.
+`results` checks one run. A successful job always passes. A skipped job passes
+only when the workflow's recorded decisions and run context explain that skip.
+We consume those existing facts instead of calculating path or release policy
+again; a second answer could drift and approve the wrong skip.
+
+Both checks fail closed. A job omitted from the gate, a missing decision, or an
+applicable job that was skipped makes the final required check fail.
 """
 
 from __future__ import annotations
@@ -30,15 +29,18 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
-
-# We only need the root job IDs plus the selected gate's `if` and `needs`
-# fields. Keep this grammar deliberately narrow and reject unfamiliar
-# formatting: silently skipping a line could let a job escape the required
-# check.
+# This is intentionally not a general YAML parser. We only accept the workflow
+# layout needed to find root jobs, `gate_job.if`, and `gate_job.needs`. If that
+# layout changes, failing here is safer than silently missing a job and letting
+# the required check approve it.
 JOB_KEY = re.compile(r"^  (?P<job>[A-Za-z_][A-Za-z0-9_-]*):(?:\s*#.*)?$")
 NEEDS_ITEM = re.compile(r"^      - (?P<job>[A-Za-z_][A-Za-z0-9_-]*)(?:\s*#.*)?$")
 GATE_IF = re.compile(r"^    if:\s*(?P<condition>.*)$")
-PASSING_RESULTS = frozenset({"success", "skipped"})
+PR_REF_PREFIX = "refs/heads/pull-request/"
+CANONICAL_REPOSITORY = "NVIDIA/infra-controller"
+
+
+# Workflow inventory
 
 
 class WorkflowFormatError(ValueError):
@@ -153,7 +155,11 @@ def _parse_gate(
     positions: Mapping[str, int],
     gate_job: str,
 ) -> list[str]:
-    """Protect the gate condition and read its complete block-style `needs` list."""
+    """Read the final gate and require the form this checker can protect.
+
+    `if: always()` is part of the contract. Without it, an upstream failure
+    skips the aggregate before it can report which dependency failed.
+    """
 
     gate_start = positions.get(gate_job)
     if gate_start is None:
@@ -286,16 +292,169 @@ def inventory_errors(workflow_text: str, policy: GatePolicy) -> list[str]:
     return _inventory_errors(inventory, policy.exemptions)
 
 
-def result_errors(needs_context: Mapping[str, object]) -> list[str]:
-    """Return an error for every non-passing result in `needs_context`.
+# Recorded run decisions
 
-    The accepted status values are `success` and `skipped`. An empty context,
-    malformed job entry, or any other status fails closed.
-    """
+
+class ResultContextError(ValueError):
+    """The gate did not receive the decisions needed to classify its jobs."""
+
+
+# Most Core jobs run whenever the Core lane is selected. This is the small set
+# whose own `if` expressions narrow that decision with a `prepare` output.
+# Keeping only the exceptions here makes a newly gated job fail on an
+# unexplained skip without requiring another full copy of the workflow.
+CORE_PREPARE_OUTPUTS: Mapping[str, frozenset[str]] = {
+    "build_container_x86_64_run": frozenset({"build-container-x86_64"}),
+    "build_container_aarch64_run": frozenset({"build-container-aarch64"}),
+    "runtime_container_x86_64_run": frozenset({"build-runtime-container-x86_64"}),
+    "runtime_container_aarch64_run": frozenset({"build-runtime-container-aarch64"}),
+    "build_artifacts_container_x86_64_run": frozenset(
+        {"build-artifacts-container-x86_64"}
+    ),
+    "build_artifacts_container_aarch64_run": frozenset(
+        {"build-artifacts-container-aarch64"}
+    ),
+    "publish_images": frozenset(
+        {
+            "merge-manifests-nvmetal-carbide",
+            "merge-manifests-forge-cli",
+            "merge-manifests-machine-validation",
+            "build-push-helm-chart",
+            "build-push-helm-prereqs-chart",
+            "build-push-bluefield-helm-charts",
+            "promote-to-be-scanned-image",
+        }
+    ),
+    "source_files_changed": frozenset(
+        {"build-machine-a-tron", "build-mat-k8s-controller", "lint-police"}
+    ),
+    "proto_files_changed": frozenset({"proto-police"}),
+    "core_rpc_proto_files_changed": frozenset({"check-rest-core-proto-sync"}),
+}
+
+CORE_PR_ONLY_JOBS = frozenset({"lint-police", "migration-police", "proto-police"})
+CORE_CANONICAL_JOB = "promote-to-be-scanned-image"
+
+
+def _job_outputs(
+    needs_context: Mapping[str, object], job: str
+) -> Mapping[str, object]:
+    """Return one job's output map or reject malformed Actions context."""
+
+    details = needs_context.get(job)
+    outputs = details.get("outputs") if isinstance(details, Mapping) else None
+    if not isinstance(outputs, Mapping):
+        raise ResultContextError(f"`{job}` did not provide a job outputs object")
+    return outputs
+
+
+def _read_boolean_output(
+    outputs: Mapping[str, object], job: str, name: str
+) -> bool:
+    """Read one exact GitHub string boolean."""
+
+    value = outputs.get(name)
+    if not isinstance(value, str) or value not in {"true", "false"}:
+        raise ResultContextError(
+            f"`{job}` output `{name}` must be 'true' or 'false', found {value!r}"
+        )
+    return value == "true"
+
+
+def _is_pull_request_run(environment: Mapping[str, str]) -> bool:
+    """Classify the PR-mirror ref namespace used by the job conditions."""
+
+    ref = environment.get("GITHUB_REF")
+    if not ref:
+        raise ResultContextError("`GITHUB_REF` is not set")
+    return ref.startswith(PR_REF_PREFIX)
+
+
+def _lane_selected(needs_context: Mapping[str, object], output_name: str) -> bool:
+    """Read the decision made by the workflow's unconditional `changes` job."""
+
+    changes = needs_context.get("changes")
+    if not isinstance(changes, Mapping):
+        raise ResultContextError("`changes` did not provide a job result object")
+    if changes.get("result") != "success":
+        raise ResultContextError("`changes` was unexpectedly skipped")
+    return _read_boolean_output(
+        _job_outputs(needs_context, "changes"), "changes", output_name
+    )
+
+
+def _core_allowed_skips(
+    needs_context: Mapping[str, object], environment: Mapping[str, str]
+) -> set[str]:
+    """Return Core jobs whose recorded conditions explain a skip."""
+
+    lane_selected = _lane_selected(needs_context, "run_core_ci")
+    pull_request = _is_pull_request_run(environment)
+    if not lane_selected:
+        if not pull_request:
+            raise ResultContextError(
+                "Core CI must be selected for a non-pull-request run"
+            )
+        # A REST-only PR skips the entire Core lane. `changes` still records
+        # that decision, while migration policy remains PR-wide.
+        return set(needs_context) - {"changes", "migration-police"}
+
+    prepare = needs_context.get("prepare")
+    if not isinstance(prepare, Mapping) or prepare.get("result") != "success":
+        raise ResultContextError("`prepare` was unexpectedly skipped")
+    prepare_outputs = _job_outputs(needs_context, "prepare")
+
+    allowed: set[str] = set()
+    # These are the same booleans the jobs consumed. Re-running path filters or
+    # release logic here could give the gate a different answer than the run.
+    for output_name, jobs in CORE_PREPARE_OUTPUTS.items():
+        if not _read_boolean_output(prepare_outputs, "prepare", output_name):
+            allowed.update(jobs)
+
+    if not pull_request:
+        allowed.update(CORE_PR_ONLY_JOBS)
+
+    repository = environment.get("GITHUB_REPOSITORY")
+    if not repository:
+        raise ResultContextError("`GITHUB_REPOSITORY` is not set")
+    if repository != CANONICAL_REPOSITORY:
+        allowed.add(CORE_CANONICAL_JOB)
+    return allowed
+
+
+def _rest_allowed_skips(
+    needs_context: Mapping[str, object], environment: Mapping[str, str]
+) -> set[str]:
+    """Return REST jobs whose lane/ref conditions explain a skip."""
+
+    lane_selected = _lane_selected(needs_context, "run_rest_ci")
+    pull_request = _is_pull_request_run(environment)
+    if not lane_selected:
+        if not pull_request:
+            raise ResultContextError(
+                "REST CI must be selected for a non-pull-request run"
+            )
+        return set(needs_context) - {"changes"}
+
+    # Both reusable build callers are direct gate dependencies, but the ref
+    # selects exactly one of them for a given run.
+    if pull_request:
+        return {"build-and-push"}
+    return {"build-and-push-pr"}
+
+
+def result_errors(
+    needs_context: Mapping[str, object],
+    policy_name: str,
+    *,
+    environment: Mapping[str, str] | None = None,
+) -> list[str]:
+    """Reject unhealthy results and skips unexplained by the selected lane."""
 
     if not needs_context:
         return ["the gate received no job results"]
 
+    results: dict[str, str] = {}
     errors: list[str] = []
     for job, details in sorted(needs_context.items()):
         if not isinstance(details, Mapping):
@@ -307,10 +466,36 @@ def result_errors(needs_context: Mapping[str, object]) -> list[str]:
             errors.append(f"`{job}` failed")
         elif result == "cancelled":
             errors.append(f"`{job}` was cancelled")
-        elif result not in PASSING_RESULTS:
+        elif result == "success" or result == "skipped":
+            results[job] = result
+        else:
             errors.append(f"`{job}` returned unsupported result {result!r}")
+    if errors:
+        # Once a dependency is unhealthy, its downstream skips need no second
+        # explanation: the aggregate is already guaranteed to fail.
+        return errors
 
-    return errors
+    runtime = os.environ if environment is None else environment
+    try:
+        if policy_name == "core":
+            allowed_skips = _core_allowed_skips(needs_context, runtime)
+        elif policy_name == "rest":
+            allowed_skips = _rest_allowed_skips(needs_context, runtime)
+        else:
+            return [f"unknown gate policy {policy_name!r}"]
+    except ResultContextError as error:
+        return [str(error)]
+
+    # We only police skips. A job that ran despite being optional has already
+    # completed successfully, so there is no gate failure left to prevent.
+    return [
+        f"`{job}` was unexpectedly skipped"
+        for job, result in sorted(results.items())
+        if result == "skipped" and job not in allowed_skips
+    ]
+
+
+# Command-line entry points
 
 
 def _print_annotations(errors: list[str]) -> None:
@@ -352,7 +537,7 @@ def _check_inventory(workflow_path: Path, policy: GatePolicy) -> int:
     return 0
 
 
-def _check_results() -> int:
+def _check_results(policy_name: str) -> int:
     """Check `NEEDS_JSON` and report invalid job results as annotations.
 
     Each dependency is printed for the Actions log. Returns zero only when the
@@ -377,12 +562,15 @@ def _check_results() -> int:
         result = details.get("result") if isinstance(details, Mapping) else None
         print(f"{job}: {result}")
 
-    errors = result_errors(needs_context)
+    errors = result_errors(needs_context, policy_name)
     if errors:
         _print_annotations(errors)
         return 1
 
-    print("All required jobs succeeded or were intentionally skipped.")
+    print(
+        f"All {POLICIES[policy_name].display_name} jobs succeeded or skipped "
+        "for a recorded reason."
+    )
     return 0
 
 
@@ -404,7 +592,16 @@ def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         help="select the workflow's reviewed gate policy",
     )
     inventory.add_argument("workflow", type=Path)
-    commands.add_parser("results", help="evaluate the job results in `NEEDS_JSON`")
+
+    results = commands.add_parser(
+        "results", help="evaluate the job results in `NEEDS_JSON`"
+    )
+    results.add_argument(
+        "--policy",
+        choices=tuple(POLICIES),
+        required=True,
+        help="select the workflow's reviewed gate policy",
+    )
     return parser.parse_args(argv)
 
 
@@ -414,7 +611,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     args = _parse_args(argv)
     if args.command == "inventory":
         return _check_inventory(args.workflow, POLICIES[args.policy])
-    return _check_results()
+    return _check_results(args.policy)
 
 
 if __name__ == "__main__":

@@ -238,12 +238,10 @@ jobs:
   # ============================================================================
   # AGGREGATOR — single required check for branch protection
   # ============================================================================
-  # Passes only when every required job reports `success` or `skipped`.
-  # `skipped` counts as pass — that's how core-only PRs unblock when the
-  # `changes` gate intentionally skips the REST pipeline, and it is also what
-  # lets `build-and-push` and `build-and-push-pr` both sit in needs when
-  # exactly one of the two ever runs.
-  # Any other result, plus missing or malformed data, fails closed.
+  # Every success passes. A skip passes only when the recorded change/ref
+  # decisions say that job did not apply. That covers Core-only PRs and the
+  # mutually exclusive Docker callers without letting an unexpected skip hide
+  # behind this required check.
   # Every job that can determine REST CI health is listed so an upstream
   # failure cannot be hidden when its downstream jobs become `skipped`.
   # The checker in `changes` rejects every job that is neither gated nor
@@ -273,4 +271,4 @@ jobs:
       - name: Decide pass/fail
         env:
           NEEDS_JSON: ${{ toJson(needs) }}
-        run: python3 -B .github/ci/check_ci_gate.py results
+        run: python3 -B .github/ci/check_ci_gate.py results --policy rest

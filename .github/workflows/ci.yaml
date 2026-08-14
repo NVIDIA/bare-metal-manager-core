@@ -2237,10 +2237,12 @@ jobs:
   # ============================================================================
   # FINAL CORE CI GATE
   # ============================================================================
-  # Passes only when every required job reports `success` or `skipped`.
-  # `skipped` counts as pass — that's how rest-only PRs unblock when the
-  # `changes` gate intentionally skips the core pipeline.
-  # Any other result, plus missing or malformed data, fails closed.
+  # Every success passes. A skip passes only when the recorded workflow
+  # decisions and run context say that job did not apply. A failure,
+  # cancellation, unexplained skip, or malformed decision fails closed. The
+  # existing source-path rule fixes #4324's classification gap; this gate
+  # closes the aggregate half by rejecting a skip after that rule says lint
+  # applies.
   # Every job that can determine Core CI health is listed so an upstream
   # failure cannot be hidden when its downstream jobs become `skipped`.
   # Reporting-only jobs are explicitly exempted, and the checker in `changes`
@@ -2332,4 +2334,4 @@ jobs:
       - name: Decide pass/fail
         env:
           NEEDS_JSON: ${{ toJson(needs) }}
-        run: python3 -B .github/ci/check_ci_gate.py results
+        run: python3 -B .github/ci/check_ci_gate.py results --policy core
