@@ -354,7 +354,9 @@ fn should_fetch_supplemental_network_adapter_ports(
     has_system_mac_address: bool,
     linked_chassis_ids: &[nv_redfish::core::ODataId],
 ) -> bool {
-    hw_type == Some(hw::HwType::Lenovo) && has_system_mac_address && !linked_chassis_ids.is_empty()
+    matches!(hw_type, Some(hw::HwType::Lenovo | hw::HwType::LenovoGb300))
+        && has_system_mac_address
+        && !linked_chassis_ids.is_empty()
 }
 
 /// Builds an exploration report for a Delta power shelf.
@@ -1281,6 +1283,9 @@ mod tests {
             }
             "Lenovo XCC with a System MAC supplements its inventory" {
                 (Some(HwType::Lenovo), true, true) => true,
+            }
+            "Lenovo GB300 with a System MAC supplements its inventory" {
+                (Some(HwType::LenovoGb300), true, true) => true,
             }
             "non-Lenovo host" {
                 (Some(HwType::Ami), true, true) => false,

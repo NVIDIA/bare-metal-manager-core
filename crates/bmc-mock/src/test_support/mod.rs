@@ -642,6 +642,7 @@ mod test {
         let interfaces = get_json(&router, "/redfish/v1/Systems/System_0/EthernetInterfaces").await;
         let interface_path = interfaces["Members"][0]["@odata.id"].as_str().unwrap();
         let interface = get_json(&router, interface_path).await;
+        assert_eq!(interface["InterfaceEnabled"], true);
         assert_ne!(interface["MACAddress"], expected_host_mac);
 
         let chassis = get_json(&router, "/redfish/v1/Chassis/Chassis_0").await;

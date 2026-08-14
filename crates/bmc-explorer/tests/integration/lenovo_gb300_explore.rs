@@ -50,6 +50,22 @@ async fn explore_lenovo_gb300() {
     assert!(!report.systems.is_empty(), "systems must be present");
     assert!(!report.chassis.is_empty(), "chassis must be present");
 
+    let system_mac = report.systems[0].ethernet_interfaces[0]
+        .mac_address
+        .expect("Lenovo system interface must report a MAC address");
+    let port_mac_addresses = report
+        .chassis
+        .iter()
+        .flat_map(|chassis| &chassis.network_adapters)
+        .flat_map(|adapter| &adapter.port_mac_addresses)
+        .copied()
+        .collect::<Vec<_>>();
+    assert_eq!(port_mac_addresses.len(), 1);
+    let supplemental_mac = port_mac_addresses[0];
+    assert_ne!(supplemental_mac, system_mac);
+    assert!(report.all_mac_addresses().contains(&supplemental_mac));
+    assert_eq!(report.find_interface_id_for_mac(supplemental_mac), None);
+
     let lockdown = report
         .lockdown_status
         .expect("GB300 lockdown status must be populated");

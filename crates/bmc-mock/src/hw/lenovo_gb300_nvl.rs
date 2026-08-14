@@ -153,7 +153,7 @@ impl LenovoGB300Nvl<'_> {
                     &format!("EthernetInterface{index}"),
                 ))
                 .mac_address(nic.mac_address)
-                .interface_enabled(false)
+                .interface_enabled(true)
                 .build()
             })
             .collect();
