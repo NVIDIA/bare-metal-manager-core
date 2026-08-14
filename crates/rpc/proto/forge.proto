@@ -1003,6 +1003,20 @@ service Forge {
   // Helm/docker versions for the carbide DPF mandatory services, from both
   // the carbide config and the live DPUServiceTemplate CRs.
   rpc GetDPFServiceVersions(GetDPFServiceVersionsRequest) returns (DPFServiceVersionsResponse);
+  // Machines DPF is waiting on before a changed DPUService can roll out.
+  //
+  // Required rather than convenient: the release RPC has no fleet-wide form, so
+  // this is the only way to discover which machines to name.
+  rpc ListPendingDPUServiceSyncs(ListPendingDPUServiceSyncsRequest) returns (ListPendingDPUServiceSyncsResponse);
+  // Release the DPF maintenance hold for named machines and complete their
+  // pending DPU service sync.
+  //
+  // Bypasses the host-state requirement carbide applies to itself -- that is
+  // what strands a host which can never reach Ready, and a site that has turned
+  // the automatic rollout off. It does not bypass the DPU currency check: new
+  // services must never land on a DPU whose OS is about to be replaced, and that
+  // holds however the release was asked for.
+  rpc ReleaseDPUServiceSyncHold(ReleaseDPUServiceSyncHoldRequest) returns (ReleaseDPUServiceSyncHoldResponse);
 
   // --- Component management (unified switch + power shelf operations) ---
   rpc ComponentPowerControl(ComponentPowerControlRequest) returns (ComponentPowerControlResponse);
@@ -9427,6 +9441,95 @@ message DPFServiceVersion {
 
 message DPFServiceVersionsResponse {
   repeated DPFServiceVersion services = 1;
+}
+
+// --- DPU service sync (operator-driven maintenance hold release) ---
+
+// Either a set of host machines, or one instance whose host is resolved
+// server-side.
+//
+// There is deliberately no "all". A fleet-wide release would bypass the pacing
+// the state controller applies to the automatic path and could restart DPU
+// services under every tenant at once.
+message ReleaseDPUServiceSyncHoldRequest {
+  oneof target {
+    // Host machines to release. DPU machine ids are rejected: the hold is per
+    // node, so accepting one would silently widen the request from a single DPU
+    // to every DPU on its host. Assigned hosts are declined -- name the instance
+    // instead.
+    common.MachineIdList machine_ids = 1;
+    // Release the host currently holding this instance, even though it is
+    // assigned. Naming the instance is the acknowledgement that its tenant will
+    // be disrupted, and the consent covers only this instance: if the host has
+    // since been reallocated, the release is declined.
+    common.InstanceId instance_id = 2;
+  }
+}
+
+enum DPUServiceSyncReleaseStatus {
+  // Explicit zero value so an omitted status cannot read as a success.
+  DPU_SERVICE_SYNC_RELEASE_STATUS_UNSPECIFIED = 0;
+  // The hold was released and the pending action completed.
+  DPU_SERVICE_SYNC_RELEASE_STATUS_RELEASED = 1;
+  // Nothing was owed for this machine. Also what a repeat call returns, which is
+  // what makes this RPC idempotent.
+  DPU_SERVICE_SYNC_RELEASE_STATUS_NOT_PENDING = 2;
+  // Declined: a DPU still differs from its DPUDeployment, so its OS is about to
+  // be replaced. The action stays outstanding. Retrying achieves nothing until
+  // that DPU has been reprovisioned.
+  DPU_SERVICE_SYNC_RELEASE_STATUS_DEFERRED_DPU_OUTDATED = 3;
+  // Declined: the host is assigned and was named by machine id. Name its
+  // instance instead. The action stays outstanding.
+  DPU_SERVICE_SYNC_RELEASE_STATUS_DEFERRED_HOST_ASSIGNED = 4;
+  // The attempt failed part-way. The action stays outstanding; retry.
+  DPU_SERVICE_SYNC_RELEASE_STATUS_FAILED = 5;
+  // Declined: a DPU could not be evaluated at all, usually because Kubernetes
+  // was unreachable. Unlike an outdated DPU this is worth retrying.
+  DPU_SERVICE_SYNC_RELEASE_STATUS_DEFERRED_UNKNOWN = 6;
+}
+
+message DPUServiceSyncReleaseResult {
+  common.MachineId machine_id = 1;
+  DPUServiceSyncReleaseStatus status = 2;
+  // Names the DPU or instance responsible on the deferred statuses, and the
+  // error on FAILED. Empty otherwise.
+  string detail = 3;
+}
+
+message ReleaseDPUServiceSyncHoldResponse {
+  // One result per host acted on, in request order. The instance form yields a
+  // single entry naming the host that was resolved.
+  repeated DPUServiceSyncReleaseResult results = 1;
+}
+
+message ListPendingDPUServiceSyncsRequest {
+  // Unset: every machine with work outstanding, longest wait first -- the
+  // operator worklist. Set: that machine's retained history, newest first,
+  // including completed entries and who completed them.
+  optional common.MachineId machine_id = 1;
+}
+
+// One recorded DPU service sync. Completed entries appear only in the
+// single-machine form.
+message PendingDPUServiceSync {
+  common.MachineId machine_id = 1;
+  // First time DPF was seen waiting on this machine. Survives repeat requests,
+  // so it measures the whole wait rather than the last observation.
+  google.protobuf.Timestamp requested_at = 2;
+  // The host's managed state. Carbide only releases on its own from Ready, so
+  // this is the field that says why a machine is still waiting.
+  string state = 3;
+  // Set when the host is currently allocated, so tenant impact is visible before
+  // any machine is named.
+  optional common.InstanceId instance_id = 4;
+  optional google.protobuf.Timestamp completed_at = 5;
+  // Absent while outstanding. Note UpdateInitiator.AdminCli is zero, so this
+  // must never be sent as a default value.
+  optional UpdateInitiator completed_by = 6;
+}
+
+message ListPendingDPUServiceSyncsResponse {
+  repeated PendingDPUServiceSync pending = 1;
 }
 
 // ============================================================================

@@ -3304,6 +3304,20 @@ impl Forge for Api {
         crate::handlers::dpf::get_dpf_service_versions(self, request).await
     }
 
+    async fn list_pending_dpu_service_syncs(
+        &self,
+        request: Request<rpc::ListPendingDpuServiceSyncsRequest>,
+    ) -> Result<Response<rpc::ListPendingDpuServiceSyncsResponse>, Status> {
+        crate::handlers::dpu_service_sync::list_pending_dpu_service_syncs(self, request).await
+    }
+
+    async fn release_dpu_service_sync_hold(
+        &self,
+        request: Request<rpc::ReleaseDpuServiceSyncHoldRequest>,
+    ) -> Result<Response<rpc::ReleaseDpuServiceSyncHoldResponse>, Status> {
+        crate::handlers::dpu_service_sync::release_dpu_service_sync_hold(self, request).await
+    }
+
     // scout_stream handles the bidirectional streaming connection from scout agents.
     // scout agents call scout_stream and send an Init message, and then carbide-api
     // will send down "request" messages to connected agent(s) to either instruct them

@@ -30,6 +30,21 @@ pub enum MachinePendingActionKind {
     DpuServiceSync,
 }
 
+/// Who completed a pending action.
+///
+/// Mirrors the `machine_pending_action_actor` Postgres enum
+/// (`20260814102046_machine_pending_action_completed_by.sql`) and the
+/// `UpdateInitiator` RPC enum, which draws the same distinction for
+/// reprovisioning.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, sqlx::Type)]
+#[sqlx(type_name = "machine_pending_action_actor", rename_all = "snake_case")]
+pub enum MachinePendingActionActor {
+    /// Carbide, having confirmed on its own that the work was safe to do.
+    Automatic,
+    /// An operator, through the admin API.
+    AdminCli,
+}
+
 /// One requested action for one machine, outstanding or already completed.
 ///
 /// There is no payload beyond the timing: a `None` `completed_at` means the work
@@ -43,6 +58,8 @@ pub struct MachinePendingAction {
     pub requested_at: DateTime<Utc>,
     /// When the work succeeded, or `None` while it is still owed.
     pub completed_at: Option<DateTime<Utc>>,
+    /// Who completed it, set together with [`Self::completed_at`].
+    pub completed_by: Option<MachinePendingActionActor>,
 }
 
 impl MachinePendingAction {
