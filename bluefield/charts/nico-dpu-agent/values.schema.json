@@ -152,16 +152,16 @@
               "type": "object",
               "required": ["cpu", "memory"],
               "properties": {
-                "cpu": { "type": "string" },
-                "memory": { "type": "string" }
+                "cpu": { "type": "string", "minLength": 1 },
+                "memory": { "type": "string", "minLength": 1 }
               }
             },
             "limits": {
               "type": "object",
               "required": ["cpu", "memory"],
               "properties": {
-                "cpu": { "type": "string" },
-                "memory": { "type": "string" }
+                "cpu": { "type": "string", "minLength": 1 },
+                "memory": { "type": "string", "minLength": 1 }
               }
             }
           }
