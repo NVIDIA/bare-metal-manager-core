@@ -381,6 +381,10 @@ if [[ -n "$_pg_mem" ]]; then
             warn "  undersized postgres OOM-kills under load and breaks ingestion in ways that look unrelated"
             warn "  raise postgresql.resources.limits.memory in helm-prereqs/values.yaml and reinstall"
             warn "  (a resize applied before teardown is reverted: teardown deletes the postgres namespace)"
+            # Don't let the warning scroll past: make the operator choose, like
+            # the fit-sizing and deploy gates below. -y keeps automation moving.
+            confirm "Continue anyway with ${_pg_mem} for ${HOST_COUNT} hosts?" \
+                || die "aborted on postgres sizing — resize postgresql.resources.limits.memory and rerun"
         else
             ok "postgres memory ${_pg_mem} is adequate for ${HOST_COUNT} hosts (>= ${_pg_want}Gi)"
         fi
