@@ -365,49 +365,6 @@ func TestAdoptableByNaturalKey(t *testing.T) {
 	}
 }
 
-func TestAdoptableFromCore(t *testing.T) {
-	core := []nicoapi.ExpectedRackDetail{
-		{
-			RackID: "a12",
-			Labels: map[string]string{
-				labelChassisManufacturer: "Foxconn",
-				labelChassisSerialNumber: "SN-A12",
-			},
-		},
-		{
-			RackID: "b07",
-			Labels: map[string]string{
-				labelChassisSerialNumber: "SN-B07",
-			},
-		},
-	}
-
-	t.Run("matches by (manufacturer, serial)", func(t *testing.T) {
-		flow := &model.Rack{Manufacturer: "Foxconn", SerialNumber: "SN-A12"}
-		ext, ok := adoptableFromCore(flow, core)
-		assert.True(t, ok)
-		assert.Equal(t, "a12", ext)
-	})
-
-	t.Run("no match returns false", func(t *testing.T) {
-		flow := &model.Rack{Manufacturer: "Foxconn", SerialNumber: "SN-ZZ"}
-		_, ok := adoptableFromCore(flow, core)
-		assert.False(t, ok)
-	})
-
-	t.Run("core row with a half-populated pair is not adoptable", func(t *testing.T) {
-		flow := &model.Rack{Manufacturer: "Foxconn", SerialNumber: "SN-B07"}
-		_, ok := adoptableFromCore(flow, core)
-		assert.False(t, ok)
-	})
-
-	t.Run("flow row with a half-populated pair is not adoptable", func(t *testing.T) {
-		flow := &model.Rack{SerialNumber: "SN-B07"}
-		_, ok := adoptableFromCore(flow, core)
-		assert.False(t, ok)
-	})
-}
-
 // errExpectedRacksClient is a tiny test wrapper around the production mock
 // that overrides GetAllExpectedRackDetails to inject either an RPC error or a
 // custom row set. It satisfies the same nicoapi.Client interface so it slots

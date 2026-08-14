@@ -152,13 +152,18 @@ func mirrorExpectedRacks(
 	// start. See nameUnavailable.
 	plannedNames := make(map[string]struct{}, len(coreRacks))
 
-	// coreExtIDs is every rack_id in this response. Precomputed because the
-	// adoption guard has to ask about rack_ids the loop below has not reached
-	// yet, whereas seenExtID only fills in as it goes.
+	// coreExtIDs / coreNaturalKeys: every rack_id and every complete chassis
+	// pair in this response. Both are precomputed because the guards reading
+	// them ask about Core rows the loops below have not reached yet, whereas
+	// seenExtID only fills in as it goes.
 	coreExtIDs := make(map[string]struct{}, len(coreRacks))
+	coreNaturalKeys := make(map[string]struct{}, len(coreRacks))
 	for _, cr := range coreRacks {
 		if cr.RackID != "" {
 			coreExtIDs[cr.RackID] = struct{}{}
+		}
+		if key := naturalKeyOrEmpty(cr.Labels[labelChassisManufacturer], cr.Labels[labelChassisSerialNumber]); key != "" {
+			coreNaturalKeys[key] = struct{}{}
 		}
 	}
 
@@ -309,8 +314,9 @@ func mirrorExpectedRacks(
 		// External_id is NULL — never adopted. Only legacy-warn if the
 		// (manufacturer, serial) doesn't appear in Core's set either,
 		// otherwise it'll be picked up by the adoption path above and a
-		// "future GC" warn would be misleading.
-		if _, adoptable := adoptableFromCore(r, coreRacks); !adoptable {
+		// "future GC" warn would be misleading. A rack with an incomplete pair
+		// keys to the empty string, which is never in the set.
+		if _, adoptable := coreNaturalKeys[naturalKeyOrEmpty(r.Manufacturer, r.SerialNumber)]; !adoptable {
 			result.legacyExempt++
 			log.Warn().
 				Str("rack_name", r.Name).
@@ -443,25 +449,6 @@ func getAllRacksIncludingDeleted(ctx context.Context, idb bun.IDB) ([]model.Rack
 		return nil, err
 	}
 	return racks, nil
-}
-
-// adoptableFromCore returns the Core rack_id whose chassis pair matches this
-// Flow rack's, meaning the adoption path will reach it. Used to suppress the
-// "legacy not in Core" warn for rows that get picked up on this same cycle. A
-// rack with an incomplete pair is never adoptable, since naturalKeyOrEmpty
-// keeps it out of the adoption index.
-func adoptableFromCore(r *model.Rack, coreRacks []nicoapi.ExpectedRackDetail) (string, bool) {
-	want := naturalKeyOrEmpty(r.Manufacturer, r.SerialNumber)
-	if want == "" {
-		return "", false
-	}
-	for _, cr := range coreRacks {
-		key := naturalKeyOrEmpty(cr.Labels[labelChassisManufacturer], cr.Labels[labelChassisSerialNumber])
-		if key == want {
-			return cr.RackID, true
-		}
-	}
-	return "", false
 }
 
 // buildRackFromCore translates one Core ExpectedRackDetail into the Flow Rack

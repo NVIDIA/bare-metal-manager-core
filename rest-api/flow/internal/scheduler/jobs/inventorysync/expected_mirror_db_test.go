@@ -194,6 +194,27 @@ func TestMirrorRacks_UnlabelledRacksDoNotCollapse(t *testing.T) {
 	assert.Equal(t, 4, n, "every serial-less rack must be mirrored, not deduplicated onto one chassis key")
 }
 
+// A rack the mirror has never reached is adopted by its chassis pair: Core's
+// rack_id is written onto the existing row rather than inserted as a new one.
+func TestMirrorRacks_LegacyRackAdoptedByNaturalKey(t *testing.T) {
+	ctx, pool := mirrorTestPool(t)
+
+	legacy := model.Rack{Name: "legacy", Manufacturer: "Mfg", SerialNumber: "LG-1"}
+	require.NoError(t, legacy.Create(ctx, pool.DB))
+
+	mirrorExpectedRacks(ctx, pool, []nicoapi.ExpectedRackDetail{coreRack("a12", "Mfg", "LG-1")})
+
+	total, err := pool.DB.NewSelect().Model((*model.Rack)(nil)).Count(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, 1, total, "adoption must reuse the existing row, not insert a second rack")
+
+	got, err := (&model.Rack{ID: legacy.ID}).GetIncludingDeleted(ctx, pool.DB)
+	require.NoError(t, err)
+	assert.Nil(t, got.DeletedAt)
+	require.NotNil(t, got.ExternalID)
+	assert.Equal(t, "a12", *got.ExternalID)
+}
+
 // A rack stored without chassis labels picks them up once Core starts sending
 // them.
 func TestMirrorRacks_ChassisLabelsBackfilled(t *testing.T) {
