@@ -326,6 +326,7 @@ impl PowerShelfActor {
             Arc::new(PowerShelfHostname),
             self.mat_id,
             self.bmc_injection.clone(),
+            None,
         );
         if self.host_info.hw_type != HardwareType::LiteOnPowerShelf
             && let Some(password) = self.app_context.app_config.host_bmc_password.as_deref()

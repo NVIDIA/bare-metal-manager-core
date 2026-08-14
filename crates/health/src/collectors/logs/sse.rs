@@ -363,9 +363,10 @@ fn record_to_log(
 
 #[cfg(test)]
 mod tests {
+    use std::collections::BTreeMap;
     use std::sync::atomic::{AtomicUsize, Ordering};
 
-    use axum::http::StatusCode;
+    use axum::http::{Request, StatusCode};
     use axum::response::IntoResponse;
     use axum::routing::get;
     use axum::{Json, Router};
@@ -373,6 +374,7 @@ mod tests {
     use futures::FutureExt;
     use nv_redfish::bmc_http::{BmcCredentials, CacheSettings, HttpBmc};
     use serde_json::{Value, json};
+    use tower::ServiceExt;
     use url::Url;
 
     use super::*;
@@ -576,6 +578,73 @@ mod tests {
             .expect("record should be emitted after retry");
         assert_eq!(
             attribute(log_record(event), "oem.nvidia.error_id"),
+            Some("CPLD-PSEQ-FAULT")
+        );
+    }
+
+    #[tokio::test]
+    async fn configured_bmc_event_is_streamed_and_correlated_after_retry() {
+        let path = "/redfish/v1/Chassis/chassis_1/Oem/Nvidia/Faults/delayed";
+        let event_config = bmc_mock::EventServiceConfig {
+            scenarios: BTreeMap::from([(
+                "platform-fault".to_string(),
+                bmc_mock::EventScenario {
+                    payload: json!({
+                        "@odata.id": "/redfish/v1/EventService/Events/1",
+                        "@odata.type": "#Event.v1_0_0.Event",
+                        "Id": "1",
+                        "Name": "Test event",
+                        "Events": [{ "@odata.id": path }]
+                    }),
+                    linked_resources: BTreeMap::from([(
+                        path.to_string(),
+                        vec![
+                            bmc_mock::LinkedResourceResponse {
+                                status: 404,
+                                body: Value::Null,
+                            },
+                            bmc_mock::LinkedResourceResponse {
+                                status: 200,
+                                body: c12_platform_record(path),
+                            },
+                        ],
+                    )]),
+                },
+            )]),
+        };
+        let (router, _) = bmc_mock::test_support::router_for_machine_with_options(
+            &bmc_mock::test_support::host_info(bmc_mock::HardwareType::GenericAmi),
+            bmc_mock::MachineRouterOptions {
+                event_service: Some(event_config),
+                ..Default::default()
+            },
+        );
+        let bmc = Arc::new(test_bmc(router.clone()));
+        let sse_stream = open_sse_stream(Arc::clone(&bmc)).await.unwrap();
+        let mut event_stream = map_event_stream(sse_stream, bmc, false, 1);
+        let event_task = tokio::spawn(async move { event_stream.next().await });
+
+        let trigger = Request::post(bmc_mock::EVENT_SERVICE_TRIGGER_PATH)
+            .header("content-type", "application/json")
+            .body(axum::body::Body::from(r#"{"scenario":"platform-fault"}"#))
+            .unwrap();
+        let response = router.oneshot(trigger).await.unwrap();
+        assert_eq!(response.status(), StatusCode::NO_CONTENT);
+
+        let event = tokio::time::timeout(Duration::from_secs(2), event_task)
+            .await
+            .expect("collector should receive the configured event")
+            .unwrap()
+            .expect("collector stream should return one item")
+            .expect("configured event should produce a log");
+        let record = log_record(&event);
+        assert_eq!(record.body, "");
+        assert_eq!(
+            attribute(record, "message_id"),
+            Some("IANA.0.1.CPLD-PSEQ-FAULT")
+        );
+        assert_eq!(
+            attribute(record, "oem.nvidia.error_id"),
             Some("CPLD-PSEQ-FAULT")
         );
     }

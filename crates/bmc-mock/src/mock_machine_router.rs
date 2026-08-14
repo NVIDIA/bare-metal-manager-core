@@ -31,6 +31,7 @@ use crate::{
 #[derive(Debug, Default)]
 pub struct MachineRouterOptions {
     pub virtual_media_devices: Option<Vec<VirtualMediaDeviceConfig>>,
+    pub event_service: Option<crate::redfish::event_service::EventServiceConfig>,
 }
 
 #[derive(Debug)]
@@ -91,13 +92,31 @@ pub fn machine_router_with_injection_store(
     redfish_auth: bool,
     injection: Arc<InjectionStore>,
 ) -> (Router, BmcState) {
-    machine_router_inner(
+    machine_router_with_options_and_injection_store(
         machine_info,
         callbacks,
         mat_host_id,
         redfish_auth,
         injection,
         MachineRouterOptions::default(),
+    )
+}
+
+pub fn machine_router_with_options_and_injection_store(
+    machine_info: &MachineInfo,
+    callbacks: Arc<dyn Callbacks>,
+    mat_host_id: String,
+    redfish_auth: bool,
+    injection: Arc<InjectionStore>,
+    options: MachineRouterOptions,
+) -> (Router, BmcState) {
+    machine_router_inner(
+        machine_info,
+        callbacks,
+        mat_host_id,
+        redfish_auth,
+        injection,
+        options,
     )
 }
 
@@ -124,6 +143,7 @@ fn machine_router_inner(
         .add_routes(crate::redfish::update_service::add_routes)
         .add_routes(crate::redfish::task_service::add_routes)
         .add_routes(crate::redfish::telemetry_service::add_routes)
+        .add_routes(crate::redfish::event_service::add_routes)
         .add_routes(crate::redfish::account_service::add_routes)
         .add_routes(crate::redfish::session_service::add_routes)
         .add_routes(|routes| crate::redfish::computer_system::add_routes(routes, bmc_vendor))
@@ -156,6 +176,11 @@ fn machine_router_inner(
     );
     let session_service_state =
         Arc::new(crate::redfish::session_service::SessionServiceState::new());
+    let event_service_state = options.event_service.map(|config| {
+        Arc::new(crate::redfish::event_service::EventServiceState::new(
+            config,
+        ))
+    });
     let state = BmcState {
         bmc_vendor,
         bmc_product,
@@ -167,6 +192,7 @@ fn machine_router_inner(
         update_service_state,
         account_service_state,
         session_service_state,
+        event_service_state,
         injection: injection.clone(),
         callbacks: Some(callbacks.clone()),
         exposes_computer_systems: machine_info.exposes_computer_systems(),

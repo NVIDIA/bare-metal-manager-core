@@ -74,6 +74,7 @@ async fn get_service_root(State(state): State<BmcState>) -> Response {
         .manager_collection(&redfish::manager::collection())
         .update_service(&redfish::update_service::resource())
         .telemetry_service(&redfish::telemetry_service::resource())
+        .maybe_event_service(state.event_service_state.is_some())
         .build()
         .into_ok_response()
 }
@@ -133,5 +134,15 @@ impl ServiceRootBuilder {
 
     fn telemetry_service(self, v: &redfish::Resource<'_>) -> Self {
         self.apply_patch(v.nav_property("TelemetryService"))
+    }
+
+    fn maybe_event_service(self, enabled: bool) -> Self {
+        if enabled {
+            self.apply_patch(json!({
+                "EventService": { "@odata.id": redfish::event_service::SERVICE_PATH }
+            }))
+        } else {
+            self
+        }
     }
 }

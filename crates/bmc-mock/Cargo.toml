@@ -37,6 +37,7 @@ flate2 = { workspace = true }
 form_urlencoded = { workspace = true }
 futures = { workspace = true }
 http-body-util = { workspace = true }
+tokio-stream = { workspace = true }
 hyper = { workspace = true }
 indexmap = { workspace = true }
 itertools = { workspace = true }
@@ -51,6 +52,7 @@ rustls = { workspace = true }
 rustls-pemfile = { workspace = true }
 serde = { features = ["derive"], workspace = true }
 serde_json = { workspace = true }
+sse-stream = { workspace = true }
 tar = { workspace = true }
 tempfile = { workspace = true }
 thiserror = { workspace = true }

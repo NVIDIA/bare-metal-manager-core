@@ -53,9 +53,13 @@ pub use machine_info::{
 };
 pub use mock_machine_router::{
     BmcCommand, MachineRouterOptions, SetSystemPowerError, SetSystemPowerResult, machine_router,
-    machine_router_with_injection_store,
+    machine_router_with_injection_store, machine_router_with_options_and_injection_store,
 };
 pub use rack_info::RackInfo;
+pub use redfish::event_service::{
+    EventScenario, EventServiceConfig, LinkedResourceResponse, SERVICE_PATH as EVENT_SERVICE_PATH,
+    SSE_PATH as EVENT_SERVICE_SSE_PATH, TRIGGER_PATH as EVENT_SERVICE_TRIGGER_PATH,
+};
 pub use redfish::virtual_media::DeviceConfig as VirtualMediaDeviceConfig;
 
 pub const DUMMY_FACTORY_USERNAME: &str = "root";

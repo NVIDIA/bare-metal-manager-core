@@ -655,6 +655,7 @@ esac
                     name: Cow::Borrowed("Operating System Virtual CD"),
                     media_types: vec![Cow::Borrowed("CD"), Cow::Borrowed("DVD")],
                 }]),
+                ..Default::default()
             },
         );
         callbacks.bind_state(&state).unwrap();

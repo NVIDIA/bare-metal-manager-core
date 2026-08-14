@@ -126,6 +126,7 @@ criterion = { workspace = true }
 rcgen = { workspace = true }
 tempfile = { workspace = true }
 time = { workspace = true }
+tower = { workspace = true }
 
 [[bench]]
 name = "sink_pipeline"

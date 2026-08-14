@@ -1266,6 +1266,7 @@ impl MachineStateMachine {
             Arc::new(LiveStateHostnameQuery(self.live_state.clone())),
             self.mat_host_id,
             self.bmc_injection.clone(),
+            self.config.redfish_event_service.clone(),
         );
 
         let pw_override = match &self.machine_info {

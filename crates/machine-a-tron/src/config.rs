@@ -138,6 +138,10 @@ pub struct MachineConfig {
     #[serde(default)]
     pub host_firmware_versions: Option<HostFirmwareVersions>,
 
+    /// Optional deterministic Redfish EventService scenarios for each simulated host BMC.
+    #[serde(default)]
+    pub redfish_event_service: Option<bmc_mock::EventServiceConfig>,
+
     #[serde(default)]
     pub dpu_agent_version: Option<String>,
 }
@@ -218,6 +222,7 @@ impl WiwynnGb200RackConfig {
             dpus_in_nic_mode: self.dpus_in_nic_mode,
             dpu_firmware_versions: self.dpu_firmware_versions.clone(),
             host_firmware_versions: None,
+            redfish_event_service: None,
             dpu_agent_version: self.dpu_agent_version.clone(),
         }
     }
@@ -292,6 +297,7 @@ impl LenovoGb300RackConfig {
             dpus_in_nic_mode: self.dpus_in_nic_mode,
             dpu_firmware_versions: self.dpu_firmware_versions.clone(),
             host_firmware_versions: None,
+            redfish_event_service: None,
             dpu_agent_version: self.dpu_agent_version.clone(),
         }
     }
@@ -1042,7 +1048,17 @@ scout_run_interval = "5s"
 
     #[test]
     fn test_serialize_config() {
-        let cfg = rack_config();
+        let mut cfg = rack_config();
+        Arc::make_mut(cfg.machines.get_mut("config").unwrap()).redfish_event_service =
+            Some(bmc_mock::EventServiceConfig {
+                scenarios: BTreeMap::from([(
+                    "platform-fault".to_string(),
+                    bmc_mock::EventScenario {
+                        payload: serde_json::json!({ "Events": [] }),
+                        linked_resources: BTreeMap::new(),
+                    },
+                )]),
+            });
         cfg.validate().expect("Could not validate config");
         let serialized = toml::to_string(&cfg).expect("Could not serialize config");
         let round_tripped = toml::from_str::<MachineATronConfig>(&serialized)

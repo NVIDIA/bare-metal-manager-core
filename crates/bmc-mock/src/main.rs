@@ -373,6 +373,7 @@ fn generated_mock(config: GeneratedMockConfig) -> (Router, BmcState) {
                         media_types: vec![Cow::Borrowed("CD"), Cow::Borrowed("DVD")],
                     },
                 ]),
+                ..Default::default()
             },
         )
     } else {

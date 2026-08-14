@@ -23,7 +23,8 @@ use axum::Router;
 use bmc_mock::injection::InjectionStore;
 use bmc_mock::ipmi_sim::{IpmiEndpoint, IpmiSimConfig, IpmiSimHandle};
 use bmc_mock::{
-    BmcState, Callbacks, CombinedServer, HostnameQuerying, ListenerOrAddress, MachineInfo,
+    BmcState, Callbacks, CombinedServer, EventServiceConfig, HostnameQuerying, ListenerOrAddress,
+    MachineInfo, MachineRouterOptions,
 };
 use carbide_ipmi::DEFAULT_IPMI_PORT;
 use tokio::sync::RwLock;
@@ -56,14 +57,20 @@ impl BmcMockWrapper {
         hostname: Arc<dyn HostnameQuerying>,
         host_id: Uuid,
         injection: Arc<InjectionStore>,
+        event_service: Option<EventServiceConfig>,
     ) -> Self {
-        let (bmc_mock_router, bmc_mock_state) = bmc_mock::machine_router_with_injection_store(
-            machine_info,
-            callbacks,
-            host_id.to_string(),
-            true,
-            injection,
-        );
+        let (bmc_mock_router, bmc_mock_state) =
+            bmc_mock::machine_router_with_options_and_injection_store(
+                machine_info,
+                callbacks,
+                host_id.to_string(),
+                true,
+                injection,
+                MachineRouterOptions {
+                    event_service,
+                    ..Default::default()
+                },
+            );
 
         BmcMockWrapper {
             ssh_prompt_behavior: match machine_info {

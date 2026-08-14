@@ -308,6 +308,7 @@ mod tests {
                         media_types: vec!["CD".into(), "DVD".into()],
                     },
                 ]),
+                ..Default::default()
             },
         )
         .0;

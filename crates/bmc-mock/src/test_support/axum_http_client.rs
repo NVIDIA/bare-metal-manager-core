@@ -20,6 +20,7 @@ use std::fmt;
 use axum::Router;
 use axum::body::Body;
 use axum::http::{HeaderMap, Method, Request, StatusCode};
+use futures::StreamExt;
 use http_body_util::BodyExt;
 use nv_redfish::bmc_http::{
     BmcCredentials, CacheableError, HttpClient, RejectedUriReferenceError, RequestError,
@@ -42,6 +43,7 @@ pub enum Error {
     Http(axum::http::Error),
     Cache(String),
     RejectedUriReference(String),
+    Sse(String),
     NotSupported(&'static str),
 }
 
@@ -57,6 +59,7 @@ impl fmt::Display for Error {
             Self::RejectedUriReference(reason) => {
                 write!(f, "rejected URI reference: {reason}")
             }
+            Self::Sse(reason) => write!(f, "SSE error: {reason}"),
             Self::NotSupported(what) => write!(f, "not supported in test client: {what}"),
         }
     }
@@ -208,11 +211,30 @@ impl HttpClient for AxumRouterHttpClient {
 
     async fn sse<T: Send + Sized + for<'a> serde::Deserialize<'a>>(
         &self,
-        _url: Url,
-        _credentials: &BmcCredentials,
-        _custom_headers: &HeaderMap,
+        url: Url,
+        credentials: &BmcCredentials,
+        custom_headers: &HeaderMap,
     ) -> Result<BoxTryStream<T, Self::Error>, Self::Error> {
-        Err(Error::NotSupported("SSE stream is not supported yet"))
+        let builder = Self::request_builder(Method::GET, &url, credentials, custom_headers);
+        let request = builder.body(Body::empty()).map_err(Error::Http)?;
+        let response = self.call(request).await?;
+        if !response.status().is_success() {
+            let (status, _, bytes) = Self::response_bytes(response).await?;
+            return Err(Error::InvalidResponse {
+                url,
+                status,
+                text: String::from_utf8_lossy(&bytes).to_string(),
+            });
+        }
+        let stream = sse_stream::SseStream::new(response.into_body()).filter_map(|event| async {
+            match event {
+                Ok(event) => event
+                    .data
+                    .map(|data| serde_json::from_str(&data).map_err(Error::Json)),
+                Err(error) => Some(Err(Error::Sse(error.to_string()))),
+            }
+        });
+        Ok(Box::pin(stream))
     }
 
     async fn post_session<B, T>(
