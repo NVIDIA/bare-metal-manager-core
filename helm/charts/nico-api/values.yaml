@@ -187,6 +187,52 @@ certificate:
   # Dev/sim only: IP SANs for direct-IP TLS (e.g. API VIP). Leave empty in production.
   ipAddresses: []
 
+## Optional NVSwitch control-plane certificates. Both leaves use the
+## same existing issuer, which defaults to the vault-nico-issuer deployed by
+## the standard NICo prerequisites. Both profiles are disabled by default.
+nvSwitchTls:
+  issuerRef:
+    kind: ClusterIssuer
+    name: vault-nico-issuer
+    group: cert-manager.io
+
+  ## Dedicated NICo client identity for direct mTLS connections to NMX-C.
+  ## When enabled, the generated Secret is mounted read-only at mountPath.
+  nicoClient:
+    enabled: false
+    name: nvswitch-nico-client-certificate
+    secretName: nvswitch-nico-client-certificate
+    mountPath: /var/run/secrets/nvswitch-client
+    duration: 720h0m0s
+    renewBefore: 360h0m0s
+    ## At least one URI SAN is required when enabled. Any cert-manager approver
+    ## policy must allow the exact identity.
+    uris: []
+    privateKey:
+      algorithm: ECDSA
+      size: 384
+      rotationPolicy: Always
+
+  ## Server identity installed on NVUE/NMX-C by the site's switch installer.
+  ## This chart only creates the Secret; it deliberately does not mount it into
+  ## nico-api. Enable it only when this release should own the server artifact.
+  switchServer:
+    enabled: false
+    name: nvswitch-server-certificate
+    secretName: nvswitch-server-certificate
+    duration: 720h0m0s
+    renewBefore: 360h0m0s
+    ## Configure the SAN type that matches nmx_c_tls_authority. At least one
+    ## DNS name or IP address is required when this certificate is enabled.
+    dnsNames: []
+    ipAddresses: []
+    ## Optional identity metadata, subject to the issuer/approver policy.
+    uris: []
+    privateKey:
+      algorithm: ECDSA
+      size: 384
+      rotationPolicy: Always
+
 migrationJob:
   sslMode: require
 
