@@ -421,6 +421,6 @@ jobs:
       contents: read
       pull-requests: write
     steps:
-      - uses: NVIDIA/dsx-github-actions/.github/actions/security-container-scan-aggregate@739847ddf00fda38916504ef84e1f504eac3158f
+      - uses: dsx-ai-factory/dsx-github-actions/.github/actions/security-container-scan-aggregate@739847ddf00fda38916504ef84e1f504eac3158f
         with:
           post-pr-comment: 'true'
