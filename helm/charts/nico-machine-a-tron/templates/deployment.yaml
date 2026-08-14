@@ -67,7 +67,7 @@ spec:
             - name: UFM_MOCK_AUTH_TOKEN
               valueFrom:
                 secretKeyRef:
-                  name: {{ default (printf "%s-ufm-mock-auth" $baseName) $root.Values.ufmMock.existingAuthSecret }}
+                  name: {{ $root.Values.ufmMock.existingAuthSecret | default (printf "%s-ufm-mock-auth" $baseName) | quote }}
                   key: token
           {{- end }}
           ports:

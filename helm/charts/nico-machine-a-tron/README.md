@@ -42,9 +42,9 @@ to that machine-a-tron process. Point the default NICo IB fabric at the same
 Service used for the machine-a-tron control and Redfish APIs, with
 `/ufmRestV3` as the UFM API path.
 
-The generated Secret contains the HTTP Basic credential accepted by the mock.
-Set `ufmMock.authToken`, or set `ufmMock.existingAuthSecret` to a Secret whose
-`token` key contains the credential.
+The chart generates a 24-character HTTP Basic credential, stores it in a
+Secret, and preserves it across Helm upgrades. Set `ufmMock.existingAuthSecret`
+to use an externally managed Secret whose `token` key contains the credential.
 
 Disable the embedded mock when InfiniBand simulation is not needed or when an
 external fabric mock is managed separately:
