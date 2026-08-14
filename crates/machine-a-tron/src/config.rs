@@ -393,6 +393,14 @@ impl DpuFirmwareVersions {
     }
 }
 
+#[derive(Clone, Copy, Debug, Default, Deserialize, Serialize, Eq, PartialEq)]
+#[serde(rename_all = "lowercase")]
+pub enum LogFormat {
+    #[default]
+    Compact,
+    Logfmt,
+}
+
 #[derive(Clone, Debug, Deserialize, Serialize, Eq, PartialEq)]
 pub struct MachineATronConfig {
     #[serde(default)]
@@ -405,6 +413,9 @@ pub struct MachineATronConfig {
     pub machines: BTreeMap<String, Arc<MachineConfig>>,
     pub carbide_api_url: String,
     pub log_file: Option<String>,
+    /// Format used for logs written to stdout or `log_file`.
+    #[serde(default)]
+    pub log_format: LogFormat,
     pub interface: String,
 
     /// How machine-a-tron obtains DHCP leases for BMCs and directly attached hosts.
@@ -1244,6 +1255,45 @@ scout_run_interval = "5s"
     #[test]
     fn dhcp_uses_api_by_default() {
         assert_eq!(rack_config().dhcp, DhcpType::Api {});
+    }
+
+    #[test]
+    fn log_format_configuration() {
+        #[derive(Deserialize)]
+        struct LoggingConfig {
+            #[serde(default)]
+            log_format: LogFormat,
+        }
+
+        check_values(
+            [
+                Check {
+                    scenario: "format omitted",
+                    input: "",
+                    expect: Some(LogFormat::Compact),
+                },
+                Check {
+                    scenario: "compact format",
+                    input: r#"log_format = "compact""#,
+                    expect: Some(LogFormat::Compact),
+                },
+                Check {
+                    scenario: "logfmt format",
+                    input: r#"log_format = "logfmt""#,
+                    expect: Some(LogFormat::Logfmt),
+                },
+                Check {
+                    scenario: "unknown format",
+                    input: r#"log_format = "json""#,
+                    expect: None,
+                },
+            ],
+            |serialized| {
+                toml::from_str::<LoggingConfig>(serialized)
+                    .ok()
+                    .map(|config| config.log_format)
+            },
+        );
     }
 
     #[test]

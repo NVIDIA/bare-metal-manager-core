@@ -75,6 +75,7 @@ data:
     carbide_api_url = {{ $root.Values.machineATron.nicoApiUrl | quote }}
     interface = {{ $root.Values.machineATron.interface | quote }}
     tui_enabled = {{ $root.Values.machineATron.tuiEnabled }}
+    log_format = {{ $root.Values.machineATron.logFormat | quote }}
     {{- if $root.Values.machineATron.logFile }}
     log_file = {{ $root.Values.machineATron.logFile | quote }}
     {{- end }}

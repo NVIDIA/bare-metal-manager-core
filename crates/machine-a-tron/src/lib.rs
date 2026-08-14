@@ -49,9 +49,9 @@ use std::time::{Duration, Instant};
 
 pub use bmc_mock_wrapper::BmcMockRegistry;
 pub use config::{
-    DhcpType, LenovoGb300RackConfig, MachineATronArgs, MachineATronConfig, MachineATronContext,
-    MachineConfig, PersistedDevice, PersistedDpuMachine, RackConfig, RackModelConfig,
-    WiwynnGb200RackConfig,
+    DhcpType, LenovoGb300RackConfig, LogFormat, MachineATronArgs, MachineATronConfig,
+    MachineATronContext, MachineConfig, PersistedDevice, PersistedDpuMachine, RackConfig,
+    RackModelConfig, WiwynnGb200RackConfig,
 };
 pub use control_router::{ControlState, append as append_control_routes};
 pub use device_handle::DeviceHandle;

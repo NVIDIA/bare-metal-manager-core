@@ -2450,6 +2450,7 @@ dependencies = [
  "figment",
  "futures",
  "lazy_static",
+ "logfmt",
  "mac_address",
  "metrics-endpoint",
  "rand 0.10.1",

@@ -153,6 +153,8 @@ machineATron:
   interface: "NOTUSED"
   tuiEnabled: false
   logFile: ""
+  # Kubernetes log collectors consume structured logs from stdout.
+  logFormat: "logfmt"
   useSingleBmcMock: true
   mockBmcSshServer: true
   mockBmcSshPort: 2222
@@ -348,6 +350,7 @@ configFiles:
   #     carbide_api_url = "https://nico-api.nico-system.svc.cluster.local:1079"
   #     interface = "NOTUSED"
   #     tui_enabled = false
+  #     log_format = "logfmt"
   #     bmc_mock_port = 1266
   #     use_single_bmc_mock = true
   #     mock_bmc_ssh_server = true

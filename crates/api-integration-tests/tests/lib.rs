@@ -23,7 +23,7 @@ use std::time::{self, Duration};
 
 use ::carbide_utils::HostPortPair;
 use ::machine_a_tron::{
-    BmcMockRegistry, DeviceHandle, DhcpType, MachineATronConfig, MachineConfig,
+    BmcMockRegistry, DeviceHandle, DhcpType, LogFormat, MachineATronConfig, MachineConfig,
 };
 use api_test_helper::utils::TestApiServerArgs;
 use api_test_helper::{
@@ -1403,6 +1403,7 @@ where
         carbide_api_url: format!("https://{}:{}", api_addr.ip(), api_addr.port()),
         dhcp: DhcpType::Api {},
         log_file: None,
+        log_format: LogFormat::Compact,
         bmc_mock_port: 0, // unused, we're using dynamic ports on localhost
         bmc_mock_certs_dir: None,
         interface: String::from("UNUSED"), // unused, we're using dynamic ports on localhost

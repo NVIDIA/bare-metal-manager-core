@@ -28,7 +28,7 @@ use carbide_uuid::rack::{RackId, RackProfileId};
 use eyre::ContextCompat;
 use futures::future::join_all;
 use machine_a_tron::{
-    BmcMockRegistry, DhcpType, LenovoGb300RackConfig, MachineATronConfig, RackConfig,
+    BmcMockRegistry, DhcpType, LenovoGb300RackConfig, LogFormat, MachineATronConfig, RackConfig,
     RackModelConfig, WiwynnGb200RackConfig,
 };
 use tokio_util::sync::CancellationToken;
@@ -163,6 +163,7 @@ async fn run_machine_a_tron_racks_test(
         carbide_api_url: format!("https://{}:{}", api_addr.ip(), api_addr.port()),
         dhcp: DhcpType::Api {},
         log_file: None,
+        log_format: LogFormat::Compact,
         bmc_mock_port: 0,
         bmc_mock_certs_dir: None,
         interface: String::from("UNUSED"),
