@@ -72,7 +72,6 @@ async fn create_instance(env: &TestHarness, host: &TestManagedHost) -> InstanceI
         extension_services: InstanceExtensionServicesConfig::default(),
         nvlink: InstanceNvLinkConfig::default(),
         spxconfig: InstanceSpxConfig::default(),
-        power_profile: None,
     };
     let version = ConfigVersion::initial();
     let mut txn = env.db_txn().await;
