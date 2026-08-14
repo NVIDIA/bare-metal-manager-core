@@ -61,7 +61,7 @@ under your own registry; authenticate Docker to that registry before running the
 make images IMAGE_REGISTRY=my-registry.example.com/nico IMAGE_TAG=v1.0.0
 ```
 
-By default every image group is built for both `amd64` and `arm64`. Each group has its
+By default, every image group is built for both `amd64` and `arm64`. Each group has its
 own override variable if you only need one architecture:
 
 - `NICO_ARCHES` — the NICo control-plane images (`images-base`, `images-core`,
