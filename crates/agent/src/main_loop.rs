@@ -896,6 +896,8 @@ impl MainLoop {
 
                 let instance_data = self.periodic_config_reader.meta_data_conf_reader();
 
+                // The fetcher projects `addresses` into the compatibility prefix before use.
+                #[allow(deprecated)]
                 let proposed_routes: Vec<_> = conf
                     .tenant_interfaces
                     .iter()

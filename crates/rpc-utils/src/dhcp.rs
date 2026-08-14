@@ -209,6 +209,8 @@ impl HostConfig {
     }
 }
 
+// This conversion continues to consume the compatibility fields during the address-list rollout.
+#[allow(deprecated)]
 impl TryFrom<::rpc::forge::FlatInterfaceConfig> for InterfaceInfo {
     type Error = DhcpDataError;
     fn try_from(value: ::rpc::forge::FlatInterfaceConfig) -> Result<Self, Self::Error> {
@@ -370,6 +372,8 @@ mod tests {
         HOST_INTERFACE_ID.parse().unwrap()
     }
 
+    // Builds the deprecated compatibility shape consumed by this conversion.
+    #[allow(deprecated)]
     fn interface_config(
         function_type: InterfaceFunctionType,
         vlan_id: u32,

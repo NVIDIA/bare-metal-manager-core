@@ -26494,15 +26494,24 @@ type FlatInterfaceConfig struct {
 	// probably be checking somewhere that the VNI we're passing down
 	// isn't going to overflow once it gets to HBN.
 	Vni uint32 `protobuf:"varint,3,opt,name=vni,proto3" json:"vni,omitempty"`
-	// in CIDR notation
+	// Deprecated: use addresses.
+	// In CIDR notation.
+	//
+	// Deprecated: Marked as deprecated in nico_nico.proto.
 	Gateway string `protobuf:"bytes,4,opt,name=gateway,proto3" json:"gateway,omitempty"`
-	// host admin ip for admin network, host ip for tenant
+	// Deprecated: use addresses.
+	// Host admin IP for admin network, host IP for tenant.
+	//
+	// Deprecated: Marked as deprecated in nico_nico.proto.
 	Ip string `protobuf:"bytes,5,opt,name=ip,proto3" json:"ip,omitempty"`
+	// Deprecated: use addresses.
 	// The interface-specific prefix allocation (which may be a /32 for
 	// just the host IP, or a larger allocation, like a /30, for FNN). The
 	// `ip` as configured above will be contained within the `interface_prefix`
 	// provided here, and the `interface_prefix` will be contained within
 	// the `prefix` below (field 8).
+	//
+	// Deprecated: Marked as deprecated in nico_nico.proto.
 	InterfacePrefix string `protobuf:"bytes,11,opt,name=interface_prefix,json=interfacePrefix,proto3" json:"interface_prefix,omitempty"`
 	// If the interface is defined as a virtual function (associated
 	// `function_type == InterfaceFunctionType::VIRTUAL_FUNCTION`,
@@ -26513,6 +26522,7 @@ type FlatInterfaceConfig struct {
 	// the prefix from the network segment this interface is attached to (which
 	// could be independently derived from the `gateway` field).
 	VpcPrefixes []string `protobuf:"bytes,7,rep,name=vpc_prefixes,json=vpcPrefixes,proto3" json:"vpc_prefixes,omitempty"`
+	// Deprecated: use addresses.
 	// Prefix for the network segment this interface lives in,
 	// which is what is referred to as a subnet in the UI. This
 	// is not to be confused with the instance_prefix, which is
@@ -26524,6 +26534,8 @@ type FlatInterfaceConfig struct {
 	// ultimately do want a DPU-specific prefix allocation to be its
 	// own prefix entry in the `network_prefixes` table (or something
 	// similar).
+	//
+	// Deprecated: Marked as deprecated in nico_nico.proto.
 	Prefix string `protobuf:"bytes,8,opt,name=prefix,proto3" json:"prefix,omitempty"`
 	// FQDN
 	Fqdn string `protobuf:"bytes,9,opt,name=fqdn,proto3" json:"fqdn,omitempty"`
@@ -26535,11 +26547,14 @@ type FlatInterfaceConfig struct {
 	// pool), and is done in such a way that each VNI is globally
 	// unique per VPC.
 	VpcVni uint32 `protobuf:"varint,12,opt,name=vpc_vni,json=vpcVni,proto3" json:"vpc_vni,omitempty"`
+	// Deprecated: use addresses.
 	// svi_ip (also known as the gateway IP), is the local DPU-hosted
 	// gateway to be used by an instance in an FNN-L3 configuration (as
 	// in the host actually sets this IP as its gateway). This is the 3rd
 	// IP allocated from the /30, where the /30 is broken into two /31s,
 	// and the SVI IP is the first IP in the second /31.
+	//
+	// Deprecated: Marked as deprecated in nico_nico.proto.
 	SviIp *string `protobuf:"bytes,13,opt,name=svi_ip,json=sviIp,proto3,oneof" json:"svi_ip,omitempty"`
 	// tenant_vrf_loopback_ip is an administrative IP assigned from
 	// the FNN L3 allocated /30 DPU prefix. The tenant is not expected
@@ -26631,6 +26646,7 @@ func (x *FlatInterfaceConfig) GetVni() uint32 {
 	return 0
 }
 
+// Deprecated: Marked as deprecated in nico_nico.proto.
 func (x *FlatInterfaceConfig) GetGateway() string {
 	if x != nil {
 		return x.Gateway
@@ -26638,6 +26654,7 @@ func (x *FlatInterfaceConfig) GetGateway() string {
 	return ""
 }
 
+// Deprecated: Marked as deprecated in nico_nico.proto.
 func (x *FlatInterfaceConfig) GetIp() string {
 	if x != nil {
 		return x.Ip
@@ -26645,6 +26662,7 @@ func (x *FlatInterfaceConfig) GetIp() string {
 	return ""
 }
 
+// Deprecated: Marked as deprecated in nico_nico.proto.
 func (x *FlatInterfaceConfig) GetInterfacePrefix() string {
 	if x != nil {
 		return x.InterfacePrefix
@@ -26666,6 +26684,7 @@ func (x *FlatInterfaceConfig) GetVpcPrefixes() []string {
 	return nil
 }
 
+// Deprecated: Marked as deprecated in nico_nico.proto.
 func (x *FlatInterfaceConfig) GetPrefix() string {
 	if x != nil {
 		return x.Prefix
@@ -26694,6 +26713,7 @@ func (x *FlatInterfaceConfig) GetVpcVni() uint32 {
 	return 0
 }
 
+// Deprecated: Marked as deprecated in nico_nico.proto.
 func (x *FlatInterfaceConfig) GetSviIp() string {
 	if x != nil && x.SviIp != nil {
 		return *x.SviIp
@@ -65435,23 +65455,23 @@ const file_nico_nico_proto_rawDesc = "" +
 	"\x10quarantine_state\x18\x02 \x01(\v2!.forge.ManagedHostQuarantineStateH\x00R\x0fquarantineState\x88\x01\x01\x12)\n" +
 	"\x0eloopback_ip_v6\x18\x03 \x01(\tH\x01R\floopbackIpV6\x88\x01\x01B\x13\n" +
 	"\x11_quarantine_stateB\x11\n" +
-	"\x0f_loopback_ip_v6\"\xae\n" +
+	"\x0f_loopback_ip_v6\"\xc2\n" +
 	"\n" +
 	"\x13FlatInterfaceConfig\x12A\n" +
 	"\rfunction_type\x18\x01 \x01(\x0e2\x1c.forge.InterfaceFunctionTypeR\ffunctionType\x12\x17\n" +
 	"\avlan_id\x18\x02 \x01(\rR\x06vlanId\x12\x10\n" +
-	"\x03vni\x18\x03 \x01(\rR\x03vni\x12\x18\n" +
-	"\agateway\x18\x04 \x01(\tR\agateway\x12\x0e\n" +
-	"\x02ip\x18\x05 \x01(\tR\x02ip\x12)\n" +
-	"\x10interface_prefix\x18\v \x01(\tR\x0finterfacePrefix\x123\n" +
+	"\x03vni\x18\x03 \x01(\rR\x03vni\x12\x1c\n" +
+	"\agateway\x18\x04 \x01(\tB\x02\x18\x01R\agateway\x12\x12\n" +
+	"\x02ip\x18\x05 \x01(\tB\x02\x18\x01R\x02ip\x12-\n" +
+	"\x10interface_prefix\x18\v \x01(\tB\x02\x18\x01R\x0finterfacePrefix\x123\n" +
 	"\x13virtual_function_id\x18\x06 \x01(\rH\x00R\x11virtualFunctionId\x88\x01\x01\x12!\n" +
-	"\fvpc_prefixes\x18\a \x03(\tR\vvpcPrefixes\x12\x16\n" +
-	"\x06prefix\x18\b \x01(\tR\x06prefix\x12\x12\n" +
+	"\fvpc_prefixes\x18\a \x03(\tR\vvpcPrefixes\x12\x1a\n" +
+	"\x06prefix\x18\b \x01(\tB\x02\x18\x01R\x06prefix\x12\x12\n" +
 	"\x04fqdn\x18\t \x01(\tR\x04fqdn\x12\x1d\n" +
 	"\abooturl\x18\n" +
 	" \x01(\tH\x01R\abooturl\x88\x01\x01\x12\x17\n" +
-	"\avpc_vni\x18\f \x01(\rR\x06vpcVni\x12\x1a\n" +
-	"\x06svi_ip\x18\r \x01(\tH\x02R\x05sviIp\x88\x01\x01\x128\n" +
+	"\avpc_vni\x18\f \x01(\rR\x06vpcVni\x12\x1e\n" +
+	"\x06svi_ip\x18\r \x01(\tB\x02\x18\x01H\x02R\x05sviIp\x88\x01\x01\x128\n" +
 	"\x16tenant_vrf_loopback_ip\x18\x0e \x01(\tH\x03R\x13tenantVrfLoopbackIp\x88\x01\x01\x12\"\n" +
 	"\ris_l2_segment\x18\x0f \x01(\bR\visL2Segment\x12*\n" +
 	"\x11vpc_peer_prefixes\x18\x10 \x03(\tR\x0fvpcPeerPrefixes\x12\"\n" +

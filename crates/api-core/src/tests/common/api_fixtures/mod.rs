@@ -2197,6 +2197,8 @@ pub(in crate::tests) async fn network_configured_with_health(
 
 /// Fake an iteration of forge-dpu-agent requesting network config, applying it, and reporting back.
 /// When reporting back, the health and extension services statuses reported by the DPU can be overrridden
+// This fixture reports the compatibility fields populated for older agents.
+#[allow(deprecated)]
 pub(in crate::tests) async fn network_configured_with_health_and_ext_services(
     env: &TestEnv,
     dpu_machine_id: &MachineId,

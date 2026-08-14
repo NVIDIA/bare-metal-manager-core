@@ -1836,6 +1836,8 @@ async fn test_can_not_create_instance_for_dpu(_: PgPoolOptions, options: PgConne
 }
 
 #[crate::sqlx_test]
+// This test verifies parity between `addresses` and the compatibility fields.
+#[allow(deprecated)]
 async fn test_instance_address_creation(_: PgPoolOptions, options: PgConnectOptions) {
     let pool = PgPoolOptions::new().connect_with(options).await.unwrap();
     let env = create_test_env(pool).await;

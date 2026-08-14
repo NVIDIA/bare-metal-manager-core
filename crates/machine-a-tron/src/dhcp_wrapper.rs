@@ -309,6 +309,8 @@ impl DpuDhcpRelayServer {
 }
 
 // Synthesize a DHCP response given the provided ManagedHostNetworkConfigResponse
+// Machine-a-tron receives the compatibility fields from the agent-facing response.
+#[allow(deprecated)]
 fn synthesize_dhcp_response_for_host(
     managed_host_config: &ManagedHostNetworkConfigResponse,
 ) -> DhcpRelayResult<DhcpResponseInfo> {

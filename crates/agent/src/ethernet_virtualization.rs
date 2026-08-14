@@ -334,6 +334,8 @@ fn parse_managed_host_loopback_ips(
 
 /// Update the NVUE network config. Returns Ok(true) if the configuration changed, and
 /// Ok(false) if not.
+// The fetcher projects `addresses` into these compatibility fields before rendering.
+#[allow(deprecated)]
 pub(super) async fn update_nvue(
     vpc_virtualization_type: VpcVirtualizationType,
     update_flavor: NvueUpdateFlavor<'_>,
@@ -1106,6 +1108,8 @@ pub(super) async fn update_dhcp(
 }
 
 /// Interfaces to report back to server
+// The fetcher projects `addresses` into these compatibility fields before status reporting.
+#[allow(deprecated)]
 pub(super) async fn interfaces(
     network_config: &rpc::ManagedHostNetworkConfigResponse,
     factory_mac_address: MacAddress,
@@ -1229,6 +1233,8 @@ pub(super) async fn interfaces(
     Ok(interfaces)
 }
 
+// The fetcher projects `addresses` into the compatibility IPv4 field before health checks.
+#[allow(deprecated)]
 pub(super) fn tenant_peers(network_config: &rpc::ManagedHostNetworkConfigResponse) -> Vec<&str> {
     network_config
         .tenant_interfaces
@@ -2483,6 +2489,8 @@ mod tests {
         Ok(())
     }
 
+    // Builds the deprecated compatibility shape consumed by these renderer tests.
+    #[allow(deprecated)]
     fn netconf(
         virtualization_type: VpcVirtualizationType,
         interface_prefix_length: u8,
@@ -3225,7 +3233,9 @@ mod tests {
         }
     }
 
+    // Exercises the DHCP renderer's deprecated compatibility input.
     #[test]
+    #[allow(deprecated)]
     fn test_with_tenant_dhcp_server() -> Result<(), Box<dyn std::error::Error>> {
         // The config we received from API server
         // Admin won't be used

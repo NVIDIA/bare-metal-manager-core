@@ -292,6 +292,7 @@ impl<'a> PrefixPair<'a> {
 }
 
 /// Mirrors the legacy family-specific fields into the staged address list.
+#[allow(deprecated)]
 fn interface_address_configs(
     config: &rpc::FlatInterfaceConfig,
     ipv6_segment_prefix: Option<&str>,
@@ -322,6 +323,8 @@ fn interface_address_configs(
     addresses
 }
 
+// This writer keeps the deprecated fields populated for older agents during the rollout.
+#[allow(deprecated)]
 pub(crate) async fn admin_network(
     txn: &mut PgConnection,
     snapshot: &ManagedHostStateSnapshot,
@@ -545,6 +548,8 @@ pub(crate) async fn admin_network(
 }
 
 #[allow(clippy::too_many_arguments)]
+// This writer keeps the deprecated fields populated for older agents during the rollout.
+#[allow(deprecated)]
 pub(crate) async fn tenant_network(
     txn: &mut PgConnection,
     instance_id: InstanceId,
@@ -855,6 +860,7 @@ mod test {
 
     use super::*;
 
+    #[allow(deprecated)]
     fn legacy_interface_config(
         ipv6_interface_config: Option<rpc::FlatInterfaceIpv6Config>,
     ) -> rpc::FlatInterfaceConfig {

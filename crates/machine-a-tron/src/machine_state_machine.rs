@@ -1092,6 +1092,8 @@ impl MachineStateMachine {
         Ok(machine_discovery_result)
     }
 
+    // Machine-a-tron receives the compatibility fields from the agent-facing response.
+    #[allow(deprecated)]
     async fn send_network_status_observation(
         &self,
         machine_id: MachineId,

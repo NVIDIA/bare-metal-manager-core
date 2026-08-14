@@ -4752,16 +4752,19 @@ message FlatInterfaceConfig {
   // isn't going to overflow once it gets to HBN.
   uint32 vni = 3;
 
-  // in CIDR notation
-  string gateway = 4;
-  // host admin ip for admin network, host ip for tenant
-  string ip = 5;
+  // Deprecated: use addresses.
+  // In CIDR notation.
+  string gateway = 4 [deprecated = true];
+  // Deprecated: use addresses.
+  // Host admin IP for admin network, host IP for tenant.
+  string ip = 5 [deprecated = true];
+  // Deprecated: use addresses.
   // The interface-specific prefix allocation (which may be a /32 for
   // just the host IP, or a larger allocation, like a /30, for FNN). The
   // `ip` as configured above will be contained within the `interface_prefix`
   // provided here, and the `interface_prefix` will be contained within
   // the `prefix` below (field 8).
-  string interface_prefix = 11;
+  string interface_prefix = 11 [deprecated = true];
   // If the interface is defined as a virtual function (associated
   // `function_type == InterfaceFunctionType::VIRTUAL_FUNCTION`,
   // then this value is set and specifies the virtual function ID that is configured
@@ -4771,6 +4774,7 @@ message FlatInterfaceConfig {
   // the prefix from the network segment this interface is attached to (which
   // could be independently derived from the `gateway` field).
   repeated string vpc_prefixes = 7;
+  // Deprecated: use addresses.
   // Prefix for the network segment this interface lives in,
   // which is what is referred to as a subnet in the UI. This
   // is not to be confused with the instance_prefix, which is
@@ -4782,7 +4786,7 @@ message FlatInterfaceConfig {
   // ultimately do want a DPU-specific prefix allocation to be its
   // own prefix entry in the `network_prefixes` table (or something
   // similar).
-  string prefix = 8;
+  string prefix = 8 [deprecated = true];
   // FQDN
   string fqdn = 9;
   // boot_url
@@ -4795,12 +4799,13 @@ message FlatInterfaceConfig {
   // unique per VPC.
   uint32 vpc_vni = 12;
 
+  // Deprecated: use addresses.
   // svi_ip (also known as the gateway IP), is the local DPU-hosted
   // gateway to be used by an instance in an FNN-L3 configuration (as
   // in the host actually sets this IP as its gateway). This is the 3rd
   // IP allocated from the /30, where the /30 is broken into two /31s,
   // and the SVI IP is the first IP in the second /31.
-  optional string svi_ip = 13;
+  optional string svi_ip = 13 [deprecated = true];
 
   // tenant_vrf_loopback_ip is an administrative IP assigned from
   // the FNN L3 allocated /30 DPU prefix. The tenant is not expected
