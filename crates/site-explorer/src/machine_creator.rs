@@ -425,7 +425,12 @@ impl MachineCreator {
             };
 
             for dpu_report in managed_host.explored_host.dpus.iter() {
-                self.configure_dpu_interface(&mut txn, dpu_report).await?;
+                // The steady-state branch holds the segment locks only under
+                // eager locking (the acquisition at transaction start); under
+                // lazy locking it reaches here unlocked and the callee locks
+                // before its one possible write.
+                self.configure_dpu_interface(&mut txn, dpu_report, !lazy_segment_lock)
+                    .await?;
             }
 
             self.reconcile_host_admin_addresses(&mut txn, &host_machine_id)
@@ -1146,7 +1151,11 @@ impl MachineCreator {
         explored_dpu: &ExploredDpu,
     ) -> SiteExplorerResult<Option<Machine>> {
         if let Some(dpu_machine) = self.create_dpu_machine(txn, explored_dpu).await? {
-            self.configure_dpu_interface(txn, explored_dpu).await?;
+            // The creation branch of `create_managed_host` -- this function's
+            // only caller -- holds every admin-segment lock on both locking
+            // modes by the time it gets here: eagerly at transaction start, or
+            // lazily at the branch decision. No re-acquisition needed.
+            self.configure_dpu_interface(txn, explored_dpu, true).await?;
             let dpu_machine_id: &MachineId = explored_dpu.report.machine_id.as_ref().unwrap();
             let dpu_bmc_info = explored_dpu.bmc_info();
             let dpu_hw_info = explored_dpu.hardware_info()?;
@@ -1188,10 +1197,17 @@ impl MachineCreator {
     // configure_dpu_interface checks the machine_interfaces table to see if the DPU's machine interface has its machine id set.
     // If the machine ID is already configured appropriately for the DPU's machine interface, configure_dpu_interface will return false
     // If the DPU's machine interface was missing the machine ID in the table, configure_dpu_interface will set the machine ID and return true.
+    // `segments_already_locked` says whether this transaction already holds
+    // every admin-segment advisory lock. Passing `true` when it does not would
+    // let the association below write without the lock, so callers may pass it
+    // only when the acquisition is visible on their own path: the creation
+    // branch locks at entry in both modes, the steady-state branch only under
+    // eager locking.
     async fn configure_dpu_interface(
         &self,
         txn: &mut PgConnection,
         explored_dpu: &ExploredDpu,
+        segments_already_locked: bool,
     ) -> SiteExplorerResult<bool> {
         let dpu_machine_id: &MachineId = explored_dpu.report.machine_id.as_ref().unwrap();
         let oob_net0_mac = explored_dpu.report.systems.iter().find_map(|x| {
@@ -1221,14 +1237,15 @@ impl MachineCreator {
             {
                 let interface_id = interface.id;
 
-                // The read above is a pure filter: re-take the decision under
-                // the locks before writing, so no write is based on unlocked
-                // state. Acquiring here still precedes every row lock this
-                // transaction takes, so the allocator order (segment advisory
-                // lock first, then machine interface/address rows) holds.
-                // Under `MACHINE_CREATOR_LAZY_LOCK=0` the caller already holds
-                // these locks and this block is skipped entirely.
-                if lazy_segment_lock_enabled() {
+                // When the caller reached here unlocked, the read above is a
+                // pure filter: re-take the decision under the locks before
+                // writing, so no write is based on unlocked state. Acquiring
+                // here still precedes every row lock this transaction takes,
+                // so the allocator order (segment advisory lock first, then
+                // machine interface/address rows) holds. When the caller
+                // already holds the locks, the read above was made under them
+                // and this re-acquisition and re-read would be redundant.
+                if !segments_already_locked {
                     db::machine_interface::lock_all_admin_segments(
                         &mut *txn,
                         "machine_creator_dpu_interface",
