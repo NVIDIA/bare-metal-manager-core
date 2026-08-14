@@ -103,8 +103,16 @@ impl EthernetInterfaceBuilder {
         self.add_str_field("MACAddress", &addr.to_string())
     }
 
+    pub(crate) fn raw_mac_address(self, addr: &str) -> Self {
+        self.add_str_field("MACAddress", addr)
+    }
+
     pub(crate) fn interface_enabled(self, v: bool) -> Self {
         self.apply_patch(json!({ "InterfaceEnabled": v }))
+    }
+
+    pub(crate) fn link_status(self, v: &str) -> Self {
+        self.add_str_field("LinkStatus", v)
     }
 
     pub(crate) fn description(self, v: &str) -> Self {

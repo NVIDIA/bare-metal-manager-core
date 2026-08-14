@@ -139,6 +139,7 @@ impl DpuMachine {
             DpuSettings {
                 nic_mode: config.dpus_in_nic_mode,
                 firmware_versions: firmware_versions.into(),
+                system_ethernet_interfaces: config.dpu_system_ethernet_interfaces.clone(),
                 ..Default::default()
             },
         );

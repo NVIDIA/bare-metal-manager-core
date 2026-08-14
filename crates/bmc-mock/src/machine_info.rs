@@ -119,6 +119,16 @@ pub struct DpuSettings {
     pub firmware_versions: DpuFirmwareVersions,
     #[serde(default = "default_true")]
     pub exposes_oob_eth: bool,
+    #[serde(default)]
+    pub system_ethernet_interfaces: Vec<DpuSystemEthernetInterface>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq)]
+pub struct DpuSystemEthernetInterface {
+    pub id: String,
+    pub mac_address: String,
+    pub interface_enabled: bool,
+    pub link_status: String,
 }
 
 fn default_true() -> bool {
@@ -136,6 +146,7 @@ impl Default for DpuSettings {
             nic_mode: false,
             firmware_versions: Default::default(),
             exposes_oob_eth: true,
+            system_ethernet_interfaces: Vec::new(),
         }
     }
 }
@@ -193,6 +204,7 @@ impl DpuMachineInfo {
                 erot: settings.firmware_versions.cec.clone().unwrap_or_default(),
                 dpu_nic: settings.firmware_versions.nic.clone().unwrap_or_default(),
             },
+            system_ethernet_interfaces: &settings.system_ethernet_interfaces,
         }
     }
 

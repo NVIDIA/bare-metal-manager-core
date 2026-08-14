@@ -21,7 +21,9 @@ use std::sync::Arc;
 use mac_address::MacAddress;
 use serde_json::json;
 
-use crate::{BootOptionKind, Callbacks, LogService, LogServices, hw, redfish};
+use crate::{
+    BootOptionKind, Callbacks, DpuSystemEthernetInterface, LogService, LogServices, hw, redfish,
+};
 
 pub(crate) struct Bluefield3<'a> {
     pub(crate) product_serial_number: Cow<'a, str>,
@@ -30,6 +32,7 @@ pub(crate) struct Bluefield3<'a> {
     pub(crate) oob_mac_address: Option<MacAddress>,
     pub(crate) mode: Mode,
     pub(crate) firmware_versions: FirmwareVersions,
+    pub(crate) system_ethernet_interfaces: &'a [DpuSystemEthernetInterface],
 }
 
 pub(crate) enum Mode {
@@ -122,7 +125,7 @@ impl Bluefield3<'_> {
         } else {
             "DpuMode"
         };
-        let eth_interfaces =
+        let mut eth_interfaces =
             self.oob_mac_address
                 .iter()
                 .map(|mac| {
@@ -133,7 +136,17 @@ impl Bluefield3<'_> {
                     .description("1G DPU OOB network interface")
                     .build()
                 })
-                .collect();
+                .collect::<Vec<_>>();
+        eth_interfaces.extend(self.system_ethernet_interfaces.iter().map(|interface| {
+            redfish::ethernet_interface::builder(&redfish::ethernet_interface::system_resource(
+                "Bluefield",
+                &interface.id,
+            ))
+            .raw_mac_address(&interface.mac_address)
+            .interface_enabled(interface.interface_enabled)
+            .link_status(&interface.link_status)
+            .build()
+        }));
         let boot_options = [
             boot_opt_builder("Boot0040", BootOptionKind::Disk)
                 .display_name("ubuntu0")

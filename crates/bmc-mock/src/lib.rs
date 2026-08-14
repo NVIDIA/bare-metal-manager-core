@@ -47,8 +47,8 @@ pub use carbide_axum_utils::injection;
 pub use combined_server::{CombinedServer, ListenerOrAddress};
 pub use hw::rack::{RackElevation, RackUnit};
 pub use machine_info::{
-    DpuFirmwareVersions, DpuMachineInfo, DpuSettings, HostFirmwareVersions, HostMachineInfo,
-    MachineInfo,
+    DpuFirmwareVersions, DpuMachineInfo, DpuSettings, DpuSystemEthernetInterface,
+    HostFirmwareVersions, HostMachineInfo, MachineInfo,
 };
 pub use mock_machine_router::{
     BmcCommand, MachineRouterOptions, SetSystemPowerError, SetSystemPowerResult, machine_router,

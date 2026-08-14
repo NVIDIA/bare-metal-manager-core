@@ -15,7 +15,7 @@
  * limitations under the License.
  */
 use bmc_explorer::nv_generate_exploration_report;
-use bmc_mock::{DpuSettings, test_support};
+use bmc_mock::{DpuSettings, DpuSystemEthernetInterface, test_support};
 use model::site_explorer::{BlueFieldOperatingMode, EndpointType};
 use tokio::test;
 
@@ -50,21 +50,24 @@ async fn explore_bluefield3_baseline() {
 
 #[test]
 async fn explore_bluefield3_ignores_invalid_system_interface_mac() {
-    let h = test_support::dell_poweredge_r750_bluefield3_bmc(DpuSettings::default()).await;
-    h.state.injection.put(vec![bmc_mock::injection::Rule {
-        id: "invalid_system_interface_mac".into(),
-        selector: bmc_mock::injection::Selector::Path {
-            method: Some("GET".into()),
-            glob: "/redfish/v1/Systems/Bluefield/EthernetInterfaces/oob_net0".into(),
-        },
-        action: bmc_mock::injection::Action::JsonMerge(serde_json::json!({
-            "Id": "eth0",
-            "InterfaceEnabled": true,
-            "LinkStatus": "LinkDown",
-            "MACAddress": "00:00:11:e7:fe:80:00:00:00:00:00:00:02:00:00:03:00:18:00:01",
-        })),
-        remaining: None,
-    }]);
+    let h = test_support::dell_poweredge_r750_bluefield3_bmc(DpuSettings {
+        system_ethernet_interfaces: vec![
+            DpuSystemEthernetInterface {
+                id: "eth0".into(),
+                mac_address: "00:00:11:e7:fe:80:00:00:00:00:00:00:02:00:00:03:00:18:00:01".into(),
+                interface_enabled: true,
+                link_status: "LinkDown".into(),
+            },
+            DpuSystemEthernetInterface {
+                id: "eth1".into(),
+                mac_address: "02:00:00:00:00:04".into(),
+                interface_enabled: false,
+                link_status: "NoLink".into(),
+            },
+        ],
+        ..Default::default()
+    })
+    .await;
 
     let report = nv_generate_exploration_report(h.service_root, &common::explorer_config())
         .await
@@ -80,8 +83,17 @@ async fn explore_bluefield3_ignores_invalid_system_interface_mac() {
         .iter()
         .find(|interface| interface.id.as_deref() == Some("oob_net0"))
         .expect("OOB interface must be preserved");
+    let eth1 = system
+        .ethernet_interfaces
+        .iter()
+        .find(|interface| interface.id.as_deref() == Some("eth1"))
+        .expect("interfaces must be independently configurable");
 
     assert_eq!(eth0.mac_address, None);
+    assert_eq!(eth0.interface_enabled, Some(true));
+    assert_eq!(eth0.link_status.as_deref(), Some("LinkDown"));
+    assert_eq!(eth1.interface_enabled, Some(false));
+    assert_eq!(eth1.link_status.as_deref(), Some("NoLink"));
     assert!(oob.mac_address.is_some(), "valid OOB MAC must be preserved");
     assert!(system.base_mac.is_some(), "DPU base MAC must be preserved");
     assert!(

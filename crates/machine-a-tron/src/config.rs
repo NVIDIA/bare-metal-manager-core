@@ -22,7 +22,8 @@ use std::time::Duration;
 
 use bmc_mock::mac_address_pool::MacAddressPool;
 use bmc_mock::{
-    DpuMachineInfo, DpuSettings, HardwareType, HostFirmwareVersions, RackInfo, RackType,
+    DpuMachineInfo, DpuSettings, DpuSystemEthernetInterface, HardwareType, HostFirmwareVersions,
+    RackInfo, RackType,
 };
 use carbide_uuid::machine::MachineId;
 use carbide_uuid::rack::{RackId, RackProfileId};
@@ -129,6 +130,9 @@ pub struct MachineConfig {
     #[serde(default)]
     pub dpu_firmware_versions: Option<DpuFirmwareVersions>,
 
+    #[serde(default)]
+    pub dpu_system_ethernet_interfaces: Vec<DpuSystemEthernetInterface>,
+
     /// Initial host BMC / UEFI firmware versions to report in FirmwareInventory.
     /// carbide will detect that these are older than the desired versions and
     /// trigger an upgrade.  After the simulated power-cycle bmc-mock applies
@@ -187,6 +191,8 @@ pub struct WiwynnGb200RackConfig {
     #[serde(default)]
     pub dpu_firmware_versions: Option<DpuFirmwareVersions>,
     #[serde(default)]
+    pub dpu_system_ethernet_interfaces: Vec<DpuSystemEthernetInterface>,
+    #[serde(default)]
     pub dpu_agent_version: Option<String>,
 }
 
@@ -216,6 +222,7 @@ impl WiwynnGb200RackConfig {
             network_virtualization_type: self.network_virtualization_type.clone(),
             dpus_in_nic_mode: self.dpus_in_nic_mode,
             dpu_firmware_versions: self.dpu_firmware_versions.clone(),
+            dpu_system_ethernet_interfaces: self.dpu_system_ethernet_interfaces.clone(),
             host_firmware_versions: None,
             dpu_agent_version: self.dpu_agent_version.clone(),
         }
@@ -261,6 +268,8 @@ pub struct LenovoGb300RackConfig {
     #[serde(default)]
     pub dpu_firmware_versions: Option<DpuFirmwareVersions>,
     #[serde(default)]
+    pub dpu_system_ethernet_interfaces: Vec<DpuSystemEthernetInterface>,
+    #[serde(default)]
     pub dpu_agent_version: Option<String>,
 }
 
@@ -290,6 +299,7 @@ impl LenovoGb300RackConfig {
             network_virtualization_type: self.network_virtualization_type.clone(),
             dpus_in_nic_mode: self.dpus_in_nic_mode,
             dpu_firmware_versions: self.dpu_firmware_versions.clone(),
+            dpu_system_ethernet_interfaces: self.dpu_system_ethernet_interfaces.clone(),
             host_firmware_versions: None,
             dpu_agent_version: self.dpu_agent_version.clone(),
         }
@@ -951,6 +961,10 @@ run_interval_working = "100ms"
 run_interval_idle = "1s"
 network_status_run_interval = "5s"
 scout_run_interval = "5s"
+dpu_system_ethernet_interfaces = [
+  { id = "eth0", mac_address = "00:00:11:e7:fe:80:00:00:00:00:00:00:02:00:00:03:00:18:00:01", interface_enabled = true, link_status = "LinkDown" },
+  { id = "eth1", mac_address = "02:00:00:00:00:04", interface_enabled = false, link_status = "NoLink" },
+]
     "#,
         )
         .expect("Could not parse config")
@@ -970,6 +984,7 @@ scout_run_interval = "5s"
             network_virtualization_type: machine.network_virtualization_type.clone(),
             dpus_in_nic_mode: machine.dpus_in_nic_mode,
             dpu_firmware_versions: machine.dpu_firmware_versions.clone(),
+            dpu_system_ethernet_interfaces: machine.dpu_system_ethernet_interfaces.clone(),
             dpu_agent_version: machine.dpu_agent_version.clone(),
         }
     }
@@ -988,6 +1003,7 @@ scout_run_interval = "5s"
             network_virtualization_type: machine.network_virtualization_type.clone(),
             dpus_in_nic_mode: machine.dpus_in_nic_mode,
             dpu_firmware_versions: machine.dpu_firmware_versions.clone(),
+            dpu_system_ethernet_interfaces: machine.dpu_system_ethernet_interfaces.clone(),
             dpu_agent_version: machine.dpu_agent_version.clone(),
         }
     }
@@ -1029,6 +1045,24 @@ scout_run_interval = "5s"
     #[test]
     fn test_serialize_config() {
         let cfg = rack_config();
+        assert_eq!(
+            cfg.machines["config"].dpu_system_ethernet_interfaces,
+            vec![
+                DpuSystemEthernetInterface {
+                    id: "eth0".into(),
+                    mac_address: "00:00:11:e7:fe:80:00:00:00:00:00:00:02:00:00:03:00:18:00:01"
+                        .into(),
+                    interface_enabled: true,
+                    link_status: "LinkDown".into(),
+                },
+                DpuSystemEthernetInterface {
+                    id: "eth1".into(),
+                    mac_address: "02:00:00:00:00:04".into(),
+                    interface_enabled: false,
+                    link_status: "NoLink".into(),
+                },
+            ]
+        );
         cfg.validate().expect("Could not validate config");
         let serialized = toml::to_string(&cfg).expect("Could not serialize config");
         let round_tripped = toml::from_str::<MachineATronConfig>(&serialized)
