@@ -580,7 +580,7 @@ func vpcPrefixUsageFromInterfaces(ctx context.Context, cidr string, ifcCountWith
 
 		_, acquireErr := ipamer.AcquireSpecificChildPrefix(ctx, validatedCidr, prefix)
 		if acquireErr != nil {
-			continue
+			return nil, fmt.Errorf("failed to acquire Interface prefix %q from %q: %w", prefix, validatedCidr, acquireErr)
 		}
 
 		acquiredPrefixes[prefix] = struct{}{}

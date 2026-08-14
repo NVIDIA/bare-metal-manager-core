@@ -7,6 +7,8 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"net/netip"
+	"strings"
 	"time"
 
 	"github.com/NVIDIA/infra-controller/rest-api/db/pkg/db"
@@ -150,6 +152,77 @@ type EthernetInterfaceKey struct {
 	HasRequestedIPAddress   bool
 	InlineRoutingProfile    string
 	HasInlineRoutingProfile bool
+}
+
+// EthernetKey returns the comparable fields that identify an Interface during update reconciliation.
+func (ifc Interface) EthernetKey() EthernetInterfaceKey {
+	vpcID := uuid.Nil
+	if ifc.VpcID != nil {
+		vpcID = *ifc.VpcID
+	} else if ifc.VpcPrefix != nil {
+		vpcID = ifc.VpcPrefix.VpcID
+	} else if ifc.Subnet != nil {
+		vpcID = ifc.Subnet.VpcID
+	}
+
+	key := EthernetInterfaceKey{
+		SubnetID:                uuid.Nil,
+		VpcPrefixID:             uuid.Nil,
+		VpcID:                   vpcID,
+		VpcIPFamilyMode:         "",
+		HasVpcIPFamilyMode:      false,
+		VirtualFunctionID:       0,
+		HasVirtualFunctionID:    false,
+		Device:                  "",
+		HasDevice:               false,
+		DeviceInstance:          0,
+		HasDeviceInstance:       false,
+		IsPhysical:              ifc.IsPhysical,
+		RequestedIPAddress:      "",
+		HasRequestedIPAddress:   false,
+		InlineRoutingProfile:    "",
+		HasInlineRoutingProfile: false,
+	}
+
+	if ifc.SubnetID != nil {
+		key.SubnetID = *ifc.SubnetID
+	}
+
+	if ifc.VpcPrefixID != nil {
+		key.VpcPrefixID = *ifc.VpcPrefixID
+	}
+
+	if ifc.VpcIPFamilyMode != nil {
+		key.VpcIPFamilyMode = *ifc.VpcIPFamilyMode
+		key.HasVpcIPFamilyMode = true
+	}
+
+	if ifc.VirtualFunctionID != nil {
+		key.VirtualFunctionID = *ifc.VirtualFunctionID
+		key.HasVirtualFunctionID = true
+	}
+
+	if ifc.Device != nil {
+		key.Device = *ifc.Device
+		key.HasDevice = true
+	}
+
+	if ifc.DeviceInstance != nil {
+		key.DeviceInstance = *ifc.DeviceInstance
+		key.HasDeviceInstance = true
+	}
+
+	if ifc.RequestedIpAddress != nil {
+		key.RequestedIPAddress = *ifc.RequestedIpAddress
+		key.HasRequestedIPAddress = true
+	}
+
+	if ifc.InlineRoutingProfile != nil {
+		key.InlineRoutingProfile = strings.Join(ifc.InlineRoutingProfile.AllowedAnycastPrefixes, "\x00")
+		key.HasInlineRoutingProfile = true
+	}
+
+	return key
 }
 
 // InterfaceCreateInput input parameters for Create method
@@ -538,6 +611,13 @@ func (ifcd InterfaceSQLDAO) Update(ctx context.Context, tx *db.Tx, input Interfa
 		}
 	}
 	if input.IpAddresses != nil {
+		for _, ipAddress := range input.IpAddresses {
+			_, parseErr := netip.ParseAddr(ipAddress)
+			if parseErr != nil {
+				return nil, fmt.Errorf("invalid Interface IP address %q: %w", ipAddress, parseErr)
+			}
+		}
+
 		is.IPAddresses = input.IpAddresses
 		updatedFields = append(updatedFields, "ip_addresses")
 

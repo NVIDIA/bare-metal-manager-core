@@ -1344,7 +1344,7 @@ func TestInterfaceSQLDAO_Update(t *testing.T) {
 
 	vfID := 10
 	macAddress := "21-41-A7-A6-40-76"
-	ipAddresses := []string{"192.0.2.3", "2001:db8:abcd:0018"}
+	ipAddresses := []string{"192.0.2.3", "2001:db8:abcd::18"}
 	routingProfile := &InterfaceInlineRoutingProfile{
 		AllowedAnycastPrefixes: []string{"192.0.2.0/24", "2001:db8::/64"},
 	}
@@ -1485,6 +1485,18 @@ func TestInterfaceSQLDAO_Update(t *testing.T) {
 			id:          uuid.New(),
 			paramStatus: cutil.GetPtr(InterfaceStatusProvisioning),
 			expectError: true,
+		},
+		{
+			desc:             "failed with malformed IP address",
+			id:               ifc1.ID,
+			paramIPAddresses: []string{"not-an-ip"},
+			expectError:      true,
+		},
+		{
+			desc:             "failed with CIDR-form IP address",
+			id:               ifc1.ID,
+			paramIPAddresses: []string{"192.0.2.1/31"},
+			expectError:      true,
 		},
 	}
 	for _, tc := range tests {

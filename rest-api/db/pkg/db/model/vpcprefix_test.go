@@ -985,7 +985,7 @@ func TestVpcPrefixUsageFromInterfaces(t *testing.T) {
 			name:                              "non-empty invalid or inapplicable addresses are not pending reservations",
 			cidr:                              "10.0.0.0/28",
 			ifcCountWithoutIPs:                0,
-			ips:                               []string{"invalid", "2001:db8::1", "192.0.2.1"},
+			ips:                               []string{"invalid", "10.0.0.1/31", "2001:db8::1", "192.0.2.1"},
 			expectedAvailableIPs:              16,
 			expectedAcquiredIPs:               0,
 			expectedAvailableSmallestPrefixes: 4,
@@ -1006,6 +1006,14 @@ func TestVpcPrefixUsageFromInterfaces(t *testing.T) {
 			assert.Equal(t, testCase.expectedAcquiredPrefixes, usage.AcquiredPrefixes)
 		})
 	}
+
+	t.Run("unexpected child prefix acquisition error is propagated", func(t *testing.T) {
+		t.Parallel()
+
+		usage, err := vpcPrefixUsageFromInterfaces(context.Background(), "10.0.0.1/32", 0, []string{"10.0.0.1"})
+		require.Error(t, err)
+		assert.Nil(t, usage)
+	})
 }
 
 //nolint:funlen,paralleltest // Cases and fixtures stay inline; model tests share a PostgreSQL schema.
@@ -1027,6 +1035,7 @@ func TestVpcPrefixSQLDAO_GetPrefixUsage(t *testing.T) {
 	}{
 		{
 			name: "stale deleting rows do not exhaust prefix issue 4908",
+			// Deleting rows still hold capacity; duplicate /31 addresses are de-duplicated by prefix.
 			interfaces: []interfaceFixture{
 				{status: InterfaceStatusReady, ipAddress: cutil.GetPtr("10.0.0.1")},
 				{status: InterfaceStatusReady, ipAddress: cutil.GetPtr("10.0.0.3")},
@@ -1044,6 +1053,19 @@ func TestVpcPrefixSQLDAO_GetPrefixUsage(t *testing.T) {
 			expectedAcquiredPrefixes:   6,
 			expectedAvailableSmallest:  0,
 			expectedFreeInterfaceSlots: 2,
+			expectedAdmissionAllowed:   true,
+		},
+		{
+			name: "deleting interface with a distinct IP still consumes capacity",
+			interfaces: []interfaceFixture{
+				{status: InterfaceStatusReady, ipAddress: cutil.GetPtr("10.0.0.1")},
+				{status: InterfaceStatusDeleting, ipAddress: cutil.GetPtr("10.0.0.3")},
+			},
+			expectedAvailableIPs:       16,
+			expectedAcquiredIPs:        4,
+			expectedAcquiredPrefixes:   2,
+			expectedAvailableSmallest:  3,
+			expectedFreeInterfaceSlots: 6,
 			expectedAdmissionAllowed:   true,
 		},
 		{

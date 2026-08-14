@@ -3488,76 +3488,6 @@ func (uih UpdateInstanceHandler) Handle(c echo.Context) error {
 			}
 			newdbIfcs = []cdbm.Interface{}
 		case len(apiRequest.Interfaces) > 0:
-			keyForInterface := func(ifc cdbm.Interface) cdbm.EthernetInterfaceKey {
-				vpcID := uuid.Nil
-				if ifc.VpcID != nil {
-					vpcID = *ifc.VpcID
-				} else if ifc.VpcPrefix != nil {
-					vpcID = ifc.VpcPrefix.VpcID
-				} else if ifc.Subnet != nil {
-					vpcID = ifc.Subnet.VpcID
-				}
-
-				key := cdbm.EthernetInterfaceKey{
-					SubnetID:                uuid.Nil,
-					VpcPrefixID:             uuid.Nil,
-					VpcID:                   vpcID,
-					VpcIPFamilyMode:         "",
-					HasVpcIPFamilyMode:      false,
-					VirtualFunctionID:       0,
-					HasVirtualFunctionID:    false,
-					Device:                  "",
-					HasDevice:               false,
-					DeviceInstance:          0,
-					HasDeviceInstance:       false,
-					IsPhysical:              ifc.IsPhysical,
-					RequestedIPAddress:      "",
-					HasRequestedIPAddress:   false,
-					InlineRoutingProfile:    "",
-					HasInlineRoutingProfile: false,
-				}
-
-				if ifc.SubnetID != nil {
-					key.SubnetID = *ifc.SubnetID
-				}
-
-				if ifc.VpcPrefixID != nil {
-					key.VpcPrefixID = *ifc.VpcPrefixID
-				}
-
-				if ifc.VpcIPFamilyMode != nil {
-					key.VpcIPFamilyMode = *ifc.VpcIPFamilyMode
-					key.HasVpcIPFamilyMode = true
-				}
-
-				if ifc.VirtualFunctionID != nil {
-					key.VirtualFunctionID = *ifc.VirtualFunctionID
-					key.HasVirtualFunctionID = true
-				}
-
-				if ifc.Device != nil {
-					key.Device = *ifc.Device
-					key.HasDevice = true
-				}
-
-				if ifc.DeviceInstance != nil {
-					key.DeviceInstance = *ifc.DeviceInstance
-					key.HasDeviceInstance = true
-				}
-
-				if ifc.RequestedIpAddress != nil {
-					key.RequestedIPAddress = *ifc.RequestedIpAddress
-					key.HasRequestedIPAddress = true
-				}
-
-				if ifc.InlineRoutingProfile != nil {
-					key.InlineRoutingProfile = strings.Join(ifc.InlineRoutingProfile.AllowedAnycastPrefixes, "\x00")
-					key.HasInlineRoutingProfile = true
-				}
-
-				return key
-			}
-
 			existingIfcMap := make(map[cdbm.EthernetInterfaceKey][]cdbm.Interface)
 
 			for existingIfcIndex := range existingIfcs {
@@ -3565,13 +3495,13 @@ func (uih UpdateInstanceHandler) Handle(c echo.Context) error {
 					continue
 				}
 
-				key := keyForInterface(existingIfcs[existingIfcIndex])
+				key := existingIfcs[existingIfcIndex].EthernetKey()
 				existingIfcMap[key] = append(existingIfcMap[key], existingIfcs[existingIfcIndex])
 			}
 
 			reusedIfcIDs := make(map[uuid.UUID]struct{})
 			for _, dbifc := range dbInterfaces {
-				key := keyForInterface(dbifc)
+				key := dbifc.EthernetKey()
 
 				existingIfcsForKey := existingIfcMap[key]
 				if len(existingIfcsForKey) > 0 {
@@ -3627,20 +3557,11 @@ func (uih UpdateInstanceHandler) Handle(c echo.Context) error {
 				if existingIfcs[existingIfcIndex].Status != cdbm.InterfaceStatusDeleting {
 					existingIfcs[existingIfcIndex].Status = cdbm.InterfaceStatusDeleting
 
+					// Deleting rows retain their associations and allocated addresses until Site cleanup releases them.
 					_, err := ifcDAO.Update(ctx, tx, cdbm.InterfaceUpdateInput{
-						InterfaceID:          existingIfcs[existingIfcIndex].ID,
-						InstanceID:           nil,
-						SubnetID:             nil,
-						VpcPrefixID:          nil,
-						Device:               nil,
-						DeviceInstance:       nil,
-						VirtualFunctionID:    nil,
-						RequestedIpAddress:   nil,
-						InlineRoutingProfile: nil,
-						MacAddress:           nil,
-						IpAddresses:          nil,
-						Status:               cutil.GetPtr(cdbm.InterfaceStatusDeleting),
-					})
+						InterfaceID: existingIfcs[existingIfcIndex].ID,
+						Status:      cutil.GetPtr(cdbm.InterfaceStatusDeleting),
+					}) //nolint:exhaustruct // Only the lifecycle status changes; associations remain held.
 					if err != nil {
 						logger.Error().Err(err).Msg("failed to update Interface record in DB")
 
