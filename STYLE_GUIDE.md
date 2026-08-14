@@ -610,6 +610,13 @@ its own fencing, idempotency, or a reconciliation protocol proven safe when exec
 also does not replace atomic SQL, version predicates, or constraints for writers that do not participate in the same
 work key.
 
+### State-controller recovery boundaries
+
+Transactions cannot make external side effects atomic. State-controller work that crosses database and external system
+boundaries must persist a recovery point and avoid holding database transactions open across external I/O. Make repeated
+or overlapping external work safe through fencing, idempotency, or reconciliation. For controller-model background, see
+[Reliable State Handling](docs/architecture/state_handling.md).
+
 ## Database wrappers
 
 - Type definitions: The code in `crates/api-db` is intended to wrap database calls, whereas `crates/api-model` should

@@ -26,6 +26,7 @@ import (
 	"github.com/NVIDIA/infra-controller/rest-api/api/pkg/api/model"
 	sc "github.com/NVIDIA/infra-controller/rest-api/api/pkg/client/site"
 	authz "github.com/NVIDIA/infra-controller/rest-api/auth/pkg/authorization"
+	"github.com/NVIDIA/infra-controller/rest-api/common/pkg/grpcproxy"
 	"github.com/NVIDIA/infra-controller/rest-api/common/pkg/otelecho"
 	cdbm "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/model"
 	flowv1 "github.com/NVIDIA/infra-controller/rest-api/proto/flow/gen/v1"
@@ -152,12 +153,9 @@ func TestGetTaskHandler_Handle(t *testing.T) {
 			mockWorkflowRun := &tmocks.WorkflowRun{}
 			mockWorkflowRun.On("GetID").Return("test-workflow-id")
 			if tt.mockTasks != nil {
-				mockWorkflowRun.Mock.On("Get", mock.Anything, mock.Anything).Run(func(args mock.Arguments) {
-					resp := args.Get(1).(*flowv1.GetTasksByIDsResponse)
-					resp.Tasks = tt.mockTasks
-				}).Return(nil)
+				testFlowProxyReply(t, mockWorkflowRun, &flowv1.GetTasksByIDsResponse{Tasks: tt.mockTasks})
 			}
-			mockTemporalClient.Mock.On("ExecuteWorkflow", mock.Anything, mock.Anything, "GetTask", mock.Anything).Return(mockWorkflowRun, nil)
+			testFlowProxyDispatch(t, mockTemporalClient, mockWorkflowRun, flowv1.Flow_GetTasksByIDs_FullMethodName, nil)
 			scp.IDClientMap[site.ID.String()] = mockTemporalClient
 
 			q := url.Values{}
@@ -224,17 +222,17 @@ func ExecuteGetTasksHandlerTestCases(t *testing.T, pathFmt string, handle func(e
 			mockWorkflowRun := &tmocks.WorkflowRun{}
 			mockWorkflowRun.On("GetID").Return("test-workflow-id")
 			if tt.mockTasks != nil {
-				mockWorkflowRun.Mock.On("Get", mock.Anything, mock.Anything).Run(func(args mock.Arguments) {
-					resp := args.Get(1).(*flowv1.ListTasksResponse)
-					resp.Tasks = tt.mockTasks
-					resp.Total = int32(len(tt.mockTasks))
-				}).Return(nil)
+				testFlowProxyReply(t, mockWorkflowRun, &flowv1.ListTasksResponse{
+					Tasks: tt.mockTasks,
+					Total: int32(len(tt.mockTasks)),
+				})
 			}
-			mockTemporalClient.Mock.On("ExecuteWorkflow", mock.Anything, mock.Anything, "GetTasks", mock.Anything).
+			mockTemporalClient.Mock.On("ExecuteWorkflow", mock.Anything, mock.Anything, grpcproxy.Flow.WorkflowName, mock.Anything).
 				Run(func(args mock.Arguments) {
+					assert.Equal(t, flowv1.Flow_ListTasks_FullMethodName, args.Get(3).(grpcproxy.Request).FullMethod)
 					if tt.assertFlowReq != nil {
-						req, ok := args.Get(3).(*flowv1.ListTasksRequest)
-						require.True(t, ok, "workflow arg must be *flowv1.ListTasksRequest")
+						req := &flowv1.ListTasksRequest{}
+						testFlowProxyRequest(t, args, req)
 						tt.assertFlowReq(t, req, tt.pathParam)
 					}
 				}).
@@ -544,12 +542,9 @@ func TestCancelTaskHandler_Handle(t *testing.T) {
 			mockWorkflowRun := &tmocks.WorkflowRun{}
 			mockWorkflowRun.On("GetID").Return("test-workflow-id")
 			if tt.mockTask != nil {
-				mockWorkflowRun.Mock.On("Get", mock.Anything, mock.Anything).Run(func(args mock.Arguments) {
-					resp := args.Get(1).(*flowv1.CancelTaskResponse)
-					resp.Task = tt.mockTask
-				}).Return(nil)
+				testFlowProxyReply(t, mockWorkflowRun, &flowv1.CancelTaskResponse{Task: tt.mockTask})
 			}
-			mockTemporalClient.Mock.On("ExecuteWorkflow", mock.Anything, mock.Anything, "CancelTask", mock.Anything).Return(mockWorkflowRun, tt.mockExecErr)
+			testFlowProxyDispatch(t, mockTemporalClient, mockWorkflowRun, flowv1.Flow_CancelTask_FullMethodName, tt.mockExecErr)
 			scp.IDClientMap[site.ID.String()] = mockTemporalClient
 
 			path := fmt.Sprintf("/v2/org/%s/nico/rack/task/%s/cancel", tt.reqOrg, tt.taskUUID)
