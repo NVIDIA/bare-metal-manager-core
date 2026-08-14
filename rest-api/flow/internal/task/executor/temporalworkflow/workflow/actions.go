@@ -647,10 +647,23 @@ func executeDecommissionControlAction(actx actionExecutionContext) error {
 	).Get(ctx, nil)
 }
 
+// maxConsecutiveStatusFailures is the number of consecutive GetDecommissionStatus
+// errors that will cause the wait loop to abort rather than spin until the
+// 4-hour deadline. A permanent error (e.g. Core unreachable) is caught within
+// a few poll intervals instead of hours later.
+const maxConsecutiveStatusFailures = 5
+
 // executeWaitDecommissionedAction polls GetDecommissionStatus until all
 // components reach the "Decommissioned" terminal state. States that begin
-// with "Decommissioning/" are in-progress; any other non-terminal state is
-// treated as an error. Uses config.Timeout and config.PollInterval.
+// with "Decommissioning/" are in-progress; any other state is a hard failure.
+//
+// A component absent from Core's response (state "") is treated as already
+// decommissioned: Core removes the resource record as the final step, so an
+// absent ID is the expected terminal condition rather than an error.
+//
+// Consecutive GetDecommissionStatus failures are counted; after
+// maxConsecutiveStatusFailures the loop aborts rather than spinning until the
+// deadline. Uses config.Timeout and config.PollInterval.
 func executeWaitDecommissionedAction(actx actionExecutionContext) error {
 	ctx := actx.workflowContext
 	target := actx.target
@@ -671,6 +684,7 @@ func executeWaitDecommissionedAction(actx actionExecutionContext) error {
 		Msg("Waiting for decommission to complete")
 
 	deadline := workflow.Now(ctx).Add(timeout)
+	consecutiveFailures := 0
 
 	for {
 		if workflow.Now(ctx).After(deadline) {
@@ -683,33 +697,58 @@ func executeWaitDecommissionedAction(actx actionExecutionContext) error {
 			return fmt.Errorf("workflow sleep interrupted: %w", err)
 		}
 
+		// Use a short fire-once policy so a hung status call fails quickly
+		// and the poll loop's consecutive-failure budget controls retries.
+		statusCtx := workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
+			StartToCloseTimeout: 30 * time.Second,
+			RetryPolicy: &temporal.RetryPolicy{
+				MaximumAttempts: 1,
+			},
+		})
 		var result activity.GetDecommissionStatusResult
 		err := workflow.ExecuteActivity(
-			ctx, activity.NameGetDecommissionStatus, target,
-		).Get(ctx, &result)
+			statusCtx, activity.NameGetDecommissionStatus, target,
+		).Get(statusCtx, &result)
 		if err != nil {
-			log.Warn().Err(err).Msg("Failed to get decommission status, will retry")
+			consecutiveFailures++
+			log.Warn().
+				Err(err).
+				Int("consecutive_failures", consecutiveFailures).
+				Int("limit", maxConsecutiveStatusFailures).
+				Msg("Failed to get decommission status")
+			if consecutiveFailures >= maxConsecutiveStatusFailures {
+				return fmt.Errorf(
+					"aborting: GetDecommissionStatus failed %d times consecutively: %w",
+					consecutiveFailures, err,
+				)
+			}
 			continue
 		}
+		consecutiveFailures = 0
 
 		allDecommissioned := true
 		for componentID, state := range result.States {
-			if state == "Decommissioned" {
-				continue
-			}
-			if strings.HasPrefix(state, "Decommissioning/") {
+			switch {
+			case state == "Decommissioned":
+				// Terminal success.
+			case state == "":
+				// Core has no record of this component — it was removed as part
+				// of the decommission terminal step, which counts as success.
+				log.Debug().
+					Str("component_id", componentID).
+					Msg("Component absent from Core; treating as decommissioned")
+			case strings.HasPrefix(state, "Decommissioning/"):
 				allDecommissioned = false
 				log.Debug().
 					Str("component_id", componentID).
 					Str("state", state).
 					Msg("Component still decommissioning")
-				continue
+			default:
+				return fmt.Errorf(
+					"decommission failed for component %s: reached unexpected state %q",
+					componentID, state,
+				)
 			}
-			// Any other state is unexpected/terminal-error
-			return fmt.Errorf(
-				"decommission failed for component %s: unexpected state %q",
-				componentID, state,
-			)
 		}
 
 		if allDecommissioned {

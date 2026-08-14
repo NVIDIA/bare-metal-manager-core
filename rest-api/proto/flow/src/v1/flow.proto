@@ -44,6 +44,7 @@ service Flow {
     rpc UpgradeFirmware(UpgradeFirmwareRequest) returns (SubmitTaskResponse);
     rpc BringUpRack(BringUpRackRequest) returns (SubmitTaskResponse);
     rpc IngestRack(IngestRackRequest) returns (SubmitTaskResponse);
+    rpc DecommissionRack(DecommissionRackRequest) returns (SubmitTaskResponse);
     rpc PowerOnRack(PowerOnRackRequest) returns (SubmitTaskResponse);
     rpc PowerOffRack(PowerOffRackRequest) returns (SubmitTaskResponse);
     rpc PowerResetRack(PowerResetRackRequest) returns (SubmitTaskResponse);
@@ -711,6 +712,13 @@ message BringUpRackRequest {
     // tenant impact has been acknowledged out-of-band; the bypass is
     // recorded in the server log.
     bool override_readiness_check = 4;
+}
+
+message DecommissionRackRequest {
+    OperationTargetSpec target_spec = 1;  // Target racks for decommissioning
+    string description = 2;              // optional task description
+    optional QueueOptions queue_options = 3; // optional: queuing behaviour on conflict
+    optional UUID rule_id = 4;           // optional: override rule resolution with a specific rule
 }
 
 message IngestRackRequest {
