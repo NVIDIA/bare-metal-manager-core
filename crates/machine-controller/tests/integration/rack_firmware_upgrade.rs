@@ -17,8 +17,21 @@
 
 use carbide_test_harness::prelude::*;
 use carbide_test_harness::test_support::fixture_config::FixtureDefault as _;
-use model::machine::{HostReprovisionState, ManagedHostState};
+use carbide_uuid::instance::InstanceId;
+use config_version::ConfigVersion;
+use model::instance::NewInstance;
+use model::instance::config::InstanceConfig;
+use model::instance::config::extension_services::InstanceExtensionServicesConfig;
+use model::instance::config::infiniband::InstanceInfinibandConfig;
+use model::instance::config::network::InstanceNetworkConfig;
+use model::instance::config::nvlink::InstanceNvLinkConfig;
+use model::instance::config::spx::InstanceSpxConfig;
+use model::instance::config::tenant_config::TenantConfig;
+use model::machine::{HostReprovisionState, InstanceState, ManagedHostState};
+use model::metadata::Metadata;
+use model::os::{InlineIpxe, OperatingSystem, OperatingSystemVariant};
 use model::rack::{RackFirmwareUpgradeState, RackFirmwareUpgradeStatus};
+use model::tenant::TenantOrganizationId;
 use model::test_support::ManagedHostConfig;
 
 use crate::env::Env;
@@ -36,9 +49,66 @@ async fn managed_host(env: &TestHarness) -> TestManagedHost {
         .0
 }
 
+async fn create_instance(env: &TestHarness, host: &TestManagedHost) -> InstanceId {
+    let instance_id = InstanceId::new();
+    let config = InstanceConfig {
+        tenant: TenantConfig {
+            tenant_organization_id: TenantOrganizationId::try_from("rack-test".to_string())
+                .unwrap(),
+            tenant_keyset_ids: Vec::new(),
+            hostname: None,
+        },
+        os: OperatingSystem {
+            user_data: None,
+            variant: OperatingSystemVariant::Ipxe(InlineIpxe {
+                ipxe_script: "#!ipxe".to_string(),
+            }),
+            phone_home_enabled: false,
+            run_provisioning_instructions_on_every_boot: false,
+        },
+        network: InstanceNetworkConfig::default(),
+        infiniband: InstanceInfinibandConfig::default(),
+        network_security_group_id: None,
+        extension_services: InstanceExtensionServicesConfig::default(),
+        nvlink: InstanceNvLinkConfig::default(),
+        spxconfig: InstanceSpxConfig::default(),
+    };
+    let version = ConfigVersion::initial();
+    let mut txn = env.db_txn().await;
+    let instances = db::instance::batch_persist(
+        vec![NewInstance {
+            instance_id,
+            machine_id: host.host.id,
+            instance_type_id: None,
+            config: &config,
+            metadata: Metadata::default(),
+            config_version: version,
+            network_config_version: version,
+            ib_config_version: version,
+            extension_services_config_version: version,
+            nvlink_config_version: version,
+            spx_config_version: version,
+        }],
+        txn.as_mut(),
+    )
+    .await
+    .unwrap();
+    assert_eq!(instances[0].id, instance_id);
+    txn.commit().await.unwrap();
+    instance_id
+}
+
+fn waiting_for_rack_upgrade() -> ManagedHostState {
+    ManagedHostState::HostReprovision {
+        reprovision_state: HostReprovisionState::WaitingForRackFirmwareUpgrade,
+        retry_count: 0,
+    }
+}
+
 async fn prepare_rack_upgrade(
     env: &TestHarness,
     host: &TestManagedHost,
+    managed_state: ManagedHostState,
     status: RackFirmwareUpgradeState,
     started_at_offset: chrono::Duration,
     ended_at_offset: Option<chrono::Duration>,
@@ -57,15 +127,7 @@ async fn prepare_rack_upgrade(
         .as_ref()
         .expect("rack reprovision request should exist")
         .requested_at;
-    machine
-        .update_state(
-            &mut txn,
-            ManagedHostState::HostReprovision {
-                reprovision_state: HostReprovisionState::WaitingForRackFirmwareUpgrade,
-                retry_count: 0,
-            },
-        )
-        .await;
+    machine.update_state(&mut txn, managed_state).await;
     db::machine::update_rack_fw_details(
         txn.as_mut(),
         &host.host.id,
@@ -88,6 +150,7 @@ async fn waits_for_terminal_status(pool: PgPool) {
     prepare_rack_upgrade(
         &env.test_harness,
         &host,
+        waiting_for_rack_upgrade(),
         RackFirmwareUpgradeState::InProgress,
         chrono::Duration::zero(),
         None,
@@ -114,6 +177,33 @@ async fn advances_on_completion(pool: PgPool) {
     prepare_rack_upgrade(
         &env.test_harness,
         &host,
+        waiting_for_rack_upgrade(),
+        RackFirmwareUpgradeState::Completed,
+        chrono::Duration::zero(),
+        Some(chrono::Duration::zero()),
+    )
+    .await;
+
+    env.run_single_iteration().await;
+
+    let machine = host.host.machine().await;
+    assert!(matches!(machine.current_state(), ManagedHostState::Ready));
+    assert!(machine.host_reprovision_requested.is_none());
+}
+
+#[sqlx_test]
+async fn assigned_host_returns_to_assigned_ready_on_completion(pool: PgPool) {
+    let mut env = Env::builder(pool).build().await;
+    let host = managed_host(&env.test_harness).await;
+    let instance_id = create_instance(&env.test_harness, &host).await;
+    prepare_rack_upgrade(
+        &env.test_harness,
+        &host,
+        ManagedHostState::Assigned {
+            instance_state: InstanceState::HostReprovision {
+                reprovision_state: HostReprovisionState::WaitingForRackFirmwareUpgrade,
+            },
+        },
         RackFirmwareUpgradeState::Completed,
         chrono::Duration::zero(),
         Some(chrono::Duration::zero()),
@@ -125,12 +215,18 @@ async fn advances_on_completion(pool: PgPool) {
     let machine = host.host.machine().await;
     assert!(matches!(
         machine.current_state(),
-        ManagedHostState::HostReprovision {
-            reprovision_state: HostReprovisionState::CheckingFirmwareRepeatV2 { .. },
-            ..
+        ManagedHostState::Assigned {
+            instance_state: InstanceState::Ready,
         }
     ));
     assert!(machine.host_reprovision_requested.is_none());
+
+    let mut txn = env.test_harness.db_txn().await;
+    let attached_instance = db::instance::find_id_by_machine_id(txn.as_mut(), &host.host.id)
+        .await
+        .unwrap();
+    assert_eq!(attached_instance, Some(instance_id));
+    txn.rollback().await.unwrap();
 }
 
 #[sqlx_test]
@@ -140,6 +236,7 @@ async fn accepts_completion_when_only_ended_at_is_current(pool: PgPool) {
     prepare_rack_upgrade(
         &env.test_harness,
         &host,
+        waiting_for_rack_upgrade(),
         RackFirmwareUpgradeState::Completed,
         -chrono::Duration::seconds(1),
         Some(chrono::Duration::seconds(1)),
@@ -149,12 +246,6 @@ async fn accepts_completion_when_only_ended_at_is_current(pool: PgPool) {
     env.run_single_iteration().await;
 
     let machine = host.host.machine().await;
-    assert!(matches!(
-        machine.current_state(),
-        ManagedHostState::HostReprovision {
-            reprovision_state: HostReprovisionState::CheckingFirmwareRepeatV2 { .. },
-            ..
-        }
-    ));
+    assert!(matches!(machine.current_state(), ManagedHostState::Ready));
     assert!(machine.host_reprovision_requested.is_none());
 }
