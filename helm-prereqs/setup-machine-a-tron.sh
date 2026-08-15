@@ -183,7 +183,11 @@ UEFI_HOST_PASSWORD="${UEFI_HOST_PASSWORD:-bluefield}"
 REGISTRY_PULL_USERNAME="${REGISTRY_PULL_USERNAME:-\$oauthtoken}"
 PULL_SECRET_NAME="${PULL_SECRET_NAME:-machine-a-tron-pull}"
 RELEASE="nico-machine-a-tron"
-BMC_MOCK_SVC="nico-machine-a-tron-bmc-mock"
+# The chart names the Service <release>-<podKey>-bmc-mock; the single-pod proxy
+# config keys its pod "default". The old value omitted the pod key and resolved
+# to nothing -- exploration failed with ConnectionRefused on every endpoint
+# (this bit three separate runs before being fixed at the source here).
+BMC_MOCK_SVC="${BMC_MOCK_SVC:-nico-machine-a-tron-default-bmc-mock}"
 BMC_MOCK_PORT="1266"
 # site-explorer runs in nico-system, so it CANNOT resolve the bare service name
 # (which resolves against its own namespace). bmc_proxy MUST use the
