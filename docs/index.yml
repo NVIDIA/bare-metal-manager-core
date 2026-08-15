@@ -62,6 +62,9 @@ navigation:
               slug: dpf-setup
             - page: Day 0 Machine Identity
               path: getting-started/installation-options/day0-machine-identity.md
+            - page: Upgrading NICo
+              path: manuals/upgrade.md
+              slug: upgrading-nico
           slug: installation-options
 
     - section: Architecture
