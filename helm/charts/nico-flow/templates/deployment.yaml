@@ -217,7 +217,7 @@ spec:
             secretName: {{ .Values.temporalCert.secretName }}
         - name: data-encryption-key
           secret:
-            secretName: flow-data-encryption-key
+            secretName: {{ default "flow-data-encryption-key" (trim .Values.dataEncryption.key.existingSecret) | quote }}
             items:
               - key: flow-data-encryption-key
                 path: encryption-key

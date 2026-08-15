@@ -168,15 +168,19 @@ temporal:
   certPath: /var/run/secrets/temporal-client-certs
 
 ## Encryption key used to keep sensitive Flow data out of plaintext database
-## records and Temporal payload history. When value is empty (the default), the
-## chart reuses the existing flow-data-encryption-key
-## Secret. If the Secret does not exist, the chart generates a key, including
-## when upgrading a release installed before this setting was introduced. An
-## explicit value takes precedence. Helm retains the Secret when the release is
-## uninstalled. Changing the value is not a supported rotation mechanism:
-## data encrypted with the previous key becomes unreadable.
+## records and Temporal payload history. By default, the chart reuses the
+## existing flow-data-encryption-key Secret or generates a key from 32 random
+## bytes if the Secret does not exist. Helm retains a chart-managed Secret when
+## the release is uninstalled. GitOps deployments that render charts without
+## cluster access must provision a Secret separately and set existingSecret to
+## its name so each render is deterministic. The Secret must contain a
+## flow-data-encryption-key entry whose value is a base64 encoding of exactly 32
+## random bytes. value accepts the same format and is mutually exclusive with
+## existingSecret. A configured value must match a chart-managed Secret that
+## already exists. Key rotation is not supported.
 dataEncryption:
   key:
+    existingSecret: ""
     value: ""
 
 ## Vault for PSM/NSM dynamic secrets.
