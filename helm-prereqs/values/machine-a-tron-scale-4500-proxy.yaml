@@ -74,6 +74,11 @@ resources:
     cpu: "8"
     memory: 16Gi
 pods:
+  # The chart's own values.yaml ships a mat-0 pod; null it or this file's
+  # default pod makes the render multi-pod, which the chart rejects without
+  # mat-k8s-controller. (Regression guard: this line was lost once in a
+  # cherry-pick and broke every proxy-mode install.)
+  mat-0: null
   default:
     machines:
       rack-machines: null
