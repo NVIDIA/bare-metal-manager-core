@@ -15,12 +15,12 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// Factory constructs empty rule and binding stores that share one persistence
-// boundary.
-type Factory func() (eventrule.RuleStore, eventrule.BindingStore)
+// RuleBindingFactory constructs empty rule and binding stores that share one
+// persistence boundary.
+type RuleBindingFactory func() (eventrule.RuleStore, eventrule.BindingStore)
 
-// RunContract executes the shared rule and binding store contract.
-func RunContract(t *testing.T, factory Factory) {
+// RunRuleBindingContract executes the shared rule and binding store contract.
+func RunRuleBindingContract(t *testing.T, factory RuleBindingFactory) {
 	t.Helper()
 	t.Run("rule lifecycle", func(t *testing.T) {
 		testRuleLifecycle(t, factory)
@@ -36,7 +36,7 @@ func RunContract(t *testing.T, factory Factory) {
 	})
 }
 
-func testRuleLifecycle(t *testing.T, factory Factory) {
+func testRuleLifecycle(t *testing.T, factory RuleBindingFactory) {
 	t.Helper()
 	ctx := context.Background()
 	rules, _ := factory()
@@ -132,7 +132,7 @@ func testRuleLifecycle(t *testing.T, factory Factory) {
 	}
 }
 
-func testBindingInvariants(t *testing.T, factory Factory) {
+func testBindingInvariants(t *testing.T, factory RuleBindingFactory) {
 	t.Helper()
 	ctx := context.Background()
 	rules, bindings := factory()
@@ -166,6 +166,10 @@ func testBindingInvariants(t *testing.T, factory Factory) {
 	secondSite := newBinding(second, eventrule.Scope{Type: eventrule.ScopeTypeSite})
 	require.NoError(t, bindings.Bind(ctx, secondSite))
 	require.ErrorContains(t, bindings.Bind(ctx, newBinding(
+		first,
+		eventrule.Scope{Type: eventrule.ScopeTypeSite},
+	)), "already has a binding for scope")
+	require.ErrorContains(t, bindings.Bind(ctx, newBinding(
 		second,
 		eventrule.Scope{Type: eventrule.ScopeTypeSite},
 	)), "already has a binding for scope")
@@ -192,7 +196,7 @@ func testBindingInvariants(t *testing.T, factory Factory) {
 	assert.Nil(t, found)
 }
 
-func testConcurrentBindingConflict(t *testing.T, factory Factory) {
+func testConcurrentBindingConflict(t *testing.T, factory RuleBindingFactory) {
 	t.Helper()
 	ctx := context.Background()
 	rules, bindings := factory()
@@ -220,7 +224,7 @@ func testConcurrentBindingConflict(t *testing.T, factory Factory) {
 	assert.Equal(t, 1, successes)
 }
 
-func testDeleteCascadesBindings(t *testing.T, factory Factory) {
+func testDeleteCascadesBindings(t *testing.T, factory RuleBindingFactory) {
 	t.Helper()
 	ctx := context.Background()
 	rules, bindings := factory()

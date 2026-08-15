@@ -140,6 +140,7 @@ tonic-prost-build = { workspace = true }
 carbide-instrument = { path = "../instrument", features = ["test-support"] }
 carbide-test-support = { path = "../test-support" }
 ctor = { workspace = true }
+rcgen = { workspace = true }
 prost = { workspace = true }
 rustls-pki-types = { workspace = true }
 

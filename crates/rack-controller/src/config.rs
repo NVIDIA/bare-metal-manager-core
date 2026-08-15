@@ -48,6 +48,7 @@ pub struct RackConfig {
 /// run_interval = "60s"
 /// ```
 #[derive(Default, Clone, Debug, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
 pub struct RackValidationConfig {
     /// Enables rack validation testing.
     #[serde(default)]
@@ -69,6 +70,7 @@ impl RackValidationConfig {
 
 /// Rack Manager Service (RMS) configuration for API connectivity and mTLS.
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
 pub struct RmsConfig {
     /// URL of the RMS API for rack-level firmware upgrades and power sequencing.
     pub api_url: Option<String>,

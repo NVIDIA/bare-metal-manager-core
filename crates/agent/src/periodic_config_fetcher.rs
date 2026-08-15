@@ -276,7 +276,92 @@ async fn fetch(
 ) -> Result<rpc::ManagedHostNetworkConfigResponse, eyre::Report> {
     let mut client = create_forge_client(forge_api, client_config).await?;
 
-    get_periodic_dpu_config(&mut client, dpu_machine_id).await
+    let mut response = get_periodic_dpu_config(&mut client, dpu_machine_id).await?;
+    normalize_network_config_addresses(&mut response)?;
+    Ok(response)
+}
+
+/// Projects the family-neutral address list into the compatibility fields used by the agent.
+fn normalize_network_config_addresses(
+    response: &mut rpc::ManagedHostNetworkConfigResponse,
+) -> Result<(), eyre::Report> {
+    if let Some(interface) = &mut response.admin_interface {
+        normalize_interface_addresses(interface).wrap_err_with(|| {
+            format!(
+                "invalid admin interface address configuration for VLAN {}",
+                interface.vlan_id
+            )
+        })?;
+    }
+
+    for (index, interface) in response.tenant_interfaces.iter_mut().enumerate() {
+        normalize_interface_addresses(interface).wrap_err_with(|| {
+            format!(
+                "invalid tenant interface address configuration at index {index} for VLAN {}",
+                interface.vlan_id
+            )
+        })?;
+    }
+
+    Ok(())
+}
+
+/// Preserves a legacy payload, or makes a populated `addresses` list authoritative.
+#[allow(deprecated)]
+fn normalize_interface_addresses(
+    interface: &mut rpc::FlatInterfaceConfig,
+) -> Result<(), eyre::Report> {
+    if interface.addresses.is_empty() {
+        return Ok(());
+    }
+
+    let mut ipv4 = None;
+    let mut ipv6 = None;
+    for address in &interface.addresses {
+        let family = rpc::AddressFamily::try_from(address.address_family)
+            .wrap_err_with(|| format!("unknown address family value {}", address.address_family))?;
+        let slot = match family {
+            rpc::AddressFamily::V4 => &mut ipv4,
+            rpc::AddressFamily::V6 => &mut ipv6,
+            rpc::AddressFamily::Unspecified => {
+                return Err(eyre::eyre!("address family must be V4 or V6"));
+            }
+        };
+
+        if slot.replace(address.clone()).is_some() {
+            return Err(eyre::eyre!("duplicate {family:?} address configuration"));
+        }
+    }
+
+    let ipv4 = ipv4.ok_or_else(|| {
+        eyre::eyre!(
+            "IPv4 address configuration is required; IPv6-only agent support is tracked by https://github.com/NVIDIA/infra-controller/issues/2402"
+        )
+    })?;
+
+    interface.gateway.clone_from(&ipv4.gateway);
+    interface.ip.clone_from(&ipv4.ip);
+    interface
+        .interface_prefix
+        .clone_from(&ipv4.interface_prefix);
+    interface.prefix.clone_from(&ipv4.prefix);
+    interface.svi_ip.clone_from(&ipv4.svi_ip);
+    let prefixless_legacy_ipv6 = interface
+        .ipv6_interface_config
+        .clone()
+        .filter(|config| config.interface_prefix.is_empty());
+    interface.ipv6_interface_config = ipv6
+        .as_ref()
+        .map(|address| rpc::FlatInterfaceIpv6Config {
+            ip: address.ip.clone(),
+            interface_prefix: address.interface_prefix.clone(),
+            svi_ip: address.svi_ip.clone(),
+        })
+        // Core omits an incomplete legacy IPv6 entry from `addresses`. Preserve that sidecar
+        // until every persisted interface has an IPv6 interface prefix.
+        .or(prefixless_legacy_ipv6);
+
+    Ok(())
 }
 
 /// Picks the lowest address in each family across physical interfaces because HostInband status
@@ -442,6 +527,188 @@ mod tests {
     use carbide_test_support::scenarios;
 
     use super::*;
+
+    // Builds the deprecated compatibility shape used by older Core versions.
+    #[allow(deprecated)]
+    fn legacy_interface(addresses: Vec<rpc::InterfaceAddressConfig>) -> rpc::FlatInterfaceConfig {
+        rpc::FlatInterfaceConfig {
+            vlan_id: 100,
+            gateway: "198.51.100.1/24".to_string(),
+            ip: "198.51.100.10".to_string(),
+            interface_prefix: "198.51.100.10/32".to_string(),
+            prefix: "198.51.100.0/24".to_string(),
+            svi_ip: Some("198.51.100.2/24".to_string()),
+            ipv6_interface_config: Some(rpc::FlatInterfaceIpv6Config {
+                ip: "2001:db8:ffff::10".to_string(),
+                interface_prefix: "2001:db8:ffff::10/128".to_string(),
+                svi_ip: Some("2001:db8:ffff::2/64".to_string()),
+            }),
+            addresses,
+            ..Default::default()
+        }
+    }
+
+    fn ipv4_address() -> rpc::InterfaceAddressConfig {
+        rpc::InterfaceAddressConfig {
+            address_family: rpc::AddressFamily::V4.into(),
+            gateway: "192.0.2.1/24".to_string(),
+            ip: "192.0.2.10".to_string(),
+            interface_prefix: "192.0.2.10/32".to_string(),
+            prefix: "192.0.2.0/24".to_string(),
+            svi_ip: Some("192.0.2.2/24".to_string()),
+        }
+    }
+
+    fn ipv6_address() -> rpc::InterfaceAddressConfig {
+        rpc::InterfaceAddressConfig {
+            address_family: rpc::AddressFamily::V6.into(),
+            gateway: "2001:db8::/127".to_string(),
+            ip: "2001:db8::1".to_string(),
+            interface_prefix: "2001:db8::/127".to_string(),
+            prefix: "2001:db8::/64".to_string(),
+            svi_ip: Some("2001:db8::2/64".to_string()),
+        }
+    }
+
+    fn normalized_interface(
+        mut interface: rpc::FlatInterfaceConfig,
+    ) -> Result<rpc::FlatInterfaceConfig, ()> {
+        normalize_interface_addresses(&mut interface)
+            .map(|()| interface)
+            .map_err(drop)
+    }
+
+    // Describes the compatibility projection consumed by the current agent.
+    #[allow(deprecated)]
+    fn expected_ipv4_interface() -> rpc::FlatInterfaceConfig {
+        rpc::FlatInterfaceConfig {
+            vlan_id: 100,
+            gateway: "192.0.2.1/24".to_string(),
+            ip: "192.0.2.10".to_string(),
+            interface_prefix: "192.0.2.10/32".to_string(),
+            prefix: "192.0.2.0/24".to_string(),
+            svi_ip: Some("192.0.2.2/24".to_string()),
+            ipv6_interface_config: None,
+            addresses: vec![ipv4_address()],
+            ..Default::default()
+        }
+    }
+
+    // Exercises authoritative clearing of the deprecated optional SVI field.
+    #[test]
+    #[allow(deprecated)]
+    fn family_neutral_addresses_replace_or_fall_back_to_legacy_fields() {
+        let legacy = legacy_interface(vec![]);
+        let mut dual_stack = expected_ipv4_interface();
+        dual_stack.ipv6_interface_config = Some(rpc::FlatInterfaceIpv6Config {
+            ip: "2001:db8::1".to_string(),
+            interface_prefix: "2001:db8::/127".to_string(),
+            svi_ip: Some("2001:db8::2/64".to_string()),
+        });
+        dual_stack.addresses = vec![ipv6_address(), ipv4_address()];
+
+        let mut ipv4_without_svi = ipv4_address();
+        ipv4_without_svi.svi_ip = None;
+        let mut expected_ipv4_without_svi = expected_ipv4_interface();
+        expected_ipv4_without_svi.svi_ip = None;
+        expected_ipv4_without_svi.addresses = vec![ipv4_without_svi.clone()];
+
+        let mut ipv6_without_svi = ipv6_address();
+        ipv6_without_svi.svi_ip = None;
+        let mut dual_stack_without_ipv6_svi = expected_ipv4_interface();
+        dual_stack_without_ipv6_svi.ipv6_interface_config = Some(rpc::FlatInterfaceIpv6Config {
+            ip: "2001:db8::1".to_string(),
+            interface_prefix: "2001:db8::/127".to_string(),
+            svi_ip: None,
+        });
+        dual_stack_without_ipv6_svi.addresses = vec![ipv4_address(), ipv6_without_svi.clone()];
+
+        let prefixless_ipv6 = rpc::FlatInterfaceIpv6Config {
+            ip: "2001:db8::1".to_string(),
+            interface_prefix: String::new(),
+            svi_ip: Some("2001:db8::2/64".to_string()),
+        };
+        let mut legacy_with_prefixless_ipv6 = legacy_interface(vec![ipv4_address()]);
+        legacy_with_prefixless_ipv6.ipv6_interface_config = Some(prefixless_ipv6.clone());
+        let mut expected_with_prefixless_ipv6 = expected_ipv4_interface();
+        expected_with_prefixless_ipv6.ipv6_interface_config = Some(prefixless_ipv6);
+
+        scenarios!(run = normalized_interface;
+            "empty list falls back to legacy fields" {
+                legacy.clone() => Yields(legacy),
+            }
+            "IPv4 list overrides legacy fields and clears stale IPv6" {
+                legacy_interface(vec![ipv4_address()]) => Yields(expected_ipv4_interface()),
+            }
+            "reversed dual-stack list is selected by family without reordering" {
+                legacy_interface(vec![ipv6_address(), ipv4_address()]) => Yields(dual_stack),
+            }
+            "absent V4 SVI clears the legacy value" {
+                legacy_interface(vec![ipv4_without_svi]) => Yields(expected_ipv4_without_svi),
+            }
+            "absent V6 SVI clears the legacy sidecar value" {
+                legacy_interface(vec![ipv4_address(), ipv6_without_svi]) => Yields(dual_stack_without_ipv6_svi),
+            }
+            "prefixless legacy V6 sidecar survives its omitted address entry" {
+                legacy_with_prefixless_ipv6 => Yields(expected_with_prefixless_ipv6),
+            }
+        );
+    }
+
+    #[test]
+    fn family_neutral_addresses_reject_invalid_family_sets() {
+        let mut unspecified = ipv4_address();
+        unspecified.address_family = rpc::AddressFamily::Unspecified.into();
+        let mut unknown = ipv4_address();
+        unknown.address_family = 99;
+
+        scenarios!(run = normalized_interface;
+            "V4 is required during the compatibility phase" {
+                legacy_interface(vec![ipv6_address()]) => Fails,
+            }
+            "explicit family is required" {
+                legacy_interface(vec![unspecified]) => Fails,
+            }
+            "unknown family is rejected" {
+                legacy_interface(vec![unknown]) => Fails,
+            }
+            "duplicate V4 is rejected" {
+                legacy_interface(vec![ipv4_address(), ipv4_address()]) => Fails,
+            }
+            "duplicate V6 is rejected" {
+                legacy_interface(vec![ipv4_address(), ipv6_address(), ipv6_address()]) => Fails,
+            }
+        );
+    }
+
+    #[test]
+    fn network_config_normalizes_admin_and_every_tenant_interface() {
+        let mut response = rpc::ManagedHostNetworkConfigResponse {
+            admin_interface: Some(legacy_interface(vec![ipv4_address()])),
+            tenant_interfaces: vec![
+                legacy_interface(vec![ipv4_address()]),
+                legacy_interface(vec![ipv6_address(), ipv4_address()]),
+            ],
+            ..Default::default()
+        };
+
+        normalize_network_config_addresses(&mut response).unwrap();
+
+        assert_eq!(response.admin_interface.unwrap(), expected_ipv4_interface());
+        assert_eq!(response.tenant_interfaces[0], expected_ipv4_interface());
+        assert_eq!(
+            response.tenant_interfaces[1].addresses,
+            vec![ipv6_address(), ipv4_address()]
+        );
+        assert_eq!(
+            response.tenant_interfaces[1].ipv6_interface_config,
+            Some(rpc::FlatInterfaceIpv6Config {
+                ip: "2001:db8::1".to_string(),
+                interface_prefix: "2001:db8::/127".to_string(),
+                svi_ip: Some("2001:db8::2/64".to_string()),
+            })
+        );
+    }
 
     #[test]
     fn public_address_selection_is_family_specific_and_stable() {

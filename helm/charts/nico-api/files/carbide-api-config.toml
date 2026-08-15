@@ -7,15 +7,10 @@
 listen = "[::]:1079"
 metrics_endpoint = "[::]:1080"
 alt_metric_prefix = "nico_"
-profiler_endpoint = "[::]:1081"
 database_url = "postgres://replaced-by-env-var"
 asn = 4294967000
 initial_dpu_agent_upgrade_policy = "up_only"
-dpu_nic_firmware_intial_update_enabled = false
-dpu_nic_firmware_reprovision_update_enabled = true
-dpu_nic_firmware_update_version = { "BlueField SoC" = "24.42.1000", "BlueField-3 SmartNIC Main Card" = "32.42.1000" }
 max_concurrent_machine_updates = 10
-nvue_enabled = true
 dhcp_servers = []                                                                                                     # Added in per-site-configuration
 route_servers = []                                                                                                    # Required for FNN. Not yet used
 attestation_enabled = true
@@ -31,6 +26,10 @@ attestation_enabled = true
 anycast_site_prefixes = ["0.0.0.0/0"]
 
 [dpu_config]
+# DPU NIC firmware settings.
+dpu_nic_firmware_initial_update_enabled = false
+dpu_nic_firmware_reprovision_update_enabled = true
+dpu_nic_firmware_update_versions = ["24.47.2682", "32.47.2682"]
 # Number of VFs configured per DPU PF during BlueField provisioning.
 num_of_vfs = 16
 
@@ -40,6 +39,29 @@ hardware_health_reports = "MonitorOnly"
 [site_explorer]
 enabled = true
 create_machines = true
+
+[node_auth]
+# Node (Scout / DPU-agent) authentication to the API.
+# See docs/design/machine-identity/node-auth-jwt.md.
+# Bearer JWTs: off by default. When enabled, the API accepts short-lived
+# `Authorization: Bearer` tokens that nodes self-sign with their existing
+# mTLS client-certificate key (the cert rides in the token's x5c header and
+# is verified against the same root CA as the TLS listener).
+enabled = false
+# Machine mTLS client-certificate authentication: on by default. Disable only
+# after the fleet presents bearer tokens (requires enabled = true; the API
+# refuses to start with both mechanisms off). Service/admin-CLI certs are
+# unaffected.
+mtls_enabled = true
+# `aud` claim is always "nico-api".
+# Maximum accepted token lifetime in seconds (nodes mint 300 s tokens).
+#max_token_ttl_sec = 900
+# Whether DPF-deployed fmds is rendered in token mode. Unset follows `enabled`,
+# which is what you want unless you are staging a change: set it to false while
+# `enabled` is still true to move fmds back to client certificates first, then
+# turn `enabled` off once that roll has landed. true with enabled = false is
+# rejected at startup. See docs/design/machine-identity/node-auth-jwt.md.
+#fmds_use_node_tokens = false
 
 [firmware_global]
 autoupdate = true

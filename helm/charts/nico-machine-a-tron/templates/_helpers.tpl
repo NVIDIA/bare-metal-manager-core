@@ -50,12 +50,12 @@ app.kubernetes.io/component: machine-a-tron
 {{- end }}
 
 {{/*
-Count pods with machines defined.
+Count configured pods.
 */}}
 {{- define "nico-machine-a-tron.activePods" -}}
 {{- $activePods := 0 -}}
 {{- range $podName, $podConfig := .Values.pods -}}
-{{- if and $podConfig $podConfig.machines (gt (len $podConfig.machines) 0) -}}
+{{- if and $podConfig (or (gt (len ($podConfig.machines | default dict)) 0) (gt (len ($podConfig.racks | default dict)) 0)) -}}
 {{- $activePods = add $activePods 1 -}}
 {{- end -}}
 {{- end -}}

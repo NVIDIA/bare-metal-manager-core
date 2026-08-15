@@ -22,7 +22,8 @@ use std::time::{Duration, Instant};
 use bmc_mock::injection::InjectionStore;
 use bmc_mock::mac_address_pool::{MacAddressPool, PoolConfig as MacAddressPoolConfig};
 use bmc_mock::{
-    BmcCommand, HostMachineInfo, MachineInfo, SetSystemPowerResult, SystemPowerControl,
+    BmcCommand, HostFirmwareVersions, HostMachineInfo, MachineInfo, SetSystemPowerResult,
+    SystemPowerControl,
 };
 use carbide_utils::test_support::certs::create_random_self_signed_cert;
 use carbide_uuid::machine::MachineId;
@@ -38,9 +39,11 @@ use crate::config::{self, MachineATronContext, MachineConfig, PersistedDevice};
 use crate::dhcp_wrapper::{DhcpRelayResult, DhcpResponseInfo, DpuDhcpRelay};
 use crate::dpu_machine::{DpuMachine, DpuMachineHandle};
 use crate::machine_state_machine::{LiveState, MachineStateMachine, PersistedMachine};
-use crate::saturating_add_duration_to_instant;
-use crate::status::{BmcStatus, DeviceKind, DeviceStatus, DeviceStatusConfig, EndpointStatus};
+use crate::status::{
+    BmcStatus, DeviceKind, DeviceStatus, DeviceStatusConfig, EndpointStatus, InfinibandPortStatus,
+};
 use crate::tui::{HostDetails, UiUpdate};
+use crate::{Guid, InfinibandPortState, saturating_add_duration_to_instant};
 
 pub(super) struct HostMachine {
     mat_id: Uuid,
@@ -60,6 +63,60 @@ pub(super) struct HostMachine {
     paused: bool,
     api_refresh_interval: Interval,
     sleep_until: Instant,
+}
+
+/// Return true when `entry` carries firmware versions for hosts of the given
+/// hardware type.  Vendor and model are compared case-insensitively against
+/// the Redfish-reported values stored in the API's desired-firmware table.
+fn firmware_entry_matches_host_hw_type(
+    hw_type: bmc_mock::HardwareType,
+    entry: &rpc::forge::DesiredFirmwareVersionEntry,
+) -> bool {
+    use bmc_mock::HardwareType::*;
+    let vendor = entry.vendor.to_lowercase();
+    let model = entry.model.to_lowercase().replace('-', " ");
+    match hw_type {
+        DellPowerEdgeR750 => vendor.contains("dell") && model.contains("r750"),
+        DellPowerEdgeR760Bf4 => vendor.contains("dell") && model.contains("r760"),
+        WiwynnGB200Nvl => vendor.contains("wiwynn") && model.contains("gb200"),
+        LenovoGB300Nvl => vendor.contains("lenovo") && model.contains("gb300"),
+        NvidiaDgxGb300 => vendor.contains("nvidia") && model.contains("gb300"),
+        NvidiaDgxVr => vendor.contains("nvidia") && model.contains("dgx vr"),
+        SupermicroGb300Nvl => vendor.contains("supermicro") && model.contains("gb300"),
+        NvidiaDgxH100 => vendor.contains("nvidia") && model.contains("h100"),
+        HpeProliantDl380aGen11 => {
+            (vendor.contains("hpe") || vendor.contains("hewlett")) && model.contains("proliant")
+        }
+        // All other types (generic, power shelves, switches) do not simulate host
+        // firmware upgrades — no matching entry exists for them.
+        _ => false,
+    }
+}
+
+/// Find the desired host firmware for `hw_type` from the API-configured entries.
+/// Both bmc and uefi versions are read from the **same** entry so they always
+/// come from a consistent hardware-specific record.
+///
+/// Uses `hw_type.host_bmc_version_key()` to look up the BMC component key,
+/// since DGX H100 uses `"combinedbmcuefi"` rather than `"bmc"`.
+fn desired_host_firmware(
+    hw_type: bmc_mock::HardwareType,
+    app_context: &MachineATronContext,
+) -> Option<HostFirmwareVersions> {
+    let entry = app_context
+        .desired_firmware_versions
+        .iter()
+        .find(|e| firmware_entry_matches_host_hw_type(hw_type, e))?;
+    let bmc = entry
+        .component_versions
+        .get(hw_type.host_bmc_version_key())
+        .cloned();
+    let uefi = entry.component_versions.get("uefi").cloned();
+    if bmc.is_some() || uefi.is_some() {
+        Some(HostFirmwareVersions { bmc, uefi })
+    } else {
+        None
+    }
 }
 
 impl HostMachine {
@@ -94,7 +151,7 @@ impl HostMachine {
                 )
             })
             .collect::<Vec<_>>();
-        let host_info = HostMachineInfo {
+        let mut host_info = HostMachineInfo {
             hw_type: persisted_device.hw_type,
             bmc_mac_address: persisted_device.bmc_mac_address,
             serial: persisted_device.serial.clone(),
@@ -109,12 +166,23 @@ impl HostMachine {
             switch_serial_number: persisted_device.switch_serial_number.clone(),
             hw_mac_addr_pool,
             delta_psu_power: None,
+            initial_host_firmware: None,
+            desired_host_firmware: None,
         };
+        // Restore the active firmware inventory persisted from the previous run so
+        // the mock starts at the versions last observed by carbide rather than the
+        // operator-configured starting point.  Falls back to the config's initial
+        // versions when no persisted inventory is available (first run after upgrade).
+        host_info.initial_host_firmware = persisted_device
+            .active_host_firmware
+            .clone()
+            .or_else(|| config.host_firmware_versions.clone());
+        host_info.desired_host_firmware =
+            desired_host_firmware(persisted_device.hw_type, &app_context);
         let dpus = dpu_machines
             .into_iter()
             .map(|d| d.start(true))
             .collect::<Vec<_>>();
-
         let state_machine = MachineStateMachine::from_persisted(
             PersistedMachine::Host(persisted_device),
             MachineInfo::Host(host_info.clone()),
@@ -185,17 +253,18 @@ impl HostMachine {
                 )
             })
             .collect::<Vec<_>>();
-        let host_info = HostMachineInfo::new(
+        let mut host_info = HostMachineInfo::new(
             config.hw_type,
             dpu_machines.iter().map(|d| d.dpu_info().clone()).collect(),
             mac_pool,
             hw_pool_config,
         );
+        host_info.initial_host_firmware = config.host_firmware_versions.clone();
+        host_info.desired_host_firmware = desired_host_firmware(config.hw_type, &app_context);
         let dpus = dpu_machines
             .into_iter()
             .map(|d| d.start(true))
             .collect::<Vec<_>>();
-
         let state_machine = MachineStateMachine::new(
             MachineInfo::Host(host_info.clone()),
             config,
@@ -582,6 +651,8 @@ impl MachineHandle {
                 switch_serial_number: None,
                 hw_mac_addr_pool: MacAddressPoolConfig::new(mac, 24).unwrap(),
                 delta_psu_power: None,
+                initial_host_firmware: None,
+                desired_host_firmware: None,
             },
             dpus,
             machine_config_section: machine_config_section.to_string(),
@@ -666,8 +737,28 @@ impl MachineHandle {
         &self.0.machine_config_section
     }
 
+    pub(super) fn set_infiniband_port_state(
+        &self,
+        guid: Guid,
+        state: InfinibandPortState,
+    ) -> eyre::Result<()> {
+        let mut live_state = self.0.live_state.write().unwrap();
+        let port_state = live_state
+            .infiniband_port_states
+            .get_mut(&guid)
+            .ok_or_else(|| eyre::eyre!("infiniband port {guid} not found"))?;
+        *port_state = state;
+        Ok(())
+    }
+
     pub(super) fn status(&self, config: &DeviceStatusConfig) -> DeviceStatus {
         let live_state = self.0.live_state.read().unwrap();
+        let mut infiniband_ports = live_state
+            .infiniband_port_states
+            .iter()
+            .map(|(&guid, &state)| InfinibandPortStatus { guid, state })
+            .collect::<Vec<_>>();
+        infiniband_ports.sort_by_key(|port| port.guid);
         DeviceStatus {
             mat_id: self.0.mat_id.to_string(),
             device_kind: DeviceKind::Machine,
@@ -686,6 +777,7 @@ impl MachineHandle {
             power_state: live_state.power_state.to_string(),
             machine_ip: live_state.machine_ip.map(|ip| ip.to_string()),
             nvos_ip: None,
+            infiniband_ports: (!infiniband_ports.is_empty()).then_some(infiniband_ports),
             bmc: BmcStatus {
                 ip: live_state.bmc_ip.map(|ip| ip.to_string()),
                 redfish: EndpointStatus::redfish(config),
@@ -714,6 +806,7 @@ impl MachineHandle {
                 base: self.0.host_info.hw_mac_addr_pool.base(),
                 host_bits: self.0.host_info.hw_mac_addr_pool.host_bits(),
             }),
+            active_host_firmware: live_state.active_host_firmware.clone(),
         }
     }
 

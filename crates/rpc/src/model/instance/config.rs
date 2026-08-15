@@ -99,6 +99,7 @@ impl TryFrom<rpc::InstanceConfig> for InstanceConfig {
             extension_services,
             nvlink,
             spxconfig,
+            power_profile: config.power_profile,
         })
     }
 }
@@ -151,6 +152,48 @@ impl TryFrom<InstanceConfig> for rpc::InstanceConfig {
             dpu_extension_services: extension_services,
             nvlink,
             spxconfig,
+            power_profile: config.power_profile,
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use model::instance::config::tenant_config::TenantConfig;
+    use model::os::{OperatingSystem, OperatingSystemVariant};
+    use model::tenant::TenantOrganizationId;
+    use uuid::Uuid;
+
+    use super::*;
+
+    #[test]
+    fn power_profile_round_trips() {
+        let config = InstanceConfig {
+            tenant: TenantConfig {
+                tenant_organization_id: TenantOrganizationId::try_from("TenantA".to_string())
+                    .unwrap(),
+                tenant_keyset_ids: Vec::new(),
+                hostname: None,
+            },
+            os: OperatingSystem {
+                variant: OperatingSystemVariant::OsImage(Uuid::nil()),
+                user_data: None,
+                phone_home_enabled: false,
+                run_provisioning_instructions_on_every_boot: false,
+            },
+            network: InstanceNetworkConfig::default(),
+            infiniband: InstanceInfinibandConfig::default(),
+            network_security_group_id: None,
+            extension_services: InstanceExtensionServicesConfig::default(),
+            nvlink: InstanceNvLinkConfig::default(),
+            spxconfig: InstanceSpxConfig::default(),
+            power_profile: Some("balanced".to_string()),
+        };
+
+        let rpc_config = rpc::InstanceConfig::try_from(config).unwrap();
+        assert_eq!(rpc_config.power_profile.as_deref(), Some("balanced"));
+
+        let config = InstanceConfig::try_from(rpc_config).unwrap();
+        assert_eq!(config.power_profile.as_deref(), Some("balanced"));
     }
 }

@@ -329,7 +329,7 @@ impl Tui {
             if list_updated && let Tab::Machines { list_state, .. } = ui {
                 items.clear();
 
-                for (_uuid, machine) in data.machine_cache.iter() {
+                for machine in data.machine_cache.values() {
                     items.push(ListItem::new(machine.header()));
                 }
                 list_updated = false;
@@ -371,7 +371,7 @@ impl Tui {
                 ;
 
             vpc_items.clear();
-            for (_uuid, vpc) in data.vpc_cache.iter() {
+            for vpc in data.vpc_cache.values() {
                 vpc_items.push(ListItem::new(vpc.header()));
             }
             let vpc_list = List::new(vpc_items.clone())
@@ -380,7 +380,7 @@ impl Tui {
                 .highlight_style(Style::default().add_modifier(Modifier::REVERSED));
 
             subnet_items.clear();
-            for (_uuid, subnet) in data.subnet_cache.iter() {
+            for subnet in data.subnet_cache.values() {
                 subnet_items.push(ListItem::new(subnet.header()));
             }
             let subnet_list = List::new(subnet_items.clone())

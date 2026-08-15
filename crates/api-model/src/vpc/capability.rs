@@ -928,6 +928,7 @@ mod tests {
             segment_type,
             can_stretch,
             allocation_strategy: AllocationStrategy::Dynamic,
+            infer_slaac_eui64_addresses: false,
         }
     }
 

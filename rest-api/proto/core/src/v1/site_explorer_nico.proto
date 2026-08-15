@@ -269,6 +269,8 @@ enum ComputerSystemPowerState {
   PoweringOn = 3;
   Paused = 4;
   Unknown = 5;
+  Hibernating = 6;
+  Sleeping = 7;
 }
 
 // `Manager` definition. Matches redfish definition
@@ -304,6 +306,8 @@ message NetworkAdapter {
   optional string model = 3;
   optional string part_number = 4;
   optional string serial_number = 5;
+  // MAC addresses reported by Ports contained by this adapter.
+  repeated string port_mac_addresses = 6;
 }
 
 // `Service` definition. Matches redfish definition `UpdateService`

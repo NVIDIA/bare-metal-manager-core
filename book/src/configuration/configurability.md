@@ -692,7 +692,6 @@ These don't fit any sub-section but show up in production tuning:
 | `min_dpu_functioning_links` | unset | Minimum healthy DPU links for a machine to report `Healthy`. Unset = all links required. |
 | `set_http_boot_uri_for_vendors` | `[]` | Vendors for which the state controller pins UEFI HTTP Boot URL on the BMC via Redfish. Empty = rely on DHCP option 67. |
 | `x86_pxe_boot_url_override` / `arm_pxe_boot_url_override` | unset | Override the default `nico-pxe` boot URL by architecture. Useful when chaining through an external HTTP boot artifact server. |
-| `nvue_enabled` | `true` | When `false`, DPU agents write configs directly instead of going through NVUE. |
 | `anycast_site_prefixes` | `[]` | **Deprecated** — use `[fnn.routing_profiles.<name>].allowed_anycast_prefixes` instead. |
 | `internet_l3_vni` | `100001` | L3 VNI announced for FNN VPC internet connectivity. Combined with `datacenter_asn` for the route-target. |
 | `datacenter_asn` | `11414` | Datacenter ASN used by FNN for DC-specific route targets. |

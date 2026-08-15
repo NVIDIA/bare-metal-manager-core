@@ -41,6 +41,7 @@ use carbide_uuid::network::NetworkSegmentId;
 use carbide_uuid::nvlink::{NvLinkLogicalPartitionId, NvLinkPartitionId};
 use carbide_uuid::power_shelf::PowerShelfId;
 use carbide_uuid::rack::RackId;
+use carbide_uuid::site_prefix::SitePrefixId;
 use carbide_uuid::spx::SpxPartitionId;
 use carbide_uuid::switch::SwitchId;
 use carbide_uuid::vpc::{VpcId, VpcPrefixId};
@@ -202,7 +203,7 @@ impl ApiClient {
     /// with `InvalidArgument`). The cap is read from `RuntimeConfig`, the same
     /// source `version` already exposes. A zero/unset cap means the server
     /// enforces no limit, so we fall back to `page_size` -- `chunks(0)` panics.
-    async fn effective_chunk_size(&self, page_size: usize) -> CarbideCliResult<usize> {
+    pub(crate) async fn effective_chunk_size(&self, page_size: usize) -> CarbideCliResult<usize> {
         let cap = self
             .0
             .version(true)
@@ -672,6 +673,25 @@ impl ApiClient {
             .histories
             .remove(&vpc_prefix_id.to_string())
             .map(|h| h.records)
+            .unwrap_or_default())
+    }
+
+    /// Fetches controller state history for a single SitePrefix.
+    pub(crate) async fn get_site_prefix_state_history(
+        &self,
+        site_prefix_id: SitePrefixId,
+    ) -> CarbideCliResult<Vec<rpc::StateHistoryRecord>> {
+        let mut result = self
+            .0
+            .find_site_prefix_state_histories(rpc::SitePrefixStateHistoriesRequest {
+                site_prefix_ids: vec![site_prefix_id],
+            })
+            .await?;
+
+        Ok(result
+            .histories
+            .remove(&site_prefix_id.to_string())
+            .map(|history| history.records)
             .unwrap_or_default())
     }
 
@@ -1251,6 +1271,7 @@ impl ApiClient {
                 vni: None,
                 routing_profile_type: None,
                 routing_profile_overrides: None,
+                power_resource_group: None,
                 tenant_organization_id: "devenv_test_org".to_string(),
                 tenant_keyset_id: None,
                 network_virtualization_type: Some(
@@ -1299,6 +1320,7 @@ impl ApiClient {
             }],
             segment_type: NetworkSegmentType::Tenant as i32,
             id: Some(id),
+            infer_slaac_eui64_addresses: false,
         };
         Ok(self.0.create_network_segment(request).await?)
     }
@@ -1314,6 +1336,7 @@ impl ApiClient {
                 vni: None,
                 routing_profile_type: None,
                 routing_profile_overrides: None,
+                power_resource_group: None,
                 tenant_organization_id: "devenv_test_org".to_string(),
                 tenant_keyset_id: None,
                 network_virtualization_type: Some(VpcVirtualizationType::Flat.into()),
@@ -1381,6 +1404,7 @@ impl ApiClient {
             }],
             segment_type: NetworkSegmentType::HostInband as i32,
             id: Some(id),
+            infer_slaac_eui64_addresses: false,
         };
         Ok(self.0.create_network_segment(request).await?)
     }
@@ -1962,6 +1986,7 @@ impl ApiClient {
             dpu_extension_services: None,
             nvlink: None,
             spxconfig: allocate_instance.spxconfig.clone(),
+            power_profile: None,
         };
 
         let mut labels = vec![
@@ -2000,7 +2025,7 @@ impl ApiClient {
             allow_unhealthy_machine: false,
         };
 
-        tracing::trace!("{}", serde_json::to_string(&instance_request).unwrap());
+        tracing::trace!("{}", serde_json::to_string(&instance_request)?);
         Ok(instance_request)
     }
 
@@ -2262,6 +2287,7 @@ impl ApiClient {
             network_security_group_id,
             default_nvlink_logical_partition_id: None,
             routing_profile_overrides: None,
+            power_resource_group: None,
         };
         self.0
             .update_vpc(request)

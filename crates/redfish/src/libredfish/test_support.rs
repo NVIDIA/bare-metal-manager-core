@@ -58,6 +58,7 @@ struct RedfishSimState {
     machine_setup_bios_job_id: Option<String>,
     is_bios_setup: Option<bool>,
     default_lockdown: Option<EnabledDisabled>,
+    boss_controller_id: Option<String>,
     /// Override whether `lockdown_bmc` changes the observed state. `None`
     /// preserves the normal successful behavior; `Some(false)` models a BMC
     /// accepting the write without applying the requested policy.
@@ -77,6 +78,8 @@ struct RedfishSimState {
     /// change-on-first-use has been done -- the case the `AMI`/`LenovoGB300`
     /// rotation path handles by retrying `change_password_by_id("2")`.
     password_change_required: bool,
+    /// Optional account URI returned with [`RedfishError::PasswordChangeRequired`].
+    password_change_required_account_uri: Option<String>,
     /// When set, overrides the `Vendor` field returned by `get_service_root`.
     /// Tests set it to an unrecognized value to force `probe_bmc_vendor` down
     /// the Chassis `Manufacturer` fallback path.
@@ -123,6 +126,8 @@ struct RedfishSimState {
     system_id: Option<String>,
     /// Physical-port MAC addresses exposed through the adapter Ports collection.
     network_adapter_port_mac_addresses: Vec<MacAddress>,
+    /// Chassis linked from the simulated ComputerSystem.
+    system_chassis_ids: Vec<String>,
 }
 
 /// Build the `HTTPErrorCode` a real BMC would return for a rejected request, so
@@ -295,6 +300,10 @@ impl RedfishSim {
         self.state.lock().unwrap().job_state_sequence = VecDeque::from(states);
     }
 
+    pub fn set_boss_controller_id(&self, boss_controller_id: Option<String>) {
+        self.state.lock().unwrap().boss_controller_id = boss_controller_id;
+    }
+
     pub fn set_is_bios_setup(&self, ready: bool) {
         self.state.lock().unwrap().is_bios_setup = Some(ready);
     }
@@ -377,8 +386,14 @@ impl RedfishSim {
     /// [`RedfishError::PasswordChangeRequired`], modeling a factory BMC that
     /// blocks it until change-on-first-use. `change_password_by_id` still
     /// succeeds, so this exercises the `AMI`/`LenovoGB300` rotation fallback.
-    pub fn set_password_change_required(&self, required: bool) {
-        self.state.lock().unwrap().password_change_required = required;
+    pub fn set_password_change_required(&self, required: bool, account_uri: Option<&str>) {
+        let mut state = self.state.lock().unwrap();
+        state.password_change_required = required;
+        state.password_change_required_account_uri = if required {
+            account_uri.map(str::to_string)
+        } else {
+            None
+        };
     }
 
     /// Enable opt-in authentication enforcement (see [`RedfishSimState::enforce_auth`]):
@@ -449,6 +464,10 @@ impl RedfishSim {
             .lock()
             .unwrap()
             .network_adapter_port_mac_addresses = mac_addresses;
+    }
+
+    pub fn set_system_chassis_ids(&self, chassis_ids: Vec<String>) {
+        self.state.lock().unwrap().system_chassis_ids = chassis_ids;
     }
 
     /// Seed a credential into the sim's credential store -- the same store
@@ -874,7 +893,9 @@ impl Redfish for RedfishSimClient {
                 });
             }
             if state.password_change_required {
-                return Err(RedfishError::PasswordChangeRequired);
+                return Err(RedfishError::PasswordChangeRequired {
+                    account_uri: state.password_change_required_account_uri.clone(),
+                });
             }
             self.authorize(&mut state, "AccountService/Accounts")?;
             if !state.users.contains_key(&s_user) {
@@ -1203,8 +1224,24 @@ impl Redfish for RedfishSimClient {
                 .system_id
                 .clone()
                 .unwrap_or_else(|| "Bluefield".to_string());
+            let chassis = self
+                .state
+                .lock()
+                .unwrap()
+                .system_chassis_ids
+                .iter()
+                .map(|id| ODataId {
+                    odata_id: format!("/redfish/v1/Chassis/{id}"),
+                })
+                .collect::<Vec<_>>();
             Ok(libredfish::model::ComputerSystem {
                 id,
+                links: (!chassis.is_empty()).then_some(
+                    libredfish::model::system::ComputerSystemLinks {
+                        chassis: Some(chassis),
+                        managed_by: None,
+                    },
+                ),
                 boot_progress: Some(libredfish::model::BootProgress {
                     last_state: Some(libredfish::model::BootProgressTypes::OSRunning),
                     last_state_time: Some(Utc::now().to_string()),
@@ -1894,7 +1931,7 @@ impl Redfish for RedfishSimClient {
     fn get_boss_controller<'a>(
         &'a self,
     ) -> libredfish::RedfishFuture<'a, Result<Option<String>, RedfishError>> {
-        Box::pin(async move { Ok(None) })
+        Box::pin(async move { Ok(self.state.lock().unwrap().boss_controller_id.clone()) })
     }
 
     fn decommission_storage_controller<'a>(

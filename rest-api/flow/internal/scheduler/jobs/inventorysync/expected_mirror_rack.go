@@ -57,18 +57,20 @@ func pullExpectedRacks(
 // expected_racks view. The algorithm is, in order:
 //
 //  1. Index every Flow rack — including soft-deleted ones — by external_id
-//     (mirror-owned) and by (manufacturer, serial_number) (the natural key
-//     shared with Core). Including soft-deleted rows is what makes
-//     resurrection work: a rack that briefly disappeared from Core and came
-//     back keeps its UUID, and a re-insert would otherwise collide on the
-//     (manufacturer, serial_number) unique index that the soft-deleted row
+//     (the mirrored rack's identity) and by (manufacturer, serial_number).
+//     Only rows carrying both halves enter the second index; a half-populated
+//     pair identifies nothing and would let unrelated racks match each other.
+//     Including soft-deleted rows is what makes resurrection work: a rack that
+//     briefly disappeared from Core and came back keeps its UUID, and a
+//     re-insert would otherwise collide on the unique constraint the tombstone
 //     still occupies.
 //
-//  2. For each Core row, find the matching Flow row preferring external_id
-//     and falling back to (manufacturer, serial_number) to adopt rows that
-//     predate the mirror. New rows are inserted. A matched row that's
-//     currently soft-deleted is resurrected by clearing deleted_at;
-//     mirror-managed fields are updated alongside on real deltas.
+//  2. For each Core row, find the matching Flow row by external_id, falling
+//     back to (manufacturer, serial_number) to adopt rows the mirror has never
+//     reached. New rows are inserted. A matched row that's currently
+//     soft-deleted is resurrected by clearing deleted_at; mirror-managed
+//     fields are updated alongside on real deltas. A Core rack carrying no
+//     rack_id is skipped, there being no identity to store it under.
 //
 //  3. Live Flow rows whose external_id is set but no longer appear in Core
 //     are soft-deleted (including the case where Core returned zero racks —
@@ -94,13 +96,15 @@ func mirrorExpectedRacks(
 	}
 
 	flowByExtID := make(map[string]*model.Rack, len(flowRacks))
-	flowBySerial := make(map[string]*model.Rack, len(flowRacks))
+	flowByNaturalKey := make(map[string]*model.Rack, len(flowRacks))
 	for i := range flowRacks {
 		r := &flowRacks[i]
 		if r.ExternalID != nil && *r.ExternalID != "" {
 			flowByExtID[*r.ExternalID] = r
 		}
-		flowBySerial[rackNaturalKey(r.Manufacturer, r.SerialNumber)] = r
+		if key := naturalKeyOrEmpty(r.Manufacturer, r.SerialNumber); key != "" {
+			flowByNaturalKey[key] = r
+		}
 	}
 
 	type plan struct {
@@ -137,12 +141,31 @@ func mirrorExpectedRacks(
 	// touchedIDs: Flow rack UUIDs the match path adopted / updated this
 	// cycle; the delete phase skips them so a rack_id rename (update to the
 	// new external_id) isn't immediately undone by a soft-delete keyed off
-	// the stale in-memory external_id. plannedSerial: natural keys already
-	// queued, to drop Core duplicates before they collide on the
-	// (manufacturer, serial) unique index.
+	// the stale in-memory external_id. plannedNaturalKeys: complete natural
+	// keys already queued, to drop Core duplicates before they collide on the
+	// (manufacturer, serial) unique constraint.
 	seenExtID := make(map[string]struct{}, len(coreRacks))
 	touchedIDs := make(map[uuid.UUID]struct{}, len(coreRacks))
-	plannedSerial := make(map[string]struct{}, len(coreRacks))
+	plannedNaturalKeys := make(map[string]struct{}, len(coreRacks))
+	// plannedNames: names claimed by a write already queued this cycle, which
+	// liveByName cannot know about since it is built from the state at cycle
+	// start. See nameUnavailable.
+	plannedNames := make(map[string]struct{}, len(coreRacks))
+
+	// coreExtIDs / coreNaturalKeys: every rack_id and every complete chassis
+	// pair in this response. Both are precomputed because the guards reading
+	// them ask about Core rows the loops below have not reached yet, whereas
+	// seenExtID only fills in as it goes.
+	coreExtIDs := make(map[string]struct{}, len(coreRacks))
+	coreNaturalKeys := make(map[string]struct{}, len(coreRacks))
+	for _, cr := range coreRacks {
+		if cr.RackID != "" {
+			coreExtIDs[cr.RackID] = struct{}{}
+		}
+		if key := naturalKeyOrEmpty(cr.Labels[labelChassisManufacturer], cr.Labels[labelChassisSerialNumber]); key != "" {
+			coreNaturalKeys[key] = struct{}{}
+		}
+	}
 
 	for _, cr := range coreRacks {
 		// Record the rack_id as "still reported" before any skip below.
@@ -152,45 +175,38 @@ func mirrorExpectedRacks(
 
 		built, ok := buildRackFromCore(cr)
 		if !ok {
-			// Required fields (manufacturer / serial) missing in Core's labels;
-			// inserting would violate NOT NULL or the (manufacturer, serial)
-			// unique constraint. Skip the write, but the rack_id is already in
-			// seenExtID so we don't soft-delete an existing Flow rack over a
-			// transient label gap.
 			log.Warn().
-				Str("rack_id", cr.RackID).
+				Str("rack_profile_id", cr.RackProfileID).
 				Str("name", cr.Name).
-				Msg("Expected-inventory mirror: skipping Core expected rack missing chassis manufacturer or serial-number labels; existing Flow rack preserved")
+				Msg("Expected-inventory mirror: skipping Core expected rack with no rack_id; Flow has no identity to mirror it under")
 			result.skippedNoIDOrKey++
 			continue
 		}
 
-		if cr.RackID == "" {
-			log.Warn().
-				Str("rack_profile_id", cr.RackProfileID).
-				Str("name", cr.Name).
-				Str("manufacturer", built.Manufacturer).
-				Str("serial", built.SerialNumber).
-				Msg("Expected-inventory mirror: Core expected rack has no rack_id; rack will be mirrored but components can't reference it")
+		// Two racks can't both store the same chassis pair —
+		// rack_manufacturer_serial_idx would abort the cycle. Drop the labels
+		// off the loser rather than the rack: external_id is its identity and
+		// the labels are metadata. An incomplete pair is stored as NULL and
+		// collides with nothing, so it needs no such check.
+		naturalKey := naturalKeyOrEmpty(built.Manufacturer, built.SerialNumber)
+		if naturalKey != "" {
+			_, planned := plannedNaturalKeys[naturalKey]
+			if planned {
+				log.Warn().
+					Str("rack_id", cr.RackID).
+					Str("manufacturer", built.Manufacturer).
+					Str("serial", built.SerialNumber).
+					Msg("Expected-inventory mirror: Core reported this chassis on more than one expected rack; mirroring the later rack without chassis labels")
+				built.Manufacturer = ""
+				built.SerialNumber = ""
+				naturalKey = ""
+			} else {
+				plannedNaturalKeys[naturalKey] = struct{}{}
+			}
 		}
-
-		// Drop Core duplicates: planning the same chassis twice would queue a
-		// second INSERT that collides on the (manufacturer, serial) unique
-		// index and roll back the whole rack mirror.
-		natKey := rackNaturalKey(built.Manufacturer, built.SerialNumber)
-		if _, planned := plannedSerial[natKey]; planned {
-			log.Warn().
-				Str("rack_id", cr.RackID).
-				Str("manufacturer", built.Manufacturer).
-				Str("serial", built.SerialNumber).
-				Msg("Expected-inventory mirror: Core returned duplicate expected racks for the same chassis; skipping the later occurrence")
-			continue
-		}
-		plannedSerial[natKey] = struct{}{}
 
 		// Prefer external_id match (already adopted on a previous cycle).
-		// Empty rack_ids never hit flowByExtID by construction.
-		if existing, ok := flowByExtID[cr.RackID]; ok && cr.RackID != "" {
+		if existing, ok := flowByExtID[cr.RackID]; ok {
 			candidate := *existing
 			needUpdate := false
 			if candidate.DeletedAt != nil {
@@ -198,11 +214,12 @@ func mirrorExpectedRacks(
 				needUpdate = true
 				result.resurrected++
 			}
+			clearChassisLabelsIfSlotTaken(&built, flowByNaturalKey, existing.ID, cr.RackID)
 			if patched := rackUpdatedFromCore(&candidate, &built); patched != nil {
 				candidate = *patched
 				needUpdate = true
 			}
-			if needUpdate && nameTakenByOtherLiveRack(liveByName, candidate.Name, existing.ID) {
+			if needUpdate && nameUnavailable(liveByName, plannedNames, candidate.Name, existing.ID) {
 				log.Warn().
 					Str("rack_id", cr.RackID).
 					Str("name", candidate.Name).
@@ -213,27 +230,31 @@ func mirrorExpectedRacks(
 				continue
 			}
 			if needUpdate {
+				plannedNames[candidate.Name] = struct{}{}
 				p.toUpdate = append(p.toUpdate, candidate)
 			}
 			touchedIDs[existing.ID] = struct{}{}
 			continue
 		}
 
-		// Fall back to natural key (legacy ingestion-gRPC rows the mirror has
-		// never adopted; adopt by writing external_id alongside any deltas).
-		// A serial match that's also soft-deleted gets resurrected at the
-		// same time — see the function-level comment for why this matters.
-		if existing, ok := flowBySerial[natKey]; ok {
+		// Fall back to the natural key to adopt rows the mirror has never
+		// reached: those created before external_id existed, and those the
+		// CreateExpectedRack gRPC creates without one. Adoption writes
+		// external_id, so a row passes through here at most once. A match
+		// that's also soft-deleted gets resurrected at the same time — see
+		// the function-level comment for why this matters.
+		if existing, ok := flowByNaturalKey[naturalKey]; ok && adoptableByNaturalKey(existing, coreExtIDs) {
 			candidate := *existing
 			candidate.ExternalID = built.ExternalID
 			if candidate.DeletedAt != nil {
 				candidate.DeletedAt = nil
 				result.resurrected++
 			}
+			clearChassisLabelsIfSlotTaken(&built, flowByNaturalKey, existing.ID, cr.RackID)
 			if patched := rackUpdatedFromCore(&candidate, &built); patched != nil {
 				candidate = *patched
 			}
-			if nameTakenByOtherLiveRack(liveByName, candidate.Name, existing.ID) {
+			if nameUnavailable(liveByName, plannedNames, candidate.Name, existing.ID) {
 				log.Warn().
 					Str("rack_id", cr.RackID).
 					Str("name", candidate.Name).
@@ -243,13 +264,14 @@ func mirrorExpectedRacks(
 				touchedIDs[existing.ID] = struct{}{}
 				continue
 			}
+			plannedNames[candidate.Name] = struct{}{}
 			p.toUpdate = append(p.toUpdate, candidate)
 			touchedIDs[existing.ID] = struct{}{}
 			result.adopted++
 			continue
 		}
 
-		if nameTakenByOtherLiveRack(liveByName, built.Name, uuid.Nil) {
+		if nameUnavailable(liveByName, plannedNames, built.Name, uuid.Nil) {
 			log.Warn().
 				Str("rack_id", cr.RackID).
 				Str("name", built.Name).
@@ -259,6 +281,8 @@ func mirrorExpectedRacks(
 			continue
 		}
 
+		clearChassisLabelsIfSlotTaken(&built, flowByNaturalKey, uuid.Nil, cr.RackID)
+		plannedNames[built.Name] = struct{}{}
 		p.toInsert = append(p.toInsert, built)
 	}
 
@@ -290,8 +314,9 @@ func mirrorExpectedRacks(
 		// External_id is NULL — never adopted. Only legacy-warn if the
 		// (manufacturer, serial) doesn't appear in Core's set either,
 		// otherwise it'll be picked up by the adoption path above and a
-		// "future GC" warn would be misleading.
-		if _, adoptable := flowBySerialInCore(r, coreRacks); !adoptable {
+		// "future GC" warn would be misleading. A rack with an incomplete pair
+		// keys to the empty string, which is never in the set.
+		if _, adoptable := coreNaturalKeys[naturalKeyOrEmpty(r.Manufacturer, r.SerialNumber)]; !adoptable {
 			result.legacyExempt++
 			log.Warn().
 				Str("rack_name", r.Name).
@@ -327,7 +352,8 @@ func mirrorExpectedRacks(
 			p.toUpdate[i].UpdatedAt = now
 			if _, err := tx.NewUpdate().
 				Model(&p.toUpdate[i]).
-				Column("name", "description", "location", "external_id", "deleted_at", "updated_at").
+				Column("name", "manufacturer", "serial_number", "description",
+					"location", "external_id", "deleted_at", "updated_at").
 				WhereAllWithDeleted().
 				Where("id = ?", p.toUpdate[i].ID).
 				Exec(ctx); err != nil {
@@ -358,9 +384,24 @@ func mirrorExpectedRacks(
 	return result
 }
 
-// nameTakenByOtherLiveRack reports whether a live (non-deleted) Flow rack
-// other than selfID already holds name. selfID is uuid.Nil for an INSERT.
-func nameTakenByOtherLiveRack(liveByName map[string]uuid.UUID, name string, selfID uuid.UUID) bool {
+// nameUnavailable reports whether writing name would collide on rack_name_idx:
+// either a live Flow rack other than selfID already holds it, or a write queued
+// earlier in this cycle has claimed it. selfID is uuid.Nil for an INSERT.
+//
+// The index is a full unique constraint and every write lands in one
+// transaction, so a collision rolls back the entire cycle rather than the one
+// offending write. That is why queued claims count: two Core racks can resolve
+// to the same name, and the second must be skipped rather than left to abort
+// everything.
+func nameUnavailable(
+	liveByName map[string]uuid.UUID,
+	plannedNames map[string]struct{},
+	name string,
+	selfID uuid.UUID,
+) bool {
+	if _, planned := plannedNames[name]; planned {
+		return true
+	}
 	id, ok := liveByName[name]
 	return ok && id != selfID
 }
@@ -410,62 +451,34 @@ func getAllRacksIncludingDeleted(ctx context.Context, idb bun.IDB) ([]model.Rack
 	return racks, nil
 }
 
-// flowBySerialInCore is a small helper: it scans Core's racks and returns
-// whether any of them shares this Flow rack's (manufacturer, serial_number).
-// Used to suppress the "legacy not in Core" warn for rows that the adoption
-// path will pick up on this same cycle.
-func flowBySerialInCore(r *model.Rack, coreRacks []nicoapi.ExpectedRackDetail) (string, bool) {
-	want := rackNaturalKey(r.Manufacturer, r.SerialNumber)
-	for _, cr := range coreRacks {
-		manufacturer := cr.Labels[labelChassisManufacturer]
-		serial := cr.Labels[labelChassisSerialNumber]
-		if manufacturer == "" || serial == "" {
-			continue
-		}
-		if rackNaturalKey(manufacturer, serial) == want {
-			return cr.RackID, true
-		}
-	}
-	return "", false
-}
-
 // buildRackFromCore translates one Core ExpectedRackDetail into the Flow Rack
-// shape the mirror will insert. Returns false if the Core row is missing
-// fields that Flow's rack table requires (manufacturer / serial_number are
-// NOT NULL and form a unique key).
+// shape the mirror will insert. Returns false when Core supplied no rack_id:
+// external_id is the mirrored rack's identity, so without one the row could
+// not be matched again on any later cycle. Core's expected_racks keys on
+// rack_id, so this is a Core-side data fault rather than an expected input.
+//
+// The chassis labels are copied through as-is, empty included. They are
+// descriptive metadata here, not identity, and the caller vets them against
+// rack_manufacturer_serial_idx before writing.
 func buildRackFromCore(cr nicoapi.ExpectedRackDetail) (model.Rack, bool) {
-	manufacturer := cr.Labels[labelChassisManufacturer]
-	serial := cr.Labels[labelChassisSerialNumber]
-	if manufacturer == "" || serial == "" {
+	if cr.RackID == "" {
 		return model.Rack{}, false
 	}
 
 	name := cr.Name
 	if name == "" {
-		// Flow's rack.name is NOT NULL with a unique index. Fall back to
-		// Core's stable rack_id first (operator-meaningful), then to
-		// manufacturer-serial so the row is still insertable when Core has
-		// neither. Operators can always rename later via the existing rack
-		// PATCH path.
-		switch {
-		case cr.RackID != "":
-			name = cr.RackID
-		default:
-			name = manufacturer + "-" + serial
-		}
+		// Flow's rack.name is NOT NULL with a unique index. Core's rack_id is
+		// operator-meaningful and unique, so it stands in until someone
+		// renames the rack through the PATCH path.
+		name = cr.RackID
 	}
 
+	extID := cr.RackID
 	r := model.Rack{
 		Name:         name,
-		Manufacturer: manufacturer,
-		SerialNumber: serial,
-	}
-	// Leave ExternalID NULL when Core has no rack_id. Storing an empty
-	// string would still hit the partial unique index (which excludes NULL
-	// but not the empty string), so two such racks would collide.
-	if cr.RackID != "" {
-		extID := cr.RackID
-		r.ExternalID = &extID
+		Manufacturer: cr.Labels[labelChassisManufacturer],
+		SerialNumber: cr.Labels[labelChassisSerialNumber],
+		ExternalID:   &extID,
 	}
 
 	if desc := rackDescriptionFromLabels(cr.Labels, cr.Description); len(desc) > 0 {
@@ -513,10 +526,13 @@ func rackLocationFromLabels(labels map[string]string) map[string]any {
 }
 
 // rackUpdatedFromCore returns a copy of `existing` with mirror-managed fields
-// overwritten from `fromCore`. It deliberately does not touch identity
-// (manufacturer / serial_number), lifecycle (status / ingested_at), or fields
-// the mirror has no opinion on (nvldomain_id is out of scope for this PR; the
-// runtime sync owns it).
+// overwritten from `fromCore`. Lifecycle (status / ingested_at) and
+// nvldomain_id belong to other paths and are left alone.
+//
+// A chassis label is filled in only when Flow's copy is empty: Core dropping a
+// label it used to send is a data gap, not an instruction to erase what Flow
+// already recorded. The caller has already blanked any pair that would collide
+// on rack_manufacturer_serial_idx.
 //
 // Returns nil when no patchable field changed so the caller can skip a no-op
 // UPDATE.
@@ -545,9 +561,62 @@ func rackUpdatedFromCore(existing, fromCore *model.Rack) *model.Rack {
 		patched.ExternalID = fromCore.ExternalID
 		changed = true
 	}
+	if existing.Manufacturer == "" && fromCore.Manufacturer != "" {
+		patched.Manufacturer = fromCore.Manufacturer
+		changed = true
+	}
+	if existing.SerialNumber == "" && fromCore.SerialNumber != "" {
+		patched.SerialNumber = fromCore.SerialNumber
+		changed = true
+	}
 
 	if !changed {
 		return nil
 	}
 	return &patched
+}
+
+// adoptableByNaturalKey reports whether a natural-key match may take over the
+// Flow row and write Core's rack_id onto it. A row carrying no external_id has
+// never been claimed, so it is always adoptable. A row that carries one may only
+// be re-pointed once Core has stopped reporting that rack_id, which is how a
+// rack re-registered under a new rack_id keeps its UUID. While both rack_ids are
+// live the row belongs to the one already named on it: taking it would leave the
+// other Core rack with no row of its own and make the two trade this one on
+// every cycle.
+func adoptableByNaturalKey(r *model.Rack, coreExtIDs map[string]struct{}) bool {
+	if r.ExternalID == nil || *r.ExternalID == "" {
+		return true
+	}
+	_, stillReported := coreExtIDs[*r.ExternalID]
+	return !stillReported
+}
+
+// clearChassisLabelsIfSlotTaken blanks built's chassis labels when a Flow rack
+// other than selfID already holds that complete pair. selfID is uuid.Nil for an
+// INSERT. rack_manufacturer_serial_idx covers soft-deleted rows too, so writing
+// an occupied pair would abort the whole cycle; the rack is still mirrored under
+// its external_id, just without the labels.
+func clearChassisLabelsIfSlotTaken(
+	built *model.Rack,
+	flowByNaturalKey map[string]*model.Rack,
+	selfID uuid.UUID,
+	rackID string,
+) {
+	key := naturalKeyOrEmpty(built.Manufacturer, built.SerialNumber)
+	if key == "" {
+		return
+	}
+	owner, ok := flowByNaturalKey[key]
+	if !ok || owner.ID == selfID {
+		return
+	}
+	log.Warn().
+		Str("rack_id", rackID).
+		Str("manufacturer", built.Manufacturer).
+		Str("serial", built.SerialNumber).
+		Str("held_by_rack", owner.Name).
+		Msg("Expected-inventory mirror: another Flow rack already holds this chassis manufacturer and serial number; mirroring this rack without chassis labels")
+	built.Manufacturer = ""
+	built.SerialNumber = ""
 }

@@ -23,6 +23,9 @@ Confirm these details before editing:
 
 - REST operation path, method, auth role, org/site scoping, request model, response model, and expected status code.
 - Target Core method, usually `/forge.Forge/<Method>`, and whether it is unary. The proxy does not support streaming methods.
+- Core internal RBAC authorizes `SiteAgent` for the target method. The final
+  Core call is made by the on-site `elektra-site-agent` service, not the cloud
+  user.
 - Typed protobuf request and optional typed protobuf response.
 - Secret fields that must not appear in Temporal history. These must be top-level protojson field names such as `password`.
 - Whether the REST operation maps to one Core call or must compose multiple

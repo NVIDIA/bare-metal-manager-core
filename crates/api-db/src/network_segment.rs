@@ -125,8 +125,9 @@ pub async fn persist(
                 vni_id,
                 network_segment_type,
                 can_stretch,
-                allocation_strategy)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+                allocation_strategy,
+                infer_slaac_eui64_addresses)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
             RETURNING id";
     let segment_id: NetworkSegmentId = sqlx::query_as(query)
         .bind(value.id)
@@ -142,6 +143,7 @@ pub async fn persist(
         .bind(value.segment_type)
         .bind(value.can_stretch)
         .bind(value.allocation_strategy)
+        .bind(value.infer_slaac_eui64_addresses)
         .fetch_one(&mut *txn)
         .await
         .map_err(|e| DatabaseError::query(query, e))?;
@@ -1109,6 +1111,7 @@ mod tests {
             segment_type: NetworkSegmentType::Admin,
             can_stretch: None,
             allocation_strategy: Default::default(),
+            infer_slaac_eui64_addresses: false,
         };
         let segment_id = segment.id;
 
@@ -1151,6 +1154,7 @@ mod tests {
                 segment_type: NetworkSegmentType::Admin,
                 can_stretch: None,
                 allocation_strategy: Default::default(),
+                infer_slaac_eui64_addresses: false,
             },
             &mut txn,
             NetworkSegmentControllerState::Ready,
@@ -1275,6 +1279,7 @@ mod tests {
             mtu: 1500,
             reserve_first: 5,
             allocation_strategy: Default::default(),
+            infer_slaac_eui64_addresses: false,
             vpc_name: None,
         };
 
@@ -1321,6 +1326,7 @@ mod tests {
             mtu: 1500,
             reserve_first: 3,
             allocation_strategy: Default::default(),
+            infer_slaac_eui64_addresses: false,
             vpc_name: None,
         }
     }

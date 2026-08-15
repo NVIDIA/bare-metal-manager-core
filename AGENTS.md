@@ -71,6 +71,14 @@ infra-controller/
 
 ## Build, Test, and Lint Commands
 
+### REST API contract conventions
+
+- Do not use `omitempty` on REST API response fields. Clients must be able to
+  distinguish an empty value from a field unsupported by the API version.
+- Paginated operations must implement deterministic ordering before pagination
+  and document every supported `orderBy` value and its default in OpenAPI. Do
+  not rely on an upstream API or database's implicit result order.
+
 All task automation uses `cargo-make`. Install it with:
 
 ```bash
@@ -107,6 +115,8 @@ When writing tests, prefer the **table-driven** style — see the [Testing secti
 Enumerating a function's input variants as grouped `carbide-test-support` scenarios (`scenarios!` / `value_scenarios!`)
 or explicit cases (`check_cases` / `check_values`) is the easiest way to reach thorough coverage of parsers, validators,
 conversions, and the like.
+For functions that map multiple booleans or enums to state and action outputs,
+enumerate every input combination in one table before requesting review.
 
 Keep test rack-profile capability counts aligned with the inventory the fixture
 actually instantiates. Use zero for unsupported component types so tests do not

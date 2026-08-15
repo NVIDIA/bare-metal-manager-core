@@ -95,6 +95,8 @@ impl TestMachine for TestDpuMachine {
 
 impl TestMachinePrivate for TestDpuMachine {}
 
+// This harness models the compatibility fields consumed by older agents.
+#[allow(deprecated)]
 async fn record_dpu_network_status(api: &Api, dpu_machine_id: MachineId) {
     let network_config = api
         .get_managed_host_network_config(tonic::Request::new(ManagedHostNetworkConfigRequest {

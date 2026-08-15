@@ -41,7 +41,7 @@ use crate::{CarbideResult, DatabaseError};
 /// to ensure that DPU NIC firmware matches the expected version of the carbide release.
 ///
 /// Config used from [CarbideConfig](crate::cfg::CarbideConfig)
-/// * `dpu_nic_firmware_update_version` the version of the DPU NIC firmware that is expected to be running on the DPU.
+/// * `dpu_config.dpu_nic_firmware_update_versions` lists the accepted DPU NIC firmware versions.
 ///
 /// Note that if the version does not match in either direction, the DPU will be updated.
 pub(crate) struct DpuNicFirmwareUpdate {

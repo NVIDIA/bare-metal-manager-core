@@ -559,6 +559,8 @@ pub(super) struct FanData {
     /// Fan maximum speed in RPM, scraped as string (e.g. "33000")
     #[serde(rename = "max-speed")]
     pub(super) max_speed: Option<String>,
+    /// Fan health state as reported by NVUE (e.g. "ok").
+    pub(super) state: Option<String>,
 }
 
 type TemperatureEnvironmentResponse = HashMap<String, TempData>;
@@ -866,7 +868,9 @@ mod tests {
         let resp: FanEnvironmentResponse = serde_json::from_str(json).unwrap();
         assert_eq!(resp.len(), 2);
         assert_eq!(resp["FAN1/1"].max_speed.as_deref(), Some("33000"));
+        assert_eq!(resp["FAN1/1"].state.as_deref(), Some("ok"));
         assert_eq!(resp["FAN1/2"].max_speed.as_deref(), Some("33000"));
+        assert_eq!(resp["FAN1/2"].state.as_deref(), Some("ok"));
     }
 
     #[test]
@@ -883,6 +887,7 @@ mod tests {
         let resp: FanEnvironmentResponse = serde_json::from_str(json).unwrap();
         assert_eq!(resp.len(), 1);
         assert!(resp["FAN1/1"].max_speed.is_none());
+        assert_eq!(resp["FAN1/1"].state.as_deref(), Some("ok"));
     }
 
     #[test]

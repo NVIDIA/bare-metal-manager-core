@@ -170,14 +170,10 @@ pub(crate) async fn get_all_domain_metadata(
 
     let domain_name = db::dns::normalize_domain(&metadata_request.domain);
 
-    let domains = db::dns::domain::find_by(
-        &api.database_connection,
-        db::ObjectColumnFilter::<db::dns::domain::NameColumn>::One(
-            db::dns::domain::NameColumn,
-            &domain_name.as_str(),
-        ),
-    )
-    .await?;
+    // Reverse zones may be stored with or without the trailing root dot, so
+    // resolve their normalized identity. Forward domains retain the existing
+    // exact lookup after the request normalization above.
+    let domains = db::dns::domain::find_by_name(&api.database_connection, &domain_name).await?;
 
     let domain = domains.first().ok_or_else(|| CarbideError::NotFoundError {
         kind: "domain",
