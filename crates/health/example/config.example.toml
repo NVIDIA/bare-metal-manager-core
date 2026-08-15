@@ -371,6 +371,46 @@ initial_backoff = "1s"
 # Maximum reconnect delay after repeated connect or stream failures.
 max_backoff = "30s"
 
+# Optional. Omit this table to use the generated NMX-C collector.
+#
+# The override replaces the generated NMX-C collector with descriptor-driven
+# request encoding and response decoding. Responses are emitted as generic logs
+# and are not mapped to generated NMX-C events. Every OTLP target includes
+# canonical protobuf JSON regardless of include_diagnostics. These payloads may
+# be large.
+#
+# Enabling the override requires at least one [[sinks.otlp.targets]] entry. The
+# descriptor and request are loaded at startup; changes require a carbide-health
+# restart.
+#
+# [collectors.nmxc.schema_override]
+#
+# Required when the schema_override table is enabled. No default.
+# Path to a complete binary FileDescriptorSet containing the configured methods
+# and all imported descriptors. Relative paths use the process working directory.
+# descriptor_set_path = "/etc/carbide-health/nmx_c.desc"
+#
+# Optional. Default: "/nmx_c.NMX_Controller/Hello".
+# Fully qualified gRPC path in /package.Service/Method form. The method must
+# exist in the descriptor and use a unary request and response.
+# hello_rpc_path = "/nmx_c.NMX_Controller/Hello"
+#
+# Optional. Default: "/nmx_c.NMX_Controller/Subscribe".
+# Fully qualified gRPC path in /package.Service/Method form. The method must
+# exist in the descriptor, accept one request, and stream responses.
+# subscribe_rpc_path = "/nmx_c.NMX_Controller/Subscribe"
+#
+# Optional. Default: 4194304 (4 MiB). Valid range: 1-67108864.
+# Maximum encoded size accepted for one Subscribe response, in bytes.
+# max_frame_size_bytes = 4194304
+#
+# Optional. Default: empty.
+# Additional SubscribeRequest fields, using names and values accepted by the
+# supplied descriptor's protobuf JSON mapping. gateway_id, notify_on_self_change,
+# and heart_beat_rate are set by [collectors.nmxc] and cannot be repeated here.
+# [collectors.nmxc.schema_override.subscribe_fields]
+# additionalBooleanField = true
+
 [collectors.nmxt]
 scrape_interval = "1m"
 request_timeout = "30s"

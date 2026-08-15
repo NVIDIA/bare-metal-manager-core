@@ -549,13 +549,13 @@ pub struct OtlpTargetConfig {
     )]
     pub flush_interval: std::time::Duration,
 
-    /// Export Redfish diagnostic payload fields to this target.
+    /// Export collector diagnostic payload fields to this target.
     ///
     /// Disabled by default because payload bodies are opaque and may be large or
     /// sensitive. If no diagnostic-capable sink enables diagnostics, collectors
     /// do not attach diagnostic fields. OTLP exports parent logs normally and
-    /// keeps diagnostics as latest-wins per endpoint while the drain is backed
-    /// up.
+    /// uses the parent event identity for queue replacement while backed up.
+    /// This setting does not control descriptor-decoded NMX-C payloads.
     #[serde(default)]
     pub include_diagnostics: bool,
 
@@ -1492,6 +1492,64 @@ impl Default for NmxtCollectorConfig {
 
 const DEFAULT_NMX_C_CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
 const DEFAULT_NMX_C_RPC_TIMEOUT: Duration = Duration::from_secs(10);
+const DEFAULT_NMX_C_MAX_FRAME_SIZE_BYTES: usize = 4 * 1024 * 1024;
+const MAX_NMX_C_FRAME_SIZE_BYTES: usize = 64 * 1024 * 1024;
+
+fn default_nmxc_hello_rpc_path() -> String {
+    "/nmx_c.NMX_Controller/Hello".to_string()
+}
+
+fn default_nmxc_subscribe_rpc_path() -> String {
+    "/nmx_c.NMX_Controller/Subscribe".to_string()
+}
+
+/// Descriptor-driven replacement configuration for the generated NMX-C collector.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct NmxcSchemaOverrideConfig {
+    /// Required path to a complete binary protobuf `FileDescriptorSet`.
+    ///
+    /// The set must contain the configured methods and all imported descriptors.
+    /// Relative paths are resolved from the service process working directory.
+    /// This field has no default.
+    pub descriptor_set_path: PathBuf,
+
+    /// Optional fully qualified gRPC path for the NMX-C Hello method.
+    ///
+    /// The path must use `/package.Service/Method` form and identify a unary
+    /// method in the descriptor. Defaults to `/nmx_c.NMX_Controller/Hello`.
+    #[serde(default = "default_nmxc_hello_rpc_path")]
+    pub hello_rpc_path: String,
+
+    /// Optional fully qualified gRPC path for the NMX-C Subscribe method.
+    ///
+    /// The path must use `/package.Service/Method` form and identify a method
+    /// that accepts one request and streams responses. Defaults to
+    /// `/nmx_c.NMX_Controller/Subscribe`.
+    #[serde(default = "default_nmxc_subscribe_rpc_path")]
+    pub subscribe_rpc_path: String,
+
+    /// Optional maximum encoded size accepted for one Subscribe response frame.
+    ///
+    /// Defaults to 4 MiB when omitted. Valid values are 1 byte through 64 MiB.
+    #[serde(default = "default_nmxc_max_frame_size_bytes")]
+    pub max_frame_size_bytes: usize,
+
+    /// Optional additional `SubscribeRequest` fields.
+    ///
+    /// Keys and values follow the supplied descriptor's protobuf JSON mapping.
+    /// The map is empty when omitted. Values are validated when the descriptor
+    /// and request are loaded at startup.
+    ///
+    /// `gateway_id`, `notify_on_self_change`, and `heart_beat_rate` remain owned
+    /// by `[collectors.nmxc]` and must not be repeated here.
+    #[serde(default)]
+    pub subscribe_fields: serde_json::Map<String, serde_json::Value>,
+}
+
+const fn default_nmxc_max_frame_size_bytes() -> usize {
+    DEFAULT_NMX_C_MAX_FRAME_SIZE_BYTES
+}
 
 /// Configuration for streaming NMX-C controller notifications from switch hosts.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -1524,6 +1582,15 @@ pub struct NmxcCollectorConfig {
     /// Maximum retry backoff after repeated streaming connection failures.
     #[serde(with = "humantime_serde")]
     pub max_backoff: Duration,
+
+    /// Optional descriptor-driven replacement for the generated NMX-C collector.
+    ///
+    /// Omission uses the generated collector. The descriptor and request are
+    /// loaded at service startup, so changes require a restart. Responses are
+    /// emitted as generic logs and are not projected through the generated
+    /// NMX-C event mapping. Every OTLP target includes canonical protobuf JSON,
+    /// independently of its diagnostic payload setting.
+    pub schema_override: Option<NmxcSchemaOverrideConfig>,
 }
 
 impl Default for NmxcCollectorConfig {
@@ -1537,6 +1604,7 @@ impl Default for NmxcCollectorConfig {
             rpc_timeout: None,
             initial_backoff: Duration::from_secs(1),
             max_backoff: Duration::from_secs(30),
+            schema_override: None,
         }
     }
 }
@@ -1590,6 +1658,28 @@ impl NmxcCollectorConfig {
                 "[collectors.nmxc].max_backoff must be greater than or equal to initial_backoff"
                     .to_string(),
             );
+        }
+
+        if let Some(schema_override) = &self.schema_override {
+            if schema_override.descriptor_set_path.as_os_str().is_empty() {
+                return Err(
+                    "[collectors.nmxc.schema_override].descriptor_set_path must not be empty"
+                        .to_string(),
+                );
+            }
+
+            if schema_override.max_frame_size_bytes == 0 {
+                return Err(
+                    "[collectors.nmxc.schema_override].max_frame_size_bytes must be greater than 0"
+                        .to_string(),
+                );
+            }
+
+            if schema_override.max_frame_size_bytes > MAX_NMX_C_FRAME_SIZE_BYTES {
+                return Err(format!(
+                    "[collectors.nmxc.schema_override].max_frame_size_bytes must not exceed {MAX_NMX_C_FRAME_SIZE_BYTES}"
+                ));
+            }
         }
 
         Ok(())
@@ -1986,6 +2076,12 @@ impl Config {
 
         if let Configurable::Enabled(nmxc) = &self.collectors.nmxc {
             nmxc.validate()?;
+
+            if nmxc.schema_override.is_some() && !self.sinks.otlp.is_enabled() {
+                return Err(
+                    "collectors.nmxc.schema_override requires at least one OTLP target".to_string(),
+                );
+            }
         }
 
         if let Configurable::Enabled(reachability) = &self.collectors.reachability {
@@ -3422,6 +3518,7 @@ skip_empty_reports = false
         assert_eq!(defaults.rpc_timeout(), Duration::from_secs(10));
         assert_eq!(defaults.initial_backoff, Duration::from_secs(1));
         assert_eq!(defaults.max_backoff, Duration::from_secs(30));
+        assert!(defaults.schema_override.is_none());
     }
 
     #[test]
@@ -3442,6 +3539,12 @@ connect_timeout = "3s"
 rpc_timeout = "4s"
 initial_backoff = "2s"
 max_backoff = "20s"
+
+[collectors.nmxc.schema_override]
+descriptor_set_path = "/etc/carbide-health/nmx_c.desc"
+
+[collectors.nmxc.schema_override.subscribe_fields]
+testOption = true
 "#;
 
         let config: Config = Figment::new()
@@ -3461,6 +3564,36 @@ max_backoff = "20s"
             assert_eq!(nmxc.rpc_timeout(), Duration::from_secs(4));
             assert_eq!(nmxc.initial_backoff, Duration::from_secs(2));
             assert_eq!(nmxc.max_backoff, Duration::from_secs(20));
+
+            let schema_override = nmxc
+                .schema_override
+                .as_ref()
+                .expect("schema override config should parse");
+
+            assert_eq!(
+                schema_override.descriptor_set_path,
+                PathBuf::from("/etc/carbide-health/nmx_c.desc")
+            );
+
+            assert_eq!(
+                schema_override.hello_rpc_path,
+                "/nmx_c.NMX_Controller/Hello"
+            );
+
+            assert_eq!(
+                schema_override.subscribe_rpc_path,
+                "/nmx_c.NMX_Controller/Subscribe"
+            );
+
+            assert_eq!(
+                schema_override.max_frame_size_bytes,
+                DEFAULT_NMX_C_MAX_FRAME_SIZE_BYTES
+            );
+
+            assert_eq!(
+                schema_override.subscribe_fields["testOption"],
+                serde_json::Value::Bool(true)
+            );
         } else {
             panic!("nmxc config should be enabled");
         }
@@ -3471,6 +3604,17 @@ max_backoff = "20s"
         scenarios!(run = |config: NmxcCollectorConfig| config.validate();
             "valid configuration" {
                 NmxcCollectorConfig::default() => Yields(()),
+
+                NmxcCollectorConfig {
+                    schema_override: Some(NmxcSchemaOverrideConfig {
+                        descriptor_set_path: PathBuf::from("nmx_c.desc"),
+                        hello_rpc_path: default_nmxc_hello_rpc_path(),
+                        subscribe_rpc_path: default_nmxc_subscribe_rpc_path(),
+                        max_frame_size_bytes: MAX_NMX_C_FRAME_SIZE_BYTES,
+                        subscribe_fields: Default::default(),
+                    }),
+                    ..NmxcCollectorConfig::default()
+                } => Yields(()),
             }
 
             "connection settings" {
@@ -3532,7 +3676,79 @@ max_backoff = "20s"
                         .to_string()
                 ),
             }
+
+            "schema override settings" {
+                NmxcCollectorConfig {
+                    schema_override: Some(NmxcSchemaOverrideConfig {
+                        descriptor_set_path: PathBuf::new(),
+                        hello_rpc_path: default_nmxc_hello_rpc_path(),
+                        subscribe_rpc_path: default_nmxc_subscribe_rpc_path(),
+                        max_frame_size_bytes: DEFAULT_NMX_C_MAX_FRAME_SIZE_BYTES,
+                        subscribe_fields: Default::default(),
+                    }),
+                    ..NmxcCollectorConfig::default()
+                } => FailsWith(
+                    "[collectors.nmxc.schema_override].descriptor_set_path must not be empty"
+                        .to_string()
+                ),
+
+                NmxcCollectorConfig {
+                    schema_override: Some(NmxcSchemaOverrideConfig {
+                        descriptor_set_path: PathBuf::from("nmx_c.desc"),
+                        hello_rpc_path: default_nmxc_hello_rpc_path(),
+                        subscribe_rpc_path: default_nmxc_subscribe_rpc_path(),
+                        max_frame_size_bytes: 0,
+                        subscribe_fields: Default::default(),
+                    }),
+                    ..NmxcCollectorConfig::default()
+                } => FailsWith(
+                    "[collectors.nmxc.schema_override].max_frame_size_bytes must be greater than 0"
+                        .to_string()
+                ),
+
+                NmxcCollectorConfig {
+                    schema_override: Some(NmxcSchemaOverrideConfig {
+                        descriptor_set_path: PathBuf::from("nmx_c.desc"),
+                        hello_rpc_path: default_nmxc_hello_rpc_path(),
+                        subscribe_rpc_path: default_nmxc_subscribe_rpc_path(),
+                        max_frame_size_bytes: MAX_NMX_C_FRAME_SIZE_BYTES + 1,
+                        subscribe_fields: Default::default(),
+                    }),
+                    ..NmxcCollectorConfig::default()
+                } => FailsWith(
+                    format!(
+                        "[collectors.nmxc.schema_override].max_frame_size_bytes must not exceed {MAX_NMX_C_FRAME_SIZE_BYTES}"
+                    )
+                ),
+            }
         );
+    }
+
+    #[test]
+    fn nmxc_schema_override_accepts_otlp_target_without_diagnostics() {
+        let mut config = Config::default();
+
+        config.collectors.nmxc = Configurable::Enabled(NmxcCollectorConfig {
+            schema_override: Some(NmxcSchemaOverrideConfig {
+                descriptor_set_path: PathBuf::from("nmx_c.desc"),
+                hello_rpc_path: default_nmxc_hello_rpc_path(),
+                subscribe_rpc_path: default_nmxc_subscribe_rpc_path(),
+                max_frame_size_bytes: DEFAULT_NMX_C_MAX_FRAME_SIZE_BYTES,
+                subscribe_fields: Default::default(),
+            }),
+            ..Default::default()
+        });
+
+        assert_eq!(
+            config.validate(),
+            Err("collectors.nmxc.schema_override requires at least one OTLP target".to_string())
+        );
+
+        config.sinks.otlp = Configurable::Enabled(OtlpSinkConfig {
+            targets: vec![otlp_target("http://localhost:4317")],
+        });
+
+        assert_eq!(config.validate(), Ok(()));
     }
 
     #[test]

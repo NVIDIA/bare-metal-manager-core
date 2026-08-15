@@ -108,6 +108,10 @@ pub enum HealthError {
     #[error("NMX-C RPC failed: {0}")]
     NmxcStatus(tonic::Status),
 
+    /// Descriptor-driven NMX-C configuration is invalid.
+    #[error("NMX-C schema override configuration failed: {0}")]
+    NmxcSchemaOverride(#[source] Box<dyn std::error::Error + Send + Sync>),
+
     /// Client TLS material could not be read, validated, or applied.
     #[error("TLS profile error: {0}")]
     Tls(#[source] Box<dyn std::error::Error + Send + Sync>),
@@ -362,6 +366,7 @@ pub async fn run_service(config: Config) -> Result<(), HealthError> {
     }
 
     let tls_config = config.tls.switch.clone();
+    let nmxc_schema_override = discovery::load_nmxc_schema_override(&config)?;
 
     let metrics_endpoint = config.metrics_addr()?;
     let metrics_manager = Arc::new(MetricsManager::new(&config.metrics.prefix)?);
@@ -446,6 +451,7 @@ pub async fn run_service(config: Config) -> Result<(), HealthError> {
             metrics_manager.clone(),
             config.clone(),
             tls_config,
+            nmxc_schema_override,
         )?;
 
         let interval = config.endpoint_discovery_interval;

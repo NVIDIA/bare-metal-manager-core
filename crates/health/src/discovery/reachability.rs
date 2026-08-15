@@ -455,6 +455,7 @@ mod tests {
             ),
             Arc::new(config),
             None,
+            None,
         )
         .expect("discovery context should start");
 

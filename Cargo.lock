@@ -2103,6 +2103,7 @@ dependencies = [
  "opentelemetry-proto",
  "prometheus",
  "prost",
+ "prost-reflect",
  "prost-types",
  "rand 0.10.1",
  "rcgen",
@@ -9058,8 +9059,11 @@ version = "0.16.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "01b80ea363c31af2de2b92e3c07ed1156628f7838c4afb4df75ee78a37fedbd1"
 dependencies = [
+ "base64",
  "prost",
  "prost-types",
+ "serde",
+ "serde-value",
 ]
 
 [[package]]

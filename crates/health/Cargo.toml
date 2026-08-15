@@ -77,6 +77,7 @@ tokio = { workspace = true }
 tonic = { workspace = true, features = ["tls-native-roots"] }
 tonic-prost = { workspace = true }
 prost = { workspace = true }
+prost-reflect = { workspace = true, features = ["serde"] }
 prost-types = { workspace = true }
 nv-redfish = { workspace = true, features = [
   "bmc-http",
