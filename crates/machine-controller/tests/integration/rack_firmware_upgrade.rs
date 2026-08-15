@@ -193,7 +193,9 @@ async fn advances_on_completion(pool: PgPool) {
 }
 
 #[sqlx_test]
-async fn assigned_host_returns_to_assigned_ready_on_completion(pool: PgPool) {
+async fn assigned_host_returns_to_assigned_ready_on_completion(
+    pool: PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
     let mut env = Env::builder(pool).build().await;
     let host = managed_host(&env.test_harness).await;
     let instance_id = create_instance(&env.test_harness, &host).await;
@@ -223,10 +225,12 @@ async fn assigned_host_returns_to_assigned_ready_on_completion(pool: PgPool) {
     assert!(machine.host_reprovision_requested.is_none());
 
     let mut txn = env.test_harness.db_txn().await;
-    let attached_instance = db::instance::find_id_by_machine_id(txn.as_mut(), &host.host.id)
-        .await
-        .unwrap();
+    let attached_instance =
+        db::instance::find_id_by_machine_id(txn.as_mut(), &host.host.id).await?;
     assert_eq!(attached_instance, Some(instance_id));
+    txn.rollback().await?;
+
+    Ok(())
 }
 
 #[sqlx_test]
