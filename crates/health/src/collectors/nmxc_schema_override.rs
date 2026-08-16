@@ -203,7 +203,7 @@ impl NmxcSchemaOverride {
         let hello =
             DynamicMessage::decode(self.hello_response.clone(), hello).map_err(|error| {
                 HealthError::NmxcStatus(tonic::Status::internal(format!(
-                    "NMX-C Hello response decode failed: {error}"
+                    "NMX-C hello response decode failed: {error}"
                 )))
             })?;
 
@@ -314,7 +314,7 @@ async fn receive_initial_subscribe_item(
         .map_err(HealthError::NmxcStatus)?
         .ok_or_else(|| {
             HealthError::NmxcStatus(tonic::Status::unavailable(
-                "NMX-C Subscribe stream closed before its acknowledgement",
+                "NMX-C subscribe stream closed before its acknowledgement",
             ))
         })
 }
