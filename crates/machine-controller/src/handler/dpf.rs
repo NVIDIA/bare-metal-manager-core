@@ -666,18 +666,11 @@ async fn machine_has_astra_nics(
     // At this point, we need to use Redfish to get all the CX cards in the host.
     // The end point to explore is /redfish/v1/Chassis/CX_$i
 
-    for nic in host_nics.iter() {
-        if nic.nic_type != Some("CX9".to_string()) {
-            continue;
-        }
-        tracing::debug!(
-            machine_id = %state.host_snapshot.id,
-            "machine_has_astra_nics: Found CX9 NIC"
-        );
-        return Ok(true);
-    }
+    let has_cx9 = host_nics
+        .iter()
+        .any(|nic| nic.nic_type.as_deref() == Some("CX9"));
 
-    Ok(false)
+    Ok(has_cx9)
 }
 
 /// Handle DPF state transitions.
