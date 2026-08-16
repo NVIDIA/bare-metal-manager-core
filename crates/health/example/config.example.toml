@@ -401,7 +401,7 @@ max_backoff = "30s"
 # subscribe_rpc_path = "/nmx_c.NMX_Controller/Subscribe"
 #
 # Optional. Default: 4194304 (4 MiB). Valid range: 1-67108864.
-# Maximum encoded size accepted for one Subscribe response, in bytes.
+# Maximum encoded size accepted for one Hello or Subscribe response, in bytes.
 # max_frame_size_bytes = 4194304
 #
 # Optional. Default: empty.

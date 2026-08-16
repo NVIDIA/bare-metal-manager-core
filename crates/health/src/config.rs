@@ -1529,7 +1529,7 @@ pub struct NmxcSchemaOverrideConfig {
     #[serde(default = "default_nmxc_subscribe_rpc_path")]
     pub subscribe_rpc_path: String,
 
-    /// Optional maximum encoded size accepted for one Subscribe response frame.
+    /// Optional maximum encoded size accepted for one Hello or Subscribe response.
     ///
     /// Defaults to 4 MiB when omitted. Valid values are 1 byte through 64 MiB.
     #[serde(default = "default_nmxc_max_frame_size_bytes")]

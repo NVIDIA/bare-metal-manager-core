@@ -182,7 +182,8 @@ impl NmxcSchemaOverride {
         channel: Channel,
         rpc_timeout: Duration,
     ) -> Result<Streaming<Bytes>, HealthError> {
-        let mut grpc = tonic::client::Grpc::new(channel.clone());
+        let mut grpc = tonic::client::Grpc::new(channel.clone())
+            .max_decoding_message_size(self.max_frame_size_bytes);
 
         let hello = tokio::time::timeout(rpc_timeout, async {
             grpc.ready().await.map_err(service_not_ready)?;
