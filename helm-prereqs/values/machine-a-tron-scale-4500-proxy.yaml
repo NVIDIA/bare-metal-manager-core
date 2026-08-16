@@ -11,8 +11,12 @@
 # Shared-proxy mode needs ONE Service for the whole fleet: site-explorer dials
 # `bmc_proxy` and the Redfish client injects `Forwarded: host=<BMC IP>`, which
 # the mock's registry uses to pick the simulated BMC. BMC addresses come from
-# the simulated OOB prefix (SCALE_OOB_PREFIX, default 10.96.64.0/18 -> 16,382
-# usable, enough for 13,500), NOT from the Service CIDR.
+# the simulated OOB prefix (SCALE_OOB_PREFIX), NOT from the Service CIDR.
+#
+# That prefix must be a /16. The mock BMCs are DHCP clients, so OOB demand is
+# ~6.6 addresses per host (measured), not one -- a /18 holds 16,382 and ceilings
+# a run at 2,048 hosts with no error beyond a per-request "No IP addresses left
+# in prefix", which reads as a hang rather than a failure.
 #
 # Single pod on purpose: the chart emits one `-bmc-mock` Service per entry in
 # `pods`, so a single routable proxy host requires a single pod. Resources are
@@ -95,7 +99,7 @@ pods:
         runIntervalIdle: "60s"
         networkStatusRunInterval: "120s"
         # Simulated networks (Phase 5/6 constants), not Service CIDR carve-outs.
-        oobDhcpRelayAddress: "10.96.64.1"
+        oobDhcpRelayAddress: "10.96.0.1"
         adminDhcpRelayAddress: "10.102.0.1"
         networkVirtualizationType: ""
         dpusInNicMode: false

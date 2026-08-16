@@ -201,10 +201,28 @@ NICO_DB="nico_system_nico"
 #   BMC with ClusterIP = BMC IP. Uses values/machine-a-tron-scale.yaml plus a
 #   NICo network covering the BMC IP range. See the chart README "Controller Mode".
 MAT_MODE="${MAT_MODE:-override}"
-# Network for scale mode — must be within Kubernetes ServiceCIDR and match the
-# scale values file (oobDhcpRelayAddress).
-SCALE_OOB_PREFIX="${SCALE_OOB_PREFIX:-10.96.64.0/18}";  SCALE_OOB_GW="${SCALE_OOB_GW:-10.96.64.1}"
-SCALE_ADMIN_PREFIX="${SCALE_ADMIN_PREFIX:-192.168.176.0/20}"; SCALE_ADMIN_GW="${SCALE_ADMIN_GW:-192.168.176.1}"
+# Networks for scale mode. The OOB gateway must match the scale values file
+# (oobDhcpRelayAddress). Both are sized from MEASURED demand, not from the host
+# count: since the mock BMCs became DHCP clients, a 4,500-host fleet needs far
+# more addresses than the obvious "one per host" arithmetic suggests.
+#
+# Measured on dev6 at 4,076 explored hosts / 9,207 machines (Aug 2026):
+#   OOB    27,000 addresses = 6.6 per host  (BMC + data interfaces)
+#   admin  16,380 addresses = 1.8 per machine
+# Extrapolated to the full 4,500 hosts / 13,500 machines: ~30k OOB, ~24k admin.
+# A /16 (65,534) leaves better than 2x headroom on each; a /18 (16,382) does
+# not, and exhaustion is BRUTAL to diagnose — the allocator's "No IP addresses
+# left in prefix" is a per-request error, so ingestion does not fail, it simply
+# stops at a hard ceiling (OOB /18 stalled three runs at exactly 2,048 hosts)
+# while the fleet retries forever. Size these generously.
+#
+# These defaults target shared-proxy mode, where the simulated BMC addresses are
+# reachable only through the proxy and so are unconstrained by cluster routing.
+# Controller Mode has a different and stricter rule — each BMC is a ClusterIP
+# Service, so its addresses must come from the Kubernetes ServiceCIDR — and must
+# override SCALE_OOB_PREFIX/SCALE_OOB_GW with a carve-out of that range.
+SCALE_OOB_PREFIX="${SCALE_OOB_PREFIX:-10.96.0.0/16}";  SCALE_OOB_GW="${SCALE_OOB_GW:-10.96.0.1}"
+SCALE_ADMIN_PREFIX="${SCALE_ADMIN_PREFIX:-10.102.0.0/16}"; SCALE_ADMIN_GW="${SCALE_ADMIN_GW:-10.102.0.1}"
 SCALE_RESERVE=1
 # These four are operator-overridable and are written straight into the site
 # config and the DB, so validate them before anything consumes them: an
