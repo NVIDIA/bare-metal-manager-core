@@ -90,9 +90,10 @@ pub struct InitDpfResourcesConfig {
     pub pf_total_sf_reserved: u32,
     /// Enables deployment-scoped DPUServiceInterface names and node selectors.
     /// False preserves the legacy global resource naming and selector mode for
-    /// BF3 and generic BF4; BF4 Astra requires this to be true.
-    /// Mode transitions require manual old-resource cleanup and DPU re-ingestion;
-    /// the SDK neither detects nor deletes the previous generation.
+    /// BF3 and generic BF4. BF4 Astra requires this to be true for the whole namespace so
+    /// legacy match-all resources do not bind Astra nodes. Initialization removes
+    /// ServiceInterfaces from the opposite mode during a transition; failures are not rolled
+    /// back and require a retry after remediation.
     pub deployment_scoped_service_interfaces: bool,
     /// Optional intercept-bridging topology for BF3 and generic BF4. `Some` replaces the
     /// ordinary static PF/VF inventory and contains exactly one configured PF.

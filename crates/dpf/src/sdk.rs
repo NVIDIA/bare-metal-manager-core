@@ -107,6 +107,8 @@ const MAX_HBN_SERVICE_INTERFACES: usize = 32;
 /// Label set by DPF on deployment-owned resources and propagated to the corresponding
 /// DPU-cluster Node. Value format: `<namespace>_<deployment_name>`.
 const DPU_OWNED_BY_DEPLOYMENT_LABEL: &str = "svc.dpu.nvidia.com/owned-by-dpudeployment";
+const SERVICE_INTERFACE_DELETE_TIMEOUT: Duration = Duration::from_secs(60);
+const SERVICE_INTERFACE_DELETE_POLL_INTERVAL: Duration = Duration::from_millis(250);
 
 /// Returns DPF's canonical ownership-label value for one DPUDeployment.
 fn dpu_deployment_owner_label_value(namespace: &str, deployment_name: &str) -> String {
@@ -664,8 +666,8 @@ pub fn deployment_cr_suffix(deployment_type: DpuDeploymentType) -> &'static str 
 /// Suffix appended to deployment-scoped DPUServiceInterface CR names.
 ///
 /// Unlike the existing service CR compatibility scheme, every deployment type
-/// is suffixed. The migration is opt-in; operators must remove the old
-/// generation manually because NICo neither detects nor deletes it.
+/// is suffixed. Scoped initialization prunes the old unscoped generation so
+/// match-all legacy resources do not bind the same DPU nodes.
 fn service_interface_cr_suffix(deployment_type: DpuDeploymentType) -> &'static str {
     match deployment_type {
         DpuDeploymentType::Bf3 => "bf3",
@@ -1566,6 +1568,96 @@ pub async fn apply_service_interface_templates<
     apply_service_interface_templates_with_scope(repo, namespace, interfaces, "", None).await
 }
 
+async fn wait_for_service_interface_deletion<
+    R: crate::repository::DpuServiceInterfaceRepository,
+>(
+    repo: &R,
+    name: &str,
+    namespace: &str,
+) -> Result<(), DpfError> {
+    tokio::time::timeout(SERVICE_INTERFACE_DELETE_TIMEOUT, async {
+        loop {
+            if crate::repository::DpuServiceInterfaceRepository::get(repo, name, namespace)
+                .await?
+                .is_none()
+            {
+                return Ok(());
+            }
+            tokio::time::sleep(SERVICE_INTERFACE_DELETE_POLL_INTERVAL).await;
+        }
+    })
+    .await
+    .map_err(|_| {
+        DpfError::timeout(
+            "DPUServiceInterface deletion",
+            format!("{namespace}/{name} still exists after {SERVICE_INTERFACE_DELETE_TIMEOUT:?}"),
+        )
+    })?
+}
+
+async fn delete_stale_legacy_service_interfaces<
+    R: crate::repository::DpuServiceInterfaceRepository,
+>(
+    repo: &R,
+    namespace: &str,
+) -> Result<(), crate::error::DpfError> {
+    let mut live_interfaces =
+        crate::repository::DpuServiceInterfaceRepository::list(repo, namespace).await?;
+    live_interfaces.sort_by(|left, right| left.metadata.name.cmp(&right.metadata.name));
+    for live in live_interfaces {
+        let Some(name) = live.metadata.name.clone() else {
+            continue;
+        };
+        if live.spec.template.spec.node_selector.is_some() {
+            continue;
+        }
+
+        tracing::info!(
+            namespace,
+            service_interface = name,
+            "Deleting stale legacy unscoped DPUServiceInterface during scoped migration"
+        );
+        crate::repository::DpuServiceInterfaceRepository::delete(repo, &name, namespace).await?;
+        wait_for_service_interface_deletion(repo, &name, namespace).await?;
+    }
+
+    Ok(())
+}
+
+async fn delete_stale_scoped_service_interfaces<
+    R: crate::repository::DpuServiceInterfaceRepository,
+>(
+    repo: &R,
+    namespace: &str,
+) -> Result<(), crate::error::DpfError> {
+    let mut live_interfaces =
+        crate::repository::DpuServiceInterfaceRepository::list(repo, namespace).await?;
+    live_interfaces.sort_by(|left, right| left.metadata.name.cmp(&right.metadata.name));
+    for live in live_interfaces {
+        let Some(name) = live.metadata.name.clone() else {
+            continue;
+        };
+        if !["bf3", "bf4", "astra"]
+            .iter()
+            .any(|suffix| name.ends_with(&format!("-{suffix}")))
+        {
+            continue;
+        }
+        if live.spec.template.spec.node_selector.is_none() {
+            continue;
+        }
+        tracing::info!(
+            namespace,
+            service_interface = name,
+            "Deleting stale scoped DPUServiceInterface during legacy unscoped migration"
+        );
+        crate::repository::DpuServiceInterfaceRepository::delete(repo, &name, namespace).await?;
+        wait_for_service_interface_deletion(repo, &name, namespace).await?;
+    }
+
+    Ok(())
+}
+
 async fn create_flavor_services_and_deployment<
     R: DpuServiceTemplateRepository
         + DpuServiceConfigurationRepository
@@ -1616,9 +1708,24 @@ async fn create_flavor_services_and_deployment<
     // management-plane DPUNode and DPUDeployment selection. Reusing them here matches zero remote
     // Nodes and prevents DPF from instantiating concrete ServiceInterfaces.
     //
-    // Changing either names or selectors triggers DPF reconciliation and must remain an explicit
-    // operator-controlled migration.
+    // Changing either names or selectors triggers DPF reconciliation. Initialization deletes
+    // resources from the opposite mode so stale templates do not remain active beside the
+    // current generation.
     //
+    // A legacy interface matches every remote DPU-cluster Node. Wait for resources from the
+    // opposite mode to be deleted before creating their replacements, so generations do not
+    // overlap during a namespace-wide transition.
+    let cleanup_result = if !config.deployment_scoped_service_interfaces {
+        delete_stale_scoped_service_interfaces(repo, namespace).await
+    } else {
+        delete_stale_legacy_service_interfaces(repo, namespace).await
+    };
+    cleanup_result.map_err(|error| {
+        DpfError::InvalidState(format!(
+            "failed to remove the previous DPUServiceInterface generation ({error}); resolve the deletion failure, then retry initialization. The previous generation may be only partially removed"
+        ))
+    })?;
+
     // Patch CRs require their peer bridge, so preserve flavor creation before interface templates.
     apply_service_interface_templates_with_scope(
         repo,
@@ -1627,8 +1734,12 @@ async fn create_flavor_services_and_deployment<
         interface_suffix,
         dpu_cluster_node_labels.as_ref(),
     )
-    .await?;
-
+    .await
+    .map_err(|error| {
+        DpfError::InvalidState(format!(
+            "failed to create replacement DPUServiceInterfaces ({error}); resolve the apply failure, then retry initialization. The previous generation has been removed and replacements may be only partially created"
+        ))
+    })?;
     // Each deployment gets its own service/NAD CRs (suffixed by deployment type)
     // so BF3 and BF4 do not overwrite each other's Helm values/versions in the
     // shared namespace. `nad_rename` maps each deployment-local NAD name to its

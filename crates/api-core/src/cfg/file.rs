@@ -1569,8 +1569,10 @@ pub struct DpfConfig {
     #[serde(default)]
     pub enabled: bool,
     /// Opts the DPF namespace into deployment-scoped DPUServiceInterfaces.
-    /// Changing modes requires operators to remove old-mode NICo resources and
-    /// re-ingest DPUs; NICo neither detects nor deletes those resources.
+    /// BF4 Astra requires this to be enabled for the whole namespace so legacy
+    /// match-all ServiceInterfaces do not bind Astra nodes. Initialization
+    /// removes ServiceInterfaces from the opposite mode during a transition;
+    /// failures are not rolled back and require a retry after remediation.
     #[serde(default)]
     pub deployment_scoped_service_interfaces: bool,
     /// SF capacity reserved beyond configured NICo-managed service endpoints.

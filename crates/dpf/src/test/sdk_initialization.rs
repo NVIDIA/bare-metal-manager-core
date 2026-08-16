@@ -395,6 +395,11 @@ impl DpuServiceInterfaceRepository for InitializationMock {
             .insert(resource_key(iface), iface.clone());
         Ok(iface.clone())
     }
+
+    async fn delete(&self, name: &str, ns: &str) -> Result<(), DpfError> {
+        self.service_interfaces.remove(&ns_key(ns, name));
+        Ok(())
+    }
 }
 
 #[async_trait]
@@ -489,6 +494,38 @@ async fn test_create_initialization_objects() {
         .await
         .unwrap();
     assert!(secret.is_some());
+
+    drop(sdk);
+}
+
+#[tokio::test]
+async fn bf4_generic_initialization_preserves_legacy_unscoped_interfaces() {
+    let mock = InitializationMock::default();
+    let config = InitDpfResourcesConfig {
+        bluefield_software: Some(BlueFieldSoftwareParams {
+            os_iso: "http://example.com/bf4.iso".to_string(),
+            pldm_fw_bundle: Some("http://example.com/bf4.pldm".to_string()),
+        }),
+        deployment_type: DpuDeploymentType::Bf4Generic,
+        ..Default::default()
+    };
+
+    let sdk = crate::sdk::DpfSdkBuilder::new(mock.clone(), TEST_NS, "test-password".to_string())
+        .initialize(&config)
+        .await
+        .unwrap();
+
+    let p0 = DpuServiceInterfaceRepository::get(&mock, "p0", TEST_NS)
+        .await
+        .unwrap()
+        .expect("BF4 generic legacy p0 ServiceInterface must exist");
+    assert!(p0.spec.template.spec.node_selector.is_none());
+    assert!(
+        DpuServiceInterfaceRepository::get(&mock, "p0-bf4", TEST_NS)
+            .await
+            .unwrap()
+            .is_none()
+    );
 
     drop(sdk);
 }
@@ -979,75 +1016,107 @@ async fn scoped_bf3_bf4_and_astra_initialization_coexists() {
     drop(sdk);
 }
 
-/// Verifies unrelated ServiceInterfaces with NICo-like names or labels cannot block either
-/// initialization mode and remain untouched because shape alone is not ownership evidence.
 #[tokio::test]
-async fn existing_service_interfaces_do_not_block_or_get_deleted() {
-    let cases = [
-        // A matching name and logical label must not be treated as NICo-owned legacy state.
-        ("vendor-uplink", "vendor-uplink", true),
-        // A deployment-like suffix must not be treated as NICo-owned scoped state.
-        ("vendor-uplink-bf3", "vendor-uplink", false),
-    ];
+async fn service_interface_migration_prunes_previous_generation() {
+    let definitions = crate::sdk::build_dpu_interfaces_vec();
 
-    for (existing_name, logical_name, desired_scoped) in cases {
-        // Seed a foreign-managed resource whose name and inner label resemble one NICo mode.
-        let mock = InitializationMock::default();
-        let mut existing = crate::sdk::build_service_interface(
-            &crate::sdk::build_dpu_interfaces_vec()[0],
-            TEST_NS,
-        );
-        existing.metadata.name = Some(existing_name.to_string());
-        existing.metadata.labels = Some(BTreeMap::from([(
-            "app.kubernetes.io/managed-by".to_string(),
-            "vendor-dpf-operator".to_string(),
-        )]));
-        existing
-            .spec
-            .template
-            .spec
-            .template
-            .metadata
-            .as_mut()
-            .unwrap()
-            .labels
-            .as_mut()
-            .unwrap()
-            .insert("interface".to_string(), logical_name.to_string());
-        let existing_snapshot = serde_json::to_value(&existing).unwrap();
-        mock.service_interfaces
-            .insert(resource_key(&existing), existing);
-
-        // Initialize the opposite shape in both directions through the complete SDK path.
-        let config = InitDpfResourcesConfig {
+    // Legacy-to-scoped: legacy interfaces are pruned, including stale interfaces from a
+    // previously configured intercept inventory.
+    let mock = InitializationMock::default();
+    let stale_p1 = crate::sdk::build_service_interface(
+        definitions
+            .iter()
+            .find(|definition| definition.name == "p1")
+            .expect("static test inventory must contain p1"),
+        TEST_NS,
+    );
+    mock.service_interfaces
+        .insert(resource_key(&stale_p1), stale_p1);
+    let old_intercept_interfaces = crate::sdk::build_effective_dpu_interfaces(
+        DEFAULT_DPU_NUM_OF_VFS,
+        Some(&configured_intercept_bridging()),
+    );
+    let stale_c2pf3 = crate::sdk::build_service_interface(
+        old_intercept_interfaces
+            .iter()
+            .find(|definition| definition.name == "c2pf3")
+            .expect("configured test inventory must contain c2pf3"),
+        TEST_NS,
+    );
+    mock.service_interfaces
+        .insert(resource_key(&stale_c2pf3), stale_c2pf3);
+    let sdk = crate::sdk::DpfSdkBuilder::new(mock.clone(), TEST_NS, "test-password".to_string())
+        .with_labeler(InitializationLabeler)
+        .initialize(&InitDpfResourcesConfig {
             bfb_url: "http://example.com/test.bfb".to_string(),
-            deployment_scoped_service_interfaces: desired_scoped,
+            deployment_scoped_service_interfaces: true,
             ..Default::default()
-        };
-        // `InitializationMock` clones share Arc-backed stores, so assertions through `mock`
-        // observe the exact writes performed through the repository clone held by the SDK.
-        let sdk =
-            crate::sdk::DpfSdkBuilder::new(mock.clone(), TEST_NS, "test-password".to_string())
-                .with_labeler(InitializationLabeler)
-                .initialize(&config)
-                .await
-                .unwrap();
-
-        // Initialization must apply its own resources without mutating or pruning the existing one.
-        assert!(!mock.bfbs.is_empty());
-        assert!(!mock.flavors.is_empty());
-        assert!(!mock.deployments.is_empty());
-        let existing_after = DpuServiceInterfaceRepository::get(&mock, existing_name, TEST_NS)
+        })
+        .await
+        .unwrap();
+    assert!(
+        DpuServiceInterfaceRepository::get(&mock, "p1", TEST_NS)
             .await
             .unwrap()
-            .expect("pre-existing ServiceInterface must remain");
-        assert_eq!(
-            serde_json::to_value(existing_after).unwrap(),
-            existing_snapshot
-        );
+            .is_none()
+    );
+    assert!(
+        DpuServiceInterfaceRepository::get(&mock, "p1-bf3", TEST_NS)
+            .await
+            .unwrap()
+            .is_some()
+    );
+    assert!(
+        DpuServiceInterfaceRepository::get(&mock, "c2pf3", TEST_NS)
+            .await
+            .unwrap()
+            .is_none()
+    );
+    drop(sdk);
 
-        drop(sdk);
-    }
+    // Scoped-to-legacy: a bad global-scoped BF3 generation is pruned even if the deployment was
+    // renamed before the site returns to the default unscoped model.
+    let mock = InitializationMock::default();
+    let sdk = crate::sdk::DpfSdkBuilder::new(mock.clone(), TEST_NS, "test-password".to_string())
+        .with_labeler(InitializationLabeler)
+        .build_without_resources()
+        .await
+        .unwrap();
+    sdk.create_initialization_objects(&InitDpfResourcesConfig {
+        bfb_url: "http://example.com/test.bfb".to_string(),
+        deployment_name: "old-deployment".to_string(),
+        deployment_scoped_service_interfaces: true,
+        ..Default::default()
+    })
+    .await
+    .unwrap();
+    assert!(
+        DpuServiceInterfaceRepository::get(&mock, "p1-bf3", TEST_NS)
+            .await
+            .unwrap()
+            .is_some()
+    );
+    sdk.create_initialization_objects(&InitDpfResourcesConfig {
+        bfb_url: "http://example.com/test.bfb".to_string(),
+        deployment_name: "new-deployment".to_string(),
+        deployment_scoped_service_interfaces: false,
+        ..Default::default()
+    })
+    .await
+    .unwrap();
+    assert!(
+        DpuServiceInterfaceRepository::get(&mock, "p1", TEST_NS)
+            .await
+            .unwrap()
+            .is_some()
+    );
+    assert!(
+        DpuServiceInterfaceRepository::get(&mock, "p1-bf3", TEST_NS)
+            .await
+            .unwrap()
+            .is_none()
+    );
+    drop(sdk);
 }
 
 /// Verifies a missing referenced template fails the complete inventory lookup
