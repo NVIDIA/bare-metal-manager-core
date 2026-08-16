@@ -439,6 +439,9 @@ impl ManagedHostStateSnapshot {
         pick_boot_interface_pair(&self.host_snapshot.status.interfaces)
     }
 
+    // We are examining the dpa_interface_snapshots of the MH to see if has
+    // any NICs of type Astra. This function cannot be used during machine ingestion
+    // when the dpa_interfaces table does not yet have any entries for the host.
     pub fn has_astra_nics(&self) -> bool {
         self.dpa_interface_snapshots
             .iter()
