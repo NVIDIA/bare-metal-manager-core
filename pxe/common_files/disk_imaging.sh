@@ -407,8 +407,56 @@ function create_efi_boot_entry() {
 		return 0
 	fi
 
-	if efibootmgr | grep -qi "^Boot[0-9A-Fa-f]\{4\}\*\?[[:space:]]*$label\$"; then
-		echo "EFI boot entry for $label already exists, skipping creation" | tee $log_output
+	# The partition's GPT UUID lets us distinguish "an Ubuntu entry on THIS
+	# disk's ESP" from "an Ubuntu entry with the same relative loader path on
+	# some OTHER disk" -- e.g. a leftover boot entry from a previous OS
+	# install on a different NVMe device. The loader path alone
+	# ("\EFI\ubuntu\shimaa64.efi") is identical regardless of which physical
+	# disk/partition it lives on, since it's only meaningful relative to
+	# whichever ESP the entry's HD(...) device-path node actually points at.
+	esp_part_uuid=$(blkid -s PARTUUID -o value "$efi_dev" 2>/dev/null | tr '[:upper:]' '[:lower:]')
+
+	# Require the label, the loader path, AND (when known) the target ESP's
+	# partition UUID to all match an existing entry. Each check guards
+	# against a different false match:
+	#  - Label-only, end-anchored (the original approach) breaks because
+	#    efibootmgr's plain (non -v) output on some firmware/builds still
+	#    appends the full UEFI device path after the label with no
+	#    unambiguous delimiter, so anchoring the label at end-of-line never
+	#    matches and a duplicate same-labeled entry gets created every run.
+	#  - Loader-path-only breaks the opposite way: during a reinstall (e.g.
+	#    replacing DGX OS with Ubuntu) a pre-existing, differently-labeled
+	#    entry (like a firmware-native "DGX OS" entry) can reference the same
+	#    shim file path, which would wrongly be treated as "Ubuntu already
+	#    exists" and skip creating the real entry.
+	#  - Label + loader path without the partition UUID breaks on multi-disk
+	#    systems: a same-named "Ubuntu" entry left over on a different disk's
+	#    ESP would falsely count as a duplicate of the one we're about to
+	#    create on this disk.
+	# Anchoring the label at the *start* (right after the "Boot####[*] "
+	# prefix) instead of the end avoids the first problem -- trailing device
+	# path text is now expected, not fatal -- while still requiring an exact
+	# label match avoids the second. Labels are compared via a quoted bash
+	# pattern (not grep/regex) so metacharacters in the label can't be
+	# misinterpreted.
+	label_lower=$(printf '%s' "$label" | tr '[:upper:]' '[:lower:]')
+	loader_path_lower=$(printf '%s' "$loader_path" | tr '[:upper:]' '[:lower:]')
+	duplicate_found=0
+	while IFS= read -r bootline; do
+		[ -z "$bootline" ] && continue
+		remainder=$(printf '%s' "$bootline" | sed -E 's/^Boot[0-9A-Fa-f]{4}\*?[[:space:]]*//')
+		remainder_lower=$(printf '%s' "$remainder" | tr '[:upper:]' '[:lower:]')
+		bootline_lower=$(printf '%s' "$bootline" | tr '[:upper:]' '[:lower:]')
+		if [[ "$remainder_lower" == "$label_lower"* ]] \
+			&& printf '%s' "$bootline_lower" | grep -qF "$loader_path_lower" \
+			&& { [ -z "$esp_part_uuid" ] || printf '%s' "$bootline_lower" | grep -qF "$esp_part_uuid"; }; then
+			duplicate_found=1
+			break
+		fi
+	done < <(efibootmgr | grep -E "^Boot[0-9A-Fa-f]{4}")
+
+	if [ "$duplicate_found" -eq 1 ]; then
+		echo "EFI boot entry for $label already exists on this disk's ESP (loader $loader_path found), skipping creation" | tee $log_output
 		return 0
 	fi
 
@@ -443,7 +491,7 @@ function set_boot_order() {
 		lower_label=$(echo "$entry_label" | tr '[:upper:]' '[:lower:]')
 		if [[ "$lower_label" == *pxe* || "$lower_label" == *http* ]]; then
 			network+=("$bootnum")
-		elif [ ! -z "$match_name" ] && [[ "$lower_label" == *"$(echo "$match_name" | tr '[:upper:]' '[:lower:]')"* ]]; then
+		elif [ -n "$match_name" ] && printf '%s' "$lower_label" | grep -qF "$(printf '%s' "$match_name" | tr '[:upper:]' '[:lower:]')"; then
 			distro+=("$bootnum")
 		else
 			rest+=("$bootnum")
