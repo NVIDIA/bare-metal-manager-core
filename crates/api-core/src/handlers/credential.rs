@@ -126,11 +126,11 @@ pub(crate) async fn create_credential(
                 })
                 .await)
                 .is_ok_and(|result| {
-                    result.is_some_and(|creds| match creds {
+                    result.is_some_and(|creds| {
                         // An empty password is seeded by nico-prereqs at deploy time —
                         // treat it as absent so the operator can set the real password.
-                        Credentials::UsernamePassword { ref password, .. } => !password.is_empty(),
-                        _ => true,
+                        let Credentials::UsernamePassword { ref password, .. } = creds;
+                        !password.is_empty()
                     })
                 })
             {
@@ -162,11 +162,11 @@ pub(crate) async fn create_credential(
                 })
                 .await
                 .is_ok_and(|result| {
-                    result.is_some_and(|creds| match creds {
+                    result.is_some_and(|creds| {
                         // An empty password is seeded by nico-prereqs at deploy time —
                         // treat it as absent so the operator can set the real password.
-                        Credentials::UsernamePassword { ref password, .. } => !password.is_empty(),
-                        _ => true,
+                        let Credentials::UsernamePassword { ref password, .. } = creds;
+                        !password.is_empty()
                     })
                 })
             {
