@@ -288,12 +288,11 @@ impl<B: Bmc + 'static> StreamingCollector<B> for NmxcSchemaOverrideCollector {
             .await?;
 
         let first = receive_initial_subscribe_item(&mut stream, self.rpc_timeout).await?;
-        let initial = initial_schema_override_frame_to_events(first, &self.schema_override);
+        let initial = initial_schema_override_frame_to_event(first, &self.schema_override);
         let schema_override = self.schema_override.clone();
 
         let remaining = stream
-            .map(move |item| schema_override_frame_to_events(item, &schema_override))
-            .flat_map(futures::stream::iter)
+            .map(move |item| schema_override_frame_to_event(item, &schema_override))
             .boxed();
 
         Ok(finalize_connection(initial, remaining))
@@ -320,102 +319,113 @@ async fn receive_initial_subscribe_item(
 }
 
 fn finalize_connection(
-    initial: Vec<Result<CollectorEvent, HealthError>>,
+    initial: Result<CollectorEvent, (CollectorEvent, HealthError)>,
     remaining: super::runtime::EventStream<'static>,
 ) -> StreamingConnectResult<'static> {
-    let mut events = Vec::new();
-
-    for event in initial {
-        match event {
-            Ok(event) => events.push(event),
-            Err(error) => return StreamingConnectResult::Failed { events, error },
+    let event = match initial {
+        Ok(event) => event,
+        Err((event, error)) => {
+            return StreamingConnectResult::Failed {
+                events: vec![event],
+                error,
+            };
         }
-    }
+    };
 
     StreamingConnectResult::Connected(
-        futures::stream::iter(events.into_iter().map(Ok))
+        futures::stream::once(async { Ok(event) })
             .chain(remaining)
             .boxed(),
     )
 }
 
-fn initial_schema_override_frame_to_events(
+fn initial_schema_override_frame_to_event(
     raw: Bytes,
     schema_override: &NmxcSchemaOverride,
-) -> Vec<Result<CollectorEvent, HealthError>> {
+) -> Result<CollectorEvent, (CollectorEvent, HealthError)> {
     let decoded = match schema_override.decode_notification(&raw) {
         Ok(decoded) => decoded,
         Err(error) => {
-            return schema_override_failure_events(HealthError::NmxcStatus(
-                tonic::Status::internal(format!("NMX-C notification decode failed: {error}")),
-            ));
+            let error = HealthError::NmxcStatus(tonic::Status::internal(format!(
+                "NMX-C notification decode failed: {error}"
+            )));
+
+            return Err((schema_override_failure_log(&error), error));
         }
     };
 
     let Some(selected) = decoded.field.as_ref() else {
-        return initial_schema_override_failure_events(
+        return Err(initial_schema_override_failure(
             decoded,
             schema_override,
             HealthError::NmxcStatus(tonic::Status::failed_precondition(
                 "NMX-C subscribe acknowledgement missing notification payload",
             )),
-        );
+        ));
     };
 
     if selected.number() != 1 {
         let selected_name = selected.name().to_string();
 
-        return initial_schema_override_failure_events(
+        return Err(initial_schema_override_failure(
             decoded,
             schema_override,
             HealthError::NmxcStatus(tonic::Status::failed_precondition(format!(
                 "NMX-C subscribe expected subscription acknowledgement field 1, received {}",
                 selected_name
             ))),
-        );
+        ));
     }
 
     let acknowledgement = decoded.message.get_field(selected);
 
     let Value::Message(acknowledgement) = acknowledgement.as_ref() else {
-        return initial_schema_override_failure_events(
+        return Err(initial_schema_override_failure(
             decoded,
             schema_override,
             HealthError::NmxcStatus(tonic::Status::failed_precondition(
                 "NMX-C subscribe acknowledgement payload is not a message",
             )),
-        );
+        ));
     };
 
     if let Err(error) = check_dynamic_response_success(acknowledgement, "Subscribe") {
-        return initial_schema_override_failure_events(decoded, schema_override, error);
+        return Err(initial_schema_override_failure(
+            decoded,
+            schema_override,
+            error,
+        ));
     }
 
-    vec![Ok(schema_override_notification_to_log(
+    Ok(schema_override_notification_to_log(
         &decoded,
         schema_override,
         LogSeverity::Info,
-    ))]
+    ))
 }
 
-fn schema_override_frame_to_events(
+fn schema_override_frame_to_event(
     item: Result<Bytes, tonic::Status>,
     schema_override: &NmxcSchemaOverride,
-) -> Vec<Result<CollectorEvent, HealthError>> {
-    let raw = match item {
-        Ok(raw) => raw,
-        Err(status) => return vec![Err(HealthError::NmxcStatus(status))],
-    };
+) -> Result<CollectorEvent, HealthError> {
+    let raw = item.map_err(HealthError::NmxcStatus)?;
 
     match schema_override.decode_notification(&raw) {
-        Ok(decoded) => vec![Ok(schema_override_notification_to_log(
+        Ok(decoded) => Ok(schema_override_notification_to_log(
             &decoded,
             schema_override,
             LogSeverity::Info,
-        ))],
-        Err(error) => schema_override_failure_events(HealthError::NmxcStatus(
-            tonic::Status::internal(format!("NMX-C notification decode failed: {error}")),
         )),
+        Err(error) => {
+            let error = HealthError::NmxcStatus(tonic::Status::internal(format!(
+                "NMX-C notification decode failed: {error}"
+            )));
+
+            // Tonic has already separated this payload from the following
+            // gRPC messages, so a dynamic decode failure does not corrupt the
+            // stream. Report the dropped notification and keep reading.
+            Ok(schema_override_failure_log(&error))
+        }
     }
 }
 
@@ -456,34 +466,28 @@ fn schema_override_notification_to_log(
     )
 }
 
-fn initial_schema_override_failure_events(
+fn initial_schema_override_failure(
     decoded: DecodedNotification,
     schema_override: &NmxcSchemaOverride,
     error: HealthError,
-) -> Vec<Result<CollectorEvent, HealthError>> {
-    vec![
-        Ok(schema_override_notification_to_log(
-            &decoded,
-            schema_override,
-            LogSeverity::Error,
-        )),
-        Err(error),
-    ]
+) -> (CollectorEvent, HealthError) {
+    (
+        schema_override_notification_to_log(&decoded, schema_override, LogSeverity::Error),
+        error,
+    )
 }
 
-fn schema_override_failure_events(error: HealthError) -> Vec<Result<CollectorEvent, HealthError>> {
+fn schema_override_failure_log(error: &HealthError) -> CollectorEvent {
     let message = error.to_string();
 
-    let log = log_record(
+    log_record(
         LogSeverity::Error,
         message.clone(),
         vec![
             ("notification".into(), "unrecognized".to_string()),
             ("body".into(), message),
         ],
-    );
-
-    vec![Ok(log), Err(error)]
+    )
 }
 
 /// Descriptor-derived information extracted from one Subscribe response frame.
@@ -1204,11 +1208,13 @@ mod tests {
         ];
 
         for (name, frame) in cases {
-            let events = initial_schema_override_frame_to_events(frame, &schema_override);
+            let Err((event, _error)) =
+                initial_schema_override_frame_to_event(frame, &schema_override)
+            else {
+                panic!("{name} should fail after emitting its decoded response");
+            };
 
-            assert_eq!(events.len(), 2, "{name}");
-
-            let Ok(CollectorEvent::Log(record)) = &events[0] else {
+            let CollectorEvent::Log(record) = event else {
                 panic!("{name} should emit its decoded response first");
             };
 
@@ -1223,9 +1229,39 @@ mod tests {
                 key.as_ref() == "protobuf.message_type"
                     && value == schema_override.response.full_name()
             }));
-
-            assert!(events[1].is_err(), "{name}");
         }
+    }
+
+    #[test]
+    fn malformed_frames_fail_initial_connection_but_not_connected_stream() {
+        let schema_override = load_schema_override(
+            &override_descriptor_set(),
+            serde_json::json!({ "testOption": true }),
+        )
+        .expect("schema override should load");
+
+        let malformed = Bytes::from_static(&[0x0f]);
+
+        let Err((event, _error)) =
+            initial_schema_override_frame_to_event(malformed.clone(), &schema_override)
+        else {
+            panic!("malformed initial acknowledgement should fail the stream");
+        };
+
+        let CollectorEvent::Log(record) = event else {
+            panic!("malformed initial acknowledgement should emit an error log");
+        };
+
+        assert_eq!(record.severity, LogSeverity::Error);
+
+        let connected = schema_override_frame_to_event(Ok(malformed), &schema_override)
+            .expect("connected stream decode failure should become a log");
+
+        let CollectorEvent::Log(record) = connected else {
+            panic!("connected stream decode failure should emit a log");
+        };
+
+        assert_eq!(record.severity, LogSeverity::Error);
     }
 
     #[test]
