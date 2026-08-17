@@ -129,6 +129,24 @@ config:
     validLifetime: 3600
     declineProbationPeriod: 900
 
+    ## DHCP server identifier (option 54) advertised to clients — issue #3663.
+    ##
+    ## Kea defaults option 54 to the POD IP, which is unreachable from BMCs.
+    ## After a pod replacement, clients unicast-renew against the dead pod IP
+    ## and stay orphaned until the rebind timer (rebindTimer above) forces a
+    ## broadcast. Pinning option 54 to the stable DHCP VIP makes unicast
+    ## renewals survive pod churn.
+    ##
+    ## Leave empty (default) to AUTO-DERIVE from the first entry of the
+    ## externalService `metallb.universe.tf/loadBalancerIPs` annotation —
+    ## sites that already pin the DHCP VIP there get the fix with no values
+    ## change. Set explicitly only when the advertised identifier must differ
+    ## from that annotation (e.g. externalService managed outside this chart).
+    ## An explicit value must be a single IPv4 address (render fails
+    ## otherwise); when neither source yields a valid IPv4 the option is
+    ## omitted and kea falls back to the pod IP (pre-#3663 behavior).
+    serverIdentifier: ""
+
     ## libdhcp hook parameters — these become the JSON object at
     ## Dhcp4.hooks-libraries[0].parameters and are read by the
     ## NICo-specific kea hook (libdhcp.so).

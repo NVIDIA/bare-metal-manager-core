@@ -146,6 +146,38 @@ controls the YAML→JSON name mapping.
 {{- if hasKey $k "declineProbationPeriod" -}}
 {{- $declineProbationPeriod = $k.declineProbationPeriod -}}
 {{- end -}}
+{{/*
+  DHCP server identifier (option 54) — pin to the stable DHCP VIP so client
+  unicast renewals survive pod replacement (issue #3663). Without this, kea
+  advertises the ephemeral pod IP: a rescheduled pod leaves every leased BMC
+  unicast-renewing against a dead address until the rebind timer forces a
+  broadcast. Resolution order:
+    1. config.kea.serverIdentifier — explicit override, validated as IPv4
+       (render fails on a malformed explicit value).
+    2. externalService.annotations["metallb.universe.tf/loadBalancerIPs"] —
+       the VIP the chart already advertises; first entry when comma-separated.
+       Used only when it parses as a single IPv4 — a missing/odd annotation
+       silently falls through so upgrades from values that predate this
+       field can never fail at render time.
+    3. Neither — the option is omitted entirely and kea falls back to its
+       default (pod IP), which is byte-identical to the pre-#3663 rendering.
+*/}}
+{{- $ipv4Pattern := "^((25[0-5]|2[0-4][0-9]|1[0-9]{2}|[1-9]?[0-9])\\.){3}(25[0-5]|2[0-4][0-9]|1[0-9]{2}|[1-9]?[0-9])$" -}}
+{{- $serverIdentifier := trim (default "" $k.serverIdentifier) -}}
+{{- if and $serverIdentifier (not (regexMatch $ipv4Pattern $serverIdentifier)) -}}
+{{- fail (printf "nico-dhcp: config.kea.serverIdentifier must be a single IPv4 address (the stable DHCP VIP); got %q" $serverIdentifier) -}}
+{{- end -}}
+{{- if not $serverIdentifier -}}
+{{- $es := default (dict) .Values.externalService -}}
+{{- if $es.enabled -}}
+{{- $esAnnotations := default (dict) $es.annotations -}}
+{{- $vipAnnotation := index $esAnnotations "metallb.universe.tf/loadBalancerIPs" -}}
+{{- $firstVip := trim (first (splitList "," (printf "%v" (default "" $vipAnnotation)))) -}}
+{{- if regexMatch $ipv4Pattern $firstVip -}}
+{{- $serverIdentifier = $firstVip -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
 {
   "Dhcp4": {
     "interfaces-config": {
@@ -162,6 +194,14 @@ controls the YAML→JSON name mapping.
     "rebind-timer": {{ default 1800 $k.rebindTimer | toJson }},
     "valid-lifetime": {{ default 3600 $k.validLifetime | toJson }},
     "decline-probation-period": {{ $declineProbationPeriod | toJson }},
+{{- if $serverIdentifier }}
+    "option-data": [
+      {
+        "name": "dhcp-server-identifier",
+        "data": {{ $serverIdentifier | quote }}
+      }
+    ],
+{{- end }}
     {{/*
       Hook parameters — write both nico-* and carbide-* keys with identical
       values so the kea hook library (crates/dhcp/src/kea/loader.cc still
