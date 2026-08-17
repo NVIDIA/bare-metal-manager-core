@@ -4,13 +4,64 @@
 package nicoapi
 
 import (
+	"context"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/grpc"
 
 	corev1 "github.com/NVIDIA/infra-controller/rest-api/proto/core/gen/v1"
 )
+
+type deadlineTrackingForgeClient struct {
+	corev1.ForgeClient
+	deadlines []time.Time
+}
+
+func (c *deadlineTrackingForgeClient) recordDeadline(ctx context.Context) {
+	deadline, ok := ctx.Deadline()
+	if ok {
+		c.deadlines = append(c.deadlines, deadline)
+	}
+}
+
+func (c *deadlineTrackingForgeClient) FindSwitchIds(
+	ctx context.Context,
+	_ *corev1.SwitchSearchFilter,
+	_ ...grpc.CallOption,
+) (*corev1.SwitchIdList, error) {
+	c.recordDeadline(ctx)
+	time.Sleep(10 * time.Millisecond)
+	return &corev1.SwitchIdList{Ids: []*corev1.SwitchId{{Id: "switch-a"}}}, nil
+}
+
+func (c *deadlineTrackingForgeClient) FindSwitchesByIds(
+	ctx context.Context,
+	_ *corev1.SwitchesByIdsRequest,
+	_ ...grpc.CallOption,
+) (*corev1.SwitchList, error) {
+	c.recordDeadline(ctx)
+	return &corev1.SwitchList{Switches: []*corev1.Switch{
+		{
+			Id:               &corev1.SwitchId{Id: "switch-a"},
+			RackId:           &corev1.RackId{Id: "rack-a"},
+			NvlinkDomainUuid: &corev1.NVLinkDomainId{Value: "20000000-0000-0000-0000-000000000001"},
+		},
+	}}, nil
+}
+
+func TestGetObservedNVLinkDomainMembershipsUsesPerRPCTimeouts(t *testing.T) {
+	forgeClient := &deadlineTrackingForgeClient{}
+	client := &grpcClient{gclient: forgeClient, grpcTimeout: time.Minute}
+
+	memberships, err := client.GetObservedNVLinkDomainMemberships(context.Background())
+	require.NoError(t, err)
+	require.Len(t, memberships, 1)
+	require.Len(t, forgeClient.deadlines, 2)
+	assert.Greater(t, forgeClient.deadlines[1].Sub(forgeClient.deadlines[0]), 5*time.Millisecond)
+}
 
 func TestNVLinkDomainMembershipsFromSwitches(t *testing.T) {
 	domainID := "20000000-0000-0000-0000-000000000001"

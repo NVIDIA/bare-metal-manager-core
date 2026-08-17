@@ -444,10 +444,9 @@ func (c *grpcClient) FindSwitchNvosIPs(ctx context.Context, switchIds []string) 
 // deleted switches by default; the details response must include every
 // requested switch so callers can safely reconcile omitted memberships.
 func (c *grpcClient) GetObservedNVLinkDomainMemberships(ctx context.Context) ([]NVLinkDomainMembership, error) {
-	ctx, cancel := context.WithTimeout(ctx, c.grpcTimeout)
-	defer cancel()
-
-	idsResponse, err := c.gclient.FindSwitchIds(ctx, &corev1.SwitchSearchFilter{})
+	idsCtx, idsCancel := context.WithTimeout(ctx, c.grpcTimeout)
+	idsResponse, err := c.gclient.FindSwitchIds(idsCtx, &corev1.SwitchSearchFilter{})
+	idsCancel()
 	if err != nil {
 		return nil, fmt.Errorf("FindSwitchIds for NVLink domain topology: %w", err)
 	}
@@ -457,7 +456,9 @@ func (c *grpcClient) GetObservedNVLinkDomainMemberships(ctx context.Context) ([]
 		return []NVLinkDomainMembership{}, nil
 	}
 
-	detailsResponse, err := c.gclient.FindSwitchesByIds(ctx, &corev1.SwitchesByIdsRequest{
+	detailsCtx, detailsCancel := context.WithTimeout(ctx, c.grpcTimeout)
+	defer detailsCancel()
+	detailsResponse, err := c.gclient.FindSwitchesByIds(detailsCtx, &corev1.SwitchesByIdsRequest{
 		SwitchIds: switchIDs,
 	})
 	if err != nil {

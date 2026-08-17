@@ -62,11 +62,19 @@ func TestBuildDomainTopologySnapshot(t *testing.T) {
 			wantErr: "invalid observed NVLink domain ID",
 		},
 		{
-			name: "rejects unknown rack",
+			name: "skips unknown rack",
 			memberships: []nicoapi.NVLinkDomainMembership{
 				{DomainID: domainA, RackID: "unknown"},
 			},
-			wantErr: "absent from Flow rack inventory",
+		},
+		{
+			name: "keeps known membership when another rack is unknown",
+			memberships: []nicoapi.NVLinkDomainMembership{
+				{DomainID: domainA, RackID: "rack-a"},
+				{DomainID: domainB, RackID: "unknown"},
+			},
+			wantRackCount:   1,
+			wantDomainCount: 1,
 		},
 		{
 			name: "rejects conflicting rack memberships",

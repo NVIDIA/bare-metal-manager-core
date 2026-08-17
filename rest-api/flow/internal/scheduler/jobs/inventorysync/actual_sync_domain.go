@@ -98,7 +98,8 @@ func syncObservedNVLinkDomainTopology(
 // and is cleared. Domain rows and rack memberships are committed together. A
 // displaced domain is soft-deleted only when no active rack references it;
 // unrelated unreferenced domains are preserved because Flow supports manual
-// domain creation.
+// domain creation. Observations for racks absent from active Flow inventory are
+// skipped with a warning without invalidating observations for known racks.
 func mirrorObservedNVLinkDomainMemberships(
 	ctx context.Context,
 	pool *cdb.Session,
@@ -166,18 +167,21 @@ func mirrorObservedNVLinkDomainMemberships(
 				continue
 			}
 
-			_, err = tx.NewUpdate().
+			updateResult, updateErr := tx.NewUpdate().
 				Model(existing).
 				Set("deleted_at = NULL").
 				WhereAllWithDeleted().
 				Where("id = ?", domainID).
+				Where("deleted_at IS NOT NULL").
 				Exec(ctx)
-			if err != nil {
-				return fmt.Errorf("restore NVLink domain %s: %w", domainID, err)
+			if updateErr != nil {
+				return fmt.Errorf("restore NVLink domain %s: %w", domainID, updateErr)
 			}
-			if existing.DeletedAt != nil {
-				result.domainsResurrected++
+			changed, rowsErr := updateResult.RowsAffected()
+			if rowsErr != nil {
+				return fmt.Errorf("count restored NVLink domains for %s: %w", domainID, rowsErr)
 			}
+			result.domainsResurrected += int(changed)
 		}
 
 		now := time.Now()
@@ -290,6 +294,8 @@ func buildDomainTopologySnapshot(
 ) (domainTopologySnapshot, error) {
 	domainByRack := make(map[uuid.UUID]uuid.UUID)
 	domainIDs := make(map[uuid.UUID]struct{})
+	unknownRackIDs := make(map[string]struct{})
+	skippedUnknownMemberships := 0
 
 	for _, membership := range memberships {
 		domainID, err := uuid.Parse(membership.DomainID)
@@ -299,10 +305,9 @@ func buildDomainTopologySnapshot(
 
 		rackID, ok := rackIDByExternalID[membership.RackID]
 		if !ok {
-			return domainTopologySnapshot{}, fmt.Errorf(
-				"observed NVLink domain %s references rack %q absent from Flow rack inventory",
-				domainID, membership.RackID,
-			)
+			unknownRackIDs[membership.RackID] = struct{}{}
+			skippedUnknownMemberships++
+			continue
 		}
 
 		currentDomainID, exists := domainByRack[rackID]
@@ -315,6 +320,18 @@ func buildDomainTopologySnapshot(
 
 		domainByRack[rackID] = domainID
 		domainIDs[domainID] = struct{}{}
+	}
+
+	if skippedUnknownMemberships > 0 {
+		unknownRacks := make([]string, 0, len(unknownRackIDs))
+		for rackID := range unknownRackIDs {
+			unknownRacks = append(unknownRacks, rackID)
+		}
+		sort.Strings(unknownRacks)
+		log.Warn().
+			Int("skipped_memberships", skippedUnknownMemberships).
+			Strs("rack_external_ids", unknownRacks).
+			Msg("Actual-inventory sync: skipped observed NVLink domain memberships for racks absent from Flow rack inventory")
 	}
 
 	return domainTopologySnapshot{domainByRack: domainByRack, domainIDs: domainIDs}, nil
