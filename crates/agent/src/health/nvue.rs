@@ -17,11 +17,88 @@
 
 use std::collections::BTreeMap;
 
-use health_report::HealthReport;
+use health_report::{HealthProbeAlert, HealthProbeSuccess, HealthReport};
 use nvue_client::types::bgp::{BgpPeerInfo, BgpPeerState, BgpVrfInfo};
+use nvue_client::{FieldFilter, NvueClient};
 
 use super::{failed, make_alert, probe_ids};
 use crate::HBNDeviceNames;
+
+/// The VRF we'll look for our BGP uplinks in.
+const BGP_VRF_UPLINKS: &str = "default";
+
+/// Health check configuration for NVUE API targets.
+pub(crate) struct NvueHealthCheck<'a> {
+    /// NVUE client used for API availability checks and BGP queries.
+    pub(crate) nvue_client: &'a NvueClient,
+    /// Minimum number of configured ToR uplink sessions that must be established.
+    pub(crate) min_healthy_links: usize,
+    /// HBN interface names used to identify expected ToR uplink sessions.
+    pub(crate) hbn_device_names: &'a HBNDeviceNames,
+}
+
+impl NvueHealthCheck<'_> {
+    /// Performs all health checks against the NVUE API.
+    pub(crate) async fn health_check(&self) -> HealthReport {
+        let mut report = HealthReport::empty("forge-dpu-agent".into());
+
+        match self.nvue_api_health().await {
+            Ok(success) => report.successes.push(success),
+            Err(alert) => {
+                // If the NVUE API wasn't healthy, we can't use it to check
+                // anything else.
+                report.alerts.push(alert);
+                return report;
+            }
+        }
+
+        self.check_bgp_uplinks(&mut report).await;
+        report
+    }
+
+    /// Checks BGP uplink session health through the configured NVUE API target.
+    async fn check_bgp_uplinks(&self, report: &mut HealthReport) {
+        const BGP_NEIGHBOR_STATE_FIELD: &str = "/neighbor/*/state";
+
+        let bgp_vrf_info = self
+            .nvue_client
+            .get_bgp_vrf_info_filtered(
+                BGP_VRF_UPLINKS,
+                FieldFilter::with_includes([BGP_NEIGHBOR_STATE_FIELD]),
+            )
+            .await;
+        match bgp_vrf_info.as_ref() {
+            Ok(bgp_vrf_info) => check_bgp_uplink_sessions(
+                report,
+                bgp_vrf_info,
+                self.min_healthy_links,
+                self.hbn_device_names,
+            ),
+            Err(error) => failed(
+                report,
+                probe_ids::BgpPeeringTor.clone(),
+                None,
+                format!("Error fetching NVUE BGP data for VRF {BGP_VRF_UPLINKS}: {error}"),
+            ),
+        }
+    }
+
+    /// Checks whether the NVUE API can answer a basic system-information request.
+    async fn nvue_api_health(&self) -> Result<HealthProbeSuccess, HealthProbeAlert> {
+        match self.nvue_client.system_info().await {
+            Ok(_) => Ok(HealthProbeSuccess {
+                id: probe_ids::NvueApi.clone(),
+                target: None,
+            }),
+            Err(e) => Err(make_alert(
+                probe_ids::NvueApi.clone(),
+                None,
+                format!("Error communicating with NVUE API: {e}"),
+                true,
+            )),
+        }
+    }
+}
 
 /// Checks configured ToR BGP sessions from an already-fetched NVUE BGP VRF response.
 ///
@@ -31,13 +108,6 @@ use crate::HBNDeviceNames;
 /// a `BgpPeeringTor` alert targeted at that uplink. A `BgpPeeringTor` alert is
 /// emitted when `min_healthy_links` asks for more uplinks than the configured
 /// device names provide. The helper does not emit success entries.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "Reusable NVUE BGP health helper is intentionally not wired yet"
-    )
-)]
 pub(super) fn check_bgp_uplink_sessions(
     report: &mut HealthReport,
     bgp: &BgpVrfInfo,
@@ -106,13 +176,6 @@ pub(super) fn check_bgp_uplink_sessions(
 /// `BgpPeerState::Established`. A missing NVUE neighbor map, missing peer,
 /// missing state, or non-established state returns a descriptive error message
 /// for conversion to a health alert by the caller.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "Reusable NVUE BGP health helper is intentionally not wired yet"
-    )
-)]
 fn check_expected_peer_established(
     neighbors: Option<&BTreeMap<String, BgpPeerInfo>>,
     peer_name: &str,

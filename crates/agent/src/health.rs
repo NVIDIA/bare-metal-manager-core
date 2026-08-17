@@ -21,14 +21,13 @@ use std::path::Path;
 use std::str::FromStr;
 use std::time::Duration;
 
-use health_report::{HealthProbeId, HealthReport};
-use nvue_client::NvueClient;
+use health_report::HealthProbeId;
 use tokio::process::Command as TokioCommand;
 use tokio::time::timeout;
 
 use crate::{HBNDeviceNames, hbn};
 mod bgp;
-mod nvue;
+pub(crate) mod nvue;
 mod probe_ids;
 
 const HBN_DAEMONS_FILE: &str = "etc/frr/daemons";
@@ -111,7 +110,7 @@ pub(super) fn is_up(health_report: &health_report::HealthReport) -> bool {
     let nvue_api_up = health_report
         .successes
         .iter()
-        .any(|s| s.id == *probe_ids::NvueApiRunning);
+        .any(|s| s.id == *probe_ids::NvueApi);
     let hbn_healthy = (container_exists && supervisord_up) || nvue_api_up;
     hbn_healthy && !has_failed_services
 }
@@ -726,22 +725,6 @@ enum SctlState {
     Stopping,
     Exited,
     Fatal,
-}
-
-pub(super) async fn nvue_api_health(nvue_client: &NvueClient) -> HealthReport {
-    // All we can really do here is check that the API is alive. The HBN flavor of NVUE
-    // doesn't seem to expose much of anything that we can look at for node health.
-    let mut report = HealthReport::empty("forge-dpu-agent".into());
-    match nvue_client.system_info().await {
-        Ok(_) => passed(&mut report, probe_ids::NvueApiRunning.clone(), None),
-        Err(e) => failed(
-            &mut report,
-            probe_ids::NvueApiRunning.clone(),
-            None,
-            format!("Error communicating with NVUE API: {e}"),
-        ),
-    }
-    report
 }
 
 #[cfg(test)]
