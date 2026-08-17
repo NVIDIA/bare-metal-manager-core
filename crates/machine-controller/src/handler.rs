@@ -2667,7 +2667,6 @@ impl StateHandler for MachineStateHandler {
         if !mh_snapshot.host_snapshot.config.dpf.used_for_ingestion {
             tracing::debug!(
                 machine_id = %host_machine_id,
-                removed_in = "v2.1",
                 docs = "https://docs.nvidia.com/infra-controller/documentation/getting-started/installation-options/dpf-setup",
                 "iPXE provisioning strategy (internally) is deprecated; enable DPF management for DPUs to migrate"
             );
