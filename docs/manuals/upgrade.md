@@ -81,6 +81,12 @@ kubectl get pods -n dpf-operator-system   # if DPF is enabled — phase 5b upgra
 
 All pods should be `Running` or `Completed`. Check for pods stuck in `CrashLoopBackOff`, `Pending`, or `Error`.
 
+Capture the current LoadBalancer VIP assignments as a baseline — the post-upgrade verification diffs against this:
+
+```bash
+kubectl get svc -n nico-system -o wide | grep LoadBalancer > pre-upgrade-vips.txt
+```
+
 Verify that Vault is fully unsealed — a sealed Vault blocks the upgrade at phase 4:
 
 ```bash
@@ -192,13 +198,14 @@ kubectl get deployment -n nico-system nico-api \
     -o jsonpath='{.spec.template.spec.containers[0].image}'
 ```
 
-Verify every LoadBalancer service kept its VIP — an upgrade must not reassign them:
+Verify every LoadBalancer service kept its VIP — an upgrade must not reassign them. Diff against the baseline captured in the pre-upgrade checklist:
 
 ```bash
-kubectl get svc -n nico-system -o wide | grep LoadBalancer
+kubectl get svc -n nico-system -o wide | grep LoadBalancer | diff pre-upgrade-vips.txt - \
+    && echo "VIPs unchanged"
 ```
 
-Every service should show the same external IP it had before the upgrade (the VIPs pinned in `values/nico-core.yaml`). Any `<pending>` entry means MetalLB is not advertising — check the MetalLB CRDs and site config objects (see the 2.0→2.1 note below).
+Any diff output or `<pending>` entry means MetalLB reassigned or stopped advertising a VIP — check the MetalLB CRDs and site config objects (see the 2.0→2.1 note below) and the pins in `values/nico-core.yaml`.
 
 Verify PostgreSQL has an elected leader and the cluster is running:
 
