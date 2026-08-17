@@ -190,6 +190,12 @@ func TestRackByID(t *testing.T) {
 			inventory: &fakeInventory{},
 			wantErr:   ErrUnresolvable,
 		},
+		"reader returns nil rack": {
+			id:          rackID,
+			inventory:   &fakeInventory{},
+			wantErr:     ErrUnresolvable,
+			wantMessage: "has no canonical id",
+		},
 		"inventory failure": {
 			id:          rackID,
 			inventory:   &fakeInventory{err: inventoryErr},
@@ -203,6 +209,26 @@ func TestRackByID(t *testing.T) {
 			},
 			wantErr:     ErrUnresolvable,
 			wantMessage: "resolved to rack id",
+		},
+		"component without ID": {
+			id: rackID,
+			inventory: &fakeInventory{
+				rack: testRack(rackID, component.Component{}),
+			},
+			wantErr:     ErrUnresolvable,
+			wantMessage: "component 0 id is required",
+		},
+		"duplicate component ID": {
+			id: rackID,
+			inventory: &fakeInventory{
+				rack: testRack(
+					rackID,
+					component.Component{Info: deviceinfo.DeviceInfo{ID: rackID}},
+					component.Component{Info: deviceinfo.DeviceInfo{ID: rackID}},
+				),
+			},
+			wantErr:     ErrUnresolvable,
+			wantMessage: "component 1 duplicates id",
 		},
 	}
 
@@ -301,6 +327,12 @@ func testComponent(
 	resolved := component.New(componentType, &deviceinfo.DeviceInfo{ID: id}, "", nil)
 	resolved.RackID = rackID
 	return &resolved
+}
+
+func testRack(id uuid.UUID, components ...component.Component) *rack.Rack {
+	resolved := rack.New(deviceinfo.DeviceInfo{ID: id}, location.Location{})
+	resolved.Components = components
+	return resolved
 }
 
 type fakeInventory struct {

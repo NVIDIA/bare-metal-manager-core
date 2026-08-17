@@ -16,29 +16,12 @@ import (
 	"github.com/google/uuid"
 )
 
-// enrichment contains the canonical resource information needed by processing.
-type enrichment struct {
-	ResolvedResource eventrule.ResolvedResource
-}
-
-// enrich coordinates all enrichment applied to an event envelope.
+// enrich resolves the canonical resource information for an event envelope.
 func (p *Processor) enrich(
 	ctx context.Context,
 	envelope eventrule.Envelope,
-) (enrichment, error) {
-	resolvedResource, err := p.enrichResource(ctx, envelope.Resource)
-	if err != nil {
-		return enrichment{}, err
-	}
-
-	return enrichment{ResolvedResource: resolvedResource}, nil
-}
-
-// enrichResource resolves a resource's Flow identity, rack, and component type.
-func (p *Processor) enrichResource(
-	ctx context.Context,
-	resource eventrule.Resource,
 ) (eventrule.ResolvedResource, error) {
+	resource := envelope.Resource
 	switch resource.Kind {
 	case eventrule.ResourceKindRack:
 		return p.enrichRackResource(ctx, resource)

@@ -48,9 +48,9 @@ func TestEnrichComponent(t *testing.T) {
 		}),
 	)
 	require.NoError(t, err)
-	require.Equal(t, componentID, result.ResolvedResource.ID)
-	require.Equal(t, flowtypes.ComponentTypeCompute, result.ResolvedResource.ComponentType)
-	require.Equal(t, rackID, result.ResolvedResource.RackID)
+	require.Equal(t, componentID, result.ID)
+	require.Equal(t, flowtypes.ComponentTypeCompute, result.ComponentType)
+	require.Equal(t, rackID, result.RackID)
 }
 
 func TestEnrichClassifiesFailures(t *testing.T) {
@@ -167,8 +167,8 @@ func TestEnrichRackUsesResolvedResourceAsRack(t *testing.T) {
 		}),
 	)
 	require.NoError(t, err)
-	require.Equal(t, rackID, result.ResolvedResource.ID)
-	require.Equal(t, rackID, result.ResolvedResource.RackID)
+	require.Equal(t, rackID, result.ID)
+	require.Equal(t, rackID, result.RackID)
 }
 
 func validEnvelope(resource eventrule.Resource) eventrule.Envelope {

@@ -23,9 +23,13 @@ func TestConfigValidate(t *testing.T) {
 			mutate:  func(config *Config) { config.Rules = nil },
 			wantErr: "rule resolver is required",
 		},
-		"missing execution store": {
+		"missing action execution store": {
 			mutate:  func(config *Config) { config.Executions = nil },
 			wantErr: "execution store is required",
+		},
+		"missing target resolver": {
+			mutate:  func(config *Config) { config.Targets = nil },
+			wantErr: "target resolver is required",
 		},
 		"missing action executor": {
 			mutate:  func(config *Config) { config.Executor = nil },
@@ -57,9 +61,9 @@ func TestNew(t *testing.T) {
 		require.Nil(t, processor)
 	})
 
-	t.Run("defaults clock", func(t *testing.T) {
+	t.Run("constructs processor", func(t *testing.T) {
 		processor, err := New(validProcessorConfig())
 		require.NoError(t, err)
-		require.NotNil(t, processor.now)
+		require.NotNil(t, processor)
 	})
 }

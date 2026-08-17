@@ -35,7 +35,7 @@ func EventActionExecutionTo(
 		Observations:   execution.Observations,
 		Attempts:       execution.Attempts,
 		StatusMessage:  execution.StatusMessage,
-		FirstClaimedAt: execution.FirstClaimedAt,
+		CreatedAt:      execution.CreatedAt,
 		UpdatedAt:      execution.UpdatedAt,
 		NextAttemptAt:  nextAttemptAt,
 	}, nil
@@ -55,20 +55,24 @@ func EventActionExecutionFrom(
 	}
 	execution := &eventrule.Execution{
 		ExecutionState: eventrule.ExecutionState{
-			Status:        eventrule.ExecutionStatus(persisted.Status),
-			Reason:        eventrule.ExecutionReason(persisted.Reason),
-			StatusMessage: persisted.StatusMessage,
+			ExecutionStatusDetails: eventrule.ExecutionStatusDetails{
+				Status:        eventrule.ExecutionStatus(persisted.Status),
+				Reason:        eventrule.ExecutionReason(persisted.Reason),
+				StatusMessage: persisted.StatusMessage,
+			},
 			NextAttemptAt: nextAttemptAt,
 		},
-		ID:             persisted.ID,
-		EventID:        persisted.EventID,
-		RuleID:         persisted.RuleID,
-		ActionID:       persisted.ActionID,
-		CorrelationKey: persisted.CorrelationKey,
-		Observations:   persisted.Observations,
-		Attempts:       persisted.Attempts,
-		FirstClaimedAt: persisted.FirstClaimedAt,
-		UpdatedAt:      persisted.UpdatedAt,
+		ExecutionIdentity: eventrule.ExecutionIdentity{
+			EventID:        persisted.EventID,
+			RuleID:         persisted.RuleID,
+			ActionID:       persisted.ActionID,
+			CorrelationKey: persisted.CorrelationKey,
+		},
+		ID:           persisted.ID,
+		Observations: persisted.Observations,
+		Attempts:     persisted.Attempts,
+		CreatedAt:    persisted.CreatedAt,
+		UpdatedAt:    persisted.UpdatedAt,
 	}
 	if err := execution.Validate(); err != nil {
 		return nil, fmt.Errorf("%w: %w", eventrule.ErrInvalidPersistedExecution, err)

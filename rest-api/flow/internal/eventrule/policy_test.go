@@ -25,40 +25,40 @@ func TestDedupe_Clone(t *testing.T) {
 }
 
 func TestDedupe_WithinWindow(t *testing.T) {
-	firstClaimedAt := time.Date(2026, 8, 5, 12, 0, 0, 0, time.UTC)
+	createdAt := time.Date(2026, 8, 5, 12, 0, 0, 0, time.UTC)
 	tests := map[string]struct {
 		dedupe     *Dedupe
 		observedAt time.Time
 		want       bool
 	}{
 		"nil policy": {
-			observedAt: firstClaimedAt,
+			observedAt: createdAt,
 		},
-		"at first claim": {
+		"at creation": {
 			dedupe:     &Dedupe{Window: time.Minute},
-			observedAt: firstClaimedAt,
+			observedAt: createdAt,
 			want:       true,
 		},
-		"immediately before first claim": {
+		"immediately before creation": {
 			dedupe:     &Dedupe{Window: time.Minute},
-			observedAt: firstClaimedAt.Add(-time.Nanosecond),
+			observedAt: createdAt.Add(-time.Nanosecond),
 		},
-		"far before first claim": {
+		"far before creation": {
 			dedupe:     &Dedupe{Window: time.Minute},
-			observedAt: firstClaimedAt.Add(-24 * time.Hour),
+			observedAt: createdAt.Add(-24 * time.Hour),
 		},
 		"inside window": {
 			dedupe:     &Dedupe{Window: time.Minute},
-			observedAt: firstClaimedAt.Add(time.Minute - time.Nanosecond),
+			observedAt: createdAt.Add(time.Minute - time.Nanosecond),
 			want:       true,
 		},
 		"at window boundary": {
 			dedupe:     &Dedupe{Window: time.Minute},
-			observedAt: firstClaimedAt.Add(time.Minute),
+			observedAt: createdAt.Add(time.Minute),
 		},
 		"outside window": {
 			dedupe:     &Dedupe{Window: time.Minute},
-			observedAt: firstClaimedAt.Add(time.Minute + time.Nanosecond),
+			observedAt: createdAt.Add(time.Minute + time.Nanosecond),
 		},
 	}
 
@@ -67,7 +67,7 @@ func TestDedupe_WithinWindow(t *testing.T) {
 			require.Equal(
 				t,
 				test.want,
-				test.dedupe.WithinWindow(firstClaimedAt, test.observedAt),
+				test.dedupe.WithinWindow(createdAt, test.observedAt),
 			)
 		})
 	}

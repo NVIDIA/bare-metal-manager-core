@@ -4,7 +4,6 @@
 package eventrule
 
 import (
-	"errors"
 	"testing"
 	"time"
 
@@ -15,26 +14,29 @@ import (
 func TestExecution_Validate(t *testing.T) {
 	now := time.Date(2026, 8, 5, 12, 0, 0, 0, time.UTC)
 	valid := Execution{
-		ExecutionState: ExecutionState{Status: ExecutionStatusClaimed},
-		ID:             uuid.New(), EventID: uuid.New(), RuleID: uuid.New(), ActionID: "notify",
-		Observations: 1, Attempts: 1,
-		FirstClaimedAt: now, UpdatedAt: now,
+		ExecutionState: ExecutionState{ExecutionStatusDetails: ExecutionStatusDetails{Status: ExecutionStatusPending}},
+		ExecutionIdentity: ExecutionIdentity{
+			EventID:  uuid.New(),
+			RuleID:   uuid.New(),
+			ActionID: "notify",
+		},
+		ID:           uuid.New(),
+		Observations: 1,
+		Attempts:     1,
+		CreatedAt:    now,
+		UpdatedAt:    now,
 	}
 	tests := map[string]struct {
 		execution *Execution
 		mutate    func(*Execution)
 		wantErr   string
 	}{
-		"valid claimed": {execution: &valid},
-		"nil":           {wantErr: "event action execution is nil"},
-		"claimed with status message": {
-			execution: &valid,
-			mutate:    func(execution *Execution) { execution.StatusMessage = "unexpected" },
-		},
+		"valid pending": {execution: &valid},
+		"nil":           {wantErr: "execution is nil"},
 		"missing id": {
 			execution: &valid,
 			mutate:    func(execution *Execution) { execution.ID = uuid.Nil },
-			wantErr:   "event action execution id is required",
+			wantErr:   "execution id is required",
 		},
 		"missing event id": {
 			execution: &valid,
@@ -61,39 +63,22 @@ func TestExecution_Validate(t *testing.T) {
 			mutate:    func(execution *Execution) { execution.Attempts = 0 },
 			wantErr:   "execution attempts must be positive",
 		},
-		"missing first claimed time": {
+		"missing creation time": {
 			execution: &valid,
-			mutate:    func(execution *Execution) { execution.FirstClaimedAt = time.Time{} },
-			wantErr:   "execution first claimed time is required",
+			mutate:    func(execution *Execution) { execution.CreatedAt = time.Time{} },
+			wantErr:   "execution creation time is required",
 		},
 		"missing updated time": {
 			execution: &valid,
 			mutate:    func(execution *Execution) { execution.UpdatedAt = time.Time{} },
 			wantErr:   "execution updated time is required",
 		},
-		"updated before first claim": {
+		"updated before creation": {
 			execution: &valid,
 			mutate: func(execution *Execution) {
-				execution.UpdatedAt = execution.FirstClaimedAt.Add(-time.Second)
+				execution.UpdatedAt = execution.CreatedAt.Add(-time.Second)
 			},
-			wantErr: "execution updated time cannot precede first claimed time",
-		},
-		"skipped without reason": {
-			execution: &valid,
-			mutate:    func(execution *Execution) { execution.Status = ExecutionStatusSkipped },
-			wantErr:   "skipped execution requires one of reasons",
-		},
-		"deferred without status message": {
-			execution: &valid,
-			mutate: func(execution *Execution) {
-				execution.Status = ExecutionStatusDeferred
-				execution.Reason = ExecutionReasonAttemptFailed
-				execution.NextAttemptAt = now.Add(time.Minute)
-			},
-		},
-		"failed without status message": {
-			execution: &valid,
-			mutate:    func(execution *Execution) { execution.Status = ExecutionStatusFailed },
+			wantErr: "execution updated time cannot precede creation time",
 		},
 		"unknown status": {
 			execution: &valid,
@@ -106,12 +91,13 @@ func TestExecution_Validate(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			var execution *Execution
 			if test.execution != nil {
-				mutated := *test.execution
-				execution = &mutated
+				copy := *test.execution
+				execution = &copy
 				if test.mutate != nil {
 					test.mutate(execution)
 				}
 			}
+
 			err := execution.Validate()
 			if test.wantErr == "" {
 				require.NoError(t, err)
@@ -120,63 +106,35 @@ func TestExecution_Validate(t *testing.T) {
 			require.ErrorContains(t, err, test.wantErr)
 		})
 	}
-}
 
-func TestExecution_IsOwned(t *testing.T) {
-	tests := map[string]struct {
-		status ExecutionStatus
-		want   bool
-	}{
-		"claimed": {
-			status: ExecutionStatusClaimed,
-			want:   true,
-		},
-		"deferred": {
-			status: ExecutionStatusDeferred,
-		},
-		"completed": {
-			status: ExecutionStatusCompleted,
-		},
-	}
+	t.Run("increments repeated deferred attempts", func(t *testing.T) {
+		execution, err := NewExecution(ExecutionIdentity{
+			EventID:  uuid.New(),
+			RuleID:   uuid.New(),
+			ActionID: "retry",
+		}, now)
+		require.NoError(t, err)
 
-	for name, test := range tests {
-		t.Run(name, func(t *testing.T) {
-			execution := Execution{
-				ExecutionState: ExecutionState{Status: test.status},
-			}
-			require.Equal(t, test.want, execution.IsOwned())
-		})
-	}
-}
+		result := DeferredExecutionResult(
+			ExecutionReasonAttemptFailed,
+			"retry",
+			0,
+		)
+		require.NoError(t, execution.TransitionTo(result, now.Add(time.Second)))
+		require.Equal(t, 1, execution.Attempts)
 
-func TestExecutionState_ValidateTransition(t *testing.T) {
-	tests := map[string]struct {
-		state   ExecutionState
-		wantErr string
-	}{
-		"completed": {
-			state: ExecutionState{Status: ExecutionStatusCompleted},
-		},
-		"claimed": {
-			state:   ExecutionState{Status: ExecutionStatusClaimed},
-			wantErr: "cannot transition execution to claimed status",
-		},
-		"invalid state": {
-			state:   ExecutionState{Status: ExecutionStatusSkipped},
-			wantErr: "skipped execution requires one of reasons",
-		},
-	}
+		require.NoError(t, execution.TransitionTo(result, now.Add(2*time.Second)))
+		require.Equal(t, 2, execution.Attempts)
 
-	for name, test := range tests {
-		t.Run(name, func(t *testing.T) {
-			err := test.state.ValidateTransition()
-			if test.wantErr == "" {
-				require.NoError(t, err)
-				return
-			}
-			require.ErrorContains(t, err, test.wantErr)
-		})
-	}
+		require.NoError(t, execution.TransitionTo(result, now.Add(3*time.Second)))
+		require.Equal(t, 3, execution.Attempts)
+
+		require.NoError(t, execution.TransitionTo(
+			CompletedExecutionResult(),
+			now.Add(4*time.Second),
+		))
+		require.Equal(t, 4, execution.Attempts)
+	})
 }
 
 func TestExecutionStatus_CanTransitionTo(t *testing.T) {
@@ -185,38 +143,28 @@ func TestExecutionStatus_CanTransitionTo(t *testing.T) {
 		to   ExecutionStatus
 		want bool
 	}{
-		"claimed to submitted": {
-			from: ExecutionStatusClaimed,
-			to:   ExecutionStatusSubmitted,
-			want: true,
-		},
-		"claimed to completed": {
-			from: ExecutionStatusClaimed,
+		"pending to completed": {
+			from: ExecutionStatusPending,
 			to:   ExecutionStatusCompleted,
 			want: true,
 		},
-		"claimed to skipped": {
-			from: ExecutionStatusClaimed,
-			to:   ExecutionStatusSkipped,
-			want: true,
-		},
-		"claimed to deferred": {
-			from: ExecutionStatusClaimed,
+		"pending to deferred": {
+			from: ExecutionStatusPending,
 			to:   ExecutionStatusDeferred,
 			want: true,
 		},
-		"claimed to failed": {
-			from: ExecutionStatusClaimed,
-			to:   ExecutionStatusFailed,
+		"deferred to completed": {
+			from: ExecutionStatusDeferred,
+			to:   ExecutionStatusCompleted,
 			want: true,
 		},
-		"claimed to claimed": {
-			from: ExecutionStatusClaimed,
-			to:   ExecutionStatusClaimed,
+		"pending to pending": {
+			from: ExecutionStatusPending,
+			to:   ExecutionStatusPending,
 		},
-		"completed to claimed": {
+		"completed to failed": {
 			from: ExecutionStatusCompleted,
-			to:   ExecutionStatusClaimed,
+			to:   ExecutionStatusFailed,
 		},
 	}
 
@@ -230,81 +178,84 @@ func TestExecutionStatus_CanTransitionTo(t *testing.T) {
 func TestExecution_TransitionTo(t *testing.T) {
 	now := time.Date(2026, 8, 10, 12, 0, 0, 0, time.UTC)
 	zero := time.Time{}
-	beforeFirstClaim := now.Add(-time.Second)
+	beforeCreation := now.Add(-time.Second)
 	tests := map[string]struct {
 		execution  *Execution
-		state      ExecutionState
+		result     ExecutionResult
 		transition *time.Time
 		wantErr    string
 	}{
-		"completed": {
+		"pending to completed": {
 			execution: &Execution{
 				ID:             uuid.New(),
-				ExecutionState: ExecutionState{Status: ExecutionStatusClaimed},
+				ExecutionState: ExecutionState{ExecutionStatusDetails: ExecutionStatusDetails{Status: ExecutionStatusPending}},
 			},
-			state: ExecutionState{Status: ExecutionStatusCompleted},
+			result: ExecutionResult{ExecutionStatusDetails: ExecutionStatusDetails{Status: ExecutionStatusCompleted}},
 		},
-		"invalid target state": {
+		"deferred to completed": {
+			execution: &Execution{
+				ID: uuid.New(),
+				ExecutionState: ExecutionState{
+					ExecutionStatusDetails: ExecutionStatusDetails{
+						Status: ExecutionStatusDeferred,
+						Reason: ExecutionReasonAttemptFailed,
+					},
+					NextAttemptAt: now,
+				},
+			},
+			result: ExecutionResult{ExecutionStatusDetails: ExecutionStatusDetails{Status: ExecutionStatusCompleted}},
+		},
+		"pending to deferred uses transition time": {
 			execution: &Execution{
 				ID:             uuid.New(),
-				ExecutionState: ExecutionState{Status: ExecutionStatusClaimed},
+				ExecutionState: ExecutionState{ExecutionStatusDetails: ExecutionStatusDetails{Status: ExecutionStatusPending}},
 			},
-			state:   ExecutionState{Status: ExecutionStatusSkipped},
-			wantErr: "skipped execution requires one of reasons",
+			result: ExecutionResult{
+				ExecutionStatusDetails: ExecutionStatusDetails{
+					Status: ExecutionStatusDeferred,
+					Reason: ExecutionReasonAttemptFailed,
+				},
+				RetryAfter: time.Minute,
+			},
+		},
+		"pending is not an result": {
+			execution: &Execution{
+				ID:             uuid.New(),
+				ExecutionState: ExecutionState{ExecutionStatusDetails: ExecutionStatusDetails{Status: ExecutionStatusPending}},
+			},
+			result:  ExecutionResult{ExecutionStatusDetails: ExecutionStatusDetails{Status: ExecutionStatusPending}},
+			wantErr: "pending is not an execution result",
+		},
+		"terminal source": {
+			execution: &Execution{
+				ID:             uuid.New(),
+				ExecutionState: ExecutionState{ExecutionStatusDetails: ExecutionStatusDetails{Status: ExecutionStatusCompleted}},
+			},
+			result:  ExecutionResult{ExecutionStatusDetails: ExecutionStatusDetails{Status: ExecutionStatusFailed}},
+			wantErr: "cannot transition",
 		},
 		"missing transition time": {
 			execution: &Execution{
 				ID:             uuid.New(),
-				ExecutionState: ExecutionState{Status: ExecutionStatusClaimed},
+				ExecutionState: ExecutionState{ExecutionStatusDetails: ExecutionStatusDetails{Status: ExecutionStatusPending}},
 			},
-			state:      ExecutionState{Status: ExecutionStatusCompleted},
+			result:     ExecutionResult{ExecutionStatusDetails: ExecutionStatusDetails{Status: ExecutionStatusCompleted}},
 			transition: &zero,
 			wantErr:    "execution transition time is required",
 		},
-		"transition before first claim": {
+		"transition before creation": {
 			execution: &Execution{
 				ID:             uuid.New(),
-				ExecutionState: ExecutionState{Status: ExecutionStatusClaimed},
-				FirstClaimedAt: now,
+				ExecutionState: ExecutionState{ExecutionStatusDetails: ExecutionStatusDetails{Status: ExecutionStatusPending}},
+				CreatedAt:      now,
 			},
-			state:      ExecutionState{Status: ExecutionStatusCompleted},
-			transition: &beforeFirstClaim,
-			wantErr:    "execution transition time cannot precede first claimed time",
-		},
-		"target with stale next attempt": {
-			execution: &Execution{
-				ID:             uuid.New(),
-				ExecutionState: ExecutionState{Status: ExecutionStatusClaimed},
-			},
-			state: ExecutionState{
-				Status:        ExecutionStatusCompleted,
-				NextAttemptAt: now.Add(time.Minute),
-			},
-			wantErr: "completed execution cannot have next attempt time",
-		},
-		"not owned": {
-			execution: &Execution{
-				ID:             uuid.New(),
-				ExecutionState: ExecutionState{Status: ExecutionStatusCompleted},
-			},
-			state:   ExecutionState{Status: ExecutionStatusFailed},
-			wantErr: "is not owned",
-		},
-		"not owned with invalid target": {
-			execution: &Execution{
-				ID:             uuid.New(),
-				ExecutionState: ExecutionState{Status: ExecutionStatusCompleted},
-			},
-			state:   ExecutionState{Status: ExecutionStatusClaimed},
-			wantErr: "is not owned",
+			result:     ExecutionResult{ExecutionStatusDetails: ExecutionStatusDetails{Status: ExecutionStatusCompleted}},
+			transition: &beforeCreation,
+			wantErr:    "cannot precede creation time",
 		},
 		"nil execution": {
-			state:   ExecutionState{Status: ExecutionStatusCompleted},
-			wantErr: "event action execution is nil",
-		},
-		"nil execution with invalid target": {
-			state:   ExecutionState{Status: ExecutionStatusClaimed},
-			wantErr: "event action execution is nil",
+			result:  ExecutionResult{ExecutionStatusDetails: ExecutionStatusDetails{Status: ExecutionStatusCompleted}},
+			wantErr: "execution is nil",
 		},
 	}
 
@@ -314,274 +265,93 @@ func TestExecution_TransitionTo(t *testing.T) {
 			if test.transition != nil {
 				transitionAt = *test.transition
 			}
-			err := test.execution.TransitionTo(test.state, transitionAt)
+			err := test.execution.TransitionTo(test.result, transitionAt)
 			if test.wantErr != "" {
 				require.ErrorContains(t, err, test.wantErr)
 				return
 			}
 			require.NoError(t, err)
-			require.Equal(t, test.state, test.execution.ExecutionState)
+			require.Equal(t, test.result.Status, test.execution.Status)
+			require.Equal(t, test.result.Reason, test.execution.Reason)
+			require.Equal(t, test.result.StatusMessage, test.execution.StatusMessage)
+			if test.result.Status == ExecutionStatusDeferred {
+				require.Equal(t, transitionAt.Add(test.result.RetryAfter), test.execution.NextAttemptAt)
+			} else {
+				require.True(t, test.execution.NextAttemptAt.IsZero())
+			}
 			require.Equal(t, transitionAt, test.execution.UpdatedAt)
 		})
 	}
 }
 
-func TestExecution_TryClaim(t *testing.T) {
-	now := time.Date(2026, 8, 10, 12, 0, 0, 0, time.UTC)
-	nextAttemptAt := now.Add(time.Minute)
+func TestExecutionState_Validate(t *testing.T) {
+	nextAttemptAt := time.Now().Add(time.Minute)
 	tests := map[string]struct {
-		execution     *Execution
-		now           time.Time
-		wantExecution bool
-		wantErr       error
-	}{
-		"due deferred execution": {
-			execution: &Execution{
-				ExecutionState: ExecutionState{
-					Status:        ExecutionStatusDeferred,
-					Reason:        ExecutionReasonAttemptFailed,
-					NextAttemptAt: nextAttemptAt,
-				},
-				Observations: 1,
-				Attempts:     1,
-			},
-			now:           nextAttemptAt,
-			wantExecution: true,
-		},
-		"deferred execution not due": {
-			execution: &Execution{
-				ExecutionState: ExecutionState{
-					Status:        ExecutionStatusDeferred,
-					Reason:        ExecutionReasonAttemptFailed,
-					NextAttemptAt: nextAttemptAt,
-				},
-				Observations: 1,
-				Attempts:     1,
-			},
-			now:     now,
-			wantErr: ErrRetryScheduled,
-		},
-		"existing claimed execution": {
-			execution: &Execution{
-				ExecutionState: ExecutionState{Status: ExecutionStatusClaimed},
-				Observations:   1,
-				Attempts:       1,
-			},
-			now: now,
-		},
-		"nil execution": {
-			now:     now,
-			wantErr: errors.New("event action execution is nil"),
-		},
-	}
-
-	for name, test := range tests {
-		t.Run(name, func(t *testing.T) {
-			result, err := test.execution.TryClaim(test.now)
-			if test.wantExecution {
-				require.Same(t, test.execution, result)
-			} else {
-				require.Nil(t, result)
-			}
-			if test.wantErr != nil {
-				require.ErrorContains(t, err, test.wantErr.Error())
-				if errors.Is(test.wantErr, ErrRetryScheduled) {
-					require.ErrorIs(t, err, ErrRetryScheduled)
-				}
-			} else {
-				require.NoError(t, err)
-			}
-			if test.execution == nil {
-				return
-			}
-			require.Equal(t, 2, test.execution.Observations)
-			require.Equal(t, test.now, test.execution.UpdatedAt)
-			if test.wantExecution {
-				require.Equal(t, ExecutionStatusClaimed, test.execution.Status)
-				require.Equal(t, 2, test.execution.Attempts)
-			}
-		})
-	}
-}
-
-func TestExecution_TryDeduplicate(t *testing.T) {
-	firstClaimedAt := time.Date(2026, 8, 10, 12, 0, 0, 0, time.UTC)
-	tests := map[string]struct {
-		dedupe     *Dedupe
-		observedAt time.Time
-		want       bool
-	}{
-		"nil deduplication policy": {
-			observedAt: firstClaimedAt.Add(time.Second),
-		},
-		"within window": {
-			dedupe:     &Dedupe{Window: time.Minute},
-			observedAt: firstClaimedAt.Add(time.Second),
-			want:       true,
-		},
-		"at window boundary": {
-			dedupe:     &Dedupe{Window: time.Minute},
-			observedAt: firstClaimedAt.Add(time.Minute),
-		},
-	}
-
-	for name, test := range tests {
-		t.Run(name, func(t *testing.T) {
-			execution := Execution{
-				FirstClaimedAt: firstClaimedAt,
-				UpdatedAt:      firstClaimedAt,
-				Observations:   1,
-			}
-
-			require.Equal(
-				t,
-				test.want,
-				execution.TryDeduplicate(test.dedupe, test.observedAt),
-			)
-			if test.want {
-				require.Equal(t, 2, execution.Observations)
-				require.Equal(t, test.observedAt, execution.UpdatedAt)
-				return
-			}
-			require.Equal(t, 1, execution.Observations)
-			require.Equal(t, firstClaimedAt, execution.UpdatedAt)
-		})
-	}
-}
-
-func TestNewExecutionClaim(t *testing.T) {
-	eventID := uuid.New()
-	ruleID := uuid.New()
-	now := time.Date(2026, 8, 4, 12, 0, 0, 0, time.UTC)
-	tests := map[string]struct {
-		envelope    Envelope
-		rule        Rule
-		actionID    string
-		now         time.Time
-		want        ExecutionClaim
-		wantMessage string
-	}{
-		"delivery identity without semantic dedupe": {
-			envelope: Envelope{ID: eventID, CorrelationKey: "unused"},
-			rule:     Rule{ID: ruleID},
-			actionID: "notify",
-			now:      now,
-			want: ExecutionClaim{
-				EventID:        eventID,
-				RuleID:         ruleID,
-				ActionID:       "notify",
-				CorrelationKey: "unused",
-				Now:            now,
-			},
-		},
-		"semantic dedupe identity": {
-			envelope: Envelope{ID: eventID, CorrelationKey: "incident-1"},
-			rule: Rule{
-				ID:     ruleID,
-				Policy: Policy{Dedupe: &Dedupe{Window: time.Minute}},
-			},
-			actionID: "notify",
-			now:      now,
-			want: ExecutionClaim{
-				EventID:        eventID,
-				RuleID:         ruleID,
-				ActionID:       "notify",
-				CorrelationKey: "incident-1",
-				Dedupe:         &Dedupe{Window: time.Minute},
-				Now:            now,
-			},
-		},
-		"missing event id": {
-			rule:        Rule{ID: ruleID},
-			actionID:    "notify",
-			now:         now,
-			wantMessage: "event id is required",
-		},
-		"missing rule id": {
-			envelope:    Envelope{ID: eventID},
-			actionID:    "notify",
-			now:         now,
-			wantMessage: "event rule id is required",
-		},
-		"missing action id": {
-			envelope:    Envelope{ID: eventID},
-			rule:        Rule{ID: ruleID},
-			now:         now,
-			wantMessage: "event rule action id is empty",
-		},
-		"missing claim time": {
-			envelope:    Envelope{ID: eventID},
-			rule:        Rule{ID: ruleID},
-			actionID:    "notify",
-			wantMessage: "execution claim time is required",
-		},
-		"dedupe requires correlation key": {
-			envelope: Envelope{ID: eventID},
-			rule: Rule{
-				ID:     ruleID,
-				Policy: Policy{Dedupe: &Dedupe{Window: time.Minute}},
-			},
-			actionID:    "notify",
-			now:         now,
-			wantMessage: "correlation key is required",
-		},
-	}
-
-	for name, test := range tests {
-		t.Run(name, func(t *testing.T) {
-			claim, err := NewExecutionClaim(
-				test.envelope,
-				test.rule,
-				test.actionID,
-				test.now,
-			)
-			if test.wantMessage != "" {
-				require.ErrorContains(t, err, test.wantMessage)
-				require.Equal(t, ExecutionClaim{}, claim)
-				return
-			}
-
-			require.NoError(t, err)
-			require.Equal(t, test.want, claim)
-		})
-	}
-}
-
-func TestExecutionClaim_Validate(t *testing.T) {
-	valid := ExecutionClaim{
-		EventID:  uuid.New(),
-		RuleID:   uuid.New(),
-		ActionID: "notify",
-		Now:      time.Now(),
-	}
-	tests := map[string]struct {
-		mutate  func(*ExecutionClaim)
+		state   ExecutionState
 		wantErr string
 	}{
-		"valid delivery claim": {},
-		"valid semantic dedupe claim": {
-			mutate: func(claim *ExecutionClaim) {
-				claim.CorrelationKey = "incident-1"
-				claim.Dedupe = &Dedupe{Window: time.Minute}
+		"pending": {state: ExecutionState{ExecutionStatusDetails: ExecutionStatusDetails{Status: ExecutionStatusPending}}},
+		"skipped": {
+			state: ExecutionState{
+				ExecutionStatusDetails: ExecutionStatusDetails{
+					Status: ExecutionStatusSkipped,
+					Reason: ExecutionReasonNoTargets,
+				},
 			},
 		},
-		"negative dedupe window": {
-			mutate:  func(claim *ExecutionClaim) { claim.Dedupe = &Dedupe{Window: -time.Second} },
-			wantErr: "dedupe window must be positive",
+		"deferred": {
+			state: ExecutionState{
+				ExecutionStatusDetails: ExecutionStatusDetails{
+					Status:        ExecutionStatusDeferred,
+					Reason:        ExecutionReasonAttemptFailed,
+					StatusMessage: "inventory unavailable",
+				},
+				NextAttemptAt: nextAttemptAt,
+			},
 		},
-		"dedupe without correlation key": {
-			mutate:  func(claim *ExecutionClaim) { claim.Dedupe = &Dedupe{Window: time.Minute} },
-			wantErr: "correlation key is required",
+		"deferred after interrupted creator attempt": {
+			state: ExecutionState{
+				ExecutionStatusDetails: ExecutionStatusDetails{
+					Status: ExecutionStatusDeferred,
+					Reason: ExecutionReasonAttemptInterrupted,
+				},
+				NextAttemptAt: nextAttemptAt,
+			},
+		},
+		"submitted": {state: ExecutionState{ExecutionStatusDetails: ExecutionStatusDetails{Status: ExecutionStatusSubmitted}}},
+		"completed": {state: ExecutionState{ExecutionStatusDetails: ExecutionStatusDetails{Status: ExecutionStatusCompleted}}},
+		"failed":    {state: ExecutionState{ExecutionStatusDetails: ExecutionStatusDetails{Status: ExecutionStatusFailed}}},
+		"unknown status": {
+			state:   ExecutionState{ExecutionStatusDetails: ExecutionStatusDetails{Status: "unknown"}},
+			wantErr: "unknown execution status",
+		},
+		"skipped without reason": {
+			state:   ExecutionState{ExecutionStatusDetails: ExecutionStatusDetails{Status: ExecutionStatusSkipped}},
+			wantErr: "skipped execution requires one of reasons",
+		},
+		"deferred without next attempt": {
+			state: ExecutionState{
+				ExecutionStatusDetails: ExecutionStatusDetails{
+					Status: ExecutionStatusDeferred,
+					Reason: ExecutionReasonAttemptFailed,
+				},
+			},
+			wantErr: "deferred execution requires next attempt time",
+		},
+		"completed with next attempt": {
+			state: ExecutionState{
+				ExecutionStatusDetails: ExecutionStatusDetails{
+					Status: ExecutionStatusCompleted,
+				},
+				NextAttemptAt: nextAttemptAt,
+			},
+			wantErr: "completed execution cannot have next attempt time",
 		},
 	}
 
 	for name, test := range tests {
 		t.Run(name, func(t *testing.T) {
-			claim := valid
-			if test.mutate != nil {
-				test.mutate(&claim)
-			}
-			err := claim.Validate()
+			err := test.state.Validate()
 			if test.wantErr == "" {
 				require.NoError(t, err)
 				return
@@ -591,195 +361,290 @@ func TestExecutionClaim_Validate(t *testing.T) {
 	}
 }
 
-func TestExecutionClaim_DeliveryKey(t *testing.T) {
-	claim := ExecutionClaim{
-		EventID:  uuid.New(),
-		RuleID:   uuid.New(),
-		ActionID: "notify",
-	}
-	require.Equal(t, ExecutionDeliveryKey{
-		EventID:  claim.EventID,
-		RuleID:   claim.RuleID,
-		ActionID: claim.ActionID,
-	}, claim.DeliveryKey())
-}
-
-func TestExecutionClaim_SemanticKey(t *testing.T) {
-	claim := ExecutionClaim{
-		RuleID:         uuid.New(),
-		ActionID:       "notify",
-		CorrelationKey: "incident-1",
-	}
-
-	require.Equal(t, ExecutionSemanticKey{
-		RuleID:         claim.RuleID,
-		ActionID:       claim.ActionID,
-		CorrelationKey: claim.CorrelationKey,
-	}, claim.SemanticKey())
-}
-
-func TestExecutionClaim_NewExecution(t *testing.T) {
-	t.Run("invalid claim", func(t *testing.T) {
-		invalid, err := (ExecutionClaim{}).NewExecution()
-		require.Error(t, err)
-		require.Nil(t, invalid)
-	})
-
-	t.Run("valid claim", func(t *testing.T) {
-		now := time.Date(2026, 8, 5, 12, 0, 0, 0, time.UTC)
-		claim := ExecutionClaim{
-			EventID:        uuid.New(),
-			RuleID:         uuid.New(),
-			ActionID:       "notify",
-			CorrelationKey: "incident-1",
-			Now:            now,
-		}
-
-		execution, err := claim.NewExecution()
-		require.NoError(t, err)
-		require.NotEqual(t, uuid.Nil, execution.ID)
-		require.Equal(t, claim.EventID, execution.EventID)
-		require.Equal(t, claim.RuleID, execution.RuleID)
-		require.Equal(t, claim.ActionID, execution.ActionID)
-		require.Equal(t, claim.CorrelationKey, execution.CorrelationKey)
-		require.Equal(t, ExecutionStatusClaimed, execution.Status)
-		require.Equal(t, 1, execution.Observations)
-		require.Equal(t, 1, execution.Attempts)
-		require.Equal(t, now, execution.FirstClaimedAt)
-		require.Equal(t, now, execution.UpdatedAt)
-		require.NoError(t, execution.Validate())
-	})
-}
-
-func TestExecutionState_Validate(t *testing.T) {
-	nextAttemptAt := time.Now().Add(time.Minute)
+func TestExecutionResultConstructors(t *testing.T) {
 	tests := map[string]struct {
-		state   ExecutionState
-		wantErr string
+		result ExecutionResult
+		want   ExecutionResult
 	}{
+		"submitted": {
+			result: SubmittedExecutionResult(),
+			want: ExecutionResult{
+				ExecutionStatusDetails: ExecutionStatusDetails{
+					Status: ExecutionStatusSubmitted,
+				},
+			},
+		},
+		"completed": {
+			result: CompletedExecutionResult(),
+			want: ExecutionResult{
+				ExecutionStatusDetails: ExecutionStatusDetails{
+					Status: ExecutionStatusCompleted,
+				},
+			},
+		},
 		"skipped": {
-			state: ExecutionState{
-				Status: ExecutionStatusSkipped,
-				Reason: ExecutionReasonNoTargets,
+			result: SkippedExecutionResult(ExecutionReasonNoTargets),
+			want: ExecutionResult{
+				ExecutionStatusDetails: ExecutionStatusDetails{
+					Status: ExecutionStatusSkipped,
+					Reason: ExecutionReasonNoTargets,
+				},
 			},
 		},
 		"deferred": {
-			state: ExecutionState{
-				Status:        ExecutionStatusDeferred,
-				Reason:        ExecutionReasonAttemptFailed,
-				StatusMessage: "inventory unavailable",
-				NextAttemptAt: nextAttemptAt,
-			},
-		},
-		"submitted": {
-			state: ExecutionState{Status: ExecutionStatusSubmitted},
-		},
-		"completed": {
-			state: ExecutionState{
-				Status:        ExecutionStatusCompleted,
-				StatusMessage: "action completed",
+			result: DeferredExecutionResult(
+				ExecutionReasonAttemptFailed,
+				"downstream unavailable",
+				time.Second,
+			),
+			want: ExecutionResult{
+				ExecutionStatusDetails: ExecutionStatusDetails{
+					Status:        ExecutionStatusDeferred,
+					Reason:        ExecutionReasonAttemptFailed,
+					StatusMessage: "downstream unavailable",
+				},
+				RetryAfter: time.Second,
 			},
 		},
 		"failed": {
-			state: ExecutionState{
-				Status:        ExecutionStatusFailed,
-				StatusMessage: "invalid target",
+			result: FailedExecutionResult("invalid executor result"),
+			want: ExecutionResult{
+				ExecutionStatusDetails: ExecutionStatusDetails{
+					Status:        ExecutionStatusFailed,
+					StatusMessage: "invalid executor result",
+				},
 			},
-		},
-		"unknown status": {
-			state:   ExecutionState{Status: "unknown"},
-			wantErr: "unknown execution status",
-		},
-		"skipped without reason": {
-			state:   ExecutionState{Status: ExecutionStatusSkipped},
-			wantErr: "skipped execution requires one of reasons",
-		},
-		"deferred without next attempt": {
-			state: ExecutionState{
-				Status:        ExecutionStatusDeferred,
-				Reason:        ExecutionReasonAttemptFailed,
-				StatusMessage: "inventory unavailable",
-			},
-			wantErr: "deferred execution requires next attempt time",
-		},
-		"completed with next attempt": {
-			state: ExecutionState{
-				Status:        ExecutionStatusCompleted,
-				NextAttemptAt: nextAttemptAt,
-			},
-			wantErr: "completed execution cannot have next attempt time",
-		},
-		"submitted with next attempt": {
-			state: ExecutionState{
-				Status:        ExecutionStatusSubmitted,
-				NextAttemptAt: nextAttemptAt,
-			},
-			wantErr: "submitted execution cannot have next attempt time",
-		},
-		"failed with next attempt": {
-			state: ExecutionState{
-				Status:        ExecutionStatusFailed,
-				NextAttemptAt: nextAttemptAt,
-			},
-			wantErr: "failed execution cannot have next attempt time",
-		},
-		"failed without status message": {
-			state: ExecutionState{Status: ExecutionStatusFailed},
 		},
 	}
 
 	for name, test := range tests {
 		t.Run(name, func(t *testing.T) {
-			err := test.state.Validate()
-			if test.wantErr != "" {
-				require.ErrorContains(t, err, test.wantErr)
+			require.Equal(t, test.want, test.result)
+			require.NoError(t, test.result.Validate())
+		})
+	}
+}
+
+func TestExecutionResult_Validate(t *testing.T) {
+	tests := map[string]struct {
+		result  ExecutionResult
+		wantErr string
+	}{
+		"completed": {result: ExecutionResult{ExecutionStatusDetails: ExecutionStatusDetails{Status: ExecutionStatusCompleted}}},
+		"deferred": {
+			result: ExecutionResult{
+				ExecutionStatusDetails: ExecutionStatusDetails{
+					Status: ExecutionStatusDeferred,
+					Reason: ExecutionReasonAttemptFailed,
+				},
+				RetryAfter: time.Second,
+			},
+		},
+		"immediate deferred": {
+			result: ExecutionResult{
+				ExecutionStatusDetails: ExecutionStatusDetails{
+					Status: ExecutionStatusDeferred,
+					Reason: ExecutionReasonAttemptInterrupted,
+				},
+			},
+		},
+		"pending": {
+			result:  ExecutionResult{ExecutionStatusDetails: ExecutionStatusDetails{Status: ExecutionStatusPending}},
+			wantErr: "pending is not an execution result",
+		},
+		"negative retry delay": {
+			result: ExecutionResult{
+				ExecutionStatusDetails: ExecutionStatusDetails{
+					Status: ExecutionStatusDeferred,
+					Reason: ExecutionReasonAttemptFailed,
+				},
+				RetryAfter: -time.Second,
+			},
+			wantErr: "retry delay cannot be negative",
+		},
+		"terminal retry delay": {
+			result: ExecutionResult{
+				ExecutionStatusDetails: ExecutionStatusDetails{
+					Status: ExecutionStatusCompleted,
+				},
+				RetryAfter: time.Second,
+			},
+			wantErr: "completed execution cannot have retry delay",
+		},
+	}
+
+	for name, test := range tests {
+		t.Run(name, func(t *testing.T) {
+			err := test.result.Validate()
+			if test.wantErr == "" {
+				require.NoError(t, err)
 				return
 			}
-			require.NoError(t, err)
+			require.ErrorContains(t, err, test.wantErr)
 		})
 	}
 }
 
 func TestExecutionState_RetryDue(t *testing.T) {
-	now := time.Date(2026, 8, 5, 12, 0, 0, 0, time.UTC)
+	now := time.Date(2026, 8, 10, 12, 0, 0, 0, time.UTC)
+	state := ExecutionState{
+		ExecutionStatusDetails: ExecutionStatusDetails{
+			Status: ExecutionStatusDeferred,
+			Reason: ExecutionReasonAttemptFailed,
+		},
+		NextAttemptAt: now,
+	}
+	require.False(t, state.RetryDue(now.Add(-time.Nanosecond)))
+	require.True(t, state.RetryDue(now))
+	require.False(t, (ExecutionState{ExecutionStatusDetails: ExecutionStatusDetails{Status: ExecutionStatusPending}}).RetryDue(now))
+}
+
+func TestExecution_TryDeduplicate(t *testing.T) {
+	createdAt := time.Date(2026, 8, 10, 12, 0, 0, 0, time.UTC)
 	tests := map[string]struct {
-		state ExecutionState
-		want  bool
+		dedupe     *Dedupe
+		observedAt time.Time
+		want       bool
 	}{
-		"deferred before retry time": {
-			state: ExecutionState{
-				Status:        ExecutionStatusDeferred,
-				NextAttemptAt: now.Add(time.Second),
-			},
+		"nil deduplication policy": {observedAt: createdAt.Add(time.Second)},
+		"within window": {
+			dedupe:     &Dedupe{Window: time.Minute},
+			observedAt: createdAt.Add(time.Second),
+			want:       true,
 		},
-		"deferred at retry time": {
-			state: ExecutionState{
-				Status:        ExecutionStatusDeferred,
-				NextAttemptAt: now,
-			},
-			want: true,
-		},
-		"deferred after retry time": {
-			state: ExecutionState{
-				Status:        ExecutionStatusDeferred,
-				NextAttemptAt: now.Add(-time.Second),
-			},
-			want: true,
-		},
-		"deferred without retry time": {
-			state: ExecutionState{Status: ExecutionStatusDeferred},
-		},
-		"completed": {
-			state: ExecutionState{
-				Status:        ExecutionStatusCompleted,
-				NextAttemptAt: now,
-			},
+		"at window boundary": {
+			dedupe:     &Dedupe{Window: time.Minute},
+			observedAt: createdAt.Add(time.Minute),
 		},
 	}
 
 	for name, test := range tests {
 		t.Run(name, func(t *testing.T) {
-			require.Equal(t, test.want, test.state.RetryDue(now))
+			execution := Execution{
+				CreatedAt:    createdAt,
+				UpdatedAt:    createdAt,
+				Observations: 1,
+			}
+			require.Equal(t, test.want, execution.TryDeduplicate(test.dedupe, test.observedAt))
+			if test.want {
+				require.Equal(t, 2, execution.Observations)
+				require.Equal(t, test.observedAt, execution.UpdatedAt)
+				return
+			}
+			require.Equal(t, 1, execution.Observations)
+			require.Equal(t, createdAt, execution.UpdatedAt)
 		})
 	}
+
+	t.Run("out-of-order observation preserves latest update time", func(t *testing.T) {
+		updatedAt := createdAt.Add(30 * time.Second)
+		execution := Execution{
+			CreatedAt:    createdAt,
+			UpdatedAt:    updatedAt,
+			Observations: 1,
+		}
+		require.True(
+			t,
+			execution.TryDeduplicate(
+				&Dedupe{Window: time.Minute},
+				createdAt.Add(time.Second),
+			),
+		)
+		require.Equal(t, 2, execution.Observations)
+		require.Equal(t, updatedAt, execution.UpdatedAt)
+	})
+}
+
+func TestExecutionIdentity(t *testing.T) {
+	eventID := uuid.New()
+	ruleID := uuid.New()
+	identity := ExecutionIdentity{
+		EventID:        eventID,
+		RuleID:         ruleID,
+		ActionID:       "notify",
+		CorrelationKey: "incident-1",
+	}
+
+	t.Run("keys", func(t *testing.T) {
+		require.Equal(t, ExecutionDeliveryKey{
+			EventID:  eventID,
+			RuleID:   ruleID,
+			ActionID: "notify",
+		}, identity.DeliveryKey())
+		require.Equal(t, ExecutionSemanticKey{
+			RuleID:         ruleID,
+			ActionID:       "notify",
+			CorrelationKey: "incident-1",
+		}, identity.SemanticKey())
+	})
+
+	tests := map[string]struct {
+		identity ExecutionIdentity
+		wantErr  string
+	}{
+		"valid delivery": {
+			identity: ExecutionIdentity{
+				EventID:  eventID,
+				RuleID:   ruleID,
+				ActionID: "notify",
+			},
+		},
+		"missing event id": {
+			identity: ExecutionIdentity{RuleID: ruleID, ActionID: "notify"},
+			wantErr:  "event id is required",
+		},
+		"missing rule id": {
+			identity: ExecutionIdentity{EventID: eventID, ActionID: "notify"},
+			wantErr:  "event rule id is required",
+		},
+		"missing action id": {
+			identity: ExecutionIdentity{EventID: eventID, RuleID: ruleID},
+			wantErr:  "event rule action id is empty",
+		},
+	}
+
+	for name, test := range tests {
+		t.Run(name, func(t *testing.T) {
+			err := test.identity.Validate()
+			if test.wantErr == "" {
+				require.NoError(t, err)
+				return
+			}
+			require.ErrorContains(t, err, test.wantErr)
+		})
+	}
+}
+
+func TestNewExecution(t *testing.T) {
+	now := time.Date(2026, 8, 5, 12, 0, 0, 0, time.UTC)
+	identity := ExecutionIdentity{
+		EventID:  uuid.New(),
+		RuleID:   uuid.New(),
+		ActionID: "notify",
+	}
+
+	t.Run("new pending execution", func(t *testing.T) {
+		execution, err := NewExecution(identity, now)
+		require.NoError(t, err)
+		require.NotEqual(t, uuid.Nil, execution.ID)
+		require.Equal(t, identity, execution.ExecutionIdentity)
+		require.Equal(t, ExecutionStatusPending, execution.Status)
+		require.Equal(t, 1, execution.Observations)
+		require.Equal(t, 1, execution.Attempts)
+		require.Equal(t, now, execution.CreatedAt)
+		require.Equal(t, now, execution.UpdatedAt)
+		require.NoError(t, execution.Validate())
+	})
+
+	t.Run("invalid identity", func(t *testing.T) {
+		execution, err := NewExecution(ExecutionIdentity{}, now)
+		require.Error(t, err)
+		require.Nil(t, execution)
+	})
+
+	t.Run("missing store time", func(t *testing.T) {
+		execution, err := NewExecution(identity, time.Time{})
+		require.ErrorContains(t, err, "execution creation time is required")
+		require.Nil(t, execution)
+	})
 }

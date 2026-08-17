@@ -62,9 +62,13 @@ func (c ActionCondition) AppliesTo(envelope Envelope, resource ResolvedResource)
 		return false
 	}
 
-	if c.ComponentTypes != nil &&
-		!slices.Contains(c.ComponentTypes, resource.ComponentType) {
-		return false
+	if c.ComponentTypes != nil {
+		if resource.Kind != ResourceKindComponent {
+			return false
+		}
+		if !slices.Contains(c.ComponentTypes, resource.ComponentType) {
+			return false
+		}
 	}
 
 	return true
@@ -98,9 +102,10 @@ func (s ConflictStrategy) validate() error {
 
 // ActionSpec is the closed set of typed responses supported by an action.
 // The unexported validation method prevents implementations outside this
-// package while allowing processors to identify a specification with Type.
+// package while exposing its type and target-resolution behavior.
 type ActionSpec interface {
 	Type() ActionType
+	TargetResolutionStrategy() TargetStrategy
 	validate() error
 }
 
@@ -175,24 +180,34 @@ func CloneActions(actions []Action) []Action {
 	return cloned
 }
 
-// TargetStrategy identifies how a target-bearing action resolves concrete
+// TargetStrategy identifies whether and how an action resolves concrete
 // operation targets.
 type TargetStrategy string
 
 const (
+	TargetStrategyNone               TargetStrategy = "none"
 	TargetStrategyComponent          TargetStrategy = "component"
 	TargetStrategyRack               TargetStrategy = "rack"
 	TargetStrategyAffectedComponents TargetStrategy = "affected_components"
 )
 
-// Validate checks that the target strategy is supported by the schema.
+// Validate checks that the target strategy is supported by the domain.
 func (s TargetStrategy) Validate() error {
 	switch s {
-	case TargetStrategyComponent, TargetStrategyRack, TargetStrategyAffectedComponents:
+	case TargetStrategyNone,
+		TargetStrategyComponent,
+		TargetStrategyRack,
+		TargetStrategyAffectedComponents:
 		return nil
 	default:
 		return fmt.Errorf("unknown target strategy %q", s)
 	}
+}
+
+// RequiresResolution reports whether concrete targets must be resolved for
+// the strategy.
+func (s TargetStrategy) RequiresResolution() bool {
+	return s != TargetStrategyNone
 }
 
 // SubmitTask describes a task submission requested by an event rule.
@@ -209,6 +224,11 @@ func (s SubmitTask) Type() ActionType {
 	return ActionTypeSubmitTask
 }
 
+// TargetResolutionStrategy returns the task's target strategy.
+func (s SubmitTask) TargetResolutionStrategy() TargetStrategy {
+	return s.TargetStrategy
+}
+
 func (s SubmitTask) validate() error {
 	if !s.OperationType.IsValid() {
 		return fmt.Errorf("operation_type %q is invalid", s.OperationType)
@@ -220,6 +240,9 @@ func (s SubmitTask) validate() error {
 
 	if err := s.TargetStrategy.Validate(); err != nil {
 		return err
+	}
+	if !s.TargetStrategy.RequiresResolution() {
+		return fmt.Errorf("submit task target strategy must require resolution")
 	}
 
 	if err := s.ConflictStrategy.validate(); err != nil {
@@ -238,6 +261,11 @@ type SendAlert struct {
 // Type returns the send_alert action discriminator.
 func (s SendAlert) Type() ActionType {
 	return ActionTypeSendAlert
+}
+
+// TargetResolutionStrategy reports that alerts do not resolve targets.
+func (SendAlert) TargetResolutionStrategy() TargetStrategy {
+	return TargetStrategyNone
 }
 
 func (s SendAlert) validate() error {
@@ -259,6 +287,11 @@ type Noop struct {
 // Type returns the noop action discriminator.
 func (Noop) Type() ActionType {
 	return ActionTypeNoop
+}
+
+// TargetResolutionStrategy reports that no-op actions do not resolve targets.
+func (Noop) TargetResolutionStrategy() TargetStrategy {
+	return TargetStrategyNone
 }
 
 func (n Noop) validate() error {

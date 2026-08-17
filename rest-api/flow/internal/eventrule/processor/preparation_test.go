@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"testing"
+	"time"
 
 	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/eventrule"
 	"github.com/NVIDIA/infra-controller/rest-api/flow/pkg/common/deviceinfo"
@@ -51,6 +52,18 @@ func TestPrepare(t *testing.T) {
 			wantTerminal: true,
 			wantResolved: true,
 		},
+		"dedupe without correlation key is terminal": {
+			rule: &eventrule.Rule{
+				ID: uuid.New(),
+				Policy: eventrule.Policy{
+					Dedupe: &eventrule.Dedupe{Window: time.Minute},
+				},
+			},
+			wantErr:      ErrTerminal,
+			wantMessage:  "correlation key is required",
+			wantTerminal: true,
+			wantResolved: true,
+		},
 		"invalid envelope is terminal": {
 			envelope:     eventrule.Envelope{},
 			wantErr:      ErrTerminal,
@@ -91,7 +104,7 @@ func TestPrepare(t *testing.T) {
 			require.Equal(t, test.wantResolved, resolverCalled)
 			if test.wantErr == nil {
 				require.NoError(t, err)
-				require.Equal(t, rackID, result.Enriched.ResolvedResource.RackID)
+				require.Equal(t, rackID, result.Resource.RackID)
 				require.Equal(t, test.rule, result.Rule)
 				return
 			}
