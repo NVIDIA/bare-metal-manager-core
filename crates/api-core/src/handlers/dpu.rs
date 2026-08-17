@@ -1342,12 +1342,54 @@ pub(crate) async fn trigger_dpu_reprovisioning(
     match req.mode() {
         Mode::Set => {
             let initiator = req.initiator().as_str_name();
+
+            let ready_state = matches!(
+                snapshot.managed_state,
+                ManagedHostState::Ready
+                    | ManagedHostState::Assigned {
+                        instance_state: InstanceState::Ready,
+                    }
+            );
+
+            // A per-DPU request from a non-ready host is never reconciled.
+            let triggered_from_non_ready_state = if machine_id.machine_type().is_dpu() {
+                if !ready_state {
+                    return Err(CarbideError::InvalidArgument(format!(
+                        "per-DPU reprovisioning of {machine_id} is only supported when the host is Ready or Assigned/Ready; use a host-level reset to reprovision from other states"
+                    ))
+                    .into());
+                }
+                false
+            } else if ready_state {
+                false
+            } else {
+                if matches!(snapshot.managed_state, ManagedHostState::Assigned { .. })
+                    && !req.allow_reset_with_instance
+                {
+                    return Err(CarbideError::InvalidArgument(
+                        "machine is assigned to a live instance; pass --allow-reset-with-instance to acknowledge disrupting it".to_string(),
+                    )
+                    .into());
+                }
+                true
+            };
+
+            if triggered_from_non_ready_state
+                && !snapshot.host_snapshot.config.dpf.used_for_ingestion
+            {
+                return Err(CarbideError::InvalidArgument(format!(
+                    "machine {machine_id} was not ingested via DPF; reprovisioning from a non-ready state is only supported for DPF-managed DPUs"
+                ))
+                .into());
+            }
+
             if machine_id.machine_type().is_dpu() {
                 db::machine::trigger_dpu_reprovisioning_request(
                     &machine_id,
                     &mut txn,
                     initiator,
                     req.update_firmware,
+                    triggered_from_non_ready_state,
                 )
                 .await?;
             } else {
@@ -1357,6 +1399,7 @@ pub(crate) async fn trigger_dpu_reprovisioning(
                         &mut txn,
                         initiator,
                         req.update_firmware,
+                        triggered_from_non_ready_state,
                     )
                     .await?;
                 }

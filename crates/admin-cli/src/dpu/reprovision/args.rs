@@ -90,6 +90,7 @@ impl From<&DpuReprovisionSet> for DpuReprovisioningRequest {
             mode: Mode::Set as i32,
             initiator: UpdateInitiator::AdminCli as i32,
             update_firmware: args.update_firmware,
+            allow_reset_with_instance: false,
         }
     }
 }
@@ -125,6 +126,7 @@ impl From<&DpuReprovisionClear> for DpuReprovisioningRequest {
             mode: Mode::Clear as i32,
             initiator: UpdateInitiator::AdminCli as i32,
             update_firmware: args.update_firmware,
+            allow_reset_with_instance: false,
         }
     }
 }
@@ -161,6 +163,7 @@ impl From<&DpuReprovisionRestart> for DpuReprovisioningRequest {
             mode: Mode::Restart as i32,
             initiator: UpdateInitiator::AdminCli as i32,
             update_firmware: args.update_firmware,
+            allow_reset_with_instance: false,
         }
     }
 }

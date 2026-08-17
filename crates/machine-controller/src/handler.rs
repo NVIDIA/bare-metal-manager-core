@@ -75,7 +75,8 @@ use model::machine::nvlink::nvlink_config_synced;
 use model::machine::{
     AttestationMode, BomValidating, BomValidatingContext, CleanupContext, CleanupState,
     CreateBossVolumeContext, CreateBossVolumeState, DecommissioningState, DpuDiscoveringState,
-    DpuInitNextStateResolver, DpuInitState, FactoryResetBmcState, FailureCause, FailureDetails,
+    DpuInitNextStateResolver, DpuInitState, DpuReprovisionStates, FactoryResetBmcState, FailureCause,
+    FailureDetails,
     FailureSource, HostPlatformConfigurationState, HostReprovisionState, InitialResetPhase,
     InstallDpuOsState, InstanceNextStateResolver, InstanceState, LockdownInfo, LockdownState,
     MAX_FIRMWARE_UPGRADE_RETRIES, Machine, MachineLastRebootRequested,
@@ -787,6 +788,15 @@ impl MachineStateHandler {
             {
                 return Ok(StateHandlerOutcome::transition(next_state));
             }
+        }
+
+        // Initial `mh reset` reprovision from a non-ready state. Mutually exclusive
+        // with the restart block above: that needs started_at.is_some(), this needs None.
+        if non_ready_initial_reprov_needed(&mh_snapshot.dpu_snapshots, &mh_state)
+            && can_start_non_ready_reprov(&mh_state)
+        {
+            let next = self.start_non_ready_reprov(&mh_state, mh_snapshot, ctx).await?;
+            return Ok(StateHandlerOutcome::transition(next));
         }
 
         // Don't update failed state failure cause everytime. Record first failure cause only,
@@ -2271,6 +2281,59 @@ impl MachineStateHandler {
 
         Ok(None)
     }
+
+    /// Start a DPU reprovision from a non-ready host state (`mh reset`): rebuild
+    /// all DPUs and then run full ingestion, abandoning whatever the host was doing.
+    async fn start_non_ready_reprov(
+        &self,
+        managed_state: &ManagedHostState,
+        state: &ManagedHostStateSnapshot,
+        ctx: &mut StateHandlerContext<'_, MachineStateHandlerContextObjects>,
+    ) -> Result<ManagedHostState, StateHandlerError> {
+        let dpus_for_reprov = state
+            .dpu_snapshots
+            .iter()
+            .filter(|d| d.reprovision_requested.is_some())
+            .collect_vec();
+
+        for dpu in &dpus_for_reprov {
+            handler_restart_dpu(dpu, ctx, state.host_snapshot.config.dpf.used_for_ingestion)
+                .await?;
+            ctx.pending_db_writes
+                .push(MachineWriteOp::UpdateDpuReprovisionStartTime {
+                    machine_id: dpu.id,
+                    time: Utc::now(),
+                });
+        }
+
+        // Abandoning a Failed state: drop the stale failure record.
+        if let ManagedHostState::Failed { machine_id, .. } = managed_state {
+            ctx.pending_db_writes
+                .push(MachineWriteOp::ClearFailureDetails {
+                    machine_id: *machine_id,
+                });
+        }
+
+        set_managed_host_topology_update_needed(
+            ctx.pending_db_writes,
+            &state.host_snapshot,
+            &dpus_for_reprov,
+        );
+
+        // Build DPUReprovision directly: the helper rejects non-Ready/non-DPUReprovision outer states.
+        let starting_state = ReprovisionState::next_substate_based_on_bfb_support(
+            self.enable_secure_boot,
+            state,
+            ctx.services.site_config.dpf_enabled,
+        );
+        let states = dpus_for_reprov
+            .iter()
+            .map(|d| (d.id, starting_state.clone()))
+            .collect();
+        Ok(ManagedHostState::DPUReprovision {
+            dpu_states: DpuReprovisionStates { states },
+        })
+    }
 }
 
 fn is_reprovision_restartable_failure(
@@ -2349,6 +2412,50 @@ fn dpu_reprovisioning_needed(dpu_snapshots: &[Machine]) -> bool {
     dpu_snapshots
         .iter()
         .any(|x| x.reprovision_requested.is_some())
+}
+
+/// True when a non-ready `mh reset` request is waiting to start. The
+/// `started_at.is_none()` guard stops it re-firing once reprovision has begun.
+fn non_ready_initial_reprov_needed(
+    dpu_snapshots: &[Machine],
+    managed_state: &ManagedHostState,
+) -> bool {
+    if matches!(
+        managed_state,
+        ManagedHostState::Ready
+            | ManagedHostState::Assigned {
+                instance_state: InstanceState::Ready,
+            }
+    ) {
+        return false;
+    }
+    dpu_snapshots.iter().any(|d| {
+        d.reprovision_requested
+            .as_ref()
+            .is_some_and(|r| r.started_at.is_none() && r.triggered_from_non_ready_state)
+    })
+}
+
+/// Authoritative allow-list of host states a non-ready reprovision may start from
+/// (the API-level gate is intentionally minimal). `Assigned` covers the
+/// live-tenant case, already acknowledged via `--allow-reset-with-instance`.
+fn can_start_non_ready_reprov(managed_state: &ManagedHostState) -> bool {
+    matches!(
+        managed_state,
+        ManagedHostState::DPUInit { .. }
+            | ManagedHostState::HostInit { .. }
+            | ManagedHostState::Validation { .. }
+            | ManagedHostState::WaitingForCleanup { .. }
+            | ManagedHostState::Measuring { .. }
+            | ManagedHostState::PreAssignedMeasuring { .. }
+            | ManagedHostState::PostAssignedMeasuring { .. }
+            | ManagedHostState::StartAssignmentCycle
+            | ManagedHostState::BomValidating { .. }
+            | ManagedHostState::HostReprovision { .. }
+            | ManagedHostState::Maintenance { .. }
+            | ManagedHostState::Assigned { .. }
+            | ManagedHostState::Failed { .. }
+    )
 }
 
 async fn handle_restart_verification(

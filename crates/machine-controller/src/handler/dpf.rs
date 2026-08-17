@@ -26,9 +26,9 @@ use carbide_dpf::{DpfError, DpuPhase, dpu_node_cr_name};
 use carbide_uuid::machine::MachineId;
 use libredfish::SystemPowerControl;
 use model::machine::{
-    DpfState, DpuInitState, FailureCause, FailureDetails, FailureSource, InstanceState, Machine,
-    ManagedHostState, ManagedHostStateSnapshot, PerformPowerOperation, ReprovisionState,
-    StateMachineArea,
+    DpfState, DpuInitState, DpuInitStates, FailureCause, FailureDetails, FailureSource,
+    InstanceState, Machine, ManagedHostState, ManagedHostStateSnapshot, PerformPowerOperation,
+    ReprovisionState, StateMachineArea,
 };
 use state_controller::state_handler::{
     ExternalServiceError, StateHandlerContext, StateHandlerError, StateHandlerOutcome,
@@ -157,8 +157,32 @@ fn waiting_for_ready_exit_state(
             DpuInitState::WaitingForPlatformConfiguration
                 .next_state_with_all_dpus_updated(&state.managed_state)
         }
-        ManagedHostState::DPUReprovision { .. }
-        | ManagedHostState::Assigned {
+        ManagedHostState::DPUReprovision { dpu_states } => {
+            // Non-ready reset re-runs full ingestion; standard reprovision keeps the fast path.
+            let full_ingestion = state.dpu_snapshots.iter().any(|d| {
+                d.reprovision_requested
+                    .as_ref()
+                    .is_some_and(|r| r.triggered_from_non_ready_state)
+            });
+            if full_ingestion {
+                let states = dpu_states
+                    .states
+                    .keys()
+                    .map(|id| (*id, DpuInitState::WaitingForPlatformConfiguration))
+                    .collect();
+                Ok(ManagedHostState::DPUInit {
+                    dpu_states: DpuInitStates { states },
+                })
+            } else {
+                let all_dpu_ids = state.dpu_snapshots.iter().map(|x| &x.id).collect();
+                ReprovisionState::WaitingForNetworkConfig.next_state_with_all_dpus_updated(
+                    &state.managed_state,
+                    &state.dpu_snapshots,
+                    all_dpu_ids,
+                )
+            }
+        }
+        ManagedHostState::Assigned {
             instance_state: InstanceState::DPUReprovision { .. },
         } => {
             let all_dpu_ids = state.dpu_snapshots.iter().map(|x| &x.id).collect();
@@ -545,8 +569,9 @@ async fn handle_dpf_waiting_for_ready(
 
 /// Handle DpfState::DeviceReady: wait for all DPUs to sync, then
 /// transition to the next state.
-fn handle_dpf_device_ready(
+async fn handle_dpf_device_ready(
     state: &ManagedHostStateSnapshot,
+    ctx: &mut StateHandlerContext<'_, MachineStateHandlerContextObjects>,
 ) -> Result<StateHandlerOutcome<ManagedHostState>, StateHandlerError> {
     if !state.managed_state.all_dpu_states_in_sync()? {
         return Ok(StateHandlerOutcome::wait(
@@ -555,6 +580,18 @@ fn handle_dpf_device_ready(
     }
 
     let next = waiting_for_ready_exit_state(state)?;
+
+    // Full-ingestion exit (DPUReprovision → DPUInit) skips RebootHost, where the
+    // standard path clears reprovision_requested. Clear it here in the same txn,
+    // else the Ready handler re-triggers reprovision when the host reaches Ready.
+    if matches!(next, ManagedHostState::DPUInit { .. }) {
+        let mut txn = ctx.services.db_pool.begin().await?;
+        for dpu in &state.dpu_snapshots {
+            db::machine::clear_dpu_reprovisioning_request(&mut txn, &dpu.id, false).await?;
+        }
+        return Ok(StateHandlerOutcome::transition(next).with_txn(txn));
+    }
+
     Ok(StateHandlerOutcome::transition(next))
 }
 
@@ -738,7 +775,7 @@ pub(super) async fn handle_dpf_state(
             )
             .await
         }
-        DpfState::DeviceReady => handle_dpf_device_ready(state),
+        DpfState::DeviceReady => handle_dpf_device_ready(state, ctx).await,
         DpfState::Reprovisioning => {
             handle_dpf_reprovisioning(state, dpu_snapshot, ctx, dpf_sdk).await
         }

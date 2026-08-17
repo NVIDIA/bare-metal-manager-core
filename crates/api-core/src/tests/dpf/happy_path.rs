@@ -26,7 +26,10 @@ use ::rpc::forge::forge_server::Forge;
 use carbide_dpf::{DpfError, DpuDeploymentType, DpuPhase, DpuServiceVersion};
 use carbide_machine_controller::dpf::{DpfOperations, MockDpfOperations};
 use carbide_redfish::libredfish::test_support::{RedfishSimAction, RedfishSimPlatformAction};
-use model::machine::ManagedHostState;
+use chrono::Utc;
+use model::machine::{
+    FailureCause, FailureDetails, FailureSource, ManagedHostState, StateMachineArea,
+};
 use tokio::time::timeout;
 use tonic::Request;
 
@@ -293,4 +296,78 @@ async fn test_dpf_inventory_uses_host_context_and_preserves_last_good_value(pool
         .inventory
         .expect("last complete inventory must remain persisted");
     assert_eq!(inventory_after_error, stored_inventory);
+}
+
+/// A `mh reset` from a non-ready host state reprovisions the DPU and re-runs full
+/// ingestion: the host must re-enter `DPUInit` (not the fast network-config path),
+/// and the reprovision request must be cleared on that fork so it cannot re-trigger.
+#[crate::sqlx_test]
+async fn test_reprov_from_non_ready_state_reenters_dpu_init(pool: sqlx::PgPool) {
+    let dpf_sdk: Arc<dyn DpfOperations> = Arc::new(default_mock(DpuDeploymentType::Bf3));
+
+    let mut config = get_config();
+    config.dpf = dpf_config();
+
+    let env = create_test_env_with_overrides(
+        pool,
+        TestEnvOverrides::with_config(config).with_dpf_sdk(dpf_sdk),
+    )
+    .await;
+
+    let mh = timeout(TEST_TIMEOUT, create_managed_host_with_dpf(&env))
+        .await
+        .expect("timed out during initial provisioning");
+
+    let mut txn = env.pool.begin().await.unwrap();
+    let host = mh.host().db_machine(&mut txn).await;
+    assert!(host.config.dpf.used_for_ingestion);
+    assert!(matches!(host.current_state(), ManagedHostState::Ready));
+    txn.commit().await.unwrap();
+
+    // Wedge the host in a non-ready Failed state carrying a fresh `mh reset` request
+    // (triggered_from_non_ready_state = true, started_at == None).
+    let failed_at = Utc::now();
+    let mut txn = env.pool.begin().await.unwrap();
+    db::machine::trigger_dpu_reprovisioning_request(
+        &mh.dpu().id,
+        &mut txn,
+        "AdminCli",
+        false,
+        true,
+    )
+    .await
+    .unwrap();
+    db::machine::update_state(
+        &mut txn,
+        &mh.id,
+        &ManagedHostState::Failed {
+            machine_id: mh.id,
+            retry_count: 0,
+            details: FailureDetails {
+                cause: FailureCause::BiosSetupFailed {
+                    err: "wedged mid-ingestion".to_string(),
+                },
+                failed_at,
+                source: FailureSource::StateMachineArea(StateMachineArea::MainFlow),
+            },
+        },
+    )
+    .await
+    .unwrap();
+    txn.commit().await.unwrap();
+
+    // The reprovision runs and, because it came from a non-ready state, the host
+    // re-enters full ingestion at DPUInit rather than the fast reprovision path.
+    env.run_machine_state_controller_iteration_until_state_condition(
+        &mh.host().id,
+        60,
+        |machine| matches!(machine.current_state(), ManagedHostState::DPUInit { .. }),
+    )
+    .await;
+
+    // The request was cleared on the DPUInit fork, so Ready will not re-trigger it.
+    let mut txn = env.pool.begin().await.unwrap();
+    let dpu = mh.dpu().db_machine(&mut txn).await;
+    assert!(dpu.reprovision_requested.is_none());
+    txn.commit().await.unwrap();
 }

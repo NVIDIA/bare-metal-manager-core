@@ -273,7 +273,7 @@ async fn prepare_dpu_reprovision_host_boot_check(
     )
     .await
     .unwrap();
-    db::machine::trigger_dpu_reprovisioning_request(&dpu_machine.id, &mut txn, "AdminCli", true)
+    db::machine::trigger_dpu_reprovisioning_request(&dpu_machine.id, &mut txn, "AdminCli", true, false)
         .await
         .unwrap();
     txn.commit().await.unwrap();
@@ -591,7 +591,8 @@ async fn test_dpu_for_reprovisioning_fail_if_maintenance_not_set(pool: sqlx::PgP
                     machine_id: mh.dpu().id.into(),
                     mode: rpc::forge::dpu_reprovisioning_request::Mode::Set as i32,
                     initiator: ::rpc::forge::UpdateInitiator::AdminCli as i32,
-                    update_firmware: true
+                    update_firmware: true,
+                    allow_reset_with_instance: false,
                 },
             ))
             .await
@@ -612,7 +613,8 @@ async fn test_dpu_for_reprovisioning_fail_if_state_is_not_ready(pool: sqlx::PgPo
                     machine_id: dpu_machine_id.into(),
                     mode: rpc::forge::dpu_reprovisioning_request::Mode::Set as i32,
                     initiator: ::rpc::forge::UpdateInitiator::AdminCli as i32,
-                    update_firmware: true
+                    update_firmware: true,
+                    allow_reset_with_instance: false,
                 },
             ))
             .await
@@ -1155,7 +1157,8 @@ async fn test_dpu_for_set_but_clear_failed(pool: sqlx::PgPool) {
                     machine_id: mh.dpu().id.into(),
                     mode: rpc::forge::dpu_reprovisioning_request::Mode::Clear as i32,
                     initiator: ::rpc::forge::UpdateInitiator::AdminCli as i32,
-                    update_firmware: true
+                    update_firmware: true,
+                    allow_reset_with_instance: false,
                 },
             ))
             .await
@@ -1492,6 +1495,7 @@ async fn test_restart_dpu_reprov(pool: sqlx::PgPool) {
                     mode: Mode::Restart as i32,
                     initiator: ::rpc::forge::UpdateInitiator::AdminCli as i32,
                     update_firmware: false,
+                    allow_reset_with_instance: false,
                 },
             ))
             .await
@@ -1570,7 +1574,7 @@ async fn test_restart_dpu_reprov_unassigned_host_boot_failure(pool: sqlx::PgPool
 
     let failed_at = Utc::now();
     let mut txn = env.pool.begin().await.unwrap();
-    db::machine::trigger_dpu_reprovisioning_request(&dpu_machine.id, &mut txn, "AdminCli", true)
+    db::machine::trigger_dpu_reprovisioning_request(&dpu_machine.id, &mut txn, "AdminCli", true, false)
         .await
         .unwrap();
     db::machine::update_dpu_reprovision_explicit_start_time(&dpu_machine.id, failed_at, &mut txn)
@@ -1620,6 +1624,107 @@ async fn test_restart_dpu_reprov_unassigned_host_boot_failure(pool: sqlx::PgPool
             .actions_since(&redfish_timepoint)
             .all_hosts(),
         vec![RedfishSimAction::Power(SystemPowerControl::ForceRestart)]
+    );
+}
+
+// A `mh reset` request from a non-ready host state (triggered_from_non_ready_state,
+// started_at == None) is picked up by the controller and starts reprovisioning,
+// abandoning the Failed state.
+#[crate::sqlx_test]
+async fn test_reprov_starts_from_non_ready_failed_state(pool: sqlx::PgPool) {
+    let env = create_test_env(pool).await;
+    let mh = common::api_fixtures::create_managed_host(&env).await;
+    let dpu_machine = mh.dpu();
+    mh.mark_machine_for_updates().await;
+
+    let failed_at = Utc::now();
+    let mut txn = env.pool.begin().await.unwrap();
+    db::machine::trigger_dpu_reprovisioning_request(
+        &dpu_machine.id,
+        &mut txn,
+        "AdminCli",
+        false,
+        true,
+    )
+    .await
+    .unwrap();
+    db::machine::update_state(
+        &mut txn,
+        &mh.id,
+        &ManagedHostState::Failed {
+            machine_id: mh.id,
+            retry_count: 0,
+            details: FailureDetails {
+                cause: FailureCause::BiosSetupFailed {
+                    err: "wedged mid-ingestion".to_string(),
+                },
+                failed_at,
+                source: FailureSource::StateMachineArea(StateMachineArea::MainFlow),
+            },
+        },
+    )
+    .await
+    .unwrap();
+    txn.commit().await.unwrap();
+
+    let dpu = dpu_machine.next_iteration_machine(&env).await;
+    assert!(
+        matches!(dpu.current_state(), ManagedHostState::DPUReprovision { .. }),
+        "expected DPUReprovision, got {:?}",
+        dpu.current_state()
+    );
+    // started_at is stamped so the initial trigger cannot re-fire (loop guard).
+    assert!(
+        dpu.reprovision_requested
+            .as_ref()
+            .is_some_and(|request| request.started_at.is_some())
+    );
+}
+
+// The same fresh request without triggered_from_non_ready_state is left untouched in a
+// non-ready state: only the `mh reset` flag opens the non-ready path.
+#[crate::sqlx_test]
+async fn test_normal_request_does_not_start_from_non_ready_state(pool: sqlx::PgPool) {
+    let env = create_test_env(pool).await;
+    let mh = common::api_fixtures::create_managed_host(&env).await;
+    let dpu_machine = mh.dpu();
+    mh.mark_machine_for_updates().await;
+
+    let failed_at = Utc::now();
+    let mut txn = env.pool.begin().await.unwrap();
+    db::machine::trigger_dpu_reprovisioning_request(
+        &dpu_machine.id,
+        &mut txn,
+        "AdminCli",
+        false,
+        false,
+    )
+    .await
+    .unwrap();
+    db::machine::update_state(
+        &mut txn,
+        &mh.id,
+        &ManagedHostState::Failed {
+            machine_id: mh.id,
+            retry_count: 0,
+            details: FailureDetails {
+                cause: FailureCause::BiosSetupFailed {
+                    err: "wedged mid-ingestion".to_string(),
+                },
+                failed_at,
+                source: FailureSource::StateMachineArea(StateMachineArea::MainFlow),
+            },
+        },
+    )
+    .await
+    .unwrap();
+    txn.commit().await.unwrap();
+
+    let dpu = dpu_machine.next_iteration_machine(&env).await;
+    assert!(
+        !matches!(dpu.current_state(), ManagedHostState::DPUReprovision { .. }),
+        "reprovision must not start without the non-ready flag, got {:?}",
+        dpu.current_state()
     );
 }
 
@@ -2110,6 +2215,7 @@ async fn test_instance_reprov_restart_failed_impl(pool: sqlx::PgPool) {
                     mode: Mode::Restart as i32,
                     initiator: ::rpc::forge::UpdateInitiator::AdminCli as i32,
                     update_firmware: false,
+                    allow_reset_with_instance: false,
                 },
             ))
             .await
@@ -2226,6 +2332,7 @@ async fn test_dpu_for_reprovisioning_cannot_restart_if_not_started(pool: sqlx::P
                 mode: rpc::forge::dpu_reprovisioning_request::Mode::Restart as i32,
                 initiator: ::rpc::forge::UpdateInitiator::AdminCli as i32,
                 update_firmware: true,
+                allow_reset_with_instance: false,
             },
         ))
         .await

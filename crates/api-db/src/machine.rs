@@ -1732,6 +1732,8 @@ pub async fn trigger_dpu_reprovisioning_request(
     txn: &mut PgConnection,
     initiator: &str,
     update_firmware: bool,
+    // True only for the `mh reset` (non-ready) path; false for normal reprovisioning.
+    triggered_from_non_ready_state: bool,
 ) -> Result<(), DatabaseError> {
     let reprovision_time = chrono::Utc::now();
     let req = ReprovisionRequest {
@@ -1741,6 +1743,7 @@ pub async fn trigger_dpu_reprovisioning_request(
         started_at: None,
         user_approval_received: false,
         restart_reprovision_requested_at: reprovision_time,
+        triggered_from_non_ready_state,
     };
 
     let query = "UPDATE machines SET reprovisioning_requested=$2 WHERE id=$1 RETURNING id";

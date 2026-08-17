@@ -2510,6 +2510,9 @@ pub struct ReprovisionRequest {
     pub user_approval_received: bool,
     #[serde(default)]
     pub restart_reprovision_requested_at: DateTime<Utc>,
+    /// Set when the reprovision was triggered from a non-ready host state (via `mh reset`).
+    #[serde(default)]
+    pub triggered_from_non_ready_state: bool,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -3880,6 +3883,7 @@ mod tests {
                         started_at: None,
                         user_approval_received: false,
                         restart_reprovision_requested_at: DateTime::<Utc>::UNIX_EPOCH,
+                        triggered_from_non_ready_state: false,
                     });
                 dpu
             })

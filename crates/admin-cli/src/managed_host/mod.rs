@@ -20,6 +20,7 @@ mod decommission;
 mod maintenance;
 mod power_options;
 mod quarantine;
+mod reset;
 mod reset_host_reprovisioning;
 mod set_primary_dpu;
 mod set_primary_interface;
@@ -84,4 +85,6 @@ pub(crate) enum Cmd {
     DebugBundle(debug_bundle::Args),
     #[clap(about = "Start decommissioning a managed host")]
     Decommission(decommission::Args),
+    #[clap(about = "Reset a host by reprovisioning its DPU(s) and re-running ingestion")]
+    Reset(reset::Args),
 }

@@ -6068,6 +6068,9 @@ message DpuReprovisioningRequest {
   bool update_firmware = 4;
 
   common.MachineId machine_id = 5;
+
+  // Acknowledges resetting a host assigned to a live instance (`mh reset --allow-reset-with-instance`).
+  bool allow_reset_with_instance = 6;
 }
 
 message DpuReprovisioningListRequest {

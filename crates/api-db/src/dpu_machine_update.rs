@@ -57,6 +57,8 @@ pub async fn trigger_reprovisioning_for_managed_host(
             started_at: None,
             user_approval_received: false,
             restart_reprovision_requested_at: reprovision_time,
+            // Automatic firmware-update reprovisioning is the normal (ready-state) path.
+            triggered_from_non_ready_state: false,
         };
 
         let query = r#"UPDATE machines SET reprovisioning_requested=$1 WHERE controller_state = '{"state": "ready"}' AND id=$2 RETURNING id"#;
