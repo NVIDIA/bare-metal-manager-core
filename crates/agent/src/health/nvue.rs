@@ -87,11 +87,11 @@ impl NvueHealthCheck<'_> {
     async fn nvue_api_health(&self) -> Result<HealthProbeSuccess, HealthProbeAlert> {
         match self.nvue_client.system_info().await {
             Ok(_) => Ok(HealthProbeSuccess {
-                id: probe_ids::NvueApi.clone(),
+                id: probe_ids::NvueApiRunning.clone(),
                 target: None,
             }),
             Err(e) => Err(make_alert(
-                probe_ids::NvueApi.clone(),
+                probe_ids::NvueApiRunning.clone(),
                 None,
                 format!("Error communicating with NVUE API: {e}"),
                 true,

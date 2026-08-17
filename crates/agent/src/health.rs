@@ -110,7 +110,7 @@ pub(super) fn is_up(health_report: &health_report::HealthReport) -> bool {
     let nvue_api_up = health_report
         .successes
         .iter()
-        .any(|s| s.id == *probe_ids::NvueApi);
+        .any(|s| s.id == *probe_ids::NvueApiRunning);
     let hbn_healthy = (container_exists && supervisord_up) || nvue_api_up;
     hbn_healthy && !has_failed_services
 }
