@@ -20,7 +20,7 @@ use carbide_ib_fabric::errors::IbError;
 use carbide_ib_fabric::ib::{
     GetPartitionOptions, IBFabric, IBFabricManager, IBFabricManagerConfig,
 };
-use carbide_instrument::{DynamicMessage, Event, LabelValue, emit};
+use carbide_instrument::{Event, LabelValue, emit};
 use carbide_uuid::infiniband::IBPartitionId;
 use model::ib::{DEFAULT_IB_FABRIC_NAME, IBQosConf};
 use model::ib_partition::{IBPartition, IBPartitionControllerState, IBPartitionStatus};
@@ -39,34 +39,42 @@ enum MissingPkeyControllerState {
     Deleting,
 }
 
+/// An IB partition reached a controller state without a pkey. Each variant is
+/// the state it was in.
 #[derive(Event)]
 #[event(
     event_name = "ib_partition_pkey_missing",
     metric_name = "carbide_ib_partition_pkey_missing_total",
     component = "ib-partition-controller",
-    log = error,
     metric = counter,
-    message = dynamic,
-    describe = "Number of IB partitions missing a pkey, by controller state"
+    describe = "Number of IB partitions missing a pkey, by controller state",
+    labels(controller_state: MissingPkeyControllerState),
 )]
-struct IbPartitionPkeyMissing {
-    #[label]
-    controller_state: MissingPkeyControllerState,
-    #[context]
-    ib_partition_id: IBPartitionId,
-    #[context]
-    cause: String,
-}
+enum IbPartitionPkeyMissing {
+    #[event(
+        labels(controller_state = MissingPkeyControllerState::Ready),
+        log = error,
+        message = "IB partition has no pkey while ready"
+    )]
+    Ready {
+        #[context]
+        ib_partition_id: IBPartitionId,
+        #[context]
+        cause: String,
+    },
 
-impl DynamicMessage for IbPartitionPkeyMissing {
-    fn message(&self) -> &'static str {
-        match self.controller_state {
-            MissingPkeyControllerState::Ready => "IB partition has no pkey while ready",
-            MissingPkeyControllerState::Deleting => "IB partition has no pkey while deleting",
-        }
-    }
+    #[event(
+        labels(controller_state = MissingPkeyControllerState::Deleting),
+        log = error,
+        message = "IB partition has no pkey while deleting"
+    )]
+    Deleting {
+        #[context]
+        ib_partition_id: IBPartitionId,
+        #[context]
+        cause: String,
+    },
 }
-
 fn missing_pkey_transition(
     partition_id: IBPartitionId,
     controller_state: MissingPkeyControllerState,
@@ -77,10 +85,16 @@ fn missing_pkey_transition(
     }
     .to_string();
 
-    emit(IbPartitionPkeyMissing {
-        controller_state,
-        ib_partition_id: partition_id,
-        cause: cause.clone(),
+    let (ib_partition_id, missing_cause) = (partition_id, cause.clone());
+    emit(match controller_state {
+        MissingPkeyControllerState::Ready => IbPartitionPkeyMissing::Ready {
+            ib_partition_id,
+            cause: missing_cause,
+        },
+        MissingPkeyControllerState::Deleting => IbPartitionPkeyMissing::Deleting {
+            ib_partition_id,
+            cause: missing_cause,
+        },
     });
 
     StateHandlerOutcome::transition(IBPartitionControllerState::Error { cause })

@@ -2,7 +2,7 @@
 
 This guide is the single Day 0 reference for IP address management and in-band/out-of-band network configuration for a NICo deployment. It walks an operator through every IP pool that must exist, how DHCP and DNS are served, and how to verify each piece end-to-end. Follow this page once during initial site bring-up; subsequent host ingestion and tenant operations rely on the configuration described here.
 
-The values here are entered into the `siteConfig` TOML block of `helm-prereqs/values/ncx-core.yaml` (see [Quick Start Guide, Step 3c](../getting-started/quick-start.md#3c-configure-ncx-core-site-deployment)) and into your site DNS and DHCP relay infrastructure. This page does not replace per-topic references — it consolidates them in the order an operator needs them. Sizing formulas, switch configuration, and BMC ingestion details are linked rather than duplicated.
+The values here are entered into the `siteConfig` TOML block of `helm-prereqs/values/nico-core.yaml` (see [Quick Start Guide, Step 3c](../getting-started/quick-start.md#3c-configure-nico-core-site-deployment)) and into your site DNS and DHCP relay infrastructure. This page does not replace per-topic references — it consolidates them in the order an operator needs them. Sizing formulas, switch configuration, and BMC ingestion details are linked rather than duplicated.
 
 ---
 
@@ -94,6 +94,7 @@ Every host BMC, DPU BMC, and DPU OOB interface needs an IP on the OOB management
 Mixing modes within the same site is supported — each host can use whichever mode is convenient.
 
 **Per node**, expect to allocate:
+
 - 1 IP for the host BMC.
 - For hosts with DPUs: 1 IP for the DPU ARM OS + 1 IP for the DPU BMC, per DPU.
 

@@ -32,7 +32,7 @@ use crate::errors::CarbideCliResult;
 mod tests;
 
 #[derive(Parser, Debug, Dispatch)]
-pub enum ScoutStreamAction {
+pub(crate) enum ScoutStreamAction {
     #[clap(about = "Show all active scout stream connections")]
     Show(ConnectionsShowCommand),
     #[clap(about = "Disconnect a scout stream connection")]
@@ -50,7 +50,7 @@ Show all active scout stream connections:
     $ nico-admin-cli scout-stream show
 
 ")]
-pub struct ConnectionsShowCommand {}
+pub(crate) struct ConnectionsShowCommand {}
 
 // ConnectionsDisconnectCommand disconnects a machine based on machine ID.
 #[derive(Parser, Debug)]
@@ -61,8 +61,8 @@ Disconnect a machine's scout stream connection:
     $ nico-admin-cli scout-stream disconnect 12345678-1234-5678-90ab-cdef01234567
 
 ")]
-pub struct ConnectionsDisconnectCommand {
-    pub machine_id: MachineId,
+pub(crate) struct ConnectionsDisconnectCommand {
+    machine_id: MachineId,
 }
 
 // ConnectionsPingCommand pings a machine based on machine ID.
@@ -74,8 +74,8 @@ Ping-test a machine's scout stream connection:
     $ nico-admin-cli scout-stream ping 12345678-1234-5678-90ab-cdef01234567
 
 ")]
-pub struct ConnectionsPingCommand {
-    pub machine_id: MachineId,
+pub(crate) struct ConnectionsPingCommand {
+    machine_id: MachineId,
 }
 
 // Show all active scout stream connections.

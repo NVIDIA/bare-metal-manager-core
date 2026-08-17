@@ -20,11 +20,11 @@
 use std::collections::BTreeMap;
 use std::fmt::Write;
 
-use carbide_dpf::sdk::build_dpu_interfaces_vec;
 use carbide_dpf::types::{
     DHCP_SERVER_SERVICE_NAME, DOCA_HBN_SERVICE_NAME, DOCA_WEAVE_DHCP_AGENT_SERVICE_NAME,
     DOCA_WEAVE_FLOW_CONTROLLER_SERVICE_NAME, DOCA_XPLANE_SERVICE_NAME, DPU_AGENT_SERVICE_NAME,
-    DTS_SERVICE_NAME, FMDS_SERVICE_NAME, OTEL_COLLECTOR_SERVICE_NAME,
+    DTS_SERVICE_NAME, DpuServiceInterfaceTemplateDefinition, FMDS_SERVICE_NAME,
+    OTEL_COLLECTOR_SERVICE_NAME,
 };
 use carbide_dpf::{
     IntOrString, ServiceDefinition, ServiceInterface, ServiceNAD, ServiceNADResourceType,
@@ -32,74 +32,77 @@ use carbide_dpf::{
 
 use crate::cfg::file::{
     DpfBootstrapCaObjectKind, DpfDpuAgentBootstrapCa, DpfExtraService,
-    DpfResolvedMandatoryServicesConfig, DpfServiceConfig,
+    DpfResolvedMandatoryServicesConfig, DpfServiceConfig, NodeAuthConfig,
 };
 
 /// Default DOCA helm registry (DPUServiceTemplate source.repoURL).
-pub const DEFAULT_DOCA_HELM_REGISTRY: &str = "https://helm.ngc.nvidia.com/nvidia/doca";
+pub(crate) const DEFAULT_DOCA_HELM_REGISTRY: &str = "https://helm.ngc.nvidia.com/nvidia/doca";
 
-pub const DEFAULT_CARBIDE_HELM_REGISTRY: &str =
+pub(crate) const DEFAULT_CARBIDE_HELM_REGISTRY: &str =
     "https://helm.ngc.nvidia.com/0837451325059433/carbide-dev";
 
 /// Default DOCA container image registry prefix.
-pub const DEFAULT_DOCA_IMAGE_REGISTRY: &str = "nvcr.io/nvidia/doca";
+pub(crate) const DEFAULT_DOCA_IMAGE_REGISTRY: &str = "nvcr.io/nvidia/doca";
 
 /// Default Carbide container image registry prefix.
-pub const DEFAULT_CARBIDE_IMAGE_REGISTRY: &str = "nvcr.io/0837451325059433/carbide-dev";
+pub(crate) const DEFAULT_CARBIDE_IMAGE_REGISTRY: &str = "nvcr.io/0837451325059433/carbide-dev";
 
 /// Astra Service Helm and Image Registries
-pub const DOCA_WEAVE_CHART_REPO_URL: &str = "oci://harbor.mellanox.com/cloud-orchestration-dev/dpf";
-pub const DOCA_WEAVE_IMAGE_REGISTRY: &str = "nvcr.io/nvstaging/doca";
+pub(crate) const DOCA_WEAVE_CHART_REPO_URL: &str = "oci://nvcr.io/nvstaging/doca";
+pub(crate) const DOCA_WEAVE_IMAGE_REGISTRY: &str = "nvcr.io/nvstaging/doca";
+
+const DOCA_XPLANE_CHART_REPO_URL: &str = "https://helm.ngc.nvidia.com/nvstaging/doca";
+const DOCA_XPLANE_IMAGE_REGISTRY: &str = "nvcr.io/nvstaging/doca";
 
 /// HBN service Definitions
-pub const DOCA_HBN_SERVICE_HELM_NAME: &str = "doca-hbn";
-pub const DOCA_HBN_SERVICE_HELM_VERSION: &str = "3.4.0";
-pub const DOCA_HBN_SERVICE_IMAGE_NAME: &str = "doca_hbn";
-pub const DOCA_HBN_SERVICE_IMAGE_TAG: &str = "3.4.0-doca3.4.0";
-pub const DOCA_HBN_SERVICE_NETWORK: &str = "mybrhbn";
+pub(crate) const DOCA_HBN_SERVICE_HELM_NAME: &str = "doca-hbn";
+pub(crate) const DOCA_HBN_SERVICE_HELM_VERSION: &str = "3.4.0";
+pub(crate) const DOCA_HBN_SERVICE_IMAGE_NAME: &str = "doca_hbn";
+pub(crate) const DOCA_HBN_SERVICE_IMAGE_TAG: &str = "3.4.0-doca3.4.0";
+pub(crate) const DOCA_HBN_SERVICE_NETWORK: &str = "mybrhbn";
 
 /// DHCP Service Definitions
-pub const DHCP_SERVER_SERVICE_HELM_NAME: &str = "nico-dhcp-server";
-pub const DHCP_SERVER_SERVICE_NAD_NAME: &str = "mybrsfc-dhcp";
-pub const DHCP_SERVER_SERVICE_MTU: i64 = 1500;
-pub const DHCP_SERVER_SERVICE_IMAGE_NAME: &str = "forge-dhcp-server";
+pub(crate) const DHCP_SERVER_SERVICE_HELM_NAME: &str = "nico-dhcp-server";
+pub(crate) const DHCP_SERVER_SERVICE_NAD_NAME: &str = "mybrsfc-dhcp";
+pub(crate) const DHCP_SERVER_SERVICE_MTU: i64 = 1500;
+pub(crate) const DHCP_SERVER_SERVICE_IMAGE_NAME: &str = "forge-dhcp-server";
 
 /// DTS service definitions
 /// (DTS_SERVICE_NAME lives in carbide_dpf::types so the DPF SDK can wire its dependencies.)
-pub const DTS_SERVICE_HELM_NAME: &str = "doca-telemetry";
-pub const DTS_SERVICE_HELM_VERSION: &str = "1.25.5";
+pub(crate) const DTS_SERVICE_HELM_NAME: &str = "doca-telemetry";
+pub(crate) const DTS_SERVICE_HELM_VERSION: &str = "1.25.5";
 
 // DPU Agent Service Definitions
-pub const DPU_AGENT_SERVICE_HELM_NAME: &str = "nico-dpu-agent";
-pub const DPU_AGENT_SERVICE_IMAGE_NAME: &str = "forge-dpu-agent";
+pub(crate) const DPU_AGENT_SERVICE_HELM_NAME: &str = "nico-dpu-agent";
+pub(crate) const DPU_AGENT_SERVICE_IMAGE_NAME: &str = "forge-dpu-agent";
 
 /// FMDS Agent Service Definitions
-pub const FMDS_SERVICE_HELM_NAME: &str = "nico-fmds";
-pub const FMDS_SERVICE_IMAGE_NAME: &str = "carbide-fmds";
-pub const FMDS_SERVICE_NAD_NAME: &str = "mybrsfc-fmds";
-pub const FMDS_SERVICE_MTU: i64 = 1500;
+pub(crate) const FMDS_SERVICE_HELM_NAME: &str = "nico-fmds";
+pub(crate) const FMDS_SERVICE_IMAGE_NAME: &str = "carbide-fmds";
+pub(crate) const FMDS_SERVICE_NAD_NAME: &str = "mybrsfc-fmds";
+pub(crate) const FMDS_SERVICE_MTU: i64 = 1500;
 
 /// OTel Collector Service Definitions
-pub const OTEL_COLLECTOR_SERVICE_HELM_NAME: &str = "nico-otelcol";
-pub const OTEL_COLLECTOR_SERVICE_IMAGE_NAME: &str = "otelcol-contrib";
+pub(crate) const OTEL_COLLECTOR_SERVICE_HELM_NAME: &str = "nico-otelcol";
+pub(crate) const OTEL_COLLECTOR_SERVICE_IMAGE_NAME: &str = "otelcol-contrib";
 
 /// Weave DHCP agent service definitions.
-pub const DOCA_WEAVE_DHCP_AGENT_SERVICE_HELM_NAME: &str = "dpf-weave";
-pub const DOCA_WEAVE_DHCP_AGENT_SERVICE_HELM_VERSION: &str = "v26.5.0-1f8f4e1e";
-pub const DOCA_WEAVE_DHCP_AGENT_SERVICE_IMAGE_NAME: &str = "weave-system";
-pub const DOCA_WEAVE_DHCP_AGENT_SERVICE_IMAGE_TAG: &str = "v26.5.0-f2c9f7c4-nightly";
+pub(crate) const DOCA_WEAVE_DHCP_AGENT_SERVICE_HELM_NAME: &str = "dpf-weave";
+pub(crate) const DOCA_WEAVE_DHCP_AGENT_SERVICE_HELM_VERSION: &str = "v26.8.0-a02ded2e-nightly";
+pub(crate) const DOCA_WEAVE_DHCP_AGENT_SERVICE_IMAGE_NAME: &str = "weave-system";
+pub(crate) const DOCA_WEAVE_DHCP_AGENT_SERVICE_IMAGE_TAG: &str = "v26.8.0-a02ded2e-nightly";
 
 /// Weave flow (ovs) controller service definitions.
-pub const DOCA_WEAVE_FLOW_CONTROLLER_SERVICE_HELM_NAME: &str = "dpf-weave";
-pub const DOCA_WEAVE_FLOW_CONTROLLER_SERVICE_HELM_VERSION: &str = "v26.5.0-1f8f4e1e";
-pub const DOCA_WEAVE_FLOW_CONTROLLER_SERVICE_IMAGE_NAME: &str = "weave-system";
-pub const DOCA_WEAVE_FLOW_CONTROLLER_SERVICE_IMAGE_TAG: &str = "v26.5.0-f2c9f7c4-nightly";
+pub(crate) const DOCA_WEAVE_FLOW_CONTROLLER_SERVICE_HELM_NAME: &str = "dpf-weave";
+pub(crate) const DOCA_WEAVE_FLOW_CONTROLLER_SERVICE_HELM_VERSION: &str = "v26.8.0-a02ded2e-nightly";
+pub(crate) const DOCA_WEAVE_FLOW_CONTROLLER_SERVICE_IMAGE_NAME: &str = "weave-system";
+pub(crate) const DOCA_WEAVE_FLOW_CONTROLLER_SERVICE_IMAGE_TAG: &str = "v26.8.0-a02ded2e-nightly";
 
 /// Xplane service definitions.
-pub const DOCA_XPLANE_SERVICE_HELM_NAME: &str = "doca-xplane";
-pub const DOCA_XPLANE_SERVICE_HELM_VERSION: &str = "1.0";
-pub const DOCA_XPLANE_SERVICE_IMAGE_NAME: &str = "doca_xplane";
-pub const DOCA_XPLANE_SERVICE_IMAGE_TAG: &str = "3.2.1-doca3.2.1";
+const DOCA_XPLANE_SERVICE_HELM_NAME: &str = "xplane";
+const DOCA_XPLANE_SERVICE_HELM_VERSION: &str = "3.5.0020";
+const DOCA_XPLANE_SERVICE_IMAGE_NAME: &str = "xplane";
+const DOCA_XPLANE_SERVICE_IMAGE_TAG: &str = "3.5.0020";
 
 /// Compile-time helm version (set by CI via VERSION env var). Empty on PR/fork builds.
 pub(crate) const COMPILE_TIME_HELM_VERSION: &str = match option_env!("CARBIDE_BUILD_HELM_VERSION") {
@@ -113,26 +116,41 @@ pub(crate) const COMPILE_TIME_IMAGE_TAG: &str = match option_env!("CARBIDE_BUILD
     None => "",
 };
 
-fn doca_hbn_service_interfaces() -> Vec<ServiceInterface> {
-    dpu_service_interfaces(DOCA_HBN_SERVICE_NAME, DOCA_HBN_SERVICE_NETWORK)
+fn doca_hbn_service_interfaces(
+    interfaces: &[DpuServiceInterfaceTemplateDefinition],
+) -> Vec<ServiceInterface> {
+    dpu_service_interfaces(interfaces, DOCA_HBN_SERVICE_NAME, DOCA_HBN_SERVICE_NETWORK)
 }
-fn dhcp_server_service_interfaces() -> Vec<ServiceInterface> {
-    dpu_service_interfaces(DHCP_SERVER_SERVICE_NAME, DHCP_SERVER_SERVICE_NAD_NAME)
+fn dhcp_server_service_interfaces(
+    interfaces: &[DpuServiceInterfaceTemplateDefinition],
+) -> Vec<ServiceInterface> {
+    dpu_service_interfaces(
+        interfaces,
+        DHCP_SERVER_SERVICE_NAME,
+        DHCP_SERVER_SERVICE_NAD_NAME,
+    )
 }
-fn fmds_service_interfaces() -> Vec<ServiceInterface> {
-    dpu_service_interfaces(FMDS_SERVICE_NAME, FMDS_SERVICE_NAD_NAME)
+fn fmds_service_interfaces(
+    interfaces: &[DpuServiceInterfaceTemplateDefinition],
+) -> Vec<ServiceInterface> {
+    dpu_service_interfaces(interfaces, FMDS_SERVICE_NAME, FMDS_SERVICE_NAD_NAME)
 }
 
-fn dpu_service_interfaces(service_name: &str, network: &str) -> Vec<ServiceInterface> {
-    build_dpu_interfaces_vec()
-        .into_iter()
+fn dpu_service_interfaces(
+    interfaces: &[DpuServiceInterfaceTemplateDefinition],
+    service_name: &str,
+    network: &str,
+) -> Vec<ServiceInterface> {
+    // Service definitions consume only endpoints declared by the shared effective inventory.
+    interfaces
+        .iter()
         .filter_map(|iface| {
-            iface.chained_svc_if.and_then(|chains| {
+            iface.chained_svc_if.as_ref().and_then(|chains| {
                 chains
-                    .into_iter()
+                    .iter()
                     .find_map(|(chained_service_name, interface_name)| {
                         (chained_service_name == service_name).then(|| ServiceInterface {
-                            name: interface_name,
+                            name: interface_name.clone(),
                             network: network.to_string(),
                         })
                     })
@@ -173,6 +191,7 @@ pub(crate) fn default_dts_service() -> DpfServiceConfig {
         docker_repo_url: String::new(),
         docker_image_tag: String::new(),
         docker_image_pull_secret: None,
+        extra_helm_values: None,
     }
 }
 
@@ -185,6 +204,7 @@ pub(crate) fn default_doca_hbn_service() -> DpfServiceConfig {
         docker_repo_url: format!("{DEFAULT_DOCA_IMAGE_REGISTRY}/{DOCA_HBN_SERVICE_IMAGE_NAME}"),
         docker_image_tag: DOCA_HBN_SERVICE_IMAGE_TAG.to_string(),
         docker_image_pull_secret: None,
+        extra_helm_values: None,
     }
 }
 
@@ -197,6 +217,7 @@ pub(crate) fn default_dpu_agent_service() -> DpfServiceConfig {
         docker_repo_url: format!("{DEFAULT_CARBIDE_IMAGE_REGISTRY}/{DPU_AGENT_SERVICE_IMAGE_NAME}"),
         docker_image_tag: COMPILE_TIME_IMAGE_TAG.to_string(),
         docker_image_pull_secret: None,
+        extra_helm_values: None,
     }
 }
 
@@ -211,6 +232,7 @@ pub(crate) fn default_dhcp_server_service() -> DpfServiceConfig {
         ),
         docker_image_tag: COMPILE_TIME_IMAGE_TAG.to_string(),
         docker_image_pull_secret: None,
+        extra_helm_values: None,
     }
 }
 
@@ -223,6 +245,7 @@ pub(crate) fn default_fmds_service() -> DpfServiceConfig {
         docker_repo_url: format!("{DEFAULT_CARBIDE_IMAGE_REGISTRY}/{FMDS_SERVICE_IMAGE_NAME}"),
         docker_image_tag: COMPILE_TIME_IMAGE_TAG.to_string(),
         docker_image_pull_secret: None,
+        extra_helm_values: None,
     }
 }
 
@@ -237,6 +260,7 @@ pub(crate) fn default_otelcol_service() -> DpfServiceConfig {
         ),
         docker_image_tag: COMPILE_TIME_IMAGE_TAG.to_string(),
         docker_image_pull_secret: None,
+        extra_helm_values: None,
     }
 }
 
@@ -251,6 +275,7 @@ pub(crate) fn default_doca_weave_dhcp_agent_service() -> DpfServiceConfig {
         ),
         docker_image_tag: DOCA_WEAVE_DHCP_AGENT_SERVICE_IMAGE_TAG.to_string(),
         docker_image_pull_secret: None,
+        extra_helm_values: None,
     }
 }
 
@@ -265,18 +290,20 @@ pub(crate) fn default_doca_weave_flow_controller_service() -> DpfServiceConfig {
         ),
         docker_image_tag: DOCA_WEAVE_FLOW_CONTROLLER_SERVICE_IMAGE_TAG.to_string(),
         docker_image_pull_secret: None,
+        extra_helm_values: None,
     }
 }
 
 pub(crate) fn default_doca_xplane_service() -> DpfServiceConfig {
     DpfServiceConfig {
         name: DOCA_XPLANE_SERVICE_NAME.to_string(),
-        helm_repo_url: DEFAULT_DOCA_HELM_REGISTRY.to_string(),
+        helm_repo_url: DOCA_XPLANE_CHART_REPO_URL.to_string(),
         helm_chart: DOCA_XPLANE_SERVICE_HELM_NAME.to_string(),
         helm_version: DOCA_XPLANE_SERVICE_HELM_VERSION.to_string(),
-        docker_repo_url: format!("{DEFAULT_DOCA_IMAGE_REGISTRY}/{DOCA_XPLANE_SERVICE_IMAGE_NAME}"),
+        docker_repo_url: format!("{DOCA_XPLANE_IMAGE_REGISTRY}/{DOCA_XPLANE_SERVICE_IMAGE_NAME}"),
         docker_image_tag: DOCA_XPLANE_SERVICE_IMAGE_TAG.to_string(),
         docker_image_pull_secret: None,
+        extra_helm_values: None,
     }
 }
 
@@ -298,9 +325,112 @@ fn apply_image_pull_secrets(helm_values: &mut serde_json::Value, cfg: &DpfServic
         );
 }
 
+fn merge_helm_values(
+    base: &mut serde_json::Map<String, serde_json::Value>,
+    overlay: &serde_json::Map<String, serde_json::Value>,
+) {
+    for (key, value) in overlay {
+        match (base.get_mut(key), value) {
+            (Some(serde_json::Value::Object(base)), serde_json::Value::Object(overlay)) => {
+                merge_helm_values(base, overlay);
+            }
+            _ => {
+                base.insert(key.clone(), value.clone());
+            }
+        }
+    }
+}
+
+fn apply_helm_values(helm_values: &mut serde_json::Value, cfg: &DpfServiceConfig) {
+    apply_image_pull_secrets(helm_values, cfg);
+    if let Some(overlay) = &cfg.extra_helm_values {
+        merge_helm_values(
+            helm_values
+                .as_object_mut()
+                .expect("generated Helm values must be an object"),
+            overlay,
+        );
+    }
+}
+
+/// Restores the topology-derived HBN SF request after applying operator Helm overrides.
+fn set_hbn_sf_count(helm_values: &mut serde_json::Value, sf_count: usize) {
+    // `doca_hbn_service` constructs the root object locally. Operator overlays can replace its
+    // fields, including `resources`, but cannot replace the generated root value.
+    let helm_values = helm_values
+        .as_object_mut()
+        .expect("generated HBN Helm values must be an object");
+    let resources = helm_values
+        .entry("resources")
+        .or_insert_with(|| serde_json::json!({}));
+    match resources {
+        serde_json::Value::Object(resources) => {
+            resources.insert("nvidia.com/bf_sf".to_string(), serde_json::json!(sf_count));
+        }
+        resources => {
+            *resources = serde_json::json!({
+                "nvidia.com/bf_sf": sf_count,
+            });
+        }
+    }
+}
+
+/// Restores a value the API owns after the operator overlay has been merged.
+///
+/// `apply_helm_values` merges `extra_helm_values` last, so an overlay wins over
+/// anything generated above it. That is right for tuning a chart, and wrong for
+/// the handful of values that encode an agreement between two components: the
+/// API validates them at startup, so letting a Helm overlay change one deploys
+/// a fleet the API will reject while passing every check. Reassert them, and
+/// say so when an overlay tried.
+fn reassert_api_owned_value(
+    helm_values: &mut serde_json::Value,
+    service: &str,
+    path: &[&str],
+    authoritative: serde_json::Value,
+) {
+    let (last, parents) = path.split_last().expect("path must not be empty");
+    let mut node = helm_values;
+    for key in parents {
+        // An overlay can put anything here, including a scalar or null, so
+        // descend defensively: assuming an object would turn a malformed
+        // `extra_helm_values` into a panic during DPF resource creation, which
+        // is a poor way to report a typo in someone's config.
+        let entry = node
+            .as_object_mut()
+            .expect("generated Helm values must be an object")
+            .entry((*key).to_string())
+            .or_insert_with(|| serde_json::json!({}));
+        if !entry.is_object() {
+            *entry = serde_json::json!({});
+        }
+        node = entry;
+    }
+    let object = node
+        .as_object_mut()
+        .expect("generated Helm values must be an object");
+    match object.get(*last) {
+        Some(existing) if *existing == authoritative => {}
+        Some(overridden) => tracing::warn!(
+            target: "node_auth",
+            service,
+            setting = path.join("."),
+            %overridden,
+            authoritative = %authoritative,
+            "node-auth: ignoring an extra_helm_values override of a value the API owns; \
+             it is validated at startup and both ends must agree"
+        ),
+        None => {}
+    }
+    object.insert((*last).to_string(), authoritative);
+}
+
 /// DOCA HBN service definition.
-pub fn doca_hbn_service(cfg: &DpfServiceConfig) -> ServiceDefinition {
-    let interfaces = doca_hbn_service_interfaces();
+pub(crate) fn doca_hbn_service(
+    cfg: &DpfServiceConfig,
+    dpu_interfaces: &[DpuServiceInterfaceTemplateDefinition],
+) -> ServiceDefinition {
+    let interfaces = doca_hbn_service_interfaces(dpu_interfaces);
     let mut helm_values = serde_json::json!({
         "image": {
             "repository": cfg.docker_repo_url,
@@ -321,7 +451,10 @@ pub fn doca_hbn_service(cfg: &DpfServiceConfig) -> ServiceDefinition {
             },
         }
     });
-    apply_image_pull_secrets(&mut helm_values, cfg);
+    apply_helm_values(&mut helm_values, cfg);
+    // Interface assignments, startup YAML, and the requested SF population are one contract.
+    // An operator Helm overlay may customize other chart values but must not split that contract.
+    set_hbn_sf_count(&mut helm_values, interfaces.len());
     ServiceDefinition {
         helm_values: Some(helm_values),
 
@@ -345,11 +478,11 @@ pub fn doca_hbn_service(cfg: &DpfServiceConfig) -> ServiceDefinition {
 }
 
 /// DTS (DOCA Telemetry Service) service definition.
-pub fn dts_service(cfg: &DpfServiceConfig) -> ServiceDefinition {
+pub(crate) fn dts_service(cfg: &DpfServiceConfig) -> ServiceDefinition {
     let mut helm_values = serde_json::json!({
         "exposedPorts": { "ports": { "httpserverport": true } }
     });
-    apply_image_pull_secrets(&mut helm_values, cfg);
+    apply_helm_values(&mut helm_values, cfg);
     ServiceDefinition {
         helm_values: Some(helm_values),
         config_ports: None,
@@ -378,8 +511,6 @@ fn dpu_agent_helm_values(
             "nvue_password_key": "password",
         }
     });
-    apply_image_pull_secrets(&mut values, cfg);
-
     let bootstrap_ca_values = match bootstrap_ca {
         DpfDpuAgentBootstrapCa::LegacyDownload { url: None } => None,
         DpfDpuAgentBootstrapCa::LegacyDownload { url: Some(url) } => Some(serde_json::json!({
@@ -409,12 +540,13 @@ fn dpu_agent_helm_values(
             .expect("DPU agent Helm values are an object")
             .insert("bootstrapCa".to_string(), bootstrap_ca_values);
     }
+    apply_helm_values(&mut values, cfg);
 
     values
 }
 
 /// Forge DPU Agent service definition.
-pub fn dpu_agent_service(
+pub(crate) fn dpu_agent_service(
     cfg: &DpfServiceConfig,
     bootstrap_ca: &DpfDpuAgentBootstrapCa,
 ) -> ServiceDefinition {
@@ -446,18 +578,21 @@ pub fn dpu_agent_service(
 }
 
 /// Forge DHCP Server service definition.
-pub fn dhcp_server_service(cfg: &DpfServiceConfig) -> ServiceDefinition {
+pub(crate) fn dhcp_server_service(
+    cfg: &DpfServiceConfig,
+    dpu_interfaces: &[DpuServiceInterfaceTemplateDefinition],
+) -> ServiceDefinition {
     let mut helm_values = serde_json::json!({
         "image": {
             "repository": cfg.docker_repo_url,
             "tag": cfg.docker_image_tag,
         }
     });
-    apply_image_pull_secrets(&mut helm_values, cfg);
+    apply_helm_values(&mut helm_values, cfg);
     ServiceDefinition {
         helm_values: Some(helm_values),
 
-        interfaces: dhcp_server_service_interfaces(),
+        interfaces: dhcp_server_service_interfaces(dpu_interfaces),
 
         service_daemon_set_annotations: Some(BTreeMap::new()),
 
@@ -479,18 +614,35 @@ pub fn dhcp_server_service(cfg: &DpfServiceConfig) -> ServiceDefinition {
 }
 
 /// Forge FMDS service definition.
-pub fn fmds_service(cfg: &DpfServiceConfig) -> ServiceDefinition {
+///
+/// `use_node_tokens` defaults to the API's `[node_auth] enabled` switch and can
+/// be overridden by `fmds_use_node_tokens`: when set, fmds is deployed fetching
+/// bearer JWTs from the dpu-agent's local API socket instead of mounting the
+/// machine cert/key (issue #355). Requires a dpu-agent image that serves the
+/// local API.
+pub(crate) fn fmds_service(
+    cfg: &DpfServiceConfig,
+    dpu_interfaces: &[DpuServiceInterfaceTemplateDefinition],
+    use_node_tokens: bool,
+) -> ServiceDefinition {
     let mut helm_values = serde_json::json!({
         "image": {
             "repository": cfg.docker_repo_url,
             "tag": cfg.docker_image_tag,
-        }
+        },
+        "useNodeTokens": use_node_tokens,
     });
-    apply_image_pull_secrets(&mut helm_values, cfg);
+    apply_helm_values(&mut helm_values, cfg);
+    reassert_api_owned_value(
+        &mut helm_values,
+        FMDS_SERVICE_NAME,
+        &["useNodeTokens"],
+        serde_json::json!(use_node_tokens),
+    );
     ServiceDefinition {
         helm_values: Some(helm_values),
 
-        interfaces: fmds_service_interfaces(),
+        interfaces: fmds_service_interfaces(dpu_interfaces),
 
         service_daemon_set_annotations: Some(BTreeMap::new()),
 
@@ -512,14 +664,14 @@ pub fn fmds_service(cfg: &DpfServiceConfig) -> ServiceDefinition {
 }
 
 /// OTel service definition.
-pub fn otelcol_service(cfg: &DpfServiceConfig) -> ServiceDefinition {
+pub(crate) fn otelcol_service(cfg: &DpfServiceConfig) -> ServiceDefinition {
     let mut helm_values = serde_json::json!({
         "image": {
             "repository": cfg.docker_repo_url,
             "tag": cfg.docker_image_tag,
         }
     });
-    apply_image_pull_secrets(&mut helm_values, cfg);
+    apply_helm_values(&mut helm_values, cfg);
     ServiceDefinition {
         helm_values: Some(helm_values),
         service_daemon_set_annotations: Some(BTreeMap::new()),
@@ -538,7 +690,7 @@ pub fn otelcol_service(cfg: &DpfServiceConfig) -> ServiceDefinition {
     }
 }
 
-pub fn doca_weave_dhcp_agent_service(cfg: &DpfServiceConfig) -> ServiceDefinition {
+pub(crate) fn doca_weave_dhcp_agent_service(cfg: &DpfServiceConfig) -> ServiceDefinition {
     let mut helm_values = serde_json::json!({
         "weaveDHCPAgent": {
             "containers": {
@@ -551,7 +703,7 @@ pub fn doca_weave_dhcp_agent_service(cfg: &DpfServiceConfig) -> ServiceDefinitio
             }
         }
     });
-    apply_image_pull_secrets(&mut helm_values, cfg);
+    apply_helm_values(&mut helm_values, cfg);
     ServiceDefinition {
         helm_values: Some(helm_values),
         config_values: Some(serde_json::json!({
@@ -622,7 +774,7 @@ fn weave_flow_controller_underlay_interfaces() -> Vec<serde_json::Value> {
         .collect()
 }
 
-pub fn doca_weave_flow_controller_service(cfg: &DpfServiceConfig) -> ServiceDefinition {
+pub(crate) fn doca_weave_flow_controller_service(cfg: &DpfServiceConfig) -> ServiceDefinition {
     let mut helm_values = serde_json::json!({
         "weaveFlowController": {
             "containers": {
@@ -635,7 +787,7 @@ pub fn doca_weave_flow_controller_service(cfg: &DpfServiceConfig) -> ServiceDefi
             }
         }
     });
-    apply_image_pull_secrets(&mut helm_values, cfg);
+    apply_helm_values(&mut helm_values, cfg);
     ServiceDefinition {
         helm_values: Some(helm_values),
         config_values: Some(serde_json::json!({
@@ -656,14 +808,14 @@ pub fn doca_weave_flow_controller_service(cfg: &DpfServiceConfig) -> ServiceDefi
     }
 }
 
-pub fn doca_xplane_service(cfg: &DpfServiceConfig) -> ServiceDefinition {
+pub(crate) fn doca_xplane_service(cfg: &DpfServiceConfig) -> ServiceDefinition {
     let mut helm_values = serde_json::json!({
         "image": {
             "repository": cfg.docker_repo_url,
             "tag": cfg.docker_image_tag,
         }
     });
-    apply_image_pull_secrets(&mut helm_values, cfg);
+    apply_helm_values(&mut helm_values, cfg);
     ServiceDefinition {
         helm_values: Some(helm_values),
         ..ServiceDefinition::new(
@@ -676,16 +828,27 @@ pub fn doca_xplane_service(cfg: &DpfServiceConfig) -> ServiceDefinition {
 }
 
 /// Build the full list of resolved mandatory DPU services.
-pub fn mandatory_services(
+///
+/// `node_auth` mirrors the API's `[node_auth]` section: fmds token mode follows
+/// `enabled` unless `fmds_use_node_tokens` overrides it (issue #355).
+pub(crate) fn mandatory_services(
     resolved: &DpfResolvedMandatoryServicesConfig,
     bootstrap_ca: &DpfDpuAgentBootstrapCa,
+    interfaces: &[DpuServiceInterfaceTemplateDefinition],
+    node_auth: &NodeAuthConfig,
 ) -> Vec<ServiceDefinition> {
     let mut service_vec = vec![
         dts_service(&resolved.base.dts),
-        doca_hbn_service(&resolved.base.doca_hbn),
-        dhcp_server_service(&resolved.base.dhcp_server),
+        doca_hbn_service(&resolved.base.doca_hbn, interfaces),
+        dhcp_server_service(&resolved.base.dhcp_server, interfaces),
         dpu_agent_service(&resolved.base.dpu_agent, bootstrap_ca),
-        fmds_service(&resolved.base.fmds),
+        // Not `node_auth.enabled` directly: an operator staging a disable
+        // moves fmds off tokens first, while the API still accepts them.
+        fmds_service(
+            &resolved.base.fmds,
+            interfaces,
+            node_auth.fmds_use_node_tokens(),
+        ),
         otelcol_service(&resolved.base.otel),
     ];
 
@@ -706,9 +869,14 @@ pub fn mandatory_services(
 
 #[cfg(test)]
 mod tests {
-    use carbide_dpf::sdk::build_dpu_interfaces_vec;
-    use carbide_dpf::types::DpuServiceInterfaceTemplateType;
-    use carbide_dpf::{build_service_configuration, build_service_interface};
+    use carbide_dpf::sdk::{build_dpu_interfaces_vec, build_effective_dpu_interfaces};
+    use carbide_dpf::types::{
+        DpfInterceptBridge, DpfInterceptBridging, DpfInterfaceIdentity,
+        DpuServiceInterfaceTemplateType,
+    };
+    use carbide_dpf::{
+        build_service_configuration, build_service_interface, build_service_template,
+    };
     use carbide_test_support::value_scenarios;
     use url::Url;
 
@@ -716,11 +884,155 @@ mod tests {
 
     const TEST_NS: &str = "dpf-operator-system";
 
+    /// Verifies every service definition consumes the same configured effective inventory.
+    #[test]
+    fn configured_inventory_drives_hbn_dhcp_and_fmds_definitions() {
+        // Build a complete replacement inventory containing one PF and one VF.
+        let topology = DpfInterceptBridging::new(
+            vec![
+                DpfInterceptBridge::new(
+                    DpfInterfaceIdentity {
+                        controller_id: 2,
+                        pf_id: 3,
+                        vf_id: None,
+                    },
+                    "br-pf3",
+                    "p-pf3",
+                ),
+                DpfInterceptBridge::new(
+                    DpfInterfaceIdentity {
+                        controller_id: 2,
+                        pf_id: 3,
+                        vf_id: Some(4),
+                    },
+                    "br-vf4",
+                    "p-vf4",
+                ),
+            ],
+            16,
+        )
+        .expect("configured service inventory fixture must be valid");
+        let interfaces = build_effective_dpu_interfaces(16, Some(&topology));
+
+        // HBN receives p0, p1, the PF, and the VF; its SF count and startup YAML agree.
+        let hbn = doca_hbn_service(&default_doca_hbn_service(), &interfaces);
+        assert_eq!(hbn.interfaces.len(), 4);
+        assert_eq!(
+            hbn.helm_values.as_ref().unwrap()["resources"]["nvidia.com/bf_sf"],
+            4
+        );
+        let startup_yaml = hbn.config_values.as_ref().unwrap()["configuration"]["startupYAMLJ2"]
+            .as_str()
+            .unwrap();
+        assert!(startup_yaml.contains("pf0hpf_if:") && startup_yaml.contains("pf0vf4_if:"));
+
+        // DHCP receives both configured entries, while FMDS receives only the PF.
+        let dhcp = dhcp_server_service(&default_dhcp_server_service(), &interfaces);
+        let fmds = fmds_service(&default_fmds_service(), &interfaces, false);
+        assert_eq!(
+            dhcp.interfaces
+                .iter()
+                .map(|interface| interface.name.as_str())
+                .collect::<Vec<_>>(),
+            ["d_pf0hpf_if", "d_pf0vf4_if"]
+        );
+        assert_eq!(
+            fmds.interfaces
+                .iter()
+                .map(|interface| interface.name.as_str())
+                .collect::<Vec<_>>(),
+            ["f_pf0hpf_if"]
+        );
+    }
+
+    /// Verifies operator Helm values cannot disconnect HBN's SF request from its interfaces.
+    #[test]
+    fn hbn_sf_count_remains_topology_derived() {
+        // Attempt to replace the generated SF count while customizing another resource value.
+        let mut config = default_doca_hbn_service();
+        config.extra_helm_values = serde_json::json!({
+            "resources": {
+                "memory": "8Gi",
+                "nvidia.com/bf_sf": 1,
+            }
+        })
+        .as_object()
+        .cloned();
+        let interfaces = build_dpu_interfaces_vec();
+
+        // Ordinary resource overrides remain effective, while the SF count follows inventory.
+        let hbn = doca_hbn_service(&config, &interfaces);
+        let helm_values = hbn.helm_values.unwrap();
+        assert_eq!(helm_values["resources"]["memory"], "8Gi");
+        assert_eq!(
+            helm_values["resources"]["nvidia.com/bf_sf"],
+            interfaces.len()
+        );
+    }
+
+    #[test]
+    fn helm_value_tables_merge_recursively() {
+        let mut values = serde_json::json!({
+            "image": {
+                "repository": "generated",
+                "tag": "generated",
+            }
+        });
+
+        let overlay = serde_json::json!({
+            "image": { "tag": "configured" },
+            "fmds": { "sign_proxy_url": "http://dsx-imds" },
+        });
+        merge_helm_values(
+            values.as_object_mut().unwrap(),
+            overlay.as_object().unwrap(),
+        );
+
+        assert_eq!(
+            values,
+            serde_json::json!({
+                "image": {
+                    "repository": "generated",
+                    "tag": "configured",
+                },
+                "fmds": { "sign_proxy_url": "http://dsx-imds" },
+            })
+        );
+    }
+
+    #[test]
+    fn helm_value_scalars_and_arrays_replace_generated_values() {
+        let mut values = serde_json::json!({
+            "enabled": false,
+            "tolerations": [{ "key": "generated" }],
+        });
+
+        let overlay = serde_json::json!({
+            "enabled": true,
+            "tolerations": [{ "key": "configured" }],
+        });
+        merge_helm_values(
+            values.as_object_mut().unwrap(),
+            overlay.as_object().unwrap(),
+        );
+
+        assert_eq!(
+            values,
+            serde_json::json!({
+                "enabled": true,
+                "tolerations": [{ "key": "configured" }],
+            })
+        );
+    }
+
     #[test]
     fn dpu_agent_bootstrap_ca_helm_values_follow_site_policy() {
         value_scenarios!(
             run = |policy| {
-                dpu_agent_helm_values(&default_dpu_agent_service(), &policy)
+                dpu_agent_helm_values(
+                    &default_dpu_agent_service(),
+                    &policy,
+                )
                     .get("bootstrapCa")
                     .cloned()
             };
@@ -768,7 +1080,8 @@ mod tests {
     #[test]
     fn hbn_and_dts_omit_image_pull_secrets_by_default() {
         // HBN and DTS pull from the public DOCA registry: no imagePullSecrets unless configured.
-        let hbn = doca_hbn_service(&default_doca_hbn_service());
+        let interfaces = build_dpu_interfaces_vec();
+        let hbn = doca_hbn_service(&default_doca_hbn_service(), &interfaces);
         assert!(
             hbn.helm_values.unwrap().get("imagePullSecrets").is_none(),
             "HBN must not emit imagePullSecrets without a configured secret"
@@ -784,11 +1097,12 @@ mod tests {
     #[test]
     fn hbn_and_dts_emit_image_pull_secrets_when_configured() {
         let expected = serde_json::json!([{ "name": "private-pull-secret" }]);
+        let interfaces = build_dpu_interfaces_vec();
 
         let mut hbn_cfg = default_doca_hbn_service();
         hbn_cfg.docker_image_pull_secret = Some("private-pull-secret".to_string());
         assert_eq!(
-            doca_hbn_service(&hbn_cfg).helm_values.unwrap()["imagePullSecrets"],
+            doca_hbn_service(&hbn_cfg, &interfaces).helm_values.unwrap()["imagePullSecrets"],
             expected
         );
 
@@ -879,6 +1193,31 @@ mod tests {
         );
     }
 
+    #[test]
+    fn dpu_agent_template_merges_extra_helm_values() {
+        let mut config = default_dpu_agent_service();
+        config.extra_helm_values = serde_json::json!({
+            "fmds": {
+                "sign_proxy_url": "http://dsx-imds.dpf-operator-system.svc.cluster.local:8080"
+            },
+            "image": {
+                "tag": "configured-tag"
+            }
+        })
+        .as_object()
+        .cloned();
+        let service = dpu_agent_service(&config, &DpfDpuAgentBootstrapCa::default());
+        let template = build_service_template(&service, TEST_NS, "");
+        let values = template.spec.helm_chart.values.unwrap();
+
+        assert_eq!(
+            values["fmds"]["sign_proxy_url"],
+            "http://dsx-imds.dpf-operator-system.svc.cluster.local:8080"
+        );
+        assert_eq!(values["image"]["repository"], config.docker_repo_url);
+        assert_eq!(values["image"]["tag"], "configured-tag");
+    }
+
     // ---- weave services ----
 
     #[test]
@@ -965,7 +1304,9 @@ mod tests {
 
     #[test]
     fn test_dpu_service_interfaces_hbn_uses_correct_network() {
-        let ifaces = dpu_service_interfaces(DOCA_HBN_SERVICE_NAME, DOCA_HBN_SERVICE_NETWORK);
+        let interfaces = build_dpu_interfaces_vec();
+        let ifaces =
+            dpu_service_interfaces(&interfaces, DOCA_HBN_SERVICE_NAME, DOCA_HBN_SERVICE_NETWORK);
         assert!(!ifaces.is_empty(), "HBN should have at least one interface");
         for iface in &ifaces {
             assert_eq!(
@@ -978,7 +1319,12 @@ mod tests {
 
     #[test]
     fn test_dpu_service_interfaces_dhcp_uses_correct_network() {
-        let ifaces = dpu_service_interfaces(DHCP_SERVER_SERVICE_NAME, DHCP_SERVER_SERVICE_NAD_NAME);
+        let interfaces = build_dpu_interfaces_vec();
+        let ifaces = dpu_service_interfaces(
+            &interfaces,
+            DHCP_SERVER_SERVICE_NAME,
+            DHCP_SERVER_SERVICE_NAD_NAME,
+        );
         assert!(
             !ifaces.is_empty(),
             "DHCP server should have at least one interface"
@@ -996,9 +1342,13 @@ mod tests {
     fn test_dpu_service_interfaces_derived_from_build_dpu_interfaces_vec() {
         // Every interface returned for HBN must originate from build_dpu_interfaces_vec.
         let all_ifaces = build_dpu_interfaces_vec();
-        let hbn_ifaces = dpu_service_interfaces(DOCA_HBN_SERVICE_NAME, DOCA_HBN_SERVICE_NETWORK);
-        let dhcp_ifaces =
-            dpu_service_interfaces(DHCP_SERVER_SERVICE_NAME, DHCP_SERVER_SERVICE_NAD_NAME);
+        let hbn_ifaces =
+            dpu_service_interfaces(&all_ifaces, DOCA_HBN_SERVICE_NAME, DOCA_HBN_SERVICE_NETWORK);
+        let dhcp_ifaces = dpu_service_interfaces(
+            &all_ifaces,
+            DHCP_SERVER_SERVICE_NAME,
+            DHCP_SERVER_SERVICE_NAD_NAME,
+        );
 
         let all_chained_names: Vec<String> = all_ifaces
             .iter()
@@ -1023,7 +1373,7 @@ mod tests {
             .find(|i| i.name == "p0")
             .expect("p0 must exist");
         assert!(matches!(
-            p0.iface_type,
+            &p0.iface_type,
             DpuServiceInterfaceTemplateType::Physical
         ));
         let cr = build_service_interface(p0, TEST_NS);
@@ -1046,7 +1396,7 @@ mod tests {
             .find(|i| i.name == "pf0hpf")
             .expect("pf0hpf must exist");
         assert!(matches!(
-            pf0hpf.iface_type,
+            &pf0hpf.iface_type,
             DpuServiceInterfaceTemplateType::Pf
         ));
         let cr = build_service_interface(pf0hpf, TEST_NS);
@@ -1055,6 +1405,12 @@ mod tests {
             template_spec.pf.is_some(),
             "pf spec must be set for Pf type"
         );
+        let pf = template_spec
+            .pf
+            .as_ref()
+            .expect("pf spec must remain available for selector validation");
+        // The public builder is the legacy unscoped path and must not reconcile a new selector.
+        assert!(pf.nic_selector.is_none());
         assert!(template_spec.physical.is_none());
         assert!(template_spec.vf.is_none());
     }
@@ -1067,7 +1423,7 @@ mod tests {
             .find(|i| i.name == "pf0vf0")
             .expect("pf0vf0 must exist");
         assert!(matches!(
-            pf0vf0.iface_type,
+            &pf0vf0.iface_type,
             DpuServiceInterfaceTemplateType::Vf
         ));
         let cr = build_service_interface(pf0vf0, TEST_NS);
@@ -1080,6 +1436,8 @@ mod tests {
         assert_eq!(vf.pf_id, 0);
         assert_eq!(vf.vf_id, 0);
         assert_eq!(vf.parent_interface_ref.as_deref(), Some("p0"));
+        // The public builder is the legacy unscoped path and must not reconcile a new selector.
+        assert!(vf.nic_selector.is_none());
         assert!(template_spec.physical.is_none());
         assert!(template_spec.pf.is_none());
     }
@@ -1105,5 +1463,143 @@ mod tests {
                 iface.name
             );
         }
+    }
+
+    // ---- xplane manifest generation ----
+
+    /// Exercises `default_doca_xplane_service` end to end: renders the xplane
+    /// `ServiceDefinition` into its `DPUServiceTemplate` and
+    /// `DPUServiceConfiguration` CRs, serializes both to YAML, and writes the
+    /// manifests to disk for inspection. Set `DPF_XPLANE_YAML_OUT_DIR` to choose
+    /// the output directory; it defaults to a `dpf-xplane-yaml` subdirectory of
+    /// the system temp directory. Run with `--nocapture` to see the paths.
+    #[test]
+    fn xplane_service_generates_dpu_service_yaml_manifests() {
+        use std::fs;
+        use std::path::PathBuf;
+
+        use carbide_dpf::build_service_template;
+
+        const SUFFIX: &str = "bf4astra";
+
+        let cfg = default_doca_xplane_service();
+        let svc = doca_xplane_service(&cfg);
+
+        let template = build_service_template(&svc, TEST_NS, SUFFIX);
+        let configuration = build_service_configuration(&svc, TEST_NS, SUFFIX, &BTreeMap::new());
+
+        let template_yaml =
+            serde_yaml::to_string(&template).expect("DPUServiceTemplate must serialize to YAML");
+        let configuration_yaml = serde_yaml::to_string(&configuration)
+            .expect("DPUServiceConfiguration must serialize to YAML");
+
+        // Round-trip the emitted YAML to prove both manifests are well-formed and
+        // that the xplane chart coordinates from `default_doca_xplane_service`
+        // survived rendering.
+        let template_value: serde_yaml::Value =
+            serde_yaml::from_str(&template_yaml).expect("template YAML must be valid");
+        assert_eq!(template_value["kind"].as_str(), Some("DPUServiceTemplate"));
+        let source = &template_value["spec"]["helmChart"]["source"];
+        assert_eq!(source["repoURL"].as_str(), Some(cfg.helm_repo_url.as_str()));
+        assert_eq!(source["chart"].as_str(), Some(cfg.helm_chart.as_str()));
+        assert_eq!(source["version"].as_str(), Some(cfg.helm_version.as_str()));
+        let image = &template_value["spec"]["helmChart"]["values"]["image"];
+        assert_eq!(
+            image["repository"].as_str(),
+            Some(cfg.docker_repo_url.as_str())
+        );
+        assert_eq!(image["tag"].as_str(), Some(cfg.docker_image_tag.as_str()));
+
+        let configuration_value: serde_yaml::Value =
+            serde_yaml::from_str(&configuration_yaml).expect("configuration YAML must be valid");
+        assert_eq!(
+            configuration_value["kind"].as_str(),
+            Some("DPUServiceConfiguration")
+        );
+        assert_eq!(
+            configuration_value["spec"]["deploymentServiceName"].as_str(),
+            Some(DOCA_XPLANE_SERVICE_NAME)
+        );
+
+        // Persist the manifests so they can be inspected outside the test run.
+        let out_dir = std::env::var_os("DPF_XPLANE_YAML_OUT_DIR")
+            .map(PathBuf::from)
+            .unwrap_or_else(|| std::env::temp_dir().join("dpf-xplane-yaml"));
+        fs::create_dir_all(&out_dir).expect("output directory must be creatable");
+
+        let template_path = out_dir.join("doca-xplane-dpuservicetemplate.yaml");
+        let configuration_path = out_dir.join("doca-xplane-dpuserviceconfiguration.yaml");
+        fs::write(&template_path, &template_yaml).expect("template YAML must be writable");
+        fs::write(&configuration_path, &configuration_yaml)
+            .expect("configuration YAML must be writable");
+
+        assert!(template_path.exists());
+        assert!(configuration_path.exists());
+
+        println!("wrote {}", template_path.display());
+        println!("wrote {}", configuration_path.display());
+    }
+    /// The override has to reach the rendered helm values, not just the
+    /// resolver — staging a disable is worthless if `mandatory_services` still
+    /// reads `enabled` and deploys fmds in token mode anyway.
+    #[test]
+    fn fmds_helm_values_honor_the_token_mode_override() {
+        // Every field carries a serde default, so an empty object yields the
+        // stock service set without spelling all six out here.
+        let resolved = DpfResolvedMandatoryServicesConfig {
+            base: serde_json::from_value(serde_json::json!({}))
+                .expect("mandatory services build from their serde defaults"),
+            extra: BTreeMap::new(),
+        };
+        let bootstrap_ca = DpfDpuAgentBootstrapCa::default();
+
+        let fmds_mode = |node_auth: &NodeAuthConfig| {
+            mandatory_services(&resolved, &bootstrap_ca, &[], node_auth)
+                .into_iter()
+                .find(|s| s.name == FMDS_SERVICE_NAME)
+                .and_then(|s| s.helm_values)
+                .and_then(|v| v.get("useNodeTokens").and_then(serde_json::Value::as_bool))
+                .expect("fmds renders useNodeTokens")
+        };
+
+        let derived_on = NodeAuthConfig {
+            enabled: true,
+            ..NodeAuthConfig::default()
+        };
+        assert!(fmds_mode(&derived_on), "enabled=true derives token mode");
+
+        let staged_off = NodeAuthConfig {
+            enabled: true,
+            fmds_use_node_tokens: Some(false),
+            ..NodeAuthConfig::default()
+        };
+        assert!(
+            !fmds_mode(&staged_off),
+            "the override must win over the derived value"
+        );
+
+        assert!(
+            !fmds_mode(&NodeAuthConfig::default()),
+            "node-auth off still renders cert mode"
+        );
+    }
+    /// Same reasoning for token mode: an overlay setting it true while the API
+    /// does not accept bearer tokens would deploy keyless fmds pods whose only
+    /// credential is refused, bypassing the startup validation entirely.
+    #[test]
+    fn an_overlay_cannot_turn_on_fmds_token_mode() {
+        let mut cfg = default_fmds_service();
+        cfg.extra_helm_values = serde_json::json!({ "useNodeTokens": true })
+            .as_object()
+            .cloned();
+
+        let service = fmds_service(&cfg, &[], false);
+        let values = service.helm_values.expect("fmds renders helm values");
+
+        assert_eq!(
+            values.get("useNodeTokens"),
+            Some(&serde_json::json!(false)),
+            "token mode follows the validated config, not the overlay"
+        );
     }
 }

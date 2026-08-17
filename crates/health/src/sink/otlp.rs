@@ -94,7 +94,7 @@ impl OtlpSink {
     ///
     /// Returns an error if no Tokio runtime is active, or if Prometheus metrics
     /// cannot be created, registered, or initialized for a target.
-    pub fn new_many(
+    pub(crate) fn new_many(
         configs: &[OtlpTargetConfig],
         mapper: Arc<dyn RedfishEventMapper>,
         metrics_manager: &MetricsManager,
@@ -181,12 +181,15 @@ impl OtlpSink {
     }
 }
 
-#[cfg(any(test, feature = "bench-hooks"))]
+#[cfg(feature = "bench-hooks")]
 impl OtlpSink {
     pub fn new_for_bench(mapper: Arc<dyn RedfishEventMapper>) -> Self {
         Self::new_for_bench_with_diagnostics(mapper, false)
     }
+}
 
+#[cfg(any(test, feature = "bench-hooks"))]
+impl OtlpSink {
     /// Builds a bench sink with diagnostic emission explicitly configured.
     fn new_for_bench_with_diagnostics(
         mapper: Arc<dyn RedfishEventMapper>,
@@ -279,7 +282,9 @@ mod tests {
 
     use super::*;
     use crate::sink::event_mapper::OpenBmcEventMapper;
-    use crate::sink::{CompositeDataSink, DiagnosticLogRecord, LogRecord, MetricSample};
+    use crate::sink::{
+        CompositeDataSink, DiagnosticLogRecord, LogRecord, LogSeverity, MetricSample,
+    };
 
     fn test_context() -> EventContext {
         EventContext {
@@ -308,7 +313,7 @@ mod tests {
     ) -> CollectorEvent {
         CollectorEvent::Log(Box::new(LogRecord {
             body: "test".to_string(),
-            severity: "OK".to_string(),
+            severity: LogSeverity::Info,
             attributes: vec![
                 (Cow::Borrowed("message_id"), message_id.to_string()),
                 (Cow::Borrowed("message_args"), message_args.to_string()),
@@ -354,7 +359,7 @@ mod tests {
     }
 
     fn test_sink() -> OtlpSink {
-        OtlpSink::new_for_bench(Arc::new(OpenBmcEventMapper))
+        OtlpSink::new_for_bench_with_diagnostics(Arc::new(OpenBmcEventMapper), false)
     }
 
     #[test]
@@ -521,6 +526,7 @@ mod tests {
                 batch_size: 512,
                 flush_interval: std::time::Duration::from_secs(2),
                 include_diagnostics: false,
+                include_alert_details: false,
                 tls: None,
             },
             OtlpTargetConfig {
@@ -528,6 +534,7 @@ mod tests {
                 batch_size: 512,
                 flush_interval: std::time::Duration::from_secs(2),
                 include_diagnostics: false,
+                include_alert_details: false,
                 tls: None,
             },
         ];

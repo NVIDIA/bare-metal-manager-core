@@ -353,7 +353,7 @@ pub async fn clear_power_shelf_maintenance_requested(
 }
 
 /// Record an operator force-converge request against a power shelf's BMC (PMC)
-/// (REQ-2). The power-shelf state controller consumes it on its next sweep.
+///. The power-shelf state controller consumes it on its next sweep.
 /// Mirrors [`crate::switch::set_bmc_credential_rotation_requested`].
 pub async fn set_bmc_credential_rotation_requested(
     txn: &mut PgConnection,
@@ -376,7 +376,7 @@ pub async fn set_bmc_credential_rotation_requested(
     Ok(())
 }
 
-/// Clear a power shelf's force-converge request (REQ-2), committed with the
+/// Clear a power shelf's force-converge request, committed with the
 /// return to `Ready` once a forced tick settles. Mirrors
 /// [`crate::switch::clear_bmc_credential_rotation_requested`].
 pub async fn clear_bmc_credential_rotation_requested(

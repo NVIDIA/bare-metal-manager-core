@@ -21,6 +21,7 @@ use askama::Template;
 use axum::extract::{Query as AxumQuery, State as AxumState};
 use axum::response::{Html, IntoResponse, Response};
 use carbide_api_core::Api;
+use carbide_uuid::rack::RackId;
 use hyper::http::StatusCode;
 use rpc::forge::forge_server::Forge;
 use serde::Deserialize;
@@ -31,8 +32,10 @@ use super::{Base, filters};
 #[template(path = "nmxc_browser.html")]
 struct NmxcBrowser {
     chassis_serial: String,
+    rack_id: String,
     operation: String,
     gpu_uid: String,
+    query_was_executed: bool,
     response: String,
     error: String,
     status_code: u16,
@@ -46,8 +49,9 @@ struct Header {
 }
 
 #[derive(Debug, Deserialize)]
-pub struct QueryParams {
+pub(super) struct QueryParams {
     chassis_serial: Option<String>,
+    rack_id: Option<String>,
     operation: Option<String>,
     gpu_uid: Option<String>,
 }
@@ -65,14 +69,16 @@ fn browse_operation_from_query(s: &str) -> i32 {
 }
 
 /// Runs a selected NMX-C browse operation against the endpoint mapped for `chassis_serial`.
-pub async fn query(
+pub(super) async fn query(
     AxumState(state): AxumState<Arc<Api>>,
     AxumQuery(query): AxumQuery<QueryParams>,
 ) -> Response {
     let mut browser = NmxcBrowser {
         chassis_serial: query.chassis_serial.clone().unwrap_or_default(),
+        rack_id: query.rack_id.clone().unwrap_or_default(),
         operation: query.operation.clone().unwrap_or_default(),
         gpu_uid: query.gpu_uid.clone().unwrap_or_default(),
+        query_was_executed: false,
         response: String::new(),
         response_headers: Vec::new(),
         error: String::new(),
@@ -83,7 +89,8 @@ pub async fn query(
     let op = browse_operation_from_query(&browser.operation);
     let gpu_uid = browser.gpu_uid.trim().parse::<u64>().unwrap_or(0);
     let needs_gpu_uid = op == rpc::forge::NmxcBrowseOperation::GpuInfo as i32;
-    let can_query = !browser.chassis_serial.is_empty()
+    let has_endpoint = !browser.chassis_serial.is_empty() || !browser.rack_id.is_empty();
+    let can_query = has_endpoint
         && op != rpc::forge::NmxcBrowseOperation::Unspecified as i32
         && (!needs_gpu_uid || gpu_uid != 0);
 
@@ -91,9 +98,28 @@ pub async fn query(
         return (StatusCode::OK, Html(browser.render().unwrap())).into_response();
     }
 
+    if !browser.chassis_serial.is_empty() && !browser.rack_id.is_empty() {
+        browser.error = "Provide either a chassis serial or a rack ID, not both.".to_string();
+        return (StatusCode::OK, Html(browser.render().unwrap())).into_response();
+    }
+
+    let parsed_rack_id = if browser.rack_id.is_empty() {
+        None
+    } else {
+        match browser.rack_id.trim().parse::<RackId>() {
+            Ok(id) => Some(id),
+            Err(_) => {
+                browser.error = format!("Invalid rack ID: {}", browser.rack_id);
+                return (StatusCode::OK, Html(browser.render().unwrap())).into_response();
+            }
+        }
+    };
+
+    browser.query_was_executed = true;
     let response = match state
         .nmxc_browse(tonic::Request::new(rpc::forge::NmxcBrowseRequest {
             chassis_serial: browser.chassis_serial.clone(),
+            rack_id: parsed_rack_id,
             operation: op,
             gpu_uid,
         }))
@@ -136,8 +162,10 @@ mod tests {
     fn rendered_response_preserves_large_integers_and_escapes_html() {
         let browser = NmxcBrowser {
             chassis_serial: "chassis".to_string(),
+            rack_id: String::new(),
             operation: "gpu_info".to_string(),
             gpu_uid: u64::MAX.to_string(),
+            query_was_executed: true,
             response: format!(
                 r#"{{"gpu_uid":{},"message":"<script>alert('xss')</script>"}}"#,
                 u128::MAX

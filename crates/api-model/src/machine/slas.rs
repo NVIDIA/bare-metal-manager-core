@@ -63,10 +63,27 @@ pub const VALIDATION: Duration = Duration::from_secs(30 * 60);
 
 pub const MAINTENANCE: Duration = Duration::from_secs(5 * 60);
 
-// BMC credential rotation (REQ-2). A single synchronous Redfish password change
-// per device (host + each DPU); generous enough to absorb a slow BMC plus the
-// engine's short per-device backoff without tripping the SLA on the first retry.
+// BMC credential rotation. A single synchronous Redfish password change
+// per device (host + each DPU); generous enough to absorb the up-to-5-minute
+// site-explorer pause handshake (its `SITE_EXPLORER_PAUSE_BUDGET`) that precedes
+// the change, a slow BMC, and the engine's short per-device backoff without
+// tripping the SLA on the first retry.
 pub const ROTATING_BMC: Duration = Duration::from_secs(15 * 60);
+
+// Host UEFI credential rotation. Applying a new UEFI password
+// requires a BIOS config job plus a full host power-cycle and job-completion
+// poll, so the budget is more generous than the synchronous BMC rotation: enough
+// to absorb a slow reboot plus the engine's short per-device backoff without
+// tripping the SLA on the first retry.
+pub const ROTATING_HOST_UEFI: Duration = Duration::from_secs(40 * 60);
+
+// DPU UEFI credential rotation. Applying a new DPU UEFI password
+// stages a Bios/Settings change and commits it with a DPU restart (scoped to the
+// DPU, not a full host power-cycle). One DPU is converged per cycle, so the
+// budget mirrors the host UEFI rotation: enough to absorb a slow DPU restart plus
+// the engine's short per-device backoff without tripping the SLA on the first
+// retry.
+pub const ROTATING_DPU_UEFI: Duration = Duration::from_secs(40 * 60);
 
 /// Configuration for machine state SLA durations.
 #[derive(Clone, Debug, PartialEq)]

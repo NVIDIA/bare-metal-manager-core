@@ -28,6 +28,7 @@ mod delete_bmc;
 mod delete_nmxm;
 mod delete_ufm;
 mod force_bmc;
+mod force_uefi;
 mod generate_ufm_cert;
 mod registry;
 mod rotate;
@@ -45,7 +46,7 @@ pub(crate) const NMX_M_UNSUPPORTED_MESSAGE: &str =
 
 #[derive(Parser, Debug, Clone, Dispatch)]
 #[clap(rename_all = "kebab_case")]
-pub enum Cmd {
+pub(crate) enum Cmd {
     #[clap(about = "Add UFM credential")]
     AddUFM(add_ufm::Args),
     #[clap(about = "Delete UFM credential")]
@@ -83,4 +84,9 @@ pub enum Cmd {
         subcommand
     )]
     ForceBmc(force_bmc::Args),
+    #[clap(
+        about = "Force-converge a single machine's UEFI credential now (operator escape hatch)",
+        subcommand
+    )]
+    ForceUefi(force_uefi::Args),
 }

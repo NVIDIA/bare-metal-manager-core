@@ -193,7 +193,7 @@ impl From<forgerpc::MachineValidationExternalConfig> for ValidationExternalConfi
         }
     }
 }
-pub async fn results(
+pub(super) async fn results(
     AxumState(state): AxumState<Arc<Api>>,
     AxumPath(validation_id): AxumPath<String>,
 ) -> Response {
@@ -251,7 +251,7 @@ pub async fn results(
     (StatusCode::OK, Html(tmpl.render().unwrap())).into_response()
 }
 
-pub async fn result_details(
+pub(super) async fn result_details(
     AxumState(state): AxumState<Arc<Api>>,
     AxumPath((validation_id, test_id)): AxumPath<(String, String)>,
 ) -> Response {
@@ -314,7 +314,7 @@ pub async fn result_details(
     (StatusCode::OK, Html(tmpl.render().unwrap())).into_response()
 }
 
-pub async fn show_tests_html(
+pub(super) async fn show_tests_html(
     AxumState(state): AxumState<Arc<Api>>,
     Query(params): Query<PaginationParams>,
 ) -> Response {
@@ -341,7 +341,7 @@ pub async fn show_tests_html(
     (StatusCode::OK, Html(tmpl.render().unwrap())).into_response()
 }
 
-pub async fn show_tests_details_html(
+pub(super) async fn show_tests_details_html(
     AxumState(state): AxumState<Arc<Api>>,
     AxumPath(test_id): AxumPath<String>,
 ) -> Response {
@@ -382,7 +382,7 @@ async fn fetch_validation_tests(
         .map(|response| response.into_inner().tests)
 }
 
-pub async fn runs(
+pub(super) async fn runs(
     AxumState(state): AxumState<Arc<Api>>,
     Query(params): Query<PaginationParams>,
 ) -> Response {
@@ -429,7 +429,7 @@ pub async fn runs(
     (StatusCode::OK, Html(tmpl.render().unwrap())).into_response()
 }
 
-pub async fn external_configs(
+pub(super) async fn external_configs(
     AxumState(state): AxumState<Arc<Api>>,
     Query(params): Query<PaginationParams>,
 ) -> Response {

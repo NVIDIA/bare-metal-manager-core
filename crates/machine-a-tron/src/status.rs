@@ -17,6 +17,15 @@
 use bmc_mock::HardwareType;
 use bmc_mock::ipmi_sim::IpmiEndpoint;
 use serde::Serialize;
+use ufm_mock::{EpochId, Generation, InventoryId};
+
+use crate::{Guid, InfinibandPortState};
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+pub struct InfinibandPortStatus {
+    pub guid: Guid,
+    pub state: InfinibandPortState,
+}
 
 #[derive(Debug, Clone, Copy, Serialize, Eq, PartialEq)]
 #[serde(rename_all = "snake_case")]
@@ -30,7 +39,7 @@ pub enum DeviceKind {
 impl From<HardwareType> for DeviceKind {
     fn from(hardware_type: HardwareType) -> Self {
         match hardware_type {
-            HardwareType::NvidiaSwitchNd5200Ld => Self::Switch,
+            HardwareType::NvidiaSwitchNd5200Ld | HardwareType::NvidiaSwitchN5700Ld => Self::Switch,
             HardwareType::LiteOnPowerShelf | HardwareType::DeltaPowerShelf => Self::PowerShelf,
             _ => Self::Machine,
         }
@@ -65,6 +74,9 @@ impl DeviceStatusConfig {
 
 #[derive(Debug, Clone, Serialize)]
 pub struct DevicesStatusResponse {
+    pub inventory_id: InventoryId,
+    pub epoch_id: EpochId,
+    pub generation: Generation,
     #[serde(rename = "machines")]
     pub devices: Vec<DeviceStatus>,
 }
@@ -86,6 +98,8 @@ pub struct DeviceStatus {
     pub machine_ip: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub nvos_ip: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub infiniband_ports: Option<Vec<InfinibandPortStatus>>,
     pub bmc: BmcStatus,
     pub dpus: Vec<DeviceStatus>,
 }
@@ -120,5 +134,48 @@ impl From<IpmiEndpoint> for EndpointStatus {
             reachable_port: endpoint.reachable_port,
             listen_port: endpoint.listen_port,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use carbide_test_support::{Check, check_values};
+
+    use super::*;
+
+    #[test]
+    fn hardware_types_map_to_device_kinds() {
+        check_values(
+            [
+                Check {
+                    scenario: "ND5200_LD is a switch",
+                    input: HardwareType::NvidiaSwitchNd5200Ld,
+                    expect: DeviceKind::Switch,
+                },
+                Check {
+                    scenario: "N5700_LD is a switch",
+                    input: HardwareType::NvidiaSwitchN5700Ld,
+                    expect: DeviceKind::Switch,
+                },
+                Check {
+                    scenario: "power shelf is a power shelf",
+                    input: HardwareType::LiteOnPowerShelf,
+                    expect: DeviceKind::PowerShelf,
+                },
+                Check {
+                    scenario: "server is a machine",
+                    input: HardwareType::DellPowerEdgeR750,
+                    expect: DeviceKind::Machine,
+                },
+            ],
+            DeviceKind::from,
+        );
+    }
+
+    #[test]
+    fn n5700_ld_status_kind_serializes_as_switch() {
+        let kind = DeviceKind::from(HardwareType::NvidiaSwitchN5700Ld);
+
+        assert_eq!(serde_json::to_value(kind).unwrap(), "switch");
     }
 }

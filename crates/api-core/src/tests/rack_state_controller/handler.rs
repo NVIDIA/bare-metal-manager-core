@@ -15,8 +15,12 @@
  * limitations under the License.
  */
 
+use std::sync::{Arc, Mutex};
+
+use async_trait::async_trait;
 use carbide_rack_controller::config::ScaleUpFabricManagerApiVersion;
 use carbide_rack_controller::context::RackStateHandlerContextObjects;
+use carbide_rack_controller::firmware_object::FirmwareObjectFetcher;
 use carbide_rack_controller::handler::RackStateHandler;
 use carbide_rack_controller::maintenance::apply_nvos_job_status_response;
 use carbide_rack_controller::metrics::RackMetrics;
@@ -41,8 +45,8 @@ use model::rack::{
 };
 use model::rack_type::{
     RackCapabilitiesSet, RackCapabilityCompute, RackCapabilityPowerShelf, RackCapabilitySwitch,
-    RackHardwareClass, RackHardwareTopology, RackHardwareType, RackProductFamily, RackProfile,
-    RackProfileConfig,
+    RackFirmwareObjectConfig, RackHardwareClass, RackHardwareTopology, RackHardwareType,
+    RackProductFamily, RackProfile, RackProfileConfig,
 };
 use model::switch::{
     CONTROL_PLANE_STATE_CONFIGURED, FabricManagerState, FabricManagerStatus, NewSwitch,
@@ -58,6 +62,22 @@ use crate::tests::common::api_fixtures::site_explorer::{create_expected_switches
 use crate::tests::common::api_fixtures::{
     TestEnv, TestEnvOverrides, create_test_env_with_overrides, get_config,
 };
+
+#[derive(Debug)]
+struct StaticFirmwareObjectFetcher {
+    response: Mutex<Result<String, String>>,
+    requested_urls: Mutex<Vec<String>>,
+    requested_timeouts: Mutex<Vec<std::time::Duration>>,
+}
+
+#[async_trait]
+impl FirmwareObjectFetcher for StaticFirmwareObjectFetcher {
+    async fn fetch(&self, url: &str, timeout: std::time::Duration) -> Result<String, String> {
+        self.requested_urls.lock().unwrap().push(url.to_string());
+        self.requested_timeouts.lock().unwrap().push(timeout);
+        self.response.lock().unwrap().clone()
+    }
+}
 
 fn test_capabilities() -> RackCapabilitiesSet {
     RackCapabilitiesSet {
@@ -154,6 +174,7 @@ pub(crate) fn config_with_rack_profiles() -> crate::cfg::file::CarbideConfig {
                 "Simple".to_string(),
                 RackProfile {
                     product_family: Some(RackProductFamily::Gb200),
+                    firmware_object: None,
                     rack_hardware_topology: Some(RackHardwareTopology::Gb200Nvl72r1C2g4Topology),
                     rack_hardware_type: Some(RackHardwareType::any()),
                     rack_hardware_class: Some(RackHardwareClass::Prod),
@@ -165,6 +186,7 @@ pub(crate) fn config_with_rack_profiles() -> crate::cfg::file::CarbideConfig {
                 "Single".to_string(),
                 RackProfile {
                     product_family: Some(RackProductFamily::Gb200),
+                    firmware_object: None,
                     rack_hardware_topology: Some(RackHardwareTopology::Gb200Nvl72r1C2g4Topology),
                     rack_hardware_type: Some(RackHardwareType::any()),
                     rack_hardware_class: Some(RackHardwareClass::Prod),
@@ -1380,13 +1402,275 @@ async fn test_firmware_upgrade_start_skips_without_json(
 }
 
 #[crate::sqlx_test]
-async fn test_firmware_upgrade_start_submits_json_and_deletes_access_token(
+async fn test_ingestion_transitions_to_firmware_upgrade_and_submits_rack_profile_firmware_object(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
+    const FIRMWARE_OBJECT_URL: &str =
+        "https://firmware.example.invalid/sot/single-rack-ingestion.json";
+
+    const CONFIG_JSON: &str = r#"{"Id":"single-rack-ingestion"}"#;
+
+    let firmware_object_fetcher = Arc::new(StaticFirmwareObjectFetcher {
+        response: Mutex::new(Err("temporary SOT host failure".to_string())),
+        requested_urls: Mutex::new(Vec::new()),
+        requested_timeouts: Mutex::new(Vec::new()),
+    });
+
+    let mut config = config_with_rack_profiles();
+
+    config
+        .rack_profiles
+        .rack_profiles
+        .get_mut("Single")
+        .unwrap()
+        .rack_capabilities
+        .compute
+        .name = Some("GB200".to_string());
+
+    let switch = &mut config
+        .rack_profiles
+        .rack_profiles
+        .get_mut("Single")
+        .unwrap()
+        .rack_capabilities
+        .switch;
+
+    switch.count = 1;
+    switch.name = Some("NVLinkSwitch".to_string());
+
+    config
+        .rack_profiles
+        .rack_profiles
+        .get_mut("Single")
+        .unwrap()
+        .firmware_object = Some(RackFirmwareObjectConfig {
+        url: url::Url::parse(FIRMWARE_OBJECT_URL).unwrap(),
+        fetch_timeout: std::time::Duration::from_secs(17),
+    });
+
     let env = create_test_env_with_overrides(
         pool.clone(),
         TestEnvOverrides {
-            config: Some(config_with_rack_profiles()),
+            config: Some(config),
+            firmware_object_fetcher: Some(firmware_object_fetcher.clone()),
+            ..Default::default()
+        },
+    )
+    .await;
+
+    let (rack_id, host) = create_single_compute_rack(&env, &pool).await?;
+    let machine_id = host.host_snapshot.id.to_string();
+    let switch_id = attach_switch_with_nvos_credentials(&env, &rack_id).await?;
+    set_switch_state(
+        pool.acquire().await?.as_mut(),
+        &switch_id,
+        model::switch::SwitchControllerState::Ready,
+    )
+    .await;
+    let switch_id = switch_id.to_string();
+
+    env.rms_sim
+        .queue_apply_firmware_object_response(rms::ApplyFirmwareObjectResponse {
+            response: Some(rms::NodeBatchResponse {
+                status: rms::ReturnCode::Success as i32,
+                message: "accepted".to_string(),
+                job_id: "parent-job".to_string(),
+                stats: Some(rms::NodeOperationStats {
+                    total_nodes: 2,
+                    successful_nodes: 2,
+                    failed_nodes: 0,
+                }),
+                ..Default::default()
+            }),
+            object_id: "single-rack-ingestion".to_string(),
+            jobs: vec![
+                rms::NodeFirmwareJobInfo {
+                    node_id: machine_id.clone(),
+                    job_id: "compute-child-job".to_string(),
+                },
+                rms::NodeFirmwareJobInfo {
+                    node_id: switch_id.clone(),
+                    job_id: "switch-child-job".to_string(),
+                },
+            ],
+        })
+        .await;
+
+    let mut rack = get_db_rack(env.db_reader().as_mut(), &rack_id).await;
+    let handler = RackStateHandler::default();
+
+    let mut services = env.rack_state_handler_services();
+    let mut metrics = RackMetrics::default();
+    let mut db_writes = DbWriteBatch::default();
+
+    let mut ctx = StateHandlerContext::<RackStateHandlerContextObjects> {
+        services: &mut services,
+        metrics: &mut metrics,
+        pending_db_writes: &mut db_writes,
+    };
+
+    let ingestion_outcome = handler
+        .handle_object_state(&rack_id, &mut rack, &RackState::Discovering, &mut ctx)
+        .await?;
+    let StateHandlerOutcome::Transition {
+        next_state: firmware_state,
+        ..
+    } = ingestion_outcome
+    else {
+        panic!("ready ingestion inventory should transition to firmware maintenance");
+    };
+    assert!(matches!(
+        firmware_state,
+        RackState::Maintenance {
+            maintenance_state: RackMaintenanceState::FirmwareUpgrade {
+                rack_firmware_upgrade: FirmwareUpgradeState::Start,
+            },
+        }
+    ));
+
+    let error = match handler
+        .handle_object_state(&rack_id, &mut rack, &firmware_state, &mut ctx)
+        .await
+    {
+        Err(error) => error,
+        Ok(_) => panic!("SOT fetch failure should keep the state retryable"),
+    };
+    assert!(error.to_string().contains("temporary SOT host failure"));
+    assert!(
+        env.rms_sim
+            .submitted_apply_firmware_object_requests()
+            .await
+            .is_empty()
+    );
+
+    *firmware_object_fetcher.response.lock().unwrap() = Ok("[]".to_string());
+
+    let error = match handler
+        .handle_object_state(&rack_id, &mut rack, &firmware_state, &mut ctx)
+        .await
+    {
+        Err(error) => error,
+        Ok(_) => panic!("non-object SOT JSON should be rejected"),
+    };
+    assert!(
+        error
+            .to_string()
+            .contains("configured SOT firmware object is not a JSON object")
+    );
+    assert!(
+        env.rms_sim
+            .submitted_apply_firmware_object_requests()
+            .await
+            .is_empty()
+    );
+
+    *firmware_object_fetcher.response.lock().unwrap() = Ok(CONFIG_JSON.to_string());
+
+    let mut outcome = handler
+        .handle_object_state(&rack_id, &mut rack, &firmware_state, &mut ctx)
+        .await?;
+
+    if let Some(txn) = outcome.take_transaction() {
+        txn.commit().await?;
+    }
+
+    assert!(matches!(
+        outcome,
+        StateHandlerOutcome::Transition {
+            next_state: RackState::Maintenance {
+                maintenance_state: RackMaintenanceState::FirmwareUpgrade {
+                    rack_firmware_upgrade: FirmwareUpgradeState::WaitForComplete,
+                },
+            },
+            ..
+        }
+    ));
+
+    assert_eq!(
+        *firmware_object_fetcher.requested_urls.lock().unwrap(),
+        vec![
+            FIRMWARE_OBJECT_URL.to_string(),
+            FIRMWARE_OBJECT_URL.to_string(),
+            FIRMWARE_OBJECT_URL.to_string(),
+        ]
+    );
+
+    assert_eq!(
+        *firmware_object_fetcher.requested_timeouts.lock().unwrap(),
+        vec![
+            std::time::Duration::from_secs(17),
+            std::time::Duration::from_secs(17),
+            std::time::Duration::from_secs(17),
+        ]
+    );
+
+    let requests = env.rms_sim.submitted_apply_firmware_object_requests().await;
+
+    assert_eq!(requests.len(), 1);
+    assert_eq!(requests[0].config_json, CONFIG_JSON);
+
+    let requested_node_ids = requests[0]
+        .nodes
+        .as_ref()
+        .unwrap()
+        .nodes
+        .iter()
+        .map(|node| node.node_id.as_str())
+        .collect::<std::collections::HashSet<_>>();
+
+    assert_eq!(
+        requested_node_ids,
+        std::collections::HashSet::from([machine_id.as_str(), switch_id.as_str()])
+    );
+
+    assert_eq!(
+        requests[0].access_token.as_deref(),
+        Some(carbide_rack::firmware_object::RMS_NOAUTH_ACCESS_TOKEN)
+    );
+
+    assert!(requests[0].component_filters.is_empty());
+    assert!(!requests[0].force_update);
+
+    let machine = db::machine::find_one(
+        &pool,
+        &host.host_snapshot.id,
+        model::machine::machine_search_config::MachineSearchConfig::default(),
+    )
+    .await?
+    .expect("machine should exist");
+
+    assert!(machine.host_reprovision_requested.is_some());
+
+    Ok(())
+}
+
+#[crate::sqlx_test]
+async fn test_firmware_upgrade_start_submits_json_and_deletes_access_token(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let firmware_object_fetcher = Arc::new(StaticFirmwareObjectFetcher {
+        response: Mutex::new(Err(
+            "explicit firmware request must not fetch the profile URL".to_string(),
+        )),
+        requested_urls: Mutex::new(Vec::new()),
+        requested_timeouts: Mutex::new(Vec::new()),
+    });
+    let mut config = config_with_rack_profiles();
+    config
+        .rack_profiles
+        .rack_profiles
+        .get_mut("NVL72")
+        .unwrap()
+        .firmware_object = Some(RackFirmwareObjectConfig {
+        url: url::Url::parse("https://firmware.example.invalid/sot/nvl72.json").unwrap(),
+        fetch_timeout: std::time::Duration::from_secs(11),
+    });
+
+    let env = create_test_env_with_overrides(
+        pool.clone(),
+        TestEnvOverrides {
+            config: Some(config),
+            firmware_object_fetcher: Some(firmware_object_fetcher.clone()),
             ..Default::default()
         },
     )
@@ -1484,6 +1768,13 @@ async fn test_firmware_upgrade_start_submits_json_and_deletes_access_token(
     assert_eq!(requests[0].firmware_type, "prod");
     assert!(requests[0].force_update);
     assert_eq!(requests[0].nodes.as_ref().unwrap().nodes.len(), 1);
+    assert!(
+        firmware_object_fetcher
+            .requested_urls
+            .lock()
+            .unwrap()
+            .is_empty()
+    );
 
     let token_after = env
         .test_credential_manager
@@ -3258,7 +3549,9 @@ async fn assert_configure_nmx_cluster_v2_results(
         .ok_or_else(|| eyre::eyre!("configure request should include desired fabric config"))?;
 
     assert_eq!(desired.topology_type, topology_type);
+    assert!(desired.extra_static_configs.is_empty());
     assert_eq!(configure_request.primary_switch_node_id, None);
+    assert_eq!(configure_request.domain, None);
 
     let configure_nodes = &configure_request
         .nodes
@@ -3274,10 +3567,14 @@ async fn assert_configure_nmx_cluster_v2_results(
             .any(|node| node.node_id == switch_id.to_string())
     }));
 
-    assert_eq!(
-        env.rms_sim.submitted_get_job_status_requests().await.len(),
-        1
-    );
+    let job_status_requests = env.rms_sim.submitted_get_job_status_requests().await;
+
+    let [job_status_request] = job_status_requests.as_slice() else {
+        return Err(eyre::eyre!("expected exactly one job status request").into());
+    };
+
+    assert_eq!(job_status_request.job_id, "configure-scale-up-fabric-job");
+    assert!(!job_status_request.include_child_job_states);
 
     let status_requests = env
         .rms_sim
@@ -3287,6 +3584,8 @@ async fn assert_configure_nmx_cluster_v2_results(
     let [status_request] = status_requests.as_slice() else {
         return Err(eyre::eyre!("expected exactly one fabric status request").into());
     };
+
+    assert_eq!(status_request.domain, None);
 
     let status_nodes = &status_request
         .nodes
@@ -3432,6 +3731,106 @@ async fn test_configure_nmx_cluster_v2_delegates_primary_setup_and_persists_obse
         &topology_type,
     )
     .await
+}
+
+#[crate::sqlx_test]
+async fn test_configure_nmx_cluster_v2_completed_job_with_unknown_profile_stops_flow(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let mut config = config_with_nmx_cluster_profile();
+    config.rms.scale_up_fabric_manager_api_version = ScaleUpFabricManagerApiVersion::V2;
+
+    let env = create_test_env_with_overrides(
+        pool.clone(),
+        TestEnvOverrides {
+            config: Some(config),
+            ..Default::default()
+        },
+    )
+    .await;
+
+    let rack_id = new_rack_id();
+    let missing_profile_id = RackProfileId::new("RemovedNmxCluster");
+    let mut txn = pool.acquire().await?;
+
+    db_rack::create(
+        &mut txn,
+        &rack_id,
+        Some(&missing_profile_id),
+        &RackConfig::default(),
+        None,
+    )
+    .await?;
+
+    drop(txn);
+
+    attach_switches_with_nvos_credentials(&env, &rack_id, 2).await?;
+
+    env.rms_sim
+        .queue_get_job_status_response(Ok(rms::GetJobStatusResponse {
+            job_states: vec![rms::JobStatus {
+                job_id: "configure-scale-up-fabric-job".to_string(),
+                execution_state: rms::JobExecutionState::Completed as i32,
+                state_description: "completed".to_string(),
+                ..Default::default()
+            }],
+        }))
+        .await;
+
+    let mut rack = get_db_rack(env.db_reader().as_mut(), &rack_id).await;
+    let handler_instance = RackStateHandler::default();
+
+    let mut services = env.rack_state_handler_services();
+    services.rms_client = None;
+    let mut metrics = RackMetrics::default();
+    let mut db_writes = DbWriteBatch::default();
+
+    let mut ctx = StateHandlerContext::<RackStateHandlerContextObjects> {
+        services: &mut services,
+        metrics: &mut metrics,
+        pending_db_writes: &mut db_writes,
+    };
+
+    let job_wait = RackState::Maintenance {
+        maintenance_state: RackMaintenanceState::ConfigureNmxCluster {
+            configure_nmx_cluster: ConfigureNmxClusterState::WaitForScaleUpFabricManagerJob {
+                job_id: "configure-scale-up-fabric-job".to_string(),
+            },
+        },
+    };
+
+    let outcome = handler_instance
+        .handle_object_state(&rack_id, &mut rack, &job_wait, &mut ctx)
+        .await?;
+
+    match outcome {
+        StateHandlerOutcome::Transition { next_state, .. } => match next_state {
+            RackState::Error { cause } => {
+                assert!(cause.contains("rack profile is missing or unknown"));
+            }
+            other => panic!("Expected Error state, got {other:?}"),
+        },
+        other => panic!(
+            "Expected Transition, got {:?}",
+            std::mem::discriminant(&other)
+        ),
+    }
+
+    assert!(
+        env.rms_sim
+            .submitted_get_scale_up_fabric_status_requests()
+            .await
+            .is_empty()
+    );
+
+    assert!(
+        env.rms_sim
+            .submitted_batch_get_scale_up_fabric_service_status_requests()
+            .await
+            .is_empty()
+    );
+
+    Ok(())
 }
 
 /// test_configure_nmx_cluster_transitions_to_completed verifies that

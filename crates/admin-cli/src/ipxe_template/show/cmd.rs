@@ -30,15 +30,17 @@ fn visibility_display(visibility: i32) -> &'static str {
     }
 }
 
-pub async fn handle_show(
+pub(super) async fn handle_show(
     opts: Args,
     format: OutputFormat,
     api_client: &ApiClient,
 ) -> Result<(), CarbideCliError> {
-    if opts.id.as_deref().unwrap_or("").is_empty() {
-        list_all(format, api_client).await
+    if let Some(id) = opts.id.as_deref()
+        && !id.is_empty()
+    {
+        show_one(id, format, api_client).await
     } else {
-        show_one(opts.id.as_deref().unwrap(), format, api_client).await
+        list_all(format, api_client).await
     }
 }
 

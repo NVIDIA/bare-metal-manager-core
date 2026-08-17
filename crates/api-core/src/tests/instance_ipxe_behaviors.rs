@@ -198,7 +198,7 @@ async fn invoke_instance_power(
         .unwrap();
 }
 
-pub async fn create_instance<'a, 'b>(
+pub(in crate::tests) async fn create_instance<'a, 'b>(
     env: &'a TestEnv,
     mh: &'b TestManagedHost,
     run_provisioning_instructions_on_every_boot: bool,
@@ -216,6 +216,7 @@ pub async fn create_instance<'a, 'b>(
         dpu_extension_services: None,
         nvlink: None,
         spxconfig: None,
+        power_profile: None,
     };
     mh.instance_builer(env).config(config).build().await
 }

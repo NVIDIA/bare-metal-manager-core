@@ -22,7 +22,7 @@ use crate::dpf::common::DpfQuery;
 use crate::errors::{CarbideCliError, CarbideCliResult};
 use crate::rpc::ApiClient;
 
-pub async fn modify_dpf_state(
+pub(in crate::dpf) async fn modify_dpf_state(
     query: &DpfQuery,
     _format: OutputFormat, // TODO: Implement json output handling.
     api_client: &ApiClient,

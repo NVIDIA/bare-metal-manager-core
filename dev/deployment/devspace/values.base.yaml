@@ -2,6 +2,10 @@ nico-api:
   # Disable legacy forge-system namespace alias for local dev
   legacyAlias:
     enabled: false
+  # Vault's local admin-CLI certificates are issued by CN=local-vault-ca.
+  auth:
+    additionalIssuerCns:
+      - "local-vault-ca"
   resources:
     limits:
       cpu: "16"
@@ -14,7 +18,6 @@ nico-api:
   siteConfig:
     enabled: true
     nicoApiSiteConfig: |
-      bypass_rbac = true
       attestation_enabled = false
       dpu_ipmi_tool_impl = "test"
       initial_domain_name = "local.nico"
@@ -78,7 +81,7 @@ nico-api:
       spiffe_trust_domain = "nico.local"
       spiffe_service_base_paths = ["/nico-system/sa/", "/default/sa/"]
       spiffe_machine_base_path = "/nico-system/machine/"
-      additional_issuer_cns = []
+      additional_issuer_cns = ["local-vault-ca"]
 
       [host_health]
       hardware_health_reports = "MonitorOnly"
@@ -101,7 +104,7 @@ nico-api:
       enabled = true
       create_machines = true
       allow_changing_bmc_proxy = true
-      bmc_proxy = "nico-machine-a-tron-bmc-mock.nico-system.svc.cluster.local:1266"
+      bmc_proxy = "nico-machine-a-tron-mat-0-bmc-mock.nico-system.svc.cluster.local:1266"
       run_interval = "10s"
       machines_created_per_run = 1000
       explorations_per_run = 1000
@@ -123,7 +126,7 @@ nico-bmc-proxy:
       metrics_endpoint = "[::]:1080"
       database_url = "postgres://replaced-by-env-var"
       allowed_principals = ["trusted-certificate"]
-      bmc_proxy = "nico-machine-a-tron-bmc-mock.nico-system.svc.cluster.local:1266"
+      bmc_proxy = "nico-machine-a-tron-mat-0-bmc-mock.nico-system.svc.cluster.local:1266"
 
       [tls]
       identity_pemfile_path = "/var/run/secrets/spiffe.io/tls.crt"
@@ -138,7 +141,7 @@ nico-bmc-proxy:
         "/default/sa/",
       ]
       spiffe_machine_base_path = "/nico-system/machine/"
-      additional_issuer_cns = []
+      additional_issuer_cns = ["local-vault-ca"]
 
       [auth.acls]
       "trusted-certificate" = ["/**"]
@@ -155,12 +158,17 @@ nico-machine-a-tron:
   # No need to copy secrets or configure cross-namespace access
   machineATron:
     nicoApiUrl: "https://nico-api.nico-system.svc.cluster.local:1079"
+  # Preserve simulated machine identity and installed OS across pod restarts.
+  # Without this, Core can remain in an Assigned state while a restarted
+  # machine-a-tron has reset the corresponding host and DPUs to MachineDown.
+  persistence:
+    enabled: true
   # SPIFFE URI must match nico-api's allowed service_base_paths
   certificate:
     uris:
       - "spiffe://nico.local/nico-system/sa/machine-a-tron"
   pods:
-    default:
+    mat-0:
       machines:
         rack-machines:
           hwType: wiwynn_gb200_nvl

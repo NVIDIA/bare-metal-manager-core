@@ -42,6 +42,7 @@ use model::site_explorer::{
 };
 use nv_redfish::assembly::Model as AssemblyModel;
 use nv_redfish::computer_system::BootOption;
+use nv_redfish::core::ODataId;
 use nv_redfish::oem::ami::config_bmc::{
     LockdownBiosSettingsChangeState, LockdownBiosUpgradeDowngradeState,
     LockoutBiosVariableWriteMode, LockoutHostControlState,
@@ -78,6 +79,12 @@ pub fn is_bf4_product(product: Option<Product<&str>>) -> bool {
     product == Some(Product::new("B4240V")) || product == Some(Product::new("BlueField-4"))
 }
 
+/// BlueField-4 BMC firmware reports a non-UUID value (`STATIC:1026:0:MCTP_EID:101`)
+/// in the `UUID` of the IRoT NIC chassis. skip it for now. TODO: remove this once we have a fix.
+fn should_fetch_bf4_chassis_except_irot_nic(odata_id: &ODataId) -> bool {
+    odata_id.last_segment() != Some("BlueField_IRoT_NIC_0")
+}
+
 /// Builds the chassis exploration config shared by [`nv_generate_exploration_report`]
 /// and the [`detect_hw_type`] accessor, so detection cannot drift between them.
 fn build_chassis_explore_config<B: Bmc>(root: &ServiceRoot<B>) -> chassis::Config {
@@ -106,9 +113,14 @@ fn build_chassis_explore_config<B: Bmc>(root: &ServiceRoot<B>) -> chassis::Confi
         // with ERoT chassis. It stucks sometimes until next request
         // of BlueField_ERoT. Because carbide doesn't need
         // BlueField_ERoT we just skip it.
-        lazy_fetch: (root.vendor() == Some(Vendor::new("Nvidia"))
-            && root.product() == Some(Product::new("BlueField-3 DPU")))
-        .then_some(|odata_id| odata_id.last_segment() != Some("Bluefield_ERoT")),
+        // BlueField-4: skip IRoT NIC (invalid STATIC UUID breaks parsing).
+        lazy_fetch: if is_nvidia_vendor && is_bf4_product(root.product()) {
+            Some(should_fetch_bf4_chassis_except_irot_nic)
+        } else {
+            (root.vendor() == Some(Vendor::new("Nvidia"))
+                && root.product() == Some(Product::new("BlueField-3 DPU")))
+            .then_some(|odata_id| odata_id.last_segment() != Some("Bluefield_ERoT"))
+        },
     }
 }
 
@@ -117,7 +129,7 @@ pub async fn nv_generate_exploration_report<B: Bmc>(
     config: &Config<'_, B>,
 ) -> Result<EndpointExplorationReport, Error<B>> {
     let chassis_explore_config = build_chassis_explore_config(&root);
-    let explored_chassis =
+    let mut explored_chassis =
         ExploredChassisCollection::explore(&root, &chassis_explore_config).await?;
     let explored_inventories = ExploredInventories::explore(&root).await?;
 
@@ -171,6 +183,21 @@ pub async fn nv_generate_exploration_report<B: Bmc>(
     let explored_system = ExploredComputerSystem::explore(system, &system_explore_config).await?;
 
     let hw_type = hw_type(&root, &explored_system, &explored_chassis);
+    let linked_chassis_ids = explored_system.linked_chassis_ids();
+    let has_system_mac_address = explored_system.has_usable_ethernet_mac_address();
+    if should_use_network_adapter_port_fallback(
+        hw_type,
+        has_system_mac_address,
+        &linked_chassis_ids,
+    ) || should_fetch_supplemental_network_adapter_ports(
+        hw_type,
+        has_system_mac_address,
+        &linked_chassis_ids,
+    ) {
+        explored_chassis
+            .fetch_network_adapter_ports(&linked_chassis_ids)
+            .await;
+    }
     let is_mgx_c2 = explored_chassis.is_mgx_c2();
     let manager_explore_config = hw_type
         .map(|hw_type| match hw_type {
@@ -307,6 +334,29 @@ pub async fn nv_generate_exploration_report<B: Bmc>(
     })
 }
 
+/// `should_use_network_adapter_port_fallback` limits supplemental host MAC
+/// discovery to platforms where we have verified the Redfish relationship.
+///
+/// Lenovo XCC can omit usable `EthernetInterfaces` while exposing host MAC
+/// addresses through adapter `Ports` on the linked chassis. Keep this policy
+/// narrow: a chassis `Port` is not necessarily a host or PXE interface.
+fn should_use_network_adapter_port_fallback(
+    hw_type: Option<hw::HwType>,
+    has_system_mac_address: bool,
+    linked_chassis_ids: &[nv_redfish::core::ODataId],
+) -> bool {
+    hw_type == Some(hw::HwType::Lenovo) && !has_system_mac_address && !linked_chassis_ids.is_empty()
+}
+
+/// Whether linked adapter Ports can supplement a Lenovo XCC's System inventory.
+fn should_fetch_supplemental_network_adapter_ports(
+    hw_type: Option<hw::HwType>,
+    has_system_mac_address: bool,
+    linked_chassis_ids: &[nv_redfish::core::ODataId],
+) -> bool {
+    hw_type == Some(hw::HwType::Lenovo) && has_system_mac_address && !linked_chassis_ids.is_empty()
+}
+
 /// Builds an exploration report for a Delta power shelf.
 ///
 /// Delta BMCs do not serve `/redfish/v1/Systems`, so the standard flow (which
@@ -389,9 +439,7 @@ pub(crate) fn hw_type<B: Bmc>(
         {
             return Some(hw::HwType::DgxGb300);
         }
-        // SMC GB300: Supermicro host BMC. The tray scrape shows ServiceRoot vendor "Supermicro"
-        // (Product "GB NVL", no OEM key), so the vendor string carries it -- no chassis helper
-        // needed. See gb300-firmus-ingestion/triangulation-matrix.md.
+        // SMC GB300: Supermicro OpenBMC host.
         if root.vendor() == Some(Vendor::new("Supermicro")) {
             return Some(hw::HwType::SupermicroGb300);
         }
@@ -1058,11 +1106,10 @@ fn machine_setup_status<B: Bmc>(
             }
         }
 
-        hw::HwType::DgxGb300 | hw::HwType::SupermicroGb300 => {
-            // GB300 platforms (DGX on the NVIDIA "GB BMC", SMC on a Supermicro OpenBMC) share
-            // the platform-level setup expectations: secure boot off and boot order by MAC.
-            // TODO(gb300): add per-ODM EXPECTED_BIOS_ATTRS tables once each GB300 tray's
-            // BIOS is characterized; until then no BIOS-attr verification is applied.
+        hw::HwType::DgxGb300 => {
+            // DGX GB300 on the NVIDIA "GB BMC" uses the platform-level setup expectations:
+            // secure boot off and boot order by MAC.
+            // TODO(dgx-gb300): add EXPECTED_BIOS_ATTRS once the tray BIOS is characterized.
             if explored_system
                 .secure_boot_status()
                 .is_ok_and(|s| s.is_enabled)
@@ -1073,6 +1120,31 @@ fn machine_setup_status<B: Bmc>(
                     actual: "true".to_string(),
                 })
             }
+            if let Some(mac) = boot_interface_mac {
+                let actual = explored_system.boot_order_first_option();
+                let mac_str = format!("/MAC({},", mac.to_string().replace(":", ""));
+                let expected = explored_system.boot_options.iter().find(|option| {
+                    option.uefi_device_path().is_some_and(|path| {
+                        path.inner().contains(&mac_str)
+                            && path.inner().contains("/IPv4(")
+                            && path.inner().ends_with("/Uri()")
+                    })
+                });
+                if let Some(diff) = compare_boot_options(expected, actual) {
+                    diffs.push(diff)
+                }
+            }
+        }
+
+        hw::HwType::SupermicroGb300 => {
+            // Supermicro GB300 uses the GBx00 OpenBMC flow, but its firmware does not expose
+            // SecureBootEnable or EmbeddedUefiShell. Verify only the controls present in the
+            // real tray: TPM support and the DPU-facing PCIe option ROMs.
+            diffs.extend(
+                hw::supermicro_gb300::EXPECTED_BIOS_ATTRS
+                    .iter()
+                    .flat_map(|expected| explored_system.verify_bios_attr(expected)),
+            );
             if let Some(mac) = boot_interface_mac {
                 let actual = explored_system.boot_order_first_option();
                 let mac_str = format!("/MAC({},", mac.to_string().replace(":", ""));
@@ -1128,7 +1200,14 @@ fn compare_boot_options<B: Bmc>(
 
 #[cfg(test)]
 mod tests {
-    use super::{Product, is_bf4_product};
+    use carbide_test_support::value_scenarios;
+    use nv_redfish::core::ODataId;
+
+    use super::hw::HwType;
+    use super::{
+        Product, is_bf4_product, should_fetch_bf4_chassis_except_irot_nic,
+        should_fetch_supplemental_network_adapter_ports, should_use_network_adapter_port_fallback,
+    };
 
     #[test]
     fn is_bf4_product_matches_bf4_service_root_products() {
@@ -1136,5 +1215,82 @@ mod tests {
         assert!(is_bf4_product(Some(Product::new("BlueField-4"))));
         assert!(!is_bf4_product(Some(Product::new("BlueField-3 DPU"))));
         assert!(!is_bf4_product(None));
+    }
+
+    #[test]
+    fn bf4_chassis_fetch_excludes_irot_nic() {
+        assert!(!should_fetch_bf4_chassis_except_irot_nic(&ODataId::from(
+            "/redfish/v1/Chassis/BlueField_IRoT_NIC_0".to_string()
+        )));
+        assert!(should_fetch_bf4_chassis_except_irot_nic(&ODataId::from(
+            "/redfish/v1/Chassis/BlueField_ERoT_BMC_0".to_string()
+        )));
+        assert!(should_fetch_bf4_chassis_except_irot_nic(&ODataId::from(
+            "/redfish/v1/Chassis/BlueField_0".to_string()
+        )));
+    }
+
+    #[test]
+    fn lenovo_network_adapter_port_fallback_is_narrow() {
+        value_scenarios!(run = |(hw_type, has_system_mac_address, has_linked_chassis)| {
+            let linked_chassis_ids = has_linked_chassis
+                .then(|| ODataId::from("/redfish/v1/Chassis/Self".to_string()))
+                .into_iter()
+                .collect::<Vec<_>>();
+
+            should_use_network_adapter_port_fallback(
+                hw_type,
+                has_system_mac_address,
+                &linked_chassis_ids,
+            )
+        };
+            "Lenovo XCC without a System MAC and with a chassis link" {
+                (Some(HwType::Lenovo), false, true) => true,
+            }
+            "non-Lenovo host" {
+                (Some(HwType::Ami), false, true) => false,
+            }
+            "Lenovo AMI host" {
+                (Some(HwType::LenovoAmi), false, true) => false,
+            }
+            "Lenovo XCC with a System MAC" {
+                (Some(HwType::Lenovo), true, true) => false,
+            }
+            "Lenovo XCC without a linked chassis" {
+                (Some(HwType::Lenovo), false, false) => false,
+            }
+        );
+    }
+
+    #[test]
+    fn lenovo_network_adapter_port_fetch_supplements_partial_inventory() {
+        value_scenarios!(run = |(hw_type, has_system_mac_address, has_linked_chassis)| {
+            let linked_chassis_ids = has_linked_chassis
+                .then(|| ODataId::from("/redfish/v1/Chassis/Self".to_string()))
+                .into_iter()
+                .collect::<Vec<_>>();
+
+            should_fetch_supplemental_network_adapter_ports(
+                hw_type,
+                has_system_mac_address,
+                &linked_chassis_ids,
+            )
+        };
+            "Lenovo XCC without a System MAC" {
+                (Some(HwType::Lenovo), false, true) => false,
+            }
+            "Lenovo XCC with a System MAC supplements its inventory" {
+                (Some(HwType::Lenovo), true, true) => true,
+            }
+            "non-Lenovo host" {
+                (Some(HwType::Ami), true, true) => false,
+            }
+            "Lenovo AMI host" {
+                (Some(HwType::LenovoAmi), true, true) => false,
+            }
+            "Lenovo XCC without a linked chassis" {
+                (Some(HwType::Lenovo), true, false) => false,
+            }
+        );
     }
 }

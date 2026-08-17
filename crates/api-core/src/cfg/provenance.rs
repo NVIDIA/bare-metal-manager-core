@@ -32,7 +32,7 @@ use figment::Figment;
 /// label such as the providing file's name.
 ///
 /// Keys absent from the map fall back to their compiled-in defaults.
-pub fn explicit_value_paths(figment: &Figment) -> BTreeMap<String, String> {
+pub(super) fn explicit_value_paths(figment: &Figment) -> BTreeMap<String, String> {
     let mut paths = BTreeMap::new();
     let Ok(root) = figment.extract::<figment::value::Value>() else {
         return paths;
@@ -68,7 +68,7 @@ fn collect_explicit_paths(
     }
 }
 
-fn source_label(metadata: &figment::Metadata) -> String {
+pub(super) fn source_label(metadata: &figment::Metadata) -> String {
     match metadata.source.as_ref() {
         Some(figment::Source::File(path)) => path
             .file_name()

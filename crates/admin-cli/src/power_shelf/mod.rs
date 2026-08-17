@@ -17,10 +17,10 @@
 
 mod delete;
 mod force_delete;
-pub mod health_report;
+mod health_report;
 mod list;
 mod maintenance;
-pub mod metadata;
+mod metadata;
 mod show;
 
 #[cfg(test)]
@@ -31,7 +31,7 @@ use clap::Parser;
 use crate::cfg::dispatch::Dispatch;
 
 #[derive(Parser, Debug, Dispatch)]
-pub enum Cmd {
+pub(crate) enum Cmd {
     #[clap(about = "Show power shelf information")]
     Show(show::Args),
     #[clap(about = "List all power shelves")]

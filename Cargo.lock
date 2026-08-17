@@ -199,7 +199,7 @@ version = "1.1.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "40c48f72fd53cd289104fc64099abca73db4166ad86ea0b4341abe65af83dadc"
 dependencies = [
- "windows-sys 0.60.2",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -210,7 +210,7 @@ checksum = "291e6a250ff86cd4a820112fb8898808a366d8f9f58ce16d1f538353ad55747d"
 dependencies = [
  "anstyle",
  "once_cell_polyfill",
- "windows-sys 0.60.2",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -871,22 +871,22 @@ dependencies = [
 name = "bmc-mock"
 version = "0.1.0"
 dependencies = [
- "arc-swap",
  "axum",
  "axum-extra",
  "axum-server",
  "bmc-vendor",
  "bytes",
+ "carbide-axum-utils",
+ "carbide-test-support",
  "chrono",
  "clap",
- "duration-str",
  "eyre",
  "flate2",
  "form_urlencoded",
  "futures",
- "glob",
  "http-body-util",
  "hyper",
+ "indexmap 2.14.0",
  "itertools 0.14.0",
  "lazy_static",
  "mac_address",
@@ -1099,6 +1099,7 @@ dependencies = [
  "prost",
  "prost-types",
  "rand 0.10.1",
+ "rcgen",
  "regex",
  "reqwest 0.13.4",
  "resolv-conf",
@@ -1237,6 +1238,7 @@ dependencies = [
  "figment",
  "futures",
  "futures-util",
+ "hashbrown 0.17.1",
  "hex",
  "hkdf 0.13.0",
  "hostname",
@@ -1256,12 +1258,15 @@ dependencies = [
  "nras",
  "num_cpus",
  "nv-redfish",
+ "nv-redfish-dispatcher",
  "opentelemetry 0.32.0",
  "opentelemetry_sdk",
  "p256 0.14.0",
  "pkcs1 0.7.5",
  "prometheus",
  "prometheus-text-parser",
+ "prost",
+ "prost-types",
  "rand 0.10.1",
  "rcgen",
  "regex",
@@ -1497,6 +1502,7 @@ dependencies = [
  "carbide-health-report",
  "carbide-macros",
  "carbide-measured-boot",
+ "carbide-redfish",
  "carbide-rpc",
  "carbide-rpc-utils",
  "carbide-sqlx-testing",
@@ -1541,15 +1547,33 @@ name = "carbide-authn"
 version = "0.0.0"
 dependencies = [
  "carbide-instrument",
+ "carbide-rpc",
  "carbide-test-support",
  "hyper",
  "rcgen",
  "serde",
  "thiserror 2.0.18",
+ "tokio",
  "tonic",
  "tower",
  "tracing",
  "x509-parser",
+]
+
+[[package]]
+name = "carbide-axum-utils"
+version = "0.1.0"
+dependencies = [
+ "arc-swap",
+ "axum",
+ "duration-str",
+ "glob",
+ "rand 0.10.1",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tower",
+ "tracing",
 ]
 
 [[package]]
@@ -1654,6 +1678,7 @@ dependencies = [
 name = "carbide-dhcp"
 version = "0.0.0"
 dependencies = [
+ "carbide-dhcp",
  "carbide-dhcp-common",
  "carbide-instrument",
  "carbide-rpc",
@@ -2074,6 +2099,8 @@ dependencies = [
  "mac_address",
  "metrics-endpoint",
  "nv-redfish",
+ "opentelemetry 0.32.0",
+ "opentelemetry-proto",
  "prometheus",
  "prost",
  "prost-types",
@@ -2186,6 +2213,7 @@ name = "carbide-ib-fabric"
 version = "0.0.1"
 dependencies = [
  "async-trait",
+ "axum",
  "base64",
  "carbide-api-db",
  "carbide-api-model",
@@ -2195,6 +2223,7 @@ dependencies = [
  "carbide-secrets",
  "carbide-test-support",
  "carbide-tls",
+ "carbide-ufm-mock",
  "carbide-utils",
  "carbide-uuid",
  "chrono",
@@ -2408,6 +2437,7 @@ dependencies = [
  "carbide-rpc",
  "carbide-test-support",
  "carbide-tls",
+ "carbide-ufm-mock",
  "carbide-utils",
  "carbide-uuid",
  "carbide-version",
@@ -2421,6 +2451,7 @@ dependencies = [
  "futures",
  "lazy_static",
  "mac_address",
+ "metrics-endpoint",
  "rand 0.10.1",
  "ratatui",
  "reqwest 0.13.4",
@@ -2455,6 +2486,7 @@ dependencies = [
  "carbide-instrument",
  "carbide-ipmi",
  "carbide-measured-boot",
+ "carbide-proto-compiler",
  "carbide-redfish",
  "carbide-secrets",
  "carbide-state-controller-common",
@@ -2643,6 +2675,7 @@ dependencies = [
  "config-version",
  "duration-str",
  "eyre",
+ "futures",
  "hex",
  "http",
  "libnmxc",
@@ -2735,6 +2768,21 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 2.0.117",
+]
+
+[[package]]
+name = "carbide-proto-compiler"
+version = "0.0.0"
+dependencies = [
+ "prost",
+ "prost-build",
+ "prost-reflect",
+ "prost-types",
+ "quote",
+ "syn 2.0.117",
+ "tempfile",
+ "thiserror 2.0.18",
+ "tonic-prost-build",
 ]
 
 [[package]]
@@ -2833,6 +2881,7 @@ dependencies = [
  "librms",
  "mac_address",
  "opentelemetry 0.32.0",
+ "reqwest 0.13.4",
  "serde",
  "serde_json",
  "sqlx",
@@ -2888,6 +2937,7 @@ dependencies = [
  "carbide-measured-boot",
  "carbide-network",
  "carbide-prost-builder",
+ "carbide-proto-compiler",
  "carbide-secrets",
  "carbide-test-support",
  "carbide-tls",
@@ -2896,6 +2946,7 @@ dependencies = [
  "chrono",
  "clap",
  "config-version",
+ "const_format",
  "criterion",
  "csv",
  "data-encoding",
@@ -2907,13 +2958,16 @@ dependencies = [
  "hyper-util",
  "ipnetwork",
  "itertools 0.14.0",
+ "jsonwebtoken",
  "log",
  "mac_address",
  "nonempty",
  "once_cell",
+ "p256 0.14.0",
  "prettytable-rs",
  "prost",
  "prost-types",
+ "rcgen",
  "regex",
  "resolv-conf",
  "rustls",
@@ -2923,6 +2977,7 @@ dependencies = [
  "serde_yaml",
  "sha2 0.11.0",
  "sqlx",
+ "tempfile",
  "thiserror 2.0.18",
  "tokio",
  "tokio-stream",
@@ -3074,6 +3129,7 @@ version = "0.0.1"
 dependencies = [
  "arc-swap",
  "async-trait",
+ "axum",
  "bmc-explorer",
  "bmc-mock",
  "bmc-vendor",
@@ -3296,6 +3352,7 @@ dependencies = [
  "carbide-api-db",
  "carbide-api-model",
  "carbide-macros",
+ "carbide-network",
  "carbide-network-segment-controller",
  "carbide-site-explorer",
  "carbide-sqlx-testing",
@@ -3332,6 +3389,33 @@ dependencies = [
  "serde_json",
  "thiserror 2.0.18",
  "tonic",
+]
+
+[[package]]
+name = "carbide-ufm-mock"
+version = "0.0.1"
+dependencies = [
+ "axum",
+ "axum-server",
+ "carbide-axum-utils",
+ "carbide-utils",
+ "clap",
+ "duration-str",
+ "eyre",
+ "figment",
+ "futures",
+ "metrics-endpoint",
+ "opentelemetry 0.32.0",
+ "reqwest 0.13.4",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.18",
+ "tokio",
+ "tokio-util",
+ "tower",
+ "tracing",
+ "tracing-subscriber",
+ "url",
 ]
 
 [[package]]
@@ -3725,7 +3809,7 @@ version = "3.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "faf9468729b8cbcea668e36183cb69d317348c2e08e994829fb56ebfdfbaac34"
 dependencies = [
- "windows-sys 0.52.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -3776,6 +3860,7 @@ dependencies = [
  "prost",
  "prost-types",
  "serde",
+ "serde_json",
  "sqlx",
  "thiserror 2.0.18",
  "tokio",
@@ -4933,7 +5018,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "39cab71617ae0d63f51a36d69f866391735b51691dbda63cf6f96d042b63efeb"
 dependencies = [
  "libc",
- "windows-sys 0.52.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -6337,7 +6422,7 @@ checksum = "3640c1c38b8e4e43584d8df18be5fc6b0aa314ce6ebf51b53313d4306cca8e46"
 dependencies = [
  "hermit-abi",
  "libc",
- "windows-sys 0.52.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -6839,7 +6924,7 @@ dependencies = [
 [[package]]
 name = "libredfish"
 version = "0.0.0"
-source = "git+https://github.com/NVIDIA/libredfish.git?tag=v0.45.1#7d6a335f7ebe1e489c574f075a9adc1ce171a1bf"
+source = "git+https://github.com/NVIDIA/libredfish.git?tag=v0.46.7#97be4e1722e94a77d4278522d7664be5ba381d92"
 dependencies = [
  "chrono",
  "clap",
@@ -6869,7 +6954,7 @@ dependencies = [
 [[package]]
 name = "librms"
 version = "0.0.14"
-source = "git+https://github.com/NVIDIA/nv-rms-client.git?tag=v0.10.0#0769455549f85e64c4fcc471bd24aa7fa6622609"
+source = "git+https://github.com/NVIDIA/nv-rms-client.git?tag=v0.10.1#4bbd502d3d9822fb1dcb8d205b7edaecabb497a6"
 dependencies = [
  "async-trait",
  "chrono",
@@ -7693,7 +7778,7 @@ version = "0.50.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7957b9740744892f114936ab4a57b3f487491bbeafaf8083688b16841a4240e5"
 dependencies = [
- "windows-sys 0.60.2",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -7790,9 +7875,9 @@ dependencies = [
 
 [[package]]
 name = "nv-redfish"
-version = "0.12.1"
+version = "0.15.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2592edb56672a2c7edf127a376cc1ee487ba0e3c6f1de089e0a8074e731fae2c"
+checksum = "0605c7f76ab88e3c9333b0beaf5c9e47346448c3850f81127454625e0c4701dc"
 dependencies = [
  "futures-core",
  "futures-util",
@@ -7807,10 +7892,11 @@ dependencies = [
 
 [[package]]
 name = "nv-redfish-bmc-http"
-version = "0.12.1"
+version = "0.15.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "36d20f59e47169c5adc5ee4d16ee58c4be04bdb7b13adf20c95b574b068f2d65"
+checksum = "b2e07bc4a5ae977451c3a89314ddeb2418d5d5a92595a0b28bbfced0de5132b9"
 dependencies = [
+ "async-lock",
  "bytes",
  "futures-core",
  "futures-util",
@@ -7832,9 +7918,9 @@ dependencies = [
 
 [[package]]
 name = "nv-redfish-core"
-version = "0.12.1"
+version = "0.15.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d604b8acdfb20dae81b2a0849258126723f649d772e5097c75a54bd75aad53e6"
+checksum = "8930b501bd5daf75c7e63a0ae803e3b1cf1dca9367910e6e975121682f2db335"
 dependencies = [
  "futures-core",
  "futures-io",
@@ -7847,9 +7933,9 @@ dependencies = [
 
 [[package]]
 name = "nv-redfish-csdl-compiler"
-version = "0.12.1"
+version = "0.15.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f1b4cbe1798dd45c668d35da308da62fc55e1c321e337685bd2126fc50ba07f1"
+checksum = "e106e8675e10af93cbb069f981549ee416928065a2f99e1d9f7085b8d24fbb1f"
 dependencies = [
  "clap",
  "clap_derive",
@@ -7864,10 +7950,20 @@ dependencies = [
 ]
 
 [[package]]
-name = "nv-redfish-schema"
-version = "0.12.1"
+name = "nv-redfish-dispatcher"
+version = "0.15.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6005f1c3630b8ef4df0a2564fb935a659ae6384a09bd2c7e2081ce20e5033e15"
+checksum = "75bcf0e3088623948aaa6e84ca96b4f07b92960bc8dd5057e632e6127bcb4015"
+dependencies = [
+ "futures-core",
+ "futures-util",
+]
+
+[[package]]
+name = "nv-redfish-schema"
+version = "0.15.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5141fdb537e8d72d617dd9988a2660393347079054e0915b25b6d6c5a0a1125d"
 dependencies = [
  "glob",
 ]
@@ -7883,6 +7979,7 @@ dependencies = [
  "serde_json",
  "serde_yaml",
  "thiserror 2.0.18",
+ "tokio",
 ]
 
 [[package]]
@@ -8956,6 +9053,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "prost-reflect"
+version = "0.16.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "01b80ea363c31af2de2b92e3c07ed1156628f7838c4afb4df75ee78a37fedbd1"
+dependencies = [
+ "prost",
+ "prost-types",
+]
+
+[[package]]
 name = "prost-types"
 version = "0.14.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -9979,7 +10086,7 @@ dependencies = [
  "errno",
  "libc",
  "linux-raw-sys",
- "windows-sys 0.52.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -10047,7 +10154,7 @@ dependencies = [
  "security-framework",
  "security-framework-sys",
  "webpki-root-certs",
- "windows-sys 0.52.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -10765,7 +10872,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "52d1cfed4120b4d927bf7c0f86d2087a4a7d6027c906d9f9d525a80573b9be51"
 dependencies = [
  "libc",
- "windows-sys 0.60.2",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -11367,7 +11474,7 @@ dependencies = [
  "getrandom 0.4.2",
  "once_cell",
  "rustix",
- "windows-sys 0.52.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -11882,6 +11989,7 @@ name = "tonic-client-wrapper"
 version = "0.1.0"
 dependencies = [
  "async-trait",
+ "carbide-proto-compiler",
  "heck",
  "lazy_static",
  "prettyplease",
@@ -11898,7 +12006,7 @@ dependencies = [
 [[package]]
 name = "tonic-client-wrapper"
 version = "1.0.0"
-source = "git+https://github.com/NVIDIA/nv-rms-client.git?tag=v0.10.0#0769455549f85e64c4fcc471bd24aa7fa6622609"
+source = "git+https://github.com/NVIDIA/nv-rms-client.git?tag=v0.10.1#4bbd502d3d9822fb1dcb8d205b7edaecabb497a6"
 dependencies = [
  "async-trait",
  "heck",
@@ -12879,7 +12987,7 @@ version = "0.1.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c2a7b1c03c876122aa43f3020e6c3c3ee5c05081c9a00739faf7503aeba10d22"
 dependencies = [
- "windows-sys 0.52.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]

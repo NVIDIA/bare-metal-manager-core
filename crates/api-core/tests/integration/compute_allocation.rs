@@ -93,7 +93,6 @@ async fn create_test_env_with_overrides(pool: PgPool, overrides: TestEnvOverride
     }
     let runtime_config = Arc::new(runtime_config);
     let resource_pools = ResourcePoolBuilder::default()
-        .with_secondary_vtep_ip("172.30.0.0/24")
         .with_vlan_ids(1, 5)
         .with_vnis(10_001, 10_005)
         .build();
@@ -130,10 +129,7 @@ async fn create_test_env_with_overrides(pool: PgPool, overrides: TestEnvOverride
     let network_controller = harness.network_controller();
     let admin_segment = network_controller.create_admin_segment(&domain).await;
     let underlay_segment = network_controller.create_underlay_segment(&domain).await;
-    let site_explorer = harness.test_site_explorer(SiteExplorerConfig {
-        allocate_secondary_vtep_ip: true,
-        ..SiteExplorerConfig::default()
-    });
+    let site_explorer = harness.test_site_explorer(SiteExplorerConfig::default());
     let api = harness.api_arc();
 
     TestEnv {
@@ -275,6 +271,7 @@ async fn allocate_instance(
                 network_security_group_id: None,
                 dpu_extension_services: None,
                 spxconfig: None,
+                power_profile: None,
             }),
             metadata: None,
             allow_unhealthy_machine: false,

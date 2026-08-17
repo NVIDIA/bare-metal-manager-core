@@ -172,7 +172,10 @@ impl StateControllerIO for MachineStateControllerIO {
                 DpuInitState::WaitingForNetworkConfig => "waitingfornetworkconfig",
                 DpuInitState::WaitingForPlatformConfiguration => "waitingforplatformconfiguration",
                 DpuInitState::PollingBiosSetup => "pollingbiossetup",
-                DpuInitState::WaitingForPlatformPowercycle { .. } => "waitingforplatformpowercycle",
+                // The observed-Off wait remains part of the existing
+                // operator-facing power-cycle metric.
+                DpuInitState::WaitingForPlatformPowercycle { .. }
+                | DpuInitState::WaitingForPlatformPowerOff => "waitingforplatformpowercycle",
                 DpuInitState::DpfStates { .. } => "dpfstates",
             }
         }
@@ -341,6 +344,8 @@ impl StateControllerIO for MachineStateControllerIO {
             ManagedHostState::DPUReprovision { .. } => ("reprovisioning", ""),
             ManagedHostState::HostReprovision { .. } => ("hostreprovisioning", ""),
             ManagedHostState::RotatingBmc { .. } => ("rotatingbmc", ""),
+            ManagedHostState::RotatingHostUefi { .. } => ("rotatinghostuefi", ""),
+            ManagedHostState::RotatingDpuUefi { .. } => ("rotatingdpuuefi", ""),
             ManagedHostState::Measuring { measuring_state } => {
                 ("measuring", measuring_state_name(measuring_state))
             }

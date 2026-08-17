@@ -14,6 +14,8 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+#![cfg_attr(not(test), deny(dead_code_pub_in_binary))]
+
 use std::fmt::Debug;
 use std::net::SocketAddr;
 
@@ -43,7 +45,7 @@ mod rpc_error;
 #[derive(Parser, Debug)]
 struct Args {
     #[clap(long, default_value = "false", help = "Print version number and exit")]
-    pub version: bool,
+    version: bool,
 
     #[clap(short, long, default_value = "static")]
     static_dir: String,

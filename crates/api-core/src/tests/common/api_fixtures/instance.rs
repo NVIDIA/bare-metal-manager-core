@@ -40,7 +40,7 @@ use rpc::{InstanceReleaseRequest, Timestamp};
 use super::{TestEnv, inject_machine_measurements, persist_machine_validation_result};
 use crate::tests::common::api_fixtures::{RpcInstance, TestManagedHost};
 
-pub struct TestInstanceBuilder<'a, 'b> {
+pub(in crate::tests) struct TestInstanceBuilder<'a, 'b> {
     env: &'a TestEnv,
     config: rpc::InstanceConfig,
     tenant: rpc::TenantConfig,
@@ -49,7 +49,7 @@ pub struct TestInstanceBuilder<'a, 'b> {
 }
 
 impl<'a, 'b> TestInstanceBuilder<'a, 'b> {
-    pub fn new(env: &'a TestEnv, mh: &'b TestManagedHost) -> Self {
+    pub(in crate::tests) fn new(env: &'a TestEnv, mh: &'b TestManagedHost) -> Self {
         Self {
             env,
             config: rpc::InstanceConfig {
@@ -61,6 +61,7 @@ impl<'a, 'b> TestInstanceBuilder<'a, 'b> {
                 dpu_extension_services: None,
                 nvlink: None,
                 spxconfig: None,
+                power_profile: None,
             },
             tenant: default_tenant_config(),
             metadata: None,
@@ -68,17 +69,17 @@ impl<'a, 'b> TestInstanceBuilder<'a, 'b> {
         }
     }
 
-    pub fn config(mut self, config: rpc::InstanceConfig) -> Self {
+    pub(in crate::tests) fn config(mut self, config: rpc::InstanceConfig) -> Self {
         self.config = config;
         self
     }
 
-    pub fn network(mut self, network: rpc::InstanceNetworkConfig) -> Self {
+    pub(in crate::tests) fn network(mut self, network: rpc::InstanceNetworkConfig) -> Self {
         self.config.network = Some(network);
         self
     }
 
-    pub fn extension_services(
+    pub(in crate::tests) fn extension_services(
         mut self,
         extension_services: InstanceDpuExtensionServicesConfig,
     ) -> Self {
@@ -86,36 +87,41 @@ impl<'a, 'b> TestInstanceBuilder<'a, 'b> {
         self
     }
 
-    pub fn single_interface_network_config(self, segment_id: NetworkSegmentId) -> Self {
+    pub(in crate::tests) fn single_interface_network_config(
+        self,
+        segment_id: NetworkSegmentId,
+    ) -> Self {
         self.network(single_interface_network_config(segment_id))
     }
 
-    pub fn keyset_ids(mut self, ids: &[&str]) -> Self {
+    pub(in crate::tests) fn keyset_ids(mut self, ids: &[&str]) -> Self {
         self.tenant.tenant_keyset_ids = ids.iter().map(|s| (*s).into()).collect();
         self
     }
 
-    pub fn metadata(mut self, metadata: rpc::Metadata) -> Self {
+    pub(in crate::tests) fn metadata(mut self, metadata: rpc::Metadata) -> Self {
         self.metadata = Some(metadata);
         self
     }
 
-    pub fn hostname(mut self, hostname: impl Into<String>) -> Self {
+    pub(in crate::tests) fn hostname(mut self, hostname: impl Into<String>) -> Self {
         self.tenant.hostname = Some(hostname.into());
         self
     }
 
-    pub fn tenant_org(mut self, tenant_org: impl Into<String>) -> Self {
+    pub(in crate::tests) fn tenant_org(mut self, tenant_org: impl Into<String>) -> Self {
         self.tenant.tenant_organization_id = tenant_org.into();
         self
     }
 
-    pub async fn build(self) -> TestInstance<'a, 'b> {
+    pub(in crate::tests) async fn build(self) -> TestInstance<'a, 'b> {
         let (tinstance, _) = self.build_and_return().await;
         tinstance
     }
 
-    pub async fn build_and_return(mut self) -> (TestInstance<'a, 'b>, RpcInstance) {
+    pub(in crate::tests) async fn build_and_return(
+        mut self,
+    ) -> (TestInstance<'a, 'b>, RpcInstance) {
         if self.config.tenant.is_none() {
             self.config.tenant = Some(self.tenant);
         }
@@ -147,8 +153,8 @@ impl<'a, 'b> TestInstanceBuilder<'a, 'b> {
     }
 }
 
-pub struct TestInstance<'a, 'b> {
-    pub id: InstanceId,
+pub(in crate::tests) struct TestInstance<'a, 'b> {
+    pub(in crate::tests) id: InstanceId,
     env: &'a TestEnv,
     mh: &'b TestManagedHost,
 }
@@ -156,14 +162,14 @@ pub struct TestInstance<'a, 'b> {
 type Txn<'a> = sqlx::Transaction<'a, sqlx::Postgres>;
 
 impl<'a, 'b> TestInstance<'a, 'b> {
-    pub async fn db_instance(&self, txn: &mut Txn<'_>) -> InstanceSnapshot {
+    pub(in crate::tests) async fn db_instance(&self, txn: &mut Txn<'_>) -> InstanceSnapshot {
         db::instance::find_by_id(txn.as_mut(), self.id)
             .await
             .unwrap()
             .unwrap()
     }
 
-    pub async fn rpc_instance(&self) -> RpcInstance {
+    pub(in crate::tests) async fn rpc_instance(&self) -> RpcInstance {
         let mut result = self
             .env
             .api
@@ -177,12 +183,12 @@ impl<'a, 'b> TestInstance<'a, 'b> {
         RpcInstance::new(result.instances.remove(0))
     }
 
-    pub async fn delete(&self) {
+    pub(in crate::tests) async fn delete(&self) {
         self.mh.delete_instance(self.env, self.id).await
     }
 }
 
-pub async fn create_instance_with_ib_config<'a, 'b>(
+pub(in crate::tests) async fn create_instance_with_ib_config<'a, 'b>(
     env: &'a TestEnv,
     mh: &'b TestManagedHost,
     ib_config: rpc::forge::InstanceInfinibandConfig,
@@ -194,7 +200,9 @@ pub async fn create_instance_with_ib_config<'a, 'b>(
         .await
 }
 
-pub fn single_interface_network_config(segment_id: NetworkSegmentId) -> rpc::InstanceNetworkConfig {
+pub(in crate::tests) fn single_interface_network_config(
+    segment_id: NetworkSegmentId,
+) -> rpc::InstanceNetworkConfig {
     rpc::InstanceNetworkConfig {
         interfaces: vec![rpc::InstanceInterfaceConfig {
             function_type: rpc::InterfaceFunctionType::Physical as i32,
@@ -213,7 +221,7 @@ pub fn single_interface_network_config(segment_id: NetworkSegmentId) -> rpc::Ins
     }
 }
 
-pub fn single_interface_network_config_with_vfs(
+pub(in crate::tests) fn single_interface_network_config_with_vfs(
     segment_ids: Vec<NetworkSegmentId>,
 ) -> rpc::InstanceNetworkConfig {
     let mut segment_iter = segment_ids.into_iter().enumerate();
@@ -252,7 +260,7 @@ pub fn single_interface_network_config_with_vfs(
     }
 }
 
-pub fn interface_network_config_with_devices(
+pub(in crate::tests) fn interface_network_config_with_devices(
     segment_ids: &[NetworkSegmentId],
     device_locators: &[DeviceLocator],
 ) -> rpc::InstanceNetworkConfig {
@@ -279,7 +287,7 @@ pub fn interface_network_config_with_devices(
     }
 }
 
-pub fn single_interface_network_config_with_vpc_prefix(
+pub(in crate::tests) fn single_interface_network_config_with_vpc_prefix(
     prefix_id: VpcPrefixId,
 ) -> rpc::InstanceNetworkConfig {
     rpc::InstanceNetworkConfig {
@@ -300,7 +308,7 @@ pub fn single_interface_network_config_with_vpc_prefix(
     }
 }
 
-pub fn default_os_config() -> rpc::forge::InstanceOperatingSystemConfig {
+pub(in crate::tests) fn default_os_config() -> rpc::forge::InstanceOperatingSystemConfig {
     rpc::forge::InstanceOperatingSystemConfig {
         phone_home_enabled: false,
         run_provisioning_instructions_on_every_boot: false,
@@ -313,7 +321,7 @@ pub fn default_os_config() -> rpc::forge::InstanceOperatingSystemConfig {
     }
 }
 
-pub fn default_tenant_config() -> rpc::TenantConfig {
+pub(in crate::tests) fn default_tenant_config() -> rpc::TenantConfig {
     rpc::TenantConfig {
         tenant_organization_id: "Tenant1".to_string(),
         tenant_keyset_ids: vec![],
@@ -321,7 +329,7 @@ pub fn default_tenant_config() -> rpc::TenantConfig {
     }
 }
 
-pub fn config_for_ib_config(
+pub(in crate::tests) fn config_for_ib_config(
     ib_config: rpc::forge::InstanceInfinibandConfig,
     network_segment_id: NetworkSegmentId,
 ) -> rpc::forge::InstanceConfig {
@@ -334,10 +342,11 @@ pub fn config_for_ib_config(
         spxconfig: None,
         network_security_group_id: None,
         dpu_extension_services: None,
+        power_profile: None,
     }
 }
 
-pub fn config_for_nvlink_config(
+pub(in crate::tests) fn config_for_nvlink_config(
     nvl_config: rpc::forge::InstanceNvLinkConfig,
     network_segment_id: NetworkSegmentId,
 ) -> rpc::forge::InstanceConfig {
@@ -350,10 +359,11 @@ pub fn config_for_nvlink_config(
         spxconfig: None,
         network_security_group_id: None,
         dpu_extension_services: None,
+        power_profile: None,
     }
 }
 
-pub async fn advance_created_instance_into_state(
+pub(in crate::tests) async fn advance_created_instance_into_state(
     env: &TestEnv,
     mh: &TestManagedHost,
     state_check_fn: impl Fn(&Machine) -> bool,
@@ -420,7 +430,10 @@ pub async fn advance_created_instance_into_state(
     .await;
 }
 
-pub async fn advance_created_instance_into_ready_state(env: &TestEnv, mh: &TestManagedHost) {
+pub(in crate::tests) async fn advance_created_instance_into_ready_state(
+    env: &TestEnv,
+    mh: &TestManagedHost,
+) {
     advance_created_instance_into_state(env, mh, |machine| {
         matches!(
             machine.state.value,
@@ -444,7 +457,11 @@ pub async fn advance_created_instance_into_ready_state(env: &TestEnv, mh: &TestM
     );
 }
 
-pub async fn delete_instance(env: &TestEnv, instance_id: InstanceId, mh: &TestManagedHost) {
+pub(in crate::tests) async fn delete_instance(
+    env: &TestEnv,
+    instance_id: InstanceId,
+    mh: &TestManagedHost,
+) {
     env.api
         .release_instance(tonic::Request::new(InstanceReleaseRequest {
             id: Some(instance_id),
@@ -461,7 +478,7 @@ pub async fn delete_instance(env: &TestEnv, instance_id: InstanceId, mh: &TestMa
 
     env.run_machine_state_controller_iteration_until_state_matches(
         &mh.host().id,
-        7,
+        8,
         ManagedHostState::Assigned {
             instance_state: model::machine::InstanceState::HostPlatformConfiguration {
                 platform_config_state:
@@ -510,7 +527,10 @@ pub async fn delete_instance(env: &TestEnv, instance_id: InstanceId, mh: &TestMa
     env.run_network_segment_controller_iteration().await;
 }
 
-pub async fn handle_delete_post_bootingwithdiscoveryimage(env: &TestEnv, mh: &TestManagedHost) {
+pub(in crate::tests) async fn handle_delete_post_bootingwithdiscoveryimage(
+    env: &TestEnv,
+    mh: &TestManagedHost,
+) {
     let mut txn = env.pool.begin().await.unwrap();
     let machine = mh.host().db_machine(&mut txn).await;
     db::machine::update_reboot_time(&machine, &mut txn)
@@ -639,7 +659,7 @@ pub async fn handle_delete_post_bootingwithdiscoveryimage(env: &TestEnv, mh: &Te
     .await;
 }
 
-pub async fn update_instance_network_status_observation(
+pub(in crate::tests) async fn update_instance_network_status_observation(
     dpu_id: &MachineId,
     obs: &InstanceNetworkStatusObservation,
     txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
@@ -653,7 +673,7 @@ pub async fn update_instance_network_status_observation(
         .unwrap();
 }
 
-pub async fn create_instance_with_nvlink_config<'a, 'b>(
+pub(in crate::tests) async fn create_instance_with_nvlink_config<'a, 'b>(
     env: &'a TestEnv,
     mh: &'b TestManagedHost,
     nvl_config: rpc::forge::InstanceNvLinkConfig,
@@ -665,7 +685,7 @@ pub async fn create_instance_with_nvlink_config<'a, 'b>(
         .await
 }
 
-pub async fn update_instance_nvlink_config(
+pub(in crate::tests) async fn update_instance_nvlink_config(
     txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     id: &InstanceId,
     config: &InstanceNvLinkConfig,

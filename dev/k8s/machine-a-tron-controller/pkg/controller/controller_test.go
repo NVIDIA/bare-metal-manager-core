@@ -701,7 +701,15 @@ func ptr[T any](v T) *T {
 	return &v
 }
 
-func ptrString(s string) *string { return &s }
+func testMachineStatus() *matclient.MachinesStatusResponse {
+	return &matclient.MachinesStatusResponse{
+		Machines: []matclient.MachineStatus{{
+			MatID:    "mat-id-1",
+			APIState: "Ready",
+			BMC:      matclient.BMCStatus{IP: ptr("10.0.0.1"), Redfish: matclient.EndpointStatus{ReachablePort: 443, ListenPort: 1266}},
+		}},
+	}
+}
 
 func TestProcessRecreatesConcurrently_RecordsErrors(t *testing.T) {
 	tests := []struct {
@@ -908,4 +916,110 @@ func TestReconciler_OwnerReferences(t *testing.T) {
 			}
 		})
 	}
+}
+
+// trackingStatusFetcher implements StatusFetcher and tracks calls for testing.
+type trackingStatusFetcher struct {
+	status     *matclient.MachinesStatusResponse
+	err        error
+	closed     bool
+	fetchCount int
+}
+
+func (m *trackingStatusFetcher) GetMachinesStatus(ctx context.Context) (*matclient.MachinesStatusResponse, error) {
+	m.fetchCount++
+	return m.status, m.err
+}
+
+func (m *trackingStatusFetcher) Close() error {
+	m.closed = true
+	return nil
+}
+
+func TestReconciler_ClientCaching(t *testing.T) {
+	const url1, url2 = "https://mat-1.ns.svc:8443", "https://mat-2.ns.svc:8443"
+
+	setup := func(urls ...string) (*Reconciler, *mockDiscovery, map[string]*trackingStatusFetcher, *int) {
+		instances := make([]DiscoveredInstance, len(urls))
+		for i, u := range urls {
+			instances[i] = DiscoveredInstance{URL: u, ServiceName: "mat-bmc-mock"}
+		}
+		discovery := &mockDiscovery{instances: instances}
+		fetchers := make(map[string]*trackingStatusFetcher)
+		createCount := 0
+
+		r := NewReconciler(discovery, &ServiceBuilder{
+			Namespace:    "ns",
+			BaseSelector: map[string]string{"app": "mat"},
+		}, &trackingK8sClient{services: make(map[string]*corev1.Service)}, nil, nil, zerolog.Nop())
+
+		r.statusFetcher = func(url string) (StatusFetcher, error) {
+			createCount++
+			f := &trackingStatusFetcher{status: testMachineStatus()}
+			fetchers[url] = f
+			return f, nil
+		}
+		return r, discovery, fetchers, &createCount
+	}
+
+	t.Run("reuses cached client", func(t *testing.T) {
+		r, _, fetchers, createCount := setup(url1)
+
+		r.Reconcile(context.Background())
+		assert.Equal(t, 1, *createCount)
+		assert.Equal(t, 1, fetchers[url1].fetchCount)
+
+		r.Reconcile(context.Background())
+		assert.Equal(t, 1, *createCount, "should reuse cached client")
+		assert.Equal(t, 2, fetchers[url1].fetchCount)
+	})
+
+	t.Run("evicts and closes stale client", func(t *testing.T) {
+		r, discovery, fetchers, _ := setup(url1, url2)
+
+		r.Reconcile(context.Background())
+		require.False(t, fetchers[url2].closed)
+
+		discovery.instances = discovery.instances[:1] // remove url2
+		r.Reconcile(context.Background())
+
+		assert.False(t, fetchers[url1].closed)
+		assert.True(t, fetchers[url2].closed, "evicted client should be closed")
+		assert.NotContains(t, r.clientCache, url2)
+	})
+
+	t.Run("evicts all clients when discovery returns zero instances", func(t *testing.T) {
+		r, discovery, fetchers, _ := setup(url1)
+
+		r.Reconcile(context.Background())
+		require.Contains(t, r.clientCache, url1)
+		require.False(t, fetchers[url1].closed)
+
+		discovery.instances = nil // all instances gone
+		r.Reconcile(context.Background())
+
+		assert.True(t, fetchers[url1].closed, "client should be closed when all instances disappear")
+		assert.Empty(t, r.clientCache)
+	})
+}
+
+func TestProcessDeletesConcurrently_PropagatesErrors(t *testing.T) {
+	deleteErr := fmt.Errorf("delete failed")
+
+	reconciler := &Reconciler{
+		serviceBuilder: &ServiceBuilder{Namespace: "test-ns"},
+		k8sClient: &trackingK8sClient{
+			services:  map[string]*corev1.Service{"svc-1": makeTestService("svc-1", "mat-id-1")},
+			deleteErr: deleteErr,
+		},
+		logger:      zerolog.Nop(),
+		concurrency: 1,
+	}
+
+	result := ReconcileResult{}
+	deleted := reconciler.processDeletesConcurrently(context.Background(), []string{"svc-1"}, &result)
+
+	assert.Equal(t, 0, deleted, "should not count failed deletes as deleted")
+	require.Len(t, result.Errors, 1, "should propagate delete error to result")
+	assert.Contains(t, result.Errors[0].Error(), "deleting service svc-1")
 }

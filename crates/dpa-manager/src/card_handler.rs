@@ -28,7 +28,7 @@ mod svpc;
 
 /// Per-interface-type state machine handlers for DPA interfaces.
 #[async_trait]
-pub trait DpaInterfaceStateHandler: Sync {
+pub(super) trait DpaInterfaceStateHandler: Sync {
     async fn handle_provisioning(
         &self,
         monitor: &mut DpaMonitor,
@@ -86,7 +86,9 @@ pub trait DpaInterfaceStateHandler: Sync {
     ) -> DpaManagerResult<HandlerResult>;
 }
 
-pub fn handler_for(interface_type: DpaInterfaceType) -> &'static dyn DpaInterfaceStateHandler {
+pub(super) fn handler_for(
+    interface_type: DpaInterfaceType,
+) -> &'static dyn DpaInterfaceStateHandler {
     match interface_type {
         DpaInterfaceType::Svpc => &svpc::SvpcInterfaceHandler,
         DpaInterfaceType::Astra => &astra::AstraInterfaceHandler,

@@ -93,13 +93,9 @@ fn user_data_handler(
     machine_interface: forge::MachineInterface,
     domain: PxeDomain,
     hbn_reps: Option<String>,
-    hbn_sfs: Option<String>,
     num_of_vfs: Option<u32>,
-    vf_intercept_bridge_name: Option<String>,
     host_representor_intercept_bridging: Option<String>,
     hbn_bridge: Option<String>,
-    vf_intercept_bridge_port: Option<String>,
-    vf_intercept_bridge_sf: Option<String>,
     api_url_override: Option<String>,
     pxe_url_override: Option<String>,
     bootstrap_ca_source: BootstrapCaSource,
@@ -160,23 +156,12 @@ fn user_data_handler(
         context.insert("forge_hbn_reps".to_string(), hbn_reps);
     }
 
-    if let Some(hbn_sfs) = hbn_sfs {
-        context.insert("forge_hbn_sfs".to_string(), hbn_sfs);
-    }
-
     let num_of_vfs = num_of_vfs.unwrap_or(DEFAULT_NUM_OF_VFS);
     context.insert("num_of_vfs".to_string(), num_of_vfs.to_string());
     context.insert(
         "forge_hbn_bridge".to_string(),
         hbn_bridge.unwrap_or_else(|| DEFAULT_HBN_BRIDGE.to_string()),
     );
-
-    if let Some(vf_intercept_bridge_name) = vf_intercept_bridge_name {
-        context.insert(
-            "forge_vf_intercept_bridge_name".to_string(),
-            vf_intercept_bridge_name,
-        );
-    }
 
     if let Some(host_representor_intercept_bridging) = host_representor_intercept_bridging {
         context.insert(
@@ -185,39 +170,10 @@ fn user_data_handler(
         );
     }
 
-    if let Some(vf_intercept_bridge_port) = vf_intercept_bridge_port {
-        context.insert(
-            "forge_vf_intercept_hbn_port".to_string(),
-            format!("patch-hbn-{vf_intercept_bridge_port}"),
-        );
-
-        context.insert(
-            "forge_vf_intercept_bridge_port".to_string(),
-            vf_intercept_bridge_port,
-        );
-    }
-
-    if let Some(vf_intercept_bridge_sf) = vf_intercept_bridge_sf {
-        context.insert(
-            "forge_vf_intercept_bridge_sf_representor".to_string(),
-            format!("{vf_intercept_bridge_sf}_r"),
-        );
-
-        context.insert(
-            "forge_vf_intercept_bridge_sf_hbn_bridge_representor".to_string(),
-            format!("{vf_intercept_bridge_sf}_if_r"),
-        );
-
-        context.insert(
-            "forge_vf_intercept_bridge_sf".to_string(),
-            vf_intercept_bridge_sf,
-        );
-    }
-
     ("user-data".to_string(), context)
 }
 
-pub async fn user_data(machine: Machine, state: State<AppState>) -> impl IntoResponse {
+async fn user_data(machine: Machine, state: State<AppState>) -> impl IntoResponse {
     let (template_key, template_data) = match (
         machine.instructions.custom_cloud_init,
         machine.instructions.discovery_instructions,
@@ -250,13 +206,9 @@ pub async fn user_data(machine: Machine, state: State<AppState>) -> impl IntoRes
                                     interface,
                                     domain,
                                     discovery_instructions.hbn_reps,
-                                    discovery_instructions.hbn_sfs,
                                     discovery_instructions.num_of_vfs,
-                                    discovery_instructions.vf_intercept_bridge_name,
                                     discovery_instructions.host_representor_intercept_bridging,
                                     discovery_instructions.hbn_bridge,
-                                    discovery_instructions.vf_intercept_bridge_port,
-                                    discovery_instructions.vf_intercept_bridge_sf,
                                     machine.instructions.api_url_override,
                                     machine.instructions.pxe_url_override,
                                     bootstrap_ca_source,
@@ -294,7 +246,7 @@ pub async fn user_data(machine: Machine, state: State<AppState>) -> impl IntoRes
     axum_template::Render(template_key, state.engine.clone(), template_data)
 }
 
-pub async fn meta_data(machine: Machine, state: State<AppState>) -> impl IntoResponse {
+async fn meta_data(machine: Machine, state: State<AppState>) -> impl IntoResponse {
     let (template_key, template_data) = match machine.instructions.metadata {
         None => log_and_generate_generic_error(
             format!("No metadata was found for machine {machine:?}"),
@@ -366,14 +318,14 @@ fn resolve_network_config(custom_cloud_init: Option<&str>) -> Cow<'static, str> 
 /// DEFAULT_NETWORK_CONFIG instead of an empty document, so hosts get
 /// DHCP on every interface by default rather than cloud-init's own
 /// first-interface-only behavior.
-pub async fn network_config(machine: Machine, state: State<AppState>) -> impl IntoResponse {
+async fn network_config(machine: Machine, state: State<AppState>) -> impl IntoResponse {
     let network_config_yaml =
         resolve_network_config(machine.instructions.custom_cloud_init.as_deref());
     let template_data = HashMap::from([("network_config", network_config_yaml)]);
     axum_template::Render("network-config", state.engine.clone(), template_data)
 }
 
-pub async fn vendor_data(state: State<AppState>) -> impl IntoResponse {
+async fn vendor_data(state: State<AppState>) -> impl IntoResponse {
     emit(PxeBootOutcome {
         endpoint: BootEndpoint::CloudInit,
         reason: OutcomeReason::Ok,
@@ -388,7 +340,7 @@ pub async fn vendor_data(state: State<AppState>) -> impl IntoResponse {
 /// Builds the PXE service's route table for the cloud-init-related
 /// endpoints served under `path_prefix`: `user-data`, `meta-data`,
 /// `vendor-data`, and `network-config`.
-pub fn get_router(path_prefix: &str) -> Router<AppState> {
+pub(crate) fn get_router(path_prefix: &str) -> Router<AppState> {
     Router::new()
         .route(
             format!("{}/{}", path_prefix, "user-data").as_str(),
@@ -434,6 +386,7 @@ mod tests {
                 "W21hY2hpbmVdCg==".to_string(),
             ),
             ("forge_bmc_fw_update".to_string(), String::new()),
+            ("forge_hbn_reps".to_string(), String::new()),
             ("forge_hbn_bridge".to_string(), "br-hbn".to_string()),
             ("hostname".to_string(), "test-host".to_string()),
             (
@@ -598,15 +551,15 @@ mod tests {
                 "W21hY2hpbmVdCg==".to_string(),
             ),
             ("forge_bmc_fw_update".to_string(), String::new()),
-            ("forge_hbn_reps".to_string(), String::new()),
-            ("forge_hbn_sfs".to_string(), String::new()),
+            (
+                "forge_hbn_reps".to_string(),
+                "pf0hpf,pf0vf0,pf0vf2".to_string(),
+            ),
             (
                 "forge_host_representor_intercept_bridging".to_string(),
                 String::new(),
             ),
             ("forge_hbn_bridge".to_string(), "br-hbn".to_string()),
-            ("forge_vf_intercept_bridge_name".to_string(), String::new()),
-            ("forge_vf_intercept_bridge_port".to_string(), String::new()),
             ("hostname".to_string(), "test-host".to_string()),
             (
                 "interface_id".to_string(),
@@ -628,11 +581,20 @@ mod tests {
 
         assert!(rendered.contains("NUM_OF_VFS=3"));
         assert!(!rendered.contains("NUM_OF_VFS=16"));
+        assert!(rendered.contains("BR_HBN_REPS=pf0hpf,pf0vf0,pf0vf2"));
         assert_eq!(rendered.matches("--physdev-in pf0vf").count(), 3);
         assert!(rendered.contains("--physdev-in pf0vf0_if"));
         assert!(rendered.contains("--physdev-in pf0vf1_if"));
         assert!(rendered.contains("--physdev-in pf0vf2_if"));
         assert!(!rendered.contains("--physdev-in pf0vf3_if"));
+        assert!(rendered.contains("configure_ovn_encap_ip"));
+        assert!(rendered.contains("ip -4 -o address show dev oob_net0 scope global"));
+        assert!(rendered.contains("expected exactly one global IPv4 address on oob_net0"));
+        assert!(rendered.contains(r#""external_ids:ovn-encap-ip=${oob_ipv4_addresses[0]}""#));
+        assert!(
+            rendered.find("service openvswitch-switch restart").unwrap()
+                < rendered.find("configure_ovn_encap_ip\n").unwrap()
+        );
     }
 
     /// Verifies the real user-data template renders each host representor bridge entry.
@@ -656,14 +618,11 @@ mod tests {
             ),
             ("forge_bmc_fw_update".to_string(), String::new()),
             ("forge_hbn_reps".to_string(), String::new()),
-            ("forge_hbn_sfs".to_string(), String::new()),
             (
                 "forge_host_representor_intercept_bridging".to_string(),
                 "pf0hpf:br-host:patch-br-host-to-hbn,pf0vf0:br-vf0:patch-br-vf0-to-hbn".to_string(),
             ),
             ("forge_hbn_bridge".to_string(), "br-sfc".to_string()),
-            ("forge_vf_intercept_bridge_name".to_string(), String::new()),
-            ("forge_vf_intercept_bridge_port".to_string(), String::new()),
             ("hostname".to_string(), "test-host".to_string()),
             (
                 "interface_id".to_string(),
@@ -734,10 +693,6 @@ mod tests {
             None,
             None,
             None,
-            None,
-            None,
-            None,
-            None,
             BootstrapCaSource::LegacyDownload,
             state,
         );
@@ -775,10 +730,6 @@ mod tests {
             interface_id,
             machine_interface,
             domain,
-            None,
-            None,
-            None,
-            None,
             None,
             None,
             None,

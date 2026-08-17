@@ -32,7 +32,7 @@ use carbide_firmware::{
     FirmwareConfigSnapshot, FirmwareDownloader, ResolvedFirmwareArtifactSource,
     resolve_files_firmware_artifact,
 };
-use carbide_instrument::{Outcome, emit};
+use carbide_instrument::emit;
 use carbide_redfish::libredfish::conv::IntoLibredfish;
 use carbide_redfish::libredfish::{RedfishClientCreationError, RedfishClientPool};
 use carbide_secrets::credentials::{
@@ -63,10 +63,9 @@ use tokio_util::sync::CancellationToken;
 use crate::bfb_rshim_copier::BfbRshimCopier;
 use crate::errors::{PreingestionManagerError, PreingestionManagerResult};
 use crate::metrics::{
-    BfbCopyFinished, BfbCopyOutcome, FirmwareComponentLabel, FirmwareUpgradeTaskFinished,
-    FirmwareUploadFinished, FirmwareUploadMethod, MultipartFirmwareUploadUnsupported,
-    PowerControlLog, PowerControlStep, PowerOperation, PreingestionMetrics, UpgradeTaskFinalState,
-    instrument_power_op,
+    BfbCopyFinished, FirmwareComponentLabel, FirmwareUpgradeTaskFinished, FirmwareUploadFinished,
+    FirmwareUploadMethod, MultipartFirmwareUploadUnsupported, PowerControlLog, PowerControlStep,
+    PowerOperation, PreingestionMetrics, UpgradeTaskFinalState, instrument_power_op,
 };
 
 const NOT_FOUND: u16 = 404;
@@ -828,12 +827,9 @@ impl PreingestionManagerStatic {
                                     )
                                     .await?
                                 {
-                                    emit(FirmwareUpgradeTaskFinished {
+                                    emit(FirmwareUpgradeTaskFinished::Ok {
                                         firmware: FirmwareComponentLabel(*upgrade_type),
                                         final_state: UpgradeTaskFinalState::Completed,
-                                        outcome: Outcome::Ok,
-                                        address: endpoint.address,
-                                        error: String::new(),
                                     });
                                 }
                                 return Ok(());
@@ -856,12 +852,9 @@ impl PreingestionManagerStatic {
                             .boxed()
                         })
                         .await??;
-                        emit(FirmwareUpgradeTaskFinished {
+                        emit(FirmwareUpgradeTaskFinished::Ok {
                             firmware: FirmwareComponentLabel(*upgrade_type),
                             final_state: UpgradeTaskFinalState::Completed,
-                            outcome: Outcome::Ok,
-                            address: endpoint.address,
-                            error: String::new(),
                         });
                         // Can immediately process as that new state
                         return self
@@ -890,7 +883,7 @@ impl PreingestionManagerStatic {
                             .map_or(String::new(), |m| m.message.clone());
                         let msg = format!(
                             "Failure in firmware upgrade for {}: {} {:?}",
-                            &endpoint.address, state, task_message,
+                            endpoint.address, state, task_message,
                         );
 
                         db.with_txn(|txn| {
@@ -925,10 +918,10 @@ impl PreingestionManagerStatic {
                         // as a moving error series. It fires only after the
                         // transition commits -- a rolled-back pass re-observes
                         // this task and retries.
-                        emit(FirmwareUpgradeTaskFinished {
+                        emit(FirmwareUpgradeTaskFinished::Error {
                             firmware: FirmwareComponentLabel(*upgrade_type),
                             final_state: UpgradeTaskFinalState::from_failed_task_state(state),
-                            outcome: Outcome::Error,
+
                             address: endpoint.address,
                             error: task_message,
                         });
@@ -967,12 +960,9 @@ impl PreingestionManagerStatic {
                             // The BMC dropped the task record after finishing;
                             // the confirmed new version is the completion
                             // evidence, so this task still counts as completed.
-                            emit(FirmwareUpgradeTaskFinished {
+                            emit(FirmwareUpgradeTaskFinished::Ok {
                                 firmware: FirmwareComponentLabel(*upgrade_type),
                                 final_state: UpgradeTaskFinalState::Completed,
-                                outcome: Outcome::Ok,
-                                address: endpoint.address,
-                                error: String::new(),
                             });
                         }
                     }
@@ -2786,11 +2776,9 @@ impl PreingestionManagerStatic {
             match result {
                 Ok(()) => {
                     if bfb_copy_state.completed(&address.to_string(), BfbCopyResult::Success) {
-                        emit(BfbCopyFinished {
-                            outcome: BfbCopyOutcome::Ok,
+                        emit(BfbCopyFinished::Ok {
                             took: started.elapsed(),
                             address,
-                            error: String::new(),
                         });
                     }
                 }
@@ -2798,8 +2786,7 @@ impl PreingestionManagerStatic {
                     if bfb_copy_state
                         .completed(&address.to_string(), BfbCopyResult::Failed(e.to_string()))
                     {
-                        emit(BfbCopyFinished {
-                            outcome: BfbCopyOutcome::Error,
+                        emit(BfbCopyFinished::Error {
                             took: started.elapsed(),
                             address,
                             error: e.to_string(),
@@ -2867,8 +2854,7 @@ impl PreingestionManagerStatic {
                 // reporting, or the copy is still dragging. The entry is
                 // already gone (removed under the resolution's lock), so
                 // this Timeout stays the copy's only record.
-                emit(BfbCopyFinished {
-                    outcome: BfbCopyOutcome::Timeout,
+                emit(BfbCopyFinished::Timeout {
                     took: elapsed.to_std().unwrap_or_default(),
                     address: endpoint.address,
                     error: format!(
@@ -3308,18 +3294,13 @@ impl PreingestionManagerStatic {
                 .await
             {
                 Ok(task) => {
-                    emit(FirmwareUploadFinished {
+                    emit(FirmwareUploadFinished::Succeeded {
                         method: FirmwareUploadMethod::SimpleUpdate,
-                        outcome: Outcome::Ok,
-                        bmc_ip_address: endpoint_clone.address,
-                        error: String::new(),
                     });
                     task.id
                 }
                 Err(e) => {
-                    emit(FirmwareUploadFinished {
-                        method: FirmwareUploadMethod::SimpleUpdate,
-                        outcome: Outcome::Error,
+                    emit(FirmwareUploadFinished::SimpleUpdateFailed {
                         bmc_ip_address: endpoint_clone.address,
                         error: e.to_string(),
                     });
@@ -3337,11 +3318,8 @@ impl PreingestionManagerStatic {
                 .await
             {
                 Ok(task) => {
-                    emit(FirmwareUploadFinished {
+                    emit(FirmwareUploadFinished::Succeeded {
                         method: FirmwareUploadMethod::Multipart,
-                        outcome: Outcome::Ok,
-                        bmc_ip_address: endpoint_clone.address,
-                        error: String::new(),
                     });
                     task
                 }
@@ -3363,18 +3341,13 @@ impl PreingestionManagerStatic {
                     };
                     match redfish_client.update_firmware(file).await {
                         Ok(task) => {
-                            emit(FirmwareUploadFinished {
+                            emit(FirmwareUploadFinished::Succeeded {
                                 method: FirmwareUploadMethod::HttpPush,
-                                outcome: Outcome::Ok,
-                                bmc_ip_address: endpoint_clone.address,
-                                error: String::new(),
                             });
                             task.id
                         }
                         Err(e) => {
-                            emit(FirmwareUploadFinished {
-                                method: FirmwareUploadMethod::HttpPush,
-                                outcome: Outcome::Error,
+                            emit(FirmwareUploadFinished::HttpPushFailed {
                                 bmc_ip_address: endpoint_clone.address,
                                 error: e.to_string(),
                             });
@@ -3383,9 +3356,7 @@ impl PreingestionManagerStatic {
                     }
                 }
                 Err(e) => {
-                    emit(FirmwareUploadFinished {
-                        method: FirmwareUploadMethod::Multipart,
-                        outcome: Outcome::Error,
+                    emit(FirmwareUploadFinished::MultipartFailed {
                         bmc_ip_address: endpoint_clone.address,
                         error: e.to_string(),
                     });

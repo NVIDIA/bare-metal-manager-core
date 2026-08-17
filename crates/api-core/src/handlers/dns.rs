@@ -24,8 +24,8 @@ use crate::CarbideError;
 use crate::api::{Api, log_request_data};
 
 #[derive(Clone, Debug)]
-pub struct DnsResourceRecordLookupResponse {
-    pub record: Vec<DnsResourceRecordReply>,
+struct DnsResourceRecordLookupResponse {
+    record: Vec<DnsResourceRecordReply>,
 }
 
 impl From<DnsResourceRecordLookupResponse> for protos::dns::DnsResourceRecordLookupResponse {
@@ -124,7 +124,7 @@ async fn lookup_ptr_record(
     Ok(result)
 }
 
-pub async fn get_all_domains(
+pub(crate) async fn get_all_domains(
     api: &Api,
     _request: Request<protos::dns::GetAllDomainsRequest>,
 ) -> Result<Response<protos::dns::GetAllDomainsResponse>, Status> {
@@ -160,7 +160,7 @@ pub async fn get_all_domains(
     Ok(Response::new(response))
 }
 
-pub async fn get_all_domain_metadata(
+pub(crate) async fn get_all_domain_metadata(
     api: &Api,
     request: Request<protos::dns::DomainMetadataRequest>,
 ) -> Result<Response<protos::dns::DomainMetadataResponse>, Status> {
@@ -170,14 +170,10 @@ pub async fn get_all_domain_metadata(
 
     let domain_name = db::dns::normalize_domain(&metadata_request.domain);
 
-    let domains = db::dns::domain::find_by(
-        &api.database_connection,
-        db::ObjectColumnFilter::<db::dns::domain::NameColumn>::One(
-            db::dns::domain::NameColumn,
-            &domain_name.as_str(),
-        ),
-    )
-    .await?;
+    // Reverse zones may be stored with or without the trailing root dot, so
+    // resolve their normalized identity. Forward domains retain the existing
+    // exact lookup after the request normalization above.
+    let domains = db::dns::domain::find_by_name(&api.database_connection, &domain_name).await?;
 
     let domain = domains.first().ok_or_else(|| CarbideError::NotFoundError {
         kind: "domain",
@@ -193,7 +189,7 @@ pub async fn get_all_domain_metadata(
         result: proto_metadata,
     }))
 }
-pub async fn lookup_record(
+pub(crate) async fn lookup_record(
     api: &Api,
     request: Request<protos::dns::DnsResourceRecordLookupRequest>,
 ) -> Result<Response<protos::dns::DnsResourceRecordLookupResponse>, Status> {

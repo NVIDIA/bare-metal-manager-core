@@ -153,7 +153,7 @@ impl ExponentialBackoff {
     }
 }
 
-pub type SseStream = Pin<
+type SseStream = Pin<
     Box<
         dyn futures::TryStream<
                 Ok = EventStreamPayload,
@@ -164,7 +164,9 @@ pub type SseStream = Pin<
 >;
 
 /// Open a Redfish SSE event stream from a BMC.
-pub async fn open_sse_stream<B: Bmc + 'static>(bmc: Arc<B>) -> Result<SseStream, HealthError> {
+pub(crate) async fn open_sse_stream<B: Bmc + 'static>(
+    bmc: Arc<B>,
+) -> Result<SseStream, HealthError> {
     let root = ServiceRoot::new(bmc)
         .await
         .map_err(|e| HealthError::BmcError(Box::new(e)))?;
@@ -606,7 +608,7 @@ mod tests {
     use super::*;
     use crate::endpoint::test_support::{mac, test_endpoint};
     use crate::metrics::MetricsManager;
-    use crate::sink::LogRecord;
+    use crate::sink::{LogRecord, LogSeverity};
 
     #[derive(Default)]
     struct CountingSink(AtomicUsize);
@@ -651,7 +653,7 @@ mod tests {
         async fn connect(&mut self) -> Result<StreamingConnectResult<'_>, HealthError> {
             let event = CollectorEvent::Log(Box::new(LogRecord {
                 body: "pre-connected rejection".to_string(),
-                severity: "ERROR".to_string(),
+                severity: LogSeverity::Error,
                 attributes: Vec::new(),
                 diagnostic_record: None,
             }));

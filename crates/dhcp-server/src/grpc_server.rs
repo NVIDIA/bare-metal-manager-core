@@ -27,7 +27,12 @@ use carbide_uuid::machine::MachineInterfaceId;
 use tokio::sync::mpsc;
 use tonic::{Request, Response, Status};
 
-pub mod proto {
+mod proto {
+    #![allow(
+        unreachable_pub,
+        reason = "tonic_prost_build emits public items for this crate-internal protocol module"
+    )]
+
     tonic::include_proto!("dhcp_server_control");
 }
 
@@ -40,10 +45,10 @@ use proto::{
 use crate::errors::DhcpError;
 use crate::metrics::DhcpTimestampFileFailed;
 
-// ── Public control channel types ─────────────────────────────────────────────
+// ── Control channel types ────────────────────────────────────────────────────
 
 /// Messages sent from the gRPC handlers to the main restart loop.
-pub enum ControlRequest {
+pub(super) enum ControlRequest {
     /// Write new config YAML and immediately restart the DHCP server.
     /// The restart loop skips the restart if the config is unchanged.
     UpdateAndReload {
@@ -111,10 +116,22 @@ impl TryFrom<proto::InterfaceInfo> for ModelInterfaceInfo {
     type Error = DhcpError;
 
     fn try_from(i: proto::InterfaceInfo) -> Result<Self, Self::Error> {
+        let (address, gateway, prefix) = match (i.address, i.gateway, i.prefix) {
+            (Some(address), Some(gateway), Some(prefix)) => {
+                (Some(address.parse()?), Some(gateway.parse()?), Some(prefix))
+            }
+            (None, None, None) => (None, None, None),
+            _ => {
+                return Err(DhcpError::InvalidInput(
+                    "IPv4 address, gateway, and prefix must be configured together".to_string(),
+                ));
+            }
+        };
+
         Ok(ModelInterfaceInfo {
-            address: i.address.parse()?,
-            gateway: i.gateway.parse()?,
-            prefix: i.prefix,
+            address,
+            gateway,
+            prefix,
             fqdn: i.fqdn,
             booturl: i.booturl,
             mtu: i.mtu,
@@ -217,10 +234,10 @@ impl DhcpServerControl for DhcpServerControlService {
     ) -> Result<Response<GetDhcpTimestampsResponse>, Status> {
         let mut ts = DhcpTimestamps::new(DhcpTimestampsFilePath::Hbn);
         if let Err(e) = ts.read() {
-            emit(DhcpTimestampFileFailed::read(
-                DhcpTimestampsFilePath::Hbn.path_str().to_string(),
-                e.to_string(),
-            ));
+            emit(DhcpTimestampFileFailed::Read {
+                dhcp_timestamps_path: DhcpTimestampsFilePath::Hbn.path_str().to_string(),
+                error: e.to_string(),
+            });
         }
         let entries = ts
             .into_iter()
@@ -236,7 +253,7 @@ impl DhcpServerControl for DhcpServerControlService {
 // ── Server entry point ────────────────────────────────────────────────────────
 
 /// Start the plain (no-TLS) gRPC control server and block until it exits.
-pub async fn run_grpc_server(addr: SocketAddr, ctrl_tx: mpsc::Sender<ControlRequest>) {
+pub(super) async fn run_grpc_server(addr: SocketAddr, ctrl_tx: mpsc::Sender<ControlRequest>) {
     let service = DhcpServerControlService { ctrl_tx };
     tracing::info!(listen_address = %addr, "gRPC config-reload server listening");
 
@@ -246,5 +263,71 @@ pub async fn run_grpc_server(addr: SocketAddr, ctrl_tx: mpsc::Sender<ControlRequ
         .await
     {
         tracing::error!(listen_address = %addr, error = %e, "gRPC server exited");
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::net::Ipv4Addr;
+
+    use carbide_test_support::Outcome::*;
+    use carbide_test_support::scenarios;
+
+    use super::*;
+
+    type InterfaceIpv4Summary = (Option<Ipv4Addr>, Option<Ipv4Addr>, Option<String>);
+
+    fn summarize_interface(interface: proto::InterfaceInfo) -> Result<InterfaceIpv4Summary, ()> {
+        ModelInterfaceInfo::try_from(interface)
+            .map(|interface| (interface.address, interface.gateway, interface.prefix))
+            .map_err(drop)
+    }
+
+    #[test]
+    fn interface_ipv4_fields_are_all_present_or_all_absent() {
+        scenarios!(run = summarize_interface;
+            "complete IPv4 configuration" {
+                proto::InterfaceInfo {
+                    address: Some("192.0.2.10".to_string()),
+                    gateway: Some("192.0.2.1".to_string()),
+                    prefix: Some("192.0.2.0/24".to_string()),
+                    ..Default::default()
+                } => Yields((
+                    Some(Ipv4Addr::new(192, 0, 2, 10)),
+                    Some(Ipv4Addr::new(192, 0, 2, 1)),
+                    Some("192.0.2.0/24".to_string()),
+                )),
+            }
+            "IPv6-only configuration" {
+                proto::InterfaceInfo {
+                    ipv6: Some(proto::InterfaceInfoV6 {
+                        address: Some("2001:db8::10".to_string()),
+                        prefix: "2001:db8::/64".to_string(),
+                    }),
+                    ..Default::default()
+                } => Yields((None, None, None)),
+            }
+            "missing IPv4 address" {
+                proto::InterfaceInfo {
+                    gateway: Some("192.0.2.1".to_string()),
+                    prefix: Some("192.0.2.0/24".to_string()),
+                    ..Default::default()
+                } => Fails,
+            }
+            "missing IPv4 gateway" {
+                proto::InterfaceInfo {
+                    address: Some("192.0.2.10".to_string()),
+                    prefix: Some("192.0.2.0/24".to_string()),
+                    ..Default::default()
+                } => Fails,
+            }
+            "missing IPv4 prefix" {
+                proto::InterfaceInfo {
+                    address: Some("192.0.2.10".to_string()),
+                    gateway: Some("192.0.2.1".to_string()),
+                    ..Default::default()
+                } => Fails,
+            }
+        );
     }
 }

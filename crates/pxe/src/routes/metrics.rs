@@ -52,7 +52,7 @@ async fn metrics(state: State<AppState>) -> ([(axum::http::HeaderName, &'static 
     )
 }
 
-pub fn get_router(path_prefix: &str) -> Router<AppState> {
+pub(crate) fn get_router(path_prefix: &str) -> Router<AppState> {
     Router::new().route(path_prefix, get(metrics))
 }
 

@@ -203,13 +203,14 @@ impl IbFabricMonitor {
             };
 
             check_ib_fabrics_span.in_scope(|| {
-                carbide_instrument::emit(IbMonitorIterationFinished {
-                    latency: metrics.recording_started_at.elapsed(),
-                    error: res
-                        .as_ref()
-                        .err()
-                        .map(|error| format!("{error:?}"))
-                        .unwrap_or_default(),
+                carbide_instrument::emit(match res.as_ref().err() {
+                    None => IbMonitorIterationFinished::Succeeded {
+                        latency: metrics.recording_started_at.elapsed(),
+                    },
+                    Some(error) => IbMonitorIterationFinished::Failed {
+                        latency: metrics.recording_started_at.elapsed(),
+                        error: error.to_string(),
+                    },
                 });
             });
 
@@ -245,7 +246,7 @@ impl IbFabricMonitor {
             Err(e) => {
                 tracing::error!(error = %e, "Failed to load ManagedHost snapshots in IbFabricMonitor");
                 // Record the same error for all fabrics, so that the problem is at least visible on dashboards
-                for (fabric, _fabric_definition) in self.fabrics.iter() {
+                for fabric in self.fabrics.keys() {
                     metrics.num_fabrics += 1;
                     let fabric_metrics = metrics.fabrics.entry(fabric.to_string()).or_default();
                     fabric_metrics.fabric_error = "ManagedHostSnapshotLoadingError".to_string();
@@ -259,7 +260,7 @@ impl IbFabricMonitor {
             Err(e) => {
                 tracing::error!(error = %e, "Failed to load Partition data in IbFabricMonitor");
                 // Record the same error for all fabrics, so that the problem is at least visible on dashboards
-                for (fabric, _fabric_definition) in self.fabrics.iter() {
+                for fabric in self.fabrics.keys() {
                     metrics.num_fabrics += 1;
                     let fabric_metrics = metrics.fabrics.entry(fabric.to_string()).or_default();
                     fabric_metrics.fabric_error = "ManagedHostSnapshotLoadingError".to_string();
@@ -509,7 +510,7 @@ struct FabricData {
 }
 
 impl FabricData {
-    pub fn derive_partitions_by_guid(&mut self) {
+    fn derive_partitions_by_guid(&mut self) {
         let Some(partitions) = self.partitions.as_ref() else {
             self.partition_ids_by_guid = None;
             return;
@@ -635,15 +636,15 @@ async fn apply_guid_pkey_changes(
     for report in reports {
         for (fabric, guid, pkey) in report.missing_guid_pkeys {
             let Some(partition_id) = partition_ids_by_pkey.get(&pkey) else {
-                emit(IbMonitorPkeyReconciliationSkipped::missing_partition_id(
-                    pkey.to_string(),
-                ));
+                emit(IbMonitorPkeyReconciliationSkipped::NoPartitionIdForPkey {
+                    pkey: pkey.to_string(),
+                });
                 continue;
             };
             let Some(partition) = tenant_partitions.get(partition_id) else {
-                emit(IbMonitorPkeyReconciliationSkipped::missing_partition(
-                    pkey.to_string(),
-                ));
+                emit(IbMonitorPkeyReconciliationSkipped::PartitionMissing {
+                    pkey: pkey.to_string(),
+                });
                 continue;
             };
 

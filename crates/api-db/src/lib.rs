@@ -15,9 +15,8 @@
  * limitations under the License.
  */
 
-// Allow txn_without_commit in tests
-#![cfg_attr(test, allow(txn_without_commit))]
-#![allow(unknown_lints)]
+// It's too cumbersome for tests to adhere to these, which are less important in testing anyway.
+#![cfg_attr(test, allow(txn_held_across_await, txn_without_commit))]
 
 pub mod attestation;
 pub mod bmc_metadata;
@@ -58,6 +57,7 @@ pub mod machine_boot_override;
 pub mod machine_desired_boot_interface;
 pub mod machine_interface;
 pub mod machine_interface_address;
+pub mod machine_pending_action;
 pub mod machine_topology;
 pub mod machine_validation;
 pub mod machine_validation_config;
@@ -379,6 +379,8 @@ pub enum DatabaseError {
     FindOneReturnedManyResultsError(uuid::Uuid),
     #[error("resource {0} is empty")]
     ResourceExhausted(String),
+    #[error("tenant SitePrefix quota reached: {used} of {limit} retained SitePrefixes are in use")]
+    TenantSitePrefixQuotaExceeded { used: u32, limit: u32 },
     #[error("invalid configuration: {0}")]
     InvalidConfiguration(#[from] ConfigValidationError),
     #[error("resource pool error: {0}")]
@@ -587,6 +589,9 @@ impl From<DatabaseError> for tonic::Status {
                 Status::not_found(format!("{kind} not found: {id}"))
             }
             DatabaseError::ResourceExhausted(kind) => Status::resource_exhausted(kind),
+            error @ DatabaseError::TenantSitePrefixQuotaExceeded { .. } => {
+                Status::resource_exhausted(error.to_string())
+            }
             error @ DatabaseError::RpcUuidConversionError(_) => {
                 Status::invalid_argument(error.to_string())
             }

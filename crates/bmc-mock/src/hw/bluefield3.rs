@@ -23,27 +23,27 @@ use serde_json::json;
 
 use crate::{BootOptionKind, Callbacks, LogService, LogServices, hw, redfish};
 
-pub struct Bluefield3<'a> {
-    pub product_serial_number: Cow<'a, str>,
-    pub host_mac_address: MacAddress,
-    pub bmc_mac_address: MacAddress,
-    pub oob_mac_address: Option<MacAddress>,
-    pub mode: Mode,
-    pub firmware_versions: FirmwareVersions,
+pub(crate) struct Bluefield3<'a> {
+    pub(crate) product_serial_number: Cow<'a, str>,
+    pub(crate) host_mac_address: MacAddress,
+    pub(crate) bmc_mac_address: MacAddress,
+    pub(crate) oob_mac_address: Option<MacAddress>,
+    pub(crate) mode: Mode,
+    pub(crate) firmware_versions: FirmwareVersions,
 }
 
-pub enum Mode {
+pub(crate) enum Mode {
     // P/N 900-9D3B6-00CN-PA0. Installed on WIWYNN GB200s / Lenovo GB300s.
     B3240ColdAisle,
     // P/N 900-9D3B4-00CC-EA0 & 900-9D3B6-00CV-AA0
     SuperNIC { nic_mode: bool },
 }
 
-pub struct FirmwareVersions {
-    pub bmc: String,
-    pub uefi: String,
-    pub dpu_nic: String,
-    pub erot: String,
+pub(crate) struct FirmwareVersions {
+    pub(crate) bmc: String,
+    pub(crate) uefi: String,
+    pub(crate) dpu_nic: String,
+    pub(crate) erot: String,
 }
 
 impl Bluefield3<'_> {
@@ -57,7 +57,7 @@ impl Bluefield3<'_> {
         }
     }
 
-    pub fn chassis_config(&self) -> redfish::chassis::ChassisConfig {
+    pub(crate) fn chassis_config(&self) -> redfish::chassis::ChassisConfig {
         redfish::chassis::ChassisConfig {
             chassis: vec![
                 redfish::chassis::SingleChassisConfig {
@@ -108,7 +108,10 @@ impl Bluefield3<'_> {
         }
     }
 
-    pub fn system_config(&self, callbacks: Arc<dyn Callbacks>) -> redfish::computer_system::Config {
+    pub(crate) fn system_config(
+        &self,
+        callbacks: Arc<dyn Callbacks>,
+    ) -> redfish::computer_system::Config {
         let system_id = "Bluefield";
         let boot_opt_builder = |id: &str, kind| {
             redfish::boot_option::builder(&redfish::boot_option::resource(system_id, id), kind)
@@ -182,13 +185,14 @@ impl Bluefield3<'_> {
                 })),
                 storage: None,
                 processors: None,
+                memory: None,
                 serial_console: None,
                 secure_boot_available: true,
             }],
         }
     }
 
-    pub fn manager_config(&self) -> redfish::manager::Config {
+    pub(crate) fn manager_config(&self) -> redfish::manager::Config {
         redfish::manager::Config {
             managers: vec![redfish::manager::SingleConfig {
                 id: "Bluefield_BMC",
@@ -208,7 +212,7 @@ impl Bluefield3<'_> {
         }
     }
 
-    pub fn update_service_config(&self) -> redfish::update_service::UpdateServiceConfig {
+    pub(crate) fn update_service_config(&self) -> redfish::update_service::UpdateServiceConfig {
         let base_mac = self.base_mac().to_string().replace(':', "");
         let sys_image = format!(
             "{}:{}00:00{}:{}",
@@ -234,10 +238,11 @@ impl Bluefield3<'_> {
             .into_iter()
             .map(|b| b.build())
             .collect(),
+            ..Default::default()
         }
     }
 
-    pub fn host_nic(&self) -> hw::nic::Nic<'static> {
+    pub(crate) fn host_nic(&self) -> hw::nic::Nic<'static> {
         hw::nic::Nic {
             mac_address: self.host_mac_address,
             // This how it represented on host with number of trailing
@@ -250,11 +255,10 @@ impl Bluefield3<'_> {
             ),
             part_number: Some(self.part_number().into()),
             firmware_version: Some(self.firmware_versions.dpu_nic.clone().into()),
-            is_mat_dpu: true,
         }
     }
 
-    pub fn host_nic_h100_variant(&self) -> hw::nic::Nic<'static> {
+    pub(super) fn host_nic_h100_variant(&self) -> hw::nic::Nic<'static> {
         hw::nic::Nic {
             mac_address: self.host_mac_address,
             // This how it represented on host with number of trailing
@@ -265,7 +269,6 @@ impl Bluefield3<'_> {
             description: None,
             part_number: Some(format!("{}       ", self.part_number()).into()),
             firmware_version: Some(self.firmware_versions.dpu_nic.clone().into()),
-            is_mat_dpu: true,
         }
     }
 

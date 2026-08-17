@@ -23,16 +23,15 @@ use axum::extract::State;
 use axum::http::{Method, Request, StatusCode};
 use axum::response::{IntoResponse, Response};
 use axum::routing::get;
+use carbide_axum_utils::router::call_router_with_new_request;
 use futures::future::join_all;
 use itertools::Itertools;
 use serde_json::Value;
 
-use crate::http::call_router_with_new_request;
-
 // Add support of `$expand=.($levels=N)` per the redfish spec
 //
 // https://www.dmtf.org/sites/default/files/standards/documents/DSP0268_2024.2.pdf
-pub fn append(router: Router) -> Router {
+pub(crate) fn append(router: Router) -> Router {
     Router::new()
         .route("/{*all}", get(process).fallback(fallback))
         .with_state(Expander { inner: router })

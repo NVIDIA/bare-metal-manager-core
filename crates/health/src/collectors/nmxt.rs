@@ -42,7 +42,7 @@ use crate::sink::{CollectorEvent, DataSink, EventContext, MetricSample};
 use crate::tls::MtlsHttpClientProvider;
 
 /// default NMX-T port
-const NMXT_PORT: u16 = 9352;
+pub(crate) const NMXT_PORT: u16 = 9352;
 
 /// NMX-T endpoint
 const NMXT_ENDPOINT: &str = "/xcset/nvlink_domain_telemetry";

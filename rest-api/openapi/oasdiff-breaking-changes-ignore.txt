@@ -29,3 +29,16 @@ GET /v2/org/{org}/nico/tenant/current the `capabilities/targetedInstanceCreation
 GET /v2/org/{org}/nico/vpc-peering the `items/tenant/capabilities/targetedInstanceCreation` response's property type/format changed from `boolean`/`uuid` to `boolean`/`` for status `200`
 POST /v2/org/{org}/nico/vpc-peering the `tenant/capabilities/targetedInstanceCreation` response's property type/format changed from `boolean`/`uuid` to `boolean`/`` for status `201`
 GET /v2/org/{org}/nico/vpc-peering/{id} the `tenant/capabilities/targetedInstanceCreation` response's property type/format changed from `boolean`/`uuid` to `boolean`/`` for status `200`
+API POST /v2/org/{org}/nico/operating-system the `siteIds` request property's minItems was increased to `1`
+POST /v2/org/{org}/nico/expected-machine the `chassisSerialNumber` request property's maxLength was decreased to `32`
+POST /v2/org/{org}/nico/expected-machine the `defaultBmcPassword` request property's maxLength was decreased to `20`
+POST /v2/org/{org}/nico/expected-machine the `defaultBmcUsername` request property's maxLength was decreased to `16`
+PATCH /v2/org/{org}/nico/expected-machine/batch the `items/chassisSerialNumber` request property's maxLength was decreased to `32`
+PATCH /v2/org/{org}/nico/expected-machine/batch the `items/defaultBmcPassword` request property's maxLength was decreased to `20`
+PATCH /v2/org/{org}/nico/expected-machine/batch the `items/defaultBmcUsername` request property's maxLength was decreased to `16`
+POST /v2/org/{org}/nico/expected-machine/batch the `items/chassisSerialNumber` request property's maxLength was decreased to `32`
+POST /v2/org/{org}/nico/expected-machine/batch the `items/defaultBmcPassword` request property's maxLength was decreased to `20`
+POST /v2/org/{org}/nico/expected-machine/batch the `items/defaultBmcUsername` request property's maxLength was decreased to `16`
+PATCH /v2/org/{org}/nico/expected-machine/{expectedMachineId} the `chassisSerialNumber` request property's maxLength was decreased to `32`
+PATCH /v2/org/{org}/nico/expected-machine/{expectedMachineId} the `defaultBmcPassword` request property's maxLength was decreased to `20`
+PATCH /v2/org/{org}/nico/expected-machine/{expectedMachineId} the `defaultBmcUsername` request property's maxLength was decreased to `16`

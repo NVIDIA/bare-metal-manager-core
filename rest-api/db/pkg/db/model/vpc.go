@@ -83,8 +83,8 @@ var (
 	// REST-specific" default. Callers should use the helper functions
 	// below rather than this map directly.
 	vpcTypeCapabilities = map[string]struct {
-		// supportsRoutingProfile is true for VPC types that accept a
-		// `routingProfile` field on create. FNN-only today.
+		// supportsRoutingProfile is true for VPC types that accept named
+		// or inline routing-profile configuration. FNN-only.
 		supportsRoutingProfile bool
 
 		// supportsAutoInterface is true for VPC types that allow
@@ -99,8 +99,8 @@ var (
 	}
 )
 
-// VpcTypeSupportsRoutingProfile reports whether VPCs of the given
-// network-virtualization type accept a `routingProfile` on create.
+// VpcTypeSupportsRoutingProfile reports whether the given network-virtualization
+// type supports named or inline VPC routing-profile configuration.
 // A nil pointer (no type specified) returns false; the caller is
 // expected to have resolved any defaulting beforehand.
 func VpcTypeSupportsRoutingProfile(virtType *string) bool {
@@ -121,6 +121,183 @@ func VpcTypeSupportsAutoInterface(virtType *string) bool {
 	return vpcTypeCapabilities[*virtType].supportsAutoInterface
 }
 
+// VpcRouteTarget is the persisted representation of a routing-profile route target.
+type VpcRouteTarget struct {
+	ASN uint32 `json:"asn"`
+	VNI uint32 `json:"vni"`
+}
+
+// ToProto converts a persisted route target to its Core representation.
+func (target VpcRouteTarget) ToProto() *corev1.RouteTarget {
+	return &corev1.RouteTarget{Asn: target.ASN, Vni: target.VNI}
+}
+
+// FromProto populates a persisted route target from its Core representation.
+func (target *VpcRouteTarget) FromProto(protoTarget *corev1.RouteTarget) {
+	*target = VpcRouteTarget{}
+	if protoTarget == nil {
+		return
+	}
+	target.ASN = protoTarget.Asn
+	target.VNI = protoTarget.Vni
+}
+
+// VpcRoutingProfileOverrides contains presence-aware properties set directly on a VPC.
+// Nil properties inherit from the VPC's named routing profile, while present empty
+// lists explicitly replace the corresponding base-profile list with an empty list.
+type VpcRoutingProfileOverrides struct {
+	RouteTargetImports             *[]VpcRouteTarget `json:"routeTargetImports"`
+	RouteTargetsOnExports          *[]VpcRouteTarget `json:"routeTargetsOnExports"`
+	LeakDefaultRouteFromUnderlay   *bool             `json:"leakDefaultRouteFromUnderlay"`
+	LeakTenantHostRoutesToUnderlay *bool             `json:"leakTenantHostRoutesToUnderlay"`
+	TenantLeakCommunitiesAccepted  *bool             `json:"tenantLeakCommunitiesAccepted"`
+	AcceptedLeaksFromUnderlay      *[]string         `json:"acceptedLeaksFromUnderlay"`
+	AllowedAnycastPrefixes         *[]string         `json:"allowedAnycastPrefixes"`
+}
+
+// VpcEffectiveRoutingProfile is the fully resolved routing profile reported by Core.
+type VpcEffectiveRoutingProfile struct {
+	RouteTargetImports             []VpcRouteTarget `json:"routeTargetImports"`
+	RouteTargetsOnExports          []VpcRouteTarget `json:"routeTargetsOnExports"`
+	LeakDefaultRouteFromUnderlay   bool             `json:"leakDefaultRouteFromUnderlay"`
+	LeakTenantHostRoutesToUnderlay bool             `json:"leakTenantHostRoutesToUnderlay"`
+	TenantLeakCommunitiesAccepted  bool             `json:"tenantLeakCommunitiesAccepted"`
+	AcceptedLeaksFromUnderlay      []string         `json:"acceptedLeaksFromUnderlay"`
+	AllowedAnycastPrefixes         []string         `json:"allowedAnycastPrefixes"`
+	Internal                       bool             `json:"internal"`
+	AccessTier                     uint32           `json:"accessTier"`
+}
+
+// vpcRouteTargetsToProto converts persisted route targets to their Core wire representation.
+func vpcRouteTargetsToProto(targets []VpcRouteTarget) []*corev1.RouteTarget {
+	protoTargets := make([]*corev1.RouteTarget, 0, len(targets))
+	for _, target := range targets {
+		protoTargets = append(protoTargets, target.ToProto())
+	}
+	return protoTargets
+}
+
+// vpcRouteTargetsFromProto converts Core route targets to their persisted representation.
+func vpcRouteTargetsFromProto(targets []*corev1.RouteTarget) []VpcRouteTarget {
+	dbTargets := make([]VpcRouteTarget, 0, len(targets))
+	for _, protoTarget := range targets {
+		target := VpcRouteTarget{}
+		target.FromProto(protoTarget)
+		dbTargets = append(dbTargets, target)
+	}
+	return dbTargets
+}
+
+// vpcPrefixesToProto converts stored CIDR strings to Core prefix-filter entries.
+func vpcPrefixesToProto(prefixes []string) []*corev1.PrefixFilterPolicyEntry {
+	entries := make([]*corev1.PrefixFilterPolicyEntry, 0, len(prefixes))
+	for _, prefix := range prefixes {
+		entries = append(entries, &corev1.PrefixFilterPolicyEntry{Prefix: prefix})
+	}
+	return entries
+}
+
+// vpcPrefixesFromProto converts Core prefix-filter entries to stored CIDR strings.
+func vpcPrefixesFromProto(entries []*corev1.PrefixFilterPolicyEntry) []string {
+	prefixes := make([]string, 0, len(entries))
+	for _, entry := range entries {
+		prefixes = append(prefixes, entry.GetPrefix())
+	}
+	return prefixes
+}
+
+// ToProto converts VPC routing-profile overrides to their presence-aware Core representation.
+func (profile *VpcRoutingProfileOverrides) ToProto() *corev1.VpcRoutingProfileOverrides {
+	if profile == nil {
+		return nil
+	}
+
+	protoProfile := &corev1.VpcRoutingProfileOverrides{
+		LeakDefaultRouteFromUnderlay:   profile.LeakDefaultRouteFromUnderlay,
+		LeakTenantHostRoutesToUnderlay: profile.LeakTenantHostRoutesToUnderlay,
+		TenantLeakCommunitiesAccepted:  profile.TenantLeakCommunitiesAccepted,
+	}
+	if profile.RouteTargetImports != nil {
+		protoProfile.RouteTargetImports = &corev1.RouteTargets{Values: vpcRouteTargetsToProto(*profile.RouteTargetImports)}
+	}
+	if profile.RouteTargetsOnExports != nil {
+		protoProfile.RouteTargetsOnExports = &corev1.RouteTargets{Values: vpcRouteTargetsToProto(*profile.RouteTargetsOnExports)}
+	}
+	if profile.AcceptedLeaksFromUnderlay != nil {
+		protoProfile.AcceptedLeaksFromUnderlay = &corev1.PrefixFilterPolicyEntries{Values: vpcPrefixesToProto(*profile.AcceptedLeaksFromUnderlay)}
+	}
+	if profile.AllowedAnycastPrefixes != nil {
+		protoProfile.AllowedAnycastPrefixes = &corev1.PrefixFilterPolicyEntries{Values: vpcPrefixesToProto(*profile.AllowedAnycastPrefixes)}
+	}
+
+	return protoProfile
+}
+
+// FromProto populates VPC routing-profile overrides from Core while preserving field presence.
+func (profile *VpcRoutingProfileOverrides) FromProto(protoProfile *corev1.VpcRoutingProfileOverrides) {
+	*profile = VpcRoutingProfileOverrides{}
+	if protoProfile == nil {
+		return
+	}
+
+	profile.LeakDefaultRouteFromUnderlay = protoProfile.LeakDefaultRouteFromUnderlay
+	profile.LeakTenantHostRoutesToUnderlay = protoProfile.LeakTenantHostRoutesToUnderlay
+	profile.TenantLeakCommunitiesAccepted = protoProfile.TenantLeakCommunitiesAccepted
+	if protoProfile.RouteTargetImports != nil {
+		targets := vpcRouteTargetsFromProto(protoProfile.RouteTargetImports.Values)
+		profile.RouteTargetImports = &targets
+	}
+	if protoProfile.RouteTargetsOnExports != nil {
+		targets := vpcRouteTargetsFromProto(protoProfile.RouteTargetsOnExports.Values)
+		profile.RouteTargetsOnExports = &targets
+	}
+	if protoProfile.AcceptedLeaksFromUnderlay != nil {
+		prefixes := vpcPrefixesFromProto(protoProfile.AcceptedLeaksFromUnderlay.Values)
+		profile.AcceptedLeaksFromUnderlay = &prefixes
+	}
+	if protoProfile.AllowedAnycastPrefixes != nil {
+		prefixes := vpcPrefixesFromProto(protoProfile.AllowedAnycastPrefixes.Values)
+		profile.AllowedAnycastPrefixes = &prefixes
+	}
+}
+
+// ToProto converts a resolved VPC routing profile to the Core status representation.
+func (profile *VpcEffectiveRoutingProfile) ToProto() *corev1.VpcEffectiveRoutingProfile {
+	if profile == nil {
+		return nil
+	}
+
+	return &corev1.VpcEffectiveRoutingProfile{
+		RouteTargetImports:             vpcRouteTargetsToProto(profile.RouteTargetImports),
+		RouteTargetsOnExports:          vpcRouteTargetsToProto(profile.RouteTargetsOnExports),
+		LeakDefaultRouteFromUnderlay:   profile.LeakDefaultRouteFromUnderlay,
+		LeakTenantHostRoutesToUnderlay: profile.LeakTenantHostRoutesToUnderlay,
+		TenantLeakCommunitiesAccepted:  profile.TenantLeakCommunitiesAccepted,
+		AcceptedLeaksFromUnderlay:      vpcPrefixesToProto(profile.AcceptedLeaksFromUnderlay),
+		AllowedAnycastPrefixes:         vpcPrefixesToProto(profile.AllowedAnycastPrefixes),
+		Internal:                       profile.Internal,
+		AccessTier:                     profile.AccessTier,
+	}
+}
+
+// FromProto populates a resolved VPC routing profile from the Core status representation.
+func (profile *VpcEffectiveRoutingProfile) FromProto(protoProfile *corev1.VpcEffectiveRoutingProfile) {
+	*profile = VpcEffectiveRoutingProfile{}
+	if protoProfile == nil {
+		return
+	}
+
+	profile.RouteTargetImports = vpcRouteTargetsFromProto(protoProfile.RouteTargetImports)
+	profile.RouteTargetsOnExports = vpcRouteTargetsFromProto(protoProfile.RouteTargetsOnExports)
+	profile.LeakDefaultRouteFromUnderlay = protoProfile.LeakDefaultRouteFromUnderlay
+	profile.LeakTenantHostRoutesToUnderlay = protoProfile.LeakTenantHostRoutesToUnderlay
+	profile.TenantLeakCommunitiesAccepted = protoProfile.TenantLeakCommunitiesAccepted
+	profile.AcceptedLeaksFromUnderlay = vpcPrefixesFromProto(protoProfile.AcceptedLeaksFromUnderlay)
+	profile.AllowedAnycastPrefixes = vpcPrefixesFromProto(protoProfile.AllowedAnycastPrefixes)
+	profile.Internal = protoProfile.Internal
+	profile.AccessTier = protoProfile.AccessTier
+}
+
 // Vpc represents entries in the vpc table
 type Vpc struct {
 	bun.BaseModel `bun:"table:vpc,alias:v"`
@@ -139,6 +316,8 @@ type Vpc struct {
 	NVLinkLogicalPartition                 *NVLinkLogicalPartition                 `bun:"rel:belongs-to,join:nvlink_logical_partition_id=id"`
 	NetworkVirtualizationType              *string                                 `bun:"network_virtualization_type"`
 	RoutingProfile                         *string                                 `bun:"routing_profile"`
+	RoutingProfileOverrides                *VpcRoutingProfileOverrides             `bun:"routing_profile_overrides,type:jsonb"`
+	EffectiveRoutingProfile                *VpcEffectiveRoutingProfile             `bun:"effective_routing_profile,type:jsonb"`
 	ControllerVpcID                        *uuid.UUID                              `bun:"controller_vpc_id,type:uuid"`
 	ActiveVni                              *int                                    `bun:"active_vni,type:integer"`
 	NetworkSecurityGroupID                 *string                                 `bun:"network_security_group_id"`
@@ -169,8 +348,9 @@ func (vpc *Vpc) GetSiteID() *uuid.UUID {
 // protos (create / update) are produced by `ToProto` methods on the
 // corresponding API request types in api/pkg/api/model/vpc.go.
 //
-// Desired configuration is emitted via the structured `config` field
-// and the allocated VNI via `status`. The deprecated flat mirror fields
+// Desired configuration, including routing-profile overrides, is emitted via
+// the structured `config` field. Controller-resolved state (the allocated VNI
+// and effective routing profile) is emitted via `status`. The deprecated flat mirror fields
 // are no longer populated: site agents at or after commit a2e3f88b read
 // exclusively from `config`/`status`.
 func (vpc *Vpc) ToProto() *corev1.Vpc {
@@ -207,6 +387,7 @@ func (vpc *Vpc) ToProto() *corev1.Vpc {
 		DefaultNvlinkLogicalPartitionId: nvllpProto,
 		Vni:                             cutil.IntPtrToUint32Ptr(vpc.Vni),
 		RoutingProfileType:              vpc.RoutingProfile,
+		RoutingProfileOverrides:         vpc.RoutingProfileOverrides.ToProto(),
 		NetworkVirtualizationType:       networkVirtualizationType,
 	}
 
@@ -218,8 +399,12 @@ func (vpc *Vpc) ToProto() *corev1.Vpc {
 	}
 
 	allocatedVni := cutil.IntPtrToUint32Ptr(vpc.ActiveVni)
-	if allocatedVni != nil {
-		proto.Status = &corev1.VpcStatus{Vni: allocatedVni}
+	effectiveRoutingProfile := vpc.EffectiveRoutingProfile.ToProto()
+	if allocatedVni != nil || effectiveRoutingProfile != nil {
+		proto.Status = &corev1.VpcStatus{
+			Vni:                     allocatedVni,
+			EffectiveRoutingProfile: effectiveRoutingProfile,
+		}
 	}
 
 	return proto
@@ -236,8 +421,9 @@ func (vpc *Vpc) ToProto() *corev1.Vpc {
 //   - `Name` is sourced from `proto.Metadata.Name` when set, falling
 //     back to the legacy top-level `proto.Name` when metadata omits it.
 //   - Desired-configuration fields (Org, NSG, NVLink, virtualization
-//     type, routing profile, requested VNI) are read from the structured
-//     `config`. The allocated VNI comes from `status`, not `config`.
+//     type, named routing profile, routing-profile overrides, requested VNI)
+//     are read from structured `config`. Controller-resolved fields (allocated
+//     VNI and effective routing profile) are read from `status`.
 //   - Optional pointer fields (NetworkSecurityGroupID,
 //     NVLinkLogicalPartitionID) are cleared when the proto omits them
 //     OR when the proto value is invalid (e.g. an unparseable UUID).
@@ -256,7 +442,6 @@ func (vpc *Vpc) FromProto(proto *corev1.Vpc) {
 	if proto.Metadata != nil && proto.Metadata.Name != "" {
 		vpc.Name = proto.Metadata.Name
 	}
-
 	cfg := proto.GetConfig()
 	if cfg == nil {
 		cfg = &corev1.VpcConfig{}
@@ -265,11 +450,21 @@ func (vpc *Vpc) FromProto(proto *corev1.Vpc) {
 	vpc.Org = cfg.TenantOrganizationId
 	vpc.NetworkSecurityGroupID = cfg.NetworkSecurityGroupId
 	vpc.RoutingProfile = cfg.RoutingProfileType
+	vpc.RoutingProfileOverrides = nil
+	if cfg.RoutingProfileOverrides != nil {
+		vpc.RoutingProfileOverrides = &VpcRoutingProfileOverrides{}
+		vpc.RoutingProfileOverrides.FromProto(cfg.RoutingProfileOverrides)
+	}
 	vpc.Vni = cutil.Uint32PtrToIntPtr(cfg.Vni)
 	vpc.ActiveVni = nil
+	vpc.EffectiveRoutingProfile = nil
 	status := proto.GetStatus()
 	if status != nil {
 		vpc.ActiveVni = cutil.Uint32PtrToIntPtr(status.Vni)
+		if status.EffectiveRoutingProfile != nil {
+			vpc.EffectiveRoutingProfile = &VpcEffectiveRoutingProfile{}
+			vpc.EffectiveRoutingProfile.FromProto(status.EffectiveRoutingProfile)
+		}
 	}
 
 	vpc.NVLinkLogicalPartitionID = nil
@@ -315,13 +510,16 @@ type VpcCreateInput struct {
 	NVLinkLogicalPartitionID               *uuid.UUID
 	NetworkVirtualizationType              *string
 	RoutingProfile                         *string
+	RoutingProfileOverrides                *VpcRoutingProfileOverrides
 	ControllerVpcID                        *uuid.UUID
+	ActiveVni                              *int
 	NetworkSecurityGroupID                 *string
 	NetworkSecurityGroupPropagationDetails *NetworkSecurityGroupPropagationDetails
 	Labels                                 map[string]string
 	Status                                 string
 	CreatedBy                              User
 	Vni                                    *int
+	EffectiveRoutingProfile                *VpcEffectiveRoutingProfile
 }
 
 // VpcUpdateInput input parameters for Update method
@@ -331,6 +529,8 @@ type VpcUpdateInput struct {
 	Description                            *string
 	NetworkVirtualizationType              *string
 	RoutingProfile                         *string
+	RoutingProfileOverrides                *VpcRoutingProfileOverrides
+	EffectiveRoutingProfile                *VpcEffectiveRoutingProfile
 	ControllerVpcID                        *uuid.UUID
 	ActiveVni                              *int
 	NVLinkLogicalPartitionID               *uuid.UUID
@@ -348,16 +548,21 @@ type VpcClearInput struct {
 	Description                            bool
 	ControllerVpcID                        bool
 	RoutingProfile                         bool
+	RoutingProfileOverrides                bool
+	EffectiveRoutingProfile                bool
 	NVLinkLogicalPartitionID               bool
 	NetworkSecurityGroupID                 bool
 	NetworkSecurityGroupPropagationDetails bool
 	Labels                                 bool
+	// Deleted clears the soft-delete timestamp (undelete).
+	Deleted bool
 }
 
 // VpcFilterInput input parameters for Filter method
 type VpcFilterInput struct {
 	Name                      *string
 	VpcIDs                    []uuid.UUID
+	ControllerVpcIDs          []uuid.UUID
 	InfrastructureProviderID  *uuid.UUID
 	TenantIDs                 []uuid.UUID
 	SiteIDs                   []uuid.UUID
@@ -367,6 +572,8 @@ type VpcFilterInput struct {
 	NetworkVirtualizationType *string
 	Statuses                  []string
 	SearchQuery               *string
+	// IncludeDeleted returns soft-deleted rows in addition to active ones.
+	IncludeDeleted bool
 }
 
 var _ bun.BeforeAppendModelHook = (*Vpc)(nil)
@@ -594,6 +801,14 @@ func (vsd VpcSQLDAO) setQueryWithFilter(filter VpcFilterInput, query *bun.Select
 		}
 	}
 
+	if filter.ControllerVpcIDs != nil {
+		query = query.Where("v.controller_vpc_id IN (?)", bun.In(filter.ControllerVpcIDs))
+
+		if vpcDAOSpan != nil {
+			vsd.tracerSpan.SetAttribute(vpcDAOSpan, "controller_vpc_ids", filter.ControllerVpcIDs)
+		}
+	}
+
 	searchQuery, searchTokens, ok := db.NormalizeSearchQuery(filter.SearchQuery)
 	if ok {
 		query = query.WhereGroup(" AND ", func(q *bun.SelectQuery) *bun.SelectQuery {
@@ -623,9 +838,12 @@ func (vsd VpcSQLDAO) GetAll(ctx context.Context, tx *db.Tx, filter VpcFilterInpu
 		defer vpcDAOSpan.End()
 	}
 
-	// var vpcs []Vpc
 	vpcs := []Vpc{}
 	query := db.GetIDB(tx, vsd.dbSession).NewSelect().Model(&vpcs)
+	// Soft-deleted rows are excluded by default.
+	if filter.IncludeDeleted {
+		query = query.WhereAllWithDeleted()
+	}
 
 	query, err := vsd.setQueryWithFilter(filter, query, vpcDAOSpan)
 	if err != nil {
@@ -680,7 +898,9 @@ func (vsd VpcSQLDAO) Create(ctx context.Context, tx *db.Tx, input VpcCreateInput
 		NVLinkLogicalPartitionID:               input.NVLinkLogicalPartitionID,
 		NetworkVirtualizationType:              input.NetworkVirtualizationType,
 		RoutingProfile:                         input.RoutingProfile,
+		RoutingProfileOverrides:                input.RoutingProfileOverrides,
 		ControllerVpcID:                        input.ControllerVpcID,
+		ActiveVni:                              input.ActiveVni,
 		NetworkSecurityGroupID:                 input.NetworkSecurityGroupID,
 		NetworkSecurityGroupPropagationDetails: input.NetworkSecurityGroupPropagationDetails,
 		Labels:                                 input.Labels,
@@ -688,6 +908,7 @@ func (vsd VpcSQLDAO) Create(ctx context.Context, tx *db.Tx, input VpcCreateInput
 		IsMissingOnSite:                        false,
 		CreatedBy:                              input.CreatedBy.ID,
 		Vni:                                    input.Vni,
+		EffectiveRoutingProfile:                input.EffectiveRoutingProfile,
 	}
 
 	_, err := db.GetIDB(tx, vsd.dbSession).NewInsert().Model(v).Exec(ctx)
@@ -753,6 +974,16 @@ func (vsd VpcSQLDAO) Update(ctx context.Context, tx *db.Tx, input VpcUpdateInput
 		v.RoutingProfile = input.RoutingProfile
 		updatedFields = append(updatedFields, "routing_profile")
 		vsd.tracerSpan.SetAttribute(vpcDAOSpan, "routing_profile", *input.RoutingProfile)
+	}
+
+	if input.RoutingProfileOverrides != nil {
+		v.RoutingProfileOverrides = input.RoutingProfileOverrides
+		updatedFields = append(updatedFields, "routing_profile_overrides")
+	}
+
+	if input.EffectiveRoutingProfile != nil {
+		v.EffectiveRoutingProfile = input.EffectiveRoutingProfile
+		updatedFields = append(updatedFields, "effective_routing_profile")
 	}
 
 	if input.ActiveVni != nil {
@@ -850,6 +1081,16 @@ func (vsd VpcSQLDAO) Clear(ctx context.Context, tx *db.Tx, input VpcClearInput) 
 		updatedFields = append(updatedFields, "routing_profile")
 	}
 
+	if input.RoutingProfileOverrides {
+		v.RoutingProfileOverrides = nil
+		updatedFields = append(updatedFields, "routing_profile_overrides")
+	}
+
+	if input.EffectiveRoutingProfile {
+		v.EffectiveRoutingProfile = nil
+		updatedFields = append(updatedFields, "effective_routing_profile")
+	}
+
 	if input.Labels {
 		v.Labels = nil
 		updatedFields = append(updatedFields, "labels")
@@ -870,10 +1111,20 @@ func (vsd VpcSQLDAO) Clear(ctx context.Context, tx *db.Tx, input VpcClearInput) 
 		updatedFields = append(updatedFields, "network_security_group_propagation_details")
 	}
 
+	if input.Deleted {
+		v.Deleted = nil
+		updatedFields = append(updatedFields, "deleted")
+	}
+
 	if len(updatedFields) > 0 {
 		updatedFields = append(updatedFields, "updated")
 
-		_, err := db.GetIDB(tx, vsd.dbSession).NewUpdate().Model(v).Column(updatedFields...).Where("id = ?", input.VpcID).Exec(ctx)
+		query := db.GetIDB(tx, vsd.dbSession).NewUpdate().Model(v).Column(updatedFields...).Where("id = ?", input.VpcID)
+		// Soft-deleted rows are excluded by default; include them when undeleting.
+		if input.Deleted {
+			query = query.WhereAllWithDeleted()
+		}
+		_, err := query.Exec(ctx)
 		if err != nil {
 			return nil, err
 		}

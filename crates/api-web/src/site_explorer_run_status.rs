@@ -30,18 +30,18 @@ fn display_error(run: &SiteExplorerLastRun) -> String {
     }
 }
 
-pub(crate) struct SiteExplorerLastRunDisplay {
-    pub(crate) status_label: &'static str,
-    pub(crate) status_class: &'static str,
-    pub(crate) started_at: String,
-    pub(crate) finished_at: String,
-    pub(crate) endpoint_explorations: i64,
-    pub(crate) endpoint_explorations_success: i64,
-    pub(crate) endpoint_explorations_failed: i64,
-    pub(crate) failure_category: String,
-    pub(crate) last_successful_finished_at: String,
-    pub(crate) last_failed_finished_at: String,
-    pub(crate) error: String,
+pub(super) struct SiteExplorerLastRunDisplay {
+    pub(super) status_label: &'static str,
+    pub(super) status_class: &'static str,
+    pub(super) started_at: String,
+    pub(super) finished_at: String,
+    pub(super) endpoint_explorations: i64,
+    pub(super) endpoint_explorations_success: i64,
+    pub(super) endpoint_explorations_failed: i64,
+    pub(super) failure_category: String,
+    pub(super) last_successful_finished_at: String,
+    pub(super) last_failed_finished_at: String,
+    pub(super) error: String,
 }
 
 impl From<&SiteExplorerLastRun> for SiteExplorerLastRunDisplay {

@@ -33,14 +33,14 @@ use model::machine::slas::MachineSlaConfig;
 use state_controller::controller::StateController;
 use tokio_util::sync::CancellationToken;
 
-pub struct Env {
-    pub test_harness: TestHarness,
-    pub redfish_sim: Arc<RedfishSim>,
+pub(super) struct Env {
+    pub(super) test_harness: TestHarness,
+    pub(super) redfish_sim: Arc<RedfishSim>,
     machine_controller: StateController<MachineStateControllerIO>,
     _cancel_token: CancellationToken,
 }
 
-pub struct EnvBuilder {
+pub(super) struct EnvBuilder {
     pool: PgPool,
     runtime_config: CarbideConfig,
     component_manager: Option<Arc<ComponentManager>>,
@@ -48,7 +48,7 @@ pub struct EnvBuilder {
 }
 
 impl Env {
-    pub fn builder(pool: PgPool) -> EnvBuilder {
+    pub(super) fn builder(pool: PgPool) -> EnvBuilder {
         let mut runtime_config = test_support::default_config::get();
         runtime_config.machine_state_controller.dpu_wait_time = chrono::Duration::zero();
         runtime_config.machine_state_controller.power_down_wait = chrono::Duration::zero();
@@ -63,23 +63,26 @@ impl Env {
         }
     }
 
-    pub async fn run_single_iteration(&mut self) {
+    pub(super) async fn run_single_iteration(&mut self) {
         self.machine_controller.run_single_iteration().boxed().await;
     }
 }
 
 impl EnvBuilder {
-    pub fn configure_runtime(mut self, configure: impl FnOnce(&mut CarbideConfig)) -> Self {
+    pub(super) fn configure_runtime(mut self, configure: impl FnOnce(&mut CarbideConfig)) -> Self {
         configure(&mut self.runtime_config);
         self
     }
 
-    pub fn with_component_manager(mut self, component_manager: Arc<ComponentManager>) -> Self {
+    pub(super) fn with_component_manager(
+        mut self,
+        component_manager: Arc<ComponentManager>,
+    ) -> Self {
         self.component_manager = Some(component_manager);
         self
     }
 
-    pub fn with_credential_manager(
+    pub(super) fn with_credential_manager(
         mut self,
         credential_manager: Arc<dyn CredentialManager>,
     ) -> Self {
@@ -87,7 +90,7 @@ impl EnvBuilder {
         self
     }
 
-    pub async fn build(self) -> Env {
+    pub(super) async fn build(self) -> Env {
         let Self {
             pool,
             runtime_config,
@@ -166,8 +169,19 @@ impl EnvBuilder {
             // Zero TTL: every guard re-queries the aggregate so tests observe a
             // freshly staged rotation on the next iteration without waiting out
             // the cache window.
-            bmc_rotation_gate: carbide_credential_rotation::BmcRotationGate::with_ttl(
+            bmc_rotation_gate: carbide_credential_rotation::RotationGate::with_ttl_and_family(
                 std::time::Duration::ZERO,
+                db::credential_rotation::CredentialRotationType::Bmc,
+            ),
+            // Zero TTL for the same reason as the BMC gate above.
+            host_uefi_rotation_gate: carbide_credential_rotation::RotationGate::with_ttl_and_family(
+                std::time::Duration::ZERO,
+                db::credential_rotation::CredentialRotationType::HostUefi,
+            ),
+            // Zero TTL for the same reason as the BMC gate above.
+            dpu_uefi_rotation_gate: carbide_credential_rotation::RotationGate::with_ttl_and_family(
+                std::time::Duration::ZERO,
+                db::credential_rotation::CredentialRotationType::DpuUefi,
             ),
             per_object_metrics_registry,
             per_object_info: None,

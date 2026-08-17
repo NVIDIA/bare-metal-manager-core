@@ -21,8 +21,24 @@ use chrono::Duration;
 use duration_str::deserialize_duration_chrono;
 use serde::{Deserialize, Serialize};
 
+/// Deserializes a recurring interval and rejects zero or negative durations.
+fn deserialize_positive_duration_chrono<'de, D>(deserializer: D) -> Result<Duration, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let duration = deserialize_duration_chrono(deserializer)?;
+    if duration <= Duration::zero() {
+        return Err(serde::de::Error::custom(
+            "duration must be greater than zero",
+        ));
+    }
+
+    Ok(duration)
+}
+
 /// MachineStateController related config.
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
 pub struct MachineStateControllerConfig {
     /// Common state controller configs
     #[serde(default = "StateControllerConfig::default")]
@@ -92,6 +108,14 @@ pub struct MachineStateControllerConfig {
         serialize_with = "as_duration"
     )]
     pub polling_bios_setup_stuck_threshold: Duration,
+    /// How long a verified desired boot interface may go before the controller
+    /// compares it with Redfish again.
+    #[serde(
+        default = "MachineStateControllerConfig::boot_interface_observation_interval_default",
+        deserialize_with = "deserialize_positive_duration_chrono",
+        serialize_with = "as_duration"
+    )]
+    pub boot_interface_observation_interval: Duration,
 }
 
 impl MachineStateControllerConfig {
@@ -110,6 +134,9 @@ impl MachineStateControllerConfig {
             ),
             polling_bios_setup_stuck_threshold:
                 MachineStateControllerConfig::polling_bios_setup_stuck_threshold_default(),
+            // Keep periodic Redfish reads out of unrelated controller tests.
+            // Focused tests explicitly age the observation they exercise.
+            boot_interface_observation_interval: Duration::weeks(52),
         }
     }
 
@@ -148,6 +175,11 @@ impl MachineStateControllerConfig {
     pub fn polling_bios_setup_stuck_threshold_default() -> Duration {
         Duration::minutes(15)
     }
+
+    /// Default cadence for rechecking an already-verified boot interface.
+    pub fn boot_interface_observation_interval_default() -> Duration {
+        Duration::minutes(10)
+    }
 }
 
 impl Default for MachineStateControllerConfig {
@@ -167,6 +199,8 @@ impl Default for MachineStateControllerConfig {
             ),
             polling_bios_setup_stuck_threshold:
                 MachineStateControllerConfig::polling_bios_setup_stuck_threshold_default(),
+            boot_interface_observation_interval:
+                MachineStateControllerConfig::boot_interface_observation_interval_default(),
         }
     }
 }

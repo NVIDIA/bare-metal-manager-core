@@ -63,6 +63,7 @@ pub enum StateHistoryTableId {
     IbPartition,
     PowerShelf,
     Rack,
+    SitePrefix,
     Switch,
 }
 
@@ -76,6 +77,7 @@ impl StateHistoryTableId {
             StateHistoryTableId::IbPartition => "ib_partition_state_history",
             StateHistoryTableId::PowerShelf => "power_shelf_state_history",
             StateHistoryTableId::Rack => "rack_state_history",
+            StateHistoryTableId::SitePrefix => "site_prefix_state_history",
             StateHistoryTableId::Switch => "switch_state_history",
         }
     }
@@ -196,7 +198,7 @@ mod tests {
 
     use super::{StateHistoryTableId, find_by_object_ids, for_object, persist, update_object_ids};
 
-    const TABLES: [StateHistoryTableId; 8] = [
+    const TABLES: [StateHistoryTableId; 9] = [
         StateHistoryTableId::Machine,
         StateHistoryTableId::NetworkSegment,
         StateHistoryTableId::VpcPrefix,
@@ -204,12 +206,12 @@ mod tests {
         StateHistoryTableId::IbPartition,
         StateHistoryTableId::PowerShelf,
         StateHistoryTableId::Rack,
+        StateHistoryTableId::SitePrefix,
         StateHistoryTableId::Switch,
     ];
 
     // This test helper intentionally keeps the first transaction open while it verifies that the
     // per-object advisory lock blocks a concurrent writer.
-    #[allow(txn_held_across_await)]
     async fn assert_concurrent_retention(
         pool: &PgPool,
         table_id: StateHistoryTableId,

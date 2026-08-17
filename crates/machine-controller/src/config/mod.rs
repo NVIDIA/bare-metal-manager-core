@@ -45,12 +45,28 @@ pub struct MachineStateHandlerSiteConfig {
 
     pub dpa_enabled: bool,
     pub dpf_enabled: bool,
+    /// Site-wide enable for releasing the DPF maintenance hold so a changed
+    /// DPUService rolls out. When `false`, a host that DPF has parked in the
+    /// NodeEffect phase keeps its hold and its pending marker.
+    pub dpu_service_sync_enabled: bool,
     pub spdm_enabled: bool,
 
     /// Site-wide kill-switch for the passive BMC credential rotation guard. When
     /// `false`, a Ready host never enters `RotatingBmc` on its own; the operator
     /// force-converge escape hatch still works regardless.
     pub bmc_rotation_enabled: bool,
+
+    /// Site-wide kill-switch for the passive UEFI credential rotation guard,
+    /// covering both host and DPU UEFI. When `false`, a Ready host never enters
+    /// `RotatingHostUefi` (nor drives a DPU into `RotatingDpuUefi`) on its own;
+    /// the per-machine operator force-converge escape hatch still works
+    /// regardless, for the host or an individual DPU.
+    pub uefi_rotation_enabled: bool,
+
+    /// Site-wide opt-in for factory-resetting the host BMC during tenant
+    /// release. When `false` (the default), tenant release skips the BMC
+    /// factory-reset sub-flow and proceeds directly to `PowerCycle`.
+    pub bmc_factory_reset_on_instance_termination_enabled: bool,
 
     pub dpu_enable_secure_boot: bool,
     pub restart_ovs_on_use_admin_network_change: bool,
@@ -69,8 +85,11 @@ impl MachineStateHandlerSiteConfig {
             oem_manager_profiles: HashMap::new(),
             dpa_enabled: true,
             dpf_enabled: false,
+            dpu_service_sync_enabled: true,
             spdm_enabled: false,
             bmc_rotation_enabled: false,
+            uefi_rotation_enabled: false,
+            bmc_factory_reset_on_instance_termination_enabled: false,
             dpu_enable_secure_boot: true,
             restart_ovs_on_use_admin_network_change: false,
         }
@@ -79,6 +98,7 @@ impl MachineStateHandlerSiteConfig {
 
 /// A UTC time window defined by a start and end timestamp.
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
+#[serde(deny_unknown_fields)]
 pub struct TimePeriod {
     /// Start of the time window (UTC).
     pub start: chrono::DateTime<chrono::Utc>,

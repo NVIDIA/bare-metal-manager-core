@@ -52,10 +52,13 @@ namespaceOverride: ""
 ## expansion (which would otherwise try `carbide-api.forge-system.svc.
 ## cluster.local.<pod-search-domain>` first and get NXDOMAIN).
 legacyAlias:
-  # On by default to match the chart's cert SAN posture (the `nico-api`
-  # Certificate already includes `carbide-api.forge-system.svc.cluster.local`
-  # as a SAN). Flip to false on all-modern fleets where no client uses the
-  # legacy hostname.
+  # On by default so DNS resolution of the legacy hostname keeps working
+  # for existing pre-rename clients. Note this only covers name
+  # resolution -- the `nico-api` Certificate's SAN list does not include
+  # `carbide-api.forge-system.svc.cluster.local`, so any client actually
+  # dialing that hostname over TLS still fails certificate verification.
+  # Flip to false on all-modern fleets where no client uses the legacy
+  # hostname.
   enabled: true
   aliases:
     - name: carbide-api
@@ -146,6 +149,12 @@ certificate:
 
 migrationJob:
   sslMode: require
+
+## Grace period for nico-api to stop claiming state-controller work and drain
+## handlers already in flight. Keep this greater than the largest configured
+## controller.max_object_handling_time; 240 seconds covers the default 3 minutes
+## with additional time for queue finalization.
+terminationGracePeriodSeconds: 240
 
 ## Container command (override to customise startup).
 ## Picks /opt/nico/nico-api if present (renamed image), else /opt/carbide/carbide-api
@@ -300,11 +309,16 @@ auth:
   ## [auth] permissive_mode — bypass the casbin policy layer. DEV ONLY. Note: this does
   ## NOT bypass the internal RBAC handler, so it does not grant admin-CLI access by itself.
   permissiveMode: false
-  ## [auth.trust] additional_issuer_cns — CNs of non-SPIFFE issuer CAs trusted as ExternalUser
-  ## principals (group = cert SubjectOU). Set to the site CA CN (e.g. ["site-root"]) to enable
-  ## admin-CLI client certs minted from the vault PKI without manual ConfigMap edits.
+  ## [auth.trust] additional_issuer_cns — client leaf Issuer DN CNs mapped to ExternalUser
+  ## principals (group = cert SubjectOU), as required by the default internal RBAC admin path.
+  ## This CN-only mapping spans the combined TLS trust store and is not bound to
+  ## adminRootCertPem. Use a globally unique, PrintableString-encoded Subject CN
+  ## from the dedicated issuing intermediate; never use a shared or root CA CN.
   additionalIssuerCns: []
-  ## [tls] admin_root_cafile_path — CA bundle whose client certs are treated as admin ExternalUsers.
+  ## [tls] admin_root_cafile_path — CA bundle added to the client TLS trust store.
+  ## Every presented cert successfully validated against it becomes a TrustedCertificate
+  ## and passes the default Casbin forge/* rule; internal RBAC still requires ExternalUser
+  ## for the ForgeAdminCLI path unless bypass_rbac is enabled.
   adminRootCafilePath: "/etc/forge/carbide-api/site/admin_root_cert_pem"
 
 ## Config files -- can be overridden with custom content
@@ -320,6 +334,30 @@ configFiles:
 siteConfig:
   enabled: true
   nicoApiSiteConfig: ""  # Must include [pools.lo-ip], [pools.vlan-id], [pools.vni], [pools.vpc-vni]
+  ## Public CA trust bundle used to verify admin client certificates. Use a dedicated
+  ## admin-client intermediate whose entire issuance population may cross this trust boundary.
+  ## Accepts only bare PEM CERTIFICATE blocks separated by whitespace; strip subject=/issuer=
+  ## lines and comments. Private keys are rejected. Helm validates the PEM envelope only,
+  ## not X.509 CA semantics. Pair with auth.additionalIssuerCns to map the client leaf's
+  ## Issuer DN CN to an ExternalUser principal required by the default internal RBAC admin path.
+  adminRootCertPem: ""
+
+## DPF (DOCA Platform Framework) integration.
+## rbacCreate: create a Role/RoleBinding in the DPF operator namespace so the
+## API can manage DPF CRs (templates/dpf-rbac.yaml). Enabled by setup.sh (DPF is
+## the default); pair with a [dpf] block in siteConfig.nicoApiSiteConfig
+## (docs/manuals/dpf.md §3.5).
+## HARD PRECONDITION: operatorNamespace must already exist when rbacCreate=true,
+## or `helm install` fails with "namespaces ... not found" and rolls back the
+## whole release. setup.sh sets rbacCreate=true only after phase 5b creates the
+## namespace. Leave it false unless the DPF operator stack is installed.
+## This value must MATCH the namespace the DPF operator + prereqs run in — the
+## prereq stack hardcodes dpf-operator-system, so changing it here alone would
+## put the Role/RoleBinding in a different namespace than the operator it grants
+## carbide-api access to, silently breaking DPF CR management.
+dpf:
+  rbacCreate: false
+  operatorNamespace: dpf-operator-system
 
 ## NICo Web UI hostname (always created as ConfigMap)
 hostname: "nico.local"

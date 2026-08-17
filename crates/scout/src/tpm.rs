@@ -25,10 +25,10 @@ use tss_esapi::interface_types::session_handles::AuthSession;
 
 use crate::{CarbideClientError, attestation as attest};
 
-pub(crate) const TPM_RECOVERY_ATTEMPTED_PATH: &str = "/run/scout/tpm_recovery_reboot_attempted";
+pub(super) const TPM_RECOVERY_ATTEMPTED_PATH: &str = "/run/scout/tpm_recovery_reboot_attempted";
 
 // From https://superuser.com/questions/1404738/tpm-2-0-hardware-error-da-lockout-mode
-pub(crate) fn set_tpm_max_auth_fail() -> Result<(), CarbideClientError> {
+pub(super) fn set_tpm_max_auth_fail() -> Result<(), CarbideClientError> {
     let output = Command::new("tpm2_dictionarylockout")
         .arg("--setup-parameters")
         .arg("--max-tries=256")
@@ -77,7 +77,7 @@ fn tpm_device_candidates(tpm_path: &str) -> Vec<&str> {
 
 /// True when a kernel TPM device exists for `tpm_path`. Socket TCTIs such as swtpm and mssim are not
 /// detected because the lab does not use them.
-pub(crate) fn tpm_present(tpm_path: &str) -> bool {
+pub(super) fn tpm_present(tpm_path: &str) -> bool {
     // try_exists tells a clean absent (Ok(false)) apart from an IO error. On error we assume the
     // device is present rather than silently treating the host as having no TPM.
     let dev_exists = |path: &str| {
@@ -94,7 +94,7 @@ pub(crate) fn tpm_present(tpm_path: &str) -> bool {
 /// Clears the TPM storage hierarchies via TPM2_Clear (lockout authorization), after dictionary
 /// lockout setup. A host with no TPM has nothing to clear so the clear is skipped. A present TPM
 /// that fails to clear stays an error.
-pub(crate) fn clear_tpm(tpm_path: &str) -> Result<(), CarbideClientError> {
+pub(super) fn clear_tpm(tpm_path: &str) -> Result<(), CarbideClientError> {
     if !tpm_present(tpm_path) {
         tracing::warn!(
             tpm_path = ?tpm_path,
@@ -129,7 +129,7 @@ pub(crate) fn clear_tpm(tpm_path: &str) -> Result<(), CarbideClientError> {
 ///
 /// Recovery is only attempted for this stage: context creation failures (bad path, missing device)
 /// are not recoverable via TPM clear.
-pub(crate) fn should_attempt_tpm_recovery_for_attest_key_failure(
+pub(super) fn should_attempt_tpm_recovery_for_attest_key_failure(
     source: &dyn std::error::Error,
 ) -> bool {
     let message = source.to_string().to_ascii_lowercase();
@@ -160,7 +160,7 @@ fn claim_tpm_recovery_attempt() -> Result<(), CarbideClientError> {
 }
 
 /// Clears the TPM and reboots the host once per boot cycle to recover from missing TPM material.
-pub(crate) fn recover_tpm_and_reboot(tpm_path: &str) -> Result<(), CarbideClientError> {
+pub(super) fn recover_tpm_and_reboot(tpm_path: &str) -> Result<(), CarbideClientError> {
     claim_tpm_recovery_attempt()?;
 
     tracing::warn!("Attempting automated TPM clear and reboot to recover attestation state");

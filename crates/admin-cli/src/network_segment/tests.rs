@@ -25,9 +25,13 @@
 
 use carbide_test_support::Outcome::*;
 use carbide_test_support::scenarios;
+use carbide_uuid::network::NetworkSegmentId;
+use carbide_uuid::vpc::VpcId;
 use clap::{CommandFactory, Parser};
+use rpc::forge;
 
 use super::*;
+use crate::test_support::{parse_leaf, raw_value};
 
 // verify_cmd_structure runs a baseline clap debug_assert()
 // to do basic command configuration checking and validation,
@@ -53,10 +57,15 @@ fn verify_cmd_structure() {
 fn parse_show_routes_to_show() {
     scenarios!(
         run = |argv| {
-            Cmd::try_parse_from(argv.iter().copied())
-                .map(|cmd| match cmd {
-                    Cmd::Show(args) => (args.network.is_some(), args.tenant_org_id, args.name),
-                    _ => panic!("expected Show variant"),
+            parse_leaf::<Cmd>(argv, &["show"])
+                .map(|matches| {
+                    (
+                        matches
+                            .get_one::<NetworkSegmentId>("network")
+                            .is_some(),
+                        raw_value(&matches, "tenant_org_id"),
+                        raw_value(&matches, "name"),
+                    )
                 })
                 .map_err(drop)
         };
@@ -70,6 +79,38 @@ fn parse_show_routes_to_show() {
 
         "with --name" {
             &["network-segment", "show", "--name", "my-segment"][..] => Yields((false, None, Some("my-segment".to_string()))),
+        }
+    );
+}
+
+#[test]
+fn parse_create_controls_slaac_eui64_inference() {
+    scenarios!(
+        run = |argv| {
+            Cmd::try_parse_from(argv.iter().copied())
+                .map(|command| match command {
+                    Cmd::Create(args) => {
+                        forge::NetworkSegmentCreationRequest::from(args)
+                            .infer_slaac_eui64_addresses
+                    }
+                    _ => unreachable!("scenario must parse as network-segment create"),
+                })
+                .map_err(drop)
+        };
+        "inference omitted" {
+            &["network-segment", "create", "--name", "segment", "--prefix", "2001:db8::/64"][..] => Yields(false),
+        }
+
+        "inference enabled" {
+            &[
+                "network-segment",
+                "create",
+                "--name",
+                "segment",
+                "--prefix",
+                "2001:db8::/64",
+                "--infer-slaac-eui64-addresses",
+            ][..] => Yields(true),
         }
     );
 }
@@ -91,46 +132,53 @@ fn invalid_invocations_are_rejected() {
 
 #[test]
 fn parse_attach_vpc() {
-    let cmd = Cmd::try_parse_from([
-        "network-segment",
-        "attach-vpc",
-        "--id",
-        "12345678-1234-5678-90ab-cdef01234567",
-        "--vpc-id",
-        "abcdef01-2345-6789-abcd-ef0123456789",
-    ])
+    let matches = parse_leaf::<Cmd>(
+        &[
+            "network-segment",
+            "attach-vpc",
+            "--id",
+            "12345678-1234-5678-90ab-cdef01234567",
+            "--vpc-id",
+            "abcdef01-2345-6789-abcd-ef0123456789",
+        ],
+        &["attach-vpc"],
+    )
     .expect("should parse attach-vpc");
 
-    match cmd {
-        Cmd::AttachVpc(args) => {
-            assert_eq!(args.id.to_string(), "12345678-1234-5678-90ab-cdef01234567");
-            assert_eq!(
-                args.vpc_id.to_string(),
-                "abcdef01-2345-6789-abcd-ef0123456789"
-            );
-            assert!(!args.force);
-        }
-        _ => panic!("expected AttachVpc variant"),
-    }
+    assert_eq!(
+        matches
+            .get_one::<NetworkSegmentId>("id")
+            .map(ToString::to_string)
+            .as_deref(),
+        Some("12345678-1234-5678-90ab-cdef01234567")
+    );
+    assert_eq!(
+        matches
+            .get_one::<VpcId>("vpc_id")
+            .map(ToString::to_string)
+            .as_deref(),
+        Some("abcdef01-2345-6789-abcd-ef0123456789")
+    );
+    assert!(!matches.get_flag("force"));
 }
 
 #[test]
 fn parse_attach_vpc_force() {
-    let cmd = Cmd::try_parse_from([
-        "network-segment",
-        "attach-vpc",
-        "--id",
-        "12345678-1234-5678-90ab-cdef01234567",
-        "--vpc-id",
-        "abcdef01-2345-6789-abcd-ef0123456789",
-        "--force",
-    ])
+    let matches = parse_leaf::<Cmd>(
+        &[
+            "network-segment",
+            "attach-vpc",
+            "--id",
+            "12345678-1234-5678-90ab-cdef01234567",
+            "--vpc-id",
+            "abcdef01-2345-6789-abcd-ef0123456789",
+            "--force",
+        ],
+        &["attach-vpc"],
+    )
     .expect("should parse attach-vpc with force");
 
-    match cmd {
-        Cmd::AttachVpc(args) => assert!(args.force),
-        _ => panic!("expected AttachVpc variant"),
-    }
+    assert!(matches.get_flag("force"));
 }
 
 #[test]

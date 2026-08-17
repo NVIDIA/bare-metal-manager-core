@@ -26,17 +26,17 @@ use model::site_explorer::EndpointExplorationError;
 
 use super::metrics::SiteExplorationMetrics;
 
-pub fn get_bmc_root_credential_key(bmc_mac_address: MacAddress) -> CredentialKey {
+pub(super) fn get_bmc_root_credential_key(bmc_mac_address: MacAddress) -> CredentialKey {
     CredentialKey::BmcCredentials {
         credential_type: BmcCredentialType::BmcRoot { bmc_mac_address },
     }
 }
 
-pub fn get_bmc_nvos_admin_credential_key(bmc_mac_address: MacAddress) -> CredentialKey {
+fn get_bmc_nvos_admin_credential_key(bmc_mac_address: MacAddress) -> CredentialKey {
     CredentialKey::SwitchNvosAdmin { bmc_mac_address }
 }
 
-pub struct CredentialClient {
+pub(super) struct CredentialClient {
     credential_manager: Arc<dyn CredentialManager>,
 }
 
@@ -105,11 +105,11 @@ impl CredentialClient {
         }
     }
 
-    pub fn new(credential_manager: Arc<dyn CredentialManager>) -> Self {
+    pub(super) fn new(credential_manager: Arc<dyn CredentialManager>) -> Self {
         Self { credential_manager }
     }
 
-    pub async fn check_preconditions(
+    pub(super) async fn check_preconditions(
         &self,
         _metrics: &mut SiteExplorationMetrics,
     ) -> Result<(), EndpointExplorationError> {
@@ -134,7 +134,7 @@ impl CredentialClient {
     /// the legacy unversioned path. There is no unversioned "current" alias --
     /// the rotation table is the single source of truth for which version is
     /// live.
-    pub async fn get_sitewide_bmc_root_credentials(
+    pub(super) async fn get_sitewide_bmc_root_credentials(
         &self,
         version: u32,
     ) -> Result<Credentials, EndpointExplorationError> {
@@ -144,7 +144,7 @@ impl CredentialClient {
         self.get_credentials(&key).await
     }
 
-    pub async fn get_sitewide_dpu_bmc_service_password(
+    pub(super) async fn get_sitewide_dpu_bmc_service_password(
         &self,
         create_if_missing: bool,
     ) -> Result<String, EndpointExplorationError> {
@@ -179,7 +179,7 @@ impl CredentialClient {
     /// 3. Model's publicly-documented factory default (`DpuModel::default_factory_credentials`)
     ///
     /// Never fails: vault misses are silently swallowed and the hardcoded fallback is returned.
-    pub async fn get_dpu_factory_default_credentials(
+    pub(super) async fn get_dpu_factory_default_credentials(
         &self,
         model: bmc_vendor::DpuModel,
     ) -> Credentials {
@@ -208,7 +208,7 @@ impl CredentialClient {
         }
     }
 
-    pub async fn get_bmc_root_credentials(
+    pub(super) async fn get_bmc_root_credentials(
         &self,
         bmc_mac_address: MacAddress,
     ) -> Result<Credentials, EndpointExplorationError> {
@@ -216,7 +216,7 @@ impl CredentialClient {
         self.get_credentials(&bmc_root_credential_key).await
     }
 
-    pub async fn get_switch_nvos_admin_credentials(
+    pub(super) async fn get_switch_nvos_admin_credentials(
         &self,
         bmc_mac_address: MacAddress,
     ) -> Result<Credentials, EndpointExplorationError> {
@@ -225,7 +225,7 @@ impl CredentialClient {
             .await
     }
 
-    pub async fn set_bmc_root_credentials(
+    pub(super) async fn set_bmc_root_credentials(
         &self,
         bmc_mac_address: MacAddress,
         credentials: &Credentials,
@@ -235,7 +235,7 @@ impl CredentialClient {
             .await
     }
 
-    pub async fn set_bmc_nvos_admin_credentials(
+    pub(super) async fn set_bmc_nvos_admin_credentials(
         &self,
         bmc_mac_address: MacAddress,
         credentials: &Credentials,

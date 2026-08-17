@@ -23,7 +23,7 @@ import (
 	"github.com/NVIDIA/infra-controller/rest-api/api/pkg/api/model"
 	sc "github.com/NVIDIA/infra-controller/rest-api/api/pkg/client/site"
 	authz "github.com/NVIDIA/infra-controller/rest-api/auth/pkg/authorization"
-	"github.com/NVIDIA/infra-controller/rest-api/common/pkg/coreproxy"
+	"github.com/NVIDIA/infra-controller/rest-api/common/pkg/grpcproxy"
 	cutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
 	cdb "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db"
 	cdbm "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/model"
@@ -247,7 +247,7 @@ type measuredBootHandlerFixture struct {
 	org        string
 	siteID     string
 	user       *cdbm.User
-	proxiedReq *coreproxy.Request
+	proxiedReq *grpcproxy.Request
 }
 
 func newMeasuredBootHandlerFixture(t *testing.T, response proto.Message, roles []string) measuredBootHandlerFixture {
@@ -268,7 +268,7 @@ func newMeasuredBootHandlerFixture(t *testing.T, response proto.Message, roles [
 	_, err := sDAO.Update(context.Background(), nil, cdbm.SiteUpdateInput{SiteID: site.ID, Status: cutil.GetPtr(cdbm.SiteStatusRegistered)})
 	require.NoError(t, err)
 
-	proxiedReq := &coreproxy.Request{}
+	proxiedReq := &grpcproxy.Request{}
 	wrun := &tmocks.WorkflowRun{}
 	wrun.On("Get", mock.Anything, mock.Anything).Run(func(args mock.Arguments) {
 		if response == nil {
@@ -276,11 +276,11 @@ func newMeasuredBootHandlerFixture(t *testing.T, response proto.Message, roles [
 		}
 		responseJSON, err := protojson.Marshal(response)
 		require.NoError(t, err)
-		args.Get(1).(*coreproxy.Response).ResponseJSON = responseJSON
+		args.Get(1).(*grpcproxy.Response).ResponseJSON = responseJSON
 	}).Return(nil)
 
 	tsc := &tmocks.Client{}
-	tsc.On("ExecuteWorkflow", mock.Anything, mock.Anything, coreproxy.WorkflowName, mock.MatchedBy(func(req coreproxy.Request) bool {
+	tsc.On("ExecuteWorkflow", mock.Anything, mock.Anything, grpcproxy.Core.WorkflowName, mock.MatchedBy(func(req grpcproxy.Request) bool {
 		*proxiedReq = req
 		return true
 	})).Return(wrun, nil)

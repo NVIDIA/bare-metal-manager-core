@@ -15,7 +15,7 @@
  * limitations under the License.
  */
 use std::borrow::Cow;
-use std::collections::VecDeque;
+use std::collections::{HashMap, VecDeque};
 use std::fmt::{Display, Formatter};
 use std::net::{Ipv4Addr, SocketAddr};
 use std::sync::{Arc, RwLock};
@@ -50,9 +50,9 @@ use crate::machine_state_machine::MachineStateError::MissingMachineId;
 use crate::machine_utils::{
     PxeError, PxeResponse, forge_agent_control, get_validation_id, send_pxe_boot_request,
 };
-use crate::{PersistedDevice, PersistedDpuMachine};
+use crate::{Guid, InfinibandPortState, PersistedDevice, PersistedDpuMachine};
 
-pub type DpuDhcpRelayHandle = oneshot::Sender<()>;
+type DpuDhcpRelayHandle = oneshot::Sender<()>;
 
 // RFC 2131 section 4.1's Ethernet example starts at four seconds, doubles to a
 // 64-second base, and adds uniform jitter from -1 through +1 second.
@@ -153,10 +153,10 @@ fn direct_dhcp_relay_address(
 ///
 /// This code is in common between DPUs and Hosts.(ie. anything that has a BMC, boots via DHCP, can
 /// receive PXE instructions, etc.)
-pub struct MachineStateMachine {
-    pub live_state: Arc<RwLock<LiveState>>,
-    pub mat_host_id: Uuid,
-    pub installed_os: OsImage,
+pub(super) struct MachineStateMachine {
+    pub(super) live_state: Arc<RwLock<LiveState>>,
+    pub(super) mat_host_id: Uuid,
+    pub(super) installed_os: OsImage,
 
     fsm: MachineFsm,
     bmc_mock: Option<Arc<BmcMockWrapperHandle>>,
@@ -180,13 +180,13 @@ pub struct MachineStateMachine {
 }
 
 #[derive(Debug, Clone)]
-pub struct LiveStateCallbacks {
+struct LiveStateCallbacks {
     state: Arc<RwLock<LiveState>>,
     command_channel: mpsc::UnboundedSender<BmcCommand>,
 }
 
 impl LiveStateCallbacks {
-    pub fn new(
+    fn new(
         state: Arc<RwLock<LiveState>>,
         command_channel: mpsc::UnboundedSender<BmcCommand>,
     ) -> Self {
@@ -222,7 +222,7 @@ impl Callbacks for LiveStateCallbacks {
 }
 
 #[derive(Debug, Clone)]
-pub struct LiveStateHostnameQuery(pub Arc<RwLock<LiveState>>);
+struct LiveStateHostnameQuery(Arc<RwLock<LiveState>>);
 
 impl HostnameQuerying for LiveStateHostnameQuery {
     fn get_hostname(&'_ self) -> Cow<'_, str> {
@@ -239,24 +239,29 @@ impl HostnameQuerying for LiveStateHostnameQuery {
 /// Represents state which changes over time with this machine. This is kept in an `Arc<RwLock>` so
 /// that callers can query it at any time. It is updated after every state transition.
 #[derive(Debug)]
-pub struct LiveState {
-    pub is_up: bool,
-    pub power_state: MockPowerState, // reflects the "desired" power state of the machine. Affects whether next_state will boot the machine or not.
-    pub observed_machine_id: Option<MachineId>,
-    pub machine_ip: Option<Ipv4Addr>,
-    pub bmc_ip: Option<Ipv4Addr>,
-    pub ipmi_endpoint: Option<IpmiEndpoint>,
-    pub booted_os: MaybeOsImage,
-    pub next_boot_kind: Option<BootOptionKind>,
-    pub installed_os: OsImage,
-    pub state_string: Option<&'static str>,
-    pub api_state: String,
-    pub tpm_ek_certificate: Option<Vec<u8>>,
-    pub ssh_host_key: Option<String>,
+pub(super) struct LiveState {
+    pub(super) is_up: bool,
+    pub(super) power_state: MockPowerState, // reflects the "desired" power state of the machine. Affects whether next_state will boot the machine or not.
+    pub(super) observed_machine_id: Option<MachineId>,
+    pub(super) machine_ip: Option<Ipv4Addr>,
+    pub(super) bmc_ip: Option<Ipv4Addr>,
+    pub(super) ipmi_endpoint: Option<IpmiEndpoint>,
+    pub(super) booted_os: MaybeOsImage,
+    pub(super) next_boot_kind: Option<BootOptionKind>,
+    pub(super) installed_os: OsImage,
+    pub(super) state_string: Option<&'static str>,
+    pub(super) api_state: String,
+    pub(super) tpm_ek_certificate: Option<Vec<u8>>,
+    pub(super) ssh_host_key: Option<String>,
+    pub(super) infiniband_port_states: HashMap<Guid, InfinibandPortState>,
     /// For a DPU machine, whether its BlueField has flipped to NIC mode. Lets the
     /// owning host observe the flip through the DPU handle and converge (detach
     /// its DPU DHCP relay). Always false for a host machine.
-    pub dpu_flipped_to_nic_mode: bool,
+    pub(super) dpu_flipped_to_nic_mode: bool,
+    /// Current host firmware inventory, updated on each power-on after staged
+    /// firmware is applied.  Used by `persisted()` so restarts resume from the
+    /// last observed versions rather than the operator-configured starting point.
+    pub(super) active_host_firmware: Option<bmc_mock::HostFirmwareVersions>,
 }
 
 impl Default for LiveState {
@@ -276,13 +281,39 @@ impl Default for LiveState {
             api_state: "Unknown".to_string(),
             tpm_ek_certificate: None,
             ssh_host_key: None,
+            infiniband_port_states: HashMap::new(),
             dpu_flipped_to_nic_mode: false,
+            active_host_firmware: None,
         }
     }
 }
 
 impl LiveState {
-    pub fn ui_next_boot_kind(&self) -> &'static str {
+    fn for_machine(
+        machine_info: &MachineInfo,
+        power_state: MockPowerState,
+        tpm_ek_certificate: Option<Vec<u8>>,
+    ) -> Self {
+        let infiniband_port_states = match machine_info {
+            MachineInfo::Host(host) => host
+                .infiniband_port_guids()
+                .into_iter()
+                .map(|guid| {
+                    let bytes: [u8; 8] = guid.into();
+                    (Guid::from(bytes), InfinibandPortState::Active)
+                })
+                .collect(),
+            MachineInfo::Dpu(_) => HashMap::new(),
+        };
+        Self {
+            power_state,
+            tpm_ek_certificate,
+            infiniband_port_states,
+            ..Default::default()
+        }
+    }
+
+    pub(super) fn ui_next_boot_kind(&self) -> &'static str {
         match self.next_boot_kind {
             Some(BootOptionKind::Disk) => "Disk",
             Some(BootOptionKind::Network) => "Network",
@@ -308,13 +339,13 @@ pub enum BmcRegistrationMode {
     None(u16),
 }
 
-pub enum PersistedMachine {
+pub(super) enum PersistedMachine {
     Host(PersistedDevice),
     Dpu(PersistedDpuMachine),
 }
 
 impl MachineStateMachine {
-    pub fn from_persisted(
+    pub(super) fn from_persisted(
         persisted_machine: PersistedMachine,
         machine_info: MachineInfo,
         config: Arc<MachineConfig>,
@@ -342,11 +373,11 @@ impl MachineStateMachine {
             dhcp_retry: DhcpRetryState::default(),
             machine_discovery_result: None,
             installed_os: initial_os_image,
-            live_state: Arc::new(RwLock::new(LiveState {
-                power_state: MockPowerState::On,
+            live_state: Arc::new(RwLock::new(LiveState::for_machine(
+                &machine_info,
+                MockPowerState::On,
                 tpm_ek_certificate,
-                ..Default::default()
-            })),
+            ))),
             machine_info,
             bmc_command_channel,
             config,
@@ -357,7 +388,7 @@ impl MachineStateMachine {
         }
     }
 
-    pub fn new(
+    pub(super) fn new(
         machine_info: MachineInfo,
         config: Arc<MachineConfig>,
         app_context: Arc<MachineATronContext>,
@@ -368,11 +399,11 @@ impl MachineStateMachine {
     ) -> MachineStateMachine {
         let (fsm, actions) = MachineFsm::init(false, Self::is_bmc_only(&machine_info, &config));
         MachineStateMachine {
-            live_state: Arc::new(RwLock::new(LiveState {
-                power_state: MockPowerState::Off,
+            live_state: Arc::new(RwLock::new(LiveState::for_machine(
+                &machine_info,
+                MockPowerState::Off,
                 tpm_ek_certificate,
-                ..Default::default()
-            })),
+            ))),
             fsm,
             actions: actions.into_iter().collect(),
             bmc_dhcp_info: None,
@@ -396,7 +427,7 @@ impl MachineStateMachine {
         }
     }
 
-    pub async fn advance(&mut self) -> Duration {
+    pub(super) async fn advance(&mut self) -> Duration {
         if let Some(duration) = self.process_actions().await {
             duration
         } else {
@@ -437,7 +468,7 @@ impl MachineStateMachine {
         }
     }
 
-    pub async fn process_actions(&mut self) -> Option<Duration> {
+    async fn process_actions(&mut self) -> Option<Duration> {
         while let Some(action) = self.actions.front() {
             self.update_live_state();
             if matches!(action, FsmAction::Dhcp(_))
@@ -916,7 +947,7 @@ impl MachineStateMachine {
         }
         Ok(())
     }
-    pub async fn dpu_agent_network_observation(
+    async fn dpu_agent_network_observation(
         &self,
     ) -> Result<Option<DpuDhcpRelayHandle>, MachineStateError> {
         let machine_id = self
@@ -958,7 +989,7 @@ impl MachineStateMachine {
         }
     }
 
-    pub fn update_live_state(&self) {
+    pub(super) fn update_live_state(&self) {
         let mut live_state = self.live_state.write().unwrap();
         live_state.is_up = self.fsm.is_up();
         live_state.machine_ip = self.machine_ip();
@@ -986,20 +1017,54 @@ impl MachineStateMachine {
                 .as_ref()
                 .and_then(|state| state.bluefield_nic_mode())
                 .unwrap_or(false);
+        live_state.active_host_firmware = self.current_host_firmware();
     }
 
     /// Whether this machine still relays its data-plane DHCP through a managed
     /// DPU. False once the relay is detached (see `detach_dpu_dhcp_relay`) or for
     /// a host that never had a managed DPU.
-    pub fn has_dpu_dhcp_relay(&self) -> bool {
+    pub(super) fn has_dpu_dhcp_relay(&self) -> bool {
         self.dpu_dhcp_relay.is_some()
+    }
+
+    /// Return the active host firmware versions from the live BMC mock inventory.
+    /// Returns `None` when the BMC mock has not started yet, or when this
+    /// platform has no host firmware simulation (inventory IDs are `None`).
+    pub(super) fn current_host_firmware(&self) -> Option<bmc_mock::HostFirmwareVersions> {
+        let bmc_state = self.bmc_state.as_ref()?;
+        // host_bmc_inventory_id is None for platforms without host firmware simulation
+        // (switches, power shelves, Dell R760+BF4, etc.).  Return None early so
+        // live_state.active_host_firmware stays None for those machines.
+        let bmc_id = bmc_state
+            .update_service_state
+            .host_bmc_inventory_id
+            .as_deref()?;
+        let uefi_id = bmc_state
+            .update_service_state
+            .host_uefi_inventory_id
+            .as_deref();
+        let bmc = bmc_state
+            .update_service_state
+            .find_firmware_inventory(bmc_id)
+            .and_then(|v| v["Version"].as_str().map(str::to_owned));
+        let uefi = uefi_id.and_then(|id| {
+            bmc_state
+                .update_service_state
+                .find_firmware_inventory(id)
+                .and_then(|v| v["Version"].as_str().map(str::to_owned))
+        });
+        if bmc.is_some() || uefi.is_some() {
+            Some(bmc_mock::HostFirmwareVersions { bmc, uefi })
+        } else {
+            None
+        }
     }
 
     /// Stop relaying data-plane DHCP through the DPU. Once a DPU flips to NIC
     /// mode it is a plain NIC, so the host DHCPs directly on its own (former-DPU
     /// host) MAC -- the same MAC, so a retained boot interface still matches on
     /// re-ingestion. Idempotent.
-    pub fn detach_dpu_dhcp_relay(&mut self) {
+    pub(super) fn detach_dpu_dhcp_relay(&mut self) {
         self.dpu_dhcp_relay = None;
         self.dpu_dhcp_relay_handle = None;
     }
@@ -1011,7 +1076,7 @@ impl MachineStateMachine {
     /// host-facing MAC becomes the host's own plain-NIC MAC, so the host keeps
     /// DHCPing on the same MAC and a retained boot interface still matches.
     /// No-op for a non-host machine or a host that already has no DPUs.
-    pub fn drop_managed_dpus(&mut self) {
+    pub(super) fn drop_managed_dpus(&mut self) {
         if let MachineInfo::Host(host) = &mut self.machine_info {
             if host.dpus.is_empty() {
                 return;
@@ -1062,6 +1127,8 @@ impl MachineStateMachine {
         Ok(machine_discovery_result)
     }
 
+    // Machine-a-tron receives the compatibility fields from the agent-facing response.
+    #[allow(deprecated)]
     async fn send_network_status_observation(
         &self,
         machine_id: MachineId,
@@ -1093,7 +1160,7 @@ impl MachineStateMachine {
                 mac_address: self.machine_info.host_mac_address().map(|a| a.to_string()),
                 addresses,
                 prefixes,
-                gateways: vec![iface.gateway.clone()],
+                gateways: build_dual_stack_list(iface.gateway.clone(), None),
                 network_security_group: None,
                 internal_uuid: None,
             }]
@@ -1119,7 +1186,7 @@ impl MachineStateMachine {
                     mac_address: self.machine_info.host_mac_address().map(|a| a.to_string()),
                     addresses,
                     prefixes,
-                    gateways: vec![iface.gateway.clone()],
+                    gateways: build_dual_stack_list(iface.gateway.clone(), None),
                     network_security_group: iface.network_security_group.as_ref().map(|s| {
                         rpc::forge::NetworkSecurityGroupStatus {
                             source: s.source,
@@ -1147,7 +1214,7 @@ impl MachineStateMachine {
         Ok(())
     }
 
-    pub fn set_system_power(&mut self, request: SystemPowerControl) -> SetSystemPowerResult {
+    pub(super) fn set_system_power(&mut self, request: SystemPowerControl) -> SetSystemPowerResult {
         use SystemPowerControl::*;
         match request {
             On | ForceOn => self.fsm_event(Event::PowerOn),
@@ -1163,17 +1230,17 @@ impl MachineStateMachine {
         Ok(())
     }
 
-    pub fn machine_id(&self) -> Option<MachineId> {
+    fn machine_id(&self) -> Option<MachineId> {
         self.machine_discovery_result
             .as_ref()
             .and_then(|result| result.machine_id)
     }
 
-    pub fn machine_ip(&self) -> Option<Ipv4Addr> {
+    fn machine_ip(&self) -> Option<Ipv4Addr> {
         self.machine_dhcp_info.as_ref().map(|v| v.ip_address)
     }
 
-    pub fn bmc_ip(&self) -> Option<Ipv4Addr> {
+    fn bmc_ip(&self) -> Option<Ipv4Addr> {
         self.bmc_dhcp_info.as_ref().map(|v| v.ip_address)
     }
 
@@ -1181,7 +1248,7 @@ impl MachineStateMachine {
         self.bmc_injection.clone()
     }
 
-    pub fn booted_os(&self) -> MaybeOsImage {
+    pub(super) fn booted_os(&self) -> MaybeOsImage {
         MaybeOsImage(self.fsm.booted_os())
     }
 
@@ -1289,7 +1356,7 @@ impl Display for OsImage {
 }
 
 #[derive(Debug, Default)]
-pub struct MaybeOsImage(pub Option<OsImage>);
+pub(super) struct MaybeOsImage(pub(super) Option<OsImage>);
 
 impl Display for MaybeOsImage {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
@@ -1301,7 +1368,7 @@ impl Display for MaybeOsImage {
 }
 
 #[derive(thiserror::Error, Debug)]
-pub enum MachineStateError {
+pub(super) enum MachineStateError {
     #[error(
         "invalid machine state: missing interface_id for this machine in machine discovery results"
     )]
@@ -1345,7 +1412,7 @@ impl From<tonic::Status> for MachineStateError {
     }
 }
 #[derive(thiserror::Error, Debug)]
-pub enum AddressConfigError {
+pub(super) enum AddressConfigError {
     #[error("error running ip command: {0}")]
     Io(#[from] std::io::Error),
     #[error("error running ip command: {0:?}, output: {1:?}")]

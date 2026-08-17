@@ -59,6 +59,13 @@ pub struct Options {
     #[clap(long)]
     pub client_key: Option<String>,
 
+    /// Path of the dpu-agent's local API socket. When set, fmds fetches
+    /// short-lived node-auth bearer JWTs from the agent and presents them to
+    /// carbide-api — instead of (or in addition to) the mTLS client cert —
+    /// so this pod no longer needs the machine private key mounted.
+    #[clap(long, env = "FMDS_NODE_TOKEN_SOCKET")]
+    pub node_token_socket: Option<String>,
+
     /// Name of the interface to assign the metadata-service address to.
     #[clap(long, env = "FMDS_INTERFACE_NAME", default_value = "f_pf0hpf_if")]
     pub interface_name: String,

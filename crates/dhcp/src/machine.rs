@@ -64,13 +64,13 @@ impl DhcpByteBuffer {
 /// additional constraints (options) to and from the client.
 #[derive(Debug, Clone)]
 pub struct Machine {
-    pub inner: rpc::DhcpRecord,
-    pub discovery_info: Discovery,
-    pub vendor_class: Option<VendorClass>,
+    pub(super) inner: rpc::DhcpRecord,
+    pub(super) discovery_info: Discovery,
+    pub(super) vendor_class: Option<VendorClass>,
 }
 
 impl Machine {
-    pub async fn try_fetch(
+    pub(super) async fn try_fetch(
         discovery: Discovery,
         carbide_api_url: &str,
         vendor_class: Option<VendorClass>,
@@ -106,7 +106,7 @@ impl Machine {
         }
     }
 
-    pub fn booturl(&self) -> Option<&str> {
+    fn booturl(&self) -> Option<&str> {
         self.inner.booturl.as_deref()
     }
 }
@@ -134,7 +134,7 @@ pub extern "C" fn machine_get_interface_router(ctx: *mut Machine) -> u32 {
         .unwrap_or_else(|| {
             log::warn!(
                 "No gateway provided for machine interface: {:?}",
-                &machine.inner.machine_interface_id
+                machine.inner.machine_interface_id
             );
             &default_router
         })
@@ -274,14 +274,14 @@ pub extern "C" fn machine_get_filename(ctx: *mut Machine) -> *const libc::c_char
             BiosX86 => {
                 log::error!(
                     "Matched an HTTP client on a Legacy BIOS client, cannot provide HTTP boot URL {:?}",
-                    &machine
+                    machine
                 );
                 return ptr::null();
             }
             Unknown => {
                 log::error!(
                     "Matched an unknown architecture, cannot provide HTTP boot URL {:?}",
-                    &machine
+                    machine
                 );
                 return ptr::null();
             }
@@ -552,17 +552,6 @@ pub extern "C" fn machine_free_nameservers(nameservers: *mut libc::c_char) {
         }
 
         drop(CString::from_raw(nameservers))
-    };
-}
-
-#[unsafe(no_mangle)]
-pub extern "C" fn machine_free_ntpservers(ntpservers: *mut libc::c_char) {
-    unsafe {
-        if ntpservers.is_null() {
-            return;
-        }
-
-        drop(CString::from_raw(ntpservers))
     };
 }
 

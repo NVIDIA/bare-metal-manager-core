@@ -23,10 +23,10 @@ use serde_json::json;
 
 use crate::{BootOptionKind, Callbacks, hw, redfish};
 
-pub struct DellPowerEdgeR760Bf4<'a> {
-    pub bmc_mac_address: MacAddress,
-    pub product_serial_number: Cow<'a, str>,
-    pub bf4: hw::nic::Nic<'a>,
+pub(crate) struct DellPowerEdgeR760Bf4<'a> {
+    pub(crate) bmc_mac_address: MacAddress,
+    pub(crate) product_serial_number: Cow<'a, str>,
+    pub(crate) bf4: hw::nic::Nic<'a>,
 }
 
 const BF4_SLOT: hw::nic::SlotNumber = 2;
@@ -46,7 +46,7 @@ impl DellPowerEdgeR760Bf4<'_> {
         }
     }
 
-    pub fn manager_config(&self) -> redfish::manager::Config {
+    pub(crate) fn manager_config(&self) -> redfish::manager::Config {
         redfish::manager::Config {
             managers: vec![redfish::manager::SingleConfig {
                 id: "iDRAC.Embedded.1",
@@ -73,7 +73,10 @@ impl DellPowerEdgeR760Bf4<'_> {
         }
     }
 
-    pub fn system_config(&self, callbacks: Arc<dyn Callbacks>) -> redfish::computer_system::Config {
+    pub(crate) fn system_config(
+        &self,
+        callbacks: Arc<dyn Callbacks>,
+    ) -> redfish::computer_system::Config {
         let callbacks = Some(callbacks);
         let serial_number = Some(self.product_serial_number.to_string().into());
         let system_id = "System.Embedded.1";
@@ -123,6 +126,7 @@ impl DellPowerEdgeR760Bf4<'_> {
                 // failure.
                 storage: Some(vec![]),
                 processors: None,
+                memory: None,
                 serial_console: None,
                 secure_boot_available: true,
                 base_bios: Some(redfish::bios::builder(&redfish::bios::resource(system_id))
@@ -151,7 +155,7 @@ impl DellPowerEdgeR760Bf4<'_> {
         }
     }
 
-    pub fn chassis_config(&self) -> redfish::chassis::ChassisConfig {
+    pub(crate) fn chassis_config(&self) -> redfish::chassis::ChassisConfig {
         let chassis_id = "System.Embedded.1";
         let network_adapter_id = format!("NIC.Slot.{BF4_SLOT}");
         let function_id = format!("NIC.Slot.{BF4_SLOT}-1");
@@ -217,9 +221,11 @@ impl DellPowerEdgeR760Bf4<'_> {
         }
     }
 
-    pub fn update_service_config(&self) -> redfish::update_service::UpdateServiceConfig {
+    pub(crate) fn update_service_config(&self) -> redfish::update_service::UpdateServiceConfig {
         redfish::update_service::UpdateServiceConfig {
             firmware_inventory: vec![],
+            advertise_multipart_push_uri: false,
+            ..Default::default()
         }
     }
 }

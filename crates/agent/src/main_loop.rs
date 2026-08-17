@@ -38,6 +38,7 @@ use forge_certs::cert_renewal::ClientCertRenewer;
 use forge_dpu_remediation::remediation::{MachineInfo, RemediationExecutor};
 use ipnetwork::IpNetwork;
 use mac_address::MacAddress;
+use prost::Message as _;
 use tokio::signal::unix::{SignalKind, signal};
 use tokio::sync::watch;
 use tokio::task::JoinHandle;
@@ -76,7 +77,7 @@ use crate::{
 // instance metadata information and stores it. The main loop and the instance
 // metadata service use the information fetched be the periodic fetcher by reading
 // the information stored by the periodic config fetcher.
-pub async fn setup_and_run(
+pub(super) async fn setup_and_run(
     machine_id: MachineId,
     factory_mac_address: MacAddress,
     forge_client_config: Arc<ForgeClientConfig>,
@@ -423,6 +424,7 @@ pub async fn setup_and_run(
         has_logged_stable: false,
         version_check_time: std::time::Instant::now(),
         inventory_updater_time: std::time::Instant::now(),
+        ca_republish_time: std::time::Instant::now(),
         started_at: std::time::Instant::now(),
         inventory_updater_config,
         options,
@@ -461,6 +463,7 @@ struct MainLoop {
     started_at: std::time::Instant,
     version_check_time: std::time::Instant,
     inventory_updater_time: std::time::Instant,
+    ca_republish_time: std::time::Instant,
     inventory_updater_config: MachineInventoryUpdaterConfig,
     options: command_line::RunOptions,
     agent_config: AgentConfig,
@@ -488,24 +491,20 @@ struct IterationResult {
     loop_period: std::time::Duration,
 }
 
-/// `CurrentNetworkVersion` tracks the versions we last successfully applied,
-/// mostly so we can avoid hitting the HBN update methods more frequently than
-/// needed.
+/// `CurrentNetworkVersion` tracks the response inputs we last applied so the
+/// agent can skip an HBN update only when the explicit versions match and the
+/// current response still describes the same HBN behavior.
 #[derive(Debug, Default)]
 struct CurrentNetworkVersion {
     managed_host_config_version: Option<String>,
     instance_network_config_version: Option<String>,
-    // This hashes over a bunch of unversioned fields from the API.
-    unversioned_fields_hash: Option<u64>,
+    rendered_inputs_hash: Option<u64>,
 }
 
 impl CurrentNetworkVersion {
-    // Return whether our stored version matches the specific config.
-    pub fn matches_versions_from(
-        &self,
-        conf: impl AsRef<ManagedHostNetworkConfigResponse>,
-    ) -> bool {
-        let conf = conf.as_ref();
+    /// Returns whether the explicit versions and HBN inputs from the response
+    /// match the last successful network reconciliation.
+    fn matches_versions_from(&self, conf: &ManagedHostNetworkConfigResponse) -> bool {
         let managed_host_config_version = get_non_empty_str(&conf.managed_host_config_version);
         let instance_network_config_version =
             get_non_empty_str(&conf.instance_network_config_version);
@@ -513,14 +512,12 @@ impl CurrentNetworkVersion {
         let config_versions_identical = self.managed_host_config_version.as_deref()
             == managed_host_config_version
             && self.instance_network_config_version.as_deref() == instance_network_config_version;
-        match (config_versions_identical, self.unversioned_fields_hash) {
-            (true, Some(unversioned_fields_hash)) => {
-                if unversioned_fields_hash == Self::hash_unversioned_fields(conf) {
+        match (config_versions_identical, self.rendered_inputs_hash) {
+            (true, Some(rendered_inputs_hash)) => {
+                if rendered_inputs_hash == Self::hash_rendered_inputs(conf) {
                     true
                 } else {
-                    tracing::info!(
-                        "An unversioned field in ManagedHostNetworkConfigResponse has changed"
-                    );
+                    tracing::info!("Rendered network inputs changed without a version change");
                     false
                 }
             }
@@ -529,83 +526,168 @@ impl CurrentNetworkVersion {
         }
     }
 
-    pub fn update_from(&mut self, conf: impl AsRef<ManagedHostNetworkConfigResponse>) {
-        let conf = conf.as_ref();
+    /// Records the versions and HBN inputs from the response after network
+    /// reconciliation succeeds.
+    fn update_from(&mut self, conf: &ManagedHostNetworkConfigResponse) {
         self.managed_host_config_version =
             get_non_empty_str(&conf.managed_host_config_version).map(String::from);
         self.instance_network_config_version =
             get_non_empty_str(&conf.instance_network_config_version).map(String::from);
-        self.unversioned_fields_hash
-            .replace(Self::hash_unversioned_fields(conf));
+        self.rendered_inputs_hash
+            .replace(Self::hash_rendered_inputs(conf));
     }
 
-    // Some of the fields aren't covered by any of the ConfigVersions that we
-    // receive from the API, so let's try to catch changes in these so that we
-    // don't skip a needed config update.
-    fn hash_unversioned_fields(conf: &ManagedHostNetworkConfigResponse) -> u64 {
+    /// Builds the one local fingerprint used to decide whether HBN rendering
+    /// can be skipped. Starting with the complete response makes new protobuf
+    /// fields part of the comparison by default; we remove only fields that
+    /// cannot affect HBN rendering, then normalize collections whose order does
+    /// not change HBN behavior. A future protobuf map field must be normalized
+    /// explicitly because its encoded iteration order is not stable.
+    fn hash_rendered_inputs(conf: &ManagedHostNetworkConfigResponse) -> u64 {
+        // TODO(chet): Eventually, Core should bump a version whenever any of
+        // these HBN inputs change, and then we can drop this fingerprint.
+        // Parent VPC policies can affect a lot of DPUs at once, though.
+        // Updating every instance would turn one VPC change into a lot of
+        // writes, and the version would say the instance changed when it
+        // didn't. This probably needs its own version.
+        let mut canonical = conf.clone();
+        Self::remove_non_rendered_inputs(&mut canonical);
+        Self::normalize_set_like_inputs(&mut canonical);
+
         let mut hasher = DefaultHasher::new();
-        let h = &mut hasher;
-
-        conf.additional_route_target_imports.hash(h);
-        conf.anycast_site_prefixes.hash(h);
-        conf.asn.hash(h);
-        conf.bgp_leaf_session_password.hash(h);
-        conf.common_internal_route_target.hash(h);
-        conf.datacenter_asn.hash(h);
-        conf.deny_prefixes.hash(h);
-        conf.deprecated_deny_prefixes.hash(h);
-        conf.dhcp_servers.hash(h);
-        conf.internet_l3_vni.hash(h);
-        // `managed_host_config_version` normally follows machine-group updates,
-        // but that relies on the DPU already being attached to its host. Hash
-        // the nested config so a missed fan-out cannot hide a DPU-specific change.
-        conf.managed_host_config.hash(h);
-        conf.network_security_policy_overrides.hash(h);
-        conf.ntp_servers.hash(h);
-        conf.remote_id.hash(h);
-        conf.route_servers.hash(h);
-        conf.site_global_vpc_vni.hash(h);
-        conf.stateful_acls_enabled.hash(h);
-        conf.tenant_host_asn.hash(h);
-        conf.vni_device.hash(h);
-        conf.vpc_isolation_behavior.hash(h);
-
-        conf.dpu_extension_services
-            .iter()
-            .for_each(|dpu_extension_service| {
-                dpu_extension_service.removed.hash(h);
-                dpu_extension_service.service_id.hash(h);
-                // We can probably ignore the other fields, assuming good
-                // behavior from the versioning.
-            });
-
-        if let Some(routing_profile) = &conf.routing_profile {
-            routing_profile.accepted_leaks_from_underlay.hash(h);
-            routing_profile.allowed_anycast_prefixes.hash(h);
-            routing_profile.leak_default_route_from_underlay.hash(h);
-            routing_profile.leak_tenant_host_routes_to_underlay.hash(h);
-            routing_profile.route_target_imports.hash(h);
-            routing_profile.route_targets_on_exports.hash(h);
-            routing_profile.tenant_leak_communities_accepted.hash(h);
-        }
-
-        if let Some(traffic_intercept_config) = &conf.traffic_intercept_config {
-            traffic_intercept_config.additional_overlay_vtep_ip.hash(h);
-            traffic_intercept_config.public_prefixes.hash(h);
-            traffic_intercept_config
-                .secondary_vtep_aggregate_prefixes
-                .hash(h);
-            if let Some(bridging) = &traffic_intercept_config.bridging {
-                bridging.hbn_bridge.hash(h);
-                bridging.host_representor_intercept_bridging.hash(h);
-                bridging.internal_bridge_routing_prefix.hash(h);
-                bridging.vf_intercept_bridge_name.hash(h);
-                bridging.vf_intercept_bridge_port.hash(h);
-                bridging.vf_intercept_bridge_sf.hash(h);
-            }
-        }
+        canonical.encode_to_vec().hash(&mut hasher);
 
         hasher.finish()
+    }
+
+    /// Removes response fields that do not affect HBN rendering. The
+    /// fingerprint starts with the complete response, so a new protobuf field
+    /// remains part of the comparison until we deliberately exclude it here.
+    fn remove_non_rendered_inputs(config: &mut ManagedHostNetworkConfigResponse) {
+        // These versions are compared directly before the fingerprint.
+        config.managed_host_config_version.clear();
+        config.instance_network_config_version.clear();
+
+        // Instance payload fields feed status and metadata paths, not network
+        // rendering.
+        config.instance_id = None;
+        config.instance = None;
+
+        // The pinger type is read once when the agent starts. A runtime change
+        // cannot affect HBN rendering and still requires an agent restart.
+        config.dpu_network_pinger_type = None;
+
+        // These inputs have separate owners that run independently of the HBN
+        // comparison.
+        config.min_dpu_functioning_links = None;
+        config.dpu_extension_services.clear();
+        config.astra_config = None;
+        config.use_admin_network_changed = None;
+
+        // DHCP is reconciled before this HBN skip decision on every iteration.
+        config.ntp_servers.clear();
+
+        // `host_interface_id` helps resolve the host machine ID when the agent
+        // starts, but a later change does not affect HBN rendering.
+        config.host_interface_id = None;
+
+        // Nothing in the agent reads the deprecated deny-prefix list anymore.
+        config.deprecated_deny_prefixes.clear();
+
+        // DHCP is always enabled; this deprecated flag no longer controls
+        // rendering.
+        config.enable_dhcp = false;
+    }
+
+    /// `normalize_set_like_inputs` sorts inputs that HBN treats as sets, but
+    /// preserves relative order anywhere HBN cares about it.
+    fn normalize_set_like_inputs(config: &mut ManagedHostNetworkConfigResponse) {
+        config.dhcp_servers.sort_unstable();
+        config.route_servers.sort_unstable();
+        config.deny_prefixes.sort_unstable();
+        config.site_fabric_prefixes.sort_unstable();
+        config.anycast_site_prefixes.sort_unstable();
+        config
+            .additional_route_target_imports
+            .sort_by_key(|route_target| (route_target.asn, route_target.vni));
+
+        if let Some(admin_interface) = &mut config.admin_interface {
+            Self::normalize_interface(admin_interface);
+        }
+        for interface in &mut config.tenant_interfaces {
+            Self::normalize_interface(interface);
+        }
+
+        for rule in &mut config.network_security_policy_overrides {
+            Self::normalize_security_group_rule(rule);
+        }
+        Self::normalize_security_group_rule_order(&mut config.network_security_policy_overrides);
+
+        if let Some(routing_profile) = &mut config.routing_profile {
+            Self::normalize_routing_profile(routing_profile);
+        }
+    }
+
+    /// Orders prefix-policy entries by their only rendered value.
+    fn sort_prefix_entries(entries: &mut [rpc::PrefixFilterPolicyEntry]) {
+        entries.sort_by(|left, right| left.prefix.cmp(&right.prefix));
+    }
+
+    /// `normalize_interface` sorts the set-like inputs inside one interface
+    /// without changing the surrounding interface order.
+    fn normalize_interface(interface: &mut rpc::FlatInterfaceConfig) {
+        interface.vpc_prefixes.sort_unstable();
+        interface.vpc_peer_prefixes.sort_unstable();
+        interface.vpc_peer_vnis.sort_unstable();
+
+        if let Some(routing_profile) = &mut interface.vpc_routing_profile {
+            Self::normalize_routing_profile(routing_profile);
+        }
+        if let Some(routing_profile) = &mut interface.interface_routing_profile {
+            Self::sort_prefix_entries(&mut routing_profile.allowed_anycast_prefixes);
+        }
+        if let Some(network_security_group) = &mut interface.network_security_group {
+            for rule in &mut network_security_group.rules {
+                Self::normalize_security_group_rule(rule);
+            }
+            Self::normalize_security_group_rule_order(&mut network_security_group.rules);
+        }
+    }
+
+    /// `normalize_routing_profile` sorts collections whose order does not
+    /// change routing behavior.
+    fn normalize_routing_profile(routing_profile: &mut rpc::RoutingProfile) {
+        routing_profile
+            .route_target_imports
+            .sort_by_key(|route_target| (route_target.asn, route_target.vni));
+        routing_profile
+            .route_targets_on_exports
+            .sort_by_key(|route_target| (route_target.asn, route_target.vni));
+        Self::sort_prefix_entries(&mut routing_profile.accepted_leaks_from_underlay);
+        Self::sort_prefix_entries(&mut routing_profile.allowed_anycast_prefixes);
+    }
+
+    /// `normalize_security_group_rule` sorts the resolved source and
+    /// destination prefixes for one security-group rule.
+    fn normalize_security_group_rule(rule: &mut rpc::ResolvedNetworkSecurityGroupRule) {
+        rule.src_prefixes.sort_unstable();
+        rule.dst_prefixes.sort_unstable();
+    }
+
+    /// The renderer partitions rules by direction and address family, then
+    /// stable-sorts each partition by priority. Mirror that behavior without
+    /// erasing the meaningful relative order of equal-priority rules.
+    fn normalize_security_group_rule_order(rules: &mut [rpc::ResolvedNetworkSecurityGroupRule]) {
+        rules.sort_by_key(|rule| {
+            rule.rule.as_ref().map(|attributes| {
+                (
+                    attributes.direction()
+                        == rpc::NetworkSecurityGroupRuleDirection::NsgRuleDirectionIngress,
+                    attributes.ipv6,
+                    attributes.priority,
+                )
+            })
+        });
     }
 }
 
@@ -737,11 +819,10 @@ impl MainLoop {
                 .await
                 .wrap_err("restarting OVS after admin network change")
             {
-                OvsRestart::Retrying {
+                carbide_instrument::emit(OvsRestart::Retrying {
                     error: format!("{err:#}"),
                     managed_host_config_version: conf.managed_host_config_version.clone(),
-                }
-                .emit();
+                });
                 status_out.network_config_error = Some(err.to_string());
                 self.ovs_restart_retry_backoff = Some(OvsRestartRetryBackoff {
                     managed_host_config_version: conf.managed_host_config_version.clone(),
@@ -817,6 +898,8 @@ impl MainLoop {
 
                 let instance_data = self.periodic_config_reader.meta_data_conf_reader();
 
+                // The fetcher projects `addresses` into the compatibility prefix before use.
+                #[allow(deprecated)]
                 let proposed_routes: Vec<_> = conf
                     .tenant_interfaces
                     .iter()
@@ -824,6 +907,7 @@ impl MainLoop {
                     .collect();
 
                 let tenant_peers = ethernet_virtualization::tenant_peers(&conf);
+                let mut should_check_ipv6_unicast = false;
                 if self.is_hbn_up {
                     // First thing is to read the existing HBN version and properly set the hbn device names
                     // associated with that version.
@@ -876,10 +960,12 @@ impl MainLoop {
                     }
 
                     tracing::trace!(network_config = ?conf, "Desired network config");
-                    // Get the actual virtualization type to use for configuring
-                    // an interface, where we'll default to reading the one provided
-                    // by the Carbide API, with the ability to override via RunOptions.
+                    // Resolve the virtualization type used to generate HBN
+                    // configuration, including any RunOptions override. The IPv6
+                    // health gate follows that same effective value.
                     let virtualization_type = effective_virtualization_type(&conf, &self.options)?;
+                    should_check_ipv6_unicast =
+                        ipv6_unicast_health_enabled(&conf, virtualization_type);
 
                     let dhcp_result = ethernet_virtualization::update_dhcp(
                         &self.agent_config.hbn.root_dir,
@@ -903,8 +989,6 @@ impl MainLoop {
                         if self.options.agent_platform_type.is_dpu_os()
                             && hbn_version >= self.fmds_minimum_hbn_version
                         {
-                            // Generate the fmds interface plan from the config. This does not apply the plan.
-                            // The plan is applied when the NVUE template is written
                             let fmds_proposed_interfaces = &self.agent_config.fmds_armos_networking;
                             let network_plan = DpuNetworkInterfaces::new(fmds_proposed_interfaces);
 
@@ -912,8 +996,13 @@ impl MainLoop {
                                 Interface::plan(self.hbn_device_names.sfs[0], network_plan).await?;
                             tracing::trace!(interface_plan = ?fmds_interface_plan, "Interface plan");
 
-                            // Generate the fmds route plan from conf.tenant_interfaces[n].address
-                            // the plan is applied when the nvue template is written
+                            Interface::apply(fmds_interface_plan).await?;
+
+                            // plan_fmds_armos_routing reads the interface's current IPv4 address
+                            // for prefsrc and returns Ok(None) when no address is present, skipping
+                            // route installation entirely. The config-version cache can prevent a
+                            // retry on the next tick, so the interface address must be applied
+                            // before the route plan is computed.
                             let route_plan = plan_fmds_armos_routing(
                                 self.hbn_device_names.sfs[0],
                                 &proposed_routes,
@@ -921,62 +1010,25 @@ impl MainLoop {
                             .await?;
                             tracing::trace!(route_plan = ?route_plan, "Route plan");
 
-                            // Apply the interface plan. This is where we actually configure
-                            // the FMDS phone home interface on the DPU.
-                            Interface::apply(fmds_interface_plan).await?;
-
-                            // If there are routes, apply the route plan. This is where we
-                            // actually add and remove FMDS phone home routes.
-                            //
-                            // When a DPU has recently booted, there may not be a pf0dpu1
-                            // interface configured yet, so routes may not be applied on the
-                            // first tick of the loop. Once the interface is configured, routes
-                            // can be added and removed.
-
-                            // This means that routes will be added last and might take a few seconds
-                            // to appear
                             if let Some(route_plan) = route_plan {
                                 Route::apply(route_plan).await?;
                             }
                         }
 
-                        // We'll update some internal bridging config if bridging config
-                        // for traffic_intercept was sent in.
-                        let bridging_result = if self.options.agent_platform_type.is_dpu_os()
-                            && conf
-                                .traffic_intercept_config
-                                .as_ref()
-                                .map(|vc| vc.bridging.is_some())
-                                .unwrap_or_default()
-                        {
-                            ethernet_virtualization::update_traffic_intercept_bridging(
-                                &conf,
-                                self.hbn_device_names.clone(),
-                                self.agent_config.hbn.skip_reload,
-                            )
-                            .await
-                        } else {
-                            Ok(false) // No errors and no change.
+                        let update_flavor = match self.nvue_context.as_mut() {
+                            Some(nvue_context) => NvueUpdateFlavor::RestApi { nvue_context },
+                            None => NvueUpdateFlavor::StartupFile {
+                                hbn_root: &self.agent_config.hbn.root_dir,
+                                skip_post: self.agent_config.hbn.skip_reload,
+                            },
                         };
-
-                        if bridging_result.is_ok() {
-                            let update_flavor = match self.nvue_context.as_mut() {
-                                Some(nvue_context) => NvueUpdateFlavor::RestApi { nvue_context },
-                                None => NvueUpdateFlavor::StartupFile {
-                                    hbn_root: &self.agent_config.hbn.root_dir,
-                                    skip_post: self.agent_config.hbn.skip_reload,
-                                },
-                            };
-                            ethernet_virtualization::update_nvue(
-                                virtualization_type,
-                                update_flavor,
-                                &conf,
-                                self.hbn_device_names.clone(),
-                            )
-                            .await
-                        } else {
-                            bridging_result
-                        }
+                        ethernet_virtualization::update_nvue(
+                            virtualization_type,
+                            update_flavor,
+                            &conf,
+                            self.hbn_device_names.clone(),
+                        )
+                        .await
                     };
 
                     let astra_config_status =
@@ -1086,6 +1138,7 @@ impl MainLoop {
                             has_changed_configs,
                             min_healthy_links: conf.min_dpu_functioning_links.unwrap_or(2),
                             route_servers: &conf.route_servers,
+                            should_check_ipv6_unicast,
                             hbn_device_names: self.hbn_device_names.clone(),
                             include_dhcp_server: !conf.use_admin_network || conf.is_primary_dpu,
                             run_restricted_mode_check: false,
@@ -1172,6 +1225,17 @@ impl MainLoop {
         self.client_cert_renewer
             .renew_certificates_if_necessary(None)
             .await;
+
+        // Beside renewal because the two revolve around the same files:
+        // renewal rewrites the credentials, and key-less consumers need the
+        // resulting trust anchor mirrored into `pub/` (issue #355). Driving it
+        // from here rather than a spawned task means it inherits the loop's
+        // shutdown handling, and a panic takes the agent down for a restart
+        // instead of silently leaving consumers on a stale anchor.
+        if now > self.ca_republish_time {
+            self.ca_republish_time = now.add(crate::CA_REPUBLISH_INTERVAL);
+            crate::republish_bootstrap_ca_if_changed(&self.agent_config.forge_system.root_ca);
+        }
 
         if now > self.inventory_updater_time {
             self.inventory_updater_time =
@@ -1291,6 +1355,23 @@ impl MainLoop {
             loop_period: Default::default(),
         }
     }
+}
+
+/// Enables IPv6-unicast health only after the effective FNN configuration has
+/// the dedicated IPv6 loopback used by that underlay.
+///
+/// FNN templates activate the address family before the loopback pool is
+/// available, so FRR summary-key presence cannot serve as the activation
+/// signal.
+fn ipv6_unicast_health_enabled(
+    conf: &ManagedHostNetworkConfigResponse,
+    virtualization_type: VpcVirtualizationType,
+) -> bool {
+    virtualization_type == VpcVirtualizationType::Fnn
+        && conf
+            .managed_host_config
+            .as_ref()
+            .is_some_and(|config| config.loopback_ip_v6.is_some())
 }
 
 /// effective_virtualization_type returns the virtualization type
@@ -1432,7 +1513,7 @@ async fn plan_fmds_armos_routing(
         Ok(None)
     }
 }
-pub async fn record_network_status(
+async fn record_network_status(
     status: rpc::DpuNetworkStatus,
     forge_api: &str,
     forge_client_config: &forge_tls_client::ForgeClientConfig,
@@ -1639,54 +1720,5 @@ ATF: v2.2(release):4.9.3-")
 }
 
 #[cfg(test)]
-mod test {
-    use super::*;
-
-    #[test]
-    fn test_current_network_version_hashes_nested_managed_host_config() {
-        use carbide_test_support::value_scenarios;
-
-        value_scenarios!(run = |managed_host_config| {
-            let mut conf = Arc::new(ManagedHostNetworkConfigResponse {
-                managed_host_config: Some(rpc::ManagedHostNetworkConfig {
-                    loopback_ip: "10.0.0.1".to_string(),
-                    loopback_ip_v6: None,
-                    quarantine_state: None,
-                }),
-                managed_host_config_version: "managed-v1".to_string(),
-                instance_network_config_version: "instance-v1".to_string(),
-                ..Default::default()
-            });
-            let mut current = CurrentNetworkVersion::default();
-            current.update_from(&conf);
-            Arc::get_mut(&mut conf).unwrap().managed_host_config = managed_host_config;
-            current.matches_versions_from(&conf)
-        };
-            "nested config changes invalidate the cache" {
-                Some(rpc::ManagedHostNetworkConfig {
-                    loopback_ip: "10.0.0.2".to_string(),
-                    loopback_ip_v6: None,
-                    quarantine_state: None,
-                }) => false,
-                Some(rpc::ManagedHostNetworkConfig {
-                    loopback_ip: "10.0.0.1".to_string(),
-                    loopback_ip_v6: Some("2001:db8::1".to_string()),
-                    quarantine_state: None,
-                }) => false,
-                None => false,
-            }
-        );
-    }
-
-    #[cfg(target_os = "linux")]
-    #[tokio::test]
-    async fn test_get_fabric_interfaces_data() {
-        let fabric_interfaces_data = get_fabric_interfaces_data().await.unwrap();
-        dbg!(fabric_interfaces_data.as_slice());
-        // Under virtualization we probably can't make any assertions about
-        // whether this list contains any interfaces, but uncommenting this
-        // should pass on any Linux host with real hardware or a virtualized PCI
-        // network interface.
-        // assert!(fabric_interfaces_data.len() > 0);
-    }
-}
+#[path = "tests/main_loop.rs"]
+mod tests;

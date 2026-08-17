@@ -190,6 +190,10 @@ func computerSystemPowerStateToNICo(
 		return nicoapi.PowerStateOn
 	case corev1.ComputerSystemPowerState_Off, corev1.ComputerSystemPowerState_PoweringOff:
 		return nicoapi.PowerStateOff
+	case corev1.ComputerSystemPowerState_Hibernating:
+		return nicoapi.PowerStateHibernating
+	case corev1.ComputerSystemPowerState_Sleeping:
+		return nicoapi.PowerStateSleeping
 	default:
 		return nicoapi.PowerStateUnknown
 	}

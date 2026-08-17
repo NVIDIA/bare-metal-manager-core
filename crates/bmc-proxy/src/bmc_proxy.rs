@@ -65,7 +65,7 @@ const TLS_REFRESH_INTERVAL: Duration = Duration::from_secs(5 * 60);
 const MAX_BODY_SIZE: usize = 8 * 1024 * 1024; // 8MiB body size limit (matches nginx ingress controller defaults)
 
 #[derive(thiserror::Error, Debug)]
-pub enum BmcProxyError {
+pub(crate) enum BmcProxyError {
     #[error("error resolving BMC information through carbide API: {0}")]
     Api(String),
     #[error("invalid configuration: {0}")]
@@ -80,8 +80,8 @@ pub enum BmcProxyError {
     TlsConfig(String),
 }
 
-pub struct BmcProxyParams {
-    pub config: Arc<crate::Config>,
+pub(crate) struct BmcProxyParams {
+    pub(crate) config: Arc<crate::Config>,
 }
 
 #[derive(Clone)]
@@ -115,7 +115,9 @@ enum ForwardedHeaderParseError {
 impl BmcProxyState {
     fn allows(&self, request: &Request<Body>) -> bool {
         let Some(auth_context) = request.extensions().get::<AuthContext<()>>() else {
-            emit(AuthContextMissing::request_acl(request.method()));
+            emit(AuthContextMissing::RequestAcl {
+                method_label: request.method().into(),
+            });
             return false;
         };
 
@@ -139,7 +141,7 @@ impl BmcProxyState {
     }
 }
 
-pub async fn start(
+pub(crate) async fn start(
     params: BmcProxyParams,
     cancel_token: CancellationToken,
     join_set: &mut JoinSet<()>,
@@ -542,7 +544,7 @@ fn get_tls_acceptor(tls_config: &TlsConfig) -> Result<RefreshableTlsAcceptor, Bm
     })
 }
 
-pub fn cert_description_layer<AZ: Authorization>(
+fn cert_description_layer<AZ: Authorization>(
     auth_config: &AuthConfig,
 ) -> Result<CertDescriptionMiddleware<AZ>, BmcProxyError> {
     tracing::info!(trust_config = ?auth_config.trust, "TrustConfig rendered from config");
@@ -813,7 +815,9 @@ fn authorize_principal_allow_list(
         .extensions()
         .get::<AuthContext<()>>()
         .ok_or_else(|| {
-            emit(AuthContextMissing::principal_allow_list(request.method()));
+            emit(AuthContextMissing::PrincipalAllowList {
+                method_label: request.method().into(),
+            });
             StatusCode::INTERNAL_SERVER_ERROR
         })?;
 
@@ -973,10 +977,10 @@ impl From<(StatusCode, &'static str)> for ProxyError {
 }
 
 struct BmcClientInfo {
-    pub http_client: reqwest_middleware::ClientWithMiddleware,
-    pub header_map: HeaderMap,
-    pub credentials: BmcCredentials,
-    pub base_upstream_uri: Uri,
+    http_client: reqwest_middleware::ClientWithMiddleware,
+    header_map: HeaderMap,
+    credentials: BmcCredentials,
+    base_upstream_uri: Uri,
 }
 
 #[derive(Clone, PartialEq, Eq)]

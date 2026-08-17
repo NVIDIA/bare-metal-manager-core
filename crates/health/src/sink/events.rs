@@ -42,7 +42,18 @@ pub enum HealthReportTarget {
     Switch,
 }
 
-#[derive(Clone, Debug)]
+impl HealthReportTarget {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Machine => "machine",
+            Self::PowerShelf => "power-shelf",
+            Self::Rack => "rack",
+            Self::Switch => "switch",
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq)]
 pub struct EventContext {
     pub endpoint_key: String,
     pub addr: BmcAddr,
@@ -122,10 +133,13 @@ impl EventContext {
             .and_then(|machine| machine.tray_index)
     }
 
-    /// Returns the NVLink domain UUID when the machine participates in one.
+    /// Returns the NVLink domain UUID associated with the endpoint, when known.
     pub fn nvlink_domain_uuid(&self) -> Option<NvLinkDomainId> {
-        self.machine_metadata()
-            .and_then(|machine| machine.nvlink_domain_uuid)
+        match &self.metadata {
+            Some(EndpointMetadata::Machine(machine)) => machine.nvlink_domain_uuid,
+            Some(EndpointMetadata::Switch(switch)) => switch.nvlink_domain_uuid,
+            _ => None,
+        }
     }
 
     pub fn switch_id(&self) -> Option<SwitchId> {
@@ -223,14 +237,45 @@ pub struct MetricSample {
     pub context: Option<SensorThresholdContext>,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum LogSeverity {
+    Unspecified,
+    Trace,
+    Debug,
+    Info,
+    Warn,
+    Error,
+    Fatal,
+}
+
+impl LogSeverity {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Unspecified => "UNSPECIFIED",
+            Self::Trace => "TRACE",
+            Self::Debug => "DEBUG",
+            Self::Info => "INFO",
+            Self::Warn => "WARN",
+            Self::Error => "ERROR",
+            Self::Fatal => "FATAL",
+        }
+    }
+}
+
+impl std::fmt::Display for LogSeverity {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
 /// Log event emitted by collectors and consumed by sinks.
 #[derive(Clone, Debug)]
 pub struct LogRecord {
     /// Human-readable log message or emitted structured body.
     pub body: String,
 
-    /// Source-provided severity text.
-    pub severity: String,
+    /// Severity, decoded by the collector from its source's own vocabulary.
+    pub severity: LogSeverity,
 
     /// Sink-visible metadata used for filtering, grouping, and correlation.
     pub attributes: Vec<MetricLabel>,
@@ -294,7 +339,7 @@ impl LogRecord {
 
         Cow::Owned(Self {
             body,
-            severity: self.severity.clone(),
+            severity: self.severity,
             attributes,
             diagnostic_record: None,
         })
@@ -638,8 +683,8 @@ mod tests {
     }
 
     fn nvlink_domain_id() -> NvLinkDomainId {
-        NvLinkDomainId::from_str("00000000-0000-0000-0000-000000000000")
-            .expect("valid NVLink domain id")
+        NvLinkDomainId::from_str("9f4b45ec-705a-4af4-89f7-a112bc9c8f4e")
+            .expect("valid non-nil NVLink domain id")
     }
 
     fn addr() -> BmcAddr {
@@ -667,6 +712,7 @@ mod tests {
                 serial: "SW-001".to_string(),
                 slot_number: Some(9),
                 tray_index: Some(4),
+                nvlink_domain_uuid: Some(nvlink_domain_id()),
                 endpoint_role: SwitchEndpointRole::Host,
                 is_primary: true,
                 nmxc_enabled: true,
@@ -858,6 +904,28 @@ mod tests {
 
             "GPU inventory" {
                 ReportSource::GpuInventory => "gpu-inventory",
+            }
+        );
+    }
+
+    #[test]
+    fn report_target_strings() {
+        value_scenarios!(
+            run = HealthReportTarget::as_str;
+            "machine" {
+                HealthReportTarget::Machine => "machine",
+            }
+
+            "power shelf" {
+                HealthReportTarget::PowerShelf => "power-shelf",
+            }
+
+            "rack" {
+                HealthReportTarget::Rack => "rack",
+            }
+
+            "switch" {
+                HealthReportTarget::Switch => "switch",
             }
         );
     }
@@ -1167,7 +1235,7 @@ mod tests {
                     machine_id: None,
                     slot_number: None,
                     tray_index: None,
-                    nvlink_domain_uuid: None,
+                    nvlink_domain_uuid: Some(nvlink_domain_id().to_string()),
                     machine_serial: None,
                     driver_version: None,
                     component_type: Some("nvlink_switch"),

@@ -29,9 +29,13 @@ use serde::{Deserialize, Serialize};
 use super::diagnostic::{
     DiagnosticPayload, make_diagnostic_record, nullable_ref, nullable_str, redfish_enum_string,
 };
+use super::redfish::{
+    RedfishLogFields, RedfishSeverity, add_redfish_analyzer_attributes,
+    log_entry_diagnostic_is_cper, nvidia_error_id, redfish_event_type_string, redfish_log_type,
+};
 use crate::HealthError;
 use crate::collectors::{IterationResult, PeriodicCollector};
-use crate::endpoint::{BmcEndpoint, EndpointMetadata};
+use crate::endpoint::BmcEndpoint;
 use crate::sink::{CollectorEvent, DataSink, EventContext, LogRecord};
 
 /// Configuration for logs collector
@@ -124,15 +128,6 @@ impl<B: Bmc + 'static> PeriodicCollector<B> for LogsCollector<B> {
 }
 
 impl<B: Bmc + 'static> LogsCollector<B> {
-    fn redfish_severity_to_otel(severity: &str) -> (u8, String) {
-        match severity.to_lowercase().as_str() {
-            "critical" => (21, "FATAL".to_string()),
-            "warning" => (13, "WARN".to_string()),
-            "ok" => (9, "INFO".to_string()),
-            _ => (1, "TRACE".to_string()),
-        }
-    }
-
     async fn load_persistent_state(&self) -> PersistentState {
         match tokio::fs::read_to_string(&self.state_file_path).await {
             Ok(contents) => serde_json::from_str(&contents).unwrap_or_default(),
@@ -266,10 +261,11 @@ impl<B: Bmc + 'static> LogsCollector<B> {
     }
 
     async fn collect_logs_from_services(&mut self) -> Result<(usize, usize), HealthError> {
-        let Some(EndpointMetadata::Machine(machine)) = &self.endpoint.metadata else {
+        if !self.endpoint.supports_periodic_logs() {
             return Ok((0, 0));
-        };
-        let machine_id = machine.machine_id.map(|id| id.to_string());
+        }
+
+        let machine_id = self.event_context.machine_id().map(|id| id.to_string());
 
         let Some(state) = self.state.as_mut() else {
             return Ok((0, 0));
@@ -385,53 +381,11 @@ impl<B: Bmc + 'static> LogsCollector<B> {
             let mut max_id = last_seen_id.unwrap_or(0);
 
             for entry in &entries {
-                let severity_text = if let Some(Some(severity)) = entry.severity.as_ref() {
-                    Self::redfish_severity_to_otel(&format!("{:?}", severity)).1
-                } else {
-                    "INFO".to_string()
-                };
-
-                let body = if let Some(Some(msg)) = entry.message.as_ref() {
-                    msg.clone()
-                } else {
-                    String::new()
-                };
-
-                let diagnostic_record = self
-                    .include_diagnostics
-                    .then(|| {
-                        make_diagnostic_record(DiagnosticPayload {
-                            diagnostic_data: nullable_str(&entry.diagnostic_data),
-                            diagnostic_data_type: nullable_ref(&entry.diagnostic_data_type)
-                                .and_then(redfish_enum_string),
-                            oem_diagnostic_data_type: nullable_str(&entry.oem_diagnostic_data_type),
-                            additional_data_uri: nullable_str(&entry.additional_data_uri),
-                            additional_data_size_bytes: nullable_ref(
-                                &entry.additional_data_size_bytes,
-                            )
-                            .copied(),
-                            message_id: entry.message_id.as_deref(),
-                            event_id: entry.event_id.as_deref(),
-                            log_entry_id: Some(entry.base.id.as_str()),
-                        })
-                    })
-                    .flatten();
-
-                let mut attributes = Vec::with_capacity(3);
-                if let Some(machine_id) = &machine_id {
-                    attributes.push((Cow::Borrowed("machine_id"), machine_id.clone()));
-                }
-                attributes.push((Cow::Borrowed("entry_id"), entry.base.id.clone()));
-                attributes.push((Cow::Borrowed("service_id"), service_id.clone()));
-
-                let log_event = CollectorEvent::Log(
-                    LogRecord {
-                        body,
-                        severity: severity_text,
-                        attributes,
-                        diagnostic_record,
-                    }
-                    .into(),
+                let log_event = entry_to_log(
+                    entry,
+                    machine_id.as_deref(),
+                    &service_id,
+                    self.include_diagnostics,
                 );
                 if let Some(data_sink) = &self.data_sink {
                     data_sink.handle_event(&self.event_context, &log_event);
@@ -452,6 +406,107 @@ impl<B: Bmc + 'static> LogsCollector<B> {
 
         Ok((total_log_count, fetch_failures))
     }
+}
+
+fn entry_to_log(
+    entry: &nv_redfish::schema::log_entry::LogEntry,
+    machine_id: Option<&str>,
+    service_id: &str,
+    include_diagnostics: bool,
+) -> CollectorEvent {
+    let redfish_severity = entry
+        .severity
+        .as_ref()
+        .and_then(Option::as_ref)
+        .map(RedfishSeverity::from_event_severity);
+    // Omitted, null, and unsupported Redfish severities do
+    // not imply a severity level.
+    let severity = redfish_severity.unwrap_or(RedfishSeverity::Unknown).into();
+
+    let diagnostic_data_type =
+        nullable_ref(&entry.diagnostic_data_type).and_then(redfish_enum_string);
+    let log_type = redfish_log_type(RedfishLogFields {
+        message: nullable_str(&entry.message),
+        message_args: entry.message_args.as_deref(),
+        has_cper: entry.cper.is_some()
+            || nullable_ref(&entry.diagnostic_data_type).is_some_and(log_entry_diagnostic_is_cper),
+    });
+
+    let diagnostic_record = include_diagnostics
+        .then(|| {
+            make_diagnostic_record(DiagnosticPayload {
+                diagnostic_data: nullable_str(&entry.diagnostic_data),
+                diagnostic_data_type,
+                oem_diagnostic_data_type: nullable_str(&entry.oem_diagnostic_data_type),
+                additional_data_uri: nullable_str(&entry.additional_data_uri),
+                additional_data_size_bytes: nullable_ref(&entry.additional_data_size_bytes)
+                    .copied(),
+                message_id: entry.message_id.as_deref(),
+                event_id: entry.event_id.as_deref(),
+                log_entry_id: Some(entry.base.id.as_str()),
+            })
+        })
+        .flatten();
+
+    let mut attributes = Vec::with_capacity(14);
+    if let Some(machine_id) = machine_id {
+        attributes.push((Cow::Borrowed("machine_id"), machine_id.to_string()));
+    }
+    attributes.push((Cow::Borrowed("entry_id"), entry.base.id.clone()));
+    attributes.push((Cow::Borrowed("service_id"), service_id.to_string()));
+    if let Some(oem) = &entry.base.base.oem {
+        attributes.push((
+            Cow::Borrowed("redfish.oem"),
+            oem.additional_properties.to_string(),
+        ));
+    }
+    add_redfish_analyzer_attributes(
+        &mut attributes,
+        log_type,
+        redfish_severity.unwrap_or(RedfishSeverity::Unknown),
+        nvidia_error_id(entry.base.base.oem.as_ref()),
+    );
+    if let Some(message_id) = &entry.message_id {
+        attributes.push((Cow::Borrowed("message_id"), message_id.clone()));
+    }
+    if let Some(args) = &entry.message_args {
+        attributes.push((
+            Cow::Borrowed("message_args"),
+            serde_json::to_string(args).unwrap_or_default(),
+        ));
+    }
+    if let Some(event_type) = redfish_event_type_string(entry.event_type.as_ref()) {
+        attributes.push((Cow::Borrowed("event_type"), event_type));
+    }
+    if let Some(event_id) = &entry.event_id {
+        attributes.push((Cow::Borrowed("event_id"), event_id.clone()));
+    }
+    if let Some(timestamp) = &entry.event_timestamp {
+        attributes.push((Cow::Borrowed("event_timestamp"), timestamp.to_string()));
+    }
+    if let Some(group_id) = nullable_ref(&entry.event_group_id) {
+        attributes.push((Cow::Borrowed("event_group_id"), group_id.to_string()));
+    }
+    if let Some(resolution) = &entry.resolution {
+        attributes.push((Cow::Borrowed("resolution"), resolution.clone()));
+    }
+    if let Some(origin) = entry
+        .links
+        .as_ref()
+        .and_then(|links| links.origin_of_condition.as_ref())
+    {
+        attributes.push((
+            Cow::Borrowed("origin_of_condition"),
+            origin.odata_id.to_string(),
+        ));
+    }
+
+    CollectorEvent::Log(Box::new(LogRecord {
+        body: nullable_str(&entry.message).unwrap_or_default().to_string(),
+        severity,
+        attributes,
+        diagnostic_record,
+    }))
 }
 
 /// Returns the highest parseable integer ID from `ids`, or -1 when `ids` is
@@ -478,14 +533,229 @@ fn service_is_excluded(exclude_services: &[String], service_id: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use carbide_test_support::{Check, check_values};
+    use serde_json::{Value, json};
 
-    use super::{initial_anchor_id, service_is_excluded};
+    use super::*;
+    use crate::sink::LogSeverity;
 
     const JOURNAL_BMC: &str = "/redfish/v1/Managers/BMC_0/LogServices/Journal";
     const JOURNAL_HGX: &str = "/redfish/v1/Managers/HGX_BMC_0/LogServices/Journal";
     const EVENTLOG: &str = "/redfish/v1/Systems/System_0/LogServices/EventLog";
     const XID: &str = "/redfish/v1/Chassis/HGX_GPU_0/LogServices/XID";
     const SEL: &str = "/redfish/v1/Systems/System_0/LogServices/SEL";
+
+    #[derive(Debug, PartialEq)]
+    struct ObservedLog {
+        body: String,
+        log_type: Option<String>,
+        event_type: Option<String>,
+        redfish_severity: Option<String>,
+        redfish_oem: Option<String>,
+        error_id: Option<String>,
+        diagnostic_data: Option<String>,
+    }
+
+    fn attribute(record: &LogRecord, key: &str) -> Option<String> {
+        record
+            .attributes
+            .iter()
+            .find(|(candidate, _)| candidate.as_ref() == key)
+            .map(|(_, value)| value.clone())
+    }
+
+    fn observe_log_entry(value: Value) -> ObservedLog {
+        let entry: nv_redfish::schema::log_entry::LogEntry =
+            serde_json::from_value(value).expect("valid Redfish log entry");
+        let event = entry_to_log(&entry, Some("machine-1"), EVENTLOG, true);
+        let CollectorEvent::Log(record) = event else {
+            panic!("expected log event");
+        };
+
+        ObservedLog {
+            body: record.body.clone(),
+            log_type: attribute(&record, "redfish.event.type"),
+            event_type: attribute(&record, "event_type"),
+            redfish_severity: attribute(&record, "redfish.event.severity"),
+            redfish_oem: attribute(&record, "redfish.oem"),
+            error_id: attribute(&record, "oem.nvidia.error_id"),
+            diagnostic_data: record
+                .diagnostic_record
+                .as_ref()
+                .map(|diagnostic| diagnostic.body.clone()),
+        }
+    }
+
+    fn observe_log_severity(severity: Option<Option<&str>>) -> (LogSeverity, Option<String>) {
+        let mut value = json!({
+            "@odata.id": "/redfish/v1/Systems/System_0/LogServices/EventLog/Entries/1",
+            "Id": "1",
+            "Name": "Platform event",
+            "EntryType": "Event",
+            "Message": "Platform event"
+        });
+        if let Some(severity) = severity {
+            value["Severity"] = severity.map_or(Value::Null, |severity| json!(severity));
+        }
+
+        let entry: nv_redfish::schema::log_entry::LogEntry =
+            serde_json::from_value(value).expect("valid Redfish log entry");
+        let CollectorEvent::Log(record) = entry_to_log(&entry, None, EVENTLOG, false) else {
+            panic!("expected log event");
+        };
+
+        (
+            record.severity,
+            attribute(&record, "redfish.event.severity"),
+        )
+    }
+
+    #[test]
+    fn periodic_severity_matches_sse() {
+        check_values(
+            [
+                Check {
+                    scenario: "critical severity",
+                    input: Some(Some("Critical")),
+                    expect: (LogSeverity::Fatal, Some("Critical".to_string())),
+                },
+                Check {
+                    scenario: "warning severity",
+                    input: Some(Some("Warning")),
+                    expect: (LogSeverity::Warn, Some("Warning".to_string())),
+                },
+                Check {
+                    scenario: "OK severity",
+                    input: Some(Some("OK")),
+                    expect: (LogSeverity::Info, Some("OK".to_string())),
+                },
+                Check {
+                    scenario: "omitted severity",
+                    input: None,
+                    expect: (LogSeverity::Unspecified, Some("Unknown".to_string())),
+                },
+                Check {
+                    scenario: "null severity",
+                    input: Some(None),
+                    expect: (LogSeverity::Unspecified, Some("Unknown".to_string())),
+                },
+                Check {
+                    scenario: "unsupported severity",
+                    input: Some(Some("Meltdown")),
+                    expect: (LogSeverity::Unspecified, Some("Unknown".to_string())),
+                },
+            ],
+            observe_log_severity,
+        );
+    }
+
+    #[test]
+    fn periodic_entries_emit_analyzer_fields() {
+        check_values(
+            [
+                Check {
+                    scenario: "c12 platform fault with empty message",
+                    input: json!({
+                        "@odata.id": "/redfish/v1/Systems/System_0/LogServices/EventLog/Entries/1",
+                        "Id": "1",
+                        "Name": "CPLD power sequence fault",
+                        "EntryType": "Event",
+                        "Severity": "Critical",
+                        "Message": "",
+                        "MessageId": "IANA.0.1.CPLD-PSEQ-FAULT",
+                        "MessageArgs": ["CPLD_0", ""],
+                        "EventType": "Alert",
+                        "Oem": {"Nvidia": {"ErrorId": "CPLD-PSEQ-FAULT"}},
+                        "Links": {
+                            "OriginOfCondition": {
+                                "@odata.id": "/redfish/v1/Chassis/HGX_Baseboard_0"
+                            }
+                        }
+                    }),
+                    expect: ObservedLog {
+                        body: String::new(),
+                        log_type: Some("redfish_event".to_string()),
+                        event_type: Some("Alert".to_string()),
+                        redfish_severity: Some("Critical".to_string()),
+                        redfish_oem: Some(
+                            r#"{"Nvidia":{"ErrorId":"CPLD-PSEQ-FAULT"}}"#.to_string(),
+                        ),
+                        error_id: Some("CPLD-PSEQ-FAULT".to_string()),
+                        diagnostic_data: None,
+                    },
+                },
+                Check {
+                    scenario: "xid log entry",
+                    input: json!({
+                        "@odata.id": "/redfish/v1/Systems/System_0/LogServices/EventLog/Entries/2",
+                        "Id": "2",
+                        "Name": "GPU fault",
+                        "EntryType": "Event",
+                        "Severity": "Warning",
+                        "Message": "GPU reported Xid 79",
+                        "MessageId": "Nvidia.1.0.GpuXid"
+                    }),
+                    expect: ObservedLog {
+                        body: "GPU reported Xid 79".to_string(),
+                        log_type: Some("xid".to_string()),
+                        event_type: None,
+                        redfish_severity: Some("Warning".to_string()),
+                        redfish_oem: None,
+                        error_id: None,
+                        diagnostic_data: None,
+                    },
+                },
+                Check {
+                    scenario: "cper log entry",
+                    input: json!({
+                        "@odata.id": "/redfish/v1/Systems/System_0/LogServices/EventLog/Entries/3",
+                        "Id": "3",
+                        "Name": "PCIe CPER",
+                        "EntryType": "Event",
+                        "Severity": "Critical",
+                        "Message": "PCIe error",
+                        "MessageId": "ResourceEvent.1.0.ResourceErrorsDetected",
+                        "DiagnosticData": "base64-cper-payload",
+                        "DiagnosticDataType": "CPER",
+                        "CPER": {}
+                    }),
+                    expect: ObservedLog {
+                        body: "PCIe error".to_string(),
+                        log_type: Some("cper".to_string()),
+                        event_type: None,
+                        redfish_severity: Some("Critical".to_string()),
+                        redfish_oem: None,
+                        error_id: None,
+                        diagnostic_data: Some("base64-cper-payload".to_string()),
+                    },
+                },
+            ],
+            observe_log_entry,
+        );
+    }
+
+    #[test]
+    fn periodic_cper_diagnostics_can_be_disabled() {
+        let entry: nv_redfish::schema::log_entry::LogEntry = serde_json::from_value(json!({
+            "@odata.id": "/redfish/v1/Systems/System_0/LogServices/EventLog/Entries/3",
+            "Id": "3",
+            "Name": "PCIe CPER",
+            "EntryType": "Event",
+            "Severity": "Critical",
+            "Message": "PCIe error",
+            "MessageId": "ResourceEvent.1.0.ResourceErrorsDetected",
+            "DiagnosticData": "base64-cper-payload",
+            "DiagnosticDataType": "CPER",
+            "CPER": {}
+        }))
+        .expect("valid CPER log entry");
+
+        let event = entry_to_log(&entry, None, EVENTLOG, false);
+        let CollectorEvent::Log(record) = event else {
+            panic!("expected log event");
+        };
+        assert_eq!(record.body, "PCIe error");
+        assert!(record.diagnostic_record.is_none());
+    }
 
     #[test]
     fn service_exclusion_filter() {

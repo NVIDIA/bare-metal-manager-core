@@ -24,7 +24,7 @@ use tonic::{Request, Response};
 use crate::api::Api;
 use crate::errors::CarbideError;
 
-pub async fn expire_dhcp_lease(
+pub(crate) async fn expire_dhcp_lease(
     api: &Api,
     request: Request<rpc::ExpireDhcpLeaseRequest>,
 ) -> Result<Response<rpc::ExpireDhcpLeaseResponse>, CarbideError> {
@@ -62,7 +62,7 @@ pub async fn expire_dhcp_lease(
     // deleting a specific IP allocation would hit. Either way, both variants
     // return the interfaces whose rows were actually deleted, so we resync those
     // authoritative owners rather than a separately looked-up interface (which
-    // could differ if ownership changed or multiple rows share the address).
+    // could differ if ownership changed between the lookup and deletion).
     let resync_targets = match mac_address {
         Some(mac) => {
             db::machine_interface_address::delete_by_address_and_mac(

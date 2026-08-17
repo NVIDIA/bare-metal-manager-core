@@ -22,12 +22,16 @@ import (
 type Component struct {
 	bun.BaseModel `bun:"table:component,alias:c"`
 
-	ID              uuid.UUID      `bun:"id,pk,type:uuid,default:gen_random_uuid()"`
-	Name            string         `bun:"name"`
-	Type            string         `bun:"type,type:varchar(16),default:'Compute'"`
-	Manufacturer    string         `bun:"manufacturer,notnull,unique:component_manufacturer_serial_idx"`
+	ID   uuid.UUID `bun:"id,pk,type:uuid,default:gen_random_uuid()"`
+	Name string    `bun:"name"`
+	Type string    `bun:"type,type:varchar(16),default:'Compute'"`
+	// Manufacturer and SerialNumber are descriptive labels, not identity: a
+	// mirrored component is identified by its host BMC's MAC address. nullzero
+	// maps the empty string to SQL NULL, so a component missing either half
+	// occupies no slot in component_manufacturer_serial_idx.
+	Manufacturer    string         `bun:"manufacturer,nullzero,unique:component_manufacturer_serial_idx"`
 	Model           string         `bun:"model"`
-	SerialNumber    string         `bun:"serial_number,notnull,notnull,unique:component_manufacturer_serial_idx"`
+	SerialNumber    string         `bun:"serial_number,nullzero,unique:component_manufacturer_serial_idx"`
 	Description     map[string]any `bun:"description,type:jsonb,json_use_number"`
 	FirmwareVersion string         `bun:"firmware_version,nullzero"`
 	// RackID is uuid.Nil when the component has been ingested but is not yet
@@ -55,6 +59,9 @@ func (cd *Component) Create(ctx context.Context, idb bun.IDB) error {
 	return err
 }
 
+// Get looks the component up by ID, or by (manufacturer, serial_number) when no
+// ID is set. Both label columns are nullable, so a component stored without one
+// of them is only reachable by the first form.
 func (cd *Component) Get(
 	ctx context.Context,
 	idb bun.IDB,

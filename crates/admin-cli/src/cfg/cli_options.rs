@@ -26,8 +26,8 @@ use crate::{
     machine_validation, managed_host, managed_switch, mlx, network_devices, network_security_group,
     network_segment, nvl_domain, nvl_logical_partition, nvl_partition, nvlink_nmxc_endpoints,
     operating_system, os_image, ping, power_shelf, rack, redfish, resource_pool, rms, route_server,
-    scout_stream, secrets, set, site_explorer, sku, spx_partition, ssh, switch, tenant,
-    tenant_keyset, tpm_ca, trim_table, version, vpc, vpc_peering, vpc_prefix,
+    scout_stream, secrets, set, site_explorer, site_prefix, sku, spx_partition, ssh, switch,
+    tenant, tenant_keyset, tpm_ca, trim_table, version, vpc, vpc_peering, vpc_prefix,
 };
 
 const MAX_INTERNAL_PAGE_SIZE: usize = 100;
@@ -48,14 +48,14 @@ fn parse_internal_page_size(value: &str) -> Result<usize, String> {
 
 #[derive(Parser, Debug)]
 #[clap(name = "nico-admin-cli")]
-#[clap(author = "https://github.com/NVIDIA/ncx-infra-controller-core")]
-pub struct CliOptions {
+#[clap(author = "https://github.com/NVIDIA/infra-controller")]
+pub(crate) struct CliOptions {
     #[clap(
         long,
         default_value = "false",
         help = "Print version number of nico-admin-cli and exit. For API server version see 'version' command."
     )]
-    pub version: bool,
+    pub(crate) version: bool,
 
     #[clap(
         long,
@@ -63,58 +63,58 @@ pub struct CliOptions {
         value_name = "USERNAME",
         help = "Never should be used against a production site. Use this flag only if you understand the impacts of inconsistencies with cloud db."
     )]
-    pub cloud_unsafe_op: Option<String>,
+    pub(crate) cloud_unsafe_op: Option<String>,
 
     #[clap(short, long, env = "API_URL", visible_alias = "carbide-url")]
     #[clap(
         help = "Default to API_URL environment variable or $HOME/.config/nico_api_cli.json file or https://carbide-api.forge-system.svc.cluster.local:1079."
     )]
-    pub api_url: Option<String>,
+    pub(crate) api_url: Option<String>,
 
     #[clap(short, long, value_enum, default_value = "ascii-table")]
-    pub format: OutputFormat,
+    pub(crate) format: OutputFormat,
 
     #[clap(short, long)]
-    pub output: Option<String>,
+    pub(crate) output: Option<String>,
 
     #[clap(long, env = "ROOT_CA_PATH", visible_alias = "forge-root-ca-path")]
     #[clap(
         help = "Default to ROOT_CA_PATH environment variable or $HOME/.config/nico_api_cli.json file."
     )]
-    pub root_ca_path: Option<String>,
+    pub(crate) root_ca_path: Option<String>,
 
     #[clap(long, env = "CLIENT_CERT_PATH")]
     #[clap(
         help = "Default to CLIENT_CERT_PATH environment variable or $HOME/.config/nico_api_cli.json file."
     )]
-    pub client_cert_path: Option<String>,
+    pub(crate) client_cert_path: Option<String>,
 
     #[clap(long, env = "CLIENT_KEY_PATH")]
     #[clap(
         help = "Default to CLIENT_KEY_PATH environment variable or $HOME/.config/nico_api_cli.json file."
     )]
-    pub client_key_path: Option<String>,
+    pub(crate) client_key_path: Option<String>,
 
     #[clap(long, env = "RMS_API_URL")]
     #[clap(help = "RMS API URL. Default to RMS_API_URL environment variable.")]
-    pub rms_api_url: Option<String>,
+    pub(crate) rms_api_url: Option<String>,
 
     #[clap(long, env = "RMS_ROOT_CA_PATH")]
     #[clap(help = "RMS Root CA path. Default to RMS_ROOT_CA_PATH environment variable.")]
-    pub rms_root_ca_path: Option<String>,
+    pub(crate) rms_root_ca_path: Option<String>,
 
     #[clap(long, env = "RMS_CLIENT_CERT_PATH")]
     #[clap(
         help = "RMS client certificate path. Default to RMS_CLIENT_CERT_PATH environment variable."
     )]
-    pub rms_client_cert_path: Option<String>,
+    pub(crate) rms_client_cert_path: Option<String>,
 
     #[clap(long, env = "RMS_CLIENT_KEY_PATH")]
     #[clap(help = "RMS client key path. Default to RMS_CLIENT_KEY_PATH environment variable.")]
-    pub rms_client_key_path: Option<String>,
+    pub(crate) rms_client_key_path: Option<String>,
 
     #[clap(short, long, num_args(0..), default_value = "0")]
-    pub debug: u8,
+    pub(crate) debug: u8,
 
     /// Extended result output.
     ///
@@ -122,10 +122,10 @@ pub struct CliOptions {
     /// what you probably care about, and "extended" output also dumps out all
     /// the internal UUIDs that are used to associate instances.
     #[clap(long, global = true)]
-    pub extended: bool,
+    pub(crate) extended: bool,
 
     #[clap(subcommand)]
-    pub commands: Option<CliCommand>,
+    pub(crate) commands: Option<CliCommand>,
 
     #[clap(
         short = 'p',
@@ -134,7 +134,7 @@ pub struct CliOptions {
         value_parser = parse_internal_page_size
     )]
     #[clap(help = "For commands that internally retrieve data with paging, use this page size.")]
-    pub internal_page_size: usize,
+    pub(crate) internal_page_size: usize,
 
     #[clap(
         long,
@@ -143,12 +143,12 @@ pub struct CliOptions {
         help = "Sort output by specified field",
         default_value = "primary-id"
     )]
-    pub sort_by: SortField,
+    pub(crate) sort_by: SortField,
 }
 
 #[derive(PartialEq, Eq, ValueEnum, Clone, Debug)]
 #[clap(rename_all = "kebab_case")]
-pub enum SortField {
+pub(crate) enum SortField {
     #[clap(help = "Sort by the primary id")]
     PrimaryId,
     #[clap(help = "Sort by state")]
@@ -156,7 +156,7 @@ pub enum SortField {
 }
 
 #[derive(Parser, Debug)]
-pub enum CliCommand {
+pub(crate) enum CliCommand {
     #[clap(
         about = "MeasuredBoot or SPDM attestations",
         subcommand,
@@ -361,6 +361,8 @@ pub enum CliCommand {
     Set(set::Cmd),
     #[clap(about = "Site explorer functions", subcommand)]
     SiteExplorer(site_explorer::Cmd),
+    #[clap(about = "SitePrefix management", subcommand)]
+    SitePrefix(site_prefix::Cmd),
     #[clap(about = "Manage machine SKUs", subcommand)]
     Sku(sku::Cmd),
     #[clap(
@@ -396,7 +398,7 @@ pub enum CliCommand {
 }
 
 impl CliOptions {
-    pub fn load() -> Self {
+    pub(crate) fn load() -> Self {
         Self::parse()
     }
 }
@@ -425,7 +427,7 @@ use serde::Deserialize;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Deserialize)]
 #[serde(rename_all = "lowercase")]
-pub enum CliDomain {
+pub(crate) enum CliDomain {
     Hardware,
     Network,
     Tenant,
@@ -433,7 +435,7 @@ pub enum CliDomain {
 }
 
 impl CliDomain {
-    pub fn title(self) -> &'static str {
+    pub(crate) fn title(self) -> &'static str {
         match self {
             CliDomain::Hardware => "Hardware",
             CliDomain::Network => "Network",
@@ -469,7 +471,7 @@ static COMMAND_DOMAINS: LazyLock<HashMap<String, CliDomain>> = LazyLock::new(|| 
 /// The domain a top-level command belongs to, keyed by its rendered name.
 /// Returns `None` for a command absent from `cli_domains.yaml` — every visible
 /// command must be listed there or `every_command_has_a_domain` fails.
-pub fn domain_for_command(name: &str) -> Option<CliDomain> {
+pub(crate) fn domain_for_command(name: &str) -> Option<CliDomain> {
     COMMAND_DOMAINS.get(name).copied()
 }
 

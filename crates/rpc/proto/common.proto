@@ -2,6 +2,8 @@ syntax = "proto3";
 
 package common;
 
+import "codegen/v1/derive.proto";
+
 message MachineId {
   string id = 1;
 }
@@ -14,14 +16,21 @@ message MachineIdList {
 // This is different than "repeated string" since using StringList
 // allows to express a nullable/optional list
 message StringList {
+  option (carbide.codegen.v1.message_derive) = "serde::Serialize";
   repeated string items = 1;
 }
 
 message UUID {
+  option (carbide.codegen.v1.message_derive) = "Ord";
+  option (carbide.codegen.v1.message_derive) = "PartialOrd";
+  option (carbide.codegen.v1.message_derive) = "serde::Deserialize";
+  option (carbide.codegen.v1.message_derive) = "serde::Serialize";
   string value = 1;
 }
 
 message PowerShelfId {
+  option (carbide.codegen.v1.message_derive) = "serde::Deserialize";
+  option (carbide.codegen.v1.message_derive) = "serde::Serialize";
   string id = 1;
 }
 
@@ -34,16 +43,29 @@ message RackProfileId {
 }
 
 message SwitchId {
+  option (carbide.codegen.v1.message_derive) = "serde::Deserialize";
+  option (carbide.codegen.v1.message_derive) = "serde::Serialize";
   string id = 1;
 }
 
 message Uint32List {
+  option (carbide.codegen.v1.message_derive) = "serde::Deserialize";
+  option (carbide.codegen.v1.message_derive) = "serde::Serialize";
   repeated uint32 items = 1;
 }
 
 message RouteTarget {
+  option (carbide.codegen.v1.message_derive) = "serde::Deserialize";
+  option (carbide.codegen.v1.message_derive) = "serde::Serialize";
   uint32 asn = 1;
   uint32 vni = 2;
+}
+
+// A list of route targets. Unlike a repeated field, this message can be optional,
+// allowing containing messages to distinguish an omitted list from an empty list.
+message RouteTargets {
+  option (carbide.codegen.v1.message_derive) = "serde::Serialize";
+  repeated RouteTarget values = 1;
 }
 
 // Placeholder ID types: These are not code-generated, but overridden by our own type-safe UUID wrappers. They are
@@ -82,18 +104,25 @@ message NetworkPrefixId {
   string value = 1;
 }
 message RemediationId {
+  option (carbide.codegen.v1.message_derive) = "serde::Serialize";
+  option (carbide.codegen.v1.message_derive) = "serde::Deserialize";
+  option (carbide.codegen.v1.message_derive) = "Ord";
+  option (carbide.codegen.v1.message_derive) = "PartialOrd";
   string value = 1;
 }
 
 message NVLinkPartitionId {
+  option (carbide.codegen.v1.message_derive) = "serde::Serialize";
   string value = 1;
 }
 
 message NVLinkLogicalPartitionId {
+  option (carbide.codegen.v1.message_derive) = "serde::Serialize";
   string value = 1;
 }
 
 message NVLinkDomainId {
+  option (carbide.codegen.v1.message_derive) = "serde::Serialize";
   string value = 1;
 }
 
@@ -115,6 +144,7 @@ message IpxeTemplateId {
 }
 
 message RackHardwareType {
+  option (carbide.codegen.v1.message_derive) = "serde::Serialize";
   string value = 1;
 }
 

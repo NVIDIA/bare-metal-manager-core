@@ -89,7 +89,7 @@ impl TryFrom<forgerpc::NetworkSegment> for NetworkSegmentRowDisplay {
 }
 
 /// List network segments
-pub async fn show_html(AxumState(state): AxumState<Arc<Api>>) -> Response {
+pub(super) async fn show_html(AxumState(state): AxumState<Arc<Api>>) -> Response {
     let networks = match fetch_network_segments(state.clone()).await {
         Ok(n) => n,
         Err(err) => {
@@ -145,7 +145,7 @@ pub async fn show_html(AxumState(state): AxumState<Arc<Api>>) -> Response {
     (StatusCode::OK, Html(tmpl.render().unwrap())).into_response()
 }
 
-pub async fn show_all_json(AxumState(state): AxumState<Arc<Api>>) -> Response {
+pub(super) async fn show_all_json(AxumState(state): AxumState<Arc<Api>>) -> Response {
     let networks = match fetch_network_segments(state).await {
         Ok(n) => n,
         Err(err) => {
@@ -241,6 +241,7 @@ struct NetworkSegmentDetail {
     domain_id: String,
     domain_name: String,
     segment_type: String,
+    infer_slaac_eui64_addresses: bool,
     prefixes: Vec<NetworkSegmentPrefix>,
     history: Vec<NetworkSegmentHistory>,
 }
@@ -307,6 +308,7 @@ impl TryFrom<forgerpc::NetworkSegment> for NetworkSegmentDetail {
                 "{:?}",
                 forgerpc::NetworkSegmentType::try_from(config.segment_type).unwrap_or_default()
             ),
+            infer_slaac_eui64_addresses: config.infer_slaac_eui64_addresses,
             prefixes,
             // History is fetched separately via FindNetworkSegmentStateHistories
             // and set on the template after conversion.
@@ -316,7 +318,7 @@ impl TryFrom<forgerpc::NetworkSegment> for NetworkSegmentDetail {
 }
 
 /// View networks segment details
-pub async fn detail(
+pub(super) async fn detail(
     AxumState(state): AxumState<Arc<Api>>,
     AxumPath(segment_id): AxumPath<String>,
 ) -> Response {

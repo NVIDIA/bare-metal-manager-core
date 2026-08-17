@@ -29,43 +29,47 @@ use rpc::forge;
 EXAMPLES:
 
 Create a tenant network segment with an IPv4 prefix:
-    $ nico-admin-cli --cloud-unsafe-op=my_username network-segment create --name tenant-segment-1 --vpc-id 12345678-1234-5678-90ab-cdef01234567 --prefix 10.0.0.0/24 --gateway 10.0.0.1
+    $ nico-admin-cli --cloud-unsafe-op=admin network-segment create --name tenant-segment-1 --vpc-id 12345678-1234-5678-90ab-cdef01234567 --prefix 10.0.0.0/24 --gateway 10.0.0.1
 
-Create a dual-stack host in-band segment with a chosen ID:
-    $ nico-admin-cli --cloud-unsafe-op=my_username network-segment create --name host-inband-a --segment-type host-inband --id 12345678-1234-5678-90ab-cdef01234567 --prefix 192.0.2.0/24 --gateway 192.0.2.1 --prefix 2001:db8::/64 --dhcpv6-link-address fe80::1 --subdomain-id 3ea8d9a2-4fe3-4189-97fc-cf9134e31f8f
+Create a dual-stack host in-band segment with a chosen ID and SLAAC EUI-64 inference:
+    $ nico-admin-cli --cloud-unsafe-op=admin network-segment create --name host-inband-a \
+    --segment-type host-inband --id 12345678-1234-5678-90ab-cdef01234567 \
+    --prefix 192.0.2.0/24 --gateway 192.0.2.1 --prefix 2001:db8::/64 \
+    --dhcpv6-link-address fe80::1 --subdomain-id 3ea8d9a2-4fe3-4189-97fc-cf9134e31f8f \
+    --infer-slaac-eui64-addresses
 
 ")]
-pub struct Args {
+pub(crate) struct Args {
     #[clap(long, help = "Network segment name")]
-    pub name: String,
+    name: String,
 
     #[clap(
         long,
         value_name = "NetworkSegmentId",
         help = "Optional network segment ID to use instead of allowing the API server to generate one"
     )]
-    pub id: Option<NetworkSegmentId>,
+    id: Option<NetworkSegmentId>,
 
     #[clap(
         long,
         value_name = "VpcId",
         help = "Optional VPC ID to attach the new segment to"
     )]
-    pub vpc_id: Option<VpcId>,
+    vpc_id: Option<VpcId>,
 
     #[clap(
         long,
         value_name = "DomainId",
         help = "DNS subdomain ID used for DHCP and DNS records on the segment. Required for segments of type host-inband"
     )]
-    pub subdomain_id: Option<DomainId>,
+    pub(super) subdomain_id: Option<DomainId>,
 
     #[clap(
         long,
         value_name = "MTU",
         help = "Optional MTU for the segment. Defaults to 9000 for tenant segments and 1500 for other segment types"
     )]
-    pub mtu: Option<i32>,
+    mtu: Option<i32>,
 
     #[clap(
         long,
@@ -75,14 +79,14 @@ pub struct Args {
         action = clap::ArgAction::Append,
         required = true
     )]
-    pub prefix: Vec<IpNet>,
+    prefix: Vec<IpNet>,
 
     #[clap(
         long,
         value_name = "IP-address",
         help = "IPv4 gateway for the IPv4 prefix"
     )]
-    pub gateway: Option<IpAddr>,
+    gateway: Option<IpAddr>,
 
     #[clap(
         long,
@@ -90,7 +94,7 @@ pub struct Args {
         value_name = "IPv6-address",
         help = "DHCPv6 relay link-address for the IPv6 prefix"
     )]
-    pub dhcpv6_link_address: Option<IpAddr>,
+    dhcpv6_link_address: Option<IpAddr>,
 
     #[clap(
         long,
@@ -98,7 +102,7 @@ pub struct Args {
         value_name = "COUNT",
         help = "Number of addresses to reserve before dynamic allocation starts"
     )]
-    pub reserve_first: i32,
+    reserve_first: i32,
 
     #[clap(
         long,
@@ -106,7 +110,13 @@ pub struct Args {
         default_value = "tenant",
         help = "Network segment type"
     )]
-    pub segment_type: forge::NetworkSegmentType,
+    pub(super) segment_type: forge::NetworkSegmentType,
+
+    #[clap(
+        long,
+        help = "Infer modified EUI-64 SLAAC addresses for stateless DHCPv6 clients and add them to interface address state. Off by default; use only when clients derive SLAAC addresses from their MAC addresses, and only on a dynamic segment with exactly one IPv6 /64. Existing IPv6 addresses are not replaced"
+    )]
+    infer_slaac_eui64_addresses: bool,
 }
 
 impl From<Args> for forge::NetworkSegmentCreationRequest {
@@ -134,6 +144,7 @@ impl From<Args> for forge::NetworkSegmentCreationRequest {
             prefixes,
             segment_type: args.segment_type as i32,
             id: args.id,
+            infer_slaac_eui64_addresses: args.infer_slaac_eui64_addresses,
         }
     }
 }

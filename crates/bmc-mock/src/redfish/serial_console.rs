@@ -21,21 +21,21 @@ use crate::json::JsonExt;
 use crate::redfish::Builder;
 
 #[derive(Clone)]
-pub struct SerialConsole {
+pub(crate) struct SerialConsole {
     value: serde_json::Value,
 }
 
 impl SerialConsole {
-    pub fn to_json(&self) -> serde_json::Value {
+    pub(crate) fn to_json(&self) -> serde_json::Value {
         self.value.clone()
     }
 }
 
-pub fn builder() -> SerialConsoleBuilder {
+pub(crate) fn builder() -> SerialConsoleBuilder {
     SerialConsoleBuilder { value: json!({}) }
 }
 
-pub struct SerialConsoleBuilder {
+pub(crate) struct SerialConsoleBuilder {
     value: serde_json::Value,
 }
 
@@ -48,25 +48,25 @@ impl Builder for SerialConsoleBuilder {
 }
 
 impl SerialConsoleBuilder {
-    pub fn max_concurrent_sessions(self, value: u64) -> Self {
+    pub(crate) fn max_concurrent_sessions(self, value: u64) -> Self {
         self.apply_patch(json!({ "MaxConcurrentSessions": value }))
     }
 
-    pub fn ssh(self, value: &SerialConsoleProtocol) -> Self {
+    pub(crate) fn ssh(self, value: &SerialConsoleProtocol) -> Self {
         self.apply_patch(json!({ "SSH": value.to_json() }))
     }
 
-    pub fn ipmi(self, value: &SerialConsoleProtocol) -> Self {
+    pub(crate) fn ipmi(self, value: &SerialConsoleProtocol) -> Self {
         self.apply_patch(json!({ "IPMI": value.to_json() }))
     }
 
-    pub fn build(self) -> SerialConsole {
+    pub(crate) fn build(self) -> SerialConsole {
         SerialConsole { value: self.value }
     }
 }
 
 #[derive(Clone)]
-pub struct SerialConsoleProtocol {
+pub(crate) struct SerialConsoleProtocol {
     value: serde_json::Value,
 }
 
@@ -76,11 +76,11 @@ impl SerialConsoleProtocol {
     }
 }
 
-pub fn protocol_builder() -> SerialConsoleProtocolBuilder {
+pub(crate) fn protocol_builder() -> SerialConsoleProtocolBuilder {
     SerialConsoleProtocolBuilder { value: json!({}) }
 }
 
-pub struct SerialConsoleProtocolBuilder {
+pub(crate) struct SerialConsoleProtocolBuilder {
     value: serde_json::Value,
 }
 
@@ -93,27 +93,27 @@ impl Builder for SerialConsoleProtocolBuilder {
 }
 
 impl SerialConsoleProtocolBuilder {
-    pub fn service_enabled(self, value: bool) -> Self {
+    pub(crate) fn service_enabled(self, value: bool) -> Self {
         self.apply_patch(json!({ "ServiceEnabled": value }))
     }
 
-    pub fn port(self, value: u16) -> Self {
+    pub(crate) fn port(self, value: u16) -> Self {
         self.apply_patch(json!({ "Port": value }))
     }
 
-    pub fn shared_with_manager_cli(self, value: bool) -> Self {
+    pub(crate) fn shared_with_manager_cli(self, value: bool) -> Self {
         self.apply_patch(json!({ "SharedWithManagerCLI": value }))
     }
 
-    pub fn console_entry_command(self, value: &str) -> Self {
+    pub(crate) fn console_entry_command(self, value: &str) -> Self {
         self.add_str_field("ConsoleEntryCommand", value)
     }
 
-    pub fn hot_key_sequence_display(self, value: &str) -> Self {
+    pub(crate) fn hot_key_sequence_display(self, value: &str) -> Self {
         self.add_str_field("HotKeySequenceDisplay", value)
     }
 
-    pub fn build(self) -> SerialConsoleProtocol {
+    pub(crate) fn build(self) -> SerialConsoleProtocol {
         SerialConsoleProtocol { value: self.value }
     }
 }

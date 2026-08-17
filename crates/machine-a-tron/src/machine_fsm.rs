@@ -19,10 +19,10 @@ use bmc_mock::{BmcEvent, MockPowerState};
 
 use crate::machine_state_machine::OsImage;
 
-pub type FsmReturn<Fsm> = (Fsm, Vec<Action>);
+type FsmReturn<Fsm> = (Fsm, Vec<Action>);
 
 #[derive(Clone, Copy, Debug)]
-pub enum MachineFsm {
+pub(super) enum MachineFsm {
     BmcInit { power_on: bool, bmc_only: bool },
     Init,
     MachineDown,
@@ -33,14 +33,14 @@ pub enum MachineFsm {
 }
 
 impl MachineFsm {
-    pub fn init(power_on: bool, bmc_only: bool) -> FsmReturn<Self> {
+    pub(super) fn init(power_on: bool, bmc_only: bool) -> FsmReturn<Self> {
         (
             Self::BmcInit { power_on, bmc_only },
             vec![Action::Dhcp(DhcpType::Bmc)],
         )
     }
 
-    pub fn event(self, event: Event) -> (Self, Vec<Action>) {
+    pub(super) fn event(self, event: Event) -> (Self, Vec<Action>) {
         // A managed DPU that applied a staged NIC-mode flip is now a plain NIC,
         // not a DPU: converge it to the dormant BMC-only track from any active
         // state. Producing this transition here (rather than assigning the state
@@ -65,11 +65,11 @@ impl MachineFsm {
         }
     }
 
-    pub fn is_up(&self) -> bool {
+    pub(super) fn is_up(&self) -> bool {
         matches!(self, Self::MachineUp { .. } | Self::BmcOnlyMachineUp)
     }
 
-    pub fn power_state(&self) -> MockPowerState {
+    pub(super) fn power_state(&self) -> MockPowerState {
         match self {
             Self::BmcInit { power_on: true, .. } => MockPowerState::On,
             Self::BmcInit {
@@ -84,7 +84,7 @@ impl MachineFsm {
         }
     }
 
-    pub fn state_string(&self) -> &'static str {
+    pub(super) fn state_string(&self) -> &'static str {
         match self {
             Self::BmcInit { .. } => "BmcInit",
             Self::Init => "Init",
@@ -96,7 +96,7 @@ impl MachineFsm {
         }
     }
 
-    pub fn booted_os(&self) -> Option<OsImage> {
+    pub(super) fn booted_os(&self) -> Option<OsImage> {
         match self {
             Self::MachineUp {
                 os_fsm: OsFsm::Scout { .. },
@@ -113,8 +113,8 @@ impl MachineFsm {
 
     fn fsm_bmc_init(self, event: Event, power_on: bool, bmc_only: bool) -> (Self, Vec<Action>) {
         match event {
-            Event::DhcpComplete(DhcpType::Bmc) => (
-                if bmc_only {
+            Event::DhcpComplete(DhcpType::Bmc) => {
+                let next_state = if bmc_only {
                     if power_on {
                         Self::BmcOnlyMachineUp
                     } else {
@@ -124,9 +124,14 @@ impl MachineFsm {
                     Self::Init
                 } else {
                     Self::MachineDown
-                },
-                vec![Action::SetupBmc],
-            ),
+                };
+                let actions = if power_on && !bmc_only {
+                    vec![Action::SetupBmc, Action::SetTimer(Timer::MachineOn)]
+                } else {
+                    vec![Action::SetupBmc]
+                };
+                (next_state, actions)
+            }
             Event::PowerOn => (
                 Self::BmcInit {
                     bmc_only,
@@ -273,7 +278,7 @@ impl MachineFsm {
 }
 
 #[derive(Copy, Clone, Debug)]
-pub enum Event {
+pub(super) enum Event {
     DhcpComplete(DhcpType),
     PowerOn,
     PowerOff,
@@ -288,7 +293,7 @@ pub enum Event {
 }
 
 #[derive(Copy, Clone, Debug)]
-pub enum Action {
+pub(super) enum Action {
     SetupBmc,
     SetTimer(Timer),
     Dhcp(DhcpType),
@@ -301,7 +306,7 @@ pub enum Action {
 }
 
 #[derive(Copy, Clone, Debug)]
-pub enum Timer {
+pub(super) enum Timer {
     PowerCycle,
     MachineOn,
     ScoutAgentControlPoll,
@@ -309,20 +314,20 @@ pub enum Timer {
 }
 
 #[derive(Copy, Clone, Debug)]
-pub enum DhcpType {
+pub(super) enum DhcpType {
     Bmc,
     Machine,
 }
 
 #[derive(Copy, Clone, Debug)]
-pub enum OsFsm {
+pub(super) enum OsFsm {
     None,
     Scout(ScoutFsm),
     DpuAgent(DpuAgentFsm),
 }
 
 impl OsFsm {
-    pub fn init_actions(&self) -> Vec<Action> {
+    fn init_actions(&self) -> Vec<Action> {
         match self {
             Self::None => vec![],
             Self::Scout(_) => vec![Action::InitialDiscoveryRequest(OsImage::Scout)],
@@ -330,7 +335,7 @@ impl OsFsm {
         }
     }
 
-    pub fn event(self, event: Event) -> (Self, Vec<Action>) {
+    fn event(self, event: Event) -> (Self, Vec<Action>) {
         match self {
             Self::None => (self, vec![]),
             Self::Scout(scout_fsm) => {
@@ -347,7 +352,7 @@ impl OsFsm {
     /// A failed OS parked waiting to be rebooted -- e.g. its machine was
     /// force-deleted and its agent hit `MachineNotFound`. The host must reboot
     /// on the next power-on to re-PXE and re-ingest.
-    pub fn is_awaiting_reboot(&self) -> bool {
+    fn is_awaiting_reboot(&self) -> bool {
         matches!(
             self,
             Self::Scout(ScoutFsm::FailedAndWaitForReboot)
@@ -357,14 +362,14 @@ impl OsFsm {
 }
 
 #[derive(Copy, Clone, Debug)]
-pub enum ScoutFsm {
+pub(super) enum ScoutFsm {
     Discovery,
     PollingLoop,
     FailedAndWaitForReboot,
 }
 
 impl ScoutFsm {
-    pub fn event(self, event: Event) -> (Self, Vec<Action>) {
+    fn event(self, event: Event) -> (Self, Vec<Action>) {
         match self {
             Self::Discovery => self.fsm_discovery(event),
             Self::PollingLoop => self.fsm_polling_loop(event),
@@ -372,7 +377,7 @@ impl ScoutFsm {
         }
     }
 
-    pub fn fsm_discovery(self, event: Event) -> (Self, Vec<Action>) {
+    fn fsm_discovery(self, event: Event) -> (Self, Vec<Action>) {
         match event {
             Event::InitialDiscoveryCompleted => (
                 Self::PollingLoop,
@@ -383,7 +388,7 @@ impl ScoutFsm {
         }
     }
 
-    pub fn fsm_polling_loop(self, event: Event) -> (Self, Vec<Action>) {
+    fn fsm_polling_loop(self, event: Event) -> (Self, Vec<Action>) {
         match event {
             Event::AgentControlCompleted => {
                 (self, vec![Action::SetTimer(Timer::ScoutAgentControlPoll)])
@@ -398,7 +403,7 @@ impl ScoutFsm {
 }
 
 #[derive(Copy, Clone, Debug)]
-pub enum DpuAgentFsm {
+pub(super) enum DpuAgentFsm {
     Discovery,
     AgentControl,
     NetworkObservation,
@@ -406,7 +411,7 @@ pub enum DpuAgentFsm {
 }
 
 impl DpuAgentFsm {
-    pub fn event(self, event: Event) -> (Self, Vec<Action>) {
+    fn event(self, event: Event) -> (Self, Vec<Action>) {
         match self {
             Self::Discovery => self.fsm_discovery(event),
             Self::AgentControl => self.fsm_agent_control(event),
@@ -415,7 +420,7 @@ impl DpuAgentFsm {
         }
     }
 
-    pub fn fsm_discovery(self, event: Event) -> (Self, Vec<Action>) {
+    fn fsm_discovery(self, event: Event) -> (Self, Vec<Action>) {
         match event {
             Event::InitialDiscoveryCompleted => (
                 Self::AgentControl,
@@ -426,7 +431,7 @@ impl DpuAgentFsm {
         }
     }
 
-    pub fn fsm_agent_control(self, event: Event) -> (Self, Vec<Action>) {
+    fn fsm_agent_control(self, event: Event) -> (Self, Vec<Action>) {
         match event {
             Event::TimerAlert(Timer::DpuAgentControlPoll) => {
                 (self, vec![Action::AgentControlRequest(OsImage::DpuAgent)])
@@ -440,7 +445,7 @@ impl DpuAgentFsm {
         }
     }
 
-    pub fn fsm_network_observation(self, event: Event) -> (Self, Vec<Action>) {
+    fn fsm_network_observation(self, event: Event) -> (Self, Vec<Action>) {
         match event {
             Event::NetworkObservationCompleted => (
                 Self::AgentControl,
@@ -448,6 +453,56 @@ impl DpuAgentFsm {
             ),
             Event::MachineNotFound => (Self::FailedAndWaitForReboot, vec![]),
             _ => (self, vec![]),
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn bmc_dhcp_completion_selects_state_and_actions() {
+        enum ExpectedState {
+            Init,
+            MachineDown,
+            BmcOnlyMachineUp,
+            BmcOnlyMachineDown,
+        }
+
+        for (power_on, bmc_only, expected_state, starts_boot) in [
+            (true, false, ExpectedState::Init, true),
+            (false, false, ExpectedState::MachineDown, false),
+            (true, true, ExpectedState::BmcOnlyMachineUp, false),
+            (false, true, ExpectedState::BmcOnlyMachineDown, false),
+        ] {
+            let (fsm, _) = MachineFsm::init(power_on, bmc_only);
+            let (fsm, actions) = fsm.event(Event::DhcpComplete(DhcpType::Bmc));
+
+            assert!(
+                match expected_state {
+                    ExpectedState::Init => matches!(fsm, MachineFsm::Init),
+                    ExpectedState::MachineDown => matches!(fsm, MachineFsm::MachineDown),
+                    ExpectedState::BmcOnlyMachineUp => {
+                        matches!(fsm, MachineFsm::BmcOnlyMachineUp)
+                    }
+                    ExpectedState::BmcOnlyMachineDown => {
+                        matches!(fsm, MachineFsm::BmcOnlyMachineDown)
+                    }
+                },
+                "unexpected state for power_on={power_on}, bmc_only={bmc_only}"
+            );
+            assert!(
+                if starts_boot {
+                    matches!(
+                        actions.as_slice(),
+                        [Action::SetupBmc, Action::SetTimer(Timer::MachineOn)]
+                    )
+                } else {
+                    matches!(actions.as_slice(), [Action::SetupBmc])
+                },
+                "unexpected actions for power_on={power_on}, bmc_only={bmc_only}"
+            );
         }
     }
 }

@@ -193,6 +193,9 @@ verification expectations.
   `api/pkg/api/model/`, and DB models in `db/pkg/db/model/`.
 - OpenAPI schema in `openapi/spec.yaml` must be updated whenever routes in the
   published API surface are added or modified.
+- Give every newly introduced OpenAPI object a realistic example backed by an
+  existing contract, configuration, or test fixture. Keep example IDs, enum
+  values, nullability, and timing semantics valid under OpenAPI lint.
 - When adding a request/response field to a resource that has both single-item
   and batch endpoints, update the full surface together: single create/update
   DTOs, batch create/update DTOs, handlers, DAO input structs, persistence,
@@ -246,6 +249,13 @@ When building or converting a REST endpoint that calls on-site NICo Core through
 the generic gRPC proxy, follow
 [`skills/rest-core-grpc-proxy/SKILL.md`](skills/rest-core-grpc-proxy/SKILL.md).
 
+### REST endpoints through the Flow gRPC proxy
+
+When building or converting a REST endpoint that calls on-site Flow through the
+generic gRPC proxy, follow
+[`skills/rest-flow-grpc-proxy/SKILL.md`](skills/rest-flow-grpc-proxy/SKILL.md).
+Callers supply the Temporal workflow ID and conflict policy (unlike CoreProxy).
+
 ### REST endpoint implementation patterns
 
 Before adding REST API code, find the nearest existing endpoint family and copy
@@ -264,6 +274,11 @@ main patterns:
 - Flow-backed inventory and task APIs use Flow request/response protobufs in the
   API model layer and keep target-shape helpers next to the model or handler
   that owns the REST shape. Use Rack, Tray, Task, and Task Rule as references.
+  Every Flow-backed endpoint dispatches through the generic proxy, so use
+  `handler/util/common.ProxyFlowGRPC` (or `ExecuteFlowGRPC` where the caller
+  must return a plain `error`) rather than adding a bespoke Temporal workflow
+  per method. Retiring the bespoke workflows spans releases; see the skill for
+  the required order.
 - Curated REST endpoints that call NICo Core `forge.Forge` unary methods should
   use `handler/util/common.ExecuteCoreGRPC` with a typed protobuf request. Do
   not create a bespoke Temporal workflow for a simple unary Core call. BMC

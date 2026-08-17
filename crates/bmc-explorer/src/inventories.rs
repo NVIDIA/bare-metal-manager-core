@@ -21,12 +21,12 @@ use nv_redfish::{Bmc, Resource, ServiceRoot};
 
 use crate::{Error, hw};
 
-pub struct ExploredInventories<B: Bmc> {
+pub(crate) struct ExploredInventories<B: Bmc> {
     members: Vec<SoftwareInventory<B>>,
 }
 
 impl<B: Bmc> ExploredInventories<B> {
-    pub async fn explore(root: &ServiceRoot<B>) -> Result<Self, Error<B>> {
+    pub(crate) async fn explore(root: &ServiceRoot<B>) -> Result<Self, Error<B>> {
         Ok(Self {
             members: root
                 .update_service()
@@ -40,7 +40,7 @@ impl<B: Bmc> ExploredInventories<B> {
         })
     }
 
-    pub fn to_model(&self, hw_type: Option<hw::HwType>) -> Vec<ModelService> {
+    pub(crate) fn to_model(&self, hw_type: Option<hw::HwType>) -> Vec<ModelService> {
         let fw_inventories = ModelService {
             id: "FirmwareInventory".to_string(),
             inventories: self

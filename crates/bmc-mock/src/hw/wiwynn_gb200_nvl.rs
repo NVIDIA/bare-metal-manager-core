@@ -22,14 +22,14 @@ use serde_json::json;
 
 use crate::{BootOptionKind, Callbacks, hw, redfish};
 
-pub struct WiwynnGB200Nvl<'a> {
-    pub system_serial_number: Cow<'a, str>,
-    pub chassis_serial_number: Cow<'a, str>,
-    pub compute_board: [hw::nvidia_gb200::BiancaBoard<'a>; 2],
-    pub dpu1: hw::bluefield3::Bluefield3<'a>,
-    pub dpu2: hw::bluefield3::Bluefield3<'a>,
-    pub topology: hw::nvidia_gbx00::Topology,
-    pub io_board: [hw::nvidia_gb200::IoBoard<'a>; 2],
+pub(crate) struct WiwynnGB200Nvl<'a> {
+    pub(crate) system_serial_number: Cow<'a, str>,
+    pub(crate) chassis_serial_number: Cow<'a, str>,
+    pub(crate) compute_board: [hw::nvidia_gb200::BiancaBoard<'a>; 2],
+    pub(crate) dpu1: hw::bluefield3::Bluefield3<'a>,
+    pub(crate) dpu2: hw::bluefield3::Bluefield3<'a>,
+    pub(crate) topology: hw::nvidia_gbx00::Topology,
+    pub(crate) io_board: [hw::nvidia_gb200::IoBoard<'a>; 2],
 }
 
 impl WiwynnGB200Nvl<'_> {
@@ -43,7 +43,7 @@ impl WiwynnGB200Nvl<'_> {
         }
     }
 
-    pub fn manager_config(&self) -> redfish::manager::Config {
+    pub(crate) fn manager_config(&self) -> redfish::manager::Config {
         redfish::manager::Config {
             managers: vec![
                 redfish::manager::SingleConfig {
@@ -72,7 +72,10 @@ impl WiwynnGB200Nvl<'_> {
         }
     }
 
-    pub fn system_config(&self, callbacks: Arc<dyn Callbacks>) -> redfish::computer_system::Config {
+    pub(crate) fn system_config(
+        &self,
+        callbacks: Arc<dyn Callbacks>,
+    ) -> redfish::computer_system::Config {
         let system_id = "System_0";
         let callbacks = Some(callbacks);
         let serial_number = Some(self.system_serial_number.to_string().into());
@@ -120,6 +123,7 @@ impl WiwynnGB200Nvl<'_> {
                     log_services: None,
                     storage: None,
                     processors: None,
+                    memory: None,
                     serial_console: None,
                     secure_boot_available: true,
                 },
@@ -144,6 +148,12 @@ impl WiwynnGB200Nvl<'_> {
                             .flat_map(|board| board.hgx_gpu_processors(hgx_baseboard_id))
                             .collect(),
                     ),
+                    memory: Some(
+                        self.compute_board
+                            .iter()
+                            .flat_map(|board| board.hgx_gpu_memory(hgx_baseboard_id))
+                            .collect(),
+                    ),
                     serial_console: None,
                     secure_boot_available: false,
                 },
@@ -151,7 +161,7 @@ impl WiwynnGB200Nvl<'_> {
         }
     }
 
-    pub fn chassis_config(&self) -> redfish::chassis::ChassisConfig {
+    pub(crate) fn chassis_config(&self) -> redfish::chassis::ChassisConfig {
         let dpu_chassis = |chassis_id: &'static str, bf3: &hw::bluefield3::Bluefield3<'_>| {
             let nic = bf3.host_nic();
             let network_adapters = Some(vec![
@@ -236,7 +246,7 @@ impl WiwynnGB200Nvl<'_> {
         }
     }
 
-    pub fn update_service_config(&self) -> redfish::update_service::UpdateServiceConfig {
+    pub(crate) fn update_service_config(&self) -> redfish::update_service::UpdateServiceConfig {
         let fw_inv_builder = |id: &str| {
             redfish::software_inventory::builder(
                 &redfish::software_inventory::firmware_inventory_resource(id),
@@ -260,6 +270,9 @@ impl WiwynnGB200Nvl<'_> {
             .iter()
             .map(|(id, version)| fw_inv_builder(id).version(version).build())
             .collect(),
+            host_bmc_inventory_id: Some("FW_BMC_0".to_string()),
+            host_uefi_inventory_id: Some("HGX_FW_CPU_0".to_string()),
+            ..Default::default()
         }
     }
 }

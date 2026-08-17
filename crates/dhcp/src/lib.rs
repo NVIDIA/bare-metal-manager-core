@@ -35,16 +35,35 @@ use rpc::forge_tls_client::ForgeClientConfig;
 use tokio::runtime::{Builder, Runtime};
 
 mod cache;
+#[allow(
+    unreachable_pub,
+    reason = "cbindgen exposes this module's public items through the Kea C++ ABI"
+)]
 mod discovery;
+#[allow(
+    unreachable_pub,
+    reason = "cbindgen exposes this module's public items through the Kea C++ ABI"
+)]
 mod discovery_v6;
 mod kea;
 mod kea_logger;
+#[allow(
+    unreachable_pub,
+    reason = "cbindgen exposes this module's public items through the Kea C++ ABI"
+)]
 mod lease_expiration;
+#[allow(
+    unreachable_pub,
+    reason = "cbindgen exposes this module's public items through the Kea C++ ABI"
+)]
 mod machine;
+#[allow(
+    unreachable_pub,
+    reason = "cbindgen exposes this module's public items through the Kea C++ ABI"
+)]
 mod machine_v6;
-
-// Should be #[cfg(test)] but tests/integration_test.rs also uses it
 mod metrics;
+#[cfg(any(test, feature = "test-support"))]
 pub mod mock_api_server;
 mod tls;
 
@@ -54,7 +73,7 @@ static CONFIG: Lazy<RwLock<CarbideDhcpContext>> =
 static LOGGER: kea_logger::KeaLogger = kea_logger::KeaLogger;
 
 #[derive(Debug)]
-pub struct CarbideDhcpContext {
+struct CarbideDhcpContext {
     api_endpoint: String,
     nameservers: Vec<Ipv4Addr>,
     dns_servers_ipv6: Vec<Ipv6Addr>,
@@ -77,7 +96,7 @@ pub struct CarbideDhcpContext {
 // `metrics.rs` and resolve from the global meter; this struct holds only the
 // state the certificate-expiry gauge reports.
 #[derive(Debug, Clone)]
-pub struct CarbideDhcpMetrics {
+struct CarbideDhcpMetrics {
     forge_client_config: ForgeClientConfig,
     certificate_expiration_value: Arc<AtomicI64>,
 }
@@ -158,7 +177,7 @@ impl Default for CarbideDhcpContext {
     }
 }
 
-pub(crate) fn parse_ipv4_list(addresses: &str) -> Result<Vec<Ipv4Addr>, std::net::AddrParseError> {
+fn parse_ipv4_list(addresses: &str) -> Result<Vec<Ipv4Addr>, std::net::AddrParseError> {
     addresses
         .split(',')
         .map(str::trim)
@@ -167,7 +186,7 @@ pub(crate) fn parse_ipv4_list(addresses: &str) -> Result<Vec<Ipv4Addr>, std::net
         .collect()
 }
 
-pub(crate) fn format_ipv4_list(addresses: &[Ipv4Addr]) -> String {
+fn format_ipv4_list(addresses: &[Ipv4Addr]) -> String {
     addresses
         .iter()
         .map(ToString::to_string)
@@ -176,7 +195,7 @@ pub(crate) fn format_ipv4_list(addresses: &[Ipv4Addr]) -> String {
 }
 
 /// Parse a comma-separated list of IPv6 addresses from hook configuration.
-pub(crate) fn parse_ipv6_list(addresses: &str) -> Result<Vec<Ipv6Addr>, std::net::AddrParseError> {
+fn parse_ipv6_list(addresses: &str) -> Result<Vec<Ipv6Addr>, std::net::AddrParseError> {
     addresses
         .split(',')
         .map(str::trim)
@@ -186,7 +205,7 @@ pub(crate) fn parse_ipv6_list(addresses: &str) -> Result<Vec<Ipv6Addr>, std::net
 }
 
 impl CarbideDhcpContext {
-    pub fn get_tokio_runtime() -> &'static Runtime {
+    fn get_tokio_runtime() -> &'static Runtime {
         static TOKIO: Lazy<Runtime> = Lazy::new(|| {
             Builder::new_current_thread()
                 .enable_all()

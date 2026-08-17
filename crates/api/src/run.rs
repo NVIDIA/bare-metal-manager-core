@@ -15,6 +15,7 @@
  * limitations under the License.
  */
 
+use std::net::SocketAddr;
 use std::path::PathBuf;
 
 use carbide_api_core::AdminUiRoutesBuilder;
@@ -22,6 +23,7 @@ use carbide_api_core::bootstrap::{Logging, RuntimeInputs, start_runtime, start_r
 use carbide_secrets::CredentialConfig;
 use eyre::WrapErr;
 use ipnetwork::IpNetwork;
+use tokio::net::TcpListener;
 use tokio::sync::oneshot::Sender;
 use tokio::task::JoinSet;
 use tokio_util::sync::CancellationToken;
@@ -31,7 +33,20 @@ use crate::logging::setup_logging;
 use crate::metrics::{Metrics, setup_metrics};
 use crate::resources::{RuntimeResources, setup_resources};
 
-/// Run the carbide-api server until `cancel_token` is cancelled.
+/// Effective addresses owned by a running carbide-api server.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct ApiServerAddresses {
+    /// Address of the API listener.
+    pub listen_address: SocketAddr,
+    /// Address of the metrics listener, when configured.
+    pub metrics_address: Option<SocketAddr>,
+}
+
+/// Run the carbide-api server until `cancel_token` is cancelled or the process
+/// receives a shutdown signal.
+///
+/// Once startup completes, `ready_channel` receives the effective API and metrics listener
+/// addresses. This includes OS-selected ports when either endpoint is configured with port zero.
 #[allow(clippy::too_many_arguments)]
 pub async fn run(
     debug: u8,
@@ -41,7 +56,7 @@ pub async fn run(
     skip_logging_setup: bool,
     admin_ui_routes_builder: Option<AdminUiRoutesBuilder>,
     cancel_token: CancellationToken,
-    ready_channel: Sender<()>,
+    ready_channel: Sender<ApiServerAddresses>,
 ) -> eyre::Result<()> {
     let carbide_config = carbide_api_core::cfg::load::parse_carbide_config(
         &config_path,
@@ -52,9 +67,12 @@ pub async fn run(
     // `InitialObjectsConfig` so that the core runtime can reconcile its contents
     // against the database on first startup.
     let initial_objects = if let Some(path) = carbide_config.initial_objects_file.as_deref() {
-        Some(carbide_api_core::cfg::load::parse_initial_objects_config(
-            path,
-        )?)
+        Some(
+            carbide_api_core::cfg::load::parse_initial_objects_config_with_policy(
+                path,
+                carbide_config.deny_unknown_fields,
+            )?,
+        )
     } else {
         None
     };
@@ -89,12 +107,14 @@ pub async fn run(
     // initialization is complete, we use [`JoinSet::join_all`] to wait for them all to complete,
     // while propagating any panics to the current task.
     let mut join_set = JoinSet::new();
-    start_metrics_endpoint(
+    crate::shutdown_handler::start(&mut join_set, cancel_token.clone());
+    let metrics_address = start_metrics_endpoint(
         &mut join_set,
         &carbide_config,
         registry,
         cancel_token.clone(),
-    )?;
+    )
+    .await?;
     let per_object_metrics =
         start_per_object_metrics_endpoint(&mut join_set, &carbide_config, cancel_token.clone())?;
 
@@ -105,17 +125,17 @@ pub async fn run(
         credential_manager,
         certificate_provider,
         db_pool,
+        work_lock_manager_handle,
         secrets_context,
     } = setup_resources(
         &carbide_config,
         &credential_config,
-        &meter,
         &mut join_set,
         &cancel_token,
     )
     .await?;
 
-    start_runtime(RuntimeInputs {
+    let listen_address = start_runtime(RuntimeInputs {
         carbide_config,
         initial_objects,
         meter,
@@ -125,12 +145,24 @@ pub async fn run(
         credential_manager,
         certificate_provider,
         db_pool,
+        work_lock_manager_handle,
         secrets_context,
         admin_ui_routes_builder,
         cancel_token,
-        ready_channel,
     })
     .await?;
+
+    if ready_channel
+        .send(ApiServerAddresses {
+            listen_address,
+            metrics_address,
+        })
+        .is_err()
+    {
+        tracing::warn!(
+            "Bug: api server ready_channel is closed, could not notify readiness status"
+        );
+    }
 
     // Block forever until all spawned tasks complete. Any panics in spawned tasks will be
     // propagated here.
@@ -138,15 +170,24 @@ pub async fn run(
     Ok(())
 }
 
-fn start_metrics_endpoint(
+async fn start_metrics_endpoint(
     join_set: &mut JoinSet<()>,
     carbide_config: &carbide_api_core::cfg::file::CarbideConfig,
     registry: prometheus::Registry,
     cancel_token: CancellationToken,
-) -> eyre::Result<()> {
+) -> eyre::Result<Option<SocketAddr>> {
     let Some(metrics_address) = carbide_config.metrics_endpoint else {
-        return Ok(());
+        return Ok(None);
     };
+
+    let listener = TcpListener::bind(metrics_address)
+        .await
+        .wrap_err_with(|| format!("could not bind metrics endpoint at {metrics_address}"))?;
+    let metrics_address = listener
+        .local_addr()
+        .wrap_err("could not read metrics endpoint address")?;
+
+    tracing::info!(%metrics_address, "Starting metrics listener");
 
     // Spin up the web server which serves `/metrics` requests
     // If a replacement prefix for "carbide_" is configured, also emit metrics under that
@@ -162,7 +203,7 @@ fn start_metrics_endpoint(
         .build_task()
         .name("metrics_endpoint")
         .spawn(async move {
-            if let Err(error) = metrics_endpoint::run_metrics_endpoint_with_cancellation(
+            if let Err(error) = metrics_endpoint::run_metrics_endpoint_with_listener(
                 &metrics_endpoint::MetricsEndpointConfig {
                     address: metrics_address,
                     registry,
@@ -170,6 +211,7 @@ fn start_metrics_endpoint(
                     additional_prefix,
                 },
                 cancel_token,
+                listener,
             )
             .await
             {
@@ -181,7 +223,7 @@ fn start_metrics_endpoint(
             }
         })?;
 
-    Ok(())
+    Ok(Some(metrics_address))
 }
 
 /// Starts the dedicated listener for the opt-in per-object state metrics and

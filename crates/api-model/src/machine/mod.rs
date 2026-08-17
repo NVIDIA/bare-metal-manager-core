@@ -45,7 +45,7 @@ use super::instance::status::network::InstanceNetworkStatusObservation;
 use super::machine_boot_interface::{MachineBootInterface, MachineBootInterfaceTarget};
 use super::metadata::Metadata;
 use crate::controller_outcome::PersistentStateHandlerOutcome;
-use crate::dpa_interface::DpaInterface;
+use crate::dpa_interface::{DpaInterface, DpaInterfaceType};
 use crate::errors::{ModelError, ModelResult};
 use crate::expected_machine::ExpectedMachineData;
 use crate::firmware::FirmwareComponentType;
@@ -437,6 +437,15 @@ impl ManagedHostStateSnapshot {
     /// different interface than `boot_interface_mac`.
     pub fn boot_interface(&self) -> Option<MachineBootInterface> {
         pick_boot_interface_pair(&self.host_snapshot.status.interfaces)
+    }
+
+    // We are examining the dpa_interface_snapshots of the MH to see if has
+    // any NICs of type Astra. This function cannot be used during machine ingestion
+    // when the dpa_interfaces table does not yet have any entries for the host.
+    pub fn has_astra_nics(&self) -> bool {
+        self.dpa_interface_snapshots
+            .iter()
+            .any(|nic| matches!(nic.interface_type, DpaInterfaceType::Astra))
     }
 
     /// Returns `true` if override report is hw_health, `false` otherwise.
@@ -833,12 +842,21 @@ pub struct Machine {
     /// [`ManagedHostState::Maintenance`] to execute the requested operation.
     pub machine_maintenance_requested: Option<MachineMaintenanceRequest>,
 
-    /// Operator "force-converge this BMC now" request (REQ-2). Set on the machine
+    /// Operator "force-converge this BMC now" request. Set on the machine
     /// that owns the BMC (a host machine for its host BMC, a DPU machine for its
     /// DPU BMC). When `true`, the machine state controller enters `RotatingBmc`
     /// and force-converges this machine's single BMC on its next sweep,
     /// bypassing the passive site-wide gate and the device's backoff quarantine.
     pub bmc_credential_rotation_requested: bool,
+
+    /// Operator "force-converge this UEFI credential now" request.
+    /// Set on the machine that owns the UEFI credential (a host machine for its
+    /// host UEFI; a DPU machine for its DPU UEFI). When
+    /// `true`, the machine state controller enters `RotatingHostUefi` (or
+    /// `RotatingDpuUefi` for a DPU) and force-converges this machine's UEFI
+    /// credential on its next sweep,
+    /// bypassing the passive site-wide gate and the device's backoff quarantine.
+    pub uefi_credential_rotation_requested: bool,
 
     /// Does the forge-dpu-agent on this DPU need upgrading?
     pub dpu_agent_upgrade_requested: Option<UpgradeDecision>,
@@ -941,6 +959,15 @@ impl Machine {
             Some(hw) => hw.bmc_vendor(),
             None => bmc_vendor::BMCVendor::Unknown,
         }
+    }
+
+    /// Whether this machine's BMC must have its lockdown disabled before its
+    /// UEFI (BIOS setup) password can be changed, and re-enabled afterward.
+    /// Only Dell BMCs enforce a lockdown that blocks the BIOS password change;
+    /// other vendors accept it without unlocking. Centralizes the vendor check
+    /// so the UEFI setup and rotation flows don't special-case Dell inline.
+    pub fn needs_bmc_unlock_for_uefi_setup(&self) -> bool {
+        self.bmc_vendor().is_dell()
     }
 
     /// Does the forge-dpu-agent on this DPU need upgrading?
@@ -1270,7 +1297,7 @@ pub enum ManagedHostState {
     },
 
     /// The host and/or its DPUs are converging their BMC root credential to the
-    /// staged site-wide rotation target (REQ-2). A pool-only, top-level state:
+    /// staged site-wide rotation target. A pool-only, top-level state:
     /// it blocks instance creation (which requires exact `Ready`) for the bounded
     /// duration of the rotation. Per-device backoff/quarantine is owned by the
     /// rotation engine's `device_credential_rotation` bookkeeping, so this state
@@ -1278,6 +1305,48 @@ pub enum ManagedHostState {
     RotatingBmc {
         #[serde(default)]
         retry_count: u32,
+    },
+
+    /// The host is converging its own UEFI (BIOS setup) password to the staged
+    /// site-wide rotation target. A pool-only, top-level state: it
+    /// blocks instance creation (which requires exact `Ready`) for the bounded
+    /// duration of the rotation. Unlike `RotatingBmc`, applying a new UEFI
+    /// password requires a BIOS config job plus a full host power-cycle, so this
+    /// state carries the multi-tick [`UefiSetupInfo`] sub-state (job id + step).
+    /// Unlike the single-tick `RotatingBmc`, there is no separate handler retry
+    /// budget: transient failures use the state framework's built-in retry (as
+    /// the ingestion UEFI-setup FSM does) and device-level faults are backed off
+    /// by the rotation engine's `device_credential_rotation` bookkeeping.
+    ///
+    /// This state is host-specific on purpose: a DPU's UEFI password is a
+    /// distinct device (keyed by the DPU BMC MAC), applied through a DPU restart
+    /// rather than a host power-cycle, and a host can carry several DPUs. That
+    /// gets its own sibling `RotatingDpuUefi` state rather than an overloaded
+    /// discriminator here.
+    RotatingHostUefi {
+        uefi_setup_info: UefiSetupInfo,
+    },
+
+    /// One of the host's DPUs is converging its own UEFI (BIOS setup) password
+    /// to the staged site-wide `dpu_uefi` rotation target. A
+    /// pool-only, top-level state (same instance-creation block as
+    /// `RotatingHostUefi`), but keyed to a single DPU: applying a DPU UEFI
+    /// password stages a `Bios/Settings` change and commits it with a DPU
+    /// restart (distinct from a host power-cycle), so the reboot is scoped to
+    /// that DPU. Because a host can carry several DPUs, this state names the
+    /// `dpu_machine_id` it is converging and processes one DPU per
+    /// `Ready -> RotatingDpuUefi -> Ready` cycle; the Ready entry guard
+    /// re-selects the next lagging or force-requested DPU on a later sweep.
+    ///
+    /// Unlike the host's multi-tick `RotatingHostUefi`, a DPU UEFI change is
+    /// applied in a single tick -- stage the `Bios/Settings` change, issue the
+    /// DPU restart that commits it, then record convergence -- so this state
+    /// carries no [`UefiSetupInfo`] sub-state: it names only the DPU it targets
+    /// and re-runs idempotently if the controller restarts mid-tick. Per-device
+    /// backoff/quarantine is the rotation engine's `device_credential_rotation`
+    /// bookkeeping keyed by that DPU's BMC MAC.
+    RotatingDpuUefi {
+        dpu_machine_id: MachineId,
     },
 
     /// State used to indicate the API is currently waiting on the
@@ -1900,14 +1969,25 @@ pub enum SetSecureBootState {
     WaitCertificateUpload { task_id: String },
 }
 
-// Since order is derived, Enum members must be in initial to last state sequence.
+// Derived ordering gates states through `Init` and selects the least-advanced
+// DPU for SLA and status reporting. Host-wide power-cycle phases transition
+// every DPU together, so their relative ordering is not observed.
 #[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq, PartialOrd, Ord)]
 #[serde(tag = "dpustate", rename_all = "lowercase")]
 pub enum DpuInitState {
-    InstallDpuOs { substate: InstallDpuOsState },
-    DpfStates { state: DpfState },
+    InstallDpuOs {
+        substate: InstallDpuOsState,
+    },
+    DpfStates {
+        state: DpfState,
+    },
     Init,
-    WaitingForPlatformPowercycle { substate: PerformPowerOperation },
+    WaitingForPlatformPowercycle {
+        substate: PerformPowerOperation,
+    },
+    /// Waits for Redfish to confirm the platform is `Off` before the
+    /// idempotent power-on phase begins.
+    WaitingForPlatformPowerOff,
     WaitingForPlatformConfiguration,
     PollingBiosSetup,
     WaitingForNetworkConfig,
@@ -2266,6 +2346,17 @@ pub enum HostPlatformConfigurationState {
         set_boot_order_info: SetBootOrderInfo,
     },
     LockHost,
+    /// Deletion-only, site-gated BMC factory-reset sub-flow. Runs before
+    /// `PowerCycle` to proactively clear wedged BMC state (bad/rejected boot
+    /// order). Gating and per-step behavior are handled inside the sub-state
+    /// machine; see [`FactoryResetBmcState`]. We have seen BMCs on GB200,
+    /// Grace-Grace, and SMC machines that have been wedged in a bad state where
+    /// they report an incorrect boot order and do NOT register a new boot
+    /// order with the UEFI (https://github.com/NVIDIA/infra-controller/issues/4759).
+    FactoryResetBmc {
+        #[serde(default)]
+        reset_state: FactoryResetBmcState,
+    },
 }
 
 /// Variant order follows unlock progression for derived reprovision-state comparisons.
@@ -2276,6 +2367,57 @@ pub enum UnlockHostState {
     DisableLockdown,
     RebootHost,
     WaitForUefiBoot,
+}
+
+/// Sub-states of [`HostPlatformConfigurationState::FactoryResetBmc`].
+///
+/// Ordering of the flow: check the site-config gate and verify the factory
+/// credentials are recoverable, suppress site-explorer against the host BMC and
+/// wait for the suppression to be acknowledged, issue the factory reset, wait
+/// for the BMC to come back, verify the factory credentials and restore the
+/// device to its previous per-device credential, then remove the suppression and
+/// hand off to `PowerCycle`.
+#[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq, Default)]
+#[serde(tag = "state", rename_all = "lowercase")]
+pub enum FactoryResetBmcState {
+    /// Entry point, run once. Checks the site-config gate (transparent
+    /// pass-through to `PowerCycle` when disabled) and checks for a usable
+    /// `expected_machines` factory-credential entry; if none exists the reset is
+    /// skipped (straight to `PowerCycle`) rather than parked, since without those
+    /// credentials the device could never be restored afterward and blocking the
+    /// release on a config gap helps no one. Doing this here, rather than on every
+    /// `SuppressExploration` dispatch, keeps the `expected_machines` lookup off
+    /// the hot acknowledgement-wait loop.
+    #[default]
+    CheckPreconditions,
+    /// Idempotently suppress site-explorer for the host BMC and wait up to a
+    /// fixed budget for it to acknowledge, proceeding anyway once the budget
+    /// elapses (a disabled or unavailable site-explorer can never acknowledge,
+    /// and the suppression row alone already blocks new exploration). The budget
+    /// is measured from the suppression row, so no retry/counter bookkeeping is
+    /// needed.
+    SuppressExploration,
+    /// Issue `Manager.ResetToDefaults` against the BMC using stored credentials.
+    ResetToDefaults,
+    /// Wait for the BMC to respond to an anonymous service-root read. Polls at
+    /// the controller dispatch cadence and never parks; a BMC that never returns
+    /// is surfaced by the `HostPlatformConfiguration` time-in-state SLA. The
+    /// anonymous probe consumes no auth attempt, so there is no lockout risk and
+    /// hence no retry/backoff bookkeeping.
+    WaitForBmc,
+    /// Verify the factory credentials, then change the BMC root password from the
+    /// factory default back to the device's previous per-device credential (read
+    /// from Vault; Vault is never written). `retry_count` drives a login backoff
+    /// derived from the state version timestamp (immediate first probe, then
+    /// 5/10/15/20 min, then hourly) for the factory-credential verification: that
+    /// path never parks and degrades to hourly polling to avoid BMC lockout. Once
+    /// the factory credentials verify, a genuine password-change failure parks.
+    RestoreCredentials {
+        #[serde(default)]
+        retry_count: u32,
+    },
+    /// Delete the site-explorer suppression, then hand off to `PowerCycle`.
+    RemoveSuppression,
 }
 
 /// Struct to store information if Reprovision is requested.
@@ -2550,6 +2692,12 @@ impl Display for ManagedHostState {
                 write!(f, "HostReprovisioning/{reprovision_state}")
             }
             ManagedHostState::RotatingBmc { .. } => write!(f, "RotatingBmc"),
+            ManagedHostState::RotatingHostUefi { uefi_setup_info } => {
+                write!(f, "RotatingHostUefi/{:?}", uefi_setup_info.uefi_setup_state)
+            }
+            ManagedHostState::RotatingDpuUefi { dpu_machine_id } => {
+                write!(f, "RotatingDpuUefi/{dpu_machine_id}")
+            }
             ManagedHostState::Measuring { measuring_state } => {
                 write!(f, "Measuring/{measuring_state}")
             }
@@ -2651,6 +2799,8 @@ impl ManagedHostState {
                 format!("HostReprovisioning/{reprovision_state}")
             }
             ManagedHostState::RotatingBmc { .. } => "RotatingBmc".to_string(),
+            ManagedHostState::RotatingHostUefi { .. } => "RotatingHostUefi".to_string(),
+            ManagedHostState::RotatingDpuUefi { .. } => "RotatingDpuUefi".to_string(),
             ManagedHostState::Measuring { measuring_state } => {
                 format!("Measuring/{measuring_state}")
             }
@@ -2860,6 +3010,12 @@ pub fn state_sla(
         }
         ManagedHostState::RotatingBmc { .. } => {
             StateSla::with_sla(slas::ROTATING_BMC, time_in_state)
+        }
+        ManagedHostState::RotatingHostUefi { .. } => {
+            StateSla::with_sla(slas::ROTATING_HOST_UEFI, time_in_state)
+        }
+        ManagedHostState::RotatingDpuUefi { .. } => {
+            StateSla::with_sla(slas::ROTATING_DPU_UEFI, time_in_state)
         }
         ManagedHostState::Measuring { measuring_state } => match measuring_state {
             // The API shouldn't be waiting for measurements for long. As soon
@@ -3082,6 +3238,7 @@ impl Display for PowerState {
 }
 
 #[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
 pub struct HostHealthConfig {
     /// Whether or not to use hardware health reports in aggregate health reports
     /// and for restricting state transitions.
@@ -3999,6 +4156,107 @@ mod tests {
 
             "bogus tag with extra field falls back to Unknown" {
                 r#"{"dpfstate":"bogus","extra":"field"}"# => Yields((DpfState::Unknown, DpfState::Unknown)),
+            }
+        );
+    }
+
+    #[test]
+    fn test_factory_reset_bmc_state_deserialize_and_roundtrip() {
+        scenarios!(
+            run = |s| {
+                let parsed: HostPlatformConfigurationState =
+                    serde_json::from_str(s).map_err(drop)?;
+                let serialized = serde_json::to_string(&parsed).map_err(drop)?;
+                let roundtrip: HostPlatformConfigurationState =
+                    serde_json::from_str(&serialized).map_err(drop)?;
+                Ok::<_, ()>((parsed, roundtrip))
+            };
+            "factory reset defaults to check preconditions when reset_state omitted" {
+                r#"{"state":"factoryresetbmc"}"# => Yields((
+                    HostPlatformConfigurationState::FactoryResetBmc {
+                        reset_state: FactoryResetBmcState::CheckPreconditions,
+                    },
+                    HostPlatformConfigurationState::FactoryResetBmc {
+                        reset_state: FactoryResetBmcState::CheckPreconditions,
+                    },
+                )),
+            }
+
+            "explicit check preconditions" {
+                r#"{"state":"factoryresetbmc","reset_state":{"state":"checkpreconditions"}}"# => Yields((
+                    HostPlatformConfigurationState::FactoryResetBmc {
+                        reset_state: FactoryResetBmcState::CheckPreconditions,
+                    },
+                    HostPlatformConfigurationState::FactoryResetBmc {
+                        reset_state: FactoryResetBmcState::CheckPreconditions,
+                    },
+                )),
+            }
+
+            "explicit suppress exploration" {
+                r#"{"state":"factoryresetbmc","reset_state":{"state":"suppressexploration"}}"# => Yields((
+                    HostPlatformConfigurationState::FactoryResetBmc {
+                        reset_state: FactoryResetBmcState::SuppressExploration,
+                    },
+                    HostPlatformConfigurationState::FactoryResetBmc {
+                        reset_state: FactoryResetBmcState::SuppressExploration,
+                    },
+                )),
+            }
+
+            "reset to defaults" {
+                r#"{"state":"factoryresetbmc","reset_state":{"state":"resettodefaults"}}"# => Yields((
+                    HostPlatformConfigurationState::FactoryResetBmc {
+                        reset_state: FactoryResetBmcState::ResetToDefaults,
+                    },
+                    HostPlatformConfigurationState::FactoryResetBmc {
+                        reset_state: FactoryResetBmcState::ResetToDefaults,
+                    },
+                )),
+            }
+
+            "wait for bmc" {
+                r#"{"state":"factoryresetbmc","reset_state":{"state":"waitforbmc"}}"# => Yields((
+                    HostPlatformConfigurationState::FactoryResetBmc {
+                        reset_state: FactoryResetBmcState::WaitForBmc,
+                    },
+                    HostPlatformConfigurationState::FactoryResetBmc {
+                        reset_state: FactoryResetBmcState::WaitForBmc,
+                    },
+                )),
+            }
+
+            "restore credentials, explicit retry" {
+                r#"{"state":"factoryresetbmc","reset_state":{"state":"restorecredentials","retry_count":5}}"# => Yields((
+                    HostPlatformConfigurationState::FactoryResetBmc {
+                        reset_state: FactoryResetBmcState::RestoreCredentials { retry_count: 5 },
+                    },
+                    HostPlatformConfigurationState::FactoryResetBmc {
+                        reset_state: FactoryResetBmcState::RestoreCredentials { retry_count: 5 },
+                    },
+                )),
+            }
+
+            "restore credentials, default retry" {
+                r#"{"state":"factoryresetbmc","reset_state":{"state":"restorecredentials"}}"# => Yields((
+                    HostPlatformConfigurationState::FactoryResetBmc {
+                        reset_state: FactoryResetBmcState::RestoreCredentials { retry_count: 0 },
+                    },
+                    HostPlatformConfigurationState::FactoryResetBmc {
+                        reset_state: FactoryResetBmcState::RestoreCredentials { retry_count: 0 },
+                    },
+                )),
+            }
+
+            "remove suppression" {
+                r#"{"state":"factoryresetbmc","reset_state":{"state":"removesuppression"}}"# => Yields((
+                    HostPlatformConfigurationState::FactoryResetBmc {
+                        reset_state: FactoryResetBmcState::RemoveSuppression,
+                    },
+                    HostPlatformConfigurationState::FactoryResetBmc {
+                        reset_state: FactoryResetBmcState::RemoveSuppression,
+                    },
+                )),
             }
         );
     }

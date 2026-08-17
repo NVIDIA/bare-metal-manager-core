@@ -5,7 +5,6 @@ max_database_connections = 1222
 asn = 123
 dhcp_servers = ["1.2.3.4", "5.6.7.8"]
 route_servers = ["9.10.11.12"]
-rapid_iterations = false
 initial_domain_name = "forge.local"
 initial_dpu_agent_upgrade_policy = "off"
 machine_update_run_interval = 60
@@ -56,6 +55,7 @@ power_down_wait = "13s"
 failure_retry_time = "31m"
 dpu_up_threshold = "33m"
 scout_reporting_timeout = "20m"
+boot_interface_observation_interval = "10m"
 
 [host_health]
 prevent_allocations_on_stale_dpu_agent_version = true
@@ -153,9 +153,6 @@ known_firmware = [
   { version = "2.0", filename = "/mnt/persistence/fw/dell/uefi/r750_1.1.fw", url = "https://letmegooglethat.com/?q=dell750uefi", checksum = "f4d4e0954b5635e6c9a8c79ebaa95218", default = true },
 ]
 
-[multi_dpu]
-enabled = false
-
 [measured_boot_collector]
 enabled = false
 run_interval = "555s"
@@ -170,6 +167,10 @@ OperatingModes_ChooseOperatingMode = "MinimalPower"
 
 [rack_profiles.NVL72]
 product_family = "gb200"
+
+[rack_profiles.NVL72.firmware_object]
+url = "https://firmware.example.invalid/sot/nvl72.json"
+fetch_timeout = "45s"
 
 [rack_profiles.NVL72.rack_capabilities.compute]
 name = "GB200"

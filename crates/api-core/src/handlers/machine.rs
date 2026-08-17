@@ -16,6 +16,7 @@
  */
 
 use std::collections::HashMap;
+use std::time::Duration;
 
 use ::rpc::errors::RpcDataConversionError;
 use ::rpc::forge as rpc;
@@ -329,6 +330,193 @@ pub(crate) async fn update_machine_metadata(
     Ok(tonic::Response::new(()))
 }
 
+/// Runs the DB cleanup transaction for a force-delete.
+///
+/// All operations follow the lock-ordering established for the rest of the
+/// system so this transaction cannot deadlock with the site-explorer or
+/// allocator under normal conditions. When it does lose a deadlock race, the
+/// caller retries: every operation here is idempotent because a deadlock
+/// causes Postgres to roll back this transaction, leaving the DB unchanged.
+///
+/// Response flags are accumulated into a local value and returned only after
+/// commit. A Postgres rollback does not restore in-memory state, so keeping
+/// the response local ensures the caller only ever sees flags that correspond
+/// to the committed transaction.
+///
+/// BMC credential clearing is intentionally excluded: that is an out-of-band
+/// operation the caller performs after the transaction commits.
+async fn force_delete_cleanup_txn(
+    api: &Api,
+    host_machine: Option<&Machine>,
+    dpu_machines: &[Machine],
+    request: &rpc::AdminForceDeleteMachineRequest,
+) -> Result<rpc::AdminForceDeleteMachineResponse, CarbideError> {
+    let mut response = rpc::AdminForceDeleteMachineResponse::default();
+    // Admission permit BEFORE the transaction: waiters on the admin-segment
+    // advisory lock must queue in memory, not on open pool connections.
+    let _admin_admission = db::machine_interface::admin_lock_admission().await;
+    let mut txn = api.txn_begin().await?;
+
+    // Advisory-lock the admin segments before any row locks so the deletion
+    // follows the allocator lock order -- segment advisory lock first, then
+    // machine interface/address rows (the convention
+    // `reconcile_admin_addresses_for_host` documents). This serializes the
+    // deletion against the allocator, reconcile, and discovery transactions
+    // that hold those locks while they touch interface rows, so the two
+    // sides can't hold segment locks and interface rows in opposite orders.
+    // All admin segments, rather than a set computed from this machine's
+    // interfaces: the snapshots predate the BMC work above, and they omit
+    // BMC-typed interfaces that `force_cleanup` still row-locks.
+    db::machine_interface::lock_all_admin_segments(&mut txn).await?;
+
+    // Clean up the explored tables next, in site-explorer's write order
+    // (`explored_managed_hosts`, then each machine topology and its
+    // `explored_endpoints` row, then interface rows), so this delete and a
+    // concurrent exploration pass can't hold the same tables in opposite
+    // orders.
+    if let Some(machine) = host_machine
+        && let Some(addr) = machine.status.bmc_info.ip
+    {
+        // If this delete waited out a concurrent exploration rewrite, its
+        // statement snapshot can miss the row that rewrite re-inserted; the
+        // leftover clears on the next exploration pass, which rebuilds the
+        // table from the (now deleted) explored endpoints.
+        db::explored_managed_host::delete_by_host_bmc_addr(&mut txn, addr).await?;
+    }
+
+    let mut machines_by_bmc_ip = host_machine
+        .iter()
+        .copied()
+        .chain(dpu_machines.iter())
+        .filter_map(|machine| machine.status.bmc_info.ip.map(|address| (address, machine)))
+        .collect::<Vec<_>>();
+    // Any transaction touching multiple explored_endpoints needs to sort them the same way to avoid
+    // deadlocks: sort by IP.
+    machines_by_bmc_ip.sort_by_key(|(address, _)| *address);
+
+    for (addr, machine) in machines_by_bmc_ip {
+        tracing::info!(
+            bmc_ip_address = %addr,
+            machine_id = %machine.id,
+            "Cleaning up explored endpoint",
+        );
+
+        // Site Explorer refreshes firmware in machine_topologies before it
+        // updates this endpoint. Lock in the same order; force_cleanup later
+        // deletes the already-locked topology row.
+        db::machine_topology::lock_by_machine_id(&mut txn, &machine.id).await?;
+        db::explored_endpoints::delete(&mut txn, addr).await?;
+    }
+
+    if let Some(machine) = host_machine {
+        if request.delete_bmc_interfaces
+            && let Some(bmc_ip) = machine.status.bmc_info.ip
+        {
+            response.host_bmc_interface_associated = true;
+            if db::machine_interface::delete_by_ip(&mut txn, bmc_ip)
+                .await?
+                .is_some()
+            {
+                response.host_bmc_interface_deleted = true;
+            }
+        }
+        db::machine::force_cleanup(&mut txn, &machine.id).await?;
+
+        if request.delete_interfaces {
+            for interface in &machine.status.interfaces {
+                // The delete retains each row's boot interface pair in
+                // `retained_boot_interfaces`, so a re-ingested machine
+                // recovers its boot target before its first DHCP.
+                db::machine_interface::delete(&interface.id, &mut txn).await?;
+            }
+            response.host_interfaces_deleted = true;
+        }
+
+        db::attestation::ek_cert_verification_status::delete_ca_verification_status_by_machine_id(
+            &mut txn,
+            &machine.id,
+        )
+        .await
+        .inspect_err(|e| {
+            tracing::error!(
+                machine_id = %machine.id,
+                error = %e,
+                "Could not remove EK certificate status",
+            );
+        })?;
+    }
+
+    for dpu_machine in dpu_machines {
+        // Free up all loopback IPs allocated for this DPU.
+        db::vpc_dpu_loopback::delete_and_deallocate(
+            &api.common_pools,
+            &dpu_machine.id,
+            &mut txn,
+            true,
+        )
+        .await?;
+
+        if let Some(loopback_ip) = dpu_machine.network_config.loopback_ip {
+            db::resource_pool::release(
+                &api.common_pools.ethernet.pool_loopback_ip,
+                &mut txn,
+                loopback_ip,
+            )
+            .await?
+        }
+
+        // The machine snapshot predates `ForceDeletion`, so a concurrent
+        // backfill can make its IPv6 field stale. The pool owner remains the
+        // authoritative reservation source during deletion.
+        if let Some(loopback_ip_v6) = db::resource_pool::find_owned_allocation(
+            &api.common_pools.ethernet.pool_loopback_ip_v6,
+            &mut txn,
+            model::resource_pool::OwnerType::Machine,
+            &dpu_machine.id.to_string(),
+        )
+        .await
+        .map_err(CarbideError::from)?
+        {
+            db::resource_pool::release(
+                &api.common_pools.ethernet.pool_loopback_ip_v6,
+                &mut txn,
+                loopback_ip_v6,
+            )
+            .await?
+        }
+
+        db::network_devices::dpu_to_network_device_map::delete(&mut txn, &dpu_machine.id).await?;
+
+        if request.delete_bmc_interfaces
+            && let Some(bmc_ip) = dpu_machine.status.bmc_info.ip
+        {
+            response.dpu_bmc_interface_associated = true;
+            if db::machine_interface::delete_by_ip(&mut txn, bmc_ip)
+                .await?
+                .is_some()
+            {
+                response.dpu_bmc_interface_deleted = true;
+            }
+        }
+        if let Some(asn) = dpu_machine.asn {
+            db::resource_pool::release(&api.common_pools.ethernet.pool_fnn_asn, &mut txn, asn)
+                .await?;
+        }
+        db::machine::force_cleanup(&mut txn, &dpu_machine.id).await?;
+
+        if request.delete_interfaces {
+            for interface in &dpu_machine.status.interfaces {
+                db::machine_interface::delete(&interface.id, &mut txn).await?;
+            }
+            response.dpu_interfaces_deleted = true;
+        }
+    }
+
+    txn.commit().await?;
+
+    Ok(response)
+}
+
 pub(crate) async fn admin_force_delete_machine(
     api: &Api,
     request: Request<rpc::AdminForceDeleteMachineRequest>,
@@ -336,7 +524,7 @@ pub(crate) async fn admin_force_delete_machine(
     log_request_data(&request);
 
     let (_metadata, extensions, request) = request.into_parts();
-    let query = request.host_query;
+    let query = &request.host_query;
 
     let mut response = rpc::AdminForceDeleteMachineResponse {
         all_done: true,
@@ -350,7 +538,7 @@ pub(crate) async fn admin_force_delete_machine(
 
     let mut txn = api.txn_begin().await?;
 
-    let machine = match db::machine::find_by_query(&mut txn, &query).await? {
+    let machine = match db::machine::find_by_query(&mut txn, query).await? {
         Some(machine) => machine,
         None => {
             // If the machine was already deleted, then there is nothing to do
@@ -383,7 +571,7 @@ pub(crate) async fn admin_force_delete_machine(
     if machine.config.instance_type_id.is_some() {
         return Err(CarbideError::FailedPrecondition(format!(
             "association with instance type must be removed before deleting machine {}",
-            &machine.id
+            machine.id
         ))
         .into());
     }
@@ -638,190 +826,48 @@ pub(crate) async fn admin_force_delete_machine(
         }
     }
 
-    let mut txn = api.txn_begin().await?;
-    let mut machines_to_clear_credentials = Vec::new();
-
-    // Advisory-lock the admin segments before any row locks so the deletion
-    // follows the allocator lock order -- segment advisory lock first, then
-    // machine interface/address rows (the convention
-    // `reconcile_admin_addresses_for_host` documents). This serializes the
-    // deletion against the allocator, reconcile, and discovery transactions
-    // that hold those locks while they touch interface rows, so the two
-    // sides can't hold segment locks and interface rows in opposite orders.
-    // All admin segments, rather than a set computed from this machine's
-    // interfaces: the snapshots predate the BMC work above, and they omit
-    // BMC-typed interfaces that `force_cleanup` still row-locks.
-    db::machine_interface::lock_all_admin_segments(&mut txn).await?;
-
-    // Clean up the explored tables next, in site-explorer's write order
-    // (`explored_managed_hosts`, then each machine topology and its
-    // `explored_endpoints` row, then interface rows), so this delete and a
-    // concurrent exploration pass can't hold the same tables in opposite
-    // orders.
-    if let Some(machine) = &host_machine
-        && let Some(addr) = machine.status.bmc_info.ip
-    {
-        // If this delete waited out a concurrent exploration rewrite, its
-        // statement snapshot can miss the row that rewrite re-inserted; the
-        // leftover clears on the next exploration pass, which rebuilds the
-        // table from the (now deleted) explored endpoints.
-        db::explored_managed_host::delete_by_host_bmc_addr(&mut txn, addr).await?;
-    }
-
-    let mut machines_by_bmc_ip = host_machine
-        .iter()
-        .chain(dpu_machines.iter())
-        .filter_map(|machine| machine.status.bmc_info.ip.map(|address| (address, machine)))
-        .collect::<Vec<_>>();
-    // Any transaction touching multiple explored_endpoints needs to sort them the same way to avoid
-    // deadlocks: sort by IP.
-    machines_by_bmc_ip.sort_by_key(|(address, _)| *address);
-
-    for (addr, machine) in machines_by_bmc_ip {
-        tracing::info!(
-            bmc_ip_address = %addr,
-            machine_id = %machine.id,
-            "Cleaning up explored endpoint",
-        );
-
-        // Site Explorer refreshes firmware in machine_topologies before it
-        // updates this endpoint. Lock in the same order; force_cleanup later
-        // deletes the already-locked topology row.
-        db::machine_topology::lock_by_machine_id(&mut txn, &machine.id).await?;
-        db::explored_endpoints::delete(&mut txn, addr).await?;
-    }
-
-    if let Some(machine) = &host_machine {
-        if request.delete_bmc_interfaces
-            && let Some(bmc_ip) = machine.status.bmc_info.ip
-        {
-            response.host_bmc_interface_associated = true;
-            if db::machine_interface::delete_by_ip(&mut txn, bmc_ip)
-                .await?
-                .is_some()
+    // Retry the cleanup transaction on deadlock or serialization failure.
+    // Both are transient: Postgres aborted our transaction, the conflicting
+    // transaction has already committed, and a fresh attempt will succeed
+    // once its locks are released. The backoff starts at 50 ms and doubles
+    // each attempt (50, 100, 200, 400 ms) for up to five total attempts.
+    const MAX_CLEANUP_ATTEMPTS: u32 = 5;
+    for attempt in 0..MAX_CLEANUP_ATTEMPTS {
+        match force_delete_cleanup_txn(api, host_machine.as_ref(), &dpu_machines, &request).await {
+            Ok(cleanup) => {
+                response.host_bmc_interface_associated = cleanup.host_bmc_interface_associated;
+                response.host_bmc_interface_deleted = cleanup.host_bmc_interface_deleted;
+                response.host_interfaces_deleted = cleanup.host_interfaces_deleted;
+                response.dpu_bmc_interface_associated = cleanup.dpu_bmc_interface_associated;
+                response.dpu_bmc_interface_deleted = cleanup.dpu_bmc_interface_deleted;
+                response.dpu_interfaces_deleted = cleanup.dpu_interfaces_deleted;
+                break;
+            }
+            Err(error)
+                if error.is_retryable_transaction_error() && attempt + 1 < MAX_CLEANUP_ATTEMPTS =>
             {
-                response.host_bmc_interface_deleted = true;
+                let delay = Duration::from_millis(50u64 << attempt);
+                tracing::warn!(
+                    attempt_number = attempt + 1,
+                    retry_delay_milliseconds = delay.as_millis(),
+                    pg_sqlstate = error.pg_sqlstate().as_deref().unwrap_or("unknown"),
+                    error = %error,
+                    "force-delete cleanup transaction conflict; retrying",
+                );
+                tokio::time::sleep(delay).await;
             }
-        }
-        db::machine::force_cleanup(&mut txn, &machine.id).await?;
-
-        if request.delete_interfaces {
-            for interface in &machine.status.interfaces {
-                // The delete retains each row's boot interface pair in
-                // `retained_boot_interfaces`, so a re-ingested machine
-                // recovers its boot target before its first DHCP.
-                db::machine_interface::delete(&interface.id, &mut txn).await?;
-            }
-            response.host_interfaces_deleted = true;
-        }
-
-        if request.delete_bmc_credentials {
-            machines_to_clear_credentials.push(machine);
-        }
-
-        if let Err(e) =
-            db::attestation::ek_cert_verification_status::delete_ca_verification_status_by_machine_id(
-                &mut txn,
-                &machine.id,
-            )
-            .await
-        {
-            // just log the error and carry on
-            tracing::error!(
-                machine_id = %machine.id,
-                error = %e,
-                "Could not remove EK certificate status",
-            );
+            Err(error) => return Err(error.into()),
         }
     }
-
-    for dpu_machine in dpu_machines.iter() {
-        // Free up all loopback IPs allocated for this DPU.
-        db::vpc_dpu_loopback::delete_and_deallocate(
-            &api.common_pools,
-            &dpu_machine.id,
-            &mut txn,
-            true,
-        )
-        .await?;
-
-        if let Some(loopback_ip) = dpu_machine.network_config.loopback_ip {
-            db::resource_pool::release(
-                &api.common_pools.ethernet.pool_loopback_ip,
-                &mut txn,
-                loopback_ip,
-            )
-            .await?
-        }
-
-        // The machine snapshot predates `ForceDeletion`, so a concurrent
-        // backfill can make its IPv6 field stale. The pool owner remains the
-        // authoritative reservation source during deletion.
-        if let Some(loopback_ip_v6) = db::resource_pool::find_owned_allocation(
-            &api.common_pools.ethernet.pool_loopback_ip_v6,
-            &mut txn,
-            model::resource_pool::OwnerType::Machine,
-            &dpu_machine.id.to_string(),
-        )
-        .await
-        .map_err(CarbideError::from)?
-        {
-            db::resource_pool::release(
-                &api.common_pools.ethernet.pool_loopback_ip_v6,
-                &mut txn,
-                loopback_ip_v6,
-            )
-            .await?
-        }
-
-        if let Some(secondary_overlay_vtep_ip) =
-            dpu_machine.network_config.secondary_overlay_vtep_ip
-        {
-            db::resource_pool::release(
-                &api.common_pools.ethernet.pool_secondary_vtep_ip,
-                &mut txn,
-                secondary_overlay_vtep_ip,
-            )
-            .await
-            .map_err(CarbideError::from)?
-        }
-
-        db::network_devices::dpu_to_network_device_map::delete(&mut txn, &dpu_machine.id).await?;
-
-        if request.delete_bmc_interfaces
-            && let Some(bmc_ip) = dpu_machine.status.bmc_info.ip
-        {
-            response.dpu_bmc_interface_associated = true;
-            if db::machine_interface::delete_by_ip(&mut txn, bmc_ip)
-                .await?
-                .is_some()
-            {
-                response.dpu_bmc_interface_deleted = true;
-            }
-        }
-        if let Some(asn) = dpu_machine.asn {
-            db::resource_pool::release(&api.common_pools.ethernet.pool_fnn_asn, &mut txn, asn)
-                .await?;
-        }
-        db::machine::force_cleanup(&mut txn, &dpu_machine.id).await?;
-
-        if request.delete_interfaces {
-            for interface in &dpu_machine.status.interfaces {
-                db::machine_interface::delete(&interface.id, &mut txn).await?;
-            }
-            response.dpu_interfaces_deleted = true;
-        }
-
-        if request.delete_bmc_credentials {
-            machines_to_clear_credentials.push(dpu_machine);
-        }
-    }
-
-    txn.commit().await?;
 
     // Do BMC operations outside a transaction to avoid long-running transactions
-    for machine in machines_to_clear_credentials {
-        clear_bmc_credentials(api, machine).await?;
+    if request.delete_bmc_credentials {
+        if let Some(machine) = &host_machine {
+            clear_bmc_credentials(api, machine).await?;
+        }
+        for dpu_machine in &dpu_machines {
+            clear_bmc_credentials(api, dpu_machine).await?;
+        }
     }
 
     Ok(Response::new(response))
@@ -902,7 +948,7 @@ async fn forget_host_uefi_convergence(
     Ok(())
 }
 
-pub async fn get_machine_position_info(
+pub(crate) async fn get_machine_position_info(
     api: &Api,
     request: Request<rpc::MachinePositionQuery>,
 ) -> Result<Response<rpc::MachinePositionInfoList>, Status> {

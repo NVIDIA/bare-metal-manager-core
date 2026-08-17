@@ -1,4 +1,4 @@
-# Machine Identity (Day 1)
+# Machine Identity (Day 1) <Badge intent="info">v2.0</Badge> <Badge intent="launch" minimal>New</Badge>
 
 Operator guide for per-organization **machine identity** configuration: JWT-SVID issuance for tenant workloads, optional RFC 8693 token delegation, discovery endpoints, verification, and signing-key rotation.
 
@@ -118,12 +118,12 @@ When token delegation is configured, NICo issues a short-lived **intermediate** 
 
 **Endpoint:** `PUT /v2/org/{org}/nico/site/{siteID}/tenant-identity/token-delegation`
 
-> **Recommendation:** Token delegation causes `nico-api` to call the org-configured `tokenEndpoint` over HTTP(S). For external token exchange URLs, configure site-level egress controls in `[machine_identity]` during [Day 0](../getting-started/installation-options/day0-machine-identity.md):
->
-> - `token_endpoint_http_proxy` — route outbound token-exchange HTTP through a controlled egress proxy
-> - `token_endpoint_domain_allowlist` — restrict which hostnames tenants may register on `tokenEndpoint`
->
-> Together these mitigate SSRF-style risk if a tenant admin supplies an endpoint the API should not reach. They are optional at install time but **strongly recommended** for production sites that delegate to external hosts.
+**Recommendation:** Token delegation causes `nico-api` to call the org-configured `tokenEndpoint` over HTTP(S). For external token exchange URLs, configure site-level egress controls in `[machine_identity]` during [Day 0](../getting-started/installation-options/day0-machine-identity.md):
+
+- `token_endpoint_http_proxy` — route outbound token-exchange HTTP through a controlled egress proxy
+- `token_endpoint_domain_allowlist` — restrict which hostnames tenants may register on `tokenEndpoint`
+
+Together these mitigate SSRF-style risk if a tenant admin supplies an endpoint the API should not reach. They are optional at install time but **strongly recommended** for production sites that delegate to external hosts.
 
 Example (adjust fields to match your STS):
 
@@ -142,9 +142,11 @@ curl -sS -X PUT \
   }'
 ```
 
-> **PUT is full replace:** omitting `clientSecretBasic` on an update clears stored credentials. Re-supply secrets on every update that should keep basic auth.
+**PUT is full replace:** omitting `clientSecretBasic` on an update clears stored credentials. Re-supply secrets on every update that should keep basic auth.
 
-> **Note:** `tokenEndpoint` may use `http://` with an IP address (for example a node-local sidecar). NICo allows this for in-instance STS; use allowlists and network policy in production where appropriate.
+<Note>
+`tokenEndpoint` may use `http://` with an IP address (for example a node-local sidecar). NICo allows this for in-instance STS; use allowlists and network policy in production where appropriate.
+</Note>
 
 ```bash
 # Remove delegation (return to direct signing)

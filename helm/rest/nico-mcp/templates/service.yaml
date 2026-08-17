@@ -13,6 +13,7 @@ spec:
   ports:
     - port: {{ .Values.service.port }}
       targetPort: {{ .Values.service.port }}
-      name: http
+      name: mcp
+      appProtocol: agentgateway.dev/mcp
   selector:
     {{- include "nico-mcp.selectorLabels" . | nindent 4 }}

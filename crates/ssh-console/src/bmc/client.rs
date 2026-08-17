@@ -16,7 +16,6 @@
  */
 use std::io;
 use std::net::SocketAddr;
-use std::process::Stdio;
 use std::sync::{Arc, RwLock};
 use std::time::{Duration, Instant};
 
@@ -43,7 +42,7 @@ use crate::ssh_server::ServerMetrics;
 /// Spawn a connection to the given BMC in the background, returning a handle. Connections will
 /// be retried indefinitely, with exponential backoff, until a shutdown is signaled (ie. by dropping
 /// the ClientHandle.)
-pub fn spawn(
+pub(super) fn spawn(
     connection_details: ConnectionDetails,
     config: Arc<Config>,
     metrics: Arc<BmcPoolMetrics>,
@@ -331,20 +330,8 @@ async fn wait_until_host_is_up(
                         }
                     }
                     connection::Kind::Ipmi => {
-                        let status = tokio::process::Command::new("ping")
-                            .arg("-c")
-                            .arg("1")
-                            .arg("-W")
-                            .arg("2")
-                            .arg(addr.ip().to_string())
-                            .stdin(Stdio::null())
-                            .stdout(Stdio::null())
-                            .stderr(Stdio::null())
-                            .spawn()?
-                            .wait()
-                            .await?;
-                        if status.success() {
-                            break Ok(())
+                        if check_ipmi_reachable(addr, Duration::from_secs(2)).await {
+                            break Ok(());
                         }
                     }
                 }
@@ -511,7 +498,7 @@ fn next_retry_backoff(config: &Config, prev: Duration) -> Duration {
     duration
 }
 
-pub struct ClientHandle {
+pub(super) struct ClientHandle {
     machine_id: MachineId,
     kind: connection::Kind,
     /// Writer to send messages (including data) to BMC
@@ -521,7 +508,8 @@ pub struct ClientHandle {
     broadcast_to_frontend_tx: broadcast::Sender<ToFrontendMessage>,
     shutdown_tx: oneshot::Sender<()>,
     join_handle: JoinHandle<()>,
-    pub connection_state: Arc<AtomicConnectionState>, // pub for metrics gathering
+    // Read by the pool's observable-gauge callbacks.
+    pub(super) connection_state: Arc<AtomicConnectionState>,
 }
 
 impl ShutdownHandle<()> for ClientHandle {
@@ -531,7 +519,7 @@ impl ShutdownHandle<()> for ClientHandle {
 }
 
 impl ClientHandle {
-    pub fn subscribe(&self, metrics: Arc<ServerMetrics>) -> BmcConnectionSubscription {
+    pub(super) fn subscribe(&self, metrics: Arc<ServerMetrics>) -> BmcConnectionSubscription {
         tracing::debug!("new bmc subscription");
         metrics.total_clients.add(1, &[]);
         metrics.bmc_clients.add(
@@ -551,11 +539,11 @@ impl ClientHandle {
 
 /// An individual "subscription" to a BMC connection, expected to be used by a frontend. Metrics
 /// are affected when one is created or dropped.
-pub struct BmcConnectionSubscription {
-    pub machine_id: MachineId,
-    pub to_frontend_msg_weak_tx: broadcast::WeakSender<ToFrontendMessage>,
-    pub to_bmc_msg_tx: mpsc::Sender<ToBmcMessage>,
-    pub kind: connection::Kind,
+pub(crate) struct BmcConnectionSubscription {
+    pub(crate) machine_id: MachineId,
+    pub(crate) to_frontend_msg_weak_tx: broadcast::WeakSender<ToFrontendMessage>,
+    pub(crate) to_bmc_msg_tx: mpsc::Sender<ToBmcMessage>,
+    pub(crate) kind: connection::Kind,
     // Not pub, to make sure we go through ClientHandle::subscribe() to build, so we get the
     // right metrics
     metrics: Arc<ServerMetrics>,
@@ -570,6 +558,40 @@ impl Drop for BmcConnectionSubscription {
             -1,
             &[KeyValue::new("machine_id", self.machine_id.to_string())],
         );
+    }
+}
+
+/// Send an ASF Presence Ping (RMCP) to check if an IPMI endpoint is reachable.
+async fn check_ipmi_reachable(addr: SocketAddr, timeout: Duration) -> bool {
+    // Reference: IPMI v2.0 spec, section 13.2.3
+    const ASF_PRESENCE_PING: [u8; 12] = [
+        0x06, 0x00, 0xff, 0x06, 0x00, 0x00, 0x11, 0xbe, 0x80, 0x00, 0x00, 0x00,
+    ];
+
+    let Ok(socket) = tokio::net::UdpSocket::bind("0.0.0.0:0").await else {
+        tracing::debug!(%addr, "failed to bind UDP socket for IPMI reachability check");
+        return false;
+    };
+
+    if let Err(e) = socket.send_to(&ASF_PRESENCE_PING, addr).await {
+        tracing::debug!(%addr, error = %e, "failed to send ASF Presence Ping");
+        return false;
+    }
+
+    let mut recv_buf = [0u8; 32];
+    match tokio::time::timeout(timeout, socket.recv_from(&mut recv_buf)).await {
+        Ok(Ok((len, _))) => {
+            tracing::debug!(%addr, response_len = len, "IPMI endpoint responded to ASF Presence Ping");
+            true
+        }
+        Ok(Err(e)) => {
+            tracing::debug!(%addr, error = %e, "error receiving ASF Presence Pong");
+            false
+        }
+        Err(_) => {
+            tracing::debug!(%addr, timeout_secs = ?timeout, "ASF Presence Ping timed out");
+            false
+        }
     }
 }
 

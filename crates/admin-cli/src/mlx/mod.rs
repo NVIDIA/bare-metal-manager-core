@@ -29,7 +29,7 @@ mod profile;
 mod registry;
 
 #[derive(Parser, Debug, Dispatch)]
-pub enum MlxAction {
+pub(crate) enum MlxAction {
     #[dispatch]
     #[clap(subcommand, about = "Configuration profile management")]
     Profile(profile::args::ProfileCommand),
@@ -125,9 +125,7 @@ fn print_sync_result_csv(result: &SyncResult) {
         for change in &result.changes_applied {
             println!(
                 "{},{},{}",
-                &change.variable_name,
-                &change.old_value.to_string(),
-                &change.new_value.to_string()
+                change.variable_name, change.old_value, change.new_value
             );
         }
     }
@@ -176,9 +174,7 @@ fn print_comparison_result_csv(result: &ComparisonResult) {
         for change in &result.planned_changes {
             println!(
                 "{},{},{}",
-                &change.variable_name,
-                &change.current_value.to_string(),
-                &change.desired_value.to_string()
+                change.variable_name, change.current_value, change.desired_value
             );
         }
     }

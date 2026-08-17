@@ -247,9 +247,10 @@ async fn options_only_dhcpv6_record_from_interface(
 
 /// Ensure a stateful DHCP allocation exists for the requested family.
 ///
-/// DHCPv6 stateful allocations are authoritative over prior SLAAC observations:
+/// DHCPv6 stateful allocations are authoritative over prior inferred SLAAC
+/// addresses:
 /// both are IPv6 rows on the same interface, so the existing unique family index
-/// requires replacing an observed SLAAC row before allocating the DHCP lease.
+/// requires replacing the inferred row before allocating the DHCP lease.
 async fn ensure_dhcp_address_for_family(
     txn: &mut PgConnection,
     machine_interface: &MachineInterfaceSnapshot,
@@ -450,10 +451,14 @@ async fn handle_dhcp_from_dpa(
     .await
 }
 
-pub async fn discover_dhcp(
+pub(crate) async fn discover_dhcp(
     api: &Api,
     request: Request<rpc::DhcpDiscovery>,
 ) -> Result<Response<rpc::DhcpRecord>, CarbideError> {
+    // Admission permit BEFORE the first transaction: the interface/address
+    // lookups below can wait on segment advisory locks, so a waiter here
+    // pins a pool connection exactly like the allocation path does.
+    let _admin_admission = db::machine_interface::admin_lock_admission().await;
     let mut txn = api.txn_begin().await?;
 
     let rpc::DhcpDiscovery {
@@ -487,6 +492,23 @@ pub async fn discover_dhcp(
     let mut host_primary_declaration: Option<bool> = None;
 
     let parsed_mac: MacAddress = mac_address.parse()?;
+
+    // If DHCP is suppressed for this BMC MAC, acknowledge and refuse.
+    // The decommission workflow polls acknowledged_at to confirm the BMC
+    // DHCP client has returned to the INIT state.
+    if db::bmc_suppression::acknowledge(
+        &mut txn,
+        parsed_mac,
+        model::bmc_suppression::BmcSuppressionSubsystem::Dhcp,
+    )
+    .await?
+    {
+        txn.commit().await?;
+        return Err(CarbideError::FailedPrecondition(format!(
+            "dhcp suppressed for bmc mac {parsed_mac}"
+        )));
+    }
+
     let mut predicted_interface_for_observation = None;
 
     let desired_address_ip: Option<IpAddr> = if is_v6_observation {
@@ -799,7 +821,8 @@ pub async fn discover_dhcp(
     }
 
     if is_v6_observation {
-        v6::observe_slaac_address(&mut txn, machine_interface.id, &segment, &parsed_mac).await?;
+        v6::infer_slaac_eui64_address(&mut txn, machine_interface.id, &segment, &parsed_mac)
+            .await?;
     } else {
         ensure_dhcp_address_for_family(
             &mut txn,
@@ -870,6 +893,9 @@ pub async fn discover_dhcp(
         return Ok(Response::new(record));
     }
 
+    // Permit from the top of discover_dhcp is still held here; the earlier
+    // transaction committed, but the allocation path below takes the same
+    // segment locks, so one permit covers the whole request.
     let mut txn = api.txn_begin().await?;
 
     let record = db::dhcp_record::find_by_mac_address(

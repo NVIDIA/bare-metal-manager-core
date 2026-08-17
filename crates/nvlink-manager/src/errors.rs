@@ -35,4 +35,4 @@ impl NvLinkManagerError {
     }
 }
 
-pub type NvLinkManagerResult<T> = Result<T, NvLinkManagerError>;
+pub(super) type NvLinkManagerResult<T> = Result<T, NvLinkManagerError>;

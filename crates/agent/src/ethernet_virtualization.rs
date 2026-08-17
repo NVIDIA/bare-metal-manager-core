@@ -30,7 +30,6 @@ use ::rpc::forge::{
     self as rpc, FlatInterfaceConfig, ManagedHostNetworkConfigResponse,
     NetworkSecurityGroupRuleAction, NetworkSecurityGroupRuleProtocol,
 };
-use carbide_network::ip::prefix::Ipv4Net;
 use carbide_network::virtualization::{VpcVirtualizationType, build_dual_stack_list};
 use eyre::WrapErr;
 use mac_address::MacAddress;
@@ -41,7 +40,7 @@ use tokio::process::Command as TokioCommand;
 use tokio::time::timeout;
 
 use crate::nvue::NetworkSecurityGroupRule;
-use crate::{HBNDeviceNames, acl_rules, dhcp, hbn, nvue, traffic_intercept_bridging};
+use crate::{HBNDeviceNames, acl_rules, dhcp, hbn, nvue};
 
 /// None of the files we deal with should be bigger than this
 const MAX_EXPECTED_SIZE: u64 = 1048576; // 1 MiB
@@ -54,7 +53,7 @@ const NVUED_BLOCK_RULE: &str = r"
 ";
 
 #[derive(PartialEq, Debug, Clone)]
-pub enum InterfaceState {
+enum InterfaceState {
     Up,
     Down,
 }
@@ -72,7 +71,7 @@ impl FromStr for InterfaceState {
 
 impl InterfaceState {
     const HOST_INTERFACE_NAME: &str = "pf0hpf";
-    pub fn command(&self) -> tokio::process::Command {
+    fn command(&self) -> tokio::process::Command {
         let mut cmd = tokio::process::Command::new("ip");
         cmd.arg("link")
             .arg("set")
@@ -85,7 +84,7 @@ impl InterfaceState {
         cmd
     }
 
-    pub async fn update_state(needed_state: &Self) -> eyre::Result<()> {
+    async fn update_state(needed_state: &Self) -> eyre::Result<()> {
         let current_state = get_interface_state(InterfaceState::HOST_INTERFACE_NAME).await?;
 
         if current_state != *needed_state {
@@ -132,10 +131,10 @@ struct DhcpServerPaths {
 /// UEFI HTTP boot in this case, and NTP is still NTP. We should be able
 /// to leverage this struct even in DHCPv6 land (whereas other things don't
 /// really carry through to DHCPv6).
-pub struct ServiceAddresses {
-    pub pxe_ips: Vec<IpAddr>,
-    pub ntpservers: Vec<IpAddr>,
-    pub nameservers: Vec<IpAddr>,
+pub(super) struct ServiceAddresses {
+    pub(super) pxe_ips: Vec<IpAddr>,
+    pub(super) ntpservers: Vec<IpAddr>,
+    pub(super) nameservers: Vec<IpAddr>,
 }
 
 /// Split a dual-stack nameserver list into its IPv4 and IPv6 members, so the
@@ -206,7 +205,7 @@ struct PostAction {
     path: FPath,
 }
 
-pub enum NvueUpdateFlavor<'a> {
+pub(super) enum NvueUpdateFlavor<'a> {
     StartupFile {
         hbn_root: &'a Path,
         skip_post: bool,
@@ -217,13 +216,13 @@ pub enum NvueUpdateFlavor<'a> {
 }
 
 /// The NVUE client and other information associated with it.
-pub struct NvueClientContext {
-    pub nvue_client: NvueClient,
-    pub last_applied_hash: Option<u64>,
+pub(super) struct NvueClientContext {
+    pub(super) nvue_client: NvueClient,
+    last_applied_hash: Option<u64>,
 }
 
 impl NvueClientContext {
-    pub fn new(nvue_client: NvueClient) -> Self {
+    pub(super) fn new(nvue_client: NvueClient) -> Self {
         let last_applied_hash = None;
         Self {
             nvue_client,
@@ -235,7 +234,7 @@ impl NvueClientContext {
     // a configuration we're already using. Returns Ok(Some(revision_id)) on
     // a change, Ok(None) if the config was unchanged, and otherwise passes
     // through errors from the inner client.
-    pub async fn update_config(
+    async fn update_config(
         &mut self,
         config: &NvueConfig,
     ) -> Result<Option<String>, NvueClientError> {
@@ -335,7 +334,9 @@ fn parse_managed_host_loopback_ips(
 
 /// Update the NVUE network config. Returns Ok(true) if the configuration changed, and
 /// Ok(false) if not.
-pub async fn update_nvue(
+// The fetcher projects `addresses` into these compatibility fields before rendering.
+#[allow(deprecated)]
+pub(super) async fn update_nvue(
     vpc_virtualization_type: VpcVirtualizationType,
     update_flavor: NvueUpdateFlavor<'_>,
     nc: &rpc::ManagedHostNetworkConfigResponse,
@@ -479,8 +480,8 @@ pub async fn update_nvue(
                 }
             };
 
-            // For dual-stack FNN, the DPU-side IPv6 address is the network address
-            // of the /127 linknet (the ::0 end). The ::1 end is the host.
+            // For FNN interfaces with IPv6, the DPU-side address is the network
+            // address of the /127 linknet (the ::0 end). The ::1 end is the host.
             ifs.push(nvue::PortConfig {
                 interface_name: name,
                 is_phy: net.function_type == rpc::InterfaceFunctionType::Physical as i32,
@@ -564,20 +565,6 @@ pub async fn update_nvue(
 
     let hostname = hostname().wrap_err("gethostname error")?;
     let is_dpu_os = matches!(update_flavor, NvueUpdateFlavor::StartupFile { .. });
-    let secondary_overlay_vtep_ip = nc
-        .traffic_intercept_config
-        .as_ref()
-        .and_then(|vc| vc.additional_overlay_vtep_ip.as_deref())
-        .map(str::parse)
-        .transpose()
-        .wrap_err("invalid secondary overlay VTEP IP")?;
-    let internal_bridge_routing_prefix = nc
-        .traffic_intercept_config
-        .as_ref()
-        .and_then(|vc| vc.bridging.as_ref())
-        .map(|b| b.internal_bridge_routing_prefix.parse::<Ipv4Net>())
-        .transpose()
-        .wrap_err("invalid internal bridge routing prefix")?;
     let dhcp_servers = nc
         .dhcp_servers
         .iter()
@@ -607,24 +594,6 @@ pub async fn update_nvue(
         tenancy_enabled,
         loopback_ip,
         loopback_ip_v6,
-        vf_intercept_bridge_port_name: nc.traffic_intercept_config.as_ref().and_then(|vc| {
-            vc.bridging
-                .as_ref()
-                .map(|b| b.vf_intercept_bridge_port.clone())
-        }),
-        vf_intercept_bridge_sf: nc.traffic_intercept_config.as_ref().and_then(|vc| {
-            vc.bridging
-                .as_ref()
-                .map(|b| b.vf_intercept_bridge_sf.clone())
-        }),
-        host_intercept_bridge_port_name: None,
-        secondary_overlay_vtep_ip,
-        internal_bridge_routing_prefix,
-        traffic_intercept_public_prefixes: nc
-            .traffic_intercept_config
-            .as_ref()
-            .map(|vc| vc.public_prefixes.clone())
-            .unwrap_or_default(),
         asn: nc.asn,
         datacenter_asn: nc.datacenter_asn,
         common_internal_route_target: nc.common_internal_route_target.map(|rt| {
@@ -775,131 +744,6 @@ pub async fn update_nvue(
             }
         }
     }
-}
-
-// Update internal bridge configuration for traffic-intercept routing and bridging.
-pub async fn update_traffic_intercept_bridging(
-    nc: &rpc::ManagedHostNetworkConfigResponse,
-    hbn_device_names: HBNDeviceNames,
-    skip_post: bool,
-) -> eyre::Result<bool> {
-    // Read the traffic-intercept inputs supplied by the controller.
-    let Some(traffic_intercept_config) = nc.traffic_intercept_config.as_ref() else {
-        eyre::bail!("traffic_intercept config not provided");
-    };
-    let Some(bridge_config) = traffic_intercept_config.bridging.as_ref() else {
-        eyre::bail!("traffic_intercept bridging config not provided");
-    };
-    let Some(secondary_overlay_vtep_ip) = traffic_intercept_config
-        .additional_overlay_vtep_ip
-        .as_deref()
-        .map(str::parse)
-        .transpose()?
-    else {
-        eyre::bail!("secondary_overlay_vtep_ip required by traffic_intercept bridging not found");
-    };
-
-    // IPv4 only for now. Internal HBN bridge plumbing uses 169.254.x.x
-    // link-local addressing for DPU to HBN communication. An IPv6 equivalent
-    // (fe80:: or similar) may be needed in the future for dual-stack bridging.
-    let bridge_prefix = bridge_config
-        .internal_bridge_routing_prefix
-        .parse::<Ipv4Net>()?;
-
-    let mut bridge_prefix_hosts = bridge_prefix.hosts();
-
-    // First host address in bridge_prefix_hosts is for VF-intercept bridge, often called 'br-dpu' in various diagrams.
-    let Some(vf_intercept_bridge_ip) = bridge_prefix_hosts.next() else {
-        eyre::bail!(
-            "too few hosts in internal bridge routing prefix config to support VF intercept bridge"
-        )
-    };
-
-    // Get the map of interface to bridge.
-    let interface_to_bridge: HashMap<String, &rpc::HostRepresentorInterceptBridging> =
-        bridge_config
-            .host_representor_intercept_bridging
-            .iter()
-            .map(|(rep, c)| (rep.clone(), c))
-            .collect();
-
-    // Now get the list of VNI to Bridge maps.
-    let physical_name = hbn_device_names.reps[0].to_string();
-    let host_representor_bridge_vni_mappings = nc
-        .tenant_interfaces
-        .iter()
-        .filter_map(|i| {
-            let name = if i.function_type == rpc::InterfaceFunctionType::Physical as i32 {
-                physical_name.replace(hbn_device_names.sf_id, "")
-            } else {
-                match i.virtual_function_id {
-                    Some(id) => hbn_device_names
-                        .build_virt(id)
-                        .replace(hbn_device_names.sf_id, ""),
-                    None => {
-                        return {
-                            // This is an error at the point of rebuilding NVUE config,
-                            // but this is us used only for signaling with OVN here.
-                            // The values only change as interfaces come and go.
-                            // If it's a new interface, it would go un-configured, and the signaling
-                            // here won't matter anyway.
-                            tracing::warn!("function ID not found for non-physical interface");
-                            None
-                        };
-                    }
-                }
-            };
-
-            interface_to_bridge.get(&name).map(|bridging| {
-                tracing::debug!(
-                    representor = %name,
-                    bridge = %bridging.bridge,
-                    vni = i.vni,
-                    gateway = %i.gateway,
-                    "Created traffic-intercept bridge mapping"
-                );
-                traffic_intercept_bridging::TrafficInterceptBridgeMapping {
-                    bridge: bridging.bridge.clone(),
-                    patch_port: bridging.patch_port.clone(),
-                    vni: i.vni,
-                    gateway: i.gateway.clone(),
-                }
-            })
-        })
-        .collect();
-
-    let conf = traffic_intercept_bridging::TrafficInterceptBridgingConfig {
-        secondary_overlay_vtep_ip,
-        secondary_vtep_aggregate_prefixes: traffic_intercept_config
-            .secondary_vtep_aggregate_prefixes
-            .clone(),
-        vf_intercept_bridge_ip: vf_intercept_bridge_ip.to_string(),
-        intercept_bridge_prefix_len: bridge_prefix.prefix_len(),
-        // We use the bridge name here because the OVS will create a link/dev on the
-        // DPU OS side of that name.
-        vf_intercept_bridge_name: bridge_config.vf_intercept_bridge_name.clone(),
-        host_representor_bridge_vni_mappings,
-    };
-
-    // Write the config we're going to apply
-    let next_contents = traffic_intercept_bridging::build(conf)?;
-    let path = FPath(PathBuf::from(traffic_intercept_bridging::SAVE_PATH));
-    path.cleanup();
-
-    if nc.use_admin_network
-        || !write(next_contents, &path, "TRAFFIC_INTERCEPT_BRIDGING", false)
-            .wrap_err(format!("NVUE config at {path}"))?
-    {
-        // config didn't change OR we are switching to the admin network.
-        return Ok(false);
-    };
-
-    if !skip_post {
-        // Make it so
-        traffic_intercept_bridging::apply(&path).await?;
-    }
-
-    Ok(true)
 }
 
 fn build_network_security_group_rules(
@@ -1069,7 +913,9 @@ fn needed_interface_state(is_primary_dpu: bool, use_admin_network: bool) -> Inte
     InterfaceState::Down
 }
 
-pub async fn update_interface_state(nc: &ManagedHostNetworkConfigResponse) -> eyre::Result<()> {
+pub(super) async fn update_interface_state(
+    nc: &ManagedHostNetworkConfigResponse,
+) -> eyre::Result<()> {
     let needed_state = needed_interface_state(nc.is_primary_dpu, nc.use_admin_network);
 
     InterfaceState::update_state(&needed_state).await
@@ -1177,7 +1023,7 @@ async fn update_dhcp_via_grpc(
 ///
 /// Returns `Ok(true)` if a reload was triggered, `Ok(false)` if configs were
 /// already up-to-date.
-pub async fn update_dhcp(
+pub(super) async fn update_dhcp(
     hbn_root: &Path,
     network_config: &rpc::ManagedHostNetworkConfigResponse,
     // if true don't run the reload/restart commands after file update
@@ -1262,7 +1108,9 @@ pub async fn update_dhcp(
 }
 
 /// Interfaces to report back to server
-pub async fn interfaces(
+// The fetcher projects `addresses` into these compatibility fields before status reporting.
+#[allow(deprecated)]
+pub(super) async fn interfaces(
     network_config: &rpc::ManagedHostNetworkConfigResponse,
     factory_mac_address: MacAddress,
     nvue_client: Option<&NvueClient>,
@@ -1289,7 +1137,7 @@ pub async fn interfaces(
             mac_address: Some(factory_mac_address.to_string()),
             addresses,
             prefixes,
-            gateways: vec![iface.gateway.clone()],
+            gateways: build_dual_stack_list(iface.gateway.clone(), None),
             network_security_group: None,
             internal_uuid: iface.internal_uuid.clone(),
         });
@@ -1376,7 +1224,7 @@ pub async fn interfaces(
                 mac_address: mac,
                 addresses,
                 prefixes,
-                gateways: vec![iface.gateway.clone()],
+                gateways: build_dual_stack_list(iface.gateway.clone(), None),
                 network_security_group,
                 internal_uuid: iface.internal_uuid.clone(),
             });
@@ -1385,17 +1233,19 @@ pub async fn interfaces(
     Ok(interfaces)
 }
 
-pub fn tenant_peers(network_config: &rpc::ManagedHostNetworkConfigResponse) -> Vec<&str> {
+// The fetcher projects `addresses` into the compatibility IPv4 field before health checks.
+#[allow(deprecated)]
+pub(super) fn tenant_peers(network_config: &rpc::ManagedHostNetworkConfigResponse) -> Vec<&str> {
     network_config
         .tenant_interfaces
         .iter()
-        .map(|iface| iface.ip.as_str())
+        .filter_map(|iface| (!iface.ip.is_empty()).then_some(iface.ip.as_str()))
         .collect()
 }
 
 /// Reset networking to blank.
 /// Clear DHCP and NVUE config files.
-pub async fn reset(hbn_root: &Path, skip_post: bool) {
+pub(super) async fn reset(hbn_root: &Path, skip_post: bool) {
     tracing::debug!("Setting network config to blank");
 
     let mut errs = vec![];
@@ -1664,7 +1514,7 @@ struct Fdb {
 }
 
 impl Fdb {
-    pub fn is_permanent(&self) -> bool {
+    fn is_permanent(&self) -> bool {
         self.state == "permanent"
     }
 }
@@ -1961,13 +1811,13 @@ fn cleanup_old_acls(hbn_root: &Path) {
 // In some cases (e.g. different container namespaces), the other services we
 // send configuration data to might see different interface names from the ones
 // HBN sees. This allows us to translate them.
-pub enum InterfaceTranslationMode {
+pub(super) enum InterfaceTranslationMode {
     // The translated interface is just the input interface with a string prepended.
     Prepend(String),
 }
 
 impl InterfaceTranslationMode {
-    pub fn translate(&self, input_interface_name: &str) -> String {
+    fn translate(&self, input_interface_name: &str) -> String {
         use InterfaceTranslationMode::*;
         match self {
             Prepend(prefix) => {
@@ -1979,7 +1829,6 @@ impl InterfaceTranslationMode {
 
 #[cfg(test)]
 mod tests {
-    use std::collections::BTreeMap;
     use std::fs;
     use std::io::Write;
     use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
@@ -1989,7 +1838,6 @@ mod tests {
     use ::rpc::{common as rpc_common, forge as rpc};
     use carbide_network::virtualization::{VpcVirtualizationType, get_svi_ip};
     use carbide_rpc_utils::dhcp::{DhcpConfig, HostConfig};
-    use carbide_utils::none_if_empty::NoneIfEmpty;
     use eyre::WrapErr;
     use ipnetwork::IpNetwork;
 
@@ -2318,51 +2166,6 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_with_tenant_with_bridging() -> Result<(), Box<dyn std::error::Error>> {
-        let virtualization_type = VpcVirtualizationType::Fnn;
-
-        let mut network_config = netconf(virtualization_type, 32, 24, false, None, false, true);
-
-        network_config.traffic_intercept_config = Some(rpc::TrafficInterceptConfig {
-            additional_overlay_vtep_ip: Some("1.2.2.2".to_string()),
-            public_prefixes: vec![],
-            secondary_vtep_aggregate_prefixes: vec![],
-
-            bridging: Some(rpc::TrafficInterceptBridging {
-                internal_bridge_routing_prefix: "2.2.2.0/24".to_string(),
-                hbn_bridge: "br-hbn".to_string(),
-                vf_intercept_bridge_name: "br-beans".to_string(),
-                vf_intercept_bridge_port: "patch-br-beans-to-hbn".to_string(),
-                vf_intercept_bridge_sf: "pf0dpu5".to_string(),
-                host_representor_intercept_bridging: BTreeMap::from([(
-                    "pf0hpf".to_string(),
-                    rpc::HostRepresentorInterceptBridging {
-                        bridge: "br-pf0".to_string(),
-                        patch_port: "pp-pf0".to_string(),
-                    },
-                )]),
-            }),
-        });
-
-        fs::remove_file(traffic_intercept_bridging::SAVE_PATH).unwrap_or_default();
-        let has_changes = super::update_traffic_intercept_bridging(
-            &network_config,
-            HBNDeviceNames::hbn_23(),
-            true,
-        )
-        .await?;
-        assert!(
-            has_changes,
-            "update_traffic_intercept_bridging should have written the file, there should be changes"
-        );
-
-        // check startup.yaml
-        let expected = include_str!("../templates/tests/test_with_tenant_with_bridging.expected");
-        compare_diffed(traffic_intercept_bridging::SAVE_PATH, expected)?;
-
-        Ok(())
-    }
-    #[tokio::test]
     async fn test_with_tenant_fnn_with_missing_vpcs() -> Result<(), Box<dyn std::error::Error>> {
         let virtualization_type = VpcVirtualizationType::Fnn;
 
@@ -2685,6 +2488,8 @@ mod tests {
         Ok(())
     }
 
+    // Builds the deprecated compatibility shape consumed by these renderer tests.
+    #[allow(deprecated)]
     fn netconf(
         virtualization_type: VpcVirtualizationType,
         interface_prefix_length: u8,
@@ -2721,6 +2526,7 @@ mod tests {
             ipv6_interface_config: None,
             vpc_routing_profile: None,
             interface_routing_profile: None,
+            addresses: vec![],
         };
         assert_eq!(admin_interface.svi_ip, None);
 
@@ -2800,6 +2606,7 @@ mod tests {
                     }],
                 }),
                 interface_routing_profile: None,
+                addresses: vec![],
             },
             rpc::FlatInterfaceConfig {
                 function_type: rpc::InterfaceFunctionType::Physical.into(),
@@ -3002,6 +2809,7 @@ mod tests {
                     }],
                 }),
                 interface_routing_profile: None,
+                addresses: vec![],
             },
         ];
 
@@ -3103,26 +2911,6 @@ mod tests {
 
             use_admin_network: false,
             admin_interface: Some(admin_interface),
-
-            traffic_intercept_config: Some(rpc::TrafficInterceptConfig {
-                bridging: Some(rpc::TrafficInterceptBridging {
-                    vf_intercept_bridge_port: "dpuVf0mg".to_string(),
-                    vf_intercept_bridge_name: "br-dpu".to_string(),
-                    vf_intercept_bridge_sf: "pf0dpu5".to_string(),
-                    internal_bridge_routing_prefix: "10.10.10.0/29".to_string(),
-                    hbn_bridge: "br-hbn".to_string(),
-                    host_representor_intercept_bridging: BTreeMap::from([(
-                        "pf0hpf".to_string(),
-                        rpc::HostRepresentorInterceptBridging {
-                            bridge: "br-pf0".to_string(),
-                            patch_port: "pp-pf0".to_string(),
-                        },
-                    )]),
-                }),
-                additional_overlay_vtep_ip: Some("10.255.254.253".to_string()),
-                public_prefixes: vec!["7.6.5.0/24".to_string()],
-                secondary_vtep_aggregate_prefixes: vec!["10.255.254.0/24".to_string()],
-            }),
 
             tenant_interfaces,
             instance_network_config_version: "V1-T1666644937952999".to_string(),
@@ -3282,12 +3070,6 @@ mod tests {
             site_global_vpc_vni: None,
             loopback_ip: "10.217.5.39".parse().unwrap(),
             loopback_ip_v6: None,
-            secondary_overlay_vtep_ip: Some("10.255.254.253".parse().unwrap()),
-            internal_bridge_routing_prefix: Some("10.255.255.0/29".parse().unwrap()),
-            vf_intercept_bridge_port_name: Some("pfdpu0".to_string()),
-            vf_intercept_bridge_sf: Some("pf0dpu5".to_string()),
-            host_intercept_bridge_port_name: Some("pfdpu1".to_string()),
-            traffic_intercept_public_prefixes: vec!["7.6.5.0/24".to_string()],
             asn: 65535,
             datacenter_asn: 11414,
             anycast_site_prefixes: vec!["5.255.255.0/24".to_string()],
@@ -3450,7 +3232,9 @@ mod tests {
         }
     }
 
+    // Exercises the DHCP renderer's deprecated compatibility input.
     #[test]
+    #[allow(deprecated)]
     fn test_with_tenant_dhcp_server() -> Result<(), Box<dyn std::error::Error>> {
         // The config we received from API server
         // Admin won't be used
@@ -3479,6 +3263,7 @@ mod tests {
             ipv6_interface_config: None,
             vpc_routing_profile: None,
             interface_routing_profile: None,
+            addresses: vec![],
         };
 
         let mut admin_interface_with_mtu = admin_interface.clone();
@@ -3517,6 +3302,7 @@ mod tests {
                 ipv6_interface_config: None,
                 vpc_routing_profile: None,
                 interface_routing_profile: None,
+                addresses: vec![],
             },
             rpc::FlatInterfaceConfig {
                 function_type: rpc::InterfaceFunctionType::Physical.into(),
@@ -3544,6 +3330,7 @@ mod tests {
                 ipv6_interface_config: None,
                 vpc_routing_profile: None,
                 interface_routing_profile: None,
+                addresses: vec![],
             },
         ];
 
@@ -3608,7 +3395,6 @@ mod tests {
                     vni: 800,
                 }],
             }),
-            traffic_intercept_config: None,
 
             // yes it's in there twice I dunno either
             dhcp_servers: vec!["10.217.5.197".to_string(), "10.217.5.197".to_string()],
@@ -3810,7 +3596,6 @@ mod tests {
             anycast_site_prefixes: vec![],
             tenant_host_asn: None,
             routing_profile: None,
-            traffic_intercept_config: None,
             dhcp_servers: vec![],
             ntp_servers: vec![],
             vni_device: "vxlan48".to_string(),
@@ -3930,36 +3715,32 @@ mod tests {
         }
     }
 
-    #[test]
-    fn test_dual_stack_addresses_building() {
-        // Verify the iterator-based pattern used to build dual-stack address/prefix vectors.
-        let ip = "10.0.0.1".to_string();
-        let ip6 = Some("2001:db8::1".to_string());
-        let interface_prefix = "10.0.0.0/31".to_string();
-        let interface_prefix_v6 = Some("2001:db8::/127".to_string());
+    #[tokio::test]
+    #[allow(deprecated)]
+    async fn ipv6_only_status_omits_empty_ipv4_compatibility_values() {
+        let network_config = rpc::ManagedHostNetworkConfigResponse {
+            tenant_interfaces: vec![rpc::FlatInterfaceConfig {
+                function_type: rpc::InterfaceFunctionType::Physical.into(),
+                vlan_id: 100,
+                ipv6_interface_config: Some(rpc::FlatInterfaceIpv6Config {
+                    ip: "2001:db8::1".to_string(),
+                    interface_prefix: "2001:db8::/127".to_string(),
+                    svi_ip: None,
+                }),
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
 
-        let addresses: Vec<String> = std::iter::once(ip.clone())
-            .chain(ip6.none_if_empty())
-            .collect();
-        assert_eq!(addresses, vec!["10.0.0.1", "2001:db8::1"]);
+        assert!(tenant_peers(&network_config).is_empty());
 
-        let prefixes: Vec<String> = std::iter::once(interface_prefix)
-            .chain(interface_prefix_v6.none_if_empty())
-            .collect();
-        assert_eq!(prefixes, vec!["10.0.0.0/31", "2001:db8::/127"]);
+        let observations = interfaces(&network_config, "02:00:00:00:00:01".parse().unwrap(), None)
+            .await
+            .unwrap();
 
-        // Verify empty ip6 is not included.
-        let empty_ip6: Option<String> = Some("".to_string());
-        let addresses2: Vec<String> = std::iter::once(ip)
-            .chain(empty_ip6.none_if_empty())
-            .collect();
-        assert_eq!(addresses2, vec!["10.0.0.1"]);
-
-        // Verify None ip6 is not included.
-        let none_ip6: Option<String> = None;
-        let addresses3: Vec<String> = std::iter::once("10.0.0.1".to_string())
-            .chain(none_ip6.none_if_empty())
-            .collect();
-        assert_eq!(addresses3, vec!["10.0.0.1"]);
+        assert_eq!(observations.len(), 1);
+        assert_eq!(observations[0].addresses, vec!["2001:db8::1"]);
+        assert_eq!(observations[0].prefixes, vec!["2001:db8::/127"]);
+        assert!(observations[0].gateways.is_empty());
     }
 }

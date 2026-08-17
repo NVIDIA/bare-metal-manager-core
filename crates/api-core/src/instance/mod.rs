@@ -61,7 +61,7 @@ use model::vpc_prefix::VpcPrefix;
 use sqlx::PgConnection;
 
 use crate::api::Api;
-use crate::cfg::file::ComputeAllocationEnforcement;
+use crate::cfg::file::{CarbideConfig, ComputeAllocationEnforcement};
 use crate::ethernet_virtualization::validate_instance_interface_routing_profiles;
 use crate::network_segment::allocate::PrefixAllocator;
 
@@ -132,10 +132,72 @@ async fn validate_zero_dpu_auto_vpc(
     Ok(vpc)
 }
 
+/// Rejects instance VFs that DPF did not materialize from the configured replacement topology.
+///
+/// DPF topology replaces the static PF/VF ServiceInterface inventory, making exact membership
+/// authoritative. Pre-DPF bridging is only a sparse provisioning override, not an inventory;
+/// omitting a representor does not remove it from the provisioned hardware population. The pre-DPF
+/// and static DPF paths therefore retain their historical admission behavior. DPF startup owns
+/// normalization of the raw topology, so this request-time gate only projects its already-validated
+/// VF identities from immutable runtime configuration.
+pub(crate) fn validate_instance_vfs_against_dpf_topology(
+    network: &InstanceNetworkConfig,
+    config: &CarbideConfig,
+) -> CarbideResult<()> {
+    validate_vf_ids_against_dpf_topology(
+        network
+            .interfaces
+            .iter()
+            .filter_map(|interface| match &interface.function_id {
+                InterfaceFunctionId::Physical {} => None,
+                InterfaceFunctionId::Virtual { id } => Some(*id),
+            }),
+        config,
+    )
+}
+
+/// Applies exact topology membership to an already structurally validated VF sequence.
+fn validate_vf_ids_against_dpf_topology(
+    vf_ids: impl IntoIterator<Item = u8>,
+    config: &CarbideConfig,
+) -> CarbideResult<()> {
+    let Some(selected_vfs) = dpf_topology_vf_ids(config) else {
+        return Ok(());
+    };
+
+    if let Some(unselected_vf) = vf_ids
+        .into_iter()
+        .find(|vf_id| !selected_vfs.contains(vf_id))
+    {
+        return Err(ConfigValidationError::InvalidValue(format!(
+            "virtual function VF{unselected_vf} is not selected by the configured DPF intercept-bridging topology"
+        ))
+        .into());
+    }
+
+    Ok(())
+}
+
+/// Returns the exact topology VF population, or `None` when legacy admission remains in effect.
+fn dpf_topology_vf_ids(config: &CarbideConfig) -> Option<BTreeSet<u8>> {
+    if !config.dpf.enabled {
+        return None;
+    }
+
+    let topology = config.vmaas_config.as_ref()?.bridging.as_ref()?;
+    Some(
+        topology
+            .host_representor_intercept_bridging
+            .values()
+            .filter_map(|interface| interface.dpf_interface?.vf_id)
+            .collect(),
+    )
+}
+
 /// Validates that an operating system definition referenced by ID exists, is active,
 /// and has status READY.  Returns `Ok(())` when the OS variant is not
 /// `OperatingSystemId` (inline iPXE / OS image variants need no lookup).
-pub async fn validate_os_definition_usable(
+pub(crate) async fn validate_os_definition_usable(
     txn: impl sqlx::Executor<'_, Database = sqlx::Postgres>,
     os: &model::os::OperatingSystem,
 ) -> Result<(), CarbideError> {
@@ -166,24 +228,28 @@ pub async fn validate_os_definition_usable(
 
 /// User parameters for creating an instance
 #[derive(Debug)]
-pub struct InstanceAllocationRequest {
+pub(crate) struct InstanceAllocationRequest {
     /// The Machine on top of which we create an Instance
-    pub machine_id: MachineId,
+    pub(crate) machine_id: MachineId,
 
     /// The expected InstanceTypeId of the source
     /// machine for the instance.
-    pub instance_type_id: Option<InstanceTypeId>,
+    pub(crate) instance_type_id: Option<InstanceTypeId>,
 
     /// Desired ID for the new instance
-    pub instance_id: InstanceId,
+    pub(crate) instance_id: InstanceId,
 
     /// Desired configuration of the instance
-    pub config: InstanceConfig,
+    pub(crate) config: InstanceConfig,
 
-    pub metadata: Metadata,
+    pub(crate) metadata: Metadata,
 
     /// Allow allocation on unhealthy machines
-    pub allow_unhealthy_machine: bool,
+    pub(crate) allow_unhealthy_machine: bool,
+}
+
+fn normalize_created_power_profile(power_profile: Option<String>) -> Option<String> {
+    power_profile.filter(|profile| !profile.is_empty())
 }
 
 impl TryFrom<rpc::InstanceAllocationRequest> for InstanceAllocationRequest {
@@ -206,7 +272,10 @@ impl TryFrom<rpc::InstanceAllocationRequest> for InstanceAllocationRequest {
             .config
             .ok_or(RpcDataConversionError::MissingArgument("config"))?;
 
-        let config = InstanceConfig::try_from(config)?;
+        let mut config = InstanceConfig::try_from(config)?;
+        // Empty power-policy values are clear sentinels only on update. During
+        // creation there is no association to clear, so persist them as unset.
+        config.power_profile = normalize_created_power_profile(config.power_profile);
 
         // If the Tenant provides an instance ID use this one
         // Otherwise create a random ID
@@ -1189,7 +1258,7 @@ async fn allocate_networks(
 }
 
 /// Allocates generated network resources for one instance network config.
-pub async fn allocate_network(
+pub(crate) async fn allocate_network(
     network_config: &mut InstanceNetworkConfig,
     tenant_organization_id: &TenantOrganizationId,
     txn: &mut PgConnection,
@@ -1204,7 +1273,7 @@ pub async fn allocate_network(
     .await
 }
 
-pub fn allocate_ib_port_guid(
+pub(crate) fn allocate_ib_port_guid(
     ib_config: &InstanceInfinibandConfig,
     machine: &Machine,
 ) -> CarbideResult<InstanceInfinibandConfig> {
@@ -1286,7 +1355,7 @@ pub fn allocate_ib_port_guid(
 }
 
 /// sort ib device by slot and add devices with the same name are added to hashmap
-pub fn sort_ib_by_slot(
+pub(crate) fn sort_ib_by_slot(
     ib_hw_info_vec: &[InfinibandInterface],
 ) -> HashMap<String, Vec<InfinibandInterface>> {
     let mut ib_hw_map = HashMap::new();
@@ -1312,7 +1381,7 @@ pub fn sort_ib_by_slot(
 
 /// Allocates an instance for a tenant
 /// This is a convenience wrapper around `batch_allocate_instances` for single instance allocation.
-pub async fn allocate_instance(
+pub(crate) async fn allocate_instance(
     api: &Api,
     request: InstanceAllocationRequest,
     host_health_config: HostHealthConfig,
@@ -1355,7 +1424,7 @@ fn not_allocatable_error(machine_id: MachineId, reason: NotAllocatableReason) ->
 /// 4. Network allocation + config validation (sequential)
 /// 5. Batch persist instances, process configs (IPs, IB GUIDs), batch update
 /// 6. Load final instances, assemble snapshots, commit
-pub async fn batch_allocate_instances(
+pub(crate) async fn batch_allocate_instances(
     api: &Api,
     mut requests: Vec<InstanceAllocationRequest>,
     host_health_config: HostHealthConfig,
@@ -1768,6 +1837,7 @@ pub async fn batch_allocate_instances(
                 .map(|vc| vc.allow_instance_vf)
                 .unwrap_or(true),
         )?;
+        validate_instance_vfs_against_dpf_topology(&request.config.network, &api.runtime_config)?;
         validate_instance_interface_routing_profiles(
             &mut txn,
             &request.config.network,
@@ -2077,7 +2147,7 @@ pub async fn batch_allocate_instances(
 }
 
 /// Batch validate SPX partition ownership for multiple (partition_id, tenant_id) pairs
-pub async fn batch_validate_spx_partition_ownership(
+pub(crate) async fn batch_validate_spx_partition_ownership(
     txn: &mut PgConnection,
     validations: &[(SpxPartitionId, &TenantOrganizationId)],
 ) -> CarbideResult<()> {
@@ -2128,7 +2198,7 @@ pub async fn batch_validate_spx_partition_ownership(
 }
 
 /// Batch validate IB partition ownership for multiple (partition_id, tenant_id) pairs
-pub async fn batch_validate_ib_partition_ownership(
+pub(crate) async fn batch_validate_ib_partition_ownership(
     txn: &mut PgConnection,
     validations: &[(IBPartitionId, &TenantOrganizationId)],
 ) -> CarbideResult<()> {
@@ -2170,7 +2240,7 @@ pub async fn batch_validate_ib_partition_ownership(
 }
 
 /// Check whether the tenant of instance is consistent with the tenant of the ib partition
-pub async fn validate_ib_partition_ownership(
+pub(crate) async fn validate_ib_partition_ownership(
     txn: &mut PgConnection,
     instance_tenant: &TenantOrganizationId,
     ib_config: &InstanceInfinibandConfig,
@@ -2183,7 +2253,7 @@ pub async fn validate_ib_partition_ownership(
     batch_validate_ib_partition_ownership(txn, &validations).await
 }
 
-pub async fn validate_spx_partition_ownership(
+pub(crate) async fn validate_spx_partition_ownership(
     txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     instance_tenant: &TenantOrganizationId,
     spxcfg: &InstanceSpxConfig,
@@ -2213,7 +2283,9 @@ pub async fn validate_spx_partition_ownership(
 }
 
 /// sort spx device by slot and add devices with the same name are added to hashmap
-pub fn sort_spx_by_slot(spx_hw_info_vec: &[DpaInterface]) -> HashMap<String, Vec<DpaInterface>> {
+pub(crate) fn sort_spx_by_slot(
+    spx_hw_info_vec: &[DpaInterface],
+) -> HashMap<String, Vec<DpaInterface>> {
     let mut spx_hw_map = HashMap::new();
     let mut sorted_spx_hw_info_vec = spx_hw_info_vec.to_owned();
     sorted_spx_hw_info_vec.sort_by(|a, b| a.pci_name.cmp(&b.pci_name));
@@ -2234,7 +2306,7 @@ pub fn sort_spx_by_slot(spx_hw_info_vec: &[DpaInterface]) -> HashMap<String, Vec
 }
 
 /// Allocate SPX port MAC addresses
-pub fn allocate_spx_port_mac(
+pub(crate) fn allocate_spx_port_mac(
     spx_config: &InstanceSpxConfig,
     mh_snapshot: &ManagedHostStateSnapshot,
 ) -> CarbideResult<InstanceSpxConfig> {
@@ -2312,9 +2384,25 @@ pub fn allocate_spx_port_mac(
 #[cfg(test)]
 mod tests {
     use carbide_test_support::Outcome::*;
-    use carbide_test_support::{Case, check_cases};
+    use carbide_test_support::{Case, check_cases, value_scenarios};
 
     use super::*;
+
+    #[test]
+    fn instance_creation_power_profile_semantics() {
+        value_scenarios!(
+            run = normalize_created_power_profile;
+            "non-empty profile is preserved" {
+                Some("balanced".to_string()) => Some("balanced".to_string()),
+            }
+            "empty profile is treated as unset" {
+                Some(String::new()) => None,
+            }
+            "omitted profile remains unset" {
+                None => None,
+            }
+        );
+    }
 
     #[test]
     fn build_requested_linknet_prefix_accepts_host_end_rejects_dpu_end() {
@@ -2348,6 +2436,74 @@ mod tests {
             |(ip, prefix_len)| {
                 build_requested_linknet_prefix(ip.parse().unwrap(), prefix_len).map_err(|_| ())
             },
+        );
+    }
+
+    /// Verifies instance admission uses exact topology membership without changing legacy mode.
+    #[test]
+    fn instance_vf_admission_follows_dpf_topology() {
+        #[derive(Clone, Copy)]
+        enum InventoryMode {
+            Topology(&'static [u8]),
+            Static,
+            DpfDisabled(&'static [u8]),
+        }
+
+        value_scenarios!(
+            run = |(mode, requested_vfs)| {
+                let config = match mode {
+                    InventoryMode::Topology(vf_ids) => {
+                        crate::test_support::default_config::with_dpf_intercept_topology(vf_ids)
+                    }
+                    InventoryMode::Static => {
+                        let mut config = crate::test_support::default_config::get();
+                        config.dpf.enabled = true;
+                        config.vmaas_config = None;
+                        config
+                    }
+                    InventoryMode::DpfDisabled(vf_ids) => {
+                        let mut config =
+                            crate::test_support::default_config::with_dpf_intercept_topology(vf_ids);
+                        config.dpf.enabled = false;
+                        config
+                    }
+                };
+                validate_vf_ids_against_dpf_topology(requested_vfs, &config).is_ok()
+            };
+            "selected sparse VF" {
+                // An explicitly selected sparse VF is addressable.
+                (InventoryMode::Topology(&[7]), vec![7]) => true,
+            }
+
+            "unselected sparse VF" {
+                // VF0 must not pass merely because the hardware provisions it.
+                (InventoryMode::Topology(&[7]), vec![0]) => false,
+            }
+
+            "all requested VFs selected" {
+                // Multiple requested VFs must each belong to the replacement inventory.
+                (InventoryMode::Topology(&[4, 7]), vec![4, 7]) => true,
+            }
+
+            "one requested VF omitted" {
+                // One unselected VF rejects the complete network configuration.
+                (InventoryMode::Topology(&[4, 7]), vec![4, 6]) => false,
+            }
+
+            "PF-only topology" {
+                // A valid PF-only topology deliberately exposes no instance VFs.
+                (InventoryMode::Topology(&[]), vec![0]) => false,
+            }
+
+            "static compatibility mode" {
+                // DPF without a replacement topology retains the historical admission behavior.
+                (InventoryMode::Static, vec![0]) => true,
+            }
+
+            "DPF disabled" {
+                // Legacy non-DPF VMaaS configuration remains outside this DPF admission gate.
+                (InventoryMode::DpfDisabled(&[7]), vec![0]) => true,
+            }
         );
     }
 

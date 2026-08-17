@@ -43,6 +43,8 @@ impl BmcPasswordProvider for String {
 /// Service name constants for use across crates
 pub const DOCA_HBN_SERVICE_NAME: &str = "doca-hbn";
 pub const DHCP_SERVER_SERVICE_NAME: &str = "carbide-dhcp-server";
+/// Shared marker applied to every DPF-managed DPUNode.
+pub const DPU_ENABLED_NODE_LABEL: &str = "feature.node.kubernetes.io/dpu-enabled";
 pub const FMDS_SERVICE_NAME: &str = "carbide-fmds";
 pub const DPU_AGENT_SERVICE_NAME: &str = "carbide-dpu-agent";
 pub const OTEL_COLLECTOR_SERVICE_NAME: &str = "carbide-otelcol";
@@ -50,9 +52,19 @@ pub const DTS_SERVICE_NAME: &str = "dts";
 pub const DOCA_WEAVE_DHCP_AGENT_SERVICE_NAME: &str = "doca-weave-dhcp-agent";
 pub const DOCA_WEAVE_FLOW_CONTROLLER_SERVICE_NAME: &str = "doca-weave-flow-controller";
 pub const DOCA_XPLANE_SERVICE_NAME: &str = "doca-xplane";
+/// Hash-stable legacy VF population used by default DPF flavors and SDK initialization.
+pub const DEFAULT_DPU_NUM_OF_VFS: u32 = 16;
+/// Default SF capacity reserved beyond configured NICo-managed service endpoints.
+pub const DEFAULT_PF_TOTAL_SF_RESERVED: u32 = 30;
+// Keep direct SDK validation aligned with api-core's general BlueField provisioning bound without
+// coupling this lightweight crate to the complete API configuration model.
+pub(crate) const MAX_BLUEFIELD_VFS_PER_PF: u32 = 126;
+// Keep topology validation aligned with `model::instance::config::network::INTERFACE_VFID_MAX`
+// without adding the complete API model as a DPF SDK dependency.
+const MAX_INSTANCE_VF_ID: u8 = 15;
 
-/// Configuration for creating DPF operator resources (BFB, DPUFlavor,
-/// DPUDeployment, service templates, etc.) during initialization.
+/// Configuration for creating DPF operator resources (BFB or
+/// BlueFieldSoftware, DPUFlavor, DPUDeployment, services, etc.).
 #[derive(Debug, Clone)]
 pub struct InitDpfResourcesConfig {
     /// URL for the BFB (BlueField Bundle) image. Used for BF3-class DPUs.
@@ -70,6 +82,25 @@ pub struct InitDpfResourcesConfig {
     /// Service templates and configs for M4 DPUDeployment.
     /// When empty, `default_services()` is used automatically.
     pub services: Vec<ServiceDefinition>,
+
+    /// Number of hardware VFs provisioned per DPU PF for BF3 and generic BF4.
+    pub num_of_vfs: u32,
+    /// SF capacity reserved beyond configured NICo-managed service endpoints.
+    /// Without intercept bridging, this remains the complete legacy `PF_TOTAL_SF` value.
+    pub pf_total_sf_reserved: u32,
+    /// Enables deployment-scoped DPUServiceInterface names and node selectors.
+    /// False preserves the legacy global resource naming and selector mode for
+    /// BF3 and generic BF4; BF4 Astra requires this to be true.
+    /// Mode transitions require manual old-resource cleanup and DPU re-ingestion;
+    /// the SDK neither detects nor deletes the previous generation.
+    pub deployment_scoped_service_interfaces: bool,
+    /// Optional intercept-bridging topology for BF3 and generic BF4. `Some` replaces the
+    /// ordinary static PF/VF inventory and contains exactly one configured PF.
+    pub intercept_bridging: Option<DpfInterceptBridging>,
+    /// Effective interface inventory shared by ServiceInterfaces, service chains,
+    /// and caller-built service definitions. Empty asks the SDK to build it. With
+    /// intercept bridging, a non-empty inventory must exactly match the SDK projection.
+    pub interfaces: Vec<DpuServiceInterfaceTemplateDefinition>,
 
     pub proxy: Option<DpfProxyDetails>,
     /// Deployment type — determines which DPUFlavor spec to build.
@@ -96,6 +127,11 @@ impl Default for InitDpfResourcesConfig {
             deployment_name: "dpu-deployment".to_string(),
             flavor_name: crate::flavor::DEFAULT_FLAVOR_NAME.to_string(),
             services: Vec::new(),
+            num_of_vfs: DEFAULT_DPU_NUM_OF_VFS,
+            pf_total_sf_reserved: DEFAULT_PF_TOTAL_SF_RESERVED,
+            deployment_scoped_service_interfaces: false,
+            intercept_bridging: None,
+            interfaces: Vec::new(),
             proxy: None,
             deployment_type: DpuDeploymentType::Bf3,
         }
@@ -103,22 +139,26 @@ impl Default for InitDpfResourcesConfig {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct DpfProxyDetails {
     pub https_proxy: String,
     #[serde(default)]
     pub no_proxy: Vec<String>,
 }
 
-/// A DPU CR whose installed BFB or `spec.dpuFlavor` does not match the
-/// expected one. Returned by [`crate::DpfSdk::find_outdated_dpus_dpf`]; the
-/// labels map is the DPU CR's `metadata.labels` so callers can map back to
-/// their own identifiers.
+/// A DPU CR whose installed BFB, BlueFieldSoftware, or `spec.dpuFlavor` does
+/// not match the expected one. Returned by
+/// [`crate::DpfSdk::find_outdated_dpus_dpf`]; the labels map is the DPU CR's
+/// `metadata.labels` so callers can map back to their own identifiers.
 #[derive(Debug, Clone)]
 pub struct DpuMismatch {
     pub dpu_cr_name: String,
     pub dpu_labels: std::collections::BTreeMap<String, String>,
-    /// Expected BFB filename (e.g. `<namespace>-bf-bundle-<sha256>.bfb`).
-    pub target_bfb: String,
+    /// Expected provisioning source, for traceability only. For a BFB-based
+    /// deployment this is the expected BFB filename (e.g.
+    /// `<namespace>-bf-bundle-<sha256>.bfb`); for a BlueFieldSoftware-based one
+    /// it is the expected BlueFieldSoftware CR name.
+    pub target_source: String,
 }
 
 /// Service type for configPorts (DPUServiceConfiguration).
@@ -138,7 +178,7 @@ pub struct ServiceConfigPort {
     pub node_port: Option<i64>,
 }
 
-/// Service Network Attachment Definition (NAD)
+/// Resource kind allocated by a service Network Attachment Definition (NAD).
 #[derive(Debug, Clone)]
 pub enum ServiceNADResourceType {
     Vf,
@@ -193,19 +233,328 @@ pub struct ServiceDefinition {
     pub service_nad: Option<ServiceNAD>,
 }
 
-/// Service Network Attachment Definition (NAD)
-#[derive(Debug, Clone)]
+/// Interface kind rendered into a DPUServiceInterface template.
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum DpuServiceInterfaceTemplateType {
-    Vlan,
     Physical,
     Pf,
     Vf,
-    Ovn,
-    Service,
+    Patch(DpuServiceInterfacePatch),
+}
+
+/// Typed identity of a PF or VF selected for DPF intercept bridging topology.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub struct DpfInterfaceIdentity {
+    pub controller_id: u8,
+    pub pf_id: u8,
+    pub vf_id: Option<u8>,
+}
+
+impl DpfInterfaceIdentity {
+    /// Returns the deterministic DPF resource name for this identity.
+    pub fn resource_name(self) -> String {
+        match self.vf_id {
+            Some(vf_id) => format!("c{}pf{}vf{vf_id}", self.controller_id, self.pf_id),
+            None => format!("c{}pf{}", self.controller_id, self.pf_id),
+        }
+    }
+
+    /// Returns the canonical service-local endpoint stem.
+    ///
+    /// Configured topology may select any hardware controller/PF, but NICo's
+    /// HBN, DHCP, and FMDS runtime contract supports one selected PF. Hardware
+    /// identity remains in DPF resource names and flavor topology; service
+    /// containers consistently expose that selected parent as logical PF0.
+    pub fn service_interface_stem(self) -> String {
+        match self.vf_id {
+            Some(vf_id) => format!("pf0vf{vf_id}"),
+            None => "pf0hpf".to_string(),
+        }
+    }
+
+    /// Returns the semantic generic-BF4 PF identity exposed by `phys_port_name`.
+    pub fn bf4_phys_port_name(self) -> String {
+        format!("c{}pf{}", self.controller_id, self.pf_id)
+    }
+
+    /// Returns the BF3 raw representor name selected by this identity.
+    pub fn bf3_raw_netdev_name(self) -> String {
+        match self.vf_id {
+            Some(vf_id) => format!("pf{}vf{vf_id}", self.pf_id),
+            None => format!("pf{}hpf", self.pf_id),
+        }
+    }
+}
+
+/// One normalized intercept-bridging interface consumed by DPF resource generation.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DpfInterceptBridge {
+    pub(crate) identity: DpfInterfaceIdentity,
+    pub(crate) bridge: String,
+    pub(crate) patch_port: String,
+}
+
+impl DpfInterceptBridge {
+    /// Builds one normalized entry without retaining its legacy configuration key.
+    pub fn new(
+        identity: DpfInterfaceIdentity,
+        bridge: impl Into<String>,
+        patch_port: impl Into<String>,
+    ) -> Self {
+        Self {
+            identity,
+            bridge: bridge.into(),
+            patch_port: patch_port.into(),
+        }
+    }
+}
+
+/// Deterministic, validated intercept-bridging topology shared by BF3 and generic BF4.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DpfInterceptBridging {
+    interfaces: Vec<DpfInterceptBridge>,
+    num_of_vfs: u32,
+}
+
+impl DpfInterceptBridging {
+    /// Requires one PF, validates configured identities and rendered names, then sorts by identity.
+    pub fn new(
+        mut interfaces: Vec<DpfInterceptBridge>,
+        num_of_vfs: u32,
+    ) -> Result<Self, crate::DpfError> {
+        if num_of_vfs > MAX_BLUEFIELD_VFS_PER_PF {
+            return Err(crate::DpfError::ConfigError(format!(
+                "DPF num_of_vfs must be <= {MAX_BLUEFIELD_VFS_PER_PF}"
+            )));
+        }
+
+        // Canonical order makes every downstream resource and flavor hash deterministic.
+        interfaces.sort_by_key(|interface| interface.identity);
+
+        // FMDS serves one logical PF endpoint, so every configured replacement inventory must
+        // include the selected PF. Existing validation then guarantees that PF is unique.
+        if !interfaces
+            .iter()
+            .any(|interface| interface.identity.vf_id.is_none())
+        {
+            return Err(crate::DpfError::ConfigError(
+                "DPF intercept bridging requires exactly one configured PF interface".to_string(),
+            ));
+        }
+
+        // Track generated names in each namespace while validating every configured entry.
+        let mut identities = std::collections::BTreeSet::new();
+        let mut resource_names = std::collections::BTreeSet::new();
+        let mut hbn_interface_names = std::collections::BTreeSet::new();
+        let mut dhcp_interface_names = std::collections::BTreeSet::new();
+        let mut fmds_interface_names = std::collections::BTreeSet::new();
+        // Seed OVS names created independently of configured topology. Operator-provided bridge
+        // and patch names share this OVS namespace and must not reuse any of them.
+        let mut ovs_names = BTreeMap::from([
+            ("br-sfc".to_string(), "DPF service-chain bridge".to_string()),
+            ("br-hbn".to_string(), "DPF HBN bridge".to_string()),
+            ("p0".to_string(), "fixed physical interface".to_string()),
+            ("p1".to_string(), "fixed physical interface".to_string()),
+        ]);
+
+        let selected_parents = interfaces
+            .iter()
+            .map(|interface| (interface.identity.controller_id, interface.identity.pf_id))
+            .collect::<std::collections::BTreeSet<_>>();
+
+        // Runtime service configuration addresses one logical PF. The typed identity still
+        // selects which hardware controller/PF becomes that logical PF0.
+        if selected_parents.len() > 1 {
+            return Err(crate::DpfError::ConfigError(
+                "DPF intercept bridging supports one selected controller/PF parent".to_string(),
+            ));
+        }
+        let &(_, selected_pf_id) = selected_parents
+            .first()
+            .expect("the required PF interface supplies one selected parent");
+
+        for interface in &interfaces {
+            let identity = interface.identity;
+            let resource_name = identity.resource_name();
+
+            // A duplicate identity would otherwise render the same Kubernetes and service names.
+            if !identities.insert(identity) {
+                return Err(crate::DpfError::ConfigError(format!(
+                    "duplicate DPF intercept-bridging interface identity {resource_name}"
+                )));
+            }
+
+            // PF selections are independent of the provisioned VF population. Topology VFs are
+            // exclusively VM instance endpoints, so their identity is bounded by both hardware
+            // provisioning and the instance network model.
+            if let Some(vf_id) = identity.vf_id {
+                if vf_id > MAX_INSTANCE_VF_ID {
+                    return Err(crate::DpfError::ConfigError(format!(
+                        "DPF intercept-bridging interface {resource_name} selects VF {vf_id}, but instance networking supports at most VF{MAX_INSTANCE_VF_ID}"
+                    )));
+                }
+                if u32::from(vf_id) >= num_of_vfs {
+                    return Err(crate::DpfError::ConfigError(format!(
+                        "DPF intercept-bridging interface {resource_name} selects a VF outside num_of_vfs={num_of_vfs}"
+                    )));
+                }
+            }
+
+            validate_linux_netdev_name(&interface.bridge, "bridge", &resource_name)?;
+            validate_ovs_patch_name(&interface.patch_port, &resource_name)?;
+
+            // Resource names are derived from typed numeric identity, but retain an explicit
+            // collision gate so future naming changes cannot silently alias resources.
+            if !resource_names.insert(resource_name.clone()) {
+                return Err(crate::DpfError::ConfigError(format!(
+                    "generated DPF intercept-bridging resource name {resource_name} is not unique"
+                )));
+            }
+
+            // Runtime services expose the selected hardware parent as logical PF0. Validate the
+            // generated Linux endpoint names separately per service: the same stem may appear in
+            // different service namespaces, but every name within one service must fit IFNAMSIZ
+            // and remain unique.
+            let service_interface_stem = identity.service_interface_stem();
+            for (name, names) in [
+                (
+                    format!("{service_interface_stem}_if"),
+                    &mut hbn_interface_names,
+                ),
+                (
+                    format!("d_{service_interface_stem}_if"),
+                    &mut dhcp_interface_names,
+                ),
+            ] {
+                if name.len() > 15 || !names.insert(name.clone()) {
+                    return Err(crate::DpfError::ConfigError(format!(
+                        "generated DPF service interface name {name} is invalid or not unique"
+                    )));
+                }
+            }
+            if identity.vf_id.is_none() {
+                // Only the selected PF supplies FMDS, so its endpoint has a separate namespace.
+                let fmds_name = format!("f_{service_interface_stem}_if");
+                if fmds_name.len() > 15 || !fmds_interface_names.insert(fmds_name.clone()) {
+                    return Err(crate::DpfError::ConfigError(format!(
+                        "generated DPF service interface name {fmds_name} is invalid or not unique"
+                    )));
+                }
+            }
+
+            // DPF creates the local br-sfc side of each Patch pair with this deterministic name.
+            // It is an OVS object even though operators configure only the peer-side name, so it
+            // must participate in the same collision gate as every explicit bridge and port.
+            let local_patch_port = format!("p_brsfc_to_{}", interface.patch_port);
+            for (name, purpose) in [
+                (&interface.bridge, "intermediate bridge"),
+                (&interface.patch_port, "peer patch port"),
+                (&local_patch_port, "DPF-generated local patch port"),
+            ] {
+                if let Some(existing) = ovs_names.insert(
+                    name.clone(),
+                    format!("{purpose} for DPF intercept-bridging interface {resource_name}"),
+                ) {
+                    return Err(crate::DpfError::ConfigError(format!(
+                        "OVS name {name} for {purpose} on DPF intercept-bridging interface {resource_name} conflicts with {existing}"
+                    )));
+                }
+            }
+        }
+
+        // Configured topology replaces the static ServiceInterface inventory, but BF3 still
+        // provisions the complete NUM_OF_VFS hardware population. For example, topology may select
+        // PF2 and omit VF4 while hardware still creates `pf2vf4`; accepting that name for a bridge
+        // or patch port would collide when the representor materializes. Reserve every provisioned
+        // raw representor because all of them share OVS's global object namespace.
+        if let Some((raw_netdev, existing)) = ovs_names
+            .iter()
+            .find(|(name, _)| is_provisioned_bf3_raw_netdev(name, selected_pf_id, num_of_vfs))
+        {
+            return Err(crate::DpfError::ConfigError(format!(
+                "expected provisioned BF3 raw netdev {raw_netdev} conflicts with {existing}"
+            )));
+        }
+
+        Ok(Self {
+            interfaces,
+            num_of_vfs,
+        })
+    }
+
+    /// Returns the normalized entries in deterministic typed-identity order.
+    pub(crate) fn interfaces(&self) -> &[DpfInterceptBridge] {
+        &self.interfaces
+    }
+
+    /// Returns the VF population against which this topology was validated.
+    pub(crate) fn num_of_vfs(&self) -> u32 {
+        self.num_of_vfs
+    }
+}
+
+/// Returns whether an OVS object name aliases a raw BF3 representor provisioned for the PF.
+fn is_provisioned_bf3_raw_netdev(name: &str, pf_id: u8, num_of_vfs: u32) -> bool {
+    let pf_stem = format!("pf{pf_id}");
+    if name == format!("{pf_stem}hpf") {
+        return true;
+    }
+
+    let vf_stem = format!("{pf_stem}vf");
+    name.strip_prefix(&vf_stem)
+        .and_then(|suffix| suffix.parse::<u32>().ok())
+        .is_some_and(|vf_id| vf_id < num_of_vfs && name == format!("{vf_stem}{vf_id}"))
+}
+
+/// Rejects Linux netdev names outside NICo's shell-safe DPF contract.
+fn validate_linux_netdev_name(
+    name: &str,
+    purpose: &str,
+    resource_name: &str,
+) -> Result<(), crate::DpfError> {
+    // Intermediate bridges are Linux netdevs and must fit IFNAMSIZ.
+    let valid = (1..=15).contains(&name.len())
+        && name.as_bytes().first().is_some_and(u8::is_ascii_lowercase)
+        && name.bytes().all(|character| {
+            character.is_ascii_lowercase() || character.is_ascii_digit() || character == b'-'
+        });
+    if !valid {
+        return Err(crate::DpfError::ConfigError(format!(
+            "DPF intercept bridging {purpose} name {name:?} for interface {resource_name} must be 1 to 15 lowercase ASCII letters, digits, or hyphens and start with a letter"
+        )));
+    }
+    Ok(())
+}
+
+/// Rejects OVS patch-port names outside NICo's shell-safe DPF contract.
+fn validate_ovs_patch_name(name: &str, resource_name: &str) -> Result<(), crate::DpfError> {
+    // Patch ports are OVSDB objects, not Linux netdev names. The checked-in DPF CRD has no
+    // maxLength and demonstrates an autogenerated name longer than 15 characters containing
+    // underscores, so do not invent a Linux-netdev length restriction here.
+    let valid = !name.is_empty()
+        && name.as_bytes().first().is_some_and(u8::is_ascii_lowercase)
+        && name.bytes().all(|character| {
+            character.is_ascii_lowercase()
+                || character.is_ascii_digit()
+                || matches!(character, b'-' | b'_')
+        });
+    if !valid {
+        return Err(crate::DpfError::ConfigError(format!(
+            "DPF intercept bridging patch port name {name:?} for interface {resource_name} must be non-empty, start with a lowercase ASCII letter, and contain only lowercase ASCII letters, digits, hyphens, or underscores"
+        )));
+    }
+    Ok(())
+}
+
+/// Patch-pair data owned by a DPUServiceInterface.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DpuServiceInterfacePatch {
+    pub(crate) peer_bridge: String,
+    pub(crate) peer_patch_name: String,
 }
 
 /// Network interface for a DPU service.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DpuServiceInterfaceTemplateDefinition {
     /// Interface name.
     pub name: String,
@@ -255,15 +604,6 @@ impl ServiceDefinition {
             ..Default::default()
         }
     }
-}
-
-#[derive(Debug, Clone, Default)]
-pub struct DpuFlavorBridgeDefinition {
-    pub vf_intercept_bridge_name: String,
-    pub vf_intercept_bridge_port: String,
-    pub host_intercept_bridge_name: String,
-    pub host_intercept_bridge_port: String,
-    pub vf_intercept_bridge_sf: String,
 }
 
 /// Deployment type of a DPU — used to route devices to the correct
@@ -377,6 +717,7 @@ impl From<DpuStatusPhase> for DpuPhase {
                 Self::Provisioning("PerformArmForceRestart".into())
             }
             DpuStatusPhase::UpdateFirmware => Self::Provisioning("UpdateFirmware".into()),
+            DpuStatusPhase::HostOsInitRelease => Self::Provisioning("HostOsInitRelease".into()),
         }
     }
 }
@@ -515,6 +856,261 @@ mod tests {
     use carbide_test_support::value_scenarios;
 
     use super::*;
+
+    /// Provides one normalized intercept-bridging interface for topology validation cases.
+    fn intercept_bridge(
+        controller_id: u8,
+        pf_id: u8,
+        vf_id: Option<u8>,
+        bridge: &str,
+        patch_port: &str,
+    ) -> DpfInterceptBridge {
+        DpfInterceptBridge::new(
+            DpfInterfaceIdentity {
+                controller_id,
+                pf_id,
+                vf_id,
+            },
+            bridge,
+            patch_port,
+        )
+    }
+
+    /// Verifies all DPF intercept bridging identity, boundary, and rendered-name rejection rules.
+    #[test]
+    fn dpf_intercept_bridging_validates_identity_and_ovs_contracts() {
+        value_scenarios!(
+            run = |(interfaces, num_of_vfs)| DpfInterceptBridging::new(interfaces, num_of_vfs).is_ok();
+            "empty replacement topology" {
+                // FMDS cannot start when a configured replacement inventory omits its PF.
+                (vec![], 0) => false,
+            }
+
+            "VF-only replacement topology" {
+                // A VF cannot supply the single PF endpoint required by FMDS.
+                (vec![intercept_bridge(2, 3, Some(4), "br-vf", "p-vf")], 16) => false,
+            }
+
+            "PF independent of VF count" {
+                // PF selections remain valid even when hardware provisioning creates no VFs.
+                (vec![intercept_bridge(2, 3, None, "br-pf", "p-pf")], 0) => true,
+            }
+
+            "VF below configured population" {
+                // The highest provisioned VF index is accepted.
+                (
+                    vec![
+                        intercept_bridge(2, 3, None, "br-pf", "p-pf"),
+                        intercept_bridge(2, 3, Some(15), "br-vf", "p-vf"),
+                    ],
+                    16,
+                ) => true,
+            }
+
+            "maximum typed VF endpoint" {
+                // Controller/PF identity remains fully typed while VM addressing stops at VF15.
+                (
+                    vec![
+                        intercept_bridge(255, 255, None, "br-pf", "p-pf"),
+                        intercept_bridge(255, 255, Some(15), "br-vf", "p-vf"),
+                    ],
+                    126,
+                ) => true,
+            }
+
+            "VF at configured population" {
+                // VF indices are zero-based, so equality with num_of_vfs is out of range.
+                (
+                    vec![
+                        intercept_bridge(2, 3, None, "br-pf", "p-pf"),
+                        intercept_bridge(2, 3, Some(16), "br-vf", "p-vf"),
+                    ],
+                    16,
+                ) => false,
+            }
+
+            "VF outside configured population below instance limit" {
+                // VF8 is valid for VM addressing but absent from a four-VF hardware population.
+                (
+                    vec![
+                        intercept_bridge(2, 3, None, "br-pf", "p-pf"),
+                        intercept_bridge(2, 3, Some(8), "br-vf", "p-vf"),
+                    ],
+                    4,
+                ) => false,
+            }
+
+            "VF above instance addressing limit" {
+                // Additional hardware VFs are not valid VMaaS topology endpoints.
+                (
+                    vec![
+                        intercept_bridge(2, 3, None, "br-pf", "p-pf"),
+                        intercept_bridge(2, 3, Some(16), "br-vf", "p-vf"),
+                    ],
+                    126,
+                ) => false,
+            }
+
+            "hardware VF population above platform limit" {
+                // BlueField provisioning supports at most 126 hardware VFs per PF.
+                (vec![intercept_bridge(2, 3, None, "br-pf", "p-pf")], 127) => false,
+            }
+
+            "duplicate typed identity" {
+                // Different legacy entries cannot select the same DPF interface twice.
+                (
+                    vec![
+                        intercept_bridge(2, 3, None, "br-pf", "p-pf"),
+                        intercept_bridge(2, 3, Some(4), "br-a", "p-a"),
+                        intercept_bridge(2, 3, Some(4), "br-b", "p-b"),
+                    ],
+                    16,
+                ) => false,
+            }
+
+            "multiple selected parents" {
+                // Service runtimes expose one logical PF0, so entries cannot span hardware parents.
+                (
+                    vec![
+                        intercept_bridge(1, 3, None, "br-a", "p-a"),
+                        intercept_bridge(2, 3, Some(4), "br-b", "p-b"),
+                    ],
+                    16,
+                ) => false,
+            }
+
+            "long OVS patch port" {
+                // Patch ports are OVSDB objects and do not inherit Linux's 15-byte netdev limit.
+                (
+                    vec![intercept_bridge(
+                        1,
+                        2,
+                        None,
+                        "br-host",
+                        "patch-br-host-to-hbn",
+                    )],
+                    16,
+                ) => true,
+            }
+
+            "DPF generated patch-port grammar" {
+                // The checked-in CRD documents underscore-containing autogenerated patch names.
+                (
+                    vec![intercept_bridge(
+                        1,
+                        2,
+                        None,
+                        "br-host",
+                        "p_brovn_to_brsfc_7aea60f7",
+                    )],
+                    16,
+                ) => true,
+            }
+
+            "duplicate bridge" {
+                // One intermediate bridge cannot own two independently managed Patch peers.
+                (
+                    vec![
+                        intercept_bridge(1, 2, None, "br-pf", "p-pf"),
+                        intercept_bridge(1, 2, Some(3), "br-shared", "p-a"),
+                        intercept_bridge(1, 2, Some(4), "br-shared", "p-b"),
+                    ],
+                    16,
+                ) => false,
+            }
+
+            "bridge and patch collision" {
+                // Bridge and port names share OVS's global object namespace in this topology.
+                (
+                    vec![
+                        intercept_bridge(1, 2, None, "br-pf", "p-pf"),
+                        intercept_bridge(1, 2, Some(3), "br-a", "p-shared"),
+                        intercept_bridge(1, 2, Some(4), "p-shared", "p-b"),
+                    ],
+                    16,
+                ) => false,
+            }
+
+            "DPF-generated local patch collision" {
+                // DPF derives the br-sfc-side port from the configured peer patch name.
+                (
+                    vec![
+                        intercept_bridge(1, 2, None, "br-pf", "x"),
+                        intercept_bridge(1, 2, Some(3), "br-vf", "p_brsfc_to_x"),
+                    ],
+                    16,
+                ) => false,
+            }
+
+            "omitted provisioned VF representor collision" {
+                // NUM_OF_VFS materializes VF4 even when the sparse inventory does not select it.
+                (vec![intercept_bridge(1, 2, None, "pf2vf4", "p-pf")], 16) => false,
+            }
+
+            "reserved DPF bridge" {
+                // An intermediate bridge must not alias DPF's service-chain bridge.
+                (vec![intercept_bridge(1, 2, None, "br-sfc", "p-a")], 16) => false,
+            }
+
+            "unsafe shell character" {
+                // Restrictive validation prevents shell interpolation and OVS ambiguity.
+                (vec![intercept_bridge(1, 2, None, "br_bad", "p-a")], 16) => false,
+            }
+
+            "uppercase name" {
+                // The installed cross-surface contract uses lowercase names only.
+                (vec![intercept_bridge(1, 2, None, "Br-bad", "p-a")], 16) => false,
+            }
+
+            "unsafe patch-port character" {
+                // Patch names are rendered into shell-safe flavor data and cannot contain quotes.
+                (vec![intercept_bridge(1, 2, None, "br-host", "p'bad")], 16) => false,
+            }
+
+            "name exceeds Linux netdev limit" {
+                // Linux-backed OVS ports and bridges must fit the 15-character interface name.
+                (vec![intercept_bridge(1, 2, None, "abcdefghijklmnop", "p-a")], 16) => false,
+            }
+        );
+
+        // A valid-range VM VF must reach the hardware-population gate rather than the VF15 gate.
+        assert!(matches!(
+            DpfInterceptBridging::new(
+                vec![
+                    intercept_bridge(2, 3, None, "br-pf", "p-pf"),
+                    intercept_bridge(2, 3, Some(8), "br-vf", "p-vf"),
+                ],
+                4,
+            ),
+            Err(crate::DpfError::ConfigError(message))
+                if message
+                    == "DPF intercept-bridging interface c2pf3vf8 selects a VF outside num_of_vfs=4"
+        ));
+    }
+
+    /// Verifies normalization order and generated names depend only on typed identity.
+    #[test]
+    fn dpf_intercept_bridging_sorts_by_typed_identity() {
+        // Supply entries in reverse identity order.
+        let topology = DpfInterceptBridging::new(
+            vec![
+                intercept_bridge(2, 1, Some(3), "br-b", "p-b"),
+                intercept_bridge(2, 1, None, "br-a", "p-a"),
+            ],
+            16,
+        )
+        .expect("valid topology must normalize");
+
+        // Stable names and sorting prevent needless immutable flavor hash churn.
+        assert_eq!(
+            topology
+                .interfaces()
+                .iter()
+                .map(|interface| interface.identity.resource_name())
+                .collect::<Vec<_>>(),
+            ["c2pf1", "c2pf1vf3"]
+        );
+    }
 
     /// `DpuPhase::from(DpuStatusPhase)` is a total conversion; every operator
     /// status phase maps to exactly one simplified `DpuPhase`. This folds the
@@ -768,8 +1364,9 @@ mod tests {
     }
 
     /// `InitDpfResourcesConfig::default()` seeds the documented defaults: an
-    /// empty BFB URL and services list, the `dpu-deployment` name, the crate
-    /// default flavor, and no proxy. Probe each field independently.
+    /// empty BFB URL and inventories, the `dpu-deployment` name, the crate
+    /// default flavor, 16 VFs, 30 reserved SFs, no intercept-bridging topology,
+    /// and no proxy. Probe each field independently.
     #[test]
     fn init_dpf_resources_config_default_fields() {
         value_scenarios!(
@@ -794,6 +1391,28 @@ mod tests {
             run = |()| InitDpfResourcesConfig::default().services.len();
             "services is empty" {
                 () => 0usize,
+            }
+        );
+        value_scenarios!(
+            run = |()| {
+                let config = InitDpfResourcesConfig::default();
+                (
+                    config.num_of_vfs,
+                    config.pf_total_sf_reserved,
+                    config.deployment_scoped_service_interfaces,
+                    config.intercept_bridging.is_none(),
+                    config.interfaces.is_empty(),
+                )
+            };
+            "interface projection defaults" {
+                // Existing SDK callers retain the historical static 16-VF behavior.
+                () => (
+                    DEFAULT_DPU_NUM_OF_VFS,
+                    DEFAULT_PF_TOTAL_SF_RESERVED,
+                    false,
+                    true,
+                    true,
+                ),
             }
         );
         value_scenarios!(

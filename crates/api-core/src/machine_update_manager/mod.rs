@@ -14,11 +14,11 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-pub mod dpu_nic_firmware;
-pub mod dpu_nic_firmware_metrics;
-pub mod host_firmware;
-pub mod machine_update_module;
-pub mod metrics;
+pub(crate) mod dpu_nic_firmware;
+pub(crate) mod dpu_nic_firmware_metrics;
+mod host_firmware;
+pub(crate) mod machine_update_module;
+pub(crate) mod metrics;
 
 use std::collections::{HashMap, HashSet};
 use std::io;
@@ -56,7 +56,7 @@ use crate::{CarbideError, CarbideResult};
 /// Config from [CarbideConfig]:
 /// * `max_concurrent_machine_updates` the maximum number of updates allowed across all modules
 /// * `machine_update_run_interval` how often the manager calls the modules to start updates
-pub struct MachineUpdateManager {
+pub(crate) struct MachineUpdateManager {
     database_connection: PgPool,
     max_concurrent_machine_updates: MaxConcurrentUpdates,
     run_interval: Duration,
@@ -72,7 +72,7 @@ impl MachineUpdateManager {
 
     /// create a MachineUpdateManager with provided modules, overriding the default.
     #[cfg(test)]
-    pub fn new_with_modules(
+    pub(crate) fn new_with_modules(
         database_connection: sqlx::PgPool,
         config: Arc<CarbideConfig>,
         modules: Vec<Box<dyn MachineUpdateModule>>,
@@ -90,7 +90,7 @@ impl MachineUpdateManager {
     }
 
     /// Create a MachineUpdateManager with the default modules.
-    pub fn new(
+    pub(crate) fn new(
         database_connection: sqlx::PgPool,
         config: Arc<CarbideConfig>,
         meter: opentelemetry::metrics::Meter,
@@ -126,7 +126,7 @@ impl MachineUpdateManager {
     }
 
     /// Start the MachineUpdateManager and return a [sending channel](tokio::sync::oneshot::Sender) that will stop the MachineUpdateManager when dropped.
-    pub fn start(
+    pub(crate) fn start(
         self,
         join_set: &mut JoinSet<()>,
         cancel_token: CancellationToken,
@@ -184,7 +184,7 @@ impl MachineUpdateManager {
         .map_err(Into::into)
     }
 
-    pub async fn run_single_iteration(&self) -> CarbideResult<()> {
+    pub(crate) async fn run_single_iteration(&self) -> CarbideResult<()> {
         let mut updates_started_count = 0;
 
         let _lock = match self
@@ -302,7 +302,7 @@ impl MachineUpdateManager {
     /// Removes all markers from a Host that are used to indicate that updates are applied
     /// This includes
     /// - A Health Override
-    pub async fn remove_machine_update_markers(
+    pub(crate) async fn remove_machine_update_markers(
         txn: &mut PgConnection,
         machine_update: &DpuMachineUpdate,
     ) -> CarbideResult<()> {
@@ -318,7 +318,7 @@ impl MachineUpdateManager {
     }
 
     /// get host machines that are applying updates
-    pub async fn get_updating_machines(
+    pub(crate) async fn get_updating_machines(
         txn: &mut PgConnection,
     ) -> Result<HashSet<MachineId>, DatabaseError> {
         let machines = db::machine::find(

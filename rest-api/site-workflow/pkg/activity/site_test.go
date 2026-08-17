@@ -61,6 +61,8 @@ func TestManageSiteConfigInventory_DiscoverSiteConfigInventory(t *testing.T) {
 
 	buildInfo, ok := tc.Calls[0].Arguments[4].(*corev1.BuildInfo)
 	require.True(t, ok)
+	require.NotNil(t, buildInfo.GetRuntimeConfig(),
+		"Version request must set DisplayConfig, Core omits the runtime config without it")
 	assert.Equal(t, siteFabricPrefixes, buildInfo.GetRuntimeConfig().GetSiteFabricPrefixes())
 }
 

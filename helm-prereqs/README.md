@@ -7,9 +7,20 @@ export NICO_IMAGE_REGISTRY=<nico-image-registry>      # unless using --skip-core
 export NICO_CORE_IMAGE_TAG=<nico-core-image-tag>      # unless using --skip-core
 export NICO_REST_IMAGE_TAG=<nico-rest-image-tag>      # unless using --skip-rest
 # export REGISTRY_PULL_SECRET=<registry-pull-secret> # optional; authenticated registries only
+
+# DPF DPU provisioning installs by DEFAULT — set these three, or pass --skip-dpf:
+export NICO_DPF_DPU_INTERFACE=<control-plane-nic>     # NIC facing the DPUs
+export NICO_DPF_DPU_CLUSTER_VIP=<free-routable-ip>    # DPU cluster control-plane VIP
+export NICO_DPF_BMC_ROOT_PASSWORD=<bmc-root-password> # site-wide BMC root password
+
 ./setup.sh        # interactive - prompts before deploying Core and REST
-./setup.sh -y     # non-interactive - deploys everything
+./setup.sh -y     # non-interactive - deploys everything (DPF included)
+./setup.sh -y --skip-dpf   # ... without DPF (no DPUs, or still on iPXE)
 ```
+
+> DPF (DOCA Platform Framework) DPU provisioning is on by default; the three
+> `NICO_DPF_*` vars above are required unless you pass `--skip-dpf`. See
+> [DPF](#dpf) and [DPF images and registries](#dpf-images-and-registries).
 
 ## Documentation
 
@@ -29,7 +40,7 @@ For the optional site-local monitoring stack (metrics + logs + traces: Prometheu
 
 ## Directory structure
 
-```
+```text
 helm-prereqs/
 ├── setup.sh                    # Main deployment script - runs all phases sequentially
 ├── preflight.sh                # Pre-flight validation (also run automatically by setup.sh)
@@ -46,6 +57,7 @@ helm-prereqs/
 │   └── metallb-config.yaml     # MetalLB IP pools, BGP peers, and advertisements
 ├── templates/                  # nico-prereqs Helm chart templates (PKI, ESO, PostgreSQL)
 ├── operators/                  # Raw manifests and operator values (local-path, MetalLB, cert-manager, Vault, ESO)
+│   └── dpf/                    # DPF manifests/templates (DPF installs by default; --skip-dpf to opt out)
 ├── keycloak/                   # Dev Keycloak deployment and token helper scripts
 └── observability/              # Optional monitoring stack (Loki, Tempo, OTEL, Prometheus, Grafana)
 ```
@@ -85,8 +97,16 @@ config it edits.
    `carbide-ntp.forge`, etc. See *DPU compatibility DNS* below.
 7. **Export the runtime env vars** (registry, image tags, optional pull
    secret) — see *Environment variables* below.
+8. **DPF (DPU provisioning) — on by default.** Unless you pass `--skip-dpf`,
+   export `NICO_DPF_DPU_INTERFACE` (the control-plane NIC facing the DPUs),
+   `NICO_DPF_DPU_CLUSTER_VIP` (a free, DPU-routable IP), and
+   `NICO_DPF_BMC_ROOT_PASSWORD` (the site-wide BMC root password). DPF images
+   pull anonymously from public NGC by default — set the `NICO_DPF_IMAGE_*`
+   vars only for your own/mirrored registry. See *DPF* below. Sites with no
+   DPUs (or still on iPXE) run `./setup.sh -y --skip-dpf` and can ignore these.
 
-Once the above is done, run `./setup.sh -y`.
+Once the above is done, run `./setup.sh -y` (DPF installs by default; add
+`--skip-dpf` to opt out).
 
 ## Configuration reference
 
@@ -108,6 +128,20 @@ The tables below summarize the keys that must be set per site.
 | `NICO_MANAGE_DEFAULT_STORAGE_CLASS` | No | Whether `setup.sh` marks `local-path` as the default StorageClass. Defaults to `true`. Set to `false` when the cluster already has an operator-managed default StorageClass. |
 | `NICO_STORAGE_CLASS` | No | StorageClass used by Vault data/audit PVCs. Defaults to `local-path-persistent`. |
 | `PREFLIGHT_CHECK_IMAGE` | No | Image used for preflight per-node checks. Defaults to `busybox:1.36`; set to a local mirror for air-gapped clusters. |
+| `NICO_SKIP_DPF` | No | Skip the DPF (DOCA Platform Framework) DPU provisioning stack, which installs **by default**. Same as `--skip-dpf`. Defaults to `false`. |
+| `NICO_DPF_VERSION` | No | `NVIDIA/doca-platform` tag that setup.sh clones and installs. Defaults to `v26.4.0`. |
+| `NICO_DPF_SRC_DIR` | No | Cache directory for the doca-platform clone. Defaults to `helm-prereqs/.dpf-src`. |
+| `NICO_DPF_NGC_API_KEY` | No | NGC API key for `dpf-pull-secret` and the Argo CD helm repository secrets. Defaults to `REGISTRY_PULL_SECRET`. |
+| `NICO_DPF_NICO_NGC_API_KEY` | No | NGC API key with access to the NICo DPUService images (`nico-pull-secret`). Defaults to `NICO_DPF_NGC_API_KEY`. |
+| `NICO_DPF_K8S_API_VIP` / `NICO_DPF_K8S_API_PORT` | No | Host-cluster API server address/port that DPUs must reach. Defaults are derived from the `kubernetes` Endpoints — override when the derived address is not routable from the DPUs. |
+| `NICO_DPF_DPU_INTERFACE` | Unless `--skip-dpf` | Controller interface on which keepalived advertises the DPU cluster VIP. |
+| `NICO_DPF_DPU_CLUSTER_VIP` | Unless `--skip-dpf` | Floating IP the DPUs use to reach their (Kamaji) control plane. |
+| `NICO_DPF_BMC_ROOT_PASSWORD` | Unless `--skip-dpf` | Site-wide BMC root password. carbide-api's DPF SDK requires it at startup; setup.sh sets it via `nico-admin-cli` between the DPF-off and DPF-on Core deploys. |
+| `NICO_DPF_METALLB_POOL` | No | MetalLB address pool used to advertise the DPU cluster VIP. When unset, the VIP LoadBalancer Service is skipped — the VIP must then be routable from the DPUs by other means. |
+| `NICO_DPF_IMAGE_REPO` | No | DPF operator image repository. Defaults to the public `nvcr.io/nvidia/doca/dpf-system`. Point at your own registry (mirror or self-built) to match where you push Core/REST images. See [DPF images and registries](#dpf-images-and-registries). |
+| `NICO_DPF_IMAGE_TAG` | No | DPF operator image tag. Defaults to `NICO_DPF_VERSION`. Set separately when your self-built image uses a different tag than the chart version. |
+| `NICO_DPF_IMAGE_PULL_SECRET` | No | Pull secret for the DPF operator/DOCA images. Unset by default — the GA `nvidia/doca` images are public and pull anonymously. Set only for a private DPF/DOCA registry or mirror. |
+| `NICO_DPF_HELM_REPO_OCI` / `_HTTPS` / `_CARBIDE` | No | Argo CD helm repository URLs DPF pulls operand/service charts from. `_OCI`/`_HTTPS` default to the public `nvidia/doca` repos; `_CARBIDE` defaults to the **private** `0837451325059433/carbide-dev` (the NICo DPUService charts). Must match the `[dpf.services.*].helm_repo_url` carbide-api requests — override in lockstep when mirroring. |
 
 ### `values.yaml`
 
@@ -190,6 +224,7 @@ It supports these common deployment modes:
 | `--skip-core --skip-rest` | Infrastructure-only run; image tags, image registry, and REST repo are not required. |
 | `--core-values <file>` | Use site-specific Core values instead of `helm-prereqs/values/nico-core.yaml`. |
 | `--metallb-config <path>` | Use a site-specific MetalLB manifest file or kustomize directory. |
+| `--skip-dpf` | Skip the DPF (DOCA Platform Framework) DPU provisioning stack, which installs **by default**. Use for sites with no DPUs or that still use the deprecated iPXE DPU path. See [DPF](#dpf). |
 | `--site-overlay <dir>` | Apply a site kustomize overlay after Core deploys. |
 | `--with-observability` | Also install the local monitoring stack (metrics + logs + traces) after Core. Runs in every mode, including `--skip-rest`. Can also be run standalone at any time: `observability/install-observability.sh`. See [observability/README.md](observability/README.md). |
 | `--debug` | Enable bash tracing. This can print secrets, so avoid it in shared logs. |
@@ -221,6 +256,12 @@ postgres-operator          (zalando/postgres-operator 1.10.1 - manages nico-pg-c
 cert-manager               (jetstack/cert-manager v1.17.1)
 vault                      (hashicorp/vault 0.25.0, 3-node HA Raft, TLS)
 external-secrets           (external-secrets/external-secrets 0.14.3)
+DPF stack (default — --skip-dpf to opt out, all in dpf-operator-system)
+  ├── argo-cd               (argo/argo-cd 9.4.1)
+  ├── kamaji                (ghcr.io/nvidia/charts/kamaji 1.2.0 - DPU cluster control planes)
+  ├── maintenance-operator  (ghcr.io/mellanox/maintenance-operator-chart 0.3.0)
+  ├── node-feature-discovery (nfd/node-feature-discovery 0.18.3)
+  └── dpf-operator          (NVIDIA/doca-platform clone at NICO_DPF_VERSION)
 nico-prereqs               (this Helm chart - nico-system namespace)
 NICo Core                  (../helm - nico-core.yaml values)
   ├── nico-api              (Deployment - gRPC/REST API, requires PostgreSQL + Vault)
@@ -248,6 +289,137 @@ Observability (opt-in)     (observability/ - only with --with-observability; als
   └── otel-collector-gateway (optional, WITH_DPU=true - DPU OTLP/mTLS receiver)
 ```
 
+## DPF
+
+DPF-based DPU provisioning installs **by default**. Pass `--skip-dpf` (or
+`NICO_SKIP_DPF=true`) to opt out — e.g. sites with no DPUs, or that still use
+the deprecated iPXE DPU path. setup.sh installs the
+[DOCA Platform Framework](../docs/manuals/dpf.md) stack as phase 5b (between the
+base infrastructure and NICo Core) and enables it in carbide-api as phase 6b:
+
+1. **Prerequisite operators** — Argo CD, Kamaji, maintenance-operator, and
+   node-feature-discovery, pinned from `NVIDIA/doca-platform`
+   `deploy/helmfiles/prereqs.yaml` at the same tag as `NICO_DPF_VERSION`
+   (cert-manager and local-path-provisioner are reused from the base install).
+   Kamaji's cold-start deadlock is broken automatically.
+2. **Secrets** — `dpf-pull-secret` / `nico-pull-secret` (nvcr.io, from
+   `NICO_DPF_NGC_API_KEY` / `NICO_DPF_NICO_NGC_API_KEY`), a generated
+   `hbn-user-password`, and the Argo CD helm repository secrets.
+3. **DPF operator** — cloned from `NVIDIA/doca-platform` at `NICO_DPF_VERSION`
+   (cached in `.dpf-src/`) and installed from `deploy/charts/dpf-operator`.
+   The image (`NICO_DPF_IMAGE_REPO`, default `nvcr.io/nvidia/doca/dpf-system`)
+   is set explicitly and pulls anonymously (the GA `nvidia/doca` images are
+   public); set `NICO_DPF_IMAGE_PULL_SECRET` only for a private registry.
+4. **Operator CRs** — `DPFOperatorConfig`, `DPUCluster` (keepalived VIP from
+   `NICO_DPF_DPU_INTERFACE` / `NICO_DPF_DPU_CLUSTER_VIP`), and, when
+   `NICO_DPF_METALLB_POOL` is set, the VIP LoadBalancer Service that makes the
+   DPU cluster VIP routable.
+5. **carbide-api enablement (phase 6b)** — DPF SDK init requires the site-wide
+   BMC root password, which can only be set through a running carbide-api. So
+   Core is deployed with `[dpf]` off, `NICO_DPF_BMC_ROOT_PASSWORD` is set via an
+   in-cluster `nico-admin-cli` Job, then Core is upgraded to `[dpf]` on and
+   carbide-api is restarted so it initializes DPF and creates the BFB,
+   DPUFlavor, and DPUDeployment. The `nico-api-dpf` Role is created via
+   `nico-api.dpf.rbacCreate=true`.
+
+Requirements (unless `--skip-dpf`): `git` + `envsubst` on the machine running
+setup, an NGC API key, `NICO_DPF_DPU_INTERFACE` / `NICO_DPF_DPU_CLUSTER_VIP` for
+the DPU cluster VIP, and `NICO_DPF_BMC_ROOT_PASSWORD`. Per-host enablement is
+controlled by `dpf_enabled` on expected machines
+(defaults to true). See [docs/manuals/dpf.md](../docs/manuals/dpf.md) for the
+full background, BF4 opt-in, proxy configuration, and troubleshooting.
+
+Teardown is part of `clean.sh` (step 1b); `health-check.sh` gains a DPF
+section automatically when the stack is present.
+
+### DPF images and registries
+
+A DPF-enabled site pulls from three image/chart sources with different defaults:
+
+- The **DPF operator image** and the **public DOCA services** (`dts`,
+  `doca-hbn`, plus the DPF operand charts) default to **public NVIDIA NGC
+  (`nvidia/doca`)** and pull **anonymously** — no registry, key, or mirror.
+- The **NICo DPUService images** (`dpu-agent`, `dhcp-server`, `fmds`,
+  `otelcol`) default to the **private `carbide-dev` registry**
+  (`nvcr.io/0837451325059433/carbide-dev`) and **require credentials** —
+  `nico-pull-secret`, created by setup.sh from `NICO_DPF_NICO_NGC_API_KEY` (an
+  NGC key with carbide access). Sites without that access **must build and push
+  these to their own registry** (below).
+
+For air-gapped sites, or to keep everything in the one registry you already push
+Core/REST to (`NICO_IMAGE_REGISTRY`), mirror or build each source into your
+registry and point setup.sh at it.
+
+| Source | What it is | Default | Point at your registry |
+|---|---|---|---|
+| **DPF operator image** | `dpf-system` — the operator setup.sh installs | `nvcr.io/nvidia/doca/dpf-system:$NICO_DPF_VERSION`, **public, anonymous** | `NICO_DPF_IMAGE_REPO` + `NICO_DPF_IMAGE_TAG` + `NICO_DPF_IMAGE_PULL_SECRET` |
+| **DOCA operand/service charts** | Charts the operator deploys onto DPUs (DTS, DOCA-HBN, multus, flannel, sriov, ovs-cni, …) via Argo CD | Public NGC `nvidia/doca` helm repo, anonymous | `NICO_DPF_HELM_REPO_OCI` / `_HTTPS` / `_CARBIDE` (the Argo CD repo URLs) |
+| **NICo DPUService images** | NICo's own DPU-side services (`dpu-agent`, `dhcp-server`, `fmds`, `otelcol`) built from `bluefield/` | **Private** `nvcr.io/0837451325059433/carbide-dev`, needs `nico-pull-secret` | Build/push to your registry (below), then set `[dpf.services.*]` in the site config |
+
+**1. DPF operator image (self-built or mirrored).** The public GA image is
+public and pulls anonymously — the default needs nothing. To use your own
+registry:
+
+```bash
+# mirror the public image into your registry (or build it from the
+# NVIDIA/doca-platform source and push — see that repo's Makefile)
+docker pull  nvcr.io/nvidia/doca/dpf-system:v26.4.0
+docker tag   nvcr.io/nvidia/doca/dpf-system:v26.4.0  <your-registry>/dpf-system:v26.4.0
+docker push  <your-registry>/dpf-system:v26.4.0
+
+export NICO_DPF_IMAGE_REPO=<your-registry>/dpf-system
+export NICO_DPF_IMAGE_TAG=v26.4.0                 # or your own build tag
+export NICO_DPF_IMAGE_PULL_SECRET=imagepullsecret # the pull secret setup.sh
+                                                  # already creates in dpf-operator-system
+```
+
+Set `NICO_DPF_IMAGE_PULL_SECRET` **only** for a private registry — attaching a
+registry-scoped secret to the public `nvidia/doca` pull makes nvcr.io return
+403 (the credential can't be entitled to `nvidia/doca`), and kubelet does not
+fall back to anonymous.
+
+**2. NICo DPUService images (built from this repo).** These are NICo's own
+DPU-side services and belong in the same registry as Core/REST. Build and push
+them with the `bluefield/` cargo-make targets, overriding the registry/tag:
+
+```bash
+cd bluefield
+export CARBIDE_IMAGE_REGISTRY=<your-registry>     # default nvcr.io/nvidia/carbide
+export DPU_AGENT_PKG_VERSION=<tag>                # the image tag
+cargo make docker-build-all      # builds forge-dpu-agent, forge-dhcp-server,
+                                  # carbide-fmds, forge-dpu-otel-agent, otelcol-contrib (arm64)
+cargo make helm-package-all       # packages the matching DPUService charts
+# then docker push / helm push each to <your-registry>
+```
+
+Then point carbide-api at them by adding `[dpf.services.<svc>]` blocks to the
+site config (`nicoApiSiteConfig` TOML) with `helm_repo_url`, `helm_chart`,
+`helm_version`, `docker_repo_url`, and `docker_image_tag` for each of `dts`,
+`doca_hbn`, `dpu_agent`, `dhcp_server`, `fmds`, `otel`. Unset entries fall back
+to the built-in defaults (public NGC for `dts`/`doca_hbn`; private `carbide-dev`,
+needs `nico-pull-secret`, for `dpu_agent`/`dhcp_server`/`fmds`/`otel`). See
+[docs/manuals/dpf.md](../docs/manuals/dpf.md) §3.5 for the full `[dpf.services]`
+schema. `docker_image_pull_secret = "nico-pull-secret"` (created by setup.sh
+from `NICO_DPF_NICO_NGC_API_KEY`) authenticates pulls of the private NICo
+images.
+
+**3. DOCA / NICo service charts (mirrored).** The operator pulls its
+operand/service helm charts through Argo CD using the three Argo CD repository
+Secrets. Their URLs must match the `helm_repo_url` carbide-api requests per
+`[dpf.services.*]` (defaults in `crates/api-core/src/dpf_services.rs`). To pull
+from your mirror instead, override the repo URLs **and** the matching
+`[dpf.services.*].helm_repo_url`:
+`NICO_DPF_HELM_REPO_OCI` (default `nvcr.io/nvidia/doca`),
+`NICO_DPF_HELM_REPO_HTTPS` (default `https://helm.ngc.nvidia.com/nvidia/doca`),
+`NICO_DPF_HELM_REPO_CARBIDE` (default the private
+`https://helm.ngc.nvidia.com/0837451325059433/carbide-dev`, where the NICo
+DPUService charts live).
+
+> **Version.** `NICO_DPF_VERSION` (default `v26.4.0`) is the single DPF version
+> knob — it selects the doca-platform chart/CRDs to install and is the default
+> for `NICO_DPF_IMAGE_TAG`. Keep your mirrored/self-built artifacts on the same
+> version, or set `NICO_DPF_IMAGE_TAG` explicitly when they diverge.
+
 ## DPU compatibility DNS (`.forge` zone) — REQUIRED for DPU bring-up
 
 Existing DPU agent binaries deployed in the field are hardcoded to resolve a
@@ -263,9 +435,10 @@ handful of legacy hostnames in the `.forge` zone:
 | `otel-receiver.forge` | 443 | otel-collector sidecars — gRPC/TLS | otel receiver VIP |
 | `socks.forge` | 1888 | DPU extension services (hardcoded in agent binary) | socks VIP |
 
-Per the [dual-deployment-compat POR](../docs/internal/POR-dual-deployment-compat.md),
-these names stay hardcoded in the binary for now. The deployment is responsible
-for resolving them. Two ways to do that:
+Per the
+[dual-deployment compatibility plan](../helm/README.md#migrating-from-kustomize),
+these names stay hardcoded in the binary for now. The deployment is
+responsible for resolving them. Two ways to do that:
 
 ### Option A — built-in unbound (recommended for new sites)
 
@@ -313,10 +486,10 @@ rotated on the usual cert-manager schedule.
 
 If you're migrating from an existing forged-kustomize site and want the
 DPUs already in the field (which have certs in the `forge.local` trust
-domain) to keep authenticating, also override
-`global.spiffe.trustDomain` to `forge.local` in your values. See the
-[dual-deployment-compat POR](../docs/internal/POR-dual-deployment-compat.md)
-for the in-place upgrade caveats.
+domain) to keep authenticating, also override `global.spiffe.trustDomain` to
+`forge.local` in your values. See the
+[upgrading guidance](../helm/README.md#upgrading) for the in-place upgrade
+caveats.
 
 ## Health check
 
@@ -347,8 +520,29 @@ probes are reported without failing the run.
 
 ## Teardown
 
+> **This destroys Vault and PostgreSQL data.** `reclaimPolicy: Retain` protects
+> those volumes from pod restarts and scaling, not from `clean.sh` — teardown
+> deletes the PVs either way, and the final step makes the on-disk state match.
+> There is no undo. `SKIP_HOSTPATH_SWEEP=true` leaves `Retain` volume data on
+> disk but still deletes the PVs. Check `kubectl config current-context` first.
+
 ```bash
 ./clean.sh
 ```
 
-Removes all components in reverse dependency order: NICo REST → NICo Core → helmfile releases → CRDs → namespaces → PVs → local-path-provisioner.
+Removes all components in reverse dependency order: NICo REST → NICo Core → helmfile releases → CRDs → namespaces → PVs → local-path-provisioner → host-directory sweep.
+
+The final step reclaims the on-disk PV data under `/opt/local-path-provisioner`
+on every node. `local-path-persistent` PVs use `reclaimPolicy: Retain`, so their
+directories are not removed automatically; `clean.sh` flips them to `Delete` and
+lets the provisioner reclaim them, then sweeps directories orphaned by earlier
+runs. The sweep schedules one short-lived pod per node in `kube-system` and
+removes a `pvc-*` directory only when the namespace encoded in its name belongs
+to this stack *and* no live PV matches it — directories for PVs that still exist,
+and anything else on the shared host path, are left alone. Tune with:
+
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `CLEAN_SWEEP_IMAGE` | `busybox:1.36` | Sweep pod image — set to a mirrored image on air-gapped clusters |
+| `SKIP_HOSTPATH_SWEEP` | `false` | Set to `true` to leave the host directories of `Retain` volumes on disk. The PVs are still deleted. It cannot preserve `Delete`-policy volumes (the plain `local-path` class): those are reclaimed by the provisioner when their namespace goes away, before this step runs |
+| `LOCAL_PATH_DIR` | read from the cluster | Provisioner host path. Normally taken from the `local-path-config` ConfigMap, or a surviving PV; set this when re-running against a cluster where the provisioner is already gone and nodes use a non-default `nodePathMap` |

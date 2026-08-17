@@ -15,7 +15,7 @@
  * limitations under the License.
  */
 
-//! End-to-end coverage for machine-controller BMC credential rotation (REQ-2):
+//! End-to-end coverage for machine-controller BMC credential rotation:
 //! a staged site-wide target drives a Ready host through
 //! `ManagedHostState::RotatingBmc` and back to Ready, converging the device and
 //! persisting the rotated per-device secret.
@@ -34,12 +34,37 @@ use db::credential_rotation::{
     record_device_converged, set_next_target_version,
 };
 use mac_address::MacAddress;
+use model::bmc_suppression::{BmcSuppressionSubsystem, NewBmcSuppression};
 use model::machine::ManagedHostState;
 use model::test_support::ManagedHostConfig;
 
 use crate::env::Env;
 
 const BMC: CredentialRotationType = CredentialRotationType::Bmc;
+
+/// Stand in for site-explorer acknowledging every pending BMC suppression -- the
+/// barrier the rotation gate waits on before changing a credential. The
+/// integration harness drives only the machine controller, so a test plays the
+/// site-explorer ack pass itself.
+async fn ack_all_site_explorer_suppressions(pool: &PgPool) {
+    let mut conn = pool.acquire().await.expect("acquire connection");
+    let macs: Vec<MacAddress> = db::bmc_suppression::find_all_by_subsystem(
+        &mut *conn,
+        BmcSuppressionSubsystem::SiteExplorer,
+    )
+    .await
+    .expect("read suppressions")
+    .into_iter()
+    .map(|s| s.bmc_mac_address)
+    .collect();
+    db::bmc_suppression::acknowledge_unacknowledged(
+        &mut conn,
+        &macs,
+        BmcSuppressionSubsystem::SiteExplorer,
+    )
+    .await
+    .expect("acknowledge suppressions");
+}
 
 fn per_device_key(mac: MacAddress) -> CredentialKey {
     CredentialKey::BmcCredentials {
@@ -147,12 +172,51 @@ async fn ready_host_converges_bmc_to_site_target(
         mh.host.machine().await.state.value,
     );
 
-    // Iteration 2: the rotation converges the device and returns to Ready.
+    // Iteration 2: the gate records a site-explorer suppression for the host BMC
+    // and waits for its acknowledgement before touching the credential, so the
+    // host stays in RotatingBmc and nothing is rotated yet.
+    env.run_single_iteration().await;
+    assert!(
+        matches!(
+            mh.host.machine().await.state.value,
+            ManagedHostState::RotatingBmc { .. }
+        ),
+        "rotation must wait in RotatingBmc until site-explorer acknowledges, got {:?}",
+        mh.host.machine().await.state.value,
+    );
+    assert!(
+        db::bmc_suppression::is_suppressed(&pool, host_mac, BmcSuppressionSubsystem::SiteExplorer)
+            .await?,
+        "the gate should record a site-explorer suppression for the host BMC"
+    );
+    {
+        let mut conn = pool.acquire().await?;
+        let status = device_rotation_status(&mut conn, BMC, host_mac)
+            .await?
+            .expect("device rotation row should exist");
+        assert!(
+            !status.converged,
+            "the credential must not change before site-explorer acknowledges"
+        );
+    }
+
+    // Site-explorer acknowledges the suppression (its skip barrier).
+    ack_all_site_explorer_suppressions(&pool).await;
+
+    // Iteration 3: with the barrier satisfied, the rotation converges the device
+    // and returns to Ready.
     env.run_single_iteration().await;
     assert!(
         matches!(mh.host.machine().await.state.value, ManagedHostState::Ready),
         "expected Ready once rotation settles, got {:?}",
         mh.host.machine().await.state.value,
+    );
+
+    // The rotation suppression is deleted on the return to Ready.
+    assert!(
+        !db::bmc_suppression::is_suppressed(&pool, host_mac, BmcSuppressionSubsystem::SiteExplorer)
+            .await?,
+        "resume must delete the rotation suppression on return to Ready"
     );
 
     // The device is converged at the target, and the per-device secret is the
@@ -207,6 +271,156 @@ async fn stage_lagging_bmc(
     cm.set_credentials(&rotate_to_key(1), &creds("root", "new"))
         .await
         .expect("staging the rotate-to secret should succeed");
+    Ok(())
+}
+
+/// When the BMC password change lands but persisting the new per-device secret
+/// to the store fails, the hardware is AHEAD of the store. The host must hold in
+/// `RotatingBmc` (staying non-allocatable and keeping the site-explorer
+/// suppression) rather than settling to Ready with a stale stored secret, and it
+/// must keep retrying until the store reconciles -- reconciliation is never
+/// abandoned.
+#[sqlx_test]
+async fn store_persist_failure_holds_in_rotating_bmc_until_reconciled(
+    pool: PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let cm = Arc::new(TestCredentialManager::default());
+    let mut env = Env::builder(pool.clone())
+        .with_credential_manager(cm.clone())
+        .configure_runtime(|c| c.bmc_rotation_enabled = true)
+        .build()
+        .await;
+
+    let domain = env.test_harness.test_domain().await;
+    let network_controller = env.test_harness.network_controller();
+    let underlay_segment = network_controller.create_underlay_segment(&domain).await;
+    network_controller.create_admin_segment(&domain).await;
+    let site_explorer = env.test_harness.default_test_site_explorer();
+    let mh = env
+        .test_harness
+        .managed_host_builder(&site_explorer, underlay_segment)
+        .with_config(ManagedHostConfig::default())
+        .build()
+        .await
+        .0;
+    mh.advance_to_converged_ready().await;
+
+    let host_mac = mh
+        .host
+        .machine()
+        .await
+        .status
+        .bmc_info
+        .mac
+        .expect("fixture host should have a BMC MAC");
+    env.redfish_sim.seed_user("root", "old");
+    stage_lagging_bmc(&pool, &cm, host_mac).await?;
+
+    // Drive up to the converging tick: enter RotatingBmc, let the gate record the
+    // suppression, and acknowledge it.
+    env.run_single_iteration().await; // Ready -> RotatingBmc
+    env.run_single_iteration().await; // gate records the suppression and waits
+    ack_all_site_explorer_suppressions(&pool).await;
+
+    // The store write now fails: the hardware change will land but the persist
+    // will not, leaving the BMC ahead of the store.
+    cm.set_set_credentials_failure(true);
+
+    // Iteration 3: the password change succeeds on the hardware but the persist
+    // fails, so the host holds in RotatingBmc instead of returning to Ready.
+    env.run_single_iteration().await;
+    assert!(
+        matches!(
+            mh.host.machine().await.state.value,
+            ManagedHostState::RotatingBmc { .. }
+        ),
+        "a persist failure must hold in RotatingBmc (non-allocatable), got {:?}",
+        mh.host.machine().await.state.value,
+    );
+    // The site-explorer suppression is retained across the hold -- we must not
+    // resume probing a BMC whose stored secret still lags the hardware.
+    assert!(
+        db::bmc_suppression::is_suppressed(&pool, host_mac, BmcSuppressionSubsystem::SiteExplorer)
+            .await?,
+        "the rotation suppression must be retained while the store lags"
+    );
+    // The device is neither converged nor quarantined: it stays eligible so the
+    // persist is retried every sweep rather than backed off.
+    {
+        let mut conn = pool.acquire().await?;
+        let status = device_rotation_status(&mut conn, BMC, host_mac)
+            .await?
+            .expect("device rotation row should exist");
+        assert!(
+            !status.converged,
+            "hardware ahead of store is not converged"
+        );
+        assert!(
+            !status.quarantined,
+            "a persist failure must not record a backoff"
+        );
+    }
+    // The hardware carries the new password, but the store still lags.
+    assert_eq!(
+        env.redfish_sim.user_password("root").as_deref(),
+        Some("new"),
+        "the hardware change must have landed even though the persist failed"
+    );
+    assert_eq!(
+        cm.get_credentials(&per_device_key(host_mac))
+            .await
+            .expect("reading the per-device secret should succeed")
+            .expect("per-device secret should still be set"),
+        creds("root", "old"),
+        "the stored secret must still lag after the failed persist"
+    );
+
+    // Iteration 4: still failing -> still holding (the hold is not a bounded
+    // transient retry; it persists until the store reconciles).
+    env.run_single_iteration().await;
+    assert!(
+        matches!(
+            mh.host.machine().await.state.value,
+            ManagedHostState::RotatingBmc { .. }
+        ),
+        "the hold must persist across sweeps while the store keeps failing, got {:?}",
+        mh.host.machine().await.state.value,
+    );
+
+    // The store becomes writable again: the next tick's change-then-verify
+    // recovery re-persists and converges, and the host returns to Ready.
+    cm.set_set_credentials_failure(false);
+    env.run_single_iteration().await;
+    assert!(
+        matches!(mh.host.machine().await.state.value, ManagedHostState::Ready),
+        "expected Ready once the store reconciles, got {:?}",
+        mh.host.machine().await.state.value,
+    );
+    assert!(
+        !db::bmc_suppression::is_suppressed(&pool, host_mac, BmcSuppressionSubsystem::SiteExplorer)
+            .await?,
+        "resume must delete the rotation suppression once reconciled"
+    );
+    {
+        let mut conn = pool.acquire().await?;
+        let status = device_rotation_status(&mut conn, BMC, host_mac)
+            .await?
+            .expect("device rotation row should exist");
+        assert!(
+            status.converged,
+            "device should converge once the store reconciles"
+        );
+        assert_eq!(status.current_version, Some(1));
+    }
+    assert_eq!(
+        cm.get_credentials(&per_device_key(host_mac))
+            .await
+            .expect("reading the per-device secret should succeed")
+            .expect("per-device secret should still be set"),
+        creds("root", "new"),
+        "the store is reconciled to the new password once the write succeeds"
+    );
+
     Ok(())
 }
 
@@ -336,7 +550,20 @@ async fn force_request_converges_quarantined_bmc_when_disabled(
         mh.host.machine().await.state.value,
     );
 
-    // Iteration 2: the forced tick bypasses backoff, converges the device, and
+    // Iteration 2: even a forced rotation first gates on site-explorer, so it
+    // waits in RotatingBmc until the suppression is acknowledged.
+    env.run_single_iteration().await;
+    assert!(
+        matches!(
+            mh.host.machine().await.state.value,
+            ManagedHostState::RotatingBmc { .. }
+        ),
+        "a forced rotation must still wait for site-explorer acknowledgement, got {:?}",
+        mh.host.machine().await.state.value,
+    );
+    ack_all_site_explorer_suppressions(&pool).await;
+
+    // Iteration 3: the forced tick bypasses backoff, converges the device, and
     // returns to Ready.
     env.run_single_iteration().await;
     assert!(
@@ -365,6 +592,91 @@ async fn force_request_converges_quarantined_bmc_when_disabled(
         .expect("reading the per-device secret should succeed")
         .expect("per-device secret should still be set");
     assert_eq!(persisted, creds("root", "new"));
+
+    Ok(())
+}
+
+/// An operator's decommission suppression on the host BMC must survive a
+/// rotation: the gate preserves it (never overwrites its reason) and the resume
+/// deletes only the rotation-reason row, so the operator suppression remains.
+#[sqlx_test]
+async fn rotation_preserves_an_operator_suppression(
+    pool: PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let cm = Arc::new(TestCredentialManager::default());
+    let mut env = Env::builder(pool.clone())
+        .with_credential_manager(cm.clone())
+        .configure_runtime(|c| c.bmc_rotation_enabled = true)
+        .build()
+        .await;
+
+    let domain = env.test_harness.test_domain().await;
+    let network_controller = env.test_harness.network_controller();
+    let underlay_segment = network_controller.create_underlay_segment(&domain).await;
+    network_controller.create_admin_segment(&domain).await;
+    let site_explorer = env.test_harness.default_test_site_explorer();
+    let mh = env
+        .test_harness
+        .managed_host_builder(&site_explorer, underlay_segment)
+        .with_config(ManagedHostConfig::default())
+        .build()
+        .await
+        .0;
+    mh.advance_to_converged_ready().await;
+
+    let host_mac = mh
+        .host
+        .machine()
+        .await
+        .status
+        .bmc_info
+        .mac
+        .expect("fixture host should have a BMC MAC");
+    env.redfish_sim.seed_user("root", "old");
+    stage_lagging_bmc(&pool, &cm, host_mac).await?;
+
+    // An operator has independently suppressed this BMC for decommissioning.
+    {
+        let mut conn = pool.acquire().await?;
+        db::bmc_suppression::upsert(
+            &mut conn,
+            &NewBmcSuppression {
+                bmc_mac_address: host_mac,
+                subsystem: BmcSuppressionSubsystem::SiteExplorer,
+                reason: "decommissioning".to_string(),
+            },
+        )
+        .await?;
+    }
+
+    // Drive the gated rotation to completion.
+    env.run_single_iteration().await; // Ready -> RotatingBmc
+    env.run_single_iteration().await; // gate records the suppression and waits
+    ack_all_site_explorer_suppressions(&pool).await;
+    env.run_single_iteration().await; // barrier satisfied -> rotate -> Ready
+    assert!(
+        matches!(mh.host.machine().await.state.value, ManagedHostState::Ready),
+        "the rotation should settle back to Ready, got {:?}",
+        mh.host.machine().await.state.value,
+    );
+
+    // The device rotated, yet the operator's suppression survives with its
+    // reason intact -- the resume only removed rotation-owned rows.
+    {
+        let mut conn = pool.acquire().await?;
+        let status = device_rotation_status(&mut conn, BMC, host_mac)
+            .await?
+            .expect("device rotation row should exist");
+        assert!(status.converged, "device should have rotated");
+    }
+    let operator =
+        db::bmc_suppression::find(&pool, host_mac, BmcSuppressionSubsystem::SiteExplorer)
+            .await?
+            .expect("operator suppression must survive the rotation");
+    assert_eq!(
+        operator.reason, "decommissioning",
+        "the operator's suppression reason must be preserved"
+    );
 
     Ok(())
 }

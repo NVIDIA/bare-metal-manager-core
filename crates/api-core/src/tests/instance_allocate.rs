@@ -28,6 +28,7 @@ use model::test_support::ManagedHostConfig;
 use rpc::{Metadata, forge};
 
 use crate::cfg::file::{FnnConfig, FnnRoutingProfileConfig, PrefixFilterPolicyEntry};
+use crate::handlers::resolve_machine_interface_for_test;
 use crate::test_support::fixture_config::{FixtureDefault as _, ManagedHostConfigExt as _};
 use crate::test_support::mac_address_pool::HOST_NON_DPU_MAC_ADDRESS_POOL;
 use crate::test_support::network_segment::{FIXTURE_TENANT_ORG_ID, create_default_flat_vpc};
@@ -230,11 +231,11 @@ async fn test_allocate_instance_rejects_interface_anycast_prefix_outside_vpc_pro
             routing_profiles: HashMap::from([(
                 profile_type.to_string(),
                 FnnRoutingProfileConfig {
-                    internal: true,
-                    access_tier: 0,
-                    allowed_anycast_prefixes: vec![PrefixFilterPolicyEntry {
+                    internal: Some(true),
+                    access_tier: Some(0),
+                    allowed_anycast_prefixes: Some(vec![PrefixFilterPolicyEntry {
                         prefix: "192.0.2.0/24".parse().unwrap(),
-                    }],
+                    }]),
                     ..Default::default()
                 },
             )]),
@@ -298,6 +299,7 @@ async fn test_allocate_instance_rejects_interface_anycast_prefix_outside_vpc_pro
                 dpu_extension_services: None,
                 nvlink: None,
                 spxconfig: None,
+                power_profile: None,
             }),
             instance_id: None,
             metadata: None,
@@ -374,6 +376,7 @@ async fn test_zero_dpu_instance_allocation_rejects_explicit_interfaces(
                 dpu_extension_services: None,
                 nvlink: None,
                 spxconfig: None,
+                power_profile: None,
             }),
             instance_id: None,
             metadata: None,
@@ -403,6 +406,7 @@ async fn test_zero_dpu_instance_allocation_auto(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let env = create_test_env_for_instance_allocation(pool.clone(), None).await;
     let config = ManagedHostConfig::zero_dpu();
+    let host_mac = config.non_dpu_macs[0];
 
     // Ingest zero DPU host
     let zero_dpu_host = api_fixtures::site_explorer::new_host(&env, config).await?;
@@ -411,6 +415,37 @@ async fn test_zero_dpu_instance_allocation_auto(
     let host_inband_segment =
         db::network_segment::find_by_name(env.pool.begin().await?.deref_mut(), "HOST_INBAND")
             .await?;
+
+    // Add a /64, but leave SLAAC EUI-64 inference off. Repeated
+    // Information-Requests should still return host metadata without adding an
+    // address that zero-DPU instance allocation can copy.
+    sqlx::query(
+        "INSERT INTO network_prefixes (segment_id, prefix, num_reserved)
+         VALUES ($1, $2::cidr, 0)",
+    )
+    .bind(host_inband_segment.id)
+    .bind("2001:db8:75::/64")
+    .execute(&pool)
+    .await?;
+    let request = || {
+        DhcpDiscovery::builder(host_mac, "2001:db8:75::1")
+            .address_family(forge::AddressFamily::V6 as i32)
+            .message_kind(forge::MessageKind::V6InfoRequest as i32)
+            .duid(vec![0x01])
+            .tonic_request()
+    };
+    for _ in 0..2 {
+        let response = env.api.discover_dhcp(request()).await?.into_inner();
+        assert_eq!(response.address, "");
+        assert_eq!(response.prefix, "");
+    }
+
+    let mut txn = env.db_txn().await;
+    let interfaces = db::machine_interface::find_by_mac_address(txn.as_mut(), host_mac).await?;
+    assert_eq!(interfaces.len(), 1);
+    assert_eq!(interfaces[0].addresses.len(), 1);
+    assert!(interfaces[0].addresses[0].is_ipv4());
+    txn.rollback().await?;
 
     let instance = crate::handlers::instance::allocate(
         env.api.as_ref(),
@@ -446,6 +481,7 @@ async fn test_zero_dpu_instance_allocation_auto(
                 dpu_extension_services: None,
                 nvlink: None,
                 spxconfig: None,
+                power_profile: None,
             }),
             instance_id: None,
             metadata: None,
@@ -521,14 +557,17 @@ async fn test_zero_dpu_instance_allocation_auto(
     assert_eq!(status_interfaces[0].vpc_id, Some(flat_vpc_id));
 
     let mut txn = env.db_txn().await;
-    let address = db::instance_address::find_by_instance_id_and_segment_id(
+    let addresses = db::instance_address::find_all_by_instance_id_and_segment_id(
         txn.as_mut(),
         &instance_id,
         &host_inband_segment.id,
     )
-    .await?
-    .expect("zero-DPU allocation should persist an instance address");
+    .await?;
+    let [address] = addresses.as_slice() else {
+        panic!("zero-DPU allocation should persist one instance address")
+    };
     assert_eq!(address.vpc_id, flat_vpc_id);
+    assert!(address.address.is_ipv4());
     Ok(())
 }
 
@@ -579,6 +618,7 @@ async fn test_zero_dpu_auto_update_rejects_host_inband_segment_bound_to_differen
                 dpu_extension_services: None,
                 nvlink: None,
                 spxconfig: None,
+                power_profile: None,
             }),
             instance_id: None,
             metadata: Some(Metadata {
@@ -667,6 +707,7 @@ async fn test_zero_dpu_instance_allocation_rejects_missing_auto(
                 spxconfig: None,
                 network_security_group_id: None,
                 dpu_extension_services: None,
+                power_profile: None,
             }),
             instance_id: None,
             metadata: None,
@@ -725,6 +766,7 @@ async fn test_zero_dpu_instance_allocation_rejects_missing_vpc_id(
                 spxconfig: None,
                 network_security_group_id: None,
                 dpu_extension_services: None,
+                power_profile: None,
             }),
             instance_id: None,
             metadata: None,
@@ -787,6 +829,7 @@ async fn test_zero_dpu_instance_allocation_rejects_non_flat_vpc_id(
                 spxconfig: None,
                 network_security_group_id: None,
                 dpu_extension_services: None,
+                power_profile: None,
             }),
             instance_id: None,
             metadata: None,
@@ -887,6 +930,7 @@ async fn test_zero_dpu_instance_allocation_auto_multi_segment(
                 spxconfig: None,
                 network_security_group_id: None,
                 dpu_extension_services: None,
+                power_profile: None,
             }),
             instance_id: None,
             metadata: None,
@@ -997,6 +1041,13 @@ async fn test_zero_dpu_instance_allocation_auto_multi_segment(
                     && prefix_id.eq(&host_inband_segment_1.prefixes[0].id)
             )
     );
+    assert_eq!(
+        interface_in_segment_1
+            .interface_prefixes
+            .get(&host_inband_segment_1.prefixes[0].id),
+        Some(&host_inband_segment_1.prefixes[0].prefix),
+        "HostInband allocation should persist the interface's segment prefix",
+    );
 
     assert!(
         interface_in_segment_2
@@ -1007,16 +1058,25 @@ async fn test_zero_dpu_instance_allocation_auto_multi_segment(
                     && prefix_id.eq(&host_inband_segment_2.prefixes[0].id)
             )
     );
+    assert_eq!(
+        interface_in_segment_2
+            .interface_prefixes
+            .get(&host_inband_segment_2.prefixes[0].id),
+        Some(&host_inband_segment_2.prefixes[0].prefix),
+        "HostInband allocation should persist the interface's segment prefix",
+    );
 
     let mut txn = env.db_txn().await;
     for segment_id in [host_inband_segment_1.id, host_inband_segment_2.id] {
-        let address = db::instance_address::find_by_instance_id_and_segment_id(
+        let addresses = db::instance_address::find_all_by_instance_id_and_segment_id(
             txn.as_mut(),
             &instance_snapshot.id,
             &segment_id,
         )
-        .await?
-        .expect("zero-DPU allocation should persist an instance address per HostInband segment");
+        .await?;
+        let [address] = addresses.as_slice() else {
+            panic!("zero-DPU allocation should persist one address per HostInband segment")
+        };
         assert_eq!(address.vpc_id, flat_vpc_id);
     }
 
@@ -1110,6 +1170,7 @@ async fn test_zero_dpu_auto_update_absorbs_added_host_inband_segment(
                 spxconfig: None,
                 network_security_group_id: None,
                 dpu_extension_services: None,
+                power_profile: None,
             }),
             instance_id: None,
             metadata: Some(Metadata {
@@ -1196,21 +1257,46 @@ async fn test_zero_dpu_auto_update_absorbs_added_host_inband_segment(
         db::network_segment::find_by_name(txn.as_mut(), "HOST_INBAND").await?,
         db::network_segment::find_by_name(txn.as_mut(), "HOST_INBAND_2").await?,
     );
+    let host_interfaces =
+        db::machine_interface::find_by_machine_ids(txn.as_mut(), &[zero_dpu_host.host_snapshot.id])
+            .await?;
+    let host_interfaces = &host_interfaces[&zero_dpu_host.host_snapshot.id];
     for segment_id in [
         host_inband_segment_1.id,
         host_inband_segment_2.id,
         host_inband_3_id,
     ] {
+        let instance_interfaces = pending
+            .new_config
+            .interfaces
+            .iter()
+            .filter(|interface| interface.network_segment_id == Some(segment_id))
+            .collect::<Vec<_>>();
+        let [instance_interface] = instance_interfaces.as_slice() else {
+            panic!("the staged config should hold exactly one interface for segment {segment_id}")
+        };
+        let host_interface = host_interfaces
+            .iter()
+            .find(|interface| interface.segment_id == segment_id)
+            .expect("the host should have one interface on every HostInband segment");
         assert_eq!(
-            pending
-                .new_config
-                .interfaces
-                .iter()
-                .filter(|i| i.network_segment_id == Some(segment_id))
-                .count(),
-            1,
-            "the staged config should hold exactly one interface for segment {segment_id}"
+            instance_interface.host_inband_mac_address,
+            Some(host_interface.mac_address),
+            "the staged config should retain the host interface MAC for segment {segment_id}"
         );
+
+        if segment_id == host_inband_3_id {
+            let address = host_interface
+                .addresses
+                .first()
+                .copied()
+                .expect("the newly added HostInband interface should have an address");
+            let resolved = resolve_machine_interface_for_test(txn.as_mut(), address).await?;
+            assert_eq!(
+                resolved.id, host_interface.id,
+                "the staged address row should identify the new HostInband interface before the pending config is applied"
+            );
+        }
     }
 
     Ok(())
@@ -1254,6 +1340,7 @@ async fn test_reject_single_dpu_instance_allocation_no_network_config(
                 spxconfig: None,
                 network_security_group_id: None,
                 dpu_extension_services: None,
+                power_profile: None,
             }),
             instance_id: None,
             metadata: None,
@@ -1330,6 +1417,7 @@ async fn test_reject_single_dpu_instance_allocation_host_inband_network_config(
                 infiniband: None,
                 nvlink: None,
                 spxconfig: None,
+                power_profile: None,
             }),
             instance_id: None,
             metadata: None,
@@ -1493,6 +1581,7 @@ async fn test_reject_zero_dpu_instance_allocation_multiple_vpcs(
                 dpu_extension_services: None,
                 nvlink: None,
                 spxconfig: None,
+                power_profile: None,
             }),
             instance_id: None,
             metadata: None,
@@ -1570,6 +1659,7 @@ async fn test_single_dpu_instance_allocation(
                 spxconfig: None,
                 network_security_group_id: None,
                 dpu_extension_services: None,
+                power_profile: None,
             }),
             instance_id: None,
             metadata: None,
@@ -1724,6 +1814,7 @@ async fn test_reject_zero_dpu_instance_with_tenant_network_segment(
                 dpu_extension_services: None,
                 nvlink: None,
                 spxconfig: None,
+                power_profile: None,
             }),
             instance_id: None,
             metadata: None,
@@ -1801,6 +1892,7 @@ async fn test_zero_dpu_instance_surfaces_underlay_ip_in_status(
                 dpu_extension_services: None,
                 nvlink: None,
                 spxconfig: None,
+                power_profile: None,
             }),
             instance_id: None,
             metadata: None,
@@ -1933,6 +2025,7 @@ async fn test_reject_zero_dpu_instance_with_extension_services(
                 }),
                 nvlink: None,
                 spxconfig: None,
+                power_profile: None,
             }),
             instance_id: None,
             metadata: None,
@@ -2010,6 +2103,7 @@ async fn test_instance_allocation_rejects_auto_with_explicit_interfaces(
                 dpu_extension_services: None,
                 nvlink: None,
                 spxconfig: None,
+                power_profile: None,
             }),
             instance_id: None,
             metadata: None,
@@ -2076,6 +2170,7 @@ async fn test_instance_allocation_rejects_auto_on_dpu_host(
                 dpu_extension_services: None,
                 nvlink: None,
                 spxconfig: None,
+                power_profile: None,
             }),
             instance_id: None,
             metadata: None,

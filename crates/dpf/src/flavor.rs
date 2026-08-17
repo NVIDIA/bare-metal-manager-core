@@ -17,6 +17,9 @@
 
 //! DPUFlavor configuration for HBN.
 
+use std::collections::BTreeSet;
+use std::fmt::Write;
+
 use kube::core::ObjectMeta;
 use sha2::{Digest, Sha256};
 
@@ -27,10 +30,17 @@ use crate::crds::dpuflavors_generated::{
     DpuFlavorEwNicConfigurationsSpectrumXOptimizedMultiplaneMode,
     DpuFlavorEwNicConfigurationsSpectrumXOptimizedOverlay, DpuFlavorGrub, DpuFlavorNvconfig,
     DpuFlavorNvconfigDevice, DpuFlavorOvs, DpuFlavorSpec, DpuFlavorSysctl,
+    DpuFlavorSystemdServices, DpuFlavorSystemdServicesOperation,
 };
-use crate::types::{DpfProxyDetails, DpuDeploymentType};
+use crate::types::{
+    DEFAULT_DPU_NUM_OF_VFS, DEFAULT_PF_TOTAL_SF_RESERVED, DOCA_HBN_SERVICE_NAME,
+    DpfInterceptBridge, DpfInterceptBridging, DpfProxyDetails, DpuDeploymentType,
+    DpuServiceInterfaceTemplateDefinition, DpuServiceInterfaceTemplateType,
+};
 
 pub const DEFAULT_FLAVOR_NAME: &str = "dpu-flavor";
+const OVN_ENCAP_SERVICE_NAME: &str = "nico-ovn-encap-ip.service";
+const OVN_ENCAP_SCRIPT_PATH: &str = "/usr/local/sbin/nico-configure-ovn-encap-ip";
 
 impl DPUFlavor {
     /// Returns `"{default_flavor_name}-{hash}"` where the hash is the first 8 bytes (16 hex chars)
@@ -43,7 +53,7 @@ impl DPUFlavor {
     }
 }
 
-fn get_default_ovs_defaults() -> String {
+fn get_default_ovs_defaults_base() -> String {
     concat!(
         "_ovs-vsctl() {\n",
             "ovs-vsctl --timeout 15 \"$@\"\n",
@@ -82,7 +92,7 @@ fn get_default_ovs_defaults() -> String {
 }
 
 /// OVS raw config script for the BF4 flavor.
-fn get_bf4_ovs_defaults() -> String {
+fn get_bf4_ovs_defaults_base() -> String {
     concat!(
         "_ovs-vsctl() {\n",
         "    ovs-vsctl --timeout 15 \"$@\"\n",
@@ -126,6 +136,166 @@ fn get_bf4_ovs_defaults() -> String {
         "mst start\n",
     )
     .to_string()
+}
+
+/// Builds the BF3 OVS bootstrap with deterministic configured peer bridges.
+fn get_default_ovs_defaults_with_topology(topology: Option<&DpfInterceptBridging>) -> String {
+    // Retain the BF3 base verbatim, then append normalized intercept-bridge state.
+    let mut script = get_default_ovs_defaults_base();
+    if let Some(topology) = topology {
+        append_peer_bridge_bootstrap(&mut script, topology, |interface| {
+            format!("'{}'", interface.identity.bf3_raw_netdev_name())
+        });
+    }
+    append_ovn_encap_ip_bootstrap(&mut script);
+    script
+}
+
+/// Builds the generic-BF4 OVS bootstrap after preflighting every configured PF.
+fn get_bf4_ovs_defaults_with_topology(topology: Option<&DpfInterceptBridging>) -> String {
+    // Preflight is prepended so no inherited or configured OVS operation can run first.
+    let mut script = topology.map_or_else(String::new, render_bf4_pf_preflight);
+    script.push_str(&get_bf4_ovs_defaults_base());
+    if let Some(topology) = topology {
+        append_peer_bridge_bootstrap(&mut script, topology, |interface| {
+            let variable =
+                bf4_pf_variable(interface.identity.controller_id, interface.identity.pf_id);
+            match interface.identity.vf_id {
+                Some(vf_id) => format!("\"${{{variable}}}vf{vf_id}\""),
+                None => format!("\"${{{variable}}}\""),
+            }
+        });
+    }
+    append_ovn_encap_ip_bootstrap(&mut script);
+    script
+}
+
+/// Appends the per-DPU OVN address update to provisioning-time OVS configuration.
+fn append_ovn_encap_ip_bootstrap(script: &mut String) {
+    // Owner contract: DPF runs rawConfigScript after oob_net0 is configured. Set the value here
+    // so provisioning establishes it directly even when the installed DPF API prunes the retained
+    // systemdServices request. Keep this attempt best-effort because rawConfigScript must not fail
+    // provisioning when management addressing is not ready; the independently ordered oneshot
+    // executes the same body directly and retains its strict exit status.
+    script.push_str("# Configure the per-DPU OVN encapsulation address during OVS provisioning.\n");
+    script.push_str("(\n");
+    script.push_str(ovn_encap_ip_commands());
+    script.push_str(") || true\n");
+}
+
+/// Appends idempotent bridge creation and tolerant raw-representor attachment.
+fn append_peer_bridge_bootstrap(
+    script: &mut String,
+    topology: &DpfInterceptBridging,
+    raw_netdev: impl Fn(&DpfInterceptBridge) -> String,
+) {
+    // Normalized topology order keeps the script stable across map iteration order.
+    for interface in topology.interfaces() {
+        writeln!(script, "host_representor={}", raw_netdev(interface)).ok();
+        writeln!(
+            script,
+            "_ovs-vsctl --may-exist add-br '{}'",
+            interface.bridge
+        )
+        .ok();
+        writeln!(
+            script,
+            "_ovs-vsctl set bridge '{}' datapath_type=netdev",
+            interface.bridge
+        )
+        .ok();
+        writeln!(
+            script,
+            "_ovs-vsctl --if-exists del-port \"$host_representor\" -- --may-exist add-port '{}' \"$host_representor\" -- set interface \"$host_representor\" type=dpdk mtu_request=9216 external_ids='{{}}' || true",
+            interface.bridge
+        )
+        .ok();
+        writeln!(
+            script,
+            "_ovs-vsctl br-set-external-id '{}' bridge-uplink '{}'",
+            interface.bridge, interface.patch_port
+        )
+        .ok();
+    }
+}
+
+/// Resolves configured generic-BF4 PF identities to runtime netdevs before any OVS mutation.
+///
+/// Topology identifies hardware by controller/PF identity rather than its runtime kernel name.
+/// The rendered preflight therefore finds the unique netdev whose `phys_port_name` carries that
+/// identity and stores it in a shell variable used by the later bridge bootstrap. Resolving every
+/// parent first prevents a missing or ambiguous PF from leaving partially modified OVS state.
+fn render_bf4_pf_preflight(topology: &DpfInterceptBridging) -> String {
+    // Collapse PF and VF entries to their parent identities. VF netdev names are derived from the
+    // resolved parent later, so every parent needs only one sysfs lookup.
+    let pf_identities: BTreeSet<_> = topology
+        .interfaces()
+        .iter()
+        .map(|interface| {
+            let mut identity = interface.identity;
+            identity.vf_id = None;
+            identity
+        })
+        .collect();
+    if pf_identities.is_empty() {
+        return String::new();
+    }
+
+    // Search the semantic `phys_port_name`, rejecting both absence and ambiguity rather than
+    // selecting whichever runtime netdev happens to appear first.
+    let mut script = String::from(concat!(
+        "sys_class_net=${NICO_SYS_CLASS_NET:-/sys/class/net}\n",
+        "resolve_dpf_pf() {\n",
+        "    local semantic_name=$1 result_variable=$2 phys_port_name netdev\n",
+        "    local -a matches=()\n",
+        "    for phys_port_name in \"$sys_class_net\"/*/phys_port_name; do\n",
+        "        [[ -r \"$phys_port_name\" ]] || continue\n",
+        "        if [[ \"$(<\"$phys_port_name\")\" == \"$semantic_name\" ]]; then\n",
+        "            netdev=$(basename \"${phys_port_name%/phys_port_name}\")\n",
+        "            matches+=(\"$netdev\")\n",
+        "        fi\n",
+        "    done\n",
+        "    if (( ${#matches[@]} != 1 )); then\n",
+        "        echo \"expected exactly one BF4 PF netdev with phys_port_name ${semantic_name}; found ${#matches[@]}\" >&2\n",
+        "        return 1\n",
+        "    fi\n",
+        "    printf -v \"$result_variable\" '%s' \"${matches[0]}\"\n",
+        "}\n",
+    ));
+
+    for identity in &pf_identities {
+        // Persist each resolved netdev in an identity-specific variable consumed by bridge setup.
+        writeln!(
+            script,
+            "resolve_dpf_pf '{}' '{}' || exit 1",
+            identity.bf4_phys_port_name(),
+            bf4_pf_variable(identity.controller_id, identity.pf_id)
+        )
+        .ok();
+    }
+
+    let identities: Vec<_> = pf_identities.into_iter().collect();
+    // Keep resolved parents distinct before deriving VF netdev names. This is defensive while the
+    // current topology contract permits only one selected controller/PF parent.
+    for (index, left_identity) in identities.iter().enumerate() {
+        for right_identity in &identities[index + 1..] {
+            let left = bf4_pf_variable(left_identity.controller_id, left_identity.pf_id);
+            let right = bf4_pf_variable(right_identity.controller_id, right_identity.pf_id);
+            writeln!(
+                script,
+                "if [[ \"${{{left}}}\" == \"${{{right}}}\" ]]; then echo 'BF4 PF identities {} and {} resolved to the same netdev' >&2; exit 1; fi",
+                left_identity.bf4_phys_port_name(),
+                right_identity.bf4_phys_port_name()
+            )
+            .ok();
+        }
+    }
+    script
+}
+
+/// Returns the shell variable holding one discovered generic-BF4 PF netdev.
+fn bf4_pf_variable(controller_id: u8, pf_id: u8) -> String {
+    format!("dpf_c{controller_id}p{pf_id}_netdev")
 }
 
 /// OVS raw config script for the BF4 flavor.
@@ -178,10 +348,46 @@ pub fn default_flavor_for(
     // Selects the DPUFlavor variant to build for the given deployment type.
     deployment_type: DpuDeploymentType,
 ) -> Result<DPUFlavor, crate::error::DpfError> {
+    default_flavor_for_with_topology(
+        namespace,
+        proxy,
+        deployment_type,
+        DEFAULT_DPU_NUM_OF_VFS,
+        DEFAULT_PF_TOTAL_SF_RESERVED,
+        None,
+        None,
+    )
+}
+
+/// Builds a platform flavor from validated VF, SF, topology, and effective-inventory inputs.
+pub(crate) fn default_flavor_for_with_topology(
+    namespace: &str,
+    proxy: &Option<DpfProxyDetails>,
+    deployment_type: DpuDeploymentType,
+    num_of_vfs: u32,
+    pf_total_sf: u32,
+    intercept_bridging: Option<&DpfInterceptBridging>,
+    dhcp_acl_interfaces: Option<&[DpuServiceInterfaceTemplateDefinition]>,
+) -> Result<DPUFlavor, crate::error::DpfError> {
+    // Astra deliberately ignores both site-wide inputs.
     match deployment_type {
-        DpuDeploymentType::Bf4Generic => flavor_bf4(namespace, proxy),
+        DpuDeploymentType::Bf4Generic => flavor_bf4_with_topology(
+            namespace,
+            proxy,
+            num_of_vfs,
+            pf_total_sf,
+            intercept_bridging,
+            dhcp_acl_interfaces,
+        ),
         DpuDeploymentType::Bf4Astra => flavor_bf4_astra(namespace, proxy),
-        DpuDeploymentType::Bf3 => default_flavor(namespace, proxy),
+        DpuDeploymentType::Bf3 => default_flavor_with_topology(
+            namespace,
+            proxy,
+            num_of_vfs,
+            pf_total_sf,
+            intercept_bridging,
+            dhcp_acl_interfaces,
+        ),
     }
 }
 
@@ -198,6 +404,25 @@ pub fn flavor_bf4(
     namespace: &str,
     proxy: &Option<DpfProxyDetails>,
 ) -> Result<DPUFlavor, crate::error::DpfError> {
+    flavor_bf4_with_topology(
+        namespace,
+        proxy,
+        DEFAULT_DPU_NUM_OF_VFS,
+        DEFAULT_PF_TOTAL_SF_RESERVED,
+        None,
+        None,
+    )
+}
+
+/// Builds generic BF4 flavor state from the validated site VF count and intercept-bridging topology.
+fn flavor_bf4_with_topology(
+    namespace: &str,
+    proxy: &Option<DpfProxyDetails>,
+    num_of_vfs: u32,
+    pf_total_sf: u32,
+    intercept_bridging: Option<&DpfInterceptBridging>,
+    dhcp_acl_interfaces: Option<&[DpuServiceInterfaceTemplateDefinition]>,
+) -> Result<DPUFlavor, crate::error::DpfError> {
     let bfcfg_parameters = vec![
         "UPDATE_ATF_UEFI=yes".to_string(),
         "UPDATE_DPU_OS=yes".to_string(),
@@ -213,19 +438,27 @@ pub fn flavor_bf4(
             dpu_mode: Some(DpuFlavorDpuMode::ZeroTrust),
             dpu_resources: None,
             bfcfg_parameters: Some(bfcfg_parameters),
-            config_files: Some(get_config_files(proxy)?),
+            config_files: Some(get_config_files(
+                proxy,
+                DpuDeploymentType::Bf4Generic,
+                dhcp_acl_interfaces,
+            )?),
             containerd_config: None,
             grub: Some(bf4_grub_params()),
             host_network_interface_configs: None,
-            nvconfig: Some(vec![get_bf4_default_nvconfig()]),
+            nvconfig: Some(vec![get_bf4_nvconfig(num_of_vfs, pf_total_sf)]),
             ovs: Some(crate::crds::dpuflavors_generated::DpuFlavorOvs {
-                raw_config_script: Some(get_bf4_ovs_defaults()),
+                raw_config_script: Some(get_bf4_ovs_defaults_with_topology(intercept_bridging)),
             }),
             sysctl: None,
             system_reserved_resources: None,
             ew_nic_configurations: None,
             packages: None,
-            systemd_services: None,
+            // rawConfigScript sets the value during provisioning. Retain this ordered oneshot so
+            // DPF versions with systemdServices support also enforce it after network readiness.
+            systemd_services: Some(vec![ovn_encap_systemd_service()]),
+            host_os_init: None,
+            scalable_functions: None,
         },
     })
 }
@@ -272,6 +505,8 @@ pub fn flavor_bf4_astra(
             }),
             system_reserved_resources: None,
             systemd_services: Some(vec![]),
+            host_os_init: None,
+            scalable_functions: None,
         },
     })
 }
@@ -429,6 +664,25 @@ pub fn default_flavor(
     namespace: &str,
     proxy: &Option<DpfProxyDetails>,
 ) -> Result<DPUFlavor, crate::error::DpfError> {
+    default_flavor_with_topology(
+        namespace,
+        proxy,
+        DEFAULT_DPU_NUM_OF_VFS,
+        DEFAULT_PF_TOTAL_SF_RESERVED,
+        None,
+        None,
+    )
+}
+
+/// Builds BF3 flavor state from the validated site VF count and intercept-bridging topology.
+fn default_flavor_with_topology(
+    namespace: &str,
+    proxy: &Option<DpfProxyDetails>,
+    num_of_vfs: u32,
+    pf_total_sf: u32,
+    intercept_bridging: Option<&DpfInterceptBridging>,
+    dhcp_acl_interfaces: Option<&[DpuServiceInterfaceTemplateDefinition]>,
+) -> Result<DPUFlavor, crate::error::DpfError> {
     let bfcfg_parameters = vec![
         "UPDATE_ATF_UEFI=yes".to_string(),
         "UPDATE_DPU_OS=yes".to_string(),
@@ -444,19 +698,27 @@ pub fn default_flavor(
             dpu_mode: Some(DpuFlavorDpuMode::ZeroTrust),
             dpu_resources: None,
             bfcfg_parameters: Some(bfcfg_parameters),
-            config_files: Some(get_config_files(proxy)?),
+            config_files: Some(get_config_files(
+                proxy,
+                DpuDeploymentType::Bf3,
+                dhcp_acl_interfaces,
+            )?),
             containerd_config: None,
             grub: Some(get_default_grub()),
             host_network_interface_configs: None,
-            nvconfig: Some(vec![get_default_nvconfig()]),
+            nvconfig: Some(vec![get_nvconfig(num_of_vfs, pf_total_sf)]),
             ovs: Some(crate::crds::dpuflavors_generated::DpuFlavorOvs {
-                raw_config_script: Some(get_default_ovs_defaults()),
+                raw_config_script: Some(get_default_ovs_defaults_with_topology(intercept_bridging)),
             }),
             sysctl: None,
             system_reserved_resources: None,
             ew_nic_configurations: None,
             packages: None,
-            systemd_services: None,
+            // rawConfigScript sets the value during provisioning. Retain this ordered oneshot so
+            // DPF versions with systemdServices support also enforce it after network readiness.
+            systemd_services: Some(vec![ovn_encap_systemd_service()]),
+            host_os_init: None,
+            scalable_functions: None,
         },
     })
 }
@@ -484,9 +746,24 @@ fn get_default_grub() -> DpuFlavorGrub {
 }
 
 /// Returns the base set of config files, plus an optional containerd proxy drop-in if `proxy` is set.
+///
+/// `deployment_type` selects the few settings that differ between the deployments sharing this
+/// base set (BF3 and BF4 generic); [`get_bf4_astra_config_files`] builds the BF4 Astra set.
 fn get_config_files(
     proxy: &Option<DpfProxyDetails>,
+    deployment_type: DpuDeploymentType,
+    dhcp_acl_interfaces: Option<&[DpuServiceInterfaceTemplateDefinition]>,
 ) -> Result<Vec<DpuFlavorConfigFiles>, crate::error::DpfError> {
+    let mut mlnx_bf_conf = concat!(
+        "ALLOW_SHARED_RQ=\"no\"\n",
+        "IPSEC_FULL_OFFLOAD=\"no\"\n",
+        "ENABLE_ESWITCH_MULTIPORT=\"yes\"\n"
+    )
+    .to_string();
+    if matches!(deployment_type, DpuDeploymentType::Bf4Generic) {
+        mlnx_bf_conf.push_str("SNAP_DMA_SF=\"no\"\n");
+    }
+
     let mut config_files = vec![
         DpuFlavorConfigFiles {
             path: "/var/lib/hbn/etc/supervisor/conf.d/acltool.conf".to_string(),
@@ -510,7 +787,7 @@ fn get_config_files(
             path: "/var/lib/hbn/etc/cumulus/acl/policy.d/10-dhcp.rules".to_string(),
             operation: Some(DpuFlavorConfigFilesOperation::Override),
             permissions: Some("0644".to_string()),
-            raw: Some(dhcp_acl_rules()),
+            raw: Some(dhcp_acl_rules(dhcp_acl_interfaces)),
             content_from: None,
             r#type: None,
         },
@@ -534,14 +811,7 @@ fn get_config_files(
             path: "/etc/mellanox/mlnx-bf.conf".to_string(),
             operation: Some(DpuFlavorConfigFilesOperation::Override),
             permissions: Some("0644".to_string()),
-            raw: Some(
-                concat!(
-                    "ALLOW_SHARED_RQ=\"no\"\n",
-                    "IPSEC_FULL_OFFLOAD=\"no\"\n",
-                    "ENABLE_ESWITCH_MULTIPORT=\"yes\"\n"
-                )
-                .to_string(),
-            ),
+            raw: Some(mlnx_bf_conf),
             content_from: None,
             r#type: None,
         },
@@ -562,6 +832,7 @@ fn get_config_files(
             r#type: None,
         },
     ];
+    config_files.extend(ovn_encap_config_files());
 
     if let Some(proxy) = proxy {
         validate_proxy_string(&proxy.https_proxy, "https_proxy")?;
@@ -600,11 +871,78 @@ fn get_config_files(
 
     Ok(config_files)
 }
-fn get_bf4_default_nvconfig() -> DpuFlavorNvconfig {
+
+/// Returns the provisioning files that set `ovn-encap-ip` after networking and OVS.
+fn ovn_encap_config_files() -> Vec<DpuFlavorConfigFiles> {
+    vec![
+        DpuFlavorConfigFiles {
+            path: OVN_ENCAP_SCRIPT_PATH.to_string(),
+            operation: Some(DpuFlavorConfigFilesOperation::Override),
+            permissions: Some("0755".to_string()),
+            // Keep the oneshot body identical to the provisioning-time rawConfigScript action.
+            raw: Some(format!(
+                "#!/bin/bash\nset -euo pipefail\n{}",
+                ovn_encap_ip_commands()
+            )),
+            content_from: None,
+            r#type: None,
+        },
+        DpuFlavorConfigFiles {
+            path: format!("/etc/systemd/system/{OVN_ENCAP_SERVICE_NAME}"),
+            operation: Some(DpuFlavorConfigFilesOperation::Override),
+            permissions: Some("0644".to_string()),
+            raw: Some(format!(
+                concat!(
+                    "[Unit]\n",
+                    "Description=Configure OVN tunnel encapsulation address\n",
+                    "Wants=network-online.target\n",
+                    "After=network-online.target openvswitch-switch.service openvswitch.service\n",
+                    "\n",
+                    "[Service]\n",
+                    "Type=oneshot\n",
+                    "ExecStart={}\n",
+                    "RemainAfterExit=yes\n",
+                    "\n",
+                    "[Install]\n",
+                    "WantedBy=multi-user.target\n",
+                ),
+                OVN_ENCAP_SCRIPT_PATH
+            )),
+            content_from: None,
+            r#type: None,
+        },
+    ]
+}
+
+/// Shell commands shared by provisioning-time OVS bootstrap and the retained systemd oneshot.
+fn ovn_encap_ip_commands() -> &'static str {
+    concat!(
+        "mapfile -t oob_ipv4_addresses < <(\n",
+        "    ip -4 -o address show dev oob_net0 scope global |\n",
+        "        awk '{sub(/\\/.*/, \"\", $4); if (NF) print $4}'\n",
+        ")\n",
+        "if (( ${#oob_ipv4_addresses[@]} != 1 )); then\n",
+        "    echo \"expected exactly one global IPv4 address on oob_net0; found ${#oob_ipv4_addresses[@]}\" >&2\n",
+        "    exit 1\n",
+        "fi\n",
+        "ovs-vsctl --timeout 15 set Open_vSwitch . \"external_ids:ovn-encap-ip=${oob_ipv4_addresses[0]}\"\n",
+    )
+}
+
+/// Returns the DPUFlavor request that enables and starts the OVN address oneshot.
+fn ovn_encap_systemd_service() -> DpuFlavorSystemdServices {
+    DpuFlavorSystemdServices {
+        name: OVN_ENCAP_SERVICE_NAME.to_string(),
+        operation: DpuFlavorSystemdServicesOperation::EnableAndStart,
+    }
+}
+
+/// Builds generic-BF4 nvconfig with the validated site VF population.
+fn get_bf4_nvconfig(num_of_vfs: u32, pf_total_sf: u32) -> DpuFlavorNvconfig {
     let parameters = vec![
         "PF_BAR2_ENABLE=0".to_string(),
         "PER_PF_NUM_SF=1".to_string(),
-        "PF_TOTAL_SF=30".to_string(),
+        format!("PF_TOTAL_SF={pf_total_sf}"),
         "PF_SF_BAR_SIZE=14".to_string(),
         "NUM_PF_MSIX_VALID=0".to_string(),
         "PF_NUM_PF_MSIX_VALID=1".to_string(),
@@ -613,7 +951,7 @@ fn get_bf4_default_nvconfig() -> DpuFlavorNvconfig {
         "INTERNAL_CPU_OFFLOAD_ENGINE=0".to_string(),
         "SRIOV_EN=1".to_string(),
         "LAG_RESOURCE_ALLOCATION=1".to_string(),
-        "NUM_OF_VFS=16".to_string(),
+        format!("NUM_OF_VFS={num_of_vfs}"),
         "LINK_TYPE_P1=ETH".to_string(),
         "LINK_TYPE_P2=ETH".to_string(),
     ];
@@ -1182,11 +1520,12 @@ fn get_bf4_astra_config_files(
     Ok(config_files)
 }
 
-fn get_default_nvconfig() -> DpuFlavorNvconfig {
+/// Builds BF3 nvconfig with the validated site VF population.
+fn get_nvconfig(num_of_vfs: u32, pf_total_sf: u32) -> DpuFlavorNvconfig {
     let parameters = vec![
         "PF_BAR2_ENABLE=0".to_string(),
         "PER_PF_NUM_SF=1".to_string(),
-        "PF_TOTAL_SF=30".to_string(),
+        format!("PF_TOTAL_SF={pf_total_sf}"),
         "PF_SF_BAR_SIZE=10".to_string(),
         "NUM_PF_MSIX_VALID=0".to_string(),
         "PF_NUM_PF_MSIX_VALID=1".to_string(),
@@ -1195,7 +1534,7 @@ fn get_default_nvconfig() -> DpuFlavorNvconfig {
         "INTERNAL_CPU_OFFLOAD_ENGINE=0".to_string(),
         "SRIOV_EN=1".to_string(),
         "LAG_RESOURCE_ALLOCATION=1".to_string(),
-        "NUM_OF_VFS=16".to_string(),
+        format!("NUM_OF_VFS={num_of_vfs}"),
         "HIDE_PORT2_PF=True".to_string(),
         "NUM_OF_PF=1".to_string(),
         "LINK_TYPE_P1=ETH".to_string(),
@@ -1234,28 +1573,59 @@ fn get_bf4_astra_nvconfig() -> DpuFlavorNvconfig {
     }
 }
 
-/// DHCP ACL rules: drop DHCP broadcasts from host-facing interfaces.
-fn dhcp_acl_rules() -> String {
+/// Renders DHCP broadcast drops for the host-facing interfaces in the effective inventory.
+fn dhcp_acl_rules(interfaces: Option<&[DpuServiceInterfaceTemplateDefinition]>) -> String {
     let mut rules = String::from("[iptables]\n");
-    for iface in
-        std::iter::once("pf0hpf_if".to_string()).chain((0..=15).map(|i| format!("pf0vf{i}_if")))
-    {
+    let mut append_rule = |interface_name: &str| {
         rules.push_str(&format!(
             "-t filter -A FORWARD -p udp -d 255.255.255.255 \
-             --dport 67 -m physdev --physdev-in {iface} \
+             --dport 67 -m physdev --physdev-in {interface_name} \
              -m comment --comment 'offload:0' -j DROP\n"
         ));
+    };
+
+    if let Some(interfaces) = interfaces {
+        // Configured PF/VF identities are represented as Patch interfaces. Read their HBN endpoint
+        // names directly so sparse inventories receive rules for exactly their selected endpoints.
+        for interface_name in interfaces
+            .iter()
+            .filter(|interface| {
+                matches!(
+                    &interface.iface_type,
+                    DpuServiceInterfaceTemplateType::Patch(_)
+                )
+            })
+            .flat_map(|interface| interface.chained_svc_if.iter().flatten())
+            .filter_map(|(service_name, interface_name)| {
+                (service_name == DOCA_HBN_SERVICE_NAME).then_some(interface_name)
+            })
+        {
+            append_rule(interface_name);
+        }
+    } else {
+        // ROLLOUT COMPATIBILITY (DPU REPROVISIONING): retain the byte-for-byte legacy ACL for
+        // inventory-free BF3/BF4 flavors. Deriving it from the smaller static ServiceInterface
+        // inventory would alter every existing flavor hash even though their policy is unchanged.
+        append_rule("pf0hpf_if");
+        for vf_id in 0..=15 {
+            append_rule(&format!("pf0vf{vf_id}_if"));
+        }
     }
     rules
 }
 
 #[cfg(test)]
 mod tests {
+    use std::fs;
+    use std::process::{Command, Output};
+
     use carbide_test_support::Outcome::*;
     use carbide_test_support::{Case, check_cases, scenarios, value_scenarios};
 
     use super::*;
-    use crate::types::DpfProxyDetails;
+    use crate::types::{
+        DpfInterceptBridge, DpfInterceptBridging, DpfInterfaceIdentity, DpfProxyDetails,
+    };
 
     fn proxy(https_proxy: &str, no_proxy: &[&str]) -> Option<DpfProxyDetails> {
         Some(DpfProxyDetails {
@@ -1277,6 +1647,328 @@ mod tests {
             .unwrap()
             .unique_name("dpu-flavor")
             .unwrap()
+    }
+
+    /// Provides deterministic PF/VF entries for flavor topology tests.
+    fn intercept_bridging() -> DpfInterceptBridging {
+        DpfInterceptBridging::new(
+            vec![
+                DpfInterceptBridge::new(
+                    DpfInterfaceIdentity {
+                        controller_id: 2,
+                        pf_id: 3,
+                        vf_id: Some(4),
+                    },
+                    "br-vf4",
+                    "p-vf4",
+                ),
+                DpfInterceptBridge::new(
+                    DpfInterfaceIdentity {
+                        controller_id: 2,
+                        pf_id: 3,
+                        vf_id: None,
+                    },
+                    "br-pf3",
+                    "p-pf3",
+                ),
+            ],
+            16,
+        )
+        .expect("flavor topology fixture must be valid")
+    }
+
+    /// Executes generic-BF4 preflight against a synthetic `sys/class/net` tree.
+    fn run_bf4_preflight(
+        topology: &DpfInterceptBridging,
+        phys_port_names: &[(&str, &str)],
+        prefix: &str,
+        suffix: &str,
+    ) -> Output {
+        let fixture =
+            std::env::temp_dir().join(format!("carbide-dpf-bf4-sysfs-{}", uuid::Uuid::new_v4()));
+
+        // Materialize only the semantic sysfs surface consumed by provisioning.
+        for (netdev, phys_port_name) in phys_port_names {
+            let netdev_dir = fixture.join(netdev);
+            fs::create_dir_all(&netdev_dir).expect("synthetic netdev directory must be created");
+            fs::write(netdev_dir.join("phys_port_name"), phys_port_name)
+                .expect("synthetic phys_port_name must be written");
+        }
+        let script = format!("{prefix}\n{}\n{suffix}", render_bf4_pf_preflight(topology));
+        let output = Command::new("bash")
+            .arg("-c")
+            .arg(script)
+            .env("NICO_SYS_CLASS_NET", &fixture)
+            .output()
+            .expect("bash must execute synthetic BF4 preflight");
+        fs::remove_dir_all(&fixture).expect("synthetic BF4 sysfs fixture must be removed");
+        output
+    }
+
+    /// Executes the flavor-provided OVN address script with synthetic `ip` output.
+    fn run_ovn_encap_script(addresses: &[&str]) -> Output {
+        let ip_output = addresses
+            .iter()
+            .enumerate()
+            .map(|(index, address)| {
+                format!(
+                    "{}: oob_net0 inet {address}/24 brd 10.0.0.255 scope global oob_net0",
+                    index + 1
+                )
+            })
+            .collect::<Vec<_>>()
+            .join("\\n");
+        let raw = ovn_encap_config_files()[0]
+            .raw
+            .clone()
+            .expect("OVN script file must have inline content");
+        let script = format!(
+            "ip() {{ printf '%b' '{ip_output}'; }}\novs-vsctl() {{ printf '%s\\n' \"$*\"; }}\n{raw}"
+        );
+        Command::new("bash")
+            .arg("-c")
+            .arg(script)
+            .output()
+            .expect("bash must execute synthetic OVN address script")
+    }
+
+    /// Verifies BF3 peer bootstrap uses typed PF/VF names and never owns patch pairs.
+    #[test]
+    fn bf3_intercept_bridging_bootstrap_renders_expected_raw_representors() {
+        // Render BF3 bootstrap for one configured PF and VF.
+        let topology = intercept_bridging();
+        let script = get_default_ovs_defaults_with_topology(Some(&topology));
+
+        // BF3 drops controller only from its platform raw-netdev convention.
+        assert!(script.contains("host_representor='pf3hpf'"));
+        assert!(script.contains("host_representor='pf3vf4'"));
+        assert!(script.contains("_ovs-vsctl --may-exist add-br 'br-pf3'"));
+        assert!(script.contains(
+            "_ovs-vsctl --if-exists del-port \"$host_representor\" -- --may-exist add-port"
+        ));
+        assert!(script.contains("bridge-uplink 'p-vf4'"));
+        assert!(script.contains("external_ids='{}' || true"));
+
+        // DPF owns both patch ports; flavor bootstrap neither creates them nor edits legacy SFC.
+        assert!(!script.contains("sfc.conf"));
+        assert!(!script.contains("type=patch"));
+        assert!(!script.contains("add-port 'br-pf3' 'p-pf3'"));
+    }
+
+    /// Verifies generic-BF4 exact semantic discovery and VF-name derivation.
+    #[test]
+    fn bf4_intercept_bridging_preflight_resolves_exact_pf_and_derives_vf_suffix() {
+        // Render and execute preflight for the selected semantic PF identity.
+        let topology = intercept_bridging();
+
+        // Exact semantic names resolve independently of unrelated sysfs entries.
+        let output = run_bf4_preflight(
+            &topology,
+            &[("en8f2", "c2pf3"), ("noise", "c2pf30")],
+            "",
+            "printf '%s' \"$dpf_c2p3_netdev\"",
+        );
+        assert!(output.status.success(), "preflight failed: {output:?}");
+        assert_eq!(String::from_utf8_lossy(&output.stdout), "en8f2");
+
+        // VF discovery is intentionally absent; the expected VF is the PF netdev plus its suffix.
+        let script = get_bf4_ovs_defaults_with_topology(Some(&topology));
+        assert!(script.contains("host_representor=\"${dpf_c2p3_netdev}vf4\""));
+        assert!(script.contains("external_ids='{}' || true"));
+        assert!(!script.contains("phys_port_name 'c2pf3vf4'"));
+    }
+
+    /// Verifies generic-BF4 preflight fails before OVS mutation for missing or ambiguous PFs.
+    #[test]
+    fn bf4_intercept_bridging_preflight_rejects_missing_and_ambiguous_pf_matches() {
+        // Include the required PF and one VF whose parent is the only discovery target.
+        let topology = DpfInterceptBridging::new(
+            vec![
+                DpfInterceptBridge::new(
+                    DpfInterfaceIdentity {
+                        controller_id: 2,
+                        pf_id: 3,
+                        vf_id: None,
+                    },
+                    "br-pf3",
+                    "p-pf3",
+                ),
+                DpfInterceptBridge::new(
+                    DpfInterfaceIdentity {
+                        controller_id: 2,
+                        pf_id: 3,
+                        vf_id: Some(4),
+                    },
+                    "br-vf4",
+                    "p-vf4",
+                ),
+            ],
+            16,
+        )
+        .unwrap();
+
+        value_scenarios!(
+            run = |matches: Vec<(&str, &str)>| {
+                let output = run_bf4_preflight(&topology, &matches, "", "");
+                (
+                    output.status.success(),
+                    String::from_utf8_lossy(&output.stderr).into_owned(),
+                )
+            };
+            "missing exact PF" {
+                // A similar semantic name must not satisfy exact matching.
+                vec![("en8f2", "c2pf30")] => (
+                    false,
+                    "expected exactly one BF4 PF netdev with phys_port_name c2pf3; found 0\n".to_string(),
+                ),
+            }
+
+            "ambiguous exact PF" {
+                // Multiple exact matches are unsafe and must fail before bridge creation.
+                vec![("en8f2", "c2pf3"), ("en9f2", "c2pf3")] => (
+                    false,
+                    "expected exactly one BF4 PF netdev with phys_port_name c2pf3; found 2\n".to_string(),
+                ),
+            }
+        );
+    }
+
+    /// Verifies every generic-BF4 PF resolves before the first OVS mutation.
+    #[test]
+    fn bf4_intercept_bridging_preflight_precedes_all_ovs_mutation() {
+        // Locate the final preflight call and the first inherited OVS cleanup operation.
+        let topology = intercept_bridging();
+        let script = get_bf4_ovs_defaults_with_topology(Some(&topology));
+
+        let final_resolution = script
+            .find("resolve_dpf_pf 'c2pf3'")
+            .expect("last configured PF must be resolved");
+        let first_mutation = script
+            .find("ovs-vsctl --if-exists del-br")
+            .expect("base OVS cleanup must remain present");
+        assert!(final_resolution < first_mutation);
+    }
+
+    /// Verifies configured VF and SF counts affect BF3/generic BF4 but never Astra.
+    #[test]
+    fn flavor_nvconfig_uses_platform_appropriate_vf_and_sf_counts() {
+        // Extract nvconfig parameters uniformly across all flavor variants.
+        let parameters =
+            |flavor: DPUFlavor| flavor.spec.nvconfig.unwrap()[0].parameters.clone().unwrap();
+
+        // BF3 and generic BF4 consume the validated site value.
+        let bf3 = parameters(default_flavor_with_topology("ns", &None, 3, 61, None, None).unwrap());
+        assert!(bf3.contains(&"NUM_OF_VFS=3".to_string()));
+        assert!(bf3.contains(&"PF_TOTAL_SF=61".to_string()));
+        let generic_bf4 =
+            parameters(flavor_bf4_with_topology("ns", &None, 5, 63, None, None).unwrap());
+        assert!(generic_bf4.contains(&"NUM_OF_VFS=5".to_string()));
+        assert!(generic_bf4.contains(&"PF_TOTAL_SF=63".to_string()));
+
+        // Astra retains its established fixed hardware configuration.
+        let astra = parameters(flavor_bf4_astra("ns", &None).unwrap());
+        assert!(astra.contains(&"NUM_OF_VFS=46".to_string()));
+        assert!(astra.contains(&"PF_TOTAL_SF=30".to_string()));
+    }
+
+    /// Verifies normalized input order cannot change rendered flavor identity.
+    #[test]
+    fn intercept_bridging_input_order_does_not_change_flavor_hash() {
+        // Rebuild the same logical topology from reverse input order.
+        let topology = intercept_bridging();
+        let reversed =
+            DpfInterceptBridging::new(topology.interfaces().iter().cloned().rev().collect(), 16)
+                .expect("reordered topology fixture must remain valid");
+
+        // Flavor hashing must depend on typed topology content, not legacy map iteration order.
+        let flavor_name = |topology: &DpfInterceptBridging| {
+            let interfaces = crate::sdk::build_effective_dpu_interfaces(16, Some(topology));
+            default_flavor_with_topology(
+                "ns",
+                &None,
+                16,
+                DEFAULT_PF_TOTAL_SF_RESERVED + 7,
+                Some(topology),
+                Some(&interfaces),
+            )
+            .unwrap()
+            .unique_name(DEFAULT_FLAVOR_NAME)
+            .unwrap()
+        };
+        assert_eq!(flavor_name(&topology), flavor_name(&reversed));
+    }
+
+    /// Verifies the shared OVN address action enforces exact address cardinality.
+    #[test]
+    fn ovn_encap_script_requires_one_global_ipv4_address() {
+        // Exercise the installed script with controlled management-address output.
+        value_scenarios!(
+            run = |addresses: &[&str]| {
+                let output = run_ovn_encap_script(addresses);
+                (
+                    output.status.success(),
+                    String::from_utf8_lossy(&output.stdout).into_owned(),
+                )
+            };
+            "no global address" {
+                // Provisioning must fail instead of leaving an empty OVN tunnel address.
+                &[] as &[&str] => (false, String::new()),
+            }
+
+            "one global address" {
+                // The sole address is persisted directly in Open_vSwitch external IDs.
+                &["10.0.0.4"] as &[&str] => (
+                    true,
+                    "--timeout 15 set Open_vSwitch . external_ids:ovn-encap-ip=10.0.0.4\n".to_string(),
+                ),
+            }
+
+            "multiple global addresses" {
+                // Ambiguous management addressing must fail rather than select arbitrarily.
+                &["10.0.0.4", "10.0.0.5"] as &[&str] => (false, String::new()),
+            }
+        );
+    }
+
+    /// Verifies BF3 and generic BF4 set the per-DPU OVN address during OVS provisioning.
+    #[test]
+    fn ovs_bootstrap_ends_with_ovn_encap_ip_configuration() {
+        // Both rawConfigScript variants execute the strict oneshot body in a best-effort subshell.
+        let expected = format!("(\n{}) || true\n", ovn_encap_ip_commands());
+        value_scenarios!(
+            run = |script: String| script.ends_with(&expected);
+            "BF3 provisioning" {
+                get_default_ovs_defaults_with_topology(None) => true,
+            }
+
+            "generic BF4 provisioning" {
+                get_bf4_ovs_defaults_with_topology(None) => true,
+            }
+        );
+    }
+
+    /// Verifies the retained OVN oneshot is installed after network readiness and either OVS unit.
+    #[test]
+    fn ovn_encap_oneshot_has_required_systemd_ordering() {
+        // Read the rendered unit and its DPUFlavor enablement request.
+        let files = ovn_encap_config_files();
+        let unit = files
+            .iter()
+            .find(|file| file.path.ends_with(OVN_ENCAP_SERVICE_NAME))
+            .and_then(|file| file.raw.as_ref())
+            .expect("OVN systemd unit must be rendered");
+        let service = ovn_encap_systemd_service();
+
+        // Both supported OVS unit names are ordered before the exact address action.
+        assert!(unit.contains(
+            "After=network-online.target openvswitch-switch.service openvswitch.service"
+        ));
+        assert!(unit.contains(&format!("ExecStart={OVN_ENCAP_SCRIPT_PATH}")));
+        assert_eq!(service.name, OVN_ENCAP_SERVICE_NAME);
+        assert!(matches!(
+            service.operation,
+            DpuFlavorSystemdServicesOperation::EnableAndStart
+        ));
     }
 
     // ── validate_proxy_string ──────────────────────────────────────────────
@@ -1732,16 +2424,16 @@ mod tests {
                     .unwrap()
                     .len()
             };
-            "no proxy yields seven base files" {
-                None => 7,
+            "no proxy yields nine base files" {
+                None => 9,
             }
 
-            "proxy with empty no_proxy appends an eighth" {
-                proxy("http://proxy:3128", &[]) => 8,
+            "proxy with empty no_proxy appends a tenth" {
+                proxy("http://proxy:3128", &[]) => 10,
             }
 
             "proxy with no_proxy list still appends exactly one" {
-                proxy("http://proxy:3128", &["10.0.0.0/8", "localhost"]) => 8,
+                proxy("http://proxy:3128", &["10.0.0.0/8", "localhost"]) => 10,
             }
         );
     }
@@ -1770,7 +2462,7 @@ mod tests {
 
     #[test]
     fn base_config_file_paths_are_present() {
-        // The seven base files always exist regardless of proxy, with these paths.
+        // The base files always exist regardless of proxy, with these paths.
         let files = default_flavor("ns", &None)
             .unwrap()
             .spec
@@ -2020,7 +2712,7 @@ mod tests {
 
     #[test]
     fn dhcp_acl_rules_shape() {
-        let rules = dhcp_acl_rules();
+        let rules = dhcp_acl_rules(None);
         value_scenarios!(
             run = |v| v;
             "starts with the iptables header" {
@@ -2053,6 +2745,67 @@ mod tests {
         );
     }
 
+    /// Verifies configured ACLs follow the exact sparse PF/VF inventory.
+    #[test]
+    fn configured_dhcp_acl_rules_follow_effective_inventory() {
+        // Build one PF and the highest VMaaS-addressable VF as a sparse inventory.
+        let topology = DpfInterceptBridging::new(
+            vec![
+                DpfInterceptBridge::new(
+                    DpfInterfaceIdentity {
+                        controller_id: 2,
+                        pf_id: 3,
+                        vf_id: None,
+                    },
+                    "br-pf3",
+                    "p-pf3",
+                ),
+                DpfInterceptBridge::new(
+                    DpfInterfaceIdentity {
+                        controller_id: 2,
+                        pf_id: 3,
+                        vf_id: Some(15),
+                    },
+                    "br-vf15",
+                    "p-vf15",
+                ),
+            ],
+            16,
+        )
+        .expect("sparse VF15 topology must be valid");
+        let interfaces = crate::sdk::build_effective_dpu_interfaces(16, Some(&topology));
+        let rules = dhcp_acl_rules(Some(&interfaces));
+
+        // Only the configured host-facing HBN endpoints should receive ACL rules.
+        value_scenarios!(
+            run = |value| value;
+            "selected PF is covered" {
+                // The selected hardware PF is exposed to HBN through canonical logical PF0.
+                rules.contains("--physdev-in pf0hpf_if ") => true,
+            }
+
+            "sparse VF15 is covered" {
+                // The highest VMaaS-addressable VF retains the broadcast policy.
+                rules.contains("--physdev-in pf0vf15_if ") => true,
+            }
+
+            "unconfigured VF14 is absent" {
+                // Exact inventory generation must not restore the old unconditional range.
+                rules.contains("pf0vf14_if") => false,
+            }
+
+            "physical uplinks are absent" {
+                // Fixed physical endpoints are not host-facing DHCP ingress interfaces.
+                rules.contains("--physdev-in p0_if ") => false,
+            }
+
+            "header plus selected PF and VF rules" {
+                // The sparse inventory contains exactly two host-facing endpoints.
+                rules.lines().count() == 3 => true,
+            }
+        );
+    }
+
     // ── get_default_ovs_defaults (pure formatter) ──────────────────────────
 
     #[test]
@@ -2061,7 +2814,7 @@ mod tests {
             [Case {
                 scenario: "doca/offload/br-sfc setup lines present",
                 input: (
-                    get_default_ovs_defaults(),
+                    get_default_ovs_defaults_with_topology(None),
                     &[
                         "other_config:doca-init=true",
                         "other_config:hw-offload=true",
@@ -2081,7 +2834,7 @@ mod tests {
 
     #[test]
     fn default_nvconfig_shape() {
-        let nv = get_default_nvconfig();
+        let nv = get_nvconfig(16, DEFAULT_PF_TOTAL_SF_RESERVED);
         value_scenarios!(
             run = |v| v;
             "device is the only allowed wildcard variant" {
@@ -2106,6 +2859,14 @@ mod tests {
                 .as_ref()
                 .map(|p| p.iter().any(|s| s == "NUM_OF_VFS=16"))
                 == Some(true) => true,
+            }
+
+            "carries the legacy default PF_TOTAL_SF" {
+                nv
+                    .parameters
+                    .as_ref()
+                    .map(|p| p.iter().any(|s| s == "PF_TOTAL_SF=30"))
+                    == Some(true) => true,
             }
         );
     }

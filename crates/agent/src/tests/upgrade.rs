@@ -43,11 +43,11 @@ async fn test_upgrade_check() -> eyre::Result<()> {
     let app = axum::Router::new()
         .route("/up", get(handle_up))
         .route(
-            "/forge.Forge/DpuAgentUpgradeCheck",
+            ::rpc::service_path!("DpuAgentUpgradeCheck"),
             post(dpu_agent_upgrade_check),
         )
         // ForgeApiClient needs a working Version route for connection retrying
-        .route("/forge.Forge/Version", post(handle_version));
+        .route(::rpc::service_path!("Version"), post(handle_version));
     let (addr, join_handle) = common::run_grpc_server(app).await?;
 
     let client_config =

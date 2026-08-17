@@ -19,9 +19,12 @@ use std::collections::HashSet;
 use std::net::IpAddr;
 
 use ::rpc::forge as rpc;
-use db;
+use carbide_uuid::network::NetworkSegmentId;
+use db::db_read::DbReader;
 use model::instance::snapshot::InstanceSnapshot;
 use model::machine::{InstanceState, MachineInterfaceSnapshot, ManagedHostState};
+use model::machine_interface::InterfaceType;
+use model::network_segment::NetworkSegmentType;
 use sqlx::PgConnection;
 
 use crate::CarbideError;
@@ -52,42 +55,134 @@ enum PreferredLookup {
     Instance,
 }
 
-/// Resolve a client IP to a ResolvedClient.
+/// One unambiguous overlay owner and the segments on which it holds the
+/// observed address.
+pub(super) struct OverlayAddressOwner {
+    instance: InstanceSnapshot,
+    segment_ids: HashSet<NetworkSegmentId>,
+}
+
+/// The overlay ownership states an IP-only caller needs to distinguish.
+pub(super) enum OverlayAddressOwnerLookup {
+    NotFound,
+    One(Box<OverlayAddressOwner>),
+    Ambiguous,
+}
+
+/// `find_overlay_address_owner` returns one overlay owner only when the
+/// address identifies it without any VPC context. Callers that use the result
+/// to authorize a request or select tenant data must keep the full decision in
+/// one transaction, so allocation cannot add another owner between reads.
+pub(super) async fn find_overlay_address_owner<DB>(
+    conn: &mut DB,
+    client_ip: IpAddr,
+) -> Result<OverlayAddressOwnerLookup, CarbideError>
+where
+    for<'db> &'db mut DB: DbReader<'db>,
+{
+    let addresses = db::instance_address::find_all_by_address(&mut *conn, client_ip).await?;
+    let Some(first_address) = addresses.first() else {
+        return Ok(OverlayAddressOwnerLookup::NotFound);
+    };
+    let instance_id = first_address.instance_id;
+
+    if addresses
+        .iter()
+        .any(|address| address.instance_id != instance_id)
+    {
+        let instance_ids = addresses
+            .iter()
+            .map(|address| address.instance_id)
+            .collect::<HashSet<_>>();
+        tracing::warn!(
+            %client_ip,
+            instance_ids = ?instance_ids,
+            "client IP matches more than one overlay instance"
+        );
+        return Ok(OverlayAddressOwnerLookup::Ambiguous);
+    }
+
+    let Some(instance) = db::instance::find_by_id(&mut *conn, instance_id).await? else {
+        tracing::warn!(
+            %client_ip,
+            %instance_id,
+            "overlay address owner disappeared during client resolution"
+        );
+        return Err(CarbideError::FailedPrecondition(format!(
+            "client IP {client_ip} ownership changed during resolution"
+        )));
+    };
+    let segment_ids = addresses
+        .into_iter()
+        .map(|address| address.segment_id)
+        .collect();
+    Ok(OverlayAddressOwnerLookup::One(Box::new(
+        OverlayAddressOwner {
+            instance,
+            segment_ids,
+        },
+    )))
+}
+
+/// Returns whether both rows describe the same HostInband interface. Matching
+/// only the machine ID is not enough: the interface must also be a Data
+/// interface on the exact HostInband segment that owns the overlay address.
+/// A snapshot without its denormalized network-segment type is treated as not
+/// matching; both current callers populate it.
+pub(super) fn is_same_host_inband_interface(
+    machine_interface: &MachineInterfaceSnapshot,
+    owner: &OverlayAddressOwner,
+) -> bool {
+    machine_interface.machine_id == Some(owner.instance.machine_id)
+        && machine_interface.interface_type == InterfaceType::Data
+        && machine_interface.network_segment_type == Some(NetworkSegmentType::HostInband)
+        && owner.segment_ids.contains(&machine_interface.segment_id)
+}
+
+/// Resolve a client IP to a [`ResolvedClient`].
 ///
-/// - `preferred_lookup`:  Use [`PreferredLookup::MachineInterface`] to prefer returning a
-///   `ResolvedClient::MachineInterface` if it's found, falling back on a `ResolvedClient::Instance`
-///   if not. Use [`PreferredLookup::Instance`] to do the reverse, returning a
-///   `ResolvedClient::Instance` first and a `ResolvedClient::MachineInterface` otherwise.
+/// A direct machine-interface address and one overlay instance may represent
+/// the same physical HostInband interface. `preferred_lookup` decides which
+/// view of that host the caller needs. Unrelated owners are ambiguous and must
+/// be rejected rather than using the preference to select one.
 async fn resolve_client_ip(
     conn: &mut PgConnection,
     client_ip: IpAddr,
     preferred_lookup: PreferredLookup,
 ) -> Result<ResolvedClient, CarbideError> {
-    match preferred_lookup {
-        PreferredLookup::MachineInterface => {
-            if let Some(iface) = db::machine_interface::find_by_ip(&mut *conn, client_ip).await? {
-                return Ok(ResolvedClient::MachineInterface(Box::new(iface)));
-            }
-            Ok(db::instance::find_by_address(&mut *conn, client_ip)
-                .await?
-                .map(ResolvedClient::from)
-                .ok_or_else(|| CarbideError::NotFoundError {
-                    kind: "Client",
-                    id: client_ip.to_string(),
-                })?)
-        }
-        PreferredLookup::Instance => {
-            if let Some(instance) = db::instance::find_by_address(&mut *conn, client_ip).await? {
-                return Ok(ResolvedClient::Instance(Box::new(instance)));
-            }
+    let machine_interface = db::machine_interface::find_by_ip(&mut *conn, client_ip).await?;
+    let overlay_owner = find_overlay_address_owner(&mut *conn, client_ip).await?;
 
-            db::machine_interface::find_by_ip(&mut *conn, client_ip)
-                .await?
-                .map(ResolvedClient::from)
-                .ok_or_else(|| CarbideError::NotFoundError {
-                    kind: "Client",
-                    id: client_ip.to_string(),
-                })
+    match (machine_interface, overlay_owner) {
+        (None, OverlayAddressOwnerLookup::NotFound) => Err(CarbideError::NotFoundError {
+            kind: "Client",
+            id: client_ip.to_string(),
+        }),
+        (_, OverlayAddressOwnerLookup::Ambiguous) => Err(CarbideError::FailedPrecondition(
+            format!("client IP {client_ip} matches more than one overlay instance"),
+        )),
+        (Some(machine_interface), OverlayAddressOwnerLookup::NotFound) => {
+            Ok(machine_interface.into())
+        }
+        (None, OverlayAddressOwnerLookup::One(owner)) => Ok(owner.instance.into()),
+        (Some(machine_interface), OverlayAddressOwnerLookup::One(owner))
+            if is_same_host_inband_interface(&machine_interface, &owner) =>
+        {
+            Ok(match preferred_lookup {
+                PreferredLookup::MachineInterface => machine_interface.into(),
+                PreferredLookup::Instance => owner.instance.into(),
+            })
+        }
+        (Some(machine_interface), OverlayAddressOwnerLookup::One(owner)) => {
+            tracing::warn!(
+                %client_ip,
+                machine_interface_id = %machine_interface.id,
+                instance_id = %owner.instance.id,
+                "client IP matches unrelated underlay and overlay owners"
+            );
+            Err(CarbideError::FailedPrecondition(format!(
+                "client IP {client_ip} matches unrelated underlay and overlay owners"
+            )))
         }
     }
 }
@@ -96,7 +191,7 @@ async fn resolve_client_ip(
 /// generation. For direct-interface IPs this returns the matching
 /// interface; for tenant-allocated IPs it resolves through the instance
 /// to the host's machine_interfaces, and prefers an admin-segment one.
-pub(crate) async fn resolve_machine_interface(
+pub(super) async fn resolve_machine_interface(
     conn: &mut PgConnection,
     client_ip: IpAddr,
 ) -> Result<MachineInterfaceSnapshot, CarbideError> {
@@ -141,7 +236,7 @@ pub(crate) async fn resolve_machine_interface(
 /// interface arm produces a discovery-instructions response (for
 /// unassigned hosts running scout, etc.); the instance arm produces an
 /// instance-specific response with the tenant-provided user_data.
-pub(crate) async fn resolve_cloud_init_instructions(
+pub(super) async fn resolve_cloud_init_instructions(
     api: &Api,
     conn: &mut PgConnection,
     client_ip: IpAddr,
@@ -249,9 +344,9 @@ pub(crate) async fn resolve_cloud_init_instructions(
                 (None, None)
             };
 
-            // Resolve VMaaS config once so the cloud-init fields are derived consistently.
             let vmaas_config = api.runtime_config.vmaas_config.as_ref();
-            let traffic_intercept_bridging = vmaas_config.and_then(|vc| vc.bridging.as_ref());
+            let host_representor_bridging =
+                vmaas_config.and_then(|config| config.bridging.as_ref());
 
             Ok(rpc::CloudInitInstructions {
                 custom_cloud_init,
@@ -260,17 +355,10 @@ pub(crate) async fn resolve_cloud_init_instructions(
                     domain: Some(rpc::PxeDomain {
                         domain: Some(rpc::pxe_domain::Domain::NewDomain(domain.into())),
                     }),
-                    hbn_reps: vmaas_config.and_then(|vc| vc.hbn_reps.clone()),
-                    hbn_sfs: vmaas_config.and_then(|vc| vc.hbn_sfs.clone()),
-                    vf_intercept_bridge_name: traffic_intercept_bridging
-                        .map(|b| b.vf_intercept_bridge_name.clone()),
-                    vf_intercept_bridge_port: traffic_intercept_bridging
-                        .map(|b| b.vf_intercept_bridge_port.clone()),
-                    vf_intercept_bridge_sf: traffic_intercept_bridging
-                        .map(|b| b.vf_intercept_bridge_sf.clone()),
+                    hbn_reps: vmaas_config.and_then(|config| config.hbn_reps.clone()),
                     num_of_vfs: Some(api.runtime_config.dpu_config.num_of_vfs),
-                    hbn_bridge: traffic_intercept_bridging.map(|b| b.hbn_bridge.clone()),
-                    host_representor_intercept_bridging: traffic_intercept_bridging
+                    hbn_bridge: host_representor_bridging.map(|config| config.hbn_bridge.clone()),
+                    host_representor_intercept_bridging: host_representor_bridging
                         .and_then(|b| b.host_representor_intercept_bridging_provisioning_config()),
                     bootstrap_ca_source: rpc::BootstrapCaSource::from(
                         api.runtime_config.dpu_config.bootstrap_ca_source,

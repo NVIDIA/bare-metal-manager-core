@@ -19,7 +19,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::sync::atomic::Ordering;
 
-pub use ::rpc::forge as rpc;
+use ::rpc::forge as rpc;
 use carbide_utils::none_if_empty::NoneIfEmpty;
 use carbide_uuid::machine::MachineIdSource;
 use carbide_uuid::nvlink::NvLinkDomainId;
@@ -32,6 +32,9 @@ use model::machine::{DpuInitState, DpuInitStates, ManagedHostState};
 use tonic::{Request, Response, Status};
 
 use crate::api::{Api, log_machine_id, log_request_data};
+use crate::handlers::client_resolution::{
+    OverlayAddressOwnerLookup, find_overlay_address_owner, is_same_host_inband_interface,
+};
 use crate::handlers::utils::convert_and_log_machine_id;
 use crate::{CarbideError, attestation as attest};
 
@@ -103,6 +106,56 @@ pub(crate) async fn discover_machine(
         None
     };
 
+    let secure_remote_ip = if api.runtime_config.allow_insecure_discovery {
+        None
+    } else {
+        Some(remote_ip.ok_or_else(|| {
+            CarbideError::InvalidArgument(
+                "could not determine client IP address for discovery".to_string(),
+            )
+        })?)
+    };
+
+    // Keep readers that are waiting behind instance allocation out of open
+    // database transactions. Hold the same permit through the main discovery
+    // transaction so the admin-lock queue remains bounded too.
+    let admin_admission = db::machine_interface::admin_lock_admission().await;
+
+    // Resolve direct underlay ownership before taking the long-lived machine
+    // and admin locks below. This authenticates the already-arrived request
+    // against one ownership snapshot, then releases the address-table read
+    // lock. The main transaction locks and verifies only the same interface;
+    // it does not re-evaluate overlay ownership after authentication.
+    let direct_interface_id = if let Some(remote_ip) = secure_remote_ip {
+        let mut source_txn = api.txn_begin().await?;
+        let direct_interface =
+            db::machine_interface::find_by_ip(source_txn.as_pgconn(), remote_ip).await?;
+        let direct_interface_id = if let Some(interface) = direct_interface {
+            match find_overlay_address_owner(source_txn.as_pgconn(), remote_ip).await? {
+                OverlayAddressOwnerLookup::NotFound => Some(interface.id),
+                OverlayAddressOwnerLookup::One(owner)
+                    if is_same_host_inband_interface(&interface, &owner) =>
+                {
+                    Some(interface.id)
+                }
+                OverlayAddressOwnerLookup::One(_) | OverlayAddressOwnerLookup::Ambiguous => {
+                    tracing::warn!(
+                        machine_interface_id = %interface.id,
+                        %remote_ip,
+                        "discovery source IP matches unrelated underlay and overlay owners"
+                    );
+                    return Err(discovery_source_owner_error().into());
+                }
+            }
+        } else {
+            None
+        };
+        source_txn.commit().await?;
+        direct_interface_id
+    } else {
+        None
+    };
+
     let mut txn = api.txn_begin().await?;
 
     // Advisory-lock the admin segments before any machine-interface row
@@ -122,30 +175,20 @@ pub(crate) async fn discover_machine(
     // Who's discovery info is this? DiscoverMachine is an anonymous call, and so normally we should
     // look it up ourselves from the client IP. But that isn't feasible in integration tests, so
     // config.allow_insecure_discovery lets the caller pass a machine_interface_id.
-    let caller_interface = if api.runtime_config.allow_insecure_discovery {
-        let interface_id = machine_discovery_info.machine_interface_id.ok_or_else(|| {
-            CarbideError::InvalidArgument(
-                "machine_interface_id is required for insecure discovery".to_string(),
-            )
-        })?;
-        let interface = db::machine_interface::find_one(&mut txn, interface_id).await?;
-        tracing::warn!(
-            machine_interface_id = %interface_id,
-            "Allowing insecure discovery: trusting caller-provided machine_interface_id. This is for integration tests only and must not be done in production."
-        );
-        interface
-    } else {
-        let remote_ip = remote_ip.ok_or_else(|| {
-            CarbideError::InvalidArgument(
-                "could not determine client IP address for discovery".to_string(),
-            )
-        })?;
-
-        if let Some(interface) =
-            db::machine_interface::find_optional_for_update_by_ip(&mut txn, remote_ip).await?
-        {
-            // Caller is an un-allocated machine with no instance
-            interface
+    let caller_interface = if let Some(remote_ip) = secure_remote_ip {
+        if let Some(expected_interface_id) = direct_interface_id {
+            match db::machine_interface::find_optional_for_update_by_ip(&mut txn, remote_ip).await?
+            {
+                Some(interface) if interface.id == expected_interface_id => interface,
+                _ => {
+                    tracing::warn!(
+                        machine_interface_id = %expected_interface_id,
+                        %remote_ip,
+                        "discovery source interface changed during authentication"
+                    );
+                    return Err(discovery_source_owner_error().into());
+                }
+            }
         } else {
             // Caller may be an allocated instance running scout (e.g. for machine validation). We
             // need the machine_interface_id in the payload to know which interface to use. We will
@@ -166,14 +209,23 @@ pub(crate) async fn discover_machine(
                 tracing::error!(
                     %machine_interface_id,
                     %remote_ip,
-                    "potential machine impersonation attempt: caller provided machine_interface_id does not belong to this remote IP"
+                    "potential machine impersonation attempt: caller-provided machine_interface_id does not belong to this remote IP, or the IP has ambiguous overlay ownership"
                 );
-                CarbideError::PermissionDeniedError(
-                    "selected interface and discovery source IP do not belong to the same host"
-                        .to_string(),
-                )
+                discovery_source_owner_error()
             })?
         }
+    } else {
+        let interface_id = machine_discovery_info.machine_interface_id.ok_or_else(|| {
+            CarbideError::InvalidArgument(
+                "machine_interface_id is required for insecure discovery".to_string(),
+            )
+        })?;
+        let interface = db::machine_interface::find_one(&mut txn, interface_id).await?;
+        tracing::warn!(
+            machine_interface_id = %interface_id,
+            "Allowing insecure discovery: trusting caller-provided machine_interface_id. This is for integration tests only and must not be done in production."
+        );
+        interface
     };
 
     let site_explorer_creates_machines = api
@@ -326,21 +378,6 @@ pub(crate) async fn discover_machine(
                 db::machine::allocate_loopback_ip_v6(&api.common_pools, &mut txn, &owner_id).await?
         {
             network_config.loopback_ip_v6 = Some(loopback_ip_v6);
-            network_config_changed = true;
-        }
-
-        if api
-            .runtime_config
-            .vmaas_config
-            .as_ref()
-            .map(|vc| vc.secondary_overlay_support)
-            .unwrap_or_default()
-            && network_config.secondary_overlay_vtep_ip.is_none()
-        {
-            let secondary_vtep_ip =
-                db::machine::allocate_secondary_vtep_ip(&api.common_pools, &mut txn, &owner_id)
-                    .await?;
-            network_config.secondary_overlay_vtep_ip = Some(secondary_vtep_ip);
             network_config_changed = true;
         }
 
@@ -527,6 +564,7 @@ pub(crate) async fn discover_machine(
     }
 
     txn.commit().await?;
+    drop(admin_admission);
 
     let machine_certificate = if attest_key_challenge.is_none() {
         if std::env::var("UNSUPPORTED_CERTIFICATE_PROVIDER").is_ok() {
@@ -573,6 +611,12 @@ pub(crate) async fn discover_machine(
     }
 
     response
+}
+
+fn discovery_source_owner_error() -> CarbideError {
+    CarbideError::PermissionDeniedError(
+        "discovery source IP and selected interface do not identify one host".to_string(),
+    )
 }
 
 // Host has completed discovery

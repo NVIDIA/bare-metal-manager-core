@@ -22,9 +22,11 @@
 use std::collections::{HashMap, HashSet};
 use std::convert::TryFrom;
 use std::net::IpAddr;
+use std::num::NonZeroUsize;
 use std::str::FromStr;
 use std::sync::{Arc, Mutex};
 
+use carbide_uuid::nvlink::NvLinkDomainId;
 use carbide_uuid::rack::RackId;
 use carbide_uuid::switch::SwitchId;
 use forge_tls::client_config::ClientCert;
@@ -36,11 +38,15 @@ use rpc::forge_tls_client::{ApiConfig, ForgeClientConfig};
 use url::Url;
 
 use crate::HealthError;
-use crate::bmc::{BmcClient, BoxFuture, CredentialProvider};
+use crate::bmc::{
+    BmcClient, BmcLatencyInstrumentation, BoxFuture, CredentialProvider,
+    bmc_latency_endpoint_labels,
+};
 use crate::endpoint::{
     BmcAddr, BmcCredentials, BmcEndpoint, EndpointMetadata, EndpointSource, MachineData,
     PowerShelfData, SharedSystemUuid, SwitchData, SwitchEndpointRole,
 };
+use crate::metrics::BmcLatencyMetrics;
 
 /// [`ApiEndpointSource`].
 #[derive(Clone)]
@@ -275,6 +281,9 @@ fn switch_endpoint_metadata(
             .placement_in_rack
             .as_ref()
             .and_then(|placement| placement.tray_index),
+        nvlink_domain_uuid: switch
+            .nvlink_domain_uuid
+            .filter(|domain_uuid| domain_uuid != &NvLinkDomainId::nil()),
         endpoint_role,
         is_primary: switch.is_primary,
         nmxc_enabled: config.enable_nmxc,
@@ -287,6 +296,8 @@ pub struct ApiEndpointSource {
     reqwest: ReqwestClient,
     proxy_url: Option<Url>,
     cache_size: usize,
+    bmc_request_concurrency: NonZeroUsize,
+    bmc_latency_metrics: Option<Arc<BmcLatencyMetrics>>,
     bmc_client_cache: Mutex<HashMap<MacAddress, CachedBmcClient>>,
 }
 
@@ -303,12 +314,33 @@ impl ApiEndpointSource {
         reqwest: ReqwestClient,
         proxy_url: Option<Url>,
         cache_size: usize,
+        bmc_latency_metrics: Option<Arc<BmcLatencyMetrics>>,
+    ) -> Self {
+        Self::new_with_request_concurrency(
+            api,
+            reqwest,
+            proxy_url,
+            cache_size,
+            NonZeroUsize::MIN,
+            bmc_latency_metrics,
+        )
+    }
+
+    pub(crate) fn new_with_request_concurrency(
+        api: Arc<ApiClientWrapper>,
+        reqwest: ReqwestClient,
+        proxy_url: Option<Url>,
+        cache_size: usize,
+        bmc_request_concurrency: NonZeroUsize,
+        bmc_latency_metrics: Option<Arc<BmcLatencyMetrics>>,
     ) -> Self {
         Self {
             api,
             reqwest,
             proxy_url,
             cache_size,
+            bmc_request_concurrency,
+            bmc_latency_metrics,
             bmc_client_cache: Mutex::new(HashMap::new()),
         }
     }
@@ -591,6 +623,12 @@ impl ApiEndpointSource {
         rack_id: Option<RackId>,
         credential_kind: ApiCredentialKind,
     ) -> Result<Arc<BmcEndpoint>, HealthError> {
+        let bmc_latency_instrumentation = self.bmc_latency_metrics.clone().map(|metrics| {
+            BmcLatencyInstrumentation::new(
+                metrics,
+                bmc_latency_endpoint_labels(metadata.as_ref(), rack_id.as_ref()),
+            )
+        });
         let cached = {
             let mut cache = self.bmc_client_cache.lock().expect("cache mutex poisoned");
             cache_or_create_bmc_client(&mut cache, addr.mac, credential_kind, |kind| {
@@ -604,6 +642,8 @@ impl ApiEndpointSource {
                     provider,
                     self.proxy_url.clone(),
                     self.cache_size,
+                    self.bmc_request_concurrency,
+                    bmc_latency_instrumentation,
                 )?))
             })?
         };
@@ -755,7 +795,8 @@ impl From<rpc::forge::bmc_credentials::Type> for BmcCredentials {
 mod tests {
     use std::sync::atomic::{AtomicUsize, Ordering};
 
-    use carbide_test_support::value_scenarios;
+    use carbide_test_support::{Check, check_values, value_scenarios};
+    use carbide_uuid::nvlink::NvLinkDomainId;
     use carbide_uuid::switch::{SwitchId, SwitchIdSource, SwitchType};
     use nv_redfish::bmc_http::reqwest::ClientParams as ReqwestClientParams;
 
@@ -793,6 +834,8 @@ mod tests {
             provider,
             None,
             10,
+            NonZeroUsize::MIN,
+            None,
         )?))
     }
 
@@ -844,6 +887,53 @@ mod tests {
             "mixed gpu driver versions" {
                 Some(discovery_with_driver_versions(&["570.82", "580.12"])) => None,
             }
+        );
+    }
+
+    #[test]
+    fn switch_endpoint_metadata_uses_non_nil_api_domain() {
+        let domain = NvLinkDomainId::from_str("9f4b45ec-705a-4af4-89f7-a112bc9c8f4e")
+            .expect("valid domain UUID");
+
+        check_values(
+            [
+                Check {
+                    scenario: "domain is missing",
+                    input: None,
+                    expect: None,
+                },
+                Check {
+                    scenario: "nil domain is absent",
+                    input: Some(NvLinkDomainId::nil()),
+                    expect: None,
+                },
+                Check {
+                    scenario: "non-nil API switch field",
+                    input: Some(domain),
+                    expect: Some(domain),
+                },
+            ],
+            |nvlink_domain_uuid| {
+                let metadata = switch_endpoint_metadata(
+                    &rpc::forge::Switch {
+                        config: Some(rpc::forge::SwitchConfig {
+                            name: "switch-a".to_string(),
+                            ..Default::default()
+                        }),
+                        nvlink_domain_uuid,
+                        ..Default::default()
+                    },
+                    SwitchEndpointRole::Bmc,
+                    false,
+                )
+                .expect("switch metadata");
+
+                let EndpointMetadata::Switch(switch) = metadata else {
+                    panic!("expected switch metadata");
+                };
+
+                switch.nvlink_domain_uuid
+            },
         );
     }
 

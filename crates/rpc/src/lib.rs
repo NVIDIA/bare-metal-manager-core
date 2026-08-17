@@ -28,6 +28,8 @@ use std::pin::Pin;
 use std::str::FromStr;
 
 use chrono::{DateTime, Utc};
+#[doc(hidden)]
+pub use const_format;
 use dns_record::DnsResourceRecordReply;
 use errors::RpcDataConversionError;
 use mac_address::{MacAddress, MacParseError};
@@ -37,6 +39,20 @@ use serde_json::{Value, json};
 use tokio_stream::Stream;
 
 use crate::forge_agent_control_response::LegacyAction;
+
+/// Returns the compile-time gRPC path for a Forge service method.
+#[macro_export]
+macro_rules! service_path {
+    ($method:literal) => {
+        $crate::const_format::concatcp!(
+            "/",
+            $crate::forge::forge_server::SERVICE_NAME,
+            "/",
+            $method
+        )
+    };
+}
+
 pub use crate::protos::common::{self, Uuid};
 pub use crate::protos::dns::{self};
 pub use crate::protos::forge::machine_credentials_update_request::CredentialPurpose;
@@ -58,13 +74,15 @@ pub use crate::protos::machine_discovery::{
     self, BlockDevice, Cpu, DiscoveryInfo, DmiData, NetworkInterface, NvmeDevice,
     PciDeviceProperties,
 };
-pub use crate::protos::{fmds, health, scout_firmware_upgrade, site_explorer};
+pub use crate::protos::{agent_local, fmds, health, scout_firmware_upgrade, site_explorer};
 
 pub mod errors;
 pub mod forge_tls_client;
 pub mod libmlx;
 pub mod measured_boot;
 pub mod network;
+pub mod node_jwt;
+pub mod node_token_socket;
 pub mod protos;
 pub mod secrets;
 mod site_explorer_report;
@@ -1072,6 +1090,39 @@ mod tests {
     use self::forge::{InlineIpxe, InstanceOperatingSystemConfig};
     use super::*;
     use crate::protos::dns::{Domain, Metadata};
+
+    fn assert_serialize<T: serde::Serialize>() {}
+
+    fn assert_deserialize<T: for<'de> serde::Deserialize<'de>>() {}
+
+    #[test]
+    fn protobuf_codegen_annotations_apply_to_generated_type_kinds() {
+        assert_serialize::<forge::ClientSecretBasic>();
+        assert_deserialize::<forge::ClientSecretBasic>();
+        assert_serialize::<forge::DpuMode>();
+        assert_deserialize::<forge::DpuMode>();
+        assert_serialize::<forge::instance_interface_config::NetworkDetails>();
+        assert_serialize::<forge::get_machine_boot_interfaces_response::Reconciliation>();
+    }
+
+    #[test]
+    fn reflection_descriptor_contains_all_rpc_services() {
+        let descriptor_set =
+            prost_types::FileDescriptorSet::decode(REFLECTION_API_SERVICE_DESCRIPTOR)
+                .expect("reflection descriptor set decodes");
+        let mut service_names = descriptor_set
+            .file
+            .iter()
+            .flat_map(|file| &file.service)
+            .filter_map(|service| service.name.as_deref())
+            .collect::<Vec<_>>();
+        service_names.sort_unstable();
+
+        assert_eq!(
+            service_names,
+            ["FmdsConfigService", "Forge", "NMX_Controller"]
+        );
+    }
 
     #[test]
     fn test_serialize_timestamp() {

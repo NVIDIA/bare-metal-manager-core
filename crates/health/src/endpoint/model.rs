@@ -37,8 +37,17 @@ use crate::bmc::{BmcClient, BoxFuture};
 ///
 /// Collectors clone endpoint metadata when they start, so this state must remain
 /// shared for a UUID resolved after collector startup to reach emitted events.
+/// Clones of the same state compare equal. Distinct states compare equal only
+/// after both cells are initialized with the same optional UUID.
 #[derive(Clone, Debug, Default)]
 pub struct SharedSystemUuid(Arc<OnceCell<Option<uuid::Uuid>>>);
+
+impl PartialEq for SharedSystemUuid {
+    fn eq(&self, other: &Self) -> bool {
+        Arc::ptr_eq(&self.0, &other.0)
+            || matches!((self.0.get(), other.0.get()), (Some(left), Some(right)) if left == right)
+    }
+}
 
 impl SharedSystemUuid {
     pub fn get(&self) -> Option<uuid::Uuid> {
@@ -98,6 +107,23 @@ impl BmcEndpoint {
         }
     }
 
+    /// Returns whether this endpoint supports periodic Redfish log collection.
+    pub(crate) fn supports_periodic_logs(&self) -> bool {
+        match self.metadata.as_ref() {
+            Some(EndpointMetadata::Machine(_)) => true,
+            Some(EndpointMetadata::Switch(switch)) => {
+                switch.endpoint_role == SwitchEndpointRole::Bmc
+            }
+            Some(EndpointMetadata::PowerShelf(_)) => {
+                // Power shelves may expose compatible LogServices, but behavior depends on
+                // hardware and firmware. Keep collection disabled until future implementation
+                // and validation establish support.
+                false
+            }
+            None => false,
+        }
+    }
+
     pub fn bmc(&self) -> &Arc<BmcClient> {
         &self.bmc
     }
@@ -118,7 +144,7 @@ impl BmcEndpoint {
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum EndpointMetadata {
     Machine(MachineData),
     PowerShelf(PowerShelfData),
@@ -152,7 +178,7 @@ impl EndpointMetadata {
 }
 
 /// Metadata that describes a machine endpoint for health telemetry.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct MachineData {
     /// Stable NICo machine identifier. None when running without NICo.
     pub machine_id: Option<MachineId>,
@@ -185,7 +211,7 @@ pub struct MachineData {
     pub driver_version: Option<String>,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct PowerShelfData {
     pub id: Option<PowerShelfId>,
     pub serial: String,
@@ -197,12 +223,19 @@ pub enum SwitchEndpointRole {
     Host,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct SwitchData {
     pub id: Option<SwitchId>,
     pub serial: String,
     pub slot_number: Option<i32>,
     pub tray_index: Option<i32>,
+
+    /// NVLink domain UUID associated with the switch, when known.
+    ///
+    /// Discovery restarts collectors when this value changes so subsequent
+    /// telemetry uses current metadata.
+    pub nvlink_domain_uuid: Option<NvLinkDomainId>,
+
     pub endpoint_role: SwitchEndpointRole,
     pub is_primary: bool,
     pub nmxc_enabled: bool,
@@ -220,7 +253,7 @@ pub enum BmcCredentials {
     },
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct BmcAddr {
     pub ip: IpAddr,
     pub port: Option<u16>,
@@ -272,10 +305,14 @@ mod tests {
     use std::str::FromStr;
     use std::sync::atomic::{AtomicUsize, Ordering};
 
+    use carbide_test_support::{Check, check_values};
     use mac_address::MacAddress;
 
-    use super::{BmcAddr, BmcCredentials, SharedSystemUuid};
-    use crate::endpoint::test_support::endpoint_with_creds;
+    use super::{
+        BmcAddr, BmcCredentials, EndpointMetadata, MachineData, PowerShelfData, SharedSystemUuid,
+        SwitchData, SwitchEndpointRole,
+    };
+    use crate::endpoint::test_support::{endpoint_with_creds, mac, test_endpoint};
 
     fn addr(ip: &str, port: Option<u16>) -> BmcAddr {
         BmcAddr {
@@ -324,6 +361,73 @@ mod tests {
         assert_eq!(endpoint.switch_connect_host_for_uri(), "[2001:db8::1]");
     }
 
+    #[test]
+    fn periodic_log_collection_endpoint_eligibility() {
+        let switch_bmc = SwitchData {
+            id: None,
+            serial: "switch".to_string(),
+            slot_number: Some(1),
+            tray_index: Some(2),
+            nvlink_domain_uuid: None,
+            endpoint_role: SwitchEndpointRole::Bmc,
+            is_primary: true,
+            nmxc_enabled: false,
+            nmxt_enabled: false,
+        };
+
+        let switch_host = SwitchData {
+            endpoint_role: SwitchEndpointRole::Host,
+            ..switch_bmc.clone()
+        };
+
+        check_values(
+            [
+                Check {
+                    scenario: "machine BMC is eligible",
+                    input: Some(EndpointMetadata::Machine(MachineData {
+                        machine_id: None,
+                        machine_serial: None,
+                        system_uuid: SharedSystemUuid::default(),
+                        slot_number: None,
+                        tray_index: None,
+                        nvlink_domain_uuid: None,
+                        driver_version: None,
+                    })),
+                    expect: true,
+                },
+                Check {
+                    scenario: "switch BMC is eligible",
+                    input: Some(EndpointMetadata::Switch(switch_bmc)),
+                    expect: true,
+                },
+                Check {
+                    scenario: "switch host is not eligible",
+                    input: Some(EndpointMetadata::Switch(switch_host)),
+                    expect: false,
+                },
+                Check {
+                    scenario: "power shelf is not eligible",
+                    input: Some(EndpointMetadata::PowerShelf(PowerShelfData {
+                        id: None,
+                        serial: "power-shelf".to_string(),
+                    })),
+                    expect: false,
+                },
+                Check {
+                    scenario: "endpoint without metadata is not eligible",
+                    input: None,
+                    expect: false,
+                },
+            ],
+            |metadata| {
+                let mut endpoint = test_endpoint(mac("00:11:22:33:44:55"));
+                endpoint.metadata = metadata;
+
+                endpoint.supports_periodic_logs()
+            },
+        );
+    }
+
     #[tokio::test]
     async fn shared_system_uuid_caches_absent_result_across_clones() {
         let state = SharedSystemUuid::default();
@@ -343,5 +447,22 @@ mod tests {
         assert_eq!(query_count.load(Ordering::SeqCst), 1);
         assert_eq!(state.get(), None);
         assert_eq!(clone.get(), None);
+    }
+
+    #[tokio::test]
+    async fn shared_system_uuid_equality_distinguishes_unresolved_from_absent() {
+        let unresolved = SharedSystemUuid::default();
+        let other_unresolved = SharedSystemUuid::default();
+
+        assert_eq!(unresolved, unresolved.clone());
+        assert_ne!(unresolved, other_unresolved);
+
+        let initialized_absent = SharedSystemUuid::default();
+        initialized_absent
+            .get_or_try_init(|| async { Ok::<_, Infallible>(None) })
+            .await
+            .expect("infallible UUID initialization");
+
+        assert_ne!(initialized_absent, unresolved);
     }
 }

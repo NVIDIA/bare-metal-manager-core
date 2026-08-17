@@ -921,6 +921,7 @@ async fn test_network_security_group_delete(
                 spxconfig: None,
                 network_security_group_id: Some(good_network_security_group_id.into()),
                 dpu_extension_services: None,
+                power_profile: None,
             }),
             instance_id: None,
             instance_type_id: None,
@@ -1225,6 +1226,7 @@ async fn test_network_security_group_propagation_impl(
                 spxconfig: None,
                 network_security_group_id: Some(good_network_security_group_id.to_string()),
                 dpu_extension_services: None,
+                power_profile: None,
             }),
             instance_id: Some(instance_id),
             instance_type_id: None,
@@ -1347,6 +1349,7 @@ async fn test_network_security_group_propagation_impl(
                     spxconfig: None,
                     network_security_group_id: None,
                     dpu_extension_services: None,
+                    power_profile: None,
                 }),
                 instance_id: Some(instance_id),
                 metadata: Some(rpc::forge::Metadata {
@@ -1459,6 +1462,7 @@ async fn test_network_security_group_propagation_impl(
                 spxconfig: None,
                 network_security_group_id: None,
                 dpu_extension_services: None,
+                power_profile: None,
             }),
             instance_id: Some(instance_id2),
             instance_type_id: None,
@@ -1822,6 +1826,7 @@ async fn test_network_security_group_get_attachments(
             spxconfig: None,
             network_security_group_id: Some(good_network_security_group_id.to_string()),
             dpu_extension_services: None,
+            power_profile: None,
         })
         .build()
         .await;

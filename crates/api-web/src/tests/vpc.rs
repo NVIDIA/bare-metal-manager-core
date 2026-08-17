@@ -78,6 +78,7 @@ async fn vpc_pages_show_status_vni(pool: sqlx::PgPool) {
             id: None,
             prefix: String::new(),
             vpc_id: Some(vpc_id),
+            site_prefix_id: None,
             config: Some(forge::VpcPrefixConfig {
                 prefix: "192.0.2.0/25".to_string(),
             }),

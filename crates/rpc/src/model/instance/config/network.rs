@@ -125,6 +125,15 @@ enum VFAllocationType {
 type DeviceVFIdsMap =
     HashMap<(Option<String>, u32), Vec<(rpc::InterfaceFunctionType, Option<u32>)>>;
 
+/// Converts one explicit wire VF identity without allowing a wider protobuf value to alias a VF.
+fn convert_wire_virtual_function_id(wire_id: u32) -> Result<u8, RpcDataConversionError> {
+    let model_id = u8::try_from(wire_id)
+        .map_err(|_| RpcDataConversionError::InvalidVirtualFunctionId(wire_id as usize))?;
+    InterfaceFunctionId::try_virtual_from(model_id)
+        .map(|_| model_id)
+        .map_err(|_| RpcDataConversionError::InvalidVirtualFunctionId(wire_id as usize))
+}
+
 fn validate_virtual_function_ids_and_get_allocation_method(
     interfaces: &[rpc::InstanceInterfaceConfig],
 ) -> Result<VFAllocationType, RpcDataConversionError> {
@@ -160,6 +169,10 @@ fn validate_virtual_function_ids_and_get_allocation_method(
             "Mix of VF".to_string(),
             "Mix of valid virtual_function_id and None is found.".to_string(),
         ));
+    }
+
+    for wire_id in all_vf_ids.iter().filter_map(|vf_info| vf_info.1) {
+        convert_wire_virtual_function_id(wire_id)?;
     }
 
     for vf_info in device_vf_ids.values() {
@@ -228,10 +241,6 @@ impl TryFrom<rpc::InstanceNetworkConfig> for InstanceNetworkConfig {
             let function_id = match iface_type {
                 InterfaceFunctionType::Physical => InterfaceFunctionId::Physical {},
                 InterfaceFunctionType::Virtual => {
-                    // Note that this might overflow if the RPC call delivers more than
-                    // 256 VFs. However that's ok - the `InstanceNetworkConfig.validate()`
-                    // call will declare those configs as invalid later on anyway.
-                    // We mainly don't want to crash here.
                     InterfaceFunctionId::Virtual {
                         id: if allocation_type == VFAllocationType::Carbide {
                             let assigned_vfs = assigned_vfs_map
@@ -241,8 +250,11 @@ impl TryFrom<rpc::InstanceNetworkConfig> for InstanceNetworkConfig {
                             *assigned_vfs = assigned_vfs.saturating_add(1);
                             id
                         } else {
-                            // Already validated.
-                            iface.virtual_function_id.unwrap_or_default() as u8
+                            // Keep conversion defensive even though the complete wire inventory
+                            // was range-checked before per-interface conversion.
+                            convert_wire_virtual_function_id(
+                                iface.virtual_function_id.unwrap_or_default(),
+                            )?
                         },
                     }
                 }
@@ -292,17 +304,6 @@ impl TryFrom<rpc::InstanceNetworkConfig> for InstanceNetworkConfig {
                 return Err(RpcDataConversionError::InvalidArgument(
                     "automatic VPC selection cannot be combined with explicit IP configuration"
                         .to_string(),
-                ));
-            }
-
-            // Core models and allocation support every family.
-            // TODO: Accept automatic IPv6 modes once downstream DPU support is
-            // complete end to end.
-            if let Some(selection) = vpc_selection
-                && selection.family_mode != InstanceInterfaceIpFamilyMode::Ipv4Only
-            {
-                return Err(RpcDataConversionError::InvalidArgument(
-                    "automatic VPC selection currently supports only IPV4_ONLY".to_string(),
                 ));
             }
 
@@ -614,8 +615,8 @@ mod tests {
         .is_ok()
     }
 
-    /// Typed family conversion models future IPv6 modes even while the
-    /// external allocation boundary temporarily accepts only IPv4.
+    /// Typed family conversion accepts every concrete mode and rejects the
+    /// unspecified sentinel.
     #[test]
     fn convert_vpc_selection_family_modes() {
         value_scenarios!(
@@ -635,8 +636,8 @@ mod tests {
         );
     }
 
-    /// The inbound RPC boundary rejects unspecified, unknown, missing, and
-    /// not-yet-supported family requests while accepting IPv4 automatic mode.
+    /// The inbound RPC boundary accepts every concrete family mode while
+    /// rejecting unspecified, unknown, and incomplete requests.
     #[test]
     fn validate_inbound_vpc_selection_modes() {
         let vpc_id = VpcId::new();
@@ -646,11 +647,11 @@ mod tests {
             "IPv4 only" {
                 (Some(vpc_id), forge::InstanceInterfaceIpFamilyMode::Ipv4Only as i32) => true,
             }
-            "IPv6 only is not yet supported" {
-                (Some(vpc_id), forge::InstanceInterfaceIpFamilyMode::Ipv6Only as i32) => false,
+            "IPv6 only" {
+                (Some(vpc_id), forge::InstanceInterfaceIpFamilyMode::Ipv6Only as i32) => true,
             }
-            "dual stack is not yet supported" {
-                (Some(vpc_id), forge::InstanceInterfaceIpFamilyMode::DualStack as i32) => false,
+            "dual stack" {
+                (Some(vpc_id), forge::InstanceInterfaceIpFamilyMode::DualStack as i32) => true,
             }
             "unspecified" {
                 (Some(vpc_id), forge::InstanceInterfaceIpFamilyMode::Unspecified as i32) => false,

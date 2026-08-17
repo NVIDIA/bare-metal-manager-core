@@ -28,25 +28,24 @@ use serde_json::json;
 
 use crate::{BootOptionKind, Callbacks, hw, redfish};
 
-#[allow(dead_code)]
-pub struct DgxGB300Nvl<'a> {
-    pub system_0_serial_number: Cow<'a, str>,
-    pub chassis_0_serial_number: Cow<'a, str>,
-    pub dpu: hw::bluefield3::Bluefield3<'a>,
-    pub embedded_1g_nic: hw::nic_intel_i210::NicIntelI210,
-    pub bmc_mac_address_eth0: MacAddress,
-    pub bmc_mac_address_eth1: MacAddress,
-    pub bmc_mac_address_usb0: MacAddress,
-    pub hgx_bmc_mac_address_usb0: MacAddress,
-    pub hgx_serial_number: Cow<'a, str>,
-    pub topology: hw::nvidia_gbx00::Topology,
-    pub cpu: [hw::nvidia_gb300::NvidiaGB300Cpu<'a>; 2],
-    pub gpu: [hw::nvidia_gb300::NvidiaGB300Gpu<'a>; 4],
-    pub io_board: [hw::nvidia_gb300::NvidiaGB300IoBoard<'a>; 2],
+pub(crate) struct DgxGB300Nvl<'a> {
+    pub(crate) system_0_serial_number: Cow<'a, str>,
+    pub(crate) chassis_0_serial_number: Cow<'a, str>,
+    pub(crate) dpu: hw::bluefield3::Bluefield3<'a>,
+    pub(crate) embedded_1g_nic: hw::nic_intel_i210::NicIntelI210,
+    pub(crate) bmc_mac_address_eth0: MacAddress,
+    pub(crate) bmc_mac_address_eth1: MacAddress,
+    pub(crate) bmc_mac_address_usb0: MacAddress,
+    pub(crate) hgx_bmc_mac_address_usb0: MacAddress,
+    pub(crate) hgx_serial_number: Cow<'a, str>,
+    pub(crate) topology: hw::nvidia_gbx00::Topology,
+    pub(crate) cpu: [hw::nvidia_gb300::NvidiaGB300Cpu<'a>; 2],
+    pub(crate) gpu: [hw::nvidia_gb300::NvidiaGB300Gpu<'a>; 4],
+    pub(crate) io_board: [hw::nvidia_gb300::NvidiaGB300IoBoard<'a>; 2],
 }
 
 impl DgxGB300Nvl<'_> {
-    pub fn manager_config(&self) -> redfish::manager::Config {
+    pub(crate) fn manager_config(&self) -> redfish::manager::Config {
         let bmc_manager_id = "BMC_0";
         let bmc_eth_builder = |eth| {
             redfish::ethernet_interface::builder(&redfish::ethernet_interface::manager_resource(
@@ -104,7 +103,10 @@ impl DgxGB300Nvl<'_> {
         }
     }
 
-    pub fn system_config(&self, callbacks: Arc<dyn Callbacks>) -> redfish::computer_system::Config {
+    pub(crate) fn system_config(
+        &self,
+        callbacks: Arc<dyn Callbacks>,
+    ) -> redfish::computer_system::Config {
         let system_id = "System_0";
         let boot_options = std::iter::once(
             redfish::boot_option::builder(
@@ -175,6 +177,7 @@ impl DgxGB300Nvl<'_> {
                     serial_number: Some(self.hgx_serial_number.to_string().into()),
                     storage: None,
                     processors: None,
+                    memory: None,
                 },
                 redfish::computer_system::SingleSystemConfig {
                     base_bios: Some(base_bios(system_id)),
@@ -195,12 +198,13 @@ impl DgxGB300Nvl<'_> {
                     serial_number: Some(self.system_0_serial_number.to_string().into()),
                     storage: None,
                     processors: None,
+                    memory: None,
                 },
             ],
         }
     }
 
-    pub fn chassis_config(&self) -> redfish::chassis::ChassisConfig {
+    pub(crate) fn chassis_config(&self) -> redfish::chassis::ChassisConfig {
         let dpu_chassis = |chassis_id: &'static str, bf3: &hw::bluefield3::Bluefield3<'_>| {
             let nic = bf3.host_nic();
             redfish::chassis::SingleChassisConfig {
@@ -266,9 +270,10 @@ impl DgxGB300Nvl<'_> {
         }
     }
 
-    pub fn update_service_config(&self) -> redfish::update_service::UpdateServiceConfig {
+    pub(crate) fn update_service_config(&self) -> redfish::update_service::UpdateServiceConfig {
         redfish::update_service::UpdateServiceConfig {
             firmware_inventory: vec![],
+            ..Default::default()
         }
     }
 }

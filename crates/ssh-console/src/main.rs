@@ -14,6 +14,8 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+#![cfg_attr(not(test), deny(dead_code_pub_in_binary))]
+
 use std::net::AddrParseError;
 use std::path::PathBuf;
 
@@ -23,7 +25,7 @@ use ssh_console::shutdown_handle::ShutdownHandle;
 use tracing::metadata::LevelFilter;
 
 #[tokio::main(flavor = "multi_thread")]
-pub async fn main() -> Result<(), Box<dyn std::error::Error>> {
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let cli = Cli::parse();
     setup_logging(&cli);
 

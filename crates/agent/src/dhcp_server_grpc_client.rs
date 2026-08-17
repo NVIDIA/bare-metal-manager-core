@@ -15,7 +15,12 @@
  * limitations under the License.
  */
 
-pub mod proto {
+mod proto {
+    #![allow(
+        unreachable_pub,
+        reason = "tonic_prost_build emits public items for this crate-internal protocol module"
+    )]
+
     tonic::include_proto!("dhcp_server_control");
 }
 
@@ -76,8 +81,8 @@ impl From<ModelInterfaceInfoV6> for proto::InterfaceInfoV6 {
 impl From<ModelInterfaceInfo> for proto::InterfaceInfo {
     fn from(i: ModelInterfaceInfo) -> Self {
         proto::InterfaceInfo {
-            address: i.address.to_string(),
-            gateway: i.gateway.to_string(),
+            address: i.address.map(|address| address.to_string()),
+            gateway: i.gateway.map(|gateway| gateway.to_string()),
             prefix: i.prefix,
             fqdn: i.fqdn,
             booturl: i.booturl,
@@ -109,7 +114,7 @@ impl From<ModelHostConfig> for proto::HostConfig {
 /// the host interface UUID and the timestamp of the last DHCP request seen for
 /// that interface.  Returns an empty `Vec` (with a warning) if the call fails,
 /// so the caller can degrade gracefully.
-pub async fn get_dhcp_timestamps(
+pub(super) async fn get_dhcp_timestamps(
     grpc_addr: &str,
 ) -> eyre::Result<Vec<::rpc::forge::LastDhcpRequest>> {
     let channel = tonic::transport::Endpoint::new(grpc_addr.to_string())
@@ -150,7 +155,7 @@ pub async fn get_dhcp_timestamps(
 ///
 /// The gRPC control server remains running after this call so that a future
 /// [`update_and_reload`] call can restart the DHCP process.
-pub async fn stop_server(grpc_addr: &str) -> eyre::Result<()> {
+pub(super) async fn stop_server(grpc_addr: &str) -> eyre::Result<()> {
     let channel = tonic::transport::Endpoint::new(grpc_addr.to_string())
         .map_err(|e| eyre::eyre!("invalid dhcp-server gRPC endpoint {grpc_addr}: {e}"))?
         .connect()
@@ -172,7 +177,7 @@ pub async fn stop_server(grpc_addr: &str) -> eyre::Result<()> {
 /// The server only restarts the DHCP process if the incoming config differs
 /// from what is already active, so this function is safe to call on every
 /// agent tick.
-pub async fn update_and_reload(
+pub(super) async fn update_and_reload(
     grpc_addr: &str,
     dhcp_config: ModelDhcpConfig,
     host_config: Option<ModelHostConfig>,

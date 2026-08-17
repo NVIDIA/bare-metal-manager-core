@@ -72,7 +72,8 @@ Change the per-host DPU policy:
     $ nico-admin-cli expected-machine patch --bmc-mac-address 00:11:22:33:44:55 \
     --dpu-policy ignore
 
-Retain the BMC's auto-allocated DHCP address as a static one (never expires):
+Retain the BMC's auto-allocated DHCP address as static for the lifetime of its
+machine-interface record:
     $ nico-admin-cli expected-machine patch --bmc-mac-address 00:11:22:33:44:55 \
     --bmc-ip-allocation retained
 
@@ -86,13 +87,13 @@ Reset that role to Host and infer Fixed allocation from fixed_ip:
     --interfaces '[{\"mac_address\":\"02:00:00:00:20:01\",\"role\":\"unspecified\",\"ip_allocation\":\"unspecified\",\"fixed_ip\":\"192.0.2.10\"}]'
 
 ")]
-pub struct Args {
+pub(crate) struct Args {
     #[clap(short = 'a', long, help = "BMC MAC Address of the expected machine")]
-    pub bmc_mac_address: Option<MacAddress>,
+    pub(super) bmc_mac_address: Option<MacAddress>,
 
     #[clap(long = "id", help = "ID (UUID) of the expected machine to patch.")]
     #[serde(skip)]
-    pub id: Option<Uuid>,
+    pub(super) id: Option<Uuid>,
     #[clap(
         short = 'u',
         long,
@@ -100,7 +101,7 @@ pub struct Args {
         requires("bmc_password"),
         help = "BMC username of the expected machine"
     )]
-    pub bmc_username: Option<String>,
+    pub(super) bmc_username: Option<String>,
     #[clap(
         short = 'p',
         long,
@@ -108,14 +109,14 @@ pub struct Args {
         requires("bmc_username"),
         help = "BMC password of the expected machine"
     )]
-    pub bmc_password: Option<String>,
+    pub(super) bmc_password: Option<String>,
     #[clap(
         short = 's',
         long,
         group = "group",
         help = "Chassis serial number of the expected machine"
     )]
-    pub chassis_serial_number: Option<String>,
+    pub(super) chassis_serial_number: Option<String>,
     #[clap(
         short = 'd',
         long = "fallback-dpu-serial-number",
@@ -124,21 +125,21 @@ pub struct Args {
         help = "Serial number of the DPU attached to the expected machine. This option should be used only as a last resort for ingesting those servers whose BMC/Redfish do not report serial number of network devices. This option can be repeated.",
         action = clap::ArgAction::Append
     )]
-    pub fallback_dpu_serial_numbers: Option<Vec<String>>,
+    pub(super) fallback_dpu_serial_numbers: Option<Vec<String>>,
 
     #[clap(
         long = "meta-name",
         value_name = "META_NAME",
         help = "The name that should be used as part of the Metadata for newly created Machines. If empty, the MachineId will be used"
     )]
-    pub meta_name: Option<String>,
+    pub(super) meta_name: Option<String>,
 
     #[clap(
         long = "meta-description",
         value_name = "META_DESCRIPTION",
         help = "The description that should be used as part of the Metadata for newly created Machines"
     )]
-    pub meta_description: Option<String>,
+    pub(super) meta_description: Option<String>,
 
     #[clap(
         long = "label",
@@ -146,7 +147,7 @@ pub struct Args {
         help = "A label that will be added as metadata for the newly created Machine. The labels key and value must be separated by a : character",
         action = clap::ArgAction::Append
     )]
-    pub labels: Option<Vec<String>>,
+    pub(super) labels: Option<Vec<String>>,
 
     #[clap(
         long,
@@ -154,7 +155,7 @@ pub struct Args {
         group = "group",
         help = "A SKU ID that will be added for the newly created Machine."
     )]
-    pub sku_id: Option<String>,
+    pub(super) sku_id: Option<String>,
 
     #[clap(
         long,
@@ -162,22 +163,22 @@ pub struct Args {
         group = "group",
         help = "A RACK ID that will be added for the newly created Machine."
     )]
-    pub rack_id: Option<RackId>,
+    pub(super) rack_id: Option<RackId>,
 
     #[clap(
         long = "default_pause_ingestion_and_poweron",
         value_name = "DEFAULT_PAUSE_INGESTION_AND_POWERON",
-        help = "Optional flag to pause machine's ingestion and power on. False - don't pause, true - will pause it. The actual mutable state is stored in explored_endpoints."
+        help = "Initial pause state applied when the BMC endpoint for this machine is first explored. `true` pauses ingestion and automatic power-on; `false` pauses neither. Omit to preserve the existing Expected Machine value. Changes do not affect an endpoint that has already been explored."
     )]
-    pub default_pause_ingestion_and_poweron: Option<bool>,
+    pub(super) default_pause_ingestion_and_poweron: Option<bool>,
 
     #[clap(
         long,
         action = clap::ArgAction::Set,
         value_name = "DPF_ENABLED",
-        help = "DPF enable/disable for this machine. Default is updated as true.",
+        help = "Whether DPF is enabled for this machine. Omit to preserve the existing value.",
     )]
-    pub dpf_enabled: Option<bool>,
+    pub(super) dpf_enabled: Option<bool>,
 
     #[clap(
         long = "bmc-ip-address",
@@ -185,14 +186,14 @@ pub struct Args {
         group = "group",
         help = "Static BMC IP (updates pre-allocated machine_interface when safe, same as expected switches)"
     )]
-    pub bmc_ip_address: Option<String>,
+    pub(super) bmc_ip_address: Option<String>,
 
     #[clap(
         long = "bmc-retain-credentials",
         value_name = "BMC_RETAIN_CREDENTIALS",
         help = "When true, site-explorer skips BMC password rotation and stores factory-default credentials in Vault as-is"
     )]
-    pub bmc_retain_credentials: Option<bool>,
+    pub(super) bmc_retain_credentials: Option<bool>,
 
     #[clap(
         long = "dpu-policy",
@@ -202,36 +203,36 @@ pub struct Args {
         group = "group",
         help = "Per-host DPU policy. `manage`: inherit the site policy, which defaults to managing DPUs; `nic`: configure DPU hardware as plain NICs; `ignore`: do not configure or attach DPU hardware. Unset preserves the existing per-host value. The previous `use-as-nic` value remains accepted as an alias. The legacy `--dpu-mode` flag also remains accepted: `dpu-mode` maps to `manage`, `nic-mode` to `nic`, and `no-dpu` to `ignore`."
     )]
-    pub dpu_policy: Option<HostDpuPolicy>,
+    pub(super) dpu_policy: Option<HostDpuPolicy>,
 
     #[clap(
         long = "bmc-ip-allocation",
         value_name = "BMC_IP_ALLOCATION",
         value_enum,
         group = "group",
-        help = "Per-host control over how this BMC's IP is assigned and retained. `auto` (default): infer from `--bmc-ip-address` -- a configured address is `fixed`, no address is `retained`; `dynamic`: a normal DHCP lease that may expire and change; `fixed`: the operator-specified `--bmc-ip-address` (static); `retained`: an auto-allocated address pinned as static (never expires). Unset preserves the existing per-host value."
+        help = "Per-host control over IP assignment and retention for this BMC. `auto` (default): infer from `--bmc-ip-address` -- a configured address is `fixed`, no address is `retained`; `dynamic`: a normal DHCP lease that may expire and change; `fixed`: the operator-specified `--bmc-ip-address` (static); `retained`: an auto-allocated DHCP address that stays static for the lifetime of its machine-interface record. Unset preserves the existing per-host value."
     )]
-    pub bmc_ip_allocation: Option<BmcIpAllocationType>,
+    pub(super) bmc_ip_allocation: Option<BmcIpAllocationType>,
 
     #[clap(
         long = "interfaces",
         visible_alias = "host_nics",
         value_name = "INTERFACES",
         group = "group",
-        help = "Interfaces as a JSON array of ExpectedInterface objects (fields: mac_address, role, ip_allocation, network_segment_type, fixed_ip, fixed_mask, fixed_gateway, primary; legacy: nic_type). Accepted values: role=host|dpu_os|dpu_bmc|host_bmc|unspecified and ip_allocation=dynamic|fixed|retained|unspecified. Replaces the machine's full interface list. For a matching stored MAC, omitting role preserves the stored role; role=unspecified resets it to host. Omitting ip_allocation preserves the stored policy when the presence of fixed_ip is unchanged; ip_allocation=unspecified resets it to fixed_ip inference."
+        help = "Interfaces as a JSON array of ExpectedInterface objects (fields: mac_address, role, ip_allocation, network_segment_type, fixed_ip, fixed_mask, fixed_gateway, primary; legacy: nic_type). Accepted values: role=host|dpu_os|dpu_bmc|host_bmc|unspecified and ip_allocation=dynamic|fixed|retained|unspecified. network_segment_type uses protobuf enum numbers: tenant=0, admin=1, underlay=2, host_inband=3. Replaces the full interface list for the machine. For a matching stored MAC, omitting role preserves the stored role; role=unspecified resets it to host. Omitting ip_allocation preserves the stored policy when the presence of fixed_ip is unchanged; ip_allocation=unspecified resets it to fixed_ip inference. Omitting any other optional interface field, including network_segment_type, clears its stored value."
     )]
-    pub interfaces: Option<String>,
+    pub(super) interfaces: Option<String>,
 
     #[clap(
         long = "disable-lockdown",
         value_name = "DISABLE_LOCKDOWN",
         help = "If true, do not lock down the server as part of lifecycle management within the state machine. If unset or false, preserve the default behavior of locking down the server after configuring the BIOS."
     )]
-    pub disable_lockdown: Option<bool>,
+    pub(super) disable_lockdown: Option<bool>,
 }
 
 impl Args {
-    pub fn validate(&self) -> Result<(), CarbideCliError> {
+    pub(super) fn validate(&self) -> Result<(), CarbideCliError> {
         match (&self.bmc_mac_address, &self.id) {
             (Some(_), Some(_)) => {
                 return Err(CarbideCliError::ChooseOneError("--bmc-mac-address", "--id"));
@@ -269,5 +270,10 @@ impl Args {
             ));
         }
         Ok(())
+    }
+
+    #[cfg(test)]
+    pub(in crate::expected_machines) fn validate_for_test(&self) -> Result<(), CarbideCliError> {
+        self.validate()
     }
 }

@@ -17,11 +17,11 @@
 
 use ::rpc::forge_tls_client::{self, ApiConfig, ForgeClientConfig};
 use forge_tls::client_config::ClientCert;
-pub use scout::{CarbideClientError, CarbideClientResult};
+use scout::{CarbideClientError, CarbideClientResult};
 
 use crate::Options;
 
-pub(crate) async fn create_forge_client(
+pub(super) async fn create_forge_client(
     config: &Options,
 ) -> CarbideClientResult<forge_tls_client::ForgeClientT> {
     let client_config = ForgeClientConfig::new(
@@ -30,7 +30,10 @@ pub(crate) async fn create_forge_client(
             cert_path: config.client_cert.clone(),
             key_path: config.client_key.clone(),
         }),
-    );
+    )
+    // Node-auth (#355): also present a self-signed bearer JWT minted from the
+    // client cert's key. Ignored by the API unless [node_auth] is enabled.
+    .with_node_jwt();
     let api_config = ApiConfig::new(&config.api, &client_config);
 
     let client = forge_tls_client::ForgeTlsClient::retry_build(&api_config)

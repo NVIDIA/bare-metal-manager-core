@@ -3,6 +3,7 @@
 
 use std::collections::HashMap;
 use std::sync::Arc;
+use std::time::Duration;
 
 use carbide_rack::firmware_object::rack_maintenance_access_token_key;
 use carbide_redfish::libredfish::RedfishClientPool;
@@ -12,10 +13,9 @@ use carbide_uuid::rack::RackId;
 use carbide_uuid::switch::SwitchId;
 use db::{ObjectColumnFilter, WithTransaction};
 use librms::RmsApi;
-use librms::protos::{rack_manager as rms, rack_manager_v2 as rms_v2};
 use model::machine::MachineMaintenanceOperation;
 use model::rack::{MaintenanceActivity, MaintenanceScope, RackState};
-use model::rack_type::RackProfileConfig;
+use model::rack_type::{RackHardwareTopology, RackProfileConfig};
 use model::switch::SwitchMaintenanceOperation;
 use sqlx::PgPool;
 
@@ -24,7 +24,9 @@ use crate::config::ComponentManagerConfig;
 use crate::error::ComponentManagerError;
 use crate::nv_switch_manager::{
     Backend as NvSwitchBackend, ConfigureSwitchCertificateJobStatus, NvSwitchManager,
-    SwitchEndpoint, SwitchPasswordRotationState,
+    ScaleUpFabricManagerJobStatus, ScaleUpFabricServiceStatuses, ScaleUpFabricStatus,
+    SwitchEndpoint, SwitchFactoryResetJobStatus, SwitchFactoryResetState,
+    SwitchPasswordRotationState,
 };
 use crate::power_shelf_manager::{Backend as PowerShelfBackend, PowerShelfManager};
 use crate::rms::{RmsSwitchSystemImageStatusApi, validate_rms_backend_rack_profiles};
@@ -466,41 +468,141 @@ impl ComponentManager {
             .await
     }
 
-    /// Routes ScaleUp Fabric Manager V2 configuration through the switch backend.
-    pub async fn configure_scale_up_fabric_manager_v2(
+    /// Submits a destructive, asynchronous switch factory-default reset through the
+    /// selected backend.
+    ///
+    /// This method returns as soon as the backend accepts the batch. It does not wait
+    /// for reboot or default-login recovery. Pass the returned opaque job ID to
+    /// [`Self::wait_for_switch_factory_reset_job`] to wait for the terminal result. An
+    /// ambiguous submission error does not prove that resubmission is safe.
+    pub async fn batch_reset_switch_factory_default(
         &self,
-        request: rms_v2::ConfigureScaleUpFabricManagerRequest,
-    ) -> Result<rms_v2::ConfigureScaleUpFabricManagerResponse, ComponentManagerError> {
+        endpoints: &[SwitchEndpoint],
+        tls_server_domain: Option<&str>,
+    ) -> Result<String, ComponentManagerError> {
         self.nv_switch
-            .configure_scale_up_fabric_manager_v2(request)
+            .batch_reset_switch_factory_default(endpoints, tls_server_domain)
             .await
     }
 
-    /// Routes V2 configuration job observation through the switch backend.
+    /// Waits for a submitted switch factory-reset operation and every target switch to
+    /// reach a terminal state. The first observation starts immediately.
+    ///
+    /// `poll_interval` and `timeout` must be nonzero. The timeout is an absolute budget
+    /// that includes status calls and sleeps. Transient backend failures and unknown
+    /// observations are retried within that budget. Completed and failed operations
+    /// both return `Ok` with their terminal backend-neutral status; callers must inspect
+    /// [`SwitchFactoryResetJobStatus::state`]. Other observation errors return
+    /// immediately. A timeout or cancelled wait does not cancel the backend job, which
+    /// may still be running and must not be resubmitted automatically.
+    pub async fn wait_for_switch_factory_reset_job(
+        &self,
+        job_id: &str,
+        poll_interval: Duration,
+        timeout: Duration,
+    ) -> Result<SwitchFactoryResetJobStatus, ComponentManagerError> {
+        if job_id.trim().is_empty() {
+            return Err(ComponentManagerError::InvalidArgument(
+                "switch factory-reset job ID must be non-empty".to_string(),
+            ));
+        }
+
+        if poll_interval.is_zero() {
+            return Err(ComponentManagerError::InvalidArgument(
+                "switch factory-reset poll interval must be nonzero".to_string(),
+            ));
+        }
+
+        if timeout.is_zero() {
+            return Err(ComponentManagerError::InvalidArgument(
+                "switch factory-reset timeout must be nonzero".to_string(),
+            ));
+        }
+
+        let poll = async {
+            loop {
+                match self
+                    .nv_switch
+                    .get_switch_factory_reset_job_status(job_id)
+                    .await
+                {
+                    Ok(status)
+                        if matches!(
+                            status.state,
+                            SwitchFactoryResetState::Completed | SwitchFactoryResetState::Failed
+                        ) =>
+                    {
+                        return Ok(status);
+                    }
+                    Ok(_) => {}
+                    Err(ComponentManagerError::Unavailable(error)) => {
+                        tracing::debug!(
+                            job_id,
+                            error = %error,
+                            "Transient switch factory-reset job polling failure; retrying"
+                        );
+                    }
+                    Err(ComponentManagerError::OperationOutcomeUnknown(error)) => {
+                        tracing::debug!(
+                            job_id,
+                            error = %error,
+                            "Switch factory-reset job outcome is not observable yet; retrying"
+                        );
+                    }
+                    Err(error) => return Err(error),
+                }
+
+                tokio::time::sleep(poll_interval).await;
+            }
+        };
+
+        tokio::time::timeout(timeout, poll).await.map_err(|_| {
+            ComponentManagerError::OperationOutcomeUnknown(format!(
+                "timed out waiting for switch factory-reset job {job_id}; the reset may still be running"
+            ))
+        })?
+    }
+
+    /// Submits ScaleUp Fabric Manager configuration through the switch backend
+    /// and returns its non-empty, opaque job ID. A submission without a durable
+    /// job ID returns [`ComponentManagerError::OperationOutcomeUnknown`].
+    pub async fn configure_scale_up_fabric_manager(
+        &self,
+        endpoints: &[SwitchEndpoint],
+        topology: RackHardwareTopology,
+    ) -> Result<String, ComponentManagerError> {
+        self.nv_switch
+            .configure_scale_up_fabric_manager(endpoints, topology)
+            .await
+    }
+
+    /// Returns the latest configuration job observation from the switch backend.
+    ///
+    /// Returns `None` when the backend cannot find the requested job.
     pub async fn get_scale_up_fabric_manager_job_status(
         &self,
-        request: rms::GetJobStatusRequest,
-    ) -> Result<rms::GetJobStatusResponse, ComponentManagerError> {
+        job_id: &str,
+    ) -> Result<Option<ScaleUpFabricManagerJobStatus>, ComponentManagerError> {
         self.nv_switch
-            .get_scale_up_fabric_manager_job_status(request)
+            .get_scale_up_fabric_manager_job_status(job_id)
             .await
     }
 
     /// Routes observed ScaleUp Fabric status reads through the switch backend.
     pub async fn get_scale_up_fabric_status(
         &self,
-        request: rms::GetScaleUpFabricStatusRequest,
-    ) -> Result<rms::GetScaleUpFabricStatusResponse, ComponentManagerError> {
-        self.nv_switch.get_scale_up_fabric_status(request).await
+        endpoints: &[SwitchEndpoint],
+    ) -> Result<ScaleUpFabricStatus, ComponentManagerError> {
+        self.nv_switch.get_scale_up_fabric_status(endpoints).await
     }
 
     /// Routes per-switch Fabric Manager status reads through the switch backend.
     pub async fn batch_get_scale_up_fabric_service_status(
         &self,
-        request: rms::BatchGetScaleUpFabricServiceStatusRequest,
-    ) -> Result<rms::BatchGetScaleUpFabricServiceStatusResponse, ComponentManagerError> {
+        endpoints: &[SwitchEndpoint],
+    ) -> Result<ScaleUpFabricServiceStatuses, ComponentManagerError> {
         self.nv_switch
-            .batch_get_scale_up_fabric_service_status(request)
+            .batch_get_scale_up_fabric_service_status(endpoints)
             .await
     }
 
@@ -695,6 +797,7 @@ mod tests {
 
     use super::*;
     use crate::config::ComponentManagerConfig;
+    use crate::mock::{MockComputeTrayManager, MockNvSwitchManager, MockPowerShelfManager};
 
     struct FailingCredentialManager;
 
@@ -741,6 +844,203 @@ mod tests {
     }
 
     impl CredentialManager for FailingCredentialManager {}
+
+    fn component_manager_with_mock_switch(mock: &MockNvSwitchManager) -> ComponentManager {
+        ComponentManager::new(
+            Arc::new(mock.clone()),
+            Arc::new(MockPowerShelfManager),
+            Arc::new(MockComputeTrayManager),
+            false,
+            false,
+            false,
+        )
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn wait_for_switch_factory_reset_polls_until_completed() {
+        let job_id = "factory-reset-job-1";
+
+        let mock = MockNvSwitchManager::default().with_factory_reset_job_status_responses([
+            Ok(SwitchFactoryResetJobStatus {
+                state: SwitchFactoryResetState::Pending,
+                error: None,
+            }),
+            Ok(SwitchFactoryResetJobStatus {
+                state: SwitchFactoryResetState::Completed,
+                error: None,
+            }),
+        ]);
+
+        let manager = component_manager_with_mock_switch(&mock);
+
+        let response = manager
+            .wait_for_switch_factory_reset_job(
+                job_id,
+                Duration::from_secs(1),
+                Duration::from_secs(10),
+            )
+            .await
+            .expect("factory-reset jobs should complete");
+
+        assert_eq!(response.state, SwitchFactoryResetState::Completed);
+
+        assert_eq!(
+            mock.factory_reset_job_status_calls(),
+            vec![job_id.to_string(), job_id.to_string()]
+        );
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn wait_for_switch_factory_reset_reports_child_failure() {
+        let job_id = "factory-reset-job-1";
+
+        let mock = MockNvSwitchManager::default().with_factory_reset_job_status_responses([Ok(
+            SwitchFactoryResetJobStatus {
+                state: SwitchFactoryResetState::Failed,
+                error: Some(
+                    "switch factory-reset job factory-reset-child-1 for node switch-1 failed: default login never became reachable"
+                        .to_string(),
+                ),
+            },
+        )]);
+
+        let manager = component_manager_with_mock_switch(&mock);
+
+        let status = manager
+            .wait_for_switch_factory_reset_job(
+                job_id,
+                Duration::from_secs(1),
+                Duration::from_secs(10),
+            )
+            .await
+            .expect("a failed factory-reset job should return its terminal status");
+
+        assert_eq!(status.state, SwitchFactoryResetState::Failed);
+
+        assert!(status.error.as_deref().is_some_and(|message| {
+            message.contains("factory-reset-child-1")
+                && message.contains("switch-1")
+                && message.contains("default login never became reachable")
+        }));
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn wait_for_switch_factory_reset_retries_transient_observation_failure() {
+        let job_id = "factory-reset-job-1";
+
+        let mock = MockNvSwitchManager::default().with_factory_reset_job_status_responses([
+            Err(ComponentManagerError::Unavailable(
+                "switch backend temporarily unavailable".to_string(),
+            )),
+            Ok(SwitchFactoryResetJobStatus {
+                state: SwitchFactoryResetState::Completed,
+                error: None,
+            }),
+        ]);
+
+        let manager = component_manager_with_mock_switch(&mock);
+
+        manager
+            .wait_for_switch_factory_reset_job(
+                job_id,
+                Duration::from_secs(1),
+                Duration::from_secs(10),
+            )
+            .await
+            .expect("transient polling errors should be retried");
+
+        assert_eq!(mock.factory_reset_job_status_calls().len(), 2);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn wait_for_switch_factory_reset_retries_unknown_observation() {
+        let job_id = "factory-reset-job-1";
+
+        let mock = MockNvSwitchManager::default().with_factory_reset_job_status_responses([
+            Err(ComponentManagerError::OperationOutcomeUnknown(
+                "the parent job is not observable yet".to_string(),
+            )),
+            Ok(SwitchFactoryResetJobStatus {
+                state: SwitchFactoryResetState::Completed,
+                error: None,
+            }),
+        ]);
+
+        let manager = component_manager_with_mock_switch(&mock);
+
+        manager
+            .wait_for_switch_factory_reset_job(
+                job_id,
+                Duration::from_secs(1),
+                Duration::from_secs(10),
+            )
+            .await
+            .expect("an unknown observation should be retried while the job ID is durable");
+
+        assert_eq!(mock.factory_reset_job_status_calls().len(), 2);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn wait_for_switch_factory_reset_timeout_preserves_unknown_outcome() {
+        let job_id = "factory-reset-job-1";
+
+        let mock = MockNvSwitchManager::default().with_factory_reset_job_status_responses([Ok(
+            SwitchFactoryResetJobStatus {
+                state: SwitchFactoryResetState::Pending,
+                error: None,
+            },
+        )]);
+
+        let manager = component_manager_with_mock_switch(&mock);
+
+        let error = manager
+            .wait_for_switch_factory_reset_job(
+                job_id,
+                Duration::from_secs(5),
+                Duration::from_secs(1),
+            )
+            .await
+            .unwrap_err();
+
+        assert!(matches!(
+            error,
+            ComponentManagerError::OperationOutcomeUnknown(message)
+                if message.contains("may still be running")
+        ));
+
+        assert_eq!(mock.factory_reset_job_status_calls().len(), 1);
+    }
+
+    #[tokio::test]
+    async fn wait_for_switch_factory_reset_validates_inputs_before_polling() {
+        let mock = MockNvSwitchManager::default();
+        let manager = component_manager_with_mock_switch(&mock);
+
+        let cases = [
+            ("", Duration::from_secs(1), Duration::from_secs(1)),
+            (
+                "factory-reset-job-1",
+                Duration::ZERO,
+                Duration::from_secs(1),
+            ),
+            (
+                "factory-reset-job-1",
+                Duration::from_secs(1),
+                Duration::ZERO,
+            ),
+        ];
+
+        for (job_id, poll_interval, timeout) in cases {
+            assert!(matches!(
+                manager
+                    .wait_for_switch_factory_reset_job(job_id, poll_interval, timeout)
+                    .await,
+                Err(ComponentManagerError::InvalidArgument(_))
+            ));
+        }
+
+        assert!(mock.factory_reset_job_status_calls().is_empty());
+    }
 
     async fn create_rack_in_state(pool: &PgPool, state: RackState) -> RackId {
         let rack_id = RackId::new(uuid::Uuid::new_v4().to_string());

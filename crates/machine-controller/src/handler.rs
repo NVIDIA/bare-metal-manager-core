@@ -26,6 +26,7 @@ use std::sync::{Arc, Mutex};
 use attestation::{
     handle_spdm_attestation_failed_recovery, handle_spdm_poll_state, handle_spdm_trigger_state,
 };
+use carbide_credential_rotation::site_explorer_pause::{self, GateDecision};
 use carbide_credential_rotation::{RotationStep, advance};
 use carbide_firmware::{FirmwareConfig, FirmwareConfigSnapshot, FirmwareDownloader};
 use carbide_redfish::boot_interface::BootInterfaceTarget;
@@ -74,17 +75,17 @@ use model::machine::nvlink::nvlink_config_synced;
 use model::machine::{
     AttestationMode, BomValidating, BomValidatingContext, CleanupContext, CleanupState,
     CreateBossVolumeContext, CreateBossVolumeState, DpuDiscoveringState, DpuInitNextStateResolver,
-    DpuInitState, FailureCause, FailureDetails, FailureSource, HostPlatformConfigurationState,
-    HostReprovisionState, InitialResetPhase, InstallDpuOsState, InstanceNextStateResolver,
-    InstanceState, LockdownInfo, LockdownState, MAX_FIRMWARE_UPGRADE_RETRIES, Machine,
-    MachineLastRebootRequested, MachineLastRebootRequestedMode, MachineNextStateResolver,
-    MachineState, MachineValidationContext, ManagedHostState, ManagedHostStateSnapshot,
-    MeasuringState, NetworkConfigUpdateState, NextStateBFBSupport, PerformPowerOperation,
-    PowerDrainState, PowerState, ReadyBootConfigState, ReadyBootConfigTerminalFailure,
-    ReprovisionState, RetryInfo, SecureEraseBossContext, SecureEraseBossState, SetBootOrderInfo,
-    SetBootOrderState, SetSecureBootState, SpdmMeasuringState, StateMachineArea, UefiSetupInfo,
-    UefiSetupState, UnlockHostState, ValidationState, dpf_based_dpu_provisioning_possible,
-    get_display_ids,
+    DpuInitState, FactoryResetBmcState, FailureCause, FailureDetails, FailureSource,
+    HostPlatformConfigurationState, HostReprovisionState, InitialResetPhase, InstallDpuOsState,
+    InstanceNextStateResolver, InstanceState, LockdownInfo, LockdownState,
+    MAX_FIRMWARE_UPGRADE_RETRIES, Machine, MachineLastRebootRequested,
+    MachineLastRebootRequestedMode, MachineNextStateResolver, MachineState,
+    MachineValidationContext, ManagedHostState, ManagedHostStateSnapshot, MeasuringState,
+    NetworkConfigUpdateState, NextStateBFBSupport, PerformPowerOperation, PowerDrainState,
+    PowerState, ReadyBootConfigState, ReadyBootConfigTerminalFailure, ReprovisionState, RetryInfo,
+    SecureEraseBossContext, SecureEraseBossState, SetBootOrderInfo, SetBootOrderState,
+    SetSecureBootState, SpdmMeasuringState, StateMachineArea, UefiSetupInfo, UefiSetupState,
+    UnlockHostState, ValidationState, dpf_based_dpu_provisioning_possible, get_display_ids,
 };
 use model::machine_boot_interface::MachineBootInterfaceTarget;
 use model::power_manager::PowerHandlingOutcome;
@@ -119,10 +120,15 @@ use crate::{MeasuringOutcome, get_measuring_prerequisites, handle_measuring_stat
 
 pub mod attestation;
 mod bios_config;
+mod boot_interface_observation;
 mod dpf;
+mod dpu_action_handler;
+mod dpu_uefi_rotation;
+mod factory_reset;
 mod firmware_artifact;
 mod helpers;
 mod host_boot_config;
+mod host_uefi_rotation;
 mod machine_validation;
 mod maintenance;
 mod power;
@@ -1085,7 +1091,50 @@ impl MachineStateHandler {
                     ));
                 }
 
-                Ok(StateHandlerOutcome::do_nothing())
+                // Same lowest-precedence idle-only rule as BMC rotation: converge
+                // the host UEFI password only from an otherwise-idle Ready host.
+                // The reboot the apply requires is acceptable for a pool host and
+                // is gated by the site flag / force-converge override in
+                // `host_uefi_rotation::should_enter_host_uefi_rotation`.
+                if host_uefi_rotation::should_enter_host_uefi_rotation(ctx.services, mh_snapshot)
+                    .await?
+                {
+                    return Ok(StateHandlerOutcome::transition(
+                        ManagedHostState::RotatingHostUefi {
+                            uefi_setup_info: UefiSetupInfo {
+                                uefi_password_jid: None,
+                                uefi_setup_state: UefiSetupState::UnlockHost,
+                            },
+                        },
+                    ));
+                }
+
+                // Same lowest-precedence idle-only rule again, for each DPU's
+                // UEFI password. A DPU change stages a Bios/Settings write and
+                // commits it with a DPU restart, so it gets its own state keyed
+                // to one DPU; the guard selects the next lagging or
+                // force-requested DPU and the next sweep re-selects any others.
+                if let Some(dpu_machine_id) =
+                    dpu_uefi_rotation::select_dpu_for_uefi_rotation(ctx.services, mh_snapshot)
+                        .await?
+                {
+                    return Ok(StateHandlerOutcome::transition(
+                        ManagedHostState::RotatingDpuUefi { dpu_machine_id },
+                    ));
+                }
+
+                // Releasing a DPF maintenance hold restarts DPU services, so it
+                // belongs with the idle-only work above rather than ahead of it.
+                dpu_action_handler::handle_pending_dpu_actions(
+                    self.dpu_handler.dpf_sdk.as_deref(),
+                    ctx,
+                    mh_snapshot,
+                )
+                .await?;
+
+                // Periodic BMC observation is deliberately Ready's final work,
+                // so it cannot preempt lifecycle or operator-requested actions.
+                boot_interface_observation::observe_verified_boot_interface(ctx, mh_snapshot).await
             }
 
             ManagedHostState::BootConfiguring {
@@ -1109,11 +1158,48 @@ impl MachineStateHandler {
             }
 
             ManagedHostState::RotatingBmc { retry_count } => {
+                // Hold site-explorer off every BMC of this managed host and wait
+                // until it has acknowledged, before changing any credential. This
+                // closes the window in which a probe could hit new-hardware /
+                // old-Vault and persist the sticky `AvoidLockout` latch.
+                let bmc_macs: Vec<_> = rotation::managed_host_bmc_endpoints(mh_snapshot)
+                    .map(|e| e.device_mac)
+                    .collect();
+                if matches!(
+                    site_explorer_pause::gate_before_credential_change(
+                        &ctx.services.db_pool,
+                        &bmc_macs,
+                        site_explorer_pause::ROTATION_SUPPRESSION_REASON,
+                    )
+                    .await?,
+                    GateDecision::Wait
+                ) {
+                    return Ok(StateHandlerOutcome::wait(
+                        "waiting for site-explorer to acknowledge the BMC rotation suppression"
+                            .to_string(),
+                    ));
+                }
+
                 // One tick converges every BMC that needs work: force-requested
                 // devices (bypassing backoff) and, when site-wide rotation is
                 // enabled, any lagging host or DPU BMC -- handled together.
                 let tick = rotation::rotate_managed_host_bmcs(ctx.services, mh_snapshot).await;
                 match advance(tick, *retry_count, host_machine_id) {
+                    // A BMC changed its hardware password but the per-device
+                    // secret persist has not yet succeeded: hold in RotatingBmc
+                    // (site-explorer stays suppressed, and the `Ready`-only
+                    // allocation gate keeps the host non-allocatable) and re-tick.
+                    // Do NOT resume site-explorer and do NOT clear a force
+                    // request -- the rotation has not finished. The engine leaves
+                    // the device `needs_rotation`, so a later tick's
+                    // change-then-verify recovery re-persists and converges; the
+                    // hold's upper bound is the state's time-in-state SLA.
+                    RotationStep::WaitForCredentialStoreReconcile => Ok(StateHandlerOutcome::wait(
+                        "BMC hardware changed but the per-device secret persist has not yet \
+                         succeeded; holding rotation (site-explorer suppressed, host \
+                         non-allocatable) until the credential store reconciles"
+                            .to_string(),
+                    )),
                     step @ (RotationStep::Settled | RotationStep::GaveUp) => {
                         // Both terminal steps return to Ready. Only a settled tick
                         // clears a one-shot force request: the forced attempt
@@ -1124,18 +1210,35 @@ impl MachineStateHandler {
                         // attempt cleanly running, so we leave the flag set and let
                         // the entry guard re-attempt on a later sweep rather than
                         // silently drop the operator's request.
-                        let mut txn = None;
+                        // Resume site-explorer atomically with the return to Ready,
+                        // so its skip window ends exactly when the rotation does; a
+                        // settled tick also clears the one-shot force flag in the same
+                        // transaction.
+                        let mut txn = ctx.services.db_pool.begin().await?;
                         if matches!(step, RotationStep::Settled) {
-                            txn = rotation::clear_forced_bmc_requests(ctx.services, mh_snapshot)
-                                .await?;
+                            rotation::clear_forced_bmc_requests(&mut txn, mh_snapshot).await?;
                         }
-                        Ok(StateHandlerOutcome::transition(ManagedHostState::Ready)
-                            .with_txn_opt(txn))
+                        site_explorer_pause::resume_after_credential_change(
+                            &mut txn,
+                            &bmc_macs,
+                            site_explorer_pause::ROTATION_SUPPRESSION_REASON,
+                        )
+                        .await?;
+                        Ok(StateHandlerOutcome::transition(ManagedHostState::Ready).with_txn(txn))
                     }
                     RotationStep::Retry { retry_count } => Ok(StateHandlerOutcome::transition(
                         ManagedHostState::RotatingBmc { retry_count },
                     )),
                 }
+            }
+
+            ManagedHostState::RotatingHostUefi { uefi_setup_info } => {
+                host_uefi_rotation::handle_rotating_host_uefi(ctx, mh_snapshot, uefi_setup_info)
+                    .await
+            }
+
+            ManagedHostState::RotatingDpuUefi { dpu_machine_id } => {
+                dpu_uefi_rotation::handle_rotating_dpu_uefi(ctx, mh_snapshot, *dpu_machine_id).await
             }
 
             ManagedHostState::Assigned { instance_state: _ } => {
@@ -1162,12 +1265,18 @@ impl MachineStateHandler {
                                 .await
                                 .map_err(|e| redfish_error("get_boss_controller", e))?
                         {
+                            let secure_erase_boss_state = match cleanup_context {
+                                CleanupContext::Deprovision => SecureEraseBossState::UnlockHost,
+                                CleanupContext::InitialDiscovery => {
+                                    SecureEraseBossState::SecureEraseBoss
+                                }
+                            };
                             let next_state = waiting_for_cleanup_state(
                                 CleanupState::SecureEraseBoss {
                                     secure_erase_boss_context: SecureEraseBossContext {
                                         boss_controller_id,
                                         secure_erase_jid: None,
-                                        secure_erase_boss_state: SecureEraseBossState::UnlockHost,
+                                        secure_erase_boss_state,
                                         iteration: Some(0),
                                     },
                                 },
@@ -1194,10 +1303,12 @@ impl MachineStateHandler {
 
                         match secure_erase_boss_context.secure_erase_boss_state {
                             SecureEraseBossState::UnlockHost => {
-                                redfish_client
-                                    .set_idrac_lockdown(EnabledDisabled::Disabled)
-                                    .await
-                                    .map_err(|e| redfish_error("set_idrac_lockdown", e))?;
+                                if matches!(cleanup_context, CleanupContext::Deprovision) {
+                                    redfish_client
+                                        .set_idrac_lockdown(EnabledDisabled::Disabled)
+                                        .await
+                                        .map_err(|e| redfish_error("set_idrac_lockdown", e))?;
+                                }
 
                                 let next_state = waiting_for_cleanup_state(
                                     CleanupState::SecureEraseBoss {
@@ -1377,10 +1488,12 @@ impl MachineStateHandler {
                                 .await
                             }
                             CreateBossVolumeState::LockHost => {
-                                redfish_client
-                                    .set_idrac_lockdown(EnabledDisabled::Enabled)
-                                    .await
-                                    .map_err(|e| redfish_error("set_idrac_lockdown", e))?;
+                                if matches!(cleanup_context, CleanupContext::Deprovision) {
+                                    redfish_client
+                                        .set_idrac_lockdown(EnabledDisabled::Enabled)
+                                        .await
+                                        .map_err(|e| redfish_error("set_idrac_lockdown", e))?;
+                                }
 
                                 let next_state = post_cleanup_state(*cleanup_context);
 
@@ -2370,6 +2483,7 @@ pub async fn check_restart_in_logs(
             "The server is restarted by chassis control command.", // Lenovo
             "DPU Warm Reset",                                      // Bluefield
             "BMC IP Address Deleted",                              // Bluefield
+            "The property ResetType was assigned the value 'ForceWarmReboot' due to modification by the service.", // GB200
         ]);
 
         // Generic reset keywords
@@ -4357,12 +4471,13 @@ impl DpuMachineStateHandler {
 
                 handler_host_power_control(state, ctx, SystemPowerControl::ForceOff).await?;
 
-                let next_state = DpuInitState::WaitingForPlatformPowercycle {
-                    substate: PerformPowerOperation::On,
-                }
-                .next_state_with_all_dpus_updated(&state.managed_state)?;
+                let next_state = DpuInitState::WaitingForPlatformPowerOff
+                    .next_state_with_all_dpus_updated(&state.managed_state)?;
 
                 Ok(StateHandlerOutcome::transition(next_state))
+            }
+            DpuInitState::WaitingForPlatformPowerOff => {
+                self.handle_waiting_for_platform_power_off(state, ctx).await
             }
             DpuInitState::WaitingForPlatformPowercycle {
                 substate: PerformPowerOperation::On,
@@ -5005,6 +5120,32 @@ impl DpuMachineStateHandler {
 
         Ok(StateHandlerOutcome::transition(next_state))
     }
+
+    /// Waits for the one host-wide `ForceOff` to become visible through Redfish.
+    ///
+    /// Normal dispatch calls this before walking individual DPUs so a
+    /// multi-DPU host performs one BMC read per controller iteration.
+    async fn handle_waiting_for_platform_power_off(
+        &self,
+        state: &ManagedHostStateSnapshot,
+        ctx: &mut StateHandlerContext<'_, MachineStateHandlerContextObjects>,
+    ) -> Result<StateHandlerOutcome<ManagedHostState>, StateHandlerError> {
+        // Redfish power actions are asynchronous. Persist this wait before
+        // trusting a new reading so stale `On` cannot skip the power cycle.
+        if !is_host_powered_off(state, ctx).await? {
+            return Ok(StateHandlerOutcome::wait(format!(
+                "Waiting for host {} to power off before powering it on",
+                state.host_snapshot.id,
+            )));
+        }
+
+        let next_state = DpuInitState::WaitingForPlatformPowercycle {
+            substate: PerformPowerOperation::On,
+        }
+        .next_state_with_all_dpus_updated(&state.managed_state)?;
+
+        Ok(StateHandlerOutcome::transition(next_state))
+    }
 }
 
 #[async_trait::async_trait]
@@ -5028,6 +5169,16 @@ impl StateHandler for DpuMachineStateHandler {
             };
             Ok(StateHandlerOutcome::transition(next_state))
         } else {
+            if let ManagedHostState::DPUInit { dpu_states } = &state.managed_state
+                && !dpu_states.states.is_empty()
+                && dpu_states
+                    .states
+                    .values()
+                    .all(|state| matches!(state, DpuInitState::WaitingForPlatformPowerOff))
+            {
+                return self.handle_waiting_for_platform_power_off(state, ctx).await;
+            }
+
             for dpu_snapshot in &state.dpu_snapshots {
                 state_handler_outcome = self.handle_dpuinit_state(state, dpu_snapshot, ctx).await?;
 
@@ -6679,7 +6830,7 @@ async fn handle_host_uefi_setup(
 
     match uefi_setup_info.uefi_setup_state.clone() {
         UefiSetupState::UnlockHost => {
-            if state.host_snapshot.bmc_vendor().is_dell() {
+            if state.host_snapshot.needs_bmc_unlock_for_uefi_setup() {
                 redfish_client
                     .lockdown_bmc(libredfish::EnabledDisabled::Disabled)
                     .await
@@ -6754,9 +6905,9 @@ async fn handle_host_uefi_setup(
             }
         }
         UefiSetupState::WaitForPasswordJobScheduled => {
-            if let Some(job_id) = uefi_setup_info.uefi_password_jid.clone() {
+            if let Some(job_id) = uefi_setup_info.uefi_password_jid.as_ref() {
                 let job_state = redfish_client
-                    .get_job_state(&job_id)
+                    .get_job_state(job_id)
                     .await
                     .map_err(|e| redfish_error("get_job_state", e))?;
 
@@ -6793,14 +6944,14 @@ async fn handle_host_uefi_setup(
             ))
         }
         UefiSetupState::WaitForPasswordJobCompletion => {
-            if let Some(job_id) = uefi_setup_info.uefi_password_jid.clone() {
+            if let Some(job_id) = uefi_setup_info.uefi_password_jid.as_ref() {
                 let redfish_client = ctx
                     .services
                     .create_redfish_client_from_machine(&state.host_snapshot)
                     .await?;
 
                 let job_state = redfish_client
-                    .get_job_state(&job_id)
+                    .get_job_state(job_id)
                     .await
                     .map_err(|e| redfish_error("get_job_state", e))?;
 
@@ -7543,8 +7694,17 @@ impl StateHandler for InstanceStateHandler {
                     // Wait for instance network config to be applied
                     // Reboot host and moved to Ready.
 
-                    // TODO GK if delete_requested skip this whole step,
-                    // reboot and jump to BootingWithDiscoveryImage
+                    // A released instance no longer needs its tenant network config to converge.
+                    // Waiting here can deadlock deletion when the DPU agents are unavailable (or
+                    // when a simulator restarts) because the observations we are waiting for will
+                    // never arrive. Continue through the normal deletion reboot path instead.
+                    if instance.deleted.is_some() {
+                        return Ok(StateHandlerOutcome::transition(
+                            ManagedHostState::Assigned {
+                                instance_state: InstanceState::WaitingForRebootToReady,
+                            },
+                        ));
+                    }
 
                     // Check DPU network config has been applied
                     if !mh_snapshot.managed_host_network_config_version_synced() {
@@ -7852,22 +8012,19 @@ impl StateHandler for InstanceStateHandler {
                             );
                         }
 
-                        // For deletion, power cycle the host first. For everything else
-                        // (reprovision, firmware update, custom PXE), verify boot config first.
+                        // For deletion, sanitize the host BMC first (site-gated,
+                        // no-op pass-through to PowerCycle when disabled) via the
+                        // FactoryResetBmc sub-flow. The power-state read that used
+                        // to gate PowerCycle now happens when that sub-flow reaches
+                        // PowerCycle (see `handle_factory_reset_bmc`). For everything
+                        // else (reprovision, firmware update, custom PXE), verify
+                        // boot config first.
                         let next_state = if instance.deleted.is_some() {
-                            let redfish_client = ctx
-                                .services
-                                .create_redfish_client_from_machine(&mh_snapshot.host_snapshot)
-                                .await?;
-
-                            let power_state = host_power_state(redfish_client.as_ref()).await?;
-
                             ManagedHostState::Assigned {
                                 instance_state: InstanceState::HostPlatformConfiguration {
                                     platform_config_state:
-                                        HostPlatformConfigurationState::PowerCycle {
-                                            power_on: power_state == libredfish::PowerState::Off,
-                                            power_on_retry_count: 0,
+                                        HostPlatformConfigurationState::FactoryResetBmc {
+                                            reset_state: FactoryResetBmcState::CheckPreconditions,
                                         },
                                 },
                             }
@@ -7918,9 +8075,15 @@ impl StateHandler for InstanceStateHandler {
 
                         Ok(StateHandlerOutcome::transition(next_state).with_txn(txn))
                     } else if let Some(txn) = txn_opt {
+                        // Commit extension cleanup before the observer performs
+                        // Redfish I/O in a separate attempt.
                         Ok(StateHandlerOutcome::do_nothing().with_txn(txn))
                     } else {
-                        Ok(StateHandlerOutcome::do_nothing())
+                        boot_interface_observation::observe_verified_boot_interface(
+                            ctx,
+                            mh_snapshot,
+                        )
+                        .await
                     }
                 }
                 InstanceState::HostPlatformConfiguration {
@@ -8158,8 +8321,8 @@ impl StateHandler for InstanceStateHandler {
                             .service_configs
                             .is_empty()
                     {
-                        for (_dpu_id, extension_service_statuses) in
-                            instance.observations.extension_services.iter()
+                        for extension_service_statuses in
+                            instance.observations.extension_services.values()
                         {
                             for status in
                                 extension_service_statuses.extension_service_statuses.iter()
@@ -8743,15 +8906,36 @@ async fn handle_instance_network_config_update_request(
 
                 let addresses = resources_to_be_released
                     .iter()
-                    .flat_map(|x| x.ip_addrs.values().copied().collect_vec())
-                    .collect_vec();
+                    .flat_map(|interface| {
+                        interface
+                            .ip_addrs
+                            .values()
+                            .map(move |address| (interface.network_segment_id, *address))
+                    })
+                    .map(|(segment_id, address)| {
+                        Ok((
+                            segment_id.ok_or_else(|| {
+                                StateHandlerError::GenericError(eyre::eyre!(
+                                    "instance {} has allocated addresses without a network segment",
+                                    instance.id,
+                                ))
+                            })?,
+                            address,
+                        ))
+                    })
+                    .collect::<Result<Vec<_>, StateHandlerError>>()?;
 
                 tracing::info!(
-                    "Releasing network resources for instance {}: addresses: {:?}",
-                    instance.id,
-                    addresses,
+                    instance_id = %instance.id,
+                    addresses = ?addresses,
+                    "releasing network resources",
                 );
-                db::instance_address::delete_addresses(&mut txn, &addresses).await?;
+                db::instance_address::delete_addresses_for_instance(
+                    &mut txn,
+                    instance.id,
+                    &addresses,
+                )
+                .await?;
                 release_network_segments_with_vpc_prefix(&resources_to_be_released, &mut txn)
                     .await?;
                 release_vpc_dpu_loopback_for_vpcs(
@@ -9493,13 +9677,7 @@ impl HostUpgradeState {
         }
 
         let next_state = match &rack_fw_status.status {
-            model::rack::RackFirmwareUpgradeState::Completed => scenario.actual_new_state(
-                HostReprovisionState::CheckingFirmwareRepeatV2 {
-                    firmware_type: None,
-                    firmware_number: None,
-                },
-                state.managed_state.get_host_repro_retry_count(),
-            ),
+            model::rack::RackFirmwareUpgradeState::Completed => scenario.complete_state(),
             model::rack::RackFirmwareUpgradeState::Failed { cause } => scenario.actual_new_state(
                 HostReprovisionState::FailedFirmwareUpgrade {
                     firmware_type: FirmwareComponentType::Unknown,
@@ -11599,24 +11777,30 @@ async fn wait_for_boss_controller_job_to_complete(
         // The job has completed; transition to next step in host cleanup
         libredfish::JobState::Completed => {
             // healthy path
-            let cleanup_state = match secure_erase_boss_controller {
+            let next_state = match (secure_erase_boss_controller, cleanup_context) {
                 // now that we have finished doing a secure erase of the BOSS controller
                 // we can do a standard secure erase of the remaining drives through the /usr/sbin/nvme tool
-                true => CleanupState::HostCleanup {
-                    boss_controller_id: Some(boss_controller_id),
-                },
-                // now that we have recreated the R1 volume on top of the BOSS controller, we can lock the host back down again.
-                false => CleanupState::CreateBossVolume {
-                    create_boss_volume_context: CreateBossVolumeContext {
-                        boss_controller_id,
-                        create_boss_volume_jid: None,
-                        create_boss_volume_state: CreateBossVolumeState::LockHost,
-                        iteration: Some(iterations),
+                (true, _) => waiting_for_cleanup_state(
+                    CleanupState::HostCleanup {
+                        boss_controller_id: Some(boss_controller_id),
                     },
-                },
+                    cleanup_context,
+                ),
+                // now that we have recreated the R1 volume on top of the BOSS controller, we can lock the host back down again.
+                (false, CleanupContext::Deprovision) => waiting_for_cleanup_state(
+                    CleanupState::CreateBossVolume {
+                        create_boss_volume_context: CreateBossVolumeContext {
+                            boss_controller_id,
+                            create_boss_volume_jid: None,
+                            create_boss_volume_state: CreateBossVolumeState::LockHost,
+                            iteration: Some(iterations),
+                        },
+                    },
+                    cleanup_context,
+                ),
+                (false, CleanupContext::InitialDiscovery) => post_cleanup_state(cleanup_context),
             };
 
-            let next_state = waiting_for_cleanup_state(cleanup_state, cleanup_context);
             Ok(StateHandlerOutcome::transition(next_state))
         }
         // The job has failed; handle error
@@ -11825,12 +12009,38 @@ async fn restart_dpu(
             });
     }
 
+    let power_state = host_power_state(dpu_redfish_client.as_ref()).await?;
+    let power_action = dpu_restart_power_action(power_state)?;
+    if power_action == SystemPowerControl::On {
+        tracing::warn!(
+            machine_id = %machine.id,
+            %power_state,
+            "DPU is powered off; powering it on instead of restarting it"
+        );
+    }
+
     dpu_redfish_client
-        .power(SystemPowerControl::ForceRestart)
+        .power(power_action)
         .await
         .map_err(|error| redfish_error("reboot dpu", error))?;
 
     Ok(())
+}
+
+fn dpu_restart_power_action(
+    power_state: libredfish::PowerState,
+) -> Result<SystemPowerControl, StateHandlerError> {
+    match power_state {
+        libredfish::PowerState::Off => Ok(SystemPowerControl::On),
+        libredfish::PowerState::On => Ok(SystemPowerControl::ForceRestart),
+        libredfish::PowerState::PoweringOff
+        | libredfish::PowerState::PoweringOn
+        | libredfish::PowerState::Paused
+        | libredfish::PowerState::Reset
+        | libredfish::PowerState::Unknown => Err(StateHandlerError::GenericError(eyre!(
+            "cannot restart DPU while its power state is {power_state}; retrying"
+        ))),
+    }
 }
 
 /// Returns true if this machine needs IPMI restart to avoid killing its DPUs.
@@ -12244,6 +12454,17 @@ async fn handle_instance_host_platform_config(
     reachability_params: &ReachabilityParams,
     platform_config_state: HostPlatformConfigurationState,
 ) -> Result<StateHandlerOutcome<ManagedHostState>, StateHandlerError> {
+    // The deletion-only BMC factory-reset sub-flow must be dispatched before the
+    // shared stored-credential client is built: during/after the reset the BMC
+    // is down or on factory credentials, so the unconditional authenticated
+    // client build below would fail before we reached the match. That handler
+    // builds exactly the client each of its sub-states needs.
+    if let HostPlatformConfigurationState::FactoryResetBmc { reset_state } = &platform_config_state
+    {
+        return factory_reset::handle_factory_reset_bmc(ctx, mh_snapshot, reset_state.clone())
+            .await;
+    }
+
     let redfish_client = ctx
         .services
         .create_redfish_client_from_machine(&mh_snapshot.host_snapshot)
@@ -12572,6 +12793,20 @@ async fn handle_instance_host_platform_config(
             }
 
             InstanceState::WaitingForDpusToUp
+        }
+        HostPlatformConfigurationState::FactoryResetBmc { .. } => {
+            // We should never get here. `FactoryResetBmc` is dispatched at the top
+            // of this function, before the shared authenticated client is built, and returns there.
+            // Reaching this arm means that early dispatch was removed or bypassed
+            // -- a logic bug.
+            tracing::error!(
+                machine_id = %mh_snapshot.host_snapshot.id,
+                "FactoryResetBmc reached the shared host-platform-config match; early dispatch to handle_factory_reset_bmc was bypassed"
+            );
+            return Err(StateHandlerError::InvalidState(format!(
+                "FactoryResetBmc must be dispatched by handle_factory_reset_bmc before the shared client build (machine {})",
+                mh_snapshot.host_snapshot.id
+            )));
         }
     };
 
@@ -13175,6 +13410,7 @@ mod tests {
     use std::str::FromStr;
 
     use carbide_instrument::testing::{MetricsCapture, capture_logs};
+    use carbide_test_support::{Check, check_values};
     use model::firmware::FirmwareComponent;
     use model::site_explorer::{
         EndpointExplorationReport, EndpointType, Inventory, PreingestionState, Service,
@@ -13182,6 +13418,50 @@ mod tests {
     use regex::Regex;
 
     use super::*;
+
+    #[test]
+    fn dpu_restart_requires_a_stable_power_state() {
+        check_values(
+            [
+                Check {
+                    scenario: "powered-off DPU is powered on",
+                    input: libredfish::PowerState::Off,
+                    expect: Ok(SystemPowerControl::On),
+                },
+                Check {
+                    scenario: "powered-on DPU is restarted",
+                    input: libredfish::PowerState::On,
+                    expect: Ok(SystemPowerControl::ForceRestart),
+                },
+                Check {
+                    scenario: "DPU that is powering off is retried",
+                    input: libredfish::PowerState::PoweringOff,
+                    expect: Err(()),
+                },
+                Check {
+                    scenario: "DPU that is powering on is retried",
+                    input: libredfish::PowerState::PoweringOn,
+                    expect: Err(()),
+                },
+                Check {
+                    scenario: "paused DPU is retried",
+                    input: libredfish::PowerState::Paused,
+                    expect: Err(()),
+                },
+                Check {
+                    scenario: "resetting DPU is retried",
+                    input: libredfish::PowerState::Reset,
+                    expect: Err(()),
+                },
+                Check {
+                    scenario: "DPU with unknown power state is retried",
+                    input: libredfish::PowerState::Unknown,
+                    expect: Err(()),
+                },
+            ],
+            |power_state| dpu_restart_power_action(power_state).map_err(|_| ()),
+        );
+    }
 
     #[test]
     fn terminal_ready_boot_config_failure_is_deferred_until_lockdown_restoration() {

@@ -6,6 +6,8 @@ package vpc
 import (
 	"context"
 	"errors"
+	"fmt"
+	"reflect"
 	"slices"
 	"time"
 
@@ -75,21 +77,22 @@ func (mv ManageVpc) UpdateVpcsInDB(ctx context.Context, siteID uuid.UUID, vpcInv
 	vpcDAO := cdbm.NewVpcDAO(mv.dbSession)
 	sdDAO := cdbm.NewStatusDetailDAO(mv.dbSession)
 
-	existingVpcs, _, err := vpcDAO.GetAll(ctx, nil, cdbm.VpcFilterInput{SiteIDs: []uuid.UUID{site.ID}}, cdbp.PageInput{Limit: cwutil.GetPtr(cdbp.TotalLimit)}, nil)
+	existingVpcs, _, err := vpcDAO.GetAll(ctx, nil, cdbm.VpcFilterInput{
+		SiteIDs: []uuid.UUID{site.ID},
+	}, cdbp.PageInput{Limit: cwutil.GetPtr(cdbp.TotalLimit)}, nil)
 	if err != nil {
 		logger.Error().Err(err).Msg("failed to get VPCs for Site from DB")
 		return nil, err
 	}
 
-	// Construct a map of Controller VPC ID to VPC
 	existingVpcIDMap := make(map[string]*cdbm.Vpc)
 	existingVpcCtrlIDMap := make(map[string]*cdbm.Vpc)
 
-	for _, vpc := range existingVpcs {
-		curVPC := vpc
-		existingVpcIDMap[vpc.ID.String()] = &curVPC
+	for i := range existingVpcs {
+		vpc := &existingVpcs[i]
+		existingVpcIDMap[vpc.ID.String()] = vpc
 		if vpc.ControllerVpcID != nil {
-			existingVpcCtrlIDMap[vpc.ControllerVpcID.String()] = &curVPC
+			existingVpcCtrlIDMap[vpc.ControllerVpcID.String()] = vpc
 		}
 	}
 
@@ -121,23 +124,35 @@ func (mv ManageVpc) UpdateVpcsInDB(ctx context.Context, siteID uuid.UUID, vpcInv
 
 	// Iterate through VPC Inventory and update DB
 	for _, controllerVpc := range vpcInventory.Vpcs {
-		slogger := logger.With().Str("VPC Controller ID", controllerVpc.Id.Value).Logger()
+		if controllerVpc == nil || controllerVpc.GetId().GetValue() == "" {
+			logger.Error().Msg("received VPC inventory entry with missing controller ID, skipping")
+			continue
+		}
+		controllerVpcIDStr := controllerVpc.GetId().GetValue()
+		slogger := logger.With().Str("VPC Controller ID", controllerVpcIDStr).Logger()
 
-		sitePropagationStatus := vpcPropagationStatus[controllerVpc.Id.Value]
-		logger.Debug().Str("Controller VPC ID", controllerVpc.Id.Value).Msgf("cached propagation status for VPC %+v", sitePropagationStatus)
+		sitePropagationStatus := vpcPropagationStatus[controllerVpcIDStr]
+		slogger.Debug().Msgf("cached propagation status for VPC %+v", sitePropagationStatus)
 
-		vpc, ok := existingVpcCtrlIDMap[controllerVpc.Id.Value]
-		if !ok {
-			// Check if the VPC is found by ID (controllerVpc.Name == cloudVpc.ID)
-			vpc, ok = existingVpcIDMap[controllerVpc.Name]
-			if ok {
-				existingVpcCtrlIDMap[controllerVpc.Id.Value] = vpc
-			}
+		vpc := existingVpcCtrlIDMap[controllerVpcIDStr]
+		if vpc == nil {
+			vpc = existingVpcIDMap[controllerVpcIDStr]
 		}
 
+		// No active REST row for this inventory VPC: create one or undelete a soft-deleted match,
+		// then fall through so the main inventory loop applies Site-reported field updates.
 		if vpc == nil {
-			logger.Warn().Str("Controller VPC ID", controllerVpc.Id.Value).Msg("VPC does not have a record in DB, possibly created directly on Site")
-			continue
+			vpc = mv.createOrUpdateVpcFromSite(ctx, site, controllerVpc, sitePropagationStatus)
+			if vpc == nil {
+				continue
+			}
+
+			// Keep in-memory maps in sync so later inventory entries and missing-on-Site detection see this VPC.
+			existingVpcIDMap[vpc.ID.String()] = vpc
+			if vpc.ControllerVpcID != nil {
+				existingVpcCtrlIDMap[vpc.ControllerVpcID.String()] = vpc
+			}
+			slogger.Info().Str("VPC ID", vpc.ID.String()).Msg("created or undeleted VPC from Site inventory")
 		}
 
 		reportedVpcIDMap[vpc.ID] = true
@@ -172,12 +187,17 @@ func (mv ManageVpc) UpdateVpcsInDB(ctx context.Context, siteID uuid.UUID, vpcInv
 
 		controllerActiveVni := reportedVpc.ActiveVni
 		reportedRoutingProfile := reportedVpc.RoutingProfile
+		reportedRoutingProfileOverrides := reportedVpc.RoutingProfileOverrides
+		reportedEffectiveRoutingProfile := reportedVpc.EffectiveRoutingProfile
 		reportedNSGID := reportedVpc.NetworkSecurityGroupID
 
 		needsUpdate := isMissingOnSite != nil ||
 			controllerVpcID != nil ||
 			networkVirtualizationType != nil ||
 			!util.PtrsEqual(vpc.RoutingProfile, reportedRoutingProfile) ||
+			!reflect.DeepEqual(vpc.RoutingProfileOverrides, reportedRoutingProfileOverrides) ||
+			!reflect.DeepEqual(vpc.EffectiveRoutingProfile, reportedEffectiveRoutingProfile) ||
+			!util.PtrsEqual(vpc.NetworkSecurityGroupID, reportedNSGID) ||
 			!vpc.NetworkSecurityGroupPropagationDetails.Equal(sitePropagationStatus) ||
 			// Changing VNI isn't allowed after creation, and it should never go back to nil - that would be a bug.
 			// We should assume status _could start_ as null and then update to the active VPC VNI.
@@ -185,6 +205,18 @@ func (mv ManageVpc) UpdateVpcsInDB(ctx context.Context, siteID uuid.UUID, vpcInv
 			(controllerActiveVni != nil && !util.PtrsEqual(vpc.ActiveVni, controllerActiveVni))
 
 		if needsUpdate {
+			// A nil Update field is ignored, so explicitly clear a stale NSG association.
+			if vpc.NetworkSecurityGroupID != nil && reportedNSGID == nil {
+				vpc, err = vpcDAO.Clear(ctx, nil, cdbm.VpcClearInput{
+					VpcID:                  vpc.ID,
+					NetworkSecurityGroupID: true,
+				})
+				if err != nil {
+					slogger.Error().Err(err).Msg("failed to clear NetworkSecurityGroupID for VPC in DB")
+					continue
+				}
+			}
+
 			// If the VPC in the DB has propagation details but the site reported no propagation details
 			// then we should clear it in the DB.  Passing along the nil to the Update call would
 			// just ignore the field.
@@ -199,6 +231,8 @@ func (mv ManageVpc) UpdateVpcsInDB(ctx context.Context, siteID uuid.UUID, vpcInv
 				}
 			}
 
+			// Controller omission clears cached routing-profile state. Update treats nil
+			// as leave-unchanged, so explicitly clear each stale field first.
 			if vpc.RoutingProfile != nil && reportedRoutingProfile == nil {
 				vpc, err = vpcDAO.Clear(ctx, nil, cdbm.VpcClearInput{
 					VpcID:          vpc.ID,
@@ -210,8 +244,41 @@ func (mv ManageVpc) UpdateVpcsInDB(ctx context.Context, siteID uuid.UUID, vpcInv
 				}
 			}
 
-			// Save controller VPC ID
-			_, serr := vpcDAO.Update(ctx, nil, cdbm.VpcUpdateInput{VpcID: vpc.ID, NetworkSecurityGroupID: reportedNSGID, NetworkSecurityGroupPropagationDetails: sitePropagationStatus, NetworkVirtualizationType: networkVirtualizationType, RoutingProfile: reportedRoutingProfile, ControllerVpcID: controllerVpcID, IsMissingOnSite: isMissingOnSite, ActiveVni: controllerActiveVni})
+			if vpc.RoutingProfileOverrides != nil && reportedRoutingProfileOverrides == nil {
+				vpc, err = vpcDAO.Clear(ctx, nil, cdbm.VpcClearInput{
+					VpcID:                   vpc.ID,
+					RoutingProfileOverrides: true,
+				})
+				if err != nil {
+					slogger.Error().Err(err).Msg("failed to clear RoutingProfileOverrides for VPC in DB")
+					continue
+				}
+			}
+
+			if vpc.EffectiveRoutingProfile != nil && reportedEffectiveRoutingProfile == nil {
+				vpc, err = vpcDAO.Clear(ctx, nil, cdbm.VpcClearInput{
+					VpcID:                   vpc.ID,
+					EffectiveRoutingProfile: true,
+				})
+				if err != nil {
+					slogger.Error().Err(err).Msg("failed to clear EffectiveRoutingProfile for VPC in DB")
+					continue
+				}
+			}
+
+			// Persist remaining non-nil controller-reported differences after explicit clears.
+			_, serr := vpcDAO.Update(ctx, nil, cdbm.VpcUpdateInput{
+				VpcID:                                  vpc.ID,
+				NetworkSecurityGroupID:                 reportedNSGID,
+				NetworkSecurityGroupPropagationDetails: sitePropagationStatus,
+				NetworkVirtualizationType:              networkVirtualizationType,
+				RoutingProfile:                         reportedRoutingProfile,
+				RoutingProfileOverrides:                reportedRoutingProfileOverrides,
+				EffectiveRoutingProfile:                reportedEffectiveRoutingProfile,
+				ControllerVpcID:                        controllerVpcID,
+				IsMissingOnSite:                        isMissingOnSite,
+				ActiveVni:                              controllerActiveVni,
+			})
 			if serr != nil {
 				slogger.Error().Err(serr).Msg("failed to update missing on Site flag/controller VPC ID in DB")
 				continue
@@ -345,6 +412,165 @@ func (mv ManageVpc) UpdateVpcsInDB(ctx context.Context, siteID uuid.UUID, vpcInv
 	}
 
 	return vpcLifecycleEvents, nil
+}
+
+// createOrUpdateVpcFromSite creates a REST VPC from Site inventory, or undeletes
+// a matching soft-deleted row. Field refresh after undelete is left to UpdateVpcsInDB.
+// Returns nil when skipped or on failure.
+func (mv ManageVpc) createOrUpdateVpcFromSite(
+	ctx context.Context,
+	site *cdbm.Site,
+	controllerVpc *corev1.Vpc,
+	propagationDetails *cdbm.NetworkSecurityGroupPropagationDetails,
+) *cdbm.Vpc {
+	logger := log.With().
+		Str("Activity", "UpdateVpcsInDB").
+		Str("Site ID", site.ID.String()).
+		Str("VPC Controller ID", controllerVpc.GetId().GetValue()).
+		Logger()
+
+	vpcID, err := uuid.Parse(controllerVpc.GetId().GetValue())
+	if err != nil {
+		logger.Warn().Msg(fmt.Sprintf("unable to create VPC found on Site: failed to parse VPC Controller ID, not a valid UUID %s", controllerVpc.GetId().GetValue()))
+		return nil
+	}
+
+	reportedVpc := new(cdbm.Vpc)
+	reportedVpc.FromProto(controllerVpc)
+	if reportedVpc.Name == "" {
+		reportedVpc.Name = fmt.Sprintf("recovered-%s", vpcID.String()[:8])
+	}
+	if reportedVpc.Org == "" {
+		logger.Warn().Msg("unable to create VPC found on Site: VPC on Site is reporting empty Tenant organization ID")
+		return nil
+	}
+
+	// Create/undelete under one transaction so concurrent inventory pages cannot insert duplicates.
+	vpc, err := cdb.WithTxResult(ctx, mv.dbSession, func(tx *cdb.Tx) (*cdbm.Vpc, error) {
+		vpcDAO := cdbm.NewVpcDAO(mv.dbSession)
+
+		// ID and ControllerVpcID are aligned, so primary-key lookup is sufficient.
+		matches, _, reloadErr := vpcDAO.GetAll(ctx, tx, cdbm.VpcFilterInput{
+			VpcIDs: []uuid.UUID{vpcID}, SiteIDs: []uuid.UUID{site.ID}, IncludeDeleted: true,
+		}, cdbp.PageInput{Limit: cwutil.GetPtr(cdbp.TotalLimit)}, nil)
+		if reloadErr != nil {
+			return nil, fmt.Errorf("unable to create VPC found on Site: failed to retrieve VPC by controller ID, DB error: %w", reloadErr)
+		}
+
+		if len(matches) > 0 {
+			existingVpc := &matches[0]
+			if existingVpc.Deleted == nil {
+				return existingVpc, nil
+			}
+			if existingVpc.Org != reportedVpc.Org {
+				logger.Warn().Msg(fmt.Sprintf("unable to create VPC found on Site: tenant organization differs in REST cache and Site record %s", reportedVpc.Org))
+				return nil, nil
+			}
+			// Undelete only; UpdateVpcsInDB applies Site-reported field updates.
+			restored, clearErr := vpcDAO.Clear(ctx, tx, cdbm.VpcClearInput{VpcID: existingVpc.ID, Deleted: true})
+			if clearErr != nil {
+				return nil, fmt.Errorf("unable to create VPC found on Site: failed to clear soft-delete timestamp for VPC, DB error: %w", clearErr)
+			}
+			return restored, nil
+		}
+
+		tenants, _, tenantErr := cdbm.NewTenantDAO(mv.dbSession).GetAll(
+			ctx, tx, cdbm.TenantFilterInput{Orgs: []string{reportedVpc.Org}}, cdbp.PageInput{Limit: cwutil.GetPtr(cdbp.TotalLimit)}, nil,
+		)
+		if tenantErr != nil {
+			return nil, fmt.Errorf("unable to create VPC found on Site: failed to retrieve Tenant by organization, DB error: %w", tenantErr)
+		}
+		if len(tenants) == 0 {
+			logger.Warn().Msgf("unable to create VPC found on Site: no Tenants were found for org: %s", reportedVpc.Org)
+			return nil, nil
+		}
+		tenant := &tenants[0]
+
+		nsgID := reportedVpc.NetworkSecurityGroupID
+		nvllpID := reportedVpc.NVLinkLogicalPartitionID
+
+		// Skip when referenced NSG/NVLink is missing or not owned by this tenant/site.
+		if nsgID != nil {
+			nsg, nsgErr := cdbm.NewNetworkSecurityGroupDAO(mv.dbSession).GetByID(ctx, tx, *nsgID, nil)
+			if errors.Is(nsgErr, cdb.ErrDoesNotExist) {
+				logger.Warn().Msgf("unable to create VPC found on Site: no Network Security Group was found for ID: %s", *nsgID)
+				return nil, nil
+			}
+			if nsgErr != nil {
+				return nil, fmt.Errorf("unable to create VPC found on Site: failed to retrieve Network Security Group by ID: %s, DB error: %w", *nsgID, nsgErr)
+			}
+			if nsg.TenantID != tenant.ID {
+				logger.Warn().Msgf("unable to create VPC found on Site: Network Security Group differs in REST cache and Site record for Tenant %s", *nsgID)
+				return nil, nil
+			}
+		}
+
+		if nvllpID != nil {
+			nvllp, nvLinkErr := cdbm.NewNVLinkLogicalPartitionDAO(mv.dbSession).GetByID(ctx, tx, *nvllpID, nil)
+			if errors.Is(nvLinkErr, cdb.ErrDoesNotExist) {
+				logger.Warn().Msgf("unable to create VPC found on Site: no NVLink Logical Partition was found for ID: %s", *nvllpID)
+				return nil, nil
+			}
+			if nvLinkErr != nil {
+				return nil, fmt.Errorf("unable to create VPC found on Site: failed to retrieve NVLink Logical Partition by ID: %s, DB error: %w", *nvllpID, nvLinkErr)
+			}
+			if nvllp.TenantID != tenant.ID {
+				logger.Warn().Msgf("unable to create VPC found on Site: NVLink Logical Partition differs in REST cache and Site record for Tenant %s", *nvllpID)
+				return nil, nil
+			}
+		}
+
+		// If an active VPC already uses this name for the Tenant/Site, append a recovered suffix.
+		nameConflictVpcs, _, nameErr := vpcDAO.GetAll(ctx, tx, cdbm.VpcFilterInput{
+			Name: &reportedVpc.Name, TenantIDs: []uuid.UUID{tenant.ID}, SiteIDs: []uuid.UUID{site.ID},
+		}, cdbp.PageInput{Limit: cwutil.GetPtr(cdbp.TotalLimit)}, nil)
+		if nameErr != nil {
+			return nil, fmt.Errorf("unable to create VPC found on Site: failed to retrieve VPC by name, DB error: %w", nameErr)
+		}
+		if len(nameConflictVpcs) > 0 {
+			reportedVpc.Name = fmt.Sprintf("%s-recovered-%s", reportedVpc.Name, vpcID.String()[:8])
+		}
+
+		readyMsg := "VPC was found on Site, Ready for use"
+		createdBy := cdbm.User{}
+		createdBy.ID = site.ID
+		created, createErr := vpcDAO.Create(ctx, tx, cdbm.VpcCreateInput{
+			ID:                                     &vpcID,
+			Name:                                   reportedVpc.Name,
+			Description:                            reportedVpc.Description,
+			Org:                                    reportedVpc.Org,
+			InfrastructureProviderID:               site.InfrastructureProviderID,
+			TenantID:                               tenant.ID,
+			SiteID:                                 site.ID,
+			NVLinkLogicalPartitionID:               nvllpID,
+			NetworkVirtualizationType:              reportedVpc.NetworkVirtualizationType,
+			RoutingProfile:                         reportedVpc.RoutingProfile,
+			RoutingProfileOverrides:                reportedVpc.RoutingProfileOverrides,
+			EffectiveRoutingProfile:                reportedVpc.EffectiveRoutingProfile,
+			ControllerVpcID:                        &vpcID,
+			ActiveVni:                              reportedVpc.ActiveVni,
+			NetworkSecurityGroupID:                 nsgID,
+			NetworkSecurityGroupPropagationDetails: propagationDetails,
+			Labels:                                 reportedVpc.Labels,
+			Status:                                 cdbm.VpcStatusReady,
+			CreatedBy:                              createdBy,
+			Vni:                                    reportedVpc.Vni,
+		})
+		if createErr != nil {
+			return nil, fmt.Errorf("unable to create VPC found on Site: failed to create VPC, DB error: %w", createErr)
+		}
+		if _, statusErr := cdbm.NewStatusDetailDAO(mv.dbSession).Create(ctx, tx, cdbm.StatusDetailCreateInput{
+			EntityID: created.ID.String(), Status: cdbm.VpcStatusReady, Message: &readyMsg,
+		}); statusErr != nil {
+			return nil, fmt.Errorf("unable to create VPC found on Site: failed to create Status Detail, DB error: %w", statusErr)
+		}
+		return created, nil
+	})
+	if err != nil {
+		logger.Warn().Err(err).Msg(err.Error())
+		return nil
+	}
+	return vpc
 }
 
 // updateVpcStatusInDB is helper function to write VPC updates to DB

@@ -72,7 +72,7 @@ fn unsupported_from_json_firmware_versions(target: &str) -> Status {
     ))
 }
 
-pub(crate) fn component_manager_error_to_status(err: ComponentManagerError) -> Status {
+pub(super) fn component_manager_error_to_status(err: ComponentManagerError) -> Status {
     match err {
         ComponentManagerError::Unavailable(msg) => Status::unavailable(msg),
         ComponentManagerError::NotFound(msg) => Status::not_found(msg),
@@ -576,13 +576,7 @@ fn map_power_shelf_components(raw: &[i32]) -> Result<Vec<PowerShelfComponent>, S
 }
 
 fn normalize_access_token(access_token: Option<String>) -> Option<String> {
-    access_token.and_then(|token| {
-        if token.trim().is_empty() {
-            None
-        } else {
-            Some(token)
-        }
-    })
+    access_token.filter(|token| !token.trim().is_empty())
 }
 
 fn validate_firmware_object_json_request(target_version: &str) -> Result<(), Status> {

@@ -15,6 +15,7 @@
  * limitations under the License.
  */
 
+use bmc_mock::infiniband::Guid;
 use bmc_mock::mac_address_pool::MacAddressPool;
 use bmc_mock::{DpuMachineInfo, HardwareType, HostMachineInfo, MachineInfo};
 use carbide_utils::arch::CpuArchitecture;
@@ -46,7 +47,8 @@ fn for_dpu(dpu: &DpuMachineInfo) -> DiscoveryInfo {
         | HardwareType::GenericSupermicro => bluefield3(dpu),
         HardwareType::LiteOnPowerShelf
         | HardwareType::DeltaPowerShelf
-        | HardwareType::NvidiaSwitchNd5200Ld => {
+        | HardwareType::NvidiaSwitchNd5200Ld
+        | HardwareType::NvidiaSwitchN5700Ld => {
             panic!("DPU discovery is not defined for {}", dpu.hw_type)
         }
     }
@@ -76,7 +78,8 @@ fn for_host(host: &HostMachineInfo) -> DiscoveryInfo {
         | HardwareType::NvidiaDgxVr => DiscoveryInfo::default(),
         HardwareType::LiteOnPowerShelf
         | HardwareType::DeltaPowerShelf
-        | HardwareType::NvidiaSwitchNd5200Ld => {
+        | HardwareType::NvidiaSwitchNd5200Ld
+        | HardwareType::NvidiaSwitchN5700Ld => {
             panic!("discovery_info requested for {}", host.hw_type)
         }
     }
@@ -308,7 +311,7 @@ fn wiwynn_gb200(host: &HostMachineInfo) -> DiscoveryInfo {
                 Some("MT43244 BlueField-3 integrated ConnectX-7 network controller"),
             ),
         ],
-        infiniband_interfaces: gb200_infiniband_interfaces(),
+        infiniband_interfaces: gb200_infiniband_interfaces(host),
         cpu_info: vec![CpuInfo {
             model: "Neoverse-V2".into(),
             vendor: "ARM".into(),
@@ -493,7 +496,7 @@ fn nvidia_dgx_h100(host: &HostMachineInfo) -> DiscoveryInfo {
                 0,
             ),
         ],
-        infiniband_interfaces: dgx_h100_infiniband_interfaces(),
+        infiniband_interfaces: dgx_h100_infiniband_interfaces(host),
         cpu_info: vec![CpuInfo {
             model: "Intel(R) Xeon(R) Platinum 8480CL".into(),
             vendor: "GenuineIntel".into(),
@@ -720,11 +723,15 @@ fn gb200_gpus() -> Vec<Gpu> {
         .collect()
 }
 
-fn gb200_infiniband_interfaces() -> Vec<InfinibandInterface> {
+fn gb200_infiniband_interfaces(host: &HostMachineInfo) -> Vec<InfinibandInterface> {
+    let guids: [Guid; 4] = host
+        .infiniband_port_guids()
+        .try_into()
+        .expect("GB200 has four InfiniBand interfaces");
     [(0x0000, 0), (0x0002, 0), (0x0010, 1), (0x0012, 1)]
         .into_iter()
-        .enumerate()
-        .map(|(index, (domain, numa_node))| {
+        .zip(guids)
+        .map(|((domain, numa_node), guid)| {
             let device_name = if domain == 0 {
                 "ibp3s0".to_string()
             } else {
@@ -741,7 +748,7 @@ fn gb200_infiniband_interfaces() -> Vec<InfinibandInterface> {
                     description: Some("MT2910 Family [ConnectX-7]".into()),
                     slot: Some(format!("{domain}:03:00.0")),
                 }),
-                guid: format!("7c8c09000000000{}", index % 2),
+                guid: guid.to_string(),
             }
         })
         .collect()
@@ -820,7 +827,11 @@ fn cx8_network_interface(
     )
 }
 
-fn dgx_h100_infiniband_interfaces() -> Vec<InfinibandInterface> {
+fn dgx_h100_infiniband_interfaces(host: &HostMachineInfo) -> Vec<InfinibandInterface> {
+    let guids: [Guid; 8] = host
+        .infiniband_port_guids()
+        .try_into()
+        .expect("DGX H100 has eight InfiniBand interfaces");
     [
         (0x15, 0),
         (0x3d, 0),
@@ -832,8 +843,8 @@ fn dgx_h100_infiniband_interfaces() -> Vec<InfinibandInterface> {
         (0xd9, 1),
     ]
     .into_iter()
-    .enumerate()
-    .map(|(index, (bus, numa_node))| {
+    .zip(guids)
+    .map(|((bus, numa_node), guid)| {
         let device_name = format!("ibp{bus}s0");
         InfinibandInterface {
             pci_properties: Some(PciDeviceProperties {
@@ -849,7 +860,7 @@ fn dgx_h100_infiniband_interfaces() -> Vec<InfinibandInterface> {
                 description: Some("MT2910 Family [ConnectX-7]".into()),
                 slot: Some(format!("0000:{:02x}:00.0", bus + 3)),
             }),
-            guid: format!("94dae0000000000{index}"),
+            guid: guid.to_string(),
         }
     })
     .collect()

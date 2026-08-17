@@ -71,18 +71,18 @@ fn interface_bind_next_action(retries_left: i32) -> SocketSetupNextAction {
     }
 }
 
-pub fn u8_to_mac(data: &[u8]) -> String {
+pub(super) fn u8_to_mac(data: &[u8]) -> String {
     data.iter()
         .map(|x| format!("{x:02x}"))
         .collect::<Vec<String>>()
         .join(":")
 }
 
-pub fn u8_to_hex_string(data: &[u8]) -> Result<String, DhcpError> {
+pub(super) fn u8_to_hex_string(data: &[u8]) -> Result<String, DhcpError> {
     Ok(std::str::from_utf8(data)?.to_string())
 }
 
-pub fn machine_get_filename(
+pub(super) fn machine_get_filename(
     dhcp_response: &DhcpRecord,
     vendor_class: &VendorClass,
     config: &Config,
@@ -122,7 +122,10 @@ pub fn machine_get_filename(
 }
 
 /// Create a UDP socket and set non_blocking, broadcast and other options flag on it.
-pub async fn get_socket(listen_address: core::net::SocketAddrV4, interface: String) -> UdpSocket {
+pub(super) async fn get_socket(
+    listen_address: core::net::SocketAddrV4,
+    interface: String,
+) -> UdpSocket {
     for retry in 0..SOCKET_SETUP_ATTEMPTS {
         // Create a socket2 socket because std and Tokio sockets do not expose
         // the options that must be set before binding.

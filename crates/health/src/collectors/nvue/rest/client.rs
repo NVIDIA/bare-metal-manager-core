@@ -44,9 +44,9 @@ const NVUE_PLATFORM_ENVIRONMENT_LEAKAGE: &str = "/nvue_v1/platform/environment/l
 const NVUE_PLATFORM_ENVIRONMENT: &str = "/nvue_v1/platform/environment";
 
 #[derive(Clone)]
-pub struct UsernamePassword {
-    pub username: String,
-    pub password: Option<String>,
+pub(super) struct UsernamePassword {
+    pub(super) username: String,
+    pub(super) password: Option<String>,
 }
 
 impl std::fmt::Debug for UsernamePassword {
@@ -64,7 +64,7 @@ impl std::fmt::Debug for UsernamePassword {
 /// the collector can apply endpoint-specific unavailable handling instead of
 /// acting as if the path was disabled.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum OptionalNvueResponse<T> {
+pub(super) enum OptionalNvueResponse<T> {
     /// Path disabled by caller; no HTTP request was made.
     Disabled,
 
@@ -75,8 +75,8 @@ pub enum OptionalNvueResponse<T> {
     Present(T),
 }
 
-pub struct RestClient {
-    pub(crate) switch_id: String,
+pub(super) struct RestClient {
+    switch_id: String,
     base_url: Url,
     credentials: ArcSwapOption<UsernamePassword>,
     paths: NvueRestPaths,
@@ -103,7 +103,7 @@ enum RestHttpClient {
 }
 
 impl RestClient {
-    pub fn new(
+    pub(super) fn new(
         switch_id: String,
         connect_ip: IpAddr,
         port: Option<u16>,
@@ -187,7 +187,7 @@ impl RestClient {
     /// When an mTLS profile is configured, this asks the shared provider to
     /// refresh at most once per reload window before the collector starts
     /// issuing target-specific requests.
-    pub async fn ensure_http_client(&mut self) -> Result<(), HealthError> {
+    pub(super) async fn ensure_http_client(&mut self) -> Result<(), HealthError> {
         if let RestHttpClient::Tls {
             provider,
             current_client,
@@ -207,19 +207,21 @@ impl RestClient {
         Ok(())
     }
 
-    pub fn set_credentials(&self, creds: UsernamePassword) {
+    pub(super) fn set_credentials(&self, creds: UsernamePassword) {
         self.credentials.store(Some(Arc::new(creds)));
     }
 
-    pub fn clear_credentials(&self) {
+    pub(super) fn clear_credentials(&self) {
         self.credentials.store(None);
     }
 
-    pub fn has_credentials(&self) -> bool {
+    pub(super) fn has_credentials(&self) -> bool {
         self.credentials.load().is_some()
     }
 
-    pub async fn get_system_health(&self) -> Result<Option<SystemHealthResponse>, HealthError> {
+    pub(super) async fn get_system_health(
+        &self,
+    ) -> Result<Option<SystemHealthResponse>, HealthError> {
         if !self.paths.system_health_enabled {
             return Ok(None);
         }
@@ -227,7 +229,7 @@ impl RestClient {
         self.do_get(url, &[]).await.map(Some)
     }
 
-    pub async fn get_system_reboot_reason(
+    pub(super) async fn get_system_reboot_reason(
         &self,
     ) -> Result<OptionalNvueResponse<RebootReasonResponse>, HealthError> {
         if !self.paths.system_reboot_reason_enabled {
@@ -238,7 +240,9 @@ impl RestClient {
         self.do_get_nullable(url, &[]).await
     }
 
-    pub async fn get_cluster_apps(&self) -> Result<Option<ClusterAppsResponse>, HealthError> {
+    pub(super) async fn get_cluster_apps(
+        &self,
+    ) -> Result<Option<ClusterAppsResponse>, HealthError> {
         if !self.paths.cluster_apps_enabled {
             return Ok(None);
         }
@@ -246,7 +250,9 @@ impl RestClient {
         self.do_get(url, &[]).await.map(Some)
     }
 
-    pub async fn get_sdn_partitions(&self) -> Result<Option<SdnPartitionsResponse>, HealthError> {
+    pub(super) async fn get_sdn_partitions(
+        &self,
+    ) -> Result<Option<SdnPartitionsResponse>, HealthError> {
         if !self.paths.sdn_partitions_enabled {
             return Ok(None);
         }
@@ -254,7 +260,7 @@ impl RestClient {
         self.do_get(url, &[]).await.map(Some)
     }
 
-    pub async fn get_platform_environment_fan(
+    pub(super) async fn get_platform_environment_fan(
         &self,
     ) -> Result<Option<FanEnvironmentResponse>, HealthError> {
         if !self.paths.platform_environment_fan_enabled {
@@ -264,7 +270,7 @@ impl RestClient {
         self.do_get(url, &[]).await.map(Some)
     }
 
-    pub async fn get_platform_environment_temperature(
+    pub(super) async fn get_platform_environment_temperature(
         &self,
     ) -> Result<Option<TemperatureEnvironmentResponse>, HealthError> {
         if !self.paths.platform_environment_temperature_enabled {
@@ -274,7 +280,7 @@ impl RestClient {
         self.do_get(url, &[]).await.map(Some)
     }
 
-    pub async fn get_platform_environment_leakage(
+    pub(super) async fn get_platform_environment_leakage(
         &self,
     ) -> Result<OptionalNvueResponse<LeakageEnvironmentResponse>, HealthError> {
         if !self.paths.platform_environment_leakage_enabled {
@@ -285,7 +291,7 @@ impl RestClient {
         self.do_get_nullable(url, &[]).await
     }
 
-    pub async fn get_platform_environment(
+    pub(super) async fn get_platform_environment(
         &self,
     ) -> Result<Option<PlatformEnvironmentResponse>, HealthError> {
         if !self.paths.platform_environment_status_enabled {
@@ -295,7 +301,7 @@ impl RestClient {
         self.do_get(url, &[]).await.map(Some)
     }
 
-    pub async fn get_interfaces(&self) -> Result<Option<InterfacesResponse>, HealthError> {
+    async fn get_interfaces(&self) -> Result<Option<InterfacesResponse>, HealthError> {
         if !self.paths.interfaces_enabled {
             return Ok(None);
         }
@@ -314,7 +320,9 @@ impl RestClient {
 
     /// Fetch link diagnostics by flattening the interfaces response into
     /// per-interface per-code diagnostic results.
-    pub async fn get_link_diagnostics(&self) -> Result<Vec<LinkDiagnosticResult>, HealthError> {
+    pub(super) async fn get_link_diagnostics(
+        &self,
+    ) -> Result<Vec<LinkDiagnosticResult>, HealthError> {
         let Some(interfaces) = self.get_interfaces().await? else {
             return Ok(Vec::new());
         };
@@ -466,41 +474,41 @@ impl RestClient {
 // ---------------------------------------------------------------------------
 
 #[derive(Debug, Clone, Deserialize)]
-pub struct SystemHealthResponse {
-    pub status: Option<String>,
+pub(super) struct SystemHealthResponse {
+    pub(super) status: Option<String>,
     #[cfg(test)]
     #[serde(rename = "status-led")]
-    pub status_led: Option<String>,
+    status_led: Option<String>,
     #[cfg(test)]
-    pub issues: Option<HashMap<String, IssueInfo>>,
+    issues: Option<HashMap<String, IssueInfo>>,
 }
 
 #[cfg(test)]
 #[derive(Debug, Clone, Deserialize)]
-pub struct IssueInfo {
-    pub issue: Option<String>,
+struct IssueInfo {
+    issue: Option<String>,
 }
 
 /// `/nvue_v1/system/reboot/reason` response.
 #[derive(Debug, Clone, Deserialize, Default)]
-pub struct RebootReasonResponse {
+pub(super) struct RebootReasonResponse {
     /// Reason reported by NVUE for the last or pending reboot action.
-    pub reason: Option<String>,
+    pub(super) reason: Option<String>,
 
     /// NVUE generation time for the reboot reason.
-    pub gentime: Option<String>,
+    pub(super) gentime: Option<String>,
 
     /// User associated with the reboot reason when NVUE provides one.
-    pub user: Option<String>,
+    pub(super) user: Option<String>,
 }
 
-pub type ClusterAppsResponse = HashMap<String, ClusterApp>;
+type ClusterAppsResponse = HashMap<String, ClusterApp>;
 
 #[derive(Debug, Clone, Deserialize)]
-pub struct ClusterApp {
-    pub status: Option<String>,
+pub(super) struct ClusterApp {
+    pub(super) status: Option<String>,
     #[cfg(test)]
-    pub reason: Option<String>,
+    reason: Option<String>,
     // addition_info: Option<String>,   -- "addition-info" in JSON
     // app_id: Option<String>,          -- "app-id" in JSON
     // app_ver: Option<String>,         -- "app-ver" in JSON
@@ -508,7 +516,7 @@ pub struct ClusterApp {
     // components_ver: Option<String>,  -- "components-ver" in JSON
 }
 
-pub type SdnPartitionsResponse = HashMap<String, SdnPartition>;
+type SdnPartitionsResponse = HashMap<String, SdnPartition>;
 
 fn deserialize_optional_u32_from_number_or_string<'de, D>(
     deserializer: D,
@@ -533,39 +541,41 @@ where
 }
 
 #[derive(Debug, Clone, Deserialize, Default)]
-pub struct SdnPartition {
-    pub name: Option<String>,
-    pub health: Option<String>,
+pub(super) struct SdnPartition {
+    pub(super) name: Option<String>,
+    pub(super) health: Option<String>,
     #[serde(
         default,
         rename = "num-gpus",
         deserialize_with = "deserialize_optional_u32_from_number_or_string"
     )]
-    pub num_gpus: Option<u32>,
+    pub(super) num_gpus: Option<u32>,
 }
 
-pub type FanEnvironmentResponse = HashMap<String, FanData>;
+type FanEnvironmentResponse = HashMap<String, FanData>;
 
 #[derive(Debug, Clone, Deserialize, Default)]
-pub struct FanData {
+pub(super) struct FanData {
     /// Fan maximum speed in RPM, scraped as string (e.g. "33000")
     #[serde(rename = "max-speed")]
-    pub max_speed: Option<String>,
+    pub(super) max_speed: Option<String>,
+    /// Fan health state as reported by NVUE (e.g. "ok").
+    pub(super) state: Option<String>,
 }
 
-pub type TemperatureEnvironmentResponse = HashMap<String, TempData>;
+type TemperatureEnvironmentResponse = HashMap<String, TempData>;
 
 #[derive(Debug, Clone, Deserialize, Default)]
-pub struct TempData {
+pub(super) struct TempData {
     /// Current temperature Celsius, scraped as string (e.g. "43.00").
     /// Field is optional per sensor
-    pub current: Option<String>,
+    pub(super) current: Option<String>,
     /// Maximum (warning) threshold in Celsius as string (e.g. "105.00").
-    pub max: Option<String>,
+    pub(super) max: Option<String>,
     /// Critical threshold in Celsius as a string (e.g. "120.00").
-    pub crit: Option<String>,
+    pub(super) crit: Option<String>,
     /// Sensor state as string (e.g. "ok").
-    pub state: Option<String>,
+    pub(super) state: Option<String>,
 }
 
 /// `/nvue_v1/platform/environment/leakage` response keyed by leakage sensor
@@ -573,55 +583,55 @@ pub struct TempData {
 ///
 /// NVUE may encode an individual sensor as JSON `null`; the collector maps that
 /// sensor to `unknown` and reports it as a sensor failure.
-pub type LeakageEnvironmentResponse = HashMap<String, Option<LeakageSensorData>>;
+pub(super) type LeakageEnvironmentResponse = HashMap<String, Option<LeakageSensorData>>;
 
 /// Leakage sensor entry inside `/nvue_v1/platform/environment/leakage`.
 #[derive(Debug, Clone, Deserialize, Default)]
-pub struct LeakageSensorData {
+pub(super) struct LeakageSensorData {
     /// Leakage sensor state, expected as "ok" or "leak".
-    pub state: Option<String>,
+    pub(super) state: Option<String>,
 }
 
 /// `/nvue_v1/platform/environment` summary. Keys are aggregate status
 /// entries (e.g. `FAN_STATUS`) as well as the `fan`/`temperature` subtrees
-pub type PlatformEnvironmentResponse = HashMap<String, EnvItem>;
+type PlatformEnvironmentResponse = HashMap<String, EnvItem>;
 
 #[derive(Debug, Clone, Deserialize, Default)]
-pub struct EnvItem {
+pub(super) struct EnvItem {
     /// Aggregate status string (e.g. "green"/"amber" for `FAN_STATUS`).
-    pub state: Option<String>,
+    pub(super) state: Option<String>,
 }
 
-pub type InterfacesResponse = HashMap<String, InterfaceData>;
+type InterfacesResponse = HashMap<String, InterfaceData>;
 
 #[derive(Debug, Clone, Deserialize, Default)]
-pub struct InterfaceData {
+struct InterfaceData {
     #[cfg(test)]
     #[serde(rename = "type")]
-    pub iface_type: Option<String>,
+    iface_type: Option<String>,
     #[serde(default)]
-    pub link: InterfaceLink,
+    link: InterfaceLink,
 }
 
 #[derive(Debug, Clone, Deserialize, Default)]
-pub struct InterfaceLink {
+struct InterfaceLink {
     #[cfg(test)]
-    pub speed: Option<String>,
+    speed: Option<String>,
     // state: Option<HashMap<String, serde_json::Value>>,
     #[serde(default)]
-    pub diagnostics: HashMap<String, DiagnosticStatus>,
+    diagnostics: HashMap<String, DiagnosticStatus>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
-pub struct DiagnosticStatus {
-    pub status: String,
+struct DiagnosticStatus {
+    status: String,
 }
 
 #[derive(Debug, Clone)]
-pub struct LinkDiagnosticResult {
-    pub interface: String,
-    pub code: String,
-    pub status: String,
+pub(super) struct LinkDiagnosticResult {
+    pub(super) interface: String,
+    pub(super) code: String,
+    pub(super) status: String,
 }
 
 #[cfg(test)]
@@ -858,7 +868,9 @@ mod tests {
         let resp: FanEnvironmentResponse = serde_json::from_str(json).unwrap();
         assert_eq!(resp.len(), 2);
         assert_eq!(resp["FAN1/1"].max_speed.as_deref(), Some("33000"));
+        assert_eq!(resp["FAN1/1"].state.as_deref(), Some("ok"));
         assert_eq!(resp["FAN1/2"].max_speed.as_deref(), Some("33000"));
+        assert_eq!(resp["FAN1/2"].state.as_deref(), Some("ok"));
     }
 
     #[test]
@@ -875,6 +887,7 @@ mod tests {
         let resp: FanEnvironmentResponse = serde_json::from_str(json).unwrap();
         assert_eq!(resp.len(), 1);
         assert!(resp["FAN1/1"].max_speed.is_none());
+        assert_eq!(resp["FAN1/1"].state.as_deref(), Some("ok"));
     }
 
     #[test]

@@ -14,6 +14,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+#![cfg_attr(not(test), deny(dead_code_pub_in_binary))]
 
 use std::fs::File;
 use std::io::{Read, Write};
@@ -22,7 +23,7 @@ use std::time::Duration;
 
 use carbide_host_support::dpa_cmds::{DpaCommand, OpCode};
 use carbide_host_support::registration;
-use carbide_instrument::{Outcome, emit};
+use carbide_instrument::emit;
 use carbide_uuid::machine::MachineId;
 use cfg::{AutoDetect, Command, MlxAction, Mode, Options};
 use chrono::{DateTime, Days, TimeDelta, Utc};
@@ -42,7 +43,7 @@ use rpc::{
     ForgeScoutErrorReport, forge as rpc_forge, forge_agent_control_response as fac,
     scout_firmware_upgrade as sfu,
 };
-pub use scout::{CarbideClientError, CarbideClientResult};
+use scout::{CarbideClientError, CarbideClientResult};
 use tokio::sync::RwLock;
 use tryhard::{RetryFutureConfig, RetryPolicy};
 use x509_parser::pem::parse_x509_pem;
@@ -67,7 +68,7 @@ struct DevEnv {
 }
 static IN_QEMU_VM: Lazy<RwLock<DevEnv>> = Lazy::new(|| RwLock::new(DevEnv { in_qemu: false }));
 const POLL_INTERVAL: Duration = Duration::from_secs(60);
-pub const REBOOT_COMPLETED_PATH: &str = "/tmp/reboot_completed";
+const REBOOT_COMPLETED_PATH: &str = "/tmp/reboot_completed";
 const MAX_FIRMWARE_UPGRADE_STATUS_FIELD_SIZE: usize = 1500;
 
 async fn check_if_running_in_qemu() {
@@ -232,13 +233,13 @@ async fn run_as_service(config: &Options) -> Result<(), eyre::Report> {
     match mlx_device::create_device_report_request(machine_id) {
         Ok(request) => match mlx_device::publish_mlx_device_report(config, request).await {
             Ok(response) => tracing::info!(?response, "received PublishMlxDeviceReportResponse",),
-            Err(e) => emit(metrics::ScoutMlxOperationFailed::device_report_publish(
-                format!("{e:?}"),
-            )),
+            Err(e) => emit(metrics::ScoutMlxOperationFailed::DeviceReportPublish {
+                error: format!("{e:?}"),
+            }),
         },
-        Err(e) => emit(metrics::ScoutMlxOperationFailed::device_report_create(
-            format!("{e:?}"),
-        )),
+        Err(e) => emit(metrics::ScoutMlxOperationFailed::DeviceReportCreate {
+            error: format!("{e:?}"),
+        }),
     };
 
     let mut scout_stream_started = false;
@@ -266,15 +267,16 @@ async fn run_as_service(config: &Options) -> Result<(), eyre::Report> {
             // Capture the action label before handle_action consumes `action`.
             let scout_action = metrics::ScoutAction::from(&action);
             let result = handle_action(action, &machine_id, machine_interface_id, config).await;
-            let outcome = Outcome::from(&result);
-            let error = result
-                .err()
-                .map_or_else(String::new, |error| error.to_string());
-            emit(metrics::ScoutActionHandled {
-                action: scout_action,
-                outcome,
-                action_name,
-                error,
+            emit(match result {
+                Ok(()) => metrics::ScoutActionHandled::Ok {
+                    action: scout_action,
+                    action_name,
+                },
+                Err(error) => metrics::ScoutActionHandled::Error {
+                    action: scout_action,
+                    action_name,
+                    error: error.to_string(),
+                },
             });
         } else {
             tracing::warn!("API response did not contain an action, skipping.");
@@ -576,10 +578,10 @@ async fn handle_mlxreport_action(
         .filter_map(|device_action| match DpaCommand::try_from(device_action) {
             Ok(command) => Some((device_action.pci_name.clone(), command)),
             Err(e) => {
-                emit(metrics::ScoutMlxReconciliationFailed::decode(
-                    device_action.pci_name.clone(),
-                    e,
-                ));
+                emit(metrics::ScoutMlxReconciliationFailed::Decode {
+                    pci_name: device_action.pci_name.clone(),
+                    error: e,
+                });
                 None
             }
         })
@@ -601,17 +603,17 @@ async fn handle_mlxreport_commands(
 
     for (dev_pci_name, dpa_cmd) in commands {
         if dev_pci_name.is_empty() {
-            emit(metrics::ScoutMlxRequestRejected::reconciliation());
+            emit(metrics::ScoutMlxRequestRejected::Reconciliation {});
             continue;
         }
 
         let dev = match discover_device(&dev_pci_name) {
             Ok(d) => d,
             Err(s) => {
-                emit(metrics::ScoutMlxReconciliationFailed::discover(
-                    dev_pci_name,
-                    s,
-                ));
+                emit(metrics::ScoutMlxReconciliationFailed::Discover {
+                    pci_name: dev_pci_name,
+                    error: s,
+                });
                 continue;
             }
         };
@@ -630,10 +632,10 @@ async fn handle_mlxreport_commands(
                     report.observations.push(obs);
                 }
                 Err(e) => {
-                    emit(metrics::ScoutMlxReconciliationFailed::lock(
-                        dev_pci_name,
-                        mlx_device::lockdown_error_context(&e, &key),
-                    ));
+                    emit(metrics::ScoutMlxReconciliationFailed::Lock {
+                        pci_name: dev_pci_name,
+                        error: mlx_device::lockdown_error_context(&e, &key),
+                    });
                 }
             },
             // ApplyFirmware attempts to apply the provided FirmwareFlasherProfile
@@ -706,10 +708,10 @@ async fn handle_mlxreport_commands(
                     report.observations.push(obs);
                 }
                 Err(e) => {
-                    emit(metrics::ScoutMlxReconciliationFailed::unlock(
-                        dev_pci_name,
-                        mlx_device::lockdown_error_context(&e, &key),
-                    ));
+                    emit(metrics::ScoutMlxReconciliationFailed::Unlock {
+                        pci_name: dev_pci_name,
+                        error: mlx_device::lockdown_error_context(&e, &key),
+                    });
                 }
             },
         };
@@ -723,7 +725,9 @@ async fn handle_mlxreport_commands(
     match mlx_device::publish_mlx_observation_report(config, req).await {
         Ok(_resp) => (),
         Err(e) => {
-            emit(metrics::ScoutMlxOperationFailed::observation_report_publish(e.to_string()));
+            emit(metrics::ScoutMlxOperationFailed::ObservationReportPublish {
+                error: e.to_string(),
+            });
         }
     }
 }

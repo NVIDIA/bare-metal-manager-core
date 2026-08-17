@@ -1,4 +1,4 @@
-# Monitoring and Health
+# Monitoring and Health <Badge intent="launch" minimal>New</Badge>
 
 This page covers monitoring and health workflows for NICo sites after
 deployment: hardware health, DPU health, aggregate host health, health
@@ -124,17 +124,16 @@ Collector defaults from the example config:
 
 | Area | Parameter | Example value | Meaning |
 |---|---:|---|---|
+| Redfish | `bmc_request_concurrency` | `4` | Maximum number of concurrent Redfish operations per BMC. |
 | Rate limiting | `bucket_burst` | `200` | Burst size for outbound requests. |
 | Rate limiting | `bucket_replenish` | `"35ms"` | Token replenish interval. |
 | Sensor collector | `sensor_fetch_interval` | `"1m"` | Sensor polling cadence. |
 | Sensor collector | `rediscover_interval` | `"5m"` | Sensor inventory rediscovery cadence. |
 | Sensor collector | `state_refresh_interval` | `"30m"` | Broader BMC state refresh cadence. |
-| Sensor collector | `sensor_fetch_concurrency` | `10` | Concurrent sensor fetch limit. |
 | Sensor collector | `include_sensor_thresholds` | `true` | Include BMC threshold data when available. |
 | Entity discovery | `refresh_interval` | `"5m"` | Redfish entity inventory rediscovery cadence. |
-| Entity discovery | `discovery_concurrency` | `4` | Concurrent per-BMC discovery limit. |
+| Entity discovery | `discovery_concurrency` | `1` | Concurrent endpoint identity resolutions. |
 | Entity metrics collector | `fetch_interval` | `"2m"` | Entity metrics polling cadence. |
-| Entity metrics collector | `fetch_concurrency` | `4` | Concurrent per-entity metric fetch limit. |
 | Firmware collector | `firmware_refresh_interval` | `"30m"` | Firmware refresh cadence. |
 | Logs collector | `mode` | `"sse"` | Preferred BMC log collection mode. |
 | NMX-C collector | `grpc_port` | `9370` | Switch-host NMX-C gRPC endpoint port. |
@@ -204,7 +203,6 @@ section to the hardware health service config to enable it:
 ```toml
 [collectors.metrics]
 fetch_interval = "2m"     # default
-fetch_concurrency = 4     # default; parallel per-entity fetches
 ```
 
 What it collects, per entity type discovered on the BMC:
@@ -270,6 +268,20 @@ For leak-related events, look for:
 ```text
 report_source=tray-leak-detection
 ```
+
+Health report records exported over OTLP carry versioned routing fields, counts, and structured success entries by default. Refer to the [OTLP health-report log contract](../architecture/health_aggregation.md#otlp-health-report-log-contract) for the complete attribute schema.
+
+Keep the following in mind when configuring health report records:
+
+* The per-target `include_alert_details` setting defaults to `false`. This omits `health_report.alerts` and `health_report.alerts.dropped`. Set `include_alert_details` to `true` on a `[[sinks.otlp.targets]]` entry to add `health_report.alerts` when the report has alerts.
+
+* _The setting is per-target_. This means that, for example, a debugging destination can receive detail, while a long-term store receives the routing, count, and success evidence without needing to store free-form alert messages.
+
+* The JSON array in `health_report.alerts` contains the first 64 alerts in report order, each with `probe_id`, `message`, `classifications`, and `target` if the alert names one.
+
+* `health_report.alerts.dropped` appears only when details are enabled _and_ the report has more than 64 alerts. It contains the number of omitted alerts beyond those first 64.
+
+* Probe IDs use health API names: for example, OOB GPU inventory alerts appear as `SkuValidation` to deduplicate with the in-band SKU alerts.
 
 ## DPU Health Checks
 

@@ -23,7 +23,7 @@ use carbide_uuid::machine::MachineId;
 
 use crate::IPMITool;
 
-pub struct IPMIToolTestImpl {}
+pub(super) struct IPMIToolTestImpl {}
 
 #[async_trait]
 impl IPMITool for IPMIToolTestImpl {

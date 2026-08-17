@@ -17,6 +17,7 @@
 
 use std::collections::HashMap;
 
+use carbide_uuid::nvlink::NvLinkDomainId;
 use carbide_uuid::rack::RackId;
 use carbide_uuid::switch::SwitchId;
 use chrono::prelude::*;
@@ -32,7 +33,7 @@ use crate::controller_outcome::PersistentStateHandlerOutcome;
 use crate::health::HealthReportSources;
 use crate::metadata::Metadata;
 
-pub mod slas;
+mod slas;
 pub mod switch_id;
 
 #[derive(Debug, Clone)]
@@ -169,7 +170,7 @@ pub struct Switch {
     /// without re-resolving. `None` when no BMC interface is linked yet.
     pub bmc_info: Option<BmcInfo>,
 
-    /// Operator "force-converge this switch BMC now" request (REQ-2). When
+    /// Operator "force-converge this switch BMC now" request. When
     /// `true`, the switch state controller enters `RotatingBmc` and
     /// force-converges the BMC on its next sweep, bypassing the passive
     /// site-wide gate and the device's backoff quarantine. A switch has exactly
@@ -195,6 +196,10 @@ pub struct Switch {
 
     /// FabricManager / NMX-C status set by the rack state machine.
     pub fabric_manager_status: Option<FabricManagerStatus>,
+
+    /// Last non-nil NVLink domain observed through the rack's selected NMX-C endpoint.
+    /// Failed or nil observations leave the previous value unchanged.
+    pub nvlink_domain_uuid: Option<NvLinkDomainId>,
 
     /// The rack that this switch is associated with.
     pub rack_id: Option<RackId>,
@@ -263,6 +268,8 @@ impl<'r> FromRow<'r, PgRow> for Switch {
             firmware_upgrade_status: firmware_upgrade_status.map(|j| j.0),
             nvos_update_status: nvos_update_status.map(|j| j.0),
             fabric_manager_status: fabric_manager_status.map(|j| j.0),
+            // A reader may overlap the additive migration during a rolling deployment.
+            nvlink_domain_uuid: row.try_get("nvlink_domain_uuid").ok().flatten(),
             metadata,
             version: row.try_get("version")?,
             is_primary: row.try_get("is_primary").unwrap_or(false),
@@ -374,7 +381,7 @@ pub enum SwitchControllerState {
     Ready,
 
     /// The Switch is converging its BMC credentials to the staged site-wide
-    /// rotation target (REQ-2). Entered from `Ready` (lowest precedence) when
+    /// rotation target. Entered from `Ready` (lowest precedence) when
     /// the switch BMC lags the target and site-wide rotation is enabled, or when
     /// an operator force-converge request is pending; a BMC password change
     /// never touches the switch data plane, so this is safe in `Ready`. The

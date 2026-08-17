@@ -53,7 +53,7 @@ fn u128_to_ip(val: u128, is_v6: bool) -> IpAddr {
 /// so all internal address arithmetic can rely on the prefix
 /// being valid for the address family without additional checks.
 #[derive(Debug)]
-pub struct PrefixAllocator {
+pub(crate) struct PrefixAllocator {
     vpc_prefix_id: VpcPrefixId,
     vpc_prefix: IpNetwork,
     last_used_prefix: Option<IpNetwork>,
@@ -106,7 +106,7 @@ fn first_unoccupied_index(
 }
 
 impl PrefixAllocator {
-    pub fn new(
+    pub(crate) fn new(
         vpc_prefix_id: VpcPrefixId,
         vpc_prefix: IpNetwork,
         last_used_prefix: Option<IpNetwork>,
@@ -118,9 +118,11 @@ impl PrefixAllocator {
                 "prefix length {prefix} exceeds maximum for address family ({max_bits})"
             )));
         }
-        if prefix <= vpc_prefix.prefix() {
+        let is_single_ipv4_linknet =
+            vpc_prefix.is_ipv4() && vpc_prefix.prefix() == 31 && prefix == 31;
+        if prefix <= vpc_prefix.prefix() && !is_single_ipv4_linknet {
             return Err(CarbideError::InvalidArgument(format!(
-                "prefix length {prefix} must be greater than VPC prefix length {}",
+                "prefix length {prefix} must be greater than VPC prefix length {}, except for an IPv4 /31",
                 vpc_prefix.prefix()
             )));
         }
@@ -170,6 +172,7 @@ impl PrefixAllocator {
             segment_type: model::network_segment::NetworkSegmentType::Tenant,
             can_stretch: Some(false), // All segments allocated here are FNN linknets.
             allocation_strategy: AllocationStrategy::Dynamic,
+            infer_slaac_eui64_addresses: false,
         };
 
         // Segments created by VPC prefix allocation are fully formed (prefixes, VPC ID,
@@ -230,15 +233,19 @@ impl PrefixAllocator {
     ///
     /// Occupied ranges are searched as linknet-index intervals so broad IPv6
     /// allocations do not require enumerating their constituent /127 prefixes.
-    pub async fn next_free_prefix(&self, txn: &mut PgConnection) -> CarbideResult<IpNetwork> {
-        let vpc_str = self.vpc_prefix.to_string();
-        let used_prefixes = db::network_prefix::containing_prefix(txn, vpc_str.as_str())
-            .await?
-            .iter()
-            .map(|x| x.prefix)
-            .collect_vec();
+    pub(crate) async fn next_free_prefix(
+        &self,
+        txn: &mut PgConnection,
+    ) -> CarbideResult<IpNetwork> {
+        let used_prefixes =
+            db::network_prefix::find_allocation_occupancy(txn, self.vpc_prefix_id, self.vpc_prefix)
+                .await?
+                .into_iter()
+                .map(|network_prefix| network_prefix.prefix)
+                .collect_vec();
 
-        // Reminder that `new()` already validated self.prefix > self.vpc_prefix.prefix().
+        // `new()` permits equality only for a single IPv4 /31 linknet, so the
+        // subtraction remains valid for every constructed allocator.
         let prefix_delta = u32::from(self.prefix - self.vpc_prefix.prefix());
         let total_network_possible = 1u128.checked_shl(prefix_delta).ok_or_else(|| {
             CarbideError::internal(format!(
@@ -259,29 +266,14 @@ impl PrefixAllocator {
         let is_ipv6 = self.vpc_prefix.is_ipv6();
 
         // Convert every overlapping network prefix into the inclusive range of
-        // linknet indexes that it occupies. This avoids enumerating enormous
-        // IPv6 spaces one /127 at a time when, for example, an existing /64
-        // covers 2^63 possible linknets inside a /48 VPC prefix.
-        // `occupied` still has one entry per persisted overlapping prefix, so
-        // many sparse allocations can make it large. This is a scalability
-        // call-out, not a practical limit: even 10 million sparse linknets
-        // (still manageable for raw iteration, though sorting and memory are not
-        // free) imply 10 million interfaces (100,000 machines even at an unusual
-        // 100 interfaces per machine), far beyond one NICo installation's current
-        // practical scale.
-        let mut occupied = used_prefixes
-            .into_iter()
-            .filter(|prefix| prefix.is_ipv6() == is_ipv6)
-            .map(|prefix| {
-                let occupied_start = ip_to_u128(prefix.network()).max(vpc_start);
-                let occupied_end = ip_to_u128(prefix.broadcast()).min(vpc_end);
-                (
-                    (occupied_start - vpc_start) / linknet_size,
-                    (occupied_end - vpc_start) / linknet_size,
-                )
-            })
-            .collect_vec();
-        occupied.sort_unstable();
+        // linknet indexes that it occupies. Capacity reporting uses this same
+        // interval representation, so broad and direct/unparented ranges have
+        // identical allocation and utilization semantics.
+        let occupied = db::network_prefix::occupied_prefix_intervals(
+            self.vpc_prefix,
+            self.prefix,
+            used_prefixes,
+        );
 
         // Preserve next-fit cursor semantics. An absent or out-of-range cursor
         // starts at the parent prefix; the last linknet wraps to index zero.
@@ -326,13 +318,11 @@ impl PrefixAllocator {
         })
     }
 
-    pub async fn validate_desired_prefix(
+    pub(crate) async fn validate_desired_prefix(
         &self,
         txn: &mut PgConnection,
         prefix: IpNetwork,
     ) -> CarbideResult<()> {
-        let vpc_str = self.vpc_prefix.to_string();
-
         // Reject if what's being asked for is bigger than the prefix
         // expected to contain it or simply not contained within it at all.
         // (i.e. an IP from a totally different prefix)
@@ -344,10 +334,10 @@ impl PrefixAllocator {
         }
 
         // Reject if already in use.
-        if db::network_prefix::containing_prefix(txn, vpc_str.as_str())
+        if db::network_prefix::find_allocation_occupancy(txn, self.vpc_prefix_id, self.vpc_prefix)
             .await?
             .iter()
-            .any(|x| networks_overlap(x.prefix, prefix))
+            .any(|network_prefix| networks_overlap(network_prefix.prefix, prefix))
         {
             return Err(CarbideError::AlreadyFoundError {
                 kind: "prefix",
@@ -361,7 +351,40 @@ impl PrefixAllocator {
 
 #[cfg(test)]
 mod test {
-    use crate::network_segment::allocate::first_unoccupied_index;
+    use carbide_test_support::value_scenarios;
+    use carbide_uuid::vpc::VpcPrefixId;
+
+    use crate::network_segment::allocate::{PrefixAllocator, first_unoccupied_index};
+
+    #[test]
+    fn validates_linknet_prefix_length() {
+        value_scenarios!(
+            run = |(parent, prefix): (&str, u8)| {
+                PrefixAllocator::new(
+                    VpcPrefixId::new(),
+                    parent.parse().unwrap(),
+                    None,
+                    prefix,
+                )
+                .is_ok()
+            };
+            "valid child prefixes" {
+                ("192.0.2.0/30", 31) => true,
+                ("192.0.2.0/31", 31) => true,
+                ("2001:db8::/126", 127) => true,
+            }
+
+            "invalid child prefixes" {
+                ("192.0.2.0/30", 30) => false,
+                ("192.0.2.0/31", 30) => false,
+                ("192.0.2.1/32", 32) => false,
+                ("192.0.2.0/24", 33) => false,
+                ("2001:db8::/127", 127) => false,
+                ("2001:db8::1/128", 128) => false,
+                ("2001:db8::/64", 129) => false,
+            }
+        );
+    }
 
     /// Exercises interval lookup without enumerating every possible linknet.
     #[test]

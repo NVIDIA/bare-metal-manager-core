@@ -21,11 +21,11 @@ use std::str::FromStr;
 
 use serde::{Deserialize, Deserializer, de};
 
-pub const DEFAULT_PAGE_RECORD_LIMIT: usize = 50;
+const DEFAULT_PAGE_RECORD_LIMIT: usize = 50;
 const MAX_PAGE_RECORD_LIMIT: usize = 100;
 
 /// Serde deserialization decorator to map empty Strings to None.
-pub fn empty_string_as_none<'de, D, T>(de: D) -> Result<Option<T>, D::Error>
+pub(super) fn empty_string_as_none<'de, D, T>(de: D) -> Result<Option<T>, D::Error>
 where
     D: Deserializer<'de>,
     T: FromStr,
@@ -39,21 +39,21 @@ where
 }
 
 #[derive(Deserialize, Debug, Default)]
-pub struct PaginationParams {
+pub(super) struct PaginationParams {
     #[serde(default, deserialize_with = "empty_string_as_none")]
-    pub limit: Option<usize>,
+    pub(super) limit: Option<usize>,
     #[serde(default, deserialize_with = "empty_string_as_none")]
-    pub current_page: Option<usize>,
+    pub(super) current_page: Option<usize>,
 }
 
-pub struct PaginationInfo {
-    pub current_page: usize,
-    pub limit: usize,
-    pub total_items: usize,
+pub(super) struct PaginationInfo {
+    current_page: usize,
+    limit: usize,
+    total_items: usize,
 }
 
 impl PaginationInfo {
-    pub fn pages(&self) -> usize {
+    fn pages(&self) -> usize {
         if self.limit == 0 {
             if self.total_items == 0 { 0 } else { 1 }
         } else {
@@ -61,33 +61,33 @@ impl PaginationInfo {
         }
     }
 
-    pub fn previous(&self) -> usize {
+    fn previous(&self) -> usize {
         self.current_page.saturating_sub(1)
     }
 
-    pub fn next(&self) -> usize {
+    fn next(&self) -> usize {
         self.current_page.saturating_add(1)
     }
 
-    pub fn page_range_start(&self) -> usize {
+    fn page_range_start(&self) -> usize {
         self.current_page.saturating_sub(3)
     }
 
-    pub fn page_range_end(&self) -> usize {
+    fn page_range_end(&self) -> usize {
         min(self.current_page.saturating_add(4), self.pages())
     }
 }
 
 /// Shared pagination context for Askama templates. Embeds `PaginationInfo` and
 /// adds the URL path and extra query parameters needed to render page links.
-pub struct PageContext {
+pub(super) struct PageContext {
     info: PaginationInfo,
-    pub path: String,
-    pub extra_query_params: String,
+    pub(super) path: String,
+    pub(super) extra_query_params: String,
 }
 
 impl PageContext {
-    pub fn new(info: PaginationInfo, path: impl Into<String>) -> Self {
+    pub(super) fn new(info: PaginationInfo, path: impl Into<String>) -> Self {
         Self {
             info,
             path: path.into(),
@@ -97,7 +97,7 @@ impl PageContext {
 
     /// Create a PageContext from a pre-computed page count (for handlers that
     /// perform database-level pagination and don't know the total item count).
-    pub fn from_page_count(
+    pub(super) fn from_page_count(
         current_page: usize,
         limit: usize,
         pages: usize,
@@ -117,7 +117,7 @@ impl PageContext {
     /// Create a PageContext representing the "show all" view: a single page
     /// holding every item. Used by handlers that opt into the `limit=0` "All"
     /// pagination option and already know the total item count.
-    pub fn all(total_items: usize, path: impl Into<String>) -> Self {
+    pub(super) fn all(total_items: usize, path: impl Into<String>) -> Self {
         Self {
             info: PaginationInfo {
                 current_page: 0,
@@ -129,40 +129,40 @@ impl PageContext {
         }
     }
 
-    pub fn with_extra_params(mut self, extra: String) -> Self {
+    pub(super) fn with_extra_params(mut self, extra: String) -> Self {
         self.extra_query_params = extra;
         self
     }
 
-    pub fn current_page(&self) -> usize {
+    pub(super) fn current_page(&self) -> usize {
         self.info.current_page
     }
 
-    pub fn limit(&self) -> usize {
+    pub(super) fn limit(&self) -> usize {
         self.info.limit
     }
 
-    pub fn total_items(&self) -> usize {
+    pub(super) fn total_items(&self) -> usize {
         self.info.total_items
     }
 
-    pub fn pages(&self) -> usize {
+    pub(super) fn pages(&self) -> usize {
         self.info.pages()
     }
 
-    pub fn previous(&self) -> usize {
+    pub(super) fn previous(&self) -> usize {
         self.info.previous()
     }
 
-    pub fn next(&self) -> usize {
+    pub(super) fn next(&self) -> usize {
         self.info.next()
     }
 
-    pub fn page_range_start(&self) -> usize {
+    pub(super) fn page_range_start(&self) -> usize {
         self.info.page_range_start()
     }
 
-    pub fn page_range_end(&self) -> usize {
+    pub(super) fn page_range_end(&self) -> usize {
         self.info.page_range_end()
     }
 }
@@ -178,7 +178,10 @@ fn resolve_params(params: &PaginationParams) -> (usize, usize) {
 
 /// Paginate an already-collected Vec (e.g. after in-memory filtering).
 /// Drains elements outside the page window so only the current page remains.
-pub fn paginate_vec<T>(items: Vec<T>, params: &PaginationParams) -> (PaginationInfo, Vec<T>) {
+pub(super) fn paginate_vec<T>(
+    items: Vec<T>,
+    params: &PaginationParams,
+) -> (PaginationInfo, Vec<T>) {
     let (current_page, limit) = resolve_params(params);
     let total_items = items.len();
     let info = PaginationInfo {

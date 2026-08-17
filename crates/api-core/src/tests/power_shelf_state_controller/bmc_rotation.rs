@@ -15,8 +15,8 @@
  * limitations under the License.
  */
 
-//! End-to-end coverage for power-shelf-controller BMC (PMC) credential rotation
-//! (REQ-2): with the site-wide flag enabled, a staged target drives a Ready
+//! End-to-end coverage for power-shelf-controller BMC (PMC) credential rotation:
+//! with the site-wide flag enabled, a staged target drives a Ready
 //! power shelf through `PowerShelfControllerState::RotatingBmc` and back to
 //! Ready, converging the device and persisting the rotated per-device secret.
 //! Mirrors the switch-controller integration test
@@ -25,7 +25,7 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use carbide_credential_rotation::BmcRotationGate;
+use carbide_credential_rotation::RotationGate;
 use carbide_power_shelf_controller::context::PowerShelfStateHandlerServices;
 use carbide_power_shelf_controller::handler::PowerShelfStateHandler;
 use carbide_power_shelf_controller::io::PowerShelfStateControllerIO;
@@ -43,6 +43,7 @@ use db::credential_rotation::{
 use db::power_shelf as db_power_shelf;
 use mac_address::MacAddress;
 use model::allocation_type::AllocationType;
+use model::bmc_suppression::BmcSuppressionSubsystem;
 use model::power_shelf::{PowerShelf, PowerShelfControllerState};
 use state_controller::config::IterationConfig;
 use state_controller::controller::StateController;
@@ -55,6 +56,30 @@ use crate::tests::common::api_fixtures::{TestEnv, create_test_env};
 type TestResult<T = ()> = Result<T, Box<dyn std::error::Error>>;
 
 const BMC: CredentialRotationType = CredentialRotationType::Bmc;
+
+/// Stand in for site-explorer acknowledging every pending BMC suppression -- the
+/// barrier the rotation gate waits on before changing a credential. This test
+/// drives only the power-shelf controller, so it plays the site-explorer ack
+/// pass itself.
+async fn ack_all_site_explorer_suppressions(pool: &sqlx::PgPool) {
+    let mut conn = pool.acquire().await.expect("acquire connection");
+    let macs: Vec<MacAddress> = db::bmc_suppression::find_all_by_subsystem(
+        &mut *conn,
+        BmcSuppressionSubsystem::SiteExplorer,
+    )
+    .await
+    .expect("read suppressions")
+    .into_iter()
+    .map(|s| s.bmc_mac_address)
+    .collect();
+    db::bmc_suppression::acknowledge_unacknowledged(
+        &mut conn,
+        &macs,
+        BmcSuppressionSubsystem::SiteExplorer,
+    )
+    .await
+    .expect("acknowledge suppressions");
+}
 
 fn per_device_key(mac: MacAddress) -> CredentialKey {
     CredentialKey::BmcCredentials {
@@ -79,7 +104,7 @@ fn creds(username: &str, password: &str) -> Credentials {
 
 /// Services with the passive BMC-rotation gate toggled by `bmc_rotation_enabled`
 /// and no component manager, so a Ready power shelf idles on power-state polling
-/// and reaches the BMC gate. A fresh [`BmcRotationGate`] refreshes its cached
+/// and reaches the BMC gate. A fresh [`RotationGate`] refreshes its cached
 /// aggregate live on first use each iteration.
 fn power_shelf_services(
     env: &TestEnv,
@@ -93,7 +118,7 @@ fn power_shelf_services(
         per_object_metrics_registry: env.per_object_metrics_registry(),
         rack_firmware_reprovisioning_enabled: false,
         redfish_client_pool: env.redfish_sim.clone(),
-        bmc_rotation_gate: BmcRotationGate::new(),
+        bmc_rotation_gate: RotationGate::new_for_family(CredentialRotationType::Bmc),
         bmc_rotation_enabled,
     }
 }
@@ -293,7 +318,30 @@ async fn ready_power_shelf_converges_pmc_to_site_target(pool: sqlx::PgPool) -> T
         power_shelf.controller_state.value,
     );
 
-    // Iteration 2: the rotation converges the device and returns to Ready.
+    // Iteration 2: the gate records a site-explorer suppression for the PMC and
+    // waits for its acknowledgement before touching the credential, so the shelf
+    // stays in RotatingBmc and nothing is rotated yet.
+    run_power_shelf_controller_with_services(
+        pool.clone(),
+        env.api.work_lock_manager_handle.clone(),
+        power_shelf_services(&env, &pool, true),
+    )
+    .await;
+    let power_shelf = load_power_shelf(&pool, &power_shelf_id).await?;
+    assert!(
+        matches!(
+            power_shelf.controller_state.value,
+            PowerShelfControllerState::RotatingBmc { .. }
+        ),
+        "rotation must wait in RotatingBmc until site-explorer acknowledges, got {:?}",
+        power_shelf.controller_state.value,
+    );
+
+    // Site-explorer acknowledges the suppression (its skip barrier).
+    ack_all_site_explorer_suppressions(&pool).await;
+
+    // Iteration 3: with the barrier satisfied, the rotation converges the device
+    // and returns to Ready.
     run_power_shelf_controller_with_services(
         pool.clone(),
         env.api.work_lock_manager_handle.clone(),
@@ -408,7 +456,27 @@ async fn failing_pmc_rotation_returns_to_ready_and_quarantines(pool: sqlx::PgPoo
         power_shelf.controller_state.value,
     );
 
-    // Iteration 2: the rotation attempt fails; the engine quarantines the device
+    // Iteration 2: the gate records a site-explorer suppression and waits for its
+    // acknowledgement, so the shelf stays in RotatingBmc before any rotation is
+    // attempted.
+    run_power_shelf_controller_with_services(
+        pool.clone(),
+        env.api.work_lock_manager_handle.clone(),
+        power_shelf_services(&env, &pool, true),
+    )
+    .await;
+    let power_shelf = load_power_shelf(&pool, &power_shelf_id).await?;
+    assert!(
+        matches!(
+            power_shelf.controller_state.value,
+            PowerShelfControllerState::RotatingBmc { .. }
+        ),
+        "rotation must wait in RotatingBmc until site-explorer acknowledges, got {:?}",
+        power_shelf.controller_state.value,
+    );
+    ack_all_site_explorer_suppressions(&pool).await;
+
+    // Iteration 3: the rotation attempt fails; the engine quarantines the device
     // and the handler settles back to Ready (RotatingBmc is not terminal).
     run_power_shelf_controller_with_services(
         pool.clone(),
@@ -569,7 +637,26 @@ async fn force_request_converges_quarantined_pmc_when_disabled(pool: sqlx::PgPoo
         power_shelf.controller_state.value,
     );
 
-    // Iteration 2: the forced tick bypasses backoff, converges the device, and
+    // Iteration 2: even a forced rotation first gates on site-explorer, so it
+    // waits in RotatingBmc until the suppression is acknowledged.
+    run_power_shelf_controller_with_services(
+        pool.clone(),
+        env.api.work_lock_manager_handle.clone(),
+        power_shelf_services(&env, &pool, false),
+    )
+    .await;
+    let power_shelf = load_power_shelf(&pool, &power_shelf_id).await?;
+    assert!(
+        matches!(
+            power_shelf.controller_state.value,
+            PowerShelfControllerState::RotatingBmc { .. }
+        ),
+        "a forced rotation must still wait for site-explorer acknowledgement, got {:?}",
+        power_shelf.controller_state.value,
+    );
+    ack_all_site_explorer_suppressions(&pool).await;
+
+    // Iteration 3: the forced tick bypasses backoff, converges the device, and
     // returns to Ready.
     run_power_shelf_controller_with_services(
         pool.clone(),
@@ -602,6 +689,148 @@ async fn force_request_converges_quarantined_pmc_when_disabled(pool: sqlx::PgPoo
     assert!(
         !power_shelf.bmc_credential_rotation_requested,
         "the one-shot force request must be cleared after a settled forced rotation"
+    );
+
+    Ok(())
+}
+
+/// When the PMC password change lands but persisting the new per-device secret
+/// to the store fails, the hardware is AHEAD of the store. The power shelf must
+/// hold in `RotatingBmc` (keeping the site-explorer suppression) rather than
+/// settling to Ready with a stale stored secret, and keep retrying until the
+/// store reconciles.
+#[crate::sqlx_test]
+async fn store_persist_failure_holds_in_rotating_bmc_until_reconciled(
+    pool: sqlx::PgPool,
+) -> TestResult {
+    let env = create_test_env(pool.clone()).await;
+
+    let power_shelf_id = common::api_fixtures::site_explorer::new_power_shelf(
+        &env,
+        Some("BMC Rotation Store-Lag Test Power Shelf".to_string()),
+        Some(5000),
+        Some(240),
+        Some("Data Center A, Rack 1".to_string()),
+    )
+    .await?;
+    let pmc_mac = seed_pmc_endpoint(&pool, power_shelf_id).await?;
+    move_to_ready(&pool, &power_shelf_id).await?;
+    stage_lagging_pmc(&env, &pool, pmc_mac).await?;
+
+    // Enter RotatingBmc, let the gate record the suppression, and acknowledge it.
+    run_power_shelf_controller_with_services(
+        pool.clone(),
+        env.api.work_lock_manager_handle.clone(),
+        power_shelf_services(&env, &pool, true),
+    )
+    .await; // Ready -> RotatingBmc
+    run_power_shelf_controller_with_services(
+        pool.clone(),
+        env.api.work_lock_manager_handle.clone(),
+        power_shelf_services(&env, &pool, true),
+    )
+    .await; // gate records the suppression and waits
+    ack_all_site_explorer_suppressions(&pool).await;
+
+    // The store write now fails: the hardware change will land but the persist
+    // will not, leaving the PMC ahead of the store.
+    env.test_credential_manager
+        .set_set_credentials_failure(true);
+
+    // The password change succeeds on the hardware but the persist fails, so the
+    // shelf holds in RotatingBmc instead of returning to Ready.
+    run_power_shelf_controller_with_services(
+        pool.clone(),
+        env.api.work_lock_manager_handle.clone(),
+        power_shelf_services(&env, &pool, true),
+    )
+    .await;
+    let power_shelf = load_power_shelf(&pool, &power_shelf_id).await?;
+    assert!(
+        matches!(
+            power_shelf.controller_state.value,
+            PowerShelfControllerState::RotatingBmc { .. }
+        ),
+        "a persist failure must hold in RotatingBmc, got {:?}",
+        power_shelf.controller_state.value,
+    );
+    assert!(
+        db::bmc_suppression::is_suppressed(&pool, pmc_mac, BmcSuppressionSubsystem::SiteExplorer)
+            .await?,
+        "the rotation suppression must be retained while the store lags"
+    );
+    {
+        let mut conn = pool.acquire().await?;
+        let status = device_rotation_status(&mut conn, BMC, pmc_mac)
+            .await?
+            .expect("device rotation row should exist");
+        assert!(
+            !status.converged,
+            "hardware ahead of store is not converged"
+        );
+        assert!(
+            !status.quarantined,
+            "a persist failure must not record a backoff"
+        );
+    }
+    assert_eq!(
+        env.redfish_sim.user_password("root").as_deref(),
+        Some("new"),
+        "the hardware change must have landed even though the persist failed"
+    );
+    assert_eq!(
+        env.test_credential_manager
+            .get_credentials(&per_device_key(pmc_mac))
+            .await
+            .expect("reading the per-device secret should succeed")
+            .expect("per-device secret should still be set"),
+        creds("root", "old"),
+        "the stored secret must still lag after the failed persist"
+    );
+
+    // The store becomes writable again: the next tick reconciles and returns to
+    // Ready.
+    env.test_credential_manager
+        .set_set_credentials_failure(false);
+    run_power_shelf_controller_with_services(
+        pool.clone(),
+        env.api.work_lock_manager_handle.clone(),
+        power_shelf_services(&env, &pool, true),
+    )
+    .await;
+    let power_shelf = load_power_shelf(&pool, &power_shelf_id).await?;
+    assert!(
+        matches!(
+            power_shelf.controller_state.value,
+            PowerShelfControllerState::Ready
+        ),
+        "expected Ready once the store reconciles, got {:?}",
+        power_shelf.controller_state.value,
+    );
+    assert!(
+        !db::bmc_suppression::is_suppressed(&pool, pmc_mac, BmcSuppressionSubsystem::SiteExplorer)
+            .await?,
+        "resume must delete the rotation suppression once reconciled"
+    );
+    {
+        let mut conn = pool.acquire().await?;
+        let status = device_rotation_status(&mut conn, BMC, pmc_mac)
+            .await?
+            .expect("device rotation row should exist");
+        assert!(
+            status.converged,
+            "device should converge once the store reconciles"
+        );
+        assert_eq!(status.current_version, Some(1));
+    }
+    assert_eq!(
+        env.test_credential_manager
+            .get_credentials(&per_device_key(pmc_mac))
+            .await
+            .expect("reading the per-device secret should succeed")
+            .expect("per-device secret should still be set"),
+        creds("root", "new"),
+        "the store is reconciled to the new password once the write succeeds"
     );
 
     Ok(())

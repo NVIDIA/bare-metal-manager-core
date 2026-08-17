@@ -15,6 +15,7 @@
  * limitations under the License.
  */
 pub mod capability;
+pub mod routing_profile;
 
 use std::collections::HashMap;
 use std::net::IpAddr;
@@ -31,6 +32,7 @@ use carbide_uuid::vpc::VpcId;
 use carbide_uuid::vpc_peering::VpcPeeringId;
 use chrono::{DateTime, Utc};
 use config_version::ConfigVersion;
+pub use routing_profile::{PrefixFilterPolicyEntry, RouteTargetConfig, VpcRoutingProfileOverrides};
 use serde::{Deserialize, Serialize};
 use sqlx::postgres::PgRow;
 use sqlx::{FromRow, Row};
@@ -46,6 +48,8 @@ pub struct VpcConfig {
     pub default_nvlink_logical_partition_id: Option<NvLinkLogicalPartitionId>,
     pub vni: Option<i32>,
     pub routing_profile_type: Option<String>,
+    pub routing_profile_overrides: Option<VpcRoutingProfileOverrides>,
+    pub power_resource_group: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
@@ -67,10 +71,12 @@ pub struct Vpc {
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
 pub struct VpcDefinition {
     pub organization_id: Option<String>,
     pub network_virtualization_type: VpcVirtualizationType,
     pub routing_profile_type: Option<String>,
+    pub routing_profile_overrides: Option<VpcRoutingProfileOverrides>,
     pub vni: Option<i32>,
 }
 
@@ -89,6 +95,8 @@ pub struct NewVpc {
     pub metadata: Metadata,
     pub network_security_group_id: Option<NetworkSecurityGroupId>,
     pub routing_profile_type: Option<String>,
+    pub routing_profile_overrides: Option<VpcRoutingProfileOverrides>,
+    pub power_resource_group: Option<String>,
     pub vni: Option<i32>,
 }
 
@@ -96,8 +104,16 @@ pub struct NewVpc {
 pub struct UpdateVpc {
     pub id: VpcId,
     pub network_security_group_id: Option<NetworkSecurityGroupId>,
+    pub routing_profile_overrides: Option<VpcRoutingProfileOverrides>,
+    pub power_resource_group: Option<PowerResourceGroupUpdate>,
     pub if_version_match: Option<ConfigVersion>,
     pub metadata: Metadata,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum PowerResourceGroupUpdate {
+    Set(String),
+    Clear,
 }
 
 /// UpdateVpcVirtualization exists as a mechanism to translate
@@ -131,6 +147,12 @@ impl<'r> sqlx::FromRow<'r, PgRow> for Vpc {
                 network_security_group_id: row.try_get("network_security_group_id")?,
                 network_virtualization_type: row.try_get("network_virtualization_type")?,
                 routing_profile_type: row.try_get("routing_profile_type")?,
+                routing_profile_overrides: row
+                    .try_get::<Option<sqlx::types::Json<VpcRoutingProfileOverrides>>, _>(
+                        "routing_profile_overrides",
+                    )?
+                    .map(|profile| profile.0),
+                power_resource_group: row.try_get("power_resource_group")?,
                 vni: row.try_get("vni")?,
                 default_nvlink_logical_partition_id: None,
             },

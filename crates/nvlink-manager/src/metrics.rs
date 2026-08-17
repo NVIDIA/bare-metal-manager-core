@@ -29,36 +29,36 @@ use crate::NmxcPartitionOperationType;
 
 /// Metrics that are gathered in a single nvl partition monitor run
 #[derive(Clone, Debug)]
-pub struct NvlPartitionMonitorMetrics {
+pub(super) struct NvlPartitionMonitorMetrics {
     /// Start time of metrics gathering
-    pub recording_started_at: std::time::Instant,
-    pub nmxc: NmxcMetrics,
-    pub num_machines_scanned: usize,
-    pub num_instances_scanned: usize,
-    pub num_gpus_scanned: usize,
+    pub(super) recording_started_at: std::time::Instant,
+    pub(super) nmxc: NmxcMetrics,
+    pub(super) num_machines_scanned: usize,
+    pub(super) num_instances_scanned: usize,
+    pub(super) num_gpus_scanned: usize,
     /// Number of machines where NVLink status observation got updated
-    pub num_machine_nvl_status_updates: usize,
+    pub(super) num_machine_nvl_status_updates: usize,
     /// Number of logical partitions
-    pub num_logical_partitions: usize,
+    pub(super) num_logical_partitions: usize,
     /// Number of physical partitions
-    pub num_physical_partitions: usize,
+    pub(super) num_physical_partitions: usize,
     /// Number of completed operations in this run
-    pub num_completed_operations: usize,
+    pub(super) num_completed_operations: usize,
     /// Number of NVLink GPU partition ID mismatches between DB and NMX-C
-    pub num_nvlink_info_mismatches: usize,
+    pub(super) num_nvlink_info_mismatches: usize,
     /// Number of stale partitions deleted from DB (not found in NMX-C)
-    pub num_stale_partitions_deleted: usize,
-    pub applied_changes: HashMap<AppliedChange, usize>,
+    pub(super) num_stale_partitions_deleted: usize,
+    pub(super) applied_changes: HashMap<AppliedChange, usize>,
     /// Time from nvlink_config_version for instances currently in Pending (time spent in Pending), in milliseconds
-    pub nvlink_config_apply_durations_ms: Vec<f64>,
+    pub(super) nvlink_config_apply_durations_ms: Vec<f64>,
     /// Chassis- or rack-level NMX-C connectivity failures that caused null nvlink status observations.
     /// Counted per machine group; the OTEL gauge name remains `..._unreachable_chassis_count` for continuity.
-    pub num_nmx_c_unreachable_chassis: HashMap<ChassisNmxCUnreachableReason, usize>,
+    pub(super) num_nmx_c_unreachable_chassis: HashMap<ChassisNmxCUnreachableReason, usize>,
 }
 
 /// Why the partition monitor could not use NMX-C for a machine group during an iteration.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum ChassisNmxCUnreachableReason {
+pub(super) enum ChassisNmxCUnreachableReason {
     /// No rack-switch NVOS IP or `nvlink_nmxc_endpoints` row resolved an endpoint URL.
     NoEndpoint,
     /// The resolved endpoint URL could not be parsed as a valid NMX-C client URI.
@@ -74,7 +74,7 @@ pub enum ChassisNmxCUnreachableReason {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, LabelValue)]
-pub enum NmxcMetricOperation {
+pub(super) enum NmxcMetricOperation {
     Create,
     Remove,
     RemoveDefaultPartition,
@@ -82,26 +82,25 @@ pub enum NmxcMetricOperation {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, LabelValue)]
-pub enum NmxcMetricOperationStatus {
+pub(super) enum NmxcMetricOperationStatus {
     Completed,
     Failed,
     Timedout,
-    Cancelled,
 }
 
 #[derive(Clone, Debug, Hash, PartialEq, Eq)]
-pub struct AppliedChange {
+pub(super) struct AppliedChange {
     /// The operation that has been issued
-    pub operation: NmxcMetricOperation,
+    pub(super) operation: NmxcMetricOperation,
     /// Whether the operation succeeded or failed
-    pub status: NmxcMetricOperationStatus,
+    pub(super) status: NmxcMetricOperationStatus,
 }
 
 /// The NMX-C call that failed inside one partition operation. This stays in
 /// log context rather than becoming another latency label; its only other job
 /// is selecting the diagnostic operators already see for that call.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum NmxcOperationFailureStage {
+pub(super) enum NmxcOperationFailureStage {
     None,
     CreatePartitionRetry,
     CreatePartition,
@@ -112,7 +111,7 @@ pub(crate) enum NmxcOperationFailureStage {
     AddGpus,
 }
 
-pub(crate) const DELETE_DEFAULT_PARTITION_FAILED_MESSAGE: &str =
+pub(super) const DELETE_DEFAULT_PARTITION_FAILED_MESSAGE: &str =
     "Failed to delete default partition";
 
 impl Display for NmxcOperationFailureStage {
@@ -144,32 +143,32 @@ impl Display for NmxcOperationFailureStage {
     message = dynamic,
     describe = "Time consumed for one NMX-C operation"
 )]
-pub(crate) struct NmxcOperationFinished {
+pub(super) struct NmxcOperationFinished {
     #[label]
-    pub operation: NmxcMetricOperation,
+    pub(super) operation: NmxcMetricOperation,
     #[label]
-    pub status: NmxcMetricOperationStatus,
+    pub(super) status: NmxcMetricOperationStatus,
     #[observation]
-    pub latency: Duration,
+    pub(super) latency: Duration,
     #[context]
-    pub failure_stage: NmxcOperationFailureStage,
+    pub(super) failure_stage: NmxcOperationFailureStage,
     #[context]
-    pub nvlink_logical_partition_id: String,
+    pub(super) nvlink_logical_partition_id: String,
     #[context]
-    pub nmx_c_partition_id: String,
+    pub(super) nmx_c_partition_id: String,
     #[context]
-    pub create_partition_request: String,
+    pub(super) create_partition_request: String,
     #[context]
-    pub error: String,
+    pub(super) error: String,
 }
 
 impl DynamicLog for NmxcOperationFinished {
     fn log_at(&self) -> LogAt {
         match self.status {
             NmxcMetricOperationStatus::Completed => LogAt::Off,
-            NmxcMetricOperationStatus::Failed
-            | NmxcMetricOperationStatus::Timedout
-            | NmxcMetricOperationStatus::Cancelled => LogAt::Level(tracing::Level::WARN),
+            NmxcMetricOperationStatus::Failed | NmxcMetricOperationStatus::Timedout => {
+                LogAt::Level(tracing::Level::WARN)
+            }
         }
     }
 }
@@ -203,23 +202,23 @@ impl DynamicMessage for NmxcOperationFinished {
 
 /// Metrics collected for NMX-C data
 #[derive(Clone, Debug, Default)]
-pub struct NmxcMetrics {
+pub(super) struct NmxcMetrics {
     /// The endpoint that we use to interact with NMX-C
-    pub endpoint: String,
+    pub(super) endpoint: String,
     /// connection errors
-    pub connect_error: String,
+    pub(super) connect_error: String,
     /// Version of NMX-C
-    pub version: String,
+    pub(super) version: String,
     /// Partition count per (nvlink_domain_uuid, health).
-    pub partition_health: HashMap<(String, &'static str), usize>,
+    pub(super) partition_health: HashMap<(String, &'static str), usize>,
     /// GPU count per (nvlink_domain_uuid, health).
-    pub gpu_health: HashMap<(String, &'static str), usize>,
+    pub(super) gpu_health: HashMap<(String, &'static str), usize>,
     /// Compute-node count per (nvlink_domain_uuid, health).
-    pub compute_node_health: HashMap<(String, &'static str), usize>,
+    pub(super) compute_node_health: HashMap<(String, &'static str), usize>,
 }
 
 impl NvlPartitionMonitorMetrics {
-    pub fn new() -> Self {
+    pub(super) fn new() -> Self {
         Self {
             recording_started_at: std::time::Instant::now(),
             num_machines_scanned: 0,
@@ -243,6 +242,72 @@ impl NvlPartitionMonitorMetrics {
                 compute_node_health: HashMap::new(),
             },
         }
+    }
+
+    /// Accumulates per-group metrics collected during concurrent group processing into `self`.
+    ///
+    /// Fields that are counters or collections are summed/extended. Single-valued NMX-C metadata
+    /// (endpoint, version, connect_error) use last-non-empty-wins, matching the previous
+    /// sequential behaviour where the last processed group determined those values. Health maps
+    /// are keyed by `(domain_uuid, state)` so entries from different groups have distinct keys
+    /// and can be merged with `extend`.
+    ///
+    /// Fields managed by the caller (`recording_started_at`, `num_logical_partitions`,
+    /// `num_physical_partitions`, `num_completed_operations`, `num_nmx_c_unreachable_chassis`)
+    /// are not touched here.
+    ///
+    /// Exhaustive destructuring is intentional: adding a field to
+    /// [`NvlPartitionMonitorMetrics`] or [`NmxcMetrics`] must force a merge decision here.
+    pub(crate) fn merge_from(&mut self, other: Self) {
+        let Self {
+            nmxc:
+                NmxcMetrics {
+                    endpoint,
+                    connect_error,
+                    version,
+                    partition_health,
+                    gpu_health,
+                    compute_node_health,
+                },
+            num_machines_scanned,
+            num_instances_scanned,
+            num_gpus_scanned,
+            num_machine_nvl_status_updates,
+            num_nvlink_info_mismatches,
+            num_stale_partitions_deleted,
+            applied_changes,
+            nvlink_config_apply_durations_ms,
+            // Caller-owned — intentionally not merged.
+            recording_started_at: _,
+            num_logical_partitions: _,
+            num_physical_partitions: _,
+            num_completed_operations: _,
+            num_nmx_c_unreachable_chassis: _,
+        } = other;
+
+        if !endpoint.is_empty() {
+            self.nmxc.endpoint = endpoint;
+        }
+        if !version.is_empty() {
+            self.nmxc.version = version;
+        }
+        if !connect_error.is_empty() {
+            self.nmxc.connect_error = connect_error;
+        }
+        self.nmxc.partition_health.extend(partition_health);
+        self.nmxc.gpu_health.extend(gpu_health);
+        self.nmxc.compute_node_health.extend(compute_node_health);
+        self.num_machines_scanned += num_machines_scanned;
+        self.num_instances_scanned += num_instances_scanned;
+        self.num_gpus_scanned += num_gpus_scanned;
+        self.num_machine_nvl_status_updates += num_machine_nvl_status_updates;
+        self.num_nvlink_info_mismatches += num_nvlink_info_mismatches;
+        self.num_stale_partitions_deleted += num_stale_partitions_deleted;
+        for (k, v) in applied_changes {
+            *self.applied_changes.entry(k).or_default() += v;
+        }
+        self.nvlink_config_apply_durations_ms
+            .extend(nvlink_config_apply_durations_ms);
     }
 }
 
@@ -270,48 +335,41 @@ impl Display for NvlPartitionMonitorMetrics {
     }
 }
 
-/// `NvlPartitionMonitorIterationFinished` closes one partition reconciliation
-/// pass. Every emission records the existing label-free latency histogram; a
-/// returned error also writes the monitor's `WARN` record.
+/// One NVLink partition monitor pass. Both cases sample the duration; only a
+/// failure logs.
 #[derive(Event)]
 #[event(
     event_name = "nvlink_partition_monitor_iteration_finished",
     metric_name = "carbide_nvlink_partition_monitor_iteration_latency_milliseconds",
     component = "nvlink-manager",
-    log = dynamic,
     metric = histogram,
-    message = "NVLink partition monitor error",
     describe = "Time consumed for one monitor iteration"
 )]
-pub(crate) struct NvlPartitionMonitorIterationFinished {
-    #[observation]
-    pub latency: Duration,
-    /// Empty on success, which keeps the completion event metric-only.
-    #[context]
-    pub error: String,
-}
+pub(super) enum NvlPartitionMonitorIterationFinished {
+    /// A clean pass: sampled, never logged.
+    #[event(log = off)]
+    Succeeded {
+        #[observation]
+        latency: Duration,
+    },
 
-impl DynamicLog for NvlPartitionMonitorIterationFinished {
-    fn log_at(&self) -> LogAt {
-        if self.error.is_empty() {
-            LogAt::Off
-        } else {
-            LogAt::Level(tracing::Level::WARN)
-        }
-    }
+    #[event(log = warn, message = "NVLink partition monitor error")]
+    Failed {
+        #[observation]
+        latency: Duration,
+        #[context]
+        error: String,
+    },
 }
 
 /// Instruments that are used by pub struct NvlPartitionMonitor
-pub struct NvlPartitionMonitorInstruments {
-    pub nmxc_changes_applied: Counter<u64>,
-    pub nvlink_config_apply_latency: Histogram<f64>,
+struct NvlPartitionMonitorInstruments {
+    nmxc_changes_applied: Counter<u64>,
+    nvlink_config_apply_latency: Histogram<f64>,
 }
 
 impl NvlPartitionMonitorInstruments {
-    pub fn new(
-        meter: Meter,
-        shared_metrics: SharedMetricsHolder<NvlPartitionMonitorMetrics>,
-    ) -> Self {
+    fn new(meter: Meter, shared_metrics: SharedMetricsHolder<NvlPartitionMonitorMetrics>) -> Self {
         let nvlink_config_apply_latency = meter
             .f64_histogram("carbide_nvlink_partition_monitor_nvlink_config_apply_latency")
             .with_description("Time since nvlink config was requested for this instance")
@@ -560,7 +618,7 @@ impl NvlPartitionMonitorInstruments {
 }
 
 impl NmxcMetricOperation {
-    pub fn values() -> impl Iterator<Item = Self> {
+    fn values() -> impl Iterator<Item = Self> {
         [
             Self::Create,
             Self::Update,
@@ -608,7 +666,7 @@ impl From<NmxcPartitionOperationType> for NmxcMetricOperation {
 }
 
 impl NmxcMetricOperationStatus {
-    pub fn values() -> impl Iterator<Item = Self> {
+    fn values() -> impl Iterator<Item = Self> {
         [Self::Completed, Self::Failed, Self::Timedout].into_iter()
     }
 }
@@ -620,13 +678,13 @@ impl From<NmxcMetricOperationStatus> for opentelemetry::Value {
 }
 
 /// Stores Metric data shared between the nvl partition monitor and the OpenTelemetry background task
-pub struct MetricHolder {
+pub(super) struct MetricHolder {
     instruments: NvlPartitionMonitorInstruments,
     last_iteration_metrics: SharedMetricsHolder<NvlPartitionMonitorMetrics>,
 }
 
 impl MetricHolder {
-    pub fn new(meter: Meter, hold_period: Duration) -> Self {
+    pub(super) fn new(meter: Meter, hold_period: Duration) -> Self {
         let last_iteration_metrics = SharedMetricsHolder::with_hold_period(hold_period);
         let instruments =
             NvlPartitionMonitorInstruments::new(meter, last_iteration_metrics.clone());
@@ -638,7 +696,7 @@ impl MetricHolder {
     }
 
     /// Updates the most recent metrics
-    pub fn update_metrics(&self, metrics: NvlPartitionMonitorMetrics) {
+    pub(super) fn update_metrics(&self, metrics: NvlPartitionMonitorMetrics) {
         self.instruments.emit_counters_and_histograms(&metrics);
         self.last_iteration_metrics.update(metrics);
     }
@@ -665,6 +723,135 @@ mod tests {
     use carbide_test_support::{Check, check_values};
 
     use super::*;
+
+    #[test]
+    fn merge_from_sums_group_fields_and_preserves_caller_owned() {
+        let applied_create = AppliedChange {
+            operation: NmxcMetricOperation::Create,
+            status: NmxcMetricOperationStatus::Completed,
+        };
+        let applied_remove = AppliedChange {
+            operation: NmxcMetricOperation::Remove,
+            status: NmxcMetricOperationStatus::Failed,
+        };
+
+        let mut base = NvlPartitionMonitorMetrics::new();
+        base.recording_started_at = std::time::Instant::now();
+        let started_at = base.recording_started_at;
+        base.num_logical_partitions = 4;
+        base.num_physical_partitions = 2;
+        base.num_completed_operations = 7;
+        base.num_nmx_c_unreachable_chassis
+            .insert(ChassisNmxCUnreachableReason::NoEndpoint, 1);
+        base.num_machines_scanned = 1;
+        base.num_instances_scanned = 2;
+        base.num_gpus_scanned = 3;
+        base.num_machine_nvl_status_updates = 1;
+        base.num_nvlink_info_mismatches = 1;
+        base.num_stale_partitions_deleted = 1;
+        base.applied_changes.insert(applied_create.clone(), 2);
+        base.nvlink_config_apply_durations_ms.push(10.0);
+        base.nmxc.endpoint = "https://first.example:9370".to_string();
+        base.nmxc.version = "first=1".to_string();
+        base.nmxc.connect_error = "first-error".to_string();
+        base.nmxc
+            .partition_health
+            .insert(("domain-a".to_string(), "healthy"), 1);
+        base.nmxc
+            .gpu_health
+            .insert(("domain-a".to_string(), "healthy"), 2);
+        base.nmxc
+            .compute_node_health
+            .insert(("domain-a".to_string(), "healthy"), 3);
+
+        let mut other = NvlPartitionMonitorMetrics::new();
+        other.num_logical_partitions = 99;
+        other.num_physical_partitions = 99;
+        other.num_completed_operations = 99;
+        other
+            .num_nmx_c_unreachable_chassis
+            .insert(ChassisNmxCUnreachableReason::HelloFailed, 5);
+        other.num_machines_scanned = 10;
+        other.num_instances_scanned = 20;
+        other.num_gpus_scanned = 30;
+        other.num_machine_nvl_status_updates = 4;
+        other.num_nvlink_info_mismatches = 5;
+        other.num_stale_partitions_deleted = 6;
+        other.applied_changes.insert(applied_create.clone(), 3);
+        other.applied_changes.insert(applied_remove.clone(), 1);
+        other.nvlink_config_apply_durations_ms.push(20.0);
+        other.nmxc.endpoint = "https://second.example:9370".to_string();
+        other.nmxc.version = "second=2".to_string();
+        other.nmxc.connect_error = "second-error".to_string();
+        other
+            .nmxc
+            .partition_health
+            .insert(("domain-b".to_string(), "healthy"), 4);
+        other
+            .nmxc
+            .gpu_health
+            .insert(("domain-b".to_string(), "healthy"), 5);
+        other
+            .nmxc
+            .compute_node_health
+            .insert(("domain-b".to_string(), "healthy"), 6);
+
+        base.merge_from(other);
+
+        assert_eq!(base.num_machines_scanned, 11);
+        assert_eq!(base.num_instances_scanned, 22);
+        assert_eq!(base.num_gpus_scanned, 33);
+        assert_eq!(base.num_machine_nvl_status_updates, 5);
+        assert_eq!(base.num_nvlink_info_mismatches, 6);
+        assert_eq!(base.num_stale_partitions_deleted, 7);
+        assert_eq!(base.applied_changes[&applied_create], 5);
+        assert_eq!(base.applied_changes[&applied_remove], 1);
+        assert_eq!(base.nvlink_config_apply_durations_ms, vec![10.0, 20.0]);
+        assert_eq!(base.nmxc.endpoint, "https://second.example:9370");
+        assert_eq!(base.nmxc.version, "second=2");
+        assert_eq!(base.nmxc.connect_error, "second-error");
+        assert_eq!(
+            base.nmxc.partition_health,
+            HashMap::from([
+                (("domain-a".to_string(), "healthy"), 1),
+                (("domain-b".to_string(), "healthy"), 4),
+            ])
+        );
+        assert_eq!(
+            base.nmxc.gpu_health,
+            HashMap::from([
+                (("domain-a".to_string(), "healthy"), 2),
+                (("domain-b".to_string(), "healthy"), 5),
+            ])
+        );
+        assert_eq!(
+            base.nmxc.compute_node_health,
+            HashMap::from([
+                (("domain-a".to_string(), "healthy"), 3),
+                (("domain-b".to_string(), "healthy"), 6),
+            ])
+        );
+
+        // Caller-owned fields must not change during merge.
+        assert_eq!(base.recording_started_at, started_at);
+        assert_eq!(base.num_logical_partitions, 4);
+        assert_eq!(base.num_physical_partitions, 2);
+        assert_eq!(base.num_completed_operations, 7);
+        assert_eq!(
+            base.num_nmx_c_unreachable_chassis,
+            HashMap::from([(ChassisNmxCUnreachableReason::NoEndpoint, 1)])
+        );
+
+        // Empty metadata from `other` must not overwrite existing values.
+        let mut keep = NvlPartitionMonitorMetrics::new();
+        keep.nmxc.endpoint = "https://keep.example:9370".to_string();
+        keep.nmxc.version = "keep=1".to_string();
+        keep.nmxc.connect_error = "keep-error".to_string();
+        keep.merge_from(NvlPartitionMonitorMetrics::new());
+        assert_eq!(keep.nmxc.endpoint, "https://keep.example:9370");
+        assert_eq!(keep.nmxc.version, "keep=1");
+        assert_eq!(keep.nmxc.connect_error, "keep-error");
+    }
 
     #[test]
     fn partition_monitor_iteration_records_latency_and_warns_only_on_failure() {
@@ -735,9 +922,13 @@ mod tests {
             |IterationCase { latency, error }| {
                 let metrics = MetricsCapture::start();
                 let logs = capture_logs(|| {
-                    emit(NvlPartitionMonitorIterationFinished {
-                        latency,
-                        error: error.to_string(),
+                    emit(if error.is_empty() {
+                        NvlPartitionMonitorIterationFinished::Succeeded { latency }
+                    } else {
+                        NvlPartitionMonitorIterationFinished::Failed {
+                            latency,
+                            error: error.to_string(),
+                        }
                     });
                 });
                 let log = logs.first().map(|log| LogObservation {
@@ -1027,9 +1218,8 @@ mod tests {
         const METRIC_NAME: &str = "carbide_nvlink_partition_monitor_iteration_latency_milliseconds";
 
         let metrics = MetricsCapture::start();
-        emit(NvlPartitionMonitorIterationFinished {
+        emit(NvlPartitionMonitorIterationFinished::Succeeded {
             latency: Duration::from_millis(125),
-            error: String::new(),
         });
 
         let encoded = metrics.render();

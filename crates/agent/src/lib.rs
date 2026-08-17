@@ -65,6 +65,7 @@ mod host_machine_id;
 mod instance_metadata_endpoint;
 pub mod instrumentation;
 pub mod lldp;
+mod local_api;
 mod machine_inventory_updater;
 mod main_loop;
 mod managed_files;
@@ -78,7 +79,6 @@ mod periodic_config_fetcher;
 mod sysfs;
 #[cfg(test)]
 mod tests;
-pub mod traffic_intercept_bridging;
 pub mod upgrade;
 pub mod util;
 pub mod weave_ew_vpc_client;
@@ -92,7 +92,21 @@ pub const FMDS_MINIMUM_HBN_VERSION: &str = "1.5.0-doca2.2.0";
 /// supported configuration path, DPUs running older HBN versions cannot be configured.
 pub const NVUE_MINIMUM_HBN_VERSION: &str = "2.0.0-doca2.5.0";
 
-const BOOTSTRAP_CA_OUTPUT_PATH: &str = "/opt/forge/forge_root.pem";
+/// Subdirectory holding a second copy of the trust anchor, and nothing else.
+///
+/// Co-located services need the root CA but must never see the machine private
+/// key that lives beside it (issue #355). A container can only be given one or
+/// the other: mounting the credentials directory exposes the key, and mounting
+/// the CA file alone by `subPath` bind-mounts its inode, so the atomic rename
+/// in `install_bootstrap_ca` would never reach a running consumer. A directory
+/// containing only the CA gives both properties — no key, and renames resolve.
+///
+/// Placed beside whichever CA path is configured rather than at a fixed
+/// location, so it tracks a deployment that moves the credentials directory —
+/// token-mode fmds watches `<certsDir>/pub/<rootCaFile>` and would otherwise
+/// block forever. With the defaults on both sides this resolves to
+/// `/opt/forge/pub/forge_root.pem`.
+const BOOTSTRAP_CA_PUBLIC_SUBDIR: &str = "pub";
 const MOUNTED_BOOTSTRAP_CA_PATH: &str = "/var/run/secrets/nico-bootstrap-ca/ca.pem";
 const MAX_BOOTSTRAP_CA_BYTES: usize = 1024 * 1024;
 const BOOTSTRAP_CA_DOWNLOAD_TIMEOUT: Duration = Duration::from_secs(30);
@@ -270,10 +284,97 @@ fn install_bootstrap_ca(contents: &[u8], output_path: &Path) -> eyre::Result<()>
     Ok(())
 }
 
-async fn provision_bootstrap_ca(options: &command_line::InitContainerOptions) -> eyre::Result<()> {
+async fn provision_bootstrap_ca(
+    options: &command_line::InitContainerOptions,
+    root_ca_path: &str,
+) -> eyre::Result<()> {
     let contents =
         acquire_bootstrap_ca(options.bootstrap_ca_source, &options.bootstrap_ca_url).await?;
-    install_bootstrap_ca(&contents, Path::new(BOOTSTRAP_CA_OUTPUT_PATH))
+    // Installed where the agent will later look for it, rather than at a
+    // constant of its own. The two were equal by coincidence -- `[forge-system]
+    // root-ca` defaults to the same path -- and nothing kept them that way, so
+    // a deployment that moved the CA would have had the init container write
+    // one place and every reader look in another.
+    let output_path = Path::new(root_ca_path);
+    install_bootstrap_ca(&contents, output_path)?;
+    publish_bootstrap_ca(&contents, output_path)
+}
+
+/// Mirrors the trust anchor into a `pub/` subdirectory beside `source_ca_path`
+/// for key-less consumers. Same atomic install, so a consumer with the
+/// directory mounted picks up a replacement without restarting.
+///
+/// Derived from the configured CA rather than a constant: token-mode fmds
+/// waits on `<certsDir>/pub/<rootCaFile>`, so a deployment that moves the
+/// credentials directory would otherwise have the agent publish to the default
+/// location while fmds watched the configured one — leaving its init container
+/// blocked forever with nothing to say why.
+fn publish_bootstrap_ca(contents: &[u8], source_ca_path: &Path) -> eyre::Result<()> {
+    let dir = source_ca_path
+        .parent()
+        .ok_or_else(|| eyre::eyre!("CA path has no parent: {}", source_ca_path.display()))?;
+    let file_name = source_ca_path
+        .file_name()
+        .ok_or_else(|| eyre::eyre!("CA path has no file name: {}", source_ca_path.display()))?;
+    let parent = dir.join(BOOTSTRAP_CA_PUBLIC_SUBDIR);
+    std::fs::create_dir_all(&parent)
+        .wrap_err_with(|| format!("failed to create public CA directory {}", parent.display()))?;
+    install_bootstrap_ca(contents, &parent.join(file_name))
+}
+
+/// How often the published copy of the trust anchor is reconciled against the
+/// configured one. Matches the API listener's own reload cadence, so a rotation
+/// reaches key-less consumers on roughly the same clock as it reaches the
+/// listener and the token validator.
+const CA_REPUBLISH_INTERVAL: Duration = Duration::from_secs(5 * 60);
+
+/// Copies the configured trust anchor into its `pub/` mirror when the two
+/// differ.
+///
+/// Publishing only at startup is not enough. `pub/` is the only trust anchor a
+/// token-mode consumer has — it does not mount the credentials directory — so a
+/// CA rotated while the agent is running would leave fmds pinned to the old
+/// issuer indefinitely, and it would stop being able to verify the API the
+/// moment that issuer is retired. The API listener re-reads the same material
+/// every few minutes; the published copy has to keep pace.
+///
+/// Compares before writing so a steady state costs a read rather than an atomic
+/// rename every interval, and best-effort throughout: a missing or unreadable
+/// CA is the pre-registration case, and a failed write leaves the previous copy
+/// in place for the next pass.
+fn republish_bootstrap_ca_if_changed(root_ca_path: &str) {
+    let source = Path::new(root_ca_path);
+    let Ok(contents) = std::fs::read(source) else {
+        tracing::debug!(
+            target: "node_auth",
+            path = %root_ca_path,
+            "node-auth: no root CA to publish for co-located services yet"
+        );
+        return;
+    };
+
+    let published = source
+        .parent()
+        .zip(source.file_name())
+        .map(|(dir, name)| dir.join(BOOTSTRAP_CA_PUBLIC_SUBDIR).join(name));
+    if let Some(published) = &published
+        && std::fs::read(published).is_ok_and(|existing| existing == contents)
+    {
+        return;
+    }
+
+    match publish_bootstrap_ca(&contents, source) {
+        Ok(()) => tracing::info!(
+            target: "node_auth",
+            path = %root_ca_path,
+            "node-auth: published the root CA for co-located services"
+        ),
+        Err(error) => tracing::warn!(
+            target: "node_auth",
+            %error,
+            "node-auth: could not publish the root CA for co-located services"
+        ),
+    }
 }
 
 pub async fn start(cmdline: command_line::Options) -> eyre::Result<()> {
@@ -304,6 +405,19 @@ pub async fn start(cmdline: command_line::Options) -> eyre::Result<()> {
         tracing::warn!("Pretending local host is a DPU. Dev only.");
     }
 
+    // Published once here so it exists before anything else starts, then kept
+    // current by `main_loop::run_single_iteration`, which reconciles it beside
+    // certificate renewal.
+    republish_bootstrap_ca_if_changed(&agent.forge_system.root_ca);
+
+    // Node-auth (#355): the agent is the only process on the DPU that holds
+    // the machine key. This minter signs bearer JWTs for the agent's own API
+    // calls AND backs the local API socket that brokers tokens to co-located
+    // services (fmds, ...). Ignored by the API unless [node_auth] is enabled.
+    let node_jwt_minter = ::rpc::node_jwt::NodeJwtMinter::new(
+        agent.forge_system.client_cert.clone(),
+        agent.forge_system.client_key.clone(),
+    );
     let forge_client_config = Arc::new(
         ForgeClientConfig::new(
             agent.forge_system.root_ca.clone(),
@@ -312,6 +426,7 @@ pub async fn start(cmdline: command_line::Options) -> eyre::Result<()> {
                 key_path: agent.forge_system.client_key.clone(),
             }),
         )
+        .with_token_provider(node_jwt_minter.clone())
         .use_mgmt_vrf()?,
     );
 
@@ -325,6 +440,19 @@ pub async fn start(cmdline: command_line::Options) -> eyre::Result<()> {
             if options.skip_upgrade_check {
                 tracing::warn!("Upgrades disabled. Dev only");
             }
+
+            let local_api = {
+                let minter = node_jwt_minter.clone();
+                let socket_path = agent.forge_system.local_api_socket.clone();
+                async move {
+                    loop {
+                        if let Err(error) = local_api::serve(minter.clone(), &socket_path).await {
+                            tracing::warn!(target: "node_auth", %error, "node-auth: agent local API server failed; retrying");
+                        }
+                        tokio::time::sleep(std::time::Duration::from_secs(10)).await;
+                    }
+                }
+            };
 
             let Registration {
                 machine_id,
@@ -340,15 +468,18 @@ pub async fn start(cmdline: command_line::Options) -> eyre::Result<()> {
                     factory_mac_address: "11:22:33:44:55:66".parse().unwrap(),
                 },
             };
-            main_loop::setup_and_run(
-                machine_id,
-                factory_mac_address,
-                forge_client_config,
-                agent,
-                *options,
-            )
-            .await
-            .wrap_err("main_loop error exit")?;
+            let main_loop_result = tokio::select! {
+                result = main_loop::setup_and_run(
+                    machine_id,
+                    factory_mac_address,
+                    forge_client_config,
+                    agent,
+                    *options,
+                ) => result.wrap_err("main_loop error exit"),
+                () = local_api => unreachable!("the agent local API retry loop cannot finish"),
+            };
+
+            main_loop_result?;
             tracing::info!("Agent exit");
         }
 
@@ -373,7 +504,7 @@ pub async fn start(cmdline: command_line::Options) -> eyre::Result<()> {
         // Init-container entry point: provision the CA + snapshot hardware to the shared volume.
         // Output path is fixed (HW_CACHE_PATH) so the main container can always find it.
         Some(AgentCommand::InitContainer(options)) => {
-            provision_bootstrap_ca(&options).await?;
+            provision_bootstrap_ca(&options, &agent.forge_system.root_ca).await?;
             enumerate_and_save_hardware().await?;
             util::save_host_nameservers()?;
         }
@@ -391,6 +522,9 @@ pub async fn start(cmdline: command_line::Options) -> eyre::Result<()> {
                 has_changed_configs: false,
                 min_healthy_links: 2,
                 route_servers: &[],
+                // Standalone checks lack managed-host config to establish that
+                // the FNN IPv6 underlay is active.
+                should_check_ipv6_unicast: false,
                 hbn_device_names: HBNDeviceNames::hbn_23(),
                 include_dhcp_server: false,
                 run_restricted_mode_check: true,
@@ -557,10 +691,6 @@ pub async fn start(cmdline: command_line::Options) -> eyre::Result<()> {
                     tenancy_enabled: true,
                     loopback_ip: opts.loopback_ip,
                     loopback_ip_v6: opts.loopback_ip_v6,
-                    secondary_overlay_vtep_ip: opts.secondary_overlay_vtep_ip,
-                    internal_bridge_routing_prefix: opts.internal_bridge_routing_prefix,
-                    vf_intercept_bridge_port_name: opts.vf_intercept_bridge_port_name,
-                    host_intercept_bridge_port_name: opts.host_intercept_bridge_port_name,
                     asn: opts.asn,
                     datacenter_asn: opts.datacenter_asn,
                     anycast_site_prefixes: vec!["5.255.255.0/24".to_string()],
@@ -576,8 +706,6 @@ pub async fn start(cmdline: command_line::Options) -> eyre::Result<()> {
                     dhcp_servers: opts.dhcp_servers,
                     deny_prefixes: vec![],
                     site_fabric_prefixes: vec![],
-                    traffic_intercept_public_prefixes: vec![],
-                    vf_intercept_bridge_sf: opts.vf_intercept_bridge_sf,
                     use_vpc_isolation: true,
                     network_security_policy_override_rules,
                     stateful_acls_enabled: opts.stateful_acls_enabled,
@@ -621,7 +749,7 @@ struct HBNDeviceNames {
 }
 
 impl HBNDeviceNames {
-    pub fn pre_23() -> HBNDeviceNames {
+    fn pre_23() -> HBNDeviceNames {
         HBNDeviceNames {
             uplinks: ["p0_sf", "p1_sf"],
             reps: ["pf0hpf_sf", "pf1hpf_sf"],
@@ -631,7 +759,7 @@ impl HBNDeviceNames {
         }
     }
 
-    pub fn hbn_23() -> HBNDeviceNames {
+    fn hbn_23() -> HBNDeviceNames {
         HBNDeviceNames {
             uplinks: ["p0_if", "p1_if"],
             reps: ["pf0hpf_if", "pf1hpf_if"],
@@ -640,7 +768,7 @@ impl HBNDeviceNames {
             sf_id: "_if",
         }
     }
-    pub fn new(hbn_version: Version) -> Self {
+    fn new(hbn_version: Version) -> Self {
         let min_version: Version = Version::from_parts(
             "2.3.0-doca2.8.0",
             vec![
@@ -659,7 +787,7 @@ impl HBNDeviceNames {
             HBNDeviceNames::hbn_23()
         }
     }
-    pub fn build_virt(&self, virt_rep_id: u32) -> String {
+    fn build_virt(&self, virt_rep_id: u32) -> String {
         format!("{}{}{}", self.virt_rep_begin, virt_rep_id, self.sf_id)
     }
 }

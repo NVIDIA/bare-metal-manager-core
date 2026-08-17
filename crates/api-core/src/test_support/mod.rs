@@ -18,8 +18,8 @@
 pub mod builder;
 pub mod default_config;
 pub mod fixture_config;
-pub mod ib_fabric;
-pub mod ib_guid_pool;
+pub(crate) mod ib_fabric;
+pub(crate) mod ib_guid_pool;
 pub mod mac_address_pool;
 pub mod network;
 pub mod network_segment;

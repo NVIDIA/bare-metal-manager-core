@@ -1,9 +1,9 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
-.PHONY: test postgres-up postgres-down ensure-postgres postgres-wait clean check-source-headers fix-source-headers
+.PHONY: test postgres-up postgres-down ensure-postgres postgres-wait clean check-source-headers fix-source-headers check-command-bundle
 .PHONY: build docker-build docker-build-local
-.PHONY: test-ipam test-site-agent test-site-manager test-workflow test-db test-api test-auth test-common test-cert-manager test-site-workflow test-flow test-powershelf-manager test-nvswitch-manager migrate core-mock-server-build core-mock-server-start core-mock-server-stop flow-mock-server-build flow-mock-server-start flow-mock-server-stop
+.PHONY: test-ipam test-site-agent test-site-manager test-workflow test-db test-api test-auth test-common test-cert-manager test-site-workflow test-flow test-powershelf-manager test-nvswitch-manager test-proto migrate core-mock-server-build core-mock-server-start core-mock-server-stop flow-mock-server-build flow-mock-server-start flow-mock-server-stop
 .PHONY: validate-openapi preview-openapi generate-client
 .PHONY: core-proto core-proto-clean core-proto-fetch core-proto-fmt core-protogen flow-proto flow-protogen tools-build tools-clean
 .PHONY: pre-commit-install pre-commit-run pre-commit-update
@@ -109,6 +109,11 @@ check-source-headers:
 fix-source-headers:
 	python3 scripts/check_source_headers.py --fix
 
+check-command-bundle:
+	python3 -c 'import sys; sys.exit("error: Python 3.10 or newer is required") if sys.version_info < (3, 10) else None'
+	python3 -B ../.github/ci/test_rest_command_bundle.py
+	python3 -B ../.github/ci/rest_command_bundle.py check
+
 ensure-postgres:
 	@docker inspect $(POSTGRES_CONTAINER_NAME) > /dev/null 2>&1 || $(MAKE) postgres-up
 	@$(MAKE) postgres-wait
@@ -150,6 +155,9 @@ test-site-manager:
 test-workflow:
 	$(MAKE) ensure-postgres
 	cd workflow && go test -p 1 ./... -count=1
+
+test-proto:
+	cd proto && go test ./... -count=1
 
 test-db:
 	$(MAKE) ensure-postgres
@@ -252,7 +260,7 @@ test-nvswitch-manager:
 		DB_NAME=$(POSTGRES_DB) \
 		go test -p 1 ./... -count=1
 
-test: test-ipam test-db test-api test-auth test-common test-cert-manager test-site-workflow test-site-manager test-workflow test-site-agent test-flow test-powershelf-manager test-nvswitch-manager
+test: test-ipam test-db test-api test-auth test-common test-cert-manager test-site-workflow test-site-manager test-workflow test-site-agent test-flow test-powershelf-manager test-nvswitch-manager test-proto
 
 build:
 	mkdir -p $(BUILD_DIR)
@@ -340,7 +348,8 @@ core-protogen: .tools-stamp
 	echo "Generating protobuf for Core"
 	cd proto/core && PATH="$(TOOLS_DIR):$$PATH" $(BUF) generate
 	go fmt ./...
-	python3 scripts/check_source_headers.py --fix
+	python3 scripts/check_source_headers.py --fix \
+		--include-untracked 'proto/core/gen/v1/*.pb.go'
 
 flow-proto:
 	$(MAKE) flow-proto-clean
@@ -893,7 +902,9 @@ generate-sdk: $(OPENAPI_GENERATOR_JAR)
 		--additional-properties=isGoSubmodule=true,enumClassPrefix=true \
 		--global-property=apis,models,supportingFiles
 	rm -rf sdk/standard/docs sdk/standard/api sdk/standard/README.md sdk/standard/test sdk/standard/.openapi-generator
-	python3 scripts/check_source_headers.py --fix
+	python3 scripts/check_source_headers.py --fix \
+		--include-untracked 'sdk/standard/api_*.go' \
+		--include-untracked 'sdk/standard/model_*.go'
 	@echo "Client generated in sdk/standard/"
 	cd sdk/standard && go build ./...
 	@echo "Client compiles successfully"

@@ -31,7 +31,7 @@ use crate::errors::DhcpError;
 use crate::rpc::client::discover_dhcp;
 
 #[derive(Debug)]
-pub struct Controller {}
+pub(crate) struct Controller {}
 
 #[async_trait]
 impl DhcpMode for Controller {
