@@ -132,13 +132,13 @@ async fn release(api_client: &ApiClient, args: Release) -> CarbideCliResult<()> 
 
     let mut table = prettytable::Table::new();
     table.set_titles(row!["Machine Id", "Result", "Detail"]);
-    let (mut released, mut deferred, mut failed) = (0, 0, 0);
+    let (mut released, mut deferred, mut failed, mut not_pending) = (0, 0, 0, 0);
     for result in &results {
         let status = result.status();
         match status {
             DpuServiceSyncReleaseStatus::Released => released += 1,
             DpuServiceSyncReleaseStatus::Failed => failed += 1,
-            DpuServiceSyncReleaseStatus::NotPending => {}
+            DpuServiceSyncReleaseStatus::NotPending => not_pending += 1,
             _ => deferred += 1,
         }
         table.add_row(row![
@@ -148,7 +148,12 @@ async fn release(api_client: &ApiClient, args: Release) -> CarbideCliResult<()> 
         ]);
     }
     table.printstd();
-    println!("{released} released, {deferred} deferred, {failed} failed");
+    // Counts every row printed above. Omitting the already-handled ones made a
+    // repeat run -- the most common invocation, since that is what makes this
+    // safe to loop -- report all zeros beneath a full table.
+    println!(
+        "{released} released, {deferred} deferred, {not_pending} already handled, {failed} failed"
+    );
 
     // Only a failure is an error. A deferral is the documented answer and
     // "not pending" is what a repeat run reports, so treating either as failure

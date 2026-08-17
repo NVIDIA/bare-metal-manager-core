@@ -20,3 +20,11 @@ CREATE TYPE machine_pending_action_actor AS ENUM (
 -- absent.
 ALTER TABLE machine_pending_actions
     ADD COLUMN completed_by machine_pending_action_actor;
+
+-- Rows completed before this column existed were all completed by carbide
+-- itself: the operator-driven path arrives with it. Without this they read as
+-- "nobody", which is worse than useless for the one question the column is here
+-- to answer, and it would leave the pair above only conditionally true.
+UPDATE machine_pending_actions
+    SET completed_by = 'automatic'
+    WHERE completed_at IS NOT NULL AND completed_by IS NULL;

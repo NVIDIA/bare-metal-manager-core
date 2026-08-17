@@ -162,6 +162,10 @@ async fn resolve_target(
             .map(|machine_id| (*machine_id, TenantPolicy::RefuseIfAssigned))
             .collect()),
         Some(Target::InstanceIds(list)) => {
+            // Checked before the loop, not just in `validate`: resolving costs a
+            // query per instance, so an oversized batch would otherwise do all
+            // of that work inside a transaction only to be rejected after.
+            check_batch_size(list.instance_ids.len())?;
             let mut txn = api.txn_begin().await?;
             let mut targets = Vec::with_capacity(list.instance_ids.len());
             for instance_id in &list.instance_ids {
@@ -188,6 +192,16 @@ async fn resolve_target(
     }
 }
 
+fn check_batch_size(len: usize) -> Result<(), Status> {
+    if len > MAX_RELEASE_BATCH {
+        return Err(CarbideError::InvalidArgument(format!(
+            "at most {MAX_RELEASE_BATCH} may be released per call, got {len}"
+        ))
+        .into());
+    }
+    Ok(())
+}
+
 /// Rejects the whole request before anything irreversible happens.
 ///
 /// Releasing is an external action that cannot be undone, so a malformed batch
@@ -198,13 +212,7 @@ async fn validate(api: &Api, machine_ids: &[MachineId]) -> Result<(), Status> {
     if machine_ids.is_empty() {
         return Err(CarbideError::InvalidArgument("no machines were named".to_string()).into());
     }
-    if machine_ids.len() > MAX_RELEASE_BATCH {
-        return Err(CarbideError::InvalidArgument(format!(
-            "at most {MAX_RELEASE_BATCH} machines may be released per call, got {}",
-            machine_ids.len()
-        ))
-        .into());
-    }
+    check_batch_size(machine_ids.len())?;
 
     // A DPU id is refused rather than resolved to its host: the hold is per
     // node, so honouring it would quietly widen the request from one DPU to
