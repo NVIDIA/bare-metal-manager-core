@@ -73,11 +73,17 @@ EXAMPLES:
 Release one host:
     $ nico-admin-cli dpf service-sync release --machine-id 12345678-1234-5678-90ab-cdef01234567
 
-Release several hosts in one call:
+Release several hosts, passing the ids after one flag:
     $ nico-admin-cli dpf service-sync release --machine-id 12345678-1234-5678-90ab-cdef01234567 abcdef01-2345-6789-abcd-ef0123456789
+
+Release several hosts, repeating the flag instead:
+    $ nico-admin-cli dpf service-sync release --machine-id 12345678-1234-5678-90ab-cdef01234567 --machine-id abcdef01-2345-6789-abcd-ef0123456789
 
 Release the host running an instance, accepting that its tenant is disrupted:
     $ nico-admin-cli dpf service-sync release --instance-id abcdef01-2345-6789-abcd-ef0123456789
+
+Release the hosts running several instances:
+    $ nico-admin-cli dpf service-sync release --instance-id 12345678-1234-5678-90ab-cdef01234567 abcdef01-2345-6789-abcd-ef0123456789
 
 ")]
 pub(crate) struct Release {
@@ -94,25 +100,32 @@ pub(crate) struct Release {
     )]
     pub(super) machine_ids: Vec<MachineId>,
 
-    /// Releases the host currently running this instance even though it is
-    /// assigned. Naming the instance is the acknowledgement that its tenant will
-    /// be disrupted, and covers only this instance.
+    /// Releases the hosts currently running these instances even though they
+    /// are assigned. Naming an instance is the acknowledgement that its tenant
+    /// will be disrupted, and each one covers only the instance named.
     #[clap(
         long = "instance-id",
+        num_args = 1..,
         value_name = "INSTANCE_ID",
         group = "target",
-        help = "Release the host running this instance, disrupting its tenant"
+        help = "Release the hosts running these instances, disrupting their tenants"
     )]
-    pub(super) instance_id: Option<InstanceId>,
+    pub(super) instance_ids: Vec<InstanceId>,
 }
 
 impl From<&Release> for ReleaseDpuServiceSyncHoldRequest {
     fn from(args: &Release) -> Self {
-        let target = match args.instance_id {
-            Some(instance_id) => Target::InstanceId(instance_id),
-            None => Target::MachineIds(::rpc::common::MachineIdList {
+        // The ArgGroup makes these mutually exclusive and one of them required,
+        // so a non-empty instance list is the only way to reach the instance
+        // target.
+        let target = if args.instance_ids.is_empty() {
+            Target::MachineIds(::rpc::common::MachineIdList {
                 machine_ids: args.machine_ids.clone(),
-            }),
+            })
+        } else {
+            Target::InstanceIds(::rpc::forge::InstanceIdList {
+                instance_ids: args.instance_ids.clone(),
+            })
         };
         Self {
             target: Some(target),

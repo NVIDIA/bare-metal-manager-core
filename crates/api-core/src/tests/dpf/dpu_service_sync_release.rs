@@ -247,7 +247,11 @@ async fn an_assigned_host_named_by_instance_id_is_released(pool: sqlx::PgPool) {
         &fixture,
         rpc::ReleaseDpuServiceSyncHoldRequest {
             target: Some(
-                rpc::release_dpu_service_sync_hold_request::Target::InstanceId(instance_id),
+                rpc::release_dpu_service_sync_hold_request::Target::InstanceIds(
+                    rpc::InstanceIdList {
+                        instance_ids: vec![instance_id],
+                    },
+                ),
             ),
         },
     )

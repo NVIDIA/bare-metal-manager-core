@@ -121,15 +121,18 @@ pub(crate) async fn release_dpu_service_sync_hold(
         .into());
     };
 
-    let (machine_ids, tenant_policy) = resolve_target(api, request.get_ref()).await?;
+    // Each entry carries its own tenant policy: naming an instance consents to
+    // disrupting that instance's tenant and nobody else's.
+    let targets = resolve_target(api, request.get_ref()).await?;
+    let machine_ids: Vec<MachineId> = targets.iter().map(|(id, _)| *id).collect();
     validate(api, &machine_ids).await?;
 
     // One short transaction per machine rather than one spanning the batch. A
     // rollback partway would undo completions for holds that are already gone
     // externally, leaving the release done but the action still saying it is
     // owed -- the one outcome worse than not having released at all.
-    let mut results = Vec::with_capacity(machine_ids.len());
-    for machine_id in machine_ids {
+    let mut results = Vec::with_capacity(targets.len());
+    for (machine_id, tenant_policy) in targets {
         let status = release_one(api, dpf_sdk.as_ref(), machine_id, &tenant_policy).await;
         results.push(status);
     }
@@ -139,39 +142,47 @@ pub(crate) async fn release_dpu_service_sync_hold(
     }))
 }
 
-/// Turns the request's target into the machines to act on and the tenant policy
-/// that applies to them.
+/// Turns the request's target into the machines to act on, each paired with the
+/// tenant policy that applies to it.
+///
+/// The policy is per machine rather than per request because consent is per
+/// tenant: naming three instances is three separate acknowledgements, each
+/// covering only its own.
 async fn resolve_target(
     api: &Api,
     request: &rpc::ReleaseDpuServiceSyncHoldRequest,
-) -> Result<(Vec<MachineId>, TenantPolicy), Status> {
+) -> Result<Vec<(MachineId, TenantPolicy)>, Status> {
     use rpc::release_dpu_service_sync_hold_request::Target;
 
     match request.target.as_ref() {
-        Some(Target::MachineIds(list)) => Ok((
-            list.machine_ids.clone(),
+        Some(Target::MachineIds(list)) => Ok(list
+            .machine_ids
+            .iter()
             // Naming a machine says nothing about the tenant that may be on it.
-            TenantPolicy::RefuseIfAssigned,
-        )),
-        Some(Target::InstanceId(instance_id)) => {
+            .map(|machine_id| (*machine_id, TenantPolicy::RefuseIfAssigned))
+            .collect()),
+        Some(Target::InstanceIds(list)) => {
             let mut txn = api.txn_begin().await?;
-            let instance = db::instance::find_by_id(&mut txn, *instance_id)
-                .await?
-                .ok_or_else(|| CarbideError::NotFoundError {
-                    kind: "instance",
-                    id: instance_id.to_string(),
-                })?;
+            let mut targets = Vec::with_capacity(list.instance_ids.len());
+            for instance_id in &list.instance_ids {
+                let instance = db::instance::find_by_id(&mut txn, *instance_id)
+                    .await?
+                    .ok_or_else(|| CarbideError::NotFoundError {
+                        kind: "instance",
+                        id: instance_id.to_string(),
+                    })?;
+                // Consent is for this instance, not for its host: if the host
+                // has been reallocated since, the new tenant agreed to nothing.
+                targets.push((
+                    instance.machine_id,
+                    TenantPolicy::AllowNamedInstance(*instance_id),
+                ));
+            }
             txn.commit().await?;
-
-            // Consent is for this instance, not for the host: if it has been
-            // reallocated since, the new tenant has agreed to nothing.
-            Ok((
-                vec![instance.machine_id],
-                TenantPolicy::AllowNamedInstance(*instance_id),
-            ))
+            Ok(targets)
         }
         None => Err(CarbideError::InvalidArgument(
-            "a target is required: either machine_ids or instance_id".to_string(),
+            "a target is required: either machine_ids or instance_ids".to_string(),
         )
         .into()),
     }

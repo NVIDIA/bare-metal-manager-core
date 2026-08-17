@@ -9458,11 +9458,11 @@ message ReleaseDPUServiceSyncHoldRequest {
     // to every DPU on its host. Assigned hosts are declined -- name the instance
     // instead.
     common.MachineIdList machine_ids = 1;
-    // Release the host currently holding this instance, even though it is
-    // assigned. Naming the instance is the acknowledgement that its tenant will
-    // be disrupted, and the consent covers only this instance: if the host has
-    // since been reallocated, the release is declined.
-    common.InstanceId instance_id = 2;
+    // Release the hosts currently holding these instances, even though they are
+    // assigned. Naming an instance is the acknowledgement that its tenant will
+    // be disrupted, and each consent covers only the instance named: if a host
+    // has since been reallocated, that release is declined.
+    InstanceIdList instance_ids = 2;
   }
 }
 
@@ -9497,8 +9497,8 @@ message DPUServiceSyncReleaseResult {
 }
 
 message ReleaseDPUServiceSyncHoldResponse {
-  // One result per host acted on, in request order. The instance form yields a
-  // single entry naming the host that was resolved.
+  // One result per host acted on, in request order. The instance form names the
+  // host each instance resolved to.
   repeated DPUServiceSyncReleaseResult results = 1;
 }
 
