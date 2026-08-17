@@ -98,25 +98,18 @@ pub(super) async fn handle_pending_dpu_actions(
         }
     }
 
-    let outcome = match ctx.services.db_pool.acquire().await {
-        Ok(mut conn) => {
-            crate::dpu_service_sync::release_hold(
-                dpf_sdk,
-                &mut conn,
-                host,
-                &mh_snapshot.dpu_snapshots,
-                // Nobody has consented to disrupting whichever tenant happens to
-                // be on this host, so an instance appearing mid-check keeps the
-                // hold.
-                TenantPolicy::RefuseIfAssigned,
-                MachinePendingActionActor::Automatic,
-            )
-            .await
-        }
-        Err(error) => ReleaseOutcome::Failed {
-            reason: format!("could not acquire a database connection: {error}"),
-        },
-    };
+    let outcome = crate::dpu_service_sync::release_hold(
+        dpf_sdk,
+        &ctx.services.db_pool,
+        host,
+        &mh_snapshot.dpu_snapshots,
+        // Nobody has consented to disrupting whichever tenant happens to
+        // be on this host, so an instance appearing mid-check keeps the
+        // hold.
+        TenantPolicy::RefuseIfAssigned,
+        MachinePendingActionActor::Automatic,
+    )
+    .await;
 
     match outcome {
         ReleaseOutcome::Released => tracing::info!(

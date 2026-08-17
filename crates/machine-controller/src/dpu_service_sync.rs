@@ -30,7 +30,7 @@ use carbide_uuid::machine::MachineId;
 use model::machine::Machine;
 use model::machine_pending_action::MachinePendingActionActor;
 use model::machine_pending_action::MachinePendingActionKind::DpuServiceSync;
-use sqlx::PgConnection;
+use sqlx::PgPool;
 
 use crate::dpf::DpfOperations;
 
@@ -95,7 +95,7 @@ pub enum ReleaseOutcome {
 /// [`ManagedHostState`]: model::machine::ManagedHostState
 pub async fn release_hold(
     dpf_sdk: &dyn DpfOperations,
-    conn: &mut PgConnection,
+    db_pool: &PgPool,
     host: &Machine,
     dpus: &[Machine],
     tenant_policy: TenantPolicy,
@@ -158,7 +158,15 @@ pub async fn release_hold(
     // instead. That narrows the window to this query plus the patch rather than
     // closing it; the pending action survives, so a host that slips through is
     // caught once its instance is gone.
-    let assigned = match db::instance::find_id_by_machine_id(conn, &host.id).await {
+    let mut conn = match db_pool.acquire().await {
+        Ok(conn) => conn,
+        Err(error) => {
+            return ReleaseOutcome::Failed {
+                reason: format!("could not acquire a database connection: {error}"),
+            };
+        }
+    };
+    let assigned = match db::instance::find_id_by_machine_id(&mut conn, &host.id).await {
         Ok(assigned) => assigned,
         Err(error) => {
             return ReleaseOutcome::Failed {
@@ -175,6 +183,9 @@ pub async fn release_hold(
             return ReleaseOutcome::DeferredHostAssigned { instance };
         }
     }
+    // Dropped before the DPF call below: a Kubernetes round trip is unrelated
+    // work that must not pin a pooled connection idle.
+    drop(conn);
 
     if let Err(error) = dpf_sdk.release_maintenance_hold(&node_name).await {
         return ReleaseOutcome::Failed {
@@ -189,8 +200,18 @@ pub async fn release_hold(
     // Failing to record the completion is the safe direction: the action stays
     // outstanding and a later pass releases an already-released hold, which is a
     // no-op.
+    let mut conn = match db_pool.acquire().await {
+        Ok(conn) => conn,
+        Err(error) => {
+            return ReleaseOutcome::Failed {
+                reason: format!(
+                    "released the hold but could not acquire a database connection to record it: {error}"
+                ),
+            };
+        }
+    };
     if let Err(error) =
-        db::machine_pending_action::complete(conn, &host.id, DpuServiceSync, actor).await
+        db::machine_pending_action::complete(&mut conn, &host.id, DpuServiceSync, actor).await
     {
         return ReleaseOutcome::Failed {
             reason: format!("released the hold but could not record it as completed: {error}"),

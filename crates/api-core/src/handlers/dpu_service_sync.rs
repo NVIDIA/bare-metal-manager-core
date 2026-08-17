@@ -185,8 +185,8 @@ pub(crate) async fn release_dpu_service_sync_hold(
     let machine_ids: Vec<MachineId> = targets.iter().map(|(id, _)| *id).collect();
     validate(api, &machine_ids).await?;
 
-    // One short transaction per machine rather than one spanning the batch. A
-    // rollback partway would undo completions for holds that are already gone
+    // One machine at a time, each committed as it goes. Nothing spans the batch:
+    // a rollback partway would undo completions for holds that are already gone
     // externally, leaving the release done but the action still saying it is
     // owed -- the one outcome worse than not having released at all.
     let mut results = Vec::with_capacity(targets.len());
@@ -359,23 +359,39 @@ async fn release_one_inner(
     machine_id: MachineId,
     tenant_policy: &TenantPolicy,
 ) -> Result<Option<ReleaseOutcome>, String> {
-    let mut txn = api
-        .txn_begin()
+    // A pooled connection rather than a transaction, matching the automatic path.
+    //
+    // There is nothing here to roll back: the only write is the completion, and
+    // it is the last statement, reached only once the hold has actually been
+    // released. Every earlier failure returns having written nothing.
+    //
+    // Wrapping it would be worse than useless. Its one effect would be to undo
+    // that completion when the commit itself failed -- after the release had
+    // already happened externally and could not be taken back -- leaving the
+    // hold lifted while the record still said the work was owed. It would also
+    // pin the connection `idle in transaction` across a Kubernetes round trip
+    // per DPU, neither of which has a timeout.
+    let mut conn = api
+        .database_connection
+        .acquire()
         .await
-        .map_err(|error| format!("could not begin a transaction: {error}"))?;
+        .map_err(|error| format!("could not acquire a database connection: {error}"))?;
 
     let outstanding =
-        db::machine_pending_action::is_outstanding(&mut txn, &machine_id, DpuServiceSync)
+        db::machine_pending_action::is_outstanding(&mut *conn, &machine_id, DpuServiceSync)
             .await
             .map_err(|error| format!("could not read the pending action: {error}"))?;
     if !outstanding {
         return Ok(None);
     }
 
-    let snapshot = load_snapshot(&mut txn, &machine_id, LoadSnapshotOptions::default())
+    let snapshot = load_snapshot(&mut *conn, &machine_id, LoadSnapshotOptions::default())
         .await
         .map_err(|error| format!("could not load the machine snapshot: {error}"))?
         .ok_or_else(|| format!("no snapshot for machine {machine_id}"))?;
+    // Dropped here: `release_hold` acquires its own connections around each of
+    // its writes, so nothing pins this one idle across its Kubernetes calls.
+    drop(conn);
 
     let policy = match tenant_policy {
         TenantPolicy::RefuseIfAssigned => TenantPolicy::RefuseIfAssigned,
@@ -384,21 +400,17 @@ async fn release_one_inner(
         }
     };
 
-    let outcome = release_hold(
-        dpf_sdk,
-        &mut txn,
-        &snapshot.host_snapshot,
-        &snapshot.dpu_snapshots,
-        policy,
-        MachinePendingActionActor::AdminCli,
-    )
-    .await;
-
-    txn.commit()
-        .await
-        .map_err(|error| format!("could not commit the release: {error}"))?;
-
-    Ok(Some(outcome))
+    Ok(Some(
+        release_hold(
+            dpf_sdk,
+            &api.database_connection,
+            &snapshot.host_snapshot,
+            &snapshot.dpu_snapshots,
+            policy,
+            MachinePendingActionActor::AdminCli,
+        )
+        .await,
+    ))
 }
 
 /// The managed state of each machine, for the worklist's "why is this waiting"
