@@ -25,6 +25,7 @@ import (
 	dbquery "github.com/NVIDIA/infra-controller/rest-api/flow/internal/db/query"
 	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/operation"
 	taskschedule "github.com/NVIDIA/infra-controller/rest-api/flow/internal/scheduler/taskschedule"
+	identifier "github.com/NVIDIA/infra-controller/rest-api/flow/pkg/common/Identifier"
 	"github.com/NVIDIA/infra-controller/rest-api/flow/pkg/common/devicetypes"
 	pb "github.com/NVIDIA/infra-controller/rest-api/flow/pkg/proto/v1"
 )
@@ -886,10 +887,10 @@ func (rs *FlowServerImpl) buildUpdateFields(
 }
 
 // resolveScope converts an internal TargetSpec into DB scope rows ready for
-// insertion (ScheduleID is not yet set). Supports both rack-level targeting
-// (with optional component-type filter) and component-level targeting (specific
-// components by UUID or external ref). For component-level targets the server
-// resolves rack membership and groups components into per-rack scope entries.
+// insertion (ScheduleID is not yet set). Rack and NVLink domain targets may
+// include a component-type filter; component targets identify specific
+// components. Domain membership is materialized to rack scopes when this method
+// runs, so later membership changes do not silently change an existing schedule.
 func (rs *FlowServerImpl) resolveScope(
 	ctx context.Context,
 	ts operation.TargetSpec,
@@ -897,8 +898,44 @@ func (rs *FlowServerImpl) resolveScope(
 	if ts.IsRackTargeting() {
 		return rs.resolveRackScope(ctx, ts.Racks)
 	}
+	if ts.IsNVLDomainTargeting() {
+		return rs.resolveNVLDomainScope(ctx, ts.NVLDomains)
+	}
 
 	return rs.resolveComponentScope(ctx, ts.Components)
+}
+
+func (rs *FlowServerImpl) resolveNVLDomainScope(
+	ctx context.Context,
+	domains []operation.NVLDomainTarget,
+) ([]*dbmodel.TaskScheduleScope, error) {
+	rackTargets := make([]operation.RackTarget, 0)
+	for domainIndex, domain := range domains {
+		domainRacks, err := rs.inventoryManager.GetRacksForNVLDomain(ctx, domain.Identifier)
+		if err != nil {
+			return nil, fmt.Errorf(
+				"target_spec.nvl_domains[%d]: resolve NVLink domain: %w",
+				domainIndex,
+				err,
+			)
+		}
+
+		for rackIndex, domainRack := range domainRacks {
+			if domainRack == nil || domainRack.Info.ID == uuid.Nil {
+				return nil, fmt.Errorf(
+					"target_spec.nvl_domains[%d].racks[%d] has no ID",
+					domainIndex,
+					rackIndex,
+				)
+			}
+			rackTargets = append(rackTargets, operation.RackTarget{
+				Identifier:     identifier.Identifier{ID: domainRack.Info.ID},
+				ComponentTypes: domain.ComponentTypes,
+			})
+		}
+	}
+
+	return rs.resolveRackScope(ctx, rackTargets)
 }
 
 // resolveScheduleScope is the shared prologue for AddTaskScheduleScope and

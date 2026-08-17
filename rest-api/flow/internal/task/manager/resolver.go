@@ -19,6 +19,7 @@ import (
 // TargetFetcher provides the methods needed to fetch racks and components for target resolution.
 type TargetFetcher interface {
 	GetRackByIdentifier(ctx context.Context, identifier identifier.Identifier, withComponents bool) (*rack.Rack, error)
+	GetRacksForNVLDomain(ctx context.Context, domainIdentifier identifier.Identifier) ([]*rack.Rack, error)
 	GetComponentByID(ctx context.Context, id uuid.UUID) (*component.Component, error)
 	GetComponentsByExternalIDs(ctx context.Context, externalIDs []string) ([]*component.Component, error)
 }
@@ -38,13 +39,51 @@ func resolveTargetSpecToRacks(
 		return resolveRackTargetSpec(ctx, fetcher, targetSpec.Racks)
 	}
 
+	if targetSpec.IsNVLDomainTargeting() {
+		return resolveNVLDomainTargetSpec(ctx, fetcher, targetSpec.NVLDomains)
+	}
+
 	if targetSpec.IsComponentTargeting() {
 		return resolveComponentTargetSpec(ctx, fetcher, targetSpec.Components)
 	}
 
 	// This should be detected by Validate() and should never be here, but
 	// just in case, handle it anyway.
-	return nil, fmt.Errorf("target spec must have either racks or components set")
+	return nil, fmt.Errorf("target spec must have one of racks, NVLink domains, or components set")
+}
+
+func resolveNVLDomainTargetSpec(
+	ctx context.Context,
+	fetcher TargetFetcher,
+	targets []operation.NVLDomainTarget,
+) (map[uuid.UUID]*rack.Rack, error) {
+	rackTargets := make([]operation.RackTarget, 0)
+	for _, target := range targets {
+		domainRacks, err := fetcher.GetRacksForNVLDomain(ctx, target.Identifier)
+		if err != nil {
+			return nil, fmt.Errorf(
+				"failed to resolve NVLink domain target %+v: %w",
+				target.Identifier,
+				err,
+			)
+		}
+
+		for rackIndex, domainRack := range domainRacks {
+			if domainRack == nil || domainRack.Info.ID == uuid.Nil {
+				return nil, fmt.Errorf(
+					"NVLink domain target %+v rack %d has no ID",
+					target.Identifier,
+					rackIndex,
+				)
+			}
+			rackTargets = append(rackTargets, operation.RackTarget{
+				Identifier:     identifier.Identifier{ID: domainRack.Info.ID},
+				ComponentTypes: target.ComponentTypes,
+			})
+		}
+	}
+
+	return resolveRackTargetSpec(ctx, fetcher, rackTargets)
 }
 
 func resolveRackTargetSpec(

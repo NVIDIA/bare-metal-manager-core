@@ -1366,7 +1366,7 @@ func (rs *FlowServerImpl) UpgradeFirmware(
 }
 
 // GetComponents retrieves components from local database with filtering, pagination, and ordering support.
-// If target_spec is provided, it extracts components from the specified racks or components first,
+// If target_spec is provided, it extracts components from the specified racks, NVLink domains, or components first,
 // then applies additional filters (name, manufacturer, model, component_types), pagination, and ordering.
 // If target_spec is not provided, it queries all components matching the filters.
 func (rs *FlowServerImpl) GetComponents(
@@ -1443,7 +1443,7 @@ func (rs *FlowServerImpl) GetComponents(
 
 	// If target_spec is provided, extract components from it first, then apply filters
 	if req.GetTargetSpec() != nil {
-		// Extract components from target_spec (racks or components)
+		// Extract components from target_spec.
 		targetComponents, err := rs.extractComponentsFromTargetSpec(ctx, req.GetTargetSpec())
 		if err != nil {
 			return nil, fmt.Errorf("failed to extract components from target_spec: %w", err)
@@ -1899,7 +1899,7 @@ func extractComponentsByTypes(r *rack.Rack, compTypes []devicetypes.ComponentTyp
 
 // extractComponentsFromTargetSpec parses and validates targetSpec via
 // protobuf.TargetSpecFrom (the same converter used by the submission path),
-// then resolves each rack or component target against the inventory.
+// then resolves each rack, NVLink domain, or component target against the inventory.
 // Validation errors (malformed UUIDs, empty names, unknown types) are
 // surfaced identically to the submission path rather than deferring to an
 // inventory-lookup failure.
@@ -1922,6 +1922,34 @@ func (rs *FlowServerImpl) extractComponentsFromTargetSpec(
 		components = append(components, resolved...)
 	}
 
+	for _, dt := range spec.NVLDomains {
+		domainRacks, err := rs.inventoryManager.GetRacksForNVLDomain(ctx, dt.Identifier)
+		if err != nil {
+			return nil, fmt.Errorf(
+				"failed to resolve NVLink domain target %+v: %w",
+				dt.Identifier,
+				err,
+			)
+		}
+		for rackIndex, domainRack := range domainRacks {
+			if domainRack == nil || domainRack.Info.ID == uuid.Nil {
+				return nil, fmt.Errorf(
+					"NVLink domain target %+v rack %d has no ID",
+					dt.Identifier,
+					rackIndex,
+				)
+			}
+			resolved, err := rs.resolveRackTarget(ctx, operation.RackTarget{
+				Identifier:     identifier.Identifier{ID: domainRack.Info.ID},
+				ComponentTypes: dt.ComponentTypes,
+			})
+			if err != nil {
+				return nil, err
+			}
+			components = append(components, resolved...)
+		}
+	}
+
 	for _, ct := range spec.Components {
 		resolved, err := rs.fetchComponentTarget(ctx, ct)
 		if err != nil {
@@ -1930,7 +1958,17 @@ func (rs *FlowServerImpl) extractComponentsFromTargetSpec(
 		components = append(components, resolved...)
 	}
 
-	return components, nil
+	uniqueComponents := make([]*component.Component, 0, len(components))
+	seenComponentIDs := make(map[uuid.UUID]struct{}, len(components))
+	for _, comp := range components {
+		if _, exists := seenComponentIDs[comp.Info.ID]; exists {
+			continue
+		}
+		seenComponentIDs[comp.Info.ID] = struct{}{}
+		uniqueComponents = append(uniqueComponents, comp)
+	}
+
+	return uniqueComponents, nil
 }
 
 // resolveRackTarget fetches the rack from inventory and returns its components,
