@@ -437,15 +437,11 @@ func mirrorExpectedComponents(
 		macs := hostBMCMACs(c)
 		key := naturalKeyOrEmpty(c.Manufacturer, c.SerialNumber)
 		if len(macs) == 0 && key == "" {
-			// Nothing on this row can be compared with what Core reported, so
-			// "Core dropped it" is indistinguishable from "Flow cannot
-			// recognise it". Left in place, with a warn so the operator can
-			// repair the row.
-			result.legacyExempt++
-			log.Warn().
-				Str("type", componentType).
-				Str("component_id", c.ID.String()).
-				Msg("Expected-inventory mirror: Flow component has neither a host BMC nor a manufacturer/serial pair; it cannot be matched against Core and is left in place")
+			// Nothing in this row can identify it in any future expected
+			// snapshot. Once the current snapshot succeeds, retaining the row
+			// would leave a permanent orphan, so remove it with the rest of the
+			// absent expected inventory.
+			p.toDelete = append(p.toDelete, *c)
 			continue
 		}
 		if stillReportedByCore(macs, key, seenMACs, seenNaturalKeys) {

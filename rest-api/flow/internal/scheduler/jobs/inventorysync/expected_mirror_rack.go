@@ -75,10 +75,11 @@ func pullExpectedRacks(
 //  3. Live Flow rows whose external_id is set but no longer appear in Core
 //     are soft-deleted (including the case where Core returned zero racks —
 //     the caller only invokes this after a successful RPC, so empty is
-//     authoritative). Soft-deleted rows Core doesn't report either are left
-//     alone (already gone). Rows with a NULL external_id (legacy
-//     ingestion-gRPC rows the mirror has never adopted) are exempted and
-//     warn-logged so the operator has a visible signal of pending cleanup.
+//     authoritative). A legacy row with neither external_id nor a complete
+//     (manufacturer, serial_number) identity is also soft-deleted because no
+//     future snapshot can correlate it. An unmatched legacy row with a
+//     complete natural key remains exempt and is warn-logged for migration.
+//     Soft-deleted rows Core doesn't report are left alone (already gone).
 //
 // All writes for one pass happen in a single transaction so partial failures
 // can't leave the table half-mirrored.
@@ -289,8 +290,9 @@ func mirrorExpectedRacks(
 	// Reconcile the delete side. Already soft-deleted rows are skipped: if
 	// Core still lists them, the match path above resurrected them; if not,
 	// they're correctly gone already. Live Flow rows whose external_id is set
-	// but absent from Core get soft-deleted; legacy (NULL external_id) rows
-	// are exempted with a warn so the operator notices.
+	// but absent from Core get soft-deleted. Legacy rows without any complete
+	// identity are also deleted; identifiable legacy rows remain eligible for
+	// later natural-key adoption.
 	for i := range flowRacks {
 		r := &flowRacks[i]
 		if r.DeletedAt != nil {
@@ -311,18 +313,23 @@ func mirrorExpectedRacks(
 			p.toDelete = append(p.toDelete, *r)
 			continue
 		}
-		// External_id is NULL — never adopted. Only legacy-warn if the
-		// (manufacturer, serial) doesn't appear in Core's set either,
-		// otherwise it'll be picked up by the adoption path above and a
-		// "future GC" warn would be misleading. A rack with an incomplete pair
-		// keys to the empty string, which is never in the set.
-		if _, adoptable := coreNaturalKeys[naturalKeyOrEmpty(r.Manufacturer, r.SerialNumber)]; !adoptable {
+		// External_id is NULL — never adopted. Without a complete natural key,
+		// no future Core snapshot can identify this row, so the successful
+		// authoritative snapshot makes it safe to remove. A complete but
+		// currently unmatched natural key remains a migration-compatible legacy
+		// row and may still be adopted by a later snapshot.
+		key := naturalKeyOrEmpty(r.Manufacturer, r.SerialNumber)
+		if key == "" {
+			p.toDelete = append(p.toDelete, *r)
+			continue
+		}
+		if _, adoptable := coreNaturalKeys[key]; !adoptable {
 			result.legacyExempt++
 			log.Warn().
 				Str("rack_name", r.Name).
 				Str("rack_serial", r.SerialNumber).
 				Str("rack_manufacturer", r.Manufacturer).
-				Msg("Expected-inventory mirror: legacy Flow rack not present in Core's expected inventory; left in place for now (a follow-up will GC these once all sites have migrated)")
+				Msg("Expected-inventory mirror: identifiable legacy Flow rack not present in Core's expected inventory; left in place for possible later adoption")
 		}
 	}
 
