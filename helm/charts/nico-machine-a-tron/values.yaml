@@ -182,6 +182,8 @@ machineDefaults:
   dpuRebootDelay: 1
   hostRebootDelay: 1
   scoutRunInterval: "60s"
+  ## Delay after a failed DiscoverMachine call; the default matches the production DPU agent.
+  discoveryRetryInterval: "60s"
   runIntervalWorking: "1s"
   runIntervalIdle: "10s"
   networkStatusRunInterval: "20s"

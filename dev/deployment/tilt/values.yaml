@@ -177,6 +177,8 @@ nico-machine-a-tron:
   enabled: true
   machineATron:
     nicoApiUrl: https://nico-api.nico-system.svc.cluster.local:1079
+  machineDefaults:
+    discoveryRetryInterval: "5s"
   persistence:
     enabled: true
   certificate:

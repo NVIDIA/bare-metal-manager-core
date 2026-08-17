@@ -18,6 +18,9 @@ tests:
       - matchRegex:
           path: data["mat.toml"]
           pattern: 'log_format = "logfmt"'
+      - matchRegex:
+          path: data["mat.toml"]
+          pattern: 'discovery_retry_interval = "60s"'
 
   - it: should allow compact log output
     set:
@@ -135,6 +138,7 @@ tests:
       machineDefaults:
         runIntervalIdle: "30s"
         scoutRunInterval: "120s"
+        discoveryRetryInterval: "7s"
       pods:
         mat-0:
           machines:
@@ -148,6 +152,9 @@ tests:
       - matchRegex:
           path: data["mat.toml"]
           pattern: 'scout_run_interval = "120s"'
+      - matchRegex:
+          path: data["mat.toml"]
+          pattern: 'discovery_retry_interval = "7s"'
 
   - it: should not include enable_ipmi_simulation by default
     asserts:

@@ -1394,6 +1394,7 @@ where
                 run_interval_working: Duration::from_millis(100),
                 network_status_run_interval: Duration::from_secs(1),
                 scout_run_interval: Duration::from_secs(1),
+                discovery_retry_interval: Duration::from_millis(100),
                 network_virtualization_type: None,
                 dpus_in_nic_mode,
                 dpu_firmware_versions: None,
