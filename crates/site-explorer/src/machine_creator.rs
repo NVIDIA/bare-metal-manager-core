@@ -1025,9 +1025,10 @@ impl MachineCreator {
         .await
     }
 
-    // configure_dpu_interface checks the machine_interfaces table to see if the DPU's machine interface has its machine id set.
-    // If the machine ID is already configured appropriately for the DPU's machine interface, configure_dpu_interface will return false
-    // If the DPU's machine interface was missing the machine ID in the table, configure_dpu_interface will set the machine ID and return true.
+    // Ensure the DPU's OOB interface is owned as soon as it appears. If DHCP has already created
+    // the interface, associate it directly. Otherwise record a trusted prediction that DHCP can
+    // promote atomically. DiscoverMachine requires this ownership before returning credentials, so
+    // deferring the association to a later Site Explorer sweep would strand the DPU in discovery.
     async fn configure_dpu_interface(
         &self,
         txn: &mut PgConnection,
@@ -1071,6 +1072,39 @@ impl MachineCreator {
                     txn,
                 )
                 .await?;
+                return Ok(true);
+            }
+
+            if mi.is_empty() {
+                if let Some(prediction) =
+                    db::predicted_machine_interface::find_by_mac_address(&mut *txn, oob_net0_mac)
+                        .await?
+                {
+                    if prediction.machine_id != *dpu_machine_id {
+                        return Err(SiteExplorerError::AlreadyFoundError {
+                            kind: "PredictedMachineInterface",
+                            id: oob_net0_mac.to_string(),
+                        });
+                    }
+                    return Ok(false);
+                }
+
+                db::predicted_machine_interface::create(
+                    NewPredictedMachineInterface {
+                        machine_id: dpu_machine_id,
+                        mac_address: oob_net0_mac,
+                        expected_network_segment_type: NetworkSegmentType::Underlay,
+                        boot_interface_id: None,
+                        primary_interface: true,
+                    },
+                    txn,
+                )
+                .await?;
+                tracing::info!(
+                    machine_id = %dpu_machine_id,
+                    mac_address = %oob_net0_mac,
+                    "Created predicted DPU OOB interface"
+                );
                 return Ok(true);
             }
         }

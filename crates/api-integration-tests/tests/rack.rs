@@ -81,7 +81,8 @@ async fn test_machine_a_tron_racks_integration() -> eyre::Result<()> {
     run_machine_a_tron_racks_test(
         &test_env,
         &bmc_address_registry,
-        Ipv4Addr::new(172, 20, 0, 2),
+        // MAT currently uses admin_dhcp_relay_address for DPU OS DHCP.
+        Ipv4Addr::new(172, 20, 1, 1),
     )
     .await?;
 
