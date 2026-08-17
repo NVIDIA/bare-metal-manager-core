@@ -146,6 +146,8 @@ impl NvueClient {
     ) -> Result<reqwest::RequestBuilder, NvueClientError> {
         let url = self.construct_url_string(path);
         let builder = self.client.request(method, url);
+        // TODO: Make this timeout configurable.
+        let builder = builder.timeout(std::time::Duration::from_secs(60));
         let builder = match self.auth_creds() {
             Some(creds) => builder.basic_auth(&creds.username, Some(&creds.password)),
             None => builder,
