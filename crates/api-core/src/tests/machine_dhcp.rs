@@ -905,6 +905,8 @@ async fn test_host_bmc_identity_wins_expected_interface_mac_lookup(
 }
 
 #[crate::sqlx_test]
+// This test exercises DHCP through the compatibility fields sent to older agents.
+#[allow(deprecated)]
 async fn test_machine_dhcp_with_api_for_instance_physical_virtual(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {

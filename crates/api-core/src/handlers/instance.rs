@@ -1244,6 +1244,15 @@ pub(crate) async fn update_instance_config(
             id: instance_id.to_string(),
         })?;
 
+    // power_profile was added to the complete-config update request after the
+    // API was deployed. Preserve the stored value when older clients omit it;
+    // an explicit empty string is the wire representation for clearing it.
+    config.power_profile = match config.power_profile.take() {
+        Some(profile) if profile.is_empty() => None,
+        Some(profile) => Some(profile),
+        None => instance.config.power_profile.clone(),
+    };
+
     log_machine_id(&instance.machine_id);
     log_tenant_organization_id(instance.config.tenant.tenant_organization_id.as_str());
 

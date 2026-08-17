@@ -156,6 +156,8 @@ async fn test_clear_use_admin_network_changed_keeps_newer_version_flag(pool: sql
 }
 
 #[crate::sqlx_test]
+// This test verifies parity between `addresses` and the compatibility fields.
+#[allow(deprecated)]
 async fn test_managed_host_network_config(pool: sqlx::PgPool) {
     // The default fixture omits `lo-ip-v6`, which must preserve the existing IPv4-only response.
     let env = api_fixtures::create_test_env(pool).await;
@@ -176,10 +178,24 @@ async fn test_managed_host_network_config(pool: sqlx::PgPool) {
     assert!(
         response
             .managed_host_config
+            .as_ref()
             .expect("managed host config")
             .loopback_ip_v6
             .is_none(),
         "sites without lo-ip-v6 must remain IPv4-only"
+    );
+
+    let admin_interface = response.admin_interface.expect("admin interface");
+    assert_eq!(
+        admin_interface.addresses,
+        vec![rpc::forge::InterfaceAddressConfig {
+            address_family: rpc::forge::AddressFamily::V4.into(),
+            gateway: admin_interface.gateway,
+            ip: admin_interface.ip,
+            interface_prefix: admin_interface.interface_prefix,
+            prefix: admin_interface.prefix,
+            svi_ip: admin_interface.svi_ip,
+        }]
     );
 }
 
@@ -1074,6 +1090,8 @@ async fn test_managed_host_network_config_errors_when_sitewide_bgp_password_miss
 }
 
 #[crate::sqlx_test]
+// This test compares compatibility fields across DPUs.
+#[allow(deprecated)]
 async fn test_managed_host_network_config_multi_dpu(pool: sqlx::PgPool) {
     let env = api_fixtures::create_test_env(pool).await;
 
@@ -1279,6 +1297,8 @@ prefix = "2001:db8:2390::/126"
 }
 
 #[crate::sqlx_test]
+// This test verifies the compatibility admin address chosen for older agents.
+#[allow(deprecated)]
 async fn test_managed_host_network_config_uses_non_dpu_primary_admin_interface(pool: sqlx::PgPool) {
     let env = api_fixtures::create_test_env(pool).await;
 
@@ -1657,6 +1677,8 @@ async fn test_managed_host_network_config_with_extension_services(pool: sqlx::Pg
 }
 
 #[crate::sqlx_test]
+// This test reports health with the compatibility interface fields.
+#[allow(deprecated)]
 async fn test_dpu_health_is_required(pool: sqlx::PgPool) {
     let env = api_fixtures::create_test_env(pool).await;
     let (_host_machine_id, dpu_machine_id) = create_managed_host(&env).await.into();

@@ -20,6 +20,10 @@ shard = 0
 shards_count = 1
 
 cache_size = 100
+# Maximum concurrent Redfish operations per BMC, including collector fan-out.
+# Must be greater than zero. Default: 4.
+# Changes take effect after restarting carbide-health.
+bmc_request_concurrency = 4
 bmc_proxy_url = "http://proxy.example.com:8080"
 
 endpoint_discovery_interval = "5m"
@@ -32,7 +36,7 @@ endpoint_discovery_interval = "5m"
 root_ca = "/var/run/secrets/spiffe.io/ca.crt"
 client_cert = "/var/run/secrets/spiffe.io/tls.crt"
 client_key = "/var/run/secrets/spiffe.io/tls.key"
-api_url = "https://carbide-api.forge-system.svc.cluster.local:1079"
+api_url = "https://nico-api.nico-system.svc.cluster.local:1079"
 
 [[endpoint_sources.static_bmc_endpoints]]
 ip = "10.0.0.1"
@@ -156,7 +160,7 @@ include_alert_details = false
 root_ca = "/var/run/secrets/spiffe.io/ca.crt"
 client_cert = "/var/run/secrets/spiffe.io/tls.crt"
 client_key = "/var/run/secrets/spiffe.io/tls.key"
-api_url = "https://carbide-api.forge-system.svc.cluster.local:1079"
+api_url = "https://nico-api.nico-system.svc.cluster.local:1079"
 workers = 8
 skip_empty_reports = true
 
@@ -164,7 +168,7 @@ skip_empty_reports = true
 root_ca = "/var/run/secrets/spiffe.io/ca.crt"
 client_cert = "/var/run/secrets/spiffe.io/tls.crt"
 client_key = "/var/run/secrets/spiffe.io/tls.key"
-api_url = "https://carbide-api.forge-system.svc.cluster.local:1079"
+api_url = "https://nico-api.nico-system.svc.cluster.local:1079"
 workers = 2
 skip_empty_reports = true
 
@@ -172,7 +176,7 @@ skip_empty_reports = true
 root_ca = "/var/run/secrets/spiffe.io/ca.crt"
 client_cert = "/var/run/secrets/spiffe.io/tls.crt"
 client_key = "/var/run/secrets/spiffe.io/tls.key"
-api_url = "https://carbide-api.forge-system.svc.cluster.local:1079"
+api_url = "https://nico-api.nico-system.svc.cluster.local:1079"
 workers = 2
 skip_empty_reports = true
 
@@ -180,7 +184,7 @@ skip_empty_reports = true
 root_ca = "/var/run/secrets/spiffe.io/ca.crt"
 client_cert = "/var/run/secrets/spiffe.io/tls.crt"
 client_key = "/var/run/secrets/spiffe.io/tls.key"
-api_url = "https://carbide-api.forge-system.svc.cluster.local:1079"
+api_url = "https://nico-api.nico-system.svc.cluster.local:1079"
 workers = 2
 skip_empty_reports = true
 
@@ -213,12 +217,10 @@ log_mode = "unreachable"
 
 [collectors.sensors]
 sensor_fetch_interval = "1m"
-sensor_fetch_concurrency = 10
 include_sensor_thresholds = true
 
 [collectors.metrics]
 fetch_interval = "2m"
-fetch_concurrency = 4
 
 # Redfish telemetry service: pre-aggregated metric reports, one GET per report
 # instead of one per resource. Published under the `hw_telemetry` series name so

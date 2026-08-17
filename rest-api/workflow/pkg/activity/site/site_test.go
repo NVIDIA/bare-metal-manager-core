@@ -6,6 +6,7 @@ package site
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -22,6 +23,7 @@ import (
 	cdbp "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/paginator"
 	cdbu "github.com/NVIDIA/infra-controller/rest-api/db/pkg/util"
 	cipam "github.com/NVIDIA/infra-controller/rest-api/ipam"
+	corev1 "github.com/NVIDIA/infra-controller/rest-api/proto/core/gen/v1"
 	"github.com/NVIDIA/infra-controller/rest-api/workflow/internal/config"
 	sc "github.com/NVIDIA/infra-controller/rest-api/workflow/pkg/client/site"
 	"github.com/NVIDIA/infra-controller/rest-api/workflow/pkg/util"
@@ -31,6 +33,7 @@ import (
 	"github.com/stretchr/testify/mock"
 	"github.com/uptrace/bun/extra/bundebug"
 	"go.temporal.io/sdk/client"
+	"go.temporal.io/sdk/temporal"
 	"go.temporal.io/sdk/testsuite"
 
 	tnsv1 "go.temporal.io/api/namespace/v1"
@@ -1235,6 +1238,115 @@ func TestManageSite_DeleteSiteComponentsFromDB_NewResources(t *testing.T) {
 	assertPresent("ssh_key_association (intentionally not cleaned)", &cdbm.SSHKeyAssociation{}, "ska.id", site1Resources.sshKeyAssocID)
 }
 
+func TestManageSite_UpdateSiteInDB(t *testing.T) {
+	ctx := context.Background()
+	resources := setupSiteFabricIPBlockTest(t)
+	mst := NewManageSite(resources.dbSession, nil, nil, nil)
+	siteDAO := cdbm.NewSiteDAO(resources.dbSession)
+
+	createSite := func(t *testing.T, version *string) *cdbm.Site {
+		t.Helper()
+		site := &cdbm.Site{
+			ID:                       uuid.New(),
+			Name:                     "test-site-" + uuid.NewString(),
+			DisplayName:              cutil.GetPtr("Test"),
+			Org:                      "test",
+			InfrastructureProviderID: resources.provider.ID,
+			SiteControllerVersion:    version,
+			SiteAgentVersion:         cutil.GetPtr("1.0.0"),
+			IsInfinityEnabled:        true,
+			Status:                   cdbm.SiteStatusRegistered,
+			CreatedBy:                resources.user.ID,
+		}
+		_, err := resources.dbSession.DB.NewInsert().Model(site).Exec(ctx)
+		require.NoError(t, err)
+		return site
+	}
+
+	tests := []struct {
+		name             string
+		existingVersion  *string
+		buildInfo        *corev1.BuildInfo
+		wantVersion      *string
+		wantErr          bool
+		wantNonRetryable bool
+		useUnknownSiteID bool
+	}{
+		{
+			name:            "sets version when site has none",
+			existingVersion: nil,
+			buildInfo:       &corev1.BuildInfo{BuildVersion: "1.2.3"},
+			wantVersion:     cutil.GetPtr("1.2.3"),
+		},
+		{
+			name:            "updates version when different",
+			existingVersion: cutil.GetPtr("1.0.0"),
+			buildInfo:       &corev1.BuildInfo{BuildVersion: "2.0.0"},
+			wantVersion:     cutil.GetPtr("2.0.0"),
+		},
+		{
+			name:            "no-op when reported version matches stored version",
+			existingVersion: cutil.GetPtr("1.0.0"),
+			buildInfo:       &corev1.BuildInfo{BuildVersion: "1.0.0"},
+			wantVersion:     cutil.GetPtr("1.0.0"),
+		},
+		{
+			name:            "preserves stored version when build info omits it",
+			existingVersion: cutil.GetPtr("1.0.0"),
+			buildInfo:       &corev1.BuildInfo{},
+			wantVersion:     cutil.GetPtr("1.0.0"),
+		},
+		{
+			name:            "no-op when site and build info both lack a version",
+			existingVersion: nil,
+			buildInfo:       &corev1.BuildInfo{},
+			wantVersion:     nil,
+		},
+		{
+			name:             "unknown site returns non-retryable error",
+			buildInfo:        &corev1.BuildInfo{BuildVersion: "1.2.3"},
+			wantErr:          true,
+			wantNonRetryable: true,
+			useUnknownSiteID: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			site := createSite(t, tt.existingVersion)
+
+			siteID := site.ID
+			if tt.useUnknownSiteID {
+				siteID = uuid.New()
+			}
+
+			err := mst.UpdateSiteInDB(ctx, siteID, tt.buildInfo)
+			if tt.wantErr {
+				require.Error(t, err)
+				if tt.wantNonRetryable {
+					var applicationErr *temporal.ApplicationError
+					require.ErrorAs(t, err, &applicationErr)
+					assert.True(t, applicationErr.NonRetryable())
+					assert.Equal(t, "Site not found", applicationErr.Type())
+					assert.True(t, errors.Is(applicationErr.Unwrap(), cdb.ErrDoesNotExist))
+				}
+				return
+			}
+
+			require.NoError(t, err)
+
+			got, err := siteDAO.GetByID(ctx, nil, site.ID, nil, false)
+			require.NoError(t, err)
+			if tt.wantVersion == nil {
+				assert.Nil(t, got.SiteControllerVersion)
+				return
+			}
+			require.NotNil(t, got.SiteControllerVersion)
+			assert.Equal(t, *tt.wantVersion, *got.SiteControllerVersion)
+		})
+	}
+}
+
 type siteFabricIPBlockTestResources struct {
 	dbSession *cdb.Session
 	user      *cdbm.User
@@ -1407,7 +1519,7 @@ func TestManageSite_UpdateIPBlocksInDBFromFabricPrefixes_ReturnsErrorWhenFabricB
 	mst := NewManageSite(resources.dbSession, nil, nil, nil)
 
 	err := cdb.WithTx(ctx, resources.dbSession, func(tx *cdb.Tx) error {
-		require.NoError(t, tx.AcquireAdvisoryLock(ctx, siteFabricIPBlocksLockID(resources.site), false))
+		require.NoError(t, tx.AcquireAdvisoryLock(ctx, getSiteFabricIPBlockLockID(resources.site), false))
 
 		derr := mst.UpdateIPBlocksInDBFromFabricPrefixes(ctx, resources.site.ID, []string{"10.0.0.0/16"})
 		assert.ErrorIs(t, derr, cdb.ErrXactAdvisoryLockFailed)

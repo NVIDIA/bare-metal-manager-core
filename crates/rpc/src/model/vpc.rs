@@ -21,8 +21,9 @@ use carbide_uuid::network_security_group::NetworkSecurityGroupIdParseError;
 use config_version::ConfigVersion;
 use model::metadata::{LabelFilter, Metadata};
 use model::vpc::{
-    NewVpc, PrefixFilterPolicyEntry, RouteTargetConfig, UpdateVpc, UpdateVpcVirtualization, Vpc,
-    VpcPeering, VpcRoutingProfileOverrides, VpcSearchFilter, VpcStatus,
+    NewVpc, PowerResourceGroupUpdate, PrefixFilterPolicyEntry, RouteTargetConfig, UpdateVpc,
+    UpdateVpcVirtualization, Vpc, VpcPeering, VpcRoutingProfileOverrides, VpcSearchFilter,
+    VpcStatus,
 };
 
 use crate as rpc;
@@ -81,6 +82,7 @@ impl From<Vpc> for rpc::forge::Vpc {
                 vni: desired_vni,
                 routing_profile_type: src.config.routing_profile_type.clone(),
                 routing_profile_overrides,
+                power_resource_group: src.config.power_resource_group.clone(),
             }),
             status: Some(rpc::forge::VpcStatus::from(src.status)),
 
@@ -266,6 +268,9 @@ impl TryFrom<rpc::forge::VpcCreationRequest> for NewVpc {
                 .routing_profile_overrides
                 .map(TryInto::try_into)
                 .transpose()?,
+            power_resource_group: value
+                .power_resource_group
+                .filter(|resource_group| !resource_group.is_empty()),
             network_virtualization_type: virt_type,
             metadata,
         })
@@ -293,6 +298,14 @@ impl TryFrom<rpc::forge::VpcUpdateRequest> for UpdateVpc {
             RpcDataConversionError::InvalidArgument(format!("VPC metadata is not valid: {e}"))
         })?;
 
+        let power_resource_group = value.power_resource_group.map(|resource_group| {
+            if resource_group.is_empty() {
+                PowerResourceGroupUpdate::Clear
+            } else {
+                PowerResourceGroupUpdate::Set(resource_group)
+            }
+        });
+
         Ok(UpdateVpc {
             id: value
                 .id
@@ -308,6 +321,7 @@ impl TryFrom<rpc::forge::VpcUpdateRequest> for UpdateVpc {
                 .routing_profile_overrides
                 .map(TryInto::try_into)
                 .transpose()?,
+            power_resource_group,
             if_version_match,
             metadata,
         })
@@ -393,6 +407,7 @@ mod tests {
                 vni: Some(42),
                 routing_profile_type: Some("EXTERNAL".to_string()),
                 routing_profile_overrides: None,
+                power_resource_group: Some("tenant-1".to_string()),
             },
             status: VpcStatus { vni: Some(100) },
             metadata: Metadata::new_with_default_name(),
@@ -413,6 +428,7 @@ mod tests {
         assert_eq!(config.tenant_keyset_id.as_deref(), Some("keyset-1"));
         assert_eq!(config.vni, Some(42));
         assert_eq!(config.routing_profile_type.as_deref(), Some("EXTERNAL"));
+        assert_eq!(config.power_resource_group.as_deref(), Some("tenant-1"));
         assert_eq!(
             config.network_virtualization_type,
             Some(rpc::forge::VpcVirtualizationType::Fnn as i32)
@@ -431,6 +447,63 @@ mod tests {
             Some(rpc::forge::VpcVirtualizationType::Fnn as i32)
         );
         assert_eq!(status.vni, rpc_vpc.deprecated_vni);
+    }
+
+    fn vpc_update_request(power_resource_group: Option<&str>) -> rpc::forge::VpcUpdateRequest {
+        rpc::forge::VpcUpdateRequest {
+            id: Some(VpcId::from(uuid::Uuid::new_v4())),
+            if_version_match: None,
+            metadata: None,
+            network_security_group_id: None,
+            default_nvlink_logical_partition_id: None,
+            routing_profile_overrides: None,
+            power_resource_group: power_resource_group.map(str::to_string),
+        }
+    }
+
+    #[test]
+    fn vpc_update_power_resource_group_semantics() {
+        let set = UpdateVpc::try_from(vpc_update_request(Some("power-group")))
+            .expect("non-empty resource group should be accepted");
+        assert_eq!(
+            set.power_resource_group,
+            Some(PowerResourceGroupUpdate::Set("power-group".to_string()))
+        );
+
+        let clear = UpdateVpc::try_from(vpc_update_request(Some("")))
+            .expect("empty resource group should clear the association");
+        assert_eq!(
+            clear.power_resource_group,
+            Some(PowerResourceGroupUpdate::Clear)
+        );
+
+        let omitted = UpdateVpc::try_from(vpc_update_request(None))
+            .expect("omitted operation should be accepted");
+        assert_eq!(omitted.power_resource_group, None);
+    }
+
+    #[test]
+    fn vpc_creation_power_resource_group_semantics() {
+        value_scenarios!(
+            run = |power_resource_group| {
+                NewVpc::try_from(rpc::forge::VpcCreationRequest {
+                    tenant_organization_id: "tenant-1".to_string(),
+                    power_resource_group,
+                    ..Default::default()
+                })
+                .expect("creation request should be valid")
+                .power_resource_group
+            };
+            "non-empty resource group is preserved" {
+                Some("power-group".to_string()) => Some("power-group".to_string()),
+            }
+            "empty resource group is treated as unset" {
+                Some(String::new()) => None,
+            }
+            "omitted resource group remains unset" {
+                None => None,
+            }
+        );
     }
 
     // `VpcSearchFilter::from` is a total conversion, so we project its output to

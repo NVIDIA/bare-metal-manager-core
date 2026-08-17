@@ -307,17 +307,6 @@ impl TryFrom<rpc::InstanceNetworkConfig> for InstanceNetworkConfig {
                 ));
             }
 
-            // Core models and allocation support every family.
-            // TODO: Accept automatic IPv6 modes once downstream DPU support is
-            // complete end to end.
-            if let Some(selection) = vpc_selection
-                && selection.family_mode != InstanceInterfaceIpFamilyMode::Ipv4Only
-            {
-                return Err(RpcDataConversionError::InvalidArgument(
-                    "automatic VPC selection currently supports only IPV4_ONLY".to_string(),
-                ));
-            }
-
             if iface.ip_address.is_some()
                 && matches!(network_details, Some(NetworkDetails::NetworkSegment(..)))
             {
@@ -626,8 +615,8 @@ mod tests {
         .is_ok()
     }
 
-    /// Typed family conversion models future IPv6 modes even while the
-    /// external allocation boundary temporarily accepts only IPv4.
+    /// Typed family conversion accepts every concrete mode and rejects the
+    /// unspecified sentinel.
     #[test]
     fn convert_vpc_selection_family_modes() {
         value_scenarios!(
@@ -647,8 +636,8 @@ mod tests {
         );
     }
 
-    /// The inbound RPC boundary rejects unspecified, unknown, missing, and
-    /// not-yet-supported family requests while accepting IPv4 automatic mode.
+    /// The inbound RPC boundary accepts every concrete family mode while
+    /// rejecting unspecified, unknown, and incomplete requests.
     #[test]
     fn validate_inbound_vpc_selection_modes() {
         let vpc_id = VpcId::new();
@@ -658,11 +647,11 @@ mod tests {
             "IPv4 only" {
                 (Some(vpc_id), forge::InstanceInterfaceIpFamilyMode::Ipv4Only as i32) => true,
             }
-            "IPv6 only is not yet supported" {
-                (Some(vpc_id), forge::InstanceInterfaceIpFamilyMode::Ipv6Only as i32) => false,
+            "IPv6 only" {
+                (Some(vpc_id), forge::InstanceInterfaceIpFamilyMode::Ipv6Only as i32) => true,
             }
-            "dual stack is not yet supported" {
-                (Some(vpc_id), forge::InstanceInterfaceIpFamilyMode::DualStack as i32) => false,
+            "dual stack" {
+                (Some(vpc_id), forge::InstanceInterfaceIpFamilyMode::DualStack as i32) => true,
             }
             "unspecified" {
                 (Some(vpc_id), forge::InstanceInterfaceIpFamilyMode::Unspecified as i32) => false,

@@ -50,16 +50,9 @@ use crate::machine_state_machine::MachineStateError::MissingMachineId;
 use crate::machine_utils::{
     PxeError, PxeResponse, forge_agent_control, get_validation_id, send_pxe_boot_request,
 };
-use crate::{PersistedDevice, PersistedDpuMachine};
+use crate::{Guid, InfinibandPortState, PersistedDevice, PersistedDpuMachine};
 
 type DpuDhcpRelayHandle = oneshot::Sender<()>;
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
-#[serde(rename_all = "snake_case")]
-pub enum InfinibandPortState {
-    Active,
-    Down,
-}
 
 // RFC 2131 section 4.1's Ethernet example starts at four seconds, doubles to a
 // 64-second base, and adds uniform jitter from -1 through +1 second.
@@ -260,11 +253,15 @@ pub(super) struct LiveState {
     pub(super) api_state: String,
     pub(super) tpm_ek_certificate: Option<Vec<u8>>,
     pub(super) ssh_host_key: Option<String>,
-    pub(super) infiniband_port_states: HashMap<String, InfinibandPortState>,
+    pub(super) infiniband_port_states: HashMap<Guid, InfinibandPortState>,
     /// For a DPU machine, whether its BlueField has flipped to NIC mode. Lets the
     /// owning host observe the flip through the DPU handle and converge (detach
     /// its DPU DHCP relay). Always false for a host machine.
     pub(super) dpu_flipped_to_nic_mode: bool,
+    /// Current host firmware inventory, updated on each power-on after staged
+    /// firmware is applied.  Used by `persisted()` so restarts resume from the
+    /// last observed versions rather than the operator-configured starting point.
+    pub(super) active_host_firmware: Option<bmc_mock::HostFirmwareVersions>,
 }
 
 impl Default for LiveState {
@@ -286,6 +283,7 @@ impl Default for LiveState {
             ssh_host_key: None,
             infiniband_port_states: HashMap::new(),
             dpu_flipped_to_nic_mode: false,
+            active_host_firmware: None,
         }
     }
 }
@@ -300,7 +298,10 @@ impl LiveState {
             MachineInfo::Host(host) => host
                 .infiniband_port_guids()
                 .into_iter()
-                .map(|guid| (guid, InfinibandPortState::Active))
+                .map(|guid| {
+                    let bytes: [u8; 8] = guid.into();
+                    (Guid::from(bytes), InfinibandPortState::Active)
+                })
                 .collect(),
             MachineInfo::Dpu(_) => HashMap::new(),
         };
@@ -1016,6 +1017,7 @@ impl MachineStateMachine {
                 .as_ref()
                 .and_then(|state| state.bluefield_nic_mode())
                 .unwrap_or(false);
+        live_state.active_host_firmware = self.current_host_firmware();
     }
 
     /// Whether this machine still relays its data-plane DHCP through a managed
@@ -1023,6 +1025,39 @@ impl MachineStateMachine {
     /// a host that never had a managed DPU.
     pub(super) fn has_dpu_dhcp_relay(&self) -> bool {
         self.dpu_dhcp_relay.is_some()
+    }
+
+    /// Return the active host firmware versions from the live BMC mock inventory.
+    /// Returns `None` when the BMC mock has not started yet, or when this
+    /// platform has no host firmware simulation (inventory IDs are `None`).
+    pub(super) fn current_host_firmware(&self) -> Option<bmc_mock::HostFirmwareVersions> {
+        let bmc_state = self.bmc_state.as_ref()?;
+        // host_bmc_inventory_id is None for platforms without host firmware simulation
+        // (switches, power shelves, Dell R760+BF4, etc.).  Return None early so
+        // live_state.active_host_firmware stays None for those machines.
+        let bmc_id = bmc_state
+            .update_service_state
+            .host_bmc_inventory_id
+            .as_deref()?;
+        let uefi_id = bmc_state
+            .update_service_state
+            .host_uefi_inventory_id
+            .as_deref();
+        let bmc = bmc_state
+            .update_service_state
+            .find_firmware_inventory(bmc_id)
+            .and_then(|v| v["Version"].as_str().map(str::to_owned));
+        let uefi = uefi_id.and_then(|id| {
+            bmc_state
+                .update_service_state
+                .find_firmware_inventory(id)
+                .and_then(|v| v["Version"].as_str().map(str::to_owned))
+        });
+        if bmc.is_some() || uefi.is_some() {
+            Some(bmc_mock::HostFirmwareVersions { bmc, uefi })
+        } else {
+            None
+        }
     }
 
     /// Stop relaying data-plane DHCP through the DPU. Once a DPU flips to NIC
@@ -1092,6 +1127,8 @@ impl MachineStateMachine {
         Ok(machine_discovery_result)
     }
 
+    // Machine-a-tron receives the compatibility fields from the agent-facing response.
+    #[allow(deprecated)]
     async fn send_network_status_observation(
         &self,
         machine_id: MachineId,
@@ -1123,7 +1160,7 @@ impl MachineStateMachine {
                 mac_address: self.machine_info.host_mac_address().map(|a| a.to_string()),
                 addresses,
                 prefixes,
-                gateways: vec![iface.gateway.clone()],
+                gateways: build_dual_stack_list(iface.gateway.clone(), None),
                 network_security_group: None,
                 internal_uuid: None,
             }]
@@ -1149,7 +1186,7 @@ impl MachineStateMachine {
                     mac_address: self.machine_info.host_mac_address().map(|a| a.to_string()),
                     addresses,
                     prefixes,
-                    gateways: vec![iface.gateway.clone()],
+                    gateways: build_dual_stack_list(iface.gateway.clone(), None),
                     network_security_group: iface.network_security_group.as_ref().map(|s| {
                         rpc::forge::NetworkSecurityGroupStatus {
                             source: s.source,

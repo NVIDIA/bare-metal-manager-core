@@ -12,7 +12,10 @@ import (
 	"strings"
 
 	"github.com/google/uuid"
+	"github.com/labstack/echo/v4"
+	"github.com/rs/zerolog"
 	temporalEnums "go.temporal.io/api/enums/v1"
+	"go.temporal.io/api/serviceerror"
 	tclient "go.temporal.io/sdk/client"
 	tp "go.temporal.io/sdk/temporal"
 	"google.golang.org/protobuf/encoding/protojson"
@@ -62,9 +65,9 @@ func ExecuteCoreGRPC(
 // Naming secretFields requires a non-empty secretKey; the site has no other way
 // to recover the redacted values.
 //
-// On timeout it returns StatusGatewayTimeout; handlers that previously
-// terminated the workflow on timeout should call TerminateWorkflowOnTimeOut
-// with the same workflowID.
+// On timeout it returns StatusGatewayTimeout. Do not follow that with
+// TerminateWorkflowOnTimeOut; see executeGRPCProxy for why the proxy leaves the
+// execution alone.
 func ExecuteFlowGRPC(
 	ctx context.Context,
 	stc tclient.Client,
@@ -79,9 +82,72 @@ func ExecuteFlowGRPC(
 	return executeGRPCProxy(ctx, stc, grpcproxy.Flow, fullMethod, req, resp, workflowID, conflictPolicy, secretKey, secretFields...)
 }
 
+// FlowWorkflowID namespaces a derived workflow ID under the Flow gRPC proxy,
+// leaving the derivation rules themselves untouched. The namespace is what stops
+// a proxy request from attaching, under USE_EXISTING, to a bespoke per-method
+// execution of the same derived name: those still run on the site agent, and
+// their result is a type this proxy cannot decode.
+//
+// It can go once no bespoke Flow workflow is left to collide with, at which
+// point a shared ID costs duplicated work rather than an undecodable result.
+func FlowWorkflowID(derived string) string {
+	return "flow-grpc-" + derived
+}
+
+// ProxyFlowGRPC dispatches one already-validated request to Flow through the
+// generic proxy workflow, decoding the reply into resp, which may be nil for
+// methods with an empty response.
+//
+// Callers pass a deterministic workflow ID with USE_EXISTING where concurrent
+// identical requests should coalesce onto one in-flight Flow call, and a fresh
+// ID with UNSPECIFIED where they must not.
+//
+// It returns nil on success and otherwise a rendered Echo response, so handlers
+// report failures without replacing Flow's status code and message with a
+// generic wrapper. The internal cause stays in the log: an error in the
+// response body serializes to an empty object, which tells a client nothing
+// and contradicts the null the schema promises.
+func ProxyFlowGRPC(
+	ctx context.Context,
+	c echo.Context,
+	logger zerolog.Logger,
+	stc tclient.Client,
+	fullMethod string,
+	req proto.Message,
+	resp proto.Message,
+	workflowID string,
+	conflictPolicy temporalEnums.WorkflowIdConflictPolicy,
+) error {
+	apiErr := ExecuteFlowGRPC(ctx, stc, fullMethod, req, resp, workflowID, conflictPolicy, "")
+	if apiErr == nil {
+		return nil
+	}
+
+	logger.Error().Err(apiErr.Diagnosis()).Str("Method", path.Base(fullMethod)).Msg("failed to proxy request to Flow")
+	return cutil.NewAPIErrorResponse(c, apiErr.Code, apiErr.Message, nil)
+}
+
+// proxyTimedOutError reports that no result arrived in time. The client-facing
+// message is the same however the request ran out of time, because the client
+// learns the same thing either way; detail is what carries the distinction into
+// the log, and it matters because only an execution timeout proves the
+// execution has stopped.
+func proxyTimedOutError(backend grpcproxy.Backend, fullMethod, detail string, cause error) *cutil.APIError {
+	return cutil.NewAPIError(http.StatusGatewayTimeout, fmt.Sprintf("%s proxy request timed out", backend.Label), fmt.Errorf("%s proxy %s %s: %w", strings.ToLower(backend.Label), fullMethod, detail, cause))
+}
+
 // executeGRPCProxy starts one proxy workflow and translates its result. Both
 // backends share it; they differ only in the backend descriptor and in who
 // chooses the workflow ID and conflict policy.
+//
+// It never terminates the execution, including when the caller stops waiting.
+// The activity does not heartbeat, so Temporal cannot deliver cancellation while
+// its backend RPC is in progress, and terminating only the workflow would
+// discard the result without stopping that RPC. For the Flow callers that pass a
+// deterministic ID with USE_EXISTING it would also free that ID, so a retried
+// request would start a duplicate mutation instead of attaching to the call
+// already in flight. An abandoned execution stays bounded by
+// grpcproxy.WorkflowExecutionTimeout and grpcproxy.ActivityStartToCloseTimeout.
 func executeGRPCProxy(
 	ctx context.Context,
 	stc tclient.Client,
@@ -139,16 +205,42 @@ func executeGRPCProxy(
 		EncryptedSecrets: encryptedSecrets,
 	})
 	if err != nil {
+		// Either way the start may have reached the server before the wait
+		// ended, so these are timeouts rather than failures to dispatch. The
+		// second is not the caller giving up: the SDK caps a start at ten
+		// seconds regardless of how long the caller is prepared to wait, and
+		// never retries that deadline, so a slow frontend surfaces here with
+		// the caller still waiting.
+		if wfCtx.Err() != nil {
+			return proxyTimedOutError(backend, fullMethod, "caller stopped waiting", wfCtx.Err())
+		}
+		var startDeadlineErr *serviceerror.DeadlineExceeded
+		if errors.As(err, &startDeadlineErr) {
+			return proxyTimedOutError(backend, fullMethod, "start deadline exceeded", err)
+		}
 		return cutil.NewAPIError(http.StatusInternalServerError, fmt.Sprintf("Failed to execute %s proxy workflow", backend.Label), fmt.Errorf("execute %s workflow: %w", backend.WorkflowName, err))
 	}
 
 	var out grpcproxy.Response
 	resultErr := we.Get(wfCtx, &out)
 	if resultErr != nil {
+		// A Temporal timeout is positive evidence that the execution closed, so
+		// it is checked first: when the caller also went away, having closed is
+		// the more useful fact of the two.
 		var timeoutErr *tp.TimeoutError
-		if errors.As(resultErr, &timeoutErr) || errors.Is(resultErr, context.DeadlineExceeded) || wfCtx.Err() != nil {
-			return cutil.NewAPIError(http.StatusGatewayTimeout, fmt.Sprintf("%s proxy request timed out", backend.Label), fmt.Errorf("%s proxy %s timed out: %w", strings.ToLower(backend.Label), fullMethod, resultErr))
+		if errors.As(resultErr, &timeoutErr) {
+			return proxyTimedOutError(backend, fullMethod, "execution timed out", resultErr)
 		}
+
+		// Only wfCtx proves the caller stopped waiting. A DeadlineExceeded in
+		// resultErr alone does not: it can come from inside the execution, and
+		// treating it as the caller's would misreport who gave up. Unlike the
+		// start, the wait for a result runs to wfCtx's deadline, so there is no
+		// shorter SDK deadline to distinguish from it here.
+		if wfCtx.Err() != nil {
+			return proxyTimedOutError(backend, fullMethod, "caller stopped waiting", wfCtx.Err())
+		}
+
 		code, werr := UnwrapWorkflowError(resultErr)
 		return cutil.NewAPIError(code, werr.Error(), nil)
 	}

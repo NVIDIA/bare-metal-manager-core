@@ -95,7 +95,11 @@ pub trait DpfOperations: Send + Sync + std::fmt::Debug {
     /// Returns `Err` when the part number is absent or does not match any known
     /// generation, so unrecognized hardware never silently routes to a wrong
     /// deployment.
-    fn deployment_type_for_dpu(&self, dpu: &Machine) -> Result<DpuDeploymentType, DpfError>;
+    fn deployment_type_for_dpu(
+        &self,
+        dpu: &Machine,
+        astra_nics: bool,
+    ) -> Result<DpuDeploymentType, DpfError>;
 
     /// Check that a DPUNode's labels match the current expected labels.
     /// Returns `false` when the node exists but has stale labels.
@@ -603,7 +607,11 @@ impl DpfOperations for DpfSdkOps {
         self.sdk.reboot_complete(node_name).await
     }
 
-    fn deployment_type_for_dpu(&self, dpu: &Machine) -> Result<DpuDeploymentType, DpfError> {
+    fn deployment_type_for_dpu(
+        &self,
+        dpu: &Machine,
+        astra_nics: bool,
+    ) -> Result<DpuDeploymentType, DpfError> {
         let product_name = dpu
             .status
             .hardware_info
@@ -621,13 +629,17 @@ impl DpfOperations for DpfSdkOps {
 
         // Only a BF3 or BF4 DPU can reach here.
         let deployment_type = if is_bf4_dmi_product(product_name) {
-            DpuDeploymentType::Bf4Generic
+            if astra_nics {
+                DpuDeploymentType::Bf4Astra
+            } else {
+                DpuDeploymentType::Bf4Generic
+            }
         } else {
             DpuDeploymentType::Bf3
         };
 
         tracing::info!(
-            "selected deployment type {deployment_type:?} for {product_name}, machine_id: {}",
+            "selected deployment type {deployment_type:?} for {product_name}, machine_id: {}, astra_nics: {astra_nics}",
             dpu.id
         );
 

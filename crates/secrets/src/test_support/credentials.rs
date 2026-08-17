@@ -31,6 +31,7 @@ pub struct TestCredentialManager {
     fallback_credentials: Option<Credentials>,
     pub set_credentials_sleep_time_ms: AtomicU32,
     delete_credentials_failure: AtomicBool,
+    set_credentials_failure: AtomicBool,
 }
 
 impl TestCredentialManager {
@@ -42,6 +43,7 @@ impl TestCredentialManager {
             fallback_credentials: Some(fallback_credentials),
             set_credentials_sleep_time_ms: Default::default(),
             delete_credentials_failure: Default::default(),
+            set_credentials_failure: Default::default(),
         }
     }
 
@@ -49,6 +51,14 @@ impl TestCredentialManager {
     /// credential.
     pub fn set_delete_credentials_failure(&self, fail: bool) {
         self.delete_credentials_failure
+            .store(fail, atomic::Ordering::Release);
+    }
+
+    /// Makes `set_credentials` return an error without persisting the credential.
+    /// Models a credential-store write failure (e.g. Vault unreachable) so the
+    /// caller can exercise a persist-failure path without touching a real store.
+    pub fn set_set_credentials_failure(&self, fail: bool) {
+        self.set_credentials_failure
             .store(fail, atomic::Ordering::Release);
     }
 }
@@ -88,6 +98,11 @@ impl CredentialWriter for TestCredentialManager {
             .load(atomic::Ordering::Acquire);
         if sleep_ms > 0 {
             tokio::time::sleep(std::time::Duration::from_millis(sleep_ms as _)).await;
+        }
+        if self.set_credentials_failure.load(atomic::Ordering::Acquire) {
+            return Err(SecretsError::GenericError(eyre::eyre!(
+                "test credential set failure"
+            )));
         }
         let mut data = self.credentials.lock().await;
         data.insert(key.to_key_str().to_string(), credentials.clone());

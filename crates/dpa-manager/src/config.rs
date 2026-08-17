@@ -44,6 +44,7 @@ pub enum MqttAuthMode {
 
 /// OAuth2 configuration for MQTT broker authentication.
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
+#[serde(deny_unknown_fields)]
 pub struct MqttOAuth2Config {
     /// OAuth2 token endpoint URL.
     pub token_url: String,
@@ -78,6 +79,7 @@ impl MqttOAuth2Config {
 
 /// MQTT authentication configuration shared by DPA and DSX event bus.
 #[derive(Clone, Debug, Default, Deserialize, Serialize, PartialEq)]
+#[serde(deny_unknown_fields)]
 pub struct MqttAuthConfig {
     /// Authentication mechanism to use for MQTT connections.
     #[serde(default)]
@@ -91,6 +93,7 @@ pub struct MqttAuthConfig {
 /// Enables DPA, and specifies basic network settings.
 /// The VNI to be used by DPA will be the same as the parent VPC.
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
+#[serde(deny_unknown_fields)]
 pub struct DpaConfig {
     /// Global enable/disable of Cluster Interconnect Network.
     #[serde(default)]

@@ -15,9 +15,8 @@
  * limitations under the License.
  */
 
-// Allow txn_without_commit in tests
-#![cfg_attr(test, allow(txn_without_commit))]
-#![allow(unknown_lints)]
+// It's too cumbersome for tests to adhere to these, which are less important in testing anyway.
+#![cfg_attr(test, allow(txn_held_across_await, txn_without_commit))]
 
 pub mod attestation;
 pub mod bmc_metadata;

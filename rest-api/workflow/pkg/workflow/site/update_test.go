@@ -8,78 +8,139 @@ import (
 	"testing"
 
 	"github.com/google/uuid"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
-	"github.com/stretchr/testify/suite"
+	"github.com/stretchr/testify/require"
 	"go.temporal.io/sdk/temporal"
 	"go.temporal.io/sdk/testsuite"
 
 	corev1 "github.com/NVIDIA/infra-controller/rest-api/proto/core/gen/v1"
+	cwm "github.com/NVIDIA/infra-controller/rest-api/workflow/internal/metrics"
 	siteActivity "github.com/NVIDIA/infra-controller/rest-api/workflow/pkg/activity/site"
 )
 
-type UpdateSiteConfigInventoryWorkflowTestSuite struct {
-	suite.Suite
-	testsuite.WorkflowTestSuite
-	env *testsuite.TestWorkflowEnvironment
-}
+func TestUpdateSiteConfigInventory(t *testing.T) {
+	type testCase struct {
+		name                 string
+		siteIDStr            string
+		prefixes             []string
+		buildVersion         string
+		updateSiteInDBErr    error
+		updateIPBlocksErr    error
+		wantErr              bool
+		wantErrContains      string
+		expectUpdateSiteInDB bool
+		expectUpdateIPBlocks bool
+		expectRecordLatency  bool
+		recordLatencyFailed  bool
+	}
 
-func (s *UpdateSiteConfigInventoryWorkflowTestSuite) SetupTest() {
-	s.env = s.NewTestWorkflowEnvironment()
-}
-
-func (s *UpdateSiteConfigInventoryWorkflowTestSuite) AfterTest(suiteName, testName string) {
-	s.env.AssertExpectations(s.T())
-}
-
-func (s *UpdateSiteConfigInventoryWorkflowTestSuite) Test_UpdateSiteConfigInventoryWorkflow_Success() {
-	var siteManager siteActivity.ManageSite
-
-	siteID := uuid.New()
-	prefixes := []string{"10.0.0.0/16", "2001:db8::/64"}
-	buildInfo := &corev1.BuildInfo{
-		RuntimeConfig: &corev1.RuntimeConfig{
-			SiteFabricPrefixes: prefixes,
+	tests := []testCase{
+		{
+			name:                 "Success",
+			prefixes:             []string{"10.0.0.0/16", "2001:db8::/64"},
+			buildVersion:         "1.2.3",
+			expectUpdateSiteInDB: true,
+			expectUpdateIPBlocks: true,
+			expectRecordLatency:  true,
+		},
+		{
+			name:                 "ActivityFails",
+			prefixes:             []string{"10.0.0.0/16"},
+			buildVersion:         "1.2.3",
+			updateIPBlocksErr:    errors.New("failed to update Site IP Blocks"),
+			wantErr:              true,
+			wantErrContains:      "failed to update Site IP Blocks",
+			expectUpdateSiteInDB: true,
+			expectUpdateIPBlocks: true,
+			expectRecordLatency:  true,
+			recordLatencyFailed:  true,
+		},
+		{
+			// UpdateSiteInDB failures are logged and do not stop the workflow
+			// from creating Site fabric IP Blocks from the reported prefixes.
+			name:                 "UpdateSiteInDBFailsContinues",
+			prefixes:             []string{"10.0.0.0/16"},
+			buildVersion:         "1.2.3",
+			updateSiteInDBErr:    errors.New("failed to update Site metadata"),
+			expectUpdateSiteInDB: true,
+			expectUpdateIPBlocks: true,
+			expectRecordLatency:  true,
+		},
+		{
+			name:      "InvalidSiteID",
+			siteIDStr: "not-a-site-id",
+			wantErr:   true,
 		},
 	}
 
-	s.env.RegisterActivity(siteManager.UpdateIPBlocksInDBFromFabricPrefixes)
-	s.env.OnActivity(siteManager.UpdateIPBlocksInDBFromFabricPrefixes, mock.Anything, siteID, prefixes).Return(nil)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var ts testsuite.WorkflowTestSuite
+			env := ts.NewTestWorkflowEnvironment()
+			t.Cleanup(func() {
+				env.AssertExpectations(t)
+			})
 
-	s.env.ExecuteWorkflow(UpdateSiteConfigInventory, siteID.String(), buildInfo)
-	s.True(s.env.IsWorkflowCompleted())
-	s.NoError(s.env.GetWorkflowError())
-}
+			siteIDStr := tt.siteIDStr
+			var siteID uuid.UUID
+			if siteIDStr == "" {
+				siteID = uuid.New()
+				siteIDStr = siteID.String()
+			}
 
-func (s *UpdateSiteConfigInventoryWorkflowTestSuite) Test_UpdateSiteConfigInventoryWorkflow_ActivityFails() {
-	var siteManager siteActivity.ManageSite
+			buildInfo := &corev1.BuildInfo{
+				BuildVersion: tt.buildVersion,
+			}
+			if tt.prefixes != nil {
+				buildInfo.RuntimeConfig = &corev1.RuntimeConfig{
+					SiteFabricPrefixes: tt.prefixes,
+				}
+			}
 
-	siteID := uuid.New()
-	prefixes := []string{"10.0.0.0/16"}
-	buildInfo := &corev1.BuildInfo{
-		RuntimeConfig: &corev1.RuntimeConfig{
-			SiteFabricPrefixes: prefixes,
-		},
+			var siteManager siteActivity.ManageSite
+			var metricsManager cwm.ManageInventoryMetrics
+
+			if tt.expectUpdateSiteInDB {
+				env.RegisterActivity(siteManager.UpdateSiteInDB)
+				env.OnActivity(siteManager.UpdateSiteInDB, mock.Anything, siteID, buildInfo).Return(tt.updateSiteInDBErr)
+			}
+			if tt.expectUpdateIPBlocks {
+				env.RegisterActivity(siteManager.UpdateIPBlocksInDBFromFabricPrefixes)
+				env.OnActivity(siteManager.UpdateIPBlocksInDBFromFabricPrefixes, mock.Anything, siteID, tt.prefixes).Return(tt.updateIPBlocksErr)
+			}
+			if tt.expectRecordLatency {
+				env.RegisterActivity(metricsManager.RecordLatency)
+				onLatency := env.OnActivity(
+					metricsManager.RecordLatency,
+					mock.Anything,
+					siteID,
+					"UpdateSiteConfigInventory",
+					tt.recordLatencyFailed,
+					mock.Anything,
+				).Return(nil)
+				if tt.recordLatencyFailed {
+					onLatency.Maybe()
+				}
+			}
+
+			env.ExecuteWorkflow(UpdateSiteConfigInventory, siteIDStr, buildInfo)
+			require.True(t, env.IsWorkflowCompleted())
+
+			err := env.GetWorkflowError()
+			if !tt.wantErr {
+				require.NoError(t, err)
+				return
+			}
+
+			require.Error(t, err)
+			if tt.wantErrContains == "" {
+				return
+			}
+
+			var applicationErr *temporal.ApplicationError
+			require.True(t, errors.As(err, &applicationErr))
+			assert.Equal(t, tt.wantErrContains, applicationErr.Error())
+		})
 	}
-
-	s.env.RegisterActivity(siteManager.UpdateIPBlocksInDBFromFabricPrefixes)
-	s.env.OnActivity(siteManager.UpdateIPBlocksInDBFromFabricPrefixes, mock.Anything, siteID, prefixes).Return(errors.New("failed to update Site IP Blocks"))
-
-	s.env.ExecuteWorkflow(UpdateSiteConfigInventory, siteID.String(), buildInfo)
-	s.True(s.env.IsWorkflowCompleted())
-	err := s.env.GetWorkflowError()
-	s.Error(err)
-
-	var applicationErr *temporal.ApplicationError
-	s.True(errors.As(err, &applicationErr))
-	s.Equal("failed to update Site IP Blocks", applicationErr.Error())
-}
-
-func (s *UpdateSiteConfigInventoryWorkflowTestSuite) Test_UpdateSiteConfigInventoryWorkflow_InvalidSiteID() {
-	s.env.ExecuteWorkflow(UpdateSiteConfigInventory, "not-a-site-id", &corev1.BuildInfo{})
-	s.True(s.env.IsWorkflowCompleted())
-	s.Error(s.env.GetWorkflowError())
-}
-
-func TestUpdateSiteConfigInventoryWorkflowTestSuite(t *testing.T) {
-	suite.Run(t, new(UpdateSiteConfigInventoryWorkflowTestSuite))
 }

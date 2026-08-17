@@ -77,6 +77,7 @@ pub enum NetworkSegmentDeletionState {
 
 // How we specifiy a network segment in the config file
 #[derive(Debug, Deserialize, Serialize, Clone, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
 pub struct NetworkDefinition {
     #[serde(rename = "type")]
     pub segment_type: NetworkDefinitionSegmentType,

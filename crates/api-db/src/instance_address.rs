@@ -648,7 +648,10 @@ impl AssignIpsFrom<(&Machine, &NetworkPrefix)> for InstanceInterfaceConfig {
             ));
         };
 
+        let assigned_address = IpNetwork::new(address, network_prefix.prefix.prefix())?;
         self.ip_addrs.insert(network_prefix.id, address);
+        self.interface_prefixes
+            .insert(network_prefix.id, network_prefix.prefix);
 
         self.host_inband_mac_address = Some(inband_host_interface.mac_address);
 
@@ -671,10 +674,7 @@ impl AssignIpsFrom<(&Machine, &NetworkPrefix)> for InstanceInterfaceConfig {
                 .insert(network_prefix.id, gateway_as_network);
         }
 
-        Ok(vec![IpNetwork::new(
-            address,
-            network_prefix.prefix.prefix(),
-        )?])
+        Ok(vec![assigned_address])
     }
 }
 

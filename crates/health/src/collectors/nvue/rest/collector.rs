@@ -29,7 +29,8 @@ use crate::config::NvueRestConfig;
 use crate::endpoint::{BmcAddr, BmcCredentials, BmcEndpoint, EndpointMetadata};
 use crate::sink::{
     Classification, CollectorEvent, DataSink, EventContext, HealthReport, HealthReportAlert,
-    HealthReportSuccess, HealthReportTarget, LogRecord, MetricSample, Probe, ReportSource,
+    HealthReportSuccess, HealthReportTarget, LogRecord, LogSeverity, MetricSample, Probe,
+    ReportSource,
 };
 
 const COLLECTOR_NAME: &str = "nvue_rest";
@@ -636,7 +637,7 @@ impl NvueRestCollector {
 
             self.emit_event(CollectorEvent::Log(Box::new(LogRecord {
                 body: "nvue_rest: collected system reboot reason".to_string(),
-                severity: "INFO".to_string(),
+                severity: LogSeverity::Info,
                 attributes: vec![
                     (
                         Cow::Borrowed("message_id"),
@@ -1149,7 +1150,7 @@ mod tests {
 
         assert_eq!(logs.len(), 1);
         assert_eq!(log.body, "nvue_rest: collected system reboot reason");
-        assert_eq!(log.severity, "INFO");
+        assert_eq!(log.severity, LogSeverity::Info);
 
         assert_eq!(
             log.attributes,

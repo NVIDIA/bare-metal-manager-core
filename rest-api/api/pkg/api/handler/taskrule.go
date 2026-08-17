@@ -16,7 +16,6 @@ import (
 	"go.opentelemetry.io/otel/attribute"
 	temporalEnums "go.temporal.io/api/enums/v1"
 	tClient "go.temporal.io/sdk/client"
-	tp "go.temporal.io/sdk/temporal"
 
 	"github.com/NVIDIA/infra-controller/rest-api/api/internal/config"
 	"github.com/NVIDIA/infra-controller/rest-api/api/pkg/api/handler/util/common"
@@ -28,7 +27,6 @@ import (
 	cdb "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db"
 	cdbm "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/model"
 	flowv1 "github.com/NVIDIA/infra-controller/rest-api/proto/flow/gen/v1"
-	"github.com/NVIDIA/infra-controller/rest-api/workflow/pkg/queue"
 )
 
 // prepareTaskRuleHandler runs the auth + site lookup + Flow-enabled check +
@@ -164,32 +162,15 @@ func (h CreateTaskRuleHandler) Handle(c echo.Context) error {
 
 	// Dedicated workflow ID per request so Create is never deduped.
 	workflowID := fmt.Sprintf("task-rule-create-%s", uuid.NewString())
-	workflowOptions := tClient.StartWorkflowOptions{
-		ID:                       workflowID,
-		WorkflowIDReusePolicy:    temporalEnums.WORKFLOW_ID_REUSE_POLICY_ALLOW_DUPLICATE,
-		WorkflowIDConflictPolicy: temporalEnums.WORKFLOW_ID_CONFLICT_POLICY_USE_EXISTING,
-		WorkflowExecutionTimeout: cutil.WorkflowExecutionTimeout,
-		TaskQueue:                queue.SiteTaskQueue,
-	}
-
-	wfCtx, cancel := context.WithTimeout(ctx, cutil.WorkflowContextTimeout)
-	defer cancel()
-
-	we, err := stc.ExecuteWorkflow(wfCtx, workflowOptions, "CreateTaskRule", flowRequest)
-	if err != nil {
-		logger.Error().Err(err).Msg("failed to schedule CreateTaskRule workflow")
-		return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to schedule Rule creation workflow", nil)
-	}
-
 	var flowResponse flowv1.CreateOperationRuleResponse
-	if err := we.Get(wfCtx, &flowResponse); err != nil {
-		var timeoutErr *tp.TimeoutError
-		if errors.As(err, &timeoutErr) || err == context.DeadlineExceeded || wfCtx.Err() != nil {
-			return common.TerminateWorkflowOnTimeOut(c, logger, stc, workflowID, err, "TaskRule", "CreateTaskRule")
-		}
-		code, unwrapErr := common.UnwrapWorkflowError(err)
-		logger.Error().Err(unwrapErr).Msg("failed to get result from CreateTaskRule workflow")
-		return cutil.NewAPIErrorResponse(c, code, fmt.Sprintf("Failed to execute Rule creation workflow on Site: %s", unwrapErr), nil)
+	proxyErr := common.ProxyFlowGRPC(
+		ctx, c, logger, stc,
+		flowv1.Flow_CreateOperationRule_FullMethodName,
+		flowRequest, &flowResponse,
+		common.FlowWorkflowID(workflowID), temporalEnums.WORKFLOW_ID_CONFLICT_POLICY_UNSPECIFIED,
+	)
+	if proxyErr != nil {
+		return proxyErr
 	}
 
 	// Flow's CreateTaskRule returns only the new rule's ID; echo the
@@ -273,34 +254,15 @@ func (h GetTaskRuleHandler) Handle(c echo.Context) error {
 		RuleId: &flowv1.UUID{Id: ruleID},
 	}
 	workflowID := fmt.Sprintf("task-rule-get-%s", ruleID)
-	workflowOptions := tClient.StartWorkflowOptions{
-		ID:                       workflowID,
-		WorkflowIDReusePolicy:    temporalEnums.WORKFLOW_ID_REUSE_POLICY_ALLOW_DUPLICATE,
-		WorkflowIDConflictPolicy: temporalEnums.WORKFLOW_ID_CONFLICT_POLICY_USE_EXISTING,
-		WorkflowExecutionTimeout: cutil.WorkflowExecutionTimeout,
-		TaskQueue:                queue.SiteTaskQueue,
-	}
-
-	wfCtx, cancel := context.WithTimeout(ctx, cutil.WorkflowContextTimeout)
-	defer cancel()
-
-	we, err := stc.ExecuteWorkflow(wfCtx, workflowOptions, "GetTaskRule", flowRequest)
-	if err != nil {
-		logger.Error().Err(err).Msg("failed to schedule GetTaskRule workflow")
-		return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to schedule Rule retrieval workflow", nil)
-	}
-
 	var flowResponse flowv1.OperationRule
-	if err := we.Get(wfCtx, &flowResponse); err != nil {
-		var timeoutErr *tp.TimeoutError
-		if errors.As(err, &timeoutErr) || err == context.DeadlineExceeded || wfCtx.Err() != nil {
-			return common.TerminateWorkflowOnTimeOut(c, logger, stc, workflowID, err, "TaskRule", "GetTaskRule")
-		}
-		code, unwrapErr := common.UnwrapWorkflowError(err)
-		// Flow returns NotFound as gRPC code 5 → 404; UnwrapWorkflowError
-		// already maps it for us. Preserve that here.
-		logger.Error().Err(unwrapErr).Msg("failed to get result from GetTaskRule workflow")
-		return cutil.NewAPIErrorResponse(c, code, fmt.Sprintf("Failed to execute Rule retrieval workflow on Site: %s", unwrapErr), nil)
+	proxyErr := common.ProxyFlowGRPC(
+		ctx, c, logger, stc,
+		flowv1.Flow_GetOperationRule_FullMethodName,
+		flowRequest, &flowResponse,
+		common.FlowWorkflowID(workflowID), temporalEnums.WORKFLOW_ID_CONFLICT_POLICY_USE_EXISTING,
+	)
+	if proxyErr != nil {
+		return proxyErr
 	}
 
 	if flowResponse.GetId() == nil || flowResponse.GetId().GetId() == "" {
@@ -391,32 +353,15 @@ func (h GetAllTaskRuleHandler) Handle(c echo.Context) error {
 	}
 
 	workflowID := fmt.Sprintf("task-rule-get-all-%s", common.QueryParamHash(apiRequest.QueryValues(pageRequest)))
-	workflowOptions := tClient.StartWorkflowOptions{
-		ID:                       workflowID,
-		WorkflowIDReusePolicy:    temporalEnums.WORKFLOW_ID_REUSE_POLICY_ALLOW_DUPLICATE,
-		WorkflowIDConflictPolicy: temporalEnums.WORKFLOW_ID_CONFLICT_POLICY_USE_EXISTING,
-		WorkflowExecutionTimeout: cutil.WorkflowExecutionTimeout,
-		TaskQueue:                queue.SiteTaskQueue,
-	}
-
-	wfCtx, cancel := context.WithTimeout(ctx, cutil.WorkflowContextTimeout)
-	defer cancel()
-
-	we, err := stc.ExecuteWorkflow(wfCtx, workflowOptions, "GetAllTaskRules", flowRequest)
-	if err != nil {
-		logger.Error().Err(err).Msg("failed to schedule GetAllTaskRules workflow")
-		return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to schedule Rule list workflow", nil)
-	}
-
 	var flowResponse flowv1.ListOperationRulesResponse
-	if err := we.Get(wfCtx, &flowResponse); err != nil {
-		var timeoutErr *tp.TimeoutError
-		if errors.As(err, &timeoutErr) || err == context.DeadlineExceeded || wfCtx.Err() != nil {
-			return common.TerminateWorkflowOnTimeOut(c, logger, stc, workflowID, err, "TaskRule", "GetAllTaskRules")
-		}
-		code, unwrapErr := common.UnwrapWorkflowError(err)
-		logger.Error().Err(unwrapErr).Msg("failed to get result from GetAllTaskRules workflow")
-		return cutil.NewAPIErrorResponse(c, code, fmt.Sprintf("Failed to execute Rule list workflow on Site: %s", unwrapErr), nil)
+	proxyErr := common.ProxyFlowGRPC(
+		ctx, c, logger, stc,
+		flowv1.Flow_ListOperationRules_FullMethodName,
+		flowRequest, &flowResponse,
+		common.FlowWorkflowID(workflowID), temporalEnums.WORKFLOW_ID_CONFLICT_POLICY_USE_EXISTING,
+	)
+	if proxyErr != nil {
+		return proxyErr
 	}
 
 	apiRules := make([]*model.APITaskRule, 0, len(flowResponse.GetRules()))
@@ -507,32 +452,17 @@ func (h UpdateTaskRuleHandler) Handle(c echo.Context) error {
 		return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, ferr.Error(), nil)
 	}
 
+	// Dedicated workflow ID per request so concurrent updates to one rule stay
+	// separate executions rather than the later one reading the earlier result.
 	workflowID := fmt.Sprintf("task-rule-update-%s-%s", ruleID, uuid.NewString())
-	workflowOptions := tClient.StartWorkflowOptions{
-		ID:                       workflowID,
-		WorkflowIDReusePolicy:    temporalEnums.WORKFLOW_ID_REUSE_POLICY_ALLOW_DUPLICATE,
-		WorkflowIDConflictPolicy: temporalEnums.WORKFLOW_ID_CONFLICT_POLICY_USE_EXISTING,
-		WorkflowExecutionTimeout: cutil.WorkflowExecutionTimeout,
-		TaskQueue:                queue.SiteTaskQueue,
-	}
-
-	wfCtx, cancel := context.WithTimeout(ctx, cutil.WorkflowContextTimeout)
-	defer cancel()
-
-	we, err := stc.ExecuteWorkflow(wfCtx, workflowOptions, "UpdateTaskRule", flowRequest)
-	if err != nil {
-		logger.Error().Err(err).Msg("failed to schedule UpdateTaskRule workflow")
-		return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to schedule Rule update workflow", nil)
-	}
-
-	if err := we.Get(wfCtx, nil); err != nil {
-		var timeoutErr *tp.TimeoutError
-		if errors.As(err, &timeoutErr) || err == context.DeadlineExceeded || wfCtx.Err() != nil {
-			return common.TerminateWorkflowOnTimeOut(c, logger, stc, workflowID, err, "TaskRule", "UpdateTaskRule")
-		}
-		code, unwrapErr := common.UnwrapWorkflowError(err)
-		logger.Error().Err(unwrapErr).Msg("failed to get result from UpdateTaskRule workflow")
-		return cutil.NewAPIErrorResponse(c, code, fmt.Sprintf("Failed to execute Rule update workflow on Site: %s", unwrapErr), nil)
+	proxyErr := common.ProxyFlowGRPC(
+		ctx, c, logger, stc,
+		flowv1.Flow_UpdateOperationRule_FullMethodName,
+		flowRequest, nil,
+		common.FlowWorkflowID(workflowID), temporalEnums.WORKFLOW_ID_CONFLICT_POLICY_UNSPECIFIED,
+	)
+	if proxyErr != nil {
+		return proxyErr
 	}
 
 	logger.Info().Str("RuleID", ruleID).Msg("finishing API handler")
@@ -610,31 +540,14 @@ func (h DeleteTaskRuleHandler) Handle(c echo.Context) error {
 		RuleId: &flowv1.UUID{Id: ruleID},
 	}
 	workflowID := fmt.Sprintf("task-rule-delete-%s", ruleID)
-	workflowOptions := tClient.StartWorkflowOptions{
-		ID:                       workflowID,
-		WorkflowIDReusePolicy:    temporalEnums.WORKFLOW_ID_REUSE_POLICY_ALLOW_DUPLICATE,
-		WorkflowIDConflictPolicy: temporalEnums.WORKFLOW_ID_CONFLICT_POLICY_USE_EXISTING,
-		WorkflowExecutionTimeout: cutil.WorkflowExecutionTimeout,
-		TaskQueue:                queue.SiteTaskQueue,
-	}
-
-	wfCtx, cancel := context.WithTimeout(ctx, cutil.WorkflowContextTimeout)
-	defer cancel()
-
-	we, err := stc.ExecuteWorkflow(wfCtx, workflowOptions, "DeleteTaskRule", flowRequest)
-	if err != nil {
-		logger.Error().Err(err).Msg("failed to schedule DeleteTaskRule workflow")
-		return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to schedule Rule deletion workflow", nil)
-	}
-
-	if err := we.Get(wfCtx, nil); err != nil {
-		var timeoutErr *tp.TimeoutError
-		if errors.As(err, &timeoutErr) || err == context.DeadlineExceeded || wfCtx.Err() != nil {
-			return common.TerminateWorkflowOnTimeOut(c, logger, stc, workflowID, err, "TaskRule", "DeleteTaskRule")
-		}
-		code, unwrapErr := common.UnwrapWorkflowError(err)
-		logger.Error().Err(unwrapErr).Msg("failed to get result from DeleteTaskRule workflow")
-		return cutil.NewAPIErrorResponse(c, code, fmt.Sprintf("Failed to execute Rule deletion workflow on Site: %s", unwrapErr), nil)
+	proxyErr := common.ProxyFlowGRPC(
+		ctx, c, logger, stc,
+		flowv1.Flow_DeleteOperationRule_FullMethodName,
+		flowRequest, nil,
+		common.FlowWorkflowID(workflowID), temporalEnums.WORKFLOW_ID_CONFLICT_POLICY_USE_EXISTING,
+	)
+	if proxyErr != nil {
+		return proxyErr
 	}
 
 	logger.Info().Str("RuleID", ruleID).Msg("finishing API handler")

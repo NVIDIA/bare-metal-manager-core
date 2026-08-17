@@ -27,7 +27,8 @@ use url::Url;
 
 use crate::{
     MAX_BOOTSTRAP_CA_BYTES, download_bootstrap_ca, download_bootstrap_ca_with_timeout,
-    install_bootstrap_ca, read_bootstrap_ca_file,
+    install_bootstrap_ca, publish_bootstrap_ca, read_bootstrap_ca_file,
+    republish_bootstrap_ca_if_changed,
 };
 
 const VALID_CA: &[u8] = include_bytes!(concat!(
@@ -223,4 +224,115 @@ fn oversized_bootstrap_ca_preserves_existing_file() {
 
     assert!(install_bootstrap_ca(&oversized, &output).is_err());
     assert_eq!(std::fs::read(&output).unwrap(), b"old trust anchor");
+}
+
+/// The published copy has to land beside whichever CA path is configured.
+/// Token-mode fmds waits on `<certsDir>/pub/<rootCaFile>`, so publishing to a
+/// fixed location would leave its init container blocked forever on any
+/// deployment that moved the credentials directory — with nothing logged to
+/// explain it.
+#[test]
+fn published_ca_follows_the_configured_credentials_directory() {
+    let directory = tempfile::tempdir().unwrap();
+    let creds = directory.path().join("srv").join("creds");
+    std::fs::create_dir_all(&creds).unwrap();
+    let source = creds.join("site_root.pem");
+
+    publish_bootstrap_ca(VALID_CA, &source).unwrap();
+
+    let published = creds.join("pub").join("site_root.pem");
+    assert_eq!(
+        std::fs::read(&published).unwrap(),
+        VALID_CA,
+        "the CA must be published to {}",
+        published.display()
+    );
+}
+
+/// Republishing over an existing copy is the rotation path, and must land
+/// atomically rather than leaving a truncated file a consumer could read.
+#[test]
+fn publishing_replaces_a_previous_published_ca() {
+    let directory = tempfile::tempdir().unwrap();
+    let source = directory.path().join("forge_root.pem");
+    let published_dir = directory.path().join("pub");
+    std::fs::create_dir_all(&published_dir).unwrap();
+    std::fs::write(published_dir.join("forge_root.pem"), b"old trust anchor").unwrap();
+
+    publish_bootstrap_ca(VALID_CA, &source).unwrap();
+
+    assert_eq!(
+        std::fs::read(published_dir.join("forge_root.pem")).unwrap(),
+        VALID_CA
+    );
+}
+
+/// A CA rotated while the agent is running must reach the published copy.
+/// `pub/` is the only trust anchor a token-mode consumer has, so leaving it on
+/// the old issuer would break fmds the moment that issuer is retired — the same
+/// stale-snapshot failure the API-side validator reload exists to prevent.
+#[test]
+fn republish_picks_up_a_rotated_ca() {
+    let directory = tempfile::tempdir().unwrap();
+    let source = directory.path().join("forge_root.pem");
+    let published = directory.path().join("pub").join("forge_root.pem");
+
+    // Both anchors must be real certificates: publishing validates, so a
+    // placeholder would be rejected and the test would prove nothing.
+    let old_ca = a_self_signed_ca();
+    std::fs::write(&source, &old_ca).unwrap();
+    republish_bootstrap_ca_if_changed(&source.to_string_lossy());
+    assert_eq!(std::fs::read(&published).unwrap(), old_ca);
+
+    // Rotation, out of band, with the agent already running.
+    std::fs::write(&source, VALID_CA).unwrap();
+    republish_bootstrap_ca_if_changed(&source.to_string_lossy());
+    assert_eq!(
+        std::fs::read(&published).unwrap(),
+        VALID_CA,
+        "the published copy must follow the configured one"
+    );
+}
+
+/// Steady state must not rewrite. The reconcile runs on a timer, and an atomic
+/// rename every interval would churn the inode consumers are watching for no
+/// reason.
+#[test]
+fn republish_is_a_no_op_when_the_ca_is_unchanged() {
+    use std::os::unix::fs::MetadataExt;
+
+    let directory = tempfile::tempdir().unwrap();
+    let source = directory.path().join("forge_root.pem");
+    let published = directory.path().join("pub").join("forge_root.pem");
+    std::fs::write(&source, VALID_CA).unwrap();
+
+    republish_bootstrap_ca_if_changed(&source.to_string_lossy());
+    let first = std::fs::metadata(&published).unwrap().ino();
+
+    republish_bootstrap_ca_if_changed(&source.to_string_lossy());
+    let second = std::fs::metadata(&published).unwrap().ino();
+
+    assert_eq!(first, second, "an unchanged CA must not be republished");
+}
+
+/// Before registration there is no CA at all. That is the normal first-boot
+/// state, not an error, and it must not panic the republish loop.
+#[test]
+fn republish_tolerates_a_missing_ca() {
+    let directory = tempfile::tempdir().unwrap();
+    let missing = directory.path().join("forge_root.pem");
+    republish_bootstrap_ca_if_changed(&missing.to_string_lossy());
+    assert!(!directory.path().join("pub").exists());
+}
+
+/// A second, distinct trust anchor — publishing validates its input, so
+/// rotation tests need real certificates on both sides of the change.
+fn a_self_signed_ca() -> Vec<u8> {
+    let params = rcgen::CertificateParams::default();
+    let key = rcgen::KeyPair::generate().expect("key pair");
+    params
+        .self_signed(&key)
+        .expect("certificate")
+        .pem()
+        .into_bytes()
 }

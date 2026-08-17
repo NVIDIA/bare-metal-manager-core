@@ -16,6 +16,8 @@
  */
 #![cfg_attr(not(test), deny(dead_code_pub_in_binary))]
 
+mod ufm_mock;
+
 use std::borrow::Cow;
 use std::error::Error;
 use std::path::{Path, PathBuf};
@@ -47,6 +49,8 @@ use tokio::sync::mpsc;
 use tracing_subscriber::filter::{EnvFilter, LevelFilter};
 use tracing_subscriber::prelude::*;
 use tracing_subscriber::{fmt, registry};
+
+use crate::ufm_mock::HostedUfmMock;
 
 fn init_log(
     filename: &Option<String>,
@@ -91,6 +95,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let fig = Figment::new().merge(Toml::file(config_path));
     let app_config: MachineATronConfig = fig.extract()?;
     app_config.validate()?;
+    let ufm_config = app_config.ufm_mock.clone();
     let tui_host_logs = if app_config.tui_enabled {
         Some(TuiHostLogs::start_new(100))
     } else {
@@ -224,8 +229,13 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let control_state = ControlState::new(
         simulators.clone(),
         DeviceStatusConfig::new(bmc_mock_port),
-        inventory_id,
+        inventory_id.into(),
     );
+    // Hosted mode mounts the shared UFM mock router on machine-a-tron's control server. Its
+    // ControlState can be injected as an in-process inventory provider; the standalone binary
+    // initializes the same mock without this provider and relies on configured HTTP sources.
+    let hosted_ufm = HostedUfmMock::start(ufm_config, &control_state)?;
+    let ufm_router = hosted_ufm.as_ref().map(HostedUfmMock::router);
     let certs_dir = app_context
         .bmc_mock_certs_dir
         .as_ref()
@@ -240,7 +250,11 @@ async fn main() -> Result<(), Box<dyn Error>> {
             BmcRegistrationMode::BackingInstance(bmc_mock_registry) => {
                 let server_config = bmc_mock::tls::server_config(certs_dir.clone())?;
                 let bmc_router = bmc_mock::combined_router(bmc_mock_registry.clone());
-                let router = append_control_routes(bmc_router, control_state.clone());
+                let bmc_router = match ufm_router.clone() {
+                    Some(ufm_router) => ufm_router.merge(bmc_router),
+                    None => bmc_router,
+                };
+                let router = append_control_routes(Some(bmc_router), control_state.clone());
                 let bmc_https_mock = bmc_mock::CombinedServer::run_router(
                     "bmc-mock",
                     router,
@@ -276,7 +290,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
             }
             BmcRegistrationMode::None(_) => {
                 let server_config = bmc_mock::tls::server_config(certs_dir)?;
-                let router = append_control_routes(axum::Router::new(), control_state);
+                let router = append_control_routes(ufm_router, control_state);
                 let control_server = bmc_mock::CombinedServer::run_router(
                     "machine-a-tron-control",
                     router,
@@ -323,6 +337,10 @@ async fn main() -> Result<(), Box<dyn Error>> {
     };
 
     let mat_result = mat.run(simulators, tui_event_tx.clone(), app_rx).await;
+
+    if let Some(hosted_ufm) = hosted_ufm {
+        hosted_ufm.shutdown().await?;
+    }
 
     if let Some(tui_handle) = tui_handle {
         if let Some(tui_quit_tx) = tui_quit_tx.as_ref() {

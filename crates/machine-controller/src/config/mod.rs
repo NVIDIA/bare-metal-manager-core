@@ -63,6 +63,11 @@ pub struct MachineStateHandlerSiteConfig {
     /// regardless, for the host or an individual DPU.
     pub uefi_rotation_enabled: bool,
 
+    /// Site-wide opt-in for factory-resetting the host BMC during tenant
+    /// release. When `false` (the default), tenant release skips the BMC
+    /// factory-reset sub-flow and proceeds directly to `PowerCycle`.
+    pub bmc_factory_reset_on_instance_termination_enabled: bool,
+
     pub dpu_enable_secure_boot: bool,
     pub restart_ovs_on_use_admin_network_change: bool,
 }
@@ -84,6 +89,7 @@ impl MachineStateHandlerSiteConfig {
             spdm_enabled: false,
             bmc_rotation_enabled: false,
             uefi_rotation_enabled: false,
+            bmc_factory_reset_on_instance_termination_enabled: false,
             dpu_enable_secure_boot: true,
             restart_ovs_on_use_admin_network_change: false,
         }
@@ -92,6 +98,7 @@ impl MachineStateHandlerSiteConfig {
 
 /// A UTC time window defined by a start and end timestamp.
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
+#[serde(deny_unknown_fields)]
 pub struct TimePeriod {
     /// Start of the time window (UTC).
     pub start: chrono::DateTime<chrono::Utc>,

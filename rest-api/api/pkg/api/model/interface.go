@@ -181,22 +181,27 @@ func (ifcr *APIInterfaceCreateOrUpdateRequest) Validate() error {
 			}
 		}
 
-		normalizedFamilies := make([]IPFamily, 0, len(ifcr.IPFamilies))
-		seenFamilies := make(map[IPFamily]struct{}, len(ifcr.IPFamilies))
-		// TODO: Allow IPv6-only and dual-stack selection when supported by the Controller API.
+		seenIPv4 := false
+		seenIPv6 := false
 		for _, family := range ifcr.IPFamilies {
 			switch family {
 			case IPFamilyIPv4:
+				seenIPv4 = true
+			case IPFamilyIPv6:
+				seenIPv6 = true
 			default:
 				return validation.Errors{
 					"ipFamilies": fmt.Errorf("invalid IP family `%s`", family),
 				}
 			}
+		}
 
-			if _, exists := seenFamilies[family]; !exists {
-				normalizedFamilies = append(normalizedFamilies, family)
-				seenFamilies[family] = struct{}{}
-			}
+		normalizedFamilies := make([]IPFamily, 0, 2)
+		if seenIPv4 {
+			normalizedFamilies = append(normalizedFamilies, IPFamilyIPv4)
+		}
+		if seenIPv6 {
+			normalizedFamilies = append(normalizedFamilies, IPFamilyIPv6)
 		}
 		ifcr.IPFamilies = normalizedFamilies
 	} else if ifcr.IPFamilies != nil {
@@ -248,6 +253,17 @@ func (ifcr *APIInterfaceCreateOrUpdateRequest) Validate() error {
 	}
 
 	return nil
+}
+
+// VpcIPFamilyMode converts validated VPC-selection families to the DB model.
+func (ifcr APIInterfaceCreateOrUpdateRequest) VpcIPFamilyMode() cdbm.InterfaceVpcIPFamilyMode {
+	if len(ifcr.IPFamilies) == 2 {
+		return cdbm.InterfaceVpcIPFamilyModeDualStack
+	}
+	if len(ifcr.IPFamilies) == 1 && ifcr.IPFamilies[0] == IPFamilyIPv6 {
+		return cdbm.InterfaceVpcIPFamilyModeIPv6Only
+	}
+	return cdbm.InterfaceVpcIPFamilyModeIPv4Only
 }
 
 // APIInterface is the data structure to capture Interface

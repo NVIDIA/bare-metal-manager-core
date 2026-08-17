@@ -27,6 +27,7 @@ use fmds::{http_request_metrics, nic_init};
 use forge_tls::client_config::ClientCert;
 use rpc::fmds::fmds_config_service_server::FmdsConfigServiceServer;
 use rpc::forge_tls_client::ForgeClientConfig;
+use rpc::node_token_socket::SocketTokenSource;
 use tracing::metadata::LevelFilter;
 use tracing_subscriber::EnvFilter;
 use tracing_subscriber::layer::SubscriberExt as _;
@@ -80,16 +81,47 @@ async fn main() -> eyre::Result<()> {
     nic_init::assign_address(&options.interface_name, options.interface_cidr).await?;
     nic_init::setup_metadata_routing(&options.interface_name, options.interface_cidr).await?;
 
-    // Build ForgeClientConfig for phone_home if cert paths are provided
-    let forge_client_config = match (&options.root_ca, &options.client_cert, &options.client_key) {
-        (Some(root_ca), Some(client_cert), Some(client_key)) => {
-            Some(Arc::new(ForgeClientConfig::new(
-                root_ca.clone(),
-                Some(ClientCert {
-                    cert_path: client_cert.clone(),
-                    key_path: client_key.clone(),
-                }),
-            )))
+    // Build ForgeClientConfig for phone_home. Either credential works alone:
+    // the shared mTLS client cert, and/or node-auth bearer tokens fetched from
+    // the dpu-agent's local API socket (#355) — the latter lets this pod run
+    // without the machine private key mounted at all.
+    let client_cert = match (&options.client_cert, &options.client_key) {
+        (Some(cert_path), Some(key_path)) => Some(ClientCert {
+            cert_path: cert_path.clone(),
+            key_path: key_path.clone(),
+        }),
+        (None, None) => None,
+        // Half a credential is a deployment bug; fail loudly instead of
+        // silently running without mTLS.
+        (Some(_), None) => {
+            eyre::bail!("--client-cert was provided without --client-key")
+        }
+        (None, Some(_)) => {
+            eyre::bail!("--client-key was provided without --client-cert")
+        }
+    };
+    // Same class of deployment bug as half a client credential above, and it
+    // deserves the same treatment: a token socket without a trust anchor
+    // cannot authenticate the server, so the client would never be built and
+    // phone_home would go quietly missing behind a generic warning.
+    if options.root_ca.is_none() && options.node_token_socket.is_some() {
+        eyre::bail!("--node-token-socket was provided without --root-ca");
+    }
+    let forge_client_config = match &options.root_ca {
+        Some(root_ca) if client_cert.is_some() || options.node_token_socket.is_some() => {
+            let mut config = ForgeClientConfig::new(root_ca.clone(), client_cert);
+            if let Some(socket) = &options.node_token_socket {
+                tracing::info!(
+                    socket = %socket,
+                    "fetching node-auth bearer tokens from the dpu-agent local API"
+                );
+                // Token mode usually runs without a client cert, which would
+                // otherwise leave the channel on the dummy TLS verifier. The
+                // bearer token is the client credential; the server still has
+                // to prove itself against the root CA.
+                config = config.with_token_provider(SocketTokenSource::spawn(socket.clone()));
+            }
+            Some(Arc::new(config))
         }
         _ => {
             tracing::warn!(
