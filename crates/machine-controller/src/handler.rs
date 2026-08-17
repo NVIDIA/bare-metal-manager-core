@@ -8236,13 +8236,18 @@ impl StateHandler for InstanceStateHandler {
                         .host_reprovision_requested
                         .is_some()
                     {
+                        let reprovision_state = if is_rack_level_reprovisioning(mh_snapshot) {
+                            HostReprovisionState::WaitingForRackFirmwareUpgrade
+                        } else {
+                            HostReprovisionState::CheckingFirmwareV2 {
+                                firmware_type: None,
+                                firmware_number: None,
+                            }
+                        };
                         Ok(StateHandlerOutcome::transition(
                             ManagedHostState::Assigned {
                                 instance_state: InstanceState::HostReprovision {
-                                    reprovision_state: HostReprovisionState::CheckingFirmwareV2 {
-                                        firmware_type: None,
-                                        firmware_number: None,
-                                    },
+                                    reprovision_state,
                                 },
                             },
                         ))
@@ -9432,6 +9437,25 @@ impl HostUpgradeState {
                     machine_id: *machine_id,
                     clear_reset: true,
                 });
+        }
+
+        if is_rack_level_reprovisioning(state)
+            && matches!(
+                host_reprovision_state,
+                HostReprovisionState::CheckingFirmware
+                    | HostReprovisionState::CheckingFirmwareRepeat
+                    | HostReprovisionState::CheckingFirmwareV2 { .. }
+                    | HostReprovisionState::CheckingFirmwareRepeatV2 { .. }
+            )
+        {
+            tracing::info!(
+                %machine_id,
+                "Rack-level firmware upgrade bypassing legacy host firmware checks"
+            );
+            return Ok(StateHandlerOutcome::transition(scenario.actual_new_state(
+                HostReprovisionState::WaitingForRackFirmwareUpgrade,
+                retry_count,
+            )));
         }
 
         match host_reprovision_state {

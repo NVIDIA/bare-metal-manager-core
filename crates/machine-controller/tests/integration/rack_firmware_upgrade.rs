@@ -193,7 +193,7 @@ async fn advances_on_completion(pool: PgPool) {
 }
 
 #[sqlx_test]
-async fn assigned_host_returns_to_assigned_ready_on_completion(
+async fn assigned_host_bypasses_legacy_check_and_returns_ready_on_completion(
     pool: PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let mut env = Env::builder(pool).build().await;
@@ -204,7 +204,10 @@ async fn assigned_host_returns_to_assigned_ready_on_completion(
         &host,
         ManagedHostState::Assigned {
             instance_state: InstanceState::HostReprovision {
-                reprovision_state: HostReprovisionState::WaitingForRackFirmwareUpgrade,
+                reprovision_state: HostReprovisionState::CheckingFirmwareV2 {
+                    firmware_type: None,
+                    firmware_number: None,
+                },
             },
         },
         RackFirmwareUpgradeState::Completed,
@@ -212,6 +215,19 @@ async fn assigned_host_returns_to_assigned_ready_on_completion(
         Some(chrono::Duration::zero()),
     )
     .await;
+
+    env.run_single_iteration().await;
+
+    let machine = host.host.machine().await;
+    assert!(matches!(
+        machine.current_state(),
+        ManagedHostState::Assigned {
+            instance_state: InstanceState::HostReprovision {
+                reprovision_state: HostReprovisionState::WaitingForRackFirmwareUpgrade,
+            },
+        }
+    ));
+    assert!(machine.host_reprovision_requested.is_some());
 
     env.run_single_iteration().await;
 
