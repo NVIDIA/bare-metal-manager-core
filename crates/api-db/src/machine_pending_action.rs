@@ -223,6 +223,43 @@ mod tests {
         Ok(())
     }
 
+    /// Carbide releasing a hold on its own and an operator releasing one by hand
+    /// both complete the same row, so the history has to say which happened.
+    #[crate::sqlx_test]
+    async fn a_completion_records_who_performed_it(
+        pool: PgPool,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let mut txn = pool.begin().await?;
+        let by_carbide = machine_id(1);
+        let by_operator = machine_id(2);
+        for id in [&by_carbide, &by_operator] {
+            seed_machine(txn.as_mut(), id).await?;
+            request(txn.as_mut(), id, DPU_SERVICE_SYNC).await?;
+        }
+
+        assert!(complete(txn.as_mut(), &by_carbide, DPU_SERVICE_SYNC, AUTOMATIC).await?);
+        assert!(
+            complete(
+                txn.as_mut(),
+                &by_operator,
+                DPU_SERVICE_SYNC,
+                MachinePendingActionActor::AdminCli
+            )
+            .await?
+        );
+
+        for (id, expected) in [
+            (&by_carbide, MachinePendingActionActor::Automatic),
+            (&by_operator, MachinePendingActionActor::AdminCli),
+        ] {
+            let history = find_all_for_machine(txn.as_mut(), id).await?;
+            assert_eq!(history.len(), 1);
+            assert_eq!(history[0].completed_by, Some(expected));
+        }
+
+        Ok(())
+    }
+
     /// The operator worklist: only machines still owed work, longest wait first,
     /// so the list reads as a queue rather than an arbitrary set.
     #[crate::sqlx_test]
