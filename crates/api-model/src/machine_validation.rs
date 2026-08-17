@@ -49,6 +49,8 @@ pub struct MachineValidationTestAddRequest {
     pub custom_tags: Vec<String>,
     pub components: Vec<String>,
     pub is_enabled: Option<bool>,
+    /// Optional OCI plugin configuration; absent retains legacy test execution.
+    pub plugin: Option<MachineValidationPlugin>,
 }
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
@@ -71,6 +73,21 @@ pub struct MachineValidationTestUpdatePayload {
     pub custom_tags: Vec<String>,
     pub components: Vec<String>,
     pub is_enabled: Option<bool>,
+    /// Optional replacement OCI plugin configuration for this test revision.
+    pub plugin: Option<MachineValidationPlugin>,
+}
+
+/// The immutable executable settings for an OCI Machine Validation plugin.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct MachineValidationPlugin {
+    /// OCI image reference pinned to a digest.
+    pub image: String,
+    /// Executable and arguments invoked without a shell.
+    pub entrypoint: Vec<String>,
+    /// Non-secret JSON object copied to the plugin input contract.
+    pub parameters_json: String,
+    pub privileged: bool,
+    pub host_access_full: bool,
 }
 
 #[derive(Clone, Debug)]
@@ -225,6 +242,8 @@ pub struct MachineValidationRunItem {
     pub last_heartbeat_at: Option<DateTime<Utc>>,
     pub skip_reason: Option<String>,
     pub failure_reason: Option<String>,
+    /// Frozen plugin configuration selected for this run item, when it is a plugin.
+    pub plugin: Option<MachineValidationPlugin>,
 }
 
 impl<'r> FromRow<'r, PgRow> for MachineValidationRunItem {
@@ -256,6 +275,9 @@ impl<'r> FromRow<'r, PgRow> for MachineValidationRunItem {
             last_heartbeat_at: row.try_get("last_heartbeat_at")?,
             skip_reason: row.try_get("skip_reason")?,
             failure_reason: row.try_get("failure_reason")?,
+            plugin: row
+                .try_get::<Option<sqlx::types::Json<MachineValidationPlugin>>, _>("plugin")?
+                .map(|plugin| plugin.0),
         })
     }
 }
@@ -347,6 +369,11 @@ pub struct MachineValidationTest {
     pub components: Vec<String>,
     pub last_modified_at: DateTime<Utc>,
     pub is_enabled: bool,
+    /// Server-managed, revision-scoped approval for a plugin that mounts the
+    /// writable host root. New revisions always start unapproved.
+    pub full_host_approved: bool,
+    /// OCI plugin configuration when this catalog entry uses the plugin runner.
+    pub plugin: Option<MachineValidationPlugin>,
 }
 
 impl<'r> FromRow<'r, PgRow> for MachineValidationTest {
@@ -375,6 +402,10 @@ impl<'r> FromRow<'r, PgRow> for MachineValidationTest {
             components: row.try_get("components")?,
             last_modified_at: row.try_get("last_modified_at")?,
             is_enabled: row.try_get("is_enabled")?,
+            full_host_approved: row.try_get("full_host_approved")?,
+            plugin: row
+                .try_get::<Option<sqlx::types::Json<MachineValidationPlugin>>, _>("plugin")?
+                .map(|plugin| plugin.0),
         })
     }
 }

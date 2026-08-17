@@ -2542,6 +2542,16 @@ impl Forge for Api {
         )
         .await
     }
+
+    async fn machine_validation_test_approve_full_host(
+        &self,
+        request: Request<rpc::MachineValidationTestFullHostApprovalRequest>,
+    ) -> Result<Response<rpc::MachineValidationTestFullHostApprovalResponse>, Status> {
+        crate::handlers::machine_validation::machine_validation_test_approve_full_host(
+            self, request,
+        )
+        .await
+    }
     async fn update_machine_validation_run(
         &self,
         request: Request<rpc::MachineValidationRunRequest>,

@@ -128,7 +128,7 @@ impl MachineValidationManager {
         let tests = mc
             .clone()
             .get_machine_validation_tests(rpc::forge::MachineValidationTestsGetRequest {
-                supported_platforms: vec![platform_name],
+                supported_platforms: vec![platform_name.clone()],
                 contexts: if machine_validation_filter
                     .clone()
                     .contexts
@@ -174,7 +174,7 @@ impl MachineValidationManager {
             expected_time_duration += test.timeout.unwrap_or(7200);
             selected_tests.push(test.clone());
         }
-        run_request.selected_tests = selected_tests;
+        run_request.selected_tests = selected_tests.clone();
         run_request.duration_to_complete = Some(rpc::Duration::from(
             std::time::Duration::from_secs(expected_time_duration as u64),
         ));
@@ -184,9 +184,10 @@ impl MachineValidationManager {
             .await?;
         mc.run(
             machine_id,
-            tests,
+            selected_tests,
             context,
             validation_id,
+            platform_name,
             true,
             machine_validation_filter,
         )

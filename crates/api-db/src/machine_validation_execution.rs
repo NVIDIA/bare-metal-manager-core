@@ -529,6 +529,8 @@ async fn upsert_run_item_from_test(
     test: &MachineValidationTest,
     order_index: i32,
 ) -> DatabaseResult<MachineValidationRunItemId> {
+    // A run item is an execution snapshot. Once created, it must not be
+    // overwritten by later edits to the catalog while the run is pending.
     const QUERY: &str = "
         WITH upserted AS (
             INSERT INTO machine_validation_run_items (
@@ -543,19 +545,11 @@ async fn upsert_run_item_from_test(
                 order_index,
                 attempt,
                 max_attempts,
-                timeout_seconds
+                timeout_seconds,
+                plugin
             )
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 0, 1, $10)
-            ON CONFLICT (run_id, test_id) DO UPDATE
-            SET
-                test_version=EXCLUDED.test_version,
-                display_name=EXCLUDED.display_name,
-                context=EXCLUDED.context,
-                component=EXCLUDED.component,
-                order_index=EXCLUDED.order_index,
-                max_attempts=EXCLUDED.max_attempts,
-                timeout_seconds=EXCLUDED.timeout_seconds
-            WHERE machine_validation_run_items.state IN ('Pending', 'Running')
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 0, 1, $10, $11)
+            ON CONFLICT (run_id, test_id) DO NOTHING
             RETURNING id
         )
         SELECT id FROM upserted
@@ -577,6 +571,7 @@ async fn upsert_run_item_from_test(
         .bind(MachineValidationRunItemState::Pending.to_string())
         .bind(order_index)
         .bind(test.timeout.unwrap_or(DEFAULT_TIMEOUT_SECONDS))
+        .bind(test.plugin.clone().map(sqlx::types::Json))
         .fetch_one(txn)
         .await
         .map_err(|e| DatabaseError::query(QUERY, e))
@@ -599,23 +594,32 @@ async fn upsert_pending_attempt(
             execute_in_host
         )
         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-        ON CONFLICT (run_item_id, attempt_number) DO UPDATE
-        SET
-            command=EXCLUDED.command,
-            args=EXCLUDED.args,
-            container_image=EXCLUDED.container_image,
-            execute_in_host=EXCLUDED.execute_in_host
-        WHERE machine_validation_attempts.state IN ('Pending', 'Running')";
+        ON CONFLICT (run_item_id, attempt_number) DO NOTHING";
+
+    let (command, args, container_image, execute_in_host) = match &test.plugin {
+        Some(plugin) => (
+            "machine-validation-plugin".to_string(),
+            plugin.entrypoint.join(" "),
+            Some(plugin.image.clone()),
+            Some(false),
+        ),
+        None => (
+            test.command.clone(),
+            test.args.clone(),
+            test.img_name.clone(),
+            test.execute_in_host,
+        ),
+    };
 
     sqlx::query(QUERY)
         .bind(MachineValidationAttemptId::new())
         .bind(run_item_id)
         .bind(INITIAL_ATTEMPT_NUMBER)
         .bind(MachineValidationAttemptState::Pending.to_string())
-        .bind(&test.command)
-        .bind(&test.args)
-        .bind(test.img_name.as_ref())
-        .bind(test.execute_in_host)
+        .bind(command)
+        .bind(args)
+        .bind(container_image)
+        .bind(execute_in_host)
         .execute(txn)
         .await
         .map_err(|e| DatabaseError::query(QUERY, e))?;

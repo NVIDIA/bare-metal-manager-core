@@ -862,6 +862,9 @@ be propagated there by DPF.
 | `run_interval` | `Duration` | `60s` | Validation check interval. |
 | `stale_run_timeout` | `Duration` | `24h` | Grace period before an active validation run is considered stale. Values below `90s` are raised to `90s` to avoid marking healthy heartbeat-based runs stale. |
 | `tests` | `Vec<MachineValidationTestConfig>` | `[]` | Per-test enable/disable overrides. |
+| `approved_plugin_registries` | `Vec<String>` | `[]` | Explicit registries allowed for pluggable validation containers. Empty denies plugin registration; legacy tests are unaffected. |
+| `allow_privileged_plugins` | `bool` | `false` | Allows plugin registration and execution with privileged container settings. |
+| `allow_full_host_plugins` | `bool` | `false` | Allows registration and execution of privileged plugins with the writable `/host` mount. |
 
 ### `BomValidationConfig`
 

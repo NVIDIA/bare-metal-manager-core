@@ -18,6 +18,8 @@ use std::collections::HashMap;
 use std::fs::File;
 use std::io::{BufReader, Write};
 use std::path::Path;
+#[cfg(unix)]
+use std::{ffi::CString, os::unix::ffi::OsStrExt};
 
 use carbide_instrument::{Event, LabelValue, Outcome, emit};
 use carbide_utils::cmd::TokioCmd;
@@ -28,6 +30,7 @@ use forge_tls::client_config::ClientCert;
 use rpc::forge_tls_client;
 use rpc::forge_tls_client::{ApiConfig, ForgeClientConfig};
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 use tokio::task::JoinHandle;
 use tracing::{error, info, trace};
 
@@ -39,6 +42,187 @@ use crate::{
 };
 const MAX_STRING_STD_SIZE: usize = 1024 * 1024; // 1MB in bytes;
 const DEFAULT_TIMEOUT: u64 = 3600;
+const MAX_PLUGIN_RESULT_SIZE: u64 = 64 * 1024;
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct PluginResult {
+    #[serde(rename = "apiVersion")]
+    api_version: String,
+    kind: String,
+    outcome: String,
+    summary: String,
+    #[serde(default)]
+    severity: Option<String>,
+    #[serde(default)]
+    findings: Vec<PluginFinding>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct PluginFinding {
+    name: String,
+    message: String,
+}
+
+fn read_plugin_result(path: &Path) -> Result<PluginResult, String> {
+    let metadata = std::fs::symlink_metadata(path)
+        .map_err(|error| format!("plugin did not write result.json: {error}"))?;
+    if metadata.file_type().is_symlink() || !metadata.is_file() {
+        return Err("plugin result must be a regular file, not a symlink".to_owned());
+    }
+    if metadata.len() > MAX_PLUGIN_RESULT_SIZE {
+        return Err("plugin result exceeds the 64 KiB limit".to_owned());
+    }
+    parse_plugin_result(
+        &std::fs::read(path).map_err(|error| format!("failed to read plugin result: {error}"))?,
+    )
+}
+
+fn parse_plugin_result(contents: &[u8]) -> Result<PluginResult, String> {
+    let result: PluginResult = serde_json::from_slice(contents)
+        .map_err(|error| format!("invalid plugin result: {error}"))?;
+    if result.api_version != "machinevalidation.nvidia.com/v1" {
+        return Err("plugin result has an unsupported apiVersion".to_owned());
+    }
+    if result.kind != "MachineValidationPluginResult" {
+        return Err("plugin result has an unsupported kind".to_owned());
+    }
+    if !matches!(result.outcome.as_str(), "pass" | "fail" | "error") {
+        return Err("plugin result has an unsupported outcome".to_owned());
+    }
+    if result.summary.len() > 4096 {
+        return Err("plugin result summary exceeds the 4 KiB limit".to_owned());
+    }
+    if let Some(severity) = &result.severity
+        && !matches!(
+            severity.as_str(),
+            "info" | "warning" | "critical" | "unknown"
+        )
+    {
+        return Err("plugin result has an unsupported severity".to_owned());
+    }
+    if result.findings.len() > 100 {
+        return Err("plugin result has more than 100 findings".to_owned());
+    }
+    if result
+        .findings
+        .iter()
+        .any(|finding| finding.name.is_empty() || finding.message.len() > 4096)
+    {
+        return Err("plugin result contains an invalid finding".to_owned());
+    }
+    Ok(result)
+}
+
+fn truncate_plugin_output(output: String) -> String {
+    if output.len() <= MAX_STRING_STD_SIZE {
+        return output;
+    }
+    let end = output
+        .char_indices()
+        .map(|(index, _)| index)
+        .take_while(|index| *index <= MAX_STRING_STD_SIZE)
+        .last()
+        .unwrap_or(0);
+    output[..end].to_owned()
+}
+
+#[cfg(unix)]
+fn prepare_plugin_directories(
+    attempt_dir: &Path,
+    input_dir: &Path,
+    output_dir: &Path,
+) -> Result<(), String> {
+    const PLUGIN_UID: libc::uid_t = 65532;
+    const PLUGIN_GID: libc::gid_t = 65532;
+
+    std::fs::create_dir_all(attempt_dir)
+        .map_err(|error| format!("failed to create plugin attempt directory: {error}"))?;
+    std::fs::set_permissions(
+        attempt_dir,
+        std::os::unix::fs::PermissionsExt::from_mode(0o711),
+    )
+    .map_err(|error| format!("failed to restrict plugin attempt directory: {error}"))?;
+
+    for directory in [input_dir, output_dir] {
+        std::fs::create_dir(directory)
+            .map_err(|error| format!("failed to create plugin directory: {error}"))?;
+        let path = CString::new(directory.as_os_str().as_bytes())
+            .map_err(|_| "plugin directory path contains a null byte".to_owned())?;
+        // Scout runs as root and creates these directories for the fixed
+        // non-root container identity. A 0700 directory prevents another host
+        // user from pre-seeding or replacing the plugin result.
+        if unsafe { libc::chown(path.as_ptr(), PLUGIN_UID, PLUGIN_GID) } != 0 {
+            return Err(format!(
+                "failed to grant plugin directory access: {}",
+                std::io::Error::last_os_error()
+            ));
+        }
+        std::fs::set_permissions(
+            directory,
+            std::os::unix::fs::PermissionsExt::from_mode(0o700),
+        )
+        .map_err(|error| format!("failed to restrict plugin directory: {error}"))?;
+    }
+    Ok(())
+}
+
+fn plugin_process_succeeded(exit_code: Option<i32>) -> bool {
+    exit_code == Some(0)
+}
+
+fn plugin_runtime_args(
+    input_dir: &Path,
+    output_dir: &Path,
+    container_name: String,
+    image: String,
+    plugin: &rpc::forge::MachineValidationPlugin,
+) -> Vec<String> {
+    // The API admits only approved plugin revisions into an enabled run plan.
+    // Scout therefore receives immutable execution settings, not a request to
+    // decide whether full-host access is permitted.
+    let mut args = vec![
+        "-n".to_owned(),
+        "default".to_owned(),
+        "run".to_owned(),
+        "--rm".to_owned(),
+        "--network".to_owned(),
+        "none".to_owned(),
+        "--mount".to_owned(),
+        format!(
+            "type=bind,src={},dst=/opt/nico/mv/input,options=rbind:ro",
+            input_dir.display()
+        ),
+        "--mount".to_owned(),
+        format!(
+            "type=bind,src={},dst=/opt/nico/mv/output,options=rbind:rw",
+            output_dir.display()
+        ),
+    ];
+    if plugin.privileged {
+        args.push("--privileged".to_owned());
+    } else {
+        args.extend([
+            "--user".to_owned(),
+            "65532:65532".to_owned(),
+            "--cap-drop".to_owned(),
+            "ALL".to_owned(),
+            "--security-opt".to_owned(),
+            "no-new-privileges".to_owned(),
+        ]);
+    }
+    if plugin.host_access_full {
+        args.extend([
+            "--mount".to_owned(),
+            "type=bind,src=/,dst=/host,options=rbind:rw".to_owned(),
+        ]);
+    }
+    args.extend(["--name".to_owned(), container_name]);
+    args.push(image);
+    args.extend(plugin.entrypoint.iter().cloned());
+    args
+}
 
 // The API manager clamps heartbeat-based stale reconciliation to at least three missed beats, so
 // low stale_run_timeout config values cannot fail healthy runs between these heartbeat updates.
@@ -425,6 +609,101 @@ impl MachineValidation {
         Ok(response.accepted)
     }
 
+    async fn heartbeat_machine_validation_run_item(
+        self,
+        validation_id: MachineValidationId,
+        run_item_id: rpc::common::Uuid,
+    ) -> Result<bool, MachineValidationError> {
+        // A test ID is not enough once a catalog entry can change over time.
+        // The run-item ID binds this heartbeat to the exact selected revision.
+        let mut client = self.create_forge_client().await?;
+        let response = client
+            .heartbeat_machine_validation_run(tonic::Request::new(
+                rpc::forge::MachineValidationHeartbeatRequest {
+                    validation_id: Some(validation_id),
+                    target: Some(
+                        rpc::forge::machine_validation_heartbeat_request::Target::RunItemId(
+                            run_item_id,
+                        ),
+                    ),
+                },
+            ))
+            .await
+            .map_err(|e| {
+                MachineValidationError::ApiClient(
+                    "heartbeat_machine_validation_run".to_owned(),
+                    e.to_string(),
+                )
+            })?
+            .into_inner();
+        Ok(response.accepted)
+    }
+
+    fn spawn_machine_validation_run_item_heartbeat(
+        self,
+        validation_id: MachineValidationId,
+        run_item_id: rpc::common::Uuid,
+    ) -> tokio::task::JoinHandle<()> {
+        tokio::spawn(async move {
+            let mut interval = tokio::time::interval(MACHINE_VALIDATION_HEARTBEAT_INTERVAL);
+            loop {
+                interval.tick().await;
+                match self
+                    .clone()
+                    .heartbeat_machine_validation_run_item(validation_id, run_item_id.clone())
+                    .await
+                {
+                    Ok(true) => {}
+                    Ok(false) => return,
+                    Err(e) => {
+                        error!(machine_validation_id = %validation_id, run_item_id = %run_item_id.value, error = %e, "failed to heartbeat machine validation run item")
+                    }
+                }
+            }
+        })
+    }
+
+    async fn get_machine_validation_run_items(
+        self,
+        validation_id: MachineValidationId,
+    ) -> Result<Vec<rpc::forge::MachineValidationRunItem>, MachineValidationError> {
+        // The API creates these records before Scout starts. Fetching them here
+        // makes the persisted selection, timeout, and plugin config the source
+        // of truth for this execution.
+        let mut client = self.create_forge_client().await?;
+        let ids = client
+            .find_machine_validation_run_item_ids(tonic::Request::new(
+                rpc::forge::MachineValidationRunItemSearchFilter {
+                    validation_id: Some(validation_id),
+                },
+            ))
+            .await
+            .map_err(|e| {
+                MachineValidationError::ApiClient(
+                    "find_machine_validation_run_item_ids".to_owned(),
+                    e.to_string(),
+                )
+            })?
+            .into_inner()
+            .run_item_ids;
+        if ids.is_empty() {
+            return Ok(Vec::new());
+        }
+        Ok(client
+            .find_machine_validation_run_items_by_ids(tonic::Request::new(
+                rpc::forge::MachineValidationRunItemsByIdsRequest { run_item_ids: ids },
+            ))
+            .await
+            .map_err(|e| {
+                MachineValidationError::ApiClient(
+                    "find_machine_validation_run_items_by_ids".to_owned(),
+                    e.to_string(),
+                )
+            })?
+            .into_inner()
+            .run_items)
+    }
+
     fn spawn_machine_validation_heartbeat(
         self,
         validation_id: MachineValidationId,
@@ -637,7 +916,7 @@ impl MachineValidation {
     /// If the Nico API has a credential for the image's registry, logs in
     /// with `nerdctl login --password-stdin` before pulling so the password
     /// never appears in process arguments or logs.
-    pub async fn pull_container(&self, image_name: &str) {
+    pub async fn pull_container(&self, image_name: &str) -> Result<(), MachineValidationError> {
         tracing::info!(%image_name, "Pulling machine validation image");
 
         if let Some((username, password, registry)) =
@@ -703,16 +982,21 @@ impl MachineValidation {
             .output_with_timeout()
             .await
         {
-            Ok(result) => info!(
-                %image_name,
-                stdout = %result.stdout,
-                "Pulled machine validation container image",
-            ),
-            Err(e) => error!(
-                %image_name,
-                error = %e,
-                "Failed to pull machine validation container image",
-            ),
+            Ok(result) if result.exit_code == 0 => {
+                info!(
+                    %image_name,
+                    stdout = %result.stdout,
+                    "Pulled machine validation container image",
+                );
+                Ok(())
+            }
+            Ok(result) => Err(MachineValidationError::Generic(format!(
+                "failed to pull plugin image {image_name}: {}",
+                result.stderr
+            ))),
+            Err(error) => Err(MachineValidationError::Generic(format!(
+                "failed to pull plugin image {image_name}: {error}"
+            ))),
         }
     }
     async fn execute_machinevalidation_command(
@@ -721,7 +1005,21 @@ impl MachineValidation {
         test: &rpc::forge::MachineValidationTest,
         in_context: String,
         validation_id: MachineValidationId,
+        platform_name: &str,
+        run_item: Option<&rpc::forge::MachineValidationRunItem>,
     ) -> MachineValidationExecution {
+        if test.plugin.is_some() {
+            return self
+                .execute_plugin(
+                    machine_id,
+                    test,
+                    in_context,
+                    validation_id,
+                    platform_name,
+                    run_item,
+                )
+                .await;
+        }
         let mut mc_result = rpc::forge::MachineValidationResult {
             test_id: Some(test.test_id.clone()),
             name: test.name.clone(),
@@ -831,8 +1129,16 @@ impl MachineValidation {
                 // Execute command in host
                 command_string = format!("chroot /host /bin/bash -c \"{command_string}\"");
             }
-            self.pull_container(&test.img_name.clone().unwrap_or_default())
-                .await;
+            if let Err(error) = self
+                .pull_container(&test.img_name.clone().unwrap_or_default())
+                .await
+            {
+                mc_result.start_time = Some(Utc::now().into());
+                mc_result.end_time = Some(Utc::now().into());
+                mc_result.std_err = error.to_string();
+                mc_result.exit_code = -1;
+                return MachineValidationExecution::with_heartbeat(mc_result, heartbeat);
+            }
             let ctr_arg = test.container_arg.clone().unwrap_or("".to_string());
             command_string = format!(
                 "ctr run --rm --privileged --no-pivot \
@@ -935,6 +1241,208 @@ impl MachineValidation {
         MachineValidationExecution::with_heartbeat(result, heartbeat)
     }
 
+    async fn execute_plugin(
+        self,
+        machine_id: &MachineId,
+        test: &rpc::forge::MachineValidationTest,
+        context: String,
+        validation_id: MachineValidationId,
+        platform_name: &str,
+        run_item: Option<&rpc::forge::MachineValidationRunItem>,
+    ) -> MachineValidationExecution {
+        let mut result = rpc::forge::MachineValidationResult {
+            test_id: Some(test.test_id.clone()),
+            name: test.name.clone(),
+            description: test.description.clone().unwrap_or_default(),
+            command: "machine-validation-plugin".to_owned(),
+            args: test
+                .plugin
+                .as_ref()
+                .map(|plugin| plugin.entrypoint.join(" "))
+                .unwrap_or_default(),
+            context: context.clone(),
+            validation_id: Some(validation_id),
+            ..rpc::forge::MachineValidationResult::default()
+        };
+        // Prefer the plugin copied into the run item. The fallback preserves the
+        // legacy execution path while runs created before run items are present
+        // continue to be supported.
+        let Some(plugin) = run_item
+            .and_then(|item| item.plugin.as_ref())
+            .or(test.plugin.as_ref())
+        else {
+            let now = Utc::now();
+            result.start_time = Some(now.into());
+            result.end_time = Some(now.into());
+            result.std_err =
+                "framework error: plugin execution requires plugin configuration".to_owned();
+            result.exit_code = -1;
+            return MachineValidationExecution::without_heartbeat(result);
+        };
+
+        // Claim the run item before pulling or starting the container. This also
+        // prevents an expired or superseded run from being executed.
+        let initial_heartbeat = match run_item.and_then(|item| item.run_item_id.clone()) {
+            Some(run_item_id) => {
+                self.clone()
+                    .heartbeat_machine_validation_run_item(validation_id, run_item_id)
+                    .await
+            }
+            None => {
+                self.clone()
+                    .heartbeat_machine_validation_run(validation_id, Some(test.test_id.clone()))
+                    .await
+            }
+        };
+        match initial_heartbeat {
+            Ok(true) => {}
+            Ok(false) => {
+                let now = Utc::now();
+                result.start_time = Some(now.into());
+                result.end_time = Some(now.into());
+                result.std_err = "Machine validation heartbeat was rejected because run or attempt is no longer active".to_owned();
+                result.std_out = "Skipped: Machine validation heartbeat was rejected".to_owned();
+                result.exit_code = 0;
+                return MachineValidationExecution::without_heartbeat(result);
+            }
+            Err(error) => emit(MachineValidationHeartbeatFailed::rpc(
+                MachineValidationHeartbeatStage::Initial,
+                validation_id,
+                test.test_id.clone(),
+                error,
+            )),
+        }
+        let heartbeat = MachineValidationHeartbeatGuard::new(
+            match run_item.and_then(|item| item.run_item_id.clone()) {
+                Some(run_item_id) => self
+                    .clone()
+                    .spawn_machine_validation_run_item_heartbeat(validation_id, run_item_id),
+                None => self
+                    .clone()
+                    .spawn_machine_validation_heartbeat(validation_id, test.test_id.clone()),
+            },
+        );
+
+        let attempt_dir = std::env::temp_dir()
+            .join("nico-machine-validation")
+            .join(uuid::Uuid::new_v4().to_string());
+        let input_dir = attempt_dir.join("input");
+        let output_dir = attempt_dir.join("output");
+        let started_at = Utc::now();
+        let execution = async {
+            let timeout_seconds = run_item
+                .and_then(|item| item.timeout.as_ref())
+                .map(|timeout| timeout.seconds.max(0) as u64)
+                .unwrap_or_else(|| test.timeout.unwrap_or(7200) as u64);
+            let deadline =
+                tokio::time::Instant::now() + std::time::Duration::from_secs(timeout_seconds);
+            // This is the same overall deadline used for both image acquisition
+            // and container execution. Plugins can use it to stop their own
+            // work before Scout terminates the attempt.
+            let deadline_at = started_at + chrono::Duration::seconds(timeout_seconds as i64);
+            tokio::time::timeout_at(deadline, self.pull_container(&plugin.image))
+                .await
+                .map_err(|_| {
+                    format!("plugin image pull timed out after {timeout_seconds} seconds")
+                })?
+                .map_err(|error| error.to_string())?;
+            #[cfg(unix)]
+            prepare_plugin_directories(&attempt_dir, &input_dir, &output_dir)?;
+            let parameters: Value = serde_json::from_str(&plugin.parameters_json)
+                .map_err(|error| format!("invalid configured plugin parameters: {error}"))?;
+            let input = serde_json::json!({
+                "apiVersion": "machinevalidation.nvidia.com/v1",
+                "kind": "MachineValidationPluginInput",
+                "run": {
+                    "id": validation_id.to_string(),
+                    "itemId": run_item.and_then(|item| item.run_item_id.as_ref()).map(|id| id.value.clone()),
+                    // The initial heartbeat claims the pending run item as attempt 1.
+                    // The snapshot was fetched before that claim, so it can still show 0.
+                    "attempt": run_item.map(|item| item.attempt.max(1)).unwrap_or(1),
+                    "context": context,
+                    "deadline": deadline_at.to_rfc3339(),
+                },
+                "machine": { "id": machine_id.to_string(), "platform": platform_name },
+                "plugin": { "name": test.test_id, "revision": test.version.clone() },
+                "parameters": parameters,
+            });
+            std::fs::write(
+                input_dir.join("input.json"),
+                serde_json::to_vec(&input).expect("plugin input is serializable"),
+            )
+            .map_err(|error| format!("failed to write plugin input: {error}"))?;
+
+            let args = plugin_runtime_args(
+                &input_dir,
+                &output_dir,
+                format!("mv-plugin-{}", uuid::Uuid::new_v4()),
+                plugin.image.clone(),
+                plugin,
+            );
+            let mut command = tokio::process::Command::new("nerdctl");
+            command.args(args).kill_on_drop(true);
+            match tokio::time::timeout(
+                deadline.saturating_duration_since(tokio::time::Instant::now()),
+                command.output(),
+            )
+            .await
+            {
+                Ok(Ok(output)) if plugin_process_succeeded(output.status.code()) => Ok((
+                    String::from_utf8_lossy(&output.stdout).into_owned(),
+                    String::from_utf8_lossy(&output.stderr).into_owned(),
+                )),
+                Ok(Ok(_output)) => {
+                    Err("plugin exited unsuccessfully; ignoring result.json".to_owned())
+                }
+                Ok(Err(error)) => Err(format!("failed to execute plugin: {error}")),
+                Err(_) => Err(format!("plugin timed out after {timeout_seconds} seconds")),
+            }
+        }
+        .await;
+
+        let ended_at = Utc::now();
+        result.start_time = Some(started_at.into());
+        result.end_time = Some(ended_at.into());
+        match execution {
+            Ok((stdout, stderr)) => {
+                result.std_out = truncate_plugin_output(stdout);
+                result.std_err = truncate_plugin_output(stderr);
+                match read_plugin_result(&output_dir.join("result.json")) {
+                    Ok(plugin_result) => {
+                        result.std_out = format!(
+                            "{}\nplugin result: {}",
+                            result.std_out, plugin_result.summary
+                        );
+                        result.exit_code = match plugin_result.outcome.as_str() {
+                            "pass" => 0,
+                            "fail" => 1,
+                            "error" => -1,
+                            _ => {
+                                result.std_err = format!(
+                                    "{}\nframework error: plugin result has an unsupported outcome",
+                                    result.std_err
+                                );
+                                -1
+                            }
+                        };
+                    }
+                    Err(error) => {
+                        result.std_err = format!("{}\nframework error: {error}", result.std_err);
+                        result.exit_code = -1;
+                    }
+                }
+            }
+            Err(error) => {
+                result.std_err = format!("framework error: {error}");
+                result.exit_code = -1;
+            }
+        }
+        if let Err(error) = std::fs::remove_dir_all(&attempt_dir) {
+            tracing::warn!(path = %attempt_dir.display(), error = %error, "Failed to remove plugin attempt directory");
+        }
+        MachineValidationExecution::with_heartbeat(result, heartbeat)
+    }
+
     pub(crate) async fn update_machine_validation_run(
         self,
         data: rpc::forge::MachineValidationRunRequest,
@@ -962,10 +1470,28 @@ impl MachineValidation {
         tests: Vec<rpc::forge::MachineValidationTest>,
         context: String,
         validation_id: MachineValidationId,
+        platform_name: String,
         execute_tests_sequentially: bool,
         machine_validation_filter: MachineValidationFilter,
     ) -> Result<(), MachineValidationError> {
         self.clone().get_container_auth_config().await?;
+        // Re-read the selected execution plan after the API has materialized it.
+        // Do not reconstruct plugin details from the catalog at run time.
+        let run_items = match self
+            .clone()
+            .get_machine_validation_run_items(validation_id)
+            .await
+        {
+            Ok(run_items) => run_items,
+            Err(error) => {
+                tracing::warn!(%validation_id, %error, "unable to load machine validation run items; continuing with legacy execution");
+                Vec::new()
+            }
+        };
+        let run_items_by_test = run_items
+            .into_iter()
+            .map(|item| (item.test_id.clone(), item))
+            .collect::<HashMap<_, _>>();
         match Self::get_container_images().await {
             Ok(_) => info!("Successfully fetched container images"),
             Err(e) => error!(error = %e, "Failed to fetch container images"),
@@ -987,6 +1513,8 @@ impl MachineValidation {
                         &test,
                         context.to_string(),
                         validation_id,
+                        &platform_name,
+                        run_items_by_test.get(&test.test_id),
                     )
                     .await;
                 let MachineValidationExecution { result, heartbeat } = execution;
@@ -1011,7 +1539,8 @@ impl MachineValidation {
 #[cfg(test)]
 mod tests {
     use carbide_instrument::testing::{MetricsCapture, capture_logs};
-    use carbide_test_support::value_scenarios;
+    use carbide_test_support::Outcome::*;
+    use carbide_test_support::{Case, check_cases, value_scenarios};
 
     use super::*;
 
@@ -1020,6 +1549,133 @@ mod tests {
         HeartbeatRejected(MachineValidationHeartbeatStage),
         HeartbeatRpc(MachineValidationHeartbeatStage),
         Persistence(Outcome),
+    }
+
+    #[test]
+    fn plugin_result_contract_validation() {
+        check_cases(
+            [
+                Case {
+                    scenario: "valid pass result",
+                    input: r#"{
+                        "apiVersion":"machinevalidation.nvidia.com/v1",
+                        "kind":"MachineValidationPluginResult",
+                        "outcome":"pass",
+                        "summary":"check completed",
+                        "severity":"info",
+                        "findings":[{"name":"gpu","message":"available"}]
+                    }"#,
+                    expect: Yields(()),
+                },
+                Case {
+                    scenario: "unknown outcome",
+                    input: r#"{
+                        "apiVersion":"machinevalidation.nvidia.com/v1",
+                        "kind":"MachineValidationPluginResult",
+                        "outcome":"skipped",
+                        "summary":"check completed"
+                    }"#,
+                    expect: Fails,
+                },
+                Case {
+                    scenario: "unknown field",
+                    input: r#"{
+                        "apiVersion":"machinevalidation.nvidia.com/v1",
+                        "kind":"MachineValidationPluginResult",
+                        "outcome":"pass",
+                        "summary":"check completed",
+                        "extra":"not allowed"
+                    }"#,
+                    expect: Fails,
+                },
+            ],
+            |contents| {
+                parse_plugin_result(contents.as_bytes())
+                    .map(|_| ())
+                    .map_err(drop)
+            },
+        );
+    }
+
+    #[test]
+    fn plugin_runtime_is_isolated_and_non_root() {
+        let plugin = rpc::forge::MachineValidationPlugin {
+            image: "registry.example/plugin@sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef".to_owned(),
+            entrypoint: vec!["/plugin/entrypoint".to_owned(), "--check".to_owned()],
+            parameters_json: "{}".to_owned(),
+            privileged: false,
+            host_access_full: false,
+        };
+        let args = plugin_runtime_args(
+            Path::new("/tmp/input"),
+            Path::new("/tmp/output"),
+            "plugin-test".to_owned(),
+            plugin.image.clone(),
+            &plugin,
+        );
+
+        assert!(args.windows(2).any(|pair| pair == ["--network", "none"]));
+        assert!(
+            args.windows(2)
+                .any(|pair| pair == ["--user", "65532:65532"])
+        );
+        assert!(args.windows(2).any(|pair| pair == ["--cap-drop", "ALL"]));
+        assert!(
+            args.windows(2)
+                .any(|pair| pair == ["--security-opt", "no-new-privileges"])
+        );
+        assert!(args.iter().any(|arg| arg.contains("/opt/nico/mv/input")));
+        assert!(args.iter().any(|arg| arg.contains("/opt/nico/mv/output")));
+        assert!(!args.iter().any(|arg| arg == "--privileged"));
+        assert!(!args.iter().any(|arg| arg.contains("dst=/host")));
+        assert!(
+            args.windows(2)
+                .any(|pair| pair == ["--name", "plugin-test"])
+        );
+        assert_eq!(
+            &args[args.len() - 3..],
+            [plugin.image.as_str(), "/plugin/entrypoint", "--check",]
+        );
+    }
+
+    #[test]
+    fn full_host_plugin_uses_privileged_runtime_and_host_mount() {
+        let plugin = rpc::forge::MachineValidationPlugin {
+            image: "registry.example/plugin@sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef".to_owned(),
+            entrypoint: vec!["/plugin/entrypoint".to_owned()],
+            parameters_json: "{}".to_owned(),
+            privileged: true,
+            host_access_full: true,
+        };
+        let args = plugin_runtime_args(
+            Path::new("/tmp/input"),
+            Path::new("/tmp/output"),
+            "plugin-test".to_owned(),
+            plugin.image.clone(),
+            &plugin,
+        );
+
+        assert!(args.iter().any(|arg| arg == "--privileged"));
+        assert!(
+            args.iter()
+                .any(|arg| arg == "type=bind,src=/,dst=/host,options=rbind:rw")
+        );
+    }
+
+    #[test]
+    fn only_successful_plugin_exit_accepts_a_result() {
+        assert!(plugin_process_succeeded(Some(0)));
+        assert!(!plugin_process_succeeded(Some(1)));
+        assert!(!plugin_process_succeeded(None));
+    }
+
+    #[test]
+    fn plugin_output_truncation_preserves_utf8() {
+        let output = format!("{}😀", "a".repeat(MAX_STRING_STD_SIZE - 1));
+        let truncated = truncate_plugin_output(output);
+
+        assert_eq!(truncated.len(), MAX_STRING_STD_SIZE - 1);
+        assert!(truncated.is_char_boundary(truncated.len()));
     }
 
     #[derive(Debug, PartialEq)]

@@ -587,6 +587,12 @@ impl InternalRBACRules {
             "MachineValidationTestEnableDisableTest",
             vec![ForgeAdminCLI, SiteAgent, Scout],
         );
+        // Full-host access is a site-admin decision. Scout may execute an
+        // approved revision, but it must never grant that approval.
+        x.perm(
+            "MachineValidationTestApproveFullHost",
+            vec![ForgeAdminCLI, SiteAgent],
+        );
         x.perm("UpdateMachineValidationRun", vec![Scout, SiteAgent]);
         x.perm("FindInstanceTypeIds", vec![SiteAgent, ForgeAdminCLI]);
         x.perm("FindInstanceTypesByIds", vec![ForgeAdminCLI, SiteAgent]);

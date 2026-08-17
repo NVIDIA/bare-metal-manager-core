@@ -165,6 +165,7 @@ fn convert_tests_to_nice_format(
             ("IsVerified", test.verified.to_string()),
             ("IsReadOnly", test.read_only.to_string()),
             ("IsEnabled", test.is_enabled.to_string()),
+            ("FullHostApproved", test.full_host_approved.to_string()),
         ];
 
         for (key, value) in details {
@@ -246,6 +247,7 @@ pub(super) async fn machine_validation_test_update(
         custom_tags: options.custom_tags,
         components: options.components,
         is_enabled: options.is_enabled,
+        plugin: None,
         description: options.description,
         verified: None,
         name: None,
@@ -297,6 +299,7 @@ pub(super) async fn machine_validation_test_add(
         custom_tags: options.custom_tags,
         components: options.components,
         is_enabled: options.is_enabled,
+        plugin: None,
     };
     api_client.0.add_machine_validation_test(request).await?;
     Ok(())

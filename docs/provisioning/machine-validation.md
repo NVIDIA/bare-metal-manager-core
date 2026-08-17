@@ -6,8 +6,8 @@ validation tests on the host, collect the results, and report them back to the
 site controller.
 
 The framework is intended to be extensible. NICo provides a catalog of built-in
-hardware validation tests, and site administrators can add site-specific tests
-when the deployment enables test mutation workflows.
+hardware validation tests and supports site-provided container plugins through
+the Machine Validation API.
 
 ## Summary
 
@@ -109,8 +109,9 @@ The built-in catalog commonly includes the following test groups:
 | Operational extensions | `DefaultTestCase`, runbook-style tests | Site or release-specific checks used to extend the validation workflow. |
 
 Built-in tests that are delivered through NICo migrations are normally
-read-only. Site-specific tests can be added and modified by administrators when
-the deployment enables those mutation APIs.
+read-only. Direct creation and update of legacy test definitions are currently
+disabled while those mutation paths are hardened. Site-provided container
+plugins use the separate API-managed definition path described below.
 
 ## Site Configuration
 
@@ -133,6 +134,10 @@ stale_run_timeout = "24h"
 tests = [
   { id = "CudaSample", enable = true },
 ]
+# Required before a plugin image from this registry can be registered.
+approved_plugin_registries = ["nvcr.io"]
+allow_privileged_plugins = false
+allow_full_host_plugins = false
 ```
 
 | Setting | Description |
@@ -142,12 +147,52 @@ tests = [
 | `run_interval` | Controls how often the controller processes pending validation work. |
 | `stale_run_timeout` | Grace period before an active validation run is considered stale. The default is `24h`; configured values below `90s` are raised to `90s` so healthy runs are not failed between Scout heartbeats. |
 | `tests` | Optional per-test overrides. Use the test identifiers reported by `tests show` for the running site. |
+| `approved_plugin_registries` | Registries permitted for plugin images. The default is empty, which denies new plugin registrations. Use explicit registry hostnames, for example `nvcr.io`; this does not affect legacy tests. |
+| `allow_privileged_plugins` | Permits plugin registration and execution with privileged container settings. Default: `false`. |
+| `allow_full_host_plugins` | Permits registration and execution of privileged plugins with the writable `/host` mount. Default: `false`. |
 
-## External Configuration
+### Private Registry Credentials for Plugins
 
-Some validation tests require external configuration, such as container registry
-credentials. Store those inputs as named external configs instead of embedding
-secrets in test definitions.
+The registry allow-list controls **where** a plugin image may come from. Registry
+credentials control **how Scout authenticates** when that allowed registry is
+private. They are separate from the plugin definition and site configuration.
+
+To configure a private registry for a plugin:
+
+1. Add the registry hostname to `approved_plugin_registries` and apply the site
+   configuration rollout.
+2. Store a username and registry token with the existing credential command.
+   The hostname must exactly match the registry portion of the plugin image
+   reference. Use the hidden prompt and standard-input form below so the token
+   is not placed in command arguments or shell history.
+
+   ```sh
+   read -r -s -p 'Registry token: ' registry_token; printf '\n'
+   printf '%s' "$registry_token" | nico-admin-cli credential registry set \
+     --registry registry.example.com \
+     --username registry-user \
+     --password-stdin
+   unset registry_token
+   ```
+
+3. Create the plugin definition with a digest-pinned image from that registry.
+4. When Scout pulls the image, it retrieves the credential for that hostname
+   from NICo's credential manager, passes it to `nerdctl login` through standard
+   input, and then pulls the image.
+
+Do not put credentials, tokens, Docker configuration, or secrets in the plugin
+definition, `parameters_json`, `input.json`, or the site configuration file. A
+registry without a stored credential is treated as public, and Scout attempts
+the pull without login. Use a short-lived token where the registry supports it
+and avoid placing a real token in shell history or source-controlled files.
+
+## External Configuration for Legacy Tests
+
+Some legacy validation tests require external configuration. Store those inputs
+as named external configs instead of embedding secrets in test definitions.
+
+Plugin images use the per-registry credential workflow above. The
+`container_auth` file below remains supported for legacy container tests.
 
 For example, to add or update the container authentication file:
 
@@ -231,48 +276,83 @@ Verification is a promotion step. A newly added test should be run on demand
 first, reviewed, and then marked verified before it is allowed into normal
 lifecycle validation.
 
-## Adding Site-Specific Tests
+## Site-Provided Container Plugins
 
-When test mutation workflows are enabled for the deployment, administrators can
-add tests to extend the validation framework. A site-specific test should be
-small, deterministic, non-interactive, and safe to run under platform control.
+Machine Validation can run a site-provided, digest-pinned OCI container. Site
+admins create and manage plugins with `nico-admin-cli machine-validation plugins`.
 
-The following example adds a host-side smoke test:
+The site admin supplies the image, entrypoint, and non-secret JSON parameters.
+The image registry must be listed in
+`machine_validation_config.approved_plugin_registries`; configure private
+registry credentials as described above. Machine Validation creates plugin tests
+disabled and unverified, and the existing verify and enable operations control
+when they can be selected.
+
+Scout runs the container sequentially with networking disabled, a non-root user,
+no Linux capabilities, and `no-new-privileges`. It supplies standard input and
+result files at `/opt/nico/mv/input/input.json` and
+`/opt/nico/mv/output/result.json`. Image acquisition and execution share the
+configured timeout, which must be between one second and 24 hours. A pull
+failure, timeout, invalid or missing result, or non-zero container exit is a
+framework failure. Before Scout starts a pending plugin, the API rechecks the
+current site policy and, for full-host plugins, the approval of that revision.
+
+`--privileged` changes the runtime to a privileged container. Adding
+`--host-access-full` also mounts the writable host root at `/host`; both options
+require matching site policy, and full-host access requires separate approval
+of the exact verified revision.
+
+The legacy `nico-admin-cli machine-validation tests add` command cannot create a
+plugin. Use the plugin-aware commands instead. For the normal unprivileged
+container profile:
 
 ```sh
-nico-admin-cli machine-validation tests add \
-  --name AcmeGpuSmoke \
-  --description "Runs the Acme GPU smoke validation" \
-  --command /usr/local/bin/acme-gpu-smoke \
-  --args "--quick" \
-  --contexts OnDemand \
-  --supported-platforms <platform> \
-  --timeout 1800 \
-  --is-enabled false
+nico-admin-cli machine-validation plugins create \
+  --name gpu-health \
+  --image registry.example.com/example-ai-west-prod/gpu-health@sha256:REPLACE_WITH_DIGEST \
+  --entrypoint /plugin/entrypoint \
+  --context Discovery \
+  --platform HGX-B200 \
+  --parameters '{"expectedGpuCount":8}'
 ```
 
-The following example adds a container-based test:
+For a privileged container with writable host access:
 
 ```sh
-nico-admin-cli machine-validation tests add \
-  --name AcmeContainerHealth \
-  --description "Runs Acme container health checks" \
-  --command /opt/acme/health-check \
-  --args "" \
-  --img-name nvcr.io/nvidian/nvforge/acme-health:1.0.0 \
-  --contexts Discovery \
-  --supported-platforms <platform> \
-  --external-config-file container_auth \
-  --timeout 3600 \
-  --is-enabled false
+nico-admin-cli machine-validation plugins create \
+  --name host-gpu-health \
+  --image registry.example.com/example-ai-west-prod/host-gpu-health@sha256:REPLACE_WITH_DIGEST \
+  --entrypoint /plugin/entrypoint \
+  --context Discovery \
+  --platform HGX-B200 \
+  --parameters '{"expectedGpuCount":8}' \
+  --privileged \
+  --host-access-full
 ```
 
-After adding a test:
+The command prints the immutable test ID and version needed for the following
+steps, for example `Created plugin revision: forge_host_gpu_health 1.0.0`.
 
-1. Run it on demand with `--run-unverfied-tests`.
-2. Review the result output.
-3. Enable the test if it should be selected.
-4. Verify the test after it is accepted for normal validation.
+The API creates the revision disabled and unverified. Verify it, approve full
+host access when requested, then enable it using the same test ID and version:
+
+```sh
+nico-admin-cli machine-validation plugins verify --test-id forge_host_gpu_health --version 1.0.0
+nico-admin-cli machine-validation plugins approve-full-host --test-id forge_host_gpu_health --version 1.0.0
+nico-admin-cli machine-validation plugins enable --test-id forge_host_gpu_health --version 1.0.0
+```
+
+Privileged and full-host execution require the matching site settings above.
+Device capabilities, site-managed input files, resource overrides, and parallel
+execution are not supported by the current implementation.
+
+## Legacy Test Definitions
+
+The `nico-admin-cli machine-validation tests add` and update commands currently
+send legacy test definitions and are rejected while legacy mutation paths are
+hardened. Existing built-in tests can still be listed, verified, enabled, and
+disabled through their established operations. New site-specific container
+checks use the plugin-aware CLI workflow described above.
 
 ## Execution Models
 
@@ -494,6 +574,6 @@ For production sites:
 | A new test does not run in lifecycle validation | The test is unverified or disabled. | Run the test on demand with `--run-unverfied-tests`, review the result, then enable and verify it. |
 | After modifying or updating a test, I no longer see the test | The updated test may have become unverified, or the current `tests show` filter may exclude its new context, platform, or version. | Run `tests show --show-un-verfied --test-id <test_id>`, review the updated definition, then re-enable or re-verify the test as needed. |
 | A test fails only on one platform | Platform mapping is too broad, platform-specific dependency is missing, or the test command assumes hardware that is not present. | Restrict `supported-platforms` or add a pre-condition. |
-| A container test cannot start | Image name, registry credentials, or external config are incorrect. | Confirm the image exists and refresh `container_auth`. |
+| A legacy container test cannot start | Image name, registry credentials, or external config are incorrect. | Confirm the image exists and refresh `container_auth`. |
 | A test times out | Timeout is too short, the test is hung, or the machine is unhealthy. | Review captured output and set a deliberate timeout for the test's expected runtime. |
 | Result output is incomplete | The test wrote too much output or logs outside captured stdout and stderr. | Keep CLI output concise and write important diagnostics before exit. |

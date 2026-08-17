@@ -804,6 +804,7 @@ async fn test_machine_validation_add_new_test_case(
         custom_tags: vec!["dgxcloud".to_string()],
         components: vec!["GPU".to_string()],
         is_enabled: Some(true),
+        plugin: None,
     };
     let add_update_response = env
         .api
@@ -1249,6 +1250,7 @@ async fn test_machine_validation_get_unverified_tests(
         custom_tags: vec!["dgxcloud".to_string()],
         components: vec!["GPU".to_string()],
         is_enabled: Some(true),
+        plugin: None,
     };
     let add_update_response = env
         .api
@@ -2086,6 +2088,9 @@ async fn test_machine_validation_tests_on_startup_default_mode(
                 enable: true,
             },
         ],
+        approved_plugin_registries: vec![],
+        allow_privileged_plugins: false,
+        allow_full_host_plugins: false,
     };
 
     // Apply config
@@ -2162,6 +2167,9 @@ async fn test_machine_validation_tests_enable_all_mode(
             id: initial_tests[0].test_id.clone(),
             enable: false, // Override first test to be disabled
         }],
+        approved_plugin_registries: vec![],
+        allow_privileged_plugins: false,
+        allow_full_host_plugins: false,
     };
 
     // Apply config
@@ -2224,6 +2232,9 @@ async fn test_machine_validation_tests_on_startup_disable_all_mode(
             id: initial_tests[0].test_id.clone(),
             enable: true, // Override first test to be enabled
         }],
+        approved_plugin_registries: vec![],
+        allow_privileged_plugins: false,
+        allow_full_host_plugins: false,
     };
 
     // Apply config
@@ -2339,6 +2350,9 @@ async fn test_machine_validation_tests_on_startup_missing_tests_config(
         run_interval: std::time::Duration::from_secs(60),
         stale_run_timeout: std::time::Duration::from_secs(24 * 60 * 60),
         tests: vec![], // Empty test configuration
+        approved_plugin_registries: vec![],
+        allow_privileged_plugins: false,
+        allow_full_host_plugins: false,
     };
 
     // Apply config
@@ -2370,6 +2384,9 @@ async fn test_machine_validation_tests_on_startup_missing_tests_config(
         run_interval: std::time::Duration::from_secs(60),
         stale_run_timeout: std::time::Duration::from_secs(24 * 60 * 60),
         tests: vec![], // Empty test configuration
+        approved_plugin_registries: vec![],
+        allow_privileged_plugins: false,
+        allow_full_host_plugins: false,
     };
 
     // Apply config

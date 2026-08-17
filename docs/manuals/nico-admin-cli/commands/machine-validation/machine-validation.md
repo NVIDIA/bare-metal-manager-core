@@ -46,6 +46,7 @@ Print help (see a summary with -h)
 | [`results`](./machine-validation-results.md) | Display machine validation results of individual runs |
 | [`runs`](./machine-validation-runs.md) | Display all machine validation runs |
 | [`tests`](./machine-validation-tests.md) | Supported Tests |
+| [`plugins`](./machine-validation-plugins.md) | Manage OCI Machine Validation plugins |
 
 ---
 
