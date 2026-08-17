@@ -99,3 +99,33 @@ tests:
     asserts:
       - failedTemplate:
           errorPattern: 'config\.kea\.serverIdentifier must be a single IPv4 address'
+
+  - it: rejects a non-string serverIdentifier with the friendly IPv4 message
+    set:
+      config.kea.serverIdentifier: 10
+    asserts:
+      - failedTemplate:
+          errorPattern: 'config\.kea\.serverIdentifier must be a single IPv4 address'
+
+  - it: rejects serverIdentifier combined with the raw config escape hatch
+    set:
+      config.kea.serverIdentifier: "10.180.126.170"
+      config.keaConfigJsonRaw: '{"Dhcp4": {}}'
+    asserts:
+      - failedTemplate:
+          errorPattern: 'serverIdentifier` is ignored when `config\.keaConfigJsonRaw` is set'
+
+  - it: raw config escape hatch alone renders without the pinning applied
+    set:
+      config.keaConfigJsonRaw: '{"Dhcp4": {}}'
+      externalService:
+        enabled: true
+        annotations:
+          metallb.universe.tf/loadBalancerIPs: "10.180.126.161"
+    asserts:
+      - notMatchRegex:
+          path: data["kea_config.json"]
+          pattern: 'dhcp-server-identifier'
+      - matchRegex:
+          path: data["kea_config.json"]
+          pattern: 'Dhcp4'

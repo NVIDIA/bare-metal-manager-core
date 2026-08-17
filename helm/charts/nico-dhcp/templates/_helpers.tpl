@@ -163,7 +163,10 @@ controls the YAML→JSON name mapping.
        default (pod IP), which is byte-identical to the pre-#3663 rendering.
 */}}
 {{- $ipv4Pattern := "^((25[0-5]|2[0-4][0-9]|1[0-9]{2}|[1-9]?[0-9])\\.){3}(25[0-5]|2[0-4][0-9]|1[0-9]{2}|[1-9]?[0-9])$" -}}
-{{- $serverIdentifier := trim (default "" $k.serverIdentifier) -}}
+{{/* printf "%v" coerces non-string overrides (bare numbers, maps) to a string
+     so they reach the friendly IPv4-validation fail below instead of erroring
+     inside sprig's trim with an opaque type message. */}}
+{{- $serverIdentifier := trim (printf "%v" (default "" $k.serverIdentifier)) -}}
 {{- if and $serverIdentifier (not (regexMatch $ipv4Pattern $serverIdentifier)) -}}
 {{- fail (printf "nico-dhcp: config.kea.serverIdentifier must be a single IPv4 address (the stable DHCP VIP); got %q" $serverIdentifier) -}}
 {{- end -}}
