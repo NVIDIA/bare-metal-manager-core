@@ -116,7 +116,7 @@ pub(crate) async fn release_dpu_service_sync_hold(
 
     let Some(dpf_sdk) = api.dpf_sdk.as_ref() else {
         return Err(CarbideError::InvalidArgument(
-            "DPF is not enabled on this carbide instance".to_string(),
+            "DPF is not enabled on this nico instance".to_string(),
         )
         .into());
     };

@@ -22,9 +22,10 @@ use ::rpc::forge::{
     self as rpc, BmcEndpointRequest, FindInstanceTypesByIdsRequest,
     FindNetworkSecurityGroupsByIdsRequest, GetDpfHostSnapshotRequest, GetDpfStateRequest,
     GetNetworkSecurityGroupAttachmentsRequest, GetNetworkSecurityGroupPropagationStatusRequest,
-    IdentifySerialRequest, MachineHardwareInfo, MachineHardwareInfoUpdateType,
-    ModifyDpfStateRequest, NetworkPrefix, NetworkSecurityGroupAttributes,
-    NetworkSegmentCreationRequest, NetworkSegmentType, Remediation, RemediationIdList,
+    IdentifySerialRequest, ListPendingDpuServiceSyncsRequest, MachineHardwareInfo,
+    MachineHardwareInfoUpdateType, ModifyDpfStateRequest, NetworkPrefix,
+    NetworkSecurityGroupAttributes, NetworkSegmentCreationRequest, NetworkSegmentType,
+    PendingDpuServiceSync, ReleaseDpuServiceSyncHoldRequest, Remediation, RemediationIdList,
     RemediationList, SpxPartitionSearchFilter, UpdateMachineHardwareInfoRequest,
     UpdateNetworkSecurityGroupRequest, VpcCreationRequest, VpcSearchFilter, VpcVirtualizationType,
     VpcsByIdsRequest,
@@ -2836,6 +2837,27 @@ impl ApiClient {
         };
         let response = self.0.get_dpf_host_snapshot(request).await?;
         Ok(response.json_payload)
+    }
+
+    /// Machines DPF is waiting on. `machine_id` unset asks for the whole
+    /// worklist; set asks for that machine's recorded history.
+    pub(crate) async fn list_pending_dpu_service_syncs(
+        &self,
+        machine_id: Option<MachineId>,
+    ) -> CarbideCliResult<Vec<PendingDpuServiceSync>> {
+        let response = self
+            .0
+            .list_pending_dpu_service_syncs(ListPendingDpuServiceSyncsRequest { machine_id })
+            .await?;
+        Ok(response.pending)
+    }
+
+    pub(crate) async fn release_dpu_service_sync_hold(
+        &self,
+        request: ReleaseDpuServiceSyncHoldRequest,
+    ) -> CarbideCliResult<Vec<rpc::DpuServiceSyncReleaseResult>> {
+        let response = self.0.release_dpu_service_sync_hold(request).await?;
+        Ok(response.results)
     }
 
     pub(crate) async fn get_dpf_service_versions(
