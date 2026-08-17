@@ -48,6 +48,9 @@ jobs:
           filters: |
             rest_api:
               - 'rest-api/**'
+              - '.github/ci/rest-command-*'
+              - '.github/ci/rest_command_bundle.py'
+              - '.github/ci/test_rest_command_bundle.py'
               - '.github/workflows/rest-*.yml'
               - 'helm/rest/**'
             core_proto:
@@ -106,6 +109,10 @@ jobs:
       - prepare
     with:
       upload_artifact: true
+      binary_version: ${{ needs.prepare.outputs.binary_version }}
+      build_timestamp: ${{ needs.prepare.outputs.build_timestamp }}
+      short_sha: ${{ needs.prepare.outputs.short_sha }}
+      full_sha: ${{ needs.prepare.outputs.full_sha }}
     uses: ./.github/workflows/rest-build-binaries.yml
 
   security-secret-scan:
@@ -125,12 +132,12 @@ jobs:
           fetch-depth: 0
       - name: Compute TruffleHog scan range
         id: scan-range
-        if: startsWith(github.ref, 'refs/heads/pull-request/')
+        if: startsWith(github.ref, 'refs/heads/pull-request/') || (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/'))
         env:
           GH_TOKEN: ${{ github.token }}
-        run: bash .github/ci/resolve-pr-scan-range.sh >> "$GITHUB_OUTPUT"
+        run: bash .github/ci/resolve-secret-scan-range.sh >> "$GITHUB_OUTPUT"
       - name: Run TruffleHog Scan
-        uses: NVIDIA/dsx-github-actions/.github/actions/trufflehog-scan@f435aa6bf125fe6f9e5ac438f8cef75f90e29a2b
+        uses: dsx-ai-factory/dsx-github-actions/.github/actions/trufflehog-scan@f435aa6bf125fe6f9e5ac438f8cef75f90e29a2b
         with:
           base: ${{ steps.scan-range.outputs.base }}
           head: ${{ steps.scan-range.outputs.head }}

@@ -239,8 +239,11 @@ Sensors (temperature, fan speed, power consumption, current draw) are collected 
 | Config Parameter | Default | Description |
 |---|---|---|
 | `sensor_fetch_interval` | 60 seconds | How often sensors are polled |
-| `sensor_fetch_concurrency` | 10 | Maximum concurrent BMC sensor queries |
 | `include_sensor_thresholds` | true | Whether to include threshold values |
+
+Sensor, entity discovery, entity metrics, and SSE event-record fetches use the
+global `bmc_request_concurrency` limit. It defaults to four concurrent Redfish
+operations per BMC.
 
 Sensor data is read from:
 ```

@@ -238,6 +238,7 @@ impl Bluefield3<'_> {
             .into_iter()
             .map(|b| b.build())
             .collect(),
+            ..Default::default()
         }
     }
 

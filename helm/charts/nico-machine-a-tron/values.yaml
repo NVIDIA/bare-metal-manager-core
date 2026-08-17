@@ -99,10 +99,25 @@ envFrom:
   vaultClusterInfo:
     configMapName: vault-cluster-info
 
+# startupProbe gates the livenessProbe until MAT has bound its redfish port.
+# MAT binds the port only after registering all expected machines via the API,
+# which takes O(hosts) time. Without a startupProbe the kubelet kills the pod
+# mid-registration (exit 137) once livenessProbe failures exceed failureThreshold
+# (issue #4298). Scale the failureThreshold to cover your largest deployment:
+#   hosts=2300  → default (20 * 30s = 10 min)
+#   hosts=4500  → failureThreshold: 60  (30 min)
+#   hosts=13500 → failureThreshold: 1200 (10 h, see machine-a-tron-scale.yaml)
+startupProbe:
+  tcpSocket:
+    port: redfish
+  periodSeconds: 30
+  failureThreshold: 20
+  successThreshold: 1
+  timeoutSeconds: 10
+
 livenessProbe:
   tcpSocket:
     port: redfish
-  initialDelaySeconds: 30
   periodSeconds: 30
   failureThreshold: 3
   successThreshold: 1
@@ -122,6 +137,14 @@ serviceMonitor:
   interval: 30s
   scrapeTimeout: 25s
 
+## UFM-compatible API mock hosted by each machine-a-tron process on its existing
+## HTTPS listener. Disable it for simulations that do not need InfiniBand.
+ufmMock:
+  enabled: true
+  ## Use an existing Secret with a `token` key. When unset, the chart creates
+  ## a Secret with a random token and preserves it across Helm upgrades.
+  existingAuthSecret: ""
+
 ## =============================================================================
 ## Machine-a-tron Core Settings (shared across all pods)
 ## =============================================================================
@@ -136,6 +159,10 @@ machineATron:
   configureBmcProxyHost: ""
   persistDir: "/tmp/machine-a-tron-data"
   cleanupOnQuit: false
+  enableIpmiSimulation: false
+  # IPMI port advertised through Redfish. Unset uses default 623
+  # Set to 0 for dynamic port (required for mat-k8s-controller)
+  # ipmiReachablePort: 0
   registerExpectedMachines: true
   hostBmcPassword: ""
   dpuBmcPassword: ""

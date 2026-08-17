@@ -84,6 +84,12 @@ pub enum HealthError {
     #[error("prometheus error {0}")]
     PrometheusError(#[from] prometheus::Error),
 
+    /// Nonempty endpoint-keyed spawn failures in discovery processing order.
+    ///
+    /// Returned after all spawn attempts and reachability reconciliation.
+    #[error("collector spawning failed for {} endpoints", .0.len())]
+    CollectorSpawnErrors(Vec<(String, HealthError)>),
+
     #[error("BMC error: {0}")]
     BmcError(#[from] Box<dyn std::error::Error + Send + Sync>),
 
@@ -144,11 +150,12 @@ fn build_endpoint_wiring(
     let mut sources: Vec<Arc<dyn EndpointSource>> = Vec::new();
 
     if !config.endpoint_sources.static_bmc_endpoints.is_empty() {
-        let static_source = StaticEndpointSource::from_config(
+        let static_source = StaticEndpointSource::from_config_with_request_concurrency(
             config.endpoint_sources.static_bmc_endpoints.as_slice(),
             &reqwest,
             config.bmc_proxy_url.as_ref(),
             config.cache_size,
+            config.bmc_request_concurrency,
             bmc_latency_metrics.clone(),
         );
         sources.push(Arc::new(static_source));
@@ -161,22 +168,24 @@ fn build_endpoint_wiring(
             source_cfg.client_key.clone(),
             &source_cfg.api_url,
         ));
-        let endpoint_source = Arc::new(ApiEndpointSource::new(
+        let endpoint_source = Arc::new(ApiEndpointSource::new_with_request_concurrency(
             api_client,
             reqwest.clone(),
             config.bmc_proxy_url.clone(),
             config.cache_size,
+            config.bmc_request_concurrency,
             bmc_latency_metrics.clone(),
         ));
         sources.push(endpoint_source as Arc<dyn EndpointSource>);
     }
 
     if let Configurable::Enabled(ref source_cfg) = config.endpoint_sources.cluster {
-        let cluster_source = ClusterEndpointSource::from_config(
+        let cluster_source = ClusterEndpointSource::from_config_with_request_concurrency(
             source_cfg.clone(),
             &reqwest,
             config.bmc_proxy_url.as_ref(),
             config.cache_size,
+            config.bmc_request_concurrency,
             bmc_latency_metrics,
         );
         sources.push(Arc::new(cluster_source));
@@ -389,7 +398,7 @@ pub async fn run_service(config: Config) -> Result<(), HealthError> {
     let active_endpoints_gauge = Gauge::new(
         format!(
             "{metrics_prefix}_active_endpoints",
-            metrics_prefix = &config.metrics.prefix
+            metrics_prefix = config.metrics.prefix
         ),
         "Number of active endpoints",
     )?;
@@ -399,7 +408,7 @@ pub async fn run_service(config: Config) -> Result<(), HealthError> {
         Opts::new(
             format!(
                 "{metrics_prefix}_discovery_endpoints",
-                metrics_prefix = &config.metrics.prefix
+                metrics_prefix = config.metrics.prefix
             ),
             "Number of endpoints at each discovery stage",
         ),

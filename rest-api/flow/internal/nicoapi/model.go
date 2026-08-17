@@ -112,6 +112,8 @@ const (
 	PowerStateOff
 	PowerStateOn
 	PowerStateDisabled
+	PowerStateHibernating
+	PowerStateSleeping
 )
 
 // MachinePowerState is information about current and desired power states

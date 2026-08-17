@@ -172,6 +172,7 @@ impl PrefixAllocator {
             segment_type: model::network_segment::NetworkSegmentType::Tenant,
             can_stretch: Some(false), // All segments allocated here are FNN linknets.
             allocation_strategy: AllocationStrategy::Dynamic,
+            infer_slaac_eui64_addresses: false,
         };
 
         // Segments created by VPC prefix allocation are fully formed (prefixes, VPC ID,

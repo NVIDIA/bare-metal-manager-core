@@ -4,7 +4,9 @@
 
 {% block content %}
 <div id="json">
+	{% if !Self::logs_link_template().is_empty() %}
 	<a id="logs-link" href="" target="_blank">Logs</a>
+	{% endif %}
 	<a id="json-link" href="">JSON</a>
 </div>
 <h1>{{ machine_type }} {{ id }}</h1>
@@ -628,14 +630,22 @@ Missing BMC Data
 	}
 
 	document.addEventListener("DOMContentLoaded", function(event){
-		let maintenance_form = document.getElementById("maintenance_action");
-		maintenance_form.addEventListener("submit", are_you_sure_maintenance);
-		let quarantine_form = document.getElementById("quarantine_action");
-		quarantine_form.addEventListener("submit", are_you_sure_quarantine);
+		// Set up maintenance/quarantine form handlers (Host machines only)
+		const maintenance_form = document.getElementById("maintenance_action");
+		if (maintenance_form) {
+			maintenance_form.addEventListener("submit", are_you_sure_maintenance);
+		}
+		const quarantine_form = document.getElementById("quarantine_action");
+		if (quarantine_form) {
+			quarantine_form.addEventListener("submit", are_you_sure_quarantine);
+		}
 
-		// Set up Logs link
-		const machineId = "{{ id }}";
-		document.getElementById('logs-link').href = buildGrafanaLogsUrl(machineId);
+		// Set up Logs link (if configured)
+		const logsLink = document.getElementById('logs-link');
+		if (logsLink) {
+			const machineId = "{{ id }}";
+			logsLink.href = buildLogsUrl(machineId);
+		}
 	});
 </script>
 

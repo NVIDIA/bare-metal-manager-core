@@ -22,7 +22,7 @@ tags:
 
       ### Authentication
       The first step is to authenticate using a JWT bearer token. Organization structures and roles depend on the authentication configuration used. For details on authentication, please consult the
-      NICo REST `auth` module [README](https://github.com/NVIDIA/infra-controller/rest-api/tree/main/auth).
+      NICo REST `auth` module [README](https://github.com/NVIDIA/infra-controller/tree/main/rest-api/auth).
 
       ### API Version
       The next step is to be aware of the API version being used. The API version can be retrieved by calling the [Retrieve Metadata endpoint](#tag/Metadata/operation/get-metadata). In general, the API maintains backward
@@ -124,9 +124,11 @@ tags:
       - `rackLevelAdministration` capability attribute was deprecated in favor of `flow` and was removed on May 13th, 2026 0:00 UTC. Please use `flow` instead.
       - `isRackLevelAdministrationEnabled` query parameter was deprecated in favor of `isFlowEnabled` and was removed on May 13th, 2026 0:00 UTC. Please use `isFlowEnabled` instead.
   - name: BMC Credential
+    x-displayName: BMC Credential
     description: |-
       BMC Credential endpoints allow creating and updating BMC credentials across all Machines of a Site
   - name: UEFI Credential
+    x-displayName: UEFI Credential
     description: |-
       UEFI Credential endpoints allow creating site-default host and DPU UEFI credentials for a Site
   - name: Measured Boot Trusted Machine
@@ -149,12 +151,15 @@ tags:
 
       - `ResourceTypeID` attribute on Allocation Constraint was deprecated in favor of `resourceTypeId` and will be removed on July 9th, 2026 0:00 UTC. Please use `resourceTypeId` instead.
   - name: VPC
+    x-displayName: VPC
     description: |-
       VPC defines the networking isolation boundary for Tenant's Instances.
   - name: VPC Peering
+    x-displayName: VPC Peering
     description: |-
       VPC Peering allows Instances in one VPC to communicate with Instances in another VPC on the same Site.
   - name: VPC Prefix
+    x-displayName: VPC Prefix
     description: |-
       VPC Prefix is a network prefix belonging to an IP Block allocated to a Tenant. Tenant can use VPC Prefixes to enable network connectivity between their Instances.
 
@@ -182,6 +187,7 @@ tags:
       Expected Switch identifies an NVLink Switch that is expected to be discovered at a Site. Infrastructure Providers can pre-register Expected Switches using BMC, NVOS credentials
       and serial numbers to help with NVLink Switch discovery and ingestion.
   - name: SKU
+    x-displayName: SKU
     description: |-
       SKU (Stock Keeping Unit) defines one or more hardware configurations or Machine Bill of Materials (BOM).
 
@@ -207,6 +213,7 @@ tags:
 
       - `isCloudInit` on create and update requests is deprecated and ignored; the response field is derived from whether `userData` is non-empty.
   - name: iPXE Template
+    x-displayName: iPXE Template
     description: |-
       iPXE Templates are read-only definitions propagated from nico-core into the REST API. Each template has a stable core UUID and a globally unique name; per-site availability is tracked in IpxeTemplateSiteAssociation records rather than on the template row itself. List and retrieve operations return templates reported at sites the caller is authorized for (optionally filtered by `siteId`). Templated iPXE Operating Systems reference a template by `ipxeTemplateId`.
   - name: Instance Type
@@ -226,7 +233,7 @@ tags:
     description: |-
       BMC Reset allows resetting a Machine's BMC
   - name: DPU Reprovision
-    x-DisplayName: DPU Reprovision
+    x-displayName: DPU Reprovision
     description: |-
       DPU Reprovision allows re-provisioning Machine's DPUs
   - name: Health Report
@@ -258,6 +265,7 @@ tags:
 
       - `object_id` attribute on Network Security Group propagation details was deprecated in favor of `objectId` and will be removed on July 9th, 2026 0:00 UTC. Please use `objectId` instead.
   - name: IP Block
+    x-displayName: IP Block
     description: |-
       IP Block is a contiguous block of IP addresses defined by a prefix and prefix length.
 
@@ -267,9 +275,11 @@ tags:
     description: |-
       DPU Extension Service allows users to run custom services in the DPUs of their Instances. Currently K8s pods are the only supported service type.
   - name: SSH Key Group
+    x-displayName: SSH Key Group
     description: |-
       SSH Key Groups allow grouping several SSH Keys together so they can be synced to Sites and used to access the Serial Console of Instances.
   - name: SSH Key
+    x-displayName: SSH Key
     description: |-
       SSH Key is a public key that can be used to access the Serial Console of an Instance.
   - name: User
@@ -1643,6 +1653,84 @@ paths:
         rotation. When `deviceMac` is set, the counts describe just that device
         and a per-device detail block is returned. Equivalent to
         `nico-admin-cli credential rotation-status`.
+
+        User must have authorization role with `PROVIDER_ADMIN` suffix.
+  '/v2/org/{org}/nico/site-explorer/endpoint':
+    parameters:
+      - schema:
+          type: string
+        name: org
+        in: path
+        required: true
+        description: Name of the Org
+    get:
+      summary: Retrieve all Explored Endpoints
+      tags:
+        - Site Explorer
+      parameters:
+        - schema:
+            type: string
+            format: uuid
+          name: siteId
+          in: query
+          required: true
+          description: ID of the Site
+        - schema:
+            type: integer
+          name: pageNumber
+          in: query
+          required: false
+          description: Page number of results returned
+        - schema:
+            type: integer
+          name: pageSize
+          in: query
+          required: false
+          description: Number of results per page
+        - schema:
+            type: string
+            enum:
+              - ID_ASC
+              - ID_DESC
+            default: ID_ASC
+          name: orderBy
+          in: query
+          required: false
+          description: Order results by endpoint ID
+      responses:
+        '200':
+          description: Explored endpoints for the Site
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ExploredEndpoint'
+          headers:
+            X-Pagination:
+              schema:
+                type: string
+                example: '{"pageNumber":1,"pageSize":20,"total":30,"orderBy":"ID_ASC"}'
+              description: Pagination result in JSON format
+        '400':
+          $ref: '#/components/responses/GenericHttpError'
+        '403':
+          $ref: '#/components/responses/ForbiddenError'
+        '404':
+          $ref: '#/components/responses/GenericHttpError'
+        '412':
+          $ref: '#/components/responses/GenericHttpError'
+        '500':
+          $ref: '#/components/responses/GenericHttpError'
+        '504':
+          $ref: '#/components/responses/GenericHttpError'
+      operationId: get-all-site-explorer-endpoint
+      description: |-
+        Retrieve explored endpoints discovered by Site Explorer for a Site. Use `ID_ASC` or `ID_DESC` to order by endpoint ID; the default is `ID_ASC`.
+
+        The response is paged over Core `FindExploredEndpointIds` followed by
+        `FindExploredEndpointsByIds`. Pagination metadata is returned in the
+        `X-Pagination` response header.
 
         User must have authorization role with `PROVIDER_ADMIN` suffix.
   '/v2/org/{org}/nico/site-explorer/endpoint/action':
@@ -5172,7 +5260,6 @@ paths:
                           vendor: Supermicro
                           model: SYS-420GP-TNR
                       created: '2019-08-24T14:15:22Z'
-                      updated: '2019-08-24T14:15:22Z'
           headers:
             X-Pagination:
               schema:
@@ -5279,7 +5366,6 @@ paths:
                         vendor: Supermicro
                         model: SYS-420GP-TNR
                     created: '2019-08-24T14:15:22Z'
-                    updated: '2019-08-24T14:15:22Z'
         '400':
           $ref: '#/components/responses/ValidationError'
         '403':
@@ -10696,6 +10782,8 @@ paths:
               description: Pagination result in JSON format
         '403':
           $ref: '#/components/responses/ForbiddenError'
+        '504':
+          $ref: '#/components/responses/GatewayTimeoutError'
       tags:
         - Rack
   '/v2/org/{org}/nico/rack/{id}':
@@ -10774,6 +10862,8 @@ paths:
           $ref: '#/components/responses/ForbiddenError'
         '404':
           $ref: '#/components/responses/NotFoundError'
+        '504':
+          $ref: '#/components/responses/GatewayTimeoutError'
       tags:
         - Rack
   '/v2/org/{org}/nico/rack/validation':
@@ -10869,6 +10959,8 @@ paths:
           $ref: '#/components/responses/ValidationError'
         '403':
           $ref: '#/components/responses/ForbiddenError'
+        '504':
+          $ref: '#/components/responses/GatewayTimeoutError'
       tags:
         - Rack
   '/v2/org/{org}/nico/rack/{id}/validation':
@@ -10957,6 +11049,8 @@ paths:
           $ref: '#/components/responses/ValidationError'
         '403':
           $ref: '#/components/responses/ForbiddenError'
+        '504':
+          $ref: '#/components/responses/GatewayTimeoutError'
       tags:
         - Rack
   '/v2/org/{org}/nico/rack/power':
@@ -11012,6 +11106,8 @@ paths:
           $ref: '#/components/responses/ValidationError'
         '403':
           $ref: '#/components/responses/ForbiddenError'
+        '504':
+          $ref: '#/components/responses/GatewayTimeoutError'
       tags:
         - Rack
   '/v2/org/{org}/nico/rack/{id}/power':
@@ -11073,6 +11169,8 @@ paths:
           $ref: '#/components/responses/ValidationError'
         '403':
           $ref: '#/components/responses/ForbiddenError'
+        '504':
+          $ref: '#/components/responses/GatewayTimeoutError'
       tags:
         - Rack
   '/v2/org/{org}/nico/rack/firmware':
@@ -11124,6 +11222,8 @@ paths:
           $ref: '#/components/responses/ValidationError'
         '403':
           $ref: '#/components/responses/ForbiddenError'
+        '504':
+          $ref: '#/components/responses/GatewayTimeoutError'
       tags:
         - Rack
   '/v2/org/{org}/nico/rack/{id}/firmware':
@@ -11178,6 +11278,8 @@ paths:
           $ref: '#/components/responses/ValidationError'
         '403':
           $ref: '#/components/responses/ForbiddenError'
+        '504':
+          $ref: '#/components/responses/GatewayTimeoutError'
       tags:
         - Rack
   '/v2/org/{org}/nico/rack/bringup':
@@ -11229,6 +11331,8 @@ paths:
           $ref: '#/components/responses/ValidationError'
         '403':
           $ref: '#/components/responses/ForbiddenError'
+        '504':
+          $ref: '#/components/responses/GatewayTimeoutError'
       tags:
         - Rack
   '/v2/org/{org}/nico/rack/{id}/bringup':
@@ -11283,6 +11387,8 @@ paths:
           $ref: '#/components/responses/ValidationError'
         '403':
           $ref: '#/components/responses/ForbiddenError'
+        '504':
+          $ref: '#/components/responses/GatewayTimeoutError'
       tags:
         - Rack
   '/v2/org/{org}/nico/task/{id}':
@@ -11339,6 +11445,8 @@ paths:
           $ref: '#/components/responses/ForbiddenError'
         '404':
           $ref: '#/components/responses/NotFoundError'
+        '504':
+          $ref: '#/components/responses/GatewayTimeoutError'
       tags:
         - Task
   '/v2/org/{org}/nico/task/{id}/cancel':
@@ -11416,6 +11524,8 @@ paths:
           $ref: '#/components/responses/ForbiddenError'
         '404':
           $ref: '#/components/responses/NotFoundError'
+        '504':
+          $ref: '#/components/responses/GatewayTimeoutError'
       tags:
         - Task
   '/v2/org/{org}/nico/task/rule':
@@ -11456,6 +11566,8 @@ paths:
           $ref: '#/components/responses/ValidationError'
         '403':
           $ref: '#/components/responses/ForbiddenError'
+        '504':
+          $ref: '#/components/responses/GatewayTimeoutError'
       tags:
         - Rule
     get:
@@ -11512,6 +11624,8 @@ paths:
           $ref: '#/components/responses/ValidationError'
         '403':
           $ref: '#/components/responses/ForbiddenError'
+        '504':
+          $ref: '#/components/responses/GatewayTimeoutError'
       tags:
         - Rule
   '/v2/org/{org}/nico/task/rule/{id}':
@@ -11559,6 +11673,8 @@ paths:
           $ref: '#/components/responses/ForbiddenError'
         '404':
           $ref: '#/components/responses/NotFoundError'
+        '504':
+          $ref: '#/components/responses/GatewayTimeoutError'
       tags:
         - Rule
     patch:
@@ -11589,6 +11705,8 @@ paths:
           $ref: '#/components/responses/ForbiddenError'
         '404':
           $ref: '#/components/responses/NotFoundError'
+        '504':
+          $ref: '#/components/responses/GatewayTimeoutError'
       tags:
         - Rule
     delete:
@@ -11619,6 +11737,8 @@ paths:
           $ref: '#/components/responses/ForbiddenError'
         '404':
           $ref: '#/components/responses/NotFoundError'
+        '504':
+          $ref: '#/components/responses/GatewayTimeoutError'
       tags:
         - Rule
   '/v2/org/{org}/nico/task/run':
@@ -11662,6 +11782,8 @@ paths:
           $ref: '#/components/responses/ValidationError'
         '403':
           $ref: '#/components/responses/ForbiddenError'
+        '504':
+          $ref: '#/components/responses/GatewayTimeoutError'
       tags:
         - Task Run
     get:
@@ -11738,6 +11860,8 @@ paths:
           $ref: '#/components/responses/ValidationError'
         '403':
           $ref: '#/components/responses/ForbiddenError'
+        '504':
+          $ref: '#/components/responses/GatewayTimeoutError'
       tags:
         - Task Run
   '/v2/org/{org}/nico/task/run/{id}':
@@ -11793,6 +11917,8 @@ paths:
           $ref: '#/components/responses/ForbiddenError'
         '404':
           $ref: '#/components/responses/NotFoundError'
+        '504':
+          $ref: '#/components/responses/GatewayTimeoutError'
       tags:
         - Task Run
   '/v2/org/{org}/nico/task/run/{id}/target':
@@ -11894,6 +12020,8 @@ paths:
           $ref: '#/components/responses/ForbiddenError'
         '404':
           $ref: '#/components/responses/NotFoundError'
+        '504':
+          $ref: '#/components/responses/GatewayTimeoutError'
       tags:
         - Task Run
   '/v2/org/{org}/nico/task/run/{id}/pause':
@@ -11943,6 +12071,8 @@ paths:
           $ref: '#/components/responses/ForbiddenError'
         '404':
           $ref: '#/components/responses/NotFoundError'
+        '504':
+          $ref: '#/components/responses/GatewayTimeoutError'
       tags:
         - Task Run
   '/v2/org/{org}/nico/task/run/{id}/resume':
@@ -11992,6 +12122,8 @@ paths:
           $ref: '#/components/responses/ForbiddenError'
         '404':
           $ref: '#/components/responses/NotFoundError'
+        '504':
+          $ref: '#/components/responses/GatewayTimeoutError'
       tags:
         - Task Run
   '/v2/org/{org}/nico/task/run/{id}/advance':
@@ -12042,6 +12174,8 @@ paths:
           $ref: '#/components/responses/ForbiddenError'
         '404':
           $ref: '#/components/responses/NotFoundError'
+        '504':
+          $ref: '#/components/responses/GatewayTimeoutError'
       tags:
         - Task Run
   '/v2/org/{org}/nico/task/run/{id}/cancel':
@@ -12091,6 +12225,8 @@ paths:
           $ref: '#/components/responses/ForbiddenError'
         '404':
           $ref: '#/components/responses/NotFoundError'
+        '504':
+          $ref: '#/components/responses/GatewayTimeoutError'
       tags:
         - Task Run
   '/v2/org/{org}/nico/rack/{id}/task':
@@ -12176,6 +12312,8 @@ paths:
           $ref: '#/components/responses/ForbiddenError'
         '404':
           $ref: '#/components/responses/NotFoundError'
+        '504':
+          $ref: '#/components/responses/GatewayTimeoutError'
       tags:
         - Rack
   '/v2/org/{org}/nico/tray':
@@ -12311,6 +12449,8 @@ paths:
               description: Pagination result in JSON format
         '403':
           $ref: '#/components/responses/ForbiddenError'
+        '504':
+          $ref: '#/components/responses/GatewayTimeoutError'
       tags:
         - Tray
   '/v2/org/{org}/nico/tray/{id}':
@@ -12372,6 +12512,8 @@ paths:
           $ref: '#/components/responses/ForbiddenError'
         '404':
           $ref: '#/components/responses/NotFoundError'
+        '504':
+          $ref: '#/components/responses/GatewayTimeoutError'
       tags:
         - Tray
   '/v2/org/{org}/nico/tray/validation':
@@ -12471,6 +12613,8 @@ paths:
           $ref: '#/components/responses/ValidationError'
         '403':
           $ref: '#/components/responses/ForbiddenError'
+        '504':
+          $ref: '#/components/responses/GatewayTimeoutError'
       tags:
         - Tray
   '/v2/org/{org}/nico/tray/{id}/validation':
@@ -12525,6 +12669,8 @@ paths:
           $ref: '#/components/responses/ValidationError'
         '403':
           $ref: '#/components/responses/ForbiddenError'
+        '504':
+          $ref: '#/components/responses/GatewayTimeoutError'
       tags:
         - Tray
   '/v2/org/{org}/nico/tray/power':
@@ -12582,6 +12728,8 @@ paths:
           $ref: '#/components/responses/ValidationError'
         '403':
           $ref: '#/components/responses/ForbiddenError'
+        '504':
+          $ref: '#/components/responses/GatewayTimeoutError'
       tags:
         - Tray
   '/v2/org/{org}/nico/tray/{id}/power':
@@ -12643,6 +12791,8 @@ paths:
           $ref: '#/components/responses/ValidationError'
         '403':
           $ref: '#/components/responses/ForbiddenError'
+        '504':
+          $ref: '#/components/responses/GatewayTimeoutError'
       tags:
         - Tray
   '/v2/org/{org}/nico/tray/firmware':
@@ -12697,6 +12847,8 @@ paths:
           $ref: '#/components/responses/ValidationError'
         '403':
           $ref: '#/components/responses/ForbiddenError'
+        '504':
+          $ref: '#/components/responses/GatewayTimeoutError'
       tags:
         - Tray
   '/v2/org/{org}/nico/tray/{id}/firmware':
@@ -12751,6 +12903,8 @@ paths:
           $ref: '#/components/responses/ValidationError'
         '403':
           $ref: '#/components/responses/ForbiddenError'
+        '504':
+          $ref: '#/components/responses/GatewayTimeoutError'
       tags:
         - Tray
   '/v2/org/{org}/nico/tray/{id}/task':
@@ -12836,6 +12990,8 @@ paths:
           $ref: '#/components/responses/ForbiddenError'
         '404':
           $ref: '#/components/responses/NotFoundError'
+        '504':
+          $ref: '#/components/responses/GatewayTimeoutError'
       tags:
         - Tray
   '/v2/org/{org}/nico/ipxe-template':
@@ -15225,6 +15381,478 @@ components:
           description: BMC IP addresses for which the action completed.
           items:
             type: string
+    ExploredEndpoint:
+      type: object
+      title: ExploredEndpoint
+      description: An endpoint discovered and tracked by Site Explorer.
+      required:
+        - address
+        - reportVersion
+        - explorationRequested
+        - preingestionState
+        - lastRedfishBmcReset
+        - lastIpmitoolBmcReset
+        - lastRedfishReboot
+        - lastRedfishPowercycle
+        - pauseRemediation
+      properties:
+        address:
+          type: string
+          description: BMC IP address used as the explored endpoint ID.
+        report:
+          $ref: '#/components/schemas/EndpointExplorationReport'
+        reportVersion:
+          type: string
+          description: Version of the exploration report; increases when the report is updated.
+        explorationRequested:
+          type: boolean
+          description: Whether the endpoint will be explored in the next Site Explorer run.
+        preingestionState:
+          type: string
+          description: Current preingestion state for the endpoint.
+        lastRedfishBmcReset:
+          type: string
+          description: Last BMC Redfish reset time.
+        lastIpmitoolBmcReset:
+          type: string
+          description: Last BMC IPMI tool reset time.
+        lastRedfishReboot:
+          type: string
+          description: Last BMC Redfish reboot time.
+        lastRedfishPowercycle:
+          type: string
+          description: Last BMC Redfish power-cycle time.
+        pauseRemediation:
+          type: boolean
+          description: When true, Site Explorer will not take remediation actions for Redfish errors.
+    EndpointExplorationReport:
+      type: object
+      title: EndpointExplorationReport
+      description: Data gathered about an endpoint during site exploration.
+      required:
+        - endpointType
+      properties:
+        endpointType:
+          type: string
+          description: Type of the explored endpoint.
+        lastExplorationError:
+          type:
+            - string
+            - 'null'
+          description: Last exploration error serialized as JSON, when present.
+        machineId:
+          type:
+            - string
+            - 'null'
+          format: uuid
+          description: Machine ID derived for the endpoint when available.
+        lastExplorationLatency:
+          type:
+            - string
+            - 'null'
+          description: Go duration string for the last exploration latency (for example `1.5s`).
+        vendor:
+          type:
+            - string
+            - 'null'
+          description: Vendor reported by Redfish.
+        managers:
+          type: array
+          items:
+            $ref: '#/components/schemas/ExploredManager'
+        systems:
+          type: array
+          items:
+            $ref: '#/components/schemas/ExploredComputerSystem'
+        chassis:
+          type: array
+          items:
+            $ref: '#/components/schemas/ExploredChassis'
+        service:
+          type: array
+          items:
+            $ref: '#/components/schemas/ExploredService'
+        machineSetupStatus:
+          $ref: '#/components/schemas/ExploredMachineSetupStatus'
+        secureBootStatus:
+          $ref: '#/components/schemas/ExploredSecureBootStatus'
+        lockdownStatus:
+          $ref: '#/components/schemas/ExploredLockdownStatus'
+        firmwareVersions:
+          type: object
+          additionalProperties:
+            type: string
+          description: Parsed firmware component versions keyed by component name.
+        lastExplorationErrorSchema:
+          $ref: '#/components/schemas/OperatorErrorSchema'
+    OperatorErrorSchema:
+      type: object
+      title: OperatorErrorSchema
+      description: Structured exploration error for operator tooling.
+      required:
+        - errorCode
+        - text
+      properties:
+        errorCode:
+          type: string
+          description: Stable identifier for alerting and log filtering.
+        mitigation:
+          type:
+            - string
+            - 'null'
+          description: Suggested operator action when known.
+        text:
+          type: string
+          description: Human-readable problem description.
+    ExploredManager:
+      type: object
+      title: ExploredManager
+      description: Redfish Manager reported during exploration.
+      required:
+        - id
+      properties:
+        id:
+          type: string
+        ethernetInterfaces:
+          type: array
+          items:
+            $ref: '#/components/schemas/ExploredEthernetInterface'
+    ExploredComputerSystem:
+      type: object
+      title: ExploredComputerSystem
+      description: Redfish ComputerSystem reported during exploration.
+      required:
+        - id
+        - powerState
+      properties:
+        id:
+          type: string
+        manufacturer:
+          type:
+            - string
+            - 'null'
+        model:
+          type:
+            - string
+            - 'null'
+        serialNumber:
+          type:
+            - string
+            - 'null'
+        attributes:
+          $ref: '#/components/schemas/ExploredComputerSystemAttributes'
+        ethernetInterfaces:
+          type: array
+          items:
+            $ref: '#/components/schemas/ExploredEthernetInterface'
+        pcieDevices:
+          type: array
+          items:
+            $ref: '#/components/schemas/ExploredPCIeDevice'
+        powerState:
+          type: string
+          enum:
+            - 'On'
+            - 'Off'
+            - PoweringOff
+            - PoweringOn
+            - Paused
+            - Unknown
+            - Hibernating
+            - Sleeping
+        bootOrder:
+          $ref: '#/components/schemas/ExploredBootOrder'
+    ExploredComputerSystemAttributes:
+      type: object
+      title: ExploredComputerSystemAttributes
+      description: ComputerSystem attributes from Redfish.
+      properties:
+        nicMode:
+          type:
+            - string
+            - 'null'
+          enum:
+            - Dpu
+            - Nic
+            - Unknown
+            - null
+    ExploredEthernetInterface:
+      type: object
+      title: ExploredEthernetInterface
+      description: Redfish EthernetInterface reported during exploration.
+      properties:
+        id:
+          type:
+            - string
+            - 'null'
+        description:
+          type:
+            - string
+            - 'null'
+        interfaceEnabled:
+          type:
+            - boolean
+            - 'null'
+        macAddress:
+          type:
+            - string
+            - 'null'
+        linkStatus:
+          type:
+            - string
+            - 'null'
+    ExploredChassis:
+      type: object
+      title: ExploredChassis
+      description: Redfish Chassis reported during exploration.
+      required:
+        - id
+      properties:
+        id:
+          type: string
+        networkAdapters:
+          type: array
+          items:
+            $ref: '#/components/schemas/ExploredNetworkAdapter'
+        manufacturer:
+          type:
+            - string
+            - 'null'
+        model:
+          type:
+            - string
+            - 'null'
+        partNumber:
+          type:
+            - string
+            - 'null'
+        serialNumber:
+          type:
+            - string
+            - 'null'
+    ExploredNetworkAdapter:
+      type: object
+      title: ExploredNetworkAdapter
+      description: Redfish NetworkAdapter reported during exploration.
+      required:
+        - id
+      properties:
+        id:
+          type: string
+        manufacturer:
+          type:
+            - string
+            - 'null'
+        model:
+          type:
+            - string
+            - 'null'
+        partNumber:
+          type:
+            - string
+            - 'null'
+        serialNumber:
+          type:
+            - string
+            - 'null'
+    ExploredService:
+      type: object
+      title: ExploredService
+      description: Redfish UpdateService reported during exploration.
+      required:
+        - id
+      properties:
+        id:
+          type: string
+        inventories:
+          type: array
+          items:
+            $ref: '#/components/schemas/ExploredInventory'
+    ExploredInventory:
+      type: object
+      title: ExploredInventory
+      description: Firmware inventory entry from a Redfish UpdateService.
+      required:
+        - id
+      properties:
+        id:
+          type: string
+        description:
+          type:
+            - string
+            - 'null'
+        version:
+          type:
+            - string
+            - 'null'
+        releaseDate:
+          type:
+            - string
+            - 'null'
+    ExploredMachineSetupStatus:
+      type: object
+      title: ExploredMachineSetupStatus
+      description: Result of a Redfish machine-setup check.
+      required:
+        - isDone
+      properties:
+        isDone:
+          type: boolean
+        diffs:
+          type: array
+          items:
+            $ref: '#/components/schemas/ExploredMachineSetupDiff'
+        evaluatedBootInterface:
+          $ref: '#/components/schemas/ExploredMachineBootInterfaceTarget'
+    ExploredMachineBootInterfaceTarget:
+      type: object
+      title: ExploredMachineBootInterfaceTarget
+      description: Boot-interface target assessed during exploration.
+      properties:
+        pair:
+          $ref: '#/components/schemas/ExploredMachineBootInterfacePair'
+        macOnly:
+          type:
+            - string
+            - 'null'
+    ExploredMachineBootInterfacePair:
+      type: object
+      title: ExploredMachineBootInterfacePair
+      description: MAC and Redfish EthernetInterface.Id pair.
+      required:
+        - macAddress
+        - interfaceId
+      properties:
+        macAddress:
+          type: string
+        interfaceId:
+          type: string
+    ExploredMachineSetupDiff:
+      type: object
+      title: ExploredMachineSetupDiff
+      description: One expected-vs-actual machine-setup difference.
+      required:
+        - key
+        - expected
+        - actual
+      properties:
+        key:
+          type: string
+        expected:
+          type: string
+        actual:
+          type: string
+    ExploredPCIeDevice:
+      type: object
+      title: ExploredPCIeDevice
+      description: Redfish PCIe device reported during exploration.
+      properties:
+        description:
+          type:
+            - string
+            - 'null'
+        firmwareVersion:
+          type:
+            - string
+            - 'null'
+        gpuVendor:
+          type:
+            - string
+            - 'null'
+        id:
+          type:
+            - string
+            - 'null'
+        manufacturer:
+          type:
+            - string
+            - 'null'
+        name:
+          type:
+            - string
+            - 'null'
+        partNumber:
+          type:
+            - string
+            - 'null'
+        serialNumber:
+          type:
+            - string
+            - 'null'
+        status:
+          $ref: '#/components/schemas/ExploredSystemStatus'
+    ExploredSystemStatus:
+      type: object
+      title: ExploredSystemStatus
+      description: Redfish health and state status.
+      required:
+        - state
+      properties:
+        health:
+          type:
+            - string
+            - 'null'
+        healthRollup:
+          type:
+            - string
+            - 'null'
+        state:
+          type: string
+    ExploredBootOrder:
+      type: object
+      title: ExploredBootOrder
+      description: Redfish boot order list.
+      properties:
+        bootOrder:
+          type: array
+          items:
+            $ref: '#/components/schemas/ExploredBootOption'
+    ExploredBootOption:
+      type: object
+      title: ExploredBootOption
+      description: One Redfish boot option.
+      required:
+        - displayName
+        - id
+      properties:
+        displayName:
+          type: string
+        id:
+          type: string
+        bootOptionEnabled:
+          type:
+            - boolean
+            - 'null'
+        uefiDevicePath:
+          type:
+            - string
+            - 'null'
+    ExploredSecureBootStatus:
+      type: object
+      title: ExploredSecureBootStatus
+      description: Redfish secure-boot status.
+      required:
+        - isEnabled
+      properties:
+        isEnabled:
+          type: boolean
+    ExploredLockdownStatus:
+      type: object
+      title: ExploredLockdownStatus
+      description: Redfish lockdown status.
+      required:
+        - status
+        - message
+      properties:
+        status:
+          type: string
+          enum:
+            - Enabled
+            - Partial
+            - Disabled
+            - Unknown
+        message:
+          type: string
     BMCResetRequest:
       type: object
       title: BMCResetRequest
@@ -20772,6 +21400,15 @@ components:
           ipFamilies:
             - IPv4
           isPhysical: true
+        - vpcId: 3d9d1608-a87e-4c84-a8b1-53b730e26e9b
+          ipFamilies:
+            - IPv6
+          isPhysical: true
+        - vpcId: 4f7b5b5a-d292-4c38-9e9a-58a5a874fa73
+          ipFamilies:
+            - IPv4
+            - IPv6
+          isPhysical: true
       description: |-
         Request data to create an Interface for an Instance by associating it with a Subnet, an explicit VPC Prefix, or a VPC from which the Controller selects a prefix. Exactly one of `subnetId`, `vpcPrefixId`, or `vpcId` must be specified.
 
@@ -20794,11 +21431,12 @@ components:
         ipFamilies:
           type: array
           minItems: 1
-          description: Address families requested for Controller prefix selection. Required with `vpcId` and prohibited otherwise. Only `IPv4` is currently accepted.
+          description: Address families requested for Controller prefix selection. Required with `vpcId` and prohibited otherwise. Specify `IPv4`, `IPv6`, or both for dual-stack allocation. Duplicate values are accepted and normalized in `IPv4`, then `IPv6` order.
           items:
             type: string
             enum:
               - IPv4
+              - IPv6
         ipAddress:
           type:
             - string
@@ -25288,7 +25926,6 @@ components:
               vendor: Supermicro
               model: SYS-420GP-TNR
           created: '2019-08-24T14:15:22Z'
-          updated: '2019-08-24T14:15:22Z'
       properties:
         id:
           type: string
@@ -25326,12 +25963,7 @@ components:
         created:
           type: string
           format: date-time
-          description: ISO 8601 datetime when the SKU was created
-          readOnly: true
-        updated:
-          type: string
-          format: date-time
-          description: ISO 8601 datetime when the SKU was last updated
+          description: ISO 8601 datetime when the SKU was created, using the Site-reported timestamp when available
           readOnly: true
     SkuCreateRequest:
       title: SkuCreateRequest
@@ -25426,7 +26058,8 @@ components:
           description: Chassis component
         ethernetDevices:
           type: array
-          description: Ethernet device components
+          readOnly: true
+          description: Read-only Ethernet device components reported by Core. Omit this property from REST mutation requests; null and an empty array are accepted for compatibility, while a non-empty array is rejected with HTTP 400.
           items:
             $ref: '#/components/schemas/SkuEthernetDevice'
         infinibandDevices:
@@ -27204,7 +27837,7 @@ components:
                 supported for these origins.
 
             For details on issuer origins and configuration, see the NICo REST `auth`
-            module [README](https://github.com/NVIDIA/infra-controller/rest-api/tree/main/auth).
+            module [README](https://github.com/NVIDIA/infra-controller/tree/main/rest-api/auth).
         infrastructureProviderId:
           type:
             - string
@@ -28273,6 +28906,24 @@ components:
               value:
                 source: nico
                 message: Error handling API request
+                data: null
+    GatewayTimeoutError:
+      description: |-
+        The Site did not return a result within the request budget allocated to
+        Site communication within the request cycle. This can occur if the Site
+        Controller is down or under heavy request load.
+
+        Operations are in general safe to retry. In rare cases, operations that
+        create or update resources may succeed even if timeout is returned.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/NICoAPIError'
+          examples:
+            example-1:
+              value:
+                source: nico
+                message: Flow proxy request timed out
                 data: null
     NotFoundError:
       description: Error response when requested object is not found

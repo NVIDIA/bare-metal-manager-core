@@ -20,6 +20,7 @@ use std::sync::Arc;
 use mac_address::MacAddress;
 use serde::{Deserialize, Serialize};
 
+use crate::infiniband::Guid;
 use crate::mac_address_pool::{MacAddressPool, PoolConfig as MacAddressPoolConfig};
 use crate::redfish::update_service::UpdateServiceConfig;
 use crate::{DUMMY_FACTORY_PASSWORD, DUMMY_FACTORY_USERNAME, HardwareType, hw, redfish};
@@ -48,6 +49,51 @@ pub struct HostMachineInfo {
     /// [`crate::test_support::delta_powershelf_bmc_with_psu_power`] sets it to
     /// model off/mixed shelves. Ignored for non-Delta hardware.
     pub delta_psu_power: Option<Vec<bool>>,
+    /// Initial host firmware versions for the simulated BMC firmware inventory.
+    /// When `None` the hardware-type default is used.  machine-a-tron sets this
+    /// from the operator-provided `host_firmware` config so that the starting
+    /// inventory reflects a version carbide will want to upgrade.
+    pub initial_host_firmware: Option<HostFirmwareVersions>,
+    /// Target host firmware versions to apply after an upload + power-cycle.
+    /// machine-a-tron sets this from `desired_firmware_versions` so the mock
+    /// knows what version to stage when carbide submits any firmware upload —
+    /// without parsing the binary.  Separate from `initial_host_firmware` so
+    /// the two roles (current vs target) are explicit.
+    pub desired_host_firmware: Option<HostFirmwareVersions>,
+}
+
+/// Initial firmware versions for host BMC and UEFI components, used to
+/// populate `UpdateService/FirmwareInventory` when the mock starts.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, Eq, PartialEq)]
+pub struct HostFirmwareVersions {
+    pub bmc: Option<String>,
+    pub uefi: Option<String>,
+}
+
+trait HardwareTypeExt {
+    fn infiniband_port_count(&self) -> usize;
+}
+
+impl HardwareTypeExt for HardwareType {
+    fn infiniband_port_count(&self) -> usize {
+        match self {
+            HardwareType::WiwynnGB200Nvl => 4,
+            HardwareType::NvidiaDgxH100 => 8,
+            HardwareType::DellPowerEdgeR750
+            | HardwareType::DellPowerEdgeR760Bf4
+            | HardwareType::LenovoGB300Nvl
+            | HardwareType::NvidiaDgxGb300
+            | HardwareType::SupermicroGb300Nvl
+            | HardwareType::NvidiaDgxVr
+            | HardwareType::LiteOnPowerShelf
+            | HardwareType::DeltaPowerShelf
+            | HardwareType::NvidiaSwitchNd5200Ld
+            | HardwareType::NvidiaSwitchN5700Ld
+            | HardwareType::GenericAmi
+            | HardwareType::HpeProliantDl380aGen11
+            | HardwareType::GenericSupermicro => 0,
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -303,7 +349,18 @@ impl HostMachineInfo {
             dpus,
             hw_mac_addr_pool,
             delta_psu_power: None,
+            initial_host_firmware: None,
+            desired_host_firmware: None,
         }
+    }
+
+    /// Set the initial host firmware versions used to populate the Redfish
+    /// FirmwareInventory when this machine's mock BMC starts.  machine-a-tron
+    /// calls this from the operator-provided `host_firmware_versions` config.
+    #[must_use]
+    pub fn with_initial_host_firmware(mut self, fw: HostFirmwareVersions) -> Self {
+        self.initial_host_firmware = Some(fw);
+        self
     }
 
     /// Override the Delta power shelf's per-PSU on/off states (one entry per
@@ -323,6 +380,18 @@ impl HostMachineInfo {
         self.primary_dpu()
             .map(|d| d.host_mac_address)
             .or(self.non_dpu_mac_address)
+    }
+
+    pub fn infiniband_port_guids(&self) -> Vec<Guid> {
+        let [b0, b1, b2, b3, b4, b5] = self.hw_mac_addr_pool.base().bytes();
+        (0..self.hw_type.infiniband_port_count())
+            .map(|interface_index| {
+                let interface_index = u16::try_from(interface_index)
+                    .expect("mock hardware models have fewer than 65536 InfiniBand interfaces");
+                let [b6, b7] = interface_index.to_be_bytes();
+                Guid::from([b0, b1, b2, b3, b4, b5, b6, b7])
+            })
+            .collect()
     }
 
     fn oem_state(&self) -> redfish::oem::State {
@@ -493,7 +562,7 @@ impl HostMachineInfo {
     }
 
     fn update_service_config(&self) -> UpdateServiceConfig {
-        match self.hw_type {
+        let mut config = match self.hw_type {
             HardwareType::DellPowerEdgeR750 => self.dell_poweredge_r750().update_service_config(),
             HardwareType::DellPowerEdgeR760Bf4 => {
                 self.dell_poweredge_r760_bf4().update_service_config()
@@ -518,7 +587,33 @@ impl HostMachineInfo {
             HardwareType::GenericAmi | HardwareType::GenericSupermicro => {
                 self.generic_server().update_service_config()
             }
+        };
+
+        // Apply operator-supplied initial host firmware versions on top of the
+        // hardware-type defaults.  machine-a-tron sets these from the
+        // `host_firmware` config block so the inventory starts at the version
+        // carbide needs to upgrade from.
+        if let Some(ref fw) = self.initial_host_firmware {
+            config.apply_host_firmware_versions(fw);
         }
+
+        // Populate the ordered pending_upgrades map so UpdateServiceState knows
+        // what version to stage for each component when an upload arrives.
+        // machine-a-tron sets desired_host_firmware from desired_firmware_versions
+        // (the API-configured target); bmc-mock peeks from this map in record_upload()
+        // when the upload request carries no explicit Targets — making component
+        // identification deterministic even for multipart uploads.
+        // IDs come from the platform-specific UpdateServiceConfig set above.
+        if let Some(ref fw) = self.desired_host_firmware {
+            if let (Some(id), Some(bmc)) = (&config.host_bmc_inventory_id, &fw.bmc) {
+                config.pending_upgrades.insert(id.clone(), bmc.clone());
+            }
+            if let (Some(id), Some(uefi)) = (&config.host_uefi_inventory_id, &fw.uefi) {
+                config.pending_upgrades.insert(id.clone(), uefi.clone());
+            }
+        }
+
+        config
     }
 
     fn factory_default_account(&self) -> redfish::account_service::Account {

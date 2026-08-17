@@ -60,6 +60,16 @@ readinessProbe:
   failureThreshold: 3
   successThreshold: 1
 
+livenessProbe:
+  tcpSocket:
+    port: ssh
+  initialDelaySeconds: 20
+  periodSeconds: 30
+  # Keep liveness more forgiving than readiness so Kubernetes drains first,
+  # then restarts only after the listener stays down.
+  failureThreshold: 6
+  successThreshold: 1
+
 ## OpenTelemetry Collector Contrib sidecar for shipping console logs to Loki.
 ## This requires a separate image from the BMM core services.
 ## Example: repository: otel/opentelemetry-collector-contrib, tag: "0.81.0"

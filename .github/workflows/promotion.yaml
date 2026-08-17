@@ -149,7 +149,7 @@ jobs:
     needs:
       - prepare
       - approve-promotion
-    uses: NVIDIA/dsx-github-actions/.github/workflows/promote-image.yml@95e609360851cfc141918c2c21e57762d77394ac
+    uses: dsx-ai-factory/dsx-github-actions/.github/workflows/promote-image.yml@95e609360851cfc141918c2c21e57762d77394ac
     with:
       source: ${{ needs.prepare.outputs.image_registry }}/nvmetal-carbide
       source_tag: ${{ needs.prepare.outputs.version }}
@@ -168,7 +168,7 @@ jobs:
     needs:
       - prepare
       - approve-promotion
-    uses: NVIDIA/dsx-github-actions/.github/workflows/promote-image.yml@95e609360851cfc141918c2c21e57762d77394ac
+    uses: dsx-ai-factory/dsx-github-actions/.github/workflows/promote-image.yml@95e609360851cfc141918c2c21e57762d77394ac
     with:
       source: ${{ needs.prepare.outputs.image_registry }}/carbide-release-artifacts-aarch64
       source_tag: ${{ needs.prepare.outputs.version }}
@@ -187,7 +187,7 @@ jobs:
     needs:
       - prepare
       - approve-promotion
-    uses: NVIDIA/dsx-github-actions/.github/workflows/promote-image.yml@95e609360851cfc141918c2c21e57762d77394ac
+    uses: dsx-ai-factory/dsx-github-actions/.github/workflows/promote-image.yml@95e609360851cfc141918c2c21e57762d77394ac
     with:
       source: ${{ needs.prepare.outputs.image_registry }}/carbide-release-artifacts-x86_64
       source_tag: ${{ needs.prepare.outputs.version }}
@@ -214,7 +214,7 @@ jobs:
           persist-credentials: false
 
       - name: Package and push Helm prereqs chart to production NGC
-        uses: NVIDIA/dsx-github-actions/.github/actions/helm-package-push@7de619729962a6bd5e8355b6fb3582a22517d7e5
+        uses: dsx-ai-factory/dsx-github-actions/.github/actions/helm-package-push@7de619729962a6bd5e8355b6fb3582a22517d7e5
         with:
           chart-path: helm-prereqs
           chart-version: ${{ needs.prepare.outputs.helm_version }}

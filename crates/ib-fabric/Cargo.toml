@@ -52,11 +52,13 @@ url = { workspace = true }
 
 [dev-dependencies]
 # Self-dependency so the crate's own tests see the `test-support` fakes.
+axum = { workspace = true }
 carbide-ib-fabric = { path = ".", features = ["test-support"] }
 carbide-instrument = { path = "../instrument", features = ["test-support"] }
 carbide-test-support = { path = "../test-support" }
 figment = { features = ["env", "test", "toml"], workspace = true }
 tempfile = { workspace = true }
+ufm-mock = { package = "carbide-ufm-mock", path = "../ufm-mock" }
 
 [lints]
 workspace = true

@@ -409,21 +409,27 @@ pub trait RedfishClientPool: Send + Sync + 'static {
                     .map_err(|err| redact_password(err, curr_password.as_str()))
                     .map_err(RedfishClientCreationError::RedfishError)?;
             }
-            // Vikings and Lenovo GB300s (both still detected as AMI here).
-            // Resolve the admin account by username, and fall back to the conventional
-            // id "2" only when reads are blocked by `PasswordChangeRequired` (Viking factory state).
+            // AMI-based BMCs, including Vikings and Lenovo GB300s.
+            // Resolve the admin account by username. If reads are blocked by
+            // `PasswordChangeRequired`, use its account URI or fall back to id "2".
             // Any other error propagates.
             //
             // https://docs.nvidia.com/dgx/dgxh100-user-guide/redfish-api-supp.html
-            RedfishVendor::AMI | RedfishVendor::LenovoGB300 => {
+            RedfishVendor::AMI | RedfishVendor::LenovoAMI | RedfishVendor::LenovoGB300 => {
                 match client
                     .change_password(curr_user.as_str(), new_password.as_str())
                     .await
                 {
                     Ok(()) => {}
-                    Err(libredfish::RedfishError::PasswordChangeRequired) => {
+                    Err(libredfish::RedfishError::PasswordChangeRequired { account_uri }) => {
+                        // For example: /redfish/v1/AccountService/Accounts/4
+                        let account_id = account_uri
+                            .as_deref()
+                            .and_then(|uri| uri.rsplit_once('/').map(|(_, id)| id))
+                            .filter(|id| !id.is_empty())
+                            .unwrap_or("2");
                         client
-                            .change_password_by_id("2", new_password.as_str())
+                            .change_password_by_id(account_id, new_password.as_str())
                             .await
                             .map_err(|err| redact_password(err, new_password.as_str()))
                             .map_err(|err| redact_password(err, curr_password.as_str()))
@@ -437,10 +443,7 @@ pub trait RedfishClientPool: Send + Sync + 'static {
                     }
                 }
             }
-            RedfishVendor::LenovoAMI
-            | RedfishVendor::Supermicro
-            | RedfishVendor::Dell
-            | RedfishVendor::Hpe => {
+            RedfishVendor::Supermicro | RedfishVendor::Dell | RedfishVendor::Hpe => {
                 client
                     .change_password(curr_user.as_str(), new_password.as_str())
                     .await
@@ -727,7 +730,7 @@ pub fn redact_passwords(
         | RfError::NoHeader
         | RfError::Lockdown
         | RfError::MissingVendor
-        | RfError::PasswordChangeRequired
+        | RfError::PasswordChangeRequired { .. }
         | RfError::FileError(_)
         | RfError::UserNotFound(_)
         | RfError::NotSupported(_)
@@ -1067,7 +1070,7 @@ mod tests {
         let sim = RedfishSim::default();
         sim.seed_user("root", "factory_pass");
         sim.seed_user("2", "factory_pass");
-        sim.set_password_change_required(true);
+        sim.set_password_change_required(true, None);
 
         sim.set_bmc_root_password(
             "127.0.0.1",
@@ -1081,6 +1084,26 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn set_bmc_root_password_ami_uses_account_uri() {
+        let sim = RedfishSim::default();
+        sim.seed_user("root", "factory_pass");
+        sim.seed_user("4", "factory_pass");
+        sim.set_password_change_required(true, Some("/redfish/v1/AccountService/Accounts/4"));
+
+        sim.set_bmc_root_password(
+            "127.0.0.1",
+            Some(443),
+            RedfishVendor::AMI,
+            Credentials::new("root", "factory_pass"),
+            "site_pass".to_string(),
+        )
+        .await
+        .expect("AMI rotation should use the account URI");
+
+        assert_eq!(sim.user_password("4").as_deref(), Some("site_pass"));
+    }
+
+    #[tokio::test]
     async fn set_bmc_root_password_ami_dispatches_to_id_two_after_password_change_required() {
         // Same factory state, but account id "2" is absent: the fallback's
         // `change_password_by_id("2")` fails with `UserNotFound("2")`, proving
@@ -1088,7 +1111,7 @@ mod tests {
         // (rather than swallowing the error or dispatching elsewhere).
         let sim = RedfishSim::default();
         sim.seed_user("root", "factory_pass");
-        sim.set_password_change_required(true);
+        sim.set_password_change_required(true, None);
 
         let err = sim
             .set_bmc_root_password(

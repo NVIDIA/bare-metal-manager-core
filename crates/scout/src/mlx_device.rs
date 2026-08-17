@@ -247,7 +247,7 @@ fn firmware_credentials(profile: &FirmwareFlasherProfile) -> impl Iterator<Item 
                 path: _,
                 passphrase,
             } => passphrase.as_deref(),
-            Credentials::SshAgent => None,
+            Credentials::SshAgent {} => None,
         })
 }
 

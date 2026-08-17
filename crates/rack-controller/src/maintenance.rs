@@ -35,8 +35,7 @@ use carbide_rack::rms_node_type::{
 use carbide_rack_controller::config::{RmsConfig, ScaleUpFabricManagerApiVersion};
 use carbide_rack_controller::context::RackStateHandlerContextObjects;
 use carbide_rack_controller::fabric_manager::{
-    batch_get_scale_up_fabric_service_status,
-    batch_get_scale_up_fabric_service_status_via_component_manager, observed_primary_switch,
+    batch_get_scale_up_fabric_service_status, observed_primary_switch,
     persist_fabric_manager_statuses, persist_primary_switch, select_primary_switch,
     validate_switch_inventory_for_nmx_cluster,
 };
@@ -46,12 +45,13 @@ use carbide_utils::none_if_empty::NoneIfEmpty;
 use carbide_uuid::rack::{RackId, RackProfileId};
 use component_manager::component_manager::ComponentManager;
 use component_manager::error::ComponentManagerError;
+use component_manager::nv_switch_manager::ScaleUpFabricManagerJobStatus;
 use db::{
     host_machine_update as db_host_machine_update, machine as db_machine,
     machine_topology as db_machine_topology, power_shelf as db_power_shelf, rack as db_rack,
     switch as db_switch,
 };
-use librms::protos::{rack_manager as rms, rack_manager_v2 as rms_v2};
+use librms::protos::rack_manager as rms;
 use model::rack::{
     ConfigureNmxClusterCertificateState, ConfigureNmxClusterState, FirmwareUpgradeDeviceInfo,
     FirmwareUpgradeDeviceStatus, FirmwareUpgradeState, MaintenanceActivity, MaintenanceScope,
@@ -67,7 +67,7 @@ use state_controller::state_handler::{
 use crate as carbide_rack_controller;
 use crate::nmx_certificate::{
     ConfigureNmxClusterCertificatePollOutcome, poll_configure_nmx_cluster_certificate_jobs,
-    start_configure_nmx_cluster_certificate,
+    start_configure_nmx_cluster_certificate, switch_endpoint_from_firmware_device,
 };
 
 /// Strips all `rv.*` metadata labels from every machine in the rack.
@@ -1846,11 +1846,14 @@ async fn configure_scale_up_fabric_manager_v2(
         .await;
     };
 
-    let switch_node_identity = match switch_node_identity_for_profile(profile) {
-        Ok(identity) => identity,
-        Err(error) => {
-            return transition_to_rack_error(id, state, error.to_string(), ctx).await;
-        }
+    let endpoints = match switch_inventory
+        .switches
+        .iter()
+        .map(switch_endpoint_from_firmware_device)
+        .collect::<Result<Vec<_>, _>>()
+    {
+        Ok(endpoints) => endpoints,
+        Err(cause) => return transition_to_rack_error(id, state, cause, ctx).await,
     };
 
     let topology_type = rack_hardware_topology.to_string();
@@ -1862,26 +1865,11 @@ async fn configure_scale_up_fabric_manager_v2(
         "Submitting RMS v2 NMX cluster configuration"
     );
 
-    let response = match component_manager
-        .configure_scale_up_fabric_manager_v2(rms_v2::ConfigureScaleUpFabricManagerRequest {
-            nodes: Some(rms::NodeSet {
-                nodes: switch_inventory
-                    .switches
-                    .iter()
-                    .map(|switch| build_new_node_info(id, switch, &switch_node_identity))
-                    .collect(),
-            }),
-            // No override: RMS owns V2 primary selection.
-            primary_switch_node_id: None,
-            domain: None,
-            config: Some(rms_v2::ScaleUpFabricConfig {
-                topology_type: topology_type.clone(),
-                extra_static_configs: Vec::new(),
-            }),
-        })
+    let job_id = match component_manager
+        .configure_scale_up_fabric_manager(&endpoints, rack_hardware_topology)
         .await
     {
-        Ok(response) => response,
+        Ok(job_id) => job_id,
         Err(error @ ComponentManagerError::Unsupported(_)) => {
             return transition_to_rack_error(id, state, error.to_string(), ctx).await;
         }
@@ -1900,21 +1888,11 @@ async fn configure_scale_up_fabric_manager_v2(
         }
     };
 
-    if response.job_id.trim().is_empty() {
-        return transition_to_rack_error(
-            id,
-            state,
-            "RMS ConfigureScaleUpFabricManagerV2 returned an empty job ID",
-            ctx,
-        )
-        .await;
-    }
-
     tracing::info!(
         rack_id = %id,
         topology_type = %topology_type,
         switch_count = switch_inventory.switches.len(),
-        job_id = %response.job_id,
+        job_id,
         "V2 ConfigureScaleUpFabricManager submitted; waiting for RMS job"
     );
 
@@ -1923,7 +1901,7 @@ async fn configure_scale_up_fabric_manager_v2(
     Ok(StateHandlerOutcome::transition(RackState::Maintenance {
         maintenance_state: RackMaintenanceState::ConfigureNmxCluster {
             configure_nmx_cluster: ConfigureNmxClusterState::WaitForScaleUpFabricManagerJob {
-                job_id: response.job_id,
+                job_id,
             },
         },
     }))
@@ -1947,21 +1925,10 @@ async fn wait_for_scale_up_fabric_manager_job(
     };
 
     let job = match component_manager
-        .get_scale_up_fabric_manager_job_status(rms::GetJobStatusRequest {
-            job_id: job_id.to_string(),
-            include_child_job_states: false,
-        })
+        .get_scale_up_fabric_manager_job_status(job_id)
         .await
     {
-        Ok(response) => response
-            .job_states
-            .into_iter()
-            .find(|job| job.job_id == job_id),
-        Err(ComponentManagerError::NotFound(_)) => {
-            // V2 submission is idempotent, so losing RMS job state
-            // is recovered by submitting the same desired state.
-            None
-        }
+        Ok(job) => job,
         Err(error @ ComponentManagerError::Unsupported(_)) => {
             return transition_to_rack_error(id, state, error.to_string(), ctx).await;
         }
@@ -1992,14 +1959,14 @@ async fn wait_for_scale_up_fabric_manager_job(
 
     // Job completion proves RMS reconciliation finished, but NICo still reads
     // observed state to discover and persist the RMS-selected primary.
-    match rms::JobExecutionState::try_from(job.execution_state) {
-        Ok(rms::JobExecutionState::Queued | rms::JobExecutionState::Running) => {
+    match job {
+        ScaleUpFabricManagerJobStatus::Pending { description } => {
             Ok(StateHandlerOutcome::wait(format!(
                 "ConfigureScaleUpFabricManager job {job_id} is {}",
-                job.state_description
+                description
             )))
         }
-        Ok(rms::JobExecutionState::Completed) => {
+        ScaleUpFabricManagerJobStatus::Completed => {
             tracing::info!(
                 rack_id = %id,
                 job_id,
@@ -2016,24 +1983,20 @@ async fn wait_for_scale_up_fabric_manager_job(
             )
             .await
         }
-        Ok(rms::JobExecutionState::Failed) => {
-            let cause = if job.error_message.trim().is_empty() {
-                format!("ConfigureScaleUpFabricManager job {job_id} failed")
-            } else {
-                format!(
-                    "ConfigureScaleUpFabricManager job {job_id} failed: {}",
-                    job.error_message
-                )
-            };
+        ScaleUpFabricManagerJobStatus::Failed { error } => {
+            let cause = error.map_or_else(
+                || format!("ConfigureScaleUpFabricManager job {job_id} failed"),
+                |error| format!("ConfigureScaleUpFabricManager job {job_id} failed: {error}"),
+            );
 
             transition_to_rack_error(id, state, cause, ctx).await
         }
-        Ok(rms::JobExecutionState::Unspecified) | Err(_) => transition_to_rack_error(
+        ScaleUpFabricManagerJobStatus::Unknown { execution_state } => transition_to_rack_error(
             id,
             state,
             format!(
                 "ConfigureScaleUpFabricManager job {job_id} returned invalid execution state {}",
-                job.execution_state
+                execution_state
             ),
             ctx,
         )
@@ -2044,8 +2007,10 @@ async fn wait_for_scale_up_fabric_manager_job(
 /// Verifies and persists the primary switch and per-switch Fabric Manager
 /// status from RMS V2.
 ///
-/// Read failures retain the completed-job state for retry. Primary selection
-/// and Fabric Manager status are committed together before maintenance advances.
+/// Transient read failures retain the completed-job state for retry. A missing
+/// rack profile is terminal because the backend cannot reconstruct the submitted
+/// switch identities. Primary selection and Fabric Manager status are committed
+/// together before maintenance advances.
 async fn verify_scale_up_fabric_manager_v2(
     id: &RackId,
     state: &mut Rack,
@@ -2076,36 +2041,30 @@ async fn verify_scale_up_fabric_manager_v2(
         return transition_to_rack_error(id, state, cause, ctx).await;
     }
 
-    let Some(profile) = super::resolve_profile(id, rack_profile_id, ctx) else {
+    if super::resolve_profile(id, rack_profile_id, ctx).is_none() {
         return transition_to_rack_error(
             id,
             state,
-            "rack profile is missing or unknown; cannot build RMS switch node descriptor",
+            "rack profile is missing or unknown; cannot verify RMS ScaleUp Fabric status",
             ctx,
         )
         .await;
-    };
+    }
 
-    let switch_node_identity = match switch_node_identity_for_profile(profile) {
-        Ok(identity) => identity,
-        Err(error) => {
-            return transition_to_rack_error(id, state, error.to_string(), ctx).await;
-        }
+    let endpoints = match switch_inventory
+        .switches
+        .iter()
+        .map(switch_endpoint_from_firmware_device)
+        .collect::<Result<Vec<_>, _>>()
+    {
+        Ok(endpoints) => endpoints,
+        Err(cause) => return transition_to_rack_error(id, state, cause, ctx).await,
     };
 
     // RMS owns primary selection in V2. Read the observed switch state instead
     // of reproducing RMS tray-selection policy in NICo.
     let response = match component_manager
-        .get_scale_up_fabric_status(rms::GetScaleUpFabricStatusRequest {
-            nodes: Some(rms::NodeSet {
-                nodes: switch_inventory
-                    .switches
-                    .iter()
-                    .map(|switch| build_new_node_info(id, switch, &switch_node_identity))
-                    .collect(),
-            }),
-            domain: None,
-        })
+        .get_scale_up_fabric_status(&endpoints)
         .await
     {
         Ok(response) => response,
@@ -2140,30 +2099,26 @@ async fn verify_scale_up_fabric_manager_v2(
 
     // GetScaleUpFabricStatus identifies the primary, while existing NICo
     // consumers require the richer per-switch Fabric Manager status payload.
-    let fabric_manager_status_response =
-        match batch_get_scale_up_fabric_service_status_via_component_manager(
-            component_manager,
-            id,
-            &switch_inventory.switches,
-            &switch_node_identity,
-        )
+    let fabric_manager_status_response = match component_manager
+        .batch_get_scale_up_fabric_service_status(&endpoints)
         .await
-        {
-            Ok(response) => response,
-            Err(error @ ComponentManagerError::Unsupported(_)) => {
-                return transition_to_rack_error(id, state, error.to_string(), ctx).await;
-            }
-            Err(error) => {
-                let cause = error.to_string();
-                tracing::warn!(
-                    rack_id = %id,
-                    cause,
-                    "Unable to read RMS Fabric Manager status; retrying"
-                );
+    {
+        Ok(response) => response,
+        Err(error @ ComponentManagerError::Unsupported(_)) => {
+            return transition_to_rack_error(id, state, error.to_string(), ctx).await;
+        }
+        Err(error) => {
+            let cause = error.to_string();
 
-                return Ok(StateHandlerOutcome::wait(cause));
-            }
-        };
+            tracing::warn!(
+                rack_id = %id,
+                cause,
+                "Unable to read RMS Fabric Manager status; retrying"
+            );
+
+            return Ok(StateHandlerOutcome::wait(cause));
+        }
+    };
 
     let observed_primary_node_id = observed_primary.to_string();
     let mut txn = ctx.services.db_pool.begin().await?;

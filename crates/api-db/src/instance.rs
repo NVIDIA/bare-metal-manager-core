@@ -14,7 +14,6 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-use std::net::IpAddr;
 use std::ops::DerefMut;
 use std::str::FromStr;
 
@@ -325,27 +324,6 @@ pub async fn find_by_id(
     Ok(Some(instance_and_os_row.try_into()?))
 }
 
-pub async fn find_by_address(
-    txn: impl DbReader<'_>,
-    address: IpAddr,
-) -> Result<Option<InstanceSnapshot>, DatabaseError> {
-    // Single query; LEFT JOIN so we get instance even when operating_system_id is NULL.
-    let query = "SELECT row_to_json(i.*) AS instance, row_to_json(o.*) AS operating_system
-        FROM instances i
-        LEFT JOIN operating_systems o ON i.operating_system_id = o.id AND o.deleted IS NULL
-        INNER JOIN instance_addresses a ON a.instance_id = i.id
-        WHERE a.address = $1";
-    let Some(instance_and_os_row) = sqlx::query_as::<_, InstanceAndOsRow>(query)
-        .bind(address)
-        .fetch_optional(txn)
-        .await
-        .map_err(|e| DatabaseError::query(query, e))?
-    else {
-        return Ok(None);
-    };
-    Ok(Some(instance_and_os_row.try_into()?))
-}
-
 pub async fn find_id_by_machine_id(
     txn: &mut PgConnection,
     machine_id: &MachineId,
@@ -566,7 +544,8 @@ pub async fn update_config(
     let query = "UPDATE instances SET config_version=$1,
             operating_system_id=$2, os_ipxe_script=$3, os_user_data=$4, os_always_boot_with_ipxe=$5, os_phone_home_enabled=$6,
             os_image_id=$7, keyset_ids=$8,
-            name=$9, description=$10, labels=$11::json, network_security_group_id=$14
+            name=$9, description=$10, labels=$11::json, network_security_group_id=$14,
+            power_profile=$15
             WHERE id=$12 AND config_version=$13
             RETURNING id";
     let query_result: Result<(InstanceId,), _> = sqlx::query_as(query)
@@ -584,6 +563,7 @@ pub async fn update_config(
         .bind(instance_id)
         .bind(expected_version)
         .bind(config.network_security_group_id)
+        .bind(config.power_profile)
         .fetch_one(txn)
         .await;
 
@@ -816,7 +796,8 @@ pub async fn batch_persist<'a>(
                         nvlink_config,
                         nvlink_config_version,
                         spx_config,
-                        spx_config_version
+                        spx_config_version,
+                        power_profile
                     )
                     SELECT 
                             vals.id, vals.machine_id, vals.operating_system_id, vals.os_user_data, vals.os_ipxe_script,
@@ -828,7 +809,8 @@ pub async fn batch_persist<'a>(
                             vals.network_security_group_id, true,
                             vals.instance_type_id, vals.extension_services_config::json, 
                             vals.extension_services_config_version, vals.nvlink_config::json, 
-                            vals.nvlink_config_version, vals.spx_config::json, vals.spx_config_version
+                            vals.nvlink_config_version, vals.spx_config::json, vals.spx_config_version,
+                            vals.power_profile
                     FROM (VALUES ";
 
     let mut qb = sqlx::QueryBuilder::new(query);
@@ -917,6 +899,8 @@ pub async fn batch_persist<'a>(
         );
         separated.push_unseparated(",");
         separated.push_bind_unseparated(value.spx_config_version);
+        separated.push_unseparated(",");
+        separated.push_bind_unseparated(&value.config.power_profile);
         separated.push_unseparated(")");
     }
 
@@ -925,7 +909,8 @@ pub async fn batch_persist<'a>(
                        ib_config, ib_config_version, keyset_ids, os_phone_home_enabled, name, 
                        description, labels, config_version, hostname, network_security_group_id,
                        instance_type_id, extension_services_config, extension_services_config_version,
-                       nvlink_config, nvlink_config_version, spx_config, spx_config_version)
+                       nvlink_config, nvlink_config_version, spx_config, spx_config_version,
+                       power_profile)
             INNER JOIN machines m ON m.id = vals.machine_id 
                 AND (vals.instance_type_id IS NULL OR m.instance_type_id = vals.instance_type_id)");
 

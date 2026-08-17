@@ -32,7 +32,7 @@ type SkuComponents struct {
 	Storage []SkuStorage `json:"storage,omitempty"`
 	// Chassis component
 	Chassis *SkuChassis `json:"chassis,omitempty"`
-	// Ethernet device components
+	// Read-only Ethernet device components reported by Core. Omit this property from REST mutation requests; null and an empty array are accepted for compatibility, while a non-empty array is rejected with HTTP 400.
 	EthernetDevices []SkuEthernetDevice `json:"ethernetDevices,omitempty"`
 	// Infiniband device components
 	InfinibandDevices []SkuInfinibandDevice `json:"infinibandDevices,omitempty"`

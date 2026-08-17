@@ -25,6 +25,7 @@ use serde::{Deserialize, Serialize};
 /// Global firmware management settings controlling
 /// update policies, concurrency, and retry behavior.
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
+#[serde(deny_unknown_fields)]
 pub struct FirmwareGlobal {
     /// Enables automatic host firmware updates via the
     /// background firmware manager.

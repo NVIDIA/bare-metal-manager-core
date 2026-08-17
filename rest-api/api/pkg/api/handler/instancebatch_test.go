@@ -319,7 +319,7 @@ func TestBatchCreateInstanceHandler_Handle(t *testing.T) {
 			wantErr: false,
 		},
 		{
-			name: "test batch instance create API endpoint preserves VPC selection intent",
+			name: "test batch instance create API endpoint preserves IPv6-only and dual-stack VPC selection intent",
 			fields: fields{
 				dbSession: dbSession,
 				tc:        tc,
@@ -338,12 +338,12 @@ func TestBatchCreateInstanceHandler_Handle(t *testing.T) {
 					Interfaces: []model.APIInterfaceCreateOrUpdateRequest{
 						{
 							VpcID:      cutil.GetPtr(vpcFNN.ID.String()),
-							IPFamilies: []model.IPFamily{model.IPFamilyIPv4},
+							IPFamilies: []model.IPFamily{model.IPFamilyIPv6},
 							IsPhysical: true,
 						},
 						{
 							VpcID:      cutil.GetPtr(vpcFNNSecondary.ID.String()),
-							IPFamilies: []model.IPFamily{model.IPFamilyIPv4},
+							IPFamilies: []model.IPFamily{model.IPFamilyIPv4, model.IPFamilyIPv6},
 						},
 					},
 				},
@@ -1398,7 +1398,7 @@ func TestBatchCreateInstanceHandler_Handle(t *testing.T) {
 								require.NotNil(t, dbIfcs[j].VpcID)
 								assert.Equal(t, *reqIfc.VpcID, dbIfcs[j].VpcID.String())
 								require.NotNil(t, dbIfcs[j].VpcIPFamilyMode)
-								assert.Equal(t, cdbm.InterfaceVpcIPFamilyModeIPv4Only, *dbIfcs[j].VpcIPFamilyMode)
+								assert.Equal(t, reqIfc.VpcIPFamilyMode(), *dbIfcs[j].VpcIPFamilyMode)
 								assert.Nil(t, dbIfcs[j].VpcPrefixID)
 							}
 						}
@@ -1448,7 +1448,7 @@ func TestBatchCreateInstanceHandler_Handle(t *testing.T) {
 								if reqIfc.VpcID != nil {
 									expectedControllerVpcID, ok := tt.expectedControllerVpcIDs[*reqIfc.VpcID]
 									require.True(t, ok)
-									assertInterfaceVpcSelection(t, instReq.Config.Network.Interfaces[j], expectedControllerVpcID)
+									assertInterfaceVpcSelection(t, instReq.Config.Network.Interfaces[j], expectedControllerVpcID, reqIfc.VpcIPFamilyMode())
 								}
 							}
 						}

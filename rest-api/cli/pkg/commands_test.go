@@ -950,12 +950,21 @@ func TestBuildCommands_SiteExplorerActionIsRunnable(t *testing.T) {
 	}
 	require.NotNil(t, siteExplorer)
 
+	var sawCreate, sawList bool
 	for _, command := range siteExplorer.Subcommands {
 		if command.HasName("create") {
-			return
+			sawCreate = true
+		}
+		if command.HasName("list") {
+			sawList = true
 		}
 	}
-	t.Fatal("site-explorer create must be generated from the OpenAPI operation")
+	if !sawCreate {
+		t.Fatal("site-explorer create must be generated from the OpenAPI operation")
+	}
+	if !sawList {
+		t.Fatal("site-explorer list must be generated from the OpenAPI operation")
+	}
 }
 
 // TestBuildCommands_AllocationConstraintIsUpdateOnly is the CLI-side guard for

@@ -55,6 +55,7 @@ async fn find_by_address_bmc(pool: sqlx::PgPool) -> Result<(), Box<dyn std::erro
         id: uuid::uuid!("f9860f19-37d5-44f6-b637-84de4648cd39").into(),
         can_stretch: None,
         allocation_strategy: Default::default(),
+        infer_slaac_eui64_addresses: false,
     };
     let network_segment =
         db::network_segment::persist(new_ns, &mut txn, NetworkSegmentControllerState::Ready)

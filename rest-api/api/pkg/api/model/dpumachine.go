@@ -253,9 +253,9 @@ func (afic *APIFlatInterfaceConfig) FromProto(protoConfig *corev1.FlatInterfaceC
 	afic.FunctionType = protoConfig.FunctionType.String()
 	afic.VlanID = int(protoConfig.VlanId)
 	afic.Vni = int(protoConfig.Vni)
-	afic.Gateway = protoConfig.Gateway
-	afic.IP = protoConfig.Ip
-	afic.InterfacePrefix = protoConfig.InterfacePrefix
+	afic.Gateway = protoConfig.Gateway                 //nolint:staticcheck // Preserve the scalar REST compatibility field.
+	afic.IP = protoConfig.Ip                           //nolint:staticcheck // Preserve the scalar REST compatibility field.
+	afic.InterfacePrefix = protoConfig.InterfacePrefix //nolint:staticcheck // Preserve the scalar REST compatibility field.
 
 	if protoConfig.VirtualFunctionId != nil {
 		virtualFunctionID := int(*protoConfig.VirtualFunctionId)
@@ -263,12 +263,12 @@ func (afic *APIFlatInterfaceConfig) FromProto(protoConfig *corev1.FlatInterfaceC
 	}
 
 	afic.VpcPrefixes = protoConfig.VpcPrefixes
-	afic.Prefix = protoConfig.Prefix
+	afic.Prefix = protoConfig.Prefix //nolint:staticcheck // Preserve the scalar REST compatibility field.
 	afic.Fqdn = protoConfig.Fqdn
 
 	afic.BootURL = protoConfig.Booturl
 	afic.VpcVni = int(protoConfig.VpcVni)
-	afic.SviIP = protoConfig.SviIp
+	afic.SviIP = protoConfig.SviIp //nolint:staticcheck // Preserve the scalar REST compatibility field.
 	afic.TenantVrfLoopbackIP = protoConfig.TenantVrfLoopbackIp
 	afic.IsL2Segment = protoConfig.IsL2Segment
 	afic.VpcPeerPrefixes = protoConfig.VpcPeerPrefixes
