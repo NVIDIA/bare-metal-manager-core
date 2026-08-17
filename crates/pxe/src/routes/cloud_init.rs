@@ -933,6 +933,7 @@ mod tests {
         .await
         .into_response();
 
+        assert_eq!(response.status(), axum::http::StatusCode::OK);
         let body = axum::body::to_bytes(response.into_body(), usize::MAX)
             .await
             .unwrap();
