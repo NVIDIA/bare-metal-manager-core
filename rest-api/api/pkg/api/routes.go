@@ -37,6 +37,13 @@ func NewAPIRoutes(dbSession *cdb.Session, tc tClient.Client, tnc tClient.Namespa
 			Method:  http.MethodPut,
 			Handler: apiHandler.NewCreateOrUpdateBMCCredentialHandler(dbSession, scp, cfg),
 		},
+		// Site Explorer explored endpoints (Provider Admin). Lists Core explored
+		// endpoints through FindExploredEndpointIds + FindExploredEndpointsByIds.
+		{
+			Path:    apiPathPrefix + "/site-explorer/endpoint",
+			Method:  http.MethodGet,
+			Handler: apiHandler.NewGetAllExploredEndpointHandler(dbSession, scp, cfg),
+		},
 		// Site Explorer endpoint actions (Provider Admin). Composes existing
 		// single-endpoint Core methods through the generic gRPC proxy.
 		{
@@ -655,6 +662,21 @@ func NewAPIRoutes(dbSession *cdb.Session, tc tClient.Client, tnc tClient.Namespa
 			Path:    apiPathPrefix + "/machine/:id/power",
 			Method:  http.MethodPatch,
 			Handler: apiHandler.NewMachinePowerControlHandler(dbSession, scp, cfg),
+		},
+		{
+			Path:    apiPathPrefix + "/machine/:id/validation/run",
+			Method:  http.MethodPost,
+			Handler: apiHandler.NewCreateMachineValidationRunHandler(dbSession, scp, cfg),
+		},
+		{
+			Path:    apiPathPrefix + "/machine/:id/validation/run",
+			Method:  http.MethodGet,
+			Handler: apiHandler.NewGetAllMachineValidationRunHandler(dbSession, tc, scp, cfg),
+		},
+		{
+			Path:    apiPathPrefix + "/machine/:id/validation/result",
+			Method:  http.MethodGet,
+			Handler: apiHandler.NewGetMachineValidationResultsHandler(dbSession, tc, scp, cfg),
 		},
 
 		// Machine GPU Stats endpoint

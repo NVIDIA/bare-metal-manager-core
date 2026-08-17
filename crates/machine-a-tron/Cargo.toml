@@ -76,6 +76,8 @@ carbide-version = { path = "../version" }
 carbide-uuid = { path = "../uuid" }
 carbide-network = { path = "../network" }
 carbide-utils = { path = "../utils", features = ["test-support"] }
+metrics-endpoint = { path = "../metrics-endpoint" }
+ufm-mock = { package = "carbide-ufm-mock", path = "../ufm-mock" }
 
 [dev-dependencies]
 carbide-test-support = { path = "../test-support" }

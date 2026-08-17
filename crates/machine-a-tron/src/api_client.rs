@@ -299,6 +299,7 @@ impl ApiClient {
             dpu_extension_services: None,
             nvlink: None,
             spxconfig: None,
+            power_profile: None,
         };
 
         let instance_request = rpc::InstanceAllocationRequest {
@@ -462,6 +463,7 @@ impl ApiClient {
                         prefixes,
                         mtu: Some(1500),
                         subdomain_id: None,
+                        infer_slaac_eui64_addresses: false,
                     })
                     .await
                     .map_err(ClientApiError::InvocationError)
@@ -488,6 +490,7 @@ impl ApiClient {
                 vni: None,
                 routing_profile_type: None,
                 routing_profile_overrides: None,
+                power_resource_group: None,
                 metadata: Some(rpc::forge::Metadata {
                     name: format!("vpc_{vpc_count}"),
                     description: "".to_string(),

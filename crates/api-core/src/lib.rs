@@ -26,8 +26,10 @@
 // It's too cumbersome for tests to adhere to these, which are less important in testing anyway.
 // Keep this exemption limited to test builds so enabling `test-support` under `--all-features`
 // does not hide violations in production modules.
-#![cfg_attr(test, allow(txn_held_across_await))]
-#![cfg_attr(test, allow(txn_without_commit))]
+#![cfg_attr(
+    any(test, feature = "test-support"),
+    allow(txn_held_across_await, txn_without_commit)
+)]
 
 // NOTE on pub vs non-pub mods:
 //
@@ -68,15 +70,13 @@ mod machine_validation;
 mod measured_boot;
 mod mqtt_state_change_hook;
 mod network_segment;
+mod node_auth;
 mod scout_stream;
 pub mod secrets;
 mod setup;
 mod storage;
 
 #[cfg(any(test, feature = "test-support"))]
-// Dependents compile these fixtures through the `test-support` feature, outside a `cfg(test)`
-// build, so scope their custom-lint exemption to this module.
-#[allow(txn_held_across_await, txn_without_commit)]
 pub mod test_support;
 
 #[cfg(test)]
@@ -142,4 +142,24 @@ pub(crate) fn init_site_name(site_name: Option<String>) {
 /// called (e.g. unit tests).
 pub fn configured_site_name() -> Option<&'static str> {
     SITE_NAME.get().and_then(|name| name.as_deref())
+}
+
+/// Process-global URL template for the "Logs" link on machine and endpoint
+/// detail pages
+static LOGS_LINK_TEMPLATE: OnceLock<String> = OnceLock::new();
+
+/// Initialize the global logs link template. Call once during startup before
+/// serving any web requests. Subsequent calls are ignored.
+pub(crate) fn init_logs_link_template(template: String) {
+    let _ = LOGS_LINK_TEMPLATE.set(template);
+}
+
+/// The configured URL template for the "Logs" link on machine and endpoint
+/// detail pages. The placeholder `{search}` should be replaced with the
+/// machine ID or BMC IP by the caller.
+///
+/// Empty when not configured or when [`init_logs_link_template`] has not been
+/// called (e.g. unit tests).
+pub fn configured_logs_link_template() -> &'static str {
+    LOGS_LINK_TEMPLATE.get().map(String::as_str).unwrap_or("")
 }

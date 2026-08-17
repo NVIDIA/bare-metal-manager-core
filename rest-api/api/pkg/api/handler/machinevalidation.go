@@ -16,6 +16,7 @@ import (
 	auth "github.com/NVIDIA/infra-controller/rest-api/auth/pkg/authorization"
 	cutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
 	cdb "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db"
+	cdbm "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/model"
 	corev1 "github.com/NVIDIA/infra-controller/rest-api/proto/core/gen/v1"
 	"github.com/NVIDIA/infra-controller/rest-api/workflow/pkg/queue"
 	"github.com/labstack/echo/v4"
@@ -651,6 +652,169 @@ func (handler GetMachineValidationTestHandler) Handle(c echo.Context) error {
 	return c.JSON(http.StatusOK, model.NewAPIMachineValidationTest(getProtoResponse.Tests[0]))
 }
 
+func getMachineForValidation(ctx context.Context, logger zerolog.Logger, dbSession *cdb.Session, provider *cdbm.InfrastructureProvider, machineID string) (*cdbm.Machine, *cutil.APIError) {
+	machine, err := cdbm.NewMachineDAO(dbSession).GetByID(ctx, nil, machineID, []string{cdbm.SiteRelationName}, false)
+	if err != nil {
+		if errors.Is(err, cdb.ErrDoesNotExist) {
+			return nil, cutil.NewAPIError(http.StatusNotFound, "Could not find Machine with specified ID", nil)
+		}
+		logger.Error().Err(err).Msg("failed to retrieve Machine details from DB")
+		return nil, cutil.NewAPIError(http.StatusInternalServerError, "Failed to retrieve Machine details, DB error", nil)
+	}
+
+	if machine.InfrastructureProviderID != provider.ID {
+		logger.Error().Msg("Machine doesn't belong to org's Infrastructure provider")
+		return nil, cutil.NewAPIError(http.StatusNotFound, "Could not find Machine with specified ID", nil)
+	}
+
+	if machine.Site == nil {
+		logger.Error().Msg("Related Site was not returned for Machine DB entity")
+		return nil, cutil.NewAPIError(http.StatusInternalServerError, "Failed to retrieve Site details for Machine, DB error", nil)
+	}
+
+	return machine, nil
+}
+
+// CreateMachineValidationRunHandler creates an on-demand validation run for a Machine.
+type CreateMachineValidationRunHandler struct {
+	dbSession  *cdb.Session
+	scp        *sc.ClientPool
+	tracerSpan *cutil.TracerSpan
+}
+
+// NewCreateMachineValidationRunHandler returns a new CreateMachineValidationRunHandler.
+func NewCreateMachineValidationRunHandler(dbSession *cdb.Session, scp *sc.ClientPool, _ *config.Config) CreateMachineValidationRunHandler {
+	return CreateMachineValidationRunHandler{
+		dbSession:  dbSession,
+		scp:        scp,
+		tracerSpan: cutil.NewTracerSpan(),
+	}
+}
+
+// Handle godoc
+// @Summary Create an on-demand Machine validation run
+// @Description Create an on-demand validation run for a Machine.
+// @Tags Machine Validation
+// @Accept json
+// @Produce json
+// @Security ApiKeyAuth
+// @Param org path string true "Name of NGC organization"
+// @Param machineId path string true "ID of Machine"
+// @Param request body model.APIMachineValidationRunCreateRequest false "On-demand Machine validation options"
+// @Success 202 {object} model.APIMachineValidationRun
+// @Router /v2/org/{org}/nico/machine/{machineId}/validation/run [post]
+func (h CreateMachineValidationRunHandler) Handle(c echo.Context) error {
+	org, dbUser, ctx, logger, handlerSpan := common.SetupHandler("MachineValidationRun", "Create", c, h.tracerSpan)
+	if handlerSpan != nil {
+		defer handlerSpan.End()
+	}
+
+	if dbUser == nil {
+		logger.Error().Msg("Invalid User object found in request context")
+		return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to retrieve current user", nil)
+	}
+
+	ok, err := auth.ValidateOrgMembership(dbUser, org)
+	if !ok {
+		if err != nil {
+			logger.Error().Err(err).Msg("Error validating org membership for User in request")
+		} else {
+			logger.Warn().Msg("Could not validate org membership for user, access denied")
+		}
+		return cutil.NewAPIErrorResponse(c, http.StatusForbidden, fmt.Sprintf("Failed to validate membership for org: %s", org), nil)
+	}
+
+	if !auth.ValidateUserRoles(dbUser, org, nil, auth.ProviderAdminRole) {
+		logger.Warn().Msg("user does not have Provider Admin role, access denied")
+		return cutil.NewAPIErrorResponse(c, http.StatusForbidden, "User does not have Provider Admin role with org", nil)
+	}
+
+	machineID := c.Param("id")
+	if machineID == "" {
+		return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, "Machine ID was not specified in URL", nil)
+	}
+
+	apiRequest := model.APIMachineValidationRunCreateRequest{}
+	if err := c.Bind(&apiRequest); err != nil {
+		return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, "Failed to parse request data, potentially invalid structure", nil)
+	}
+
+	if err := apiRequest.Validate(); err != nil {
+		logger.Warn().Err(err).Msg("Error validating Machine Validation Run creation request data")
+		return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, "Error validating Machine Validation Run creation request data", err)
+	}
+
+	provider, err := common.GetInfrastructureProviderForOrg(ctx, nil, h.dbSession, org)
+	if err != nil {
+		logger.Warn().Err(err).Msg("error getting infrastructure provider for org")
+		return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, "Failed to retrieve Infrastructure Provider for org", nil)
+	}
+
+	machine, apiError := getMachineForValidation(ctx, logger, h.dbSession, provider, machineID)
+	if apiError != nil {
+		return cutil.NewAPIErrorResponse(c, apiError.Code, apiError.Message, apiError.Data)
+	}
+
+	if machine.IsMissingOnSite {
+		logger.Error().Msg("Machine is missing on site, unable to start on-demand validation")
+		return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, "Machine is missing on site, unable to start on-demand validation", nil)
+	}
+
+	site := machine.Site
+	if site.Status != cdbm.SiteStatusRegistered {
+		logger.Warn().Msg("Site specified in request data is not in Registered state")
+		return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, "Site specified in request data is not in Registered state, cannot execute admin operation", nil)
+	}
+
+	siteClient, err := h.scp.GetClientByID(site.ID)
+	if err != nil {
+		logger.Error().Err(err).Msg("failed to retrieve Temporal client for Site")
+		return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to retrieve workflow client for Site", nil)
+	}
+
+	logger.Info().Str("machine_id", machineID).Str("site_id", site.ID.String()).Msg("Starting on-demand Machine validation via Core gRPC proxy")
+
+	coreResponse := &corev1.MachineValidationOnDemandResponse{}
+	apiError = common.ExecuteCoreGRPC(
+		ctx,
+		siteClient,
+		corev1.Forge_OnDemandMachineValidation_FullMethodName,
+		apiRequest.ToProto(machineID),
+		coreResponse,
+		site.ID.String(),
+	)
+	if apiError != nil {
+		logAPIError(logger, apiError, "Failed to start on-demand Machine validation via Core gRPC proxy")
+		return cutil.NewAPIErrorResponse(c, apiError.Code, apiError.Message, nil)
+	}
+
+	return c.JSON(http.StatusAccepted, model.NewAPIMachineValidationRunFromOnDemandResponse(coreResponse))
+}
+
+func resolveMachineValidationTarget(ctx context.Context, c echo.Context, logger zerolog.Logger, dbSession *cdb.Session, provider *cdbm.InfrastructureProvider) (string, *cdbm.Site, *cutil.APIError) {
+	machineID := c.Param("id")
+	if machineID != "" {
+		machine, apiError := getMachineForValidation(ctx, logger, dbSession, provider, machineID)
+		if apiError != nil {
+			return machineID, nil, apiError
+		}
+		return machineID, machine.Site, nil
+	}
+
+	machineID = c.Param("machineID")
+	siteID := c.Param("siteID")
+	site, err := common.GetSiteFromIDString(ctx, nil, siteID, dbSession)
+	if err != nil {
+		logger.Warn().Err(err).Str("Site ID", siteID).Msg("error getting site from request")
+		return machineID, nil, cutil.NewAPIError(http.StatusBadRequest, "Error retrieving Site in request", nil)
+	}
+	if site.InfrastructureProviderID != provider.ID {
+		return machineID, nil, cutil.NewAPIError(http.StatusBadRequest, "Site specified in request doesn't belong to current org's Provider", nil)
+	}
+
+	return machineID, site, nil
+}
+
 // GetMachineValidationResultsHandler is the API Handler to get MachineValidationResults
 type GetMachineValidationResultsHandler struct {
 	dbSession  *cdb.Session
@@ -672,15 +836,16 @@ func NewGetMachineValidationResultsHandler(dbSession *cdb.Session, tc tclient.Cl
 }
 
 // Handle godoc
-// @Summary Get MachineValidationResults
-// @Description Get MachineValidationResults
-// @Tags MachineValidationTest
+// @Summary Get Machine validation results
+// @Description Get Machine validation results
+// @Tags Machine Validation
 // @Accept json
 // @Produce json
 // @Security ApiKeyAuth
 // @Param org path string true "Name of NGC organization"
+// @Param machineId path string true "ID of Machine"
 // @Success 200 {object} []model.APIMachineValidationResult
-// @Router /v2/org/{org}/nico/site/{site}/machine-validation/results/machine/{id} [get]
+// @Router /v2/org/{org}/nico/machine/{machineId}/validation/result [get]
 func (handler GetMachineValidationResultsHandler) Handle(c echo.Context) error {
 	org, dbUser, ctx, logger, handlerSpan := common.SetupHandler("MachineValidationResult", "Get", c, handler.tracerSpan)
 	if handlerSpan != nil {
@@ -689,8 +854,6 @@ func (handler GetMachineValidationResultsHandler) Handle(c echo.Context) error {
 	if dbUser == nil {
 		return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to retrieve current user", nil)
 	}
-	siteID := c.Param("siteID")
-
 	// Validate org
 	ok, err := auth.ValidateOrgMembership(dbUser, org)
 	if !ok {
@@ -702,16 +865,12 @@ func (handler GetMachineValidationResultsHandler) Handle(c echo.Context) error {
 		return cutil.NewAPIErrorResponse(c, http.StatusForbidden, fmt.Sprintf("Failed to validate membership for org: %s", org), nil)
 	}
 
-	// Validate role, only Provider Admins are allowed to update MachineValidationTest
+	// Validate role, only Provider Admins are allowed to retrieve Machine validation results
 	ok = auth.ValidateUserRoles(dbUser, org, nil, auth.ProviderAdminRole)
 	if !ok {
 		logger.Warn().Msg("user does not have Provider Admin role, access denied")
 		return cutil.NewAPIErrorResponse(c, http.StatusForbidden, "User does not have Provider Admin role with org", nil)
 	}
-
-	// get machine id
-	machineID := c.Param("machineID")
-	handler.tracerSpan.SetAttribute(handlerSpan, attribute.String("machine_id", machineID), logger)
 
 	// Check that infrastructureProvider exists in org
 	ip, err := common.GetInfrastructureProviderForOrg(ctx, nil, handler.dbSession, org)
@@ -720,15 +879,10 @@ func (handler GetMachineValidationResultsHandler) Handle(c echo.Context) error {
 		return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, "Failed to retrieve Infrastructure Provider for org", nil)
 	}
 
-	// Validate the site for which we query tests
-	site, err := common.GetSiteFromIDString(ctx, nil, siteID, handler.dbSession)
-	if err != nil {
-		logger.Warn().Err(err).Str("Site ID", siteID).Msg("error getting site from request")
-		return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, "Error retrieving Site in request", nil)
-	}
-	// verify site's infrastructure provider matches org's infrastructure provider
-	if site.InfrastructureProviderID != ip.ID {
-		return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, "Site specified in request doesn't belong to current org's Provider", nil)
+	machineID, site, apiError := resolveMachineValidationTarget(ctx, c, logger, handler.dbSession, ip)
+	handler.tracerSpan.SetAttribute(handlerSpan, attribute.String("machine_id", machineID), logger)
+	if apiError != nil {
+		return cutil.NewAPIErrorResponse(c, apiError.Code, apiError.Message, apiError.Data)
 	}
 
 	// Get the temporal client for the site we are working with
@@ -779,7 +933,7 @@ func (handler GetMachineValidationResultsHandler) Handle(c echo.Context) error {
 	logger.Info().Str("Workflow ID", getWorkflowID).Msg("completed synchronous get MachineValidationResults workflow")
 
 	// Create response
-	var response []*model.APIMachineValidationResult
+	response := make([]*model.APIMachineValidationResult, 0, len(getProtoResponse.GetResults()))
 	for _, proto := range getProtoResponse.GetResults() {
 		response = append(response, model.NewAPIMachineValidationResult(proto))
 	}
@@ -808,15 +962,16 @@ func NewGetAllMachineValidationRunHandler(dbSession *cdb.Session, tc tclient.Cli
 }
 
 // Handle godoc
-// @Summary Get all MachineValidationRuns
-// @Description Get all MachineValidationRuns
-// @Tags MachineValidationTest
+// @Summary Get Machine validation runs
+// @Description Get Machine validation runs
+// @Tags Machine Validation
 // @Accept json
 // @Produce json
 // @Security ApiKeyAuth
 // @Param org path string true "Name of NGC organization"
+// @Param machineId path string true "ID of Machine"
 // @Success 200 {object} []model.APIMachineValidationRun
-// @Router /v2/org/{org}/nico/site/{site}/machine-validation/runs/machine/{id} [get]
+// @Router /v2/org/{org}/nico/machine/{machineId}/validation/run [get]
 func (handler GetAllMachineValidationRunHandler) Handle(c echo.Context) error {
 	org, dbUser, ctx, logger, handlerSpan := common.SetupHandler("MachineValidationRun", "GetAll", c, handler.tracerSpan)
 	if handlerSpan != nil {
@@ -825,8 +980,6 @@ func (handler GetAllMachineValidationRunHandler) Handle(c echo.Context) error {
 	if dbUser == nil {
 		return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to retrieve current user", nil)
 	}
-	siteID := c.Param("siteID")
-
 	// Validate org
 	ok, err := auth.ValidateOrgMembership(dbUser, org)
 	if !ok {
@@ -838,16 +991,12 @@ func (handler GetAllMachineValidationRunHandler) Handle(c echo.Context) error {
 		return cutil.NewAPIErrorResponse(c, http.StatusForbidden, fmt.Sprintf("Failed to validate membership for org: %s", org), nil)
 	}
 
-	// Validate role, only Provider Admins are allowed to update MachineValidationTest
+	// Validate role, only Provider Admins are allowed to retrieve Machine validation runs
 	ok = auth.ValidateUserRoles(dbUser, org, nil, auth.ProviderAdminRole)
 	if !ok {
 		logger.Warn().Msg("user does not have Provider Admin role, access denied")
 		return cutil.NewAPIErrorResponse(c, http.StatusForbidden, "User does not have Provider Admin role with org", nil)
 	}
-
-	// get machine id
-	machineID := c.Param("machineID")
-	handler.tracerSpan.SetAttribute(handlerSpan, attribute.String("machine_id", machineID), logger)
 
 	// Check that infrastructureProvider exists in org
 	ip, err := common.GetInfrastructureProviderForOrg(ctx, nil, handler.dbSession, org)
@@ -856,15 +1005,10 @@ func (handler GetAllMachineValidationRunHandler) Handle(c echo.Context) error {
 		return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, "Failed to retrieve Infrastructure Provider for org", nil)
 	}
 
-	// Validate the site for which we query tests
-	site, err := common.GetSiteFromIDString(ctx, nil, siteID, handler.dbSession)
-	if err != nil {
-		logger.Warn().Err(err).Str("Site ID", siteID).Msg("error getting site from request")
-		return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, "Error retrieving Site in request", nil)
-	}
-	// verify site's infrastructure provider matches org's infrastructure provider
-	if site.InfrastructureProviderID != ip.ID {
-		return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, "Site specified in request doesn't belong to current org's Provider", nil)
+	machineID, site, apiError := resolveMachineValidationTarget(ctx, c, logger, handler.dbSession, ip)
+	handler.tracerSpan.SetAttribute(handlerSpan, attribute.String("machine_id", machineID), logger)
+	if apiError != nil {
+		return cutil.NewAPIErrorResponse(c, apiError.Code, apiError.Message, apiError.Data)
 	}
 
 	// Get the temporal client for the site we are working with
@@ -915,7 +1059,7 @@ func (handler GetAllMachineValidationRunHandler) Handle(c echo.Context) error {
 	logger.Info().Str("Workflow ID", getWorkflowID).Msg("completed synchronous get MachineValidationRuns workflow")
 
 	// Create response
-	var response []*model.APIMachineValidationRun
+	response := make([]*model.APIMachineValidationRun, 0, len(getProtoResponse.GetRuns()))
 	for _, proto := range getProtoResponse.GetRuns() {
 		response = append(response, model.NewAPIMachineValidationRun(proto))
 	}

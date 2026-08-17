@@ -986,7 +986,6 @@ mod tests {
     }
 
     #[crate::sqlx_test]
-    #[allow(txn_held_across_await)] // Intentional: this test holds locks to exercise concurrency.
     async fn result_persistence_and_heartbeat_do_not_deadlock(
         pool: sqlx::PgPool,
     ) -> Result<(), Box<dyn std::error::Error>> {

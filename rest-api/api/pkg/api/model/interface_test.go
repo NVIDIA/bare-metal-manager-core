@@ -306,10 +306,10 @@ func TestAPIInterfaceCreateRequest_Validate(t *testing.T) {
 			name: "test valid Interface VPC request normalizes duplicate IP families",
 			fields: fields{
 				VpcID:      cutil.GetPtr(uuid.NewString()),
-				IPFamilies: []IPFamily{IPFamilyIPv4, IPFamilyIPv4},
+				IPFamilies: []IPFamily{IPFamilyIPv6, IPFamilyIPv4, IPFamilyIPv6, IPFamilyIPv4},
 			},
 			wantErr:        false,
-			wantIPFamilies: []IPFamily{IPFamilyIPv4},
+			wantIPFamilies: []IPFamily{IPFamilyIPv4, IPFamilyIPv6},
 		},
 		{
 			name: "test invalid Interface Subnet request",
@@ -405,22 +405,22 @@ func TestAPIInterfaceCreateRequest_Validate(t *testing.T) {
 			wantErrorMessage: "invalid IP family `IPX`",
 		},
 		{
-			name: "test invalid Interface IPv6-only VPC request",
+			name: "test valid Interface IPv6-only VPC request",
 			fields: fields{
 				VpcID:      cutil.GetPtr(uuid.NewString()),
 				IPFamilies: []IPFamily{IPFamilyIPv6},
 			},
-			wantErr:          true,
-			wantErrorMessage: "invalid IP family `IPv6`",
+			wantErr:        false,
+			wantIPFamilies: []IPFamily{IPFamilyIPv6},
 		},
 		{
-			name: "test invalid Interface dual-stack VPC request",
+			name: "test valid Interface dual-stack VPC request",
 			fields: fields{
 				VpcID:      cutil.GetPtr(uuid.NewString()),
 				IPFamilies: []IPFamily{IPFamilyIPv4, IPFamilyIPv6},
 			},
-			wantErr:          true,
-			wantErrorMessage: "invalid IP family `IPv6`",
+			wantErr:        false,
+			wantIPFamilies: []IPFamily{IPFamilyIPv4, IPFamilyIPv6},
 		},
 		{
 			name: "test valid Interface device and deviceInterface request",
@@ -611,6 +611,37 @@ func TestAPIInterfaceCreateRequest_Validate(t *testing.T) {
 			if tt.wantIPFamilies != nil {
 				assert.Equal(t, tt.wantIPFamilies, iscr.IPFamilies)
 			}
+		})
+	}
+}
+
+func TestAPIInterfaceCreateOrUpdateRequest_VpcIPFamilyMode(t *testing.T) {
+	tests := []struct {
+		name       string
+		families   []IPFamily
+		wantFamily cdbm.InterfaceVpcIPFamilyMode
+	}{
+		{
+			name:       "IPv4-only",
+			families:   []IPFamily{IPFamilyIPv4},
+			wantFamily: cdbm.InterfaceVpcIPFamilyModeIPv4Only,
+		},
+		{
+			name:       "IPv6-only",
+			families:   []IPFamily{IPFamilyIPv6},
+			wantFamily: cdbm.InterfaceVpcIPFamilyModeIPv6Only,
+		},
+		{
+			name:       "dual-stack",
+			families:   []IPFamily{IPFamilyIPv4, IPFamilyIPv6},
+			wantFamily: cdbm.InterfaceVpcIPFamilyModeDualStack,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			req := APIInterfaceCreateOrUpdateRequest{IPFamilies: tt.families}
+			assert.Equal(t, tt.wantFamily, req.VpcIPFamilyMode())
 		})
 	}
 }

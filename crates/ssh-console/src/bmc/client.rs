@@ -16,7 +16,6 @@
  */
 use std::io;
 use std::net::SocketAddr;
-use std::process::Stdio;
 use std::sync::{Arc, RwLock};
 use std::time::{Duration, Instant};
 
@@ -331,20 +330,8 @@ async fn wait_until_host_is_up(
                         }
                     }
                     connection::Kind::Ipmi => {
-                        let status = tokio::process::Command::new("ping")
-                            .arg("-c")
-                            .arg("1")
-                            .arg("-W")
-                            .arg("2")
-                            .arg(addr.ip().to_string())
-                            .stdin(Stdio::null())
-                            .stdout(Stdio::null())
-                            .stderr(Stdio::null())
-                            .spawn()?
-                            .wait()
-                            .await?;
-                        if status.success() {
-                            break Ok(())
+                        if check_ipmi_reachable(addr, Duration::from_secs(2)).await {
+                            break Ok(());
                         }
                     }
                 }
@@ -571,6 +558,40 @@ impl Drop for BmcConnectionSubscription {
             -1,
             &[KeyValue::new("machine_id", self.machine_id.to_string())],
         );
+    }
+}
+
+/// Send an ASF Presence Ping (RMCP) to check if an IPMI endpoint is reachable.
+async fn check_ipmi_reachable(addr: SocketAddr, timeout: Duration) -> bool {
+    // Reference: IPMI v2.0 spec, section 13.2.3
+    const ASF_PRESENCE_PING: [u8; 12] = [
+        0x06, 0x00, 0xff, 0x06, 0x00, 0x00, 0x11, 0xbe, 0x80, 0x00, 0x00, 0x00,
+    ];
+
+    let Ok(socket) = tokio::net::UdpSocket::bind("0.0.0.0:0").await else {
+        tracing::debug!(%addr, "failed to bind UDP socket for IPMI reachability check");
+        return false;
+    };
+
+    if let Err(e) = socket.send_to(&ASF_PRESENCE_PING, addr).await {
+        tracing::debug!(%addr, error = %e, "failed to send ASF Presence Ping");
+        return false;
+    }
+
+    let mut recv_buf = [0u8; 32];
+    match tokio::time::timeout(timeout, socket.recv_from(&mut recv_buf)).await {
+        Ok(Ok((len, _))) => {
+            tracing::debug!(%addr, response_len = len, "IPMI endpoint responded to ASF Presence Ping");
+            true
+        }
+        Ok(Err(e)) => {
+            tracing::debug!(%addr, error = %e, "error receiving ASF Presence Pong");
+            false
+        }
+        Err(_) => {
+            tracing::debug!(%addr, timeout_secs = ?timeout, "ASF Presence Ping timed out");
+            false
+        }
     }
 }
 

@@ -42,6 +42,7 @@ use db::nvl_partition::IdColumn;
 use db::work_lock_manager::WorkLockManagerHandle;
 use db::{self, ObjectColumnFilter, TransactionVending, machine};
 use errors::{NvLinkManagerError, NvLinkManagerResult};
+use futures::future;
 use libnmxc::nmxc_model::{
     GetComputeNodeInfoListRequest, GetGpuInfoListRequest, GetPartitionInfoListRequest,
     PartitionInfo,
@@ -63,6 +64,7 @@ use model::nvl_partition::{NvlPartition, NvlPartitionName};
 use sqlx::PgPool;
 #[cfg(feature = "test-support")]
 pub use switch_cert_monitor::{SwitchCertificateMonitor, SwitchCertificateMonitorIterationResult};
+use tokio::sync::Semaphore;
 use tokio::task::JoinSet;
 use tokio_util::sync::CancellationToken;
 use tracing::Instrument;
@@ -1124,7 +1126,7 @@ struct PendingNullNvlinkObservation {
 
 /// Shared inputs for processing one chassis- or rack-scoped NMX-C monitor group.
 struct ProcessMachineGroupInput<'a> {
-    group_id: &'a str,
+    group_id: String,
     group_type: nmx_c_endpoint::ManagedHostGroupType,
     snapshots: &'a [&'a ManagedHostStateSnapshot],
     endpoint_url: Option<&'a str>,
@@ -1132,9 +1134,17 @@ struct ProcessMachineGroupInput<'a> {
     /// Rack associated with the selected switch endpoint; absent for chassis mappings.
     rack_id: Option<&'a RackId>,
     all_managed_host_snapshots: &'a HashMap<MachineId, ManagedHostStateSnapshot>,
-    machine_nvlink_info: &'a mut HashMap<MachineId, Option<MachineNvLinkInfo>>,
+    /// Pre-split shard of `machine_nvlink_info` containing only this group's machines.
+    machine_nvlink_info: HashMap<MachineId, Option<MachineNvLinkInfo>>,
     db_nvl_partitions: &'a [NvlPartition],
     db_nvl_logical_partitions: &'a [LogicalPartition],
+}
+
+/// Output of processing one NMX-C monitor group, collected and merged by the caller.
+struct GroupResult {
+    completed_operations: usize,
+    null_observations: Vec<PendingNullNvlinkObservation>,
+    partial_metrics: NvlPartitionMonitorMetrics,
 }
 
 impl NvlPartitionMonitor {
@@ -1285,21 +1295,17 @@ impl NvlPartitionMonitor {
             db::nvl_logical_partition::find_by(&mut txn, ObjectColumnFilter::<LpIdColumn>::All)
                 .await?;
 
-        let mut chassis_serial_to_resolved_endpoint = HashMap::new();
-        for chassis_serial in managed_host_snapshots_by_chassis_serial.keys() {
-            if let Some(endpoint_url) = nmx_c_endpoint::resolve_nmx_c_endpoint_url(
-                &mut txn,
-                nmx_c_endpoint::ManagedHostGroupType::Chassis,
-                None,
-                Some(chassis_serial),
-                &self.config,
-            )
-            .await
-            .map_err(NvLinkManagerError::from)?
-            {
-                chassis_serial_to_resolved_endpoint.insert(chassis_serial.clone(), endpoint_url);
-            }
-        }
+        let chassis_serials: Vec<&str> = managed_host_snapshots_by_chassis_serial
+            .keys()
+            .map(String::as_str)
+            .collect();
+        let chassis_serial_to_resolved_endpoint: HashMap<String, String> =
+            db::nvlink_nmxc_endpoints::find_by_chassis_serials(&mut txn, &chassis_serials)
+                .await
+                .map_err(NvLinkManagerError::from)?
+                .into_iter()
+                .map(|row| (row.chassis_serial, row.endpoint))
+                .collect();
 
         // Close the inventory transaction before contacting NMX-C. Endpoint
         // lookup is best effort only when no rack partition work depends on it.
@@ -1340,54 +1346,84 @@ impl NvlPartitionMonitor {
         metrics.num_logical_partitions = db_nvl_logical_partitions.len();
         metrics.num_physical_partitions = db_nvl_partitions.len();
 
-        let mut total_completed_operations = 0;
-        let mut pending_null_nvlink_observations = Vec::new();
+        // Pre-split machine_nvlink_info into per-group shards before concurrent execution.
+        // Groups are disjoint (each MachineId belongs to exactly one group), so the split
+        // is lossless: each entry is moved into exactly one shard via remove().
+        let mut all_group_inputs: Vec<ProcessMachineGroupInput<'_>> = Vec::new();
 
-        for (chassis_serial, chassis_snapshots) in &managed_host_snapshots_by_chassis_serial {
-            total_completed_operations += self
-                .process_nmx_c_partition_monitor_group(
-                    ProcessMachineGroupInput {
-                        group_id: chassis_serial,
-                        group_type: nmx_c_endpoint::ManagedHostGroupType::Chassis,
-                        snapshots: chassis_snapshots,
-                        endpoint_url: chassis_serial_to_resolved_endpoint
-                            .get(chassis_serial)
-                            .map(String::as_str),
-                        rack_id: None,
-                        all_managed_host_snapshots: &managed_host_snapshots,
-                        machine_nvlink_info: &mut machine_nvlink_info,
-                        db_nvl_partitions: &db_nvl_partitions,
-                        db_nvl_logical_partitions: &db_nvl_logical_partitions,
-                    },
-                    metrics,
-                    &mut pending_null_nvlink_observations,
-                )
-                .await;
+        for (serial, snapshots) in &managed_host_snapshots_by_chassis_serial {
+            let shard = snapshots
+                .iter()
+                .filter_map(|s| {
+                    machine_nvlink_info
+                        .remove(&s.host_snapshot.id)
+                        .map(|info| (s.host_snapshot.id, info))
+                })
+                .collect();
+            all_group_inputs.push(ProcessMachineGroupInput {
+                group_id: serial.clone(),
+                group_type: nmx_c_endpoint::ManagedHostGroupType::Chassis,
+                snapshots,
+                endpoint_url: chassis_serial_to_resolved_endpoint
+                    .get(serial)
+                    .map(String::as_str),
+                rack_id: None,
+                all_managed_host_snapshots: &managed_host_snapshots,
+                machine_nvlink_info: shard,
+                db_nvl_partitions: &db_nvl_partitions,
+                db_nvl_logical_partitions: &db_nvl_logical_partitions,
+            });
         }
 
         // A rack is one NVLink domain, so all hosts in the rack are reconciled
         // through the same NMX-C endpoint and hello response.
-        for (rack_id, rack_snapshots) in &managed_host_snapshots_by_rack_id {
-            let rack_id_str = rack_id.to_string();
-            total_completed_operations += self
-                .process_nmx_c_partition_monitor_group(
-                    ProcessMachineGroupInput {
-                        group_id: &rack_id_str,
-                        group_type: nmx_c_endpoint::ManagedHostGroupType::Rack,
-                        snapshots: rack_snapshots,
-                        endpoint_url: rack_id_to_resolved_endpoint
-                            .get(rack_id)
-                            .map(String::as_str),
-                        rack_id: Some(rack_id),
-                        all_managed_host_snapshots: &managed_host_snapshots,
-                        machine_nvlink_info: &mut machine_nvlink_info,
-                        db_nvl_partitions: &db_nvl_partitions,
-                        db_nvl_logical_partitions: &db_nvl_logical_partitions,
-                    },
-                    metrics,
-                    &mut pending_null_nvlink_observations,
-                )
-                .await;
+        for (rack_id, snapshots) in &managed_host_snapshots_by_rack_id {
+            let shard = snapshots
+                .iter()
+                .filter_map(|s| {
+                    machine_nvlink_info
+                        .remove(&s.host_snapshot.id)
+                        .map(|info| (s.host_snapshot.id, info))
+                })
+                .collect();
+            all_group_inputs.push(ProcessMachineGroupInput {
+                group_id: rack_id.to_string(),
+                group_type: nmx_c_endpoint::ManagedHostGroupType::Rack,
+                snapshots,
+                endpoint_url: rack_id_to_resolved_endpoint
+                    .get(rack_id)
+                    .map(String::as_str),
+                rack_id: Some(rack_id),
+                all_managed_host_snapshots: &managed_host_snapshots,
+                machine_nvlink_info: shard,
+                db_nvl_partitions: &db_nvl_partitions,
+                db_nvl_logical_partitions: &db_nvl_logical_partitions,
+            });
+        }
+
+        // Bound concurrency so group processing cannot exhaust the shared DB pool
+        // or open an unbounded number of NMX-C gRPC clients at once.
+        let concurrency = Semaphore::new(self.config.partition_monitor_max_concurrent_groups.get());
+        let all_group_results = future::join_all(all_group_inputs.into_iter().map(|input| {
+            // Borrow outside `async move` so the closure copies the &Semaphore reference
+            // (which is Copy) rather than trying to move the Semaphore itself.
+            let concurrency = &concurrency;
+            async move {
+                let _permit = concurrency
+                    .acquire()
+                    .await
+                    .expect("NMX-C group concurrency semaphore is never closed");
+                self.process_nmx_c_partition_monitor_group(input).await
+            }
+        }))
+        .await;
+
+        let mut total_completed_operations = 0;
+        let mut pending_null_nvlink_observations = Vec::new();
+        for result in all_group_results {
+            total_completed_operations += result.completed_operations;
+            pending_null_nvlink_observations.extend(result.null_observations);
+            metrics.merge_from(result.partial_metrics);
         }
 
         // Rack groups already observe Hello while reconciling partitions. Racks
@@ -1416,9 +1452,7 @@ impl NvlPartitionMonitor {
     async fn process_nmx_c_partition_monitor_group(
         &self,
         input: ProcessMachineGroupInput<'_>,
-        metrics: &mut NvlPartitionMonitorMetrics,
-        pending_null_nvlink_observations: &mut Vec<PendingNullNvlinkObservation>,
-    ) -> usize {
+    ) -> GroupResult {
         let ProcessMachineGroupInput {
             group_id,
             group_type,
@@ -1426,11 +1460,30 @@ impl NvlPartitionMonitor {
             endpoint_url,
             rack_id,
             all_managed_host_snapshots,
-            machine_nvlink_info,
+            mut machine_nvlink_info,
             db_nvl_partitions,
             db_nvl_logical_partitions,
         } = input;
         let group_type_label = group_type.as_str();
+        let mut group_metrics = NvlPartitionMonitorMetrics::new();
+        let mut null_observations: Vec<PendingNullNvlinkObservation> = Vec::new();
+
+        macro_rules! early_return {
+            ($reason:expr) => {{
+                Self::queue_null_nvlink_status_observation(
+                    &mut null_observations,
+                    &group_id,
+                    group_type,
+                    snapshots,
+                    $reason,
+                );
+                return GroupResult {
+                    completed_operations: 0,
+                    null_observations,
+                    partial_metrics: group_metrics,
+                };
+            }};
+        }
 
         let Some(endpoint_url) = endpoint_url else {
             tracing::warn!(
@@ -1438,14 +1491,7 @@ impl NvlPartitionMonitor {
                 group_type = group_type_label,
                 "No NMX-C endpoint (switch NVOS IP or nvlink_nmxc_endpoints mapping); skipping partition monitor work"
             );
-            Self::queue_null_nvlink_status_observation(
-                pending_null_nvlink_observations,
-                group_id,
-                group_type,
-                snapshots,
-                ChassisNmxCUnreachableReason::NoEndpoint,
-            );
-            return 0;
+            early_return!(ChassisNmxCUnreachableReason::NoEndpoint);
         };
 
         let nmxc_endpoint = match Endpoint::new(endpoint_url) {
@@ -1458,14 +1504,7 @@ impl NvlPartitionMonitor {
                     error = %e,
                     "Invalid NMX-C endpoint URI; skipping partition monitor work"
                 );
-                Self::queue_null_nvlink_status_observation(
-                    pending_null_nvlink_observations,
-                    group_id,
-                    group_type,
-                    snapshots,
-                    ChassisNmxCUnreachableReason::InvalidEndpointUri,
-                );
-                return 0;
+                early_return!(ChassisNmxCUnreachableReason::InvalidEndpointUri);
             }
         };
 
@@ -1479,14 +1518,7 @@ impl NvlPartitionMonitor {
                     error = %e,
                     "Failed to create NMX-C client; skipping partition monitor work"
                 );
-                Self::queue_null_nvlink_status_observation(
-                    pending_null_nvlink_observations,
-                    group_id,
-                    group_type,
-                    snapshots,
-                    ChassisNmxCUnreachableReason::ClientCreateFailed,
-                );
-                return 0;
+                early_return!(ChassisNmxCUnreachableReason::ClientCreateFailed);
             }
         };
         let hello = match nmxc_client.hello(NMX_C_GATEWAY_ID).await {
@@ -1499,14 +1531,7 @@ impl NvlPartitionMonitor {
                     error = %e,
                     "NMX-C hello failed; skipping partition monitor work"
                 );
-                Self::queue_null_nvlink_status_observation(
-                    pending_null_nvlink_observations,
-                    group_id,
-                    group_type,
-                    snapshots,
-                    ChassisNmxCUnreachableReason::HelloFailed,
-                );
-                return 0;
+                early_return!(ChassisNmxCUnreachableReason::HelloFailed);
             }
         };
         let domain_uuid = match domain_uuid_from_nmx_c_hello(&hello) {
@@ -1519,14 +1544,7 @@ impl NvlPartitionMonitor {
                     error = %e,
                     "Failed to parse domain UUID from NMX-C hello; skipping partition monitor work"
                 );
-                Self::queue_null_nvlink_status_observation(
-                    pending_null_nvlink_observations,
-                    group_id,
-                    group_type,
-                    snapshots,
-                    ChassisNmxCUnreachableReason::DomainUuidParseFailed,
-                );
-                return 0;
+                early_return!(ChassisNmxCUnreachableReason::DomainUuidParseFailed);
             }
         };
 
@@ -1538,8 +1556,8 @@ impl NvlPartitionMonitor {
         }
 
         // Endpoint + component versions for this group, so the metric-read failures below log them.
-        metrics.nmxc.endpoint = endpoint_url.to_string();
-        metrics.nmxc.version = hello
+        group_metrics.nmxc.endpoint = endpoint_url.to_string();
+        group_metrics.nmxc.version = hello
             .components_ver
             .iter()
             .map(|kv| format!("{}={}", kv.key, kv.value))
@@ -1572,7 +1590,7 @@ impl NvlPartitionMonitor {
                 continue;
             }
             nvlink_info_db_updates.extend(populate_machine_nvlink_info_if_needed(
-                machine_nvlink_info,
+                &mut machine_nvlink_info,
                 all_managed_host_snapshots,
                 snapshot_chassis_serial.as_deref(),
                 &[machine_id],
@@ -1609,10 +1627,10 @@ impl NvlPartitionMonitor {
             .cloned()
             .collect();
 
-        match self
+        let completed_operations = match self
             .check_partitions_and_apply_nmx_c_operations(
                 nmxc_client.as_mut(),
-                metrics,
+                &mut group_metrics,
                 domain_uuid,
                 CheckPartitionsInput {
                     db_nvl_logical_partitions: db_nvl_logical_partitions.to_vec(),
@@ -1633,14 +1651,20 @@ impl NvlPartitionMonitor {
                     "Partition monitor work failed; queuing null nvlink status observations"
                 );
                 Self::queue_null_nvlink_status_observation(
-                    pending_null_nvlink_observations,
-                    group_id,
+                    &mut null_observations,
+                    &group_id,
                     group_type,
                     snapshots,
                     ChassisNmxCUnreachableReason::PartitionMonitorWorkFailed,
                 );
                 0
             }
+        };
+
+        GroupResult {
+            completed_operations,
+            null_observations,
+            partial_metrics: group_metrics,
         }
     }
 
@@ -2258,9 +2282,7 @@ impl NvlPartitionMonitor {
         metrics.num_machine_nvl_status_updates = machine_gpu_statuses.len();
 
         // Add all default partition removals to the normal list so they get executed.
-        for (_partition_nmx_c_id, operations) in
-            partition_ctx.unknown_partition_removal_operations.iter()
-        {
+        for operations in partition_ctx.unknown_partition_removal_operations.values() {
             for operation in operations {
                 partition_ctx
                     .nmx_c_operations
@@ -2271,9 +2293,7 @@ impl NvlPartitionMonitor {
                     .or_insert(vec![operation.clone()]);
             }
         }
-        for (_partition_nmx_c_id, operation) in
-            partition_ctx.unknown_partition_addition_operations.iter()
-        {
+        for operation in partition_ctx.unknown_partition_addition_operations.values() {
             partition_ctx
                 .nmx_c_operations
                 .entry(NvLinkLogicalPartitionId::default())
@@ -3365,9 +3385,9 @@ mod machine_group_tests {
     use tokio::task::JoinSet;
 
     use super::{
-        ChassisNmxCUnreachableReason, NvLinkConfig, NvlPartitionMonitor,
-        NvlPartitionMonitorMetrics, PendingNullNvlinkObservation, ProcessMachineGroupInput,
-        group_managed_hosts_by_group_type, nmx_c_endpoint,
+        ChassisNmxCUnreachableReason, GroupResult, NvLinkConfig, NvlPartitionMonitor,
+        NvlPartitionMonitorMetrics, ProcessMachineGroupInput, group_managed_hosts_by_group_type,
+        nmx_c_endpoint,
     };
     use crate::nvlink::test_support::NmxcSimClient;
 
@@ -3652,30 +3672,27 @@ mod machine_group_tests {
         ];
 
         for (scenario, endpoint_url, expected_reason, expected_machines_scanned) in cases {
-            let mut metrics = NvlPartitionMonitorMetrics::new();
-            let mut pending: Vec<PendingNullNvlinkObservation> = Vec::new();
-            let mut machine_nvlink_info =
-                HashMap::from([(machine_id, machine_nvlink_info.clone())]);
+            let machine_nvlink_info = HashMap::from([(machine_id, machine_nvlink_info.clone())]);
 
-            let completed = monitor
-                .process_nmx_c_partition_monitor_group(
-                    ProcessMachineGroupInput {
-                        group_id: "rack-1",
-                        group_type: nmx_c_endpoint::ManagedHostGroupType::Rack,
-                        snapshots: &rack_snapshots,
-                        endpoint_url,
-                        rack_id: Some(&rack_id),
-                        all_managed_host_snapshots: &all_snapshots,
-                        machine_nvlink_info: &mut machine_nvlink_info,
-                        db_nvl_partitions: &[],
-                        db_nvl_logical_partitions: &[],
-                    },
-                    &mut metrics,
-                    &mut pending,
-                )
+            let GroupResult {
+                completed_operations,
+                null_observations: pending,
+                partial_metrics: metrics,
+            } = monitor
+                .process_nmx_c_partition_monitor_group(ProcessMachineGroupInput {
+                    group_id: "rack-1".to_string(),
+                    group_type: nmx_c_endpoint::ManagedHostGroupType::Rack,
+                    snapshots: &rack_snapshots,
+                    endpoint_url,
+                    rack_id: Some(&rack_id),
+                    all_managed_host_snapshots: &all_snapshots,
+                    machine_nvlink_info,
+                    db_nvl_partitions: &[],
+                    db_nvl_logical_partitions: &[],
+                })
                 .await;
 
-            assert_eq!(completed, 0, "{scenario}");
+            assert_eq!(completed_operations, 0, "{scenario}");
             assert_eq!(
                 metrics.num_machines_scanned, expected_machines_scanned,
                 "{scenario}"
@@ -3739,5 +3756,130 @@ mod machine_group_tests {
         join_set.shutdown().await;
 
         Ok(())
+    }
+
+    #[tokio::test]
+    async fn concurrent_group_results_merge_into_iteration_metrics() {
+        use futures::future;
+
+        use super::{AppliedChange, NmxcMetricOperation, NmxcMetricOperationStatus};
+
+        let applied_create = AppliedChange {
+            operation: NmxcMetricOperation::Create,
+            status: NmxcMetricOperationStatus::Completed,
+        };
+        let domain_a = "domain-a".to_string();
+        let domain_b = "domain-b".to_string();
+
+        let mut metrics_a = NvlPartitionMonitorMetrics::new();
+        metrics_a.num_machines_scanned = 2;
+        metrics_a.num_instances_scanned = 1;
+        metrics_a.applied_changes.insert(applied_create.clone(), 1);
+        metrics_a
+            .nmxc
+            .partition_health
+            .insert((domain_a.clone(), "healthy"), 3);
+        metrics_a
+            .nmxc
+            .gpu_health
+            .insert((domain_a.clone(), "healthy"), 4);
+        metrics_a
+            .nmxc
+            .compute_node_health
+            .insert((domain_a.clone(), "healthy"), 1);
+        metrics_a.nmxc.endpoint = "http://nmxc-a.example:9370".to_string();
+
+        let mut metrics_b = NvlPartitionMonitorMetrics::new();
+        metrics_b.num_machines_scanned = 3;
+        metrics_b.num_instances_scanned = 2;
+        metrics_b.applied_changes.insert(applied_create.clone(), 2);
+        metrics_b
+            .nmxc
+            .partition_health
+            .insert((domain_b.clone(), "healthy"), 5);
+        metrics_b
+            .nmxc
+            .gpu_health
+            .insert((domain_b.clone(), "healthy"), 6);
+        metrics_b
+            .nmxc
+            .compute_node_health
+            .insert((domain_b.clone(), "healthy"), 2);
+        metrics_b.nmxc.endpoint = "http://nmxc-b.example:9370".to_string();
+
+        let machine_c = machine_id(23);
+        let prepared = vec![
+            GroupResult {
+                completed_operations: 2,
+                null_observations: vec![],
+                partial_metrics: metrics_a,
+            },
+            GroupResult {
+                completed_operations: 1,
+                null_observations: vec![],
+                partial_metrics: metrics_b,
+            },
+            GroupResult {
+                completed_operations: 0,
+                null_observations: vec![super::PendingNullNvlinkObservation {
+                    group_id: "CHASSIS-C".to_string(),
+                    group_type: nmx_c_endpoint::ManagedHostGroupType::Chassis,
+                    reason: ChassisNmxCUnreachableReason::NoEndpoint,
+                    machine_ids: vec![machine_c],
+                }],
+                partial_metrics: NvlPartitionMonitorMetrics::new(),
+            },
+        ];
+        let group_results =
+            future::join_all(prepared.into_iter().map(|result| async move { result })).await;
+
+        // Mirror the fan-in fold in run_single_iteration_inner.
+        let mut metrics = NvlPartitionMonitorMetrics::new();
+        metrics.num_logical_partitions = 3;
+        metrics.num_physical_partitions = 1;
+        let mut total_completed_operations = 0;
+        let mut pending_null_observations = Vec::new();
+        for result in group_results {
+            total_completed_operations += result.completed_operations;
+            pending_null_observations.extend(result.null_observations);
+            metrics.merge_from(result.partial_metrics);
+        }
+        metrics.num_completed_operations = total_completed_operations;
+
+        assert_eq!(total_completed_operations, 3);
+        assert_eq!(metrics.num_completed_operations, 3);
+        assert_eq!(metrics.num_machines_scanned, 5);
+        assert_eq!(metrics.num_instances_scanned, 3);
+        assert_eq!(metrics.applied_changes[&applied_create], 3);
+        assert_eq!(
+            metrics.nmxc.partition_health,
+            HashMap::from([
+                ((domain_a.clone(), "healthy"), 3),
+                ((domain_b.clone(), "healthy"), 5),
+            ])
+        );
+        assert_eq!(
+            metrics.nmxc.gpu_health,
+            HashMap::from([
+                ((domain_a.clone(), "healthy"), 4),
+                ((domain_b.clone(), "healthy"), 6),
+            ])
+        );
+        assert_eq!(
+            metrics.nmxc.compute_node_health,
+            HashMap::from([((domain_a, "healthy"), 1), ((domain_b, "healthy"), 2),])
+        );
+        assert_eq!(metrics.nmxc.endpoint, "http://nmxc-b.example:9370");
+        assert_eq!(metrics.num_logical_partitions, 3);
+        assert_eq!(metrics.num_physical_partitions, 1);
+        assert!(metrics.num_nmx_c_unreachable_chassis.is_empty());
+
+        assert_eq!(pending_null_observations.len(), 1);
+        assert_eq!(pending_null_observations[0].group_id, "CHASSIS-C");
+        assert_eq!(
+            pending_null_observations[0].reason,
+            ChassisNmxCUnreachableReason::NoEndpoint
+        );
+        assert_eq!(pending_null_observations[0].machine_ids, vec![machine_c]);
     }
 }

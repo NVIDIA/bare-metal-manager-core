@@ -19,12 +19,14 @@ use std::str::FromStr;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use ::db::DatabaseError;
+use ::db::{DatabaseError, Transaction};
 use config_version::Versioned;
 use model::controller_outcome::PersistentStateHandlerOutcome;
 use opentelemetry::KeyValue;
 use opentelemetry::metrics::{Counter, Histogram, Meter};
+use rand::RngExt;
 use sqlx_query_tracing::SqlxQueryDataAggregation;
+use tokio::task::{JoinError, JoinSet};
 use tokio_util::sync::CancellationToken;
 use tracing::Instrument;
 
@@ -70,16 +72,15 @@ pub(super) struct StateProcessor<IO: StateControllerIO> {
     pub(super) object_metrics: HashMap<IO::ObjectId, CollectedMetrics<IO>>,
     pub(super) cancel_token: CancellationToken,
     pub(super) iteration_config: IterationConfig,
-    /// IDs of objects where the task handler is currently executed
-    pub(super) in_flight: HashSet<IO::ObjectId>,
+    /// Object handling tasks currently executing. Keeping them in a JoinSet ensures
+    /// the processor cannot exit while work it claimed is still running.
+    pub(super) object_tasks: JoinSet<ObjectHandlingTaskResult<IO>>,
     /// Objects where the state handling task was finished but where the entry
     /// in the database has not yet been deleted.
     pub(super) completed_objects: HashSet<IO::ObjectId>,
     /// Objects for which another object handling task should be queued since
     /// the state handler returned `Transition`
     pub(super) requeue_objects: HashSet<IO::ObjectId>,
-    pub(super) task_sender: tokio::sync::mpsc::UnboundedSender<ObjectHandlingTaskResult<IO>>,
-    pub(super) task_receiver: tokio::sync::mpsc::UnboundedReceiver<ObjectHandlingTaskResult<IO>>,
     /// The last time a log message had been emitted
     pub(super) last_log_time: std::time::Instant,
     /// The last time aggregate metrics had been emitted
@@ -145,12 +146,12 @@ impl<IO: StateControllerIO> StateProcessor<IO> {
     /// Runs the state handler task repeatedly, while waiting for the configured
     /// amount of time between runs.
     ///
-    /// The controller task will continue to run until `stop_receiver` was signaled
+    /// The controller task will continue to run until `self.cancel_token` is cancelled.
     pub(super) async fn run(mut self) {
         let dispatch_interval = self.iteration_config.processor_dispatch_interval;
         let max_jitter = (dispatch_interval.as_millis() / 3) as u64;
 
-        loop {
+        while !self.cancel_token.is_cancelled() {
             let start = Instant::now();
             let jitter = if max_jitter > 0 {
                 rand::rng().random::<u64>() % max_jitter
@@ -176,34 +177,24 @@ impl<IO: StateControllerIO> StateProcessor<IO> {
             // The iteration might not have used up all of dispatch_interval in case
             // all dispatched tasks finished earlier. In this case we wait the configured
             // time before the next dispatch.
-            use rand::RngExt;
-            let sleep_time = next_dispatch_at.saturating_duration_since(std::time::Instant::now());
-            if !sleep_time.is_zero() {
-                let cancelled_future = self.cancel_token.cancelled();
-                tokio::pin!(cancelled_future);
-                tokio::select! {
-                        biased;
-                    _ = &mut cancelled_future => {
-                        tracing::info!(controller=IO::LOG_SPAN_CONTROLLER_NAME, "State processor stop was requested");
-                        return;
-                    }
-                    _ = tokio::time::sleep(sleep_time) => {},
-                }
-            } else if self.cancel_token.is_cancelled() {
-                tracing::info!(
-                    controller = IO::LOG_SPAN_CONTROLLER_NAME,
-                    "State processor stop was requested"
-                );
-                return;
-            }
+            self.cancel_token
+                .run_until_cancelled(tokio::time::sleep_until(next_dispatch_at.into()))
+                .await;
         }
+
+        tracing::info!(
+            controller = IO::LOG_SPAN_CONTROLLER_NAME,
+            "State processor stop was requested"
+        );
+
+        self.drain().await;
     }
 
     /// Calculates how many additional object handling tasks can be spawned
     fn remaining_capacity(&self) -> usize {
         self.iteration_config
             .max_concurrency
-            .saturating_sub(self.in_flight.len())
+            .saturating_sub(self.object_tasks.len())
     }
 
     /// Performs a single state processor iteration.
@@ -239,14 +230,8 @@ impl<IO: StateControllerIO> StateProcessor<IO> {
                 )
                 .await;
 
-            // Delete the DB entries for tasks which finished in `wait_and_process_object_handling_task_completions`.
-            self.cleanup_completed_objects().await?;
-
-            // Schedule handler again for objects which transitioned.
-            // We queue them using the latest iteration_id.
-            // This needs to happen after `cleanup_completed_objects` to remove
-            // the old entries from the DB first.
-            self.requeue_transitioned_objects().await?;
+            // Delete the DB entries for tasks which finished in `wait_and_process_all_object_tasks`.
+            self.finalize_completed_objects().await?;
 
             self.emit_metrics_if_necessary();
             self.emit_periodic_log_if_necessary();
@@ -334,7 +319,7 @@ impl<IO: StateControllerIO> StateProcessor<IO> {
 
         tracing::info!(
             controller = IO::LOG_SPAN_CONTROLLER_NAME,
-            in_flight_task_count = self.in_flight.len(),
+            in_flight_task_count = self.object_tasks.len(),
             completed_task_count = stats.num_completed_tasks,
             dispatched_task_count = stats.num_dispatched_tasks,
             requeued_object_count = stats.num_requeued_objects,
@@ -348,40 +333,52 @@ impl<IO: StateControllerIO> StateProcessor<IO> {
         );
     }
 
-    /// Waits for object handling tasks to finish
+    /// Processes and returns all finished object handling tasks. Will wait until at least one
+    /// task is completed, if all of them are still running.
     ///
-    /// The function will return if all in-flight tasks have been completed and additional waiting is unnecessary.
-    /// In addition, `max_duration` can be used to specify how long to wait for completions.
+    /// This function waits on a *single* task, rather than every task, so that in the common case,
+    /// it does not need to block at all, but simply reports on what tasks have completed since the
+    /// last iteration. For example:
     ///
-    /// Returns the amount of task completions
+    /// - Iteration 1: 100 tasks are running, wait for the first one to finish, return only that one
+    /// - Iteration 2: 1 new task is dequeued (bringing the total to 100 again), 50 of the tasks are
+    //    now complete from the last iteration. Return 50 completed tasks, not blocking.
+    /// - Iteration 3: 50 new tasks are dequeued, another 25 tasks are now completed from iteration
+    ///   2. Return 25 completed tasks, not blocking.
+    /// - Iteration 4: 25 tasks are enqueued, another 25 tasks are completed from iteration 3.
+    ///   Return 25 completed tasks, not blocking, etc.
+    ///
+    /// If we waited for every task in iteration 2, it would take longer for iteration 3 to begin,
+    /// and tasks would have to wait longer to be dequeued.
+    ///
+    /// The function will return if all in-flight tasks have been completed and additional waiting
+    /// is unnecessary. In addition, `max_duration` can be used to specify how long to wait for
+    /// the first completion.
+    ///
+    /// Returns the amount of tasks completed.
     async fn wait_and_process_object_handling_task_completions(
         &mut self,
         max_duration: std::time::Duration,
         allow_requeue: bool,
     ) -> usize {
-        // Don't wait if there's nothing to do.
-        if self.in_flight.is_empty() {
-            return 0;
-        }
-
-        let mut finished_tasks: Vec<_> = Vec::with_capacity(self.in_flight.len());
-        let finished_tasks_capacity = finished_tasks.capacity();
-        let mut total_completions = 0;
-
-        tokio::select! {
-            biased;
-            num_received = self.task_receiver.recv_many(&mut finished_tasks, finished_tasks_capacity) => {
-                let now = std::time::Instant::now();
-                for _ in 0 .. num_received {
-                    let finished_task = finished_tasks.pop().expect("Object handling task finished");
-                    self.process_object_handling_task_result(finished_task, allow_requeue, now);
-                    total_completions += 1;
+        let total_completions =
+            match tokio::time::timeout(max_duration, self.object_tasks.join_many()).await {
+                Ok(results) => {
+                    let now = Instant::now();
+                    let count = results.len();
+                    for result in results {
+                        self.process_object_handling_task_result(result, allow_requeue, now);
+                    }
+                    count
                 }
-            }
-            _ = tokio::time::sleep(max_duration) => {
-                tracing::error!(in_flight_task_count = self.in_flight.len(), "Timed out waiting for state controller object handling tasks to complete")
-            }
-        };
+                Err(_) => {
+                    tracing::error!(
+                        in_flight_task_count = self.object_tasks.len(),
+                        "Timed out waiting for state controller object handling tasks to complete"
+                    );
+                    0
+                }
+            };
 
         if total_completions > 0
             && let Some(emitter) = &self.metric_emitter
@@ -443,8 +440,7 @@ impl<IO: StateControllerIO> StateProcessor<IO> {
 
         // Send off the new objects for processing
         for object_id in objects {
-            self.dispatch_object_handling_task(object_id.clone());
-            self.in_flight.insert(object_id);
+            self.dispatch_object_handling_task(object_id);
         }
 
         if let Some(emitter) = &self.metric_emitter
@@ -469,9 +465,8 @@ impl<IO: StateControllerIO> StateProcessor<IO> {
         let metrics_emitter = self.metric_holder.emitter.clone();
         let state_change_emitter = self.state_change_emitter.clone();
         let per_object_state = self.per_object_state.clone();
-        let result_sender = self.task_sender.clone();
-
-        let _join_handle = tokio::task::Builder::new()
+        self.object_tasks
+            .build_task()
             .name(&format!("state_processor {object_id}"))
             .spawn(
                 async move {
@@ -488,15 +483,9 @@ impl<IO: StateControllerIO> StateProcessor<IO> {
                     )
                     .await;
 
-                    if let Err(e) = result_sender.send(ObjectHandlingTaskResult {
+                    ObjectHandlingTaskResult {
                         object_id: cloned_object_id,
                         metrics,
-                    }) {
-                        tracing::error!(
-                            object_id = %e.0.object_id,
-                            error = %e,
-                            "Can't send result back to StateProcessor"
-                        );
                     }
                 }
                 .in_current_span(),
@@ -504,7 +493,7 @@ impl<IO: StateControllerIO> StateProcessor<IO> {
             .expect("Expect task to spawn");
     }
 
-    async fn cleanup_completed_objects(&mut self) -> Result<(), IterationError> {
+    async fn finalize_completed_objects(&mut self) -> Result<(), DatabaseError> {
         if self.completed_objects.is_empty() {
             return Ok(());
         }
@@ -514,7 +503,13 @@ impl<IO: StateControllerIO> StateProcessor<IO> {
             .iter()
             .map(|id| id.to_string())
             .collect();
-        let mut txn = self.pool.begin().await?;
+        let queue_objects: Vec<String> = self
+            .requeue_objects
+            .iter()
+            .map(|id| id.to_string())
+            .collect();
+
+        let mut txn = Transaction::begin(&self.pool).await?;
         let num_deleted = db::delete_queued_objects(
             &mut txn,
             IO::DB_QUEUED_OBJECTS_TABLE_NAME,
@@ -522,6 +517,8 @@ impl<IO: StateControllerIO> StateProcessor<IO> {
             &self.processor_id,
         )
         .await?;
+        let num_requeued =
+            db::queue_objects(&mut txn, IO::DB_QUEUED_OBJECTS_TABLE_NAME, &queue_objects).await?;
         txn.commit().await?;
 
         test_assert!(
@@ -530,29 +527,11 @@ impl<IO: StateControllerIO> StateProcessor<IO> {
         );
 
         self.stats_since_last_log.num_deleted_queued_objects += num_deleted;
-        self.completed_objects.clear();
-        Ok(())
-    }
-
-    async fn requeue_transitioned_objects(&mut self) -> Result<(), IterationError> {
-        if self.requeue_objects.is_empty() {
-            return Ok(());
-        }
-
-        let queue_objects: Vec<String> = self
-            .requeue_objects
-            .iter()
-            .map(|id| id.to_string())
-            .collect();
-        let mut txn = self.pool.begin().await?;
-        let num_requeued =
-            db::queue_objects(&mut txn, IO::DB_QUEUED_OBJECTS_TABLE_NAME, &queue_objects).await?;
-        txn.commit().await?;
-
         self.stats_since_last_log.num_requeued_objects += num_requeued;
         if let Some(emitter) = &self.metric_emitter {
             emitter.requeued_tasks_counter.add(num_requeued as u64, &[]);
         }
+        self.completed_objects.clear();
         self.requeue_objects.clear();
         Ok(())
     }
@@ -586,13 +565,47 @@ impl<IO: StateControllerIO> StateProcessor<IO> {
             }
         }
 
-        self.in_flight.remove(&task_result.object_id);
         self.object_metrics.insert(
             task_result.object_id.clone(),
             CollectedMetrics {
                 metrics: task_result.metrics,
                 collected_at,
             },
+        );
+    }
+
+    /// Waits for all work already claimed by this processor and finalizes its
+    /// queue entries. No new queue rows are acquired after draining begins.
+    async fn drain(&mut self) {
+        tracing::info!(
+            controller = IO::LOG_SPAN_CONTROLLER_NAME,
+            in_flight_task_count = self.object_tasks.len(),
+            "State processor draining"
+        );
+
+        // wait_and_process_object_handling_task_completions returns all completed tasks, returns
+        // once a single task is complete. Run it until all tasks are done. Nothing can enqueue
+        // items to self.object_tasks while this is happening (we're borrowing &mut self), so this
+        // is guaranteed to terminate eventually.
+        while !self.object_tasks.is_empty() {
+            self.wait_and_process_object_handling_task_completions(Duration::MAX, true)
+                .await;
+        }
+
+        if let Err(error) = self.finalize_completed_objects().await {
+            // This only happens if there's a database error, nothing we can really do here.
+            tracing::error!(
+                controller = IO::LOG_SPAN_CONTROLLER_NAME,
+                error = %error,
+                completed_task_count = self.completed_objects.len(),
+                "Failed to finalize completed objects while draining"
+            );
+        }
+
+        self.emit_metrics();
+        tracing::info!(
+            controller = IO::LOG_SPAN_CONTROLLER_NAME,
+            "State processor drained"
         );
     }
 }
@@ -701,8 +714,8 @@ async fn process_object<IO: StateControllerIO>(
         let mut next_state_entered_at = None;
         let mut next_state_sla = None;
         if let Ok(StateHandlerOutcome::Transition {
-            next_state: next, ..
-        }) = &handler_outcome
+                      next_state: next, ..
+                  }) = &handler_outcome
         {
             next_state = Some(next.clone());
 
@@ -789,7 +802,7 @@ async fn process_object<IO: StateControllerIO>(
 
         handler_outcome
     })
-    .await;
+        .await;
     metrics.common.handler_latency = start.elapsed();
 
     // Emit the state changed event to registered hooks
@@ -1017,4 +1030,37 @@ fn emit_object_metrics_as_log<IO: StateControllerIO>(iteration_metrics: &Iterati
         %error_types,
         "State controller object metrics"
     );
+}
+
+trait JoinMany<T> {
+    /// Get all completed futures in this [`JoinSet`], blocking until at least one future completes.
+    /// Differs from [`JoinSet::join_next`] in that it will return all completed futures, not just
+    /// one. Differs from [`JoinSet::join_all`] in that it will wait for a maximum of one future to
+    /// complete, returning even if other futures in the set are still running.
+    ///
+    /// It will also panic on any [`JoinError`], identically to how [`JoinSet::join_all`] behaves.
+    fn join_many(&mut self) -> impl Future<Output = Vec<T>>;
+}
+
+impl<T: 'static> JoinMany<T> for JoinSet<T> {
+    async fn join_many(&mut self) -> Vec<T> {
+        let unwrap_join_error = |result: Option<Result<T, JoinError>>| match result {
+            Some(Ok(result)) => Some(result),
+            Some(Err(error)) if error.is_panic() => std::panic::resume_unwind(error.into_panic()),
+            // Safety: this only happens if the task was aborted with [`JoinHandle::abort`] or
+            // [`JoinSet::abort_all`], in which case we should panic.
+            Some(Err(error)) => panic!("{error}"),
+            None => None,
+        };
+
+        if let Some(result) = unwrap_join_error(self.join_next().await) {
+            let mut results = vec![result];
+            while let Some(result) = unwrap_join_error(self.try_join_next()) {
+                results.push(result);
+            }
+            results
+        } else {
+            vec![]
+        }
+    }
 }

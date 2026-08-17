@@ -37,16 +37,18 @@ pub struct DpuMachineUpdate {
     pub dpf_managed: bool,
 }
 
-/// A DPU identified via DPF whose installed BFB no longer matches the
-/// expected one. Produced by the DPF query layer and joined to host snapshots
-/// by [`DpuMachineUpdate::find_outdated_dpus_dpf`].
+/// A DPU identified via DPF whose installed BFB or BlueFieldSoftware no longer
+/// matches the expected one. Produced by the DPF query layer and joined to host
+/// snapshots by [`DpuMachineUpdate::find_outdated_dpus_dpf`].
 #[derive(Debug, Clone)]
 pub struct OutdatedDpfDpu {
     pub dpu_machine_id: MachineId,
-    /// Expected BFB filename (e.g. `dpf-operator-system-bf-bundle-<hash>.bfb`).
-    /// Used as the `firmware_version` field for traceability when this DPU is
-    /// turned into a [`DpuMachineUpdate`].
-    pub target_bfb: String,
+    /// Expected provisioning source: a BFB filename (e.g.
+    /// `dpf-operator-system-bf-bundle-<hash>.bfb`) or a BlueFieldSoftware CR
+    /// name, depending on which one the owning DPUDeployment declares. Used as
+    /// the `firmware_version` field for traceability when this DPU is turned
+    /// into a [`DpuMachineUpdate`].
+    pub target_source: String,
 }
 
 impl DpuMachineUpdate {
@@ -190,7 +192,7 @@ impl DpuMachineUpdate {
             by_host.entry(host_id).or_default().push(DpuMachineUpdate {
                 host_machine_id: host_id,
                 dpu_machine_id: outdated.dpu_machine_id,
-                firmware_version: outdated.target_bfb.clone(),
+                firmware_version: outdated.target_source.clone(),
                 dpf_managed: true,
             });
         }

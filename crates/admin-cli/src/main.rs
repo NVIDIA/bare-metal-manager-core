@@ -17,6 +17,7 @@
 
 // CLI enums variants can be rather large, we are ok with that.
 #![allow(clippy::large_enum_variant)]
+#![cfg_attr(not(test), deny(dead_code_pub_in_binary))]
 
 use std::fs::File;
 use std::io::Write;
@@ -107,6 +108,7 @@ mod scout_stream;
 mod secrets;
 mod set;
 mod site_explorer;
+mod site_prefix;
 mod sku;
 mod spx_partition;
 mod ssh;
@@ -277,6 +279,7 @@ async fn main() -> color_eyre::Result<()> {
         CliCommand::Set(cmd) => cmd.dispatch(ctx).await?,
         CliCommand::Ssh(cmd) => cmd.dispatch(ctx).await?,
         CliCommand::SiteExplorer(cmd) => cmd.dispatch(ctx).await?,
+        CliCommand::SitePrefix(cmd) => cmd.dispatch(ctx).await?,
         CliCommand::Sku(cmd) => cmd.dispatch(ctx).await?,
         CliCommand::Switch(cmd) => cmd.dispatch(ctx).await?,
         CliCommand::Tenant(cmd) => cmd.dispatch(ctx).await?,

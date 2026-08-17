@@ -35,7 +35,9 @@ use model::component_manager::{
     ComputeTrayComponent, ConfigureSwitchCertificateState, FirmwareState, NvSwitchComponent,
     PowerAction, PowerShelfComponent,
 };
-use model::rack_type::{RackProfile, RackProfileConfig};
+use model::rack_type::{RackHardwareTopology, RackProfile, RackProfileConfig};
+use model::switch::{FabricManagerState, FabricManagerStatus};
+use serde::Deserialize;
 use sqlx::PgPool;
 use tracing::instrument;
 
@@ -47,9 +49,10 @@ use crate::config::ComponentManagerConfig;
 use crate::error::ComponentManagerError;
 use crate::nv_switch_manager::{
     Backend as NvSwitchBackend, ConfigureSwitchCertificateJobStatus, NvSwitchManager,
-    SwitchComponentResult, SwitchEndpoint, SwitchFactoryResetJobStatus, SwitchFactoryResetState,
-    SwitchFirmwareUpdateStatus, SwitchPasswordRotationState, SwitchPowerStateResult,
-    SwitchSlotAndTrayResult,
+    ScaleUpFabricManagerJobStatus, ScaleUpFabricResponseStatus, ScaleUpFabricServiceStatuses,
+    ScaleUpFabricStatus, ScaleUpFabricSwitchStatus, SwitchComponentResult, SwitchEndpoint,
+    SwitchFactoryResetJobStatus, SwitchFactoryResetState, SwitchFirmwareUpdateStatus,
+    SwitchPasswordRotationState, SwitchPowerStateResult, SwitchSlotAndTrayResult,
 };
 use crate::power_shelf_manager::{
     Backend as PowerShelfBackend, PowerShelfComponentResult, PowerShelfEndpoint,
@@ -268,6 +271,34 @@ impl RmsBackend {
             identity: &identity.identity,
             node_identity,
         })
+    }
+
+    async fn resolve_scale_up_fabric_nodes(
+        &self,
+        endpoints: &[SwitchEndpoint],
+    ) -> Result<Vec<rms::NodeInfo>, ComponentManagerError> {
+        let macs: Vec<MacAddress> = endpoints.iter().map(|endpoint| endpoint.bmc_mac).collect();
+        let identities = resolve_switch_identities(&self.db, &macs).await?;
+        let hostnames = resolve_switch_machine_interface_hostnames(&self.db, endpoints).await?;
+        let mut nodes = Vec::with_capacity(endpoints.len());
+
+        for endpoint in endpoints {
+            let resolved = self
+                .resolve_switch_or_power_shelf_node(
+                    &identities,
+                    endpoint.bmc_mac,
+                    SwitchOrPowerShelfRole::Switch,
+                )
+                .map_err(ComponentManagerError::Internal)?;
+
+            nodes.push(build_switch_node_info(
+                endpoint,
+                &resolved,
+                hostnames.get(&endpoint.nvos_mac).cloned(),
+            ));
+        }
+
+        Ok(nodes)
     }
 }
 
@@ -1445,6 +1476,161 @@ fn classify_rms_switch_slot_and_tray(
     }
 }
 
+fn scale_up_fabric_response_status_from_rms(status: i32) -> ScaleUpFabricResponseStatus {
+    match rms::ReturnCode::try_from(status) {
+        Ok(rms::ReturnCode::Success) => ScaleUpFabricResponseStatus::Success,
+        Ok(rms::ReturnCode::Failure) => ScaleUpFabricResponseStatus::Failure,
+        Ok(rms::ReturnCode::Unspecified) | Err(_) => ScaleUpFabricResponseStatus::Unknown(status),
+    }
+}
+
+fn scale_up_fabric_job_status_from_rms(
+    job_id: &str,
+    response: rms::GetJobStatusResponse,
+) -> Option<ScaleUpFabricManagerJobStatus> {
+    let job = response
+        .job_states
+        .into_iter()
+        .find(|job| job.job_id == job_id)?;
+
+    Some(
+        match rms::JobExecutionState::try_from(job.execution_state) {
+            Ok(rms::JobExecutionState::Queued | rms::JobExecutionState::Running) => {
+                ScaleUpFabricManagerJobStatus::Pending {
+                    description: job.state_description,
+                }
+            }
+            Ok(rms::JobExecutionState::Completed) => ScaleUpFabricManagerJobStatus::Completed,
+            Ok(rms::JobExecutionState::Failed) => ScaleUpFabricManagerJobStatus::Failed {
+                error: (!job.error_message.trim().is_empty()).then_some(job.error_message),
+            },
+            Ok(rms::JobExecutionState::Unspecified) | Err(_) => {
+                ScaleUpFabricManagerJobStatus::Unknown {
+                    execution_state: job.execution_state,
+                }
+            }
+        },
+    )
+}
+
+fn scale_up_fabric_status_from_rms(
+    response: rms::GetScaleUpFabricStatusResponse,
+) -> ScaleUpFabricStatus {
+    ScaleUpFabricStatus {
+        status: scale_up_fabric_response_status_from_rms(response.status),
+        switches: response.fabric_status.map(|status| {
+            status
+                .switches
+                .into_iter()
+                .map(|switch| ScaleUpFabricSwitchStatus {
+                    node_id: switch.node_id,
+                    enabled: switch.enabled,
+                    error_message: switch.error_message,
+                })
+                .collect()
+        }),
+        error_message: response.error_message,
+    }
+}
+
+fn scale_up_fabric_manager_job_id_from_rms(
+    response: rms_v2::ConfigureScaleUpFabricManagerResponse,
+) -> Result<String, ComponentManagerError> {
+    if response.job_id.trim().is_empty() {
+        return Err(ComponentManagerError::OperationOutcomeUnknown(
+            "RMS ConfigureScaleUpFabricManagerV2 returned an empty job ID".to_string(),
+        ));
+    }
+
+    Ok(response.job_id)
+}
+
+#[derive(Debug, Deserialize)]
+struct RmsFabricManagerStatusPayload {
+    status: Option<String>,
+    #[serde(rename = "addition-info")]
+    addition_info: Option<String>,
+    reason: Option<String>,
+}
+
+fn fabric_manager_status_from_rms(
+    node_id: &str,
+    entry: rms::ScaleUpFabricServiceStatusEntry,
+) -> FabricManagerStatus {
+    // A per-switch RMS error is authoritative; its JSON may be absent or stale.
+    if !entry.error_message.trim().is_empty() {
+        return FabricManagerStatus {
+            fabric_manager_state: FabricManagerState::Unknown,
+            addition_info: None,
+            reason: None,
+            error_message: Some(entry.error_message),
+        };
+    }
+
+    if entry.status_json.trim().is_empty() {
+        return FabricManagerStatus {
+            fabric_manager_state: FabricManagerState::Unknown,
+            addition_info: None,
+            reason: None,
+            error_message: None,
+        };
+    }
+
+    let status_json =
+        match serde_json::from_str::<RmsFabricManagerStatusPayload>(&entry.status_json) {
+            Ok(status_json) => status_json,
+            Err(error) => {
+                tracing::warn!(
+                    switch_id = %node_id,
+                    %error,
+                    status_json = %entry.status_json,
+                    "Failed to parse RMS fabric-manager status JSON"
+                );
+
+                return FabricManagerStatus {
+                    fabric_manager_state: FabricManagerState::Unknown,
+                    addition_info: None,
+                    reason: None,
+                    error_message: None,
+                };
+            }
+        };
+
+    let fabric_manager_state = match status_json.status.as_deref().unwrap_or_default() {
+        "ok" => FabricManagerState::Ok,
+        "not ok" => FabricManagerState::NotOk,
+        _ => FabricManagerState::Unknown,
+    };
+
+    FabricManagerStatus {
+        fabric_manager_state,
+        addition_info: status_json.addition_info,
+        reason: status_json.reason,
+        error_message: None,
+    }
+}
+
+/// Converts an RMS Fabric Manager service response into typed controller observations.
+///
+/// The RMS-backed V1 and V2 workflows share this conversion so both persist
+/// identical service state. Aggregate statistics are not used by the controller
+/// and are discarded.
+pub fn scale_up_fabric_service_statuses_from_rms(
+    response: rms::BatchGetScaleUpFabricServiceStatusResponse,
+) -> ScaleUpFabricServiceStatuses {
+    ScaleUpFabricServiceStatuses {
+        status: scale_up_fabric_response_status_from_rms(response.status),
+        service_statuses: response
+            .service_statuses
+            .into_iter()
+            .map(|(node_id, status)| {
+                let observation = fabric_manager_status_from_rms(&node_id, status);
+                (node_id, observation)
+            })
+            .collect(),
+    }
+}
+
 #[async_trait::async_trait]
 impl NvSwitchManager for RmsBackend {
     fn name(&self) -> &str {
@@ -1988,65 +2174,101 @@ impl NvSwitchManager for RmsBackend {
         rms_get_switch_factory_reset_job_status(self.client.as_ref(), job_id).await
     }
 
-    #[instrument(skip(self, request), fields(backend = "rms"))]
-    async fn configure_scale_up_fabric_manager_v2(
+    #[instrument(skip(self, endpoints, topology), fields(backend = "rms"))]
+    async fn configure_scale_up_fabric_manager(
         &self,
-        request: rms_v2::ConfigureScaleUpFabricManagerRequest,
-    ) -> Result<rms_v2::ConfigureScaleUpFabricManagerResponse, ComponentManagerError> {
-        red::instrumented(
+        endpoints: &[SwitchEndpoint],
+        topology: RackHardwareTopology,
+    ) -> Result<String, ComponentManagerError> {
+        let nodes = self.resolve_scale_up_fabric_nodes(endpoints).await?;
+
+        let response = red::instrumented(
             "rms",
             "configure_scale_up_fabric_manager_v2",
-            self.client.configure_scale_up_fabric_manager_v2(request),
+            self.client.configure_scale_up_fabric_manager_v2(
+                rms_v2::ConfigureScaleUpFabricManagerRequest {
+                    nodes: Some(rms::NodeSet { nodes }),
+                    // RMS selects the V2 primary across the supplied fabric.
+                    primary_switch_node_id: None,
+                    domain: None,
+                    config: Some(rms_v2::ScaleUpFabricConfig {
+                        topology_type: topology.to_string(),
+                        extra_static_configs: Vec::new(),
+                    }),
+                },
+            ),
         )
-        .await
-        .map_err(Into::into)
+        .await?;
+
+        scale_up_fabric_manager_job_id_from_rms(response)
     }
 
-    #[instrument(skip(self, request), fields(backend = "rms"))]
+    #[instrument(skip(self), fields(backend = "rms", job_id))]
     async fn get_scale_up_fabric_manager_job_status(
         &self,
-        request: rms::GetJobStatusRequest,
-    ) -> Result<rms::GetJobStatusResponse, ComponentManagerError> {
-        match red::instrumented("rms", "get_job_status", self.client.get_job_status(request)).await
+        job_id: &str,
+    ) -> Result<Option<ScaleUpFabricManagerJobStatus>, ComponentManagerError> {
+        let response = match red::instrumented(
+            "rms",
+            "get_job_status",
+            self.client.get_job_status(rms::GetJobStatusRequest {
+                job_id: job_id.to_string(),
+                include_child_job_states: false,
+            }),
+        )
+        .await
         {
             Err(RackManagerError::ApiInvocationError(status))
                 if status.code() == tonic::Code::NotFound =>
             {
-                Err(ComponentManagerError::NotFound(
-                    "scale-up fabric manager job was not found".to_string(),
-                ))
+                return Ok(None);
             }
-            result => result.map_err(Into::into),
-        }
+            result => result?,
+        };
+
+        Ok(scale_up_fabric_job_status_from_rms(job_id, response))
     }
 
-    #[instrument(skip(self, request), fields(backend = "rms"))]
+    #[instrument(skip(self, endpoints), fields(backend = "rms"))]
     async fn get_scale_up_fabric_status(
         &self,
-        request: rms::GetScaleUpFabricStatusRequest,
-    ) -> Result<rms::GetScaleUpFabricStatusResponse, ComponentManagerError> {
-        red::instrumented(
+        endpoints: &[SwitchEndpoint],
+    ) -> Result<ScaleUpFabricStatus, ComponentManagerError> {
+        let nodes = self.resolve_scale_up_fabric_nodes(endpoints).await?;
+
+        let response = red::instrumented(
             "rms",
             "get_scale_up_fabric_status",
-            self.client.get_scale_up_fabric_status(request),
+            self.client
+                .get_scale_up_fabric_status(rms::GetScaleUpFabricStatusRequest {
+                    nodes: Some(rms::NodeSet { nodes }),
+                    domain: None,
+                }),
         )
-        .await
-        .map_err(Into::into)
+        .await?;
+
+        Ok(scale_up_fabric_status_from_rms(response))
     }
 
-    #[instrument(skip(self, request), fields(backend = "rms"))]
+    #[instrument(skip(self, endpoints), fields(backend = "rms"))]
     async fn batch_get_scale_up_fabric_service_status(
         &self,
-        request: rms::BatchGetScaleUpFabricServiceStatusRequest,
-    ) -> Result<rms::BatchGetScaleUpFabricServiceStatusResponse, ComponentManagerError> {
-        red::instrumented(
+        endpoints: &[SwitchEndpoint],
+    ) -> Result<ScaleUpFabricServiceStatuses, ComponentManagerError> {
+        let nodes = self.resolve_scale_up_fabric_nodes(endpoints).await?;
+
+        let response = red::instrumented(
             "rms",
             "batch_get_scale_up_fabric_service_status",
-            self.client
-                .batch_get_scale_up_fabric_service_status(request),
+            self.client.batch_get_scale_up_fabric_service_status(
+                rms::BatchGetScaleUpFabricServiceStatusRequest {
+                    nodes: Some(rms::NodeSet { nodes }),
+                },
+            ),
         )
-        .await
-        .map_err(Into::into)
+        .await?;
+
+        Ok(scale_up_fabric_service_statuses_from_rms(response))
     }
 
     #[instrument(skip(self, endpoint, next_password), fields(backend = "rms", bmc_mac = %endpoint.bmc_mac))]
@@ -3129,6 +3351,219 @@ mod tests {
             ],
             |details| classify_rms_switch_slot_and_tray(details.as_ref()),
         );
+    }
+
+    #[test]
+    fn scale_up_fabric_response_status_preserves_unknown_codes() {
+        value_scenarios!(scale_up_fabric_response_status_from_rms:
+            "known codes" {
+                rms::ReturnCode::Success as i32 => ScaleUpFabricResponseStatus::Success,
+                rms::ReturnCode::Failure as i32 => ScaleUpFabricResponseStatus::Failure,
+            }
+
+            "unknown codes" {
+                rms::ReturnCode::Unspecified as i32 => ScaleUpFabricResponseStatus::Unknown(
+                    rms::ReturnCode::Unspecified as i32,
+                ),
+                17 => ScaleUpFabricResponseStatus::Unknown(17),
+            }
+        );
+    }
+
+    #[test]
+    fn scale_up_fabric_job_status_maps_lifecycle_and_visibility() {
+        let response = |job_id: &str,
+                        execution_state: i32,
+                        description: &str,
+                        error_message: &str| rms::GetJobStatusResponse {
+            job_states: vec![rms::JobStatus {
+                job_id: job_id.to_string(),
+                execution_state,
+                state_description: description.to_string(),
+                error_message: error_message.to_string(),
+                ..Default::default()
+            }],
+        };
+
+        value_scenarios!(run = |response| scale_up_fabric_job_status_from_rms("job-1", response);
+            "job visibility" {
+                rms::GetJobStatusResponse::default() => None,
+                response("other-job", rms::JobExecutionState::Completed as i32, "", "") => None,
+            }
+
+            "pending jobs" {
+                response("job-1", rms::JobExecutionState::Queued as i32, "queued", "")
+                    => Some(ScaleUpFabricManagerJobStatus::Pending {
+                        description: "queued".to_string(),
+                    }),
+                response("job-1", rms::JobExecutionState::Running as i32, "reconciling", "")
+                    => Some(ScaleUpFabricManagerJobStatus::Pending {
+                        description: "reconciling".to_string(),
+                    }),
+            }
+
+            "terminal jobs" {
+                response("job-1", rms::JobExecutionState::Completed as i32, "", "")
+                    => Some(ScaleUpFabricManagerJobStatus::Completed),
+                response("job-1", rms::JobExecutionState::Failed as i32, "", "")
+                    => Some(ScaleUpFabricManagerJobStatus::Failed { error: None }),
+                response("job-1", rms::JobExecutionState::Failed as i32, "", "fabric rejected")
+                    => Some(ScaleUpFabricManagerJobStatus::Failed {
+                        error: Some("fabric rejected".to_string()),
+                    }),
+            }
+
+            "unknown states" {
+                response("job-1", rms::JobExecutionState::Unspecified as i32, "", "")
+                    => Some(ScaleUpFabricManagerJobStatus::Unknown {
+                        execution_state: rms::JobExecutionState::Unspecified as i32,
+                    }),
+                response("job-1", 17, "", "")
+                    => Some(ScaleUpFabricManagerJobStatus::Unknown { execution_state: 17 }),
+            }
+        );
+    }
+
+    #[test]
+    fn scale_up_fabric_status_conversion_keeps_required_controller_data() {
+        let status = scale_up_fabric_status_from_rms(rms::GetScaleUpFabricStatusResponse {
+            status: rms::ReturnCode::Success as i32,
+            fabric_status: Some(rms::ScaleUpFabricStatus {
+                switches: vec![rms::ScaleUpFabricSwitchStatus {
+                    node_id: "switch-1".to_string(),
+                    enabled: true,
+                    error_message: "inspection warning".to_string(),
+                    ..Default::default()
+                }],
+                ..Default::default()
+            }),
+            error_message: "response warning".to_string(),
+        });
+
+        assert_eq!(
+            status,
+            ScaleUpFabricStatus {
+                status: ScaleUpFabricResponseStatus::Success,
+                switches: Some(vec![ScaleUpFabricSwitchStatus {
+                    node_id: "switch-1".to_string(),
+                    enabled: true,
+                    error_message: "inspection warning".to_string(),
+                }]),
+                error_message: "response warning".to_string(),
+            }
+        );
+
+        assert_eq!(
+            scale_up_fabric_status_from_rms(rms::GetScaleUpFabricStatusResponse {
+                status: rms::ReturnCode::Success as i32,
+                fabric_status: None,
+                error_message: String::new(),
+            })
+            .switches,
+            None
+        );
+    }
+
+    #[test]
+    fn scale_up_fabric_service_status_conversion_normalizes_rms_payloads() {
+        let entry = |status_json: &str, error_message: &str| rms::ScaleUpFabricServiceStatusEntry {
+            status_json: status_json.to_string(),
+            error_message: error_message.to_string(),
+        };
+
+        let status = |fabric_manager_state,
+                      addition_info: Option<&str>,
+                      reason: Option<&str>,
+                      error_message: Option<&str>| FabricManagerStatus {
+            fabric_manager_state,
+            addition_info: addition_info.map(str::to_string),
+            reason: reason.map(str::to_string),
+            error_message: error_message.map(str::to_string),
+        };
+
+        check_values(
+            [
+                Check {
+                    scenario: "ok preserves service details",
+                    input: entry(
+                        r#"{"addition-info":"CONTROL_PLANE_STATE_CONFIGURED","reason":"","status":"ok"}"#,
+                        "",
+                    ),
+                    expect: status(
+                        FabricManagerState::Ok,
+                        Some("CONTROL_PLANE_STATE_CONFIGURED"),
+                        Some(""),
+                        None,
+                    ),
+                },
+                Check {
+                    scenario: "not ok preserves service details",
+                    input: entry(
+                        r#"{"addition-info":"","reason":"stopped by user","status":"not ok"}"#,
+                        "",
+                    ),
+                    expect: status(
+                        FabricManagerState::NotOk,
+                        Some(""),
+                        Some("stopped by user"),
+                        None,
+                    ),
+                },
+                Check {
+                    scenario: "unknown status keeps available details",
+                    input: entry(
+                        r#"{"addition-info":"pending","reason":"new RMS state","status":"unexpected"}"#,
+                        "",
+                    ),
+                    expect: status(
+                        FabricManagerState::Unknown,
+                        Some("pending"),
+                        Some("new RMS state"),
+                        None,
+                    ),
+                },
+                Check {
+                    scenario: "empty status json is unknown",
+                    input: entry("", ""),
+                    expect: status(FabricManagerState::Unknown, None, None, None),
+                },
+                Check {
+                    scenario: "error message takes precedence over status json",
+                    input: entry(
+                        r#"{"addition-info":"CONTROL_PLANE_STATE_CONFIGURED","status":"ok"}"#,
+                        "nmx-controller not started",
+                    ),
+                    expect: status(
+                        FabricManagerState::Unknown,
+                        None,
+                        None,
+                        Some("nmx-controller not started"),
+                    ),
+                },
+                Check {
+                    scenario: "malformed json is unknown",
+                    input: entry("{not-json", ""),
+                    expect: status(FabricManagerState::Unknown, None, None, None),
+                },
+            ],
+            |entry| fabric_manager_status_from_rms("switch-1", entry),
+        );
+    }
+
+    #[test]
+    fn scale_up_fabric_configuration_requires_durable_job_id() {
+        for job_id in ["", " \t"] {
+            let result = scale_up_fabric_manager_job_id_from_rms(
+                rms_v2::ConfigureScaleUpFabricManagerResponse {
+                    job_id: job_id.to_string(),
+                },
+            );
+
+            assert!(matches!(
+                result,
+                Err(ComponentManagerError::OperationOutcomeUnknown(_))
+            ));
+        }
     }
 
     #[test]

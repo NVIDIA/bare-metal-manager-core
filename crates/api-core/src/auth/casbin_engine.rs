@@ -58,7 +58,7 @@ impl PolicyEngine for CasbinEngine {
 
         // We move the predicate into the Authorization later, so let's record a
         // printable version of it up front for our logging needs.
-        let dbg_predicate = format!("{:?}", &predicate);
+        let dbg_predicate = format!("{:?}", predicate);
 
         let auth_result = principals
             .iter()

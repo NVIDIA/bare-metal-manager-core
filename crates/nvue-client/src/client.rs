@@ -17,6 +17,7 @@
 
 use std::collections::{BTreeMap, HashMap};
 use std::path::PathBuf;
+use std::time::Duration;
 
 use carbide_instrument::red;
 use reqwest::header::{ACCEPT, HeaderMap, HeaderValue};
@@ -24,6 +25,7 @@ use reqwest::{Client, ClientBuilder, Method, Response, Url};
 pub use serde_json::Value as JsonValue;
 
 use crate::config::{NvueConfig, NvueConfigWithHeader, NvueRevision};
+use crate::types::revision::{RevisionApplyStatus, RevisionData, RevisionIssueSummary};
 
 #[derive(Debug)]
 pub struct NvueClient {
@@ -32,6 +34,13 @@ pub struct NvueClient {
 }
 
 impl NvueClient {
+    // In the past, we've seen calls to `nv config apply` take a long time, to
+    // the point where the timeout for that code path (outside this crate) was
+    // raised to 45s. We don't know for sure that we need the same budget here,
+    // but let's assume we do. -drew
+    const APPLY_CONFIG_REVISION_TIMEOUT: Duration = Duration::from_secs(45);
+    const APPLY_CONFIG_REVISION_POLL_INTERVAL: Duration = Duration::from_secs(1);
+
     pub fn new(server_address: NvueServerAddress) -> Result<Self, NvueClientError> {
         build_client(&server_address).map(|client| Self {
             server_address,
@@ -132,6 +141,20 @@ impl NvueClient {
         Ok(revision_id)
     }
 
+    /// Return data about the specified revision.
+    pub async fn get_revision(&self, revision_id: &str) -> Result<RevisionData, NvueClientError> {
+        let revision_path = format!("/nvue_v1/revision/{revision_id}");
+        let request = self.request(Method::GET, &revision_path)?.build()?;
+        let response = self.execute("get_revision", request).await?;
+
+        // For some reason, the NVUE schema allows the response to be nulled,
+        // but as far as we're concerned that's an error.
+        let revision_data: Option<_> = response.json().await?;
+        revision_data.ok_or(NvueClientError::SchemaMismatch(
+            "revision response was null",
+        ))
+    }
+
     /// Replace the specified config revision. Under the hood, this is a
     /// two-stage operation where the configuration is deleted and then new
     /// values are inserted.
@@ -163,9 +186,42 @@ impl NvueClient {
         let request = builder.build()?;
         let _response = self.execute("apply_config_revision", request).await?;
 
-        // FIXME: we should poll on the revision path until it reaches an
-        // "applied" state
-        Ok(())
+        let started = tokio::time::Instant::now();
+        let deadline = started + Self::APPLY_CONFIG_REVISION_TIMEOUT;
+
+        loop {
+            let revision = self.get_revision(revision_id).await?;
+
+            let now = tokio::time::Instant::now();
+            let remaining = deadline.checked_duration_since(now);
+
+            match (revision.apply_status(), remaining) {
+                (RevisionApplyStatus::Applied, _) => break Ok(()),
+                (RevisionApplyStatus::Failed(error_issues), _) => {
+                    break Err(NvueClientError::RevisionApplyFailed {
+                        revision_id: revision_id.to_owned(),
+                        reason: RevisionApplyFailureReason::Error,
+                        last_state: revision.state.clone(),
+                        progress: revision.transition_progress().map(String::from),
+                        error_issues,
+                    });
+                }
+                (RevisionApplyStatus::Pending, Some(remaining)) => {
+                    tokio::time::sleep(remaining.min(Self::APPLY_CONFIG_REVISION_POLL_INTERVAL))
+                        .await;
+                }
+                (RevisionApplyStatus::Pending, None) => {
+                    let elapsed = now - started;
+                    break Err(NvueClientError::RevisionApplyFailed {
+                        revision_id: revision_id.to_owned(),
+                        reason: RevisionApplyFailureReason::Timeout { waited: elapsed },
+                        last_state: revision.state.clone(),
+                        progress: revision.transition_progress().map(String::from),
+                        error_issues: Vec::new(),
+                    });
+                }
+            }
+        }
     }
 
     /// Create a new configuration using the values from `config`, then  apply
@@ -341,6 +397,32 @@ pub enum NvueClientError {
 
     #[error("schema mismatch between NVUE client and server: {0}")]
     SchemaMismatch(&'static str),
+
+    #[error(
+        "NVUE revision apply failed: revision_id={revision_id}, reason={reason}, last_state={last_state:?}, progress={progress:?}, error_issues={error_issues:?}"
+    )]
+    RevisionApplyFailed {
+        revision_id: String,
+        reason: RevisionApplyFailureReason,
+        last_state: Option<String>,
+        progress: Option<String>,
+        error_issues: Vec<RevisionIssueSummary>,
+    },
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RevisionApplyFailureReason {
+    Error,
+    Timeout { waited: Duration },
+}
+
+impl std::fmt::Display for RevisionApplyFailureReason {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Error => f.write_str("error"),
+            Self::Timeout { waited } => write!(f, "timeout after {waited:?}"),
+        }
+    }
 }
 
 #[derive(thiserror::Error, Debug)]

@@ -86,11 +86,13 @@ postgres-up: postgres-down
 		-c wal_level=minimal \
 		-c max_wal_senders=0
 
+# Probe TCP so PostgreSQL's socket-only initialization server cannot report
+# readiness before the final server starts.
 postgres-wait:
 	@ready=false; \
 	for attempt in {1..60}; do \
 		if docker exec $(POSTGRES_CONTAINER_NAME) \
-			pg_isready -U $(POSTGRES_USER) -d $(POSTGRES_DB) >/dev/null 2>&1; then \
+			pg_isready -h 127.0.0.1 -U $(POSTGRES_USER) -d $(POSTGRES_DB) >/dev/null 2>&1; then \
 			ready=true; \
 			break; \
 		fi; \

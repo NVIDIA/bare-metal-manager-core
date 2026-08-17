@@ -179,8 +179,10 @@ async fn run_machine_a_tron_racks_test(
         mock_bmc_ssh_server: false,
         mock_bmc_ssh_port: None,
         enable_ipmi_simulation: false,
+        ipmi_reachable_port: None,
         hw_mac_address_ranges: None,
         mac_address_pool: None,
+        ufm_mock: Default::default(),
     };
 
     let (provisionable_handles, mat_handle) = api_test_helper::machine_a_tron::run_local(

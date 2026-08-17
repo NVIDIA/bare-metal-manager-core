@@ -38,6 +38,7 @@ pub enum MachineValidationTestSelectionMode {
 /// latency, SSD I/O, etc.) run after ingestion to verify
 /// hardware health.
 #[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
 pub struct MachineValidationConfig {
     /// Enables machine validation testing.
     #[serde(default)]
@@ -79,6 +80,7 @@ pub struct MachineValidationConfig {
 /// ]
 /// ```
 #[derive(Default, Clone, Debug, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
 pub struct MachineValidationTestConfig {
     /// Unique test identifier (e.g., "MmMemLatency").
     pub id: String,

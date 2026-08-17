@@ -185,7 +185,7 @@ async fn handle_dpu_status(
     match output_format {
         OutputFormat::Json => {
             let machines: Vec<DpuStatus> = generate_dpu_status_data(api_client, dpus).await?;
-            async_write!(output_file, "{}", serde_json::to_string(&machines).unwrap())?;
+            async_write!(output_file, "{}", serde_json::to_string(&machines)?)?;
         }
         OutputFormat::Csv => {
             let result = generate_dpu_status_table(api_client, dpus).await?;

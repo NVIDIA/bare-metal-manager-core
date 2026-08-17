@@ -118,7 +118,6 @@ fn machine_router_inner(
     let oem_state = machine_info.oem_state();
     let factory_default_account = machine_info.factory_default_account();
     let router = Router::new()
-        .add_routes(crate::injection::add_routes)
         .add_routes(crate::redfish::service_root::add_routes)
         .add_routes(crate::redfish::chassis::add_routes)
         .add_routes(crate::redfish::manager::add_routes)
@@ -149,6 +148,9 @@ fn machine_router_inner(
     let update_service_state = Arc::new(
         crate::redfish::update_service::UpdateServiceState::from_config(update_service_config),
     );
+    // Desired firmware versions arrive via UpdateServiceConfig.pending_upgrades and
+    // are stored in UpdateServiceState at construction time via from_config().
+    // No separate pre-staging call is needed here.
     let account_service_state = Arc::new(
         crate::redfish::account_service::AccountServiceState::new(factory_default_account),
     );
@@ -178,6 +180,9 @@ fn machine_router_inner(
             HardwareType::LiteOnPowerShelf | HardwareType::DeltaPowerShelf
         )
     );
+    let router = router
+        .with_state(state.clone())
+        .merge(crate::injection::management_router(injection.clone()));
     let router = ([
         Box::new(redfish::expander_router::append),
         Box::new(move |router| {
@@ -198,6 +203,6 @@ fn machine_router_inner(
         }),
     ] as [Box<dyn FnOnce(axum::Router) -> axum::Router>; _])
         .into_iter()
-        .fold(router.with_state(state.clone()), |router, f| f(router));
+        .fold(router, |router, f| f(router));
     (router, state)
 }

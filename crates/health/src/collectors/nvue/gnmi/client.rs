@@ -17,6 +17,7 @@
 
 use std::time::Duration;
 
+use tokio_stream::StreamExt;
 use tonic::metadata::MetadataMap;
 use tonic::transport::{Channel, ClientTlsConfig, Endpoint};
 use tonic::{Extensions, Request};
@@ -242,7 +243,9 @@ impl GnmiClient {
         let subscribe_request = build_sample_subscribe_request(paths, sample_interval_nanos);
 
         let auth = build_auth_metadata(&self.username, &self.password)?;
-        let stream = tokio_stream::once(subscribe_request);
+
+        let stream = tokio_stream::once(subscribe_request).chain(tokio_stream::pending());
+
         let request = Request::from_parts(auth, Extensions::default(), stream);
 
         let response = client
@@ -270,7 +273,9 @@ impl GnmiClient {
         let subscribe_request = build_on_change_subscribe_request(prefix, paths);
 
         let auth = build_auth_metadata(&self.username, &self.password)?;
-        let stream = tokio_stream::once(subscribe_request);
+
+        let stream = tokio_stream::once(subscribe_request).chain(tokio_stream::pending());
+
         let request = Request::from_parts(auth, Extensions::default(), stream);
 
         let response = client

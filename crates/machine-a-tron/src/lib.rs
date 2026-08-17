@@ -73,9 +73,12 @@ pub use nmxc_simulator::{
 };
 pub use rack::{RackMemberStatus, RackStatus, RacksStatusResponse};
 pub use simulator_registry::SimulatorRegistry;
-pub use status::{DeviceKind, DeviceStatus, DeviceStatusConfig, DevicesStatusResponse};
+pub use status::{
+    DeviceKind, DeviceStatus, DeviceStatusConfig, DevicesStatusResponse, InfinibandPortStatus,
+};
 pub use tui::{Tui, UiUpdate};
 pub use tui_host_logs::TuiHostLogs;
+pub use ufm_mock::{Guid, InfinibandPortState};
 
 /// Add a Duration to an Instant, defaulting to a time in the far future if there is an overflow.
 /// This allows using Duration::MAX and being able to add it to Instant::now(), which overflows by
