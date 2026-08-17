@@ -799,7 +799,7 @@ func TestResolver_HasScheduleConflict(t *testing.T) {
 		},
 		{
 			// Only one of the existing schedules needs to conflict.
-			name: "conflict detected when one of multiple existing schedules matches",
+			name:     "conflict detected when one of multiple existing schedules matches",
 			incoming: makeOp(taskcommon.TaskTypePowerControl, "power_on"),
 			existing: []operation.Wrapper{
 				makeOp(taskcommon.TaskTypeInjectExpectation, "inject"),
