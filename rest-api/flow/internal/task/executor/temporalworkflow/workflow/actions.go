@@ -700,7 +700,8 @@ func executeWaitDecommissionedAction(actx actionExecutionContext) error {
 		// Use a short fire-once policy so a hung status call fails quickly
 		// and the poll loop's consecutive-failure budget controls retries.
 		statusCtx := workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
-			StartToCloseTimeout: 30 * time.Second,
+			ScheduleToCloseTimeout: 30 * time.Second,
+			StartToCloseTimeout:    30 * time.Second,
 			RetryPolicy: &temporal.RetryPolicy{
 				MaximumAttempts: 1,
 			},

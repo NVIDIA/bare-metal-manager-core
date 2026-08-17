@@ -800,25 +800,13 @@ func (rs *FlowServerImpl) IngestRack(
 	}, nil
 }
 
-// DecommissionRack is not yet available: the Core decommission RPCs
-// (DecommissionMachine, DecommissionSwitch, DecommissionPowerShelf) are
-// pending. Reject requests synchronously so no tasks are created for work
-// that cannot start.
-//
-// TODO: remove this guard once Core RPCs are merged.
 func (rs *FlowServerImpl) DecommissionRack(
-	_ context.Context,
-	_ *pb.DecommissionRackRequest,
+	ctx context.Context,
+	req *pb.DecommissionRackRequest,
 ) (*pb.SubmitTaskResponse, error) {
-	return nil, status.Error(
-		codes.Unimplemented,
-		"decommission is not yet available: Core decommission RPCs are pending",
-	)
+	return rs.decommissionRackImpl(ctx, req)
 }
 
-// decommissionRackImpl is the real implementation, wired up once Core RPCs exist.
-//
-//nolint:unused
 func (rs *FlowServerImpl) decommissionRackImpl(
 	ctx context.Context,
 	req *pb.DecommissionRackRequest,
