@@ -29,10 +29,10 @@ List every machine waiting on a DPUService rollout, longest wait first:
     $ nico-admin-cli dpf service-sync list
 
 Show one host's recorded sync history, including who released each one:
-    $ nico-admin-cli dpf service-sync list --machine-id 12345678-1234-5678-90ab-cdef01234567
+    $ nico-admin-cli dpf service-sync list --machine-id fm100psbtmb15tgh6q5duqb8ke5grng7ksd96hetbeie9nc5pvcca6eol80
 
 Release the hold for one or more hosts:
-    $ nico-admin-cli dpf service-sync release --machine-id 12345678-1234-5678-90ab-cdef01234567
+    $ nico-admin-cli dpf service-sync release --machine-id fm100psbtmb15tgh6q5duqb8ke5grng7ksd96hetbeie9nc5pvcca6eol80
 
 Release the host running an instance, accepting that its tenant is disrupted:
     $ nico-admin-cli dpf service-sync release --instance-id abcdef01-2345-6789-abcd-ef0123456789
@@ -53,7 +53,7 @@ List every machine waiting on a DPUService rollout, longest wait first:
     $ nico-admin-cli dpf service-sync list
 
 Show one host's recorded sync history, including who released each one:
-    $ nico-admin-cli dpf service-sync list --machine-id 12345678-1234-5678-90ab-cdef01234567
+    $ nico-admin-cli dpf service-sync list --machine-id fm100psbtmb15tgh6q5duqb8ke5grng7ksd96hetbeie9nc5pvcca6eol80
 
 ")]
 pub(crate) struct List {
@@ -71,13 +71,15 @@ pub(crate) struct List {
 EXAMPLES:
 
 Release one host:
-    $ nico-admin-cli dpf service-sync release --machine-id 12345678-1234-5678-90ab-cdef01234567
+    $ nico-admin-cli dpf service-sync release --machine-id fm100psbtmb15tgh6q5duqb8ke5grng7ksd96hetbeie9nc5pvcca6eol80
 
 Release several hosts, passing the ids after one flag:
-    $ nico-admin-cli dpf service-sync release --machine-id 12345678-1234-5678-90ab-cdef01234567 abcdef01-2345-6789-abcd-ef0123456789
+    $ nico-admin-cli dpf service-sync release --machine-id fm100psbtmb15tgh6q5duqb8ke5grng7ksd96hetbeie9nc5pvcca6eol80 \
+    fm100ht038bg3qsho433vkg684heguv282qaggmrsh2ugn1qk096n2c6hcg
 
 Release several hosts, repeating the flag instead:
-    $ nico-admin-cli dpf service-sync release --machine-id 12345678-1234-5678-90ab-cdef01234567 --machine-id abcdef01-2345-6789-abcd-ef0123456789
+    $ nico-admin-cli dpf service-sync release --machine-id fm100psbtmb15tgh6q5duqb8ke5grng7ksd96hetbeie9nc5pvcca6eol80 \
+    --machine-id fm100ht038bg3qsho433vkg684heguv282qaggmrsh2ugn1qk096n2c6hcg
 
 Release the host running an instance, accepting that its tenant is disrupted:
     $ nico-admin-cli dpf service-sync release --instance-id abcdef01-2345-6789-abcd-ef0123456789
