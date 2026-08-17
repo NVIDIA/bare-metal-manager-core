@@ -1377,6 +1377,7 @@ where
             "config".to_string(),
             Arc::new(MachineConfig {
                 rack_id: None,
+                rack_placement: None,
                 hw_type,
                 host_count,
                 dpu_per_host_count,

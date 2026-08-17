@@ -315,7 +315,7 @@ mod tests {
     use axum::http::{Method, Request, StatusCode};
     use axum::routing::get;
     use bmc_mock::ipmi_sim::IpmiEndpoint;
-    use bmc_mock::{HardwareType, RackType};
+    use bmc_mock::{HardwareType, RackInfo, RackType};
     use carbide_uuid::rack::{RackId, RackProfileId};
     use tower::ServiceExt;
     use uuid::Uuid;
@@ -347,7 +347,10 @@ mod tests {
             rack_type: RackType::WiwynnGb200Nvl72,
             version: 1,
             members: vec![RackMemberRegistration {
-                position: 11,
+                placement: RackInfo {
+                    rack_type: RackType::WiwynnGb200Nvl72,
+                }
+                .placement(11),
                 hardware_type: HardwareType::WiwynnGB200Nvl,
                 machine_config_section: machine_config_section.to_string(),
             }],

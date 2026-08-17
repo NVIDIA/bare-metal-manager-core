@@ -130,7 +130,10 @@ impl PowerShelfActor {
         Self {
             mat_id: Uuid::new_v4(),
             machine_config_section,
-            host_info: HostMachineInfo::new(config.hw_type, Vec::new(), mac_pool, hw_mac_addr_pool),
+            host_info: HostMachineInfo {
+                rack_placement: config.rack_placement,
+                ..HostMachineInfo::new(config.hw_type, Vec::new(), mac_pool, hw_mac_addr_pool)
+            },
             app_context,
             config,
             live_state: Arc::new(RwLock::new(PowerShelfLiveState::new(&fsm))),
@@ -153,6 +156,7 @@ impl PowerShelfActor {
     ) -> Self {
         let host_info = HostMachineInfo {
             hw_type: persisted.hw_type,
+            rack_placement: config.rack_placement,
             bmc_mac_address: persisted.bmc_mac_address,
             serial: persisted.serial.clone(),
             dpus: Vec::new(),

@@ -153,6 +153,7 @@ impl HostMachine {
             .collect::<Vec<_>>();
         let mut host_info = HostMachineInfo {
             hw_type: persisted_device.hw_type,
+            rack_placement: config.rack_placement,
             bmc_mac_address: persisted_device.bmc_mac_address,
             serial: persisted_device.serial.clone(),
             dpus: persisted_device
@@ -259,6 +260,7 @@ impl HostMachine {
             mac_pool,
             hw_pool_config,
         );
+        host_info.rack_placement = config.rack_placement;
         host_info.initial_host_firmware = config.host_firmware_versions.clone();
         host_info.desired_host_firmware = desired_host_firmware(config.hw_type, &app_context);
         let dpus = dpu_machines
@@ -643,6 +645,7 @@ impl MachineHandle {
             mat_id: Uuid::new_v4(),
             host_info: HostMachineInfo {
                 hw_type: Default::default(),
+                rack_placement: None,
                 bmc_mac_address: mac,
                 serial: "test-host".to_string(),
                 dpus: Vec::new(),

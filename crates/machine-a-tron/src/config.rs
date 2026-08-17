@@ -22,12 +22,14 @@ use std::time::Duration;
 
 use bmc_mock::mac_address_pool::MacAddressPool;
 use bmc_mock::{
-    DpuMachineInfo, DpuSettings, HardwareType, HostFirmwareVersions, RackInfo, RackType,
+    DpuMachineInfo, DpuSettings, HardwareType, HostFirmwareVersions, RackInfo, RackPlacement,
+    RackType,
 };
 use carbide_uuid::machine::MachineId;
 use carbide_uuid::rack::{RackId, RackProfileId};
 use clap::Parser;
 use duration_str::deserialize_duration;
+use eyre::Context;
 use mac_address::MacAddress;
 use rpc::forge::DesiredFirmwareVersionEntry;
 use rpc::forge_tls_client::ForgeClientConfig;
@@ -75,6 +77,8 @@ pub struct MachineATronArgs {
 pub struct MachineConfig {
     #[serde(default)]
     pub rack_id: Option<RackId>,
+    #[serde(skip)]
+    pub rack_placement: Option<RackPlacement>,
     #[serde(default = "default_hardware_type")]
     pub hw_type: HardwareType,
     pub host_count: u32,
@@ -195,11 +199,13 @@ impl WiwynnGb200RackConfig {
     fn component_machine_config(
         &self,
         rack_id: RackId,
+        rack_placement: RackPlacement,
         hw_type: HardwareType,
         dpu_per_host_count: u32,
     ) -> MachineConfig {
         MachineConfig {
             rack_id: Some(rack_id),
+            rack_placement: Some(rack_placement),
             hw_type,
             host_count: 1,
             vpc_count: 0,
@@ -269,11 +275,13 @@ impl LenovoGb300RackConfig {
     fn component_machine_config(
         &self,
         rack_id: RackId,
+        rack_placement: RackPlacement,
         hw_type: HardwareType,
         dpu_per_host_count: u32,
     ) -> MachineConfig {
         MachineConfig {
             rack_id: Some(rack_id),
+            rack_placement: Some(rack_placement),
             hw_type,
             host_count: 1,
             vpc_count: 0,
@@ -329,16 +337,23 @@ impl RackModelConfig {
     fn component_machine_config(
         &self,
         rack_id: RackId,
+        rack_placement: RackPlacement,
         hardware_type: HardwareType,
         dpu_per_host_count: u32,
     ) -> MachineConfig {
         match self {
-            Self::WiwynnGb200Nvl72 { simulation } => {
-                simulation.component_machine_config(rack_id, hardware_type, dpu_per_host_count)
-            }
-            Self::LenovoGb300Nvl72 { simulation } => {
-                simulation.component_machine_config(rack_id, hardware_type, dpu_per_host_count)
-            }
+            Self::WiwynnGb200Nvl72 { simulation } => simulation.component_machine_config(
+                rack_id,
+                rack_placement,
+                hardware_type,
+                dpu_per_host_count,
+            ),
+            Self::LenovoGb300Nvl72 { simulation } => simulation.component_machine_config(
+                rack_id,
+                rack_placement,
+                hardware_type,
+                dpu_per_host_count,
+            ),
         }
     }
 }
@@ -600,11 +615,15 @@ impl MachineATronConfig {
 
         for (rack_id, rack) in configured_racks {
             let rack_type = rack.model.rack_type();
-            let elevation = RackInfo { rack_type }.rack_elevation();
+            let rack_info = RackInfo { rack_type };
+            let elevation = rack_info.rack_elevation().wrap_err_with(|| {
+                format!("rack {rack_id} uses an invalid {rack_type} rack design")
+            })?;
             let rack_key = encoded_rack_key(&rack_id);
             let mut members = Vec::with_capacity(elevation.units.len());
 
             for unit in elevation.units {
+                let placement = rack_info.placement(unit.position);
                 let machine_config_section = format!("rack-{rack_key}--unit-{:02}", unit.position);
                 let dpu_per_host_count = unit
                     .hardware_type
@@ -617,6 +636,7 @@ impl MachineATronConfig {
                             machine_config_section.clone(),
                             Arc::new(rack.model.component_machine_config(
                                 rack_id.clone(),
+                                placement,
                                 unit.hardware_type,
                                 dpu_per_host_count,
                             )),
@@ -625,7 +645,7 @@ impl MachineATronConfig {
                     "rack {rack_id} generated duplicate device identity {machine_config_section}"
                 );
                 members.push(RackMemberRegistration {
-                    position: unit.position,
+                    placement,
                     hardware_type: unit.hardware_type,
                     machine_config_section,
                 });
@@ -1163,11 +1183,19 @@ scout_run_interval = "5s"
                         eyre::ensure!(
                             rack.members
                                 .iter()
-                                .map(|member| member.position)
+                                .map(|member| member.placement.position())
                                 .collect::<BTreeSet<_>>()
                                 .len()
                                 == expected.member_count
                         );
+                        for member in &rack.members {
+                            let machine = first
+                                .machines
+                                .get(&member.machine_config_section)
+                                .expect("rack member must reference a generated machine");
+                            eyre::ensure!(machine.rack_id.as_ref() == Some(&rack.rack_id));
+                            eyre::ensure!(machine.rack_placement == Some(member.placement));
+                        }
                     }
 
                     for machine in first.machines.values() {

@@ -46,7 +46,7 @@ pub use bmc_state::{BmcEvent, BmcState};
 pub use carbide_axum_utils::authority_router::authority_router as combined_router;
 pub use carbide_axum_utils::injection;
 pub use combined_server::{CombinedServer, ListenerOrAddress};
-pub use hw::rack::{RackElevation, RackUnit};
+pub use hw::rack::{RackElevation, RackPlacement, RackUnit};
 pub use machine_info::{
     DpuFirmwareVersions, DpuMachineInfo, DpuSettings, HostFirmwareVersions, HostMachineInfo,
     MachineInfo,

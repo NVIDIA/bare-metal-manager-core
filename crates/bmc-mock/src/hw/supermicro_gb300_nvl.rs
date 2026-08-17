@@ -39,7 +39,7 @@ pub(crate) struct SupermicroGB300Nvl<'a> {
     pub(crate) bmc_mac_address_usb0: MacAddress,
     pub(crate) hgx_bmc_mac_address_usb0: MacAddress,
     pub(crate) hgx_serial_number: Cow<'a, str>,
-    pub(crate) topology: hw::nvidia_gbx00::Topology,
+    pub(crate) topology: Option<hw::nvidia_gbx00::Topology>,
     pub(crate) cpu: [hw::nvidia_gb300::NvidiaGB300Cpu<'a>; 2],
     pub(crate) gpu: [hw::nvidia_gb300::NvidiaGB300Gpu<'a>; 4],
     pub(crate) io_board: [hw::nvidia_gb300::NvidiaGB300IoBoard<'a>; 2],
@@ -252,7 +252,9 @@ impl SupermicroGB300Nvl<'_> {
         };
         redfish::chassis::ChassisConfig {
             chassis: (0..=3)
-                .map(|n| hw::nvidia_gbx00::cbc_chassis(format!("CBC_{n}").into(), &self.topology))
+                .map(|n| {
+                    hw::nvidia_gbx00::cbc_chassis(format!("CBC_{n}").into(), self.topology.as_ref())
+                })
                 .chain(std::iter::once(redfish::chassis::SingleChassisConfig {
                     id: "Chassis_0".into(),
                     // SMC GB300 scrape: Chassis_0 is a Shelf with PDB part number AOM-PDB-B3.
