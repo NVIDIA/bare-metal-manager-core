@@ -18,6 +18,7 @@
 use std::collections::BTreeMap;
 
 use async_trait::async_trait;
+use nv_redfish::core::Bmc;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
@@ -43,41 +44,45 @@ pub struct BiosStatus {
 
 /// Current, pending, and desired BIOS configuration operations.
 #[async_trait]
-pub trait Bios: Send + Sync {
-    async fn current(&self, cx: &OpCx<'_>) -> Result<BiosSettings, PlatformError>;
+pub trait Bios<B: Bmc>: Send + Sync {
+    async fn current(&self, cx: &OpCx<'_, B>) -> Result<BiosSettings, PlatformError>;
 
-    async fn pending(&self, cx: &OpCx<'_>) -> Result<BiosSettings, PlatformError>;
+    async fn pending(&self, cx: &OpCx<'_, B>) -> Result<BiosSettings, PlatformError>;
 
     async fn status(
         &self,
-        cx: &OpCx<'_>,
+        cx: &OpCx<'_, B>,
         expected: &BiosSettings,
         boot_interface: Option<&BootInterfaceSelector>,
     ) -> Result<BiosStatus, PlatformError>;
 
     async fn apply(
         &self,
-        cx: &OpCx<'_>,
+        cx: &OpCx<'_, B>,
         expected: &BiosSettings,
         boot_interface: Option<&BootInterfaceSelector>,
     ) -> Result<DriverOutcome, PlatformError>;
 
-    async fn reset(&self, cx: &OpCx<'_>) -> Result<DriverOutcome, PlatformError>;
+    async fn reset(&self, cx: &OpCx<'_, B>) -> Result<DriverOutcome, PlatformError>;
 
-    async fn clear_pending(&self, cx: &OpCx<'_>) -> Result<DriverOutcome, PlatformError>;
+    async fn clear_pending(&self, cx: &OpCx<'_, B>) -> Result<DriverOutcome, PlatformError>;
 
     async fn change_uefi_password(
         &self,
-        cx: &OpCx<'_>,
+        cx: &OpCx<'_, B>,
         current_password: &str,
         new_password: &str,
     ) -> Result<DriverOutcome, PlatformError>;
 
     async fn clear_uefi_password(
         &self,
-        cx: &OpCx<'_>,
+        cx: &OpCx<'_, B>,
         current_password: &str,
     ) -> Result<DriverOutcome, PlatformError>;
 
-    async fn clear_nvram(&self, cx: &OpCx<'_>) -> Result<DriverOutcome, PlatformError>;
+    async fn infinite_boot_enabled(&self, cx: &OpCx<'_, B>) -> Result<Option<bool>, PlatformError>;
+
+    async fn enable_infinite_boot(&self, cx: &OpCx<'_, B>) -> Result<DriverOutcome, PlatformError>;
+
+    async fn clear_nvram(&self, cx: &OpCx<'_, B>) -> Result<DriverOutcome, PlatformError>;
 }

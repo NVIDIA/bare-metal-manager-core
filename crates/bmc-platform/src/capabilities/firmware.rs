@@ -18,7 +18,7 @@
 use std::pin::Pin;
 
 use async_trait::async_trait;
-use nv_redfish::core::{MultipartUpdateRequest, UploadReader};
+use nv_redfish::core::{Bmc, MultipartUpdateRequest, UploadReader};
 use nv_redfish::schema::software_inventory::SoftwareInventory;
 use nv_redfish::schema::update_service::UpdateServiceSimpleUpdateAction;
 use nv_redfish::update_service::MultipartUpdateParameters;
@@ -27,18 +27,18 @@ use crate::{DriverOutcome, OpCx, PlatformError};
 
 /// Firmware inventory and update operations.
 #[async_trait]
-pub trait Firmware: Send + Sync {
-    async fn inventory(&self, cx: &OpCx<'_>) -> Result<Vec<SoftwareInventory>, PlatformError>;
+pub trait Firmware<B: Bmc>: Send + Sync {
+    async fn inventory(&self, cx: &OpCx<'_, B>) -> Result<Vec<SoftwareInventory>, PlatformError>;
 
     async fn multipart_update(
         &self,
-        cx: &OpCx<'_>,
+        cx: &OpCx<'_, B>,
         request: MultipartUpdateRequest<'_, Pin<Box<dyn UploadReader>>, MultipartUpdateParameters>,
     ) -> Result<DriverOutcome, PlatformError>;
 
     async fn simple_update(
         &self,
-        cx: &OpCx<'_>,
+        cx: &OpCx<'_, B>,
         request: &UpdateServiceSimpleUpdateAction,
     ) -> Result<DriverOutcome, PlatformError>;
 }

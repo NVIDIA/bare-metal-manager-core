@@ -16,32 +16,33 @@
  */
 
 use async_trait::async_trait;
+use nv_redfish::core::Bmc;
 
 use crate::{DriverOutcome, OpCx, PlatformError};
 
 /// BMC reset, factory-default, and time-configuration mutations.
 #[async_trait]
-pub trait BmcControl: Send + Sync {
-    async fn reset(&self, cx: &OpCx<'_>) -> Result<DriverOutcome, PlatformError>;
+pub trait BmcControl<B: Bmc>: Send + Sync {
+    async fn reset(&self, cx: &OpCx<'_, B>) -> Result<DriverOutcome, PlatformError>;
 
     async fn reset_to_factory_defaults(
         &self,
-        cx: &OpCx<'_>,
+        cx: &OpCx<'_, B>,
     ) -> Result<DriverOutcome, PlatformError>;
 
     async fn set_ntp_servers(
         &self,
-        cx: &OpCx<'_>,
+        cx: &OpCx<'_, B>,
         servers: &[String],
     ) -> Result<DriverOutcome, PlatformError>;
 
-    async fn set_utc_timezone(&self, cx: &OpCx<'_>) -> Result<DriverOutcome, PlatformError>;
+    async fn set_utc_timezone(&self, cx: &OpCx<'_, B>) -> Result<DriverOutcome, PlatformError>;
 
-    async fn ipmi_over_lan_enabled(&self, cx: &OpCx<'_>) -> Result<bool, PlatformError>;
+    async fn ipmi_over_lan_enabled(&self, cx: &OpCx<'_, B>) -> Result<bool, PlatformError>;
 
     async fn set_ipmi_over_lan(
         &self,
-        cx: &OpCx<'_>,
+        cx: &OpCx<'_, B>,
         enabled: bool,
     ) -> Result<DriverOutcome, PlatformError>;
 }

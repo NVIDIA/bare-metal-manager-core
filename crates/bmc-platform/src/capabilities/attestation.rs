@@ -16,6 +16,7 @@
  */
 
 use async_trait::async_trait;
+use nv_redfish::core::Bmc;
 use nv_redfish::schema::software_inventory::SoftwareInventory;
 use serde::{Deserialize, Serialize};
 
@@ -50,36 +51,36 @@ pub struct AttestationEvidence {
 
 /// Collection of hardware attestation evidence.
 #[async_trait]
-pub trait Attestation: Send + Sync {
+pub trait Attestation<B: Bmc>: Send + Sync {
     async fn components(
         &self,
-        cx: &OpCx<'_>,
+        cx: &OpCx<'_, B>,
     ) -> Result<Vec<ComponentIntegritySummary>, PlatformError>;
 
     async fn firmware_for_component(
         &self,
-        cx: &OpCx<'_>,
+        cx: &OpCx<'_, B>,
         component_id: &str,
     ) -> Result<SoftwareInventory, PlatformError>;
 
     async fn ca_certificate(
         &self,
-        cx: &OpCx<'_>,
+        cx: &OpCx<'_, B>,
         component_id: &str,
     ) -> Result<CaCertificate, PlatformError>;
 
     async fn trigger_evidence(
         &self,
-        cx: &OpCx<'_>,
+        cx: &OpCx<'_, B>,
         component_id: &str,
         nonce: &[u8],
     ) -> Result<DriverOutcome, PlatformError>;
 
     async fn evidence(
         &self,
-        cx: &OpCx<'_>,
+        cx: &OpCx<'_, B>,
         component_id: &str,
     ) -> Result<AttestationEvidence, PlatformError>;
 
-    async fn clear_tpm(&self, cx: &OpCx<'_>) -> Result<DriverOutcome, PlatformError>;
+    async fn clear_tpm(&self, cx: &OpCx<'_, B>) -> Result<DriverOutcome, PlatformError>;
 }

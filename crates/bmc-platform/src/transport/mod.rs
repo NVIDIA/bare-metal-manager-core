@@ -17,8 +17,6 @@
 
 mod context;
 mod ipmi;
-mod redfish;
 
 pub use context::OpCx;
 pub use ipmi::IpmiOps;
-pub use redfish::{PatchCondition, RedfishOps, RedfishResponse, RedfishUri, RedfishUriError};

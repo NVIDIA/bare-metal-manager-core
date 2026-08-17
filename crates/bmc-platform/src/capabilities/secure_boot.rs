@@ -16,6 +16,7 @@
  */
 
 use async_trait::async_trait;
+use nv_redfish::core::Bmc;
 use nv_redfish::schema::secure_boot::SecureBootUpdate;
 use serde::{Deserialize, Serialize};
 
@@ -32,20 +33,20 @@ pub enum SecureBootStatus {
 
 /// Secure Boot status, enablement, and certificate operations.
 #[async_trait]
-pub trait SecureBoot: Send + Sync {
-    async fn status(&self, cx: &OpCx<'_>) -> Result<SecureBootStatus, PlatformError>;
+pub trait SecureBoot<B: Bmc>: Send + Sync {
+    async fn status(&self, cx: &OpCx<'_, B>) -> Result<SecureBootStatus, PlatformError>;
 
     async fn set(
         &self,
-        cx: &OpCx<'_>,
+        cx: &OpCx<'_, B>,
         update: &SecureBootUpdate,
     ) -> Result<DriverOutcome, PlatformError>;
 
-    async fn has_platform_key(&self, cx: &OpCx<'_>) -> Result<bool, PlatformError>;
+    async fn has_platform_key(&self, cx: &OpCx<'_, B>) -> Result<bool, PlatformError>;
 
     async fn add_platform_key(
         &self,
-        cx: &OpCx<'_>,
+        cx: &OpCx<'_, B>,
         pem: &str,
     ) -> Result<DriverOutcome, PlatformError>;
 }

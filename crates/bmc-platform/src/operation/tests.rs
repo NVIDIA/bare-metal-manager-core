@@ -17,15 +17,15 @@
 
 use std::num::NonZeroU64;
 
+use nv_redfish::core::ODataId;
+use nv_redfish::resource::ResetType;
 use serde_json::json;
 
 use super::*;
 
 fn task_reference() -> OperationReference {
     OperationReference::RedfishTask {
-        uri: "/redfish/v1/TaskService/Tasks/42"
-            .parse()
-            .expect("task URI is valid"),
+        uri: ODataId::from("/redfish/v1/TaskService/Tasks/42".to_string()),
         retry_after_seconds: Some(5),
     }
 }
@@ -82,7 +82,7 @@ fn operation_references_are_stable() {
 #[test]
 fn controller_actions_exhaustively_round_trip() {
     let actions = [
-        ControllerAction::Power(PowerAction::ForceOff),
+        ControllerAction::Power(ResetType::ForceOff),
         ControllerAction::BmcReset,
         ControllerAction::SetLockdown {
             scope: LockdownScope::All,

@@ -19,11 +19,12 @@ use std::fmt;
 use std::num::NonZeroU64;
 use std::str::FromStr;
 
+use nv_redfish::core::ODataId;
+use nv_redfish::resource::ResetType;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use thiserror::Error;
 
-use crate::capabilities::{LockdownDesiredState, LockdownScope, PowerAction};
-use crate::transport::RedfishUri;
+use crate::capabilities::{LockdownDesiredState, LockdownScope};
 
 /// Identifier returned by a vendor job service.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
@@ -134,7 +135,7 @@ pub struct ManualInterventionCodeError;
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum OperationReference {
     RedfishTask {
-        uri: RedfishUri,
+        uri: ODataId,
         retry_after_seconds: Option<u64>,
     },
     VendorJob {
@@ -192,7 +193,7 @@ impl DriverOutcome {
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type", content = "details", rename_all = "snake_case")]
 pub enum ControllerAction {
-    Power(PowerAction),
+    Power(ResetType),
     BmcReset,
     SetLockdown {
         scope: LockdownScope,

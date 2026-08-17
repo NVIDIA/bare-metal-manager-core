@@ -32,13 +32,13 @@ pub use accounts::Accounts;
 pub use attestation::{Attestation, AttestationEvidence, CaCertificate, ComponentIntegritySummary};
 pub use bios::{Bios, BiosDiff, BiosSettings, BiosStatus};
 pub use bmc_control::BmcControl;
-pub use boot_order::{BootInterfaceSelector, BootOrder};
+pub use boot_order::{BootInterfaceSelector, BootOrder, BootOrderStatus};
 pub use console::{
     Console, ConsoleFallback, ConsoleSpec, ConsoleSpecError, ConsoleState, ConsoleStatus, EscapeSeq,
 };
 pub use dpu::{Dpu, DpuStatus, HostPrivilegeLevel, NicMode, RshimState};
 pub use firmware::Firmware;
 pub use lockdown::{Lockdown, LockdownDesiredState, LockdownScope, LockdownState, LockdownStatus};
-pub use power::{Power, PowerAction};
+pub use power::Power;
 pub use secure_boot::{SecureBoot, SecureBootStatus};
 pub use storage::Storage;

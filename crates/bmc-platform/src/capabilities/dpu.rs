@@ -16,6 +16,7 @@
  */
 
 use async_trait::async_trait;
+use nv_redfish::core::Bmc;
 use serde::{Deserialize, Serialize};
 
 use crate::{DriverOutcome, OpCx, PlatformError};
@@ -49,26 +50,26 @@ pub struct DpuStatus {
 
 /// DPU NIC-mode and RShim operations.
 #[async_trait]
-pub trait Dpu: Send + Sync {
-    async fn status(&self, cx: &OpCx<'_>) -> Result<DpuStatus, PlatformError>;
+pub trait Dpu<B: Bmc>: Send + Sync {
+    async fn status(&self, cx: &OpCx<'_, B>) -> Result<DpuStatus, PlatformError>;
 
     async fn set_nic_mode(
         &self,
-        cx: &OpCx<'_>,
+        cx: &OpCx<'_, B>,
         mode: NicMode,
     ) -> Result<DriverOutcome, PlatformError>;
 
     async fn set_host_rshim(
         &self,
-        cx: &OpCx<'_>,
+        cx: &OpCx<'_, B>,
         state: RshimState,
     ) -> Result<DriverOutcome, PlatformError>;
 
-    async fn enable_bmc_rshim(&self, cx: &OpCx<'_>) -> Result<DriverOutcome, PlatformError>;
+    async fn enable_bmc_rshim(&self, cx: &OpCx<'_, B>) -> Result<DriverOutcome, PlatformError>;
 
     async fn set_host_privilege_level(
         &self,
-        cx: &OpCx<'_>,
+        cx: &OpCx<'_, B>,
         level: HostPrivilegeLevel,
     ) -> Result<DriverOutcome, PlatformError>;
 }

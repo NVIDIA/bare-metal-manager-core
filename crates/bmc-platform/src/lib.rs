@@ -24,16 +24,15 @@ pub mod capabilities;
 mod error;
 mod identity;
 mod operation;
-mod registry;
 mod selection;
 mod transport;
 
 pub use capabilities::{
     Accounts, Attestation, AttestationEvidence, Bios, BiosDiff, BiosSettings, BiosStatus,
-    BmcControl, BootInterfaceSelector, BootOrder, CaCertificate, ComponentIntegritySummary,
-    Console, ConsoleFallback, ConsoleSpec, ConsoleSpecError, ConsoleState, ConsoleStatus, Dpu,
-    DpuStatus, EscapeSeq, Firmware, HostPrivilegeLevel, Lockdown, LockdownDesiredState,
-    LockdownScope, LockdownState, LockdownStatus, NicMode, Power, PowerAction, RshimState,
+    BmcControl, BootInterfaceSelector, BootOrder, BootOrderStatus, CaCertificate,
+    ComponentIntegritySummary, Console, ConsoleFallback, ConsoleSpec, ConsoleSpecError,
+    ConsoleState, ConsoleStatus, Dpu, DpuStatus, EscapeSeq, Firmware, HostPrivilegeLevel, Lockdown,
+    LockdownDesiredState, LockdownScope, LockdownState, LockdownStatus, NicMode, Power, RshimState,
     SecureBoot, SecureBootStatus, Storage,
 };
 pub use error::{AuthError, PlatformError};
@@ -44,8 +43,5 @@ pub use operation::{
     ControllerAction, DriverOutcome, ManualInterventionCode, ManualInterventionCodeError,
     OperationReference, VendorJobId, VendorJobIdError,
 };
-pub use registry::DriverRegistry;
 pub use selection::{Capability, CapabilitySelection, DriverId, DriverIdError, DriverMap};
-pub use transport::{
-    IpmiOps, OpCx, PatchCondition, RedfishOps, RedfishResponse, RedfishUri, RedfishUriError,
-};
+pub use transport::{IpmiOps, OpCx};

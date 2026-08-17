@@ -18,6 +18,7 @@
 use std::num::NonZeroU16;
 
 use async_trait::async_trait;
+use nv_redfish::core::Bmc;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use thiserror::Error;
 
@@ -367,16 +368,16 @@ pub enum ConsoleSpecError {
 
 /// Resolves the console protocol and activation sequence for a BMC.
 #[async_trait]
-pub trait Console: Send + Sync {
-    async fn setup(&self, cx: &OpCx<'_>) -> Result<DriverOutcome, PlatformError>;
+pub trait Console<B: Bmc>: Send + Sync {
+    async fn setup(&self, cx: &OpCx<'_, B>) -> Result<DriverOutcome, PlatformError>;
 
-    async fn status(&self, cx: &OpCx<'_>) -> Result<ConsoleStatus, PlatformError>;
+    async fn status(&self, cx: &OpCx<'_, B>) -> Result<ConsoleStatus, PlatformError>;
 
     /// Returns a validated connection specification.
     ///
     /// Drivers use [`ConsoleSpec`] constructors. Invalid persisted wire data
     /// fails deserialization before a consumer can attempt a connection.
-    async fn spec(&self, cx: &OpCx<'_>) -> Result<ConsoleSpec, PlatformError>;
+    async fn spec(&self, cx: &OpCx<'_, B>) -> Result<ConsoleSpec, PlatformError>;
 }
 
 #[cfg(test)]

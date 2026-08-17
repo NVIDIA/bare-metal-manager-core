@@ -17,22 +17,27 @@
 
 use async_trait::async_trait;
 use nv_redfish::account::ManagerAccountCreate;
+use nv_redfish::core::Bmc;
 use nv_redfish::schema::manager_account::ManagerAccount;
 
 use crate::{DriverOutcome, OpCx, PlatformError};
 
 /// BMC local-account and account-policy operations.
 #[async_trait]
-pub trait Accounts: Send + Sync {
-    async fn list(&self, cx: &OpCx<'_>) -> Result<Vec<ManagerAccount>, PlatformError>;
+pub trait Accounts<B: Bmc>: Send + Sync {
+    async fn list(&self, cx: &OpCx<'_, B>) -> Result<Vec<ManagerAccount>, PlatformError>;
 
     async fn create(
         &self,
-        cx: &OpCx<'_>,
+        cx: &OpCx<'_, B>,
         request: &ManagerAccountCreate,
     ) -> Result<DriverOutcome, PlatformError>;
 
-    async fn delete(&self, cx: &OpCx<'_>, username: &str) -> Result<DriverOutcome, PlatformError>;
+    async fn delete(
+        &self,
+        cx: &OpCx<'_, B>,
+        username: &str,
+    ) -> Result<DriverOutcome, PlatformError>;
 
     /// Changes the named account's password.
     ///
@@ -40,17 +45,17 @@ pub trait Accounts: Send + Sync {
     /// paths where account lookup is unavailable.
     async fn change_password(
         &self,
-        cx: &OpCx<'_>,
+        cx: &OpCx<'_, B>,
         account_username: &str,
         password: &str,
     ) -> Result<DriverOutcome, PlatformError>;
 
     async fn change_username(
         &self,
-        cx: &OpCx<'_>,
+        cx: &OpCx<'_, B>,
         old_username: &str,
         new_username: &str,
     ) -> Result<DriverOutcome, PlatformError>;
 
-    async fn apply_default_policy(&self, cx: &OpCx<'_>) -> Result<DriverOutcome, PlatformError>;
+    async fn apply_default_policy(&self, cx: &OpCx<'_, B>) -> Result<DriverOutcome, PlatformError>;
 }

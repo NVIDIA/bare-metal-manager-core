@@ -17,8 +17,7 @@
 
 use async_trait::async_trait;
 use mac_address::MacAddress;
-use nv_redfish::computer_system::BootOptionReference;
-use nv_redfish::schema::boot_option::BootOption;
+use nv_redfish::core::Bmc;
 use nv_redfish::schema::computer_system::BootUpdate;
 use serde::{Deserialize, Serialize};
 
@@ -35,40 +34,89 @@ pub enum BootInterfaceSelector {
     },
 }
 
-/// One-time boot override and persistent boot-order operations.
-#[async_trait]
-pub trait BootOrder: Send + Sync {
-    async fn options(&self, cx: &OpCx<'_>) -> Result<Vec<BootOption>, PlatformError>;
+/// NICo's normalized boot-order policy status.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct BootOrderStatus {
+    pub boot_interface_first: bool,
+    pub disk_enabled: bool,
+    pub other_network_options_disabled: bool,
+}
 
-    /// Reports whether the selected host boot interface is first.
+impl BootOrderStatus {
+    pub const fn is_configured(self) -> bool {
+        self.boot_interface_first && self.disk_enabled && self.other_network_options_disabled
+    }
+}
+
+/// One-time boot override and persistent boot-order policy.
+#[async_trait]
+pub trait BootOrder<B: Bmc>: Send + Sync {
+    /// Evaluates the complete boot-order policy for the selected host interface.
     ///
     /// The interface may be a DPU, a DPU in NIC mode, or a conventional NIC.
-    async fn is_boot_interface_first(
+    async fn status(
         &self,
-        cx: &OpCx<'_>,
-        interface: &BootInterfaceSelector,
-    ) -> Result<bool, PlatformError>;
+        cx: &OpCx<'_, B>,
+        boot_interface_selector: &BootInterfaceSelector,
+    ) -> Result<BootOrderStatus, PlatformError>;
 
     async fn set_override(
         &self,
-        cx: &OpCx<'_>,
+        cx: &OpCx<'_, B>,
         override_setting: &BootUpdate,
     ) -> Result<DriverOutcome, PlatformError>;
 
-    async fn set_order(
+    /// Applies the complete boot-order policy for the selected host interface.
+    async fn configure(
         &self,
-        cx: &OpCx<'_>,
-        order: &[BootOptionReference<String>],
+        cx: &OpCx<'_, B>,
+        boot_interface_selector: &BootInterfaceSelector,
     ) -> Result<DriverOutcome, PlatformError>;
+}
 
-    /// Moves the selected host boot interface to the first boot position.
-    async fn set_boot_interface_first(
-        &self,
-        cx: &OpCx<'_>,
-        interface: &BootInterfaceSelector,
-    ) -> Result<DriverOutcome, PlatformError>;
+#[cfg(test)]
+mod tests {
+    use super::*;
 
-    async fn infinite_boot_enabled(&self, cx: &OpCx<'_>) -> Result<Option<bool>, PlatformError>;
+    #[test]
+    fn boot_order_is_configured_only_when_every_policy_check_passes() {
+        let cases = [
+            (
+                BootOrderStatus {
+                    boot_interface_first: true,
+                    disk_enabled: true,
+                    other_network_options_disabled: true,
+                },
+                true,
+            ),
+            (
+                BootOrderStatus {
+                    boot_interface_first: false,
+                    disk_enabled: true,
+                    other_network_options_disabled: true,
+                },
+                false,
+            ),
+            (
+                BootOrderStatus {
+                    boot_interface_first: true,
+                    disk_enabled: false,
+                    other_network_options_disabled: true,
+                },
+                false,
+            ),
+            (
+                BootOrderStatus {
+                    boot_interface_first: true,
+                    disk_enabled: true,
+                    other_network_options_disabled: false,
+                },
+                false,
+            ),
+        ];
 
-    async fn enable_infinite_boot(&self, cx: &OpCx<'_>) -> Result<DriverOutcome, PlatformError>;
+        for (status, expected) in cases {
+            assert_eq!(status.is_configured(), expected);
+        }
+    }
 }

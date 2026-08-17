@@ -16,23 +16,24 @@
  */
 
 use async_trait::async_trait;
+use nv_redfish::core::Bmc;
 
 use crate::{DriverOutcome, OpCx, PlatformError};
 
 /// Boot-storage controller lifecycle operations.
 #[async_trait]
-pub trait Storage: Send + Sync {
-    async fn boot_controller(&self, cx: &OpCx<'_>) -> Result<Option<String>, PlatformError>;
+pub trait Storage<B: Bmc>: Send + Sync {
+    async fn boot_controller(&self, cx: &OpCx<'_, B>) -> Result<Option<String>, PlatformError>;
 
     async fn decommission_controller(
         &self,
-        cx: &OpCx<'_>,
+        cx: &OpCx<'_, B>,
         controller_id: &str,
     ) -> Result<DriverOutcome, PlatformError>;
 
     async fn create_volume(
         &self,
-        cx: &OpCx<'_>,
+        cx: &OpCx<'_, B>,
         controller_id: &str,
         volume_name: &str,
     ) -> Result<DriverOutcome, PlatformError>;

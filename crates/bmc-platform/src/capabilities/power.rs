@@ -18,30 +18,17 @@
 use std::time::SystemTime;
 
 use async_trait::async_trait;
-use serde::{Deserialize, Serialize};
+use nv_redfish::core::Bmc;
+use nv_redfish::resource::{PowerState, ResetType};
 
 use crate::{DriverOutcome, OpCx, PlatformError};
-use nv_redfish::resource::PowerState;
-
-/// A normalized power mutation.
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum PowerAction {
-    On,
-    GracefulShutdown,
-    ForceOff,
-    GracefulRestart,
-    ForceRestart,
-    PowerCycle,
-    AcPowerCycle,
-}
 
 /// Host and chassis power observations and mutations.
 #[async_trait]
-pub trait Power: Send + Sync {
-    async fn state(&self, cx: &OpCx<'_>) -> Result<PowerState, PlatformError>;
+pub trait Power<B: Bmc>: Send + Sync {
+    async fn state(&self, cx: &OpCx<'_, B>) -> Result<PowerState, PlatformError>;
 
-    async fn ac_power_cycle_supported(&self, cx: &OpCx<'_>) -> Result<bool, PlatformError>;
+    async fn ac_power_cycle_supported(&self, cx: &OpCx<'_, B>) -> Result<bool, PlatformError>;
 
     /// Reports whether BMC event logs contain evidence of a restart since `since`.
     ///
@@ -49,17 +36,20 @@ pub trait Power: Send + Sync {
     /// general log retrieval remains outside the driver platform.
     async fn restart_observed_since(
         &self,
-        cx: &OpCx<'_>,
+        cx: &OpCx<'_, B>,
         since: SystemTime,
     ) -> Result<bool, PlatformError>;
 
-    async fn set(&self, cx: &OpCx<'_>, action: PowerAction)
-    -> Result<DriverOutcome, PlatformError>;
+    async fn set(
+        &self,
+        cx: &OpCx<'_, B>,
+        reset_type: ResetType,
+    ) -> Result<DriverOutcome, PlatformError>;
 
     async fn chassis_reset(
         &self,
-        cx: &OpCx<'_>,
+        cx: &OpCx<'_, B>,
         chassis_id: &str,
-        action: PowerAction,
+        reset_type: ResetType,
     ) -> Result<DriverOutcome, PlatformError>;
 }

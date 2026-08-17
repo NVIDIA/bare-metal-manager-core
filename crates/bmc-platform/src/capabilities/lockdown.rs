@@ -16,6 +16,7 @@
  */
 
 use async_trait::async_trait;
+use nv_redfish::core::Bmc;
 use serde::{Deserialize, Serialize};
 
 use crate::{DriverOutcome, OpCx, PlatformError};
@@ -59,12 +60,12 @@ pub struct LockdownStatus {
 
 /// Host and BMC lockdown status and mutation operations.
 #[async_trait]
-pub trait Lockdown: Send + Sync {
-    async fn status(&self, cx: &OpCx<'_>) -> Result<LockdownStatus, PlatformError>;
+pub trait Lockdown<B: Bmc>: Send + Sync {
+    async fn status(&self, cx: &OpCx<'_, B>) -> Result<LockdownStatus, PlatformError>;
 
     async fn set(
         &self,
-        cx: &OpCx<'_>,
+        cx: &OpCx<'_, B>,
         scope: LockdownScope,
         desired: LockdownDesiredState,
     ) -> Result<DriverOutcome, PlatformError>;

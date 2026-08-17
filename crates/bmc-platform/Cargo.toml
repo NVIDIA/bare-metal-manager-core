@@ -25,7 +25,6 @@ repository.workspace = true
 
 [dependencies]
 async-trait = { workspace = true }
-http = { workspace = true }
 mac_address = { features = ["serde"], workspace = true }
 nv-redfish = { features = ["accounts", "boot-options", "computer-systems", "secure-boot", "update-service"], workspace = true }
 serde = { features = ["derive"], workspace = true }
