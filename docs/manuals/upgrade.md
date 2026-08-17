@@ -57,6 +57,7 @@ kubectl get secret vault-cluster-keys -n vault -o jsonpath='{.metadata.name}'
 Export and store it offline:
 
 ```bash
+umask 077   # keep the backup readable only by you
 kubectl get secret vault-cluster-keys -n vault -o json > vault-cluster-keys-backup.json
 ```
 
@@ -75,6 +76,7 @@ kubectl get pods -n temporal
 kubectl get pods -n vault
 kubectl get pods -n postgres
 kubectl get pods -n metallb-system
+kubectl get pods -n dpf-operator-system   # if DPF is enabled — phase 5b upgrades it
 ```
 
 All pods should be `Running` or `Completed`. Check for pods stuck in `CrashLoopBackOff`, `Pending`, or `Error`.
@@ -105,7 +107,7 @@ Review the release changelog for breaking changes:
 Check whether new release added required values fields or changed defaults:
 
 ```bash
-git diff release/v2.0..release/v2.1 -- helm-prereqs/values.yaml \
+git diff upstream/release/v2.0..upstream/release/v2.1 -- helm-prereqs/values.yaml \
     helm-prereqs/values/nico-core.yaml \
     helm-prereqs/values/nico-rest.yaml \
     helm-prereqs/values/metallb-config.yaml
@@ -118,9 +120,9 @@ Update your site values files to include any new required fields before running 
 Set the new image tags for the target release:
 
 ```bash
-export NICO_IMAGE_REGISTRY=<your-registry>
-export NICO_CORE_IMAGE_TAG=<new-core-tag>     # e.g. v2.1.0
-export NICO_REST_IMAGE_TAG=<new-rest-tag>     # e.g. v2.1.0
+export NICO_IMAGE_REGISTRY=registry.example.com/nico   # your registry
+export NICO_CORE_IMAGE_TAG=v2.1.0                      # new Core tag
+export NICO_REST_IMAGE_TAG=v2.1.0                      # new REST tag
 ```
 
 If you are upgrading DPF as part of this release, the DPF version is read from `NICO_DPF_VERSION` (defaulting to the value baked into `setup.sh`). You do not normally need to set this explicitly unless your site uses a pinned version.
@@ -167,7 +169,7 @@ cd helm-prereqs/
 | Phase 6 (NICo Core) | 3–8 min (includes DB migration Job) |
 | Phases 7a–7i (NICo REST + site-agent) | 5–15 min (Temporal and DB migrations are the slowest steps) |
 
-Total: typically **15–40 minutes** for a full upgrade with DPF.
+Total: typically **15–45 minutes** for a full upgrade with DPF.
 
 ## Post-upgrade verification
 
@@ -190,7 +192,32 @@ kubectl get deployment -n nico-system nico-api \
     -o jsonpath='{.spec.template.spec.containers[0].image}'
 ```
 
-Run the included health check:
+Verify every LoadBalancer service kept its VIP — an upgrade must not reassign them:
+
+```bash
+kubectl get svc -n nico-system -o wide | grep LoadBalancer
+```
+
+Every service should show the same external IP it had before the upgrade (the VIPs pinned in `values/nico-core.yaml`). Any `<pending>` entry means MetalLB is not advertising — check the MetalLB CRDs and site config objects (see the 2.0→2.1 note below).
+
+Verify PostgreSQL has an elected leader and the cluster is running:
+
+```bash
+kubectl get postgresql -n postgres nico-pg-cluster -o jsonpath='{.status.PostgresClusterStatus}'
+kubectl get pods -n postgres -l application=spilo,spilo-role=master
+```
+
+The first command should print `Running`; the second should show exactly one master pod in `Running` state.
+
+Verify NICo Core is serving — hit the same HTTP health port the liveness probe uses (1080, exposed via the metrics Service):
+
+```bash
+kubectl run -i --rm --restart=Never --image=curlimages/curl upgrade-check \
+  -n nico-system --quiet -- \
+  -sf http://nico-api-metrics.nico-system.svc.cluster.local:1080/ >/dev/null && echo "nico-api healthy"
+```
+
+Then run the included health check, which covers the full stack (Vault, cert-manager, ESO, MetalLB, `.forge` DNS records):
 
 ```bash
 cd helm-prereqs/
@@ -243,13 +270,22 @@ NICo 2.1 requires `startupProbe` to be explicitly configured in the machine-a-tr
 1. Checking out the prior release branch or tag.
 2. Re-running `setup.sh` with the prior image tags.
 
-For NICo Core and REST, the Helm release is rolled back in place, and the database migration Jobs for the prior version run on startup. NICo's database migrations are designed to be forward-compatible; rolling back does not guarantee schema compatibility if the new version added non-nullable columns. For production sites, snapshot the PostgreSQL PVCs before upgrading:
+For NICo Core and REST, the Helm release is rolled back in place, and the database migration Jobs for the prior version run on startup. NICo's database migrations are designed to be forward-compatible; rolling back does not guarantee schema compatibility if the new version added non-nullable columns — which is why a pre-upgrade database backup is essential.
+
+The `nico-pg-cluster` hosts several databases: `nico_system_nico` (NICo Core), `nico_rest` (NICo REST), and — when Flow is enabled — `flow`, `psm`, and `nsm`. A rollback backup must cover all of them; use `pg_dumpall`, which also captures roles and grants:
 
 ```bash
+umask 077
 kubectl exec -n postgres \
     "$(kubectl get pods -n postgres -l application=spilo,spilo-role=master -o jsonpath='{.items[0].metadata.name}')" \
-    -- su postgres -c "pg_dump nico_rest" > nico_rest_pre_upgrade.sql
+    -- su postgres -c "pg_dumpall" > nico_pg_pre_upgrade.sql
 ```
+
+<Note>
+This is a **logical** dump, not a PVC snapshot. Restoring it means recreating the databases from SQL (`psql -f nico_pg_pre_upgrade.sql` against a clean cluster) — expect downtime proportional to database size. It also does not capture Vault storage or Temporal workflow history; in-flight workflows at the time of the dump cannot be replayed from it. If your storage class supports volume snapshots, snapshot the PostgreSQL and Vault PVCs as well for a faster, more complete restore point.
+</Note>
+
+Because of these limitations, re-running `setup.sh` with the prior image tags alone is **not** a complete rollback if the new version's migrations already ran — restore the database dump first, then deploy the prior version.
 
 For DPF, rolling back to a prior DPF version is not supported by NVIDIA. If DPF fails to upgrade, reach out to NVIDIA support rather than attempting a downgrade.
 
