@@ -66,12 +66,14 @@ auto_generate_missing_sku_interval = "300s"
 
  - `enabled` - Enables or disables the entire bom validation process.  When disabled, machines
   will skip bom validation and proceed as if all validation has passed.
- - `allow_allocation_on_validation_failure` - When true, machines are allowed to stay in Ready state and remain allocatable
-  even when SKU validation fails. Validation still occurs but only logs are recorded - health reports are cleared instead
-  of recording validation failures. Machines do not transition into failed states (SkuVerificationFailed, SkuMissing,
-  WaitingForSkuAssignment). When false (default), standard mode applies where validation failures are recorded in health
-  reports and machines enter failed states and become unallocatable until fixed. This is useful for avoiding machine
-  allocation blockage due to SKU validation issues when you only need logging without health report alerts.
+ - `allow_allocation_on_validation_failure` - When true, machines with an assigned SKU are allowed to stay in Ready state
+  and remain allocatable even when SKU validation fails. Validation still occurs but only logs are recorded - health reports
+  are cleared instead of recording validation failures. Machines do not transition into failed states
+  (SkuVerificationFailed or SkuMissing). When false (default), standard mode applies where validation failures are recorded
+  in health reports and machines enter failed states and become unallocatable until fixed. This is useful for avoiding machine
+  allocation blockage due to SKU validation issues when you only need logging without health report alerts. This option does
+  not bypass a machine without an assigned SKU; with `ignore_unassigned_machines = false`, that machine waits for SKU
+  assignment.
  - `ignore_unassigned_machines` - When true and BOM validation encounters a machine that does not have an associated SKU,
   it will proceed as if all validation has passed. Only machines with an associated SKU will be validated. This allows
   existing sites to be upgraded and BOM Validation enabled as SKUs are added to the system without impacting site operation.
