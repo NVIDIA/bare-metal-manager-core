@@ -72,6 +72,20 @@ async fn release(
         .collect()
 }
 
+/// The worklist as an operator reads it: ids first, detail fetched per page.
+async fn worklist_ids(fixture: &Fixture) -> Vec<MachineId> {
+    fixture
+        .env
+        .api
+        .find_pending_dpu_service_sync_ids(Request::new(
+            rpc::FindPendingDpuServiceSyncIdsRequest {},
+        ))
+        .await
+        .expect("worklist ids")
+        .into_inner()
+        .machine_ids
+}
+
 fn unsynced() -> (Arc<AtomicBool>, Arc<AtomicBool>) {
     (
         Arc::new(AtomicBool::new(false)),
@@ -319,18 +333,23 @@ async fn the_worklist_empties_on_release_and_the_history_records_the_operator(po
     let fixture = provisioned(pool, outdated, release_fails).await;
     request_sync(&fixture.pool, &fixture.mh.id).await;
 
-    let worklist = fixture
+    let worklist = worklist_ids(&fixture).await;
+    assert_eq!(worklist, vec![fixture.mh.id]);
+
+    let detail = fixture
         .env
         .api
-        .list_pending_dpu_service_syncs(Request::new(rpc::ListPendingDpuServiceSyncsRequest {
-            machine_id: None,
-        }))
+        .find_pending_dpu_service_syncs_by_ids(Request::new(
+            rpc::FindPendingDpuServiceSyncsByIdsRequest {
+                machine_ids: worklist.clone(),
+            },
+        ))
         .await
-        .expect("list")
+        .expect("detail")
         .into_inner()
         .pending;
-    assert_eq!(worklist.len(), 1);
-    assert_eq!(worklist[0].machine_id, Some(fixture.mh.id));
+    assert_eq!(detail.len(), 1);
+    let worklist = detail;
     assert!(
         worklist[0].completed_by.is_none(),
         "an outstanding action has nobody to credit; UpdateInitiator::AdminCli is zero, \
@@ -339,25 +358,15 @@ async fn the_worklist_empties_on_release_and_the_history_records_the_operator(po
 
     release(&fixture, by_machine_ids(&[fixture.mh.id])).await;
 
-    let worklist = fixture
-        .env
-        .api
-        .list_pending_dpu_service_syncs(Request::new(rpc::ListPendingDpuServiceSyncsRequest {
-            machine_id: None,
-        }))
-        .await
-        .expect("list")
-        .into_inner()
-        .pending;
     assert!(
-        worklist.is_empty(),
+        worklist_ids(&fixture).await.is_empty(),
         "a released machine leaves the worklist"
     );
 
     let history = fixture
         .env
         .api
-        .list_pending_dpu_service_syncs(Request::new(rpc::ListPendingDpuServiceSyncsRequest {
+        .list_dpu_service_sync_history(Request::new(rpc::ListDpuServiceSyncHistoryRequest {
             machine_id: Some(fixture.mh.id),
         }))
         .await

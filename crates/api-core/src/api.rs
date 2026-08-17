@@ -3304,11 +3304,26 @@ impl Forge for Api {
         crate::handlers::dpf::get_dpf_service_versions(self, request).await
     }
 
-    async fn list_pending_dpu_service_syncs(
+    async fn find_pending_dpu_service_sync_ids(
         &self,
-        request: Request<rpc::ListPendingDpuServiceSyncsRequest>,
+        request: Request<rpc::FindPendingDpuServiceSyncIdsRequest>,
+    ) -> Result<Response<::rpc::common::MachineIdList>, Status> {
+        crate::handlers::dpu_service_sync::find_pending_dpu_service_sync_ids(self, request).await
+    }
+
+    async fn find_pending_dpu_service_syncs_by_ids(
+        &self,
+        request: Request<rpc::FindPendingDpuServiceSyncsByIdsRequest>,
     ) -> Result<Response<rpc::ListPendingDpuServiceSyncsResponse>, Status> {
-        crate::handlers::dpu_service_sync::list_pending_dpu_service_syncs(self, request).await
+        crate::handlers::dpu_service_sync::find_pending_dpu_service_syncs_by_ids(self, request)
+            .await
+    }
+
+    async fn list_dpu_service_sync_history(
+        &self,
+        request: Request<rpc::ListDpuServiceSyncHistoryRequest>,
+    ) -> Result<Response<rpc::ListPendingDpuServiceSyncsResponse>, Status> {
+        crate::handlers::dpu_service_sync::list_dpu_service_sync_history(self, request).await
     }
 
     async fn release_dpu_service_sync_hold(

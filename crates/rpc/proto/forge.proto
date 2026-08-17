@@ -1006,8 +1006,14 @@ service Forge {
   // Machines DPF is waiting on before a changed DPUService can roll out.
   //
   // Required rather than convenient: the release RPC has no fleet-wide form, so
-  // this is the only way to discover which machines to name.
-  rpc ListPendingDPUServiceSyncs(ListPendingDPUServiceSyncsRequest) returns (ListPendingDPUServiceSyncsResponse);
+  // this is the only way to discover which machines to name. Split ids-then-
+  // details because a fleet-wide rollout can leave every host waiting at once,
+  // and the worklist must not become one unbounded response.
+  rpc FindPendingDPUServiceSyncIds(FindPendingDPUServiceSyncIdsRequest) returns (common.MachineIdList);
+  rpc FindPendingDPUServiceSyncsByIds(FindPendingDPUServiceSyncsByIdsRequest) returns (ListPendingDPUServiceSyncsResponse);
+  // One machine's recorded sync history, newest first. Needs no paging: the
+  // database caps retained history per machine.
+  rpc ListDPUServiceSyncHistory(ListDPUServiceSyncHistoryRequest) returns (ListPendingDPUServiceSyncsResponse);
   // Release the DPF maintenance hold for named machines and complete their
   // pending DPU service sync.
   //
@@ -9502,15 +9508,20 @@ message ReleaseDPUServiceSyncHoldResponse {
   repeated DPUServiceSyncReleaseResult results = 1;
 }
 
-message ListPendingDPUServiceSyncsRequest {
-  // Unset: every machine with work outstanding, longest wait first -- the
-  // operator worklist. Set: that machine's retained history, newest first,
-  // including completed entries and who completed them.
-  optional common.MachineId machine_id = 1;
+message FindPendingDPUServiceSyncIdsRequest {
 }
 
-// One recorded DPU service sync. Completed entries appear only in the
-// single-machine form.
+message FindPendingDPUServiceSyncsByIdsRequest {
+  // Bounded by the server's `max_find_by_ids`, like every other by-ids call.
+  repeated common.MachineId machine_ids = 1;
+}
+
+message ListDPUServiceSyncHistoryRequest {
+  common.MachineId machine_id = 1;
+}
+
+// One recorded DPU service sync. Completed entries appear only in the history
+// form.
 message PendingDPUServiceSync {
   common.MachineId machine_id = 1;
   // First time DPF was seen waiting on this machine. Survives repeat requests,

@@ -926,7 +926,9 @@ impl InternalRBACRules {
         x.perm("ListComponentFirmwareVersions", vec![ForgeAdminCLI, Flow]);
         x.perm("GetDPFHostSnapshot", vec![ForgeAdminCLI]);
         x.perm("GetDPFServiceVersions", vec![ForgeAdminCLI]);
-        x.perm("ListPendingDPUServiceSyncs", vec![ForgeAdminCLI]);
+        x.perm("FindPendingDPUServiceSyncIds", vec![ForgeAdminCLI]);
+        x.perm("FindPendingDPUServiceSyncsByIds", vec![ForgeAdminCLI]);
+        x.perm("ListDPUServiceSyncHistory", vec![ForgeAdminCLI]);
         // Operator-only: releasing a hold restarts DPU services, and for an
         // assigned host it disrupts a tenant. No service identity should be able
         // to ask for that on its own.

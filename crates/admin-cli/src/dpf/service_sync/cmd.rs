@@ -26,17 +26,22 @@ use super::args::{Args, List, Release};
 use crate::errors::{CarbideCliError, CarbideCliResult};
 use crate::rpc::ApiClient;
 
-pub(super) async fn service_sync(api_client: &ApiClient, args: Args) -> CarbideCliResult<()> {
+pub(super) async fn service_sync(
+    api_client: &ApiClient,
+    args: Args,
+    page_size: usize,
+) -> CarbideCliResult<()> {
     match args {
-        Args::List(args) => list(api_client, args).await,
+        Args::List(args) => list(api_client, args, page_size).await,
         Args::Release(args) => release(api_client, args).await,
     }
 }
 
-async fn list(api_client: &ApiClient, args: List) -> CarbideCliResult<()> {
-    let pending = api_client
-        .list_pending_dpu_service_syncs(args.machine_id)
-        .await?;
+async fn list(api_client: &ApiClient, args: List, page_size: usize) -> CarbideCliResult<()> {
+    let pending = match args.machine_id {
+        Some(machine_id) => api_client.list_dpu_service_sync_history(machine_id).await?,
+        None => api_client.list_pending_dpu_service_syncs(page_size).await?,
+    };
 
     if pending.is_empty() {
         match args.machine_id {

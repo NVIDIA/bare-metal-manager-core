@@ -41,6 +41,7 @@ use tonic::{Request, Response, Status};
 
 use crate::CarbideError;
 use crate::api::{Api, log_request_data};
+use crate::handlers::utils::convert_and_log_machine_id;
 
 /// Ceiling on machines per release call.
 ///
@@ -50,35 +51,96 @@ use crate::api::{Api, log_request_data};
 /// possible, but only in visible, deliberate chunks.
 const MAX_RELEASE_BATCH: usize = 256;
 
-/// Lists what DPF is waiting on: the whole worklist, or one machine's history.
-pub(crate) async fn list_pending_dpu_service_syncs(
+/// The machines DPF is waiting on, ids only.
+///
+/// Ids rather than detail because a fleet-wide rollout can leave every host
+/// waiting at once; callers page through the detail with
+/// [`find_pending_dpu_service_syncs_by_ids`].
+pub(crate) async fn find_pending_dpu_service_sync_ids(
     api: &Api,
-    request: Request<rpc::ListPendingDpuServiceSyncsRequest>,
-) -> Result<Response<rpc::ListPendingDpuServiceSyncsResponse>, Status> {
+    request: Request<rpc::FindPendingDpuServiceSyncIdsRequest>,
+) -> Result<Response<::rpc::common::MachineIdList>, Status> {
     log_request_data(&request);
-    let machine_id = request.get_ref().machine_id;
 
     let mut txn = api.txn_begin().await?;
-    let actions = match machine_id {
-        Some(machine_id) => {
-            db::machine_pending_action::find_all_for_machine(&mut txn, &machine_id).await?
-        }
-        None => db::machine_pending_action::find_all_outstanding(&mut txn, DpuServiceSync).await?,
-    };
-
-    // One query each for state and tenancy rather than a pair per machine: the
-    // worklist is fleet-sized when nothing has been released for a while.
-    let machine_ids: Vec<MachineId> = actions.iter().map(|action| action.machine_id).collect();
-    let states = machine_states(&mut txn, &machine_ids).await?;
-    let instances =
-        db::instance::find_by_machine_ids(&mut txn, &machine_ids.iter().collect::<Vec<_>>())
-            .await?
-            .into_iter()
-            .map(|instance| (instance.machine_id, instance.id))
-            .collect::<HashMap<_, _>>();
+    let machine_ids =
+        db::machine_pending_action::find_outstanding_machine_ids(&mut txn, DpuServiceSync).await?;
     txn.commit().await?;
 
-    let pending = actions
+    Ok(Response::new(::rpc::common::MachineIdList { machine_ids }))
+}
+
+/// Detail for a bounded slice of the worklist.
+pub(crate) async fn find_pending_dpu_service_syncs_by_ids(
+    api: &Api,
+    request: Request<rpc::FindPendingDpuServiceSyncsByIdsRequest>,
+) -> Result<Response<rpc::ListPendingDpuServiceSyncsResponse>, Status> {
+    log_request_data(&request);
+    let machine_ids = request.into_inner().machine_ids;
+
+    let max_find_by_ids = api.runtime_config.max_find_by_ids as usize;
+    if machine_ids.len() > max_find_by_ids {
+        return Err(CarbideError::InvalidArgument(format!(
+            "no more than {max_find_by_ids} IDs can be accepted"
+        ))
+        .into());
+    } else if machine_ids.is_empty() {
+        return Err(
+            CarbideError::InvalidArgument("at least one ID must be provided".to_string()).into(),
+        );
+    }
+
+    let mut txn = api.txn_begin().await?;
+    let actions = db::machine_pending_action::find_outstanding_by_machine_ids(
+        &mut txn,
+        DpuServiceSync,
+        &machine_ids,
+    )
+    .await?;
+    let pending = project(api, &mut txn, actions).await?;
+    txn.commit().await?;
+
+    Ok(Response::new(rpc::ListPendingDpuServiceSyncsResponse {
+        pending,
+    }))
+}
+
+/// One machine's recorded history, newest first.
+///
+/// Needs no paging: the database caps retained history per machine.
+pub(crate) async fn list_dpu_service_sync_history(
+    api: &Api,
+    request: Request<rpc::ListDpuServiceSyncHistoryRequest>,
+) -> Result<Response<rpc::ListPendingDpuServiceSyncsResponse>, Status> {
+    log_request_data(&request);
+    let machine_id = convert_and_log_machine_id(request.get_ref().machine_id.as_ref())?;
+
+    let mut txn = api.txn_begin().await?;
+    let actions = db::machine_pending_action::find_all_for_machine(&mut txn, &machine_id).await?;
+    let pending = project(api, &mut txn, actions).await?;
+    txn.commit().await?;
+
+    Ok(Response::new(rpc::ListPendingDpuServiceSyncsResponse {
+        pending,
+    }))
+}
+
+/// Turns stored actions into their wire form, resolving each machine's state and
+/// tenancy in one query apiece rather than a pair per machine.
+async fn project(
+    _api: &Api,
+    txn: &mut db::Transaction<'_>,
+    actions: Vec<model::machine_pending_action::MachinePendingAction>,
+) -> Result<Vec<rpc::PendingDpuServiceSync>, Status> {
+    let machine_ids: Vec<MachineId> = actions.iter().map(|action| action.machine_id).collect();
+    let states = machine_states(txn, &machine_ids).await?;
+    let instances = db::instance::find_by_machine_ids(txn, &machine_ids.iter().collect::<Vec<_>>())
+        .await?
+        .into_iter()
+        .map(|instance| (instance.machine_id, instance.id))
+        .collect::<HashMap<_, _>>();
+
+    Ok(actions
         .into_iter()
         .map(|action| rpc::PendingDpuServiceSync {
             machine_id: Some(action.machine_id),
@@ -100,11 +162,7 @@ pub(crate) async fn list_pending_dpu_service_syncs(
                 .into()
             }),
         })
-        .collect();
-
-    Ok(Response::new(rpc::ListPendingDpuServiceSyncsResponse {
-        pending,
-    }))
+        .collect())
 }
 
 /// Releases the DPF maintenance hold for the named machines.

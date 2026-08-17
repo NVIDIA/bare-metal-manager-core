@@ -104,19 +104,38 @@ pub async fn complete(
         .map_err(|e| DatabaseError::query(QUERY, e))
 }
 
-/// Returns every machine with an outstanding action of `kind`, longest wait
+/// Returns the machines with an outstanding action of `kind`, longest wait
 /// first.
 ///
-/// This is the worklist an operator releases from, and the answer to "which
-/// machines are waiting, and for how long". Only outstanding rows are returned,
-/// so a machine whose action has been completed does not appear.
-///
-/// Unbounded by design: it is the full set of machines currently owed work, and
-/// a caller that wants a subset should filter on what it gets back rather than
-/// receive a silently truncated list.
-pub async fn find_all_outstanding(
+/// Ids only: this is the worklist an operator releases from, and a fleet-wide
+/// rollout can leave every host on it at once. Callers fetch the detail for a
+/// bounded slice with [`find_outstanding_by_machine_ids`], the same way every
+/// other find-then-fetch pair in the API works.
+pub async fn find_outstanding_machine_ids(
     db: impl DbReader<'_>,
     kind: MachinePendingActionKind,
+) -> DatabaseResult<Vec<MachineId>> {
+    const QUERY: &str = "SELECT machine_id
+    FROM machine_pending_actions
+    WHERE kind = $1 AND completed_at IS NULL
+    ORDER BY requested_at ASC, machine_id ASC";
+
+    sqlx::query_scalar(QUERY)
+        .bind(kind)
+        .fetch_all(db)
+        .await
+        .map_err(|e| DatabaseError::query(QUERY, e))
+}
+
+/// The outstanding action of `kind` for each of `machine_ids`, longest wait
+/// first.
+///
+/// A machine with nothing owed simply does not appear, so a caller can pass ids
+/// from a worklist that has since been partly drained.
+pub async fn find_outstanding_by_machine_ids(
+    db: impl DbReader<'_>,
+    kind: MachinePendingActionKind,
+    machine_ids: &[MachineId],
 ) -> DatabaseResult<Vec<MachinePendingAction>> {
     const QUERY: &str = "SELECT
         machine_id,
@@ -125,11 +144,12 @@ pub async fn find_all_outstanding(
         completed_at,
         completed_by
     FROM machine_pending_actions
-    WHERE kind = $1 AND completed_at IS NULL
+    WHERE kind = $1 AND completed_at IS NULL AND machine_id = ANY($2)
     ORDER BY requested_at ASC, machine_id ASC";
 
     sqlx::query_as(QUERY)
         .bind(kind)
+        .bind(machine_ids)
         .fetch_all(db)
         .await
         .map_err(|e| DatabaseError::query(QUERY, e))
@@ -166,7 +186,10 @@ mod tests {
     use model::machine_pending_action::{MachinePendingActionActor, MachinePendingActionKind};
     use sqlx::{PgConnection, PgPool};
 
-    use super::{complete, find_all_for_machine, find_all_outstanding, is_outstanding, request};
+    use super::{
+        complete, find_all_for_machine, find_outstanding_by_machine_ids,
+        find_outstanding_machine_ids, is_outstanding, request,
+    };
 
     const DPU_SERVICE_SYNC: MachinePendingActionKind = MachinePendingActionKind::DpuServiceSync;
     const AUTOMATIC: MachinePendingActionActor = MachinePendingActionActor::Automatic;
@@ -268,7 +291,7 @@ mod tests {
     ) -> Result<(), Box<dyn std::error::Error>> {
         let mut txn = pool.begin().await?;
         assert!(
-            find_all_outstanding(txn.as_mut(), DPU_SERVICE_SYNC)
+            find_outstanding_machine_ids(txn.as_mut(), DPU_SERVICE_SYNC)
                 .await?
                 .is_empty()
         );
@@ -287,13 +310,22 @@ mod tests {
         assert!(complete(txn.as_mut(), &already_done, DPU_SERVICE_SYNC, AUTOMATIC).await?);
 
         assert_eq!(
-            find_all_outstanding(txn.as_mut(), DPU_SERVICE_SYNC)
-                .await?
-                .into_iter()
-                .map(|action| action.machine_id)
-                .collect::<Vec<_>>(),
+            find_outstanding_machine_ids(txn.as_mut(), DPU_SERVICE_SYNC).await?,
             vec![waiting_longest, waiting_recently],
             "a completed action is no longer owed and must not appear on the worklist"
+        );
+
+        // Fetching detail for a slice of the worklist, as a paging caller does.
+        let detail =
+            find_outstanding_by_machine_ids(txn.as_mut(), DPU_SERVICE_SYNC, &[waiting_recently])
+                .await?;
+        assert_eq!(detail.len(), 1);
+        assert_eq!(detail[0].machine_id, waiting_recently);
+        assert!(
+            find_outstanding_by_machine_ids(txn.as_mut(), DPU_SERVICE_SYNC, &[already_done])
+                .await?
+                .is_empty(),
+            "a machine drained since the worklist was read simply drops out"
         );
 
         Ok(())
