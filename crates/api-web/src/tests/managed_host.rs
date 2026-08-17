@@ -673,3 +673,42 @@ async fn test_managed_host_empty_health_alert_filter_is_unfiltered(pool: sqlx::P
     assert!(body_str.contains("All Managed Hosts (1)"));
     assert!(body_str.contains(&mh.host.id.to_string()));
 }
+
+#[crate::sqlx_test]
+async fn test_managed_host_group_drilldown_preserves_other_filters(pool: sqlx::PgPool) {
+    let env = TestEnv::new(pool).await;
+    _ = env.create_ready_managed_host(1).await;
+
+    let app = make_test_app(&env.test_harness);
+    let response = app
+        .oneshot(
+            web_request_builder()
+                .uri(
+                    "/admin/managed-host?health-alerts-filter=healthy&state-filter=ready&time-in-state-above-sla-filter=false&group-by=state&current_page=7&limit=25",
+                )
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let body_bytes = response
+        .into_body()
+        .collect()
+        .await
+        .expect("Empty response body?")
+        .to_bytes();
+    let body_str = std::str::from_utf8(&body_bytes).expect("Invalid UTF-8 in body");
+
+    let drilldown_link = r#"href="/admin/managed-host?health-alerts-filter=healthy&#38;time-in-state-above-sla-filter=false&#38;state-filter=ready""#;
+    assert!(
+        body_str.contains(drilldown_link),
+        "expected grouped-host drilldown link to preserve active filters: {body_str}"
+    );
+    assert_eq!(
+        body_str.matches("state-filter=ready").count(),
+        1,
+        "group filter must replace, not duplicate, the active state filter"
+    );
+}
