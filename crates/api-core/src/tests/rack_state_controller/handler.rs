@@ -1772,7 +1772,8 @@ async fn test_firmware_upgrade_start_rejects_desired_off_machine_before_rms_subm
         .get_credentials(&CredentialKey::RackMaintenanceAccessToken {
             rack_id: rack_id.clone(),
         })
-        .await?;
+        .await
+        .map_err(|error| eyre::eyre!("failed to get maintenance access token: {}", error))?;
     assert!(token.is_none());
 
     Ok(())
@@ -2156,7 +2157,8 @@ async fn test_firmware_upgrade_wait_for_complete_recovers_power_blocked_machine(
         .get_credentials(&CredentialKey::RackMaintenanceAccessToken {
             rack_id: rack_id.clone(),
         })
-        .await?;
+        .await
+        .map_err(|error| eyre::eyre!("failed to get maintenance access token: {}", error))?;
     assert!(token.is_none());
 
     Ok(())
