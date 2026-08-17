@@ -181,6 +181,9 @@ verification expectations.
 - Linting uses `golangci-lint` (v2 config in `.golangci.yml`) with most
   linters enabled, plus `revive` (config in `.revive.toml`).
 - Use `testify` (assert/require) for test assertions.
+- When a test verifies a generated CLI command path, assert that the leaf
+  command has a non-nil `Action`; path presence alone does not prove the
+  command is runnable.
 - Tests that need a database use a PostgreSQL container (testcontainers-go
   or the Makefile-managed container).
 - Organize tests by the production function or method under test, not by individual

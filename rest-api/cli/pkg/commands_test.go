@@ -967,7 +967,7 @@ func TestBuildCommands_SiteExplorerActionIsRunnable(t *testing.T) {
 		}
 		if command.HasName("endpoint") && len(command.Subcommands) > 0 {
 			for _, subcommand := range command.Subcommands {
-				if subcommand.HasName("action") {
+				if subcommand.HasName("action") && subcommand.Action != nil {
 					sawEndpointAction = true
 				}
 			}
@@ -979,9 +979,8 @@ func TestBuildCommands_SiteExplorerActionIsRunnable(t *testing.T) {
 	if !sawCreate {
 		t.Fatal("site-explorer create must be generated from the OpenAPI operation")
 	}
-	if !sawEndpointAction {
-		t.Fatal("site-explorer endpoint action must be generated from the OpenAPI operation")
-	}
+	require.True(t, sawEndpointAction,
+		"site-explorer endpoint action must be generated from the OpenAPI operation")
 	if !sawList {
 		t.Fatal("site-explorer list must be generated from the OpenAPI operation")
 	}
