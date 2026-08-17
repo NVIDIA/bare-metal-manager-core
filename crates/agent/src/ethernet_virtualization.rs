@@ -1676,6 +1676,8 @@ fn read_limited<P: AsRef<Path>>(path: P) -> io::Result<String> {
 // two-word randomly generated name.
 fn hostname() -> eyre::Result<Hostname> {
     let mut buf = vec![0u8; 64 + 1]; // Linux HOST_NAME_MAX is 64
+    // SAFETY: `buf` is live and exclusively writable for all `buf.len()` bytes. `u8` and
+    // `c_char` have the same size and alignment, and `gethostname` writes at most that length.
     let res = unsafe { libc::gethostname(buf.as_mut_ptr() as *mut libc::c_char, buf.len()) };
     if res != 0 {
         return Err(io::Error::last_os_error().into());

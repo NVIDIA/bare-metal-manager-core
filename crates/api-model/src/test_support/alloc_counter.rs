@@ -36,14 +36,22 @@ static ALLOCATED_BYTES: AtomicU64 = AtomicU64::new(0);
 /// ```
 pub struct CountingAllocator;
 
+// SAFETY: Every allocation operation delegates to `System` without changing pointer,
+// layout, size, or return-value semantics. The added atomic bookkeeping neither
+// allocates nor unwinds, so `System`'s `GlobalAlloc` guarantees remain intact.
 unsafe impl GlobalAlloc for CountingAllocator {
     unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
         ALLOCATIONS.fetch_add(1, Ordering::Relaxed);
         ALLOCATED_BYTES.fetch_add(layout.size() as u64, Ordering::Relaxed);
+        // SAFETY: The caller guarantees that `layout` has nonzero size as required by
+        // `GlobalAlloc::alloc`; it is forwarded unchanged to `System`.
         unsafe { System.alloc(layout) }
     }
 
     unsafe fn dealloc(&self, ptr: *mut u8, layout: Layout) {
+        // SAFETY: The caller guarantees that `ptr` is a live allocation from this
+        // allocator and that `layout` matches it. Every allocation originates from
+        // `System`, so forwarding both unchanged preserves provenance.
         unsafe { System.dealloc(ptr, layout) }
     }
 
@@ -55,6 +63,8 @@ unsafe impl GlobalAlloc for CountingAllocator {
     unsafe fn alloc_zeroed(&self, layout: Layout) -> *mut u8 {
         ALLOCATIONS.fetch_add(1, Ordering::Relaxed);
         ALLOCATED_BYTES.fetch_add(layout.size() as u64, Ordering::Relaxed);
+        // SAFETY: The caller guarantees that `layout` has nonzero size as required by
+        // `GlobalAlloc::alloc_zeroed`; it is forwarded unchanged to `System`.
         unsafe { System.alloc_zeroed(layout) }
     }
 
@@ -63,6 +73,10 @@ unsafe impl GlobalAlloc for CountingAllocator {
         // block is not tracked, matching `dealloc`.
         ALLOCATIONS.fetch_add(1, Ordering::Relaxed);
         ALLOCATED_BYTES.fetch_add(new_size as u64, Ordering::Relaxed);
+        // SAFETY: The caller guarantees that `ptr` and `layout` describe a live
+        // allocation from this allocator and that `new_size` satisfies
+        // `GlobalAlloc::realloc`'s size and overflow requirements. Every allocation
+        // originates from `System`, and all arguments are forwarded unchanged.
         unsafe { System.realloc(ptr, layout, new_size) }
     }
 }

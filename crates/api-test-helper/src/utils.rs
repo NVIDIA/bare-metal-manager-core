@@ -207,6 +207,10 @@ pub async fn start_api_server(
     let root_dir = test_env.root_dir.clone();
     let credential_config = test_env.credential_config.clone();
 
+    // SAFETY: Initial lint enablement: these test settings are installed before the API
+    // server task is spawned, but callers already run in multi-threaded test processes.
+    // Unix process-wide exclusion from environment readers is not proven; this needs
+    // owner review.
     unsafe {
         env::set_var("DISABLE_TLS_ENFORCEMENT", "true");
         env::set_var("IGNORE_MGMT_VRF", "true");

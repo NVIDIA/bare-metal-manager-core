@@ -457,6 +457,8 @@ impl Kea6 {
         if let Some(process) = &mut self.process {
             // Prefer Kea's shutdown path so hook-library cleanup runs; kill is
             // only a fallback for a child that ignores SIGTERM.
+            // SAFETY: The unreaped Child retains its valid, unreused PID and
+            // SIGTERM is a valid signal; no borrowed memory crosses the syscall.
             unsafe {
                 libc::kill(process.id() as i32, libc::SIGTERM);
             }

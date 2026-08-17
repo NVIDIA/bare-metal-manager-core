@@ -113,8 +113,9 @@ impl RuntimeProvider for ForgeRuntimeProvider {
             Box::pin(async move {
                 //  Set non_blocking which is required for Tokio::TcpSocket
                 let raw_fd = socket.into_raw_fd();
-                // This is safe because we own the raw_fd from socket.into_raw_fd()
-                // Convert socket into a TokioTcpSocket
+                // SAFETY: `into_raw_fd` consumes `socket` and transfers ownership of its
+                // nonblocking descriptor; `from_raw_fd` immediately assumes that ownership
+                // exactly once.
                 let tcp_socket: TcpSocket = unsafe { TcpSocket::from_raw_fd(raw_fd) };
 
                 tcp_socket.connect(server_addr).await.map(AsyncIoTokioAsStd)
