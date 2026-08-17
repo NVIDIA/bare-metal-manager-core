@@ -364,20 +364,22 @@ pub struct InstanceInterfaceStatus {
 
     /// The list of IP addresses that had been assigned to this interface,
     /// based on the requested subnet.
+    /// IPv4 precedes IPv6 when both families are assigned.
     /// The list will be empty if interface configuration hasn't been completed
     pub addresses: Vec<IpAddr>,
 
-    // The list of IP prefixes that have been assigned to this interface
-    // out of the requested subnet (where the prefix allocated to the interface
-    // may be a /30 in the case of FNN, or just a /32 in the case of ETV).
-    //
-    // This is similar to `gateways`, in that there is one `prefix` for each
-    // address in `addresses`.
+    /// The IP prefixes assigned to this interface, with one prefix for each
+    /// entry in `addresses` in the same IPv4-before-IPv6 order. A prefix may be
+    /// a /30 for FNN or a /32 for ETV.
     ///
     /// The list will be empty if interface configuration hasn't been completed
     pub prefixes: Vec<IpNetwork>,
 
-    /// The list of gateways, in CIDR notation, one for each address in `addresses`.
+    /// The explicitly configured gateways, in CIDR notation. There is at most
+    /// one gateway per address family, associated with the same-family address
+    /// and prefix. A family without an explicit gateway is omitted, so this
+    /// list can be shorter than `addresses` and is not positionally aligned.
+    /// IPv4 precedes IPv6 when both gateways are explicitly configured.
     pub gateways: Vec<IpNetwork>,
 
     /// The logical VPC this interface belongs to.
@@ -394,37 +396,45 @@ impl InstanceInterfaceStatus {
     /// Create a "synthetic" InstanceInterfaceStatus using an InstanceInterfaceConfig as a seed.
     /// Host-inband interfaces do not get real network status observations, so we construct status
     /// ourselves from the host interface's config.
-    pub fn from_host_inband_interface(mut value: InstanceInterfaceConfig) -> Self {
+    pub fn from_host_inband_interface(value: InstanceInterfaceConfig) -> Self {
         let resolved_vpc_prefixes = value.resolved_vpc_prefixes();
-        let (prefix_ids, addresses): (Vec<_>, Vec<_>) = value.ip_addrs.into_iter().unzip();
+        let mut address_entries = value.ip_addrs.into_iter().collect::<Vec<_>>();
+        address_entries.sort_by_key(|(_, address)| (address.is_ipv6(), *address));
 
-        // For each NetworkPrefixId we saw in ip_addrs, get that entry from the
-        // network_segment_gateways map. Collecting them into an Option<Vec<IpNetwork>> returns None
-        // if any of them were not found.
-        let gateways = prefix_ids
+        // Interface prefixes were added after the original host-inband status
+        // path. Fall back to the segment gateway's prefix for legacy IPv4
+        // configs that do not contain the newer per-interface value.
+        let prefixes = address_entries
             .iter()
-            .map(|id| {
-                if let Some(gw) = value.network_segment_gateways.remove(id) {
-                    Some(gw)
-                } else {
+            .map(|(id, _)| {
+                value.interface_prefixes.get(id).copied().or_else(|| {
+                    value.network_segment_gateways.get(id).map(|gateway| {
+                        // Unwrap safety: the prefix length comes from an
+                        // already validated IpNetwork.
+                        IpNetwork::new(gateway.network(), gateway.prefix()).unwrap()
+                    })
+                })
+                .or_else(|| {
                     tracing::warn!(
                         network_prefix_id = %id,
-                        "Missing gateway in InstanceInterfaceConfig; gateways field will be empty",
+                        "Missing prefix in InstanceInterfaceConfig; prefixes field will be empty",
                     );
                     None
-                }
+                })
             })
             .collect::<Option<Vec<_>>>()
             .unwrap_or_default();
 
-        // Build a map of prefixes by taking the gateway field (which already is an IpNetwork e.g.
-        // 10.1.2.1/24) and building an IpNetwork from the gateway's prefix (e.g. 10.1.2.0/24)
-        let prefixes = gateways
+        // Gateways are optional per family (IPv6 normally learns one through
+        // Router Advertisements), so retain only the explicitly configured
+        // values while preserving family order.
+        let gateways = address_entries
             .iter()
-            // Unwrap safety: This only fails if the prefix length passed to IpNetwork::new() is
-            // invalid, which can't happen because we're getting it from another (valid)
-            // IpNetwork.
-            .map(|gw| IpNetwork::new(gw.network(), gw.prefix()).unwrap())
+            .filter_map(|(id, _)| value.network_segment_gateways.get(id).copied())
+            .collect();
+        let addresses = address_entries
+            .into_iter()
+            .map(|(_, address)| address)
             .collect();
 
         Self {
@@ -508,22 +518,24 @@ pub struct InstanceInterfaceStatusObservation {
 
     /// The list of IP addresses that had been assigned to this interface,
     /// based on the requested subnet.
+    /// IPv4 precedes IPv6 when both families are assigned.
     /// The list will be empty if interface configuration hasn't been completed
     #[serde(default)]
     pub addresses: Vec<IpAddr>,
 
-    // The list of IP prefixes that have been assigned to this interface
-    // out of the requested subnet (where the prefix allocated to the interface
-    // may be a /30 in the case of FNN, or just a /32 in the case of ETV).
-    //
-    // This is similar to `gateways`, in that there is one `prefix` for each
-    // address in `addresses`.
+    /// The IP prefixes assigned to this interface, with one prefix for each
+    /// entry in `addresses` in the same IPv4-before-IPv6 order. A prefix may be
+    /// a /30 for FNN or a /32 for ETV.
     ///
     /// The list will be empty if interface configuration hasn't been completed
     #[serde(default)]
     pub prefixes: Vec<IpNetwork>,
 
-    /// The list of gateways, in CIDR notation, one for each address in `addresses`.
+    /// The explicitly configured gateways, in CIDR notation. There is at most
+    /// one gateway per address family, associated with the same-family address
+    /// and prefix. A family without an explicit gateway is omitted, so this
+    /// list can be shorter than `addresses` and is not positionally aligned.
+    /// IPv4 precedes IPv6 when both gateways are explicitly configured.
     #[serde(default)]
     pub gateways: Vec<IpNetwork>,
 
@@ -1129,5 +1141,38 @@ mod tests {
             false,
         );
         assert_eq!(status, expected_host_inband_status())
+    }
+
+    #[test]
+    fn host_inband_status_orders_dual_stack_fields_by_family() {
+        let mut interface = host_inband_network_config().interfaces.remove(0);
+        let ipv6_prefix_id = NetworkPrefixId::new();
+        interface
+            .ip_addrs
+            .insert(ipv6_prefix_id, "2001:db8::2".parse().unwrap());
+        interface
+            .interface_prefixes
+            .insert(ipv6_prefix_id, "2001:db8::/64".parse().unwrap());
+
+        let status = InstanceInterfaceStatus::from_host_inband_interface(interface);
+
+        assert_eq!(
+            status.addresses,
+            vec![
+                "127.0.1.2".parse::<IpAddr>().unwrap(),
+                "2001:db8::2".parse::<IpAddr>().unwrap(),
+            ],
+        );
+        assert_eq!(
+            status.prefixes,
+            vec![
+                "127.0.1.0/24".parse::<IpNetwork>().unwrap(),
+                "2001:db8::/64".parse::<IpNetwork>().unwrap(),
+            ],
+        );
+        assert_eq!(
+            status.gateways,
+            vec!["127.0.1.1/24".parse::<IpNetwork>().unwrap()]
+        );
     }
 }

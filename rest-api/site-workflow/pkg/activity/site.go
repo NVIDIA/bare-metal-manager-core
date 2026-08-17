@@ -39,7 +39,9 @@ func (msi *ManageSiteConfigInventory) DiscoverSiteConfigInventory(ctx context.Co
 		return cClient.ErrCoreGrpcClientNotConnected
 	}
 
-	buildInfo, err := grpcClient.GrpcServiceClient().Version(ctx, &corev1.VersionRequest{})
+	buildInfo, err := grpcClient.GrpcServiceClient().Version(ctx, &corev1.VersionRequest{
+		DisplayConfig: true,
+	})
 	if err != nil {
 		logger.Warn().Err(err).Msg("Failed to retrieve Site runtime config using Core gRPC API")
 		return err

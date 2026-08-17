@@ -36,7 +36,7 @@ use crate::HealthError;
 use crate::collectors::runtime::{StreamingCollector, StreamingConnectResult};
 use crate::config::{MtlsProfileConfig, NmxcCollectorConfig as NmxcCollectorOptions};
 use crate::endpoint::BmcEndpoint;
-use crate::sink::{CollectorEvent, LogRecord};
+use crate::sink::{CollectorEvent, LogRecord, LogSeverity};
 
 const NMX_C_HTTP2_KEEPALIVE_INTERVAL: Duration = Duration::from_secs(300);
 const NMX_C_HTTP2_KEEPALIVE_TIMEOUT: Duration = Duration::from_secs(30);
@@ -308,7 +308,7 @@ fn notification_to_events(
         Some(Notification::DomainStateInfo(info)) => domain_state_info_to_events(&info),
         Some(notification) => vec![Ok(notification_to_log(&notification))],
         None => vec![Ok(log_record(
-            "WARN",
+            LogSeverity::Warn,
             "NMX-C stream notification omitted its payload",
             vec![(Cow::Borrowed("notification"), "missing".to_string())],
         ))],
@@ -374,7 +374,7 @@ fn notification_to_log(notification: &Notification) -> CollectorEvent {
 
     push_attribute(&mut attributes, "body", &body);
 
-    log_record("INFO", body, attributes)
+    log_record(LogSeverity::Info, body, attributes)
 }
 
 /// Builds a log event for Subscribe acknowledgements, including rejection details.
@@ -395,9 +395,9 @@ fn subscription_response_to_log(response: &SubscriptionResponse) -> CollectorEve
 
     let severity =
         if check_server_header_success(response.server_header.as_ref(), "Subscribe").is_ok() {
-            "INFO"
+            LogSeverity::Info
         } else {
-            "ERROR"
+            LogSeverity::Error
         };
 
     log_record(severity, body, attributes)
@@ -616,13 +616,13 @@ fn domain_state_info_to_events(info: &DomainStateInfo) -> Vec<Result<CollectorEv
 
 /// Builds a sink log event with the supplied severity, body, and attributes.
 fn log_record(
-    severity: &str,
+    severity: LogSeverity,
     body: impl Into<String>,
     attributes: Vec<(Cow<'static, str>, String)>,
 ) -> CollectorEvent {
     CollectorEvent::Log(Box::new(LogRecord {
         body: body.into(),
-        severity: severity.to_string(),
+        severity,
         attributes,
         diagnostic_record: None,
     }))
@@ -921,7 +921,7 @@ mod tests {
         assert!(record.body.contains("notification_payload="));
         assert!(payload.contains("SubscriptionResponse"));
         assert!(payload.contains("domain-subscribe"));
-        assert_eq!(record.severity, "INFO");
+        assert_eq!(record.severity, LogSeverity::Info);
         assert_eq!(log_attribute(&record, "body"), Some(record.body.as_str()));
     }
 
@@ -1033,7 +1033,7 @@ mod tests {
 
         assert!(payload.contains("SubscriptionResponse"));
         assert!(payload.contains("domain-rejected"));
-        assert_eq!(record.severity, "ERROR");
+        assert_eq!(record.severity, LogSeverity::Error);
     }
 
     #[test]

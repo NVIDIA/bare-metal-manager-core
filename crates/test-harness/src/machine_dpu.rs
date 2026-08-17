@@ -18,6 +18,7 @@
 use std::sync::Arc;
 
 use carbide_api_core::test_support::Api;
+use carbide_network::virtualization::build_dual_stack_list;
 use carbide_uuid::machine::MachineId;
 use mac_address::MacAddress;
 use model::hardware_info::HardwareInfo;
@@ -95,6 +96,8 @@ impl TestMachine for TestDpuMachine {
 
 impl TestMachinePrivate for TestDpuMachine {}
 
+// This harness models the compatibility fields consumed by older agents.
+#[allow(deprecated)]
 async fn record_dpu_network_status(api: &Api, dpu_machine_id: MachineId) {
     let network_config = api
         .get_managed_host_network_config(tonic::Request::new(ManagedHostNetworkConfigRequest {
@@ -140,9 +143,18 @@ async fn record_dpu_network_status(api: &Api, dpu_machine_id: MachineId) {
             function_type: iface.function_type,
             virtual_function_id: None,
             mac_address: None,
-            addresses: vec![iface.ip.clone()],
-            prefixes: vec![iface.interface_prefix.clone()],
-            gateways: vec![iface.gateway.clone()],
+            addresses: build_dual_stack_list(
+                iface.ip.clone(),
+                iface.ipv6_interface_config.as_ref().map(|v6| v6.ip.clone()),
+            ),
+            prefixes: build_dual_stack_list(
+                iface.interface_prefix.clone(),
+                iface
+                    .ipv6_interface_config
+                    .as_ref()
+                    .map(|v6| v6.interface_prefix.clone()),
+            ),
+            gateways: build_dual_stack_list(iface.gateway.clone(), None),
             network_security_group: None,
             internal_uuid: iface.internal_uuid.clone(),
         }]
@@ -155,9 +167,18 @@ async fn record_dpu_network_status(api: &Api, dpu_machine_id: MachineId) {
                     function_type: iface.function_type,
                     virtual_function_id: iface.virtual_function_id,
                     mac_address: None,
-                    addresses: vec![iface.ip.clone()],
-                    prefixes: vec![iface.interface_prefix.clone()],
-                    gateways: vec![iface.gateway.clone()],
+                    addresses: build_dual_stack_list(
+                        iface.ip.clone(),
+                        iface.ipv6_interface_config.as_ref().map(|v6| v6.ip.clone()),
+                    ),
+                    prefixes: build_dual_stack_list(
+                        iface.interface_prefix.clone(),
+                        iface
+                            .ipv6_interface_config
+                            .as_ref()
+                            .map(|v6| v6.interface_prefix.clone()),
+                    ),
+                    gateways: build_dual_stack_list(iface.gateway.clone(), None),
                     network_security_group: None,
                     internal_uuid: iface.internal_uuid.clone(),
                 },

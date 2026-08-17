@@ -18,6 +18,7 @@
 use std::collections::{BTreeMap, HashSet};
 use std::fmt::Debug;
 use std::net::{IpAddr, SocketAddr};
+use std::num::NonZeroUsize;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
@@ -25,9 +26,12 @@ use figment::Figment;
 use figment::providers::{Env, Format, Serialized, Toml};
 use rustls_pki_types::DnsName;
 use serde::{Deserialize, Deserializer, Serialize};
+use tokio::sync::Semaphore;
 use url::Url;
 
 use crate::metrics::BmcLatencyAttribute;
+
+const DEFAULT_BMC_REQUEST_CONCURRENCY: NonZeroUsize = NonZeroUsize::MIN.saturating_add(3);
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
@@ -55,6 +59,12 @@ pub struct Config {
     /// Maximum cache size per BMC, uses etags
     pub cache_size: usize,
 
+    /// Maximum concurrent Redfish operations per BMC, including collector
+    /// fan-out. Changes take effect when the service restarts and rebuilds BMC
+    /// clients. The value must not exceed [`Semaphore::MAX_PERMITS`], which
+    /// bounds SSE event-record buffering.
+    pub bmc_request_concurrency: NonZeroUsize,
+
     /// Interval between BMC endpoint discovery iterations.
     #[serde(with = "humantime_serde")]
     pub endpoint_discovery_interval: Duration,
@@ -76,6 +86,7 @@ impl Default for Config {
             shard: 0,
             shards_count: 1,
             cache_size: 100,
+            bmc_request_concurrency: DEFAULT_BMC_REQUEST_CONCURRENCY,
             endpoint_discovery_interval: Duration::from_secs(300),
             bmc_proxy_url: None,
         }
@@ -706,7 +717,7 @@ impl Default for CarbideApiConnectionConfig {
             root_ca: "/var/run/secrets/spiffe.io/ca.crt".to_string(),
             client_cert: "/var/run/secrets/spiffe.io/tls.crt".to_string(),
             client_key: "/var/run/secrets/spiffe.io/tls.key".to_string(),
-            api_url: Url::parse("https://carbide-api.forge-system.svc.cluster.local:1079").unwrap(),
+            api_url: Url::parse("https://nico-api.nico-system.svc.cluster.local:1079").unwrap(),
         }
     }
 }
@@ -1046,6 +1057,7 @@ pub struct DiscoveryConfig {
     #[serde(with = "humantime_serde")]
     pub refresh_interval: Duration,
 
+    /// Maximum endpoints whose system identities are resolved concurrently.
     pub discovery_concurrency: usize,
 }
 
@@ -1063,15 +1075,12 @@ impl Default for DiscoveryConfig {
 pub struct MetricsCollectorConfig {
     #[serde(with = "humantime_serde")]
     pub fetch_interval: Duration,
-
-    pub fetch_concurrency: usize,
 }
 
 impl Default for MetricsCollectorConfig {
     fn default() -> Self {
         Self {
             fetch_interval: Duration::from_secs(120),
-            fetch_concurrency: 4,
         }
     }
 }
@@ -1172,9 +1181,6 @@ pub struct SensorCollectorConfig {
     #[serde(with = "humantime_serde")]
     pub sensor_fetch_interval: Duration,
 
-    /// Number of concurrent sensor fetches.
-    pub sensor_fetch_concurrency: usize,
-
     /// Include sensor thresholds in the metrics attributes.
     pub include_sensor_thresholds: bool,
 }
@@ -1183,7 +1189,6 @@ impl Default for SensorCollectorConfig {
     fn default() -> Self {
         Self {
             sensor_fetch_interval: Duration::from_secs(60),
-            sensor_fetch_concurrency: 4,
             include_sensor_thresholds: true,
         }
     }
@@ -1886,6 +1891,13 @@ impl Config {
             return Err("endpoint_discovery_interval must be greater than 0".to_string());
         }
 
+        if self.bmc_request_concurrency.get() > Semaphore::MAX_PERMITS {
+            return Err(format!(
+                "bmc_request_concurrency must not exceed {}",
+                Semaphore::MAX_PERMITS
+            ));
+        }
+
         self.metrics.validate()?;
 
         if let Configurable::Enabled(rate_limit) = &self.rate_limit
@@ -2243,7 +2255,7 @@ mod tests {
                 carbide_api
                     .api_url
                     .as_str()
-                    .starts_with("https://carbide-api.forge-system.svc.cluster.local:1079"),
+                    .starts_with("https://nico-api.nico-system.svc.cluster.local:1079"),
             );
         } else {
             panic!("carbide api empty for sources")
@@ -2287,12 +2299,6 @@ mod tests {
         assert_eq!(reachability.interval, Duration::from_secs(30));
         assert_eq!(reachability.timeout, Duration::from_secs(3));
         assert_eq!(reachability.log_mode, ReachabilityLogMode::Unreachable);
-
-        if let Configurable::Enabled(ref sensors) = config.collectors.sensors {
-            assert_eq!(sensors.sensor_fetch_concurrency, 10);
-        } else {
-            panic!("sensors empty")
-        }
 
         if let Configurable::Enabled(ref logs) = config.collectors.logs {
             assert_eq!(logs.mode, LogCollectionMode::Auto);
@@ -2338,6 +2344,7 @@ mod tests {
         assert_eq!(config.shards_count, 1);
 
         assert_eq!(config.cache_size, 100);
+        assert_eq!(config.bmc_request_concurrency.get(), 4);
         assert_eq!(config.endpoint_discovery_interval, Duration::from_secs(300));
 
         if let Configurable::Enabled(ref nvue) = config.collectors.nvue {
@@ -2365,6 +2372,7 @@ mod tests {
     fn test_static_only_config() {
         let toml_content = r#"
 endpoint_discovery_interval = "1m"
+bmc_request_concurrency = 2
 
 [[endpoint_sources.static_bmc_endpoints]]
 ip = "192.168.1.100"
@@ -2380,7 +2388,6 @@ enabled = false
 
 [collectors.sensors]
 sensor_fetch_interval = "30s"
-sensor_fetch_concurrency = 5
 include_sensor_thresholds = false
 
 [metrics]
@@ -2401,6 +2408,8 @@ cache_size = 50
         assert!(!config.sinks.health_report.is_enabled());
 
         assert_eq!(config.endpoint_sources.static_bmc_endpoints.len(), 1);
+        assert_eq!(config.bmc_request_concurrency.get(), 2);
+
         assert_eq!(
             config.endpoint_sources.static_bmc_endpoints[0].ip,
             "192.168.1.100".parse::<IpAddr>().unwrap()
@@ -2569,6 +2578,12 @@ username = "root"
                 Box::new(Config::default()) => Yields(()),
 
                 config_with(|config| {
+                    config.bmc_request_concurrency =
+                        NonZeroUsize::new(Semaphore::MAX_PERMITS)
+                            .expect("Tokio supports at least one semaphore permit");
+                }) => Yields(()),
+
+                config_with(|config| {
                     config.collectors.logs =
                         Configurable::Enabled(LogsCollectorConfig::default());
                 }) => Yields(()),
@@ -2612,6 +2627,15 @@ username = "root"
                 }) => FailsWith(
                     "endpoint_discovery_interval must be greater than 0".to_string()
                 ),
+
+                config_with(|config| {
+                    config.bmc_request_concurrency =
+                        NonZeroUsize::new(Semaphore::MAX_PERMITS + 1)
+                            .expect("the value above Tokio's maximum remains nonzero");
+                }) => FailsWith(format!(
+                    "bmc_request_concurrency must not exceed {}",
+                    Semaphore::MAX_PERMITS
+                )),
 
                 config_with(|config| {
                     config.metrics.enable_bmc_latency_metrics = true;
@@ -3265,6 +3289,7 @@ reload_interval = "30s"
         assert_eq!(config.shard, 0);
         assert_eq!(config.shards_count, 1);
         assert_eq!(config.cache_size, 100);
+        assert_eq!(config.bmc_request_concurrency.get(), 4);
         assert_eq!(config.metrics.endpoint, "0.0.0.0:9009");
         assert!(!config.metrics.enable_bmc_latency_metrics);
         assert_eq!(
@@ -3285,6 +3310,16 @@ reload_interval = "30s"
         } else {
             panic!("health report sink should be enabled by default");
         }
+    }
+
+    #[test]
+    fn zero_bmc_request_concurrency_is_rejected() {
+        let result = Figment::new()
+            .merge(Serialized::defaults(Config::default()))
+            .merge(Toml::string("bmc_request_concurrency = 0"))
+            .extract::<Config>();
+
+        assert!(result.is_err());
     }
 
     #[test]
@@ -4736,6 +4771,7 @@ max_backoff = "45s"
     #[test]
     fn test_sse_log_config_defaults() {
         let defaults = SseLogConfig::default();
+
         assert_eq!(defaults.initial_backoff, Duration::from_secs(1));
         assert_eq!(defaults.max_backoff, Duration::from_secs(30));
     }

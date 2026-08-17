@@ -423,6 +423,36 @@ pub(crate) async fn start_runtime(
         .map_err(|e| eyre::eyre!("failed to build NMX-C client pool: {e}"))?;
     let shared_nmxc_pool: Arc<dyn libnmxc::NmxcPool> = Arc::new(nmxc_client_pool);
 
+    // Node-auth (Scout / DPU-agent bearer JWT, #355) preflight. Run before any
+    // DPF resource creation below, so a misconfiguration (the
+    // enabled=false + mtls_enabled=false lockout, bearer-over-plaintext, or an
+    // unreadable trust anchor) fails startup before it mutates cluster state.
+    // Validate unconditionally; when explicitly enabled, missing prerequisites
+    // fail rather than silently degrading.
+    carbide_config.node_auth.validate()?;
+    let node_jwt_validator = if carbide_config.node_auth.enabled {
+        // Bearer tokens must never be accepted over plaintext, and the
+        // validator trusts the same roots the TLS listener uses for client
+        // certificates — so a TLS listener is required on both counts.
+        if !matches!(carbide_config.listen_mode, ListenMode::Tls) {
+            return Err(eyre::eyre!(
+                "[node_auth] is enabled but listen_mode is not \"tls\"; bearer tokens must not be accepted over plaintext"
+            ));
+        }
+        let tls_ref = carbide_config
+            .tls
+            .as_ref()
+            .ok_or_else(|| eyre::eyre!("[node_auth] is enabled but [tls] is unset"))?;
+        Some(Arc::new(
+            crate::node_auth::NodeJwtValidator::from_root_ca_file(
+                &tls_ref.root_cafile_path,
+                &carbide_config.node_auth,
+            )?,
+        ))
+    } else {
+        None
+    };
+
     let dpf_sdk = initialize_dpf_sdk(
         &carbide_config,
         credential_manager.clone(),
@@ -482,6 +512,7 @@ pub(crate) async fn start_runtime(
         certificate_provider,
         common_pools,
         credential_manager,
+        node_jwt_validator,
         database_connection: db_pool.clone(),
         dpu_health_log_limiter: LogLimiter::default(),
         dynamic_settings,
@@ -708,6 +739,7 @@ async fn initialize_dpf_sdk(
                     &services,
                     &carbide_config.dpf.dpu_agent_bootstrap_ca,
                     interfaces,
+                    &carbide_config.node_auth,
                 ),
                 num_of_vfs: carbide_config.dpu_config.num_of_vfs,
                 pf_total_sf_reserved: carbide_config.dpf.pf_total_sf_reserved,
@@ -2152,6 +2184,7 @@ mod tests {
             mtu,
             reserve_first: 0,
             allocation_strategy: Default::default(),
+            infer_slaac_eui64_addresses: false,
             vpc_name: None,
         }
     }

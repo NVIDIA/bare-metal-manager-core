@@ -22,6 +22,7 @@
 use std::collections::{HashMap, HashSet};
 use std::convert::TryFrom;
 use std::net::IpAddr;
+use std::num::NonZeroUsize;
 use std::str::FromStr;
 use std::sync::{Arc, Mutex};
 
@@ -295,6 +296,7 @@ pub struct ApiEndpointSource {
     reqwest: ReqwestClient,
     proxy_url: Option<Url>,
     cache_size: usize,
+    bmc_request_concurrency: NonZeroUsize,
     bmc_latency_metrics: Option<Arc<BmcLatencyMetrics>>,
     bmc_client_cache: Mutex<HashMap<MacAddress, CachedBmcClient>>,
 }
@@ -314,11 +316,30 @@ impl ApiEndpointSource {
         cache_size: usize,
         bmc_latency_metrics: Option<Arc<BmcLatencyMetrics>>,
     ) -> Self {
+        Self::new_with_request_concurrency(
+            api,
+            reqwest,
+            proxy_url,
+            cache_size,
+            NonZeroUsize::MIN,
+            bmc_latency_metrics,
+        )
+    }
+
+    pub(crate) fn new_with_request_concurrency(
+        api: Arc<ApiClientWrapper>,
+        reqwest: ReqwestClient,
+        proxy_url: Option<Url>,
+        cache_size: usize,
+        bmc_request_concurrency: NonZeroUsize,
+        bmc_latency_metrics: Option<Arc<BmcLatencyMetrics>>,
+    ) -> Self {
         Self {
             api,
             reqwest,
             proxy_url,
             cache_size,
+            bmc_request_concurrency,
             bmc_latency_metrics,
             bmc_client_cache: Mutex::new(HashMap::new()),
         }
@@ -621,6 +642,7 @@ impl ApiEndpointSource {
                     provider,
                     self.proxy_url.clone(),
                     self.cache_size,
+                    self.bmc_request_concurrency,
                     bmc_latency_instrumentation,
                 )?))
             })?
@@ -812,6 +834,7 @@ mod tests {
             provider,
             None,
             10,
+            NonZeroUsize::MIN,
             None,
         )?))
     }

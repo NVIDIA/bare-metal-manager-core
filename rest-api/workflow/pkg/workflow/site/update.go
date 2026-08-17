@@ -4,27 +4,34 @@
 package site
 
 import (
+	"fmt"
 	"time"
+
+	"github.com/rs/zerolog/log"
 
 	corev1 "github.com/NVIDIA/infra-controller/rest-api/proto/core/gen/v1"
 	"github.com/google/uuid"
-	temporallog "go.temporal.io/sdk/log"
 	"go.temporal.io/sdk/temporal"
 	"go.temporal.io/sdk/workflow"
 
 	siteActivity "github.com/NVIDIA/infra-controller/rest-api/workflow/pkg/activity/site"
+
+	cwm "github.com/NVIDIA/infra-controller/rest-api/workflow/internal/metrics"
 )
 
 // UpdateSiteConfigInventory applies the Site Config inventory reported by the
 // Site Agent. Today that inventory carries the Site fabric prefixes, from which
 // the workflow creates the matching Site-level IP Blocks.
 func UpdateSiteConfigInventory(ctx workflow.Context, siteIDStr string, buildInfo *corev1.BuildInfo) error {
-	logger := temporallog.With(workflow.GetLogger(ctx), "Workflow", "UpdateSiteConfigInventory", "SiteID", siteIDStr)
-	logger.Info("starting workflow")
+	logger := log.With().Str("Workflow", "UpdateSiteConfigInventory").Str("SiteID", siteIDStr).Logger()
+
+	startTime := workflow.Now(ctx)
+
+	logger.Info().Msg("starting workflow")
 
 	siteID, err := uuid.Parse(siteIDStr)
 	if err != nil {
-		logger.Error("invalid Site ID", "Error", err)
+		logger.Warn().Err(err).Msg(fmt.Sprintf("workflow triggered with invalid site ID: %s", siteIDStr))
 		return err
 	}
 
@@ -40,14 +47,28 @@ func UpdateSiteConfigInventory(ctx workflow.Context, siteIDStr string, buildInfo
 	ctx = workflow.WithActivityOptions(ctx, options)
 
 	var manageSite siteActivity.ManageSite
-	siteFabricPrefixes := buildInfo.GetRuntimeConfig().GetSiteFabricPrefixes()
 
-	err = workflow.ExecuteActivity(ctx, manageSite.UpdateIPBlocksInDBFromFabricPrefixes, siteID, siteFabricPrefixes).Get(ctx, nil)
+	err = workflow.ExecuteActivity(ctx, manageSite.UpdateSiteInDB, siteID, buildInfo).Get(ctx, nil)
 	if err != nil {
-		logger.Error("failed to execute UpdateIPBlocksInDBFromFabricPrefixes activity", "Error", err)
-		return err
+		logger.Warn().Err(err).Msg("failed to execute UpdateSiteMetadataInDB activity")
 	}
 
-	logger.Info("completing workflow")
-	return nil
+	siteFabricPrefixes := buildInfo.GetRuntimeConfig().GetSiteFabricPrefixes()
+	err = workflow.ExecuteActivity(ctx, manageSite.UpdateIPBlocksInDBFromFabricPrefixes, siteID, siteFabricPrefixes).Get(ctx, nil)
+	if err != nil {
+		logger.Warn().Err(err).Msg("failed to execute UpdateIPBlocksInDBFromFabricPrefixes activity")
+	}
+
+	// Record latency for this inventory call
+	var inventoryMetricsManager cwm.ManageInventoryMetrics
+
+	serr := workflow.ExecuteActivity(ctx, inventoryMetricsManager.RecordLatency, siteID, "UpdateSiteConfigInventory", err != nil, workflow.Now(ctx).Sub(startTime)).Get(ctx, nil)
+	if serr != nil {
+		logger.Warn().Err(serr).Msg("failed to execute activity: RecordLatency")
+	}
+
+	logger.Info().Msg("completing workflow")
+
+	// Return original error from inventory activity, if any
+	return err
 }

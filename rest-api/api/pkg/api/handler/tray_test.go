@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -31,7 +32,9 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/uptrace/bun/extra/bundebug"
 	oteltrace "go.opentelemetry.io/otel/trace"
+	temporalEnums "go.temporal.io/api/enums/v1"
 	tmocks "go.temporal.io/sdk/mocks"
+	tp "go.temporal.io/sdk/temporal"
 )
 
 func testTrayInitDB(t *testing.T) *cdb.Session {
@@ -283,18 +286,8 @@ func TestGetTrayHandler_Handle(t *testing.T) {
 			mockTemporalClient := &tmocks.Client{}
 			mockWorkflowRun := &tmocks.WorkflowRun{}
 			mockWorkflowRun.On("GetID").Return("test-workflow-id")
-			if tt.mockComponent != nil {
-				mockWorkflowRun.Mock.On("Get", mock.Anything, mock.Anything).Run(func(args mock.Arguments) {
-					resp := args.Get(1).(*flowv1.GetComponentInfoResponse)
-					resp.Component = tt.mockComponent
-				}).Return(nil)
-			} else {
-				mockWorkflowRun.Mock.On("Get", mock.Anything, mock.Anything).Run(func(args mock.Arguments) {
-					resp := args.Get(1).(*flowv1.GetComponentInfoResponse)
-					resp.Component = nil
-				}).Return(nil)
-			}
-			mockTemporalClient.Mock.On("ExecuteWorkflow", mock.Anything, mock.Anything, "GetTray", mock.Anything).Return(mockWorkflowRun, nil)
+			testFlowProxyReply(t, mockWorkflowRun, &flowv1.GetComponentInfoResponse{Component: tt.mockComponent})
+			testFlowProxyDispatch(t, mockTemporalClient, mockWorkflowRun, flowv1.Flow_GetComponentInfoByID_FullMethodName, nil)
 			scp.IDClientMap[site.ID.String()] = mockTemporalClient
 
 			// Build query string
@@ -629,20 +622,15 @@ func TestGetAllTrayHandler_Handle(t *testing.T) {
 			mockWorkflowRun.On("GetID").Return("test-workflow-id")
 			// Always set up Get mock, even for error cases, as handler may still call it
 			if tt.mockResponse != nil {
-				mockWorkflowRun.Mock.On("Get", mock.Anything, mock.Anything).Run(func(args mock.Arguments) {
-					resp := args.Get(1).(*flowv1.GetComponentsResponse)
-					resp.Components = tt.mockResponse.Components
-					resp.Total = tt.mockResponse.Total
-				}).Return(nil)
+				testFlowProxyReply(t, mockWorkflowRun, &flowv1.GetComponentsResponse{
+					Components: tt.mockResponse.Components,
+					Total:      tt.mockResponse.Total,
+				})
 			} else {
-				// For error cases, set up a mock that returns empty response
-				mockWorkflowRun.Mock.On("Get", mock.Anything, mock.Anything).Run(func(args mock.Arguments) {
-					resp := args.Get(1).(*flowv1.GetComponentsResponse)
-					resp.Components = []*flowv1.Component{}
-					resp.Total = 0
-				}).Return(nil)
+				// For error cases, reply with an empty response
+				testFlowProxyReply(t, mockWorkflowRun, &flowv1.GetComponentsResponse{})
 			}
-			mockTemporalClient.Mock.On("ExecuteWorkflow", mock.Anything, mock.Anything, "GetTrays", mock.Anything, mock.Anything).Return(mockWorkflowRun, nil)
+			testFlowProxyDispatch(t, mockTemporalClient, mockWorkflowRun, flowv1.Flow_GetComponents_FullMethodName, nil)
 			scp.IDClientMap[site.ID.String()] = mockTemporalClient
 
 			// Build query string
@@ -844,23 +832,18 @@ func TestValidateTrayHandler_Handle(t *testing.T) {
 			mockWorkflowRun := &tmocks.WorkflowRun{}
 			mockWorkflowRun.On("GetID").Return("test-workflow-id")
 			if tt.mockResponse != nil {
-				mockWorkflowRun.Mock.On("Get", mock.Anything, mock.Anything).Run(func(args mock.Arguments) {
-					resp := args.Get(1).(*flowv1.ValidateComponentsResponse)
-					resp.Diffs = tt.mockResponse.Diffs
-					resp.TotalDiffs = tt.mockResponse.TotalDiffs
-					resp.MissingCount = tt.mockResponse.MissingCount
-					resp.UnexpectedCount = tt.mockResponse.UnexpectedCount
-					resp.MismatchCount = tt.mockResponse.MismatchCount
-					resp.MatchCount = tt.mockResponse.MatchCount
-				}).Return(nil)
+				testFlowProxyReply(t, mockWorkflowRun, &flowv1.ValidateComponentsResponse{
+					Diffs:           tt.mockResponse.Diffs,
+					TotalDiffs:      tt.mockResponse.TotalDiffs,
+					MissingCount:    tt.mockResponse.MissingCount,
+					UnexpectedCount: tt.mockResponse.UnexpectedCount,
+					MismatchCount:   tt.mockResponse.MismatchCount,
+					MatchCount:      tt.mockResponse.MatchCount,
+				})
 			} else {
-				mockWorkflowRun.Mock.On("Get", mock.Anything, mock.Anything).Run(func(args mock.Arguments) {
-					resp := args.Get(1).(*flowv1.ValidateComponentsResponse)
-					resp.Diffs = []*flowv1.ComponentDiff{}
-					resp.TotalDiffs = 0
-				}).Return(nil)
+				testFlowProxyReply(t, mockWorkflowRun, &flowv1.ValidateComponentsResponse{})
 			}
-			mockTemporalClient.Mock.On("ExecuteWorkflow", mock.Anything, mock.Anything, "ValidateRackComponents", mock.Anything).Return(mockWorkflowRun, nil)
+			testFlowProxyDispatch(t, mockTemporalClient, mockWorkflowRun, flowv1.Flow_ValidateComponents_FullMethodName, nil)
 			scp.IDClientMap[site.ID.String()] = mockTemporalClient
 
 			q := url.Values{}
@@ -1137,23 +1120,18 @@ func TestValidateTraysHandler_Handle(t *testing.T) {
 			mockWorkflowRun := &tmocks.WorkflowRun{}
 			mockWorkflowRun.On("GetID").Return("test-workflow-id")
 			if tt.mockResponse != nil {
-				mockWorkflowRun.Mock.On("Get", mock.Anything, mock.Anything).Run(func(args mock.Arguments) {
-					resp := args.Get(1).(*flowv1.ValidateComponentsResponse)
-					resp.Diffs = tt.mockResponse.Diffs
-					resp.TotalDiffs = tt.mockResponse.TotalDiffs
-					resp.MissingCount = tt.mockResponse.MissingCount
-					resp.UnexpectedCount = tt.mockResponse.UnexpectedCount
-					resp.MismatchCount = tt.mockResponse.MismatchCount
-					resp.MatchCount = tt.mockResponse.MatchCount
-				}).Return(nil)
+				testFlowProxyReply(t, mockWorkflowRun, &flowv1.ValidateComponentsResponse{
+					Diffs:           tt.mockResponse.Diffs,
+					TotalDiffs:      tt.mockResponse.TotalDiffs,
+					MissingCount:    tt.mockResponse.MissingCount,
+					UnexpectedCount: tt.mockResponse.UnexpectedCount,
+					MismatchCount:   tt.mockResponse.MismatchCount,
+					MatchCount:      tt.mockResponse.MatchCount,
+				})
 			} else {
-				mockWorkflowRun.Mock.On("Get", mock.Anything, mock.Anything).Run(func(args mock.Arguments) {
-					resp := args.Get(1).(*flowv1.ValidateComponentsResponse)
-					resp.Diffs = []*flowv1.ComponentDiff{}
-					resp.TotalDiffs = 0
-				}).Return(nil)
+				testFlowProxyReply(t, mockWorkflowRun, &flowv1.ValidateComponentsResponse{})
 			}
-			mockTemporalClient.Mock.On("ExecuteWorkflow", mock.Anything, mock.Anything, "ValidateRackComponents", mock.Anything).Return(mockWorkflowRun, nil)
+			testFlowProxyDispatch(t, mockTemporalClient, mockWorkflowRun, flowv1.Flow_ValidateComponents_FullMethodName, nil)
 			scp.IDClientMap[site.ID.String()] = mockTemporalClient
 
 			q := url.Values{}
@@ -1190,6 +1168,129 @@ func TestValidateTraysHandler_Handle(t *testing.T) {
 			assert.Equal(t, tt.mockResponse.TotalDiffs, apiResult.TotalDiffs)
 			assert.Equal(t, tt.mockResponse.MatchCount, apiResult.MatchCount)
 			assert.Equal(t, len(tt.mockResponse.Diffs), len(apiResult.Diffs))
+		})
+	}
+}
+
+// TestValidateTraysHandler_SlotFilter covers the slotId branch, which resolves
+// trays through a second Flow call before validating them. Flow has no by-slot
+// target shape, so this resolution is the only place a slot filter is applied,
+// and it also decides what the endpoint reports when the site does not answer.
+func TestValidateTraysHandler_SlotFilter(t *testing.T) {
+	e := echo.New()
+	dbSession := testTrayInitDB(t)
+	defer dbSession.Close()
+
+	cfg := common.GetTestConfig()
+	tcfg, _ := cfg.GetTemporalConfig()
+	scp := sc.NewClientPool(tcfg)
+
+	org := "test-org"
+	_, site, _ := testTraySetupTestData(t, dbSession, org)
+	providerUser := testTrayBuildUser(t, dbSession, "provider-user-validate-trays-slot", org, []string{authz.ProviderAdminRole})
+
+	handler := NewValidateTraysHandler(dbSession, nil, scp, cfg)
+	tracer := oteltrace.NewNoopTracerProvider().Tracer("test")
+
+	const wantedSlot = 3
+	matchedID := uuid.NewString()
+	componentAt := func(slotID int32, id string) *flowv1.Component {
+		return &flowv1.Component{
+			Position: &flowv1.RackPosition{SlotId: slotID},
+			Info:     &flowv1.DeviceInfo{Id: &flowv1.UUID{Id: id}},
+		}
+	}
+
+	tests := []struct {
+		name           string
+		components     []*flowv1.Component
+		resolveErr     error
+		expectedStatus int
+		expectedIDs    []string
+	}{
+		{
+			name:           "trays at the slot are validated by component id",
+			components:     []*flowv1.Component{componentAt(wantedSlot, matchedID), componentAt(7, uuid.NewString())},
+			expectedStatus: http.StatusOK,
+			expectedIDs:    []string{matchedID},
+		},
+		{
+			// Flow rejects an empty component target, so the handler answers
+			// without a validation call at all.
+			name:           "no tray at the slot short circuits to an empty result",
+			components:     []*flowv1.Component{componentAt(7, uuid.NewString())},
+			expectedStatus: http.StatusOK,
+		},
+		{
+			// The resolution runs inside the same request, so its timeout is
+			// the endpoint's timeout. Reporting 500 here would contradict both
+			// the 504 the spec declares and what the same endpoint answers when
+			// no slot filter is set.
+			name:           "a resolution timeout stays a gateway timeout",
+			resolveErr:     tp.NewTimeoutError(temporalEnums.TIMEOUT_TYPE_START_TO_CLOSE, nil),
+			expectedStatus: http.StatusGatewayTimeout,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			mockTemporalClient := &tmocks.Client{}
+
+			resolveRun := &tmocks.WorkflowRun{}
+			resolveRun.On("GetID").Return("test-workflow-id")
+			if tt.resolveErr != nil {
+				resolveRun.Mock.On("Get", mock.Anything, mock.Anything).Return(tt.resolveErr)
+			} else {
+				testFlowProxyReply(t, resolveRun, &flowv1.GetComponentsResponse{Components: tt.components})
+			}
+			testFlowProxyMethodDispatch(t, mockTemporalClient, resolveRun, flowv1.Flow_GetComponents_FullMethodName, nil)
+
+			validateRun := &tmocks.WorkflowRun{}
+			validateRun.On("GetID").Return("test-workflow-id")
+			testFlowProxyReply(t, validateRun, &flowv1.ValidateComponentsResponse{MatchCount: 1})
+			var validated flowv1.ValidateComponentsRequest
+			testFlowProxyMethodDispatch(t, mockTemporalClient, validateRun, flowv1.Flow_ValidateComponents_FullMethodName,
+				func(args mock.Arguments) { testFlowProxyRequest(t, args, &validated) })
+
+			scp.IDClientMap[site.ID.String()] = mockTemporalClient
+
+			q := url.Values{}
+			q.Set("siteId", site.ID.String())
+			q.Set("rackId", uuid.NewString())
+			q.Set("slotId", strconv.Itoa(wantedSlot))
+			path := fmt.Sprintf("/v2/org/%s/nico/tray/validation?%s", org, q.Encode())
+
+			req := httptest.NewRequest(http.MethodGet, path, nil)
+			req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+			rec := httptest.NewRecorder()
+
+			ec := e.NewContext(req, rec)
+			ec.SetParamNames("orgName")
+			ec.SetParamValues(org)
+			ec.Set("user", providerUser)
+			ec.SetRequest(ec.Request().WithContext(context.WithValue(context.Background(), otelecho.TracerKey, tracer)))
+
+			require.NoError(t, handler.Handle(ec))
+			require.Equal(t, tt.expectedStatus, rec.Code, "body=%s", rec.Body.String())
+			if tt.expectedStatus != http.StatusOK {
+				return
+			}
+
+			var apiResult model.APIRackValidationResult
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &apiResult))
+
+			if len(tt.expectedIDs) == 0 {
+				assert.Nil(t, validated.GetTargetSpec(), "validation ran despite no tray matching the slot")
+				assert.Zero(t, apiResult.MatchCount)
+				return
+			}
+
+			var gotIDs []string
+			for _, target := range validated.GetTargetSpec().GetComponents().GetTargets() {
+				gotIDs = append(gotIDs, target.GetId().GetId())
+			}
+			assert.Equal(t, tt.expectedIDs, gotIDs)
+			assert.Equal(t, int32(1), apiResult.MatchCount)
 		})
 	}
 }
@@ -1291,12 +1392,7 @@ func TestUpdateTrayPowerStateHandler_Handle(t *testing.T) {
 			mockTemporalClient := &tmocks.Client{}
 			mockWorkflowRun := &tmocks.WorkflowRun{}
 			mockWorkflowRun.On("GetID").Return("test-workflow-id")
-			mockWorkflowRun.Mock.On("Get", mock.Anything, mock.Anything).Run(func(args mock.Arguments) {
-				resp := args.Get(1).(*flowv1.SubmitTaskResponse)
-				if tt.mockTaskIDs != nil {
-					resp.TaskIds = tt.mockTaskIDs
-				}
-			}).Return(nil)
+			testFlowProxyReply(t, mockWorkflowRun, &flowv1.SubmitTaskResponse{TaskIds: tt.mockTaskIDs})
 			mockTemporalClient.Mock.On("ExecuteWorkflow", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(mockWorkflowRun, nil)
 			scp.IDClientMap[site.ID.String()] = mockTemporalClient
 
@@ -1407,12 +1503,7 @@ func TestBatchUpdateTrayPowerStateHandler_Handle(t *testing.T) {
 			mockTemporalClient := &tmocks.Client{}
 			mockWorkflowRun := &tmocks.WorkflowRun{}
 			mockWorkflowRun.On("GetID").Return("test-workflow-id")
-			mockWorkflowRun.Mock.On("Get", mock.Anything, mock.Anything).Run(func(args mock.Arguments) {
-				resp := args.Get(1).(*flowv1.SubmitTaskResponse)
-				if tt.mockTaskIDs != nil {
-					resp.TaskIds = tt.mockTaskIDs
-				}
-			}).Return(nil)
+			testFlowProxyReply(t, mockWorkflowRun, &flowv1.SubmitTaskResponse{TaskIds: tt.mockTaskIDs})
 			mockTemporalClient.Mock.On("ExecuteWorkflow", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(mockWorkflowRun, nil)
 			scp.IDClientMap[site.ID.String()] = mockTemporalClient
 
@@ -1529,12 +1620,7 @@ func TestUpdateTrayFirmwareHandler_Handle(t *testing.T) {
 			mockTemporalClient := &tmocks.Client{}
 			mockWorkflowRun := &tmocks.WorkflowRun{}
 			mockWorkflowRun.On("GetID").Return("test-workflow-id")
-			mockWorkflowRun.Mock.On("Get", mock.Anything, mock.Anything).Run(func(args mock.Arguments) {
-				resp := args.Get(1).(*flowv1.SubmitTaskResponse)
-				if tt.mockTaskIDs != nil {
-					resp.TaskIds = tt.mockTaskIDs
-				}
-			}).Return(nil)
+			testFlowProxyReply(t, mockWorkflowRun, &flowv1.SubmitTaskResponse{TaskIds: tt.mockTaskIDs})
 			mockTemporalClient.Mock.On("ExecuteWorkflow", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(mockWorkflowRun, nil)
 			scp.IDClientMap[site.ID.String()] = mockTemporalClient
 
@@ -1638,12 +1724,7 @@ func TestBatchUpdateTrayFirmwareHandler_Handle(t *testing.T) {
 			mockTemporalClient := &tmocks.Client{}
 			mockWorkflowRun := &tmocks.WorkflowRun{}
 			mockWorkflowRun.On("GetID").Return("test-workflow-id")
-			mockWorkflowRun.Mock.On("Get", mock.Anything, mock.Anything).Run(func(args mock.Arguments) {
-				resp := args.Get(1).(*flowv1.SubmitTaskResponse)
-				if tt.mockTaskIDs != nil {
-					resp.TaskIds = tt.mockTaskIDs
-				}
-			}).Return(nil)
+			testFlowProxyReply(t, mockWorkflowRun, &flowv1.SubmitTaskResponse{TaskIds: tt.mockTaskIDs})
 			mockTemporalClient.Mock.On("ExecuteWorkflow", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(mockWorkflowRun, nil)
 			scp.IDClientMap[site.ID.String()] = mockTemporalClient
 

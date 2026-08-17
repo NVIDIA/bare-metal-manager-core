@@ -68,7 +68,7 @@ fn collect_explicit_paths(
     }
 }
 
-fn source_label(metadata: &figment::Metadata) -> String {
+pub(super) fn source_label(metadata: &figment::Metadata) -> String {
     match metadata.source.as_ref() {
         Some(figment::Source::File(path)) => path
             .file_name()

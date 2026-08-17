@@ -107,6 +107,30 @@ impl TryFrom<rpc::InstanceInterfaceStatusObservation> for InstanceInterfaceStatu
             })
             .try_collect()?;
 
+        let gateways = observation
+            .gateways
+            .iter()
+            .map(|gateway| {
+                IpNetwork::try_from(gateway.as_str())
+                    .map_err(|_| Self::Error::InvalidCidr(gateway.to_string()))
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        let mut seen_ipv4 = false;
+        let mut seen_ipv6 = false;
+        for gateway in &gateways {
+            let seen = if gateway.is_ipv4() {
+                &mut seen_ipv4
+            } else {
+                &mut seen_ipv6
+            };
+            if *seen {
+                return Err(RpcDataConversionError::InvalidArgument(
+                    "gateways must contain at most one entry per address family".to_string(),
+                ));
+            }
+            *seen = true;
+        }
+
         let internal_uuid = if let Some(internal_uuid) = &observation.internal_uuid {
             Some(internal_uuid.try_into().map_err(|_| {
                 RpcDataConversionError::InvalidUuid("internal_uuid", internal_uuid.to_string())
@@ -126,14 +150,7 @@ impl TryFrom<rpc::InstanceInterfaceStatusObservation> for InstanceInterfaceStatu
                         .map_err(|_| Self::Error::InvalidCidr(ip_network.to_string()))
                 })
                 .collect::<Result<Vec<IpNetwork>, Self::Error>>()?,
-            gateways: observation
-                .gateways
-                .iter()
-                .map(|gw| {
-                    IpNetwork::try_from(gw.as_str())
-                        .map_err(|_| Self::Error::InvalidCidr(gw.to_string()))
-                })
-                .collect::<Result<Vec<IpNetwork>, Self::Error>>()?,
+            gateways,
             mac_address: observation
                 .mac_address
                 .map(|addr| {
@@ -153,10 +170,53 @@ impl TryFrom<rpc::InstanceInterfaceStatusObservation> for InstanceInterfaceStatu
 
 #[cfg(test)]
 mod tests {
+    use carbide_test_support::Outcome::{Fails, Yields};
+    use carbide_test_support::scenarios;
     use carbide_uuid::vpc::{VpcId, VpcPrefixId};
     use model::instance::config::network::InstanceInterfaceResolvedVpcPrefixes;
 
     use super::*;
+
+    fn status_observation_with_gateways(
+        gateways: Vec<&str>,
+    ) -> rpc::InstanceInterfaceStatusObservation {
+        rpc::InstanceInterfaceStatusObservation {
+            function_type: rpc::InterfaceFunctionType::Physical as i32,
+            gateways: gateways.into_iter().map(str::to_string).collect(),
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn status_observation_allows_at_most_one_gateway_per_family() {
+        scenarios!(
+            run = |gateways| {
+                InstanceInterfaceStatusObservation::try_from(
+                    status_observation_with_gateways(gateways),
+                )
+                .map(|_| ())
+                .map_err(drop)
+            };
+            "no gateways" {
+                vec![] => Yields(()),
+            }
+            "one IPv4 gateway" {
+                vec!["192.0.2.1/24"] => Yields(()),
+            }
+            "one IPv6 gateway" {
+                vec!["2001:db8::1/64"] => Yields(()),
+            }
+            "one gateway per family" {
+                vec!["192.0.2.1/24", "2001:db8::1/64"] => Yields(()),
+            }
+            "duplicate IPv4 gateways" {
+                vec!["192.0.2.1/24", "198.51.100.1/24"] => Fails,
+            }
+            "duplicate IPv6 gateways" {
+                vec!["2001:db8::1/64", "2001:db8:1::1/64"] => Fails,
+            }
+        );
+    }
 
     /// Status conversion keeps both family-keyed prefix IDs for a resolved
     /// dual-stack interface in its single logical VPC.

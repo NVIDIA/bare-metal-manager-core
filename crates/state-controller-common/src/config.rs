@@ -22,6 +22,7 @@ use state_controller::config::IterationConfig;
 
 /// Common StateController configurations
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
 pub struct StateControllerConfig {
     /// Configures the desired duration for one state controller iteration
     ///

@@ -37,7 +37,7 @@ use rpc::forge::forge_server::Forge;
 use tonic::{Code, Request};
 
 use crate::test_support::builder::TestApiBuilder;
-use crate::test_support::fixture_config::FixtureDefault;
+use crate::test_support::fixture_config::{FixtureDefault, ManagedHostConfigExt as _};
 use crate::tests::common;
 use crate::tests::common::api_fixtures::instance::{
     default_os_config, default_tenant_config, single_interface_network_config,
@@ -110,19 +110,22 @@ async fn allocated_host_for_secure_discovery(
             dpu_extension_services: None,
             nvlink: None,
             spxconfig: None,
+            power_profile: None,
         })
         .build()
         .await;
 
     let mut txn = env.pool.begin().await.unwrap();
-    let instance_address = db::instance_address::find_by_instance_id_and_segment_id(
+    let instance_addresses = db::instance_address::find_all_by_instance_id_and_segment_id(
         txn.as_mut(),
         &instance.id,
         &segment_id,
     )
     .await
-    .unwrap()
-    .expect("allocated instance must have a tenant address");
+    .unwrap();
+    let [instance_address] = instance_addresses.as_slice() else {
+        panic!("allocated instance must have one tenant address")
+    };
     let interfaces =
         db::machine_interface::find_by_machine_ids(txn.as_mut(), &[managed_host.host().id])
             .await
@@ -636,6 +639,162 @@ async fn test_secure_discovery_from_instance_address_rejects_missing_or_foreign_
             managed_host.host().id,
         );
     }
+
+    Ok(())
+}
+
+/// A caller-provided interface cannot disambiguate an overlay address shared
+/// by separate instances. Secure discovery must reject the request before it
+/// uses either host's identity.
+#[crate::sqlx_test]
+async fn test_secure_discovery_rejects_duplicate_overlay_address_owners(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = create_test_env(pool).await;
+    let (managed_host, hardware_info, instance_ip, admin_interface_id) =
+        allocated_host_for_secure_discovery(&env).await;
+
+    let mut txn = env.pool.begin().await?;
+    let other_owner = common::overlay_address::seed_overlay_address_owner(
+        txn.as_mut(),
+        "secure-discovery-other-owner",
+        instance_ip,
+    )
+    .await;
+    txn.commit().await?;
+
+    let status = secure_api_for(&env)
+        .discover_machine(discovery_request_from(
+            &hardware_info,
+            Some(admin_interface_id),
+            instance_ip,
+        ))
+        .await
+        .expect_err("secure discovery should reject a duplicate overlay address");
+    assert_eq!(status.code(), Code::PermissionDenied);
+    assert!(
+        !status
+            .message()
+            .contains(&managed_host.host().id.to_string())
+            && !status
+                .message()
+                .contains(&other_owner.instance_id.to_string()),
+        "discovery ambiguity must not identify either candidate owner"
+    );
+
+    Ok(())
+}
+
+/// A globally unique underlay address cannot override an unrelated tenant
+/// allocation with the same numeric IP during secure discovery.
+#[crate::sqlx_test]
+async fn test_secure_discovery_rejects_unrelated_underlay_and_overlay_owners(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = create_test_env(pool).await;
+    let (managed_host, hardware_info, _, admin_interface_id) =
+        allocated_host_for_secure_discovery(&env).await;
+
+    let mut txn = env.pool.begin().await?;
+    let admin_interface = db::machine_interface::find_one(txn.as_mut(), admin_interface_id).await?;
+    let admin_ip = admin_interface
+        .addresses
+        .first()
+        .copied()
+        .expect("the managed host admin interface should have an address");
+    let other_owner = common::overlay_address::seed_overlay_address_owner(
+        txn.as_mut(),
+        "secure-discovery-underlay-collision",
+        admin_ip,
+    )
+    .await;
+    txn.commit().await?;
+
+    let status = secure_api_for(&env)
+        .discover_machine(discovery_request_from(
+            &hardware_info,
+            Some(admin_interface_id),
+            admin_ip,
+        ))
+        .await
+        .expect_err("secure discovery should reject unrelated underlay and overlay owners");
+    assert_eq!(status.code(), Code::PermissionDenied);
+    assert!(
+        !status
+            .message()
+            .contains(&managed_host.host().id.to_string())
+            && !status
+                .message()
+                .contains(&other_owner.instance_id.to_string()),
+        "discovery ambiguity must not identify either candidate owner"
+    );
+
+    Ok(())
+}
+
+/// A zero-DPU HostInband address is intentionally present in both address
+/// tables. Secure discovery should accept that exact shared representation
+/// without requiring a caller-provided interface ID.
+#[crate::sqlx_test]
+async fn test_secure_discovery_accepts_zero_dpu_host_inband_owner(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = common::api_fixtures::create_test_env_with_host_inband(pool).await;
+    let vpc_id = common::api_fixtures::network_segment::create_default_flat_vpc(
+        &env.api,
+        "secure-discovery-zero-dpu",
+    )
+    .await;
+    env.run_network_segment_controller_iteration().await;
+    env.run_network_segment_controller_iteration().await;
+
+    let host_config = model::test_support::ManagedHostConfig::zero_dpu();
+    let hardware_info = HardwareInfo::from(&host_config);
+    let managed_host = create_managed_host_with_config(&env, host_config).await;
+    let instance = managed_host
+        .instance_builer(&env)
+        .tenant_org(crate::test_support::network_segment::FIXTURE_TENANT_ORG_ID)
+        .network(rpc::InstanceNetworkConfig {
+            interfaces: vec![],
+            #[allow(deprecated)]
+            auto: true,
+            auto_config: Some(rpc::forge::InstanceNetworkAutoConfig {
+                vpc_id: Some(vpc_id),
+            }),
+        })
+        .build()
+        .await;
+
+    let mut txn = env.pool.begin().await?;
+    let interfaces =
+        db::machine_interface::find_by_machine_ids(txn.as_mut(), &[managed_host.host().id]).await?;
+    let host_inband_interface = interfaces[&managed_host.host().id]
+        .iter()
+        .find(|interface| {
+            interface.network_segment_type
+                == Some(model::network_segment::NetworkSegmentType::HostInband)
+        })
+        .expect("zero-DPU host should have a HostInband interface");
+    let host_ip = host_inband_interface
+        .addresses
+        .first()
+        .copied()
+        .expect("HostInband interface should have an address");
+    let owners = db::instance_address::find_all_by_address(txn.as_mut(), host_ip).await?;
+    let [owner] = owners.as_slice() else {
+        panic!("HostInband address should have one overlay owner")
+    };
+    assert_eq!(owner.instance_id, instance.id);
+    assert_eq!(owner.segment_id, host_inband_interface.segment_id);
+    let expected_interface_id = host_inband_interface.id;
+    txn.rollback().await?;
+
+    let response = secure_api_for(&env)
+        .discover_machine(discovery_request_from(&hardware_info, None, host_ip))
+        .await?
+        .into_inner();
+    assert_eq!(response.machine_id, Some(managed_host.host().id));
+    assert_eq!(response.machine_interface_id, Some(expected_interface_id));
 
     Ok(())
 }

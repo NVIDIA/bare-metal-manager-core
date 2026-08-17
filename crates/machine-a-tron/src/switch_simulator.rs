@@ -163,6 +163,8 @@ impl SwitchActor {
             switch_serial_number: persisted.switch_serial_number.clone(),
             hw_mac_addr_pool,
             delta_psu_power: None,
+            initial_host_firmware: None,
+            desired_host_firmware: None,
         };
         let (fsm, actions) = SwitchFsm::init(true);
         Self {
@@ -571,6 +573,7 @@ impl SwitchHandle {
                 base: self.0.host_info.hw_mac_addr_pool.base(),
                 host_bits: self.0.host_info.hw_mac_addr_pool.host_bits(),
             }),
+            active_host_firmware: None,
         }
     }
 

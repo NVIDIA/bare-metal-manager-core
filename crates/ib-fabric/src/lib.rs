@@ -246,7 +246,7 @@ impl IbFabricMonitor {
             Err(e) => {
                 tracing::error!(error = %e, "Failed to load ManagedHost snapshots in IbFabricMonitor");
                 // Record the same error for all fabrics, so that the problem is at least visible on dashboards
-                for (fabric, _fabric_definition) in self.fabrics.iter() {
+                for fabric in self.fabrics.keys() {
                     metrics.num_fabrics += 1;
                     let fabric_metrics = metrics.fabrics.entry(fabric.to_string()).or_default();
                     fabric_metrics.fabric_error = "ManagedHostSnapshotLoadingError".to_string();
@@ -260,7 +260,7 @@ impl IbFabricMonitor {
             Err(e) => {
                 tracing::error!(error = %e, "Failed to load Partition data in IbFabricMonitor");
                 // Record the same error for all fabrics, so that the problem is at least visible on dashboards
-                for (fabric, _fabric_definition) in self.fabrics.iter() {
+                for fabric in self.fabrics.keys() {
                     metrics.num_fabrics += 1;
                     let fabric_metrics = metrics.fabrics.entry(fabric.to_string()).or_default();
                     fabric_metrics.fabric_error = "ManagedHostSnapshotLoadingError".to_string();

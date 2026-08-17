@@ -96,6 +96,7 @@ async fn create_stretchable_segment_for_svi_test_with_vpc_type(
             network_security_group_id: None,
             routing_profile_type: None,
             routing_profile_overrides: None,
+            power_resource_group: None,
             vni: None,
         },
         VpcStatus { vni: None },
@@ -117,6 +118,7 @@ async fn create_stretchable_segment_for_svi_test_with_vpc_type(
             segment_type: NetworkSegmentType::Admin,
             can_stretch: Some(true),
             allocation_strategy: Default::default(),
+            infer_slaac_eui64_addresses: false,
         },
         txn.as_mut(),
         NetworkSegmentControllerState::Ready,
@@ -179,6 +181,7 @@ async fn test_advance_network_prefix_state(
             vni: None,
             can_stretch: None,
             allocation_strategy: Default::default(),
+            infer_slaac_eui64_addresses: false,
         },
         &mut txn,
         NetworkSegmentControllerState::Provisioning,
@@ -289,6 +292,7 @@ async fn test_overlapping_prefix(pool: sqlx::PgPool) -> Result<(), eyre::Report>
         subdomain_id: None,
         vpc_id: None,
         segment_type: rpc::forge::NetworkSegmentType::Tenant as i32,
+        infer_slaac_eui64_addresses: false,
     };
     match env.api.create_network_segment(Request::new(request)).await {
         Ok(_) => Err(eyre::eyre!(
@@ -580,6 +584,7 @@ pub(in crate::tests) async fn test_create_initial_networks(
                 mtu: 9000,
                 reserve_first: 5,
                 allocation_strategy: Default::default(),
+                infer_slaac_eui64_addresses: false,
                 vpc_name: None,
             },
         ),
@@ -594,6 +599,7 @@ pub(in crate::tests) async fn test_create_initial_networks(
                 mtu: 1500,
                 reserve_first: 5,
                 allocation_strategy: Default::default(),
+                infer_slaac_eui64_addresses: false,
                 vpc_name: None,
             },
         ),
@@ -608,6 +614,7 @@ pub(in crate::tests) async fn test_create_initial_networks(
                 mtu: 1500,
                 reserve_first: 1,
                 allocation_strategy: Default::default(),
+                infer_slaac_eui64_addresses: false,
                 vpc_name: None,
             },
         ),
@@ -689,6 +696,7 @@ pub(in crate::tests) async fn test_create_initial_networks(
             mtu: 1500,
             reserve_first: 5,
             allocation_strategy: Default::default(),
+            infer_slaac_eui64_addresses: false,
             vpc_name: None,
         },
     );
@@ -714,6 +722,7 @@ fn initial_underlay_definition(prefix: &str, gateway: &str) -> NetworkDefinition
         mtu: 1500,
         reserve_first: 5,
         allocation_strategy: Default::default(),
+        infer_slaac_eui64_addresses: false,
         vpc_name: None,
     }
 }
@@ -866,6 +875,7 @@ pub(in crate::tests) async fn test_create_initial_vpc_and_attached_network(
             mtu: 1500,
             reserve_first: 1,
             allocation_strategy: Default::default(),
+            infer_slaac_eui64_addresses: false,
             vpc_name: Some("zero-dpu-vpc".to_string()),
         },
     )]);
@@ -1136,6 +1146,7 @@ pub(in crate::tests) async fn test_create_initial_network_fails_for_missing_vpc_
             mtu: 1500,
             reserve_first: 1,
             allocation_strategy: Default::default(),
+            infer_slaac_eui64_addresses: false,
             vpc_name: Some("missing-vpc".to_string()),
         },
     )]);
@@ -1237,6 +1248,7 @@ async fn test_31_prefix_not_allowed(pool: sqlx::PgPool) -> Result<(), eyre::Repo
         subdomain_id: None,
         vpc_id: None,
         segment_type: rpc::forge::NetworkSegmentType::Tenant as i32,
+        infer_slaac_eui64_addresses: false,
     };
 
     for prefix in &[31, 32] {
@@ -1942,6 +1954,7 @@ async fn test_create_network_segment_with_ipv6_prefix(
         subdomain_id: None,
         vpc_id: None,
         segment_type: rpc::forge::NetworkSegmentType::Admin as i32,
+        infer_slaac_eui64_addresses: true,
     };
 
     let response = env
@@ -1954,6 +1967,12 @@ async fn test_create_network_segment_with_ipv6_prefix(
     assert_eq!(response.prefixes.len(), 1);
     assert_eq!(response.prefixes[0].prefix, "2001:db8::/64");
     assert!(response.prefixes[0].gateway.is_none());
+    assert!(
+        response
+            .config
+            .as_ref()
+            .is_some_and(|config| config.infer_slaac_eui64_addresses)
+    );
 
     Ok(())
 }
@@ -2019,6 +2038,7 @@ async fn test_create_dual_stack_tenant_segment(pool: sqlx::PgPool) -> Result<(),
         subdomain_id: None,
         vpc_id: vpc.id,
         segment_type: rpc::forge::NetworkSegmentType::Tenant as i32,
+        infer_slaac_eui64_addresses: false,
     };
 
     let response = env
@@ -2098,6 +2118,7 @@ async fn test_ipv6_tenant_prefix_rejected_when_not_in_site_fabric(
         subdomain_id: None,
         vpc_id: vpc.id,
         segment_type: rpc::forge::NetworkSegmentType::Tenant as i32,
+        infer_slaac_eui64_addresses: false,
     };
 
     let result = env.api.create_network_segment(Request::new(request)).await;
@@ -2271,6 +2292,7 @@ async fn flat_vpc_accepts_host_inband_segment(
         subdomain_id: None,
         vpc_id: vpc.id,
         segment_type: rpc::forge::NetworkSegmentType::HostInband as i32,
+        infer_slaac_eui64_addresses: false,
     };
 
     let created = env
@@ -2324,6 +2346,7 @@ async fn flat_vpc_rejects_tenant_segment(
         subdomain_id: None,
         vpc_id: vpc.id,
         segment_type: rpc::forge::NetworkSegmentType::Tenant as i32,
+        infer_slaac_eui64_addresses: false,
     };
 
     let err = env
@@ -2378,6 +2401,7 @@ async fn etv_vpc_rejects_host_inband_segment(
         subdomain_id: None,
         vpc_id: vpc.id,
         segment_type: rpc::forge::NetworkSegmentType::HostInband as i32,
+        infer_slaac_eui64_addresses: false,
     };
 
     let err = env
@@ -2570,6 +2594,7 @@ async fn create_unattached_segment(
             subdomain_id: None,
             vpc_id: None,
             segment_type: segment_type as i32,
+            infer_slaac_eui64_addresses: false,
         }))
         .await
         .map(|response| response.into_inner())

@@ -139,6 +139,7 @@ impl Default for InitDpfResourcesConfig {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct DpfProxyDetails {
     pub https_proxy: String,
     #[serde(default)]
