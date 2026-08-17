@@ -15,6 +15,12 @@ nico-api:
       memory: "1Gi"
   webAuth:
     mode: "none"
+  # DevSpace does not deploy rack-manager. Do not render RMS-backed services
+  # into nico-api's configuration when their backend is absent.
+  componentManager:
+    enabled: false
+  rms:
+    enabled: false
   siteConfig:
     enabled: true
     nicoApiSiteConfig: |

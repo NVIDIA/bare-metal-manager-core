@@ -30,6 +30,10 @@ nico-api:
       value: "1"
   webAuth:
     mode: none
+  componentManager:
+    enabled: false
+  rms:
+    enabled: false
   siteConfig:
     enabled: true
     nicoApiSiteConfig: |
