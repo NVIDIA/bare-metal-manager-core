@@ -193,10 +193,11 @@ fn check_expected_peer_established(
     let Some(peer_state) = peer.state.as_ref() else {
         return Err(format!("state field for {peer_name} peer is not present"));
     };
+    let expected_state = BgpPeerState::Established;
     match peer_state {
         BgpPeerState::Established => Ok(()),
         state => Err(format!(
-            "BGP session {peer_name} is not Established, but in state {state:?}"
+            "BGP session {peer_name} is not {expected_state}, but in state {state}"
         )),
     }
 }
@@ -310,7 +311,7 @@ mod tests {
                     min_healthy_links: 2,
                     expected_alerts: vec![tor_alert(
                         "p0_if",
-                        "BGP session p0_if is not Established, but in state Idle",
+                        "BGP session p0_if is not established, but in state idle",
                         true,
                     )],
                 },
@@ -327,7 +328,7 @@ mod tests {
                     min_healthy_links: 2,
                     expected_alerts: vec![tor_alert(
                         "p0_if",
-                        "BGP session p0_if is not Established, but in state Active",
+                        "BGP session p0_if is not established, but in state active",
                         true,
                     )],
                 },

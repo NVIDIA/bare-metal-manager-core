@@ -160,6 +160,27 @@ pub enum BgpPeerState {
     Deleted,
 }
 
+impl BgpPeerState {
+    const fn as_str(&self) -> &'static str {
+        match self {
+            Self::Idle => "idle",
+            Self::Connect => "connect",
+            Self::Active => "active",
+            Self::OpenSent => "opensent",
+            Self::OpenConfirm => "openconfirm",
+            Self::Established => "established",
+            Self::Clearing => "clearing",
+            Self::Deleted => "deleted",
+        }
+    }
+}
+
+impl std::fmt::Display for BgpPeerState {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -312,7 +333,9 @@ mod tests {
                 serde_json::from_str(&format!(r#"{{ "state": "{}" }}"#, case.raw))
                     .expect("peer should deserialize");
 
-            assert_eq!(peer.state, Some(case.expected));
+            let state = peer.state.expect("state should deserialize");
+            assert_eq!(state, case.expected);
+            assert_eq!(state.to_string(), case.raw);
         }
     }
 
